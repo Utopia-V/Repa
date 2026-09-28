@@ -41,7 +41,9 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 
 项目具体写法分别由[文档规范](../../.agents/skills/repa-docs-style/SKILL.md)、[测试规范](../../.agents/skills/repa-test-style/SKILL.md)和[代码规范](../../.agents/skills/repa-code-style/SKILL.md)持有；这些文件也供开发者直接阅读，适用入口由根目录 `AGENTS.md` 统一登记。
 
-模块任务及其依赖关系见[实施入口 #5](https://github.com/Utopia-V/repa/issues/5)。[插件宿主 #20](https://github.com/Utopia-V/repa/issues/20)尚待实现，范围是通用调用与按需生命周期接入；算法、数据库实体和迁移由插件负责，适用的存储辅助库可作为可选依赖共享。数据责任见[ADR 0003](../adr/0003-share-file-based-content-operations.md#能力数据与数据库)。
+模块任务及其接入顺序见[实施入口 #5](https://github.com/Utopia-V/repa/issues/5)。任务中的完整联调依赖不要求整项串行等待：Pi 输入投递可沿用现有模型配置接入，本地检索和材料提取可先实现，普通 Pi 工具、Skill 和提示包沿用现有加载入口。具体 SDK 能力、当前接法与产品差异见[Agent 接入](agent-runtime.md#sdk-能力与接入范围)。
+
+[插件宿主 #20](https://github.com/Utopia-V/repa/issues/20)补充跨 Agent/前端的通用调用与按需生命周期接入；算法、数据库实体和迁移由插件负责，适用的存储辅助库可作为可选依赖共享。长时后台处理再接 #19 的持久请求，配置选择与 #18 对齐，基础短操作不为等待整套宿主而重建运行机制。数据责任见[ADR 0003](../adr/0003-share-file-based-content-operations.md#能力数据与数据库)。
 
 ## 从哪里开始
 

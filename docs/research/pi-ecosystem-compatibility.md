@@ -151,7 +151,19 @@ Codex 对比基准为固定提交 [`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`](h
 
 对 0.87.1 的公开 `createEditToolDefinition` 使用内存 I/O 核验，未写入实际内容文件：将 `公式 x²；标记：ＡＢＣ` 中的 `ABC` 替换为 `DEF`，实际得到 `公式 x2;标记:DEF`，下一行未参与编辑的字符保持不变；混合 CRLF/LF 文本编辑中间行后，其他行的换行仍可能统一。第 10 节记录的差异继续成立。Repa 保留定位与写回分离的实现，具体理由及其可重新评估部分见 [ADR 0003](../adr/0003-share-file-based-content-operations.md#编辑与保存)。
 
-后续模型连接、steer、命令和包接入继续优先使用 `ModelRuntime`、`AgentSession.steer/followUp`、`BashOperations.exec`、工具工厂与资源加载器。持久业务队列、空间授权、内容保存及前端组件的职责仍需由相应 Repa 模块持有。Pi 的实验性 client/plugin/server 在该发布版中仍是源码专用入口，不作为当前发布 SDK 的稳定应用协议替代品。
+### 通用 Agent 原语与应用边界
+
+以下为 0.87.1 发布包的公开导出、类型与实现核验；新增接入仍需在对应功能实现时验证实际路径。
+
+- [AgentSession](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/agent-session.ts) 已有 `steer()`、`followUp()`、带图片的 `prompt()` / `sendUserMessage()`、队列查询与清除、工具启停、模型和思维强度选择。`abort()` 与 `waitForIdle()` 处理实际空闲边界，包含运行后续处理；上层不以一次流结束代替整个工作完成。
+- [ModelRuntime](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/model-runtime.ts) 提供模型发现、认证检查、登录注销及带认证的 `stream()` / `complete()`，可直接处理明确输入而不创建会话。`AuthStorage` 及其存储后端已不再公开导出，见[变更记录](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/CHANGELOG.md)；需要其他凭据存储时使用 pi-ai 的 `CredentialStore`。具名连接身份及多连接选择仍由 Repa 持有。
+- [命令工具](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/tools/bash.ts) 的 `BashOperations.exec` 接收工作目录、输出回调、取消信号、超时与环境，可将实际执行交给沙箱适配器；工具工厂继续承担参数、输出截断和结果组织。Pi 的项目信任不构成命令隔离，具体限制由执行环境落实。
+- `grep`、`find`、`ls` 提供基本文件检索，但可替换接口的覆盖范围需逐个核对。例如 [grep](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/tools/grep.ts) 的 operations 只替换目录判断和上下文读取，检索仍自行启动 `rg`。只替换读文件回调不足以证明整个搜索处于 Repa 授权范围内；内容身份、修订、材料表示和会话搜索也仍需对应能力接入。
+- [DefaultPackageManager](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/package-manager.ts) 提供安装、更新、移除、配置来源与资源解析。Agent 工具、Skill 和提示继续走现成加载器；Repa 只补共享后台/前端入口和按需生命周期。实验性 client/plugin/server 在该发布版中仍是源码专用入口，不作为当前发布 SDK 的稳定应用协议替代品。
+- [服务装配](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/agent-session-services.ts) 将 cwd 相关设置、模型与资源加载同会话创建分开，可评估用于收缩手工装配。[AgentSessionRuntime](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/agent-session-runtime.ts) 切换会话时先拆卸当前运行，不能直接代替 Repa 的多会话并行与独立查看语义。
+- Pi 的输入队列承担运行期间的投递，不提供 Repa 的请求身份、绑定配置、持久排队与进程恢复记录。`SessionManager` 仍推迟无助手消息会话的首次落盘；Repa 立即发布空会话身份的适配有继续保留的依据。
+
+当前应用接法与实施范围见 [Agent 开发说明](../development/agent-runtime.md#sdk-能力与接入范围)。
 
 ### 验证与维护范围
 

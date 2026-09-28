@@ -9,7 +9,26 @@
 3. Host 根据当前分支和压缩边界得到实际工作消息，比较最近完整语境快照。变化或缺失时，追加 `repa.learning-context` 自定义消息，然后交给 Pi 处理用户输入。
 4. 工具调用和后续模型轮沿用该运行的提示与入口语境。工具仍能读取当前文件；下一次独立运行才重新取得入口语境。
 
-当前应用输入仍是 `run.submit` 的文本请求；持久 steer、队列、结构化输入与显式失败任务接续按 Issue #16 后续接入。Host 的 `send(text, settings)` 接收本次已经确定的设置，不主动查询实时全局覆盖。
+当前应用输入仍是 `run.submit` 的文本请求，忙时返回 `busy`。Pi 已提供 steer、follow-up 和图片输入，Repa 的公开接口与 Host 尚未接通；带来源的结构化输入、持久排队与显式失败任务接续按 Issue #16/#19 接入。Host 的 `send(text, settings)` 接收本次已经确定的设置，不主动查询实时全局覆盖。
+
+## SDK 能力与接入范围
+
+以下依据锁定的 Pi 0.87.1。SDK 提供入口与 Repa 已经接通分别记录，实施任务只补对应差异；源码依据见[通用原语核验](../research/pi-ecosystem-compatibility.md#通用-agent-原语与应用边界)。
+
+| 能力 | SDK 入口与当前接法 | 后续 Repa 接入 |
+| --- | --- | --- |
+| 运行中补充、后续输入与图片 | `AgentSession.steer()`、`followUp()`、`prompt()` 的 `streamingBehavior` / `images`，以及 `sendUserMessage()`；当前 Host 只接普通文本 `prompt()` | #19 接公开输入、目标运行关联、资源来源与历史关联；基本投递可沿用现有模型配置先接通 |
+| 模型、认证与独立调用 | `ModelRuntime` 提供发现、认证、`complete()` / `stream()`；当前普通会话已使用它，具名连接界面尚未接通 | #18 增加连接身份、选择、配置来源与认证进度。凭据沿用 Pi 存储或 `CredentialStore`，不新增 provider 调用栈 |
+| 工具启用与运行选项 | `getAllTools()`、`setActiveToolsByName()`、`setModel()`、`setThinkingLevel()`；当前只接内容工具和已有配置 | #18/#19 在适用的运行边界应用选择；对外保留 Repa 的继承、受理时配置与授权语义 |
+| 历史、计量、压缩、重试与取消 | `SessionManager`、`getContextUsage()`、`compact()`、`abort()`、`waitForIdle()`；当前已复用历史、自动压缩、重试及取消收尾 | 补应用请求的持久状态和前端呈现；不另写历史树、计数器、工具循环或外层自动重试 |
+| 命令与基本文件检索 | `createBashToolDefinition()` / `BashOperations.exec`，以及 `grep`、`find`、`ls` 工厂；当前尚未启用 | #21 在实际执行边界接授权与沙箱；#22 接授权范围、内容身份及来源定位，优先复用已有搜索实现 |
+| Agent 资源与包 | `DefaultResourceLoader`、`DefaultPackageManager`、工具及扩展注册；当前已能加载可信 Pi 扩展、Skill 和提示 | #20 补跨 Agent/前端共享能力、组件入口与空间数据生命周期；普通 Pi 包无需等待整个共享宿主 |
+
+Pi 的运行中队列不替代 Repa 的受理记录。后者保存请求来源、绑定配置、资源保留与恢复所需状态，Pi 负责实际投递和 Agent 循环。带独立运行语义的后续请求在实际开始时准备背景；不能预先把全部持久队列交给 Pi 并假定配置切换、运行归属和重启恢复自然成立。
+
+`createAgentSessionServices()` 与 `createAgentSessionFromServices()` 可用于收拢设置、模型与资源加载的装配，替换现有手工装配前保留提示覆盖、信任和自定义内容工具入口。`AgentSessionRuntime` 围绕替换当前会话组织生命周期；Repa 的多会话协调仍需保证切换查看对象不停止其他运行，不能直接用它替换应用层。
+
+现有语境投影、内容工具与空会话持久化适配仍有具体用途：分别维持来源关闭和压缩后计量、共同保存语义，以及创建后立即可恢复的会话身份。SDK 承担相同行为时再移除这些适配。
 
 ## 配置与实际来源
 
