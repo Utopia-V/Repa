@@ -2,6 +2,8 @@
 
 `ContentStore` 是一个学习空间中正文、身份和内容关系的共同修改入口。前端通过应用协议调用，Agent 通过常规 `read`、`edit`、`write`、`apply_patch` 工具调用。两条路径都经过同一个实例和串行队列；模型不填写 `operationId`。
 
+这些接口对应三种不同意图：`edit` 根据当前内容中的明确片段做局部替换；`write` 用所观察版本保护整篇保存；`apply_patch` 让一组已经确定的文件变化共同保存。局部修改无需先读取全文，保存也不会自动启动 Agent。选择这些行为的原因、复用 Pi 的边界和维护代价见 [ADR 0003 的编辑与保存](../adr/0003-share-file-based-content-operations.md#编辑与保存)。
+
 ## 目标与版本
 
 普通文件通过 `ContentTarget.kind = "file"` 和空间内路径访问，读取不会自动登记身份。需要持续引用时，`content.associate` 建立 `ContentRef`，区分 `document` 与 `material`。`content.get` 返回解析后的身份、位置和可用状态；移动更新位置，已删除或解除关联的身份不会指向后来占用同一路径的新文件。

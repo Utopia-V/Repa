@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createSyntheticSourceInfo,
+  estimateTokens,
   formatSkillsForPrompt,
   SessionManager,
   type BuildSystemPromptOptions,
@@ -13,6 +14,7 @@ import {
   contextSnapshot,
   makeContextMessage,
   projectContext,
+  withModelContext,
 } from "../src/agent/context.js";
 import type { PromptSettings } from "../src/configuration/schema.js";
 import type { ContextView } from "../src/content/schema.js";
@@ -251,4 +253,48 @@ test("切分支只读取当前祖先，没有语境消息的分支与空历史�
   assert.deepEqual(contextSnapshot(projectedA[1]!), view("分支 A 背景"));
   manager.resetLeaf();
   assert.deepEqual(projectContext(manager.buildSessionContext().messages, manager, true), []);
+});
+
+test("模型投影保留消息来源并纳入 Pi 估算，来源开关不改写原始会话", () => {
+  const manager = SessionManager.inMemory();
+  const background = makeContextMessage(view("需要完整保留的背景".repeat(100)));
+  const id = appendContext(manager, view("需要完整保留的背景".repeat(100)));
+  const kept = appendUser(manager, "继续请求");
+  manager.appendCompaction("摘要", kept, 1000);
+  const raw = manager.buildSessionProjection();
+  const history = structuredClone(manager.getEntries());
+  let settings = { learningContext: true, fileChanges: "on-demand" as const };
+  const modelSession = withModelContext(manager, () => settings);
+  const projected = modelSession.buildSessionProjection();
+  assert.deepEqual(projected.entries.flatMap((entry) => entry.messages), projected.messages);
+  assert.equal(projected.entries[1]?.sourceEntry.id, id);
+  assert.equal(projected.messages.reduce((sum, message) => sum + estimateTokens(message), 0),
+    raw.messages.reduce((sum, message) => sum + estimateTokens(message), 0) + estimateTokens(background));
+  assert.deepEqual(modelSession.buildSessionContext().messages, projected.messages);
+  settings = { ...settings, learningContext: false };
+  assert.deepEqual(modelSession.buildSessionProjection().messages, raw.messages);
+  settings = { ...settings, learningContext: true };
+  assert.deepEqual(modelSession.buildSessionProjection(), projected);
+  assert.deepEqual(manager.getEntries(), history);
+  modelSession.appendMessage({ role: "user", content: "委托写入", timestamp: 2 });
+  assert.equal(manager.getLeafEntry()?.type, "message");
+  assert.equal(modelSession.getSessionId(), manager.getSessionId());
+});
+
+test("压缩后的回填尊重 Pi 上下文编辑，不复活已省略或替换的完整快照", () => {
+  const manager = SessionManager.inMemory();
+  const snapshot = makeContextMessage(view("背景原文"));
+  assert.equal(snapshot.role, "custom");
+  const id = appendContext(manager, view("背景原文"));
+  const kept = appendUser(manager, "保留请求");
+  manager.appendCompaction("摘要", kept, 1000);
+  const modelSession = withModelContext(manager, () => ({ learningContext: true, fileChanges: "on-demand" }));
+  const snapshots = () => modelSession.buildSessionProjection().messages.flatMap((message) => contextSnapshot(message) ?? []);
+  assert.equal(snapshots().length, 1);
+  manager.appendContextEdit(id, null);
+  assert.equal(snapshots().length, 0);
+  manager.appendContextEdit(id, { content: snapshot.content });
+  assert.equal(snapshots().length, 1);
+  manager.appendContextEdit(id, { content: "经过替换的局部内容" });
+  assert.equal(snapshots().length, 0);
 });

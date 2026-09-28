@@ -5,6 +5,7 @@ import {
   type BuildSystemPromptOptions,
   type ContextEvent,
   type SessionManager,
+  type SessionProjection,
 } from "@earendil-works/pi-coding-agent";
 import { Check } from "typebox/value";
 import type { PromptSettings } from "../configuration/schema.js";
@@ -84,6 +85,31 @@ export function contextSnapshot(message: WorkingMessage): ContextView | undefine
     : undefined;
 }
 
+function compactedSnapshot(manager: SessionManager) {
+  const contextEntries = manager.buildContextEntries();
+  const compaction = contextEntries[0];
+  if (compaction?.type !== "compaction") return undefined;
+
+  // 查询该压缩点的祖先，后续快照和其他分支不能改变边界时的背景。
+  const branch = manager.getBranch(compaction.id);
+  for (let index = branch.length - 2; index >= 0; index--) {
+    const sourceEntry = branch[index]!;
+    const snapshot = sessionEntryToContextMessages(sourceEntry).findLast(
+      (message) => contextSnapshot(message) !== undefined,
+    );
+    if (!snapshot || snapshot.role !== "custom") continue;
+    // Pi 的显式上下文编辑仍有效，不能从原始历史复活已排除或替换的背景。
+    const edit = manager.getBranch().findLast(
+      (item) => item.type === "context_edit" && item.targetId === sourceEntry.id,
+    );
+    if (edit?.type === "context_edit" &&
+        (edit.replacement === null || !isDeepStrictEqual(edit.replacement.content, snapshot.content))) return undefined;
+    if (contextEntries.some((kept) => kept.id === sourceEntry.id)) return undefined;
+    return { sourceEntry, snapshot, compaction };
+  }
+  return undefined;
+}
+
 /** 只投影模型工作视图；会话记录及其分支结构继续由 Pi 持有。 */
 export function projectContext(
   messages: WorkingMessage[],
@@ -96,35 +122,59 @@ export function projectContext(
         message.role !== "custom" || message.customType !== CONTEXT_MESSAGE_TYPE,
     );
   }
+  const restored = compactedSnapshot(manager);
+  if (!restored) return messages;
+  const { compaction, snapshot } = restored;
+  const summaryIndex = messages.findIndex(
+    (message) =>
+      message.role === "compactionSummary" &&
+      message.summary === compaction.summary &&
+      message.tokensBefore === compaction.tokensBefore &&
+      message.timestamp === Date.parse(compaction.timestamp),
+  );
+  if (summaryIndex < 0 || isDeepStrictEqual(messages[summaryIndex + 1], snapshot)) return messages;
+  return [...messages.slice(0, summaryIndex + 1), snapshot, ...messages.slice(summaryIndex + 1)];
+}
 
-  const contextEntries = manager.buildContextEntries();
-  const compaction = contextEntries[0];
-  if (compaction?.type !== "compaction") return messages;
-
-  // 查询该压缩点的祖先，后续快照和其他分支不能改变边界时的背景。
-  const branch = manager.getBranch(compaction.id);
-  for (let index = branch.length - 2; index >= 0; index--) {
-    const entry = branch[index]!;
-    const snapshot = sessionEntryToContextMessages(entry).findLast(
-      (message) => contextSnapshot(message) !== undefined,
-    );
-    if (!snapshot) continue;
-    if (contextEntries.some((kept) => kept.id === entry.id)) return messages;
-
-    const summaryIndex = messages.findIndex(
-      (message) =>
-        message.role === "compactionSummary" &&
-        message.summary === compaction.summary &&
-        message.tokensBefore === compaction.tokensBefore &&
-        message.timestamp === Date.parse(compaction.timestamp),
-    );
-    if (summaryIndex < 0) return messages;
-    if (isDeepStrictEqual(messages[summaryIndex + 1], snapshot)) return messages;
-    return [
-      ...messages.slice(0, summaryIndex + 1),
-      snapshot,
-      ...messages.slice(summaryIndex + 1),
-    ];
+/** 保持来源对应，使 Pi 的原有计量与请求投影消费同一份工作视图。 */
+export function projectSessionContext(
+  projection: SessionProjection,
+  manager: SessionManager,
+  settings: Pick<PromptSettings, "learningContext" | "fileChanges">,
+): SessionProjection {
+  const messages = projectContext(projection.messages, manager, settings.learningContext)
+    .filter((message) => settings.fileChanges !== "on-demand" ||
+      message.role !== "custom" || message.customType !== "repa.file-changes");
+  const selected = new Set(messages);
+  const entries = projection.entries.map((entry) => ({
+    ...entry, messages: entry.messages.filter((message) => selected.has(message)),
+  }));
+  const original = new Set(projection.messages);
+  const restored = messages.find((message) => !original.has(message));
+  if (restored) {
+    const sourceEntry = compactedSnapshot(manager)?.sourceEntry;
+    if (!sourceEntry) throw new Error("语境快照缺少会话来源。");
+    const boundary = entries.findIndex((entry) => entry.sourceEntry.type === "compaction" && entry.messages.length > 0);
+    entries.splice(boundary + 1, 0, { sourceEntry, messages: [restored] });
   }
-  return messages;
+  return { ...projection, entries, messages };
+}
+
+/** 只适配公开的模型投影查询；所有历史读写仍委托给原 SessionManager。 */
+export function withModelContext(
+  manager: SessionManager,
+  settings: () => Pick<PromptSettings, "learningContext" | "fileChanges">,
+): SessionManager {
+  const projection = () => projectSessionContext(manager.buildSessionProjection(), manager, settings());
+  return new Proxy(manager, {
+    get(target, property) {
+      if (property === "buildSessionProjection") return projection;
+      if (property === "buildSessionContext") return () => {
+        const { messages, thinkingLevel, model } = projection();
+        return { messages, thinkingLevel, model };
+      };
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }

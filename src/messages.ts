@@ -84,7 +84,8 @@ export function historyView(
   resources: Resources,
 ): Message[] {
   return entries.flatMap((entry) => {
-    if (entry.type === "message")
+    // Pi 的 system 条目记录提示和工具配置；公开交流历史由实际消息与运行配置解释。
+    if (entry.type === "message" && entry.message.role !== "system")
       return [messageView(entry.id, entry.message, resources)];
     if (entry.type === "custom_message")
       return [

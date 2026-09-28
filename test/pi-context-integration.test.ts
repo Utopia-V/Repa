@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, type Context } from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt, fauxAssistantMessage, fauxProvider, fauxToolCall, type TranscriptContext as Context } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { CONTEXT_MESSAGE_TYPE, contextSnapshot, type WorkingMessage } from "../src/agent/context.js";
 import type { PromptSettings } from "../src/configuration/schema.js";
 import { ContentStore } from "../src/content/store.js";
-import { Resources } from "../src/messages.js";
+import { historyView, Resources } from "../src/messages.js";
 import { PiConversationHost } from "../src/pi-host.js";
 
 const emptySettings: PromptSettings = {
@@ -29,11 +29,14 @@ function textOf(message: { content: unknown }): string {
       ? message.content.map((part) => typeof part.text === "string" ? part.text : "").join("\n")
       : "";
 }
+function conversation(context: Context) {
+  return context.messages.filter((message) => message.role !== "system");
+}
 function contextTexts(context: Context): string[] {
   return context.messages.map(textOf).filter((text) => text.includes("<repa_learning_context>"));
 }
 
-async function fixture(t: TestContext, options: { trusted?: boolean; background?: string; localSummary?: boolean } = {}) {
+async function fixture(t: TestContext, options: { trusted?: boolean; background?: string; localSummary?: boolean; legacy?: boolean } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-pi-context-"));
   const directory = path.join(root, "space");
   const agentDir = path.join(root, "agent");
@@ -102,7 +105,11 @@ export default function (pi) {
       binding: { kind: "document", ref }, base: (await content.context()).revision, operationId: randomUUID(),
     });
   }
-  const manager = SessionManager.inMemory(directory);
+  const legacyFile = path.join(root, "legacy.jsonl");
+  if (options.legacy) await copyFile(new URL("fixtures/pi-session-0.84.3.jsonl", import.meta.url), legacyFile);
+  const manager = options.legacy
+    ? SessionManager.open(legacyFile, root, directory)
+    : SessionManager.inMemory(directory);
   const faux = fauxProvider({
     api: `repa-pi-context-api-${randomUUID()}`,
     provider: `repa-pi-context-provider-${randomUUID()}`,
@@ -142,23 +149,23 @@ test("实际 Pi 调用接受空系统提示，可信扩展与工具后续轮不�
   const host = await f.openHost();
   f.faux.setResponses([
     (context) => {
-      assert.equal(context.systemPrompt, "");
+      assert.equal(getCurrentSystemPrompt(context.messages), "");
       assert.deepEqual(contextTexts(context), []);
       return fauxAssistantMessage(fauxToolCall("probe", {}));
     },
     (context) => {
-      assert.equal(context.systemPrompt, "");
+      assert.equal(getCurrentSystemPrompt(context.messages), "");
       assert.match(textOf(context.messages.at(-1)!), /PROBE_DONE/u);
       return fauxAssistantMessage("完成");
     },
     (context) => {
-      assert.equal(context.systemPrompt, "");
+      assert.equal(getCurrentSystemPrompt(context.messages), "");
       assert.match(textOf(context.messages.at(-1)!), /DIRECT_REQUEST/u);
       return fauxAssistantMessage("扩展命令完成");
     },
   ]);
-  assert.equal((await host.send("普通请求", emptySettings)).status, "completed");
-  assert.equal((await host.send("/direct-fixture", emptySettings)).status, "completed");
+  await send(host, "普通请求", emptySettings);
+  await send(host, "/direct-fixture", emptySettings);
   assert.equal(f.faux.state.callCount, 3);
   assert.equal(f.snapshots().length, 0);
 });
@@ -173,30 +180,30 @@ test("每次 send 固定提示与入口背景，内部工具轮沿用该视图�
   let firstPrompt = "";
   f.faux.setResponses([
     async (context) => {
-      firstPrompt = context.systemPrompt!;
+      firstPrompt = getCurrentSystemPrompt(context.messages)!;
       assert.match(firstPrompt, /RUN_BASE\n\n追加一\n\n追加二/u);
       assert.match(firstPrompt, /PROJECT_SOURCE/u);
       assert.match(firstPrompt, /fixture-skill/u);
       assert.match(firstPrompt, /Current working directory:/u);
       assert.doesNotMatch(firstPrompt, /EXTENSION_SYSTEM_OVERRIDE|HIDDEN_.*SOURCE/u);
-      assert.equal(context.messages[0]?.role, "user");
-      assert.match(textOf(context.messages[0]!), /入口背景一/u);
-      assert.equal(textOf(context.messages[1]!), "开始学习");
+      assert.equal(conversation(context)[0]?.role, "user");
+      assert.match(textOf(conversation(context)[0]!), /入口背景一/u);
+      assert.equal(textOf(conversation(context)[1]!), "开始学习");
       settings.base = "NEXT_RUN_BASE";
       settings.append.push("下一次追加");
       await writeFile(f.backgroundPath, "入口背景二");
       return fauxAssistantMessage(fauxToolCall("probe", {}));
     },
     (context) => {
-      assert.equal(context.systemPrompt, firstPrompt);
+      assert.equal(getCurrentSystemPrompt(context.messages), firstPrompt);
       assert.equal(contextTexts(context).length, 1);
       assert.match(contextTexts(context)[0]!, /入口背景一/u);
       assert.doesNotMatch(contextTexts(context)[0]!, /入口背景二/u);
       return fauxAssistantMessage("第一轮结束");
     },
     (context) => {
-      assert.match(context.systemPrompt!, /^NEXT_RUN_BASE/u);
-      assert.match(context.systemPrompt!, /下一次追加/u);
+      assert.match(getCurrentSystemPrompt(context.messages)!, /^NEXT_RUN_BASE/u);
+      assert.match(getCurrentSystemPrompt(context.messages)!, /下一次追加/u);
       assert.equal(contextTexts(context).length, 2);
       assert.match(contextTexts(context).at(-1)!, /入口背景二/u);
       return fauxAssistantMessage("第二轮结束");
@@ -256,14 +263,14 @@ test("真实 SDK 压缩后回填摘要后的完整语境，恢复 Host 与后续
     fauxAssistantMessage("早期回答".repeat(100)),
     fauxAssistantMessage("保留的回答"),
     (context) => {
-      assert.match(textOf(context.messages[0]!), /LOCAL_COMPACTION_SUMMARY/u);
-      assert.match(textOf(context.messages[1]!), /压缩后仍需保留的背景/u);
-      assert.equal(textOf(context.messages[2]!), "保留的请求");
+      assert.match(textOf(conversation(context)[0]!), /LOCAL_COMPACTION_SUMMARY/u);
+      assert.match(textOf(conversation(context)[1]!), /压缩后仍需保留的背景/u);
+      assert.equal(textOf(conversation(context)[2]!), "保留的请求");
       assert.equal(contextTexts(context).length, 1);
       return fauxAssistantMessage("压缩后继续完成");
     },
     (context) => {
-      assert.match(textOf(context.messages[1]!), /压缩后仍需保留的背景/u);
+      assert.match(textOf(conversation(context)[1]!), /压缩后仍需保留的背景/u);
       assert.equal(contextTexts(context).length, 1);
       return fauxAssistantMessage("恢复后完成");
     },
@@ -291,7 +298,7 @@ test("未受信任空间不加载项目来源；语境读取失败在进入 Pi �
   const settings = { ...learningSettings, projectInstructions: true, skillCatalog: true };
   f.faux.setResponses([
     (context) => {
-      assert.equal(context.systemPrompt, "RUN_BASE");
+      assert.equal(getCurrentSystemPrompt(context.messages), "RUN_BASE");
       assert.match(contextTexts(context)[0]!, /可恢复背景/u);
       return fauxAssistantMessage("正常回答");
     },
@@ -323,7 +330,7 @@ test("关闭学习语境后，Pi 默认摘要模型也不再接收可识别的�
       return fauxAssistantMessage("默认摘要完成");
     },
     (context) => {
-      assert.match(textOf(context.messages[0]!), /默认摘要完成/u);
+      assert.match(textOf(conversation(context)[0]!), /默认摘要完成/u);
       assert.deepEqual(contextTexts(context), []);
       return fauxAssistantMessage("关闭后继续完成");
     },
@@ -370,4 +377,28 @@ test("真实工具读取后的文件差异只在下一次模型调用提供，�
   }]);
   await send(host, "关闭变化提示", emptySettings);
   assert.equal(f.manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "repa.file-changes").length, 1);
+});
+
+test("0.84.3 会话在新 SDK 中接续，保留旧历史、压缩边界与背景来源", async (t) => {
+  const f = await fixture(t, { legacy: true, background: "新的空间背景" });
+  const oldEntries = structuredClone(f.manager.getEntries());
+  const original = await readFile(f.manager.getSessionFile()!, "utf8");
+  const host = await f.openHost();
+  f.faux.setResponses([(context) => {
+    assert.match(textOf(conversation(context)[0]!), /旧版会话摘要/u);
+    assert.match(contextTexts(context)[0]!, /旧版完整背景/u);
+    assert.match(contextTexts(context).at(-1)!, /新的空间背景/u);
+    assert.equal(textOf(context.messages.at(-1)!), "新版接续");
+    return fauxAssistantMessage("新版回答");
+  }]);
+  await send(host, "新版接续", learningSettings);
+  const systemIds = new Set(f.manager.getEntries().filter((entry) => entry.type === "message" && entry.message.role === "system").map((entry) => entry.id));
+  assert(systemIds.size > 0);
+  const visible = historyView(f.manager.getEntries(), new Resources(f.content.retention, "migration-test"));
+  assert(visible.every((message) => !systemIds.has(message.id)));
+  assert.deepEqual(f.manager.getEntries().slice(0, oldEntries.length), oldEntries);
+  assert((await readFile(f.manager.getSessionFile()!, "utf8")).startsWith(original));
+  await host.close();
+  const reopened = SessionManager.open(f.manager.getSessionFile()!, undefined, f.directory);
+  assert.deepEqual(reopened.getEntries(), f.manager.getEntries());
 });

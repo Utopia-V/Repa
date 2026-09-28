@@ -205,6 +205,10 @@ Repa 提供内容读写、引用与组成、数据和资源传递、动作调用
 
 ### 设计文件清单
 
+理解产品与架构时，从本页总览进入 [CONTEXT.md](CONTEXT.md) 和 ADR；ADR 解释行为的原因、代价与可替换的实现选择。开发接入从 [开发指南](docs/development/README.md) 进入，以当前代码和 schema 核对可用接口。技术调查按其固定版本提供证据，不自动代表当前实现。
+
+例如，理解局部编辑、保存基准和撤回为什么这样设计，可以先读 [编辑与保存的取舍](docs/adr/0003-share-file-based-content-operations.md#编辑与保存)，再看 [实际内容接口](docs/development/content.md)；理解 Pi 复用与升级后的接入方式，可以读 [Agent 开发说明](docs/development/agent-runtime.md) 和 [Pi 0.87.1 核验](docs/research/pi-ecosystem-compatibility.md#12-pi-0871-的接入与升级)。
+
 当前产品与架构设计保存在 7 份文件中，另有 1 份技术调查提供事实依据，完整清单如下。新增或调整设计文档时同步更新此表。
 
 | 文件 | 内容与责任 |

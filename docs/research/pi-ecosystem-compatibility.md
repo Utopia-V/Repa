@@ -1,6 +1,6 @@
 # Pi 生态对 Repa 的可复用性调查
 
-第 1–8 节的调查基准是 `earendil-works/pi` 的固定提交 [`8fa7eebd235355522c8104166b4f1f959b4e2f10`](https://github.com/earendil-works/pi/tree/8fa7eebd235355522c8104166b4f1f959b4e2f10)，相应 GitHub 链接均固定到该提交。第 9–11 节补充本仓库锁定依赖 `@earendil-works/pi-coding-agent@0.84.3` 的局部核验，第 10 节另以固定版本的 Codex 编辑实现作比较。本记录为 Pi 嵌入决策和后续 integration prototype 提供事实依据；升级相关依赖时，应重新核对其中受影响的结论。
+第 1–8 节的调查基准是 `earendil-works/pi` 的固定提交 [`8fa7eebd235355522c8104166b4f1f959b4e2f10`](https://github.com/earendil-works/pi/tree/8fa7eebd235355522c8104166b4f1f959b4e2f10)，相应 GitHub 链接均固定到该提交。第 9–11 节保留当时锁定版本 `@earendil-works/pi-coding-agent@0.84.3` 的局部核验，第 10 节另以固定版本的 Codex 编辑实现作比较。第 12 节记录当前 0.87.1 的接入与验证；当前代码责任见[开发说明](../development/agent-runtime.md)。各节结论按其版本解释，升级时核对受影响部分。
 
 ## 结论摘要
 
@@ -86,7 +86,7 @@ Pi 明确警告 package/extension 以完整系统权限运行，skill 也能指�
 
 ## 9. Pi 0.84.3 的包入口边界补充
 
-本节依据仓库锁定依赖的 `package-manager`、`resource-loader` 和 `extensions` 类型与实现，以及使用 `SettingsManager.inMemory()` 的本地包解析探针。核验范围是包发现、位置解析与资源过滤，没有安装网络包、创建 AgentSession 或调用模型。
+本节依据当时锁定的 0.84.3 发布包中 `package-manager`、`resource-loader` 和 `extensions` 的类型与实现，以及使用 `SettingsManager.inMemory()` 的本地包解析探针。核验范围是包发现、位置解析与资源过滤，没有安装网络包、创建 AgentSession 或调用模型。
 
 `PackageManager.listConfiguredPackages()` 与 `getInstalledPath()` 可以在没有 Agent 运行实例时取得已配置包及其位置，因此 Repa 可以复用包来源与定位，再读取各宿主所需的入口信息。Pi 的工具执行仍要求 `ExtensionContext`，其中包含会话管理、模型和会话 UI 等能力；Extension loader 创建的运行时动作在 runner 绑定前是抛错占位。这两种接口分别服务包管理和会话中的扩展执行，不能将任意 Pi 工具直接视为独立后台函数。
 
@@ -102,7 +102,7 @@ Pi 明确警告 package/extension 以完整系统权限运行，skill 也能指�
 
 ## 10. Pi 0.84.3 的工具与服务复用边界
 
-本节核对[仓库锁定依赖](../../package-lock.json)中该包的 `package.json`、`dist/index.d.ts` 及下列模块的类型和实现。编辑行为通过公开工具工厂与内存 I/O 复现，没有调用模型或写入实际内容文件。
+本节核对当时锁定的 0.84.3 发布包中的 `package.json`、`dist/index.d.ts` 及下列模块的类型和实现。编辑行为通过公开工具工厂与内存 I/O 复现，没有调用模型或写入实际内容文件。
 
 | 能力 | 已有入口与实现 | 接入时保留的 Repa 责任 |
 | --- | --- | --- |
@@ -126,9 +126,35 @@ Codex 对比基准为固定提交 [`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`](h
 
 ## 11. Pi 0.84.3 的提示装配入口与边界
 
-本节核对锁定依赖的 `dist/core/resource-loader.d.ts`、`system-prompt.js`、`agent-session.js`、`extensions/types.d.ts`、`extensions/runner.js` 与 `compaction/compaction.js`，属于类型与源码核验，未调用模型。
+本节核对 0.84.3 发布包的 `dist/core/resource-loader.d.ts`、`system-prompt.js`、`agent-session.js`、`extensions/types.d.ts`、`extensions/runner.js` 与 `compaction/compaction.js`，属于类型与源码核验，未调用模型。
 
 - `DefaultResourceLoader` 提供 `systemPrompt`、`appendSystemPrompt`、`noContextFiles`、`noSkills` 及相应资源覆盖入口。项目文件可以通过 `agentsFilesOverride` 选择，Skill、prompt 等资源沿用原有加载与过滤。
 - `buildSystemPrompt` 使用 `if (customPrompt)` 区分自定义与默认分支，所以空字符串不表示完全禁用。非空自定义提示后仍可能追加项目说明、Skill 清单和当前工作目录；只替换基础文本不能证明最终输入已经完全受控。
 - `before_agent_start` 接收已组装的系统提示和构造选项，并可返回替换后的 `systemPrompt`。runner 和 session 使用 `!== undefined` 判断该返回值，因此这个入口能表达显式空内容；多个扩展会链式处理，接入时仍需核对贡献顺序和最终结果。工具文字指导由 `promptSnippet`、`promptGuidelines` 等工具定义字段提供。
 - 默认压缩生成器将 `customInstructions` 追加到既有模板，内部另有摘要系统提示；它不等于完整模板替换。`session_before_compact` 可接管摘要结果，`session_before_tree` 提供摘要及指令替换入口。Repa 需要完全控制辅助调用的提示时，应在这些生命周期边界选择适配方式，继续复用准备数据、计量、记录与恢复机制。
+
+## 12. Pi 0.87.1 的接入与升级
+
+当前依赖锁定为 `@earendil-works/pi-coding-agent@0.87.1` 与 `pi-ai@0.87.1`，TypeBox 对齐为 1.3.27。本节依据发布包、[v0.87.1 源码](https://github.com/earendil-works/pi/tree/v0.87.1)、[changelog](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/CHANGELOG.md) 及仓库集成测试。
+
+### 提示与会话投影
+
+- provider 接收 `TranscriptContext`，系统提示与工具声明位于消息中。消费方使用 `getCurrentSystemPrompt()`、`getCurrentTools()` 解析，不能继续假定存在顶层 `context.systemPrompt` 与 `context.tools`。
+- `before_agent_start` 可以提供强制系统提示，`context_with_system` 对完整请求提供变换入口。Repa 采用这两处正式扩展事件，覆盖普通请求、工具后续轮以及扩展命令直接触发模型的路径；删除原有的 `prepareNextTurnWithContext`、`transformContext` 包装和 Agent 状态写入。接口见[扩展文档](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/docs/extensions.md#context_with_system)。
+- `SessionManager.buildSessionProjection()` 成为 SDK 请求与计量的权威来源。Repa 通过只适配投影查询的局部代理加入自己的来源过滤与压缩回填，同时保留每条消息的历史来源。单独使用发送前的 context hook 不会改变 SDK 更早进行的压缩判定；直接赋值 `agent.state.messages` 也不能控制下一次请求。依据为 [AgentSession](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/agent-session.ts) 的请求准备与阈值压缩，以及 [estimateProjectedContextTokens](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/compaction/compaction.ts)。
+- 新增的 `context_edit` 可以排除或替换消息对模型上下文的贡献。Repa 回填时尊重显式编辑，不修改原始交流历史。它不是学习语境的第二份权威存储。
+- 流式执行中的 `sendCustomMessage({ triggerTurn: false })` 会延后追加。Repa 的文件变化告知在模型请求前，通过公开会话追加与刷新接口保存并提供一次，不插入尚未配对的工具调用和结果之间。
+
+### 工具复用与保留差异
+
+`read` 继续复用 Pi 的参数、截断与图片处理；`edit`、`write` 复用适用的工具定义和展示，确定的内容修改通过 Repa 共同入口保存。内容基准、跨文件恢复和资源关系属于 Repa。
+
+对 0.87.1 的公开 `createEditToolDefinition` 使用内存 I/O 核验，未写入实际内容文件：将 `公式 x²；标记：ＡＢＣ` 中的 `ABC` 替换为 `DEF`，实际得到 `公式 x2;标记:DEF`，下一行未参与编辑的字符保持不变；混合 CRLF/LF 文本编辑中间行后，其他行的换行仍可能统一。第 10 节记录的差异继续成立。Repa 保留定位与写回分离的实现，具体理由及其可重新评估部分见 [ADR 0003](../adr/0003-share-file-based-content-operations.md#编辑与保存)。
+
+后续模型连接、steer、命令和包接入继续优先使用 `ModelRuntime`、`AgentSession.steer/followUp`、`BashOperations.exec`、工具工厂与资源加载器。持久业务队列、空间授权、内容保存及前端组件的职责仍需由相应 Repa 模块持有。Pi 的实验性 client/plugin/server 在该发布版中仍是源码专用入口，不作为当前发布 SDK 的稳定应用协议替代品。
+
+### 验证与维护范围
+
+回归通过真实 SDK 和本地 faux provider 观察最终模型输入，覆盖空提示、关闭来源、工具后续轮、扩展直接请求、压缩回填及旧会话接续；投影测试检查消息与来源对应，并使用 Pi 自身的估算函数。0.84.3 生成的 JSONL 样本用于检查旧条目和原文件前缀保留。源码与具体测试入口见 [Agent 开发说明](../development/agent-runtime.md#sdk-升级与验证)。
+
+升级的机械迁移、上游差异阅读和场景验证可以由 Agent 执行，验收仍依据 Repa 已确定的行为。上游承担了等价职责时删除相应兼容代码；尚有语义差异时，在所属边界保留适配并记录原因。这里记录的是当前版本的接入证据，真实 provider 行为、其他平台与长期使用规模仍由对应验证说明。

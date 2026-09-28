@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { Model } from "@earendil-works/pi-ai";
+import { getCurrentSystemMessage, type Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -13,6 +13,7 @@ import {
   ModelRuntime,
   type SessionManager,
   SettingsManager,
+  sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
 import { historyView, messageView, type Resources } from "./messages.js";
 import type {
@@ -29,6 +30,7 @@ import {
   contextSnapshot,
   makeContextMessage,
   projectContext,
+  withModelContext,
   type WorkingMessage,
 } from "./agent/context.js";
 import { createContentTools } from "./agent/tools.js";
@@ -119,37 +121,6 @@ export class PiConversationHost implements ConversationRuntime {
     this.#agentDir = agentDir;
     this.#fileChanges = fileChanges;
     this.#unsubscribe = session.subscribe((event) => this.#onEvent(event));
-    // Pi 在每轮结束后刷新后续配置；保持本次运行的提示与背景。
-    const prepare = session.agent.prepareNextTurnWithContext;
-    session.agent.prepareNextTurnWithContext = async (turn, signal) => {
-      const update = await prepare?.(turn, signal);
-      const context = update?.context ?? turn.context;
-      this.#projectWorkingState();
-      session.agent.state.systemPrompt = this.#runPrompt;
-      return {
-        ...update,
-        context: {
-          ...context,
-          systemPrompt: this.#runPrompt,
-          messages: this.#projectMessages(context.messages),
-        },
-      };
-    };
-    // transformContext 位于每一次模型调用之前，包括首轮；保留 Pi 的扩展处理。
-    const transform = session.agent.transformContext;
-    session.agent.transformContext = async (messages, signal) => {
-      const change = await this.#fileChanges.prepare(this.#runSettings?.fileChanges ?? "on-demand");
-      if (change) {
-        await session.sendCustomMessage({ customType: "repa.file-changes", content: change.text, details: change.details, display: false }, { triggerTurn: false });
-        const added = session.messages.at(-1)!;
-        // 同时加入循环持有的输入与实际历史，工具后续轮继续使用同一条消息。
-        if (!messages.includes(added)) messages.push(added);
-      }
-      this.#projectWorkingState();
-      const projected = this.#projectMessages(messages);
-      return this.#projectMessages(transform ? await transform(projected, signal) : projected);
-    };
-    session.agent.state.systemPrompt = this.#runPrompt;
   }
 
   static async open(options: OpenPiHostOptions): Promise<PiConversationHost> {
@@ -175,9 +146,18 @@ export class PiConversationHost implements ConversationRuntime {
         name: "repa-context",
         factory(pi) {
           pi.on("before_agent_start", () => ({ systemPrompt: host ? host.#runPrompt : "" }));
-          pi.on("context", (event) => {
-            if (host) host.#projectWorkingState();
-            return { messages: host ? host.#projectMessages(event.messages) : event.messages };
+          pi.on("context", async (event) => ({
+            messages: host ? await host.#prepareContext(event.messages) : event.messages,
+          }));
+          pi.on("context_with_system", (event) => {
+            // 扩展命令也能直接发起模型请求；它们不一定经过 before_agent_start。
+            const current = getCurrentSystemMessage(event.messages);
+            return { messages: [{
+              role: "system" as const,
+              content: host ? host.#runPrompt : "",
+              ...(current?.toolsAdded ? { toolsAdded: current.toolsAdded } : {}),
+              timestamp: current?.timestamp ?? 0,
+            }, ...event.messages.filter((message) => message.role !== "system")] };
           });
           pi.on("session_before_compact", (event) => {
             if (!host) return;
@@ -185,8 +165,6 @@ export class PiConversationHost implements ConversationRuntime {
             event.preparation.messagesToSummarize = host.#projectMessages(event.preparation.messagesToSummarize);
             event.preparation.turnPrefixMessages = host.#projectMessages(event.preparation.turnPrefixMessages);
           });
-          pi.on("session_compact", () => { if (host) host.#projectWorkingState(); });
-          pi.on("session_tree", () => { if (host) host.#projectWorkingState(); });
         },
       }],
     });
@@ -201,7 +179,10 @@ export class PiConversationHost implements ConversationRuntime {
       model: options.modelOverride?.model,
       modelRuntime: options.modelOverride?.modelRuntime,
       resourceLoader: loader,
-      sessionManager: options.sessionManager,
+      sessionManager: withModelContext(options.sessionManager, () => ({
+        learningContext: host ? host.#runSettings?.learningContext ?? false : false,
+        fileChanges: host ? host.#runSettings?.fileChanges ?? "on-demand" : "on-demand",
+      })),
       settingsManager: settings,
       noTools: "builtin",
       customTools: tools,
@@ -334,9 +315,7 @@ export class PiConversationHost implements ConversationRuntime {
         skills: this.#loader.getSkills().skills,
         selectedTools: this.#session.getActiveToolNames(),
       }, selected);
-      this.#session.agent.state.systemPrompt = this.#runPrompt;
-      // 新运行从当前真实分支重建，恢复关闭输入源时仅在工作视图中移除的消息。
-      this.#projectWorkingState(this.#options.sessionManager.buildSessionContext().messages);
+      this.#session.refreshContext();
       if (view) {
         const latest = this.#session.messages.findLast((message) => contextSnapshot(message) !== undefined);
         if (!latest || !isDeepStrictEqual(contextSnapshot(latest), view)) {
@@ -359,8 +338,16 @@ export class PiConversationHost implements ConversationRuntime {
       : projected;
   }
 
-  #projectWorkingState(messages: WorkingMessage[] = this.#session.messages): void {
-    this.#session.agent.state.messages = this.#projectMessages(messages);
+  async #prepareContext(messages: WorkingMessage[]): Promise<WorkingMessage[]> {
+    const change = await this.#fileChanges.prepare(this.#runSettings?.fileChanges ?? "on-demand");
+    if (change) {
+      // 此入口位于模型请求前，工具调用与结果已经配对。直接追加避免 SDK 将流中消息延后到本轮结束。
+      const manager = this.#options.sessionManager;
+      const id = manager.appendCustomMessageEntry("repa.file-changes", change.text, false, change.details);
+      messages = [...messages, ...sessionEntryToContextMessages(manager.getEntry(id)!)];
+      this.#session.refreshContext();
+    }
+    return this.#projectMessages(messages);
   }
 
   async cancel(): Promise<void> {

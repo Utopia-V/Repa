@@ -9,10 +9,12 @@ import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import {
+  getCurrentSystemPrompt,
+  getCurrentTools,
   fauxAssistantMessage,
   fauxProvider,
   fauxToolCall,
-  type Context,
+  type TranscriptContext as Context,
   type FauxResponseStep,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -231,13 +233,13 @@ test("公开协议支持两个客户端共享流式对话、受信任 prompt、s
   f.faux.setResponses([
     (context) => {
       assert.match(latest(context, "user"), /FIXTURE_PROMPT_EXPANDED/u);
-      assert.match(context.systemPrompt ?? "", /fixture-learning-skill/u);
+      assert.match(getCurrentSystemPrompt(context.messages) ?? "", /fixture-learning-skill/u);
       assert.match(
-        context.systemPrompt ?? "",
+        getCurrentSystemPrompt(context.messages) ?? "",
         /You are Repa, a general learning Agent/u,
       );
       assert.doesNotMatch(
-        context.systemPrompt ?? "",
+        getCurrentSystemPrompt(context.messages) ?? "",
         /expert coding assistant operating inside pi/iu,
       );
       return fauxAssistantMessage("流式回复");
@@ -336,11 +338,11 @@ test("未授权扩展保持禁用；只读查看与新建会话不启动 Pi", as
     (context) => {
       assert.equal(latest(context, "user"), "/fixture-prompt");
       assert.doesNotMatch(
-        context.systemPrompt ?? "",
+        getCurrentSystemPrompt(context.messages) ?? "",
         /fixture-learning-skill/u,
       );
       assert.deepEqual(
-        context.tools?.map((x) => x.name),
+        getCurrentTools(context.messages)?.map((x) => x.name),
         ["read", "edit", "write", "apply_patch"],
       );
       return fauxAssistantMessage("普通输入");
@@ -643,7 +645,7 @@ test("标准 Pi 压缩后仍通过同一协议继续，扩展故障有可观察�
     packages: [fixturePackage, brokenPackage],
   });
   const script: FauxResponseStep = (context, _options, state) =>
-    !(context.systemPrompt ?? "").includes(REPA_BASE_PROMPT)
+    !(getCurrentSystemPrompt(context.messages) ?? "").includes(REPA_BASE_PROMPT)
       ? fauxAssistantMessage("COMPACTION_SUMMARY")
       : fauxAssistantMessage(
           `REPLY_${state.callCount}:` + "学习内容。".repeat(80),
@@ -1192,8 +1194,8 @@ test("提示配置在受理时固定，重传原请求不重新解析默认值",
   const original = before.entries.find((entry) => entry.key === "base")!;
   const settings = await f.client.call("settings.set", { scope, namespace: "prompts", key: "base", base: original.revision, value: "受理时提示" });
   provider.faux.setResponses([(context) => {
-    assert.match(context.systemPrompt ?? "", /受理时提示/);
-    assert.doesNotMatch(context.systemPrompt ?? "", /后续提示/);
+    assert.match(getCurrentSystemPrompt(context.messages) ?? "", /受理时提示/);
+    assert.doesNotMatch(getCurrentSystemPrompt(context.messages) ?? "", /后续提示/);
     return fauxAssistantMessage("完成");
   }]);
   const params = { ...f.key, requestId: randomUUID(), text: "开始" };
