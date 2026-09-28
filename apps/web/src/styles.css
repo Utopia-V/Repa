@@ -1,0 +1,16 @@
+/* Web 宿主基础样式；组件外观由 components/ui 与 components/domain 持有。 */
+@layer base {
+  :root {
+    color: var(--foreground);
+    background: var(--background);
+    font-family: var(--font-body);
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-line);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100dvh; }
+  h1, h2, h3, p { margin: 0; }
+  h1, h2, h3 { font-family: var(--font-heading); }
+}

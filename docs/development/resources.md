@@ -4,7 +4,7 @@
 
 ## 各自持有实际使用的资源
 
-[ResourceRetention](../../src/content/resources.ts) 记录持久消费者与临时使用关系，`ContentStore` 在内容提交队列内提供文件版本和保留范围。
+[ResourceRetention](../../packages/repa/src/content/resources.ts) 记录持久消费者与临时使用关系，`ContentStore` 在内容提交队列内提供文件版本和保留范围。
 
 | 消费者 | 保留方式 | 释放时机 |
 | --- | --- | --- |

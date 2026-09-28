@@ -11,6 +11,8 @@
 
 ## 项目具体规范
 
+分支整合、集中合并和阶段交付前读取[整合规范](docs/development/integration.md)，按合并范围核对组合行为、验证与交接；日常开发以 `dev` 为基线。
+
 编写、修改或审阅相应内容前，读取对应的项目 Skill；只加载本次涉及的类别，已读取当前版本时不重复加载。它们持有本仓库的具体写法，设计、实施与验证的方法论继续由相应方法 Skill 提供。
 
 | 内容 | 规范入口 |
@@ -20,3 +22,9 @@
 | 代码格式、类型与接口实现 | [repa-code-style](.agents/skills/repa-code-style/SKILL.md) |
 
 前端近端规范补充相应 workspace 的框架、组件与设计系统要求，后端专用规则不扩展到前端。路径、命令和配置随所属实现一起维护；调整具体规范时更新上述入口，不在其他文件复制第二份规则。
+
+## 目录规范
+
+- 前端设计规范见 [docs/design-system.md](docs/design-system.md)，实现说明见 [docs/design-system-implementation.md](docs/design-system-implementation.md)。
+
+- Web 前端开发同时遵循 [apps/web/AGENTS.md](apps/web/AGENTS.md)。

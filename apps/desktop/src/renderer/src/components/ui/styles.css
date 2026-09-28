@@ -1,0 +1,121 @@
+/* 通用控件规则。视觉值只引用 globals.css 的 token。 */
+@layer base {
+  [data-slot] {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    border-color: var(--border);
+  }
+  button[data-slot],
+  input[data-slot],
+  select[data-slot] {
+    appearance: none;
+    background-color: transparent;
+    font: inherit;
+  }
+  [data-slot="button"],
+  [data-slot="input"],
+  [data-slot="select-trigger"] {
+    font-family: var(--font-body);
+  }
+  [data-slot="button"] {
+    cursor: pointer;
+  }
+  [data-slot="button"]:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  .ui-control {
+    min-height: var(--control-size);
+    height: auto;
+    min-width: 0;
+    padding-block: var(--space-4);
+    overflow-wrap: anywhere;
+  }
+  .ui-control-icon {
+    min-width: var(--control-size);
+    min-height: var(--control-size);
+    padding: var(--space-4);
+  }
+  .ui-hit {
+    position: relative;
+    touch-action: manipulation;
+  }
+  .ui-hit::before {
+    content: "";
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: max(100%, var(--hit-size));
+    height: max(100%, var(--hit-size));
+  }
+  .ui-choice-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-8);
+    min-height: var(--hit-size);
+    padding-inline: max(0px, calc((var(--hit-size) - var(--control-icon-size)) / 2));
+    cursor: pointer;
+  }
+  .ui-dialog {
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(var(--dialog-max-width), calc(100% - var(--space-32)));
+    max-height: calc(100dvh - var(--space-32));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .ui-dialog-title { padding-right: var(--hit-size); }
+  @media (max-width: 767px) {
+    [data-slot="input"] {
+      font-size: var(--type-body-large-size);
+      line-height: var(--type-body-large-line);
+    }
+    .ui-dialog {
+      top: auto; bottom: 0; left: 0;
+      width: 100%; max-width: 100%;
+      max-height: calc(100dvh - env(safe-area-inset-top) - var(--space-16));
+      transform: none;
+      translate: none;
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+      padding-bottom: max(var(--space-24), env(safe-area-inset-bottom));
+    }
+  }
+}
+
+@layer components {
+  .ui-button-md {
+    box-sizing: border-box;
+    min-height: max(var(--button-md-height), var(--hit-size));
+    height: auto;
+    padding-block: var(--space-4);
+    padding-inline: var(--button-md-padding-inline);
+    border-radius: var(--button-md-radius);
+    gap: var(--button-md-icon-gap);
+  }
+  .ui-button-icon {
+    min-width: max(var(--button-md-height), var(--hit-size));
+    padding-inline: var(--space-4);
+  }
+}
+
+/* 基础控件（包括 Portal 浮层）独立响应系统偏好。 */
+@layer base {
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot],
+    [data-slot]::before,
+    [data-slot]::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+/* 拖动用短过渡平滑指针采样间的宽度变化；收起和松手恢复完整过渡。 */
+[data-slot="sidebar-wrapper"][data-resizing="true"] [data-slot="sidebar-container"],
+[data-slot="sidebar-wrapper"][data-resizing="true"] [data-slot="sidebar-gap"] {
+  transition-duration: 80ms;
+  transition-timing-function: linear;
+}

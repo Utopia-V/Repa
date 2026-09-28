@@ -1,0 +1,31 @@
+.learning-upload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+  width: 100%;
+  max-width: 480px;
+}
+.learning-upload-dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-16);
+  padding: var(--space-48) var(--space-24);
+  border: 1px dashed var(--input);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--card-foreground);
+  text-align: center;
+  cursor: pointer;
+}
+.learning-upload-dropzone:hover,
+.learning-upload-dropzone[data-dragging="true"] { background: var(--accent); color: var(--accent-foreground); }
+.learning-upload-dropzone:has(.learning-upload-input:focus-visible) { outline: 2px solid var(--ring); outline-offset: 4px; }
+.learning-upload-book { width: 96px; height: 96px; color: var(--muted-foreground); margin-bottom: var(--space-8); }
+.learning-upload-title { font-family: var(--font-heading); font-size: var(--type-h3-size); line-height: var(--type-h3-line); font-weight: 600; }
+.learning-upload-hint { color: var(--muted-foreground); font-size: var(--type-body-size); line-height: var(--type-body-line); text-align: center; overflow-wrap: anywhere; }
+.learning-upload-input { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+.learning-upload-files { display: flex; flex-direction: column; gap: var(--space-8); padding: 0; margin: 0; list-style: none; }
+.learning-upload-files li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); }
+.learning-upload-files li span { min-width: 0; overflow-wrap: anywhere; }

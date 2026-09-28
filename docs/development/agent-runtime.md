@@ -19,7 +19,7 @@
 
 应用配置目录优先使用 `ApplicationOptions.appDirectory`，其次使用显式 `agentDir`，否则使用 `$XDG_CONFIG_HOME/repa` 或 `~/.config/repa`。Repa 的应用提示覆盖保存在其中的 `repa-settings.json`，外部材料授权保存在 `repa-content-access.json`；Pi 的模型、认证及自身设置继续使用 Pi 配置入口。空间和会话覆盖保存在空间内的 `.repa/settings.json`。
 
-提示由 [assembleSystemPrompt](../../src/agent/context.ts) 装配。Host 使用最后的 Pi inline extension，通过 `before_agent_start` 提供运行入口提示，通过 `context_with_system` 提供每次请求的完整系统提示并保留 Pi 解析的工具定义。后一个入口也覆盖扩展命令直接触发模型的路径，因此显式空提示和关闭的来源不会回落到 SDK 默认值。Repa 不包装 `prepareNextTurnWithContext` 或 `transformContext`，也不直接写入 Agent 的消息或系统提示状态。
+提示由 [assembleSystemPrompt](../../packages/repa/src/agent/context.ts) 装配。Host 使用最后的 Pi inline extension，通过 `before_agent_start` 提供运行入口提示，通过 `context_with_system` 提供每次请求的完整系统提示并保留 Pi 解析的工具定义。后一个入口也覆盖扩展命令直接触发模型的路径，因此显式空提示和关闭的来源不会回落到 SDK 默认值。Repa 不包装 `prepareNextTurnWithContext` 或 `transformContext`，也不直接写入 Agent 的消息或系统提示状态。
 
 普通文件变化在 `context` 事件中合并检查。需要告知时，在这次模型请求前通过 `SessionManager.appendCustomMessageEntry` 保存一次变化消息，再用 `refreshContext()` 刷新公开投影并将消息交给本次请求。这个边界位于已完成的工具调用与结果之后；Pi 0.87.1 的 `sendCustomMessage({ triggerTurn: false })` 在流式执行中会延后到工具轮结束，不能用于要求本次调用立即看到的变化。文件保存本身仍不启动模型。
 
@@ -64,9 +64,9 @@ Pi 的 system 消息条目保存提示与工具配置，不投影为公开交流
 
 当前验证入口：
 
-- [agent-context.test.ts](../../test/agent-context.test.ts)：来源开关、分支与重复压缩、投影消息和来源对应，以及 Pi 上下文编辑。
-- [pi-context-integration.test.ts](../../test/pi-context-integration.test.ts)：真实 SDK 与 faux provider 核对实际请求中的系统提示、工具后续轮、背景回填、文件变化和扩展直接调用。provider 使用 `TranscriptContext`，断言通过 Pi 的 `getCurrentSystemPrompt()` 等入口解析系统状态。
-- [pi-session-0.84.3.jsonl](../../test/fixtures/pi-session-0.84.3.jsonl)：由发布版 0.84.3 的 `SessionManager` 生成的会话格式 3 样本，包含完整背景、交流与压缩。集成测试复制后用 0.87.1 接续并重开，检查旧条目与原文件前缀保留。
-- [application.test.ts](../../test/application.test.ts)：公共客户端、运行记录、取消、重试、会话恢复与独立后端进程。
+- [agent-context.test.ts](../../packages/repa/test/agent-context.test.ts)：来源开关、分支与重复压缩、投影消息和来源对应，以及 Pi 上下文编辑。
+- [pi-context-integration.test.ts](../../packages/repa/test/pi-context-integration.test.ts)：真实 SDK 与 faux provider 核对实际请求中的系统提示、工具后续轮、背景回填、文件变化和扩展直接调用。provider 使用 `TranscriptContext`，断言通过 Pi 的 `getCurrentSystemPrompt()` 等入口解析系统状态。
+- [pi-session-0.84.3.jsonl](../../packages/repa/test/fixtures/pi-session-0.84.3.jsonl)：由发布版 0.84.3 的 `SessionManager` 生成的会话格式 3 样本，包含完整背景、交流与压缩。集成测试复制后用 0.87.1 接续并重开，检查旧条目与原文件前缀保留。
+- [application.test.ts](../../packages/repa/test/application.test.ts)：公共客户端、运行记录、取消、重试、会话恢复与独立后端进程。
 
 这些测试使用本地确定性模型，当前执行环境为 Linux。真实 provider 与其他平台继续由对应集成验证覆盖。

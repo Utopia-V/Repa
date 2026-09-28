@@ -1,0 +1,173 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap");
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+@import "./components/ui/styles.css";
+@source "./components";
+@source "./layouts";
+@source "./app.tsx";
+@source "./routes.tsx";
+
+:root {
+  --theme-canvas: #fafafa;
+  --theme-sheet: #ffffff;
+  --theme-ink: #0f172a;
+  --theme-subtle: #596579;
+  --theme-line: #d7dce5;
+  --theme-control-line: #8590a3;
+  --theme-brand: #4338ca;
+  --theme-brand-ink: #312e81;
+  --theme-tint: #eef2ff;
+  --theme-inset: #f1f5f9;
+
+  /* Brand / Interaction */
+  --primary: var(--theme-brand);
+  --primary-foreground: var(--theme-sheet);
+  --accent: var(--theme-tint);
+  --accent-foreground: var(--theme-brand-ink);
+  /* Surface */
+  --background: var(--theme-canvas);
+  --card: var(--theme-sheet);
+  --muted: var(--theme-inset);
+  --surface-inset: var(--muted);
+  /* Text */
+  --foreground: var(--theme-ink);
+  --card-foreground: var(--foreground);
+  --muted-foreground: var(--theme-subtle);
+  /* Border */
+  --border: var(--theme-line);
+  --border-selected: var(--primary);
+  --border-error: var(--destructive);
+  --border-complete: var(--status-complete);
+  --input: var(--theme-control-line);
+  --ring: var(--theme-subtle);
+  /* Status: mappings can change independently from actions. */
+  --status-complete: var(--primary);
+  --status-complete-foreground: var(--primary-foreground);
+  --destructive: var(--theme-brand-ink);
+  --destructive-foreground: var(--theme-sheet);
+  /* Overlay */
+  --overlay: var(--foreground);
+  /* shadcn compatibility: aliases, not extra business choices. */
+  --secondary: var(--accent);
+  --secondary-foreground: var(--accent-foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--card-foreground);
+}
+/* 排版、圆角与留白与主题映射共同由本文件持有。 */
+:root {
+  --font-heading:
+    "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-code: "JetBrains Mono", monospace;
+  --type-display-size: 48px;
+  --type-display-line: 56px;
+  --type-display-mobile-size: 36px;
+  --type-display-mobile-line: 44px;
+  --type-h1-size: 32px;
+  --type-h1-line: 40px;
+  --type-h2-size: 24px;
+  --type-h2-line: 32px;
+  --type-h3-size: 20px;
+  --type-h3-line: 28px;
+  --type-h4-size: 16px;
+  --type-h4-line: 24px;
+  --type-body-large-size: 16px;
+  --type-body-large-line: 26px;
+  --type-body-size: 14px;
+  --type-body-line: 22px;
+  --type-caption-size: 12px;
+  --type-caption-line: 18px;
+  --type-code-size: 13px;
+  --type-code-line: 20px;
+  --corner-sm: 4px;
+  --corner-md: 8px;
+  --corner-lg: 16px;
+  --corner-full: 9999px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-40: 40px;
+  --space-48: 48px;
+  --space-64: 64px;
+}
+
+@theme inline {
+  --spacing: 4px;
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-surface-inset: var(--surface-inset);
+  --color-foreground: var(--foreground);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-selected: var(--border-selected);
+  --color-border-error: var(--border-error);
+  --color-border-complete: var(--border-complete);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-status-complete: var(--status-complete);
+  --color-status-complete-foreground: var(--status-complete-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-overlay: var(--overlay);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --text-xs: var(--type-caption-size);
+  --text-xs--line-height: var(--type-caption-line);
+  --text-sm: var(--type-body-size);
+  --text-sm--line-height: var(--type-body-line);
+  --text-base: var(--type-body-large-size);
+  --text-base--line-height: var(--type-body-large-line);
+  --text-lg: var(--type-h3-size);
+  --text-lg--line-height: var(--type-h3-line);
+  --text-xl: var(--type-h2-size);
+  --text-xl--line-height: var(--type-h2-line);
+  --text-2xl: var(--type-h1-size);
+  --text-2xl--line-height: var(--type-h1-line);
+  --radius-sm: var(--corner-sm);
+  --radius-md: var(--corner-md);
+  --radius-lg: var(--corner-lg);
+  --radius-full: var(--corner-full);
+}
+
+
+/* Keep token aliases available to plain CSS as well as Tailwind. */
+:root {
+  --radius-sm: var(--corner-sm);
+  --radius-md: var(--corner-md);
+  --radius-lg: var(--corner-lg);
+  --radius-full: var(--corner-full);
+}
+
+/* 控件规格独立于留白尺度：视觉与命中区域可以不同。 */
+:root {
+  --control-size: 36px;
+  --hit-size: 24px;
+  --control-icon-size: 16px;
+  --dialog-max-width: 512px;
+}
+@media (max-width: 767px), (pointer: coarse) {
+  :root { --control-size: 44px; --hit-size: 44px; }
+}
+
+
+/* Button 层级只改变外观，同 size 共享几何与排版。 */
+:root {
+  --button-md-height: 40px;
+  --button-md-padding-inline: var(--space-16);
+  --button-md-radius: var(--corner-md);
+  --button-md-icon-gap: var(--space-8);
+}

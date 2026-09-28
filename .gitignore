@@ -1,10 +1,14 @@
 # 个人 Codex skill 覆盖配置，当前包含本机绝对路径
 /.codex/config.toml
 
+# 本地 Pi/Agent 运行状态
+/.pi/
+
 # 过程性调查和一次性工作资料；长期成果移入 docs/
 /.scratch/
 
 # Node/TypeScript 可重建产物
-/node_modules/
-/dist/
-/coverage/
+**/node_modules/
+**/dist/
+**/coverage/
+/apps/desktop/out/

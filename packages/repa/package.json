@@ -1,0 +1,47 @@
+{
+  "name": "repa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "repa": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "start": "tsx src/cli.ts",
+    "test": "node --import tsx --import ./test/environment.ts --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "micromark": "4.0.2",
+    "proper-lockfile": "4.1.2",
+    "typebox": "1.3.27",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.21",
+    "@types/proper-lockfile": "4.1.4",
+    "@types/ws": "8.18.1",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    }
+  }
+}

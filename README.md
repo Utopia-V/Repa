@@ -4,7 +4,7 @@ Repa 是一个独立、本地优先的学习 Agent 应用。用户在自己的�
 
 Repa 的提示词、背景、工具和界面组件可以按需配置与组合，官方提供开箱即用的学习组合。
 
-以下设计概览描述已经确定的产品行为与架构，供产品讨论、接口设计和开发协作使用。当前代码提供独立本机后端、公开应用协议、无 UI 客户端与 TUI；默认学习能力的完整组合仍属于目标设计。[实现范围与待验证选择](#设计记录与实现验证)说明两者的对应关系，现有代码的运行方式见[运行现有 TUI](#运行现有-tui)。
+以下设计概览描述已经确定的产品行为与架构，供产品讨论、接口设计和开发协作使用。当前代码提供独立本机后端、公开应用协议、无 UI 客户端、TUI，以及 Web／Desktop 工作台骨架；图形界面的真实学习流程和默认学习能力的完整组合仍待接通。[实现范围与待验证选择](#设计记录与实现验证)说明两者的对应关系，现有代码的运行方式见[运行现有 TUI](#运行现有-tui)。
 
 当前设计与调查依据的全部文件列在[设计文件清单](#设计文件清单)。建议先阅读本页总览，再查阅领域约定和相应的架构决策。
 
@@ -209,7 +209,7 @@ Repa 提供内容读写、引用与组成、数据和资源传递、动作调用
 
 例如，理解局部编辑、保存基准和撤回为什么这样设计，可以先读 [编辑与保存的取舍](docs/adr/0003-share-file-based-content-operations.md#编辑与保存)，再看 [实际内容接口](docs/development/content.md)；理解 Pi 复用与升级后的接入方式，可以读 [Agent 开发说明](docs/development/agent-runtime.md) 和 [Pi 0.87.1 核验](docs/research/pi-ecosystem-compatibility.md#12-pi-0871-的接入与升级)。
 
-当前产品与架构设计保存在 7 份文件中，另有 1 份技术调查提供事实依据，完整清单如下。新增或调整设计文档时同步更新此表。
+当前产品、架构与官方界面设计的完整清单如下，技术调查另行提供事实依据。新增或调整设计文档时同步更新此表。
 
 | 文件 | 内容与责任 |
 | --- | --- |
@@ -220,13 +220,15 @@ Repa 提供内容读写、引用与组成、数据和资源传递、动作调用
 | [docs/adr/0003-share-file-based-content-operations.md](docs/adr/0003-share-file-based-content-operations.md) | 文件正文、材料与资源、空间身份、内容引用、共同操作、保存、撤回及外部变化 |
 | [docs/adr/0004-connect-replaceable-frontends-through-application-protocol.md](docs/adr/0004-connect-replaceable-frontends-through-application-protocol.md) | 公开能力与请求输入、steer 与排队接续、前端状态、任务生命周期、组件宿主和扩展兼容 |
 | [docs/adr/0005-execute-display-content-with-host-permissions.md](docs/adr/0005-execute-display-content-with-host-permissions.md) | 调用授权、命令执行、展示实例与活跃资源、权限变更和历史产物 |
+| [docs/adr/0006-govern-frontend-visuals-through-a-semantic-design-system.md](docs/adr/0006-govern-frontend-visuals-through-a-semantic-design-system.md) | 官方前端的视觉语义、组件责任和主题实现取舍 |
+| [docs/design-system.md](docs/design-system.md) | 官方界面的 token、基础控件、交互状态与可访问性规范 |
 | [docs/research/pi-ecosystem-compatibility.md](docs/research/pi-ecosystem-compatibility.md) | Pi 生态、公开复用入口、提示装配与固定版本核验，以及 Codex 编辑行为对比；结论按文中调查基准解释 |
 
 具体接口集中记录在 [Repa v1 接口草案 #16](https://github.com/Utopia-V/repa/issues/16)，覆盖前后端协议、共享后台能力与组件宿主。该议题持有待实现的接口方案，当前可运行代码仍按下方的实现范围说明。
 
 [docs/development/](docs/development/README.md) 组织已实现模块的开发说明，包括内容与恢复、Agent 接入及验证入口，随代码更新。
 
-[AGENTS.md](AGENTS.md) 和 [.agents/skills/](.agents/skills/) 保存项目协作约束与工程方法；`test/fixtures/` 中的 Markdown 是测试材料。产品决定由上表中的领域约定和架构决策持有，调查记录用于追溯技术依据。
+[AGENTS.md](AGENTS.md) 和 [.agents/skills/](.agents/skills/) 保存项目协作约束与工程方法；`packages/repa/test/fixtures/` 中的 Markdown 是测试材料。产品决定由上表中的领域约定和架构决策持有，调查记录用于追溯技术依据。
 
 通用 Agent 行为的开发参照包括 Codex 的公开文档、源码与相邻测试，具体使用约定见 [AGENTS.md](AGENTS.md)。影响 Repa 行为的取舍及核验版本记录在相应 ADR。
 
@@ -246,26 +248,65 @@ Repa 提供内容读写、引用与组成、数据和资源传递、动作调用
 | 应用协议、客户端与 TUI | 已有本机后端、协议 v1、无 UI 客户端、多空间多会话、订阅重连和运行记录；请求输入当前仅支持文本，steer、排队及指定旧任务接续尚未接入 |
 | 内容与学习语境 | 已接通文件读写、精确修改、多文件补丁、内容身份与组成、操作查询、撤回与恢复、外部材料只读关联、不可变资源和学习语境注入；已有内容移动与独立复制、材料收集、会话/文档/实例资源保留与清理，以及空间备份、恢复和独立复制；检索待接入 |
 | 扩展与配置 | 已有明确信任后的 Pi 扩展加载、应用／空间／会话提示继承和实际提示装配；共享能力宿主及现有学习语境/默认提示的能力迁接、独立模型连接管理、辅助调用提示配置与官方默认能力组合待接入 |
-| 前端与执行环境 | 图形组件宿主、多种请求输入、生成内容展示隔离及命令沙箱待实现 |
+| 前端与执行环境 | 已建立独立的 Web 与 Electron 前端入口，各宿主通过现有 CLI 启动自己的本机后端并由公开客户端显示真实连接结果；完整图形组件宿主、多种请求输入、生成内容展示隔离及命令沙箱待实现 |
 
-当前模块责任、调用示例、持久格式和验证入口见[开发指南](docs/development/README.md)。已经实现的字段由公开 schema 持有；后续仍需落实包入口元数据及官方图形前端的宿主和内部框架。Web 组件接入形状是参考契约，Electron、React 均未被确定为必须依赖。
+当前模块责任、调用示例、持久格式和验证入口见[开发指南](docs/development/README.md)。已经实现的字段由公开 schema 持有；官方图形前端采用 React、React Router、Vite 与 Electron/electron-vite，Web 与 Desktop renderer 分别拥有自己的页面、路由和应用状态。Web 组件接入形状继续作为公开宿主契约。
 
 可领取的模块任务、依赖关系与整体接通责任集中在[产品主议题 #5](https://github.com/Utopia-V/repa/issues/5)。任务从该议题指定的开发分支基线开始，任务状态由 GitHub Issues 维护。
 
 集成验证需覆盖上述连续操作，以及沙箱辅助程序的独立构建与平台接入、可执行展示的真实隔离边界。现有运行验证范围为 Linux，模型调用使用确定性 faux provider；接口调查与局部试验不替代平台和真实学习体验验证。安装体积、启动速度和运行开销由实现测量，结构上的职责共用不作为性能结论。
 
+## 仓库结构与 workspace
+
+仓库使用 npm workspaces，并由根目录的单一 `package-lock.json` 固定依赖。根 `package.json` 只负责编排各包命令，不承载后端运行时代码。
+
+```text
+repa/
+├── apps/
+│   ├── web/              # 完整 Web 前端、Vite 与 Browser Router
+│   └── desktop/          # 完整桌面前端、Electron main/preload 与 renderer
+├── packages/
+│   └── repa/             # 后端、CLI、公开客户端与协议
+├── package.json          # workspace 与统一命令
+└── package-lock.json     # 全仓唯一锁文件
+```
+
+后端包保持 `repa` 包名以及 `repa/client`、`repa/protocol` 公共入口。`@repa/web` 与 `@repa/desktop` 分别持有自己的业务界面和宿主进程接入；宿主把现有 `repa serve` CLI 作为进程边界，renderer 不导入后端主入口，也不重新实现 WebSocket、重连或状态投影。Web 使用 `createBrowserRouter`，Desktop renderer 使用 `createMemoryRouter`。根目录的 `check`、`test` 和 `build` 按 workspace 顺序统一编排。
+
+## 参与开发
+
+日常开发以 `dev` 为统一基线，普通 PR 指向 `dev`；`master` 接收经过阶段验收的版本。分支整合与阶段交付见[整合规范](docs/development/integration.md)。
+
+前端视觉与交互遵循[设计系统规范](docs/design-system.md)，组件职责与接入方式见[设计系统实现说明](docs/design-system-implementation.md)。
+
+从[开发指南](docs/development/README.md#参与开发)开始：其中说明根目录安装、Web／Desktop／后端开发命令、代码入口与交付前验证。可领取任务及其依赖关系由[产品主议题 #5](https://github.com/Utopia-V/repa/issues/5)统一维护。
+
 ## 运行现有 TUI
 
-需要 Node.js 22.19.0 或更高版本。依赖由 `package-lock.json` 固定。
+使用根目录 `package.json` 声明的 Node.js 与 npm 版本，依赖由 `package-lock.json` 固定。当前 npm 12.0.2 支持 Node.js 22.22.2 起的 22.x、24.15.0 起的 24.x 或 26 及更高版本。
 
 ```sh
-npm ci --ignore-scripts
+npm ci
 npm run check
 npm test
 npm run build
 ```
 
-测试通过本地 WebSocket、HTTP、真实 Pi SDK 和独立 Node 进程检查运行行为；模型调用使用确定性 faux provider，认证与学习空间使用临时目录。当前端到端验证覆盖 Linux，其他系统的进程启动、文件锁与退出行为仍需验证。
+### 开发图形前端
+
+直接启动其中一个前端：
+
+```sh
+npm run dev:web
+# 或
+npm run dev:desktop
+```
+
+两个入口都会通过现有 CLI 自动启动各自的本机后端，并通过 `RepaClient` 完成协议初始化。初始化期间显示启动状态，失败时显示原因与重试入口；连接建立后进入应用路由，短暂断线由客户端自动重连，不跳转到连接页面。Desktop 使用应用专属连接文件，Web 开发服务器使用当前开发进程专属连接文件，因此它们不与 TUI 共享默认后端。
+
+Web 由 Vite 提供热更新；开发服务器只监听 `127.0.0.1`，并通过同源、不可缓存的开发端点把连接交给页面，令牌不进入 URL、浏览器存储或生产构建。静态 Web 部署本身不能在访问者电脑上启动进程，后续部署需要单独定义后端与认证边界。Electron 由 electron-vite 分别监听 main、preload 和 renderer；renderer 禁用 Node 集成、启用上下文隔离和进程沙箱，preload 只向受信任主页面暴露读取连接的窄接口，后端启动仍在 main 进程一侧完成。
+
+当前整合版本已在 Linux 验证各 workspace 的类型检查、测试和构建。测试通过本地 WebSocket、HTTP、真实 Pi SDK 和独立 Node 进程检查后端与两端宿主的连接及清理；模型调用使用确定性 faux provider，认证与学习空间使用临时目录。这些结果不覆盖 Electron 图形窗口与 preload 的完整运行、安装包或其他平台，相关交付由 #26 验证。
 
 ### 配置模型
 
@@ -284,7 +325,7 @@ npm exec -- pi
 ```sh
 npm start -- /path/to/learning-space
 # 构建后也可直接运行
-node dist/cli.js /path/to/learning-space
+node packages/repa/dist/cli.js /path/to/learning-space
 ```
 
 TUI 自动连接或启动独立的本机后端，打印连接文件的位置。同一系统用户的后续普通启动使用该后端，可以同时查看不同空间或会话。默认选择空间中最近活动的会话；`--new-session` 新建一段交流。
@@ -334,7 +375,7 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 
 ### 公开应用接口
 
-[协议 schema](src/protocol.ts)同时持有方法参数、返回值、消息和订阅数据结构，TypeScript 类型从同一来源推导，后端与客户端均执行校验。协议版本为 `1`；连接时通过 `initialize` 提交令牌和支持的版本。公开调用采用 JSON-RPC 2.0，经 `/rpc` WebSocket 传输，Repa 操作使用带 `id` 的请求。
+[协议 schema](packages/repa/src/protocol.ts)同时持有方法参数、返回值、消息和订阅数据结构，TypeScript 类型从同一来源推导，后端与客户端均执行校验。协议版本为 `1`；连接时通过 `initialize` 提交令牌和支持的版本。公开调用采用 JSON-RPC 2.0，经 `/rpc` WebSocket 传输，Repa 操作使用带 `id` 的请求。
 
 应用协议版本与磁盘格式版本分别管理；影响既有调用方的不兼容协议修改需要增加协议版本，并同步更新 schema 与客户端。前端联调按共同选定的提交及其 schema 开展，具体组件宿主约定仍按 ADR 0004 接入。
 
@@ -354,7 +395,7 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 
 订阅先提供快照，再提供变化。客户端重连时携带原游标，后端缓存仍可接续时重放遗漏变化，否则发送新快照。客户端维护本地状态副本；连接丢失或应答超时的操作不会自动重发，调用方通过请求标识核对结果。查询得到的会话列表按最近活动排序，只包含摘要；完整消息通过 `session.get` 或相应范围的状态订阅取得。
 
-[无 UI 客户端](src/client.ts)使用标准 WebSocket、Fetch 和 Web Crypto，可供 Node 程序和浏览器前端使用。构建后的包提供独立的 `repa/client` 与 `repa/protocol` 入口；浏览器通过构建工具引入客户端，无须包含后端或 Pi。
+[无 UI 客户端](packages/repa/src/client.ts)使用标准 WebSocket、Fetch 和 Web Crypto，可供 Node 程序和浏览器前端使用。构建后的包提供独立的 `repa/client` 与 `repa/protocol` 入口；浏览器通过构建工具引入客户端，无须包含后端或 Pi。
 
 ```typescript
 import { readFile } from "node:fs/promises";

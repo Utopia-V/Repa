@@ -1,6 +1,6 @@
 # 空间备份、恢复与独立复制
 
-[SpaceOperations](../../src/spaces/store.ts) 负责空间目录的准备、校验、发布和操作结果恢复。应用协调层确保空间没有正在运行的任务或尚未完成的内容、配置操作，并在快照期间阻止新操作进入该空间；其他空间继续使用。正在运行的 Agent 不会被备份调用取消，调用返回 `space_busy` 后可在任务结束时重新发起。
+[SpaceOperations](../../packages/repa/src/spaces/store.ts) 负责空间目录的准备、校验、发布和操作结果恢复。应用协调层确保空间没有正在运行的任务或尚未完成的内容、配置操作，并在快照期间阻止新操作进入该空间；其他空间继续使用。正在运行的 Agent 不会被备份调用取消，调用返回 `space_busy` 后可在任务结束时重新发起。
 
 ## 公开接口
 
@@ -31,7 +31,7 @@ if (result.status === "completed") {
 
 独立空间复制改变 `spaceId`，保留空间内的内容 `id`。完整身份是 `{ spaceId, id }`，因此两份内容互相独立，同时空间相对的 `repa:document/<id>` 链接继续成立。这与空间内 `content.copy` 分配新内容 `id` 的情况不同。
 
-[内容快照适配](../../src/content/snapshot.ts) 映射内容清单、明确成员、资源引用、当前和历史学习语境组成格式，以及对应操作前后版本。历史操作继续支持在副本中查询与撤回。只有格式 owner 能确定的字段才映射，普通代码、任意 JSON 和 Markdown 正文中的历史陈述按原字节保留。
+[内容快照适配](../../packages/repa/src/content/snapshot.ts) 映射内容清单、明确成员、资源引用、当前和历史学习语境组成格式，以及对应操作前后版本。历史操作继续支持在副本中查询与撤回。只有格式 owner 能确定的字段才映射，普通代码、任意 JSON 和 Markdown 正文中的历史陈述按原字节保留。
 
 运行日志由原有 `run-journal` 读取并映射请求所属空间。Pi 会话保留原 JSONL 与真实历史文字，使用 Pi 的 `listAll(sessionDirectory)` 从所属空间目录列举，打开时通过 `cwdOverride` 指向新目录。`list(cwd, sessionDirectory)` 会按历史 cwd 过滤，因此不适用于空间搬移与恢复。消息媒体投影为副本的资源引用。复制不会根据对话中的路径文字去读取或改写原空间。
 
