@@ -6,6 +6,8 @@
 
 本指南描述当前代码的接入与持久格式；需要理解设计原因时，查阅相应 ADR。内容编辑的需求、代价和可重新评估的策略见 [ADR 0003](../adr/0003-share-file-based-content-operations.md#编辑与保存)。Pi 当前锁定为 0.87.1；升级边界与回归入口见 [Agent 接入](agent-runtime.md#sdk-升级与验证)。
 
+项目具体写法分别由[文档规范](../../.agents/skills/repa-docs-style/SKILL.md)、[测试规范](../../.agents/skills/repa-test-style/SKILL.md)和[代码规范](../../.agents/skills/repa-code-style/SKILL.md)持有；这些文件也供开发者直接阅读，适用入口由根目录 `AGENTS.md` 统一登记。
+
 模块任务及其依赖关系见[实施入口 #5](https://github.com/Utopia-V/repa/issues/5)。[插件宿主 #20](https://github.com/Utopia-V/repa/issues/20)尚待实现，范围是通用调用与按需生命周期接入；算法、数据库实体和迁移由插件负责，适用的存储辅助库可作为可选依赖共享。数据责任见[ADR 0003](../adr/0003-share-file-based-content-operations.md#能力数据与数据库)。
 
 ## 从哪里开始
