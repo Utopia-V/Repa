@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { fork, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -1396,6 +1396,7 @@ test("取消暂停队列，重开后明确恢复并保留排队输入", async t 
   await f.finish(run.id);
   assert.equal((await f.client.call("queue.list", f.key)).status, "paused");
   await f.server.close();
+  await rename(path.join(f.directory, ".repa/runtime/queues.json"), path.join(f.directory, ".repa/runtime/requests/queues.json"));
   const provider = { faux: f.faux, override: f.override };
   provider.faux.setResponses([context => {
     assert.equal(latest(context, "user"), "稍后处理");
@@ -1410,6 +1411,20 @@ test("取消暂停队列，重开后明确恢复并保留排队输入", async t 
   await client.call("queue.resume", f.key);
   const result = await until(() => client.call("request.get", { spaceId: f.space.id, requestId: queued.requestId }), request => request.status === "completed");
   assert("delivery" in result && result.delivery.status === "entered");
+  provider.faux.setResponses([fauxAssistantMessage("后续请求完成")]);
+  const named = await client.call("session.submit", {
+    target: f.key, requestId: "queues", dispatch: { kind: "start" }, input: { parts: [{ kind: "text", text: "命名请求" }] },
+  });
+  await until(() => client.call("request.get", { spaceId: f.space.id, requestId: named.requestId }), request => request.status === "completed");
+  await server.close();
+  const reopenedServer = await startRepaServer({ agentDir: f.agentDir, modelOverride: provider.override });
+  const reopened = await RepaClient.connect(reopenedServer.connection);
+  f.beforeCleanup(async () => { await reopenedServer.close(); await reopened.close(); });
+  await reopened.call("space.open", { path: f.directory });
+  assert.deepEqual((await reopened.call("queue.list", f.key)).requests, []);
+  const saved = await reopened.call("request.get", { spaceId: f.space.id, requestId: named.requestId });
+  assert.equal(saved.status, "completed");
+  assert("delivery" in saved && saved.delivery.status === "entered");
 });
 
 test("失败接续补入未进入的输入，已经进入的输入不再重复", async t => {

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
@@ -16,23 +16,39 @@ export class RequestStore {
   readonly requests = new Map<string, RequestRecord>();
   readonly paused = new Set<string>();
   readonly #directory: string;
+  readonly #queuesFile: string;
   #sequence = 0;
 
   constructor(root: string, readonly assertOwned: () => void) {
     this.#directory = path.join(root, ".repa", "runtime", "requests");
+    this.#queuesFile = path.join(root, ".repa", "runtime", "queues.json");
     mkdirSync(this.#directory, { recursive: true });
-    for (const name of readdirSync(this.#directory).filter(name => name.endsWith(".json") && name !== "queues.json")) {
+    let legacyQueues: string[] | undefined;
+    for (const name of readdirSync(this.#directory).filter(name => name.endsWith(".json"))) {
       const raw: unknown = JSON.parse(readFileSync(path.join(this.#directory, name), "utf8"));
+      if (name === "queues.json" && Check(queuesSchema, raw)) {
+        legacyQueues = raw.paused;
+        continue;
+      }
       if (!Check(fileSchema, raw)) throw new RepaFault("invalid_request_record", "请求记录无法解析。");
       this.requests.set(raw.request.requestId, raw.request);
       this.#sequence = Math.max(this.#sequence, raw.request.sequence + 1);
     }
     try {
-      const raw: unknown = JSON.parse(readFileSync(path.join(this.#directory, "queues.json"), "utf8"));
+      const raw: unknown = JSON.parse(readFileSync(this.#queuesFile, "utf8"));
       if (!Check(queuesSchema, raw)) throw new RepaFault("invalid_request_record", "队列记录无法解析。");
       for (const id of raw.paused) this.paused.add(id);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if (legacyQueues) {
+        this.assertOwned();
+        writeJsonSync(this.#queuesFile, { version: 1, paused: legacyQueues });
+        for (const id of legacyQueues) this.paused.add(id);
+      }
+    }
+    if (legacyQueues) {
+      this.assertOwned();
+      unlinkSync(path.join(this.#directory, "queues.json"));
     }
   }
 
@@ -56,7 +72,7 @@ export class RequestStore {
     const next = new Set(this.paused);
     if (paused) next.add(sessionId);
     else next.delete(sessionId);
-    writeJsonSync(path.join(this.#directory, "queues.json"), { version: 1, paused: [...next] });
+    writeJsonSync(this.#queuesFile, { version: 1, paused: [...next] });
     this.paused.clear();
     for (const id of next) this.paused.add(id);
   }
