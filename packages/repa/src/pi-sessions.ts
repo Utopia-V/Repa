@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager, SettingsManager, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { historyView, Resources } from "./messages.js";
+import { Check } from "typebox/value";
+import { RunOptionsSchema, type RunOptions } from "./requests/schema.js";
 import type { ResourceRetention } from "./content/resources.js";
 import {
   PiConversationHost,
@@ -25,6 +27,7 @@ export interface StoredSession {
   readonly exists: boolean;
   remove(): void;
   snapshot(): StoredSessionSnapshot;
+  selection(agentDir?: string): RunOptions;
   branch(messageId: string): StoredSession;
   openRuntime(options: RuntimeOptions): Promise<ConversationRuntime>;
 }
@@ -76,6 +79,22 @@ class PiStoredSession implements StoredSession {
         Date.parse(this.#manager.getHeader()?.timestamp ?? "") || Date.now(),
       messages: historyView(this.#manager.getBranch(), this.#resources),
     };
+  }
+
+  selection(agentDir?: string): RunOptions {
+    const settings = SettingsManager.create(this.#manager.getCwd(), agentDir ?? getAgentDir());
+    const context = this.#manager.buildSessionContext();
+    const provider = context.model?.provider ?? settings.getDefaultProvider();
+    const id = context.model?.modelId ?? settings.getDefaultModel();
+    const hasThinking = this.#manager.getBranch().some(entry => entry.type === "thinking_level_change");
+    const thinkingLevel = hasThinking ? context.thinkingLevel
+      : (provider && id ? settings.getModelThinkingLevel(provider, id) : undefined) ?? settings.getDefaultThinkingLevel();
+    const selection = {
+      ...(provider && id ? { model: { provider, id } } : {}),
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    };
+    if (!Check(RunOptionsSchema, selection)) throw new RepaFault("configuration", "保存的运行选项无法识别。");
+    return selection;
   }
 
   branch(messageId: string): StoredSession {

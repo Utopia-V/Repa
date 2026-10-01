@@ -247,7 +247,7 @@ Repa 提供内容读写、引用与组成、数据和资源传递、动作调用
 
 | 范围 | 当前代码与后续接入 |
 | --- | --- |
-| 应用协议、客户端与 TUI | 已有本机后端、协议 v1、无 UI 客户端、多空间多会话、订阅重连和运行记录；当前只接文本输入，Pi 的 steer/follow-up 与图片输入尚未公开，持久排队及指定旧任务接续待补足 |
+| 应用协议、客户端与 TUI | 已有本机后端、协议 v1、无 UI 客户端、多空间多会话、结构化输入与图片、运行中补充、持久队列、失败接续及独立后台请求；配置与能力宿主继续按 #18/#20 对接 |
 | 内容与学习语境 | 已接通文件读写、精确修改、多文件补丁、内容身份与组成、操作查询、撤回与恢复、外部材料只读关联、不可变资源和学习语境注入；已有内容移动与独立复制、材料收集、会话/文档/实例资源保留与清理，以及空间备份、恢复和独立复制；检索待接入 |
 | 扩展与配置 | 已有明确信任后的 Pi 扩展加载、应用／空间／会话提示继承和实际提示装配；共享能力宿主及现有学习语境/默认提示的能力迁接、独立模型连接管理、辅助调用提示配置与官方默认能力组合待接入 |
 | 前端与执行环境 | 已建立独立的 Web 与 Electron 前端入口，各宿主通过现有 CLI 启动自己的本机后端并由公开客户端显示真实连接结果；完整图形组件宿主、多种请求输入、生成内容展示隔离及命令沙箱待实现 |
@@ -335,11 +335,14 @@ TUI 自动连接或启动独立的本机后端，打印连接文件的位置。�
 | 命令 | 行为 |
 | --- | --- |
 | `/cancel` | 请求取消当前会话的任务，最终结果在实际停止后更新。 |
+| `/queue`、`/queue <输入>` | 查看队列，或提交独立后续任务。 |
+| `/cancel-queued <请求ID>`、`/resume` | 取消未开始的请求，或恢复暂停队列。 |
+| `/continue <请求ID>` | 在当前历史和文件上接续未完成任务。 |
 | `/new` | 新建并查看会话，其他会话的任务继续运行。 |
 | `/sessions`、`/use <会话ID>` | 列出会话摘要，或切换查看对象。 |
 | `/branch <消息ID>` | 从已保存的消息建立新会话，保留原会话及其运行；未配对的工具调用不能作为分支终点。 |
 | `/status <请求ID>` | 查询原请求的受理与执行状态。 |
-| `/exit` | 关闭当前前端；最后一个前端离开后，后端完成已启动任务再退出，有待回答交互时继续运行并等待重连答复。 |
+| `/exit` | 关闭当前前端；最后一个前端离开后，后端完成已提交且可执行的任务再退出，有待回答交互时继续运行并等待重连答复。 |
 | `/quit` | 完整退出后端，停止任务并保留已有历史及执行结果。 |
 
 生成期间按 `Ctrl+C` 请求取消，空闲时按 `Ctrl+C` 关闭当前前端。扩展需要回答时，TUI 显示问题并接收回答；确认题使用 `yes` 或 `no`，选择题可以输入选项编号，`/dismiss` 取消该交互。所有前端离开后，待回答的交互仍由后端保留；重新连接可以继续。
@@ -379,13 +382,16 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 
 [协议 schema](packages/repa/src/protocol.ts)同时持有方法参数、返回值、消息和订阅数据结构，TypeScript 类型从同一来源推导，后端与客户端均执行校验。协议版本为 `1`；连接时通过 `initialize` 提交令牌和支持的版本。公开调用采用 JSON-RPC 2.0，经 `/rpc` WebSocket 传输，Repa 操作使用带 `id` 的请求。
 
-应用协议版本与磁盘格式版本分别管理；影响既有调用方的不兼容协议修改需要增加协议版本，并同步更新 schema 与客户端。前端联调按共同选定的提交及其 schema 开展，具体组件宿主约定仍按 ADR 0004 接入。
+应用协议版本与磁盘格式版本分别管理。当前 v1 尚未发布，按已接受契约演进并同步 schema 与客户端；发布后再按公开兼容性约定管理版本。前端联调按共同选定的提交及其 schema 开展，具体组件宿主约定仍按 ADR 0004 接入。
 
 | 方法 | 责任 |
 | --- | --- |
 | `space.open`、`space.list` | 打开本地空间并取得稳定身份，或列出后端已打开的空间。 |
-| `session.create`、`session.list`、`session.get`、`session.branch`、`session.close` | 创建、列举摘要、读取历史、建立分支和释放运行实例；查看历史不启动 Agent。 |
-| `run.submit`、`run.get`、`run.cancel` | 受理请求、查询结果和请求取消。 |
+| `session.create`、`session.list`、`session.get`、`session.history`、`session.branch`、`session.close` | 创建、列举摘要、读取历史、建立分支和释放运行实例；查看历史不启动 Agent。 |
+| `session.submit`、`session.continue`、`request.get` | 提交结构化输入、补充当前运行、排队与失败接续，查询输入的实际归属。 |
+| `run.get`、`run.cancel` | 按运行标识查询状态和请求取消。 |
+| `queue.list`、`queue.cancel`、`queue.resume` | 查询队列，取消尚未开始的项，明确恢复暂停的处理。 |
+| `request.cancel` | 取消独立后台处理，等待实际收尾。 |
 | `content.*`、`operation.*` | 读取和保存文件，维护身份与组成，查询、撤回及核对恢复结果；具体方法见[内容接口](docs/development/content.md)。 |
 | `context.get`、`context.set`、`context.preview` | 读取或更换学习语境绑定，并预览当前完整文本和来源。 |
 | `settings.get`、`settings.set`、`settings.reset` | 读取提示覆盖与来源，按项保存或恢复继承。 |
@@ -393,9 +399,9 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 | `state.get`、`subscription.start`、`subscription.stop` | 按应用、空间或会话范围读取快照和订阅变化。 |
 | `client.detach`、`shutdown` | 离开后端，或请求完成现有任务后退出、取消任务后退出。 |
 
-`run.submit` 使用调用方生成的 `requestId`，它与 JSON-RPC 应答配对用的 `id` 含义不同。同一空间内重复提交相同请求只返回既有状态；复用标识提交不同内容会得到冲突。`accepted` 表示受理记录已保存，终态在 Pi 完整收尾后产生。`run.get` 找不到记录时明确返回 `unknown`。
+`session.submit` 使用调用方生成的 `requestId`，与一次执行的 `runId` 和 JSON-RPC 应答标识分别表达。重复提交返回既有记录；输入是否进入历史、属于哪个运行以及运行是否完成可分别查询。取消与失败暂停后续队列，重开空间后明确恢复。调用和持久语义见[输入、请求与运行](docs/development/requests.md)。
 
-订阅先提供快照，再提供变化。客户端重连时携带原游标，后端缓存仍可接续时重放遗漏变化，否则发送新快照。客户端维护本地状态副本；连接丢失或应答超时的操作不会自动重发，调用方通过请求标识核对结果。查询得到的会话列表按最近活动排序，只包含摘要；完整消息通过 `session.get` 或相应范围的状态订阅取得。
+订阅先提供快照，再提供变化；客户端核对批次前游标，缺口时重新取得快照。连接丢失或应答超时的操作不会自动重发。会话列表只有摘要，`session.get` 和会话订阅提供最近消息，更早历史通过 `session.history` 分页读取。
 
 [无 UI 客户端](packages/repa/src/client.ts)使用标准 WebSocket、Fetch 和 Web Crypto，可供 Node 程序和浏览器前端使用。构建后的包提供独立的 `repa/client` 与 `repa/protocol` 入口；浏览器通过构建工具引入客户端，无须包含后端或 Pi。
 
@@ -415,11 +421,11 @@ const watch = await client.watch(
 );
 
 const requestId = crypto.randomUUID();
-const receipt = await client.call("run.submit", {
-  spaceId: space.id,
-  sessionId: session.sessionId,
+const receipt = await client.call("session.submit", {
+  target: { spaceId: space.id, sessionId: session.sessionId },
   requestId,
-  text: "解释虚拟内存",
+  input: { parts: [{ kind: "text", text: "解释虚拟内存" }] },
+  dispatch: { kind: "start" },
 });
 console.log(receipt); // 受理结果；最终执行状态由订阅或 run.get 取得。
 

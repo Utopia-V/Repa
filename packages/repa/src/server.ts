@@ -292,15 +292,33 @@ export async function startRepaServer(
         case "session.remove":
           await application.removeSession(p<"session.remove">());
           return null;
-        case "run.submit":
-          return application.submit(p<"run.submit">());
+        case "session.submit":
+          return application.submit(p<"session.submit">(), peer.host?.id);
+        case "session.continue":
+          return application.submit(p<"session.continue">(), peer.host?.id);
+        case "request.get": {
+          const input = p<"request.get">();
+          return application.getRequest(input.spaceId, input.requestId);
+        }
+        case "request.cancel": {
+          const input = p<"request.cancel">();
+          return application.cancelRequest(input.spaceId, input.requestId);
+        }
+        case "queue.list": return application.queue(p<"queue.list">());
+        case "queue.resume": return application.resumeQueue(p<"queue.resume">());
+        case "queue.cancel": {
+          const input = p<"queue.cancel">();
+          return application.cancelQueued(input, input.requestId);
+        }
+        case "session.history": return application.history(p<"session.history">());
         case "run.get": {
           const input = p<"run.get">();
-          return application.getRun(input.spaceId, input.requestId);
+          const run = application.getRun(input.spaceId, input.runId);
+          return run;
         }
         case "run.cancel": {
           const input = p<"run.cancel">();
-          return application.cancelRun(input.spaceId, input.requestId);
+          return application.cancelRun(input.spaceId, input.runId);
         }
         case "interaction.reply":
           application.reply(p<"interaction.reply">());

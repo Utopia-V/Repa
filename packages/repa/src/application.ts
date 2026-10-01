@@ -1,8 +1,13 @@
+import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { prepareInput, inputResources, inputText } from "./requests/input.js";
+import type { Submit, Continue, RequestRecord, QueueView } from "./requests/schema.js";
+import { BackgroundRequests, type ProcessingContext } from "./requests/background.js";
+import type { BackgroundRequest, Input, ProcessingResult } from "./requests/schema.js";
 import { ConfigStore } from "./configuration/store.js";
 import type { SettingScope } from "./configuration/schema.js";
 import { ContentStore } from "./content/store.js";
@@ -54,13 +59,18 @@ export interface ApplicationOptions {
 }
 interface ActiveRun {
   run: Run;
+  request: RequestRecord;
   controller: AbortController;
   done: Promise<void>;
+  deliveries: Promise<void>[];
+  ready: Promise<void>;
+  resolveReady: () => void;
 }
 interface SpaceRecord {
   store: RuntimeStore;
   sessions: PiSessionStore;
   content: ContentStore;
+  processing: BackgroundRequests;
   watcher?: FSWatcher;
   watchTimer?: ReturnType<typeof setTimeout>;
 }
@@ -102,6 +112,7 @@ export class RepaApplication {
   readonly #watchers = new Set<{
     scope: Scope;
     send: (value: Delivery) => void;
+    cursor: string;
   }>();
   readonly #log: { sequence: number; change: Change }[] = [];
   readonly #clients = new Set<string>();
@@ -204,8 +215,14 @@ export class RepaApplication {
       const sessions = new PiSessionStore(store.space.path, content.retention);
       const existing = await sessions.list();
       this.#assertAccepting();
-      const record: SpaceRecord = { store, sessions, content };
+      const processing = new BackgroundRequests(content, () => store.assertOwned(), request => {
+        this.#emit({ type: "processing", request });
+        this.#finishIfReady();
+      }, (requestId, signal, dialog, options) => this.#interact({ spaceId: store.space.id, requestId }, signal, dialog, options,
+        (id, interaction) => processing.interaction(requestId, id, interaction)));
+      const record: SpaceRecord = { store, sessions, content, processing };
       this.#spaces.set(store.space.id, record);
+      for (const request of processing.requests.values()) this.#emit({ type: "processing", request });
       this.#emit({ type: "space", space: store.space });
       this.#watchContent(record);
       for (const session of existing) this.#register(store, session);
@@ -365,7 +382,7 @@ export class RepaApplication {
       this.#assertSpaceAvailable(request.spaceId);
       const record = this.#spaces.get(request.spaceId);
       if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
-      if (this.#spaceActivities.get(request.spaceId) || [...this.#sessions.values()].some(session =>
+      if (record.processing.active || this.#spaceActivities.get(request.spaceId) || [...this.#sessions.values()].some(session =>
         session.store === record.store && (session.active || session.opening || session.closing || session.deleting)))
         throw new RepaFault("space_busy", "空间仍有任务或保存正在执行，完成后可生成快照。");
       record.store.assertOwned();
@@ -377,11 +394,12 @@ export class RepaApplication {
     }, method !== "space.operation.get");
   }
 
-  #store(id: string): RuntimeStore {
-    const store = this.#spaces.get(id)?.store;
-    if (!store) throw new RepaFault("not_found", "学习空间尚未打开。");
-    return store;
+  #space(id: string): SpaceRecord {
+    const record = this.#spaces.get(id);
+    if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
+    return record;
   }
+  #store(id: string): RuntimeStore { return this.#space(id).store; }
   #record(key: SessionKey): SessionRecord {
     const record = this.#sessions.get(keyOf(key));
     if (!record)
@@ -422,6 +440,31 @@ export class RepaApplication {
       notices: [],
     };
     const record: SessionRecord = { store, session, view };
+    for (const request of store.requests.list(session.id)) {
+      const entered = messages.filter(message => message.requestId === request.requestId).map(message => message.id);
+      const run = request.runId ? store.runs.get(request.runId) : undefined;
+      if (request.status === "queued") store.requests.pause(session.id, true);
+      const restored = structuredClone(request);
+      if (request.status === "running") restored.status = run && isTerminal(run) ? run.status : "interrupted";
+      if (entered.length) restored.delivery = { status: "entered", messageIds: entered };
+      else if (request.delivery.status === "entered" && request.delivery.messageIds.every(id => messages.some(message => message.id === id))) {
+        restored.delivery = request.delivery;
+      } else if (request.status === "queued") restored.delivery = { status: "pending" };
+      else restored.delivery = { status: "not_entered", reason: "当前历史中没有该输入的持久记录。" };
+      if (restored.status === "interrupted") store.requests.pause(session.id, true);
+      if (!isDeepStrictEqual(restored, request)) store.requests.save(restored);
+    }
+    for (const request of store.requests.list(session.id)) {
+      if ("previousRequestId" in request.submission && request.delivery.status === "entered") {
+        const previous = store.requests.requests.get(request.submission.previousRequestId);
+        if (previous && previous.delivery.status !== "entered") store.requests.save({ ...previous, delivery: request.delivery });
+      }
+    }
+    for (const run of runs) {
+      const requests = store.requests.list(session.id).filter(request => request.runId === run.id);
+      run.requestIds = requests.map(request => request.requestId);
+      run.options = requests[0]?.runOptions;
+    }
     this.#sessions.set(keyOf(key), record);
     this.#emit({ type: "session", session: view });
     return record;
@@ -472,7 +515,19 @@ export class RepaApplication {
     );
   }
   getSession(key: SessionKey): SessionView {
-    return structuredClone(this.#record(key).view);
+    return this.#sessionView(this.#record(key).view, true);
+  }
+
+  #sessionView(view: SessionView, history: boolean): SessionView {
+    return structuredClone({ ...view, messages: history ? view.messages.slice(-100) : [], runs: history ? view.runs.slice(-100) : view.runs.filter(run => !isTerminal(run)) });
+  }
+
+  history(params: Params<"session.history">): { messages: import("./protocol.js").Message[]; before?: string } {
+    const messages = this.#record(params).session.snapshot().messages;
+    const end = params.before === undefined ? messages.length : messages.findIndex(message => message.id === params.before);
+    if (end < 0) throw new RepaFault("invalid_cursor", "历史分页位置不属于当前会话分支。");
+    const start = Math.max(0, end - (params.limit ?? 100));
+    return structuredClone({ messages: messages.slice(start, end), ...(start > 0 ? { before: messages[start]!.id } : {}) });
   }
   branchSession(params: Params<"session.branch">): SessionView {
     this.#assertAccepting();
@@ -485,78 +540,213 @@ export class RepaApplication {
     );
   }
 
-  submit(params: Params<"run.submit">): Promise<Run> {
+  submit(params: Submit | Continue, hostId: string = this.id): Promise<RequestRecord> {
     const input = structuredClone(params);
-    return this.#activity(() => this.#admission.run(() => this.#submit(input)), false, input.spaceId);
+    return this.#activity(() => this.#admission.run(() => this.#submit(input, hostId)), false, input.target.spaceId);
   }
-  async #submit(params: Params<"run.submit">): Promise<Run> {
-    const store = this.#store(params.spaceId);
-    const old = store.runs.get(params.requestId);
+
+  async #submit(submission: Submit | Continue, hostId: string): Promise<RequestRecord> {
+    const { target, requestId } = submission;
+    const store = this.#store(target.spaceId);
+    if (this.#spaces.get(target.spaceId)?.processing.requests.has(requestId))
+      throw new RepaFault("request_id_conflict", "相同标识已用于后台处理。");
+    const old = store.requests.requests.get(requestId);
     if (old) {
-      if (old.sessionId !== params.sessionId || old.text !== params.text)
-        throw new RepaFault(
-          "request_conflict",
-          "相同请求标识已用于另一项请求。",
-        );
-      return this.getRun(params.spaceId, params.requestId) as Run;
+      if (!isDeepStrictEqual(old.submission, submission))
+        throw new RepaFault("request_id_conflict", "相同请求标识已用于另一项输入。");
+      return structuredClone(old);
     }
     this.#assertAccepting();
-    if (!params.text.trim())
-      throw new RepaFault("invalid_input", "消息不能为空。");
-    const record = this.#record(params);
-    if (record.active || record.closing || record.deleting)
-      throw new RepaFault("busy", "该会话仍有任务正在运行或关闭。");
-    const promptSettings = await this.#configuration.prompts({ kind: "session", spaceId: params.spaceId, sessionId: params.sessionId });
+    const record = this.#record(target);
+    let input = submission.input;
+    const dispatch = "dispatch" in submission ? submission.dispatch : { kind: record.active ? "queue" as const : "start" as const };
+    if ("previousRequestId" in submission) {
+      const previous = store.requests.requests.get(submission.previousRequestId);
+      if (!previous || previous.target.sessionId !== target.sessionId)
+        throw new RepaFault("not_found", "原请求不属于该会话。");
+      const run = previous.runId ? this.getRun(target.spaceId, previous.runId) : undefined;
+      if (previous.status !== "not_entered" && !["failed", "cancelled", "interrupted"].includes(run?.status ?? previous.status))
+        throw new RepaFault("request_not_failed", "只有未完成的任务需要接续。");
+      input = this.#continuationInput(previous, input);
+    }
+    if (!input || !input.parts.length || input.parts.every(part => part.kind === "text" && !part.text.trim()))
+      throw new RepaFault("invalid_input", "输入不能为空。");
+    if (dispatch.kind === "steer" && submission.selection)
+      throw new RepaFault("invalid_input", "运行中补充沿用目标运行配置。");
+    const promptSettings = dispatch.kind === "steer" && record.active
+      ? record.active.request.promptSettings
+      : submission.selection?.prompts ?? await this.#configuration.prompts({ kind: "session", ...target });
     this.#assertAccepting();
     store.assertOwned();
-    if (record.active || record.closing || record.deleting)
-      throw new RepaFault("busy", "该会话仍有任务正在运行或关闭。");
+    if (record.closing || record.deleting || (dispatch.kind === "start" &&
+      (record.active || (!store.requests.paused.has(target.sessionId) && this.queue(target).requests.length))))
+      throw new RepaFault("session_busy", "会话正在运行、关闭或已有待执行请求。");
+    const request: RequestRecord = {
+      requestId, target, submission, input, createdAt: Date.now(), sequence: store.requests.nextSequence(),
+      source: { kind: "client", hostId }, promptSettings,
+      runOptions: dispatch.kind === "steer" && record.active ? record.active.run.options ?? {} : {
+        ...(record.host?.selection() ?? record.session.selection(this.#options.agentDir)),
+        ...(submission.selection?.model ? { model: submission.selection.model } : {}),
+        ...(submission.selection?.thinkingLevel !== undefined ? { thinkingLevel: submission.selection.thinkingLevel } : {}),
+        ...(submission.selection?.tools !== undefined ? { tools: submission.selection.tools } : {}),
+      },
+      status: "queued", delivery: { status: "pending" },
+    };
+    const content = this.#space(target.spaceId).content;
+    content.retention.retain(`request:${requestId}`, inputResources(input));
+    try { store.requests.save(request); }
+    catch (error) {
+      content.retention.releaseOwner(`request:${requestId}`);
+      throw error;
+    }
+    if (dispatch.kind === "steer") {
+      const active = record.active;
+      if (!active || active.run.id !== dispatch.expectedRunId || active.controller.signal.aborted) {
+        request.status = "not_entered";
+        request.delivery = { status: "not_entered", reason: "目标运行已改变或结束。" };
+        this.#saveRequest(record, request);
+      } else {
+        request.runId = active.run.id;
+        request.status = "running";
+        this.#saveRequest(record, request);
+        this.#updateRun(active, { requestIds: [...(active.run.requestIds ?? []), requestId] });
+        const delivery = this.#steer(record, active, request);
+        active.deliveries.push(delivery);
+      }
+    } else if (dispatch.kind === "start") this.#start(record, request);
+    else this.#pump(record);
+    this.#emitQueue(record);
+    return store.requests.get(requestId);
+  }
+
+  #saveRequest(record: SessionRecord, request: RequestRecord): void {
+    record.store.requests.save(request);
+    this.#emit({ type: "request", request });
+  }
+
+  getRequest(spaceId: string, requestId: string): RequestRecord | BackgroundRequest | { requestId: string; status: "unknown" } {
+    return structuredClone(this.#store(spaceId).requests.requests.get(requestId) ?? this.#spaces.get(spaceId)?.processing.requests.get(requestId) ?? { requestId, status: "unknown" });
+  }
+
+  /** 已装配能力提交独立处理；公共能力发现与分发由插件宿主持有。 */
+  process(params: { spaceId: string; requestId: string; operation: string; input: Input }, execute: (input: Input, context: ProcessingContext) => Promise<ProcessingResult>): Promise<BackgroundRequest> {
+    const submission = structuredClone(params);
+    return this.#activity(async () => {
+      const record = this.#spaces.get(submission.spaceId);
+      if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
+      if (record.store.requests.requests.has(submission.requestId)) throw new RepaFault("request_id_conflict", "相同标识已用于会话输入。");
+      if (!record.processing.requests.has(submission.requestId)) this.#assertAccepting();
+      return record.processing.submit(submission, execute);
+    }, false, submission.spaceId);
+  }
+
+  cancelRequest(spaceId: string, requestId: string): BackgroundRequest {
+    const record = this.#spaces.get(spaceId);
+    if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
+    return record.processing.cancel(requestId);
+  }
+
+  queue(target: SessionKey): QueueView {
+    const record = this.#record(target);
+    return structuredClone({ target: { spaceId: target.spaceId, sessionId: target.sessionId }, status: record.store.requests.paused.has(target.sessionId) ? "paused" : "running",
+      requests: record.store.requests.list(target.sessionId).filter(request => request.status === "queued") });
+  }
+
+  #emitQueue(record: SessionRecord): void {
+    this.#emit({ type: "queue", queue: this.queue(record.view) });
+  }
+
+  resumeQueue(target: SessionKey): QueueView {
+    this.#assertAccepting();
+    this.#assertSpaceAvailable(target.spaceId);
+    const record = this.#record(target);
+    record.store.requests.pause(target.sessionId, false);
+    this.#pump(record);
+    this.#emitQueue(record);
+    return this.queue(target);
+  }
+
+  cancelQueued(target: SessionKey, requestId: string): RequestRecord {
+    this.#assertSpaceAvailable(target.spaceId);
+    const record = this.#record(target);
+    const request = record.store.requests.requests.get(requestId);
+    if (!request || request.target.sessionId !== target.sessionId) throw new RepaFault("not_found", "排队请求不存在。");
+    if (request.status === "cancelled") return structuredClone(request);
+    if (request.status !== "queued") throw new RepaFault("request_started", "请求已离开队列，请查询其运行。");
+    this.#saveRequest(record, { ...request, status: "cancelled", delivery: { status: "not_entered", reason: "排队请求已取消。" } });
+    this.#emitQueue(record);
+    return record.store.requests.get(requestId);
+  }
+
+  #pump(record: SessionRecord): void {
+    if (record.active || record.closing || record.deleting || this.#finishing ||
+      this.#state.lifecycle === "stopping" || record.store.requests.paused.has(record.view.sessionId)) return;
+    const request = this.queue(record.view).requests[0];
+    if (request) this.#start(record, request);
+  }
+
+  #continuationInput(previous: RequestRecord, supplement?: Input): Input {
+    const parts = previous.delivery.status === "entered"
+      ? [{ kind: "text" as const, text: `继续此前未完成的任务，原输入已在历史消息 ${previous.delivery.messageIds.join(", ")} 中。根据当前历史和文件继续。` }]
+      : previous.input.parts;
+    return { parts: [...parts, ...(supplement?.parts ?? [])] };
+  }
+
+  #start(record: SessionRecord, request: RequestRecord): void {
+    if ("previousRequestId" in request.submission) {
+      request = { ...request, input: this.#continuationInput(record.store.requests.get(request.submission.previousRequestId), request.submission.input) };
+    }
     const run: Run = {
-      id: params.requestId,
-      spaceId: params.spaceId,
-      sessionId: params.sessionId,
-      text: params.text,
-      status: "accepted",
-      phase: "preparing",
-      createdAt: Date.now(),
-      promptSettings,
+      id: randomUUID(), ...request.target, text: inputText(request.input), requestIds: [request.requestId],
+      status: "accepted", phase: "preparing", createdAt: Date.now(), promptSettings: request.promptSettings, options: request.runOptions,
     };
-    store.saveRun(run);
+    record.store.saveRun(run);
+    this.#saveRequest(record, { ...request, runId: run.id, status: "running" });
     record.view.updatedAt = run.createdAt;
-    if (!record.view.messages.length && !record.view.runs.length)
-      record.view.title = params.text.slice(0, 120);
-    const active: ActiveRun = {
-      run,
-      controller: new AbortController(),
-      done: Promise.resolve(),
-    };
+    if (!record.view.messages.length && !record.view.runs.length) record.view.title = run.text.slice(0, 120);
+    let resolveReady = () => {};
+    const ready = new Promise<void>(resolve => { resolveReady = resolve; });
+    const active: ActiveRun = { run, request, controller: new AbortController(), done: Promise.resolve(), deliveries: [], ready, resolveReady };
     record.active = active;
     active.done = Promise.resolve().then(() => this.#execute(record, active));
     this.#emit({ type: "session", session: record.view });
     this.#emit({ type: "run", run });
-    return structuredClone(run);
   }
+
+  async #steer(record: SessionRecord, active: ActiveRun, request: RequestRecord): Promise<void> {
+    try {
+      await active.ready;
+      const input = await prepareInput(request.input, this.#space(request.target.spaceId).content, request.requestId);
+      if (active.controller.signal.aborted || record.active !== active || !record.host ||
+        !await record.host.steer(request.requestId, input)) {
+        this.#saveRequest(record, { ...request, status: "not_entered", delivery: { status: "not_entered", reason: "目标运行已停止接收输入。" } });
+      }
+    } catch (error) {
+      this.#saveRequest(record, { ...request, status: "not_entered", delivery: { status: "not_entered", reason: String(error) } });
+    }
+  }
+
   getRun(
     spaceId: string,
-    requestId: string,
+    runId: string,
   ): Run | { id: string; status: "unknown" } {
     const store = this.#store(spaceId);
-    const saved = store.runs.get(requestId);
-    if (!saved) return { id: requestId, status: "unknown" };
+    const saved = store.runs.get(runId);
+    if (!saved) return { id: runId, status: "unknown" };
     return structuredClone(
       this.#sessions
         .get(keyOf(saved))
-        ?.view.runs.find((x) => x.id === requestId) ?? saved,
+        ?.view.runs.find((x) => x.id === runId) ?? saved,
     );
   }
-  cancelRun(spaceId: string, requestId: string): Run {
-    const run = this.getRun(spaceId, requestId);
+  cancelRun(spaceId: string, runId: string): Run {
+    const run = this.getRun(spaceId, runId);
     if (run.status === "unknown")
-      throw new RepaFault("unknown_request", "无法确认该请求的执行状态。");
+      throw new RepaFault("unknown_run", "无法确认该运行的执行状态。");
     if (isTerminal(run)) return run;
     const record = this.#record(run);
     const active = record.active;
-    if (!active || active.run.id !== requestId) return run;
+    if (!active || active.run.id !== runId) return run;
     active.controller.abort();
     this.#updateRun(active, { status: "cancelling" });
     if (record.host)
@@ -567,7 +757,7 @@ export class RepaApplication {
   }
 
   async #execute(record: SessionRecord, active: ActiveRun): Promise<void> {
-    let result: Partial<Run> = { status: "cancelled" };
+    let result: { status: "completed" | "cancelled" | "failed" | "interrupted"; error?: Run["error"] } = { status: "cancelled" };
     try {
       if (!active.controller.signal.aborted) {
         this.#updateRun(active, { status: "running" });
@@ -584,10 +774,16 @@ export class RepaApplication {
           this.#emit({ type: "session", session: record.view });
         }
         if (!active.controller.signal.aborted) {
-          const outcome = await record.host.send(active.run.text, active.run.promptSettings!);
+          const request = active.request;
+          const input = await prepareInput(request.input, this.#space(request.target.spaceId).content, request.requestId);
+          const execution = active.controller.signal.aborted
+            ? Promise.resolve({ status: "cancelled" as const })
+            : record.host.send(input.text, request.promptSettings, { requestId: request.requestId, images: input.images, options: request.runOptions });
+          active.resolveReady();
+          const outcome = await execution;
           result = {
             status: outcome.status,
-            ...(outcome.error
+            ...("error" in outcome && outcome.error
               ? { error: { code: "provider", message: outcome.error } }
               : {}),
           };
@@ -606,7 +802,11 @@ export class RepaApplication {
       if (!record.host) record.view.runtime = "unloaded";
     } finally {
       active.controller.abort();
-      const finished: Run = {
+      active.resolveReady();
+      const deliveries = await Promise.allSettled(active.deliveries);
+      const rejected = deliveries.find(delivery => delivery.status === "rejected");
+      if (rejected?.status === "rejected") result = { status: "interrupted", error: { code: "storage", message: String(rejected.reason) } };
+      const finished: Run & { status: typeof result.status } = {
         ...active.run,
         ...result,
         phase: "idle",
@@ -614,18 +814,30 @@ export class RepaApplication {
       };
       try {
         record.store.saveRun(finished);
+        if (finished.status !== "completed") record.store.requests.pause(record.view.sessionId, true);
+        for (const request of record.store.requests.list(record.view.sessionId).filter(request => request.runId === finished.id)) {
+          this.#saveRequest(record, {
+            ...request,
+            status: "dispatch" in request.submission && request.submission.dispatch.kind === "steer" && request.delivery.status !== "entered"
+              ? "not_entered" : finished.status,
+            delivery: request.delivery.status === "pending"
+              ? { status: "not_entered", reason: "运行结束前输入未进入历史。" } : request.delivery,
+            ...(finished.error ? { error: finished.error } : {}),
+          });
+        }
       } catch (error) {
         finished.status = "interrupted";
-        finished.error = {
-          code: "storage",
-          message: `执行结果未能保存：${String(error)}`,
-        };
+        finished.error = { code: "storage", message: `执行结果未能保存：${String(error)}` };
+        record.store.requests.paused.add(record.view.sessionId);
+        this.#notice(record, finished.error.code, finished.error.message);
       }
       active.run = finished;
-      record.view.updatedAt = finished.finishedAt!;
+      record.view.updatedAt = finished.finishedAt ?? record.view.updatedAt;
       this.#emit({ type: "run", run: finished });
       record.active = undefined;
       this.#emit({ type: "session", session: record.view });
+      this.#pump(record);
+      this.#emitQueue(record);
       this.#finishIfReady();
     }
   }
@@ -651,7 +863,17 @@ export class RepaApplication {
       spaceId: record.view.spaceId,
       sessionId: record.view.sessionId,
     };
-    if (event.type === "title") {
+    if (event.type === "entered") {
+      const request = record.store.requests.requests.get(event.requestId);
+      if (request) {
+        this.#saveRequest(record, { ...request, delivery: { status: "entered", messageIds: [event.messageId] } });
+        if ("previousRequestId" in request.submission) {
+          const previous = record.store.requests.requests.get(request.submission.previousRequestId);
+          if (previous && previous.delivery.status !== "entered")
+            this.#saveRequest(record, { ...previous, delivery: { status: "entered", messageIds: [event.messageId] } });
+        }
+      }
+    } else if (event.type === "title") {
       const first = record.view.messages
         .find((x) => x.role === "user")
         ?.content.find((x) => x.type === "text");
@@ -680,57 +902,40 @@ export class RepaApplication {
       notice: { id: randomUUID(), code, message, level: "error" },
     });
   }
-  #ask(
-    record: SessionRecord,
-    dialog: Dialog,
-    options?: DialogOptions,
-  ): Promise<Reply> {
+  #ask(record: SessionRecord, dialog: Dialog, options?: DialogOptions): Promise<Reply> {
     const active = record.active;
-    if (!active || active.controller.signal.aborted || options?.signal?.aborted)
-      return Promise.resolve(null);
+    if (!active) return Promise.resolve(null);
+    return this.#interact({ spaceId: record.view.spaceId, sessionId: record.view.sessionId, runId: active.run.id }, active.controller.signal, dialog, options,
+      (_id, interaction) => {
+        if (interaction) this.#updateRun(active, { status: "waiting" });
+        else if (active.run.status === "waiting" && !record.view.interactions.length) this.#updateRun(active, { status: "running" });
+      });
+  }
+
+  #interact(owner: { spaceId: string; sessionId: string; runId: string } | { spaceId: string; requestId: string }, signal: AbortSignal,
+    dialog: Dialog, options: DialogOptions | undefined, changed: (id: string, interaction: Interaction | null) => void): Promise<Reply> {
+    if (signal.aborted || options?.signal?.aborted) return Promise.resolve(null);
     const id = randomUUID();
-    const interaction: Interaction = {
-      ...dialog,
-      id,
-      spaceId: record.view.spaceId,
-      sessionId: record.view.sessionId,
-      runId: active.run.id,
-      ...(options?.timeout !== undefined
-        ? { expiresAt: Date.now() + options.timeout }
-        : {}),
-    };
-    return new Promise((resolve) => {
+    const interaction: Interaction = { ...dialog, ...owner, id,
+      ...(options?.timeout !== undefined ? { expiresAt: Date.now() + options.timeout } : {}) };
+    return new Promise(resolve => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (value: Reply) => {
         if (!this.#pending.delete(id)) return;
         clearTimeout(timer);
-        active.controller.signal.removeEventListener("abort", abort);
+        signal.removeEventListener("abort", abort);
         options?.signal?.removeEventListener("abort", abort);
-        this.#emit({
-          type: "interaction",
-          spaceId: interaction.spaceId,
-          sessionId: interaction.sessionId,
-          id,
-          interaction: null,
-        });
-        if (active.run.status === "waiting" && !record.view.interactions.length)
-          this.#updateRun(active, { status: "running" });
+        if ("sessionId" in owner) this.#emit({ type: "interaction", spaceId: owner.spaceId, sessionId: owner.sessionId, id, interaction: null });
+        changed(id, null);
         resolve(value);
       };
       const abort = () => finish(null);
       this.#pending.set(id, { interaction, resolve: finish });
-      active.controller.signal.addEventListener("abort", abort, { once: true });
+      signal.addEventListener("abort", abort, { once: true });
       options?.signal?.addEventListener("abort", abort, { once: true });
-      if (options?.timeout !== undefined)
-        timer = setTimeout(abort, options.timeout);
-      this.#updateRun(active, { status: "waiting" });
-      this.#emit({
-        type: "interaction",
-        spaceId: interaction.spaceId,
-        sessionId: interaction.sessionId,
-        id,
-        interaction,
-      });
+      if (options?.timeout !== undefined) timer = setTimeout(abort, options.timeout);
+      if ("sessionId" in owner) this.#emit({ type: "interaction", spaceId: owner.spaceId, sessionId: owner.sessionId, id, interaction });
+      changed(id, interaction);
     });
   }
   reply(params: Params<"interaction.reply">): void {
@@ -787,6 +992,10 @@ export class RepaApplication {
       try {
         await this.closeSession(key);
         record.store.assertOwned();
+        for (const request of record.store.requests.list(key.sessionId)) {
+          if (request.status === "queued") this.cancelQueued(key, request.requestId);
+          // 请求记录继续持有其输入；删除会话只释放会话历史自身的资源。
+        }
         record.session.remove();
       } finally {
         if (!record.session.exists) {
@@ -800,10 +1009,11 @@ export class RepaApplication {
   snapshot(scope: Scope): Snapshot {
     return structuredClone({
       lifecycle: this.#state.lifecycle,
+      processing: this.#state.processing?.filter(request => contains(scope, request)),
       spaces: this.#state.spaces.filter(
         (x) => !("spaceId" in scope) || x.id === scope.spaceId,
       ),
-      sessions: this.#state.sessions.filter((x) => contains(scope, x)),
+      sessions: this.#state.sessions.filter((x) => contains(scope, x)).map(view => this.#sessionView(view, "sessionId" in scope)),
     });
   }
   watch(
@@ -811,7 +1021,7 @@ export class RepaApplication {
     cursor: string | undefined,
     send: (delivery: Delivery) => void,
   ): () => void {
-    const watcher = { scope, send };
+    const watcher = { scope, send, cursor: this.#cursor() };
     this.#watchers.add(watcher);
     const suffix = cursor?.startsWith(`${this.id}:`)
       ? Number(cursor.slice(this.id.length + 1))
@@ -823,10 +1033,11 @@ export class RepaApplication {
     ) {
       send({
         type: "changes",
+        previousCursor: cursor!,
         cursor: this.#cursor(),
         changes: this.#log
           .filter((x) => x.sequence > suffix && relevant(scope, x.change))
-          .map((x) => structuredClone(x.change)),
+          .map((x) => this.#scopedChange(x.change, scope)),
       });
     } else
       send({
@@ -838,6 +1049,9 @@ export class RepaApplication {
       this.#watchers.delete(watcher);
     };
   }
+  #scopedChange(change: Change, scope: Scope): Change {
+    return change.type === "session" ? { type: "session", session: this.#sessionView(change.session, "sessionId" in scope) } : structuredClone(change);
+  }
   #cursor(): string {
     return `${this.id}:${this.#sequence}`;
   }
@@ -845,7 +1059,8 @@ export class RepaApplication {
     applyChange(this.#state, change);
     this.#log.push({
       sequence: ++this.#sequence,
-      change: structuredClone(change),
+      change: change.type === "session"
+        ? { type: "session", session: this.#sessionView(change.session, true) } : structuredClone(change),
     });
     if (this.#log.length > (this.#options.eventBufferSize ?? 1024))
       this.#log.shift();
@@ -854,9 +1069,11 @@ export class RepaApplication {
       try {
         watcher.send({
           type: "changes",
+          previousCursor: watcher.cursor,
           cursor: this.#cursor(),
-          changes: [structuredClone(change)],
+          changes: [this.#scopedChange(change, watcher.scope)],
         });
+        watcher.cursor = this.#cursor();
       } catch {
         this.#watchers.delete(watcher);
       }
@@ -875,9 +1092,11 @@ export class RepaApplication {
     });
     if (mode === "cancel")
       for (const record of this.#sessions.values()) {
+        record.store.requests.pause(record.view.sessionId, true);
         if (record.active)
           this.cancelRun(record.view.spaceId, record.active.run.id);
       }
+    if (mode === "cancel") for (const record of this.#spaces.values()) record.processing.cancelAll();
     this.#finishIfReady();
   }
   #finishIfReady(): void {
@@ -887,6 +1106,7 @@ export class RepaApplication {
       this.#state.lifecycle === "stopped" ||
       this.#openingSpaces.size ||
       this.#activities ||
+      [...this.#spaces.values()].some(record => record.processing.active) ||
       [...this.#sessions.values()].some((x) => x.active)
     )
       return;
@@ -901,10 +1121,11 @@ export class RepaApplication {
           this.#notice(record, "shutdown", String(error));
         }
       }
-      for (const { store, content, watcher, watchTimer } of this.#spaces.values()) {
+      for (const { store, content, processing, watcher, watchTimer } of this.#spaces.values()) {
         try {
           clearTimeout(watchTimer);
           watcher?.close();
+          await processing.settled();
           await content.settled();
           store.release();
         } catch (error) {

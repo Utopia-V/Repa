@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { getCurrentSystemMessage, type Model } from "@earendil-works/pi-ai";
+import { getCurrentSystemMessage, type Api, type Model, type ImageContent } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -15,6 +15,9 @@ import {
   SettingsManager,
   sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
+import { SerialQueue } from "./storage/atomic.js";
+import type { RunOptions } from "./requests/schema.js";
+import type { PreparedInput } from "./requests/input.js";
 import { historyView, messageView, type Resources } from "./messages.js";
 import type {
   Change,
@@ -41,7 +44,7 @@ import type { ContentStore } from "./content/store.js";
 export { DEFAULT_BASE_PROMPT as REPA_BASE_PROMPT } from "./configuration/schema.js";
 export interface PiModelOverride {
   modelRuntime: ModelRuntime;
-  model: Model<any>;
+  model: Model<Api>;
 }
 export type Dialog = Pick<
   Interaction,
@@ -55,11 +58,15 @@ export interface ConversationRuntime {
   send(
     text: string,
     settings: PromptSettings,
+    input?: { requestId: string; images: ImageContent[]; options?: RunOptions },
   ): Promise<{ status: "completed" | "cancelled" | "failed"; error?: string }>;
+  selection(): RunOptions;
+  steer(requestId: string, input: PreparedInput): Promise<boolean>;
   cancel(): Promise<void>;
   close(): Promise<void>;
 }
 export type HostEvent =
+  | { type: "entered"; requestId: string; messageId: string }
   | { type: "title"; title: string | undefined }
   | { type: "message"; message: Message; replaces?: string }
   | {
@@ -95,6 +102,11 @@ export class PiConversationHost implements ConversationRuntime {
   readonly #agentDir: string;
   readonly #fileChanges: FileChanges;
   readonly #unsubscribe: () => void;
+  readonly #inputQueue = new SerialQueue();
+  readonly #pendingInputs: string[] = [];
+  #inputRequest: string | undefined;
+  #ready: Promise<void> = Promise.resolve();
+  #resolveReady: (() => void) | undefined;
   #liveId: string | undefined;
   #lastResult: {
     status: "completed" | "cancelled" | "failed";
@@ -145,6 +157,9 @@ export class PiConversationHost implements ConversationRuntime {
       extensionFactories: [{
         name: "repa-context",
         factory(pi) {
+          pi.on("input", (event) => {
+            if (event.source === "rpc" && host && host.#inputRequest) host.#pendingInputs.push(host.#inputRequest);
+          });
           pi.on("before_agent_start", () => ({ systemPrompt: host ? host.#runPrompt : "" }));
           pi.on("context", async (event) => ({
             messages: host ? await host.#prepareContext(event.messages) : event.messages,
@@ -289,19 +304,30 @@ export class PiConversationHost implements ConversationRuntime {
   async send(
     text: string,
     settings: PromptSettings,
+    input?: { requestId: string; images: ImageContent[]; options?: RunOptions },
   ): Promise<{ status: "completed" | "cancelled" | "failed"; error?: string }> {
     if (this.#closed) throw new Error("会话运行实例已关闭。");
     if (this.#sending || !this.#session.isIdle)
       throw new RepaFault("busy", "会话已有正在处理的运行。");
-    if (!this.#session.model)
-      throw new RepaFault(
-        "configuration",
-        "没有可用模型，请配置模型连接后重试。",
-      );
     this.#lastResult = { status: "completed" };
     this.#cancelled = false;
     this.#sending = true;
+    this.#ready = new Promise(resolve => { this.#resolveReady = resolve; });
     try {
+      if (input?.options?.model) {
+        const selection = input.options.model;
+        const model = this.#session.modelRuntime.getModel(selection.provider, selection.id);
+        if (!model || (selection.baseUrl !== undefined && model.baseUrl !== selection.baseUrl))
+          throw new RepaFault("configuration", "受理时选择的模型或端点已不可用。");
+        if (this.#session.model !== model) await this.#session.setModel(model);
+      }
+      if (input?.options?.thinkingLevel !== undefined) this.#session.setThinkingLevel(input.options.thinkingLevel);
+      if (input?.options?.tools !== undefined) this.#session.setActiveToolsByName(input.options.tools);
+      if (!this.#session.model)
+        throw new RepaFault(
+          "configuration",
+          "没有可用模型，请配置模型连接后重试。",
+        );
       const selected = structuredClone(settings);
       const view = selected.learningContext ? await this.#options.content.contextView() : undefined;
       if (this.#cancelled || this.#closed) return { status: "cancelled" };
@@ -323,12 +349,40 @@ export class PiConversationHost implements ConversationRuntime {
           await this.#session.sendCustomMessage(message, { triggerTurn: false });
         }
       }
-      await this.#session.prompt(text, { expandPromptTemplates: true });
+      this.#inputRequest = input?.requestId;
+      const running = this.#session.prompt(text, { expandPromptTemplates: true, images: input?.images, source: "rpc" });
+      await running;
       await this.#session.waitForIdle();
       return this.#cancelled ? { status: "cancelled" } : this.#lastResult;
     } finally {
       this.#sending = false;
+      this.#resolveReady?.();
+      await this.#inputQueue.settled();
+      this.#session.clearQueue();
+      this.#pendingInputs.length = 0;
+      this.#inputRequest = undefined;
     }
+  }
+
+  selection(): RunOptions {
+    const model = this.#session.model;
+    return {
+      ...(model ? { model: { provider: model.provider, id: model.id, baseUrl: model.baseUrl } } : {}),
+      thinkingLevel: this.#session.thinkingLevel,
+      tools: this.#session.getActiveToolNames(),
+    };
+  }
+
+  async steer(requestId: string, input: PreparedInput): Promise<boolean> {
+    await this.#ready;
+    return this.#inputQueue.run(async () => {
+      if (!this.#sending || this.#cancelled || this.#session.isIdle) return false;
+      this.#inputRequest = requestId;
+      try {
+        await this.#session.steer(input.text, input.images, { source: "rpc" });
+        return true;
+      } finally { this.#inputRequest = undefined; }
+    });
   }
 
   #projectMessages(messages: WorkingMessage[]): WorkingMessage[] {
@@ -372,6 +426,12 @@ export class PiConversationHost implements ConversationRuntime {
 
   #onEvent(event: AgentSessionEvent): void {
     const emit = this.#options.onEvent;
+    if (event.type === "message_start" && event.message.role === "user") {
+      const requestId = this.#pendingInputs.shift();
+      if (requestId) Object.assign(event.message, { repaRequestId: requestId });
+      this.#inputRequest = undefined;
+      this.#resolveReady?.();
+    }
     if (event.type === "message_start" && event.message.role === "assistant") {
       this.#liveId = `live-${randomUUID()}`;
       emit({ type: "phase", phase: "model" });
@@ -432,6 +492,7 @@ export class PiConversationHost implements ConversationRuntime {
         );
         if (entry) {
           const message = historyView([entry], this.#options.resources)[0];
+          if (message?.requestId) emit({ type: "entered", requestId: message.requestId, messageId: message.id });
           if (message)
             emit({
               type: "message",

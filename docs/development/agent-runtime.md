@@ -9,7 +9,7 @@
 3. Host 根据当前分支和压缩边界得到实际工作消息，比较最近完整语境快照。变化或缺失时，追加 `repa.learning-context` 自定义消息，然后交给 Pi 处理用户输入。
 4. 工具调用和后续模型轮沿用该运行的提示与入口语境。工具仍能读取当前文件；下一次独立运行才重新取得入口语境。
 
-当前应用输入仍是 `run.submit` 的文本请求，忙时返回 `busy`。Pi 已提供 steer、follow-up 和图片输入，Repa 的公开接口与 Host 尚未接通；带来源的结构化输入、持久排队与显式失败任务接续按 Issue #16/#19 接入。Host 的 `send(text, settings)` 接收本次已经确定的设置，不主动查询实时全局覆盖。
+应用输入通过 `session.submit` 受理，独立请求、steer 和持久排队分别处理。Host 使用 Pi `prompt()` / `steer()` 及图片参数投递，应用记录实际进入历史的消息关联。独立队列在开始时才准备当前背景并启动新运行，失败接续不重放旧工具。公共接口与持久语义见[输入、请求与运行](requests.md)。
 
 ## SDK 能力与接入范围
 
@@ -17,10 +17,10 @@
 
 | 能力 | SDK 入口与当前接法 | 后续 Repa 接入 |
 | --- | --- | --- |
-| 运行中补充、后续输入与图片 | `AgentSession.steer()`、`followUp()`、`prompt()` 的 `streamingBehavior` / `images`，以及 `sendUserMessage()`；当前 Host 只接普通文本 `prompt()` | #19 接公开输入、目标运行关联、资源来源与历史关联；基本投递可沿用现有模型配置先接通 |
+| 运行中补充、后续输入与图片 | `AgentSession.steer()`、`followUp()`、`prompt()` 的 `streamingBehavior` / `images`，以及 `sendUserMessage()`；当前 Host 接文本、图片 `prompt()` 与 `steer()`，独立 follow-up 由持久队列在开始时投递 | #19 已接公开输入、目标运行、资源与历史关联；具名连接及完整配置来源继续与 #18 对接 |
 | 模型、认证与独立调用 | `ModelRuntime` 提供发现、认证、`complete()` / `stream()`；当前普通会话已使用它，具名连接界面尚未接通 | #18 增加连接身份、选择、配置来源与认证进度。凭据沿用 Pi 存储或 `CredentialStore`，不新增 provider 调用栈 |
 | 工具启用与运行选项 | `getAllTools()`、`setActiveToolsByName()`、`setModel()`、`setThinkingLevel()`；当前只接内容工具和已有配置 | #18/#19 在适用的运行边界应用选择；对外保留 Repa 的继承、受理时配置与授权语义 |
-| 历史、计量、压缩、重试与取消 | `SessionManager`、`getContextUsage()`、`compact()`、`abort()`、`waitForIdle()`；当前已复用历史、自动压缩、重试及取消收尾 | 补应用请求的持久状态和前端呈现；不另写历史树、计数器、工具循环或外层自动重试 |
+| 历史、计量、压缩、重试与取消 | `SessionManager`、`getContextUsage()`、`compact()`、`abort()`、`waitForIdle()`；当前已复用历史、自动压缩、重试及取消收尾 | 应用已保存请求与队列状态并提供历史分页；前端按公共接口接入，不另写历史树、计数器、工具循环或外层自动重试 |
 | 命令与基本文件检索 | `createBashToolDefinition()` / `BashOperations.exec`，以及 `grep`、`find`、`ls` 工厂；当前尚未启用 | #21 在实际执行边界接授权与沙箱；#22 接授权范围、内容身份及来源定位，优先复用已有搜索实现 |
 | Agent 资源与包 | `DefaultResourceLoader`、`DefaultPackageManager`、工具及扩展注册；当前已能加载可信 Pi 扩展、Skill 和提示 | #20 补跨 Agent/前端共享能力、组件入口与空间数据生命周期；普通 Pi 包无需等待整个共享宿主 |
 

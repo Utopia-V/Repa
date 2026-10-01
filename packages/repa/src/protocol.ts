@@ -9,6 +9,9 @@ export * from "./content/schema.js";
 export * from "./configuration/schema.js";
 export { RepaFault } from "./errors.js";
 
+import { SubmitSchema, ContinueSchema, RequestSchema, QueueSchema, BackgroundRequestSchema, RunOptionsSchema, InteractionSchema, ReplySchema } from "./requests/schema.js";
+export * from "./requests/schema.js";
+
 export const PROTOCOL_VERSION = 1;
 const text = Type.String();
 const key = { spaceId: id, sessionId: id };
@@ -38,6 +41,7 @@ export const MessageSchema = object({
   ]),
   content: Type.Array(BlockSchema),
   timestamp: Type.Number(),
+  requestId: Type.Optional(id),
   toolCallId: Type.Optional(text),
   name: Type.Optional(text),
   error: Type.Optional(text),
@@ -73,31 +77,15 @@ export const RunSchema = object({
   ]),
   createdAt: Type.Number(),
   promptSettings: Type.Optional(PromptSettingsSchema),
+  requestIds: Type.Optional(Type.Array(id)),
+  options: Type.Optional(RunOptionsSchema),
   finishedAt: Type.Optional(Type.Number()),
   error: Type.Optional(ErrorSchema),
 });
 export type Run = Static<typeof RunSchema>;
-export const isTerminal = (run: Run): boolean =>
+export const isTerminal = (run: Run): run is Run & { status: "completed" | "cancelled" | "failed" | "interrupted" } =>
   ["completed", "cancelled", "failed", "interrupted"].includes(run.status);
 
-export const InteractionSchema = object({
-  id,
-  ...key,
-  runId: id,
-  kind: literals(["select", "confirm", "input", "editor"]),
-  title: text,
-  message: Type.Optional(text),
-  options: Type.Optional(Type.Array(text)),
-  initialValue: Type.Optional(text),
-  expiresAt: Type.Optional(Type.Number()),
-});
-export type Interaction = Static<typeof InteractionSchema>;
-export const ReplySchema = Type.Union([
-  Type.String(),
-  Type.Boolean(),
-  Type.Null(),
-]);
-export type Reply = Static<typeof ReplySchema>;
 export const NoticeSchema = object({
   id: text,
   code: text,
@@ -140,6 +128,7 @@ export const SnapshotSchema = object({
   lifecycle: LifecycleSchema,
   spaces: Type.Array(SpaceSchema),
   sessions: Type.Array(SessionSchema),
+  processing: Type.Optional(Type.Array(BackgroundRequestSchema)),
 });
 export type Snapshot = Static<typeof SnapshotSchema>;
 export const ScopeSchema = Type.Union([
@@ -171,6 +160,9 @@ export const ChangeSchema = Type.Union([
     text,
   }),
   object({ type: Type.Literal("run"), run: RunSchema }),
+  object({ type: Type.Literal("request"), request: RequestSchema }),
+  object({ type: Type.Literal("processing"), request: BackgroundRequestSchema }),
+  object({ type: Type.Literal("queue"), queue: QueueSchema }),
   object({
     type: Type.Literal("interaction"),
     ...key,
@@ -196,6 +188,7 @@ export const DeliverySchema = Type.Union([
   }),
   object({
     type: Type.Literal("changes"),
+    previousCursor: text,
     cursor: text,
     changes: Type.Array(ChangeSchema),
   }),
@@ -235,17 +228,21 @@ export const methods = {
   "session.branch": method(object({ ...key, messageId: text }), SessionSchema),
   "session.close": method(SessionKeySchema, Type.Null()),
   "session.remove": method(SessionKeySchema, Type.Null()),
-  "run.submit": method(
-    object({ ...key, requestId: id, text: Type.String({ minLength: 1 }) }),
-    RunSchema,
-  ),
-  "run.get": method(
-    object({ spaceId: id, requestId: id }),
-    Type.Union([RunSchema, object({ id, status: Type.Literal("unknown") })]),
-  ),
-  "run.cancel": method(object({ spaceId: id, requestId: id }), RunSchema),
+  "session.submit": method(SubmitSchema, RequestSchema),
+  "session.continue": method(ContinueSchema, RequestSchema),
+  "request.get": method(object({ spaceId: id, requestId: id }),
+    Type.Union([RequestSchema, BackgroundRequestSchema, object({ requestId: id, status: Type.Literal("unknown") })])),
+  "request.cancel": method(object({ spaceId: id, requestId: id }), BackgroundRequestSchema),
+  "queue.list": method(SessionKeySchema, QueueSchema),
+  "queue.resume": method(SessionKeySchema, QueueSchema),
+  "queue.cancel": method(object({ ...key, requestId: id }), RequestSchema),
+  "session.history": method(object({ ...key, before: Type.Optional(id), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })) }),
+    object({ messages: Type.Array(MessageSchema), before: Type.Optional(id) })),
+  "run.get": method(object({ spaceId: id, runId: id }),
+    Type.Union([RunSchema, object({ id, status: Type.Literal("unknown") })])),
+  "run.cancel": method(object({ spaceId: id, runId: id }), RunSchema),
   "interaction.reply": method(
-    object({ ...key, id, value: ReplySchema }),
+    object({ spaceId: id, sessionId: Type.Optional(id), id, value: ReplySchema }),
     Type.Null(),
   ),
   "state.get": method(object({ scope: ScopeSchema }), SnapshotSchema),

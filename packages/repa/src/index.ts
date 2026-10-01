@@ -14,3 +14,5 @@ export {
   type ClientOptions,
 } from "./client.js";
 export * from "./protocol.js";
+
+export type { ProcessingContext } from "./requests/background.js";

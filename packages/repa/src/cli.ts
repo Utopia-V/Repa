@@ -343,7 +343,7 @@ async function tui(options: Options): Promise<void> {
         if (change.type === "run" && isTerminal(change.run)) {
           finishLine();
           console.log(
-            `[任务 ${change.run.status}]${change.run.error ? ` ${change.run.error.message}` : ""}`,
+            `[任务 ${change.run.status}]${change.run.requestIds?.[0] ? ` 请求 ${change.run.requestIds[0]}` : ""}${change.run.error ? ` ${change.run.error.message}` : ""}`,
           );
           readline.prompt();
         }
@@ -372,7 +372,7 @@ async function tui(options: Options): Promise<void> {
     };
     await select(initial);
     console.log(
-      `连接文件：${file}\n命令：/cancel /new /sessions /use <会话ID> /branch <消息ID> /status <请求ID> /exit /quit`,
+      `连接文件：${file}\n命令：/cancel /new /sessions /use <会话ID> /branch <消息ID> /status <请求ID> /queue [输入] /cancel-queued <请求ID> /resume /continue <请求ID> /exit /quit`,
     );
     const answer = async (question: Interaction, input: string) => {
       let value: string | boolean | null = input === "/dismiss" ? null : input;
@@ -384,7 +384,7 @@ async function tui(options: Options): Promise<void> {
         value = question.options?.[Number(input) - 1] ?? input;
       await client.call("interaction.reply", {
         spaceId: space.id,
-        sessionId: question.sessionId,
+        ...("sessionId" in question ? { sessionId: question.sessionId } : {}),
         id: question.id,
         value,
       });
@@ -408,8 +408,23 @@ async function tui(options: Options): Promise<void> {
         if (run)
           await client.call("run.cancel", {
             spaceId: space.id,
-            requestId: run.id,
+            runId: run.id,
           });
+      } else if (input.startsWith("/cancel-queued ")) {
+        await client.call("queue.cancel", { spaceId: space.id, sessionId: current.sessionId, requestId: input.slice(15).trim() });
+      } else if (input === "/queue") {
+        console.log(await client.call("queue.list", { spaceId: space.id, sessionId: current.sessionId }));
+      } else if (input === "/resume") {
+        await client.call("queue.resume", { spaceId: space.id, sessionId: current.sessionId });
+      } else if (input.startsWith("/queue ")) {
+        await client.call("session.submit", {
+          target: { spaceId: space.id, sessionId: current.sessionId }, requestId: randomUUID(),
+          input: { parts: [{ kind: "text", text: input.slice(7) }] }, dispatch: { kind: "queue" },
+        });
+      } else if (input.startsWith("/continue ")) {
+        await client.call("session.continue", {
+          target: { spaceId: space.id, sessionId: current.sessionId }, requestId: randomUUID(), previousRequestId: input.slice(10).trim(),
+        });
       } else if (input === "/new")
         await select(
           await client.call("session.create", { spaceId: space.id }),
@@ -437,7 +452,7 @@ async function tui(options: Options): Promise<void> {
         );
       else if (input.startsWith("/status "))
         console.log(
-          await client.call("run.get", {
+          await client.call("request.get", {
             spaceId: space.id,
             requestId: input.slice(8).trim(),
           }),
@@ -447,12 +462,14 @@ async function tui(options: Options): Promise<void> {
       else {
         const requestId = randomUUID();
         try {
-          await client.call("run.submit", {
-            spaceId: space.id,
-            sessionId: current.sessionId,
-            requestId,
-            text: line,
+          const active = current.runs.findLast(run => !isTerminal(run));
+          const receipt = await client.call("session.submit", {
+            target: { spaceId: space.id, sessionId: current.sessionId }, requestId,
+            input: { parts: [{ kind: "text", text: line }] },
+            dispatch: active ? { kind: "steer", expectedRunId: active.id } : { kind: "start" },
           });
+          if (receipt.delivery.status === "not_entered")
+            console.error(`请求 ${requestId} 未接入：${receipt.delivery.reason}\n原输入：${line}`);
         } catch (error) {
           console.error(`请求 ${requestId}：${String(error)}\n原输入：${line}`);
         }

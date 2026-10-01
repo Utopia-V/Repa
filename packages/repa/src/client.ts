@@ -41,6 +41,11 @@ export class ConnectionError extends Error {
     super(message);
   }
 }
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+}
+
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -57,6 +62,7 @@ interface Subscription {
   scope: Scope;
   snapshot?: Snapshot;
   cursor?: string;
+  resyncing?: boolean;
   update: (snapshot: Snapshot, delivery: Delivery) => void;
 }
 
@@ -215,17 +221,26 @@ export class RepaClient {
     }, this.#options.reconnectDelayMs ?? 250);
   }
   #receive(raw: unknown): void {
-    if (!raw || typeof raw !== "object") return;
-    const message = raw as Record<string, any>;
+    const message = objectValue(raw);
+    if (!message) return;
     if (message.jsonrpc !== "2.0") return;
     if (message.method === "subscription.update") {
-      const watch = this.#subscriptions.get(message.params?.id);
-      const delivery: unknown = message.params?.delivery;
+      const params = objectValue(message.params);
+      const watch = typeof params?.id === "string" ? this.#subscriptions.get(params.id) : undefined;
+      const delivery = params?.delivery;
       if (!watch || !Check(DeliverySchema, delivery)) return;
-      if (delivery.type === "snapshot") watch.snapshot = delivery.snapshot;
-      else if (watch.snapshot)
-        for (const change of delivery.changes)
-          applyChange(watch.snapshot, change);
+      if (delivery.type === "snapshot") {
+        watch.snapshot = delivery.snapshot;
+        watch.resyncing = false;
+      } else if (watch.resyncing) return;
+      else if (!watch.snapshot || delivery.previousCursor !== watch.cursor) {
+        watch.resyncing = true;
+        watch.cursor = undefined;
+        void this.#send("subscription.start", { id: watch.id, scope: watch.scope }).catch(() => this.#socket?.close());
+        return;
+      } else {
+        for (const change of delivery.changes) applyChange(watch.snapshot, change);
+      }
       watch.cursor = delivery.cursor;
       if (watch.snapshot) {
         watch.update(watch.snapshot, delivery);
@@ -236,18 +251,14 @@ export class RepaClient {
       }
       return;
     }
+    if (typeof message.id !== "string") return;
     const pending = this.#pending.get(message.id);
     if (!pending) return;
     clearTimeout(pending.timer);
     this.#pending.delete(message.id);
-    if (message.error)
-      pending.reject(
-        new RpcError(
-          message.error.code,
-          message.error.message,
-          message.error.data,
-        ),
-      );
+    const error = objectValue(message.error);
+    if (error && typeof error.code === "number" && typeof error.message === "string")
+      pending.reject(new RpcError(error.code, error.message, error.data));
     else if (Check(methods[pending.method].result, message.result))
       pending.resolve(message.result);
     else pending.reject(new RpcError(-32603, "后端返回的数据不符合协议。"));

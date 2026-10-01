@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import lockfile from "proper-lockfile";
+import { RequestStore } from "./requests/store.js";
 import {
   readRunJournal,
   appendRunRecord,
@@ -62,6 +63,7 @@ function recordedRun(run: Run): RecordedRun {
 
 export class RuntimeStore {
   readonly space: Space;
+  readonly requests: RequestStore;
   readonly runs = new Map<string, Run>();
   readonly #directory: string;
   readonly #unlock: () => void;
@@ -103,6 +105,7 @@ export class RuntimeStore {
       )
         throw new Error("学习空间身份记录无效。");
       this.space = { id: saved.id, path: directory };
+      this.requests = new RequestStore(directory, () => this.assertOwned());
       const journal = path.join(this.#directory, "runs.jsonl");
       for (const record of readRunJournal(journal, this.space.id)) {
         const run = currentRun(record);

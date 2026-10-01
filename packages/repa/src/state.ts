@@ -8,6 +8,7 @@ export function contains(scope: Scope, key: Partial<SessionKey>): boolean {
 }
 
 export function relevant(scope: Scope, change: Change): boolean {
+  if (["message", "delta", "tool"].includes(change.type) && !("sessionId" in scope)) return false;
   if (change.type === "settings") {
     if (change.scope.kind === "application") return true;
     if (change.scope.kind === "space") return !("spaceId" in scope) || scope.spaceId === change.scope.spaceId;
@@ -19,6 +20,9 @@ export function relevant(scope: Scope, change: Change): boolean {
     return !("spaceId" in scope) || scope.spaceId === change.space.id;
   if (change.type === "session") return contains(scope, change.session);
   if (change.type === "run") return contains(scope, change.run);
+  if (change.type === "processing") return contains(scope, change.request);
+  if (change.type === "request") return contains(scope, change.request.target);
+  if (change.type === "queue") return contains(scope, change.queue.target);
   return contains(scope, change);
 }
 
@@ -30,11 +34,17 @@ function upsert<T>(items: T[], item: T, matches: (item: T) => boolean): void {
 
 /** Applies the public changes in place; callers choose when to copy or render their state. */
 export function applyChange(state: Snapshot, change: Change): void {
+  if (change.type === "processing") {
+    state.processing ??= [];
+    state.processing = state.processing.filter(item => item.spaceId !== change.request.spaceId || item.requestId !== change.request.requestId);
+    if (["accepted", "running", "cancelling"].includes(change.request.status)) state.processing.push(change.request);
+    return;
+  }
   if (change.type === "session_removed") {
     state.sessions = state.sessions.filter(session => session.spaceId !== change.spaceId || session.sessionId !== change.sessionId);
     return;
   }
-  if (change.type === "settings") return;
+  if (change.type === "settings" || change.type === "request" || change.type === "queue") return;
   if (change.type === "content") {
     const space = state.spaces.find((entry) => entry.id === change.spaceId);
     if (space) space.contentRevision = change.revision;

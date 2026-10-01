@@ -62,6 +62,7 @@ export function messageView(
   return {
     id,
     role,
+    ...(typeof message.repaRequestId === "string" ? { requestId: message.repaRequestId } : {}),
     content: blocks(message.content, resources),
     timestamp: typeof message.timestamp === "number" ? message.timestamp : 0,
     ...(typeof message.toolCallId === "string"

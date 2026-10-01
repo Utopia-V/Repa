@@ -53,6 +53,7 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 | 修改 Desktop 页面或原生边界 | [app.tsx](../../apps/desktop/src/renderer/src/app.tsx)、[routes.tsx](../../apps/desktop/src/renderer/src/routes.tsx) 持有界面与路由；[main/index.ts](../../apps/desktop/src/main/index.ts)、[repa-process.ts](../../apps/desktop/src/main/repa-process.ts) 与 [preload/index.ts](../../apps/desktop/src/preload/index.ts) 持有进程和窄 IPC 边界 |
 | 接入前端、读取状态或保存内容 | [client.ts](../../packages/repa/src/client.ts)：标准 WebSocket、Fetch、协议校验和状态副本，不依赖 Pi 或后端模块 |
 | 增加公开调用 | [protocol.ts](../../packages/repa/src/protocol.ts)、[server.ts](../../packages/repa/src/server.ts)：参数和结果校验、认证、传输；内容契约在 [content/protocol.ts](../../packages/repa/src/content/protocol.ts) |
+| 修改输入、排队、失败接续和后台请求 | [输入、请求与运行](requests.md)：受理记录、Pi 投递、资源保留、分页及订阅 |
 | 处理应用内的操作顺序与退出 | [application.ts](../../packages/repa/src/application.ts)：空间实例、请求受理、配置固定、订阅与进行中工作；释放空间前等待 Agent 和内容操作收尾 |
 | 修改正文、身份、组成或学习语境 | [内容与保存](content.md)：共同的版本检查、文件操作、资源和恢复入口 |
 | 管理媒体、版本保留、会话删除和回收 | [资源持有与清理](resources.md)：实际消费者、展示宿主、准备期、重连与历史清理 |
@@ -80,7 +81,7 @@ flowchart LR
     Host --> Pi[Pi AgentSession 与 SessionManager]
 ```
 
-内容 API 和模型工具共享实际保存入口。图形前端可以直接使用它建立编辑器与导航；当前 TUI 继续使用公共客户端。图形组件宿主、共享草稿服务、结构化会话输入、steer、持久队列、指定失败任务接续、共享能力注册和命令沙箱仍按设计文档接入，不能把相关草案方法视为已实现接口。
+内容 API 和模型工具共享实际保存入口。图形前端可以直接使用它建立编辑器与导航；当前 TUI 继续使用公共客户端。结构化会话输入、steer、持久队列、失败接续和独立处理生命周期已接通，见[请求接入](requests.md)。图形组件宿主、共享草稿服务、共享能力注册和命令沙箱仍按设计文档接入，不能把相关草案方法视为已实现接口。
 
 当前 `ContentStore` 仍直接持有学习语境绑定与展开，`PiConversationHost` 直接读取它并装配默认提示。#20 负责解除对学习组织规则的硬依赖，将相应来源接入官方学习能力，继续复用通用内容、快照与 Pi 生命周期。迁接须保留已有绑定、保存/撤回/恢复、来源关闭、压缩回填和默认体验；当前图示描述的是实际实现，尚未完成这项迁接。
 

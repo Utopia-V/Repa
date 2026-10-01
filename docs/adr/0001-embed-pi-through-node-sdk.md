@@ -67,3 +67,9 @@ Pi 所属的运行设置通过 `SettingsManager` 的存储适配与覆盖入口�
 Pi 承担 Agent 扩展的运行，前端宿主承担界面组件的加载；可替换前端、客户端与组件之间的责任由[公开应用协议的决策](0004-connect-replaceable-frontends-through-application-protocol.md)持有。
 
 相关复用边界与一手来源见 [Pi 生态对 Repa 的可复用性调查](../research/pi-ecosystem-compatibility.md)。
+
+## 请求投递的接入依据
+
+当前接入依据 Pi 0.87.1 的 `AgentSession.prompt/steer`、RPC input hook、实际消息事件与 `SessionManager` 追加记录。Repa 将请求关联随实际用户消息保存，再从已追加的历史条目确认进入状态；SDK 的预检成功、排入内存队列和模型执行完成分别解释。独立后续请求由应用持久排队，在开始时准备自己的背景并调用 Pi，不把一次 Agent 的 follow-up 队列当作持久调度器。
+
+目标运行校验参考 Codex 固定提交 [`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` 的 `turn_steer_inner`](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/app-server/src/request_processors/turn_processor.rs)：提交必须带预期运行标识，没有活动运行或目标不匹配时明确返回未投递。Repa 另外保留原输入供查询，不将迟到输入自动转投其他运行。当前实现及 #18/#20 的接点见[请求开发说明](../development/requests.md)。
