@@ -1,6 +1,6 @@
 # Pi 生态对 Repa 的可复用性调查
 
-第 1–8 节的调查基准是 `earendil-works/pi` 的固定提交 [`8fa7eebd235355522c8104166b4f1f959b4e2f10`](https://github.com/earendil-works/pi/tree/8fa7eebd235355522c8104166b4f1f959b4e2f10)，相应 GitHub 链接均固定到该提交。第 9–11 节保留当时锁定版本 `@earendil-works/pi-coding-agent@0.84.3` 的局部核验，第 10 节另以固定版本的 Codex 编辑实现作比较。第 12 节记录当前 0.87.1 的接入与验证；当前代码责任见[开发说明](../development/agent-runtime.md)。各节结论按其版本解释，升级时核对受影响部分。
+第 1—8 节的调查基准是 `earendil-works/pi` 的固定提交 [`8fa7eebd235355522c8104166b4f1f959b4e2f10`](https://github.com/earendil-works/pi/tree/8fa7eebd235355522c8104166b4f1f959b4e2f10)，相应 GitHub 链接均固定到该提交。第 9—11 节保留当时锁定版本 `@earendil-works/pi-coding-agent@0.84.3` 的局部核验，第 10 节另以固定版本的 Codex 编辑实现作比较。第 12 节记录当前 0.87.1 的接入与验证；当前代码责任见[开发说明](../development/agent-runtime.md)。各节结论按其版本解释，升级时核对受影响部分。
 
 ## 结论摘要
 
@@ -76,7 +76,7 @@ Pi 明确警告 package/extension 以完整系统权限运行，skill 也能指�
 
 1. **Node SDK 架构（复用最高）**：Repa 直接调用 `createAgentSession`/Runtime，注入自己的 cwd、settings、session manager、tools 或 loader；可保留 Node extension、provider、skills、prompts、Pi session/compaction/retry/streaming。代价是 Repa 接受 Node/TypeScript runtime 与 Pi 的生命周期和资源布局，或明确写 adapter。
 2. **Rust + RPC 架构（复用中高）**：Repa 保持 Rust 主进程和自己的 UI/产品边界，Pi Node 子进程承载 agent/model/auth/tools/extensions/session。tool-only/provider/skill 复用度高；TUI custom、theme、editor/footer 只能降级；要实现可靠交互，Rust 必须实现 JSONL command/event 与 extension UI request/response。
-3. **不使用 Pi（需选择替代运行时）**：可迁移 `SKILL.md`、Markdown prompts、JSON themes 及相关工具约定，但需要为模型连接、认证、Agent loop、会话、重试、压缩、流式执行和扩展选择并整合替代能力。这些能力可以来自其他 SDK 或成熟组件，也可以按需要自研。Pi 没有承诺跨宿主 ABI，原有 Pi Extension 的直接兼容性需要另行适配；失去 Pi 的统一实现与扩展兼容性，不等于所有通用能力都必须从零重写。
+3. **不使用 Pi（需选择替代运行时）**：可迁移 `SKILL.md`、Markdown prompts、JSON themes 及相关工具约定，但需要为模型连接、认证、Agent loop、会话、重试、压缩、流式执行和扩展选择并整合替代能力。这些能力可以来自其他 SDK 或成熟组件，也可以按需要自研。Pi 没有承诺跨宿主 ABI，原有 Pi Extension 的直接兼容性需要另行适配。
 
 ## 8. 关键限定
 
@@ -88,7 +88,7 @@ Pi 明确警告 package/extension 以完整系统权限运行，skill 也能指�
 
 本节依据当时锁定的 0.84.3 发布包中 `package-manager`、`resource-loader` 和 `extensions` 的类型与实现，以及使用 `SettingsManager.inMemory()` 的本地包解析探针。核验范围是包发现、位置解析与资源过滤，没有安装网络包、创建 AgentSession 或调用模型。
 
-`PackageManager.listConfiguredPackages()` 与 `getInstalledPath()` 可以在没有 Agent 运行实例时取得已配置包及其位置，因此 Repa 可以复用包来源与定位，再读取各宿主所需的入口信息。Pi 的工具执行仍要求 `ExtensionContext`，其中包含会话管理、模型和会话 UI 等能力；Extension loader 创建的运行时动作在 runner 绑定前是抛错占位。这两种接口分别服务包管理和会话中的扩展执行，不能将任意 Pi 工具直接视为独立后台函数。
+`PackageManager.listConfiguredPackages()` 与 `getInstalledPath()` 可以在没有 Agent 运行实例时取得已配置包及其位置，因此 Repa 可以复用包来源与定位，再读取各宿主所需的入口信息。Pi 的工具执行要求 `ExtensionContext`，其中包含会话管理、模型和会话 UI 等能力；Extension loader 创建的运行时动作在 runner 绑定前是抛错占位。
 
 本地目录解析还有一项兼容细节：`resolveLocalExtensionSource()` 在目录没有 Pi manifest 或约定资源目录时，会把整个目录回退登记为 Extension。仅添加自定义 Repa 入口元数据不会改变这条规则。
 
@@ -112,7 +112,7 @@ Pi 明确警告 package/extension 以完整系统权限运行，skill 也能指�
 | 凭据与认证 | `ModelRuntime.create({ authPath, credentials })`，位于 `dist/core/model-runtime` | 凭据位置、具名连接和实际认证关联；该版本的内部 `AuthStorage` 类未从包入口导出 |
 | Pi 运行设置 | `SettingsManager.fromStorage()`、`applyOverrides()` 等公开方法，位于 `dist/core/settings-manager` | Repa 的作用域、有效值来源、完整值覆盖与插件设置语义 |
 
-包安装与定位继续使用第 9 节所述入口。工具 I/O 的可替换性提供了接入位置，不能单独证明修改协调已经成立：`withFileMutationQueue` 只串行化同一文件的修改，不覆盖多文件操作，也不自动协调其他前端入口。
+包安装与定位继续使用第 9 节所述入口。工具 I/O 为共同内容操作提供接入位置；Pi 的 `withFileMutationQueue` 只串行化同一文件的修改，跨文件操作与其他前端入口需由 Repa 内容模块统一协调。
 
 `edit` 的 `applyEditsToNormalizedContent` 在精确匹配失败后使用规范化文本定位，再将受影响的行覆盖到原文本；范围外的其他行保留，但受影响行中未选中的字符仍可能改变。原文 `公式 x²；标记：ＡＢＣ`，以 `oldText: "ABC"`、`newText: "DEF"` 调用公开编辑工具，实际写回为 `公式 x2;标记:DEF`。同一验证中的下一行 `其他行 x²` 保持原样。实现还会先统一换行，再按检测到的样式恢复；混合 CRLF/LF 文件中未编辑行的换行也可能改变。相应实现位于 `dist/core/tools/edit.js` 与 `edit-diff.js`。
 
@@ -129,9 +129,9 @@ Codex 对比基准为固定提交 [`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`](h
 本节核对 0.84.3 发布包的 `dist/core/resource-loader.d.ts`、`system-prompt.js`、`agent-session.js`、`extensions/types.d.ts`、`extensions/runner.js` 与 `compaction/compaction.js`，属于类型与源码核验，未调用模型。
 
 - `DefaultResourceLoader` 提供 `systemPrompt`、`appendSystemPrompt`、`noContextFiles`、`noSkills` 及相应资源覆盖入口。项目文件可以通过 `agentsFilesOverride` 选择，Skill、prompt 等资源沿用原有加载与过滤。
-- `buildSystemPrompt` 使用 `if (customPrompt)` 区分自定义与默认分支，所以空字符串不表示完全禁用。非空自定义提示后仍可能追加项目说明、Skill 清单和当前工作目录；只替换基础文本不能证明最终输入已经完全受控。
+- `buildSystemPrompt` 使用 `if (customPrompt)` 区分自定义与默认分支，空字符串会进入默认分支。非空自定义提示后仍可能追加项目说明、Skill 清单和当前工作目录。
 - `before_agent_start` 接收已组装的系统提示和构造选项，并可返回替换后的 `systemPrompt`。runner 和 session 使用 `!== undefined` 判断该返回值，因此这个入口能表达显式空内容；多个扩展会链式处理，接入时仍需核对贡献顺序和最终结果。工具文字指导由 `promptSnippet`、`promptGuidelines` 等工具定义字段提供。
-- 默认压缩生成器将 `customInstructions` 追加到既有模板，内部另有摘要系统提示；它不等于完整模板替换。`session_before_compact` 可接管摘要结果，`session_before_tree` 提供摘要及指令替换入口。Repa 需要完全控制辅助调用的提示时，应在这些生命周期边界选择适配方式，继续复用准备数据、计量、记录与恢复机制。
+- 默认压缩生成器将 `customInstructions` 追加到既有模板，内部另有摘要系统提示。`session_before_compact` 可接管摘要结果，`session_before_tree` 提供摘要及指令替换入口。Repa 需要完全控制辅助调用的提示时，应在这些生命周期边界选择适配方式，继续复用准备数据、计量、记录与恢复机制。
 
 ## 12. Pi 0.87.1 的接入与升级
 
@@ -157,8 +157,8 @@ Codex 对比基准为固定提交 [`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`](h
 
 - [AgentSession](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/agent-session.ts) 已有 `steer()`、`followUp()`、带图片的 `prompt()` / `sendUserMessage()`、队列查询与清除、工具启停、模型和思维强度选择。`abort()` 与 `waitForIdle()` 处理实际空闲边界，包含运行后续处理；上层不以一次流结束代替整个工作完成。
 - [ModelRuntime](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/model-runtime.ts) 提供模型发现、认证检查、登录注销及带认证的 `stream()` / `complete()`，可直接处理明确输入而不创建会话。`AuthStorage` 及其存储后端已不再公开导出，见[变更记录](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/CHANGELOG.md)；需要其他凭据存储时使用 pi-ai 的 `CredentialStore`。具名连接身份及多连接选择仍由 Repa 持有。
-- [命令工具](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/tools/bash.ts) 的 `BashOperations.exec` 接收工作目录、输出回调、取消信号、超时与环境，可将实际执行交给沙箱适配器；工具工厂继续承担参数、输出截断和结果组织。Pi 的项目信任不构成命令隔离，具体限制由执行环境落实。
-- `grep`、`find`、`ls` 提供基本文件检索，但可替换接口的覆盖范围需逐个核对。例如 [grep](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/tools/grep.ts) 的 operations 只替换目录判断和上下文读取，检索仍自行启动 `rg`。只替换读文件回调不足以证明整个搜索处于 Repa 授权范围内；内容身份、修订、材料表示和会话搜索也仍需对应能力接入。
+- [命令工具](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/tools/bash.ts) 的 `BashOperations.exec` 接收工作目录、输出回调、取消信号、超时与环境，可将实际执行交给沙箱适配器；工具工厂继续承担参数、输出截断和结果组织。命令隔离由执行环境落实。
+- `grep`、`find`、`ls` 提供基本文件检索，但可替换接口的覆盖范围需逐个核对。例如 [grep](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/tools/grep.ts) 的 operations 只替换目录判断和上下文读取，检索仍自行启动 `rg`。接入时需将 `rg` 子进程的搜索范围纳入 Repa 授权控制；内容身份、修订、材料表示和会话搜索由对应能力接入。
 - [DefaultPackageManager](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/package-manager.ts) 提供安装、更新、移除、配置来源与资源解析。Agent 工具、Skill 和提示继续走现成加载器；Repa 只补共享后台/前端入口和按需生命周期。实验性 client/plugin/server 在该发布版中仍是源码专用入口，不作为当前发布 SDK 的稳定应用协议替代品。
 - [服务装配](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/agent-session-services.ts) 将 cwd 相关设置、模型与资源加载同会话创建分开，可评估用于收缩手工装配。[AgentSessionRuntime](https://github.com/earendil-works/pi/blob/v0.87.1/packages/coding-agent/src/core/agent-session-runtime.ts) 切换会话时先拆卸当前运行，不能直接代替 Repa 的多会话并行与独立查看语义。
 - Pi 的输入队列承担运行期间的投递，不提供 Repa 的请求身份、绑定配置、持久排队与进程恢复记录。`SessionManager` 仍推迟无助手消息会话的首次落盘；Repa 立即发布空会话身份的适配有继续保留的依据。
@@ -169,4 +169,4 @@ Codex 对比基准为固定提交 [`3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`](h
 
 回归通过真实 SDK 和本地 faux provider 观察最终模型输入，覆盖空提示、关闭来源、工具后续轮、扩展直接请求、压缩回填及旧会话接续；投影测试检查消息与来源对应，并使用 Pi 自身的估算函数。0.84.3 生成的 JSONL 样本用于检查旧条目和原文件前缀保留。源码与具体测试入口见 [Agent 开发说明](../development/agent-runtime.md#sdk-升级与验证)。
 
-升级的机械迁移、上游差异阅读和场景验证可以由 Agent 执行，验收仍依据 Repa 已确定的行为。上游承担了等价职责时删除相应兼容代码；尚有语义差异时，在所属边界保留适配并记录原因。这里记录的是当前版本的接入证据，真实 provider 行为、其他平台与长期使用规模仍由对应验证说明。
+升级的机械迁移、上游差异阅读和场景验证可以由 Agent 执行，验收仍依据 Repa 已确定的行为。上游承担了等价职责时删除相应兼容代码；尚有语义差异时，在所属边界保留适配并记录原因。

@@ -28,7 +28,7 @@
 
 提示或差异在下一次实际模型调用前合并提供，保存本身不启动 Agent，也不逐次追加编辑器输入。可用基准来自该会话实际得到的读取结果或表示，复用已有修订和差异记录；仅知道片段、缺少旧版本或差异不适合直接提供时，保留提示与按需读取。Agent 已在工具结果中得到的变化不重复追加，不为此全量扫描空间或另建全局阅读状态数据库。
 
-文件变化通知仍可独立用于界面刷新。Codex 的[公开文件系统接口](https://learn.chatgpt.com/docs/app-server#filesystem)将读写与客户端变化通知分开；固定提交的[读写处理](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/app-server/src/request_processors/fs_processor.rs)与[变化通知](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/app-server/src/fs_watch.rs)提供了相应参考。上述来源不作为桌面前端自动向模型注入文件差异的承诺。启用学习语境自动注入时，相关内容继续按本记录的入口快照规则处理。
+文件变化通知仍可独立用于界面刷新。Codex 的[公开文件系统接口](https://learn.chatgpt.com/docs/app-server#filesystem)将读写与客户端变化通知分开；固定提交的[读写处理](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/app-server/src/request_processors/fs_processor.rs)与[变化通知](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/app-server/src/fs_watch.rs)提供了相应参考。启用学习语境自动注入时，相关内容继续按本记录的入口快照规则处理。
 
 ## 压缩与恢复
 
@@ -42,6 +42,6 @@
 
 token 估算、用量统计、压缩触发和有限的溢出恢复复用 Pi 已有实现，不建立 Repa 自己的计数器或第二套预算机制。会话适配层只负责正确接入自己构造的模型工作视图，并核对额外注入及压缩后补回的语境是否已被 Pi 的相关流程覆盖；有遗漏时在接入边界补齐，保持单一计量来源。具体接口依所用 Pi 版本确定，机制依据见 [Pi 压缩文档](https://github.com/earendil-works/pi/blob/8fa7eebd235355522c8104166b4f1f959b4e2f10/packages/coding-agent/docs/compaction.md)。
 
-历史需要缩减时沿用 Pi 的压缩和有限重试，不在外层对同一输入另起一轮自动重试。恢复后仍超限时，明确结束这次失败尝试，保留原请求、实际历史与已完成结果；通过已有的展开与引用方式调整输入，或明确选择合适的模型后继续。计量中的估算不作为精确承诺，provider 的实际超限结果仍需正确处理；不为继续执行而静默截断完整语境或用摘要改写原文。必要上下文与工作历史的组织可参考 [Codex 压缩实现](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/compact.rs)。
+历史需要缩减时沿用 Pi 的压缩和有限重试，不在外层对同一输入另起一轮自动重试。provider 返回超限错误时，按这一流程恢复；恢复后仍超限则结束本次尝试，保留原请求、实际历史与已完成结果。之后通过已有的展开与引用方式调整输入，或选择合适的模型继续，不静默截断完整语境或用摘要改写原文。必要上下文与工作历史的组织可参考 [Codex 压缩实现](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/compact.rs)。
 
 **实践观察点：** 当前方案保留完整语境快照。开发时核对 Pi 的计量与实际注入是否对应；实际长期学习中观察完整补回是否造成频繁超限、过多压缩或反复手工维护背景。出现这些反馈时，重新评估展开策略或所用表示，依据实际使用结果调整。

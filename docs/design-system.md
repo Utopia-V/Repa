@@ -42,17 +42,17 @@
 
 | Token | 字号 / 行高 | 用途 |
 | --- | --- | --- |
-| Display | 48 / 56px | Hero、展示型标题；移动端 36 / 44px |
-| H1 | 32 / 40px | 页面主标题 |
-| H2 | 24 / 32px | 一级区块标题 |
-| H3 | 20 / 28px | 二级区块标题 |
-| H4 | 16 / 24px | 小标题、卡片标题 |
-| Body Large | 16 / 26px | 主要正文 |
-| Body | 14 / 22px | 常规正文、界面文字 |
-| Caption | 12 / 18px | 辅助信息、metadata |
-| Code | 13 / 20px | 行内代码、代码块 |
+| Display | 48 px / 56 px | Hero、展示型标题；移动端 36 px / 44 px |
+| H1 | 32 px / 40 px | 页面主标题 |
+| H2 | 24 px / 32 px | 一级区块标题 |
+| H3 | 20 px / 28 px | 二级区块标题 |
+| H4 | 16 px / 24 px | 小标题、卡片标题 |
+| Body Large | 16 px / 26 px | 主要正文 |
+| Body | 14 px / 22 px | 常规正文、界面文字 |
+| Caption | 12 px / 18 px | 辅助信息、metadata |
+| Code | 13 px / 20 px | 行内代码、代码块 |
 
-字号和行高成对使用，例如 `--type-body-size` 与 `--type-body-line`。Display 仅用于展示区域，不作为普通页面标题。常规正文与控件标签至少 14px（代码使用独立的 Code token）；12px 仅用于辅助信息，不用于正文或控件标签。移动端通过换行和布局适配，不缩小常规正文或标签字号。
+字号和行高成对使用，例如 `--type-body-size` 与 `--type-body-line`。Display 仅用于展示区域，不作为普通页面标题。常规正文与控件标签至少 14 px（代码使用独立的 Code token）；12 px 仅用于辅助信息，不用于正文或控件标签。移动端通过换行和布局适配，不缩小常规正文或标签字号。
 
 ## 间距与圆角
 
@@ -66,10 +66,10 @@
 
 | Token | 值 | 用途 |
 | --- | --- | --- |
-| `radius-sm` | 4px | 微型元素 |
-| `radius-md` | 8px | Button、Input、Card |
-| `radius-lg` | 16px | Dialog、大型容器 |
-| `radius-full` | 9999px | Badge、Pill、Avatar |
+| `radius-sm` | 4 px | 微型元素 |
+| `radius-md` | 8 px | Button、Input、Card |
+| `radius-lg` | 16 px | Dialog、大型容器 |
+| `radius-full` | 9999 px | Badge、Pill、Avatar |
 
 业务组件不得自行定义新的圆角值。底部抽屉可仅在顶部两角使用 `radius-lg`，贴边角为零。
 
@@ -111,22 +111,22 @@ Standard Card 默认内距为 `--space-20`。紧凑型 Card 必须由基础组�
 
 | 组件 | 边框 |
 | --- | --- |
-| 普通 Card | 1px `border` |
-| 选中 Card | 1px `border-selected` |
-| Input / Select 触发器 | 1px `input` |
-| Dropdown / Dialog / Popover 容器 | 1px `border` |
-| 对话回复 | 1px `border` |
-| Outline Button | 1px `border` |
-| Checkbox / Radio 未选中 | 1px `input` |
+| 普通 Card | 1 px `border` |
+| 选中 Card | 1 px `border-selected` |
+| Input / Select 触发器 | 1 px `input` |
+| Dropdown / Dialog / Popover 容器 | 1 px `border` |
+| 对话回复 | 1 px `border` |
+| Outline Button | 1 px `border` |
+| Checkbox / Radio 未选中 | 1 px `input` |
 | 主按钮、次按钮 | 无常驻可见边框 |
 
 ### 尺寸
 
-- 控件规格与 spacing 的留白职责独立。`--control-size` 为桌面默认 36px，窄屏或粗指针环境为 44px；实现为最小高度，内容或字号增大时允许增长。
-- `--control-size` 仅用于 Input、Select 等表单控件的默认高度。Button 使用独立的 Button size scale，不继承 `--control-size`。图标为 16px，按钮宽度随内容增长，输入与选择框跟随表单宽度，Select 菜单默认与触发器同宽。
+- 控件规格与 spacing 的留白职责独立。`--control-size` 为桌面默认 36 px，窄屏或粗指针环境为 44 px；实现为最小高度，内容或字号增大时允许增长。
+- `--control-size` 仅用于 Input、Select 等表单控件的默认高度。Button 使用独立的 Button size scale，不继承 `--control-size`。图标为 16 px，按钮宽度随内容增长，输入与选择框跟随表单宽度，Select 菜单默认与触发器同宽。
 - Button 默认 `size="md"`，另有图标按钮形态；确有密集工具栏需求后再引入紧凑档位。
-- `--hit-size` 为桌面至少 24px、移动端至少 44px。Checkbox、Radio、Switch 保留较小视觉尺寸，通过扩展命中区域和可点击标签支持操作；布局须为命中区域留出空间，避免与邻近控件重叠。
-- 移动端 Input 使用 16/26px，不限制浏览器缩放。
+- `--hit-size` 为桌面至少 24 px、移动端至少 44 px。Checkbox、Radio、Switch 保留较小视觉尺寸，通过扩展命中区域和可点击标签支持操作；布局须为命中区域留出空间，避免与邻近控件重叠。
+- 移动端 Input 使用 16 px / 26 px，不限制浏览器缩放。
 - 卡片高度随内容变化。Dialog 最大宽度为 `--dialog-max-width`，高度受动态视口约束，长内容内部滚动；移动底部面板考虑安全区。
 
 #### Button Size: `md`
@@ -135,12 +135,12 @@ Standard Card 默认内距为 `--space-20`。紧凑型 Card 必须由基础组�
 
 | Token | 默认值 |
 | --- | --- |
-| `--button-md-height` | 40px |
-| `--button-md-padding-inline` | 16px（引用 spacing） |
-| `--button-md-radius` | 8px（引用 radius） |
-| `--button-md-icon-gap` | 8px（引用 spacing） |
+| `--button-md-height` | 40 px |
+| `--button-md-padding-inline` | 16 px（引用 spacing） |
+| `--button-md-radius` | 8 px（引用 radius） |
+| `--button-md-icon-gap` | 8 px（引用 spacing） |
 
-字号/行高使用 Body 14/22px，字重统一 600。所有 variant 都预留 1px 边框空间：主按钮、次按钮为透明边框，Outline 只切换为 `border` 色，不造成内容偏移或宽度变化。移动端或粗指针环境最小高度仍为 44px。常规单行按钮为 40px，文字放大或换行时允许增高，不裁切内容。
+字号/行高使用 Body 14 px / 22 px，字重统一 600。所有 variant 都预留 1 px 边框空间：主按钮、次按钮为透明边框，Outline 只切换为 `border` 色，不造成内容偏移或宽度变化。移动端或粗指针环境最小高度仍为 44 px。常规单行按钮为 40 px，文字放大或换行时允许增高，不裁切内容。
 
 ## 交互状态
 
@@ -150,8 +150,8 @@ Standard Card 默认内距为 `--space-20`。紧凑型 Card 必须由基础组�
 
 - Hover 不新增边框、不改变边框厚度；需要反馈时改变背景。Input 不增加 hover 高亮。
 - Active 不通过边框厚度表达按下。
-- Selected：有选中边框的组件保持 1px，仅将边框颜色切换为 `border-selected`；无选中边框的组件使用明确的选择标记，不为选中状态新增边框。两类组件均须满足下述视觉提示和可访问状态要求。
-- Focus 使用独立 2px `ring`；通过 outline / box-shadow 实现，不参与布局。Selected 与 Focus 可同时存在。
+- Selected：有选中边框的组件保持 1 px，仅将边框颜色切换为 `border-selected`；无选中边框的组件使用明确的选择标记，不为选中状态新增边框。两类组件均须满足下述视觉提示和可访问状态要求。
+- Focus 使用独立 2 px `ring`；通过 outline / box-shadow 实现，不参与布局。Selected 与 Focus 可同时存在。
 - 下拉选项无常驻边框和内部描边。悬浮或键盘焦点使用背景高亮，不显示独立 ring；选中通过 check、icon、文字或其他明确标记表达，不能只依赖背景，也不强制所有选项采用勾选。
 
 普通 Card、Input 及其他非浮层控件通过 surface + border 建立层级，不使用常驻阴影。Dropdown、Dialog、Popover 等真正浮层使用 border + shadow。焦点 ring 即使通过 box-shadow 实现，也属于焦点提示而非层级阴影。
@@ -178,6 +178,6 @@ Standard Card 默认内距为 `--space-20`。紧凑型 Card 必须由基础组�
 | 使用现有字号、圆角和间距尺度 | 为单个业务组件自定义视觉值或专用边框色 |
 | 用浮层阴影表达覆盖关系 | 给普通 Card、Input 增加常驻层级阴影 |
 
-本文长期保留稳定约束：移动端触控目标至少 44px、控件允许随内容增长、Dialog 不得溢出 viewport。后续新增的具体 CSS、变量接线和实现方式记录到实现文档，不继续扩写本文；现有尺寸与触控规则保留。
+本文长期保留稳定约束：移动端触控目标至少 44 px、控件允许随内容增长、Dialog 不得溢出 viewport。后续新增的具体 CSS、变量接线和实现方式记录到实现文档，不继续扩写本文；现有尺寸与触控规则保留。
 
 设计系统的架构取舍见 [ADR 0006](adr/0006-govern-frontend-visuals-through-a-semantic-design-system.md)；实现位置、接入范围和验证入口见[设计系统实现说明](design-system-implementation.md)。

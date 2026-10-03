@@ -66,7 +66,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 ## 组件调用边界的落实
 
 - `SelectionButton` 的 CVA 持有持续选择外观；图标形态的表面与选中边框也在基础层定义。`TopologyNode` 仅传递 selected、图标、标签和布局位置，不通过 className 拼接 accent 或边框状态。
-- Standard Card 的 20px 内距由 Card 根节点统一提供；Header、Content、Footer 不再追加水平 padding，页面不得覆盖 Card 内距。
+- Standard Card 的 20 px 内距由 Card 根节点统一提供；Header、Content、Footer 不再追加水平 padding，页面不得覆盖 Card 内距。
 - `SearchInput` 要求 label，并使用关联的可见标签；消息输入区也提供可见 label。placeholder 仅作为示例。
 - `components/ui/styles.css` 在减少动态效果偏好下关闭基础控件及 Portal 浮层的 animation 和 transition。
 
@@ -80,8 +80,8 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 ## 工作台侧栏
 
 - `components/ui/sidebar.tsx` 从 shadcn 官方 `new-york-v4/sidebar.json` 引入本次使用的 Provider、Sidebar、Trigger、Rail、Header、Content、Footer、Group、Menu 与 Submenu 组合；未引入没有调用方的 Input、Skeleton、Tooltip 和菜单附件。
-- `SidebarRail` 是侧栏边缘的 16px 手势条，点击切换展开/收起，悬停显示 2px 中性 `border` 竖线；支持拖动调整宽度、双击重置，键盘方向键调整、Home 重置、Enter/空格切换；上游的 offcanvas 类保留但当前未被使用。
-- `layouts/workspace-layout.tsx` 通过 SidebarProvider 组合应用侧栏、打开入口和空白路由出口。桌面展开宽度 280px，收起为 56px 常驻图标栏（`collapsible="icon"`）；移动端由官方 `useIsMobile` 与 Sheet 切换为侧边面板。桌面折叠栏自带展开入口，工作区只在移动端渲染浮动打开按钮。桌面可拖动至 200–480px，最大不超过视口的 40%；拖至最小宽度以下收起，折叠时向外拖至 200px 展开阈值才展开，小幅拖动保持折叠；展开使用完整过渡并结束本次拖动。宽度只存于内存，拖动期间用 80ms 短过渡平滑调整宽度，跨过收起阈值时恢复完整折叠动画，取消、失去指针捕获或卸载时清理拖动状态。
+- `SidebarRail` 是侧栏边缘的 16 px 手势条，点击切换展开/收起，悬停显示 2 px 中性 `border` 竖线；支持拖动调整宽度、双击重置，键盘方向键调整、Home 重置、Enter/空格切换；上游的 offcanvas 类保留但当前未被使用。
+- `layouts/workspace-layout.tsx` 通过 SidebarProvider 组合应用侧栏、打开入口和空白路由出口。桌面展开宽度 280 px，收起为 56 px 常驻图标栏（`collapsible="icon"`）；移动端由官方 `useIsMobile` 与 Sheet 切换为侧边面板。桌面折叠栏自带展开入口，工作区只在移动端渲染浮动打开按钮。桌面可拖动至 200 px—480 px，最大不超过视口的 40%；拖至最小宽度以下收起，折叠时向外拖至 200 px 展开阈值才展开，小幅拖动保持折叠；展开使用完整过渡并结束本次拖动。宽度只存于内存，拖动期间用 80 ms 短过渡平滑调整宽度，跨过收起阈值时恢复完整折叠动画，取消、失去指针捕获或卸载时清理拖动状态。
 - 折叠栏沿用 SidebarMenuButton 的 token 与交互状态，通过 `sr-only` 保留标签的可访问名称，并用 `title` 提供图标提示。侧栏支持拖动调宽、收起与展开；移动端复用 Sheet 的关闭、Escape 和焦点恢复行为。
 - `components/domain/app-sidebar.tsx` 仅组合 Learning Space 和 Settings 两个栏目。Learning Space 位于上方，Settings 位于底部；不再显示 Chat、示例会话、Goals、Wiki、Sources、History 或本地空间提示卡。布局不再保存会话展开状态，已移除示例导航数据文件。
 - `/` 重定向到 `/learning-space`，显示材料选择组件；`/settings` 内容暂时为空。两者共用工作台布局，未知地址显示未找到页面。

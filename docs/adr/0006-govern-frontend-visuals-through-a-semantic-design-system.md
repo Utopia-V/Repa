@@ -12,7 +12,7 @@ Web 首先建立设计规范、主题映射和基础组件，Desktop 随后迁�
 
 选中、焦点、完成、错误等状态保留独立含义。状态须有适当的可见提示和可访问语义；颜色、背景、边框或 ARIA 属性不能单独替代完整的状态表达。组件的尺寸由 size 决定，variant 表达层级，状态不改变控件几何。具体 token、尺寸、对比度和组件规则由 docs/design-system.md 维护，不复制到本记录。
 
-当前 Web 与 Desktop 分别以各自的 CSS variables 作为主题值来源，由 Tailwind 映射为工具类。基础组件采用引入并经本地适配的 shadcn 源码，复用 Radix 的焦点管理与复合控件行为；Repa 持有引入后的组件契约和升级审查。业务代码不直接消费主题私有变量，也不建立平行的色板或主题运行时。当前文件责任、上游来源和验证入口见[设计系统实现说明](../design-system-implementation.md)及[Web 通用组件说明](../../apps/web/src/components/ui/README.md)。
+当前 Web 与 Desktop 分别以各自的 CSS variables 作为主题值来源，由 Tailwind 映射为工具类。基础组件采用引入并经本地适配的 shadcn 源码，复用 Radix 的焦点管理与复合控件行为；Repa 持有引入后的组件契约和升级审查。业务代码不直接消费主题私有变量，也不建立平行的色板或主题运行时。当前文件责任、上游来源和验证入口见[设计系统实现说明](../design-system-implementation.md)及 [Web 通用组件说明](../../apps/web/src/components/ui/README.md)。
 
 这项决定约束官方界面的语义和责任边界，不要求不同前端立即共享同一份组件源码。Desktop 按相同设计语义迁移，并保留自身的宿主连接与路由；是否提取共享前端包须由真实调用方和稳定契约决定。独立前端和扩展组件的接入边界继续遵循[应用协议与组件宿主决定](0004-connect-replaceable-frontends-through-application-protocol.md)。
 

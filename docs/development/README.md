@@ -44,7 +44,7 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 
 项目具体写法分别由[文档规范](../../.agents/skills/repa-docs-style/SKILL.md)、[测试规范](../../.agents/skills/repa-test-style/SKILL.md)和[代码规范](../../.agents/skills/repa-code-style/SKILL.md)持有；这些文件也供开发者直接阅读，适用入口由根目录 `AGENTS.md` 统一登记。
 
-模块任务及接入关系见[实施入口 #5](https://github.com/Utopia-V/repa/issues/5)。开始一项工作时，先核对现有实现和可复用的 SDK 入口；完整联调依赖并不要求所有模块串行开发。当前 Pi 能力与实际接法见[Agent 接入](agent-runtime.md#sdk-能力与接入范围)。
+模块任务及接入关系见[实施入口 #5](https://github.com/Utopia-V/repa/issues/5)。开始一项工作时，先核对现有实现和可复用的 SDK 入口；完整联调依赖并不要求所有模块串行开发。当前 Pi 能力与实际接法见 [Agent 接入](agent-runtime.md#sdk-能力与接入范围)。
 
 当前后端已经接通共享能力、插件包、命令执行和默认学习组合。Agent 工具与公开客户端共用处理函数，请求、配置和内容也使用已有模块。各插件负责自己的业务数据与算法，学习语境负责背景选择与展开。
 
@@ -144,6 +144,6 @@ npm run build
 | Web HTTP 连接交付、真实后端启动及退出清理 | [Web 宿主集成测试](../../apps/web/test/backend.integration.test.ts) |
 | Desktop 后端进程复用、退出与再次启动 | [Desktop 宿主集成测试](../../apps/desktop/test/backend.integration.test.ts) |
 
-当前整合版本的类型检查、测试与构建已有 Linux 运行证据，包含 Web 与 Desktop 宿主连接真实后端的测试。文件系统通知用于让界面重新查询，不能证明观察到了外部程序的每一次中间写入。安装包、其他平台的进程与文件锁行为、性能和真实学习效果仍需在对应环境验证。
+当前整合版本已在 Linux 上通过类型检查、测试与构建，包含 Web 与 Desktop 宿主连接真实后端的测试。
 
-两项前端宿主集成测试沿用 Vitest，在 Node 环境中启动真实 `repa serve` 子进程并通过 `RepaClient` 打开、查询临时学习空间；Web 额外经过真实 Vite HTTP 连接端点。配置和内容使用独立临时目录，测试结束清理后端与文件，无需模型凭据或新增测试依赖。运行根目录 `npm test` 会先构建后端并包含这些测试；仅运行前端或能力 workspace 测试前需先执行 `npm run build:backend`。这些检查覆盖宿主与后端边界，不等同于浏览器端到端或 Electron 窗口、preload 的验证。
+两项前端宿主集成测试沿用 Vitest，在 Node 环境中启动真实 `repa serve` 子进程并通过 `RepaClient` 打开、查询临时学习空间；Web 额外经过真实 Vite HTTP 连接端点。配置和内容使用独立临时目录，测试结束清理后端与文件，无需模型凭据或新增测试依赖。运行根目录 `npm test` 会先构建后端并包含这些测试；仅运行前端或能力 workspace 测试前需先执行 `npm run build:backend`。
