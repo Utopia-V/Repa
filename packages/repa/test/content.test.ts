@@ -391,3 +391,56 @@ test("共同观察读取多个成员时，后续保存等待完整视图边界",
   await saved;
   assert.equal((await f.store.read({ target: { kind: "content", ref: second } })).text, "第二篇新文");
 });
+
+
+test("本次正文与元信息复用实际读取快照，外部编辑后重新读取且旧资源不受返回缓冲区影响", async (t) => {
+  const f = await fixture(t);
+  const first = Buffer.from("原始正文 η\r\n");
+  const second = Buffer.from("外部编辑后的长正文 🌊\n");
+  await f.create("observed.md", first.toString("utf8"));
+  const ref = await f.register("observed.md");
+  const get = f.store.blobs.get.bind(f.store.blobs);
+  const reads = t.mock.method(f.store.blobs, "get", (id: string) => get(id));
+
+  const tool = await f.store.readForTool("observed.md");
+  assert.deepEqual(tool.bytes, first);
+  assert.equal(tool.content.size, first.length);
+  assert.equal(tool.content.bodyRevision, digest(first));
+  assert.equal(reads.mock.callCount(), 0, "刚取得的正文和长度不再从版本库重读");
+
+  await writeFile(path.join(f.root, "observed.md"), second);
+  const snapshot = await f.store.readSnapshot({ target: { kind: "content", ref } }, "test:snapshot");
+  assert.deepEqual(snapshot.bytes, second);
+  assert.equal(snapshot.content.size, second.length);
+  assert.equal(snapshot.content.bodyRevision, digest(second));
+  assert.equal(reads.mock.callCount(), 0);
+  const observation = await f.store.observe(scope => scope.read(ref));
+  assert.deepEqual(observation.bytes, second);
+  assert.equal(observation.content.size, second.length);
+  assert.equal(reads.mock.callCount(), 0);
+
+  tool.bytes.fill(0);
+  snapshot.bytes.fill(0);
+  observation.bytes?.fill(0);
+  assert.deepEqual(await f.store.blobs.get(digest(first)), first);
+  assert.deepEqual(await f.store.blobs.get(snapshot.resource.id), second);
+  assert.equal((await f.store.read({ target: { kind: "content", ref } })).text, second.toString("utf8"));
+});
+
+test("工具读取授权外部原件时正文长度与修订来自同一次读取", async (t) => {
+  const f = await fixture(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-content-external-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, "source.md");
+  const bytes = Buffer.from("空间外的来源\r\n");
+  await writeFile(file, bytes);
+  const get = f.store.blobs.get.bind(f.store.blobs);
+  const reads = t.mock.method(f.store.blobs, "get", (id: string) => get(id));
+
+  const result = await f.store.readForTool(file, [directory]);
+  assert.deepEqual(result.bytes, bytes);
+  assert.equal(result.content.size, bytes.length);
+  assert.equal(result.content.bodyRevision, digest(bytes));
+  assert.equal(reads.mock.callCount(), 0);
+  assert.deepEqual(await f.store.blobs.get(digest(bytes)), bytes);
+});

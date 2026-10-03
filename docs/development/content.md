@@ -40,6 +40,8 @@ const result = await client.call("content.write", {
 
 `content.read` 是可分页的预览。`client.readText` 在预览截断时读取对应不可变资源，取得同一修订的完整 UTF-8 正文；二进制交给相应处理器。编辑器不能将截断片段当作整篇内容保存。
 
+同一次内容观察把已经取得的字节传给正文读取、长度计算和编辑，不再从刚保存的 blob 回读。下次观察仍读取实际文件；历史资源的摘要校验和提交、恢复时的版本检查保留在各自入口。
+
 断线或超时后保留 `operationId`，通过 `operation.get` 核对。相同操作的重传返回原结果，修改参数须使用新标识。保存回执只确认本次实际提交的草稿版本；后续本地输入和外部修改由草稿服务继续处理。文件保存不会启动模型。
 
 当前内容方法还包括 `content.list/get/read/edit/applyPatch/associate/relink/remove/setComposition/move/copy`、`material.collect`，以及 `operation.get/undo/reconcile/prune`、`context.get/set/preview`。参数、返回值和运行时校验来自 [内容协议](../../packages/repa/src/content/protocol.ts)。文本／历史检索及本地材料表示见[搜索与材料](search-materials.md)。

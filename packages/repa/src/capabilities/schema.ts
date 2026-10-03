@@ -45,7 +45,7 @@ export const CapabilityDescriptorSchema = object({
   inputSchema: Type.Record(Type.String(), Type.Unknown()),
   outputSchema: Type.Record(Type.String(), Type.Unknown()),
   scopes: Type.Array(literals(["application", "space"]), { minItems: 1, uniqueItems: true }),
-  execution: literals(["inline", "background"]),
+  execution: literals(["query", "inline", "background"]),
   tool: Type.Optional(object({
     name: IdSchema, description: Type.String({ minLength: 1 }),
     inputSchema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),

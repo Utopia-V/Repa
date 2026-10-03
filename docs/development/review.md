@@ -60,7 +60,7 @@
 | `parameters.set` | 按参数版本提交 `patch`，原子更新并返回重算项目数 |
 | `parameters.optimize` | 后台训练候选权重，返回数据范围与结果，不自动应用 |
 
-除优化外，公开调用均等待 inline 结果。它们仍受已有请求模块管理，同一 `requestId` 的传输重试不会重新执行。业务修改另有 `operationId`：新的修改生成新标识，重复发送原修改保留原标识和载荷。修改既有项目携带 `base: item.revision`；参数修改携带 `base: parameterVersion.version`。
+列表、项目、历史和参数读取声明为 `query`，每次返回当前数据，不为页面刷新保存处理记录。业务修改使用持久 inline 调用，优化使用后台请求；同一持久 `requestId` 的传输重试不会重新执行。业务修改另有 `operationId`：新的修改生成新标识，重复发送原修改保留原标识和载荷。修改既有项目携带 `base: item.revision`；参数修改携带 `base: parameterVersion.version`。
 
 操作回执、事件与状态在同一 SQLite 事务中提交。同一 `operationId` 和载荷返回原结果，即使项目后来已变化；重用标识但改变操作或载荷返回 `review_operation_conflict`。不同操作基于同一旧修订竞争，先提交者生效，其他返回 `review_conflict`，由调用方读取当前状态后重新判断。业务回执使重新建立公共请求的同一答复仍可判重，没有创建第二套后台任务系统。
 

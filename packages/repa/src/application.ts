@@ -149,6 +149,7 @@ export class RepaApplication {
   #openingApplicationRequests?: Promise<BackgroundRequests>;
   #releaseApplicationRequests?: () => Promise<void>;
   readonly #packageReloadRequired = new Set<string>();
+  readonly #packageOperations = new Map<string, SerialQueue>();
   readonly #access: Promise<ContentAccessStore>;
   readonly #admission = new SerialQueue();
   readonly #spaceOperations: SpaceOperations;
@@ -625,15 +626,22 @@ export class RepaApplication {
       const input: Input = { parts: [{ kind: "text", text: `${method} ${"source" in submission ? submission.source ?? "" : ""}` }] };
       if (!previous) this.#assertAccepting();
       if (spaceId && this.#store(spaceId).requests.requests.has(requestId)) throw new RepaFault("request_id_conflict", "相同标识已用于会话输入。");
-      return processing.submit({ requestId, operation: method, input, options }, async (_input, context) => this.#admission.run(async () => {
-        context.signal.throwIfAborted();
-        await this.#resetPlugins(scope);
-        context.signal.throwIfAborted();
+      const packageKey = spaceId ?? "application";
+      // Pi 的 npm/git 安装根与来源设置按 user/project 共用，不按单个包分别排队。
+      const queue = this.#packageOperations.get(packageKey) ?? new SerialQueue();
+      this.#packageOperations.set(packageKey, queue);
+      return processing.submit({ requestId, operation: method, input, options }, async (_input, context) => queue.run(async () => {
+        await this.#admission.run(async () => {
+          context.signal.throwIfAborted();
+          // 先封锁新装配，避免异步收尾期间重新打开旧代码。
+          this.#packageReloadRequired.add(packageKey);
+          await this.#resetPlugins(scope);
+          context.signal.throwIfAborted();
+        }, context.signal);
         context.progress("正在执行 Pi 包管理操作");
         const packages = manager();
         const p = <M extends PackageMethod>() => submission as Params<M>;
         // SDK 操作可能部分完成后报错；开始改包后统一以真实进程重启重载传递依赖。
-        this.#packageReloadRequired.add(spaceId ?? "application");
         let catalog: PluginPackage[];
         switch (method) {
           case "package.install":
@@ -734,6 +742,13 @@ export class RepaApplication {
           implementationId: submission.implementationId ?? runtime.configuration.implementations[submission.contract.id] };
         const definition = runtime.capabilities.resolve(selection, scope);
         const bound = { contract: definition.contract, implementationId: definition.implementationId };
+        if (definition.execution === "query") {
+          return { execution: "query" as const, result: runtime.capabilities.invoke(bound, submission.input, {
+            scope, source: { kind: "client", hostId }, signal: new AbortController().signal,
+            ...(spaceId ? { content: this.#space(spaceId).content } : {}),
+            services: { settings: async (namespace: string) => (await this.#readSettings(scope, [namespace]))[0]! },
+          }) };
+        }
         const declarations = runtime.capabilities.resourceDeclarations(bound, scope);
         const input: Input = { parts: [{ kind: "data", representation: capabilityRepresentation(
           definition.contract, submission.input, declarations.inputResources(submission.input),
@@ -752,6 +767,7 @@ export class RepaApplication {
         });
         return { execution: definition.execution, request };
       });
+      if (accepted.execution === "query") return { kind: "inline", requestId, result: await accepted.result };
       if (accepted.execution === "background") return { kind: "background", request: accepted.request };
       await processing.settled(requestId);
       const finished = processing.get(requestId);

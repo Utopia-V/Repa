@@ -121,7 +121,35 @@ function databaseRows(file: string) {
   finally { database.close(); }
 }
 
-test("无状态应用能力的公共 inline 调用可查询和重传，重启不重新执行已完成请求", async (t) => {
+test("即时查询读取当前值，不为刷新保存处理记录", async (t) => {
+  const ValueSchema = object({ value: Type.Number() });
+  let value = 1;
+  const query: CapabilityDefinition = {
+    contract: { id: "example.current", version: "1" }, implementationId: "current",
+    inputSchema: object({}), outputSchema: ValueSchema, scopes: ["application", "space"], execution: "query",
+    invoke(_input, context) {
+      assert.equal(context.source.kind, "client");
+      return { value };
+    },
+  };
+  const f = await fixture(t, [{ id: "current", enabled: true, factory: () => ({ capabilities: [query] }) }]);
+  for (const scope of [application, f.scope]) {
+    const params = { scope, requestId: randomUUID(), contract: query.contract, input: {} };
+    const first = await f.client.call("capability.invoke", params);
+    assert.deepEqual(first, { kind: "inline", requestId: params.requestId, result: { value } });
+    value += 1;
+    assert.deepEqual(await f.client.call("capability.invoke", params), {
+      kind: "inline", requestId: params.requestId, result: { value },
+    });
+    assert.deepEqual(await f.client.call("request.get", {
+      requestId: params.requestId, ...(scope.kind === "space" ? { spaceId: scope.spaceId } : {}),
+    }), { requestId: params.requestId, status: "unknown" });
+  }
+  assert.deepEqual(await readdir(path.join(f.directory, ".repa/runtime/processing")), []);
+  assert.deepEqual(await readdir(path.join(f.appDirectory, "runtime/processing")), []);
+});
+
+test("持久 inline 调用可查询和重传，重启不重新执行已完成请求", async (t) => {
   const TextSchema = object({ text: Type.String() });
   let calls = 0;
   const echo: CapabilityDefinition<typeof TextSchema, typeof TextSchema> = {

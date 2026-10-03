@@ -14,6 +14,8 @@ const ImageSchema = Type.Union([
   object({ kind: Type.Literal("file"), hash: Type.String({ pattern: "^[a-f0-9]{64}$" }), mode: Type.Number() }),
 ]);
 export type FileImage = Static<typeof ImageSchema>;
+/** 一次实际文件读取；字节只随本次观察传递，不进入持久操作记录。 */
+export interface FileSnapshot { image: FileImage; bytes?: Buffer }
 export interface FileMutation { path: string; before: FileImage; after: FileImage }
 const EntrySchema = object({
   version: Type.Literal(1),
@@ -89,18 +91,22 @@ export class FileJournal {
   }
 
   async image(relative: string, retain = true): Promise<FileImage> {
+    return (await this.snapshot(relative, retain)).image;
+  }
+
+  async snapshot(relative: string, retain = true): Promise<FileSnapshot> {
     const file = await this.filePath(relative);
     try {
       const stat = await lstat(file);
       if (stat.isSymbolicLink())
         throw new RepaFault("revision_conflict", "目标已成为符号链接，请重新确认。", { path: relative });
       const mode = stat.mode & 0o777;
-      if (stat.isDirectory()) return { kind: "directory", mode };
+      if (stat.isDirectory()) return { image: { kind: "directory", mode } };
       if (!stat.isFile()) throw new RepaFault("unsupported_content", "目标不是普通文件。", { path: relative });
       const bytes = await readFile(file);
-      return { kind: "file", hash: retain ? await this.blobs.put(bytes) : digest(bytes), mode };
+      return { image: { kind: "file", hash: retain ? await this.blobs.put(bytes) : digest(bytes), mode }, bytes };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { image: { kind: "absent" } };
       throw error;
     }
   }

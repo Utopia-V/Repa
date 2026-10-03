@@ -71,14 +71,14 @@ export function createLearningPlugin(): BackendPlugin {
     capabilities: [
       {
         contract: { id: "repa.context.get", version: "1" }, implementationId: "official",
-        inputSchema: GET_LEARNING_CONTEXT_TOOL.parameters, outputSchema: ContextStateSchema, scopes: ["space"], execution: "inline",
+        inputSchema: GET_LEARNING_CONTEXT_TOOL.parameters, outputSchema: ContextStateSchema, scopes: ["space"], execution: "query",
         tool: { name: GET_LEARNING_CONTEXT_TOOL.name, description: GET_LEARNING_CONTEXT_TOOL.description },
         invoke: (_input, context) => learning(context).get(),
       },
       set,
       {
         contract: { id: "repa.context.preview", version: "1" }, implementationId: "official",
-        inputSchema: LEARNING_CONTEXT_TOOL.parameters, outputSchema: ContextViewSchema, scopes: ["space"], execution: "inline",
+        inputSchema: LEARNING_CONTEXT_TOOL.parameters, outputSchema: ContextViewSchema, scopes: ["space"], execution: "query",
         tool: { name: LEARNING_CONTEXT_TOOL.name, description: LEARNING_CONTEXT_TOOL.description },
         invoke: (_input, context) => learning(context).preview(),
       },

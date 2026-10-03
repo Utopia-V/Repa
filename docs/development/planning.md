@@ -16,7 +16,7 @@
 
 官方默认以 `repa-planning` 装配，包的 `pi.skills` 与 `repa.backend` 使用同一启用选择；单独安装沿用[安装和信任入口](plugins.md)。可信包进入真实 Pi 的 Skill catalog，正文由已有 `read` 工具按需读取；后台工具与公共客户端调用同一实现。禁用配置中的该插件同时移除方法和工具，已有计划文档不受影响。静态提示预览可以查看 Skill 来源，不运行规划方法。
 
-当前两个契约均支持 `space` 和 `application` 作用域，公开调用为 inline：
+当前两个契约均支持 `space` 和 `application` 作用域，声明为 `query`。公开调用直接返回 inline 结果，每次读取当前值，不增加持久请求：
 
 | 契约 | Agent 工具 | 责任 |
 | --- | --- | --- |

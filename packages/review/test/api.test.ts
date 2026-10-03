@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -115,6 +115,26 @@ async function fixture(t: TestContext) {
     },
   };
 }
+
+test("复习列表和历史查询返回当前数据，处理记录只保留修改请求", async (t) => {
+  const f = await fixture(t);
+  await f.enable();
+  const queryId = randomUUID();
+  const list = () => invoke(f.client, f.scope, "list", {}, ListReviewsResultSchema, queryId);
+  assert.deepEqual((await list()).items, []);
+  const created = await invoke(f.client, f.scope, "create", {
+    operationId: randomUUID(), prompt: "为什么月球引力会引起潮汐？",
+  }, ReviewMutationResultSchema);
+  assert.equal((await list()).items[0]?.id, created.item.id);
+  await invoke(f.client, f.scope, "get", { itemId: created.item.id }, ReviewItemSchema);
+  await invoke(f.client, f.scope, "history", { itemId: created.item.id }, ReviewHistoryResultSchema);
+  await invoke(f.client, f.scope, "parameters.get", {}, ParameterVersionSchema);
+  const records = await readdir(path.join(f.directory, ".repa/runtime/processing"));
+  assert.equal(records.length, 1);
+  assert.deepEqual(await f.client.call("request.get", { spaceId: f.space.id, requestId: queryId }), {
+    requestId: queryId, status: "unknown",
+  });
+});
 
 test("安装包描述不创建数据库，公共复习操作绑定客户端来源且重传和竞争不重复记录", async (t) => {
   const f = await fixture(t);

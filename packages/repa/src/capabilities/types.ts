@@ -27,6 +27,7 @@ export interface CapabilityDefinition<
   inputSchema: Input;
   outputSchema: Output;
   scopes: readonly CapabilityScope["kind"][];
+  /** query 读取当前值，不保存请求；修改、资源交付与长任务使用 inline 或 background。 */
   execution: CapabilityDescriptor["execution"];
   tool?: {
     name: string;

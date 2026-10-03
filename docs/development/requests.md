@@ -79,7 +79,7 @@ Host 在 Pi 最后的 RPC input hook 中关联输入，把请求标识随实际�
 | 入口 | 接入方式 |
 | --- | --- |
 | `model.complete` | 用 Pi `ModelRuntime.completeSimple` 和 SDK 重试处理明确输入，记录回复、用量和来源资源；不创建会话 |
-| `capability.invoke` | `inline` 和 `background` 都保存请求，区别是公开方法等待结果还是先返回回执；Agent 工具已归父运行，不另建后台记录 |
+| `capability.invoke` | `query` 直接读取当前值；`inline` 和 `background` 保存请求，区别是等待结果还是先返回回执。Agent 工具已归父运行，不另建后台记录 |
 | `package.install/update/remove` | 保存包管理进度与结果；当前 SDK 进入安装后无法中途取消，改包前即标记后端需要重启 |
 | `execution.run` | 保存命令结果和已经发生的输出；取消后的请求保持 `cancelled`，不会因保留输出而改报完成 |
 

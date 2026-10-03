@@ -125,6 +125,7 @@ export class CapabilityHost {
     if (!definition || typeof definition.invoke !== "function" ||
         (definition.inputResources !== undefined && typeof definition.inputResources !== "function") ||
         (definition.outputResources !== undefined && typeof definition.outputResources !== "function") ||
+        (definition.execution === "query" && (definition.inputResources !== undefined || definition.outputResources !== undefined)) ||
         (definition.tool?.input !== undefined && (!definition.tool.input || typeof definition.tool.input.prepare !== "function")))
       throw new RepaFault("invalid_capability", "能力调用实现、工具适配或资源声明无效。");
     const descriptor = serializable({

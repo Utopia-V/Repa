@@ -58,7 +58,12 @@ export function mediaType(file: string): string {
   return types[path.extname(file).toLowerCase()] ?? "application/octet-stream";
 }
 
-interface Observed { path: string; image: FileImage; record?: ContentRecord }
+interface Observed {
+  path: string;
+  image: FileImage;
+  record?: ContentRecord;
+  bytes?: Buffer;
+}
 interface Plan {
   catalog: Catalog;
   before: Catalog;
@@ -212,13 +217,19 @@ export class ContentStore {
       if (stat?.isFile()) checkByteLimit(stat.size, maxBytes);
     }
     let image: FileImage;
-    if (inside(this.options.root, actual) && actual !== this.options.root)
-      image = await this.journal.image(path.relative(this.options.root, actual));
-    else {
+    let bytes: Buffer | undefined;
+    if (inside(this.options.root, actual) && actual !== this.options.root) {
+      const snapshot = await this.journal.snapshot(path.relative(this.options.root, actual));
+      image = snapshot.image;
+      bytes = snapshot.bytes;
+    } else {
       try {
         const current = stat ?? await lstat(actual);
         if (current.isDirectory()) image = { kind: "directory", mode: current.mode & 0o777 };
-        else if (current.isFile()) image = { kind: "file", hash: await this.blobs.put(await readFile(actual)), mode: current.mode & 0o777 };
+        else if (current.isFile()) {
+          bytes = await readFile(actual);
+          image = { kind: "file", hash: await this.blobs.put(bytes), mode: current.mode & 0o777 };
+        }
         else throw new RepaFault("unsupported_content", "目标不是普通文件。");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -226,7 +237,10 @@ export class ContentStore {
       }
     }
     const actualRecord = record ?? Object.values(catalog.items).find((item) => item.state === "active" && this.#absolute(item.location) === actual);
-    return { path: actual, image, ...(actualRecord ? { record: actualRecord } : {}) };
+    return {
+      path: actual, image, ...(actualRecord ? { record: actualRecord } : {}),
+      ...(bytes ? { bytes } : {}),
+    };
   }
   #blocked(absolute: string, id?: string): boolean {
     const relative = path.relative(this.options.root, absolute);
@@ -237,7 +251,7 @@ export class ContentStore {
     if (observed.image.kind === "absent" && !observed.record) return null;
     return digest(canonicalJson(observed.record ?? { image: observed.image, location: this.#location(observed.path) }));
   }
-  async #info(observed: Observed, byteLength?: number): Promise<ContentInfo> {
+  async #info(observed: Observed): Promise<ContentInfo> {
     const { record, image } = observed;
     const location = this.#location(observed.path);
     const ref = record ? { spaceId: this.options.spaceId, id: record.id } : undefined;
@@ -251,7 +265,7 @@ export class ContentStore {
       ...(image.kind !== "absent" ? { fileType: image.kind } : {}),
       status: this.#blocked(observed.path, record?.id) ? "needs_recovery"
         : record?.state === "detached" ? "detached" : image.kind === "absent" ? "missing" : "available",
-      ...(image.kind === "file" ? { size: byteLength ?? (await this.blobs.get(image.hash)).length } : {}),
+      ...(image.kind === "file" ? { size: observed.bytes?.length ?? (await this.blobs.get(image.hash)).length } : {}),
       members: clone(record?.members ?? []), resources: clone(record?.resources ?? []),
       ...(record?.origin ? { origin: clone(record.origin) } : {}),
     };
@@ -331,9 +345,9 @@ export class ContentStore {
   async #readSnapshot(params: { target: ContentTarget; revision?: string; maxBytes?: number }): Promise<ContentReadSnapshot> {
     const observed = await this.#observe(params.target, this.#catalog, [], params.maxBytes);
     if (params.target.kind === "content") this.#assertStructure(observed);
-    const bytes = observed.image.kind === "file" ? await this.blobs.get(observed.image.hash) : undefined;
+    const bytes = observed.bytes;
     if (bytes) checkByteLimit(bytes.length, params.maxBytes);
-    const content = await this.#info(observed, bytes?.length);
+    const content = await this.#info(observed);
     if (params.revision !== undefined && content.bodyRevision !== params.revision)
       throw new RepaFault("revision_conflict", "读取的内容版本已改变。", { actual: content.bodyRevision });
     if (observed.image.kind !== "file" || !bytes) throw new RepaFault("not_found", "没有可读取的文件正文。");
@@ -387,8 +401,8 @@ export class ContentStore {
     return this.queue.run(async () => {
       const observed = await this.#observe(this.target(file), this.#catalog, extraReadRoots);
       if (this.target(file).kind === "content") this.#assertStructure(observed);
-      if (observed.image.kind !== "file") throw new RepaFault("not_found", "文件不可用。");
-      return { bytes: await this.blobs.get(observed.image.hash), content: await this.#info(observed) };
+      if (observed.image.kind !== "file" || !observed.bytes) throw new RepaFault("not_found", "文件不可用。");
+      return { bytes: observed.bytes, content: await this.#info(observed) };
     });
   }
   list(params: { path?: string } = {}): Promise<ContentInfo[]> {
@@ -526,8 +540,8 @@ export class ContentStore {
     return this.#mutate(input.operationId, { method: "edit", ...input }, async (plan) => {
       const observed = await this.#observe(input.target, plan.catalog);
       if (input.target.kind === "content") this.#assertStructure(observed);
-      if (observed.image.kind !== "file") throw new RepaFault("not_found", "没有可编辑的文件。");
-      const before = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await this.blobs.get(observed.image.hash));
+      if (observed.image.kind !== "file" || !observed.bytes) throw new RepaFault("not_found", "没有可编辑的文件。");
+      const before = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(observed.bytes);
       const after = editText(before, input.edits);
       await this.#put(plan, observed.path, { ...observed.image, hash: await this.blobs.put(after) }, observed.image);
     });
@@ -547,12 +561,12 @@ export class ContentStore {
         if (observed.image.kind !== "absent") throw new RepaFault("revision_conflict", "新增文件的位置已经存在。");
         await this.#put(plan, observed.path, { kind: "file", hash: await this.blobs.put(action.content), mode: 0o644 }, observed.image);
       } else {
-        if (observed.image.kind !== "file") throw new RepaFault("not_found", "补丁目标文件不可用。", { path: action.path });
+        if (observed.image.kind !== "file" || !observed.bytes) throw new RepaFault("not_found", "补丁目标文件不可用。", { path: action.path });
         if (action.kind === "delete") {
           await this.#put(plan, observed.path, absent, observed.image);
           if (observed.record) { plan.catalog.items[observed.record.id]!.state = "deleted"; plan.affected.add(observed.record.id); }
         } else {
-          const original = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await this.blobs.get(observed.image.hash));
+          const original = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(observed.bytes);
           let content: string;
           try {
             const bom = original.startsWith("\uFEFF") ? "\uFEFF" : "";
@@ -612,7 +626,7 @@ export class ContentStore {
     const observed = await this.#observe(target, plan.catalog);
     const relative = path.relative(this.options.root, observed.path);
     const image = plan.files.get(relative)?.after;
-    if (image) return { ...observed, image };
+    if (image) return { path: observed.path, image, ...(observed.record ? { record: observed.record } : {}) };
     if (observed.image.kind === "absent" && [...plan.files.values()].some(file =>
       file.after.kind !== "absent" && file.path.startsWith(`${relative}${path.sep}`))) {
       return { ...observed, image: { kind: "directory", mode: 0o755 } };
@@ -904,7 +918,7 @@ export class ContentStore {
         this.#assertStructure(observed);
         return {
           content: await this.#info(observed),
-          ...(observed.image.kind === "file" ? { bytes: await this.blobs.get(observed.image.hash) } : {}),
+          ...(observed.bytes ? { bytes: observed.bytes } : {}),
         };
       },
     }));

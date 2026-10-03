@@ -36,10 +36,13 @@ Repa 的能力既可以由 Agent 使用，也可以由客户端直接调用。�
 
 `capability.describe({ scope })` 返回该作用域可用的能力、包目录和装配问题。`scope` 为 `{ kind: "application" }` 或 `{ kind: "space", spaceId }`。`capability.invoke({ scope, requestId, contract, implementationId?, input })` 在受理时固定实际实现，返回：
 
-- `execution: "inline"`：等待完成后返回 `{ kind: "inline", requestId, result }`。
+- `execution: "query"`：直接查询当前值，返回 `{ kind: "inline", requestId, result }`，不保存处理记录。
+- `execution: "inline"`：保存受理与结果，等待完成后返回 `{ kind: "inline", requestId, result }`。
 - `execution: "background"`：返回 `{ kind: "background", request }`，之后查询 `request.get` 或取消 `request.cancel`。
 
-两种公开调用都由 `BackgroundRequests` 保存请求、受理时的配置和结果。客户端断线后，可以用原来的 `requestId` 查询结果；重新提交同一请求时，也会取得原记录，不再执行一次处理函数。当前没有为只读查询另设路径，所以 `inline` 查询也会写入请求记录。这部分写入在前端频繁刷新时会产生多少开销，还需要联调时测量。
+你刷新列表或读取当前参数时，需要的是当前数据，而不是上一次查询的回执。能力可以声明为 `query`，沿同一个调用入口直接返回结果；`requestId` 只关联这次调用，重复调用会重新查询，`request.get` 不保存它的结果。查询复用能力宿主的作用域、运行资源和关闭流程，不另建调度或缓存。
+
+`query` 适用于无业务修改、无需独立资源保留、进度和交互的即时查询。公开查询只取得配置等实际需要的窄服务；需要这些持久责任的能力使用 `inline` 或 `background`。这两种调用由 `BackgroundRequests` 保存请求、受理时的配置和结果，客户端断线后可以用原来的 `requestId` 查询或重传，取得原记录。
 
 应用范围的调用省略 `spaceId`，记录保存在应用目录；空间调用使用所属空间的记录。持久格式和独占访问规则见[请求说明](requests.md#持久格式与资源)。
 
@@ -112,14 +115,13 @@ Agent 工具调用已经包含在一次运行中，可以直接使用父运行�
 | 项目 | 当前状态与影响 | 后续工作 |
 | --- | --- | --- |
 | 官方界面使用共享能力 | 待前端接入。公开客户端与 Agent 已能操作同一能力和数据，真实界面中的按钮、状态刷新和关闭流程尚待验证 | 由 [#10](https://github.com/Utopia-V/repa/issues/10)接入界面，再按实际流程联调 |
-| 高频只读调用的持久化开销 | 待验证。当前 `inline` 只读调用也保存请求记录，回归验证了结果与重传行为，尚未测量前端频繁刷新时的开销 | 联调时检查调用频率、时延和写入量，据此判断是否需要让只读查询直接返回 |
 
 ## 验证与边界
 
 测试按接口和资源分布在以下文件中：
 
 - [capabilities.test.ts](../../packages/repa/test/capabilities.test.ts)：能力实现的选择、空间资源的按需打开与关闭。
-- [capability-api.test.ts](../../packages/repa/test/capability-api.test.ts)：通过公开客户端、Pi 和本地 faux provider，验证客户端与 Agent 工具共用 SQLite 数据库、请求重传和重开、取消与关闭，以及学习能力的禁用和替换。
+- [capability-api.test.ts](../../packages/repa/test/capability-api.test.ts)：通过公开客户端、Pi 和本地 faux provider，验证查询刷新不增加处理记录、客户端与 Agent 工具共用 SQLite 数据库、持久请求重传和重开、取消与关闭，以及学习能力的禁用和替换。
 - [capability-resources.test.ts](../../packages/repa/test/capability-resources.test.ts)：输入输出的资源声明、标准表示中的资源保留、父请求多次追加资源，以及请求结束、应用重开后的保留与回收。
 
 验证在 Linux、Node 24 上进行，使用临时文件、SQLite 和本地模型替身。复习业务与通知订阅见[复习验证](review.md#验证入口)，命令隔离见[执行说明](execution.md)。

@@ -23,7 +23,7 @@ function capability<I extends TSchema, O extends TSchema>(name: string, inputSch
   options: { mutation?: boolean; execution?: "inline" | "background" } = {}): CapabilityDefinition<I, O, RepaCapabilityServices, ReviewStore, ToolInput<I>> {
   return {
     contract: { id: `repa.review.${name}`, version: "1" }, implementationId: "fsrs-sqlite",
-    inputSchema, outputSchema, scopes: ["space"], execution: options.execution ?? "inline",
+    inputSchema, outputSchema, scopes: ["space"], execution: options.execution ?? (options.mutation ? "inline" : "query"),
     tool: {
       name: `review_${name.replaceAll(".", "_")}`, description,
       ...(options.mutation ? { input: {

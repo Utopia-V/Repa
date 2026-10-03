@@ -9,7 +9,7 @@ import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { DefaultPackageManager, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
 import { RepaClient, RpcError } from "../src/client.js";
@@ -339,4 +339,82 @@ test("公共包管理受理和查询使用真实 SDK 设置，关闭宿主并要
   assert(existsSync(path.join(source, "backend.js")), "SDK local 移除不删除用户源码");
   assert.equal(await readFile(path.join(f.spaceDirectory, ".repa", "plugins", "managed", "owned.log"), "utf8"), "更新前拥有的资源\n");
   await assert.rejects(client.call("capability.describe", { scope: application }), fault("plugin_restart_required"));
+});
+
+test("空间包安装等待 SDK 时其他空间仍可运行，同范围包操作串行且退出等待安装完成", { timeout: 15000 }, async (t) => {
+  const f = await foundation(t);
+  const slowSource = await f.makePackage("slow-local");
+  const nextSource = await f.makePackage("next-local");
+  const otherSource = await f.makePackage("other-local");
+  let release = () => {};
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let entered = () => {};
+  const installing = new Promise<void>(resolve => { entered = resolve; });
+  const started: string[] = [];
+  const install = DefaultPackageManager.prototype.install;
+  t.mock.method(DefaultPackageManager.prototype, "install", async function (this: DefaultPackageManager, source: string, options: Parameters<typeof install>[1]) {
+    started.push(source);
+    if (source === slowSource) {
+      // 在实际 SDK 安装边界建立屏障，释放后仍由原方法检查本地包并保存来源。
+      entered();
+      await blocked;
+    }
+    return install.call(this, source, options);
+  });
+  const faux = fauxProvider({ api: `package-api-${randomUUID()}`, provider: `package-provider-${randomUUID()}`,
+    models: [{ id: "test", reasoning: false, input: ["text"], contextWindow: 16384, maxTokens: 512 }], tokensPerSecond: 0 });
+  const modelRuntime = await ModelRuntime.create({ authPath: path.join(f.agentDir, "test-auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
+  modelRuntime.registerNativeProvider(faux.provider);
+  faux.setResponses([fauxAssistantMessage("其他空间正常完成")]);
+  const server = await startRepaServer({ agentDir: f.agentDir, appDirectory: f.appDirectory, modelOverride: { modelRuntime, model: faux.getModel() } });
+  const client = await RepaClient.connect(server.connection);
+  f.onClose(async () => { await server.close("cancel"); await client.close(); });
+  let closing: Promise<void> | undefined;
+  try {
+    const space = await client.call("space.open", { path: f.spaceDirectory });
+    const other = await client.call("space.open", { path: path.join(f.root, "other-space") });
+    const scope: CapabilityScope = { kind: "space", spaceId: space.id };
+    const slow = await client.call("package.install", { scope, requestId: randomUUID(), source: slowSource });
+    await installing;
+    const next = await client.call("package.install", { scope, requestId: randomUUID(), source: nextSource });
+    await assert.rejects(client.call("capability.describe", { scope }), fault("plugin_restart_required"));
+    const session = await client.call("session.create", { spaceId: other.id });
+    const accepted = await client.call("session.submit", {
+      target: { spaceId: other.id, sessionId: session.sessionId }, requestId: randomUUID(),
+      input: { parts: [{ kind: "text", text: "包安装期间继续另一个空间的任务" }] }, dispatch: { kind: "start" },
+    });
+    assert(accepted.runId);
+    const runId = accepted.runId;
+    const run = await until(() => client.call("run.get", { spaceId: other.id, runId }), value => ["completed", "failed", "cancelled", "interrupted"].includes(value.status));
+    assert.equal(run.status, "completed", JSON.stringify(run));
+    const independent = await client.call("package.install", {
+      scope: { kind: "space", spaceId: other.id }, requestId: randomUUID(), source: otherSource,
+    });
+    const independentResult = await until(() => client.call("request.get", { spaceId: other.id, requestId: independent.requestId }), value => value.status === "completed" || value.status === "failed");
+    assert.equal(independentResult.status, "completed", JSON.stringify(independentResult));
+    assert.deepEqual(started, [slowSource, otherSource], "同空间的第二次安装尚不能进入 SDK，其他空间有独立安装根");
+    assert.equal((await client.call("request.get", { spaceId: space.id, requestId: slow.requestId })).status, "running");
+    closing = server.close("drain");
+    assert.equal((await client.call("state.get", { scope: {} })).lifecycle, "draining");
+    release();
+    await closing;
+    const StoredSchema = Type.Object({
+      request: Type.Object({
+        status: Type.Literal("completed"),
+        result: Type.Object({ value: Type.Object({ data: PackageResultSchema }) }),
+      }),
+    });
+    for (const request of [slow, next]) {
+      const stored: unknown = JSON.parse(await readFile(path.join(f.spaceDirectory, ".repa", "runtime", "processing", `${request.requestId}.json`), "utf8"));
+      assert(Check(StoredSchema, stored), "排空退出前必须完成安装与持久结果");
+    }
+    assert.deepEqual(started, [slowSource, otherSource, nextSource]);
+    const ProjectSettingsSchema = Type.Object({ packages: Type.Array(Type.String()) });
+    const settings: unknown = JSON.parse(await readFile(path.join(f.spaceDirectory, ".pi", "settings.json"), "utf8"));
+    assert(Check(ProjectSettingsSchema, settings));
+    assert.equal(settings.packages.length, 2, "串行安装保留两次真实 SDK 设置变更");
+  } finally {
+    release();
+    await closing;
+  }
 });
