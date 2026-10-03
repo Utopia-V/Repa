@@ -51,13 +51,13 @@ async function fixture(t: TestContext) {
   return { root, cwd, outside, home, temporary, protectedPath, env, execute };
 }
 
-async function processState(pid: number): Promise<{ state: string; parent: number } | undefined> {
+async function processState(pid: number): Promise<{ state: string; parent: number; name: string; group: number } | undefined> {
   try {
     const value = await readFile(`/proc/${pid}/stat`, "utf8");
     const fields = value.slice(value.lastIndexOf(")") + 2).split(" ");
     const state = fields[0];
     assert(state);
-    return { state, parent: Number(fields[1]) };
+    return { state, parent: Number(fields[1]), group: Number(fields[2]), name: value.slice(value.indexOf("(") + 1, value.lastIndexOf(")")) };
   } catch (error) {
     if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ESRCH")) {
       return undefined;
@@ -81,6 +81,18 @@ async function descendants(parent: number): Promise<number[]> {
     }
   } while (result.size !== size);
   return [...result];
+}
+
+async function directChildren(pid: number): Promise<number[]> {
+  try {
+    const value = await readFile(`/proc/${pid}/task/${pid}/children`, "utf8");
+    return value.trim().split(/\s+/).filter(Boolean).map(Number);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ESRCH")) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 async function until(predicate: () => boolean, description: string): Promise<void> {
@@ -279,12 +291,73 @@ test("受限沙箱启动时父进程退出，未放行的命令不执行且整�
   namespacePid = await namespace;
   assert(!existsSync(marker));
   const exited = new Promise<void>((resolve) => { child.on("exit", () => { resolve(); }); });
-  assert(child.kill("SIGTERM"));
+  // 不可捕捉的父进程死亡仍须经 PDEATHSIG 阻止启动并结束 namespace。
+  assert(child.kill("SIGKILL"));
   await exited;
   barrier.end();
   await done;
   await assertExited([namespacePid]);
   assert(!existsSync(marker));
+});
+
+test("受限沙箱收到普通终止信号后等待命名空间父子进程退出", { skip: restrictedSkip, timeout: 5000 }, async (t) => {
+  const f = await fixture(t);
+  const executable = new URL("../resources/sandbox/linux-x64/codex-resources/bwrap", import.meta.url);
+  const child = spawn(fileURLToPath(executable), [
+    "--as-pid-1", "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid",
+    "--bind", "/", "/", "--info-fd", "3", "--",
+    "/bin/bash", "--noprofile", "--norc", "-c", 'sleep 60 & printf "ready\\n"; wait',
+  ], { cwd: f.cwd, env: { PATH: "/usr/bin:/bin" }, stdio: ["ignore", "pipe", "pipe", "pipe"] });
+  const information = child.stdio[3];
+  const stdout = child.stdout;
+  assert(information instanceof Readable);
+  assert(stdout instanceof Readable);
+  let namespacePid = 0;
+  let closed = false;
+  const done = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.on("close", (code, signal) => { closed = true; resolve({ code, signal }); });
+    child.on("error", reject);
+  });
+  t.after(async () => {
+    if (!closed) {
+      child.kill("SIGKILL");
+      if (namespacePid > 0) {
+        try { process.kill(namespacePid, "SIGKILL"); }
+        catch (error) {
+          if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error;
+        }
+      }
+    }
+    await done;
+  });
+  const namespace = new Promise<number>((resolve, reject) => {
+    let output = "";
+    information.on("data", (bytes: Buffer) => { output += bytes.toString("utf8"); });
+    information.on("end", () => {
+      try {
+        const value: unknown = JSON.parse(output);
+        assert(value !== null && typeof value === "object" && "child-pid" in value);
+        assert(typeof value["child-pid"] === "number" && Number.isSafeInteger(value["child-pid"]) && value["child-pid"] > 0);
+        resolve(value["child-pid"]);
+      } catch (error) { reject(error); }
+    });
+    information.on("error", reject);
+  });
+  const ready = new Promise<void>((resolve, reject) => {
+    let output = "";
+    stdout.on("data", (bytes: Buffer) => {
+      output += bytes.toString("utf8");
+      if (output.includes("ready\n")) resolve();
+    });
+    stdout.on("error", reject);
+  });
+  namespacePid = await namespace;
+  await ready;
+  const children = await directChildren(namespacePid);
+  assert(children.length > 0, "未观察到命名空间内的子进程");
+  assert(child.kill("SIGTERM"));
+  assert.deepEqual(await done, { code: 137, signal: null });
+  await assertExited([namespacePid, ...children]);
 });
 
 test("受限命令默认无法读取宿主临时目录、受保护状态或越界写入，Full Access 才移除文件隔离", { skip: restrictedSkip }, async (t) => {

@@ -23,7 +23,7 @@ Agent 工具使用 Pi 0.87.1 的 `createBashToolDefinition` 和 `createBashTool`
 
 命令修改文件后，内容模块按外部编辑重新观察。它没有经过内容保存接口，因此不会产生一项可按 FileJournal 撤回的内容操作。
 
-可信 Node 插件本身运行在宿主进程中。只有通过执行服务启动的命令受这里的沙箱约束；插件自己的 Node 代码不在该范围内。生成展示也不应取得完整后端令牌，其受限调用需要单独的桥接入口。
+可信 Node 插件本身运行在宿主进程中。只有通过执行服务启动的命令受这里的沙箱约束；插件自己的 Node 代码不在该范围内。生成页面通过[展示桥接](display.md)使用实例绑定的动作，主连接令牌留在可信宿主。
 
 ## 有效权限
 
@@ -69,15 +69,17 @@ Agent 工具使用 Pi 0.87.1 的 `createBashToolDefinition` 和 `createBashTool`
 
 工具详情使用标准 `Representation`，会话保存结果时接手资源，分支建立自己的保留关系。当前通过 Pi 的 `tool_result` 扩展补回失败结果的结构化详情；若 SDK 原生保留这些详情，这层适配可以收缩。空间复制会映射标准结果中的资源归属，历史命令和工作目录保留当时的记录。
 
-每条命令使用独立进程组。当你取消命令，Repa 就会先发送 TERM，必要时再发送 KILL。等进程退出、输出关闭，并清理本次使用的临时目录后，再报告取消完成。超时或主命令普通结束时，也会收尾同组进程；两条命令可以并行，取消其中一条不会取消另一条。
+当你取消受限命令，Repa 就会向 bubblewrap 的监控进程发送 TERM。监控进程终止沙箱内的 PID 1，并等待其余进程退出，再报告命令结果。Repa 随后等待输出关闭、清理临时目录，最后报告取消完成；超时也使用这条收尾路径。
 
-受限执行还通过 PID namespace 和 bubblewrap 的父生命周期绑定回收内部进程。Full Access 下，主动脱离进程组的 daemon 不在这项回收保证中；当前入口用于能够结束的命令，长期服务应交给相应的服务管理器。
+Full Access 使用独立进程组，先发送 TERM，必要时升级到 KILL，并确认同组进程结束。普通主命令退出时也会收尾仍留在组内的后台任务。两条命令各有自己的执行归属，取消其中一条不会停止另一条。主动脱离进程组的 daemon 应交给相应的服务管理器。
 
 ### 父进程退出的上游适配
 
 固定版本 bubblewrap 在文件系统初始化后才设置 `--die-with-parent` 的父死亡信号。父进程若在此前退出，可能留下 namespace 或启动用户命令。Repa 在 bubblewrap 0.11.2 上保存父 pidfd，提前设置绑定，在 credential 变化后恢复，并在 exec 前再次核对父进程。
 
-这项保证由执行环境和内核完成。升级时要核对启动阶段的父死亡处理，并用相同的实际进程场景验证；上游完整覆盖后，再删除补丁。另一处适配让固定摘要构建只使用相邻的捆绑 bubblewrap。两者的来源与构建方式见[沙箱构建说明](../../packages/repa/resources/sandbox/README.md#父生命周期保证与相邻副本选择)。
+运行期间的取消还需要保留真正的等待者。原实现直接结束外层监控进程，内层 PID namespace 随父死亡信号异步退出；这时外层已经关闭，命令却可能仍在收尾。当前补丁让监控进程接收普通终止信号，作为 subreaper 回收内层后代，等它们退出后才结束。因此，受限路径不再用应用层的进程组扫描或定时强杀结束监控进程。
+
+父进程崩溃等不可捕捉的退出仍由 pidfd、父死亡信号和内核处理。升级时核对这两条路径，上游完整覆盖后即可收缩补丁。固定摘要构建还要求 helper 使用相邻的捆绑 bubblewrap，来源与构建方式见[沙箱构建说明](../../packages/repa/resources/sandbox/README.md#父生命周期保证与相邻副本选择)。
 
 关闭会话会取消其活跃 Agent 运行。前端断开后，已受理的独立命令按后台请求规则处理；后端退出使用已有的 drain/cancel 语义。相同请求重传返回原记录，重启后未完成记录标为 `interrupted`，不自动再执行。
 
@@ -104,15 +106,15 @@ sudo install -m 0644 repa-linux-sandbox.apparmor /etc/apparmor.d/repa-linux-sand
 sudo apparmor_parser -r /etc/apparmor.d/repa-linux-sandbox
 ```
 
-脚本也接受 `--helper /absolute/path/codex-linux-sandbox`。它只输出配置，实际加载由安装者完成。此配置只针对选定 helper，不修改全局 AppArmor 或 sysctl 设置；安装位置改变后，需要重新生成并验证。
+脚本接受 `--helper /absolute/path/codex-linux-sandbox` 和 `--name profile-name`，只输出配置，实际加载由安装者完成。此配置只针对选定 helper，安装位置改变后需要重新生成并验证。Linux 桌面包使用分发专属名称，并由安装／卸载脚本管理两份应用规则，具体路径与验证见[应用交付](distribution.md#安装位置与系统权限)。
 
 ## 未完成项与待验证项
 
 | 项目 | 当前状态与影响 | 后续工作 |
 | --- | --- | --- |
 | 官方界面的执行与授权操作 | 后端接口可用，界面尚未接入权限选择、有效范围、授权详情和命令输出 | 由 [#10](https://github.com/Utopia-V/repa/issues/10) 接入并验证实际窗口的交互与关闭流程 |
-| 生成展示的受限调用 | 尚未接入，生成内容不能取得完整客户端能力 | 由 [#23](https://github.com/Utopia-V/repa/issues/23) 与 #10 完成桥接和授权范围 |
-| 最终安装与分发 | 开发产物可独立运行；安装位置的 profile、干净用户安装和对应源码归档交付尚待整合 | 由 [#26](https://github.com/Utopia-V/repa/issues/26) 按实际安装包验证 |
+| 生成展示的实际宿主 | 后端实例与有限保存／提交动作已接通，官方页面隔离与动作界面仍待接入 | 见[展示说明](display.md#未完成项与待验证项)，由 [#23](https://github.com/Utopia-V/repa/issues/23) 与 #10 联调 |
+| 升级与正式分发 | Ubuntu 24.04 x64 已通过实际安装、专用 profile、普通用户运行和卸载验证；跨版本升级、许可与源码分发材料仍待整理 | 见[应用交付](distribution.md#未完成项与待验证项)，由 [#26](https://github.com/Utopia-V/repa/issues/26) 接续 |
 | 平台范围 | 当前只支持 Linux，验证集中在 Ubuntu x64 | 其他 Linux 环境按发行目标补验；Windows/macOS 需要相应执行实现，不能直接沿用当前支持声明 |
 
 ## 验证入口
@@ -125,4 +127,4 @@ node --import tsx --import ./test/environment.ts --test test/execution-process.t
 
 底层测试使用 helper、实际 C 程序、文件和 localhost 服务。公开接口测试通过后端、客户端与 Pi SDK，使用本地 faux provider 发起工具调用，验证授权、输出、取消、权限收回、重传、重启、分支和复制。
 
-2026-10-03 曾在维护者授权下临时加载专用 AppArmor profile，从普通用户服务运行修复后的公开执行接口，覆盖文件、网络、授权、取消、输出和副本恢复。验证后已卸载策略并删除临时配置。该结果确认当前 helper 可以独立启动；最终安装位置仍需按上表验收。
+独立 helper 曾在专用 AppArmor profile 下从普通用户服务验证文件、网络、授权、取消、输出和副本恢复。随后又实际安装 Linux 桌面候选，核对 `/opt/Repa` 下 helper 使用分发专属 profile，并完成受限文件操作、数据重开和卸载清理。运行环境与安装步骤见[应用交付](distribution.md)。

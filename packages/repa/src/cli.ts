@@ -412,6 +412,7 @@ async function tui(options: Options): Promise<void> {
     console.log(
       `连接文件：${file}\n命令：/cancel /new /sessions /use <会话ID> /branch <消息ID> /status <请求ID> /queue [输入] /cancel-queued <请求ID> /resume /continue <请求ID> /exit /quit`,
     );
+    const replyAttempts = new Map<string, { responseId: string; value: string | boolean | null }>();
     const answer = async (question: Interaction, input: string) => {
       let value: string | boolean | null = input === "/dismiss" ? null : input;
       if (question.kind === "confirm" && value !== null) {
@@ -420,12 +421,17 @@ async function tui(options: Options): Promise<void> {
         value = input === "是" || input.toLowerCase() === "yes";
       } else if (question.kind === "select" && /^\d+$/.test(input))
         value = question.options?.[Number(input) - 1] ?? input;
-      await client.call("interaction.reply", {
+      const previous = replyAttempts.get(question.id);
+      const attempt = previous?.value === value ? previous : { responseId: randomUUID(), value };
+      replyAttempts.set(question.id, attempt);
+      const confirmation = await client.call("interaction.reply", {
         spaceId: space.id,
         ...("sessionId" in question ? { sessionId: question.sessionId } : {}),
         id: question.id,
-        value,
+        ...attempt,
       });
+      replyAttempts.delete(question.id);
+      if (confirmation.status === "already_processed") console.log("该问题已经由其他入口回答。");
     };
     const handle = async (line: string) => {
       if (!current || finished) return;

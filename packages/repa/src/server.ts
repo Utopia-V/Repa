@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { Check } from "typebox/value";
 import { RepaApplication, type ApplicationOptions } from "./application.js";
+import { displayMethods, type DisplayMethod } from "./display/schema.js";
 import { contentMethods, type ContentMethod } from "./content/protocol.js";
 import { spaceMethods, type SpaceMethod } from "./spaces/schema.js";
 import { modelMethods, type ModelMethod } from "./models/schema.js";
@@ -230,6 +231,7 @@ export async function startRepaServer(
       params: unknown,
     ): Promise<unknown> => {
       const p = <M extends Method>() => params as Params<M>;
+      if (Object.hasOwn(displayMethods, method)) return application.displayCall(method as DisplayMethod, p<DisplayMethod>(), peer.host!.id);
       if (Object.hasOwn(spaceMethods, method)) return application.spaceCall(method as SpaceMethod, p<SpaceMethod>());
       if (Object.hasOwn(modelMethods, method)) return application.modelCall(method as ModelMethod, p<ModelMethod>());
       if (Object.hasOwn(learningMethods, method)) return application.learningCall(method as LearningMethod, p<LearningMethod>(), peer.host!.id);
@@ -334,8 +336,7 @@ export async function startRepaServer(
           return application.cancelRun(input.spaceId, input.runId);
         }
         case "interaction.reply":
-          application.reply(p<"interaction.reply">());
-          return null;
+          return application.reply(p<"interaction.reply">());
         case "state.get":
           return application.snapshot(p<"state.get">().scope);
         case "subscription.start": {

@@ -24,6 +24,9 @@
     "node": ">=22.22.2"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "2.3.0",
+    "@modelcontextprotocol/core": "2.3.0",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
     "@repa/learning": "0.1.0",
     "@repa/materials": "0.1.0",
     "@repa/organization": "0.1.0",
@@ -57,6 +60,10 @@
     "./protocol": {
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
+    },
+    "./display": {
+      "types": "./dist/display.d.ts",
+      "import": "./dist/display.js"
     },
     "./plugin": {
       "types": "./dist/plugin.d.ts",

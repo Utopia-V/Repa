@@ -9,7 +9,7 @@ import { getAgentDir, type ToolDefinition } from "@earendil-works/pi-coding-agen
 import type { TSchema } from "typebox";
 import { Check } from "typebox/value";
 import { prepareInput, inputResources, inputText } from "./requests/input.js";
-import type { Submit, Continue, RequestRecord, QueueView, RunOptions } from "./requests/schema.js";
+import type { Submit, Continue, RequestRecord, QueueView, RunOptions, InteractionReplyReceipt } from "./requests/schema.js";
 import { BackgroundRequests, type ProcessingContext } from "./requests/background.js";
 import type { BackgroundRequest, Input, ProcessingResult } from "./requests/schema.js";
 import { ConfigStore } from "./configuration/store.js";
@@ -25,7 +25,7 @@ import { EXECUTION_SETTINGS_DEFINITION } from "./execution/settings.js";
 import type { ExecutionContext } from "./execution/service.js";
 import { ModelConnections } from "./models/service.js";
 import { ModelCalls } from "./models/calls.js";
-import type { ModelMethod, ModelParams, ModelBinding } from "./models/schema.js";
+import { interruptModelAttempts, updateModelAttempts, type ModelMethod, type ModelParams, type ModelBinding, type ModelAttempt } from "./models/schema.js";
 import { learningContentFormat } from "./learning/content-format.js";
 import { learningBackground } from "./learning/background.js";
 import { LEARNING_CONTEXT_TOOLS } from "./learning/plugin.js";
@@ -45,6 +45,8 @@ import type { CapabilityScope, CapabilitySelection, CapabilitySource } from "./c
 import { CapabilityNotificationSchema } from "./capabilities/schema.js";
 import type { RepaCapabilityServices } from "./capabilities/services.js";
 import { capabilityRepresentation } from "./capabilities/resources.js";
+import { DisplayService } from "./display/service.js";
+import type { DisplayMethod, DisplayParams } from "./display/schema.js";
 import { ContentStore } from "./content/store.js";
 import type { ResourceRetentionOptions } from "./content/resources.js";
 import { ContentAccessStore } from "./content/access.js";
@@ -126,7 +128,7 @@ interface SessionRecord {
 }
 interface PendingReply {
   interaction: Interaction;
-  resolve: (value: Reply) => void;
+  resolve: (receipt: InteractionReplyReceipt) => void;
 }
 const keyOf = (key: SessionKey) => `${key.spaceId}/${key.sessionId}`;
 const runtimeIdentity = (binding?: ModelBinding) => {
@@ -142,6 +144,7 @@ export class RepaApplication {
   readonly #configuration: ConfigStore;
   readonly #models: ModelConnections;
   readonly #modelCalls: ModelCalls;
+  readonly #display: DisplayService;
   readonly #execution: ExecutionService;
   readonly #appDirectory: string;
   readonly #pluginRuntimes = new Map<string, Promise<PluginRuntime>>();
@@ -164,6 +167,7 @@ export class RepaApplication {
   readonly #openingSpaces = new Map<string, Promise<Space>>();
   readonly #sessions = new Map<string, SessionRecord>();
   readonly #pending = new Map<string, PendingReply>();
+  readonly #replyReceipts = new Map<string, Map<string, { sessionId?: string; receipt: InteractionReplyReceipt }>>();
   readonly #watchers = new Set<{
     scope: Scope;
     send: (value: Delivery) => void;
@@ -198,6 +202,21 @@ export class RepaApplication {
       onChange: ({ connectionId }) => this.#emit({ type: "connection", connectionId }),
     });
     this.#modelCalls = new ModelCalls(this.#models);
+    this.#display = new DisplayService({
+      hostActive: id => this.#clients.has(id),
+      submit: (input, source, signal) => this.submit(input, source.hostId, source, signal),
+      space: spaceId => {
+        const space = this.#space(spaceId);
+        return { content: space.content, processing: space.processing,
+          request: requestId => space.store.requests.requests.get(requestId),
+          assertRequestAvailable: requestId => {
+            this.#assertAccepting();
+            if (space.store.requests.requests.has(requestId))
+              throw new RepaFault("request_id_conflict", "相同标识已经用于会话输入。");
+          },
+        };
+      },
+    });
     this.#access = ContentAccessStore.open(appDirectory);
     this.#execution = new ExecutionService({
       configuration: this.#configuration,
@@ -228,6 +247,7 @@ export class RepaApplication {
   }
   detach(id: string, confirmed = false): void {
     if (!this.#clients.delete(id)) return;
+    this.#display.detach(id);
     for (const { content } of this.#spaces.values()) {
       content.retention.setHostActive(id, false);
       if (confirmed) {
@@ -299,7 +319,7 @@ export class RepaApplication {
           this.#finishIfReady();
         },
         ask: (requestId, signal, dialog, options) => this.#interact({ spaceId: store.space.id, requestId }, signal, dialog, options,
-          (id, interaction) => processing.interaction(requestId, id, interaction)),
+          (id, interaction, receipt) => processing.interaction(requestId, id, interaction, receipt)),
       });
       const record: SpaceRecord = { store, sessions, content, processing };
       const restoredSessions = existing.map(session => this.#prepareSession(store, session));
@@ -310,6 +330,8 @@ export class RepaApplication {
       }
       // 恢复和资源核对完成后再发布；失败只需释放尚未注册的空间租约。
       this.#spaces.set(store.space.id, record);
+      this.#restoreReplyReceipts(store.space.id, store.requests.requests.values());
+      this.#restoreReplyReceipts(store.space.id, processing.requests.values());
       for (const restored of restoredSessions) this.#sessions.set(keyOf(restored.view), restored);
       this.#emit({ type: "space", space: store.space });
       for (const request of processing.requests.values()) this.#emit({ type: "processing", request });
@@ -510,9 +532,10 @@ export class RepaApplication {
           assertOwned: () => { if (compromised) throw new RepaFault("application_lock_lost", "应用级请求的执行归属已经失效。"); },
           changed: request => { this.#emit({ type: "processing", request }); this.#finishIfReady(); },
           ask: (requestId, signal, dialog, options) => this.#interact({ requestId }, signal, dialog, options,
-            (id, interaction) => processing.interaction(requestId, id, interaction)),
+            (id, interaction, receipt) => processing.interaction(requestId, id, interaction, receipt)),
         });
         this.#applicationRequests = processing;
+        this.#restoreReplyReceipts(undefined, processing.requests.values());
         this.#releaseApplicationRequests = async () => { if (!compromised) await release(); };
         for (const request of processing.requests.values()) this.#emit({ type: "processing", request });
         return processing;
@@ -523,6 +546,20 @@ export class RepaApplication {
     })();
     this.#openingApplicationRequests = opening;
     try { return await opening; } finally { this.#openingApplicationRequests = undefined; }
+  }
+
+  displayCall(method: DisplayMethod, params: DisplayParams<DisplayMethod>, hostId: string): Promise<unknown> {
+    const input = structuredClone(params);
+    const p = <M extends DisplayMethod>() => input as DisplayParams<M>;
+    return this.#activity(async () => {
+      switch (method) {
+        case "display.open": return this.#display.open(p<"display.open">(), hostId);
+        case "display.get": return this.#display.get(p<"display.get">(), hostId);
+        case "display.close": await this.#display.close(p<"display.close">(), hostId); return null;
+        case "display.readResource": return this.#display.readResource(p<"display.readResource">(), hostId);
+        case "display.invoke": return this.#display.invoke(p<"display.invoke">(), hostId);
+      }
+    }, method === "display.open", input.spaceId);
   }
 
   describeCapabilities(scope: CapabilityScope): Promise<Result<"capability.describe">> {
@@ -583,6 +620,7 @@ export class RepaApplication {
               ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
               content: content!, requestId, resourceOwner: owner,
               signal, onCancel: parent.cancel,
+              onAttempt: attempt => this.#recordModelAttempt(scope.spaceId, source, requestId, attempt),
             });
           },
         },
@@ -940,20 +978,31 @@ export class RepaApplication {
   }
 
   async #cancelConnectionWork(connectionId: string): Promise<void> {
-    const affected = [...this.#sessions.values()].filter(record =>
-      (record.active ? record.active.request.runOptions.connection : record.binding)?.connection.id === connectionId);
+    const affected = [...this.#sessions.values()].filter(record => {
+      const options = record.active?.request.runOptions;
+      return [options?.connection ?? record.binding, ...options?.fallback?.models ?? []]
+        .some(binding => binding?.connection.id === connectionId);
+    });
     await Promise.all([
       ...affected.map(record => this.closeSession(record.view)),
       this.#modelCalls.cancel(connectionId),
     ]);
   }
 
-  async #bindModel(spaceId: string, options: Pick<Params<"model.complete">, "model" | "thinkingLevel">) {
-    const { binding, model } = await this.#models.bind(options.model);
+  #recordModelAttempt(spaceId: string, source: CapabilitySource, requestId: string, attempt: ModelAttempt): void {
+    if (source.kind === "agent") {
+      const record = this.#record({ spaceId, sessionId: source.sessionId });
+      const request = record.store.requests.get(requestId);
+      this.#saveRequest(record, { ...request, modelAttempts: updateModelAttempts(request.modelAttempts ?? [], attempt) });
+    } else this.#space(spaceId).processing.recordModelAttempt(requestId, attempt);
+  }
+
+  async #bindModel(spaceId: string, options: Pick<Params<"model.complete">, "model" | "thinkingLevel" | "fallback">) {
+    const { binding, model, fallback } = await this.#models.bind(options.model, options.fallback);
     const view = await this.#configuration.get({ kind: "space", spaceId }, "runtime");
     const configured = Object.fromEntries(view.entries.map(entry => [entry.key, entry.effective])) as RuntimeSettings;
     const sdk = sessionSettings(this.#store(spaceId).space.path, this.#options.agentDir, this.#options.trustExtensions ?? false);
-    return { binding, retry: configured.retry ?? sdk.getRetrySettings(),
+    return { binding, ...(fallback ? { fallback } : {}), retry: configured.retry ?? sdk.getRetrySettings(),
       thinkingLevel: options.thinkingLevel ?? configured.thinkingLevel ?? defaultThinkingLevel(sdk, model) };
   }
 
@@ -969,15 +1018,16 @@ export class RepaApplication {
       }
       this.#assertAccepting();
       if (record.store.requests.requests.has(requestId)) throw new RepaFault("request_id_conflict", "相同标识已用于会话输入。");
-      const { binding, retry, thinkingLevel } = await this.#bindModel(spaceId, options);
+      const { binding, fallback, retry, thinkingLevel } = await this.#bindModel(spaceId, options);
       this.#assertAccepting();
       return record.processing.submit({
         requestId, operation: "repa.model.complete", input, options,
-        configuration: { connection: binding, system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens },
+        configuration: { connection: binding, ...(fallback ? { fallback } : {}), system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens },
       }, (submitted, context) => this.#modelCalls.complete({
-        binding, input: submitted, content: record.content, requestId, resourceOwner: `processing:${requestId}`,
+        binding, fallback, input: submitted, content: record.content, requestId, resourceOwner: `processing:${requestId}`,
         system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens, signal: context.signal,
         onCancel: () => { record.processing.cancel(requestId); },
+        onAttempt: attempt => record.processing.recordModelAttempt(requestId, attempt),
       }));
     }), false, spaceId);
   }
@@ -992,7 +1042,9 @@ export class RepaApplication {
     const runtime = values("runtime") as RuntimeSettings;
     const summaryPrompts = values("summaryPrompts") as SummaryPrompts;
     const chosen = selection?.model ?? runtime.model;
-    const resolved = chosen ? await this.#models.bind(chosen) : undefined;
+    const fallback = selection && Object.hasOwn(selection, "fallback") ? selection.fallback : runtime.fallback;
+    if (fallback && !chosen) throw new RepaFault("configuration", "模型回退策略需要明确的主模型连接。");
+    const resolved = chosen ? await this.#models.bind(chosen, fallback ?? undefined) : undefined;
     const connection = resolved?.binding;
     const sdk = sessionSettings(this.#store(target.spaceId).space.path, this.#options.agentDir, this.#options.trustExtensions ?? false);
     const model = connection ? { provider: connection.connection.provider, id: connection.modelId,
@@ -1004,6 +1056,7 @@ export class RepaApplication {
       promptSettings: selection?.prompts ?? prompts,
       runOptions: {
         ...(connection ? { connection, model } : {}),
+        ...(resolved?.fallback ? { fallback: resolved.fallback } : {}),
         thinkingLevel,
         ...(tools !== null ? { tools } : {}),
         compaction: selection?.compaction ?? runtime.compaction ?? sdk.getCompactionSettings(model),
@@ -1125,6 +1178,7 @@ export class RepaApplication {
       if (request.status === "queued") store.requests.pause(session.id, true);
       const restored = structuredClone(request);
       if (request.status === "running") restored.status = run && isTerminal(run) ? run.status : "interrupted";
+      if (request.modelAttempts) restored.modelAttempts = interruptModelAttempts(request.modelAttempts);
       if (entered.length) restored.delivery = { status: "entered", messageIds: entered };
       else if (request.delivery.status === "entered" && request.delivery.messageIds.every(id => messages.some(message => message.id === id))) {
         restored.delivery = request.delivery;
@@ -1440,10 +1494,17 @@ export class RepaApplication {
 
   async #execute(record: SessionRecord, active: ActiveRun): Promise<void> {
     let result: { status: "completed" | "cancelled" | "failed" | "interrupted"; error?: Run["error"] } = { status: "cancelled" };
+    let fallbackEligible = false;
+    const binding = active.request.runOptions.connection;
+    const attempt: ModelAttempt | undefined = binding
+      ? { callId: active.run.id, index: 0, binding, startedAt: Date.now(), status: "running" } : undefined;
+    const source: CapabilitySource = {
+      kind: "agent", ...active.request.target, runId: active.run.id, requestId: active.request.requestId,
+    };
     try {
+      if (attempt) this.#recordModelAttempt(record.view.spaceId, source, active.request.requestId, attempt);
       if (!active.controller.signal.aborted) {
         this.#updateRun(active, { status: "running" });
-        const binding = active.request.runOptions.connection;
         if (binding) await this.#models.assertBinding(binding);
         if (record.host && !isDeepStrictEqual(runtimeIdentity(record.binding), runtimeIdentity(binding))) {
           await record.host.close();
@@ -1471,6 +1532,7 @@ export class RepaApplication {
             : record.host.send(input.text, request.promptSettings, { requestId: request.requestId, images: input.images, options: request.runOptions });
           active.resolveReady();
           const outcome = await execution;
+          fallbackEligible = outcome.status === "failed" && outcome.fallbackEligible === true;
           result = {
             status: outcome.status,
             ...("error" in outcome && outcome.error
@@ -1491,6 +1553,7 @@ export class RepaApplication {
           };
       if (!record.host) record.view.runtime = "unloaded";
     } finally {
+      const cancelled = active.controller.signal.aborted;
       active.controller.abort();
       active.resolveReady();
       const deliveries = await Promise.allSettled(active.deliveries);
@@ -1502,7 +1565,11 @@ export class RepaApplication {
         phase: "idle",
         finishedAt: Date.now(),
       };
+      let continuation: RequestRecord | undefined;
       try {
+        if (attempt) this.#recordModelAttempt(record.view.spaceId, source, active.request.requestId, {
+          ...attempt, status: finished.status, finishedAt: finished.finishedAt, ...(finished.error ? { error: finished.error } : {}),
+        });
         record.store.saveRun(finished);
         if (finished.status !== "completed") record.store.requests.pause(record.view.sessionId, true);
         // send 已等待 SDK idle 和历史保存；再投影完整条目确保工具资源已转交会话 owner。
@@ -1519,6 +1586,10 @@ export class RepaApplication {
           });
           content.retention.retain(`request:${request.requestId}`, inputResources(request.input));
         }
+        if (finished.status === "failed" && fallbackEligible && !cancelled && active.run.status !== "cancelling" &&
+          !record.closing && !record.deleting &&
+          !this.#finishing && this.#state.lifecycle !== "stopping")
+          continuation = this.#modelFallbackRequest(record, active.request.requestId);
       } catch (error) {
         finished.status = "interrupted";
         finished.error = { code: "storage", message: `执行结果未能保存：${String(error)}` };
@@ -1530,11 +1601,40 @@ export class RepaApplication {
       this.#emit({ type: "run", run: finished });
       record.active = undefined;
       this.#emit({ type: "session", session: record.view });
-      this.#pump(record);
+      if (continuation) this.#start(record, continuation);
+      else this.#pump(record);
       this.#emitQueue(record);
       this.#finishIfReady();
     }
   }
+  #modelFallbackRequest(record: SessionRecord, previousRequestId: string): RequestRecord | undefined {
+    const previous = record.store.requests.get(previousRequestId);
+    const [connection, ...remaining] = previous.runOptions.fallback?.models ?? [];
+    if (!connection) return undefined;
+    const requestId = randomUUID();
+    const { fallback: _fallback, ...options } = previous.runOptions;
+    const request: RequestRecord = {
+      requestId, target: previous.target, submission: { target: previous.target, requestId, previousRequestId },
+      input: this.#continuationInput(previous), source: previous.source,
+      continuation: { kind: "model_fallback", previousRequestId },
+      promptSettings: previous.promptSettings,
+      runOptions: {
+        ...options, connection,
+        model: { provider: connection.connection.provider, id: connection.modelId,
+          ...(connection.connection.baseUrl ? { baseUrl: connection.connection.baseUrl } : {}) },
+        ...(remaining.length ? { fallback: { on: "transient_error", models: remaining } } : {}),
+      },
+      createdAt: Date.now(), sequence: record.store.requests.nextSequence(), status: "queued", delivery: { status: "pending" },
+    };
+    // 自动接续只消费先前绑定的策略；失败运行和用户队列的暂停状态继续保留。
+    const content = this.#space(record.view.spaceId).content;
+    content.retention.retain(`request:${requestId}`, inputResources(request.input));
+    this.#saveRequest(record, request);
+    this.#saveRequest(record, { ...previous, fallbackRequestId: requestId });
+    this.#notice(record, "model_fallback", `按已受理的回退策略接续任务，使用连接 ${connection.connection.name} 的 ${connection.modelId}。`);
+    return request;
+  }
+
   async #openHost(record: SessionRecord, binding?: ModelBinding): Promise<ConversationRuntime> {
     const plugins = await this.#plugins({ kind: "space", spaceId: record.view.spaceId });
     const modelOverride = binding ? await this.#models.open(binding)
@@ -1621,31 +1721,38 @@ export class RepaApplication {
     const active = record.active;
     if (!active) return Promise.resolve(null);
     return this.#interact({ spaceId: record.view.spaceId, sessionId: record.view.sessionId, runId: active.run.id }, active.controller.signal, dialog, options,
-      (_id, interaction) => {
+      (id, interaction, receipt) => {
+        if (receipt) {
+          const request = record.store.requests.get(active.request.requestId);
+          this.#saveRequest(record, { ...request, interactionReplies: [...request.interactionReplies ?? [], receipt] });
+        }
         if (interaction) this.#updateRun(active, { status: "waiting" });
-        else if (active.run.status === "waiting" && !record.view.interactions.length) this.#updateRun(active, { status: "running" });
+        else if (active.run.status === "waiting" && record.view.interactions.every(item => item.id === id)) this.#updateRun(active, { status: "running" });
       });
   }
 
   #interact(owner: { spaceId: string; sessionId: string; runId: string } | { spaceId?: string; requestId: string }, signal: AbortSignal,
-    dialog: Dialog, options: DialogOptions | undefined, changed: (id: string, interaction: Interaction | null) => void): Promise<Reply> {
+    dialog: Dialog, options: DialogOptions | undefined, changed: (id: string, interaction: Interaction | null, receipt?: InteractionReplyReceipt) => void): Promise<Reply> {
     if (signal.aborted || options?.signal?.aborted) return Promise.resolve(null);
     const id = randomUUID();
     const interaction: Interaction = { ...dialog, ...owner, id,
       ...(options?.timeout !== undefined ? { expiresAt: Date.now() + options.timeout } : {}) };
     return new Promise(resolve => {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const finish = (value: Reply) => {
-        if (!this.#pending.delete(id)) return;
+      const finish = (value: Reply, receipt?: InteractionReplyReceipt) => {
+        if (!this.#pending.has(id)) return;
+        // 接受答复先由所属请求落盘；保存失败时仍保留等待，重试不越过这道边界。
+        changed(id, null, receipt);
+        if (receipt) this.#rememberReply(owner.spaceId, "sessionId" in owner ? owner.sessionId : undefined, receipt);
+        this.#pending.delete(id);
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);
         options?.signal?.removeEventListener("abort", abort);
         if ("sessionId" in owner) this.#emit({ type: "interaction", spaceId: owner.spaceId, sessionId: owner.sessionId, id, interaction: null });
-        changed(id, null);
         resolve(value);
       };
       const abort = () => finish(null);
-      this.#pending.set(id, { interaction, resolve: finish });
+      this.#pending.set(id, { interaction, resolve: receipt => finish(receipt.value, receipt) });
       signal.addEventListener("abort", abort, { once: true });
       options?.signal?.addEventListener("abort", abort, { once: true });
       if (options?.timeout !== undefined) timer = setTimeout(abort, options.timeout);
@@ -1653,27 +1760,44 @@ export class RepaApplication {
       changed(id, interaction);
     });
   }
-  reply(params: Params<"interaction.reply">): void {
-    const pending = this.#pending.get(params.id);
-    if (!pending || pending.interaction.spaceId !== params.spaceId || !contains(params, pending.interaction))
-      throw new RepaFault(
-        "interaction_expired",
-        "该交互已经回答、取消或过期。",
-      );
-    const question = pending.interaction;
-    if (
-      params.value !== null &&
-      (question.kind === "confirm"
-        ? typeof params.value !== "boolean"
-        : typeof params.value !== "string" ||
-          (question.kind === "select" &&
-            !question.options?.includes(params.value)))
-    )
-      throw new RepaFault(
-        "invalid_reply",
-        "回复不符合该交互的选项或数据类型。",
-      );
-    pending.resolve(params.value);
+  #rememberReply(spaceId: string | undefined, sessionId: string | undefined, receipt: InteractionReplyReceipt): void {
+    const scope = spaceId ?? "application";
+    const receipts = this.#replyReceipts.get(scope) ?? new Map();
+    receipts.set(receipt.id, { ...(sessionId ? { sessionId } : {}), receipt: structuredClone(receipt) });
+    this.#replyReceipts.set(scope, receipts);
+  }
+
+  #restoreReplyReceipts(spaceId: string | undefined, requests: Iterable<RequestRecord | BackgroundRequest>): void {
+    for (const request of requests) for (const receipt of request.interactionReplies ?? [])
+      this.#rememberReply(spaceId, "target" in request ? request.target.sessionId : undefined, receipt);
+  }
+
+  reply(params: Params<"interaction.reply">): Promise<Result<"interaction.reply">> {
+    const input = structuredClone(params);
+    return this.#activity(async () => {
+      if (input.spaceId === undefined) await this.#processing();
+      const saved = this.#replyReceipts.get(input.spaceId ?? "application")?.get(input.id);
+      if (saved && (input.sessionId === undefined || input.sessionId === saved.sessionId)) {
+        const receipt = saved.receipt;
+        if (receipt.responseId === input.responseId && receipt.value !== input.value)
+          throw new RepaFault("response_id_conflict", "相同答复标识已用于另一份回答。");
+        return { id: receipt.id, responseId: receipt.responseId, acceptedAt: receipt.acceptedAt,
+          status: receipt.responseId === input.responseId ? "accepted" : "already_processed" };
+      }
+      const pending = this.#pending.get(input.id);
+      if (!pending || pending.interaction.spaceId !== input.spaceId ||
+          (pending.interaction.expiresAt !== undefined && pending.interaction.expiresAt <= Date.now()) ||
+          (input.sessionId !== undefined && (!("sessionId" in pending.interaction) || pending.interaction.sessionId !== input.sessionId)))
+        throw new RepaFault("interaction_expired", "该交互已经回答、取消或过期。");
+      const question = pending.interaction;
+      if (input.value !== null &&
+          (question.kind === "confirm" ? typeof input.value !== "boolean" : typeof input.value !== "string" ||
+            (question.kind === "select" && !question.options?.includes(input.value))))
+        throw new RepaFault("invalid_reply", "回复不符合该交互的选项或数据类型。");
+      const receipt: InteractionReplyReceipt = { id: input.id, responseId: input.responseId, value: input.value, acceptedAt: Date.now() };
+      pending.resolve(receipt);
+      return { id: receipt.id, responseId: receipt.responseId, acceptedAt: receipt.acceptedAt, status: "accepted" };
+    }, false, input.spaceId);
   }
 
   async closeSession(key: SessionKey): Promise<void> {
@@ -1863,6 +1987,8 @@ export class RepaApplication {
       }
       this.#emit({ type: "lifecycle", lifecycle: "stopped" });
       this.#watchers.clear();
+      this.#display.dispose();
+      this.#replyReceipts.clear();
       if (errors.length)
         this.#rejectClosed(
           new AggregateError(errors, "后端退出时有资源未能正常清理。"),

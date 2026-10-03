@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { getCurrentSystemMessage, type Api, type Model, type ImageContent } from "@earendil-works/pi-ai";
+import { getCurrentSystemMessage, isContextOverflow, isRetryableAssistantError, type Api, type Model, type ImageContent } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -60,7 +60,7 @@ export interface ConversationRuntime {
     text: string,
     settings: PromptSettings,
     input?: { requestId: string; images: ImageContent[]; options?: RunOptions },
-  ): Promise<{ status: "completed" | "cancelled" | "failed"; error?: string }>;
+  ): Promise<{ status: "completed" | "cancelled" | "failed"; error?: string; fallbackEligible?: boolean }>;
   steer(requestId: string, input: Pick<PreparedInput, "text" | "images">): Promise<boolean>;
   cancel(): Promise<void>;
   close(): Promise<void>;
@@ -119,6 +119,7 @@ export class PiConversationHost implements ConversationRuntime {
   #lastResult: {
     status: "completed" | "cancelled" | "failed";
     error?: string;
+    fallbackEligible?: boolean;
   } = { status: "completed" };
   #closed = false;
   #cancelled = false;
@@ -366,7 +367,7 @@ export class PiConversationHost implements ConversationRuntime {
     text: string,
     settings: PromptSettings,
     input?: { requestId: string; images: ImageContent[]; options?: RunOptions },
-  ): Promise<{ status: "completed" | "cancelled" | "failed"; error?: string }> {
+  ): Promise<{ status: "completed" | "cancelled" | "failed"; error?: string; fallbackEligible?: boolean }> {
     if (this.#closed) throw new Error("会话运行实例已关闭。");
     if (this.#sending || !this.#session.isIdle)
       throw new RepaFault("busy", "会话已有正在处理的运行。");
@@ -410,7 +411,9 @@ export class PiConversationHost implements ConversationRuntime {
           "configuration",
           "没有可用模型，请配置模型连接后重试。",
         );
-      if (input?.images.length && !this.#session.model.input.includes("image"))
+      const historyHasImages = this.#session.messages.some(message => "content" in message && Array.isArray(message.content) &&
+        message.content.some(part => part.type === "image"));
+      if ((input?.images.length || historyHasImages) && !this.#session.model.input.includes("image"))
         throw new RepaFault("unsupported_input", "所选模型不支持图片输入，请选择视觉模型或先取得文本表示。");
       const selected = structuredClone(settings);
       const sources = this.#options.backgroundSources ?? [];
@@ -566,6 +569,8 @@ export class PiConversationHost implements ConversationRuntime {
               ? {
                   status: "failed",
                   error: event.message.errorMessage ?? "Provider 请求失败。",
+                  fallbackEligible: isRetryableAssistantError(event.message) &&
+                    !isContextOverflow(event.message, this.#session.model?.contextWindow),
                 }
               : { status: "completed" };
       }

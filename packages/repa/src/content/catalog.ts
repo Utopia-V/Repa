@@ -1,13 +1,13 @@
 import path from "node:path";
 import { Type, type Static } from "typebox";
 import { IdSchema, object, literals } from "../schema.js";
-import { FileLocationSchema, ContentRoleSchema, ContentMemberSchema, ResourceRefSchema } from "./schema.js";
+import { FileLocationSchema, ContentOriginSchema, ContentRoleSchema, ContentMemberSchema, ResourceRefSchema } from "./schema.js";
 
 export const RecordSchema = object({
   id: IdSchema, location: FileLocationSchema, role: ContentRoleSchema,
   mediaType: Type.String(), state: literals(["active", "deleted", "detached"]),
   members: Type.Array(ContentMemberSchema), resources: Type.Array(ResourceRefSchema),
-  origin: Type.Optional(FileLocationSchema),
+  origin: Type.Optional(ContentOriginSchema),
 });
 export type ContentRecord = Static<typeof RecordSchema>;
 // 共同字段保持严格，能力字段由已安装格式校验；未知格式数据随普通保存保留。

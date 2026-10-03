@@ -10,7 +10,7 @@ import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { RepaClient, RpcError } from "../src/client.js";
-import { AuthQuerySchema, ModelBindingSchema, type ConnectionInput, type ConnectionModel, type ModelConnection } from "../src/models/schema.js";
+import { AuthQuerySchema, BoundModelFallbackSchema, ModelAttemptSchema, ModelBindingSchema, type ConnectionInput, type ConnectionModel, type ModelConnection } from "../src/models/schema.js";
 import { ModelConnections } from "../src/models/service.js";
 import type { BackgroundRequest, Params, RequestRecord, SessionKey, SettingScope, Submit } from "../src/protocol.js";
 import { startRepaServer, type RepaServer } from "../src/server.js";
@@ -42,9 +42,12 @@ const CompletionConfigurationSchema = Type.Object({
   system: Type.String(),
   thinkingLevel: Type.String(),
   maxTokens: Type.Optional(Type.Number()),
+  fallback: Type.Optional(BoundModelFallbackSchema),
 });
 
 const ModelResponseSchema = Type.Object({
+  binding: ModelBindingSchema,
+  attempts: Type.Array(ModelAttemptSchema),
   input: Type.String(),
   message: Type.Object({
     role: Type.Literal("assistant"),
@@ -93,6 +96,7 @@ async function fixture(t: TestContext, options: { observeExtension?: boolean } =
   const requests: CapturedRequest[] = [];
   const gates = new Map<string, { wait: Promise<void>; release(): void }>();
   const failures = new Set<string>();
+  const routeFailures = new Map<string, { status: number; message: string }>();
   const providerErrors: unknown[] = [];
   let backend: RepaServer | undefined;
   let client: RepaClient | undefined;
@@ -120,6 +124,12 @@ async function fixture(t: TestContext, options: { observeExtension?: boolean } =
       const gate = gates.get(input);
       if (gate) await Promise.race([gate.wait, closed]);
       if (response.destroyed) return;
+      const routeFailure = routeFailures.get(captured.url.split("/")[1] ?? "");
+      if (routeFailure) {
+        response.writeHead(routeFailure.status, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: { message: routeFailure.message, type: "local_test_error" } }));
+        return;
+      }
       if (failures.has(input)) {
         response.writeHead(400, { "content-type": "application/json" });
         response.end(JSON.stringify({ error: { message: "本地测试拒绝该请求", type: "invalid_request_error" } }));
@@ -192,6 +202,7 @@ export default function () {
     client: connected,
     backend,
     agentDir,
+    directory,
     appDirectory: path.join(root, "application"),
     key,
     requests,
@@ -204,6 +215,7 @@ export default function () {
       }
     },
     fail: (text: string) => { failures.add(text); },
+    failRoute: (route: string, status: number, message: string) => { routeFailures.set(route, { status, message }); },
     block(text: string) {
       let release = () => {};
       const wait = new Promise<void>((resolve) => { release = resolve; });
@@ -745,4 +757,78 @@ test("未显式选择思考强度时，普通和独立调用沿用 SDK 对非推
     assert.equal(sent.url, "/no-reasoning/v1/chat/completions");
     assert.equal(sent.authorization, "Bearer no-reasoning-secret");
   }
+});
+
+
+test("公开独立回退固定所有候选身份，保留实际尝试且重传重开不重新调用", async (t) => {
+  const f = await fixture(t);
+  const first = await connection(f, "同名", "fallback-one", "first-key");
+  const second = await connection(f, "同名", "fallback-two", "old-second-key");
+  f.failRoute("fallback-one", 503, "service unavailable");
+  const gate = f.block("公开回退固定输入");
+  const params: Params<"model.complete"> = {
+    spaceId: f.key.spaceId, requestId: randomUUID(), input: { parts: [{ kind: "text", text: "公开回退固定输入" }] },
+    model: { connectionId: first.id, id: model.id }, system: "明确系统提示", thinkingLevel: "off",
+    fallback: { on: "transient_error", models: [{ connectionId: second.id, id: model.id }] },
+  };
+  const accepted = await f.client.call("model.complete", params);
+  assert(Check(CompletionConfigurationSchema, accepted.configuration));
+  assert.equal(accepted.configuration.fallback?.models[0]?.connection.authId, second.authId);
+  await f.received("公开回退固定输入");
+  const changed = await f.client.call("connection.update", {
+    connectionId: second.id, base: second.revision, input: f.input("新名字", "fallback-new"),
+  });
+  await login(f.client, changed.id, "new-second-key");
+  const repeated = await f.client.call("model.complete", params);
+  assert.deepEqual(repeated.configuration, accepted.configuration);
+  assert.equal(f.requests.length, 1);
+  gate.release();
+  const completed = await finishProcessing(f.client, accepted);
+  assert.equal(completed.status, "completed", completed.error?.message);
+  assert.deepEqual(completed.modelAttempts?.map(attempt => attempt.status), ["failed", "completed"]);
+  assert.equal(completed.modelAttempts?.[1]?.binding.connection.authId, second.authId);
+  assert.equal(completed.modelAttempts?.[1]?.usage?.totalTokens, 2);
+  assert.deepEqual(f.requests.map(request => request.url.split("/")[1]), ["fallback-one", "fallback-two"]);
+  assert.equal(f.requests[1]?.authorization, "Bearer old-second-key");
+  assert.deepEqual(f.requests[0]?.body.messages, f.requests[1]?.body.messages);
+  assert(completed.result?.value.kind === "inline");
+  assert(Check(ModelResponseSchema, completed.result.value.data));
+  assert.equal(completed.result.value.data.binding.connection.id, second.id);
+  assert.deepEqual(completed.result.value.data.attempts, completed.modelAttempts);
+  assert.equal(JSON.stringify(completed).includes("old-second-key"), false);
+  assert.equal(JSON.stringify(completed).includes("new-second-key"), false);
+  await f.backend.close("cancel");
+  await f.client.close();
+  const reopened = await startRepaServer({ agentDir: f.agentDir, appDirectory: f.appDirectory });
+  const client = await RepaClient.connect(reopened.connection);
+  t.after(async () => { await reopened.close("cancel"); await client.close(); });
+  await client.call("space.open", { path: f.directory });
+  assert.deepEqual(await client.call("model.complete", params), completed);
+  assert.equal(f.requests.length, 2);
+});
+
+test("公开回退的最终失败保存每个候选错误，重复主模型在受理前拒绝", async (t) => {
+  const f = await fixture(t);
+  const first = await connection(f, "主连接", "failed-one", "first-key");
+  const second = await connection(f, "备用连接", "failed-two", "second-key");
+  f.failRoute("failed-one", 503, "service unavailable");
+  f.failRoute("failed-two", 400, "invalid request");
+  const params: Params<"model.complete"> = {
+    spaceId: f.key.spaceId, requestId: randomUUID(), input: { parts: [{ kind: "text", text: "两个候选都失败" }] },
+    model: { connectionId: first.id, id: model.id }, system: "", thinkingLevel: "off",
+    fallback: { on: "transient_error", models: [{ connectionId: second.id, id: model.id }] },
+  };
+  const completed = await finishProcessing(f.client, await f.client.call("model.complete", params));
+  assert.equal(completed.status, "failed");
+  assert.equal(completed.error?.code, "provider");
+  assert.deepEqual(completed.modelAttempts?.map(attempt => attempt.status), ["failed", "failed"]);
+  assert.match(completed.modelAttempts?.[0]?.error?.message ?? "", /service unavailable/u);
+  assert.match(completed.modelAttempts?.[1]?.error?.message ?? "", /invalid request/u);
+  assert.deepEqual(await f.client.call("model.complete", params), completed);
+  assert.equal(f.requests.length, 2);
+  const duplicate = { ...params, requestId: randomUUID(), fallback: { on: "transient_error" as const, models: [params.model] } };
+  await assert.rejects(f.client.call("model.complete", duplicate), error => error instanceof RpcError &&
+    typeof error.data === "object" && error.data !== null && "code" in error.data && error.data.code === "configuration");
+  assert.deepEqual(await f.client.call("request.get", { spaceId: f.key.spaceId, requestId: duplicate.requestId }),
+    { requestId: duplicate.requestId, status: "unknown" });
 });

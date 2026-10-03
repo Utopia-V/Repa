@@ -6,7 +6,7 @@
 
 ## 目标与版本
 
-普通文件通过 `ContentTarget.kind = "file"` 和空间内路径访问，读取不会自动登记身份。需要持续引用时，`content.associate` 建立 `ContentRef`，区分 `document` 与 `material`。`content.get` 返回解析后的身份、位置和可用状态；移动更新位置，已删除或解除关联的身份不会指向后来占用同一路径的新文件。
+普通文件通过 `ContentTarget.kind = "file"` 和空间内路径访问，读取不会自动登记身份。需要持续引用时，`content.associate` 建立 `ContentRef`，区分 `document` 与 `material`。`content.get` 返回解析后的身份、位置和可用状态；移动更新位置，已删除或解除关联的身份不会指向后来占用同一路径的新文件。URL 是材料来源而不是文件目标；从网络取得原件后，先把字节保存为空间文件，再登记身份和来源。
 
 | 字段 | 所属对象与用途 |
 | --- | --- |
@@ -50,7 +50,7 @@ const result = await client.call("content.write", {
 
 拆出一份新文档时，除了写文件，还可能需要为它建立身份，修改正文引用和组成关系。`content.applyPatch` 可以把这些变化放在同一项操作中保存。
 
-`registrations` 为已有文件、本次补丁的新文件或目录登记身份，也可提供初始 `members/resources`。显式给出的 `id` 能被同一补丁引用，省略时由保存入口生成。所有新身份建立后，再解释初始组成。修改已有对象的组成，则通过 `compositions` 提交 `{ ref, base, members, resources }`。
+`registrations` 为已有文件、本次补丁的新文件或目录登记身份，也可提供 `origin` 及初始 `members/resources`。显式给出的 `id` 能被同一补丁引用，省略时由保存入口生成。所有新身份建立后，再解释初始组成。修改已有对象的组成，则通过 `compositions` 提交 `{ ref, base, members, resources }`。
 
 正文、新身份和结构修改仍进入同一个 `ContentStore` 计划，再由一次 `FileJournal.commit` 保存。登记核对的是计划完成后的文件，不要求新文件先单独落盘；现有组成基准对操作前的结构核对，同一补丁移动对象不会造成自身版本冲突。原 patch-only 请求及旧 RPC 透传的 `spaceId` 保留原去重形状，可选字段不补默认空列表。
 
@@ -66,7 +66,7 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
 
 独立内容复制使用 micromark 4.0.2 的 CommonMark 位置 token，仅重写实际链接目标中的规范 `repa:document/<id>`、`repa:material/<id>`，保留定位后缀、代码示例、其他文字和原换行。明确的组成成员引用与已知学习语境 JSON 引用同时映射；其他格式按原字节保存，格式专用引用交给对应能力。移动保持身份引用，普通路径链接继续按原路径语义解释。
 
-外部成员继续作为依赖。`material.collect` 将已关联外部材料的实际字节保存到空间内，保持身份，并在 `ContentInfo.origin` 中保留原位置；原件继续保留。关联和重关联本身只读取元信息，返回值不一定包含 `bodyRevision`，需要正文版本时再调用 `content.read`。
+外部成员继续作为依赖。`material.collect` 将已关联外部材料的实际字节保存到空间内，保持身份，并在尚无 `ContentInfo.origin` 时记录原位置；已有 URL 等来源不会被覆盖。`content.copy` 也把已有来源交给副本，`content.move` 保持身份及来源。原件继续保留。关联和重关联本身只读取元信息，返回值不一定包含 `bodyRevision`，需要正文版本时再调用 `content.read`。
 
 当前内容树移动与复制遇到符号链接会明确拒绝；整个空间的备份和复制可以原样保留符号链接，见[空间快照](spaces.md)。
 
@@ -96,6 +96,12 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
 操作前后字节随完整历史保留；历史清理、会话删除与临时实例释放后，由 `resource.collect` 按实际保留关系回收资源。当前文件、其他消费者以及有效的旧版本持有继续成立，详见[资源持有与清理](resources.md)。
 
 ## 外部材料与资源
+
+### 来源与在线原件
+
+`ContentInfo.origin` 记录内容如何来到当前位置，不改变内容目标的解析方式。它的类型是 `FileLocation | { kind: "url", url, retrievedAt? }`：前者保留原文件位置，可以是空间内或外部路径；后者保留网络获取的最终 URL 和可选的获取时间。当前内容位置仍由 `ContentInfo.location` 表示，`ContentTarget` 只接受已登记身份或文件位置，不接受 URL。
+
+使用[材料包](search-materials.md#在线发现与获取)取得 URL 原件时，结果的 `resources[originalResourceIndex]` 指向实际获取的字节，`source` 记录请求地址、重定向后地址、响应元数据和字节修订。你可以用该资源写入空间文件，再通过 `content.associate` 的 `origin` 字段关联它；若用补丁同时建立文件和身份，在 `content.applyPatch.registrations` 中提供同一 `origin`。保存来源并不重新请求网页，之后的 `content.read` 读取已保存文件。需要对照获取时的字节，可以读取原件资源；旧版本的可用期限取决于请求、会话和长期内容的资源持有关系。
 
 经过认证的前端调用 `content.associate` 或 `content.relink`，明确选择空间外文件时，应用在 `repa-content-access.json` 中保存该空间对实际规范文件路径的只读授权。授权位于应用配置目录，空间内的内容清单不能自行授予权限。普通模型读写工具不会建立该授权；已启用 Skill 的自有目录只向读取适配器开放。
 

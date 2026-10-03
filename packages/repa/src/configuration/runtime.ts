@@ -1,5 +1,5 @@
 import { Type, type Static } from "typebox";
-import { ModelSelectionSchema } from "../models/schema.js";
+import { ModelFallbackSchema, ModelSelectionSchema } from "../models/schema.js";
 import { object, literals } from "../schema.js";
 import type { SettingsNamespaceDefinition } from "./definitions.js";
 import { SummaryPromptsSchema } from "../agent/summary-settings.js";
@@ -18,6 +18,7 @@ export const RetryOptionsSchema = object({
 });
 export const RuntimeSettingsSchema = object({
   model: Type.Union([ModelSelectionSchema, Type.Null()]),
+  fallback: Type.Union([ModelFallbackSchema, Type.Null()]),
   thinkingLevel: Type.Union([ThinkingLevelSchema, Type.Null()]),
   tools: Type.Union([Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true }), Type.Null()]),
   compaction: Type.Union([CompactionOptionsSchema, Type.Null()]),

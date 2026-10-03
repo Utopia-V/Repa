@@ -18,7 +18,7 @@
     "sourceDirectory": "vendor/bubblewrap",
     "license": "LGPL-2.0-or-later",
     "patch": "parent-lifecycle.patch",
-    "patchSha256": "3d867ee8d386c825441536e81c5bf023421a461115e2aac6c1dcf52c0134a5f6",
+    "patchSha256": "5f23023302794c50b14b3ee5eb64ce948f78828a2cc54fc04b12bb1d239b0386",
     "libcapDev": {
       "version": "2.66",
       "filename": "libcap-dev_2.66-5ubuntu2.4_amd64.deb",

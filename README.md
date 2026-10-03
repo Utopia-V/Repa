@@ -251,17 +251,18 @@ steer、follow-up、图片输入、模型认证与调用、工具选择和命令
 
 | 范围 | 当前代码与后续接入 |
 | --- | --- |
-| 应用协议、客户端与 TUI | 已有本机后端、协议 v1、无 UI 客户端、多空间多会话、结构化输入与图片、运行中补充、持久队列、失败接续及独立后台请求；CLI 可配置模型连接，独立模型调用复用后台请求 |
-| 内容与学习语境 | 已有内容读写、身份与组成、共同保存、撤回和恢复，支持外部材料关联、资源保留以及空间备份和复制；学习语境按配置注入，文本与所选会话历史可以搜索。接口见[开发指南](docs/development/README.md) |
+| 应用协议、客户端与 TUI | 已有本机后端、协议 v1、无 UI 客户端、多空间多会话、结构化输入与图片、运行中补充、持久队列、失败接续及独立后台请求；交互答复支持持久确认与重传。CLI 可配置模型连接，Agent 与独立调用按显式策略回退 |
+| 内容与学习语境 | 已有内容读写、身份与组成、共同保存、撤回和恢复，支持外部材料关联、URL 来源、资源保留以及空间备份和复制；学习语境按配置注入，文本与所选会话历史可以搜索。接口见[开发指南](docs/development/README.md) |
 | 扩展与配置 | 已有具名连接、Pi 认证、配置继承、运行绑定和提示控制；共享能力、包管理和独立快照已接通，前端组件加载待接入 |
 | 独立学习能力包 | [教学](packages/learning/README.md)、[材料](packages/materials/README.md)、[复习](packages/review/README.md)、[规划](packages/planning/README.md)与[整理](packages/organization/README.md)已加入默认后端组合，可以分别关闭。各包的当前范围和整体缺口见[官方学习组合](docs/development/official-learning.md) |
-| 前端与执行环境 | Web 与 Electron 可以启动本机后端并建立连接，完整学习工作台与生成展示隔离待接入。命令执行当前只支持 Linux，已有独立沙箱，最终安装与系统配置尚待交付整合 |
+| 展示与前端 | Web 与 Electron 可以启动本机后端并建立连接；[展示后端与 MCP Apps 桥接](docs/development/display.md)已接通固定版本、资源、保存与向会话提交。完整工作台和生产展示隔离由前端接入 |
+| 执行与安装 | 命令执行当前支持 Linux，复用独立沙箱组件。[Linux x64 安装包](docs/development/distribution.md)已通过 Ubuntu 24.04 实际安装、普通用户运行和卸载验证；跨版本升级与其他平台尚待完成 |
 
 当前模块责任、调用示例、持久格式和验证入口见[开发指南](docs/development/README.md)。已经实现的字段由公开 schema 持有；官方图形前端采用 React、React Router、Vite 与 Electron/electron-vite，Web 与 Desktop renderer 分别拥有自己的页面、路由和应用状态。Web 组件接入形状继续作为公开宿主契约。
 
 可领取的模块任务、依赖关系与整体接通责任集中在[产品主议题 #5](https://github.com/Utopia-V/repa/issues/5)。任务从该议题指定的开发分支基线开始，任务状态由 GitHub Issues 维护。
 
-现有运行验证在 Linux 上进行，模型调用使用确定性 faux provider。后续集成验证需覆盖上述连续操作、沙箱辅助程序的独立构建与平台接入，以及可执行展示的隔离边界。
+现有运行验证在 Linux 上进行，模型接入回归使用本地确定性 provider。后续联合验收重点是完整学习流程、生产展示隔离、真实模型体验和跨版本升级；各模块在开发说明中记录具体缺口。
 
 ## 仓库结构与 workspace
 
@@ -408,11 +409,12 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 | `request.cancel` | 取消独立后台处理，等待实际收尾。 |
 | `content.*`、`operation.*` | 读取和保存文件，维护身份与组成，查询、撤回及核对恢复结果；具体方法见[内容接口](docs/development/content.md)。 |
 | `context.get`、`context.set`、`context.preview` | 通过所选学习语境实现读取或更换绑定、预览完整文本和来源；没有已启用实现时报告未找到能力。 |
-| `capability.describe`、`capability.invoke` | 取得契约与入口问题，调用明确作用域和实现；inline 结果也持久保存，Agent 工具复用相同处理。 |
+| `capability.describe`、`capability.invoke` | 取得契约与入口问题，调用明确作用域和实现；按声明直接查询或持久受理，Agent 工具复用相同处理。 |
+| `display.open/get/close/readResource/invoke` | 打开固定版本的展示，读取实例资源，并发起宿主绑定的保存或会话提交动作。 |
 | `package.list`、`package.install/update/remove` | 静态包目录与 Pi 包管理，管理操作使用后台请求并报告实际进程重启要求。 |
 | `execution.run`、`execution.inspect` | 提交有持久请求身份的命令，查询当前执行策略和活跃命令；使用已有请求查询、交互与取消入口。 |
 | `settings.get`、`settings.set`、`settings.reset` | 读取已登记命名空间的定义、覆盖与来源，按项保存或恢复继承，包括插件启用和实现选择。 |
-| `interaction.reply` | 回答仍有效的交互；已经回答、取消或过期的交互不能再次使用。 |
+| `interaction.reply` | 携带 `responseId` 回答交互，取得持久确认；重传返回原回执，竞争答复返回已处理结果。 |
 | `state.get`、`subscription.start`、`subscription.stop` | 按应用、空间或会话范围读取快照和订阅变化。 |
 | `client.detach`、`shutdown` | 离开后端，或请求完成现有任务后退出、取消任务后退出。 |
 
@@ -451,6 +453,6 @@ await watch.stop();
 await client.close();
 ```
 
-消息保留文本、思考、工具调用、资源与扩展数据结构。流式消息通过 `replaces` 与保存后的历史消息身份衔接。消息媒体与内容资源统一使用 `{ spaceId, id, mediaType }`，从 HTTP `/spaces/<spaceId>/resources/<id>` 获取，schema 从 `/protocol.json` 获取，均使用 `Authorization: Bearer <token>`。客户端的 `resource(ResourceRef)`、`uploadResource` 和 `readText` 处理认证与完整内容读取；上传返回带有效期的准备结果，长期使用通过文档关系或 `resource.hold` 保留。重连自动复用 `initialize` 返回的宿主键，显式关闭宿主会释放其临时持有。具体的交互页面渲染与执行权限按 ADR 0005 后续接入。
+消息保留文本、思考、工具调用、资源与扩展数据结构。流式消息通过 `replaces` 与保存后的历史消息身份衔接。消息媒体与内容资源统一使用 `{ spaceId, id, mediaType }`，从 HTTP `/spaces/<spaceId>/resources/<id>` 获取，schema 从 `/protocol.json` 获取，均使用 `Authorization: Bearer <token>`。客户端的 `resource(ResourceRef)`、`uploadResource` 和 `readText` 处理认证与完整内容读取；上传返回带有效期的准备结果，长期使用通过文档关系或 `resource.hold` 保留。重连自动复用 `initialize` 返回的宿主键，显式关闭宿主会释放其临时持有。生成页面通过[展示桥接](docs/development/display.md)读取绑定资源和调用有限动作；生产渲染器按 ADR 0005 接入实际隔离。
 
 GitHub Issue [#5](https://github.com/Utopia-V/repa/issues/5) 是产品主议题，当前设计语义与工程取舍见上面的项目文档。[#6](https://github.com/Utopia-V/repa/issues/6) 记录学习语境与通用工具接入，[#7](https://github.com/Utopia-V/repa/issues/7)、[#8](https://github.com/Utopia-V/repa/issues/8)、[#9](https://github.com/Utopia-V/repa/issues/9) 分别保留可视化、规划与知识整理的扩展想法；[#4](https://github.com/Utopia-V/repa/issues/4) 描述已有对话实现，早期规格 [#3](https://github.com/Utopia-V/repa/issues/3) 已退役。

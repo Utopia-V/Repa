@@ -509,3 +509,46 @@ test("替换学习语境实现沿用公共空间配置与 Agent 会话覆盖，�
   assert.deepEqual(calls.slice(1), [1, 2].map(() => ({ kind: "agent", scope: sessionScope, text: values.session, requestId })));
   assert.equal(f.faux.state.callCount, 2);
 });
+
+test("应用后台交互答复在重开后可确认，不为确认历史结果重新装配能力", async (t) => {
+  const contract = { id: "example.answer", version: "1" };
+  const inputSchema = object({});
+  const outputSchema = object({ answer: Type.String() });
+  let factories = 0;
+  let actions = 0;
+  const capability: CapabilityDefinition<typeof inputSchema, typeof outputSchema, RepaCapabilityServices> = {
+    contract, implementationId: "local", inputSchema, outputSchema, scopes: ["application"], execution: "background",
+    async invoke(_input, context) {
+      assert(context.services?.ask);
+      const answer = await context.services.ask({ kind: "input", title: "后台处理需要说明" });
+      context.signal.throwIfAborted();
+      assert.equal(typeof answer, "string");
+      actions++;
+      return { answer: String(answer) };
+    },
+  };
+  const f = await fixture(t, [{ id: "answer", enabled: true, factory: () => {
+    factories++;
+    return { capabilities: [capability] };
+  } }]);
+  const accepted = await f.client.call("capability.invoke", { scope: application, requestId: randomUUID(), contract, input: {} });
+  assert.equal(accepted.kind, "background");
+  assert(accepted.kind === "background");
+  const requestId = accepted.request.requestId;
+  const waiting = await until(() => f.client.call("request.get", { requestId }), value => "interactions" in value && value.interactions.length === 1);
+  assert("interactions" in waiting && waiting.interactions[0]);
+  const reply = { id: waiting.interactions[0].id, responseId: randomUUID(), value: "应用处理的实际回答" };
+  const confirmation = await f.client.call("interaction.reply", reply);
+  assert.equal(confirmation.status, "accepted");
+  const completed = await until(() => f.client.call("request.get", { requestId }), value => value.status === "completed");
+  assert("interactions" in completed);
+  assert.equal(completed.interactionReplies?.[0]?.value, reply.value);
+  assert.equal(actions, 1);
+  const before = factories;
+  await f.reopen();
+  assert.deepEqual(await f.client.call("interaction.reply", reply), confirmation);
+  assert.equal(factories, before);
+  assert.equal(actions, 1);
+  assert.deepEqual(await f.client.call("request.get", { requestId }), completed);
+  assert.equal((await f.client.call("session.get", f.key)).runtime, "unloaded");
+});

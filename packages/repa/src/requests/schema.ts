@@ -4,10 +4,25 @@ import { ContentTargetSchema, ResourceRefSchema } from "../content/schema.js";
 import { PromptSettingsSchema } from "../configuration/schema.js";
 import { SettingScopeSchema } from "../configuration/schema.js";
 import { AssembledPromptSchema, CompactionOptionsSchema, RetryOptionsSchema, ThinkingLevelSchema } from "../configuration/runtime.js";
-import { ModelBindingSchema, ModelSelectionSchema } from "../models/schema.js";
+import { BoundModelFallbackSchema, ModelAttemptSchema, ModelBindingSchema, ModelFallbackSchema, ModelSelectionSchema } from "../models/schema.js";
 import { SummaryPromptsSchema } from "../agent/summary-settings.js";
 import { ExecutionApprovalSchema } from "../execution/schema.js";
 import { CapabilitySourceSchema } from "../capabilities/schema.js";
+
+export const ReplySchema = Type.Union([
+  Type.String(),
+  Type.Boolean(),
+  Type.Null(),
+]);
+export type Reply = Static<typeof ReplySchema>;
+export const InteractionReplyReceiptSchema = object({
+  id, responseId: id, value: ReplySchema, acceptedAt: Type.Number(),
+});
+export type InteractionReplyReceipt = Static<typeof InteractionReplyReceiptSchema>;
+export const InteractionReplyResultSchema = object({
+  id, responseId: id, acceptedAt: Type.Number(), status: literals(["accepted", "already_processed"]),
+});
+export type InteractionReplyResult = Static<typeof InteractionReplyResultSchema>;
 
 export const LocatorSchema = object({
   format: object({ id: Type.String(), version: Type.String() }),
@@ -48,6 +63,7 @@ const legacySelection = {
 export const RunOptionsSchema = object({
   ...legacySelection,
   connection: Type.Optional(ModelBindingSchema),
+  fallback: Type.Optional(BoundModelFallbackSchema),
   compaction: Type.Optional(CompactionOptionsSchema),
   retry: Type.Optional(RetryOptionsSchema),
   summaryPrompts: Type.Optional(SummaryPromptsSchema),
@@ -59,6 +75,7 @@ export const RunOptionsSchema = object({
 export type RunOptions = Static<typeof RunOptionsSchema>;
 export const RunSelectionSchema = object({
   model: Type.Optional(ModelSelectionSchema),
+  fallback: Type.Optional(Type.Union([ModelFallbackSchema, Type.Null()])),
   thinkingLevel: Type.Optional(ThinkingLevelSchema),
   tools: Type.Optional(Type.Array(Type.String(), { uniqueItems: true })),
   compaction: Type.Optional(CompactionOptionsSchema),
@@ -91,6 +108,10 @@ export const RequestSchema = object({
   promptSettings: PromptSettingsSchema,
   runOptions: RunOptionsSchema,
   prompt: Type.Optional(AssembledPromptSchema),
+  modelAttempts: Type.Optional(Type.Array(ModelAttemptSchema)),
+  fallbackRequestId: Type.Optional(id),
+  continuation: Type.Optional(object({ kind: Type.Literal("model_fallback"), previousRequestId: id })),
+  interactionReplies: Type.Optional(Type.Array(InteractionReplyReceiptSchema)),
   status: literals(["queued", "running", "completed", "cancelled", "failed", "interrupted", "not_entered"]),
   delivery: Type.Union([
     object({ status: Type.Literal("pending") }),
@@ -120,20 +141,16 @@ export const SessionInteractionSchema = object({ ...dialog, spaceId: id, session
 export const BackgroundInteractionSchema = object({ ...dialog, spaceId: Type.Optional(id), requestId: id });
 export const InteractionSchema = Type.Union([SessionInteractionSchema, BackgroundInteractionSchema]);
 export type Interaction = Static<typeof InteractionSchema>;
-export const ReplySchema = Type.Union([
-  Type.String(),
-  Type.Boolean(),
-  Type.Null(),
-]);
-export type Reply = Static<typeof ReplySchema>;
 export const BackgroundRequestSchema = object({
   requestId: id, spaceId: Type.Optional(id), operation: Type.String(), input: InputSchema,
   options: Type.Optional(Type.Unknown()),
   configuration: Type.Optional(Type.Unknown()),
+  modelAttempts: Type.Optional(Type.Array(ModelAttemptSchema)),
   createdAt: Type.Number(), finishedAt: Type.Optional(Type.Number()),
   status: literals(["accepted", "running", "cancelling", "completed", "cancelled", "failed", "interrupted"]),
   progress: Type.Optional(Type.String()),
   interactions: Type.Array(InteractionSchema),
+  interactionReplies: Type.Optional(Type.Array(InteractionReplyReceiptSchema)),
   result: Type.Optional(RepresentationSchema),
   error: Type.Optional(object({ code: Type.String(), message: Type.String() })),
 });

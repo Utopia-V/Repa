@@ -20,7 +20,9 @@
 
 Linux 执行使用同一源码基准的 helper 与 bubblewrap。固定版本的 `--die-with-parent` 在初始化后才绑定父死亡信号，启动期间取消外层进程，可能留下内部命令。应用若靠扫描进程树补救，还需要追踪扫描过程中继续创建的子进程。
 
-当前选择在 bubblewrap 的启动边界修复：用 pidfd 保留真实父身份，提前建立父死亡信号，并由 PID namespace 完成收尾。helper 只加载同次构建、摘要相符的相邻 bubblewrap，确保运行的就是带有该行为的副本。代价是维护局部上游补丁并要求相应内核能力。来源与验证见[沙箱构建说明](../../packages/repa/resources/sandbox/README.md)，上游提供等价行为后可删除适配。
+当前选择在 bubblewrap 的启动边界修复：用 pidfd 保留真实父身份，提前建立父死亡信号，并由 PID namespace 完成收尾。普通取消时，监控进程还必须保留到内层结束；它接收终止信号、结束 PID 1，并以 subreaper 等待后代退出，随后才向应用报告结果。应用不再提前强杀这个等待者，受限路径也省去宿主进程组扫描。
+
+helper 只加载同次构建、摘要相符的相邻 bubblewrap，使这份生命周期约定随安装产物一起交付。代价是维护局部上游补丁并要求相应内核能力。来源与验证见[沙箱构建说明](../../packages/repa/resources/sandbox/README.md)，上游提供等价行为后可删除适配。
 
 ## Full Access 的执行环境
 
@@ -56,4 +58,4 @@ Repa 将 Pi `BashOperations.exec` 收到的环境交给执行器，保留 SDK �
 
 会话中的展示产物保留重新打开所需的内容和输入数据，这些数据随会话持久保存，可重建的部分才作为缓存管理。持续维护的结果保存为文档并进入内容引用、修订与编辑体系，同时保留文档必需的资源，其生命周期独立于原会话的清理；缩放位置、动画进度等交互状态由前端按需保存。需要保留的运行和交互结果关联实际使用的内容修订与输入，后续编辑源内容不改写已有结果。重新打开历史产物时按当前授权建立实例，旧声明不恢复已失效的权限，重新运行计算或 Agent 调用形成可识别的新操作。
 
-渲染器须声明并实际满足所需的执行条件，分别处理宿主访问隔离、资源加载、对外连接、导航与消息桥接。无法满足条件的前端提供静态结果或源码视图，并说明相应交互能力不可用；不通过自动放宽权限继续执行。具体接入由真实运行环境验证。可优先评估复用 [MCP Apps 的 AppBridge 等 SDK 模块](https://github.com/modelcontextprotocol/ext-apps#using-the-sdk)，其[隔离与通信规范](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx#sandbox-proxy)作为接入依据；具体渲染宿主仍需集成与验证。
+渲染器须声明并实际满足所需的执行条件，分别处理宿主访问隔离、资源加载、对外连接、导航与消息桥接。无法满足条件的前端提供静态结果或源码视图，并说明相应交互能力不可用；不通过自动放宽权限继续执行。当前桥接复用 MCP Apps 2.0.3 的 `AppBridge` 与 `PostMessageTransport`，手动登记实例资源和具名动作，避免把完整 MCP 客户端转发给页面。后端实例、原资源 hold、保存请求和会话输入各自持有所属生命周期，具体格式与接入见[展示说明](../development/display.md)。生产渲染宿主按 MCP Apps 的[隔离与通信规范](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx#sandbox-proxy)落实并验证页面隔离、导航和网络行为。

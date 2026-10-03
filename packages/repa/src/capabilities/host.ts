@@ -242,11 +242,11 @@ export class CapabilityHost {
   #checkContext(context: Omit<InvocationContext, "spaceRuntime">): void {
     if (!Check(CapabilitySourceSchema, context.source)) throw new RepaFault("invalid_input", "能力调用来源无效。");
     if (context.scope.kind === "application") {
-      if (context.content) throw new RepaFault("capability_scope", "应用作用域不能携带空间内容入口。");
+      if (context.content || context.source.kind === "display") throw new RepaFault("capability_scope", "应用作用域不能携带空间内容入口。");
     } else {
       if (this.#spaceClosings.has(context.scope.spaceId)) throw new RepaFault("space_closing", "空间能力正在关闭。");
       if (context.content?.options.spaceId !== context.scope.spaceId ||
-          (context.source.kind === "agent" && context.source.spaceId !== context.scope.spaceId))
+          (context.source.kind !== "client" && context.source.spaceId !== context.scope.spaceId))
         throw new RepaFault("capability_scope", "内容或 Agent 来源不属于本次调用的空间。");
     }
   }

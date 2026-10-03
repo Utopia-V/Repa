@@ -231,7 +231,7 @@ test("取消真实PDF处理等待工具退出且不占内容队列，CPU worker�
   assert.equal(await readFile(exited, "utf8"), "exited");
   const controller = new AbortController();
   let parsing = false;
-  const work = parse("html", Buffer.from(`<article><p>${"真实 worker 解析".repeat(10000)}</p></article>`), { target: source }, controller.signal,
+  const work = parse("html", Buffer.from(`<article><p>${"真实 worker 解析".repeat(10000)}</p></article>`), {}, controller.signal,
     () => { parsing = true; controller.abort(); });
   await assert.rejects(work, error => error instanceof Error && error.name === "AbortError");
   assert.equal(parsing, true);

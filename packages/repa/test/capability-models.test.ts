@@ -8,17 +8,19 @@ import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RepaCapabilityServices } from "../src/capabilities/services.js";
 import type { CapabilityDefinition } from "../src/capabilities/types.js";
 import { RepaClient } from "../src/client.js";
-import { ModelBindingSchema, ModelSelectionSchema } from "../src/models/schema.js";
+import { ModelBindingSchema, ModelFallbackSchema, ModelSelectionSchema, type ModelFallback } from "../src/models/schema.js";
 import { inputResources } from "../src/requests/input.js";
 import { InputSchema, RepresentationSchema, type BackgroundRequest, type Input } from "../src/requests/schema.js";
 import { object } from "../src/schema.js";
 import { startRepaServer, type RepaServer } from "../src/server.js";
 
 const contract = { id: "fixture.models.process", version: "1" };
-const CapabilityInputSchema = object({ model: ModelSelectionSchema, input: InputSchema });
+const CapabilityInputSchema = object({ model: ModelSelectionSchema, input: InputSchema, fallback: Type.Optional(ModelFallbackSchema) });
 const ProviderInputSchema = Type.Object({
   messages: Type.Array(Type.Object({ role: Type.String(), content: Type.Unknown() })),
   max_tokens: Type.Optional(Type.Number()), max_completion_tokens: Type.Optional(Type.Number()),
@@ -31,6 +33,7 @@ const ModelDataSchema = Type.Object({
 });
 interface Captured {
   body: Static<typeof ProviderInputSchema>;
+  url: string;
   authorization?: string;
   closed: boolean;
 }
@@ -45,7 +48,7 @@ async function until<T>(read: () => T | Promise<T>, ready: (value: T) => boolean
   }
 }
 
-async function fixture(t: TestContext, options: { block?: boolean } = {}) {
+async function fixture(t: TestContext, options: { block?: boolean; failPrimary?: boolean; failFallback?: boolean; agent?: boolean } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-capability-models-"));
   const agentDir = path.join(root, "agent");
   const directory = path.join(root, "space");
@@ -62,10 +65,16 @@ async function fixture(t: TestContext, options: { block?: boolean } = {}) {
       for await (const chunk of request) text += chunk;
       const body: unknown = JSON.parse(text);
       assert(Check(ProviderInputSchema, body));
-      const captured: Captured = { body, authorization: request.headers.authorization, closed: false };
+      const captured: Captured = { body, url: request.url ?? "", authorization: request.headers.authorization, closed: false };
       response.once("close", () => { captured.closed = true; });
       requests.push(captured);
       if (options.block) return;
+      const fallback = captured.url.startsWith("/fallback/");
+      if (fallback ? options.failFallback : options.failPrimary) {
+        response.writeHead(fallback ? 400 : 503, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: { message: fallback ? "invalid request" : "service unavailable" } }));
+        return;
+      }
       const chunk = (content: string, finish: string | null) => ({
         id: "capability-model", object: "chat.completion.chunk", created: 1, model: "local-model",
         choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: finish }],
@@ -105,6 +114,7 @@ async function fixture(t: TestContext, options: { block?: boolean } = {}) {
   const capability: CapabilityDefinition<typeof CapabilityInputSchema, typeof RepresentationSchema, RepaCapabilityServices> = {
     contract, implementationId: "local", scopes: ["space"], execution: "background",
     inputSchema: CapabilityInputSchema, outputSchema: RepresentationSchema,
+    tool: { name: "fixture_models_process", description: "通过窄模型服务处理明确输入。" },
     inputResources: input => inputResources(input.input),
     async invoke(input, context) {
       assert(context.services?.models);
@@ -113,7 +123,7 @@ async function fixture(t: TestContext, options: { block?: boolean } = {}) {
       invocations.push(observed);
       try {
         return await context.services.models.complete({
-          model: input.model, input: input.input, system: "只处理能力提交的明确输入。", thinkingLevel: "off", maxTokens: 32,
+          model: input.model, input: input.input, fallback: input.fallback, system: "只处理能力提交的明确输入。", thinkingLevel: "off", maxTokens: 32,
         });
       } finally {
         observed.aborted = context.signal.aborted;
@@ -121,7 +131,16 @@ async function fixture(t: TestContext, options: { block?: boolean } = {}) {
       }
     },
   };
-  const serverOptions = { agentDir, appDirectory: path.join(root, "app"), disconnectGraceMs: 0,
+  const faux = options.agent ? fauxProvider({
+    api: `capability-models-${randomUUID()}`, provider: `capability-models-${randomUUID()}`,
+    models: [{ id: "agent", reasoning: false, input: ["text"], contextWindow: 16384, maxTokens: 1024 }],
+    tokensPerSecond: 0,
+  }) : undefined;
+  const modelRuntime = faux ? await ModelRuntime.create({
+    authPath: path.join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false,
+  }) : undefined;
+  if (faux && modelRuntime) modelRuntime.registerNativeProvider(faux.provider);
+  const serverOptions = { ...(faux && modelRuntime ? { modelOverride: { modelRuntime, model: faux.getModel() } } : {}), agentDir, appDirectory: path.join(root, "app"), disconnectGraceMs: 0,
     plugins: [{ id: "model-fixture", enabled: true, factory: () => ({ capabilities: [capability] }) }] };
   server = await startRepaServer(serverOptions);
   client = await RepaClient.connect(server.connection);
@@ -135,9 +154,9 @@ async function fixture(t: TestContext, options: { block?: boolean } = {}) {
   const model = { connectionId: connection.id, id: "local-model" };
   const currentClient = () => { assert(client); return client; };
   const currentServer = () => { assert(server); return server; };
-  const invoke = async (input: Input) => {
+  const invoke = async (input: Input, fallback?: ModelFallback) => {
     const requestId = randomUUID();
-    const accepted = await currentClient().call("capability.invoke", { scope, requestId, contract, input: { model, input } });
+    const accepted = await currentClient().call("capability.invoke", { scope, requestId, contract, input: { model, input, ...(fallback ? { fallback } : {}) } });
     assert.equal(accepted.kind, "background");
     if (accepted.kind !== "background") assert.fail("模型能力应由真实后台请求持有");
     assert.equal(accepted.request.requestId, requestId);
@@ -162,7 +181,7 @@ async function fixture(t: TestContext, options: { block?: boolean } = {}) {
     otherClients.push(other);
     return other;
   };
-  return { directory, space, connection, model, requests, invocations, invoke, finished, reopen, uploader,
+  return { directory, space, connection, model, faux, requests, invocations, invoke, finished, reopen, uploader,
     get client() { assert(client); return client; } };
 }
 
@@ -241,4 +260,64 @@ test("真实父请求取消和连接移除均结束能力借用的 HTTP 子调�
   assert.equal((await f.finished(first)).status, "cancelled");
   assert.equal((await f.finished(second)).status, "cancelled");
   assert.equal(f.requests.length, 2, "重开不重新执行已取消的能力子调用");
+});
+
+
+test("能力的窄模型服务回退沿父后台请求保存选择与最终失败，不另建模型请求", async (t) => {
+  for (const failFallback of [false, true]) {
+    const f = await fixture(t, { failPrimary: true, failFallback });
+    const alternate = await f.client.call("connection.create", {
+      name: "明确备用", provider: "openai", authMode: "none",
+      baseUrl: f.connection.baseUrl?.replace("/v1", "/fallback/v1"), models: f.connection.models,
+    });
+    const accepted = await f.invoke({ parts: [{ kind: "text", text: "能力回退的明确输入" }] }, {
+      on: "transient_error", models: [{ connectionId: alternate.id, id: f.model.id }],
+    });
+    const completed = await f.finished(accepted);
+    assert.equal(completed.status, failFallback ? "failed" : "completed", completed.error?.message);
+    assert.deepEqual(completed.modelAttempts?.map(attempt => attempt.status), ["failed", failFallback ? "failed" : "completed"]);
+    assert.equal(completed.modelAttempts?.[0]?.binding.connection.id, f.connection.id);
+    assert.equal(completed.modelAttempts?.[1]?.binding.connection.id, alternate.id);
+    assert.equal(f.requests.length, 2);
+    assert.deepEqual(f.requests[0]?.body.messages, f.requests[1]?.body.messages);
+    if (!failFallback) assert.equal(modelResult(completed).data.binding.connection.id, alternate.id);
+    else assert.equal(completed.error?.code, "provider");
+    await onlyParents(f.directory, [accepted.requestId]);
+    await f.reopen();
+    assert.deepEqual(await f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId }), completed);
+    assert.equal(f.requests.length, 2);
+  }
+});
+
+
+test("Agent 能力的窄模型最终失败保留父输入的尝试事实，不重启工具循环或创建子请求", async (t) => {
+  const f = await fixture(t, { agent: true, failPrimary: true, failFallback: true });
+  assert(f.faux);
+  const alternate = await f.client.call("connection.create", {
+    name: "明确备用", provider: "openai", authMode: "none",
+    baseUrl: f.connection.baseUrl?.replace("/v1", "/fallback/v1"), models: f.connection.models,
+  });
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("fixture_models_process", {
+      model: f.model, input: { parts: [{ kind: "text", text: "Agent 的明确子调用" }] },
+      fallback: { on: "transient_error", models: [{ connectionId: alternate.id, id: f.model.id }] },
+    })),
+    fauxAssistantMessage("子调用失败，未执行其他动作。"),
+  ]);
+  const session = await f.client.call("session.create", { spaceId: f.space.id });
+  const accepted = await f.client.call("session.submit", {
+    target: { spaceId: f.space.id, sessionId: session.sessionId }, requestId: randomUUID(),
+    input: { parts: [{ kind: "text", text: "调用子模型并保留失败事实" }] }, dispatch: { kind: "start" },
+  });
+  const completed = await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId }),
+    value => ["completed", "failed", "cancelled", "interrupted"].includes(value.status));
+  assert("target" in completed);
+  assert.equal(completed.status, "completed");
+  assert.deepEqual(completed.modelAttempts?.map(attempt => attempt.status), ["failed", "failed"]);
+  assert.equal(completed.modelAttempts?.[1]?.binding.connection.id, alternate.id);
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.faux.state.callCount, 2);
+  await onlyParents(f.directory, []);
+  await f.reopen();
+  assert.deepEqual(await f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId }), completed);
 });

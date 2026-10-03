@@ -142,7 +142,7 @@ test("受限命令真实完成，扩大权限等待、拒绝和取消均不执�
   assert(!existsSync(outside));
   assert.equal(denial.execution?.command, `printf denied > ${quote(outside)}`);
   assert.equal((await f.client.call("execution.inspect", { spaceId: f.space.id })).active[0]?.status, "authorizing");
-  await f.client.call("interaction.reply", { spaceId: f.space.id, id: denial.id, value: false });
+  await f.client.call("interaction.reply", { responseId: randomUUID(), spaceId: f.space.id, id: denial.id, value: false });
   assert.equal(execution(await f.finished(denied.requestId)).error?.code, "permission_denied");
   assert(!existsSync(outside));
   const cancelled = await f.run(`printf cancelled > ${quote(outside)}`, access);
@@ -151,11 +151,11 @@ test("受限命令真实完成，扩大权限等待、拒绝和取消均不执�
   const terminal = await f.finished(cancelled.requestId);
   assert.equal(terminal.status, "cancelled");
   assert.equal(execution(terminal).status, "cancelled");
-  await assert.rejects(f.client.call("interaction.reply", { spaceId: f.space.id, id: late.id, value: true }), fault("interaction_expired"));
+  await assert.rejects(f.client.call("interaction.reply", { responseId: randomUUID(), spaceId: f.space.id, id: late.id, value: true }), fault("interaction_expired"));
   assert(!existsSync(outside));
   const allowed = await f.run(`printf once > ${quote(outside)}`, access);
   const approval = await question(f, allowed.requestId);
-  await f.client.call("interaction.reply", { spaceId: f.space.id, id: approval.id, value: true });
+  await f.client.call("interaction.reply", { responseId: randomUUID(), spaceId: f.space.id, id: approval.id, value: true });
   assert.equal(execution(await f.finished(allowed.requestId)).status, "completed");
   assert.equal(await readFile(outside, "utf8"), "once");
   assert.deepEqual((await f.client.call("execution.inspect", { spaceId: f.space.id })).policy, restricted);
@@ -271,7 +271,7 @@ test("真实 Pi Agent 使用受归属 bash 工具，确认后执行且会话关�
   assert.equal((await f.client.call("state.get", { scope: f.key })).execution?.[0]?.id, active.id);
   const other = await f.client.call("session.create", { spaceId: f.space.id });
   assert.deepEqual((await f.client.call("state.get", { scope: { spaceId: f.space.id, sessionId: other.sessionId } })).execution, []);
-  await f.client.call("interaction.reply", { ...f.key, id: approval.id, value: true });
+  await f.client.call("interaction.reply", { responseId: randomUUID(), ...f.key, id: approval.id, value: true });
   await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: request.requestId }), value => value.status === "completed");
   assert.equal(await readFile(outside, "utf8"), "agent");
   f.faux.setResponses([fauxAssistantMessage(fauxToolCall("bash", { command: "printf 'agent-running\n'; sleep 30" }), { stopReason: "toolUse" })]);

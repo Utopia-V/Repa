@@ -30,9 +30,9 @@ Pi 已经提供输入投递、工具循环、历史和取消机制。Repa 在它
 
 输入的 `parts` 可以包含文本、草稿选区、内容引用、资源和带格式的表示。草稿选区使用提交时的文字；内容引用在实际开始时读取，并记录本次读到的修订。图片通过 Pi 的 `prompt` 或 `steer` 图片入口发送，格式转换和尺寸处理由 SDK 完成。其他资源保留引用和说明，按需要交给材料能力提取。
 
-独立请求受理时保存提示配置、具名连接及认证身份、模型、思考强度、工具、压缩和重试选项。`selection` 可以显式覆盖本次选择，模型使用 `{ connectionId, id }`，空工具列表表示本次不提供工具。调用来源由服务端记录，包含已认证宿主的非秘密标识。
+独立请求受理时保存提示配置、具名连接及认证身份、模型、回退候选、思考强度、工具、压缩和重试选项。`selection` 可以显式覆盖本次选择，模型使用 `{ connectionId, id }`，回退策略使用 `{ on: "transient_error", models: [{ connectionId, id }, ...] }`。`selection.fallback: null` 关闭从 `runtime.fallback` 继承的策略；空工具列表表示本次不提供工具。调用来源由服务端记录，包含已认证宿主的非秘密标识。
 
-尚未选择连接或模型时，请求可以先受理，开始执行时报告 `connection_required`。配置完成后，通过 `session.continue` 明确接续。若显式选择了不存在的连接或模型，则在受理前返回 `connection_not_found` 或 `model_not_found`。连接绑定和认证生命周期见[模型配置](models-configuration.md)。steer 使用目标运行已有的配置，不重新选择账号和模型。
+尚未选择连接或模型时，请求可以先受理，开始执行时报告 `connection_required`。配置完成后，通过 `session.continue` 明确接续。若显式选择了不存在的连接或模型，则在受理前返回 `connection_not_found` 或 `model_not_found`。回退策略中的候选也在受理时逐一绑定端点、认证身份和模型，不会在出错后用新的默认值重新解析。连接绑定和认证生命周期见[模型配置](models-configuration.md)。steer 使用目标运行已有的配置，不重新选择账号和模型。
 
 主调用准备好以后，实际提示写入请求的 `prompt` 字段；压缩调用也记录实际摘要提示来源。`run.get` 从所属请求汇总这些信息，普通状态事件只通知变化，不反复发送全文。
 
@@ -51,6 +51,12 @@ Pi 已经提供输入投递、工具循环、历史和取消机制。Repa 在它
 `session.continue({ target, requestId, previousRequestId, input?, selection? })` 为失败、取消、中断或未接入的请求建立一次新的提交。会话空闲时启动，忙时排队，原记录保留。
 
 接续使用当前历史和当前文件。原输入尚未进入历史时，开始处理前补入；已经进入时，关联原消息，并追加本次要求。真正开始时还会核对一次投递状态，避免连续接续同一请求时重复补入。后续工具动作由 Agent 根据现状决定，不重放过去的工具调用。
+
+你配置了显式模型回退后，Pi 会先完成当前模型自己的重试。若最终回复仍是可回退的暂时错误，Repa 等 Pi 结束原运行、保存历史，再记录本次失败，并从已绑定候选中取下一项建立新请求与运行。新运行沿用原会话历史和当前文件，已进入历史的输入与已完成工具留在原处；自动回退只接续这项工作，用户队列保持暂停。
+
+原请求的 `fallbackRequestId` 指向新请求；新请求的 `continuation.kind` 为 `model_fallback`，`previousRequestId` 指回原请求。每段运行的 `modelAttempts` 记录实际使用的绑定、结果和时间。进程重开时，把尚在运行的尝试标为 `interrupted`，结束时间保持未知。
+
+只有 SDK 重试后符合策略的暂时错误会触发这条路径。认证失败、输入不兼容、上下文溢出、取消和未知异常仍留在原失败记录，供你检查后手动接续。SDK 接入的取舍见[Agent 说明](agent-runtime.md#sdk-能力与接入范围)，回退策略与独立调用的差异见[模型配置](models-configuration.md)。
 
 ## 历史与订阅
 
@@ -72,13 +78,17 @@ Host 在 Pi 最后的 RPC input hook 中关联输入，把请求标识随实际�
 
 公开客户端通过 `request.get` 查询，通过 `request.cancel` 取消；应用请求在这两个接口中都省略 `spaceId`。应用或空间订阅发送 `processing` 变化，快照中保留尚未结束的处理。交互属于对应 `requestId`，通过 `interaction.reply` 回答。
 
+回答交互时，你为这次答案生成 `responseId`，连同交互 `id` 和 `value` 传给 `interaction.reply({ spaceId?, sessionId?, id, responseId, value })`。会话交互可以带 `sessionId` 限定目标；应用级交互省略 `spaceId`。后端先把 `{ id, responseId, value, acceptedAt }` 回执保存到所属会话请求或后台请求。保存成功后才解除等待，并返回 `{ id, responseId, acceptedAt, status: "accepted" }`；保存失败时，原交互保留为待回答状态。
+
+如果确认应答丢失，使用相同 `responseId` 和原值重传，会取回原 `accepted` 回执；同一个 `responseId` 改值返回 `response_id_conflict`。若另一入口已经抢先回答，后续提交得到 `already_processed`，其中的 `responseId` 和 `acceptedAt` 属于实际被接受的答案。取消、过期或作用域不符仍返回 `interaction_expired`。你可以在重连或重开后查询请求的 `interactionReplies` 核对已处理结果；它随父请求保存和复制，不另建交互结果库。前端需要保留未确认答复的标识和值，[#10](https://github.com/Utopia-V/repa/issues/10) 接入界面时应按这一回执处理重试。
+
 取消终态要等处理函数真正结束，后端退出也会等待处理和内容操作收尾。重开后把中断结果保留下来，不自动重做。原选择保存在 `options`，受理时的配置保存在 `configuration`，重传不会重新解析它们。
 
 各入口复用这套记录时，另有以下约定：
 
 | 入口 | 接入方式 |
 | --- | --- |
-| `model.complete` | 用 Pi `ModelRuntime.completeSimple` 和 SDK 重试处理明确输入，记录回复、用量和来源资源；不创建会话 |
+| `model.complete` | 用 Pi `ModelRuntime.completeSimple` 和 SDK 重试处理明确输入；显式 `fallback` 可按绑定候选接续，记录实际回复、尝试、用量和来源资源，不创建会话 |
 | `capability.invoke` | `query` 直接读取当前值；`inline` 和 `background` 保存请求，区别是等待结果还是先返回回执。Agent 工具已归父运行，不另建后台记录 |
 | `package.install/update/remove` | 保存包管理进度与结果；当前 SDK 进入安装后无法中途取消，改包前即标记后端需要重启 |
 | `execution.run` | 保存命令结果和已经发生的输出；取消后的请求保持 `cancelled`，不会因保留输出而改报完成 |
@@ -107,14 +117,9 @@ Host 在 Pi 最后的 RPC input hook 中关联输入，把请求标识随实际�
 
 打开空间时，先恢复会话、请求和资源，再发布空间状态。恢复失败会释放尚未登记的租约；补回所需数据后，可以在同一后端重新打开。
 
-## 未完成项与待验证项
-
-| 项目 | 当前状态与影响 | 后续工作 |
-| --- | --- | --- |
-| 交互答复的重传确认与竞争结果 | `interaction.reply` 接受首次有效答复后删除待答交互，后续答复统一返回 `interaction_expired`。如果确认消息丢失，你重试时无法区分答复已接受还是交互确实过期；两个前端同时回答也无法查询已处理结果 | 由 [#19](https://github.com/Utopia-V/repa/issues/19) 接入 [#16 §9.2](https://github.com/Utopia-V/repa/issues/16) 约定的答复身份与结果确认，[#10](https://github.com/Utopia-V/repa/issues/10) 据此处理重试。[#20](https://github.com/Utopia-V/repa/issues/20) 的后台交互与 [#21](https://github.com/Utopia-V/repa/issues/21) 的授权交互复用同一行为 |
-
 ## 验证入口
 
 - [application.test.ts](../../packages/repa/test/application.test.ts) 和 [model-api.test.ts](../../packages/repa/test/model-api.test.ts)：通过 Pi、本地 provider 和公开客户端，验证输入、队列、接续、取消、重连、重开及连接选择。
 - [capability-api.test.ts](../../packages/repa/test/capability-api.test.ts)、[capability-resources.test.ts](../../packages/repa/test/capability-resources.test.ts) 和 [plugin-api.test.ts](../../packages/repa/test/plugin-api.test.ts)：验证能力与包管理的受理、资源、应用租约和关闭，也覆盖受理前取消会话提交。
-- [background-requests.test.ts](../../packages/repa/test/background-requests.test.ts)：使用临时记录、空间资源和独立进程，验证应用请求、交互、取消、中断恢复及旧空间格式。
+- [background-requests.test.ts](../../packages/repa/test/background-requests.test.ts)：使用临时记录、空间资源和独立进程，验证应用请求、交互回执、取消、中断恢复及旧空间格式。
+- [agent-model-fallback.test.ts](../../packages/repa/test/agent-model-fallback.test.ts)：真实 Pi 和本地 HTTP provider，验证候选绑定、重试后自动接续、历史不重放、策略关闭与取消。

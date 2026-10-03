@@ -11,9 +11,9 @@ import { IdSchema, RevisionSchema, object } from "../schema.js";
 import { SerialQueue, writeJson } from "../storage/atomic.js";
 import { assertCredentialEnvironment, credentialProvider } from "./credential-context.js";
 import {
-  ConnectionInputSchema, ModelBindingSchema,
+  ConnectionInputSchema, ModelBindingSchema, ModelFallbackSchema,
   type AuthQuery, type ModelConnection, type ConnectionInput, type ModelBinding,
-  type ModelCatalog, type ModelSelection,
+  type ModelCatalog, type ModelSelection, type ModelFallback, type BoundModelFallback,
 } from "./schema.js";
 
 const StoredConnectionSchema = object({
@@ -210,12 +210,31 @@ export class ModelConnections {
     })) };
   }
 
-  async bind(selection: ModelSelection): Promise<{ binding: ModelBinding; model: Model<Api> }> {
-    const stored = this.#find(await this.#read(), selection.connectionId);
-    const runtime = await this.#runtime(stored, stored.authId);
-    const model = runtime.getModel(stored.provider, selection.id);
-    if (!model) throw new RepaFault("model_not_found", "连接中不存在该模型。");
-    return { binding: { connection: await this.#view(stored, runtime), modelId: model.id }, model };
+  async bind(selection: ModelSelection, fallback?: ModelFallback): Promise<{
+    binding: ModelBinding; model: Model<Api>; fallback?: BoundModelFallback;
+  }> {
+    if (fallback && !Check(ModelFallbackSchema, fallback))
+      throw new RepaFault("configuration", "模型回退策略无效。");
+    const primarySelection = structuredClone(selection);
+    const policy = fallback ? structuredClone(fallback) : undefined;
+    const selections = [primarySelection, ...policy?.models ?? []];
+    const keys = selections.map(value => `${value.connectionId}\0${value.id}`);
+    if (new Set(keys).size !== keys.length)
+      throw new RepaFault("configuration", "模型回退候选不能重复或包含主选择。");
+    // 所有候选从同一次连接清单读取绑定；执行时不再用当前配置重解账号或端点。
+    const store = await this.#read();
+    const bind = async (chosen: ModelSelection) => {
+      const stored = this.#find(store, chosen.connectionId);
+      const runtime = await this.#runtime(stored, stored.authId);
+      const model = runtime.getModel(stored.provider, chosen.id);
+      if (!model) throw new RepaFault("model_not_found", "连接中不存在该模型。");
+      return { binding: { connection: await this.#view(stored, runtime), modelId: model.id }, model };
+    };
+    const primary = await bind(primarySelection);
+    const candidates = await Promise.all(selections.slice(1).map(bind));
+    return { ...primary, ...(policy ? { fallback: {
+      on: policy.on, models: candidates.map(candidate => candidate.binding),
+    } } : {}) };
   }
 
   async assertBinding(binding: ModelBinding): Promise<void> {

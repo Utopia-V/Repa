@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { MAX_TEXT, type ExtractData, type ExtractInput } from "./schema.js";
+import { MAX_TEXT, type ExtractData, type ExtractOptions } from "./schema.js";
 
 class PopplerFailure extends Error {
   constructor(readonly status: ExtractData["status"], readonly code: string, message: string) { super(message); }
@@ -46,7 +46,7 @@ async function command(executable: string, args: string[], signal: AbortSignal):
   });
 }
 
-export async function pdf(bytes: Uint8Array, input: ExtractInput, executables: { pdfinfo: string; pdftotext: string }, signal: AbortSignal,
+export async function pdf(bytes: Uint8Array, input: ExtractOptions, executables: { pdfinfo: string; pdftotext: string }, signal: AbortSignal,
   progress?: (message: string) => void): Promise<ExtractData> {
   const result: ExtractData = { status: "ready", kind: "pdf", reader: { name: "poppler" }, segments: [], truncated: false, issues: [] };
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-materials-pdf-"));

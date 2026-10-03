@@ -19,6 +19,7 @@ npm ci
 | 独立后端联调 | `npm run dev:backend -- serve --connection-file /absolute/path/connection.json` |
 | Web | `npm run dev:web` |
 | Desktop | `npm run dev:desktop` |
+| Linux x64 桌面安装包 | `npm run package:linux --workspace=@repa/desktop`；见[应用交付](distribution.md) |
 
 Web 和 Desktop 会自动构建并启动各自的开发后端，不需要手工填写连接地址或令牌。提交评审前在根目录运行 `npm run check`、`npm test` 和 `npm run build`；具体代码入口见下一节。
 
@@ -61,8 +62,10 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 | 修改输入、排队、失败接续和后台请求 | [输入、请求与运行](requests.md)：受理记录、Pi 投递、资源保留、分页及订阅 |
 | 处理应用内的操作顺序与退出 | [application.ts](../../packages/repa/src/application.ts)：空间实例、请求受理、配置固定、订阅与进行中工作；释放空间前等待 Agent 和内容操作收尾 |
 | 修改正文、身份或内容组成 | [内容与保存](content.md)：共同的版本检查、文件操作、资源和恢复入口 |
+| 打开交互产物并绑定页面动作 | [展示实例与桥接](display.md)：固定表示、资源持有、MCP Apps、结果保存和向会话提交 |
+| 构建与安装桌面应用 | [Linux 应用交付](distribution.md)：Electron 运行时、生产依赖装配、原生组件、系统权限与验证 |
 | 执行命令、处理授权与子进程 | [命令执行与授权](execution.md)：Pi Bash SDK、独立 helper、实际请求归属、输出与退出 |
-| 搜索内容、历史或提取本地材料 | [搜索与材料](search-materials.md)：rg 预筛、实际字节快照、冻结历史、结果分页与独立材料包 |
+| 搜索内容、历史或取得材料表示 | [搜索与材料](search-materials.md)：rg 预筛、冻结历史、结果分页、本地提取、URL 原件和 Wikipedia 搜索 |
 | 接入复习、实际反馈和参数优化 | [复习插件](review.md)：FSRS、SQLite、追加更正、候选参数及公开操作与通知 |
 | 创建或调整学习计划 | [规划能力](planning.md)：可替换方法、实际时钟、日期与时间约束检查，正文沿用内容工具 |
 | 整理长期内容与当前语境 | [整理能力](organization.md)：方法 Skill、同次正文与结构保存、模型可见的身份及操作查询 |
@@ -85,6 +88,10 @@ flowchart LR
     Client[RepaClient] -->|发送请求| Server[认证与协议校验]
     Server -->|调用| App[RepaApplication]
     App -->|读写内容| Content[ContentStore]
+    Page[展示页面] -->|MCP Apps 受限动作与资源| Bridge[浏览器桥接]
+    Bridge -->|使用宿主连接| Client
+    App -->|固定版本与绑定动作| Display[DisplayService]
+    Display -->|持有资源与保存| Content
     App -->|解析设置| Config[ConfigStore]
     App -->|选择连接| Models[ModelConnections]
     Models -->|认证与调用| Runtime[Pi ModelRuntime 与凭据存储]
@@ -103,7 +110,7 @@ flowchart LR
     Host -->|运行与历史| Pi[Pi AgentSession 与 SessionManager]
 ```
 
-内容 API 和模型工具共用保存入口，能力 API 和工具共用处理函数。客户端能力调用通过请求模块保存记录，Agent 工具使用父运行的身份与取消信号。具体调用方式见[能力宿主](capabilities.md)，记录与恢复见[请求说明](requests.md)。
+内容 API 和模型工具共用保存入口，能力 API 和工具共用处理函数。只读 query 能力直接返回当前结果，inline 和 background 能力通过请求模块保存记录；Agent 工具使用父运行的身份与取消信号。具体调用方式见[能力宿主](capabilities.md)，记录与恢复见[请求说明](requests.md)。
 
 Host 使用学习能力准备好的背景，处理快照复用和压缩后补回。学习语境的选择与展开留在学习模块，文件保存和引用映射使用内容模块。关闭官方学习组合后，普通 Agent 与内容操作可用，原文档、绑定和历史快照保留。
 
@@ -133,8 +140,10 @@ npm run build
 | 配置与外部文件授权的持久化、并发写入 | [configuration.test.ts](../../packages/repa/test/configuration.test.ts)、[content-access.test.ts](../../packages/repa/test/content-access.test.ts) |
 | 具名连接、认证身份、运行选择、独立模型调用与提示预览 | [model-connections.test.ts](../../packages/repa/test/model-connections.test.ts)、[model-api.test.ts](../../packages/repa/test/model-api.test.ts)、[cli-models.test.ts](../../packages/repa/test/cli-models.test.ts) |
 | 共享能力、SQLite 按需资源、公共调用与父 Agent 工具 | [capabilities.test.ts](../../packages/repa/test/capabilities.test.ts)、[capability-api.test.ts](../../packages/repa/test/capability-api.test.ts)、[capability-resources.test.ts](../../packages/repa/test/capability-resources.test.ts) |
+| 展示实例、固定版本、页面动作与历史重开 | [display-api.test.ts](../../packages/repa/test/display-api.test.ts)：真实后端、MCP Apps 与 Pi 投递 |
+| Linux 桌面安装布局与默认能力 | [verify-linux-package.mjs](../../apps/desktop/scripts/verify-linux-package.mjs)：从 deb 解包并运行包内后端、worker 与原生入口 |
 | 命令授权、真实隔离、取消和完整输出生命周期 | [execution-process.test.ts](../../packages/repa/test/execution-process.test.ts)、[execution-api.test.ts](../../packages/repa/test/execution-api.test.ts) |
-| 搜索定位、冻结分页与本地材料格式和取消 | [搜索与材料验证](search-materials.md#验证入口与固定版本)：内容/历史查询、公共工具和编译包入口 |
+| 搜索定位、冻结分页、本地／URL 材料与取消 | [搜索与材料验证](search-materials.md#验证入口与固定版本)：内容/历史查询、公共工具和编译包入口 |
 | 真实 FSRS、复习事务、工具与参数优化 | [复习验证](review.md#验证入口)：算法、SQLite、公共操作、插件快照和独立优化进程 |
 | 学习规划方法与时间约束 | [规划验证](planning.md#验证)：Temporal、真实 Pi 读 Skill／检查／保存和外部编辑后接续 |
 | 官方后端默认装配与持续学习 | [组合验证](official-learning.md#验证入口)：干净配置、真实工具、实际反馈、关闭后复制重启与精确来源替换 |

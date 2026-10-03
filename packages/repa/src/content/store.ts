@@ -20,7 +20,7 @@ import { mapReference, remapMarkdown } from "./references.js";
 import {
   type ContentInfo, type ContentRead, type ContentRef, type ContentTarget,
   type ContentValue, type ContentChangeResult, type ContentOperation,
-  type ContentPatchInput, type FileLocation,
+  type ContentPatchInput, type FileLocation, type ContentOrigin,
   type ResourceRef, type WriteBase, type ContentSnapshot, type ResourceHold,
 } from "./schema.js";
 
@@ -633,13 +633,14 @@ export class ContentStore {
     }
     return observed;
   }
-  #register(plan: Plan, actual: string, input: { role: "document" | "material"; id?: string }): ContentRecord {
+  #register(plan: Plan, actual: string, input: { role: "document" | "material"; id?: string; origin?: ContentOrigin }): ContentRecord {
     if (Object.values(plan.catalog.items).some(item => item.state === "active" && this.#absolute(item.location) === actual))
       throw new RepaFault("already_registered", "该位置已有内容身份，请使用已有引用。");
     const id = input.id ?? randomUUID();
     if (!Check(IdSchema, id) || plan.catalog.items[id]) throw new RepaFault("invalid_input", "新内容标识不可用。");
     const record: ContentRecord = { id, location: this.#location(actual), role: input.role,
-      state: "active", mediaType: mediaType(actual), members: [], resources: [] };
+      state: "active", mediaType: mediaType(actual), members: [], resources: [],
+      ...(input.origin ? { origin: input.origin } : {}) };
     plan.catalog.items[id] = record;
     plan.affected.add(id);
     return record;
@@ -657,7 +658,7 @@ export class ContentStore {
     record.resources = resources;
     plan.affected.add(record.id);
   }
-  associate(params: { location: FileLocation; role: "document" | "material"; operationId: string; id?: string }, authorizeExternal?: (file: string) => Promise<void>): Promise<ContentChangeResult> {
+  associate(params: { location: FileLocation; role: "document" | "material"; operationId: string; id?: string; origin?: ContentOrigin }, authorizeExternal?: (file: string) => Promise<void>): Promise<ContentChangeResult> {
     const input = clone(params);
     return this.#mutate(input.operationId, { method: "associate", ...input }, async (plan) => {
       if (input.location.kind === "external") await authorizeExternal?.(this.#absolute(input.location));
@@ -728,7 +729,7 @@ export class ContentStore {
         const next = kind === "copy" ? clone(record) : plan.catalog.items[record.id]!;
         next.id = ids.get(record.id)!;
         next.location = this.#location(locations.get(node.path)!);
-        if (kind === "copy" || kind === "collect") next.origin = origin;
+        if (kind === "copy" || kind === "collect") next.origin ??= origin;
         next.members = next.members.map(member => ({ ...member, target: mapTarget(member.target) }));
         this.retention.validate(next.resources);
         plan.catalog.items[next.id] = next; plan.affected.add(next.id);

@@ -1,6 +1,6 @@
 # Agent、提示与学习语境
 
-`PiConversationHost` 把 Repa 的内容工具、提示配置和背景接到 Pi 0.87.1。模型调用、会话历史、工具循环、重试、token 统计和压缩使用 SDK 的实现。
+`PiConversationHost` 把 Repa 的内容工具、提示配置和背景接到 Pi 0.87.1。模型调用、会话历史、工具循环、同模型重试、token 统计和压缩使用 SDK 的实现；显式跨模型或跨连接回退由 Repa 在运行边界接续。
 
 ## 设计思路
 
@@ -17,7 +17,7 @@
 3. Host 根据当前分支和压缩边界，找到最近的完整背景快照。视图变化或快照缺失时追加新消息；官方学习来源沿用 `repa.learning-context` 消息格式。
 4. 工具调用和后续模型轮使用同一份入口提示与背景。工具可以读取当前文件，下一次独立运行再重新准备背景。
 
-应用输入通过 `session.submit` 受理，独立请求、steer 和持久排队分别处理。Host 使用 Pi `prompt()` / `steer()` 及图片参数投递，应用记录实际进入历史的消息关联。独立队列在开始时才准备当前背景并启动新运行，失败接续不重放旧工具。公共接口与持久语义见[输入、请求与运行](requests.md)。
+应用输入通过 `session.submit` 受理，独立请求、steer 和持久排队分别处理。Host 使用 Pi `prompt()` / `steer()` 及图片参数投递，应用记录实际进入历史的消息关联。独立队列在开始时才准备当前背景并启动新运行，失败接续不重放旧工具。如果你配置了回退候选，Pi 会先完成当前模型的重试和运行收尾。最终仍是可回退的暂时错误时，Repa 再使用已绑定候选建立接续请求。新运行沿用历史，原失败记录与用户队列的暂停状态保留。公共接口与持久语义见[输入、请求与运行](requests.md#接续失败的工作)。
 
 ## SDK 能力与接入范围
 
@@ -26,14 +26,18 @@
 | 能力 | SDK 入口与当前接法 | 后续 Repa 接入 |
 | --- | --- | --- |
 | 运行中补充、后续输入与图片 | `AgentSession.steer()`、`followUp()`、`prompt()` 的 `streamingBehavior` / `images`，以及 `sendUserMessage()`；当前 Host 接文本、图片 `prompt()` 与 `steer()`，独立 follow-up 由持久队列在开始时投递 | 公开输入、目标运行、资源、历史关联及受理时配置绑定均已接通；图形输入组件继续消费相同契约 |
-| 模型、认证与独立调用 | `ModelRuntime` 提供发现、认证、`complete()` / `stream()`；当前已接具名连接、Pi 独立凭据槽位和 `model.complete` | 后端与 CLI 已可配置，图形前端消费相同接口；实现与取舍见[模型配置](models-configuration.md) |
+| 模型、认证与独立调用 | `ModelRuntime` 提供发现、认证、`complete()` / `stream()`；当前已接具名连接、Pi 独立凭据槽位和 `model.complete`。独立调用的同模型重试复用 SDK，回退候选由 Repa 显式绑定并逐项调用 | 后端与 CLI 已可配置；真实云端 OAuth 登录和刷新待验证，图形前端仍待接入。实现与取舍见[模型配置](models-configuration.md) |
 | 工具启用与运行选项 | `getAllTools()`、`setActiveToolsByName()`、`setModel()`、`setThinkingLevel()`；受理时固定选择，在 Host 的运行入口应用 | 可选工具包括已接入的内容工具、`bash`、已启用共享能力工具和可信扩展；配置不绕过所属执行权限 |
-| 历史、计量、压缩、重试与取消 | `SessionManager`、`getContextUsage()`、`compact()`、`abort()`、`waitForIdle()`；当前已复用历史、自动压缩、重试及取消收尾 | 应用已保存请求与队列状态并提供历史分页；前端按公共接口接入，不另写历史树、计数器、工具循环或外层自动重试 |
+| 历史、计量、压缩、重试与取消 | `SessionManager`、`getContextUsage()`、`compact()`、`abort()`、`waitForIdle()`；当前已复用历史、自动压缩、同模型重试及取消收尾 | 应用保存请求、真实 `modelAttempts` 和队列状态并提供历史分页；跨模型回退通过新运行接续，不另写历史树、计数器、工具循环或外层自动重试 |
 | 命令执行 | `createBashToolDefinition()` / `createBashTool()` / `BashOperations.exec`；参数、截断与工具流程复用 SDK，实际进程由 Repa 执行适配层持有 | 授权、取消和独立 helper 已接通；平台安装条件见[执行说明](execution.md) |
 | 内容与历史检索 | 已接通官方搜索能力，底层文本搜索使用原生 ripgrep，历史读取复用 Pi 的不可变条目与分支位置 | 查询范围、快照和定位见[搜索说明](search-materials.md) |
 | Agent 资源与包 | `DefaultResourceLoader`、`DefaultPackageManager`、工具及扩展注册；当前已能加载可信 Pi 扩展、Skill 和提示 | 已接共享后端能力、静态多入口清单、可信资源过滤及安装级快照；前端组件加载仍由前端宿主接入，详见[插件装配](plugins.md) |
 
 Repa 的受理记录保存请求来源、绑定配置、资源保留与恢复所需状态，Pi 负责实际投递和 Agent 循环。带独立运行语义的后续请求由 Repa 逐个调度，在实际开始时确定运行归属、应用绑定配置并准备背景，再交给 Pi。
+
+Pi 0.87.1 的会话 model runtime 固定认证上下文，原 Host 上的 `setModel()` 只能在这个上下文中切换模型。直接调用底层 `continue` 又会跳过 `AgentSession` 负责的重试、压缩与收尾。因此，Repa 在原运行结束后使用已有请求接续入口；运行身份改变时重建 Host，并让它读取同一份 Pi 会话历史。端点、`authId` 和模型按受理时的绑定执行。
+
+这个接法依赖 Pi 的运行结束与历史保存顺序。升级 SDK 时，需要检查这些时序以及 runtime 能否独立切换认证上下文；上游提供等价入口后，可以收缩相应适配。尝试记录与中断恢复由[请求模块](requests.md)持有。
 
 `createAgentSessionServices()` 与 `createAgentSessionFromServices()` 可用于收拢设置、模型与资源加载的装配，替换现有手工装配前保留提示覆盖、信任和自定义内容工具入口。`AgentSessionRuntime` 围绕替换当前会话组织生命周期；Repa 的多会话协调仍需保证切换查看对象不停止其他运行，不能直接用它替换应用层。
 
@@ -106,5 +110,6 @@ Pi 的 system 消息条目保存提示与工具配置，不投影为公开交流
 - [pi-context-integration.test.ts](../../packages/repa/test/pi-context-integration.test.ts)：真实 SDK 与 faux provider 核对实际请求中的系统提示、工具后续轮、背景回填、文件变化和扩展直接调用。provider 使用 `TranscriptContext`，断言通过 Pi 的 `getCurrentSystemPrompt()` 等入口解析系统状态。
 - [pi-session-0.84.3.jsonl](../../packages/repa/test/fixtures/pi-session-0.84.3.jsonl)：由发布版 0.84.3 的 `SessionManager` 生成的会话格式 3 样本，包含完整背景、交流与压缩。集成测试复制后用 0.87.1 接续并重开，检查旧条目与原文件前缀保留。
 - [application.test.ts](../../packages/repa/test/application.test.ts)：公共客户端、运行记录、取消、重试、会话恢复与独立后端进程。
+- [agent-model-fallback.test.ts](../../packages/repa/test/agent-model-fallback.test.ts)：真实 Pi、本地 HTTP provider 和显式候选，验证接续、历史、策略关闭及取消。
 
 这些测试使用本地确定性模型，当前执行环境为 Linux。真实 provider 与其他平台继续由对应集成验证覆盖。

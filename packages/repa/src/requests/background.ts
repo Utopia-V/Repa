@@ -11,10 +11,11 @@ import type { ContentStore } from "../content/store.js";
 import type { ResourceRef } from "../content/schema.js";
 import { BackgroundRequestSchema, RepresentationSchema, type BackgroundRequest, type ProcessingResult, type Input } from "./schema.js";
 import type { Dialog, DialogOptions } from "../pi-host.js";
-import type { Interaction, Reply } from "../protocol.js";
+import type { Interaction, Reply, InteractionReplyReceipt } from "../protocol.js";
 import { remapInput } from "./store.js";
 import { inputResources } from "./input.js";
 import { CapabilityScopeSchema } from "../capabilities/schema.js";
+import { interruptModelAttempts, updateModelAttempts, type ModelAttempt } from "../models/schema.js";
 
 export interface ProcessingContext {
   signal: AbortSignal;
@@ -52,7 +53,13 @@ export class BackgroundRequests {
         throw new RepaFault("invalid_request_record", "后台请求记录无法解析。");
       const request = raw.request;
       this.requests.set(request.requestId, request);
-      if (["accepted", "running", "cancelling"].includes(request.status)) this.#persist({ ...request, status: "interrupted", interactions: [], finishedAt: Date.now() });
+      const interrupted = ["accepted", "running", "cancelling"].includes(request.status);
+      const attempts = request.modelAttempts?.some(attempt => attempt.status === "running")
+        ? interruptModelAttempts(request.modelAttempts) : undefined;
+      if (interrupted || attempts) this.#persist({ ...request,
+        ...(interrupted ? { status: "interrupted", interactions: [], finishedAt: Date.now() } : {}),
+        ...(attempts ? { modelAttempts: attempts } : {}),
+      });
     }
   }
 
@@ -133,9 +140,18 @@ export class BackgroundRequests {
     return structuredClone(request);
   }
 
-  interaction(requestId: string, id: string, interaction: Interaction | null): void {
+  recordModelAttempt(requestId: string, attempt: ModelAttempt): void {
     const request = this.get(requestId);
-    this.#save({ ...request, interactions: [...request.interactions.filter(item => item.id !== id), ...(interaction ? [interaction] : [])] });
+    this.#save({ ...request, modelAttempts: updateModelAttempts(request.modelAttempts ?? [], attempt) });
+  }
+
+  interaction(requestId: string, id: string, interaction: Interaction | null, receipt?: InteractionReplyReceipt): void {
+    const request = this.get(requestId);
+    this.#save({
+      ...request,
+      interactions: [...request.interactions.filter(item => item.id !== id), ...(interaction ? [interaction] : [])],
+      ...(receipt ? { interactionReplies: [...request.interactionReplies ?? [], receipt] } : {}),
+    });
   }
 
   cancel(requestId: string): BackgroundRequest {

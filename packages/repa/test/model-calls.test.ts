@@ -11,7 +11,7 @@ import { Check } from "typebox/value";
 import { ContentStore } from "../src/content/store.js";
 import { RepaFault } from "../src/errors.js";
 import { ModelCalls, type ModelCallOptions } from "../src/models/calls.js";
-import { ModelBindingSchema, type ModelBinding } from "../src/models/schema.js";
+import { ModelAttemptSchema, ModelBindingSchema, type ModelAttempt, type ModelBinding } from "../src/models/schema.js";
 import { ModelConnections } from "../src/models/service.js";
 import type { Input } from "../src/requests/schema.js";
 
@@ -45,7 +45,7 @@ async function until<T>(read: () => T | Promise<T>, ready: (value: T) => boolean
   }
 }
 
-async function fixture(t: TestContext, options: { block?: boolean } = {}) {
+async function fixture(t: TestContext, options: { block?: boolean; errors?: Record<string, { status: number; message: string }> } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-model-calls-"));
   const spaceRoot = path.join(root, "space");
   await mkdir(spaceRoot);
@@ -80,7 +80,12 @@ async function fixture(t: TestContext, options: { block?: boolean } = {}) {
       };
       response.once("close", () => { captured.closed = true; });
       requests.push(captured);
-      if (!options.block) captured.release();
+      const route = captured.url.split("/")[1] ?? "";
+      const error = options.errors?.[route];
+      if (error) {
+        response.writeHead(error.status, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: { message: error.message, type: "local_test_error" } }));
+      } else if (!options.block) captured.release();
     })().catch((error: unknown) => {
       providerErrors.push(error);
       if (!response.headersSent) response.writeHead(500);
@@ -128,7 +133,7 @@ async function fixture(t: TestContext, options: { block?: boolean } = {}) {
     binding, input, signal, content: store, requestId: randomUUID(), resourceOwner: `parent:${randomUUID()}`,
     system: "只处理本次明确输入。", thinkingLevel: "off", retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, maxTokens: 32,
   });
-  return { calls, content: store, first, second, requests, prepared, spaceRoot };
+  return { calls, models: service, content: store, first, second, requests, prepared, spaceRoot };
 }
 
 test("独立模型 helper 保留 SDK 用量、引用与资源，不创建后台请求或泄漏凭据", async (t) => {
@@ -162,10 +167,10 @@ test("独立模型 helper 保留 SDK 用量、引用与资源，不创建后台�
   assert.equal(f.requests[0]?.body.max_completion_tokens ?? f.requests[0]?.body.max_tokens, 32);
   assert.match(JSON.stringify(f.requests[0]?.body.messages), /只处理本次明确输入/);
   await assert.rejects(stat(path.join(f.spaceRoot, ".repa", "runtime", "processing")), { code: "ENOENT" });
-  await assert.rejects(f.calls.complete({ ...options, thinkingLevel: "high" }), (error) => error instanceof RepaFault && error.code === "configuration");
+  await assert.rejects(f.calls.complete({ ...options, thinkingLevel: "high", fallback: { on: "transient_error", models: [f.second] } }), (error) => error instanceof RepaFault && error.code === "configuration");
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg==", "base64");
   const image = { spaceId: f.content.options.spaceId, id: await f.content.blobs.put(png), mediaType: "image/png" };
-  await assert.rejects(f.calls.complete(f.prepared(f.first, { parts: [{ kind: "resource", resource: image }] })),
+  await assert.rejects(f.calls.complete({ ...f.prepared(f.first, { parts: [{ kind: "resource", resource: image }] }), fallback: { on: "transient_error", models: [f.second] } }),
     (error) => error instanceof RepaFault && error.code === "unsupported_input");
   assert.equal(f.requests.length, 1, "不支持的图片不能被降级成文本后发送");
 });
@@ -211,4 +216,92 @@ test("连接取消通知匹配的真实父控制器并等待结束，不取消�
   assert.equal(other.closed, false);
   other.release();
   assert.equal(await outcomes[2], "completed");
+});
+
+
+test("独立调用耗尽同模型重试后才按明确候选回退，使用受理绑定并记录实际选择", async (t) => {
+  const f = await fixture(t, { errors: { one: { status: 503, message: "service unavailable" } } });
+  const bound = await f.models.bind({ connectionId: f.first.connection.id, id: f.first.modelId }, {
+    on: "transient_error", models: [{ connectionId: f.second.connection.id, id: f.second.modelId }],
+  });
+  assert(bound.fallback);
+  const current = await f.models.get(f.second.connection.id);
+  await f.models.update(current.id, current.revision, {
+    name: "修改后的端点", provider: current.provider, authMode: current.authMode,
+    baseUrl: current.baseUrl?.replace("/two/", "/changed/"), models: current.models,
+  });
+  const attempts: ModelAttempt[] = [];
+  const result = await f.calls.complete({
+    ...f.prepared(bound.binding, { parts: [{ kind: "text", text: "同一份输入" }] }),
+    fallback: bound.fallback,
+    retry: { enabled: true, maxRetries: 1, baseDelayMs: 0 },
+    onAttempt: attempt => { attempts.push(attempt); },
+  });
+  assert.deepEqual(attempts.map(attempt => attempt.status), ["running", "failed", "running", "completed"]);
+  assert(attempts.every(attempt => Check(ModelAttemptSchema, attempt)));
+  assert.equal(attempts[1]?.error?.code, "provider");
+  assert.equal(attempts[3]?.usage?.totalTokens, 5);
+  assert.equal(attempts[0]?.callId, attempts[3]?.callId);
+  assert.deepEqual(f.requests.map(request => request.url.split("/")[1]), ["one", "one", "two"]);
+  assert.equal(f.requests[2]?.authorization, "Bearer model-calls-fake-key-two");
+  assert.deepEqual(f.requests[0]?.body.messages, f.requests[2]?.body.messages);
+  assert.equal(result.value.kind, "inline");
+  if (result.value.kind !== "inline") assert.fail("应返回模型结果");
+  assert(Check(ModelDataSchema, result.value.data));
+  assert.deepEqual(result.value.data.binding, bound.fallback.models[0]);
+  assert.equal(JSON.stringify(result).includes("model-calls-fake-key"), false);
+});
+
+test("永久 provider 错误与未配置回退都不切换账号，最终错误仍可观察", async (t) => {
+  for (const options of [
+    { status: 400, message: "invalid request", fallback: true },
+    { status: 429, message: "insufficient_quota", fallback: true },
+    { status: 503, message: "maximum context length exceeded", fallback: true },
+    { status: 503, message: "service unavailable", fallback: false },
+  ]) {
+    const f = await fixture(t, { errors: { one: options } });
+    const attempts: ModelAttempt[] = [];
+    await assert.rejects(f.calls.complete({
+      ...f.prepared(f.first, { parts: [{ kind: "text", text: "不切换账号" }] }),
+      ...(options.fallback ? { fallback: { on: "transient_error" as const, models: [f.second] } } : {}),
+      onAttempt: attempt => { attempts.push(attempt); },
+    }), error => error instanceof RepaFault && error.code === "provider");
+    assert.deepEqual(f.requests.map(request => request.url.split("/")[1]), ["one"]);
+    assert.deepEqual(attempts.map(attempt => attempt.status), ["running", "failed"]);
+  }
+});
+
+test("候选认证失败停止回退，不越过失效账号继续试其他模型", async (t) => {
+  const f = await fixture(t, { errors: { one: { status: 503, message: "service unavailable" } } });
+  const third = await f.models.create({
+    name: "第三个明确候选", provider: "openai", authMode: "none",
+    baseUrl: f.first.connection.baseUrl?.replace("/one/", "/three/"), models: f.first.connection.models,
+  });
+  const thirdBinding = (await f.models.bind({ connectionId: third.id, id: f.first.modelId })).binding;
+  await f.models.authLogout(f.second.connection.id);
+  const attempts: ModelAttempt[] = [];
+  await assert.rejects(f.calls.complete({
+    ...f.prepared(f.first, { parts: [{ kind: "text", text: "候选账号已退出" }] }),
+    fallback: { on: "transient_error", models: [f.second, thirdBinding] },
+    onAttempt: attempt => { attempts.push(attempt); },
+  }), error => error instanceof RepaFault && error.code === "auth_required");
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(attempts.map(attempt => attempt.status), ["running", "failed", "running", "failed"]);
+  assert.equal(attempts.at(-1)?.error?.code, "auth_required");
+});
+
+test("取消尚未开始的候选所属连接也终止父调用，不在取消后回退", async (t) => {
+  const f = await fixture(t, { block: true });
+  const attempts: ModelAttempt[] = [];
+  const completed = f.calls.complete({
+    ...f.prepared(f.first, { parts: [{ kind: "text", text: "不在注销后回退" }] }),
+    fallback: { on: "transient_error", models: [f.second] },
+    onAttempt: attempt => { attempts.push(attempt); },
+  });
+  const cancelled = assert.rejects(completed, error => error instanceof Error && error.name === "AbortError");
+  await until(() => f.requests.length, count => count === 1);
+  await f.calls.cancel(f.second.connection.id);
+  await cancelled;
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(attempts.map(attempt => attempt.status), ["running", "cancelled"]);
 });

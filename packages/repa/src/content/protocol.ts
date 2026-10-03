@@ -4,7 +4,7 @@ import {
   ContentTargetSchema, ContentReadSchema, ContentInfoSchema, ContentValueSchema,
   WriteBaseSchema, ContentChangeResultSchema, ContentRefSchema, FileLocationSchema,
   ContentRoleSchema, ContentMemberSchema, ResourceRefSchema, ContentOperationSchema,
-  ResourceHoldSchema, ContentPatchInputSchema,
+  ResourceHoldSchema, ContentPatchInputSchema, ContentOriginSchema,
 } from "./schema.js";
 
 const operation = { operationId: id };
@@ -30,7 +30,9 @@ export const contentMethods = {
   "content.move": { params: object({ ...target, ...operation, destination: FileLocationSchema, base: revision, container: Type.Optional(Type.Boolean()) }), result: change },
   "content.copy": { params: object({ ...target, ...operation, destination: FileLocationSchema, base: revision, container: Type.Optional(Type.Boolean()) }), result: change },
   "material.collect": { params: object({ ...target, ...operation, destination: FileLocationSchema, base: revision }), result: change },
-  "content.associate": { params: object({ ...space, ...operation, location: FileLocationSchema, role: ContentRoleSchema, id: Type.Optional(id) }), result: change },
+  "content.associate": { params: object({ ...space, ...operation, location: FileLocationSchema, role: ContentRoleSchema,
+    id: Type.Optional(id), origin: Type.Optional(ContentOriginSchema),
+  }), result: change },
   "content.relink": { params: object({ ...ref, ...operation, location: FileLocationSchema, base: revision }), result: change },
   "content.remove": { params: object({ ...target, ...operation, base: revision, detach: Type.Optional(Type.Boolean()) }), result: change },
   "content.setComposition": { params: object({ ...ref, ...operation, base: revision,

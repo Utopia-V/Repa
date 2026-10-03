@@ -12,8 +12,10 @@ export const CapabilityScopeSchema = Type.Union([
 ]);
 export type CapabilityScope = Static<typeof CapabilityScopeSchema>;
 
+export const DisplaySourceSchema = object({ kind: Type.Literal("display"), hostId: IdSchema, spaceId: IdSchema, instanceId: IdSchema });
 export const CapabilitySourceSchema = Type.Union([
   object({ kind: Type.Literal("client"), hostId: IdSchema }),
+  DisplaySourceSchema,
   object({
     kind: Type.Literal("agent"),
     spaceId: IdSchema,

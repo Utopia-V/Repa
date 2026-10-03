@@ -1,8 +1,10 @@
 import { Type, type Static, type TSchema } from "typebox";
 import { object, IdSchema as id, RevisionSchema, literals } from "./schema.js";
+import { displayMethods } from "./display/schema.js";
+export * from "./display/schema.js";
 import { contentMethods } from "./content/protocol.js";
 import { spaceMethods } from "./spaces/schema.js";
-import { modelMethods, ModelSelectionSchema } from "./models/schema.js";
+import { modelMethods, ModelFallbackSchema, ModelSelectionSchema } from "./models/schema.js";
 import { learningMethods } from "./learning/protocol.js";
 import { CapabilityScopeSchema, CapabilitySelectionSchema, CapabilityDescriptorSchema, CapabilitySourceSchema, CapabilityEventSchema } from "./capabilities/schema.js";
 import { PluginPackageSchema } from "./plugins/schema.js";
@@ -23,7 +25,7 @@ export * from "./content/schema.js";
 export * from "./configuration/schema.js";
 export { RepaFault } from "./errors.js";
 
-import { SubmitSchema, ContinueSchema, RequestSchema, QueueSchema, BackgroundRequestSchema, RunOptionsSchema, InteractionSchema, ReplySchema, InputSchema } from "./requests/schema.js";
+import { SubmitSchema, ContinueSchema, RequestSchema, QueueSchema, BackgroundRequestSchema, RunOptionsSchema, InteractionSchema, ReplySchema, InteractionReplyResultSchema, InputSchema } from "./requests/schema.js";
 export * from "./requests/schema.js";
 
 export const PROTOCOL_VERSION = 1;
@@ -224,6 +226,7 @@ const method = <P extends TSchema, R extends TSchema>(
 ) => ({ params, result });
 export const methods = {
   ...contentMethods,
+  ...displayMethods,
   ...spaceMethods,
   ...modelMethods,
   ...learningMethods,
@@ -246,6 +249,7 @@ export const methods = {
     spaceId: id, requestId: id, input: InputSchema, model: ModelSelectionSchema,
     system: text, thinkingLevel: Type.Optional(ThinkingLevelSchema),
     maxTokens: Type.Optional(Type.Integer({ minimum: 1 })),
+    fallback: Type.Optional(ModelFallbackSchema),
   }), BackgroundRequestSchema),
   "settings.get": method(SettingsGetParamsSchema, SettingsViewSchema),
   "settings.set": method(SettingsSetParamsSchema, SettingsViewSchema),
@@ -289,8 +293,8 @@ export const methods = {
     Type.Union([RunSchema, object({ id, status: Type.Literal("unknown") })])),
   "run.cancel": method(object({ spaceId: id, runId: id }), RunSchema),
   "interaction.reply": method(
-    object({ spaceId: Type.Optional(id), sessionId: Type.Optional(id), id, value: ReplySchema }),
-    Type.Null(),
+    object({ spaceId: Type.Optional(id), sessionId: Type.Optional(id), id, responseId: id, value: ReplySchema }),
+    InteractionReplyResultSchema,
   ),
   "state.get": method(object({ scope: ScopeSchema }), SnapshotSchema),
   "subscription.start": method(

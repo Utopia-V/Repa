@@ -8,6 +8,8 @@
 
 请求受理时会记下本次使用的连接、账号和模型。这样，修改默认配置只影响之后的新请求，已经排队的任务仍按原来的选择执行。旧认证因此需要继续保留，直到明确注销或移除连接时清理。具体保存方式和注销行为见下文。
 
+你也可以为一次调用或 Agent 运行明确排列回退候选。Repa 在受理时把主模型和候选各自的端点、认证身份及模型固定下来；运行中只有原模型经 Pi 重试后仍返回可回退的暂时错误，才依次尝试候选。这样能在临时故障时接续工作，代价是请求可能发送到你列出的另一个连接或账号，因此不从已有连接自动推断回退名单。
+
 ## 实现细节
 
 ### 配置一个连接
@@ -60,10 +62,12 @@ npm run dev:backend -- /path/to/learning-space
 | 命名空间 | 当前设置 |
 | --- | --- |
 | `prompts` | 基础提示、追加内容及项目说明、Skill、环境、学习语境和文件变化来源 |
-| `runtime` | 连接与模型、思考强度、工具、压缩参数、重试参数 |
+| `runtime` | 连接与模型、回退候选、思考强度、工具、压缩参数、重试参数 |
 | `summaryPrompts` | 压缩调用的系统提示与摘要任务指令 |
 
-`settings.get` 返回定义、有效值、覆盖来源和当前作用域的修订。`settings.set` 使用该修订修改单项；`settings.reset` 删除覆盖并恢复继承。空字符串、空列表和 `false` 均保留其明确含义。`runtime` 中的 `null` 表示采用 SDK 或装配默认值，模型项的 `null` 表示尚未选择 Repa 连接；`summaryPrompts` 中的 `null` 表示使用 SDK 默认提示，空字符串表示明确清空。
+`settings.get` 返回定义、有效值、覆盖来源和当前作用域的修订。`settings.set` 使用该修订修改单项；`settings.reset` 删除覆盖并恢复继承。空字符串、空列表和 `false` 均保留其明确含义。`runtime` 中的 `null` 通常表示采用 SDK 或装配默认值，模型项的 `null` 表示尚未选择 Repa 连接，`runtime.fallback: null` 则表示不配置自动回退。单次提交的 `selection.fallback: null` 会关闭从设置继承的回退策略；`summaryPrompts` 中的 `null` 表示使用 SDK 默认提示，空字符串表示明确清空。
+
+回退策略写作 `{ on: "transient_error", models: [{ connectionId, id }, ...] }`，`models` 按尝试顺序列出候选，不含主模型，也不能重复。你可以用 `settings.set` 在 `runtime.fallback` 保存 Agent 默认策略，或在 `session.submit`／`session.continue` 的 `selection.fallback` 中只覆盖本次运行。每个候选在请求受理时从同一连接清单绑定；之后修改连接名称、端点或重新登录，不改变这次请求的数据去向。注销任何已绑定候选会取消相应的当前工作。
 
 受理请求时从同一组设置文件快照解析多个命名空间，保存实际选项与来源。默认思考强度通过 Pi 的 `clampThinkingLevel` 适配实际模型，显式选择则校验模型是否支持。临时选择和模型切换只更新内存中的 `SettingsManager`，不会改写用户的 Pi 默认配置。压缩参数同时覆盖 SDK 的单模型设置，使持久记录与执行一致。
 
@@ -85,17 +89,18 @@ Pi 0.87.1 没有逐段替换这些提示词的公开入口，因此 [summary.ts]
 
 ### 独立模型调用
 
-`model.complete({ spaceId, requestId, input, model, system, thinkingLevel?, maxTokens? })` 使用 `ModelRuntime.completeSimple` 和 SDK 的重试函数，不创建会话。调用受理时固定连接及选项，通过 `request.get`、`request.cancel` 和 `processing` 事件查询与取消。重传先返回原记录，不重新解析默认配置。
+`model.complete({ spaceId, requestId, input, model, system, thinkingLevel?, maxTokens?, fallback? })` 使用 `ModelRuntime.completeSimple` 和 SDK 的重试函数，不创建会话。你要让这次独立调用回退到其他模型，需要在 `fallback` 中明确列出候选；它不继承 Agent 的 `runtime.fallback`。共享能力的 `models.complete` 服务使用同一规则，结果归所属父请求。公开调用受理时固定主模型、候选连接及选项，通过 `request.get`、`request.cancel` 和 `processing` 事件查询与取消。重传先返回原记录，不重新解析默认配置。
 
-结果采用 `repa.model-response` 版本 1 的表示，保存实际回复、用量、已准备输入和来源资源。显式空系统提示保留为空。资源保留、后端关闭及中断结果继续使用[后台请求生命周期](requests.md#独立后台处理)。
+Pi 先对当前模型完成同身份重试；只有最终回复属于可回退的暂时错误，才使用下一个已绑定候选。认证失败、输入不兼容、上下文溢出、取消或未知异常不会因此改用另一账号。每个候选使用同一份已准备输入、系统提示、思考强度和输出上限；候选不支持输入中的图片时，本次调用结束并说明原因。
+
+结果采用 `repa.model-response` 版本 1 的表示，保存实际回复、成功模型的 `binding`、各次 `attempts`、已准备输入和来源资源。每项尝试的用量累计该候选在 Pi 重试中返回的用量；请求的 `modelAttempts` 同步记录各候选的真实绑定、状态与时间。进程重开时，把尚在运行的尝试标为 `interrupted`，结束时间保持未知。显式空系统提示保留为空。资源保留、后端关闭及中断结果继续使用[后台请求生命周期](requests.md#独立后台处理)。
 
 ## 未完成项与待验证项
 
-本节对照 [#18](https://github.com/Utopia-V/repa/issues/18) 的交付与验收要求，记录当前候选尚未覆盖的部分。
+本节对照 [#18](https://github.com/Utopia-V/repa/issues/18) 的交付与验收要求，记录当前候选尚未覆盖的部分。后端的独立调用与显式 Agent 回退已接通，以下验证和前端接入完成前，不能把整个 Issue 视为完成。
 
 | 项目 | 当前状态与使用影响 | 后续工作 |
 | --- | --- | --- |
-| 显式配置的跨模型／跨连接自动回退 | 未实现。当前支持同一模型调用的 SDK 重试，以及重新选择连接后手动接续任务；任务不会按配置自动改用另一模型或账号 | 由 #18 接续回退策略的配置、执行与实际选择记录，并验证费用和数据去向符合所选策略 |
 | 真实云端 OAuth 登录与凭据刷新 | 待验证。登录接口与 Pi 认证机制已接入，现有回归覆盖已保存 OAuth 凭据的 SDK 解析，尚未使用真实账号走通云端登录和刷新 | 取得相应账号授权后验证登录、刷新、取消与注销，记录实际覆盖的 provider |
 | Web／Desktop 设置页面 | 待前端接入。当前通过 CLI 或公开接口配置连接、模型和提示，图形界面尚不能完成这套操作 | 由 [#10](https://github.com/Utopia-V/repa/issues/10) 接入配置页面，并与 #18 的公开接口联调 |
 
@@ -105,6 +110,7 @@ Pi 0.87.1 没有逐段替换这些提示词的公开入口，因此 [summary.ts]
 
 - [model-connections.test.ts](../../packages/repa/test/model-connections.test.ts)：同 provider 的独立凭据、端点绑定、登录/注销和本地无密钥调用；Vertex 显式凭据文件与 Bedrock profile 的 SDK 解析。
 - [model-api.test.ts](../../packages/repa/test/model-api.test.ts)：真实客户端、多会话、队列与配置切换、注销、独立调用、静态预览和退出期认证。
+- [model-calls.test.ts](../../packages/repa/test/model-calls.test.ts)、[capability-models.test.ts](../../packages/repa/test/capability-models.test.ts)、[agent-model-fallback.test.ts](../../packages/repa/test/agent-model-fallback.test.ts)：独立调用与共享能力调用的显式候选、重试、用量和取消，以及 Agent 在真实 Pi 与本地 HTTP provider 上的自动接续、历史不重放和策略关闭。
 - [configuration.test.ts](../../packages/repa/test/configuration.test.ts)：逐项继承、空值、冲突、作用域、未登记数据与旧格式接续。
 - [summary.test.ts](../../packages/repa/test/summary.test.ts)、[pi-context-integration.test.ts](../../packages/repa/test/pi-context-integration.test.ts)：实际主调用和压缩输入、工具选择、摘要覆盖失败及取消。
 - [cli-models.test.ts](../../packages/repa/test/cli-models.test.ts)：真实 CLI 配置后进入普通会话，秘密输入、重登录和中断收尾。

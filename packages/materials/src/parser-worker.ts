@@ -4,7 +4,7 @@ import { Type } from "repa/plugin";
 import { ExtractInputSchema, MAX_TEXT, type ExtractData } from "./schema.js";
 
 const RequestSchema = Type.Object({
-  kind: Type.Enum(["text", "html", "image"]), bytes: Type.Unknown(),
+  kind: Type.Enum(["text", "html", "image"]), bytes: Type.Unknown(), encoding: Type.String(),
   range: ExtractInputSchema.properties.range, limit: ExtractInputSchema.properties.limit,
 });
 const input: unknown = workerData;
@@ -34,9 +34,12 @@ try {
       ...(info.orientation !== undefined ? { orientation: info.orientation } : {}) };
     result.total = 1;
   } else {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    if (text.includes("\0")) throw new Error("文本包含 NUL 字节，不能作为 UTF-8 文本读取。");
+    // HTTP 原件使用响应声明的 charset；未声明与本地文件继续按 UTF-8，不猜测编码。
+    const decoder = new TextDecoder(input.encoding, { fatal: true });
+    const text = decoder.decode(bytes);
+    if (text.includes("\0")) throw new Error("解码后的正文包含 NUL，不能作为文本读取。");
     if (kind === "text") {
+      result.reader = { name: decoder.encoding, encoding: decoder.encoding };
       const lines = text.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? [];
       const start = range?.start ?? 1;
       const end = range?.end ?? lines.length;
@@ -48,7 +51,7 @@ try {
     } else {
       const { JSDOM } = await import("jsdom");
       const { Readability } = await import("@mozilla/readability");
-      result.reader = { name: "readability", version: "0.6.0" };
+      result.reader = { name: "readability", version: "0.6.0", encoding: decoder.encoding };
       // 不启用脚本、子资源或网络抓取；只解析已保存的原件。
       const dom = new JSDOM(text);
       try {

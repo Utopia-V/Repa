@@ -148,6 +148,11 @@ test("应用后台取消等待处理函数退出，进程中断后恢复为中�
     const processing = new BackgroundRequests({ directory: process.argv[1], assertOwned() {}, changed() {}, ask: async () => null });
     setInterval(() => {}, 60000);
     processing.submit({ requestId: process.argv[2], operation: "example.interrupted", input: { parts: [{ kind: "text", text: "中断前的输入" }] } }, async () => {
+      processing.recordModelAttempt(process.argv[2], {
+        callId: "model-call", index: 0, status: "running", startedAt: Date.now(),
+        binding: { modelId: "test-model", connection: { id: "test-connection", name: "测试连接", provider: "test",
+          authMode: "none", authId: "test-auth", revision: "test-revision", authentication: { configured: true } } },
+      });
       processing.interaction(process.argv[2], "pending-question", { id: "pending-question", kind: "input", title: "尚未回答", requestId: process.argv[2] });
       process.send({ requestId: process.argv[2], status: processing.get(process.argv[2]).status });
       await new Promise(() => {});
@@ -175,6 +180,8 @@ test("应用后台取消等待处理函数退出，进程中断后恢复为中�
   assert.equal(interrupted.status, "interrupted");
   assert.equal(interrupted.spaceId, undefined);
   assert.deepEqual(interrupted.interactions, []);
+  assert.equal(interrupted.modelAttempts?.[0]?.status, "interrupted");
+  assert.equal(interrupted.modelAttempts?.[0]?.finishedAt, undefined);
   assert.equal(typeof interrupted.finishedAt, "number");
   assert.equal(restored.active, false);
   let reruns = 0;

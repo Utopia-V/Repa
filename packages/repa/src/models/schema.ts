@@ -49,6 +49,40 @@ export const ModelSelectionSchema = object({ connectionId: IdSchema, id: text })
 export type ModelSelection = Static<typeof ModelSelectionSchema>;
 export const ModelBindingSchema = object({ connection: ConnectionSchema, modelId: text });
 export type ModelBinding = Static<typeof ModelBindingSchema>;
+export const ModelFallbackSchema = object({
+  on: Type.Literal("transient_error"),
+  models: Type.Array(ModelSelectionSchema, { minItems: 1, uniqueItems: true }),
+});
+export type ModelFallback = Static<typeof ModelFallbackSchema>;
+export const BoundModelFallbackSchema = object({
+  on: ModelFallbackSchema.properties.on,
+  models: Type.Array(ModelBindingSchema, { minItems: 1 }),
+});
+export type BoundModelFallback = Static<typeof BoundModelFallbackSchema>;
+export const ModelAttemptSchema = object({
+  callId: IdSchema,
+  index: Type.Integer({ minimum: 0 }),
+  binding: ModelBindingSchema,
+  startedAt: Type.Number(),
+  finishedAt: Type.Optional(Type.Number()),
+  status: literals(["running", "completed", "failed", "cancelled", "interrupted"]),
+  usage: Type.Optional(object({
+    input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(),
+    cacheWrite: Type.Number(), totalTokens: Type.Number(),
+  })),
+  error: Type.Optional(object({ code: Type.String(), message: Type.String() })),
+});
+export type ModelAttempt = Static<typeof ModelAttemptSchema>;
+export function interruptModelAttempts(attempts: readonly ModelAttempt[]): ModelAttempt[] {
+  return attempts.map(attempt => attempt.status === "running" ? { ...attempt, status: "interrupted" } : attempt);
+}
+export function updateModelAttempts(attempts: readonly ModelAttempt[], attempt: ModelAttempt): ModelAttempt[] {
+  const index = attempts.findIndex(value => value.callId === attempt.callId && value.index === attempt.index);
+  const result = structuredClone([...attempts]);
+  if (index < 0) result.push(structuredClone(attempt));
+  else result[index] = structuredClone(attempt);
+  return result;
+}
 export const CatalogModelSchema = object({
   ...ConnectionModelSchema.properties,
   thinkingLevels: Type.Array(literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"])),

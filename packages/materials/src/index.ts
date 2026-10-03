@@ -1,21 +1,13 @@
-import path from "node:path";
 import { Type, type BackendPlugin, type CapabilityDefinition, type RepaCapabilityServices } from "repa/plugin";
 import { RepaFault, type ProcessingResult } from "repa/protocol";
-import { parse } from "./parser.js";
-import { pdf } from "./poppler.js";
-import { EXTRACT_CONTRACT, EXTRACT_FORMAT, ExtractInputSchema, ExtractOutputSchema, MAX_BYTES, type ExtractData } from "./schema.js";
+import { fetchBytes } from "./fetch.js";
+import { extractBytes } from "./readers.js";
+import { searchWikipedia } from "./search.js";
+import { EXTRACT_CONTRACT, EXTRACT_FORMAT, ExtractInputSchema, ExtractOutputSchema, MAX_BYTES, FetchInputSchema, FETCH_CONTRACT, FETCH_FORMAT, SearchInputSchema, SEARCH_CONTRACT, SEARCH_FORMAT, type FetchSource, type FetchData, type ExtractData } from "./schema.js";
 export { EXTRACT_CONTRACT, EXTRACT_FORMAT, ExtractInputSchema, ExtractOutputSchema, ExtractDataSchema } from "./schema.js";
-export type { ExtractInput, ExtractData } from "./schema.js";
-
-const textExtensions = new Set([".txt", ".md", ".markdown", ".mdx", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".rs", ".go", ".c", ".h", ".cpp", ".java", ".sh", ".css", ".json", ".yaml", ".yml", ".toml", ".xml", ".sql", ".csv"]);
-function kind(mediaType: string, file: string, bytes: Uint8Array): ExtractData["kind"] {
-  const extension = path.extname(file).toLowerCase();
-  if (Buffer.from(bytes.subarray(0, 5)).toString("ascii") === "%PDF-" || mediaType === "application/pdf" || extension === ".pdf") return "pdf";
-  if (mediaType.startsWith("image/")) return "image";
-  if (mediaType === "text/html" || [".html", ".htm"].includes(extension)) return "html";
-  if (mediaType.startsWith("text/") || textExtensions.has(extension)) return "text";
-  return "unknown";
-}
+export { FetchInputSchema, FetchDataSchema, FetchSourceSchema, FETCH_CONTRACT, FETCH_FORMAT } from "./schema.js";
+export { SearchInputSchema, SearchDataSchema, SEARCH_CONTRACT, SEARCH_FORMAT } from "./schema.js";
+export type { ExtractInput, ExtractData, FetchInput, FetchData, FetchSource, SearchInput, SearchData } from "./schema.js";
 
 export default function materials(): BackendPlugin<RepaCapabilityServices> {
   const extract: CapabilityDefinition<typeof ExtractInputSchema, typeof ExtractOutputSchema, RepaCapabilityServices> = {
@@ -38,23 +30,8 @@ export default function materials(): BackendPlugin<RepaCapabilityServices> {
         return { format: EXTRACT_FORMAT, value: { kind: "inline", data }, sources: [], resources: [] };
       }
       context.signal.throwIfAborted();
-      const selected = kind(snapshot.content.mediaType, snapshot.content.location.path, snapshot.bytes);
-      if (input.range && (input.range.kind === "pages" ? selected !== "pdf" : selected !== "text"))
-        throw new RepaFault("invalid_material_range", "所选局部范围不适用于该材料格式。");
-      if (input.range?.end !== undefined && input.range.end < input.range.start)
-        throw new RepaFault("invalid_material_range", "局部范围终点不能早于起点。");
-      let data: ExtractData;
-      if (selected === "unknown") data = { status: "unsupported", kind: selected, reader: { name: "none" }, segments: [], truncated: false,
-        issues: [{ code: "unsupported_format", message: `没有适用于 ${snapshot.content.mediaType} 的本地读取器；原件资源继续可用。` }] };
-      else if (selected === "pdf") {
-        const settings = await context.services.settings("repa.materials");
-        const setting = (key: string) => {
-          const value = settings.entries.find(entry => entry.key === key)?.effective;
-          if (typeof value !== "string" || !value) throw new RepaFault("configuration", `PDF 工具 ${key} 的配置无效。`);
-          return value;
-        };
-        data = await pdf(snapshot.bytes, input, { pdfinfo: setting("pdfinfo"), pdftotext: setting("pdftotext") }, context.signal, context.services.progress);
-      } else data = await parse(selected, snapshot.bytes, input, context.signal, context.services.progress);
+      const data = await extractBytes(snapshot.bytes, snapshot.content.mediaType, snapshot.content.location.path,
+        input, context.signal, context.services);
       context.signal.throwIfAborted();
       const target = snapshot.content.ref ? { kind: "content" as const, ref: snapshot.content.ref } : snapshot.content.target;
       const revision = snapshot.content.bodyRevision;
@@ -65,7 +42,40 @@ export default function materials(): BackendPlugin<RepaCapabilityServices> {
         resources: [snapshot.resource] };
     },
   };
-  return { capabilities: [extract], settings: [{ namespace: "repa.materials", settings: {
+  const online: CapabilityDefinition<typeof FetchInputSchema, typeof ExtractOutputSchema, RepaCapabilityServices> = {
+    contract: FETCH_CONTRACT, implementationId: "http", inputSchema: FetchInputSchema, outputSchema: ExtractOutputSchema,
+    scopes: ["space"], execution: "background",
+    tool: { name: "fetch_material", description: "获取明确 HTTP(S) URL 的原件，保留请求地址、重定向后地址及原字节资源，并用本地读取器提取。不会自动关联材料、覆盖文档或抓取子资源。" },
+    async invoke(input, context): Promise<ProcessingResult> {
+      const services = context.services;
+      if (!services?.resources) throw new RepaFault("capability_service", "在线材料获取需要真实父请求的资源服务。");
+      services.progress?.("正在获取在线材料");
+      const received = await fetchBytes(input.url, context.signal);
+      context.signal.throwIfAborted();
+      const { bytes, ...origin } = received;
+      const original = await services.resources.create(bytes, received.mediaType);
+      const source: FetchSource = { kind: "url", ...origin, bodyRevision: original.id };
+      const charset = /(?:^|;)\s*charset\s*=\s*(?:"([^"]+)"|([^;\s]+))/i.exec(received.contentType ?? "");
+      const extraction = await extractBytes(bytes, received.mediaType, new URL(received.finalUrl).pathname,
+        input, context.signal, services, charset?.[1] ?? charset?.[2] ?? "utf-8");
+      context.signal.throwIfAborted();
+      const data: FetchData = { source, origin: { kind: "url", url: source.finalUrl, retrievedAt: source.fetchedAt },
+        extraction, originalResourceIndex: 0 };
+      // URL 属于材料格式的来源，不能伪装为 ContentTarget；关联时由实际内容接手原件及 origin。
+      return { format: FETCH_FORMAT, value: { kind: "inline", data }, sources: [], resources: [original] };
+    },
+  };
+  const search: CapabilityDefinition<typeof SearchInputSchema, typeof ExtractOutputSchema, RepaCapabilityServices> = {
+    contract: SEARCH_CONTRACT, implementationId: "wikipedia", inputSchema: SearchInputSchema, outputSchema: ExtractOutputSchema,
+    scopes: ["space"], execution: "background",
+    tool: { name: "search_wikipedia", description: "只搜索指定语言版 Wikipedia 百科条目，不是全网搜索。返回标题、条目 URL 和索引片段；片段不代表已经阅读正文，后续用 fetch_material 获取原件。" },
+    async invoke(input, context): Promise<ProcessingResult> {
+      context.services?.progress?.("正在查询 Wikipedia 百科条目");
+      const data = await searchWikipedia(input, context.signal);
+      return { format: SEARCH_FORMAT, value: { kind: "inline", data }, sources: [], resources: [] };
+    },
+  };
+  return { capabilities: [extract, online, search], settings: [{ namespace: "repa.materials", settings: {
     pdfinfo: { schema: Type.String({ minLength: 1 }), default: "pdfinfo", scopes: ["application"] },
     pdftotext: { schema: Type.String({ minLength: 1 }), default: "pdftotext", scopes: ["application"] },
   } }] };

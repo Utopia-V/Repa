@@ -80,14 +80,20 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
       let failure: unknown;
       let killTimer: NodeJS.Timeout | undefined;
       let timeoutTimer: NodeJS.Timeout | undefined;
+      let stopping = false;
       const stop = () => {
-        if (child.pid === undefined || killTimer) {
+        if (child.pid === undefined || stopping) {
           return;
         }
+        stopping = true;
         try {
           signalGroup(child.pid, "SIGTERM");
         } catch (error) {
           failure ??= error;
+        }
+        if (options.policy.mode === "restricted") {
+          // 固定 bwrap monitor 负责结束并回收 PID namespace；KILL 它会提前丢失等待者。
+          return;
         }
         killTimer = setTimeout(() => {
           if (child.pid !== undefined) {
@@ -145,7 +151,7 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
         const finish = async () => {
           try {
             stop();
-            if (child.pid !== undefined) {
+            if (child.pid !== undefined && options.policy.mode === "full-access") {
               const deadline = Date.now() + 250;
               while (await groupIsRunning(child.pid)) {
                 if (Date.now() >= deadline) {

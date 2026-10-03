@@ -1,6 +1,6 @@
-# 本地材料读取能力
+# 材料读取与在线发现
 
-`@repa/materials` 提供 `repa.material.extract/1`，从本地原件中取得文本行、HTML 正文、PDF 页文本或图片信息，并保留来源和原件资源。它是 Repa 后台能力，处理本地材料无需模型连接或 Agent 会话。
+`@repa/materials` 提供 `repa.material.extract/1`、`repa.material.fetch/1` 和 `repa.material.search/1`。你可以读取本地原件，也可以查找 Wikipedia 条目，再获取明确 URL 的原件；本地和在线原件使用同一组文本、HTML、PDF、图片读取器。它是 Repa 后台能力，不需要模型连接或 Agent 会话。
 
 ## 安装与接入
 
@@ -29,7 +29,7 @@ npm pack --workspace=@repa/materials
 
 这里不是新的配置文件格式，各项仍通过已有设置接口保存。安装包、信任包和启用后台分别处理，详见[插件说明](../../docs/development/plugins.md)。
 
-## 调用与结果
+## 本地原件的调用与结果
 
 以下示例读取通过 `content.associate` 登记的来源材料。关联和提取是两项操作，提取失败会保留材料关联，原件和人工校订稿也保持原样。
 
@@ -74,10 +74,42 @@ npm pack --workspace=@repa/materials
 
 原件最多读取 32 MiB。已知超限时不读取正文，状态为 `limit_exceeded`，`reader` 为 `{ "name": "none" }`，来源与资源为空。PDF 一次解析选定页范围，再按换页符建立页码；命令输出上限为 4 MiB，超过时需要缩小页范围。
 
+## 在线搜索、获取与来源保存
+
+没有确定地址时，先调用 `repa.material.search/1`。当前实现只查 Wikipedia 官方 MediaWiki Search API，不是全网搜索；固定的百科入口无需另配搜索服务凭据。以下参数交给 `capability.invoke`：
+
+```json
+{
+  "scope": { "kind": "space", "spaceId": "space-id" },
+  "requestId": "unique-search-request-id",
+  "contract": { "id": "repa.material.search", "version": "1" },
+  "input": { "query": "潮汐", "language": "zh", "limit": 10, "offset": 0 }
+}
+```
+
+`language` 默认 `zh`，`limit` 默认 10、上限 50，`offset` 默认 0。结果的 `value.data` 包含 `provider.scope: "encyclopedia"`、`results`、可选的 `total` 与 `next`。每个条目给出标题、纯文本片段、`pageId`、可按页面身份定位的 `curid` URL，以及可选的更新时间。片段只用于选材；要阅读正文，取结果 URL 再调用 `repa.material.fetch/1`，或直接提供另一个明确的 HTTP(S) 地址：
+
+```json
+{
+  "scope": { "kind": "space", "spaceId": "space-id" },
+  "requestId": "unique-fetch-request-id",
+  "contract": { "id": "repa.material.fetch", "version": "1" },
+  "input": { "url": "https://zh.wikipedia.org/wiki/潮汐", "limit": 100 }
+}
+```
+
+两项调用都是后台请求，客户端通过 `request.get` 等待结果，也可使用 `request.cancel`。Agent 分别使用 `search_wikipedia` 和 `fetch_material`，等待同一处理函数，并沿用父运行的取消和资源归属。公开结果先取外层后台记录里的 `Representation`，再按 `repa.material-search/1` 或 `repa.material-fetch/1` 读取 `value.data`。获取结果的 `source` 记录 `requestedUrl`、重定向后的 `finalUrl`、Unix 毫秒 `fetchedAt`、HTTP `status`、`mediaType`、可选的 `contentType/etag/lastModified` 和原字节 `bodyRevision`；`resources[originalResourceIndex]` 是已保存的原件，`extraction` 是读取器的结果。`origin` 则可交给内容登记，其值为 `{ "kind": "url", "url": finalUrl, "retrievedAt": fetchedAt }`。
+
+获取本身不会创建内容身份或覆盖文档。若你要长期保存这份材料，先把原件资源的字节写入空间文件，再以 `content.associate.origin` 或 `content.applyPatch.registrations[].origin` 登记来源。内容目标仍是文件位置或 `ContentRef`，URL 不属于 `ContentTarget`。之后重提取已登记材料时，读取本地保存的字节；原网页变化不会暗中替换它。请求或会话仍持有获取结果时，可读取当次原件；长期使用则由保存的内容接手资源关系。内容字段见[来源说明](../../docs/development/content.md#来源与在线原件)。
+
+网络获取使用 Node 原生 `fetch` 发起单个 HTTP(S) GET，不抓子资源、递归链接或执行页面。响应上限 32 MiB，网络超时 30 秒，超限或 HTTP 非成功响应不保存不完整原件。父请求取消会传给网络与提取。明确的响应 `charset` 用 `TextDecoder` 解码，缺省按 UTF-8；不额外猜测编码。取得的字节仍由下述读取器处理：没有可用格式、正文为空、解码或提取失败、PDF 工具缺失等情况在提取状态中表达，原件资源仍可用于核对。
+
+插件的 Node 网络访问和 `execution.run` 的命令网络策略是两条不同路径，后者不会自动限制 `fetch`。使用范围取决于后台包的启用与信任配置；第三方包在宿主进程运行的权限见[插件说明](../../docs/development/plugins.md#信任的实际范围)。
+
 ## 格式与运行条件
 
-- **文本、Markdown 和代码：** 按 UTF-8 原文读取，保留换行和行号。
-- **HTML：** 使用 `jsdom@30.0.1` 与 `@mozilla/readability@0.6.0` 处理已保存文件，不执行页面脚本或加载子资源。标题和 quote 用于快照文本定位，`block` 是提取结果中的块序，不是 HTML 字符偏移。
+- **文本、Markdown 和代码：** 本地文件按 UTF-8 原文读取；在线原件按显式 `charset` 或缺省 UTF-8 解码，保留换行和行号。
+- **HTML：** 使用 `jsdom@30.0.1` 与 `@mozilla/readability@0.6.0` 处理已取得的原件字节，不执行页面脚本或加载子资源。标题和 quote 用于快照文本定位，`block` 是提取结果中的块序，不是 HTML 字符偏移。
 - **图片：** 使用 `image-size@2.0.4` 读取格式、尺寸和已有 EXIF 方向，并返回原图。该过程读取头信息，不解码全部像素，也不进行 OCR 或视觉识别。
 - **PDF：** 使用系统 `pdfinfo` 和 `pdftotext`，返回文本层和实际页序。实际页序可能与印刷页码不同；没有文本层时返回 `empty`。
 
@@ -87,11 +119,13 @@ CPU 解析使用独立 worker。PDF 通过直接子进程执行，取消时先�
 
 材料包当前没有接入命令执行服务的沙箱。后台代码以宿主权限运行，Poppler 直接继承宿主执行环境；配置作用域检查只控制谁能指定程序，不隔离该程序本身。具体范围与搜索入口见[搜索和材料说明](../../docs/development/search-materials.md)。
 
-提取结果可重新生成，包没有业务数据库或持久缓存。需要长期维护的校订稿、批注和笔记使用内容工具另行保存，后续提取不覆盖它们。在线获取、OCR、视觉与音视频的当前范围见[未完成项与待验证项](../../docs/development/search-materials.md#未完成项与待验证项)。
+提取结果可重新生成，包没有业务数据库或持久缓存。需要长期维护的校订稿、批注和笔记使用内容工具另行保存，后续提取不覆盖它们。OCR、视觉与音视频的当前范围见[未完成项与待验证项](../../docs/development/search-materials.md#未完成项与待验证项)。
 
 ## 验证边界
 
 测试通过编译包、Pi 包发现和 RepaClient 使用实际解析器。样本包括两页 PDF、PNG、HTML、Markdown、文本和代码，覆盖资源与修订、缺少工具、损坏文件、范围限制、取消，以及重提取后人工稿的保留。
+
+材料包的 15 项测试还覆盖在线字节预算、显式字符集、Wikipedia 结果、原件与来源字段。真实 Wikipedia 查询和页面获取已验证网络路径及 Readability 正文提取。本地预设 provider 的连续学习流程覆盖接口、原件和保存关系，真实模型试用的缺口见开发说明。
 
 配置检查覆盖空间或会话试图设置 PDF 命令的情况。PDF 生命周期测试用一个执行真实 `pdftotext` 的 wrapper，通过 FIFO 控制退出时机，观察取消是否等待实际结束；这个 wrapper 只用于测试，不进入分发包。
 

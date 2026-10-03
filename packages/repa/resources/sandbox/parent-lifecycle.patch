@@ -34,7 +34,87 @@
  }
  
  static void
-@@ -3145,6 +3158,14 @@
+@@ -420,6 +433,22 @@
+     die_with_error ("sigprocmask");
+ }
+ 
++/* --as-pid-1 不另设 namespace reaper：普通终止请求必须由 monitor
++ * 接住，等 PID 1 及其后代退出后才能结束。 */
++static void
++set_monitor_termination_mask (int how)
++{
++  sigset_t mask;
++
++  sigemptyset (&mask);
++  sigaddset (&mask, SIGHUP);
++  sigaddset (&mask, SIGINT);
++  sigaddset (&mask, SIGQUIT);
++  sigaddset (&mask, SIGTERM);
++  if (sigprocmask (how, &mask, NULL) == -1)
++    die_with_error ("sigprocmask monitor termination signals");
++}
++
+ /* Closes all fd:s except 0,1,2 and the passed in array of extra fds */
+ static int
+ close_extra_fds (void *data, int fd)
+@@ -526,6 +555,13 @@
+ 
+   sigemptyset (&mask);
+   sigaddset (&mask, SIGCHLD);
++  if (opt_as_pid_1 && opt_unshare_pid)
++    {
++      sigaddset (&mask, SIGHUP);
++      sigaddset (&mask, SIGINT);
++      sigaddset (&mask, SIGQUIT);
++      sigaddset (&mask, SIGTERM);
++    }
+ 
+   signal_fd = signalfd (-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
+   if (signal_fd == -1)
+@@ -570,6 +606,13 @@
+       s = read (signal_fd, &fdsi, sizeof (struct signalfd_siginfo));
+       if (s == -1 && errno != EINTR && errno != EAGAIN)
+         die_with_error ("read signalfd");
++      if (s == sizeof (struct signalfd_siginfo) && fdsi.ssi_signo != SIGCHLD)
++        {
++          /* 杀死 PID 1 后由内核终止整个 PID namespace；monitor 继续等待，
++           * 不能收到终止信号就自行退出。 */
++          if (kill (child_pid, SIGKILL) == -1 && errno != ESRCH)
++            die_with_error ("kill sandbox PID 1");
++        }
+ 
+       /* We may actually get several sigchld compressed into one
+          SIGCHLD, so we have to handle all of them. */
+@@ -580,6 +623,15 @@
+           if (died_pid == child_pid)
+             {
+               exitc = propagate_exit_status (died_status);
++              if (opt_as_pid_1 && opt_unshare_pid)
++                {
++                  /* monitor 作为 subreaper 接收 PID 1 退出时遗留的进程，
++                   * 必须等它们退出后再报告命令完成。 */
++                  while (TEMP_FAILURE_RETRY (waitpid (-1, &died_status, 0)) > 0)
++                    ;
++                  if (errno != ECHILD)
++                    die_with_error ("wait for sandbox descendants");
++                }
+               report_child_exit_status (exitc, setup_finished_fd);
+               return exitc;
+             }
+@@ -3086,6 +3138,12 @@
+ 
+   /* We block sigchild here so that we can use signalfd in the monitor. */
+   block_sigchild ();
++  if (opt_as_pid_1 && opt_unshare_pid)
++    {
++      if (prctl (PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == -1)
++        die_with_error ("prctl child subreaper");
++      set_monitor_termination_mask (SIG_BLOCK);
++    }
+ 
+   clone_flags = SIGCHLD | CLONE_NEWNS;
+   if (opt_unshare_user)
+@@ -3145,6 +3203,14 @@
        create_pid_socketpair (intermediate_pids_sockets);
      }
  
@@ -49,23 +129,27 @@
    pid = raw_clone (clone_flags, NULL);
    if (pid == -1)
      {
-@@ -3160,6 +3181,15 @@
-         die ("Creating new namespace failed: nesting depth or /proc/sys/user/max_*_namespaces exceeded (ENOSPC)");
- 
+@@ -3162,6 +3228,19 @@
        die_with_error ("Creating new namespace failed");
-+    }
-+
+     }
+ 
 +  /* clone 后立即绑定；不能等挂载完成才补装 PDEATHSIG。 */
 +  if (pid == 0)
-+    handle_die_with_parent ();
++    {
++      handle_die_with_parent ();
++      if (opt_as_pid_1 && opt_unshare_pid)
++        set_monitor_termination_mask (SIG_UNBLOCK);
++    }
 +  else if (parent_lifecycle_fd != -1)
 +    {
 +      close (parent_lifecycle_fd);
 +      parent_lifecycle_fd = -1;
-     }
- 
++    }
++
    ns_uid = opt_sandbox_uid;
-@@ -3291,6 +3321,8 @@
+   ns_gid = opt_sandbox_gid;
+ 
+@@ -3291,6 +3370,8 @@
     * the user uid, which makes e.g. fuse access work.
     */
    switch_to_user_with_privs ();
@@ -74,7 +158,7 @@
  
    if (opt_unshare_net)
      loopback_setup (); /* Will exit if unsuccessful */
-@@ -3591,12 +3623,14 @@
+@@ -3591,12 +3672,14 @@
               process).
               Any other fds will been passed on to the child though. */
            {
@@ -90,7 +174,7 @@
              dont_close[j++] = -1;
              fdwalk (proc_fd, close_extra_fds, dont_close);
            }
-@@ -3621,7 +3655,7 @@
+@@ -3621,7 +3704,7 @@
    /* We want sigchild in the child */
    unblock_sigchild ();
  

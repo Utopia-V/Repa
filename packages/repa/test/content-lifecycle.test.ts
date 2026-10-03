@@ -73,6 +73,27 @@ test("外部材料关联不读取正文，显式收集保留身份、来源和�
   assert.equal(await readFile(path.join(root, "materials/book.txt"), "utf8"), "source bytes");
 });
 
+test("网络材料保存原始来源，移动、复制和重开后仍可追溯", async t => {
+  const { store, options } = await fixture(t);
+  const source = { kind: "url" as const, url: "https://example.org/tides", retrievedAt: Date.now() };
+  await store.write({ target: store.target("tides.html"), base: { kind: "absent" },
+    value: { kind: "text", text: "<h1>潮汐</h1>" }, operationId: randomUUID() });
+  const material = (await store.associate({ location: { kind: "relative", path: "tides.html" }, role: "material",
+    origin: source, operationId: randomUUID() })).contents[0]!;
+  const moved = (await store.transfer("move", { target: material.target, base: material.revision!,
+    destination: { kind: "relative", path: "materials/tides.html" }, operationId: randomUUID() })).contents[0]!;
+  const copied = (await store.transfer("copy", { target: moved.target, base: moved.revision!,
+    destination: { kind: "relative", path: "reference/tides.html" }, operationId: randomUUID() })).contents[0]!;
+  assert.deepEqual(moved.origin, source);
+  assert.deepEqual(copied.origin, source);
+  assert.notDeepEqual(copied.ref, material.ref);
+  await store.settled();
+  const reopened = await ContentStore.open(options);
+  assert.deepEqual((await reopened.get(material.target)).origin, source);
+  assert.deepEqual((await reopened.get(copied.target)).origin, source);
+  await reopened.settled();
+});
+
 test("同时打开的版本各自保留，重复持有不重绑最新内容；过期与其他 owner 分别回收", async t => {
   const f = await fixture(t), { store } = f;
   const a = await f.create("a.md", "old");

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { fork, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -18,13 +19,16 @@ import {
   type FauxResponseStep,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { Check } from "typebox/value";
 import { ConnectionError, RepaClient, RpcError } from "../src/client.js";
 import { PiConversationHost } from "../src/pi-host.js";
 import { DEFAULT_LEARNING_PROMPT } from "../src/learning/default-prompt.js";
 import { ConfigStore } from "../src/configuration/store.js";
 import { RepaFault } from "../src/errors.js";
+import { RequestStore } from "../src/requests/store.js";
 import {
   isTerminal,
+  RequestSchema,
   type Change,
   type Delivery,
   type Run,
@@ -588,6 +592,7 @@ test("最后一个前端离开后等待既有交互，重新连接可回答并�
   assert.equal(snapshot.lifecycle, "running");
   assert.equal(snapshot.sessions[0]!.interactions[0]!.id, pending.id);
   await reopened.call("interaction.reply", {
+    responseId: randomUUID(),
     ...f.key,
     id: pending.id,
     value: "真实回答",
@@ -596,13 +601,14 @@ test("最后一个前端离开后等待既有交互，重新连接可回答并�
     () => reopened.call("run.get", { spaceId: f.space.id, runId: run.id }),
     (value) => value.status === "completed",
   );
-  await assert.rejects(
-    reopened.call("interaction.reply", {
+  assert.equal(
+    (await reopened.call("interaction.reply", {
+      responseId: randomUUID(),
       ...f.key,
       id: pending.id,
       value: "再次回答",
-    }),
-    (e) => e instanceof RpcError,
+    })).status,
+    "already_processed",
   );
   await reopened.close();
   await f.server.closed;
@@ -1168,6 +1174,7 @@ test("从历史消息建立分支不会替换正在等待回答的原会话运�
     question.id,
   );
   await f.client.call("interaction.reply", {
+    responseId: randomUUID(),
     ...f.key,
     id: question.id,
     value: "原会话的回答",
@@ -1356,7 +1363,7 @@ test("运行中补充进入同一历史，独立队列使用受理提示和开�
   });
   assert.equal(queued.status, "queued");
   await writeFile(path.join(f.directory, "notes.md"), "开始时的新正文");
-  await f.client.call("interaction.reply", { ...f.key, id: f.state().sessions[0]!.interactions[0]!.id, value: "开始" });
+  await f.client.call("interaction.reply", { responseId: randomUUID(), ...f.key, id: f.state().sessions[0]!.interactions[0]!.id, value: "开始" });
   assert.equal((await f.finish(start.runId)).status, "completed");
   const done = await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: queued.requestId }), request => request.status === "completed");
   assert("runId" in done);
@@ -1492,7 +1499,7 @@ test("草稿选区和图片保持提交内容，上传期限结束后请求继�
   await writeFile(path.join(f.directory, "draft.md"), "磁盘的新正文");
   now = 100;
   await f.client.call("resource.collect", { spaceId: f.space.id });
-  await f.client.call("interaction.reply", { ...f.key, id: f.state().sessions[0]!.interactions[0]!.id, value: "继续" });
+  await f.client.call("interaction.reply", { responseId: randomUUID(), ...f.key, id: f.state().sessions[0]!.interactions[0]!.id, value: "继续" });
   await f.finish(run.id);
   await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: queued.requestId }), request => request.status === "completed");
   const copied = await f.client.call("space.copy", { spaceId: f.space.id, operationId: randomUUID(), destination: path.join(f.root, "request-copy") });
@@ -1520,7 +1527,7 @@ test("独立处理持有自己的结果和交互，取消等待处理退出且�
   const waiting = await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId }), request => "interactions" in request && request.interactions.length === 1);
   assert("interactions" in waiting && waiting.interactions[0]);
   assert(!("runId" in waiting));
-  await f.client.call("interaction.reply", { spaceId: f.space.id, id: waiting.interactions[0].id, value: "已核对" });
+  await f.client.call("interaction.reply", { responseId: randomUUID(), spaceId: f.space.id, id: waiting.interactions[0].id, value: "已核对" });
   const done = await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId }), request => request.status === "completed");
   assert("result" in done && done.result?.value.kind === "inline");
   assert.equal(done.result.value.data, "本地原文:已核对");
@@ -1580,4 +1587,145 @@ test("空间恢复缺少请求资源时不发布部分状态，补回原件后�
   assert.equal((await client.call("session.get", f.key)).sessionId, f.key.sessionId);
   assert.equal(await (await client.resource(resource)).text(), bytes.toString());
   await watch.stop();
+});
+
+test("两个前端竞争答复只接受一次，确认丢失重传及空间复制重开都返回原回执", async (t) => {
+  const f = await fixture(t);
+  const other = await f.connect();
+  const requestId = randomUUID();
+  let resumed = 0;
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("fixture_question", {}), { stopReason: "toolUse" }),
+    context => {
+      const stored: unknown = JSON.parse(readFileSync(path.join(f.directory, ".repa", "runtime", "requests", `${requestId}.json`), "utf8"));
+      assert(stored !== null && typeof stored === "object" && "request" in stored && Check(RequestSchema, stored.request));
+      const receipt = stored.request.interactionReplies?.[0];
+      assert(receipt, "模型解除等待前已经持久保存接受的答复");
+      assert.equal(latest(context, "toolResult"), receipt.value);
+      resumed++;
+      return fauxAssistantMessage("已按唯一答复继续");
+    },
+  ]);
+  const run = await submit(f.client, { ...f.key, requestId, text: "向两个前端提出同一个问题" });
+  await until(f.state, state => state.sessions[0]?.interactions.length === 1);
+  const question = f.state().sessions[0]!.interactions[0]!;
+  const left = { ...f.key, id: question.id, responseId: randomUUID(), value: "左侧回答" };
+  const right = { ...f.key, id: question.id, responseId: randomUUID(), value: "右侧回答" };
+  const confirmations = await Promise.all([
+    f.client.call("interaction.reply", left),
+    other.call("interaction.reply", right),
+  ]);
+  assert.deepEqual(confirmations.map(result => result.status).sort(), ["accepted", "already_processed"]);
+  const accepted = confirmations.find(result => result.status === "accepted");
+  assert(accepted);
+  const answer = accepted.responseId === left.responseId ? left : right;
+  assert.equal((await f.finish(run.id)).status, "completed");
+  assert.equal(resumed, 1);
+  // 忽略首次确认后，用同一答复身份重传，而不是创建第二份回答。
+  assert.deepEqual(await other.call("interaction.reply", answer), accepted);
+  const saved = await f.client.call("request.get", { spaceId: f.space.id, requestId });
+  assert("delivery" in saved);
+  assert.deepEqual(saved.interactionReplies, [{ id: question.id, responseId: answer.responseId, value: answer.value, acceptedAt: accepted.acceptedAt }]);
+  await assert.rejects(other.call("interaction.reply", { ...answer, value: "改过的回答" }), error =>
+    error instanceof RpcError && error.data !== null && typeof error.data === "object" && "code" in error.data && error.data.code === "response_id_conflict");
+  const copy = await f.client.call("space.copy", { spaceId: f.space.id, operationId: randomUUID(), destination: path.join(f.root, "reply-copy") });
+  assert.equal(copy.status, "completed");
+  await f.server.close();
+  const server = await startRepaServer({ agentDir: f.agentDir });
+  const client = await RepaClient.connect(server.connection);
+  f.beforeCleanup(async () => { await server.close(); await client.close(); });
+  await client.call("space.open", { path: f.directory });
+  assert.deepEqual(await client.call("interaction.reply", answer), accepted);
+  const restored = await client.call("request.get", { spaceId: f.space.id, requestId });
+  assert("delivery" in restored);
+  assert.deepEqual(restored.interactionReplies, saved.interactionReplies);
+  await client.call("space.open", { path: copy.destination });
+  assert.deepEqual(await client.call("interaction.reply", { ...answer, spaceId: copy.spaceId }), accepted);
+  assert.equal((await client.call("session.get", f.key)).runtime, "unloaded", "确认历史答复不启动 Agent");
+});
+
+test("后台答复保存到原请求，取消和超时的迟到答复不解除操作且不保存接受回执", async (t) => {
+  const f = await fixture(t);
+  let effects = 0;
+  const submitProcessing = (timeout?: number) => f.server.application.process({
+    spaceId: f.space.id, requestId: randomUUID(), operation: "test.answer",
+    input: { parts: [{ kind: "text", text: "等待本地确认" }] },
+  }, async (_input, context) => {
+    const value = await context.ask({ kind: "confirm", title: "是否写入结果" }, timeout !== undefined ? { timeout } : undefined);
+    context.signal.throwIfAborted();
+    if (value === true) effects++;
+    return { format: { id: "test.answer", version: "1" }, value: { kind: "inline", data: value }, sources: [], resources: [] };
+  });
+  const waitQuestion = (requestId: string) => until(() => f.client.call("request.get", { spaceId: f.space.id, requestId }), value => "interactions" in value && value.interactions.length === 1);
+  const completed = await submitProcessing();
+  const waiting = await waitQuestion(completed.requestId);
+  assert("interactions" in waiting && waiting.interactions[0]);
+  const answer = { spaceId: f.space.id, id: waiting.interactions[0].id, responseId: randomUUID(), value: true };
+  const accepted = await f.client.call("interaction.reply", answer);
+  await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: completed.requestId }), value => value.status === "completed");
+  assert.deepEqual(await f.client.call("interaction.reply", answer), accepted);
+  assert.equal(effects, 1);
+  const cancelled = await submitProcessing();
+  const cancelling = await waitQuestion(cancelled.requestId);
+  assert("interactions" in cancelling && cancelling.interactions[0]);
+  await f.client.call("request.cancel", { spaceId: f.space.id, requestId: cancelled.requestId });
+  const stopped = await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: cancelled.requestId }), value => value.status === "cancelled");
+  assert("interactions" in stopped);
+  assert.equal(stopped.interactionReplies, undefined);
+  const expired = (error: unknown) => error instanceof RpcError && error.data !== null && typeof error.data === "object" && "code" in error.data && error.data.code === "interaction_expired";
+  await assert.rejects(f.client.call("interaction.reply", { spaceId: f.space.id, id: cancelling.interactions[0].id, responseId: randomUUID(), value: true }), expired);
+  const timed = await submitProcessing(100);
+  const timing = await waitQuestion(timed.requestId);
+  assert("interactions" in timing && timing.interactions[0]);
+  const timedOut = await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: timed.requestId }), value => value.status === "completed");
+  assert("interactions" in timedOut);
+  assert.equal(timedOut.interactionReplies, undefined);
+  await assert.rejects(f.client.call("interaction.reply", { spaceId: f.space.id, id: timing.interactions[0].id, responseId: randomUUID(), value: true }), expired);
+  assert.equal(effects, 1);
+  await f.server.close();
+  const server = await startRepaServer({ agentDir: f.agentDir });
+  const client = await RepaClient.connect(server.connection);
+  f.beforeCleanup(async () => { await server.close(); await client.close(); });
+  await client.call("space.open", { path: f.directory });
+  assert.deepEqual(await client.call("interaction.reply", answer), accepted);
+  await assert.rejects(client.call("interaction.reply", { spaceId: f.space.id, id: cancelling.interactions[0].id, responseId: randomUUID(), value: true }), expired);
+  assert.equal(effects, 1);
+});
+
+
+test("答复回执保存失败时仍保持原等待，同一答复重试成功后才恢复模型", async (t) => {
+  const f = await fixture(t);
+  const requestId = randomUUID();
+  let resumed = false;
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("fixture_question", {}), { stopReason: "toolUse" }),
+    () => {
+      resumed = true;
+      return fauxAssistantMessage("持久确认后继续");
+    },
+  ]);
+  const run = await submit(f.client, { ...f.key, requestId, text: "回答需要先保存" });
+  await until(f.state, state => state.sessions[0]?.interactions.length === 1);
+  const question = f.state().sessions[0]!.interactions[0]!;
+  const answer = { ...f.key, id: question.id, responseId: randomUUID(), value: "保存后回答" };
+  const save = RequestStore.prototype.save;
+  let fail = true;
+  t.mock.method(RequestStore.prototype, "save", function (this: RequestStore, request: Parameters<typeof save>[0]) {
+    if (fail && request.requestId === requestId && request.interactionReplies?.some(receipt => receipt.id === question.id)) {
+      fail = false;
+      throw new RepaFault("storage_write", "测试回执保存失败。");
+    }
+    return save.call(this, request);
+  });
+  await assert.rejects(f.client.call("interaction.reply", answer), error =>
+    error instanceof RpcError && error.data !== null && typeof error.data === "object" && "code" in error.data && error.data.code === "storage_write");
+  assert.equal(resumed, false);
+  const pending = await f.client.call("session.get", f.key);
+  assert.equal(pending.interactions[0]?.id, question.id);
+  assert.equal(pending.runs.find(value => value.id === run.id)?.status, "waiting");
+  const confirmation = await f.client.call("interaction.reply", answer);
+  assert.equal(confirmation.status, "accepted");
+  assert.equal((await f.finish(run.id)).status, "completed");
+  assert.equal(resumed, true);
+  assert.deepEqual(await f.client.call("interaction.reply", answer), confirmation);
 });

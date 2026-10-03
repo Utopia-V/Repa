@@ -8,6 +8,10 @@ export const FileLocationSchema = Type.Union([
   object({ kind: Type.Literal("external"), path: Type.String({ minLength: 1 }) }),
 ]);
 export type FileLocation = Static<typeof FileLocationSchema>;
+export const UrlOriginSchema = object({ kind: Type.Literal("url"), url: Type.String({ minLength: 1 }),
+  retrievedAt: Type.Optional(Type.Number()) });
+export const ContentOriginSchema = Type.Union([FileLocationSchema, UrlOriginSchema]);
+export type ContentOrigin = Static<typeof ContentOriginSchema>;
 export const ContentTargetSchema = Type.Union([
   object({ kind: Type.Literal("content"), ref: ContentRefSchema }),
   object({ kind: Type.Literal("file"), spaceId: id, location: FileLocationSchema }),
@@ -33,7 +37,7 @@ export const ContentInfoSchema = object({
   size: Type.Optional(Type.Number()),
   members: Type.Array(ContentMemberSchema),
   resources: Type.Array(ResourceRefSchema),
-  origin: Type.Optional(FileLocationSchema),
+  origin: Type.Optional(ContentOriginSchema),
 });
 export type ContentInfo = Static<typeof ContentInfoSchema>;
 export const ContentReadSchema = object({
@@ -93,6 +97,7 @@ export const ContentPatchInputSchema = object({
     path: Type.String({ minLength: 1 }),
     role: ContentRoleSchema,
     id: Type.Optional(id),
+    origin: Type.Optional(ContentOriginSchema),
     members: Type.Optional(Type.Array(ContentMemberSchema)),
     resources: Type.Optional(Type.Array(ResourceRefSchema)),
   }))),

@@ -192,6 +192,9 @@ async function build(config) {
   const helper = path.join(config.outputDir, "codex-linux-sandbox");
   const bwrap = path.join(config.outputDir, "codex-resources", "bwrap");
   await copyFile(path.join(targetDir, source.target, "release", "codex-linux-sandbox"), helper);
+  // Cargo 缓存保留调试信息，发行副本只去除可再生的调试段，保留符号表。
+  const helperStrip = ["strip", "--strip-debug", helper];
+  await run(helperStrip[0], helperStrip.slice(1));
   await copyFile(bwrapSource.executable, bwrap);
   await chmod(helper, 0o755);
   await chmod(bwrap, 0o755);
@@ -206,6 +209,7 @@ async function build(config) {
     rustc: await run("rustc", [`+${source.toolchain}`, "--version"], { capture: true }),
     command: ["cargo", ...cargoArgs],
     buildEnv,
+    helperStrip,
     bubblewrapBuild: bwrapSource.build,
     bubblewrapSource: path.join(sourceDir, source.bubblewrap.sourceDirectory),
     helperSha256: await sha256(helper),
