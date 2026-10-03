@@ -12,3 +12,6 @@
 **/dist/
 **/coverage/
 /apps/desktop/out/
+
+# 从固定上游源码构建并随发行包交付的沙箱程序
+/packages/repa/resources/sandbox/linux-x64/

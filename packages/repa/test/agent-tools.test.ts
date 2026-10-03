@@ -5,12 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { ExtensionContext, ResourceLoader, Skill } from "@earendil-works/pi-coding-agent";
+import { Check } from "typebox/value";
 import { createContentTools } from "../src/agent/tools.js";
 import { ContentStore } from "../src/content/store.js";
 import { RepaFault } from "../src/errors.js";
+import { RepresentationSchema } from "../src/requests/schema.js";
 import { digest } from "../src/storage/blobs.js";
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, observer?: Parameters<typeof createContentTools>[3]) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), "repa-agent-tools-"));
   const root = path.join(temporary, "space");
   const skill = path.join(temporary, "skill");
@@ -28,7 +30,7 @@ async function fixture(t: TestContext) {
     }),
   } as unknown as ResourceLoader;
   const store = await ContentStore.open({ root, spaceId: randomUUID(), assertOwned() {} });
-  const tools = await createContentTools(root, store, loader);
+  const tools = await createContentTools(root, store, loader, observer);
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const ctx = { model: undefined } as ExtensionContext;
   const call = (name: string, parameters: unknown, signal?: AbortSignal) =>
@@ -44,6 +46,44 @@ async function fixture(t: TestContext) {
 const code = (expected: string) => (error: unknown) => error instanceof RepaFault && error.code === expected;
 const textOf = (result: { content: Array<{ type: string; text?: string }> }) =>
   result.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+
+test("完整输出资源按工具空间复用 Pi 分页和标准表示，不建立文件观察基准", async (t) => {
+  let observations = 0;
+  const f = await fixture(t, {
+    recordRead() { observations++; },
+    async recordSaved() {},
+  });
+  const lines = Array.from({ length: 3000 }, (_, index) => `输出第 ${index + 1} 行`);
+  await writeFile(f.file("output.log"), lines.join("\n"));
+  const id = await f.store.blobs.importFile(f.file("output.log"));
+  const resource = { spaceId: f.store.options.spaceId, id, mediaType: "text/plain" };
+  const uri = `repa:resource/${id}`;
+
+  const first = await f.call("read", { path: uri });
+  assert.equal(first.details.value.data.truncation.truncated, true);
+  assert.deepEqual(first.details.format, { id: "repa.resource-read", version: "1" });
+  assert.deepEqual(first.details.sources, []);
+  assert.deepEqual(first.details.resources, [resource]);
+  assert.equal(first.details.content, undefined);
+  assert.equal(first.details.bodyRevision, undefined);
+  assert.equal(first.details.path, undefined);
+  assert(Check(RepresentationSchema, first.details));
+  const page = await f.call("read", { path: uri, offset: 2001, limit: 2 });
+  assert.match(textOf(page), /^输出第 2001 行\n输出第 2002 行\n\n\[998 more lines in file\. Use offset=2003 to continue\.\]$/);
+  assert.deepEqual(page.details.resources, [resource]);
+  assert.equal(observations, 0);
+  const otherRoot = path.join(f.temporary, "other-space");
+  await mkdir(otherRoot);
+  const other = await ContentStore.open({ root: otherRoot, spaceId: randomUUID(), assertOwned() {} });
+  t.after(() => other.settled());
+  const otherId = await other.blobs.put("仅另一空间持有的输出");
+  await assert.rejects(f.call("read", { path: `repa:resource/${otherId}` }), code("revision_unavailable"));
+  await assert.rejects(f.call("write", { path: "output.log", content: "blind overwrite" }), code("read_required"));
+  await f.call("read", { path: "output.log", limit: 1 });
+  assert.equal(observations, 1);
+  await f.call("write", { path: "output.log", content: "normal file write" });
+  assert.equal(await readFile(f.file("output.log"), "utf8"), "normal file write");
+});
 
 test("Pi 分页读取提供正文修订，部分观察足够保护覆盖与连续自行保存", async (t) => {
   const f = await fixture(t);
@@ -141,7 +181,7 @@ test("内容引用保持原样解析，路径与身份共用观察，补丁移�
 
 test("只启用四个内容工具，skill 外部授权只用于读取且随启用状态变化", async (t) => {
   const f = await fixture(t);
-  assert.deepEqual(f.tools.map((tool) => tool.name), ["read", "edit", "write", "apply_patch"]);
+  assert.deepEqual(f.tools.map((tool) => tool.name), ["read", "content_info", "content_operation", "edit", "write", "apply_patch"]);
   await writeFile(path.join(f.skill, "SKILL.md"), "enabled skill");
   const outside = path.join(f.temporary, "private.txt");
   await writeFile(outside, "outside");

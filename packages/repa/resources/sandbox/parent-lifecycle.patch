@@ -1,0 +1,117 @@
+--- a/vendor/bubblewrap/bubblewrap.c
++++ b/vendor/bubblewrap/bubblewrap.c
+@@ -32,6 +32,7 @@
+ #include <sys/signalfd.h>
+ #include <sys/capability.h>
+ #include <sys/prctl.h>
++#include <sys/syscall.h>
+ #include <linux/sched.h>
+ #include <linux/seccomp.h>
+ #include <linux/filter.h>
+@@ -63,6 +64,7 @@
+ static const char *argv0;
+ static const char *host_tty_dev;
+ static int proc_fd = -1;
++static int parent_lifecycle_fd = -1;
+ static const char *opt_exec_label = NULL;
+ static const char *opt_file_label = NULL;
+ static bool opt_as_pid_1;
+@@ -389,6 +391,17 @@
+ {
+   if (opt_die_with_parent && prctl (PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) != 0)
+     die_with_error ("prctl");
++
++  /* PID namespace 中 getppid() 为 0；继承的 pidfd 仍能核对 clone 前的真实父进程。
++   * 先 arm 再核对，覆盖父进程在 arm 之前已经退出的窗口。 */
++  if (opt_die_with_parent && parent_lifecycle_fd != -1)
++    {
++      struct pollfd parent = { .fd = parent_lifecycle_fd, .events = POLLIN };
++      if (TEMP_FAILURE_RETRY (poll (&parent, 1, 0)) == -1)
++        die_with_error ("poll parent lifecycle pidfd");
++      if (parent.revents != 0)
++        _exit (128 + SIGKILL);
++    }
+ }
+ 
+ static void
+@@ -3145,6 +3158,14 @@
+       create_pid_socketpair (intermediate_pids_sockets);
+     }
+ 
++  /* pidfd_open 本身不降级：不支持此生命周期保证的内核拒绝执行。 */
++  if (opt_die_with_parent)
++    {
++      parent_lifecycle_fd = syscall (SYS_pidfd_open, getpid (), 0);
++      if (parent_lifecycle_fd == -1)
++        die_with_error ("pidfd_open for parent lifecycle");
++    }
++
+   pid = raw_clone (clone_flags, NULL);
+   if (pid == -1)
+     {
+@@ -3160,6 +3181,15 @@
+         die ("Creating new namespace failed: nesting depth or /proc/sys/user/max_*_namespaces exceeded (ENOSPC)");
+ 
+       die_with_error ("Creating new namespace failed");
++    }
++
++  /* clone 后立即绑定；不能等挂载完成才补装 PDEATHSIG。 */
++  if (pid == 0)
++    handle_die_with_parent ();
++  else if (parent_lifecycle_fd != -1)
++    {
++      close (parent_lifecycle_fd);
++      parent_lifecycle_fd = -1;
+     }
+ 
+   ns_uid = opt_sandbox_uid;
+@@ -3291,6 +3321,8 @@
+    * the user uid, which makes e.g. fuse access work.
+    */
+   switch_to_user_with_privs ();
++  /* credential 变化会清除 PDEATHSIG，重新绑定并核对期间是否失去父进程。 */
++  handle_die_with_parent ();
+ 
+   if (opt_unshare_net)
+     loopback_setup (); /* Will exit if unsuccessful */
+@@ -3591,12 +3623,14 @@
+              process).
+              Any other fds will been passed on to the child though. */
+           {
+-            int dont_close[3];
++            int dont_close[4];
+             int j = 0;
+             if (event_fd != -1)
+               dont_close[j++] = event_fd;
+             if (opt_sync_fd != -1)
+               dont_close[j++] = opt_sync_fd;
++            if (parent_lifecycle_fd != -1)
++              dont_close[j++] = parent_lifecycle_fd;
+             dont_close[j++] = -1;
+             fdwalk (proc_fd, close_extra_fds, dont_close);
+           }
+@@ -3621,7 +3655,7 @@
+   /* We want sigchild in the child */
+   unblock_sigchild ();
+ 
+-  /* Optionally bind our lifecycle */
++  /* exec 前最后核对：父进程已退出时不执行命令；pidfd 的 CLOEXEC 随 exec 关闭。 */
+   handle_die_with_parent ();
+ 
+   if (!is_privileged)
+--- a/linux-sandbox/src/launcher.rs
++++ b/linux-sandbox/src/launcher.rs
+@@ -127,6 +127,13 @@
+     static LAUNCHER: OnceLock<BubblewrapLauncher> = OnceLock::new();
+     LAUNCHER
+         .get_or_init(|| {
++            // 固定摘要构建只使用相邻副本，系统版本不能重开已修复的生命周期缺口。
++            if option_env!("CODEX_BWRAP_SHA256").is_some() {
++                return match bundled_bwrap::launcher() {
++                    Some(launcher) => BubblewrapLauncher::Bundled(launcher),
++                    None => BubblewrapLauncher::Unavailable,
++                };
++            }
+             if let Some(path) = find_system_bwrap_in_path()
+                 && let Some(launcher) = system_bwrap_launcher_for_path(&path)
+             {

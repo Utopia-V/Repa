@@ -6,6 +6,7 @@ import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { copyProcessingRecords } from "../requests/background.js";
 import { RequestStore } from "../requests/store.js";
+import { copySessionResources } from "../pi-sessions.js";
 import { RepaFault } from "../errors.js";
 import { IdSchema, object } from "../schema.js";
 import { type ContentStore, canonicalJson } from "../content/store.js";
@@ -188,6 +189,7 @@ export class SpaceOperations {
         for (const record of records) appendRunRecord(runFile, { ...record, request: { ...record.request, spaceId: result.spaceId } });
         new RequestStore(data, () => {}).remapSpace(input.spaceId, result.spaceId);
         await copyProcessingRecords(data, input.spaceId, result.spaceId);
+        await copySessionResources(data, input.spaceId, result.spaceId);
       }
       if (canonicalJson(await scanTree(input.source, include)) !== canonicalJson(before))
         throw new RepaFault("revision_conflict", "快照期间外部编辑改变了空间文件，请重新取得快照。");

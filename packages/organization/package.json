@@ -1,0 +1,15 @@
+{
+  "name": "@repa/organization",
+  "version": "0.1.0",
+  "description": "Repa 长期内容整理与学习语境维护方法",
+  "files": ["skills", "README.md"],
+  "type": "module",
+  "pi": { "skills": ["./skills"] },
+  "engines": { "node": "^22.22.2 || ^24.15.0 || >=26.0.0" },
+  "scripts": { "check": "tsc --noEmit", "test": "node --import tsx --test test/*.test.ts" },
+  "peerDependencies": { "repa": "^0.1.0" },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.87.1", "@earendil-works/pi-coding-agent": "0.87.1",
+    "@types/node": "22.19.21", "tsx": "4.23.12", "typebox": "1.3.27", "typescript": "5.9.3"
+  }
+}

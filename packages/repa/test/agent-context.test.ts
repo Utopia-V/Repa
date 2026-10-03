@@ -8,16 +8,19 @@ import {
   type BuildSystemPromptOptions,
   type Skill,
 } from "@earendil-works/pi-coding-agent";
-import {
-  assembleSystemPrompt,
-  CONTEXT_MESSAGE_TYPE,
-  contextSnapshot,
-  makeContextMessage,
-  projectContext,
-  withModelContext,
-} from "../src/agent/context.js";
+import { assembleSystemPrompt } from "../src/agent/context.js";
+import { CONTEXT_MESSAGE_TYPE, contextSnapshot, makeContextMessage, learningContextCodec } from "../src/learning/background.js";
+import { projectBackgrounds, withModelBackgrounds, type WorkingMessage } from "../src/agent/background.js";
 import type { PromptSettings } from "../src/configuration/schema.js";
-import type { ContextView } from "../src/content/schema.js";
+import type { ContextView } from "../src/learning/schema.js";
+
+const projectContext = (messages: WorkingMessage[], manager: SessionManager, enabled: boolean) =>
+  projectBackgrounds(messages, manager, [{ codec: learningContextCodec, enabled }]);
+const withModelContext = (manager: SessionManager, read: () => Pick<PromptSettings, "learningContext" | "fileChanges">) =>
+  withModelBackgrounds(manager, () => {
+    const settings = read();
+    return { backgrounds: [{ codec: learningContextCodec, enabled: settings.learningContext }], fileChanges: settings.fileChanges };
+  });
 
 const disabled: PromptSettings = {
   base: "",

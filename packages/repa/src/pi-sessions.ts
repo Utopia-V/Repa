@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { SessionManager, SettingsManager, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { historyView, Resources } from "./messages.js";
+import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Check } from "typebox/value";
-import { RunOptionsSchema, type RunOptions } from "./requests/schema.js";
+import { RepresentationSchema } from "./requests/schema.js";
+import { remapInput } from "./requests/store.js";
+import { atomicWrite } from "./storage/atomic.js";
+import { historyView, Resources } from "./messages.js";
 import type { ResourceRetention } from "./content/resources.js";
 import {
   PiConversationHost,
@@ -17,17 +19,43 @@ export interface StoredSessionSnapshot {
   name: string | undefined;
   createdAt: number;
   messages: Message[];
+  revision: string;
 }
 type RuntimeOptions = Omit<
   OpenPiHostOptions,
   "sessionManager" | "learnerSpace" | "resources"
 >;
+
+/** 仅改写复制空间中标准工具结果的归属；其他 Pi 条目保留原始字节。 */
+export async function copySessionResources(root: string, source: string, destination: string): Promise<void> {
+  const directory = path.join(root, ".repa", "sessions");
+  let files: string[];
+  try { files = await readdir(directory); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  for (const file of files.filter(file => file.endsWith(".jsonl"))) {
+    const filename = path.join(directory, file);
+    const original = await readFile(filename, "utf8");
+    const next = original.split("\n").map(line => {
+      if (!line.trim()) return line;
+      const entry: unknown = JSON.parse(line);
+      if (!entry || typeof entry !== "object" || !("type" in entry)) return line;
+      const message = entry.type === "message" && "message" in entry ? entry.message
+        : entry.type === "context_edit" && "replacement" in entry ? entry.replacement : undefined;
+      if (!message || typeof message !== "object" || !("details" in message) || !Check(RepresentationSchema, message.details)) return line;
+      remapInput({ parts: [{ kind: "data", representation: message.details }] }, source, destination);
+      return JSON.stringify(entry);
+    }).join("\n");
+    if (next !== original) await atomicWrite(filename, next);
+  }
+}
 export interface StoredSession {
   readonly id: string;
   readonly exists: boolean;
   remove(): void;
-  snapshot(): StoredSessionSnapshot;
-  selection(agentDir?: string): RunOptions;
+  snapshot(revision?: string): StoredSessionSnapshot;
   branch(messageId: string): StoredSession;
   openRuntime(options: RuntimeOptions): Promise<ConversationRuntime>;
 }
@@ -53,13 +81,26 @@ class PiStoredSession implements StoredSession {
   readonly #manager: SessionManager;
   readonly #resources: Resources;
   readonly #retention: ResourceRetention;
+  readonly #messages = new Map<string, Message[]>();
 
   constructor(manager: SessionManager, retention: ResourceRetention) {
     this.#manager = manager;
     this.#retention = retention;
     this.#resources = new Resources(retention, `session:${manager.getSessionId()}`);
     // 整个会话树的资源属于该会话，当前叶节点以外的历史也继续保留。
-    historyView(manager.getEntries(), this.#resources);
+    this.#history(manager.getEntries());
+  }
+
+  #history(entries: SessionEntry[]): Message[] {
+    return entries.flatMap(entry => {
+      let messages = this.#messages.get(entry.id);
+      if (messages === undefined) {
+        // SDK 条目不可变；同一会话只投影新条目，不为读取历史反复保存图片。
+        messages = historyView([entry], this.#resources);
+        this.#messages.set(entry.id, messages);
+      }
+      return messages;
+    });
   }
 
   get id(): string {
@@ -72,29 +113,26 @@ class PiStoredSession implements StoredSession {
     this.#retention.releaseOwner(`session:${this.id}`);
   }
 
-  snapshot(): StoredSessionSnapshot {
-    return {
+  snapshot(revision?: string): StoredSessionSnapshot {
+    const prefix = `history-v1:${this.id}:`;
+    let anchor = this.#manager.getLeafId();
+    if (revision !== undefined) {
+      if (!revision.startsWith(prefix))
+        throw new RepaFault("revision_unavailable", "历史修订不属于该会话或已不可读取。");
+      const selected = revision.slice(prefix.length);
+      if (selected === "empty") anchor = null;
+      else if (this.#manager.getEntry(selected)) anchor = selected;
+      else throw new RepaFault("revision_unavailable", "历史修订的分支位置已不可读取。");
+    }
+    // Pi 原条目追加后不再改写；固定 leaf 即可冻结历史，不加载或改变运行位置。
+    const entries = anchor === null ? [] : this.#manager.getBranch(anchor);
+    return structuredClone({
       name: this.#manager.getSessionName(),
       createdAt:
         Date.parse(this.#manager.getHeader()?.timestamp ?? "") || Date.now(),
-      messages: historyView(this.#manager.getBranch(), this.#resources),
-    };
-  }
-
-  selection(agentDir?: string): RunOptions {
-    const settings = SettingsManager.create(this.#manager.getCwd(), agentDir ?? getAgentDir());
-    const context = this.#manager.buildSessionContext();
-    const provider = context.model?.provider ?? settings.getDefaultProvider();
-    const id = context.model?.modelId ?? settings.getDefaultModel();
-    const hasThinking = this.#manager.getBranch().some(entry => entry.type === "thinking_level_change");
-    const thinkingLevel = hasThinking ? context.thinkingLevel
-      : (provider && id ? settings.getModelThinkingLevel(provider, id) : undefined) ?? settings.getDefaultThinkingLevel();
-    const selection = {
-      ...(provider && id ? { model: { provider, id } } : {}),
-      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
-    };
-    if (!Check(RunOptionsSchema, selection)) throw new RepaFault("configuration", "保存的运行选项无法识别。");
-    return selection;
+      messages: this.#history(entries),
+      revision: `${prefix}${anchor ?? "empty"}`,
+    });
   }
 
   branch(messageId: string): StoredSession {
@@ -107,7 +145,7 @@ class PiStoredSession implements StoredSession {
     const entry = manager.getEntry(messageId);
     if (
       !entry ||
-      !historyView(manager.getBranch(), this.#resources).some(
+      !this.#history(manager.getBranch()).some(
         (message) => message.id === messageId,
       )
     ) {

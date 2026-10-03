@@ -5,6 +5,9 @@ import { Check } from "typebox/value";
 import { RepaApplication, type ApplicationOptions } from "./application.js";
 import { contentMethods, type ContentMethod } from "./content/protocol.js";
 import { spaceMethods, type SpaceMethod } from "./spaces/schema.js";
+import { modelMethods, type ModelMethod } from "./models/schema.js";
+import { learningMethods, type LearningMethod } from "./learning/protocol.js";
+import { packageMethods, type PackageMethod } from "./plugins/protocol.js";
 import {
   methods,
   PROTOCOL_VERSION,
@@ -228,11 +231,20 @@ export async function startRepaServer(
     ): Promise<unknown> => {
       const p = <M extends Method>() => params as Params<M>;
       if (Object.hasOwn(spaceMethods, method)) return application.spaceCall(method as SpaceMethod, p<SpaceMethod>());
+      if (Object.hasOwn(modelMethods, method)) return application.modelCall(method as ModelMethod, p<ModelMethod>());
+      if (Object.hasOwn(learningMethods, method)) return application.learningCall(method as LearningMethod, p<LearningMethod>(), peer.host!.id);
+      if (Object.hasOwn(packageMethods, method)) return application.packageCall(method as PackageMethod, p<PackageMethod>());
       if (Object.hasOwn(contentMethods, method)) return application.contentCall(method as ContentMethod, p<ContentMethod>(), peer.host!.id);
       switch (method) {
+        case "capability.describe": return application.describeCapabilities(p<"capability.describe">().scope);
+        case "capability.invoke": return application.invokeCapability(p<"capability.invoke">(), peer.host!.id);
         case "settings.get":
         case "settings.set":
         case "settings.reset": return application.settingsCall(method, p<typeof method>());
+        case "execution.run": return application.runExecution(p<"execution.run">(), peer.host!.id);
+        case "execution.inspect": return application.inspectExecution(p<"execution.inspect">());
+        case "model.complete": return application.completeModel(p<"model.complete">());
+        case "prompts.preview": return application.previewPrompts(p<"prompts.preview">());
         case "initialize": {
           const input = p<"initialize">();
           if (!authorized(input.token))
@@ -269,6 +281,7 @@ export async function startRepaServer(
               "content",
               "learning-context",
               "prompt-settings",
+              "model-connections",
               "resource-holds",
               "space-snapshots",
             ],

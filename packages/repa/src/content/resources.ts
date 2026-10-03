@@ -59,16 +59,26 @@ export class ResourceRetention {
   validate(refs: readonly ResourceRef[]): void {
     for (const ref of refs) {
       if (ref.spaceId !== this.spaceId) throw new RepaFault("permission_required", "资源不属于当前空间。");
-      this.blobs.getSync(ref.id);
+      this.blobs.assertAvailableSync(ref.id);
     }
   }
-  retain(owner: string, refs: readonly ResourceRef[]): void {
+  #ids(refs: readonly ResourceRef[]): string[] {
     this.validate(refs);
-    const values = [...new Set(refs.map(ref => ref.id))].sort();
+    return refs.map(ref => ref.id);
+  }
+  #retainIds(owner: string, ids: readonly string[]): void {
+    const values = [...new Set(ids)].sort();
     if (JSON.stringify(this.#owners.get(owner) ?? []) === JSON.stringify(values)) return;
     const next = new Map(this.#owners);
     if (values.length) next.set(owner, values); else next.delete(owner);
     this.#save(next);
+  }
+  retain(owner: string, refs: readonly ResourceRef[]): void {
+    this.#retainIds(owner, this.#ids(refs));
+  }
+  /** 同一请求可多次取得输入和工具结果，不覆盖此前已经使用的资源。 */
+  retainAdditional(owner: string, refs: readonly ResourceRef[]): void {
+    this.#retainIds(owner, [...(this.#owners.get(owner) ?? []), ...this.#ids(refs)]);
   }
   pinBytes(owner: string, mediaType: string, bytes: Uint8Array): ResourceRef {
     const id = this.blobs.putSync(bytes);

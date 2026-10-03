@@ -5,8 +5,9 @@ import { Check } from "typebox/value";
 import { RepaFault } from "../errors.js";
 import { object, IdSchema } from "../schema.js";
 import { writeJsonSync } from "../storage/atomic.js";
-import { RequestSchema, type RequestRecord, type Input } from "./schema.js";
+import { RepresentationSchema, RequestSchema, type ProcessingResult, type RequestRecord, type Input } from "./schema.js";
 import type { ContentTarget } from "../content/schema.js";
+import { remapExecutionResult } from "../execution/format.js";
 
 const fileSchema = object({ version: Type.Literal(1), request: RequestSchema });
 const queuesSchema = object({ version: Type.Literal(1), paused: Type.Array(IdSchema) });
@@ -101,15 +102,18 @@ export function remapInput(value: Input, source: string, destination: string): v
       if (value.ref.spaceId === source) value.ref.spaceId = destination;
     } else if (value.spaceId === source) value.spaceId = destination;
   };
+  const representation = (value: ProcessingResult) => {
+    for (const origin of value.sources) target(origin.target);
+    const resources = [...value.resources, ...(value.value.kind === "resource" ? [value.value.resource] : [])];
+    for (const resource of resources) if (resource.spaceId === source) resource.spaceId = destination;
+    remapExecutionResult(value, source, destination);
+    // 能力结果可以包住标准表示；只解释此已知结构，不扫描任意业务 JSON。
+    if (value.value.kind === "inline" && Check(RepresentationSchema, value.value.data)) representation(value.value.data);
+  };
   for (const part of value.parts) {
     if (part.kind === "reference") target(part.target);
     if (part.kind === "selection") target(part.source.target);
     if (part.kind === "resource" && part.resource.spaceId === source) part.resource.spaceId = destination;
-    if (part.kind === "data") {
-      for (const origin of part.representation.sources) target(origin.target);
-      const resources = [...part.representation.resources,
-        ...(part.representation.value.kind === "resource" ? [part.representation.value.resource] : [])];
-      for (const resource of resources) if (resource.spaceId === source) resource.spaceId = destination;
-    }
+    if (part.kind === "data") representation(part.representation);
   }
 }

@@ -1,4 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Check } from "typebox/value";
+import { RepresentationSchema } from "./requests/schema.js";
 import type { Block, Message } from "./protocol.js";
 import type { ResourceRetention } from "./content/resources.js";
 import type { ResourceRef } from "./content/schema.js";
@@ -9,6 +11,13 @@ export class Resources {
     if (!/^[\w.+-]+\/[\w.+-]+$/.test(mimeType))
       mimeType = "application/octet-stream";
     return this.retention.pinBytes(this.owner, mimeType, Buffer.from(data, "base64"));
+  }
+  retainDetails(value: unknown): void {
+    if (!Check(RepresentationSchema, value)) return;
+    this.retention.retainAdditional(this.owner, [
+      ...value.resources, ...(value.value.kind === "resource" ? [value.value.resource] : []),
+    ]);
+    if (value.value.kind === "inline") this.retainDetails(value.value.data);
   }
 }
 
@@ -53,6 +62,7 @@ export function messageView(
   resources: Resources,
 ): Message {
   const message = record(raw);
+  resources.retainDetails(message.details);
   const role =
     message.role === "user" || message.role === "assistant"
       ? message.role

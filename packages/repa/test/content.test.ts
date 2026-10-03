@@ -1,17 +1,20 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { ContentStore } from "../src/content/store.js";
+import { LearningContext } from "../src/learning/context.js";
+import { learningContentFormat } from "../src/learning/content-format.js";
+import { ContentStore, canonicalJson } from "../src/content/store.js";
+import { digest } from "../src/storage/blobs.js";
 import { RepaFault } from "../src/errors.js";
 import type { ContentRef } from "../src/content/schema.js";
 
 async function fixture(t: TestContext) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-content-"));
   const spaceId = randomUUID();
-  const open = () => ContentStore.open({ root, spaceId, assertOwned() {} });
+  const open = () => ContentStore.open({ root, spaceId, assertOwned() {}, formats: [learningContentFormat] });
   const store = await open();
   t.after(async () => { await store.settled(); await rm(root, { recursive: true, force: true }); });
   const create = (name: string, text: string) => store.write({ target: store.target(name), value: { kind: "text", text }, base: { kind: "absent" }, operationId: randomUUID() });
@@ -19,7 +22,7 @@ async function fixture(t: TestContext) {
     const result = await store.associate({ location: { kind: "relative", path: name }, role: "document", operationId: randomUUID() });
     return result.contents[0]!.ref!;
   };
-  return { root, spaceId, store, open, create, register };
+  return { root, spaceId, store, learning: new LearningContext(store), open, create, register };
 }
 const code = (expected: string) => (error: unknown): boolean => error instanceof RepaFault && error.code === expected;
 
@@ -140,23 +143,23 @@ test("语境使用当前正文、有序组成和引用，清空与读取失败�
   const f = await fixture(t);
   await f.create("goals.md", "目标 A");
   const goal = await f.register("goals.md");
-  let state = await f.store.context();
-  await f.store.setContext({ binding: { kind: "document", ref: goal }, base: state.revision, operationId: randomUUID() });
-  assert.equal((await f.store.contextView()).text, "目标 A");
+  let state = await f.learning.get();
+  await f.learning.set({ binding: { kind: "document", ref: goal }, base: state.revision, operationId: randomUUID() });
+  assert.equal((await f.learning.preview()).text, "目标 A");
   await writeFile(path.join(f.root, "goals.md"), "目标 B");
-  assert.equal((await f.store.contextView()).text, "目标 B");
+  assert.equal((await f.learning.preview()).text, "目标 B");
   await f.create("context.json", JSON.stringify({ items: [ { title: "计划", items: [{ ref: goal, mode: "expand", title: "目标" }] }, { ref: goal, mode: "reference", title: "来源" } ] }));
   const composition = await f.register("context.json");
-  state = await f.store.context();
-  await f.store.setContext({ binding: { kind: "composition", ref: composition }, base: state.revision, operationId: randomUUID() });
-  const view = await f.store.contextView();
+  state = await f.learning.get();
+  await f.learning.set({ binding: { kind: "composition", ref: composition }, base: state.revision, operationId: randomUUID() });
+  const view = await f.learning.preview();
   assert.match(view.text, /# 计划\n\n## 目标\n目标 B/);
   assert.match(view.text, new RegExp(`repa:document/${goal.id}`));
   await rm(path.join(f.root, "goals.md"));
-  await assert.rejects(f.store.contextView(), code("context_unavailable"));
-  state = await f.store.context();
-  await f.store.setContext({ binding: null, base: state.revision, operationId: randomUUID() });
-  assert.equal((await f.store.contextView()).text, "");
+  await assert.rejects(f.learning.preview(), code("context_unavailable"));
+  state = await f.learning.get();
+  await f.learning.set({ binding: null, base: state.revision, operationId: randomUUID() });
+  assert.equal((await f.learning.preview()).text, "");
 });
 
 test("普通文件访问不会授予空间外权限，管理目录不能经符号链接逃逸", async (t) => {
@@ -307,4 +310,84 @@ test("已完成操作的历史路径改变不会阻止重新打开无关内容",
   await symlink(path.join(f.root, "current"), path.join(f.root, "old"));
   const reopened = await f.open();
   assert.equal((await reopened.read({ target: reopened.target("current/file.md") })).text, "当前版本");
+});
+
+
+test("学习绑定沿用 v1 清单和旧操作去重形状，撤回与重开继续使用同一记录", async (t) => {
+  const f = await fixture(t);
+  await f.create("goal.md", "持续目标");
+  const ref = await f.register("goal.md");
+  const operationId = randomUUID();
+  const params = { binding: { kind: "document" as const, ref }, base: (await f.learning.get()).revision, operationId };
+  const result = await f.learning.set(params);
+  assert.equal(f.store.journal.entries.get(operationId)?.requestHash, digest(canonicalJson({ method: "context", ...params })));
+  const catalog = JSON.parse(await readFile(path.join(f.root, ".repa/content/catalog.json"), "utf8"));
+  assert.equal(catalog.version, 1);
+  assert.deepEqual(catalog.context, params.binding);
+  const reopened = await f.open();
+  const learning = new LearningContext(reopened);
+  assert.deepEqual(await learning.set(params), result);
+  await reopened.undo({ operationId, undoOperationId: randomUUID() });
+  assert.equal((await learning.get()).binding, null);
+  assert.equal((await learning.preview()).text, "");
+  assert.equal(await readFile(path.join(f.root, "goal.md"), "utf8"), "持续目标");
+});
+
+test("没有学习运行实例时普通保存和复制仍映射既有组成及历史，重新打开学习后可撤回副本", async (t) => {
+  const f = await fixture(t);
+  await f.create("first.md", "最初目标");
+  await f.create("second.md", "当前目标");
+  const first = await f.register("first.md");
+  const second = await f.register("second.md");
+  await f.create("context.json", JSON.stringify({ items: [{ ref: first, mode: "expand" }] }));
+  const composition = await f.register("context.json");
+  await f.learning.set({ binding: { kind: "composition", ref: composition }, base: (await f.learning.get()).revision, operationId: randomUUID() });
+  const editOperation = randomUUID();
+  const beforeComposition = await f.store.read({ target: { kind: "content", ref: composition } });
+  assert(beforeComposition.content.bodyRevision);
+  await f.store.write({
+    target: { kind: "content", ref: composition },
+    base: beforeComposition.content.bodyRevision,
+    value: { kind: "text", text: JSON.stringify({ items: [{ ref: second, mode: "expand" }] }) },
+    operationId: editOperation,
+  });
+  const dormant = await f.open();
+  await dormant.write({ target: dormant.target("ordinary.txt"), base: { kind: "absent" }, value: { kind: "text", text: "普通内容" }, operationId: randomUUID() });
+  const destination = await mkdtemp(path.join(os.tmpdir(), "repa-content-copy-"));
+  t.after(() => rm(destination, { recursive: true, force: true }));
+  await cp(f.root, destination, { recursive: true, filter: (file) => !path.relative(f.root, file).split(path.sep).includes(".repa") });
+  const targetSpaceId = randomUUID();
+  await dormant.capture(destination, targetSpaceId);
+  const copied = await ContentStore.open({ root: destination, spaceId: targetSpaceId, formats: [learningContentFormat], assertOwned() {} });
+  const learning = new LearningContext(copied);
+  assert.equal((await learning.preview()).text, `## ${second.id}\n当前目标`);
+  assert.deepEqual((await learning.get()).binding, { kind: "composition", ref: { ...composition, spaceId: targetSpaceId } });
+  assert.equal((await copied.read({ target: copied.target("ordinary.txt") })).text, "普通内容");
+  await copied.undo({ operationId: editOperation, undoOperationId: randomUUID() });
+  assert.equal((await learning.preview()).text, `## ${first.id}\n最初目标`);
+  assert.equal((await f.learning.preview()).text, `## ${second.id}\n当前目标`);
+});
+
+test("共同观察读取多个成员时，后续保存等待完整视图边界", async (t) => {
+  const f = await fixture(t);
+  await f.create("first.md", "第一篇");
+  await f.create("second.md", "第二篇旧文");
+  const first = await f.register("first.md");
+  const second = await f.register("second.md");
+  let entered: (() => void) | undefined;
+  let release: (() => void) | undefined;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const observed = f.store.observe(async (scope) => {
+    const firstBytes = (await scope.read(first)).bytes;
+    entered?.();
+    await gate;
+    return [firstBytes?.toString("utf8"), (await scope.read(second)).bytes?.toString("utf8")];
+  });
+  await started;
+  const saved = f.store.edit({ target: { kind: "content", ref: second }, edits: [{ oldText: "旧文", newText: "新文" }], operationId: randomUUID() });
+  release?.();
+  assert.deepEqual(await observed, ["第一篇", "第二篇旧文"]);
+  await saved;
+  assert.equal((await f.store.read({ target: { kind: "content", ref: second } })).text, "第二篇新文");
 });

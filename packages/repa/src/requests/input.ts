@@ -1,9 +1,14 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { ContentStore } from "../content/store.js";
 import type { ResourceRef } from "../content/schema.js";
-import type { Input } from "./schema.js";
+import type { Input, ProcessingResult } from "./schema.js";
 
-export interface PreparedInput { text: string; images: ImageContent[] }
+export interface PreparedInput {
+  text: string;
+  images: ImageContent[];
+  sources: ProcessingResult["sources"];
+  resources: ResourceRef[];
+}
 
 export function inputText(input: Input): string {
   return input.parts.map(part => {
@@ -23,11 +28,11 @@ export function inputResources(input: Input): ResourceRef[] {
 }
 
 /** 草稿采用提交的文字；引用在实际开始时读取，沿用内容模块的授权和修订。 */
-export async function prepareInput(input: Input, content: ContentStore, requestId: string): Promise<PreparedInput> {
-  const owner = `request:${requestId}`;
+export async function prepareInput(input: Input, content: ContentStore, requestId: string, owner = `request:${requestId}`): Promise<PreparedInput> {
   const texts: string[] = [];
   const images: ImageContent[] = [];
   const resources = inputResources(input);
+  const sources: ProcessingResult["sources"] = [];
   const addResource = async (resource: ResourceRef) => {
     if (resource.mediaType.startsWith("image/")) images.push({
       type: "image", mimeType: resource.mediaType, data: (await content.blobs.get(resource.id)).toString("base64"),
@@ -42,11 +47,14 @@ export async function prepareInput(input: Input, content: ContentStore, requestI
       if (part.description) texts.push(part.description);
       await addResource(part.resource);
     } else if (part.kind === "data") {
+      sources.push(...part.representation.sources);
       texts.push(`提交的表示：${JSON.stringify(part.representation)}`);
       if (part.representation.value.kind === "resource") await addResource(part.representation.value.resource);
     } else {
       const result = await content.read({ target: part.target }, requestId);
-      texts.push(`引用：${JSON.stringify({ target: part.target, revision: result.content.revision, locator: part.locator })}`);
+      if (result.content.bodyRevision) sources.push({ target: part.target, revision: result.content.bodyRevision,
+        ...(part.locator ? { locator: part.locator } : {}) });
+      texts.push(`引用：${JSON.stringify({ target: part.target, revision: result.content.bodyRevision, locator: part.locator })}`);
       if (result.text !== undefined) texts.push(result.text);
       if (result.truncated) texts.push("以上为内容入口返回的片段，后续内容需按需读取。");
       if (result.resource) {
@@ -55,6 +63,6 @@ export async function prepareInput(input: Input, content: ContentStore, requestI
       }
     }
   }
-  content.retention.retain(owner, resources);
-  return { text: texts.join("\n\n"), images };
+  content.retention.retainAdditional(owner, resources);
+  return { text: texts.join("\n\n"), images, sources, resources };
 }

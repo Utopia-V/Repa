@@ -4,13 +4,17 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { getCurrentSystemPrompt, fauxAssistantMessage, fauxProvider, fauxToolCall, type TranscriptContext as Context } from "@earendil-works/pi-ai";
+import { getCurrentSystemMessage, getCurrentSystemPrompt, fauxAssistantMessage, fauxProvider, fauxToolCall, type TranscriptContext as Context } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
-import { CONTEXT_MESSAGE_TYPE, contextSnapshot, type WorkingMessage } from "../src/agent/context.js";
+import { CONTEXT_MESSAGE_TYPE, contextSnapshot, learningBackground } from "../src/learning/background.js";
+import { LearningContext } from "../src/learning/context.js";
+import { learningContentFormat } from "../src/learning/content-format.js";
+import type { WorkingMessage } from "../src/agent/background.js";
 import type { PromptSettings } from "../src/configuration/schema.js";
 import { ContentStore } from "../src/content/store.js";
 import { historyView, Resources } from "../src/messages.js";
 import { PiConversationHost } from "../src/pi-host.js";
+import { RepaFault } from "../src/errors.js";
 
 const emptySettings: PromptSettings = {
   base: "", append: [], projectInstructions: false, skillCatalog: false,
@@ -92,7 +96,8 @@ export default function (pi) {
     retry: { enabled: false },
     compaction: { enabled: false, reserveTokens: 400, keepRecentTokens: 32 },
   }));
-  const content = await ContentStore.open({ spaceId: "space", root: directory, assertOwned() {} });
+  const content = await ContentStore.open({ spaceId: "space", root: directory, formats: [learningContentFormat], assertOwned() {} });
+  const learning = new LearningContext(content);
   const backgroundPath = path.join(directory, "background.md");
   if (options.background !== undefined) {
     await writeFile(backgroundPath, options.background);
@@ -101,8 +106,8 @@ export default function (pi) {
     });
     const ref = associated.contents.find((item) => item.ref)?.ref;
     assert(ref);
-    await content.setContext({
-      binding: { kind: "document", ref }, base: (await content.context()).revision, operationId: randomUUID(),
+    await learning.set({
+      binding: { kind: "document", ref }, base: (await learning.get()).revision, operationId: randomUUID(),
     });
   }
   const legacyFile = path.join(root, "legacy.jsonl");
@@ -126,6 +131,7 @@ export default function (pi) {
     const host = await PiConversationHost.open({
       learnerSpace: directory, agentDir, sessionManager: manager,
       content, resources: new Resources(content.retention, `session:${manager.getSessionId()}`), trustExtensions: options.trusted ?? true,
+      backgroundSources: [learningBackground(() => new LearningContext(content).preview())],
       modelOverride: { modelRuntime, model: faux.getModel() },
       onEvent() {}, ask: async () => null,
     });
@@ -141,8 +147,31 @@ export default function (pi) {
     entry.type === "custom_message" && entry.customType === CONTEXT_MESSAGE_TYPE ? [entry] : []);
   const captured = async (): Promise<WorkingMessage[][]> => (await readFile(capture, "utf8"))
     .trim().split("\n").map((line) => JSON.parse(line));
-  return { directory, backgroundPath, content, manager, faux, openHost, snapshots, captured };
+  return { directory, agentDir, backgroundPath, content, learning, manager, faux, openHost, snapshots, captured };
 }
+
+test("工具配置只选择已接入工具，内容工具与可信扩展仍可共同调用", async (t) => {
+  const f = await fixture(t);
+  const host = await f.openHost();
+  await assert.rejects(host.send("选择尚未接入的 Bash", emptySettings, {
+    requestId: randomUUID(), images: [], options: { tools: ["bash"] },
+  }), (error: unknown) => error instanceof RepaFault && error.code === "configuration");
+  assert.equal(f.faux.state.callCount, 0);
+  f.faux.setResponses([
+    (context) => {
+      assert.deepEqual(getCurrentSystemMessage(context.messages)?.toolsAdded?.map(tool => tool.name).sort(), ["probe", "read"]);
+      return fauxAssistantMessage(fauxToolCall("probe", {}));
+    },
+    (context) => {
+      assert.match(textOf(context.messages.at(-1)!), /PROBE_DONE/u);
+      return fauxAssistantMessage("已调用扩展");
+    },
+  ]);
+  assert.deepEqual(await host.send("只使用已接入的工具", emptySettings, {
+    requestId: randomUUID(), images: [], options: { tools: ["read", "probe"] },
+  }), { status: "completed" });
+  assert.equal(f.faux.state.callCount, 2);
+});
 
 test("实际 Pi 调用接受空系统提示，可信扩展与工具后续轮不能恢复默认来源", async (t) => {
   const f = await fixture(t);
@@ -250,7 +279,7 @@ test("关闭学习语境移除实际输入来源，历史与工具结果保留�
   assert.equal(f.snapshots().length, 1);
   await send(host, "重新启用", learningSettings);
   assert.equal(f.snapshots().length, 1);
-  await f.content.setContext({ binding: null, base: (await f.content.context()).revision, operationId: randomUUID() });
+  await f.learning.set({ binding: null, base: (await f.learning.get()).revision, operationId: randomUUID() });
   await send(host, "清空后继续", learningSettings);
   assert.equal(f.snapshots().length, 2);
   assert.equal((f.snapshots().at(-1)?.details as { text: string }).text, "");
@@ -344,6 +373,61 @@ test("关闭学习语境后，Pi 默认摘要模型也不再接收可识别的�
   assert.equal(f.faux.state.callCount, 4);
 });
 
+test("Host 真实压缩使用明确空摘要提示，关闭学习来源后保留 SDK usage 与历史接续", async (t) => {
+  const f = await fixture(t, { background: "摘要与接续都不应回填的背景", localSummary: false });
+  let host = await f.openHost();
+  const keptRequest = "保留请求".repeat(60);
+  f.faux.setResponses([
+    fauxAssistantMessage("历史回答".repeat(80)),
+    fauxAssistantMessage("保留回答"),
+    (context) => {
+      assert.equal(getCurrentSystemPrompt(context.messages), "");
+      const summaryInput = conversation(context).map(textOf).join("\n");
+      assert.match(summaryInput, /^<conversation>\n\[User\]: 早期请求/u);
+      assert.match(summaryInput, /历史回答/u);
+      assert.match(summaryInput, /<\/conversation>\n\n$/u);
+      assert.doesNotMatch(summaryInput, /repa_learning_context|摘要与接续都不应回填的背景/u);
+      return fauxAssistantMessage("显式空摘要完成");
+    },
+    (context) => {
+      assert.equal(getCurrentSystemPrompt(context.messages), "");
+      assert.match(textOf(conversation(context)[0]!), /显式空摘要完成/u);
+      assert.equal(textOf(conversation(context)[1]!), keptRequest);
+      assert.deepEqual(contextTexts(context), []);
+      return fauxAssistantMessage("空摘要后继续完成");
+    },
+    (context) => {
+      assert.equal(getCurrentSystemPrompt(context.messages), "");
+      assert.match(textOf(conversation(context)[0]!), /显式空摘要完成/u);
+      assert.deepEqual(contextTexts(context), []);
+      return fauxAssistantMessage("恢复后继续完成");
+    },
+  ]);
+  await send(host, "早期请求", learningSettings);
+  await send(host, keptRequest, learningSettings);
+  const keptEntry = f.manager.getBranch().find((entry) => entry.type === "message" && entry.message.role === "user" && textOf(entry.message) === keptRequest);
+  assert(keptEntry);
+  const before = structuredClone(f.manager.getEntries());
+  assert.deepEqual(await host.send("/compact-fixture", emptySettings, {
+    requestId: randomUUID(), images: [], options: { summaryPrompts: { system: "", instructions: "" } },
+  }), { status: "completed" });
+  const compaction = f.manager.getBranch().find((entry) => entry.type === "compaction");
+  assert(compaction?.type === "compaction");
+  assert.equal(compaction.firstKeptEntryId, keptEntry.id);
+  assert.equal(compaction.summary, "显式空摘要完成");
+  assert(compaction.usage && compaction.usage.totalTokens > 0);
+  assert.equal(compaction.fromHook, true);
+  assert.deepEqual(f.manager.getEntries().slice(0, before.length), before);
+  await send(host, "摘要后继续", emptySettings);
+  assert.equal(f.snapshots().length, 1);
+  await host.close();
+  host = await f.openHost();
+  await send(host, "恢复后继续", emptySettings);
+  assert.equal(f.snapshots().length, 1);
+  assert.equal(f.faux.state.callCount, 5);
+  assert.deepEqual(f.manager.getBranch().find((entry) => entry.type === "compaction"), compaction);
+});
+
 test("真实工具读取后的文件差异只在下一次模型调用提供，关闭来源保留历史", async (t) => {
   const f = await fixture(t, { trusted: false });
   const host = await f.openHost();
@@ -401,4 +485,59 @@ test("0.84.3 会话在新 SDK 中接续，保留旧历史、压缩边界与背�
   await host.close();
   const reopened = SessionManager.open(f.manager.getSessionFile()!, undefined, f.directory);
   assert.deepEqual(reopened.getEntries(), f.manager.getEntries());
+});
+
+test("受理的压缩预算覆盖 Pi 单模型默认值，运行选择不改写配置文件", async (t) => {
+  const f = await fixture(t, { localSummary: false });
+  const file = path.join(f.agentDir, "settings.json");
+  const saved = JSON.parse(await readFile(file, "utf8"));
+  const model = f.faux.getModel();
+  saved.compaction.modelOverrides = { [`${model.provider}/${model.id}`]: { reserveTokens: 100, keepRecentTokens: 8 } };
+  const original = JSON.stringify(saved);
+  await writeFile(file, original);
+  const host = await f.openHost();
+  f.faux.setResponses([
+    fauxAssistantMessage("需要保留的工作结果。".repeat(100)),
+    fauxAssistantMessage("后续讨论。".repeat(100)),
+    (_context, options) => {
+      assert.equal(options?.maxTokens, 320);
+      return fauxAssistantMessage("按本次预算生成的摘要");
+    },
+    (_context, options) => {
+      assert.equal(options?.maxTokens, 200);
+      return fauxAssistantMessage("按本次预算生成的轮次前缀");
+    },
+  ]);
+  await send(host, "第一项工作", emptySettings);
+  await send(host, "继续工作", emptySettings);
+  const result = await host.send("/compact-fixture", emptySettings, {
+    requestId: randomUUID(), images: [], options: {
+      compaction: { enabled: false, reserveTokens: 400, keepRecentTokens: 32 },
+      summaryPrompts: { system: "本次摘要", instructions: "保留未完成工作" },
+    },
+  });
+  assert.equal(result.status, "completed", result.error);
+  assert.equal(f.faux.state.callCount, 4);
+  assert.equal(await readFile(file, "utf8"), original);
+});
+
+test("受控摘要失败后保留历史并返回失败，不由 Pi 再用默认指令重试", async (t) => {
+  const f = await fixture(t, { localSummary: false });
+  const host = await f.openHost();
+  f.faux.setResponses([
+    fauxAssistantMessage("第一项工作的结果。".repeat(100)),
+    fauxAssistantMessage("继续讨论的结果。".repeat(100)),
+    fauxAssistantMessage("", { stopReason: "error", errorMessage: "摘要输入不可处理" }),
+    fauxAssistantMessage("不应调用的默认摘要"),
+  ]);
+  await send(host, "开始", emptySettings);
+  await send(host, "继续", emptySettings);
+  const before = structuredClone(f.manager.getEntries());
+  const result = await host.send("/compact-fixture", emptySettings, {
+    requestId: randomUUID(), images: [], options: { summaryPrompts: { system: "", instructions: "" } },
+  });
+  assert.equal(result.status, "failed");
+  assert.match(result.error ?? "", /摘要输入不可处理/);
+  assert.equal(f.faux.state.callCount, 3);
+  assert.deepEqual(f.manager.getEntries(), before);
 });

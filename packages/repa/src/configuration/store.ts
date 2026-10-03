@@ -9,75 +9,81 @@ import { RepaFault } from "../errors.js";
 import { IdSchema, object, RevisionSchema } from "../schema.js";
 import { SerialQueue, writeJson } from "../storage/atomic.js";
 import {
-  DEFAULT_BASE_PROMPT,
-  PromptSettingsSchema,
+  SettingsDefinitionSchema,
   SettingsGetParamsSchema,
   SettingsResetParamsSchema,
   SettingsSetParamsSchema,
   type PromptSettings,
   type SettingScope,
   type SettingsEntry,
+  type SettingsDefinition,
   type SettingsResetParams,
   type SettingsSetParams,
   type SettingsView,
 } from "./schema.js";
+import { PROMPT_SETTINGS_DEFINITION, type SettingsNamespaceDefinition } from "./definitions.js";
 
-export { DEFAULT_BASE_PROMPT } from "./schema.js";
-
-type PromptKey = keyof PromptSettings;
-type PromptValue = PromptSettings[PromptKey];
-type StoredEntry = { revision: string; value?: PromptValue };
-type Overrides = Partial<Record<PromptKey, StoredEntry>>;
-type StoredScope = { prompts?: Overrides };
+type StoredEntry = { revision: string; value?: unknown };
+type Overrides = Record<string, StoredEntry>;
+type StoredScope = { namespaces?: Record<string, Overrides> };
 type SettingsFile = StoredScope & {
   format: "repa.settings";
-  version: 1;
+  version: 2;
   sessions?: Record<string, StoredScope>;
+};
+type LegacyScope = { prompts?: Overrides };
+type LegacyFile = LegacyScope & {
+  format: "repa.settings";
+  version: 1;
+  sessions?: Record<string, LegacyScope>;
 };
 type Files = { application: SettingsFile; space?: SettingsFile };
 type Locations = { application: string; space?: string };
 
-const defaults: PromptSettings = {
-  base: DEFAULT_BASE_PROMPT,
-  append: [],
-  projectInstructions: false,
-  skillCatalog: true,
-  environment: true,
-  learningContext: true,
-  fileChanges: "on-demand",
-};
-const keys = Object.keys(PromptSettingsSchema.properties) as PromptKey[];
-const storedOverrides = object(Object.fromEntries(
-  Object.entries(PromptSettingsSchema.properties).map(([key, value]) => [
-    key,
-    Type.Optional(object({ revision: RevisionSchema, value: Type.Optional(value) })),
-  ]),
-));
-const storedScope = { prompts: Type.Optional(storedOverrides) };
-const storedFile = {
-  format: Type.Literal("repa.settings"),
-  version: Type.Literal(1),
-  ...storedScope,
-};
-const applicationFileSchema = object(storedFile);
-const spaceFileSchema = object({
-  ...storedFile,
-  sessions: Type.Optional(Type.Record(IdSchema, object(storedScope))),
+const storedOverrides = Type.Record(Type.String({ minLength: 1 }), object({
+  revision: RevisionSchema,
+  value: Type.Optional(Type.Unknown()),
+}));
+const storedScope = object({
+  namespaces: Type.Optional(Type.Record(Type.String({ minLength: 1 }), storedOverrides)),
 });
-const emptyFile = (): SettingsFile => ({ format: "repa.settings", version: 1 });
+const legacyScope = object({ prompts: Type.Optional(storedOverrides) });
+const fileSchema = (session: boolean) => Type.Union([
+  object({
+    format: Type.Literal("repa.settings"),
+    version: Type.Literal(2),
+    ...storedScope.properties,
+    ...(session ? { sessions: Type.Optional(Type.Record(IdSchema, storedScope)) } : {}),
+  }),
+  object({
+    format: Type.Literal("repa.settings"),
+    version: Type.Literal(1),
+    ...legacyScope.properties,
+    ...(session ? { sessions: Type.Optional(Type.Record(IdSchema, legacyScope)) } : {}),
+  }),
+]);
+const applicationFileSchema = fileSchema(false);
+const spaceFileSchema = fileSchema(true);
+const emptyFile = (): SettingsFile => ({ format: "repa.settings", version: 2 });
 
-function overrides(file: SettingsFile, scope: SettingScope): Overrides {
-  if (scope.kind !== "session") return file.prompts ?? {};
+function storedScopeFor(file: SettingsFile, scope: SettingScope): StoredScope {
+  if (scope.kind !== "session") return file;
   return file.sessions && Object.hasOwn(file.sessions, scope.sessionId)
-    ? file.sessions[scope.sessionId]!.prompts ?? {}
+    ? file.sessions[scope.sessionId] ?? {}
     : {};
 }
 
-function currentEntry(files: Files, scope: SettingScope, key: PromptKey): StoredEntry | undefined {
-  return overrides(scope.kind === "application" ? files.application : files.space!, scope)[key];
+function overrides(file: SettingsFile, scope: SettingScope, namespace: string): Overrides {
+  const namespaces = storedScopeFor(file, scope).namespaces;
+  return namespaces && Object.hasOwn(namespaces, namespace) ? namespaces[namespace] ?? {} : {};
 }
 
-function hasValue(entry: StoredEntry | undefined): entry is StoredEntry & { value: PromptValue } {
+function currentEntry(files: Files, scope: SettingScope, namespace: string, key: string): StoredEntry | undefined {
+  const items = overrides(scope.kind === "application" ? files.application : files.space!, scope, namespace);
+  return Object.hasOwn(items, key) ? items[key] : undefined;
+}
+
+function hasValue(entry: StoredEntry | undefined): entry is StoredEntry & { value: unknown } {
   return entry !== undefined && Object.hasOwn(entry, "value");
 }
 
@@ -88,17 +94,6 @@ function revision(entry: StoredEntry | undefined): string {
 function checkInput(schema: TSchema, value: unknown): void {
   if (!Check(schema, value))
     throw new RepaFault("configuration", "设置请求的作用域、字段或修改基准无效。");
-}
-
-function checkNamespace(namespace: string): void {
-  if (namespace !== "prompts")
-    throw new RepaFault("unsupported_settings_namespace", `尚未定义设置命名空间：${namespace}。`);
-}
-
-function promptKey(key: string): PromptKey {
-  if (!Object.hasOwn(PromptSettingsSchema.properties, key))
-    throw new RepaFault("configuration", `未知提示设置：${key}。`);
-  return key as PromptKey;
 }
 
 async function readSettings(file: string, schema: TSchema): Promise<SettingsFile> {
@@ -115,7 +110,18 @@ async function readSettings(file: string, schema: TSchema): Promise<SettingsFile
   }
   if (!Check(schema, saved))
     throw new RepaFault("configuration", `设置文件的格式或设置值无效：${file}。`, { file });
-  return saved as SettingsFile;
+  const parsed = saved as SettingsFile | LegacyFile;
+  if (parsed.version === 2) return parsed;
+  const migrateScope = (scope: LegacyScope): StoredScope =>
+    scope.prompts ? { namespaces: { prompts: scope.prompts } } : {};
+  return {
+    format: "repa.settings",
+    version: 2,
+    ...migrateScope(parsed),
+    ...(parsed.sessions ? {
+      sessions: Object.fromEntries(Object.entries(parsed.sessions).map(([id, scope]) => [id, migrateScope(scope)])),
+    } : {}),
+  };
 }
 
 /** 持有按项覆盖与修订；读取不创建配置，修改在配置文件锁内重新检查当前项。 */
@@ -123,34 +129,67 @@ export class ConfigStore {
   readonly #appDirectory: string;
   readonly #resolveSpace: (spaceId: string) => string;
   readonly #queue = new SerialQueue();
+  readonly #definitions = new Map<string, SettingsDefinition[]>();
 
-  constructor(options: { appDirectory: string; resolveSpace: (spaceId: string) => string }) {
+  constructor(options: {
+    appDirectory: string;
+    resolveSpace: (spaceId: string) => string;
+    definitions?: SettingsNamespaceDefinition[];
+  }) {
     this.#appDirectory = path.resolve(options.appDirectory);
     this.#resolveSpace = options.resolveSpace;
+    const supplied = options.definitions ?? [];
+    for (const definition of [...(supplied.some(item => item.namespace === "prompts") ? [] : [PROMPT_SETTINGS_DEFINITION]), ...supplied]) {
+      if (this.#definitions.has(definition.namespace)) throw new RepaFault("configuration", `设置命名空间重复登记：${definition.namespace}。`);
+      this.register(definition);
+    }
+  }
+
+  register(definition: SettingsNamespaceDefinition): void {
+    if (!definition.namespace) throw new RepaFault("configuration", "设置命名空间不能为空。");
+    const entries = Object.entries(definition.settings).map(([key, item]) => ({
+      key, ...item, schema: Object.fromEntries(Object.entries(item.schema)),
+    }));
+    for (const entry of entries) {
+      if (!Check(SettingsDefinitionSchema, entry) || !Check(entry.schema, entry.default))
+        throw new RepaFault("configuration", `设置 ${definition.namespace}.${entry.key} 的定义或默认值无效。`);
+    }
+    const existing = this.#definitions.get(definition.namespace);
+    if (existing && !isDeepStrictEqual(existing, entries))
+      throw new RepaFault("configuration", `设置命名空间存在不同定义：${definition.namespace}。`);
+    this.#definitions.set(definition.namespace, structuredClone(entries));
   }
 
   async get(scope: SettingScope, namespace: string): Promise<SettingsView> {
-    checkInput(SettingsGetParamsSchema, { scope, namespace });
-    checkNamespace(namespace);
+    const views = await this.getMany(scope, [namespace]);
+    return views[0]!;
+  }
+
+  /** 一次受理从同一组文件快照取得各命名空间，来源与有效值一起返回。 */
+  async getMany(scope: SettingScope, namespaces: readonly string[]): Promise<SettingsView[]> {
+    for (const namespace of namespaces) {
+      checkInput(SettingsGetParamsSchema, { scope, namespace });
+      this.#namespace(namespace);
+    }
     scope = structuredClone(scope);
-    return this.#view(scope, await this.#read(this.#locations(scope)));
+    const files = await this.#read(this.#locations(scope));
+    return namespaces.map(namespace => this.#view(scope, namespace, files));
   }
 
   async set(params: SettingsSetParams): Promise<SettingsView> {
     checkInput(SettingsSetParamsSchema, params);
-    checkNamespace(params.namespace);
-    const key = promptKey(params.key);
-    if (!Check(PromptSettingsSchema.properties[key], params.value))
-      throw new RepaFault("configuration", `提示设置 ${key} 的值类型或允许范围无效。`, {
-        namespace: params.namespace, key,
+    const definition = this.#setting(params.namespace, params.key, params.scope);
+    if (!Check(definition.schema, params.value))
+      throw new RepaFault("configuration", `设置 ${params.namespace}.${params.key} 的值类型或允许范围无效。`, {
+        namespace: params.namespace, key: params.key,
       });
-    return this.#change(structuredClone(params), key, { value: structuredClone(params.value) as PromptValue });
+    return this.#change(structuredClone(params), { value: structuredClone(params.value) });
   }
 
   async reset(params: SettingsResetParams): Promise<SettingsView> {
     checkInput(SettingsResetParamsSchema, params);
-    checkNamespace(params.namespace);
-    return this.#change(structuredClone(params), promptKey(params.key), {});
+    this.#setting(params.namespace, params.key, params.scope);
+    return this.#change(structuredClone(params), {});
   }
 
   async prompts(scope: SettingScope): Promise<PromptSettings> {
@@ -172,27 +211,62 @@ export class ConfigStore {
       readSettings(locations.application, applicationFileSchema),
       locations.space ? readSettings(locations.space, spaceFileSchema) : undefined,
     ]);
+    this.#validateStored(application, "application");
+    if (space) {
+      this.#validateStored(space, "space");
+      for (const scope of Object.values(space.sessions ?? {})) this.#validateStored(scope, "session");
+    }
     return { application, ...(space ? { space } : {}) };
   }
 
-  #view(scope: SettingScope, files: Files): SettingsView {
+  #namespace(namespace: string): SettingsDefinition[] {
+    const definition = this.#definitions.get(namespace);
+    if (!definition)
+      throw new RepaFault("unsupported_settings_namespace", `尚未定义设置命名空间：${namespace}。`);
+    return definition;
+  }
+
+  #setting(namespace: string, key: string, scope: SettingScope): SettingsDefinition {
+    const definition = this.#namespace(namespace).find((item) => item.key === key);
+    if (!definition) throw new RepaFault("configuration", `未知设置项：${namespace}.${key}。`);
+    if (!definition.scopes.includes(scope.kind))
+      throw new RepaFault("configuration", `设置 ${namespace}.${key} 不允许在 ${scope.kind} 作用域修改。`);
+    return definition;
+  }
+
+  #validateStored(scope: StoredScope, kind: SettingScope["kind"]): void {
+    for (const [namespace, values] of Object.entries(scope.namespaces ?? {})) {
+      const definitions = this.#definitions.get(namespace);
+      if (!definitions) continue;
+      for (const [key, entry] of Object.entries(values)) {
+        const definition = definitions.find((item) => item.key === key);
+        if (!definition || !definition.scopes.includes(kind) || (hasValue(entry) && !Check(definition.schema, entry.value)))
+          throw new RepaFault("configuration", `持久设置 ${namespace}.${key} 的作用域或值无效。`, { namespace, key, scope: kind });
+      }
+    }
+  }
+
+  #view(scope: SettingScope, namespace: string, files: Files): SettingsView {
     const layers: { scope: SettingScope; file: SettingsFile }[] = [
       { scope: { kind: "application" }, file: files.application },
     ];
     if (scope.kind !== "application")
       layers.push({ scope: { kind: "space", spaceId: scope.spaceId }, file: files.space! });
     if (scope.kind === "session") layers.push({ scope, file: files.space! });
-    const entries = keys.map((key): SettingsEntry => {
-      let effective: PromptValue = defaults[key];
+    const definitions = this.#namespace(namespace);
+    const entries = definitions.map((definition): SettingsEntry => {
+      const { key } = definition;
+      let effective: unknown = definition.default;
       let source: SettingsEntry["source"] = "default";
       for (const layer of layers) {
-        const entry = overrides(layer.file, layer.scope)[key];
+        const items = overrides(layer.file, layer.scope, namespace);
+        const entry = Object.hasOwn(items, key) ? items[key] : undefined;
         if (hasValue(entry)) {
           effective = entry.value;
           source = layer.scope;
         }
       }
-      const current = currentEntry(files, scope, key);
+      const current = currentEntry(files, scope, namespace, key);
       return {
         key,
         ...(hasValue(current) ? { override: current.value } : {}),
@@ -201,25 +275,24 @@ export class ConfigStore {
         revision: revision(current),
       };
     });
-    return structuredClone({ namespace: "prompts", scope, entries });
+    return structuredClone({ namespace, scope, entries, definitions });
   }
 
   #change(
     params: SettingsResetParams,
-    key: PromptKey,
-    next: { value?: PromptValue },
+    next: { value?: unknown },
   ): Promise<SettingsView> {
-    const { scope } = params;
+    const { scope, namespace, key } = params;
     const locations = this.#locations(scope);
     const same = (files: Files): boolean => {
-      const current = currentEntry(files, scope, key);
+      const current = currentEntry(files, scope, namespace, key);
       return Object.hasOwn(next, "value")
         ? hasValue(current) && isDeepStrictEqual(current.value, next.value)
         : !hasValue(current);
     };
     return this.#queue.run(async () => {
       const observed = await this.#read(locations);
-      if (same(observed)) return this.#view(scope, observed);
+      if (same(observed)) return this.#view(scope, namespace, observed);
       const target = scope.kind === "application" ? locations.application : locations.space!;
       try {
         await mkdir(path.dirname(target), { recursive: true });
@@ -233,21 +306,25 @@ export class ConfigStore {
         });
         try {
           const current = await this.#read(locations);
-          if (same(current)) return this.#view(scope, current);
-          const actual = revision(currentEntry(current, scope, key));
+          if (same(current)) return this.#view(scope, namespace, current);
+          const actual = revision(currentEntry(current, scope, namespace, key));
           if (params.base !== actual)
             throw new RepaFault("settings_conflict", "该项设置已改变，请读取当前值后重新修改。", {
               scope, namespace: params.namespace, key, base: params.base, revision: actual,
             });
           const saved = scope.kind === "application" ? current.application : current.space!;
-          const prompts = { ...overrides(saved, scope), [key]: { revision: randomUUID(), ...next } };
+          const targetScope = storedScopeFor(saved, scope);
+          const namespaces = {
+            ...targetScope.namespaces,
+            [namespace]: { ...overrides(saved, scope, namespace), [key]: { revision: randomUUID(), ...next } },
+          };
           if (scope.kind === "session")
-            saved.sessions = { ...saved.sessions, [scope.sessionId]: { prompts } };
-          else saved.prompts = prompts;
+            saved.sessions = { ...saved.sessions, [scope.sessionId]: { namespaces } };
+          else saved.namespaces = namespaces;
           if (compromised) throw compromised;
           await writeJson(file, saved);
           if (compromised) throw compromised;
-          return this.#view(scope, current);
+          return this.#view(scope, namespace, current);
         } finally {
           await release();
         }

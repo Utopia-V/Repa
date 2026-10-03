@@ -1,0 +1,10 @@
+{
+  "name": "@repa/learning",
+  "version": "0.1.0",
+  "description": "Repa 讲解、练习与实际学习反馈方法",
+  "type": "module",
+  "files": ["skills", "README.md"],
+  "pi": { "skills": ["./skills"] },
+  "engines": { "node": "^22.22.2 || ^24.15.0 || >=26.0.0" },
+  "peerDependencies": { "repa": "^0.1.0" }
+}

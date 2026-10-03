@@ -7,6 +7,9 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import lockfile from "proper-lockfile";
+import { Check } from "typebox/value";
+import { configureModels, createConfigurationTerminal } from "./cli-models.js";
+import { ConnectionInputSchema, type ConnectionInput } from "./models/schema.js";
 import { ConnectionError, RepaClient } from "./client.js";
 import {
   isTerminal,
@@ -19,6 +22,8 @@ import { startRepaServer, type Connection } from "./server.js";
 
 interface Options {
   serve: boolean;
+  configure: boolean;
+  connectionConfig?: string;
   directory?: string;
   connectionFile?: string;
   trustExtensions: boolean;
@@ -33,23 +38,26 @@ interface Endpoint extends Connection {
   agentDir?: string;
 }
 const usage = `用法：repa <learning-space> [--new-session] [--trust-extensions] [--connect <连接文件>]
+      repa configure [--connect <连接文件>] [--connection-config <JSON文件>]
       repa serve --connection-file <文件> [--port <端口>] [--trust-extensions]
 
-  --agent-dir <目录>       当前 Pi 模型与认证配置目录
+  --agent-dir <目录>       Pi 资源与默认选项目录；Repa 连接凭据由应用目录独立管理
   --exit-when-detached     最后一个客户端离开后，完成已启动任务再退出
 
-普通启动自动连接或启动本机后端。--trust-extensions 启用的插件代码拥有宿主进程权限。`;
+普通启动自动连接或启动本机后端。首次使用先运行 repa configure 选择应用默认模型。--trust-extensions 启用的插件代码拥有宿主进程权限。`;
 
 function parse(args: string[]): Options | undefined {
   const options: Options = {
     serve: false,
+    configure: false,
     trustExtensions: false,
     newSession: false,
     port: 0,
     exitWhenDetached: false,
   };
-  if (args[0] === "serve") {
-    options.serve = true;
+  if (args[0] === "serve" || args[0] === "configure") {
+    options.serve = args[0] === "serve";
+    options.configure = args[0] === "configure";
     args = args.slice(1);
   }
   for (let index = 0; index < args.length; index++) {
@@ -59,12 +67,13 @@ function parse(args: string[]): Options | undefined {
     else if (arg === "--new-session") options.newSession = true;
     else if (arg === "--exit-when-detached") options.exitWhenDetached = true;
     else if (
-      ["--connect", "--connection-file", "--agent-dir", "--port"].includes(arg)
+      ["--connect", "--connection-file", "--connection-config", "--agent-dir", "--port"].includes(arg)
     ) {
       const value = args[++index];
       if (!value || value.startsWith("--"))
         throw new Error(`${arg} 缺少参数。`);
-      if (arg === "--agent-dir") options.agentDir = path.resolve(value);
+      if (arg === "--connection-config") options.connectionConfig = path.resolve(value);
+      else if (arg === "--agent-dir") options.agentDir = path.resolve(value);
       else if (arg === "--port") {
         options.port = Number(value);
         if (
@@ -74,13 +83,15 @@ function parse(args: string[]): Options | undefined {
         )
           throw new Error("端口无效。");
       } else options.connectionFile = path.resolve(value);
-    } else if (arg.startsWith("-") || options.directory || options.serve)
+    } else if (arg.startsWith("-") || options.directory || options.serve || options.configure)
       throw new Error(`未知参数：${arg}`);
     else options.directory = path.resolve(arg);
   }
   if (options.serve && !options.connectionFile)
     throw new Error("独立后端需要 --connection-file。");
-  return options.serve || options.directory ? options : undefined;
+  if (options.connectionConfig && !options.configure)
+    throw new Error("--connection-config 只用于 repa configure。");
+  return options.serve || options.configure || options.directory ? options : undefined;
 }
 
 async function readEndpoint(file: string): Promise<Endpoint | undefined> {
@@ -181,7 +192,7 @@ async function connect(
             "已有后端未启用扩展信任；可使用独立连接文件启动已授权的后端。",
           );
         if (options.agentDir && options.agentDir !== endpoint.agentDir)
-          throw new Error("已有后端使用不同的认证配置目录。");
+          throw new Error("已有后端使用不同的 Pi 资源与默认选项目录。");
         try {
           return { client: await RepaClient.connect(endpoint), file };
         } catch (error) {
@@ -250,6 +261,28 @@ async function connect(
     } finally {
       await release();
     }
+  }
+}
+
+async function configure(options: Options): Promise<void> {
+  let connectionInput: ConnectionInput | undefined;
+  if (options.connectionConfig) {
+    const bytes = await readFile(options.connectionConfig, "utf8");
+    let value: unknown;
+    try { value = JSON.parse(bytes); } catch { throw new Error("连接配置文件不是有效 JSON；不要在其中保存凭据。"); }
+    if (!Check(ConnectionInputSchema, value)) throw new Error("连接配置文件不符合 ConnectionInput；不要在其中保存凭据。");
+    connectionInput = value;
+  }
+  const { client } = await connect(options);
+  const terminal = createConfigurationTerminal(process.stdin, process.stdout);
+  try {
+    await configureModels(client, { terminal, connectionInput });
+  } catch (error) {
+    if (terminal.signal?.aborted) throw new Error("配置已取消。");
+    throw error;
+  } finally {
+    terminal.close();
+    await client.close();
   }
 }
 
@@ -365,6 +398,11 @@ async function tui(options: Options): Promise<void> {
       shownQuestions = new Set();
       current = session;
       console.log(`会话 ${session.sessionId}（${space.path}）`);
+      const runtime = await client.call("settings.get", {
+        scope: { kind: "session", spaceId: space.id, sessionId: session.sessionId }, namespace: "runtime",
+      });
+      if (runtime.entries.find((entry) => entry.key === "model")?.effective === null)
+        console.log("尚未选择模型连接，请先运行 repa configure 配置应用默认模型。");
       watch = await client.watch(
         { spaceId: space.id, sessionId: session.sessionId },
         render,
@@ -512,6 +550,7 @@ try {
   const options = parse(process.argv.slice(2));
   if (!options) console.log(usage);
   else if (options.serve) await serve(options);
+  else if (options.configure) await configure(options);
   else await tui(options);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

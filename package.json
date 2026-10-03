@@ -6,17 +6,21 @@
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "workspaces": [
+    "packages/repa",
     "packages/*",
     "apps/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "build:backend": "npm run build --workspace=repa && npm run build --workspace=@repa/materials --workspace=@repa/planning --workspace=@repa/review",
     "check": "npm run check --workspaces --if-present",
     "dev:backend": "npm --workspace=repa run start --",
     "dev:desktop": "npm run dev --workspace=@repa/desktop",
     "dev:web": "npm run dev --workspace=@repa/web",
-    "precheck": "npm run build --workspace=repa",
-    "pretest": "npm run build --workspace=repa",
+    "precheck": "npm run build:backend",
+    "pretest": "npm run build:backend",
+    "prestart": "npm run build:backend",
+    "predev:backend": "npm run build:backend",
     "start": "npm --workspace=repa run start --",
     "test": "npm run test --workspaces --if-present"
   }

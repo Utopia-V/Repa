@@ -4,12 +4,47 @@ import { mkdir, realpath } from "node:fs/promises";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import lockfile from "proper-lockfile";
+import { getAgentDir, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { TSchema } from "typebox";
+import { Check } from "typebox/value";
 import { prepareInput, inputResources, inputText } from "./requests/input.js";
-import type { Submit, Continue, RequestRecord, QueueView } from "./requests/schema.js";
+import type { Submit, Continue, RequestRecord, QueueView, RunOptions } from "./requests/schema.js";
 import { BackgroundRequests, type ProcessingContext } from "./requests/background.js";
 import type { BackgroundRequest, Input, ProcessingResult } from "./requests/schema.js";
 import { ConfigStore } from "./configuration/store.js";
-import type { SettingScope } from "./configuration/schema.js";
+import type { SettingScope, PromptSettings, SettingsView } from "./configuration/schema.js";
+import type { SettingsNamespaceDefinition } from "./configuration/definitions.js";
+import { RUNTIME_SETTINGS_DEFINITION, SUMMARY_SETTINGS_DEFINITION, type RuntimeSettings } from "./configuration/runtime.js";
+import { defaultThinkingLevel, sessionSettings, snapshotSettings } from "./agent/settings.js";
+import { previewPrompt } from "./agent/prompt-preview.js";
+import type { SummaryPrompts } from "./agent/summary-settings.js";
+import { executionRepresentation } from "./execution/format.js";
+import { ExecutionService } from "./execution/service.js";
+import { EXECUTION_SETTINGS_DEFINITION } from "./execution/settings.js";
+import type { ExecutionContext } from "./execution/service.js";
+import { ModelConnections } from "./models/service.js";
+import { ModelCalls } from "./models/calls.js";
+import type { ModelMethod, ModelParams, ModelBinding } from "./models/schema.js";
+import { learningContentFormat } from "./learning/content-format.js";
+import { learningBackground } from "./learning/background.js";
+import { LEARNING_CONTEXT_TOOLS } from "./learning/plugin.js";
+import { LearningContext } from "./learning/context.js";
+import type { LearningMethod } from "./learning/protocol.js";
+import { learningPromptDefaults, LEARNING_PLUGIN_ID } from "./learning/settings.js";
+import { bundledLearningPackages } from "./learning/composition.js";
+import { PLUGIN_SETTINGS_DEFINITION, type PluginSettings } from "./configuration/plugins.js";
+import { PluginRuntime } from "./plugins/runtime.js";
+import { discoverPluginResources, selectBackendEntry } from "./plugins/resources.js";
+import { PluginPackages } from "./plugins/packages.js";
+import type { PackageMethod } from "./plugins/protocol.js";
+import type { BundledPluginRegistration, PluginPackage } from "./plugins/schema.js";
+import { SEARCH_PLUGIN_ID, SEARCH_TOOLS } from "./search/plugin.js";
+import type { BackendPluginRegistration } from "./capabilities/types.js";
+import type { CapabilityScope, CapabilitySelection, CapabilitySource } from "./capabilities/schema.js";
+import { CapabilityNotificationSchema } from "./capabilities/schema.js";
+import type { RepaCapabilityServices } from "./capabilities/services.js";
+import { capabilityRepresentation } from "./capabilities/resources.js";
 import { ContentStore } from "./content/store.js";
 import type { ResourceRetentionOptions } from "./content/resources.js";
 import { ContentAccessStore } from "./content/access.js";
@@ -31,6 +66,7 @@ import {
   type Delivery,
   type Interaction,
   type Params,
+  type Result,
   type Reply,
   type Run,
   type Scope,
@@ -50,6 +86,9 @@ export interface ApplicationOptions {
   appDirectory?: string;
   resources?: ResourceRetentionOptions;
   snapshotParticipants?: readonly SpaceSnapshotParticipant[];
+  settingsDefinitions?: readonly SettingsNamespaceDefinition[];
+  plugins?: readonly BackendPluginRegistration[];
+  bundledPackages?: readonly BundledPluginRegistration[];
   trustExtensions?: boolean;
   eventBufferSize?: number;
   exitWhenDetached?: boolean;
@@ -79,6 +118,7 @@ interface SessionRecord {
   session: StoredSession;
   view: SessionView;
   host?: ConversationRuntime;
+  binding?: ModelBinding;
   opening?: Promise<ConversationRuntime>;
   active?: ActiveRun;
   closing?: Promise<void>;
@@ -89,12 +129,26 @@ interface PendingReply {
   resolve: (value: Reply) => void;
 }
 const keyOf = (key: SessionKey) => `${key.spaceId}/${key.sessionId}`;
+const runtimeIdentity = (binding?: ModelBinding) => {
+  if (!binding) return undefined;
+  const { id, provider, authId, authMode, baseUrl, models } = binding.connection;
+  return { id, provider, authId, authMode, baseUrl, models };
+};
 
 export class RepaApplication {
   readonly id = randomUUID();
   readonly closed: Promise<void>;
   readonly #options: ApplicationOptions;
   readonly #configuration: ConfigStore;
+  readonly #models: ModelConnections;
+  readonly #modelCalls: ModelCalls;
+  readonly #execution: ExecutionService;
+  readonly #appDirectory: string;
+  readonly #pluginRuntimes = new Map<string, Promise<PluginRuntime>>();
+  #applicationRequests?: BackgroundRequests;
+  #openingApplicationRequests?: Promise<BackgroundRequests>;
+  #releaseApplicationRequests?: () => Promise<void>;
+  readonly #packageReloadRequired = new Set<string>();
   readonly #access: Promise<ContentAccessStore>;
   readonly #admission = new SerialQueue();
   readonly #spaceOperations: SpaceOperations;
@@ -132,8 +186,28 @@ export class RepaApplication {
       throw new Error("事件缓存大小必须为正整数。");
     this.#options = options;
     const appDirectory = path.resolve(options.appDirectory ?? options.agentDir ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "repa"));
-    this.#configuration = new ConfigStore({ appDirectory, resolveSpace: (id) => this.#store(id).space.path });
+    this.#appDirectory = appDirectory;
+    this.#configuration = new ConfigStore({
+      appDirectory,
+      resolveSpace: (id) => this.#store(id).space.path,
+      definitions: [RUNTIME_SETTINGS_DEFINITION, SUMMARY_SETTINGS_DEFINITION, PLUGIN_SETTINGS_DEFINITION, EXECUTION_SETTINGS_DEFINITION, ...(options.settingsDefinitions ?? [])],
+    });
+    this.#models = new ModelConnections({
+      directory: path.join(appDirectory, "models"),
+      onChange: ({ connectionId }) => this.#emit({ type: "connection", connectionId }),
+    });
+    this.#modelCalls = new ModelCalls(this.#models);
     this.#access = ContentAccessStore.open(appDirectory);
+    this.#execution = new ExecutionService({
+      configuration: this.#configuration,
+      space: spaceId => ({ root: this.#store(spaceId).space.path, content: this.#space(spaceId).content }),
+      protectedPaths: [appDirectory, path.resolve(options.agentDir ?? getAgentDir())],
+      readPaths: async spaceId => (await this.#access).grantedPaths(spaceId),
+      changed: execution => this.#emit({ type: "execution", execution }),
+      output: (execution, stream, text) => this.#emit({ type: "execution_output",
+        spaceId: execution.spaceId, requestId: execution.requestId, source: execution.source,
+        execId: execution.id, stream, text }),
+    });
     this.#spaceOperations = new SpaceOperations(path.join(appDirectory, "space-operations"));
     // 保留初始化错误供实际内容访问报告，避免尚未打开空间时产生未处理拒绝。
     void this.#access.catch(() => {});
@@ -206,6 +280,7 @@ export class RepaApplication {
       const access = await this.#access;
       const content = await ContentStore.open({
         ...this.#options.resources,
+        formats: [learningContentFormat],
         spaceId: store.space.id, root: store.space.path,
         assertOwned: () => store.assertOwned(),
         canReadExternal: (file) => access.canRead(store.space.id, file),
@@ -215,17 +290,30 @@ export class RepaApplication {
       const sessions = new PiSessionStore(store.space.path, content.retention);
       const existing = await sessions.list();
       this.#assertAccepting();
-      const processing = new BackgroundRequests(content, () => store.assertOwned(), request => {
-        this.#emit({ type: "processing", request });
-        this.#finishIfReady();
-      }, (requestId, signal, dialog, options) => this.#interact({ spaceId: store.space.id, requestId }, signal, dialog, options,
-        (id, interaction) => processing.interaction(requestId, id, interaction)));
+      const processing = new BackgroundRequests({
+        directory: path.join(store.space.path, ".repa", "runtime", "processing"),
+        spaceId: store.space.id, content, assertOwned: () => store.assertOwned(),
+        changed: request => {
+          this.#emit({ type: "processing", request });
+          this.#finishIfReady();
+        },
+        ask: (requestId, signal, dialog, options) => this.#interact({ spaceId: store.space.id, requestId }, signal, dialog, options,
+          (id, interaction) => processing.interaction(requestId, id, interaction)),
+      });
       const record: SpaceRecord = { store, sessions, content, processing };
+      const restoredSessions = existing.map(session => this.#prepareSession(store, session));
+      // 先恢复所有历史的标准工具结果 owner，再收敛异常退出遗留的请求临时持有。
+      for (const request of store.requests.requests.values()) {
+        if (!["queued", "running"].includes(request.status))
+          content.retention.retain(`request:${request.requestId}`, inputResources(request.input));
+      }
+      // 恢复和资源核对完成后再发布；失败只需释放尚未注册的空间租约。
       this.#spaces.set(store.space.id, record);
-      for (const request of processing.requests.values()) this.#emit({ type: "processing", request });
+      for (const restored of restoredSessions) this.#sessions.set(keyOf(restored.view), restored);
       this.#emit({ type: "space", space: store.space });
+      for (const request of processing.requests.values()) this.#emit({ type: "processing", request });
+      for (const restored of restoredSessions) this.#emit({ type: "session", session: restored.view });
       this.#watchContent(record);
-      for (const session of existing) this.#register(store, session);
       return structuredClone(store.space);
     } catch (error) {
       store.release();
@@ -327,27 +415,593 @@ export class RepaApplication {
           this.#contentChanged(spaceId, ["."]);
           return result;
         }
-        case "context.get": return content.context();
-        case "context.set": return content.setContext(p<"context.set">());
-        case "context.preview": return content.contextView();
       }
     }, mutation, spaceId);
+  }
+  learningCall(method: LearningMethod, params: Params<LearningMethod>, hostId: string = this.id): Promise<unknown> {
+    return this.#activity(async () => {
+      const scope = { kind: "space" as const, spaceId: params.spaceId };
+      const runtime = await this.#plugins(scope);
+      const { spaceId: _spaceId, ...input } = params;
+      const contract = { id: `repa.${method}`, version: "1" };
+      return runtime.capabilities.invoke({ contract, implementationId: runtime.configuration.implementations[contract.id] }, input, {
+        scope, source: { kind: "client", hostId }, signal: new AbortController().signal,
+        content: this.#space(params.spaceId).content,
+        services: { settings: async (namespace: string) => (await this.#readSettings(scope, [namespace]))[0]! },
+      });
+    }, method === "context.set", params.spaceId);
+  }
+
+  async #readSettings(scope: SettingScope, namespaces: readonly string[]): Promise<SettingsView[]> {
+    const views = await this.#configuration.getMany(scope, [...new Set([...namespaces, "plugins"])]);
+    const pluginView = views.find(view => view.namespace === "plugins");
+    const settings = Object.fromEntries(pluginView!.entries.map(entry => [entry.key, entry.effective])) as PluginSettings;
+    return namespaces.map(namespace => learningPromptDefaults(views.find(view => view.namespace === namespace)!, !settings.disabled.includes(LEARNING_PLUGIN_ID)));
+  }
+
+  #plugins(scope: CapabilityScope): Promise<PluginRuntime> {
+    const key = scope.kind === "application" ? "application" : scope.spaceId;
+    if (this.#packageReloadRequired.has("application") || this.#packageReloadRequired.has(key))
+      return Promise.reject(new RepaFault("plugin_restart_required", "包代码已经变更，请重启后端以使用同一版本的入口和依赖。"));
+    const existing = this.#pluginRuntimes.get(key);
+    if (existing) return existing;
+    const opening = (async () => {
+      const view = await this.#configuration.get(scope, "plugins");
+      const configuration = Object.fromEntries(view.entries.map(entry => [entry.key, entry.effective])) as PluginSettings;
+      const runtime = await PluginRuntime.open({
+        cwd: scope.kind === "application" ? this.#appDirectory : this.#store(scope.spaceId).space.path,
+        agentDir: this.#options.agentDir, trusted: this.#options.trustExtensions ?? false,
+        configuration, plugins: this.#options.plugins,
+        bundledPackages: this.#bundledPackages(configuration),
+      });
+      for (const definition of runtime.capabilities.settingsDefinitions()) this.#configuration.register(definition);
+      return runtime;
+    })();
+    this.#pluginRuntimes.set(key, opening);
+    void opening.catch(() => { if (this.#pluginRuntimes.get(key) === opening) this.#pluginRuntimes.delete(key); });
+    return opening;
+  }
+
+  #bundledPackages(configuration: PluginSettings): readonly BundledPluginRegistration[] {
+    return [...bundledLearningPackages(configuration.disabled), ...this.#options.bundledPackages ?? []];
+  }
+
+  async #resetPlugins(scope: SettingScope): Promise<void> {
+    const keys = scope.kind === "application" ? [...this.#pluginRuntimes.keys()] : [scope.spaceId];
+    const sessions = [...this.#sessions.values()].filter(record => scope.kind === "application" || record.view.spaceId === scope.spaceId);
+    await Promise.all(keys.map(async key => (await this.#pluginRuntimes.get(key))?.capabilities.cancel()));
+    await Promise.all(sessions.map(record => this.closeSession(record.view)));
+    const requests = [...this.#spaces.values()].filter(record => scope.kind === "application" || record.store.space.id === scope.spaceId).map(record => record.processing);
+    if (scope.kind === "application" && this.#applicationRequests) requests.push(this.#applicationRequests);
+    for (const processing of requests) for (const request of processing.requests.values())
+      if (request.operation === "repa.capability.invoke") processing.cancel(request.requestId);
+    for (const key of keys) {
+      const pending = this.#pluginRuntimes.get(key);
+      if (!pending) continue;
+      const runtime = await pending;
+      await runtime.capabilities.close();
+      this.#pluginRuntimes.delete(key);
+    }
+  }
+
+  async #processing(spaceId?: string): Promise<BackgroundRequests> {
+    if (spaceId !== undefined) return this.#space(spaceId).processing;
+    if (this.#applicationRequests) return this.#applicationRequests;
+    if (this.#openingApplicationRequests) return this.#openingApplicationRequests;
+    const opening = (async () => {
+      const directory = path.join(this.#appDirectory, "runtime", "processing");
+      await mkdir(directory, { recursive: true });
+      let compromised: Error | undefined;
+      let release: () => Promise<void>;
+      try {
+        release = await lockfile.lock(directory, { realpath: false, onCompromised: error => {
+          compromised = error;
+          this.shutdown("cancel");
+        } });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ELOCKED")
+          throw new RepaFault("application_runtime_in_use", "另一后端正在管理应用级请求，请连接该后端，或为独立后端指定独立应用目录。");
+        throw error;
+      }
+      try {
+        const processing = new BackgroundRequests({
+          directory,
+          assertOwned: () => { if (compromised) throw new RepaFault("application_lock_lost", "应用级请求的执行归属已经失效。"); },
+          changed: request => { this.#emit({ type: "processing", request }); this.#finishIfReady(); },
+          ask: (requestId, signal, dialog, options) => this.#interact({ requestId }, signal, dialog, options,
+            (id, interaction) => processing.interaction(requestId, id, interaction)),
+        });
+        this.#applicationRequests = processing;
+        this.#releaseApplicationRequests = async () => { if (!compromised) await release(); };
+        for (const request of processing.requests.values()) this.#emit({ type: "processing", request });
+        return processing;
+      } catch (error) {
+        await release();
+        throw error;
+      }
+    })();
+    this.#openingApplicationRequests = opening;
+    try { return await opening; } finally { this.#openingApplicationRequests = undefined; }
+  }
+
+  describeCapabilities(scope: CapabilityScope): Promise<Result<"capability.describe">> {
+    return this.#activity(async () => {
+      const runtime = await this.#plugins(scope);
+      return { capabilities: runtime.capabilities.list().filter(item => item.scopes.includes(scope.kind)), packages: runtime.packages, issues: runtime.issues };
+    }, false, scope.kind === "space" ? scope.spaceId : undefined);
+  }
+
+  #capabilityServices(scope: CapabilityScope, source: CapabilitySource, requestId: string, signal: AbortSignal, pluginId: string,
+    parent: { cancel(): void; progress(message: string): void; ask(dialog: Dialog, options?: DialogOptions): Promise<Reply> }): RepaCapabilityServices {
+    const owner = `${source.kind === "agent" ? "request" : "processing"}:${requestId}`;
+    const content = scope.kind === "space" ? this.#space(scope.spaceId).content : undefined;
+    return {
+      progress: parent.progress, ask: parent.ask,
+      events: { publish: notification => {
+        if (!Check(CapabilityNotificationSchema, notification))
+          throw new RepaFault("invalid_capability_event", "能力通知的格式标识或字段无效。");
+        this.#emit({ type: "capability", event: { ...notification, scope, source, requestId, pluginId } });
+      } },
+      settings: async namespace => (await this.#readSettings(source.kind === "agent"
+        ? { kind: "session", spaceId: source.spaceId, sessionId: source.sessionId } : scope, [namespace]))[0]!,
+      ...(scope.kind === "space" ? {
+        execution: {
+          run: input => this.#execution.run(input, { spaceId: scope.spaceId, requestId, source, signal, ask: parent.ask }),
+        },
+        resources: {
+          snapshot: async (params: { target: ContentTarget; revision?: string; maxBytes?: number }) => {
+            signal.throwIfAborted();
+            return content!.readSnapshot(params, owner);
+          },
+          retain: refs => {
+            signal.throwIfAborted();
+            content!.retention.retainAdditional(owner, refs);
+          },
+          create: async (bytes: Uint8Array, mediaType: string) => {
+            signal.throwIfAborted();
+            const snapshot = Buffer.from(bytes);
+            return content!.queue.run(async () => {
+              signal.throwIfAborted();
+              const resource = { spaceId: scope.spaceId, id: await content!.blobs.put(snapshot), mediaType };
+              content!.retention.retainAdditional(owner, [resource]);
+              return resource;
+            }, signal);
+          },
+          read: async ref => {
+            signal.throwIfAborted();
+            content!.retention.retainAdditional(owner, [ref]);
+            return content!.blobs.get(ref.id);
+          },
+        } satisfies NonNullable<RepaCapabilityServices["resources"]>,
+        models: {
+          complete: async (options: Omit<Params<"model.complete">, "spaceId" | "requestId">) => {
+            signal.throwIfAborted();
+            const input = structuredClone(options);
+            const resolved = await this.#bindModel(scope.spaceId, input);
+            return this.#modelCalls.complete({ ...resolved, input: input.input, system: input.system,
+              ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
+              content: content!, requestId, resourceOwner: owner,
+              signal, onCancel: parent.cancel,
+            });
+          },
+        },
+        sessions: {
+          history: (params: Omit<Params<"session.history">, "spaceId">) => this.history({ ...params, spaceId: scope.spaceId }),
+          snapshot: (params: { sessionId: string; revision?: string }) => {
+            const snapshot = this.#record({ spaceId: scope.spaceId, sessionId: params.sessionId }).session.snapshot(params.revision);
+            return structuredClone({ revision: snapshot.revision, messages: snapshot.messages });
+          },
+          submit: (params: Submit | Continue) => {
+            signal.throwIfAborted();
+            if (params.target.spaceId !== scope.spaceId) return Promise.reject(new RepaFault("capability_scope", "会话提交目标不属于本次能力作用域。"));
+            return this.submit(params, source.kind === "client" ? source.hostId : this.id, source, signal);
+          },
+        },
+      } : {}),
+    };
+  }
+
+  packageCall(method: PackageMethod, params: Params<PackageMethod>): Promise<unknown> {
+    const submission = structuredClone(params);
+    const scope = submission.scope;
+    const spaceId = scope.kind === "space" ? scope.spaceId : undefined;
+    return this.#activity(async () => {
+      const cwd = spaceId ? this.#store(spaceId).space.path : this.#appDirectory;
+      const agentDir = this.#options.agentDir ?? getAgentDir();
+      const manager = () => new PluginPackages({ cwd, agentDir,
+        trusted: this.#options.trustExtensions ?? false });
+      if (method === "package.list") {
+        const view = await this.#configuration.get(scope, "plugins");
+        const configuration = Object.fromEntries(view.entries.map(entry => [entry.key, entry.effective])) as PluginSettings;
+        return (await discoverPluginResources({
+          cwd, agentDir, configuration, trusted: this.#options.trustExtensions ?? false,
+          bundledPackages: this.#bundledPackages(configuration),
+        })).catalog;
+      }
+      if (!("requestId" in submission)) throw new RepaFault("invalid_input", "包管理需要请求标识。");
+      const processing = await this.#processing(spaceId);
+      const previous = processing.requests.get(submission.requestId);
+      const { requestId, ...options } = submission;
+      const input: Input = { parts: [{ kind: "text", text: `${method} ${"source" in submission ? submission.source ?? "" : ""}` }] };
+      if (!previous) this.#assertAccepting();
+      if (spaceId && this.#store(spaceId).requests.requests.has(requestId)) throw new RepaFault("request_id_conflict", "相同标识已用于会话输入。");
+      return processing.submit({ requestId, operation: method, input, options }, async (_input, context) => this.#admission.run(async () => {
+        context.signal.throwIfAborted();
+        await this.#resetPlugins(scope);
+        context.signal.throwIfAborted();
+        context.progress("正在执行 Pi 包管理操作");
+        const packages = manager();
+        const p = <M extends PackageMethod>() => submission as Params<M>;
+        // SDK 操作可能部分完成后报错；开始改包后统一以真实进程重启重载传递依赖。
+        this.#packageReloadRequired.add(spaceId ?? "application");
+        let catalog: PluginPackage[];
+        switch (method) {
+          case "package.install":
+            catalog = await packages.install(p<"package.install">().source, { local: scope.kind === "space" });
+            break;
+          case "package.remove":
+            catalog = await packages.remove(p<"package.remove">().source, { local: scope.kind === "space" });
+            break;
+          case "package.update":
+            catalog = await packages.update(p<"package.update">().source, { local: scope.kind === "space" });
+            break;
+        }
+        return { format: { id: "repa.package-operation", version: "1" },
+          value: { kind: "inline", data: { packages: catalog, restartRequired: true } }, sources: [], resources: [] };
+      }, context.signal));
+    }, false, spaceId);
+  }
+
+  #capabilityTools(record: SessionRecord, runtime: PluginRuntime): ToolDefinition[] {
+    const scope = { kind: "space" as const, spaceId: record.view.spaceId };
+    const tools: ToolDefinition[] = [];
+    const seen = new Set<string>();
+    for (const item of runtime.capabilities.list()) {
+      if (!item.tool || !item.scopes.includes("space")) continue;
+      const key = JSON.stringify(item.contract);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let selected;
+      try {
+        selected = runtime.capabilities.resolve({ contract: item.contract,
+          implementationId: runtime.configuration.implementations[item.contract.id] }, scope);
+      } catch (error) {
+        if (!(error instanceof RepaFault) || error.code !== "capability_selection_required") throw error;
+        this.#notice(record, error.code, error.message);
+        continue;
+      }
+      if (!selected.tool) continue;
+      const selection = { contract: selected.contract, implementationId: selected.implementationId };
+      tools.push({
+        name: selected.tool.name, label: selected.tool.name, description: selected.tool.description,
+        parameters: (selected.tool.inputSchema ?? selected.inputSchema) as TSchema,
+        execute: async (_callId, input, signal) => {
+          const delivered = await this.#invokeAgentCapability(record, runtime, selection, input, signal);
+          return { content: [{ type: "text", text: JSON.stringify(delivered.result) }], details: delivered.representation };
+        },
+      });
+    }
+    return tools;
+  }
+
+  async #invokeAgentCapability(record: SessionRecord, runtime: PluginRuntime, selection: CapabilitySelection, input: unknown, signal?: AbortSignal): Promise<{ result: unknown; representation: ProcessingResult }> {
+    const active = record.active;
+    if (!active) throw new RepaFault("run_not_active", "能力调用需要实际运行归属。");
+    const scope = { kind: "space" as const, spaceId: record.view.spaceId };
+    const source: CapabilitySource = { kind: "agent", spaceId: record.view.spaceId, sessionId: record.view.sessionId,
+      runId: active.run.id, requestId: active.request.requestId };
+    const callSignal = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal;
+    const content = this.#space(scope.spaceId).content;
+    const owner = `request:${active.request.requestId}`;
+    input = runtime.capabilities.prepareToolInput(selection, input, scope);
+    const declarations = runtime.capabilities.resourceDeclarations(selection, scope);
+    const submitted = capabilityRepresentation(selection.contract, input, declarations.inputResources(input));
+    content.retention.retainAdditional(owner, submitted.resources);
+    const result = await runtime.capabilities.invoke(selection, input, {
+      scope, source, signal: callSignal, content,
+      services: this.#capabilityServices(scope, source, active.request.requestId, callSignal, runtime.capabilities.resolve(selection, scope).pluginId, {
+        cancel: () => { this.cancelRun(scope.spaceId, active.run.id); },
+        progress: message => this.#notice(record, "capability_progress", message, "info"),
+        ask: (dialog, options) => this.#ask(record, dialog, options),
+      }),
+    });
+    const delivered = capabilityRepresentation(selection.contract, result, declarations.outputResources(result));
+    content.retention.retainAdditional(owner, delivered.resources);
+    return { result, representation: delivered };
+  }
+
+  invokeCapability(params: Params<"capability.invoke">, hostId: string): Promise<Result<"capability.invoke">> {
+    const submission = structuredClone(params);
+    const scope = submission.scope;
+    const spaceId = scope.kind === "space" ? scope.spaceId : undefined;
+    return this.#activity(async () => {
+      const processing = await this.#processing(spaceId);
+      const { input: _input, requestId, ...options } = submission;
+      const accepted = await this.#admission.run(async () => {
+        const previous = processing.requests.get(requestId);
+        if (previous) {
+          const part = previous.input.parts[0];
+          if (previous.operation !== "repa.capability.invoke" || part?.kind !== "data" || part.representation.value.kind !== "inline" ||
+            !isDeepStrictEqual(part.representation.value.data, submission.input) || !isDeepStrictEqual(previous.options, options))
+            throw new RepaFault("request_id_conflict", "相同请求标识已经用于另一项能力调用。");
+          const saved = previous.configuration as { execution: "inline" | "background" };
+          return { execution: saved.execution, request: structuredClone(previous) };
+        }
+        this.#assertAccepting();
+        if (spaceId && this.#store(spaceId).requests.requests.has(requestId)) throw new RepaFault("request_id_conflict", "相同标识已用于会话输入。");
+        const runtime = await this.#plugins(scope);
+        const selection: CapabilitySelection = { contract: submission.contract,
+          implementationId: submission.implementationId ?? runtime.configuration.implementations[submission.contract.id] };
+        const definition = runtime.capabilities.resolve(selection, scope);
+        const bound = { contract: definition.contract, implementationId: definition.implementationId };
+        const declarations = runtime.capabilities.resourceDeclarations(bound, scope);
+        const input: Input = { parts: [{ kind: "data", representation: capabilityRepresentation(
+          definition.contract, submission.input, declarations.inputResources(submission.input),
+        ) }] };
+        const request = processing.submit({ requestId, operation: "repa.capability.invoke", input, options,
+          configuration: { ...bound, pluginId: definition.pluginId, execution: definition.execution, source: { kind: "client", hostId } } }, async (_input, context) => {
+          const source = { kind: "client" as const, hostId };
+          const result = await runtime.capabilities.invoke(bound, submission.input, {
+            scope, source, signal: context.signal,
+            ...(context.content ? { content: context.content } : {}),
+            services: this.#capabilityServices(scope, source, requestId, context.signal, definition.pluginId, {
+              cancel: () => { processing.cancel(requestId); }, progress: context.progress, ask: context.ask,
+            }),
+          });
+          return capabilityRepresentation(definition.contract, result, declarations.outputResources(result));
+        });
+        return { execution: definition.execution, request };
+      });
+      if (accepted.execution === "background") return { kind: "background", request: accepted.request };
+      await processing.settled(requestId);
+      const finished = processing.get(requestId);
+      if (finished.status !== "completed" || finished.result?.value.kind !== "inline")
+        throw new RepaFault(finished.error?.code ?? finished.status, finished.error?.message ?? "能力调用没有完成。", { requestId });
+      return { kind: "inline", requestId, result: finished.result.value.data };
+    }, false, spaceId);
   }
   #checkScope(scope: SettingScope): void {
     if (scope.kind !== "application") this.#store(scope.spaceId).assertOwned();
     if (scope.kind === "session") this.#record(scope);
   }
+  runExecution(params: Params<"execution.run">, hostId: string): Promise<BackgroundRequest> {
+    const submission = structuredClone(params);
+    return this.#activity(() => this.#admission.run(async () => {
+      const { spaceId, requestId, ...command } = submission;
+      const record = this.#space(spaceId);
+      if (record.store.requests.requests.has(requestId))
+        throw new RepaFault("request_id_conflict", "相同请求标识已用于会话请求。");
+      if (!record.processing.requests.has(requestId)) this.#assertAccepting();
+      const scope = { kind: "space" as const, spaceId };
+      const source: CapabilitySource = { kind: "client", hostId };
+      return record.processing.submit({ requestId, operation: "execution.run",
+        input: { parts: [{ kind: "text", text: command.command }] }, options: { scope, ...command },
+        configuration: { source },
+      }, async (_input, context) => {
+        const result = await this.#execution.run(command, { spaceId, requestId, source,
+          signal: context.signal, ask: context.ask });
+        return executionRepresentation(result);
+      });
+    }), false, submission.spaceId);
+  }
+
+  inspectExecution(params: Params<"execution.inspect">): Promise<Result<"execution.inspect">> {
+    return this.#activity(async () => ({ ...await this.#execution.policy(params.spaceId),
+      active: this.#execution.list(params.spaceId) }), false, params.spaceId);
+  }
+
+  #agentExecutionContext(record: SessionRecord, signal?: AbortSignal): ExecutionContext {
+    const active = record.active;
+    if (!active) throw new RepaFault("run_not_active", "命令执行需要实际运行归属。");
+    const { spaceId, sessionId } = record.view;
+    return { spaceId, requestId: active.request.requestId,
+      source: { kind: "agent", spaceId, sessionId, runId: active.run.id, requestId: active.request.requestId },
+      signal: signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal,
+      ask: (dialog, options) => this.#ask(record, dialog, options) };
+  }
+
   settingsCall(method: "settings.get" | "settings.set" | "settings.reset", params: Params<"settings.get" | "settings.set" | "settings.reset">): Promise<unknown> {
     const input = structuredClone(params);
     return this.#activity(async () => {
       this.#checkScope(input.scope);
-      if (method === "settings.get") return this.#configuration.get(input.scope, input.namespace);
-      const view = method === "settings.set"
-        ? await this.#configuration.set(input as Params<"settings.set">)
-        : await this.#configuration.reset(input as Params<"settings.reset">);
-      this.#emit({ type: "settings", scope: input.scope, namespace: input.namespace });
-      return view;
+      const scope: CapabilityScope = input.scope.kind === "application" ? input.scope : { kind: "space", spaceId: input.scope.spaceId };
+      if (!["prompts", "runtime", "summaryPrompts", "plugins", "execution"].includes(input.namespace)) await this.#plugins(scope);
+      if (method === "settings.get") return (await this.#readSettings(input.scope, [input.namespace]))[0];
+      const save = async () => {
+        const view = method === "settings.set"
+          ? await this.#configuration.set(input as Params<"settings.set">)
+          : await this.#configuration.reset(input as Params<"settings.reset">);
+        if (input.namespace === "plugins") await this.#resetPlugins(input.scope);
+        if (input.namespace === "execution") await this.#execution.refresh();
+        this.#emit({ type: "settings", scope: input.scope, namespace: input.namespace });
+        return view.namespace === "prompts" ? (await this.#readSettings(input.scope, [input.namespace]))[0] : view;
+      };
+      return input.namespace === "plugins" ? this.#admission.run(save) : save();
     }, method !== "settings.get", input.scope.kind === "application" ? undefined : input.scope.spaceId);
+  }
+
+  previewPrompts(target: SessionKey): Promise<Result<"prompts.preview">> {
+    return this.#activity(async () => {
+      this.#checkScope({ kind: "session", ...target });
+      const settings = await this.#readSettings({ kind: "session", ...target }, ["prompts", "runtime", "summaryPrompts", "plugins"]);
+      const plugins = Object.fromEntries(settings[3]!.entries.map(entry => [entry.key, entry.effective])) as PluginSettings;
+      const selected = Object.fromEntries(settings[0]!.entries.map(entry => [entry.key, entry.effective])) as PromptSettings;
+      const runtime = Object.fromEntries(settings[1]!.entries.map(entry => [entry.key, entry.effective])) as RuntimeSettings;
+      const resources = await discoverPluginResources({ cwd: this.#store(target.spaceId).space.path,
+        agentDir: this.#options.agentDir, trusted: this.#options.trustExtensions ?? false, configuration: plugins,
+        bundledPackages: this.#bundledPackages(plugins) });
+      const learningEnabled = !plugins.disabled.includes(LEARNING_PLUGIN_ID);
+      const learningImplementation = plugins.implementations["repa.context.preview"];
+      const staticLearning = !learningImplementation || learningImplementation === "official";
+      const dynamicTools = [
+        ...resources.bundledPackages.filter(({ registration, package: item }) =>
+          registration.enabled && item.status === "ready" && item.backend?.status === "ready").map(({ registration }) => registration.id),
+        ...(this.#options.plugins ?? []).filter(plugin => plugin.enabled && !plugins.disabled.includes(plugin.id)).map(plugin => plugin.id),
+        ...plugins.backends.flatMap(plugin => {
+          if (plugins.disabled.includes(plugin.id)) return [];
+          try {
+            selectBackendEntry(resources, plugin.package, plugins, this.#options.trustExtensions ?? false);
+            return [plugin.id];
+          } catch (error) {
+            if (error instanceof RepaFault) return [];
+            throw error;
+          }
+        }),
+      ];
+      const prompt = await previewPrompt({
+        content: this.#space(target.spaceId).content, agentDir: this.#options.agentDir,
+        backgroundSources: staticLearning ? [learningBackground(
+          () => new LearningContext(this.#space(target.spaceId).content).preview(), () => learningEnabled,
+        )] : [],
+        trusted: this.#options.trustExtensions ?? false, settings: selected,
+        resourceSettings: snapshotSettings(resources.snapshots, this.#options.trustExtensions ?? false),
+        additionalSkills: resources.additionalSkills, missingPackages: resources.missingPackages,
+        additionalTools: [
+          this.#execution.createTool(this.#store(target.spaceId).space.path, signal => this.#agentExecutionContext(this.#record(target), signal)),
+          ...(learningEnabled ? Object.entries(LEARNING_CONTEXT_TOOLS)
+            .filter(([contract]) => !plugins.implementations[contract] || plugins.implementations[contract] === "official")
+            .map(([, tool]) => tool) : []),
+          ...(!plugins.disabled.includes(SEARCH_PLUGIN_ID) ? SEARCH_TOOLS : []),
+        ],
+        dynamicTools, dynamicExtensions: resources.additionalExtensions.length > 0,
+        ...(runtime.tools ? { tools: runtime.tools } : {}),
+      });
+      if (!staticLearning) prompt.sources.push({
+        id: "learningContext", enabled: learningEnabled && selected.learningContext, dynamic: true,
+        reference: `repa.context.preview:${learningImplementation}`,
+      });
+      for (const entry of settings[2]!.entries) prompt.sources.push({
+        id: `summary.${entry.key}`, enabled: true,
+        ...(typeof entry.effective === "string" ? { content: entry.effective } : { dynamic: true, reference: "pi.compaction" }),
+      });
+      return { prompt, settings };
+    }, false, target.spaceId);
+  }
+
+  modelCall(method: ModelMethod, params: ModelParams<ModelMethod>): Promise<unknown> {
+    const input = structuredClone(params);
+    const p = <M extends ModelMethod>() => input as ModelParams<M>;
+    return this.#activity(async () => {
+      switch (method) {
+        case "connection.list": return this.#models.list();
+        case "connection.get": return this.#models.get(p<"connection.get">().connectionId);
+        case "connection.create": return this.#models.create(p<"connection.create">());
+        case "connection.update": {
+          const value = p<"connection.update">();
+          return this.#models.update(value.connectionId, value.base, value.input);
+        }
+        case "connection.remove": {
+          const value = p<"connection.remove">();
+          return this.#admission.run(async () => {
+            const current = await this.#models.get(value.connectionId);
+            if (current.revision !== value.base) throw new RepaFault("conflict", "模型连接已修改，请重新读取。");
+            await this.#cancelConnectionWork(value.connectionId);
+            return this.#models.remove(value.connectionId, value.base);
+          });
+        }
+        case "model.list": return this.#models.models(p<"model.list">().connectionId);
+        case "auth.start": {
+          const value = p<"auth.start">();
+          const login = await this.#models.authStart(value.connectionId, value.type);
+          void this.#models.settled().then(() => this.#finishIfReady());
+          return login;
+        }
+        case "auth.get": return this.#models.authGet(p<"auth.get">().loginId);
+        case "auth.reply": {
+          const value = p<"auth.reply">();
+          return this.#models.authReply(value.loginId, value.challengeId, value.value);
+        }
+        case "auth.cancel": return this.#models.authCancel(p<"auth.cancel">().loginId);
+        case "auth.logout": {
+          const value = p<"auth.logout">();
+          return this.#admission.run(async () => {
+            await this.#cancelConnectionWork(value.connectionId);
+            return this.#models.authLogout(value.connectionId);
+          });
+        }
+      }
+    }, !["connection.list", "connection.get", "model.list", "auth.get", "auth.reply", "auth.cancel"].includes(method));
+  }
+
+  async #cancelConnectionWork(connectionId: string): Promise<void> {
+    const affected = [...this.#sessions.values()].filter(record =>
+      (record.active ? record.active.request.runOptions.connection : record.binding)?.connection.id === connectionId);
+    await Promise.all([
+      ...affected.map(record => this.closeSession(record.view)),
+      this.#modelCalls.cancel(connectionId),
+    ]);
+  }
+
+  async #bindModel(spaceId: string, options: Pick<Params<"model.complete">, "model" | "thinkingLevel">) {
+    const { binding, model } = await this.#models.bind(options.model);
+    const view = await this.#configuration.get({ kind: "space", spaceId }, "runtime");
+    const configured = Object.fromEntries(view.entries.map(entry => [entry.key, entry.effective])) as RuntimeSettings;
+    const sdk = sessionSettings(this.#store(spaceId).space.path, this.#options.agentDir, this.#options.trustExtensions ?? false);
+    return { binding, retry: configured.retry ?? sdk.getRetrySettings(),
+      thinkingLevel: options.thinkingLevel ?? configured.thinkingLevel ?? defaultThinkingLevel(sdk, model) };
+  }
+
+  completeModel(params: Params<"model.complete">): Promise<BackgroundRequest> {
+    const { spaceId, requestId, input, ...options } = structuredClone(params);
+    return this.#activity(() => this.#admission.run(async () => {
+      const record = this.#space(spaceId);
+      const previous = record.processing.requests.get(requestId);
+      if (previous) {
+        if (previous.operation !== "repa.model.complete" || !isDeepStrictEqual(previous.input, input) || !isDeepStrictEqual(previous.options, options))
+          throw new RepaFault("request_id_conflict", "相同请求标识已用于另一项处理。");
+        return structuredClone(previous);
+      }
+      this.#assertAccepting();
+      if (record.store.requests.requests.has(requestId)) throw new RepaFault("request_id_conflict", "相同标识已用于会话输入。");
+      const { binding, retry, thinkingLevel } = await this.#bindModel(spaceId, options);
+      this.#assertAccepting();
+      return record.processing.submit({
+        requestId, operation: "repa.model.complete", input, options,
+        configuration: { connection: binding, system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens },
+      }, (submitted, context) => this.#modelCalls.complete({
+        binding, input: submitted, content: record.content, requestId, resourceOwner: `processing:${requestId}`,
+        system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens, signal: context.signal,
+        onCancel: () => { record.processing.cancel(requestId); },
+      }));
+    }), false, spaceId);
+  }
+
+  async #resolveConfiguration(target: SessionKey, selection?: Submit["selection"]): Promise<{
+    promptSettings: PromptSettings;
+    runOptions: RunOptions;
+  }> {
+    const views = await this.#readSettings({ kind: "session", ...target }, ["prompts", "runtime", "summaryPrompts"]);
+    const values = (namespace: string) => Object.fromEntries(views.find(view => view.namespace === namespace)!.entries.map(entry => [entry.key, entry.effective]));
+    const prompts = values("prompts") as PromptSettings;
+    const runtime = values("runtime") as RuntimeSettings;
+    const summaryPrompts = values("summaryPrompts") as SummaryPrompts;
+    const chosen = selection?.model ?? runtime.model;
+    const resolved = chosen ? await this.#models.bind(chosen) : undefined;
+    const connection = resolved?.binding;
+    const sdk = sessionSettings(this.#store(target.spaceId).space.path, this.#options.agentDir, this.#options.trustExtensions ?? false);
+    const model = connection ? { provider: connection.connection.provider, id: connection.modelId,
+      ...(connection.connection.baseUrl ? { baseUrl: connection.connection.baseUrl } : {}) } : undefined;
+    const sdkThinking = resolved ? defaultThinkingLevel(sdk, resolved.model) : "off";
+    const thinkingLevel = selection?.thinkingLevel ?? runtime.thinkingLevel ?? sdkThinking;
+    const tools = selection?.tools ?? runtime.tools;
+    return {
+      promptSettings: selection?.prompts ?? prompts,
+      runOptions: {
+        ...(connection ? { connection, model } : {}),
+        thinkingLevel,
+        ...(tools !== null ? { tools } : {}),
+        compaction: selection?.compaction ?? runtime.compaction ?? sdk.getCompactionSettings(model),
+        retry: selection?.retry ?? runtime.retry ?? sdk.getRetrySettings(),
+        summaryPrompts: selection?.summaryPrompts ?? summaryPrompts,
+        sources: views.flatMap(view => view.entries.map(entry => ({
+          namespace: view.namespace, key: entry.key,
+          source: (view.namespace === "prompts" && selection?.prompts) ||
+            (view.namespace === "summaryPrompts" && selection?.summaryPrompts) ||
+            (view.namespace === "runtime" && selection && Object.hasOwn(selection, entry.key))
+            ? "request" as const : entry.source,
+        }))),
+      },
+    };
   }
   contentResource(spaceId: string, id: string): Promise<Buffer> {
     return this.#activity(async () => {
@@ -389,7 +1043,8 @@ export class RepaApplication {
       this.#maintenance.add(request.spaceId);
       try {
         return await this.#spaceOperations.capture({ ...request, source: record.store.space.path,
-          kind: method === "space.backup" ? "backup" : "copy" }, record.content, this.#options.snapshotParticipants ?? []);
+          kind: method === "space.backup" ? "backup" : "copy" }, record.content,
+          [...this.#options.snapshotParticipants ?? [], ...await (await this.#plugins({ kind: "space", spaceId: record.store.space.id })).snapshotParticipants()]);
       } finally { this.#maintenance.delete(request.spaceId); }
     }, method !== "space.operation.get");
   }
@@ -410,6 +1065,14 @@ export class RepaApplication {
     const key = { spaceId: store.space.id, sessionId: session.id };
     const existing = this.#sessions.get(keyOf(key));
     if (existing) return existing;
+    const record = this.#prepareSession(store, session);
+    this.#sessions.set(keyOf(key), record);
+    this.#emit({ type: "session", session: record.view });
+    return record;
+  }
+
+  #prepareSession(store: RuntimeStore, session: StoredSession): SessionRecord {
+    const key = { spaceId: store.space.id, sessionId: session.id };
     const stored = session.snapshot();
     const { messages, createdAt } = stored;
     const firstUser = messages
@@ -465,8 +1128,6 @@ export class RepaApplication {
       run.requestIds = requests.map(request => request.requestId);
       run.options = requests[0]?.runOptions;
     }
-    this.#sessions.set(keyOf(key), record);
-    this.#emit({ type: "session", session: view });
     return record;
   }
 
@@ -522,12 +1183,21 @@ export class RepaApplication {
     return structuredClone({ ...view, messages: history ? view.messages.slice(-100) : [], runs: history ? view.runs.slice(-100) : view.runs.filter(run => !isTerminal(run)) });
   }
 
-  history(params: Params<"session.history">): { messages: import("./protocol.js").Message[]; before?: string } {
-    const messages = this.#record(params).session.snapshot().messages;
-    const end = params.before === undefined ? messages.length : messages.findIndex(message => message.id === params.before);
-    if (end < 0) throw new RepaFault("invalid_cursor", "历史分页位置不属于当前会话分支。");
-    const start = Math.max(0, end - (params.limit ?? 100));
-    return structuredClone({ messages: messages.slice(start, end), ...(start > 0 ? { before: messages[start]!.id } : {}) });
+  history(params: Params<"session.history">): Result<"session.history"> {
+    if (params.before !== undefined && params.around !== undefined)
+      throw new RepaFault("invalid_input", "历史分页和原位定位不能同时指定。");
+    const { messages, revision } = this.#record(params).session.snapshot(params.revision);
+    const limit = params.limit ?? 100;
+    let end = params.before === undefined ? messages.length : messages.findIndex(message => message.id === params.before);
+    if (end < 0) throw new RepaFault("invalid_cursor", "历史分页位置不属于所选会话历史。");
+    let start = Math.max(0, end - limit);
+    if (params.around !== undefined) {
+      const index = messages.findIndex(message => message.id === params.around);
+      if (index < 0) throw new RepaFault("invalid_cursor", "历史定位消息不属于所选会话历史。");
+      start = Math.max(0, Math.min(index - Math.floor(limit / 2), messages.length - limit));
+      end = Math.min(messages.length, start + limit);
+    }
+    return structuredClone({ revision, messages: messages.slice(start, end), ...(start > 0 ? { before: messages[start]!.id } : {}) });
   }
   branchSession(params: Params<"session.branch">): SessionView {
     this.#assertAccepting();
@@ -540,12 +1210,12 @@ export class RepaApplication {
     );
   }
 
-  submit(params: Submit | Continue, hostId: string = this.id): Promise<RequestRecord> {
+  submit(params: Submit | Continue, hostId: string = this.id, source: CapabilitySource = { kind: "client", hostId }, signal?: AbortSignal): Promise<RequestRecord> {
     const input = structuredClone(params);
-    return this.#activity(() => this.#admission.run(() => this.#submit(input, hostId)), false, input.target.spaceId);
+    return this.#activity(() => this.#admission.run(() => this.#submit(input, source, signal), signal), false, input.target.spaceId);
   }
 
-  async #submit(submission: Submit | Continue, hostId: string): Promise<RequestRecord> {
+  async #submit(submission: Submit | Continue, source: CapabilitySource, signal?: AbortSignal): Promise<RequestRecord> {
     const { target, requestId } = submission;
     const store = this.#store(target.spaceId);
     if (this.#spaces.get(target.spaceId)?.processing.requests.has(requestId))
@@ -573,9 +1243,11 @@ export class RepaApplication {
       throw new RepaFault("invalid_input", "输入不能为空。");
     if (dispatch.kind === "steer" && submission.selection)
       throw new RepaFault("invalid_input", "运行中补充沿用目标运行配置。");
-    const promptSettings = dispatch.kind === "steer" && record.active
-      ? record.active.request.promptSettings
-      : submission.selection?.prompts ?? await this.#configuration.prompts({ kind: "session", ...target });
+    const resolved = dispatch.kind === "steer"
+      ? { promptSettings: record.active?.request.promptSettings ?? await this.#configuration.prompts({ kind: "session", ...target }),
+          runOptions: record.active?.request.runOptions ?? {} }
+      : await this.#resolveConfiguration(target, submission.selection);
+    signal?.throwIfAborted();
     this.#assertAccepting();
     store.assertOwned();
     if (record.closing || record.deleting || (dispatch.kind === "start" &&
@@ -583,13 +1255,7 @@ export class RepaApplication {
       throw new RepaFault("session_busy", "会话正在运行、关闭或已有待执行请求。");
     const request: RequestRecord = {
       requestId, target, submission, input, createdAt: Date.now(), sequence: store.requests.nextSequence(),
-      source: { kind: "client", hostId }, promptSettings,
-      runOptions: dispatch.kind === "steer" && record.active ? record.active.run.options ?? {} : {
-        ...(record.host?.selection() ?? record.session.selection(this.#options.agentDir)),
-        ...(submission.selection?.model ? { model: submission.selection.model } : {}),
-        ...(submission.selection?.thinkingLevel !== undefined ? { thinkingLevel: submission.selection.thinkingLevel } : {}),
-        ...(submission.selection?.tools !== undefined ? { tools: submission.selection.tools } : {}),
-      },
+      source: structuredClone(source), ...resolved,
       status: "queued", delivery: { status: "pending" },
     };
     const content = this.#space(target.spaceId).content;
@@ -624,8 +1290,9 @@ export class RepaApplication {
     this.#emit({ type: "request", request });
   }
 
-  getRequest(spaceId: string, requestId: string): RequestRecord | BackgroundRequest | { requestId: string; status: "unknown" } {
-    return structuredClone(this.#store(spaceId).requests.requests.get(requestId) ?? this.#spaces.get(spaceId)?.processing.requests.get(requestId) ?? { requestId, status: "unknown" });
+  getRequest(spaceId: string | undefined, requestId: string): Promise<RequestRecord | BackgroundRequest | { requestId: string; status: "unknown" }> {
+    return this.#activity(async () => structuredClone((spaceId ? this.#store(spaceId).requests.requests.get(requestId) : undefined) ??
+      (await this.#processing(spaceId)).requests.get(requestId) ?? { requestId, status: "unknown" }), false, spaceId);
   }
 
   /** 已装配能力提交独立处理；公共能力发现与分发由插件宿主持有。 */
@@ -640,10 +1307,8 @@ export class RepaApplication {
     }, false, submission.spaceId);
   }
 
-  cancelRequest(spaceId: string, requestId: string): BackgroundRequest {
-    const record = this.#spaces.get(spaceId);
-    if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
-    return record.processing.cancel(requestId);
+  cancelRequest(spaceId: string | undefined, requestId: string): Promise<BackgroundRequest> {
+    return this.#activity(async () => (await this.#processing(spaceId)).cancel(requestId), false, spaceId);
   }
 
   queue(target: SessionKey): QueueView {
@@ -733,11 +1398,12 @@ export class RepaApplication {
     const store = this.#store(spaceId);
     const saved = store.runs.get(runId);
     if (!saved) return { id: runId, status: "unknown" };
-    return structuredClone(
-      this.#sessions
+    const run = this.#sessions
         .get(keyOf(saved))
-        ?.view.runs.find((x) => x.id === runId) ?? saved,
-    );
+        ?.view.runs.find((x) => x.id === runId) ?? saved;
+    const requestId = run.requestIds?.[0];
+    const prompt = requestId ? store.requests.requests.get(requestId)?.prompt : undefined;
+    return structuredClone({ ...run, ...(prompt ? { prompt } : {}) });
   }
   cancelRun(spaceId: string, runId: string): Run {
     const run = this.getRun(spaceId, runId);
@@ -761,19 +1427,27 @@ export class RepaApplication {
     try {
       if (!active.controller.signal.aborted) {
         this.#updateRun(active, { status: "running" });
-        if (!record.host) {
+        const binding = active.request.runOptions.connection;
+        if (binding) await this.#models.assertBinding(binding);
+        if (record.host && !isDeepStrictEqual(runtimeIdentity(record.binding), runtimeIdentity(binding))) {
+          await record.host.close();
+          record.host = undefined;
+          record.binding = undefined;
+        }
+        if (!record.host && !active.controller.signal.aborted) {
           record.view.runtime = "loading";
           this.#emit({ type: "session", session: record.view });
-          record.opening = this.#openHost(record);
+          record.opening = this.#openHost(record, binding);
           try {
             record.host = await record.opening;
+            record.binding = binding;
           } finally {
             record.opening = undefined;
           }
           record.view.runtime = "ready";
           this.#emit({ type: "session", session: record.view });
         }
-        if (!active.controller.signal.aborted) {
+        if (!active.controller.signal.aborted && record.host) {
           const request = active.request;
           const input = await prepareInput(request.input, this.#space(request.target.spaceId).content, request.requestId);
           const execution = active.controller.signal.aborted
@@ -815,6 +1489,9 @@ export class RepaApplication {
       try {
         record.store.saveRun(finished);
         if (finished.status !== "completed") record.store.requests.pause(record.view.sessionId, true);
+        // send 已等待 SDK idle 和历史保存；再投影完整条目确保工具资源已转交会话 owner。
+        record.session.snapshot();
+        const content = this.#space(record.view.spaceId).content;
         for (const request of record.store.requests.list(record.view.sessionId).filter(request => request.runId === finished.id)) {
           this.#saveRequest(record, {
             ...request,
@@ -824,6 +1501,7 @@ export class RepaApplication {
               ? { status: "not_entered", reason: "运行结束前输入未进入历史。" } : request.delivery,
             ...(finished.error ? { error: finished.error } : {}),
           });
+          content.retention.retain(`request:${request.requestId}`, inputResources(request.input));
         }
       } catch (error) {
         finished.status = "interrupted";
@@ -841,16 +1519,31 @@ export class RepaApplication {
       this.#finishIfReady();
     }
   }
-  async #openHost(record: SessionRecord): Promise<ConversationRuntime> {
-    const modelOverride =
-      typeof this.#options.modelOverride === "function"
+  async #openHost(record: SessionRecord, binding?: ModelBinding): Promise<ConversationRuntime> {
+    const plugins = await this.#plugins({ kind: "space", spaceId: record.view.spaceId });
+    const modelOverride = binding ? await this.#models.open(binding)
+      : typeof this.#options.modelOverride === "function"
         ? await this.#options.modelOverride(
             record.store.space,
             record.view.sessionId,
           )
         : this.#options.modelOverride;
+    if (!modelOverride)
+      throw new RepaFault("connection_required", "请在 Repa 中选择模型连接；旧请求可选择连接后通过继续操作接续。");
     return record.session.openRuntime({
       content: this.#spaces.get(record.store.space.id)!.content,
+      backgroundSources: [learningBackground(async () => (await this.#invokeAgentCapability(record, plugins, {
+        contract: { id: "repa.context.preview", version: "1" },
+        implementationId: plugins.configuration.implementations["repa.context.preview"],
+      }, {})).result, () => plugins.learningEnabled)],
+      resourceSettings: plugins.resourceSettings(),
+      additionalExtensions: plugins.resources.additionalExtensions,
+      additionalSkills: plugins.resources.additionalSkills,
+      additionalPrompts: plugins.resources.additionalPrompts,
+      applicationTools: [
+        ...this.#capabilityTools(record, plugins),
+        this.#execution.createTool(record.store.space.path, signal => this.#agentExecutionContext(record, signal)),
+      ],
       agentDir: this.#options.agentDir,
       trustExtensions: this.#options.trustExtensions ?? false,
       modelOverride,
@@ -863,7 +1556,13 @@ export class RepaApplication {
       spaceId: record.view.spaceId,
       sessionId: record.view.sessionId,
     };
-    if (event.type === "entered") {
+    if (event.type === "prompt") {
+      const active = record.active;
+      if (active) {
+        const request = record.store.requests.get(active.request.requestId);
+        if (!isDeepStrictEqual(request.prompt, event.prompt)) this.#saveRequest(record, { ...request, prompt: event.prompt });
+      }
+    } else if (event.type === "entered") {
       const request = record.store.requests.requests.get(event.requestId);
       if (request) {
         this.#saveRequest(record, { ...request, delivery: { status: "entered", messageIds: [event.messageId] } });
@@ -894,12 +1593,12 @@ export class RepaApplication {
     active.run = { ...active.run, ...update };
     this.#emit({ type: "run", run: active.run });
   }
-  #notice(record: SessionRecord, code: string, message: string): void {
+  #notice(record: SessionRecord, code: string, message: string, level: "info" | "error" = "error"): void {
     this.#emit({
       type: "notice",
       spaceId: record.view.spaceId,
       sessionId: record.view.sessionId,
-      notice: { id: randomUUID(), code, message, level: "error" },
+      notice: { id: randomUUID(), code, message, level },
     });
   }
   #ask(record: SessionRecord, dialog: Dialog, options?: DialogOptions): Promise<Reply> {
@@ -912,7 +1611,7 @@ export class RepaApplication {
       });
   }
 
-  #interact(owner: { spaceId: string; sessionId: string; runId: string } | { spaceId: string; requestId: string }, signal: AbortSignal,
+  #interact(owner: { spaceId: string; sessionId: string; runId: string } | { spaceId?: string; requestId: string }, signal: AbortSignal,
     dialog: Dialog, options: DialogOptions | undefined, changed: (id: string, interaction: Interaction | null) => void): Promise<Reply> {
     if (signal.aborted || options?.signal?.aborted) return Promise.resolve(null);
     const id = randomUUID();
@@ -940,7 +1639,7 @@ export class RepaApplication {
   }
   reply(params: Params<"interaction.reply">): void {
     const pending = this.#pending.get(params.id);
-    if (!pending || !contains(params, pending.interaction))
+    if (!pending || pending.interaction.spaceId !== params.spaceId || !contains(params, pending.interaction))
       throw new RepaFault(
         "interaction_expired",
         "该交互已经回答、取消或过期。",
@@ -1010,6 +1709,7 @@ export class RepaApplication {
     return structuredClone({
       lifecycle: this.#state.lifecycle,
       processing: this.#state.processing?.filter(request => contains(scope, request)),
+      execution: this.#execution.list().filter(execution => relevant(scope, { type: "execution", execution })),
       spaces: this.#state.spaces.filter(
         (x) => !("spaceId" in scope) || x.id === scope.spaceId,
       ),
@@ -1097,6 +1797,10 @@ export class RepaApplication {
           this.cancelRun(record.view.spaceId, record.active.run.id);
       }
     if (mode === "cancel") for (const record of this.#spaces.values()) record.processing.cancelAll();
+    if (mode === "cancel") this.#applicationRequests?.cancelAll();
+    if (mode === "cancel") for (const runtime of this.#pluginRuntimes.values())
+      void runtime.then(value => value.capabilities.cancel(), () => {});
+    if (mode === "cancel") this.#models.cancelAll();
     this.#finishIfReady();
   }
   #finishIfReady(): void {
@@ -1106,6 +1810,8 @@ export class RepaApplication {
       this.#state.lifecycle === "stopped" ||
       this.#openingSpaces.size ||
       this.#activities ||
+      this.#openingApplicationRequests || this.#applicationRequests?.active ||
+      this.#models.active ||
       [...this.#spaces.values()].some(record => record.processing.active) ||
       [...this.#sessions.values()].some((x) => x.active)
     )
@@ -1121,6 +1827,13 @@ export class RepaApplication {
           this.#notice(record, "shutdown", String(error));
         }
       }
+      for (const runtime of this.#pluginRuntimes.values()) {
+        try { await (await runtime).capabilities.close(); } catch (error) { errors.push(error); }
+      }
+      try {
+        await this.#applicationRequests?.settled();
+        await this.#releaseApplicationRequests?.();
+      } catch (error) { errors.push(error); }
       for (const { store, content, processing, watcher, watchTimer } of this.#spaces.values()) {
         try {
           clearTimeout(watchTimer);

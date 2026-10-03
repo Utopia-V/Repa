@@ -70,7 +70,22 @@ export function writeJsonSync(destination: string, value: unknown): void {
 /** 一份空间中的程序修改共用该队列，失败不会阻塞后续读取与恢复。 */
 export class SerialQueue {
   #tail: Promise<unknown> = Promise.resolve();
-  run<T>(work: () => Promise<T>): Promise<T> {
+  run<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal) {
+      if (signal.aborted) return Promise.reject(signal.reason);
+      return new Promise<T>((resolve, reject) => {
+        const cancel = () => reject(signal.reason);
+        signal.addEventListener("abort", cancel, { once: true });
+        const result = this.#tail.then(() => {
+          signal.removeEventListener("abort", cancel);
+          // 等待者可先结束；队列随后经过此位置时也不会执行已取消的工作。
+          signal.throwIfAborted();
+          return work();
+        });
+        this.#tail = result.catch(() => {});
+        void result.then(resolve, reject);
+      });
+    }
     const result = this.#tail.then(work);
     this.#tail = result.catch(() => {});
     return result;

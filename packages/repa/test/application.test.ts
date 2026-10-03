@@ -19,7 +19,8 @@ import {
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { ConnectionError, RepaClient, RpcError } from "../src/client.js";
-import { PiConversationHost, REPA_BASE_PROMPT } from "../src/pi-host.js";
+import { PiConversationHost } from "../src/pi-host.js";
+import { DEFAULT_LEARNING_PROMPT } from "../src/learning/default-prompt.js";
 import { ConfigStore } from "../src/configuration/store.js";
 import { RepaFault } from "../src/errors.js";
 import {
@@ -245,10 +246,7 @@ test("公开协议支持两个客户端共享流式对话、受信任 prompt、s
     (context) => {
       assert.match(latest(context, "user"), /FIXTURE_PROMPT_EXPANDED/u);
       assert.match(getCurrentSystemPrompt(context.messages) ?? "", /fixture-learning-skill/u);
-      assert.match(
-        getCurrentSystemPrompt(context.messages) ?? "",
-        /You are Repa, a general learning Agent/u,
-      );
+      assert(getCurrentSystemPrompt(context.messages).includes(DEFAULT_LEARNING_PROMPT));
       assert.doesNotMatch(
         getCurrentSystemPrompt(context.messages) ?? "",
         /expert coding assistant operating inside pi/iu,
@@ -657,7 +655,7 @@ test("标准 Pi 压缩后仍通过同一协议继续，扩展故障有可观察�
     packages: [fixturePackage, brokenPackage],
   });
   const script: FauxResponseStep = (context, _options, state) =>
-    !(getCurrentSystemPrompt(context.messages) ?? "").includes(REPA_BASE_PROMPT)
+    !(getCurrentSystemPrompt(context.messages) ?? "").includes(DEFAULT_LEARNING_PROMPT)
       ? fauxAssistantMessage("COMPACTION_SUMMARY")
       : fauxAssistantMessage(
           `REPLY_${state.callCount}:` + "学习内容。".repeat(80),
@@ -1226,12 +1224,12 @@ test("提示配置在受理时固定，重传原请求不重新解析默认值",
 
 test("受理准备期间开始退出，不会在配置读取后启动新运行", async (t) => {
   const f = await fixture(t, { trustExtensions: false });
-  const original = ConfigStore.prototype.prompts;
+  const original = ConfigStore.prototype.getMany;
   let release!: () => void, entered!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const waiting = new Promise<void>((resolve) => { entered = resolve; });
-  t.mock.method(ConfigStore.prototype, "prompts", async function(this: ConfigStore, scope: Parameters<typeof original>[0]) {
-    entered(); await gate; return original.call(this, scope);
+  t.mock.method(ConfigStore.prototype, "getMany", async function(this: ConfigStore, ...args: Parameters<typeof original>) {
+    entered(); await gate; return original.apply(this, args);
   });
   const pending = f.server.application.submit({ target: f.key, input: { parts: [{ kind: "text", text: "尚未受理" }] }, dispatch: { kind: "start" }, requestId: randomUUID() });
   const rejected = assert.rejects(pending, (error: unknown) => error instanceof RepaFault && error.code === "shutting_down");
@@ -1247,15 +1245,15 @@ test("配置读取期间关闭会话，不在正在关闭的 Host 上受理新�
   const f = await fixture(t, { trustExtensions: false });
   f.faux.setResponses([fauxAssistantMessage("初始化完成")]);
   assert.equal((await f.send("初始化")).status, "completed");
-  const originalSettings = ConfigStore.prototype.prompts;
+  const originalSettings = ConfigStore.prototype.getMany;
   const originalClose = PiConversationHost.prototype.close;
   let releaseSettings!: () => void, settingsEntered!: () => void, releaseClose!: () => void, closeEntered!: () => void;
   const settingsGate = new Promise<void>((resolve) => { releaseSettings = resolve; });
   const settingsWaiting = new Promise<void>((resolve) => { settingsEntered = resolve; });
   const closeGate = new Promise<void>((resolve) => { releaseClose = resolve; });
   const closeWaiting = new Promise<void>((resolve) => { closeEntered = resolve; });
-  t.mock.method(ConfigStore.prototype, "prompts", async function(this: ConfigStore, scope: Parameters<typeof originalSettings>[0]) {
-    settingsEntered(); await settingsGate; return originalSettings.call(this, scope);
+  t.mock.method(ConfigStore.prototype, "getMany", async function(this: ConfigStore, ...args: Parameters<typeof originalSettings>) {
+    settingsEntered(); await settingsGate; return originalSettings.apply(this, args);
   });
   t.mock.method(PiConversationHost.prototype, "close", async function(this: PiConversationHost) {
     closeEntered(); await closeGate; return originalClose.call(this);
@@ -1513,6 +1511,7 @@ test("独立处理持有自己的结果和交互，取消等待处理退出且�
   let calls = 0;
   const accepted = await f.server.application.process(submission, async (_input, context) => {
     calls++;
+    assert(context.content);
     const source = await context.content.read({ target: { kind: "file", spaceId: f.space.id, location: { kind: "relative", path: "source.txt" } } });
     context.progress("等待补充说明");
     const answer = await context.ask({ kind: "input", title: "补充说明" });
@@ -1542,4 +1541,43 @@ test("独立处理持有自己的结果和交互，取消等待处理退出且�
   await client.call("space.open", { path: f.directory });
   const restored = await client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId });
   assert.deepEqual(restored, done);
+});
+
+test("空间恢复缺少请求资源时不发布部分状态，补回原件后同一后端可以重新打开", async t => {
+  const f = await fixture(t);
+  const bytes = Buffer.from("需要继续保留的输入附件");
+  const { resource } = await f.client.uploadResource(f.space.id, bytes, "text/plain");
+  f.faux.setResponses([fauxAssistantMessage("附件已接收")]);
+  const request = await f.client.call("session.submit", {
+    target: f.key, requestId: randomUUID(), dispatch: { kind: "start" },
+    input: { parts: [{ kind: "text", text: "保留附件" }, { kind: "resource", resource }] },
+  });
+  assert(request.runId);
+  assert.equal((await f.finish(request.runId)).status, "completed");
+  await f.server.close();
+  const blob = path.join(f.directory, ".repa/content/blobs", resource.id);
+  await rm(blob);
+
+  const server = await startRepaServer({ agentDir: f.agentDir, modelOverride: f.override });
+  const client = await RepaClient.connect(server.connection);
+  f.beforeCleanup(async () => { await server.close(); await client.close(); });
+  const changes: Change[] = [];
+  const watch = await client.watch({}, (_state, delivery) => {
+    if (delivery.type === "changes") changes.push(...delivery.changes);
+  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(client.call("space.open", { path: f.directory }), (error: unknown) =>
+      error instanceof RpcError && error.data !== null && typeof error.data === "object" &&
+      "code" in error.data && error.data.code === "revision_unavailable");
+    const state = await client.call("state.get", { scope: {} });
+    assert.deepEqual(state.spaces, []);
+    assert.deepEqual(state.sessions, []);
+    assert.deepEqual(state.processing ?? [], []);
+  }
+  assert(!changes.some(change => ["space", "session", "processing"].includes(change.type)));
+  await writeFile(blob, bytes);
+  assert.equal((await client.call("space.open", { path: f.directory })).id, f.space.id);
+  assert.equal((await client.call("session.get", f.key)).sessionId, f.key.sessionId);
+  assert.equal(await (await client.resource(resource)).text(), bytes.toString());
+  await watch.stop();
 });

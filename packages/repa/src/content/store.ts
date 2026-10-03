@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Stats } from "node:fs";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { Check } from "typebox/value";
@@ -13,19 +14,23 @@ import { parsePatch, applyTextPatch } from "./patch.js";
 import { editText, revertText, type TextEdit } from "./text-edits.js";
 import { CatalogSchema, catalogPath, emptyCatalog, type Catalog, type ContentRecord } from "./catalog.js";
 import { captureContent } from "./snapshot.js";
+import { formatValue, type ContentFormat } from "./formats.js";
 import { ResourceRetention, type ResourceRetentionOptions } from "./resources.js";
-import { mapReference, remapContextComposition, remapMarkdown } from "./references.js";
+import { mapReference, remapMarkdown } from "./references.js";
 import {
-  ContextCompositionSchema,
   type ContentInfo, type ContentRead, type ContentRef, type ContentTarget,
   type ContentValue, type ContentChangeResult, type ContentOperation,
-  type ContextBinding, type ContextState, type ContextView, type FileLocation,
+  type ContentPatchInput, type FileLocation,
   type ResourceRef, type WriteBase, type ContentSnapshot, type ResourceHold,
 } from "./schema.js";
 
 const absent: FileImage = { kind: "absent" };
 const clone = <T>(value: T): T => structuredClone(value);
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const checkByteLimit = (size: number, maxBytes?: number): void => {
+  if (maxBytes !== undefined && size > maxBytes)
+    throw new RepaFault("content_limit", "内容超过本次读取的字节限额。", { size, maxBytes });
+};
 
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -58,7 +63,6 @@ interface Plan {
   catalog: Catalog;
   before: Catalog;
   files: Map<string, FileMutation>;
-  seen: Map<string, FileImage>;
   affected: Set<string>;
 }
 export interface TransferInput {
@@ -74,6 +78,19 @@ export interface ContentStoreOptions extends ResourceRetentionOptions {
   assertOwned(): void;
   canReadExternal?(path: string): boolean;
   onChange?(result: ContentChangeResult): void;
+  formats?: readonly ContentFormat[];
+}
+
+export interface ContentObservation {
+  metadata(field: string): unknown;
+  describe(ref: ContentRef): Promise<ContentInfo>;
+  read(ref: ContentRef): Promise<{ content: ContentInfo; bytes?: Buffer }>;
+}
+
+export interface ContentReadSnapshot {
+  content: ContentInfo;
+  resource: ResourceRef;
+  bytes: Buffer;
 }
 
 /** 空间中的内容身份、实际文件、保存与恢复共用这个入口。 */
@@ -96,6 +113,10 @@ export class ContentStore {
     const store = new ContentStore(options, directory);
     await store.blobs.open();
     await store.journal.open();
+    const formats = options.formats ?? [];
+    if (new Set(formats.map(format => format.field)).size !== formats.length ||
+      formats.some(format => ["version", "items", "__proto__", "constructor", "prototype"].includes(format.field) || !format.id || !format.field || !Check(format.schema, format.default)))
+      throw new RepaFault("invalid_input", "持久格式的字段重复、保留字段或默认值无效。");
     await store.#reload();
     return store;
   }
@@ -171,22 +192,33 @@ export class ContentStore {
         else this.#absolute(member.target.location);
       }
     }
-    if (catalog.context) this.#record({ kind: "content", ref: catalog.context.ref }, catalog);
+    for (const format of this.options.formats ?? []) {
+      const value = formatValue(catalog, format);
+      if (!Check(format.schema, value)) throw new RepaFault("invalid_storage", `持久格式 ${format.id} 的关系数据无效。`);
+      for (const ref of format.references(value)) this.#record({ kind: "content", ref }, catalog);
+    }
   }
-  async #observe(target: ContentTarget, catalog = this.#catalog, extraReadRoots: readonly string[] = []): Promise<Observed> {
+  async #observe(target: ContentTarget, catalog = this.#catalog, extraReadRoots: readonly string[] = [], maxBytes?: number): Promise<Observed> {
     const record = this.#record(target, catalog);
     const location = target.kind === "content" ? record!.location : target.location;
     const absolute = this.#absolute(location);
     if (record && record.state !== "active") return { path: absolute, image: absent, record };
     const actual = await this.#checkPath(absolute, false, extraReadRoots);
+    let stat: Stats | undefined;
+    if (maxBytes !== undefined) {
+      // 先拒绝已知超限文件；外部编辑仍可在 stat 后增长，快照读取完成后再复核。
+      try { stat = await lstat(actual); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      if (stat?.isFile()) checkByteLimit(stat.size, maxBytes);
+    }
     let image: FileImage;
     if (inside(this.options.root, actual) && actual !== this.options.root)
       image = await this.journal.image(path.relative(this.options.root, actual));
     else {
       try {
-        const stat = await lstat(actual);
-        if (stat.isDirectory()) image = { kind: "directory", mode: stat.mode & 0o777 };
-        else if (stat.isFile()) image = { kind: "file", hash: await this.blobs.put(await readFile(actual)), mode: stat.mode & 0o777 };
+        const current = stat ?? await lstat(actual);
+        if (current.isDirectory()) image = { kind: "directory", mode: current.mode & 0o777 };
+        else if (current.isFile()) image = { kind: "file", hash: await this.blobs.put(await readFile(actual)), mode: current.mode & 0o777 };
         else throw new RepaFault("unsupported_content", "目标不是普通文件。");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -205,7 +237,7 @@ export class ContentStore {
     if (observed.image.kind === "absent" && !observed.record) return null;
     return digest(canonicalJson(observed.record ?? { image: observed.image, location: this.#location(observed.path) }));
   }
-  async #info(observed: Observed): Promise<ContentInfo> {
+  async #info(observed: Observed, byteLength?: number): Promise<ContentInfo> {
     const { record, image } = observed;
     const location = this.#location(observed.path);
     const ref = record ? { spaceId: this.options.spaceId, id: record.id } : undefined;
@@ -219,24 +251,32 @@ export class ContentStore {
       ...(image.kind !== "absent" ? { fileType: image.kind } : {}),
       status: this.#blocked(observed.path, record?.id) ? "needs_recovery"
         : record?.state === "detached" ? "detached" : image.kind === "absent" ? "missing" : "available",
-      ...(image.kind === "file" ? { size: (await this.blobs.get(image.hash)).length } : {}),
+      ...(image.kind === "file" ? { size: byteLength ?? (await this.blobs.get(image.hash)).length } : {}),
       members: clone(record?.members ?? []), resources: clone(record?.resources ?? []),
       ...(record?.origin ? { origin: clone(record.origin) } : {}),
     };
   }
-  async #metadata(record: ContentRecord): Promise<ContentInfo> {
-    const absolute = this.#absolute(record.location);
-    const info = await this.#info({ path: absolute, image: absent, record });
+  async #metadata(location: FileLocation, record?: ContentRecord): Promise<ContentInfo> {
+    let actual = this.#absolute(location);
+    let stat: Stats | undefined;
+    let permissionRequired = false;
+    if (!record || record.state === "active") {
+      try {
+        actual = await this.#checkPath(actual, false);
+        stat = await lstat(actual);
+      } catch (error) {
+        if (record && error instanceof RepaFault && error.code === "permission_required") permissionRequired = true;
+        else if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    const associated = record ?? Object.values(this.#catalog.items).find(item => item.state === "active" && this.#absolute(item.location) === actual);
+    const info = await this.#info({ path: actual, image: absent, ...(associated ? { record: associated } : {}) });
     delete info.bodyRevision;
-    if (record.state !== "active") return info;
-    try {
-      const actual = await this.#checkPath(absolute, false), stat = await lstat(actual);
-      info.status = this.#blocked(actual, record.id) ? "needs_recovery" : "available";
+    if (permissionRequired) info.status = "permission_required";
+    else if (stat) {
+      info.status = this.#blocked(actual, associated?.id) ? "needs_recovery" : "available";
       if (stat.isFile()) { info.size = stat.size; info.fileType = "file"; }
       else if (stat.isDirectory()) info.fileType = "directory";
-    } catch (error) {
-      if (error instanceof RepaFault && error.code === "permission_required") info.status = "permission_required";
-      else if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     return info;
   }
@@ -249,16 +289,22 @@ export class ContentStore {
     if (typeof base === "object" ? observed.image.kind !== "absent" : current !== base)
       throw new RepaFault("revision_conflict", "内容已发生变化，请比较当前版本后保存。", { expected: base, actual: current });
   }
+  #emptyCatalog(): Catalog {
+    return emptyCatalog(Object.fromEntries((this.options.formats ?? []).map(format => [format.field, clone(format.default)])));
+  }
   async #reload(): Promise<void> {
     try {
       const bytes = await readFile(path.join(this.options.root, catalogPath), "utf8");
       const raw: unknown = JSON.parse(bytes);
       if (!Check(CatalogSchema, raw) || Object.entries(raw.items).some(([id, value]) => id !== value.id))
         throw new RepaFault("invalid_storage", "内容清单格式无效，原文件保持不变。");
+      for (const format of this.options.formats ?? []) {
+        if (!Check(format.schema, formatValue(raw, format))) throw new RepaFault("invalid_storage", `持久格式 ${format.id} 的关系数据无效。`);
+      }
       this.#catalog = raw;
       this.#catalogHash = digest(bytes);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") { this.#catalog = emptyCatalog(); this.#catalogHash = null; }
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") { this.#catalog = this.#emptyCatalog(); this.#catalogHash = null; }
       else throw error;
     }
   }
@@ -274,18 +320,43 @@ export class ContentStore {
       }
     });
   }
+  /** 查询授权后的身份、位置与 stat 元信息，不读取正文或制造字节修订。 */
+  inspect(target: ContentTarget): Promise<ContentInfo> {
+    const input = clone(target);
+    return this.queue.run(async () => {
+      const record = this.#record(input, this.#catalog);
+      return this.#metadata(input.kind === "content" ? record!.location : input.location, record);
+    });
+  }
+  async #readSnapshot(params: { target: ContentTarget; revision?: string; maxBytes?: number }): Promise<ContentReadSnapshot> {
+    const observed = await this.#observe(params.target, this.#catalog, [], params.maxBytes);
+    if (params.target.kind === "content") this.#assertStructure(observed);
+    const bytes = observed.image.kind === "file" ? await this.blobs.get(observed.image.hash) : undefined;
+    if (bytes) checkByteLimit(bytes.length, params.maxBytes);
+    const content = await this.#info(observed, bytes?.length);
+    if (params.revision !== undefined && content.bodyRevision !== params.revision)
+      throw new RepaFault("revision_conflict", "读取的内容版本已改变。", { actual: content.bodyRevision });
+    if (observed.image.kind !== "file" || !bytes) throw new RepaFault("not_found", "没有可读取的文件正文。");
+    return { content, bytes, resource: { spaceId: this.options.spaceId, id: observed.image.hash, mediaType: content.mediaType } };
+  }
+
+  /** 后台处理取得并保留同一份字节后退出内容队列，解析期间普通保存仍可继续。 */
+  readSnapshot(params: { target: ContentTarget; revision?: string; maxBytes?: number }, owner: string): Promise<ContentReadSnapshot> {
+    const input = clone(params);
+    return this.queue.run(async () => {
+      if (input.maxBytes !== undefined && (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1))
+        throw new RepaFault("invalid_input", "内容读取的字节限额必须为正整数。");
+      const snapshot = await this.#readSnapshot(input);
+      this.retention.retainAdditional(owner, [snapshot.resource]);
+      return snapshot;
+    });
+  }
+
   read(params: { target: ContentTarget; offset?: number; limit?: number; revision?: string }, host?: string): Promise<ContentRead> {
     const input = clone(params);
     const epoch = host ? this.retention.epoch(host) : undefined;
     return this.queue.run(async () => {
-      const observed = await this.#observe(input.target);
-      if (input.target.kind === "content") this.#assertStructure(observed);
-      const content = await this.#info(observed);
-      if (input.revision !== undefined && content.bodyRevision !== input.revision)
-        throw new RepaFault("revision_conflict", "分页读取期间内容已改变。", { actual: content.bodyRevision });
-      if (observed.image.kind !== "file") throw new RepaFault("not_found", "没有可读取的文件正文。");
-      const bytes = await this.blobs.get(observed.image.hash);
-      const resource: ResourceRef = { spaceId: this.options.spaceId, id: observed.image.hash, mediaType: content.mediaType };
+      const { content, bytes, resource } = await this.#readSnapshot(input);
       const prepared = host ? this.retention.prepare(host, resource, epoch) : undefined;
       const shared = { content, resource, ...(prepared ? { preparation: { id: prepared.id, expiresAt: prepared.expiresAt } } : {}) };
       let text: string;
@@ -379,7 +450,6 @@ export class ContentStore {
     const old = plan.files.get(relative);
     const before = old?.before ?? expected ?? await this.journal.image(relative);
     plan.files.set(relative, { path: relative, before, after: image });
-    plan.seen.set(relative, before);
     for (const record of Object.values(plan.catalog.items))
       if (this.#absolute(record.location) === actual) plan.affected.add(record.id);
   }
@@ -393,7 +463,7 @@ export class ContentStore {
       await this.#reload();
       const catalogHash = this.#catalogHash;
       const before = clone(this.#catalog);
-      const plan: Plan = { catalog: clone(before), before, files: new Map(), seen: new Map(), affected: new Set() };
+      const plan: Plan = { catalog: clone(before), before, files: new Map(), affected: new Set() };
       await build(plan);
       this.#validateCatalog(plan.catalog);
       if (!equal(plan.catalog, before)) {
@@ -411,7 +481,7 @@ export class ContentStore {
         const absolute = this.#absolute(record.location);
         const relative = path.relative(this.options.root, absolute);
         if (record.state === "active" && !plan.files.has(relative)) {
-          contents.push(await this.#metadata(record));
+          contents.push(await this.#metadata(record.location, record));
           observed.add(absolute);
           continue;
         }
@@ -462,61 +532,123 @@ export class ContentStore {
       await this.#put(plan, observed.path, { ...observed.image, hash: await this.blobs.put(after) }, observed.image);
     });
   }
-  applyPatch(params: { patch: string; operationId: string }): Promise<ContentChangeResult> {
-    const input = clone(params);
-    return this.#mutate(input.operationId, { method: "patch", ...input }, async (plan) => {
-      let actions;
-      try { actions = parsePatch(input.patch); }
-      catch (error) { throw new RepaFault("invalid_patch", message(error)); }
-      const touched = new Set<string>();
-      for (const action of actions) {
-        const target = this.target(action.path);
-        const observed = await this.#observe(target, plan.catalog);
-        this.#assertStructure(observed);
-        if (touched.has(observed.path)) throw new RepaFault("invalid_patch", "同一补丁多次修改同一个文件。");
-        touched.add(observed.path);
-        if (action.kind === "add") {
-          if (observed.image.kind !== "absent") throw new RepaFault("revision_conflict", "新增文件的位置已经存在。");
-          await this.#put(plan, observed.path, { kind: "file", hash: await this.blobs.put(action.content), mode: 0o644 }, observed.image);
+  async #preparePatch(plan: Plan, patch: string): Promise<void> {
+    let actions;
+    try { actions = parsePatch(patch); }
+    catch (error) { throw new RepaFault("invalid_patch", message(error)); }
+    const touched = new Set<string>();
+    for (const action of actions) {
+      const target = this.target(action.path);
+      const observed = await this.#observe(target, plan.catalog);
+      this.#assertStructure(observed);
+      if (touched.has(observed.path)) throw new RepaFault("invalid_patch", "同一补丁多次修改同一个文件。");
+      touched.add(observed.path);
+      if (action.kind === "add") {
+        if (observed.image.kind !== "absent") throw new RepaFault("revision_conflict", "新增文件的位置已经存在。");
+        await this.#put(plan, observed.path, { kind: "file", hash: await this.blobs.put(action.content), mode: 0o644 }, observed.image);
+      } else {
+        if (observed.image.kind !== "file") throw new RepaFault("not_found", "补丁目标文件不可用。", { path: action.path });
+        if (action.kind === "delete") {
+          await this.#put(plan, observed.path, absent, observed.image);
+          if (observed.record) { plan.catalog.items[observed.record.id]!.state = "deleted"; plan.affected.add(observed.record.id); }
         } else {
-          if (observed.image.kind !== "file") throw new RepaFault("not_found", "补丁目标文件不可用。", { path: action.path });
-          if (action.kind === "delete") {
-            await this.#put(plan, observed.path, absent, observed.image);
-            if (observed.record) { plan.catalog.items[observed.record.id]!.state = "deleted"; plan.affected.add(observed.record.id); }
-          } else {
-            const original = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await this.blobs.get(observed.image.hash));
-            let content: string;
-            try {
-              const bom = original.startsWith("\uFEFF") ? "\uFEFF" : "";
-              content = bom + applyTextPatch(original.slice(bom.length), action.chunks);
-            }
-            catch (error) { throw new RepaFault("ambiguous_match", message(error), { path: action.path }); }
-            const after: FileImage = { ...observed.image, hash: await this.blobs.put(content) };
-            if (action.moveTo !== undefined) {
-              const destination = await this.#checkPath(path.resolve(this.options.root, action.moveTo), true);
-              if (touched.has(destination) || (await this.journal.image(path.relative(this.options.root, destination))).kind !== "absent")
-                throw new RepaFault("revision_conflict", "移动目标位置已被占用。", { path: action.moveTo });
-              touched.add(destination);
-              await this.#put(plan, observed.path, absent, observed.image);
-              await this.#put(plan, destination, after, absent);
-              if (observed.record) { plan.catalog.items[observed.record.id]!.location = this.#location(destination); plan.affected.add(observed.record.id); }
-            } else await this.#put(plan, observed.path, after, observed.image);
+          const original = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await this.blobs.get(observed.image.hash));
+          let content: string;
+          try {
+            const bom = original.startsWith("\uFEFF") ? "\uFEFF" : "";
+            content = bom + applyTextPatch(original.slice(bom.length), action.chunks);
           }
+          catch (error) { throw new RepaFault("ambiguous_match", message(error), { path: action.path }); }
+          const after: FileImage = { ...observed.image, hash: await this.blobs.put(content) };
+          if (action.moveTo !== undefined) {
+            const destination = await this.#checkPath(path.resolve(this.options.root, action.moveTo), true);
+            if (touched.has(destination) || (await this.journal.image(path.relative(this.options.root, destination))).kind !== "absent")
+              throw new RepaFault("revision_conflict", "移动目标位置已被占用。", { path: action.moveTo });
+            touched.add(destination);
+            await this.#put(plan, observed.path, absent, observed.image);
+            await this.#put(plan, destination, after, absent);
+            if (observed.record) { plan.catalog.items[observed.record.id]!.location = this.#location(destination); plan.affected.add(observed.record.id); }
+          } else await this.#put(plan, observed.path, after, observed.image);
         }
       }
+    }
+  }
+  applyPatch(params: ContentPatchInput): Promise<ContentChangeResult> {
+    const input = clone(params);
+    return this.#mutate(input.operationId, { method: "patch", ...input }, async (plan) => {
+      await this.#preparePatch(plan, input.patch);
+      const registrations = [];
+      for (const registration of input.registrations ?? []) {
+        const target: ContentTarget = { kind: "file", spaceId: this.options.spaceId,
+          location: { kind: "relative", path: registration.path } };
+        await this.#checkPath(this.#absolute(target.location), true);
+        const observed = await this.#observePlan(target, plan);
+        this.#assertStructure(observed);
+        if (observed.image.kind === "absent") throw new RepaFault("not_found", "新身份的位置没有实际内容。", { path: registration.path });
+        const relative = path.relative(this.options.root, observed.path);
+        if (observed.image.kind === "directory" && relative !== "" && !plan.files.has(relative) && (await this.journal.image(relative)).kind === "absent")
+          await this.#put(plan, observed.path, observed.image, absent);
+        const record = this.#register(plan, observed.path, registration);
+        registrations.push({ record, registration });
+      }
+      // 所有身份先建立，初始组成可以按明确 ID 引用同一次保存中的其他新对象。
+      for (const { record, registration } of registrations) {
+        await this.#prepareComposition(plan, record, registration.members ?? [], registration.resources ?? []);
+      }
+      const composed = new Set<string>();
+      for (const composition of input.compositions ?? []) {
+        if (composed.has(composition.ref.id)) throw new RepaFault("invalid_input", "同一次补丁重复更新内容组成。");
+        composed.add(composition.ref.id);
+        const observed = await this.#observe({ kind: "content", ref: composition.ref }, plan.before);
+        this.#assertStructure(observed);
+        this.#checkBase(observed, composition.base);
+        const record = plan.catalog.items[composition.ref.id]!;
+        if (record.state !== "active") throw new RepaFault("not_found", "被移除的内容不能同时更新组成。");
+        await this.#prepareComposition(plan, record, composition.members, composition.resources);
+      }
     });
+  }
+  async #observePlan(target: ContentTarget, plan: Plan): Promise<Observed> {
+    const observed = await this.#observe(target, plan.catalog);
+    const relative = path.relative(this.options.root, observed.path);
+    const image = plan.files.get(relative)?.after;
+    if (image) return { ...observed, image };
+    if (observed.image.kind === "absent" && [...plan.files.values()].some(file =>
+      file.after.kind !== "absent" && file.path.startsWith(`${relative}${path.sep}`))) {
+      return { ...observed, image: { kind: "directory", mode: 0o755 } };
+    }
+    return observed;
+  }
+  #register(plan: Plan, actual: string, input: { role: "document" | "material"; id?: string }): ContentRecord {
+    if (Object.values(plan.catalog.items).some(item => item.state === "active" && this.#absolute(item.location) === actual))
+      throw new RepaFault("already_registered", "该位置已有内容身份，请使用已有引用。");
+    const id = input.id ?? randomUUID();
+    if (!Check(IdSchema, id) || plan.catalog.items[id]) throw new RepaFault("invalid_input", "新内容标识不可用。");
+    const record: ContentRecord = { id, location: this.#location(actual), role: input.role,
+      state: "active", mediaType: mediaType(actual), members: [], resources: [] };
+    plan.catalog.items[id] = record;
+    plan.affected.add(id);
+    return record;
+  }
+  async #prepareComposition(plan: Plan, record: ContentRecord, members: ContentInfo["members"], resources: ResourceRef[]): Promise<void> {
+    for (const member of members) {
+      const value = await this.#observePlan(member.target, plan);
+      this.#assertStructure(value);
+    }
+    for (const resource of resources) {
+      if (resource.spaceId !== this.options.spaceId) throw new RepaFault("invalid_input", "组成资源不属于当前空间。");
+      await this.blobs.get(resource.id);
+    }
+    record.members = members;
+    record.resources = resources;
+    plan.affected.add(record.id);
   }
   associate(params: { location: FileLocation; role: "document" | "material"; operationId: string; id?: string }, authorizeExternal?: (file: string) => Promise<void>): Promise<ContentChangeResult> {
     const input = clone(params);
     return this.#mutate(input.operationId, { method: "associate", ...input }, async (plan) => {
       if (input.location.kind === "external") await authorizeExternal?.(this.#absolute(input.location));
       const actual = await this.#checkPath(this.#absolute(input.location), false);
-      if (Object.values(plan.catalog.items).some((item) => item.state === "active" && this.#absolute(item.location) === actual))
-        throw new RepaFault("already_registered", "该位置已有内容身份，请使用已有引用。");
-      const id = input.id ?? randomUUID();
-      if (!Check(IdSchema, id) || plan.catalog.items[id]) throw new RepaFault("invalid_input", "新内容标识不可用。");
-      plan.catalog.items[id] = { id, location: this.#location(actual), role: input.role, state: "active", mediaType: mediaType(actual), members: [], resources: [] };
-      plan.affected.add(id);
+      this.#register(plan, actual, input);
     });
   }
   transfer(kind: "move" | "copy" | "collect", params: TransferInput): Promise<ContentChangeResult> {
@@ -597,8 +729,9 @@ export class ContentStore {
         let after = node.image;
         if (kind === "copy" && after.kind === "file") {
           let bytes = await this.blobs.get(after.hash);
-          if (node.record?.id === plan.before.context?.ref.id && plan.before.context?.kind === "composition") bytes = remapContextComposition(bytes, mapping);
-          else if (mediaType(node.path) === "text/markdown" && ids.size) {
+          const formats = (this.options.formats ?? []).filter(format => format.files(formatValue(plan.before, format)).some(ref => ref.id === node.record?.id));
+          for (const format of formats) bytes = format.remapFile(bytes, mapping);
+          if (formats.length === 0 && mediaType(node.path) === "text/markdown" && ids.size) {
             let text: string;
             try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); }
             catch { throw new RepaFault("unsupported_format", "该 Markdown 的编码需要相应的引用处理器。"); }
@@ -648,21 +781,8 @@ export class ContentStore {
     return this.#mutate(input.operationId, { method: "composition", ...input }, async (plan) => {
       const observed = await this.#observe({ kind: "content", ref: input.ref }, plan.catalog);
       this.#assertStructure(observed); this.#checkBase(observed, input.base);
-      for (const member of input.members) {
-        const value = await this.#observe(member.target, plan.catalog);
-        this.#assertStructure(value);
-      }
-      for (const resource of input.resources) {
-        if (resource.spaceId !== this.options.spaceId) throw new RepaFault("invalid_input", "组成资源不属于当前空间。");
-        await this.blobs.get(resource.id);
-      }
-      const record = plan.catalog.items[input.ref.id]!;
-      record.members = input.members; record.resources = input.resources;
-      plan.affected.add(record.id);
+      await this.#prepareComposition(plan, plan.catalog.items[input.ref.id]!, input.members, input.resources);
     });
-  }
-  context(): Promise<ContextState> {
-    return this.queue.run(async () => ({ binding: clone(this.#catalog.context), revision: digest(canonicalJson(this.#catalog.context)) }));
   }
   hold(params: { id: string; targets?: ContentTarget[]; resources?: ResourceRef[] }, host: string): Promise<ResourceHold> {
     const input = clone(params), requestHash = digest(canonicalJson(params));
@@ -679,7 +799,7 @@ export class ContentStore {
         if (record?.location.kind === "external") {
           if (seen.has(`external:${record.id}`)) return;
           seen.add(`external:${record.id}`);
-          const content = await this.#metadata(record);
+          const content = await this.#metadata(record.location, record);
           if (content.status === "needs_recovery") this.#assertStructure({ path: this.#absolute(record.location), image: absent, record });
           snapshots.push({ target, content });
           return;
@@ -758,62 +878,58 @@ export class ContentStore {
       this.options.assertOwned(); await this.#reload();
       return captureContent({ destinationRoot, targetSpaceId, sourceSpaceId: this.options.spaceId,
         currentCatalog: this.#catalog, journal: this.journal, sourceBlobs: this.blobs,
-        retained: this.retention, roots: await this.#resourceRoots() });
+        retained: this.retention, roots: await this.#resourceRoots(), formats: this.options.formats ?? [] });
     });
   }
 
-  setContext(params: { binding: ContextBinding; base: string; operationId: string }): Promise<ContentChangeResult> {
-    const input = clone(params);
-    return this.#mutate(input.operationId, { method: "context", ...input }, async (plan) => {
-      if (digest(canonicalJson(plan.catalog.context)) !== input.base) throw new RepaFault("revision_conflict", "语境绑定已经改变。");
-      if (input.binding) {
-        const observed = await this.#observe({ kind: "content", ref: input.binding.ref }, plan.catalog);
-        this.#assertStructure(observed);
-        if (observed.record?.state !== "active") throw new RepaFault("not_found", "语境内容不可用。");
-        plan.affected.add(input.binding.ref.id);
-      }
-      plan.catalog.context = input.binding;
-    });
+  #format(field: string): ContentFormat {
+    const format = this.options.formats?.find(format => format.field === field);
+    if (!format) throw new RepaFault("content_format_unavailable", "该持久关系格式尚未安装。", { field });
+    return format;
   }
-  contextView(): Promise<ContextView> {
-    return this.queue.run(async () => {
-      const binding = this.#catalog.context;
-      const sources: ContextView["sources"] = [];
-      const read = async (ref: ContentRef): Promise<string> => {
+
+  /** 在同一内容提交边界读取完整字节与关系；回调中的入口不再次入队。 */
+  observe<T>(work: (scope: ContentObservation) => Promise<T>): Promise<T> {
+    return this.queue.run(() => work({
+      metadata: (field) => clone(formatValue(this.#catalog, this.#format(field))),
+      describe: async (ref) => {
+        const record = this.#record({ kind: "content", ref }, this.#catalog);
+        if (!record) throw new RepaFault("not_found", "内容身份不存在。");
+        const observed = { path: this.#absolute(record.location), image: absent, record };
+        this.#assertStructure(observed);
+        return this.#info(observed);
+      },
+      read: async (ref) => {
         const observed = await this.#observe({ kind: "content", ref });
         this.#assertStructure(observed);
-        if (observed.image.kind !== "file") throw new RepaFault("context_unavailable", "语境成员没有可读取的正文。", { ref });
-        sources.push({ ref, revision: observed.image.hash });
-        try { return new TextDecoder("utf-8", { fatal: true }).decode(await this.blobs.get(observed.image.hash)); }
-        catch { throw new RepaFault("unsupported_format", "该语境成员需要明确的文本表示。", { ref }); }
-      };
-      let text = "";
-      if (binding?.kind === "document") text = await read(binding.ref);
-      else if (binding) {
-        const body = await read(binding.ref);
-        let data: unknown;
-        try { data = JSON.parse(body); } catch { throw new RepaFault("invalid_context", "语境组成清单不是有效 JSON。"); }
-        if (!Check(ContextCompositionSchema, data)) throw new RepaFault("invalid_context", "语境组成清单格式无效。");
-        const parts: string[] = [];
-        const member = async (item: { ref: ContentRef; mode: "expand" | "reference"; title?: string; note?: string }) => {
-          const label = item.title ?? item.ref.id;
-          if (item.mode === "expand") parts.push(`## ${label}\n${await read(item.ref)}`);
-          else {
-            const record = this.#record({ kind: "content", ref: item.ref }, this.#catalog)!;
-            if (this.#blocked(this.#absolute(record.location), record.id)) throw new RepaFault("recovery_required", "语境引用仍需恢复。", { ref: item.ref });
-            parts.push(`## ${label}\nrepa:${record.role}/${record.id}`);
-          }
-          if (item.note) parts.push(item.note);
+        return {
+          content: await this.#info(observed),
+          ...(observed.image.kind === "file" ? { bytes: await this.blobs.get(observed.image.hash) } : {}),
         };
-        for (const item of data.items) {
-          if ("items" in item) { parts.push(`# ${item.title}`); for (const child of item.items) await member(child); }
-          else await member(item);
-        }
-        text = parts.join("\n\n");
+      },
+    }));
+  }
+
+  setMetadata(params: {
+    field: string; value: unknown; base: string; operationId: string; request: unknown;
+  }): Promise<ContentChangeResult> {
+    const input = clone(params);
+    const format = this.#format(input.field);
+    if (!Check(format.schema, input.value)) throw new RepaFault("invalid_input", "持久关系值格式无效。");
+    // request 只保留所属能力既有操作的去重形状；不开放文件计划或另建事务。
+    return this.#mutate(input.operationId, input.request, async (plan) => {
+      if (digest(canonicalJson(formatValue(plan.catalog, format))) !== input.base)
+        throw new RepaFault("revision_conflict", "持久关系已经改变。");
+      for (const ref of format.references(input.value)) {
+        const observed = await this.#observe({ kind: "content", ref }, plan.catalog);
+        this.#assertStructure(observed);
+        if (observed.record?.state !== "active") throw new RepaFault("not_found", "关系引用的内容不可用。");
+        plan.affected.add(ref.id);
       }
-      return { text, sources, revision: digest(canonicalJson({ text, sources })) };
+      plan.catalog[input.field] = input.value;
     });
   }
+
   operation(id: string): Promise<ContentOperation | { operationId: string; status: "unknown" | "pruned" }> {
     return this.queue.run(async () => {
       if (this.journal.retired.has(id)) return { operationId: id, status: "pruned" };
@@ -830,8 +946,8 @@ export class ContentStore {
       await this.#reload();
       this.#validateCatalog(this.#catalog);
       const catalogChange = entry.files.find((file) => file.path === catalogPath);
-      const before: Catalog = catalogChange?.before.kind === "file" ? JSON.parse((await this.blobs.get(catalogChange.before.hash)).toString()) : emptyCatalog();
-      const after: Catalog = catalogChange?.after.kind === "file" ? JSON.parse((await this.blobs.get(catalogChange.after.hash)).toString()) : emptyCatalog();
+      const before: Catalog = catalogChange?.before.kind === "file" ? JSON.parse((await this.blobs.get(catalogChange.before.hash)).toString()) : this.#emptyCatalog();
+      const after: Catalog = catalogChange?.after.kind === "file" ? JSON.parse((await this.blobs.get(catalogChange.after.hash)).toString()) : this.#emptyCatalog();
       for (const recordId of entry.affectedIds) {
         const record = this.#catalog.items[recordId];
         if (!record) continue;
@@ -860,8 +976,8 @@ export class ContentStore {
       if (!entry || entry.status !== "committed") throw new RepaFault("invalid_input", "只能撤回已完成的内容操作。");
       for (const file of entry.files) {
         if (file.path === catalogPath) {
-          const before: Catalog = file.before.kind === "file" ? JSON.parse((await this.blobs.get(file.before.hash)).toString()) : emptyCatalog();
-          const after: Catalog = file.after.kind === "file" ? JSON.parse((await this.blobs.get(file.after.hash)).toString()) : emptyCatalog();
+          const before: Catalog = file.before.kind === "file" ? JSON.parse((await this.blobs.get(file.before.hash)).toString()) : this.#emptyCatalog();
+          const after: Catalog = file.after.kind === "file" ? JSON.parse((await this.blobs.get(file.after.hash)).toString()) : this.#emptyCatalog();
           plan.catalog = mergeInverse(before, after, plan.catalog) as Catalog;
           for (const id of entry.affectedIds) {
             if (!plan.catalog.items[id] && after.items[id])

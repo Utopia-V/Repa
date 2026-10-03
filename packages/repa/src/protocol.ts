@@ -1,7 +1,21 @@
 import { Type, type Static, type TSchema } from "typebox";
-import { object, IdSchema as id, literals } from "./schema.js";
+import { object, IdSchema as id, RevisionSchema, literals } from "./schema.js";
 import { contentMethods } from "./content/protocol.js";
 import { spaceMethods } from "./spaces/schema.js";
+import { modelMethods, ModelSelectionSchema } from "./models/schema.js";
+import { learningMethods } from "./learning/protocol.js";
+import { CapabilityScopeSchema, CapabilitySelectionSchema, CapabilityDescriptorSchema, CapabilitySourceSchema, CapabilityEventSchema } from "./capabilities/schema.js";
+import { PluginPackageSchema } from "./plugins/schema.js";
+import { executionMethods } from "./execution/protocol.js";
+import { ExecutionViewSchema } from "./execution/schema.js";
+export * from "./execution/schema.js";
+import { packageMethods } from "./plugins/protocol.js";
+export * from "./capabilities/schema.js";
+export * from "./search/protocol.js";
+export * from "./learning/schema.js";
+export * from "./models/schema.js";
+export * from "./configuration/runtime.js";
+import { AssembledPromptSchema, ThinkingLevelSchema } from "./configuration/runtime.js";
 export * from "./spaces/schema.js";
 import { ContentChangeResultSchema, ResourceRefSchema } from "./content/schema.js";
 import { PromptSettingsSchema, SettingsGetParamsSchema, SettingsSetParamsSchema, SettingsResetParamsSchema, SettingsViewSchema, SettingScopeSchema } from "./configuration/schema.js";
@@ -9,7 +23,7 @@ export * from "./content/schema.js";
 export * from "./configuration/schema.js";
 export { RepaFault } from "./errors.js";
 
-import { SubmitSchema, ContinueSchema, RequestSchema, QueueSchema, BackgroundRequestSchema, RunOptionsSchema, InteractionSchema, ReplySchema } from "./requests/schema.js";
+import { SubmitSchema, ContinueSchema, RequestSchema, QueueSchema, BackgroundRequestSchema, RunOptionsSchema, InteractionSchema, ReplySchema, InputSchema } from "./requests/schema.js";
 export * from "./requests/schema.js";
 
 export const PROTOCOL_VERSION = 1;
@@ -77,6 +91,7 @@ export const RunSchema = object({
   ]),
   createdAt: Type.Number(),
   promptSettings: Type.Optional(PromptSettingsSchema),
+  prompt: Type.Optional(AssembledPromptSchema),
   requestIds: Type.Optional(Type.Array(id)),
   options: Type.Optional(RunOptionsSchema),
   finishedAt: Type.Optional(Type.Number()),
@@ -129,6 +144,7 @@ export const SnapshotSchema = object({
   spaces: Type.Array(SpaceSchema),
   sessions: Type.Array(SessionSchema),
   processing: Type.Optional(Type.Array(BackgroundRequestSchema)),
+  execution: Type.Optional(Type.Array(ExecutionViewSchema)),
 });
 export type Snapshot = Static<typeof SnapshotSchema>;
 export const ScopeSchema = Type.Union([
@@ -138,6 +154,8 @@ export const ScopeSchema = Type.Union([
 ]);
 export type Scope = Static<typeof ScopeSchema>;
 export const ChangeSchema = Type.Union([
+  object({ type: Type.Literal("capability"), event: CapabilityEventSchema }),
+  object({ type: Type.Literal("connection"), connectionId: id }),
   object({ type: Type.Literal("session_removed"), ...key }),
   object({ type: Type.Literal("content"), spaceId: id, revision: text,
     paths: Type.Array(text), result: Type.Optional(ContentChangeResultSchema) }),
@@ -162,6 +180,11 @@ export const ChangeSchema = Type.Union([
   object({ type: Type.Literal("run"), run: RunSchema }),
   object({ type: Type.Literal("request"), request: RequestSchema }),
   object({ type: Type.Literal("processing"), request: BackgroundRequestSchema }),
+  object({ type: Type.Literal("execution"), execution: ExecutionViewSchema }),
+  object({
+    type: Type.Literal("execution_output"), spaceId: id, requestId: id,
+    source: CapabilitySourceSchema, execId: id, stream: literals(["stdout", "stderr"]), text,
+  }),
   object({ type: Type.Literal("queue"), queue: QueueSchema }),
   object({
     type: Type.Literal("interaction"),
@@ -202,6 +225,28 @@ const method = <P extends TSchema, R extends TSchema>(
 export const methods = {
   ...contentMethods,
   ...spaceMethods,
+  ...modelMethods,
+  ...learningMethods,
+  ...packageMethods,
+  ...executionMethods,
+  "capability.describe": method(object({ scope: CapabilityScopeSchema }), object({
+    capabilities: Type.Array(CapabilityDescriptorSchema),
+    packages: Type.Array(PluginPackageSchema),
+    issues: Type.Array(object({ pluginId: id, message: text })),
+  })),
+  "capability.invoke": method(object({ scope: CapabilityScopeSchema, requestId: id, ...CapabilitySelectionSchema.properties, input: Type.Unknown() }), Type.Union([
+    object({ kind: Type.Literal("inline"), requestId: id, result: Type.Unknown() }),
+    object({ kind: Type.Literal("background"), request: BackgroundRequestSchema }),
+  ])),
+  "prompts.preview": method(object({ ...key }), object({
+    prompt: AssembledPromptSchema,
+    settings: Type.Array(SettingsViewSchema),
+  })),
+  "model.complete": method(object({
+    spaceId: id, requestId: id, input: InputSchema, model: ModelSelectionSchema,
+    system: text, thinkingLevel: Type.Optional(ThinkingLevelSchema),
+    maxTokens: Type.Optional(Type.Integer({ minimum: 1 })),
+  }), BackgroundRequestSchema),
   "settings.get": method(SettingsGetParamsSchema, SettingsViewSchema),
   "settings.set": method(SettingsSetParamsSchema, SettingsViewSchema),
   "settings.reset": method(SettingsResetParamsSchema, SettingsViewSchema),
@@ -230,19 +275,21 @@ export const methods = {
   "session.remove": method(SessionKeySchema, Type.Null()),
   "session.submit": method(SubmitSchema, RequestSchema),
   "session.continue": method(ContinueSchema, RequestSchema),
-  "request.get": method(object({ spaceId: id, requestId: id }),
+  "request.get": method(object({ spaceId: Type.Optional(id), requestId: id }),
     Type.Union([RequestSchema, BackgroundRequestSchema, object({ requestId: id, status: Type.Literal("unknown") })])),
-  "request.cancel": method(object({ spaceId: id, requestId: id }), BackgroundRequestSchema),
+  "request.cancel": method(object({ spaceId: Type.Optional(id), requestId: id }), BackgroundRequestSchema),
   "queue.list": method(SessionKeySchema, QueueSchema),
   "queue.resume": method(SessionKeySchema, QueueSchema),
   "queue.cancel": method(object({ ...key, requestId: id }), RequestSchema),
-  "session.history": method(object({ ...key, before: Type.Optional(id), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })) }),
-    object({ messages: Type.Array(MessageSchema), before: Type.Optional(id) })),
+  "session.history": method({ ...object({ ...key, before: Type.Optional(id), around: Type.Optional(id),
+    revision: Type.Optional(RevisionSchema), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })) }),
+    not: { required: ["before", "around"] },
+  }, object({ revision: RevisionSchema, messages: Type.Array(MessageSchema), before: Type.Optional(id) })),
   "run.get": method(object({ spaceId: id, runId: id }),
     Type.Union([RunSchema, object({ id, status: Type.Literal("unknown") })])),
   "run.cancel": method(object({ spaceId: id, runId: id }), RunSchema),
   "interaction.reply": method(
-    object({ spaceId: id, sessionId: Type.Optional(id), id, value: ReplySchema }),
+    object({ spaceId: Type.Optional(id), sessionId: Type.Optional(id), id, value: ReplySchema }),
     Type.Null(),
   ),
   "state.get": method(object({ scope: ScopeSchema }), SnapshotSchema),

@@ -1,6 +1,5 @@
 import { parse, postprocess, preprocess } from "micromark";
-import { Check } from "typebox/value";
-import { ContextCompositionSchema, type ContentRef } from "./schema.js";
+import type { ContentRef } from "./schema.js";
 
 export interface ReferenceMapping {
   fromSpace: string;
@@ -25,17 +24,4 @@ export function remapMarkdown(text: string, ids: ReadonlyMap<string, string>): s
   let result = text;
   for (const edit of edits.sort((a,b) => b.start-a.start)) result = result.slice(0, edit.start) + edit.value + result.slice(edit.end);
   return result;
-}
-
-/** 组成格式由语境能力拥有；这里只映射该已知格式中的明确内容引用。 */
-export function remapContextComposition(bytes: Buffer, mapping: ReferenceMapping): Buffer {
-  let raw: unknown;
-  try { raw = JSON.parse(bytes.toString("utf8")); } catch { return bytes; }
-  if (!Check(ContextCompositionSchema, raw)) return bytes;
-  const before = JSON.stringify(raw);
-  for (const item of raw.items) {
-    if ("items" in item) for (const child of item.items) child.ref = mapReference(child.ref, mapping);
-    else item.ref = mapReference(item.ref, mapping);
-  }
-  return JSON.stringify(raw) === before ? bytes : Buffer.from(`${JSON.stringify(raw, null, 2)}\n`);
 }

@@ -1,0 +1,35 @@
+{
+  "repository": "https://github.com/openai/codex",
+  "ref": "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
+  "workspaceVersion": "0.153.4",
+  "archiveUrl": "https://codeload.github.com/openai/codex/tar.gz/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
+  "archiveSha256": "bbbf66ffa30846f1e9bc3ae8a87a5aa0bb768efee8dbb94759dc9eb64bb4aa3a",
+  "cargoLockSha256": "3494b8a78d0f643556a83a9cc184e912bcab9f4c5640288952f4223452ba5dc8",
+  "buildCargoLockSha256": "a2cb91dfb2e8112bc81d05158fa00b9698e2df8cc1ae0547b5dc5606a44904d3",
+  "toolchain": "1.95.0",
+  "target": "x86_64-unknown-linux-gnu",
+  "opensslDev": {
+    "version": "3.0.13-0ubuntu3.16",
+    "url": "https://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl-dev_3.0.13-0ubuntu3.16_amd64.deb",
+    "sha256": "2b4734df0475e305ac03abb0a2cc5659651ed37ef02d967a1c4033a154cf714b"
+  },
+  "bubblewrap": {
+    "version": "0.11.2",
+    "sourceDirectory": "vendor/bubblewrap",
+    "license": "LGPL-2.0-or-later",
+    "patch": "parent-lifecycle.patch",
+    "patchSha256": "3d867ee8d386c825441536e81c5bf023421a461115e2aac6c1dcf52c0134a5f6",
+    "libcapDev": {
+      "version": "2.66",
+      "filename": "libcap-dev_2.66-5ubuntu2.4_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/libc/libcap2/libcap-dev_2.66-5ubuntu2.4_amd64.deb",
+      "sha256": "07f2462867569a2119a2ad0f1593232663f2d1612b791c230d22a8d73a15abee"
+    },
+    "meson": {
+      "version": "1.3.2",
+      "filename": "meson_1.3.2-1ubuntu1_all.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/universe/m/meson/meson_1.3.2-1ubuntu1_all.deb",
+      "sha256": "5a9ab497255cc51f97866c359fc5cc75a1be4890ad376e471ca45d76bbea4803"
+    }
+  }
+}

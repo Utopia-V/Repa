@@ -1,18 +1,6 @@
-import { isDeepStrictEqual } from "node:util";
-import {
-  formatSkillsForPrompt,
-  sessionEntryToContextMessages,
-  type BuildSystemPromptOptions,
-  type ContextEvent,
-  type SessionManager,
-  type SessionProjection,
-} from "@earendil-works/pi-coding-agent";
-import { Check } from "typebox/value";
+import { formatSkillsForPrompt, type BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 import type { PromptSettings } from "../configuration/schema.js";
-import { ContextViewSchema, type ContextView } from "../content/schema.js";
-
-export type WorkingMessage = ContextEvent["messages"][number];
-export const CONTEXT_MESSAGE_TYPE = "repa.learning-context";
+import type { AssembledPrompt } from "../configuration/runtime.js";
 
 /** 装配由 Repa 选择的来源，包括显式为空的基础提示。 */
 export function assembleSystemPrompt(
@@ -44,137 +32,24 @@ export function assembleSystemPrompt(
   }
   return sections.filter((section) => section.length > 0).join("\n\n");
 }
-
-function contextContent(view: ContextView): string {
-  const source = JSON.stringify({ revision: view.revision, sources: view.sources });
-  return [
-    "<repa_learning_context>",
-    "学习空间中持续维护的学习背景，以下为本次完整视图。",
-    `来源与修订：${source}`,
-    "",
-    view.text,
-    "</repa_learning_context>",
-  ].join("\n");
-}
-
-export function makeContextMessage(
-  view: ContextView,
-  timestamp: number = Date.now(),
-): WorkingMessage {
-  return {
-    role: "custom",
-    customType: CONTEXT_MESSAGE_TYPE,
-    content: contextContent(view),
-    display: false,
-    details: structuredClone(view),
-    timestamp,
+export function describePrompt(
+  options: BuildSystemPromptOptions,
+  settings: PromptSettings,
+): AssembledPrompt {
+  const empty: PromptSettings = {
+    base: "", append: [], projectInstructions: false, skillCatalog: false,
+    environment: false, learningContext: false, fileChanges: "on-demand",
   };
-}
-
-export function contextSnapshot(message: WorkingMessage): ContextView | undefined {
-  if (
-    message.role !== "custom" ||
-    message.customType !== CONTEXT_MESSAGE_TYPE ||
-    !Check(ContextViewSchema, message.details)
-  ) {
-    return undefined;
-  }
-  // details 不能将已被其他处理改写或截断的正文当作完整模型输入。
-  return message.content === contextContent(message.details)
-    ? message.details
-    : undefined;
-}
-
-function compactedSnapshot(manager: SessionManager) {
-  const contextEntries = manager.buildContextEntries();
-  const compaction = contextEntries[0];
-  if (compaction?.type !== "compaction") return undefined;
-
-  // 查询该压缩点的祖先，后续快照和其他分支不能改变边界时的背景。
-  const branch = manager.getBranch(compaction.id);
-  for (let index = branch.length - 2; index >= 0; index--) {
-    const sourceEntry = branch[index]!;
-    const snapshot = sessionEntryToContextMessages(sourceEntry).findLast(
-      (message) => contextSnapshot(message) !== undefined,
-    );
-    if (!snapshot || snapshot.role !== "custom") continue;
-    // Pi 的显式上下文编辑仍有效，不能从原始历史复活已排除或替换的背景。
-    const edit = manager.getBranch().findLast(
-      (item) => item.type === "context_edit" && item.targetId === sourceEntry.id,
-    );
-    if (edit?.type === "context_edit" &&
-        (edit.replacement === null || !isDeepStrictEqual(edit.replacement.content, snapshot.content))) return undefined;
-    if (contextEntries.some((kept) => kept.id === sourceEntry.id)) return undefined;
-    return { sourceEntry, snapshot, compaction };
-  }
-  return undefined;
-}
-
-/** 只投影模型工作视图；会话记录及其分支结构继续由 Pi 持有。 */
-export function projectContext(
-  messages: WorkingMessage[],
-  manager: SessionManager,
-  enabled: boolean,
-): WorkingMessage[] {
-  if (!enabled) {
-    return messages.filter(
-      (message) =>
-        message.role !== "custom" || message.customType !== CONTEXT_MESSAGE_TYPE,
-    );
-  }
-  const restored = compactedSnapshot(manager);
-  if (!restored) return messages;
-  const { compaction, snapshot } = restored;
-  const summaryIndex = messages.findIndex(
-    (message) =>
-      message.role === "compactionSummary" &&
-      message.summary === compaction.summary &&
-      message.tokensBefore === compaction.tokensBefore &&
-      message.timestamp === Date.parse(compaction.timestamp),
-  );
-  if (summaryIndex < 0 || isDeepStrictEqual(messages[summaryIndex + 1], snapshot)) return messages;
-  return [...messages.slice(0, summaryIndex + 1), snapshot, ...messages.slice(summaryIndex + 1)];
-}
-
-/** 保持来源对应，使 Pi 的原有计量与请求投影消费同一份工作视图。 */
-export function projectSessionContext(
-  projection: SessionProjection,
-  manager: SessionManager,
-  settings: Pick<PromptSettings, "learningContext" | "fileChanges">,
-): SessionProjection {
-  const messages = projectContext(projection.messages, manager, settings.learningContext)
-    .filter((message) => settings.fileChanges !== "on-demand" ||
-      message.role !== "custom" || message.customType !== "repa.file-changes");
-  const selected = new Set(messages);
-  const entries = projection.entries.map((entry) => ({
-    ...entry, messages: entry.messages.filter((message) => selected.has(message)),
-  }));
-  const original = new Set(projection.messages);
-  const restored = messages.find((message) => !original.has(message));
-  if (restored) {
-    const sourceEntry = compactedSnapshot(manager)?.sourceEntry;
-    if (!sourceEntry) throw new Error("语境快照缺少会话来源。");
-    const boundary = entries.findIndex((entry) => entry.sourceEntry.type === "compaction" && entry.messages.length > 0);
-    entries.splice(boundary + 1, 0, { sourceEntry, messages: [restored] });
-  }
-  return { ...projection, entries, messages };
-}
-
-/** 只适配公开的模型投影查询；所有历史读写仍委托给原 SessionManager。 */
-export function withModelContext(
-  manager: SessionManager,
-  settings: () => Pick<PromptSettings, "learningContext" | "fileChanges">,
-): SessionManager {
-  const projection = () => projectSessionContext(manager.buildSessionProjection(), manager, settings());
-  return new Proxy(manager, {
-    get(target, property) {
-      if (property === "buildSessionProjection") return projection;
-      if (property === "buildSessionContext") return () => {
-        const { messages, thinkingLevel, model } = projection();
-        return { messages, thinkingLevel, model };
-      };
-      const value = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
+  return {
+    system: assembleSystemPrompt(options, settings),
+    sources: [
+      { id: "base", enabled: true, content: settings.base },
+      { id: "append", enabled: settings.append.length > 0, content: settings.append.join("\n\n") },
+      ...(["projectInstructions", "skillCatalog", "environment"] as const).map(id => ({
+        id, enabled: settings[id],
+        content: assembleSystemPrompt(options, { ...empty, [id]: settings[id] }),
+      })),
+      { id: "fileChanges", enabled: settings.fileChanges !== "on-demand", dynamic: true, reference: "repa.file-changes" },
+    ],
+  };
 }

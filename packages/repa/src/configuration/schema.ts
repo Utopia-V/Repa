@@ -12,13 +12,6 @@ export const SettingScopeSchema = Type.Union([
 ]);
 export type SettingScope = Static<typeof SettingScopeSchema>;
 
-export const DEFAULT_BASE_PROMPT = [
-  "You are Repa, a general learning Agent.",
-  "Help the learner with the current request using available learning resources and trusted tools when useful.",
-  "Keep model knowledge distinct from material supplied by the learner.",
-  "Do not force a fixed teaching workflow.",
-].join("\n");
-
 export const PromptSettingsSchema = object({
   base: Type.String(),
   append: Type.Array(Type.String()),
@@ -38,10 +31,18 @@ export const SettingsEntrySchema = object({
   revision: RevisionSchema,
 });
 export type SettingsEntry = Static<typeof SettingsEntrySchema>;
+export const SettingsDefinitionSchema = object({
+  key: Type.String({ minLength: 1 }),
+  schema: Type.Record(Type.String(), Type.Unknown()),
+  default: Type.Unknown(),
+  scopes: Type.Array(literals(["application", "space", "session"]), { minItems: 1, uniqueItems: true }),
+});
+export type SettingsDefinition = Static<typeof SettingsDefinitionSchema>;
 export const SettingsViewSchema = object({
   namespace: Type.String({ minLength: 1 }),
   scope: SettingScopeSchema,
   entries: Type.Array(SettingsEntrySchema),
+  definitions: Type.Array(SettingsDefinitionSchema),
 });
 export type SettingsView = Static<typeof SettingsViewSchema>;
 

@@ -7,7 +7,8 @@ import { BlobStore } from "../storage/blobs.js";
 import { CatalogSchema, catalogPath, type Catalog } from "./catalog.js";
 import type { FileJournal } from "./journal.js";
 import type { ResourceRetention } from "./resources.js";
-import { mapReference, remapContextComposition } from "./references.js";
+import { mapReference } from "./references.js";
+import { formatFiles, formatValue, type ContentFormat } from "./formats.js";
 import type { ContentTarget, FileLocation, ResourceRef } from "./schema.js";
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -15,7 +16,7 @@ const clone = <T>(value: T): T => structuredClone(value);
 export async function captureContent(options: {
   destinationRoot: string; sourceSpaceId: string; targetSpaceId: string;
   currentCatalog: Catalog; journal: FileJournal; sourceBlobs: BlobStore;
-  retained: ResourceRetention; roots: ReadonlySet<string>;
+  retained: ResourceRetention; roots: ReadonlySet<string>; formats: readonly ContentFormat[];
 }): Promise<FileLocation[]> {
   const { destinationRoot, sourceSpaceId, targetSpaceId, currentCatalog, journal, sourceBlobs, retained, roots } = options;
   const copying = targetSpaceId !== sourceSpaceId;
@@ -33,36 +34,39 @@ export async function captureContent(options: {
   const resource = (value: ResourceRef): ResourceRef => value.spaceId === sourceSpaceId ? { ...value, spaceId: targetSpaceId } : value;
   const catalog = (value: Catalog): Catalog => {
     const next = clone(value);
-    if (next.context) next.context.ref = mapReference(next.context.ref, mapping);
+    for (const format of options.formats) {
+      if (Object.hasOwn(next, format.field)) next[format.field] = format.remapMetadata(formatValue(next, format), mapping);
+    }
     for (const record of Object.values(next.items)) {
       record.members = record.members.map(member => ({ ...member, target: target(member.target) }));
       record.resources = record.resources.map(resource);
     }
     return next;
   };
-  const contextPath = (value: Catalog): string | undefined => {
-    if (value.context?.kind !== "composition") return;
-    const record = value.items[value.context.ref.id];
-    if (record?.location.kind === "relative") return path.normalize(record.location.path);
+  const ownedFiles = formatFiles(currentCatalog, options.formats);
+  const addFiles = (value: Catalog) => {
+    for (const [file, formats] of formatFiles(value, options.formats)) {
+      const existing = ownedFiles.get(file) ?? [];
+      ownedFiles.set(file, [...new Set([...existing, ...formats])]);
+    }
   };
-  const contextPaths = new Set<string>();
-  const currentPath = contextPath(currentCatalog); if (currentPath) contextPaths.add(currentPath);
   const historical = new Map<string, Catalog>();
   for (const entry of journal.entries.values()) for (const file of entry.files) if (file.path === catalogPath)
     for (const image of [file.before, file.after]) if (image.kind === "file" && !historical.has(image.hash)) {
       const raw: unknown = JSON.parse((await sourceBlobs.get(image.hash)).toString("utf8"));
       if (!Check(CatalogSchema, raw)) throw new RepaFault("invalid_storage", "历史内容清单无法解析。");
       historical.set(image.hash, raw);
-      const location = contextPath(raw); if (location) contextPaths.add(location);
+      addFiles(raw);
     }
   const mapped = new Map<string, string>();
   const remapImage = async (file: string, hash: string): Promise<string> => {
     const key = `${file}:${hash}`;
     if (mapped.has(key)) return mapped.get(key)!;
     const bytes = await sourceBlobs.get(hash);
-    const changed = historical.has(hash) && file === catalogPath
-      ? Buffer.from(`${JSON.stringify(catalog(historical.get(hash)!), null, 2)}\n`)
-      : contextPaths.has(file) ? remapContextComposition(bytes, mapping) : bytes;
+    let changed = bytes;
+    const savedCatalog = historical.get(hash);
+    if (savedCatalog && file === catalogPath) changed = Buffer.from(`${JSON.stringify(catalog(savedCatalog), null, 2)}\n`);
+    else for (const format of ownedFiles.get(file) ?? []) changed = format.remapFile(changed, mapping);
     const id = await blobs.put(changed); mapped.set(key, id); return id;
   };
   for (const original of journal.entries.values()) {
@@ -85,13 +89,15 @@ export async function captureContent(options: {
   await writeJson(path.join(destinationRoot, catalogPath), copying ? catalog(currentCatalog) : currentCatalog);
   await writeJson(path.join(directory, "resources.json"), retention.state);
   if (journal.retired.size) await writeJson(path.join(directory, "retired-operations.json"), { version: 1, items: Object.fromEntries(journal.retired) });
-  if (copying) for (const file of contextPaths) {
+  if (copying) for (const [file, formats] of ownedFiles) {
     const absolute = await journal.filePath(file);
     const targetFile = path.join(destinationRoot, file);
     try {
       const stat = await lstat(absolute);
       if (!stat.isFile() || stat.isSymbolicLink()) continue;
-      const bytes = await readFile(targetFile), next = remapContextComposition(bytes, mapping);
+      const bytes = await readFile(targetFile);
+      let next: Buffer = bytes;
+      for (const format of formats) next = format.remapFile(next, mapping);
       if (!bytes.equals(next)) await atomicWrite(targetFile, next, stat.mode & 0o777);
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }

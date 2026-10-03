@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+import { Type } from "typebox";
 import { Check } from "typebox/value";
 import { RepaFault } from "../src/errors.js";
-import { ConfigStore, DEFAULT_BASE_PROMPT } from "../src/configuration/store.js";
+import type { SettingsNamespaceDefinition } from "../src/configuration/definitions.js";
+import { ConfigStore } from "../src/configuration/store.js";
 import {
   SettingsSetParamsSchema,
   SettingsViewSchema,
@@ -32,7 +34,7 @@ function fixture(t: TestContext) {
     appDirectory,
     appFile: path.join(appDirectory, "repa-settings.json"),
     spaceFile: (spaceId: string) => path.join(resolveSpace(spaceId), ".repa", "settings.json"),
-    open: () => new ConfigStore({ appDirectory, resolveSpace }),
+    open: (definitions: SettingsNamespaceDefinition[] = []) => new ConfigStore({ appDirectory, resolveSpace, definitions }),
   };
 }
 
@@ -53,7 +55,7 @@ test("默认学习组合可直接查询，读取和重复重置未设置项不�
   const f = fixture(t);
   const store = f.open();
   assert.deepEqual(await store.prompts(alphaOne), {
-    base: DEFAULT_BASE_PROMPT,
+    base: "",
     append: [],
     projectInstructions: false,
     skillCatalog: true,
@@ -148,10 +150,10 @@ test("同项过期基准不覆盖后续修改，同值重试保持修订，重�
     reset,
   );
   const explicitDefault = await store.set({
-    scope: alpha, namespace: "prompts", key: "base", value: DEFAULT_BASE_PROMPT,
+    scope: alpha, namespace: "prompts", key: "base", value: "",
     base: entry(reset, "base").revision,
   });
-  assert.equal(entry(explicitDefault, "base").override, DEFAULT_BASE_PROMPT);
+  assert.equal(entry(explicitDefault, "base").override, "");
   assert.deepEqual(entry(explicitDefault, "base").source, alpha);
   assert.notEqual(entry(explicitDefault, "base").revision, entry(reset, "base").revision);
 });
@@ -260,9 +262,9 @@ test("损坏或无效的持久设置阻止回退和写入，保留文件以供�
   const file = f.spaceFile("alpha");
   const valid = readFileSync(file, "utf8");
   const invalidValue = JSON.parse(valid);
-  invalidValue.prompts.base.value = null;
+  invalidValue.namespaces.prompts.base.value = null;
   const unknownKey = JSON.parse(valid);
-  unknownKey.prompts.unknown = { revision: "r", value: true };
+  unknownKey.namespaces.prompts.unknown = { revision: "r", value: true };
   for (const bytes of ["{broken json}\n", JSON.stringify(invalidValue), JSON.stringify(unknownKey)]) {
     writeFileSync(file, bytes);
     await assert.rejects(store.get(alphaOne, "prompts"), fault("configuration"));
@@ -274,4 +276,144 @@ test("损坏或无效的持久设置阻止回退和写入，保留文件以供�
   }
   writeFileSync(file, valid);
   assert.equal((await f.open().prompts(alphaOne)).base, "空间提示");
+});
+
+const runDefinition: SettingsNamespaceDefinition = {
+  namespace: "run",
+  settings: {
+    thinking: {
+      schema: Type.Union([Type.String(), Type.Null()]),
+      default: "medium",
+      scopes: ["application", "space", "session"],
+    },
+  },
+};
+const modelDefinition: SettingsNamespaceDefinition = {
+  namespace: "models",
+  settings: {
+    connection: { schema: Type.String(), default: "", scopes: ["application"] },
+  },
+};
+
+async function saveNamespace(store: ConfigStore, scope: SettingScope, namespace: string, key: string, value: unknown) {
+  const previous = await store.get(scope, namespace);
+  return store.set({ scope, namespace, key, value, base: entry(previous, key).revision });
+}
+
+test("登记定义公开逐项约束，读取继承应用配置，受限作用域不能覆盖或重置", async (t) => {
+  const f = fixture(t);
+  const store = f.open([runDefinition, modelDefinition]);
+  const view = await store.get(alphaOne, "models");
+  assert(Check(SettingsViewSchema, view));
+  assert.deepEqual(view.definitions, [{ key: "connection", ...modelDefinition.settings.connection }]);
+  await saveNamespace(store, application, "models", "connection", "local");
+  assert.equal(entry(await store.get(alphaOne, "models"), "connection").effective, "local");
+  assert.deepEqual(entry(await store.get(alphaOne, "models"), "connection").source, application);
+  for (const scope of [alpha, alphaOne]) {
+    await assert.rejects(
+      store.set({ scope, namespace: "models", key: "connection", value: "other", base: "unset" }),
+      fault("configuration"),
+    );
+    await assert.rejects(
+      store.reset({ scope, namespace: "models", key: "connection", base: "unset" }),
+      fault("configuration"),
+    );
+  }
+  await saveNamespace(store, application, "run", "thinking", "high");
+  await saveNamespace(store, alpha, "run", "thinking", "");
+  const explicitNull = await saveNamespace(store, alphaOne, "run", "thinking", null);
+  assert.equal(entry(explicitNull, "thinking").override, null);
+  assert.equal(entry(explicitNull, "thinking").effective, null);
+  assert.deepEqual(entry(explicitNull, "thinking").source, alphaOne);
+  const reset = await store.reset({
+    scope: alphaOne, namespace: "run", key: "thinking", base: entry(explicitNull, "thinking").revision,
+  });
+  assert.equal(entry(reset, "thinking").effective, "");
+  assert.deepEqual(entry(reset, "thinking").source, alpha);
+  assert(!Object.hasOwn(entry(reset, "thinking"), "override"));
+  assert.throws(() => f.open([{
+    namespace: "run",
+    settings: { thinking: { schema: Type.String(), default: null, scopes: ["application"] } },
+  }]), fault("configuration"));
+});
+
+test("不同定义登记的后端写入同一文件，未启用命名空间保留并在重新登记后验证", async (t) => {
+  const f = fixture(t);
+  const runStore = f.open([runDefinition]);
+  const modelStore = f.open([modelDefinition]);
+  await Promise.all([
+    saveNamespace(runStore, application, "run", "thinking", "high"),
+    saveNamespace(modelStore, application, "models", "connection", "local"),
+  ]);
+  await Promise.all([
+    saveNamespace(runStore, alphaOne, "run", "thinking", null),
+    save(modelStore, alphaOne, "base", "会话提示"),
+  ]);
+  const before = readFileSync(f.spaceFile("alpha"), "utf8");
+  const saved = JSON.parse(before);
+  assert.equal(saved.version, 2);
+  assert.deepEqual(saved.sessions.one.namespaces.run.thinking.value, null);
+  const inactive = f.open();
+  await assert.rejects(inactive.get(alphaOne, "run"), fault("unsupported_settings_namespace"));
+  await save(inactive, alphaOne, "append", ["会话补充"]);
+  const after = JSON.parse(readFileSync(f.spaceFile("alpha"), "utf8"));
+  assert.deepEqual(after.sessions.one.namespaces.run, saved.sessions.one.namespaces.run);
+  const reopened = f.open([runDefinition, modelDefinition]);
+  assert.equal(entry(await reopened.get(alphaOne, "run"), "thinking").effective, null);
+  assert.equal(entry(await reopened.get(alphaOne, "models"), "connection").effective, "local");
+  assert.equal((await reopened.prompts(alphaOne)).base, "会话提示");
+  assert.deepEqual((await reopened.prompts(alphaOne)).append, ["会话补充"]);
+  const incompatible = f.open([{
+    namespace: "run",
+    settings: { thinking: { schema: Type.String(), default: "medium", scopes: ["application", "space", "session"] } },
+  }]);
+  const finalBytes = readFileSync(f.spaceFile("alpha"), "utf8");
+  await assert.rejects(incompatible.get(alphaOne, "run"), fault("configuration"));
+  await assert.rejects(save(incompatible, alphaOne, "base", "不能写入"), fault("configuration"));
+  assert.equal(readFileSync(f.spaceFile("alpha"), "utf8"), finalBytes);
+});
+
+test("旧版提示覆盖与重置修订按原义读取，首次实际写入只迁移目标文件", async (t) => {
+  const f = fixture(t);
+  mkdirSync(f.appDirectory, { recursive: true });
+  mkdirSync(path.dirname(f.spaceFile("alpha")), { recursive: true });
+  const applicationBytes = JSON.stringify({
+    format: "repa.settings", version: 1,
+    prompts: { base: { revision: "app-base", value: "应用提示" }, append: { revision: "app-append", value: [] } },
+  });
+  const spaceBytes = JSON.stringify({
+    format: "repa.settings", version: 1,
+    prompts: { base: { revision: "space-base", value: "" } },
+    sessions: {
+      one: { prompts: { base: { revision: "reset-base" }, environment: { revision: "session-environment", value: false } } },
+      two: { prompts: { base: { revision: "session-base", value: "会话二" } } },
+    },
+  });
+  writeFileSync(f.appFile, applicationBytes);
+  writeFileSync(f.spaceFile("alpha"), spaceBytes);
+  const store = f.open([runDefinition]);
+  const before = await store.get(alphaOne, "prompts");
+  assert.equal(entry(before, "base").effective, "");
+  assert.equal(entry(before, "base").revision, "reset-base");
+  assert.equal(entry(before, "environment").effective, false);
+  assert.equal((await store.prompts(alphaTwo)).base, "会话二");
+  assert.equal(readFileSync(f.appFile, "utf8"), applicationBytes);
+  assert.equal(readFileSync(f.spaceFile("alpha"), "utf8"), spaceBytes);
+  await store.reset({ scope: alphaOne, namespace: "prompts", key: "base", base: "reset-base" });
+  assert.equal(readFileSync(f.spaceFile("alpha"), "utf8"), spaceBytes);
+  await saveNamespace(store, alphaOne, "run", "thinking", "high");
+  const migrated = JSON.parse(readFileSync(f.spaceFile("alpha"), "utf8"));
+  const legacy = JSON.parse(spaceBytes);
+  assert.equal(migrated.version, 2);
+  assert(!Object.hasOwn(migrated, "prompts"));
+  assert.deepEqual(migrated.namespaces.prompts, legacy.prompts);
+  assert.deepEqual(migrated.sessions.one.namespaces.prompts, legacy.sessions.one.prompts);
+  assert.deepEqual(migrated.sessions.two.namespaces.prompts, legacy.sessions.two.prompts);
+  assert.equal(readFileSync(f.appFile, "utf8"), applicationBytes);
+  assert.deepEqual(await f.open([runDefinition]).get(alphaOne, "prompts"), before);
+  await save(store, application, "environment", false);
+  const migratedApplication = JSON.parse(readFileSync(f.appFile, "utf8"));
+  assert.equal(migratedApplication.version, 2);
+  assert.deepEqual(migratedApplication.namespaces.prompts.base, JSON.parse(applicationBytes).prompts.base);
+  assert.deepEqual(migratedApplication.namespaces.prompts.append, JSON.parse(applicationBytes).prompts.append);
 });

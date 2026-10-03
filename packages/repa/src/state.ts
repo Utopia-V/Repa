@@ -8,6 +8,14 @@ export function contains(scope: Scope, key: Partial<SessionKey>): boolean {
 }
 
 export function relevant(scope: Scope, change: Change): boolean {
+  if (change.type === "capability") return change.event.scope.kind === "application" ||
+    !("spaceId" in scope) || scope.spaceId === change.event.scope.spaceId;
+  if (change.type === "execution" || change.type === "execution_output") {
+    const execution = change.type === "execution" ? change.execution : change;
+    return contains(scope, { spaceId: execution.spaceId,
+      ...(execution.source.kind === "agent" ? { sessionId: execution.source.sessionId } : {}) });
+  }
+  if (change.type === "connection") return true;
   if (["message", "delta", "tool"].includes(change.type) && !("sessionId" in scope)) return false;
   if (change.type === "settings") {
     if (change.scope.kind === "application") return true;
@@ -34,6 +42,14 @@ function upsert<T>(items: T[], item: T, matches: (item: T) => boolean): void {
 
 /** Applies the public changes in place; callers choose when to copy or render their state. */
 export function applyChange(state: Snapshot, change: Change): void {
+  if (change.type === "capability") return;
+  if (change.type === "execution_output") return;
+  if (change.type === "execution") {
+    state.execution ??= [];
+    state.execution = state.execution.filter(item => item.id !== change.execution.id);
+    if (["authorizing", "running", "cancelling"].includes(change.execution.status)) state.execution.push(change.execution);
+    return;
+  }
   if (change.type === "processing") {
     state.processing ??= [];
     state.processing = state.processing.filter(item => item.spaceId !== change.request.spaceId || item.requestId !== change.request.requestId);
@@ -44,7 +60,7 @@ export function applyChange(state: Snapshot, change: Change): void {
     state.sessions = state.sessions.filter(session => session.spaceId !== change.spaceId || session.sessionId !== change.sessionId);
     return;
   }
-  if (change.type === "settings" || change.type === "request" || change.type === "queue") return;
+  if (change.type === "settings" || change.type === "request" || change.type === "queue" || change.type === "connection") return;
   if (change.type === "content") {
     const space = state.spaces.find((entry) => entry.id === change.spaceId);
     if (space) space.contentRevision = change.revision;

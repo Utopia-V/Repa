@@ -53,12 +53,33 @@ export class ContentAccessStore {
       return false;
     if (!this.#read().reads.some((grant) => grant.spaceId === spaceId && grant.file === canonicalFile))
       return false;
+    return this.#validGrant(canonicalFile);
+  }
+
+  /** 一次读取授权表，随后逐项核对真实路径；不让替换后的符号链接继承授权。 */
+  grantedPaths(spaceId: string): string[] {
+    if (!Check(IdSchema, spaceId)) return [];
+    return this.#read().reads.filter(grant => grant.spaceId === spaceId && this.#validGrant(grant.file)).map(grant => grant.file);
+  }
+
+  #validGrant(canonicalFile: string): boolean {
     try {
       // 路径或其父目录被替换为符号链接后，不沿用原先目标的授权。
-      return realpathSync(canonicalFile) === canonicalFile && lstatSync(canonicalFile).isFile();
+      return lstatSync(canonicalFile).isFile() && realpathSync(canonicalFile) === canonicalFile;
     } catch (error) {
-      // 保留失联原件的授权，让内容模块继续区分来源缺失与尚未授权。
-      return (error as NodeJS.ErrnoException).code === "ENOENT";
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false;
+      // 原件缺失仍保留授权，但悬空的文件或父目录链接不继承原路径的授权。
+      let ancestor = path.dirname(canonicalFile);
+      for (;;) {
+        try {
+          return lstatSync(ancestor).isDirectory() && realpathSync(ancestor) === ancestor;
+        } catch (missing) {
+          if ((missing as NodeJS.ErrnoException).code !== "ENOENT") return false;
+          const parent = path.dirname(ancestor);
+          if (parent === ancestor) return false;
+          ancestor = parent;
+        }
+      }
     }
   }
 
