@@ -1,13 +1,21 @@
 # Agent、提示与学习语境
 
-`PiConversationHost` 将 Repa 的内容、提示配置和学习语境接到锁定的 Pi SDK 0.87.1。Pi 持有模型调用、会话历史、工具循环、重试、token 统计和压缩；Repa 持有需要提供哪些来源、何时读取空间当前语境，以及工具操作的内容身份和保存责任。
+`PiConversationHost` 把 Repa 的内容工具、提示配置和背景接到 Pi 0.87.1。模型调用、会话历史、工具循环、重试、token 统计和压缩使用 SDK 的实现。
+
+## 设计思路
+
+当你开始一项 Agent 任务，Repa 需要把请求、所选配置和启用的背景交给 Pi。Pi 已经能够运行 Agent，这里要接入的是模型实际看到哪些内容、工具怎样读写空间，以及你的选择怎样用于本次运行。
+
+这些信息由各自的模块准备。Application 受理请求并固定配置，内容模块提供文件与资源，学习能力生成当前背景，Host 再把它们接到 Pi。你要调整学习背景的组织方式，就修改学习能力；要调整文件保存，则在内容模块中处理。
+
+背景的接入还会影响 token 统计和压缩。模型使用的消息多出一段背景时，SDK 估算上下文也应当看见它。因此，适配不只发生在最后发送请求的地方，还要覆盖 Pi 用于计量的会话投影。下面分别说明运行准备、提示来源和这处适配。
 
 ## 一次运行的入口
 
-1. `RepaApplication` 受理请求前解析应用、空间和会话提示覆盖，保存本次 `promptSettings`。同标识重传先查询原请求，不重新读取默认值。
-2. 运行实际开始时，Host 取得当前学习语境视图并装配系统提示。语境读取失败发生在新用户消息进入 Pi 历史之前，运行记录保留失败原因。
-3. Host 根据当前分支和压缩边界得到实际工作消息，比较最近完整语境快照。变化或缺失时，追加 `repa.learning-context` 自定义消息，然后交给 Pi 处理用户输入。
-4. 工具调用和后续模型轮沿用该运行的提示与入口语境。工具仍能读取当前文件；下一次独立运行才重新取得入口语境。
+1. Application 解析应用、空间和会话设置，受理时保存连接、认证身份、提示和运行选项。重传先查询原记录。
+2. 运行开始时，Host 准备已启用背景并装配提示。学习背景由 Application 调用选定的 `repa.context.preview` 取得，使用本次 Agent 的来源、取消信号和服务。准备失败时，新用户消息尚未进入 Pi 历史，请求保留失败原因。
+3. Host 根据当前分支和压缩边界，找到最近的完整背景快照。视图变化或快照缺失时追加新消息；官方学习来源沿用 `repa.learning-context` 消息格式。
+4. 工具调用和后续模型轮使用同一份入口提示与背景。工具可以读取当前文件，下一次独立运行再重新准备背景。
 
 应用输入通过 `session.submit` 受理，独立请求、steer 和持久排队分别处理。Host 使用 Pi `prompt()` / `steer()` 及图片参数投递，应用记录实际进入历史的消息关联。独立队列在开始时才准备当前背景并启动新运行，失败接续不重放旧工具。公共接口与持久语义见[输入、请求与运行](requests.md)。
 
@@ -17,42 +25,53 @@
 
 | 能力 | SDK 入口与当前接法 | 后续 Repa 接入 |
 | --- | --- | --- |
-| 运行中补充、后续输入与图片 | `AgentSession.steer()`、`followUp()`、`prompt()` 的 `streamingBehavior` / `images`，以及 `sendUserMessage()`；当前 Host 接文本、图片 `prompt()` 与 `steer()`，独立 follow-up 由持久队列在开始时投递 | #19 已接公开输入、目标运行、资源与历史关联；具名连接及完整配置来源继续与 #18 对接 |
-| 模型、认证与独立调用 | `ModelRuntime` 提供发现、认证、`complete()` / `stream()`；当前普通会话已使用它，具名连接界面尚未接通 | #18 增加连接身份、选择、配置来源与认证进度。凭据沿用 Pi 存储或 `CredentialStore`，不新增 provider 调用栈 |
-| 工具启用与运行选项 | `getAllTools()`、`setActiveToolsByName()`、`setModel()`、`setThinkingLevel()`；当前只接内容工具和已有配置 | #18/#19 在适用的运行边界应用选择；对外保留 Repa 的继承、受理时配置与授权语义 |
+| 运行中补充、后续输入与图片 | `AgentSession.steer()`、`followUp()`、`prompt()` 的 `streamingBehavior` / `images`，以及 `sendUserMessage()`；当前 Host 接文本、图片 `prompt()` 与 `steer()`，独立 follow-up 由持久队列在开始时投递 | 公开输入、目标运行、资源、历史关联及受理时配置绑定均已接通；图形输入组件继续消费相同契约 |
+| 模型、认证与独立调用 | `ModelRuntime` 提供发现、认证、`complete()` / `stream()`；当前已接具名连接、Pi 独立凭据槽位和 `model.complete` | 后端与 CLI 已可配置，图形前端消费相同接口；实现与取舍见[模型配置](models-configuration.md) |
+| 工具启用与运行选项 | `getAllTools()`、`setActiveToolsByName()`、`setModel()`、`setThinkingLevel()`；受理时固定选择，在 Host 的运行入口应用 | 可选工具包括已接入的内容工具、`bash`、已启用共享能力工具和可信扩展；配置不绕过所属执行权限 |
 | 历史、计量、压缩、重试与取消 | `SessionManager`、`getContextUsage()`、`compact()`、`abort()`、`waitForIdle()`；当前已复用历史、自动压缩、重试及取消收尾 | 应用已保存请求与队列状态并提供历史分页；前端按公共接口接入，不另写历史树、计数器、工具循环或外层自动重试 |
-| 命令与基本文件检索 | `createBashToolDefinition()` / `BashOperations.exec`，以及 `grep`、`find`、`ls` 工厂；当前尚未启用 | #21 在实际执行边界接授权与沙箱；#22 接授权范围、内容身份及来源定位，优先复用已有搜索实现 |
-| Agent 资源与包 | `DefaultResourceLoader`、`DefaultPackageManager`、工具及扩展注册；当前已能加载可信 Pi 扩展、Skill 和提示 | #20 补跨 Agent/前端共享能力、组件入口与空间数据生命周期；普通 Pi 包无需等待整个共享宿主 |
+| 命令执行 | `createBashToolDefinition()` / `createBashTool()` / `BashOperations.exec`；参数、截断与工具流程复用 SDK，实际进程由 Repa 执行适配层持有 | 授权、取消和独立 helper 已接通；平台安装条件见[执行说明](execution.md) |
+| 内容与历史检索 | 已接通官方搜索能力，底层文本搜索使用原生 ripgrep，历史读取复用 Pi 的不可变条目与分支位置 | 查询范围、快照和定位见[搜索说明](search-materials.md) |
+| Agent 资源与包 | `DefaultResourceLoader`、`DefaultPackageManager`、工具及扩展注册；当前已能加载可信 Pi 扩展、Skill 和提示 | 已接共享后端能力、静态多入口清单、可信资源过滤及安装级快照；前端组件加载仍由前端宿主接入，详见[插件装配](plugins.md) |
 
-Pi 的运行中队列不替代 Repa 的受理记录。后者保存请求来源、绑定配置、资源保留与恢复所需状态，Pi 负责实际投递和 Agent 循环。带独立运行语义的后续请求在实际开始时准备背景；不能预先把全部持久队列交给 Pi 并假定配置切换、运行归属和重启恢复自然成立。
+Pi 的队列负责运行中的实际投递，Repa 的请求记录保存来源、配置、资源和恢复状态。独立后续请求留在 Repa 队列，轮到它时再准备背景并建立运行；这样，每项任务的配置与资源都有明确归属，重启后也能查询原记录。
 
 `createAgentSessionServices()` 与 `createAgentSessionFromServices()` 可用于收拢设置、模型与资源加载的装配，替换现有手工装配前保留提示覆盖、信任和自定义内容工具入口。`AgentSessionRuntime` 围绕替换当前会话组织生命周期；Repa 的多会话协调仍需保证切换查看对象不停止其他运行，不能直接用它替换应用层。
 
-现有语境投影、内容工具与空会话持久化适配仍有具体用途：分别维持来源关闭和压缩后计量、共同保存语义，以及创建后立即可恢复的会话身份。SDK 承担相同行为时再移除这些适配。
+现有通用背景投影、内容工具与空会话持久化适配仍有具体用途：分别维持来源关闭和压缩后计量、共同保存语义，以及创建后立即可恢复的会话身份。SDK 承担相同行为时再移除这些适配。
 
 ## 配置与实际来源
 
 `settings.get` 返回逐项有效值、覆盖、来源和覆盖修订。继承顺序为默认值、应用、空间、会话。`settings.set` 保存完整的单项值，`settings.reset` 删除该项覆盖；空字符串、空列表和 `false` 都是有效覆盖，不表示恢复默认。
 
-当前 `prompts` 命名空间包含 `base`、`append`、`projectInstructions`、`skillCatalog`、`environment`、`learningContext` 和 `fileChanges`。基础提示与追加段可以明确为空；项目说明还受宿主的扩展信任约束。默认启用学习语境、Skill 清单和工作目录说明，默认不载入项目说明，普通文件变化采用 `on-demand`。
+当前 `prompts` 命名空间包含 `base`、`append`、`projectInstructions`、`skillCatalog`、`environment`、`learningContext` 和 `fileChanges`。基础提示与追加段可以明确为空；项目说明还受宿主的扩展信任约束。默认安装启用官方学习能力；其默认提示由学习能力提供，禁用组合时默认基础提示为空，用户明确保存的覆盖仍有效。自动学习来源、Skill 清单和工作目录说明按各自设置控制，默认不载入项目说明，普通文件变化采用 `on-demand`。整个学习能力关闭与仅关闭自动注入分别表达，见[学习语境](learning.md)。
 
-应用配置目录优先使用 `ApplicationOptions.appDirectory`，其次使用显式 `agentDir`，否则使用 `$XDG_CONFIG_HOME/repa` 或 `~/.config/repa`。Repa 的应用提示覆盖保存在其中的 `repa-settings.json`，外部材料授权保存在 `repa-content-access.json`；Pi 的模型、认证及自身设置继续使用 Pi 配置入口。空间和会话覆盖保存在空间内的 `.repa/settings.json`。
+应用配置目录优先使用 `ApplicationOptions.appDirectory`，其次使用显式 `agentDir`，否则使用 `$XDG_CONFIG_HOME/repa` 或 `~/.config/repa`。Repa 覆盖保存在其中的 `repa-settings.json`，外部材料授权保存在 `repa-content-access.json`，具名连接位于 `models/`；凭据文件交由 Pi 管理。空间和会话覆盖保存在空间内的 `.repa/settings.json`。`runtime` 与 `summaryPrompts` 的空值含义、注册入口及版本迁接见[模型配置](models-configuration.md#按项配置与来源)。
 
-提示由 [assembleSystemPrompt](../../packages/repa/src/agent/context.ts) 装配。Host 使用最后的 Pi inline extension，通过 `before_agent_start` 提供运行入口提示，通过 `context_with_system` 提供每次请求的完整系统提示并保留 Pi 解析的工具定义。后一个入口也覆盖扩展命令直接触发模型的路径，因此显式空提示和关闭的来源不会回落到 SDK 默认值。Repa 不包装 `prepareNextTurnWithContext` 或 `transformContext`，也不直接写入 Agent 的消息或系统提示状态。
+提示由 [assembleSystemPrompt](../../packages/repa/src/agent/context.ts) 装配。Host 在最后一个 Pi inline extension 中，通过 `before_agent_start` 提供入口提示，再通过 `context_with_system` 提供每次请求的完整系统提示，保留 Pi 解析的工具定义。后一个入口也覆盖扩展直接调用模型的路径，因此用户清空提示或关闭来源时，实际调用也使用这些选择。
 
 普通文件变化在 `context` 事件中合并检查。需要告知时，在这次模型请求前通过 `SessionManager.appendCustomMessageEntry` 保存一次变化消息，再用 `refreshContext()` 刷新公开投影并将消息交给本次请求。这个边界位于已完成的工具调用与结果之后；Pi 0.87.1 的 `sendCustomMessage({ triggerTurn: false })` 在流式执行中会延后到工具轮结束，不能用于要求本次调用立即看到的变化。文件保存本身仍不启动模型。
 
-工具说明仍来自实际启用的工具定义，可信扩展可以执行自己的代码和模型请求。辅助摘要提示、工具启用配置及扩展贡献的统一编辑界面尚未接入；当前设置不能被解释为已控制所有第三方代码的行为。
+工具说明来自实际启用的内容工具、共享能力工具与可信扩展定义。能力工具只描述适合模型填写的业务参数；Application 注入本次空间、会话、运行、请求身份和父取消信号，同一 `invoke` 处理 API 与工具路径，不再为工具另建后台请求。模型与会话窄服务继续复用既有调用和请求入口，见[共享能力](capabilities.md#作用域与服务)。
+
+`prompts.preview` 通过 `discoverPluginResources` 读取能够确定的静态来源，使用与运行时相同的信任和资源选择。默认的官方学习实现可以直接生成视图；其他实现与动态扩展贡献只标记来源，实际运行时再执行。预览不会加载扩展或后台工厂，也不安装缺失包。
+
+实际主调用和压缩提示保存到所属请求。压缩使用 Pi 的公开 `compact`，通过 `session_before_compact` 接入摘要设置，分段、计量、重试和记录仍由 SDK 完成。完整覆盖的适配与升级条件见[提示预览与压缩](models-configuration.md#提示预览与压缩)。统一的图形编辑界面由前端接入。
 
 ## 背景在工作视图与历史中的位置
 
-学习语境快照包含完整正文、所见来源及修订。Pi 的 JSONL 保留过去实际提供过的消息；空间内容持有当前语境。关闭 `learningContext` 后，Host 从模型工作视图排除该来源，并停止自动补回；独立预览、文档和绑定仍然存在。
+学习语境快照包含完整正文、来源和修订。Pi JSONL 保存过去实际提供过的消息，空间中的文档保存当前内容。
 
-压缩后，`projectContext` 通过 Pi 的公开会话树接口寻找压缩边界以前的最近完整快照。若它已离开保留段，就放回对应摘要之后；保留段中已有的快照继续沿用原位置。Pi 显式 `context_edit` 省略或替换了该快照时，不从原始历史复活旧正文。
+`agent/background.ts` 通过 `BackgroundSource` 的 `codec/enabled/prepare` 取得、识别和控制背景。学习能力提供自己的 codec、旧消息模板和 preview 函数；Application 按能力选择取得视图，再交给 Host。默认组合在 Application 中接入，学习规则留在学习模块。
 
-`withModelContext` 为交给 SDK 的 `SessionManager` 提供局部代理，只适配 `buildSessionProjection()` 与 `buildSessionContext()`；历史读写、分支和持久格式继续委托给原实例。`projectSessionContext` 同时维护模型消息及其原始条目来源，使 Pi 的现有 token 估算和模型请求使用同一份含回填背景的投影。原实例仍可读取未被 Repa 投影改变的历史，没有额外写入背景副本。
+关闭 `learningContext` 后，Host 排除可识别的自动快照并停止补回，历史记录与独立预览保留。关闭整个 `repa-learning` 会停用官方组合和自动背景；没有替代实现时，公共学习调用返回未找到能力，已经保存的文档和绑定保留。具体开关含义见[学习语境](learning.md#关闭启用与替换)。
 
-保留这处适配的原因是 Pi 0.87.1 在请求的 `context` hook 之前，直接根据会话投影决定是否压缩；只在发送前添加背景会遗漏这部分估算。此前直接改写 `agent.state.messages` 的接法已不再控制 SDK 后续请求。计数算法继续由 Pi 提供；以后若增加等价的公开投影扩展点，应优先替换这处代理。
+压缩后，`projectBackgrounds` 按每个背景 codec 通过 Pi 的公开会话树接口寻找压缩边界以前的最近完整快照。若它已离开保留段，就放回对应摘要之后；保留段中已有的快照继续沿用原位置。Pi 显式 `context_edit` 省略或替换了该快照时，不从原始历史复活旧正文。
+
+Pi 0.87.1 在执行请求的 `context` hook 之前，就根据会话投影判断是否需要压缩。如果只在发送前补入背景，计量会漏掉这部分消息。
+
+因此，`withModelBackgrounds` 为交给 SDK 的 `SessionManager` 提供局部代理，适配 `buildSessionProjection()` 和 `buildSessionContext()`。`projectSessionBackgrounds` 同时保留消息与原始条目的对应关系，让 Pi 的 token 估算和模型请求使用相同的含背景投影。历史读写、分支和持久化仍交给原实例，不额外写入背景副本。
+
+这处适配依赖 SDK 的投影入口和压缩顺序。升级 Pi 时应重点核对；若上游提供等价的公开扩展点，就可以替换代理，计量算法始终由 Pi 提供。
 
 Pi 的默认摘要准备直接读取历史，因此 `session_before_compact` 也处理已关闭的来源。过滤仅移除能识别的自动消息；用户消息、工具结果和已有摘要里的历史信息保留。完整快照因其他处理被截断或改写时，不依据旧 `details` 将它误认为完整背景。
 
@@ -73,7 +92,7 @@ Pi 的 system 消息条目保存提示与工具配置，不投影为公开交流
 
 只读相关片段也能取得整篇保存所需的版本基准。完整正文的构造仍是调用者的责任，局部修改可以直接使用 `edit` 或补丁。工具适配器生成操作标识，保存成功后的观察基准来自实际回执，不能再读取一个更晚的版本冒充本次结果。
 
-取消在交给内容操作前检查。已经进入保存过程的操作先按内容模块规则收尾；成功落盘的结果不会因为稍后到达取消而改报为未保存。当前没有命令工具，也没有把 Pi 默认 `edit.renderCall` 的直接磁盘预览路径接入受管理内容。
+取消在交给内容操作前检查。已经进入保存过程的操作先按内容模块规则收尾；成功落盘的结果不会因为稍后到达取消而改报为未保存。命令产生的文件变化按外部编辑重新观察，不冒充内容事务。Pi 默认 `edit.renderCall` 的直接磁盘预览路径未接入受管理内容。
 
 ## SDK 升级与验证
 

@@ -6,7 +6,7 @@ Repa 是一个独立、本地优先的学习 Agent 应用。用户在自己的�
 
 Repa 的提示词、背景、工具和界面组件可以按需配置与组合，官方提供开箱即用的学习组合。
 
-以下设计概览描述已经确定的产品行为与架构，供产品讨论、接口设计和开发协作使用。当前代码提供独立本机后端、公开应用协议、无 UI 客户端、TUI，以及 Web／Desktop 工作台骨架；图形界面的真实学习流程和默认学习能力的完整组合仍待接通。[实现范围与待验证选择](#设计记录与实现验证)说明两者的对应关系，现有代码的运行方式见[运行现有 TUI](#运行现有-tui)。
+以下设计概览描述已经确定的产品行为与架构，供产品讨论、接口设计和开发协作使用。当前代码提供独立本机后端、公开应用协议、无 UI 客户端、TUI，以及 Web／Desktop 工作台骨架；后端默认学习组合已接通，图形界面、交互产物和真实学习体验仍待联合验收。[实现范围与待验证选择](#设计记录与实现验证)说明两者的对应关系，现有代码的运行方式见[运行现有 TUI](#运行现有-tui)。
 
 当前设计与调查依据的全部文件列在[设计文件清单](#设计文件清单)。建议先阅读本页总览，再查阅领域约定和相应的架构决策。
 
@@ -42,6 +42,8 @@ Repa 的提示词、背景、工具和界面组件可以按需配置与组合，
 一项学习目标可以跨多个会话推进，一个会话也可以讨论多个目标。知识内容、学习目标与学习活动保留各自含义，文档粒度由实际内容决定。实际作答、对结果的解释和未来安排分别表达，判断可以随着新反馈修正。
 
 ### 默认学习能力
+
+当前后端默认附带教学、材料、规划、复习、整理与学习语境，启停、替换和当前验证范围见[官方学习组合](docs/development/official-learning.md)。下表描述产品目标范围，图形展示与在线材料获取尚未全部实现。
 
 官方安装包附带可以直接开展学习的能力组合，默认体验由产品负责，各项能力通过相同公开接口接入并支持替换或关闭。
 
@@ -245,14 +247,15 @@ Repa 提供内容读写、引用与组成、数据和资源传递、动作调用
 
 设计范围为单机本地使用，多端同步留待后续。文档中的默认行为和职责约定属于目标设计，当前实现范围如下。
 
-表中的“待接入”包括 SDK 已有而 Repa 尚未公开的能力：steer、follow-up、图片输入、模型认证与调用、工具选择和命令工具均有 Pi 入口。后续工作以接通这些能力为主，补足请求归属、空间授权、内容与资源等应用语义；具体边界见[SDK 能力与接入范围](docs/development/agent-runtime.md#sdk-能力与接入范围)。
+后端入口可用与官方界面可用分别记录。Pi 提供的机制、Repa 当前接法以及后续工作，见[SDK 能力与接入范围](docs/development/agent-runtime.md#sdk-能力与接入范围)。
 
 | 范围 | 当前代码与后续接入 |
 | --- | --- |
-| 应用协议、客户端与 TUI | 已有本机后端、协议 v1、无 UI 客户端、多空间多会话、结构化输入与图片、运行中补充、持久队列、失败接续及独立后台请求；配置与能力宿主继续按 #18/#20 对接 |
-| 内容与学习语境 | 已接通文件读写、精确修改、多文件补丁、内容身份与组成、操作查询、撤回与恢复、外部材料只读关联、不可变资源和学习语境注入；已有内容移动与独立复制、材料收集、会话/文档/实例资源保留与清理，以及空间备份、恢复和独立复制；检索待接入 |
-| 扩展与配置 | 已有明确信任后的 Pi 扩展加载、应用／空间／会话提示继承和实际提示装配；共享能力宿主及现有学习语境/默认提示的能力迁接、独立模型连接管理、辅助调用提示配置与官方默认能力组合待接入 |
-| 前端与执行环境 | 已建立独立的 Web 与 Electron 前端入口，各宿主通过现有 CLI 启动自己的本机后端并由公开客户端显示真实连接结果；完整图形组件宿主、多种请求输入、生成内容展示隔离及命令沙箱待实现 |
+| 应用协议、客户端与 TUI | 已有本机后端、协议 v1、无 UI 客户端、多空间多会话、结构化输入与图片、运行中补充、持久队列、失败接续及独立后台请求；CLI 可配置模型连接，独立模型调用复用后台请求 |
+| 内容与学习语境 | 已有内容读写、身份与组成、共同保存、撤回和恢复，支持外部材料关联、资源保留以及空间备份和复制；学习语境按配置注入，文本与所选会话历史可以搜索。接口见[开发指南](docs/development/README.md) |
+| 扩展与配置 | 已有具名连接、Pi 认证、配置继承、运行绑定和提示控制；共享能力、包管理和独立快照已接通，前端组件加载待接入 |
+| 独立学习能力包 | [教学](packages/learning/README.md)、[材料](packages/materials/README.md)、[复习](packages/review/README.md)、[规划](packages/planning/README.md)与[整理](packages/organization/README.md)已加入默认后端组合，可以分别关闭。各包的当前范围和整体缺口见[官方学习组合](docs/development/official-learning.md) |
+| 前端与执行环境 | Web 与 Electron 可以启动本机后端并建立连接，完整学习工作台与生成展示隔离待接入。命令执行当前只支持 Linux，已有独立沙箱，最终安装与系统配置尚待交付整合 |
 
 当前模块责任、调用示例、持久格式和验证入口见[开发指南](docs/development/README.md)。已经实现的字段由公开 schema 持有；官方图形前端采用 React、React Router、Vite 与 Electron/electron-vite，Web 与 Desktop renderer 分别拥有自己的页面、路由和应用状态。Web 组件接入形状继续作为公开宿主契约。
 
@@ -270,7 +273,12 @@ repa/
 │   ├── web/              # 完整 Web 前端、Vite 与 Browser Router
 │   └── desktop/          # 完整桌面前端、Electron main/preload 与 renderer
 ├── packages/
-│   └── repa/             # 后端、CLI、公开客户端与协议
+│   ├── repa/             # 后端、CLI、公开客户端与协议
+│   ├── learning/         # 讲解、练习与实际反馈方法
+│   ├── materials/        # 本地材料读取能力
+│   ├── organization/     # 长期内容整理方法
+│   ├── planning/         # 规划方法与时间约束检查
+│   └── review/           # 复习记录、FSRS 调度与参数优化
 ├── package.json          # workspace 与统一命令
 └── package-lock.json     # 全仓唯一锁文件
 ```
@@ -314,13 +322,15 @@ Web 由 Vite 提供热更新；开发服务器只监听 `127.0.0.1`，并通过�
 
 ### 配置模型
 
-当前版本复用 Pi 的模型和认证配置；目标应用的模型连接界面与独立凭据管理见设计概览。可以运行仓库锁定版本的 Pi，使用 `/login` 配置认证，并使用 `/model` 选择默认模型：
+在仓库根目录启动配置向导：
 
 ```sh
-npm exec -- pi
+npm run dev:backend -- configure
 ```
 
-后端读取 Pi 标准 agent 目录中的配置，也可通过 `--agent-dir <目录>` 指定配置目录。相应 provider 支持的 API key 环境变量仍可使用。查看和新建会话不启动 Pi 运行实例；发起任务时才加载运行资源。缺少可用模型时，任务保留请求并返回可处理的配置错误。
+先选择已有连接，或创建一个新连接。接着按服务商支持的方式填写 API key 或完成 OAuth 登录，最后选择模型并设为应用默认值。
+
+登录和模型调用使用 Pi SDK。Repa 为每个连接分别保存地址与认证身份，不同会话可以使用各自的账号。`--agent-dir <目录>` 指定 Pi 资源与默认选项目录，自定义服务和本地无密钥连接见[模型连接与运行配置](docs/development/models-configuration.md)。查看和新建会话不启动 Agent；尚未选择连接或模型时，已受理请求在执行时报告配置错误，本地内容功能可用。
 
 ### 启动与接续
 
@@ -368,7 +378,7 @@ npm start -- /path/to/learning-space --connect /path/to/repa-connection.json
 
 ### Package 与 Extension 信任
 
-后端默认不加载 Pi Package、Extension、Skill 或 prompt。通过 `--trust-extensions` 显式启用 Pi 全局资源和空间中的项目资源：
+后端默认不执行未受信任的 Pi Package、Extension 或 Repa backend；官方学习能力默认启用。应用侧 `plugins.trusted` 可以授权明确的包来源，`plugins.disabled` 控制相应能力；空间文件不能自行授予信任。通过 `--trust-extensions` 可以显式启用 Pi 全局资源和空间中的项目资源：
 
 ```sh
 npm start -- /path/to/learning-space --trust-extensions
@@ -376,9 +386,11 @@ npm start -- /path/to/learning-space --trust-extensions
 npm start -- serve --connection-file /path/to/repa-connection.json --trust-extensions
 ```
 
-信任配置属于后端进程。若已有后端未启用扩展信任，可以完整退出后重新启动，或使用独立连接文件启动另一后端。启用的插件代码以宿主进程权限运行；当前命令沙箱尚未接入。
+整体扩展信任由启动参数决定，具体包的信任保存在应用配置中。改变启动参数需要重启后端，也可以用另一连接文件启动独立后端。包安装、更新与移除使用后台请求，改包后需要按结果重启进程；部分失败也可能已经修改文件。入口与操作见[插件说明](docs/development/plugins.md)。
 
-当前提供 `read`、`edit`、`write`、`apply_patch` 内容工具，前端和 Agent 共用保存与恢复逻辑；读取也支持已启用 Skill 的自有资源。命令工具和沙箱尚未接入。兼容的扩展工具、prompt 与 Skill 可以使用；扩展的选择、确认、输入和编辑器交互通过后端转为待回答问题。依赖 Pi 专用 TUI 组件的扩展需要前端适配。
+启用的插件代码以宿主进程权限运行。命令服务的沙箱只约束经该服务启动的命令，Ubuntu 独立启动还可能需要专用 AppArmor 配置，见[执行说明](docs/development/execution.md)。
+
+当前提供 `read`、`edit`、`write`、`apply_patch` 内容工具，前端和 Agent 共用保存与恢复逻辑；读取也支持已启用 Skill 的自有资源。`bash` 已通过 Pi SDK 接入命令执行与授权；受限模式的安装条件见[执行说明](docs/development/execution.md)。兼容的扩展工具、prompt 与 Skill 可以使用；扩展的选择、确认、输入和编辑器交互通过后端转为待回答问题。依赖 Pi 专用 TUI 组件的扩展需要前端适配。
 
 ### 公开应用接口
 
@@ -395,8 +407,11 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 | `queue.list`、`queue.cancel`、`queue.resume` | 查询队列，取消尚未开始的项，明确恢复暂停的处理。 |
 | `request.cancel` | 取消独立后台处理，等待实际收尾。 |
 | `content.*`、`operation.*` | 读取和保存文件，维护身份与组成，查询、撤回及核对恢复结果；具体方法见[内容接口](docs/development/content.md)。 |
-| `context.get`、`context.set`、`context.preview` | 读取或更换学习语境绑定，并预览当前完整文本和来源。 |
-| `settings.get`、`settings.set`、`settings.reset` | 读取提示覆盖与来源，按项保存或恢复继承。 |
+| `context.get`、`context.set`、`context.preview` | 通过所选学习语境实现读取或更换绑定、预览完整文本和来源；没有已启用实现时报告未找到能力。 |
+| `capability.describe`、`capability.invoke` | 取得契约与入口问题，调用明确作用域和实现；inline 结果也持久保存，Agent 工具复用相同处理。 |
+| `package.list`、`package.install/update/remove` | 静态包目录与 Pi 包管理，管理操作使用后台请求并报告实际进程重启要求。 |
+| `execution.run`、`execution.inspect` | 提交有持久请求身份的命令，查询当前执行策略和活跃命令；使用已有请求查询、交互与取消入口。 |
+| `settings.get`、`settings.set`、`settings.reset` | 读取已登记命名空间的定义、覆盖与来源，按项保存或恢复继承，包括插件启用和实现选择。 |
 | `interaction.reply` | 回答仍有效的交互；已经回答、取消或过期的交互不能再次使用。 |
 | `state.get`、`subscription.start`、`subscription.stop` | 按应用、空间或会话范围读取快照和订阅变化。 |
 | `client.detach`、`shutdown` | 离开后端，或请求完成现有任务后退出、取消任务后退出。 |

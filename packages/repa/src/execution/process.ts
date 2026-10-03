@@ -16,6 +16,7 @@ export interface RunCommandOptions {
   cwd: string;
   policy: ExecutionPolicy;
   protectedPaths: readonly string[];
+  env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   timeout?: number;
   onData(stream: "stdout" | "stderr", data: Buffer): void;
@@ -175,7 +176,7 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
       });
     });
   } finally {
-    await prepared.cleanup();
+    await prepared.cleanup?.();
     if (terminal) {
       options.onExited?.(terminal);
     }

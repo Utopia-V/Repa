@@ -42,7 +42,19 @@ const result = await client.call("content.write", {
 
 断线或超时后保留 `operationId`，通过 `operation.get` 核对。相同操作的重传返回原结果，修改参数须使用新标识。保存回执只确认本次实际提交的草稿版本；后续本地输入和外部修改由草稿服务继续处理。文件保存不会启动模型。
 
-当前内容方法还包括 `content.list/get/read/edit/applyPatch/associate/relink/remove/setComposition/move/copy`、`material.collect`，以及 `operation.get/undo/reconcile/prune`、`context.get/set/preview`。参数、返回值和运行时校验来自 [内容协议](../../packages/repa/src/content/protocol.ts)。检索与格式转换由对应能力后续接入。
+当前内容方法还包括 `content.list/get/read/edit/applyPatch/associate/relink/remove/setComposition/move/copy`、`material.collect`，以及 `operation.get/undo/reconcile/prune`、`context.get/set/preview`。参数、返回值和运行时校验来自 [内容协议](../../packages/repa/src/content/protocol.ts)。文本／历史检索及本地材料表示见[搜索与材料](search-materials.md)。
+
+## 同次保存正文与结构
+
+拆出一份新文档时，除了写文件，还可能需要为它建立身份，修改正文引用和组成关系。`content.applyPatch` 可以把这些变化放在同一项操作中保存。
+
+`registrations` 为已有文件、本次补丁的新文件或目录登记身份，也可提供初始 `members/resources`。显式给出的 `id` 能被同一补丁引用，省略时由保存入口生成。所有新身份建立后，再解释初始组成。修改已有对象的组成，则通过 `compositions` 提交 `{ ref, base, members, resources }`。
+
+正文、新身份和结构修改仍进入同一个 `ContentStore` 计划，再由一次 `FileJournal.commit` 保存。登记核对的是计划完成后的文件，不要求新文件先单独落盘；现有组成基准对操作前的结构核对，同一补丁移动对象不会造成自身版本冲突。原 patch-only 请求及旧 RPC 透传的 `spaceId` 保留原去重形状，可选字段不补默认空列表。
+
+正文中的链接和学习语境 JSON 清单都通过文本补丁修改。哪些引用应当指向拆出的文档，需要调用方先根据含义确认；学习清单的 `items` 也由学习能力解释，与普通组成的 `members` 分开处理。完整场景见[内容整理](organization.md)。
+
+Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`content_info` 查询身份、结构修订和组成，`content_operation` 提供操作查询与撤回。模型需要根据保存结果继续工作，因此成功回执和保存错误的文本中都提供 `operationId`，而不只放在日志与界面的 `details` 中。这些工具使用当前空间的范围。
 
 ## 移动、复制与收集
 
@@ -89,4 +101,6 @@ const result = await client.call("content.write", {
 
 `client.uploadResource(spaceId, bytes, mediaType)` 上传不可变字节，返回 `{ id, resource, expiresAt }`，当前单次上限为 64 MiB。内容读取得到的 `ResourceRef` 可通过 `client.resource(ref)` 获取，并支持单个 HTTP 字节范围。资源按已打开空间读取；标识本身不构成授权。当前接口供已认证的前端使用，可执行展示实例的受限资源桥接仍待实现。
 
-`ContentStore` 也解释学习语境：直接关联文档，或读取有序 JSON 组成清单。成员选择展开或引用，普通链接不递归展开；读取失败返回具体问题，不能当作清空。当前实际文本及来源由 `context.preview` 返回，快照何时进入模型由 [Agent 适配层](agent-runtime.md) 决定。
+学习语境的绑定、组成格式和展开由 [`LearningContext`](learning.md) 负责。它通过 `ContentStore.observe` 在同一次队列操作中读取成员，通过 `setMetadata` 保存绑定。版本检查、去重、journal、撤回和恢复都使用已有内容操作；`ContentStore` 不再直接提供学习语境方法。
+
+`ContentFormat` 说明所属 catalog 字段和引用怎样复制。学习格式沿用 v1 catalog 的 `context` 字段，独立于学习运行服务安装。因此，关闭学习能力后，普通保存和空间复制仍能处理原有绑定及历史组成；复制后的撤回也使用副本内引用。格式接入与旧数据处理见[学习语境说明](learning.md#保存历史与复制)。

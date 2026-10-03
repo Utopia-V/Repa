@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -38,7 +38,9 @@ async function fixture(t: TestContext, plugins: readonly BackendPluginRegistrati
   const agentDir = path.join(root, "agent");
   const appDirectory = path.join(root, "app");
   const directory = path.join(root, "space");
+  const home = path.join(root, "home");
   await mkdir(agentDir);
+  await mkdir(home);
   await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
     packages: [], extensions: ["!**/*"], skills: ["!**/*"], prompts: ["!**/*"], themes: ["!**/*"],
     retry: { enabled: false }, compaction: { enabled: false },
@@ -53,10 +55,23 @@ async function fixture(t: TestContext, plugins: readonly BackendPluginRegistrati
   const options = { agentDir, appDirectory, plugins, modelOverride: { modelRuntime, model: faux.getModel() }, trustExtensions: false };
   let server = await startRepaServer(options);
   let client = await RepaClient.connect(server.connection);
+  const names = ["HOME", "BASH_ENV", "ENV"];
+  const previous = names.map(name => process.env[name]);
+  process.env.HOME = home;
+  delete process.env.BASH_ENV;
+  delete process.env.ENV;
   t.after(async () => {
-    await server.close("cancel");
-    await client.close();
-    await rm(root, { recursive: true, force: true });
+    try {
+      await server.close("cancel");
+      await client.close();
+    } finally {
+      for (const [index, name] of names.entries()) {
+        const value = previous[index];
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
   });
   const space = await client.call("space.open", { path: directory });
   const session = await client.call("session.create", { spaceId: space.id });
@@ -87,7 +102,7 @@ async function fixture(t: TestContext, plugins: readonly BackendPluginRegistrati
     if (openedDirectory === directory) assert.equal(opened.id, space.id);
     return opened;
   };
-  return { root, directory, space, key, faux, finished, setPolicy, run, reopen,
+  return { root, directory, home, space, key, faux, finished, setPolicy, run, reopen,
     get client() { return client; }, get server() { return server; } };
 }
 
@@ -148,6 +163,22 @@ test("受限命令真实完成，扩大权限等待、拒绝和取消均不执�
   const noGrant = execution(await f.finished((await f.run(`cat ${quote(outside)}`)).requestId));
   assert.equal(noGrant.status, "failed", JSON.stringify(noGrant));
   assert.equal(await readFile(outside, "utf8"), "once");
+});
+
+test("公开 Full Access 调用使用登录配置中的工具与用户目录", async (t) => {
+  const f = await fixture(t);
+  const bin = path.join(f.home, "bin");
+  await mkdir(bin);
+  await writeFile(path.join(f.home, "tool.conf"), "user-configuration\n");
+  await writeFile(path.join(f.home, ".bash_profile"), 'export PATH="$HOME/bin:$PATH"\n');
+  const tool = path.join(bin, "repa-user-tool");
+  await writeFile(tool, '#!/bin/sh\ncat "$HOME/tool.conf"\npwd\n');
+  await chmod(tool, 0o755);
+  await f.setPolicy({ mode: "full-access" });
+
+  const result = execution(await f.finished((await f.run("repa-user-tool")).requestId));
+  assert.equal(result.status, "completed", result.output);
+  assert.equal(result.output, `user-configuration\n${f.directory}\n`);
 });
 
 test("Full Access 无额外交互，输出事件与重连快照归属父请求，取消和策略收回等待进程收尾", async (t) => {
@@ -217,11 +248,12 @@ test("原请求重传、后端重启和空间复制不再次执行命令，截�
 test("真实 Pi Agent 使用受归属 bash 工具，确认后执行且会话关闭取消尚在运行的命令", async (t) => {
   const f = await fixture(t);
   const outside = path.join(f.root, "agent-output.txt");
+  await writeFile(path.join(f.home, ".bash_profile"), "export REPA_TEST_PROFILE=agent\n");
   let declared = false;
   f.faux.setResponses([context => {
     declared = getCurrentTools(context.messages).some(tool => tool.name === "bash");
     return fauxAssistantMessage(fauxToolCall("bash", {
-      command: `printf agent > ${quote(outside)}`, access: { policy: { mode: "full-access" }, reason: "用户选定文件" },
+      command: `printf '%s' "$REPA_TEST_PROFILE" > ${quote(outside)}`, access: { policy: { mode: "full-access" }, reason: "用户选定文件" },
     }), { stopReason: "toolUse" });
   }, fauxAssistantMessage("执行完成")]);
   const request = await f.client.call("session.submit", {

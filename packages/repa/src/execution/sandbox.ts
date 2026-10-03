@@ -32,8 +32,8 @@ async function canonicalPath(value: string): Promise<string> {
   }
 }
 
-async function commandPath(cwd: string, policy: ExecutionPolicy): Promise<string> {
-  const allowed = policy.mode === "restricted" ? [cwd, ...policy.readPaths, ...policy.writePaths] : undefined;
+async function commandPath(cwd: string, policy: Extract<ExecutionPolicy, { mode: "restricted" }>): Promise<string> {
+  const allowed = [cwd, ...policy.readPaths, ...policy.writePaths];
   const extra: string[] = [];
   for (const candidate of (process.env.PATH ?? "").split(path.delimiter)) {
     if (!path.isAbsolute(candidate) || SYSTEM_PATH.includes(candidate)) {
@@ -52,31 +52,29 @@ async function commandPath(cwd: string, policy: ExecutionPolicy): Promise<string
       }
       throw error;
     }
-    if (!allowed || allowed.some((root) => inside(canonical, root))) {
+    if (allowed.some((root) => inside(canonical, root))) {
       extra.push(candidate);
     }
   }
-  if (policy.mode === "restricted") {
-    for (const root of [...policy.readPaths, ...policy.writePaths]) {
+  for (const root of [...policy.readPaths, ...policy.writePaths]) {
+    try {
+      if (!(await stat(root)).isDirectory()) {
+        continue;
+      }
+      extra.push(root);
+      const bin = path.join(root, "bin");
       try {
-        if (!(await stat(root)).isDirectory()) {
-          continue;
-        }
-        extra.push(root);
-        const bin = path.join(root, "bin");
-        try {
-          if ((await stat(bin)).isDirectory()) {
-            extra.push(bin);
-          }
-        } catch (error) {
-          if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
-            throw error;
-          }
+        if ((await stat(bin)).isDirectory()) {
+          extra.push(bin);
         }
       } catch (error) {
         if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
           throw error;
         }
+      }
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+        throw error;
       }
     }
   }
@@ -88,9 +86,17 @@ export async function prepareCommand(options: {
   cwd: string;
   policy: ExecutionPolicy;
   protectedPaths: readonly string[];
-}): Promise<{ executable: string; args: string[]; env: NodeJS.ProcessEnv; cleanup(): Promise<void> }> {
+  env?: NodeJS.ProcessEnv;
+}): Promise<{ executable: string; args: string[]; env: NodeJS.ProcessEnv; cleanup?(): Promise<void> }> {
   if (process.platform !== "linux") {
     throw new RepaFault("execution_platform_unsupported", "当前命令执行器仅支持 Linux。");
+  }
+  if (options.policy.mode === "full-access") {
+    return {
+      executable: "/bin/bash",
+      args: ["-lc", options.command],
+      env: { ...(options.env ?? process.env) },
+    };
   }
   const scratch = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-execution-")));
   const cleanup = async () => { await rm(scratch, { recursive: true, force: true }); };
@@ -101,31 +107,28 @@ export async function prepareCommand(options: {
     await mkdir(temporary);
     const shell = ["--noprofile", "--norc", "-c", options.command];
     let policy = options.policy;
-    let protectedPaths: string[] = [];
-    if (policy.mode === "restricted") {
-      try {
-        await access(HELPER_PATH, constants.X_OK);
-      } catch (error) {
-        throw new RepaFault("sandbox_unavailable", "固定 Linux 沙箱 helper 不可用；不会回退为宿主执行。", {
-          path: HELPER_PATH,
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
-      protectedPaths = [...new Set((await Promise.all(options.protectedPaths.map(async (value) => [
-        path.resolve(value), await canonicalPath(value),
-      ]))).flat())];
-      if (protectedPaths.some((value) => inside(options.cwd, value))) {
-        throw new RepaFault("execution_path_protected", "受保护目录不能作为受限命令的工作目录。");
-      }
-      const grants = async (values: readonly string[]) => (await Promise.all(values.map(canonicalPath)))
-        .filter((value) => !protectedPaths.some((protectedPath) => inside(value, protectedPath)));
-      policy = { ...policy, readPaths: await grants(policy.readPaths), writePaths: await grants(policy.writePaths) };
+    try {
+      await access(HELPER_PATH, constants.X_OK);
+    } catch (error) {
+      throw new RepaFault("sandbox_unavailable", "固定 Linux 沙箱 helper 不可用；不会回退为宿主执行。", {
+        path: HELPER_PATH,
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
-    // 不继承 credentials、代理、BASH_ENV、LD_PRELOAD 或个人 shell 启动配置。
+    const protectedPaths = [...new Set((await Promise.all(options.protectedPaths.map(async (value) => [
+      path.resolve(value), await canonicalPath(value),
+    ]))).flat())];
+    if (protectedPaths.some((value) => inside(options.cwd, value))) {
+      throw new RepaFault("execution_path_protected", "受保护目录不能作为受限命令的工作目录。");
+    }
+    const grants = async (values: readonly string[]) => (await Promise.all(values.map(canonicalPath)))
+      .filter((value) => !protectedPaths.some((protectedPath) => inside(value, protectedPath)));
+    policy = { ...policy, readPaths: await grants(policy.readPaths), writePaths: await grants(policy.writePaths) };
+    // 受限环境不继承凭据、代理或个人 shell 启动配置。
     const shellPath = await commandPath(options.cwd, policy);
     const env: NodeJS.ProcessEnv = {
       // 受限启动先使用系统 PATH；获准的扩展路径在沙箱内交给实际 shell。
-      PATH: policy.mode === "restricted" ? SYSTEM_PATH.join(path.delimiter) : shellPath,
+      PATH: SYSTEM_PATH.join(path.delimiter),
       HOME: home,
       TMPDIR: temporary,
       TMP: temporary,
@@ -135,9 +138,6 @@ export async function prepareCommand(options: {
       TERM: "dumb",
       SHELL: "/bin/bash",
     };
-    if (policy.mode === "full-access") {
-      return { executable: "/bin/bash", args: shell, env, cleanup };
-    }
     const entry = (value: string, permission: "read" | "write" | "deny") => ({
       path: { type: "path", path: value }, access: permission,
     });

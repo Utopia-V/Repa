@@ -26,9 +26,16 @@ async function fixture(t: TestContext) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-execution-test-")));
   const cwd = path.join(root, "workspace");
   const outside = path.join(root, "outside");
+  const home = path.join(root, "home");
+  const temporary = path.join(root, "tmp");
   const protectedPath = path.join(cwd, ".repa");
   await mkdir(protectedPath, { recursive: true });
   await mkdir(outside);
+  await mkdir(home);
+  await mkdir(temporary);
+  const env: NodeJS.ProcessEnv = {
+    HOME: home, TMPDIR: temporary, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, LANG: "C.UTF-8",
+  };
   await writeFile(path.join(protectedPath, "secret.txt"), "protected\n");
   await writeFile(path.join(outside, "secret.txt"), "outside\n");
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
@@ -36,12 +43,12 @@ async function fixture(t: TestContext) {
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     const result = await runCommand({
-      command, cwd, policy, protectedPaths: [protectedPath],
+      command, cwd, policy, protectedPaths: [protectedPath], env,
       onData(stream, bytes) { (stream === "stdout" ? stdout : stderr).push(bytes); },
     });
     return { ...result, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") };
   };
-  return { root, cwd, outside, protectedPath, execute };
+  return { root, cwd, outside, home, temporary, protectedPath, env, execute };
 }
 
 async function processState(pid: number): Promise<{ state: string; parent: number } | undefined> {
@@ -102,34 +109,6 @@ for (const policy of [restricted, fullAccess]) {
     assert.equal(result.stderr, "diagnostic\n");
   });
 
-  test(`${policy.mode} 清除宿主凭据和 shell 启动变量并回收独立临时目录`, { skip }, async (t) => {
-    const f = await fixture(t);
-    const names = ["OPENAI_API_KEY", "BASH_ENV", "LD_PRELOAD", "HTTP_PROXY"];
-    const previous = names.map((name) => process.env[name]);
-    for (const name of names) {
-      process.env[name] = "should-not-inherit";
-    }
-    t.after(() => {
-      for (const [index, name] of names.entries()) {
-        const value = previous[index];
-        if (value === undefined) {
-          delete process.env[name];
-        } else {
-          process.env[name] = value;
-        }
-      }
-    });
-    const result = await f.execute('printf "%s\\n" "$HOME" "$TMPDIR"; env', policy);
-    assert.equal(result.exitCode, 0);
-    assert(!result.stdout.includes("should-not-inherit"));
-    const [home, temporary] = result.stdout.split("\n");
-    assert(home && temporary);
-    assert.notEqual(home, os.homedir());
-    assert.equal(path.dirname(home), path.dirname(temporary));
-    await assert.rejects(readFile(home), { code: "ENOENT" });
-    await assert.rejects(readFile(temporary), { code: "ENOENT" });
-  });
-
   test(`${policy.mode} 并行取消一条命令时回收其父子进程而不终止另一条`, { skip }, async (t) => {
     const f = await fixture(t);
     const controller = new AbortController();
@@ -138,7 +117,7 @@ for (const policy of [restricted, fullAccess]) {
     const events: string[] = [];
     let terminal: CommandResult | undefined;
     const running = runCommand({
-      command: 'sleep 60 & printf "ready\\n"; wait', cwd: f.cwd, policy, protectedPaths: [f.protectedPath], signal: controller.signal,
+      command: 'sleep 60 & printf "ready\\n"; wait', cwd: f.cwd, policy, protectedPaths: [f.protectedPath], env: f.env, signal: controller.signal,
       onData(_stream, bytes) { output += bytes.toString("utf8"); },
       onStarted(value) { pid = value; },
       onExited(value) { terminal = value; events.push("exited"); },
@@ -168,7 +147,7 @@ for (const policy of [restricted, fullAccess]) {
     let terminal: CommandResult | undefined;
     let pid = 0;
     await assert.rejects(runCommand({
-      command: "sleep 60", cwd: f.cwd, policy, protectedPaths: [], timeout: 0.1,
+      command: "sleep 60", cwd: f.cwd, policy, protectedPaths: [], env: f.env, timeout: 0.1,
       onData() {}, onStarted(value) { pid = value; }, onExited(value) { terminal = value; },
     }), { message: "timeout:0.1" });
     assert(terminal);
@@ -194,7 +173,7 @@ for (const policy of [restricted, fullAccess]) {
     let pid = 0;
     let terminal: CommandResult | undefined;
     await assert.rejects(runCommand({
-      command: "printf 'output'; sleep 60", cwd: f.cwd, policy, protectedPaths: [],
+      command: "printf 'output'; sleep 60", cwd: f.cwd, policy, protectedPaths: [], env: f.env,
       onData() { throw failure; }, onStarted(value) { pid = value; }, onExited(value) { terminal = value; },
     }), (error: unknown) => error === failure);
     assert(terminal);
@@ -202,12 +181,51 @@ for (const policy of [restricted, fullAccess]) {
   });
 }
 
+test("受限命令隔离宿主环境并回收自己的临时目录", { skip: restrictedSkip }, async (t) => {
+  const f = await fixture(t);
+  for (const name of ["OPENAI_API_KEY", "BASH_ENV", "LD_PRELOAD", "HTTP_PROXY"]) {
+    f.env[name] = "should-not-inherit";
+  }
+  const result = await f.execute('printf "%s\\n" "$HOME" "$TMPDIR"; env');
+  assert.equal(result.exitCode, 0);
+  assert(!result.stdout.includes("should-not-inherit"));
+  const [home, temporary] = result.stdout.split("\n");
+  assert(home && temporary);
+  assert.notEqual(home, f.home);
+  assert.equal(path.dirname(home), path.dirname(temporary));
+  await assert.rejects(readFile(home), { code: "ENOENT" });
+  await assert.rejects(readFile(temporary), { code: "ENOENT" });
+});
+
+test("Full Access 使用用户工具的 PATH、配置和登录环境，保留代理与工具凭据", { skip: !linux }, async (t) => {
+  const f = await fixture(t);
+  const bin = path.join(f.home, "bin");
+  await mkdir(bin);
+  await mkdir(path.join(f.home, ".config"));
+  await writeFile(path.join(f.home, ".config", "tool.conf"), "configured\n");
+  await writeFile(path.join(f.home, ".bash_profile"), "export REPA_TEST_PROFILE=loaded\n");
+  const tool = path.join(bin, "node");
+  await writeFile(tool, '#!/bin/sh\ncat "$HOME/.config/tool.conf"\nprintf "%s\\n" "$HOME" "$TMPDIR" "$REPA_TEST_PROFILE" "$HTTPS_PROXY" "$TOOL_API_KEY"\npwd\n');
+  await chmod(tool, 0o755);
+  f.env.PATH = `${bin}:${f.env.PATH}`;
+  f.env.HTTPS_PROXY = "http://proxy.example.invalid:8080";
+  f.env.TOOL_API_KEY = "fixture-tool-key";
+
+  const result = await f.execute("node", fullAccess);
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(result.stdout, [
+    "configured", f.home, f.temporary, "loaded", f.env.HTTPS_PROXY, f.env.TOOL_API_KEY, f.cwd, "",
+  ].join("\n"));
+  assert.equal(await readFile(path.join(f.home, ".config", "tool.conf"), "utf8"), "configured\n");
+  assert(existsSync(f.temporary));
+});
+
 test("Full Access 超时后对忽略 TERM 的父子进程升级 KILL 并返回真实 signal 退出码", { skip: !linux }, async (t) => {
   const f = await fixture(t);
   let terminal: CommandResult | undefined;
   let pid = 0;
   await assert.rejects(runCommand({
-    command: "trap '' TERM; sleep 60", cwd: f.cwd, policy: fullAccess, protectedPaths: [], timeout: 0.1,
+    command: "trap '' TERM; sleep 60", cwd: f.cwd, policy: fullAccess, protectedPaths: [], env: f.env, timeout: 0.1,
     onData() {}, onStarted(value) { pid = value; }, onExited(value) { terminal = value; },
   }), { message: "timeout:0.1" });
   assert.deepEqual(terminal, { exitCode: 137, signal: "SIGKILL" });

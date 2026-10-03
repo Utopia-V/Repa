@@ -1,57 +1,120 @@
 # 输入、请求与运行
 
-会话输入由 `RepaApplication` 受理，`requests/store.ts` 保存请求和队列事实，`PiConversationHost` 把实际输入交给 Pi 0.87.1。请求 ID 标识一次提交，运行 ID 标识一次 Agent 执行；运行中的补充输入与起始输入拥有不同请求 ID，共用运行 ID。协议仍为未发布的 v1，前后端按同一提交联调。
+会话输入由 `RepaApplication` 受理，`requests/store.ts` 保存请求与队列，`PiConversationHost` 把开始处理的输入交给 Pi 0.87.1。当前协议仍是未发布的 v1，前后端按同一提交联调。
+
+## 设计思路
+
+当你提交一条消息，后端会按提交方式立即处理或放进队列。即使连接随后断开，你也需要知道消息是否已经受理、由哪次运行处理，以及最后得到什么结果。因此，请求记录先保存这次提交，运行记录再描述 Agent 的实际执行。
+
+Agent 工作期间，你可以补充要求。每次补充都是新的请求，却属于同一次运行，所以请求与运行并不是一一对应的。查询某次输入时使用请求 ID，查询或取消正在进行的工作时使用运行 ID。
+
+Pi 已经提供输入投递、工具循环、历史和取消机制。Repa 在它们之前接入持久受理与调度：独立后续请求先留在 Repa 队列中，真正开始时再准备当前内容、建立运行并交给 Pi。这样，重启后能查到原提交，也能决定哪些任务需要恢复，而不是依赖进程中的队列自动继续。
 
 ## 提交与查询
 
-`session.submit({ target, requestId, input, dispatch, selection? })` 返回持久受理记录。`target` 包含 `spaceId` 和 `sessionId`。`dispatch` 有三种形式：
+`session.submit({ target, requestId, input, dispatch, selection? })` 返回持久受理记录。`target` 包含 `spaceId` 和 `sessionId`，`dispatch` 决定怎样处理：
 
 | 提交方式 | 行为 |
 | --- | --- |
 | `{ kind: "start" }` | 空闲时启动；已有运行或更早的可执行队列时返回 `session_busy` |
-| `{ kind: "steer", expectedRunId }` | 补充到指定运行，沿用其配置与入口背景；目标已改变或结束时保存 `not_entered` 结果，不切换目标 |
+| `{ kind: "steer", expectedRunId }` | 补充到指定运行，使用它的配置和入口背景；目标已经改变或结束时，保存 `not_entered` 结果 |
 | `{ kind: "queue" }` | 作为独立后续请求排队；空闲且队列未暂停时立即开始 |
 
-同一空间内，同一请求标识和原始载荷的重传返回既有记录，改变载荷则返回 `request_id_conflict`。去重早于配置解析与再次执行。`request.get({ spaceId, requestId })` 查询输入、绑定配置、运行归属和投递状态；找不到时返回 `unknown`。连接中断的客户端保留请求标识，先查询结果。
+接入客户端时，需要保留自己生成的 `requestId`。如果应答丢失，你可以用相同标识和原始载荷重传，后端会返回原记录；改变载荷则返回 `request_id_conflict`。后端先查重，再解析配置，所以重传也不会套用后来修改的默认设置。
 
-`run.get({ spaceId, runId })` 查询实际运行，`run.cancel` 使用相同标识请求取消。取消先进入 `cancelling`，等待 Pi `abort()` 和运行收尾后才形成终态。steer 的执行状态来自所属运行，不产生独立工具循环或独立执行结果。
+`request.get({ spaceId, requestId })` 查询输入、绑定配置、运行归属和投递状态；未找到时返回 `unknown`。应答丢失或连接中断后，客户端可以先用原标识查询。
 
-输入 `parts` 支持文本、草稿选区、内容引用、资源和带格式的表示。选区文字采用提交值，不重新读取磁盘；引用在实际开始时由内容模块读取，并将实际修订提供给模型。图片通过 Pi 的 `prompt` / `steer` 图片入口发送，格式转换和尺寸处理由 SDK 负责。其他资源保留引用和说明，具体格式的提取由材料能力负责。
+`run.get({ spaceId, runId })` 查询运行，`run.cancel` 用相同标识取消它。取消后先进入 `cancelling`，等 Pi `abort()` 和运行收尾完成，再记录终态。steer 已经属于该运行，不会另起工具循环，也没有独立的执行结果。
 
-受理时保存提示配置和当前可确定的 Pi 模型、思维强度及工具选择；`selection` 支持显式覆盖。工具的空列表是有效选择。来源由服务端记录，包括认证宿主的非秘密标识，调用参数不能自授来源身份。具名连接、凭据身份及完整动态配置来源由 #18 接入；当前未显式确定的首次模型选择仍沿用 Pi 的模型解析。
+### 输入和受理配置
+
+输入的 `parts` 可以包含文本、草稿选区、内容引用、资源和带格式的表示。草稿选区使用提交时的文字；内容引用在实际开始时读取，并记录本次读到的修订。图片通过 Pi 的 `prompt` 或 `steer` 图片入口发送，格式转换和尺寸处理由 SDK 完成。其他资源保留引用和说明，按需要交给材料能力提取。
+
+独立请求受理时保存提示配置、具名连接及认证身份、模型、思考强度、工具、压缩和重试选项。`selection` 可以显式覆盖本次选择，模型使用 `{ connectionId, id }`，空工具列表表示本次不提供工具。调用来源由服务端记录，包含已认证宿主的非秘密标识。
+
+尚未选择连接或模型时，请求可以先受理，开始执行时报告 `connection_required`。配置完成后，通过 `session.continue` 明确接续。若显式选择了不存在的连接或模型，则在受理前返回 `connection_not_found` 或 `model_not_found`。连接绑定和认证生命周期见[模型配置](models-configuration.md)。steer 使用目标运行已有的配置，不重新选择账号和模型。
+
+主调用准备好以后，实际提示写入请求的 `prompt` 字段；压缩调用也记录实际摘要提示来源。`run.get` 从所属请求汇总这些信息，普通状态事件只通知变化，不反复发送全文。
 
 ## 排队、退出与接续
 
-`queue.list` 返回有序请求和 `running` / `paused` 状态。正常完成自动启动下一项；取消、失败或中断暂停队列。`queue.cancel` 只取消未开始的请求，`queue.resume` 明确恢复处理。启动新任务不会顺带恢复此前暂停的队列。
+`queue.list` 返回按受理顺序排列的请求，以及 `running` 或 `paused` 状态。当前运行正常完成后自动处理下一项；运行失败、中断或被取消时，后续任务可能需要重新判断，因此队列暂停，等待 `queue.resume` 明确恢复。启动另一个新任务不会恢复原队列。`queue.cancel` 只取消指定的未开始请求，不改变队列的暂停状态。
 
-独立任务在受理时固定可确定的配置，在实际开始时准备当前内容和学习语境。后续请求不会提前批量放进 Pi 的内存队列；每项请求开始时取得自己的运行标识，配置和资源归属由 Repa 管理。
+每项独立请求在受理时固定配置，在开始时读取当前内容和已启用的背景。队列里的请求不会提前批量送进 Pi；轮到它时，才取得自己的运行 ID。
 
-最后一个前端离开后，后端继续完成已提交且可执行的队列，等待中的交互仍可重连回答。`shutdown({ mode: "cancel" })` 停止当前工作并保留未执行项；`drain` 等待可执行工作完成。重新打开空间后，保留队列处于暂停状态，需明确恢复；已中断运行不会自动重放。
+能力通过 `sessions.submit` 提交输入时，可能需要等待应用完成其他操作。受理前的等待使用父调用的取消信号；父调用取消或插件关闭后，等待也结束。一旦应用已经受理，新请求就有了独立的持久记录，后续按自己的生命周期执行和取消。
 
-`session.continue({ target, requestId, previousRequestId, input?, selection? })` 在当前历史和文件上接续失败、取消、中断或未接入的请求。空闲时启动，忙时排队；旧记录保留。原输入未进入历史时补入，已进入时引用原消息，可追加本次要求。真正开始时再次核对原输入是否已进入，避免连续接续重复补入。后端不重放旧工具调用。
+最后一个前端离开后，后端会处理已经提交且可执行的队列；等待中的交互可以在重连后回答。`shutdown({ mode: "cancel" })` 停止当前工作，保留未执行项；`drain` 等待可执行工作结束。重新打开空间后，保留下来的队列处于暂停状态，需要明确恢复。
+
+### 接续失败的工作
+
+`session.continue({ target, requestId, previousRequestId, input?, selection? })` 为失败、取消、中断或未接入的请求建立一次新的提交。会话空闲时启动，忙时排队，原记录保留。
+
+接续使用当前历史和当前文件。原输入尚未进入历史时，开始处理前补入；已经进入时，关联原消息，并追加本次要求。真正开始时还会核对一次投递状态，避免连续接续同一请求时重复补入。后续工具动作由 Agent 根据现状决定，不重放过去的工具调用。
 
 ## 历史与订阅
 
-输入的 `delivery` 分为 `pending`、`entered` 和 `not_entered`。`entered` 附实际 Pi 历史消息标识，只说明输入已进入历史。Host 在最终的 RPC input hook 关联本次输入，将请求标识随实际用户消息持久化；既有 prompt / Skill 展开仍由 Pi 完成。扩展已经处理掉的输入不虚构用户消息。重开空间时，按实际历史核对投递状态。
+输入的 `delivery` 有三种状态：`pending`、`entered` 和 `not_entered`。`entered` 表示输入已经进入 Pi 历史，并附上实际消息标识；Agent 是否完成处理，需要查看所属运行。
 
-`session.history({ spaceId, sessionId, before?, limit? })` 按当前分支的消息位置向前分页，默认 100 条、最多 200 条。`before` 来自上一页回执，不随新追加消息移动。`session.get` 和会话范围快照提供最近 100 条消息；应用与空间范围快照不携带各会话全文，仅提供活动运行。历史查询不打开 Agent 运行实例。
+Host 在 Pi 最后的 RPC input hook 中关联输入，把请求标识随实际用户消息保存。prompt 和 Skill 展开由 Pi 完成。扩展自行处理的输入可能不会形成用户消息，此时按实际结果记录。重开空间后，也会根据 Pi 历史核对投递状态。
 
-订阅变化含 `previousCursor` 与新的 `cursor`。游标按每个订阅实际收到的范围连续，其他会话的事件不会造成假缺口。客户端发现缺口后重新取得快照，重同步期间不将后续增量应用到旧状态；连接恢复时继续使用服务端缓存或新快照。
+`session.history({ spaceId, sessionId, revision?, before?, around?, limit? })` 返回历史和所选分支位置的 `revision`，默认 100 条，最多 200 条。首次读取固定当前 Pi leaf；后续带上这个修订，即使会话又增加消息，也能读取同一段历史。
+
+`before` 使用上一页返回的游标；`around` 取得指定消息附近的窗口，两者互斥。`session.get` 和会话范围快照提供最近 100 条消息，应用和空间范围快照只提供活动运行，不附带各会话的完整历史。读取历史不会打开 Agent 实例，搜索与定位见[搜索接入](search-materials.md#历史查询固定-pi-分支位置)。
+
+订阅事件包含 `previousCursor` 和新的 `cursor`，它们按该订阅实际接收的事件连续递增。其他会话的事件不会造成缺口。客户端发现缺口后重新取得快照，完成重同步前暂停应用后续增量；重连时按服务端缓存或新快照恢复。
 
 ## 独立后台处理
 
-能力宿主通过 `RepaApplication.process({ spaceId, requestId, operation, input }, execute)` 提交已经解析的处理函数。它提供持久受理、输入资源、取消信号、进度和交互，不创建学习会话或 Agent 运行。处理函数取得所属空间的内容入口，返回带格式、来源和资源声明的表示。
+包管理、独立模型调用和客户端能力调用，都可能在没有 Agent 会话时发生。它们使用 `BackgroundRequests` 保存受理、配置、进度、交互与结果，不为此创建会话。
 
-公开客户端通过 `request.get` 查询处理结果，通过 `request.cancel` 取消；空间订阅提供 `processing` 变化，快照保留尚未结束的处理。处理交互以 `requestId` 归属，使用 `interaction.reply` 回答。处理函数返回已完成结果时保存结果；取消终态等待函数实际结束。后端退出会等待处理和内容操作收尾，重开后不会自动重放中断处理。
+空间请求带有 `spaceId`，可以使用该空间的内容服务。应用请求省略 `spaceId`，记录保存在应用目录，也没有空间内容入口。两者使用相同的去重、取消和结果保存过程。应用在创建处理实例时提供记录目录、独占访问检查、变化通知和交互入口。
 
-包发现、能力契约校验与 `capability.invoke` 由 #20 持有，本模块不再建立一套插件注册机制。独立模型调用由相应能力使用 #18 的模型服务，本地处理不要求模型配置。
+公开客户端通过 `request.get` 查询，通过 `request.cancel` 取消；应用请求在这两个接口中都省略 `spaceId`。应用或空间订阅发送 `processing` 变化，快照中保留尚未结束的处理。交互属于对应 `requestId`，通过 `interaction.reply` 回答。
+
+取消终态要等处理函数真正结束，后端退出也会等待处理和内容操作收尾。重开后把中断结果保留下来，不自动重做。原选择保存在 `options`，受理时的配置保存在 `configuration`，重传不会重新解析它们。
+
+各入口复用这套记录时，另有以下约定：
+
+| 入口 | 接入方式 |
+| --- | --- |
+| `model.complete` | 用 Pi `ModelRuntime.completeSimple` 和 SDK 重试处理明确输入，记录回复、用量和来源资源；不创建会话 |
+| `capability.invoke` | `inline` 和 `background` 都保存请求，区别是公开方法等待结果还是先返回回执；Agent 工具已归父运行，不另建后台记录 |
+| `package.install/update/remove` | 保存包管理进度与结果；当前 SDK 进入安装后无法中途取消，改包前即标记后端需要重启 |
+| `execution.run` | 保存命令结果和已经发生的输出；取消后的请求保持 `cancelled`，不会因保留输出而改报完成 |
+
+对应细节见[独立模型调用](models-configuration.md#独立模型调用)、[能力调用](capabilities.md#公开调用与-agent-工具)、[包管理](plugins.md#安装更新与移除)和[命令执行](execution.md)。
 
 ## 持久格式与资源
 
-空间锁仍由 `RuntimeStore` 持有，运行起止事实沿用 `.repa/runtime/runs.jsonl`。输入记录保存在 `.repa/runtime/requests/<requestId>.json`，文件版本为 1；`queues.json` 保存暂停状态，顺序由请求的受理序号确定。独立处理使用 `.repa/runtime/processing/<requestId>.json`，文件版本为 1。记录通过共同原子替换入口保存。
+| 内容 | 保存位置 |
+| --- | --- |
+| 运行起止记录 | `.repa/runtime/runs.jsonl` |
+| 会话请求，文件版本 1 | `.repa/runtime/requests/<requestId>.json` |
+| 队列暂停状态 | `.repa/runtime/queues.json`；顺序由请求受理序号确定 |
+| 空间独立处理，文件版本 1 | `.repa/runtime/processing/<requestId>.json` |
+| 应用独立处理 | `<appDirectory>/runtime/processing/` |
 
-请求在受理前验证并接续资源保留关系，实际引用读取补充的资源由同一请求持有；处理结果也建立独立保留关系。上传准备期结束、客户端断开或会话历史删除不清除仍被请求记录持有的字节。当前请求记录持续保留，尚未提供请求记录清理接口。
+空间锁由 `RuntimeStore` 持有。应用独立处理则在首次使用时取得自身记录目录的 `proper-lockfile` 租约，不借用某个空间的锁。目录被另一后端占用时返回 `application_runtime_in_use`；租约受损时取消并退出，正常关闭要等任务和记录收尾后再释放。两类处理记录都通过原子替换保存。
 
-空间备份包含上述记录和资源。复制空间时迁接请求所属空间及输入、结果中明确声明的内容／资源引用；任意格式数据内部的业务引用仍由相应能力解释。Pi 历史继续由 SDK 保存，原始来源文字不被空间复制改写。
+请求受理前检查并保留输入资源，处理过程中读到的材料和生成的结果追加给同一父请求。会话工具结果进入历史后，由会话持有；新建分支也建立自己的保留关系。运行结束后，请求只需继续保留原输入。
 
-验证入口为 [application.test.ts](../../packages/repa/test/application.test.ts)，使用真实 Pi、本地确定性 provider、公共客户端、真实资源与空间目录，覆盖连续输入、队列、取消、失败接续、重连、重开、图片与草稿、独立处理以及复制后的请求查询。
+独立后台处理成功时，最终保留输入和交付结果，释放仅供本次处理使用的中间资源。失败或取消时，已经取得的资源按记录保留。结果所需资源在报告完成前核对。应用请求若声明需要持有某个空间的资源，返回 `space_required`，应改为在所属空间中调用。
+
+客户端断开、上传准备结束或会话历史删除，都不会清除仍被请求记录持有的字节。当前请求记录持续保留，尚未提供清理接口。完整保留规则见[资源说明](resources.md)。
+
+空间备份包含空间请求与其资源，应用请求不随某个空间备份。复制时映射请求归属及标准输入、结果中的内容和资源引用；业务格式内部的引用由所属能力处理。Pi 历史由 SDK 保存，历史命令和当时的工作目录作为实际记录保留。
+
+打开空间时，先恢复会话、请求和资源，再发布空间状态。恢复失败会释放尚未登记的租约；补回所需数据后，可以在同一后端重新打开。
+
+## 未完成项与待验证项
+
+| 项目 | 当前状态与影响 | 后续工作 |
+| --- | --- | --- |
+| 交互答复的重传确认与竞争结果 | `interaction.reply` 接受首次有效答复后删除待答交互，后续答复统一返回 `interaction_expired`。如果确认消息丢失，你重试时无法区分答复已接受还是交互确实过期；两个前端同时回答也无法查询已处理结果 | 由 [#19](https://github.com/Utopia-V/repa/issues/19) 接入 [#16 §9.2](https://github.com/Utopia-V/repa/issues/16) 约定的答复身份与结果确认，[#10](https://github.com/Utopia-V/repa/issues/10) 据此处理重试。[#20](https://github.com/Utopia-V/repa/issues/20) 的后台交互与 [#21](https://github.com/Utopia-V/repa/issues/21) 的授权交互复用同一行为 |
+
+## 验证入口
+
+- [application.test.ts](../../packages/repa/test/application.test.ts) 和 [model-api.test.ts](../../packages/repa/test/model-api.test.ts)：通过 Pi、本地 provider 和公开客户端，验证输入、队列、接续、取消、重连、重开及连接选择。
+- [capability-api.test.ts](../../packages/repa/test/capability-api.test.ts)、[capability-resources.test.ts](../../packages/repa/test/capability-resources.test.ts) 和 [plugin-api.test.ts](../../packages/repa/test/plugin-api.test.ts)：验证能力与包管理的受理、资源、应用租约和关闭，也覆盖受理前取消会话提交。
+- [background-requests.test.ts](../../packages/repa/test/background-requests.test.ts)：使用临时记录、空间资源和独立进程，验证应用请求、交互、取消、中断恢复及旧空间格式。

@@ -165,7 +165,7 @@ export class ExecutionService {
         operations: {
           exec: async (command, cwd, options) => runCommand({
             command, cwd, policy: view.policy, protectedPaths: view.protectedPaths,
-            signal, timeout: options.timeout,
+            signal, timeout: options.timeout, env: options.env,
             onData: (stream, data) => {
               options.onData(data);
               const text = decoders[stream].write(data);

@@ -1,6 +1,6 @@
 # 按应用授权运行命令与展示内容
 
-本记录约定目标设计；当前实现范围与运行方式见 [README](../../README.md#运行现有-tui)。
+本记录约定执行与展示的责任边界。命令后端的当前接入、固定上游版本及安装条件见[执行说明](../development/execution.md)；展示隔离仍由对应前端任务接入。
 
 ## 授权与调用范围
 
@@ -17,6 +17,20 @@
 命令执行层优先复用 [Codex 的开源沙箱模块](https://github.com/openai/codex/tree/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/sandboxing)，由 Repa 自行集成、配置和交付，正常使用不要求安装、登录或配置其他 Agent 应用。执行适配器报告实际支持的文件、网络和进程限制，按选定策略执行；不能满足条件时明确返回不可执行原因，不自动放宽权限。同宿主加载的插件代码仍属于其运行环境的信任边界，命令沙箱不自动隔离全部插件代码。
 
 命令可能在部分操作完成后才遇到权限拒绝。执行器返回真实输出、退出情况和已知拒绝原因，获得额外授权不自动使整条命令成为可以安全重跑的请求。尚未执行的请求可以继续，已执行或结果不明的请求沿用结果查询与恢复语义，Agent 根据实际结果决定后续操作。
+
+Linux 执行使用同一源码基准的 helper 与 bubblewrap。固定版本的 `--die-with-parent` 在初始化后才绑定父死亡信号，启动期间取消外层进程，可能留下内部命令。应用若靠扫描进程树补救，还需要追踪扫描过程中继续创建的子进程。
+
+当前选择在 bubblewrap 的启动边界修复：用 pidfd 保留真实父身份，提前建立父死亡信号，并由 PID namespace 完成收尾。helper 只加载同次构建、摘要相符的相邻 bubblewrap，确保运行的就是带有该行为的副本。代价是维护局部上游补丁并要求相应内核能力。来源与验证见[沙箱构建说明](../../packages/repa/resources/sandbox/README.md)，上游提供等价行为后可删除适配。
+
+## Full Access 的执行环境
+
+Full Access 用于按本机权限使用工具。若文件和网络已经放开，却仍把 HOME 换成临时目录、把系统 PATH 放在用户工具之前，就会丢失已有配置，或选中不同版本的程序。因此，Full Access 使用 Pi 为本次 Bash 调用准备的环境，保留后端进程的 HOME、PATH、代理和工具凭据，由 Bash 登录启动配置补充环境。
+
+参考基准为 Codex `3d2ee51c`：[`ShellEnvironmentPolicy` 默认继承全部环境](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/protocol/src/config_types.rs#L261-L273)，默认不按 KEY、SECRET、TOKEN 模式排除普通变量；[登录 shell 默认启用](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/config/mod.rs#L3737)，[`exec_command` 据此选择 login](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/tools/handlers/unified_exec.rs#L99)。Codex 的环境构造与沙箱选择分别处理。
+
+Repa 将 Pi `BashOperations.exec` 收到的环境交给执行器，保留 SDK 已有的环境准备和会话信息处理。Full Access 使用 `/bin/bash -lc`，由 Bash 按自己的规则读取登录启动文件，不另写一套 shell 检测或配置解释。受限模式使用独立 HOME，并按授权范围提供工具路径。
+
+当前没有引入 Codex 的 shell 快照缓存，每次 Full Access 命令都经过 Bash 登录启动过程。这保留简单直接的接入，但启动配置的耗时和副作用也会发生在每次命令中；以后若实际使用表明需要缓存，再核对快照生命周期。命令仍由 Repa 管理请求、输出与取消，环境继承不改变这些责任。
 
 ## 展示内容与交互
 

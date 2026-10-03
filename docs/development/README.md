@@ -15,11 +15,14 @@ npm ci
 | 范围 | 开发命令 |
 | --- | --- |
 | 后端与 TUI | `npm run dev:backend -- /path/to/learning-space` |
+| 配置连接与默认模型 | `npm run dev:backend -- configure` |
 | 独立后端联调 | `npm run dev:backend -- serve --connection-file /absolute/path/connection.json` |
 | Web | `npm run dev:web` |
 | Desktop | `npm run dev:desktop` |
 
 Web 和 Desktop 会自动构建并启动各自的开发后端，不需要手工填写连接地址或令牌。提交评审前在根目录运行 `npm run check`、`npm test` 和 `npm run build`；具体代码入口见下一节。
+
+能力包使用主包导出的 `repa/plugin`、`repa/protocol` 等接口，因此需要先构建主包。`npm run build:backend` 按这个顺序构建主包、材料、规划和复习包，纯 Skill 包无需编译。根目录检查、测试、后端启动，以及 Web／Desktop 的开发准备都使用此入口，干净目录也能建立完整后端。动态加载与构建顺序的取舍见[官方学习组合](official-learning.md#装配责任与构建顺序)。
 
 ## Web 界面
 
@@ -41,9 +44,11 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 
 项目具体写法分别由[文档规范](../../.agents/skills/repa-docs-style/SKILL.md)、[测试规范](../../.agents/skills/repa-test-style/SKILL.md)和[代码规范](../../.agents/skills/repa-code-style/SKILL.md)持有；这些文件也供开发者直接阅读，适用入口由根目录 `AGENTS.md` 统一登记。
 
-模块任务及其接入顺序见[实施入口 #5](https://github.com/Utopia-V/repa/issues/5)。任务中的完整联调依赖不要求整项串行等待：Pi 输入投递可沿用现有模型配置接入，本地检索和材料提取可先实现，普通 Pi 工具、Skill 和提示包沿用现有加载入口。具体 SDK 能力、当前接法与产品差异见[Agent 接入](agent-runtime.md#sdk-能力与接入范围)。
+模块任务及接入关系见[实施入口 #5](https://github.com/Utopia-V/repa/issues/5)。开始一项工作时，先核对现有实现和可复用的 SDK 入口；完整联调依赖并不要求所有模块串行开发。当前 Pi 能力与实际接法见[Agent 接入](agent-runtime.md#sdk-能力与接入范围)。
 
-[插件宿主 #20](https://github.com/Utopia-V/repa/issues/20)补充跨 Agent/前端的通用调用与按需生命周期接入；算法、数据库实体和迁移由插件负责，适用的存储辅助库可作为可选依赖共享。长时后台处理再接 #19 的持久请求，配置选择与 #18 对齐，基础短操作不为等待整套宿主而重建运行机制。数据责任见[ADR 0003](../adr/0003-share-file-based-content-operations.md#能力数据与数据库)。
+当前后端已经接通共享能力、插件包、命令执行和默认学习组合。Agent 工具与公开客户端共用处理函数，请求、配置和内容也使用已有模块。各插件负责自己的业务数据与算法，学习语境负责背景选择与展开。
+
+官方界面、生成展示和真实模型学习体验还需要联合验收。具体缺口记录在各模块的“未完成项与待验证项”，整体范围见[官方学习组合](official-learning.md#未完成项与待验证项)。
 
 ## 从哪里开始
 
@@ -55,11 +60,20 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 | 增加公开调用 | [protocol.ts](../../packages/repa/src/protocol.ts)、[server.ts](../../packages/repa/src/server.ts)：参数和结果校验、认证、传输；内容契约在 [content/protocol.ts](../../packages/repa/src/content/protocol.ts) |
 | 修改输入、排队、失败接续和后台请求 | [输入、请求与运行](requests.md)：受理记录、Pi 投递、资源保留、分页及订阅 |
 | 处理应用内的操作顺序与退出 | [application.ts](../../packages/repa/src/application.ts)：空间实例、请求受理、配置固定、订阅与进行中工作；释放空间前等待 Agent 和内容操作收尾 |
-| 修改正文、身份、组成或学习语境 | [内容与保存](content.md)：共同的版本检查、文件操作、资源和恢复入口 |
+| 修改正文、身份或内容组成 | [内容与保存](content.md)：共同的版本检查、文件操作、资源和恢复入口 |
+| 执行命令、处理授权与子进程 | [命令执行与授权](execution.md)：Pi Bash SDK、独立 helper、实际请求归属、输出与退出 |
+| 搜索内容、历史或提取本地材料 | [搜索与材料](search-materials.md)：rg 预筛、实际字节快照、冻结历史、结果分页与独立材料包 |
+| 接入复习、实际反馈和参数优化 | [复习插件](review.md)：FSRS、SQLite、追加更正、候选参数及公开操作与通知 |
+| 创建或调整学习计划 | [规划能力](planning.md)：可替换方法、实际时钟、日期与时间约束检查，正文沿用内容工具 |
+| 整理长期内容与当前语境 | [整理能力](organization.md)：方法 Skill、同次正文与结构保存、模型可见的身份及操作查询 |
+| 调整默认学习组合与教学方法 | [官方学习组合](official-learning.md)：分发依赖、精确来源、整组／单项启停，以及当前联合验收缺口 |
+| 修改学习语境及其持久格式 | [官方学习语境](learning.md)：选择、组成、展开、旧格式与背景 codec；保存继续复用内容模块 |
+| 接入共享后端能力与窄服务 | [能力宿主](capabilities.md)：契约、作用域、Agent 工具与公共调用、按需空间生命周期 |
+| 发现、启用或管理插件包 | [插件装配](plugins.md)：Pi 包来源、资源信任、多入口、独立快照与实际进程重启 |
 | 管理媒体、版本保留、会话删除和回收 | [资源持有与清理](resources.md)：实际消费者、展示宿主、准备期、重连与历史清理 |
 | 备份、恢复或复制整个空间 | [空间快照](spaces.md)：目录发布、格式 owner、插件数据参与与中断结果 |
 | 修改模型实际得到的输入、工具或提示来源 | [Agent 接入](agent-runtime.md)：Pi 运行边界、可控来源、实际读取基准及压缩后的工作视图 |
-| 修改持久配置 | [configuration/store.ts](../../packages/repa/src/configuration/store.ts)：应用、空间、会话逐项继承；配置定义在相邻 schema 中 |
+| 管理模型连接、认证与持久配置 | [模型连接与运行配置](models-configuration.md)：具名身份、Pi 认证、逐项继承、运行绑定与静态预览 |
 | 修改会话历史或运行记录 | [pi-sessions.ts](../../packages/repa/src/pi-sessions.ts) 适配 Pi 会话树；[runtime-store.ts](../../packages/repa/src/runtime-store.ts) 与 [run-journal.ts](../../packages/repa/src/run-journal.ts) 持有空间锁和请求事实 |
 
 `packages/repa/src/storage/` 只提供原子替换、串行队列、受管理目录和不可变字节存储。内容身份、恢复判定、配置继承和 Agent 行为留在各自模块，不能从通用文件辅助函数推导产品语义。
@@ -68,22 +82,32 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 
 ```mermaid
 flowchart LR
-    Client[RepaClient] --> Server[认证与协议校验]
-    Server --> App[RepaApplication]
-    App --> Content[ContentStore]
-    App --> Config[ConfigStore]
-    App --> Host[PiConversationHost]
-    Host --> Tools[Pi 工具适配器]
-    Tools --> Content
-    Host --> Context[学习语境工作视图]
-    Context --> Content
-    Content --> Journal[FileJournal 与 BlobStore]
-    Host --> Pi[Pi AgentSession 与 SessionManager]
+    Client[RepaClient] -->|发送请求| Server[认证与协议校验]
+    Server -->|调用| App[RepaApplication]
+    App -->|读写内容| Content[ContentStore]
+    App -->|解析设置| Config[ConfigStore]
+    App -->|选择连接| Models[ModelConnections]
+    Models -->|认证与调用| Runtime[Pi ModelRuntime 与凭据存储]
+    App -->|准备运行| Host[PiConversationHost]
+    Host -->|提供工具| Tools[Pi 工具适配器]
+    Tools -->|读写内容| Content
+    App -->|选择包| Plugins[插件入口与信任选择]
+    Plugins -->|登记实现| Capability[共享能力宿主]
+    App -->|公开调用| Capability
+    Tools -->|能力调用| Capability
+    Capability -->|调用实现| Learning[官方学习语境]
+    Learning -->|读取与保存| Content
+    Host -->|准备背景| Background[通用背景来源与投影]
+    Background -->|经 Application 调用选定能力| Capability
+    Content -->|保存与恢复| Journal[FileJournal 与 BlobStore]
+    Host -->|运行与历史| Pi[Pi AgentSession 与 SessionManager]
 ```
 
-内容 API 和模型工具共享实际保存入口。图形前端可以直接使用它建立编辑器与导航；当前 TUI 继续使用公共客户端。结构化会话输入、steer、持久队列、失败接续和独立处理生命周期已接通，见[请求接入](requests.md)。图形组件宿主、共享草稿服务、共享能力注册和命令沙箱仍按设计文档接入，不能把相关草案方法视为已实现接口。
+内容 API 和模型工具共用保存入口，能力 API 和工具共用处理函数。客户端能力调用通过请求模块保存记录，Agent 工具使用父运行的身份与取消信号。具体调用方式见[能力宿主](capabilities.md)，记录与恢复见[请求说明](requests.md)。
 
-当前 `ContentStore` 仍直接持有学习语境绑定与展开，`PiConversationHost` 直接读取它并装配默认提示。#20 负责解除对学习组织规则的硬依赖，将相应来源接入官方学习能力，继续复用通用内容、快照与 Pi 生命周期。迁接须保留已有绑定、保存/撤回/恢复、来源关闭、压缩回填和默认体验；当前图示描述的是实际实现，尚未完成这项迁接。
+Host 使用学习能力准备好的背景，处理快照复用和压缩后补回。学习语境的选择与展开留在学习模块，文件保存和引用映射使用内容模块。关闭官方学习组合后，普通 Agent 与内容操作可用，原文档、绑定和历史快照保留。
+
+图形组件宿主、共享草稿与前端入口的加载尚待接通。命令执行已接入，平台适用范围和安装验证见[执行说明](execution.md#构建与独立启动)。
 
 ## 运行与验证
 
@@ -107,10 +131,19 @@ npm run build
 | 已观察文件的变化提示、差异基准与按需读取 | [file-changes.test.ts](../../packages/repa/test/file-changes.test.ts) |
 | 实际模型输入、来源关闭、空提示、重复注入和压缩 | [agent-context.test.ts](../../packages/repa/test/agent-context.test.ts)、[pi-context-integration.test.ts](../../packages/repa/test/pi-context-integration.test.ts) |
 | 配置与外部文件授权的持久化、并发写入 | [configuration.test.ts](../../packages/repa/test/configuration.test.ts)、[content-access.test.ts](../../packages/repa/test/content-access.test.ts) |
+| 具名连接、认证身份、运行选择、独立模型调用与提示预览 | [model-connections.test.ts](../../packages/repa/test/model-connections.test.ts)、[model-api.test.ts](../../packages/repa/test/model-api.test.ts)、[cli-models.test.ts](../../packages/repa/test/cli-models.test.ts) |
+| 共享能力、SQLite 按需资源、公共调用与父 Agent 工具 | [capabilities.test.ts](../../packages/repa/test/capabilities.test.ts)、[capability-api.test.ts](../../packages/repa/test/capability-api.test.ts)、[capability-resources.test.ts](../../packages/repa/test/capability-resources.test.ts) |
+| 命令授权、真实隔离、取消和完整输出生命周期 | [execution-process.test.ts](../../packages/repa/test/execution-process.test.ts)、[execution-api.test.ts](../../packages/repa/test/execution-api.test.ts) |
+| 搜索定位、冻结分页与本地材料格式和取消 | [搜索与材料验证](search-materials.md#验证入口与固定版本)：内容/历史查询、公共工具和编译包入口 |
+| 真实 FSRS、复习事务、工具与参数优化 | [复习验证](review.md#验证入口)：算法、SQLite、公共操作、插件快照和独立优化进程 |
+| 学习规划方法与时间约束 | [规划验证](planning.md#验证)：Temporal、真实 Pi 读 Skill／检查／保存和外部编辑后接续 |
+| 官方后端默认装配与持续学习 | [组合验证](official-learning.md#验证入口)：干净配置、真实工具、实际反馈、关闭后复制重启与精确来源替换 |
+| 内容整理与语境接续 | [整理验证](organization.md#验证入口)：共同补丁、真实模型输入、人工改动保留与失败操作查询 |
+| 包多入口、资源信任、发现无副作用与包管理 | [plugin-packages.test.ts](../../packages/repa/test/plugin-packages.test.ts)、[plugin-resources.test.ts](../../packages/repa/test/plugin-resources.test.ts)、[plugin-api.test.ts](../../packages/repa/test/plugin-api.test.ts) |
 | 后端、客户端、TUI、恢复与真实子进程生命周期 | [application.test.ts](../../packages/repa/test/application.test.ts)、[run-journal.test.ts](../../packages/repa/test/run-journal.test.ts) |
 | Web HTTP 连接交付、真实后端启动及退出清理 | [Web 宿主集成测试](../../apps/web/test/backend.integration.test.ts) |
 | Desktop 后端进程复用、退出与再次启动 | [Desktop 宿主集成测试](../../apps/desktop/test/backend.integration.test.ts) |
 
 当前整合版本的类型检查、测试与构建已有 Linux 运行证据，包含 Web 与 Desktop 宿主连接真实后端的测试。文件系统通知用于让界面重新查询，不能证明观察到了外部程序的每一次中间写入。安装包、其他平台的进程与文件锁行为、性能和真实学习效果仍需在对应环境验证。
 
-两项前端宿主集成测试沿用 Vitest，在 Node 环境中启动真实 `repa serve` 子进程并通过 `RepaClient` 打开、查询临时学习空间；Web 额外经过真实 Vite HTTP 连接端点。配置和内容使用独立临时目录，测试结束清理后端与文件，无需模型凭据或新增测试依赖。运行根目录 `npm test` 会先构建后端并包含这些测试；仅运行前端 workspace 测试前需先执行 `npm run build --workspace=repa`。这些检查覆盖宿主与后端边界，不等同于浏览器端到端或 Electron 窗口、preload 的验证。
+两项前端宿主集成测试沿用 Vitest，在 Node 环境中启动真实 `repa serve` 子进程并通过 `RepaClient` 打开、查询临时学习空间；Web 额外经过真实 Vite HTTP 连接端点。配置和内容使用独立临时目录，测试结束清理后端与文件，无需模型凭据或新增测试依赖。运行根目录 `npm test` 会先构建后端并包含这些测试；仅运行前端或能力 workspace 测试前需先执行 `npm run build:backend`。这些检查覆盖宿主与后端边界，不等同于浏览器端到端或 Electron 窗口、preload 的验证。
