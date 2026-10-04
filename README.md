@@ -6,6 +6,8 @@ Repa 是一个独立、本地优先的学习 Agent 应用。用户在自己的�
 
 Repa 的提示词、背景、工具和界面组件可以按需配置与组合，官方提供开箱即用的学习组合。
 
+Repa 的设计受到 Math Academy 的学习组织方式启发，并借助 LLM、长期状态和通用工具扩展到更多材料、领域与实际任务。[MA 参考](docs/research/math-academy.md)记录其公开做法，[学习组织设计](docs/research/learning-organization.md)说明 Repa 如何结合整体认识、局部细化和不同目标安排学习。当前 FSRS 插件是候选实现，后续算法仍在研究。
+
 以下设计概览描述已经确定的产品行为与架构，供产品讨论、接口设计和开发协作使用。当前代码提供独立本机后端、公开应用协议、无 UI 客户端、TUI，以及 Web／Desktop 工作台骨架；后端默认学习组合已接通，图形界面、交互产物和真实学习体验仍待联合验收。[实现范围与待验证选择](#设计记录与实现验证)说明两者的对应关系，现有代码的运行方式见[运行现有 TUI](#运行现有-tui)。
 
 当前设计与调查依据的全部文件列在[设计文件清单](#设计文件清单)。建议先阅读本页总览，再查阅领域约定和相应的架构决策。
@@ -41,9 +43,11 @@ Repa 的提示词、背景、工具和界面组件可以按需配置与组合，
 
 一项学习目标可以跨多个会话推进，一个会话也可以讨论多个目标。知识内容、学习目标与学习活动保留各自含义，文档粒度由实际内容决定。实际作答、对结果的解释和未来安排分别表达，判断可以随着新反馈修正。
 
+学习 Agent 先对目标、当前水平和主要知识关系形成整体认识，再按需要细化具体内容。多个目标可以共享学习成果，同时保留各自的期限与熟练要求。长期积累应当改善后续帮助，相应的反馈与呈现帮助用户看见这些变化；这项产品方向的语义见 [CONTEXT.md](CONTEXT.md)。
+
 ### 默认学习能力
 
-当前后端默认附带教学、材料、规划、复习、整理与学习语境，启停、替换和当前验证范围见[官方学习组合](docs/development/official-learning.md)。下表描述产品目标范围，图形展示与在线材料获取尚未全部实现。
+当前后端默认附带教学、材料、规划、复习、整理与学习语境，启停、替换和当前验证范围见[官方学习组合](docs/development/official-learning.md)。下表描述产品目标范围；图形展示仍待接入，已支持的材料格式和在线获取范围见[搜索与材料](docs/development/search-materials.md)。
 
 官方安装包附带可以直接开展学习的能力组合，默认体验由产品负责，各项能力通过相同公开接口接入并支持替换或关闭。
 
@@ -227,6 +231,8 @@ Repa 提供内容读写、引用与组成、数据和资源传递、动作调用
 | [docs/adr/0006-govern-frontend-visuals-through-a-semantic-design-system.md](docs/adr/0006-govern-frontend-visuals-through-a-semantic-design-system.md) | 官方前端的视觉语义、组件责任和主题实现取舍 |
 | [docs/design-system.md](docs/design-system.md) | 官方界面的 token、基础控件、交互状态与可访问性规范 |
 | [docs/research/pi-ecosystem-compatibility.md](docs/research/pi-ecosystem-compatibility.md) | Pi 生态、公开复用入口、提示装配与固定版本核验，以及 Codex 编辑行为对比；结论按文中调查基准解释 |
+| [docs/research/math-academy.md](docs/research/math-academy.md) | MA 公开的知识组织、诊断、任务选择和复习机制，附来源与核对日期 |
+| [docs/research/learning-organization.md](docs/research/learning-organization.md) | Repa 学习功能的全局粗览、局部细化、多目标要求与待研究的调度问题 |
 
 具体接口集中记录在 [Repa v1 接口草案 #16](https://github.com/Utopia-V/repa/issues/16)，覆盖前后端协议、共享后台能力与组件宿主。该议题持有待实现的接口方案，当前可运行代码仍按下方的实现范围说明。
 
@@ -256,13 +262,13 @@ steer、follow-up、图片输入、模型认证与调用、工具选择和命令
 | 扩展与配置 | 已有具名连接、Pi 认证、配置继承、运行绑定和提示控制；共享能力、包管理和独立快照已接通，前端组件加载待接入 |
 | 独立学习能力包 | [教学](packages/learning/README.md)、[材料](packages/materials/README.md)、[复习](packages/review/README.md)、[规划](packages/planning/README.md)与[整理](packages/organization/README.md)已加入默认后端组合，可以分别关闭。各包的当前范围和整体缺口见[官方学习组合](docs/development/official-learning.md) |
 | 展示与前端 | Web 与 Electron 可以启动本机后端并建立连接；[展示后端与 MCP Apps 桥接](docs/development/display.md)已接通固定版本、资源、保存与向会话提交。完整工作台和生产展示隔离由前端接入 |
-| 执行与安装 | 命令执行当前支持 Linux，复用独立沙箱组件。[Linux x64 安装包](docs/development/distribution.md)已通过 Ubuntu 24.04 实际安装、普通用户运行和卸载验证；跨版本升级与其他平台尚待完成 |
+| 执行与安装 | 命令执行当前支持 Linux，复用独立沙箱组件。[Linux x64 安装包](docs/development/distribution.md)已通过 Ubuntu 24.04 实际安装、普通用户运行和卸载验证；历史构建数据接续与恢复也有固定夹具验证，安装包之间的替换升级和其他平台尚待完成 |
 
 当前模块责任、调用示例、持久格式和验证入口见[开发指南](docs/development/README.md)。已经实现的字段由公开 schema 持有；官方图形前端采用 React、React Router、Vite 与 Electron/electron-vite，Web 与 Desktop renderer 分别拥有自己的页面、路由和应用状态。Web 组件接入形状继续作为公开宿主契约。
 
-可领取的模块任务、依赖关系与整体接通责任集中在[产品主议题 #5](https://github.com/Utopia-V/repa/issues/5)。任务从该议题指定的开发分支基线开始，任务状态由 GitHub Issues 维护。
+当前任务由[总索引 #5](https://github.com/Utopia-V/repa/issues/5)组织，分为[基座与工程 #34](https://github.com/Utopia-V/repa/issues/34)、[学习算法与基础能力 #35](https://github.com/Utopia-V/repa/issues/35)、[前端与展示 #10](https://github.com/Utopia-V/repa/issues/10)及[研究 #30](https://github.com/Utopia-V/repa/issues/30)。方向索引链接具体子 Issue，任务状态与依赖留在 GitHub；前端内部拆分由前端负责人维护。
 
-现有运行验证在 Linux 上进行，模型接入回归使用本地确定性 provider。后续联合验收重点是完整学习流程、生产展示隔离、真实模型体验和跨版本升级；各模块在开发说明中记录具体缺口。
+现有运行验证在 Linux 上进行，模型接入回归使用本地确定性 provider。后续分别处理公开接口的前端消费、生产展示隔离、真实 OAuth 验证和发行包替换；学习方法与算法按各自问题研究。已有组合的技术联调由 [#25](https://github.com/Utopia-V/repa/issues/25) 接续，各模块在开发说明中记录具体缺口。
 
 ## 仓库结构与 workspace
 

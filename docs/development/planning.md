@@ -91,7 +91,7 @@ if (response.kind === "inline" && Check(PlanResultSchema, response.result)) {
 | 项目 | 当前状态与影响 | 后续工作 |
 | --- | --- | --- |
 | 官方界面的规划操作 | 方法和公共工具已加入默认组合，图形界面尚未接入 | 由 [#10](https://github.com/Utopia-V/repa/issues/10) 使用同一契约联调 |
-| 实际模型的规划质量 | 已验证工具调用、保存和人工修改接续；工作量判断、优先级及调整建议尚需真实使用评价 | 由 [#25](https://github.com/Utopia-V/repa/issues/25) 在获授权的学习试用中验证 |
+| 实际模型的规划质量 | 已验证工具调用、保存和人工修改接续；工作量判断、优先级及调整建议尚需实际评价 | 由 [#38](https://github.com/Utopia-V/repa/issues/38) 按多目标与调度问题评价；[#25](https://github.com/Utopia-V/repa/issues/25) 核对工具、保存和组合接续 |
 
 ## 验证
 

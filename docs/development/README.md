@@ -45,7 +45,7 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 
 项目具体写法分别由[文档规范](../../.agents/skills/repa-docs-style/SKILL.md)、[测试规范](../../.agents/skills/repa-test-style/SKILL.md)和[代码规范](../../.agents/skills/repa-code-style/SKILL.md)持有；这些文件也供开发者直接阅读，适用入口由根目录 `AGENTS.md` 统一登记。
 
-模块任务及接入关系见[实施入口 #5](https://github.com/Utopia-V/repa/issues/5)。开始一项工作时，先核对现有实现和可复用的 SDK 入口；完整联调依赖并不要求所有模块串行开发。当前 Pi 能力与实际接法见 [Agent 接入](agent-runtime.md#sdk-能力与接入范围)。
+模块任务及接入关系见[总索引 #5](https://github.com/Utopia-V/repa/issues/5)，方向索引分别持有基座、学习算法、前端和研究任务。具体交付通过子 Issue 跟踪，前端内部拆分由前端负责人维护。开始一项工作时，先核对现有实现和可复用的 SDK 入口；完整联调依赖并不要求所有模块串行开发。当前 Pi 能力与实际接法见 [Agent 接入](agent-runtime.md#sdk-能力与接入范围)。
 
 当前后端已经接通共享能力、插件包、命令执行和默认学习组合。Agent 工具与公开客户端共用处理函数，请求、配置和内容也使用已有模块。各插件负责自己的业务数据与算法，学习语境负责背景选择与展开。
 

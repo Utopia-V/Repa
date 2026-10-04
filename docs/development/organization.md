@@ -76,7 +76,7 @@ Pi 把工具的 `content` 交给模型，`details` 用于日志和界面。模�
 | 项目 | 当前状态与影响 | 后续工作 |
 | --- | --- | --- |
 | 浏览与编辑界面的接入 | 内容操作和 Agent 方法已接通，真实界面中的拆分、引用跳转及共享编辑状态尚待联调 | 由 [#7](https://github.com/Utopia-V/repa/issues/7) 与 [#10](https://github.com/Utopia-V/repa/issues/10) 接入 |
-| 实际模型的整理判断 | 集成样本覆盖拆分、补充和语境切换；合并取舍、移动后的引用含义及歧义处理仍需真实使用评价 | 由 [#25](https://github.com/Utopia-V/repa/issues/25) 结合实际材料与人工编辑验证 |
+| 实际模型的整理判断 | 集成样本覆盖拆分、补充和语境切换；合并取舍、移动后的引用含义及歧义处理仍需实际评价 | 随 [#39](https://github.com/Utopia-V/repa/issues/39) 的工作表示和 [#40](https://github.com/Utopia-V/repa/issues/40) 的方法改造评价具体判断；[#25](https://github.com/Utopia-V/repa/issues/25) 核对公共接口与组合接续 |
 
 ## 验证入口
 

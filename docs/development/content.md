@@ -107,7 +107,7 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
 
 默认关联原件，内容中保存外部位置。`content.remove` 配合 `detach: true` 解除材料身份关联并保留原件；这一步不等于收回应用已有的文件读取授权。空间外写入当前返回 `permission_required`。
 
-`client.uploadResource(spaceId, bytes, mediaType)` 上传不可变字节，返回 `{ id, resource, expiresAt }`，当前单次上限为 64 MiB。内容读取得到的 `ResourceRef` 可通过 `client.resource(ref)` 获取，并支持单个 HTTP 字节范围。资源按已打开空间读取；标识本身不构成授权。当前接口供已认证的前端使用，可执行展示实例的受限资源桥接仍待实现。
+`client.uploadResource(spaceId, bytes, mediaType)` 上传不可变字节，返回 `{ id, resource, expiresAt }`，当前单次上限为 64 MiB。内容读取得到的 `ResourceRef` 可通过 `client.resource(ref)` 获取，并支持单个 HTTP 字节范围。资源按已打开空间读取；标识本身不构成授权。当前接口供已认证的前端使用；可执行展示实例通过已有的[受限资源桥接](display.md)读取绑定资源，官方展示宿主与生产隔离仍待接入。
 
 学习语境的绑定、组成格式和展开由 [`LearningContext`](learning.md) 负责。它通过 `ContentStore.observe` 在同一次队列操作中读取成员，通过 `setMetadata` 保存绑定。版本检查、去重、journal、撤回和恢复都使用已有内容操作；`ContentStore` 不再直接提供学习语境方法。
 
