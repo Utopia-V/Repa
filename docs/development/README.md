@@ -133,7 +133,7 @@ npm run build
 | 文件修改、版本冲突、身份移动、重复操作和中断恢复 | [content.test.ts](../../packages/repa/test/content.test.ts)、[content-patch.test.ts](../../packages/repa/test/content-patch.test.ts) |
 | 两个客户端共享保存结果、完整资源、空间外材料和退出期间保存 | [content-api.test.ts](../../packages/repa/test/content-api.test.ts) |
 | 内容复制、循环组成、多个版本持有和清理后防止重放 | [content-lifecycle.test.ts](../../packages/repa/test/content-lifecycle.test.ts) |
-| 空间复制、恢复、外部变化和 SQLite 快照参与 | [space-lifecycle.test.ts](../../packages/repa/test/space-lifecycle.test.ts) |
+| 空间复制、恢复、外部变化、历史数据接续和 SQLite 快照参与 | [space-lifecycle.test.ts](../../packages/repa/test/space-lifecycle.test.ts)、[upgrade-recovery.test.ts](../../packages/repa/test/upgrade-recovery.test.ts) |
 | 模型工具经共同内容入口读写、部分读取、取消与外部修改 | [agent-tools.test.ts](../../packages/repa/test/agent-tools.test.ts) |
 | 已观察文件的变化提示、差异基准与按需读取 | [file-changes.test.ts](../../packages/repa/test/file-changes.test.ts) |
 | 实际模型输入、来源关闭、空提示、重复注入和压缩 | [agent-context.test.ts](../../packages/repa/test/agent-context.test.ts)、[pi-context-integration.test.ts](../../packages/repa/test/pi-context-integration.test.ts) |

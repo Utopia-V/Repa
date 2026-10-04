@@ -135,3 +135,5 @@ npm test --workspace=@repa/review
 [优化测试](../../packages/review/test/optimizer.test.ts)在 Linux x64 使用真实 native binding 与子进程，覆盖可调度权重、上游默认回退、UTC 午夜、数据不足，以及计算进度到达后的实际取消退出。公开客户端也走通持久反馈生成候选、关闭重开、读取原后台结果、幂等重传和显式采用参数。上述验证使用已安装的可选组件；没有安装时，原生优化用例跳过，另验证明确不可用与普通调度继续运行。
 
 发行包另在临时隔离目录中解包，仅提供声明的宿主、TypeBox 和 `ts-fsrs` 运行依赖。未安装 binding 时，实际编译包的创建与反馈仍可使用，优化返回 `optimizer_unavailable`，此前状态保持不变。该检查覆盖包内子进程文件与可选依赖边界。
+
+[upgrade-recovery.test.ts](../../packages/repa/test/upgrade-recovery.test.ts) 使用历史构建实际生成的复习库，验证反馈、更正、参数和操作回执保持，恢复后可以继续评分；也覆盖未知版本和损坏数据库被拒绝后，从空间快照恢复。版本与样本来源见[空间说明](spaces.md#样本与版本)。

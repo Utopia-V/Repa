@@ -18,7 +18,7 @@
 
 | 内容 | 规范入口 |
 | --- | --- |
-| 项目文档与公开技术说明 | [repa-docs-style](.agents/skills/repa-docs-style/SKILL.md) |
+| 项目文档、技术工作稿与公开技术说明 | [repa-docs-style](.agents/skills/repa-docs-style/SKILL.md) |
 | 测试代码与夹具 | [repa-test-style](.agents/skills/repa-test-style/SKILL.md) |
 | 代码格式、类型与接口实现 | [repa-code-style](.agents/skills/repa-code-style/SKILL.md) |
 
