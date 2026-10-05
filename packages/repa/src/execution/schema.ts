@@ -44,6 +44,7 @@ export const ExecutionViewSchema = object({
   output: Type.String(),
   truncated: Type.Boolean(),
   fullOutput: Type.Optional(ResourceRefSchema),
+  resources: Type.Optional(Type.Array(ResourceRefSchema)),
   error: Type.Optional(object({ code: Type.String(), message: Type.String() })),
 });
 export type ExecutionView = Static<typeof ExecutionViewSchema>;

@@ -10,14 +10,16 @@
 
 学习过程中，你的实际表现应当影响后续帮助。默认提示与教学方法要求 Agent 区分生成的题目、实际作答和未来安排，并通过各自的内容或复习接口保存。组合负责把这些能力接起来，不另建一份学习状态数据库。
 
-## 默认提供什么
+## 实现细节
+
+### 默认提供什么
 
 应用直接附带学习语境、教学方法、材料处理、规划、复习与整理。干净配置无需先安装或信任这些包；未配置模型时，文件读写、材料提取、时间检查和复习数据服务可以通过公开客户端使用。使用 Agent 才需要选择模型连接。
 
 | 注册标识 | 来源 | 责任 |
 | --- | --- | --- |
 | `repa-learning` | 主包的学习模块 | 学习语境、默认基础提示，以及整个官方学习组合的启用开关 |
-| `repa-teaching` | `@repa/learning` | `learn-with-feedback` 方法，结合目标、材料与实际作答开展讲解和反馈 |
+| `repa-teaching` | `@repa/learning` | `guide-learning` 维护整体路线与后续安排，`learn-with-feedback` 开展当前讲解和实际反馈 |
 | `repa-materials` | `@repa/materials` | 本地与 URL 材料的表示和来源、Wikipedia 百科搜索；详细范围见[材料说明](search-materials.md) |
 | `repa-planning` | `@repa/planning` | `plan-learning` 方法、可靠时钟、时间与容量检查 |
 | `repa-review` | `@repa/review` | 实际反馈、更正、FSRS 调度、参数与 SQLite 数据 |
@@ -25,7 +27,21 @@
 
 基础提示说明长期学习中需要保留的信息和各模块用途。Pi 提供 Skill 目录与位置，Agent 按任务选择并读取具体方法，再决定采用讲解、示范、完整帮助或独立练习，并根据实际表现调整后续帮助。
 
-## 装配责任与构建顺序
+### 持续学习的方法与内容
+
+假如你希望用两周时间学会编写一个小程序，Agent 可以先形成粗路线，再从你眼前遇到的代码问题开始。`guide-learning` 负责把这个局部活动与整体目标接起来；具体怎样解释、给提示或组织独立尝试，则使用 `learn-with-feedback`。因此，单次问答可以直接获得帮助，较长期的目标也有持续维护的位置。
+
+路线、活动材料和实际记录保存在空间的普通文档中。路线说明主要范围、关键关系和当前方向；活动材料保留题目、参考依据，以及图示或实验的再用入口；实际记录说明学习者做了什么、用了哪些帮助，以及这些表现怎样影响后续判断。格式和文件粒度按内容确定，已有笔记可以直接参与这套组织。
+
+为了让这些内容能在下一次会话起作用，方法还会维护已有学习语境。当前目标、有效判断、待续活动和需要再次观察的表现可以展开，详细题解与材料保留引用。新反馈修正判断时，更新当前段落；过去怎样变化留在活动记录与会话历史中。方法要求在本轮保存影响后续帮助的变化，这样你离开后再回来，就可以沿保存的入口接续。内容与语境工具承担实际读写与绑定操作，已启用的 `organize-learning` 提供相应方法，用户的人工校订也沿当前正文保留。
+
+新学习与复习在同一次安排中考虑。Agent 根据目标要求、先修、实际表现和可用时间选择活动，规划方法再把工作量与时间预算对应起来。已有实际可用时段时，可以进一步检查具体日历安排。对于反馈含义足够一致的重复学习项，还可以调用 FSRS 估计下次时间；其他安排直接在普通文档中维护。关闭复习插件后，这些文档及其接续方式仍可使用。
+
+实际任务也可能练到已有复习项关注的内容。例如，你在编写一个函数时，独立选用借用参数，并解释为什么原变量还能继续使用，这次表现就可以用于更新相应的借用复习项。`learn-with-feedback` 会先读取已有项目，核对本次独立完成的部分，再记录一次反馈及其来源。若接口与调用都是题目给定的，就把这部分帮助条件留在活动记录中，接着提供所需讲解。这样，新的应用既能推进当前任务，也能使后续复习安排接上实际表现。
+
+`guide-learning` 的主文件只持有入口和分工，详细方法分别位于其 `references/route-and-records.md` 与 `references/review-decisions.md`。Pi 目录发现只加载方法的描述与位置；Agent 选用方法后，再通过 `read` 取得正文及相关参考。参考位于已启用 Skill 的目录内，复用现有只读资源权限。
+
+### 装配责任与构建顺序
 
 [`learning/composition.ts`](../../packages/repa/src/learning/composition.ts) 持有官方包名单及组合启用规则，从主包的实际分发依赖解析各包 `package.json` 的位置。它把已安装目录交给通用 `BundledPluginRegistration`；[`PluginRuntime`](../../packages/repa/src/plugins/runtime.ts) 按公开 manifest 加载后台与独立快照，[资源发现](../../packages/repa/src/plugins/resources.ts) 使用 Pi 0.87.1 的内存设置和 `DefaultPackageManager.resolve(skip)` 取得资源。官方业务没有进入通用包解析器。
 
@@ -35,7 +51,7 @@
 
 `package.list` 和 `capability.describe` 将随应用提供的包标为 `scope: "bundled"`，并返回其 `registrationId`。官方信任绑定这个实际位置与作用域，不按包名自动信任用户或空间里的代码。发现与预览不修改个人／项目 Pi 设置，也不安装缺失包。可编程宿主通过 `ApplicationOptions.bundledPackages` 添加同类已安装目录，已有函数工厂仍可通过 `ApplicationOptions.plugins` 登记。
 
-## 关闭与替换
+### 关闭与替换
 
 沿用 `plugins.disabled` 设置：加入表中的单项标识关闭该项，加入 `repa-learning` 关闭整个官方组合。修改使用 `settings.get` 返回的该项 revision 作为 `settings.set` 的 base。设置按完整值覆盖，空间列表替换应用列表；恢复继承使用 `settings.reset`，不是写入空列表。
 
@@ -51,12 +67,12 @@
 | --- | --- | --- |
 | 官方界面接入 | 后端默认包与公开接口已接通；材料打开、选区提问、共享草稿、交互产物、可视化及界面错误恢复尚未联合验收 | 由 [#7](https://github.com/Utopia-V/repa/issues/7)、[#10](https://github.com/Utopia-V/repa/issues/10) 和 [#23](https://github.com/Utopia-V/repa/issues/23) 接入，已就绪部分由 [#25](https://github.com/Utopia-V/repa/issues/25) 联调 |
 | 多会话、多视图的状态协作 | 模块回归已有相应接口验证，实际界面的共同状态仍待接通 | 在同一候选版本中核对切换、断线、恢复和人工修改，问题回到所属模块 |
-| 真实模型的方法与调度评价 | 集成回归使用预设 provider，模型的教学判断与实际效果尚未验证；当前 Skill 和 FSRS 属于可替换实现 | 按 [#38](https://github.com/Utopia-V/repa/issues/38) 等具体问题，在取得模型调用授权后使用真实目标、材料和反馈评价；技术接续由 #25 核对 |
+| 真实模型的方法与调度评价 | 方法试用已覆盖两目标接续、已有复习项维护，以及编程应用中的实际反馈；后续仍需观察更多活动的选择、长期记录维护和真实学习效果 | [#42](https://github.com/Utopia-V/repa/issues/42) 持有实现，[#43](https://github.com/Utopia-V/repa/issues/43) 继续试用，复习选择与实际学习效果由 [#38](https://github.com/Utopia-V/repa/issues/38) 接续 |
 | 升级与其他发行环境 | Linux x64 安装、普通用户运行和卸载已验证，历史构建间的数据接续与恢复也已验证；发行安装包之间的替换、其他平台与正式分发材料尚待完成 | 见[应用交付](distribution.md#未完成项与待验证项)，由 [#26](https://github.com/Utopia-V/repa/issues/26) 接续 |
 
 ## 验证入口
 
-阅读代码可从装配函数进入，随后按问题查看[插件接入](plugins.md)、[语境](learning.md)、[共同保存](content.md)与各能力说明。教学方法正文位于 [`learn-with-feedback`](../../packages/learning/skills/learn-with-feedback/SKILL.md)，默认提示位于 [`default-prompt.ts`](../../packages/repa/src/learning/default-prompt.ts)。这些内容可直接评价和替换。
+阅读代码可从装配函数进入，随后按问题查看[插件接入](plugins.md)、[语境](learning.md)、[共同保存](content.md)与各能力说明。方法正文位于 [`guide-learning`](../../packages/learning/skills/guide-learning/SKILL.md) 与 [`learn-with-feedback`](../../packages/learning/skills/learn-with-feedback/SKILL.md)，默认提示位于 [`default-prompt.ts`](../../packages/repa/src/learning/default-prompt.ts)。这些内容可直接评价和替换。
 
 [`learning-composition.test.ts`](../../packages/repa/test/learning-composition.test.ts) 用真实服务、公开客户端、Pi SDK 和本地确定性 provider 验证：
 
@@ -64,7 +80,12 @@
 - 从真实 Skill 目录和材料读取开始，保存文档与学习语境；创建复习题后，收到实际作答才保存反馈。
 - 关闭组合后复制空间、重启并重新启用，文档、语境引用和复习记录继续可用。
 - 单项关闭与整组关闭使用同一装配结果；同名替换的静态预览与实际运行遵循相同来源选择。
+- 持续学习方法的两份参考通过真实 `read` 按需读取；关闭 FSRS 后，局部编辑保留人工原文，新会话仍能接上当前路线并读取其余记录。
 
-各能力自身的取消、错误恢复、多空间与外部编辑验证见对应开发说明。组合回归用于判断这些入口能否共同工作，真实模型是否会采用恰当方法、正确理解反馈和形成良好学习体验，需要维护者试用。
+各能力自身的取消、错误恢复、多空间与外部编辑验证见对应开发说明。组合回归用于判断这些入口能否共同工作；模型的方法选择与反馈解释通过下述场景试用观察，实际学习效果则需要真实学习者的后续表现。
 
-已在 Linux、Node 24.19.0、Pi 0.87.1 上通过全 workspace 类型检查、测试和构建，并从四个后端包均无 `dist` 的状态完成根目录冷构建。独立安装检查将主包与五个官方能力各自打成 tgz，在仓库外的临时 npm prefix 离线安装后，从安装目录的 CLI 启动真实服务，核对五个 bundled 包、三个 Skill、公共规划时钟与复习保存。Linux 桌面候选另经过实际安装，使用普通用户会话验证默认能力、专用沙箱权限、材料 worker、SQLite 和数据重开；图形页面由维护者确认。安装与尚待完成的交付范围见[应用交付](distribution.md)。
+2026-10-05 的方法候选通过全 workspace 检查、测试与构建，主包共 367 项测试通过，组合测试覆盖四个方法。方法试用另由 Astra 子 Agent 经本地桥接驱动真实 Pi 工具循环，按固定材料与输入运行，切换会话时使用全新模型上下文。结果与后续问题见[持续学习研究](../research/learning-task-selection.md#首轮试用及修订)。
+
+本次独立安装检查在 Linux、Node 24.19.0、Pi 0.87.1 上，将主包与五个官方能力各自打成 tgz，再于仓库外离线安装。从安装目录的 CLI 启动服务后，五个 bundled 包、24 项能力、四个 Skill 与两份新方法参考均可使用。检查还通过公开接口修改已有复习项，并由真实 Pi SDK 执行 Bash 中的 Node 程序，经安装后的 `repa/program` 查询能力和调用规划时钟。SDK 和能力包均从安装目录解析。
+
+此前的组合还从四个后端包均无 `dist` 的状态完成根目录冷构建。Linux 桌面候选另经过实际安装，使用普通用户会话验证默认能力、专用沙箱权限、材料 worker、SQLite 和数据重开；图形页面由维护者确认。安装与尚待完成的交付范围见[应用交付](distribution.md)。

@@ -7,11 +7,11 @@ import type { CapabilitySource } from "repa/plugin";
 import { CapabilitySourceSchema, RepaFault } from "repa/protocol";
 import * as fsrs from "./fsrs.js";
 import {
-  CreateReviewInputSchema, SubmitFeedbackInputSchema, CorrectFeedbackInputSchema,
+  CreateReviewInputSchema, UpdateReviewInputSchema, SubmitFeedbackInputSchema, CorrectFeedbackInputSchema,
   SetReviewStatusInputSchema, SetReviewScheduleInputSchema, SetReviewParametersInputSchema,
   ReviewItemSchema, ReviewEventSchema, ParameterVersionSchema, ReviewMutationResultSchema,
   SetReviewParametersResultSchema,
-  type CreateReviewInput, type SubmitFeedbackInput, type CorrectFeedbackInput,
+  type CreateReviewInput, type UpdateReviewInput, type SubmitFeedbackInput, type CorrectFeedbackInput,
   type SetReviewStatusInput, type SetReviewScheduleInput, type SetReviewParametersInput,
   type ListReviewsInput, type ListReviewsResult, type ReviewHistoryInput, type ReviewHistoryResult,
   type ReviewItem, type ReviewEvent, type FeedbackEvent, type ParameterVersion,
@@ -228,6 +228,20 @@ export class ReviewStore {
       };
       this.database.prepare("INSERT INTO items(id, due_at, paused, data, created_by) VALUES (?, ?, ?, ?, ?)")
         .run(item.id, item.dueAt, 0, encode(ReviewItemSchema, item), encode(CapabilitySourceSchema, recordedBy));
+      return { item };
+    });
+  }
+
+  update(input: UpdateReviewInput, _actor: CapabilitySource): ReviewMutationResult {
+    return this.mutate("update", UpdateReviewInputSchema, ReviewMutationResultSchema, input, () => {
+      const item = this.based(input.itemId, input.base);
+      if (input.patch.prompt !== undefined) item.prompt = input.patch.prompt;
+      if (input.patch.answer === null) delete item.answer;
+      else if (input.patch.answer !== undefined) item.answer = input.patch.answer;
+      if (input.patch.sources !== undefined) item.sources = input.patch.sources;
+      item.revision += 1;
+      item.updatedAt = this.now();
+      this.saveItem(item);
       return { item };
     });
   }

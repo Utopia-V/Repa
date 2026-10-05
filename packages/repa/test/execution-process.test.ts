@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
+import { chmod, copyFile, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { runCommand, type CommandResult } from "../src/execution/process.js";
 import type { ExecutionPolicy } from "../src/execution/schema.js";
+import { prepareCommand } from "../src/execution/sandbox.js";
 
 const linux = process.platform === "linux";
 const helperAvailable = existsSync(new URL("../resources/sandbox/linux-x64/codex-linux-sandbox", import.meta.url));
@@ -509,4 +510,90 @@ test("受限网络拒绝真实 localhost 连接，显式 network 授权和 Full 
   const unrestricted = await f.execute(command, fullAccess);
   assert.equal(unrestricted.exitCode, 0);
   assert.equal(unrestricted.stdout, "network-available\n");
+});
+
+test("受限普通 Node 脚本正常输出 console.log 和 console.error，输出读完后再报告完成", { skip: restrictedSkip }, async (t) => {
+  const f = await fixture(t);
+  const script = path.join(f.cwd, "console.mjs");
+  await writeFile(script, 'console.log("普通输出"); console.error("诊断输出"); console.log("x".repeat(256 * 1024)); process.exitCode = 7;\n');
+  const policy: ExecutionPolicy = { mode: "restricted", readPaths: [process.execPath], writePaths: [], network: false };
+  let stdout = "";
+  let stderr = "";
+  let observed: { stdout: string; stderr: string } | undefined;
+  const result = await runCommand({
+    command: `${quote(process.execPath)} ${quote(script)}`, cwd: f.cwd, policy, protectedPaths: [],
+    onData(stream, bytes) {
+      if (stream === "stdout") stdout += bytes.toString("utf8");
+      else stderr += bytes.toString("utf8");
+    },
+    onExited() { observed = { stdout, stderr }; },
+  });
+  assert.equal(result.exitCode, 7);
+  assert.equal(stdout, `普通输出\n${"x".repeat(256 * 1024)}\n`);
+  assert.equal(stderr, "诊断输出\n");
+  assert.deepEqual(observed, { stdout, stderr });
+});
+
+test("helper 在真实 preflight monitor 建立后收到取消，完成探测收尾但不继续执行用户命令", { skip: restrictedSkip, timeout: 5000 }, async (t) => {
+  const f = await fixture(t);
+  const source = path.join(f.root, "preflight-barrier.c");
+  const library = path.join(f.root, "preflight-barrier.so");
+  const ready = path.join(f.root, "preflight-ready");
+  const barrier = path.join(f.root, "preflight-barrier");
+  const marker = path.join(f.cwd, "must-not-run");
+  // 只在真实 signalfd 创建后建立屏障；不替换 monitor、namespace 或信号处理。
+  await writeFile(source, `#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <sys/signalfd.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdlib.h>
+int signalfd(int fd, const sigset_t *mask, int flags) {
+  int (*original)(int, const sigset_t *, int) = dlsym(RTLD_NEXT, "signalfd");
+  int result = original(fd, mask, flags);
+  const char *ready = getenv("REPA_PREFLIGHT_READY");
+  const char *barrier = getenv("REPA_PREFLIGHT_BARRIER");
+  if (result >= 0 && ready && barrier) {
+    int ready_fd = open(ready, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (ready_fd >= 0) {
+      close(ready_fd);
+      int gate = open(barrier, O_RDONLY);
+      char byte;
+      if (gate < 0 || read(gate, &byte, 1) != 1) _exit(99);
+      close(gate);
+    }
+  }
+  return result;
+}
+`);
+  const compiled = spawnSync("cc", ["-shared", "-fPIC", source, "-ldl", "-o", library], { encoding: "utf8" });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  const created = spawnSync("/usr/bin/mkfifo", [barrier], { encoding: "utf8" });
+  assert.equal(created.status, 0, created.stderr);
+  const gate = await open(barrier, constants.O_RDWR);
+  const prepared = await prepareCommand({ command: `printf unexpected > ${quote(marker)}`, cwd: f.cwd, policy: restricted, protectedPaths: [] });
+  // 此环境只作用于测试中直接启动的 helper；产品入口继续过滤 LD_PRELOAD。
+  const child = spawn(prepared.executable, prepared.args, {
+    cwd: f.cwd, detached: true, stdio: "ignore",
+    env: { ...prepared.env, LD_PRELOAD: library, REPA_PREFLIGHT_READY: ready, REPA_PREFLIGHT_BARRIER: barrier },
+  });
+  const completed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (code, signal) => { resolve({ code, signal }); });
+  });
+  t.after(async () => {
+    await gate.write("release");
+    child.kill("SIGTERM");
+    await completed;
+    await gate.close();
+    await prepared.cleanup?.();
+  });
+  await until(() => existsSync(ready), "preflight 未建立 signalfd 屏障");
+  assert(child.pid);
+  process.kill(-child.pid, "SIGTERM");
+  await gate.write("release");
+  const result = await completed;
+  assert.equal(result.code, 143);
+  assert.equal(result.signal, null);
+  assert(!existsSync(marker), "取消 preflight 后仍执行了用户命令");
 });

@@ -59,6 +59,14 @@ export const CreateReviewInputSchema = object({
   ...mutation, prompt: Type.String({ minLength: 1 }), answer: Type.Optional(Type.String()),
   sources: Type.Optional(Type.Array(ReviewSourceSchema)),
 });
+export const UpdateReviewInputSchema = object({
+  ...existing,
+  patch: object({
+    prompt: Type.Optional(Type.String({ minLength: 1 })),
+    answer: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    sources: Type.Optional(Type.Array(ReviewSourceSchema)),
+  }),
+});
 export const ListReviewsInputSchema = object({
   dueBefore: Type.Optional(time), paused: Type.Optional(Type.Boolean()),
   after: Type.Optional(object({ dueAt: time, id })),
@@ -85,6 +93,7 @@ export const GetReviewParametersInputSchema = object({ version: Type.Optional(re
 export const SetReviewParametersResultSchema = object({ parameters: ParameterVersionSchema, recomputedItems: Type.Integer({ minimum: 0 }) });
 
 export type CreateReviewInput = Static<typeof CreateReviewInputSchema>;
+export type UpdateReviewInput = Static<typeof UpdateReviewInputSchema>;
 export type ListReviewsInput = Static<typeof ListReviewsInputSchema>;
 export type ListReviewsResult = Static<typeof ListReviewsResultSchema>;
 export type SubmitFeedbackInput = Static<typeof SubmitFeedbackInputSchema>;

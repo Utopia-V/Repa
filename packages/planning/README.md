@@ -1,6 +1,6 @@
 # 学习规划
 
-`@repa/planning` 提供 `plan-learning` Pi Skill、`planning_clock` 时钟工具和 `check_plan` 时间约束工具。Agent 根据目标、材料和反馈拟定安排，工具检查明确日期、可用容量与冲突，再通过内容工具把计划保存为文档。
+`@repa/planning` 提供 `plan-learning` Pi Skill、`planning_clock` 时钟工具和 `check_plan` 时间约束工具。Agent 根据目标、材料和反馈分配时间预算；已有实际可用时段时，再用工具核对日期、容量与冲突。计划通过内容工具保存为文档。
 
 日期与时区计算使用 `@js-temporal/polyfill@0.5.1`。包只检查本次候选，不维护另一份日程数据库；用户直接编辑计划后，下次规划读取当前文档。
 

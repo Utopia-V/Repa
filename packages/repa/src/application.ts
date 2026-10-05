@@ -22,7 +22,7 @@ import type { SummaryPrompts } from "./agent/summary-settings.js";
 import { executionRepresentation } from "./execution/format.js";
 import { ExecutionService } from "./execution/service.js";
 import { EXECUTION_SETTINGS_DEFINITION } from "./execution/settings.js";
-import type { ExecutionContext } from "./execution/service.js";
+import type { ExecutionContext, ProgramCapabilities } from "./execution/service.js";
 import { ModelConnections } from "./models/service.js";
 import { ModelCalls } from "./models/calls.js";
 import { interruptModelAttempts, updateModelAttempts, type ModelMethod, type ModelParams, type ModelBinding, type ModelAttempt } from "./models/schema.js";
@@ -87,6 +87,12 @@ import { SPACES_SETTINGS_DEFINITION } from "./spaces/settings.js";
 import { Diagnostics, type DiagnosticOptions } from "./diagnostics.js";
 import { queryContentRelations } from "./content/relations.js";
 import { applyChange, contains, relevant } from "./state.js";
+
+interface CapabilityParent {
+  cancel(): void;
+  progress(message: string): void;
+  ask(dialog: Dialog, options?: DialogOptions): Promise<Reply>;
+}
 
 export interface ApplicationOptions {
   diagnostics?: DiagnosticOptions;
@@ -591,11 +597,15 @@ export class RepaApplication {
   }
 
   #capabilityServices(scope: CapabilityScope, source: CapabilitySource, requestId: string, signal: AbortSignal, pluginId: string,
-    parent: { cancel(): void; progress(message: string): void; ask(dialog: Dialog, options?: DialogOptions): Promise<Reply> }): RepaCapabilityServices {
+    parent: CapabilityParent): RepaCapabilityServices {
     const owner = `${source.kind === "agent" ? "request" : "processing"}:${requestId}`;
     const content = scope.kind === "space" ? this.#space(scope.spaceId).content : undefined;
+    const ask = (dialog: Dialog, options?: DialogOptions) => parent.ask(dialog, {
+      ...options,
+      signal: options?.signal ? AbortSignal.any([signal, options.signal]) : signal,
+    });
     return {
-      progress: parent.progress, ask: parent.ask,
+      progress: parent.progress, ask,
       events: { publish: notification => {
         if (!Check(CapabilityNotificationSchema, notification))
           throw new RepaFault("invalid_capability_event", "能力通知的格式标识或字段无效。");
@@ -605,7 +615,10 @@ export class RepaApplication {
         ? { kind: "session", spaceId: source.spaceId, sessionId: source.sessionId } : scope, [namespace]))[0]!,
       ...(scope.kind === "space" ? {
         execution: {
-          run: input => this.#execution.run(input, { spaceId: scope.spaceId, requestId, source, signal, ask: parent.ask }),
+          run: input => this.#execution.run(input, {
+            spaceId: scope.spaceId, requestId, source, signal, ask,
+            program: this.#programCapabilities(scope, source, requestId, parent),
+          }),
         },
         resources: {
           snapshot: async (params: { target: ContentTarget; revision?: string; maxBytes?: number }) => {
@@ -758,23 +771,57 @@ export class RepaApplication {
     const source: CapabilitySource = { kind: "agent", spaceId: record.view.spaceId, sessionId: record.view.sessionId,
       runId: active.run.id, requestId: active.request.requestId };
     const callSignal = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal;
+    return this.#invokeBoundCapability(runtime, scope, source, active.request.requestId, selection,
+      runtime.capabilities.prepareToolInput(selection, input, scope), callSignal, {
+        cancel: () => { this.cancelRun(scope.spaceId, active.run.id); },
+        progress: message => this.#notice(record, "capability_progress", message, "info"),
+        ask: (dialog, options) => this.#ask(record, dialog, options),
+      });
+  }
+
+  /** 工具与程序共用调用归属和资源保存，只有工具入口需要补齐隐藏的程序参数。 */
+  async #invokeBoundCapability(runtime: PluginRuntime, scope: { kind: "space"; spaceId: string },
+    source: CapabilitySource, requestId: string, selection: CapabilitySelection, input: unknown,
+    signal: AbortSignal, parent: CapabilityParent): Promise<{ result: unknown; representation: ProcessingResult }> {
+    signal.throwIfAborted();
     const content = this.#space(scope.spaceId).content;
-    const owner = `request:${active.request.requestId}`;
-    input = runtime.capabilities.prepareToolInput(selection, input, scope);
+    const owner = `${source.kind === "agent" ? "request" : "processing"}:${requestId}`;
     const declarations = runtime.capabilities.resourceDeclarations(selection, scope);
     const submitted = capabilityRepresentation(selection.contract, input, declarations.inputResources(input));
     content.retention.retainAdditional(owner, submitted.resources);
     const result = await runtime.capabilities.invoke(selection, input, {
-      scope, source, signal: callSignal, content,
-      services: this.#capabilityServices(scope, source, active.request.requestId, callSignal, runtime.capabilities.resolve(selection, scope).pluginId, {
-        cancel: () => { this.cancelRun(scope.spaceId, active.run.id); },
-        progress: message => this.#notice(record, "capability_progress", message, "info"),
-        ask: (dialog, options) => this.#ask(record, dialog, options),
-      }),
+      scope, source, signal, content,
+      services: this.#capabilityServices(scope, source, requestId, signal,
+        runtime.capabilities.resolve(selection, scope).pluginId, parent),
     });
     const delivered = capabilityRepresentation(selection.contract, result, declarations.outputResources(result));
     content.retention.retainAdditional(owner, delivered.resources);
     return { result, representation: delivered };
+  }
+
+  #programCapabilities(scope: { kind: "space"; spaceId: string }, source: CapabilitySource,
+    requestId: string, parent: CapabilityParent): ProgramCapabilities {
+    let loading: Promise<PluginRuntime> | undefined;
+    const runtime = async (signal: AbortSignal) => {
+      signal.throwIfAborted();
+      loading ??= this.#plugins(scope);
+      const current = await loading;
+      signal.throwIfAborted();
+      return current;
+    };
+    return {
+      describe: async signal => (await runtime(signal)).capabilities.list().filter(item => item.scopes.includes("space")),
+      invoke: async (params, signal) => {
+        const current = await runtime(signal);
+        const selected = current.capabilities.resolve({
+          contract: params.contract,
+          implementationId: params.implementationId ?? current.configuration.implementations[params.contract.id],
+        }, scope);
+        const delivered = await this.#invokeBoundCapability(current, scope, source, requestId,
+          { contract: selected.contract, implementationId: selected.implementationId }, params.input, signal, parent);
+        return { result: delivered.result, resources: delivered.representation.resources };
+      },
+    };
   }
 
   invokeCapability(params: Params<"capability.invoke">, hostId: string): Promise<Result<"capability.invoke">> {
@@ -854,7 +901,13 @@ export class RepaApplication {
         configuration: { source },
       }, async (_input, context) => {
         const result = await this.#execution.run(command, { spaceId, requestId, source,
-          signal: context.signal, ask: context.ask });
+          signal: context.signal, ask: context.ask,
+          program: this.#programCapabilities(scope, source, requestId, {
+            cancel: () => { record.processing.cancel(requestId); },
+            progress: context.progress,
+            ask: context.ask,
+          }),
+        });
         return executionRepresentation(result);
       });
     }), false, submission.spaceId);
@@ -869,10 +922,17 @@ export class RepaApplication {
     const active = record.active;
     if (!active) throw new RepaFault("run_not_active", "命令执行需要实际运行归属。");
     const { spaceId, sessionId } = record.view;
+    const source: CapabilitySource = { kind: "agent", spaceId, sessionId, runId: active.run.id, requestId: active.request.requestId };
     return { spaceId, requestId: active.request.requestId,
-      source: { kind: "agent", spaceId, sessionId, runId: active.run.id, requestId: active.request.requestId },
+      source,
       signal: signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal,
-      ask: (dialog, options) => this.#ask(record, dialog, options) };
+      ask: (dialog, options) => this.#ask(record, dialog, options),
+      program: this.#programCapabilities({ kind: "space", spaceId }, source, active.request.requestId, {
+        cancel: () => { this.cancelRun(spaceId, active.run.id); },
+        progress: message => this.#notice(record, "capability_progress", message, "info"),
+        ask: (dialog, options) => this.#ask(record, dialog, options),
+      }),
+    };
   }
 
   settingsCall(method: "settings.get" | "settings.set" | "settings.reset", params: Params<"settings.get" | "settings.set" | "settings.reset">): Promise<unknown> {

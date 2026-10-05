@@ -6,7 +6,7 @@ import { RepaFault } from "repa/protocol";
 import { ReviewStore } from "./store.js";
 import { optimize } from "./optimizer.js";
 import {
-  CreateReviewInputSchema, ListReviewsInputSchema, ListReviewsResultSchema, GetReviewInputSchema,
+  CreateReviewInputSchema, UpdateReviewInputSchema, ListReviewsInputSchema, ListReviewsResultSchema, GetReviewInputSchema,
   ReviewItemSchema, SubmitFeedbackInputSchema, CorrectFeedbackInputSchema, SetReviewStatusInputSchema,
   SetReviewScheduleInputSchema, ReviewHistoryInputSchema, ReviewHistoryResultSchema,
   ParameterVersionSchema, SetReviewParametersInputSchema, SetReviewParametersResultSchema,
@@ -51,6 +51,9 @@ export default function review(): BackendPlugin<RepaCapabilityServices, ReviewSt
       capability("create", CreateReviewInputSchema, ReviewMutationResultSchema,
         "创建复习项，可附本空间内容标识、所见修订与定位。",
         (input, store, context) => store.create(input, context.source), { mutation: true }),
+      capability("update", UpdateReviewInputSchema, ReviewMutationResultSchema,
+        "维护同一复习项的题目、参考答案和来源；base 来自所见项目修订。patch 中省略字段保持原值，answer:null 删除答案，sources:[] 清空来源。保留记忆状态、历史与人工安排；评分更正使用 review_correct，新的学习任务应创建新项。",
+        (input, store, context) => store.update(input, context.source), { mutation: true }),
       capability("get", GetReviewInputSchema, ReviewItemSchema,
         "读取复习项及其修订、实际来源与当前调度估计。",
         (input, store) => store.get(input.itemId)),
@@ -58,7 +61,7 @@ export default function review(): BackendPlugin<RepaCapabilityServices, ReviewSt
         "按到期时间列出复习项；dueBefore 使用毫秒时间戳，省略时不限定到期时间。默认排除暂停项。",
         (input, store) => store.list(input)),
       capability("feedback", SubmitFeedbackInputSchema, ReviewMutationResultSchema,
-        "记录一次实际复习反馈：1 再来、2 困难、3 良好、4 容易。base 来自所见项目修订。只记录实际作答或明确反馈，不把生成答案当成用户已完成复习。",
+        "记录一次实际复习反馈：1 再来（答错或未能回忆）、2 困难（答对但费力）、3 良好（正常答对）、4 容易（轻松答对）。base 来自所见项目修订。记录实际作答或明确自评，助手生成的答案属于教学材料。",
         (input, store, context) => store.feedback(input, context.source), { mutation: true }),
       capability("correct", CorrectFeedbackInputSchema, ReviewMutationResultSchema,
         "追加反馈更正并重算当前估计；feedbackId 指向原反馈，原记录和当时结果继续保留。说明更正原因。",

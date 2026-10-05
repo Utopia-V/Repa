@@ -2,9 +2,9 @@
 
 参与项目请先阅读[贡献规范](CONTRIBUTING.md)。
 
-Repa 是一个独立、本地优先的学习 Agent 应用。用户在自己的学习空间中保留材料、笔记、目标和反馈，与 Agent 持续推进学习。LLM 结合当前情境理解、解释和调整安排，程序承担内容操作、确定性检查和运行管理，减少重复交代背景与手工维护的负担。
+Repa 是一个独立、本地优先的通用 Agent 底座。用户与 Agent 在自己的长期空间中推进任务，保留材料、认识和成果。LLM 可以理解与解决问题、调用和编写工具，并在工作中形成、使用和改造内容结构与方法；底座提供内容操作、运行管理及可组合能力，使这些成果能够持续使用。
 
-Repa 的提示词、背景、工具和界面组件可以按需配置与组合，官方提供开箱即用的学习组合。
+官方学习产品建立在这一底座上，目标是尽量减少查找与整理材料、维护安排和协调工具等外在负担，让用户把注意力用于学习本身。Repa 提供开箱即用的学习组合，提示词、背景、工具和界面组件均可按需配置与替换。
 
 Repa 的设计受到 Math Academy 的学习组织方式启发，并借助 LLM、长期状态和通用工具扩展到更多材料、领域与实际任务。[MA 参考](docs/research/math-academy.md)记录其公开做法，[学习组织设计](docs/research/learning-organization.md)说明 Repa 如何结合整体认识、局部细化和不同目标安排学习。当前 FSRS 插件是候选实现，后续算法仍在研究。
 
@@ -233,6 +233,7 @@ Repa 提供内容读写、引用与组成、数据和资源传递、动作调用
 | [docs/research/pi-ecosystem-compatibility.md](docs/research/pi-ecosystem-compatibility.md) | Pi 生态、公开复用入口、提示装配与固定版本核验，以及 Codex 编辑行为对比；结论按文中调查基准解释 |
 | [docs/research/math-academy.md](docs/research/math-academy.md) | MA 公开的知识组织、诊断、任务选择和复习机制，附来源与核对日期 |
 | [docs/research/learning-organization.md](docs/research/learning-organization.md) | Repa 学习功能的全局粗览、局部细化、多目标要求与待研究的调度问题 |
+| [docs/research/learning-task-selection.md](docs/research/learning-task-selection.md) | 持续学习方法、复习的接入位置，以及真实材料与跨会话试用 |
 
 具体接口集中记录在 [Repa v1 接口草案 #16](https://github.com/Utopia-V/repa/issues/16)，覆盖前后端协议、共享后台能力与组件宿主。该议题持有待实现的接口方案，当前可运行代码仍按下方的实现范围说明。
 

@@ -87,6 +87,7 @@ export async function prepareCommand(options: {
   policy: ExecutionPolicy;
   protectedPaths: readonly string[];
   env?: NodeJS.ProcessEnv;
+  program?: { env: NodeJS.ProcessEnv; readPaths: readonly string[] };
 }): Promise<{ executable: string; args: string[]; env: NodeJS.ProcessEnv; cleanup?(): Promise<void> }> {
   if (process.platform !== "linux") {
     throw new RepaFault("execution_platform_unsupported", "当前命令执行器仅支持 Linux。");
@@ -95,7 +96,7 @@ export async function prepareCommand(options: {
     return {
       executable: "/bin/bash",
       args: ["-lc", options.command],
-      env: { ...(options.env ?? process.env) },
+      env: { ...(options.env ?? process.env), ...options.program?.env },
     };
   }
   const scratch = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-execution-")));
@@ -123,7 +124,7 @@ export async function prepareCommand(options: {
     }
     const grants = async (values: readonly string[]) => (await Promise.all(values.map(canonicalPath)))
       .filter((value) => !protectedPaths.some((protectedPath) => inside(value, protectedPath)));
-    policy = { ...policy, readPaths: await grants(policy.readPaths), writePaths: await grants(policy.writePaths) };
+    policy = { ...policy, readPaths: await grants([...policy.readPaths, ...(options.program?.readPaths ?? [])]), writePaths: await grants(policy.writePaths) };
     // 受限环境不继承凭据、代理或个人 shell 启动配置。
     const shellPath = await commandPath(options.cwd, policy);
     const env: NodeJS.ProcessEnv = {
@@ -137,6 +138,7 @@ export async function prepareCommand(options: {
       LC_ALL: "C.UTF-8",
       TERM: "dumb",
       SHELL: "/bin/bash",
+      ...options.program?.env,
     };
     const entry = (value: string, permission: "read" | "write" | "deny") => ({
       path: { type: "path", path: value }, access: permission,

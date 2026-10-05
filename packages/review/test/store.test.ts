@@ -292,3 +292,37 @@ test("训练快照只读导出有效实际事实，保留暂停项并应用最�
   assert.deepEqual(f.store.history({ itemId: paused.id }), beforeHistory);
   assert.deepEqual(beforeHistory.events.slice(0, 3), [first.event, second.event, third.event]);
 });
+
+test("维护已有复习项保留记忆、历史和人工安排，重传与重开沿用修改结果", async (t) => {
+  const f = await fixture(t);
+  const created = f.store.create({ operationId: "create", prompt: "旧题目", answer: "旧答案", sources: [{ contentId: "source", revision: "v1" }] }, actor).item;
+  const feedback = f.store.feedback({ operationId: "feedback", itemId: created.id, base: created.revision, rating: 3 }, actor);
+  const event = feedbackEvent(feedback.event);
+  const corrected = f.store.correct({ operationId: "correct", itemId: created.id, base: feedback.item.revision,
+    feedbackId: event.id, correction: { kind: "replace", rating: 2, reviewedAt: start }, reason: "答对但费力" }, actor);
+  const scheduled = f.store.setSchedule({ operationId: "schedule", itemId: created.id, base: corrected.item.revision, dueAt: start + day * 30 }, actor);
+  const paused = f.store.setStatus({ operationId: "pause", itemId: created.id, base: scheduled.item.revision, paused: true }, actor).item;
+  const history = f.store.history({ itemId: created.id });
+  f.time(start + day);
+  const input = { operationId: "update", itemId: created.id, base: paused.revision,
+    patch: { prompt: "新题目", answer: "新答案", sources: [{ contentId: "source", revision: "v2" }] } };
+  const updated = f.store.update(input, actor);
+  assert.deepEqual(updated, { item: { ...paused, ...input.patch, revision: paused.revision + 1, updatedAt: start + day } });
+  assert.deepEqual(f.store.history({ itemId: created.id }), history);
+  assert.deepEqual(f.store.update(input, actor), updated);
+  assert.throws(() => f.store.update({ ...input, operationId: "stale" }, actor), fault("review_conflict"));
+  assert.throws(() => f.store.update({ ...input, patch: { prompt: "另一题" } }, actor), fault("review_operation_conflict"));
+  const partial = f.store.update({ operationId: "partial", itemId: created.id, base: updated.item.revision, patch: { prompt: "更清楚的题目" } }, actor);
+  assert.deepEqual(partial.item, { ...updated.item, prompt: "更清楚的题目", revision: updated.item.revision + 1 });
+  const next = f.store.feedback({ operationId: "next-feedback", itemId: created.id, base: partial.item.revision, rating: 3 }, actor);
+  assert.deepEqual(feedbackEvent(next.event).sources, input.patch.sources);
+  assert.deepEqual(f.store.history({ itemId: created.id }).events.slice(0, 2), history.events);
+  const cleared = f.store.update({ operationId: "clear", itemId: created.id, base: next.item.revision, patch: { answer: null, sources: [] } }, actor);
+  const { answer: _answer, ...withoutAnswer } = next.item;
+  assert.deepEqual(cleared.item, { ...withoutAnswer, sources: [], revision: next.item.revision + 1 });
+  f.close(f.store);
+  const reopened = f.open();
+  assert.deepEqual(reopened.get(created.id), cleared.item);
+  assert.deepEqual(reopened.update(input, actor), updated);
+  assert.deepEqual(reopened.history({ itemId: created.id }).events, [...history.events, next.event]);
+});

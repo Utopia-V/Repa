@@ -146,7 +146,7 @@ test("安装包描述不创建数据库，公共复习操作绑定客户端来�
   await f.enable();
   const described = await f.client.call("capability.describe", { scope: f.scope });
   assert(described.packages.some(item => item.name === "@repa/review" && item.backend?.status === "ready"));
-  assert.equal(described.capabilities.filter(item => item.pluginId === "review").length, 11);
+  assert.equal(described.capabilities.filter(item => item.pluginId === "review").length, 12);
   const createDescriptor = described.capabilities.find(item => item.contract.id === "repa.review.create");
   assert(createDescriptor && "properties" in createDescriptor.inputSchema && createDescriptor.inputSchema.properties && typeof createDescriptor.inputSchema.properties === "object");
   assert("operationId" in createDescriptor.inputSchema.properties);
@@ -243,7 +243,7 @@ test("复习失效通知携带真实调用来源并只投递本空间、其会�
   assert.deepEqual(all[3], []);
 });
 
-test("真实Pi请求获得完整复习工具参数并按明确自评创建、反馈和读取历史", async (t) => {
+test("真实Pi请求获得完整复习工具参数并按明确自评记录反馈、维护题目和读取历史", async (t) => {
   const f = await fixture(t);
   await f.enable();
   let itemId = "";
@@ -252,7 +252,7 @@ test("真实Pi请求获得完整复习工具参数并按明确自评创建、反
     context => {
       const tools = getCurrentTools(context.messages);
       for (const name of ["review_create", "review_feedback", "review_history", "review_parameters_get"]) assert(tools.some(tool => tool.name === name));
-      for (const name of ["review_create", "review_feedback", "review_correct", "review_status", "review_schedule", "review_parameters_set"]) {
+      for (const name of ["review_create", "review_update", "review_feedback", "review_correct", "review_status", "review_schedule", "review_parameters_set"]) {
         const tool = tools.find(tool => tool.name === name);
         assert(tool && "properties" in tool.parameters && tool.parameters.properties && typeof tool.parameters.properties === "object");
         assert.equal("operationId" in tool.parameters.properties, false);
@@ -265,6 +265,9 @@ test("真实Pi请求获得完整复习工具参数并按明确自评创建、反
       assert(feedback && "properties" in feedback.parameters && feedback.parameters.properties && typeof feedback.parameters.properties === "object");
       for (const field of ["itemId", "base", "rating"]) assert(field in feedback.parameters.properties);
       assert.equal("operationId" in feedback.parameters.properties, false);
+      const update = tools.find(tool => tool.name === "review_update");
+      assert(update && "properties" in update.parameters && update.parameters.properties && typeof update.parameters.properties === "object");
+      for (const field of ["itemId", "base", "patch"]) assert(field in update.parameters.properties);
       assert.match(context.messages.map(message => textOf(message.content)).join("\n"), /自评良好/u);
       return fauxAssistantMessage(fauxToolCall("review_create", { prompt: "潮汐是什么？", answer: "海面周期性升降" }), { stopReason: "toolUse" });
     },
@@ -278,6 +281,13 @@ test("真实Pi请求获得完整复习工具参数并按明确自评创建、反
       assert(feedback.event && feedback.event.kind === "feedback");
       assert.equal(feedback.event.rating, 3);
       recordedBy = feedback.event.recordedBy;
+      return fauxAssistantMessage(fauxToolCall("review_update", { itemId, base: feedback.item.revision, patch: { prompt: "潮汐的定义是什么？", answer: null, sources: [] } }), { stopReason: "toolUse" });
+    },
+    context => {
+      const updated = toolResult(context, "review_update", ReviewMutationResultSchema);
+      assert.equal(updated.item.prompt, "潮汐的定义是什么？");
+      assert.equal(updated.item.answer, undefined);
+      assert.deepEqual(updated.item.sources, []);
       return fauxAssistantMessage(fauxToolCall("review_history", { itemId }), { stopReason: "toolUse" });
     },
     context => {
@@ -287,8 +297,8 @@ test("真实Pi请求获得完整复习工具参数并按明确自评创建、反
       return fauxAssistantMessage("已按你的良好自评记录这次复习。");
     },
   ]);
-  const accepted = await f.send("我刚回答了：潮汐是海面周期性升降，自评良好。请创建复习项并记录这次实际反馈，检查历史。");
-  assert.equal(f.faux.state.callCount, 4);
+  const accepted = await f.send("我刚回答了：潮汐是海面周期性升降，自评良好。请创建复习项并记录这次实际反馈，然后把题目改为‘潮汐的定义是什么？’，去掉参考答案和来源，检查历史。");
+  assert.equal(f.faux.state.callCount, 5);
   assert.deepEqual(recordedBy, { kind: "agent", ...f.key, runId: accepted.runId, requestId: accepted.requestId });
   assert.equal((await invoke(f.client, f.scope, "history", { itemId }, ReviewHistoryResultSchema)).events.length, 1);
 });
@@ -307,7 +317,14 @@ test("停用重启仍保留复习数据，轻量快照复制后重新启用副�
   const feedback = await invoke(f.client, f.scope, "feedback", { operationId: randomUUID(), itemId: created.item.id, base: created.item.revision, rating: 3 }, ReviewMutationResultSchema);
   const parameters = await invoke(f.client, f.scope, "parameters.get", {}, ParameterVersionSchema);
   const changed = await invoke(f.client, f.scope, "parameters.set", { operationId: randomUUID(), base: parameters.version, patch: { request_retention: 0.85 } }, SetReviewParametersResultSchema);
-  const original = await invoke(f.client, f.scope, "get", { itemId: created.item.id }, ReviewItemSchema);
+  const beforeUpdate = await invoke(f.client, f.scope, "get", { itemId: created.item.id }, ReviewItemSchema);
+  const updated = await invoke(f.client, f.scope, "update", {
+    operationId: randomUUID(), itemId: beforeUpdate.id, base: beforeUpdate.revision,
+    patch: { prompt: "潮汐的定义是什么？", answer: "海面周期性升降" },
+  }, ReviewMutationResultSchema);
+  assert.deepEqual(updated.item.card, beforeUpdate.card);
+  assert.deepEqual(updated.item.sources, beforeUpdate.sources);
+  const original = updated.item;
   const history = await invoke(f.client, f.scope, "history", { itemId: created.item.id }, ReviewHistoryResultSchema);
   await set(f.client, f.scope, "disabled", ["repa-review", "review"]);
   await f.reopen();

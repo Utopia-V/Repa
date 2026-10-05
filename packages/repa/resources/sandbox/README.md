@@ -47,11 +47,13 @@ bubblewrap 使用归档内 `vendor/bubblewrap` 的 Meson 构建入口。Meson 1.
 
 这条父死亡路径处理监控进程崩溃等情况。普通取消需要等内层收尾之后再报告结果：监控进程会接收 TERM 等终止信号，结束 namespace PID 1，并作为 subreaper 等待遗留后代退出。应用层因而可以等待监控进程结束，不再为受限执行扫描宿主进程组或用定时 KILL 杀掉等待者。
 
+helper 启动正式命令前，会先运行 bubblewrap 探测 `/proc` 挂载支持。它在这段时间收到终止信号时，会把信号转发给探测进程；经过监控进程收尾后，探测进程可能返回普通退出码。因此，捕获探测输出的代码会在回收进程后保留已收到的终止信号，并结束 helper。若只检查子进程是否由信号直接终止，就会把这次取消当成探测结果，随后错误地启动正式命令。
+
 当前要求内核支持所需 pidfd 操作，取得句柄失败时拒绝启动。适配与验证限定在 Repa 使用的非 setuid、新建 user/PID namespace 路径。
 
 另一处适配固定实际使用的 bubblewrap。构建将其摘要写入 `CODEX_BWRAP_SHA256`，helper 只选择相邻的 `codex-resources/bwrap`，再用上游摘要校验检查文件。这样，安装目录中的 helper 和 bubblewrap 使用同一构建组合，缺少文件时也不会改用系统的另一版本。
 
-升级 Codex 或 bubblewrap 时，需要核对父死亡绑定、credential 切换、PID 1 与普通 reaper 的启动和退出，以及相邻资源的选择。上游提供等价行为并通过相同场景验证后，删除相应补丁。权限 profile 的字段、`minimal` 挂载和受保护路径也要与执行适配一起复核。
+升级 Codex 或 bubblewrap 时，需要核对父死亡绑定、credential 切换、启动探测中的信号转发、PID 1 与普通 reaper 的启动和退出，以及相邻资源的选择。上游提供等价行为并通过相同场景验证后，删除相应补丁。权限 profile 的字段、`minimal` 挂载和受保护路径也要与执行适配一起复核。
 
 ## 产物与当前验证范围
 
@@ -74,6 +76,8 @@ node --import tsx --import ./test/environment.ts --test test/build-sandbox.test.
 ```
 
 现有回归使用实际构建产物，覆盖 C 编译运行、Git 操作、文件和网络授权、受保护路径、环境、取消、输出及会话关闭。启动期验证通过 bubblewrap 的 `info-fd`/`block-fd` 固定时机，再用 SIGKILL 结束父进程，检查尚未放行的命令没有执行且 namespace 退出。运行期另用真实父子命令验证 TERM 后的监控进程收尾，关闭时确认内部进程已经结束。普通 reaper 与 `--as-pid-1` 路径都有实际进程验证。
+
+挂载探测的取消回归另用同步屏障固定探测进程已经建立信号接收的位置，再给 helper 发送 TERM。测试随后放行探测进程，核对 helper 按取消结束，且正式用户命令没有执行。
 
 一般回归在允许用户命名空间的环境中运行。独立 helper 和 Linux 桌面安装包还分别在普通用户服务中验证，使用各自安装路径的专用 AppArmor profile；安装包验证结束后已卸载程序与规则。改变安装位置时，需重新生成配置并从实际入口验证，步骤见[构建与独立启动](../../../../docs/development/execution.md#构建与独立启动)。
 

@@ -2,19 +2,27 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createBashTool, createBashToolDefinition, type BashToolDetails, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
-import type { CapabilitySource } from "../capabilities/schema.js";
+import type { CapabilityDescriptor, CapabilitySource } from "../capabilities/schema.js";
 import type { ConfigStore } from "../configuration/store.js";
 import type { ContentStore } from "../content/store.js";
+import type { ResourceRef } from "../content/schema.js";
 import { RepaFault } from "../errors.js";
 import type { Dialog, DialogOptions } from "../pi-host.js";
 import type { Reply } from "../requests/schema.js";
 import { executionRepresentation } from "./format.js";
 import { coversPolicy, extendPolicy, normalizePolicy } from "./policy.js";
 import { runCommand } from "./process.js";
+import { ProgramBridge, type ProgramInvokeParams } from "./program.js";
 import { ExecutionInputSchema, type ExecutionInput, type ExecutionPolicy, type ExecutionView } from "./schema.js";
+
+export interface ProgramCapabilities {
+  describe(signal: AbortSignal): Promise<CapabilityDescriptor[]>;
+  invoke(params: ProgramInvokeParams, signal: AbortSignal): Promise<{ result: unknown; resources: ResourceRef[] }>;
+}
 
 export interface ExecutionContext {
   spaceId: string;
@@ -22,7 +30,10 @@ export interface ExecutionContext {
   source: CapabilitySource;
   signal: AbortSignal;
   ask(dialog: Dialog, options?: DialogOptions): Promise<Reply>;
+  program?: ProgramCapabilities;
 }
+
+const programClientPath = fileURLToPath(import.meta.resolve("repa/program"));
 
 export interface ExecutionServiceOptions {
   configuration: ConfigStore;
@@ -96,7 +107,8 @@ export class ExecutionService {
     return {
       name: base.name, label: base.label,
       description: base.description.replace("full output is saved to a temp file", "full output is retained as a Repa resource") +
-        " Use access only when this command needs additional filesystem or network permission; Repa asks the user before execution.",
+        " Use access only when this command needs additional filesystem or network permission; Repa asks the user before execution." +
+        " Node programs can import process.env.REPA_PROGRAM_CLIENT and use getProgramClient().describe()/invoke(...) to call enabled capabilities in this space.",
       promptSnippet: base.promptSnippet,
       constrainedSampling: base.constrainedSampling,
       // 保留 SDK 的命令、超时 schema；只有 Repa 的按次授权请求属于新增参数。
@@ -136,6 +148,7 @@ export class ExecutionService {
     publish();
     let fullOutputPath: string | undefined;
     let failure: unknown;
+    let program: ProgramBridge | undefined;
     const sanitize = (text: string) => fullOutputPath ? text.replaceAll(fullOutputPath, view.fullOutput
       ? `repa:resource/${view.fullOutput.id}`
       : "[完整输出将在命令结束后保存为资源]") : text;
@@ -159,6 +172,22 @@ export class ExecutionService {
       signal.throwIfAborted();
       if (!coversPolicy(current.policy, state.policy, state.cwd))
         throw new RepaFault("permission_revoked", "等待期间执行授权已经收回，命令未执行。");
+      const capabilities = context.program;
+      if (capabilities) {
+        const resources = new Map<string, ResourceRef>();
+        program = new ProgramBridge({
+          signal,
+          dispatch: async (method, params, callSignal) => {
+            if (method === "describe") return capabilities.describe(callSignal);
+            if (!params) throw new RepaFault("invalid_input", "能力调用缺少参数。");
+            const delivered = await capabilities.invoke(params, callSignal);
+            for (const ref of delivered.resources) resources.set(ref.id, ref);
+            if (resources.size > 0) view.resources = [...resources.values()];
+            return delivered.result;
+          },
+        });
+      }
+      const bridge = program;
       const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
       const tool = createBashTool(state.cwd, {
         exposeSessionEnvironment: false,
@@ -166,6 +195,12 @@ export class ExecutionService {
           exec: async (command, cwd, options) => runCommand({
             command, cwd, policy: view.policy, protectedPaths: view.protectedPaths,
             signal, timeout: options.timeout, env: options.env,
+            ...(bridge ? { program: {
+              env: { REPA_PROGRAM_FD: "3", REPA_PROGRAM_CLIENT: pathToFileURL(programClientPath).href },
+              readPaths: [programClientPath],
+              attach: bridge.attach.bind(bridge),
+              close: bridge.close.bind(bridge),
+            } } : {}),
             onData: (stream, data) => {
               options.onData(data);
               const text = decoders[stream].write(data);
@@ -217,7 +252,10 @@ export class ExecutionService {
       view.error = { code: reason instanceof RepaFault ? reason.code : "execution_failed", message: sanitize(reason instanceof Error ? reason.message : String(reason)) };
       if (!view.output) view.output = view.error.message;
     } finally {
-      try { if (fullOutputPath) await rm(fullOutputPath, { force: true }); }
+      try {
+        await program?.close();
+        if (fullOutputPath) await rm(fullOutputPath, { force: true });
+      }
       finally {
         signal.removeEventListener("abort", abort);
         view.finishedAt = Date.now();

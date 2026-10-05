@@ -68,12 +68,12 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 | 查询正文引用与明确组成关系 | [内容关系查询](content-relations.md)：CommonMark 提取、来源修订、当前目标与可用状态 |
 | 打开交互产物并绑定页面动作 | [展示实例与桥接](display.md)：固定表示、资源持有、MCP Apps、结果保存和向会话提交 |
 | 构建与安装桌面应用 | [Linux 应用交付](distribution.md)：Electron 运行时、生产依赖装配、原生组件、系统权限与验证 |
-| 执行命令、处理授权与子进程 | [命令执行与授权](execution.md)：Pi Bash SDK、独立 helper、实际请求归属、输出与退出 |
+| 执行命令、处理授权与子进程 | [命令执行与授权](execution.md)：Pi Bash SDK、程序化能力调用、独立 helper、实际请求归属、输出与退出 |
 | 搜索内容、历史或取得材料表示 | [搜索与材料](search-materials.md)：rg 预筛、冻结历史、结果分页、本地提取、URL 原件和 Wikipedia 搜索 |
 | 接入复习、实际反馈和参数优化 | [复习插件](review.md)：FSRS、SQLite、追加更正、候选参数及公开操作与通知 |
 | 创建或调整学习计划 | [规划能力](planning.md)：可替换方法、实际时钟、日期与时间约束检查，正文沿用内容工具 |
 | 整理长期内容与当前语境 | [整理能力](organization.md)：方法 Skill、同次正文与结构保存、模型可见的身份及操作查询 |
-| 调整默认学习组合与教学方法 | [官方学习组合](official-learning.md)：分发依赖、精确来源、整组／单项启停，以及当前联合验收缺口 |
+| 调整默认学习组合与教学方法 | [官方学习组合](official-learning.md)：持续学习、局部教学、按需参考，以及分发依赖、启停与联合验收范围 |
 | 修改学习语境及其持久格式 | [官方学习语境](learning.md)：选择、组成、展开、旧格式与背景 codec；保存继续复用内容模块 |
 | 接入共享后端能力与窄服务 | [能力宿主](capabilities.md)：契约、作用域、Agent 工具与公共调用、按需空间生命周期 |
 | 发现、启用或管理插件包 | [插件装配](plugins.md)：Pi 包来源、资源信任、多入口、独立快照与实际进程重启 |

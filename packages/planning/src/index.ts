@@ -10,7 +10,7 @@ export default function planning(): BackendPlugin {
     scopes: ["application", "space"], execution: "query",
     tool: {
       name: "check_plan",
-      description: "检查明确日期、时区、可用时间、目标工作量与拟定安排，返回实际分钟、冲突和不足。它检查给定约束，不替学习者决定目标，也不保存或改写计划。",
+      description: "检查已有具体起止时刻的可用窗口和候选日程，结合时区、目标工作量与期限，返回实际分钟、冲突和不足。仅有分钟预算时直接比较工作量；本工具用于核对实际时段，不保存或改写计划。",
     },
     invoke(input, context) {
       context.signal.throwIfAborted();
