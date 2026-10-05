@@ -372,6 +372,8 @@ TUI 自动连接或启动独立的本机后端，打印连接文件的位置。�
 
 运行锁由 `proper-lockfile` 管理并在正常退出时释放；强制终止后，旧锁需要经过约十秒的失效期才能重新取得。恢复后的未完成任务标记为 `interrupted`，供核对结果，不自动重新执行。
 
+排查运行问题时，可以按请求编号查询 stderr 中的结构化诊断记录。默认级别为 `info`，`REPA_LOG_LEVEL=debug` 增加调用与阶段信息，`off` 关闭诊断；宿主管理的日志文件按 10 MiB 片段保留。时间点、隐私范围和文件策略见[诊断日志](docs/development/diagnostics.md)。
+
 ### 独立后端与其他前端
 
 可以显式启动后端，再让多个前端通过连接文件接入：
@@ -408,12 +410,14 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 | 方法 | 责任 |
 | --- | --- |
 | `space.open`、`space.list` | 打开本地空间并取得稳定身份，或列出后端已打开的空间。 |
+| `space.browse`、`space.create`、`space.recent` | 浏览本机目录、在配置的父目录中建立新空间，以及查询跨重启保留的最近记录；见[空间进入](docs/development/space-entry.md)。 |
 | `session.create`、`session.list`、`session.get`、`session.history`、`session.branch`、`session.close` | 创建、列举摘要、读取历史、建立分支和释放运行实例；查看历史不启动 Agent。 |
 | `session.submit`、`session.continue`、`request.get` | 提交结构化输入、补充当前运行、排队与失败接续，查询输入的实际归属。 |
 | `run.get`、`run.cancel` | 按运行标识查询状态和请求取消。 |
 | `queue.list`、`queue.cancel`、`queue.resume` | 查询队列，取消尚未开始的项，明确恢复暂停的处理。 |
 | `request.cancel` | 取消独立后台处理，等待实际收尾。 |
 | `content.*`、`operation.*` | 读取和保存文件，维护身份与组成，查询、撤回及核对恢复结果；具体方法见[内容接口](docs/development/content.md)。 |
+| `content.relations` | 查询 Markdown 引用与明确组成，取得来源修订、目标位置和可用状态；见[内容关系查询](docs/development/content-relations.md)。 |
 | `context.get`、`context.set`、`context.preview` | 通过所选学习语境实现读取或更换绑定、预览完整文本和来源；没有已启用实现时报告未找到能力。 |
 | `capability.describe`、`capability.invoke` | 取得契约与入口问题，调用明确作用域和实现；按声明直接查询或持久受理，Agent 工具复用相同处理。 |
 | `display.open/get/close/readResource/invoke` | 打开固定版本的展示，读取实例资源，并发起宿主绑定的保存或会话提交动作。 |

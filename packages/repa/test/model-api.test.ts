@@ -10,6 +10,7 @@ import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { RepaClient, RpcError } from "../src/client.js";
+import type { DiagnosticOptions, DiagnosticRecord } from "../src/diagnostics.js";
 import { AuthQuerySchema, BoundModelFallbackSchema, ModelAttemptSchema, ModelBindingSchema, type ConnectionInput, type ConnectionModel, type ModelConnection } from "../src/models/schema.js";
 import { ModelConnections } from "../src/models/service.js";
 import type { BackgroundRequest, Params, RequestRecord, SessionKey, SettingScope, Submit } from "../src/protocol.js";
@@ -87,7 +88,7 @@ async function until<T>(read: () => T | Promise<T>, ready: (value: T) => boolean
   }
 }
 
-async function fixture(t: TestContext, options: { observeExtension?: boolean } = {}) {
+async function fixture(t: TestContext, options: { observeExtension?: boolean; diagnostics?: DiagnosticOptions } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-model-api-"));
   const agentDir = path.join(root, "agent");
   const directory = path.join(root, "space");
@@ -192,7 +193,8 @@ export default function () {
   const address = provider.address();
   assert(address && typeof address !== "string");
   const endpoint = `http://127.0.0.1:${address.port}`;
-  backend = await startRepaServer({ agentDir, appDirectory: path.join(root, "application"), trustExtensions: options.observeExtension ?? false });
+  backend = await startRepaServer({ agentDir, appDirectory: path.join(root, "application"),
+    trustExtensions: options.observeExtension ?? false, diagnostics: options.diagnostics });
   client = await RepaClient.connect(backend.connection);
   const connected = client;
   const space = await connected.call("space.open", { path: directory });
@@ -288,6 +290,31 @@ async function finishProcessing(client: RepaClient, accepted: BackgroundRequest)
     return current;
   }, (current) => !["accepted", "running", "cancelling"].includes(current.status));
 }
+
+test("诊断日志在实际认证和模型调用后只保留元信息，debug 也不输出密钥和正文", async t => {
+  for (const level of ["info", "debug"] as const) {
+    await t.test(level, async t => {
+      const lines: string[] = [];
+      const f = await fixture(t, { diagnostics: { level, write: line => { lines.push(line); } } });
+      const secret = `private-api-key-${randomUUID()}`;
+      const identity = await connection(f, "本地日志核验", "diagnostic", secret);
+      const text = `PRIVATE_USER_BODY_${randomUUID()}`;
+      const accepted = await submit(f.client, f.key, text, { model: { connectionId: identity.id, id: model.id } });
+      assert.equal((await finish(f.client, accepted)).status, "completed");
+      assert.equal((await f.received(text)).authorization, `Bearer ${secret}`);
+      const records = lines.map(line => JSON.parse(line) as DiagnosticRecord);
+      assert(records.some(record => record.event === "run.finished" && record.requestId === accepted.requestId));
+      assert.equal(records.some(record => record.event === "rpc.completed" && record.level === "debug"), level === "debug");
+      if (level === "debug") {
+        const call = records.find(record => record.event === "rpc.completed" && record.method === "session.submit");
+        assert(call && typeof call.rpcId === "string");
+        assert(records.some(record => record.event === "rpc.started" && record.rpcId === call.rpcId));
+      }
+      const logged = lines.join("");
+      for (const value of [secret, text, f.backend.connection.token]) assert(!logged.includes(value));
+    });
+  }
+});
 
 test("同 provider 的双连接分别使用认证与端点，并行会话只带各自历史", async (t) => {
   const f = await fixture(t);

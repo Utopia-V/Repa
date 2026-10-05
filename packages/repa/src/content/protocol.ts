@@ -5,6 +5,7 @@ import {
   WriteBaseSchema, ContentChangeResultSchema, ContentRefSchema, FileLocationSchema,
   ContentRoleSchema, ContentMemberSchema, ResourceRefSchema, ContentOperationSchema,
   ResourceHoldSchema, ContentPatchInputSchema, ContentOriginSchema,
+  ContentRelationsInputSchema, ContentRelationsResultSchema,
 } from "./schema.js";
 
 const operation = { operationId: id };
@@ -15,6 +16,7 @@ const change = ContentChangeResultSchema;
 
 /** 仅登记已接入的公开内容方法；领域数据由相邻 schema 持有。 */
 export const contentMethods = {
+  "content.relations": { params: object({ ...space, ...ContentRelationsInputSchema.properties }), result: ContentRelationsResultSchema },
   "content.list": { params: object({ ...space, path: Type.Optional(Type.String()) }), result: Type.Array(ContentInfoSchema) },
   "content.get": { params: object(target), result: ContentInfoSchema },
   "content.read": { params: object({ ...target,

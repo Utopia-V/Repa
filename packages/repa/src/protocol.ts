@@ -3,7 +3,7 @@ import { object, IdSchema as id, RevisionSchema, literals } from "./schema.js";
 import { displayMethods } from "./display/schema.js";
 export * from "./display/schema.js";
 import { contentMethods } from "./content/protocol.js";
-import { spaceMethods } from "./spaces/schema.js";
+import { spaceMethods, SpaceSchema } from "./spaces/schema.js";
 import { modelMethods, ModelFallbackSchema, ModelSelectionSchema } from "./models/schema.js";
 import { learningMethods } from "./learning/protocol.js";
 import { CapabilityScopeSchema, CapabilitySelectionSchema, CapabilityDescriptorSchema, CapabilitySourceSchema, CapabilityEventSchema } from "./capabilities/schema.js";
@@ -111,8 +111,6 @@ export const NoticeSchema = object({
 });
 export type Notice = Static<typeof NoticeSchema>;
 
-export const SpaceSchema = object({ id, path: text, contentRevision: Type.Optional(text) });
-export type Space = Static<typeof SpaceSchema>;
 export const SessionSchema = object({
   ...key,
   title: text,
@@ -263,11 +261,6 @@ export const methods = {
       hostKey: Type.String(),
     }),
   ),
-  "space.open": method(
-    object({ path: Type.String({ minLength: 1 }) }),
-    SpaceSchema,
-  ),
-  "space.list": method(object({}), Type.Array(SpaceSchema)),
   "session.create": method(object({ spaceId: id }), SessionSchema),
   "session.list": method(
     object({ spaceId: id }),

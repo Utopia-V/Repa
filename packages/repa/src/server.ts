@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { Check } from "typebox/value";
 import { RepaApplication, type ApplicationOptions } from "./application.js";
+import type { DiagnosticFields } from "./diagnostics.js";
 import { displayMethods, type DisplayMethod } from "./display/schema.js";
 import { contentMethods, type ContentMethod } from "./content/protocol.js";
 import { spaceMethods, type SpaceMethod } from "./spaces/schema.js";
@@ -57,10 +58,24 @@ class RpcFault extends Error {
   }
 }
 
+function diagnosticScope(params: unknown): DiagnosticFields {
+  if (!params || typeof params !== "object") return {};
+  const input = params as Record<string, unknown>;
+  const nested = input.target ?? input.scope;
+  const scope = nested && typeof nested === "object" ? nested as Record<string, unknown> : {};
+  const fields: DiagnosticFields = {};
+  for (const key of ["spaceId", "sessionId", "requestId", "runId"] as const) {
+    const value = input[key] ?? scope[key];
+    if (typeof value === "string") fields[key] = value;
+  }
+  return fields;
+}
+
 export async function startRepaServer(
   options: ServerOptions = {},
 ): Promise<RepaServer> {
   const application = new RepaApplication(options);
+  const diagnostics = application.diagnostics;
   const token = options.token ?? randomBytes(32).toString("hex");
   const hosts = new Map<string, FrontendHost>();
   const hostId = (key: string) => createHash("sha256").update(key).digest("hex");
@@ -145,6 +160,10 @@ export async function startRepaServer(
     }
     response.writeHead(404).end();
   })().catch((error: unknown) => {
+    diagnostics.record("error", "http.failed", {
+      method: request.method, code: error instanceof RepaFault ? error.code : "unexpected",
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+    });
     if (response.headersSent) { response.destroy(); return; }
     response.writeHead(error instanceof RepaFault ? 400 : 500, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ code: error instanceof RepaFault ? error.code : "storage", message: error instanceof Error ? error.message : String(error) }));
@@ -187,6 +206,7 @@ export async function startRepaServer(
       attached: false,
       subscriptions: new Map(),
     };
+    diagnostics.record("info", "connection.opened", { peerId: peer.id });
     const timeout = setTimeout(
       () => socket.close(4001, "authentication required"),
       5000,
@@ -219,12 +239,16 @@ export async function startRepaServer(
         timer.unref(); host.timer = timer; detachTimers.add(timer);
       }
     };
-    socket.on("error", () => socket.terminate());
+    socket.on("error", error => {
+      diagnostics.record("error", "connection.failed", { peerId: peer.id, code: "transport", errorType: error.constructor.name });
+      socket.terminate();
+    });
     socket.on("close", () => {
       clearTimeout(timeout);
       for (const unsubscribe of peer.subscriptions.values()) unsubscribe();
       peer.subscriptions.clear();
       detach();
+      diagnostics.record("info", "connection.closed", { peerId: peer.id });
     });
     const dispatch = async (
       method: Method,
@@ -267,6 +291,7 @@ export async function startRepaServer(
             peer.authenticated = true;
             peer.attached = true;
             clearTimeout(timeout);
+            diagnostics.record("info", "connection.authorized", { peerId: peer.id });
           }
           if (input.hostKey && input.hostKey !== peer.host!.key) throw new RepaFault("permission_required", "连接不能切换成另一个前端宿主。");
           return {
@@ -289,10 +314,6 @@ export async function startRepaServer(
             ],
           };
         }
-        case "space.open":
-          return application.openSpace(p<"space.open">().path);
-        case "space.list":
-          return application.listSpaces();
         case "session.create":
           return application.createSession(p<"session.create">().spaceId);
         case "session.list":
@@ -376,6 +397,8 @@ export async function startRepaServer(
     const handle = async (value: unknown): Promise<unknown | undefined> => {
       let id: string | number | null = null;
       let notification = false;
+      let fields: DiagnosticFields = { peerId: peer.id };
+      const startedAt = Date.now();
       try {
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw new RpcFault(-32600, "Invalid Request");
@@ -400,15 +423,26 @@ export async function startRepaServer(
         if (!Object.hasOwn(methods, request.method))
           throw new RpcFault(-32601, "Method not found");
         const name = request.method as Method;
+        fields = { ...fields, method: name, ...(id !== null ? { rpcId: id } : {}) };
         const params = request.params ?? {};
         if (!Check(methods[name].params, params))
           throw new RpcFault(-32602, "Invalid params");
+        fields = { ...fields, ...diagnosticScope(params) };
+        diagnostics.record("debug", "rpc.started", fields, startedAt);
         const result = await dispatch(name, params);
         if (!Check(methods[name].result, result))
           throw new Error(`接口 ${name} 返回了无效数据。`);
+        diagnostics.record("debug", "rpc.completed", { ...fields, durationMs: Date.now() - startedAt });
         return { jsonrpc: "2.0", id, result };
       } catch (error) {
         if (notification) return undefined;
+        let code = "unexpected";
+        if (error instanceof RepaFault) code = error.code;
+        else if (error instanceof RpcFault) code = String(error.code);
+        diagnostics.record(error instanceof RpcFault ? "warn" : "error", "rpc.failed", {
+          ...fields, durationMs: Date.now() - startedAt, code,
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+        });
         const fault =
           error instanceof RpcFault
             ? error
@@ -435,6 +469,7 @@ export async function startRepaServer(
         try {
           value = JSON.parse(data.toString());
         } catch {
+          diagnostics.record("warn", "rpc.failed", { peerId: peer.id, code: "-32700" });
           send({
             jsonrpc: "2.0",
             id: null,
@@ -473,6 +508,7 @@ export async function startRepaServer(
   const address = http.address();
   if (!address || typeof address === "string")
     throw new Error("后端未取得本地监听端口。");
+  diagnostics.record("info", "server.started");
   const closed = application.closed.finally(
     () =>
       new Promise<void>((resolve) => {
@@ -485,7 +521,10 @@ export async function startRepaServer(
         }, 1000);
         terminate.unref();
         websocket.close(() => clearTimeout(terminate));
-        http.close(() => resolve());
+        http.close(() => {
+          diagnostics.record("info", "server.closed");
+          resolve();
+        });
       }),
   );
   return {

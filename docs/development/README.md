@@ -56,12 +56,16 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 | 工作 | 入口与责任 |
 | --- | --- |
 | 修改 Web 页面、路由或开发宿主 | [app.tsx](../../apps/web/src/app.tsx)、[routes.tsx](../../apps/web/src/routes.tsx) 持有界面与路由；[repa-development-backend.ts](../../apps/web/repa-development-backend.ts) 与 [vite.config.ts](../../apps/web/vite.config.ts) 持有开发期后端启动和连接交付 |
+| 为前端添加真实后端回归 | [Web 集成测试](web-integration-tests.md)：独立进程、本地 HTTP 模型、会话订阅与失败清理 |
 | 修改 Desktop 页面或原生边界 | [app.tsx](../../apps/desktop/src/renderer/src/app.tsx)、[routes.tsx](../../apps/desktop/src/renderer/src/routes.tsx) 持有界面与路由；[main/index.ts](../../apps/desktop/src/main/index.ts)、[repa-process.ts](../../apps/desktop/src/main/repa-process.ts) 与 [preload/index.ts](../../apps/desktop/src/preload/index.ts) 持有进程和窄 IPC 边界 |
 | 接入前端、读取状态或保存内容 | [client.ts](../../packages/repa/src/client.ts)：标准 WebSocket、Fetch、协议校验和状态副本，不依赖 Pi 或后端模块 |
 | 增加公开调用 | [protocol.ts](../../packages/repa/src/protocol.ts)、[server.ts](../../packages/repa/src/server.ts)：参数和结果校验、认证、传输；内容契约在 [content/protocol.ts](../../packages/repa/src/content/protocol.ts) |
 | 修改输入、排队、失败接续和后台请求 | [输入、请求与运行](requests.md)：受理记录、Pi 投递、资源保留、分页及订阅 |
 | 处理应用内的操作顺序与退出 | [application.ts](../../packages/repa/src/application.ts)：空间实例、请求受理、配置固定、订阅与进行中工作；释放空间前等待 Agent 和内容操作收尾 |
+| 按请求编号排查失败或测量等待时间 | [诊断日志](diagnostics.md)：结构化 stderr、请求与运行关联、关键时间点、级别和受管文件大小 |
+| 选择位置、创建空间或查询最近空间 | [空间进入](space-entry.md)：目录浏览、应用父目录设置、独立目录命名和跨重启的最近记录 |
 | 修改正文、身份或内容组成 | [内容与保存](content.md)：共同的版本检查、文件操作、资源和恢复入口 |
+| 查询正文引用与明确组成关系 | [内容关系查询](content-relations.md)：CommonMark 提取、来源修订、当前目标与可用状态 |
 | 打开交互产物并绑定页面动作 | [展示实例与桥接](display.md)：固定表示、资源持有、MCP Apps、结果保存和向会话提交 |
 | 构建与安装桌面应用 | [Linux 应用交付](distribution.md)：Electron 运行时、生产依赖装配、原生组件、系统权限与验证 |
 | 执行命令、处理授权与子进程 | [命令执行与授权](execution.md)：Pi Bash SDK、独立 helper、实际请求归属、输出与退出 |
@@ -138,6 +142,8 @@ npm run build
 | 已观察文件的变化提示、差异基准与按需读取 | [file-changes.test.ts](../../packages/repa/test/file-changes.test.ts) |
 | 实际模型输入、来源关闭、空提示、重复注入和压缩 | [agent-context.test.ts](../../packages/repa/test/agent-context.test.ts)、[pi-context-integration.test.ts](../../packages/repa/test/pi-context-integration.test.ts) |
 | 配置与外部文件授权的持久化、并发写入 | [configuration.test.ts](../../packages/repa/test/configuration.test.ts)、[content-access.test.ts](../../packages/repa/test/content-access.test.ts) |
+| 目录浏览、父目录设置、创建与最近空间 | [space-entry.test.ts](../../packages/repa/test/space-entry.test.ts)：真实协议、文件系统权限、并发创建及重启后的记录 |
+| 正文引用、组成与变动后的关系查询 | [content-relations.test.ts](../../packages/repa/test/content-relations.test.ts)：实际链接位置、身份、移动、解除关联与来源不可用 |
 | 具名连接、认证身份、运行选择、独立模型调用与提示预览 | [model-connections.test.ts](../../packages/repa/test/model-connections.test.ts)、[model-api.test.ts](../../packages/repa/test/model-api.test.ts)、[cli-models.test.ts](../../packages/repa/test/cli-models.test.ts) |
 | 共享能力、SQLite 按需资源、公共调用与父 Agent 工具 | [capabilities.test.ts](../../packages/repa/test/capabilities.test.ts)、[capability-api.test.ts](../../packages/repa/test/capability-api.test.ts)、[capability-resources.test.ts](../../packages/repa/test/capability-resources.test.ts) |
 | 展示实例、固定版本、页面动作与历史重开 | [display-api.test.ts](../../packages/repa/test/display-api.test.ts)：真实后端、MCP Apps 与 Pi 投递 |
@@ -150,9 +156,10 @@ npm run build
 | 内容整理与语境接续 | [整理验证](organization.md#验证入口)：共同补丁、真实模型输入、人工改动保留与失败操作查询 |
 | 包多入口、资源信任、发现无副作用与包管理 | [plugin-packages.test.ts](../../packages/repa/test/plugin-packages.test.ts)、[plugin-resources.test.ts](../../packages/repa/test/plugin-resources.test.ts)、[plugin-api.test.ts](../../packages/repa/test/plugin-api.test.ts) |
 | 后端、客户端、TUI、恢复与真实子进程生命周期 | [application.test.ts](../../packages/repa/test/application.test.ts)、[run-journal.test.ts](../../packages/repa/test/run-journal.test.ts) |
-| Web HTTP 连接交付、真实后端启动及退出清理 | [Web 宿主集成测试](../../apps/web/test/backend.integration.test.ts) |
+| 诊断关联、敏感内容与日志输送失败 | [诊断验证](diagnostics.md#验证入口)：真实 Pi、认证、协议和继承文件描述符 |
+| Web HTTP 连接交付、真实模型调用流程、取消、重连与退出清理 | [Web 集成测试](web-integration-tests.md#验证入口) |
 | Desktop 后端进程复用、退出与再次启动 | [Desktop 宿主集成测试](../../apps/desktop/test/backend.integration.test.ts) |
 
 当前整合版本已在 Linux 上通过类型检查、测试与构建，包含 Web 与 Desktop 宿主连接真实后端的测试。
 
-两项前端宿主集成测试沿用 Vitest，在 Node 环境中启动真实 `repa serve` 子进程并通过 `RepaClient` 打开、查询临时学习空间；Web 额外经过真实 Vite HTTP 连接端点。配置和内容使用独立临时目录，测试结束清理后端与文件，无需模型凭据或新增测试依赖。运行根目录 `npm test` 会先构建后端并包含这些测试；仅运行前端或能力 workspace 测试前需先执行 `npm run build:backend`。
+前端宿主集成测试沿用 Vitest，在 Node 环境中启动真实 `repa serve` 子进程并通过 `RepaClient` 打开、查询临时学习空间。Web 还经过真实 Vite HTTP 连接端点，并让 Pi 调用测试内的本地 HTTP 模型，覆盖回复、工具执行、取消、错误与重连；夹具用法见 [Web 集成测试](web-integration-tests.md)。配置和内容使用独立临时目录，测试结束清理后端与文件，无需模型凭据或新增测试依赖。运行根目录 `npm test` 会先构建后端并包含这些测试；仅运行前端或能力 workspace 测试前需先执行 `npm run build:backend`。

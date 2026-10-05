@@ -32,7 +32,7 @@ npm run verify:linux --workspace=@repa/desktop -- \
   .scratch/desktop-delivery/dist/Repa-0.1.0-amd64.deb
 ```
 
-[verify-linux-package.mjs](../../apps/desktop/scripts/verify-linux-package.mjs) 将包解到临时目录，从其中的 Electron、CLI 和客户端启动检查，验证默认能力、SQLite、HTML 与 URL 材料、资源保存、展示桥接、worker 和沙箱入口。它还报告运行进程实际使用的 AppArmor profile，便于区分构建环境与普通用户安装环境。
+[verify-linux-package.mjs](../../apps/desktop/scripts/verify-linux-package.mjs) 将包解到临时目录，从其中的 Electron、CLI 和客户端启动检查，验证默认能力、SQLite、HTML 与 URL 材料、资源保存、展示桥接、worker 和沙箱入口。空间进入、内容关系查询和结构化诊断也在包内实际调用，确保新增运行依赖没有被开发目录掩盖。它还报告运行进程实际使用的 AppArmor profile，便于区分构建环境与普通用户安装环境。
 
 ## 安装位置与系统权限
 

@@ -77,7 +77,7 @@ async function start(options: RepaProcessOptions): Promise<ClientConnection> {
       {
         detached: true,
         execPath: options.nodeExecutable,
-        ...(options.nodeEnvironment ? { env: options.nodeEnvironment } : {}),
+        env: { ...(options.nodeEnvironment ?? process.env), REPA_MANAGED_STDERR: "1" },
         stdio: ["ignore", "ignore", log.fd, "ipc"],
       },
     );

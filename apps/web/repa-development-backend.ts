@@ -72,6 +72,7 @@ export async function startRepaDevelopmentBackend(): Promise<ClientConnection> {
       ["serve", "--connection-file", file, "--exit-when-detached"],
       {
         detached: true,
+        env: { ...process.env, REPA_MANAGED_STDERR: "1" },
         stdio: ["ignore", "ignore", log.fd, "ipc"],
       },
     );

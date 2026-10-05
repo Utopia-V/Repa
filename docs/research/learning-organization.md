@@ -38,4 +38,4 @@
 
 [ADR 0002](../adr/0002-progressively-load-learning-context.md)约定的是模型输入中哪些内容展开、哪些保留引用，以及运行快照和压缩接续。本稿讨论学习范围与路线怎样逐步形成，两者处于不同层次；输入机制可以承载相应内容，学习判断仍由使用它的方法和能力承担。
 
-现有 [FSRS 复习插件](../development/review.md)提供记录与调度服务，学习任务选择和算法适用性由 [#38](https://github.com/Utopia-V/repa/issues/38) 继续研究。工作表示、元操作和方法改造归 [#30](https://github.com/Utopia-V/repa/issues/30)。后续从具体问题形成可工作的做法，再按实际缺口调整表示与接口。
+现有 [FSRS 复习插件](../development/review.md)提供记录与调度服务，学习任务选择和算法适用性由 [#38](https://github.com/Utopia-V/repa/issues/38) 继续研究。第一轮作答归因、任务选择与共享工作量原型见[学习任务选择](learning-task-selection.md)。工作表示、元操作和方法改造归 [#30](https://github.com/Utopia-V/repa/issues/30)。后续从具体问题形成可工作的做法，再按实际缺口调整表示与接口。

@@ -109,3 +109,44 @@ export const ContentPatchInputSchema = object({
   }))),
 });
 export type ContentPatchInput = Static<typeof ContentPatchInputSchema>;
+
+/** 关系查询返回定位与可用状态，不重复携带组成清单或资源。 */
+export const ContentRelationEndpointSchema = object({
+  target: ContentTargetSchema,
+  ref: Type.Optional(ContentRefSchema),
+  location: Type.Optional(FileLocationSchema),
+  role: Type.Optional(ContentRoleSchema),
+  mediaType: Type.Optional(Type.String()),
+  status: ContentInfoSchema.properties.status,
+});
+export type ContentRelationEndpoint = Static<typeof ContentRelationEndpointSchema>;
+export const ContentRelationTargetSchema = Type.Union([
+  object({ kind: Type.Literal("local"), ...ContentRelationEndpointSchema.properties }),
+  object({ kind: Type.Literal("url"), href: Type.String(), status: Type.Literal("unverified") }),
+  object({ kind: Type.Literal("unresolved"), href: Type.String(), status: Type.Literal("invalid"), code: Type.String() }),
+]);
+export type ContentRelationTarget = Static<typeof ContentRelationTargetSchema>;
+export const ContentRelationSchema = Type.Union([
+  object({
+    kind: Type.Literal("reference"), source: ContentRelationEndpointSchema, revision,
+    target: ContentRelationTargetSchema, href: Type.String(), syntax: literals(["link", "image"]),
+    line: Type.Integer({ minimum: 1 }),
+    range: object({ start: Type.Integer({ minimum: 0 }), end: Type.Integer({ minimum: 0 }) }),
+  }),
+  object({
+    kind: Type.Literal("composition"), source: ContentRelationEndpointSchema, revision,
+    target: object({ kind: Type.Literal("local"), ...ContentRelationEndpointSchema.properties }),
+    index: Type.Integer({ minimum: 0 }), name: Type.Optional(Type.String()),
+  }),
+]);
+export type ContentRelation = Static<typeof ContentRelationSchema>;
+export const ContentRelationsInputSchema = object({
+  path: Type.Optional(Type.String()), limit: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+export type ContentRelationsInput = Static<typeof ContentRelationsInputSchema>;
+export const ContentRelationsResultSchema = object({
+  relations: Type.Array(ContentRelationSchema),
+  unavailable: Type.Array(object({ target: ContentTargetSchema, code: Type.String(), message: Type.String() })),
+  truncated: Type.Boolean(),
+});
+export type ContentRelationsResult = Static<typeof ContentRelationsResultSchema>;

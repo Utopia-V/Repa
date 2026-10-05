@@ -88,6 +88,10 @@ export interface ContentStoreOptions extends ResourceRetentionOptions {
 
 export interface ContentObservation {
   metadata(field: string): unknown;
+  /** 当前清单中仍 active 的身份，实际可用状态通过 inspect 查询。 */
+  targets(): ContentTarget[];
+  inspect(target: ContentTarget): Promise<ContentInfo>;
+  readTarget(target: ContentTarget, maxBytes?: number): Promise<{ content: ContentInfo; bytes?: Buffer }>;
   describe(ref: ContentRef): Promise<ContentInfo>;
   read(ref: ContentRef): Promise<{ content: ContentInfo; bytes?: Buffer }>;
 }
@@ -203,7 +207,7 @@ export class ContentStore {
       for (const ref of format.references(value)) this.#record({ kind: "content", ref }, catalog);
     }
   }
-  async #observe(target: ContentTarget, catalog = this.#catalog, extraReadRoots: readonly string[] = [], maxBytes?: number): Promise<Observed> {
+  async #observe(target: ContentTarget, catalog = this.#catalog, extraReadRoots: readonly string[] = [], maxBytes?: number, retain = true): Promise<Observed> {
     const record = this.#record(target, catalog);
     const location = target.kind === "content" ? record!.location : target.location;
     const absolute = this.#absolute(location);
@@ -219,7 +223,7 @@ export class ContentStore {
     let image: FileImage;
     let bytes: Buffer | undefined;
     if (inside(this.options.root, actual) && actual !== this.options.root) {
-      const snapshot = await this.journal.snapshot(path.relative(this.options.root, actual));
+      const snapshot = await this.journal.snapshot(path.relative(this.options.root, actual), retain);
       image = snapshot.image;
       bytes = snapshot.bytes;
     } else {
@@ -228,7 +232,7 @@ export class ContentStore {
         if (current.isDirectory()) image = { kind: "directory", mode: current.mode & 0o777 };
         else if (current.isFile()) {
           bytes = await readFile(actual);
-          image = { kind: "file", hash: await this.blobs.put(bytes), mode: current.mode & 0o777 };
+          image = { kind: "file", hash: retain ? await this.blobs.put(bytes) : digest(bytes), mode: current.mode & 0o777 };
         }
         else throw new RepaFault("unsupported_content", "目标不是普通文件。");
       } catch (error) {
@@ -334,13 +338,18 @@ export class ContentStore {
       }
     });
   }
+  async #inspect(target: ContentTarget): Promise<ContentInfo> {
+    const record = this.#record(target, this.#catalog);
+    if (target.kind === "content") {
+      if (!record) throw new RepaFault("not_found", "内容身份不存在。");
+      return this.#metadata(record.location, record);
+    }
+    return this.#metadata(target.location, record);
+  }
   /** 查询授权后的身份、位置与 stat 元信息，不读取正文或制造字节修订。 */
   inspect(target: ContentTarget): Promise<ContentInfo> {
     const input = clone(target);
-    return this.queue.run(async () => {
-      const record = this.#record(input, this.#catalog);
-      return this.#metadata(input.kind === "content" ? record!.location : input.location, record);
-    });
+    return this.queue.run(() => this.#inspect(input));
   }
   async #readSnapshot(params: { target: ContentTarget; revision?: string; maxBytes?: number }): Promise<ContentReadSnapshot> {
     const observed = await this.#observe(params.target, this.#catalog, [], params.maxBytes);
@@ -907,6 +916,17 @@ export class ContentStore {
   observe<T>(work: (scope: ContentObservation) => Promise<T>): Promise<T> {
     return this.queue.run(() => work({
       metadata: (field) => clone(formatValue(this.#catalog, this.#format(field))),
+      targets: () => Object.values(this.#catalog.items)
+        .filter(record => record.state === "active")
+        .map(record => ({ kind: "content", ref: { spaceId: this.options.spaceId, id: record.id } })),
+      inspect: (target) => this.#inspect(target),
+      readTarget: async (target, maxBytes) => {
+        // 派生只读查询只携带实际字节与摘要，不保留资源或写入 blob。
+        const observed = await this.#observe(target, this.#catalog, [], maxBytes, false);
+        if (observed.bytes) checkByteLimit(observed.bytes.length, maxBytes);
+        this.#assertStructure(observed);
+        return { content: await this.#info(observed), ...(observed.bytes ? { bytes: observed.bytes } : {}) };
+      },
       describe: async (ref) => {
         const record = this.#record({ kind: "content", ref }, this.#catalog);
         if (!record) throw new RepaFault("not_found", "内容身份不存在。");

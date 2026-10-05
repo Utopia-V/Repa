@@ -75,6 +75,7 @@ try {
     ...process.env,
     ELECTRON_RUN_AS_NODE: "1",
     XDG_CONFIG_HOME: path.join(temporary, "config"),
+    REPA_LOG_LEVEL: "info",
   };
   const { stdout: runtime } = await exec(executable, ["-e", "console.log(JSON.stringify({node:process.versions.node,sqlite:!!require('node:sqlite').DatabaseSync}))"], { env: environment });
   const runtimeInfo = JSON.parse(runtime);
@@ -110,6 +111,17 @@ try {
   const { RepaClient } = await import(new URL(`file://${application}/node_modules/repa/dist/client.js`));
   client = await RepaClient.connect(endpoint);
   const space = await client.call("space.open", { path: path.join(temporary, "space") });
+  const applicationScope = { kind: "application" };
+  const spacesSettings = await client.call("settings.get", { scope: applicationScope, namespace: "spaces" });
+  const parent = spacesSettings.entries.find(entry => entry.key === "parentDirectory");
+  assert(parent);
+  await client.call("settings.set", {
+    scope: applicationScope, namespace: "spaces", key: "parentDirectory", value: temporary, base: parent.revision,
+  });
+  const createdSpace = await client.call("space.create", { hint: "安装包空间进入检查" });
+  assert.notEqual(createdSpace.id, space.id);
+  assert((await client.call("space.browse", { path: temporary })).entries.some(entry => entry.path === createdSpace.path));
+  assert((await client.call("space.recent", {})).some(entry => entry.path === createdSpace.path && entry.available));
   const scope = { kind: "space", spaceId: space.id };
   const packages = await client.call("package.list", { scope });
   assert.equal(packages.length, 5);
@@ -143,6 +155,17 @@ try {
   const associated = await client.call("content.associate", { spaceId: space.id, location: file.location, role: "material", operationId: randomUUID() });
   const ref = associated.contents[0]?.ref;
   assert(ref);
+  const index = { kind: "file", spaceId: space.id, location: { kind: "relative", path: "index.md" } };
+  await client.call("content.write", {
+    target: index, operationId: randomUUID(), base: { kind: "absent" },
+    value: { kind: "text", text: `[安装包材料](repa:material/${ref.id})\n` },
+  });
+  const relations = await client.call("content.relations", { spaceId: space.id, path: "index.md" });
+  assert.equal(relations.truncated, false);
+  assert.deepEqual(relations.unavailable, []);
+  assert.equal(relations.relations.length, 1);
+  assert.equal(relations.relations[0].target.kind, "local");
+  assert.deepEqual(relations.relations[0].target.ref, ref);
   const completed = async (accepted) => {
     assert.equal(accepted.kind, "background");
     const deadline = Date.now() + 15_000;
@@ -244,6 +267,12 @@ try {
   client = undefined;
   await once(child, "exit");
   child = undefined;
+  const diagnostics = errors.split("\n").flatMap(line => {
+    try { return [JSON.parse(line)]; } catch { return []; }
+  });
+  assert(diagnostics.some(record => record.event === "server.started"));
+  assert(diagnostics.some(record => record.event === "processing.completed" && record.requestId === saveRequestId));
+  assert(!errors.includes(endpoint.token));
   const database = path.join(temporary, "space/.repa/plugins/repa-review/reviews.sqlite");
   await access(database);
   const check = path.join(application, "verify.mjs");
@@ -273,6 +302,7 @@ try {
   const { stdout: native } = await exec(executable, [check], { cwd: application, env: environment });
   console.log(JSON.stringify({ deb, installedLayout: "opt/Repa", runtime: runtimeInfo, packages: packages.length, capabilities: described.capabilities.length,
     backendReadyMs, backendRssAfterCapabilitiesKiB, ripgrep: true, poppler: true, html: true, urlMaterial: true, resource: true,
+    spaceEntry: true, contentRelations: true, diagnostics: true,
     review: true, displayBridge: true, displayResource: true, displaySave: true, ...JSON.parse(native) }, null, 2));
 } finally {
   await displayApp?.close();

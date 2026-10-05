@@ -44,6 +44,8 @@ const usage = `用法：repa <learning-space> [--new-session] [--trust-extension
   --agent-dir <目录>       Pi 资源与默认选项目录；Repa 连接凭据由应用目录独立管理
   --exit-when-detached     最后一个客户端离开后，完成已启动任务再退出
 
+诊断输出到 stderr。REPA_LOG_LEVEL 可设为 debug、info、warn、error 或 off，默认 info。
+
 普通启动自动连接或启动本机后端。首次使用先运行 repa configure 选择应用默认模型。--trust-extensions 启用的插件代码拥有宿主进程权限。`;
 
 function parse(args: string[]): Options | undefined {
@@ -228,6 +230,7 @@ async function connect(
       ];
       const child = fork(fileURLToPath(import.meta.url), args, {
         detached: true,
+        env: { ...process.env, REPA_MANAGED_STDERR: "1" },
         stdio: ["ignore", "ignore", log.fd, "ipc"],
       });
       await log.close();

@@ -81,9 +81,15 @@ import {
 import { RuntimeStore } from "./runtime-store.js";
 import { SpaceOperations } from "./spaces/store.js";
 import type { SpaceMethod, SpaceSnapshotParticipant } from "./spaces/schema.js";
+import { browseDirectory, createSpaceDirectory } from "./spaces/entry.js";
+import { RecentSpaces } from "./spaces/recent.js";
+import { SPACES_SETTINGS_DEFINITION } from "./spaces/settings.js";
+import { Diagnostics, type DiagnosticOptions } from "./diagnostics.js";
+import { queryContentRelations } from "./content/relations.js";
 import { applyChange, contains, relevant } from "./state.js";
 
 export interface ApplicationOptions {
+  diagnostics?: DiagnosticOptions;
   agentDir?: string;
   appDirectory?: string;
   resources?: ResourceRetentionOptions;
@@ -106,6 +112,8 @@ interface ActiveRun {
   deliveries: Promise<void>[];
   ready: Promise<void>;
   resolveReady: () => void;
+  firstStatusAt?: number;
+  firstTextAt?: number;
 }
 interface SpaceRecord {
   store: RuntimeStore;
@@ -139,6 +147,7 @@ const runtimeIdentity = (binding?: ModelBinding) => {
 
 export class RepaApplication {
   readonly id = randomUUID();
+  readonly diagnostics: Diagnostics;
   readonly closed: Promise<void>;
   readonly #options: ApplicationOptions;
   readonly #configuration: ConfigStore;
@@ -156,6 +165,7 @@ export class RepaApplication {
   readonly #access: Promise<ContentAccessStore>;
   readonly #admission = new SerialQueue();
   readonly #spaceOperations: SpaceOperations;
+  readonly #recentSpaces: RecentSpaces;
   readonly #maintenance = new Set<string>();
   readonly #spaceActivities = new Map<string, number>();
   readonly #state: Snapshot = {
@@ -183,6 +193,7 @@ export class RepaApplication {
   #rejectClosed!: (error: Error) => void;
 
   constructor(options: ApplicationOptions = {}) {
+    this.diagnostics = new Diagnostics(this.id, options.diagnostics);
     if (
       options.eventBufferSize !== undefined &&
       (!Number.isInteger(options.eventBufferSize) ||
@@ -195,7 +206,10 @@ export class RepaApplication {
     this.#configuration = new ConfigStore({
       appDirectory,
       resolveSpace: (id) => this.#store(id).space.path,
-      definitions: [RUNTIME_SETTINGS_DEFINITION, SUMMARY_SETTINGS_DEFINITION, PLUGIN_SETTINGS_DEFINITION, EXECUTION_SETTINGS_DEFINITION, ...(options.settingsDefinitions ?? [])],
+      definitions: [
+        RUNTIME_SETTINGS_DEFINITION, SUMMARY_SETTINGS_DEFINITION, PLUGIN_SETTINGS_DEFINITION,
+        EXECUTION_SETTINGS_DEFINITION, SPACES_SETTINGS_DEFINITION, ...(options.settingsDefinitions ?? []),
+      ],
     });
     this.#models = new ModelConnections({
       directory: path.join(appDirectory, "models"),
@@ -229,6 +243,7 @@ export class RepaApplication {
         execId: execution.id, stream, text }),
     });
     this.#spaceOperations = new SpaceOperations(path.join(appDirectory, "space-operations"));
+    this.#recentSpaces = new RecentSpaces(appDirectory);
     // 保留初始化错误供实际内容访问报告，避免尚未打开空间时产生未处理拒绝。
     void this.#access.catch(() => {});
     this.closed = new Promise((resolve, reject) => {
@@ -264,24 +279,25 @@ export class RepaApplication {
     this.#finishIfReady();
   }
 
-  async openSpace(directory: string): Promise<Space> {
-    this.#assertAccepting();
-    await mkdir(path.resolve(directory), { recursive: true });
-    directory = await realpath(directory);
-    const existing = [...this.#spaces.values()].find(
-      (x) => x.store.space.path === directory,
-    );
-    if (existing) return structuredClone(existing.store.space);
-    const opening = this.#openingSpaces.get(directory);
-    if (opening) return opening;
-    const promise = this.#openSpace(directory);
-    this.#openingSpaces.set(directory, promise);
-    try {
-      return await promise;
-    } finally {
-      this.#openingSpaces.delete(directory);
-      this.#finishIfReady();
-    }
+  openSpace(directory: string): Promise<Space> {
+    return this.#activity(async () => {
+      await mkdir(path.resolve(directory), { recursive: true });
+      directory = await realpath(directory);
+      const existing = [...this.#spaces.values()].find(item => item.store.space.path === directory);
+      if (existing) {
+        await this.#recentSpaces.remember(directory);
+        return structuredClone(existing.store.space);
+      }
+      const opening = this.#openingSpaces.get(directory);
+      if (opening) return opening;
+      const promise = this.#openSpace(directory);
+      this.#openingSpaces.set(directory, promise);
+      try {
+        return await promise;
+      } finally {
+        this.#openingSpaces.delete(directory);
+      }
+    });
   }
   async #openSpace(directory: string): Promise<Space> {
     if (existsSync(path.join(directory, ".repa-snapshot.json")))
@@ -328,6 +344,7 @@ export class RepaApplication {
         if (!["queued", "running"].includes(request.status))
           content.retention.retain(`request:${request.requestId}`, inputResources(request.input));
       }
+      await this.#recentSpaces.remember(store.space.path);
       // 恢复和资源核对完成后再发布；失败只需释放尚未注册的空间租约。
       this.#spaces.set(store.space.id, record);
       this.#restoreReplyReceipts(store.space.id, store.requests.requests.values());
@@ -396,7 +413,7 @@ export class RepaApplication {
     const p = <M extends ContentMethod>() => input as Params<M>;
     const targetSpace = (target: ContentTarget) => target.kind === "content" ? target.ref.spaceId : target.spaceId;
     const spaceId = "spaceId" in input ? input.spaceId : "ref" in input ? input.ref.spaceId : targetSpace(input.target);
-    const mutation = !["content.list", "content.get", "content.read", "operation.get", "context.get", "context.preview", "resource.hold.get"].includes(method);
+    const mutation = !["content.list", "content.get", "content.read", "content.relations", "operation.get", "context.get", "context.preview", "resource.hold.get"].includes(method);
     return this.#activity(async () => {
       const record = this.#spaces.get(spaceId);
       if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
@@ -405,6 +422,10 @@ export class RepaApplication {
         case "content.list": return content.list(p<"content.list">());
         case "content.get": return content.get(p<"content.get">().target);
         case "content.read": return content.read(p<"content.read">(), host);
+        case "content.relations": {
+          const { path, limit } = p<"content.relations">();
+          return queryContentRelations(content, { path, limit });
+        }
         case "content.write": return content.write(p<"content.write">());
         case "content.edit": return content.edit(p<"content.edit">());
         case "content.applyPatch": return content.applyPatch(p<"content.applyPatch">());
@@ -859,7 +880,7 @@ export class RepaApplication {
     return this.#activity(async () => {
       this.#checkScope(input.scope);
       const scope: CapabilityScope = input.scope.kind === "application" ? input.scope : { kind: "space", spaceId: input.scope.spaceId };
-      if (!["prompts", "runtime", "summaryPrompts", "plugins", "execution"].includes(input.namespace)) await this.#plugins(scope);
+      if (!["prompts", "runtime", "summaryPrompts", "plugins", "execution", "spaces"].includes(input.namespace)) await this.#plugins(scope);
       if (method === "settings.get") return (await this.#readSettings(input.scope, [input.namespace]))[0];
       const save = async () => {
         const view = method === "settings.set"
@@ -1098,10 +1119,23 @@ export class RepaApplication {
   }
   spaceCall(method: SpaceMethod, params: Params<SpaceMethod>): Promise<unknown> {
     const input = structuredClone(params);
+    const p = <M extends SpaceMethod>() => input as Params<M>;
+    if (method === "space.open") return this.openSpace(p<"space.open">().path);
     return this.#activity(async () => {
-      if (method === "space.operation.get") return this.#spaceOperations.get(input.operationId);
-      if (method === "space.restore") return this.#spaceOperations.restore(input as Params<"space.restore">);
-      const request = input as Params<"space.copy">;
+      if (method === "space.list") return this.listSpaces();
+      if (method === "space.browse") return browseDirectory(p<"space.browse">());
+      if (method === "space.recent") return this.#recentSpaces.list(p<"space.recent">().limit);
+      if (method === "space.create") {
+        const settings = await this.#configuration.get({ kind: "application" }, "spaces");
+        const parent = settings.entries.find(entry => entry.key === "parentDirectory")?.effective;
+        if (typeof parent !== "string")
+          throw new RepaFault("parent_directory_required", "请先设置学习空间的父目录。");
+        const directory = await createSpaceDirectory(parent, p<"space.create">().hint);
+        return this.openSpace(directory);
+      }
+      if (method === "space.operation.get") return this.#spaceOperations.get(p<"space.operation.get">().operationId);
+      if (method === "space.restore") return this.#spaceOperations.restore(p<"space.restore">());
+      const request = p<"space.copy">();
       this.#assertSpaceAvailable(request.spaceId);
       const record = this.#spaces.get(request.spaceId);
       if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
@@ -1115,7 +1149,7 @@ export class RepaApplication {
           kind: method === "space.backup" ? "backup" : "copy" }, record.content,
           [...this.#options.snapshotParticipants ?? [], ...await (await this.#plugins({ kind: "space", spaceId: record.store.space.id })).snapshotParticipants()]);
       } finally { this.#maintenance.delete(request.spaceId); }
-    }, method !== "space.operation.get");
+    }, !["space.list", "space.browse", "space.recent", "space.operation.get"].includes(method));
   }
 
   #space(id: string): SpaceRecord {
@@ -1335,6 +1369,7 @@ export class RepaApplication {
       content.retention.releaseOwner(`request:${requestId}`);
       throw error;
     }
+    this.#diagnoseAccepted(request);
     if (dispatch.kind === "steer") {
       const active = record.active;
       if (!active || active.run.id !== dispatch.expectedRunId || active.controller.signal.aborted) {
@@ -1356,8 +1391,23 @@ export class RepaApplication {
   }
 
   #saveRequest(record: SessionRecord, request: RequestRecord): void {
+    const previous = record.store.requests.requests.get(request.requestId);
     record.store.requests.save(request);
+    if (previous && (previous.status !== request.status || previous.runId !== request.runId)) {
+      this.diagnostics.record(request.error ? "error" : "info", "request.state", {
+        ...request.target, requestId: request.requestId, runId: request.runId,
+        status: request.status, code: request.error?.code,
+      });
+    }
     this.#emit({ type: "request", request });
+  }
+
+  #diagnoseAccepted(request: RequestRecord): void {
+    this.diagnostics.record("info", "request.accepted", {
+      ...request.target, requestId: request.requestId, submittedAt: request.createdAt,
+      textLength: request.input.parts.reduce((length, part) => length + ("text" in part ? part.text.length : 0), 0),
+      partCount: request.input.parts.length,
+    });
   }
 
   getRequest(spaceId: string | undefined, requestId: string): Promise<RequestRecord | BackgroundRequest | { requestId: string; status: "unknown" }> {
@@ -1443,6 +1493,9 @@ export class RepaApplication {
     const ready = new Promise<void>(resolve => { resolveReady = resolve; });
     const active: ActiveRun = { run, request, controller: new AbortController(), done: Promise.resolve(), deliveries: [], ready, resolveReady };
     record.active = active;
+    this.diagnostics.record("info", "run.started", {
+      ...request.target, requestId: request.requestId, runId: run.id, submittedAt: request.createdAt,
+    });
     active.done = Promise.resolve().then(() => this.#execute(record, active));
     this.#emit({ type: "session", session: record.view });
     this.#emit({ type: "run", run });
@@ -1457,6 +1510,11 @@ export class RepaApplication {
         this.#saveRequest(record, { ...request, status: "not_entered", delivery: { status: "not_entered", reason: "目标运行已停止接收输入。" } });
       }
     } catch (error) {
+      this.diagnostics.record("error", "input.failed", {
+        ...request.target, requestId: request.requestId, runId: active.run.id,
+        code: error instanceof RepaFault ? error.code : "runtime",
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
       this.#saveRequest(record, { ...request, status: "not_entered", delivery: { status: "not_entered", reason: String(error) } });
     }
   }
@@ -1551,6 +1609,11 @@ export class RepaApplication {
               message: error instanceof Error ? error.message : String(error),
             },
           };
+      this.diagnostics.record(active.controller.signal.aborted ? "info" : "error", "runtime.failed", {
+        ...active.request.target, requestId: active.request.requestId, runId: active.run.id,
+        code: error instanceof RepaFault ? error.code : "runtime",
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
       if (!record.host) record.view.runtime = "unloaded";
     } finally {
       const cancelled = active.controller.signal.aborted;
@@ -1599,6 +1662,13 @@ export class RepaApplication {
       active.run = finished;
       record.view.updatedAt = finished.finishedAt ?? record.view.updatedAt;
       this.#emit({ type: "run", run: finished });
+      const endedAt = Date.now();
+      this.diagnostics.record(finished.error ? "error" : "info", "run.finished", {
+        ...active.request.target, requestId: active.request.requestId, runId: finished.id,
+        status: finished.status, code: finished.error?.code, submittedAt: active.request.createdAt,
+        firstStatusAt: active.firstStatusAt, firstTextAt: active.firstTextAt,
+        durationMs: endedAt - finished.createdAt,
+      }, endedAt);
       record.active = undefined;
       this.#emit({ type: "session", session: record.view });
       if (continuation) this.#start(record, continuation);
@@ -1630,6 +1700,7 @@ export class RepaApplication {
     const content = this.#space(record.view.spaceId).content;
     content.retention.retain(`request:${requestId}`, inputResources(request.input));
     this.#saveRequest(record, request);
+    this.#diagnoseAccepted(request);
     this.#saveRequest(record, { ...previous, fallbackRequestId: requestId });
     this.#notice(record, "model_fallback", `按已受理的回退策略接续任务，使用连接 ${connection.connection.name} 的 ${connection.modelId}。`);
     return request;
@@ -1672,6 +1743,19 @@ export class RepaApplication {
       spaceId: record.view.spaceId,
       sessionId: record.view.sessionId,
     };
+    const active = record.active;
+    if (active && active.firstTextAt === undefined) {
+      let textLength = 0;
+      if (event.type === "delta" && event.kind === "text") textLength = event.text.length;
+      else if (event.type === "message" && event.message.role === "assistant")
+        textLength = event.message.content.reduce((length, part) => length + (part.type === "text" ? part.text.length : 0), 0);
+      if (textLength > 0) {
+        active.firstTextAt = Date.now();
+        this.diagnostics.record("info", "run.first_text", {
+          ...key, requestId: active.request.requestId, runId: active.run.id, textLength,
+        }, active.firstTextAt);
+      }
+    }
     if (event.type === "prompt") {
       const active = record.active;
       if (active) {
@@ -1737,6 +1821,7 @@ export class RepaApplication {
     const id = randomUUID();
     const interaction: Interaction = { ...dialog, ...owner, id,
       ...(options?.timeout !== undefined ? { expiresAt: Date.now() + options.timeout } : {}) };
+    const requestId = "requestId" in owner ? owner.requestId : this.#sessions.get(keyOf(owner))?.active?.request.requestId;
     return new Promise(resolve => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (value: Reply, receipt?: InteractionReplyReceipt) => {
@@ -1749,6 +1834,10 @@ export class RepaApplication {
         signal.removeEventListener("abort", abort);
         options?.signal?.removeEventListener("abort", abort);
         if ("sessionId" in owner) this.#emit({ type: "interaction", spaceId: owner.spaceId, sessionId: owner.sessionId, id, interaction: null });
+        this.diagnostics.record("info", receipt ? "interaction.replied" : "interaction.closed", {
+          ...owner, requestId, interactionId: id, responseId: receipt?.responseId,
+          textLength: typeof value === "string" ? value.length : 0,
+        });
         resolve(value);
       };
       const abort = () => finish(null);
@@ -1758,6 +1847,9 @@ export class RepaApplication {
       if (options?.timeout !== undefined) timer = setTimeout(abort, options.timeout);
       if ("sessionId" in owner) this.#emit({ type: "interaction", spaceId: owner.spaceId, sessionId: owner.sessionId, id, interaction });
       changed(id, interaction);
+      this.diagnostics.record("info", "interaction.opened", {
+        ...owner, requestId, interactionId: id, interactionKind: dialog.kind,
+      });
     });
   }
   #rememberReply(spaceId: string | undefined, sessionId: string | undefined, receipt: InteractionReplyReceipt): void {
@@ -1896,6 +1988,7 @@ export class RepaApplication {
     return `${this.id}:${this.#sequence}`;
   }
   #emit(change: Change): void {
+    this.#diagnoseChange(change);
     applyChange(this.#state, change);
     this.#log.push({
       sequence: ++this.#sequence,
@@ -1917,6 +2010,48 @@ export class RepaApplication {
       } catch {
         this.#watchers.delete(watcher);
       }
+    }
+  }
+  #diagnoseChange(change: Change): void {
+    if (change.type === "run") {
+      const run = change.run;
+      const active = this.#sessions.get(keyOf(run))?.active;
+      if (active && active.run.id === run.id && active.firstStatusAt === undefined) {
+        active.firstStatusAt = Date.now();
+        this.diagnostics.record("info", "run.first_status", {
+          spaceId: run.spaceId, sessionId: run.sessionId, requestId: active.request.requestId,
+          runId: run.id, status: run.status, phase: run.phase,
+        }, active.firstStatusAt);
+      }
+      this.diagnostics.record("debug", "run.state", {
+        spaceId: run.spaceId, sessionId: run.sessionId, requestId: active?.request.requestId,
+        runId: run.id, status: run.status, phase: run.phase,
+      });
+    } else if (change.type === "tool") {
+      this.diagnostics.record(change.status === "failed" ? "error" : "info",
+        change.status === "running" ? "tool.started" : "tool.finished", {
+          ...change, requestId: this.#sessions.get(keyOf(change))?.active?.request.requestId,
+          toolName: change.name,
+        });
+    } else if (change.type === "notice") {
+      const active = change.sessionId ? this.#sessions.get(keyOf({ spaceId: change.spaceId, sessionId: change.sessionId }))?.active : undefined;
+      this.diagnostics.record(change.notice.level === "warning" ? "warn" : change.notice.level, "runtime.notice", {
+        spaceId: change.spaceId, sessionId: change.sessionId, requestId: active?.request.requestId,
+        runId: active?.run.id, code: change.notice.code,
+      });
+    } else if (change.type === "processing") {
+      const request = change.request;
+      const previous = this.#state.processing?.find(item => item.spaceId === request.spaceId && item.requestId === request.requestId);
+      // 只记录实际状态变化；重开时投影的旧终态不冒充本次完成。
+      if ((previous || request.status === "accepted") && previous?.status !== request.status) {
+        this.diagnostics.record(request.error ? "error" : "info", `processing.${request.status}`, {
+          spaceId: request.spaceId, requestId: request.requestId, operation: request.operation,
+          status: request.status, code: request.error?.code, submittedAt: request.createdAt,
+          ...(request.finishedAt !== undefined ? { durationMs: request.finishedAt - request.createdAt } : {}),
+        });
+      }
+    } else if (change.type === "lifecycle") {
+      this.diagnostics.record("info", "application.state", { status: change.lifecycle });
     }
   }
   #assertAccepting(): void {
