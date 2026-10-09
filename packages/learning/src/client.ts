@@ -12,7 +12,7 @@ export async function callLearning<M extends LearningMethod>(
   params: LearningParams<M>,
 ): Promise<LearningResult<M>> {
   if (!Object.hasOwn(learningMethods, method) || !Check(learningMethods[method].params, params))
-    throw new RepaFault("invalid_input", "学习语境调用参数无效。");
+    throw new RepaFault("invalid_input", "学习能力调用参数无效。");
   const { spaceId, ...input } = structuredClone(params);
   const accepted = await client.call("capability.invoke", {
     scope: { kind: "space", spaceId },
@@ -21,7 +21,7 @@ export async function callLearning<M extends LearningMethod>(
     input,
   });
   if (accepted.kind !== "inline" || !Check(learningMethods[method].result, accepted.result))
-    throw new RepaFault("invalid_capability_output", "学习语境能力返回了无效结果。");
+    throw new RepaFault("invalid_capability_output", "学习能力返回了无效结果。");
   // 上面的运行时校验使用同一 method；泛型索引在此保留该对应关系。
   return accepted.result as LearningResult<M>;
 }

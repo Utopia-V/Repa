@@ -41,6 +41,26 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? "undefined";
 }
 const equal = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonicalJson(b);
+function isJsonRequest(value: unknown, parents = new Set<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0);
+  if (typeof value !== "object" || parents.has(value)) return false;
+  const array = Array.isArray(value);
+  const prototype = Object.getPrototypeOf(value);
+  if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) return false;
+  parents.add(value);
+  try {
+    const keys = Reflect.ownKeys(value);
+    if (array && (keys.length !== value.length + 1 ||
+      Array.from({ length: value.length }, (_, index) => index).some(index => !Object.hasOwn(value, index)))) return false;
+    return keys.every(key => {
+      if (array && key === "length") return true;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return typeof key === "string" && descriptor?.enumerable === true && "value" in descriptor &&
+        isJsonRequest(descriptor.value, parents);
+    });
+  } finally { parents.delete(value); }
+}
 const inside = (root: string, target: string): boolean => {
   const relative = path.relative(root, target);
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
@@ -95,6 +115,16 @@ export interface ContentObservation {
   readTarget(target: ContentTarget, maxBytes?: number): Promise<{ content: ContentInfo; bytes?: Buffer }>;
   describe(ref: ContentRef): Promise<ContentInfo>;
   read(ref: ContentRef): Promise<{ content: ContentInfo; bytes?: Buffer }>;
+}
+
+/** 派生补丁只读取当前空间的内容与资源，不重新进入内容队列。 */
+export interface ContentPatchScope {
+  read(target: ContentTarget, maxBytes?: number): Promise<{ content: ContentInfo; bytes?: Buffer }>;
+  readResource(resource: ResourceRef): Promise<Buffer>;
+}
+export interface DerivedContentPatch {
+  patch: Omit<ContentPatchInput, "operationId">;
+  resources?: readonly Uint8Array[];
 }
 
 export interface ContentReadSnapshot {
@@ -600,59 +630,112 @@ export class ContentStore {
   }
   applyPatch(params: ContentPatchInput): Promise<ContentChangeResult> {
     const input = clone(params);
-    return this.#mutate(input.operationId, { method: "patch", ...input }, async (plan) => {
-      if (input.bases !== undefined && !Check(ContentPatchInputSchema.properties.bases, input.bases))
-        throw new RepaFault("invalid_input", "补丁正文基准无效。");
-      const bases = new Map<string, WriteBase>();
-      for (const { target, base } of input.bases ?? []) {
-        const record = this.#record(target, plan.before);
-        if (record && record.state !== "active") throw new RepaFault("not_found", "正文基准对应的内容已经移除。");
-        const location = target.kind === "file" ? target.location : record?.location;
-        if (!location) throw new RepaFault("not_found", "正文基准对应的内容不存在。");
-        const absolute = await this.#checkPath(this.#absolute(location), true);
-        this.#assertStructure({ path: absolute, image: absent, ...(record ? { record } : {}) });
-        if (bases.has(absolute)) throw new RepaFault("invalid_input", "同一补丁重复指定文件的正文基准。");
-        bases.set(absolute, base);
-      }
-      await this.#preparePatch(plan, input.patch);
-      for (const [absolute, base] of bases) {
-        const file = plan.files.get(path.relative(this.options.root, absolute));
-        if (!file || sameImage(file.before, file.after))
-          throw new RepaFault("invalid_input", "正文基准只能用于本补丁实际修改的文件。");
-        // 以实际用于准备修改的字节检查基准，避免检查后再次读取另一版正文。
-        this.#checkBase({ path: absolute, image: file.before }, base, true);
-      }
-      const registrations = [];
-      for (const registration of input.registrations ?? []) {
-        const target: ContentTarget = { kind: "file", spaceId: this.options.spaceId,
-          location: { kind: "relative", path: registration.path } };
-        await this.#checkPath(this.#absolute(target.location), true);
-        const observed = await this.#observePlan(target, plan);
-        this.#assertStructure(observed);
-        if (observed.image.kind === "absent") throw new RepaFault("not_found", "新身份的位置没有实际内容。", { path: registration.path });
-        const relative = path.relative(this.options.root, observed.path);
-        if (observed.image.kind === "directory" && relative !== "" && !plan.files.has(relative) && (await this.journal.image(relative)).kind === "absent")
-          await this.#put(plan, observed.path, observed.image, absent);
-        const record = this.#register(plan, observed.path, registration);
-        registrations.push({ record, registration });
-      }
-      // 所有身份先建立，初始组成可以按明确 ID 引用同一次保存中的其他新对象。
-      for (const { record, registration } of registrations) {
-        await this.#prepareComposition(plan, record, registration.members ?? [], registration.resources ?? []);
-      }
-      const composed = new Set<string>();
-      for (const composition of input.compositions ?? []) {
-        if (composed.has(composition.ref.id)) throw new RepaFault("invalid_input", "同一次补丁重复更新内容组成。");
-        composed.add(composition.ref.id);
-        const observed = await this.#observe({ kind: "content", ref: composition.ref }, plan.before);
-        this.#assertStructure(observed);
-        this.#checkBase(observed, composition.base);
-        const record = plan.catalog.items[composition.ref.id]!;
-        if (record.state !== "active") throw new RepaFault("not_found", "被移除的内容不能同时更新组成。");
-        await this.#prepareComposition(plan, record, composition.members, composition.resources);
-      }
+    return this.#mutate(input.operationId, { method: "patch", ...input }, plan => this.#buildPatch(plan, input));
+  }
+
+  /** 按完整业务原意去重后，在当前提交队列内派生一次补丁；回调只做短本地计算。 */
+  applyDerivedPatch<T>(params: { operationId: string; request: T },
+    prepare: (request: T, scope: ContentPatchScope) => Promise<DerivedContentPatch>): Promise<ContentChangeResult> {
+    let input: { operationId: string; request: T };
+    try {
+      const request = params.request;
+      if (!isJsonRequest(request)) throw new Error("invalid JSON request");
+      input = clone({ operationId: params.operationId, request });
+    } catch {
+      return Promise.reject(new RepaFault("invalid_input", "派生补丁的原意必须是完整的 JSON 值。"));
+    }
+    return this.#mutate(input.operationId, {
+      method: "derived-patch", spaceId: this.options.spaceId, request: input.request,
+    }, async plan => {
+      let active = true;
+      const assertActive = () => {
+        if (!active) throw new RepaFault("closed", "派生补丁的读取范围已经结束。");
+      };
+      const scope: ContentPatchScope = {
+        read: async (target, maxBytes) => {
+          assertActive();
+          const result = await this.#readObserved(clone(target), maxBytes);
+          assertActive();
+          return result;
+        },
+        readResource: async resource => {
+          assertActive();
+          if (resource.spaceId !== this.options.spaceId)
+            throw new RepaFault("permission_required", "资源不属于当前空间。");
+          const bytes = await this.blobs.get(resource.id);
+          assertActive();
+          return bytes;
+        },
+      };
+      let derived: DerivedContentPatch;
+      try { derived = await prepare(clone(input.request), scope); }
+      finally { active = false; }
+      if (!derived || typeof derived !== "object" || !derived.patch ||
+        Object.hasOwn(derived.patch, "operationId") ||
+        !Check(ContentPatchInputSchema, { ...derived.patch, operationId: input.operationId }) ||
+        (derived.resources !== undefined && (!Array.isArray(derived.resources) ||
+          derived.resources.some(bytes => !(bytes instanceof Uint8Array)))))
+        throw new RepaFault("invalid_input", "派生补丁格式无效。");
+      const patch = clone(derived.patch);
+      const resources = (derived.resources ?? []).map(bytes => Buffer.from(bytes));
+      for (const bytes of resources) await this.blobs.put(bytes);
+      await this.#buildPatch(plan, patch);
     });
   }
+
+  async #buildPatch(plan: Plan, input: Omit<ContentPatchInput, "operationId">): Promise<void> {
+    if (input.bases !== undefined && !Check(ContentPatchInputSchema.properties.bases, input.bases))
+      throw new RepaFault("invalid_input", "补丁正文基准无效。");
+    const bases = new Map<string, WriteBase>();
+    for (const { target, base } of input.bases ?? []) {
+      const record = this.#record(target, plan.before);
+      if (record && record.state !== "active") throw new RepaFault("not_found", "正文基准对应的内容已经移除。");
+      const location = target.kind === "file" ? target.location : record?.location;
+      if (!location) throw new RepaFault("not_found", "正文基准对应的内容不存在。");
+      const absolute = await this.#checkPath(this.#absolute(location), true);
+      this.#assertStructure({ path: absolute, image: absent, ...(record ? { record } : {}) });
+      if (bases.has(absolute)) throw new RepaFault("invalid_input", "同一补丁重复指定文件的正文基准。");
+      bases.set(absolute, base);
+    }
+    await this.#preparePatch(plan, input.patch);
+    for (const [absolute, base] of bases) {
+      const file = plan.files.get(path.relative(this.options.root, absolute));
+      if (!file || sameImage(file.before, file.after))
+        throw new RepaFault("invalid_input", "正文基准只能用于本补丁实际修改的文件。");
+      // 以实际用于准备修改的字节检查基准，避免检查后再次读取另一版正文。
+      this.#checkBase({ path: absolute, image: file.before }, base, true);
+    }
+    const registrations = [];
+    for (const registration of input.registrations ?? []) {
+      const target: ContentTarget = { kind: "file", spaceId: this.options.spaceId,
+        location: { kind: "relative", path: registration.path } };
+      await this.#checkPath(this.#absolute(target.location), true);
+      const observed = await this.#observePlan(target, plan);
+      this.#assertStructure(observed);
+      if (observed.image.kind === "absent") throw new RepaFault("not_found", "新身份的位置没有实际内容。", { path: registration.path });
+      const relative = path.relative(this.options.root, observed.path);
+      if (observed.image.kind === "directory" && relative !== "" && !plan.files.has(relative) && (await this.journal.image(relative)).kind === "absent")
+        await this.#put(plan, observed.path, observed.image, absent);
+      const record = this.#register(plan, observed.path, registration);
+      registrations.push({ record, registration });
+    }
+    // 所有身份先建立，初始组成可以按明确 ID 引用同一次保存中的其他新对象。
+    for (const { record, registration } of registrations) {
+      await this.#prepareComposition(plan, record, registration.members ?? [], registration.resources ?? []);
+    }
+    const composed = new Set<string>();
+    for (const composition of input.compositions ?? []) {
+      if (composed.has(composition.ref.id)) throw new RepaFault("invalid_input", "同一次补丁重复更新内容组成。");
+      composed.add(composition.ref.id);
+      const observed = await this.#observe({ kind: "content", ref: composition.ref }, plan.before);
+      this.#assertStructure(observed);
+      this.#checkBase(observed, composition.base);
+      const record = plan.catalog.items[composition.ref.id]!;
+      if (record.state !== "active") throw new RepaFault("not_found", "被移除的内容不能同时更新组成。");
+      await this.#prepareComposition(plan, record, composition.members, composition.resources);
+    }
+  }
+
   async #observePlan(target: ContentTarget, plan: Plan): Promise<Observed> {
     const observed = await this.#observe(target, plan.catalog);
     const relative = path.relative(this.options.root, observed.path);
@@ -934,6 +1017,14 @@ export class ContentStore {
     return format;
   }
 
+  async #readObserved(target: ContentTarget, maxBytes?: number): Promise<{ content: ContentInfo; bytes?: Buffer }> {
+    // 派生只读查询只携带实际字节与摘要，不保留资源或写入 blob。
+    const observed = await this.#observe(target, this.#catalog, [], maxBytes, false);
+    if (observed.bytes) checkByteLimit(observed.bytes.length, maxBytes);
+    this.#assertStructure(observed);
+    return { content: await this.#info(observed), ...(observed.bytes ? { bytes: observed.bytes } : {}) };
+  }
+
   /** 在同一内容提交边界读取完整字节与关系；回调中的入口不再次入队。 */
   observe<T>(work: (scope: ContentObservation) => Promise<T>): Promise<T> {
     return this.queue.run(() => work({
@@ -942,13 +1033,7 @@ export class ContentStore {
         .filter(record => record.state === "active")
         .map(record => ({ kind: "content", ref: { spaceId: this.options.spaceId, id: record.id } })),
       inspect: (target) => this.#inspect(target),
-      readTarget: async (target, maxBytes) => {
-        // 派生只读查询只携带实际字节与摘要，不保留资源或写入 blob。
-        const observed = await this.#observe(target, this.#catalog, [], maxBytes, false);
-        if (observed.bytes) checkByteLimit(observed.bytes.length, maxBytes);
-        this.#assertStructure(observed);
-        return { content: await this.#info(observed), ...(observed.bytes ? { bytes: observed.bytes } : {}) };
-      },
+      readTarget: (target, maxBytes) => this.#readObserved(target, maxBytes),
       describe: async (ref) => {
         const record = this.#record({ kind: "content", ref }, this.#catalog);
         if (!record) throw new RepaFault("not_found", "内容身份不存在。");

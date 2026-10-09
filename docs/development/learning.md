@@ -74,7 +74,7 @@
 
 例如，替换语境视图时，预览把 `repa.context.preview:<implementationId>` 标为动态来源，等实际运行再调用该能力。静态预览不执行替代插件的工厂或处理函数。具体范围见[Agent 说明](agent-runtime.md#配置与实际来源)。
 
-教学方法和默认包如何接入，见[官方学习组合](official-learning.md)。界面接入的未完成项由[共享能力说明](capabilities.md#未完成项与待验证项)统一记录。
+作答事实、判断与采用通过同一学习插件提供，持久格式和接口见[学习作答与判断](learning-attempts.md)。它们与语境绑定分别持有状态。教学方法和默认包如何接入，见[官方学习组合](official-learning.md)。界面接入的未完成项由[共享能力说明](capabilities.md#未完成项与待验证项)统一记录。
 
 ## 未完成项与待验证项
 

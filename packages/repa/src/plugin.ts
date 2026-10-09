@@ -10,7 +10,7 @@ export type { BundledPluginRegistration } from "./plugins/schema.js";
 export type { BackgroundCodec, PreparedBackground, WorkingMessage } from "./agent/background.js";
 export type { ContentFormat } from "./content/formats.js";
 export type { ReferenceMapping } from "./content/references.js";
-export type { ContentStore } from "./content/store.js";
+export type { ContentStore, ContentPatchScope, DerivedContentPatch } from "./content/store.js";
 export { canonicalJson } from "./content/store.js";
 export { digest } from "./storage/blobs.js";
 export { mapReference } from "./content/references.js";

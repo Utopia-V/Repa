@@ -83,6 +83,18 @@ const patched = await client.call("content.applyPatch", {
 
 Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`read` 在原 Pi 正文或图像块后另附 `Repa content snapshot` 文本，提供实际快照的 `target/bodyRevision`；分页时版本仍覆盖同次观察的整个文件，附加文本不属于文件正文。不可变 `repa:resource/` 读取保持资源结果，不提供可写文件基准。`content_info` 查询身份、结构修订和组成，`content_operation` 提供操作查询与撤回。模型需要根据保存结果继续工作，因此成功回执和保存错误的文本中都提供 `operationId`，而不只放在日志与界面的 `details` 中。这些工具使用当前空间的范围。
 
+### 领域原意与派生补丁
+
+领域能力有时需要根据当前正文生成补丁。例如，保存一次评价时，要给已读取的记录追加候选，并写入首次录入时间。重传同一业务操作时，这些派生值可能已经不同，因此不能每次重新生成补丁，再将它当作普通 `applyPatch` 的同一载荷。
+
+后台插件可使用 `ContentStore.applyDerivedPatch({ operationId, request }, prepare)`。`request` 保存完整业务原意，包括领域方法、版本、目标与所有影响行为的输入；它必须是可完整表示的 JSON 值，不能包含 `Date`、`Map`、非有限数字、显式 `undefined` 或循环引用。核心先固定原意并查询 journal 回执，再仅对尚未执行的操作调用 `prepare`。原意散列同时包含当前空间，因此空间副本中的新修改要使用新的操作标识。
+
+回调接收原意副本与专用只读范围。`scope.read` 读取正文及结构信息，`scope.readResource` 读取本空间的固定资源；这些入口不重新进入内容队列，并在回调退出后失效。回调返回 `{ patch, resources? }`，其中 `patch` 是不含 `operationId` 的原补丁输入，`resources` 是可选的新增字节数组。调用方通过现有 `digest` 计算资源 hash，并在登记或组成中明确写入实际需要长期保留的资源。
+
+核心在同一内容队列内保存返回字节、准备文件与清单，再执行 journal 提交。这样，资源回收不会插入字节写入与文档登记之间；失败后没有长期引用的字节则可按既有规则回收。回调应当只做短的本地读取、领域校验和序列化，模型调用、网络请求及大规模转换在进入这一入口前完成，也不能从回调等待会重新入队的公共内容方法。
+
+派生读取本身不是只读条件。依赖调用方所见正文的修改仍需提交 `bases`，组成仍使用结构基准，外部编辑器的变化继续由正文检查和 journal 处理。普通公开 `content.applyPatch` 保持原完整载荷散列，不向 RPC 或模型开放原意覆盖参数。
+
 ### 移动、复制与收集
 
 `content.move` 保持已有内容身份，`content.copy` 为实际复制的已登记内容分配新身份。操作接受 `target`、结构版本 `base`、相对 `destination` 和 `operationId`。它们递归处理目录和明确的组成成员，并在同一次内容提交中保存文件与引用关系；普通链接不增加复制范围。未登记的普通文件仍可保持为普通文件。
@@ -144,7 +156,7 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`r
 
 ## 未完成项与待验证项
 
-通用内容入口已提供正文、身份与组成的组合保存。具体领域仍需解释哪些记录有效、哪些判断正在采用，以及复制时应重映射哪些业务引用；学习事实与判断的接入由 [#38](https://github.com/Utopia-V/repa/issues/38) 接续。
+通用内容入口已提供正文、身份与组成的组合保存。具体领域解释哪些记录有效、哪些判断正在采用，以及复制时怎样解释业务引用；已接入的学习领域入口见[学习作答与判断](learning-attempts.md)。
 
 官方展示宿主与生产隔离的前后端接入状态见[展示说明](display.md#未完成项与待验证项)。内容树的符号链接移动／复制当前明确拒绝，原生文件系统访问者的跨文件原子可见性也不属于 journal 的保证。
 
@@ -156,6 +168,8 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`r
 npm run check --workspace=repa
 npm test --workspace=repa
 ```
+
+[content-derived-patch.test.ts](../../packages/repa/test/content-derived-patch.test.ts) 核对业务原意重传、并发、无损 JSON 边界、只读范围失效、资源登记与实际 journal 回滚。
 
 [content-patch-bases.test.ts](../../packages/repa/test/content-patch-bases.test.ts) 核对旧正文基准、同次资源登记、竞争提交、移动源与目的、路径别名、无效只读条件、外部文件变化、回滚、重开、撤回与旧载荷重传。[content-api.test.ts](../../packages/repa/test/content-api.test.ts) 和 [capability-api.test.ts](../../packages/repa/test/capability-api.test.ts) 分别覆盖实际 RPC 与插件调用；[pi-patch-bases-integration.test.ts](../../packages/repa/test/pi-patch-bases-integration.test.ts) 通过真实 SDK 与本地 provider 核对模型从读取文本取得基准后提交补丁的路径。
 

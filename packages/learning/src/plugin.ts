@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Type } from "typebox";
 import { operationError, type BackendPlugin, type CapabilityDefinition, type InvocationContext } from "repa/plugin";
 import { ContentChangeResultSchema, IdSchema, literals, object, RevisionSchema, RepaFault } from "repa/protocol";
+import { attemptCapabilities } from "./attempt-capabilities.js";
 import { LearningContext } from "./context.js";
 import { ContextBindingSchema, ContextStateSchema, ContextViewSchema } from "./schema.js";
 
@@ -66,6 +67,7 @@ export function createLearningPlugin(): BackendPlugin {
   };
   return {
     capabilities: [
+      ...attemptCapabilities(),
       {
         contract: { id: "repa.context.get", version: "1" }, implementationId: "official",
         inputSchema: GET_LEARNING_CONTEXT_TOOL.parameters, outputSchema: ContextStateSchema, scopes: ["space"], execution: "query",
