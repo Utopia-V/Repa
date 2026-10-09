@@ -6,6 +6,7 @@ import { prepareInput } from "../requests/input.js";
 import type { Input, ProcessingResult } from "../requests/schema.js";
 import type { BoundModelFallback, ModelAttempt, ModelBinding } from "./schema.js";
 import type { ModelConnections } from "./service.js";
+import type { ModelOutputConstraint } from "./output.js";
 
 export interface ModelCallOptions {
   binding: ModelBinding;
@@ -18,6 +19,7 @@ export interface ModelCallOptions {
   thinkingLevel: ModelThinkingLevel;
   retry: RetryPolicy;
   maxTokens?: number;
+  output?: ModelOutputConstraint;
   signal: AbortSignal;
   onCancel?(): void;
   onAttempt?(attempt: ModelAttempt): void | Promise<void>;
@@ -70,7 +72,7 @@ export class ModelCalls {
     const prepared = await prepareInput(options.input, options.content, options.requestId, options.resourceOwner);
     options.signal.throwIfAborted();
     const context = {
-      systemPrompt: options.system,
+      systemPrompt: options.output ? [options.system, options.output.instruction].filter(Boolean).join("\n\n") : options.system,
       messages: [{ role: "user" as const, content: [{ type: "text" as const, text: prepared.text }, ...prepared.images], timestamp: Date.now() }],
     };
     const attempts: ModelAttempt[] = [];
@@ -114,16 +116,35 @@ export class ModelCalls {
         throw error;
       }
       const failed = message.stopReason === "error" || message.stopReason === "aborted";
+      let output: unknown;
+      let outputError: RepaFault | undefined;
+      if (!failed && options.output) {
+        try { output = options.output.read(message); } catch (error) {
+          if (!(error instanceof RepaFault)) throw error;
+          outputError = error;
+        }
+      }
       attempt.status = message.stopReason === "aborted" ? "cancelled" : failed ? "failed" : "completed";
       attempt.finishedAt = Date.now();
       if (failed) attempt.error = { code: "provider", message: message.errorMessage ?? "独立模型调用未完成。" };
+      if (outputError) {
+        attempt.status = "failed";
+        attempt.error = { code: outputError.code, message: outputError.message };
+      }
       attempts.push(structuredClone(attempt));
       await options.onAttempt?.(structuredClone(attempt));
-      if (!failed) return {
-        format: { id: "repa.model-response", version: "1" },
-        value: { kind: "inline", data: { message, input: prepared.text, binding: structuredClone(binding), attempts } },
-        sources: prepared.sources, resources: prepared.resources,
-      };
+      if (!failed) {
+        const result: ProcessingResult = {
+          format: { id: "repa.model-response", version: "1" },
+          value: { kind: "inline", data: { message, input: prepared.text, binding: structuredClone(binding), attempts,
+            ...(options.output ? { outputFormat: structuredClone(options.output.specification) } : {}),
+            ...(options.output && !outputError ? { output } : {}),
+          } },
+          sources: prepared.sources, resources: prepared.resources,
+        };
+        if (outputError) throw new RepaFault(outputError.code, outputError.message, result);
+        return result;
+      }
       // 只在同身份 SDK 重试结束后切换明确候选；准备、认证、取消和未知异常不触发回退。
       const next = options.fallback?.models[index];
       if (!retryable || options.fallback?.on !== "transient_error" || !next)

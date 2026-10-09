@@ -56,6 +56,11 @@ export const ModelFallbackSchema = object({
 });
 export type ModelFallback = Static<typeof ModelFallbackSchema>;
 export const ThinkingLevelSchema = literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+export const ModelOutputSchema = object({
+  kind: Type.Literal("json"),
+  schema: Type.Record(Type.String(), Type.Unknown()),
+});
+export type ModelOutput = Static<typeof ModelOutputSchema>;
 export const ModelCompleteOptionsSchema = object({
   input: InputSchema,
   model: ModelSelectionSchema,
@@ -63,6 +68,7 @@ export const ModelCompleteOptionsSchema = object({
   thinkingLevel: Type.Optional(ThinkingLevelSchema),
   maxTokens: Type.Optional(Type.Integer({ minimum: 1 })),
   fallback: Type.Optional(ModelFallbackSchema),
+  output: Type.Optional(ModelOutputSchema),
 });
 export type ModelCompleteOptions = Static<typeof ModelCompleteOptionsSchema>;
 export const BoundModelFallbackSchema = object({

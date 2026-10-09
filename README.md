@@ -10,7 +10,7 @@ Repa 是一个独立、本地优先的通用 Agent 底座，连接有限的模�
 
 当前代码提供本机后端、公开应用协议、无 UI 客户端、TUI，以及 Web／Desktop 工作台骨架。后端已经接通会话、持久请求、内容操作、模型连接、插件能力与空间快照。各模块怎样调用和验证，见[开发指南](docs/development/README.md)。
 
-完整学习闭环尚未实现。当前默认组合中的文档学习语境、教学 Skill 和 FSRS 复习项属于早期原型；它们能保存和接续材料与记录，但不是已确定的学生模型、知识传播或任务选择算法。下一步需要修正领域装配与状态归属，同时为学习闭环建立可检验的算法依据，研究范围见[学习闭环与研究问题](docs/research/learning-loop.md)。
+完整学习闭环尚未实现。当前默认组合中的文档学习语境、教学 Skill 和 FSRS 复习项属于早期原型；它们能保存和接续材料与记录，但不是已确定的学生模型、知识传播或任务选择算法。领域装配与文档语境已归入学习产品包，下一步需要为学习闭环建立可检验的算法依据及相应的领域程序入口，研究范围见[学习闭环与研究问题](docs/research/learning-loop.md)。
 
 | 层次 | 责任与当前入口 |
 | --- | --- |
@@ -183,6 +183,7 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 | `run.get`、`run.cancel` | 按运行标识查询状态和请求取消。 |
 | `queue.list`、`queue.cancel`、`queue.resume` | 查询队列，取消尚未开始的项，明确恢复暂停的处理。 |
 | `request.cancel` | 取消独立后台处理，等待实际收尾。 |
+| `model.complete` | 调用明确模型处理独立输入；可选择经过本地 JSON/schema 验收的结构化输出，保存实际回复、用量及失败证据。 |
 | `content.*`、`operation.*` | 读取和保存文件，维护身份与组成，查询、撤回及核对恢复结果；具体方法见[内容接口](docs/development/content.md)。 |
 | `content.relations` | 查询 Markdown 引用与明确组成，取得来源修订、目标位置和可用状态；见[内容关系查询](docs/development/content-relations.md)。 |
 | `capability.describe`、`capability.invoke` | 取得契约与入口问题，调用明确作用域和实现；按声明直接查询或持久受理，Agent 工具复用相同处理。 |

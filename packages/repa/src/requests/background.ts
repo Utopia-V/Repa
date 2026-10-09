@@ -76,11 +76,18 @@ export class BackgroundRequests {
     this.options.changed(request);
   }
 
-  #retain(requestId: string, resources: readonly ResourceRef[]): void {
+  #retain(requestId: string, resources: readonly ResourceRef[], additional = false): void {
     const content = this.options.content;
     if (resources.length && !content)
       throw new RepaFault("space_required", "持有空间资源的后台处理需要明确的所属空间和内容入口。");
-    content?.retention.retain(`processing:${requestId}`, resources);
+    if (additional) content?.retention.retainAdditional(`processing:${requestId}`, resources);
+    else content?.retention.retain(`processing:${requestId}`, resources);
+  }
+
+  #retainResult(request: BackgroundRequest, result: ProcessingResult, additional = false): void {
+    if (!Check(RepresentationSchema, result)) throw new RepaFault("invalid_result", "后台处理结果不符合表示契约。");
+    this.#retain(request.requestId, [...inputResources(request.input), ...result.resources,
+      ...(result.value.kind === "resource" ? [result.value.resource] : [])], additional);
   }
 
   submit(params: { requestId: string; operation: string; input: Input; options?: unknown; configuration?: unknown }, execute: (input: Input, context: ProcessingContext) => Promise<ProcessingResult>): BackgroundRequest {
@@ -114,14 +121,22 @@ export class BackgroundRequests {
           ask: (dialog, options) => this.options.ask(request.requestId, controller.signal, dialog, options),
           progress: message => this.#save({ ...this.get(request.requestId), progress: message }),
         });
-        if (!Check(RepresentationSchema, result)) throw new RepaFault("invalid_result", "后台处理结果不符合表示契约。");
-        const resources = [...inputResources(request.input), ...result.resources,
-          ...(result.value.kind === "resource" ? [result.value.resource] : [])];
-        this.#retain(request.requestId, resources);
+        this.#retainResult(request, result);
         this.#save({ ...this.get(request.requestId), status: controller.signal.aborted ? "cancelled" : "completed", result, finishedAt: Date.now() });
       } catch (error) {
+        let failure = error;
+        let result: ProcessingResult | undefined;
+        if (error instanceof RepaFault && Check(RepresentationSchema, error.details)) {
+          try {
+            this.#retainResult(request, error.details, true);
+            result = error.details;
+          } catch (retentionError) {
+            failure = retentionError;
+          }
+        }
         this.#save({ ...this.get(request.requestId), status: controller.signal.aborted ? "cancelled" : "failed", finishedAt: Date.now(),
-          error: { code: error instanceof RepaFault ? error.code : "processing", message: error instanceof Error ? error.message : String(error) } });
+          ...(result ? { result } : {}),
+          error: { code: failure instanceof RepaFault ? failure.code : "processing", message: failure instanceof Error ? failure.message : String(failure) } });
       } finally {
         if (this.get(request.requestId).status === "cancelling")
           this.#save({ ...this.get(request.requestId), status: "cancelled", finishedAt: Date.now() });

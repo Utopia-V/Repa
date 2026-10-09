@@ -71,7 +71,7 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 | 查询正文引用与明确组成关系 | [内容关系查询](content-relations.md)：CommonMark 提取、来源修订、当前目标与可用状态 |
 | 打开交互产物并绑定页面动作 | [展示实例与桥接](display.md)：固定表示、资源持有、MCP Apps、结果保存和向会话提交 |
 | 构建与安装桌面应用 | [Linux 应用交付](distribution.md)：Electron 运行时、生产依赖装配、原生组件、系统权限与验证 |
-| 执行命令、处理授权与子进程 | [命令执行与授权](execution.md)：Pi Bash SDK、程序化能力调用、独立 helper、实际请求归属、输出与退出 |
+| 执行命令、处理授权与子进程 | [命令执行与授权](execution.md)：Pi Bash SDK、独立 helper、实际请求归属、输出与退出 |
 | 搜索内容、历史或取得材料表示 | [搜索与材料](search-materials.md)：rg 预筛、冻结历史、结果分页、本地提取、URL 原件和 Wikipedia 搜索 |
 | 接入复习、实际反馈和参数优化 | [复习插件](review.md)：FSRS、SQLite、追加更正、候选参数及公开操作与通知 |
 | 创建或调整学习计划 | [规划能力](planning.md)：可替换方法、实际时钟、日期与时间约束检查，正文沿用内容工具 |
@@ -83,7 +83,7 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 | 管理媒体、版本保留、会话删除和回收 | [资源持有与清理](resources.md)：实际消费者、展示宿主、准备期、重连与历史清理 |
 | 备份、恢复或复制整个空间 | [空间快照](spaces.md)：目录发布、格式 owner、插件数据参与与中断结果 |
 | 修改模型实际得到的输入、工具或提示来源 | [Agent 接入](agent-runtime.md)：Pi 运行边界、可控来源、实际读取基准及压缩后的工作视图 |
-| 管理模型连接、认证与持久配置 | [模型连接与运行配置](models-configuration.md)：具名身份、Pi 认证、逐项继承、运行绑定与静态预览 |
+| 管理模型连接、认证与持久配置 | [模型连接与运行配置](models-configuration.md)：具名身份、Pi 认证、逐项继承、运行绑定、结构化独立调用与静态预览 |
 | 修改会话历史或运行记录 | [pi-sessions.ts](../../packages/repa/src/pi-sessions.ts) 适配 Pi 会话树；[runtime-store.ts](../../packages/repa/src/runtime-store.ts) 与 [run-journal.ts](../../packages/repa/src/run-journal.ts) 持有空间锁和请求事实 |
 
 `packages/repa/src/storage/` 只提供原子替换、串行队列、受管理目录和不可变字节存储。内容身份、恢复判定、配置继承和 Agent 行为留在各自模块，不能从通用文件辅助函数推导产品语义。

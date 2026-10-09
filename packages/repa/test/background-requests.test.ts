@@ -261,3 +261,55 @@ test("应用后台请求不能隐式持有空间资源，输入拒绝和结果�
   assert.equal(failed.result, undefined);
   assert(!existsSync(path.join(f.root, "application", ".repa")));
 });
+
+test("失败标准结果与已取得的中间资源沿原父请求保留，重开不改写原始结果", async t => {
+  const f = await fixture(t);
+  let now = Date.now();
+  const content = await f.space(() => now);
+  const directory = path.join(content.options.root, ".repa", "runtime", "processing");
+  const processing = f.open({ directory, spaceId: "space", content });
+  const intermediate = await content.upload(Buffer.from("此前处理取得的原始材料"), "text/plain", "uploader");
+  const evidence = await content.upload(Buffer.from("无法通过校验的原始结果\n"), "text/plain", "uploader");
+  const requestId = randomUUID();
+  const result: ProcessingResult = { ...inline(null), value: { kind: "resource", resource: evidence.resource } };
+  const accepted = processing.submit({ requestId, operation: "example.invalid-output", input }, async () => {
+    content.retention.retainAdditional(`processing:${requestId}`, [intermediate.resource]);
+    throw new RepaFault("invalid_model_output", "结果无法通过校验。", result);
+  });
+  await processing.settled(requestId);
+  const failed = processing.get(accepted.requestId);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error?.code, "invalid_model_output");
+  assert.deepEqual(failed.result, result);
+  const file = path.join(directory, `${requestId}.json`);
+  const bytes = await readFile(file);
+  assert.deepEqual(f.open({ directory, spaceId: "space", content }).get(requestId), failed);
+  assert.deepEqual(await readFile(file), bytes);
+  now += 100;
+  content.retention.releaseHost("uploader");
+  await content.collectResources();
+  assert.equal((await content.blobs.get(intermediate.resource.id)).toString(), "此前处理取得的原始材料");
+  assert.equal((await content.blobs.get(evidence.resource.id)).toString(), "无法通过校验的原始结果\n");
+  content.retention.releaseOwner(`processing:${requestId}`);
+  await content.collectResources();
+  await assert.rejects(content.blobs.get(intermediate.resource.id));
+  await assert.rejects(content.blobs.get(evidence.resource.id));
+});
+
+test("失败结果仍核对资源作用域，保留失败错误而不遗留运行状态", async t => {
+  const f = await fixture(t);
+  const content = await f.space();
+  const resource = await content.upload(Buffer.from("空间证据"), "text/plain", "uploader");
+  const processing = f.open();
+  const accepted = processing.submit({ requestId: randomUUID(), operation: "example.bad-failure", input }, async () => {
+    throw new RepaFault("invalid_model_output", "结果无法通过校验。", {
+      ...inline(null), value: { kind: "resource", resource: resource.resource },
+    });
+  });
+  await processing.settled(accepted.requestId);
+  const failed = processing.get(accepted.requestId);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error?.code, "space_required");
+  assert.equal(failed.result, undefined);
+  assert.equal(processing.active, false);
+});

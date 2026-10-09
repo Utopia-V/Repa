@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -13,9 +13,10 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RepaCapabilityServices } from "../src/capabilities/services.js";
 import type { CapabilityDefinition } from "../src/capabilities/types.js";
 import { RepaClient } from "../src/client.js";
-import { ModelBindingSchema, ModelFallbackSchema, ModelSelectionSchema, type ModelFallback, type ModelCompleteOptions } from "../src/models/schema.js";
+import { ModelAttemptSchema, ModelBindingSchema, ModelFallbackSchema, ModelSelectionSchema, ModelOutputSchema, type ModelFallback, type ModelCompleteOptions } from "../src/models/schema.js";
+import type { ResourceRef } from "../src/content/schema.js";
 import { inputResources } from "../src/requests/input.js";
-import { InputSchema, RepresentationSchema, type BackgroundRequest, type Input } from "../src/requests/schema.js";
+import { InputSchema, RepresentationSchema, type BackgroundRequest, type Input, type ProcessingResult } from "../src/requests/schema.js";
 import { object } from "../src/schema.js";
 import { startRepaServer, type RepaServer } from "../src/server.js";
 
@@ -26,8 +27,12 @@ const ProviderInputSchema = Type.Object({
   max_tokens: Type.Optional(Type.Number()), max_completion_tokens: Type.Optional(Type.Number()),
 });
 const ModelDataSchema = Type.Object({
-  binding: ModelBindingSchema, input: Type.String(),
-  message: Type.Object({ content: Type.Array(Type.Unknown()), usage: Type.Object({
+  binding: ModelBindingSchema,
+  input: Type.String(),
+  attempts: Type.Array(ModelAttemptSchema),
+  output: Type.Optional(Type.Unknown()),
+  outputFormat: Type.Optional(ModelOutputSchema),
+  message: Type.Object({ stopReason: Type.String(), content: Type.Array(Type.Unknown()), usage: Type.Object({
     input: Type.Number(), output: Type.Number(), totalTokens: Type.Number(),
   }) }),
 });
@@ -48,11 +53,21 @@ async function until<T>(read: () => T | Promise<T>, ready: (value: T) => boolean
   }
 }
 
-async function fixture(t: TestContext, options: { block?: boolean; failPrimary?: boolean; failFallback?: boolean; agent?: boolean; configureComplete?(options: ModelCompleteOptions): void } = {}) {
+async function fixture(t: TestContext, options: {
+  block?: boolean;
+  failPrimary?: boolean;
+  failFallback?: boolean;
+  agent?: boolean;
+  responseText?: string;
+  finish?: string;
+  intermediateResource?: boolean;
+  configureComplete?(options: ModelCompleteOptions): void;
+} = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-capability-models-"));
   const agentDir = path.join(root, "agent");
   const directory = path.join(root, "space");
   const requests: Captured[] = [];
+  const intermediateResources: ResourceRef[] = [];
   const providerErrors: unknown[] = [];
   const invocations: { source: string; aborted: boolean; finished: boolean }[] = [];
   let server: RepaServer | undefined;
@@ -81,8 +96,8 @@ async function fixture(t: TestContext, options: { block?: boolean; failPrimary?:
       });
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end([
-        `data: ${JSON.stringify(chunk("能力子处理结果", null))}`,
-        `data: ${JSON.stringify({ ...chunk("", "stop"), usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } })}`,
+        `data: ${JSON.stringify(chunk(options.responseText ?? "能力子处理结果", null))}`,
+        `data: ${JSON.stringify({ ...chunk("", options.finish ?? "stop"), usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } })}`,
         "data: [DONE]", "",
       ].join("\n\n"));
     })().catch((error: unknown) => {
@@ -122,6 +137,10 @@ async function fixture(t: TestContext, options: { block?: boolean; failPrimary?:
       const observed = { source: context.source.kind, aborted: false, finished: false };
       invocations.push(observed);
       try {
+        if (options.intermediateResource) {
+          assert(context.services.resources);
+          intermediateResources.push(await context.services.resources.create(Buffer.from("模型调用前的中间材料"), "text/plain"));
+        }
         const completeOptions: ModelCompleteOptions = {
           model: input.model, input: input.input, fallback: input.fallback, system: "只处理能力提交的明确输入。", thinkingLevel: "off", maxTokens: 32,
         };
@@ -183,7 +202,7 @@ async function fixture(t: TestContext, options: { block?: boolean; failPrimary?:
     otherClients.push(other);
     return other;
   };
-  return { directory, space, connection, model, faux, requests, invocations, invoke, finished, reopen, uploader,
+  return { root, directory, space, connection, model, faux, requests, intermediateResources, invocations, invoke, finished, reopen, uploader,
     get client() { assert(client); return client; } };
 }
 
@@ -195,11 +214,15 @@ function modelResult(request: BackgroundRequest) {
   if (request.result.value.kind !== "inline") assert.fail("父结果应保留能力返回的表示");
   assert(Check(RepresentationSchema, request.result.value.data));
   const nested = request.result.value.data;
-  assert.deepEqual(nested.format, { id: "repa.model-response", version: "1" });
-  assert.equal(nested.value.kind, "inline");
-  if (nested.value.kind !== "inline") assert.fail("模型结果应为内联表示");
-  assert(Check(ModelDataSchema, nested.value.data));
-  return { outer: request.result, nested, data: nested.value.data };
+  return { outer: request.result, nested, data: responseData(nested) };
+}
+
+function responseData(result: ProcessingResult) {
+  assert.deepEqual(result.format, { id: "repa.model-response", version: "1" });
+  assert.equal(result.value.kind, "inline");
+  if (result.value.kind !== "inline") assert.fail("模型结果应为内联表示");
+  assert(Check(ModelDataSchema, result.value.data));
+  return result.value.data;
 }
 
 async function onlyParents(directory: string, ids: string[]) {
@@ -376,4 +399,169 @@ test("Agent 能力的窄模型最终失败保留父输入的尝试事实，不�
   await onlyParents(f.directory, []);
   await f.reopen();
   assert.deepEqual(await f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId }), completed);
+});
+
+test("插件 JSON 服务成功与失败均留在父请求，原回复和资源持久保留且无输出修补或额外回退", async (t) => {
+  const schema = { type: "object", properties: { count: { type: "integer" } }, required: ["count"], additionalProperties: false };
+  for (const example of [
+    { text: ' { "count": 3 }\n', status: "completed" },
+    { text: ' { "count": "3" } \n', status: "failed" },
+  ]) {
+    const f = await fixture(t, { responseText: example.text, intermediateResource: example.status === "failed", configureComplete: options => { options.output = { kind: "json", schema }; } });
+    const uploader = await f.uploader();
+    const target = { kind: "file" as const, spaceId: f.space.id, location: { kind: "relative" as const, path: "source.txt" } };
+    await f.client.call("content.write", { target, operationId: randomUUID(), base: { kind: "absent" }, value: { kind: "text", text: "能力 JSON 的原文\n" } });
+    const source = await uploader.call("content.read", { target });
+    assert(source.resource && source.content.bodyRevision);
+    const bytes = Buffer.from("能力 JSON 附件");
+    const { resource } = await uploader.uploadResource(f.space.id, bytes, "application/octet-stream");
+    const alternate = await f.client.call("connection.create", {
+      name: "不用于修补 JSON 的备用连接", provider: "openai", authMode: "none",
+      baseUrl: f.connection.baseUrl?.replace("/v1", "/fallback/v1"), models: f.connection.models,
+    });
+    const input: Input = { parts: [{ kind: "reference", target }, { kind: "resource", resource }] };
+    const fallback: ModelFallback = { on: "transient_error", models: [{ connectionId: alternate.id, id: f.model.id }] };
+    const accepted = await f.invoke(input, fallback);
+    const completed = await f.finished(accepted);
+    assert.equal(completed.status, example.status, JSON.stringify(completed));
+    assert(completed.result);
+    const representation = example.status === "completed" ? modelResult(completed).nested : completed.result;
+    const data = responseData(representation);
+    assert.deepEqual(data.outputFormat, { kind: "json", schema });
+    assert.equal(data.message.stopReason, "stop");
+    assert.equal(data.message.content.map(part => part && typeof part === "object" && "text" in part ? part.text : "").join(""), example.text);
+    assert.deepEqual({ input: data.message.usage.input, output: data.message.usage.output, totalTokens: data.message.usage.totalTokens },
+      { input: 3, output: 2, totalTokens: 5 });
+    assert.deepEqual(data.attempts, completed.modelAttempts);
+    assert.equal(data.attempts[0]?.status, example.status);
+    assert.equal(data.attempts[0]?.usage?.totalTokens, 5);
+    if (example.status === "completed") assert.deepEqual(data.output, { count: 3 });
+    else {
+      assert.equal(completed.error?.code, "invalid_model_output");
+      assert.equal(data.attempts[0]?.error?.code, "invalid_model_output");
+      assert.equal(Object.hasOwn(data, "output"), false);
+    }
+    assert.deepEqual(representation.sources, [{ target, revision: source.content.bodyRevision }]);
+    assert.deepEqual(representation.resources, [resource, source.resource]);
+    assert.equal(f.requests.length, 1, "JSON 验收失败不切换候选，也不发起修补调用");
+    await onlyParents(f.directory, [accepted.requestId]);
+    await uploader.close();
+    await f.client.call("resource.collect", { spaceId: f.space.id });
+    assert.deepEqual(Buffer.from(await (await f.client.resource(resource)).arrayBuffer()), bytes);
+    if (example.status === "failed") {
+      const intermediate = f.intermediateResources[0];
+      assert(intermediate);
+      assert.equal(await (await f.client.resource(intermediate)).text(), "模型调用前的中间材料", "失败结果保留资源时不覆盖父 owner 已持有的中间材料");
+    }
+    const repeated = await f.client.call("capability.invoke", {
+      scope: { kind: "space", spaceId: f.space.id }, requestId: accepted.requestId, contract, input: { model: f.model, input, fallback },
+    });
+    assert(repeated.kind === "background");
+    assert.deepEqual(repeated.request, completed);
+    await f.reopen();
+    assert.deepEqual(await f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId }), completed);
+    const destination = path.join(f.root, "copied-space");
+    assert.equal((await f.client.call("space.copy", { spaceId: f.space.id, operationId: randomUUID(), destination })).status, "completed");
+    const copied = await f.client.call("space.open", { path: destination });
+    const request = await f.client.call("request.get", { spaceId: copied.id, requestId: accepted.requestId });
+    assert("operation" in request && request.result);
+    const saved = example.status === "completed" ? modelResult(request).nested : request.result;
+    assert.deepEqual(responseData(saved), data);
+    assert.deepEqual(saved.sources, [{ target: { ...target, spaceId: copied.id }, revision: source.content.bodyRevision }]);
+    assert.deepEqual(saved.resources, [resource, source.resource].map(ref => ({ ...ref, spaceId: copied.id })));
+    await f.client.call("resource.collect", { spaceId: copied.id });
+    for (const ref of saved.resources) assert.equal((await f.client.resource(ref)).ok, true);
+    assert.equal(f.requests.length, 1);
+  }
+});
+
+test("插件 JSON schema 在不存在模型和资源准备前失败，父请求只记录输入错误", async (t) => {
+  const f = await fixture(t, { configureComplete: options => {
+    options.model = { connectionId: "missing", id: "missing" };
+    options.output = { kind: "json", schema: { type: "object", unexpectedKeyword: true } };
+  } });
+  const accepted = await f.invoke({ parts: [{ kind: "reference", target: {
+    kind: "file", spaceId: f.space.id, location: { kind: "relative", path: "missing.txt" },
+  } }] });
+  const failed = await f.finished(accepted);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error?.code, "invalid_output_schema");
+  assert.deepEqual(failed.modelAttempts ?? [], []);
+  assert.equal(failed.result, undefined);
+  assert.equal(f.requests.length, 0);
+});
+
+test("Agent 的 JSON 子调用失败保存真实 Pi 工具 details、原回复与资源，重开复制不重发请求", async (t) => {
+  const schema = { type: "object", properties: { count: { type: "integer" } }, required: ["count"], additionalProperties: false };
+  const rawReply = ' { "count": "3" } \n';
+  const f = await fixture(t, { agent: true, responseText: rawReply, configureComplete: options => { options.output = { kind: "json", schema }; } });
+  assert(f.faux);
+  const uploader = await f.uploader();
+  const target = { kind: "file" as const, spaceId: f.space.id, location: { kind: "relative" as const, path: "source.txt" } };
+  await f.client.call("content.write", { target, operationId: randomUUID(), base: { kind: "absent" }, value: { kind: "text", text: "Agent JSON 引用原文\n" } });
+  const source = await uploader.call("content.read", { target });
+  assert(source.resource && source.content.bodyRevision);
+  const bytes = Buffer.from("Agent 子调用输入附件");
+  const { resource } = await uploader.uploadResource(f.space.id, bytes, "application/octet-stream");
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("fixture_models_process", {
+      model: f.model, input: { parts: [{ kind: "reference", target }, { kind: "resource", resource }] },
+    })),
+    context => {
+      const message = context.messages.findLast(item => item.role === "toolResult");
+      assert(message?.role === "toolResult" && message.isError);
+      assert(Check(RepresentationSchema, message.details));
+      const data = responseData(message.details);
+      assert.equal(data.attempts[0]?.error?.code, "invalid_model_output");
+      assert.equal(Object.hasOwn(data, "output"), false);
+      assert.deepEqual(message.details.resources, [resource, source.resource]);
+      return fauxAssistantMessage("子调用的 JSON 不符合要求，保留原回复。");
+    },
+  ]);
+  const session = await f.client.call("session.create", { spaceId: f.space.id });
+  const key = { spaceId: f.space.id, sessionId: session.sessionId };
+  const accepted = await f.client.call("session.submit", {
+    target: key, requestId: randomUUID(), input: { parts: [{ kind: "text", text: "调用子模型取得 JSON" }] }, dispatch: { kind: "start" },
+  });
+  const completed = await until(() => f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId }),
+    value => ["completed", "failed", "cancelled", "interrupted"].includes(value.status));
+  assert.equal(completed.status, "completed", JSON.stringify(completed));
+  assert.equal(completed.modelAttempts?.[0]?.status, "failed");
+  assert.equal(completed.modelAttempts?.[0]?.usage?.totalTokens, 5);
+  const history = await f.client.call("session.history", key);
+  const tool = history.messages.find(message => message.role === "tool" && message.name === "fixture_models_process");
+  assert(tool?.error);
+  assert(Check(RepresentationSchema, tool.details));
+  const data = responseData(tool.details);
+  assert.deepEqual(data.outputFormat, { kind: "json", schema });
+  assert.equal(data.message.stopReason, "stop");
+  assert.deepEqual(data.attempts, completed.modelAttempts);
+  assert.equal(data.message.content.map(part => part && typeof part === "object" && "text" in part ? part.text : "").join(""), rawReply);
+  assert.deepEqual(tool.details.sources, [{ target, revision: source.content.bodyRevision }]);
+  assert.deepEqual(tool.details.resources, [resource, source.resource]);
+  const RetentionSchema = object({ version: Type.Literal(1), owners: Type.Record(Type.String(), Type.Array(Type.String())), leases: Type.Unknown() });
+  const retention: unknown = JSON.parse(await readFile(path.join(f.directory, ".repa/content/resources.json"), "utf8"));
+  assert(Check(RetentionSchema, retention));
+  assert(retention.owners[`session:${session.sessionId}`]?.includes(resource.id));
+  assert(retention.owners[`session:${session.sessionId}`]?.includes(source.resource.id));
+  await onlyParents(f.directory, []);
+  await uploader.close();
+  await f.client.call("resource.collect", { spaceId: f.space.id });
+  assert.deepEqual(Buffer.from(await (await f.client.resource(resource)).arrayBuffer()), bytes);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.faux.state.callCount, 2);
+  await f.reopen();
+  assert.deepEqual(await f.client.call("session.history", key), history);
+  const destination = path.join(f.root, "copied-space");
+  assert.equal((await f.client.call("space.copy", { spaceId: f.space.id, operationId: randomUUID(), destination })).status, "completed");
+  const copied = await f.client.call("space.open", { path: destination });
+  const saved = await f.client.call("session.history", { spaceId: copied.id, sessionId: session.sessionId });
+  const savedTool = saved.messages.find(message => message.id === tool.id);
+  assert(Check(RepresentationSchema, savedTool?.details));
+  assert.deepEqual(responseData(savedTool.details), data);
+  assert.deepEqual(savedTool.details.sources, [{ target: { ...target, spaceId: copied.id }, revision: source.content.bodyRevision }]);
+  assert.deepEqual(savedTool.details.resources, [resource, source.resource].map(ref => ({ ...ref, spaceId: copied.id })));
+  await f.client.call("resource.collect", { spaceId: copied.id });
+  for (const ref of savedTool.details.resources) assert.equal((await f.client.resource(ref)).ok, true);
+  assert.equal(f.requests.length, 1);
 });

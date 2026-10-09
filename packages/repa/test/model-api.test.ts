@@ -11,7 +11,7 @@ import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { RepaClient, RpcError } from "../src/client.js";
 import type { DiagnosticOptions, DiagnosticRecord } from "../src/diagnostics.js";
-import { AuthQuerySchema, BoundModelFallbackSchema, ModelAttemptSchema, ModelBindingSchema, type ConnectionInput, type ConnectionModel, type ModelConnection } from "../src/models/schema.js";
+import { AuthQuerySchema, BoundModelFallbackSchema, ModelAttemptSchema, ModelBindingSchema, ModelOutputSchema, type ConnectionInput, type ConnectionModel, type ModelConnection } from "../src/models/schema.js";
 import { ModelConnections } from "../src/models/service.js";
 import type { BackgroundRequest, Params, RequestRecord, SessionKey, SettingScope, Submit } from "../src/protocol.js";
 import { startRepaServer, type RepaServer } from "../src/server.js";
@@ -44,12 +44,15 @@ const CompletionConfigurationSchema = Type.Object({
   thinkingLevel: Type.String(),
   maxTokens: Type.Optional(Type.Number()),
   fallback: Type.Optional(BoundModelFallbackSchema),
+  output: Type.Optional(ModelOutputSchema),
 });
 
 const ModelResponseSchema = Type.Object({
   binding: ModelBindingSchema,
   attempts: Type.Array(ModelAttemptSchema),
   input: Type.String(),
+  output: Type.Optional(Type.Unknown()),
+  outputFormat: Type.Optional(ModelOutputSchema),
   message: Type.Object({
     role: Type.Literal("assistant"),
     content: Type.Array(Type.Unknown()),
@@ -88,7 +91,12 @@ async function until<T>(read: () => T | Promise<T>, ready: (value: T) => boolean
   }
 }
 
-async function fixture(t: TestContext, options: { observeExtension?: boolean; diagnostics?: DiagnosticOptions } = {}) {
+async function fixture(t: TestContext, options: {
+  observeExtension?: boolean;
+  diagnostics?: DiagnosticOptions;
+  responseText?: string;
+  finish?: string;
+} = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-model-api-"));
   const agentDir = path.join(root, "agent");
   const directory = path.join(root, "space");
@@ -145,8 +153,8 @@ async function fixture(t: TestContext, options: { observeExtension?: boolean; di
       });
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end([
-        `data: ${JSON.stringify(chunk({ role: "assistant", content: `本地回复：${input}` }, null))}`,
-        `data: ${JSON.stringify({ ...chunk({}, "stop"), usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}`,
+        `data: ${JSON.stringify(chunk({ role: "assistant", content: options.responseText ?? `本地回复：${input}` }, null))}`,
+        `data: ${JSON.stringify({ ...chunk({}, options.finish ?? "stop"), usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}`,
         "data: [DONE]",
         "",
       ].join("\n\n"));
@@ -193,16 +201,25 @@ export default function () {
   const address = provider.address();
   assert(address && typeof address !== "string");
   const endpoint = `http://127.0.0.1:${address.port}`;
-  backend = await startRepaServer({ agentDir, appDirectory: path.join(root, "application"),
-    trustExtensions: options.observeExtension ?? false, diagnostics: options.diagnostics });
+  const serverOptions = { agentDir, appDirectory: path.join(root, "application"),
+    trustExtensions: options.observeExtension ?? false, diagnostics: options.diagnostics };
+  backend = await startRepaServer(serverOptions);
   client = await RepaClient.connect(backend.connection);
   const connected = client;
   const space = await connected.call("space.open", { path: directory });
   const session = await connected.call("session.create", { spaceId: space.id });
   const key: SessionKey = { spaceId: space.id, sessionId: session.sessionId };
   return {
-    client: connected,
-    backend,
+    get client() { assert(client); return client; },
+    get backend() { assert(backend); return backend; },
+    root,
+    async reopen() {
+      await backend?.close("cancel");
+      await client?.close();
+      backend = await startRepaServer(serverOptions);
+      client = await RepaClient.connect(backend.connection);
+      assert.equal((await client.call("space.open", { path: directory })).id, space.id);
+    },
     agentDir,
     directory,
     appDirectory: path.join(root, "application"),
@@ -905,4 +922,98 @@ test("公开回退的最终失败保存每个候选错误，重复主模型在�
     typeof error.data === "object" && error.data !== null && "code" in error.data && error.data.code === "configuration");
   assert.deepEqual(await f.client.call("request.get", { spaceId: f.key.spaceId, requestId: duplicate.requestId }),
     { requestId: duplicate.requestId, status: "unknown" });
+});
+
+test("公开 JSON 输出保留原回复、用量和来源资源，成功与失败重传重开复制均不重新调用", async (t) => {
+  const schema = { type: "object", properties: { count: { type: "integer" } }, required: ["count"], additionalProperties: false };
+  for (const example of [
+    { text: ' { "count": 3 }\n', finish: "stop", status: "completed" },
+    { text: ' { "count": "3" } \n', finish: "stop", status: "failed" },
+    { text: ' { "count": 3 }\n', finish: "length", status: "failed" },
+  ]) {
+    const f = await fixture(t, { responseText: example.text, finish: example.finish });
+    const selected = await connection(f, "结构化输出连接", "json", "json-key");
+    const target = { kind: "file" as const, spaceId: f.key.spaceId, location: { kind: "relative" as const, path: "source.txt" } };
+    await f.client.call("content.write", { target, operationId: randomUUID(), base: { kind: "absent" }, value: { kind: "text", text: "JSON 调用引用的原文\n" } });
+    const uploader = await RepaClient.connect(f.backend.connection);
+    t.after(() => uploader.close());
+    const source = await uploader.call("content.read", { target });
+    assert(source.resource && source.content.bodyRevision);
+    const bytes = Buffer.from("JSON 输入附件的原始字节");
+    const { resource } = await uploader.uploadResource(f.key.spaceId, bytes, "application/octet-stream");
+    const params: Params<"model.complete"> = {
+      spaceId: f.key.spaceId, requestId: randomUUID(), model: { connectionId: selected.id, id: model.id },
+      input: { parts: [{ kind: "reference", target }, { kind: "resource", resource }] },
+      system: "读取原文并返回计数。", thinkingLevel: "off", output: { kind: "json", schema },
+    };
+    const accepted = await f.client.call("model.complete", params);
+    assert(Check(CompletionConfigurationSchema, accepted.configuration));
+    assert.deepEqual(accepted.configuration.output, params.output);
+    const completed = await finishProcessing(f.client, accepted);
+    assert.equal(completed.status, example.status, JSON.stringify(completed));
+    assert(completed.result?.value.kind === "inline");
+    assert(Check(ModelResponseSchema, completed.result.value.data));
+    const data = completed.result.value.data;
+    assert.deepEqual(data.outputFormat, { kind: "json", schema });
+    assert.equal(data.message.stopReason, example.finish);
+    assert.equal(textOf(data.message.content), example.text, "原回复保留空白，不用重序列化后的 JSON 替代");
+    assert.deepEqual({ input: data.message.usage.input, output: data.message.usage.output, totalTokens: data.message.usage.totalTokens }, { input: 1, output: 1, totalTokens: 2 });
+    assert.deepEqual(data.attempts, completed.modelAttempts);
+    assert.equal(data.attempts[0]?.status, example.status);
+    assert.equal(data.attempts[0]?.usage?.totalTokens, 2);
+    if (example.status === "completed") assert.deepEqual(data.output, { count: 3 });
+    else {
+      assert.equal(completed.error?.code, "invalid_model_output");
+      assert.equal(data.attempts[0]?.error?.code, "invalid_model_output");
+      assert.equal(Object.hasOwn(data, "output"), false, "失败不补出或转换一个结构化值");
+    }
+    assert.deepEqual(completed.result.sources, [{ target, revision: source.content.bodyRevision }]);
+    assert.deepEqual(completed.result.resources, [resource, source.resource]);
+    assert.equal(f.requests.length, 1);
+    assert(f.requests[0]?.body.messages.some(message => textOf(message.content).includes(JSON.stringify(schema))));
+    await uploader.close();
+    await f.client.call("resource.collect", { spaceId: f.key.spaceId });
+    assert.deepEqual(Buffer.from(await (await f.client.resource(resource)).arrayBuffer()), bytes);
+    assert.equal(await (await f.client.resource(source.resource)).text(), "JSON 调用引用的原文\n");
+    assert.deepEqual(await f.client.call("model.complete", params), completed);
+    await f.reopen();
+    assert.deepEqual(await f.client.call("model.complete", params), completed);
+    const destination = path.join(f.root, "copied-space");
+    const copied = await f.client.call("space.copy", { operationId: randomUUID(), spaceId: f.key.spaceId, destination });
+    assert.equal(copied.status, "completed");
+    const opened = await f.client.call("space.open", { path: destination });
+    const saved = await f.client.call("request.get", { spaceId: opened.id, requestId: params.requestId });
+    assert("operation" in saved && saved.result?.value.kind === "inline");
+    assert(Check(ModelResponseSchema, saved.result.value.data));
+    assert.equal(saved.status, example.status);
+    assert.deepEqual(saved.result.value.data, data, "复制保存当时的原回复与尝试事实");
+    assert.deepEqual(saved.result.sources, [{ target: { ...target, spaceId: opened.id }, revision: source.content.bodyRevision }]);
+    assert.deepEqual(saved.result.resources, [resource, source.resource].map(ref => ({ ...ref, spaceId: opened.id })));
+    await f.client.call("resource.collect", { spaceId: opened.id });
+    for (const ref of saved.result.resources) {
+      const response = await f.client.resource(ref);
+      assert.equal(response.ok, true);
+    }
+    assert.equal(f.requests.length, 1, "重传、重开和空间复制都不重新发送模型请求");
+  }
+});
+
+test("公开 JSON schema 在绑定不存在模型前拒绝，无后台记录或 provider 请求", async (t) => {
+  const f = await fixture(t);
+  for (const schema of [
+    { type: "unknown" },
+    { type: "object", unexpectedKeyword: true },
+    { $ref: "https://example.invalid/not-installed.json" },
+    { type: "object", properties: { count: { type: "unknown" } } },
+  ]) {
+    const params: Params<"model.complete"> = {
+      spaceId: f.key.spaceId, requestId: randomUUID(), model: { connectionId: "missing", id: "missing" },
+      input: { parts: [{ kind: "text", text: "不应被发送" }] }, system: "", output: { kind: "json", schema },
+    };
+    await assert.rejects(f.client.call("model.complete", params), error => error instanceof RpcError &&
+      typeof error.data === "object" && error.data !== null && "code" in error.data && error.data.code === "invalid_output_schema");
+    assert.deepEqual(await f.client.call("request.get", { spaceId: f.key.spaceId, requestId: params.requestId }),
+      { requestId: params.requestId, status: "unknown" });
+    assert.equal(f.requests.length, 0);
+  }
 });

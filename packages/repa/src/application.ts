@@ -11,7 +11,7 @@ import { Check } from "typebox/value";
 import { prepareInput, inputResources, inputText } from "./requests/input.js";
 import type { Submit, Continue, RequestRecord, QueueView, RunOptions, InteractionReplyReceipt } from "./requests/schema.js";
 import { BackgroundRequests, type ProcessingContext } from "./requests/background.js";
-import type { BackgroundRequest, Input, ProcessingResult } from "./requests/schema.js";
+import { RepresentationSchema, type BackgroundRequest, type Input, type ProcessingResult } from "./requests/schema.js";
 import { ConfigStore } from "./configuration/store.js";
 import { PromptSettingsSchema, type SettingScope, type PromptSettings, type SettingsView } from "./configuration/schema.js";
 import type { SettingsNamespaceDefinition } from "./configuration/definitions.js";
@@ -25,6 +25,7 @@ import { EXECUTION_SETTINGS_DEFINITION } from "./execution/settings.js";
 import type { ExecutionContext } from "./execution/service.js";
 import { ModelConnections } from "./models/service.js";
 import { ModelCalls } from "./models/calls.js";
+import { prepareModelOutput } from "./models/output.js";
 import { ModelCompleteOptionsSchema, interruptModelAttempts, updateModelAttempts, type ModelCompleteOptions, type ModelMethod, type ModelParams, type ModelBinding, type ModelAttempt } from "./models/schema.js";
 import { InstalledContributions } from "./agent/contributions.js";
 import { PLUGIN_SETTINGS_DEFINITION, type PluginSettings } from "./configuration/plugins.js";
@@ -652,8 +653,10 @@ export class RepaApplication {
             if (!Check(ModelCompleteOptionsSchema, options))
               throw new RepaFault("invalid_input", "独立模型调用选项无效。");
             const input = structuredClone(options);
+            const output = prepareModelOutput(input.output);
             const resolved = await this.#bindModel(scope.spaceId, input);
             return this.#modelCalls.complete({ ...resolved, input: input.input, system: input.system,
+              output,
               ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
               content: content!, requestId, resourceOwner: owner,
               signal, onCancel: parent.cancel,
@@ -793,16 +796,24 @@ export class RepaApplication {
     const declarations = runtime.capabilities.resourceDeclarations(selection, scope);
     const submitted = capabilityRepresentation(selection.contract, input, declarations.inputResources(input));
     content.retention.retainAdditional(owner, submitted.resources);
-    const result = await runtime.capabilities.invoke(selection, input, {
-      scope, source, signal, content,
-      services: this.#capabilityServices(scope, source, requestId, signal,
-        runtime.capabilities.resolve(selection, scope).pluginId, parent),
-    });
+    let result: unknown;
+    try {
+      result = await runtime.capabilities.invoke(selection, input, {
+        scope, source, signal, content,
+        services: this.#capabilityServices(scope, source, requestId, signal,
+          runtime.capabilities.resolve(selection, scope).pluginId, parent),
+      });
+    } catch (error) {
+      // Pi 的失败工具结果会保存标准 details；这里同步保留其中的资源。
+      if (error instanceof RepaFault && Check(RepresentationSchema, error.details))
+        content.retention.retainAdditional(owner, [...error.details.resources,
+          ...(error.details.value.kind === "resource" ? [error.details.value.resource] : [])]);
+      throw error;
+    }
     const delivered = capabilityRepresentation(selection.contract, result, declarations.outputResources(result));
     content.retention.retainAdditional(owner, delivered.resources);
     return { result, representation: delivered };
   }
-
 
   invokeCapability(params: Params<"capability.invoke">, hostId: string): Promise<Result<"capability.invoke">> {
     const submission = structuredClone(params);
@@ -1057,14 +1068,17 @@ export class RepaApplication {
       }
       this.#assertAccepting();
       if (record.store.requests.requests.has(requestId)) throw new RepaFault("request_id_conflict", "相同标识已用于会话输入。");
+      const output = prepareModelOutput(options.output);
       const { binding, fallback, retry, thinkingLevel } = await this.#bindModel(spaceId, options);
       this.#assertAccepting();
       return record.processing.submit({
         requestId, operation: "repa.model.complete", input, options,
-        configuration: { connection: binding, ...(fallback ? { fallback } : {}), system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens },
+        configuration: { connection: binding, ...(fallback ? { fallback } : {}), system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens,
+          ...(options.output ? { output: options.output } : {}),
+        },
       }, (submitted, context) => this.#modelCalls.complete({
         binding, fallback, input: submitted, content: record.content, requestId, resourceOwner: `processing:${requestId}`,
-        system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens, signal: context.signal,
+        system: options.system, thinkingLevel, retry, maxTokens: options.maxTokens, output, signal: context.signal,
         onCancel: () => { record.processing.cancel(requestId); },
         onAttempt: attempt => record.processing.recordModelAttempt(requestId, attempt),
       }));

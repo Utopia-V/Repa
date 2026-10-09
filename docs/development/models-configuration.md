@@ -61,7 +61,7 @@ npm run dev:backend -- /path/to/learning-space
 
 | 命名空间 | 当前设置 |
 | --- | --- |
-| `prompts` | 基础提示、追加内容及项目说明、Skill、环境、学习语境和文件变化来源 |
+| `prompts` | 基础提示、追加内容及项目说明、Skill、环境、各插件背景与文件变化来源；`learningContext` 保留为旧学习来源的兼容默认 |
 | `runtime` | 连接与模型、回退候选、思考强度、工具、压缩参数、重试参数 |
 | `summaryPrompts` | 压缩调用的系统提示与摘要任务指令 |
 
@@ -89,13 +89,43 @@ Pi 0.87.1 没有逐段替换这些提示词的公开入口，因此 [summary.ts]
 
 ### 独立模型调用
 
-`model.complete({ spaceId, requestId, input, model, system, thinkingLevel?, maxTokens?, fallback? })` 使用 `ModelRuntime.completeSimple` 和 SDK 的重试函数，不创建会话。你要让这次独立调用回退到其他模型，需要在 `fallback` 中明确列出候选；它不继承 Agent 的 `runtime.fallback`。共享能力的 `models.complete` 服务使用同一规则，结果归所属父请求。公开调用受理时固定主模型、候选连接及选项，通过 `request.get`、`request.cancel` 和 `processing` 事件查询与取消。重传先返回原记录，不重新解析默认配置。
+`model.complete({ spaceId, requestId, input, model, system, thinkingLevel?, maxTokens?, fallback?, output? })` 使用 `ModelRuntime.completeSimple` 和 SDK 的重试函数，不创建会话。你要让这次独立调用回退到其他模型，需要在 `fallback` 中明确列出候选；它不继承 Agent 的 `runtime.fallback`。共享能力的 `models.complete` 服务使用同一规则，结果归所属父请求。公开调用受理时固定主模型、候选连接及选项，通过 `request.get`、`request.cancel` 和 `processing` 事件查询与取消。重传先返回原记录，不重新解析默认配置。
 
 公开调用和插件服务共用 [ModelCompleteOptionsSchema](../../packages/repa/src/models/schema.ts)。插件即使通过 JavaScript 调用，也会在绑定连接、准备输入资源和发送 provider 请求之前校验选项：`system` 必须是字符串，`input.parts` 至少包含一项，`maxTokens` 若提供则必须是正整数，选项及其固定结构拒绝未知字段。空系统提示和空文本仍保留其明确含义。公开接口通过 RPC 的参数错误（`-32602`）拒绝非法输入；插件服务抛出 `invalid_input`，由所属父请求记录失败。
 
 Pi 先对当前模型完成同身份重试；只有最终回复属于可回退的暂时错误，才使用下一个已绑定候选。认证失败、输入不兼容、上下文溢出、取消或未知异常不会因此改用另一账号。每个候选使用同一份已准备输入、系统提示、思考强度和输出上限；候选不支持输入中的图片时，本次调用结束并说明原因。
 
 结果采用 `repa.model-response` 版本 1 的表示，保存实际回复、成功模型的 `binding`、各次 `attempts`、已准备输入和来源资源。每项尝试的用量累计该候选在 Pi 重试中返回的用量；请求的 `modelAttempts` 同步记录各候选的真实绑定、状态与时间。进程重开时，把尚在运行的尝试标为 `interrupted`，结束时间保持未知。显式空系统提示保留为空。资源保留、后端关闭及中断结果继续使用[后台请求生命周期](requests.md#独立后台处理)。
+
+
+### 需要机器可读的模型判断
+
+插件需要让程序继续处理模型判断时，可以在同一次独立调用中指定 `output: { kind: "json", schema }`。例如，插件可以要求模型返回是否需要人工核对及其理由，再由领域代码决定怎样处理这份判断。schema 只约束返回数据的形状，具体判断是否正确仍由领域验证。
+
+```ts
+output: {
+  kind: "json",
+  schema: {
+    type: "object",
+    properties: {
+      needsReview: { type: "boolean" },
+      reason: { type: "string" },
+    },
+    required: ["needsReview", "reason"],
+    additionalProperties: false,
+  },
+}
+```
+
+调用入口先用 Ajv 8.20.0 的 strict 模式检查 JSON Schema draft-07，再绑定模型和准备输入。schema 必须是只包含 JSON 数据的对象，可以使用自包含引用；其他 dialect、未解析的外部引用、未知关键词或 format、异步 validator 都返回 `invalid_output_schema`。这里不加载远程 schema，也不维护跨调用的 schema 注册表。TypeBox 生成的 schema 同样需要属于这一范围。
+
+接下来仍由 Pi `completeSimple` 发送请求。Repa 在本次系统提示末尾附上 JSON 要求和实际 schema，等待模型完整结束后，只拼接 text 部分，排除 thinking，再用 `JSON.parse` 和原 schema 校验。校验不会剥除围栏、修补截断、转换类型、补默认值或删除额外字段。即使截断时已经得到看似完整的 JSON，非 `stop` 终态也不作为成功结果。
+
+通过校验后，`repa.model-response` 的内联数据增加 `output`，调用方从这里取得可处理的 JSON 值。实际输出约束保存在同一数据的 `outputFormat` 中，原始 `message` 仍保留，因此插件升级后也能核对当时按什么规则接收了这次回复。未指定 `output` 的调用沿用原来的结果形状。
+
+格式不符合要求时，本次尝试记录为 `failed`，错误码为 `invalid_model_output`，实际用量照常记录。这不是暂时网络故障，所以不会触发模型回退，也不会额外调用模型修补。公开调用与后台能力调用把原回复、输出约束、来源和资源保存在失败请求的 `result` 中；Agent 内的能力调用则沿既有失败工具结果通道保存在会话历史的 `details` 中。失败数据不提供 `output`，调用方先检查请求或工具的失败状态，再决定如何处理。若 schema 在执行校验时本身无法求值，则报告 `output_validation_failed`，同样保留原回复供核对。
+
+Pi 0.87.1 已有工具参数的 constrained sampling 和 provider-specific 参数透传，但 `completeSimple` 没有通用的 JSON 结果验收接口。工具流解析还可能修补不完整 JSON，工具参数验证也允许类型转换。当前使用原始文本验收，因此保留了明确的原值语义，代价是模型生成一次合规回复的成功率仍取决于实际 provider 与任务。以后接入原生输出约束时，可以提高生成可靠性，本地验收和失败记录仍承担结果契约。
 
 ## 未完成项与待验证项
 
@@ -112,6 +142,7 @@ Pi 先对当前模型完成同身份重试；只有最终回复属于可回退�
 
 - [model-connections.test.ts](../../packages/repa/test/model-connections.test.ts)：同 provider 的独立凭据、端点绑定、登录/注销和本地无密钥调用；Vertex 显式凭据文件与 Bedrock profile 的 SDK 解析。
 - [model-api.test.ts](../../packages/repa/test/model-api.test.ts)：真实客户端、多会话、队列与配置切换、注销、独立调用、静态预览和退出期认证。
+- [model-output.test.ts](../../packages/repa/test/model-output.test.ts)：严格 JSON/schema 边界、实际约束快照、完整终态与不改写数据；公开与插件接入、失败证据、资源、重传和重开由模型 API 与能力模型测试覆盖。
 - [model-calls.test.ts](../../packages/repa/test/model-calls.test.ts)、[capability-models.test.ts](../../packages/repa/test/capability-models.test.ts)、[agent-model-fallback.test.ts](../../packages/repa/test/agent-model-fallback.test.ts)：独立调用与共享能力调用的显式候选、重试、用量和取消，以及 Agent 在真实 Pi 与本地 HTTP provider 上的自动接续、历史不重放和策略关闭。
 - [configuration.test.ts](../../packages/repa/test/configuration.test.ts)：逐项继承、空值、冲突、作用域、未登记数据与旧格式接续。
 - [summary.test.ts](../../packages/repa/test/summary.test.ts)、[pi-context-integration.test.ts](../../packages/repa/test/pi-context-integration.test.ts)：实际主调用和压缩输入、工具选择、摘要覆盖失败及取消。
