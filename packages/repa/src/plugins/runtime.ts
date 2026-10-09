@@ -6,8 +6,6 @@ import { CapabilityHost } from "../capabilities/host.js";
 import type { BackendPluginFactory, BackendPluginRegistration } from "../capabilities/types.js";
 import type { PluginSettings } from "../configuration/plugins.js";
 import { RepaFault } from "../errors.js";
-import { createLearningPlugin } from "../learning/plugin.js";
-import { LEARNING_PLUGIN_ID } from "../learning/settings.js";
 import { createSearchPlugin, SEARCH_PLUGIN_ID } from "../search/plugin.js";
 import { discoverPluginResources, packageMatches, selectBackendEntry, type PluginResources } from "./resources.js";
 import { snapshotSettings } from "../agent/settings.js";
@@ -18,14 +16,11 @@ export class PluginRuntime {
   readonly capabilities = new CapabilityHost();
   readonly issues: { pluginId: string; message: string }[] = [];
   readonly packages: PluginPackage[] = [];
-  readonly learningEnabled: boolean;
   #installedSnapshots: SpaceSnapshotParticipant[] = [];
   #cwd = "";
   #trusted: readonly PluginSelection[] = [];
 
-  private constructor(readonly configuration: PluginSettings, readonly trusted: boolean, readonly resources: PluginResources) {
-    this.learningEnabled = !configuration.disabled.includes(LEARNING_PLUGIN_ID);
-  }
+  private constructor(readonly configuration: PluginSettings, readonly trusted: boolean, readonly resources: PluginResources) {}
 
   static async open(options: {
     cwd: string;
@@ -45,13 +40,12 @@ export class PluginRuntime {
       ...resources.bundledPackages.map(({ package: item }) => ({ kind: "source" as const, source: item.source, scope: item.scope })),
     ];
     runtime.#installedSnapshots = (options.plugins ?? []).flatMap(plugin => plugin.snapshot ? [plugin.snapshot] : []);
-    const ids = new Set([LEARNING_PLUGIN_ID, SEARCH_PLUGIN_ID]);
+    const ids = new Set([SEARCH_PLUGIN_ID]);
     const registrations = [...(options.plugins ?? []), ...resources.bundledPackages.map(item => item.registration), ...options.configuration.backends];
     for (const registration of registrations) {
       if (ids.has(registration.id)) throw new RepaFault("plugin_conflict", "后台插件标识重复。", { pluginId: registration.id });
       ids.add(registration.id);
     }
-    await runtime.capabilities.register({ id: LEARNING_PLUGIN_ID, enabled: runtime.learningEnabled, factory: createLearningPlugin });
     await runtime.capabilities.register({ id: SEARCH_PLUGIN_ID, enabled: !options.configuration.disabled.includes(SEARCH_PLUGIN_ID), factory: createSearchPlugin });
     for (const plugin of options.plugins ?? []) await runtime.capabilities.register({
       ...plugin, enabled: plugin.enabled && !options.configuration.disabled.includes(plugin.id),

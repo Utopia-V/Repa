@@ -51,14 +51,16 @@ export const learningContextCodec: BackgroundCodec = {
   snapshot: contextSnapshot,
 };
 
+export function prepareLearningBackground(view: unknown) {
+  if (!Check(ContextViewSchema, view)) throw new RepaFault("invalid_learning_context", "学习语境实现没有返回完整的语境视图。");
+  return { message: makeContextMessage(view), revision: view.revision, text: view.text };
+}
+
 export function learningBackground(read: () => Promise<unknown>, enabled: () => boolean = () => true): BackgroundSource {
+  const prepare = async () => prepareLearningBackground(await read());
   return {
     codec: learningContextCodec,
     enabled: (settings) => enabled() && settings.learningContext,
-    async prepare() {
-      const view = await read();
-      if (!Check(ContextViewSchema, view)) throw new RepaFault("invalid_learning_context", "学习语境实现没有返回完整的语境视图。");
-      return { message: makeContextMessage(view), revision: view.revision, text: view.text };
-    },
+    prepare,
   };
 }

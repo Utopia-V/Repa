@@ -123,7 +123,8 @@ export class ContentStore {
     await store.blobs.open();
     await store.journal.open();
     const formats = options.formats ?? [];
-    if (new Set(formats.map(format => format.field)).size !== formats.length ||
+    if (new Set(formats.map(format => format.id)).size !== formats.length ||
+      new Set(formats.map(format => format.field)).size !== formats.length ||
       formats.some(format => ["version", "items", "__proto__", "constructor", "prototype"].includes(format.field) || !format.id || !format.field || !Check(format.schema, format.default)))
       throw new RepaFault("invalid_input", "持久格式的字段重复、保留字段或默认值无效。");
     await store.#reload();

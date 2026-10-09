@@ -441,7 +441,7 @@ test("替换学习语境实现沿用公共空间配置与 Agent 会话覆盖，�
   const EmptySchema = object({});
   const replacement: CapabilityDefinition<typeof EmptySchema, typeof ContextViewSchema, Pick<RepaCapabilityServices, "settings">> = {
     contract: { id: "repa.context.preview", version: "1" }, implementationId: "configured",
-    inputSchema: EmptySchema, outputSchema: ContextViewSchema, scopes: ["space"], execution: "inline",
+    inputSchema: EmptySchema, outputSchema: ContextViewSchema, scopes: ["space"], execution: "query",
     tool: { name: "learning_context", description: "读取替换实现的完整学习语境" },
     async invoke(_input, context) {
       assert(context.services, "公共学习接口与 Agent 路径都应提供所选能力的 settings 服务");

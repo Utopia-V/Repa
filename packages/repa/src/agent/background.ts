@@ -20,8 +20,11 @@ export interface PreparedBackground {
 }
 export interface BackgroundSource {
   codec: BackgroundCodec;
+  reference?: string;
   enabled(settings: PromptSettings): boolean;
   prepare(): Promise<PreparedBackground>;
+  /** 静态预览独立于运行准备，不调用后台工厂或能力。 */
+  preview?(): Promise<PreparedBackground>;
 }
 export interface BackgroundState {
   codec: BackgroundCodec;

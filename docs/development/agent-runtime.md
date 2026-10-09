@@ -6,14 +6,14 @@
 
 当你开始一项 Agent 任务，Repa 需要把请求、所选配置和启用的背景交给 Pi。Pi 已经能够运行 Agent，这里要接入的是模型实际看到哪些内容、工具怎样读写空间，以及你的选择怎样用于本次运行。
 
-这些信息由各自的模块准备。Application 受理请求并固定配置，内容模块提供文件与资源，学习能力生成当前背景，Host 再把它们接到 Pi。你要调整学习背景的组织方式，就修改学习能力；要调整文件保存，则在内容模块中处理。
+这些信息由各自的模块准备。Application 受理请求并固定配置，内容模块提供文件与资源，领域插件生成当前背景，Host 再把它们接到 Pi。你要调整学习背景的组织方式，就修改学习能力；要调整文件保存，则在内容模块中处理。
 
 背景的接入还会影响 token 统计和压缩。模型使用的消息多出一段背景时，SDK 估算上下文也应当看见它。因此，适配不只发生在最后发送请求的地方，还要覆盖 Pi 用于计量的会话投影。下面分别说明运行准备、提示来源和这处适配。
 
 ## 一次运行的入口
 
 1. Application 解析应用、空间和会话设置，受理时保存连接、认证身份、提示和运行选项。重传先查询原记录。
-2. 运行开始时，Host 准备已启用背景并装配提示。学习背景由 Application 调用选定的 `repa.context.preview` 取得，使用本次 Agent 的来源、取消信号和服务。准备失败时，新用户消息尚未进入 Pi 历史，请求保留失败原因。
+2. 运行开始时，Host 准备已启用背景并装配提示。Application 按安装级背景声明调用选定的空间 `query` 能力取得视图，携带本次 Agent 的来源、取消信号和服务。学习背景仍使用 `repa.context.preview`。准备失败时，新用户消息尚未进入 Pi 历史，请求保留失败原因。
 3. Host 根据当前分支和压缩边界，找到最近的完整背景快照。视图变化或快照缺失时追加新消息；官方学习来源沿用 `repa.learning-context` 消息格式。
 4. 工具调用和后续模型轮使用同一份入口提示与背景。工具可以读取当前文件，下一次独立运行再重新准备背景。
 
@@ -57,15 +57,15 @@ Pi 0.87.1 的会话 model runtime 固定认证上下文，原 Host 上的 `setMo
 
 工具说明来自实际启用的内容工具、共享能力工具与可信扩展定义。能力工具只描述适合模型填写的业务参数；Application 注入本次空间、会话、运行、请求身份和父取消信号，同一 `invoke` 处理 API 与工具路径，不再为工具另建后台请求。模型与会话窄服务继续复用既有调用和请求入口，见[共享能力](capabilities.md#作用域与服务)。
 
-`prompts.preview` 通过 `discoverPluginResources` 读取能够确定的静态来源，使用与运行时相同的信任和资源选择。默认的官方学习实现可以直接生成视图；其他实现与动态扩展贡献只标记来源，实际运行时再执行。预览不会加载扩展或后台工厂，也不安装缺失包。
+`prompts.preview` 通过 `discoverPluginResources` 读取能够确定的静态来源，使用与运行时相同的信任和资源选择。背景声明可以为特定实现提供轻量静态读取；与声明匹配时展示视图，其他实现与动态扩展贡献只标记来源，实际运行时再执行。预览不会加载扩展或后台工厂，也不安装缺失包。
 
 实际主调用和压缩提示保存到所属请求。压缩使用 Pi 的公开 `compact`，通过 `session_before_compact` 接入摘要设置，分段、计量、重试和记录仍由 SDK 完成。完整覆盖的适配与升级条件见[提示预览与压缩](models-configuration.md#提示预览与压缩)。统一的图形编辑界面由前端接入。
 
 ## 背景在工作视图与历史中的位置
 
-学习语境快照包含完整正文、来源和修订。Pi JSONL 保存过去实际提供过的消息，空间中的文档保存当前内容。
+领域背景快照由所属插件定义；学习语境快照包含完整正文、来源和修订。Pi JSONL 保存过去实际提供过的消息，空间中的文档保存当前内容。
 
-`agent/background.ts` 通过 `BackgroundSource` 的 `codec/enabled/prepare` 取得、识别和控制背景。学习能力提供自己的 codec、旧消息模板和 preview 函数；Application 按能力选择取得视图，再交给 Host。默认组合在 Application 中接入，学习规则留在学习模块。
+`agent/background.ts` 通过 `BackgroundSource` 的 `codec/enabled/prepare` 取得、识别和控制背景。插件通过 `BackendPluginRegistration.backgrounds` 提供 codec、能力选择、公共输入和结果转换；Application 在实际运行中调用所选 query，再交给 Host。静态预览另由声明的轻量读取提供，具体接法见[安装级背景与持久格式](plugins.md#安装级背景与持久格式)。当前学习默认注册在 Application 中装配，学习规则留在学习模块。
 
 关闭 `learningContext` 后，Host 排除可识别的自动快照并停止补回，历史记录与独立预览保留。关闭整个 `repa-learning` 会停用官方组合和自动背景；没有替代实现时，公共学习调用返回未找到能力，已经保存的文档和绑定保留。具体开关含义见[学习语境](learning.md#关闭启用与替换)。
 
@@ -106,6 +106,7 @@ Pi 的 system 消息条目保存提示与工具配置，不投影为公开交流
 
 当前验证入口：
 
+- [plugin-backgrounds.test.ts](../../packages/repa/test/plugin-backgrounds.test.ts)：小说与学习同时提供背景、独立启停、重启及新会话接续、父取消、失败、静态和动态预览，以及禁用后格式引用重映射。
 - [agent-context.test.ts](../../packages/repa/test/agent-context.test.ts)：来源开关、分支与重复压缩、投影消息和来源对应，以及 Pi 上下文编辑。
 - [pi-context-integration.test.ts](../../packages/repa/test/pi-context-integration.test.ts)：真实 SDK 与 faux provider 核对实际请求中的系统提示、工具后续轮、背景回填、文件变化和扩展直接调用。provider 使用 `TranscriptContext`，断言通过 Pi 的 `getCurrentSystemPrompt()` 等入口解析系统状态。
 - [pi-session-0.84.3.jsonl](../../packages/repa/test/fixtures/pi-session-0.84.3.jsonl)：由发布版 0.84.3 的 `SessionManager` 生成的会话格式 3 样本，包含完整背景、交流与压缩。集成测试复制后用 0.87.1 接续并重开，检查旧条目与原文件前缀保留。

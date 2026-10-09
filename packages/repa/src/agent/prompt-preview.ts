@@ -58,8 +58,8 @@ export async function previewPrompt(options: {
   const result = describePrompt(inputs, options.settings);
   for (const source of options.backgroundSources ?? []) {
     const enabled = source.enabled(options.settings);
-    const prepared = enabled ? await source.prepare() : undefined;
-    result.sources.push({ id: source.codec.id, enabled, dynamic: true, reference: source.codec.customType,
+    const prepared = enabled && source.preview ? await source.preview() : undefined;
+    result.sources.push({ id: source.codec.id, enabled, dynamic: true, reference: source.reference ?? source.codec.customType,
       ...(prepared ? { content: prepared.text, revision: prepared.revision } : {}) });
   }
   result.sources.push({

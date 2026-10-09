@@ -71,6 +71,37 @@
 
 预览和实际运行都通过 `selectBackendEntry` 选择入口，使用相同的判断规则。同名包存在多个来源时，需要用完整的 `source + scope` 指定。来源含糊或已经关闭的入口不会显示为已启用。预览到选出入口为止，不执行后台工厂。
 
+### 安装级背景与持久格式
+
+当小说插件需要把设定带入下一次会话时，它可以继续使用已有能力查询读取当前设定，再把结果转换为背景消息。你把这项贡献放在 `BackendPluginRegistration.backgrounds` 中，与同一插件的工厂一起登记：
+
+```ts
+const registration: BackendPluginRegistration = {
+  id: "novel",
+  enabled: true,
+  factory: createNovelPlugin,
+  formats: [novelFormat],
+  backgrounds: [{
+    codec: novelCodec,
+    selection: { contract: { id: "example.novel.preview", version: "1" }, implementationId: "local" },
+    input: { kind: "current" },
+    prepare: prepareNovelBackground,
+    preview: {
+      implementationId: "local",
+      read: async content => prepareNovelBackground(await readNovelView(content)),
+    },
+  }],
+};
+```
+
+`selection` 选择已有的空间 `query` 能力及默认实现；`plugins.implementations` 可以覆盖这项选择。`input` 使用该能力的公共输入 schema，不经过模型工具的参数适配。Application 在实际运行中调用这项查询，因此来源中包含本次空间、会话、请求和运行身份，取消信号与窄服务也沿用能力调用入口。`prepare` 解释结果，返回完整消息、修订和预览文本；`codec` 则识别插件过去保存的消息。消息的业务含义由插件持有，底座复用同一套背景投影、分支和压缩处理。
+
+静态预览需要单独声明 `preview`。其 `read` 只读取当前内容，不建立后台实例；只有当前选择与声明的 `implementationId` 一致，预览才展示结果。选择了其他实现或没有声明时，来源显示为动态，实际运行再准备。预览因此可以展示已知内容，而不为查看提示执行后台工厂。
+
+`formats` 提供同一插件对内容清单字段、引用和文件的解释，交给 `ContentStore.formats` 使用。安装级声明一直保留：禁用插件后，查询与注入停止，历史 codec 仍可过滤已有自动消息，格式仍参与空间复制、备份和引用重映射。重新启用时读取原来的当前数据，而不是重新初始化一份状态。背景来源 ID、历史消息类型、格式 ID 和格式字段均要求唯一。
+
+当前安装级声明由 `ApplicationOptions.plugins` 接入；通过包清单加载同等声明的入口仍待接续。默认学习注册也已经使用这条管道，其产品默认装配和学习实现随后迁到所属学习包。
+
 ### 禁用后的持久数据快照
 
 插件关闭后，数据仍然需要备份。如果快照只能由运行中的后台提供，就得为了备份重新启用插件。因此，有持久数据的包可以单独声明 `repa.snapshot`：
@@ -147,11 +178,12 @@ Application 在进入包变更准备时就标记受影响范围需要重启，�
 
 | 项目 | 当前状态与影响 | 后续工作 |
 | --- | --- | --- |
+| 包清单中的安装级背景与格式声明 | 当前由 `ApplicationOptions.plugins` 接入；动态包加载只提供运行后台与独立快照，不能从后台工厂获取禁用时所需的轻量声明 | 接续安装级入口设计后，使包加载与直接登记使用同一声明 |
 | 前端入口的实际加载与使用 | 待前端接入。后端已返回入口位置、执行环境、API 范围和可用状态，官方界面尚未消费这些入口 | 由 [#10](https://github.com/Utopia-V/repa/issues/10)实现组件加载及生命周期，再用真实组件验证启停与接口匹配 |
 
 代码更新后的进程重启是当前明确选择的策略。安装期间无法中止则是当前 Pi API 的限制，处理方式与升级核对要求见上节。
 
-## 包入口验证
+## 验证入口
 
 [`plugin-packages.test.ts`](../../packages/repa/test/plugin-packages.test.ts) 使用临时目录、锁定的 Pi SDK 和设置文件，覆盖以下行为：
 
@@ -168,3 +200,5 @@ node --import tsx --import ./test/environment.ts --test test/plugin-packages.tes
 ```
 
 [plugin-resources.test.ts](../../packages/repa/test/plugin-resources.test.ts) 验证应用侧信任、项目资源过滤和预览；[plugin-api.test.ts](../../packages/repa/test/plugin-api.test.ts) 通过公开客户端验证包管理、结果持久化、请求记录的独占访问及重启要求，也检查跨空间会话与包安装、同范围串行以及排空退出。测试在 Linux、Node 24.19 与 Pi 0.87.1 上进行，使用临时本地包和 Git 仓库。
+
+[plugin-backgrounds.test.ts](../../packages/repa/test/plugin-backgrounds.test.ts) 使用小说设定夹具，通过公共应用接口与真实 Pi 的 faux provider 验证两个领域同时提供背景、独立关闭、重启及新会话接续、准备失败和取消。静态与动态预览检查后台工厂调用次数，禁用后复制检查格式引用重映射；既有背景测试继续覆盖压缩、计量与分支。

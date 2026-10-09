@@ -26,10 +26,9 @@ import type { ExecutionContext, ProgramCapabilities } from "./execution/service.
 import { ModelConnections } from "./models/service.js";
 import { ModelCalls } from "./models/calls.js";
 import { ModelCompleteOptionsSchema, interruptModelAttempts, updateModelAttempts, type ModelCompleteOptions, type ModelMethod, type ModelParams, type ModelBinding, type ModelAttempt } from "./models/schema.js";
-import { learningContentFormat } from "./learning/content-format.js";
-import { learningBackground } from "./learning/background.js";
+import { learningPluginRegistration } from "./learning/contributions.js";
+import { InstalledContributions } from "./agent/contributions.js";
 import { LEARNING_CONTEXT_TOOLS } from "./learning/plugin.js";
-import { LearningContext } from "./learning/context.js";
 import type { LearningMethod } from "./learning/protocol.js";
 import { learningPromptDefaults, LEARNING_PLUGIN_ID } from "./learning/settings.js";
 import { bundledLearningPackages } from "./learning/composition.js";
@@ -156,6 +155,8 @@ export class RepaApplication {
   readonly diagnostics: Diagnostics;
   readonly closed: Promise<void>;
   readonly #options: ApplicationOptions;
+  readonly #contributions: InstalledContributions;
+  readonly #backendPlugins: readonly BackendPluginRegistration[];
   readonly #configuration: ConfigStore;
   readonly #models: ModelConnections;
   readonly #modelCalls: ModelCalls;
@@ -206,6 +207,8 @@ export class RepaApplication {
         options.eventBufferSize < 1)
     )
       throw new Error("事件缓存大小必须为正整数。");
+    this.#backendPlugins = [learningPluginRegistration, ...(options.plugins ?? [])];
+    this.#contributions = new InstalledContributions(this.#backendPlugins);
     this.#options = options;
     const appDirectory = path.resolve(options.appDirectory ?? options.agentDir ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "repa"));
     this.#appDirectory = appDirectory;
@@ -323,7 +326,7 @@ export class RepaApplication {
       const access = await this.#access;
       const content = await ContentStore.open({
         ...this.#options.resources,
-        formats: [learningContentFormat],
+        formats: this.#contributions.formats,
         spaceId: store.space.id, root: store.space.path,
         assertOwned: () => store.assertOwned(),
         canReadExternal: (file) => access.canRead(store.space.id, file),
@@ -501,7 +504,7 @@ export class RepaApplication {
       const runtime = await PluginRuntime.open({
         cwd: scope.kind === "application" ? this.#appDirectory : this.#store(scope.spaceId).space.path,
         agentDir: this.#options.agentDir, trusted: this.#options.trustExtensions ?? false,
-        configuration, plugins: this.#options.plugins,
+        configuration, plugins: this.#backendPlugins,
         bundledPackages: this.#bundledPackages(configuration),
       });
       for (const definition of runtime.capabilities.settingsDefinitions()) this.#configuration.register(definition);
@@ -758,7 +761,8 @@ export class RepaApplication {
         name: selected.tool.name, label: selected.tool.name, description: selected.tool.description,
         parameters: (selected.tool.inputSchema ?? selected.inputSchema) as TSchema,
         execute: async (_callId, input, signal) => {
-          const delivered = await this.#invokeAgentCapability(record, runtime, selection, input, signal);
+          const prepared = runtime.capabilities.prepareToolInput(selection, input, scope);
+          const delivered = await this.#invokeAgentCapability(record, runtime, selection, prepared, signal);
           return { content: [{ type: "text", text: JSON.stringify(delivered.result) }], details: delivered.representation };
         },
       });
@@ -774,7 +778,7 @@ export class RepaApplication {
       runId: active.run.id, requestId: active.request.requestId };
     const callSignal = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal;
     return this.#invokeBoundCapability(runtime, scope, source, active.request.requestId, selection,
-      runtime.capabilities.prepareToolInput(selection, input, scope), callSignal, {
+      input, callSignal, {
         cancel: () => { this.cancelRun(scope.spaceId, active.run.id); },
         progress: message => this.#notice(record, "capability_progress", message, "info"),
         ask: (dialog, options) => this.#ask(record, dialog, options),
@@ -968,12 +972,10 @@ export class RepaApplication {
         agentDir: this.#options.agentDir, trusted: this.#options.trustExtensions ?? false, configuration: plugins,
         bundledPackages: this.#bundledPackages(plugins) });
       const learningEnabled = !plugins.disabled.includes(LEARNING_PLUGIN_ID);
-      const learningImplementation = plugins.implementations["repa.context.preview"];
-      const staticLearning = !learningImplementation || learningImplementation === "official";
       const dynamicTools = [
         ...resources.bundledPackages.filter(({ registration, package: item }) =>
           registration.enabled && item.status === "ready" && item.backend?.status === "ready").map(({ registration }) => registration.id),
-        ...(this.#options.plugins ?? []).filter(plugin => plugin.enabled && !plugins.disabled.includes(plugin.id)).map(plugin => plugin.id),
+        ...this.#backendPlugins.filter(plugin => plugin.enabled && !plugins.disabled.includes(plugin.id)).map(plugin => plugin.id),
         ...plugins.backends.flatMap(plugin => {
           if (plugins.disabled.includes(plugin.id)) return [];
           try {
@@ -987,9 +989,7 @@ export class RepaApplication {
       ];
       const prompt = await previewPrompt({
         content: this.#space(target.spaceId).content, agentDir: this.#options.agentDir,
-        backgroundSources: staticLearning ? [learningBackground(
-          () => new LearningContext(this.#space(target.spaceId).content).preview(), () => learningEnabled,
-        )] : [],
+        backgroundSources: this.#contributions.backgrounds(plugins, { content: this.#space(target.spaceId).content }),
         trusted: this.#options.trustExtensions ?? false, settings: selected,
         resourceSettings: snapshotSettings(resources.snapshots, this.#options.trustExtensions ?? false),
         additionalSkills: resources.additionalSkills, missingPackages: resources.missingPackages,
@@ -1002,10 +1002,6 @@ export class RepaApplication {
         ],
         dynamicTools, dynamicExtensions: resources.additionalExtensions.length > 0,
         ...(runtime.tools ? { tools: runtime.tools } : {}),
-      });
-      if (!staticLearning) prompt.sources.push({
-        id: "learningContext", enabled: learningEnabled && selected.learningContext, dynamic: true,
-        reference: `repa.context.preview:${learningImplementation}`,
       });
       for (const entry of settings[2]!.entries) prompt.sources.push({
         id: `summary.${entry.key}`, enabled: true,
@@ -1781,10 +1777,15 @@ export class RepaApplication {
       throw new RepaFault("connection_required", "请在 Repa 中选择模型连接；旧请求可选择连接后通过继续操作接续。");
     return record.session.openRuntime({
       content: this.#spaces.get(record.store.space.id)!.content,
-      backgroundSources: [learningBackground(async () => (await this.#invokeAgentCapability(record, plugins, {
-        contract: { id: "repa.context.preview", version: "1" },
-        implementationId: plugins.configuration.implementations["repa.context.preview"],
-      }, {})).result, () => plugins.learningEnabled)],
+      backgroundSources: this.#contributions.backgrounds(plugins.configuration, {
+        content: this.#space(record.view.spaceId).content,
+        invoke: async (selection, input) => {
+          const selected = plugins.capabilities.resolve(selection, { kind: "space", spaceId: record.view.spaceId });
+          if (selected.execution !== "query") throw new RepaFault("invalid_background_capability", "背景来源必须使用只读 query 能力。", { contract: selected.contract });
+          return (await this.#invokeAgentCapability(record, plugins,
+            { contract: selected.contract, implementationId: selected.implementationId }, input)).result;
+        },
+      }),
       resourceSettings: plugins.resourceSettings(),
       additionalExtensions: plugins.resources.additionalExtensions,
       additionalSkills: plugins.resources.additionalSkills,

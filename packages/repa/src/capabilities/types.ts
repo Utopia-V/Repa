@@ -1,9 +1,12 @@
 import type { Static, TSchema } from "typebox";
+import type { BackgroundCodec, PreparedBackground } from "../agent/background.js";
+import type { PromptSettings } from "../configuration/schema.js";
+import type { ContentFormat } from "../content/formats.js";
 import type { ContentStore } from "../content/store.js";
 import type { ResourceRef } from "../content/schema.js";
 import type { SettingsNamespaceDefinition } from "../configuration/definitions.js";
 import type { SpaceSnapshotParticipant } from "../spaces/schema.js";
-import type { CapabilityContract, CapabilityDescriptor, CapabilityScope, CapabilitySource } from "./schema.js";
+import type { CapabilityContract, CapabilityDescriptor, CapabilityScope, CapabilitySource, CapabilitySelection } from "./schema.js";
 
 /** 来源、权限和窄服务由应用组装；宿主只提供所选插件自己的空间运行资源。 */
 export interface InvocationContext<Services extends object = object, SpaceRuntime = unknown> {
@@ -66,10 +69,26 @@ export interface BackendPlugin<Services extends object = object, SpaceRuntime = 
 
 export type BackendPluginFactory = () => BackendPlugin | Promise<BackendPlugin>;
 
+/** 安装级声明不执行后台工厂，关闭能力时仍能识别历史与持久数据。 */
 export interface BackendPluginRegistration {
   id: string;
   enabled: boolean;
+  backgrounds?: readonly CapabilityBackground[];
+  formats?: readonly ContentFormat[];
   factory: BackendPluginFactory;
   /** 安装时提供的轻量持久 owner；禁用运行能力后仍可参与空间快照。 */
   snapshot?: SpaceSnapshotParticipant;
+}
+
+export interface CapabilityBackground {
+  codec: BackgroundCodec;
+  selection: CapabilitySelection;
+  input: unknown;
+  enabled?(settings: PromptSettings): boolean;
+  prepare(result: unknown): PreparedBackground | Promise<PreparedBackground>;
+  /** 只有声明匹配当前实现时才能静态预览；缺少声明时显示动态来源。 */
+  preview?: {
+    implementationId: string;
+    read(content: ContentStore): PreparedBackground | Promise<PreparedBackground>;
+  };
 }
