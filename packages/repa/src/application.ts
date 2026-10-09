@@ -771,6 +771,7 @@ export class RepaApplication {
     return tools;
   }
 
+  /** Agent 工具的能力调用沿父请求保留输入与输出资源。 */
   async #invokeAgentCapability(record: SessionRecord, runtime: PluginRuntime, selection: CapabilitySelection, input: unknown, signal?: AbortSignal): Promise<{ result: unknown; representation: ProcessingResult }> {
     const active = record.active;
     if (!active) throw new RepaFault("run_not_active", "能力调用需要实际运行归属。");
@@ -778,30 +779,22 @@ export class RepaApplication {
     const source: CapabilitySource = { kind: "agent", spaceId: record.view.spaceId, sessionId: record.view.sessionId,
       runId: active.run.id, requestId: active.request.requestId };
     const callSignal = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal;
-    return this.#invokeBoundCapability(runtime, scope, source, active.request.requestId, selection,
-      input, callSignal, {
-        cancel: () => { this.cancelRun(scope.spaceId, active.run.id); },
-        progress: message => this.#notice(record, "capability_progress", message, "info"),
-        ask: (dialog, options) => this.#ask(record, dialog, options),
-      });
-  }
-
-  /** Agent 工具的能力调用沿父请求保留输入与输出资源。 */
-  async #invokeBoundCapability(runtime: PluginRuntime, scope: { kind: "space"; spaceId: string },
-    source: CapabilitySource, requestId: string, selection: CapabilitySelection, input: unknown,
-    signal: AbortSignal, parent: CapabilityParent): Promise<{ result: unknown; representation: ProcessingResult }> {
-    signal.throwIfAborted();
+    callSignal.throwIfAborted();
     const content = this.#space(scope.spaceId).content;
-    const owner = `${source.kind === "agent" ? "request" : "processing"}:${requestId}`;
+    const owner = `request:${active.request.requestId}`;
     const declarations = runtime.capabilities.resourceDeclarations(selection, scope);
     const submitted = capabilityRepresentation(selection.contract, input, declarations.inputResources(input));
     content.retention.retainAdditional(owner, submitted.resources);
     let result: unknown;
     try {
       result = await runtime.capabilities.invoke(selection, input, {
-        scope, source, signal, content,
-        services: this.#capabilityServices(scope, source, requestId, signal,
-          runtime.capabilities.resolve(selection, scope).pluginId, parent),
+        scope, source, signal: callSignal, content,
+        services: this.#capabilityServices(scope, source, active.request.requestId, callSignal,
+          runtime.capabilities.resolve(selection, scope).pluginId, {
+            cancel: () => { this.cancelRun(scope.spaceId, active.run.id); },
+            progress: message => this.#notice(record, "capability_progress", message, "info"),
+            ask: (dialog, options) => this.#ask(record, dialog, options),
+          }),
       });
     } catch (error) {
       // Pi 的失败工具结果会保存标准 details；这里同步保留其中的资源。
