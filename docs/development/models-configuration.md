@@ -91,6 +91,8 @@ Pi 0.87.1 没有逐段替换这些提示词的公开入口，因此 [summary.ts]
 
 `model.complete({ spaceId, requestId, input, model, system, thinkingLevel?, maxTokens?, fallback? })` 使用 `ModelRuntime.completeSimple` 和 SDK 的重试函数，不创建会话。你要让这次独立调用回退到其他模型，需要在 `fallback` 中明确列出候选；它不继承 Agent 的 `runtime.fallback`。共享能力的 `models.complete` 服务使用同一规则，结果归所属父请求。公开调用受理时固定主模型、候选连接及选项，通过 `request.get`、`request.cancel` 和 `processing` 事件查询与取消。重传先返回原记录，不重新解析默认配置。
 
+公开调用和插件服务共用 [ModelCompleteOptionsSchema](../../packages/repa/src/models/schema.ts)。插件即使通过 JavaScript 调用，也会在绑定连接、准备输入资源和发送 provider 请求之前校验选项：`system` 必须是字符串，`input.parts` 至少包含一项，`maxTokens` 若提供则必须是正整数，选项及其固定结构拒绝未知字段。空系统提示和空文本仍保留其明确含义。公开接口通过 RPC 的参数错误（`-32602`）拒绝非法输入；插件服务抛出 `invalid_input`，由所属父请求记录失败。
+
 Pi 先对当前模型完成同身份重试；只有最终回复属于可回退的暂时错误，才使用下一个已绑定候选。认证失败、输入不兼容、上下文溢出、取消或未知异常不会因此改用另一账号。每个候选使用同一份已准备输入、系统提示、思考强度和输出上限；候选不支持输入中的图片时，本次调用结束并说明原因。
 
 结果采用 `repa.model-response` 版本 1 的表示，保存实际回复、成功模型的 `binding`、各次 `attempts`、已准备输入和来源资源。每项尝试的用量累计该候选在 Pi 重试中返回的用量；请求的 `modelAttempts` 同步记录各候选的真实绑定、状态与时间。进程重开时，把尚在运行的尝试标为 `interrupted`，结束时间保持未知。显式空系统提示保留为空。资源保留、后端关闭及中断结果继续使用[后台请求生命周期](requests.md#独立后台处理)。

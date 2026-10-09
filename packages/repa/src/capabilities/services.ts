@@ -3,6 +3,7 @@ import type { Dialog, DialogOptions } from "../pi-host.js";
 import type { Message, Params, Reply, RequestRecord, Result, SettingsView } from "../protocol.js";
 import type { ProcessingResult, Submit, Continue } from "../requests/schema.js";
 import type { ContentInfo, ContentTarget, ResourceRef } from "../content/schema.js";
+import type { ModelCompleteOptions } from "../models/schema.js";
 import type { CapabilityNotification } from "./schema.js";
 
 export interface RepaCapabilityServices {
@@ -23,7 +24,7 @@ export interface RepaCapabilityServices {
     run(input: ExecutionInput): Promise<ExecutionView>;
   };
   models?: {
-    complete(options: Omit<Params<"model.complete">, "spaceId" | "requestId">): Promise<ProcessingResult>;
+    complete(options: ModelCompleteOptions): Promise<ProcessingResult>;
   };
   sessions?: {
     snapshot(params: { sessionId: string; revision?: string }): { revision: string; messages: Message[] };

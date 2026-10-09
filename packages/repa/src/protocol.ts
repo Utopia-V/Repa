@@ -4,7 +4,7 @@ import { displayMethods } from "./display/schema.js";
 export * from "./display/schema.js";
 import { contentMethods } from "./content/protocol.js";
 import { spaceMethods, SpaceSchema } from "./spaces/schema.js";
-import { modelMethods, ModelFallbackSchema, ModelSelectionSchema } from "./models/schema.js";
+import { modelMethods, ModelCompleteOptionsSchema } from "./models/schema.js";
 import { learningMethods } from "./learning/protocol.js";
 import { CapabilityScopeSchema, CapabilitySelectionSchema, CapabilityDescriptorSchema, CapabilitySourceSchema, CapabilityEventSchema } from "./capabilities/schema.js";
 import { PluginPackageSchema } from "./plugins/schema.js";
@@ -17,7 +17,7 @@ export * from "./search/protocol.js";
 export * from "./learning/schema.js";
 export * from "./models/schema.js";
 export * from "./configuration/runtime.js";
-import { AssembledPromptSchema, ThinkingLevelSchema } from "./configuration/runtime.js";
+import { AssembledPromptSchema } from "./configuration/runtime.js";
 export * from "./spaces/schema.js";
 import { ContentChangeResultSchema, ResourceRefSchema } from "./content/schema.js";
 import { PromptSettingsSchema, SettingsGetParamsSchema, SettingsSetParamsSchema, SettingsResetParamsSchema, SettingsViewSchema, SettingScopeSchema } from "./configuration/schema.js";
@@ -25,7 +25,7 @@ export * from "./content/schema.js";
 export * from "./configuration/schema.js";
 export { RepaFault } from "./errors.js";
 
-import { SubmitSchema, ContinueSchema, RequestSchema, QueueSchema, BackgroundRequestSchema, RunOptionsSchema, InteractionSchema, ReplySchema, InteractionReplyResultSchema, InputSchema } from "./requests/schema.js";
+import { SubmitSchema, ContinueSchema, RequestSchema, QueueSchema, BackgroundRequestSchema, RunOptionsSchema, InteractionSchema, ReplySchema, InteractionReplyResultSchema } from "./requests/schema.js";
 export * from "./requests/schema.js";
 
 export const PROTOCOL_VERSION = 1;
@@ -244,10 +244,7 @@ export const methods = {
     settings: Type.Array(SettingsViewSchema),
   })),
   "model.complete": method(object({
-    spaceId: id, requestId: id, input: InputSchema, model: ModelSelectionSchema,
-    system: text, thinkingLevel: Type.Optional(ThinkingLevelSchema),
-    maxTokens: Type.Optional(Type.Integer({ minimum: 1 })),
-    fallback: Type.Optional(ModelFallbackSchema),
+    spaceId: id, requestId: id, ...ModelCompleteOptionsSchema.properties,
   }), BackgroundRequestSchema),
   "settings.get": method(SettingsGetParamsSchema, SettingsViewSchema),
   "settings.set": method(SettingsSetParamsSchema, SettingsViewSchema),

@@ -1,5 +1,6 @@
 import { Type, type Static } from "typebox";
 import { IdSchema, RevisionSchema, object, literals } from "../schema.js";
+import { InputSchema } from "../requests/input-schema.js";
 
 const text = Type.String({ minLength: 1 });
 export const ModelCompatibilitySchema = object({
@@ -54,6 +55,16 @@ export const ModelFallbackSchema = object({
   models: Type.Array(ModelSelectionSchema, { minItems: 1, uniqueItems: true }),
 });
 export type ModelFallback = Static<typeof ModelFallbackSchema>;
+export const ThinkingLevelSchema = literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+export const ModelCompleteOptionsSchema = object({
+  input: InputSchema,
+  model: ModelSelectionSchema,
+  system: Type.String(),
+  thinkingLevel: Type.Optional(ThinkingLevelSchema),
+  maxTokens: Type.Optional(Type.Integer({ minimum: 1 })),
+  fallback: Type.Optional(ModelFallbackSchema),
+});
+export type ModelCompleteOptions = Static<typeof ModelCompleteOptionsSchema>;
 export const BoundModelFallbackSchema = object({
   on: ModelFallbackSchema.properties.on,
   models: Type.Array(ModelBindingSchema, { minItems: 1 }),

@@ -25,7 +25,7 @@ import { EXECUTION_SETTINGS_DEFINITION } from "./execution/settings.js";
 import type { ExecutionContext, ProgramCapabilities } from "./execution/service.js";
 import { ModelConnections } from "./models/service.js";
 import { ModelCalls } from "./models/calls.js";
-import { interruptModelAttempts, updateModelAttempts, type ModelMethod, type ModelParams, type ModelBinding, type ModelAttempt } from "./models/schema.js";
+import { ModelCompleteOptionsSchema, interruptModelAttempts, updateModelAttempts, type ModelCompleteOptions, type ModelMethod, type ModelParams, type ModelBinding, type ModelAttempt } from "./models/schema.js";
 import { learningContentFormat } from "./learning/content-format.js";
 import { learningBackground } from "./learning/background.js";
 import { LEARNING_CONTEXT_TOOLS } from "./learning/plugin.js";
@@ -646,8 +646,10 @@ export class RepaApplication {
           },
         } satisfies NonNullable<RepaCapabilityServices["resources"]>,
         models: {
-          complete: async (options: Omit<Params<"model.complete">, "spaceId" | "requestId">) => {
+          complete: async (options: ModelCompleteOptions) => {
             signal.throwIfAborted();
+            if (!Check(ModelCompleteOptionsSchema, options))
+              throw new RepaFault("invalid_input", "独立模型调用选项无效。");
             const input = structuredClone(options);
             const resolved = await this.#bindModel(scope.spaceId, input);
             return this.#modelCalls.complete({ ...resolved, input: input.input, system: input.system,

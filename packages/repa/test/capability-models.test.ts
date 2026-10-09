@@ -13,7 +13,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RepaCapabilityServices } from "../src/capabilities/services.js";
 import type { CapabilityDefinition } from "../src/capabilities/types.js";
 import { RepaClient } from "../src/client.js";
-import { ModelBindingSchema, ModelFallbackSchema, ModelSelectionSchema, type ModelFallback } from "../src/models/schema.js";
+import { ModelBindingSchema, ModelFallbackSchema, ModelSelectionSchema, type ModelFallback, type ModelCompleteOptions } from "../src/models/schema.js";
 import { inputResources } from "../src/requests/input.js";
 import { InputSchema, RepresentationSchema, type BackgroundRequest, type Input } from "../src/requests/schema.js";
 import { object } from "../src/schema.js";
@@ -48,7 +48,7 @@ async function until<T>(read: () => T | Promise<T>, ready: (value: T) => boolean
   }
 }
 
-async function fixture(t: TestContext, options: { block?: boolean; failPrimary?: boolean; failFallback?: boolean; agent?: boolean } = {}) {
+async function fixture(t: TestContext, options: { block?: boolean; failPrimary?: boolean; failFallback?: boolean; agent?: boolean; configureComplete?(options: ModelCompleteOptions): void } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-capability-models-"));
   const agentDir = path.join(root, "agent");
   const directory = path.join(root, "space");
@@ -122,9 +122,11 @@ async function fixture(t: TestContext, options: { block?: boolean; failPrimary?:
       const observed = { source: context.source.kind, aborted: false, finished: false };
       invocations.push(observed);
       try {
-        return await context.services.models.complete({
+        const completeOptions: ModelCompleteOptions = {
           model: input.model, input: input.input, fallback: input.fallback, system: "只处理能力提交的明确输入。", thinkingLevel: "off", maxTokens: 32,
-        });
+        };
+        options.configureComplete?.(completeOptions);
+        return await context.services.models.complete(completeOptions);
       } finally {
         observed.aborted = context.signal.aborted;
         observed.finished = true;
@@ -238,6 +240,60 @@ test("能力调用真实 HTTP 模型，父后台请求持久保留模型表示�
   await f.client.call("resource.collect", { spaceId: f.space.id });
   assert.deepEqual(Buffer.from(await (await f.client.resource(resource)).arrayBuffer()), bytes);
   assert.equal(await (await f.client.resource(read.resource)).text(), "能力引用的原文");
+});
+
+test("JavaScript 插件的非法模型选项在模型绑定和资源准备前失败，provider 不收到请求", async (t) => {
+  let patch: Record<string, unknown> = {};
+  const f = await fixture(t, { configureComplete: options => { Object.assign(options, patch); } });
+  const invalidOptions: Record<string, unknown>[] = [
+    { system: 42 },
+    { system: undefined },
+    { maxTokens: 0 },
+    { maxTokens: -1 },
+    { maxTokens: 1.5 },
+    { maxTokens: "32" },
+    { maxTokens: Number.NaN },
+    { maxTokens: Number.POSITIVE_INFINITY },
+    { input: { parts: [] } },
+    { input: { parts: [{ kind: "text", text: 42 }] } },
+    { input: { parts: [{ kind: "resource", resource: { id: "missing" } }] } },
+    { input: { parts: [{ kind: "text", text: "输入", unknown: true }] } },
+    { model: { connectionId: f.connection.id, id: "" } },
+    { model: { connectionId: f.connection.id, id: f.model.id, unknown: true } },
+    { thinkingLevel: "unsupported" },
+    { fallback: { on: "any_error", models: [f.model] } },
+    { fallback: { on: "transient_error", models: [] } },
+    { fallback: { on: "transient_error", models: [{ ...f.model, unknown: true }] } },
+    { unknown: true },
+    // 即使模型和引用本身需要异步解析，也先拒绝非法输出上限。
+    { maxTokens: 0, model: { connectionId: "missing", id: "missing" } },
+    { maxTokens: 0, input: { parts: [{ kind: "reference", target: {
+      kind: "file", spaceId: f.space.id, location: { kind: "relative", path: "missing.txt" },
+    } }] } },
+  ];
+  for (patch of invalidOptions) {
+    const accepted = await f.invoke({ parts: [{ kind: "text", text: "合法父输入" }] });
+    const result = await f.finished(accepted);
+    assert.equal(result.status, "failed", JSON.stringify(patch));
+    assert.equal(result.error?.code, "invalid_input", JSON.stringify(patch));
+    assert.deepEqual(result.modelAttempts ?? [], [], "无效选项不创建模型尝试");
+    assert.equal(f.requests.length, 0, "无效选项不发送 provider 请求");
+  }
+  assert(f.invocations.every(invocation => invocation.finished && !invocation.aborted));
+});
+
+test("共享模型服务保留空系统提示和空文本，正整数上限与省略思考强度仍进入真实 provider", async (t) => {
+  const f = await fixture(t, { configureComplete: options => {
+    options.system = "";
+    options.maxTokens = 1;
+    delete options.thinkingLevel;
+  } });
+  const accepted = await f.invoke({ parts: [{ kind: "text", text: "" }] });
+  modelResult(await f.finished(accepted));
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0]?.body.max_completion_tokens ?? f.requests[0]?.body.max_tokens, 1);
+  assert.equal(f.requests[0]?.body.messages.some(message => ["system", "developer"].includes(message.role)), false);
+  assert.deepEqual(f.invocations, [{ source: "client", aborted: false, finished: true }]);
 });
 
 test("真实父请求取消和连接移除均结束能力借用的 HTTP 子调用，取消状态留在父请求", async (t) => {

@@ -1,10 +1,10 @@
 import { Type, type Static } from "typebox";
-import { ModelFallbackSchema, ModelSelectionSchema } from "../models/schema.js";
-import { object, literals } from "../schema.js";
+import { ModelFallbackSchema, ModelSelectionSchema, ThinkingLevelSchema } from "../models/schema.js";
+import { object } from "../schema.js";
 import type { SettingsNamespaceDefinition } from "./definitions.js";
 import { SummaryPromptsSchema } from "../agent/summary-settings.js";
 
-export const ThinkingLevelSchema = literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+export { ThinkingLevelSchema } from "../models/schema.js";
 export const CompactionOptionsSchema = object({
   enabled: Type.Boolean(),
   reserveTokens: Type.Integer({ minimum: 1 }),

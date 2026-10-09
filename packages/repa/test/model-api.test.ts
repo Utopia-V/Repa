@@ -834,6 +834,52 @@ test("公开独立回退固定所有候选身份，保留实际尝试且重传�
   assert.equal(f.requests.length, 2);
 });
 
+test("公开独立模型调用复用选项校验，非法输入在受理前拒绝且 provider 不收到请求", async (t) => {
+  const f = await fixture(t);
+  const selected = await connection(f, "校验连接", "validation", "validation-key");
+  const selection = { connectionId: selected.id, id: model.id };
+  const invalidOptions: Record<string, unknown>[] = [
+    { system: 42 },
+    { system: undefined },
+    { maxTokens: 0 },
+    { maxTokens: -1 },
+    { maxTokens: 1.5 },
+    { maxTokens: "32" },
+    { maxTokens: null },
+    { input: { parts: [] } },
+    { input: { parts: [{ kind: "text", text: 42 }] } },
+    { input: { parts: [{ kind: "resource", resource: { id: "missing" } }] } },
+    { input: { parts: [{ kind: "text", text: "输入", unknown: true }] } },
+    { model: { ...selection, id: "" } },
+    { model: { ...selection, unknown: true } },
+    { thinkingLevel: "unsupported" },
+    { fallback: { on: "any_error", models: [selection] } },
+    { fallback: { on: "transient_error", models: [] } },
+    { fallback: { on: "transient_error", models: [{ ...selection, unknown: true }] } },
+    { unknown: true },
+  ];
+  for (const patch of invalidOptions) {
+    const params: Params<"model.complete"> = {
+      spaceId: f.key.spaceId, requestId: randomUUID(), model: selection,
+      input: { parts: [{ kind: "text", text: "非法选项不应发送" }] }, system: "",
+    };
+    Object.assign(params, patch);
+    await assert.rejects(f.client.call("model.complete", params), error => error instanceof RpcError && error.code === -32602);
+    assert.deepEqual(await f.client.call("request.get", { spaceId: f.key.spaceId, requestId: params.requestId }),
+      { requestId: params.requestId, status: "unknown" });
+    assert.equal(f.requests.length, 0);
+  }
+  const accepted = await f.client.call("model.complete", {
+    spaceId: f.key.spaceId, requestId: randomUUID(), model: selection,
+    input: { parts: [{ kind: "text", text: "" }] }, system: "", maxTokens: 1,
+  });
+  const completed = await finishProcessing(f.client, accepted);
+  assert.equal(completed.status, "completed", completed.error?.message);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0]?.body.max_completion_tokens ?? f.requests[0]?.body.max_tokens, 1);
+  assert.equal(f.requests[0]?.body.messages.some(message => ["system", "developer"].includes(message.role)), false);
+});
+
 test("公开回退的最终失败保存每个候选错误，重复主模型在受理前拒绝", async (t) => {
   const f = await fixture(t);
   const first = await connection(f, "主连接", "failed-one", "first-key");
