@@ -35,3 +35,25 @@ test("固定沙箱构建锁与来源元信息的摘要相符", async () => {
   const patch = await readFile(new URL(`../resources/sandbox/${metadata.bubblewrap.patch}`, import.meta.url));
   assert.equal(createHash("sha256").update(patch).digest("hex"), metadata.bubblewrap.patchSha256);
 });
+
+test("已构建沙箱与当前固定来源相符，过期副本需要重新构建", async (t) => {
+  const directory = new URL("../resources/sandbox/linux-x64/", import.meta.url);
+  let helper: Buffer;
+  try {
+    helper = await readFile(new URL("codex-linux-sandbox", directory));
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      t.skip("尚未构建 Linux helper");
+      return;
+    }
+    throw error;
+  }
+  const source: unknown = JSON.parse(await readFile(new URL("../resources/sandbox/source.json", import.meta.url), "utf8"));
+  const build: unknown = JSON.parse(await readFile(new URL("build.json", directory), "utf8"));
+  assert(build !== null && typeof build === "object" && "source" in build);
+  assert.deepEqual(build.source, source, "沙箱产物来源已过期，请运行 npm run build:sandbox --workspace=repa");
+  assert("helperSha256" in build && "bubblewrapSha256" in build);
+  assert.equal(createHash("sha256").update(helper).digest("hex"), build.helperSha256);
+  const bubblewrap = await readFile(new URL("codex-resources/bwrap", directory));
+  assert.equal(createHash("sha256").update(bubblewrap).digest("hex"), build.bubblewrapSha256);
+});

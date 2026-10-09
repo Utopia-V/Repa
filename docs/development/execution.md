@@ -137,6 +137,8 @@ npm run build:release --workspace=repa
 
 产物位于 `packages/repa/resources/sandbox/linux-x64/`，不进入 Git。`npm pack --workspace=repa` 会纳入 `dist`、helper、bubblewrap，以及来源、许可、构建锁、补丁和脚本。普通源码构建不下载 Rust 工具链或编译沙箱；缺少 helper 或匹配的相邻 bubblewrap 时，受限执行返回不可用。
 
+切换源码后，已有的原生副本可能仍使用旧补丁。构建回归会比较 `build.json` 与当前 `source.json`，并核对两个产物的摘要；来源变化时按上面的构建入口重建，继续复用下载与 Cargo 缓存。二进制文件存在只说明有一个副本，不能证明它对应当前执行代码要求的生命周期修复。
+
 当前实际构建和运行的环境是 Linux x64、Ubuntu 24.04.5、glibc 2.39。执行器暂不支持 Windows 和 macOS；其他 Linux 发行版及架构尚未验证。
 
 Ubuntu 的用户命名空间限制可能要求为最终安装位置配置专用 AppArmor profile。在已构建的后端包目录中，可以生成配置：
