@@ -165,6 +165,22 @@ test("受限命令真实完成，扩大权限等待、拒绝和取消均不执�
   assert.equal(await readFile(outside, "utf8"), "once");
 });
 
+test("普通受限命令只取得执行环境，不隐式注入程序能力通道", async (t) => {
+  const f = await fixture(t);
+  const accepted = await f.client.call("execution.run", {
+    spaceId: f.space.id, requestId: randomUUID(),
+    command: 'if [ "${REPA_PROGRAM_FD+x}" = x ] || [ "${REPA_PROGRAM_CLIENT+x}" = x ]; then exit 9; fi; printf "ordinary-command\\n"',
+  });
+  const completed = await f.finished(accepted.requestId);
+  assert.equal(completed.status, "completed", JSON.stringify(completed));
+  assert(completed.result?.value.kind === "inline");
+  assert(Check(ExecutionViewSchema, completed.result.value.data));
+  const execution = completed.result.value.data;
+  assert.equal(execution.output, "ordinary-command\n");
+  assert.equal(execution.resources, undefined);
+  assert.deepEqual(completed.result.resources, []);
+});
+
 test("公开 Full Access 调用使用登录配置中的工具与用户目录", async (t) => {
   const f = await fixture(t);
   const bin = path.join(f.home, "bin");

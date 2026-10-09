@@ -22,7 +22,7 @@ import type { SummaryPrompts } from "./agent/summary-settings.js";
 import { executionRepresentation } from "./execution/format.js";
 import { ExecutionService } from "./execution/service.js";
 import { EXECUTION_SETTINGS_DEFINITION } from "./execution/settings.js";
-import type { ExecutionContext, ProgramCapabilities } from "./execution/service.js";
+import type { ExecutionContext } from "./execution/service.js";
 import { ModelConnections } from "./models/service.js";
 import { ModelCalls } from "./models/calls.js";
 import { ModelCompleteOptionsSchema, interruptModelAttempts, updateModelAttempts, type ModelCompleteOptions, type ModelMethod, type ModelParams, type ModelBinding, type ModelAttempt } from "./models/schema.js";
@@ -619,7 +619,6 @@ export class RepaApplication {
         execution: {
           run: input => this.#execution.run(input, {
             spaceId: scope.spaceId, requestId, source, signal, ask,
-            program: this.#programCapabilities(scope, source, requestId, parent),
           }),
         },
         resources: {
@@ -784,7 +783,7 @@ export class RepaApplication {
       });
   }
 
-  /** 工具与程序共用调用归属和资源保存，只有工具入口需要补齐隐藏的程序参数。 */
+  /** Agent 工具的能力调用沿父请求保留输入与输出资源。 */
   async #invokeBoundCapability(runtime: PluginRuntime, scope: { kind: "space"; spaceId: string },
     source: CapabilitySource, requestId: string, selection: CapabilitySelection, input: unknown,
     signal: AbortSignal, parent: CapabilityParent): Promise<{ result: unknown; representation: ProcessingResult }> {
@@ -804,30 +803,6 @@ export class RepaApplication {
     return { result, representation: delivered };
   }
 
-  #programCapabilities(scope: { kind: "space"; spaceId: string }, source: CapabilitySource,
-    requestId: string, parent: CapabilityParent): ProgramCapabilities {
-    let loading: Promise<PluginRuntime> | undefined;
-    const runtime = async (signal: AbortSignal) => {
-      signal.throwIfAborted();
-      loading ??= this.#plugins(scope);
-      const current = await loading;
-      signal.throwIfAborted();
-      return current;
-    };
-    return {
-      describe: async signal => (await runtime(signal)).capabilities.list().filter(item => item.scopes.includes("space")),
-      invoke: async (params, signal) => {
-        const current = await runtime(signal);
-        const selected = current.capabilities.resolve({
-          contract: params.contract,
-          implementationId: params.implementationId ?? current.configuration.implementations[params.contract.id],
-        }, scope);
-        const delivered = await this.#invokeBoundCapability(current, scope, source, requestId,
-          { contract: selected.contract, implementationId: selected.implementationId }, params.input, signal, parent);
-        return { result: delivered.result, resources: delivered.representation.resources };
-      },
-    };
-  }
 
   invokeCapability(params: Params<"capability.invoke">, hostId: string): Promise<Result<"capability.invoke">> {
     const submission = structuredClone(params);
@@ -907,11 +882,6 @@ export class RepaApplication {
       }, async (_input, context) => {
         const result = await this.#execution.run(command, { spaceId, requestId, source,
           signal: context.signal, ask: context.ask,
-          program: this.#programCapabilities(scope, source, requestId, {
-            cancel: () => { record.processing.cancel(requestId); },
-            progress: context.progress,
-            ask: context.ask,
-          }),
         });
         return executionRepresentation(result);
       });
@@ -932,11 +902,6 @@ export class RepaApplication {
       source,
       signal: signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal,
       ask: (dialog, options) => this.#ask(record, dialog, options),
-      program: this.#programCapabilities({ kind: "space", spaceId }, source, active.request.requestId, {
-        cancel: () => { this.cancelRun(spaceId, active.run.id); },
-        progress: message => this.#notice(record, "capability_progress", message, "info"),
-        ask: (dialog, options) => this.#ask(record, dialog, options),
-      }),
     };
   }
 

@@ -4,7 +4,6 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { Duplex } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { RepaFault } from "../errors.js";
@@ -27,15 +26,9 @@ export interface RunCommandOptions {
   onData(stream: "stdout" | "stderr", data: Buffer): void;
   onStarted?(pid: number): void;
   onExited?(result: CommandResult): void;
-  program?: {
-    env: NodeJS.ProcessEnv;
-    readPaths: readonly string[];
-    attach(stream: Duplex): void;
-    close(): Promise<void>;
-  };
 }
 
-async function commandPipes(withProgram: boolean) {
+async function commandPipes() {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-command-pipes-"));
   const descriptors = new Set<number>();
   const streams: Socket[] = [];
@@ -52,32 +45,25 @@ async function commandPipes(withProgram: boolean) {
     streams.forEach((stream) => { stream.destroy(); });
   };
   try {
-    const names = withProgram ? ["stdout", "stderr", "program-read", "program-write"] : ["stdout", "stderr"];
+    const names = ["stdout", "stderr"];
     await promisify(execFile)("/usr/bin/mkfifo", ["--mode=600", ...names.map((name) => path.join(root, name))]);
-    const pipe = (name: string, direction: "read" | "write") => {
+    const pipe = (name: string) => {
       const value = path.join(root, name);
       // 这里只打开 FIFO 描述符，不读写文件；临时双向端避免建立连接时阻塞。
       open(value, constants.O_RDWR | constants.O_NONBLOCK);
-      const child = open(value, direction === "read" ? constants.O_WRONLY : constants.O_RDONLY);
-      const host = open(value, (direction === "read" ? constants.O_RDONLY : constants.O_WRONLY) | constants.O_NONBLOCK);
-      const stream = new Socket({ fd: host, readable: direction === "read", writable: direction === "write" });
+      const child = open(value, constants.O_WRONLY);
+      const host = open(value, constants.O_RDONLY | constants.O_NONBLOCK);
+      const stream = new Socket({ fd: host, readable: true, writable: false });
       descriptors.delete(host);
       streams.push(stream);
       return { child, stream };
     };
-    const stdout = pipe("stdout", "read");
-    const stderr = pipe("stderr", "read");
-    let program: Duplex | undefined;
+    const stdout = pipe("stdout");
+    const stderr = pipe("stderr");
     const stdio = [stdout.child, stderr.child];
-    if (withProgram) {
-      const read = pipe("program-read", "write");
-      const write = pipe("program-write", "read");
-      program = Duplex.from({ readable: write.stream, writable: read.stream });
-      stdio.push(read.child, write.child);
-    }
     // 路径立即消失；子进程只能使用继承的 FD，不需要额外文件授权。
     await rm(root, { recursive: true, force: true });
-    return { stdout: stdout.stream, stderr: stderr.stream, program, stdio, release, destroy };
+    return { stdout: stdout.stream, stderr: stderr.stream, stdio, release, destroy };
   } catch (error) {
     destroy();
     release();
@@ -131,7 +117,7 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
     }
     prepared = await prepareCommand(options);
     const command = prepared;
-    pipes = await commandPipes(options.program !== undefined);
+    pipes = await commandPipes();
     const commandStreams = pipes;
     if (options.signal?.aborted) {
       throw new Error("aborted");
@@ -148,12 +134,7 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
       let killTimer: NodeJS.Timeout | undefined;
       let timeoutTimer: NodeJS.Timeout | undefined;
       let stopping = false;
-      let programClosing: Promise<void> | undefined;
-      const closeProgram = () => {
-        programClosing ??= options.program?.close().catch((error: unknown) => { failure ??= error; });
-      };
       const stop = () => {
-        closeProgram();
         if (child.pid === undefined || stopping) {
           return;
         }
@@ -224,14 +205,6 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
         failure = error;
         if (child.pid === undefined) commandStreams.destroy();
       });
-      if (commandStreams.program) {
-        try {
-          options.program?.attach(commandStreams.program);
-        } catch (error) {
-          failure = error;
-          stop();
-        }
-      }
       commandStreams.release();
       // 父 shell 普通结束时也终止留在本次独立进程组内的后台任务。
       child.on("exit", () => { stop(); });
@@ -253,7 +226,7 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
           } finally {
             clearTimeout(killTimer);
           }
-          await Promise.all([programClosing, outputDone]);
+          await outputDone;
           const result: CommandResult = {
             exitCode: code ?? (signal ? 128 + os.constants.signals[signal] : 1),
             ...(signal ? { signal } : {}),
@@ -274,8 +247,6 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
     });
   } finally {
     pipes?.release();
-    await options.program?.close();
-    pipes?.program?.destroy();
     pipes?.destroy();
     await prepared?.cleanup?.();
     if (terminal) {

@@ -10,8 +10,6 @@ Repa 为 Agent、公开客户端和后端能力提供同一个命令执行入口
 
 你选择受限执行时，Repa 会把当前授权转换成沙箱的权限配置，再通过固定版本 Codex 的 Linux helper 和 bubblewrap 限制命令的文件与网络访问。这两个程序随 Repa 一起分发，你不用另外安装 Codex 应用。工具行为复用 Pi，系统隔离复用 Codex 的实现；相应地，项目需要维护原生构建和少量上游适配，安装时也要核对系统是否允许这套沙箱运行。
 
-如果一项任务需要反复调用应用能力，Agent 也可以把这些操作写成普通程序。程序沿用同一份能力声明与处理函数，在所属命令里完成循环、并发和筛选，再交回需要继续判断的结果。这样，模型可以选择逐次调用或程序化组合，业务状态仍由原模块维护。
-
 ## 实现细节
 
 ### 模块分工
@@ -22,7 +20,6 @@ Agent 工具使用 Pi 0.87.1 的 `createBashToolDefinition` 和 `createBashTool`
 | --- | --- |
 | [execution/service.ts](../../packages/repa/src/execution/service.ts) | 请求归属、有效权限、授权交互和输出资源 |
 | [execution/process.ts](../../packages/repa/src/execution/process.ts) | 启动进程、管道与描述符归属、取消、超时和退出 |
-| [execution/program.ts](../../packages/repa/src/execution/program.ts) 与 [program-client.ts](../../packages/repa/src/program-client.ts) | 程序通道的请求分发与 Node SDK |
 | [execution/sandbox.ts](../../packages/repa/src/execution/sandbox.ts) | 将批准的范围转换成 helper 的权限配置，准备执行环境 |
 | [agent/tool-results.ts](../../packages/repa/src/agent/tool-results.ts) | 保留 Pi 失败工具结果中的结构化详情 |
 
@@ -64,41 +61,6 @@ Agent 工具使用 Pi 0.87.1 的 `createBashToolDefinition` 和 `createBashTool`
 
 例如，空间是 `/tmp/example/space`，命令写入未获授权的 `/tmp/example/result.txt` 时，可能在沙箱中创建同名临时文件并返回成功，宿主的同名文件保持原样。需要把结果持久写到空间外时，应先授权那个位置。判断结果应结合实际执行环境，不能只凭退出码确认宿主文件已保存。
 
-### 程序化能力调用
-
-在 Repa 启动的 Node 程序中，你可以从 `REPA_PROGRAM_CLIENT` 指定的位置导入 SDK，再取得当前命令的能力连接。下面的程序同时查询复习项和当前时间：
-
-```js
-const { getProgramClient } = await import(process.env.REPA_PROGRAM_CLIENT);
-const repa = getProgramClient();
-
-try {
-  const [reviews, clock] = await Promise.all([
-    repa.invoke({
-      contract: { id: "repa.review.list", version: "1" },
-      input: { limit: 20 },
-    }),
-    repa.invoke({
-      contract: { id: "repa.planning.clock", version: "1" },
-      input: { timeZone: "Asia/Taipei" },
-    }),
-  ]);
-  console.log(JSON.stringify({ reviews, clock }));
-} finally {
-  repa.close();
-}
-```
-
-把程序保存到空间中的 `.mjs` 文件后，可通过 Agent 的 `bash` 或公开的 `execution.run` 执行。已经能够解析 `repa` 包的 Node 项目也可以从 `repa/program` 导入 SDK。`describe()` 返回当前空间的能力声明；`invoke()` 接收公共契约、可选的 `implementationId` 和公共输入，返回业务结果。需要 `operationId` 的修改由程序生成标识，工具入口的隐藏参数补齐只用于模型直接调用。
-
-空间、来源、父请求和取消信号由宿主绑定。Agent 启动的程序调用保留原会话与运行归属；公开客户端启动的命令则归原后台请求。两种入口都使用已启用的空间能力及现有实现选择配置。`runtime.tools` 控制模型直接看见的工具，程序通过本空间的能力声明进行组合。
-
-每条命令有一条程序连接，由一个主程序使用；同一程序内的并发请求通过请求标识对应结果。能力调用全部完成后，空闲 SDK 不阻止程序退出；显式 `close()` 可以提前释放连接。需要多个并发程序时，分别启动命令，各自取得连接。
-
-连接使用两条继承的真实管道。宿主打开 FIFO 后移除路径，再把读写描述符交给子进程；受限环境只需访问 SDK 文件和已继承的描述符。调用因此可以在禁网策略下进行，应用主连接令牌仍由原宿主保管。
-
-当命令退出、取消或超时，通道先停止受理并取消在途调用，再等待能力收尾。能力提出的交互也绑定这一取消信号。已经保存的业务修改保留；能力声明的输出资源汇入命令结果，再由原会话或后台请求接手，后续仍能读取。
-
 ### 输出与生命周期
 
 执行器为 stdout/stderr 使用真实管道，兼容受限环境中普通 Node 程序的 `console.log` 和 `console.error`；两个输出流全部读取后，才报告进程终态。`execution` 状态和 `execution_output` 事件提供请求来源、执行标识、stdout/stderr 标签、PID、退出码和终止信号。重连快照保留活跃命令的合并输出尾部，完整结果保存在父后台请求或 Pi 工具历史中。
@@ -107,7 +69,7 @@ try {
 
 当前临时日志位置和创建权限仍由 Pi 选择，使用宿主 umask。日志没有挂载到默认受限命令环境，公开接口也不返回它的宿主路径。升级 Pi 时需要核对 `BashOperations.exec` 的取消和退出约定，以及失败、取消时取得 `fullOutputPath` 和文件关闭的时序。
 
-工具详情使用标准 `Representation`，会话保存结果时接手资源，分支建立自己的保留关系。当前通过 Pi 的 `tool_result` 扩展补回失败结果的结构化详情；若 SDK 原生保留这些详情，这层适配可以收缩。空间复制会映射标准结果中的资源归属，历史命令和工作目录保留当时的记录。
+工具详情使用标准 `Representation`，会话保存结果时接手资源，分支建立自己的保留关系。新执行结果只声明完整输出日志资源；旧执行记录中的可选 `ExecutionView.resources` 保留读取与复制映射，继续保护已经保存的资源归属。当前通过 Pi 的 `tool_result` 扩展补回失败结果的结构化详情；若 SDK 原生保留这些详情，这层适配可以收缩。空间复制会映射标准结果中的资源归属，历史命令和工作目录保留当时的记录。
 
 当你取消受限命令，Repa 就会向 bubblewrap 的监控进程发送 TERM。监控进程终止沙箱内的 PID 1，并等待其余进程退出，再报告命令结果。Repa 随后等待输出关闭、清理临时目录，最后报告取消完成；超时也使用这条收尾路径。
 
@@ -166,11 +128,11 @@ sudo apparmor_parser -r /etc/apparmor.d/repa-linux-sandbox
 在 `packages/repa` 目录运行：
 
 ```sh
-node --import tsx --import ./test/environment.ts --test test/execution-process.test.ts test/execution-api.test.ts test/blob-import.test.ts test/agent-tools.test.ts test/program-transport.test.ts test/program-capability-api.test.ts
+node --import tsx --import ./test/environment.ts --test test/execution-process.test.ts test/execution-api.test.ts test/blob-import.test.ts test/agent-tools.test.ts test/execution-format.test.ts
 ```
 
 底层测试使用 helper、实际 C 程序、文件和 localhost 服务。公开接口测试通过后端、客户端与 Pi SDK，使用本地 faux provider 发起工具调用，验证授权、输出、取消、权限收回、重传、重启、分支和复制。
 
-程序调用测试覆盖禁网下的 SDK 加载、并发结果对应、父命令的退出与取消、交互等待时超时，以及资源随会话保存、重开和空间复制。启动期取消另用同步屏障固定挂载探测阶段，核对取消后正式命令不再启动。
+历史结果兼容测试覆盖旧执行结果中额外资源的读取和空间复制映射。启动期取消另用同步屏障固定挂载探测阶段，核对取消后正式命令不再启动。
 
 独立 helper 曾在专用 AppArmor profile 下从普通用户服务验证文件、网络、授权、取消、输出和副本恢复。随后又实际安装 Linux 桌面候选，核对 `/opt/Repa` 下 helper 使用分发专属 profile，并完成受限文件操作、数据重开和卸载清理。运行环境与安装步骤见[应用交付](distribution.md)。
