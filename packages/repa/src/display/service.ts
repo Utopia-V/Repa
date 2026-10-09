@@ -208,7 +208,10 @@ export class DisplayService {
     const source = { kind: "display" as const, hostId, spaceId: params.spaceId, instanceId: params.instanceId };
     const representation: DisplayResult = {
       format: { id: "repa.display-result", version: "1" },
-      value: { kind: "inline", data: { source, artifact, input: params.input } },
+      value: { kind: "inline", data: {
+        source, artifact, input: params.input,
+        ...(record.view.initialData !== undefined ? { initialData: structuredClone(record.view.initialData) } : {}),
+      } },
       sources: artifact.sources, resources: [artifact.value.resource, ...artifact.resources],
     };
     if ("sessionId" in action) {

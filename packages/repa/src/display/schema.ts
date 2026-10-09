@@ -17,6 +17,7 @@ export const DisplayResultSchema = object({
   format: object({ id: Type.Literal("repa.display-result"), version: Type.Literal("1") }),
   value: object({ kind: Type.Literal("inline"), data: object({
     source: DisplaySourceSchema, artifact: DisplayArtifactSchema, input: Type.Unknown(),
+    initialData: Type.Optional(Type.Unknown()),
   }) }),
   sources: RepresentationSchema.properties.sources,
   resources: RepresentationSchema.properties.resources,
