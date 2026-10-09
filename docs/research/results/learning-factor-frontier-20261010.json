@@ -1,0 +1,9013 @@
+{
+  "scope": "fixed binary research model; sequential exact own-state updates, not student efficacy or production API",
+  "raw_source_sha256": "8eb66db2a9abb78438f0ca79073de3aea9cb8873cdf253d3cff748646d925b33",
+  "public_projection_version": 2,
+  "fixed_assumptions": {
+    "variables": "binary skills; independent priors repeating A=4/5,B=2/5,C=3/5 in the frozen inputs",
+    "observation": {
+      "g": "1/10",
+      "h": "19/20",
+      "required": "all required current skills must equal1"
+    },
+    "teaching": "given 0→1 rate r, known remains known; no forgetting; r0 no-op/r1 independent new=1",
+    "inference": "exact Fraction own-state sequential updates; stable min-fill; fused bucket product+sumout",
+    "cap": "4096 caps a single actually allocated table, not enumerated union, total stored cells, Fraction bytes, skill count or wall time"
+  },
+  "structural_work_units": {
+    "peak_scope_peak_cells": "actual allocated table scope/cells; refused requested_cells is separate and was not allocated",
+    "enumeration_peak_scope_cells": "maximum enumerated bucket union, not a materialized table",
+    "cellwork": "the prototype's factor lookups/table-cell visits/constructed L or T cells, not measured production latency",
+    "stored_cells": "sum of ending factor table cells; latent variables and Fraction bit growth are reported separately",
+    "summary": "trace and segment peak_allocated/enumeration include both updates and post-event queries; update_cellwork sums event operations only, excluding the one-time prior initialization"
+  },
+  "publication_omissions": {
+    "removed": [
+      "per-step event_probability/query probability large Fraction strings",
+      "normal per-operation stats",
+      "all per-query rows and stats",
+      "raw elapsed_s/update_elapsed_s/query_elapsed_s"
+    ],
+    "retained": "all 66 case identities, actual attempted events/status/modes, per-case query count and unique requirements, all 99 non-time summaries; complete refused scope/cells and that operation stats; repeated rounds and full runs",
+    "shared_inputs": "同一完整输入事件列表只保存一次sequence_id，case独立保留每次受理status；共享输入不代表相同受理结果。",
+    "chain_comparison": "common initial+teaching prefix is summarized separately from deferred-only ladder suffix; full summaries are not same-sequence mode comparisons",
+    "numeric_format": "integers and original input Fraction strings; no rounded numbers presented as exact measured results",
+    "no_learning_effect_claim": true
+  },
+  "inputs": {
+    "cap": 4096,
+    "small_outcomes": [
+      [
+        false,
+        false,
+        false,
+        false
+      ],
+      [
+        false,
+        false,
+        false,
+        true
+      ],
+      [
+        false,
+        false,
+        true,
+        false
+      ],
+      [
+        false,
+        false,
+        true,
+        true
+      ],
+      [
+        false,
+        true,
+        false,
+        false
+      ],
+      [
+        false,
+        true,
+        false,
+        true
+      ],
+      [
+        false,
+        true,
+        true,
+        false
+      ],
+      [
+        false,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        false,
+        false,
+        false
+      ],
+      [
+        true,
+        false,
+        false,
+        true
+      ],
+      [
+        true,
+        false,
+        true,
+        false
+      ],
+      [
+        true,
+        false,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        false,
+        false
+      ],
+      [
+        true,
+        true,
+        false,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        false
+      ],
+      [
+        true,
+        true,
+        true,
+        true
+      ]
+    ],
+    "boundary_rates": [
+      "0",
+      "1/2",
+      "1"
+    ],
+    "component_counts": [
+      1,
+      4,
+      12
+    ],
+    "chain_sizes": [
+      3,
+      6,
+      10,
+      12,
+      13
+    ],
+    "chain_rates": [
+      "1/2"
+    ],
+    "chain_n13_controls": [
+      "0",
+      "1"
+    ],
+    "repeated_chain_size": 6,
+    "repeated_rounds": 6
+  },
+  "checks": {
+    "probabilities": 3346,
+    "observation_probabilities": 571,
+    "query_immutability": 3346,
+    "atomic_limits": 1
+  },
+  "source_hashes": {
+    "design-v1.md": "2ae0886de139b6aebf6d33037e78992c6f77de3456c630d05c40833259756456",
+    "design-v2.md": "71d0965264204fd0de016b780904f7350dd99c391e23ca0a4fa84640e24e95bf",
+    "plan-v1.md": "8e7023bf8b30296f5b72c04aee846d5f790182cc81166d39e3265200bc72b1c7",
+    "frontier.py": "a342838186c5a8b006bfbb64cb426f7be39c189f3ad47fa854427dad0e4de201",
+    "test_frontier.py": "5a32f400b26120407175b4ccca952ada228c28076ac8bc8a835d95bf3738173c",
+    "run-v1.py": "713b2c3893404870eed65cec133f9b971dd393e0a1c2a381e4d782b2f90bee99",
+    "inputs-v1.json": "8c73f7740b179732ddf9ffe62bfc738d982f006b11455b078ef3f986e8628ab7"
+  },
+  "small_complete": [
+    {
+      "case_id": "small_complete:00",
+      "outcomes": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-00",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:01",
+      "outcomes": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-00",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:02",
+      "outcomes": [
+        false,
+        false,
+        false,
+        true
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-01",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:03",
+      "outcomes": [
+        false,
+        false,
+        false,
+        true
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-01",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:04",
+      "outcomes": [
+        false,
+        false,
+        true,
+        false
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-02",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:05",
+      "outcomes": [
+        false,
+        false,
+        true,
+        false
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-02",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:06",
+      "outcomes": [
+        false,
+        false,
+        true,
+        true
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-03",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:07",
+      "outcomes": [
+        false,
+        false,
+        true,
+        true
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-03",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:08",
+      "outcomes": [
+        false,
+        true,
+        false,
+        false
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-04",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:09",
+      "outcomes": [
+        false,
+        true,
+        false,
+        false
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-04",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:10",
+      "outcomes": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-05",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:11",
+      "outcomes": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-05",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:12",
+      "outcomes": [
+        false,
+        true,
+        true,
+        false
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-06",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:13",
+      "outcomes": [
+        false,
+        true,
+        true,
+        false
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-06",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:14",
+      "outcomes": [
+        false,
+        true,
+        true,
+        true
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-07",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:15",
+      "outcomes": [
+        false,
+        true,
+        true,
+        true
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-07",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:16",
+      "outcomes": [
+        true,
+        false,
+        false,
+        false
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-08",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:17",
+      "outcomes": [
+        true,
+        false,
+        false,
+        false
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-08",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:18",
+      "outcomes": [
+        true,
+        false,
+        false,
+        true
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-09",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:19",
+      "outcomes": [
+        true,
+        false,
+        false,
+        true
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-09",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:20",
+      "outcomes": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-10",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:21",
+      "outcomes": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-10",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:22",
+      "outcomes": [
+        true,
+        false,
+        true,
+        true
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-11",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:23",
+      "outcomes": [
+        true,
+        false,
+        true,
+        true
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-11",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:24",
+      "outcomes": [
+        true,
+        true,
+        false,
+        false
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-12",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:25",
+      "outcomes": [
+        true,
+        true,
+        false,
+        false
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-12",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:26",
+      "outcomes": [
+        true,
+        true,
+        false,
+        true
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-13",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:27",
+      "outcomes": [
+        true,
+        true,
+        false,
+        true
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-13",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:28",
+      "outcomes": [
+        true,
+        true,
+        true,
+        false
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-14",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:29",
+      "outcomes": [
+        true,
+        true,
+        true,
+        false
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-14",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:30",
+      "outcomes": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 1986,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-15",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "small_complete:31",
+      "outcomes": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 3754,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-15",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    }
+  ],
+  "boundary_and_replay": [
+    {
+      "case_id": "boundary_and_replay:00",
+      "rate": "0",
+      "mode": "eager",
+      "version": "original",
+      "input_hash": "d8d5ba16d0e8625c4e8191efdae7d25522f965ef9e8b06e5002c2478ae366632",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 294,
+        "query_cellwork": 2642,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 12,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-16",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:01",
+      "rate": "0",
+      "mode": "eager",
+      "version": "corrected_first_judgment",
+      "input_hash": "0d8e6936f2eec2c0042ae8486ce702c6870f1ed6622695d6d3ff992d5f83d0aa",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 294,
+        "query_cellwork": 2642,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 12,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-17",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:02",
+      "rate": "0",
+      "mode": "deferred",
+      "version": "original",
+      "input_hash": "d8d5ba16d0e8625c4e8191efdae7d25522f965ef9e8b06e5002c2478ae366632",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 411,
+        "query_cellwork": 4600,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 28,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-16",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:03",
+      "rate": "0",
+      "mode": "deferred",
+      "version": "corrected_first_judgment",
+      "input_hash": "0d8e6936f2eec2c0042ae8486ce702c6870f1ed6622695d6d3ff992d5f83d0aa",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 411,
+        "query_cellwork": 4600,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 28,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-17",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:04",
+      "rate": "1/2",
+      "mode": "eager",
+      "version": "original",
+      "input_hash": "e8a41f662488c7053f670873a351f759ed723488636245fe115ffaaf9e0ec483",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 399,
+        "query_cellwork": 2774,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 10,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-18",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:05",
+      "rate": "1/2",
+      "mode": "eager",
+      "version": "corrected_first_judgment",
+      "input_hash": "5f6b78a21a489561611ed47cefb428974689cf1c5a904e6a67e33eaeababcfce",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 399,
+        "query_cellwork": 2774,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 10,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-19",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:06",
+      "rate": "1/2",
+      "mode": "deferred",
+      "version": "original",
+      "input_hash": "e8a41f662488c7053f670873a351f759ed723488636245fe115ffaaf9e0ec483",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 617,
+        "query_cellwork": 7340,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 36,
+        "last_current_variables": 3,
+        "last_latent_variables": 3
+      },
+      "sequence_id": "sequence-18",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:07",
+      "rate": "1/2",
+      "mode": "deferred",
+      "version": "corrected_first_judgment",
+      "input_hash": "5f6b78a21a489561611ed47cefb428974689cf1c5a904e6a67e33eaeababcfce",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 617,
+        "query_cellwork": 7340,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 36,
+        "last_current_variables": 3,
+        "last_latent_variables": 3
+      },
+      "sequence_id": "sequence-19",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:08",
+      "rate": "1",
+      "mode": "eager",
+      "version": "original",
+      "input_hash": "8324d3a7d42eae8a517646c850fe61a20e0d41b4832cae9078b1b3e0972c2ec3",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 329,
+        "query_cellwork": 2762,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 12,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-20",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:09",
+      "rate": "1",
+      "mode": "eager",
+      "version": "corrected_first_judgment",
+      "input_hash": "a984eda38c2dad559791478cdca2583f022bc6c293cf5815f6d18c341d258ac1",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 329,
+        "query_cellwork": 2762,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 12,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-21",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:10",
+      "rate": "1",
+      "mode": "deferred",
+      "version": "original",
+      "input_hash": "8324d3a7d42eae8a517646c850fe61a20e0d41b4832cae9078b1b3e0972c2ec3",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 551,
+        "query_cellwork": 6584,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 34,
+        "last_current_variables": 3,
+        "last_latent_variables": 3
+      },
+      "sequence_id": "sequence-20",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "boundary_and_replay:11",
+      "rate": "1",
+      "mode": "deferred",
+      "version": "corrected_first_judgment",
+      "input_hash": "a984eda38c2dad559791478cdca2583f022bc6c293cf5815f6d18c341d258ac1",
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 551,
+        "query_cellwork": 6584,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 34,
+        "last_current_variables": 3,
+        "last_latent_variables": 3
+      },
+      "sequence_id": "sequence-21",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 63,
+        "unique_required": [
+          [
+            "A"
+          ],
+          [
+            "A",
+            "B"
+          ],
+          [
+            "A",
+            "B",
+            "C"
+          ],
+          [
+            "A",
+            "C"
+          ],
+          [
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C"
+          ]
+        ]
+      }
+    }
+  ],
+  "disconnected_components": [
+    {
+      "case_id": "disconnected_components:00",
+      "component_count": 1,
+      "skill_count": 3,
+      "mode": "eager",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 274,
+        "query_cellwork": 581,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 18,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-22",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 12,
+        "unique_required": [
+          [
+            "G00A"
+          ],
+          [
+            "G00A",
+            "G00C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "disconnected_components:01",
+      "component_count": 1,
+      "skill_count": 3,
+      "mode": "deferred",
+      "summary": {
+        "accepted": 6,
+        "limits": 0,
+        "update_cellwork": 268,
+        "query_cellwork": 1129,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 3,
+        "last_latent_variables": 2
+      },
+      "sequence_id": "sequence-22",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 12,
+        "unique_required": [
+          [
+            "G00A"
+          ],
+          [
+            "G00A",
+            "G00C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "disconnected_components:02",
+      "component_count": 4,
+      "skill_count": 12,
+      "mode": "eager",
+      "summary": {
+        "accepted": 24,
+        "limits": 0,
+        "update_cellwork": 3496,
+        "query_cellwork": 9234,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 72,
+        "last_current_variables": 12,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-23",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 48,
+        "unique_required": [
+          [
+            "G00A",
+            "G00C"
+          ],
+          [
+            "G00A",
+            "G03A"
+          ],
+          [
+            "G00B",
+            "G01C",
+            "G03B"
+          ],
+          [
+            "G00C",
+            "G02B",
+            "G03C"
+          ],
+          [
+            "G01A",
+            "G01C"
+          ],
+          [
+            "G02A",
+            "G02C"
+          ],
+          [
+            "G03A",
+            "G03C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "disconnected_components:03",
+      "component_count": 4,
+      "skill_count": 12,
+      "mode": "deferred",
+      "summary": {
+        "accepted": 24,
+        "limits": 0,
+        "update_cellwork": 6352,
+        "query_cellwork": 19738,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 120,
+        "last_current_variables": 12,
+        "last_latent_variables": 8
+      },
+      "sequence_id": "sequence-23",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 48,
+        "unique_required": [
+          [
+            "G00A",
+            "G00C"
+          ],
+          [
+            "G00A",
+            "G03A"
+          ],
+          [
+            "G00B",
+            "G01C",
+            "G03B"
+          ],
+          [
+            "G00C",
+            "G02B",
+            "G03C"
+          ],
+          [
+            "G01A",
+            "G01C"
+          ],
+          [
+            "G02A",
+            "G02C"
+          ],
+          [
+            "G03A",
+            "G03C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "disconnected_components:04",
+      "component_count": 12,
+      "skill_count": 36,
+      "mode": "eager",
+      "summary": {
+        "accepted": 72,
+        "limits": 0,
+        "update_cellwork": 29688,
+        "query_cellwork": 85096,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 216,
+        "last_current_variables": 36,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-24",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 144,
+        "unique_required": [
+          [
+            "G00A",
+            "G00C"
+          ],
+          [
+            "G00A",
+            "G03A",
+            "G11C"
+          ],
+          [
+            "G00A",
+            "G06A",
+            "G11C"
+          ],
+          [
+            "G00A",
+            "G09A",
+            "G11C"
+          ],
+          [
+            "G00A",
+            "G11C"
+          ],
+          [
+            "G00B",
+            "G01C",
+            "G11A"
+          ],
+          [
+            "G00B",
+            "G04C",
+            "G11A"
+          ],
+          [
+            "G00B",
+            "G07C",
+            "G11A"
+          ],
+          [
+            "G00B",
+            "G10C",
+            "G11A"
+          ],
+          [
+            "G00C",
+            "G02B",
+            "G11B"
+          ],
+          [
+            "G00C",
+            "G05B",
+            "G11B"
+          ],
+          [
+            "G00C",
+            "G08B",
+            "G11B"
+          ],
+          [
+            "G00C",
+            "G11B"
+          ],
+          [
+            "G01A",
+            "G01C"
+          ],
+          [
+            "G02A",
+            "G02C"
+          ],
+          [
+            "G03A",
+            "G03C"
+          ],
+          [
+            "G04A",
+            "G04C"
+          ],
+          [
+            "G05A",
+            "G05C"
+          ],
+          [
+            "G06A",
+            "G06C"
+          ],
+          [
+            "G07A",
+            "G07C"
+          ],
+          [
+            "G08A",
+            "G08C"
+          ],
+          [
+            "G09A",
+            "G09C"
+          ],
+          [
+            "G10A",
+            "G10C"
+          ],
+          [
+            "G11A",
+            "G11C"
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "disconnected_components:05",
+      "component_count": 12,
+      "skill_count": 36,
+      "mode": "deferred",
+      "summary": {
+        "accepted": 72,
+        "limits": 0,
+        "update_cellwork": 61296,
+        "query_cellwork": 185460,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 360,
+        "last_current_variables": 36,
+        "last_latent_variables": 24
+      },
+      "sequence_id": "sequence-24",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 144,
+        "unique_required": [
+          [
+            "G00A",
+            "G00C"
+          ],
+          [
+            "G00A",
+            "G03A",
+            "G11C"
+          ],
+          [
+            "G00A",
+            "G06A",
+            "G11C"
+          ],
+          [
+            "G00A",
+            "G09A",
+            "G11C"
+          ],
+          [
+            "G00A",
+            "G11C"
+          ],
+          [
+            "G00B",
+            "G01C",
+            "G11A"
+          ],
+          [
+            "G00B",
+            "G04C",
+            "G11A"
+          ],
+          [
+            "G00B",
+            "G07C",
+            "G11A"
+          ],
+          [
+            "G00B",
+            "G10C",
+            "G11A"
+          ],
+          [
+            "G00C",
+            "G02B",
+            "G11B"
+          ],
+          [
+            "G00C",
+            "G05B",
+            "G11B"
+          ],
+          [
+            "G00C",
+            "G08B",
+            "G11B"
+          ],
+          [
+            "G00C",
+            "G11B"
+          ],
+          [
+            "G01A",
+            "G01C"
+          ],
+          [
+            "G02A",
+            "G02C"
+          ],
+          [
+            "G03A",
+            "G03C"
+          ],
+          [
+            "G04A",
+            "G04C"
+          ],
+          [
+            "G05A",
+            "G05C"
+          ],
+          [
+            "G06A",
+            "G06C"
+          ],
+          [
+            "G07A",
+            "G07C"
+          ],
+          [
+            "G08A",
+            "G08C"
+          ],
+          [
+            "G09A",
+            "G09C"
+          ],
+          [
+            "G10A",
+            "G10C"
+          ],
+          [
+            "G11A",
+            "G11C"
+          ]
+        ]
+      }
+    }
+  ],
+  "chains": [
+    {
+      "case_id": "chains:00",
+      "n": 3,
+      "rate": "1/2",
+      "mode": "eager",
+      "initial_events": 2,
+      "teaching_events": 1,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 3,
+        "limits": 0,
+        "update_cellwork": 129,
+        "query_cellwork": 267,
+        "peak_allocated_cells": 8,
+        "peak_enumeration_cells": 16,
+        "last_stored_cells": 12,
+        "last_current_variables": 3,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-25",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 6,
+        "unique_required": [
+          [
+            "S00",
+            "S02"
+          ],
+          [
+            "S02"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 3,
+          "attempted_events": 3,
+          "summary": {
+            "accepted": 3,
+            "limits": 0,
+            "update_cellwork": 129,
+            "query_cellwork": 267,
+            "peak_allocated_cells": 8,
+            "peak_enumeration_cells": 16,
+            "last_stored_cells": 12,
+            "last_current_variables": 3,
+            "last_latent_variables": 0
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    },
+    {
+      "case_id": "chains:01",
+      "n": 3,
+      "rate": "1/2",
+      "mode": "deferred",
+      "initial_events": 2,
+      "teaching_events": 1,
+      "ladder_events": 2,
+      "summary": {
+        "accepted": 5,
+        "limits": 0,
+        "update_cellwork": 241,
+        "query_cellwork": 801,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 26,
+        "last_current_variables": 3,
+        "last_latent_variables": 1
+      },
+      "sequence_id": "sequence-26",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 10,
+        "unique_required": [
+          [
+            "S00",
+            "S02"
+          ],
+          [
+            "S02"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 3,
+          "attempted_events": 3,
+          "summary": {
+            "accepted": 3,
+            "limits": 0,
+            "update_cellwork": 65,
+            "query_cellwork": 327,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 4,
+            "last_stored_cells": 18,
+            "last_current_variables": 3,
+            "last_latent_variables": 1
+          }
+        },
+        "deferred_ladder_suffix": {
+          "events": 2,
+          "summary": {
+            "accepted": 2,
+            "limits": 0,
+            "update_cellwork": 176,
+            "query_cellwork": 474,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 8,
+            "last_stored_cells": 26,
+            "last_current_variables": 3,
+            "last_latent_variables": 1
+          }
+        }
+      }
+    },
+    {
+      "case_id": "chains:02",
+      "n": 6,
+      "rate": "1/2",
+      "mode": "eager",
+      "initial_events": 5,
+      "teaching_events": 4,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 9,
+        "limits": 0,
+        "update_cellwork": 1394,
+        "query_cellwork": 2687,
+        "peak_allocated_cells": 64,
+        "peak_enumeration_cells": 128,
+        "last_stored_cells": 68,
+        "last_current_variables": 6,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-27",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 18,
+        "unique_required": [
+          [
+            "S00",
+            "S05"
+          ],
+          [
+            "S05"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 9,
+          "attempted_events": 9,
+          "summary": {
+            "accepted": 9,
+            "limits": 0,
+            "update_cellwork": 1394,
+            "query_cellwork": 2687,
+            "peak_allocated_cells": 64,
+            "peak_enumeration_cells": 128,
+            "last_stored_cells": 68,
+            "last_current_variables": 6,
+            "last_latent_variables": 0
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    },
+    {
+      "case_id": "chains:03",
+      "n": 6,
+      "rate": "1/2",
+      "mode": "deferred",
+      "initial_events": 5,
+      "teaching_events": 4,
+      "ladder_events": 5,
+      "summary": {
+        "accepted": 14,
+        "limits": 0,
+        "update_cellwork": 2006,
+        "query_cellwork": 6286,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 68,
+        "last_current_variables": 6,
+        "last_latent_variables": 4
+      },
+      "sequence_id": "sequence-28",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 28,
+        "unique_required": [
+          [
+            "S00",
+            "S05"
+          ],
+          [
+            "S05"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 9,
+          "attempted_events": 9,
+          "summary": {
+            "accepted": 9,
+            "limits": 0,
+            "update_cellwork": 434,
+            "query_cellwork": 2571,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 4,
+            "last_stored_cells": 48,
+            "last_current_variables": 6,
+            "last_latent_variables": 4
+          }
+        },
+        "deferred_ladder_suffix": {
+          "events": 5,
+          "summary": {
+            "accepted": 5,
+            "limits": 0,
+            "update_cellwork": 1572,
+            "query_cellwork": 3715,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 8,
+            "last_stored_cells": 68,
+            "last_current_variables": 6,
+            "last_latent_variables": 4
+          }
+        }
+      }
+    },
+    {
+      "case_id": "chains:04",
+      "n": 10,
+      "rate": "1/2",
+      "mode": "eager",
+      "initial_events": 9,
+      "teaching_events": 8,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 17,
+        "limits": 0,
+        "update_cellwork": 17778,
+        "query_cellwork": 27295,
+        "peak_allocated_cells": 1024,
+        "peak_enumeration_cells": 2048,
+        "last_stored_cells": 1028,
+        "last_current_variables": 10,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-29",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 34,
+        "unique_required": [
+          [
+            "S00",
+            "S09"
+          ],
+          [
+            "S09"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 17,
+          "attempted_events": 17,
+          "summary": {
+            "accepted": 17,
+            "limits": 0,
+            "update_cellwork": 17778,
+            "query_cellwork": 27295,
+            "peak_allocated_cells": 1024,
+            "peak_enumeration_cells": 2048,
+            "last_stored_cells": 1028,
+            "last_current_variables": 10,
+            "last_latent_variables": 0
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    },
+    {
+      "case_id": "chains:05",
+      "n": 10,
+      "rate": "1/2",
+      "mode": "deferred",
+      "initial_events": 9,
+      "teaching_events": 8,
+      "ladder_events": 9,
+      "summary": {
+        "accepted": 26,
+        "limits": 0,
+        "update_cellwork": 7126,
+        "query_cellwork": 21378,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 124,
+        "last_current_variables": 10,
+        "last_latent_variables": 8
+      },
+      "sequence_id": "sequence-30",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 52,
+        "unique_required": [
+          [
+            "S00",
+            "S09"
+          ],
+          [
+            "S09"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 17,
+          "attempted_events": 17,
+          "summary": {
+            "accepted": 17,
+            "limits": 0,
+            "update_cellwork": 1458,
+            "query_cellwork": 8867,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 4,
+            "last_stored_cells": 88,
+            "last_current_variables": 10,
+            "last_latent_variables": 8
+          }
+        },
+        "deferred_ladder_suffix": {
+          "events": 9,
+          "summary": {
+            "accepted": 9,
+            "limits": 0,
+            "update_cellwork": 5668,
+            "query_cellwork": 12511,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 8,
+            "last_stored_cells": 124,
+            "last_current_variables": 10,
+            "last_latent_variables": 8
+          }
+        }
+      }
+    },
+    {
+      "case_id": "chains:06",
+      "n": 12,
+      "rate": "1/2",
+      "mode": "eager",
+      "initial_events": 11,
+      "teaching_events": 10,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 21,
+        "limits": 0,
+        "update_cellwork": 67670,
+        "query_cellwork": 97439,
+        "peak_allocated_cells": 4096,
+        "peak_enumeration_cells": 8192,
+        "last_stored_cells": 4100,
+        "last_current_variables": 12,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-31",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 42,
+        "unique_required": [
+          [
+            "S00",
+            "S11"
+          ],
+          [
+            "S11"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 21,
+          "attempted_events": 21,
+          "summary": {
+            "accepted": 21,
+            "limits": 0,
+            "update_cellwork": 67670,
+            "query_cellwork": 97439,
+            "peak_allocated_cells": 4096,
+            "peak_enumeration_cells": 8192,
+            "last_stored_cells": 4100,
+            "last_current_variables": 12,
+            "last_latent_variables": 0
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    },
+    {
+      "case_id": "chains:07",
+      "n": 12,
+      "rate": "1/2",
+      "mode": "deferred",
+      "initial_events": 11,
+      "teaching_events": 10,
+      "ladder_events": 11,
+      "summary": {
+        "accepted": 32,
+        "limits": 0,
+        "update_cellwork": 10874,
+        "query_cellwork": 32260,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 152,
+        "last_current_variables": 12,
+        "last_latent_variables": 10
+      },
+      "sequence_id": "sequence-32",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 64,
+        "unique_required": [
+          [
+            "S00",
+            "S11"
+          ],
+          [
+            "S11"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 21,
+          "attempted_events": 21,
+          "summary": {
+            "accepted": 21,
+            "limits": 0,
+            "update_cellwork": 2198,
+            "query_cellwork": 13431,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 4,
+            "last_stored_cells": 108,
+            "last_current_variables": 12,
+            "last_latent_variables": 10
+          }
+        },
+        "deferred_ladder_suffix": {
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 8676,
+            "query_cellwork": 18829,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 8,
+            "last_stored_cells": 152,
+            "last_current_variables": 12,
+            "last_latent_variables": 10
+          }
+        }
+      }
+    },
+    {
+      "case_id": "chains:08",
+      "n": 13,
+      "rate": "1/2",
+      "mode": "eager",
+      "initial_events": 12,
+      "teaching_events": 11,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 22,
+        "limits": 1,
+        "update_cellwork": 68097,
+        "query_cellwork": 156307,
+        "peak_allocated_cells": 4096,
+        "peak_enumeration_cells": 8192,
+        "last_stored_cells": 4106,
+        "last_current_variables": 13,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-33",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "work_limit"
+      ],
+      "limits": [
+        {
+          "event_index": 22,
+          "requested_cells": 8192,
+          "requested_scope": [
+            "S00@0",
+            "S01@1",
+            "S02@1",
+            "S03@1",
+            "S04@1",
+            "S05@1",
+            "S06@1",
+            "S07@1",
+            "S08@1",
+            "S09@1",
+            "S10@1",
+            "S11@1",
+            "S12@0"
+          ],
+          "stats": {
+            "peak_scope": 2,
+            "peak_cells": 4,
+            "cellwork": 4,
+            "enumeration_peak_scope": 0,
+            "enumeration_peak_cells": 0,
+            "enumerated_assignments": 0,
+            "factor_count": 5,
+            "factor_scopes": [
+              [
+                "S00@0"
+              ],
+              [
+                "S11@0"
+              ],
+              [
+                "S12@0"
+              ],
+              [
+                "S11@0",
+                "S12@0"
+              ],
+              [
+                "S00@0",
+                "S01@1",
+                "S02@1",
+                "S03@1",
+                "S04@1",
+                "S05@1",
+                "S06@1",
+                "S07@1",
+                "S08@1",
+                "S09@1",
+                "S10@1",
+                "S11@0"
+              ]
+            ],
+            "stored_cells": 4106,
+            "current_variables": 13,
+            "latent_variables": 0,
+            "max_fraction_bits": 67,
+            "snapshot_sha256": "885ab7e7006de0733c94e401a981ae783d6f93d01f1e0129fd31ef00e3195120"
+          }
+        }
+      ],
+      "queries": {
+        "count": 46,
+        "unique_required": [
+          [
+            "S00",
+            "S12"
+          ],
+          [
+            "S12"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 23,
+          "attempted_events": 23,
+          "summary": {
+            "accepted": 22,
+            "limits": 1,
+            "update_cellwork": 68097,
+            "query_cellwork": 156307,
+            "peak_allocated_cells": 4096,
+            "peak_enumeration_cells": 8192,
+            "last_stored_cells": 4106,
+            "last_current_variables": 13,
+            "last_latent_variables": 0
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    },
+    {
+      "case_id": "chains:09",
+      "n": 13,
+      "rate": "1/2",
+      "mode": "deferred",
+      "initial_events": 12,
+      "teaching_events": 11,
+      "ladder_events": 12,
+      "summary": {
+        "accepted": 35,
+        "limits": 0,
+        "update_cellwork": 13045,
+        "query_cellwork": 38535,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 166,
+        "last_current_variables": 13,
+        "last_latent_variables": 11
+      },
+      "sequence_id": "sequence-34",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 70,
+        "unique_required": [
+          [
+            "S00",
+            "S12"
+          ],
+          [
+            "S12"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 23,
+          "attempted_events": 23,
+          "summary": {
+            "accepted": 23,
+            "limits": 0,
+            "update_cellwork": 2625,
+            "query_cellwork": 16067,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 4,
+            "last_stored_cells": 118,
+            "last_current_variables": 13,
+            "last_latent_variables": 11
+          }
+        },
+        "deferred_ladder_suffix": {
+          "events": 12,
+          "summary": {
+            "accepted": 12,
+            "limits": 0,
+            "update_cellwork": 10420,
+            "query_cellwork": 22468,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 8,
+            "last_stored_cells": 166,
+            "last_current_variables": 13,
+            "last_latent_variables": 11
+          }
+        }
+      }
+    },
+    {
+      "case_id": "chains:10",
+      "n": 13,
+      "rate": "0",
+      "mode": "eager",
+      "initial_events": 12,
+      "teaching_events": 11,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 23,
+        "limits": 0,
+        "update_cellwork": 2581,
+        "query_cellwork": 13419,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 4,
+        "last_stored_cells": 74,
+        "last_current_variables": 13,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-35",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 46,
+        "unique_required": [
+          [
+            "S00",
+            "S12"
+          ],
+          [
+            "S12"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 23,
+          "attempted_events": 23,
+          "summary": {
+            "accepted": 23,
+            "limits": 0,
+            "update_cellwork": 2581,
+            "query_cellwork": 13419,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 4,
+            "last_stored_cells": 74,
+            "last_current_variables": 13,
+            "last_latent_variables": 0
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    },
+    {
+      "case_id": "chains:11",
+      "n": 13,
+      "rate": "0",
+      "mode": "deferred",
+      "initial_events": 12,
+      "teaching_events": 11,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 23,
+        "limits": 0,
+        "update_cellwork": 2581,
+        "query_cellwork": 13419,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 4,
+        "last_stored_cells": 74,
+        "last_current_variables": 13,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-35",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 46,
+        "unique_required": [
+          [
+            "S00",
+            "S12"
+          ],
+          [
+            "S12"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 23,
+          "attempted_events": 23,
+          "summary": {
+            "accepted": 23,
+            "limits": 0,
+            "update_cellwork": 2581,
+            "query_cellwork": 13419,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 4,
+            "last_stored_cells": 74,
+            "last_current_variables": 13,
+            "last_latent_variables": 0
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    },
+    {
+      "case_id": "chains:12",
+      "n": 13,
+      "rate": "1",
+      "mode": "eager",
+      "initial_events": 12,
+      "teaching_events": 11,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 23,
+        "limits": 0,
+        "update_cellwork": 2867,
+        "query_cellwork": 10523,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 8,
+        "last_stored_cells": 30,
+        "last_current_variables": 13,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-36",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 46,
+        "unique_required": [
+          [
+            "S00",
+            "S12"
+          ],
+          [
+            "S12"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 23,
+          "attempted_events": 23,
+          "summary": {
+            "accepted": 23,
+            "limits": 0,
+            "update_cellwork": 2867,
+            "query_cellwork": 10523,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 8,
+            "last_stored_cells": 30,
+            "last_current_variables": 13,
+            "last_latent_variables": 0
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    },
+    {
+      "case_id": "chains:13",
+      "n": 13,
+      "rate": "1",
+      "mode": "deferred",
+      "initial_events": 12,
+      "teaching_events": 11,
+      "ladder_events": 0,
+      "summary": {
+        "accepted": 23,
+        "limits": 0,
+        "update_cellwork": 2603,
+        "query_cellwork": 14475,
+        "peak_allocated_cells": 4,
+        "peak_enumeration_cells": 4,
+        "last_stored_cells": 96,
+        "last_current_variables": 13,
+        "last_latent_variables": 11
+      },
+      "sequence_id": "sequence-36",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 46,
+        "unique_required": [
+          [
+            "S00",
+            "S12"
+          ],
+          [
+            "S12"
+          ]
+        ]
+      },
+      "sequence_segments": {
+        "common_prefix": {
+          "planned_events": 23,
+          "attempted_events": 23,
+          "summary": {
+            "accepted": 23,
+            "limits": 0,
+            "update_cellwork": 2603,
+            "query_cellwork": 14475,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 4,
+            "last_stored_cells": 96,
+            "last_current_variables": 13,
+            "last_latent_variables": 11
+          }
+        },
+        "deferred_ladder_suffix": null
+      }
+    }
+  ],
+  "repeated_history": [
+    {
+      "case_id": "repeated_history:00",
+      "mode": "eager",
+      "summary": {
+        "accepted": 71,
+        "limits": 0,
+        "update_cellwork": 22770,
+        "query_cellwork": 43129,
+        "peak_allocated_cells": 64,
+        "peak_enumeration_cells": 128,
+        "last_stored_cells": 84,
+        "last_current_variables": 6,
+        "last_latent_variables": 0
+      },
+      "sequence_id": "sequence-37",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 142,
+        "unique_required": [
+          [
+            "R0",
+            "R5"
+          ],
+          [
+            "R5"
+          ]
+        ]
+      },
+      "initial_prefix": {
+        "events": 5,
+        "summary": {
+          "accepted": 5,
+          "limits": 0,
+          "update_cellwork": 418,
+          "query_cellwork": 1031,
+          "peak_allocated_cells": 4,
+          "peak_enumeration_cells": 4,
+          "last_stored_cells": 32,
+          "last_current_variables": 6,
+          "last_latent_variables": 0
+        }
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 3052,
+            "query_cellwork": 6018,
+            "peak_allocated_cells": 64,
+            "peak_enumeration_cells": 128,
+            "last_stored_cells": 84,
+            "last_current_variables": 6,
+            "last_latent_variables": 0
+          }
+        },
+        {
+          "round": 2,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 3860,
+            "query_cellwork": 7216,
+            "peak_allocated_cells": 64,
+            "peak_enumeration_cells": 128,
+            "last_stored_cells": 84,
+            "last_current_variables": 6,
+            "last_latent_variables": 0
+          }
+        },
+        {
+          "round": 3,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 3860,
+            "query_cellwork": 7216,
+            "peak_allocated_cells": 64,
+            "peak_enumeration_cells": 128,
+            "last_stored_cells": 84,
+            "last_current_variables": 6,
+            "last_latent_variables": 0
+          }
+        },
+        {
+          "round": 4,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 3860,
+            "query_cellwork": 7216,
+            "peak_allocated_cells": 64,
+            "peak_enumeration_cells": 128,
+            "last_stored_cells": 84,
+            "last_current_variables": 6,
+            "last_latent_variables": 0
+          }
+        },
+        {
+          "round": 5,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 3860,
+            "query_cellwork": 7216,
+            "peak_allocated_cells": 64,
+            "peak_enumeration_cells": 128,
+            "last_stored_cells": 84,
+            "last_current_variables": 6,
+            "last_latent_variables": 0
+          }
+        },
+        {
+          "round": 6,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 3860,
+            "query_cellwork": 7216,
+            "peak_allocated_cells": 64,
+            "peak_enumeration_cells": 128,
+            "last_stored_cells": 84,
+            "last_current_variables": 6,
+            "last_latent_variables": 0
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "repeated_history:01",
+      "mode": "deferred",
+      "summary": {
+        "accepted": 71,
+        "limits": 0,
+        "update_cellwork": 102024,
+        "query_cellwork": 429697,
+        "peak_allocated_cells": 128,
+        "peak_enumeration_cells": 256,
+        "last_stored_cells": 296,
+        "last_current_variables": 6,
+        "last_latent_variables": 36
+      },
+      "sequence_id": "sequence-37",
+      "statuses": [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted"
+      ],
+      "limits": [],
+      "queries": {
+        "count": 142,
+        "unique_required": [
+          [
+            "R0",
+            "R5"
+          ],
+          [
+            "R5"
+          ]
+        ]
+      },
+      "initial_prefix": {
+        "events": 5,
+        "summary": {
+          "accepted": 5,
+          "limits": 0,
+          "update_cellwork": 418,
+          "query_cellwork": 1031,
+          "peak_allocated_cells": 4,
+          "peak_enumeration_cells": 4,
+          "last_stored_cells": 32,
+          "last_current_variables": 6,
+          "last_latent_variables": 0
+        }
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 1864,
+            "query_cellwork": 6874,
+            "peak_allocated_cells": 4,
+            "peak_enumeration_cells": 8,
+            "last_stored_cells": 76,
+            "last_current_variables": 6,
+            "last_latent_variables": 6
+          }
+        },
+        {
+          "round": 2,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 4516,
+            "query_cellwork": 18002,
+            "peak_allocated_cells": 8,
+            "peak_enumeration_cells": 16,
+            "last_stored_cells": 120,
+            "last_current_variables": 6,
+            "last_latent_variables": 12
+          }
+        },
+        {
+          "round": 3,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 9376,
+            "query_cellwork": 38874,
+            "peak_allocated_cells": 16,
+            "peak_enumeration_cells": 32,
+            "last_stored_cells": 164,
+            "last_current_variables": 6,
+            "last_latent_variables": 18
+          }
+        },
+        {
+          "round": 4,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 17562,
+            "query_cellwork": 73460,
+            "peak_allocated_cells": 32,
+            "peak_enumeration_cells": 64,
+            "last_stored_cells": 208,
+            "last_current_variables": 6,
+            "last_latent_variables": 24
+          }
+        },
+        {
+          "round": 5,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 27582,
+            "query_cellwork": 117476,
+            "peak_allocated_cells": 64,
+            "peak_enumeration_cells": 128,
+            "last_stored_cells": 252,
+            "last_current_variables": 6,
+            "last_latent_variables": 30
+          }
+        },
+        {
+          "round": 6,
+          "events": 11,
+          "summary": {
+            "accepted": 11,
+            "limits": 0,
+            "update_cellwork": 40706,
+            "query_cellwork": 173980,
+            "peak_allocated_cells": 128,
+            "peak_enumeration_cells": 256,
+            "last_stored_cells": 296,
+            "last_current_variables": 6,
+            "last_latent_variables": 36
+          }
+        }
+      ]
+    }
+  ],
+  "event_sequences": {
+    "sequence-00": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-01": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-02": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-03": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-04": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-05": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-06": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-07": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-08": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-09": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-10": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-11": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-12": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-13": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-14": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-15": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-16": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "0"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "C",
+        "rate": "1"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-17": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "0"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "C",
+        "rate": "1"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-18": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "C",
+        "rate": "1"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-19": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "C",
+        "rate": "1"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-20": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "C",
+        "rate": "1"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-21": [
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "B",
+        "rate": "1"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "A",
+          "B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "C",
+        "rate": "1"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "B",
+          "C"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-22": [
+      {
+        "kind": "observe",
+        "required": [
+          "G00A",
+          "G00B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00B",
+          "G00C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G00B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00B",
+          "G00C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G00A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00A",
+          "G00B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-23": [
+      {
+        "kind": "observe",
+        "required": [
+          "G00A",
+          "G00B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00B",
+          "G00C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G00B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00B",
+          "G00C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G00A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00A",
+          "G00B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G01A",
+          "G01B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G01B",
+          "G01C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G01B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G01B",
+          "G01C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G01A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G01A",
+          "G01B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G02A",
+          "G02B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G02B",
+          "G02C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G02B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G02B",
+          "G02C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G02A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G02A",
+          "G02B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G03A",
+          "G03B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G03B",
+          "G03C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G03B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G03B",
+          "G03C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G03A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G03A",
+          "G03B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-24": [
+      {
+        "kind": "observe",
+        "required": [
+          "G00A",
+          "G00B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00B",
+          "G00C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G00B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00B",
+          "G00C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G00A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G00A",
+          "G00B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G01A",
+          "G01B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G01B",
+          "G01C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G01B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G01B",
+          "G01C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G01A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G01A",
+          "G01B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G02A",
+          "G02B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G02B",
+          "G02C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G02B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G02B",
+          "G02C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G02A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G02A",
+          "G02B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G03A",
+          "G03B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G03B",
+          "G03C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G03B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G03B",
+          "G03C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G03A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G03A",
+          "G03B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G04A",
+          "G04B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G04B",
+          "G04C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G04B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G04B",
+          "G04C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G04A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G04A",
+          "G04B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G05A",
+          "G05B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G05B",
+          "G05C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G05B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G05B",
+          "G05C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G05A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G05A",
+          "G05B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G06A",
+          "G06B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G06B",
+          "G06C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G06B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G06B",
+          "G06C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G06A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G06A",
+          "G06B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G07A",
+          "G07B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G07B",
+          "G07C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G07B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G07B",
+          "G07C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G07A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G07A",
+          "G07B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G08A",
+          "G08B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G08B",
+          "G08C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G08B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G08B",
+          "G08C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G08A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G08A",
+          "G08B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G09A",
+          "G09B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G09B",
+          "G09C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G09B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G09B",
+          "G09C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G09A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G09A",
+          "G09B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G10A",
+          "G10B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G10B",
+          "G10C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G10B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G10B",
+          "G10C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G10A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G10A",
+          "G10B"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G11A",
+          "G11B"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G11B",
+          "G11C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G11B",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G11B",
+          "G11C"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "G11A",
+        "rate": "1/4"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "G11A",
+          "G11B"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-25": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      }
+    ],
+    "sequence-26": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-27": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1/2"
+      }
+    ],
+    "sequence-28": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-29": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S05",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S06",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S07",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S08",
+        "rate": "1/2"
+      }
+    ],
+    "sequence-30": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S05",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S06",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S07",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S08",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-31": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S09",
+          "S10"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S10",
+          "S11"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S05",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S06",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S07",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S08",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S09",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S10",
+        "rate": "1/2"
+      }
+    ],
+    "sequence-32": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S09",
+          "S10"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S10",
+          "S11"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S05",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S06",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S07",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S08",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S09",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S10",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S09",
+          "S10"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S10",
+          "S11"
+        ],
+        "correct": true
+      }
+    ],
+    "sequence-33": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S09",
+          "S10"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S10",
+          "S11"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S11",
+          "S12"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S05",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S06",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S07",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S08",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S09",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S10",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S11",
+        "rate": "1/2"
+      }
+    ],
+    "sequence-34": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S09",
+          "S10"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S10",
+          "S11"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S11",
+          "S12"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S05",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S06",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S07",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S08",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S09",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S10",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "S11",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S09",
+          "S10"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S10",
+          "S11"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S11",
+          "S12"
+        ],
+        "correct": false
+      }
+    ],
+    "sequence-35": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S09",
+          "S10"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S10",
+          "S11"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S11",
+          "S12"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S05",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S06",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S07",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S08",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S09",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S10",
+        "rate": "0"
+      },
+      {
+        "kind": "teach",
+        "skill": "S11",
+        "rate": "0"
+      }
+    ],
+    "sequence-36": [
+      {
+        "kind": "observe",
+        "required": [
+          "S00",
+          "S01"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S01",
+          "S02"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S02",
+          "S03"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S03",
+          "S04"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S04",
+          "S05"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S05",
+          "S06"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S06",
+          "S07"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S07",
+          "S08"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S08",
+          "S09"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S09",
+          "S10"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S10",
+          "S11"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "S11",
+          "S12"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "S01",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S02",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S03",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S04",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S05",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S06",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S07",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S08",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S09",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S10",
+        "rate": "1"
+      },
+      {
+        "kind": "teach",
+        "skill": "S11",
+        "rate": "1"
+      }
+    ],
+    "sequence-37": [
+      {
+        "kind": "observe",
+        "required": [
+          "R0",
+          "R1"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R1",
+          "R2"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R2",
+          "R3"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R3",
+          "R4"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R4",
+          "R5"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "R0",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R1",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R2",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R3",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R4",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R5",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R0",
+          "R1"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R1",
+          "R2"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R2",
+          "R3"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R3",
+          "R4"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R4",
+          "R5"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "R0",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R1",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R2",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R3",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R4",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R5",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R0",
+          "R1"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R1",
+          "R2"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R2",
+          "R3"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R3",
+          "R4"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R4",
+          "R5"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "R0",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R1",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R2",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R3",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R4",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R5",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R0",
+          "R1"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R1",
+          "R2"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R2",
+          "R3"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R3",
+          "R4"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R4",
+          "R5"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "R0",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R1",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R2",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R3",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R4",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R5",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R0",
+          "R1"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R1",
+          "R2"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R2",
+          "R3"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R3",
+          "R4"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R4",
+          "R5"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "teach",
+        "skill": "R0",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R1",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R2",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R3",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R4",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R5",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R0",
+          "R1"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R1",
+          "R2"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R2",
+          "R3"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R3",
+          "R4"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R4",
+          "R5"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "teach",
+        "skill": "R0",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R1",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R2",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R3",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R4",
+        "rate": "1/2"
+      },
+      {
+        "kind": "teach",
+        "skill": "R5",
+        "rate": "1/2"
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R0",
+          "R1"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R1",
+          "R2"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R2",
+          "R3"
+        ],
+        "correct": false
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R3",
+          "R4"
+        ],
+        "correct": true
+      },
+      {
+        "kind": "observe",
+        "required": [
+          "R4",
+          "R5"
+        ],
+        "correct": false
+      }
+    ]
+  }
+}
