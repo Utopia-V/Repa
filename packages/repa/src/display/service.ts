@@ -3,12 +3,15 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { Check } from "typebox/value";
 import type { ContentStore } from "../content/store.js";
-import type { BackgroundRequests } from "../requests/background.js";
-import type { BackgroundRequest, RequestRecord, Submit } from "../requests/schema.js";
+import type { BackgroundRequests, ProcessingContext } from "../requests/background.js";
+import type { BackgroundRequest, ProcessingResult, RequestRecord, Submit } from "../requests/schema.js";
+import type { CapabilitySelection } from "../capabilities/schema.js";
+import type { ResourceRef } from "../content/schema.js";
+import { capabilityRepresentation } from "../capabilities/resources.js";
 import { RepaFault } from "../errors.js";
 import {
-  DisplayOpenSchema, DisplayResultSchema, SAVE_NEW_RESULT, SUBMIT_RESULT,
-  type DisplayOpen, type DisplayInstance, type DisplayParams, type DisplayResult,
+  DisplayOpenSchema, DisplayResultSchema, SAVE_NEW_RESULT, SUBMIT_RESULT, PROCESS_RESULT,
+  type DisplayOpen, type DisplayInstance, type DisplayParams, type DisplayResult, type ProcessDisplayResultInput,
 } from "./schema.js";
 
 interface InstanceRecord {
@@ -16,6 +19,7 @@ interface InstanceRecord {
   input: DisplayOpen;
   view: DisplayInstance;
   pending: AbortController;
+  processor?: CapabilitySelection;
 }
 interface DisplaySpace {
   content: ContentStore;
@@ -34,6 +38,13 @@ export class DisplayService {
     space(spaceId: string): DisplaySpace;
     hostActive(hostId: string): boolean;
     submit(input: Submit, source: DisplayResult["value"]["data"]["source"], signal: AbortSignal): Promise<RequestRecord>;
+    bindProcess(spaceId: string, selection: CapabilitySelection): Promise<CapabilitySelection>;
+    prepareProcess(input: ProcessDisplayResultInput & { selection: CapabilitySelection }, signal: AbortSignal): Promise<{
+      selection: CapabilitySelection;
+      pluginId: string;
+      inputResources: readonly ResourceRef[];
+      execute(context: ProcessingContext): Promise<ProcessingResult>;
+    }>;
   }) {}
 
   #key(spaceId: string, instanceId: string): string { return `${spaceId}/${instanceId}`; }
@@ -65,6 +76,8 @@ export class DisplayService {
     const holdId = randomUUID();
     const opening = (async () => {
       try {
+        const processor = params.processResult
+          ? await this.options.bindProcess(params.spaceId, params.processResult.selection) : undefined;
         if (params.saveNewResult) {
           const destination = await content.inspect({ kind: "file", spaceId: params.spaceId,
             location: { kind: "relative", path: params.saveNewResult.path } });
@@ -112,10 +125,13 @@ export class DisplayService {
         const actions: DisplayInstance["actions"] = [];
         if (params.saveNewResult) actions.push({ name: SAVE_NEW_RESULT, inputSchema: params.saveNewResult.inputSchema });
         if (params.submitResult) actions.push({ name: SUBMIT_RESULT, inputSchema: params.submitResult.inputSchema });
+        if (params.processResult) actions.push({ name: PROCESS_RESULT, inputSchema: params.processResult.inputSchema });
         const view: DisplayInstance = { spaceId: params.spaceId, instanceId: params.instanceId, artifact, hold, actions,
           ...(initialData !== undefined ? { initialData } : {}),
         };
-        this.#instances.set(key, { hostId, input: params, view: structuredClone(view), pending: new AbortController() });
+        this.#instances.set(key, { hostId, input: params, view: structuredClone(view), pending: new AbortController(),
+          ...(processor ? { processor } : {}),
+        });
         return structuredClone(view);
       } catch (error) {
         content.retention.release(hostId, holdId);
@@ -194,14 +210,19 @@ export class DisplayService {
     const previous = space.processing.requests.get(requestId);
     if (previous) {
       const configuration = previous.configuration;
-      if (previous.operation !== "repa.display.save-result" || !isDeepStrictEqual(previous.options, options) ||
+      const expectedOperation = params.action === PROCESS_RESULT ? "repa.display.process-result" : "repa.display.save-result";
+      if (previous.operation !== expectedOperation || !isDeepStrictEqual(previous.options, options) ||
           configuration === null || typeof configuration !== "object" || !("hostId" in configuration) || configuration.hostId !== hostId)
         throw new RepaFault("request_id_conflict", "相同请求标识已经用于另一项展示操作。");
       return structuredClone(previous);
     }
     space.assertRequestAvailable(requestId);
     const record = this.#record(params, hostId);
-    const action = params.action === SAVE_NEW_RESULT ? record.input.saveNewResult : record.input.submitResult;
+    const action = {
+      [SAVE_NEW_RESULT]: record.input.saveNewResult,
+      [SUBMIT_RESULT]: record.input.submitResult,
+      [PROCESS_RESULT]: record.input.processResult,
+    }[params.action];
     if (!action) throw new RepaFault("permission_required", "当前展示没有获准的动作。");
     if (!Check(action.inputSchema, params.input)) throw new RepaFault("invalid_input", "结果参数不符合绑定的 schema。");
     const artifact = structuredClone(record.view.artifact);
@@ -221,6 +242,24 @@ export class DisplayService {
         input: { parts: [{ kind: "text", text: action.instruction }, { kind: "data", representation }] },
         dispatch: { kind: "queue" },
       }, source, record.pending.signal);
+    }
+    if ("selection" in action) {
+      if (!record.processor) throw new RepaFault("permission_required", "当前展示没有绑定处理能力。");
+      const prepared = await this.options.prepareProcess({ operationId: requestId, result: representation,
+        selection: record.processor }, record.pending.signal);
+      if (record.pending.signal.aborted) throw new RepaFault("display_closed", "展示实例已经结束，处理请求尚未受理。");
+      this.#record(params, hostId);
+      space.assertRequestAvailable(requestId);
+      for (const ref of prepared.inputResources) {
+        if (ref.spaceId !== params.spaceId || !record.view.hold.resources.some(held => held.id === ref.id))
+          throw new RepaFault("permission_required", "处理能力的输入资源超出当前展示实例。");
+      }
+      const submitted = capabilityRepresentation(prepared.selection.contract,
+        { operationId: requestId, result: representation }, [...representation.resources, ...prepared.inputResources]);
+      return space.processing.submit({ requestId, operation: "repa.display.process-result",
+        input: { parts: [{ kind: "data", representation: submitted }] }, options,
+        configuration: { hostId, source, operationId: requestId, ...prepared.selection, pluginId: prepared.pluginId },
+      }, (_input, context) => prepared.execute(context));
     }
     // 受理先由请求 owner 接续资源，关闭展示不取消已明确发起的保存。
     return space.processing.submit({ requestId, operation: "repa.display.save-result",

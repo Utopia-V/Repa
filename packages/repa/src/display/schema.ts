@@ -1,11 +1,12 @@
 import { Type, type Static } from "typebox";
 import { IdSchema, object } from "../schema.js";
 import { ContentTargetSchema, ResourceHoldSchema, ResourceRefSchema } from "../content/schema.js";
-import { DisplaySourceSchema } from "../capabilities/schema.js";
+import { CapabilitySelectionSchema, DisplaySourceSchema } from "../capabilities/schema.js";
 import { BackgroundRequestSchema, RepresentationSchema, RequestSchema } from "../requests/schema.js";
 
 export const SAVE_NEW_RESULT = "save-new-result-document";
 export const SUBMIT_RESULT = "submit-result-to-agent";
+export const PROCESS_RESULT = "process-display-result";
 export const DisplayArtifactSchema = object({
   format: object({ id: Type.Literal("repa.display-html"), version: Type.Literal("1") }),
   value: object({ kind: Type.Literal("resource"), resource: ResourceRefSchema }),
@@ -23,6 +24,8 @@ export const DisplayResultSchema = object({
   resources: RepresentationSchema.properties.resources,
 });
 export type DisplayResult = Static<typeof DisplayResultSchema>;
+export const ProcessDisplayResultInputSchema = object({ operationId: IdSchema, result: DisplayResultSchema });
+export type ProcessDisplayResultInput = Static<typeof ProcessDisplayResultInputSchema>;
 export const SaveNewResultSchema = object({
   path: Type.String({ minLength: 1, pattern: "^[^\\r\\n]+$" }),
   inputSchema: Type.Record(Type.String(), Type.Unknown()),
@@ -42,6 +45,10 @@ export const DisplayOpenSchema = object({
   ]),
   saveNewResult: Type.Optional(SaveNewResultSchema),
   submitResult: Type.Optional(SubmitResultSchema),
+  processResult: Type.Optional(object({
+    selection: CapabilitySelectionSchema,
+    inputSchema: Type.Record(Type.String(), Type.Unknown()),
+  })),
 });
 export type DisplayOpen = Static<typeof DisplayOpenSchema>;
 export const DisplayInstanceSchema = object({
@@ -51,7 +58,7 @@ export const DisplayInstanceSchema = object({
   initialData: Type.Optional(Type.Unknown()),
   hold: ResourceHoldSchema,
   actions: Type.Array(object({
-    name: Type.Union([Type.Literal(SAVE_NEW_RESULT), Type.Literal(SUBMIT_RESULT)]),
+    name: Type.Union([Type.Literal(SAVE_NEW_RESULT), Type.Literal(SUBMIT_RESULT), Type.Literal(PROCESS_RESULT)]),
     inputSchema: Type.Record(Type.String(), Type.Unknown()),
   })),
 });
@@ -67,7 +74,7 @@ export const displayMethods = {
   },
   "display.invoke": {
     params: object({ ...key, requestId: IdSchema,
-      action: Type.Union([Type.Literal(SAVE_NEW_RESULT), Type.Literal(SUBMIT_RESULT)]), input: Type.Unknown() }),
+      action: Type.Union([Type.Literal(SAVE_NEW_RESULT), Type.Literal(SUBMIT_RESULT), Type.Literal(PROCESS_RESULT)]), input: Type.Unknown() }),
     result: Type.Union([BackgroundRequestSchema, RequestSchema]),
   },
 };

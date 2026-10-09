@@ -6,7 +6,7 @@ import type { RepaClient } from "./client.js";
 import type { DisplayInstance } from "./display/schema.js";
 
 export { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
-export { SAVE_NEW_RESULT, SUBMIT_RESULT } from "./display/schema.js";
+export { SAVE_NEW_RESULT, SUBMIT_RESULT, PROCESS_RESULT } from "./display/schema.js";
 export type { DisplayArtifact, DisplayInstance } from "./display/schema.js";
 
 const ActionArgumentsSchema = object({ requestId: IdSchema, input: Type.Unknown() });

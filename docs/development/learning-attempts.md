@@ -44,7 +44,23 @@
 
 没有帮助记录时使用 `unknown`；明确报告“未使用帮助”时，使用 `reported` 保留这项陈述。两者不能互换。保存页面上报的提示事件，也只确认该入口提交了这些数据；后端不会把它改称独立观察到的实际显示。
 
-资源通过明确字段登记，不递归扫描任意 JSON。引用一份 `DisplayResult` 时，还应把解释该记录所需的 HTML、题面、提示及其他附属字节列入材料快照或报告来源。只保存一个以后可能失效的请求 ID，不足以保留原依据。
+资源通过明确字段登记，不递归扫描任意 JSON。每份快照可以用可选 `resources` 声明附属字节，例如在 `presentation` 中同时登记原 `DisplayResult`、HTML 与页面资源。旧记录省略该字段时保持原样。题面与提示继续按其实际角色列入材料快照或报告来源。只保存一个以后可能失效的请求 ID，不足以保留原依据。
+
+### 文本作答组件的展示接入
+
+官方学习包提供 `repa.attempt.record-display/1` 处理能力。可信宿主在 `display.open.processResult` 中绑定它，并使用 `ExerciseSubmissionSchema` 约束页面提交。该能力没有 Agent 工具入口；它检查真实 `InvocationContext.source` 为 display，并与服务器构造结果的来源一致，普通客户端不能靠提交带有 display 标签的 JSON 冒充展示调用。
+
+宿主提供的初始化格式是 `repa.learning-response/1`：
+
+- `actor` 固定回答产生者的声明，页面不能从提交值中替换它。
+- `materials` 使用 `resourceId`、可选 `selector/source` 指定题面或提示。每个 ID 都须在本次实际 artifact 的资源中，不能借此引用其他空间内容。
+- `data` 保留组件自有初始化参数，例如题目与选定提示；底座不为这些参数解释教学含义。
+
+页面提交包含原样的字符串 `response`、`unknown` 或 `reported` 的 `assistance`，以及可选 `data`。后者可以保留页面报告的动作序列，但不会自动转成统一事件分类或实际观察结论。空回答同样保留；这些格式只承担文本作答，不是课程或知识图谱 schema。
+
+处理时，能力先固定完整的服务器 `DisplayResult`，再通过既有 `LearningAttempts.record` 建立作答。原表示作为 `presentation`，HTML 和全部附属字节使用快照 `resources` 长期登记；初始化条件和帮助报告指向原表示中的准确位置。保存资源时先由处理请求持有，成功后再由作答文档长期持有。这个动作不评分、不采用判断，也不启动模型。
+
+公开格式从浏览器安全的 `@repa/learning/schema` 导入。服务器映射由 [exercise.ts](../../packages/learning/src/exercise.ts) 持有，动作绑定、真实来源、受理与关闭则由[展示模块](display.md#交给绑定能力处理)负责。具体组件仍需根据自己的恢复语义解释保存参数，不能从通用展示接口推断整个动态页面状态。
 
 ### 候选判断与采用
 
@@ -85,7 +101,7 @@
 
 本模块保存、解释和更正作答证据。学生状态、知识关系传播、后续任务选择以及它们对学习效果的影响仍由 [#38](https://github.com/Utopia-V/repa/issues/38) 接续；现有 FSRS 原型不会自动消费这里的判断。
 
-展示组件到这些字段的自动映射、官方学习界面的录入与更正交互尚待接入。当前调用方显式提供所用条件和完整证据，不由通用展示推断缺失的页面行为。
+文本作答组件已经通过版本化格式直接接入领域记录；其他作答形式、具体组件的恢复行为，以及官方学习界面的录入与更正交互仍待接入。通用展示不会推断缺失的页面行为，宿主和组件按上述边界提供实际条件。
 
 ## 验证入口
 
@@ -97,6 +113,6 @@ npm run check --workspace=@repa/learning
 npm test --workspace=@repa/learning
 ```
 
-[attempts.test.ts](../../packages/learning/test/attempts.test.ts) 使用真实内容存储检查事实保留、候选与采用、更正冲突、重开、清理和内容副本。[attempt-capabilities.test.ts](../../packages/learning/test/attempt-capabilities.test.ts) 通过真实公开客户端、本地 Pi provider 和空间副本核对接口接入。底层业务原意去重与恢复由 [content-derived-patch.test.ts](../../packages/repa/test/content-derived-patch.test.ts) 覆盖。
+[attempts.test.ts](../../packages/learning/test/attempts.test.ts) 使用真实内容存储检查事实保留、候选与采用、更正冲突、重开、清理和内容副本。[attempt-capabilities.test.ts](../../packages/learning/test/attempt-capabilities.test.ts) 通过真实公开客户端、本地 Pi provider 和空间副本核对接口接入。[exercise.test.ts](../../packages/learning/test/exercise.test.ts) 核对真实展示来源、固定初始化条件、原提交与附属资源、失败边界和旧快照兼容。底层业务原意去重与恢复由 [content-derived-patch.test.ts](../../packages/repa/test/content-derived-patch.test.ts) 覆盖。
 
 这些验证检查领域保存和接续语义；本地 provider 只驱动确定的调用，不用于评价模型判断能力或真实学习收益。

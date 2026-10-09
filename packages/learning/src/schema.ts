@@ -29,3 +29,4 @@ export const ContextViewSchema = object({
 });
 export type ContextView = Static<typeof ContextViewSchema>;
 export * from "./attempt-schema.js";
+export * from "./exercise-schema.js";

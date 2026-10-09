@@ -1,6 +1,6 @@
 # 交互产物展示与受限桥接
 
-你可以通过展示接口打开一份 HTML 产物，调整其中的参数，把结果保存成新文档，或交给指定会话中的 Agent。后端负责这次展示的身份、内容版本、资源和动作；实际页面加载、隔离与界面状态由前端宿主负责。
+你可以通过展示接口打开一份 HTML 产物，调整其中的参数，把结果保存成新文档、交给指定会话中的 Agent，或交由宿主绑定的能力处理。后端负责这次展示的身份、内容版本、资源和动作；实际页面加载、隔离与界面状态由前端宿主负责。
 
 ## 设计思路
 
@@ -32,12 +32,13 @@
 
 ### 绑定保存和提交动作
 
-当前提供两种动作，目标由宿主在 `display.open` 时确定：
+当前提供三种动作，目标由宿主在 `display.open` 时确定：
 
 | 动作 | 宿主绑定 | 页面提交 |
 | --- | --- | --- |
 | `save-new-result-document` | 空间内的新文档路径、参数 `inputSchema` | 本次 `requestId` 和实验参数或结果 |
 | `submit-result-to-agent` | 当前空间中的 `sessionId`、任务 `instruction`、参数 `inputSchema` | 本次 `requestId` 和实验参数或结果 |
+| `process-display-result` | `processResult.selection` 与参数 `inputSchema`；打开时固定具体能力实现 | 本次 `requestId` 和页面提交值 |
 
 下面的宿主示例假定 `client` 已连接，`spaceId` 和 `sessionId` 来自已打开的空间与会话：
 
@@ -73,7 +74,28 @@ const instance = await client.call("display.open", {
 
 你选择提交给 Agent 时，后端把宿主绑定的任务指令和本次结果组成结构化输入，进入指定会话的队列。页面中的参数保留为展示数据，记录的 `source.kind` 为 `display`，包含真实的宿主、空间和实例标识。已有队列暂停时，这项输入也按原队列规则等待。
 
-两种动作都先建立请求自己的资源保留关系。关闭实例会取消尚未受理的投递；已经受理的工作可以完成，最终状态由宿主通过 `request.get` 或订阅呈现。相同 `requestId` 和相同输入重传时取得原记录，改变输入则返回 `request_id_conflict`。
+这些动作都在受理时建立请求自己的资源保留关系。关闭实例会取消尚未受理的投递；已经受理的工作可以完成，最终状态由宿主通过 `request.get` 或订阅呈现。相同 `requestId` 和相同输入重传时取得原记录，改变输入则返回 `request_id_conflict`。
+
+### 交给绑定能力处理
+
+例如，学习页面可以把一次回答直接交给学习能力记录，而不先保存一份通用结果文档、再等待宿主完成第二次录入。宿主在 `display.open` 中提供：
+
+```ts
+processResult: {
+  selection: { contract: { id: "repa.attempt.record-display", version: "1" } },
+  inputSchema: ExerciseSubmissionSchema,
+}
+```
+
+这里的示例需要安装官方学习能力，`ExerciseSubmissionSchema` 从 `@repa/learning/schema` 导入。初始化与提交格式见[学习作答组件](learning-attempts.md#文本作答组件的展示接入)。其他领域可以提供自己的处理能力；通用展示模块不解释回答或评分。
+
+打开时按宿主选择与当前配置解析具体 `contract/version/implementationId`。页面只看到动作名和提交 schema，不能改选能力或传入完整调用上下文。后续默认实现变化不改变这个绑定；受理时仍检查原实现是否可用，关闭或移除后明确失败，不回退到其他实现。
+
+服务器根据实例构造 `DisplayResult`，再以 `ProcessDisplayResultInputSchema` 所定义的 `{ operationId, result }` 调用能力。`operationId` 稳定使用本次 `requestId`；`result` 中的来源、HTML 和初始化条件都来自服务器实例，只有 `input` 来自页面。能力取得真实的 `source.kind = "display"`，模型服务、权限检查和资源操作继续由原能力宿主装配。处理动作沿持久请求接续，所以只接受 `inline` 或 `background` 定义，不能绑定不建立请求的 `query`。
+
+处理能力可以通过原 `inputResources` 声明所需资源，声明必须落在本实例的 hold 范围内。请求保存实际的能力输入 `{ operationId, result }`，外层资源清单同时包含原展示资源与已验证的声明资源；内部结果的 artifact、initialData 和页面 input 保持原值。这样，即使重开的结果文档另有不在原 HTML 清单中的附件，关闭展示之后，已受理的处理也不会丢掉这些输入。能力输出和失败表示的资源继续沿既有请求规则持有。
+
+处理请求的 operation 为 `repa.display.process-result`，配置保留绑定实现、真实来源和业务操作标识。受理前关闭实例会拒绝提交，受理后则使用处理请求自身的取消信号。相同请求重传先返回已有记录，不要求旧实例仍打开，也不会重新选择实现。进程重启将未完成请求保留为 `interrupted`，不自动续跑；请求取消或中断也不能据此推定内容没有提交，可信宿主可用保存的 `operationId` 查询 `operation.get` 核对。
 
 ### 浏览器接入 MCP Apps
 
@@ -123,11 +145,13 @@ console.log(receipt.structuredContent); // requestId 与当前 status
 | --- | --- | --- |
 | 官方展示宿主 | 后端与浏览器桥接可用；组件选择、页面装载、隔离、导航、动作状态和不可用提示尚未接入官方界面 | [#10](https://github.com/Utopia-V/repa/issues/10) 与 [#23](https://github.com/Utopia-V/repa/issues/23) |
 | 完整展示隔离验收 | 已用独立浏览器联调宿主验证消息、调参、保存和旧版本重开；生产宿主的隔离与网络策略需要在其实际实现上验证 | #23 前后端联合验收 |
-| 其他格式与动作 | 当前提供 HTML、新结果文档和向指定会话提交；更多渲染器、练习提交或有修改基准的覆盖动作尚未接入 | 由实际消费能力声明契约与授权范围 |
+| 其他格式与动作 | 当前提供 HTML、新结果文档、会话提交及绑定能力处理；更多渲染器和有修改基准的覆盖动作尚未接入 | 由实际消费能力声明契约与授权范围 |
 
 ## 验证入口
 
 [display-api.test.ts](../../packages/repa/test/display-api.test.ts) 使用真实后端、MCP Apps SDK 与 Pi，覆盖不同实例版本、有限资源和动作、受理后关闭与回收、多资源结果、历史重开、空间副本和向绑定会话投递。
+
+[display-processing.test.ts](../../packages/repa/test/display-processing.test.ts) 覆盖绑定处理器的实际 SDK 调用、来源与输入边界、固定实现、关闭前后受理、声明资源的接续、重传，以及内容已提交后请求取消时的操作核对。
 
 初始化参数回归核对 SDK 实际收到的值与保存／投递结果一致，区分缺省和明确空值，并覆盖重传、重开与空间复制。重开仍消费提交数据，旧结果不补造原初始化条件。
 

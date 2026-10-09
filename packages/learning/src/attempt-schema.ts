@@ -12,6 +12,7 @@ export type LocalResource = Static<typeof LocalResourceSchema>;
 function snapshot<R extends TSchema>(resource: R) {
   return object({
     resource,
+    resources: Type.Optional(Type.Array(resource)),
     selector: Type.Optional(Type.String()),
     // 历史来源说明，不解释为当前空间的 live reference。
     source: Type.Optional(Type.String()),

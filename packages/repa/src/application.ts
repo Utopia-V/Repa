@@ -41,7 +41,7 @@ import { CapabilityNotificationSchema } from "./capabilities/schema.js";
 import type { RepaCapabilityServices } from "./capabilities/services.js";
 import { capabilityRepresentation } from "./capabilities/resources.js";
 import { DisplayService } from "./display/service.js";
-import type { DisplayMethod, DisplayParams } from "./display/schema.js";
+import type { DisplayMethod, DisplayParams, ProcessDisplayResultInput } from "./display/schema.js";
 import { ContentStore } from "./content/store.js";
 import type { ResourceRetentionOptions } from "./content/resources.js";
 import { ContentAccessStore } from "./content/access.js";
@@ -227,6 +227,8 @@ export class RepaApplication {
     this.#display = new DisplayService({
       hostActive: id => this.#clients.has(id),
       submit: (input, source, signal) => this.submit(input, source.hostId, source, signal),
+      bindProcess: async (spaceId, selection) => (await this.#displayProcessor(spaceId, selection)).bound,
+      prepareProcess: (input, signal) => this.#prepareDisplayProcess(input, signal),
       space: spaceId => {
         const space = this.#space(spaceId);
         return { content: space.content, processing: space.processing,
@@ -597,6 +599,46 @@ export class RepaApplication {
       const runtime = await this.#plugins(scope);
       return { capabilities: runtime.capabilities.list().filter(item => item.scopes.includes(scope.kind)), packages: runtime.packages, issues: runtime.issues };
     }, false, scope.kind === "space" ? scope.spaceId : undefined);
+  }
+
+  async #displayProcessor(spaceId: string, selection: CapabilitySelection) {
+    const scope = { kind: "space" as const, spaceId };
+    const runtime = await this.#plugins(scope);
+    const definition = runtime.capabilities.resolve({ ...selection,
+      implementationId: selection.implementationId ?? runtime.configuration.implementations[selection.contract.id],
+    }, scope);
+    if (definition.execution === "query")
+      throw new RepaFault("invalid_display_processor", "展示结果处理需要可持久受理的能力。");
+    const bound = { contract: definition.contract, implementationId: definition.implementationId };
+    return { scope, runtime, definition, bound };
+  }
+
+  async #prepareDisplayProcess(params: ProcessDisplayResultInput & { selection: CapabilitySelection }, signal: AbortSignal) {
+    if (signal.aborted) throw new RepaFault("display_closed", "展示实例已经结束，处理请求尚未受理。");
+    const { selection, ...input } = structuredClone(params);
+    if (!selection.implementationId)
+      throw new RepaFault("invalid_display_processor", "展示处理能力尚未固定到具体实现。");
+    const source = input.result.value.data.source;
+    const { scope, runtime, definition, bound } = await this.#displayProcessor(source.spaceId, selection);
+    if (signal.aborted) throw new RepaFault("display_closed", "展示实例已经结束，处理请求尚未受理。");
+    if (!Check(definition.inputSchema, input))
+      throw new RepaFault("invalid_capability_input", "展示结果不符合所选处理能力的输入格式。");
+    const declarations = runtime.capabilities.resourceDeclarations(bound, scope);
+    const processing = this.#space(source.spaceId).processing;
+    return {
+      selection: bound, pluginId: definition.pluginId,
+      inputResources: declarations.inputResources(input),
+      execute: async (context: ProcessingContext) => {
+        const result = await runtime.capabilities.invoke(bound, input, {
+          scope, source, signal: context.signal,
+          ...(context.content ? { content: context.content } : {}),
+          services: this.#capabilityServices(scope, source, input.operationId, context.signal, definition.pluginId, {
+            cancel: () => { processing.cancel(input.operationId); }, progress: context.progress, ask: context.ask,
+          }),
+        });
+        return capabilityRepresentation(definition.contract, result, declarations.outputResources(result));
+      },
+    };
   }
 
   #capabilityServices(scope: CapabilityScope, source: CapabilitySource, requestId: string, signal: AbortSignal, pluginId: string,

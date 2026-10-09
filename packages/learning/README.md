@@ -29,6 +29,8 @@ try {
 
 `@repa/learning/client` 与 `@repa/learning/protocol` 可用于客户端，分别提供经 `capability.invoke` 调用的类型化 helper 和领域方法的 schema。学习能力不是核心 RPC。作答与判断使用 `attempt.get/record/judgment.save/judgment.select`；语境继续调用 `callLearning(client, "context.get" | "context.set" | "context.preview", params)`，实际实现沿当前插件配置选择。服务端的 `LearningAttempts`、`LearningContext`、快照 codec 和 `learningPluginRegistration` 从包主入口导出；只需语境能力的宿主可以安装这一轻量注册，不装配整个产品。
 
+文本作答页面可以通过宿主绑定的 `repa.attempt.record-display/1` 直接形成记录。初始化和提交格式由 `@repa/learning/schema` 的 `ExerciseInitialSchema`、`ExerciseSubmissionSchema` 提供；实际展示来源、固定条件与页面报告分开保存，详见[组件接入](../../docs/development/learning-attempts.md#文本作答组件的展示接入)。
+
 ## 关闭与验证
 
 `plugins.disabled` 中的 `repa-learning` 关闭整个官方组合，`repa-teaching` 只关闭教学 Skill。已有文档、语境绑定和复习记录继续保留；语境的安装级格式解释也继续用于内容保存和空间复制。教学方法见 [learn-with-feedback](skills/learn-with-feedback/SKILL.md)，产品启用、替换及历史验证见[官方学习组合](../../docs/development/official-learning.md)，语境格式与接口见[学习语境](../../docs/development/learning.md)。

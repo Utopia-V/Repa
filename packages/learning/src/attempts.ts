@@ -20,24 +20,28 @@ const json = (value: unknown) => `${canonicalJson(value)}\n`;
 const resourceKey = (resource: LocalResource) => `${resource.id}:${resource.mediaType}`;
 const invalid = (message: string) => new RepaFault("invalid_learning_record", message);
 
+function snapshotResources<R>(snapshot: { resource: R; resources?: R[] }): R[] {
+  return [snapshot.resource, ...(snapshot.resources ?? [])];
+}
+
 function reportResources(report: InputReport): ResourceRef[] {
-  return report.kind === "reported" ? (report.sources ?? []).map(source => source.resource) : [];
+  return report.kind === "reported" ? (report.sources ?? []).flatMap(snapshotResources) : [];
 }
 
 export function attemptInputResources(fact: AttemptFactInput): ResourceRef[] {
   return [
     ...(fact.response.kind === "resource" ? [fact.response.resource] : []),
-    ...fact.materials.map(snapshot => snapshot.resource),
-    ...(fact.presentation ? [fact.presentation.resource] : []),
+    ...fact.materials.flatMap(snapshotResources),
+    ...(fact.presentation ? snapshotResources(fact.presentation) : []),
     ...reportResources(fact.initialConditions), ...reportResources(fact.assistance),
   ];
 }
 
 export function judgmentInputResources(input: JudgmentInput): ResourceRef[] {
   return [
-    ...(input.method.execution ? [input.method.execution.resource] : []),
-    ...input.basis.map(snapshot => snapshot.resource),
-    ...(input.report ? [input.report.resource] : []),
+    ...(input.method.execution ? snapshotResources(input.method.execution) : []),
+    ...input.basis.flatMap(snapshotResources),
+    ...(input.report ? snapshotResources(input.report) : []),
   ];
 }
 
@@ -48,6 +52,7 @@ function local(resource: ResourceRef): LocalResource {
 function localSnapshot(snapshot: InputSnapshot): LocalSnapshot {
   return {
     resource: local(snapshot.resource),
+    ...(snapshot.resources !== undefined ? { resources: snapshot.resources.map(local) } : {}),
     ...(snapshot.selector !== undefined ? { selector: snapshot.selector } : {}),
     ...(snapshot.source !== undefined ? { source: snapshot.source } : {}),
   };
@@ -91,19 +96,19 @@ function judgmentValue(input: JudgmentInput, id: string, recordedBy: CapabilityS
 
 function factResources(fact: AttemptFact): LocalResource[] {
   const reports = [fact.initialConditions, fact.assistance].flatMap(report =>
-    report.kind === "reported" ? (report.sources ?? []).map(snapshot => snapshot.resource) : []);
+    report.kind === "reported" ? (report.sources ?? []).flatMap(snapshotResources) : []);
   return [
     ...(fact.response.kind === "resource" ? [fact.response.resource] : []),
-    ...fact.materials.map(snapshot => snapshot.resource),
-    ...(fact.presentation ? [fact.presentation.resource] : []), ...reports,
+    ...fact.materials.flatMap(snapshotResources),
+    ...(fact.presentation ? snapshotResources(fact.presentation) : []), ...reports,
   ];
 }
 
 function judgmentResources(judgment: AttemptJudgment): LocalResource[] {
   return [
-    ...(judgment.method.execution ? [judgment.method.execution.resource] : []),
-    ...judgment.basis.map(snapshot => snapshot.resource),
-    ...(judgment.report ? [judgment.report.resource] : []),
+    ...(judgment.method.execution ? snapshotResources(judgment.method.execution) : []),
+    ...judgment.basis.flatMap(snapshotResources),
+    ...(judgment.report ? snapshotResources(judgment.report) : []),
   ];
 }
 
