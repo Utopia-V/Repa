@@ -52,7 +52,7 @@ export default function review(): BackendPlugin<RepaCapabilityServices, ReviewSt
         "创建复习项，可附本空间内容标识、所见修订与定位。",
         (input, store, context) => store.create(input, context.source), { mutation: true }),
       capability("update", UpdateReviewInputSchema, ReviewMutationResultSchema,
-        "维护同一复习项的题目、参考答案和来源；base 来自所见项目修订。patch 中省略字段保持原值，answer:null 删除答案，sources:[] 清空来源。保留记忆状态、历史与人工安排；评分更正使用 review_correct，新的学习任务应创建新项。",
+        "维护同一复习项的题目、参考答案和来源；base 来自所见项目修订。patch 中省略字段保持原值，answer:null 删除答案，sources:[] 清空来源。保留记忆状态、历史与人工安排；评分更正使用 review_correct，不同的复习项目另行创建。",
         (input, store, context) => store.update(input, context.source), { mutation: true }),
       capability("get", GetReviewInputSchema, ReviewItemSchema,
         "读取复习项及其修订、实际来源与当前调度估计。",
