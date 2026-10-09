@@ -61,15 +61,31 @@
 | `trusted` | 允许执行哪些包，只能在应用侧设置 |
 | `implementations` | 为某个公共能力接口选择实际实现 |
 
-应用和空间可以分别设置 `backends`、`disabled` 和 `implementations`。空间带来的配置可以声明需要什么包，但不能自行授予本机代码执行信任。`repa-learning` 是官方学习组合的总开关，各项能力也有自己的注册标识，见[默认组合](official-learning.md)。
+应用和空间可以分别设置 `backends`、`disabled` 和 `implementations`。空间带来的配置可以声明需要什么包，但不能自行授予本机代码执行信任。官方学习产品用 `repa-learning` 表示组合总开关，各项能力也有自己的注册标识。底座按传入的登记与配置工作，不预装这项组合；产品装配见[默认组合](official-learning.md)。
 
 `PluginRuntime` 根据这些设置选择入口，检查来源和信任后，导入已启用的后台工厂。工厂先声明能力，等第一次调用时再通过 `openSpace` 打开数据库等空间资源。禁用插件时会停止相关工作、关闭资源，已保存的设置和业务数据保留。
 
-应用代码也可以直接登记能力：已有工厂使用 `ApplicationOptions.plugins`；已安装的包目录使用 `ApplicationOptions.bundledPackages`，填写 `{ id, directory, enabled }`。后一种方式仍读取同一份包声明，纯 Skill 包只加载 Skill。目录返回 `bundled` 来源及 `registrationId`，关闭后也能找到它的数据快照入口。
+应用代码也可以直接登记能力：已有工厂使用 `ApplicationOptions.plugins`；已安装的包目录使用 `ApplicationOptions.bundledPackages`，填写 `{ id, directory, enabled }`。包列表既可以是固定数组，也可以是同步函数 `(configuration: PluginSettings) => readonly BundledPluginRegistration[]`，由产品按本次配置选择贡献。后一种方式仍读取同一份包声明，纯 Skill 包只加载 Skill。目录返回 `bundled` 来源及 `registrationId`，关闭后也能找到它的数据快照入口。
 
 官方组合从实际分发依赖中定位包，信任绑定到这份代码的位置。项目中即使出现同名包，也不会因此取得官方信任。随应用提供的资源使用独立的 Pi 内存设置解析，个人和项目的安装配置保持原样。具体构建取舍见[默认组合说明](official-learning.md#装配责任与构建顺序)。
 
 预览和实际运行都通过 `selectBackendEntry` 选择入口，使用相同的判断规则。同名包存在多个来源时，需要用完整的 `source + scope` 指定。来源含糊或已经关闭的入口不会显示为已启用。预览到选出入口为止，不执行后台工厂。
+
+### 产品装配与提示默认值
+
+直接建立 `RepaApplication` 或调用 `startRepaServer` 时，底座的后台登记和随应用包列表都为空，基础提示也为空。产品把实际需要的插件、包和默认提示交给应用，而不要求通用底座了解其领域。
+
+`ApplicationOptions.promptDefaults` 接收当前 `PluginSettings`，同步返回 `Partial<PromptSettings>`。例如产品可以根据组合开关选择基础提示：
+
+```ts
+promptDefaults: configuration => ({
+  base: configuration.disabled.includes("novel-product") ? "" : "围绕当前小说设定继续创作。",
+}),
+```
+
+Application 校验返回的字段和值，再替换设置视图中 `source: "default"` 的有效值，同时显示新的默认定义。应用、空间和会话已保存的覆盖保持原样；空字符串、空列表和 `false` 也是明确的覆盖。重置覆盖后，才重新使用产品此时提供的默认值。
+
+官方学习产品通过 `@repa/learning` 的 `learningApplicationOptions`、`createLearningApplication` 和 `startLearningServer` 完成这项装配。其他领域可以提供自己的入口，通用底座继续使用同一组应用选项。
 
 ### 安装级背景与持久格式
 
@@ -100,7 +116,7 @@ const registration: BackendPluginRegistration = {
 
 `formats` 提供同一插件对内容清单字段、引用和文件的解释，交给 `ContentStore.formats` 使用。安装级声明一直保留：禁用插件后，查询与注入停止，历史 codec 仍可过滤已有自动消息，格式仍参与空间复制、备份和引用重映射。重新启用时读取原来的当前数据，而不是重新初始化一份状态。背景来源 ID、历史消息类型、格式 ID 和格式字段均要求唯一。
 
-当前安装级声明由 `ApplicationOptions.plugins` 接入；通过包清单加载同等声明的入口仍待接续。默认学习注册也已经使用这条管道，其产品默认装配和学习实现随后迁到所属学习包。
+当前安装级声明由 `ApplicationOptions.plugins` 接入；通过包清单加载同等声明的入口仍待接续。官方学习注册也使用这条管道，登记与默认组合由 `@repa/learning` 的产品入口提供。
 
 ### 禁用后的持久数据快照
 

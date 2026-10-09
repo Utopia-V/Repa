@@ -1,5 +1,5 @@
-import { object, IdSchema, RevisionSchema } from "../schema.js";
-import { ContentChangeResultSchema } from "../content/schema.js";
+import { object, IdSchema, RevisionSchema, ContentChangeResultSchema } from "repa/protocol";
+import type { Static } from "typebox";
 import { ContextBindingSchema, ContextStateSchema, ContextViewSchema } from "./schema.js";
 
 export const learningMethods = {
@@ -8,3 +8,6 @@ export const learningMethods = {
   "context.preview": { params: object({ spaceId: IdSchema }), result: ContextViewSchema },
 };
 export type LearningMethod = keyof typeof learningMethods;
+export type LearningParams<M extends LearningMethod> = Static<(typeof learningMethods)[M]["params"]>;
+export type LearningResult<M extends LearningMethod> = Static<(typeof learningMethods)[M]["result"]>;
+export * from "./schema.js";

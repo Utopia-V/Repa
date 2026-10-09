@@ -5,7 +5,6 @@ export * from "./display/schema.js";
 import { contentMethods } from "./content/protocol.js";
 import { spaceMethods, SpaceSchema } from "./spaces/schema.js";
 import { modelMethods, ModelCompleteOptionsSchema } from "./models/schema.js";
-import { learningMethods } from "./learning/protocol.js";
 import { CapabilityScopeSchema, CapabilitySelectionSchema, CapabilityDescriptorSchema, CapabilitySourceSchema, CapabilityEventSchema } from "./capabilities/schema.js";
 import { PluginPackageSchema } from "./plugins/schema.js";
 import { executionMethods } from "./execution/protocol.js";
@@ -14,7 +13,6 @@ export * from "./execution/schema.js";
 import { packageMethods } from "./plugins/protocol.js";
 export * from "./capabilities/schema.js";
 export * from "./search/protocol.js";
-export * from "./learning/schema.js";
 export * from "./models/schema.js";
 export * from "./configuration/runtime.js";
 import { AssembledPromptSchema } from "./configuration/runtime.js";
@@ -23,6 +21,7 @@ import { ContentChangeResultSchema, ResourceRefSchema } from "./content/schema.j
 import { PromptSettingsSchema, SettingsGetParamsSchema, SettingsSetParamsSchema, SettingsResetParamsSchema, SettingsViewSchema, SettingScopeSchema } from "./configuration/schema.js";
 export * from "./content/schema.js";
 export * from "./configuration/schema.js";
+export { IdSchema, RevisionSchema, object, literals } from "./schema.js";
 export { RepaFault } from "./errors.js";
 
 import { SubmitSchema, ContinueSchema, RequestSchema, QueueSchema, BackgroundRequestSchema, RunOptionsSchema, InteractionSchema, ReplySchema, InteractionReplyResultSchema } from "./requests/schema.js";
@@ -227,7 +226,6 @@ export const methods = {
   ...displayMethods,
   ...spaceMethods,
   ...modelMethods,
-  ...learningMethods,
   ...packageMethods,
   ...executionMethods,
   "capability.describe": method(object({ scope: CapabilityScopeSchema }), object({

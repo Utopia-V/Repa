@@ -4,11 +4,9 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { CONTEXT_MESSAGE_TYPE, contextSnapshot, learningBackground, LearningContext, learningContentFormat } from "@repa/learning";
 import { getCurrentSystemMessage, getCurrentSystemPrompt, fauxAssistantMessage, fauxProvider, fauxToolCall, type TranscriptContext as Context } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
-import { CONTEXT_MESSAGE_TYPE, contextSnapshot, learningBackground } from "../src/learning/background.js";
-import { LearningContext } from "../src/learning/context.js";
-import { learningContentFormat } from "../src/learning/content-format.js";
 import type { WorkingMessage } from "../src/agent/background.js";
 import type { PromptSettings } from "../src/configuration/schema.js";
 import { ContentStore } from "../src/content/store.js";

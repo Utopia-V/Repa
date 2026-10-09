@@ -6,7 +6,7 @@
 
 开发时，前端可以从 workspace 找到后端和能力包；安装后，这些目录需要完整地随应用交付。因此，打包先把后端与默认能力制作成 npm 包，再在独立目录中安装生产依赖。后端从实际安装位置加载能力，开发目录不参与运行。
 
-Electron 已经带有 Node 运行时。桌面主进程使用自己的可执行文件，通过 `ELECTRON_RUN_AS_NODE=1` 启动原有 `repa serve`，于是前端和后端共用同一份运行时。当前 Electron 44.3.0 带有 Node 24.20.0，包内已验证 `node:sqlite` 和材料解析 worker。
+Electron 已经带有 Node 运行时。桌面主进程使用自己的可执行文件，通过 `ELECTRON_RUN_AS_NODE=1` 启动 `@repa/learning` 的 `repa-learning serve`，于是前端和后端共用同一份运行时。当前 Electron 44.3.0 带有 Node 24.20.0，原安装候选已验证 `node:sqlite` 和材料解析 worker。
 
 安装包由 electron-builder 26.15.3 生成。当前保留物理文件布局，使 helper、相邻 bubblewrap 和 worker 可以直接按实际路径启动。代价是包内文件较多；后续若改用 ASAR，需要同时处理原生可执行文件和 worker 的装载路径，并补验这些入口。
 

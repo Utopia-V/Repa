@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import http, { type RequestListener } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { Check } from "typebox/value";
@@ -71,7 +72,8 @@ async function fixture(t: TestContext, handler: RequestListener) {
   assert(address && typeof address !== "string");
   const base = `http://127.0.0.1:${address.port}`;
   const directory = path.join(root, "space");
-  const options = { agentDir, appDirectory: path.join(root, "app") };
+  const options = { agentDir, appDirectory: path.join(root, "app"),
+    bundledPackages: [{ id: "repa-materials", directory: fileURLToPath(new URL("..", import.meta.url)), enabled: true }] };
   let server = await startRepaServer(options);
   let client = await RepaClient.connect(server.connection);
   t.after(async () => {

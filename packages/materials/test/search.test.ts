@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import http, { type RequestListener } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { Check } from "typebox/value";
@@ -59,7 +60,8 @@ async function fixture(t: TestContext, handler: RequestListener) {
     }
     return fetch(input, init);
   });
-  const server = await startRepaServer({ agentDir, appDirectory: path.join(root, "app") });
+  const server = await startRepaServer({ agentDir, appDirectory: path.join(root, "app"),
+    bundledPackages: [{ id: "repa-materials", directory: fileURLToPath(new URL("..", import.meta.url)), enabled: true }] });
   const client = await RepaClient.connect(server.connection);
   t.after(async () => {
     try { await server.close("cancel"); await client.close(); }

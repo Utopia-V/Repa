@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { CONTEXT_MESSAGE_TYPE, contextSnapshot, makeContextMessage, learningContextCodec, type ContextView } from "@repa/learning";
 import {
   createSyntheticSourceInfo,
   estimateTokens,
@@ -9,10 +10,8 @@ import {
   type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { assembleSystemPrompt } from "../src/agent/context.js";
-import { CONTEXT_MESSAGE_TYPE, contextSnapshot, makeContextMessage, learningContextCodec } from "../src/learning/background.js";
 import { projectBackgrounds, withModelBackgrounds, type WorkingMessage } from "../src/agent/background.js";
 import type { PromptSettings } from "../src/configuration/schema.js";
-import type { ContextView } from "../src/learning/schema.js";
 
 const projectContext = (messages: WorkingMessage[], manager: SessionManager, enabled: boolean) =>
   projectBackgrounds(messages, manager, [{ codec: learningContextCodec, enabled }]);

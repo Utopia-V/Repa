@@ -22,6 +22,35 @@ export async function captureContent(options: {
   const copying = targetSpaceId !== sourceSpaceId;
   if (copying && [...journal.entries.values()].some(entry => entry.status === "prepared" || entry.status === "needs_recovery"))
     throw new RepaFault("recovery_required", "独立复制前需要处理未确认的内容操作。");
+  // 改变空间身份必须能解释所有当前与历史关系；同身份备份只保留原数据。
+  const declared = new Set(["version", "items", ...options.formats.map(format => format.field)]);
+  const requireFormats = (value: Catalog, location: string) => {
+    const fields = Object.keys(value).filter(field => !declared.has(field));
+    if (fields.length) throw new RepaFault("content_format_unavailable", `${location}缺少持久格式 owner，无法独立复制：${fields.join("、")}。`, { fields });
+    for (const format of options.formats) {
+      if (!Check(format.schema, formatValue(value, format)))
+        throw new RepaFault("invalid_storage", `${location}的持久格式 ${format.id} 数据无效。`);
+    }
+  };
+  if (copying) requireFormats(currentCatalog, "当前内容清单");
+  const ownedFiles = copying ? formatFiles(currentCatalog, options.formats) : new Map<string, ContentFormat[]>();
+  const addFiles = (value: Catalog) => {
+    for (const [file, formats] of formatFiles(value, options.formats)) {
+      const existing = ownedFiles.get(file) ?? [];
+      ownedFiles.set(file, [...new Set([...existing, ...formats])]);
+    }
+  };
+  const historical = new Map<string, Catalog>();
+  for (const entry of journal.entries.values()) for (const file of entry.files) if (file.path === catalogPath)
+    for (const image of [file.before, file.after]) if (image.kind === "file" && !historical.has(image.hash)) {
+      const raw: unknown = JSON.parse((await sourceBlobs.get(image.hash)).toString("utf8"));
+      if (!Check(CatalogSchema, raw)) throw new RepaFault("invalid_storage", "历史内容清单无法解析。");
+      historical.set(image.hash, raw);
+      if (copying) {
+        requireFormats(raw, "历史内容清单");
+        addFiles(raw);
+      }
+    }
   const directory = path.join(destinationRoot, ".repa", "content");
   await mkdir(path.join(directory, "operations"), { recursive: true });
   const blobs = new BlobStore(path.join(directory, "blobs")); await blobs.open();
@@ -43,21 +72,6 @@ export async function captureContent(options: {
     }
     return next;
   };
-  const ownedFiles = formatFiles(currentCatalog, options.formats);
-  const addFiles = (value: Catalog) => {
-    for (const [file, formats] of formatFiles(value, options.formats)) {
-      const existing = ownedFiles.get(file) ?? [];
-      ownedFiles.set(file, [...new Set([...existing, ...formats])]);
-    }
-  };
-  const historical = new Map<string, Catalog>();
-  for (const entry of journal.entries.values()) for (const file of entry.files) if (file.path === catalogPath)
-    for (const image of [file.before, file.after]) if (image.kind === "file" && !historical.has(image.hash)) {
-      const raw: unknown = JSON.parse((await sourceBlobs.get(image.hash)).toString("utf8"));
-      if (!Check(CatalogSchema, raw)) throw new RepaFault("invalid_storage", "历史内容清单无法解析。");
-      historical.set(image.hash, raw);
-      addFiles(raw);
-    }
   const mapped = new Map<string, string>();
   const remapImage = async (file: string, hash: string): Promise<string> => {
     const key = `${file}:${hash}`;

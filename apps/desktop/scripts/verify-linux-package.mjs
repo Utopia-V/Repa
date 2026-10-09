@@ -54,7 +54,7 @@ try {
   const installed = path.join(installation, "opt/Repa");
   const application = path.join(installed, "resources/app");
   const executable = path.join(installed, "repa");
-  const cli = path.join(application, "node_modules/repa/dist/cli.js");
+  const cli = path.join(application, "node_modules/@repa/learning/dist/cli.js");
   const helper = path.join(application, "node_modules/repa/resources/sandbox/linux-x64/codex-linux-sandbox");
   const bwrap = path.join(application, "node_modules/repa/resources/sandbox/linux-x64/codex-resources/bwrap");
   const worker = path.join(application, "node_modules/@repa/materials/dist/parser-worker.js");

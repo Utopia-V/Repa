@@ -22,6 +22,9 @@ it("Desktop 宿主复用真实后端，最后一个客户端退出后可重新�
     expect(await ensureDesktopRepaProcess(options)).toEqual(connection);
     const space = await client.call("space.open", { path: path.join(directory, "space") });
     expect(await client.call("space.list", {})).toEqual([space]);
+    const capabilities = await client.call("capability.describe", { scope: { kind: "space", spaceId: space.id } });
+    expect(capabilities.issues).toEqual([]);
+    expect(capabilities.capabilities.some(item => item.contract.id === "repa.context.preview")).toBe(true);
     await client.close();
     await expect.poll(() => existsSync(connectionFile), { timeout: 5000 }).toBe(false);
 

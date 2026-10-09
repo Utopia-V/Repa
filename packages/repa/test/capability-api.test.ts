@@ -7,18 +7,17 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { startLearningServer, callLearning, ContextViewSchema, DEFAULT_LEARNING_PROMPT } from "@repa/learning";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
 import { Type } from "typebox";
-import type { RepaCapabilityServices } from "../src/capabilities/services.js";
-import type { BackendPluginRegistration, CapabilityDefinition } from "../src/capabilities/types.js";
+import type { RepaCapabilityServices } from "repa/plugin";
+import type { BackendPluginRegistration, CapabilityDefinition } from "repa/plugin";
 import { RepaClient, RpcError } from "../src/client.js";
 import type { CapabilityScope, SessionKey, SettingScope } from "../src/protocol.js";
-import { ContextViewSchema } from "../src/learning/schema.js";
-import { DEFAULT_LEARNING_PROMPT } from "../src/learning/default-prompt.js";
 import { object } from "../src/schema.js";
-import { startRepaServer } from "../src/server.js";
+import { startRepaServer } from "repa";
 import { sqlitePlugin, sqliteSnapshot } from "./fixtures/capability-sqlite-plugin.js";
 
 const entryContract = { id: "example.entries.append", version: "1" };
@@ -46,7 +45,7 @@ async function until<T>(read: () => T | Promise<T>, ready: (value: T) => boolean
   }
 }
 
-async function fixture(t: TestContext, plugins: readonly BackendPluginRegistration[] = []) {
+async function fixture(t: TestContext, plugins: readonly BackendPluginRegistration[] = [], learning = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-capability-api-"));
   const agentDir = path.join(root, "agent");
   const appDirectory = path.join(root, "app");
@@ -64,7 +63,8 @@ async function fixture(t: TestContext, plugins: readonly BackendPluginRegistrati
   const modelRuntime = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
   const options = { agentDir, appDirectory, plugins, modelOverride: { modelRuntime, model: faux.getModel() }, trustExtensions: false };
-  let server = await startRepaServer(options);
+  const start = learning ? startLearningServer : startRepaServer;
+  let server = await start(options);
   let client = await RepaClient.connect(server.connection);
   t.after(async () => {
     await server.close("cancel");
@@ -78,7 +78,7 @@ async function fixture(t: TestContext, plugins: readonly BackendPluginRegistrati
   const reopen = async () => {
     await server.close("cancel");
     await client.close();
-    server = await startRepaServer(options);
+    server = await start(options);
     client = await RepaClient.connect(server.connection);
     assert.equal((await client.call("space.open", { path: directory })).id, space.id);
   };
@@ -214,14 +214,14 @@ test("空间 SQLite 能力的公共后台调用与真实 Pi 工具共享处理�
 });
 
 test("关闭整个学习能力后普通内容和 Agent 继续，复制撤回与重启学习接续原数据", async (t) => {
-  const f = await fixture(t);
+  const f = await fixture(t, [], true);
   const target = { kind: "file" as const, spaceId: f.space.id, location: { kind: "relative" as const, path: "goal.md" } };
   await f.client.call("content.write", { target, base: { kind: "absent" }, operationId: randomUUID(), value: { kind: "text", text: "旧目标" } });
   const associated = await f.client.call("content.associate", { spaceId: f.space.id, location: target.location, role: "document", operationId: randomUUID() });
   const ref = associated.contents[0]?.ref;
   assert(ref);
-  const state = await f.client.call("context.get", { spaceId: f.space.id });
-  await f.client.call("context.set", { spaceId: f.space.id, binding: { kind: "document", ref }, base: state.revision, operationId: randomUUID() });
+  const state = await callLearning(f.client, "context.get", { spaceId: f.space.id });
+  await callLearning(f.client, "context.set", { spaceId: f.space.id, binding: { kind: "document", ref }, base: state.revision, operationId: randomUUID() });
   f.faux.setResponses([
     (context) => { assert.match(requestText(context), /旧目标/u); return fauxAssistantMessage("学习开始"); },
     (context) => {
@@ -234,7 +234,7 @@ test("关闭整个学习能力后普通内容和 Agent 继续，复制撤回与�
   ]);
   await f.send("开始学习");
   await disable(f.client, f.scope, ["repa-learning"]);
-  await assert.rejects(f.client.call("context.get", { spaceId: f.space.id }), fault("capability_not_found"));
+  await assert.rejects(callLearning(f.client, "context.get", { spaceId: f.space.id }), fault("capability_not_found"));
   const editOperation = randomUUID();
   await f.client.call("content.edit", { target: { kind: "content", ref }, edits: [{ oldText: "旧目标", newText: "新目标" }], operationId: editOperation });
   await f.send("普通任务");
@@ -245,10 +245,10 @@ test("关闭整个学习能力后普通内容和 Agent 继续，复制撤回与�
   const copy = await f.client.call("space.open", { path: copied.destination });
   await f.client.call("operation.undo", { spaceId: copy.id, operationId: editOperation, undoOperationId: randomUUID() });
   await disable(f.client, { kind: "space", spaceId: copy.id }, []);
-  assert.equal((await f.client.call("context.preview", { spaceId: copy.id })).text, "旧目标");
+  assert.equal((await callLearning(f.client, "context.preview", { spaceId: copy.id })).text, "旧目标");
   await disable(f.client, f.scope, []);
   await f.reopen();
-  assert.equal((await f.client.call("context.preview", { spaceId: f.space.id })).text, "新目标");
+  assert.equal((await callLearning(f.client, "context.preview", { spaceId: f.space.id })).text, "新目标");
   await f.send("恢复学习");
   assert.equal(f.faux.state.callCount, 3);
 });
@@ -459,7 +459,7 @@ test("替换学习语境实现沿用公共空间配置与 Agent 会话覆盖，�
     return { capabilities: [replacement], settings: [{ namespace, settings: {
       text: { schema: Type.String(), default: "默认替换语境", scopes: ["application", "space", "session"] },
     } }] };
-  } }]);
+  } }], true);
   const save = async (scope: SettingScope, selectedNamespace: string, key: string, value: unknown) => {
     const view = await f.client.call("settings.get", { scope, namespace: selectedNamespace });
     const current = view.entries.find(entry => entry.key === key);
@@ -485,7 +485,7 @@ test("替换学习语境实现沿用公共空间配置与 Agent 会话覆盖，�
   assert.deepEqual(calls, []);
   assert(configuredPreview.prompt.sources.some(source => source.id === "learningContext" && source.dynamic && source.content === undefined));
   assert.doesNotMatch(JSON.stringify(configuredPreview.prompt), /应用配置语境|空间配置语境|会话配置语境/u);
-  assert.deepEqual(await f.client.call("context.preview", { spaceId: f.space.id }), { text: values.space, revision: "configured-view", sources: [] });
+  assert.deepEqual(await callLearning(f.client, "context.preview", { spaceId: f.space.id }), { text: values.space, revision: "configured-view", sources: [] });
   assert.deepEqual(calls, [{ kind: "client", scope: f.scope, text: values.space }]);
   f.faux.setResponses([
     context => {

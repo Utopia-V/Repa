@@ -6,14 +6,14 @@ import os from "node:os";
 import path from "node:path";
 import lockfile from "proper-lockfile";
 import { getAgentDir, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { TSchema } from "typebox";
+import { Type, type TSchema } from "typebox";
 import { Check } from "typebox/value";
 import { prepareInput, inputResources, inputText } from "./requests/input.js";
 import type { Submit, Continue, RequestRecord, QueueView, RunOptions, InteractionReplyReceipt } from "./requests/schema.js";
 import { BackgroundRequests, type ProcessingContext } from "./requests/background.js";
 import type { BackgroundRequest, Input, ProcessingResult } from "./requests/schema.js";
 import { ConfigStore } from "./configuration/store.js";
-import type { SettingScope, PromptSettings, SettingsView } from "./configuration/schema.js";
+import { PromptSettingsSchema, type SettingScope, type PromptSettings, type SettingsView } from "./configuration/schema.js";
 import type { SettingsNamespaceDefinition } from "./configuration/definitions.js";
 import { RUNTIME_SETTINGS_DEFINITION, SUMMARY_SETTINGS_DEFINITION, type RuntimeSettings } from "./configuration/runtime.js";
 import { defaultThinkingLevel, sessionSettings, snapshotSettings } from "./agent/settings.js";
@@ -26,12 +26,7 @@ import type { ExecutionContext, ProgramCapabilities } from "./execution/service.
 import { ModelConnections } from "./models/service.js";
 import { ModelCalls } from "./models/calls.js";
 import { ModelCompleteOptionsSchema, interruptModelAttempts, updateModelAttempts, type ModelCompleteOptions, type ModelMethod, type ModelParams, type ModelBinding, type ModelAttempt } from "./models/schema.js";
-import { learningPluginRegistration } from "./learning/contributions.js";
 import { InstalledContributions } from "./agent/contributions.js";
-import { LEARNING_CONTEXT_TOOLS } from "./learning/plugin.js";
-import type { LearningMethod } from "./learning/protocol.js";
-import { learningPromptDefaults, LEARNING_PLUGIN_ID } from "./learning/settings.js";
-import { bundledLearningPackages } from "./learning/composition.js";
 import { PLUGIN_SETTINGS_DEFINITION, type PluginSettings } from "./configuration/plugins.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { discoverPluginResources, selectBackendEntry } from "./plugins/resources.js";
@@ -101,7 +96,8 @@ export interface ApplicationOptions {
   snapshotParticipants?: readonly SpaceSnapshotParticipant[];
   settingsDefinitions?: readonly SettingsNamespaceDefinition[];
   plugins?: readonly BackendPluginRegistration[];
-  bundledPackages?: readonly BundledPluginRegistration[];
+  bundledPackages?: readonly BundledPluginRegistration[] | ((configuration: PluginSettings) => readonly BundledPluginRegistration[]);
+  promptDefaults?: (configuration: PluginSettings) => Partial<PromptSettings>;
   trustExtensions?: boolean;
   eventBufferSize?: number;
   exitWhenDetached?: boolean;
@@ -143,6 +139,8 @@ interface PendingReply {
   interaction: Interaction;
   resolve: (receipt: InteractionReplyReceipt) => void;
 }
+const productPromptDefaultsSchema = Type.Partial(PromptSettingsSchema, { additionalProperties: false });
+
 const keyOf = (key: SessionKey) => `${key.spaceId}/${key.sessionId}`;
 const runtimeIdentity = (binding?: ModelBinding) => {
   if (!binding) return undefined;
@@ -207,7 +205,7 @@ export class RepaApplication {
         options.eventBufferSize < 1)
     )
       throw new Error("事件缓存大小必须为正整数。");
-    this.#backendPlugins = [learningPluginRegistration, ...(options.plugins ?? [])];
+    this.#backendPlugins = [...options.plugins ?? []];
     this.#contributions = new InstalledContributions(this.#backendPlugins);
     this.#options = options;
     const appDirectory = path.resolve(options.appDirectory ?? options.agentDir ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "repa"));
@@ -422,7 +420,7 @@ export class RepaApplication {
     const p = <M extends ContentMethod>() => input as Params<M>;
     const targetSpace = (target: ContentTarget) => target.kind === "content" ? target.ref.spaceId : target.spaceId;
     const spaceId = "spaceId" in input ? input.spaceId : "ref" in input ? input.ref.spaceId : targetSpace(input.target);
-    const mutation = !["content.list", "content.get", "content.read", "content.relations", "operation.get", "context.get", "context.preview", "resource.hold.get"].includes(method);
+    const mutation = !["content.list", "content.get", "content.read", "content.relations", "operation.get", "resource.hold.get"].includes(method);
     return this.#activity(async () => {
       const record = this.#spaces.get(spaceId);
       if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
@@ -471,25 +469,25 @@ export class RepaApplication {
       }
     }, mutation, spaceId);
   }
-  learningCall(method: LearningMethod, params: Params<LearningMethod>, hostId: string = this.id): Promise<unknown> {
-    return this.#activity(async () => {
-      const scope = { kind: "space" as const, spaceId: params.spaceId };
-      const runtime = await this.#plugins(scope);
-      const { spaceId: _spaceId, ...input } = params;
-      const contract = { id: `repa.${method}`, version: "1" };
-      return runtime.capabilities.invoke({ contract, implementationId: runtime.configuration.implementations[contract.id] }, input, {
-        scope, source: { kind: "client", hostId }, signal: new AbortController().signal,
-        content: this.#space(params.spaceId).content,
-        services: { settings: async (namespace: string) => (await this.#readSettings(scope, [namespace]))[0]! },
-      });
-    }, method === "context.set", params.spaceId);
-  }
-
   async #readSettings(scope: SettingScope, namespaces: readonly string[]): Promise<SettingsView[]> {
     const views = await this.#configuration.getMany(scope, [...new Set([...namespaces, "plugins"])]);
     const pluginView = views.find(view => view.namespace === "plugins");
     const settings = Object.fromEntries(pluginView!.entries.map(entry => [entry.key, entry.effective])) as PluginSettings;
-    return namespaces.map(namespace => learningPromptDefaults(views.find(view => view.namespace === namespace)!, !settings.disabled.includes(LEARNING_PLUGIN_ID)));
+    const provided = namespaces.includes("prompts") && this.#options.promptDefaults ? this.#options.promptDefaults(settings) : {};
+    if (!Check(productPromptDefaultsSchema, provided))
+      throw new RepaFault("invalid_prompt_defaults", "产品提供的提示默认值格式无效。");
+    const defaults = structuredClone(provided);
+    return namespaces.map(namespace => {
+      const view = views.find(item => item.namespace === namespace)!;
+      if (namespace !== "prompts") return view;
+      for (const definition of view.definitions) {
+        if (Object.hasOwn(defaults, definition.key)) definition.default = defaults[definition.key as keyof PromptSettings];
+      }
+      for (const entry of view.entries) {
+        if (entry.source === "default" && Object.hasOwn(defaults, entry.key)) entry.effective = defaults[entry.key as keyof PromptSettings];
+      }
+      return view;
+    });
   }
 
   #plugins(scope: CapabilityScope): Promise<PluginRuntime> {
@@ -516,7 +514,8 @@ export class RepaApplication {
   }
 
   #bundledPackages(configuration: PluginSettings): readonly BundledPluginRegistration[] {
-    return [...bundledLearningPackages(configuration.disabled), ...this.#options.bundledPackages ?? []];
+    const packages = this.#options.bundledPackages;
+    return typeof packages === "function" ? packages(configuration) : packages ?? [];
   }
 
   async #resetPlugins(scope: SettingScope): Promise<void> {
@@ -971,7 +970,6 @@ export class RepaApplication {
       const resources = await discoverPluginResources({ cwd: this.#store(target.spaceId).space.path,
         agentDir: this.#options.agentDir, trusted: this.#options.trustExtensions ?? false, configuration: plugins,
         bundledPackages: this.#bundledPackages(plugins) });
-      const learningEnabled = !plugins.disabled.includes(LEARNING_PLUGIN_ID);
       const dynamicTools = [
         ...resources.bundledPackages.filter(({ registration, package: item }) =>
           registration.enabled && item.status === "ready" && item.backend?.status === "ready").map(({ registration }) => registration.id),
@@ -995,9 +993,6 @@ export class RepaApplication {
         additionalSkills: resources.additionalSkills, missingPackages: resources.missingPackages,
         additionalTools: [
           this.#execution.createTool(this.#store(target.spaceId).space.path, signal => this.#agentExecutionContext(this.#record(target), signal)),
-          ...(learningEnabled ? Object.entries(LEARNING_CONTEXT_TOOLS)
-            .filter(([contract]) => !plugins.implementations[contract] || plugins.implementations[contract] === "official")
-            .map(([, tool]) => tool) : []),
           ...(!plugins.disabled.includes(SEARCH_PLUGIN_ID) ? SEARCH_TOOLS : []),
         ],
         dynamicTools, dynamicExtensions: resources.additionalExtensions.length > 0,

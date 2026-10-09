@@ -1,4 +1,4 @@
-import type { BackendPluginRegistration } from "../capabilities/types.js";
+import type { BackendPluginRegistration } from "repa/plugin";
 import { learningContextCodec, prepareLearningBackground } from "./background.js";
 import { learningContentFormat } from "./content-format.js";
 import { LearningContext } from "./context.js";

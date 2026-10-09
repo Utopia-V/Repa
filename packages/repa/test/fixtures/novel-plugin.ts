@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import type { BackgroundCodec, PreparedBackground, WorkingMessage } from "../../src/agent/background.js";
-import type { BackendPluginRegistration, CapabilityDefinition } from "../../src/capabilities/types.js";
-import type { RepaCapabilityServices } from "../../src/capabilities/services.js";
+import type { BackendPluginRegistration, CapabilityDefinition } from "repa/plugin";
+import type { RepaCapabilityServices } from "repa/plugin";
 import type { ContentFormat } from "../../src/content/formats.js";
 import { mapReference } from "../../src/content/references.js";
 import { ContentChangeResultSchema, ContentRefSchema } from "../../src/content/schema.js";
-import { canonicalJson, type ContentStore } from "../../src/content/store.js";
-import { RepaFault } from "../../src/errors.js";
+import { canonicalJson, type ContentStore } from "repa/plugin";
+import { RepaFault } from "repa/protocol";
 import { object } from "../../src/schema.js";
 import { digest } from "../../src/storage/blobs.js";
 

@@ -6,15 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { callLearning, ContextStateSchema, DEFAULT_LEARNING_PROMPT, startLearningServer } from "@repa/learning";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { ReviewHistoryResultSchema, ReviewItemSchema, ReviewMutationResultSchema, type ReviewItem } from "@repa/review/protocol";
 import { Check } from "typebox/value";
 import { RepaClient } from "../src/client.js";
 import { ContentInfoSchema, type ContentRef } from "../src/content/schema.js";
-import { ContextStateSchema } from "../src/learning/schema.js";
-import { DEFAULT_LEARNING_PROMPT } from "../src/learning/default-prompt.js";
-import { startRepaServer } from "../src/server.js";
 import type { CapabilityScope, SettingScope } from "../src/protocol.js";
 
 async function fixture(t: TestContext) {
@@ -69,7 +67,7 @@ const useTool = (name: string, input: Parameters<typeof fauxToolCall>[1]) => fau
 
 test("干净配置无需模型或手工安装即可使用默认本地能力，发现不创建复习数据库或改写 Pi 设置", async (t) => {
   const f = await fixture(t);
-  const server = await startRepaServer(f);
+  const server = await startLearningServer(f);
   const client = await RepaClient.connect(server.connection);
   f.onClose(async () => { await server.close("cancel"); await client.close(); });
   const space = await client.call("space.open", { path: f.directory });
@@ -108,7 +106,7 @@ test("同名替换包必须选择明确来源，预览与运行共同排除含�
     repa: { manifestVersion: 1, backend: { entry: "./index.js", api: "^1.0.0" } } }));
   await writeFile(path.join(replacement, "index.js"), `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "loaded");\nexport default function () { return { capabilities: [] }; }\n`);
   await writeFile(path.join(f.agentDir, "settings.json"), JSON.stringify({ ...JSON.parse(f.piSettings), packages: [replacement] }));
-  const server = await startRepaServer(f);
+  const server = await startLearningServer(f);
   const client = await RepaClient.connect(server.connection);
   f.onClose(async () => { await server.close("cancel"); await client.close(); });
   const space = await client.call("space.open", { path: f.directory });
@@ -143,7 +141,7 @@ test("官方组合保存实际作答与明确复习自评，关闭后复制再�
   const modelRuntime = await ModelRuntime.create({ authPath: path.join(f.agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
   const options = { ...f, modelOverride: { modelRuntime, model: faux.getModel() } };
-  let server = await startRepaServer(options);
+  let server = await startLearningServer(options);
   let client = await RepaClient.connect(server.connection);
   f.onClose(async () => { await server.close("cancel"); await client.close(); });
   const space = await client.call("space.open", { path: f.directory });
@@ -271,13 +269,13 @@ test("官方组合保存实际作答与明确复习自评，关闭后复制再�
   assert.equal(await readFile(path.join(destination, "learning.md"), "utf8"), expected);
   await server.close("cancel");
   await client.close();
-  server = await startRepaServer(options);
+  server = await startLearningServer(options);
   client = await RepaClient.connect(server.connection);
   const copy = await client.call("space.open", { path: destination });
   const copyScope = { kind: "space" as const, spaceId: copy.id };
   await disable(client, copyScope, ["repa-teaching"]);
   assert.deepEqual(await invoke(client, copyScope, "repa.review.history", { itemId: review.id }), history);
-  const binding = await client.call("context.get", { spaceId: copy.id });
+  const binding = await callLearning(client, "context.get", { spaceId: copy.id });
   assert.deepEqual(binding.binding, { kind: "document", ref: { spaceId: copy.id, id: noteRef.id } });
   const next = await client.call("session.create", { spaceId: copy.id });
   const nextPreview = await client.call("prompts.preview", { spaceId: copy.id, sessionId: next.sessionId });
@@ -294,7 +292,7 @@ test("教学与整理方法按需读取，关闭复习和教学后原始尝试�
     models: [{ id: "test", reasoning: false, input: ["text"], contextWindow: 32768, maxTokens: 2048 }], tokensPerSecond: 0 });
   const modelRuntime = await ModelRuntime.create({ authPath: path.join(f.agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
-  const server = await startRepaServer({ ...f, modelOverride: { modelRuntime, model: faux.getModel() } });
+  const server = await startLearningServer({ ...f, modelOverride: { modelRuntime, model: faux.getModel() } });
   const client = await RepaClient.connect(server.connection);
   f.onClose(async () => { await server.close("cancel"); await client.close(); });
   const space = await client.call("space.open", { path: f.directory });

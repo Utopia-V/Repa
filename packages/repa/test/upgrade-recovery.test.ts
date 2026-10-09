@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { gunzipSync } from "node:zlib";
 import test, { type TestContext } from "node:test";
+import { callLearning, startLearningServer, ContextViewSchema } from "@repa/learning";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
@@ -15,7 +16,7 @@ import {
 } from "@repa/review/protocol";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
-import { RepaClient, RpcError, startRepaServer } from "repa";
+import { RepaClient, RpcError } from "repa";
 import { ContentInfoSchema, ResourceRefSchema } from "../src/content/schema.js";
 import { methods, type CapabilityScope } from "../src/protocol.js";
 
@@ -31,7 +32,7 @@ const FixtureSchema = Type.Object({
     feedbackInput: SubmitFeedbackInputSchema, feedback: ReviewMutationResultSchema,
     review: ReviewItemSchema, history: ReviewHistoryResultSchema, parameters: ParameterVersionSchema,
     sessionHistory: methods["session.history"].result,
-    context: methods["context.preview"].result,
+    context: ContextViewSchema,
   }),
 });
 
@@ -70,7 +71,7 @@ async function fixture(t: TestContext) {
     allowModelNetwork: false, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
   const start = async () => {
-    const server = await startRepaServer({ agentDir, appDirectory: path.join(root, "app"),
+    const server = await startLearningServer({ agentDir, appDirectory: path.join(root, "app"),
       modelOverride: { modelRuntime, model: faux.getModel() } });
     let client: RepaClient | undefined;
     const close = async () => {
@@ -106,7 +107,7 @@ async function assertHistory(client: RepaClient, expected: Awaited<ReturnType<ty
   assert.deepEqual(await invoke(client, scope, "feedback", expected.feedbackInput), expected.feedback);
   assert.deepEqual(await invoke(client, scope, "history", { itemId: expected.review.id }), expected.history);
   assert.equal(await (await client.resource(expected.resource)).text(), "旧版练习附件\n");
-  assert.equal((await client.call("context.preview", { spaceId: expected.spaceId })).text, expected.context.text);
+  assert.equal((await callLearning(client, "context.preview", { spaceId: expected.spaceId })).text, expected.context.text);
   assert.deepEqual((await client.call("session.history", expected.key)).messages, expected.sessionHistory.messages);
   const request = await client.call("request.get", { spaceId: expected.spaceId, requestId: expected.requestId });
   assert.equal(request.status, "completed");

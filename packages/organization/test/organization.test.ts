@@ -12,9 +12,12 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
 import {
-  ContentChangeResultSchema, ContentInfoSchema, ContentOperationSchema, ContextStateSchema, ContextViewSchema,
-  RepaClient, startRepaServer, type ContentInfo, type ContentTarget, type SettingScope,
+  ContentChangeResultSchema, ContentInfoSchema, ContentOperationSchema,
+  RepaClient, type ContentInfo, type ContentTarget, type SettingScope,
 } from "repa";
+import { startLearningServer } from "@repa/learning/product";
+import { callLearning } from "@repa/learning/client";
+import { ContextStateSchema, ContextViewSchema } from "@repa/learning/schema";
 
 const packageDirectory = fileURLToPath(new URL("..", import.meta.url));
 const skillFile = path.join(packageDirectory, "skills", "organize-learning", "SKILL.md");
@@ -100,7 +103,7 @@ test("真实Pi读取整理方法与不同组织的笔记，一次保存拆分和
   });
   modelRuntime.registerNativeProvider(faux.provider);
   const options = { agentDir, appDirectory: path.join(root, "app"), modelOverride: { modelRuntime, model: faux.getModel() } };
-  let server = await startRepaServer(options);
+  let server = await startLearningServer(options);
   let client = await RepaClient.connect(server.connection);
   t.after(async () => {
     await server.close("cancel");
@@ -132,9 +135,9 @@ test("真实Pi读取整理方法与不同组织的笔记，一次保存拆分和
   await create("index.md", oldLinks);
   const beforeItems = JSON.stringify({ items: [{ ref: notesRef, mode: "expand" }, { ref: sourceRef, mode: "reference", note: "需要时核对 NOAA 原文" }] });
   const contextRef = await create("context.json", `${beforeItems}\n`);
-  const binding = await client.call("context.get", { spaceId: space.id });
-  await client.call("context.set", { spaceId: space.id, operationId: randomUUID(), base: binding.revision, binding: { kind: "composition", ref: contextRef } });
-  const originalBinding = await client.call("context.get", { spaceId: space.id });
+  const binding = await callLearning(client, "context.get", { spaceId: space.id });
+  await callLearning(client, "context.set", { spaceId: space.id, operationId: randomUUID(), base: binding.revision, binding: { kind: "composition", ref: contextRef } });
+  const originalBinding = await callLearning(client, "context.get", { spaceId: space.id });
   assert.equal(existsSync(path.join(directory, ".repa", "plugins", "organization")), false, "纯 Skill 包不创建虚构后台数据");
 
   const send = async (text: string) => {
@@ -249,14 +252,14 @@ test("真实Pi读取整理方法与不同组织的笔记，一次保存拆分和
   assert.equal(await readFile(path.join(directory, "context.json"), "utf8"), `${afterItems}\n`);
   assert.equal(await readFile(path.join(directory, "index.md"), "utf8"), oldLinks.replace(`[潮流解释](repa:document/${notesRef.id})`, `[潮流解释](repa:document/${splitRef.id})`));
   assert.equal(await readFile(path.join(directory, "reading-log.md"), "utf8"), alternate);
-  assert.deepEqual(await client.call("context.get", { spaceId: space.id }), originalBinding);
+  assert.deepEqual(await callLearning(client, "context.get", { spaceId: space.id }), originalBinding);
 
   const finalSplitRef = splitRef;
   const human = "\r\n## 人工校订\r\n保留符号 η、组合字符 e\u0301 与 🌊。\r\n\r\n下次先解释潮流，不再从水位升降开始。\r\n";
   await writeFile(path.join(directory, "currents.md"), splitNotes + human);
   await server.close("cancel");
   await client.close();
-  server = await startRepaServer(options);
+  server = await startLearningServer(options);
   client = await RepaClient.connect(server.connection);
   assert.equal((await client.call("space.open", { path: directory })).id, space.id);
   const added = `${currentLine}\n\n补充定位：NOAA 第 2 段解释 tidal currents；第 4 段解释温盐环流。`;
@@ -315,7 +318,7 @@ test("真实Pi读取整理方法与不同组织的笔记，一次保存拆分和
   assert.equal(await readFile(path.join(directory, "currents.md"), "utf8"), finalNotes);
   assert.deepEqual((await client.call("content.get", { target: target("notes.md") })).ref, notesRef);
   assert.deepEqual((await client.call("content.get", { target: target("currents.md") })).ref, finalSplitRef);
-  assert.deepEqual((await client.call("context.get", { spaceId: space.id })).binding, { kind: "document", ref: finalSplitRef });
+  assert.deepEqual((await callLearning(client, "context.get", { spaceId: space.id })).binding, { kind: "document", ref: finalSplitRef });
   assert(editOperation && setOperation);
   assert.equal((await client.call("operation.get", { spaceId: space.id, operationId: savedOperation })).status, "committed");
   assert.equal((await client.call("operation.get", { spaceId: space.id, operationId: editOperation })).status, "committed");
@@ -364,7 +367,7 @@ test("真实Pi改变语境根保存失败，从错误正文取得操作标识并
     authPath: path.join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false,
   });
   modelRuntime.registerNativeProvider(faux.provider);
-  const server = await startRepaServer({ agentDir, appDirectory: path.join(root, "app"), modelOverride: { modelRuntime, model: faux.getModel() } });
+  const server = await startLearningServer({ agentDir, appDirectory: path.join(root, "app"), modelOverride: { modelRuntime, model: faux.getModel() } });
   const client = await RepaClient.connect(server.connection);
   const blocked = path.join(directory, ".repa", "content");
   let permissionsChanged = false;
@@ -383,7 +386,7 @@ test("真实Pi改变语境根保存失败，从错误正文取得操作标识并
   const target: ContentTarget = { kind: "file", spaceId: space.id, location: { kind: "relative", path: "next.md" } };
   await client.call("content.write", { target, operationId: randomUUID(), base: { kind: "absent" }, value: { kind: "text", text: "# 用户选择的新语境\n" } });
   await client.call("content.associate", { spaceId: space.id, location: { kind: "relative", path: "next.md" }, role: "document", operationId: randomUUID() });
-  const before = await client.call("context.get", { spaceId: space.id });
+  const before = await callLearning(client, "context.get", { spaceId: space.id });
   let observed: ContentInfo | undefined;
   let failedOperation = "";
   let rollbackObserved = false;
@@ -427,7 +430,7 @@ test("真实Pi改变语境根保存失败，从错误正文取得操作标识并
     permissionsChanged = false;
   }
   assert(rollbackObserved && failedOperation);
-  assert.deepEqual(await client.call("context.get", { spaceId: space.id }), before);
+  assert.deepEqual(await callLearning(client, "context.get", { spaceId: space.id }), before);
   assert.equal((await client.call("operation.get", { spaceId: space.id, operationId: failedOperation })).status, "rolled_back");
   assert.equal(await readFile(path.join(directory, "next.md"), "utf8"), "# 用户选择的新语境\n");
   assert.equal(faux.state.callCount, 5);

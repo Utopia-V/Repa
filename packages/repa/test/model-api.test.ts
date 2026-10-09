@@ -623,14 +623,15 @@ test("提示预览不执行扩展或模型，来源开关与实际运行提示�
 
   const disabled = {
     base: "", append: [], projectInstructions: false, skillCatalog: false,
-    environment: false, learningContext: false, fileChanges: "on-demand",
+    environment: false, fileChanges: "on-demand",
   };
   for (const [key, value] of Object.entries(disabled)) await setting(f.client, key, value, scope, "prompts");
   const empty = await f.client.call("prompts.preview", f.key);
   assert.equal(empty.prompt.system, "");
-  for (const id of ["projectInstructions", "skillCatalog", "environment", "learningContext", "fileChanges"]) {
+  for (const id of ["projectInstructions", "skillCatalog", "environment", "fileChanges"]) {
     assert.equal(empty.prompt.sources.find((source) => source.id === id)?.enabled, false);
   }
+  assert.equal(empty.prompt.sources.some(source => source.id === "learningContext"), false, "通用底座没有未安装的学习来源");
   assert.equal(f.requests.length, 1);
   assert.equal(await f.extensionLoads(), loads);
   const emptyRun = await submit(f.client, f.key, "核对空提示运行");

@@ -5,16 +5,17 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { startLearningServer, callLearning, learningContextCodec, makeContextMessage } from "@repa/learning";
 import { fauxAssistantMessage, fauxProvider, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { projectSessionBackgrounds } from "../src/agent/background.js";
-import { learningContextCodec, makeContextMessage } from "../src/learning/background.js";
-import type { BackendPluginRegistration } from "../src/capabilities/types.js";
+import type { BackendPluginRegistration } from "repa/plugin";
 import { InstalledContributions } from "../src/agent/contributions.js";
 import { RepaClient } from "../src/client.js";
-import { RepaFault } from "../src/errors.js";
+import { RepaFault } from "repa/protocol";
+import { RepaFault as SourceRepaFault } from "../src/errors.js";
 import type { ContentRef, Run, SessionKey } from "../src/protocol.js";
-import { startRepaServer } from "../src/server.js";
+import { startRepaServer } from "repa";
 import { InputSchema, ViewSchema, novelCodec, novelFormat, novelPlugin } from "./fixtures/novel-plugin.js";
 
 async function until<T>(read: () => T | Promise<T>, ready: (value: T) => boolean): Promise<T> {
@@ -33,7 +34,7 @@ function textOf(content: unknown): string {
 }
 const backgrounds = (context: TranscriptContext, marker: string) => context.messages.map(message => textOf(message.content)).filter(text => text.includes(marker));
 
-async function fixture(t: TestContext, plugin = novelPlugin(), extraPlugins: readonly BackendPluginRegistration[] = []) {
+async function fixture(t: TestContext, plugin = novelPlugin(), extraPlugins: readonly BackendPluginRegistration[] = [], learning = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-plugin-backgrounds-"));
   const agentDir = path.join(root, "agent");
   const directory = path.join(root, "space");
@@ -47,7 +48,8 @@ async function fixture(t: TestContext, plugin = novelPlugin(), extraPlugins: rea
   const modelRuntime = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
   const options = { agentDir, appDirectory: path.join(root, "app"), plugins: [plugin.registration, ...extraPlugins], modelOverride: { modelRuntime, model: faux.getModel() } };
-  let server = await startRepaServer(options);
+  const start = learning ? startLearningServer : startRepaServer;
+  let server = await start(options);
   let client = await RepaClient.connect(server.connection);
   t.after(async () => {
     await server.close("cancel");
@@ -97,7 +99,7 @@ async function fixture(t: TestContext, plugin = novelPlugin(), extraPlugins: rea
     async reopen() {
       await server.close("cancel");
       await client.close();
-      server = await startRepaServer(options);
+      server = await start(options);
       client = await RepaClient.connect(server.connection);
       assert.equal((await client.call("space.open", { path: directory })).id, space.id);
     },
@@ -105,12 +107,12 @@ async function fixture(t: TestContext, plugin = novelPlugin(), extraPlugins: rea
 }
 
 test("小说与学习从现有能力并行提供真实 Pi 背景，独立关闭与重启接续当前空间", async t => {
-  const f = await fixture(t);
+  const f = await fixture(t, novelPlugin(), [], true);
   const novel = await f.document("novel.md", "主角住在海底城。🪸");
   await f.bind(novel);
   const learning = await f.document("study.md", "本周学习群论。");
-  const state = await f.client.call("context.get", { spaceId: f.space.id });
-  await f.client.call("context.set", { spaceId: f.space.id, binding: { kind: "document", ref: learning }, base: state.revision, operationId: randomUUID() });
+  const state = await callLearning(f.client, "context.get", { spaceId: f.space.id });
+  await callLearning(f.client, "context.set", { spaceId: f.space.id, binding: { kind: "document", ref: learning }, base: state.revision, operationId: randomUUID() });
   f.faux.setResponses([
     context => {
       assert.equal(backgrounds(context, "<novel_background>").length, 1);
@@ -220,11 +222,16 @@ test("背景准备失败与父运行取消均保持请求未进入 Pi 历史，�
 });
 
 test("重复背景来源或持久格式 ID 在启动副作用之前被拒绝", () => {
-  const registration = novelPlugin().registration;
+  const installed = novelPlugin().registration;
+  const registration = {
+    ...installed,
+    backgrounds: installed.backgrounds?.map(({ preview: _preview, ...background }) => background),
+    factory: () => ({ capabilities: [] }),
+  };
   assert.throws(() => new InstalledContributions([registration, { ...registration, id: "other" }]),
-    error => error instanceof RepaFault && error.code === "background_conflict");
+    error => error instanceof SourceRepaFault && error.code === "background_conflict");
   assert.throws(() => new InstalledContributions([registration, { ...registration, id: "other", backgrounds: [], formats: [{ ...novelFormat, field: "other" }] }]),
-    error => error instanceof RepaFault && error.code === "content_format_conflict");
+    error => error instanceof SourceRepaFault && error.code === "content_format_conflict");
 });
 
 

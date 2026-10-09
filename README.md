@@ -19,11 +19,11 @@ Repa 是一个独立、本地优先的通用 Agent 底座，连接有限的模�
 | 领域插件 | 解释自己的实体、记录、算法与持久格式，通过能力调用和背景视图接入 Agent；见[能力宿主](docs/development/capabilities.md) |
 | 前端 | 使用公开客户端呈现内容与发起操作；见[设计系统实现](docs/design-system-implementation.md)，由前端负责人推进 |
 
-底座与产品的装配仍有耦合需要迁接。现有持久数据、引用、授权及恢复语义会在改造中受到保护，原型包的划分和内部字段则不构成永久架构要求。
+通用底座现在只消费显式提供的插件登记、背景来源和产品默认值；官方学习入口负责装配领域能力。已有持久数据、引用、授权和恢复语义继续保留，原型算法则不构成未来学习闭环的默认选择。
 
 ### 默认学习能力
 
-当前后端默认装配教学、材料、规划、复习、整理与文档背景能力，启停和接入范围见[官方学习组合](docs/development/official-learning.md)。已有材料阅读、局部讲解、内容保存和独立复习仍可使用；图形工作台尚未提供完整学习界面，当前组合也没有实现 MA 式的学生状态与统一任务选择。
+官方学习入口默认装配教学、材料、规划、复习、整理与文档背景能力，启停和接入范围见[官方学习组合](docs/development/official-learning.md)。已有材料阅读、局部讲解、内容保存和独立复习仍可使用；图形工作台尚未提供完整学习界面，当前组合也没有实现 MA 式的学生状态与统一任务选择。
 
 ### 设计文件清单
 
@@ -48,7 +48,7 @@ repa/
 │   └── desktop/          # 完整桌面前端、Electron main/preload 与 renderer
 ├── packages/
 │   ├── repa/             # 后端、CLI、公开客户端与协议
-│   ├── learning/         # 讲解、练习与实际反馈方法
+│   ├── learning/         # 学习领域状态、教学方法与官方产品装配
 │   ├── materials/        # 本地材料读取能力
 │   ├── organization/     # 长期内容整理方法
 │   ├── planning/         # 规划方法与时间约束检查
@@ -57,7 +57,7 @@ repa/
 └── package-lock.json     # 全仓唯一锁文件
 ```
 
-后端包保持 `repa` 包名以及 `repa/client`、`repa/protocol` 公共入口。`@repa/web` 与 `@repa/desktop` 分别持有自己的业务界面和宿主进程接入；宿主把现有 `repa serve` CLI 作为进程边界，renderer 不导入后端主入口，也不重新实现 WebSocket、重连或状态投影。Web 使用 `createBrowserRouter`，Desktop renderer 使用 `createMemoryRouter`。根目录的 `check`、`test` 和 `build` 按 workspace 顺序统一编排。
+后端包保持 `repa` 包名以及 `repa/client`、`repa/protocol` 公共入口。`@repa/web` 与 `@repa/desktop` 分别持有自己的业务界面和宿主进程接入；宿主把 `@repa/learning` 的 `repa-learning serve` CLI 作为进程边界，renderer 不导入后端主入口，也不重新实现 WebSocket、重连或状态投影。Web 使用 `createBrowserRouter`，Desktop renderer 使用 `createMemoryRouter`。根目录的 `check`、`test` 和 `build` 按 workspace 顺序统一编排。
 
 ## 参与开发
 
@@ -113,10 +113,10 @@ npm run dev:backend -- configure
 ```sh
 npm start -- /path/to/learning-space
 # 构建后也可直接运行
-node packages/repa/dist/cli.js /path/to/learning-space
+node packages/learning/dist/cli.js /path/to/learning-space
 ```
 
-TUI 自动连接或启动独立的本机后端，打印连接文件的位置。同一系统用户的后续普通启动使用该后端，可以同时查看不同空间或会话。默认选择空间中最近活动的会话；`--new-session` 新建一段交流。
+官方学习 TUI 自动连接或启动独立的本机后端，打印连接文件的位置。需要无学习默认的通用底座时，使用 `npm run dev:core -- /path/to/space`，或构建后的 `node packages/repa/dist/cli.js`。两种入口分别使用自己的默认连接目录，不会误复用另一产品的后端。同一系统用户的后续普通启动使用该后端，可以同时查看不同空间或会话。默认选择空间中最近活动的会话；`--new-session` 新建一段交流。
 
 | 命令 | 行为 |
 | --- | --- |
@@ -154,7 +154,7 @@ npm start -- /path/to/learning-space --connect /path/to/repa-connection.json
 
 ### Package 与 Extension 信任
 
-后端默认不执行未受信任的 Pi Package、Extension 或 Repa backend；官方学习能力默认启用。应用侧 `plugins.trusted` 可以授权明确的包来源，`plugins.disabled` 控制相应能力；空间文件不能自行授予信任。通过 `--trust-extensions` 可以显式启用 Pi 全局资源和空间中的项目资源：
+后端默认不执行未受信任的 Pi Package、Extension 或 Repa backend；官方学习入口启用产品自带能力，通用入口不预装学习包。应用侧 `plugins.trusted` 可以授权明确的包来源，`plugins.disabled` 控制相应能力；空间文件不能自行授予信任。通过 `--trust-extensions` 可以显式启用 Pi 全局资源和空间中的项目资源：
 
 ```sh
 npm start -- /path/to/learning-space --trust-extensions
@@ -185,7 +185,6 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 | `request.cancel` | 取消独立后台处理，等待实际收尾。 |
 | `content.*`、`operation.*` | 读取和保存文件，维护身份与组成，查询、撤回及核对恢复结果；具体方法见[内容接口](docs/development/content.md)。 |
 | `content.relations` | 查询 Markdown 引用与明确组成，取得来源修订、目标位置和可用状态；见[内容关系查询](docs/development/content-relations.md)。 |
-| `context.get`、`context.set`、`context.preview` | 通过所选学习语境实现读取或更换绑定、预览完整文本和来源；没有已启用实现时报告未找到能力。 |
 | `capability.describe`、`capability.invoke` | 取得契约与入口问题，调用明确作用域和实现；按声明直接查询或持久受理，Agent 工具复用相同处理。 |
 | `display.open/get/close/readResource/invoke` | 打开固定版本的展示，读取实例资源，并发起宿主绑定的保存或会话提交动作。 |
 | `package.list`、`package.install/update/remove` | 静态包目录与 Pi 包管理，管理操作使用后台请求并报告实际进程重启要求。 |
@@ -194,6 +193,8 @@ npm start -- serve --connection-file /path/to/repa-connection.json --trust-exten
 | `interaction.reply` | 携带 `responseId` 回答交互，取得持久确认；重传返回原回执，竞争答复返回已处理结果。 |
 | `state.get`、`subscription.start`、`subscription.stop` | 按应用、空间或会话范围读取快照和订阅变化。 |
 | `client.detach`、`shutdown` | 离开后端，或请求完成现有任务后退出、取消任务后退出。 |
+
+学习语境通过 `@repa/learning/client` 的 `callLearning` 调用 `repa.context.*` 能力，复用通用 `capability.invoke`，不再是核心 RPC。领域客户端用法见[学习包](packages/learning/README.md)。
 
 `session.submit` 使用调用方生成的 `requestId`，与一次执行的 `runId` 和 JSON-RPC 应答标识分别表达。重复提交返回既有记录；输入是否进入历史、属于哪个运行以及运行是否完成可分别查询。取消与失败暂停后续队列，重开空间后明确恢复。调用和持久语义见[输入、请求与运行](docs/development/requests.md)。
 

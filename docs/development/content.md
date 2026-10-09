@@ -12,7 +12,7 @@
 | --- | --- |
 | `ContentInfo.bodyRevision` | 实际文件字节的版本；`content.write.base`、删除正文的 `content.remove.base` 和分页读取的 `revision` 使用它 |
 | `ContentInfo.revision` | 已登记内容的身份、位置、状态与组成版本；`content.relink`、`content.setComposition`、`content.move/copy`、`material.collect` 和解除材料关联的 `content.remove.base` 使用它。普通文件的该字段同时反映字节与位置 |
-| `ContextState.revision` | 学习语境绑定自身的版本；`context.set.base` 使用它 |
+| `ContextState.revision` | `@repa/learning` 的语境绑定版本；领域客户端 `callLearning(..., "context.set", ...)` 的 `base` 使用它 |
 | 内容订阅事件的 `revision` | 当前后端的查询失效标识；不能作为文件保存基准或持久历史版本 |
 
 这些字段是不透明字符串。正文编辑不替换组成关系，修改语境成员正文不要求重写语境绑定。目录列举只返回条目元信息，不读取所有文件正文；条目上的空版本表示尚未取得该对象的修改基准。
@@ -44,7 +44,7 @@ const result = await client.call("content.write", {
 
 断线或超时后保留 `operationId`，通过 `operation.get` 核对。相同操作的重传返回原结果，修改参数须使用新标识。保存回执只确认本次实际提交的草稿版本；后续本地输入和外部修改由草稿服务继续处理。文件保存不会启动模型。
 
-当前内容方法还包括 `content.list/get/read/edit/applyPatch/associate/relink/remove/setComposition/move/copy`、`material.collect`，以及 `operation.get/undo/reconcile/prune`、`context.get/set/preview`。参数、返回值和运行时校验来自 [内容协议](../../packages/repa/src/content/protocol.ts)。文本／历史检索及本地材料表示见[搜索与材料](search-materials.md)。
+当前内容方法还包括 `content.list/get/read/edit/applyPatch/associate/relink/remove/setComposition/move/copy`、`material.collect`，以及 `operation.get/undo/reconcile/prune`。学习语境通过 `@repa/learning/client` 的 `callLearning` 调用独立的 `repa.context.*` 能力，见[学习语境](learning.md#当前模块与接口)。内容参数、返回值和运行时校验来自 [内容协议](../../packages/repa/src/content/protocol.ts)。文本／历史检索及本地材料表示见[搜索与材料](search-materials.md)。
 
 ## 同次保存正文与结构
 
@@ -64,7 +64,7 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
 
 默认从源目录或源文件父目录保留成员的相对布局，源对象放到指定目标。组成成员跨越这些目录时使用 `container: true`，以共同父目录保留完整布局。例如 `notes/a.md` 与 `code/b.py` 组成的产物，复制到 `copies/run1` 后分别位于 `copies/run1/notes/a.md` 和 `copies/run1/code/b.py`。目标已存在、布局重叠或结构版本改变时返回冲突。
 
-独立内容复制使用 micromark 4.0.2 的 CommonMark 位置 token，仅重写实际链接目标中的规范 `repa:document/<id>`、`repa:material/<id>`，保留定位后缀、代码示例、其他文字和原换行。明确的组成成员引用与已知学习语境 JSON 引用同时映射；其他格式按原字节保存，格式专用引用交给对应能力。移动保持身份引用，普通路径链接继续按原路径语义解释。
+独立内容复制使用 micromark 4.0.2 的 CommonMark 位置 token，仅重写实际链接目标中的规范 `repa:document/<id>`、`repa:material/<id>`，保留定位后缀、代码示例、其他文字和原换行。明确的组成成员引用同时映射；安装学习格式贡献时，由领域包映射相应语境 JSON 引用。其他格式按原字节保存，格式专用引用交给对应能力。移动保持身份引用，普通路径链接继续按原路径语义解释。
 
 外部成员继续作为依赖。`material.collect` 将已关联外部材料的实际字节保存到空间内，保持身份，并在尚无 `ContentInfo.origin` 时记录原位置；已有 URL 等来源不会被覆盖。`content.copy` 也把已有来源交给副本，`content.move` 保持身份及来源。原件继续保留。关联和重关联本身只读取元信息，返回值不一定包含 `bodyRevision`，需要正文版本时再调用 `content.read`。
 
@@ -77,7 +77,7 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
   普通内容文件……
   .repa/
     content/
-      catalog.json          # 身份、位置、组成与语境绑定
+      catalog.json          # 身份、位置、组成及已安装格式持有的字段
       operations/<id>.json  # 内容操作的准备、结果与恢复状态
       retired-operations.json # 已清理操作的紧凑回执
       resources.json        # 消费者保留关系与临时持有
@@ -111,4 +111,11 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
 
 学习语境的绑定、组成格式和展开由 [`LearningContext`](learning.md) 负责。它通过 `ContentStore.observe` 在同一次队列操作中读取成员，通过 `setMetadata` 保存绑定。版本检查、去重、journal、撤回和恢复都使用已有内容操作；`ContentStore` 不再直接提供学习语境方法。
 
-`ContentFormat` 说明所属 catalog 字段和引用怎样复制。学习格式沿用 v1 catalog 的 `context` 字段，独立于学习运行服务安装。因此，关闭学习能力后，普通保存和空间复制仍能处理原有绑定及历史组成；复制后的撤回也使用副本内引用。格式接入与旧数据处理见[学习语境说明](learning.md#保存历史与复制)。
+`ContentFormat` 说明所属 catalog 字段和引用怎样复制。`@repa/learning` 的 `learningPluginRegistration.formats` 沿用 v1 catalog 的 `context` 字段，独立于学习运行服务安装；通用底座不默认注入学习格式，未知字段在普通保存中继续保留。因此，产品中关闭学习运行能力后，普通保存和空间复制仍能处理原有绑定及历史组成；复制后的撤回也使用副本内引用。格式接入与旧数据处理见[学习语境说明](learning.md#保存历史与复制)。
+
+
+空间独立复制会改变空间身份，因而必须取得所有持久字段的格式 owner。`captureContent` 在处理当前清单和每个历史操作的前后清单时，检查 `version/items` 之外的字段是否有已安装的 `ContentFormat`；缺少 owner 时返回 `content_format_unavailable`，空间操作保持失败回执并清理准备目录，不发布目标。即使当前字段已经清空或移除，历史撤回仍可能恢复旧关系，因此历史清单同样需要这项检查。
+
+同身份备份和恢复不改变引用归属，可以保存未知字段及其历史原数据，而不尝试解释或重映射。你可以先用通用底座备份原空间，再由安装了对应格式的产品恢复和使用；不能通过无 owner 的独立复制把未知关系留成指向原空间的成功副本。
+
+[content-format-boundary.test.ts](../../packages/repa/test/content-format-boundary.test.ts) 验证学习产品与通用底座交接时的当前及历史格式缺口、失败后的目标清理、同身份备份恢复，以及产品禁用运行后仍能复制和撤回历史组成。

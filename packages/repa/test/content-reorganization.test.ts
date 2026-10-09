@@ -4,12 +4,11 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { learningContentFormat, LearningContext } from "@repa/learning";
 import { catalogPath } from "../src/content/catalog.js";
 import type { ContentPatchInput, ContentRef } from "../src/content/schema.js";
 import { ContentStore, canonicalJson } from "../src/content/store.js";
 import { RepaFault } from "../src/errors.js";
-import { learningContentFormat } from "../src/learning/content-format.js";
-import { LearningContext } from "../src/learning/context.js";
 import { digest } from "../src/storage/blobs.js";
 
 async function fixture(t: TestContext) {

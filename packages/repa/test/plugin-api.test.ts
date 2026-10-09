@@ -8,6 +8,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { startLearningServer } from "@repa/learning";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { DefaultPackageManager, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -146,7 +147,7 @@ test("静态预览和真实 Pi 运行沿用明确可信混合包，禁用和恢�
     models: [{ id: "test", reasoning: false, input: ["text"], contextWindow: 16384, maxTokens: 512 }], tokensPerSecond: 0 });
   const modelRuntime = await ModelRuntime.create({ authPath: path.join(f.agentDir, "test-auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
-  const server = await startRepaServer({ agentDir: f.agentDir, appDirectory: f.appDirectory, modelOverride: { modelRuntime, model: faux.getModel() } });
+  const server = await startLearningServer({ agentDir: f.agentDir, appDirectory: f.appDirectory, modelOverride: { modelRuntime, model: faux.getModel() } });
   const client = await RepaClient.connect(server.connection);
   f.onClose(async () => { await server.close("cancel"); await client.close(); });
   const space = await client.call("space.open", { path: f.spaceDirectory });
@@ -164,9 +165,8 @@ test("静态预览和真实 Pi 运行沿用明确可信混合包，禁用和恢�
   assert(toolDefinitions?.content);
   const staticTools: unknown = JSON.parse(toolDefinitions.content);
   assert(Check(ToolDefinitionsSchema, staticTools));
-  const learningTool = staticTools.find(tool => tool.name === "learning_context");
-  assert(learningTool, "默认官方学习工具有静态预览，而不依赖运行工厂");
-  assert(learningTool.description);
+  assert(!staticTools.some(tool => tool.name === "learning_context"));
+  assert(preview.prompt.sources.some(source => source.id === "capabilityPlugin:repa-learning" && source.dynamic && source.enabled));
   assert(preview.prompt.sources.some(source => source.id === "extensionContributions" && source.enabled && source.dynamic));
   assert(preview.prompt.sources.some(source => source.id === "capabilityPlugin:trusted" && source.enabled && source.dynamic && source.reference === "trusted"));
   assert(!preview.prompt.sources.some(source => source.id === "capabilityPlugin:untrusted"));
@@ -196,8 +196,8 @@ test("静态预览和真实 Pi 运行沿用明确可信混合包，禁用和恢�
       assertResources(context, true);
       const actualLearningTool = getCurrentTools(context.messages).find(tool => tool.name === "learning_context");
       assert(actualLearningTool);
-      assert.equal(actualLearningTool.description, learningTool.description);
-      assert.deepEqual(actualLearningTool.parameters, learningTool.parameters);
+      assert(actualLearningTool.description.length > 0);
+      assert(actualLearningTool.parameters && typeof actualLearningTool.parameters === "object");
       return fauxAssistantMessage([fauxToolCall("trusted_mixed_echo", { text: "Agent 工具" }), fauxToolCall("pi_trusted_mixed", {})], { stopReason: "toolUse" });
     },
     context => {
@@ -237,7 +237,8 @@ test("静态预览和真实 Pi 运行沿用明确可信混合包，禁用和恢�
   assert(restoredToolDefinitions?.content);
   const restoredTools: unknown = JSON.parse(restoredToolDefinitions.content);
   assert(Check(ToolDefinitionsSchema, restoredTools));
-  assert.deepEqual(restoredTools.find(tool => tool.name === "learning_context"), learningTool);
+  assert(!restoredTools.some(tool => tool.name === "learning_context"));
+  assert(restored.prompt.sources.some(source => source.id === "capabilityPlugin:repa-learning" && source.dynamic && source.enabled));
   faux.setResponses([context => { assertResources(context, true); return fauxAssistantMessage("恢复完成"); }]);
   await send("重新启用可信包");
   assert.equal((await readFile(f.marker("trusted-mixed", "factory"), "utf8")).split("factory\n").length - 1, 2);

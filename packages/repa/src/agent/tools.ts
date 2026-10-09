@@ -125,7 +125,7 @@ export async function createContentTools(
   };
   const read: ToolDefinition<typeof safeRead.parameters, any> = {
     ...safeRead,
-    description: `${safeRead.description} Also accepts repa:document/<id>, repa:material/<id>, and repa:resource/<sha256> references. Resource references read immutable text such as complete command output in the current learning space, with the same offset/limit pagination. Reads learning-space content and resources of currently enabled skills.`,
+    description: `${safeRead.description} Also accepts repa:document/<id>, repa:material/<id>, and repa:resource/<sha256> references. Resource references read immutable text such as complete command output in the current space, with the same offset/limit pagination. Reads space content and resources of currently enabled skills.`,
     executionMode: "sequential",
     async execute(callId, parameters, signal, onUpdate, ctx) {
       checkCancelled(signal);
@@ -258,7 +258,7 @@ export async function createContentTools(
   const patch: ToolDefinition<typeof patchParameters, any> = {
     name: "apply_patch",
     label: "apply_patch",
-    description: "Apply a patch enclosed by *** Begin Patch and *** End Patch, using Add File, Delete File, Update File, Move to, and @@ context hunks. Saves related file edits in one content operation. Optional registrations assign new content identities, with explicit ids when the same patch refers to them; compositions update existing content membership using its observed structure base from content_info. Known references and learning-context lists are ordinary patch text. Include enough unchanged context to identify each edit uniquely; unchanged text and line endings are preserved.",
+    description: "Apply a patch enclosed by *** Begin Patch and *** End Patch, using Add File, Delete File, Update File, Move to, and @@ context hunks. Saves related file edits in one content operation. Optional registrations assign new content identities, with explicit ids when the same patch refers to them; compositions update existing content membership using its observed structure base from content_info. Known references and registered composition files are ordinary patch text. Include enough unchanged context to identify each edit uniquely; unchanged text and line endings are preserved.",
     promptSnippet: "Apply focused patches, including related changes across multiple files",
     parameters: patchParameters,
     executionMode: "sequential",

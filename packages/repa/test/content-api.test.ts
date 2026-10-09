@@ -4,13 +4,14 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { startLearningServer, callLearning } from "@repa/learning";
 import { RepaClient, RpcError } from "../src/client.js";
 import { startRepaServer } from "../src/server.js";
 import type { ContentTarget, Change } from "../src/protocol.js";
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, learning = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-content-api-"));
-  const server = await startRepaServer({ appDirectory: path.join(root, "app") });
+  const server = await (learning ? startLearningServer : startRepaServer)({ appDirectory: path.join(root, "app") });
   const client = await RepaClient.connect(server.connection);
   const servers = [server], clients = [client];
   const space = await client.call("space.open", { path: path.join(root, "space") });
@@ -101,11 +102,11 @@ test("外部材料明确关联后可读取，默认引用原件，移除关联�
 });
 
 test("提示覆盖和语境绑定通过公开协议独立保存，关闭自动注入仍可预览", async (t) => {
-  const f = await fixture(t);
+  const f = await fixture(t, true);
   await f.client.call("content.write", { target: f.target("context.md"), base: { kind: "absent" }, operationId: randomUUID(), value: { kind: "text", text: "正在学习体系结构" } });
   const associated = await f.client.call("content.associate", { spaceId: f.space.id, location: { kind: "relative", path: "context.md" }, role: "document", operationId: randomUUID() });
-  const binding = await f.client.call("context.get", { spaceId: f.space.id });
-  await f.client.call("context.set", { spaceId: f.space.id, base: binding.revision, operationId: randomUUID(), binding: { kind: "document", ref: associated.contents[0]!.ref! } });
+  const binding = await callLearning(f.client, "context.get", { spaceId: f.space.id });
+  await callLearning(f.client, "context.set", { spaceId: f.space.id, base: binding.revision, operationId: randomUUID(), binding: { kind: "document", ref: associated.contents[0]!.ref! } });
   const scope = { kind: "space" as const, spaceId: f.space.id };
   let settings = await f.client.call("settings.get", { scope, namespace: "prompts" });
   const base = settings.entries.find((entry) => entry.key === "base")!;
@@ -113,8 +114,8 @@ test("提示覆盖和语境绑定通过公开协议独立保存，关闭自动�
   assert.equal(settings.entries.find((entry) => entry.key === "base")?.effective, "");
   const context = settings.entries.find((entry) => entry.key === "learningContext")!;
   await f.client.call("settings.set", { scope, namespace: "prompts", key: "learningContext", base: context.revision, value: false });
-  assert.equal((await f.client.call("context.preview", { spaceId: f.space.id })).text, "正在学习体系结构");
-  assert.equal((await f.client.call("context.get", { spaceId: f.space.id })).binding?.kind, "document");
+  assert.equal((await callLearning(f.client, "context.preview", { spaceId: f.space.id })).text, "正在学习体系结构");
+  assert.equal((await callLearning(f.client, "context.get", { spaceId: f.space.id })).binding?.kind, "document");
 });
 
 test("退出等待已进入应用的保存，释放空间锁后可重新确认实际结果", async (t) => {

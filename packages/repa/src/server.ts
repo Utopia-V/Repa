@@ -8,7 +8,6 @@ import { displayMethods, type DisplayMethod } from "./display/schema.js";
 import { contentMethods, type ContentMethod } from "./content/protocol.js";
 import { spaceMethods, type SpaceMethod } from "./spaces/schema.js";
 import { modelMethods, type ModelMethod } from "./models/schema.js";
-import { learningMethods, type LearningMethod } from "./learning/protocol.js";
 import { packageMethods, type PackageMethod } from "./plugins/protocol.js";
 import {
   methods,
@@ -258,7 +257,6 @@ export async function startRepaServer(
       if (Object.hasOwn(displayMethods, method)) return application.displayCall(method as DisplayMethod, p<DisplayMethod>(), peer.host!.id);
       if (Object.hasOwn(spaceMethods, method)) return application.spaceCall(method as SpaceMethod, p<SpaceMethod>());
       if (Object.hasOwn(modelMethods, method)) return application.modelCall(method as ModelMethod, p<ModelMethod>());
-      if (Object.hasOwn(learningMethods, method)) return application.learningCall(method as LearningMethod, p<LearningMethod>(), peer.host!.id);
       if (Object.hasOwn(packageMethods, method)) return application.packageCall(method as PackageMethod, p<PackageMethod>());
       if (Object.hasOwn(contentMethods, method)) return application.contentCall(method as ContentMethod, p<ContentMethod>(), peer.host!.id);
       switch (method) {
@@ -306,7 +304,6 @@ export async function startRepaServer(
               "interactions",
               "shutdown",
               "content",
-              "learning-context",
               "prompt-settings",
               "model-connections",
               "resource-holds",

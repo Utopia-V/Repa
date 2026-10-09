@@ -1,14 +1,12 @@
 import { Check } from "typebox/value";
-import { RepaFault } from "../errors.js";
-import { digest } from "../storage/blobs.js";
-import { canonicalJson, type ContentStore } from "../content/store.js";
-import type { ContentChangeResult, ContentRef } from "../content/schema.js";
+import { digest, canonicalJson, type ContentStore } from "repa/plugin";
+import { RepaFault, type ContentChangeResult, type ContentRef } from "repa/protocol";
 import { contextBinding } from "./content-format.js";
 import { ContextCompositionSchema, type ContextBinding, type ContextMember, type ContextState, type ContextView } from "./schema.js";
 
 /** 官方学习语境解释选择与组成，保存和完整读取继续使用共同内容入口。 */
 export class LearningContext {
-  constructor(readonly content: ContentStore) {}
+  constructor(readonly content: Pick<ContentStore, "observe" | "setMetadata">) {}
 
   get(): Promise<ContextState> {
     return this.content.observe(async (scope) => {

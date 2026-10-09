@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BundledPluginRegistration } from "../plugins/schema.js";
+import type { BundledPluginRegistration } from "repa/plugin";
 import { LEARNING_PLUGIN_ID } from "./settings.js";
 
 const PACKAGES = [

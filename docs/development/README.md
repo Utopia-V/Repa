@@ -16,7 +16,8 @@ npm ci
 
 | 范围 | 开发命令 |
 | --- | --- |
-| 后端与 TUI | `npm run dev:backend -- /path/to/learning-space` |
+| 官方学习后端与 TUI | `npm run dev:backend -- /path/to/learning-space` |
+| 通用底座与 TUI | `npm run dev:core -- /path/to/space` |
 | 配置连接与默认模型 | `npm run dev:backend -- configure` |
 | 独立后端联调 | `npm run dev:backend -- serve --connection-file /absolute/path/connection.json` |
 | Web | `npm run dev:web` |
@@ -25,7 +26,7 @@ npm ci
 
 Web 和 Desktop 会自动构建并启动各自的开发后端，不需要手工填写连接地址或令牌。提交评审前在根目录运行 `npm run check`、`npm test` 和 `npm run build`；具体代码入口见下一节。
 
-能力包使用主包导出的 `repa/plugin`、`repa/protocol` 等接口，因此需要先构建主包。`npm run build:backend` 按这个顺序构建主包、材料、规划和复习包，纯 Skill 包无需编译。根目录检查、测试、后端启动，以及 Web／Desktop 的开发准备都使用此入口，干净目录也能建立完整后端。动态加载与构建顺序的取舍见[官方学习组合](official-learning.md#装配责任与构建顺序)。
+能力包使用主包导出的 `repa/plugin`、`repa/protocol` 等接口，因此需要先构建主包。`npm run build:backend` 按这个顺序构建主包、材料、规划、复习包和学习产品；纯 Skill 的整理包无需编译。根目录检查、测试、后端启动，以及 Web／Desktop 的开发准备都使用此入口，干净目录也能建立完整后端。动态加载与构建顺序的取舍见[官方学习组合](official-learning.md#装配责任与构建顺序)。
 
 ## Web 界面
 
@@ -37,7 +38,7 @@ Web 开发约束见 [apps/web/AGENTS.md](../../apps/web/AGENTS.md)。
 
 ## 工程边界
 
-后端、CLI、公开客户端与协议位于 `packages/repa` workspace。完整 Web 前端和完整 Electron 前端分别位于 `apps/web` 与 `apps/desktop`，各自持有页面、路由、应用状态和宿主进程接入。仓库根目录持有唯一锁文件和统一命令，包内的相对路径用于实现与测试；renderer 只通过 `repa/client` 和 `repa/protocol` 使用后端能力，Node 宿主把现有 `repa serve` CLI 作为进程边界。
+后端、CLI、公开客户端与协议位于 `packages/repa` workspace。完整 Web 前端和完整 Electron 前端分别位于 `apps/web` 与 `apps/desktop`，各自持有页面、路由、应用状态和宿主进程接入。仓库根目录持有唯一锁文件和统一命令，包内的相对路径用于实现与测试；renderer 只通过 `repa/client` 和 `repa/protocol` 使用后端能力，Node 宿主把学习产品的 `repa-learning serve` CLI 作为进程边界；通用 `repa` CLI 不预装学习能力。
 
 Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两端分别维护自己的路由配置和启动状态；连接建立是进入路由前的应用启动条件，不是业务页面。Web 的 Vite 开发宿主以进程专属连接文件启动现有 CLI，并通过同源端点提供临时连接；Electron main 以应用专属连接文件启动现有 CLI，并由隔离 preload 暴露 `getConnection`。renderer 调用 `RepaClient.connect`，连接恢复和状态投影继续由公开客户端持有。相似界面不通过通用 shared package 复用；出现多个真实调用方和稳定契约后，再按具体职责提取前端 package。
 
@@ -49,7 +50,7 @@ Web 入口创建 Browser Router，Electron renderer 创建 Memory Router，两�
 
 模块任务及接入关系见[总索引 #5](https://github.com/Utopia-V/repa/issues/5)，方向索引分别持有基座、学习算法、前端和研究任务。具体交付通过子 Issue 跟踪，前端内部拆分由前端负责人维护。开始一项工作时，先核对现有实现和可复用的 SDK 入口；完整联调依赖并不要求所有模块串行开发。当前 Pi 能力与实际接法见 [Agent 接入](agent-runtime.md#sdk-能力与接入范围)。
 
-当前后端已经接通共享能力、插件包、命令执行和默认学习组合。Agent 工具与公开客户端共用处理函数，请求、配置和内容也使用已有模块。各插件负责自己的业务数据与算法，学习语境负责背景选择与展开。
+当前底座已经接通共享能力、插件包和命令执行，默认学习组合由 `@repa/learning` 产品入口装配。Agent 工具与公开客户端共用处理函数，请求、配置和内容也使用已有模块。各插件负责自己的业务数据与算法，学习语境负责背景选择与展开。
 
 官方界面、生成展示和真实模型学习体验还需要联合验收。具体缺口记录在各模块的“未完成项与待验证项”，整体范围见[官方学习组合](official-learning.md#未完成项与待验证项)。
 
@@ -118,7 +119,7 @@ flowchart LR
 
 内容 API 和模型工具共用保存入口，能力 API 和工具共用处理函数。只读 query 能力直接返回当前结果，inline 和 background 能力通过请求模块保存记录；Agent 工具使用父运行的身份与取消信号。具体调用方式见[能力宿主](capabilities.md)，记录与恢复见[请求说明](requests.md)。
 
-Host 使用学习能力准备好的背景，处理快照复用和压缩后补回。学习语境的选择与展开留在学习模块，文件保存和引用映射使用内容模块。关闭官方学习组合后，普通 Agent 与内容操作可用，原文档、绑定和历史快照保留。
+Host 使用已安装插件贡献的背景，处理快照复用和压缩后补回。学习语境的选择与展开位于 `@repa/learning`，文件保存和引用映射使用内容模块。关闭官方学习组合后，普通 Agent 与内容操作可用，原文档、绑定和历史快照保留。
 
 图形组件宿主、共享草稿与前端入口的加载尚待接通。命令执行已接入，平台适用范围和安装验证见[执行说明](execution.md#构建与独立启动)。
 
@@ -164,4 +165,4 @@ npm run build
 
 当前整合版本已在 Linux 上通过类型检查、测试与构建，包含 Web 与 Desktop 宿主连接真实后端的测试。
 
-前端宿主集成测试沿用 Vitest，在 Node 环境中启动真实 `repa serve` 子进程并通过 `RepaClient` 打开、查询临时学习空间。Web 还经过真实 Vite HTTP 连接端点，并让 Pi 调用测试内的本地 HTTP 模型，覆盖回复、工具执行、取消、错误与重连；夹具用法见 [Web 集成测试](web-integration-tests.md)。配置和内容使用独立临时目录，测试结束清理后端与文件，无需模型凭据或新增测试依赖。运行根目录 `npm test` 会先构建后端并包含这些测试；仅运行前端或能力 workspace 测试前需先执行 `npm run build:backend`。
+前端宿主集成测试沿用 Vitest，在 Node 环境中启动真实 `repa-learning serve` 子进程并通过 `RepaClient` 打开、查询临时学习空间。Web 还经过真实 Vite HTTP 连接端点，并让 Pi 调用测试内的本地 HTTP 模型，覆盖回复、工具执行、取消、错误与重连；夹具用法见 [Web 集成测试](web-integration-tests.md)。配置和内容使用独立临时目录，测试结束清理后端与文件，无需模型凭据或新增测试依赖。运行根目录 `npm test` 会先构建后端并包含这些测试；仅运行前端或能力 workspace 测试前需先执行 `npm run build:backend`。

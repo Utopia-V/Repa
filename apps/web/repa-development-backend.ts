@@ -10,8 +10,7 @@ interface Endpoint extends ClientConnection {
 }
 
 function repaCliPath(): string {
-  const entry = fileURLToPath(import.meta.resolve("repa"));
-  return path.join(path.dirname(entry), "cli.js");
+  return fileURLToPath(import.meta.resolve("@repa/learning/cli"));
 }
 
 function connectionFile(): string {

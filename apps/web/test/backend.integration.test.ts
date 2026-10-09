@@ -13,6 +13,9 @@ const settling = { timeout: 8000 };
 it("Web 宿主交付真实连接，订阅收到分段回复和完成状态，最后一个客户端退出后结束后端", async () => {
   await withWebBackend(async f => {
     expect(await f.client.call("space.list", {})).toEqual([f.space]);
+    const capabilities = await f.client.call("capability.describe", { scope: { kind: "space", spaceId: f.space.id } });
+    expect(capabilities.issues).toEqual([]);
+    expect(capabilities.capabilities.some(item => item.contract.id === "repa.context.preview")).toBe(true);
     const session = await observeSession(f.client, f.space.id);
     const tail = deferredText();
     f.model.enqueue({ kind: "text", chunks: ["先看定义，", tail.promise] });

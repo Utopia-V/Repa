@@ -1,6 +1,5 @@
 import { Type, type Static } from "typebox";
-import { object, RevisionSchema as revision, literals } from "../schema.js";
-import { ContentRefSchema } from "../content/schema.js";
+import { object, RevisionSchema as revision, literals, ContentRefSchema } from "repa/protocol";
 
 export const ContextBindingSchema = Type.Union([
   Type.Null(),

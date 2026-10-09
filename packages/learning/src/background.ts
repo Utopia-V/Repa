@@ -1,7 +1,7 @@
 import { Check } from "typebox/value";
 import { ContextViewSchema, type ContextView } from "./schema.js";
-import { RepaFault } from "../errors.js";
-import type { BackgroundCodec, BackgroundSource, WorkingMessage } from "../agent/background.js";
+import { RepaFault } from "repa/protocol";
+import type { BackgroundCodec, BackgroundSource, WorkingMessage } from "repa/plugin";
 
 export const CONTEXT_MESSAGE_TYPE = "repa.learning-context";
 

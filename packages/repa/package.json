@@ -4,9 +4,14 @@
   "private": true,
   "type": "module",
   "files": [
-    "dist", "resources/sandbox/linux-x64", "resources/sandbox/source.json",
-    "resources/sandbox/Cargo.lock", "resources/sandbox/parent-lifecycle.patch", "resources/sandbox/licenses",
-    "scripts/build-sandbox.mjs", "scripts/sandbox-profile.mjs"
+    "dist",
+    "resources/sandbox/linux-x64",
+    "resources/sandbox/source.json",
+    "resources/sandbox/Cargo.lock",
+    "resources/sandbox/parent-lifecycle.patch",
+    "resources/sandbox/licenses",
+    "scripts/build-sandbox.mjs",
+    "scripts/sandbox-profile.mjs"
   ],
   "bin": {
     "repa": "dist/cli.js"
@@ -27,11 +32,6 @@
     "@modelcontextprotocol/client": "2.3.0",
     "@modelcontextprotocol/core": "2.3.0",
     "@modelcontextprotocol/ext-apps": "2.0.3",
-    "@repa/learning": "0.1.0",
-    "@repa/materials": "0.1.0",
-    "@repa/organization": "0.1.0",
-    "@repa/planning": "0.1.0",
-    "@repa/review": "0.1.0",
     "@earendil-works/pi-ai": "0.87.1",
     "@earendil-works/pi-coding-agent": "0.87.1",
     "mdast-util-from-markdown": "2.0.3",
@@ -47,7 +47,8 @@
     "@types/semver": "7.8.0",
     "@types/ws": "8.18.1",
     "tsx": "4.23.12",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "@repa/learning": "0.1.0"
   },
   "exports": {
     ".": {
@@ -73,6 +74,10 @@
     "./plugin": {
       "types": "./dist/plugin.d.ts",
       "import": "./dist/plugin.js"
+    },
+    "./cli": {
+      "types": "./dist/cli-main.d.ts",
+      "import": "./dist/cli-main.js"
     }
   }
 }

@@ -47,7 +47,7 @@ Pi 0.87.1 的会话 model runtime 固定认证上下文，原 Host 上的 `setMo
 
 `settings.get` 返回逐项有效值、覆盖、来源和覆盖修订。继承顺序为默认值、应用、空间、会话。`settings.set` 保存完整的单项值，`settings.reset` 删除该项覆盖；空字符串、空列表和 `false` 都是有效覆盖，不表示恢复默认。
 
-当前 `prompts` 命名空间包含 `base`、`append`、`projectInstructions`、`skillCatalog`、`environment`、`learningContext` 和 `fileChanges`。基础提示与追加段可以明确为空；项目说明还受宿主的扩展信任约束。默认安装启用官方学习能力；其默认提示由学习能力提供，禁用组合时默认基础提示为空，用户明确保存的覆盖仍有效。自动学习来源、Skill 清单和工作目录说明按各自设置控制，默认不载入项目说明，普通文件变化采用 `on-demand`。整个学习能力关闭与仅关闭自动注入分别表达，见[学习语境](learning.md)。
+为保持已有配置与请求可解码，当前 `prompts` 命名空间仍包含 `base`、`append`、`projectInstructions`、`skillCatalog`、`environment`、`learningContext` 和 `fileChanges`。基础提示与追加段可以明确为空；项目说明还受宿主的扩展信任约束。通用应用的默认基础提示为空；产品通过 `ApplicationOptions.promptDefaults` 提供默认值，仅影响没有覆盖的设置项。官方学习产品由 `@repa/learning` 装配，禁用组合时默认基础提示为空，用户明确保存的覆盖仍有效。自动学习来源、Skill 清单和工作目录说明按各自设置控制，默认不载入项目说明，普通文件变化采用 `on-demand`。整个学习能力关闭与仅关闭自动注入分别表达，见[学习语境](learning.md)。
 
 应用配置目录优先使用 `ApplicationOptions.appDirectory`，其次使用显式 `agentDir`，否则使用 `$XDG_CONFIG_HOME/repa` 或 `~/.config/repa`。Repa 覆盖保存在其中的 `repa-settings.json`，外部材料授权保存在 `repa-content-access.json`，具名连接位于 `models/`；凭据文件交由 Pi 管理。空间和会话覆盖保存在空间内的 `.repa/settings.json`。`runtime` 与 `summaryPrompts` 的空值含义、注册入口及版本迁接见[模型配置](models-configuration.md#按项配置与来源)。
 
@@ -57,7 +57,7 @@ Pi 0.87.1 的会话 model runtime 固定认证上下文，原 Host 上的 `setMo
 
 工具说明来自实际启用的内容工具、共享能力工具与可信扩展定义。能力工具只描述适合模型填写的业务参数；Application 注入本次空间、会话、运行、请求身份和父取消信号，同一 `invoke` 处理 API 与工具路径，不再为工具另建后台请求。模型与会话窄服务继续复用既有调用和请求入口，见[共享能力](capabilities.md#作用域与服务)。
 
-`prompts.preview` 通过 `discoverPluginResources` 读取能够确定的静态来源，使用与运行时相同的信任和资源选择。背景声明可以为特定实现提供轻量静态读取；与声明匹配时展示视图，其他实现与动态扩展贡献只标记来源，实际运行时再执行。预览不会加载扩展或后台工厂，也不安装缺失包。
+`prompts.preview` 通过 `discoverPluginResources` 读取能够确定的静态来源，使用与运行时相同的信任和资源选择。背景声明可以为特定实现提供轻量静态读取；与声明匹配时展示视图，其他实现与动态扩展贡献只标记来源，实际运行时再执行。预览不会加载扩展或后台工厂，也不安装缺失包。静态工具列表来自内容工具与执行工具；插件工具通过 `capabilityPlugin:<id>` 标为动态，实际加载后才展示定义。
 
 实际主调用和压缩提示保存到所属请求。压缩使用 Pi 的公开 `compact`，通过 `session_before_compact` 接入摘要设置，分段、计量、重试和记录仍由 SDK 完成。完整覆盖的适配与升级条件见[提示预览与压缩](models-configuration.md#提示预览与压缩)。统一的图形编辑界面由前端接入。
 
@@ -65,7 +65,7 @@ Pi 0.87.1 的会话 model runtime 固定认证上下文，原 Host 上的 `setMo
 
 领域背景快照由所属插件定义；学习语境快照包含完整正文、来源和修订。Pi JSONL 保存过去实际提供过的消息，空间中的文档保存当前内容。
 
-`agent/background.ts` 通过 `BackgroundSource` 的 `codec/enabled/prepare` 取得、识别和控制背景。插件通过 `BackendPluginRegistration.backgrounds` 提供 codec、能力选择、公共输入和结果转换；Application 在实际运行中调用所选 query，再交给 Host。静态预览另由声明的轻量读取提供，具体接法见[安装级背景与持久格式](plugins.md#安装级背景与持久格式)。当前学习默认注册在 Application 中装配，学习规则留在学习模块。
+`agent/background.ts` 通过 `BackgroundSource` 的 `codec/enabled/prepare` 取得、识别和控制背景。插件通过 `BackendPluginRegistration.backgrounds` 提供 codec、能力选择、公共输入和结果转换；Application 在实际运行中调用所选 query，再交给 Host。静态预览另由声明的轻量读取提供，具体接法见[安装级背景与持久格式](plugins.md#安装级背景与持久格式)。学习产品在 `@repa/learning` 中装配自己的注册，通用 Application 只消费传入的登记。
 
 关闭 `learningContext` 后，Host 排除可识别的自动快照并停止补回，历史记录与独立预览保留。关闭整个 `repa-learning` 会停用官方组合和自动背景；没有替代实现时，公共学习调用返回未找到能力，已经保存的文档和绑定保留。具体开关含义见[学习语境](learning.md#关闭启用与替换)。
 

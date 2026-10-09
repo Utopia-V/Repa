@@ -5,14 +5,15 @@ import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { startRepaServer, type ServerOptions } from "../src/server.js";
+import { startLearningServer, callLearning } from "@repa/learning";
+import { startRepaServer, type ServerOptions } from "repa";
 import { RepaClient, RpcError } from "../src/client.js";
 import type { ContentTarget } from "../src/protocol.js";
 
 const code = (expected: string) => (error: unknown) => error instanceof RpcError && (error.data as { code?: string })?.code === expected;
-async function fixture(t: TestContext, options: ServerOptions = {}) {
+async function fixture(t: TestContext, options: ServerOptions = {}, learning = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-space-snapshot-"));
-  const server = await startRepaServer({ appDirectory: path.join(root, "app"), ...options });
+  const server = await (learning ? startLearningServer : startRepaServer)({ appDirectory: path.join(root, "app"), ...options });
   const client = await RepaClient.connect(server.connection);
   const space = await client.call("space.open", { path: path.join(root, "space") });
   t.after(async () => { await server.close(); await client.close(); await rm(root, { recursive: true, force: true }); });
@@ -25,15 +26,15 @@ async function fixture(t: TestContext, options: ServerOptions = {}) {
 }
 
 test("空间独立复制保留本地身份，映射组成、语境和历史；副本撤回不改变原空间", async t => {
-  const f = await fixture(t);
+  const f = await fixture(t, {}, true);
   const goal = await f.create("goal.md", "before");
   const operationId = randomUUID();
   await f.client.call("content.edit", { target: goal.target, operationId, edits: [{ oldText: "before", newText: "after" }] });
   let composition = await f.create("context.json", JSON.stringify({ items: [{ ref: goal.ref!, mode: "expand" }] }));
   const { resource } = await f.client.uploadResource(f.space.id, Buffer.from("attachment"), "text/plain");
   composition = (await f.client.call("content.setComposition", { ref: composition.ref!, base: composition.revision!, operationId: randomUUID(), members: [{ target: goal.target }], resources: [resource] })).contents[0]!;
-  const context = await f.client.call("context.get", { spaceId: f.space.id });
-  await f.client.call("context.set", { spaceId: f.space.id, base: context.revision, operationId: randomUUID(), binding: { kind: "composition", ref: composition.ref! } });
+  const context = await callLearning(f.client, "context.get", { spaceId: f.space.id });
+  await callLearning(f.client, "context.set", { spaceId: f.space.id, base: context.revision, operationId: randomUUID(), binding: { kind: "composition", ref: composition.ref! } });
   const input = { spaceId: f.space.id, destination: path.join(f.root, "copy"), operationId: randomUUID() };
   const copied = await f.client.call("space.copy", input);
   assert.equal(copied.status, "completed", copied.error?.message);
@@ -41,13 +42,13 @@ test("空间独立复制保留本地身份，映射组成、语境和历史；�
   assert.deepEqual(await f.client.call("space.copy", input), copied);
   const space = await f.client.call("space.open", { path: copied.destination });
   assert.equal(space.id, copied.spaceId);
-  assert.equal((await f.client.call("context.preview", { spaceId: space.id })).text, `## ${goal.ref!.id}\nafter`);
+  assert.equal((await callLearning(f.client, "context.preview", { spaceId: space.id })).text, `## ${goal.ref!.id}\nafter`);
   const copiedComposition = await f.client.call("content.get", { target: { kind: "content", ref: { ...composition.ref!, spaceId: space.id } } });
   assert.equal(copiedComposition.resources[0]!.spaceId, space.id);
   assert.deepEqual(copiedComposition.members[0]!.target, { kind: "content", ref: { ...goal.ref!, spaceId: space.id } });
   await f.client.call("operation.undo", { spaceId: space.id, operationId, undoOperationId: randomUUID() });
-  assert.equal((await f.client.call("context.preview", { spaceId: space.id })).text, `## ${goal.ref!.id}\nbefore`);
-  assert.equal((await f.client.call("context.preview", { spaceId: f.space.id })).text, `## ${goal.ref!.id}\nafter`);
+  assert.equal((await callLearning(f.client, "context.preview", { spaceId: space.id })).text, `## ${goal.ref!.id}\nbefore`);
+  assert.equal((await callLearning(f.client, "context.preview", { spaceId: f.space.id })).text, `## ${goal.ref!.id}\nafter`);
   assert.equal(await (await f.client.resource({ ...resource, spaceId: space.id })).text(), "attachment");
 });
 

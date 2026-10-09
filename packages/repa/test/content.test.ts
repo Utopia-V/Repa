@@ -4,11 +4,11 @@ import { chmod, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "nod
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { LearningContext } from "../src/learning/context.js";
-import { learningContentFormat } from "../src/learning/content-format.js";
+import { LearningContext, learningContentFormat } from "@repa/learning";
 import { ContentStore, canonicalJson } from "../src/content/store.js";
 import { digest } from "../src/storage/blobs.js";
 import { RepaFault } from "../src/errors.js";
+import { RepaFault as PluginFault } from "repa/protocol";
 import type { ContentRef } from "../src/content/schema.js";
 
 async function fixture(t: TestContext) {
@@ -24,7 +24,7 @@ async function fixture(t: TestContext) {
   };
   return { root, spaceId, store, learning: new LearningContext(store), open, create, register };
 }
-const code = (expected: string) => (error: unknown): boolean => error instanceof RepaFault && error.code === expected;
+const code = (expected: string) => (error: unknown): boolean => (error instanceof RepaFault || error instanceof PluginFault) && error.code === expected;
 
 test("实际保存、版本保护、重复请求与重开共用内容操作", async (t) => {
   const f = await fixture(t);

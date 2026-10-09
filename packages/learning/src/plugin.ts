@@ -1,10 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Type } from "typebox";
-import { ContentChangeResultSchema } from "../content/schema.js";
-import { operationError } from "../content/operation-error.js";
-import { IdSchema, literals, object, RevisionSchema } from "../schema.js";
-import { RepaFault } from "../errors.js";
-import type { BackendPlugin, CapabilityDefinition, InvocationContext } from "../capabilities/types.js";
+import { operationError, type BackendPlugin, type CapabilityDefinition, type InvocationContext } from "repa/plugin";
+import { ContentChangeResultSchema, IdSchema, literals, object, RevisionSchema, RepaFault } from "repa/protocol";
 import { LearningContext } from "./context.js";
 import { ContextBindingSchema, ContextStateSchema, ContextViewSchema } from "./schema.js";
 

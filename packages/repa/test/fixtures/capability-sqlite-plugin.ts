@@ -1,8 +1,9 @@
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Type } from "typebox";
+import { Check } from "typebox/value";
 import { object } from "../../src/schema.js";
-import type { BackendPlugin, CapabilityDefinition, PluginSpaceContext } from "../../src/capabilities/types.js";
+import type { BackendPlugin, CapabilityDefinition, InvocationContext, PluginSpaceContext } from "repa/plugin";
 import type { SpaceSnapshotParticipant } from "../../src/spaces/schema.js";
 
 const InputSchema = object({ value: Type.String() });
@@ -41,8 +42,8 @@ export function sqlitePlugin(options: {
   beforeOpen?(context: PluginSpaceContext): Promise<void>;
   opened?(context: PluginSpaceContext): void;
   closed?(context: PluginSpaceContext): void;
-}): BackendPlugin<object, SqliteRuntime> {
-  const append: CapabilityDefinition<typeof InputSchema, typeof OutputSchema, object, SqliteRuntime> = {
+}) {
+  const append = {
     contract: { id: "example.entries.append", version: "1" },
     implementationId: "sqlite",
     inputSchema: InputSchema,
@@ -50,16 +51,19 @@ export function sqlitePlugin(options: {
     scopes: ["space"],
     execution: "background",
     tool: { name: "append_entry", description: "在所属空间保存一个测试条目。" },
-    invoke(input, context) {
+    invoke(input: unknown, context: Pick<InvocationContext, "scope" | "signal" | "spaceRuntime">) {
       context.signal.throwIfAborted();
-      if (context.scope.kind !== "space" || !context.spaceRuntime) throw new Error("缺少空间运行资源");
-      const database = context.spaceRuntime.database;
+      if (!Check(InputSchema, input)) throw new Error("条目输入无效");
+      const runtime = context.spaceRuntime;
+      if (context.scope.kind !== "space" || !runtime || typeof runtime !== "object" ||
+        !("database" in runtime) || !(runtime.database instanceof DatabaseSync)) throw new Error("缺少空间运行资源");
+      const database = runtime.database;
       database.prepare("INSERT INTO entries(space, value) VALUES (?, ?)").run(context.scope.spaceId, input.value);
       const row = database.prepare("SELECT count(*) AS count FROM entries").get();
       if (typeof row?.count !== "number") throw new Error("无法读取条目数量");
       return { count: row.count, spaceId: context.scope.spaceId };
     },
-  };
+  } satisfies CapabilityDefinition<typeof InputSchema, typeof OutputSchema, object, SqliteRuntime>;
   return {
     capabilities: [append],
     settings: [{
@@ -85,5 +89,5 @@ export function sqlitePlugin(options: {
       options.closed?.(context);
     },
     snapshot: sqliteSnapshot(options.id),
-  };
+  } satisfies BackendPlugin<object, SqliteRuntime>;
 }

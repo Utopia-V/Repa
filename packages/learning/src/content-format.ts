@@ -1,7 +1,6 @@
 import { Check } from "typebox/value";
-import type { ContentFormat } from "../content/formats.js";
-import { mapReference, type ReferenceMapping } from "../content/references.js";
-import { RepaFault } from "../errors.js";
+import { mapReference, type ContentFormat, type ReferenceMapping } from "repa/plugin";
+import { RepaFault } from "repa/protocol";
 import { ContextBindingSchema, ContextCompositionSchema, type ContextBinding } from "./schema.js";
 
 export function contextBinding(value: unknown): ContextBinding {

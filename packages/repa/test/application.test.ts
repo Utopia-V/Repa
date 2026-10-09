@@ -22,7 +22,6 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Check } from "typebox/value";
 import { ConnectionError, RepaClient, RpcError } from "../src/client.js";
 import { PiConversationHost } from "../src/pi-host.js";
-import { DEFAULT_LEARNING_PROMPT } from "../src/learning/default-prompt.js";
 import { ConfigStore } from "../src/configuration/store.js";
 import { RepaFault } from "../src/errors.js";
 import { RequestStore } from "../src/requests/store.js";
@@ -250,7 +249,7 @@ test("公开协议支持两个客户端共享流式对话、受信任 prompt、s
     (context) => {
       assert.match(latest(context, "user"), /FIXTURE_PROMPT_EXPANDED/u);
       assert.match(getCurrentSystemPrompt(context.messages) ?? "", /fixture-learning-skill/u);
-      assert(getCurrentSystemPrompt(context.messages).includes(DEFAULT_LEARNING_PROMPT));
+      assert.equal(getCurrentSystemPrompt(context.messages).includes("repa_learning_context"), false);
       assert.doesNotMatch(
         getCurrentSystemPrompt(context.messages) ?? "",
         /expert coding assistant operating inside pi/iu,
@@ -658,10 +657,11 @@ test("关闭最后客户端后完成已启动生成，完整退出则取消并�
 test("标准 Pi 压缩后仍通过同一协议继续，扩展故障有可观察诊断", async (t) => {
   const f = await fixture(t, {
     smallContext: true,
+    promptDefaults: () => ({ base: "APPLICATION_TEST_BASE" }),
     packages: [fixturePackage, brokenPackage],
   });
   const script: FauxResponseStep = (context, _options, state) =>
-    !(getCurrentSystemPrompt(context.messages) ?? "").includes(DEFAULT_LEARNING_PROMPT)
+    !(getCurrentSystemPrompt(context.messages) ?? "").includes("APPLICATION_TEST_BASE")
       ? fauxAssistantMessage("COMPACTION_SUMMARY")
       : fauxAssistantMessage(
           `REPLY_${state.callCount}:` + "学习内容。".repeat(80),
