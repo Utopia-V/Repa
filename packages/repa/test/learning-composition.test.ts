@@ -136,7 +136,7 @@ test("同名替换包必须选择明确来源，预览与运行共同排除含�
   assert((await client.call("capability.describe", { scope })).issues.some(issue => issue.pluginId === "replacement"));
 });
 
-test("官方组合沿真实工具保留实际作答，关闭后复制再启用仍接续学习语境与复习记录", async (t) => {
+test("官方组合保存实际作答与明确复习自评，关闭后复制再启用保留内容和记录", async (t) => {
   const f = await fixture(t);
   const faux = fauxProvider({ api: `composition-${randomUUID()}`, provider: `composition-${randomUUID()}`,
     models: [{ id: "test", reasoning: false, input: ["text"], contextWindow: 32768, maxTokens: 2048 }], tokensPerSecond: 0 });
@@ -169,22 +169,25 @@ test("官方组合沿真实工具保留实际作答，关闭后复制再启用�
   };
   const preview = await client.call("prompts.preview", key);
   assert(preview.prompt.system.includes(DEFAULT_LEARNING_PROMPT));
-  for (const name of ["guide-learning", "learn-with-feedback", "plan-learning", "organize-learning"]) assert(preview.prompt.system.includes(name));
+  assert.equal(preview.prompt.system.includes("<name>guide-learning</name>"), false);
+  for (const name of ["learn-with-feedback", "plan-learning", "organize-learning"]) assert(preview.prompt.system.includes(name));
   for (const id of ["repa-materials", "repa-planning", "repa-review"])
     assert(preview.prompt.sources.some(source => source.id === `capabilityPlugin:${id}` && source.dynamic));
+  let teachingMethod = "";
   let noteRef: ContentRef | undefined;
   let review: ReviewItem | undefined;
   faux.setResponses([
-    context => {
+    async context => {
       const system = getCurrentSystemPrompt(context.messages);
       assert(system.includes(DEFAULT_LEARNING_PROMPT));
       for (const name of ["read_material", "check_plan", "review_create", "set_learning_context"])
         assert(getCurrentTools(context.messages).some(tool => tool.name === name));
       const location = /<name>learn-with-feedback<\/name>\s*<description>[\s\S]*?<\/description>\s*<location>([^<]+)<\/location>/u.exec(system)?.[1];
       assert(location, "方法路径由真实 Pi catalog 提供");
+      teachingMethod = await readFile(location, "utf8");
       return useTool("read", { path: location });
     },
-    context => { assert.match(toolText(context, "read"), /实际作答/u); return useTool("content_info", { path: "material.md" }); },
+    context => { assert(toolText(context, "read").includes(teachingMethod)); return useTool("content_info", { path: "material.md" }); },
     context => {
       const material: unknown = JSON.parse(toolText(context, "content_info"));
       assert(Check(ContentInfoSchema, material));
@@ -227,7 +230,7 @@ test("官方组合沿真实工具保留实际作答，关闭后复制再启用�
   const historyBefore = await invoke(client, scope, "repa.review.history", { itemId: review.id });
   assert(Check(ReviewHistoryResultSchema, historyBefore));
   assert.deepEqual(historyBefore.events, []);
-  const response = "潮汐说的是水位上下变化，潮流说的是水在流动；我刚才需要提示才想起后者。";
+  const response = "潮汐说的是水位上下变化，潮流说的是水在流动；我刚才需要提示才想起后者。对这张复习题我选择“再来”。";
   faux.setResponses([
     context => {
       assert(context.messages.some(message => message.role === "user" && textOf(message.content).includes(response)));
@@ -257,7 +260,7 @@ test("官方组合沿真实工具保留实际作答，关闭后复制再启用�
   await disable(client, scope, ["repa-learning"]);
   const off = await client.call("prompts.preview", key);
   assert.equal(off.prompt.system.includes(DEFAULT_LEARNING_PROMPT), false);
-  for (const name of ["guide-learning", "learn-with-feedback", "plan-learning", "organize-learning"]) assert.equal(off.prompt.system.includes(name), false);
+  for (const name of ["learn-with-feedback", "plan-learning", "organize-learning"]) assert.equal(off.prompt.system.includes(name), false);
   const capabilities = await client.call("capability.describe", { scope });
   assert(capabilities.capabilities.some(item => item.pluginId === "repa-search"));
   assert(capabilities.capabilities.every(item => !["repa-learning", "repa-materials", "repa-planning", "repa-review"].includes(item.pluginId)));
@@ -285,7 +288,7 @@ test("官方组合沿真实工具保留实际作答，关闭后复制再启用�
   assert.equal(await readFile(path.join(f.agentDir, "settings.json"), "utf8"), f.piSettings);
 });
 
-test("持续学习方法按需读取参考，关闭复习后普通记录与局部安排仍进入下一会话", async (t) => {
+test("教学与整理方法按需读取，关闭复习和教学后原始尝试及材料仍可跨会话读取", async (t) => {
   const f = await fixture(t);
   const faux = fauxProvider({ api: `method-${randomUUID()}`, provider: `method-${randomUUID()}`,
     models: [{ id: "test", reasoning: false, input: ["text"], contextWindow: 32768, maxTokens: 2048 }], tokensPerSecond: 0 });
@@ -298,7 +301,6 @@ test("持续学习方法按需读取参考，关闭复习后普通记录与局�
   const scope = { kind: "space" as const, spaceId: space.id };
   await disable(client, scope, ["repa-review"]);
   const session = await client.call("session.create", { spaceId: space.id });
-  const key = { spaceId: space.id, sessionId: session.sessionId };
   const submit = async (sessionId: string, text: string) => {
     const accepted = await client.call("session.submit", {
       target: { spaceId: space.id, sessionId }, requestId: randomUUID(),
@@ -318,95 +320,108 @@ test("持续学习方法按需读取参考，关闭复习后普通记录与局�
   };
   const response = "水位会上下变化，但我需要提示才想起水流。";
   const hint = "观察漂浮物的运动。";
-  const firstInput = `我的作答：${response}\n所用提示：${hint}\n按当前路线继续，保留我的原文并调整下一次安排。`;
+  const firstInput = `我的作答：${response}
+所用提示：${hint}
+请解释两者的区别，保留我的原文和材料引用。`;
   const humanText = "## 我的目标\n我想理解潮汐，也要为英语口试留时间。\n这句话由我保留：海边的观察，不等于题解。🌊\n";
-  const initialRoute = `${humanText}\n## 当前重点\n先区分潮汐与潮流。\n活动：activity.md\n实际记录：observations.md\n未来安排：schedule.md\n`;
-  await writeFile(path.join(f.directory, "route.md"), initialRoute);
-  await client.call("content.associate", { spaceId: space.id, location: { kind: "relative", path: "route.md" }, role: "document", operationId: randomUUID() });
-  let methodDirectory = "";
-  let routeRef: ContentRef | undefined;
-  const references = ["route-and-records.md", "review-decisions.md"] as const;
+  const initialNotes = `${humanText}
+## 材料
+[海边观察](material.md)
+`;
+  const material = "潮汐描述水位变化，潮流描述水的运动。\n";
+  await writeFile(path.join(f.directory, "notes.md"), initialNotes);
+  await writeFile(path.join(f.directory, "material.md"), material);
+  await client.call("content.associate", { spaceId: space.id, location: { kind: "relative", path: "notes.md" }, role: "document", operationId: randomUUID() });
+  let notesRef: ContentRef | undefined;
+  let teachingMethod = "";
+  let organizationMethod = "";
+  let organizationLocation = "";
+  const savedAttempt = `# 原始尝试与帮助
+学习者原话：${response}
+所用提示：${hint}
+助手解释：潮汐描述水位变化，潮流描述水的运动。
+材料：[海边观察](material.md)
+`;
   faux.setResponses([
     async context => {
       assert(context.messages.some(message => message.role === "user" && textOf(message.content) === firstInput));
       const system = getCurrentSystemPrompt(context.messages);
-      const entry = /<name>guide-learning<\/name>\s*<description>([\s\S]*?)<\/description>\s*<location>([^<]+)<\/location>/u.exec(system);
-      assert(entry?.[1] && entry[2], "方法由真实 Pi 目录发现并带有描述与位置");
-      methodDirectory = path.dirname(entry[2]);
-      const method = await readFile(entry[2], "utf8");
-      assert.equal(system.includes(method), false, "方法正文保留在真实文件中按需读取");
-      assert.equal(system.includes(references[0]), false);
-      assert.equal(system.includes(references[1]), false);
+      const teaching = /<name>learn-with-feedback<\/name>\s*<description>[\s\S]*?<\/description>\s*<location>([^<]+)<\/location>/u.exec(system)?.[1];
+      const organization = /<name>organize-learning<\/name>\s*<description>[\s\S]*?<\/description>\s*<location>([^<]+)<\/location>/u.exec(system)?.[1];
+      assert(teaching && organization, "现有方法由真实 Pi 目录提供位置");
+      teachingMethod = await readFile(teaching, "utf8");
+      organizationMethod = await readFile(organization, "utf8");
+      organizationLocation = organization;
+      assert.equal(system.includes(teachingMethod), false, "正文保留在真实文件中按需读取");
+      assert.equal(system.includes(organizationMethod), false);
       assert.equal(getCurrentTools(context.messages).some(tool => tool.name === "review_create"), false);
-      return useTool("read", { path: entry[2] });
+      return useTool("read", { path: teaching });
     },
     context => {
-      const method = toolText(context, "read");
-      for (const reference of references) assert(method.includes(reference));
-      return useTool("read", { path: path.join(methodDirectory, "references", references[0]) });
-    },
-    async context => {
-      const reference = await readFile(path.join(methodDirectory, "references", references[0]), "utf8");
-      assert(toolText(context, "read").includes(reference));
-      return useTool("read", { path: path.join(methodDirectory, "references", references[1]) });
-    },
-    async context => {
-      const reference = await readFile(path.join(methodDirectory, "references", references[1]), "utf8");
-      assert(toolText(context, "read").includes(reference));
-      return useTool("read", { path: "route.md" });
+      assert(toolText(context, "read").includes(teachingMethod));
+      return useTool("read", { path: organizationLocation });
     },
     context => {
-      assert(toolText(context, "read").includes(initialRoute));
+      assert(toolText(context, "read").includes(organizationMethod));
+      return useTool("read", { path: "notes.md" });
+    },
+    context => {
+      assert(toolText(context, "read").includes(initialNotes));
+      return useTool("read", { path: "material.md" });
+    },
+    context => {
+      assert(toolText(context, "read").includes(material));
+      const patchLines = savedAttempt.split("\n").slice(0, -1).map(line => `+${line}`).join("\n");
       return useTool("apply_patch", {
-        patch: `*** Begin Patch\n*** Add File: activity.md\n+# 当前活动\n+任务：用海边观察区分潮汐与潮流。\n+参考解释：潮汐描述水位变化，潮流描述水的运动。\n*** Add File: observations.md\n+# 实际记录\n+学习者原话：${response}\n+所用提示：${hint}\n+判断：有提示可以区分，尚待独立迁移。\n*** Add File: schedule.md\n+# 未来安排\n+潮汐目标：下次换一个情境独立解释。\n+英语目标：保留口试练习时间。\n+下次观察：是否仍需要提示。\n*** End Patch`,
-        registrations: ["activity.md", "observations.md", "schedule.md"].map(file => ({ path: file, role: "document" })),
+        patch: `*** Begin Patch\n*** Add File: attempts.md\n${patchLines}\n*** End Patch`,
+        registrations: [{ path: "attempts.md", role: "document" }],
       });
     },
     context => {
       toolText(context, "apply_patch");
-      return useTool("edit", { path: "route.md", edits: [{ oldText: "先区分潮汐与潮流。", newText: "提示后已经区分潮汐与潮流；下次观察独立迁移，英语口试时间保持不变。" }] });
+      return useTool("edit", { path: "notes.md", edits: [{ oldText: "[海边观察](material.md)", newText: "[海边观察](material.md)\n[原始尝试与所用帮助](attempts.md)" }] });
     },
-    context => { toolText(context, "edit"); return useTool("content_info", { path: "route.md" }); },
+    context => { toolText(context, "edit"); return useTool("content_info", { path: "notes.md" }); },
     context => {
       const info: unknown = JSON.parse(toolText(context, "content_info"));
       assert(Check(ContentInfoSchema, info) && info.ref);
-      routeRef = info.ref;
+      notesRef = info.ref;
       return useTool("get_learning_context", {});
     },
     context => {
       const state: unknown = JSON.parse(toolText(context, "get_learning_context"));
-      assert(Check(ContextStateSchema, state) && routeRef);
-      return useTool("set_learning_context", { base: state.revision, binding: { kind: "document", contentId: routeRef.id } });
+      assert(Check(ContextStateSchema, state) && notesRef);
+      return useTool("set_learning_context", { base: state.revision, binding: { kind: "document", contentId: notesRef.id } });
     },
-    context => { toolText(context, "set_learning_context"); return fauxAssistantMessage("已保存当前重点与下次观察入口。"); },
+    context => { toolText(context, "set_learning_context"); return fauxAssistantMessage("已保存原始尝试、提示与材料引用。水位变化和水的运动是两个不同的观察对象。"); },
   ]);
   await submit(session.sessionId, firstInput);
-  const updatedRoute = initialRoute.replace("先区分潮汐与潮流。", "提示后已经区分潮汐与潮流；下次观察独立迁移，英语口试时间保持不变。");
-  assert.equal(await readFile(path.join(f.directory, "route.md"), "utf8"), updatedRoute);
-  const observations = await readFile(path.join(f.directory, "observations.md"), "utf8");
+  const updatedNotes = initialNotes.replace("[海边观察](material.md)", "[海边观察](material.md)\n[原始尝试与所用帮助](attempts.md)");
+  assert.equal(await readFile(path.join(f.directory, "notes.md"), "utf8"), updatedNotes);
+  assert.equal(await readFile(path.join(f.directory, "attempts.md"), "utf8"), savedAttempt);
+  await disable(client, scope, ["repa-teaching", "repa-review"]);
   const next = await client.call("session.create", { spaceId: space.id });
   faux.setResponses([
     context => {
+      const system = getCurrentSystemPrompt(context.messages);
+      assert.equal(system.includes("<name>learn-with-feedback</name>"), false);
+      assert.equal(system.includes("<name>guide-learning</name>"), false);
       const background = context.messages.map(message => textOf(message.content)).join("\n");
-      assert(background.includes(updatedRoute));
-      assert.equal(background.includes(observations), false, "背景只带当前绑定路线，长材料按引用读取");
-      return useTool("read", { path: "observations.md" });
+      assert(background.includes(updatedNotes));
+      assert.equal(background.includes(savedAttempt), false, "背景保留内容入口，原始尝试按引用读取");
+      return useTool("read", { path: "attempts.md" });
     },
     context => {
-      assert(toolText(context, "read").includes(observations));
-      return useTool("read", { path: "activity.md" });
+      assert(toolText(context, "read").includes(savedAttempt));
+      return useTool("read", { path: "material.md" });
     },
     context => {
-      assert.match(toolText(context, "read"), /参考解释：潮汐描述水位变化/u);
-      return useTool("read", { path: "schedule.md" });
-    },
-    context => {
-      assert.match(toolText(context, "read"), /英语目标：保留口试练习时间/u);
-      return fauxAssistantMessage("沿当前路线继续检查独立迁移。");
+      assert(toolText(context, "read").includes(material));
+      return fauxAssistantMessage("记录保留了你的原话和所用提示；海边材料可以继续用于解释。");
     },
   ]);
-  await submit(next.sessionId, "按当前路线继续。");
+  await submit(next.sessionId, "再读上次的原始尝试和海边材料。");
   assert.equal(existsSync(path.join(f.directory, ".repa/plugins/repa-review/reviews.sqlite")), false);
-  await disable(client, scope, ["repa-teaching", "repa-review"]);
-  assert.equal((await client.call("prompts.preview", key)).prompt.system.includes("guide-learning"), false);
+  assert.equal(await readFile(path.join(f.directory, "notes.md"), "utf8"), updatedNotes);
+  assert.equal(await readFile(path.join(f.directory, "attempts.md"), "utf8"), savedAttempt);
 });
