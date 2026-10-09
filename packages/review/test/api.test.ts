@@ -161,10 +161,15 @@ test("安装包描述不创建数据库，公共复习操作绑定客户端来�
   const due = await invoke(f.client, f.scope, "list", { dueBefore: Date.now() }, ListReviewsResultSchema);
   assert.deepEqual(due.items.map(item => item.id), [created.item.id]);
   const requestId = randomUUID();
-  const input = { operationId: randomUUID(), itemId: created.item.id, base: created.item.revision, rating: 3, response: "海面周期性升降" };
+  const input = { operationId: randomUUID(), itemId: created.item.id, base: created.item.revision, rating: 3,
+    response: "海面周期性升降", assistance: "看过插图后回答。\n保留原话，不根据提示程度改评分。" };
   const feedback = await invoke(f.client, f.scope, "feedback", input, ReviewMutationResultSchema, requestId);
   assert(feedback.event && feedback.event.kind === "feedback");
   assert.equal(feedback.event.recordedBy.kind, "client");
+  assert.deepEqual(feedback.event.itemAtRecording, { revision: created.item.revision, prompt: created.item.prompt,
+    answer: created.item.answer, sources: created.item.sources });
+  assert.equal(feedback.event.assistance, input.assistance);
+  assert.equal(feedback.event.rating, input.rating);
   assert.deepEqual(await invoke(f.client, f.scope, "feedback", input, ReviewMutationResultSchema, requestId), feedback);
   assert.deepEqual(await invoke(f.client, f.scope, "feedback", input, ReviewMutationResultSchema), feedback);
   const competing = await Promise.allSettled([2, 4].map(rating => invoke(f.client, f.scope, "feedback", {
@@ -263,7 +268,7 @@ test("真实Pi请求获得完整复习工具参数并按明确自评记录反馈
       assert.equal("operationId" in create.parameters.properties, false);
       const feedback = tools.find(tool => tool.name === "review_feedback");
       assert(feedback && "properties" in feedback.parameters && feedback.parameters.properties && typeof feedback.parameters.properties === "object");
-      for (const field of ["itemId", "base", "rating"]) assert(field in feedback.parameters.properties);
+      for (const field of ["itemId", "base", "rating", "assistance"]) assert(field in feedback.parameters.properties);
       assert.equal("operationId" in feedback.parameters.properties, false);
       const update = tools.find(tool => tool.name === "review_update");
       assert(update && "properties" in update.parameters && update.parameters.properties && typeof update.parameters.properties === "object");
@@ -274,12 +279,14 @@ test("真实Pi请求获得完整复习工具参数并按明确自评记录反馈
     context => {
       const created = toolResult(context, "review_create", ReviewMutationResultSchema);
       itemId = created.item.id;
-      return fauxAssistantMessage(fauxToolCall("review_feedback", { itemId, base: created.item.revision, rating: 3, response: "海面周期性升降" }), { stopReason: "toolUse" });
+      return fauxAssistantMessage(fauxToolCall("review_feedback", { itemId, base: created.item.revision, rating: 3, response: "海面周期性升降", assistance: "看过插图。" }), { stopReason: "toolUse" });
     },
     context => {
       const feedback = toolResult(context, "review_feedback", ReviewMutationResultSchema);
       assert(feedback.event && feedback.event.kind === "feedback");
       assert.equal(feedback.event.rating, 3);
+      assert.equal(feedback.event.assistance, "看过插图。");
+      assert.deepEqual(feedback.event.itemAtRecording, { revision: 1, prompt: "潮汐是什么？", answer: "海面周期性升降", sources: [] });
       recordedBy = feedback.event.recordedBy;
       return fauxAssistantMessage(fauxToolCall("review_update", { itemId, base: feedback.item.revision, patch: { prompt: "潮汐的定义是什么？", answer: null, sources: [] } }), { stopReason: "toolUse" });
     },
@@ -294,10 +301,14 @@ test("真实Pi请求获得完整复习工具参数并按明确自评记录反馈
       const history = toolResult(context, "review_history", ReviewHistoryResultSchema);
       assert.equal(history.events.length, 1);
       assert.deepEqual(history.events[0]?.recordedBy, recordedBy);
+      const event = history.events[0];
+      assert(event?.kind === "feedback");
+      assert.deepEqual(event.itemAtRecording, { revision: 1, prompt: "潮汐是什么？", answer: "海面周期性升降", sources: [] });
+      assert.equal(event.assistance, "看过插图。");
       return fauxAssistantMessage("已按你的良好自评记录这次复习。");
     },
   ]);
-  const accepted = await f.send("我刚回答了：潮汐是海面周期性升降，自评良好。请创建复习项并记录这次实际反馈，然后把题目改为‘潮汐的定义是什么？’，去掉参考答案和来源，检查历史。");
+  const accepted = await f.send("我刚回答了：潮汐是海面周期性升降，自评良好，当时看过插图。请创建复习项并记录这次实际反馈，然后把题目改为‘潮汐的定义是什么？’，去掉参考答案和来源，检查历史。");
   assert.equal(f.faux.state.callCount, 5);
   assert.deepEqual(recordedBy, { kind: "agent", ...f.key, runId: accepted.runId, requestId: accepted.requestId });
   assert.equal((await invoke(f.client, f.scope, "history", { itemId }, ReviewHistoryResultSchema)).events.length, 1);
@@ -313,8 +324,14 @@ test("停用重启仍保留复习数据，轻量快照复制后重新启用副�
   assert(ref);
   const content = await f.client.call("content.get", { target: { kind: "content", ref } });
   assert(content.bodyRevision);
-  const created = await invoke(f.client, f.scope, "create", { operationId: randomUUID(), prompt: "潮汐是什么？", sources: [{ contentId: ref.id, revision: content.bodyRevision }] }, ReviewMutationResultSchema);
-  const feedback = await invoke(f.client, f.scope, "feedback", { operationId: randomUUID(), itemId: created.item.id, base: created.item.revision, rating: 3 }, ReviewMutationResultSchema);
+  const created = await invoke(f.client, f.scope, "create", { operationId: randomUUID(), prompt: "潮汐是什么？", answer: "海面周期性升降", sources: [{ contentId: ref.id, revision: content.bodyRevision }] }, ReviewMutationResultSchema);
+  const feedback = await invoke(f.client, f.scope, "feedback", { operationId: randomUUID(), itemId: created.item.id,
+    base: created.item.revision, rating: 3, response: "我的原始答案\n", assistance: "", sources: [] }, ReviewMutationResultSchema);
+  assert(feedback.event?.kind === "feedback");
+  assert.deepEqual(feedback.event.itemAtRecording, { revision: created.item.revision, prompt: created.item.prompt,
+    answer: created.item.answer, sources: created.item.sources });
+  assert.deepEqual(feedback.event.sources, []);
+  assert.equal(feedback.event.assistance, "");
   const parameters = await invoke(f.client, f.scope, "parameters.get", {}, ParameterVersionSchema);
   const changed = await invoke(f.client, f.scope, "parameters.set", { operationId: randomUUID(), base: parameters.version, patch: { request_retention: 0.85 } }, SetReviewParametersResultSchema);
   const beforeUpdate = await invoke(f.client, f.scope, "get", { itemId: created.item.id }, ReviewItemSchema);

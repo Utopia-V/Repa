@@ -29,10 +29,21 @@ export const ReviewItemSchema = object({
   dueAt: time, manualDueAt: Type.Optional(time),
 });
 export type ReviewItem = Static<typeof ReviewItemSchema>;
+/** 反馈受理时匹配 base 的项目，不证明 reviewedAt 时的题面或来源文件字节。 */
+export const ReviewItemAtRecordingSchema = object({
+  revision: ReviewItemSchema.properties.revision,
+  prompt: ReviewItemSchema.properties.prompt,
+  answer: ReviewItemSchema.properties.answer,
+  sources: ReviewItemSchema.properties.sources,
+});
+export type ReviewItemAtRecording = Static<typeof ReviewItemAtRecordingSchema>;
 const event = { id, itemId: id, sequence: Type.Integer({ minimum: 1 }), recordedAt: time, recordedBy: CapabilitySourceSchema };
 export const FeedbackEventSchema = object({
   ...event, kind: Type.Literal("feedback"), reviewedAt: time, rating: FsrsGradeSchema,
-  response: Type.Optional(Type.String()), sources: Type.Array(ReviewSourceSchema), parameterVersion: revision,
+  response: Type.Optional(Type.String()), assistance: Type.Optional(Type.String()),
+  // 旧反馈缺失时保持缺失；读取不会用当前项目倒填。
+  itemAtRecording: Type.Optional(ReviewItemAtRecordingSchema),
+  sources: Type.Array(ReviewSourceSchema), parameterVersion: revision,
   result: object({ card: FsrsCardSchema, log: FsrsLogSchema }),
 });
 export const FeedbackCorrectionSchema = Type.Union([
@@ -76,7 +87,7 @@ export const ListReviewsResultSchema = object({ items: Type.Array(ReviewItemSche
 export const GetReviewInputSchema = object({ itemId: id });
 export const SubmitFeedbackInputSchema = object({
   ...existing, rating: FsrsGradeSchema, reviewedAt: Type.Optional(time),
-  response: Type.Optional(Type.String()), sources: Type.Optional(Type.Array(ReviewSourceSchema)),
+  response: Type.Optional(Type.String()), assistance: Type.Optional(Type.String()), sources: Type.Optional(Type.Array(ReviewSourceSchema)),
 });
 export const CorrectFeedbackInputSchema = object({
   ...existing, feedbackId: id, correction: FeedbackCorrectionSchema, reason: Type.String({ minLength: 1 }),

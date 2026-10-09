@@ -270,6 +270,12 @@ export class ReviewStore {
   feedback(input: SubmitFeedbackInput, actor: CapabilitySource): ReviewMutationResult {
     return this.mutate("feedback", SubmitFeedbackInputSchema, ReviewMutationResultSchema, input, () => {
       const item = this.based(input.itemId, input.base);
+      // 这是反馈受理时匹配 base 的项目，不根据回填的 reviewedAt 推补过去的题面。
+      const itemAtRecording = structuredClone({
+        revision: item.revision, prompt: item.prompt,
+        ...(item.answer === undefined ? {} : { answer: item.answer }),
+        sources: item.sources,
+      });
       const parameters = this.parameters();
       const now = this.now();
       const reviewedAt = input.reviewedAt ?? now;
@@ -301,6 +307,8 @@ export class ReviewStore {
         id, itemId: item.id, sequence, recordedAt: now, recordedBy: actor, kind: "feedback",
         reviewedAt, rating: input.rating,
         ...(input.response === undefined ? {} : { response: input.response }),
+        ...(input.assistance === undefined ? {} : { assistance: input.assistance }),
+        itemAtRecording,
         sources: input.sources ?? item.sources, parameterVersion: parameters.version, result,
       };
       delete item.manualDueAt;

@@ -61,7 +61,7 @@ export default function review(): BackendPlugin<RepaCapabilityServices, ReviewSt
         "按到期时间列出复习项；dueBefore 使用毫秒时间戳，省略时不限定到期时间。默认排除暂停项。",
         (input, store) => store.list(input)),
       capability("feedback", SubmitFeedbackInputSchema, ReviewMutationResultSchema,
-        "记录一次实际复习反馈：1 再来（答错或未能回忆）、2 困难（答对但费力）、3 良好（正常答对）、4 容易（轻松答对）。base 来自所见项目修订。记录实际作答或明确自评，助手生成的答案属于教学材料。",
+        "记录一次实际复习反馈：1 再来（答错或未能回忆）、2 困难（答对但费力）、3 良好（正常答对）、4 容易（轻松答对）。base 使用实际读取的项目修订。assistance 只记录实际帮助条件，未知时省略。保留原始作答或明确自评，不把助手答案记为学习者表现。",
         (input, store, context) => store.feedback(input, context.source), { mutation: true }),
       capability("correct", CorrectFeedbackInputSchema, ReviewMutationResultSchema,
         "追加反馈更正并重算当前估计；feedbackId 指向原反馈，原记录和当时结果继续保留。说明更正原因。",

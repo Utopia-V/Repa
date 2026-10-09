@@ -1,15 +1,17 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
+import { Type } from "typebox";
 import { DatabaseSync } from "node:sqlite";
 import type { CapabilitySource } from "repa/plugin";
 import { RepaFault } from "repa/protocol";
 import { Check } from "typebox/value";
 import { ReviewStore } from "../src/store.js";
 import { createCard, defaultParameters, rebuild, schedule } from "../src/fsrs.js";
-import { FeedbackEventSchema, type FeedbackEvent } from "../src/schema.js";
+import { FeedbackEventSchema, ReviewItemSchema, ReviewMutationResultSchema, ReviewHistoryResultSchema, SubmitFeedbackInputSchema, type FeedbackEvent } from "../src/schema.js";
 
 const start = Date.parse("2026-06-01T08:00:00Z");
 const day = 86400000;
@@ -202,7 +204,8 @@ test("事务中 receipt 保存失败回滚全部写入，重开后能重试同�
   const database = new DatabaseSync(f.file);
   t.after(() => database.close());
   database.exec("CREATE TRIGGER fail_receipt BEFORE INSERT ON operation_receipts WHEN NEW.operation_id = 'feedback' BEGIN SELECT RAISE(ABORT, 'test failure'); END;");
-  const input = { operationId: "feedback", itemId: item.id, base: 1, rating: 3 as const };
+  const input = { operationId: "feedback", itemId: item.id, base: 1, rating: 3 as const,
+    response: "原始作答\n", assistance: "先看过例题，没有自动换算评分。" };
   assert.throws(() => f.store.feedback(input, actor));
   assert.deepEqual(f.store.get(item.id), item);
   assert.deepEqual(f.store.history({ itemId: item.id }).events, []);
@@ -212,6 +215,11 @@ test("事务中 receipt 保存失败回滚全部写入，重开后能重试同�
   const result = reopened.feedback(input, actor);
   assert.equal(result.item.revision, 2);
   assert.equal(reopened.history({ itemId: item.id }).events.length, 1);
+  const event = feedbackEvent(result.event);
+  assert.deepEqual(event.itemAtRecording, { revision: item.revision, prompt: item.prompt, sources: item.sources });
+  assert.equal(event.response, input.response);
+  assert.equal(event.assistance, input.assistance);
+  assert.deepEqual(reopened.feedback(input, actor), result);
 });
 
 test("不支持的数据库版本拒绝打开，不覆盖已有版本或内容", async (t) => {
@@ -325,4 +333,98 @@ test("维护已有复习项保留记忆、历史和人工安排，重传与重�
   assert.deepEqual(reopened.get(created.id), cleared.item);
   assert.deepEqual(reopened.update(input, actor), updated);
   assert.deepEqual(reopened.history({ itemId: created.id }).events, [...history.events, next.event]);
+});
+
+test("反馈保存匹配 base 的项目快照和帮助原文，内容修改、回填、更正与重算不重写旧依据", async (t) => {
+  const f = await fixture(t);
+  const sources = [{ contentId: "old-material", revision: "original-revision", locator: { format: { id: "text", version: "1" }, value: { line: 3 } } }];
+  const created = f.store.create({ operationId: "create", prompt: "原题：η 是什么？\n", answer: "原参考答案\n", sources }, actor).item;
+  const response = "我的原始作答 e\u0301 与 η。\r\n";
+  const assistance = "看过例题，再独立作答。\n当时用了提示：检查单位。";
+  const input = { operationId: "feedback", itemId: created.id, base: created.revision, rating: 3 as const,
+    response, assistance, reviewedAt: start, sources: [{ contentId: "activity-record" }] };
+  const original = f.store.feedback(input, agent);
+  const event = feedbackEvent(original.event);
+  const snapshot = { revision: created.revision, prompt: created.prompt, answer: created.answer, sources: created.sources };
+  assert.deepEqual(event.itemAtRecording, snapshot);
+  assert.notEqual(event.itemAtRecording?.sources, original.item.sources, "快照不共享返回项目的可变来源数组");
+  assert.equal(event.response, response);
+  assert.equal(event.assistance, assistance);
+  assert.deepEqual(event.sources, input.sources);
+  assert.deepEqual(event.result, schedule(created.card, input.rating, start, f.store.parameters().parameters));
+  assert(!Check(FeedbackEventSchema, { ...event, itemAtRecording: { ...snapshot, extra: true } }));
+  assert(!Check(SubmitFeedbackInputSchema, { ...input, assistance: { kind: "hint" } }));
+  f.time(start + day * 10);
+  const updated = f.store.update({ operationId: "update", itemId: created.id, base: original.item.revision,
+    patch: { prompt: "修改后的题目", answer: null, sources: [{ contentId: "new-material", revision: "new-revision" }] } }, actor);
+  assert.deepEqual(f.store.history({ itemId: created.id }).events, [event]);
+  const lateInput = { operationId: "backfill", itemId: created.id, base: updated.item.revision,
+    reviewedAt: start - day, rating: 2 as const, response: "后来补录的原回答", assistance: "" };
+  const late = f.store.feedback(lateInput, actor);
+  const lateEvent = feedbackEvent(late.event);
+  assert.equal(lateEvent.reviewedAt, start - day);
+  assert.equal(lateEvent.recordedAt, start + day * 10);
+  assert.deepEqual(lateEvent.itemAtRecording, { revision: updated.item.revision, prompt: updated.item.prompt, sources: updated.item.sources });
+  assert.equal(lateEvent.itemAtRecording?.answer, undefined);
+  assert.equal(lateEvent.assistance, "", "明确的空帮助文字保留，不解释成字段缺失");
+  const corrected = f.store.correct({ operationId: "correct", itemId: created.id, base: late.item.revision,
+    feedbackId: event.id, correction: { kind: "replace", rating: 4, reviewedAt: start + day }, reason: "核对实际自评" }, actor);
+  f.store.setParameters({ operationId: "parameters", base: 1, patch: { request_retention: 0.95 } }, actor);
+  assert.equal(f.store.get(created.id).revision, corrected.item.revision + 1);
+  assert.deepEqual(f.store.history({ itemId: created.id }).events.slice(0, 2), [event, lateEvent]);
+  assert.deepEqual(f.store.feedback(input, actor), original);
+  assert.deepEqual(f.store.feedback(lateInput, actor), late);
+  f.close(f.store);
+  const reopened = f.open();
+  assert.deepEqual(reopened.feedback(input, actor), original);
+  assert.deepEqual(reopened.feedback(lateInput, actor), late);
+  assert.deepEqual(reopened.history({ itemId: created.id }).events.slice(0, 2), [event, lateEvent]);
+});
+
+test("历史构建的旧反馈与 receipt 原样读取重传，重开和新内容修改不倒填快照或改写旧 JSON", async (t) => {
+  const f = await fixture(t);
+  f.close(f.store);
+  const FixtureSchema = Type.Object({
+    sourceCommit: Type.String(),
+    entries: Type.Array(Type.Object({ path: Type.String(), bytes: Type.Optional(Type.String()) })),
+    expected: Type.Object({
+      feedbackInput: SubmitFeedbackInputSchema, feedback: ReviewMutationResultSchema,
+      review: ReviewItemSchema, history: ReviewHistoryResultSchema,
+    }),
+  });
+  // 复用 ca8345e64 独立安装经公开 API 生成的冻结库，不用新版 store 制造旧事件。
+  const raw: unknown = JSON.parse(gunzipSync(await readFile(new URL("../../repa/test/fixtures/upgrade-ca8345e64.json.gz", import.meta.url))).toString("utf8"));
+  assert(Check(FixtureSchema, raw));
+  assert.match(raw.sourceCommit, /^ca8345e64/);
+  const file = raw.entries.find(entry => entry.path === "data/.repa/plugins/repa-review/reviews.sqlite");
+  assert(file?.bytes);
+  await writeFile(f.file, Buffer.from(file.bytes, "hex"));
+  const database = new DatabaseSync(f.file);
+  t.after(() => database.close());
+  const beforeEvents = database.prepare("SELECT id, data FROM events ORDER BY id").all();
+  const beforeReceipts = database.prepare("SELECT operation_id, kind, input, result FROM operation_receipts ORDER BY operation_id").all();
+  assert(beforeEvents.length > 0 && beforeReceipts.length > 0);
+  const original = feedbackEvent(raw.expected.feedback.event);
+  assert.equal(Object.hasOwn(original, "itemAtRecording"), false);
+  assert.equal(Object.hasOwn(original, "assistance"), false);
+  const store = f.open();
+  assert.deepEqual(store.history({ itemId: raw.expected.review.id }), raw.expected.history);
+  assert.deepEqual(store.feedback(raw.expected.feedbackInput, actor), raw.expected.feedback);
+  const current = store.get(raw.expected.review.id);
+  f.time(current.updatedAt + day);
+  store.update({ operationId: "new-update", itemId: current.id, base: current.revision,
+    patch: { prompt: "现在的新题目", answer: "现在的新答案", sources: [{ contentId: "new-source" }] } }, actor);
+  assert.deepEqual(store.feedback(raw.expected.feedbackInput, actor), raw.expected.feedback);
+  assert.deepEqual(store.history({ itemId: current.id }), raw.expected.history);
+  f.close(store);
+  const reopened = f.open();
+  assert.deepEqual(reopened.feedback(raw.expected.feedbackInput, actor), raw.expected.feedback);
+  assert.deepEqual(reopened.history({ itemId: current.id }), raw.expected.history);
+  assert.deepEqual(database.prepare("SELECT id, data FROM events ORDER BY id").all(), beforeEvents);
+  for (const row of beforeReceipts) {
+    assert.equal(typeof row.operation_id, "string");
+    if (typeof row.operation_id !== "string") assert.fail("旧 receipt 应有字符串操作标识");
+    assert.deepEqual(database.prepare("SELECT operation_id, kind, input, result FROM operation_receipts WHERE operation_id = ?").get(row.operation_id), row);
+  }
+  assert.equal(database.prepare("PRAGMA user_version").get()?.user_version, 1);
 });
