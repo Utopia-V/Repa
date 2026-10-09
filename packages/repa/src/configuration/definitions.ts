@@ -17,6 +17,7 @@ const promptDefaults: PromptSettings = {
   skillCatalog: true,
   environment: true,
   learningContext: true,
+  backgrounds: {},
   fileChanges: "on-demand",
 };
 

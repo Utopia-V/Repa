@@ -51,7 +51,7 @@ async function save(store: ConfigStore, scope: SettingScope, key: string, value:
 
 const fault = (code: string) => (error: unknown) => error instanceof RepaFault && error.code === code;
 
-test("默认学习组合可直接查询，读取和重复重置未设置项不创建配置", async (t) => {
+test("通用提示默认值可直接查询，读取和重复重置未设置项不创建配置", async (t) => {
   const f = fixture(t);
   const store = f.open();
   assert.deepEqual(await store.prompts(alphaOne), {
@@ -61,6 +61,7 @@ test("默认学习组合可直接查询，读取和重复重置未设置项不�
     skillCatalog: true,
     environment: true,
     learningContext: true,
+    backgrounds: {},
     fileChanges: "on-demand",
   });
   const view = await store.get(alphaOne, "prompts");
@@ -416,4 +417,29 @@ test("旧版提示覆盖与重置修订按原义读取，首次实际写入只�
   assert.equal(migratedApplication.version, 2);
   assert.deepEqual(migratedApplication.namespaces.prompts.base, JSON.parse(applicationBytes).prompts.base);
   assert.deepEqual(migratedApplication.namespaces.prompts.append, JSON.parse(applicationBytes).prompts.append);
+});
+
+
+test("背景source-map整项继承和重置，旧学习覆盖继续生效且读取不改写原文件", async t => {
+  const f = fixture(t);
+  const store = f.open();
+  await save(store, application, "backgrounds", { novelSetting: false, learningContext: true });
+  await save(store, alpha, "learningContext", false);
+  assert.deepEqual((await store.prompts(alphaOne)).backgrounds, { novelSetting: false, learningContext: true });
+  await save(store, alphaOne, "backgrounds", { learningContext: false });
+  assert.deepEqual((await store.prompts(alphaOne)).backgrounds, { learningContext: false });
+  assert.deepEqual((await store.prompts(alphaTwo)).backgrounds, { novelSetting: false, learningContext: true });
+  await save(store, alphaOne, "backgrounds", {});
+  const empty = await store.get(alphaOne, "prompts");
+  assert.deepEqual(entry(empty, "backgrounds").effective, {});
+  assert.deepEqual(entry(empty, "backgrounds").source, alphaOne);
+  const before = readFileSync(f.spaceFile("alpha"));
+  const reopened = f.open();
+  assert.equal((await reopened.prompts(alphaOne)).learningContext, false);
+  assert.deepEqual((await reopened.prompts(alphaOne)).backgrounds, {});
+  assert.deepEqual(readFileSync(f.spaceFile("alpha")), before);
+  const current = entry(await reopened.get(alphaOne, "prompts"), "backgrounds");
+  await reopened.reset({ scope: alphaOne, namespace: "prompts", key: "backgrounds", base: current.revision });
+  assert.deepEqual((await reopened.prompts(alphaOne)).backgrounds, { novelSetting: false, learningContext: true });
+  await assert.rejects(save(reopened, alphaOne, "backgrounds", { novelSetting: "off" }), fault("configuration"));
 });

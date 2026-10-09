@@ -44,7 +44,12 @@ export class InstalledContributions {
       return {
         codec: background.codec,
         reference: selection.implementationId ? `${selection.contract.id}:${selection.implementationId}` : background.codec.customType,
-        enabled: settings => plugin.enabled && !configuration.disabled.includes(plugin.id) && (background.enabled?.(settings) ?? true),
+        enabled: settings => {
+          if (!plugin.enabled || configuration.disabled.includes(plugin.id)) return false;
+          const selected = settings.backgrounds;
+          if (selected && Object.hasOwn(selected, background.codec.id)) return selected[background.codec.id] === true;
+          return background.enabled?.(settings) ?? true;
+        },
         prepare: async () => {
           if (!options.invoke) throw new RepaFault("background_not_running", "背景准备需要实际运行的能力入口。");
           return background.prepare(await options.invoke(selection, structuredClone(background.input)));

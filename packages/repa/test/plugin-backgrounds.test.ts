@@ -78,6 +78,12 @@ async function fixture(t: TestContext, plugin = novelPlugin(), extraPlugins: rea
       assert.equal((await terminal(request.runId)).status, "completed");
       return request;
     },
+    async promptSetting(setting: string, value: unknown) {
+      const settings = await client.call("settings.get", { scope, namespace: "prompts" });
+      const entry = settings.entries.find(item => item.key === setting);
+      assert(entry);
+      await client.call("settings.set", { scope, namespace: "prompts", key: setting, value, base: entry.revision });
+    },
     async disable(ids: string[]) {
       const settings = await client.call("settings.get", { scope, namespace: "plugins" });
       const entry = settings.entries.find(value => value.key === "disabled");
@@ -327,4 +333,76 @@ test("声明未选择默认实现时预览不推断官方内容，多实现运�
   assert.equal(run.status, "failed");
   assert.equal(run.error?.code, "capability_selection_required");
   assert.equal(f.faux.state.callCount, 0);
+});
+
+
+test("source-map独立控制真实模型来源，明确条目优先旧学习默认而插件禁用仍是强门", async t => {
+  const f = await fixture(t, novelPlugin({ staticPreview: true }), [], true);
+  const novel = await f.document("novel.md", "小说设定供source-map选择。");
+  await f.bind(novel);
+  const learning = await f.document("study.md", "学习背景供source-map选择。");
+  const state = await callLearning(f.client, "context.get", { spaceId: f.space.id });
+  await callLearning(f.client, "context.set", { spaceId: f.space.id, base: state.revision,
+    operationId: randomUUID(), binding: { kind: "document", ref: learning } });
+  await f.promptSetting("learningContext", false);
+  f.faux.setResponses([context => {
+    assert.match(backgrounds(context, "<novel_background>").at(-1)!, /小说设定供source-map选择。/u);
+    assert.deepEqual(backgrounds(context, "<repa_learning_context>"), []);
+    return fauxAssistantMessage("缺省沿用各自来源选择");
+  }]);
+  await f.send("未指定map条目");
+  assert.equal(f.plugin.state.queries, 1);
+  await f.promptSetting("backgrounds", { novelSetting: false, learningContext: true });
+  const preview = await f.client.call("prompts.preview", f.key);
+  assert.equal(preview.prompt.sources.find(source => source.id === "novelSetting")?.enabled, false);
+  assert.equal(preview.prompt.sources.find(source => source.id === "learningContext")?.enabled, true);
+  f.faux.setResponses([context => {
+    assert.deepEqual(backgrounds(context, "<novel_background>"), []);
+    assert.match(backgrounds(context, "<repa_learning_context>").at(-1)!, /学习背景供source-map选择。/u);
+    return fauxAssistantMessage("map明确覆盖旧布尔");
+  }]);
+  await f.send("独立选择学习来源");
+  assert.equal(f.plugin.state.queries, 1, "关闭的小说来源不执行query");
+  await f.promptSetting("backgrounds", { novelSetting: true, learningContext: true });
+  await f.disable(["repa-learning"]);
+  await f.reopen();
+  f.faux.setResponses([context => {
+    assert.match(backgrounds(context, "<novel_background>").at(-1)!, /小说设定供source-map选择。/u);
+    assert.deepEqual(backgrounds(context, "<repa_learning_context>"), []);
+    return fauxAssistantMessage("明确true不绕过插件禁用");
+  }]);
+  await f.send("重开后保持独立开关");
+  assert.equal(f.plugin.state.queries, 2);
+  assert.equal(f.faux.state.callCount, 3);
+});
+
+test("缺少map的旧完整prompt请求直接读取，重开保留原请求与journal字节及旧false含义", async t => {
+  const f = await fixture(t, novelPlugin(), [], true);
+  const ref = await f.document("novel.md", "旧请求仍可使用非学习来源。");
+  await f.bind(ref);
+  await f.promptSetting("backgrounds", { learningContext: true });
+  const prompts = { base: "", append: [], projectInstructions: false, skillCatalog: false,
+    environment: false, learningContext: false, fileChanges: "on-demand" as const };
+  f.faux.setResponses([context => {
+    assert.deepEqual(backgrounds(context, "<repa_learning_context>"), []);
+    assert.match(backgrounds(context, "<novel_background>").at(-1)!, /旧请求仍可使用非学习来源。/u);
+    return fauxAssistantMessage("旧请求选择保持");
+  }]);
+  const request = await f.client.call("session.submit", { target: f.key, requestId: randomUUID(),
+    input: { parts: [{ kind: "text", text: "旧形状的已受理请求" }] }, dispatch: { kind: "start" }, selection: { prompts } });
+  assert(request.runId);
+  assert.equal((await f.terminal(request.runId)).status, "completed");
+  const requestPath = path.join(f.directory, ".repa/runtime/requests", `${request.requestId}.json`);
+  const journalPath = path.join(f.directory, ".repa/runtime/runs.jsonl");
+  const requestBytes = await readFile(requestPath);
+  const journalBytes = await readFile(journalPath);
+  await f.reopen();
+  const restored = await f.client.call("request.get", { spaceId: f.space.id, requestId: request.requestId });
+  assert("promptSettings" in restored);
+  assert.deepEqual(restored.promptSettings, prompts);
+  assert.deepEqual(await readFile(requestPath), requestBytes);
+  assert.deepEqual(await readFile(journalPath), journalBytes);
+  assert.deepEqual(await f.client.call("session.submit", { target: f.key, requestId: request.requestId,
+    input: { parts: [{ kind: "text", text: "旧形状的已受理请求" }] }, dispatch: { kind: "start" }, selection: { prompts } }), restored);
+  assert.equal(f.faux.state.callCount, 1, "旧请求重传只取原回执");
 });

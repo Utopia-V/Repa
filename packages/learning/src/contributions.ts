@@ -14,6 +14,7 @@ export const learningPluginRegistration: BackendPluginRegistration = {
     codec: learningContextCodec,
     selection: { contract: { id: "repa.context.preview", version: "1" }, implementationId: "official" },
     input: {},
+    // 没有显式 source-map 条目时，沿用旧配置与已受理请求的学习开关。
     enabled: settings => settings.learningContext,
     prepare: prepareLearningBackground,
     preview: {

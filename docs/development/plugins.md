@@ -110,7 +110,7 @@ const registration: BackendPluginRegistration = {
 };
 ```
 
-`selection` 选择已有的空间 `query` 能力及默认实现；`plugins.implementations` 可以覆盖这项选择。`input` 使用该能力的公共输入 schema，不经过模型工具的参数适配。Application 在实际运行中调用这项查询，因此来源中包含本次空间、会话、请求和运行身份，取消信号与窄服务也沿用能力调用入口。`prepare` 解释结果，返回完整消息、修订和预览文本；`codec` 则识别插件过去保存的消息。消息的业务含义由插件持有，底座复用同一套背景投影、分支和压缩处理。
+`selection` 选择已有的空间 `query` 能力及默认实现；`plugins.implementations` 可以覆盖这项选择。`input` 使用该能力的公共输入 schema，不经过模型工具的参数适配。Application 在实际运行中调用这项查询，因此来源中包含本次空间、会话、请求和运行身份，取消信号与窄服务也沿用能力调用入口。`prompts.backgrounds` 中与 `codec.id` 同名的显式条目选择是否注入该来源；没有条目时沿用贡献的 `enabled(settings)`，没有该函数时默认启用。这个函数提供来源的默认选择，不承担权限判断；插件登记未启用或被 `plugins.disabled` 关闭时，来源始终关闭。`prepare` 解释结果，返回完整消息、修订和预览文本；`codec` 则识别插件过去保存的消息。消息的业务含义由插件持有，底座复用同一套背景投影、分支和压缩处理。
 
 静态预览需要单独声明 `preview`。其 `read` 只读取当前内容，不建立后台实例；只有当前选择与声明的 `implementationId` 一致，预览才展示结果。选择了其他实现或没有声明时，来源显示为动态，实际运行再准备。预览因此可以展示已知内容，而不为查看提示执行后台工厂。
 

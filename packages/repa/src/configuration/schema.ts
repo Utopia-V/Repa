@@ -18,7 +18,9 @@ export const PromptSettingsSchema = object({
   projectInstructions: Type.Boolean(),
   skillCatalog: Type.Boolean(),
   environment: Type.Boolean(),
+  /** 旧学习来源的兼容默认；显式 backgrounds.learningContext 优先。 */
   learningContext: Type.Boolean(),
+  backgrounds: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Boolean())),
   fileChanges: literals(["on-demand", "notice", "diff"]),
 });
 export type PromptSettings = Static<typeof PromptSettingsSchema>;

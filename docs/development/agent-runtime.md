@@ -47,7 +47,13 @@ Pi 0.87.1 的会话 model runtime 固定认证上下文，原 Host 上的 `setMo
 
 `settings.get` 返回逐项有效值、覆盖、来源和覆盖修订。继承顺序为默认值、应用、空间、会话。`settings.set` 保存完整的单项值，`settings.reset` 删除该项覆盖；空字符串、空列表和 `false` 都是有效覆盖，不表示恢复默认。
 
-为保持已有配置与请求可解码，当前 `prompts` 命名空间仍包含 `base`、`append`、`projectInstructions`、`skillCatalog`、`environment`、`learningContext` 和 `fileChanges`。基础提示与追加段可以明确为空；项目说明还受宿主的扩展信任约束。通用应用的默认基础提示为空；产品通过 `ApplicationOptions.promptDefaults` 提供默认值，仅影响没有覆盖的设置项。官方学习产品由 `@repa/learning` 装配，禁用组合时默认基础提示为空，用户明确保存的覆盖仍有效。自动学习来源、Skill 清单和工作目录说明按各自设置控制，默认不载入项目说明，普通文件变化采用 `on-demand`。整个学习能力关闭与仅关闭自动注入分别表达，见[学习语境](learning.md)。
+为保持已有配置与请求可解码，当前 `prompts` 命名空间包含 `base`、`append`、`projectInstructions`、`skillCatalog`、`environment`、`backgrounds`、`learningContext` 和 `fileChanges`。基础提示与追加段可以明确为空；项目说明还受宿主的扩展信任约束。通用应用的默认基础提示为空；产品通过 `ApplicationOptions.promptDefaults` 提供默认值，仅影响没有覆盖的设置项。官方学习产品由 `@repa/learning` 装配，禁用组合时默认基础提示为空，用户明确保存的覆盖仍有效。自动学习来源、Skill 清单和工作目录说明按各自设置控制，默认不载入项目说明，普通文件变化采用 `on-demand`。整个学习能力关闭与仅关闭自动注入分别表达，见[学习语境](learning.md)。
+
+`prompts.backgrounds` 是按背景 source ID 保存的布尔 map，默认 `{}`。例如 `{ "novelSetting": false, "learningContext": true }` 关闭小说设定的自动背景，并明确启用学习来源。ID 来自背景声明的 `codec.id`，不是插件 ID；整个插件仍可由 `plugins.disabled` 关闭，map 中的 `true` 不绕过这一开关。
+
+显式 map 条目优先于贡献的默认选择，没有条目时沿用该贡献的 `enabled`；未提供默认选择的贡献启用。旧 `learningContext` 布尔继续作为学习来源的兼容默认，只在 map 没有 `learningContext` 条目时使用，不影响其他来源。旧请求和 run 记录可以缺少 `backgrounds`，直接按原选择读取，不重写记录或增加持久格式版本。
+
+map 沿用整项覆盖语义：会话保存的 map 替换继承的整张 map，不逐 ID 合并；明确保存 `{}` 表示这层不指定任何来源，回到各贡献的默认选择。重置本项后恢复上层 map。你要只修改当前 map 中的一项时，先读取有效值，再修改对应 ID 保存。预览、运行准备、历史过滤和压缩回填使用同一个有效开关。
 
 应用配置目录优先使用 `ApplicationOptions.appDirectory`，其次使用显式 `agentDir`，否则使用 `$XDG_CONFIG_HOME/repa` 或 `~/.config/repa`。Repa 覆盖保存在其中的 `repa-settings.json`，外部材料授权保存在 `repa-content-access.json`，具名连接位于 `models/`；凭据文件交由 Pi 管理。空间和会话覆盖保存在空间内的 `.repa/settings.json`。`runtime` 与 `summaryPrompts` 的空值含义、注册入口及版本迁接见[模型配置](models-configuration.md#按项配置与来源)。
 
@@ -67,7 +73,7 @@ Pi 0.87.1 的会话 model runtime 固定认证上下文，原 Host 上的 `setMo
 
 `agent/background.ts` 通过 `BackgroundSource` 的 `codec/enabled/prepare` 取得、识别和控制背景。插件通过 `BackendPluginRegistration.backgrounds` 提供 codec、能力选择、公共输入和结果转换；Application 在实际运行中调用所选 query，再交给 Host。静态预览另由声明的轻量读取提供，具体接法见[安装级背景与持久格式](plugins.md#安装级背景与持久格式)。学习产品在 `@repa/learning` 中装配自己的注册，通用 Application 只消费传入的登记。
 
-关闭 `learningContext` 后，Host 排除可识别的自动快照并停止补回，历史记录与独立预览保留。关闭整个 `repa-learning` 会停用官方组合和自动背景；没有替代实现时，公共学习调用返回未找到能力，已经保存的文档和绑定保留。具体开关含义见[学习语境](learning.md#关闭启用与替换)。
+学习来源的有效开关关闭后，Host 排除可识别的自动快照并停止补回，历史记录仍保留；`backgrounds.learningContext` 的显式条目优先，没有条目时继续使用旧 `learningContext`。独立领域查询不受自动注入开关影响。关闭整个 `repa-learning` 会停用官方组合和自动背景；没有替代实现时，公共学习调用返回未找到能力，已经保存的文档和绑定保留。具体开关含义见[学习语境](learning.md#关闭启用与替换)。
 
 压缩后，`projectBackgrounds` 按每个背景 codec 通过 Pi 的公开会话树接口寻找压缩边界以前的最近完整快照。若它已离开保留段，就放回对应摘要之后；保留段中已有的快照继续沿用原位置。Pi 显式 `context_edit` 省略或替换了该快照时，不从原始历史复活旧正文。
 
