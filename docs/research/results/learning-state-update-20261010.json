@@ -1,0 +1,857 @@
+{
+  "purpose": "明确假设下的动态归因核对，不是产品采用、参数拟合或真实学习效果",
+  "parameters": {
+    "initial_A": "4/5",
+    "initial_B": "2/5",
+    "all_required_known_correct": "19/20",
+    "otherwise_correct": "1/10",
+    "A_learning_rates": [
+      "0",
+      "1/4",
+      "1/2",
+      "3/4",
+      "1"
+    ],
+    "one_action_teaching_rate": "1/2",
+    "forgetting": "0"
+  },
+  "after_AB_failure": {
+    "A": {
+      "exact": "112/157",
+      "decimal": 0.7133757961783439
+    },
+    "B": {
+      "exact": "22/157",
+      "decimal": 0.14012738853503184
+    },
+    "covariance": {
+      "exact": "-1836/24649",
+      "decimal": -0.07448578035620106
+    },
+    "joint": {
+      "A0B0": "27/157",
+      "A0B1": "18/157",
+      "A1B0": "108/157",
+      "A1B1": "4/157"
+    }
+  },
+  "static_AB_failure_then_A_correct": {
+    "A": {
+      "exact": "1064/1109",
+      "decimal": 0.9594229035166817
+    },
+    "B": {
+      "exact": "56/1109",
+      "decimal": 0.05049594229035167
+    },
+    "covariance": {
+      "exact": "-17442/1229881",
+      "decimal": -0.014181859870995649
+    },
+    "joint": {
+      "A0B0": "27/1109",
+      "A0B1": "18/1109",
+      "A1B0": "1026/1109",
+      "A1B1": "38/1109"
+    }
+  },
+  "dynamic_rows": [
+    {
+      "A_learning_rate": "0",
+      "taught_before_A_observation": {
+        "A": {
+          "exact": "1064/1109",
+          "decimal": 0.9594229035166817
+        },
+        "B": {
+          "exact": "56/1109",
+          "decimal": 0.05049594229035167
+        },
+        "covariance": {
+          "exact": "-17442/1229881",
+          "decimal": -0.014181859870995649
+        },
+        "joint": {
+          "A0B0": "27/1109",
+          "A0B1": "18/1109",
+          "A1B0": "1026/1109",
+          "A1B1": "38/1109"
+        }
+      },
+      "retrospective_A_at_AB_failure": {
+        "exact": "1064/1109",
+        "decimal": 0.9594229035166817
+      },
+      "independent_A_success_probability_before_observing": {
+        "exact": "1109/1570",
+        "decimal": 0.7063694267515923
+      },
+      "next_independent_B_success": {
+        "exact": "317/2218",
+        "decimal": 0.14292155094679893
+      },
+      "observation_before_teaching": {
+        "A": {
+          "exact": "1064/1109",
+          "decimal": 0.9594229035166817
+        },
+        "B": {
+          "exact": "56/1109",
+          "decimal": 0.05049594229035167
+        },
+        "covariance": {
+          "exact": "-17442/1229881",
+          "decimal": -0.014181859870995649
+        },
+        "joint": {
+          "A0B0": "27/1109",
+          "A0B1": "18/1109",
+          "A1B0": "1026/1109",
+          "A1B1": "38/1109"
+        }
+      },
+      "factorized_after_AB_failure": {
+        "A": {
+          "exact": "1064/1109",
+          "decimal": 0.9594229035166817
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "0",
+          "decimal": 0.0
+        },
+        "joint": {
+          "A0B0": "6075/174113",
+          "A0B1": "990/174113",
+          "A1B0": "143640/174113",
+          "A1B1": "23408/174113"
+        }
+      },
+      "one_action": {
+        "terminal_AB_success": {
+          "no_action": {
+            "exact": "716/5545",
+            "decimal": 0.1291253381424707
+          },
+          "diagnose_A": {
+            "exact": "716/5545",
+            "decimal": 0.1291253381424707
+          },
+          "teach_A": {
+            "exact": "3017/22180",
+            "decimal": 0.1360234445446348
+          },
+          "diagnose_B": {
+            "exact": "716/5545",
+            "decimal": 0.1291253381424707
+          },
+          "teach_B": {
+            "exact": "2317/4436",
+            "decimal": 0.5223174030658251
+          }
+        },
+        "maximizing_actions": [
+          "teach_B"
+        ]
+      }
+    },
+    {
+      "A_learning_rate": "1/4",
+      "taught_before_A_observation": {
+        "A": {
+          "exact": "9367/9637",
+          "decimal": 0.9719829822558887
+        },
+        "B": {
+          "exact": "754/9637",
+          "decimal": 0.07824011621874027
+        },
+        "covariance": {
+          "exact": "-837216/92871769",
+          "decimal": -0.009014752373242724
+        },
+        "joint": {
+          "A0B0": "162/9637",
+          "A0B1": "108/9637",
+          "A1B0": "8721/9637",
+          "A1B1": "646/9637"
+        }
+      },
+      "retrospective_A_at_AB_failure": {
+        "exact": "8512/9637",
+        "decimal": 0.8832624260662032
+      },
+      "independent_A_success_probability_before_observing": {
+        "exact": "9637/12560",
+        "decimal": 0.7672770700636943
+      },
+      "next_independent_B_success": {
+        "exact": "8023/48185",
+        "decimal": 0.16650409878592923
+      },
+      "observation_before_teaching": {
+        "A": {
+          "exact": "4301/4436",
+          "decimal": 0.9695671776375113
+        },
+        "B": {
+          "exact": "56/1109",
+          "decimal": 0.05049594229035167
+        },
+        "covariance": {
+          "exact": "-26163/2459762",
+          "decimal": -0.010636394903246736
+        },
+        "joint": {
+          "A0B0": "81/4436",
+          "A0B1": "27/2218",
+          "A1B0": "4131/4436",
+          "A1B1": "85/2218"
+        }
+      },
+      "factorized_after_AB_failure": {
+        "A": {
+          "exact": "9367/9637",
+          "decimal": 0.9719829822558887
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "0",
+          "decimal": 0.0
+        },
+        "joint": {
+          "A0B0": "36450/1513009",
+          "A0B1": "5940/1513009",
+          "A1B0": "1264545/1513009",
+          "A1B1": "206074/1513009"
+        }
+      },
+      "one_action": {
+        "terminal_AB_success": {
+          "no_action": {
+            "exact": "7564/48185",
+            "decimal": 0.15697831275293142
+          },
+          "diagnose_A": {
+            "exact": "7564/48185",
+            "decimal": 0.15697831275293142
+          },
+          "teach_A": {
+            "exact": "15587/96370",
+            "decimal": 0.16174120576943032
+          },
+          "diagnose_B": {
+            "exact": "7564/48185",
+            "decimal": 0.15697831275293142
+          },
+          "teach_B": {
+            "exact": "208769/385480",
+            "decimal": 0.5415819238352184
+          }
+        },
+        "maximizing_actions": [
+          "teach_B"
+        ]
+      }
+    },
+    {
+      "A_learning_rate": "1/2",
+      "taught_before_A_observation": {
+        "A": {
+          "exact": "5111/5201",
+          "decimal": 0.9826956354547203
+        },
+        "B": {
+          "exact": "530/5201",
+          "decimal": 0.10190348009998078
+        },
+        "covariance": {
+          "exact": "-139536/27050401",
+          "decimal": -0.005158370850029174
+        },
+        "joint": {
+          "A0B0": "54/5201",
+          "A0B1": "36/5201",
+          "A1B0": "4617/5201",
+          "A1B1": "494/5201"
+        }
+      },
+      "retrospective_A_at_AB_failure": {
+        "exact": "608/743",
+        "decimal": 0.8183041722745625
+      },
+      "independent_A_success_probability_before_observing": {
+        "exact": "5201/6280",
+        "decimal": 0.8281847133757961
+      },
+      "next_independent_B_success": {
+        "exact": "4853/26005",
+        "decimal": 0.18661795808498366
+      },
+      "observation_before_teaching": {
+        "A": {
+          "exact": "2173/2218",
+          "decimal": 0.9797114517583408
+        },
+        "B": {
+          "exact": "56/1109",
+          "decimal": 0.05049594229035167
+        },
+        "covariance": {
+          "exact": "-8721/1229881",
+          "decimal": -0.007090929935497824
+        },
+        "joint": {
+          "A0B0": "27/2218",
+          "A0B1": "9/1109",
+          "A1B0": "2079/2218",
+          "A1B1": "47/1109"
+        }
+      },
+      "factorized_after_AB_failure": {
+        "A": {
+          "exact": "5111/5201",
+          "decimal": 0.9826956354547203
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "0",
+          "decimal": 0.0
+        },
+        "joint": {
+          "A0B0": "12150/816557",
+          "A0B1": "1980/816557",
+          "A1B0": "689985/816557",
+          "A1B1": "112442/816557"
+        }
+      },
+      "one_action": {
+        "terminal_AB_success": {
+          "no_action": {
+            "exact": "940/5201",
+            "decimal": 0.18073447413958854
+          },
+          "diagnose_A": {
+            "exact": "940/5201",
+            "decimal": 0.18073447413958854
+          },
+          "teach_A": {
+            "exact": "9553/52010",
+            "decimal": 0.1836762161122861
+          },
+          "diagnose_B": {
+            "exact": "940/5201",
+            "decimal": 0.18073447413958854
+          },
+          "teach_B": {
+            "exact": "116089/208040",
+            "decimal": 0.5580128821380503
+          }
+        },
+        "maximizing_actions": [
+          "teach_B"
+        ]
+      }
+    },
+    {
+      "A_learning_rate": "3/4",
+      "taught_before_A_observation": {
+        "A": {
+          "exact": "11077/11167",
+          "decimal": 0.9919405390883854
+        },
+        "B": {
+          "exact": "1366/11167",
+          "decimal": 0.12232470672517239
+        },
+        "covariance": {
+          "exact": "-279072/124701889",
+          "decimal": -0.0022379131722695877
+        },
+        "joint": {
+          "A0B0": "54/11167",
+          "A0B1": "36/11167",
+          "A1B0": "9747/11167",
+          "A1B1": "1330/11167"
+        }
+      },
+      "retrospective_A_at_AB_failure": {
+        "exact": "8512/11167",
+        "decimal": 0.76224590310737
+      },
+      "independent_A_success_probability_before_observing": {
+        "exact": "11167/12560",
+        "decimal": 0.8890923566878981
+      },
+      "next_independent_B_success": {
+        "exact": "11389/55835",
+        "decimal": 0.20397600071639652
+      },
+      "observation_before_teaching": {
+        "A": {
+          "exact": "4391/4436",
+          "decimal": 0.9898557258791705
+        },
+        "B": {
+          "exact": "56/1109",
+          "decimal": 0.05049594229035167
+        },
+        "covariance": {
+          "exact": "-8721/2459762",
+          "decimal": -0.003545464967748912
+        },
+        "joint": {
+          "A0B0": "27/4436",
+          "A0B1": "9/2218",
+          "A1B0": "4185/4436",
+          "A1B1": "103/2218"
+        }
+      },
+      "factorized_after_AB_failure": {
+        "A": {
+          "exact": "11077/11167",
+          "decimal": 0.9919405390883854
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "0",
+          "decimal": 0.0
+        },
+        "joint": {
+          "A0B0": "12150/1753219",
+          "A0B1": "1980/1753219",
+          "A1B0": "1495395/1753219",
+          "A1B1": "243694/1753219"
+        }
+      },
+      "one_action": {
+        "terminal_AB_success": {
+          "no_action": {
+            "exact": "11236/55835",
+            "decimal": 0.20123578400644757
+          },
+          "diagnose_A": {
+            "exact": "11236/55835",
+            "decimal": 0.20123578400644757
+          },
+          "teach_A": {
+            "exact": "4525/22334",
+            "decimal": 0.20260589236142204
+          },
+          "diagnose_B": {
+            "exact": "11236/55835",
+            "decimal": 0.20123578400644757
+          },
+          "teach_B": {
+            "exact": "255587/446680",
+            "decimal": 0.5721926211157876
+          }
+        },
+        "maximizing_actions": [
+          "teach_B"
+        ]
+      }
+    },
+    {
+      "A_learning_rate": "1",
+      "taught_before_A_observation": {
+        "A": {
+          "exact": "1",
+          "decimal": 1.0
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "0",
+          "decimal": 0.0
+        },
+        "joint": {
+          "A0B0": "0",
+          "A0B1": "0",
+          "A1B0": "135/157",
+          "A1B1": "22/157"
+        }
+      },
+      "retrospective_A_at_AB_failure": {
+        "exact": "112/157",
+        "decimal": 0.7133757961783439
+      },
+      "independent_A_success_probability_before_observing": {
+        "exact": "19/20",
+        "decimal": 0.95
+      },
+      "next_independent_B_success": {
+        "exact": "172/785",
+        "decimal": 0.21910828025477708
+      },
+      "observation_before_teaching": {
+        "A": {
+          "exact": "1",
+          "decimal": 1.0
+        },
+        "B": {
+          "exact": "56/1109",
+          "decimal": 0.05049594229035167
+        },
+        "covariance": {
+          "exact": "0",
+          "decimal": 0.0
+        },
+        "joint": {
+          "A0B0": "0",
+          "A0B1": "0",
+          "A1B0": "1053/1109",
+          "A1B1": "56/1109"
+        }
+      },
+      "factorized_after_AB_failure": {
+        "A": {
+          "exact": "1",
+          "decimal": 1.0
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "0",
+          "decimal": 0.0
+        },
+        "joint": {
+          "A0B0": "0",
+          "A0B1": "0",
+          "A1B0": "135/157",
+          "A1B1": "22/157"
+        }
+      },
+      "one_action": {
+        "terminal_AB_success": {
+          "no_action": {
+            "exact": "172/785",
+            "decimal": 0.21910828025477708
+          },
+          "diagnose_A": {
+            "exact": "172/785",
+            "decimal": 0.21910828025477708
+          },
+          "teach_A": {
+            "exact": "172/785",
+            "decimal": 0.21910828025477708
+          },
+          "diagnose_B": {
+            "exact": "172/785",
+            "decimal": 0.21910828025477708
+          },
+          "teach_B": {
+            "exact": "3671/6280",
+            "decimal": 0.5845541401273885
+          }
+        },
+        "maximizing_actions": [
+          "teach_B"
+        ]
+      }
+    }
+  ],
+  "assisted_observation_rows": [
+    {
+      "A_learning_rate_after_assisted_answer": "0",
+      "assisted_correct_probability": {
+        "exact": "19/20",
+        "decimal": 0.95
+      },
+      "current": {
+        "A": {
+          "exact": "112/157",
+          "decimal": 0.7133757961783439
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "-1836/24649",
+          "decimal": -0.07448578035620106
+        },
+        "joint": {
+          "A0B0": "27/157",
+          "A0B1": "18/157",
+          "A1B0": "108/157",
+          "A1B1": "4/157"
+        }
+      },
+      "next_independent_A_success": {
+        "exact": "1109/1570",
+        "decimal": 0.7063694267515923
+      }
+    },
+    {
+      "A_learning_rate_after_assisted_answer": "1/4",
+      "assisted_correct_probability": {
+        "exact": "19/20",
+        "decimal": 0.95
+      },
+      "current": {
+        "A": {
+          "exact": "493/628",
+          "decimal": 0.785031847133758
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "-1377/24649",
+          "decimal": -0.055864335267150796
+        },
+        "joint": {
+          "A0B0": "81/628",
+          "A0B1": "27/314",
+          "A1B0": "459/628",
+          "A1B1": "17/314"
+        }
+      },
+      "next_independent_A_success": {
+        "exact": "9637/12560",
+        "decimal": 0.7672770700636943
+      }
+    },
+    {
+      "A_learning_rate_after_assisted_answer": "1/2",
+      "assisted_correct_probability": {
+        "exact": "19/20",
+        "decimal": 0.95
+      },
+      "current": {
+        "A": {
+          "exact": "269/314",
+          "decimal": 0.856687898089172
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "-918/24649",
+          "decimal": -0.03724289017810053
+        },
+        "joint": {
+          "A0B0": "27/314",
+          "A0B1": "9/157",
+          "A1B0": "243/314",
+          "A1B1": "13/157"
+        }
+      },
+      "next_independent_A_success": {
+        "exact": "5201/6280",
+        "decimal": 0.8281847133757961
+      }
+    },
+    {
+      "A_learning_rate_after_assisted_answer": "3/4",
+      "assisted_correct_probability": {
+        "exact": "19/20",
+        "decimal": 0.95
+      },
+      "current": {
+        "A": {
+          "exact": "583/628",
+          "decimal": 0.928343949044586
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "-459/24649",
+          "decimal": -0.018621445089050264
+        },
+        "joint": {
+          "A0B0": "27/628",
+          "A0B1": "9/314",
+          "A1B0": "513/628",
+          "A1B1": "35/314"
+        }
+      },
+      "next_independent_A_success": {
+        "exact": "11167/12560",
+        "decimal": 0.8890923566878981
+      }
+    },
+    {
+      "A_learning_rate_after_assisted_answer": "1",
+      "assisted_correct_probability": {
+        "exact": "19/20",
+        "decimal": 0.95
+      },
+      "current": {
+        "A": {
+          "exact": "1",
+          "decimal": 1.0
+        },
+        "B": {
+          "exact": "22/157",
+          "decimal": 0.14012738853503184
+        },
+        "covariance": {
+          "exact": "0",
+          "decimal": 0.0
+        },
+        "joint": {
+          "A0B0": "0",
+          "A0B1": "0",
+          "A1B0": "135/157",
+          "A1B1": "22/157"
+        }
+      },
+      "next_independent_A_success": {
+        "exact": "19/20",
+        "decimal": 0.95
+      }
+    }
+  ],
+  "adaptive_diagnosis_supplement": {
+    "decision_point": "AB失败后，尚未进行A教学或后续A观测",
+    "direct": {
+      "teach_A": {
+        "exact": "107/628",
+        "decimal": 0.17038216560509553
+      },
+      "teach_B": {
+        "exact": "65/157",
+        "decimal": 0.4140127388535032
+      }
+    },
+    "probe_then_teach_branches": [
+      {
+        "A_probe_correct": false,
+        "probability": {
+          "exact": "461/1570",
+          "decimal": 0.29363057324840763
+        },
+        "posterior": {
+          "A": {
+            "exact": "56/461",
+            "decimal": 0.12147505422993492
+          },
+          "B": {
+            "exact": "164/461",
+            "decimal": 0.3557483731019523
+          },
+          "covariance": {
+            "exact": "-8262/212521",
+            "decimal": -0.03887615812084453
+          },
+          "joint": {
+            "A0B0": "243/461",
+            "A0B1": "162/461",
+            "A1B0": "54/461",
+            "A1B1": "2/461"
+          }
+        },
+        "teaching_values": {
+          "teach_A": {
+            "exact": "2333/9220",
+            "decimal": 0.2530368763557484
+          },
+          "teach_B": {
+            "exact": "283/1844",
+            "decimal": 0.153470715835141
+          }
+        },
+        "chosen": [
+          "teach_A"
+        ]
+      },
+      {
+        "A_probe_correct": true,
+        "probability": {
+          "exact": "1109/1570",
+          "decimal": 0.7063694267515923
+        },
+        "posterior": {
+          "A": {
+            "exact": "1064/1109",
+            "decimal": 0.9594229035166817
+          },
+          "B": {
+            "exact": "56/1109",
+            "decimal": 0.05049594229035167
+          },
+          "covariance": {
+            "exact": "-17442/1229881",
+            "decimal": -0.014181859870995649
+          },
+          "joint": {
+            "A0B0": "27/1109",
+            "A0B1": "18/1109",
+            "A1B0": "1026/1109",
+            "A1B1": "38/1109"
+          }
+        },
+        "teaching_values": {
+          "teach_A": {
+            "exact": "3017/22180",
+            "decimal": 0.1360234445446348
+          },
+          "teach_B": {
+            "exact": "2317/4436",
+            "decimal": 0.5223174030658251
+          }
+        },
+        "chosen": [
+          "teach_B"
+        ]
+      }
+    ],
+    "adaptive_terminal_AB_success": {
+      "exact": "6959/15700",
+      "decimal": 0.4432484076433121
+    },
+    "gross_terminal_success_difference": {
+      "exact": "459/15700",
+      "decimal": 0.029235668789808916
+    },
+    "extra_probe_cost": "未计入；相同一次教学机会，不是相同总行动成本",
+    "no_empirical_utility_claim": true
+  },
+  "notes": [
+    "教学率是敏感性假说，不是由提示点击/显示或一次正确推断。",
+    "纯诊断无学习只为分离作用的实验定义，不否认真实检索练习的学习作用。",
+    "行动表只比较一次行动后的独立AB预测；没有真实成本、保持或迁移证据，不构成调度采用。"
+  ],
+  "date": "2026-10-10",
+  "method": "Fraction精确枚举当前状态与前后两个时点的路径；分数为权威数值，小数供阅读。",
+  "fixed_teaching_controls": {
+    "probe_then_always_teach_B": {
+      "exact": "65/157",
+      "decimal": 0.4140127388535032
+    },
+    "direct_teach_B": {
+      "exact": "65/157",
+      "decimal": 0.4140127388535032
+    },
+    "probe_then_always_teach_A": {
+      "exact": "107/628",
+      "decimal": 0.17038216560509553
+    },
+    "direct_teach_A": {
+      "exact": "107/628",
+      "decimal": 0.17038216560509553
+    }
+  }
+}
