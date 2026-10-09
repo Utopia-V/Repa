@@ -1,0 +1,1523 @@
+{
+  "pre_test_freeze_sha256": "80f7a53aa445088a5950658df18801f877992c3e3ae727c37fd9500d897266cb",
+  "target": "published correct equals 1, not unaided first-answer mastery",
+  "difference_direction": "P1 minus P0; negative is improvement",
+  "settings": {
+    "main": {
+      "all": {
+        "events": 663,
+        "students": 55,
+        "models": {
+          "P0": {
+            "logloss": 0.5040928967031612,
+            "brier": 0.1690505051248526,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 29,
+                "mean_prediction": 0.27077212297415626,
+                "observed_fraction": 0.5517241379310345
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 111,
+                "mean_prediction": 0.513015918314929,
+                "observed_fraction": 0.5405405405405406
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 207,
+                "mean_prediction": 0.7198996934008067,
+                "observed_fraction": 0.6763285024154589
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 316,
+                "mean_prediction": 0.882168740557946,
+                "observed_fraction": 0.8955696202531646
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.5038683024451377,
+            "brier": 0.16896731124337,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 29,
+                "mean_prediction": 0.27189580215923476,
+                "observed_fraction": 0.5517241379310345
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 111,
+                "mean_prediction": 0.512407067929732,
+                "observed_fraction": 0.5405405405405406
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 208,
+                "mean_prediction": 0.7201770192418511,
+                "observed_fraction": 0.6875
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 315,
+                "mean_prediction": 0.8824594980644422,
+                "observed_fraction": 0.8888888888888888
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": -0.00022459425802351355,
+          "student_equal_weight_mean_difference": -0.00013041773549107768,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0005359900280115927,
+            2.163825459866959e-05
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": -8.319388148260512e-05,
+          "student_equal_weight_mean_difference": -4.875770997600232e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0002007363070121351,
+            9.40833072139726e-06
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M_record_0": {
+        "events": 272,
+        "students": 25,
+        "models": {
+          "P0": {
+            "logloss": 0.6658821719212602,
+            "brier": 0.23672137387987183,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 29,
+                "mean_prediction": 0.27077212297415626,
+                "observed_fraction": 0.5517241379310345
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 105,
+                "mean_prediction": 0.5125288842041805,
+                "observed_fraction": 0.5714285714285714
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 104,
+                "mean_prediction": 0.7094386061689841,
+                "observed_fraction": 0.6634615384615384
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 34,
+                "mean_prediction": 0.834144071610192,
+                "observed_fraction": 0.8235294117647058
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.6655313290893294,
+            "brier": 0.2365726538259122,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 29,
+                "mean_prediction": 0.27189580215923476,
+                "observed_fraction": 0.5517241379310345
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 105,
+                "mean_prediction": 0.5117881048771226,
+                "observed_fraction": 0.5714285714285714
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 104,
+                "mean_prediction": 0.7086769360806058,
+                "observed_fraction": 0.6730769230769231
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 34,
+                "mean_prediction": 0.833273294701125,
+                "observed_fraction": 0.7941176470588235
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": -0.00035084283193075326,
+          "student_equal_weight_mean_difference": 0.00018266762391992513,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0007262677800279673,
+            -6.15364853196953e-06
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": -0.00014872005395961016,
+          "student_equal_weight_mean_difference": 4.5454781519003764e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0003237799823674171,
+            3.349770451724855e-06
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M_record_1": {
+        "events": 391,
+        "students": 46,
+        "models": {
+          "P0": {
+            "logloss": 0.39154383568187495,
+            "brier": 0.12197511816483916,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 6,
+                "mean_prediction": 0.5215390152530289,
+                "observed_fraction": 0.0
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 103,
+                "mean_prediction": 0.7304623445863363,
+                "observed_fraction": 0.6893203883495146
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 282,
+                "mean_prediction": 0.8879589488707957,
+                "observed_fraction": 0.9042553191489362
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.39140706651874346,
+            "brier": 0.1219375077076884,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 6,
+                "mean_prediction": 0.5232389213503948,
+                "observed_fraction": 0.0
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 104,
+                "mean_prediction": 0.7316771024030962,
+                "observed_fraction": 0.7019230769230769
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 281,
+                "mean_prediction": 0.8884108536315339,
+                "observed_fraction": 0.900355871886121
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": -0.00013676916313152073,
+          "student_equal_weight_mean_difference": -0.0002528229409883399,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0005527599061883933,
+            0.00023603318289863517
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": -3.761045715077552e-05,
+          "student_equal_weight_mean_difference": -8.287549647506933e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.00018993931670703985,
+            9.781880635775789e-05
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M0_A0": {
+        "events": 28,
+        "students": 8,
+        "models": {
+          "P0": {
+            "logloss": 0.6179831772827068,
+            "brier": 0.2173728942768424,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 4,
+                "mean_prediction": 0.3708669708559178,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 8,
+                "mean_prediction": 0.4993270316287566,
+                "observed_fraction": 0.875
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 6,
+                "mean_prediction": 0.7386147770811579,
+                "observed_fraction": 0.6666666666666666
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 10,
+                "mean_prediction": 0.8602202505646263,
+                "observed_fraction": 0.9
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.616377498421847,
+            "brier": 0.21661184538280434,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 4,
+                "mean_prediction": 0.37291867486604774,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 8,
+                "mean_prediction": 0.5013281252238719,
+                "observed_fraction": 0.875
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 5,
+                "mean_prediction": 0.7281257259501139,
+                "observed_fraction": 0.8
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 11,
+                "mean_prediction": 0.8551093509016462,
+                "observed_fraction": 0.8181818181818182
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": -0.0016056788608598668,
+          "student_equal_weight_mean_difference": -0.0016586099369301774,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0038418725900582493,
+            0.00047549258568701077
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": -0.0007610488940380201,
+          "student_equal_weight_mean_difference": -0.0007541605068318654,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0018211135986706496,
+            0.00022549488832423776
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M0_A1": {
+        "events": 244,
+        "students": 21,
+        "models": {
+          "P0": {
+            "logloss": 0.6713787778633893,
+            "brier": 0.23894169121136702,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 25,
+                "mean_prediction": 0.2547569473130744,
+                "observed_fraction": 0.48
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 97,
+                "mean_prediction": 0.5136176967877205,
+                "observed_fraction": 0.5463917525773195
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 98,
+                "mean_prediction": 0.707652309990688,
+                "observed_fraction": 0.6632653061224489
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 24,
+                "mean_prediction": 0.8232789970458443,
+                "observed_fraction": 0.7916666666666666
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.6711719326085487,
+            "brier": 0.23886323840135085,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 25,
+                "mean_prediction": 0.2557321425261446,
+                "observed_fraction": 0.48
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 97,
+                "mean_prediction": 0.5126507836114114,
+                "observed_fraction": 0.5463917525773195
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 99,
+                "mean_prediction": 0.7076946739659841,
+                "observed_fraction": 0.6666666666666666
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 23,
+                "mean_prediction": 0.8228299634747888,
+                "observed_fraction": 0.782608695652174
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": -0.00020684525484052711,
+          "student_equal_weight_mean_difference": 0.0004959059287173465,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0005575025219990851,
+            0.00019183295217173048
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": -7.845281001618606e-05,
+          "student_equal_weight_mean_difference": 0.00017707474912590009,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0002355821549798141,
+            9.421764479425791e-05
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M1_A0": {
+        "events": 28,
+        "students": 8,
+        "models": {
+          "P0": {
+            "logloss": 0.6557948414682168,
+            "brier": 0.2302210036959227,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 1,
+                "mean_prediction": 0.46456633887278803,
+                "observed_fraction": 0.0
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 10,
+                "mean_prediction": 0.7386593236262434,
+                "observed_fraction": 0.5
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 17,
+                "mean_prediction": 0.8443696738551184,
+                "observed_fraction": 0.7647058823529411
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.65338750703612,
+            "brier": 0.22935594186743477,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 1,
+                "mean_prediction": 0.46033016616141625,
+                "observed_fraction": 0.0
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 12,
+                "mean_prediction": 0.7463856706537476,
+                "observed_fraction": 0.5833333333333334
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 15,
+                "mean_prediction": 0.8477766099781597,
+                "observed_fraction": 0.7333333333333333
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": -0.0024073344320965757,
+          "student_equal_weight_mean_difference": -0.00043222301222135823,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0041000028076200856,
+            0.0011577824702698552
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": -0.0008650618284878958,
+          "student_equal_weight_mean_difference": -0.0003771405031852839,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0014616624284762127,
+            0.00030742827649932484
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M1_A1": {
+        "events": 363,
+        "students": 46,
+        "models": {
+          "P0": {
+            "logloss": 0.3711608379903666,
+            "brier": 0.11362557327538919,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 5,
+                "mean_prediction": 0.5329335505290771,
+                "observed_fraction": 0.0
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 93,
+                "mean_prediction": 0.7295809489906472,
+                "observed_fraction": 0.7096774193548387
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 265,
+                "mean_prediction": 0.890755241985009,
+                "observed_fraction": 0.9132075471698113
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.3711992088479816,
+            "brier": 0.11365178826836911,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 5,
+                "mean_prediction": 0.5358206723881905,
+                "observed_fraction": 0.0
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 92,
+                "mean_prediction": 0.7297585935008373,
+                "observed_fraction": 0.717391304347826
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 266,
+                "mean_prediction": 0.8907022583488295,
+                "observed_fraction": 0.9097744360902256
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": 3.83708576150951e-05,
+          "student_equal_weight_mean_difference": -0.0001916495539803895,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.00025306241001200343,
+            0.0003293109421749634
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": 2.6214992979911455e-05,
+          "student_equal_weight_mean_difference": -5.989078840575895e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -9.015314205059099e-05,
+            0.00015327586833161996
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      }
+    },
+    "without-largest-training-pair": {
+      "all": {
+        "events": 405,
+        "students": 37,
+        "models": {
+          "P0": {
+            "logloss": 0.5882393056606466,
+            "brier": 0.20087734635712595,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 4,
+                "mean_prediction": 0.3885859150735145,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 93,
+                "mean_prediction": 0.5239323658134812,
+                "observed_fraction": 0.6129032258064516
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 187,
+                "mean_prediction": 0.721849677443746,
+                "observed_fraction": 0.7005347593582888
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 121,
+                "mean_prediction": 0.8378242758916448,
+                "observed_fraction": 0.8181818181818182
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.5883328883233709,
+            "brier": 0.2009106555680217,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 4,
+                "mean_prediction": 0.3885653991825412,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 90,
+                "mean_prediction": 0.5219973655170292,
+                "observed_fraction": 0.6111111111111112
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 190,
+                "mean_prediction": 0.7202276071760978,
+                "observed_fraction": 0.7
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 121,
+                "mean_prediction": 0.8377616850730107,
+                "observed_fraction": 0.8181818181818182
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": 9.35826627242893e-05,
+          "student_equal_weight_mean_difference": 5.888042163088189e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -4.0598058873750317e-05,
+            0.0002477195044432206
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": 3.3309210895723115e-05,
+          "student_equal_weight_mean_difference": 1.6373417704357672e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -2.2098437170921375e-05,
+            9.226139692989076e-05
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M_record_0": {
+        "events": 228,
+        "students": 20,
+        "models": {
+          "P0": {
+            "logloss": 0.6425500025055636,
+            "brier": 0.22606377074779568,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 4,
+                "mean_prediction": 0.3885859150735145,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 93,
+                "mean_prediction": 0.5239323658134812,
+                "observed_fraction": 0.6129032258064516
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 107,
+                "mean_prediction": 0.7090872796367398,
+                "observed_fraction": 0.6915887850467289
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 24,
+                "mean_prediction": 0.819916745820707,
+                "observed_fraction": 0.75
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.6425817928717467,
+            "brier": 0.226075199036364,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 4,
+                "mean_prediction": 0.3885653991825412,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 90,
+                "mean_prediction": 0.5219973655170292,
+                "observed_fraction": 0.6111111111111112
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 110,
+                "mean_prediction": 0.706635237852628,
+                "observed_fraction": 0.6909090909090909
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 24,
+                "mean_prediction": 0.8202218411960427,
+                "observed_fraction": 0.75
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": 3.179036618307057e-05,
+          "student_equal_weight_mean_difference": -0.0001455835447432193,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.00014706490982179215,
+            0.00020247497276815562
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": 1.1428288568283765e-05,
+          "student_equal_weight_mean_difference": -5.117755952986217e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -7.134508869078397e-05,
+            9.115847018421041e-05
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M_record_1": {
+        "events": 177,
+        "students": 26,
+        "models": {
+          "P0": {
+            "logloss": 0.5182797639621095,
+            "brier": 0.16843381663355142,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 80,
+                "mean_prediction": 0.7389193845106166,
+                "observed_fraction": 0.7125
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 97,
+                "mean_prediction": 0.8422550049813614,
+                "observed_fraction": 0.8350515463917526
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.5184529434813954,
+            "brier": 0.1684953114393096,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 80,
+                "mean_prediction": 0.7389171149958689,
+                "observed_fraction": 0.7125
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 97,
+                "mean_prediction": 0.8421014402590645,
+                "observed_fraction": 0.8350515463917526
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": 0.00017317951928585922,
+          "student_equal_weight_mean_difference": 0.0002343390073165037,
+          "student_cluster_bootstrap_percentile_95": [
+            2.194198109068006e-06,
+            0.0004003466389466531
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": 6.149480575818735e-05,
+          "student_equal_weight_mean_difference": 7.90758736674124e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            3.5544213406016824e-06,
+            0.00014022418455556817
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M0_A0": {
+        "events": 28,
+        "students": 8,
+        "models": {
+          "P0": {
+            "logloss": 0.6012683385393799,
+            "brier": 0.20899131729301562,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 3,
+                "mean_prediction": 0.386779006982227,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 7,
+                "mean_prediction": 0.4487357856157309,
+                "observed_fraction": 0.8571428571428571
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 7,
+                "mean_prediction": 0.7408309481071791,
+                "observed_fraction": 0.8571428571428571
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 11,
+                "mean_prediction": 0.8260791005815279,
+                "observed_fraction": 0.8181818181818182
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.6014276324273068,
+            "brier": 0.20906634380661185,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 3,
+                "mean_prediction": 0.38654011781880476,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 7,
+                "mean_prediction": 0.4484282697111618,
+                "observed_fraction": 0.8571428571428571
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 7,
+                "mean_prediction": 0.74066137082925,
+                "observed_fraction": 0.8571428571428571
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 11,
+                "mean_prediction": 0.8260444808949319,
+                "observed_fraction": 0.8181818181818182
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": 0.00015929388792685985,
+          "student_equal_weight_mean_difference": 0.00012609607420530848,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.00012125512308766622,
+            0.00042310411529556416
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": 7.502651359623646e-05,
+          "student_equal_weight_mean_difference": 5.222523022912348e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -5.5682952188435446e-05,
+            0.0001999656216218879
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M0_A1": {
+        "events": 200,
+        "students": 16,
+        "models": {
+          "P0": {
+            "logloss": 0.6483294354608293,
+            "brier": 0.22845391423146494,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 1,
+                "mean_prediction": 0.3940066393473769,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 86,
+                "mean_prediction": 0.5300530176900424,
+                "observed_fraction": 0.5930232558139535
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 100,
+                "mean_prediction": 0.706865222843809,
+                "observed_fraction": 0.68
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 13,
+                "mean_prediction": 0.814702445638474,
+                "observed_fraction": 0.6923076923076923
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.6483433753339684,
+            "brier": 0.22845643876852934,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 1,
+                "mean_prediction": 0.3946412432737506,
+                "observed_fraction": 1.0
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 83,
+                "mean_prediction": 0.5282019880548736,
+                "observed_fraction": 0.5903614457831325
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 103,
+                "mean_prediction": 0.7043227822134402,
+                "observed_fraction": 0.6796116504854369
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 13,
+                "mean_prediction": 0.8152949922200597,
+                "observed_fraction": 0.6923076923076923
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": 1.3939873138940073e-05,
+          "student_equal_weight_mean_difference": -0.00022281706053790503,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.00023150516356615824,
+            0.00021323421391682715
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": 2.524537064370388e-06,
+          "student_equal_weight_mean_difference": -8.269300642699254e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.00011208780441226542,
+            9.697552941495289e-05
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M1_A0": {
+        "events": 27,
+        "students": 7,
+        "models": {
+          "P0": {
+            "logloss": 0.6489778548005598,
+            "brier": 0.2271386649397425,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 14,
+                "mean_prediction": 0.7516411808049683,
+                "observed_fraction": 0.5
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 13,
+                "mean_prediction": 0.8473154805356194,
+                "observed_fraction": 0.8461538461538461
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.6496082219747173,
+            "brier": 0.22736429923309648,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 14,
+                "mean_prediction": 0.7526432794414625,
+                "observed_fraction": 0.5
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 13,
+                "mean_prediction": 0.8479938483038083,
+                "observed_fraction": 0.8461538461538461
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": 0.0006303671741576205,
+          "student_equal_weight_mean_difference": -0.0001840086760746364,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0004541565385760411,
+            0.0011613071002022552
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": 0.00022563429335394102,
+          "student_equal_weight_mean_difference": -3.012911737162463e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            -0.0001390211790936637,
+            0.0004214208989543187
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      },
+      "M1_A1": {
+        "events": 150,
+        "students": 26,
+        "models": {
+          "P0": {
+            "logloss": 0.4947541076111884,
+            "brier": 0.157866943938437,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 66,
+                "mean_prediction": 0.7362208216602995,
+                "observed_fraction": 0.7575757575757576
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 84,
+                "mean_prediction": 0.8414718361455835,
+                "observed_fraction": 0.8333333333333334
+              }
+            ]
+          },
+          "P1": {
+            "logloss": 0.49484499335259735,
+            "brier": 0.15789889363642792,
+            "calibration": [
+              {
+                "lower_inclusive": 0.0,
+                "upper": 0.2,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.2,
+                "upper": 0.4,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.4,
+                "upper": 0.6,
+                "count": 0,
+                "mean_prediction": null,
+                "observed_fraction": null
+              },
+              {
+                "lower_inclusive": 0.6,
+                "upper": 0.8,
+                "count": 66,
+                "mean_prediction": 0.7360055043558945,
+                "observed_fraction": 0.7575757575757576
+              },
+              {
+                "lower_inclusive": 0.8,
+                "upper": 1.0,
+                "count": 84,
+                "mean_prediction": 0.8411895199664255,
+                "observed_fraction": 0.8333333333333334
+              }
+            ]
+          }
+        },
+        "paired_logloss": {
+          "event_weighted_mean_difference": 9.08857414089422e-05,
+          "student_equal_weight_mean_difference": 0.00022160485756711826,
+          "student_cluster_bootstrap_percentile_95": [
+            -9.217005642488562e-06,
+            0.00023045005840584433
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        },
+        "paired_brier": {
+          "event_weighted_mean_difference": 3.1949697990951694e-05,
+          "student_equal_weight_mean_difference": 7.281852186133628e-05,
+          "student_cluster_bootstrap_percentile_95": [
+            1.2009398674638379e-06,
+            7.703975674219135e-05
+          ],
+          "bootstrap_replicates": 1000,
+          "seed": 20261010
+        }
+      }
+    }
+  }
+}
