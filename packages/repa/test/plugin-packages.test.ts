@@ -11,7 +11,7 @@ import { Type } from "typebox";
 import { Check } from "typebox/value";
 import { RepaFault } from "../src/errors.js";
 import { PluginPackages, projectPiPackages } from "../src/plugins/packages.js";
-import { PluginPackageSchema, type PluginSelection } from "../src/plugins/schema.js";
+import { PluginManifestSchema, PluginPackageSchema, type PluginSelection } from "../src/plugins/schema.js";
 
 async function fixture(t: TestContext) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-plugin-packages-"));
@@ -295,4 +295,80 @@ test("真实本地 Git 更新只作用于选定包 scope，同源的其他安装
   assert.equal(await readFile(path.join(projectDirectory, "version.txt"), "utf8"), "第二版");
   assert.equal(await readFile(globalFile, "utf8"), globalBytes);
   assert.equal(await readFile(projectFile, "utf8"), projectBytes);
+});
+
+
+test("轻量贡献入口只读发现并保留纯Repa包的Pi过滤，不执行模块", async t => {
+  const f = await fixture(t);
+  const contribution = { entry: "./contributions.js", api: "^1.0.0" };
+  const pure = await f.package("contributions-only", { manifestVersion: 1, contributions: contribution });
+  const mixed = await f.package("contributions-mixed", { ...manifest(), contributions: contribution }, { skills: ["./skills"] });
+  const marker = path.join(f.root, "contributions-imported");
+  const bytes = `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "imported");\nthrow new Error("发现不能加载轻量入口");\n`;
+  for (const directory of [pure, mixed]) await writeFile(path.join(directory, "contributions.js"), bytes);
+  const catalog = await new PluginPackages({ cwd: f.cwd, agentDir: f.agentDir,
+    settingsManager: SettingsManager.inMemory({ packages: [pure, mixed] }),
+  }).list();
+  assert.equal(catalog.length, 2);
+  for (const item of catalog) {
+    assert(Check(PluginPackageSchema, item));
+    assert.equal(item.status, "ready");
+    assert.equal(item.contributions?.status, "ready");
+    assert(item.installedPath);
+    assert.equal(item.contributions?.entry, path.join(item.installedPath, "contributions.js"));
+  }
+  assert.equal(catalog[0]?.piResources, false);
+  assert.equal(catalog[1]?.piResources, true);
+  const selections = [byName("contributions-only"), byName("contributions-mixed")];
+  const projected = projectPiPackages({ global: { packages: [pure, mixed] }, project: {} }, catalog,
+    { enabled: selections, trusted: selections });
+  assert.deepEqual(projected.global.packages, [
+    { source: pure, extensions: [], skills: [], prompts: [], themes: [] }, mixed,
+  ]);
+  assert.equal(existsSync(marker), false);
+  assert.equal(await readFile(path.join(pure, "contributions.js"), "utf8"), bytes);
+});
+
+test("贡献入口的路径与API状态独立，不使可用后台快照前端入口失效", async t => {
+  const f = await fixture(t);
+  const outside = path.join(f.root, "outside-contributions.js");
+  await writeFile(outside, "throw new Error('不能加载包外入口');\n");
+  const cases = [
+    { name: "missing", entry: "./absent.js", api: "^1", status: "missing", issue: "entry_missing" },
+    { name: "incompatible", entry: "./contributions.js", api: "^2", status: "incompatible", issue: "api_incompatible" },
+    { name: "invalid-api", entry: "./contributions.js", api: "not a range", status: "incompatible", issue: "api_invalid" },
+    { name: "escaped", entry: "../../outside-contributions.js", api: "^1", status: "invalid", issue: "entry_outside_package" },
+    { name: "absolute", entry: outside, api: "^1", status: "invalid", issue: "entry_outside_package" },
+    { name: "linked", entry: "./linked.js", api: "^1", status: "invalid", issue: "entry_invalid" },
+  ];
+  const directories: string[] = [];
+  for (const item of cases) {
+    const directory = await f.package(`contributions-${item.name}`, { ...manifest(),
+      snapshot: { entry: "./snapshot.js", api: "^1" }, contributions: { entry: item.entry, api: item.api },
+    });
+    await writeFile(path.join(directory, "snapshot.js"), "throw new Error('发现不能加载snapshot');\n");
+    await writeFile(path.join(directory, "contributions.js"), "throw new Error('发现不能加载contributions');\n");
+    if (item.name === "linked") await symlink(outside, path.join(directory, "linked.js"));
+    directories.push(directory);
+  }
+  const catalog = await new PluginPackages({ cwd: f.cwd, agentDir: f.agentDir,
+    settingsManager: SettingsManager.inMemory({ packages: directories }),
+  }).list();
+  for (const item of cases) {
+    const found = catalog.find(pkg => pkg.name === `contributions-${item.name}`);
+    assert(found && Check(PluginPackageSchema, found));
+    assert.equal(found.status, "ready");
+    assert.equal(found.contributions?.status, item.status);
+    assert(found.issues.some(issue => issue.code === item.issue));
+    assert.equal(found.backend?.status, "ready");
+    assert.equal(found.snapshot?.status, "ready");
+    assert.equal(found.frontends[0]?.status, "ready");
+  }
+});
+
+test("贡献声明使用共享入口schema，缺字段与未知字段不能成为有效manifest", () => {
+  assert(Check(PluginManifestSchema, { manifestVersion: 1, contributions: { entry: "./contributions.js", api: "^1" } }));
+  for (const contributions of [{ entry: "./contributions.js" }, { api: "^1" },
+    { entry: "./contributions.js", api: "^1", factory: true }, null])
+    assert.equal(Check(PluginManifestSchema, { manifestVersion: 1, contributions }), false);
 });

@@ -1,6 +1,6 @@
 export { Type } from "typebox";
 export type { Static, TSchema } from "typebox";
-export type { BackendPlugin, BackendPluginFactory, BackendPluginRegistration, CapabilityBackground, CapabilityDefinition, InvocationContext, PluginSpaceContext } from "./capabilities/types.js";
+export type { BackendPlugin, BackendPluginFactory, BackendPluginRegistration, CapabilityBackground, CapabilityDefinition, InvocationContext, PluginSpaceContext, PluginContributions } from "./capabilities/types.js";
 export type { RepaCapabilityServices } from "./capabilities/services.js";
 export type { CapabilityContract, CapabilityDescriptor, CapabilityScope, CapabilitySelection, CapabilitySource, CapabilityNotification, CapabilityEvent } from "./capabilities/schema.js";
 export type { SettingsNamespaceDefinition } from "./configuration/definitions.js";

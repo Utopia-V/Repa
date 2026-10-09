@@ -31,6 +31,7 @@ import { InstalledContributions } from "./agent/contributions.js";
 import { PLUGIN_SETTINGS_DEFINITION, type PluginSettings } from "./configuration/plugins.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { discoverPluginResources, selectBackendEntry } from "./plugins/resources.js";
+import { loadPluginContributions, planPluginContributions } from "./plugins/contributions.js";
 import { PluginPackages } from "./plugins/packages.js";
 import type { PackageMethod } from "./plugins/protocol.js";
 import type { BundledPluginRegistration, PluginPackage } from "./plugins/schema.js";
@@ -125,6 +126,12 @@ interface SpaceRecord {
   watcher?: FSWatcher;
   watchTimer?: ReturnType<typeof setTimeout>;
 }
+interface PluginInstallation {
+  configuration: PluginSettings;
+  identity: string;
+  contributions: InstalledContributions;
+  issues: { pluginId: string; message: string }[];
+}
 interface SessionRecord {
   store: RuntimeStore;
   session: StoredSession;
@@ -154,7 +161,6 @@ export class RepaApplication {
   readonly diagnostics: Diagnostics;
   readonly closed: Promise<void>;
   readonly #options: ApplicationOptions;
-  readonly #contributions: InstalledContributions;
   readonly #backendPlugins: readonly BackendPluginRegistration[];
   readonly #configuration: ConfigStore;
   readonly #models: ModelConnections;
@@ -163,10 +169,13 @@ export class RepaApplication {
   readonly #execution: ExecutionService;
   readonly #appDirectory: string;
   readonly #pluginRuntimes = new Map<string, Promise<PluginRuntime>>();
+  readonly #pluginInstallations = new Map<string, PluginInstallation>();
+  readonly #pluginChanges = new Set<string>();
   #applicationRequests?: BackgroundRequests;
   #openingApplicationRequests?: Promise<BackgroundRequests>;
   #releaseApplicationRequests?: () => Promise<void>;
   readonly #packageReloadRequired = new Set<string>();
+  readonly #installationReloadRequired = new Set<string>();
   readonly #packageOperations = new Map<string, SerialQueue>();
   readonly #access: Promise<ContentAccessStore>;
   readonly #admission = new SerialQueue();
@@ -207,7 +216,8 @@ export class RepaApplication {
     )
       throw new Error("事件缓存大小必须为正整数。");
     this.#backendPlugins = [...options.plugins ?? []];
-    this.#contributions = new InstalledContributions(this.#backendPlugins);
+    // 宿主直接声明先检查冲突；实际安装集合随后按各空间的来源与信任装配。
+    new InstalledContributions(this.#backendPlugins);
     this.#options = options;
     const appDirectory = path.resolve(options.appDirectory ?? options.agentDir ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "repa"));
     this.#appDirectory = appDirectory;
@@ -300,7 +310,7 @@ export class RepaApplication {
       }
       const opening = this.#openingSpaces.get(directory);
       if (opening) return opening;
-      const promise = this.#openSpace(directory);
+      const promise = this.#admission.run(() => this.#openSpace(directory));
       this.#openingSpaces.set(directory, promise);
       try {
         return await promise;
@@ -318,16 +328,18 @@ export class RepaApplication {
           this.#notice(record, "space_lock_lost", error.message);
       this.shutdown("cancel");
     });
+    let installation: PluginInstallation | undefined;
     try {
       if (this.#spaces.has(store.space.id))
         throw new RepaFault(
           "space_identity_conflict",
           "两个目录拥有相同的学习空间身份。",
         );
+      installation = await this.#installation({ kind: "space", spaceId: store.space.id }, directory);
       const access = await this.#access;
       const content = await ContentStore.open({
         ...this.#options.resources,
-        formats: this.#contributions.formats,
+        formats: installation.contributions.formats,
         spaceId: store.space.id, root: store.space.path,
         assertOwned: () => store.assertOwned(),
         canReadExternal: (file) => access.canRead(store.space.id, file),
@@ -366,6 +378,10 @@ export class RepaApplication {
       this.#watchContent(record);
       return structuredClone(store.space);
     } catch (error) {
+      if (installation && !this.#spaces.has(store.space.id) && this.#pluginInstallations.get(store.space.id) === installation) {
+        installation.contributions.invalidate();
+        this.#pluginInstallations.delete(store.space.id);
+      }
       store.release();
       throw error;
     }
@@ -495,19 +511,20 @@ export class RepaApplication {
 
   #plugins(scope: CapabilityScope): Promise<PluginRuntime> {
     const key = scope.kind === "application" ? "application" : scope.spaceId;
-    if (this.#packageReloadRequired.has("application") || this.#packageReloadRequired.has(key))
-      return Promise.reject(new RepaFault("plugin_restart_required", "包代码已经变更，请重启后端以使用同一版本的入口和依赖。"));
+    try { this.#assertPluginsAvailable(key); }
+    catch (error) { return Promise.reject(error); }
     const existing = this.#pluginRuntimes.get(key);
     if (existing) return existing;
     const opening = (async () => {
-      const view = await this.#configuration.get(scope, "plugins");
-      const configuration = Object.fromEntries(view.entries.map(entry => [entry.key, entry.effective])) as PluginSettings;
+      const installation = await this.#installation(scope);
+      const configuration = installation.configuration;
       const runtime = await PluginRuntime.open({
         cwd: scope.kind === "application" ? this.#appDirectory : this.#store(scope.spaceId).space.path,
         agentDir: this.#options.agentDir, trusted: this.#options.trustExtensions ?? false,
         configuration, plugins: this.#backendPlugins,
         bundledPackages: this.#bundledPackages(configuration),
       });
+      runtime.issues.push(...installation.issues);
       for (const definition of runtime.capabilities.settingsDefinitions()) this.#configuration.register(definition);
       return runtime;
     })();
@@ -521,22 +538,117 @@ export class RepaApplication {
     return typeof packages === "function" ? packages(configuration) : packages ?? [];
   }
 
+  #assertPluginsAvailable(key: string): void {
+    if (this.#packageReloadRequired.has("application") || this.#packageReloadRequired.has(key) || this.#installationReloadRequired.has(key))
+      throw new RepaFault("plugin_restart_required", "包代码或安装声明来源已经变更，请重启后端以使用一致的入口和持久格式。");
+    if (this.#pluginChanges.has("application") || this.#pluginChanges.has(key))
+      throw new RepaFault("plugin_reconfiguring", "插件正在重新装配，请在设置更新完成后重试。");
+  }
+
+  async #planInstallation(scope: CapabilityScope, directory?: string) {
+    const cwd = directory ?? (scope.kind === "application" ? this.#appDirectory : this.#store(scope.spaceId).space.path);
+    const view = scope.kind === "application"
+      ? await this.#configuration.get(scope, "plugins")
+      : await this.#configuration.getForSpace(scope.spaceId, cwd, "plugins");
+    const configuration = Object.fromEntries(view.entries.map(entry => [entry.key, entry.effective])) as PluginSettings;
+    const resources = await discoverPluginResources({ cwd, agentDir: this.#options.agentDir,
+      trusted: this.#options.trustExtensions ?? false, configuration,
+      bundledPackages: this.#bundledPackages(configuration) });
+    const plan = planPluginContributions({ resources, configuration, plugins: this.#backendPlugins,
+      trusted: this.#options.trustExtensions ?? false });
+    return { configuration, plan };
+  }
+
+  async #installation(scope: CapabilityScope, directory?: string): Promise<PluginInstallation> {
+    const key = scope.kind === "application" ? "application" : scope.spaceId;
+    this.#assertPluginsAvailable(key);
+    const previous = this.#pluginInstallations.get(key);
+    if (previous) return previous;
+    const { configuration, plan } = await this.#planInstallation(scope, directory);
+    const loaded = await loadPluginContributions(plan);
+    const installation = { configuration, identity: plan.identity, ...loaded };
+    this.#pluginInstallations.set(key, installation);
+    return installation;
+  }
+
+  #affectedInstallations(scope: SettingScope): [string, PluginInstallation][] {
+    return [...this.#pluginInstallations].filter(([key]) => scope.kind === "application" || key === scope.spaceId);
+  }
+
+  #assertPluginMaintenance(scope: SettingScope): void {
+    if (scope.kind === "application" ? this.#maintenance.size > 0 : this.#maintenance.has(scope.spaceId))
+      throw new RepaFault("space_busy", "受影响空间正在生成快照，完成后才能修改插件来源或设置。");
+  }
+
+  /** 背景先停止新使用；格式在自己的保存队列排空后失效。 */
+  async #invalidateInstallations(scope: SettingScope): Promise<void> {
+    for (const [, installation] of this.#affectedInstallations(scope)) installation.contributions.invalidate();
+    const reset = await Promise.allSettled([this.#resetPlugins(scope)]);
+    // 正在打开的 runtime 会在 reset 中完成并关闭；随后把它刚生成的安装快照一并收走。
+    const installations = this.#affectedInstallations(scope);
+    for (const [, installation] of installations) installation.contributions.invalidate();
+    const drained = await Promise.allSettled(installations.flatMap(([key, installation]) => [
+      installation.contributions.settled(),
+      this.#spaces.get(key)?.content.invalidateFormats() ?? Promise.resolve(),
+    ]));
+    const failure = [...reset, ...drained].find(result => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  }
+
+  async #refreshInstallations(scope: SettingScope): Promise<void> {
+    for (const [, installation] of this.#affectedInstallations(scope)) installation.contributions.invalidate();
+    try {
+      await this.#resetPlugins(scope);
+      const installations = this.#affectedInstallations(scope);
+      for (const [, installation] of installations) installation.contributions.invalidate();
+      await Promise.all(installations.map(([, installation]) => installation.contributions.settled()));
+      for (const [key, previous] of installations) {
+        if (this.#packageReloadRequired.has("application") || this.#packageReloadRequired.has(key) || this.#installationReloadRequired.has(key)) continue;
+        const target: CapabilityScope = key === "application" ? { kind: "application" } : { kind: "space", spaceId: key };
+        const { configuration, plan } = await this.#planInstallation(target);
+        if (plan.identity !== previous.identity) {
+          this.#installationReloadRequired.add(key);
+          await this.#spaces.get(key)?.content.invalidateFormats();
+          continue;
+        }
+        const loaded = await loadPluginContributions(plan);
+        this.#pluginInstallations.set(key, { configuration, identity: plan.identity, ...loaded });
+      }
+    } catch (error) {
+      const affected = this.#affectedInstallations(scope);
+      for (const [key, installation] of affected) {
+        this.#installationReloadRequired.add(key);
+        installation.contributions.invalidate();
+      }
+      await Promise.allSettled(affected.flatMap(([key, installation]) => [
+        installation.contributions.settled(),
+        this.#spaces.get(key)?.content.invalidateFormats() ?? Promise.resolve(),
+      ]));
+      throw error;
+    }
+  }
+
   async #resetPlugins(scope: SettingScope): Promise<void> {
-    const keys = scope.kind === "application" ? [...this.#pluginRuntimes.keys()] : [scope.spaceId];
+    const pending = [...this.#pluginRuntimes].filter(([key]) => scope.kind === "application" || key === scope.spaceId);
     const sessions = [...this.#sessions.values()].filter(record => scope.kind === "application" || record.view.spaceId === scope.spaceId);
-    await Promise.all(keys.map(async key => (await this.#pluginRuntimes.get(key))?.capabilities.cancel()));
-    await Promise.all(sessions.map(record => this.closeSession(record.view)));
+    // 任一打开失败都不能使其他打开与收尾脱离等待链。
+    const opened = await Promise.allSettled(pending.map(([, opening]) => opening));
+    const runtimes = opened.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+    const cancelled = await Promise.allSettled(runtimes.map(async runtime => runtime.capabilities.cancel()));
+    const closedSessions = await Promise.allSettled(sessions.map(record => this.closeSession(record.view)));
     const requests = [...this.#spaces.values()].filter(record => scope.kind === "application" || record.store.space.id === scope.spaceId).map(record => record.processing);
     if (scope.kind === "application" && this.#applicationRequests) requests.push(this.#applicationRequests);
-    for (const processing of requests) for (const request of processing.requests.values())
-      if (request.operation === "repa.capability.invoke") processing.cancel(request.requestId);
-    for (const key of keys) {
-      const pending = this.#pluginRuntimes.get(key);
-      if (!pending) continue;
-      const runtime = await pending;
-      await runtime.capabilities.close();
-      this.#pluginRuntimes.delete(key);
+    const cancelledRequests = await Promise.allSettled(requests.map(async processing => {
+      for (const request of processing.requests.values())
+        if (request.operation === "repa.capability.invoke") processing.cancel(request.requestId);
+    }));
+    const closed = await Promise.allSettled(runtimes.map(runtime => runtime.capabilities.close()));
+    for (const [key, opening] of pending) {
+      if (this.#pluginRuntimes.get(key) === opening) this.#pluginRuntimes.delete(key);
     }
+    const failure = [...opened, ...cancelled, ...closedSessions, ...cancelledRequests, ...closed]
+      .find(result => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
   }
 
   async #processing(spaceId?: string): Promise<BackgroundRequests> {
@@ -753,9 +865,10 @@ export class RepaApplication {
       return processing.submit({ requestId, operation: method, input, options }, async (_input, context) => queue.run(async () => {
         await this.#admission.run(async () => {
           context.signal.throwIfAborted();
+          this.#assertPluginMaintenance(scope);
           // 先封锁新装配，避免异步收尾期间重新打开旧代码。
           this.#packageReloadRequired.add(packageKey);
-          await this.#resetPlugins(scope);
+          await this.#invalidateInstallations(scope);
           context.signal.throwIfAborted();
         }, context.signal);
         context.progress("正在执行 Pi 包管理操作");
@@ -962,58 +1075,76 @@ export class RepaApplication {
         const view = method === "settings.set"
           ? await this.#configuration.set(input as Params<"settings.set">)
           : await this.#configuration.reset(input as Params<"settings.reset">);
-        if (input.namespace === "plugins") await this.#resetPlugins(input.scope);
-        if (input.namespace === "execution") await this.#execution.refresh();
-        this.#emit({ type: "settings", scope: input.scope, namespace: input.namespace });
+        try {
+          if (input.namespace === "plugins") await this.#refreshInstallations(input.scope);
+          if (input.namespace === "execution") await this.#execution.refresh();
+        } finally {
+          // 保存已经完成；装配失败也必须让订阅者重新读取实际配置。
+          this.#emit({ type: "settings", scope: input.scope, namespace: input.namespace });
+        }
         return view.namespace === "prompts" ? (await this.#readSettings(input.scope, [input.namespace]))[0] : view;
       };
-      return input.namespace === "plugins" ? this.#admission.run(save) : save();
+      if (input.namespace !== "plugins") return save();
+      return this.#admission.run(async () => {
+        this.#assertPluginMaintenance(input.scope);
+        const key = input.scope.kind === "application" ? "application" : input.scope.spaceId;
+        this.#pluginChanges.add(key);
+        try { return await save(); }
+        finally { this.#pluginChanges.delete(key); }
+      });
     }, method !== "settings.get", input.scope.kind === "application" ? undefined : input.scope.spaceId);
   }
 
   previewPrompts(target: SessionKey): Promise<Result<"prompts.preview">> {
     return this.#activity(async () => {
-      this.#checkScope({ kind: "session", ...target });
-      const settings = await this.#readSettings({ kind: "session", ...target }, ["prompts", "runtime", "summaryPrompts", "plugins"]);
-      const plugins = Object.fromEntries(settings[3]!.entries.map(entry => [entry.key, entry.effective])) as PluginSettings;
-      const selected = Object.fromEntries(settings[0]!.entries.map(entry => [entry.key, entry.effective])) as PromptSettings;
-      const runtime = Object.fromEntries(settings[1]!.entries.map(entry => [entry.key, entry.effective])) as RuntimeSettings;
-      const resources = await discoverPluginResources({ cwd: this.#store(target.spaceId).space.path,
-        agentDir: this.#options.agentDir, trusted: this.#options.trustExtensions ?? false, configuration: plugins,
-        bundledPackages: this.#bundledPackages(plugins) });
-      const dynamicTools = [
-        ...resources.bundledPackages.filter(({ registration, package: item }) =>
-          registration.enabled && item.status === "ready" && item.backend?.status === "ready").map(({ registration }) => registration.id),
-        ...this.#backendPlugins.filter(plugin => plugin.enabled && !plugins.disabled.includes(plugin.id)).map(plugin => plugin.id),
-        ...plugins.backends.flatMap(plugin => {
-          if (plugins.disabled.includes(plugin.id)) return [];
-          try {
-            selectBackendEntry(resources, plugin.package, plugins, this.#options.trustExtensions ?? false);
-            return [plugin.id];
-          } catch (error) {
-            if (error instanceof RepaFault) return [];
-            throw error;
-          }
-        }),
-      ];
-      const prompt = await previewPrompt({
-        content: this.#space(target.spaceId).content, agentDir: this.#options.agentDir,
-        backgroundSources: this.#contributions.backgrounds(plugins, { content: this.#space(target.spaceId).content }),
-        trusted: this.#options.trustExtensions ?? false, settings: selected,
-        resourceSettings: snapshotSettings(resources.snapshots, this.#options.trustExtensions ?? false),
-        additionalSkills: resources.additionalSkills, missingPackages: resources.missingPackages,
-        additionalTools: [
-          this.#execution.createTool(this.#store(target.spaceId).space.path, signal => this.#agentExecutionContext(this.#record(target), signal)),
-          ...(!plugins.disabled.includes(SEARCH_PLUGIN_ID) ? SEARCH_TOOLS : []),
-        ],
-        dynamicTools, dynamicExtensions: resources.additionalExtensions.length > 0,
-        ...(runtime.tools ? { tools: runtime.tools } : {}),
+      const { settings, installation } = await this.#admission.run(async () => {
+        this.#checkScope({ kind: "session", ...target });
+        const installation = await this.#installation({ kind: "space", spaceId: target.spaceId });
+        const settings = await this.#readSettings({ kind: "session", ...target }, ["prompts", "runtime", "summaryPrompts", "plugins"]);
+        return { settings, installation };
       });
-      for (const entry of settings[2]!.entries) prompt.sources.push({
-        id: `summary.${entry.key}`, enabled: true,
-        ...(typeof entry.effective === "string" ? { content: entry.effective } : { dynamic: true, reference: "pi.compaction" }),
+      return installation.contributions.use(async () => {
+        const plugins = installation.configuration;
+        const selected = Object.fromEntries(settings[0]!.entries.map(entry => [entry.key, entry.effective])) as PromptSettings;
+        const runtime = Object.fromEntries(settings[1]!.entries.map(entry => [entry.key, entry.effective])) as RuntimeSettings;
+        // 安装格式保持固定；Pi 的资源目录仍在预览时发现，避免把新 Skill 冻结在首次打开空间的快照里。
+        const resources = await discoverPluginResources({ cwd: this.#store(target.spaceId).space.path,
+          agentDir: this.#options.agentDir, trusted: this.#options.trustExtensions ?? false, configuration: plugins,
+          bundledPackages: this.#bundledPackages(plugins) });
+        const dynamicTools = [
+          ...resources.bundledPackages.filter(({ registration, package: item }) =>
+            registration.enabled && item.status === "ready" && item.backend?.status === "ready").map(({ registration }) => registration.id),
+          ...this.#backendPlugins.filter(plugin => plugin.enabled && !plugins.disabled.includes(plugin.id)).map(plugin => plugin.id),
+          ...plugins.backends.flatMap(plugin => {
+            if (plugins.disabled.includes(plugin.id)) return [];
+            try {
+              selectBackendEntry(resources, plugin.package, plugins, this.#options.trustExtensions ?? false);
+              return [plugin.id];
+            } catch (error) {
+              if (error instanceof RepaFault) return [];
+              throw error;
+            }
+          }),
+        ];
+        const prompt = await previewPrompt({
+          content: this.#space(target.spaceId).content, agentDir: this.#options.agentDir,
+          backgroundSources: installation.contributions.backgrounds(plugins, { content: this.#space(target.spaceId).content }),
+          trusted: this.#options.trustExtensions ?? false, settings: selected,
+          resourceSettings: snapshotSettings(resources.snapshots, this.#options.trustExtensions ?? false),
+          additionalSkills: resources.additionalSkills, missingPackages: resources.missingPackages,
+          additionalTools: [
+            this.#execution.createTool(this.#store(target.spaceId).space.path, signal => this.#agentExecutionContext(this.#record(target), signal)),
+            ...(!plugins.disabled.includes(SEARCH_PLUGIN_ID) ? SEARCH_TOOLS : []),
+          ],
+          dynamicTools, dynamicExtensions: resources.additionalExtensions.length > 0,
+          ...(runtime.tools ? { tools: runtime.tools } : {}),
+        });
+        for (const entry of settings[2]!.entries) prompt.sources.push({
+          id: `summary.${entry.key}`, enabled: true,
+          ...(typeof entry.effective === "string" ? { content: entry.effective } : { dynamic: true, reference: "pi.compaction" }),
+        });
+        return { prompt, settings };
       });
-      return { prompt, settings };
     }, false, target.spaceId);
   }
 
@@ -1203,14 +1334,17 @@ export class RepaApplication {
       if (method === "space.operation.get") return this.#spaceOperations.get(p<"space.operation.get">().operationId);
       if (method === "space.restore") return this.#spaceOperations.restore(p<"space.restore">());
       const request = p<"space.copy">();
-      this.#assertSpaceAvailable(request.spaceId);
-      const record = this.#spaces.get(request.spaceId);
-      if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
-      if (record.processing.active || this.#spaceActivities.get(request.spaceId) || [...this.#sessions.values()].some(session =>
-        session.store === record.store && (session.active || session.opening || session.closing || session.deleting)))
-        throw new RepaFault("space_busy", "空间仍有任务或保存正在执行，完成后可生成快照。");
-      record.store.assertOwned();
-      this.#maintenance.add(request.spaceId);
+      const record = await this.#admission.run(async () => {
+        this.#assertSpaceAvailable(request.spaceId);
+        const record = this.#spaces.get(request.spaceId);
+        if (!record) throw new RepaFault("not_found", "学习空间尚未打开。");
+        if (record.processing.active || this.#spaceActivities.get(request.spaceId) || [...this.#sessions.values()].some(session =>
+          session.store === record.store && (session.active || session.opening || session.closing || session.deleting)))
+          throw new RepaFault("space_busy", "空间仍有任务或保存正在执行，完成后可生成快照。");
+        record.store.assertOwned();
+        this.#maintenance.add(request.spaceId);
+        return record;
+      });
       try {
         return await this.#spaceOperations.capture({ ...request, source: record.store.space.path,
           kind: method === "space.backup" ? "backup" : "copy" }, record.content,
@@ -1775,6 +1909,7 @@ export class RepaApplication {
 
   async #openHost(record: SessionRecord, binding?: ModelBinding): Promise<ConversationRuntime> {
     const plugins = await this.#plugins({ kind: "space", spaceId: record.view.spaceId });
+    const installation = await this.#installation({ kind: "space", spaceId: record.view.spaceId });
     const modelOverride = binding ? await this.#models.open(binding)
       : typeof this.#options.modelOverride === "function"
         ? await this.#options.modelOverride(
@@ -1786,7 +1921,7 @@ export class RepaApplication {
       throw new RepaFault("connection_required", "请在 Repa 中选择模型连接；旧请求可选择连接后通过继续操作接续。");
     return record.session.openRuntime({
       content: this.#spaces.get(record.store.space.id)!.content,
-      backgroundSources: this.#contributions.backgrounds(plugins.configuration, {
+      backgroundSources: installation.contributions.backgrounds(plugins.configuration, {
         content: this.#space(record.view.spaceId).content,
         invoke: async (selection, input) => {
           const selected = plugins.capabilities.resolve(selection, { kind: "space", spaceId: record.view.spaceId });

@@ -167,12 +167,28 @@ export class ConfigStore {
 
   /** 一次受理从同一组文件快照取得各命名空间，来源与有效值一起返回。 */
   async getMany(scope: SettingScope, namespaces: readonly string[]): Promise<SettingsView[]> {
+    return this.#getMany(scope, namespaces);
+  }
+
+  /** 空间尚未发布时，从已取得租约的实际目录读取相同的分层配置。 */
+  async getForSpace(spaceId: string, directory: string, namespace: string): Promise<SettingsView> {
+    const scope = { kind: "space" as const, spaceId };
+    const views = await this.#getMany(scope, [namespace], {
+      application: path.join(this.#appDirectory, "repa-settings.json"),
+      space: path.resolve(directory, ".repa", "settings.json"),
+    });
+    const view = views[0];
+    if (!view) throw new RepaFault("configuration", "空间配置视图未能生成。");
+    return view;
+  }
+
+  async #getMany(scope: SettingScope, namespaces: readonly string[], locations?: Locations): Promise<SettingsView[]> {
     for (const namespace of namespaces) {
       checkInput(SettingsGetParamsSchema, { scope, namespace });
       this.#namespace(namespace);
     }
     scope = structuredClone(scope);
-    const files = await this.#read(this.#locations(scope));
+    const files = await this.#read(locations ?? this.#locations(scope));
     return namespaces.map(namespace => this.#view(scope, namespace, files));
   }
 

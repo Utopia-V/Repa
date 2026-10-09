@@ -8,7 +8,7 @@
 
 安装这一部分可以直接使用 Pi 的包管理器。它已经能够管理包来源、版本和安装位置，Repa 复用这套实现。包安装好以后，还需要告诉各个宿主应该加载什么。
 
-这些信息放在包的声明里。原有的 `pi` 字段说明有哪些 Pi 资源，新增的 `repa` 字段说明后台和前端入口。`pi` 中的资源交给 Pi 加载；Repa 读取 `repa`，加载后台代码，并向客户端提供前端入口。每个包只填写实际提供的内容，纯 Skill 包沿用 Pi 的格式即可。
+这些信息放在包的声明里。原有的 `pi` 字段说明有哪些 Pi 资源，`repa` 字段说明后台、安装级贡献、快照和前端入口。`pi` 中的资源交给 Pi 加载；Repa 读取 `repa`，按各入口的责任加载代码，并向客户端提供前端入口。每个包只填写实际提供的内容，纯 Skill 包沿用 Pi 的格式即可。
 
 读取声明时不用执行这些入口。Repa 先展示包的来源、入口和兼容情况，用户据此决定是否信任这个包。取得信任后，Repa 再按用户的启用选择加载相应代码。目前后端已经按这个方式接入，前端的实际加载还需要由客户端实现。
 
@@ -16,13 +16,13 @@
 
 ### 包来源与目录发现
 
-[`PluginPackages`](../../packages/repa/src/plugins/packages.ts) 使用 Pi 0.87.1 的 `DefaultPackageManager` 查找包，再读取包声明和文件状态。来源记录和安装位置都由 Pi 管理，查询时不导入后台、前端或快照模块。
+[`PluginPackages`](../../packages/repa/src/plugins/packages.ts) 使用 Pi 0.87.1 的 `DefaultPackageManager` 查找包，再读取包声明和文件状态。来源记录和安装位置都由 Pi 管理，查询时不导入任何包入口，包括安装级贡献模块。
 
 包目录返回以下信息：
 
 - 来源和作用域：个人安装为 `user`，项目安装为 `project`，随应用提供的包为 `bundled`。
 - 包名、版本、安装位置，以及是否提供 Pi 资源。
-- 后台、快照和前端入口各自的 API 范围、文件位置与可用状态。
+- 后台、安装级贡献、快照和前端入口各自的 API 范围、文件位置与可用状态。
 - 缺失或不兼容的具体原因。
 
 一个包可能有多个入口，需要分别判断它们是否可用。例如前端入口版本不兼容，同包的后台仍可能正常工作。目录中的 `ready` 只表示对应文件和声明可用；是否执行，还取决于信任和启用配置。
@@ -39,6 +39,7 @@
   "repa": {
     "manifestVersion": 1,
     "backend": { "entry": "./backend.js", "api": "^1.0.0" },
+    "contributions": { "entry": "./contributions.js", "api": "^1.0.0" },
     "frontends": [
       { "environment": "web", "entry": "./web.js", "api": "^1.0.0" }
     ]
@@ -116,7 +117,35 @@ const registration: BackendPluginRegistration = {
 
 `formats` 提供同一插件对内容清单字段、引用和文件的解释，交给 `ContentStore.formats` 使用。安装级声明一直保留：禁用插件后，查询与注入停止，历史 codec 仍可过滤已有自动消息，格式仍参与空间复制、备份和引用重映射。重新启用时读取原来的当前数据，而不是重新初始化一份状态。背景来源 ID、历史消息类型、格式 ID 和格式字段均要求唯一。
 
-当前安装级声明由 `ApplicationOptions.plugins` 接入；通过包清单加载同等声明的入口仍待接续。官方学习注册也使用这条管道，登记与默认组合由 `@repa/learning` 的产品入口提供。
+独立分发时，把相同的背景与格式放到 `repa.contributions` 指定的模块中。该模块默认导出 `PluginContributions` 对象，不是后台工厂：
+
+```ts
+import type { PluginContributions } from "repa/plugin";
+import { novelBackground, novelFormat } from "./definitions.js";
+
+export default {
+  backgrounds: [novelBackground],
+  formats: [novelFormat],
+} satisfies PluginContributions;
+```
+
+包通过 `plugins.backends` 取得固定插件身份和唯一来源，或者由产品在 `bundledPackages` 中登记。贡献入口只从这些已登记且受信任的来源加载，不从所有已安装包中自动收集。模块导入仍会执行其顶层代码，因此同样需要本机代码执行信任；“轻量”要求它只提供声明，不在导入时启动后台、打开业务数据库或执行长事务。只使用 ContentStore 的插件也可以提供贡献，不要求先创建 `.repa/plugins/<id>` 数据目录。
+
+每个空间打开时，应用先读取该空间的有效配置、解析贡献来源，再用这份格式集合恢复内容；恢复完成后才发布空间。不同空间可以选择不同来源，同名包有歧义时要求明确来源与作用域。贡献入口的路径和 API 状态与后台、快照分别检查，加载失败记入能力目录的 `issues`，对应格式保持不可用；重复的背景或格式 owner 则拒绝整个装配，避免按加载顺序决定数据含义。
+
+静态预览和实际运行使用同一份安装声明。打开空间、读取包目录或预览背景都不需要执行后台工厂；能力目录、调用或运行需要实际后台定义时，才执行后台工厂，空间资源继续按实际使用打开。官方学习注册继续通过直接登记使用这条共同管道，默认组合由 `@repa/learning` 的产品入口提供。
+
+### 安装声明的配置与失效
+
+已打开空间持有固定的格式解释。关闭后台或改变能力实现选择时，只要解析后的声明来源仍相同，运行实例会重新装配，格式与历史 codec 继续保留。这里比较的是实际来源和入口，而不是设置字段名：产品的 `bundledPackages(configuration)` 也可能因开关变化返回另一份代码目录。
+
+如果配置增删或更换了声明来源，或者撤回了它的执行信任，该空间需要重启后端才能重新装配。应用先停止新的背景使用，等待已经开始的准备和预览收尾；旧异步结果不再作为当前背景返回。内容则使用自己的保存队列作为边界：此前已经受理的保存和复制完成以后，旧格式失效，后续依赖它的 metadata、引用校验和复制返回 `plugin_restart_required`。固定 schema 下的普通正文读取和资源回收继续可用，设置与包目录也仍可查询和修正。
+
+这种处理不在一次事务中混用两份解释器，也不试图回滚已受理的保存。来源变化只阻止受影响空间的旧声明继续使用；个人安装的包代码变更仍沿应用范围要求重启。空间正在生成快照时，受影响范围的插件设置和包准备返回 `space_busy`，完成后再执行。开始打开空间与这些设置、准备操作使用同一受理顺序，避免一份旧声明在撤权后才完成发布。
+
+如果设置已经保存而后续装配失败，应用保留实际设置、发送设置变更通知，并使受影响的旧声明失效。此时按错误重新读取配置、修正后重启；失败不会被解释成设置已经回滚。
+
+固定的是安装声明，不是 Pi 的全部资源目录。Skill 和提示资源仍在预览或运行装配时重新发现。上述排空和失效由管理 API 协调；如果绕过它直接修改后台、贡献或快照的来源、入口及代码，需要自行重启后端。应用不监视这些手动修改，也不把它们当作已经完成的代码交接。
 
 ### 禁用后的持久数据快照
 
@@ -174,7 +203,7 @@ Pi 0.87.1 解析本地包时，如果找不到 `pi` 声明和约定的资源目�
 
 负责持久化的 `SettingsManager` 读写完整设置，交给包执行器的则是本次获准使用的部分。例如，用户可以明确允许管理某个项目的包，而不信任项目中的 `npmCommand` 等执行配置。这些配置不会交给 SDK；操作结束后，也只保存所选作用域的包字段，保留其他设置。
 
-改包前，Application 先封锁受影响范围的新装配，取消相关工作，等待调用结束并关闭实例，再执行 SDK 包管理。同一个 user 或 project 安装根内的操作串行执行，避免包目录和 SDK 设置相互覆盖；下载与安装不占用应用的通用受理队列。因此，你在一个空间安装包时，仍可在另一个空间开始会话或安装它自己的包。
+改包前，Application 先封锁受影响范围的新装配，取消相关工作，等待调用、背景预览和格式队列结束并关闭实例，再执行 SDK 包管理。某个后台打开失败时，也会等待其他正在打开的后台并关闭成功实例，之后统一报告失败；失败不会让迟到的旧装配脱离这条收尾链。同一个 user 或 project 安装根内的操作串行执行，避免包目录和 SDK 设置相互覆盖；下载与安装不占用应用的通用受理队列。因此，你在一个空间安装包时，仍可在另一个空间开始会话或安装它自己的包。
 
 Pi 0.87.1 没有安装、更新操作的中途取消入口。已经进入 SDK 操作后，`request.cancel` 不能停止或撤销这次安装，应用退出也要等它完成并检查保存结果。上游若补充取消支持，再核对中止后文件与配置的实际状态并接入。
 
@@ -194,7 +223,6 @@ Application 在进入包变更准备时就标记受影响范围需要重启，�
 
 | 项目 | 当前状态与影响 | 后续工作 |
 | --- | --- | --- |
-| 包清单中的安装级背景与格式声明 | 当前由 `ApplicationOptions.plugins` 接入；动态包加载只提供运行后台与独立快照，不能从后台工厂获取禁用时所需的轻量声明 | 接续安装级入口设计后，使包加载与直接登记使用同一声明 |
 | 前端入口的实际加载与使用 | 待前端接入。后端已返回入口位置、执行环境、API 范围和可用状态，官方界面尚未消费这些入口 | 由 [#10](https://github.com/Utopia-V/repa/issues/10)实现组件加载及生命周期，再用真实组件验证启停与接口匹配 |
 
 代码更新后的进程重启是当前明确选择的策略。安装期间无法中止则是当前 Pi API 的限制，处理方式与升级核对要求见上节。
@@ -218,3 +246,7 @@ node --import tsx --import ./test/environment.ts --test test/plugin-packages.tes
 [plugin-resources.test.ts](../../packages/repa/test/plugin-resources.test.ts) 验证应用侧信任、项目资源过滤和预览；[plugin-api.test.ts](../../packages/repa/test/plugin-api.test.ts) 通过公开客户端验证包管理、结果持久化、请求记录的独占访问及重启要求，也检查跨空间会话与包安装、同范围串行以及排空退出。测试在 Linux、Node 24.19 与 Pi 0.87.1 上进行，使用临时本地包和 Git 仓库。
 
 [plugin-backgrounds.test.ts](../../packages/repa/test/plugin-backgrounds.test.ts) 使用小说设定夹具，通过公共应用接口与真实 Pi 的 faux provider 验证两个领域同时提供背景、独立关闭、重启及新会话接续、准备失败和取消。静态与动态预览检查后台工厂调用次数，禁用后复制检查格式引用重映射；既有背景测试继续覆盖压缩、计量与分支。
+
+[plugin-contributions.test.ts](../../packages/repa/test/plugin-contributions.test.ts) 核对真实轻量模块的选择、信任、禁用保留、独立状态、坏声明及 owner 冲突；[content-format-lifecycle.test.ts](../../packages/repa/test/content-format-lifecycle.test.ts) 检查固定格式、队列失效边界、普通读取与业务重传。动态包的公开接口接续由 [plugin-installation-api.test.ts](../../packages/repa/test/plugin-installation-api.test.ts) 覆盖，后台与背景的失效收尾另由对应生命周期测试核对。
+
+[plugin-installation-process.test.ts](../../packages/repa/test/plugin-installation-process.test.ts) 使用编译后的公共入口启动独立 Node 后端，经过真实 Pi 本地包更新准备，确认旧工作排空、旧格式停止调用，以及退出旧进程后新进程实际读取另一版传递依赖。依赖文件由测试受控修改，SDK 操作负责触发准备与重启流程；这项测试不声称验证了远端下载或所有包管理器的更新行为。[plugin-installation-coordination.test.ts](../../packages/repa/test/plugin-installation-coordination.test.ts) 另核对快照维护窗口与多空间刷新失败后的统一失效。

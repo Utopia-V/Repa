@@ -178,6 +178,7 @@ export async function inspectPluginPackage(configured: Pick<PluginPackage, "sour
   item.manifestVersion = 1;
   if (manifest.repa.backend) item.backend = await inspectEntry(directory, manifest.repa.backend, item.issues);
   if (manifest.repa.snapshot) item.snapshot = await inspectEntry(directory, manifest.repa.snapshot, item.issues);
+  if (manifest.repa.contributions) item.contributions = await inspectEntry(directory, manifest.repa.contributions, item.issues);
   item.frontends = await Promise.all((manifest.repa.frontends ?? []).map(async (frontend) => ({
     ...await inspectEntry(directory, frontend, item.issues), environment: frontend.environment,
   })));

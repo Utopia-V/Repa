@@ -70,11 +70,15 @@ export interface BackendPlugin<Services extends object = object, SpaceRuntime = 
 export type BackendPluginFactory = () => BackendPlugin | Promise<BackendPlugin>;
 
 /** 安装级声明不执行后台工厂，关闭能力时仍能识别历史与持久数据。 */
-export interface BackendPluginRegistration {
-  id: string;
-  enabled: boolean;
+/** 安装级轻量声明；独立于运行能力工厂和空间运行时。 */
+export interface PluginContributions {
   backgrounds?: readonly CapabilityBackground[];
   formats?: readonly ContentFormat[];
+}
+
+export interface BackendPluginRegistration extends PluginContributions {
+  id: string;
+  enabled: boolean;
   factory: BackendPluginFactory;
   /** 安装时提供的轻量持久 owner；禁用运行能力后仍可参与空间快照。 */
   snapshot?: SpaceSnapshotParticipant;

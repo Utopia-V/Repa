@@ -139,9 +139,18 @@ export class ContentStore {
   readonly journal: FileJournal;
   readonly retention: ResourceRetention;
   readonly queue = new SerialQueue();
+  readonly #formats: readonly ContentFormat[];
+  #formatsInvalid = false;
   #catalog = emptyCatalog();
   #catalogHash: string | null = null;
   private constructor(readonly options: ContentStoreOptions, directory: string) {
+    this.#formats = (options.formats ?? []).map(format => ({
+      id: format.id, field: format.field, default: format.default, schema: format.schema,
+      references: format.references.bind(format),
+      files: format.files.bind(format),
+      remapMetadata: format.remapMetadata.bind(format),
+      remapFile: format.remapFile.bind(format),
+    }));
     this.blobs = new BlobStore(path.join(directory, "blobs"));
     this.journal = new FileJournal(options.root, path.join(directory, "operations"), this.blobs);
     this.retention = new ResourceRetention(options.spaceId, this.blobs, path.join(directory, "resources.json"), options);
@@ -153,7 +162,7 @@ export class ContentStore {
     const store = new ContentStore(options, directory);
     await store.blobs.open();
     await store.journal.open();
-    const formats = options.formats ?? [];
+    const formats = store.#formats;
     if (new Set(formats.map(format => format.id)).size !== formats.length ||
       new Set(formats.map(format => format.field)).size !== formats.length ||
       formats.some(format => ["version", "items", "__proto__", "constructor", "prototype"].includes(format.field) || !format.id || !format.field || !Check(format.schema, format.default)))
@@ -233,9 +242,10 @@ export class ContentStore {
         else this.#absolute(member.target.location);
       }
     }
-    for (const format of this.options.formats ?? []) {
+    for (const format of this.#formats) {
       const value = formatValue(catalog, format);
       if (!Check(format.schema, value)) throw new RepaFault("invalid_storage", `持久格式 ${format.id} 的关系数据无效。`);
+      this.#assertFormatsAvailable();
       for (const ref of format.references(value)) this.#record({ kind: "content", ref }, catalog);
     }
   }
@@ -340,7 +350,7 @@ export class ContentStore {
       throw new RepaFault("revision_conflict", "内容已发生变化，请比较当前版本后保存。", { expected: base, actual: current });
   }
   #emptyCatalog(): Catalog {
-    return emptyCatalog(Object.fromEntries((this.options.formats ?? []).map(format => [format.field, clone(format.default)])));
+    return emptyCatalog(Object.fromEntries(this.#formats.map(format => [format.field, clone(format.default)])));
   }
   async #reload(): Promise<void> {
     try {
@@ -348,7 +358,7 @@ export class ContentStore {
       const raw: unknown = JSON.parse(bytes);
       if (!Check(CatalogSchema, raw) || Object.entries(raw.items).some(([id, value]) => id !== value.id))
         throw new RepaFault("invalid_storage", "内容清单格式无效，原文件保持不变。");
-      for (const format of this.options.formats ?? []) {
+      for (const format of this.#formats) {
         if (!Check(format.schema, formatValue(raw, format))) throw new RepaFault("invalid_storage", `持久格式 ${format.id} 的关系数据无效。`);
       }
       this.#catalog = raw;
@@ -858,7 +868,8 @@ export class ContentStore {
         let after = node.image;
         if (kind === "copy" && after.kind === "file") {
           let bytes = await this.blobs.get(after.hash);
-          const formats = (this.options.formats ?? []).filter(format => format.files(formatValue(plan.before, format)).some(ref => ref.id === node.record?.id));
+          this.#assertFormatsAvailable();
+          const formats = this.#formats.filter(format => format.files(formatValue(plan.before, format)).some(ref => ref.id === node.record?.id));
           for (const format of formats) bytes = format.remapFile(bytes, mapping);
           if (formats.length === 0 && mediaType(node.path) === "text/markdown" && ids.size) {
             let text: string;
@@ -1004,16 +1015,28 @@ export class ContentStore {
 
   capture(destinationRoot: string, targetSpaceId: string): Promise<FileLocation[]> {
     return this.queue.run(async () => {
+      this.#assertFormatsAvailable();
       this.options.assertOwned(); await this.#reload();
       return captureContent({ destinationRoot, targetSpaceId, sourceSpaceId: this.options.spaceId,
         currentCatalog: this.#catalog, journal: this.journal, sourceBlobs: this.blobs,
-        retained: this.retention, roots: await this.#resourceRoots(), formats: this.options.formats ?? [] });
+        retained: this.retention, roots: await this.#resourceRoots(), formats: this.#formats });
     });
   }
 
+  /** 先前受理的内容工作保留完整格式；失效之后不再调用这份代码的关系解释器。 */
+  invalidateFormats(): Promise<void> {
+    return this.queue.run(async () => { this.#formatsInvalid = true; });
+  }
+
+  #assertFormatsAvailable(): void {
+    if (this.#formatsInvalid && this.#formats.length)
+      throw new RepaFault("plugin_restart_required", "持久格式代码已经失效，请重启后端后继续解释关系。");
+  }
+
   #format(field: string): ContentFormat {
-    const format = this.options.formats?.find(format => format.field === field);
+    const format = this.#formats.find(format => format.field === field);
     if (!format) throw new RepaFault("content_format_unavailable", "该持久关系格式尚未安装。", { field });
+    this.#assertFormatsAvailable();
     return format;
   }
 
@@ -1056,10 +1079,10 @@ export class ContentStore {
     field: string; value: unknown; base: string; operationId: string; request: unknown;
   }): Promise<ContentChangeResult> {
     const input = clone(params);
-    const format = this.#format(input.field);
-    if (!Check(format.schema, input.value)) throw new RepaFault("invalid_input", "持久关系值格式无效。");
     // request 只保留所属能力既有操作的去重形状；不开放文件计划或另建事务。
     return this.#mutate(input.operationId, input.request, async (plan) => {
+      const format = this.#format(input.field);
+      if (!Check(format.schema, input.value)) throw new RepaFault("invalid_input", "持久关系值格式无效。");
       if (digest(canonicalJson(formatValue(plan.catalog, format))) !== input.base)
         throw new RepaFault("revision_conflict", "持久关系已经改变。");
       for (const ref of format.references(input.value)) {

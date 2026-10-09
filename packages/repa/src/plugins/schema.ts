@@ -11,6 +11,7 @@ export const PluginManifestSchema = object({
   manifestVersion: Type.Literal(1),
   backend: Type.Optional(PluginEntrySchema),
   snapshot: Type.Optional(PluginEntrySchema),
+  contributions: Type.Optional(PluginEntrySchema),
   frontends: Type.Optional(Type.Array(PluginFrontendSchema)),
 });
 export type PluginManifest = Static<typeof PluginManifestSchema>;
@@ -36,6 +37,7 @@ export const PluginPackageSchema = object({
   piResources: Type.Boolean(),
   backend: Type.Optional(object(resolvedEntry)),
   snapshot: Type.Optional(object(resolvedEntry)),
+  contributions: Type.Optional(object(resolvedEntry)),
   frontends: Type.Array(object({ ...resolvedEntry, environment: text })),
   issues: Type.Array(PluginIssueSchema),
 });
