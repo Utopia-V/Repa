@@ -93,6 +93,10 @@ export type ContentOperation = Static<typeof ContentOperationSchema>;
 export const ContentPatchInputSchema = object({
   operationId: id,
   patch: Type.String(),
+  bases: Type.Optional(Type.Array(object({
+    target: ContentTargetSchema,
+    base: WriteBaseSchema,
+  }))),
   registrations: Type.Optional(Type.Array(object({
     path: Type.String({ minLength: 1 }),
     role: ContentRoleSchema,

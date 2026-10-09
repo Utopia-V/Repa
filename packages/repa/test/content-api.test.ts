@@ -173,3 +173,25 @@ test("空间内外部编辑触发查询失效，文件保存不启动 Agent", as
   assert.equal((await f.client.readText(f.target("external-edit.md"))).text, "外部编辑器保存");
   assert.equal((await f.client.call("session.list", { spaceId: f.space.id })).length, 0);
 });
+
+
+test("公共补丁入口接收正文基准，过期基准阻止整个补丁保存", async (t) => {
+  const f = await fixture(t);
+  await f.client.call("content.write", { target: f.target("note.md"), base: { kind: "absent" }, operationId: randomUUID(), value: { kind: "text", text: "旧\n尾\n" } });
+  const observed = await f.client.readText(f.target("note.md"));
+  const first = await f.client.call("content.applyPatch", {
+    spaceId: f.space.id, operationId: randomUUID(),
+    patch: "*** Begin Patch\n*** Update File: note.md\n@@\n-旧\n+新\n*** Add File: added.md\n+新增\n*** End Patch",
+    bases: [{ target: observed.content.target, base: observed.content.bodyRevision! }, { target: f.target("added.md"), base: { kind: "absent" } }],
+  });
+  assert.equal(first.changes.length, 2);
+  const saved = await f.client.readText(f.target("note.md"));
+  await f.client.call("content.write", { target: saved.content.target, base: saved.content.bodyRevision!, operationId: randomUUID(), value: { kind: "text", text: "新\n其他\n" } });
+  await assert.rejects(f.client.call("content.applyPatch", {
+    spaceId: f.space.id, operationId: randomUUID(),
+    patch: "*** Begin Patch\n*** Update File: note.md\n@@\n-新\n+末\n*** Add File: blocked.md\n+不能保存\n*** End Patch",
+    bases: [{ target: saved.content.target, base: saved.content.bodyRevision! }],
+  }), code("revision_conflict"));
+  assert.equal((await f.client.readText(f.target("note.md"))).text, "新\n其他\n");
+  assert.equal((await f.client.call("content.get", { target: f.target("blocked.md") })).status, "missing");
+});

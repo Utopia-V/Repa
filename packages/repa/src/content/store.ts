@@ -18,6 +18,7 @@ import { formatValue, type ContentFormat } from "./formats.js";
 import { ResourceRetention, type ResourceRetentionOptions } from "./resources.js";
 import { mapReference, remapMarkdown } from "./references.js";
 import {
+  ContentPatchInputSchema,
   type ContentInfo, type ContentRead, type ContentRef, type ContentTarget,
   type ContentValue, type ContentChangeResult, type ContentOperation,
   type ContentPatchInput, type FileLocation, type ContentOrigin,
@@ -600,7 +601,27 @@ export class ContentStore {
   applyPatch(params: ContentPatchInput): Promise<ContentChangeResult> {
     const input = clone(params);
     return this.#mutate(input.operationId, { method: "patch", ...input }, async (plan) => {
+      if (input.bases !== undefined && !Check(ContentPatchInputSchema.properties.bases, input.bases))
+        throw new RepaFault("invalid_input", "补丁正文基准无效。");
+      const bases = new Map<string, WriteBase>();
+      for (const { target, base } of input.bases ?? []) {
+        const record = this.#record(target, plan.before);
+        if (record && record.state !== "active") throw new RepaFault("not_found", "正文基准对应的内容已经移除。");
+        const location = target.kind === "file" ? target.location : record?.location;
+        if (!location) throw new RepaFault("not_found", "正文基准对应的内容不存在。");
+        const absolute = await this.#checkPath(this.#absolute(location), true);
+        this.#assertStructure({ path: absolute, image: absent, ...(record ? { record } : {}) });
+        if (bases.has(absolute)) throw new RepaFault("invalid_input", "同一补丁重复指定文件的正文基准。");
+        bases.set(absolute, base);
+      }
       await this.#preparePatch(plan, input.patch);
+      for (const [absolute, base] of bases) {
+        const file = plan.files.get(path.relative(this.options.root, absolute));
+        if (!file || sameImage(file.before, file.after))
+          throw new RepaFault("invalid_input", "正文基准只能用于本补丁实际修改的文件。");
+        // 以实际用于准备修改的字节检查基准，避免检查后再次读取另一版正文。
+        this.#checkBase({ path: absolute, image: file.before }, base, true);
+      }
       const registrations = [];
       for (const registration of input.registrations ?? []) {
         const target: ContentTarget = { kind: "file", spaceId: this.options.spaceId,

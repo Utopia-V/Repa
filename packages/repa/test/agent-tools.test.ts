@@ -90,7 +90,11 @@ test("Pi 分页读取提供正文修订，部分观察足够保护覆盖与连�
   await writeFile(f.file("notes.md"), "first\nsecond\nthird");
   await assert.rejects(f.call("write", { path: "notes.md", content: "blind" }), code("read_required"));
   const read = await f.call("read", { path: "notes.md", limit: 1 });
-  assert.match(textOf(read), /^first\n\n\[2 more lines in file\. Use offset=2 to continue\.\]$/);
+  assert.deepEqual(read.content[0], { type: "text", text: "first\n\n[2 more lines in file. Use offset=2 to continue.]" });
+  assert.deepEqual(read.content[1], {
+    type: "text",
+    text: `[Repa content snapshot: ${JSON.stringify({ target: read.details.content.target, bodyRevision: digest("first\nsecond\nthird") })}]`,
+  });
   assert.equal(read.details.bodyRevision, digest("first\nsecond\nthird"));
   const first = await f.call("write", { path: "notes.md", content: "保存一次\r\n" });
   const second = await f.call("write", { path: "notes.md", content: "保存两次\r\n" });
@@ -125,6 +129,8 @@ test("read 的格式化使用同一份快照，外部写入不会被更新后的
   assert.equal(reads, 1);
   assert.match(textOf(result), /^observed\n/);
   assert.equal(result.details.bodyRevision, digest("observed\nsecond"));
+  assert.match(textOf(result), new RegExp(digest("observed\nsecond")));
+  assert.doesNotMatch(textOf(result), new RegExp(digest("external\nsecond")));
   await assert.rejects(f.call("write", { path: "notes.md", content: "overwrite" }), code("revision_conflict"));
   assert.equal(await readFile(f.file("notes.md"), "utf8"), "external\nsecond");
 });
@@ -185,7 +191,7 @@ test("只启用四个内容工具，skill 外部授权只用于读取且随启�
   await writeFile(path.join(f.skill, "SKILL.md"), "enabled skill");
   const outside = path.join(f.temporary, "private.txt");
   await writeFile(outside, "outside");
-  assert.equal(textOf(await f.call("read", { path: path.join(f.skill, "SKILL.md") })), "enabled skill");
+  assert.deepEqual((await f.call("read", { path: path.join(f.skill, "SKILL.md") })).content[0], { type: "text", text: "enabled skill" });
   await assert.rejects(f.call("read", { path: outside }), code("permission_required"));
   await assert.rejects(f.call("write", { path: path.join(f.skill, "SKILL.md"), content: "changed" }), code("permission_required"));
   await assert.rejects(f.call("edit", { path: outside, edits: [{ oldText: "outside", newText: "changed" }] }), code("permission_required"));
@@ -266,4 +272,26 @@ test("差异预览失败不把已经提交的编辑改报为保存失败", async
   assert.equal(saved.details.bodyRevision, digest("new"));
   assert.equal((await f.store.operation(saved.details.operationId)).status, "committed");
   assert.equal(await readFile(f.file("notes.md"), "utf8"), "new");
+});
+
+
+test("apply_patch 工具公开并透传正文基准，冲突不保存其他文件", async (t) => {
+  const f = await fixture(t);
+  await writeFile(f.file("note.md"), "旧\n尾\n");
+  const observed = await f.store.get(f.store.target("note.md"));
+  const parameters = {
+    patch: "*** Begin Patch\n*** Update File: note.md\n@@\n-旧\n+新\n*** End Patch",
+    bases: [{ target: observed.target, base: observed.bodyRevision! }],
+  };
+  const tool = f.tools.find(tool => tool.name === "apply_patch")!;
+  assert(Check(tool.parameters, parameters));
+  assert(!Check(tool.parameters, { ...parameters, bases: [{ target: observed.target, base: null }] }));
+  await f.call("apply_patch", parameters);
+  assert.equal(await readFile(f.file("note.md"), "utf8"), "新\n尾\n");
+  await assert.rejects(f.call("apply_patch", {
+    ...parameters,
+    patch: "*** Begin Patch\n*** Update File: note.md\n@@\n-新\n+末\n*** Add File: blocked.md\n+不能保存\n*** End Patch",
+  }), code("revision_conflict"));
+  assert.equal(await readFile(f.file("note.md"), "utf8"), "新\n尾\n");
+  assert.equal((await f.store.get(f.store.target("blocked.md"))).status, "missing");
 });

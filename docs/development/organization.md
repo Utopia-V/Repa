@@ -10,7 +10,9 @@
 
 如果你想改变整理方法，可以修改 Skill。保存中断或需要撤回时，则使用已有的内容操作。方法和保存各有明确入口，整理包只需提供前者，不必再维护一套业务数据库和恢复记录。
 
-## 为什么没有独立整理服务
+## 实现细节
+
+### 为什么没有独立整理服务
 
 `ContentStore` 已经能够在一次保存中准备文件和内容清单，由 `FileJournal` 记录准备、提交与恢复。这里扩展已有保存入口，让新身份和明确的组成变化也能参加同一次操作。
 
@@ -21,12 +23,13 @@
 
 包只声明 `pi.skills`，没有空的 backend 工厂、业务数据库或快照 participant。它沿用 Pi 包资源选择与 Repa 信任配置；不加载该 Skill 不会卸掉基础内容操作。官方默认注册项 `repa-organization` 可通过 `plugins.disabled` 关闭；单独安装的版本可移除包选择或使用 Pi 包级 Skill 过滤，完整接入见[插件装配](plugins.md)与[默认组合](official-learning.md)。
 
-## 一次确定的结构修改
+### 一次确定的结构修改
 
-`content.applyPatch` 与 `apply_patch` 共用 [ContentPatchInputSchema](../../packages/repa/src/content/schema.ts)。公共客户端填写 `spaceId/operationId`，模型工具由适配层填写这些程序信息。
+`content.applyPatch` 与 `apply_patch` 共用 [ContentPatchInputSchema](../../packages/repa/src/content/schema.ts)。公共客户端填写顶层 `spaceId/operationId`；模型工具使用当前空间，并由适配层生成 `operationId`。嵌套的 `target/ref` 沿用读取或查询结果中的完整引用。
 
 | 可选输入 | 含义 |
 | --- | --- |
+| `bases` | 为本次实际修改的文件提供所观察的正文基准，规则见[正文与结构的同次保存](content.md#同次保存正文与结构) |
 | `registrations` | 给空间内现有文件、补丁新文件或其目录登记身份；可给新对象初始 `members/resources` |
 | `registrations[].id` | 明确的新内容标识，便于同一补丁写入稳定引用；省略时由保存入口生成 |
 | `compositions` | 用 `{ ref, base, members, resources }` 更新已有内容的普通组成 |
@@ -43,7 +46,7 @@
 
 所有效果进入同一次 `FileJournal.commit`，复用原有重传、恢复、撤回与资源保留。这里提供统一提交与可恢复的多文件保存，外部文件系统读者仍可能看到中间状态。旧 patch-only 请求与旧 RPC 透传的 `spaceId` 保持原去重形状，可选字段不补空数组。完整规则见[内容保存](content.md#同次保存正文与结构)。
 
-## 模型可见的查询与结果
+### 模型可见的查询与结果
 
 Pi 把工具的 `content` 交给模型，`details` 用于日志和界面。模型要继续修改文档，就需要在工具正文中读到内容身份、修改基准和操作状态，因此这些信息也进入可见的文本结果。
 
@@ -51,9 +54,10 @@ Pi 把工具的 `content` 交给模型，`details` 用于日志和界面。模�
 
 | 工具 | 模型实际取得或提交的内容 |
 | --- | --- |
-| `read/edit/write` | 正文读取、局部修改与按观察基准保存，继续复用 Pi 的适用参数和展示 |
+| `read` | Pi 正文／图像结果，以及另附的 `Repa content snapshot` 文本；后者提供 `target/bodyRevision`，可直接用于补丁正文基准 |
+| `edit/write` | 局部修改与按观察基准保存，继续复用 Pi 的适用参数和展示 |
 | `content_info` | 指定路径或稳定引用的身份、结构版本、组成与可用状态；不读取正文 |
-| `apply_patch` | 明确的正文差异与可选结构变化；操作标识由适配层生成 |
+| `apply_patch` | 明确的正文差异、可选正文基准与结构变化；操作标识由适配层生成 |
 | `content_operation` | 按结果中的标识查询实际状态，或通过 `undo` 建立新的逆向保存 |
 | `get_learning_context` | 当前绑定及其修改基准 |
 | `set_learning_context` | 使用该基准选择本空间的文档／组成根，或清空绑定 |
@@ -63,7 +67,7 @@ Pi 把工具的 `content` 交给模型，`details` 用于日志和界面。模�
 
 共享能力可通过 `tool.input` 映射窄工具参数，原公共契约和处理函数不变。学习绑定与复习修改均使用此接入，模型不负责生成程序操作标识。绑定保存的 Agent 失败路径也提供操作标识，公共 RPC 错误与既有去重输入保持原样。
 
-## 学习清单与普通组成
+### 学习清单与普通组成
 
 一般多文件内容的 `members/resources` 属于内容清单。学习语境的有序 `items` 则是被绑定 JSON 文档的正文，由学习能力解释展开、引用和分组。编辑已有学习清单可以和拆分文件一起进入补丁，不需要更换根绑定。
 

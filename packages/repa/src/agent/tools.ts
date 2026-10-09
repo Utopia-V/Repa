@@ -125,7 +125,7 @@ export async function createContentTools(
   };
   const read: ToolDefinition<typeof safeRead.parameters, any> = {
     ...safeRead,
-    description: `${safeRead.description} Also accepts repa:document/<id>, repa:material/<id>, and repa:resource/<sha256> references. Resource references read immutable text such as complete command output in the current space, with the same offset/limit pagination. Reads space content and resources of currently enabled skills.`,
+    description: `${safeRead.description} Also accepts repa:document/<id>, repa:material/<id>, and repa:resource/<sha256> references. File reads append a Repa content snapshot with target and bodyRevision for apply_patch.bases; this metadata is not file content. The revision covers the complete observed file, including when only a page is shown. Resource references read immutable text such as complete command output in the current space, with the same offset/limit pagination. Reads space content and resources of currently enabled skills.`,
     executionMode: "sequential",
     async execute(callId, parameters, signal, onUpdate, ctx) {
       checkCancelled(signal);
@@ -176,6 +176,10 @@ export async function createContentTools(
       observer?.recordRead(snapshot.content, snapshot.bytes, fullRange && !result.details?.truncation?.truncated);
       return {
         ...result,
+        content: [...result.content, {
+          type: "text",
+          text: `[Repa content snapshot: ${JSON.stringify({ target: snapshot.content.target, bodyRevision: snapshot.content.bodyRevision })}]`,
+        }],
         details: { ...result.details, path: parameters.path, content: snapshot.content, bodyRevision: snapshot.content.bodyRevision },
       };
     },
@@ -258,7 +262,7 @@ export async function createContentTools(
   const patch: ToolDefinition<typeof patchParameters, any> = {
     name: "apply_patch",
     label: "apply_patch",
-    description: "Apply a patch enclosed by *** Begin Patch and *** End Patch, using Add File, Delete File, Update File, Move to, and @@ context hunks. Saves related file edits in one content operation. Optional registrations assign new content identities, with explicit ids when the same patch refers to them; compositions update existing content membership using its observed structure base from content_info. Known references and registered composition files are ordinary patch text. Include enough unchanged context to identify each edit uniquely; unchanged text and line endings are preserved.",
+    description: "Apply a patch enclosed by *** Begin Patch and *** End Patch, using Add File, Delete File, Update File, Move to, and @@ context hunks. Saves related file edits in one content operation. Optional bases guard the complete prior body of files actually changed by this patch: use the target and bodyRevision from read's Repa content snapshot as {target, base: bodyRevision}, or {kind: 'absent'} as base for a new location. For moves, source bases refer to the pre-move location. Unchanged files cannot be used as read guards. Optional registrations assign new content identities, with explicit ids when the same patch refers to them; compositions update existing content membership using its observed structure base from content_info. Known references and registered composition files are ordinary patch text. Include enough unchanged context to identify each edit uniquely; unchanged text and line endings are preserved.",
     promptSnippet: "Apply focused patches, including related changes across multiple files",
     parameters: patchParameters,
     executionMode: "sequential",

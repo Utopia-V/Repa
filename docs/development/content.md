@@ -2,15 +2,19 @@
 
 `ContentStore` 是一个学习空间中正文、身份和内容关系的共同修改入口。前端通过应用协议调用，Agent 通过常规 `read`、`edit`、`write`、`apply_patch` 工具调用。两条路径都经过同一个实例和串行队列；模型不填写 `operationId`。
 
+## 设计思路
+
 这些接口对应三种不同意图：`edit` 根据当前内容中的明确片段做局部替换；`write` 用所观察版本保护整篇保存；`apply_patch` 让一组已经确定的文件变化共同保存。局部修改无需先读取全文，保存也不会自动启动 Agent。选择这些行为的原因、复用 Pi 的边界和维护代价见 [ADR 0003 的编辑与保存](../adr/0003-share-file-based-content-operations.md#编辑与保存)。
 
-## 目标与版本
+## 实现细节
+
+### 目标与版本
 
 普通文件通过 `ContentTarget.kind = "file"` 和空间内路径访问，读取不会自动登记身份。需要持续引用时，`content.associate` 建立 `ContentRef`，区分 `document` 与 `material`。`content.get` 返回解析后的身份、位置和可用状态；移动更新位置，已删除或解除关联的身份不会指向后来占用同一路径的新文件。URL 是材料来源而不是文件目标；从网络取得原件后，先把字节保存为空间文件，再登记身份和来源。
 
 | 字段 | 所属对象与用途 |
 | --- | --- |
-| `ContentInfo.bodyRevision` | 实际文件字节的版本；`content.write.base`、删除正文的 `content.remove.base` 和分页读取的 `revision` 使用它 |
+| `ContentInfo.bodyRevision` | 实际文件字节的版本；`content.write.base`、`content.applyPatch.bases[].base`、删除正文的 `content.remove.base` 和分页读取的 `revision` 使用它 |
 | `ContentInfo.revision` | 已登记内容的身份、位置、状态与组成版本；`content.relink`、`content.setComposition`、`content.move/copy`、`material.collect` 和解除材料关联的 `content.remove.base` 使用它。普通文件的该字段同时反映字节与位置 |
 | `ContextState.revision` | `@repa/learning` 的语境绑定版本；领域客户端 `callLearning(..., "context.set", ...)` 的 `base` 使用它 |
 | 内容订阅事件的 `revision` | 当前后端的查询失效标识；不能作为文件保存基准或持久历史版本 |
@@ -19,7 +23,7 @@
 
 整篇写入检查 `bodyRevision`，新增文件使用 `{ kind: "absent" }`。精确 `edit` 在当前内容中定位唯一文本片段；补丁使用 `*** Begin Patch` 格式，支持增加、删除、修改和移动。定位用的宽松空白与标点比较不会改写未涉及的字符或换行。
 
-## 客户端保存示例
+### 客户端保存示例
 
 ```ts
 const target = {
@@ -29,10 +33,11 @@ const target = {
 };
 
 const opened = await client.readText(target);
+if (!opened.content.bodyRevision) throw new Error("未取得正文保存基准");
 const operationId = crypto.randomUUID();
 const result = await client.call("content.write", {
   target: opened.content.target,
-  base: opened.content.bodyRevision!,
+  base: opened.content.bodyRevision,
   value: { kind: "text", text: editedText },
   operationId,
 });
@@ -46,19 +51,39 @@ const result = await client.call("content.write", {
 
 当前内容方法还包括 `content.list/get/read/edit/applyPatch/associate/relink/remove/setComposition/move/copy`、`material.collect`，以及 `operation.get/undo/reconcile/prune`。学习语境通过 `@repa/learning/client` 的 `callLearning` 调用独立的 `repa.context.*` 能力，见[学习语境](learning.md#当前模块与接口)。内容参数、返回值和运行时校验来自 [内容协议](../../packages/repa/src/content/protocol.ts)。文本／历史检索及本地材料表示见[搜索与材料](search-materials.md)。
 
-## 同次保存正文与结构
+### 同次保存正文与结构
 
 拆出一份新文档时，除了写文件，还可能需要为它建立身份，修改正文引用和组成关系。`content.applyPatch` 可以把这些变化放在同一项操作中保存。
 
 `registrations` 为已有文件、本次补丁的新文件或目录登记身份，也可提供 `origin` 及初始 `members/resources`。显式给出的 `id` 能被同一补丁引用，省略时由保存入口生成。所有新身份建立后，再解释初始组成。修改已有对象的组成，则通过 `compositions` 提交 `{ ref, base, members, resources }`。
 
+如果这组变化还依赖你先前读到的正文，可以同时提交 `bases: [{ target, base }]`。这里的 `base` 使用读取结果的 `bodyRevision`，新增位置则使用 `{ kind: "absent" }`。例如，已经读取的 `selection.json` 决定了当前选用的文档，补丁需要新增 `candidate.md` 并更新这份选择，就可以把 `selection.json` 的正文基准放进 `bases`。这样，即使其他保存只改了补丁片段之外的字段，旧基准也会拒绝整项操作，新文档及其身份不会单独留下。
+
+下面再次读取需要修改的文件，取得新的保存基准。`patchText` 根据这次取得的正文准备，包含对该文件的实际修改，以及其他需要一起保存的差异。
+
+```ts
+const patchOpened = await client.readText(target);
+if (!patchOpened.content.bodyRevision) throw new Error("未取得正文保存基准");
+const patchOperationId = crypto.randomUUID();
+const patched = await client.call("content.applyPatch", {
+  spaceId,
+  operationId: patchOperationId,
+  patch: patchText,
+  bases: [{ target: patchOpened.content.target, base: patchOpened.content.bodyRevision }],
+});
+```
+
+正文基准按操作开始时的位置解释。移动已有内容时，内容身份指向原位置；需要约束目的地尚不存在，可以另给目的地的文件 target 与 `absent` 基准。同一规范位置只能指定一个基准，目标必须是补丁确实改变字节或存在状态的文件；未修改文件、正文不变的补丁以及仅登记身份或组成的操作，都不能借此建立只读条件。省略 `bases` 时，补丁仍按明确片段与当前正文准备变化，新增文件也仍须不存在。
+
+保存入口用实际准备补丁的同一份操作前字节检查基准，之后再由 journal 核对准备到提交之间的变化。`bodyRevision` 表示字节版本，因此相同字节的文件替换，或修改后恢复到原字节，都仍是同一正文版本。
+
 正文、新身份和结构修改仍进入同一个 `ContentStore` 计划，再由一次 `FileJournal.commit` 保存。登记核对的是计划完成后的文件，不要求新文件先单独落盘；现有组成基准对操作前的结构核对，同一补丁移动对象不会造成自身版本冲突。原 patch-only 请求及旧 RPC 透传的 `spaceId` 保留原去重形状，可选字段不补默认空列表。
 
 正文中的链接和学习语境 JSON 清单都通过文本补丁修改。哪些引用应当指向拆出的文档，需要调用方先根据含义确认；学习清单的 `items` 也由学习能力解释，与普通组成的 `members` 分开处理。完整场景见[内容整理](organization.md)。
 
-Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`content_info` 查询身份、结构修订和组成，`content_operation` 提供操作查询与撤回。模型需要根据保存结果继续工作，因此成功回执和保存错误的文本中都提供 `operationId`，而不只放在日志与界面的 `details` 中。这些工具使用当前空间的范围。
+Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`read` 在原 Pi 正文或图像块后另附 `Repa content snapshot` 文本，提供实际快照的 `target/bodyRevision`；分页时版本仍覆盖同次观察的整个文件，附加文本不属于文件正文。不可变 `repa:resource/` 读取保持资源结果，不提供可写文件基准。`content_info` 查询身份、结构修订和组成，`content_operation` 提供操作查询与撤回。模型需要根据保存结果继续工作，因此成功回执和保存错误的文本中都提供 `operationId`，而不只放在日志与界面的 `details` 中。这些工具使用当前空间的范围。
 
-## 移动、复制与收集
+### 移动、复制与收集
 
 `content.move` 保持已有内容身份，`content.copy` 为实际复制的已登记内容分配新身份。操作接受 `target`、结构版本 `base`、相对 `destination` 和 `operationId`。它们递归处理目录和明确的组成成员，并在同一次内容提交中保存文件与引用关系；普通链接不增加复制范围。未登记的普通文件仍可保持为普通文件。
 
@@ -70,7 +95,7 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
 
 当前内容树移动与复制遇到符号链接会明确拒绝；整个空间的备份和复制可以原样保留符号链接，见[空间快照](spaces.md)。
 
-## 持久数据与可见结果
+### 持久数据与可见结果
 
 ```text
 <space>/
@@ -95,9 +120,9 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
 
 操作前后字节随完整历史保留；历史清理、会话删除与临时实例释放后，由 `resource.collect` 按实际保留关系回收资源。当前文件、其他消费者以及有效的旧版本持有继续成立，详见[资源持有与清理](resources.md)。
 
-## 外部材料与资源
+### 外部材料与资源
 
-### 来源与在线原件
+#### 来源与在线原件
 
 `ContentInfo.origin` 记录内容如何来到当前位置，不改变内容目标的解析方式。它的类型是 `FileLocation | { kind: "url", url, retrievedAt? }`：前者保留原文件位置，可以是空间内或外部路径；后者保留网络获取的最终 URL 和可选的获取时间。当前内容位置仍由 `ContentInfo.location` 表示，`ContentTarget` 只接受已登记身份或文件位置，不接受 URL。
 
@@ -113,9 +138,25 @@ Agent 的 `apply_patch` 使用相同选项，操作标识由适配层生成。`c
 
 `ContentFormat` 说明所属 catalog 字段和引用怎样复制。`@repa/learning` 的 `learningPluginRegistration.formats` 沿用 v1 catalog 的 `context` 字段，独立于学习运行服务安装；通用底座不默认注入学习格式，未知字段在普通保存中继续保留。因此，产品中关闭学习运行能力后，普通保存和空间复制仍能处理原有绑定及历史组成；复制后的撤回也使用副本内引用。格式接入与旧数据处理见[学习语境说明](learning.md#保存历史与复制)。
 
-
 空间独立复制会改变空间身份，因而必须取得所有持久字段的格式 owner。`captureContent` 在处理当前清单和每个历史操作的前后清单时，检查 `version/items` 之外的字段是否有已安装的 `ContentFormat`；缺少 owner 时返回 `content_format_unavailable`，空间操作保持失败回执并清理准备目录，不发布目标。即使当前字段已经清空或移除，历史撤回仍可能恢复旧关系，因此历史清单同样需要这项检查。
 
 同身份备份和恢复不改变引用归属，可以保存未知字段及其历史原数据，而不尝试解释或重映射。你可以先用通用底座备份原空间，再由安装了对应格式的产品恢复和使用；不能通过无 owner 的独立复制把未知关系留成指向原空间的成功副本。
+
+## 未完成项与待验证项
+
+通用内容入口已提供正文、身份与组成的组合保存。具体领域仍需解释哪些记录有效、哪些判断正在采用，以及复制时应重映射哪些业务引用；学习事实与判断的接入由 [#38](https://github.com/Utopia-V/repa/issues/38) 接续。
+
+官方展示宿主与生产隔离的前后端接入状态见[展示说明](display.md#未完成项与待验证项)。内容树的符号链接移动／复制当前明确拒绝，原生文件系统访问者的跨文件原子可见性也不属于 journal 的保证。
+
+## 验证入口
+
+在仓库根目录执行：
+
+```sh
+npm run check --workspace=repa
+npm test --workspace=repa
+```
+
+[content-patch-bases.test.ts](../../packages/repa/test/content-patch-bases.test.ts) 核对旧正文基准、同次资源登记、竞争提交、移动源与目的、路径别名、无效只读条件、外部文件变化、回滚、重开、撤回与旧载荷重传。[content-api.test.ts](../../packages/repa/test/content-api.test.ts) 和 [capability-api.test.ts](../../packages/repa/test/capability-api.test.ts) 分别覆盖实际 RPC 与插件调用；[pi-patch-bases-integration.test.ts](../../packages/repa/test/pi-patch-bases-integration.test.ts) 通过真实 SDK 与本地 provider 核对模型从读取文本取得基准后提交补丁的路径。
 
 [content-format-boundary.test.ts](../../packages/repa/test/content-format-boundary.test.ts) 验证学习产品与通用底座交接时的当前及历史格式缺口、失败后的目标清理、同身份备份恢复，以及产品禁用运行后仍能复制和撤回历史组成。

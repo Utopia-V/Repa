@@ -15,7 +15,7 @@ import { Type } from "typebox";
 import type { RepaCapabilityServices } from "repa/plugin";
 import type { BackendPluginRegistration, CapabilityDefinition } from "repa/plugin";
 import { RepaClient, RpcError } from "../src/client.js";
-import type { CapabilityScope, SessionKey, SettingScope } from "../src/protocol.js";
+import type { ContentPatchInput, CapabilityScope, SessionKey, SettingScope } from "../src/protocol.js";
 import { object } from "../src/schema.js";
 import { startRepaServer } from "repa";
 import { sqlitePlugin, sqliteSnapshot } from "./fixtures/capability-sqlite-plugin.js";
@@ -551,4 +551,40 @@ test("应用后台交互答复在重开后可确认，不为确认历史结果�
   assert.equal(actions, 1);
   assert.deepEqual(await f.client.call("request.get", { requestId }), completed);
   assert.equal((await f.client.call("session.get", f.key)).runtime, "unloaded");
+});
+
+
+test("插件内容入口使用正文基准，并在运行时拒绝非法基准", async (t) => {
+  const InputSchema = object({ base: Type.Unknown() });
+  const OutputSchema = object({ changes: Type.Number() });
+  const patch: CapabilityDefinition<typeof InputSchema, typeof OutputSchema> = {
+    contract: { id: "example.patch", version: "1" }, implementationId: "local",
+    inputSchema: InputSchema, outputSchema: OutputSchema, scopes: ["space"], execution: "inline",
+    async invoke(input, context) {
+      assert(context.content);
+      // 模拟 JavaScript 插件没有静态类型保证的输入，运行时约束由内容入口承担。
+      const params = {
+        operationId: randomUUID(),
+        patch: "*** Begin Patch\n*** Update File: plugin.md\n@@\n-旧\n+新\n*** End Patch",
+        bases: [{ target: context.content.target("plugin.md"), base: input.base }],
+      } as ContentPatchInput;
+      const result = await context.content.applyPatch(params);
+      return { changes: result.changes.length };
+    },
+  };
+  const f = await fixture(t, [{ id: "patch", enabled: true, factory: () => ({ capabilities: [patch] }) }]);
+  const target = { kind: "file" as const, spaceId: f.space.id, location: { kind: "relative" as const, path: "plugin.md" } };
+  await f.client.call("content.write", { target, base: { kind: "absent" }, operationId: randomUUID(), value: { kind: "text", text: "旧\n" } });
+  const observed = await f.client.readText(target);
+  await assert.rejects(f.client.call("capability.invoke", {
+    scope: f.scope, requestId: randomUUID(), contract: patch.contract, input: { base: null },
+  }), fault("invalid_input"));
+  assert.equal((await f.client.readText(target)).text, "旧\n");
+  const result = await f.client.call("capability.invoke", {
+    scope: f.scope, requestId: randomUUID(), contract: patch.contract, input: { base: observed.content.bodyRevision! },
+  });
+  assert.equal(result.kind, "inline");
+  if (result.kind !== "inline") assert.fail("插件应返回即时保存结果");
+  assert.deepEqual(result.result, { changes: 1 });
+  assert.equal((await f.client.readText(target)).text, "新\n");
 });

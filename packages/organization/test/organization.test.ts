@@ -12,8 +12,8 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
 import {
-  ContentChangeResultSchema, ContentInfoSchema, ContentOperationSchema,
-  RepaClient, type ContentInfo, type ContentTarget, type SettingScope,
+  ContentChangeResultSchema, ContentInfoSchema, ContentOperationSchema, ContentTargetSchema, RevisionSchema,
+  RepaClient, object, type ContentInfo, type ContentTarget, type SettingScope,
 } from "repa";
 import { startLearningServer } from "@repa/learning/product";
 import { callLearning } from "@repa/learning/client";
@@ -36,6 +36,19 @@ function toolText(context: TranscriptContext, name: string, failed = false): str
   assert(message && message.role === "toolResult", `Pi 应收到 ${name} 的实际结果`);
   assert.equal(message.isError, failed, textOf(message.content));
   return textOf(message.content);
+}
+
+function assertReadBody(context: TranscriptContext, expected: string): void {
+  const message = context.messages.findLast(message => message.role === "toolResult" && message.toolName === "read");
+  assert(message && message.role === "toolResult" && !message.isError);
+  assert.deepEqual(message.content.slice(0, -1), [{ type: "text", text: expected }]);
+  const metadata = message.content.at(-1);
+  assert(metadata?.type === "text");
+  const match = /^\[Repa content snapshot: (.*)\]$/u.exec(metadata.text);
+  assert(match?.[1]);
+  const snapshot: unknown = JSON.parse(match[1]);
+  assert(Check(object({ target: ContentTargetSchema, bodyRevision: RevisionSchema }), snapshot));
+  assert.equal(snapshot.bodyRevision, createHash("sha256").update(expected).digest("hex"));
 }
 
 function contentInfo(context: TranscriptContext): ContentInfo {
@@ -179,23 +192,23 @@ test("真实Pi读取整理方法与不同组织的笔记，一次保存拆分和
       return fauxAssistantMessage(fauxToolCall("read", { path: "notes.md" }), { stopReason: "toolUse" });
     },
     context => {
-      assert.equal(toolText(context, "read"), originalNotes);
+      assertReadBody(context, originalNotes);
       return fauxAssistantMessage(fauxToolCall("read", { path: `repa:material/${sourceRef.id}` }), { stopReason: "toolUse" });
     },
     context => {
-      assert.equal(toolText(context, "read"), sourceBytes.toString("utf8"));
+      assertReadBody(context, sourceBytes.toString("utf8"));
       return fauxAssistantMessage(fauxToolCall("read", { path: "reading-log.md" }), { stopReason: "toolUse" });
     },
     context => {
-      assert.equal(toolText(context, "read"), alternate);
+      assertReadBody(context, alternate);
       return fauxAssistantMessage(fauxToolCall("read", { path: "index.md" }), { stopReason: "toolUse" });
     },
     context => {
-      assert.equal(toolText(context, "read"), oldLinks);
+      assertReadBody(context, oldLinks);
       return fauxAssistantMessage(fauxToolCall("read", { path: "context.json" }), { stopReason: "toolUse" });
     },
     context => {
-      assert.equal(toolText(context, "read"), `${beforeItems}\n`);
+      assertReadBody(context, `${beforeItems}\n`);
       return fauxAssistantMessage(fauxToolCall("content_info", { path: "notes.md" }), { stopReason: "toolUse" });
     },
     context => {
