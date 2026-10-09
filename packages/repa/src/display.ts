@@ -8,6 +8,7 @@ import type { DisplayInstance } from "./display/schema.js";
 export { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
 export { SAVE_NEW_RESULT, SUBMIT_RESULT, PROCESS_RESULT } from "./display/schema.js";
 export type { DisplayArtifact, DisplayInstance } from "./display/schema.js";
+export { displayResultArtifact } from "./display/artifact.js";
 
 const ActionArgumentsSchema = object({ requestId: IdSchema, input: Type.Unknown() });
 const resourceUri = (instance: DisplayInstance, id: string) => `repa://display/${instance.instanceId}/resources/${id}`;

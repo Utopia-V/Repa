@@ -7,7 +7,8 @@ import {
 } from "repa/protocol";
 import type { AttemptFactInput } from "./attempt-schema.js";
 import { LearningAttempts } from "./attempts.js";
-import { ExerciseInitialSchema, ExerciseSubmissionSchema } from "./exercise-schema.js";
+import { exerciseInitialConditionsText, validatePreviousExercise } from "./exercise-restore.js";
+import { ExerciseInitialSchema, ExerciseInitialV2Schema, ExerciseSubmissionSchema } from "./exercise-schema.js";
 
 const resourceKey = (resource: ResourceRef) => `${resource.spaceId}:${resource.id}:${resource.mediaType}`;
 const uniqueResources = (resources: readonly ResourceRef[]) => [...new Map(resources.map(resource => [resourceKey(resource), resource])).values()];
@@ -48,6 +49,9 @@ export function createExerciseCapability(): CapabilityDefinition<typeof ProcessD
       });
       const resources = context.services?.resources;
       if (!resources) throw new RepaFault("capability_service_unavailable", "学习页面作答缺少资源保存服务。");
+      if (Check(ExerciseInitialV2Schema, initial) && initial.previous)
+        await validatePreviousExercise(initial, artifact, resources, context.scope.spaceId);
+      const continuing = Check(ExerciseInitialV2Schema, initial) && initial.previous !== undefined;
       const raw = await resources.create(new TextEncoder().encode(`${JSON.stringify(result)}\n`), "application/json");
       const fact: AttemptFactInput = {
         actor: structuredClone(initial.actor),
@@ -55,7 +59,7 @@ export function createExerciseCapability(): CapabilityDefinition<typeof ProcessD
         materials,
         presentation: { resource: raw, resources: dependencies },
         initialConditions: {
-          kind: "reported", text: "本次展示实例的初始化参数",
+          kind: "reported", text: exerciseInitialConditionsText(continuing),
           sources: [{ resource: raw, selector: "/value/data/initialData" }],
         },
         assistance: submission.assistance.kind === "unknown" ? { kind: "unknown" } : {

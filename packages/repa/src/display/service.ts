@@ -9,6 +9,7 @@ import type { CapabilitySelection } from "../capabilities/schema.js";
 import type { ResourceRef } from "../content/schema.js";
 import { capabilityRepresentation } from "../capabilities/resources.js";
 import { RepaFault } from "../errors.js";
+import { displayResultArtifact } from "./artifact.js";
 import {
   DisplayOpenSchema, DisplayResultSchema, SAVE_NEW_RESULT, SUBMIT_RESULT, PROCESS_RESULT,
   type DisplayOpen, type DisplayInstance, type DisplayParams, type DisplayResult, type ProcessDisplayResultInput,
@@ -99,15 +100,7 @@ export class DisplayService {
             const raw: unknown = JSON.parse((await content.blobs.get(snapshot.resource.id)).toString("utf8"));
             if (!Check(DisplayResultSchema, raw)) throw new RepaFault("unsupported_format", "该 JSON 不是已保存的展示结果。");
             initialData = raw.value.data.input;
-            const saved = structuredClone(raw.value.data.artifact);
-            const origin = raw.value.data.source.spaceId;
-            // 格式 owner 解释副本中的标准引用，保存的字节版本和页面参数不换成当前输入。
-            for (const source of saved.sources) {
-              if (source.target.kind === "content" && source.target.ref.spaceId === origin) source.target.ref.spaceId = params.spaceId;
-              else if (source.target.kind === "file" && source.target.spaceId === origin) source.target.spaceId = params.spaceId;
-            }
-            for (const ref of [saved.value.resource, ...saved.resources]) if (ref.spaceId === origin) ref.spaceId = params.spaceId;
-            return saved;
+            return displayResultArtifact(raw, params.spaceId);
           }
           return {
             format: { id: "repa.display-html" as const, version: "1" as const },

@@ -14,6 +14,7 @@ export type { ContentStore, ContentPatchScope, DerivedContentPatch } from "./con
 export { canonicalJson } from "./content/store.js";
 export { digest } from "./storage/blobs.js";
 export { mapReference } from "./content/references.js";
+export { displayResultArtifact } from "./display/artifact.js";
 export { operationError } from "./content/operation-error.js";
 export type { BackgroundSource } from "./agent/background.js";
 export type { PluginSettings } from "./configuration/plugins.js";

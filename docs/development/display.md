@@ -83,7 +83,7 @@ const instance = await client.call("display.open", {
 ```ts
 processResult: {
   selection: { contract: { id: "repa.attempt.record-display", version: "1" } },
-  inputSchema: ExerciseSubmissionSchema,
+  inputSchema: { ...ExerciseSubmissionSchema },
 }
 ```
 
@@ -138,6 +138,8 @@ console.log(receipt.structuredContent); // requestId 与当前 status
 结果固定的是 HTML、初始化参数和页面提交值，不自动记录动态 DOM 或逐次提示的显示过程。页面需要在提交值中明确携带要保留的操作事实；这些仍是页面上报的数据，实际呈现与操作的验证由宿主承担。参数中的资源引用也需要在产物 `resources` 中明确声明，不因出现在 JSON 内就自动取得持有关系。
 
 复制空间时，结果 JSON 的原字节保持不变。展示格式负责把其中供本次使用的内容、资源引用映射到副本；产生这份结果的原宿主和实例仍保留为历史来源。这样可以在副本中使用原结果，也能查明它最初从哪里产生。
+
+格式 owner 可以复用 `repa/plugin` 或 `repa/display` 导出的 `displayResultArtifact(result, spaceId)`。这个纯函数只复制 artifact 并映射原空间的标准引用，不验证资源持有，不改变历史来源或任意页面参数。领域需要不同恢复语义时，由领域入口解释固定参数，再通过 `source.kind: "artifact"` 打开。例如，[学习作答恢复](learning-attempts.md#恢复原题与先前回答)把原题条件与先前提交分开交付，不改变上述通用重开规则。
 
 ## 未完成项与待验证项
 

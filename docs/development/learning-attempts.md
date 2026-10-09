@@ -20,6 +20,7 @@
 | --- | --- | --- |
 | `attempt.record` | `spaceId/operationId/fact`；建立作答记录并返回 `ContentChangeResult` | `record_learning_attempt` |
 | `attempt.get` | `spaceId/ref`；返回原事实、`factId`、候选、采用历史、`current`、正文 `base` 及资源 | `get_learning_attempt` |
+| `attempt.display` | `spaceId/ref`；从支持恢复的作答返回可打开的 `source`，不建立新实例或作答 | 无，供可信展示宿主使用 |
 | `attempt.judgment.save` | `spaceId/operationId/ref/base/judgment`，可选 `adopt`；默认仅保存候选 | `save_learning_judgment` |
 | `attempt.judgment.select` | `spaceId/operationId/ref/base/judgmentId/reason`；采用已有候选，`judgmentId: null` 撤销当前采用 | `select_learning_judgment` |
 
@@ -50,7 +51,7 @@
 
 官方学习包提供 `repa.attempt.record-display/1` 处理能力。可信宿主在 `display.open.processResult` 中绑定它，并使用 `ExerciseSubmissionSchema` 约束页面提交。该能力没有 Agent 工具入口；它检查真实 `InvocationContext.source` 为 display，并与服务器构造结果的来源一致，普通客户端不能靠提交带有 display 标签的 JSON 冒充展示调用。
 
-宿主提供的初始化格式是 `repa.learning-response/1`：
+宿主提供的初始化格式是 `repa.learning-response`，版本 `1` 和 `2` 都包含：
 
 - `actor` 固定回答产生者的声明，页面不能从提交值中替换它。
 - `materials` 使用 `resourceId`、可选 `selector/source` 指定题面或提示。每个 ID 都须在本次实际 artifact 的资源中，不能借此引用其他空间内容。
@@ -61,6 +62,33 @@
 处理时，能力先固定完整的服务器 `DisplayResult`，再通过既有 `LearningAttempts.record` 建立作答。原表示作为 `presentation`，HTML 和全部附属字节使用快照 `resources` 长期登记；初始化条件和帮助报告指向原表示中的准确位置。保存资源时先由处理请求持有，成功后再由作答文档长期持有。这个动作不评分、不采用判断，也不启动模型。
 
 公开格式从浏览器安全的 `@repa/learning/schema` 导入。服务器映射由 [exercise.ts](../../packages/learning/src/exercise.ts) 持有，动作绑定、真实来源、受理与关闭则由[展示模块](display.md#交给绑定能力处理)负责。具体组件仍需根据自己的恢复语义解释保存参数，不能从通用展示接口推断整个动态页面状态。
+
+### 恢复原题与先前回答
+
+需要继续作答时，宿主调用 `attempt.display`，再把返回的 `source` 交给 `display.open`。恢复入口读取固定事实与原表示，核对回答、帮助、材料定位和初始化条件；它不按当前题库补造原题，也不读取候选判断来改写题面。当前仅支持完整的文本组件事实映射，包括固定的初始条件说明及准确的表示内来源位置。人工导入可以保留不同的录入来源，但不能替换这些条件；其他事实仍可通过 `attempt.get` 查看。新实例及其动作由当前宿主重新建立，旧实例的身份与授权不会恢复。
+
+交互恢复要求原组件使用 `repa.learning-response/2`。这个版本约定组件消费可选 `previous`：
+
+- `fact` 和 `presentation` 只包含直接前件的资源 hash 与媒体类型，由当前空间解释。
+- `submission` 是前件固定表示中的原提交，包含旧回答、旧帮助报告和组件自己的保存参数。
+- fresh 初始化可以省略 `previous`；恢复后再次恢复只替换为新的直接前件，不把整份旧初始化参数嵌套进去。
+
+组件据此回填回答并呈现先前帮助，同时区分本次操作。版本声明是宿主与组件的协议承诺，不是后端已经验证任意 HTML 行为的证书。后端保存的是提供给组件的条件；实际组件是否消费这些条件，需要在浏览器中核对。版本 `1` 继续支持保存，但不承诺交互恢复，`attempt.display` 对它返回 `unsupported_format`；宿主仍可通过 `attempt.get` 展示原事实。
+
+恢复使用原 HTML、原材料定位和原 `data`。继续提交时，学习能力还会核对 `previous` 与它引用的事实、表示一致，且完整依据属于当前实例获准资源。当前 `assistance` 只描述本次报告；先前帮助与预填回答作为初始条件继续保留，不能据新报告为空或未知，就把这次提交解释成独立首答。新作答从空的判断集合开始，旧作答及其采用历史保持原貌。
+
+```ts
+const { source } = await callLearning(client, "attempt.display", { spaceId, ref });
+const instance = await client.call("display.open", {
+  spaceId, instanceId: crypto.randomUUID(), source,
+  processResult: {
+    selection: { contract: { id: "repa.attempt.record-display", version: "1" } },
+    inputSchema: { ...ExerciseSubmissionSchema },
+  },
+});
+```
+
+读取恢复参数不会登记新作答；只有新实例实际提交才形成新事实。恢复输出通过原能力请求交付资源，展示实例再建立自己的 hold。前件事实、原表示及明确的依赖进入新 artifact，成功提交后由新作答长期持有。因此，删除前件文档和清理它的历史，不会单独清掉新记录仍需解释的条件。闭包清单会随连续恢复增长，字节按 hash 复用；当前接受这一成本，不另建历史关系数据库。
 
 ### 候选判断与采用
 
@@ -101,7 +129,7 @@
 
 本模块保存、解释和更正作答证据。学生状态、知识关系传播、后续任务选择以及它们对学习效果的影响仍由 [#38](https://github.com/Utopia-V/repa/issues/38) 接续；现有 FSRS 原型不会自动消费这里的判断。
 
-文本作答组件已经通过版本化格式直接接入领域记录；其他作答形式、具体组件的恢复行为，以及官方学习界面的录入与更正交互仍待接入。通用展示不会推断缺失的页面行为，宿主和组件按上述边界提供实际条件。
+文本作答组件已经通过版本化格式直接接入领域记录，并提供版本 `2` 的固定条件恢复入口。其他作答形式、官方组件与学习界面的录入、恢复及更正交互仍待接入。通用展示不会推断缺失的页面行为，宿主和组件按上述边界提供实际条件。
 
 ## 验证入口
 
@@ -116,3 +144,5 @@ npm test --workspace=@repa/learning
 [attempts.test.ts](../../packages/learning/test/attempts.test.ts) 使用真实内容存储检查事实保留、候选与采用、更正冲突、重开、清理和内容副本。[attempt-capabilities.test.ts](../../packages/learning/test/attempt-capabilities.test.ts) 通过真实公开客户端、本地 Pi provider 和空间副本核对接口接入。[exercise.test.ts](../../packages/learning/test/exercise.test.ts) 核对真实展示来源、固定初始化条件、原提交与附属资源、失败边界和旧快照兼容。底层业务原意去重与恢复由 [content-derived-patch.test.ts](../../packages/repa/test/content-derived-patch.test.ts) 覆盖。
 
 这些验证检查领域保存和接续语义；本地 provider 只驱动确定的调用，不用于评价模型判断能力或真实学习收益。
+
+[exercise-restore.test.ts](../../packages/learning/test/exercise-restore.test.ts) 通过真实公开接口检查只读恢复、直接前件、继续提交、版本与一致性拒绝、资源回收及副本解释。通用展示的结果重开仍按原规则使用 `input`，学习恢复入口不改变这项行为。

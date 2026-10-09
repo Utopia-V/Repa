@@ -2,8 +2,10 @@ import { object, IdSchema, RevisionSchema, ContentChangeResultSchema, ContentRef
 import type { Static } from "typebox";
 import { ContextBindingSchema, ContextStateSchema, ContextViewSchema } from "./schema.js";
 import { AttemptViewSchema, RecordAttemptInputSchema, SaveJudgmentInputSchema, SelectJudgmentInputSchema } from "./attempt-schema.js";
+import { ExerciseDisplayResultSchema } from "./exercise-schema.js";
 
 export const learningMethods = {
+  "attempt.display": { params: object({ spaceId: IdSchema, ref: ContentRefSchema }), result: ExerciseDisplayResultSchema },
   "attempt.get": { params: object({ spaceId: IdSchema, ref: ContentRefSchema }), result: AttemptViewSchema },
   "attempt.record": { params: object({ spaceId: IdSchema, ...RecordAttemptInputSchema.properties }), result: ContentChangeResultSchema },
   "attempt.judgment.save": { params: object({ spaceId: IdSchema, ...SaveJudgmentInputSchema.properties }), result: ContentChangeResultSchema },

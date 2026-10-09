@@ -31,6 +31,8 @@ try {
 
 文本作答页面可以通过宿主绑定的 `repa.attempt.record-display/1` 直接形成记录。初始化和提交格式由 `@repa/learning/schema` 的 `ExerciseInitialSchema`、`ExerciseSubmissionSchema` 提供；实际展示来源、固定条件与页面报告分开保存，详见[组件接入](../../docs/development/learning-attempts.md#文本作答组件的展示接入)。
 
+支持 `repa.learning-response/2` 的组件可以通过 `attempt.display` 恢复原 HTML、原题条件与先前提交。宿主用返回的 `source` 建立新展示并重新绑定动作；读取不新建作答，继续提交则把旧回答和帮助保留为前置条件。版本 `1` 继续可读、可保存，但不承诺交互恢复，详见[恢复约定](../../docs/development/learning-attempts.md#恢复原题与先前回答)。
+
 ## 关闭与验证
 
 `plugins.disabled` 中的 `repa-learning` 关闭整个官方组合，`repa-teaching` 只关闭教学 Skill。已有文档、语境绑定和复习记录继续保留；语境的安装级格式解释也继续用于内容保存和空间复制。教学方法见 [learn-with-feedback](skills/learn-with-feedback/SKILL.md)，产品启用、替换及历史验证见[官方学习组合](../../docs/development/official-learning.md)，语境格式与接口见[学习语境](../../docs/development/learning.md)。

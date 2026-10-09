@@ -94,7 +94,7 @@ function judgmentValue(input: JudgmentInput, id: string, recordedBy: CapabilityS
   };
 }
 
-function factResources(fact: AttemptFact): LocalResource[] {
+export function factResources(fact: AttemptFact): LocalResource[] {
   const reports = [fact.initialConditions, fact.assistance].flatMap(report =>
     report.kind === "reported" ? (report.sources ?? []).flatMap(snapshotResources) : []);
   return [
