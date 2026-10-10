@@ -1,0 +1,1644 @@
+{
+  "scope": "synthetic response-contract probe, no student observations or hidden-state inference",
+  "node_version": "v24.19.0",
+  "seed": 20261010,
+  "code_hashes": {
+    "run-v1.cjs": "60085eb0605c2141675cd9cefcc23aeb935a37a62611c3a06229e639f819fd2e",
+    "probe-lib.cjs": "57ba6c499b73dd4d0f9b38398cba92140574c5faeb261082276aed4163d3223c",
+    "test-probe.cjs": "ae92a2ee03b427655e1a1fcd58c401fdafc545979465d322246d9074a348360b",
+    "plan-v1.md": "a8aaba36ec655ef2f476451fa9a96c521f44c4ccbf91296cd34604646f6176b3",
+    "inputs-v1.json": "f44a358af415729e1927969bf57ab5bb1466423b9c122174a517220c64c604d7",
+    "sources-v1.json": "429b94ee90dc9061c8010d223b93b1207ce11a019072464ad019c639a25fb83a"
+  },
+  "expected_coefficients": {
+    "x2": "2",
+    "x": "2",
+    "constant": "-6"
+  },
+  "reference_expression": "u-v",
+  "conditions": [
+    {
+      "id": "difference-meaning",
+      "prompt": "在任意固定 x 处，令 u=f(x)、v=g(x)。请用 u、v 表示 (f−g)(x)，所写表达式应对任意实数 u、v 有定义且相等。",
+      "response": "expression",
+      "provided": []
+    },
+    {
+      "id": "given-expression",
+      "prompt": "请填写 x²+2x−(6−x²) 的 x² 项系数、x 项系数和常数项。",
+      "response": "labeled-coefficients",
+      "provided": [
+        "x²+2x−(6−x²)"
+      ]
+    },
+    {
+      "id": "function-difference",
+      "prompt": "已知 f(x)=x²+2x，g(x)=6−x²。请填写 (f−g)(x) 的 x² 项系数、x 项系数和常数项。",
+      "response": "labeled-coefficients",
+      "provided": [
+        "f(x)=x²+2x",
+        "g(x)=6−x²"
+      ]
+    },
+    {
+      "id": "provided-difference-expression",
+      "prompt": "已知 f(x)=x²+2x，g(x)=6−x²。已为你写出正确的差表达式：(f−g)(x)=x²+2x−(6−x²)。请据此填写 x² 项系数、x 项系数和常数项。",
+      "response": "labeled-coefficients",
+      "provided": [
+        "f(x)=x²+2x",
+        "g(x)=6−x²",
+        "x²+2x−(6−x²)"
+      ]
+    },
+    {
+      "id": "answer-exposed",
+      "prompt": "已知 f(x)=x²+2x，g(x)=6−x²。答案已经给出：(f−g)(x) 的 x²、x、常数项系数分别为 2、2、−6。请填写这三个系数。",
+      "response": "labeled-coefficients",
+      "provided": [
+        "f(x)=x²+2x",
+        "g(x)=6−x²",
+        "x²: 2；x: 2；常数: −6"
+      ]
+    }
+  ],
+  "attribution": {
+    "source": "OATutor-Content, CAHLR/OATutor team, fixed 1925decc91567faf6203bdb41b9d52b14891426f, a005bd5real2 family",
+    "url": "https://github.com/CAHLR/OATutor-Content/tree/1925decc91567faf6203bdb41b9d52b14891426f",
+    "license": "CC BY 4.0",
+    "changes": "New Chinese prompts, response targets, corrected difference reference and explicit assistance conditions; not original upstream records."
+  },
+  "records": [
+    {
+      "id": "a-direct",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "u-v",
+      "independent": {
+        "classification": "identity",
+        "reason": "逐点差定义"
+      },
+      "actual": {
+        "response": "u-v",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": true,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416,
+          0.380555747076869,
+          0.08142829360440373,
+          0.8642910961061716,
+          0.8637505481019616,
+          0.25190580752678216,
+          0.5690924748778343,
+          0.2744771083816886,
+          0.014134176773950458,
+          0.5794056069571525,
+          0.11395656783133745,
+          0.704226043773815,
+          0.1012430158443749,
+          0.6438304749317467,
+          0.537526193074882,
+          0.04606038355268538,
+          0.30872439802624285,
+          0.22276206617243588,
+          0.3976826388388872,
+          0.47384634078480303,
+          0.6994214390870184,
+          0.24152867309749126,
+          0.7725062433164567
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 24,
+          "auxiliary": 24
+        }
+      }
+    },
+    {
+      "id": "a-reordered",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "-v+u",
+      "independent": {
+        "classification": "identity",
+        "reason": "加法交换律"
+      },
+      "actual": {
+        "response": "-v+u",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "-1*v+u",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": true,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "-1*v+u"
+            },
+            "simplify": {
+              "available": true,
+              "print": "-1*v+u"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416,
+          0.380555747076869,
+          0.08142829360440373,
+          0.8642910961061716,
+          0.8637505481019616,
+          0.25190580752678216,
+          0.5690924748778343,
+          0.2744771083816886,
+          0.014134176773950458,
+          0.5794056069571525,
+          0.11395656783133745,
+          0.704226043773815,
+          0.1012430158443749,
+          0.6438304749317467,
+          0.537526193074882,
+          0.04606038355268538,
+          0.30872439802624285,
+          0.22276206617243588,
+          0.3976826388388872,
+          0.47384634078480303,
+          0.6994214390870184,
+          0.24152867309749126,
+          0.7725062433164567
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 24,
+          "auxiliary": 24
+        }
+      }
+    },
+    {
+      "id": "a-signed",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "u+(-v)",
+      "independent": {
+        "classification": "identity",
+        "reason": "减法等于加相反数"
+      },
+      "actual": {
+        "response": "u+(-v)",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": true,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416,
+          0.380555747076869,
+          0.08142829360440373,
+          0.8642910961061716,
+          0.8637505481019616,
+          0.25190580752678216,
+          0.5690924748778343,
+          0.2744771083816886,
+          0.014134176773950458,
+          0.5794056069571525,
+          0.11395656783133745,
+          0.704226043773815,
+          0.1012430158443749,
+          0.6438304749317467,
+          0.537526193074882,
+          0.04606038355268538,
+          0.30872439802624285,
+          0.22276206617243588,
+          0.3976826388388872,
+          0.47384634078480303,
+          0.6994214390870184,
+          0.24152867309749126,
+          0.7725062433164567
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 24,
+          "auxiliary": 24
+        }
+      }
+    },
+    {
+      "id": "a-cancel",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "2u-u-v",
+      "independent": {
+        "classification": "identity",
+        "reason": "2u-u=u"
+      },
+      "actual": {
+        "response": "2u-u-v",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "2*u+-1*u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": true,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416,
+          0.380555747076869,
+          0.08142829360440373,
+          0.8642910961061716,
+          0.8637505481019616,
+          0.25190580752678216,
+          0.5690924748778343,
+          0.2744771083816886,
+          0.014134176773950458,
+          0.5794056069571525,
+          0.11395656783133745,
+          0.704226043773815,
+          0.1012430158443749,
+          0.6438304749317467,
+          0.537526193074882,
+          0.04606038355268538,
+          0.30872439802624285,
+          0.22276206617243588,
+          0.3976826388388872,
+          0.47384634078480303,
+          0.6994214390870184,
+          0.24152867309749126,
+          0.7725062433164567
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 24,
+          "auxiliary": 24
+        }
+      }
+    },
+    {
+      "id": "a-reverse",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "v-u",
+      "independent": {
+        "classification": "not_identity",
+        "reason": "u=1,v=0时给出−1，目标1"
+      },
+      "actual": {
+        "response": "v-u",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "v+-1*u",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": false,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "v+-1*u"
+            },
+            "simplify": {
+              "available": true,
+              "print": "v+-1*u"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 2,
+          "auxiliary": 2
+        }
+      }
+    },
+    {
+      "id": "a-sum",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "u+v",
+      "independent": {
+        "classification": "not_identity",
+        "reason": "u=0,v=1时给出1，目标−1"
+      },
+      "actual": {
+        "response": "u+v",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "u+v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": false,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "u+v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+v"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 2,
+          "auxiliary": 2
+        }
+      }
+    },
+    {
+      "id": "a-number",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "0",
+      "independent": {
+        "classification": "not_identity",
+        "reason": "u=1,v=0时给出0，目标1"
+      },
+      "actual": {
+        "response": "0",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "0",
+            "variables": [],
+            "nodeType": "Int"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": false,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "0"
+            },
+            "simplify": {
+              "available": true,
+              "print": "0"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 2,
+          "auxiliary": 2
+        }
+      }
+    },
+    {
+      "id": "a-domain-sum",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "(u^2-v^2)/(u+v)",
+      "independent": {
+        "classification": "domain_gap",
+        "reason": "u=1,v=−1时分母0，目标2"
+      },
+      "actual": {
+        "response": "(u^2-v^2)/(u+v)",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "(u^(2)+-1*v^(2))*(u+v)^(-1)",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Mul"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": true,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "(u^(2)+-1*v^(2))*(u+v)^(-1)"
+            },
+            "simplify": {
+              "available": true,
+              "print": "(u^(2)+-1*v^(2))*(u+v)^(-1)"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416,
+          0.380555747076869,
+          0.08142829360440373,
+          0.8642910961061716,
+          0.8637505481019616,
+          0.25190580752678216,
+          0.5690924748778343,
+          0.2744771083816886,
+          0.014134176773950458,
+          0.5794056069571525,
+          0.11395656783133745,
+          0.704226043773815,
+          0.1012430158443749,
+          0.6438304749317467,
+          0.537526193074882,
+          0.04606038355268538,
+          0.30872439802624285,
+          0.22276206617243588,
+          0.3976826388388872,
+          0.47384634078480303,
+          0.6994214390870184,
+          0.24152867309749126,
+          0.7725062433164567
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 24,
+          "auxiliary": 24
+        }
+      }
+    },
+    {
+      "id": "a-domain-u",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "(u-v)*u/u",
+      "independent": {
+        "classification": "domain_gap",
+        "reason": "u=0,v=1时分母0，目标−1"
+      },
+      "actual": {
+        "response": "(u-v)*u/u",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "(u+-1*v)*u*u^(-1)",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Mul"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": true,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416,
+          0.380555747076869,
+          0.08142829360440373,
+          0.8642910961061716,
+          0.8637505481019616,
+          0.25190580752678216,
+          0.5690924748778343,
+          0.2744771083816886,
+          0.014134176773950458,
+          0.5794056069571525,
+          0.11395656783133745,
+          0.704226043773815,
+          0.1012430158443749,
+          0.6438304749317467,
+          0.537526193074882,
+          0.04606038355268538,
+          0.30872439802624285,
+          0.22276206617243588,
+          0.3976826388388872,
+          0.47384634078480303,
+          0.6994214390870184,
+          0.24152867309749126,
+          0.7725062433164567
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 24,
+          "auxiliary": 24
+        }
+      }
+    },
+    {
+      "id": "a-small-perturbation",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "u-v+1/1000000000000",
+      "independent": {
+        "classification": "not_identity",
+        "reason": "全定义域固定多出1/10^12"
+      },
+      "actual": {
+        "response": "u-v+1/1000000000000",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "u+-1*v+1/1000000000000",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": true,
+          "equalIgnoringCase": true
+        },
+        "compare": {
+          "equal": true,
+          "message": null
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "1/1000000000000+u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "1/1000000000000+u+-1*v"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [
+          0.5924399457871914,
+          0.6665754539426416,
+          0.380555747076869,
+          0.08142829360440373,
+          0.8642910961061716,
+          0.8637505481019616,
+          0.25190580752678216,
+          0.5690924748778343,
+          0.2744771083816886,
+          0.014134176773950458,
+          0.5794056069571525,
+          0.11395656783133745,
+          0.704226043773815,
+          0.1012430158443749,
+          0.6438304749317467,
+          0.537526193074882,
+          0.04606038355268538,
+          0.30872439802624285,
+          0.22276206617243588,
+          0.3976826388388872,
+          0.47384634078480303,
+          0.6994214390870184,
+          0.24152867309749126,
+          0.7725062433164567
+        ],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 24,
+          "auxiliary": 24
+        }
+      }
+    },
+    {
+      "id": "a-extra-variable",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "u-w",
+      "independent": {
+        "classification": "outside_task_variables",
+        "reason": "题面仅定义u/v；u=0,v=0,w=1时也不等于目标"
+      },
+      "actual": {
+        "response": "u-w",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": true,
+            "print": "u+-1*w",
+            "variables": [
+              "u",
+              "w"
+            ],
+            "nodeType": "Add"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": {
+          "equal": false,
+          "equalIgnoringCase": false
+        },
+        "compare": {
+          "equal": false,
+          "wrongVariableCase": false,
+          "wrongVariableNames": true,
+          "message": "Check your variables; you may have used the wrong letter for one or more of them."
+        },
+        "auxiliary": {
+          "attempt": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*w"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*w"
+            }
+          },
+          "reference": {
+            "collect": {
+              "available": true,
+              "print": "u+-1*v"
+            },
+            "simplify": {
+              "available": true,
+              "print": "u+-1*v"
+            }
+          }
+        },
+        "randomValues": [],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": 0,
+          "compared": 0,
+          "auxiliary": 0
+        }
+      }
+    },
+    {
+      "id": "a-incomplete",
+      "condition": "difference-meaning",
+      "kind": "expression",
+      "response": "u-",
+      "independent": {
+        "classification": "invalid_syntax",
+        "reason": "二元减法缺少右项"
+      },
+      "actual": {
+        "response": "u-",
+        "reference": "u-v",
+        "seed": 20261010,
+        "parse": {
+          "attempt": {
+            "parsed": false,
+            "error": "1"
+          },
+          "reference": {
+            "parsed": true,
+            "print": "u+-1*v",
+            "variables": [
+              "u",
+              "v"
+            ],
+            "nodeType": "Add"
+          }
+        },
+        "sameVars": null,
+        "compare": null,
+        "auxiliary": null,
+        "randomValues": [],
+        "randomOffsets": {
+          "loaded": 0,
+          "parsed": 0,
+          "sameVars": null,
+          "compared": null,
+          "auxiliary": null
+        }
+      }
+    },
+    {
+      "id": "c-correct",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "2",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "matches"
+      },
+      "actual": {
+        "status": "matches",
+        "reason": "all_coefficient_values_equal",
+        "normalized": {
+          "x2": "2",
+          "x": "2",
+          "constant": "-6"
+        },
+        "ratios": {
+          "x2": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "x": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "constant": {
+            "numerator": "-6",
+            "denominator": "1"
+          }
+        },
+        "differentFields": []
+      }
+    },
+    {
+      "id": "c-decimals",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "  +2.0  ",
+        "x": "2.000",
+        "constant": " −6.0 "
+      },
+      "independent": {
+        "classification": "matches"
+      },
+      "actual": {
+        "status": "matches",
+        "reason": "all_coefficient_values_equal",
+        "normalized": {
+          "x2": "+2.0",
+          "x": "2.000",
+          "constant": "-6.0"
+        },
+        "ratios": {
+          "x2": {
+            "numerator": "20",
+            "denominator": "10"
+          },
+          "x": {
+            "numerator": "2000",
+            "denominator": "1000"
+          },
+          "constant": {
+            "numerator": "-60",
+            "denominator": "10"
+          }
+        },
+        "differentFields": []
+      }
+    },
+    {
+      "id": "c-old-error",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": ".0",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "does_not_match"
+      },
+      "actual": {
+        "status": "does_not_match",
+        "reason": "coefficient_values_differ",
+        "normalized": {
+          "x2": ".0",
+          "x": "2",
+          "constant": "-6"
+        },
+        "ratios": {
+          "x2": {
+            "numerator": "0",
+            "denominator": "10"
+          },
+          "x": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "constant": {
+            "numerator": "-6",
+            "denominator": "1"
+          }
+        },
+        "differentFields": [
+          "x2"
+        ]
+      }
+    },
+    {
+      "id": "c-sum",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "0",
+        "x": "2",
+        "constant": "6"
+      },
+      "independent": {
+        "classification": "does_not_match"
+      },
+      "actual": {
+        "status": "does_not_match",
+        "reason": "coefficient_values_differ",
+        "normalized": {
+          "x2": "0",
+          "x": "2",
+          "constant": "6"
+        },
+        "ratios": {
+          "x2": {
+            "numerator": "0",
+            "denominator": "1"
+          },
+          "x": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "constant": {
+            "numerator": "6",
+            "denominator": "1"
+          }
+        },
+        "differentFields": [
+          "x2",
+          "constant"
+        ]
+      }
+    },
+    {
+      "id": "c-reverse",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "-2",
+        "x": "-2",
+        "constant": "6"
+      },
+      "independent": {
+        "classification": "does_not_match"
+      },
+      "actual": {
+        "status": "does_not_match",
+        "reason": "coefficient_values_differ",
+        "normalized": {
+          "x2": "-2",
+          "x": "-2",
+          "constant": "6"
+        },
+        "ratios": {
+          "x2": {
+            "numerator": "-2",
+            "denominator": "1"
+          },
+          "x": {
+            "numerator": "-2",
+            "denominator": "1"
+          },
+          "constant": {
+            "numerator": "6",
+            "denominator": "1"
+          }
+        },
+        "differentFields": [
+          "x2",
+          "x",
+          "constant"
+        ]
+      }
+    },
+    {
+      "id": "c-expression",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "x^2+2x-(6-x^2)",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "unassessed"
+      },
+      "actual": {
+        "status": "unassessed",
+        "reason": "invalid_field_value",
+        "failures": [
+          {
+            "field": "x2",
+            "reason": "unsupported_decimal_syntax"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c-missing",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "2",
+        "x": "2"
+      },
+      "independent": {
+        "classification": "unassessed"
+      },
+      "actual": {
+        "status": "unassessed",
+        "reason": "field_set_mismatch",
+        "missing": [
+          "constant"
+        ],
+        "extra": []
+      }
+    },
+    {
+      "id": "c-extra",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "2",
+        "x": "2",
+        "constant": "-6",
+        "extra": "0"
+      },
+      "independent": {
+        "classification": "unassessed"
+      },
+      "actual": {
+        "status": "unassessed",
+        "reason": "field_set_mismatch",
+        "missing": [],
+        "extra": [
+          "extra"
+        ]
+      }
+    },
+    {
+      "id": "c-number-type",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": 2,
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "unassessed"
+      },
+      "actual": {
+        "status": "unassessed",
+        "reason": "invalid_field_value",
+        "failures": [
+          {
+            "field": "x2",
+            "reason": "not_a_string"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c-infinity",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "Infinity",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "unassessed"
+      },
+      "actual": {
+        "status": "unassessed",
+        "reason": "invalid_field_value",
+        "failures": [
+          {
+            "field": "x2",
+            "reason": "unsupported_decimal_syntax"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c-nan",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "NaN",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "unassessed"
+      },
+      "actual": {
+        "status": "unassessed",
+        "reason": "invalid_field_value",
+        "failures": [
+          {
+            "field": "x2",
+            "reason": "unsupported_decimal_syntax"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c-long",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "00000000000000000000000000000002",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "unassessed"
+      },
+      "actual": {
+        "status": "unassessed",
+        "reason": "invalid_field_value",
+        "failures": [
+          {
+            "field": "x2",
+            "reason": "input_too_long"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c-fraction",
+      "condition": "function-difference",
+      "kind": "coefficients",
+      "response": {
+        "x2": "4/2",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "unassessed"
+      },
+      "actual": {
+        "status": "unassessed",
+        "reason": "invalid_field_value",
+        "failures": [
+          {
+            "field": "x2",
+            "reason": "unsupported_decimal_syntax"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c-correct-given-expression",
+      "condition": "given-expression",
+      "kind": "coefficients",
+      "response": {
+        "x2": "2",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "matches"
+      },
+      "actual": {
+        "status": "matches",
+        "reason": "all_coefficient_values_equal",
+        "normalized": {
+          "x2": "2",
+          "x": "2",
+          "constant": "-6"
+        },
+        "ratios": {
+          "x2": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "x": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "constant": {
+            "numerator": "-6",
+            "denominator": "1"
+          }
+        },
+        "differentFields": []
+      }
+    },
+    {
+      "id": "c-correct-provided-difference-expression",
+      "condition": "provided-difference-expression",
+      "kind": "coefficients",
+      "response": {
+        "x2": "2",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "matches"
+      },
+      "actual": {
+        "status": "matches",
+        "reason": "all_coefficient_values_equal",
+        "normalized": {
+          "x2": "2",
+          "x": "2",
+          "constant": "-6"
+        },
+        "ratios": {
+          "x2": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "x": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "constant": {
+            "numerator": "-6",
+            "denominator": "1"
+          }
+        },
+        "differentFields": []
+      }
+    },
+    {
+      "id": "c-correct-answer-exposed",
+      "condition": "answer-exposed",
+      "kind": "coefficients",
+      "response": {
+        "x2": "2",
+        "x": "2",
+        "constant": "-6"
+      },
+      "independent": {
+        "classification": "matches"
+      },
+      "actual": {
+        "status": "matches",
+        "reason": "all_coefficient_values_equal",
+        "normalized": {
+          "x2": "2",
+          "x": "2",
+          "constant": "-6"
+        },
+        "ratios": {
+          "x2": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "x": {
+            "numerator": "2",
+            "denominator": "1"
+          },
+          "constant": {
+            "numerator": "-6",
+            "denominator": "1"
+          }
+        },
+        "differentFields": []
+      }
+    }
+  ],
+  "checks": {
+    "coefficient_classifications": 16
+  },
+  "source_artifacts": [
+    {
+      "artifact": "grading-audit/system/src/kas.js",
+      "sha256": "fc29074d3b22e41655c28f7873d2996dbd473edcc2a09af31c009cf32e28d419"
+    },
+    {
+      "artifact": "grading-audit/underscore-umd.cjs",
+      "sha256": "e0e0e05ba731ea945b2cf7ed573b88a4c54a98aad42e82e1d5037ba56f5075d2"
+    },
+    {
+      "artifact": "grading-audit/system/src/platform-logic/checkAnswer.js",
+      "sha256": "cc00980719717a7cc29875225a14fb2d3b263ce9be39376b033ddaedf784fae5"
+    },
+    {
+      "artifact": "grading-audit/grading-probe-result.json",
+      "sha256": "2f85da80cec8d9fbb83be466e75eb6b8357d6d3371509adbd1f9480ff8c1d5a2"
+    },
+    {
+      "artifact": "grading-audit/grading-probe.cjs",
+      "sha256": "4dd7f997cdc8b126c9305ade62aed0c22146d3304ddca4397b4bd2ddec9c220d"
+    },
+    {
+      "artifact": "grading-audit/source-manifest.json",
+      "sha256": "76bf574a22e81e733df9221fa8a14ea142180856846cff45091e56679ad92001"
+    },
+    {
+      "artifact": "content-family/manifest.json",
+      "sha256": "6cf3f6866c54a7635cba26ef65916fdf47fb129e65814457c4624d67093af835"
+    },
+    {
+      "artifact": "content-family/a005bd5real2-problem.json",
+      "sha256": "a5aaa08d57a919562a3ba8a883f43f4f6bc3e25d56cbb59a824d3087e7529e95"
+    },
+    {
+      "artifact": "content-family/a005bd5real2b-step.json",
+      "sha256": "88fc0b7b18e1fa1b9bc459f1ae9a821772db9d83d0595248e79bd42973a3a0b9"
+    },
+    {
+      "artifact": "content-family/a005bd5real2b-pathway.json",
+      "sha256": "211e61c3e1e3ac9be5283ca25afc8efc3a4dce73f2f3aba857caf3e145e347d5"
+    }
+  ],
+  "raw_result": {
+    "artifact": "result-v1.json",
+    "sha256": "7dab7925287627ffc702229dd3fda015853f18e3d69fbed0979ee1a3d40b17ee"
+  },
+  "projection": {
+    "version": "v1",
+    "scope": "固定合成响应矩阵；完整保存上游随机比较与局部系数字段检查，独立数学判定保持另列。",
+    "omissions": [
+      "elapsed_ms",
+      "本机来源目录前缀"
+    ],
+    "retained": "全部28条原输入、条件、独立分类／理由、actual解析／变量／compare／辅助表示／系数字段信息、全部随机值及阶段offset；raw、input、plan、lib、test、runner与来源artifact哈希。",
+    "source_names": "按grading-audit或content-family分组保留尾部相对路径，避免重名manifest混淆。",
+    "interpretation": "本固定有限矩阵检验具体响应契约；它不是学生观察、隐状态估计或KAS总体误判率抽样。"
+  }
+}
