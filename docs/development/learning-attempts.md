@@ -104,6 +104,8 @@ const instance = await client.call("display.open", {
 
 ### 在后续帮助中使用判断
 
+只有固定材料资源、尚未持有记录引用时，可以先发现候选，再由 `attempt.get` 核对事实。公共客户端可递归 `content.list`，用 `ContentInfo.resources` 预筛；Agent 可用 `grep` 搜索公开格式标记 `repa.learning-attempt`，再读取命中的记录。资源清单保留整份证据闭包，其中的材料、展示、帮助和判断依据并非同一角色，因此最终关系要按 `fact.materials` 中的资源及定位确认。正文搜索不进入事实 blob，直接搜索材料 hash 得到零条命中不等于没有有关作答；搜索的候选与输出上限也继续适用。
+
 开始一次依赖既有判断的帮助时，先调用 `attempt.get`，再按返回的 `current` 从 `judgments` 中取得所选判断。`current: null` 表示当前没有采用项；候选的保存次序和 `supersedes` 都不替代这份选择。读取结果是当时的快照，另一个入口更正或撤回采用后，需要新的读取才能取得当前状态。
 
 原材料和判断的 `basis` 保留资源 ID 与定位。Agent 可以通过 `read` 的 `repa:resource/<资源 ID>` 读取同一空间中的固定文本／JSON，公共客户端则用 `client.resource` 读取相应资源。需要 PDF 文本层或 HTML 正文时，把同一个 `ResourceRef` 交给[材料资源目标](../../packages/materials/README.md#再次提取固定原件)，可按原版页范围读取，不重新获取来源网址。当前同名文件或历史来源说明不会替换这些字节；取得二进制或提取文本层仍不等于完成图像语义解释。
