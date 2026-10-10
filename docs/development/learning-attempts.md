@@ -102,6 +102,14 @@ const instance = await client.call("display.open", {
 
 修改使用 `attempt.get` 返回的正文 `base`。同一旧版本上的两个更正竞争时，只有一个能提交；失败的“保存并采用”不会悄悄变成“只保存候选”。候选单独保存也会改变正文版本，因此其他待提交的采用需要重新读取。这是当前单一聚合的并发范围，没有另设隐藏的选择版本或自动重基准。
 
+### 在后续帮助中使用判断
+
+开始一次依赖既有判断的帮助时，先调用 `attempt.get`，再按返回的 `current` 从 `judgments` 中取得所选判断。`current: null` 表示当前没有采用项；候选的保存次序和 `supersedes` 都不替代这份选择。读取结果是当时的快照，另一个入口更正或撤回采用后，需要新的读取才能取得当前状态。
+
+原材料和判断的 `basis` 保留资源 ID 与定位。Agent 可以通过 `read` 的 `repa:resource/<资源 ID>` 读取同一空间中的固定文本／JSON，公共客户端则用 `client.resource` 读取相应资源。当前同名文件或历史来源说明不会替换这些字节；二进制资源的取得也不等于已经完成图像或 PDF 的语义解释。
+
+把作答文档绑定为学习语境时，背景展开的是索引正文，不会自动展开其事实和判断资源。索引更新后，下一次会话 `send` 准备背景时会读取新版本，无需重新绑定；该次 `send` 的内部工具轮沿用入口快照，会话仍保留先前背景和工具读取的历史。`get_learning_attempt` 负责把当前索引解释成事实、全部候选和明确的当前选择，[官方教学方法](../../packages/learning/skills/learn-with-feedback/SKILL.md)据此读取和核对所用依据。采用说明当前选择，不保证参考依据正确，也不把受助回答变成独立表现。
+
 ### 持久格式与副本
 
 新记录位于 `learning/attempts/<确定性内容标识>.json`，身份由共同内容模块登记。文件位置不是业务身份，移动后仍通过 `ContentRef` 访问。
@@ -142,6 +150,8 @@ npm test --workspace=@repa/learning
 ```
 
 [attempts.test.ts](../../packages/learning/test/attempts.test.ts) 使用真实内容存储检查事实保留、候选与采用、更正冲突、重开、清理和内容副本。[attempt-capabilities.test.ts](../../packages/learning/test/attempt-capabilities.test.ts) 通过真实公开客户端、本地 Pi provider 和空间副本核对接口接入。[exercise.test.ts](../../packages/learning/test/exercise.test.ts) 核对真实展示来源、固定初始化条件、原提交与附属资源、失败边界和旧快照兼容。底层业务原意去重与恢复由 [content-derived-patch.test.ts](../../packages/repa/test/content-derived-patch.test.ts) 覆盖。
+
+[learning-judgment-consumption.test.ts](../../packages/repa/test/learning-judgment-consumption.test.ts) 从官方产品的真实 Skill 目录读取教学方法，经过学习背景、领域工具和 `repa:resource` 读取固定依据。它覆盖未采用更正候选、明确采用后仍有更新候选、撤回、新会话和后端重开；原事实与帮助保持不变，关闭独立复习后这条读取链仍可用。
 
 这些验证检查领域保存和接续语义；本地 provider 只驱动确定的调用，不用于评价模型判断能力或真实学习收益。
 

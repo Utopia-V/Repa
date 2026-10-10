@@ -42,7 +42,7 @@ export function attemptCapabilities(): BackendPlugin["capabilities"] {
     inputSchema: getInput, outputSchema: AttemptViewSchema, scopes: ["space"], execution: "inline",
     tool: {
       name: "get_learning_attempt",
-      description: "读取一次学习作答的原事实、候选判断与采用历史。返回 factId 与正文 base，用于保存判断或改变采用；候选存在不代表已经采用。",
+      description: "读取一次学习作答的原事实、全部候选与采用历史。current 是已采用判断的 ID，null 表示当前未采用；新增候选或 supersedes 不自动改变采用。返回 factId 与正文 base，用于保存判断或改变采用。",
       input: { schema: getToolInput, prepare(input, scope) {
         if (scope.kind !== "space") throw new RepaFault("capability_scope", "学习作答记录需要所属空间。");
         return { ref: { spaceId: scope.spaceId, id: input.contentId } };
