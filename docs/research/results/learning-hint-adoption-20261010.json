@@ -1,0 +1,215 @@
+{
+  "date": "2026-10-10",
+  "purpose": "真实提示文字要求与代码payload分别和局部后续代码对应；不估计总体采用率、客观任务正确、因果效应或学习。",
+  "dataset": {
+    "doi": "10.5281/zenodo.17551130",
+    "version": "v1",
+    "creators": [
+      "Anastasiia Birillo",
+      "Aleksei Rostovskii",
+      "Yaroslav Golubev",
+      "Hieke Keuning"
+    ],
+    "license": "CC-BY-4.0",
+    "zip_sha256": "5527127f0a3c939601b17ef207ef8b34df7cad9159c9617f879efbf4e989d499"
+  },
+  "selection": {
+    "reports_checked": 1050,
+    "eligible": 734,
+    "excluded": 316,
+    "rule": "Exactly one Code hint requested and one later Code hint generated; group by post-generation Show/Accept logs; order by UTC request then original report index; first two distinct parent directories per group. All selected windows end at report end.",
+    "groups": {
+      "generated_only": {
+        "eligible_reports": 309,
+        "eligible_parents": 18,
+        "selected_reports": 2,
+        "shortfall": 0
+      },
+      "show_no_accept": {
+        "eligible_reports": 129,
+        "eligible_parents": 17,
+        "selected_reports": 2,
+        "shortfall": 0
+      },
+      "accept": {
+        "eligible_reports": 296,
+        "eligible_parents": 15,
+        "selected_reports": 2,
+        "shortfall": 0
+      }
+    },
+    "selected": 6,
+    "preobserved_selected": 1,
+    "extra_controls": 0,
+    "parent_meaning": "Publication directory, not verified person identity; cross-group overlap permitted."
+  },
+  "candidate_policy": {
+    "timing": "Frozen before after-view disclosure, following independent review.",
+    "primary": "First substantive explicit text requirement, code payload alignment recorded separately.",
+    "no_new_candidate": "No-change text with identical request/generated target does not create adoption success.",
+    "scope": "Request function only; outer-file state is not inferred."
+  },
+  "post_source_check": {
+    "document_csv_rows": 119214,
+    "read_bytes_per_pass": {
+      "html_bytes": 6410996,
+      "csv_bytes": 258869032
+    },
+    "total_expanded_bytes_per_pass": 265280028,
+    "passes": {
+      "author": 1,
+      "independent": 1
+    },
+    "latest_before_case_filename_rows": 66,
+    "window_raw_rows": 436,
+    "window_raw_rows_also_in_html": 436,
+    "html_document_unique_raw_matches": 436,
+    "raw_csv_order": "Original row order is retained, not assumed timestamp order.",
+    "all_source_hashes_unchanged": true
+  },
+  "cases": [
+    {
+      "case": "G1",
+      "group": "generated_only",
+      "preobserved": true,
+      "candidate_status": "no-new-candidate",
+      "candidate": "文字明确无需修改；main 与请求片段逐字相同。",
+      "predicate": null,
+      "generated_code_alignment": "same_local_function",
+      "outcome": "no-new-candidate",
+      "interpretation": "原函数无新修改建议，后续编辑不计算为该建议的新增采用。",
+      "document_records": 127,
+      "latest_before_filename_entries": 11,
+      "request_to_generated_document_records": 0,
+      "unique_matching_raw_document_records": 127
+    },
+    {
+      "case": "G2",
+      "group": "generated_only",
+      "preobserved": false,
+      "candidate_status": "candidate",
+      "candidate": "把请求中原有 println 的旧消息替换成文字指定的问候首句。",
+      "predicate": "目标 main 的原输出位置产生指定新字符串，不是注释或其他函数中出现；原消息已被该位置替换。",
+      "generated_code_alignment": "implements_text",
+      "outcome": "undetermined_no_post_documents",
+      "interpretation": "没有窗口内代码记录；旧快照与请求不同，既不能作为后续回答，也不能确认请求时已有变化。",
+      "document_records": 0,
+      "latest_before_filename_entries": 11,
+      "request_to_generated_document_records": 0,
+      "unique_matching_raw_document_records": 0
+    },
+    {
+      "case": "S1",
+      "group": "show_no_accept",
+      "preobserved": false,
+      "candidate_status": "no-new-candidate",
+      "candidate": "文字明确无需修改；main 与请求片段逐字相同，包括第二句字符串内末尾空格。",
+      "predicate": null,
+      "generated_code_alignment": "same_local_function",
+      "outcome": "no-new-candidate",
+      "interpretation": "对应函数逐字相同，包括字符串内部末尾空格；另无后续代码记录。",
+      "document_records": 0,
+      "latest_before_filename_entries": 11,
+      "request_to_generated_document_records": 0,
+      "unique_matching_raw_document_records": 0
+    },
+    {
+      "case": "S2",
+      "group": "show_no_accept",
+      "preobserved": false,
+      "candidate_status": "candidate",
+      "candidate": "对 secret 使用身份 groupingBy 与 eachCount 构造字符频率表。",
+      "predicate": "目标 countAllMatches 的局部处理中，以 secret 字符为对象按身份键 groupingBy 后 eachCount；变量名和内联与否可变。",
+      "generated_code_alignment": "conflict_empty_expression",
+      "outcome": "text_predicate_not_observed_in_window",
+      "interpretation": "后续目标出现groupBy与eachCount，没有groupingBy；文字主谓词未观察到满足，不能用相近API名代替。",
+      "document_records": 115,
+      "latest_before_filename_entries": 11,
+      "request_to_generated_document_records": 0,
+      "unique_matching_raw_document_records": 115
+    },
+    {
+      "case": "A1",
+      "group": "accept",
+      "preobserved": false,
+      "candidate_status": "candidate",
+      "candidate": "在目标 println 前声明具有可明确确认 Boolean 类型的局部 complete。",
+      "predicate": "目标 playGame 中该 println 前有局部 complete 声明，Boolean 注解或简单布尔初始化明确；复杂推断未判定。",
+      "generated_code_alignment": "implements_text",
+      "outcome": "observed_then_absent",
+      "interpretation": "一份快照符合且对应生成局部代码，下一条删除相应函数体，末条也无该声明。",
+      "document_records": 100,
+      "latest_before_filename_entries": 11,
+      "request_to_generated_document_records": 0,
+      "unique_matching_raw_document_records": 100,
+      "recorded_time_relations": {
+        "duration_seconds": 162.233,
+        "duration_meaning": "difference between two saved snapshot timestamps, not proven real edit interval",
+        "accept_inside_interval": true,
+        "first_met_after_accept_seconds": 162.149,
+        "last_not_met_before_accept_seconds": 0.084,
+        "actual_first_change_time": "not identifiable from these records; timestamps bracket recorded statuses only"
+      },
+      "met_snapshot_count": 1,
+      "met_to_next_absent_record_seconds": 0.012
+    },
+    {
+      "case": "A2",
+      "group": "accept",
+      "preobserved": false,
+      "candidate_status": "candidate",
+      "candidate": "目标函数改用 filterIndexed 和 length 的单表达式函数体。",
+      "predicate": "目标 countExactMatches 为表达式函数体（而非块体 return），使用 filterIndexed 结果的 length；不固定 lambda 名，不因此证明整个匹配算法正确。",
+      "generated_code_alignment": "implements_text",
+      "outcome": "observed_and_retained_in_saved_window",
+      "interpretation": "前六份未符合，第七份起88份保持目标局部表达式；其他函数及全任务正确性不在本谓词内。",
+      "document_records": 94,
+      "latest_before_filename_entries": 11,
+      "request_to_generated_document_records": 0,
+      "unique_matching_raw_document_records": 94,
+      "recorded_time_relations": {
+        "duration_seconds": 152.439,
+        "duration_meaning": "difference between two saved snapshot timestamps, not proven real edit interval",
+        "accept_inside_interval": true,
+        "first_met_after_accept_seconds": 152.413,
+        "last_not_met_before_accept_seconds": 0.026,
+        "actual_first_change_time": "not identifiable from these records; timestamps bracket recorded statuses only"
+      },
+      "met_snapshot_count": 88
+    }
+  ],
+  "conclusion_boundaries": [
+    "两个Accept例均曾记录到主谓词；本样本没有证实Accept后从未出现修改的反例。",
+    "本样本没有证实无Accept但出现完整主谓词的反例；S2只有相关而不完整的要求对应。",
+    "已记录相符与窗口末保留不同；两种内容渠道可能冲突，缺后续快照保留未判定。",
+    "记录日期之间的关系不是实际首次修改、保留时长或因果作用的识别。",
+    "使用固定事实、资源定位和逐项criterion已可保存这些区别，本阶段未新增产品schema或自动代码判定机制。"
+  ],
+  "checks": {
+    "selection_synthetic_tests": 6,
+    "post_view_synthetic_tests": 7,
+    "independent_selection": "1050 candidate dispositions, 734 eligible fields, six selected identity/order, twelve original request/generated events",
+    "independent_post_view": "Six HTML originals, 436 document unique raw joins, 66 latest-before all ties and 436 interval selections",
+    "independent_content_review": "Six frozen predicates, target scope and recorded time explanations agree; v2 corrects real-time inference."
+  },
+  "private_artifact_sha256": {
+    "plan-v1.md": "c6fa6b603880a34fca22d3f2f26dc054427e3dc423df982f45dab7b1fe9a53af",
+    "candidate-policy-v1.md": "48462cc631e31ded65ef15d8eada6e12bb8b54e8b7300553b8eb40d91a8ed5ab",
+    "candidates-v1-private.json": "66e7e2fb8e729f719df6d69428a0f191bcc7bc005ba4d3349f05cb94bd568a78",
+    "frozen-candidates-v1.sha256": "e0ecaeea2cb0720358786dd03a09dafe555eebb92300546c63789ac10946a674",
+    "select-v1.py": "c5031ba4297a1fab7ddbfd09f853e31f777adca2ca9015ede81e6e6cd840fc6f",
+    "test-select-v1.py": "fa9759f277ddada983a5217d7fe93a6d24f739c33fac1428fa1b253423dfc5cb",
+    "selection-v1-private.json": "43421bc466d96a1eeb56ada9bb00d4b77407a38ec4c084372e97335c63843120",
+    "request-views-v1-private.json": "1d23c10165ae828e221dfbc82a345319d444f7f402efa45ceceb737cf7c043f2",
+    "post-views-v1.py": "ea8537aaf4af39cddc4508d47c5031fcba4262198bed8490355d3c594fbb57e8",
+    "test-post-views-v1.py": "ccf6f9b30672d01af491c0fcabad3f457a83fa37ffe92c49f8608eca839bbd30",
+    "post-views-v1-private.json": "9758a0ce656ca9d0ce82e4a8787b15cb56f7f9b6eb11ef13e0497549e20cf731",
+    "root-interpretation-v1-private.json": "f22ca06d5557d5e64c3aeeb5025a7399d8243030a0888624ee215537ae2fd029",
+    "root-interpretation-v2-private.json": "0ec3cbce5affba8854ba21e41355caed7a80e3c5e73ef5a7caa9bbcc237db787",
+    "independent-selection-postcheck-v1.json": "9ab192330fc9c1d4e5cfb725498ef6410835628988cf994629ef81fbc7283eee",
+    "independent-postcheck-v1.json": "c5bd97f9301d6db377c1923d1278da9ccad68e8840b8616ff34116124822ff9c",
+    "interpretation-review-v1.md": "556ec673a0fe23c1a67eb4180ca37cbbcb076919515b46626106927f2943c3b5",
+    "export-v1.py": "559481c93d15011d1974306fda975e3d186a159b64eb573374fb9da5761979ad"
+  },
+  "privacy": "Only anonymous case descriptions, counts, relative record-time differences and provenance hashes; no personal IDs, member paths, code, full hint text or absolute event timestamps."
+}
