@@ -6,16 +6,18 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 
 import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
-import { createAgentRuntime, startServer, type AgentRuntime, type RepaServer } from "@repa/base";
+import { startServer, type AgentRuntime, type RepaServer } from "@repa/base";
 import { RepaClient } from "@repa/base/client";
 import type { Plugin } from "@repa/base/plugin";
 import type { Result } from "@repa/base/protocol";
 
 import { notesPlugin } from "../examples/notes-plugin.js";
+import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { checkProbeReply } from "./real-model/answer.js";
 import { leaseSettings } from "./real-model/settings.js";
 import { guardProbeRuntime } from "./real-model/guard.js";
-import { installDeepseekProbe } from "./real-model/deepseek.js";
+import { createRequestProbe } from "./real-model/request.js";
+import { probePrompt } from "./real-model/prompt.js";
 import { installedPiVersion, probeAuth, selectProbeModel } from "./real-model/model.js";
 import { assertModelBudget, summarizeUsage } from "./real-model/usage.js";
 
@@ -28,15 +30,18 @@ const { values } = parseArgs({
     limit: { type: "string", default: "30" },
     "cost-limit": { type: "string", default: "0.5" },
     "request-limit": { type: "string", default: "50" },
+    "change-notice": { type: "boolean", default: false },
     "skip-refresh": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
 });
 
 if (values.help || !values.output) {
-  console.log("用法：npm run real-model-check --workspace=@repa/base -- --output /绝对路径/新结果.jsonl [--provider openai-codex|deepseek] [--model 模型ID] [--limit 30] [--skip-refresh]");
+  console.log("用法：npm run real-model-check --workspace=@repa/base -- --output /绝对路径/新结果.jsonl [--provider openai-codex|deepseek] [--model 模型ID] [--limit 30] [--change-notice] [--skip-refresh]");
   console.log("--limit 按 Pi 助手消息、压缩和保温操作计数，不是 HTTP 请求上限；一次压缩最多含两份摘要请求，OAuth 刷新另行执行一次。");
-  console.log("DeepSeek 默认每次运行 --cost-limit 0.5 美元、--request-limit 50（含压缩子请求和失败），输出上限 2048 token；两次运行合计最多 1 美元、100 次请求。追加运行时须从总授权中扣除已用额度。API key 不执行 OAuth 刷新。");
+  console.log("--change-notice 只在覆盖后的第一轮附加一条变更说明；默认不附加，底座默认行为不变。");
+  console.log("--request-limit 按普通请求事件和压缩尝试上界计数（DeepSeek 每次压缩 2，Codex 8），不含 OAuth。");
+  console.log("DeepSeek 默认每次运行 --cost-limit 0.5 美元、--request-limit 50（含压缩子请求和失败），输出上限 2048 token；请求上限对两家均生效。每次运行须从总授权中分配剩余额度；脚本不跨进程共享账本。API key 不执行 OAuth 刷新。");
   console.log("使用真实额度。先关闭使用同一 Repa agent 目录的进程；临时调整 settings.json，结束后恢复。凭据不复制，OAuth 刷新结果由 Pi 保存到原文件。");
   process.exit(values.help ? 0 : 1);
 }
@@ -74,7 +79,7 @@ let finalHistory: Result<"session.history"> = [];
 let version = 0;
 let suffix = "A";
 let checksFailed = 0;
-let probe: ReturnType<typeof installDeepseekProbe> | undefined;
+let probe: ReturnType<typeof createRequestProbe> | undefined;
 const stopController = new AbortController();
 
 const stop = () => {
@@ -92,6 +97,9 @@ try {
   log({
     type: "environment", date: new Date().toISOString(), node: process.version,
     piVersion: installedPiVersion(), provider: model.provider, model: model.id, limit,
+    changeNotice: values["change-notice"],
+    modelConfiguration: "locked-catalog",
+    requestLimit,
     sessionTransport: "sse", thinking: "off", viewBatchSize: 3,
     promptCache: model.promptCache ?? null,
     catalogCost: model.cost,
@@ -102,14 +110,15 @@ try {
     supportsMidConvoSystemMessages: model.compat?.supportsMidConvoSystemMessages ?? false,
     deepseekBudget: model.provider === "deepseek" ? { costLimit, requestLimit, maxOutputTokens: 2048 } : null,
   });
-  if (model.provider === "deepseek") {
-    probe = installDeepseekProbe({ model, costLimit, requestLimit, phase: () => phase, log });
-  }
+  probe = createRequestProbe({ model, costLimit: model.provider === "deepseek" ? costLimit : undefined, requestLimit, phase: () => phase, log });
   phase = "lease-settings";
   settingsAttempted = true;
   settings = await leaseSettings(values["agent-dir"], directory);
   phase = "runtime-open";
-  runtime = guardProbeRuntime(await createAgentRuntime({ agentDir: values["agent-dir"] }));
+  const modelRuntime = await ModelRuntime.create({ authPath, modelsPath: null, allowModelNetwork: false });
+  runtime = guardProbeRuntime(await createAgentRuntimeForTest({
+    agentDir: values["agent-dir"], modelRuntime, extensionFactories: [probe.extensionFactory],
+  }));
   const probeNotes: Plugin = {
     ...notesPlugin,
     async open(host) {
@@ -173,11 +182,8 @@ try {
     const added = entries.filter(entry => !oldIds.has(entry.id));
     const answers = added.filter(entry => entry.type === "assistant");
     const usageSummary = summarizeUsage(added);
-    const rawUsage = probe?.snapshot(label);
-    const usageMatchesRaw = rawUsage ? rawUsage.requests > 0 && rawUsage.incompleteRequests === 0
-      && rawUsage.fullInput === usageSummary.fullInput && rawUsage.output === usageSummary.output
-      && rawUsage.cacheRead === usageSummary.cacheRead && rawUsage.input === usageSummary.input : null;
-    if (usageMatchesRaw === false) checksFailed++;
+    probe?.settle(label, usageSummary);
+    const requestSummary = probe?.snapshot(label);
     const replyCheck = checkAnswer ? checkProbeReply(answers.at(-1)?.text, version, suffix) : null;
     const replyMatches = replyCheck?.replyMatches ?? null;
     if (replyMatches === false) checksFailed++;
@@ -192,7 +198,7 @@ try {
       promptSectionsAdded: newPrompts,
       compactionsAdded: added.filter(entry => entry.type === "compaction").length,
       toolResultsAdded: added.filter(entry => entry.type === "tool").length,
-      usageSummary, rawUsage: rawUsage ?? null, usageMatchesRaw,
+      usageSummary, requestSummary: requestSummary ?? null,
       usage: added.filter(entry => entry.usage).map(entry => ({
         kind: entry.type, ...entry.usage,
         modelMatchesRequested: entry.type === "assistant" ? object(entry.data).model === model.id : null,
@@ -204,13 +210,13 @@ try {
     console.log(`${label}: ${checkAnswer ? `reply=${replyMatches}` : "captured"}; modelOperations=${summarizeUsage(entries).modelOperations}`);
   }
 
-  async function send(label: string) {
+  async function send(label: string, changeNotice = false) {
     if (interrupted) throw new Error("interrupted");
     phase = label;
     assertModelBudget(await history(), limit);
     await runOperation(() => activeClient.call("session.send", {
       sessionId: session.id,
-      text: "读取最新 view 的核实版本，按当前插件说明仅回复版本码和后缀，用竖线连接。不要调用工具。",
+      text: probePrompt(changeNotice),
     }));
     await capture(label, true);
     await sleep(1000, undefined, { signal: stopController.signal });
@@ -229,7 +235,7 @@ try {
       log({ type: "override-baseline", cached: finalHistory.findLast(entry => entry.type === "assistant")?.usage?.cacheRead ?? null });
       suffix = "B";
       await setSuffix();
-      await send("override");
+      await send("override", values["change-notice"]);
       await send("override-stable");
     }
   }
@@ -244,10 +250,13 @@ try {
 
   phase = "idle";
   const beforeIdle = summarizeUsage(await history()).modelOperations;
+  const requestsBeforeIdle = probe.snapshot().observedRequests;
   await sleep(2000, undefined, { signal: stopController.signal });
   finalHistory = await history();
   log({
-    type: "warming", waitMs: 2000, modelOperationsDuringIdle: summarizeUsage(finalHistory).modelOperations - beforeIdle,
+    type: "warming", waitMs: 2000,
+    observedRequestsDuringIdle: probe.snapshot().observedRequests - requestsBeforeIdle,
+    modelOperationsDuringIdle: summarizeUsage(finalHistory).modelOperations - beforeIdle,
     cacheWarmEntries: finalHistory.filter(entry => entry.type === "usage" && object(entry.data).kind === "cache_warm").length,
     catalogTtlAvailable: model.promptCache?.short !== undefined,
     applicability: model.promptCache?.short === undefined ? "not-applicable-catalog-ttl-unavailable" : "available",
@@ -263,9 +272,10 @@ try {
     let minimumValiditySatisfied = false;
     try {
       // 用公开入口要求略长于现有寿命的凭据，让 Pi 在原存储锁内刷新；不改过期时间或令牌。
+      // 刷新开始后等待 Pi 保存旋转凭据；SIGINT 只阻止后续模型调用，不提前结束此关键操作。
+      // 网络刷新由 Pi 自己的 15 秒超时约束，凭据锁等待仍遵循原存储语义。
       await authRuntime.getAuth("openai-codex", {
         minOAuthValidityMs: Math.max(300_000, credential.expires - Date.now() + 1000),
-        signal: AbortSignal.any([stopController.signal, AbortSignal.timeout(20_000)]),
       });
       minimumValiditySatisfied = true;
     } catch {
@@ -298,7 +308,10 @@ try {
     }
   }
   // 上游 Error 与 RPC data 都可能包含敏感内容，不进入工件或终端。
-  const safeReasons = ["model_operation_limit", "model_operation_timeout", "unexpected_tool_execution", "oauth_refresh_unverified", "probe_credential_required"];
+  const safeReasons = [
+    "model_operation_limit", "model_operation_timeout", "unexpected_tool_execution", "oauth_refresh_unverified", "probe_credential_required",
+    "request_probe_usage_unknown", "request_probe_phase_not_reserved", "request_probe_phase_already_settled",
+  ];
   let reason = "operation_failed";
   if (interrupted) reason = "interrupted";
   else if (error instanceof Error && safeReasons.includes(error.message)) reason = error.message;
@@ -327,7 +340,7 @@ try {
   log({
     type: "end", completed, checksFailed, settingsRestored,
     usageSummary: summarizeUsage(finalHistory),
-    rawUsage: probe?.snapshot() ?? null,
+    requestSummary: probe?.snapshot() ?? null,
   });
   probe?.close();
   closeSync(logFile);
