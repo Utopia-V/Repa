@@ -144,3 +144,148 @@ test("关闭空间等已进入的活动完成后才释放锁", async (t) => {
   assert.deepEqual((await reopened.history.list(1))[0]?.source, { kind: "agent", runId: "run-close" });
   await reopened.close();
 });
+
+async function seedLooseObjects(root: string): Promise<number> {
+  // 批量生成不可达的小对象，模拟保存失败遗留；避免用一千次 Git 进程拖慢宿主回归。
+  const input = Array.from({ length: 1_100 }, (_, i) => {
+    const text = `maintenance-${i}\n`;
+    return `blob\ndata ${Buffer.byteLength(text)}\n${text}\n`;
+  }).join("") + "done\n";
+  await new Promise<void>((resolve, reject) => {
+    const child = execFile("git", [
+      `--git-dir=${path.join(root, ".repa", "history.git")}`,
+      "-c", "fastimport.unpackLimit=2000", "fast-import", "--quiet", "--done",
+    ], (error) => { if (error) reject(error); else resolve(); });
+    child.stdin?.end(input);
+  });
+  return looseObjects(root);
+}
+
+async function looseObjects(root: string): Promise<number> {
+  const { stdout } = await promisify(execFile)("git", [
+    `--git-dir=${path.join(root, ".repa", "history.git")}`, "count-objects", "-v",
+  ]);
+  const count = /^count: (\d+)$/m.exec(stdout)?.[1];
+  assert.ok(count);
+  return Number(count);
+}
+
+test("新的提交重新开始维护等待，静默三十秒后打包", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { space } = await fixture(t);
+  assert.ok(await seedLooseObjects(space.root) >= 1_100);
+  t.mock.timers.tick(20_000);
+  await space.files.write("idle.txt", "重新开始等待\n");
+  t.mock.timers.tick(29_999);
+  await space.history.list();
+  assert.ok(await looseObjects(space.root) >= 1_100);
+  t.mock.timers.tick(1);
+  // 维护与读取共享同一队列，读取完成就是维护已收尾的屏障。
+  await space.history.list();
+  assert.equal(await looseObjects(space.root), 0);
+  assert.equal(await space.files.read("idle.txt"), "重新开始等待\n");
+});
+
+test("打开已有空间后即使没有新提交，也在闲置时维护旧对象", async (t) => {
+  const { space } = await fixture(t);
+  await space.close();
+  assert.ok(await seedLooseObjects(space.root) >= 1_100);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const reopened = await openSpace(space.root, { watch: false });
+  try {
+    t.mock.timers.tick(30_000);
+    await reopened.history.list();
+    assert.equal(await looseObjects(space.root), 0);
+  } finally {
+    await reopened.close();
+  }
+});
+
+test("闲置维护遇到 Git 锁后报告错误，无新提交也会继续重试", async (t) => {
+  const { space } = await fixture(t);
+  await space.close();
+  await seedLooseObjects(space.root);
+  const lock = path.join(space.dataDir, "history.git", "gc.pid");
+  await writeFile(lock, `${process.pid} ${os.hostname()}\n`);
+  const errors: unknown[] = [];
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const reopened = await openSpace(space.root, { watch: false, onError: error => { errors.push(error); } });
+  try {
+    t.mock.timers.tick(30_000);
+    await reopened.history.list();
+    assert.equal(errors.length, 1);
+    assert.ok(await looseObjects(space.root) >= 1_100);
+    await rm(lock);
+    t.mock.timers.tick(30_000);
+    await reopened.history.list();
+    assert.equal(await looseObjects(space.root), 0);
+    assert.equal(errors.length, 1);
+  } finally {
+    await rm(lock, { force: true });
+    await reopened.close();
+  }
+});
+
+test("关闭在释放空间锁前完成待维护对象打包，旧历史保持可读", async (t) => {
+  const { space } = await fixture(t);
+  await space.files.write("saved.txt", "历史原文\n");
+  const before = await space.history.changes();
+  assert.ok(await seedLooseObjects(space.root) >= 1_100);
+  await space.close();
+  assert.equal(await looseObjects(space.root), 0);
+  const reopened = await openSpace(space.root, { watch: false });
+  try {
+    assert.deepEqual(await reopened.history.changes(), before);
+    assert.equal(await reopened.files.read("saved.txt"), "历史原文\n");
+  } finally {
+    await reopened.close();
+  }
+});
+
+test("闲置维护已排队但尚未开始时丢失空间锁，不再打包对象", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-space-maintenance-lock-"));
+  let lockLost = false;
+  let releaseActivity: () => void = () => undefined;
+  let reportCompromise: (error: unknown) => void = () => undefined;
+  const compromised = new Promise<unknown>(resolve => { reportCompromise = resolve; });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const space = await createSpace(path.join(directory, "space"), {
+    watch: false,
+    onError(error) {
+      lockLost = true;
+      reportCompromise(error);
+    },
+  });
+  t.after(async () => {
+    releaseActivity();
+    try {
+      if (lockLost) {
+        await assert.rejects(space.close(), error => error !== null && typeof error === "object" && "code" in error && error.code === "ERELEASED");
+      } else {
+        await space.close();
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  assert.ok(await seedLooseObjects(space.root) >= 1_100);
+  let reportEntered: () => void = () => undefined;
+  const entered = new Promise<void>(resolve => { reportEntered = resolve; });
+  const released = new Promise<void>(resolve => { releaseActivity = resolve; });
+  const active = space.record({ kind: "agent", runId: "maintenance-lock-loss" }, async () => {
+    reportEntered();
+    await released;
+    await writeFile(path.join(space.root, "queued.txt"), "已进入队列的动作\n");
+  });
+  await entered;
+  await rm(path.join(space.dataDir, "lock"), { recursive: true });
+  // 维护先入队；同次 tick 启动的异步锁心跳随后确认失权，而活动仍占有历史队列。
+  t.mock.timers.tick(30_000);
+  const error = await compromised;
+  assert.ok(error !== null && typeof error === "object" && "code" in error);
+  assert.equal(error.code, "ECOMPROMISED");
+  releaseActivity();
+  // record 的 revision 通知排在维护后面，活动完成也确认已排队的维护收尾。
+  await active;
+  assert.ok(await looseObjects(space.root) >= 1_100);
+});

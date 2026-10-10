@@ -1,16 +1,34 @@
 import type { Result } from "@repa/base/protocol";
 
-import type { RawUsage } from "./transport.js";
+type History = Result<"session.history">;
 
-type Usage = NonNullable<Result<"session.history">[number]["usage"]>;
+export function summarizeUsage(entries: History) {
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  for (const entry of entries) {
+    if (!entry.usage) continue;
+    usage.input += entry.usage.input;
+    usage.output += entry.usage.output;
+    usage.cacheRead += entry.usage.cacheRead;
+    usage.cacheWrite += entry.usage.cacheWrite;
+  }
+  const fullInput = usage.input + usage.cacheRead + usage.cacheWrite;
+  const assistantMessages = entries.filter(entry => entry.type === "assistant").length;
+  const compactions = entries.filter(entry => entry.type === "compaction").length;
+  const cacheWarmOperations = entries.filter(entry => entry.type === "usage"
+    && entry.data !== null && typeof entry.data === "object"
+    && "kind" in entry.data && entry.data.kind === "cache_warm").length;
+  return {
+    ...usage,
+    fullInput,
+    cacheHitRate: fullInput > 0 ? usage.cacheRead / fullInput : null,
+    assistantMessages,
+    compactions,
+    cacheWarmOperations,
+    // Pi 保存的是一次压缩的合计用量，不能从中恢复子请求数。
+    modelOperations: assistantMessages + compactions + cacheWarmOperations,
+  };
+}
 
-export function usageMatches(raw: RawUsage[], saved: Usage[]): boolean {
-  if (raw.length === 0 || saved.length === 0) return false;
-  if (raw.some(usage => usage.input === null || usage.output === null)) return false;
-  const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
-  // Pi 一次压缩可能分别总结历史与截断回合，再把两次模型用量合并为一个条目。
-  return sum(raw.map(usage => usage.input ?? 0)) === sum(saved.map(usage => usage.input + usage.cacheRead + usage.cacheWrite))
-    && sum(raw.map(usage => usage.output ?? 0)) === sum(saved.map(usage => usage.output))
-    && (raw.some(usage => usage.cached === null) || sum(raw.map(usage => usage.cached ?? 0)) === sum(saved.map(usage => usage.cacheRead)))
-    && (raw.some(usage => usage.cacheWrite === null) || sum(raw.map(usage => usage.cacheWrite ?? 0)) === sum(saved.map(usage => usage.cacheWrite)));
+export function assertModelBudget(entries: History, limit: number): void {
+  if (summarizeUsage(entries).modelOperations >= limit) throw new Error("model_operation_limit");
 }

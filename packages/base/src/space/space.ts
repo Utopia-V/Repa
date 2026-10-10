@@ -55,6 +55,29 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     let notificationError: unknown;
     let closed = false;
     let closing: Promise<void> | undefined;
+    let maintenanceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function clearMaintenanceTimer(): void {
+      if (maintenanceTimer !== undefined) clearTimeout(maintenanceTimer);
+      maintenanceTimer = undefined;
+    }
+
+    function scheduleMaintenance(): void {
+      clearMaintenanceTimer();
+      if (closing !== undefined || closed || compromised) return;
+      // 留出一段无提交的时间；真正的维护仍排在历史队列内，不与活动写入并行。
+      maintenanceTimer = setTimeout(() => {
+        maintenanceTimer = undefined;
+        if (compromised) return;
+        void raw.maintain({ canRun: () => !compromised }).catch((error: unknown) => {
+          scheduleMaintenance();
+          onError(error);
+        }).catch((error: unknown) => {
+          process.emitWarning(String(error));
+        });
+      }, 30_000);
+      maintenanceTimer.unref();
+    }
 
     function checkOpen(): void {
       if (closed || (closing !== undefined && !owned.getStore())) throw new RepaFault("space_closed", "空间已经关闭");
@@ -76,6 +99,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     }
 
     const unsubscribe = raw.onRevision((id) => {
+      scheduleMaintenance();
       // 在 capture 内只登记后续读取；等当前历史操作结束后再通知使用者。
       const revisions = raw.list();
       notifications = notifications.then(async () => {
@@ -229,6 +253,9 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
       },
     };
 
+    // 旧库可能已经积累对象；即使本次打开后没有新提交，也安排一次检查。
+    scheduleMaintenance();
+
     return {
       root, dataDir, sessionsDir, history, files, filesFor, record,
       async pluginDataDir(id) {
@@ -253,12 +280,14 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
       close() {
         if (activity.getStore()) return Promise.reject(new RepaFault("history_during_activity", "空间关闭必须在 record 动作完成后进行"));
         if (closing === undefined) {
+          clearMaintenanceTimer();
           closing = (async () => {
             try {
               await Promise.allSettled([...operations]);
               await watcher?.close();
               await raw.snapshot();
               await settled();
+              if (!compromised) await raw.maintain({ canRun: () => !compromised });
             } finally {
               closed = true;
               unsubscribe();

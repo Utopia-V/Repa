@@ -14,8 +14,8 @@ import type { Result } from "@repa/base/protocol";
 
 import { notesPlugin } from "../examples/notes-plugin.js";
 import { leaseSettings } from "./real-model/settings.js";
-import { installTransportRecorder } from "./real-model/transport.js";
-import { usageMatches } from "./real-model/usage.js";
+import { guardProbeRuntime } from "./real-model/guard.js";
+import { assertModelBudget, summarizeUsage } from "./real-model/usage.js";
 
 const { values } = parseArgs({
   options: {
@@ -30,6 +30,7 @@ const { values } = parseArgs({
 
 if (values.help || !values.output) {
   console.log("用法：npm run real-model-check --workspace=@repa/base -- --output /绝对路径/新结果.jsonl [--limit 30] [--skip-refresh]");
+  console.log("--limit 按 Pi 助手消息、压缩和保温操作计数，不是 HTTP 请求上限；一次压缩最多含两份摘要请求，OAuth 刷新另行执行一次。");
   console.log("使用真实订阅额度。先关闭使用同一 Repa agent 目录的进程；临时调整 settings.json，结束后恢复。凭据不复制，刷新结果由 Pi 保存到原文件。");
   process.exit(values.help ? 0 : 1);
 }
@@ -48,12 +49,6 @@ function object(value: unknown): Record<string, unknown> {
 }
 
 let phase = "setup";
-const recorder = installTransportRecorder({
-  limit,
-  phase: () => phase,
-  viewMarker: "<repa-view source=",
-  onRecord: record => log({ type: "request", ...record }),
-});
 const directory = await mkdtemp(path.join(os.tmpdir(), "repa-base-real-check-"));
 let settings: Awaited<ReturnType<typeof leaseSettings>> | undefined;
 let runtime: AgentRuntime | undefined;
@@ -64,12 +59,15 @@ let interrupted = false;
 let completed = false;
 let settingsRestored = false;
 let settingsAttempted = false;
+let finalHistory: Result<"session.history"> = [];
 let version = 0;
 let suffix = "A";
 let checksFailed = 0;
+const stopController = new AbortController();
 
 const stop = () => {
   interrupted = true;
+  stopController.abort();
   if (client && sessionId) client.call("session.abort", { sessionId }).catch(() => undefined);
 };
 process.once("SIGINT", stop);
@@ -84,16 +82,17 @@ try {
   log({
     type: "environment", date: new Date().toISOString(), node: process.version,
     piVersion: "0.87.1", provider: "openai-codex", model: model.id, limit,
-    transport: "sse", thinking: "off", viewBatchSize: 3,
+    sessionTransport: "sse", thinking: "off", viewBatchSize: 3,
     promptCache: model.promptCache ?? null,
     catalogCost: model.cost,
+    budgetUnit: "pi-model-operation", usageSource: "pi-session-history",
     oauthPresent: true, oauthInitiallyExpired: initialCredential.expires <= Date.now(),
   });
   phase = "lease-settings";
   settingsAttempted = true;
   settings = await leaseSettings(values["agent-dir"], directory);
   phase = "runtime-open";
-  runtime = await createAgentRuntime({ agentDir: values["agent-dir"] });
+  runtime = guardProbeRuntime(await createAgentRuntime({ agentDir: values["agent-dir"] }));
   const probeNotes: Plugin = {
     ...notesPlugin,
     async open(host) {
@@ -110,7 +109,6 @@ try {
   phase = "server-open";
   server = await startServer({ home: path.join(directory, "home"), runtime, plugins: [probeNotes] });
   phase = "client-connect";
-  recorder.allowLocalWebSocket(server.connection.url);
   client = await RepaClient.connect(server.connection);
   client.on("confirm.request", ({ id }) => {
     client?.call("confirm.reply", { id, value: false }).catch(() => undefined);
@@ -134,10 +132,25 @@ try {
   const activeClient = client;
   const history = () => activeClient.call("session.history", { sessionId: session.id });
   let previousHistory: Result<"session.history"> = [];
-  let previousRequestCount = 0;
+
+  async function runOperation(action: () => Promise<unknown>) {
+    if (interrupted) throw new Error("interrupted");
+    let timedOut = false;
+    let cancellation: Promise<unknown> | undefined;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      cancellation = activeClient.call("session.abort", { sessionId: session.id }).catch(() => undefined);
+    }, 90_000);
+    try {
+      await action();
+      if (timedOut) throw new Error("model_operation_timeout");
+    } finally {
+      clearTimeout(timeout);
+      await cancellation;
+    }
+  }
 
   async function capture(label: string, checkAnswer: boolean) {
-    await recorder.waitForIdle();
     const entries = await history();
     const oldIds = new Set(previousHistory.map(entry => entry.id));
     const added = entries.filter(entry => !oldIds.has(entry.id));
@@ -148,17 +161,14 @@ try {
       const sections = object(entry.data).sections;
       return Array.isArray(sections) ? sections.map((item: unknown) => object(item).id).filter(id => typeof id === "string") : [];
     });
-    const requests = recorder.records.slice(previousRequestCount).filter(record => record.kind === "model");
-    const usages = added.flatMap(entry => entry.usage ? [entry.usage] : []);
-    const usageMatchesRaw = usageMatches(requests.map(request => request.rawUsage), usages);
-    if (!usageMatchesRaw) checksFailed++;
     log({
-      type: "step", phase: label, version, replyMatches, usageMatchesRaw,
+      type: "step", phase: label, version, replyMatches,
       viewsAdded: added.filter(entry => entry.type === "view").length,
       editsAdded: added.filter(entry => entry.type === "contextEdit").length,
       promptSectionsAdded: newPrompts,
       compactionsAdded: added.filter(entry => entry.type === "compaction").length,
       toolResultsAdded: added.filter(entry => entry.type === "tool").length,
+      usageSummary: summarizeUsage(added),
       usage: added.filter(entry => entry.usage).map(entry => ({
         kind: entry.type, ...entry.usage,
         modelMatchesRequested: entry.type === "assistant" ? object(entry.data).model === values.model : null,
@@ -166,19 +176,20 @@ try {
     });
     if (added.some(entry => entry.type === "tool")) throw new Error("unexpected_tool_execution");
     previousHistory = entries;
-    previousRequestCount = recorder.records.length;
-    console.log(`${label}: ${checkAnswer ? `reply=${replyMatches}` : "captured"}; requests=${recorder.records.length}`);
+    finalHistory = entries;
+    console.log(`${label}: ${checkAnswer ? `reply=${replyMatches}` : "captured"}; modelOperations=${summarizeUsage(entries).modelOperations}`);
   }
 
   async function send(label: string) {
     if (interrupted) throw new Error("interrupted");
     phase = label;
-    await activeClient.call("session.send", {
+    assertModelBudget(await history(), limit);
+    await runOperation(() => activeClient.call("session.send", {
       sessionId: session.id,
       text: "读取最新 view 的核实版本，按当前插件说明仅回复版本码和后缀，用竖线连接。不要调用工具。",
-    });
+    }));
     await capture(label, true);
-    await sleep(1000);
+    await sleep(1000, undefined, { signal: stopController.signal });
   }
 
   await send("initial");
@@ -188,10 +199,10 @@ try {
     if (version <= 3 || version === 6) await send(`view-${version}-stable`);
     if (version === 2) {
       // 先取得已有缓存命中，再测覆盖是否保住前缀；至多补两次短探测，不无限等待服务命中。
-      for (let attempt = 1; attempt <= 2 && !(recorder.records.at(-1)?.rawUsage.cached); attempt++) {
+      for (let attempt = 1; attempt <= 2 && !(finalHistory.findLast(entry => entry.type === "assistant")?.usage?.cacheRead); attempt++) {
         await send(`before-override-${attempt}`);
       }
-      log({ type: "override-baseline", cached: recorder.records.at(-1)?.rawUsage.cached ?? null });
+      log({ type: "override-baseline", cached: finalHistory.findLast(entry => entry.type === "assistant")?.usage?.cacheRead ?? null });
       suffix = "B";
       await setSuffix();
       await send("override");
@@ -201,22 +212,25 @@ try {
   // 让压缩后的正确答案只存在于新状态，不可能仅靠压缩前的对话复述。
   version = 7;
   phase = "compact";
-  await activeClient.call("session.compact", { sessionId: session.id });
+  assertModelBudget(await history(), limit);
+  await runOperation(() => activeClient.call("session.compact", { sessionId: session.id }));
   await capture(phase, false);
   await send("after-compact");
   await send("after-compact-stable");
 
   phase = "idle";
-  const beforeIdle = recorder.records.length;
-  await sleep(2000);
+  const beforeIdle = summarizeUsage(await history()).modelOperations;
+  await sleep(2000, undefined, { signal: stopController.signal });
+  finalHistory = await history();
   log({
-    type: "warming", waitMs: 2000, requestsDuringIdle: recorder.records.length - beforeIdle,
-    cacheWarmEntries: (await history()).filter(entry => entry.type === "usage" && object(entry.data).kind === "cache_warm").length,
+    type: "warming", waitMs: 2000, modelOperationsDuringIdle: summarizeUsage(finalHistory).modelOperations - beforeIdle,
+    cacheWarmEntries: finalHistory.filter(entry => entry.type === "usage" && object(entry.data).kind === "cache_warm").length,
     catalogTtlAvailable: model.promptCache?.short !== undefined,
-    evidence: "catalog-and-source-plus-network-observation",
+    evidence: "catalog-and-source-plus-pi-history-observation",
   });
 
   if (!values["skip-refresh"]) {
+    if (interrupted) throw new Error("interrupted");
     phase = "oauth-refresh";
     const credential = readStoredCredential("openai-codex", authPath);
     if (credential?.type !== "oauth") throw new Error("codex_oauth_missing_before_refresh");
@@ -226,7 +240,7 @@ try {
       // 用公开入口要求略长于现有寿命的凭据，让 Pi 在原存储锁内刷新；不改过期时间或令牌。
       await authRuntime.getAuth("openai-codex", {
         minOAuthValidityMs: Math.max(300_000, credential.expires - Date.now() + 1000),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.any([stopController.signal, AbortSignal.timeout(20_000)]),
       });
       minimumValiditySatisfied = true;
     } catch {
@@ -245,11 +259,24 @@ try {
     if (!refreshVerified) throw new Error("oauth_refresh_unverified");
     await send("after-refresh");
   }
+  finalHistory = await history();
   completed = true;
-} catch {
-  // 上游 Error、RPC data 与请求体都可能包含敏感内容，不进入工件或终端。
-  log({ type: "failure", phase, interrupted });
-  console.error(`核实在 ${phase} 停止；查看脱敏记录中的 HTTP 状态和 usage。`);
+} catch (error) {
+  // 失败前的助手消息也计入预算；SDK 没有保存的压缩失败用量仍不可观测。
+  if (client && sessionId) {
+    try {
+      finalHistory = await client.call("session.history", { sessionId });
+    } catch {
+      // 会话已不可用时，仍继续关闭宿主并恢复设置。
+    }
+  }
+  // 上游 Error 与 RPC data 都可能包含敏感内容，不进入工件或终端。
+  const safeReasons = ["model_operation_limit", "model_operation_timeout", "unexpected_tool_execution", "oauth_refresh_unverified"];
+  let reason = "operation_failed";
+  if (interrupted) reason = "interrupted";
+  else if (error instanceof Error && safeReasons.includes(error.message)) reason = error.message;
+  log({ type: "failure", phase, interrupted, reason });
+  console.error(`核实在 ${phase} 停止；查看脱敏记录中的阶段和 Pi usage。`);
   process.exitCode = 1;
 } finally {
   for (const close of [() => client?.close(), () => server?.close(), () => runtime?.close()]) {
@@ -268,14 +295,11 @@ try {
     console.error(`设置有并发变化；保留恢复材料：${directory}`);
     process.exitCode = 1;
   }
-  recorder.restore();
-  await recorder.waitForIdle();
   process.removeListener("SIGINT", stop);
   process.removeListener("SIGTERM", stop);
   log({
     type: "end", completed, checksFailed, settingsRestored,
-    totalRequests: recorder.records.length,
-    blockedWebSocketAttempts: recorder.blockedWebSocketAttempts,
+    usageSummary: summarizeUsage(finalHistory),
   });
   closeSync(logFile);
   if (settingsRestored) await rm(directory, { recursive: true, force: true });

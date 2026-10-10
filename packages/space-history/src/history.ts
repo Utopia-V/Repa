@@ -13,6 +13,9 @@ import {
 
 const REF = "refs/heads/history";
 const ZERO = "0".repeat(40);
+// 只在宿主调用维护时检查对象布局，不让快照遍历全部历史。
+const MAINTENANCE_LOOSE_OBJECTS = 1024;
+const MAINTENANCE_PACKS = 32;
 type Entry = { mode: string; oid: string };
 type File = Entry & { data: Buffer };
 
@@ -108,6 +111,32 @@ export class SpaceHistory {
   onRevision(listener: (revision: string) => void | Promise<void>): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+
+  maintain(options: { force?: boolean; canRun?: () => boolean } = {}): Promise<boolean> {
+    const { force = false, canRun } = options;
+    if (typeof force !== "boolean" || (canRun !== undefined && typeof canRun !== "function")) {
+      throw new Error("无效的维护配置");
+    }
+    return this.serial(async () => {
+      if (!force) {
+        const output = (await this.git.run(["count-objects", "-v"])).toString();
+        const count = /^count: (\d+)$/m.exec(output)?.[1];
+        const packs = /^packs: (\d+)$/m.exec(output)?.[1];
+        if (count === undefined || packs === undefined) throw new Error("历史对象计数格式损坏");
+        if (Number(count) < MAINTENANCE_LOOSE_OBJECTS && Number(packs) < MAINTENANCE_PACKS) return false;
+      }
+      // 等待队列及对象检查期间宿主可能已失去空间锁，必须在开始打包前确认许可。
+      if (canRun && !canRun()) return false;
+      // 保留全部提交与不可达对象；强制检查只跳过阈值，不绕过 Git 的维护锁。
+      await this.git.run([
+        "-c", "gc.reflogExpire=never",
+        "-c", "gc.reflogExpireUnreachable=never",
+        "-c", "gc.autoDetach=false",
+        "gc", "--quiet", "--cruft", "--prune=never",
+      ]);
+      return true;
+    });
   }
 
   snapshot(source: SnapshotSource = { kind: "external" }): Promise<Snapshot> {
