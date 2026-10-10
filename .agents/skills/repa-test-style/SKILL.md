@@ -9,7 +9,7 @@ description: 编写、修改或审阅 Repa 测试时使用，规定后端与前�
 
 ## 框架与目录
 
-- 后端使用 Node 自带测试器、`node:assert/strict` 和 `tsx`。当前后端包位于 `packages/repa`，普通测试入口发现 `test/*.test.ts`；调整测试目录时同步发现规则，确保相关测试仍进入 `npm test`。
+- 后端使用 Node 自带测试器、`node:assert/strict` 和 `tsx`。当前后端包位于 `packages/base` 和 `packages/space-history`，普通测试入口发现 `test/*.test.ts`；调整测试目录时同步发现规则，确保相关测试仍进入 `npm test`。
 - 使用 `import test, { type TestContext } from "node:test"` 和 `import assert from "node:assert/strict"`。文件名按模块或行为使用小写连字符，沿用相邻测试粒度。
 - 固定样本放在 `test/fixtures/`，例如扩展包、子进程入口和旧版本会话；注明必要的生产版本与用途。可在测试中生成的小文件使用临时目录。
 - 已有 Web／Electron 前端使用各自 workspace 的 Vitest 与 Testing Library；测试放在所属 `test/`，沿用该 workspace 的配置与近端 `AGENTS.md`，不套用后端 Node 测试入口。

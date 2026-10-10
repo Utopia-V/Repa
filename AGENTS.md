@@ -40,7 +40,7 @@ Repa 是独立软件，Pi 是它内嵌的 Agent 运行时。设计前核对锁�
 
 ## 当前阶段
 
-Repa 正在重做。现有代码是零件库：可以从中取用核对过的实现，但它的结构、接口和测试不是要保持的基线。新设计由维护者逐项确认；还没确认的设计不实现，也不从 CONTEXT、ADR 等旧材料里推断。每项工作的目标、范围和用到的设计决定，写在对应的 Issue 或任务说明里。
+Repa 正在重做。旧实现已从工作树删除，保留在标签 `pre-rebuild`，是零件库：可以从中取用核对过的实现，但它的结构、接口和测试不是要保持的基线。新底座在 `packages/base` 和 `packages/space-history`。新设计由维护者逐项确认；还没确认的设计不实现，也不从 CONTEXT、ADR 等旧材料里推断。每项工作的目标、范围和用到的设计决定，写在对应的 Issue 或任务说明里。
 
 ## 怎样判断工作是否有用
 
@@ -65,7 +65,7 @@ Repa 正在重做。现有代码是零件库：可以从中取用核对过的实
 ## 工作入口
 
 - 日常开发以 `dev` 为基线，任务在各自分支上完成，由维护者审阅合并；阶段交付见[整合规范](docs/development/integration.md)。
-- 当前模块与运行入口见[开发指南](docs/development/README.md)，Pi 接入说明见 [Agent 开发说明](docs/development/agent-runtime.md#sdk-能力与接入范围)。这些材料中的实现描述需结合当前代码核对。
+- 当前模块与运行入口见[开发指南](docs/development/README.md)，底座结构与 Pi 接入见 [`@repa/base` 说明](packages/base/README.md)。这些材料中的实现描述需结合当前代码核对。
 - MA 的一手入口见[官方机制说明](https://www.mathacademy.com/how-our-ai-works)和 [The Math Academy Way 作者页面](https://www.justinmath.com/books/#the-math-academy-way)。公开描述没有给出的算法需要独立研究，推测不当作 MA 已公开的实现。
 - 跨任务协作使用 [GitHub Issues](https://github.com/Utopia-V/repa/issues)，通过已认证的 `gh` CLI 操作。已有 Issue 的实现方案也按当前目标判断。
 - 代码、测试和文档的具体写法分别见 [repa-code-style](.agents/skills/repa-code-style/SKILL.md)、[repa-test-style](.agents/skills/repa-test-style/SKILL.md) 和 [repa-docs-style](.agents/skills/repa-docs-style/SKILL.md)。按任务使用相应规范与方法 Skill；它们提供实现和表达帮助，不另行定义产品目标。
