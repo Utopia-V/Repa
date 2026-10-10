@@ -33,6 +33,8 @@ export interface AgentTestOptions extends AgentRuntimeOptions {
   now?: () => number;
   viewBatchSize?: number;
   cacheTtlMs?: number;
+  extensionFactories?: ExtensionFactory[];
+  toolNames?: string[];
 }
 
 export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<AgentRuntime> {
@@ -162,8 +164,13 @@ class Runtime implements AgentRuntime {
         notices.push(notice);
         notice.catch(() => undefined);
       },
+    }, {
+      getDeviceId: () => this.settings.getOrCreateDeviceId(),
+      agentName: "Repa",
     });
     await Promise.all(notices);
+    await this.settings.flush();
+    this.checkSettings();
   }
 
   async setKey(provider: string, key: string): Promise<void> {
@@ -337,6 +344,8 @@ class Session implements AgentSession {
   private lastRequestAt?: number;
   private closed = false;
   private pending = new Map<AbortController, Promise<void>>();
+  private enqueuing = new Set<Promise<unknown>>();
+  private cancelling?: Promise<void>;
 
   constructor(private space: Space, private manager: SessionManager) {}
 
@@ -354,6 +363,8 @@ class Session implements AgentSession {
     const reservedTools = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"]);
     const names = new Set<string>();
     for (const tool of options.tools()) {
+      // Pi 1.1.0 将这些字符解释为工具选择规则，插件工具必须是字面名称。
+      if (tool.name.includes("*") || /^[+-]/u.test(tool.name)) throw new RepaFault("invalid_tool_name", "插件工具名称不能包含选择规则", { name: tool.name });
       if (reservedTools.has(tool.name) || names.has(tool.name)) throw new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: tool.name });
       names.add(tool.name);
     }
@@ -411,7 +422,7 @@ class Session implements AgentSession {
       noThemes: true,
       noContextFiles: true,
       systemPrompt: "Repa",
-      extensionFactories: [factory],
+      extensionFactories: [factory, ...(runtime.options.extensionFactories ?? [])],
     });
     await loader.reload();
     const saved = this.manager.buildSessionProjection().model;
@@ -424,7 +435,7 @@ class Session implements AgentSession {
       sessionManager: this.manager,
       settingsManager: runtime.settings,
       resourceLoader: loader,
-      tools: ["read", "bash", "edit", "write", "grep", "find", "ls", ...options.tools().map(tool => tool.name)],
+      tools: ["read", "bash", "edit", "write", "grep", "find", "ls", ...options.tools().map(tool => tool.name), ...(runtime.options.toolNames ?? [])],
       customTools: [exactEditTool(options.root), ...options.tools().map(toolDefinition)],
     });
     this.pi = result.session;
@@ -477,6 +488,7 @@ class Session implements AgentSession {
   async send(text: string): Promise<void> {
     this.space.assertOpen();
     if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
+    if (this.cancelling) throw new RepaFault("cancelled", "会话运行正在取消");
     const runId = randomUUID();
     const controller = new AbortController();
     let finish: () => void = () => undefined;
@@ -523,22 +535,58 @@ class Session implements AgentSession {
   }
 
   async steer(text: string): Promise<void> {
-    this.space.assertOpen();
-    if (!this.session.isStreaming) return this.send(text);
-    await this.session.steer(text);
+    await this.queueMessage(text, "steer");
   }
 
   async followUp(text: string): Promise<void> {
-    this.space.assertOpen();
-    if (!this.session.isStreaming) return this.send(text);
-    await this.session.followUp(text);
+    await this.queueMessage(text, "followUp");
   }
 
-  async abort(): Promise<void> {
+  private async queueMessage(text: string, mode: "steer" | "followUp"): Promise<void> {
+    this.space.assertOpen();
+    if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
+    if (this.cancelling) throw new RepaFault("cancelled", "会话运行正在取消");
+    if (!this.session.isStreaming) return this.send(text);
+    // Pi 的输入钩子在入队前可以 await；取消必须拥有这段尚未入队的操作。
+    const operation = this.session[mode](text);
+    this.enqueuing.add(operation);
+    try {
+      await operation;
+    } finally {
+      this.enqueuing.delete(operation);
+    }
+  }
+
+  abort(): Promise<void> {
+    if (this.cancelling) return this.cancelling;
+    let resolve: () => void = () => {};
+    let reject: (error: unknown) => void = () => {};
+    const cancelling = new Promise<void>((done, failed) => {
+      resolve = done;
+      reject = failed;
+    });
+    this.cancelling = cancelling;
     const pending = [...this.pending.entries()];
-    for (const [controller] of pending) controller.abort();
-    await this.session.abort();
-    await Promise.all(pending.map(([, settled]) => settled));
+    const enqueuing = [...this.enqueuing];
+    const finished = async () => {
+      try {
+        for (const [controller] of pending) controller.abort();
+        // 立即中止运行并移除已有队列；输入钩子完成后再清理它们迟到的入队结果。
+        this.session.clearQueue();
+        const settled = await Promise.allSettled([
+          this.session.abort(),
+          ...enqueuing,
+          ...pending.map(([, completed]) => completed),
+        ]);
+        const aborted = settled[0];
+        if (aborted?.status === "rejected") throw aborted.reason;
+      } finally {
+        this.session.clearQueue();
+        this.cancelling = undefined;
+      }
+    };
+    void finished().then(resolve, reject);
+    return cancelling;
   }
 
   async setModel(reference: ModelRef): Promise<void> {

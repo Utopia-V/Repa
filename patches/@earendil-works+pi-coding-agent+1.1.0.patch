@@ -1,8 +1,8 @@
 diff --git a/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js b/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js
-index cb6d649..ded6f3e 100644
+index b1d632f..8dfecde 100644
 --- a/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js
 +++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js
-@@ -202,7 +202,7 @@ export async function createAgentSession(options = {}) {
+@@ -219,7 +219,7 @@ export async function createAgentSession(options = {}) {
              return (currentModel.provider === requestModel.provider &&
                  currentModel.id === requestModel.id &&
                  messages.length <= currentMessages.length &&

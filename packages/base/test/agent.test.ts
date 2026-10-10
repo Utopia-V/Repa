@@ -7,10 +7,10 @@ import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, getInitialSystemMessage, resolveTranscriptTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { cacheStatusForTest, createAgentRuntimeForTest } from "../src/agent/runtime.js";
+import { cacheStatusForTest, createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/runtime.js";
 import type { AgentSpaceOptions } from "../src/agent.js";
 
-async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}) {
+async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, options: Pick<AgentTestOptions, "extensionFactories"> = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-agent-"));
   const agentDir = path.join(root, "app", "agent");
   const sessionsDir = path.join(root, ".repa", "sessions");
@@ -19,7 +19,7 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}) {
   const models = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   models.registerNativeProvider(faux.provider);
   const settings = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false, keepRecentTokens: 16, reserveTokens: 400 }, cacheWarming: "off" });
-  const runtime = await createAgentRuntimeForTest({ agentDir, modelRuntime: models, defaultModel: { provider: faux.getModel().provider, id: "test" }, settingsManager: settings });
+  const runtime = await createAgentRuntimeForTest({ agentDir, modelRuntime: models, defaultModel: { provider: faux.getModel().provider, id: "test" }, settingsManager: settings, ...options });
   const events: unknown[] = [];
   const space = await runtime.openSpace({
     root, sessionsDir, instructions: () => [], tools: () => [], views: async () => [{ id: "plugin:test", text: "当前状态" }],
@@ -233,10 +233,135 @@ test("取消运行等待真实 SDK 终态，后台任务 id 指向可查会话",
   assert(f.events.some(event => event !== null && typeof event === "object" && "type" in event && event.type === "runEnd"));
 });
 
+for (const phase of ["已入队", "正在入队", "等待 input 钩子"]) {
+  test(`取消运行丢弃${phase}的插话和追加，下一次发送不带入旧队列`, async t => {
+    const inputStarted = deferred<void>();
+    const releaseInput = deferred<void>();
+    let waitingInputs = 0;
+    const started = deferred<void>();
+    const release = deferred<void>();
+    t.after(() => { releaseInput.resolve(); release.resolve(); });
+    const f = await fixture(t, {}, {
+      extensionFactories: [pi => {
+        pi.on("input", async event => {
+          if (phase === "等待 input 钩子" && event.text.startsWith("已取消")) {
+            if (++waitingInputs === 2) inputStarted.resolve();
+            await releaseInput.promise;
+          }
+          return { action: "continue" };
+        });
+      }],
+    });
+    f.faux.setResponses([async () => {
+      started.resolve();
+      await release.promise;
+      return fauxAssistantMessage("取消前回答");
+    }]);
+    const run = f.session.send("原始请求");
+    await started.promise;
+    const queued = [f.session.steer("已取消插话"), f.session.followUp("已取消追加")];
+    if (phase === "已入队") await Promise.all(queued);
+    if (phase === "等待 input 钩子") await inputStarted.promise;
+    const cancelled = f.session.abort();
+    const isCancelled = (error: unknown) => error !== null && typeof error === "object" && "code" in error && error.code === "cancelled";
+    await assert.rejects(f.session.steer("取消期间插话"), isCancelled);
+    await assert.rejects(f.session.followUp("取消期间追加"), isCancelled);
+    await assert.rejects(f.session.send("取消期间的新请求"), isCancelled);
+    release.resolve();
+    if (phase === "等待 input 钩子") {
+      let finished = false;
+      void cancelled.then(() => { finished = true; });
+      await run;
+      assert.equal(finished, false);
+    }
+    releaseInput.resolve();
+    await Promise.all(queued);
+    await cancelled;
+    await run;
+    assert.equal(f.faux.state.callCount, 1);
+    const end = f.events.findLast(event => event !== null && typeof event === "object" && "type" in event && event.type === "runEnd");
+    assert(end && typeof end === "object" && "data" in end);
+    assert.deepEqual(end.data, { status: "aborted" });
+    let input: TranscriptContext | undefined;
+    f.faux.setResponses([context => {
+      input = structuredClone(context);
+      return fauxAssistantMessage("新请求回答");
+    }]);
+    await f.session.send("新的独立请求");
+    assert(input);
+    assert.doesNotMatch(JSON.stringify(input), /已取消插话|已取消追加/u);
+    assert.equal(f.faux.state.callCount, 2);
+    assert.deepEqual(f.session.history().filter(entry => entry.type === "user").map(entry => entry.text), ["原始请求", "新的独立请求"]);
+  });
+}
+
 test("插件工具不能覆盖内置工具或命令确认入口", async t => {
   const f = await fixture(t);
   const space = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [{ name: "bash", description: "覆盖", parameters: Type.Object({}), execute: async () => ({ text: "坏工具" }) }], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "ask", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => false });
   await assert.rejects(space.create(), error => error !== null && typeof error === "object" && "code" in error && error.code === "tool_name_conflict");
+});
+
+test("插件工具名称拒绝 Pi 选择语法，避免把名称解释成通配符或增减项", async t => {
+  const f = await fixture(t);
+  for (const name of ["probe*", "+probe", "-probe"]) {
+    const space = await f.runtime.openSpace({
+      root: f.root,
+      sessionsDir: f.sessionsDir,
+      instructions: () => [],
+      tools: () => [{ name, description: "歧义工具", parameters: Type.Object({}), execute: async () => ({ text: "不应执行" }) }],
+      views: async () => [],
+      overrides: async () => ({ app: {}, space: {} }),
+      commandPolicy: () => "ask",
+      record: async (_id, action) => action(),
+      onEvent: () => undefined,
+      confirm: async () => false,
+    });
+    await assert.rejects(space.create(), error => error !== null && typeof error === "object" && "code" in error && error.code === "invalid_tool_name");
+  }
+});
+
+test("移除 view 来源后从请求清除全部旧版，原始会话证据保留", async t => {
+  let present = true;
+  const f = await fixture(t, { views: async () => present ? [{ id: "plugin:removed", text: "来源删除前状态" }] : [] });
+  f.faux.setResponses([fauxAssistantMessage("已读状态")]);
+  await f.session.send("开始");
+  present = false;
+  let capture: TranscriptContext | undefined;
+  f.faux.setResponses([context => {
+    capture = structuredClone(context);
+    return fauxAssistantMessage("来源已删除");
+  }]);
+  await f.session.send("继续");
+  assert(capture);
+  assert.doesNotMatch(JSON.stringify(capture.messages), /来源删除前状态|<repa-view/u);
+  assert(f.session.history().some(entry => entry.type === "view" && entry.text?.includes("来源删除前状态")));
+  assert(f.session.history().some(entry => entry.type === "contextEdit"));
+});
+
+test("禁用 Pi 资源发现仍加载底座工厂，外部扩展和项目 Skill 不进入会话", async t => {
+  const f = await fixture(t);
+  const marker = path.join(f.root, "extension-loaded");
+  const extension = `import { writeFileSync } from "node:fs";\nexport default () => writeFileSync(${JSON.stringify(marker)}, "已执行");\n`;
+  for (const directory of [path.join(f.root, ".pi", "extensions"), path.join(f.agentDir, "extensions")]) {
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "sentinel.ts"), extension);
+  }
+  const skill = path.join(f.root, ".pi", "skills", "sentinel");
+  await mkdir(skill, { recursive: true });
+  await writeFile(path.join(skill, "SKILL.md"), "---\nname: sentinel\ndescription: 不应加载的 Pi Skill\n---\n不应加载的 Pi Skill\n");
+  await writeFile(path.join(f.root, ".pi", "AGENTS.md"), "不应加载的 Pi 上下文");
+  const session = await f.space.create();
+  let capture: TranscriptContext | undefined;
+  f.faux.setResponses([context => {
+    capture = structuredClone(context);
+    return fauxAssistantMessage("工厂已加载");
+  }]);
+  await session.send("检查发现边界");
+  await assert.rejects(readFile(marker), { code: "ENOENT" });
+  assert(capture);
+  assert.doesNotMatch(getCurrentSystemPrompt(capture.messages), /不应加载的 Pi/u);
+  assert.match(JSON.stringify(capture.messages), /当前状态/u);
+  assert.deepEqual(getCurrentTools(capture.messages).map(tool => tool.name).sort(), ["bash", "edit", "find", "grep", "ls", "read", "write"]);
 });
 
 test("单 key 登录通过 SDK 持久化，重建运行时仍可用且登出删除凭据", async t => {
@@ -390,7 +515,7 @@ test("并发打开同一持久会话只有一个 SDK owner，后续问题沿用�
   assert.deepEqual(b.history().filter(entry => entry.type === "user").map(entry => entry.text), ["初始问题", "问题 A", "问题 B"]);
 });
 
-// 依赖 patches/ 中对 Pi 0.87.1 的补丁：视图投影会重建消息对象，补丁让保温按内容而不是对象身份判断上下文是否变化。
+// 依赖 patches/ 中对 Pi 1.1.0 的补丁：视图投影会重建消息对象，补丁按内容判断并忽略顶层时间戳。
 test("含视图的会话在补丁后仍能原生缓存保温", { timeout: 10000 }, async t => {
   const warmed = deferred<void>();
   const f = await fixture(t, { onEvent(event) {
@@ -414,21 +539,30 @@ test("含视图的会话在补丁后仍能原生缓存保温", { timeout: 10000 
 });
 
 test("默认自动 overflow 压缩在重试第一份请求前补回最新视图", async t => {
-  const f = await fixture(t);
+  let view = "压缩前旧视图";
+  const f = await fixture(t, { views: async () => [{ id: "plugin:test", text: view }] });
   f.faux.setResponses([fauxAssistantMessage("第一轮".repeat(300)), fauxAssistantMessage("第二轮".repeat(300))]);
   await f.session.send("问题一");
   await f.session.send("问题二");
   f.settings.setCompactionEnabled(true);
+  view = "本轮最新视图";
   let capture: TranscriptContext | undefined;
+  const summaries: TranscriptContext[] = [];
   f.faux.setResponses([
     fauxAssistantMessage("", { stopReason: "error", errorMessage: "maximum context length exceeded" }),
-    fauxAssistantMessage("主摘要"),
-    fauxAssistantMessage("前缀摘要"),
+    context => { summaries.push(structuredClone(context)); return fauxAssistantMessage("主摘要"); },
+    context => { summaries.push(structuredClone(context)); return fauxAssistantMessage("前缀摘要"); },
     context => { capture = structuredClone(context); return fauxAssistantMessage("重试成功"); },
   ]);
   await f.session.send("触发上下文溢出");
   assert(capture);
+  assert.equal(summaries.length, 2);
+  for (const summary of summaries) assert.doesNotMatch(JSON.stringify(summary.messages), /<repa-view|压缩前旧视图|本轮最新视图/u);
   assert.equal(JSON.stringify(capture.messages).split("<repa-view source=").length - 1, 1);
+  assert.match(JSON.stringify(capture.messages), /本轮最新视图/u);
+  assert.doesNotMatch(JSON.stringify(capture.messages), /压缩前旧视图/u);
+  assert.equal(capture.messages[0]?.role, "system");
+  assert(getInitialSystemMessage(capture.messages)?.toolsAdded?.some(tool => tool.name === "edit"));
   assert(f.events.some(event => event !== null && typeof event === "object" && "type" in event && event.type === "compaction"));
   assert.equal(f.session.history().findLast(entry => entry.type === "assistant")?.text, "重试成功");
 });

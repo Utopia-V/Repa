@@ -220,6 +220,20 @@ test("view 按变化追加、批量清理和过期清理，提示覆盖仅追加
   assert(changedAfterExpiry);
   assert.equal(viewTexts(changedAfterExpiry).length, 1);
   assert.match(viewTexts(changedAfterExpiry)[0] ?? "", /课程状态戊/u);
+  await f.client.call("prompt.set", { scope: "space", id: "plugin:probe", override: { enabled: false } });
+  f.respond();
+  await f.send();
+  const disabled = f.captures.at(-1);
+  assert(disabled);
+  assert.doesNotMatch(getCurrentSystemPrompt(disabled.messages), /插件覆盖说明|插件原说明/u);
+  assert.equal(Object.keys(disabled.messages.filter(message => message.role === "system").at(-1)?.sections ?? {}).length, 1);
+  await f.client.call("prompt.reset", { scope: "space", id: "plugin:probe" });
+  f.respond();
+  await f.send();
+  const restored = f.captures.at(-1);
+  assert(restored);
+  assert.match(getCurrentSystemPrompt(restored.messages), /插件原说明/u);
+  assert.equal(Object.keys(restored.messages.filter(message => message.role === "system").at(-1)?.sections ?? {}).length, 1);
   for (const capture of f.captures) {
     assert.equal(capture.messages[0]?.role, "system");
     assert.deepEqual(getInitialSystemMessage(capture.messages), initial);
