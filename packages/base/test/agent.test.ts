@@ -343,20 +343,27 @@ test("并发打开同一持久会话只有一个 SDK owner，后续问题沿用�
   assert.deepEqual(b.history().filter(entry => entry.type === "user").map(entry => entry.text), ["初始问题", "问题 A", "问题 B"]);
 });
 
-test("Pi 0.87.1 的 custom view 投影改变对象身份，原生缓存保温会停止", async t => {
-  const f = await fixture(t);
+// 依赖 patches/ 中对 Pi 0.87.1 的补丁：视图投影会重建消息对象，补丁让保温按内容而不是对象身份判断上下文是否变化。
+test("含视图的会话在补丁后仍能原生缓存保温", { timeout: 10000 }, async t => {
+  const warmed = deferred<void>();
+  const f = await fixture(t, { onEvent(event) {
+    if (event.type === "usage" && event.data !== null && typeof event.data === "object" && "kind" in event.data && event.data.kind === "cache_warm") warmed.resolve();
+  } });
   const model = f.faux.getModel();
   model.promptCache = { short: 12 };
   model.cost = { input: 100000, output: 1, cacheRead: 1, cacheWrite: 100000 };
   f.models.registerNativeProvider(f.faux.provider);
   const session = await f.space.create();
   f.settings.setCacheWarmingMode("idle");
-  f.faux.setResponses([fauxAssistantMessage("回答")]);
+  f.faux.setResponses([fauxAssistantMessage("回答"), fauxAssistantMessage("保温")]);
   await session.send("含当前视图的请求");
-  const status = cacheStatusForTest(session);
-  assert.equal(status?.state, "inactive");
-  assert.equal(status?.reason, "conversation context changed");
-  assert.equal(f.faux.state.callCount, 1);
+  const timeout = setTimeout(() => warmed.resolve(), 5000);
+  try {
+    await warmed.promise;
+  } finally {
+    clearTimeout(timeout);
+  }
+  assert.equal(f.faux.state.callCount, 2, JSON.stringify(cacheStatusForTest(session)));
 });
 
 test("默认自动 overflow 压缩在重试第一份请求前补回最新视图", async t => {

@@ -23,6 +23,10 @@
     "predev:backend": "npm run build:backend",
     "start": "npm --workspace=@repa/learning run start --",
     "test": "npm run test --workspaces --if-present",
-    "dev:core": "npm --workspace=repa run start --"
+    "dev:core": "npm --workspace=repa run start --",
+    "postinstall": "patch-package"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
   }
 }
