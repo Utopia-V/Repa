@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Arch, Platform, build } from "electron-builder";
@@ -14,10 +15,13 @@ const archives = path.join(work, "archives");
 const application = path.join(work, "application");
 const output = path.join(work, "dist");
 const npm = process.env.npm_execpath;
-const packages = ["repa", "@repa/learning", "@repa/materials", "@repa/organization", "@repa/planning", "@repa/review"];
+const packages = ["@repa/base", "@repa/space-history"];
 
 if (!npm) throw new Error("请通过 npm run package:linux --workspace=@repa/desktop 启动打包。");
 if (process.platform !== "linux" || process.arch !== "x64") throw new Error("当前交付入口仅支持 Linux x64。");
+
+// 使用 Electron 的官方入口定位发行目录，兼容干净 npm ci 后的延迟下载。
+const electronDirectory = path.dirname(createRequire(import.meta.url)("electron"));
 
 async function npmRun(args, cwd = root) {
   try {
@@ -76,7 +80,7 @@ async function copyLicenses() {
     .split("\n").filter((directory) => directory.startsWith(`${root}/node_modules/`) && directory !== path.join(root, "node_modules/@repa/desktop"));
   for (const directory of rendererDependencies) await record(directory);
   for (const name of ["LICENSE", "LICENSES.chromium.html"]) {
-    const source = path.join(root, "node_modules/electron/dist", name);
+    const source = path.join(electronDirectory, name);
     const target = path.join(notices, "electron", name);
     await mkdir(path.dirname(target), { recursive: true });
     await copyFile(source, target);
@@ -90,8 +94,6 @@ await rm(work, { recursive: true, force: true });
 await mkdir(archives, { recursive: true });
 await mkdir(application);
 
-// sandbox 的发行副本被 git 忽略；每次由固定源码和缓存重新构建，并在原入口 strip --strip-debug。
-await npmRun(["run", "build:sandbox", "--workspace=repa"]);
 await npmRun(["run", "build:backend"]);
 await npmRun(["run", "build", "--workspace=@repa/desktop"]);
 const packed = Object.values(JSON.parse(await npmRun([
@@ -128,44 +130,11 @@ await npmRun(["ci", "--omit=dev", "--ignore-scripts", "--prefer-offline", "--no-
 manifest.dependencies = Object.fromEntries(archivesByPackage.map(({ name, version }) => [name, version]));
 await writeFile(path.join(application, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 await rm(path.join(application, "package-lock.json"));
+// 打包副本与 workspace 使用相同的 Pi 上游修补，不依赖安装脚本。
+await cp(path.join(root, "patches"), path.join(application, "patches"), { recursive: true });
+await exec(process.execPath, [path.join(root, "node_modules/patch-package/index.js"), "--error-on-fail"], { cwd: application });
+await rm(path.join(application, "patches"), { recursive: true });
 const inventory = await copyLicenses();
-
-const helper = "/opt/Repa/resources/app/node_modules/repa/resources/sandbox/linux-x64/codex-linux-sandbox";
-const profile = path.join(work, "helper-apparmor");
-const { stdout: policy } = await exec(process.execPath, [path.join(root, "packages/repa/scripts/sandbox-profile.mjs"),
-  "--helper", helper, "--name", "repa-desktop-linux-sandbox"]);
-await writeFile(profile, policy);
-const templates = path.join(root, "node_modules/app-builder-lib/templates/linux");
-const afterInstall = path.join(work, "after-install.sh");
-const afterRemove = path.join(work, "after-remove.sh");
-await writeFile(afterInstall, `${await readFile(path.join(templates, "after-install.tpl"), "utf8")}
-
-# Repa helper 使用自己的 userns 附件规则，不改变全局 AppArmor 或 sysctl。
-if apparmor_status --enabled > /dev/null 2>&1; then
-  SOURCE='/opt/Repa/resources/helper-apparmor'
-  TARGET='/etc/apparmor.d/repa-desktop-linux-sandbox'
-  if apparmor_parser --skip-kernel-load --debug "$SOURCE" > /dev/null 2>&1; then
-    install -m 0644 "$SOURCE" "$TARGET"
-    if ! { [ -x '/usr/bin/ischroot' ] && /usr/bin/ischroot; }; then
-      apparmor_parser --replace --write-cache --skip-read-cache "$TARGET" || echo 'Repa 沙箱 AppArmor profile 未能加载；受限命令可能不可用。' >&2
-    fi
-  else
-    echo 'Repa 沙箱 AppArmor profile 不受此系统支持；受限命令可能不可用。' >&2
-  fi
-fi
-`);
-await writeFile(afterRemove, `${await readFile(path.join(templates, "after-remove.tpl"), "utf8")}
-
-if [ "$1" = 'remove' ] || [ "$1" = 'purge' ]; then
-  TARGET='/etc/apparmor.d/repa-desktop-linux-sandbox'
-  if [ -f "$TARGET" ]; then
-    if apparmor_status --enabled > /dev/null 2>&1 && ! { [ -x '/usr/bin/ischroot' ] && /usr/bin/ischroot; }; then
-      apparmor_parser --remove "$TARGET" || true
-    fi
-    rm -f "$TARGET"
-  fi
-fi
-`);
 
 await build({
   projectDir: desktop,
@@ -176,18 +145,15 @@ await build({
     artifactName: "Repa-${version}-${arch}.${ext}",
     directories: { app: application, output },
     electronVersion: "44.3.0",
-    electronDist: path.join(root, "node_modules/electron/dist"),
-    // helper、相邻 bwrap 和材料 worker 都按真实文件路径启动；先保留物理安装布局。
+    electronDist: electronDirectory,
+    // Node 宿主通过 CLI 的物理路径启动底座，保留物理安装布局。
     asar: false,
     npmRebuild: false,
     files: ["out/**/*", "node_modules/**/*", "third-party-licenses/**/*", "package.json"],
-    extraResources: [{ from: profile, to: "helper-apparmor" }],
     linux: { category: "Education", executableName: "repa", target: "deb", syncDesktopName: true },
     deb: {
       maintainer: "Utopia-V",
-      afterInstall,
-      afterRemove,
-      depends: ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1", "libsecret-1-0", "ripgrep", "poppler-utils", "apparmor"],
+      depends: ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1", "libsecret-1-0", "git", "ripgrep"],
     },
   },
 });

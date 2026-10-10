@@ -49,6 +49,7 @@ type Listener = (params: unknown) => void;
 export class RepaClient {
   readonly #pending = new Map<string, Pending>();
   readonly #listeners = new Map<Notification, Set<Listener>>();
+  readonly #connectionListeners = new Set<(connected: boolean) => void>();
   readonly #socket: WebSocket;
   readonly #timeoutMs: number | undefined;
   #nextId = 0;
@@ -77,11 +78,11 @@ export class RepaClient {
     });
     this.#socket.addEventListener("close", () => {
       this.#closed = true;
-      this.#ready = false;
+      this.#setReady(false);
       this.#fail(new ConnectionError());
     });
     this.#socket.addEventListener("error", () => {
-      this.#ready = false;
+      this.#setReady(false);
       this.#fail(new ConnectionError("无法连接后端。"));
     });
   }
@@ -91,7 +92,7 @@ export class RepaClient {
     try {
       await client.#open();
       await client.#send("initialize", { token: connection.token, version: PROTOCOL_VERSION });
-      client.#ready = true;
+      client.#setReady(true);
       return client;
     } catch (error) {
       await client.close();
@@ -101,6 +102,11 @@ export class RepaClient {
 
   get connected(): boolean {
     return this.#ready && !this.#closed;
+  }
+
+  onConnectionChange(listener: (connected: boolean) => void): () => void {
+    this.#connectionListeners.add(listener);
+    return () => this.#connectionListeners.delete(listener);
   }
 
   on<N extends Notification>(method: N, listener: (params: NotificationParams<N>) => void): () => void {
@@ -122,9 +128,10 @@ export class RepaClient {
   close(): Promise<void> {
     if (this.#closing) return this.#closing;
     this.#closed = true;
-    this.#ready = false;
+    this.#setReady(false);
     this.#fail(new ConnectionError("客户端已关闭。"));
     this.#listeners.clear();
+    this.#connectionListeners.clear();
     if (this.#socket.readyState === WebSocket.CLOSED) return Promise.resolve();
     this.#closing = new Promise<void>((resolve) => {
       this.#socket.addEventListener("close", () => resolve(), { once: true });
@@ -214,5 +221,11 @@ export class RepaClient {
       pending.reject(error);
     }
     this.#pending.clear();
+  }
+
+  #setReady(ready: boolean): void {
+    if (this.#ready === ready) return;
+    this.#ready = ready;
+    for (const listener of this.#connectionListeners) listener(ready);
   }
 }

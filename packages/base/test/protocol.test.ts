@@ -106,6 +106,43 @@ test("浏览器客户端拒绝错误令牌并读取持久设置", async (t) => {
   await assert.rejects(client.call("session.list", {}), (error: unknown) => error instanceof RpcError && record(error.data)?.code === "space_not_open");
 });
 
+test("服务关闭通知断线，重新连接重新初始化且不重放请求", async (t) => {
+  const f = await fixture(t);
+  const client = await f.client();
+  assert.equal(client.connected, true);
+  const changes: boolean[] = [];
+  const disconnected = new Promise<void>((resolve) => {
+    client.onConnectionChange((connected) => {
+      changes.push(connected);
+      resolve();
+    });
+  });
+  await client.call("settings.set", { commandPolicy: "fullAccess" });
+  await f.server.close();
+  await disconnected;
+  assert.equal(client.connected, false);
+  assert.deepEqual(changes, [false]);
+  await client.close();
+  assert.deepEqual(changes, [false]);
+  const restarted = await fixture(t);
+  const reconnected = await restarted.client();
+  assert.equal(reconnected.connected, true);
+  assert.equal((await reconnected.call("settings.get", {})).commandPolicy, "ask");
+});
+
+test("显式关闭只通知一次，取消监听后不再通知", async (t) => {
+  const f = await fixture(t);
+  const client = await f.client();
+  const changes: boolean[] = [];
+  client.onConnectionChange((connected) => changes.push(connected));
+  const removed: boolean[] = [];
+  const unsubscribe = client.onConnectionChange((connected) => removed.push(connected));
+  unsubscribe();
+  await Promise.all([client.close(), client.close()]);
+  assert.deepEqual(changes, [false]);
+  assert.deepEqual(removed, []);
+});
+
 test("登录确认只发送给发起连接，其他连接不能回答", async (t) => {
   let answer: string | boolean | null | undefined;
   const f = await fixture(t, async (confirm) => {

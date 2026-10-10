@@ -2,7 +2,40 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, ipcMain } from "electron";
 
-import { ensureDesktopRepaProcess } from "./repa-process";
+import { startRepaProcess, type RepaProcess } from "@repa/base/process";
+
+let backend: Promise<RepaProcess> | undefined;
+let quitting = false;
+
+function getBackend(): Promise<RepaProcess> {
+  if (quitting) return Promise.reject(new Error("Desktop 正在关闭。"));
+  backend ??= startRepaProcess({
+    nodeExecutable: process.env.REPA_NODE_EXECUTABLE ?? process.execPath,
+    environment: {
+      ...process.env,
+      ...(process.env.REPA_NODE_EXECUTABLE ? {} : { ELECTRON_RUN_AS_NODE: "1" }),
+    },
+  }).then((handle) => {
+    void handle.closed.then(() => { backend = undefined; }, (error: unknown) => {
+      backend = undefined;
+      console.error(error);
+    });
+    return handle;
+  }, (error: unknown) => {
+    backend = undefined;
+    throw error;
+  });
+  return backend;
+}
+
+app.on("before-quit", (event) => {
+  if (quitting || !backend) return;
+  event.preventDefault();
+  quitting = true;
+  void backend.then((handle) => handle.close()).catch((error: unknown) => {
+    console.error(error);
+  }).finally(() => { app.quit(); });
+});
 
 function isTrustedRenderer(url: string): boolean {
   try {
@@ -30,18 +63,7 @@ ipcMain.handle("repa:get-connection", async (event) => {
     throw new Error("拒绝非主页面读取 Repa 连接。");
   }
   try {
-    return await ensureDesktopRepaProcess({
-      connectionFile: join(app.getPath("userData"), "runtime", "connection.json"),
-      nodeExecutable: process.env.REPA_NODE_EXECUTABLE ?? process.execPath,
-      ...(process.env.REPA_NODE_EXECUTABLE
-        ? {}
-        : {
-            nodeEnvironment: {
-              ...process.env,
-              ELECTRON_RUN_AS_NODE: "1",
-            },
-          }),
-    });
+    return (await getBackend()).connection;
   } catch (error) {
     throw new Error(
       error instanceof Error ? error.message : "Repa 后端启动失败。",

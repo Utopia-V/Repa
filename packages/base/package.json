@@ -23,6 +23,10 @@
     "./plugin": {
       "types": "./dist/plugin.d.ts",
       "import": "./dist/plugin.js"
+    },
+    "./process": {
+      "types": "./dist/process.d.ts",
+      "import": "./dist/process.js"
     }
   },
   "bin": {
@@ -33,7 +37,7 @@
     "build": "tsc -p tsconfig.build.json",
     "precheck": "npm run build",
     "check": "tsc --noEmit",
-    "pretest": "npm run build --workspace=@repa/space-history",
+    "pretest": "npm run build",
     "test": "node --import tsx --test test/*.test.ts",
     "start": "tsx src/cli.ts",
     "prereal-model-check": "npm run build",

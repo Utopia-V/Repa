@@ -1,17 +1,18 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RepaClient } from "repa/client";
+import { RepaClient } from "@repa/base/client";
 
 import { App, type LoadConnection } from "../src/renderer/src/app";
 import { mockMatchMedia } from "./match-media";
 
-vi.mock("repa/client", () => ({ RepaClient: { connect: vi.fn() } }));
+vi.mock("@repa/base/client", () => ({ RepaClient: { connect: vi.fn() } }));
 
 beforeEach(() => { mockMatchMedia(); });
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -119,4 +120,36 @@ describe("Desktop App bootstrap", () => {
     fireEvent.click(trigger);
     expect(within(screen.getByRole("dialog", { name: "工作台导航" })).getByRole("link", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
   });
+});
+
+it("断线后重新连接新底座，卸载时停止后续重试", async () => {
+  let listener: ((connected: boolean) => void) | undefined;
+  const first = {
+    close: vi.fn(() => Promise.resolve()),
+    onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
+      listener = value;
+      return vi.fn();
+    }),
+  };
+  const second = { close: vi.fn(() => Promise.resolve()), onConnectionChange: vi.fn(() => vi.fn()) };
+  vi.mocked(RepaClient.connect)
+    .mockResolvedValueOnce(first as unknown as RepaClient)
+    .mockRejectedValueOnce(new Error("尚未恢复"))
+    .mockResolvedValueOnce(second as unknown as RepaClient);
+  const loadConnection = vi.fn(() => Promise.resolve(connection));
+  const view = render(<App loadConnection={loadConnection} />);
+  await screen.findByRole("link", { name: "Learning Space" });
+  vi.useFakeTimers();
+  act(() => listener?.(false));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(screen.getByText("后端连接已中断，正在自动重连…")).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(screen.queryByText("后端连接已中断，正在自动重连…")).toBeNull();
+  expect(RepaClient.connect).toHaveBeenCalledTimes(3);
+  expect(loadConnection).toHaveBeenCalledTimes(3);
+  expect(first.close).toHaveBeenCalledOnce();
+  view.unmount();
+  expect(second.close).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(RepaClient.connect).toHaveBeenCalledTimes(3);
 });

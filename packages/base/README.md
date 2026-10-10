@@ -1,6 +1,6 @@
 # Repa 底座骨架
 
-`@repa/base` 把空间文件、长期状态插件和 Agent 会话接到一个本机协议上。它独立于旧的 `repa` 包；学习领域和前端迁接留给后续任务。
+`@repa/base` 把空间文件、长期状态插件和 Agent 会话接到一个本机协议上。Web 与 Desktop 已通过它连接本机服务；学习插件与领域界面接入留给后续任务。旧后端和领域包从 `pre-rebuild` 标签取用。
 
 ## 使用
 
@@ -44,6 +44,22 @@ await client.call("session.send", { sessionId: session.id, text: "查看这个�
 `askUser` 和 `renderEvent` 由前端实现。命令确认返回布尔值，登录输入和选择返回字符串，取消返回 `null`；`display` 展示链接或进度，阅读后回复即可。登录确认只交给发起连接，其他连接不能代答。
 
 客户端不自动重放请求。连接中断或显式设置的请求超时会返回 `ConnectionError`，其中 `outcome` 为 `unknown`；重连后读取 `session.history` 与当前插件状态，再判断原操作的结果。普通调用默认等待完成，连接与初始化限时 15 秒。
+
+`connect` 已完成 `initialize`，调用方不需要再初始化一次。用 `onConnectionChange` 订阅断线，返回的函数用于取消订阅；客户端本身不自动重连。两个前端的连接层在断线后重新向宿主取得连接信息，再连接服务，沿用现有断线提示。
+
+Node 宿主通过独立子路径拉起服务：
+
+```ts
+import { startRepaProcess } from "@repa/base/process";
+
+const backend = await startRepaProcess({ home: "/path/to/repa-home" });
+const client = await RepaClient.connect(backend.connection);
+// 宿主退出时先关闭客户端，再等待后端释放空间和会话。
+await client.close();
+await backend.close();
+```
+
+共享入口启动构建后的 `repa-base serve`，读取 stdout 的连接信息，不写连接文件。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；客户端断开本身不关闭服务。Electron 使用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`closed` 可用于观察进程退出，`close()` 可以重复调用并等待正常收尾；异常退出会返回错误。只有启动失败的进程回收设置 5 秒强制终止期限。这个 Node 入口不从浏览器客户端导出。
 
 ## 结构与责任
 

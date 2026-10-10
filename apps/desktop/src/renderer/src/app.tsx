@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
-import { RepaClient, type ClientConnection } from "repa/client";
+import { RepaClient, type ClientConnection } from "@repa/base/client";
 
 import { routes } from "./routes";
 import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
@@ -32,30 +32,46 @@ export function App({
     let removeListener: (() => void) | undefined;
     setState({ status: "starting" });
 
-    void (async () => {
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const connect = async (reconnecting: boolean) => {
       try {
         const connection = await loadConnection();
         if (!active) return;
-        client = await RepaClient.connect(connection);
+        const next = await RepaClient.connect(connection);
         if (!active) {
-          await client.close();
+          await next.close();
           return;
         }
-        removeListener = client.onConnectionChange((connected) => {
-          if (active) setState({ status: "ready", connected });
+        client = next;
+        removeListener = next.onConnectionChange((connected) => {
+          if (!active) return;
+          setState({ status: "ready", connected });
+          if (!connected) {
+            removeListener?.();
+            removeListener = undefined;
+            void next.close();
+            reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
+          }
         });
         setState({ status: "ready", connected: true });
       } catch (error) {
         if (!active) return;
-        setState({
-          status: "failed",
-          message: error instanceof Error ? error.message : "无法启动 Repa。",
-        });
+        if (reconnecting) {
+          reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
+        } else {
+          setState({
+            status: "failed",
+            message: error instanceof Error ? error.message : "无法启动 Repa。",
+          });
+        }
       }
-    })();
+    };
+    void connect(false);
 
     return () => {
       active = false;
+      clearTimeout(reconnectTimer);
       removeListener?.();
       void client?.close();
     };

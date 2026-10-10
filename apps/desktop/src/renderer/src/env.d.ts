@@ -1,4 +1,4 @@
-import type { ClientConnection } from "repa/client";
+import type { ClientConnection } from "@repa/base/client";
 
 declare global {
   interface Window {

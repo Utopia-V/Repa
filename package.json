@@ -6,24 +6,23 @@
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "workspaces": [
-    "packages/repa",
-    "packages/*",
+    "packages/space-history",
+    "packages/base",
     "apps/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "build:backend": "npm run build --workspace=repa && npm run build --workspace=@repa/materials --workspace=@repa/planning --workspace=@repa/review && npm run build --workspace=@repa/learning",
+    "build:backend": "npm run build --workspace=@repa/base",
     "check": "npm run check --workspaces --if-present",
-    "dev:backend": "npm --workspace=@repa/learning run start --",
+    "dev:backend": "npm --workspace=@repa/base run start -- serve",
     "dev:desktop": "npm run dev --workspace=@repa/desktop",
     "dev:web": "npm run dev --workspace=@repa/web",
     "precheck": "npm run build:backend",
     "pretest": "npm run build:backend",
     "prestart": "npm run build:backend",
     "predev:backend": "npm run build:backend",
-    "start": "npm --workspace=@repa/learning run start --",
+    "start": "npm --workspace=@repa/base run start -- serve",
     "test": "npm run test --workspaces --if-present",
-    "dev:core": "npm --workspace=repa run start --",
     "postinstall": "patch-package"
   },
   "devDependencies": {
