@@ -5,7 +5,6 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 
-import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntime, startServer, type AgentRuntime, type RepaServer } from "@repa/base";
 import { RepaClient } from "@repa/base/client";
@@ -13,30 +12,42 @@ import type { Plugin } from "@repa/base/plugin";
 import type { Result } from "@repa/base/protocol";
 
 import { notesPlugin } from "../examples/notes-plugin.js";
+import { checkProbeReply } from "./real-model/answer.js";
 import { leaseSettings } from "./real-model/settings.js";
 import { guardProbeRuntime } from "./real-model/guard.js";
+import { installDeepseekProbe } from "./real-model/deepseek.js";
+import { installedPiVersion, probeAuth, selectProbeModel } from "./real-model/model.js";
 import { assertModelBudget, summarizeUsage } from "./real-model/usage.js";
 
 const { values } = parseArgs({
   options: {
     output: { type: "string" },
     "agent-dir": { type: "string", default: path.join(os.homedir(), ".repa", "agent") },
-    model: { type: "string", default: "gpt-6-luna" },
+    provider: { type: "string", default: "openai-codex" },
+    model: { type: "string" },
     limit: { type: "string", default: "30" },
+    "cost-limit": { type: "string", default: "0.5" },
+    "request-limit": { type: "string", default: "50" },
     "skip-refresh": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
 });
 
 if (values.help || !values.output) {
-  console.log("用法：npm run real-model-check --workspace=@repa/base -- --output /绝对路径/新结果.jsonl [--limit 30] [--skip-refresh]");
+  console.log("用法：npm run real-model-check --workspace=@repa/base -- --output /绝对路径/新结果.jsonl [--provider openai-codex|deepseek] [--model 模型ID] [--limit 30] [--skip-refresh]");
   console.log("--limit 按 Pi 助手消息、压缩和保温操作计数，不是 HTTP 请求上限；一次压缩最多含两份摘要请求，OAuth 刷新另行执行一次。");
-  console.log("使用真实订阅额度。先关闭使用同一 Repa agent 目录的进程；临时调整 settings.json，结束后恢复。凭据不复制，刷新结果由 Pi 保存到原文件。");
+  console.log("DeepSeek 默认每次运行 --cost-limit 0.5 美元、--request-limit 50（含压缩子请求和失败），输出上限 2048 token；两次运行合计最多 1 美元、100 次请求。追加运行时须从总授权中扣除已用额度。API key 不执行 OAuth 刷新。");
+  console.log("使用真实额度。先关闭使用同一 Repa agent 目录的进程；临时调整 settings.json，结束后恢复。凭据不复制，OAuth 刷新结果由 Pi 保存到原文件。");
   process.exit(values.help ? 0 : 1);
 }
 
 const limit = Number(values.limit);
 if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("limit_must_be_1_to_100");
+const costLimit = Number(values["cost-limit"]);
+const requestLimit = Number(values["request-limit"]);
+if (!Number.isFinite(costLimit) || costLimit <= 0 || costLimit > 1) throw new Error("cost_limit_must_be_positive_and_at_most_1");
+if (!Number.isInteger(requestLimit) || requestLimit < 1 || requestLimit > 100) throw new Error("request_limit_must_be_1_to_100");
+const model = selectProbeModel(values.provider, values.model);
 const output = path.resolve(values.output);
 await mkdir(path.dirname(output), { recursive: true });
 const logFile = openSync(output, "wx", 0o600);
@@ -63,6 +74,7 @@ let finalHistory: Result<"session.history"> = [];
 let version = 0;
 let suffix = "A";
 let checksFailed = 0;
+let probe: ReturnType<typeof installDeepseekProbe> | undefined;
 const stopController = new AbortController();
 
 const stop = () => {
@@ -75,19 +87,24 @@ process.once("SIGTERM", stop);
 
 try {
   const authPath = path.join(values["agent-dir"], "auth.json");
-  const initialCredential = readStoredCredential("openai-codex", authPath);
-  if (initialCredential?.type !== "oauth") throw new Error("codex_oauth_required");
-  const model = openaiCodexProvider().getModels().find(item => item.id === values.model);
-  if (!model) throw new Error("model_not_in_locked_catalog");
+  const initialCredential = readStoredCredential(model.provider, authPath);
+  const auth = probeAuth(model.provider, initialCredential, values["skip-refresh"]);
   log({
     type: "environment", date: new Date().toISOString(), node: process.version,
-    piVersion: "0.87.1", provider: "openai-codex", model: model.id, limit,
+    piVersion: installedPiVersion(), provider: model.provider, model: model.id, limit,
     sessionTransport: "sse", thinking: "off", viewBatchSize: 3,
     promptCache: model.promptCache ?? null,
     catalogCost: model.cost,
     budgetUnit: "pi-model-operation", usageSource: "pi-session-history",
-    oauthPresent: true, oauthInitiallyExpired: initialCredential.expires <= Date.now(),
+    oauthPresent: initialCredential?.type === "oauth",
+    oauthInitiallyExpired: initialCredential?.type === "oauth" ? initialCredential.expires <= Date.now() : null,
+    auth: { credentialType: auth.credentialType, refreshStatus: auth.refreshStatus },
+    supportsMidConvoSystemMessages: model.compat?.supportsMidConvoSystemMessages ?? false,
+    deepseekBudget: model.provider === "deepseek" ? { costLimit, requestLimit, maxOutputTokens: 2048 } : null,
   });
+  if (model.provider === "deepseek") {
+    probe = installDeepseekProbe({ model, costLimit, requestLimit, phase: () => phase, log });
+  }
   phase = "lease-settings";
   settingsAttempted = true;
   settings = await leaseSettings(values["agent-dir"], directory);
@@ -127,7 +144,7 @@ try {
   });
   await setSuffix();
   phase = "session-create";
-  const session = await client.call("session.create", { model: { provider: "openai-codex", id: model.id } });
+  const session = await client.call("session.create", { model: { provider: model.provider, id: model.id } });
   sessionId = session.id;
   const activeClient = client;
   const history = () => activeClient.call("session.history", { sessionId: session.id });
@@ -155,23 +172,30 @@ try {
     const oldIds = new Set(previousHistory.map(entry => entry.id));
     const added = entries.filter(entry => !oldIds.has(entry.id));
     const answers = added.filter(entry => entry.type === "assistant");
-    const replyMatches = checkAnswer ? answers.at(-1)?.text?.trim() === `CHECK_${version}|${suffix}` : null;
+    const usageSummary = summarizeUsage(added);
+    const rawUsage = probe?.snapshot(label);
+    const usageMatchesRaw = rawUsage ? rawUsage.requests > 0 && rawUsage.incompleteRequests === 0
+      && rawUsage.fullInput === usageSummary.fullInput && rawUsage.output === usageSummary.output
+      && rawUsage.cacheRead === usageSummary.cacheRead && rawUsage.input === usageSummary.input : null;
+    if (usageMatchesRaw === false) checksFailed++;
+    const replyCheck = checkAnswer ? checkProbeReply(answers.at(-1)?.text, version, suffix) : null;
+    const replyMatches = replyCheck?.replyMatches ?? null;
     if (replyMatches === false) checksFailed++;
     const newPrompts = added.filter(entry => entry.type === "prompt").map(entry => {
       const sections = object(entry.data).sections;
       return Array.isArray(sections) ? sections.map((item: unknown) => object(item).id).filter(id => typeof id === "string") : [];
     });
     log({
-      type: "step", phase: label, version, replyMatches,
+      type: "step", phase: label, version, replyMatches, replyCheck,
       viewsAdded: added.filter(entry => entry.type === "view").length,
       editsAdded: added.filter(entry => entry.type === "contextEdit").length,
       promptSectionsAdded: newPrompts,
       compactionsAdded: added.filter(entry => entry.type === "compaction").length,
       toolResultsAdded: added.filter(entry => entry.type === "tool").length,
-      usageSummary: summarizeUsage(added),
+      usageSummary, rawUsage: rawUsage ?? null, usageMatchesRaw,
       usage: added.filter(entry => entry.usage).map(entry => ({
         kind: entry.type, ...entry.usage,
-        modelMatchesRequested: entry.type === "assistant" ? object(entry.data).model === values.model : null,
+        modelMatchesRequested: entry.type === "assistant" ? object(entry.data).model === model.id : null,
       })),
     });
     if (added.some(entry => entry.type === "tool")) throw new Error("unexpected_tool_execution");
@@ -226,10 +250,11 @@ try {
     type: "warming", waitMs: 2000, modelOperationsDuringIdle: summarizeUsage(finalHistory).modelOperations - beforeIdle,
     cacheWarmEntries: finalHistory.filter(entry => entry.type === "usage" && object(entry.data).kind === "cache_warm").length,
     catalogTtlAvailable: model.promptCache?.short !== undefined,
+    applicability: model.promptCache?.short === undefined ? "not-applicable-catalog-ttl-unavailable" : "available",
     evidence: "catalog-and-source-plus-pi-history-observation",
   });
 
-  if (!values["skip-refresh"]) {
+  if (auth.refresh) {
     if (interrupted) throw new Error("interrupted");
     phase = "oauth-refresh";
     const credential = readStoredCredential("openai-codex", authPath);
@@ -258,6 +283,8 @@ try {
     });
     if (!refreshVerified) throw new Error("oauth_refresh_unverified");
     await send("after-refresh");
+  } else {
+    log({ type: "oauth", status: auth.refreshStatus });
   }
   finalHistory = await history();
   completed = true;
@@ -271,7 +298,7 @@ try {
     }
   }
   // 上游 Error 与 RPC data 都可能包含敏感内容，不进入工件或终端。
-  const safeReasons = ["model_operation_limit", "model_operation_timeout", "unexpected_tool_execution", "oauth_refresh_unverified"];
+  const safeReasons = ["model_operation_limit", "model_operation_timeout", "unexpected_tool_execution", "oauth_refresh_unverified", "probe_credential_required"];
   let reason = "operation_failed";
   if (interrupted) reason = "interrupted";
   else if (error instanceof Error && safeReasons.includes(error.message)) reason = error.message;
@@ -300,7 +327,9 @@ try {
   log({
     type: "end", completed, checksFailed, settingsRestored,
     usageSummary: summarizeUsage(finalHistory),
+    rawUsage: probe?.snapshot() ?? null,
   });
+  probe?.close();
   closeSync(logFile);
   if (settingsRestored) await rm(directory, { recursive: true, force: true });
   if (checksFailed > 0) process.exitCode = 1;
