@@ -29,17 +29,27 @@ export interface AgentTask {
   model?: ModelRef;
 }
 
+// Host.models 返回的句柄由宿主持有并在关闭时取消、等待 result；插件可提前取消，重复调用共享同一次取消。
 export interface AgentWork {
   id: string;
   result: Promise<void>;
   cancel(): Promise<void>;
 }
 
+// Host.models 的工作由宿主拥有；关闭会取消请求并等待终态，再调用插件 close。
 export interface Models {
   complete(request: CompletionRequest): Promise<string>;
   completeStructured<S extends TSchema>(request: CompletionRequest, schema: S): Promise<Static<S>>;
   runAgent(task: AgentTask): Promise<AgentWork>;
 }
+
+export interface ModelScope {
+  models: Models;
+  close(): Promise<void>;
+}
+
+// 父插件可把 scope.models 转交子插件，提前关闭时先取消并等待模型工作，再关闭子实例。
+export { createModelScope } from "./plugins/models.js";
 
 export interface Files {
   read(file: string): Promise<string>;
@@ -63,6 +73,7 @@ export interface Host {
 
 export interface Plugin {
   id: string;
+  // open 尚未返回实例时，插件负责清理自己已经打开的子实例与其他局部资源。
   open(host: Host): Promise<PluginInstance>;
 }
 
@@ -72,5 +83,7 @@ export interface PluginInstance {
   view?(): Promise<string | undefined>;
   onChange?(revision: string): Promise<void>;
   methods?: Record<string, PluginMethod>;
+  // 宿主先取消模型、等在途调用，再关闭直接加载的实例；父插件另行关闭子实例时也负责停止它的工作。
+  // close 必须等待插件自有的通知与非模型后台工作完成。
   close?(): Promise<void>;
 }

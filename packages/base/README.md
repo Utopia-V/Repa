@@ -65,7 +65,7 @@ await backend.close();
 
 四个模块的接口在 [`space.ts`](src/space.ts)、[`agent.ts`](src/agent.ts)、[`plugins.ts`](src/plugins.ts) 和 [`protocol.ts`](src/protocol.ts)。协议服务负责装配与生命周期，插件宿主只接收空间、模型接口和事件回调，不依赖协议。Agent 库只出现在 `src/agent/` 内部。
 
-采用一个包的子路径导出，而不是再建两个小包：`@repa/base/client` 与 `@repa/base/protocol` 的运行依赖保持浏览器可用；`@repa/base/plugin` 提供插件作者的接口类型，不引入宿主实现。插件通过 `import type` 使用 `Plugin`、`Host`、`Tool` 等接口。
+采用一个包的子路径导出，而不是再建两个小包：`@repa/base/client` 与 `@repa/base/protocol` 的运行依赖保持浏览器可用；`@repa/base/plugin` 提供插件作者的接口类型和模型生命周期作用域，不引入空间或协议宿主。插件通过 `import type` 使用 `Plugin`、`Host`、`Tool` 等接口；`@repa/base/testing` 则提供离线测试宿主。
 
 ```text
 <home>/agent/                 模型凭据、自定义模型、Agent 设置和 skills
@@ -87,9 +87,69 @@ await backend.close();
 
 [`notes-plugin.ts`](examples/notes-plugin.ts) 演示完整插件接口：说明、工具、少量 view、变化追赶、前端方法与关闭；还通过 `rewrite`、`summarize`、`organize` 演示三种模型入口。内部 notebook 子插件由父插件构造 Host，只能通过文件接口访问 `notes/`，数据目录也落在父目录下。后台 Agent 工作的 id 就是会话 id，前端用会话事件查看进度，用 `session.abort` 取消。排队任务收到取消后不会调用模型；如果空间正被前一活动占用，取消的完成响应会等待它取得队列并收尾。队列与任务句柄都只在内存中存在。
 
+## 编写和离线检查插件
+
+先从 `@repa/base/plugin` 导入 `Plugin`，用 `satisfies Plugin` 或类型注解约束插件入口，再运行 TypeScript 的严格检查。包内的声明由当前实现构建生成，因此类型错误直接对应当前版本的接口。参数使用 TypeBox schema；宿主在调用方法和工具前做实际校验，重复插件 id、重复工具名和覆盖内置工具也会在打开时被拒绝。
+
+测试从 `@repa/base/testing` 创建临时宿主。它使用真实的空间文件、Git 历史、参数校验、变化订阅和插件关闭流程，只有 `Models` 被可控制的替身替换，因此普通测试不需要服务、模型凭据或网络。下面以包内的笔记插件为例：
+
+```ts
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createPluginTestHost } from "@repa/base/testing";
+import { notesPlugin } from "../examples/notes-plugin.js";
+
+test("笔记插件使用模型改写文字", async (t) => {
+  const testing = await createPluginTestHost({ plugins: [notesPlugin] });
+  t.after(() => testing.close());
+  await testing.host.start();
+  await testing.writeFile("notes/input.md", "原文");
+
+  const reply = testing.models.expectComplete();
+  reply.succeed("改写结果");
+  const result = await testing.host.call("notes", "rewrite", {
+    text: "原文", style: "简短",
+  });
+  assert.equal(result, "改写结果");
+  assert.match((await reply.requested).prompt, /原文/u);
+  assert.deepEqual(testing.errors, []);
+});
+```
+
+`host.start()` 开始追赶变化；`writeFile()` 保存文件并等待历史与插件处理完成，不靠 watcher 的触发速度判断测试结束。你也可以从 `space.files` 和 `space.history` 核对文件及修订，从 `events` 和 `errors` 断言插件发出的事件与后台错误。
+
+模型替身按接口分别排队。先用 `expectComplete()`、`expectStructured()` 或 `expectAgent()` 登记一次调用，再给出结果；没有安排的调用会立即报错。完成请求的 `succeed(value)` 和 `fail(error)` 可以在调用之前使用，也可以先等待 `requested`，检查请求后再决定结果。结构化结果仍按插件提供的 schema 校验。`expectAgent({ cancel: "manual" })` 返回 `cancelRequested` 和 `finish()`／`fail()`：先等取消信号，再手动结束任务，就能检查 `close()` 是否真的等待了终态。
+
+`testing.close()` 关闭插件和空间，最后删除临时目录；打开失败也会走清理。测试执行的仍是可信本机插件代码，任意 Node 副作用、隔离以及 Agent 生成插件的加载方式属于另外的设计。
+
+在仓库根目录运行：
+
+```sh
+npm run check --workspace=@repa/base
+npm test --workspace=@repa/base
+```
+
+这两个入口分别检查实现、示例与测试的类型，并发现全部 `test/*.test.ts`。完整用例见[笔记插件测试](test/notes-plugin.test.ts)和[测试宿主测试](test/plugin-testing.test.ts)。独立插件包沿用自己的 `tsc --noEmit` 与 Node 测试入口，导入安装版本的这两个公开子路径即可。
+
+## 插件的关闭责任
+
+宿主拥有通过 `Host.models` 发起的模型工作。开始关闭时，宿主停止接纳方法、工具、视图、模型调用和新的文件变化唤醒，先取消完成请求与后台 Agent，再等待已经接纳的调用和变化处理。`runAgent()` 还没返回句柄时也属于在途工作；拿到句柄后仍会取消，并等 `result` 到达终态，才按打开的逆序关闭插件实例。`cancel()` 已返回而 `result` 尚未结束时，关闭仍在等待。
+
+父插件给子插件构造 Host 时，需要同时安排局部清理。[笔记示例](examples/notes-plugin.ts)调用 `createModelScope(host.models)`，得到 `{ models, close }`；对外入口从 `@repa/base/plugin` 导出。把其中的 `models` 交给子 Host 后，父插件就能在初始化失败或提前关闭子实例时，先调用作用域的 `close()` 停掉模型工作，再关闭已打开的子实例。这复用了根宿主的取消和等待实现，父插件不必再抄写一套后台任务管理。需要统一报告运行中的后台失败时，还可以给 `createModelScope` 传入第二个 `onError` 回调。
+
+模型作用域只管理模型工作。因此，父插件手工关闭子实例前，还应先停止向它转发工具、view 和 `onChange`，并等待已有调用。`open()` 抛错前尚未交给宿主的文件句柄、子实例等资源，仍由创建它们的插件在 `catch` 中收尾；打开错误与清理错误同时发生时，两者都保留。
+
+插件自己的通知链、订阅、定时器和其他非模型后台工作由 `PluginInstance.close()` 收尾。这个 Promise 完成表示该实例已经停稳，而不只是发出了停止信号。对不响应取消的可信代码，关闭会继续等待；这里没有强制终止进程的沙箱。
+
 ## 提示、状态与缓存
 
 基础说明、空间根目录的 `AGENTS.md`、Skill 目录、工具说明和每个插件的说明各占一段。Skill 来源限于 `<home>/agent/skills/` 和 `<space>/.repa/skills/`。有效配置按默认、应用覆盖、空间覆盖依次合成；编辑文本、停用和恢复默认分别通过 `prompt.set/reset` 完成。`prompt.preview` 返回有效分段和单列的 view，与运行采用同一分段装配代码。
+
+会话已经使用过某段提示后，覆盖、恢复默认、停用、重新启用或插件说明变化，都会在下一轮附上一条变更说明，默认开启。说明标出来源和旧、新文本，按完整行省略两边完全相同的首尾部分，并明确旧规则不再适用于后续回答。它通过 Pi 的 `nextTurn` 自定义消息紧跟本轮用户消息进入上下文，系统提示本身仍走 Pi 的命名段落；用户输入原文保持不变。说明只追加一次，之后作为会话历史保留，不在每轮重复，也不为了清掉它改写稳定前缀。
+
+比较基准直接取 Pi 当前投影中的系统段，并从 Repa 自己的来源标记读取原文，因此重新打开、分支和压缩都使用相应分支实际保存的提示，不再维护另一份提示版本表。历史中的说明类型是 `promptChange`，不会混进 view 数量。嵌入底座时可用 `createAgentRuntime({ agentDir, promptChangeNotice: false })` 关闭说明，提示段更新本身仍然生效。
+
+插件按登记顺序打开、逆序关闭，但交给模型的插件提示和 view 按 id 排序，工具按名称排序。这样同一组插件改变登记顺序或打开耗时，也不会改变这些声明的顺序。插件 id、提示来源和工具名重复都被拒绝；工具也不能覆盖底座内置名称。
 
 运行开始时读取一次 view，与最近的有效版本比较，变化才通过 Pi 的 `nextTurn` 队列追加。这样首轮也是先放系统提示与工具声明，再放用户消息和 view；以后删除旧 view 就不会改变稳定前缀的位置。默认每个来源累积 3 份旧版本后，在回合结束时批量清理，下一次请求使用清理后的上下文；缓存已过期时提前清理，寿命采用模型公开的 short 缓存寿命作保守判断。压缩不把旧 view 当成会话事实写入摘要，完成后补回最新一份。清理使用追加的上下文编辑记录，原始会话证据仍保留。
 
@@ -169,6 +229,53 @@ HTTP 拦截层和其测试分别删除 **425 行、435 行，共 860 行**。连
 上一轮[核实报告及冻结数据](../../docs/research/base-real-model-check.md)保留原貌，其中 HTTP 请求数和传输诊断仍表示当时实际观察到的值；运行当前脚本以本节说明为准。用新的汇总口径离线重算 `run-05` 的 Pi usage，非缓存输入 **18,003**、完整输入 **33,363**、输出 **438**、缓存读 **15,360**、缓存写 **0**，命中率 **46.039%**，与原报告的 token 数一致。17 条助手消息加 1 次压缩为 18 个 Pi 模型操作；原报告的 19 次模型请求并没有被改写成 18 次请求。
 
 离线用量测试使用锁定的真实 SDK 和 faux provider，核对两份摘要合并为一项压缩用量、汇总与 `getSessionStats()` 一致，以及工具取消后不写文件、不发续轮。当前脚本的命令入口、类型和离线行为均已验证；本轮真实服务的执行结果仍以既有冻结核实为证据。
+
+## 底座补强验证（2026-10-11）
+
+本次补强完成了四项变化：提示段变化后的默认一次性说明；公开的离线插件测试宿主；根宿主与父子插件共用的模型生命周期作用域及失败清理；按来源和名称排序的稳定提示、工具声明。系统提示、工具与会话仍通过 Pi 1.1.0 的公开接口装配。
+
+### 真实模型对照
+
+实验继续使用原来的后缀覆盖场景：先以 A 规则积累六轮回复，然后只覆盖 `plugin:notes` 的后缀为 B，观察随后八轮。通用说明组发送的用户问题与对照组完全相同，由生产底座自动追加通知；没有同时附加原实验中人工编写的 A → B 说明。为遵守本次 60 次模型操作上限，本轮省去与覆盖效果无关的缓存补探、压缩和保温观察。
+
+| 模型与模式 | 覆盖后首次采用 B | 后缀正确轮数 | 模型操作／观测请求 | 目录费用／美元 |
+| --- | ---: | ---: | ---: | ---: |
+| DeepSeek Flash，无说明 | 八轮内未采用 | 0/8 | 14/14 | 0.002393676 |
+| DeepSeek Flash，通用说明 | 第 1 轮 | 8/8 | 14/14 | 0.002470284 |
+| DeepSeek V4 Pro，无说明 | 八轮内未采用 | 0/8 | 14/14 | 0.012587432 |
+| DeepSeek V4 Pro，通用说明 | 第 1 轮 | 8/8 | 14/14 | 0.012901064 |
+
+四组的 view 版本与回复格式都正确，错误只出现在无说明组继续使用旧后缀。两组通用说明都只在覆盖轮新增一次通知。其效果与[上一轮具体说明实验](../../docs/research/base-pi-1-real-model-check.md)相同：覆盖后的第一轮就更新，随后七轮保持。这里是两次运行的结果比较，不是同批随机化试验；本次实际验证范围是这个覆盖场景，复杂规则变化仍需要对应的使用证据。
+
+通用说明的成本高一些。Flash 覆盖后的每次请求比对照多 126 个完整输入 token；Pro 的覆盖前输入基线少 2 个 token，覆盖后差值为 124，扣除这项基线差后同样增加 126。原具体说明约为 32 个 token。额外成本来自列出旧、新完整变化行以及通用失效说明；底座不需要理解“后缀”的语义，也不需要多调用模型。通知只写入一次，但作为历史留在后续请求中，因此不是只在覆盖轮计费。
+
+合计 **56 次 Pi 模型操作、56 次观测请求，目录费用 0.030352456 美元**，低于 60 次和 0.5 美元上限。每组分别预留 14 次和 0.125 美元，请求失败或未知用量会停止；实际结束时未知请求及费用预留均为 0。目录每百万 token 的未命中输入／命中输入／输出价格分别为 Flash 的 0.3／0.006／1.2 美元、Pro 的 1.32／0.044／3.96 美元，按锁定目录计费，不使用时段折扣扩大预算。
+
+四组先后运行，每组结束后都恢复 `~/.repa/agent/settings.json`，并从外部用运行前的 SHA-256 核对原字节相同。临时空间、会话及设置恢复材料随后清理。使用本 worktree 自有依赖，环境为 Linux、Node.js 22.19.0、Pi 1.1.0；项目声明的 Node 下限仍为 22.22.2。两组无说明退出码为 1，表示八轮后缀判断失败，四组流程都完整完成。
+
+[四份冻结 JSONL](../../docs/research/results/base-hardening-20261011/)保存 token、费用、请求结构计数与回复判断，[SHA256SUMS](../../docs/research/results/base-hardening-20261011/SHA256SUMS)用于核对原始文件。工件包含计数和固定状态，凭据、完整请求与回复正文保留在模型调用路径中，不写入这些工件。
+
+在仓库根目录复现单组，输出文件须不存在，并从新的整体授权中分配预算：
+
+```sh
+npm run real-model-check --workspace=@repa/base -- \
+  --provider deepseek --model deepseek-flash \
+  --scenario prompt-change --notice generic \
+  --limit 14 --request-limit 14 --cost-limit 0.125 \
+  --output /tmp/flash-generic.jsonl
+```
+
+对照组使用 `--notice none`，Pro 使用 `--model deepseek-v4-pro`。`--notice specific` 或兼容选项 `--change-notice` 才会使用旧实验的具体说明；默认模式现在为 `generic`。脚本不跨进程共享预算，使用同一 Agent 设置目录时要串行执行。
+
+### 离线验证与边界
+
+类型检查、测试和构建全部通过。根目录的 `npm run check`、`npm test`、`npm run build` 覆盖全部 workspace；最后的取消收尾修复又完成了底座构建、类型检查与全套回归。最终测试为 `space-history` 53 项、`base` 168 项、Desktop 9 项、Web 34 项，共 264 项，全部通过。
+
+- 提示回归观察真实 SDK 的 provider 输入，覆盖修改、恢复、插件说明变化、停用和重新启用、重开、取消、压缩与分支；前缀回归在同一 root 反转插件登记顺序，实际初始 system 与工具声明保持相同。
+- 插件测试覆盖重复 id／提示来源／工具名、在途方法、工具与视图、后台句柄迟到、完成请求取消、等待 Agent 终态、初始化失败清理、逆序关闭和关闭后停止接纳变化。模型工作共用 `createModelScope`，示例的局部关闭也走这条路径。
+- 笔记示例测试已使用公开 `@repa/base/testing`，用真实临时文件与历史模拟变化，安排模型成功、失败、结构化错误、取消和关闭，不连接模型服务。
+
+插件加载、隔离和安装位置仍由后续设计决定。通用通知在本次后缀场景通过了真实模型对照；其他语义变化的效果和更复杂插件的真实使用体验，留给对应场景验证。模型作用域负责取消和等待，不强制终止忽略取消的插件代码。
 
 ## Pi 1.1.0 升级评估（升级前记录）
 

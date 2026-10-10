@@ -49,6 +49,8 @@ export interface AgentRuntime {
 
 export interface AgentRuntimeOptions {
   agentDir: string;
+  /** 默认在提示段变化后的下一轮附上一次说明；关闭仅影响说明，不影响 Pi 的提示更新。 */
+  promptChangeNotice?: boolean;
 }
 
 export { createAgentRuntime } from "./agent/runtime.js";

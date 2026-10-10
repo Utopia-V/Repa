@@ -1,9 +1,10 @@
 import type { Host, PluginInstance, Tool } from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { parse, RepaFault } from "../schema.js";
+import { createModelScope } from "./models.js";
 
 export async function openPluginHost(options: PluginHostOptions): Promise<PluginHost> {
-  const { space, models } = options;
+  const { space } = options;
   const instances = new Map<string, PluginInstance>();
   const pluginTools = new Map<string, Tool[]>();
   let pending: Promise<void> = Promise.resolve();
@@ -20,7 +21,20 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     if (closed || stopping) throw new RepaFault("plugins_closed", "插件宿主已经关闭");
   }
 
+  const ownedModels = createModelScope(options.models, options.onError);
+
+  function track<T>(operation: Promise<T>): Promise<T> {
+    calls.add(operation);
+    operation.then(() => { calls.delete(operation); }, () => { calls.delete(operation); });
+    return operation;
+  }
+
+  function orderedInstances(): [string, PluginInstance][] {
+    return [...instances].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  }
+
   function wake(revision: string): void {
+    if (stopping || closed) return;
     if (!started) {
       waiting.add(revision);
       return;
@@ -58,11 +72,16 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   // 监听先登记，但在运行时接好并 start 之前只积累唤醒。
   const unsubscribe = space.onRevision((revision) => { wake(revision.id); });
   try {
-    const names = new Set<string>();
+    const ids = new Set<string>();
     for (const plugin of options.plugins) {
-      if (!/^[a-z][a-z0-9-]*$/.test(plugin.id) || instances.has(plugin.id)) {
+      if (!/^[a-z][a-z0-9-]*$/.test(plugin.id) || ids.has(plugin.id)) {
         throw new RepaFault("invalid_plugin_id", "插件 id 必须唯一，且仅含小写字母、数字和连字符", { id: plugin.id });
       }
+      ids.add(plugin.id);
+    }
+    const names = new Set<string>();
+    const reservedNames = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"]);
+    for (const plugin of options.plugins) {
       const dataDir = await space.pluginDataDir(plugin.id);
       const host: Host = {
         space: { root: space.root, dataDir },
@@ -77,14 +96,17 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
             return space.record(source, action);
           },
         },
-        models,
+        models: ownedModels.models,
         emit: (event) => { options.emit(plugin.id, event); },
       };
       const instance = await plugin.open(host);
       instances.set(plugin.id, instance);
       const tools = (instance.tools?.() ?? []).map((tool): Tool => {
-        if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(tool.name) || names.has(tool.name)) {
+        if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(tool.name)) {
           throw new RepaFault("invalid_tool_name", "插件工具名称必须有效且不能重复", { name: tool.name });
+        }
+        if (names.has(tool.name) || reservedNames.has(tool.name)) {
+          throw new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: tool.name });
         }
         names.add(tool.name);
         return {
@@ -92,15 +114,21 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           execute(input, context) {
             checkOpen();
             const checked = parse(tool.parameters, input);
-            return tool.execute(checked, context);
+            return track(Promise.resolve().then(() => tool.execute(checked, context)));
           },
         };
       });
       pluginTools.set(plugin.id, tools);
     }
   } catch (error) {
+    stopping = true;
     unsubscribe();
     const failures = [error];
+    try {
+      await ownedModels.close();
+    } catch (closeError) {
+      failures.push(closeError);
+    }
     for (const instance of [...instances.values()].reverse()) {
       try {
         await instance.close?.();
@@ -116,20 +144,20 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     start() {
       checkOpen();
       if (starting === undefined) {
-        starting = (async () => {
+        starting = track((async () => {
           const [latest] = await space.history.list(1);
           if (latest) waiting.add(latest.id);
           started = true;
           for (const revision of waiting) wake(revision);
           waiting.clear();
           await flush();
-        })();
+        })());
       }
       return starting;
     },
     list() {
       checkOpen();
-      return [...instances].map(([id, instance]) => ({
+      return orderedInstances().map(([id, instance]) => ({
         id,
         methods: Object.keys(instance.methods ?? {}),
         tools: (pluginTools.get(id) ?? []).map((tool) => tool.name),
@@ -138,7 +166,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     instructions() {
       checkOpen();
       const result: { id: string; text: string }[] = [];
-      for (const [id, instance] of instances) {
+      for (const [id, instance] of orderedInstances()) {
         const text = instance.instructions?.();
         if (text !== undefined) result.push({ id: `plugin:${id}`, text });
       }
@@ -146,16 +174,18 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     },
     tools() {
       checkOpen();
-      return [...pluginTools.values()].flat();
+      return [...pluginTools.values()].flat().sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
     },
-    async views() {
+    views() {
       checkOpen();
-      const result: { id: string; text: string }[] = [];
-      for (const [id, instance] of instances) {
-        const text = await instance.view?.();
-        if (text !== undefined) result.push({ id: `plugin:${id}`, text });
-      }
-      return result;
+      return track((async () => {
+        const result: { id: string; text: string }[] = [];
+        for (const [id, instance] of orderedInstances()) {
+          const text = await instance.view?.();
+          if (text !== undefined) result.push({ id: `plugin:${id}`, text });
+        }
+        return result;
+      })());
     },
     call(pluginId, methodName, input) {
       checkOpen();
@@ -171,23 +201,26 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         await flush();
         return result;
       })();
-      calls.add(operation);
-      operation.then(() => { calls.delete(operation); }, () => { calls.delete(operation); });
-      return operation;
+      return track(operation);
     },
     flush,
     close() {
       if (closing === undefined) {
         stopping = true;
+        unsubscribe();
         closing = (async () => {
-          await Promise.allSettled([...calls]);
           const failures: unknown[] = [];
+          try {
+            await ownedModels.close();
+          } catch (error) {
+            failures.push(error);
+          }
+          await Promise.allSettled([...calls]);
           try {
             await flush();
           } catch (error) {
             failures.push(error);
           }
-          unsubscribe();
           closed = true;
           for (const instance of [...instances.values()].reverse()) {
             try {

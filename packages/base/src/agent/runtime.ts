@@ -23,7 +23,7 @@ import type { AgentTask, AgentWork, CompletionRequest, Tool } from "../plugin.js
 import { RepaFault, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
 import { exactEditTool } from "./edit.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
-import { applyPromptSections, promptSections } from "./prompts.js";
+import { applyPromptSections, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
 
 export interface AgentTestOptions extends AgentRuntimeOptions {
@@ -371,6 +371,12 @@ class Session implements AgentSession {
     const factory: ExtensionFactory = pi => {
       pi.on("before_agent_start", async event => {
         applyPromptSections(event.systemPromptOptions, this.currentSections);
+        const notice = runtime.options.promptChangeNotice === false ? undefined : promptChangeNotice(this.session.messages, this.currentSections);
+        if (notice) {
+          await this.session.sendCustomMessage({
+            customType: "repa-prompt-change", content: notice, display: false,
+          }, { deliverAs: "nextTurn", triggerTurn: false });
+        }
         const shortTtl = this.session.model?.promptCache?.short;
         const ttl = runtime.options.cacheTtlMs ?? (shortTtl === undefined ? undefined : shortTtl * 1000);
         const cacheExpired = ttl !== undefined && this.lastRequestAt !== undefined && this.now() - this.lastRequestAt >= ttl;

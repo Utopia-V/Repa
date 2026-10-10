@@ -63,7 +63,7 @@ export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
     return undefined;
   }
   if (entry.type === "custom" && entry.customType === "repa-run") return { ...base, type: "run", data: entry.data };
-  if (entry.type === "custom_message") return { ...base, type: "view", text: textContent(entry.content), data: entry.details };
+  if (entry.type === "custom_message") return { ...base, type: entry.customType === "repa-prompt-change" ? "promptChange" : "view", text: textContent(entry.content), data: entry.details };
   if (entry.type === "context_edit") {
     return { ...base, type: "contextEdit", data: { targetId: entry.targetId, replacement: entry.replacement } };
   }

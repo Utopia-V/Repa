@@ -39,7 +39,7 @@ export const SessionEntrySchema = object({
   id: identifier,
   type: Type.Union([
     Type.Literal("user"), Type.Literal("assistant"), Type.Literal("tool"),
-    Type.Literal("view"), Type.Literal("prompt"), Type.Literal("contextEdit"),
+    Type.Literal("view"), Type.Literal("prompt"), Type.Literal("promptChange"), Type.Literal("contextEdit"),
     Type.Literal("compaction"), Type.Literal("usage"), Type.Literal("run"),
   ]),
   timestamp: Type.String(),

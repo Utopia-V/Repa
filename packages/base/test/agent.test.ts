@@ -10,7 +10,7 @@ import { Type } from "typebox";
 import { cacheStatusForTest, createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/runtime.js";
 import type { AgentSpaceOptions } from "../src/agent.js";
 
-async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, options: Pick<AgentTestOptions, "extensionFactories"> = {}) {
+async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, options: Pick<AgentTestOptions, "extensionFactories" | "promptChangeNotice"> = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-agent-"));
   const agentDir = path.join(root, "app", "agent");
   const sessionsDir = path.join(root, ".repa", "sessions");
@@ -565,4 +565,102 @@ test("默认自动 overflow 压缩在重试第一份请求前补回最新视图"
   assert(getInitialSystemMessage(capture.messages)?.toolsAdded?.some(tool => tool.name === "edit"));
   assert(f.events.some(event => event !== null && typeof event === "object" && "type" in event && event.type === "compaction"));
   assert.equal(f.session.history().findLast(entry => entry.type === "assistant")?.text, "重试成功");
+});
+
+test("提示覆盖、恢复、插件说明变化与停用只在下一轮追加说明，原始前缀保持", async t => {
+  let text = "默认规则 A";
+  let override: { text?: string; enabled?: boolean } | undefined;
+  const captures: TranscriptContext[] = [];
+  const f = await fixture(t, {
+    instructions: () => [{ id: "plugin:test", text }],
+    overrides: async () => ({ app: {}, space: Object.fromEntries(override ? [["plugin:test", override]] : []) }),
+  });
+  const send = async () => {
+    f.faux.setResponses([context => {
+      captures.push(structuredClone(context));
+      return fauxAssistantMessage("回答");
+    }]);
+    await f.session.send("继续");
+  };
+  const notices = () => f.session.history().filter(entry => entry.type === "promptChange");
+  await send();
+  assert.equal(notices().length, 0);
+  override = { text: "覆盖规则 B" };
+  await send();
+  assert.equal(notices().length, 1);
+  assert.match(notices()[0]?.text ?? "", /默认规则 A/u);
+  assert.match(notices()[0]?.text ?? "", /覆盖规则 B/u);
+  await send();
+  assert.equal(notices().length, 1, JSON.stringify(notices()));
+  override = undefined;
+  await send();
+  assert.equal(notices().length, 2);
+  text = "插件规则 C";
+  await send();
+  assert.equal(notices().length, 3);
+  override = { enabled: false };
+  await send();
+  assert.equal(notices().length, 4);
+  assert.match(notices().at(-1)?.text ?? "", /已停用或移除/u);
+  override = undefined;
+  await send();
+  assert.equal(notices().length, 5);
+  for (const capture of captures) {
+    assert.deepEqual(getInitialSystemMessage(capture.messages), getInitialSystemMessage(captures[0]?.messages ?? []));
+  }
+  const updated = captures[1];
+  assert(updated);
+  const changeIndex = updated.messages.findIndex(message => JSON.stringify(message.content).includes("提示变更说明"));
+  assert.equal(updated.messages[changeIndex - 1]?.role, "user");
+  assert.match(getCurrentSystemPrompt(updated.messages), /覆盖规则 B/u);
+});
+
+test("关闭变更说明仍通过 Pi 更新提示段", async t => {
+  let text = "旧说明";
+  const f = await fixture(t, { instructions: () => [{ id: "plugin:test", text }] }, { promptChangeNotice: false });
+  f.faux.setResponses([fauxAssistantMessage("回答")]);
+  await f.session.send("开始");
+  text = "新说明";
+  f.faux.setResponses([context => {
+    assert.match(getCurrentSystemPrompt(context.messages), /新说明/u);
+    assert(!JSON.stringify(context.messages).includes("提示变更说明"));
+    return fauxAssistantMessage("回答");
+  }]);
+  await f.session.send("继续");
+  assert.equal(f.session.history().filter(entry => entry.type === "promptChange").length, 0);
+});
+
+test("重开会话从 Pi 记录识别提示变化，不重复已经附过的说明", async t => {
+  const f = await fixture(t, { instructions: () => [{ id: "plugin:test", text: "旧说明" }] });
+  f.faux.setResponses([fauxAssistantMessage("回答")]);
+  await f.session.send("开始");
+  await f.space.close();
+  const options: AgentSpaceOptions = {
+    root: f.root, sessionsDir: f.sessionsDir,
+    instructions: () => [{ id: "plugin:test", text: "新说明" }], tools: () => [], views: async () => [],
+    overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess",
+    record: async (_id, action) => action(), onEvent: () => {}, confirm: async () => true,
+  };
+  const space = await f.runtime.openSpace(options);
+  const session = await space.get(f.session.info().id);
+  f.faux.setResponses([fauxAssistantMessage("回答")]);
+  await session.send("继续");
+  assert.equal(session.history().filter(entry => entry.type === "promptChange").length, 1);
+  await space.close();
+  const reopened = await f.runtime.openSpace(options);
+  const same = await reopened.get(session.info().id);
+  f.faux.setResponses([fauxAssistantMessage("回答")]);
+  await same.send("继续");
+  assert.equal(same.history().filter(entry => entry.type === "promptChange").length, 1);
+});
+
+test("重复提示来源在进入模型前拒绝，不因排序或覆盖而静默合并", async t => {
+  for (const instructions of [
+    [{ id: "plugin:test", text: "第一份" }, { id: "plugin:test", text: "第二份" }],
+    [{ id: "base", text: "覆盖内置来源" }],
+  ]) {
+    const f = await fixture(t, { instructions: () => instructions });
+    await assert.rejects(f.session.send("开始"), /提示来源重复/u);
+    assert.equal(f.faux.state.callCount, 0);
+  }
 });
