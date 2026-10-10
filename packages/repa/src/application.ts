@@ -795,10 +795,13 @@ export class RepaApplication {
               return resource;
             }, signal);
           },
-          read: async ref => {
+          read: async (ref, options) => {
             signal.throwIfAborted();
+            const maxBytes = options?.maxBytes;
+            if (options !== undefined && (maxBytes === undefined || !Number.isSafeInteger(maxBytes) || maxBytes < 1))
+              throw new RepaFault("invalid_input", "读取的字节限额必须为正整数。");
             content!.retention.retainAdditional(owner, [ref]);
-            return content!.blobs.get(ref.id);
+            return content!.blobs.get(ref.id, maxBytes);
           },
         } satisfies NonNullable<RepaCapabilityServices["resources"]>,
         models: {

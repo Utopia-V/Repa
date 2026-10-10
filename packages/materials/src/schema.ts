@@ -1,11 +1,15 @@
 import { Type, type Static } from "repa/plugin";
-import { ContentTargetSchema, LocatorSchema, RepresentationSchema, UrlOriginSchema } from "repa/protocol";
+import { ContentTargetSchema, LocatorSchema, RepresentationSchema, ResourceRefSchema, UrlOriginSchema } from "repa/protocol";
 
 const object = <T extends Parameters<typeof Type.Object>[0]>(properties: T) => Type.Object(properties, { additionalProperties: false });
 const index = Type.Integer({ minimum: 1 });
 export const ExtractInputSchema = object({
-  target: ContentTargetSchema,
+  target: Type.Union([
+    ContentTargetSchema,
+    object({ kind: Type.Literal("resource"), resource: ResourceRefSchema }),
+  ]),
   expectedBodyRevision: Type.Optional(Type.String({ minLength: 1 })),
+  encoding: Type.Optional(Type.String({ minLength: 1, description: "文本或 HTML 的明确字符编码；省略时使用媒体类型中的 charset，否则按 UTF-8。" })),
   range: Type.Optional(Type.Union([
     object({ kind: Type.Literal("lines"), start: index, end: Type.Optional(index) }),
     object({ kind: Type.Literal("pages"), start: index, end: Type.Optional(index) }),

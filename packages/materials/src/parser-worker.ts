@@ -34,7 +34,7 @@ try {
       ...(info.orientation !== undefined ? { orientation: info.orientation } : {}) };
     result.total = 1;
   } else {
-    // HTTP 原件使用响应声明的 charset；未声明与本地文件继续按 UTF-8，不猜测编码。
+    // 使用调用方明确选择的编码；没有声明时由入口选 UTF-8，不猜测原字节。
     const decoder = new TextDecoder(input.encoding, { fatal: true });
     const text = decoder.decode(bytes);
     if (text.includes("\0")) throw new Error("解码后的正文包含 NUL，不能作为文本读取。");

@@ -1,5 +1,5 @@
 import { Type, type BackendPlugin, type CapabilityDefinition, type RepaCapabilityServices } from "repa/plugin";
-import { RepaFault, type ProcessingResult } from "repa/protocol";
+import { RepaFault, type ProcessingResult, type ResourceRef } from "repa/protocol";
 import { fetchBytes } from "./fetch.js";
 import { extractBytes } from "./readers.js";
 import { searchWikipedia } from "./search.js";
@@ -13,33 +13,71 @@ export default function materials(): BackendPlugin<RepaCapabilityServices> {
   const extract: CapabilityDefinition<typeof ExtractInputSchema, typeof ExtractOutputSchema, RepaCapabilityServices> = {
     contract: EXTRACT_CONTRACT, implementationId: "local", inputSchema: ExtractInputSchema, outputSchema: ExtractOutputSchema,
     scopes: ["space"], execution: "background",
-    tool: { name: "read_material", description: "读取关联材料的实际字节版本。支持原文行范围、本地 HTML 正文、PDF 页范围和图片信息，不修改原件或人工稿。" },
+    tool: { name: "read_material", description: "读取文件、关联材料或固定资源的实际字节。target.kind 为 resource 时直接使用 ResourceRef，不重取当前文件或网页。支持原文行范围、HTML 正文、PDF 页范围和图片信息；文本或 HTML 可指定 encoding，不修改原件或人工稿。" },
+    inputResources: input => input.target.kind === "resource" ? [input.target.resource] : [],
     async invoke(input, context): Promise<ProcessingResult> {
-      if (!context.services?.resources) throw new RepaFault("capability_service", "材料读取需要真实父请求的资源快照服务。");
+      const services = context.services;
+      if (!services?.resources) throw new RepaFault("capability_service", "材料读取需要真实父请求的资源服务。");
       context.signal.throwIfAborted();
-      let snapshot: Awaited<ReturnType<typeof context.services.resources.snapshot>>;
+      let bytes: Uint8Array;
+      let resource: ResourceRef;
+      let file = "";
+      let source: ProcessingResult["sources"][number] | undefined;
       try {
-        snapshot = await context.services.resources.snapshot({ target: input.target, maxBytes: MAX_BYTES,
-          ...(input.expectedBodyRevision !== undefined ? { revision: input.expectedBodyRevision } : {}) });
+        if (input.target.kind === "resource") {
+          resource = input.target.resource;
+          if (input.expectedBodyRevision !== undefined && input.expectedBodyRevision !== resource.id)
+            throw new RepaFault("revision_conflict", "指定的原件版本与资源标识不一致。", {
+              expected: input.expectedBodyRevision, actual: resource.id,
+            });
+          bytes = await services.resources.read(resource, { maxBytes: MAX_BYTES });
+        } else {
+          const snapshot = await services.resources.snapshot({
+            target: input.target,
+            maxBytes: MAX_BYTES,
+            ...(input.expectedBodyRevision !== undefined ? { revision: input.expectedBodyRevision } : {}),
+          });
+          bytes = snapshot.bytes;
+          resource = snapshot.resource;
+          file = snapshot.content.location.path;
+          const target = snapshot.content.ref ? { kind: "content" as const, ref: snapshot.content.ref } : snapshot.content.target;
+          const revision = snapshot.content.bodyRevision;
+          if (!revision) throw new RepaFault("revision_unavailable", "原件没有实际字节修订。");
+          source = { target, revision };
+        }
       } catch (error) {
         context.signal.throwIfAborted();
         if (!(error instanceof RepaFault) || error.code !== "content_limit") throw error;
-        const data: ExtractData = { status: "limit_exceeded", kind: "unknown", reader: { name: "none" }, segments: [], truncated: false,
-          issues: [{ code: "input_limit", message: "原件超过本地材料读取的 32 MiB 限额，未提取正文。" }] };
-        // 未读取字节就没有可确认的正文修订或资源，不为超限说明补读原件。
-        return { format: EXTRACT_FORMAT, value: { kind: "inline", data }, sources: [], resources: [] };
+        const data: ExtractData = {
+          status: "limit_exceeded",
+          kind: "unknown",
+          reader: { name: "none" },
+          segments: [],
+          truncated: false,
+          issues: [{ code: "input_limit", message: "原件超过材料读取的 32 MiB 限额，本次未提取正文或完成字节校验。" }],
+        };
+        // 文件未形成快照；资源引用则早已存在，保留它不表示本次已经读过这些字节。
+        return {
+          format: EXTRACT_FORMAT,
+          value: { kind: "inline", data },
+          sources: [],
+          resources: input.target.kind === "resource" ? [input.target.resource] : [],
+        };
       }
       context.signal.throwIfAborted();
-      const data = await extractBytes(snapshot.bytes, snapshot.content.mediaType, snapshot.content.location.path,
-        input, context.signal, context.services);
+      const data = await extractBytes(bytes, resource.mediaType, file, input, context.signal, services, input.encoding);
       context.signal.throwIfAborted();
-      const target = snapshot.content.ref ? { kind: "content" as const, ref: snapshot.content.ref } : snapshot.content.target;
-      const revision = snapshot.content.bodyRevision;
-      if (!revision) throw new RepaFault("revision_unavailable", "原件没有实际字节修订。");
-      const source = { target, revision };
-      return { format: EXTRACT_FORMAT, value: { kind: "inline", data },
-        sources: data.segments.length ? data.segments.map(segment => ({ ...source, locator: segment.locator })) : [source],
-        resources: [snapshot.resource] };
+      let sources: ProcessingResult["sources"] = [];
+      if (source) {
+        const origin = source;
+        sources = data.segments.length ? data.segments.map(segment => ({ ...origin, locator: segment.locator })) : [origin];
+      }
+      return {
+        format: EXTRACT_FORMAT,
+        value: { kind: "inline", data },
+        sources,
+        resources: [resource],
+      };
     },
   };
   const online: CapabilityDefinition<typeof FetchInputSchema, typeof ExtractOutputSchema, RepaCapabilityServices> = {

@@ -9,8 +9,9 @@ import { promisify } from "node:util";
 import { DefaultPackageManager, DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
+import { satisfies } from "semver";
 import { RepaFault } from "../src/errors.js";
-import { PluginPackages, projectPiPackages } from "../src/plugins/packages.js";
+import { PLUGIN_API_VERSION, PluginPackages, projectPiPackages } from "../src/plugins/packages.js";
 import { PluginManifestSchema, PluginPackageSchema, type PluginSelection } from "../src/plugins/schema.js";
 
 async function fixture(t: TestContext) {
@@ -41,6 +42,25 @@ function manifest(api = "^1.0.0") {
 
 const byName = (name: string): PluginSelection => ({ kind: "package", name });
 const runFile = promisify(execFile);
+
+test("插件API兼容旧minor范围，要求限额读取的材料包不接受旧宿主", async t => {
+  const f = await fixture(t);
+  const legacy = await f.package("legacy-range", manifest("^1.0.0"));
+  const bounded = await f.package("bounded-range", manifest("^1.1.0"));
+  const pinned = await f.package("legacy-pinned", manifest("1.0.0"));
+  const settings = SettingsManager.inMemory({ packages: [legacy, bounded, pinned] });
+  const packages = new PluginPackages({ cwd: f.cwd, agentDir: f.agentDir, settingsManager: settings });
+  const catalog = await packages.list();
+  assert.equal(catalog.find(item => item.name === "legacy-range")?.backend?.status, "ready");
+  assert.equal(catalog.find(item => item.name === "bounded-range")?.backend?.status, "ready");
+  assert.equal(catalog.find(item => item.name === "legacy-pinned")?.backend?.status, "incompatible");
+  const material: unknown = JSON.parse(await readFile(new URL("../../materials/package.json", import.meta.url), "utf8"));
+  assert(material && typeof material === "object" && "repa" in material);
+  assert(Check(PluginManifestSchema, material.repa));
+  assert(material.repa.backend);
+  assert.equal(satisfies("1.0.0", material.repa.backend.api), false);
+  assert.equal(satisfies(PLUGIN_API_VERSION, material.repa.backend.api), true);
+});
 
 test("只读包发现不加载代码，返回独立入口状态与真正 semver 兼容结果", async (t) => {
   const f = await fixture(t);

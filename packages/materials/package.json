@@ -18,7 +18,7 @@
     "manifestVersion": 1,
     "backend": {
       "entry": "./dist/index.js",
-      "api": "^1.0.0"
+      "api": "^1.1.0"
     }
   },
   "engines": {

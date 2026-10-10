@@ -11,7 +11,7 @@ import {
   type PluginEntry, type PluginPackage, type PluginSelection,
 } from "./schema.js";
 
-export const PLUGIN_API_VERSION = "1.0.0";
+export const PLUGIN_API_VERSION = "1.1.0";
 type PiSettings = ReturnType<SettingsManager["getGlobalSettings"]>;
 export type PiSettingsSnapshots = { global: PiSettings; project: PiSettings };
 type ConfiguredPackage = ReturnType<DefaultPackageManager["listConfiguredPackages"]>[number];

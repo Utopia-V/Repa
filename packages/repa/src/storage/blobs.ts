@@ -49,10 +49,24 @@ export class BlobStore {
       await rm(temporary, { force: true });
     }
   }
-  async get(id: string): Promise<Buffer> {
+  async get(id: string, maxBytes?: number): Promise<Buffer> {
+    if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 1))
+      throw new RepaFault("invalid_input", "读取的字节限额必须为正整数。");
+    const checkLimit = (size: number) => {
+      if (maxBytes !== undefined && size > maxBytes)
+        throw new RepaFault("content_limit", "资源超过读取的字节限额。", { id, size, maxBytes });
+    };
     let bytes: Buffer;
-    try { bytes = await readFile(this.#path(id)); }
-    catch (error) {
+    try {
+      const handle = await open(this.#path(id), "r");
+      try {
+        if (maxBytes !== undefined) checkLimit((await handle.stat()).size);
+        bytes = await handle.readFile();
+        checkLimit(bytes.length);
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT")
         throw new RepaFault("revision_unavailable", "所需的内容版本不可用。", { id });
       throw error;

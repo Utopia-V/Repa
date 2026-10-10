@@ -1,6 +1,6 @@
 # 搜索与材料读取
 
-当前可以搜索空间文本、指定会话的历史和 Wikipedia 百科条目，读取命中附近的内容，也可以通过材料包提取本地文件或获取明确 URL 的原件。Agent 工具与公开客户端使用同一份后端实现，图形界面尚待接入。
+当前可以搜索空间文本、指定会话的历史和 Wikipedia 百科条目，读取命中附近的内容，也可以通过材料包提取本地文件、固定资源或获取明确 URL 的原件。Agent 工具与公开客户端使用同一份后端实现，图形界面尚待接入。
 
 ## 设计思路
 
@@ -89,9 +89,11 @@ ripgrep 当前由搜索模块直接启动，没有经过命令执行服务的沙
 
 本地提取先取得原件快照和 `bodyRevision`，随后记录行号、PDF 页码或 HTML 标题与引文定位。HTML 使用 jsdom 和 Readability 处理已取得的原件字节，不执行其中的脚本或加载子资源。图片处理返回尺寸等头信息和原图，扫描 PDF 没有文本层时返回 `empty`。
 
+再次使用原件时，也可以把同一空间的 `ResourceRef` 交给 `target: { kind: "resource", resource }`。材料能力直接读取固定字节，不先创建文件或重新抓取网页；结果的 `resources[0]` 保留原件，`sources` 为空，段定位仍在提取数据中。可选 `expectedBodyRevision` 只核对该资源 ID。文本与 HTML 的可选 `encoding` 优先于媒体类型中明确的 `charset`，均未提供时按 UTF-8；实际解码器记录在 `reader.encoding`，调用方可以据此续读先前取得的非 UTF-8 网页。调用示例见[固定原件提取](../../packages/materials/README.md#再次提取固定原件)。
+
 PDF 使用系统 Poppler。`pdfinfo`、`pdftotext` 的命令名或路径只能在 application 配置中设置，空间文件不能覆盖。一次 `pdftotext` 调用读取所选页范围，再按换页符区分页码，避免每页都重新启动程序解析整份 PDF。
 
-命令输出最多 4 MiB，超过时需要缩小页范围；返回正文另有字符和段数预算。已知大于 32 MiB 的原件在读取前返回 `limit_exceeded`，`reader.name` 为 `"none"`，来源与资源为空。
+命令输出最多 4 MiB，超过时需要缩小页范围；返回正文另有字符和段数预算。已知大于 32 MiB 的原件在读取前返回 `limit_exceeded`，`reader.name` 为 `"none"`。文件未形成快照，来源与资源为空；资源目标保留已有引用，但本次尚未完成字节校验或提取。
 
 Poppler 当前由材料包直接启动，没有接入命令服务的清洁环境、沙箱或进程组管理。取消会等待解析 worker 或直接子进程退出。这些执行条件与外部依赖见[材料包说明](../../packages/materials/README.md)。
 
@@ -103,7 +105,7 @@ Poppler 当前由材料包直接启动，没有接入命令服务的清洁环境
 
 已经有明确地址时，`repa.material.fetch/1` 用 Node 原生 `fetch` 对 HTTP(S) URL 发起 GET，不跟随网页中的链接、运行脚本或抓取子资源。单次原件上限 32 MiB，网络与提取共用父取消信号，网络获取超时为 30 秒；超限或 HTTP 非成功响应不会把不完整响应保存为原件。成功取得的原字节作为标准 `resources` 返回，同时记录请求地址、重定向后最终地址、获取时间、HTTP 状态、媒体类型，以及响应提供的 `Content-Type`、`ETag`、`Last-Modified`。`source.bodyRevision` 标识所保存的原字节，`origin` 给出 `{ kind: "url", url: finalUrl, retrievedAt: fetchedAt }`。这些字段说明本次实际取得了什么；登记后的文件位置与身份由内容模块持有。
 
-获取后使用本地文本、HTML、PDF、图片读取器生成 `extraction`。显式 `charset` 由 `TextDecoder` 处理；未声明时按 UTF-8，不增加猜测编码的步骤。HTML 仍由 Readability 从已保存字节提取正文，PDF 仍依赖系统 Poppler。没有可用读取器、原件无正文或解析失败时，结果中的状态会说明原因，已取得的原件资源仍可供核对。若要长期放入空间，先用内容接口保存原字节，再在 `content.associate` 或 `content.applyPatch.registrations` 写入返回的 `origin`；重新读取应针对这个已登记内容进行。请求或会话仍持有资源时，可以读取当时的旧原件；长期保存、复制或收集时，由相应内容接手资源关系。来源登记规则见[内容说明](content.md#来源与在线原件)。
+获取后使用本地文本、HTML、PDF、图片读取器生成 `extraction`。显式 `charset` 由 `TextDecoder` 处理；未声明时按 UTF-8，不增加猜测编码的步骤。HTML 仍由 Readability 从已保存字节提取正文，PDF 仍依赖系统 Poppler。没有可用读取器、原件无正文或解析失败时，结果中的状态会说明原因，已取得的原件资源仍可供核对。若要长期放入空间，先用内容接口保存原字节，再在 `content.associate` 或 `content.applyPatch.registrations` 写入返回的 `origin`；可以重新读取这个已登记内容，或通过资源目标选择原获取版本。请求或会话仍持有资源时，可以读取当时的旧原件；长期保存、复制或收集时，由相应内容接手资源关系。来源登记规则见[内容说明](content.md#来源与在线原件)。
 
 Node `fetch` 由可信后台插件直接调用，`execution.run` 对命令的网络策略不会自动约束它。网络能力沿用包的启用与信任边界；使用第三方后台包前仍需判断其宿主权限，见[插件信任说明](plugins.md#信任的实际范围)。
 

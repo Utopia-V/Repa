@@ -18,7 +18,7 @@ export interface RepaCapabilityServices {
     }>;
     retain(refs: readonly ResourceRef[]): void;
     create(bytes: Uint8Array, mediaType: string): Promise<ResourceRef>;
-    read(ref: ResourceRef): Promise<Uint8Array>;
+    read(ref: ResourceRef, options?: { maxBytes: number }): Promise<Uint8Array>;
   };
   execution?: {
     run(input: ExecutionInput): Promise<ExecutionView>;

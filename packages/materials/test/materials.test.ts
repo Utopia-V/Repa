@@ -55,14 +55,30 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 
 async function fixture(t: TestContext) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-materials-test-"));
+  const opened: {
+    server?: Awaited<ReturnType<typeof startRepaServer>>;
+    client?: RepaClient;
+  } = {};
+  t.after(async () => {
+    try {
+      await opened.server?.close("cancel");
+    } finally {
+      try {
+        await opened.client?.close();
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
   const agentDir = path.join(root, "agent");
   const directory = path.join(root, "space");
   await mkdir(agentDir);
   await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [packageDirectory],
     extensions: ["!**/*"], skills: ["!**/*"], prompts: ["!**/*"], themes: ["!**/*"] }));
   const server = await startRepaServer({ agentDir, appDirectory: path.join(root, "app") });
+  opened.server = server;
   const client = await RepaClient.connect(server.connection);
-  t.after(async () => { await server.close("cancel"); await client.close(); await rm(root, { recursive: true, force: true }); });
+  opened.client = client;
   const space = await client.call("space.open", { path: directory });
   const scope = { kind: "space" as const, spaceId: space.id };
   await set(client, application, "plugins", "backends", [{ id: "materials", package: { kind: "package", name: "@repa/materials" } }]);
@@ -270,4 +286,204 @@ test("PDF命令只接受机器侧application配置，空间和会话携带路径
   await rm(file);
   assert.equal((await f.extract({ target: source })).data.status, "ready");
   assert.equal(existsSync(marker), false);
+});
+
+test("原PDF文件删除后按固定资源读取第二页，保留hash与定位且不建立材料副本", async t => {
+  const f = await fixture(t);
+  const source = await f.put("original.pdf", smallPdf());
+  const first = await f.extract({
+    target: source,
+    range: { kind: "pages", start: 1, end: 1 },
+  });
+  const resource = first.representation.resources[0];
+  assert(resource);
+  await rm(path.join(f.directory, "original.pdf"));
+  const before = await f.client.call("content.list", { spaceId: f.space.id });
+  const catalogFile = path.join(f.directory, ".repa/content/catalog.json");
+  const catalogBefore = await readFile(catalogFile);
+  const input: ExtractInput = {
+    target: { kind: "resource", resource },
+    expectedBodyRevision: resource.id,
+    range: { kind: "pages", start: 2, end: 2 },
+  };
+  const next = await f.extract(input);
+  assert.equal(next.data.status, "ready");
+  assert.match(next.data.segments[0]?.text ?? "", /Second actual page/);
+  assert.deepEqual(next.data.segments[0]?.locator.value, { page: 2 });
+  assert.deepEqual(next.representation.resources, [resource]);
+  assert.deepEqual(next.representation.sources, []);
+  assert.deepEqual(await f.client.call("content.list", { spaceId: f.space.id }), before);
+  assert.deepEqual(await readFile(catalogFile), catalogBefore, "资源提取不新建或修改内容身份");
+  const replay = await f.client.call("capability.invoke", {
+    scope: f.scope,
+    requestId: next.stored.requestId,
+    contract: EXTRACT_CONTRACT,
+    input,
+  });
+  assert.equal(replay.kind, "background");
+  assert(replay.kind === "background");
+  assert.deepEqual(await f.finished(replay.request), next.stored);
+  const again = await f.extract(input);
+  assert.deepEqual(again.data, next.data);
+  const stale = await f.finished(await f.invoke({
+    ...input,
+    expectedBodyRevision: "0".repeat(64),
+  }));
+  assert.equal(stale.status, "failed");
+  assert.equal(stale.error?.code, "revision_conflict");
+  const oldFile = await f.finished(await f.invoke({
+    target: source,
+    expectedBodyRevision: resource.id,
+  }));
+  assert.equal(oldFile.status, "failed");
+  assert.equal(oldFile.error?.code, "revision_conflict");
+});
+
+test("资源原件拒绝跨空间或缺失hash，损坏字节不被解释为坏PDF", async t => {
+  const f = await fixture(t);
+  const uploaded = await f.client.uploadResource(f.space.id, smallPdf(), "application/pdf");
+  const resource = uploaded.resource;
+  const marker = path.join(f.root, "resource-pdf-started");
+  const wrapper = path.join(f.root, "resource-pdfinfo");
+  await writeFile(wrapper, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)},'started');\n`);
+  await chmod(wrapper, 0o755);
+  await set(f.client, application, "repa.materials", "pdfinfo", wrapper);
+  const other = await f.client.call("space.open", { path: path.join(f.root, "other") });
+  await assert.rejects(f.invoke({
+    target: { kind: "resource", resource: { ...resource, spaceId: other.id } },
+  }), fault("permission_required"));
+  await assert.rejects(f.invoke({
+    target: { kind: "resource", resource: { ...resource, id: "0".repeat(64) } },
+  }), fault("revision_unavailable"));
+  await writeFile(path.join(f.directory, ".repa/content/blobs", resource.id), "tampered original");
+  const failed = await f.finished(await f.invoke({ target: { kind: "resource", resource } }));
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error?.code, "invalid_storage");
+  assert.equal(existsSync(marker), false);
+});
+
+test("无路径资源按明确MIME与编码读HTML和JSON，不把octet-stream猜成文本", async t => {
+  const f = await fixture(t);
+  const chinese = Buffer.from([0xd6, 0xd0, 0xce, 0xc4]);
+  const htmlBytes = Buffer.concat([
+    Buffer.from("<html><body><article><p>"),
+    Buffer.concat(Array.from({ length: 400 }, () => chinese)),
+    Buffer.from("</p></article></body></html>"),
+  ]);
+  const uploaded = await f.client.uploadResource(f.space.id, htmlBytes, "text/html");
+  const plain = await f.extract({ target: { kind: "resource", resource: uploaded.resource } });
+  assert.equal(plain.data.status, "invalid");
+  const explicit = await f.extract({
+    target: { kind: "resource", resource: uploaded.resource },
+    encoding: "gb18030",
+  });
+  assert.equal(explicit.data.status, "ready");
+  assert.equal(explicit.data.reader.name, "readability");
+  assert.equal(explicit.data.reader.encoding, "gb18030");
+  assert.match(explicit.data.segments.map(segment => segment.text).join(""), /中文/);
+  const overridden = await f.extract({
+    target: {
+      kind: "resource",
+      resource: { ...uploaded.resource, mediaType: "text/html; charset=utf-8" },
+    },
+    encoding: "gb18030",
+  });
+  assert.equal(overridden.data.status, "ready");
+  assert.equal(overridden.data.reader.encoding, "gb18030");
+  assert.deepEqual(overridden.data.segments, explicit.data.segments);
+  const declared = await f.extract({
+    target: {
+      kind: "resource",
+      resource: { ...uploaded.resource, mediaType: "text/html; charset=gb18030" },
+    },
+  });
+  assert.equal(declared.data.status, "ready");
+  assert.equal(declared.data.reader.name, "readability");
+  assert.deepEqual(declared.data.segments, explicit.data.segments);
+  const json = await f.client.uploadResource(f.space.id, Buffer.from('{"原文":42}\r\n'), "application/json");
+  const parsed = await f.extract({ target: { kind: "resource", resource: json.resource } });
+  assert.equal(parsed.data.kind, "text");
+  assert.equal(parsed.data.segments.map(segment => segment.text).join(""), '{"原文":42}\r\n');
+  const unknown = await f.client.uploadResource(f.space.id, Buffer.from("not a declared text file"), "application/octet-stream");
+  const unsupported = await f.extract({ target: { kind: "resource", resource: unknown.resource } });
+  assert.equal(unsupported.data.status, "unsupported");
+});
+
+test("超限固定资源不启动PDF解析，结果保留已声明原ref而文件分支仍空来源", async t => {
+  const f = await fixture(t);
+  const bytes = Buffer.alloc(33 * 1024 * 1024, " ");
+  smallPdf().copy(bytes);
+  const uploaded = await f.client.uploadResource(f.space.id, bytes, "application/pdf");
+  const marker = path.join(f.root, "oversize-resource-parser");
+  const wrapper = path.join(f.root, "oversize-resource-pdfinfo");
+  await writeFile(wrapper, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)},'started');\n`);
+  await chmod(wrapper, 0o755);
+  await set(f.client, application, "repa.materials", "pdfinfo", wrapper);
+  const result = await f.extract({ target: { kind: "resource", resource: uploaded.resource } });
+  assert.equal(result.data.status, "limit_exceeded");
+  assert.equal(result.data.reader.name, "none");
+  assert.deepEqual(result.data.segments, []);
+  assert.deepEqual(result.representation.sources, []);
+  assert.deepEqual(result.representation.resources, [uploaded.resource]);
+  assert.equal(existsSync(marker), false);
+});
+
+test("固定PDF资源受理后由请求持有，取消等待实际进程close再完成", async t => {
+  const f = await fixture(t);
+  const uploaded = await f.client.uploadResource(f.space.id, smallPdf(), "application/pdf");
+  const fifo = path.join(f.root, "resource-exit.fifo");
+  await promisify(execFile)("mkfifo", [fifo]);
+  const started = path.join(f.root, "resource-started");
+  const cancelled = path.join(f.root, "resource-cancelled");
+  const exited = path.join(f.root, "resource-exited");
+  const wrapper = path.join(f.root, "resource-pdftotext");
+  await writeFile(wrapper, `#!${process.execPath}
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const promises = require("node:fs/promises");
+const child = spawn("/usr/bin/pdftotext", process.argv.slice(2), {
+  stdio: ["ignore", "inherit", "inherit"],
+});
+child.on("close", code => {
+  if (code !== 0) process.exit(code ?? 1);
+  fs.writeFileSync(${JSON.stringify(started)}, "parsed");
+});
+process.on("SIGTERM", () => {
+  fs.writeFileSync(${JSON.stringify(cancelled)}, "cancelled");
+  promises.readFile(${JSON.stringify(fifo)}).then(() => {
+    fs.writeFileSync(${JSON.stringify(exited)}, "exited");
+    process.exit(0);
+  });
+});
+setInterval(() => {}, 10000);
+`);
+  await chmod(wrapper, 0o755);
+  await set(f.client, application, "repa.materials", "pdfinfo", "/usr/bin/pdfinfo");
+  await set(f.client, application, "repa.materials", "pdftotext", wrapper);
+  const accepted = await f.invoke({
+    target: { kind: "resource", resource: uploaded.resource },
+    range: { kind: "pages", start: 2, end: 2 },
+  });
+  await until(() => existsSync(started), Boolean);
+  await f.client.call("resource.release", {
+    spaceId: f.space.id,
+    id: uploaded.id,
+  });
+  const running = await f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId });
+  assert("input" in running);
+  const part = running.input.parts[0];
+  assert(part?.kind === "data");
+  assert.deepEqual(part.representation.resources, [uploaded.resource]);
+  await f.client.call("resource.collect", { spaceId: f.space.id });
+  assert.deepEqual(Buffer.from(await (await f.client.resource(uploaded.resource)).arrayBuffer()), smallPdf());
+  await f.client.call("request.cancel", {
+    spaceId: f.space.id,
+    requestId: accepted.requestId,
+  });
+  await until(() => existsSync(cancelled), Boolean);
+  assert.equal((await f.client.call("request.get", { spaceId: f.space.id, requestId: accepted.requestId })).status, "cancelling");
+  assert.equal(existsSync(exited), false);
+  await writeFile(fifo, "退出");
+  assert.equal((await f.finished(accepted)).status, "cancelled");
+  assert.equal(existsSync(exited), true);
 });

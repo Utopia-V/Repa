@@ -106,7 +106,7 @@ const instance = await client.call("display.open", {
 
 开始一次依赖既有判断的帮助时，先调用 `attempt.get`，再按返回的 `current` 从 `judgments` 中取得所选判断。`current: null` 表示当前没有采用项；候选的保存次序和 `supersedes` 都不替代这份选择。读取结果是当时的快照，另一个入口更正或撤回采用后，需要新的读取才能取得当前状态。
 
-原材料和判断的 `basis` 保留资源 ID 与定位。Agent 可以通过 `read` 的 `repa:resource/<资源 ID>` 读取同一空间中的固定文本／JSON，公共客户端则用 `client.resource` 读取相应资源。当前同名文件或历史来源说明不会替换这些字节；二进制资源的取得也不等于已经完成图像或 PDF 的语义解释。
+原材料和判断的 `basis` 保留资源 ID 与定位。Agent 可以通过 `read` 的 `repa:resource/<资源 ID>` 读取同一空间中的固定文本／JSON，公共客户端则用 `client.resource` 读取相应资源。需要 PDF 文本层或 HTML 正文时，把同一个 `ResourceRef` 交给[材料资源目标](../../packages/materials/README.md#再次提取固定原件)，可按原版页范围读取，不重新获取来源网址。当前同名文件或历史来源说明不会替换这些字节；取得二进制或提取文本层仍不等于完成图像语义解释。
 
 把作答文档绑定为学习语境时，背景展开的是索引正文，不会自动展开其事实和判断资源。索引更新后，下一次会话 `send` 准备背景时会读取新版本，无需重新绑定；该次 `send` 的内部工具轮沿用入口快照，会话仍保留先前背景和工具读取的历史。`get_learning_attempt` 负责把当前索引解释成事实、全部候选和明确的当前选择，[官方教学方法](../../packages/learning/skills/learn-with-feedback/SKILL.md)据此读取和核对所用依据。采用说明当前选择，不保证参考依据正确，也不把受助回答变成独立表现。
 
