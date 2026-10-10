@@ -1,0 +1,843 @@
+{
+  "projection_version": "1",
+  "scope": "Source applicability and structural aggregation of public research logs; no model, evaluation scheme, student state or learning-effect result.",
+  "source": {
+    "record_url": "https://zenodo.org/records/17551130",
+    "record_doi": "10.5281/zenodo.17551130",
+    "record_version": "v1",
+    "published": "2025-11-07",
+    "license": "CC BY 4.0",
+    "access_right": "open",
+    "archive_bytes": 54628100,
+    "md5": "577d7874155222eef307d582dd0a9aca",
+    "sha256": "5527127f0a3c939601b17ef207ef8b34df7cad9159c9617f879efbf4e989d499",
+    "paper_url": "https://arxiv.org/abs/2511.06362v1",
+    "paper_version": "2511.06362v1",
+    "paper_reported_cohort": {
+      "participants": 34,
+      "meaning": "Author-reported study cohort, not independently reconstructed from raw research IDs or report directory names."
+    },
+    "course_version_scope": "Current author-associated entry only; study commit not specified by paper.",
+    "current_course_commit": "ac1603192c7c01134719dc0b00c91a17249f8db7"
+  },
+  "archive_structure": {
+    "member_count": 1080,
+    "compressed_bytes": 54373642,
+    "expanded_bytes": 1507887364,
+    "max_member_bytes": 258869032,
+    "extensions": {
+      ".pdf": 1,
+      ".html": 1050,
+      ".csv": 4,
+      ".md": 1
+    },
+    "unsafe_paths": 0,
+    "symlinks": 0,
+    "encrypted": 0,
+    "duplicate_paths": 0,
+    "total_expansion_ratio": 27.731954464260458,
+    "max_member_compression_ratio": 71.6781255268739
+  },
+  "report_directories": {
+    "scope": "archive report directories, not independent verification of human participant identities",
+    "html_members": 1050,
+    "path_depth_histogram": {
+      "3": 1050
+    },
+    "report_parent_directories": 22,
+    "reports_per_parent_histogram": {
+      "55": 1,
+      "36": 1,
+      "38": 1,
+      "40": 2,
+      "4": 1,
+      "12": 2,
+      "139": 1,
+      "108": 1,
+      "109": 1,
+      "20": 1,
+      "33": 1,
+      "105": 1,
+      "76": 1,
+      "27": 1,
+      "97": 1,
+      "6": 1,
+      "17": 1,
+      "44": 1,
+      "1": 1,
+      "31": 1
+    },
+    "min_reports_per_parent": 1,
+    "max_reports_per_parent": 139
+  },
+  "html_census": {
+    "reports": 1050,
+    "max_report_bytes": 67485696,
+    "parse_failures": 0,
+    "events": 1060271,
+    "event_types": {
+      "Log": 5275,
+      "Tool Window": 12343,
+      "Activity": 943034,
+      "File Editor": 12258,
+      "Document Change": 87361
+    },
+    "log_descriptions": {
+      "Hint button is clicked": 960,
+      "Code hint requested": 1028,
+      "Code hint generated": 734,
+      "Code banner shown": 735,
+      "Dislike": 119,
+      "Show code hint is clicked": 453,
+      "Code hint is accepted": 300,
+      "Hint banner is closed": 207,
+      "Code hint is cancelled": 18,
+      "Like": 94,
+      "Error banner shown": 266,
+      "Error hint: An unexpected error occurred, please try again.": 265,
+      "Hint retry is clicked": 90,
+      "Error hint: Please check your internet connection and try again!": 1,
+      "Text banner shown": 2,
+      "Text hint generated": 3
+    },
+    "activity_types": {
+      "MouseClicked": 20333,
+      "MouseMoved": 245583,
+      "Action": 44983,
+      "Execution": 1772,
+      "KeyPressed": 144430,
+      "Shortcut": 7646,
+      "KeyReleased": 126297,
+      "MouseWheel": 351990
+    },
+    "field_shapes": {
+      ".timestamp:str": 1060271,
+      ".type:str": 1060271,
+      ".description:str": 1060271,
+      ".details.timestamp:str": 5275,
+      ".details.log_level:str": 5275,
+      ".details.course_id:int": 5275,
+      ".details.lesson_id:int": 5275,
+      ".details.task_id:int": 5275,
+      ".details.action.text:str": 5275,
+      ".details.additional_info:str": 5275,
+      ".details.id:int": 1054996,
+      ".details.action:str": 24601,
+      ".details.active_window:str": 11647,
+      ".details.date:str": 1054996,
+      ".details.research_id.value:int": 1054996,
+      ".details.action_id:NoneType": 890405,
+      ".details.info:str": 943034,
+      ".details.selected_text:NoneType": 900476,
+      ".details.type:str": 943034,
+      ".code_block:str": 131681,
+      ".text_block:str": 737,
+      ".details.action_id:float": 52629,
+      ".details.new_file:NoneType": 5600,
+      ".details.old_file:str": 6626,
+      ".details.new_file:str": 6658,
+      ".details.old_file:NoneType": 5632,
+      ".details.document_hash_code:int": 87361,
+      ".details.file_hash_code:int": 87361,
+      ".details.filename:str": 87361,
+      ".details.fragment.code:str": 87361,
+      ".details.fragment.lines:array": 87361,
+      ".details.fragment.lines[]:str": 5317058,
+      ".details.test_mode:str": 87361,
+      ".details.timestamp:int": 87361,
+      ".details.selected_text.code:str": 42558,
+      ".details.selected_text.lines:array": 42558,
+      ".details.selected_text.lines[]:str": 341722,
+      ".details.active_window:NoneType": 696
+    },
+    "log_field_shapes": {
+      ".timestamp:str": 5275,
+      ".log_level:str": 5275,
+      ".course_id:int": 5275,
+      ".lesson_id:int": 5275,
+      ".task_id:int": 5275,
+      ".action.text:str": 5275,
+      ".additional_info:str": 5275
+    },
+    "missing_top_fields": {},
+    "stable_id_occurrences": {
+      "Tool Window": 12343,
+      "Activity": 943034,
+      "File Editor": 12258,
+      "Document Change": 87361
+    },
+    "stable_id_unique": {
+      "Tool Window": 12338,
+      "Activity": 943024,
+      "File Editor": 12258,
+      "Document Change": 87361
+    },
+    "stable_id_missing": {
+      "Log": 5275
+    },
+    "duplicate_id_payload_conflicts": 0,
+    "reports_with_multiple_tasks": 0,
+    "reports_with_no_task_key": 0,
+    "report_event_count_summary": {
+      "min": 1,
+      "max": 60495,
+      "total": 1060271
+    },
+    "stable_id_duplicate_occurrences": {
+      "Tool Window": 5,
+      "Activity": 10,
+      "File Editor": 0,
+      "Document Change": 0
+    }
+  },
+  "report_boundaries": {
+    "reports": 1050,
+    "parse_failures": 0,
+    "first_event_types": {
+      "Log": 1038,
+      "Tool Window": 5,
+      "Activity": 7
+    },
+    "last_event_types": {
+      "Activity": 674,
+      "Tool Window": 19,
+      "Log": 356,
+      "Document Change": 1
+    },
+    "first_log_descriptions": {
+      "Hint button is clicked": 960,
+      "Hint retry is clicked": 90
+    },
+    "last_log_descriptions": {
+      "Code banner shown": 206,
+      "Dislike": 55,
+      "Code hint is accepted": 300,
+      "Hint banner is closed": 108,
+      "Code hint is cancelled": 18,
+      "Like": 44,
+      "Error hint: An unexpected error occurred, please try again.": 197,
+      "Code hint requested": 25,
+      "Hint button is clicked": 19,
+      "Show code hint is clicked": 75,
+      "Error hint: Please check your internet connection and try again!": 1,
+      "Text banner shown": 2
+    },
+    "report_log_patterns": {
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown": 205,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike": 18,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Code hint is accepted": 241,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike → Dislike → Hint banner is closed": 2,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Code hint is cancelled": 7,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Hint banner is closed": 18,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Like": 37,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Like → Code hint is accepted": 25,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike → Hint banner is closed": 19,
+      "Hint button is clicked → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again.": 150,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again.": 47,
+      "Hint button is clicked → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again. → Dislike": 15,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown": 1,
+      "Hint button is clicked → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again. → Hint banner is closed": 22,
+      "Hint button is clicked → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again. → Dislike → Dislike → Dislike": 1,
+      "Hint button is clicked → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again. → Like → Hint banner is closed": 1,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown → Like → Dislike → Hint banner is closed": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Like → Like → Code hint is accepted": 1,
+      "Hint button is clicked → Code hint requested": 18,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike → Show code hint is clicked → Code hint is accepted": 6,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested": 7,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Like → Show code hint is clicked → Code hint is accepted": 9,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Dislike": 8,
+      "Hint button is clicked": 19,
+      "Hint button is clicked → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again. → Dislike → Hint banner is closed": 8,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Dislike → Hint banner is closed": 12,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike → Show code hint is clicked → Hint banner is closed": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked": 65,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Like → Hint banner is closed → Code hint is accepted": 2,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again. → Hint banner is closed": 11,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again. → Dislike → Hint banner is closed": 2,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Code hint is accepted": 4,
+      "Hint button is clicked → Code hint requested → Error banner shown → Error hint: Please check your internet connection and try again!": 1,
+      "Hint retry is clicked → Hint banner is closed": 2,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown → Like": 1,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Error banner shown → Error hint: An unexpected error occurred, please try again. → Dislike": 8,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked": 5,
+      "Hint button is clicked → Code hint requested → Code hint generated → Text banner shown": 2,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Hint banner is closed → Code hint is cancelled": 5,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Dislike → Code hint is accepted": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Like → Hint banner is closed": 3,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Dislike → Hint banner is closed → Code hint is cancelled": 2,
+      "Hint button is clicked → Code hint requested → Text hint generated → Code banner shown → Show code hint is clicked → Like → Show code hint is clicked → Code hint is accepted": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike → Show code hint is clicked → Code hint is cancelled": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Hint banner is closed": 4,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Like → Show code hint is clicked → Like → Code hint is accepted": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked → Show code hint is clicked → Show code hint is clicked → Show code hint is clicked → Hint banner is closed → Code hint is cancelled": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Like → Hint banner is closed → Code hint is cancelled": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Dislike → Code hint is cancelled": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike → Show code hint is clicked": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Like": 5,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked → Show code hint is clicked → Dislike": 1,
+      "Hint button is clicked → Code hint is accepted": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked → Show code hint is clicked → Code hint is accepted": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked → Code hint is accepted": 4,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Like → Dislike": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike → Like → Show code hint is clicked → Code hint is accepted": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Dislike → Show code hint is clicked → Like → Dislike → Hint banner is closed": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked → Show code hint is clicked": 1,
+      "Hint button is clicked → Code hint requested → Text hint generated → Code banner shown → Show code hint is clicked → Code hint is accepted": 2,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked": 2,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown → Hint banner is closed": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked → Show code hint is clicked → Show code hint is clicked": 1,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Like": 1,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked → Dislike": 1,
+      "Hint button is clicked → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Show code hint is clicked → Dislike": 1,
+      "Hint retry is clicked → Hint banner is closed → Code hint requested → Code hint generated → Code banner shown → Show code hint is clicked → Dislike": 1
+    },
+    "reports_with_no_log": 0,
+    "reports_with_request_count": {
+      "1": 1028,
+      "0": 22
+    },
+    "reports_with_generated_count": {
+      "1": 737,
+      "0": 313
+    },
+    "time_status": {
+      "monotonic_aware": 1050
+    },
+    "reports_multiple_task_keys": 0,
+    "reports_missing_task_key": 0,
+    "test_mode_values": {
+      "on": 87361
+    },
+    "additional_info_literal_markers": {
+      "Failed test info:": 927,
+      "TestFailureContext": 588,
+      "Code hint:": 734
+    },
+    "max_report_bytes": 67485696
+  },
+  "saved_generated_windows": {
+    "definition": "Start immediately after the generated record; end at the next Code hint requested in the same saved report, or at that report end if none. The report itself is a truncated scenario, not proof of a complete interval through the next real request.",
+    "windows": 737,
+    "ending_at_report_end": 737,
+    "ending_at_observed_next_request": 0,
+    "windows_with_document_changes": 463,
+    "windows_with_execution": 449,
+    "document_changes_in_saved_windows": 57083,
+    "executions_in_saved_windows": 1175,
+    "interpretation": "Recorded code changes and execution actions only; no comparator, verified test outcome or learning-effect interpretation."
+  },
+  "independent_html_additions": {
+    "nonlog_missing_identity": 0,
+    "log_unexpected_details": 0,
+    "reports_with_multiple_document_filenames": 106,
+    "log_code_block": {
+      "Code hint requested": 1028,
+      "Code hint generated": 734
+    },
+    "log_text_block": {
+      "Code hint generated": 734,
+      "Text hint generated": 3
+    }
+  },
+  "raw_tables": {
+    "activitydata.csv": {
+      "rows": 1436108,
+      "headers": [
+        "id",
+        "research_id",
+        "date",
+        "type",
+        "info",
+        "selected_text",
+        "action_id"
+      ],
+      "distinct_nonempty_research_ids": 151,
+      "empty_fields": {
+        "id": 0,
+        "research_id": 0,
+        "date": 0,
+        "type": 0,
+        "info": 0,
+        "selected_text": 1358287,
+        "action_id": 1364360
+      },
+      "max_field_characters": {
+        "id": 7,
+        "research_id": 3,
+        "date": 32,
+        "type": 12,
+        "info": 3849,
+        "selected_text": 6607,
+        "action_id": 4
+      },
+      "anomalies": {},
+      "expanded_bytes_read": 113760792
+    },
+    "documentdata.csv": {
+      "rows": 119214,
+      "headers": [
+        "id",
+        "research_id",
+        "date",
+        "timestamp",
+        "filename",
+        "file_hash_code",
+        "document_hash_code",
+        "fragment",
+        "test_mode"
+      ],
+      "distinct_nonempty_research_ids": 152,
+      "empty_fields": {
+        "id": 0,
+        "research_id": 0,
+        "date": 0,
+        "timestamp": 0,
+        "filename": 0,
+        "file_hash_code": 0,
+        "document_hash_code": 0,
+        "fragment": 3,
+        "test_mode": 0
+      },
+      "max_field_characters": {
+        "id": 6,
+        "research_id": 3,
+        "date": 32,
+        "timestamp": 6,
+        "filename": 100,
+        "file_hash_code": 6,
+        "document_hash_code": 10,
+        "fragment": 6841,
+        "test_mode": 2
+      },
+      "anomalies": {},
+      "expanded_bytes_read": 258869032
+    },
+    "fileeditordata.csv": {
+      "rows": 17048,
+      "headers": [
+        "id",
+        "research_id",
+        "date",
+        "action",
+        "old_file",
+        "new_file"
+      ],
+      "distinct_nonempty_research_ids": 97,
+      "empty_fields": {
+        "id": 0,
+        "research_id": 0,
+        "date": 0,
+        "action": 0,
+        "old_file": 7909,
+        "new_file": 7881
+      },
+      "max_field_characters": {
+        "id": 5,
+        "research_id": 3,
+        "date": 32,
+        "action": 5,
+        "old_file": 37,
+        "new_file": 37
+      },
+      "anomalies": {},
+      "expanded_bytes_read": 1000223
+    },
+    "toolwindowdata.csv": {
+      "rows": 17802,
+      "headers": [
+        "id",
+        "research_id",
+        "date",
+        "action",
+        "active_window"
+      ],
+      "distinct_nonempty_research_ids": 151,
+      "empty_fields": {
+        "id": 0,
+        "research_id": 0,
+        "date": 0,
+        "action": 0,
+        "active_window": 924
+      },
+      "max_field_characters": {
+        "id": 5,
+        "research_id": 3,
+        "date": 32,
+        "action": 7,
+        "active_window": 24
+      },
+      "anomalies": {},
+      "expanded_bytes_read": 1033833
+    }
+  },
+  "raw_research_id_sets": {
+    "union": 156,
+    "intersection_all_tables": 93,
+    "pairwise": [
+      {
+        "left": "activitydata.csv",
+        "right": "documentdata.csv",
+        "intersection": 147,
+        "left_only": 4,
+        "right_only": 5,
+        "equal_sets": false
+      },
+      {
+        "left": "activitydata.csv",
+        "right": "fileeditordata.csv",
+        "intersection": 97,
+        "left_only": 54,
+        "right_only": 0,
+        "equal_sets": false
+      },
+      {
+        "left": "activitydata.csv",
+        "right": "toolwindowdata.csv",
+        "intersection": 151,
+        "left_only": 0,
+        "right_only": 0,
+        "equal_sets": true
+      },
+      {
+        "left": "documentdata.csv",
+        "right": "fileeditordata.csv",
+        "intersection": 93,
+        "left_only": 59,
+        "right_only": 4,
+        "equal_sets": false
+      },
+      {
+        "left": "documentdata.csv",
+        "right": "toolwindowdata.csv",
+        "intersection": 147,
+        "left_only": 5,
+        "right_only": 4,
+        "equal_sets": false
+      },
+      {
+        "left": "fileeditordata.csv",
+        "right": "toolwindowdata.csv",
+        "intersection": 97,
+        "left_only": 0,
+        "right_only": 54,
+        "equal_sets": false
+      }
+    ]
+  },
+  "directory_suffix_vs_raw_id": {
+    "html_members": 1050,
+    "parent_directories": 22,
+    "parent_name_format": "user_<decimal>",
+    "literal_suffixes_present_in_raw_union": 0,
+    "literal_suffixes_absent_from_raw_union": 22,
+    "raw_union_ids_without_report_suffix": 156,
+    "sample_parent_mappings_checked": 2,
+    "sample_parent_suffix_matches_actual_nonlog_ids": 0,
+    "mapping_scope": "全目录只核名称后缀与raw集合的字面关系；具体字段映射只验证两个已存HTML，不外推其余报告。"
+  },
+  "identity_interpretation": "156 is the union count of raw research IDs, not a verified number of people. 22 report directory suffixes do not equal raw research IDs. Neither count replaces the paper cohort of 34. No absent directory is interpreted as absence of help.",
+  "two_preselected_sample_join": {
+    "scope": "two preselected report samples against raw CSV; exact fields only, no outcome/learning inference",
+    "sample_event_occurrences": 3095,
+    "events_outside_join": {
+      "Log": 9
+    },
+    "raw_rows_scanned": {
+      "activitydata.csv": 1436108,
+      "documentdata.csv": 119214,
+      "fileeditordata.csv": 17048,
+      "toolwindowdata.csv": 17802
+    },
+    "raw_headers": {
+      "activitydata.csv": [
+        "id",
+        "research_id",
+        "date",
+        "type",
+        "info",
+        "selected_text",
+        "action_id"
+      ],
+      "documentdata.csv": [
+        "id",
+        "research_id",
+        "date",
+        "timestamp",
+        "filename",
+        "file_hash_code",
+        "document_hash_code",
+        "fragment",
+        "test_mode"
+      ],
+      "fileeditordata.csv": [
+        "id",
+        "research_id",
+        "date",
+        "action",
+        "old_file",
+        "new_file"
+      ],
+      "toolwindowdata.csv": [
+        "id",
+        "research_id",
+        "date",
+        "action",
+        "active_window"
+      ]
+    },
+    "categories": {
+      "Activity": {
+        "counts": {
+          "requested_unique_keys": 2753,
+          "requested_report_occurrences": 2753,
+          "unique_raw_keys_found": 2753,
+          "date_lexical_difference": 2753,
+          "fully_matching_report_occurrences": 2753,
+          "integer_valued_action_id_float": 163,
+          "selected_text_code_wrapper": 153
+        },
+        "field_comparisons": {
+          "id": 2753,
+          "research_id": 2753,
+          "date": 2753,
+          "type": 2753,
+          "info": 2753,
+          "selected_text": 2753,
+          "action_id": 2753
+        },
+        "field_mismatches": {}
+      },
+      "Document Change": {
+        "counts": {
+          "requested_unique_keys": 219,
+          "requested_report_occurrences": 219,
+          "unique_raw_keys_found": 219,
+          "date_lexical_difference": 219,
+          "fully_matching_report_occurrences": 219
+        },
+        "field_comparisons": {
+          "id": 219,
+          "research_id": 219,
+          "date": 219,
+          "timestamp": 219,
+          "filename": 219,
+          "file_hash_code": 219,
+          "document_hash_code": 219,
+          "fragment": 219,
+          "test_mode": 219,
+          "code_block_vs_fragment_code": 219
+        },
+        "field_mismatches": {}
+      },
+      "File Editor": {
+        "counts": {
+          "requested_unique_keys": 54,
+          "requested_report_occurrences": 54,
+          "unique_raw_keys_found": 54,
+          "date_lexical_difference": 54,
+          "fully_matching_report_occurrences": 54
+        },
+        "field_comparisons": {
+          "id": 54,
+          "research_id": 54,
+          "date": 54,
+          "action": 54,
+          "old_file": 54,
+          "new_file": 54
+        },
+        "field_mismatches": {}
+      },
+      "Tool Window": {
+        "counts": {
+          "requested_unique_keys": 60,
+          "requested_report_occurrences": 60,
+          "unique_raw_keys_found": 60,
+          "date_lexical_difference": 60,
+          "fully_matching_report_occurrences": 60
+        },
+        "field_comparisons": {
+          "id": 60,
+          "research_id": 60,
+          "date": 60,
+          "action": 60,
+          "active_window": 60
+        },
+        "field_mismatches": {}
+      }
+    },
+    "private_diagnostic_entries": 0,
+    "normalizations": {
+      "research_id": "HTML value wrapper compared with raw decimal id",
+      "date": "ISO8601 to UTC instant; original lexical differences counted",
+      "fragment": "HTML details.fragment.code compared with raw fragment; derived lines excluded",
+      "null": "HTML null compared with raw empty field",
+      "selected_text": "nonempty HTML selected_text.code compared with raw selected_text; derived lines excluded",
+      "action_id": "finite integer-valued HTML float compared exactly with Decimal(raw); no floating tolerance",
+      "date_guard": "both raw and HTML dates must include explicit offsets",
+      "document_code_block": "checked separately against fragment.code"
+    }
+  },
+  "independent_sample_join": {
+    "sample_event_occurrences": 3095,
+    "outside_join": {
+      "Log": 9
+    },
+    "nonlog_occurrences": 3086,
+    "categories": {
+      "Activity": {
+        "counts": {
+          "requested_keys": 2753,
+          "requested_occurrences": 2753,
+          "unique_raw_keys_found": 2753,
+          "date_lexical_differences": 2753,
+          "explicit_null_to_empty": 5190,
+          "complete_matching_occurrences": 2753,
+          "integer_valued_action_id_floats": 163,
+          "selected_text_code_wrappers": 153
+        },
+        "field_comparisons": {
+          "id": 2753,
+          "research_id": 2753,
+          "date": 2753,
+          "type": 2753,
+          "info": 2753,
+          "selected_text": 2753,
+          "action_id": 2753,
+          "outer_timestamp_same_instant": 2753
+        },
+        "field_mismatches": {}
+      },
+      "Document Change": {
+        "counts": {
+          "requested_keys": 219,
+          "requested_occurrences": 219,
+          "unique_raw_keys_found": 219,
+          "date_lexical_differences": 219,
+          "fragment_code_wrappers": 219,
+          "complete_matching_occurrences": 219
+        },
+        "field_comparisons": {
+          "id": 219,
+          "research_id": 219,
+          "date": 219,
+          "timestamp": 219,
+          "filename": 219,
+          "file_hash_code": 219,
+          "document_hash_code": 219,
+          "fragment": 219,
+          "test_mode": 219,
+          "outer_timestamp_same_instant": 219,
+          "code_block_matches_fragment": 219
+        },
+        "field_mismatches": {}
+      },
+      "File Editor": {
+        "counts": {
+          "requested_keys": 54,
+          "requested_occurrences": 54,
+          "unique_raw_keys_found": 54,
+          "date_lexical_differences": 54,
+          "explicit_null_to_empty": 52,
+          "complete_matching_occurrences": 54
+        },
+        "field_comparisons": {
+          "id": 54,
+          "research_id": 54,
+          "date": 54,
+          "action": 54,
+          "old_file": 54,
+          "new_file": 54,
+          "outer_timestamp_same_instant": 54
+        },
+        "field_mismatches": {}
+      },
+      "Tool Window": {
+        "counts": {
+          "requested_keys": 60,
+          "requested_occurrences": 60,
+          "unique_raw_keys_found": 60,
+          "date_lexical_differences": 60,
+          "complete_matching_occurrences": 60,
+          "explicit_null_to_empty": 3
+        },
+        "field_comparisons": {
+          "id": 60,
+          "research_id": 60,
+          "date": 60,
+          "action": 60,
+          "active_window": 60,
+          "outer_timestamp_same_instant": 60
+        },
+        "field_mismatches": {}
+      }
+    },
+    "private_diagnostic_entries": 0,
+    "normalizations": [
+      "research_id.value容器",
+      "date保留显式offset并比较UTC瞬时",
+      "fragment/selected_text.code容器",
+      "有限整数action_id float与Decimal(raw)精确比",
+      "明确存在的null仅对应raw空串",
+      "其他primitive仅精确str比；缺字段及未知容器拒绝"
+    ]
+  },
+  "sample_join_scope": {
+    "reports": 2,
+    "report_parent_directories": 1,
+    "distinct_actual_research_ids": 1,
+    "fully_matching_nonlog_occurrences": 3086,
+    "scope": "Two reports from one parent directory and one actual research ID, not two participants or a cross-directory verification. sample_parent_mappings_checked=2 in the source counts reports, not distinct parents."
+  },
+  "independent_verification": {
+    "html_reconciliation": {
+      "status": "passed",
+      "source": "independent-pass-result-v1.json",
+      "note": "v1 automatic comparator compared missing_top_fields total integer 0 with census empty per-field map {}; they both indicate no missing field. Original v1 retained, no HTML reread.",
+      "normalized_comparisons": 39,
+      "all_match": true,
+      "html_passes": 1,
+      "html_bytes": 1133152416
+    },
+    "raw_audit_scope": "完整raw四表身份／字段聚合与两份固定HTML的非Log逐字段关联；非学习效果或真人身份认证。",
+    "boundary_private_recount": {
+      "generated_windows": 737,
+      "at_report_end": 737,
+      "at_next_request": 0
+    }
+  },
+  "interpretation_limits": [
+    "All 5275 Log records lack a stable event ID; no deduplication from identical text or timestamps.",
+    "Generated and banner-shown labels do not prove the user opened or saw suggested code; Show code hint is clicked is counted separately.",
+    "All HTML timestamps were aware and nondecreasing within each saved report; this does not establish completeness across reports.",
+    "The single task key per report describes Log keys, not the task ownership of all document/file events.",
+    "Execution, test_mode=on, hint acceptance and likes are not verified test pass/fail or learning success.",
+    "Raw CSVs omit hints; exact HTML-to-raw field matching was checked for two preselected reports, not all reports.",
+    "The archive has no separate task statement/test-source version artifact. Arbitrary text fields were not promoted to a complete task or outcome schema."
+  ],
+  "omitted_private_material": "All individual research/event/task IDs, member paths, event times, code, hint advice and individual outcomes; elapsed times and operational logs are also omitted.",
+  "artifact_hashes": {
+    "html_census": "d26282ee192153f842cccdc1c824b3777c5ad601c96116f91f38d0a5e5309cd8",
+    "html_boundaries": "74a18ddc22cc451373ef8129941766bf87d599031156e90d6362f5fd8d206cca",
+    "archive_manifest": "0c95b55dc4fb18913bc35aa7f9d49557ac27b174c652c0145cbcc8410c65abd5",
+    "report_directories": "a190bac80ac54fb81114a92da2295f121884d7618ae84874856f628cf90858d4",
+    "sample_join": "42b2cd24a2e5315bcfe2514df0bee527fd5909f686c04bdcd4105470bf1dbfab",
+    "independent_raw": "48c4af89b47fe9173a62446001422fcded0ef311e823797423cb996ce12bde56",
+    "independent_html": "d8f21de2cc301cf343a3fce7c2bf84bf72d1b6b590b4ff420839a28316a496ea",
+    "html_reconciliation": "a07bcb202b4667cfa425efe9bf2d3a1c3ce950fb7850be8a35347f836926e578",
+    "paper_sources": "c06365d2770093e463de03e155e96f457c98c5d2026f50329fc945720aa389ce",
+    "independent_raw_review": "b6628777e58bf896a770e22f6f92137b00a86c19561c123531ed979079897a5d",
+    "boundary_locations_private": "6b38aa1902ae92690b2fd3eec4ec810b79e72b4e9dd10e07711efba79d6633e8",
+    "export": "9a5285a8e03b94fdddb4bc56dbf67000694259068d0f3efde821af791cb83be7",
+    "html_census_code": "e2174584d1ee5bba2015f4d73b94f69c7a5da48643b8fba298301fff4a93e887",
+    "html_boundary_code": "c1251f6b515bc9a19cddc858577214a6db2e24509710cd42f4bc97b9a3aa8316",
+    "sample_join_code": "794dc9a2795e20188761b9a2756ea6b9def0458dbb4f8043240c3ea08b882d59",
+    "independent_raw_code": "3ca7e15867e9f5c684afee2fd6027820ee92082ebf454c90ebb0ee0998ccb18c",
+    "independent_html_code": "d5997c55d39590205b22a2a7c312cbd5324e85889e321719efdc94d4466af882",
+    "paper-2511.06362v1.pdf": "6a70fc3777af53d5babc8b69d7617f3247f58fed6a032b7d70fc6f88b3f39ade",
+    "paper-2511.06362v1.txt": "b4c40439182dbdc302745a1572c459687ad0ddb40cd71e2ee07cb3678abcfaf2",
+    "paper-course-marketplace-21067.json": "8f9200da0a59682d02d8cfb21d9b25341fa15769d11f08dfc6d2701e5d810b81",
+    "paper-course-current-head.json": "2fded33ec60da3b5c5908c43118d2007be867ea604eb13ff933c85a501ad1bac",
+    "paper-course-readme-metadata.json": "cd55a0bae44fdd9654539d6ad4da26a9de6eb0d29cea68eb6207a186fdfa9ba7",
+    "paper-course-readme.md": "007ded2f349ee6ee3d11ee77cff02faa81c0be8fb2fed1c8460fad067a0c937d"
+  }
+}
