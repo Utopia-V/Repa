@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { createAssistantMessageEventStream, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, type TranscriptContext } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getInitialSystemMessage, resolveTranscriptTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
@@ -171,6 +171,12 @@ test("view 按变化追加、批量清理和过期清理，提示覆盖仅追加
   const f = await fixture(t);
   f.respond();
   await f.send();
+  const first = f.captures[0];
+  assert(first);
+  const initial = getInitialSystemMessage(first.messages);
+  assert(initial);
+  assert.equal(first.messages[0]?.role, "system");
+  assert(initial.toolsAdded?.some(tool => tool.name === "probe_write"));
   f.respond();
   await f.send();
   assert.equal((await f.history()).filter(entry => entry.type === "view").length, 1);
@@ -205,6 +211,20 @@ test("view 按变化追加、批量清理和过期清理，提示覆盖仅追加
   const systemPatches = current.messages.filter(message => message.role === "system");
   assert.equal(Object.keys(systemPatches.at(-1)?.sections ?? {}).length, 1);
   assert((await f.history()).some(entry => entry.usage?.cacheRead === 120 && entry.usage.cacheWrite === 30));
+  // 过期同时改变 view 时，新版排队也必须使这次请求只保留一份当前状态。
+  await setView("课程状态戊");
+  f.advance();
+  f.respond();
+  await f.send();
+  const changedAfterExpiry = f.captures.at(-1);
+  assert(changedAfterExpiry);
+  assert.equal(viewTexts(changedAfterExpiry).length, 1);
+  assert.match(viewTexts(changedAfterExpiry)[0] ?? "", /课程状态戊/u);
+  for (const capture of f.captures) {
+    assert.equal(capture.messages[0]?.role, "system");
+    assert.deepEqual(getInitialSystemMessage(capture.messages), initial);
+    assert.deepEqual(resolveTranscriptTools(capture.messages, true), { requestTools: initial.toolsAdded, anchorsAdditions: true });
+  }
 });
 
 test("命令确认经协议答复后执行，拒绝时不落文件", { timeout: 30000 }, async (t) => {

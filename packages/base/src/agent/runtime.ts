@@ -363,11 +363,17 @@ class Session implements AgentSession {
         const shortTtl = this.session.model?.promptCache?.short;
         const ttl = runtime.options.cacheTtlMs ?? (shortTtl === undefined ? undefined : shortTtl * 1000);
         const cacheExpired = ttl !== undefined && this.lastRequestAt !== undefined && this.now() - this.lastRequestAt >= ttl;
-        this.cleanViews(cacheExpired);
-        for (const view of changedViews(this.manager, this.currentViews)) {
-          await this.session.sendCustomMessage(viewMessage(view), { triggerTurn: false });
+        const updates = changedViews(this.manager, this.currentViews);
+        const retainedIds = new Set(this.currentViews.map(view => view.id));
+        // 缓存过期时，新版即将进入请求；先清除这些来源的全部旧版，其余来源保留最新版本。
+        if (cacheExpired) {
+          for (const view of updates) retainedIds.delete(view.id);
         }
-        this.cleanViews(cacheExpired);
+        this.cleanViews(cacheExpired, retainedIds);
+        for (const view of updates) {
+          // Pi 在本钩子之后先写入 system，再写入 user 与 nextTurn 消息，保持首项的提示和工具声明。
+          await this.session.sendCustomMessage(viewMessage(view), { deliverAs: "nextTurn", triggerTurn: false });
+        }
       });
       pi.on("agent_before_settle", () => ({ entries: staleViewEdits(this.manager, new Set(this.currentViews.map(view => view.id)), runtime.options.viewBatchSize ?? 3) }));
       pi.on("session_before_compact", event => {
@@ -443,8 +449,8 @@ class Session implements AgentSession {
     });
   }
 
-  cleanViews(force: boolean): void {
-    const edits = staleViewEdits(this.manager, new Set(this.currentViews.map(view => view.id)), this.space.runtime.options.viewBatchSize ?? 3, force);
+  cleanViews(force: boolean, currentIds = new Set(this.currentViews.map(view => view.id))): void {
+    const edits = staleViewEdits(this.manager, currentIds, this.space.runtime.options.viewBatchSize ?? 3, force);
     for (const edit of edits) this.manager.appendContextEdit(edit.targetId, edit.replacement);
     if (edits.length > 0) this.session.refreshContext();
   }

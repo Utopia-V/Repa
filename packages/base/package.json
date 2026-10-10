@@ -31,11 +31,13 @@
   "scripts": {
     "prebuild": "npm run build --workspace=@repa/space-history",
     "build": "tsc -p tsconfig.build.json",
-    "precheck": "npm run build --workspace=@repa/space-history",
+    "precheck": "npm run build",
     "check": "tsc --noEmit",
     "pretest": "npm run build --workspace=@repa/space-history",
     "test": "node --import tsx --test test/*.test.ts",
-    "start": "tsx src/cli.ts"
+    "start": "tsx src/cli.ts",
+    "prereal-model-check": "npm run build",
+    "real-model-check": "tsx scripts/real-model-check.ts"
   },
   "engines": {
     "node": ">=22.22.2"

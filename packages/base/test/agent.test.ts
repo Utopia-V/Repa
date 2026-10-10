@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, type TranscriptContext } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, getInitialSystemMessage, resolveTranscriptTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { cacheStatusForTest, createAgentRuntimeForTest } from "../src/agent/runtime.js";
@@ -34,6 +34,53 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}) {
   });
   return { root, agentDir, sessionsDir, faux, models, runtime, settings, space, session, events };
 }
+
+test("多份 view 首轮在 system 之后进入请求，默认批清后保留原始提示和初始工具声明", async t => {
+  let version = 1;
+  const f = await fixture(t, {
+    instructions: () => [{ id: "plugin:test", text: "稳定的插件说明" }],
+    views: async () => [
+      { id: "plugin:changing", text: `状态版本 ${version}` },
+      { id: "plugin:stable", text: "不变的状态" },
+    ],
+    tools: () => [{ name: "test_state", description: "读取测试状态", parameters: Type.Object({}), execute: async () => ({ text: "状态" }) }],
+  });
+  const captures: TranscriptContext[] = [];
+  for (let request = 1; request <= 5; request++) {
+    version = Math.min(request, 4);
+    f.faux.setResponses([context => {
+      captures.push(structuredClone(context));
+      return fauxAssistantMessage("回答");
+    }]);
+    await f.session.send("继续");
+  }
+  const first = captures[0];
+  assert(first);
+  const initial = getInitialSystemMessage(first.messages);
+  assert(initial);
+  assert.equal(first.messages[0]?.role, "system");
+  assert.equal(first.messages[1]?.role, "user");
+  assert.match(getCurrentSystemPrompt(first.messages), /稳定的插件说明/u);
+  assert(initial.toolsAdded?.some(tool => tool.name === "test_state"));
+  assert.deepEqual(initial.toolsAdded, getCurrentTools(first.messages));
+  const views = (context: TranscriptContext) => context.messages.filter(message => JSON.stringify(message.content).includes("<repa-view"));
+  assert.equal(views(first).length, 2);
+  const beforeCleanup = captures[3];
+  const afterCleanup = captures[4];
+  assert(beforeCleanup);
+  assert(afterCleanup);
+  assert.equal(views(beforeCleanup).length, 5);
+  assert.equal(views(afterCleanup).length, 2);
+  assert.equal(f.session.history().filter(entry => entry.type === "contextEdit").length, 3);
+  assert(!JSON.stringify(views(afterCleanup)).includes("状态版本 1"));
+  assert.match(JSON.stringify(views(afterCleanup)), /状态版本 4/u);
+  for (const capture of captures) {
+    assert.equal(capture.messages[0]?.role, "system");
+    assert.deepEqual(getInitialSystemMessage(capture.messages), initial);
+    assert.equal(getCurrentSystemPrompt(capture.messages), getCurrentSystemPrompt(first.messages));
+    assert.deepEqual(resolveTranscriptTools(capture.messages, true), { requestTools: initial.toolsAdded, anchorsAdditions: true });
+  }
+});
 
 test("真实 SDK 压缩保留会话摘要并补回一份当前视图", async t => {
   const f = await fixture(t);
