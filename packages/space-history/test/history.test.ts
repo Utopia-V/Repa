@@ -174,6 +174,37 @@ test("运行前的外部编辑与运行写入分属两个版本，空运行仍�
   assert.deepEqual(emptyChanges.revisions[0]?.source, { kind: "agent", runId: "empty-run" });
 });
 
+test("同一运行可以多次提交；父运行不一致、以自身为父或成环时拒绝，且不执行动作", async (t) => {
+  const f = await fixture(t);
+  const history = await openHistory(f.space);
+  const baseline = await firstRevision(history);
+  const lead = { kind: "agent", runId: "lead" } as const;
+  const helper = { kind: "agent", runId: "helper", parentRunId: "lead" } as const;
+  const grand = { kind: "agent", runId: "grand", parentRunId: "ghost" } as const;
+  await history.record(lead, () => f.write("one.txt", "一\n"));
+  await history.record(lead, () => f.write("two.txt", "二\n"));
+  await history.record(helper, () => f.write("helper.txt", "子运行\n"));
+  await f.write("grand.txt", "父运行还没有提交\n");
+  await history.snapshot(grand);
+  let actions = 0;
+  const action = async () => {
+    actions += 1;
+  };
+  for (const source of [
+    { kind: "agent", runId: "lead", parentRunId: "other" },
+    { kind: "agent", runId: "helper" },
+    { kind: "agent", runId: "self", parentRunId: "self" },
+    { kind: "agent", runId: "ghost", parentRunId: "grand" },
+  ] as const) {
+    await assert.rejects(history.record(source, action));
+  }
+  await assert.rejects(history.snapshot({ kind: "agent", runId: "helper", parentRunId: "other" }));
+  assert.deepEqual((await history.changesSince(baseline.id)).revisions.map(({ source }) => source), [lead, lead, helper, grand]);
+  const reopened = await openHistory(f.space);
+  await assert.rejects(reopened.record({ kind: "agent", runId: "lead", parentRunId: "helper" }, action));
+  assert.equal(actions, 0);
+});
+
 test("插件操作写入插件来源，失败运行仍保存已落盘内容并传播原异常", async (t) => {
   const f = await fixture(t);
   const history = await openHistory(f.space);

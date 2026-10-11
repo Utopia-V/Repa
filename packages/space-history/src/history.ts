@@ -55,6 +55,8 @@ export class SpaceHistory {
   private readonly maxFileBytes: number;
   private tail: Promise<unknown> = Promise.resolve();
   private head: string | null = null;
+  // 运行到父运行的映射，第一次需要时从全部提交来源建立，之后随提交补充。
+  private runs: Map<string, string | null> | null = null;
   private pendingSource: Source | null = null;
   private readonly listeners = new Set<(revision: string) => void | Promise<void>>();
 
@@ -97,7 +99,7 @@ export class SpaceHistory {
             throw new Error("历史引用在保存失败后被其他写入者修改");
           }
           // update-ref 可能已经成功更新引用，随后才报告 I/O 错误。
-          this.advance(actual);
+          this.advance(actual, this.pendingSource);
         } else {
           await this.capture(this.pendingSource);
         }
@@ -249,12 +251,32 @@ export class SpaceHistory {
     return entries;
   }
 
+  // 同一运行可以多次提交，但各次的父运行必须一致，运行树也不能成环。
   private async checkRun(source: Source): Promise<void> {
-    if (source.kind !== "agent" || !this.head) return;
-    const revisions = await this.readLog([REF]);
-    if (revisions.some(({ source: previous }) => previous.kind === "agent" && previous.runId === source.runId)) {
-      throw new Error(`run 已有历史提交：${source.runId}`);
+    if (source.kind !== "agent") return;
+    const { runId, parentRunId = null } = source;
+    if (parentRunId === runId) throw new Error(`运行不能以自身为父运行：${runId}`);
+    const runs = await this.runIndex();
+    if (runs.has(runId)) {
+      if (runs.get(runId) !== parentRunId) throw new Error(`运行的父运行与已有提交不一致：${runId}`);
+      return;
     }
+    const seen = new Set<string>();
+    for (let current = parentRunId; current !== null && !seen.has(current); current = runs.get(current) ?? null) {
+      if (current === runId) throw new Error(`父运行不能是这个运行的子孙：${runId}`);
+      seen.add(current);
+    }
+  }
+
+  private async runIndex(): Promise<Map<string, string | null>> {
+    if (!this.runs) {
+      const runs = new Map<string, string | null>();
+      for (const { source } of this.head ? await this.readLog(["--reverse", REF]) : []) {
+        if (source.kind === "agent" && !runs.has(source.runId)) runs.set(source.runId, source.parentRunId ?? null);
+      }
+      this.runs = runs;
+    }
+    return this.runs;
   }
 
   // 只检查祖先目录，既不进入嵌套仓库，也不沿符号链接写到空间之外。
@@ -343,13 +365,16 @@ export class SpaceHistory {
     if (this.head) args.push("-p", this.head);
     const revision = (await this.git.run(args, JSON.stringify(source) + "\n")).toString().trim();
     await this.git.run(["update-ref", REF, revision, this.head ?? ZERO]);
-    this.advance(revision);
+    this.advance(revision, source);
     return { revision, committed: true, skipped };
   }
 
-  private advance(revision: string): void {
+  private advance(revision: string, source: Source): void {
     this.head = revision;
     this.pendingSource = null;
+    if (source.kind === "agent" && this.runs && !this.runs.has(source.runId)) {
+      this.runs.set(source.runId, source.parentRunId ?? null);
+    }
     for (const listener of this.listeners) {
       try {
         Promise.resolve(listener(revision)).catch((error: unknown) => { process.emitWarning(String(error)); });
