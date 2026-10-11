@@ -177,7 +177,7 @@ export function createNotesPlugin(childPlugin: Plugin = notebook): Plugin {
             id: "notes-organizer",
             description: "阅读 notes/ 中的笔记并给出整理建议",
             instructions: () => "你阅读 notes/ 中的笔记，给出整理建议。你只能读取和查找空间内的文件，不修改它们。",
-            tools: ["read", "ls", "find", "grep"],
+            tools: ["read", "ls", "find"],
           }],
           view: () => opened.view?.() ?? Promise.resolve(undefined),
           onChange: (revision) => opened.onChange?.(revision) ?? Promise.resolve(),

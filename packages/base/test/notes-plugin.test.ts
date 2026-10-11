@@ -67,7 +67,7 @@ test("示例父插件保存状态并实际调用离线模型的三种接口", as
   assert.deepEqual(await host.call("notes", "organize", {}), { id: work.id });
   assert.match((await work.requested).text, /notes\//);
   assert.equal((await work.requested).agent, "notes-organizer");
-  assert.deepEqual(host.agents().map((agent) => [agent.id, agent.tools]), [["notes-organizer", ["read", "ls", "find", "grep"]]]);
+  assert.deepEqual(host.agents().map((agent) => [agent.id, agent.tools]), [["notes-organizer", ["read", "ls", "find"]]]);
   assert.deepEqual(models.calls.map((call) => call.kind), ["complete", "structured", "agent"]);
   work.finish();
   await host.close();

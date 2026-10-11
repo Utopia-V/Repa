@@ -31,7 +31,7 @@ export interface AgentTask {
   agent?: string;
 }
 
-/** Agent 定义可以选用的 Pi 内置工具。 */
+/** 底座提供的 Pi 内置工具。通用 Agent 全部都有；插件 Agent 不能选 grep，见 AgentDefinition.tools。 */
 export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 /** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent。 */
@@ -57,8 +57,9 @@ export interface AgentDefinition {
   /** 职责说明，作为提示段 agent:<id>。 */
   instructions(): string;
   /**
-   * 可用工具的名称：BUILTIN_TOOLS 中的内置工具与任一插件的工具。
-   * 内置文件工具限在空间内且不进 .repa/；bash 仍按命令策略确认。
+   * 可用工具的名称：BUILTIN_TOOLS 中除 grep 外的内置工具与任一插件的工具。
+   * 内置文件工具限在空间内且不进 .repa/；bash 仍按命令策略确认。列了 grep 时插件打开失败，
+   * 需要搜索内容的插件提供自己的工具。
    */
   tools: string[];
   /** 可以启动的子 Agent；启动时子 Agent 的工具不能超过本 Agent。 */

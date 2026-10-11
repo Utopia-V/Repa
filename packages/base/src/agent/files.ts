@@ -1,27 +1,27 @@
-import { constants } from "node:fs";
-import { access, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { constants, type Dirent } from "node:fs";
+import { access, glob, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
 import {
   createFindToolDefinition,
-  createGrepToolDefinition,
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
   defineTool,
   detectSupportedImageMimeTypeFromFile,
   DEFAULT_MAX_BYTES,
-  formatSize,
-  truncateHead,
-  truncateLine,
-  type GrepToolDetails,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { RepaFault } from "../schema.js";
 import { existingPath, within } from "../space/paths.js";
 import { exactEditTool } from "./edit.js";
-import { GREP_THREAD, inDataDir, type GrepJob, type GrepOutcome } from "./search.js";
+
+/** 空间根目录下第一层的 .repa；不区分大小写，大小写不敏感的文件系统上 .REPA 就是同一个目录。 */
+function inDataDir(root: string, file: string): boolean {
+  const relative = path.relative(root, file);
+  if (relative === "" || path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) return false;
+  const [first] = relative.split(path.sep);
+  return first?.toLowerCase() === ".repa";
+}
 
 /**
  * 文件工具的路径边界：空间根目录内，不含 .repa/。那里是历史库、会话和插件数据，
@@ -53,7 +53,7 @@ export class FileScope {
     return file === this.realRoot;
   }
 
-  /** 交给搜索线程的根目录，搜索线程据此排除 .repa/。 */
+  /** 解析符号链接后的空间根目录，查找结果据此排除 .repa/。 */
   get resolvedRoot(): string {
     return this.realRoot;
   }
@@ -64,15 +64,17 @@ export function generalFileTools(scope: FileScope): ToolDefinition[] {
   return [writeTool(scope), editTool(scope)];
 }
 
-/** 插件 Agent 的内置文件工具，只生成定义中列出的那些；读写、列目录和搜索都不出 scope。 */
-export function spaceFileTools(scope: FileScope, names: readonly string[], options: { grepTimeoutMs?: number } = {}): ToolDefinition[] {
+/**
+ * 插件 Agent 的内置文件工具，只生成定义中列出的那些；读写、列目录和查找都不出 scope。
+ * 没有 grep：Pi 的 grep 把模型给的 glob 原样交给 ripgrep，会越过 .repa/.ignore，插件宿主在打开时就拒绝它。
+ */
+export function spaceFileTools(scope: FileScope, names: readonly string[]): ToolDefinition[] {
   const factories: Record<string, () => ToolDefinition> = {
     read: () => readTool(scope),
     write: () => writeTool(scope),
     edit: () => editTool(scope),
     ls: () => lsTool(scope),
     find: () => findTool(scope),
-    grep: () => grepTool(scope, options.grepTimeoutMs ?? GREP_TIMEOUT_MS),
   };
   return names.flatMap(name => {
     const factory = factories[name];
@@ -138,101 +140,71 @@ function lsTool(scope: FileScope): ToolDefinition {
   }));
 }
 
-// 空间宿主在 .repa/ 里放了内容为 * 的 .ignore，fd 从空间根目录查找时不会进去。这里只检查起点，
-// 并把它换成检查过的绝对路径交给 Pi，Pi 不再另行解析 ~ 之类的写法。
+// 与 Pi 的 find 默认上限一致。
+const FIND_LIMIT = 1000;
+
+/**
+ * 插件 Agent 的 find 沿用 Pi 的工具定义，查找本身注入 Node 内置的 fs.glob，学习者的电脑不必下载 fd。
+ * 写法沿用 Pi 调用 fd 时的约定：不含 / 的 pattern 匹配任意一层的名字，含 / 的从任意一层开始匹配路径。
+ * 和 fd 的差别：不读 .gitignore；以点开头的名字只有 pattern 写出这个点时才匹配；不列出符号链接。
+ */
 function findTool(scope: FileScope): ToolDefinition {
-  const builtin = createFindToolDefinition(scope.root);
+  const builtin = createFindToolDefinition(scope.root, {
+    operations: {
+      // 搜索起点先经过范围检查；空间外和 .repa/ 的起点在这里报错。
+      exists: file => exists(scope, file),
+      glob: (pattern, directory, options) => findFiles(scope, pattern, directory, options.limit),
+    },
+  });
   return defineTool({
     ...builtin,
-    async execute(callId, input, signal, onUpdate, ctx) {
-      const target = await scope.resolve(input.path ?? ".");
-      return builtin.execute(callId, { ...input, path: target }, signal, onUpdate, ctx);
-    },
+    description: `按 glob pattern 在当前空间里查找文件，返回相对搜索目录的路径。不含 / 的 pattern 匹配任意一层的名字，例如 *.md；含 / 的从任意一层开始匹配路径，例如 lessons/*.md。不读 .gitignore，不进入 .repa、.git、node_modules，不列出符号链接；以点开头的名字只有 pattern 写出这个点时才匹配。默认最多返回 ${FIND_LIMIT} 个结果，输出最多 ${DEFAULT_MAX_BYTES / 1024}KB。`,
   });
 }
 
-const GREP_LIMIT = 100;
-const GREP_TIMEOUT_MS = 20_000;
-// 源码经 tsx 运行时本模块后缀为 .ts，构建后为 .js；搜索线程入口与本模块同目录、同后缀。
-const GREP_WORKER = new URL(`./search${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url);
-
-/** 在独立线程中搜索：模型给出的正则即使回溯失控，也只占用这个线程，超时或取消时终止它。 */
-function runGrep(job: GrepJob, timeoutMs: number, signal: AbortSignal | undefined): Promise<GrepOutcome> {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(GREP_WORKER, { workerData: { [GREP_THREAD]: job } });
-    let settled = false;
-    const finish = (outcome: { value: GrepOutcome } | { error: Error }) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-      // 等线程实际停止再交回结果，工具结束后不留下仍在运行的搜索。
-      worker.terminate().catch(() => undefined).finally(() => {
-        if ("value" in outcome) resolve(outcome.value);
-        else reject(outcome.error);
-      });
-    };
-    const timer = setTimeout(() => {
-      finish({ error: new Error(`搜索超过 ${timeoutMs / 1000} 秒仍未完成，已经停止；可以缩小搜索范围或换用更简单的 pattern`) });
-    }, timeoutMs);
-    const abort = () => finish({ error: new Error("Operation aborted") });
-    signal?.addEventListener("abort", abort, { once: true });
-    // 搜索线程只回传 GrepOutcome，由同一进程的 search.ts 构造。
-    worker.once("message", (value: GrepOutcome) => finish({ value }));
-    worker.once("error", error => finish({ error }));
-    worker.once("exit", code => finish({ error: new Error(`搜索线程意外退出（${code}）`) }));
-  });
+/** 把模型给的 pattern 换成相对搜索目录、从任意一层开始匹配的写法；不能用 .. 或绝对路径离开搜索目录。 */
+function searchPattern(pattern: string, directory: string): string {
+  const relative = pattern.replace(/^(\.\/)+/u, "");
+  if (path.isAbsolute(relative)) {
+    // 绝对路径的 pattern 按 fd 的习惯只匹配这个位置，换成相对搜索目录的写法后不再加 **/。
+    const inside = path.relative(directory, relative);
+    if (inside === "" || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
+      throw new Error(`pattern 只能匹配搜索目录之内的路径：${pattern}`);
+    }
+    return inside.split(path.sep).join("/");
+  }
+  if (relative.split("/").includes("..")) throw new Error(`pattern 不能用 .. 离开搜索目录：${pattern}`);
+  return relative === "**" || relative.startsWith("**/") ? relative : `**/${relative}`;
 }
 
-// Pi 的 grep 直接对搜索路径启动 ripgrep，operations 只能检查起点；从空间根目录搜索时仍会进入 .repa/，
-// 所以插件 Agent 的 grep 沿用 Pi 的参数与输出格式，在独立线程中遍历空间。
-function grepTool(scope: FileScope, timeoutMs: number): ToolDefinition {
-  const builtin = createGrepToolDefinition(scope.root);
-  return defineTool({
-    ...builtin,
-    description: `在当前空间的文件中搜索内容，返回匹配行的路径和行号。pattern 按 JavaScript 正则表达式解释，literal 为 true 时按原文匹配。不进入 .repa、.git、node_modules，不跟随符号链接，跳过二进制文件和超过 10MB 的文件。最多返回 ${GREP_LIMIT} 个匹配或 ${DEFAULT_MAX_BYTES / 1024}KB，超过 ${timeoutMs / 1000} 秒停止。`,
-    async execute(_callId, input, signal) {
-      signal?.throwIfAborted();
-      const target = await scope.resolve(input.path ?? ".");
-      const limit = Math.max(1, input.limit ?? GREP_LIMIT);
-      const source = input.literal ? input.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : input.pattern;
-      const flags = input.ignoreCase ? "i" : "";
-      // 先在主线程编译一次，pattern 有语法错误时直接作为工具错误返回。
-      new RegExp(source, flags);
-      const outcome = await runGrep({
-        root: scope.resolvedRoot,
-        target,
-        directory: (await stat(target)).isDirectory(),
-        source,
-        flags,
-        ...(input.glob === undefined ? {} : { glob: input.glob }),
-        limit,
-        context: input.context !== undefined && input.context > 0 ? input.context : 0,
-      }, timeoutMs, signal);
-      if (outcome.matches === 0) return { content: [{ type: "text" as const, text: "No matches found" }], details: undefined };
-      let linesTruncated = false;
-      const output = outcome.lines.map(line => {
-        const shown = truncateLine(line.text);
-        if (shown.wasTruncated) linesTruncated = true;
-        return line.match ? `${line.file}:${line.line}: ${shown.text}` : `${line.file}-${line.line}- ${shown.text}`;
-      });
-      const truncation = truncateHead(output.join("\n"), { maxLines: Number.MAX_SAFE_INTEGER });
-      const details: GrepToolDetails = {};
-      const notices: string[] = [];
-      if (outcome.matches >= limit) {
-        notices.push(`已达到 ${limit} 个匹配的上限，可用 limit=${limit * 2} 或更具体的 pattern 继续`);
-        details.matchLimitReached = limit;
-      }
-      if (truncation.truncated) {
-        notices.push(`已达到 ${formatSize(DEFAULT_MAX_BYTES)} 输出上限`);
-        details.truncation = truncation;
-      }
-      if (linesTruncated) {
-        notices.push("部分长行已截断，可用 read 查看全文");
-        details.linesTruncated = true;
-      }
-      const text = notices.length > 0 ? `${truncation.content}\n\n[${notices.join("；")}]` : truncation.content;
-      return { content: [{ type: "text" as const, text }], details: Object.keys(details).length > 0 ? details : undefined };
-    },
-  });
+/** 搜索目录以下的 .git、node_modules，以及空间根目录下第一层的 .repa。 */
+function hidden(root: string, directory: string, file: string): boolean {
+  const below = path.relative(directory, file).split(path.sep);
+  return inDataDir(root, file) || below.some(part => part === ".git" || part === "node_modules");
+}
+
+/**
+ * fs.glob 只在展开 ** 时经过 exclude；字面写出的目录不经过它，例如 .repa/*、经符号链接的 linked/*。
+ * 所以 exclude 只用来少走弯路，每个结果还要再查一遍：不是符号链接，所在目录经解析后仍是原路径，不在排除的目录里。
+ */
+async function findFiles(scope: FileScope, pattern: string, input: string, limit: number): Promise<string[]> {
+  const directory = await scope.resolve(input);
+  const root = scope.resolvedRoot;
+  const parents = new Map<string, boolean>();
+  const excluded = (entry: Dirent) => entry.isSymbolicLink() || hidden(root, directory, path.join(entry.parentPath, entry.name));
+  const results: string[] = [];
+  for await (const entry of glob(searchPattern(pattern, directory), { cwd: directory, withFileTypes: true, exclude: excluded })) {
+    const file = path.join(entry.parentPath, entry.name);
+    if (file === directory || excluded(entry)) continue;
+    let reachable = parents.get(entry.parentPath);
+    if (reachable === undefined) {
+      // 所在目录经解析后变了，说明中途经过了符号链接，可能已经离开空间。
+      reachable = within(directory, entry.parentPath) && await realpath(entry.parentPath) === entry.parentPath;
+      parents.set(entry.parentPath, reachable);
+    }
+    if (!reachable) continue;
+    results.push(path.relative(directory, file).split(path.sep).join("/"));
+    if (results.length >= limit) break;
+  }
+  return results.sort();
 }

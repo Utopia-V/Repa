@@ -549,10 +549,11 @@ test("插件声明的 Agent 按 id 排序交给宿主，view 在宿主关闭后�
   await assert.rejects(async () => checker?.view?.(), fault("plugins_closed"));
 });
 
-test("Agent 定义引用不存在的工具或子 Agent、子 Agent 工具超过父 Agent、重名或使用 general 时打开失败，并清理已打开实例", async (t) => {
+test("Agent 定义引用不存在的工具或子 Agent、列了 grep、子 Agent 工具超过父 Agent、重名或使用 general 时打开失败，并清理已打开实例", async (t) => {
   const space = await failureSpace(t);
   const cases: [string, Plugin["open"]][] = [
     ["unknown_agent_tool", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: ["read", "missing_tool"] }] })],
+    ["agent_tool_unavailable", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: ["read", "grep"] }] })],
     ["unknown_subagent", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [], subagents: ["missing"] }] })],
     ["subagent_exceeds_parent", async () => ({
       agents: () => [
@@ -588,6 +589,15 @@ test("Agent 定义引用不存在的工具或子 Agent、子 Agent 工具超过�
   }), (error: unknown) => {
     assert.ok(error instanceof Error && "details" in error);
     assert.deepEqual(error.details, { agent: "tutor", subagent: "writer", tools: ["write"] });
+    return true;
+  });
+  await assert.rejects(openPluginHost({
+    space, models: noModels, emit() {}, onError() {},
+    plugins: [{ id: "declaring", open: async () => ({ agents: () => [{ id: "searcher", instructions: () => "", tools: ["read", "grep"] }] }) }],
+  }), (error: unknown) => {
+    assert.ok(error instanceof Error && "details" in error);
+    assert.deepEqual(error.details, { agent: "searcher", tool: "grep" });
+    assert.match(error.message, /插件 Agent 不提供 grep/u);
     return true;
   });
   const duplicate: Plugin = { id: "copy", open: async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [] }] }) };

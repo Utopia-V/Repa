@@ -36,7 +36,6 @@ export interface AgentTestOptions extends AgentRuntimeOptions {
   cacheTtlMs?: number;
   extensionFactories?: ExtensionFactory[];
   toolNames?: string[];
-  grepTimeoutMs?: number;
 }
 
 export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<AgentRuntime> {
@@ -351,7 +350,8 @@ class Space implements AgentSpace {
     return {
       id,
       general: false,
-      builtins: BUILTIN_TOOLS.filter(name => names.has(name)),
+      // 插件宿主在打开时已经拒绝列了 grep 的定义；这里也不把 Pi 的 grep 交给插件 Agent，它会越过 .repa/.ignore。
+      builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep"),
       tools: this.options.tools().filter(tool => names.has(tool.name)),
       subagents: [...new Set(definition.subagents ?? [])],
       sections: () => [{ id: `agent:${id}`, text: definition.instructions() }],
@@ -602,7 +602,7 @@ class Session implements AgentSession {
     const model = runtime.model(reference ?? (saved ? { provider: saved.provider, id: saved.modelId } : undefined));
     // 工具清单在创建时固定；插件 Agent 的内置文件工具换成限在空间内、不进 .repa/ 的实现。
     const scope = await this.space.fileScope();
-    const fileTools = profile.general ? generalFileTools(scope) : spaceFileTools(scope, profile.builtins, { grepTimeoutMs: runtime.options.grepTimeoutMs });
+    const fileTools = profile.general ? generalFileTools(scope) : spaceFileTools(scope, profile.builtins);
     const result = await createAgentSession({
       cwd: options.root,
       agentDir: runtime.options.agentDir,
