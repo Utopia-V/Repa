@@ -13,9 +13,13 @@ import {
 
 const REF = "refs/heads/history";
 const ZERO = "0".repeat(40);
+const NAME = "Repa";
+const EMAIL = "history@repa.local";
 // 只在宿主调用维护时检查对象布局，不让快照遍历全部历史。
 const MAINTENANCE_LOOSE_OBJECTS = 1024;
 const MAINTENANCE_PACKS = 32;
+// 每次 ls-files 最多带这么多路径，避免大范围撤回超出命令行长度上限。
+const PATHSPEC_BATCH = 256;
 type Entry = { mode: string; oid: string };
 type File = Entry & { data: Buffer };
 // previous 是各路径在这次提交之前的条目；按运行撤回由此得到第一次修改前的内容。
@@ -25,7 +29,8 @@ async function stat(file: string) {
   try {
     return await lstat(file);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    // 某一级上级不是目录时，这个路径同样不存在。
+    if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return null;
     throw error;
   }
 }
@@ -52,14 +57,51 @@ function checkedRevision(revision: string): string {
   return revision;
 }
 
+function checkedPaths(input: unknown): string[] {
+  if (!Array.isArray(input) || input.length === 0) throw new Error("路径列表不能为空");
+  const items: unknown[] = input;
+  const result = new Set<string>();
+  for (const file of items) {
+    if (typeof file !== "string" || file.includes("\0")
+      || file.split("/").some((part) => part === "" || part === "." || part === "..")) {
+      throw new Error(`无效的空间路径：${String(file)}`);
+    }
+    result.add(file);
+  }
+  return [...result].sort();
+}
+
+// a/b/c 的上级是 a 与 a/b。
+function parents(file: string): string[] {
+  const parts = file.split("/");
+  return parts.slice(1).map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
+// 历史条目等于某个根、位于某个根之下，或是某个给定路径的上级时，属于本次范围。
+function covered(file: string, roots: Set<string>, above: Set<string>): boolean {
+  if (roots.has(file) || above.has(file)) return true;
+  for (let index = file.indexOf("/"); index >= 0; index = file.indexOf("/", index + 1)) {
+    if (roots.has(file.slice(0, index))) return true;
+  }
+  return false;
+}
+
+// fast-import 的引号路径只需转义反斜杠、双引号和换行，其余字节原样保留。
+function quoted(file: string): string {
+  return `"${file.replace(/[\\"\n]/g, (character) => (character === "\n" ? "\\n" : `\\${character}`))}"`;
+}
+
 export class SpaceHistory {
   private readonly git: Git;
   private readonly maxFileBytes: number;
   private tail: Promise<unknown> = Promise.resolve();
   private head: string | null = null;
+  // head 的完整树，随提交更新，按路径提交时就地修改；按路径记账只比较给定范围，不必每次重新列出整棵树。null 表示需要重新读取。
+  private headTree: Map<string, Entry> | null = null;
   // 运行到父运行的映射，第一次需要时从全部提交来源建立，之后随提交补充。
   private runs: Map<string, string | null> | null = null;
-  private pendingSource: Source | null = null;
+  // scope 为 null 表示整个空间；保存失败后按同一来源和范围补完。
+  private pending: { source: Source; scope: string[] | null } | null = null;
   private readonly listeners = new Set<(revision: string) => void | Promise<void>>();
 
   private constructor(readonly space: string, options: HistoryOptions) {
@@ -79,8 +121,8 @@ export class SpaceHistory {
     if (!(await stat(path.join(gitDir, "config")))) {
       await history.git.run(["init", "--bare", "--object-format=sha1", "--initial-branch=history", gitDir]);
     }
-    await history.git.run(["config", "--local", "user.name", "Repa"]);
-    await history.git.run(["config", "--local", "user.email", "history@repa.local"]);
+    await history.git.run(["config", "--local", "user.name", NAME]);
+    await history.git.run(["config", "--local", "user.email", EMAIL]);
     try {
       history.head = (await history.git.run(["rev-parse", "--verify", "--quiet", REF])).toString().trim();
     } catch (error) {
@@ -92,18 +134,21 @@ export class SpaceHistory {
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.tail.then(async () => {
-      if (this.pendingSource) {
-        // 保存失败后先补完原来源，不能让排队的 watcher 把它重新归为 external。
+      if (this.pending) {
+        // 保存失败后先按原范围补完原来源，不能让排队的 watcher 把它重新归为 external。
+        const { source, scope } = this.pending;
         const actual = (await this.git.run(["rev-parse", "--verify", REF])).toString().trim();
         if (actual !== this.head) {
           const [saved] = await this.readLog(["-1", REF]);
-          if (saved?.parent !== this.head || JSON.stringify(saved.source) !== JSON.stringify(this.pendingSource)) {
+          if (saved?.parent !== this.head || JSON.stringify(saved.source) !== JSON.stringify(source)) {
             throw new Error("历史引用在保存失败后被其他写入者修改");
           }
-          // update-ref 可能已经成功更新引用，随后才报告 I/O 错误。
-          this.advance(actual, this.pendingSource);
+          // 引用可能已经更新成功，随后才报告 I/O 错误。
+          this.advance(actual, source, null);
+        } else if (scope) {
+          await this.captureScoped(source, scope);
         } else {
-          await this.capture(this.pendingSource);
+          await this.capture(source);
         }
       }
       return operation();
@@ -158,23 +203,39 @@ export class SpaceHistory {
     return this.serial(async () => {
       await this.checkRun(captured);
       await this.capture({ kind: "external" });
-      return this.captureAfter(captured, action);
+      return this.captureAfter(captured, action, null);
     });
   }
 
-  private async captureAfter<T>(source: Source, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }> {
+  recordPaths<T>(source: ActivitySource, paths: string[], action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }> {
+    if (!Check(ActivitySourceSchema, source)) throw new Error("无效的活动来源");
+    const captured = { ...source };
+    const scope = checkedPaths(paths);
+    return this.serial(async () => {
+      await this.checkRun(captured);
+      await this.captureScoped({ kind: "external" }, scope);
+      return this.captureAfter(captured, action, scope);
+    });
+  }
+
+  private async captureAfter<T>(
+    source: Source,
+    action: () => Promise<T>,
+    scope: string[] | null,
+  ): Promise<{ value: T; snapshot: Snapshot }> {
+    const save = () => (scope ? this.captureScoped(source, scope) : this.capture(source));
     let value: T;
     try {
       value = await action();
     } catch (error) {
       try {
-        await this.capture(source);
+        await save();
       } catch (snapshotError) {
         throw new AggregateError([error, snapshotError], "活动与历史保存都失败了");
       }
       throw error;
     }
-    return { value, snapshot: await this.capture(source) };
+    return { value, snapshot: await save() };
   }
 
   list(limit = 100): Promise<Revision[]> {
@@ -268,6 +329,11 @@ export class SpaceHistory {
     return entries;
   }
 
+  private async headEntries(): Promise<Map<string, Entry>> {
+    this.headTree ??= await this.tree(this.head);
+    return this.headTree;
+  }
+
   // 同一运行可以多次提交，但各次的父运行必须一致，运行树也不能成环。
   private async checkRun(source: Source): Promise<void> {
     if (source.kind !== "agent") return;
@@ -328,38 +394,48 @@ export class SpaceHistory {
     return { data, mode, oid };
   }
 
+  // 逐个读取 ls-files 列出的候选；越界、过大和特殊文件计入 skipped，其余连同原始字节交给调用方。
+  private async *candidates(
+    files: string[],
+    skipped: Snapshot["skipped"],
+    boundaries: Map<string, boolean>,
+  ): AsyncGenerator<[string, File]> {
+    for (const file of files) {
+      if (file.endsWith("/") || await this.boundary(file, boundaries)) {
+        skipped.push({ path: file, reason: "repository" });
+        continue;
+      }
+      const info = await stat(path.join(this.space, file));
+      if (!info) continue;
+      if (info.size > this.maxFileBytes) {
+        skipped.push({ path: file, reason: "large" });
+        continue;
+      }
+      const content = await this.read(file);
+      if (!content) {
+        skipped.push({ path: file, reason: "special" });
+        continue;
+      }
+      if (content.data.length > this.maxFileBytes) {
+        skipped.push({ path: file, reason: "large" });
+        continue;
+      }
+      yield [file, content];
+    }
+  }
+
   private async capture(source: Source): Promise<Snapshot> {
-    this.pendingSource = source;
-    const previous = await this.tree(this.head);
+    this.pending = { source, scope: null };
+    const previous = await this.headEntries();
     await this.git.run(["read-tree", "--empty"]);
-    const candidates = nul(await this.git.run([
+    const listed = nul(await this.git.run([
       "ls-files", "--others", "--exclude-standard", "-z", "--exclude=/.repa/", "--exclude=.git",
     ]));
     const entries = new Map<string, Entry>();
     const skipped: Snapshot["skipped"] = [];
-    const boundaries = new Map<string, boolean>();
-    const history = this;
+    const files = this.candidates(listed, skipped, new Map());
     async function* blobs(): AsyncGenerator<Buffer | string> {
-      for (const file of candidates) {
-        if (file.endsWith("/") || await history.boundary(file, boundaries)) {
-          skipped.push({ path: file, reason: "repository" });
-          continue;
-        }
-        const info = await stat(path.join(history.space, file));
-        if (!info) continue;
-        if (info.size > history.maxFileBytes) {
-          skipped.push({ path: file, reason: "large" });
-          continue;
-        }
-        const content = await history.read(file);
-        if (!content) {
-          skipped.push({ path: file, reason: "special" });
-          continue;
-        }
-        if (content.data.length > history.maxFileBytes) {
-          skipped.push({ path: file, reason: "large" });
-          continue;
-        }
+      for await (const [file, content] of files) {
         entries.set(file, { mode: content.mode, oid: content.oid });
         if (!same(content, previous.get(file))) {
           yield `blob\ndata ${content.data.length}\n`;
@@ -375,20 +451,85 @@ export class SpaceHistory {
     const tree = (await this.git.run(["write-tree"])).toString().trim();
     const unchanged = entries.size === previous.size && [...entries].every(([file, entry]) => same(entry, previous.get(file)));
     if (this.head && unchanged && source.kind !== "agent" && source.kind !== "undo") {
-      this.pendingSource = null;
+      this.pending = null;
       return { revision: this.head, committed: false, skipped };
     }
     const args = ["commit-tree", tree];
     if (this.head) args.push("-p", this.head);
     const revision = (await this.git.run(args, JSON.stringify(source) + "\n")).toString().trim();
     await this.git.run(["update-ref", REF, revision, this.head ?? ZERO]);
-    this.advance(revision, source);
+    this.advance(revision, source, entries);
     return { revision, committed: true, skipped };
   }
 
-  private advance(revision: string, source: Source): void {
+  // 只让给定范围与磁盘一致：路径本身、其下全部内容，以及历史中作为文件出现的上级。范围外的条目保持原样。
+  private async captureScoped(source: Source, scope: string[]): Promise<Snapshot> {
+    this.pending = { source, scope };
+    const head = this.head;
+    if (!head) throw new Error("历史尚未初始化");
+    const previous = await this.headEntries();
+    const roots = new Set(scope);
+    const above = new Set(scope.flatMap(parents));
+    const boundaries = new Map<string, boolean>();
+    const skipped: Snapshot["skipped"] = [];
+    const specs = new Set<string>();
+    for (const file of scope) {
+      if (!(await this.boundary(file, boundaries))) {
+        specs.add(file);
+      } else if (await stat(path.join(this.space, file))) {
+        skipped.push({ path: file, reason: "repository" });
+      }
+    }
+    for (const directory of above) {
+      const info = await stat(path.join(this.space, directory));
+      if (!info || info.isDirectory()) continue;
+      // 上级在磁盘上已不是目录，下面不可能还有内容；这一层以下的历史条目都按范围处理。
+      roots.add(directory);
+      if (!(await this.boundary(directory, boundaries))) specs.add(directory);
+    }
+    const listed = new Set<string>();
+    const batches = [...specs];
+    for (let index = 0; index < batches.length; index += PATHSPEC_BATCH) {
+      const output = await this.git.run([
+        "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--exclude=/.repa/", "--exclude=.git",
+        "--", ...batches.slice(index, index + PATHSPEC_BATCH),
+      ], undefined, { emptyIndex: true });
+      for (const file of nul(output)) listed.add(file);
+    }
+    const found = new Map<string, File>();
+    for await (const [file, content] of this.candidates([...listed], skipped, boundaries)) found.set(file, content);
+    const removed = [...previous.keys()].filter((file) => !found.has(file) && covered(file, roots, above));
+    const changed = [...found].filter(([file, content]) => !same(content, previous.get(file)));
+    if (removed.length === 0 && changed.length === 0 && source.kind !== "undo") {
+      this.pending = null;
+      return { revision: head, committed: false, skipped };
+    }
+    const message = JSON.stringify(source) + "\n";
+    async function* commands(): AsyncGenerator<Buffer | string> {
+      yield `commit ${REF}\nmark :1\ncommitter ${NAME} <${EMAIL}> now\ndata ${Buffer.byteLength(message)}\n${message}from ${head}\n`;
+      // 先删后写：文件与目录互换时，树中不会同时出现同名文件和目录。
+      for (const file of removed) yield `D ${quoted(file)}\n`;
+      for (const [file, content] of changed) {
+        yield `M ${content.mode} inline ${quoted(file)}\ndata ${content.data.length}\n`;
+        yield content.data;
+        yield "\n";
+      }
+      yield "get-mark :1\ndone\n";
+    }
+    // fast-import 在 head 之上直接生成树和提交；引用若已被移到不是新提交祖先的位置，它拒绝更新并报错。
+    const revision = checkedRevision((await this.git.run(
+      ["fast-import", "--quiet", "--done", "--date-format=now"], commands(),
+    )).toString().trim());
+    for (const file of removed) previous.delete(file);
+    for (const [file, content] of changed) previous.set(file, { mode: content.mode, oid: content.oid });
+    this.advance(revision, source, previous);
+    return { revision, committed: true, skipped };
+  }
+
+  private advance(revision: string, source: Source, tree: Map<string, Entry> | null): void {
     this.head = revision;
-    this.pendingSource = null;
+    this.headTree = tree;
+    this.pending = null;
     if (source.kind === "agent" && this.runs && !this.runs.has(source.runId)) {
       this.runs.set(source.runId, source.parentRunId ?? null);
     }
@@ -442,7 +583,8 @@ export class SpaceHistory {
   // revisions 从第一个目标提交开始按时间排列。每个路径恢复到目标提交第一次修改它之前的内容。
   private async revert(source: Source, revisions: Revision[], targets: Set<string>): Promise<UndoResult> {
     const diffs = await this.diffs(revisions);
-    const after = await this.tree(this.head);
+    // 复制当前树：随后的 undo 提交会就地更新缓存。
+    const after = new Map(await this.headEntries());
     const first = new Map<string, number>();
     const before = new Map<string, Entry>();
     const groups: string[][] = [];
@@ -507,6 +649,7 @@ export class SpaceHistory {
       const entry = before.get(file);
       return entry ? [entry.oid] : [];
     }));
+    // undo 提交只记录本次恢复的路径，同一时刻的其他改动留给之后的快照。
     const { snapshot: result } = await this.captureAfter(source, async () => {
       // 先移除运行新增的叶子，再恢复旧叶子，文件与目录互换也遵循这个次序。
       const ordered = [...restored.filter((file) => removals.has(file)), ...restored.filter((file) => before.has(file))];
@@ -552,7 +695,7 @@ export class SpaceHistory {
           }
         }
       }
-    });
+    }, restored);
     return { revision: result.revision, restored, conflicts: [...conflicts] };
   }
 

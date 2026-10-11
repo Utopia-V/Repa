@@ -24,9 +24,9 @@ async function fixture(t: TestContext, files: Record<string, string>) {
   };
   for (const [relative, value] of Object.entries(files)) await write(relative, value);
   const history = await openHistory(space);
-  // 每次写入单独记录一次。
+  // 每次写入只记这个文件，与底座按写入点记账的用法相同。
   const save = (source: ActivitySource, relative: string, value: string) =>
-    history.record(source, () => write(relative, value));
+    history.recordPaths(source, [relative], () => write(relative, value));
   const read = (relative: string) => readFile(file(relative), "utf8");
   return { space, file, write, history, save, read };
 }
@@ -115,6 +115,25 @@ test("第一次修改之后被其他来源碰过的文件报冲突且不还原�
   assert.equal(await f.read("dir"), "目录换成文件\n");
   assert.equal(await f.read("c.md"), "c 原文\n");
   assert.equal(await f.read("d.md"), "d 外部先改\n");
+});
+
+test("按运行撤回同时覆盖 record 与按路径提交，结果还能按修订撤回以重做", async (t) => {
+  const f = await fixture(t, { "draft.md": "初稿\n" });
+  const run = { kind: "agent", runId: "mixed" } as const;
+  await f.save(run, "draft.md", "按路径修改\n");
+  await f.history.record(run, async () => {
+    await execute("sh", ["-c", 'printf "命令生成\\n" > generated.txt'], { cwd: f.space });
+  });
+  await f.history.record(run, async () => {});
+  const undone = await f.history.undoRun("mixed");
+  assert.deepEqual(undone.conflicts, []);
+  assert.deepEqual(undone.restored, ["draft.md", "generated.txt"]);
+  assert.equal(await f.read("draft.md"), "初稿\n");
+  await assert.rejects(f.read("generated.txt"), { code: "ENOENT" });
+  const redone = await f.history.undo(undone.revision);
+  assert.deepEqual(redone.conflicts, []);
+  assert.equal(await f.read("draft.md"), "按路径修改\n");
+  assert.equal(await f.read("generated.txt"), "命令生成\n");
 });
 
 test("只作为父运行出现的运行可以撤回它的子运行；历史中没有的运行报错且不写入提交", async (t) => {

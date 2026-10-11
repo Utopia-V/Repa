@@ -19,7 +19,8 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-async function fixture(t: TestContext, failure: "before" | "after") {
+// command 是要注入失败的 Git 子命令：整空间快照用 update-ref 更新引用，按路径提交由 fast-import 更新引用。
+async function fixture(t: TestContext, failure: "before" | "after", command = "update-ref") {
   const root = await mkdtemp(join(tmpdir(), "repa-history-recovery-"));
   t.after(async () => {
     await rm(root, { recursive: true, force: true });
@@ -31,7 +32,7 @@ async function fixture(t: TestContext, failure: "before" | "after") {
   // 只在显式设置标记后注入一次错误，其余命令与恢复均使用真实 Git。
   await writeFile(wrapper, `#!/bin/sh
 for argument in "$@"; do
-  if [ "$argument" = update-ref ] && [ -f ${shellQuote(flag)} ]; then
+  if [ "$argument" = ${command} ] && [ -f ${shellQuote(flag)} ]; then
     mv ${shellQuote(flag)} ${shellQuote(`${flag}.consumed`)} || exit 2
     ${failure === "after" ? 'git "$@" || exit $?\n    ' : ""}printf 'injected update-ref failure\\n' >&2
     exit 1
@@ -104,4 +105,31 @@ test("引用实际更新后报告失败，后续操作认领原提交而不重�
   assert.deepEqual(notifications, [feed.revision]);
   const reopened = await openHistory(f.space);
   assert.deepEqual(await reopened.changesSince(f.baseline.id), feed);
+});
+
+test("按路径提交失败后，后续操作先按原范围补完原来源，范围外的同期改动仍记为外部", async (t) => {
+  for (const failure of ["before", "after"] as const) {
+    await t.test(failure === "before" ? "引用更新前失败" : "引用更新后才报告失败", async (context) => {
+      const f = await fixture(context, failure, "fast-import");
+      let actions = 0;
+      const source = { kind: "agent", runId: `scoped-${failure}`, parentRunId: "lead" } as const;
+      await assert.rejects(f.history.recordPaths(source, ["agent.txt"], async () => {
+        actions += 1;
+        await writeFile(join(f.space, "agent.txt"), "按路径写入的内容\r\n");
+        await writeFile(join(f.space, "outside.txt"), "范围外的同期写入\n");
+        await writeFile(f.flag, "");
+      }), isInjectedFailure);
+      const snapshot = await f.history.snapshot();
+      const feed = await f.history.changesSince(f.baseline.id);
+      assert.equal(actions, 1);
+      assert.deepEqual(feed.revisions.map(({ source: saved, changes }) => ({ source: saved, changes })), [
+        { source, changes: [{ kind: "added", path: "agent.txt" }] },
+        { source: { kind: "external" }, changes: [{ kind: "added", path: "outside.txt" }] },
+      ]);
+      assert.equal(snapshot.revision, feed.revision);
+      assert.equal(await readFile(join(f.space, "agent.txt"), "utf8"), "按路径写入的内容\r\n");
+      const reopened = await openHistory(f.space);
+      assert.deepEqual(await reopened.changesSince(f.baseline.id), feed);
+    });
+  }
 });

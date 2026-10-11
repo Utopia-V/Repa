@@ -70,8 +70,8 @@ test("旧格式历史照常读取、按修订和按运行撤回，旧运行还�
 
   const reused = { kind: "agent", runId: "old-empty" } as const;
   const child = { kind: "agent", runId: "new-child", parentRunId: "old-empty" } as const;
-  await history.record(reused, () => f.write("notes/keep.txt", "沿用旧运行\n"));
-  await history.record(child, () => f.write("progress.json", "{\"step\":2}\n"));
+  await history.recordPaths(reused, ["notes/keep.txt"], () => f.write("notes/keep.txt", "沿用旧运行\n"));
+  await history.recordPaths(child, ["progress.json"], () => f.write("progress.json", "{\"step\":2}\n"));
   const extended = await history.undoRun("old-empty");
   assert.deepEqual(extended.conflicts, []);
   assert.deepEqual(extended.restored, ["notes/keep.txt", "progress.json"]);
