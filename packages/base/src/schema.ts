@@ -44,6 +44,17 @@ export const AgentInfoSchema = object({
   direct: Type.Boolean(),
 });
 export type AgentInfo = Static<typeof AgentInfoSchema>;
+// 插件对一条用户消息的判断。拒收时 reason 供前端分支处理，message 向用户说明原因。
+export const MessageDecisionSchema = Type.Union([
+  object({ status: Type.Literal("accepted") }),
+  object({
+    status: Type.Literal("rejected"),
+    reason: identifier,
+    message: Type.String({ minLength: 1 }),
+    data: Type.Optional(Type.Unknown()),
+  }),
+]);
+export type MessageDecision = Static<typeof MessageDecisionSchema>;
 export const SessionEntrySchema = object({
   id: identifier,
   type: Type.Union([

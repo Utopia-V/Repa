@@ -1,8 +1,8 @@
 import type { Static, TSchema } from "typebox";
 import type { ActivitySource, ChangeFeed, Revision, Snapshot } from "@repa/space-history";
-import type { ModelRef } from "./schema.js";
+import type { MessageDecision, ModelRef } from "./schema.js";
 
-export type { ModelRef } from "./schema.js";
+export type { MessageDecision, ModelRef } from "./schema.js";
 export type { ActivitySource, ChangeFeed, Revision } from "@repa/space-history";
 
 export interface Tool {
@@ -35,6 +35,17 @@ export interface AgentTask {
 export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 
+/** 用户经前端发给插件 Agent 会话的一条消息。后台任务与子 Agent 收到的任务不经过这里。 */
+export interface UserMessage {
+  sessionId: string;
+  agent: string;
+  /** send 开始新运行；steer、followUp 在运行中排队，会话空闲时也开始新运行。 */
+  mode: "send" | "steer" | "followUp";
+  text: string;
+  /** 会话正在运行时为当前 runId。 */
+  runId?: string;
+}
+
 /** 插件声明的 Agent。会话创建后工具与 view 来源固定，中途不换 Agent。 */
 export interface AgentDefinition {
   /** 所有插件间唯一，仅含小写字母、数字和连字符；general 留给底座的通用 Agent。 */
@@ -54,6 +65,11 @@ export interface AgentDefinition {
   direct?: boolean;
   /** 本 Agent 的运行时状态，作为 view agent:<id>。 */
   view?(): Promise<string | undefined>;
+  /**
+   * 用户消息进入会话前的判断。返回拒收时消息不写入会话，前端收到 message_rejected；
+   * 不返回或返回 accepted 时照常处理，插件可以在这里只记下这次提问。抛错同样拒收。
+   */
+  beforeMessage?(message: UserMessage): Promise<MessageDecision | void>;
 }
 
 // Host.models 返回的句柄由宿主持有并在关闭时取消、等待 result；插件可提前取消，重复调用共享同一次取消。

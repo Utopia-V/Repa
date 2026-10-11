@@ -24,7 +24,8 @@ function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): 
       ...(subagents === undefined ? {} : { subagents }),
       ...(direct === undefined ? {} : { direct }),
     };
-    if (!Check(AgentFieldsSchema, fields) || typeof definition.instructions !== "function" || (definition.view !== undefined && typeof definition.view !== "function")) {
+    const functions = [definition.view, definition.beforeMessage];
+    if (!Check(AgentFieldsSchema, fields) || typeof definition.instructions !== "function" || functions.some(item => item !== undefined && typeof item !== "function")) {
       throw new RepaFault("invalid_agent", "Agent 定义不符合接口要求", { id });
     }
     if (id === "general" || ids.has(id)) throw new RepaFault("invalid_agent_id", "Agent id 必须唯一，且不能使用 general", { id });
@@ -73,7 +74,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   }
 
   function wrapAgent(definition: AgentDefinition): AgentDefinition {
-    const { view } = definition;
+    const { view, beforeMessage } = definition;
     return {
       id: definition.id,
       ...(definition.description === undefined ? {} : { description: definition.description }),
@@ -88,6 +89,12 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         view() {
           checkOpen();
           return track(Promise.resolve().then(() => view.call(definition)));
+        },
+      }),
+      ...(beforeMessage === undefined ? {} : {
+        beforeMessage(message) {
+          checkOpen();
+          return track(Promise.resolve().then(() => beforeMessage.call(definition, message)));
         },
       }),
     };

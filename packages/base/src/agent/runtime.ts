@@ -19,9 +19,9 @@ import {
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions } from "../agent.js";
-import { BUILTIN_TOOLS, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest, type Tool } from "../plugin.js";
+import { BUILTIN_TOOLS, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest, type Tool } from "../plugin.js";
 import { withRun } from "../run-context.js";
-import { RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
+import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { FileScope, generalFileTools, spaceFileTools } from "./files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
@@ -72,6 +72,7 @@ interface AgentProfile {
   /** 本 Agent 自己的提示段：通用 Agent 为各插件说明，插件 Agent 为 agent:<id>。 */
   sections(): { id: string; text: string }[];
   views(): Promise<{ id: string; text: string }[]>;
+  beforeMessage?: AgentDefinition["beforeMessage"];
 }
 
 /** 子 Agent 拿不到父 Agent 没有的工具；更高权限的工作由插件程序触发，不经 Agent 之间转托。 */
@@ -347,6 +348,7 @@ class Space implements AgentSpace {
         const text = await definition.view?.();
         return text === undefined ? [] : [{ id: `agent:${id}`, text }];
       },
+      ...(definition.beforeMessage === undefined ? {} : { beforeMessage: message => definition.beforeMessage?.(message) ?? Promise.resolve() }),
     };
   }
 
@@ -453,7 +455,7 @@ class Space implements AgentSpace {
 
   async runAgent(task: AgentTask): Promise<AgentWork> {
     const session = await this.create({ agent: task.agent, model: task.model });
-    const result = session.send(task.text);
+    const result = session.runTask(task.text);
     result.catch(() => undefined);
     return { id: session.info().id, result, cancel: () => session.abort() };
   }
@@ -485,6 +487,8 @@ class Session implements AgentSession {
   private pending = new Map<AbortController, Promise<void>>();
   private enqueuing = new Set<Promise<unknown>>();
   private cancelling?: Promise<void>;
+  // 每次开始取消加一，插件判断期间发生过取消的消息不再投递。
+  private cancellations = 0;
   private closing?: Promise<void>;
 
   constructor(private space: Space, private manager: SessionManager) {
@@ -650,7 +654,51 @@ class Session implements AgentSession {
   }
 
   async send(text: string): Promise<void> {
+    // 没有判断的 Agent 同步进入 run，取消仍能拿到刚开始的运行，与原有时序一致。
+    if (this.profile.beforeMessage !== undefined) {
+      this.assertAccepting();
+      await this.admit("send", text);
+    }
     await this.run(text);
+  }
+
+  /** 插件程序交给后台 Agent 的任务，不是用户消息，不经过插件的消息判断。 */
+  async runTask(text: string): Promise<void> {
+    await this.run(text);
+  }
+
+  private assertAccepting(): void {
+    this.space.assertOpen();
+    if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
+    if (this.cancelling) throw new RepaFault("cancelled", "会话运行正在取消");
+  }
+
+  /** 插件 Agent 的会话收到用户消息前先交给插件判断；拒收或判断失败时消息不进入会话。 */
+  private async admit(mode: "send" | "steer" | "followUp", text: string): Promise<void> {
+    const decide = this.profile.beforeMessage;
+    if (decide === undefined) return;
+    const cancellations = this.cancellations;
+    const message = { sessionId: this.manager.getSessionId(), agent: this.agent, mode, text, ...(this.runId === undefined ? {} : { runId: this.runId }) };
+    let decision: unknown;
+    try {
+      decision = await decide(message);
+    } catch {
+      // 判断失败也不放行，前端得到可处理的错误码，不暴露插件内部的错误细节。
+      throw new RepaFault("message_check_failed", "插件未能判断这条消息，消息没有发送", { agent: this.agent });
+    }
+    if (decision !== undefined && !Value.Check(MessageDecisionSchema, decision)) {
+      throw new RepaFault("invalid_message_decision", "插件对消息的判断不符合接口要求", { agent: this.agent });
+    }
+    if (decision?.status === "rejected") {
+      throw new RepaFault("message_rejected", decision.message, {
+        agent: this.agent,
+        reason: decision.reason,
+        ...(decision.data === undefined ? {} : { data: decision.data }),
+      });
+    }
+    // 判断期间用户取消过运行：这条消息发生在取消之前，不在取消之后补投。
+    if (this.cancellations !== cancellations) throw new RepaFault("cancelled", "会话运行已取消");
+    this.assertAccepting();
   }
 
   /** 子 Agent 的一次运行；取消或失败都抛错，交给父 Agent 作为工具结果。 */
@@ -776,10 +824,12 @@ class Session implements AgentSession {
   }
 
   private async queueMessage(text: string, mode: "steer" | "followUp"): Promise<void> {
-    this.space.assertOpen();
-    if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
-    if (this.cancelling) throw new RepaFault("cancelled", "会话运行正在取消");
-    if (!this.session.isStreaming) return this.send(text);
+    this.assertAccepting();
+    if (this.profile.beforeMessage !== undefined) await this.admit(mode, text);
+    if (!this.session.isStreaming) {
+      await this.run(text);
+      return;
+    }
     // Pi 的输入钩子在入队前可以 await；取消必须拥有这段尚未入队的操作。
     const operation = this.session[mode](text);
     this.enqueuing.add(operation);
@@ -792,6 +842,7 @@ class Session implements AgentSession {
 
   abort(): Promise<void> {
     if (this.cancelling) return this.cancelling;
+    this.cancellations++;
     let resolve: () => void = () => {};
     let reject: (error: unknown) => void = () => {};
     const cancelling = new Promise<void>((done, failed) => {
