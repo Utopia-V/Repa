@@ -8,7 +8,10 @@ import { mockMatchMedia } from "./match-media";
 
 beforeEach(() => { mockMatchMedia(); window.history.replaceState(null, "", "/"); });
 
-vi.mock("@repa/base/client", () => ({ RepaClient: { connect: vi.fn() } }));
+vi.mock("@repa/base/client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@repa/base/client")>(),
+  RepaClient: { connect: vi.fn() },
+}));
 
 afterEach(() => {
   cleanup();

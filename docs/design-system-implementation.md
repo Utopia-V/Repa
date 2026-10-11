@@ -50,7 +50,7 @@ docs/design-system.md
 | 语义和可判定约束 | docs/design-system.md |
 | 色值、字体尺度、圆角、留白和尺寸 token | globals.css；不新增 tokens.ts |
 | 通用 variant / size / hover / active / focus | ui 组件及其 CVA；跨控件的 CSS 由 ui/styles.css 持有，通过 globals.css 加载 |
-| 业务状态与基础组件组合 | domain/app-sidebar.tsx、connection-state.tsx、conversation-message.tsx |
+| 业务状态与基础组件组合 | domain/app-sidebar.tsx、connection-state.tsx、conversation-message.tsx、error-notice.tsx |
 | 布局、响应式与页面组合 | layouts / pages / features |
 
 `SelectionButton` 统一持续选择的背景、可见标记与键盘焦点，用于目录、筛选和拓扑节点；`SearchInput` 组合 Input 和 Button，页面不再通过子元素选择器改写输入框圆角。`ConversationMessage` 将 sender 映射到 `MessageBubble` 的 variant；通用气泡视觉由 ui 持有。没有真实调用方的业务组件不预建。
@@ -72,7 +72,9 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 
 ## 主应用入口
 
-`src/app.tsx` 继续管理连接获取、启动重试、连接监听和卸载清理；不在 UI 迁移中改变协议或客户端生命周期。`components/domain/connection-state.tsx` 组合 Card、Button、StatusNotice 呈现启动及连接状态，`workspace-layout.tsx` 组合应用侧栏与路由出口。`src/routes.tsx` 持有工作台路由。
+`src/app.tsx` 继续管理连接获取、启动重试、连接监听和卸载清理；不在 UI 迁移中改变协议或客户端生命周期。`components/domain/connection-state.tsx` 组合 Card、Button 与 ErrorNotice 呈现启动及连接状态，`workspace-layout.tsx` 组合应用侧栏与路由出口。`src/routes.tsx` 持有工作台路由。
+
+调用失败统一经 `src/lib/errors.ts` 的 `describeError` 转成标题与说明，再由 `components/domain/error-notice.tsx` 组合 `StatusNotice` 显示。后端业务错误（`RpcError.data.code`）直接使用后端返回的中文说明；协议层错误只显示通用说明，不展示英文原文；`ConnectionError` 提示操作结果未确定，重连后重新读取状态。开发模式下另以等宽小字显示错误码和 `details`。新底座不再提供业务请求编号，排查以错误码为准。
 
 主应用 `src/main.tsx` 加载 globals.css；旧 styles.css 的硬编码配色、渐变、卡片阴影和按钮外观已移除。断线提示位于文档流中，保留路由内容并避免遮挡页面。工作台默认进入 Learning Space；Web 在空间入口接入前只显示占位说明，Desktop 仍为材料选择页。
 

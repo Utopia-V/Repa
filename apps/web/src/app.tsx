@@ -8,7 +8,7 @@ import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection
 
 type BootstrapState =
   | { status: "starting" }
-  | { status: "failed"; message: string }
+  | { status: "failed"; error: unknown }
   | { status: "ready"; connected: boolean };
 
 export type LoadConnection = () => Promise<ClientConnection>;
@@ -94,10 +94,7 @@ export function App({
         if (reconnecting) {
           reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
         } else {
-          setState({
-            status: "failed",
-            message: error instanceof Error ? error.message : "无法启动 Repa。",
-          });
+          setState({ status: "failed", error });
         }
       }
     };
@@ -116,7 +113,7 @@ export function App({
       <main className="grid min-h-dvh place-items-center p-4 md:p-8">
         <div className="w-full max-w-xl">
           <StartupPanel
-            failure={state.status === "failed" ? { message: state.message } : undefined}
+            failure={state.status === "failed" ? { error: state.error } : undefined}
             onRetry={() => setAttempt((value) => value + 1)}
           />
         </div>
