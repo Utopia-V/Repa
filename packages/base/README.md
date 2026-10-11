@@ -93,11 +93,15 @@ await backend.close();
 
 每个服务当前持有一个活动空间，多个授权连接共享它。切换空间会关闭原空间的会话与插件，再释放锁。锁使用 `proper-lockfile`；进程异常退出后的陈旧锁在 30 秒后可回收，正常关闭立即释放。
 
-一次 Agent 运行包在 `space-history.record` 内，工具写入归入这次运行；运行结束的通知在历史提交完成后发出。会话内保留一个 `runId` 关联条目，重连后可用它找到影子 Git 中对应的修订并撤回。子 Agent 的运行在父运行的记录窗口里执行，不另外进入历史队列，写入归入父运行的修订；子会话的 `run` 条目同时记下 `parentRunId` 和 `parentSessionId`。插件独立文件写入使用自己的来源。外部编辑由监听器收集，通知只负责唤醒插件，插件再用 `history.changes(cursor)` 拉取变化。插件启动也会追赶，游标及领域状态由插件自己维护。
+写入按写入点记账。所有 Agent 的 write、edit 和插件的 `files.write` 走同一条写入路径：同一文件的写入排队（Pi 的 `withFileMutationQueue`，由装配交给空间宿主，空间宿主本身不依赖 Pi），再用 `recordPaths` 只提交这次碰到的路径。来源取当前运行的 runId 和祖先链，运行之外为插件；写入前这个路径上尚未记录的改动先记成 external。edit 在文件队列里读出最新内容再应用，锚文本还在就照常改，写回前在历史队列里核对磁盘仍是读到的内容。整文件 write 要求这个会话上一次读到的内容（读取或自己写入的结果）与磁盘一致，没读过的新文件可以直接写。查不过时不写，把文件现在的内容放进工具结果交回模型，并算作读过，模型据此重写即可通过。
+
+调度由工具集推出，不由 Agent 自己声明。带 bash 或 powershell 的运行是不透明写入者：整次包在 `space-history.record` 内，持空间写锁独占，前后整体快照记到它名下，运行结束的通知在这次提交完成后发出。它运行期间，其他写入等它结束，写入工具的等待可以随运行取消；只读的运行照常进行。它窗口里起的子运行直接写文件，算在它的快照里。其余运行不进 `record`，可以并行；同一会话一次只跑一个运行，后来的等前一个结束。加锁次序固定为空间写锁、同一文件的写入队列、历史队列。
+
+会话内保留一个 `runId` 关联条目，`history.undoRun` 用它撤回这个运行及其全部子孙运行的写入。子会话的 `run` 条目同时记下 `parentRunId` 和 `parentSessionId`。外部编辑由监听器按变化的路径记成 external，拿不到路径时才扫描整个空间；整空间扫描只在打开空间、撤回之前和不透明运行前后进行。通知只负责唤醒插件，插件再用 `history.changes(cursor)` 拉取变化；通知在不属于任何运行的上下文里分发，插件变化处理里的写入记在插件名下。插件启动也会追赶，游标及领域状态由插件自己维护。
 
 空间宿主在打开及每次历史提交后安排一次维护检查，等待 30 秒没有新提交后调用 `history.maintain()`。松散对象达到 1,024 个或 pack 达到 32 个才打包；失败交给 `onError` 并重新等待，关闭空间时则等待最后一次检查和维护完成后释放锁。维护与活动共用历史队列，永久保留历史，不裁剪提交或不可达对象。测量、成本和调用约定见[空间历史维护](../space-history/README.md#历史维护)。
 
-`record` 动作持有历史队列，因此应先读取历史，再进入动作。动作内的 `files.write` 自动加入当前活动；显式嵌套 `history.record`，或在动作内调用 `history.list/changes`，会返回明确错误而不是死锁。插件界面方法即使只更新自己的数据目录，也会触发一次状态唤醒。
+`record` 动作持有空间写锁和历史队列，因此应先读取历史，再进入动作。动作内的 `files.write` 自动加入当前活动；显式嵌套 `history.record`，或在动作内调用 `history.list/changes`，会返回明确错误而不是死锁。插件界面方法即使只更新自己的数据目录，也会触发一次状态唤醒。
 
 [`notes-plugin.ts`](examples/notes-plugin.ts) 演示完整插件接口：说明、工具、Agent 定义、少量 view、变化追赶、前端方法与关闭；还通过 `rewrite`、`summarize`、`organize` 演示三种模型入口，其中 `organize` 在后台运行插件声明的只读 Agent `notes-organizer`。内部 notebook 子插件由父插件构造 Host，只能通过文件接口访问 `notes/`，数据目录也落在父目录下。后台 Agent 工作的 id 就是会话 id，前端用会话事件查看进度，用 `session.abort` 取消。排队任务收到取消后不会调用模型；如果空间正被前一活动占用，取消的完成响应会等待它取得队列并收尾。队列与任务句柄都只在内存中存在。
 
@@ -154,7 +158,7 @@ agents: () => [{
   id: "tutor",                            // 所有插件间唯一；general 留给通用 Agent
   description: "陪学习者练习 Python",       // 交给前端显示，也写进父 Agent 的 subagent 工具说明
   instructions: () => "你陪学习者练习 Python……", // 提示段 agent:tutor
-  tools: ["course_lookup", "run_code"],    // BUILTIN_TOOLS 中的内置工具与任一插件的工具名
+  tools: ["course_lookup", "run_code"],    // BUILTIN_TOOLS 中除 grep 外的内置工具与任一插件的工具名
   subagents: ["checker"],                  // 可以启动的子 Agent
   direct: true,                            // 用户能否直接建会话，默认否
   view: async () => currentLesson(),       // view agent:tutor
@@ -165,11 +169,11 @@ agents: () => [{
 }],
 ```
 
-`currentLesson`、`quizRunning` 等由插件自己实现。宿主打开时核对定义：id 不合格或重复、引用不存在的工具或子 Agent、子 Agent 的工具超过父 Agent，分别以 `invalid_agent`、`invalid_agent_id`、`unknown_agent_tool`、`unknown_subagent`、`subagent_exceeds_parent` 拒绝打开，并逆序关闭已打开的实例，空间因此打开失败。定义可以互相列为子 Agent，也可以列自己。
+`currentLesson`、`quizRunning` 等由插件自己实现。宿主打开时核对定义：id 不合格或重复、引用不存在的工具或子 Agent、列了 grep、子 Agent 的工具超过父 Agent，分别以 `invalid_agent`、`invalid_agent_id`、`unknown_agent_tool`、`unknown_subagent`、`agent_tool_unavailable`、`subagent_exceeds_parent` 拒绝打开，并逆序关闭已打开的实例，空间因此打开失败。定义可以互相列为子 Agent，也可以列自己。
 
 - **会话**：建会话或后台任务时选定 Agent，之后不能更换；Pi 只声明这个 Agent 的工具。插件 Agent 的提示只有空间段（空间路径与根目录 `AGENTS.md`）和 `agent:<id>`，view 只有 `agent:<id>`。基础说明、Skill 目录、工具清单段和各插件的说明只属于通用 Agent。
 - **通用 Agent**：底座自带，id 为 `general`，带全部内置工具和全部插件的说明、工具与 view。读取和搜索沿用 Pi 的工具；写入和精确编辑只在空间内，不进 `.repa/`。
-- **文件范围**：插件 Agent 的 read、write、edit、ls、find、grep 只在空间内且不进 `.repa/`（不分大小写），字面路径和解析符号链接后的路径都要在范围内。find 用 Pi 的工具（fd），先检查搜索起点；从空间根目录查找时由 `.repa/.ignore` 挡住 `.repa/`，`.gitignore` 照常生效。grep 由底座在独立线程中搜索：不进入 `.repa`、`.git`、`node_modules`，不跟随符号链接，不读 `.gitignore`，pattern 按 JavaScript 正则表达式解释，跳过二进制文件和超过 10MB 的文件，超过 20 秒或运行取消时停止。bash 不限路径，仍按命令策略确认。
+- **文件范围**：插件 Agent 的 read、write、edit、ls、find 只在空间内且不进 `.repa/`（不分大小写），字面路径和解析符号链接后的路径都要在范围内。find 用 Pi 的工具定义，查找本身注入 Node 内置的 `fs.glob`，不需要 fd：不读 `.gitignore`，不进入 `.repa`、`.git`、`node_modules`，不列出符号链接，以点开头的名字只有 pattern 写出这个点时才匹配，pattern 不能用 `..` 或绝对路径离开搜索目录。插件 Agent 不提供 grep：Pi 的 grep 把模型给的 `glob` 原样交给 ripgrep 的 `--glob`，会越过 `.repa/.ignore`；需要搜索内容时由插件提供自己的工具。bash 不限路径，仍按命令策略确认。
 - **子 Agent**：列了 `subagents` 的会话多一个 `subagent` 工具，参数为 `agent` 和 `task`；插件工具不能使用这个名字（保留名见 `RESERVED_TOOL_NAMES`）。子 Agent 在新会话中运行，看不到父对话，最后一条回复作为工具结果交回；父运行取消时子运行一起取消，空间关闭等待子运行结束。嵌套层数默认最多 3 层，可用 `createAgentRuntime({ agentDir, maxSubagentDepth })` 调整；这个上限是 Repa 的假设，用来挡住循环和重入失控，以后按使用调整。超过上限的启动请求作为工具错误交回父 Agent。
 - **后台任务**：`host.models.runAgent({ agent, text })` 运行指定 Agent，省略 `agent` 时为通用 Agent；后台 Agent 不必能直接对话。
 - **消息判断**：`beforeMessage` 收到 `{ sessionId, agent, mode, text, runId? }`，`mode` 为 `send`、`steer` 或 `followUp`，会话正在运行时带 `runId`。返回 `{ status: "rejected", reason, message, data? }` 时消息不进入会话；不返回或返回 `{ status: "accepted" }` 时照常处理。判断抛错同样不放行。后台任务和子 Agent 收到的任务不经过判断；判断期间用户取消了运行，这条消息不再投递。
@@ -210,7 +214,7 @@ agents: () => [{
 | Agent | `agent.list` |
 | 会话 | `session.list/create/history/send/steer/followUp/abort/setModel/compact/fork` |
 | 确认 | `confirm.reply`，通知 `confirm.request` |
-| 历史 | `history.list/changes/undo` |
+| 历史 | `history.list/changes/undo/undoRun` |
 | 插件 | `plugin.list/call`，通知 `plugin.event` |
 | 提示 | `prompt.list/set/reset/preview` |
 | 模型 | `model.list`、`auth.login/setKey/logout` |
@@ -224,6 +228,7 @@ Agent 相关的约定：
 - `session.create` 接受 `agent`，省略时为 `general`；`SessionInfo` 带 `agent`，改动前的旧会话为 `general`。会话的 Agent 之后不能更换，`session.fork` 沿用原 Agent。
 - `session.create/send/steer/followUp/fork` 只对可直接对话的 Agent 开放；`session.history/abort` 对所有会话开放，前端可以查看并取消后台任务和子 Agent。`prompt.list/preview` 接受 `agent`，省略时为 `general`。
 - 子 Agent 的会话同样出现在 `session.list` 中，其 `runStart` 事件的 `data` 为 `{ parentRunId, parentSessionId }`；父会话中 `subagent` 工具的结果就是子 Agent 的最后回复。
+- `history.undoRun` 接受 `{ runId }`，runId 来自 `runStart` 事件或会话中的 `run` 条目；撤回这个运行及其全部子孙运行的写入，返回与 `history.undo` 相同的 `{ revision, restored, conflicts }`，冲突按文件判断。历史里没有这个运行的提交时报错。
 - 关掉的 Agent 和已卸载插件的 Agent，其旧会话仍在 `session.list` 中，`session.history` 照常可读，`session.abort` 没有可取消的工作；发消息、分支、压缩和换模型返回 `agent_not_found`。
 
 | 错误码 | 含义与 `details` |
@@ -248,7 +253,7 @@ Agent 相关的约定：
 - 0.87.1 的冻结核实已使用已有 Codex OAuth 验证真实请求、锁内刷新、轮换结果持久化和刷新后接续。1.1.0 本轮覆盖脚本化登录映射和持久化，真实 OAuth 刷新及首次交互登录仍待单独核实。
 - 影子 Git 按所属包的规则排除 `.repa/`、用户 Git、嵌套仓库、忽略项和大文件。因此 `history.undo` 撤回空间文件，不回滚插件数据库、会话或设置。插件根据变化流更新自己的状态。
 - 插件是可信本机代码，文件接口和 Agent 文件工具的路径检查不是进程沙箱。bash 不限路径，在询问模式下须确认；经 bash 写到空间外的文件不属于影子 Git 的撤回范围。
-- 外部编辑器不受内部活动队列协调；恰好发生在运行期间的外部修改可能归入该运行。进程突然退出时，未提交内容在下次打开归为外部变化。空间历史永久保留，维护只整理对象布局。
+- 外部编辑器不受内部队列协调。按路径记账时，只有同一路径上恰好与写入同时发生的外部修改会算作这次写入；不透明运行期间的外部修改仍会归入该运行。空间写锁和同一文件的写入队列只在这个进程内有效。进程突然退出时，未提交内容在下次打开归为外部变化。空间历史永久保留，维护只整理对象布局。
 
 ## 验证入口与交付统计
 
