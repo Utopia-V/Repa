@@ -222,6 +222,12 @@ export class SpaceHistory {
     });
   }
 
+  // 知道哪些路径变了时只把这些路径记为 external；漏掉的事件由打开历史、record 和撤回前的整空间扫描补上。
+  snapshotPaths(paths: string[]): Promise<Snapshot> {
+    const scope = checkedPaths(paths);
+    return this.serial(() => this.captureScoped({ kind: "external" }, scope));
+  }
+
   record<T>(source: ActivitySource, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }> {
     if (!Check(ActivitySourceSchema, source)) throw new Error("无效的活动来源");
     const captured = checkedSource(source);

@@ -43,6 +43,7 @@ agent 来源可以带 `ancestorRunIds`，由近到远列出发起这个运行的
 | --- | --- |
 | `openHistory(space, options?)` | 打开已有目录，初始化或复用历史，并立即保存外部改动。空空间也建立基线提交。 |
 | `snapshot(source?)` | 按需扫描；默认来源为 `external`，也接受 `agent` 或 `plugin`。返回 `revision`、是否新建提交的 `committed` 和跳过项 `skipped`。直接指定来源时，调用方负责先隔离已有改动；通常优先使用 `recordPaths` 或 `record`。 |
+| `snapshotPaths(paths)` | 只把给定路径上的改动提交为 `external`，路径格式和范围与 `recordPaths` 相同；没有变化时 `committed` 为 `false`。供已经知道哪些路径变了的监听使用，范围外的改动留给之后的整空间扫描。 |
 | `record(source, action)` | 串行执行前置外部快照、活动及末尾快照，返回回调的 `value` 和 `snapshot`。 |
 | `recordPaths(source, paths, action)` | 串行执行给定路径的前置 external 提交、活动及只含这些路径的提交，返回回调的 `value` 和 `snapshot`；没有变化时 `committed` 为 `false`。路径列表为空或含空段、`.`、`..` 时报错。 |
 | `list(limit = 100)` | 从新到旧返回 revision 的 ID、父提交、来源和 ISO 时间。 |
@@ -60,9 +61,9 @@ agent 来源可以带 `ancestorRunIds`，由近到远列出发起这个运行的
 
 每个 revision 的 `changes` 包含 `added`、`modified`、`deleted` 或带 `previousPath` 的 `renamed`。查询保留逐提交变化，因此先新增后删除、修改后又改回原文都不会被净差异抹掉。重命名沿用 Git 的内容相似度判断；未识别出的重命名仍以删除和新增返回。路径相对于空间根目录，使用 `/` 分隔。
 
-`watchHistory(history, watch, { debounceMs?, onError })` 接受宿主提供的监听注册函数：`watch(notify)` 注册后返回停止函数。默认 debounce 为 100 ms，`flush()` 等待已观察到的变更保存，`close()` 停止监听并等待最后一次保存。后台保存错误交给 `onError`；调用方处理故障后，可调用 `history.snapshot()` 重试。
+`watchHistory(history, watch, { debounceMs?, onError })` 接受宿主提供的监听注册函数：`watch(notify)` 注册后返回停止函数。监听知道变化的路径时调用 `notify(path)`，路径相对于空间根目录、使用 `/` 分隔；一批通知都带路径时，只用 `snapshotPaths` 记这些路径，不再扫描整个空间。这一批里只要有一次调用 `notify()` 时没带路径，就改为扫描整个空间。默认 debounce 为 100 ms，`flush()` 等待已观察到的变更保存，`close()` 停止监听并等待最后一次保存。后台保存错误交给 `onError`；调用方处理故障后，可调用 `history.snapshot()` 重试。
 
-宿主的 watcher 必须排除 `.repa/`、`.git` 等控制目录的事件，避免保存历史反过来触发无限快照。运行期间的快照请求会排在活动之后。即使监听事件丢失，打开历史和下一次 `record` 的前置快照仍会收集当前磁盘上的变化；两次扫描之间出现又消失的临时内容无法恢复。本包提供监听适配器，实际文件监听和后端接入由重建后的宿主负责。
+宿主的 watcher 必须排除 `.repa/`、`.git` 等控制目录的事件，避免保存历史反过来触发无限快照。运行期间的快照请求会排在活动之后。即使监听事件丢失，打开历史、下一次 `record` 的前置快照和撤回前的扫描仍会收集当前磁盘上的变化；两次扫描之间出现又消失的临时内容无法恢复。本包提供监听适配器，实际文件监听和后端接入由重建后的宿主负责。
 
 ## 保存与撤销的取舍
 
@@ -113,7 +114,7 @@ npm run benchmark:maintenance --workspace=@repa/space-history
 npm run benchmark:paths --workspace=@repa/space-history
 ```
 
-类型检查、构建及 75 个测试全部通过。测试使用真实 Git 和临时目录，覆盖普通空间、用户仓库与 linked worktree 的逐字节隔离、搬家、排除规则、shell 修改、来源分离、串行活动、按路径记账、运行树与按运行撤销、局部撤销、冲突、旧格式历史、变更追赶、监听关闭及 Git 子进程错误。维护测试还核对门槛、重开、队列、维护锁及失败重试，确认旧提交、不可达对象和过期 reflog 都保留，原始字节仍可读取和撤销。
+类型检查、构建及 80 个测试全部通过。测试使用真实 Git 和临时目录，覆盖普通空间、用户仓库与 linked worktree 的逐字节隔离、搬家、排除规则、shell 修改、来源分离、串行活动、按路径记账与按路径的外部快照、运行树与按运行撤销、局部撤销、冲突、旧格式历史、变更追赶、监听关闭及 Git 子进程错误。维护测试还核对门槛、重开、队列、维护锁及失败重试，确认旧提交、不可达对象和过期 reflog 都保留，原始字节仍可读取和撤销。
 
 计时环境为 Ubuntu 24.04、Linux x64、Node.js 24.20.0、Git 2.43.0，临时目录 `/tmp` 位于 ext 文件系统（类型 `0xef53`）。每个独立样本有 1,000 个各 1,024 bytes、内容含不同编号的小文件，以及 4 个各 12 MiB 的大文件；后者按默认 10 MiB 上限跳过。文件刚准备或改写完成，操作系统缓存保持自然状态，未做冷缓存处理。准备和校验时间不计入测量；撤销包含前后两次快照。
 

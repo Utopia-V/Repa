@@ -103,6 +103,22 @@ for (const size of sizes) {
       whole.push(result.ms);
     }
 
+    // 监听报告了一个外部改动的路径：按路径快照只记这个路径。对照为没有变化的整空间扫描。
+    const externalPath: number[] = [];
+    for (let step = 1; step <= externalWrites; step += 1) {
+      const index = pick(scopedWrites + externalWrites + wholeWrites + step);
+      await writeFile(path.join(space, name(index)), content(index, 500_000 + step));
+      const result = await measured(() => history.snapshotPaths([name(index)]));
+      assert.equal(result.value.committed, true);
+      externalPath.push(result.ms);
+    }
+    const wholeSnapshot: number[] = [];
+    for (let step = 1; step <= wholeWrites; step += 1) {
+      const result = await measured(() => history.snapshot());
+      assert.equal(result.value.committed, false);
+      wholeSnapshot.push(result.ms);
+    }
+
     const commits = (await history.list(100_000)).length;
     const reopened = await openHistory(space);
     const coldAfterHistory = await write(reopened, detail, 1, 400_000);
@@ -120,6 +136,8 @@ for (const size of sizes) {
       scopedWriteMs: stats(scoped),
       scopedWriteWithExternalMs: stats(withExternal),
       wholeSpaceRecordMs: stats(whole),
+      externalPathSnapshotMs: stats(externalPath),
+      wholeSnapshotWithoutChangesMs: stats(wholeSnapshot),
       commitsBeforeReopen: commits,
       firstScopedWriteAfterReopenMs: coldAfterHistory.ms,
       undoRunMs: undo.ms,
