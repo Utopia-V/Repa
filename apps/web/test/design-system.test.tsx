@@ -126,6 +126,8 @@ describe("主题可读性", () => {
     ["status-complete-foreground", "status-complete"],
     ["destructive-foreground", "destructive"],
     ["status-complete", "card"],
+    ["code-foreground", "code-background"],
+    ["code-caption", "code-background"],
   ])("%s 在 %s 上符合正文 AA", (fg, bg) =>
     expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5),
   );

@@ -17,6 +17,7 @@ Button、Badge、Card、Input、Select、Checkbox、RadioGroup、Switch、Progre
 - `MessageBubble`：通过 CVA 管理气泡视觉；发送者语义由 `../domain/ConversationMessage` 映射。
 - `SelectionButton`：复用 Button 的尺寸和焦点，通过 CVA 统一持续选择及可见标记，图标形态的选中边框也由本组件持有。
 - `SearchInput`：组合 Input 与 Button，持有可见 label、搜索图标、清空入口和输入框外观。
+- `Markdown`：渲染模型写的 Markdown 与公式，元素样式映射到 token。依赖按锁文件固定：react-markdown 10.1.0、remark-gfm 4.0.1、remark-cjk-friendly 2.3.2、remark-cjk-friendly-gfm-strikethrough 2.3.1、remark-math-extended 6.1.1、rehype-katex 7.0.1、KaTeX 0.16.47（与 rehype-katex 依赖的版本一致，样式表从这里引入）、remend 1.4.0、Shiki 4.4.3（`shiki`、`@shikijs/langs`、`@shikijs/themes`、`@shikijs/rehype`）。代码高亮按 Shiki 文档的细粒度方式引入：`shiki/core`、JavaScript 正则引擎，只带 Python、JavaScript、TypeScript、Bash、JSON 五种语法，用 `createHighlighterCoreSync` 同步创建，渲染时不需要等待；语法颜色用 Shiki 内置的 Catppuccin Mocha 主题，代码块因此统一是深色底（`code-background`），底色、正文和语言标签走 Code token，取值与主题的 base、text、subtext0 一致；Shiki 给 `pre` 的内联背景不使用，没高亮的代码块也是同样的深色。没有用 `shiki-codegen`：它生成的是按需异步加载语言的版本，并要求指定内置主题。没有用 highlight.js：它更小（五种语言约 15KB gzip），但语法规则不如 Shiki 准确。Shiki 使这一组件约增加 100KB gzip。没有采用 Streamdown：它的组件自带 Tailwind 样式和原始颜色，默认渲染原始 HTML；本组件只取它同样使用的 remend。也没有采用 rehype-harden：它拦截后输出带英文和灰色 class 的占位，改用组件内的链接与图片映射。`remark-math-extended` 是 remark-math 的分叉，换回上游时需要另外处理 `\(…\)`、`\[…\]`。
 
 只有明确需求超出现有组件契约时才扩展。新增源码后检查尺寸 token、状态独立性、可访问名称与对比度；不要因为上游提供了某个组件或 token 就全部引入。代码中的 `dark:` 上游类不代表已提供暗色主题，本次只验证当前亮色主题。
 

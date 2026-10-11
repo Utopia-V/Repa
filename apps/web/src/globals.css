@@ -20,6 +20,10 @@
   --theme-brand-ink: #312e81;
   --theme-tint: #eef2ff;
   --theme-inset: #f1f5f9;
+  /* Catppuccin Mocha 的 base、text、subtext0，与代码高亮主题一致。 */
+  --theme-code-base: #1e1e2e;
+  --theme-code-text: #cdd6f4;
+  --theme-code-subtext: #a6adc8;
 
   /* Brand / Interaction */
   --primary: var(--theme-brand);
@@ -47,6 +51,10 @@
   --status-complete-foreground: var(--primary-foreground);
   --destructive: var(--theme-brand-ink);
   --destructive-foreground: var(--theme-sheet);
+  /* Code：代码块的深色底、正文和语言标签；语法颜色由 Catppuccin Mocha 主题提供。 */
+  --code-background: var(--theme-code-base);
+  --code-foreground: var(--theme-code-text);
+  --code-caption: var(--theme-code-subtext);
   /* Overlay */
   --overlay: var(--foreground);
   /* shadcn compatibility: aliases, not extra business choices. */
@@ -99,6 +107,7 @@
 
 @theme inline {
   --spacing: 4px;
+  --font-mono: var(--font-code);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-accent: var(--accent);
@@ -121,6 +130,9 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-overlay: var(--overlay);
+  --color-code-background: var(--code-background);
+  --color-code-foreground: var(--code-foreground);
+  --color-code-caption: var(--code-caption);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-popover: var(--popover);

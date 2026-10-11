@@ -26,6 +26,7 @@
 | Border | `ring` | 仅键盘焦点；不得表达选中、hover 或业务状态 |
 | Status | `status-complete` / `status-complete-foreground` | 完成提示及实心状态背景上的内容 |
 | Status | `destructive` / `destructive-foreground` | 仅危险操作或错误；必须辅以明确文字或图标 |
+| Code | `code-background` / `code-foreground` / `code-caption` | 仅代码块：深色底、代码正文和语言标签。语法颜色例外地由 Catppuccin Mocha 主题提供，不另设 token；主题颜色在 `code-background` 上均满足正文对比度 |
 | Overlay | `overlay` | 模态内容之外的遮罩，配合透明度使用 |
 
 语义职责不同的 token 不因当前颜色相同而互换。主题可将 `status-complete` 映射到 `primary`，但完成状态的调用方必须使用 `status-complete`。所有背景与前景配对必须通过对比度验证。
