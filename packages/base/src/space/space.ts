@@ -4,7 +4,7 @@ import { watch } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { openHistory, watchHistory, type ActivitySource, type Revision, type Snapshot } from "@repa/space-history";
+import { HistoryError, openHistory, watchHistory, type ActivitySource, type Revision, type Snapshot } from "@repa/space-history";
 import lockfile from "proper-lockfile";
 
 import { currentRun } from "../run-context.js";
@@ -24,6 +24,11 @@ function runSource(): ActivitySource | undefined {
   return run.ancestorRunIds.length === 0
     ? { kind: "agent", runId: run.runId }
     : { kind: "agent", runId: run.runId, ancestorRunIds: [...run.ancestorRunIds] };
+}
+
+// 历史里调用方能处理的错误（修订不存在、没有可撤回的改动）换成同码的 RepaFault，前端拿到可处理的错误码。
+function historyFault(error: unknown, details: unknown): unknown {
+  return error instanceof HistoryError ? new RepaFault(error.code, error.message, details) : error;
 }
 
 // 没有装配同一文件的写入队列时直接执行；提交仍由历史队列串行。
@@ -322,9 +327,13 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     }, { onError });
 
     const history: Space["history"] = {
-      changes(since) {
+      async changes(since) {
         checkHistoryRead();
-        return raw.changesSince(since ?? null);
+        try {
+          return await raw.changesSince(since ?? null);
+        } catch (error) {
+          throw historyFault(error, { revision: since });
+        }
       },
       list(limit) {
         checkHistoryRead();
@@ -335,6 +344,8 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
         checkHistoryRead();
         try {
           return await raw.undo(revision);
+        } catch (error) {
+          throw historyFault(error, { revision });
         } finally {
           await settled();
         }
@@ -343,6 +354,8 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
         checkHistoryRead();
         try {
           return await raw.undoRun(runId);
+        } catch (error) {
+          throw historyFault(error, { runId });
         } finally {
           await settled();
         }

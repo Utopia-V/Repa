@@ -9,7 +9,7 @@ import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSession } from "../src/agent.js";
-import { RepaClient } from "../src/client.js";
+import { RepaClient, RpcError } from "../src/client.js";
 import type { AgentDefinition, AgentWork, ChangeFeed, Plugin, Tool } from "../src/plugin.js";
 import { startServer } from "../src/protocol/server.js";
 import { parse, type AgentEvent } from "../src/schema.js";
@@ -211,10 +211,16 @@ test("辅导 Agent 在后台写课 Agent 运行期间立即得到回复，写课
   await f.works[0]?.result;
   assert.equal(await reply(f, writerSession), "第一课写好了");
   assert.equal(await readFile(path.join(f.root, "lessons", "one.md"), "utf8"), "第一课：变量\n");
-  // 写入在写的时候就按路径提交，归到写课的运行；辅导的运行没有提交。
+  // 写入在写的时候就按路径提交，归到写课的运行；辅导的运行没有提交，按运行撤回它得到 nothing_to_undo。
   assert.deepEqual(commits(await f.client.call("history.changes", {})), [
     { source: { kind: "agent", runId: runOf(f.events, writerSession) }, paths: ["lessons/one.md"] },
   ]);
+  const tutorRun = runOf(f.events, tutorSession.id);
+  await assert.rejects(f.client.call("history.undoRun", { runId: tutorRun }), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.deepEqual(error.data, { code: "nothing_to_undo", details: { runId: tutorRun } });
+    return true;
+  });
 });
 
 test("两个 Agent 并行写不同文件，改动各记在自己的运行下，按运行撤回一个不影响另一个", { timeout: 30000 }, async t => {

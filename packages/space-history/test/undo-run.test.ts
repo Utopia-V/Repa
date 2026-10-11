@@ -6,7 +6,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 
-import { openHistory, type ActivitySource } from "../src/index.js";
+import { HistoryError, openHistory, type ActivitySource } from "../src/index.js";
 
 const execute = promisify(execFile);
 
@@ -152,12 +152,12 @@ test("按运行撤回同时覆盖 record 与按路径提交，结果还能按修
   assert.equal(await f.read("generated.txt"), "命令生成\n");
 });
 
-test("只作为父运行出现的运行可以撤回它的子运行；历史中没有的运行报错且不写入提交", async (t) => {
+test("只作为父运行出现的运行可以撤回它的子运行；历史中没有的运行报 nothing_to_undo 且不写入提交", async (t) => {
   const f = await fixture(t, { "plan.md": "原计划\n" });
   const worker: ActivitySource = { kind: "agent", runId: "worker", ancestorRunIds: ["orchestrator"] };
   await f.save(worker, "plan.md", "子运行修改\n");
   const count = (await f.history.list()).length;
-  await assert.rejects(f.history.undoRun("missing"));
+  await assert.rejects(f.history.undoRun("missing"), (error: unknown) => error instanceof HistoryError && error.code === "nothing_to_undo");
   await assert.rejects(async () => f.history.undoRun(""));
   assert.equal((await f.history.list()).length, count);
   const undone = await f.history.undoRun("orchestrator");

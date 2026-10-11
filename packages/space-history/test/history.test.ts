@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
-import { openHistory, type ActivitySource } from "../src/index.js";
+import { HistoryError, openHistory, type ActivitySource } from "../src/index.js";
 
 const execute = promisify(execFile);
 const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
@@ -474,14 +474,17 @@ test("未发生后续编辑的重命名可以撤销，原路径恢复且新路�
   await assert.rejects(readFile(f.file("after.txt")), { code: "ENOENT" });
 });
 
-test("无效游标和基线撤销被拒绝，不改变有效历史或空间内容", async (t) => {
+test("无效游标和基线撤销被拒绝，错误带可处理的 code，不改变有效历史或空间内容", async (t) => {
   const f = await fixture(t);
   await f.write("content.txt", "保留内容\n");
   const history = await openHistory(f.space);
   const baseline = await firstRevision(history);
-  await assert.rejects(history.changesSince("不存在的版本"));
-  await assert.rejects(async () => history.undo("不存在的版本"));
-  await assert.rejects(history.undo(baseline.id));
+  const code = (expected: string) => (error: unknown) => error instanceof HistoryError && error.code === expected;
+  await assert.rejects(history.changesSince("不存在的版本"), code("revision_not_found"));
+  await assert.rejects(history.changesSince("0".repeat(40)), code("revision_not_found"));
+  await assert.rejects(async () => history.undo("不存在的版本"), code("revision_not_found"));
+  await assert.rejects(history.undo("0".repeat(40)), code("revision_not_found"));
+  await assert.rejects(history.undo(baseline.id), code("nothing_to_undo"));
   assert.equal((await firstRevision(history)).id, baseline.id);
   assert.equal(await readFile(f.file("content.txt"), "utf8"), "保留内容\n");
 });

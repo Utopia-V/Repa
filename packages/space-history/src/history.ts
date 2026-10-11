@@ -24,6 +24,21 @@ type Entry = { mode: string; oid: string };
 type File = Entry & { data: Buffer };
 // previous 是各路径在这次提交之前的条目；按运行撤回由此得到第一次修改前的内容。
 type Diff = { change: Change; previous: [string, Entry | undefined][] };
+const REVISION = /^[0-9a-f]{40}$/;
+
+/** 调用方可以按 code 分支处理的历史错误。 */
+export type HistoryErrorCode =
+  // 撤回或查询变化时给的修订不在这份历史里：格式不对、对象不存在或不在历史线上。
+  | "revision_not_found"
+  // 没有可撤回的改动：运行及其子孙运行没有提交，或目标是空间的初始快照。
+  | "nothing_to_undo";
+
+export class HistoryError extends Error {
+  constructor(readonly code: HistoryErrorCode, message: string) {
+    super(message);
+    this.name = "HistoryError";
+  }
+}
 
 async function stat(file: string) {
   try {
@@ -52,9 +67,14 @@ function same(a: Entry | undefined, b: Entry | undefined): boolean {
   return a?.mode === b?.mode && a?.oid === b?.oid;
 }
 
+// Git 自己返回的修订格式不对，说明调用出了问题，不是调用方给错了修订。
 function checkedRevision(revision: string): string {
-  if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error("无效的历史 revision");
+  if (!REVISION.test(revision)) throw new Error("无效的历史 revision");
   return revision;
+}
+
+function missingRevision(revision: string): HistoryError {
+  return new HistoryError("revision_not_found", `历史中没有这个修订：${revision}`);
 }
 
 function checkedPaths(input: unknown): string[] {
@@ -276,14 +296,21 @@ export class SpaceHistory {
 
   changesSince(cursor: string | null): Promise<ChangeFeed> {
     return this.serial(async () => {
-      await this.checkAncestor(cursor);
+      if (cursor !== null) await this.checkRevision(cursor);
       return this.feed(cursor);
     });
   }
 
-  private async checkAncestor(revision: string | null): Promise<void> {
-    if (revision !== null) {
-      await this.git.run(["merge-base", "--is-ancestor", checkedRevision(revision), REF]);
+  // 调用方给的修订必须是历史线上的提交；格式不对、对象不存在或不在历史线上都报 revision_not_found，其余 Git 故障照常抛出。
+  private async checkRevision(revision: string): Promise<void> {
+    if (!REVISION.test(revision)) throw missingRevision(revision);
+    for (const args of [["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], ["merge-base", "--is-ancestor", revision, REF]]) {
+      try {
+        await this.git.run(args);
+      } catch (error) {
+        if (error instanceof GitError && error.exitCode === 1) throw missingRevision(revision);
+        throw error;
+      }
     }
   }
 
@@ -566,12 +593,12 @@ export class SpaceHistory {
   }
 
   undo(revision: string): Promise<UndoResult> {
-    checkedRevision(revision);
+    if (!REVISION.test(revision)) throw missingRevision(revision);
     return this.serial(async () => {
-      await this.checkAncestor(revision);
+      await this.checkRevision(revision);
       await this.capture({ kind: "external" });
       const [target] = await this.readLog(["-1", revision]);
-      if (!target?.parent) throw new Error("初始快照不能撤销");
+      if (!target?.parent) throw new HistoryError("nothing_to_undo", "初始快照是空间原有的内容，没有可撤回的改动");
       const revisions = await this.readLog(["--reverse", `${target.parent}..${REF}`]);
       return this.revert({ kind: "undo", revision }, revisions, new Set([revision]));
     });
@@ -586,8 +613,8 @@ export class SpaceHistory {
       const owned = ({ source }: Revision) => source.kind === "agent"
         && (source.runId === runId || (source.ancestorRunIds ?? []).includes(runId));
       const start = revisions.findIndex(owned);
-      if (start < 0) throw new Error(`历史中没有这个运行的提交：${runId}`);
-      if (!revisions[start]?.parent) throw new Error("初始快照不能撤销");
+      if (start < 0) throw new HistoryError("nothing_to_undo", `这个运行及其子运行没有写过文件，没有可撤回的改动：${runId}`);
+      if (!revisions[start]?.parent) throw new HistoryError("nothing_to_undo", "初始快照是空间原有的内容，没有可撤回的改动");
       const scope = revisions.slice(start);
       return this.revert({ kind: "undo", runId }, scope, new Set(scope.filter(owned).map(({ id }) => id)));
     });
