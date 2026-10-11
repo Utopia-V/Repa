@@ -171,22 +171,23 @@ test("插件 Agent 列目录和查找都看不到 .repa/ 与空间外的内容�
       fauxToolCall("ls", { path: ".repa" }),
       fauxToolCall("find", { pattern: "*.md" }),
       fauxToolCall("find", { pattern: "*.md", path: f.outside }),
-      // fs.glob 对字面写出的目录不做排除，这几种写法要靠结果过滤挡住。
       fauxToolCall("find", { pattern: "linked/*" }),
       fauxToolCall("find", { pattern: ".repa/**" }),
       fauxToolCall("find", { pattern: "../*" }),
+      // 绝对路径的 pattern 按字面目录展开，fs.glob 不经过排除，要靠结果过滤挡住。
+      fauxToolCall("find", { pattern: path.join(f.root, "linked", "*") }),
+      fauxToolCall("find", { pattern: path.join(f.root, ".repa", "plugins", "learning", "*") }),
     ]),
     fauxAssistantMessage("已查看"),
   ]);
   await session.send(`查找 ${marker}`);
   const results = toolResults(session);
   assert.deepEqual(results.map(result => [result.tool, result.isError]), [
-    ["ls", false], ["ls", true], ["find", false], ["find", true], ["find", false], ["find", false], ["find", true],
+    ["ls", false], ["ls", true], ["find", false], ["find", true], ["find", false], ["find", false], ["find", true], ["find", false], ["find", false],
   ]);
   assert.deepEqual(results[0]?.text.split("\n"), ["notes/"]);
   assert.deepEqual(results[2]?.text.split("\n"), ["notes/a.md"]);
-  assert.equal(results[4]?.text, "No files found matching pattern");
-  assert.equal(results[5]?.text, "No files found matching pattern");
+  for (const index of [4, 5, 7, 8]) assert.equal(results[index]?.text, "No files found matching pattern");
   for (const index of [1, 3]) assert.match(results[index]?.text ?? "", /只能访问当前空间内的文件，不含 \.repa\//u);
   assert.match(results[6]?.text ?? "", /pattern 不能用 \.\. 离开搜索目录/u);
 });
