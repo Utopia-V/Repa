@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RepaClient } from "@repa/base/client";
 
 import { App, type LoadConnection } from "../src/app";
+import { createAppStore } from "../src/lib/store";
 import { mockMatchMedia } from "./match-media";
 
 beforeEach(() => { mockMatchMedia(); window.history.replaceState(null, "", "/"); });
@@ -32,7 +33,7 @@ describe("Web App bootstrap", () => {
 
     render(
       <StrictMode>
-        <App loadConnection={loadConnection} />
+        <App store={createAppStore()} loadConnection={loadConnection} />
       </StrictMode>,
     );
 
@@ -49,7 +50,7 @@ describe("Web App bootstrap", () => {
     vi.mocked(RepaClient.connect).mockResolvedValue(client as unknown as RepaClient);
     const loadConnection = vi.fn().mockResolvedValue(connection);
 
-    render(<App loadConnection={loadConnection} />);
+    render(<App store={createAppStore()} loadConnection={loadConnection} />);
 
     expect(screen.getByRole("heading", { name: "正在准备 Repa" })).toBeTruthy();
     expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
@@ -67,7 +68,7 @@ describe("Web App bootstrap", () => {
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
 
-    render(<App loadConnection={loadConnection} />);
+    render(<App store={createAppStore()} loadConnection={loadConnection} />);
     expect((await screen.findByRole("alert")).textContent).toContain("后端不可用");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
@@ -85,7 +86,7 @@ describe("Web App bootstrap", () => {
       }),
     } as unknown as RepaClient);
 
-    render(<App loadConnection={loadConnection} />);
+    render(<App store={createAppStore()} loadConnection={loadConnection} />);
     await screen.findByRole("link", { name: "Learning Space" });
     act(() => listener?.(false));
     expect(screen.getByText("后端连接已中断，正在自动重连…")).toBeTruthy();
@@ -111,7 +112,7 @@ it("断线后重新连接新底座，卸载时停止后续重试", async () => {
     .mockRejectedValueOnce(new Error("尚未恢复"))
     .mockResolvedValueOnce(second as unknown as RepaClient);
   const loadConnection = vi.fn(() => Promise.resolve(connection));
-  const view = render(<App loadConnection={loadConnection} />);
+  const view = render(<App store={createAppStore()} loadConnection={loadConnection} />);
   await screen.findByRole("link", { name: "Learning Space" });
   vi.useFakeTimers();
   act(() => listener?.(false));

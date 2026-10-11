@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
+import { StoreProvider } from "../src/hooks/use-app-store";
+import { createAppStore } from "../src/lib/store";
 import { routes } from "../src/routes";
 import { mockMatchMedia } from "./match-media";
 
@@ -10,7 +12,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 function renderWorkspace(path = "/") {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<RouterProvider router={router} />);
+  render(<StoreProvider store={createAppStore()}><RouterProvider router={router} /></StoreProvider>);
   return router;
 }
 

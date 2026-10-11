@@ -76,7 +76,15 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 
 调用失败统一经 `src/lib/errors.ts` 的 `describeError` 转成标题与说明，再由 `components/domain/error-notice.tsx` 组合 `StatusNotice` 显示。后端业务错误（`RpcError.data.code`）直接使用后端返回的中文说明；协议层错误只显示通用说明，不展示英文原文；`ConnectionError` 提示操作结果未确定，重连后重新读取状态。开发模式下另以等宽小字显示错误码和 `details`。新底座不再提供业务请求编号，排查以错误码为准。
 
-主应用 `src/main.tsx` 加载 globals.css；旧 styles.css 的硬编码配色、渐变、卡片阴影和按钮外观已移除。断线提示位于文档流中，保留路由内容并避免遮挡页面。工作台默认进入 Learning Space；Web 在空间入口接入前只显示占位说明，Desktop 仍为材料选择页。
+主应用 `src/main.tsx` 加载 globals.css；旧 styles.css 的硬编码配色、渐变、卡片阴影和按钮外观已移除。断线提示位于文档流中，保留路由内容并避免遮挡页面。工作台默认进入 Learning Space；Web 显示最近空间列表，Desktop 仍为材料选择页。
+
+## 应用状态
+
+页面要读后端数据，而连接会在断线后换成新的 `RepaClient`，读取结果也需要在多个页面之间共用，因此 Web 用一个 Zustand store 持有这些状态。`src/lib/store.ts` 的 `createAppStore()` 创建 vanilla store，`src/main.tsx` 创建实例并传给 `App`；`hooks/use-app-store.tsx` 的 `StoreProvider` 把它交给路由内的页面，页面通过 `useAppStore(selector)` 选取需要的字段。测试每次新建 store，不共享模块级单例。
+
+从后端读取的数据统一用 `Resource` 表示：`status` 为 idle、loading、ready 或 error，重新读取期间保留上一次的 `data`，界面不会回到空白。同一份数据只保留一个进行中的读取，并以序号丢弃先发后到的旧结果。`App` 连接成功后调用 `setClient`，store 换用新连接并重新读取已经读过的数据；标签页切回可见时 `StoreProvider` 也会重新读取，因为后端不推送设置和空间列表的变化。修改类操作（目前是 `openSpace`）把失败抛给调用页面，由页面在本地状态里显示进行中与失败。
+
+目前 store 只持有最近空间（`space.list`，最新的在前）和本页面打开的空间。后端没有查询当前空间的方法，换连接后无法确认空间是否仍然打开，所以 `setClient` 会清空后者。会话、确认请求和服务端推送随会话界面接入时再加入。
 
 
 ## 工作台侧栏
@@ -87,10 +95,10 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 - 折叠栏沿用 SidebarMenuButton 的 token 与交互状态，通过 `sr-only` 保留标签的可访问名称，并用 `title` 提供图标提示。侧栏支持拖动调宽、收起与展开；移动端复用 Sheet 的关闭、Escape 和焦点恢复行为。
 - Web 的 `components/domain/app-sidebar.tsx` 只组合 Learning Space 一个栏目；Settings 页面内容为空，已随入口一起移除，等设置或提示配置界面接入时再加回。Desktop 仍保留 Learning Space 和 Settings 两个栏目。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources、History 或本地空间提示卡，布局不再保存会话展开状态。
 - `/` 重定向到 `/learning-space`，未知地址显示未找到页面，两者共用工作台布局。Desktop 另有内容为空的 `/settings`。
-- Web 的 `test/sidebar.test.tsx` 验证栏目、默认页、移动抽屉的导航与焦点恢复、图标栏和拖动调宽；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航。
+- Web 的 `test/sidebar.test.tsx` 验证栏目、默认页、移动抽屉的导航与焦点恢复、图标栏和拖动调宽；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航；`test/store.test.ts` 验证读取去重、重连后重新读取和旧结果丢弃。
 
 ## Learning Space 页面
 
-Web 的 `pages/learning-space.tsx` 在空间入口接入前只显示一行占位说明。原材料选择组件只把文件暂存在页面内存，“开始学习”始终禁用，新底座也没有上传入口，因此已从 Web 移除；进入空间的界面随 [#10](https://github.com/Utopia-V/repa/issues/10) 接入。
+Web 的 `pages/learning-space.tsx` 列出最近打开过的空间。每一项用整行 `SelectionButton` 显示文件夹名和完整路径，本页面打开的空间处于选中状态；点击后调用 `space.open`，成功后重新读取列表，失败时在列表下方用 `ErrorNotice` 显示原因，列表仍可再次选择。读取列表失败时显示原因和重试按钮；列表为空时说明目录选择仍在接入。浏览器拿不到本地目录的绝对路径，从目录选择新空间需要后端提供目录浏览接口，随 [#10](https://github.com/Utopia-V/repa/issues/10) 接入；打开空间之后的会话界面也尚未接入。原材料选择组件只把文件暂存在页面内存，新底座也没有上传入口，已从 Web 移除。`test/learning-space.test.tsx` 覆盖列表、打开、打开失败、读取失败重试和空列表。
 
 Desktop 仍由 `pages/learning-space.tsx` 居中显示 `components/domain/learning-upload.tsx`：它负责材料拖拽、多文件选择、去重和移除，相邻 CSS 只使用语义 token；“开始学习”不触发上传，保持禁用。Web 定型后 Desktop 再随之调整。
