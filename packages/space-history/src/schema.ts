@@ -26,6 +26,7 @@ export type SnapshotSource = Static<typeof SnapshotSourceSchema>;
 export const SourceSchema = Type.Union([
   SnapshotSourceSchema,
   object({ kind: Type.Literal("undo"), revision: identifier }),
+  object({ kind: Type.Literal("undo"), runId: identifier }),
 ]);
 export type Source = Static<typeof SourceSchema>;
 

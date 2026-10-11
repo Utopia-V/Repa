@@ -18,6 +18,8 @@ const MAINTENANCE_LOOSE_OBJECTS = 1024;
 const MAINTENANCE_PACKS = 32;
 type Entry = { mode: string; oid: string };
 type File = Entry & { data: Buffer };
+// previous 是各路径在这次提交之前的条目；按运行撤回由此得到第一次修改前的内容。
+type Diff = { change: Change; previous: [string, Entry | undefined][] };
 
 async function stat(file: string) {
   try {
@@ -37,7 +39,7 @@ function related(a: string, b: string): boolean {
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
-function paths(change: Change): string[] {
+function changePaths(change: Change): string[] {
   return change.kind === "renamed" ? [change.previousPath, change.path] : [change.path];
 }
 
@@ -208,34 +210,49 @@ export class SpaceHistory {
 
   private async feed(cursor: string | null): Promise<ChangeFeed> {
     const revisions = await this.readLog(["--reverse", cursor ? `${cursor}..${REF}` : REF]);
-    const changes = new Map<string, Change[]>();
-    if (revisions.length > 0) {
-      const fields = nul(await this.git.run(
-        ["diff-tree", "--stdin", "--root", "-r", "-M", "--name-status", "-z"],
-        revisions.map(({ id }) => id).join("\n") + "\n",
-      ));
-      let current: Change[] = [];
-      for (let i = 0; i < fields.length;) {
-        const status = fields[i++];
-        if (!status) throw new Error("历史差异格式损坏");
-        if (/^[0-9a-f]{40}$/.test(status)) {
-          current = [];
-          changes.set(status, current);
-          continue;
-        }
-        const file = fields[i++];
-        if (!file) throw new Error("历史差异缺少路径");
-        if (status.startsWith("R")) {
-          const destination = fields[i++];
-          if (!destination) throw new Error("历史重命名缺少目标");
-          current.push({ kind: "renamed", previousPath: file, path: destination });
-        } else {
-          current.push({ kind: status === "A" ? "added" : status === "D" ? "deleted" : "modified", path: file });
-        }
+    const diffs = await this.diffs(revisions);
+    if (!this.head) throw new Error("历史尚未初始化");
+    return {
+      revision: this.head,
+      revisions: revisions.map((revision) => ({ ...revision, changes: (diffs.get(revision.id) ?? []).map(({ change }) => change) })),
+    };
+  }
+
+  private async diffs(revisions: Revision[]): Promise<Map<string, Diff[]>> {
+    const result = new Map<string, Diff[]>();
+    if (revisions.length === 0) return result;
+    const fields = nul(await this.git.run(
+      ["diff-tree", "--stdin", "--root", "-r", "-M", "--raw", "--no-abbrev", "-z"],
+      revisions.map(({ id }) => id).join("\n") + "\n",
+    ));
+    let current: Diff[] = [];
+    for (let i = 0; i < fields.length;) {
+      const field = fields[i++];
+      if (!field) throw new Error("历史差异格式损坏");
+      if (/^[0-9a-f]{40}$/.test(field)) {
+        current = [];
+        result.set(field, current);
+        continue;
+      }
+      const [, mode, oid, status] = /^:(\d{6}) \d{6} ([0-9a-f]{40}) [0-9a-f]{40} ([A-Z])\d*$/.exec(field) ?? [];
+      const file = fields[i++];
+      if (!mode || !oid || !status || !file) throw new Error("历史差异格式损坏");
+      const previous = mode === "000000" ? undefined : { mode, oid };
+      if (status === "R") {
+        const destination = fields[i++];
+        if (!destination) throw new Error("历史重命名缺少目标");
+        current.push({
+          change: { kind: "renamed", previousPath: file, path: destination },
+          previous: [[file, previous], [destination, undefined]],
+        });
+      } else {
+        current.push({
+          change: { kind: status === "A" ? "added" : status === "D" ? "deleted" : "modified", path: file },
+          previous: [[file, previous]],
+        });
       }
     }
-    if (!this.head) throw new Error("历史尚未初始化");
-    return { revision: this.head, revisions: revisions.map((revision) => ({ ...revision, changes: changes.get(revision.id) ?? [] })) };
+    return result;
   }
 
   private async tree(revision: string | null): Promise<Map<string, Entry>> {
@@ -391,101 +408,152 @@ export class SpaceHistory {
       await this.capture({ kind: "external" });
       const [target] = await this.readLog(["-1", revision]);
       if (!target?.parent) throw new Error("初始快照不能撤销");
-      const before = await this.tree(target.parent);
-      const after = await this.tree(revision);
-      const feed = await this.feed(target.parent);
-      const targetChanges = feed.revisions[0]?.changes ?? [];
-      const files = [...new Set(targetChanges.flatMap(paths))].sort();
-      const touched = feed.revisions.slice(1).flatMap(({ changes }) => changes.flatMap(paths));
-      const conflicts = new Set<string>();
-      const removals = new Set(files.filter((file) => !before.has(file)));
-      const blocked = new Set(files.filter((file) => [...removals].some((other) =>
-        file.startsWith(`${other}/`) && after.get(other)?.mode !== "120000")));
-      for (const file of files) {
-        if (touched.some((other) => related(file, other)) || (!blocked.has(file) && await this.boundary(file))) {
-          conflicts.add(file);
-        }
-      }
-      const ignored = await this.ignored(files.filter((file) => !conflicts.has(file)));
-      const directories = new Set<string>();
-      for (const file of files) {
-        if (ignored.has(file)) conflicts.add(file);
-        if (conflicts.has(file) || blocked.has(file)) continue;
-        const info = await stat(path.join(this.space, file));
-        if (info?.isDirectory() && !after.has(file)) {
-          if (!(await this.removableDirectory(file, removals, directories))) conflicts.add(file);
-        } else if ((info && !info.isFile() && !info.isSymbolicLink()) || (info && info.size > this.maxFileBytes)
-          || !same(await this.read(file), after.get(file))) {
-          conflicts.add(file);
-        }
-      }
-      // 重命名两端与目录/文件替换共享恢复结果，不能只恢复其中一端。
-      const groups = targetChanges.map(paths);
-      let expanded = conflicts.size > 0;
-      while (expanded) {
-        expanded = false;
-        for (const file of files) {
-          if (conflicts.has(file)) continue;
-          if ([...conflicts].some((other) => related(file, other))
-            || groups.some((group) => group.includes(file) && group.some((other) => conflicts.has(other)))) {
-            conflicts.add(file);
-            expanded = true;
-          }
-        }
-      }
-      const restored = files.filter((file) => !conflicts.has(file));
-      const blobs = await this.contents(restored.flatMap((file) => {
-        const entry = before.get(file);
-        return entry ? [entry.oid] : [];
-      }));
-      const { snapshot: result } = await this.captureAfter({ kind: "undo", revision }, async () => {
-        // 先移除运行新增的叶子，再恢复旧叶子，文件与目录互换也遵循这个次序。
-        const ordered = [...restored.filter((file) => removals.has(file)), ...restored.filter((file) => before.has(file))];
-        for (const file of ordered) {
-          const absolute = path.join(this.space, file);
-          const current = await stat(absolute);
-          const entry = before.get(file);
-          if (entry) {
-            const data = blobs.get(entry.oid);
-            if (!data) throw new Error("历史 blob 缺失");
-            if (current?.isDirectory()) {
-              for (const directory of [...directories].filter((directory) => related(file, directory)).sort((a, b) => b.length - a.length)) {
-                if (await stat(path.join(this.space, directory))) await rmdir(path.join(this.space, directory));
-              }
-            }
-            await mkdir(path.dirname(absolute), { recursive: true });
-            const temporary = path.join(path.dirname(absolute), `.repa-undo-${randomUUID()}`);
-            try {
-              if (entry.mode === "120000") {
-                await symlink(data, temporary);
-              } else {
-                // Git 只保存可执行位；保留现有读写权限，新文件采用仅所有者可读写的权限。
-                const access = current?.isFile() ? current.mode & 0o666 : 0o600;
-                const mode = entry.mode === "100755" ? access | ((access >> 2) & 0o111) : access;
-                await writeFile(temporary, data, { mode, flag: "wx" });
-                await chmod(temporary, mode);
-              }
-              await rename(temporary, absolute);
-            } finally {
-              await rm(temporary, { force: true });
-            }
-          } else {
-            if (current) await unlink(absolute);
-            let directory = path.dirname(absolute);
-            while (directory !== this.space) {
-              try {
-                await rmdir(directory);
-              } catch (error) {
-                if (error instanceof Error && "code" in error && (error.code === "ENOTEMPTY" || error.code === "ENOENT")) break;
-                throw error;
-              }
-              directory = path.dirname(directory);
-            }
-          }
-        }
-      });
-      return { revision: result.revision, restored, conflicts: [...conflicts] };
+      const revisions = await this.readLog(["--reverse", `${target.parent}..${REF}`]);
+      return this.revert({ kind: "undo", revision }, revisions, new Set([revision]));
     });
+  }
+
+  undoRun(runId: string): Promise<UndoResult> {
+    if (typeof runId !== "string" || runId.length === 0) throw new Error("无效的运行 ID");
+    return this.serial(async () => {
+      await this.capture({ kind: "external" });
+      const revisions = await this.readLog(["--reverse", REF]);
+      const children = new Map<string, Set<string>>();
+      for (const { source } of revisions) {
+        if (source.kind !== "agent" || source.parentRunId === undefined) continue;
+        const siblings = children.get(source.parentRunId) ?? new Set<string>();
+        siblings.add(source.runId);
+        children.set(source.parentRunId, siblings);
+      }
+      // 遍历中加入的子孙也会被访问；已在集合中的运行不会重复加入，遍历总会结束。
+      const runs = new Set([runId]);
+      for (const run of runs) {
+        for (const child of children.get(run) ?? []) runs.add(child);
+      }
+      const owned = ({ source }: Revision) => source.kind === "agent" && runs.has(source.runId);
+      const start = revisions.findIndex(owned);
+      if (start < 0) throw new Error(`历史中没有这个运行的提交：${runId}`);
+      if (!revisions[start]?.parent) throw new Error("初始快照不能撤销");
+      const scope = revisions.slice(start);
+      return this.revert({ kind: "undo", runId }, scope, new Set(scope.filter(owned).map(({ id }) => id)));
+    });
+  }
+
+  // revisions 从第一个目标提交开始按时间排列。每个路径恢复到目标提交第一次修改它之前的内容。
+  private async revert(source: Source, revisions: Revision[], targets: Set<string>): Promise<UndoResult> {
+    const diffs = await this.diffs(revisions);
+    const after = await this.tree(this.head);
+    const first = new Map<string, number>();
+    const before = new Map<string, Entry>();
+    const groups: string[][] = [];
+    const others: { index: number; changed: string[] }[] = [];
+    for (const [index, { id }] of revisions.entries()) {
+      const changes = diffs.get(id) ?? [];
+      if (!targets.has(id)) {
+        others.push({ index, changed: changes.flatMap(({ change }) => changePaths(change)) });
+        continue;
+      }
+      for (const { change, previous } of changes) {
+        groups.push(changePaths(change));
+        for (const [file, entry] of previous) {
+          if (first.has(file)) continue;
+          first.set(file, index);
+          if (entry) before.set(file, entry);
+        }
+      }
+    }
+    // 目标第一次修改某路径之后，其他来源碰过它或相关的父子路径就不能恢复；夹在目标两次修改之间的改动也算。
+    const touched = new Set([...first].filter(([file, start]) => others.some(({ index, changed }) =>
+      index > start && changed.some((other) => related(file, other)))).map(([file]) => file));
+    // 没有被其他来源碰过、且已回到目标之前内容的路径无需恢复。
+    const files = [...first.keys()].filter((file) => touched.has(file) || !same(before.get(file), after.get(file))).sort();
+    const conflicts = new Set<string>();
+    const removals = new Set(files.filter((file) => !before.has(file)));
+    const blocked = new Set(files.filter((file) => [...removals].some((other) =>
+      file.startsWith(`${other}/`) && after.get(other)?.mode !== "120000")));
+    for (const file of files) {
+      if (touched.has(file) || (!blocked.has(file) && await this.boundary(file))) {
+        conflicts.add(file);
+      }
+    }
+    const ignored = await this.ignored(files.filter((file) => !conflicts.has(file)));
+    const directories = new Set<string>();
+    for (const file of files) {
+      if (ignored.has(file)) conflicts.add(file);
+      if (conflicts.has(file) || blocked.has(file)) continue;
+      const info = await stat(path.join(this.space, file));
+      if (info?.isDirectory() && !after.has(file)) {
+        if (!(await this.removableDirectory(file, removals, directories))) conflicts.add(file);
+      } else if ((info && !info.isFile() && !info.isSymbolicLink()) || (info && info.size > this.maxFileBytes)
+        || !same(await this.read(file), after.get(file))) {
+        conflicts.add(file);
+      }
+    }
+    // 重命名两端与目录/文件替换共享恢复结果，不能只恢复其中一端。
+    let expanded = conflicts.size > 0;
+    while (expanded) {
+      expanded = false;
+      for (const file of files) {
+        if (conflicts.has(file)) continue;
+        if ([...conflicts].some((other) => related(file, other))
+          || groups.some((group) => group.includes(file) && group.some((other) => conflicts.has(other)))) {
+          conflicts.add(file);
+          expanded = true;
+        }
+      }
+    }
+    const restored = files.filter((file) => !conflicts.has(file));
+    const blobs = await this.contents(restored.flatMap((file) => {
+      const entry = before.get(file);
+      return entry ? [entry.oid] : [];
+    }));
+    const { snapshot: result } = await this.captureAfter(source, async () => {
+      // 先移除运行新增的叶子，再恢复旧叶子，文件与目录互换也遵循这个次序。
+      const ordered = [...restored.filter((file) => removals.has(file)), ...restored.filter((file) => before.has(file))];
+      for (const file of ordered) {
+        const absolute = path.join(this.space, file);
+        const current = await stat(absolute);
+        const entry = before.get(file);
+        if (entry) {
+          const data = blobs.get(entry.oid);
+          if (!data) throw new Error("历史 blob 缺失");
+          if (current?.isDirectory()) {
+            for (const directory of [...directories].filter((directory) => related(file, directory)).sort((a, b) => b.length - a.length)) {
+              if (await stat(path.join(this.space, directory))) await rmdir(path.join(this.space, directory));
+            }
+          }
+          await mkdir(path.dirname(absolute), { recursive: true });
+          const temporary = path.join(path.dirname(absolute), `.repa-undo-${randomUUID()}`);
+          try {
+            if (entry.mode === "120000") {
+              await symlink(data, temporary);
+            } else {
+              // Git 只保存可执行位；保留现有读写权限，新文件采用仅所有者可读写的权限。
+              const access = current?.isFile() ? current.mode & 0o666 : 0o600;
+              const mode = entry.mode === "100755" ? access | ((access >> 2) & 0o111) : access;
+              await writeFile(temporary, data, { mode, flag: "wx" });
+              await chmod(temporary, mode);
+            }
+            await rename(temporary, absolute);
+          } finally {
+            await rm(temporary, { force: true });
+          }
+        } else {
+          if (current) await unlink(absolute);
+          let directory = path.dirname(absolute);
+          while (directory !== this.space) {
+            try {
+              await rmdir(directory);
+            } catch (error) {
+              if (error instanceof Error && "code" in error && (error.code === "ENOTEMPTY" || error.code === "ENOENT")) break;
+              throw error;
+            }
+            directory = path.dirname(directory);
+          }
+        }
+      }
+    });
+    return { revision: result.revision, restored, conflicts: [...conflicts] };
   }
 
   private async removableDirectory(file: string, removals: Set<string>, directories: Set<string>): Promise<boolean> {
