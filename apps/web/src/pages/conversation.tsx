@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Navigate } from "react-router";
+import { Link, Navigate } from "react-router";
 import { MessageSquarePlus, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { MessageComposer } from "@/components/domain/message-composer";
 import { ToolActivity } from "@/components/domain/tool-activity";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { ConversationItem } from "@/lib/conversation";
+import { errorCode } from "@/lib/errors";
 import { folderName } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,8 @@ function Conversation({ space }: { space: string }) {
   const newConversation = useAppStore((state) => state.newConversation);
   const sendMessage = useAppStore((state) => state.sendMessage);
   const stopRun = useAppStore((state) => state.stopRun);
+  const defaultModel = useAppStore((state) => state.resources.defaultModel);
+  const loadDefaultModel = useAppStore((state) => state.loadDefaultModel);
   const [draft, setDraft] = useState("");
   const [scrolled, setScrolled] = useState(false);
   const record = useRef<HTMLElement>(null);
@@ -36,6 +39,11 @@ function Conversation({ space }: { space: string }) {
   useEffect(() => {
     if (conversation.status === "idle") void loadConversation();
   }, [conversation.status, loadConversation]);
+
+  // 只用来判断有没有可用模型；读取失败时不提示，发送时后端仍会报告。
+  useEffect(() => {
+    void loadDefaultModel();
+  }, [loadDefaultModel]);
 
   useLayoutEffect(() => {
     const element = record.current;
@@ -60,6 +68,8 @@ function Conversation({ space }: { space: string }) {
 
   const { run, status, items } = conversation;
   const running = run !== "idle";
+  const needsModel = (defaultModel.status === "ready" && defaultModel.data === null)
+    || errorCode(conversation.sendError) === "model_required";
 
   // 页面占满一屏，只让对话记录滚动，输入框始终留在底部。
   return <div className="flex h-dvh flex-col">
@@ -104,7 +114,14 @@ function Conversation({ space }: { space: string }) {
     </section>
 
     <div className="mx-auto grid w-full max-w-3xl gap-3 px-4 pt-2 pb-4 md:px-8">
-      {conversation.sendError !== undefined && <ErrorNotice title="消息没有完成" error={conversation.sendError} />}
+      {needsModel && <div className="grid gap-3">
+        <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型提供方后才能对话。</p></StatusNotice>
+        <div>
+          <Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button>
+        </div>
+      </div>}
+      {conversation.sendError !== undefined && errorCode(conversation.sendError) !== "model_required"
+        && <ErrorNotice title="消息没有完成" error={conversation.sendError} />}
       <MessageComposer
         value={draft}
         onChange={setDraft}

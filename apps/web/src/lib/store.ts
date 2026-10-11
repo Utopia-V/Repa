@@ -15,6 +15,12 @@ export type Resource<T> = {
 type ResourceData = {
   /** 最近打开的空间，最新的在前。 */
   spaces: Result<"space.list">;
+  /** 模型提供方及其登录方式、凭据状态。 */
+  providers: Result<"model.providers">;
+  /** Pi 目录里的全部模型，available 表示提供方已经配置凭据。 */
+  models: Result<"model.list">;
+  /** 新会话使用的模型；没有可用模型时为 null。 */
+  defaultModel: Result<"model.getDefault">;
 };
 
 type ResourceName = keyof ResourceData;
@@ -23,6 +29,18 @@ export type Resources = { [N in ResourceName]: Resource<ResourceData[N]> };
 
 /** 等待用户回答的命令授权，按到达顺序处理。 */
 export type PendingConfirmation = { id: string; request: Confirmation };
+
+/**
+ * 正在进行的模型登录。后端经 confirm.request 发来的输入、选择和链接都属于这次登录：
+ * display 只是展示，收到就回复，界面一直保留到登录结束；input 和 select 排队等用户回答。
+ */
+export type LoginState = {
+  provider: string;
+  notices: Confirmation[];
+  prompts: PendingConfirmation[];
+  /** 用户已经取消，之后到达的请求直接回复取消。 */
+  cancelled: boolean;
+};
 
 /** 侧栏偏好；宽度未拖动过时为空，由侧栏组件使用默认值。 */
 export type SidebarPreference = { open: boolean; width?: number | undefined };
@@ -37,6 +55,8 @@ export type AppState = {
   /** 当前空间里正在查看的会话。 */
   conversation: Conversation;
   confirmations: PendingConfirmation[];
+  /** 正在进行的模型登录。 */
+  activeLogin?: LoginState | undefined;
   setClient(client: RepaClient): void;
   setConnected(connected: boolean): void;
   loadSpaces(): Promise<void>;
@@ -52,7 +72,19 @@ export type AppState = {
   /** 返回 false 表示消息没有发出去，错误放在 `conversation.sendError`。 */
   sendMessage(text: string): Promise<boolean>;
   stopRun(): Promise<void>;
-  replyConfirmation(id: string, allowed: boolean): Promise<void>;  /** 只有这一项保存在浏览器里，刷新后保留。 */
+  replyConfirmation(id: string, allowed: boolean): Promise<void>;
+  /** 读取设置页需要的提供方、模型和默认模型。 */
+  loadModelSettings(): Promise<void>;
+  loadDefaultModel(): Promise<void>;
+  setDefaultModel(model: Params<"model.setDefault">["model"]): Promise<void>;
+  /** 失败时抛给调用方；需要更多信息的提供方抛出 requires_interactive_login，调用方改走 login。 */
+  saveKey(provider: string, key: string): Promise<void>;
+  logout(provider: string): Promise<void>;
+  /** 交互登录，等后端完成整个流程才返回；用户取消时同样以失败结束。 */
+  login(provider: string, type: "api_key" | "oauth"): Promise<void>;
+  answerLoginPrompt(id: string, value: string | null): Promise<void>;
+  cancelLogin(): void;
+  /** 只有这一项保存在浏览器里，刷新后保留。 */
   sidebar: SidebarPreference;
   setSidebarOpen(open: boolean): void;
   setSidebarWidth(width: number): void;
@@ -94,7 +126,7 @@ export function createAppStore() {
       return await client.call(method, params);
     }
 
-    function update<N extends ResourceName>(name: N, resource: Resources[N]): void {
+    function update<N extends ResourceName>(name: N, resource: Resource<ResourceData[N]>): void {
       set((state) => ({ resources: { ...state.resources, [name]: resource } }));
     }
 
@@ -120,7 +152,23 @@ export function createAppStore() {
 
     const loaders: { [N in ResourceName]: () => Promise<void> } = {
       spaces: () => load("spaces", () => call("space.list", {})),
+      providers: () => load("providers", () => call("model.providers", {})),
+      models: () => load("models", () => call("model.list", {})),
+      defaultModel: () => load("defaultModel", () => call("model.getDefault", {})),
     };
+
+    /** 凭据或默认模型变了之后，丢弃进行中的旧读取并重新读取；没读过的等页面需要时再读。 */
+    async function reloadModelState(): Promise<void> {
+      const names = (["providers", "models", "defaultModel"] as const).filter((name) => get().resources[name].status !== "idle");
+      for (const name of names) pending.delete(name);
+      await Promise.all(names.map((name) => loaders[name]()));
+    }
+
+    function reply(id: string, value: string | boolean | null): Promise<void> {
+      return call("confirm.reply", { id, value }).then(() => undefined, () => {
+        // 请求可能已随取消或断线失效，后端那一侧会按取消处理。
+      });
+    }
 
     function updateConversation(change: Partial<Conversation>): void {
       set((state) => ({ conversation: { ...state.conversation, ...change } }));
@@ -159,6 +207,7 @@ export function createAppStore() {
     }
 
     let unsubscribe: (() => void) | undefined;
+    let loginRequest = 0;
 
     function subscribe(client: RepaClient): void {
       unsubscribe?.();
@@ -173,8 +222,18 @@ export function createAppStore() {
           set((state) => ({ confirmations: [...state.confirmations, { id, request }] }));
           return;
         }
-        // 登录过程的输入和选择属于模型配置，界面还没有接入；直接取消，不让运行停在等待上。
-        client.call("confirm.reply", { id, value: null }).catch(() => undefined);
+        const login = get().activeLogin;
+        if (login && !login.cancelled) {
+          if (request.kind === "display") {
+            set({ activeLogin: { ...login, notices: [...login.notices, request] } });
+            void reply(id, true);
+          } else {
+            set({ activeLogin: { ...login, prompts: [...login.prompts, { id, request }] } });
+          }
+          return;
+        }
+        // 输入和选择只来自本页面发起的登录；没有进行中的登录时直接取消，不让后端停在等待上。
+        void reply(id, null);
       });
       unsubscribe = () => {
         offEvent();
@@ -193,6 +252,9 @@ export function createAppStore() {
       connected: false,
       resources: {
         spaces: { status: "idle" },
+        providers: { status: "idle" },
+        models: { status: "idle" },
+        defaultModel: { status: "idle" },
       },
       conversation: emptyConversation,
       confirmations: [],
@@ -202,6 +264,8 @@ export function createAppStore() {
           client,
           connected: true,
           confirmations: [],
+          // 登录随旧连接断开而失败，未回答的请求一并作废；auth.login 的调用会以连接中断结束。
+          activeLogin: state.activeLogin && { ...state.activeLogin, prompts: [] },
           conversation: { ...state.conversation, run: "idle", streaming: undefined },
         }));
         subscribe(client);
@@ -302,6 +366,46 @@ export function createAppStore() {
         } catch {
           // 请求可能已随取消或断线失效；后端那一侧会按拒绝处理，界面不需要再提示。
         }
+      },
+      async loadModelSettings() {
+        await Promise.all([loaders.providers(), loaders.models(), loaders.defaultModel()]);
+      },
+      loadDefaultModel: loaders.defaultModel,
+      async setDefaultModel(model) {
+        await call("model.setDefault", { model });
+        pending.delete("defaultModel");
+        await loaders.defaultModel();
+      },
+      async saveKey(provider, key) {
+        await call("auth.setKey", { provider, key });
+        await reloadModelState();
+      },
+      async logout(provider) {
+        await call("auth.logout", { provider });
+        await reloadModelState();
+      },
+      async login(provider, type) {
+        const id = ++loginRequest;
+        set({ activeLogin: { provider, notices: [], prompts: [], cancelled: false } });
+        try {
+          await call("auth.login", { provider, type });
+        } finally {
+          // 取消后浏览器回调可能很晚才结束旧登录，不能清掉之后新发起的那一次。
+          if (id === loginRequest) set({ activeLogin: undefined });
+          await reloadModelState();
+        }
+      },
+      async answerLoginPrompt(id, value) {
+        const login = get().activeLogin;
+        if (login) set({ activeLogin: { ...login, prompts: login.prompts.filter((item) => item.id !== id) } });
+        await reply(id, value);
+      },
+      cancelLogin() {
+        const login = get().activeLogin;
+        if (!login) return;
+        set({ activeLogin: { ...login, prompts: [], cancelled: true } });
+        // 回答取消后 Pi 结束登录；只在浏览器里等待回调的步骤没有可回答的请求，要等后端自己结束。
+        for (const prompt of login.prompts) void reply(prompt.id, null);
       },
       sidebar: { open: true },
       setSidebarOpen(open) {

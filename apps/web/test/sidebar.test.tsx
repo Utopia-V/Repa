@@ -17,10 +17,10 @@ function renderWorkspace(path = "/", store = createAppStore()) {
   return router;
 }
 
-it("默认进入 Learning Space，侧栏只有这一个栏目", async () => {
+it("默认进入 Learning Space，侧栏有 Learning Space 和 Settings 两个栏目", async () => {
   const router = renderWorkspace();
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
-  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space"]);
+  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space", "Settings"]);
   expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
 });
 
@@ -39,7 +39,7 @@ it("打开空间后在 Learning Space 下显示这个空间，点击进入对话
   const store = createAppStore();
   store.getState().setClient(fakeClient(call).client);
   const router = renderWorkspace("/learning-space", store);
-  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space"]);
+  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space", "Settings"]);
 
   await act(() => store.getState().openSpace("/notes/calculus"));
   const navigation = screen.getByRole("navigation", { name: "主导航" });

@@ -14,7 +14,7 @@ afterEach(cleanup);
 
 const at = "2026-10-12T00:00:00.000Z";
 
-function backend(history: SessionEntry[] = []) {
+function backend(history: SessionEntry[] = [], defaultModel: { provider: string; id: string } | null = { provider: "test", id: "m" }) {
   const sends: { text: string; finish(error?: unknown): void }[] = [];
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
     switch (method) {
@@ -26,6 +26,8 @@ function backend(history: SessionEntry[] = []) {
         return Promise.resolve([{ id: "s1", createdAt: at }]);
       case "session.history":
         return Promise.resolve(history);
+      case "model.getDefault":
+        return Promise.resolve(defaultModel);
       case "session.send":
         return new Promise((resolve, reject) => {
           sends.push({ text: String(params.text), finish: (error) => error ? reject(error) : resolve(null) });
@@ -48,6 +50,7 @@ async function renderConversation(fake: ReturnType<typeof backend>, { open = tru
     <MemoryRouter initialEntries={["/conversation"]}>
       <Routes>
         <Route path="/learning-space" element={<h2>空间页</h2>} />
+        <Route path="/settings" element={<h2>设置页</h2>} />
         <Route path="/conversation" element={<ConversationPage />} />
       </Routes>
     </MemoryRouter>
@@ -115,9 +118,30 @@ it("消息没发出去时显示原因，内容回到输入框", async () => {
   fireEvent.change(input, { target: { value: "你好" } });
   fireEvent.click(screen.getByRole("button", { name: "发送" }));
   await vi.waitFor(() => expect(fake.sends).toHaveLength(1));
+  await act(async () => fake.sends[0]?.finish(new RpcError(-32000, "空间尚未打开", { code: "space_not_open" })));
+
+  expect((await screen.findByRole("alert")).textContent).toContain("空间尚未打开");
+  expect((input as HTMLTextAreaElement).value).toBe("你好");
+});
+
+it("没有可用模型时提示去设置页", async () => {
+  await renderConversation(backend([], null));
+  expect((await screen.findByRole("alert")).textContent).toContain("还没有可用的模型");
+  fireEvent.click(screen.getByRole("link", { name: "去设置模型" }));
+  expect(await screen.findByRole("heading", { name: "设置页" })).toBeTruthy();
+});
+
+it("发送时后端报告没有可用模型，同样引导去设置，不重复显示错误", async () => {
+  const fake = backend();
+  await renderConversation(fake);
+  const input = await screen.findByRole("textbox", { name: "消息" });
+  fireEvent.change(input, { target: { value: "你好" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await vi.waitFor(() => expect(fake.sends).toHaveLength(1));
   await act(async () => fake.sends[0]?.finish(new RpcError(-32000, "请选择可用模型", { code: "model_required" })));
 
-  expect((await screen.findByRole("alert")).textContent).toContain("请选择可用模型");
+  expect((await screen.findAllByRole("alert")).map((alert) => alert.textContent)).toEqual(["还没有可用的模型连接一个模型提供方后才能对话。"]);
+  expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
   expect((input as HTMLTextAreaElement).value).toBe("你好");
 });
 

@@ -8,7 +8,7 @@ Button、Badge、Card、Input、Select、Checkbox、RadioGroup、Switch、Progre
 
 运行依赖按锁文件固定：Radix UI 1.6.7、Tailwind CSS 与 Vite 插件 4.3.3、class-variance-authority 0.7.1、clsx 2.1.1、tailwind-merge 3.7.0、lucide-react 1.46.0。`components.json` 指定别名和唯一主题文件，遵循 [shadcn CSS variables 主题方式](https://ui.shadcn.com/docs/theming)。
 
-相对上游的适配：统一项目字号/行高、圆角和留白；Button 默认不提交，Outline 与 Ghost 悬停时只换浅色 `accent` 背景、文字用 `foreground`，按钮上不出现深色 `accent-foreground`；Badge 增加完成语义；Select 使用主题弹层、选中勾选与无描边的悬浮/键盘背景高亮，支持方向键、Enter 和 Escape；Dialog 使用主题遮罩及中文关闭标签并支持移动端底部展示；Progress 将数值同时传给 Radix 根组件和视觉指示器；Textarea 与 Input 一致，去掉常驻阴影，焦点改用 2px `ring`，错误边框使用 `border-error`；`styles.css` 让 textarea 与其他表单控件一样继承字体和文字颜色，不使用浏览器默认的纯黑。InputGroup 使用 `card` 背景、`input` 边框和 `radius-lg`，去掉阴影；文本框聚焦时外框不加 2px ring，边框粗细不变、颜色加深为 `input-focus` 并加四周均匀的淡阴影（无偏移，12px 模糊，10% 黑）（规范中的例外），Addon 内按钮保留 ring；Addon 内距改为 spacing scale，点击 Addon 空白处聚焦文本框；按钮直接使用项目 Button。焦点 ring 使用不透明语义色，保证辨识度。Tailwind 只引入 theme/utilities，不在已有主应用加载 preflight；`globals.css` 为带 `data-slot` 的组件提供最小基础样式。
+相对上游的适配：统一项目字号/行高、圆角和留白；Button 默认不提交，Outline 与 Ghost 悬停时只换浅色 `accent` 背景、文字用 `foreground`，按钮上不出现深色 `accent-foreground`；Badge 增加完成语义；Select 使用主题弹层、选中勾选与无描边的悬浮/键盘背景高亮，支持方向键、Enter 和 Escape；Dialog 使用主题遮罩及中文关闭标签并支持移动端底部展示；Progress 将数值同时传给 Radix 根组件和视觉指示器；Textarea 与 Input 一致，去掉常驻阴影，焦点改用 2px `ring`，错误边框使用 `border-error`；`styles.css` 让 textarea 与其他表单控件一样继承字体和文字颜色，不使用浏览器默认的纯黑；Button 以 `asChild` 渲染成链接时去掉浏览器默认的链接颜色和下划线。InputGroup 使用 `card` 背景、`input` 边框和 `radius-lg`，去掉阴影；文本框聚焦时外框不加 2px ring，边框粗细不变、颜色加深为 `input-focus` 并加四周均匀的淡阴影（无偏移，12px 模糊，10% 黑）（规范中的例外），Addon 内按钮保留 ring；Addon 内距改为 spacing scale，点击 Addon 空白处聚焦文本框；按钮直接使用项目 Button。焦点 ring 使用不透明语义色，保证辨识度。Tailwind 只引入 theme/utilities，不在已有主应用加载 preflight；`globals.css` 为带 `data-slot` 的组件提供最小基础样式。
 
 ## 本地扩展
 

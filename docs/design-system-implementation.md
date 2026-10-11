@@ -84,7 +84,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 
 从后端读取的数据统一用 `Resource` 表示：`status` 为 idle、loading、ready 或 error，重新读取期间保留上一次的 `data`，界面不会回到空白。同一份数据只保留一个进行中的读取，并以序号丢弃先发后到的旧结果。`App` 连接成功后调用 `setClient`，store 换用新连接并重新读取已经读过的数据；标签页切回可见时 `StoreProvider` 也会重新读取，因为后端不推送设置和空间列表的变化。修改类操作（目前是 `openSpace`）把失败抛给调用页面，由页面在本地状态里显示进行中与失败。
 
-目前 store 持有最近空间（`space.list`，最新的在前）、本页面打开的空间、当前会话、待回答的命令授权和侧栏偏好；只有侧栏偏好保存在浏览器里。后端没有查询当前空间的方法，`setClient` 换连接后对原来的空间再调一次 `space.open`：同一个空间后端直接返回，后端重启过则重新打开；打不开时清空空间，对话页回到空间选择。`setClient` 同时在新连接上订阅 `session.event` 和 `confirm.request`，旧连接上的授权请求随断线由后端取消，store 一并清空。
+目前 store 持有最近空间（`space.list`，最新的在前）、模型提供方（`model.providers`）、模型列表（`model.list`）、默认模型（`model.getDefault`）、本页面打开的空间、当前会话、待回答的命令授权、进行中的模型登录和侧栏偏好；只有侧栏偏好保存在浏览器里。后端没有查询当前空间的方法，`setClient` 换连接后对原来的空间再调一次 `space.open`：同一个空间后端直接返回，后端重启过则重新打开；打不开时清空空间，对话页回到空间选择。`setClient` 同时在新连接上订阅 `session.event` 和 `confirm.request`，旧连接上的授权请求随断线由后端取消，store 一并清空。
 
 
 ## 工作台侧栏
@@ -93,7 +93,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 - `SidebarRail` 是侧栏边缘的 16 px 手势条，点击切换展开/收起，悬停显示 2 px 中性 `border` 竖线；支持拖动调整宽度、双击重置，键盘方向键调整、Home 重置、Enter/空格切换；上游的 offcanvas 类保留但当前未被使用。
 - `layouts/workspace-layout.tsx` 通过 SidebarProvider 组合应用侧栏、打开入口和空白路由出口。桌面展开宽度 280 px，收起为 56 px 常驻图标栏（`collapsible="icon"`）；移动端由官方 `useIsMobile` 与 Sheet 切换为侧边面板。桌面折叠栏自带展开入口，工作区只在移动端渲染浮动打开按钮。桌面可拖动至 200 px—480 px，最大不超过视口的 40%；拖至最小宽度以下收起，折叠时向外拖至 200 px 展开阈值才展开，小幅拖动保持折叠；展开使用完整过渡并结束本次拖动。桌面的展开状态和宽度由 Zustand store 的 `persist` 写入 `localStorage`（键 `repa.web.preferences`，只含侧栏偏好），刷新后保留；存储不可用时退回默认展开、默认宽度，格式不对的项逐项回到默认值；移动端抽屉每次从关闭开始，不保存。拖动期间用 80 ms 短过渡平滑调整宽度，跨过收起阈值时恢复完整折叠动画，取消、失去指针捕获或卸载时清理拖动状态。
 - 折叠栏沿用 SidebarMenuButton 的 token 与交互状态，通过 `sr-only` 保留标签的可访问名称，并用 `title` 提供图标提示。侧栏支持拖动调宽、收起与展开；移动端复用 Sheet 的关闭、Escape 和焦点恢复行为。
-- Web 的 `components/domain/app-sidebar.tsx` 只组合 Learning Space 一个栏目；打开空间后，它下面的二级菜单项显示这个空间的文件夹名（悬停显示完整路径），点击进入对话页，在对话页时为当前项。后端一次只持有一个空间，所以只列当前打开的这一个，最近空间仍在 Learning Space 页选择；整页刷新后页面不知道当前空间，这一项随之消失。侧栏收起为图标栏时二级菜单隐藏；Settings 页面内容为空，已随入口一起移除，等设置或提示配置界面接入时再加回。Desktop 仍保留 Learning Space 和 Settings 两个栏目。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources、History 或本地空间提示卡，布局不再保存会话展开状态。
+- Web 的 `components/domain/app-sidebar.tsx` 组合 Learning Space 和 Settings 两个栏目；打开空间后，它下面的二级菜单项显示这个空间的文件夹名（悬停显示完整路径），点击进入对话页，在对话页时为当前项。后端一次只持有一个空间，所以只列当前打开的这一个，最近空间仍在 Learning Space 页选择；整页刷新后页面不知道当前空间，这一项随之消失。侧栏收起为图标栏时二级菜单隐藏。Settings 目前只有模型设置，见下方“设置页”。Desktop 的 Settings 仍是空页面。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources、History 或本地空间提示卡，布局不再保存会话展开状态。
 - `/` 重定向到 `/learning-space`，未知地址显示未找到页面，两者共用工作台布局。Desktop 另有内容为空的 `/settings`。
 - Web 的 `test/sidebar.test.tsx` 验证栏目、默认页、移动抽屉的导航与焦点恢复、图标栏、拖动调宽和刷新后保留侧栏状态；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航；`test/store.test.ts` 验证读取去重、重连后重新读取、旧结果丢弃，以及侧栏偏好的保存、格式校验和存储不可用时的退路。
 
@@ -111,7 +111,7 @@ Web 的 `pages/conversation.tsx` 挂在 `/conversation`，没有打开空间时�
 
 显示内容由 `lib/conversation.ts` 转换：`historyItems` 把会话记录转成用户消息、助手消息、工具调用、错误和“已停止”标记，提示、view、用量等运行细节不显示；`applyEvent` 按 `session.event` 实时更新，`textDelta` 拼到正在生成的助手消息上，完整的 `message` 覆盖拼接结果，工具调用按 `callId` 更新状态。运行结束（`runEnd` 或 `session.send` 返回）后重新读取会话记录，以记录替换实时内容。store 只处理当前会话的事件。
 
-`session.send` 要等整次运行结束才返回，运行中发送按钮换成“停止”，调用 `session.abort`。模型出错和取消已写进会话记录，由记录显示；没写进记录的失败（例如没有可用模型、连接中断）显示在输入框上方，消息内容退回输入框。连接中断时运行状态无法查询，从空闲开始，收到事件再更新。
+`session.send` 要等整次运行结束才返回，运行中发送按钮换成“停止”，调用 `session.abort`。模型出错和取消已写进会话记录，由记录显示；没写进记录的失败（例如连接中断）显示在输入框上方，消息内容退回输入框。进入对话页时读取 `model.getDefault`，结果为 `null`（没有可用模型），或发送时后端报 `model_required`，输入框上方改为显示“还没有可用的模型”和去设置页的链接，不再重复显示错误。连接中断时运行状态无法查询，从空闲开始，收到事件再更新。
 
 页面占满一屏，只有对话记录区滚动，输入框留在底部。顶栏只占一行，铺满工作区宽度：左侧只显示空间名称，过长时截断，悬停显示完整路径；“新会话”是工具栏里的轻量操作，用 Ghost 按钮靠右；对话记录滚动离开顶部后才出现分隔线；移动端左侧让出浮动的导航按钮。对话记录停在底部附近时跟随新内容，往上翻看时不打断。`components/domain/message-composer.tsx` 用 `InputGroup` 把文本框和发送／停止按钮合成一个框（两个按钮都是带可访问名称的图标按钮，发送用 Primary，停止用 Outline），聚焦时边框加深为 `input-focus` 色并加阴影，不加粗，文本框随内容增高，最高 240px 且不超过视口高度的 35%，超出后在框内滚动，长行在框内折行、不撑宽页面；Enter 发送、Shift+Enter 换行，输入法确认候选词的 Enter（`isComposing` 或 Safari 的 `keyCode` 229）不发送；`components/domain/tool-activity.tsx` 用图标加文字显示工具状态，内置工具显示动作名称。用户消息按原文显示并保留换行；助手消息由 `components/ui/markdown.tsx` 渲染成 Markdown，正在生成的那条传 `streaming`。
 
@@ -119,6 +119,15 @@ Web 的 `pages/conversation.tsx` 挂在 `/conversation`，没有打开空间时�
 
 元素样式由组件内的 `components` 映射到 token，不使用 typography 插件：Markdown 标题整体下移两级（`#` 渲染为 h3），字号不超过 Body Large；代码使用 Code token 和 `font-mono`（`globals.css` 把它映射到 `--font-code`），代码块和表格、公式块在各自区域内横向滚动。原始 HTML 按文本显示。只有 http(s)、mailto 渲染成新标签页链接，相对路径只显示文字；图片不加载，显示为指向原地址的“[图片：说明]”链接，避免向第三方暴露访问并避免显示模型编造的地址。代码块用 Shiki 按标注的语言高亮，目前只带 Python（py）、JavaScript（js）、TypeScript（ts）、Bash（sh）和 JSON，其他语言和没标语言的代码块按纯文本显示；代码块统一是深色底，语法颜色来自 Shiki 内置的 Catppuccin Mocha 主题，底色、正文和语言标签走 Code token；行内代码保持浅色样式；高亮出错时保留原样的代码块。复制按钮尚未接入。
 
-Agent 调用 `bash` 时后端发出 `confirm.request`。`features/command-confirmation.tsx` 挂在工作区布局上，离开对话页也能看到，显示命令和“拒绝／允许”，关闭对话框按拒绝回复；登录用的 input、select、display 请求属于模型配置，界面未接入，store 直接回复取消，避免运行停在等待上。后端取消运行时不撤回已发出的授权请求，`sendMessage` 结束时清空。
+Agent 调用 `bash` 时后端发出 `confirm.request`。`features/command-confirmation.tsx` 挂在工作区布局上，离开对话页也能看到，显示命令和“拒绝／允许”，关闭对话框按拒绝回复；登录用的 input、select、display 请求由设置页的登录流程处理，没有进行中的登录时 store 直接回复取消，避免后端停在等待上。后端取消运行时不撤回已发出的授权请求，`sendMessage` 结束时清空。
 
 `test/conversation.test.ts` 覆盖记录与事件的转换，`test/conversation-store.test.ts` 覆盖延迟建立会话、实时显示与运行结束后替换、失败分类、停止、授权排队和重连后重新打开空间，`test/conversation-page.test.tsx` 覆盖页面的发送、输入法回车、停止、失败退回输入框、授权对话框以及两种发送者的显示方式，`test/markdown.test.tsx` 覆盖 Markdown 元素、两种公式写法、链接与图片限制和生成中的语法补全。
+
+## 设置页
+
+Web 的 `pages/settings.tsx` 挂在 `/settings`，目前只有模型设置，数据全部来自 Pi：提供方目录、凭据和默认模型都由底座转发，前端不维护提供方表。
+
+- “默认模型”显示 `model.getDefault` 的结果，即新会话不指定模型时使用的模型：Pi 设置里的默认模型，没设置时是第一个可用模型。它的提供方没有连接时在名称下提示发送会失败。“更换”打开 `features/model-picker.tsx`，只列已连接提供方的模型；一个提供方可能有几百个模型，所以用搜索加列表，选中后调用 `model.setDefault`。
+- “模型提供方”列出 `configured` 的提供方及凭据类型。`stored` 的可以“断开”（`auth.logout`）；环境变量或 `models.json` 提供的凭据标“由环境变量或配置文件提供”，不显示断开。还没有连接时“添加提供方”是主按钮。
+- `features/provider-connect.tsx` 是连接对话框：先搜索选择提供方，有多种方式时再选“用账号登录”或“填写 API key”，只能在 Repa 之外配置的方式只给说明。key 用密码输入框，经 `auth.setKey` 保存；后端返回 `requires_interactive_login`（例如 Amazon Bedrock 还要选认证方式）时自动改走 `auth.login`。账号登录和这类 key 登录过程中，后端发来的 `display` 显示为说明和“打开链接”（新标签页），收到即回复，后端不用等用户点；`input`（`secret` 时为密码框）和 `select` 在对话框里排队回答。底座把选项写成 message 里的“id：名称 — 说明”，每项都能对上时按钮直接显示这一行。关闭对话框即取消：未回答的请求回复 `null`，之后的失败不再提示；只在浏览器里等待回调、没有可回答请求的步骤要等后端自己结束。登录失败显示原因，可以重试。
+- `test/settings-page.test.tsx` 用模拟后端覆盖列表与环境变量凭据、搜索后填 key 连接和断开、key 不够时改走交互登录、账号登录的链接与选项及关闭取消、登录失败重试、选择默认模型；`test/conversation-page.test.tsx` 覆盖没有可用模型时的引导。真实 Pi 提供方的 Anthropic 账号登录（选择方式、链接、授权码输入、取消）和 Amazon Bedrock 的 key 回退已在浏览器中走到授权前一步，没有用真实账号完成登录。

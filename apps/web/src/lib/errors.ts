@@ -38,3 +38,10 @@ export function describeError(error: unknown): ErrorDescription {
   }
   return { title: "操作失败", message: "发生未知错误。" };
 }
+
+/** 后端业务错误码，用于界面按错误类型给出下一步；不是业务错误时为 undefined。 */
+export function errorCode(error: unknown): string | undefined {
+  if (!(error instanceof RpcError)) return undefined;
+  const data = error.data;
+  return data && typeof data === "object" && "code" in data && typeof data.code === "string" ? data.code : undefined;
+}
