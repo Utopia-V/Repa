@@ -21,18 +21,21 @@ import {
 import { RepaFault } from "../schema.js";
 import { existingPath, within } from "../space/paths.js";
 import { exactEditTool } from "./edit.js";
-import { GREP_THREAD, inDataDir, posixPath, walk, type GrepJob, type GrepOutcome } from "./search.js";
+import { GREP_THREAD, inDataDir, type GrepJob, type GrepOutcome } from "./search.js";
 
-/** 文件工具的路径边界：限在空间根目录内，可以再排除 .repa/。 */
+/**
+ * 文件工具的路径边界：空间根目录内，不含 .repa/。那里是历史库、会话和插件数据，
+ * 写进去也记不进历史，所以所有 Agent 的写入和编辑、插件 Agent 的全部文件工具都经过它。
+ */
 export class FileScope {
-  private constructor(readonly root: string, private readonly realRoot: string, readonly excludeData: boolean) {}
+  private constructor(readonly root: string, private readonly realRoot: string) {}
 
-  static async create(root: string, excludeData: boolean): Promise<FileScope> {
-    return new FileScope(root, await realpath(root), excludeData);
+  static async create(root: string): Promise<FileScope> {
+    return new FileScope(root, await realpath(root));
   }
 
   private allowed(root: string, file: string): boolean {
-    return within(root, file) && !(this.excludeData && inDataDir(root, file));
+    return within(root, file) && !inDataDir(root, file);
   }
 
   /** 字面路径和解析符号链接后的路径都要在范围内，链接不能把工具带出空间。 */
@@ -42,8 +45,7 @@ export class FileScope {
       const canonical = await existingPath(lexical);
       if (this.allowed(this.realRoot, canonical)) return canonical;
     }
-    const message = this.excludeData ? `只能访问当前空间内的文件，不含 .repa/：${file}` : `只能写入当前空间内的文件：${file}`;
-    throw new RepaFault("file_outside_space", message, { path: file });
+    throw new RepaFault("file_outside_space", `只能访问当前空间内的文件，不含 .repa/：${file}`, { path: file });
   }
 
   /** 用于已解析的路径：是否为空间根目录。 */
@@ -51,18 +53,13 @@ export class FileScope {
     return file === this.realRoot;
   }
 
-  /** 用于已解析的路径：是否落在被排除的 .repa/ 中。 */
-  isExcluded(file: string): boolean {
-    return this.excludeData && inDataDir(this.realRoot, file);
-  }
-
-  /** 交给搜索线程的根目录，与 isExcluded 使用同一个解析结果。 */
+  /** 交给搜索线程的根目录，搜索线程据此排除 .repa/。 */
   get resolvedRoot(): string {
     return this.realRoot;
   }
 }
 
-/** 通用 Agent 的读取沿用 Pi 默认实现；写入和精确编辑只在空间内，写到空间外就记不进历史。 */
+/** 通用 Agent 的读取和搜索沿用 Pi 默认实现；写入和精确编辑只在空间内且不进 .repa/。 */
 export function generalFileTools(scope: FileScope): ToolDefinition[] {
   return [writeTool(scope), editTool(scope)];
 }
@@ -141,34 +138,16 @@ function lsTool(scope: FileScope): ToolDefinition {
   }));
 }
 
-/** 沿用 Pi 调用 fd 的写法：不含 / 的模式匹配文件名，含 / 的模式在任意深度匹配相对路径。 */
-function findMatches(pattern: string, relative: string): boolean {
-  if (!pattern.includes("/")) return path.matchesGlob(path.posix.basename(relative), pattern);
-  const anywhere = pattern.startsWith("**/") || pattern === "**" ? pattern : `**/${pattern}`;
-  return path.matchesGlob(relative, anywhere);
-}
-
+// 空间宿主在 .repa/ 里放了内容为 * 的 .ignore，fd 从空间根目录查找时不会进去。这里只检查起点，
+// 并把它换成检查过的绝对路径交给 Pi，Pi 不再另行解析 ~ 之类的写法。
 function findTool(scope: FileScope): ToolDefinition {
-  const builtin = createFindToolDefinition(scope.root, {
-    operations: {
-      exists: file => exists(scope, file),
-      // Pi 把自定义 glob 的结果按搜索目录换成相对路径；这里直接返回相对路径，链接目录不会造成偏差。
-      async glob(pattern, directory, options) {
-        const start = await scope.resolve(directory);
-        const results: string[] = [];
-        for await (const entry of walk(start, file => scope.isExcluded(file))) {
-          const relative = posixPath(path.relative(start, entry.path));
-          if (!findMatches(pattern, relative)) continue;
-          results.push(entry.directory ? `${relative}/` : relative);
-          if (results.length >= options.limit) break;
-        }
-        return results;
-      },
-    },
-  });
+  const builtin = createFindToolDefinition(scope.root);
   return defineTool({
     ...builtin,
-    description: `按 glob 模式查找当前空间中的文件，返回相对搜索目录的路径。不进入 .repa、.git、node_modules，不跟随符号链接，也不读取 .gitignore。最多返回 1000 个结果或 ${DEFAULT_MAX_BYTES / 1024}KB。`,
+    async execute(callId, input, signal, onUpdate, ctx) {
+      const target = await scope.resolve(input.path ?? ".");
+      return builtin.execute(callId, { ...input, path: target }, signal, onUpdate, ctx);
+    },
   });
 }
 

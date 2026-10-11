@@ -9,7 +9,7 @@ import lockfile from "proper-lockfile";
 
 import type { Space, SpaceOptions } from "../space.js";
 import { RepaFault } from "../schema.js";
-import { directory, existingPath, within } from "./paths.js";
+import { directory, existingPath, ignoreDataDir, within } from "./paths.js";
 
 export async function createSpace(root: string, options: SpaceOptions = {}): Promise<Space> {
   await mkdir(root, { recursive: true });
@@ -46,6 +46,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     await directory(sessionsDir);
     await directory(path.join(dataDir, "plugins"));
     await directory(path.join(dataDir, "history.git"));
+    await ignoreDataDir(dataDir);
     const raw = await openHistory(root);
     const activity = new AsyncLocalStorage<boolean>();
     const owned = new AsyncLocalStorage<boolean>();

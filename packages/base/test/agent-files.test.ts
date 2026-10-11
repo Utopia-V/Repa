@@ -9,10 +9,14 @@ import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
 import type { AgentEvent } from "../src/schema.js";
+import { createSpace } from "../src/space.js";
 
+// 用真实空间打开：.repa/ 里的锁、历史库和 .ignore 都由空间宿主放好，搜索工具面对的就是实际布局。
 async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, options: Pick<AgentTestOptions, "grepTimeoutMs"> = {}) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "repa-agent-files-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-files-"));
   const outside = await mkdtemp(path.join(os.tmpdir(), "repa-agent-outside-"));
+  const host = await createSpace(path.join(directory, "space"), { watch: false });
+  const root = host.root;
   const agentDir = path.join(root, ".repa", "test-agent");
   await mkdir(agentDir, { recursive: true });
   const faux = fauxProvider({ api: `files-api-${randomUUID()}`, provider: `files-provider-${randomUUID()}`, models: [{ id: "test", contextWindow: 16384, maxTokens: 512 }], tokensPerSecond: 0 });
@@ -27,12 +31,13 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, o
   });
   t.after(async () => {
     await runtime.close();
-    await rm(root, { recursive: true, force: true });
+    await host.close();
+    await rm(directory, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   });
   const space = await runtime.openSpace({
     root,
-    sessionsDir: path.join(root, ".repa", "sessions"),
+    sessionsDir: host.sessionsDir,
     instructions: () => [],
     tools: () => [],
     views: async () => [],
@@ -70,7 +75,7 @@ test("通用 Agent 写入和编辑空间外的文件被拒绝，空间外原文�
   assert.equal(await readFile(target, "utf8"), "空间外原文\r\n");
   const results = toolResults(session);
   assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["edit", true]]);
-  for (const result of results) assert.match(result.text, /只能写入当前空间内的文件/u);
+  for (const result of results) assert.match(result.text, /只能访问当前空间内的文件，不含 \.repa\//u);
 });
 
 test("通用 Agent 不能经空间内的符号链接写到空间外", async t => {
@@ -86,24 +91,28 @@ test("通用 Agent 不能经空间内的符号链接写到空间外", async t =>
   assert.equal(toolResults(session)[0]?.isError, true);
 });
 
-test("通用 Agent 仍能在空间内及其 .repa 中写入，并照旧读取空间外的文件", async t => {
+test("通用 Agent 在空间内照常写入，写不进 .repa/，读取空间外的文件不变", async t => {
   const f = await fixture(t);
   await writeFile(path.join(f.outside, "reference.txt"), "空间外的参考资料");
+  await writeFile(path.join(f.root, ".repa", "plugins", "state.txt"), "插件数据");
   const session = await f.space.create();
   f.faux.setResponses([
     fauxAssistantMessage([
       fauxToolCall("write", { path: "lessons/first.md", content: "第一课，（：\r\n" }),
-      fauxToolCall("write", { path: ".repa/skills/demo/SKILL.md", content: "技能草稿" }),
+      fauxToolCall("write", { path: ".repa/skills/demo/SKILL.md", content: "不应写入" }),
+      fauxToolCall("edit", { path: ".repa/plugins/state.txt", edits: [{ oldText: "插件", newText: "改写" }] }),
       fauxToolCall("read", { path: path.join(f.outside, "reference.txt") }),
     ]),
     fauxAssistantMessage("已完成"),
   ]);
   await session.send("写入并读取");
   assert.equal(await readFile(path.join(f.root, "lessons", "first.md"), "utf8"), "第一课，（：\r\n");
-  assert.equal(await readFile(path.join(f.root, ".repa", "skills", "demo", "SKILL.md"), "utf8"), "技能草稿");
+  await assert.rejects(readFile(path.join(f.root, ".repa", "skills", "demo", "SKILL.md")), { code: "ENOENT" });
+  assert.equal(await readFile(path.join(f.root, ".repa", "plugins", "state.txt"), "utf8"), "插件数据");
   const results = toolResults(session);
-  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", false], ["write", false], ["read", false]]);
-  assert.match(results[2]?.text ?? "", /空间外的参考资料/u);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", false], ["write", true], ["edit", true], ["read", false]]);
+  assert.match(results[1]?.text ?? "", /只能访问当前空间内的文件，不含 \.repa\//u);
+  assert.match(results[3]?.text ?? "", /空间外的参考资料/u);
 });
 
 const writer = {
@@ -178,6 +187,49 @@ test("插件 Agent 列目录、查找和搜索都看不到 .repa/ 与空间外�
   assert.equal(results[4]?.text, `notes/a.md:2: ${marker} 在笔记里`);
   assert.equal(results[6]?.text, `notes/a.md-1- 第一行\nnotes/a.md:2: ${marker} 在笔记里\nnotes/a.md-3- `);
   for (const index of [1, 3, 5]) assert.match(results[index]?.text ?? "", /只能访问当前空间内的文件，不含 \.repa\//u);
+});
+
+test("插件 Agent 用 Pi 的 find 从空间根目录查找，不返回 .repa/ 的内容；显式指向 .repa/ 的路径被拒绝", async t => {
+  const f = await fixture(t, { agents: () => [writer] });
+  await mkdir(path.join(f.root, "notes"));
+  await writeFile(path.join(f.root, "notes", "a.md"), "笔记");
+  await mkdir(path.join(f.root, ".repa", "plugins", "learning"));
+  await writeFile(path.join(f.root, ".repa", "plugins", "learning", "state.md"), "插件数据");
+  const session = await f.space.create({ agent: "writer" });
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("find", { pattern: "*" }),
+      fauxToolCall("find", { pattern: "*.jsonl" }),
+      fauxToolCall("find", { pattern: "*", path: ".repa" }),
+      fauxToolCall("find", { pattern: "*", path: ".repa/sessions" }),
+    ]),
+    fauxAssistantMessage("已查找"),
+  ]);
+  // 会话记录先写进 .repa/sessions/*.jsonl；从根目录查找也不能列出它。
+  await session.send("查找全部文件");
+  const results = toolResults(session);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["find", false], ["find", false], ["find", true], ["find", true]]);
+  const listed = results[0]?.text.split("\n").sort() ?? [];
+  assert.ok(listed.includes("notes/a.md"), listed.join(", "));
+  assert.deepEqual(listed.filter(line => /^\.repa\/./u.test(line)), []);
+  assert.equal(results[1]?.text, "No files found matching pattern");
+  for (const result of results.slice(2)) assert.match(result.text, /只能访问当前空间内的文件，不含 \.repa\//u);
+});
+
+test("通用 Agent 从空间根目录用 Pi 的 grep 和 find 搜索时，也不返回 .repa/ 的内容", async t => {
+  const f = await fixture(t);
+  const marker = "只在会话记录里的标记-7";
+  const session = await f.space.create();
+  f.faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("grep", { pattern: marker }), fauxToolCall("find", { pattern: "*.jsonl" })]),
+    fauxAssistantMessage("已搜索"),
+  ]);
+  // 标记只出现在这条用户消息里，也就只写进了 .repa/sessions 下的会话记录。
+  await session.send(`查找 ${marker}`);
+  assert.deepEqual(toolResults(session).map(result => [result.tool, result.isError, result.text]), [
+    ["grep", false, "No matches found"],
+    ["find", false, "No files found matching pattern"],
+  ]);
 });
 
 test("插件 Agent 访问大小写不同的 .REPA 同样被拒绝，列目录也不显示它", async t => {

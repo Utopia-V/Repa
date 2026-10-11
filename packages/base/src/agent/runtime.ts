@@ -292,7 +292,7 @@ class Runtime implements AgentRuntime {
 class Space implements AgentSpace {
   private sessions = new Map<string, Promise<Session>>();
   private closing?: Promise<void>;
-  private scopes = new Map<boolean, Promise<FileScope>>();
+  private scope?: Promise<FileScope>;
 
   constructor(readonly runtime: Runtime, readonly options: AgentSpaceOptions, private onClose: () => void) {}
 
@@ -301,19 +301,17 @@ class Space implements AgentSpace {
     if (this.closing !== undefined) throw new RepaFault("space_closed", "Agent 空间已经关闭");
   }
 
-  /** 通用 Agent 的写入范围包括 .repa/；插件 Agent 的文件工具排除它。 */
-  fileScope(excludeData: boolean): Promise<FileScope> {
-    let scope = this.scopes.get(excludeData);
-    if (scope === undefined) {
-      const created = FileScope.create(this.options.root, excludeData);
+  /** 所有 Agent 的写入和编辑、插件 Agent 的全部文件工具共用一个范围：空间内，不含 .repa/。 */
+  fileScope(): Promise<FileScope> {
+    if (this.scope === undefined) {
+      const created = FileScope.create(this.options.root);
       // 只缓存成功的结果；一次读取根目录失败后，下次建会话重新尝试。
       created.catch(() => {
-        if (this.scopes.get(excludeData) === created) this.scopes.delete(excludeData);
+        if (this.scope === created) this.scope = undefined;
       });
-      scope = created;
-      this.scopes.set(excludeData, scope);
+      this.scope = created;
     }
-    return scope;
+    return this.scope;
   }
 
   private direct(id: string, fallback: boolean): boolean {
@@ -599,7 +597,7 @@ class Session implements AgentSession {
     const saved = this.manager.buildSessionProjection().model;
     const model = runtime.model(reference ?? (saved ? { provider: saved.provider, id: saved.modelId } : undefined));
     // 工具清单在创建时固定；插件 Agent 的内置文件工具换成限在空间内、不进 .repa/ 的实现。
-    const scope = await this.space.fileScope(!profile.general);
+    const scope = await this.space.fileScope();
     const fileTools = profile.general ? generalFileTools(scope) : spaceFileTools(scope, profile.builtins, { grepTimeoutMs: runtime.options.grepTimeoutMs });
     const result = await createAgentSession({
       cwd: options.root,
