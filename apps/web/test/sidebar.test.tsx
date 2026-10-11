@@ -52,6 +52,46 @@ it("打开空间后在 Learning Space 下显示这个空间，点击进入对话
   expect(within(navigation).getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBeNull();
 });
 
+it("侧栏列出当前空间的会话，点击打开它，运行中不能切到别的会话", async () => {
+  const at = "2026-10-12T00:00:00.000Z";
+  let finish: (() => void) | undefined;
+  const call = vi.fn((method: string, params: Record<string, unknown>) => {
+    switch (method) {
+      case "space.open":
+        return Promise.resolve({ root: params.root });
+      case "space.list":
+        return Promise.resolve([]);
+      case "session.list":
+        return Promise.resolve([
+          { id: "a", createdAt: at, updatedAt: "2026-10-12T02:00:00.000Z", preview: "导数是什么" },
+          { id: "b", createdAt: at, updatedAt: "2026-10-12T01:00:00.000Z", preview: "极限怎么求" },
+        ]);
+      case "session.history":
+        return Promise.resolve([{ id: `${String(params.sessionId)}-u`, type: "user", timestamp: at, text: `${String(params.sessionId)} 的记录` }]);
+      case "session.send":
+        return new Promise((resolve) => { finish = () => resolve(null); });
+      default:
+        return Promise.reject(new Error(`未模拟的方法 ${method}`));
+    }
+  });
+  const store = createAppStore();
+  store.getState().setClient(fakeClient(call).client);
+  await act(() => store.getState().openSpace("/notes/calculus"));
+  const router = renderWorkspace("/learning-space", store);
+
+  const sessions = await screen.findByRole("navigation", { name: "会话" });
+  expect(within(sessions).getAllByRole("button").map((button) => button.textContent)).toEqual(["导数是什么", "极限怎么求"]);
+  fireEvent.click(within(sessions).getByRole("button", { name: "极限怎么求" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
+  expect(await screen.findByText("b 的记录")).toBeTruthy();
+  expect(within(sessions).getByRole("button", { name: "极限怎么求" }).getAttribute("aria-current")).toBe("true");
+
+  act(() => { void store.getState().sendMessage("继续"); });
+  await waitFor(() => expect(finish).toBeDefined());
+  expect((within(sessions).getByRole("button", { name: "导数是什么" }) as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => { finish?.(); });
+});
+
 it("导航抽屉可关闭、恢复焦点，选择目标后关闭并保留当前路由", async () => {
   mockMatchMedia(true);
   const router = renderWorkspace("/missing");

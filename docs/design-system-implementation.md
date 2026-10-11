@@ -84,7 +84,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 
 从后端读取的数据统一用 `Resource` 表示：`status` 为 idle、loading、ready 或 error，重新读取期间保留上一次的 `data`，界面不会回到空白。同一份数据只保留一个进行中的读取，并以序号丢弃先发后到的旧结果。`App` 连接成功后调用 `setClient`，store 换用新连接并重新读取已经读过的数据；标签页切回可见时 `StoreProvider` 也会重新读取，因为后端不推送设置和空间列表的变化。修改类操作（目前是 `openSpace`）把失败抛给调用页面，由页面在本地状态里显示进行中与失败。
 
-目前 store 持有最近空间（`space.list`，最新的在前）、模型提供方（`model.providers`）、模型列表（`model.list`）、默认模型（`model.getDefault`）、本页面打开的空间、当前会话、待回答的命令授权、进行中的模型登录和侧栏偏好；只有侧栏偏好保存在浏览器里。后端没有查询当前空间的方法，`setClient` 换连接后对原来的空间再调一次 `space.open`：同一个空间后端直接返回，后端重启过则重新打开；打不开时清空空间，对话页回到空间选择。`setClient` 同时在新连接上订阅 `session.event` 和 `confirm.request`，旧连接上的授权请求随断线由后端取消，store 一并清空。
+目前 store 持有最近空间（`space.list`，最新的在前）、模型提供方（`model.providers`）、模型列表（`model.list`）、默认模型（`model.getDefault`）、当前空间的会话列表（`session.list`，换空间时清空）、本页面打开的空间、当前会话、待回答的命令授权、进行中的模型登录和侧栏偏好；只有侧栏偏好保存在浏览器里。后端没有查询当前空间的方法，`setClient` 换连接后对原来的空间再调一次 `space.open`：同一个空间后端直接返回，后端重启过则重新打开；打不开时清空空间，对话页回到空间选择。会话列表依赖打开的空间，不随其他数据在换连接时直接重读，而是在空间重新打开之后再读。`setClient` 同时在新连接上订阅 `session.event` 和 `confirm.request`，旧连接上的授权请求随断线由后端取消，store 一并清空。
 
 
 ## 工作台侧栏
@@ -93,9 +93,9 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 - `SidebarRail` 是侧栏边缘的 16 px 手势条，点击切换展开/收起，悬停显示 2 px 中性 `border` 竖线；支持拖动调整宽度、双击重置，键盘方向键调整、Home 重置、Enter/空格切换；上游的 offcanvas 类保留但当前未被使用。
 - `layouts/workspace-layout.tsx` 通过 SidebarProvider 组合应用侧栏、打开入口和空白路由出口。桌面展开宽度 280 px，收起为 56 px 常驻图标栏（`collapsible="icon"`）；移动端由官方 `useIsMobile` 与 Sheet 切换为侧边面板。桌面折叠栏自带展开入口，工作区只在移动端渲染浮动打开按钮。桌面可拖动至 200 px—480 px，最大不超过视口的 40%；拖至最小宽度以下收起，折叠时向外拖至 200 px 展开阈值才展开，小幅拖动保持折叠；展开使用完整过渡并结束本次拖动。桌面的展开状态和宽度由 Zustand store 的 `persist` 写入 `localStorage`（键 `repa.web.preferences`，只含侧栏偏好），刷新后保留；存储不可用时退回默认展开、默认宽度，格式不对的项逐项回到默认值；移动端抽屉每次从关闭开始，不保存。拖动期间用 80 ms 短过渡平滑调整宽度，跨过收起阈值时恢复完整折叠动画，取消、失去指针捕获或卸载时清理拖动状态。
 - 折叠栏沿用 SidebarMenuButton 的 token 与交互状态，通过 `sr-only` 保留标签的可访问名称，并用 `title` 提供图标提示。侧栏支持拖动调宽、收起与展开；移动端复用 Sheet 的关闭、Escape 和焦点恢复行为。
-- Web 的 `components/domain/app-sidebar.tsx` 组合 Learning Space 和 Settings 两个栏目；打开空间后，它下面的二级菜单项显示这个空间的文件夹名（悬停显示完整路径），点击进入对话页，在对话页时为当前项。后端一次只持有一个空间，所以只列当前打开的这一个，最近空间仍在 Learning Space 页选择；整页刷新后页面不知道当前空间，这一项随之消失。侧栏收起为图标栏时二级菜单隐藏。Settings 目前只有模型设置，见下方“设置页”。Desktop 的 Settings 仍是空页面。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources、History 或本地空间提示卡，布局不再保存会话展开状态。
+- Web 的 `components/domain/app-sidebar.tsx` 组合 Learning Space 和 Settings 两个栏目；打开空间后，它下面的二级菜单项显示这个空间的文件夹名（悬停显示完整路径），点击进入对话页，在对话页时为当前项。后端一次只持有一个空间，所以只列当前打开的这一个，最近空间仍在 Learning Space 页选择；整页刷新后页面不知道当前空间，这一项随之消失。侧栏收起为图标栏时二级菜单隐藏。打开空间后，主导航下方的“会话”组由 `components/domain/session-list.tsx` 列出这个空间的会话，最近有消息的在前，名称取会话名，没有时取第一条消息的开头，悬停显示全文；点击打开该会话并进入对话页，在对话页时正在查看的会话为当前项。运行中其他会话不能点，因为运行状态只属于当前会话，切走后无法再查询。会话很多时随侧栏滚动，还没有分页；收起为图标栏时整组隐藏。Settings 目前只有模型设置，见下方“设置页”。Desktop 的 Settings 仍是空页面。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources、History 或本地空间提示卡，布局不再保存会话展开状态。
 - `/` 重定向到 `/learning-space`，未知地址显示未找到页面，两者共用工作台布局。Desktop 另有内容为空的 `/settings`。
-- Web 的 `test/sidebar.test.tsx` 验证栏目、默认页、移动抽屉的导航与焦点恢复、图标栏、拖动调宽和刷新后保留侧栏状态；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航；`test/store.test.ts` 验证读取去重、重连后重新读取、旧结果丢弃，以及侧栏偏好的保存、格式校验和存储不可用时的退路。
+- Web 的 `test/sidebar.test.tsx` 验证栏目、默认页、会话列表的顺序、切换与运行中禁用、移动抽屉的导航与焦点恢复、图标栏、拖动调宽和刷新后保留侧栏状态；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航；`test/store.test.ts` 验证读取去重、重连后重新读取、旧结果丢弃，以及侧栏偏好的保存、格式校验和存储不可用时的退路。
 
 ## Learning Space 页面
 
@@ -107,11 +107,13 @@ Desktop 仍由 `pages/learning-space.tsx` 居中显示 `components/domain/learni
 
 ## 对话页
 
-Web 的 `pages/conversation.tsx` 挂在 `/conversation`，没有打开空间时重定向回 `/learning-space`。会话 id 不放进 URL：后端一次只持有一个活动空间，刷新后页面也不知道当前空间。进入页面时读取 `session.list` 中最近建立的会话及其 `session.history`；空间里还没有会话，或点了“新会话”，都等第一次发送才调用 `session.create`，不留下空会话。会话切换和历史列表还没有界面。
+Web 的 `pages/conversation.tsx` 挂在 `/conversation`，没有打开空间时重定向回 `/learning-space`。会话 id 不放进 URL：后端一次只持有一个活动空间，刷新后页面也不知道当前空间。进入页面时读取 `session.list` 中最近有消息（`updatedAt`）的会话及其 `session.history`，在侧栏的会话列表里可以切换到其他会话；空间里还没有会话，或点了“新会话”，都等第一次发送才调用 `session.create`，不留下空会话。
+
+输入框下方的 Ghost 按钮显示当前会话的模型。Pi 把模型保存在会话里，已建立的会话一直沿用自己的模型，默认模型只决定新会话用哪个；所以这里显示 `session.list` 给出的会话模型，还没建立的会话显示选中的或默认模型。点击打开 `features/model-picker.tsx` 的会话版本，只列已连接提供方的模型：已建立的会话调用 `session.setModel`，还没建立的记下来，在 `session.create` 时传入；两种都不改默认模型。模型的提供方没有连接时（例如之前的提供方已断开），按钮旁提示发送会失败。运行中不能换。
 
 显示内容由 `lib/conversation.ts` 转换：`historyItems` 把会话记录转成用户消息、助手消息、工具调用、错误和“已停止”标记，提示、view、用量等运行细节不显示；`applyEvent` 按 `session.event` 实时更新，`textDelta` 拼到正在生成的助手消息上，完整的 `message` 覆盖拼接结果，工具调用按 `callId` 更新状态。运行结束（`runEnd` 或 `session.send` 返回）后重新读取会话记录，以记录替换实时内容。store 只处理当前会话的事件。
 
-`session.send` 要等整次运行结束才返回，运行中发送按钮换成“停止”，调用 `session.abort`。模型出错和取消已写进会话记录，由记录显示；没写进记录的失败（例如连接中断）显示在输入框上方，消息内容退回输入框。进入对话页时读取 `model.getDefault`，结果为 `null`（没有可用模型），或发送时后端报 `model_required`，输入框上方改为显示“还没有可用的模型”和去设置页的链接，不再重复显示错误。连接中断时运行状态无法查询，从空闲开始，收到事件再更新。
+`session.send` 要等整次运行结束才返回，运行中发送按钮换成“停止”，调用 `session.abort`。模型出错和取消已写进会话记录，由记录显示；没写进记录的失败（例如连接中断）显示在输入框上方，消息内容退回输入框。进入对话页时读取 `model.getDefault`、`model.list` 和 `model.providers`；当前会话还没有模型且默认模型为 `null`（没有可用模型），或发送时后端报 `model_required`，输入框上方改为显示“还没有可用的模型”和去设置页的链接，不再重复显示错误。连接中断时运行状态无法查询，从空闲开始，收到事件再更新。
 
 页面占满一屏，只有对话记录区滚动，输入框留在底部。顶栏只占一行，铺满工作区宽度：左侧只显示空间名称，过长时截断，悬停显示完整路径；“新会话”是工具栏里的轻量操作，用 Ghost 按钮靠右；对话记录滚动离开顶部后才出现分隔线；移动端左侧让出浮动的导航按钮。对话记录停在底部附近时跟随新内容，往上翻看时不打断。`components/domain/message-composer.tsx` 用 `InputGroup` 把文本框和发送／停止按钮合成一个框（两个按钮都是带可访问名称的图标按钮，发送用 Primary，停止用 Outline），聚焦时边框加深为 `input-focus` 色并加阴影，不加粗，文本框随内容增高，最高 240px 且不超过视口高度的 35%，超出后在框内滚动，长行在框内折行、不撑宽页面；Enter 发送、Shift+Enter 换行，输入法确认候选词的 Enter（`isComposing` 或 Safari 的 `keyCode` 229）不发送；`components/domain/tool-activity.tsx` 用图标加文字显示工具状态，内置工具显示动作名称。用户消息按原文显示并保留换行；助手消息由 `components/ui/markdown.tsx` 渲染成 Markdown，正在生成的那条传 `streaming`。
 
@@ -121,7 +123,7 @@ Web 的 `pages/conversation.tsx` 挂在 `/conversation`，没有打开空间时�
 
 Agent 调用 `bash` 时后端发出 `confirm.request`。`features/command-confirmation.tsx` 挂在工作区布局上，离开对话页也能看到，显示命令和“拒绝／允许”，关闭对话框按拒绝回复；登录用的 input、select、display 请求由设置页的登录流程处理，没有进行中的登录时 store 直接回复取消，避免后端停在等待上。后端取消运行时不撤回已发出的授权请求，`sendMessage` 结束时清空。
 
-`test/conversation.test.ts` 覆盖记录与事件的转换，`test/conversation-store.test.ts` 覆盖延迟建立会话、实时显示与运行结束后替换、失败分类、停止、授权排队和重连后重新打开空间，`test/conversation-page.test.tsx` 覆盖页面的发送、输入法回车、停止、失败退回输入框、授权对话框以及两种发送者的显示方式，`test/markdown.test.tsx` 覆盖 Markdown 元素、两种公式写法、链接与图片限制和生成中的语法补全。
+`test/conversation.test.ts` 覆盖记录与事件的转换，`test/conversation-store.test.ts` 覆盖按最后消息打开会话、切换会话与运行中不切换、给新会话或已建立的会话换模型、换空间清空会话列表、延迟建立会话、实时显示与运行结束后替换、失败分类、停止、授权排队和重连后重新打开空间，`test/conversation-page.test.tsx` 覆盖页面的发送、输入法回车、停止、失败退回输入框、授权对话框、两种发送者的显示方式以及会话模型的显示与更换，`test/markdown.test.tsx` 覆盖 Markdown 元素、两种公式写法、链接与图片限制和生成中的语法补全。
 
 ## 设置页
 

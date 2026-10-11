@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Params, Result } from "@repa/base/protocol";
+import type { ModelRef, Result } from "@repa/base/protocol";
 
 import {
   Dialog,
@@ -14,36 +14,59 @@ import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
 
 type Model = Result<"model.list">[number];
-type ModelRef = Params<"model.setDefault">["model"];
 
-/** 从已连接提供方的模型里选默认模型；一个提供方可能有几百个模型，所以用搜索加列表。 */
-export function DefaultModelDialog({ open, onOpenChange, models, providerNames, current }: {
+type ModelDialogProps = {
   open: boolean;
   onOpenChange(open: boolean): void;
   /** 只包含可用的模型。 */
   models: Model[];
   providerNames: Map<string, string>;
   current: ModelRef | null | undefined;
+};
+
+/** 从已连接提供方的模型里选默认模型。 */
+export function DefaultModelDialog(props: ModelDialogProps) {
+  const setDefaultModel = useAppStore((state) => state.setDefaultModel);
+  return <ModelDialog {...props} title="选择默认模型" description="新会话使用这个模型。" onChoose={setDefaultModel} />;
+}
+
+/** 给当前会话换模型；不改默认模型。 */
+export function ConversationModelDialog(props: ModelDialogProps & { started: boolean }) {
+  const { started, ...rest } = props;
+  const setConversationModel = useAppStore((state) => state.setConversationModel);
+  return <ModelDialog
+    {...rest}
+    title="选择这个会话的模型"
+    description={started ? "之后的消息用这个模型回答，不改默认模型。" : "这个新会话用它开始，不改默认模型。"}
+    onChoose={setConversationModel}
+  />;
+}
+
+/** 一个提供方可能有几百个模型，所以用搜索加列表。 */
+function ModelDialog({ open, onOpenChange, models, providerNames, current, title, description, onChoose }: ModelDialogProps & {
+  title: string;
+  description: string;
+  onChoose(model: ModelRef): Promise<void>;
 }) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>选择默认模型</DialogTitle>
-        <DialogDescription>新会话使用这个模型。</DialogDescription>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       {/* 列表随对话框打开挂载，每次打开时搜索从空开始。 */}
-      <ModelList models={models} providerNames={providerNames} current={current} onChosen={() => onOpenChange(false)} />
+      <ModelList models={models} providerNames={providerNames} current={current} onChoose={onChoose} onChosen={() => onOpenChange(false)} />
     </DialogContent>
   </Dialog>;
 }
 
-function ModelList({ models, providerNames, current, onChosen }: {
+function ModelList({ models, providerNames, current, onChoose, onChosen }: {
   models: Model[];
   providerNames: Map<string, string>;
   current: ModelRef | null | undefined;
+  onChoose(model: ModelRef): Promise<void>;
   onChosen(): void;
 }) {
-  const setDefaultModel = useAppStore((state) => state.setDefaultModel);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState<string>();
   const [error, setError] = useState<unknown>();
@@ -58,7 +81,7 @@ function ModelList({ models, providerNames, current, onChosen }: {
     setSaving(key);
     setError(undefined);
     try {
-      await setDefaultModel({ provider: model.provider, id: model.id });
+      await onChoose({ provider: model.provider, id: model.id });
       onChosen();
     } catch (failure) {
       setError(failure);

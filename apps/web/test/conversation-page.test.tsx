@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { RpcError } from "@repa/base/client";
-import type { SessionEntry } from "@repa/base/protocol";
+import type { Result, SessionEntry, SessionInfo } from "@repa/base/protocol";
 
 import { CommandConfirmationDialog } from "../src/features/command-confirmation";
 import { StoreProvider } from "../src/hooks/use-app-store";
@@ -14,7 +14,11 @@ afterEach(cleanup);
 
 const at = "2026-10-12T00:00:00.000Z";
 
-function backend(history: SessionEntry[] = [], defaultModel: { provider: string; id: string } | null = { provider: "test", id: "m" }) {
+function backend(
+  history: SessionEntry[] = [],
+  defaultModel: { provider: string; id: string } | null = { provider: "test", id: "m" },
+  catalog: { sessions?: SessionInfo[]; models?: Result<"model.list">; providers?: Result<"model.providers"> } = {},
+) {
   const sends: { text: string; finish(error?: unknown): void }[] = [];
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
     switch (method) {
@@ -23,7 +27,11 @@ function backend(history: SessionEntry[] = [], defaultModel: { provider: string;
       case "space.list":
         return Promise.resolve([]);
       case "session.list":
-        return Promise.resolve([{ id: "s1", createdAt: at }]);
+        return Promise.resolve(catalog.sessions ?? [{ id: "s1", createdAt: at, updatedAt: at }]);
+      case "model.list":
+        return catalog.models ? Promise.resolve(catalog.models) : Promise.reject(new Error("未模拟"));
+      case "model.providers":
+        return catalog.providers ? Promise.resolve(catalog.providers) : Promise.reject(new Error("未模拟"));
       case "session.history":
         return Promise.resolve(history);
       case "model.getDefault":
@@ -33,6 +41,7 @@ function backend(history: SessionEntry[] = [], defaultModel: { provider: string;
           sends.push({ text: String(params.text), finish: (error) => error ? reject(error) : resolve(null) });
         });
       case "session.abort":
+      case "session.setModel":
       case "confirm.reply":
         return Promise.resolve(null);
       default:
@@ -169,4 +178,31 @@ it("关闭授权对话框按拒绝回复", async () => {
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 
   await vi.waitFor(() => expect(fake.call).toHaveBeenCalledWith("confirm.reply", { id: "c1", value: false }));
+});
+
+it("显示会话自己的模型，换模型只改这个会话；提供方没连接时提示", async () => {
+  const fake = backend([], { provider: "anthropic", id: "claude" }, {
+    sessions: [{ id: "s1", createdAt: at, updatedAt: at, model: { provider: "fake", id: "tutor" } }],
+    models: [
+      { provider: "fake", id: "tutor", name: "Fake Tutor", available: false },
+      { provider: "anthropic", id: "claude", name: "Claude Sonnet", available: true },
+    ],
+    providers: [
+      { id: "fake", name: "Fake", methods: [], stored: false },
+      { id: "anthropic", name: "Anthropic", methods: [], configured: "api_key", stored: true },
+    ],
+  });
+  await renderConversation(fake);
+
+  const change = await screen.findByRole("button", { name: "更换模型，当前是 Fake Tutor" });
+  expect(screen.getByText("Fake 还没有连接，发送会失败")).toBeTruthy();
+  fireEvent.click(change);
+  const dialog = screen.getByRole("dialog", { name: "选择这个会话的模型" });
+  expect(within(dialog).queryByText("Fake Tutor")).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: /Claude Sonnet/u }));
+
+  expect(await screen.findByRole("button", { name: "更换模型，当前是 Claude Sonnet" })).toBeTruthy();
+  expect(fake.call).toHaveBeenCalledWith("session.setModel", { sessionId: "s1", model: { provider: "anthropic", id: "claude" } });
+  expect(fake.call).not.toHaveBeenCalledWith("model.setDefault", expect.anything());
+  expect(screen.queryByText("Fake 还没有连接，发送会失败")).toBeNull();
 });

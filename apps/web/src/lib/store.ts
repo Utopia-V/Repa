@@ -1,7 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { ConnectionError, RpcError, type RepaClient } from "@repa/base/client";
-import type { Confirmation, Method, Params, Result } from "@repa/base/protocol";
+import type { Confirmation, Method, ModelRef, Params, Result, SessionInfo } from "@repa/base/protocol";
 
 import { applyEvent, emptyConversation, historyItems, type Conversation } from "@/lib/conversation";
 
@@ -21,6 +21,8 @@ type ResourceData = {
   models: Result<"model.list">;
   /** 新会话使用的模型；没有可用模型时为 null。 */
   defaultModel: Result<"model.getDefault">;
+  /** 当前空间的会话，最近有消息的在前；换空间时清空。 */
+  sessions: Result<"session.list">;
 };
 
 type ResourceName = keyof ResourceData;
@@ -66,16 +68,20 @@ export type AppState = {
   /** 浏览结果只属于当次选择，不进入共享状态。 */
   browseFolder(path?: string): Promise<Result<"space.browse">>;
   listRoots(): Promise<Result<"space.roots">>;
-  /** 读取最近建立的会话；空间里还没有会话时等第一次发送再建立。 */
+  /** 读取会话列表并打开最近有消息的会话；空间里还没有会话时等第一次发送再建立。 */
   loadConversation(): Promise<void>;
+  loadSessions(): Promise<void>;
+  /** 运行中不切换：运行状态只属于当前会话，切走后无法再查询。 */
+  openSession(session: SessionInfo): Promise<void>;
   newConversation(): void;
+  /** 已建立的会话调用 session.setModel；还没建立的记下来，建立时使用。 */
+  setConversationModel(model: ModelRef): Promise<void>;
   /** 返回 false 表示消息没有发出去，错误放在 `conversation.sendError`。 */
   sendMessage(text: string): Promise<boolean>;
   stopRun(): Promise<void>;
   replyConfirmation(id: string, allowed: boolean): Promise<void>;
   /** 读取设置页需要的提供方、模型和默认模型。 */
   loadModelSettings(): Promise<void>;
-  loadDefaultModel(): Promise<void>;
   setDefaultModel(model: Params<"model.setDefault">["model"]): Promise<void>;
   /** 失败时抛给调用方；需要更多信息的提供方抛出 requires_interactive_login，调用方改走 login。 */
   saveKey(provider: string, key: string): Promise<void>;
@@ -155,7 +161,22 @@ export function createAppStore() {
       providers: () => load("providers", () => call("model.providers", {})),
       models: () => load("models", () => call("model.list", {})),
       defaultModel: () => load("defaultModel", () => call("model.getDefault", {})),
+      sessions: () => load("sessions", () => call("session.list", {})),
     };
+
+    /** 换空间后丢弃旧空间的会话列表，进行中的读取结果也作废。 */
+    function resetSessions(): void {
+      pending.delete("sessions");
+      sequence.set("sessions", (sequence.get("sessions") ?? 0) + 1);
+      update("sessions", { status: "idle" });
+    }
+
+    /** 发送后会话的排序、预览可能变了；没读过时不读。 */
+    async function reloadSessions(): Promise<void> {
+      if (get().resources.sessions.status === "idle") return;
+      pending.delete("sessions");
+      await loaders.sessions();
+    }
 
     /** 凭据或默认模型变了之后，丢弃进行中的旧读取并重新读取；没读过的等页面需要时再读。 */
     async function reloadModelState(): Promise<void> {
@@ -200,10 +221,15 @@ export function createAppStore() {
       try {
         await call("space.open", { root });
       } catch {
-        if (get().space === root) set({ space: undefined, conversation: emptyConversation });
+        if (get().space === root) {
+          resetSessions();
+          set({ space: undefined, conversation: emptyConversation });
+        }
         return;
       }
-      if (get().space === root && get().conversation.status !== "idle") await reloadHistory();
+      if (get().space !== root) return;
+      // 会话列表依赖打开的空间，不随 reloadLoaded 在打开前读取。
+      await Promise.all([reloadSessions(), get().conversation.status !== "idle" ? reloadHistory() : undefined]);
     }
 
     let unsubscribe: (() => void) | undefined;
@@ -255,6 +281,7 @@ export function createAppStore() {
         providers: { status: "idle" },
         models: { status: "idle" },
         defaultModel: { status: "idle" },
+        sessions: { status: "idle" },
       },
       conversation: emptyConversation,
       confirmations: [],
@@ -280,7 +307,7 @@ export function createAppStore() {
       loadSpaces: loaders.spaces,
       async reloadLoaded() {
         const { resources } = get();
-        const names = (Object.keys(loaders) as ResourceName[]).filter((name) => resources[name].status !== "idle");
+        const names = (Object.keys(loaders) as ResourceName[]).filter((name) => name !== "sessions" && resources[name].status !== "idle");
         await Promise.all(names.map((name) => loaders[name]()));
       },
       async openSpace(root) {
@@ -288,6 +315,7 @@ export function createAppStore() {
         // 换了空间时，上一个空间的会话不再适用。
         if (opened.root !== get().space) {
           conversationRequest++;
+          resetSessions();
           set({ space: opened.root, conversation: emptyConversation });
         }
         // 打开前发出的读取可能不含这次打开，重新读取。
@@ -304,14 +332,30 @@ export function createAppStore() {
         const id = ++conversationRequest;
         updateConversation({ status: "loading", error: undefined });
         try {
-          const sessions = await call("session.list", {});
-          const latest = sessions.reduce<(typeof sessions)[number] | undefined>(
-            (found, session) => !found || session.createdAt > found.createdAt ? session : found,
+          pending.delete("sessions");
+          await loaders.sessions();
+          const { sessions } = get().resources;
+          if (sessions.status === "error") throw sessions.error;
+          const latest = (sessions.data ?? []).reduce<SessionInfo | undefined>(
+            (found, session) => !found || session.updatedAt > found.updatedAt ? session : found,
             undefined,
           );
           const entries = latest ? await call("session.history", { sessionId: latest.id }) : [];
           if (id !== conversationRequest) return;
-          set({ conversation: { ...emptyConversation, status: "ready", sessionId: latest?.id, items: historyItems(entries) } });
+          set({ conversation: { ...emptyConversation, status: "ready", sessionId: latest?.id, model: latest?.model, items: historyItems(entries) } });
+        } catch (error) {
+          if (id === conversationRequest) updateConversation({ status: "error", error });
+        }
+      },
+      loadSessions: loaders.sessions,
+      async openSession(session) {
+        const current = get().conversation;
+        if (current.run !== "idle" || (current.sessionId === session.id && current.status === "ready")) return;
+        const id = ++conversationRequest;
+        set({ confirmations: [], conversation: { ...emptyConversation, status: "loading", sessionId: session.id, model: session.model } });
+        try {
+          const entries = await call("session.history", { sessionId: session.id });
+          if (id === conversationRequest) updateConversation({ status: "ready", items: historyItems(entries) });
         } catch (error) {
           if (id === conversationRequest) updateConversation({ status: "error", error });
         }
@@ -321,6 +365,14 @@ export function createAppStore() {
         conversationRequest++;
         set({ conversation: { ...emptyConversation, status: "ready" } });
       },
+      async setConversationModel(model) {
+        const { sessionId } = get().conversation;
+        if (sessionId) {
+          await call("session.setModel", { sessionId, model });
+          await reloadSessions();
+        }
+        if (get().conversation.sessionId === sessionId) updateConversation({ model });
+      },
       async sendMessage(text) {
         const conversation = get().conversation;
         if (conversation.run !== "idle") return false;
@@ -328,8 +380,9 @@ export function createAppStore() {
         let sessionId = conversation.sessionId;
         try {
           if (!sessionId) {
-            sessionId = (await call("session.create", {})).id;
-            updateConversation({ sessionId });
+            const created = await call("session.create", conversation.model ? { model: conversation.model } : {});
+            sessionId = created.id;
+            updateConversation({ sessionId, model: created.model });
           }
           // 后端等整次运行结束才返回，期间的内容由 session.event 送来。
           await call("session.send", { sessionId, text });
@@ -343,7 +396,9 @@ export function createAppStore() {
           set({ confirmations: [] });
           if (get().conversation.sessionId === sessionId) {
             updateConversation({ run: "idle", streaming: undefined });
-            await reloadHistory();
+            await Promise.all([reloadHistory(), reloadSessions()]);
+          } else {
+            await reloadSessions();
           }
         }
       },
@@ -370,7 +425,6 @@ export function createAppStore() {
       async loadModelSettings() {
         await Promise.all([loaders.providers(), loaders.models(), loaders.defaultModel()]);
       },
-      loadDefaultModel: loaders.defaultModel,
       async setDefaultModel(model) {
         await call("model.setDefault", { model });
         pending.delete("defaultModel");

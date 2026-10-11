@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate } from "react-router";
-import { MessageSquarePlus, RefreshCw } from "lucide-react";
+import { ChevronDown, MessageSquarePlus, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
@@ -9,6 +9,7 @@ import { ConversationMessage } from "@/components/domain/conversation-message";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { MessageComposer } from "@/components/domain/message-composer";
 import { ToolActivity } from "@/components/domain/tool-activity";
+import { ConversationModelDialog } from "@/features/model-picker";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { ConversationItem } from "@/lib/conversation";
 import { errorCode } from "@/lib/errors";
@@ -29,8 +30,11 @@ function Conversation({ space }: { space: string }) {
   const sendMessage = useAppStore((state) => state.sendMessage);
   const stopRun = useAppStore((state) => state.stopRun);
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
-  const loadDefaultModel = useAppStore((state) => state.loadDefaultModel);
+  const models = useAppStore((state) => state.resources.models);
+  const providers = useAppStore((state) => state.resources.providers);
+  const loadModelSettings = useAppStore((state) => state.loadModelSettings);
   const [draft, setDraft] = useState("");
+  const [picking, setPicking] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const record = useRef<HTMLElement>(null);
   // 用户往上翻看时不打断，停在底部附近时跟随新内容。
@@ -40,10 +44,16 @@ function Conversation({ space }: { space: string }) {
     if (conversation.status === "idle") void loadConversation();
   }, [conversation.status, loadConversation]);
 
-  // 只用来判断有没有可用模型；读取失败时不提示，发送时后端仍会报告。
+  // 用来显示当前模型和判断有没有可用模型；读取失败时不提示，发送时后端仍会报告。
   useEffect(() => {
-    void loadDefaultModel();
-  }, [loadDefaultModel]);
+    void loadModelSettings();
+  }, [loadModelSettings]);
+
+  const providerNames = useMemo(
+    () => new Map((providers.data ?? []).map((provider) => [provider.id, provider.name])),
+    [providers.data],
+  );
+  const available = useMemo(() => (models.data ?? []).filter((model) => model.available), [models.data]);
 
   useLayoutEffect(() => {
     const element = record.current;
@@ -68,7 +78,12 @@ function Conversation({ space }: { space: string }) {
 
   const { run, status, items } = conversation;
   const running = run !== "idle";
-  const needsModel = (defaultModel.status === "ready" && defaultModel.data === null)
+  // 已建立的会话用自己保存的模型，还没建立的用选中的或默认模型。
+  const model = conversation.model ?? defaultModel.data ?? undefined;
+  const modelInfo = model && models.data?.find((item) => item.provider === model.provider && item.id === model.id);
+  const modelProvider = model && providers.data?.find((provider) => provider.id === model.provider);
+  const modelName = modelInfo?.name ?? model?.id;
+  const needsModel = (conversation.model === undefined && defaultModel.status === "ready" && defaultModel.data === null)
     || errorCode(conversation.sendError) === "model_required";
 
   // 页面占满一屏，只让对话记录滚动，输入框始终留在底部。
@@ -131,7 +146,30 @@ function Conversation({ space }: { space: string }) {
         stopping={run === "stopping"}
         disabled={!connected || status !== "ready"}
       />
+      {model && <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+        <Button
+          variant="ghost"
+          aria-label={`更换模型，当前是 ${modelName ?? ""}`}
+          title="更换这个会话的模型"
+          disabled={running || status !== "ready" || available.length === 0}
+          onClick={() => setPicking(true)}
+        >
+          <span className="min-w-0 break-all">{modelName}</span>
+          <ChevronDown aria-hidden="true" />
+        </Button>
+        {modelProvider && !modelProvider.configured && <span className="text-sm text-muted-foreground">
+          {modelProvider.name} 还没有连接，发送会失败
+        </span>}
+      </div>}
     </div>
+    <ConversationModelDialog
+      open={picking}
+      onOpenChange={setPicking}
+      models={available}
+      providerNames={providerNames}
+      current={model}
+      started={conversation.sessionId !== undefined}
+    />
   </div>;
 }
 

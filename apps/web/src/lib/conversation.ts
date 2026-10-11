@@ -1,4 +1,4 @@
-import type { AgentEvent, SessionEntry } from "@repa/base/protocol";
+import type { AgentEvent, ModelRef, SessionEntry } from "@repa/base/protocol";
 
 export type ToolStatus = "running" | "done" | "failed" | "incomplete";
 
@@ -18,6 +18,8 @@ export type Conversation = {
   error?: unknown;
   /** 还没有发出第一条消息时为空，发送时才建立会话。 */
   sessionId?: string | undefined;
+  /** 会话保存的模型；还没建立的会话里是用户选的模型，没选时为空，建立时用默认模型。 */
+  model?: ModelRef | undefined;
   items: ConversationItem[];
   /** 正在接收文字的助手消息；工具调用或消息结束后关闭。 */
   streaming?: string | undefined;

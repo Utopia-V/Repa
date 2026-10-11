@@ -21,7 +21,7 @@ function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, Se
       case "session.list":
         return Promise.resolve([...sessions]);
       case "session.create": {
-        const info = { id: `s${sessions.length + 1}`, createdAt: at };
+        const info: SessionInfo = { id: `s${sessions.length + 1}`, createdAt: at, updatedAt: at, model: (params.model as NonNullable<SessionInfo["model"]> | undefined) ?? { provider: "test", id: "default" } };
         sessions.push(info);
         return Promise.resolve(info);
       }
@@ -37,6 +37,11 @@ function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, Se
         });
       case "session.abort":
         return new Promise((resolve) => { aborts.push({ finish: () => resolve(null) }); });
+      case "session.setModel": {
+        const found = sessions.find((session) => session.id === params.sessionId);
+        if (found) found.model = params.model as NonNullable<SessionInfo["model"]>;
+        return Promise.resolve(null);
+      }
       case "confirm.reply":
         return Promise.resolve(null);
       default:
@@ -58,18 +63,23 @@ function event(sessionId: string, value: Omit<AgentEvent, "sessionId" | "runId">
   return { sessionId, runId: "r1", ...value };
 }
 
-it("进入空间时读取最近建立的会话和它的记录", async () => {
+it("进入空间时打开最近有消息的会话，而不是最近建立的", async () => {
   const backend = sessionBackend(
-    [{ id: "old", createdAt: "2026-10-01T00:00:00.000Z" }, { id: "new", createdAt: "2026-10-11T00:00:00.000Z" }],
-    { new: [{ id: "u1", type: "user", timestamp: at, text: "昨天学到哪了" }] },
+    [
+      { id: "old", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-12T00:00:00.000Z", model: { provider: "anthropic", id: "claude" } },
+      { id: "new", createdAt: "2026-10-11T00:00:00.000Z", updatedAt: "2026-10-11T00:00:00.000Z" },
+    ],
+    { old: [{ id: "u1", type: "user", timestamp: at, text: "昨天学到哪了" }] },
   );
   const store = await openedStore(backend);
 
   expect(store.getState().conversation).toMatchObject({
     status: "ready",
-    sessionId: "new",
+    sessionId: "old",
+    model: { provider: "anthropic", id: "claude" },
     items: [{ kind: "user", id: "u1", text: "昨天学到哪了" }],
   });
+  expect(store.getState().resources.sessions.data?.map((session) => session.id)).toEqual(["old", "new"]);
 });
 
 it("空间里没有会话时第一次发送才建立；运行中按事件显示，结束后换成会话记录", async () => {
@@ -107,7 +117,7 @@ it("空间里没有会话时第一次发送才建立；运行中按事件显示�
 });
 
 it("没写进会话记录的失败返回 false 并保留原因；模型出错由记录显示，不另外提示", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
   const store = await openedStore(backend);
 
   const missingModel = store.getState().sendMessage("你好");
@@ -125,7 +135,7 @@ it("没写进会话记录的失败返回 false 并保留原因；模型出错由
 });
 
 it("停止运行时调用取消，取消完成前保持停止中，期间不能再发送", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
   const store = await openedStore(backend);
   const sending = store.getState().sendMessage("出一道题");
   await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
@@ -145,7 +155,7 @@ it("停止运行时调用取消，取消完成前保持停止中，期间不能�
 });
 
 it("命令授权按到达顺序排队，回答后发给后端；登录类请求直接取消；发送结束后清空", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
   const store = await openedStore(backend);
   const sending = store.getState().sendMessage("跑一下测试");
   await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
@@ -167,11 +177,11 @@ it("命令授权按到达顺序排队，回答后发给后端；登录类请求�
 });
 
 it("换连接后重新打开原来的空间并重读会话记录；空间打不开时回到未打开", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at }], { s1: [] });
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }], { s1: [] });
   const store = await openedStore(backend);
   backend.history.s1 = [{ id: "u1", type: "user", timestamp: at, text: "断线前发的" }];
 
-  const next = sessionBackend([{ id: "s1", createdAt: at }], backend.history);
+  const next = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }], backend.history);
   store.getState().setClient(next.client);
   await vi.waitFor(() => expect(store.getState().conversation.items).toEqual([{ kind: "user", id: "u1", text: "断线前发的" }]));
   expect(next.call).toHaveBeenCalledWith("space.open", { root: "/notes/calculus" });
@@ -182,4 +192,62 @@ it("换连接后重新打开原来的空间并重读会话记录；空间打不�
   store.getState().setClient(broken.client);
   await vi.waitFor(() => expect(store.getState().space).toBeUndefined());
   expect(store.getState().conversation.status).toBe("idle");
+});
+
+it("切换到列表里的另一个会话；运行中不切换", async () => {
+  const backend = sessionBackend(
+    [
+      { id: "a", createdAt: at, updatedAt: "2026-10-12T02:00:00.000Z", model: { provider: "fake", id: "tutor" } },
+      { id: "b", createdAt: at, updatedAt: "2026-10-12T01:00:00.000Z", model: { provider: "anthropic", id: "claude" } },
+    ],
+    { b: [{ id: "u1", type: "user", timestamp: at, text: "另一个会话" }] },
+  );
+  const store = await openedStore(backend);
+  const b = store.getState().resources.sessions.data![1]!;
+
+  await store.getState().openSession(b);
+  expect(store.getState().conversation).toMatchObject({
+    status: "ready", sessionId: "b", model: { provider: "anthropic", id: "claude" },
+    items: [{ kind: "user", text: "另一个会话" }],
+  });
+
+  const sending = store.getState().sendMessage("继续");
+  await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+  await store.getState().openSession(store.getState().resources.sessions.data![0]!);
+  expect(store.getState().conversation.sessionId).toBe("b");
+  backend.runs[0]?.finish();
+  await sending;
+});
+
+it("还没建立的会话记下选的模型，建立时使用；已建立的会话调用 session.setModel", async () => {
+  const backend = sessionBackend();
+  const store = await openedStore(backend);
+
+  await store.getState().setConversationModel({ provider: "anthropic", id: "claude" });
+  expect(backend.call).not.toHaveBeenCalledWith("session.setModel", expect.anything());
+  expect(store.getState().conversation.model).toEqual({ provider: "anthropic", id: "claude" });
+
+  const sending = store.getState().sendMessage("你好");
+  await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+  expect(backend.call).toHaveBeenCalledWith("session.create", { model: { provider: "anthropic", id: "claude" } });
+  backend.runs[0]?.finish();
+  await sending;
+  expect(store.getState().resources.sessions.data?.map((session) => session.id)).toEqual(["s1"]);
+
+  await store.getState().setConversationModel({ provider: "openai", id: "gpt" });
+  expect(backend.call).toHaveBeenCalledWith("session.setModel", { sessionId: "s1", model: { provider: "openai", id: "gpt" } });
+  expect(store.getState().conversation.model).toEqual({ provider: "openai", id: "gpt" });
+  expect(store.getState().resources.sessions.data?.[0]?.model).toEqual({ provider: "openai", id: "gpt" });
+
+  // 新会话回到默认模型。
+  store.getState().newConversation();
+  expect(store.getState().conversation.model).toBeUndefined();
+});
+
+it("换空间时清空上一个空间的会话列表", async () => {
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const store = await openedStore(backend);
+  expect(store.getState().resources.sessions.data).toHaveLength(1);
+  await store.getState().openSpace("/notes/algebra");
+  expect(store.getState().resources.sessions).toEqual({ status: "idle" });
 });
