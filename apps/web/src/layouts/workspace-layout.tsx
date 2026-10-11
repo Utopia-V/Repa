@@ -1,6 +1,7 @@
 import { Outlet } from "react-router";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/domain/app-sidebar";
+import { useAppStore } from "@/hooks/use-app-store";
 
 function WorkspaceContent() {
   const { isMobile } = useSidebar();
@@ -12,7 +13,11 @@ function WorkspaceContent() {
 }
 
 export function WorkspaceLayout() {
-  return <SidebarProvider>
+  const sidebar = useAppStore((state) => state.sidebar);
+  const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const setSidebarWidth = useAppStore((state) => state.setSidebarWidth);
+  // 桌面的展开状态和宽度刷新后保留；移动端抽屉每次都从关闭开始，不保存。
+  return <SidebarProvider open={sidebar.open} onOpenChange={setSidebarOpen} width={sidebar.width} onWidthChange={setSidebarWidth}>
     <AppSidebar />
     <WorkspaceContent />
   </SidebarProvider>;

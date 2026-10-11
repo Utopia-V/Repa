@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { ConnectionError, type RepaClient } from "@repa/base/client";
 import type { Method, Params, Result } from "@repa/base/protocol";
 
@@ -18,6 +19,9 @@ type ResourceName = keyof ResourceData;
 
 export type Resources = { [N in ResourceName]: Resource<ResourceData[N]> };
 
+/** 侧栏偏好；宽度未拖动过时为空，由侧栏组件使用默认值。 */
+export type SidebarPreference = { open: boolean; width?: number | undefined };
+
 export type AppState = {
   /** 当前连接；重连后换成新实例，读取函数执行时才取用。 */
   client?: RepaClient;
@@ -34,7 +38,33 @@ export type AppState = {
   /** 浏览结果只属于当次选择，不进入共享状态。 */
   browseFolder(path?: string): Promise<Result<"space.browse">>;
   listRoots(): Promise<Result<"space.roots">>;
+  /** 只有这一项保存在浏览器里，刷新后保留。 */
+  sidebar: SidebarPreference;
+  setSidebarOpen(open: boolean): void;
+  setSidebarWidth(width: number): void;
 };
+
+/** 无痕模式、禁用存储或配额已满时只放弃保存，不打断界面操作。 */
+const browserStorage: StateStorage = {
+  getItem(name) {
+    try { return localStorage.getItem(name); } catch { return null; }
+  },
+  setItem(name, value) {
+    try { localStorage.setItem(name, value); } catch { /* 下次打开回到默认值 */ }
+  },
+  removeItem(name) {
+    try { localStorage.removeItem(name); } catch { /* 同上 */ }
+  },
+};
+
+/** 存储内容可能被旧版本或手动修改过，逐项检查，不合格的回到默认值。 */
+function restoreSidebar(saved: unknown, fallback: SidebarPreference): SidebarPreference {
+  const value = typeof saved === "object" && saved !== null ? saved as Record<string, unknown> : {};
+  return {
+    open: typeof value.open === "boolean" ? value.open : fallback.open,
+    width: typeof value.width === "number" && Number.isFinite(value.width) ? value.width : fallback.width,
+  };
+}
 
 export type AppStore = ReturnType<typeof createAppStore>;
 
@@ -43,7 +73,7 @@ export function createAppStore() {
   const pending = new Map<ResourceName, Promise<void>>();
   const sequence = new Map<ResourceName, number>();
 
-  return createStore<AppState>()((set, get) => {
+  return createStore<AppState>()(persist((set, get) => {
     async function call<M extends Method>(method: M, params: Params<M>): Promise<Result<M>> {
       const client = get().client;
       if (!client) throw new ConnectionError("尚未连接后端。");
@@ -112,6 +142,21 @@ export function createAppStore() {
       listRoots() {
         return call("space.roots", {});
       },
+      sidebar: { open: true },
+      setSidebarOpen(open) {
+        set((state) => ({ sidebar: { ...state.sidebar, open } }));
+      },
+      setSidebarWidth(width) {
+        set((state) => ({ sidebar: { ...state.sidebar, width } }));
+      },
     };
-  });
+  }, {
+    name: "repa.web.preferences",
+    storage: createJSONStorage(() => browserStorage),
+    partialize: (state) => ({ sidebar: state.sidebar }),
+    merge: (saved, current) => ({
+      ...current,
+      sidebar: restoreSidebar((saved as { sidebar?: unknown } | undefined)?.sidebar, current.sidebar),
+    }),
+  }));
 }

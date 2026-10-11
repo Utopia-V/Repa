@@ -8,7 +8,7 @@ import { routes } from "../src/routes";
 import { mockMatchMedia } from "./match-media";
 
 beforeEach(() => { mockMatchMedia(); });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
 
 function renderWorkspace(path = "/") {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
@@ -56,6 +56,25 @@ it("Sidebar 的桌面开关可收起并重新打开导航", () => {
   const openButtons = screen.getAllByRole("button", { name: "打开导航" });
   fireEvent.click(openButtons[openButtons.length - 1]!);
   expect(document.querySelector('[data-slot="sidebar"]')?.getAttribute("data-state")).toBe("expanded");
+});
+
+
+it("刷新后保留桌面侧栏的收起状态和拖动出的宽度", () => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
+  renderWorkspace("/learning-space");
+  const rail = screen.getByRole("button", { name: "切换侧栏" });
+  vi.spyOn(document.querySelector<HTMLElement>('[data-slot="sidebar-container"]')!, "getBoundingClientRect")
+    .mockReturnValue({ width: 280 } as DOMRect);
+  fireEvent.pointerDown(rail, { clientX: 280, button: 0 });
+  fireEvent.pointerMove(rail, { clientX: 350 });
+  fireEvent.pointerUp(rail);
+  fireEvent.click(screen.getByRole("button", { name: "收起导航" }));
+  cleanup();
+
+  // 新的 store 相当于刷新页面，从浏览器存储恢复。
+  renderWorkspace("/learning-space");
+  expect(document.querySelector('[data-slot="sidebar"]')?.getAttribute("data-state")).toBe("collapsed");
+  expect(document.querySelector<HTMLElement>('[data-slot="sidebar-wrapper"]')?.style.getPropertyValue("--sidebar-width")).toContain("350px");
 });
 
 

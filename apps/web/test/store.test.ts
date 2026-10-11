@@ -1,7 +1,12 @@
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { RepaClient } from "@repa/base/client";
 
 import { createAppStore } from "../src/lib/store";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  localStorage.clear();
+});
 
 /** 每次调用返回一个由测试决定何时完成的结果。 */
 function deferredClient() {
@@ -58,4 +63,33 @@ it("重新读取期间保留上一次的数据", async () => {
 
   void store.getState().reloadLoaded();
   expect(store.getState().resources.spaces).toMatchObject({ status: "loading", data: ["/notes/physics"] });
+});
+
+it("只把侧栏偏好保存到浏览器，新建的 store 读回它", () => {
+  const store = createAppStore();
+  store.getState().setSidebarOpen(false);
+  store.getState().setSidebarWidth(360);
+
+  expect(JSON.parse(localStorage.getItem("repa.web.preferences") ?? "null")).toEqual({
+    state: { sidebar: { open: false, width: 360 } },
+    version: 0,
+  });
+  expect(createAppStore().getState().sidebar).toEqual({ open: false, width: 360 });
+});
+
+it("保存的偏好格式不对时逐项回到默认值", () => {
+  localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { sidebar: { open: "no", width: 300 } }, version: 0 }));
+  expect(createAppStore().getState().sidebar).toEqual({ open: true, width: 300 });
+
+  localStorage.setItem("repa.web.preferences", "{");
+  expect(createAppStore().getState().sidebar).toEqual({ open: true });
+});
+
+it("浏览器存储不可用时侧栏状态仍可在本页切换", () => {
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("SecurityError"); });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("QuotaExceededError"); });
+  const store = createAppStore();
+
+  expect(() => store.getState().setSidebarOpen(false)).not.toThrow();
+  expect(store.getState().sidebar.open).toBe(false);
 });

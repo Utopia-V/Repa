@@ -64,6 +64,8 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  width: widthProp,
+  onWidthChange,
   className,
   style,
   children,
@@ -72,18 +74,27 @@ function SidebarProvider({
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /** 受控宽度，例如由外部保存的偏好；超出范围时按允许范围显示。 */
+  width?: number | undefined
+  onWidthChange?: (width: number) => void
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
   const [_width, _setWidth] = React.useState(SIDEBAR_WIDTH_DEFAULT)
+  const width = clampSidebarWidth(widthProp ?? _width)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
 
   // 拖动改宽的提交入口；始终收敛到允许范围内。
   const setWidth = React.useCallback(
     (value: number | ((prev: number) => number)) => {
-      _setWidth((prev) => clampSidebarWidth(typeof value === "function" ? value(prev) : value, sidebarWidthMaxNow()))
+      const next = clampSidebarWidth(typeof value === "function" ? value(width) : value, sidebarWidthMaxNow())
+      if (onWidthChange) {
+        onWidthChange(next)
+      } else {
+        _setWidth(next)
+      }
     },
-    []
+    [onWidthChange, width]
   )
 
   React.useEffect(() => {
@@ -144,11 +155,11 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
-      width: _width,
+      width,
       setWidth,
       triggerRef,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, _width, setWidth]
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, width, setWidth]
   )
 
   return (
@@ -158,7 +169,7 @@ function SidebarProvider({
           data-slot="sidebar-wrapper"
           style={
             {
-              "--sidebar-width": `min(${_width}px, 40vw)`,
+              "--sidebar-width": `min(${width}px, 40vw)`,
               "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
               ...style,
             } as React.CSSProperties
