@@ -20,9 +20,10 @@ import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions } from "../agent.js";
 import type { AgentTask, AgentWork, CompletionRequest, Tool } from "../plugin.js";
+import { withRun } from "../run-context.js";
 import { RepaFault, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
-import { exactEditTool } from "./edit.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
+import { FileScope, generalFileTools } from "./files.js";
 import { applyPromptSections, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
 
@@ -238,12 +239,18 @@ class Runtime implements AgentRuntime {
 class Space implements AgentSpace {
   private sessions = new Map<string, Promise<Session>>();
   private closed = false;
+  private writeScope?: Promise<FileScope>;
 
   constructor(readonly runtime: Runtime, readonly options: AgentSpaceOptions, private onClose: () => void) {}
 
   assertOpen(): void {
     this.runtime.assertOpen();
     if (this.closed) throw new RepaFault("space_closed", "Agent 空间已经关闭");
+  }
+
+  fileScope(): Promise<FileScope> {
+    this.writeScope ??= FileScope.create(this.options.root, false);
+    return this.writeScope;
   }
 
   async defaults(): Promise<{ id: string; text: string }[]> {
@@ -442,7 +449,7 @@ class Session implements AgentSession {
       settingsManager: runtime.settings,
       resourceLoader: loader,
       tools: ["read", "bash", "edit", "write", "grep", "find", "ls", ...options.tools().map(tool => tool.name), ...(runtime.options.toolNames ?? [])],
-      customTools: [exactEditTool(options.root), ...options.tools().map(toolDefinition)],
+      customTools: [...generalFileTools(await this.space.fileScope()), ...options.tools().map(toolDefinition)],
     });
     this.pi = result.session;
     const lastUsage = this.manager.getBranch().findLast(entry => {
@@ -511,12 +518,15 @@ class Session implements AgentSession {
         started = true;
         this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart" });
         try {
-          // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
-          this.currentSections = await promptSections(this.space.options, await this.space.defaults());
-          this.currentViews = await this.space.options.views();
-          controller.signal.throwIfAborted();
-          this.manager.appendCustomEntry("repa-run", { runId });
-          await this.session.prompt(text);
+          // view、工具和文件写入都在运行上下文内执行，能读到本次 runId。
+          await withRun({ runId, sessionId: this.manager.getSessionId(), agent: "general" }, async () => {
+            // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
+            this.currentSections = await promptSections(this.space.options, await this.space.defaults());
+            this.currentViews = await this.space.options.views();
+            controller.signal.throwIfAborted();
+            this.manager.appendCustomEntry("repa-run", { runId });
+            await this.session.prompt(text);
+          });
           const last = this.session.messages.findLast(message => message.role === "assistant");
           if (last?.role === "assistant" && last.stopReason === "aborted") status = "aborted";
           if (last?.role === "assistant" && last.stopReason === "error") throw new RepaFault("model_error", last.errorMessage ?? "模型请求失败");

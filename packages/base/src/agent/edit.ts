@@ -1,16 +1,21 @@
-import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createEditToolDefinition, defineTool, generateDiffString, generateUnifiedPatch, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 
+/** 编辑时读写文件的入口；调用方在这里检查路径范围。 */
+export interface EditFiles {
+  read(file: string): Promise<string>;
+  write(file: string, text: string): Promise<void>;
+}
+
 /** 保留 Pi 的参数与展示，只替换会规范化全文的编辑步骤。 */
-export function exactEditTool(cwd: string): ToolDefinition {
+export function exactEditTool(cwd: string, files: EditFiles): ToolDefinition {
   const builtin = createEditToolDefinition(cwd);
   return defineTool({
     ...builtin,
     async execute(_callId, input, signal) {
       signal?.throwIfAborted();
       const file = path.resolve(cwd, input.path);
-      const before = await readFile(file, "utf8");
+      const before = await files.read(file);
       const replacements = input.edits.map(edit => {
         if (edit.oldText.length === 0) throw new Error("oldText 不得为空");
         const start = before.indexOf(edit.oldText);
@@ -27,7 +32,7 @@ export function exactEditTool(cwd: string): ToolDefinition {
       for (const edit of replacements.toReversed()) after = after.slice(0, edit.start) + edit.text + after.slice(edit.end);
       if (after === before) throw new Error("编辑没有改变文件");
       signal?.throwIfAborted();
-      await writeFile(file, after, "utf8");
+      await files.write(file, after);
       const diff = generateDiffString(before, after);
       return {
         content: [{ type: "text" as const, text: `已精确编辑 ${input.path}` }],

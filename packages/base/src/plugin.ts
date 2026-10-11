@@ -51,6 +51,9 @@ export interface ModelScope {
 // 父插件可把 scope.models 转交子插件，提前关闭时先取消并等待模型工作，再关闭子实例。
 export { createModelScope } from "./plugins/models.js";
 
+// 工具在 Agent 运行内执行时，可读到本次运行与父运行的 id。
+export { currentRun, type RunContext } from "./run-context.js";
+
 export interface Files {
   read(file: string): Promise<string>;
   write(file: string, text: string): Promise<void>;
