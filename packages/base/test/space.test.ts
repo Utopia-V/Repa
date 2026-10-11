@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 
-import { createSpace, openSpace } from "../src/space.js";
+import { withRun } from "../src/run-context.js";
+import type { Revision } from "../src/plugin.js";
+import { createSpace, openSpace, type Space } from "../src/space.js";
 import { RepaFault } from "../src/schema.js";
 
 async function fixture(t: TestContext, watch = false) {
@@ -90,6 +93,119 @@ test("外部编辑由 watcher 通知，控制目录变化不会形成历史修�
   await writeFile(path.join(space.dataDir, "plugins", "test", "state.json"), "{}");
   await space.flush();
   assert.deepEqual(await space.history.list(), before);
+});
+
+function revisionChanges(space: Space, id: string | undefined) {
+  return space.history.changes().then((feed) => feed.revisions.find((revision) => revision.id === id)?.changes.map((change) => change.path));
+}
+
+test("插件在运行之外的写入记在插件名下，只提交它写的路径；运行内的写入记到当前运行和祖先链，可按祖先运行撤回", async (t) => {
+  const { space } = await fixture(t);
+  const files = space.filesFor({ kind: "plugin", pluginId: "learning" });
+  // watcher 关着，这两处外部改动只能由之后的快照发现。
+  await writeFile(path.join(space.root, "elsewhere.txt"), "别处的改动");
+  await mkdir(path.join(space.root, "notes"));
+  await writeFile(path.join(space.root, "notes", "a.md"), "用户先改的");
+  await files.write("notes/a.md", "插件写的");
+  const [written, external] = await space.history.list(2);
+  assert.deepEqual(written?.source, { kind: "plugin", pluginId: "learning" });
+  assert.deepEqual(await revisionChanges(space, written?.id), ["notes/a.md"]);
+  // 写入前这个路径上的改动先记成 external；别处的改动不混进来。
+  assert.deepEqual(external?.source, { kind: "external" });
+  assert.deepEqual(await revisionChanges(space, external?.id), ["notes/a.md"]);
+  await withRun({ runId: "child", ancestorRunIds: ["parent"], sessionId: "session", agent: "writer" }, () => files.write("notes/b.md", "运行里调用插件写的"));
+  const [inRun] = await space.history.list(1);
+  assert.deepEqual(inRun?.source, { kind: "agent", runId: "child", ancestorRunIds: ["parent"] });
+  assert.deepEqual(await revisionChanges(space, inRun?.id), ["notes/b.md"]);
+  assert.equal((await space.history.changes()).revisions.some((revision) => revision.changes.some((change) => change.path === "elsewhere.txt")), false);
+  // 按祖先运行撤回，连带它的子运行；插件名下的写入不受影响。
+  const undone = await space.history.undoRun("parent");
+  assert.deepEqual([undone.restored, undone.conflicts], [["notes/b.md"], []]);
+  await assert.rejects(readFile(path.join(space.root, "notes", "b.md")), { code: "ENOENT" });
+  assert.equal(await readFile(path.join(space.root, "notes", "a.md"), "utf8"), "插件写的");
+});
+
+test("不透明写入者持有空间写锁时，按路径的写入等它结束；等待中取消的写入不再执行", async (t) => {
+  const { space } = await fixture(t);
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  let enter!: () => void;
+  const entered = new Promise<void>((resolve) => { enter = resolve; });
+  const opaque = space.record({ kind: "agent", runId: "shell" }, async () => {
+    enter();
+    await released;
+    await writeFile(path.join(space.root, "shell.txt"), "命令行写的");
+  });
+  await entered;
+  const order: string[] = [];
+  const waiting = space.filesFor({ kind: "plugin", pluginId: "learning" }).write("plugin.txt", "插件写的").then(() => { order.push("plugin"); });
+  const controller = new AbortController();
+  let ran = false;
+  const cancelled = space.writes.lock(async () => { ran = true; }, controller.signal);
+  controller.abort();
+  await assert.rejects(cancelled, /Operation aborted/u);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(order.length, 0);
+  release();
+  await opaque.then(() => { order.push("shell"); });
+  await waiting;
+  assert.deepEqual(order, ["shell", "plugin"]);
+  assert.equal(ran, false);
+  const [plugin, shell] = await space.history.list(2);
+  assert.deepEqual(shell?.source, { kind: "agent", runId: "shell" });
+  assert.deepEqual(await revisionChanges(space, shell?.id), ["shell.txt"]);
+  assert.deepEqual(plugin?.source, { kind: "plugin", pluginId: "learning" });
+  assert.deepEqual(await revisionChanges(space, plugin?.id), ["plugin.txt"]);
+});
+
+async function executable(name: string): Promise<string> {
+  for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
+    const candidate = path.join(directory, name);
+    try {
+      await access(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(`PATH 中没有 ${name}`);
+}
+
+// 把 PATH 里的 git 换成先记下参数的包装脚本；整空间快照每次都以 read-tree --empty 开始，按路径的快照不用它。
+async function recordGitCommands(t: TestContext): Promise<() => Promise<string[]>> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-git-commands-"));
+  const log = path.join(directory, "commands.log");
+  await writeFile(path.join(directory, "git"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${await executable("git")}' "$@"\n`, { mode: 0o755 });
+  const previous = process.env.PATH;
+  process.env.PATH = `${directory}${path.delimiter}${previous ?? ""}`;
+  t.after(async () => {
+    process.env.PATH = previous;
+    await rm(directory, { recursive: true, force: true });
+  });
+  return async () => (await readFile(log, "utf8")).split("\n").filter((line) => line.length > 0);
+}
+
+test("watcher 只按变了的路径快照，整空间扫描只在打开空间和撤回之前", { skip: process.platform === "win32" }, async (t) => {
+  const commands = await recordGitCommands(t);
+  const wholeScans = async () => (await commands()).filter((line) => line.endsWith(" read-tree --empty")).length;
+  const { space } = await fixture(t, true);
+  assert.equal(await wholeScans(), 1);
+  const observed = new Promise<Revision>((resolve) => {
+    const remove = space.onRevision((revision) => {
+      if (revision.source.kind !== "external") return;
+      remove();
+      resolve(revision);
+    });
+  });
+  await writeFile(path.join(space.root, "external.txt"), "编辑器里的改动");
+  const revision = await observed;
+  assert.deepEqual(await revisionChanges(space, revision.id), ["external.txt"]);
+  assert.ok((await commands()).some((line) => line.includes(" ls-files ") && line.endsWith(" -- external.txt")));
+  await space.filesFor({ kind: "plugin", pluginId: "learning" }).write("plugin.txt", "插件写的");
+  await space.flush();
+  assert.equal(await wholeScans(), 1);
+  await space.history.undo(revision.id);
+  assert.equal(await wholeScans(), 2);
 });
 
 test("打开空间时在 .repa/ 放一份忽略全部内容的 .ignore，被改动后再次打开会恢复", async (t) => {

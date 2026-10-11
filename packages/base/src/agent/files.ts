@@ -15,6 +15,9 @@ import { RepaFault } from "../schema.js";
 import { existingPath, within } from "../space/paths.js";
 import { exactEditTool } from "./edit.js";
 
+// Pi 的 write 和底座的 edit 在这条队列里读写同一个文件；空间宿主的插件写入也用它。
+export { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+
 /** 空间根目录下第一层的 .repa；不区分大小写，大小写不敏感的文件系统上 .REPA 就是同一个目录。 */
 function inDataDir(root: string, file: string): boolean {
   const relative = path.relative(root, file);

@@ -58,6 +58,8 @@ export const methods = {
   "history.list": { params: object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })) }), result: historyList },
   "history.changes": { params: object({ since: Type.Optional(identifier) }), result: historyChanges },
   "history.undo": { params: object({ revision: identifier }), result: historyUndo },
+  // 撤回一个运行及其全部子孙运行；runId 来自 runStart 事件或会话里的 run 条目。
+  "history.undoRun": { params: object({ runId: identifier }), result: historyUndo },
   "plugin.list": { params: empty, result: Type.Array(object({ id: identifier, methods: Type.Array(identifier), tools: Type.Array(identifier) })) },
   "plugin.call": { params: object({ pluginId: identifier, method: identifier, input: Type.Unknown() }), result: Type.Unknown() },
   "prompt.list": { params: agent, result: Type.Array(PromptSectionSchema) },

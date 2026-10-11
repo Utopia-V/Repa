@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { Check } from "typebox/value";
 import { WebSocket, WebSocketServer } from "ws";
-import { createAgentRuntime, type AgentRuntime, type AgentSpace } from "../agent.js";
+import { createAgentRuntime, withFileMutationQueue, type AgentRuntime, type AgentSpace } from "../agent.js";
 import type { Plugin } from "../plugin.js";
 import { openPluginHost, type PluginHost } from "../plugins.js";
 import {
@@ -172,7 +172,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     const resolved = path.resolve(root);
     if (active?.space.root === resolved && !create) return { root: resolved };
     await closeActive();
-    const space = await (create ? createSpace(resolved) : openSpace(resolved));
+    // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
+    const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue });
     let plugins: PluginHost | undefined;
     let agent: AgentSpace | undefined;
     try {
@@ -316,6 +317,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return requireActive().space.history.changes(p<"history.changes">().since);
       case "history.undo":
         return requireActive().space.history.undo(p<"history.undo">().revision);
+      case "history.undoRun":
+        return requireActive().space.history.undoRun(p<"history.undoRun">().runId);
       case "plugin.list":
         return requireActive().plugins.list();
       case "plugin.call": {

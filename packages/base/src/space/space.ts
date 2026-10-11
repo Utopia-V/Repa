@@ -7,9 +7,27 @@ import path from "node:path";
 import { openHistory, watchHistory, type ActivitySource, type Revision, type Snapshot } from "@repa/space-history";
 import lockfile from "proper-lockfile";
 
+import { currentRun } from "../run-context.js";
 import type { Space, SpaceOptions } from "../space.js";
 import { RepaFault } from "../schema.js";
+import { WriteGate } from "./gate.js";
 import { directory, existingPath, ignoreDataDir, within } from "./paths.js";
+
+// 历史变化的通知在模块加载时的空上下文里分发：插件的变化处理不属于触发这次提交的运行，
+// 也不在不透明写入者的窗口里，它的写入记在插件名下。
+const detached = AsyncLocalStorage.snapshot();
+
+/** 当前运行作为写入来源；运行之外为 undefined。 */
+function runSource(): ActivitySource | undefined {
+  const run = currentRun();
+  if (run === undefined) return undefined;
+  return run.ancestorRunIds.length === 0
+    ? { kind: "agent", runId: run.runId }
+    : { kind: "agent", runId: run.runId, ancestorRunIds: [...run.ancestorRunIds] };
+}
+
+// 没有装配同一文件的写入队列时直接执行；提交仍由历史队列串行。
+const unqueued = <T>(_file: string, action: () => Promise<T>): Promise<T> => action();
 
 export async function createSpace(root: string, options: SpaceOptions = {}): Promise<Space> {
   await mkdir(root, { recursive: true });
@@ -48,8 +66,11 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     await directory(path.join(dataDir, "history.git"));
     await ignoreDataDir(dataDir);
     const raw = await openHistory(root);
-    const activity = new AsyncLocalStorage<boolean>();
+    // 不透明写入者（record）的窗口：动作结束时关上，此后仍在运行的异步工作按普通写入者处理。
+    const activity = new AsyncLocalStorage<{ open: boolean }>();
     const owned = new AsyncLocalStorage<boolean>();
+    const gate = new WriteGate();
+    const fileQueue = options.fileQueue ?? unqueued;
     const operations = new Set<Promise<unknown>>();
     const listeners = new Set<(revision: Revision) => void>();
     let notifications: Promise<void> = Promise.resolve();
@@ -93,13 +114,17 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
       return operation;
     }
 
+    function inWindow(): boolean {
+      return activity.getStore()?.open === true;
+    }
+
     function checkHistoryRead(): void {
       checkOpen();
       // record 的动作持有历史队列；先读变化再修改，不能在动作里等待同一队列。
-      if (activity.getStore()) throw new RepaFault("history_during_activity", "历史读取必须在 record 动作之前完成");
+      if (inWindow()) throw new RepaFault("history_during_activity", "历史读取必须在 record 动作之前完成");
     }
 
-    const unsubscribe = raw.onRevision((id) => {
+    const unsubscribe = raw.onRevision((id) => detached(() => {
       scheduleMaintenance();
       // 在 capture 内只登记后续读取；等当前历史操作结束后再通知使用者。
       const revisions = raw.list();
@@ -111,7 +136,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
         notificationError = error;
         onError(error);
       });
-    });
+    }));
 
     async function settled(): Promise<void> {
       let current: Promise<void>;
@@ -126,16 +151,61 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
       }
     }
 
+    /**
+     * 不透明写入者：独占空间写锁，前后各扫描一次整个空间，期间的改动都记到 source 名下。
+     * 动作里经过底座的写入直接落盘，不另进历史队列，算在这次快照里。
+     */
     function record<T>(source: ActivitySource, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }> {
       return track(async () => {
-        if (activity.getStore()) throw new RepaFault("nested_history_activity", "record 动作不能嵌套；文件写入会加入当前活动");
+        if (inWindow()) throw new RepaFault("nested_history_activity", "record 动作不能嵌套；文件写入会加入当前活动");
         try {
-          return await raw.record(source, () => activity.run(true, action));
+          return await gate.exclusive(() => {
+            const window = { open: true };
+            return raw.record(source, () => activity.run(window, async () => {
+              try {
+                return await action();
+              } finally {
+                window.open = false;
+              }
+            }));
+          });
         } finally {
           await settled();
         }
       });
     }
+
+    function spacePath(file: string): string {
+      return path.relative(root, file).split(path.sep).join("/");
+    }
+
+    /**
+     * 按路径记一次写入：先把这个路径上尚未记录的改动记成 external，再在历史队列里执行 action，最后只提交这个路径。
+     * action 在队列里执行，写入前的基线核对也就在这里做。
+     */
+    function recordPath<T>(source: ActivitySource, file: string, action: () => Promise<T>): Promise<T> {
+      return track(async () => {
+        try {
+          return (await raw.recordPaths(source, [spacePath(file)], action)).value;
+        } finally {
+          await settled();
+        }
+      });
+    }
+
+    const writes: Space["writes"] = {
+      lock(action, signal) {
+        if (inWindow()) return action();
+        checkOpen();
+        return gate.shared(action, signal);
+      },
+      commit(file, action) {
+        if (inWindow()) return action();
+        const source = runSource();
+        if (source === undefined) return Promise.reject(new RepaFault("run_required", "Agent 的文件写入只能在运行中进行"));
+        return recordPath(source, file, action);
+      },
+    };
 
     async function checkedPath(file: string): Promise<string> {
       checkOpen();
@@ -157,12 +227,13 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
         },
         write(file: string, text: string): Promise<void> {
           return track(async () => {
+            const destination = await checkedPath(file);
+            if (destination === root) throw new RepaFault("invalid_file_path", "写入路径必须是文件");
             const save = async () => {
-              const destination = await checkedPath(file);
-              if (destination === root) throw new RepaFault("invalid_file_path", "写入路径必须是文件");
               await mkdir(path.dirname(destination), { recursive: true });
-              // 创建父目录后再次解析，避免把已有链接误当作尚未创建的目录。
+              // 创建父目录后再次解析，避免把已有链接误当作尚未创建的目录；记账的路径也要和实际写入的一致。
               const checked = await checkedPath(file);
+              if (checked !== destination) throw new RepaFault("file_outside_space", "写入路径在写入期间指向了别处", { file });
               const temporary = path.join(path.dirname(checked), `.repa-write-${randomUUID()}`);
               let mode = 0o600;
               try {
@@ -190,13 +261,23 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
                 await rm(temporary, { force: true });
               }
             };
-            if (activity.getStore()) {
-              await save();
-            } else if (source) {
-              await record(source, save);
-            } else {
-              await save();
-              await raw.snapshot();
+            // 同一文件的写入与 Agent 的写入工具共用一条队列。不透明写入者的窗口里直接落盘，算在它的快照里。
+            if (inWindow()) {
+              await fileQueue(destination, save);
+              return;
+            }
+            // 来源取当前运行，运行之外是插件；空间自身的文件接口没有来源，按外部改动记下这个路径。
+            const recorded = runSource() ?? source;
+            try {
+              await gate.shared(() => fileQueue(destination, async () => {
+                if (recorded !== undefined) {
+                  await raw.recordPaths(recorded, [spacePath(destination)], save);
+                } else {
+                  await save();
+                  await raw.snapshotPaths([spacePath(destination)]);
+                }
+              }));
+            } finally {
               await settled();
             }
           });
@@ -224,11 +305,17 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     }
     const files = filesFor();
 
+    // watcher 只记变了的路径；拿不到文件名时才扫描整个空间。
     const watcher = options.watch === false ? undefined : watchHistory(raw, (notify) => {
       const handle = watch(root, { recursive: true }, (_event, name) => {
-        const parts = name?.toString().split(path.sep);
-        if (parts?.[0] === ".repa" || parts?.some((part) => part === ".git")) return;
-        notify();
+        if (name === null) {
+          notify();
+          return;
+        }
+        const parts = name.toString().split(path.sep).filter((part) => part !== "" && part !== ".");
+        if (parts[0] === ".repa" || parts.some((part) => part === ".git")) return;
+        if (parts.length === 0 || parts.includes("..")) notify();
+        else notify(parts.join("/"));
       });
       handle.on("error", onError);
       return () => { handle.close(); };
@@ -252,13 +339,21 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
           await settled();
         }
       },
+      async undoRun(runId) {
+        checkHistoryRead();
+        try {
+          return await raw.undoRun(runId);
+        } finally {
+          await settled();
+        }
+      },
     };
 
     // 旧库可能已经积累对象；即使本次打开后没有新提交，也安排一次检查。
     scheduleMaintenance();
 
     return {
-      root, dataDir, sessionsDir, history, files, filesFor, record,
+      root, dataDir, sessionsDir, history, files, filesFor, record, writes,
       async pluginDataDir(id) {
         checkOpen();
         if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new RepaFault("invalid_plugin_id", "插件 id 格式不正确", { id });
@@ -274,19 +369,18 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
       },
       async flush() {
         checkHistoryRead();
+        // 整空间扫描只在打开空间和撤回之前；这里只保存 watcher 已经观察到的路径。
         await watcher?.flush();
-        await raw.snapshot();
         await settled();
       },
       close() {
-        if (activity.getStore()) return Promise.reject(new RepaFault("history_during_activity", "空间关闭必须在 record 动作完成后进行"));
+        if (inWindow()) return Promise.reject(new RepaFault("history_during_activity", "空间关闭必须在 record 动作完成后进行"));
         if (closing === undefined) {
           clearMaintenanceTimer();
           closing = (async () => {
             try {
               await Promise.allSettled([...operations]);
               await watcher?.close();
-              await raw.snapshot();
               await settled();
               if (!compromised) await raw.maintain({ canRun: () => !compromised });
             } finally {

@@ -69,3 +69,5 @@ export interface AgentRuntimeOptions {
 }
 
 export { createAgentRuntime } from "./agent/runtime.js";
+// Agent 写入工具（Pi 的 write、edit）使用的同一文件写入队列；装配空间时交给插件写入共用。
+export { withFileMutationQueue } from "./agent/files.js";
