@@ -34,6 +34,8 @@ export interface AgentTask {
 /** Agent 定义可以选用的 Pi 内置工具。 */
 export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
+/** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent。 */
+export const RESERVED_TOOL_NAMES: readonly string[] = [...BUILTIN_TOOLS, "powershell", "subagent"];
 
 /** 用户经前端发给插件 Agent 会话的一条消息。后台任务与子 Agent 收到的任务不经过这里。 */
 export interface UserMessage {

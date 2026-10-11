@@ -6,10 +6,11 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
+import { createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
+import type { AgentEvent } from "../src/schema.js";
 
-async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}) {
+async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, options: Pick<AgentTestOptions, "grepTimeoutMs"> = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-agent-files-"));
   const outside = await mkdtemp(path.join(os.tmpdir(), "repa-agent-outside-"));
   const agentDir = path.join(root, ".repa", "test-agent");
@@ -22,6 +23,7 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}) {
     modelRuntime: models,
     defaultModel: { provider: faux.getModel().provider, id: "test" },
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
+    ...options,
   });
   t.after(async () => {
     await runtime.close();
@@ -177,3 +179,68 @@ test("插件 Agent 列目录、查找和搜索都看不到 .repa/ 与空间外�
   assert.equal(results[6]?.text, `notes/a.md-1- 第一行\nnotes/a.md:2: ${marker} 在笔记里\nnotes/a.md-3- `);
   for (const index of [1, 3, 5]) assert.match(results[index]?.text ?? "", /只能访问当前空间内的文件，不含 \.repa\//u);
 });
+
+test("插件 Agent 访问大小写不同的 .REPA 同样被拒绝，列目录也不显示它", async t => {
+  const f = await fixture(t, { agents: () => [writer] });
+  await mkdir(path.join(f.root, ".REPA"));
+  await writeFile(path.join(f.root, ".REPA", "notes.txt"), "大小写不同的数据目录");
+  const session = await f.space.create({ agent: "writer" });
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("write", { path: ".Repa/injected.txt", content: "不应写入" }),
+      fauxToolCall("read", { path: ".REPA/notes.txt" }),
+      fauxToolCall("ls", {}),
+    ]),
+    fauxAssistantMessage("已尝试"),
+  ]);
+  await session.send("访问数据目录");
+  const results = toolResults(session);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["read", true], ["ls", false]]);
+  assert.equal(results[2]?.text, "(empty directory)");
+  await assert.rejects(readFile(path.join(f.root, ".Repa", "injected.txt")), { code: "ENOENT" });
+});
+
+test("插件 Agent 的 grep 遇到回溯失控的 pattern 时服务照常响应，超时后停止搜索并返回工具错误", async t => {
+  const f = await fixture(t, { agents: () => [writer] }, { grepTimeoutMs: 300 });
+  await writeFile(path.join(f.root, "slow.txt"), `${"a".repeat(40)}b\n`);
+  const session = await f.space.create({ agent: "writer" });
+  let ticks = 0;
+  const timer = setInterval(() => { ticks++; }, 10);
+  t.after(() => clearInterval(timer));
+  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("grep", { pattern: "(a+)+$" })), fauxAssistantMessage("搜索已停止")]);
+  await session.send("搜索");
+  clearInterval(timer);
+  const [result] = toolResults(session);
+  assert.equal(result?.isError, true);
+  assert.match(result?.text ?? "", /搜索超过 0\.3 秒仍未完成/u);
+  // 正则在主线程回溯时定时器无法运行；搜索放在独立线程里，主线程在这段时间仍然处理事件。
+  assert.ok(ticks >= 10, `搜索期间主线程只处理了 ${ticks} 次定时器`);
+  assert.equal(session.history().findLast(entry => entry.type === "assistant")?.text, "搜索已停止");
+});
+
+test("取消运行时插件 Agent 的 grep 立即停止，不等搜索超时", async t => {
+  const toolStarted = deferred();
+  const f = await fixture(t, {
+    agents: () => [writer],
+    onEvent(event: AgentEvent) {
+      if (event.type === "toolStart" && event.tool === "grep") toolStarted.resolve();
+    },
+  });
+  await writeFile(path.join(f.root, "slow.txt"), `${"a".repeat(40)}b\n`);
+  const session = await f.space.create({ agent: "writer" });
+  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("grep", { pattern: "(a+)+$" })), fauxAssistantMessage("不应继续")]);
+  const running = session.send("搜索").catch(() => undefined);
+  await toolStarted.promise;
+  const started = Date.now();
+  await session.abort();
+  await running;
+  assert.ok(Date.now() - started < 5000, "取消等到了搜索超时");
+  assert.equal(toolResults(session)[0]?.isError, true);
+  assert.equal(f.faux.state.callCount, 1);
+});
+
+function deferred<T = void>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  const promise = new Promise<T>(complete => { resolve = complete; });
+  return { promise, resolve };
+}

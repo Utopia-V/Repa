@@ -34,7 +34,7 @@ npm run start --workspace=@repa/base -- serve \
   --no-general-agent --direct-agent notes-organizer
 ```
 
-`--direct-agent` 可重复；给出后只有这些 Agent 能直接对话，覆盖定义中的 `direct`。嵌入时对应 `startServer` 的 `generalAgent: false` 和 `directAgents`。
+`--direct-agent` 可重复；给出后只有这些 Agent 能直接对话，覆盖定义中的 `direct`，其中有不存在或已关掉的 Agent 时打开空间返回 `unknown_agent`。嵌入时对应 `startServer` 的 `generalAgent: false` 和 `directAgents`。
 
 浏览器从独立子路径引用客户端：
 
@@ -168,8 +168,8 @@ agents: () => [{
 
 - **会话**：建会话或后台任务时选定 Agent，之后不能更换；Pi 只声明这个 Agent 的工具。插件 Agent 的提示只有空间段（空间路径与根目录 `AGENTS.md`）和 `agent:<id>`，view 只有 `agent:<id>`。基础说明、Skill 目录、工具清单段和各插件的说明只属于通用 Agent。
 - **通用 Agent**：底座自带，id 为 `general`，带全部内置工具和全部插件的说明、工具与 view。读取范围不变；写入和精确编辑只在空间内，包括 `.repa/`。
-- **文件范围**：插件 Agent 的 read、write、edit、ls、find、grep 只在空间内且不进 `.repa/`，字面路径和解析符号链接后的路径都要在范围内。find 与 grep 不进入 `.git`、`node_modules`，不跟随符号链接，不读 `.gitignore`；grep 的 pattern 按 JavaScript 正则表达式解释，跳过二进制文件和超过 10MB 的文件。bash 不限路径，仍按命令策略确认。
-- **子 Agent**：列了 `subagents` 的会话多一个 `subagent` 工具，参数为 `agent` 和 `task`；插件工具不能使用这个名字。子 Agent 的工具超过父 Agent 时不启动，工具结果为错误。子 Agent 在新会话中运行，看不到父对话，最后一条回复作为工具结果交回；父运行取消时子运行一起取消，空间关闭等待子运行结束。
+- **文件范围**：插件 Agent 的 read、write、edit、ls、find、grep 只在空间内且不进 `.repa/`（不分大小写），字面路径和解析符号链接后的路径都要在范围内。find 与 grep 不进入 `.git`、`node_modules`，不跟随符号链接，不读 `.gitignore`；grep 的 pattern 按 JavaScript 正则表达式解释，跳过二进制文件和超过 10MB 的文件，在独立线程中搜索，超过 20 秒或运行取消时停止。bash 不限路径，仍按命令策略确认。
+- **子 Agent**：列了 `subagents` 的会话多一个 `subagent` 工具，参数为 `agent` 和 `task`；插件工具不能使用这个名字（保留名见 `RESERVED_TOOL_NAMES`）。子 Agent 的工具超过父 Agent 时不启动，工具结果为错误。子 Agent 在新会话中运行，看不到父对话，最后一条回复作为工具结果交回；父运行取消时子运行一起取消，空间关闭等待子运行结束。
 - **后台任务**：`host.models.runAgent({ agent, text })` 运行指定 Agent，省略 `agent` 时为通用 Agent；后台 Agent 不必能直接对话。
 - **消息判断**：`beforeMessage` 收到 `{ sessionId, agent, mode, text, runId? }`，`mode` 为 `send`、`steer` 或 `followUp`，会话正在运行时带 `runId`。返回 `{ status: "rejected", reason, message, data? }` 时消息不进入会话；不返回或返回 `{ status: "accepted" }` 时照常处理。判断抛错同样不放行。后台任务和子 Agent 收到的任务不经过判断；判断期间用户取消了运行，这条消息不再投递。
 - **运行上下文**：运行内的工具、view 和插件写入可以调用 `currentRun()`，取得 `{ runId, parentRunId?, sessionId, agent }`；运行之外返回 `undefined`。
@@ -228,6 +228,7 @@ Agent 相关的约定：
 | --- | --- |
 | `agent_not_found` | Agent 不存在或已关掉，`{ agent }`；也用于打开这类 Agent 的旧会话 |
 | `agent_not_direct` | Agent 不能直接对话，`{ agent }` |
+| `unknown_agent` | 打开空间时，装配指定的直接对话 Agent 不存在或已关掉，`{ agent }` |
 | `message_rejected` | 插件拒收用户消息；`message` 是插件给用户的说明，`details` 为 `{ agent, reason, data? }`，按 `reason` 分支处理 |
 | `message_check_failed` | 插件判断消息时出错，消息没有发送，`{ agent }` |
 

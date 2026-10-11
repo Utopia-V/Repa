@@ -282,3 +282,21 @@ test("装配指定的直接对话 Agent 覆盖定义：通用 Agent 不在其中
   await assert.rejects(f.client.call("session.create", { agent: "tutor" }), rejectsWith("agent_not_direct"));
   assert.equal((await f.client.call("session.create", { agent: "writer" })).agent, "writer");
 });
+
+test("装配指定的直接对话 Agent 写错 id 时打开空间失败，而不是让所有 Agent 都不能对话", { timeout: 30000 }, async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-defs-typo-"));
+  const root = path.join(directory, "space");
+  await mkdir(root);
+  const server = await startServer({ home: path.join(directory, "home"), plugins: [learningPlugin()], directAgents: ["tutr"] });
+  const client = await RepaClient.connect(server.connection);
+  t.after(async () => {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await assert.rejects(client.call("space.open", { root }), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.deepEqual(error.data, { code: "unknown_agent", details: { agent: "tutr" } });
+    return true;
+  });
+});

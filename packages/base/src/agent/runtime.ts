@@ -19,7 +19,7 @@ import {
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions } from "../agent.js";
-import { BUILTIN_TOOLS, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest, type Tool } from "../plugin.js";
+import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest, type Tool } from "../plugin.js";
 import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
@@ -36,6 +36,7 @@ export interface AgentTestOptions extends AgentRuntimeOptions {
   cacheTtlMs?: number;
   extensionFactories?: ExtensionFactory[];
   toolNames?: string[];
+  grepTimeoutMs?: number;
 }
 
 export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<AgentRuntime> {
@@ -79,7 +80,8 @@ interface AgentProfile {
 function toolsBeyond(child: AgentProfile, parent: AgentProfile): string[] {
   const allowed = new Set([...parent.builtins, ...parent.tools.map(tool => tool.name)]);
   const beyond = [...child.builtins, ...child.tools.map(tool => tool.name)].filter(name => !allowed.has(name));
-  // 通用 Agent 的读取和搜索不限于空间，插件 Agent 的同名工具达不到这个范围。
+  // 通用 Agent 的读取和搜索不限于空间，插件 Agent 的同名工具达不到这个范围。插件宿主不允许把
+  // general 列为子 Agent，这里防的是直接构造 AgentSpaceOptions 的嵌入方。
   if (child.general && !parent.general) beyond.push(...["read", "grep", "find", "ls"].filter(name => !beyond.includes(name)));
   return beyond;
 }
@@ -153,6 +155,11 @@ class Runtime implements AgentRuntime {
 
   async openSpace(options: AgentSpaceOptions): Promise<AgentSpace> {
     this.assertOpen();
+    // 装配写错 Agent id 时立即报告，而不是让所有 Agent 都变得不能直接对话。
+    const known = new Set([...(options.generalAgent === false ? [] : [GENERAL_AGENT]), ...(options.agents?.() ?? []).map(agent => agent.id)]);
+    for (const agent of options.directAgents ?? []) {
+      if (!known.has(agent)) throw new RepaFault("unknown_agent", "装配指定的直接对话 Agent 不存在或未启用", { agent });
+    }
     await mkdir(options.sessionsDir, { recursive: true });
     const space = new Space(this, options, () => this.spaces.delete(space));
     this.spaces.add(space);
@@ -298,7 +305,12 @@ class Space implements AgentSpace {
   fileScope(excludeData: boolean): Promise<FileScope> {
     let scope = this.scopes.get(excludeData);
     if (scope === undefined) {
-      scope = FileScope.create(this.options.root, excludeData);
+      const created = FileScope.create(this.options.root, excludeData);
+      // 只缓存成功的结果；一次读取根目录失败后，下次建会话重新尝试。
+      created.catch(() => {
+        if (this.scopes.get(excludeData) === created) this.scopes.delete(excludeData);
+      });
+      scope = created;
       this.scopes.set(excludeData, scope);
     }
     return scope;
@@ -513,7 +525,7 @@ class Session implements AgentSession {
     const { runtime, options } = this.space;
     const profile = this.space.profile(this.agent);
     this.assembled = profile;
-    const reservedTools = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell", SUBAGENT_TOOL]);
+    const reservedTools = new Set(RESERVED_TOOL_NAMES);
     const names = new Set<string>();
     for (const tool of profile.tools) {
       // Pi 1.1.0 将这些字符解释为工具选择规则，插件工具必须是字面名称。
@@ -588,7 +600,7 @@ class Session implements AgentSession {
     const model = runtime.model(reference ?? (saved ? { provider: saved.provider, id: saved.modelId } : undefined));
     // 工具清单在创建时固定；插件 Agent 的内置文件工具换成限在空间内、不进 .repa/ 的实现。
     const scope = await this.space.fileScope(!profile.general);
-    const fileTools = profile.general ? generalFileTools(scope) : spaceFileTools(scope, profile.builtins);
+    const fileTools = profile.general ? generalFileTools(scope) : spaceFileTools(scope, profile.builtins, { grepTimeoutMs: runtime.options.grepTimeoutMs });
     const result = await createAgentSession({
       cwd: options.root,
       agentDir: runtime.options.agentDir,
@@ -654,7 +666,7 @@ class Session implements AgentSession {
   }
 
   async send(text: string): Promise<void> {
-    // 没有判断的 Agent 同步进入 run，取消仍能拿到刚开始的运行，与原有时序一致。
+    // 没有判断的 Agent 不经过 admit，同步进入 run：多一次 await 会让紧随其后的取消拿不到这次运行。
     if (this.profile.beforeMessage !== undefined) {
       this.assertAccepting();
       await this.admit("send", text);
@@ -709,9 +721,7 @@ class Session implements AgentSession {
   }
 
   private async run(text: string, parent?: ParentRun): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
-    this.space.assertOpen();
-    if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
-    if (this.cancelling) throw new RepaFault("cancelled", "会话运行正在取消");
+    this.assertAccepting();
     const runId = randomUUID();
     const controller = new AbortController();
     let finish: () => void = () => undefined;

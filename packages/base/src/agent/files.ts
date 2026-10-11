@@ -1,6 +1,8 @@
 import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 import {
   createFindToolDefinition,
   createGrepToolDefinition,
@@ -19,6 +21,7 @@ import {
 import { RepaFault } from "../schema.js";
 import { existingPath, within } from "../space/paths.js";
 import { exactEditTool } from "./edit.js";
+import { GREP_THREAD, inDataDir, posixPath, walk, type GrepJob, type GrepOutcome } from "./search.js";
 
 /** 文件工具的路径边界：限在空间根目录内，可以再排除 .repa/。 */
 export class FileScope {
@@ -29,7 +32,7 @@ export class FileScope {
   }
 
   private allowed(root: string, file: string): boolean {
-    return within(root, file) && !(this.excludeData && within(path.join(root, ".repa"), file));
+    return within(root, file) && !(this.excludeData && inDataDir(root, file));
   }
 
   /** 字面路径和解析符号链接后的路径都要在范围内，链接不能把工具带出空间。 */
@@ -50,7 +53,12 @@ export class FileScope {
 
   /** 用于已解析的路径：是否落在被排除的 .repa/ 中。 */
   isExcluded(file: string): boolean {
-    return this.excludeData && within(path.join(this.realRoot, ".repa"), file);
+    return this.excludeData && inDataDir(this.realRoot, file);
+  }
+
+  /** 交给搜索线程的根目录，与 isExcluded 使用同一个解析结果。 */
+  get resolvedRoot(): string {
+    return this.realRoot;
   }
 }
 
@@ -60,13 +68,18 @@ export function generalFileTools(scope: FileScope): ToolDefinition[] {
 }
 
 /** 插件 Agent 的内置文件工具，只生成定义中列出的那些；读写、列目录和搜索都不出 scope。 */
-export function spaceFileTools(scope: FileScope, names: readonly string[]): ToolDefinition[] {
-  const factories: Record<string, (scope: FileScope) => ToolDefinition> = {
-    read: readTool, write: writeTool, edit: editTool, ls: lsTool, find: findTool, grep: grepTool,
+export function spaceFileTools(scope: FileScope, names: readonly string[], options: { grepTimeoutMs?: number } = {}): ToolDefinition[] {
+  const factories: Record<string, () => ToolDefinition> = {
+    read: () => readTool(scope),
+    write: () => writeTool(scope),
+    edit: () => editTool(scope),
+    ls: () => lsTool(scope),
+    find: () => findTool(scope),
+    grep: () => grepTool(scope, options.grepTimeoutMs ?? GREP_TIMEOUT_MS),
   };
   return names.flatMap(name => {
     const factory = factories[name];
-    return factory ? [factory(scope)] : [];
+    return factory ? [factory()] : [];
   });
 }
 
@@ -122,35 +135,10 @@ function lsTool(scope: FileScope): ToolDefinition {
       async readdir(directory) {
         const resolved = await scope.resolve(directory);
         const names = await readdir(resolved);
-        return scope.isRoot(resolved) ? names.filter(name => name !== ".repa") : names;
+        return scope.isRoot(resolved) ? names.filter(name => name.toLowerCase() !== ".repa") : names;
       },
     },
   }));
-}
-
-interface WalkEntry {
-  path: string;
-  directory: boolean;
-}
-
-/** 从已检查的目录向下遍历：不进 .repa、.git 和 node_modules，不跟随符号链接。 */
-async function* walk(scope: FileScope, directory: string): AsyncGenerator<WalkEntry> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
-  for (const entry of entries) {
-    const file = path.join(directory, entry.name);
-    if (entry.name === ".git" || entry.name === "node_modules" || scope.isExcluded(file)) continue;
-    if (entry.isDirectory()) {
-      yield { path: file, directory: true };
-      yield* walk(scope, file);
-    } else if (entry.isFile()) {
-      yield { path: file, directory: false };
-    }
-  }
-}
-
-function posixPath(file: string): string {
-  return file.split(path.sep).join("/");
 }
 
 /** 沿用 Pi 调用 fd 的写法：不含 / 的模式匹配文件名，含 / 的模式在任意深度匹配相对路径。 */
@@ -168,7 +156,7 @@ function findTool(scope: FileScope): ToolDefinition {
       async glob(pattern, directory, options) {
         const start = await scope.resolve(directory);
         const results: string[] = [];
-        for await (const entry of walk(scope, start)) {
+        for await (const entry of walk(start, file => scope.isExcluded(file))) {
           const relative = posixPath(path.relative(start, entry.path));
           if (!findMatches(pattern, relative)) continue;
           results.push(entry.directory ? `${relative}/` : relative);
@@ -185,71 +173,74 @@ function findTool(scope: FileScope): ToolDefinition {
 }
 
 const GREP_LIMIT = 100;
-const GREP_FILE_BYTES = 10 * 1024 * 1024;
+const GREP_TIMEOUT_MS = 20_000;
+// 源码经 tsx 运行时本模块后缀为 .ts，构建后为 .js；搜索线程入口与本模块同目录、同后缀。
+const GREP_WORKER = new URL(`./search${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url);
 
-/** 沿用 ripgrep 的 glob 写法：不含 / 的模式匹配文件名，! 开头表示排除。 */
-function grepMatches(glob: string, relative: string): boolean {
-  const excluded = glob.startsWith("!");
-  const pattern = excluded ? glob.slice(1) : glob;
-  const matched = path.matchesGlob(pattern.includes("/") ? relative : path.posix.basename(relative), pattern);
-  return excluded ? !matched : matched;
-}
-
-/** 与 ripgrep 遍历目录时一致，跳过二进制文件；过大的文件也不整份读入内存。 */
-async function searchableText(file: string): Promise<string | undefined> {
-  if ((await stat(file)).size > GREP_FILE_BYTES) return undefined;
-  const content = await readFile(file);
-  if (content.subarray(0, 8000).includes(0)) return undefined;
-  return content.toString("utf8");
-}
-
-async function* only(file: string): AsyncGenerator<WalkEntry> {
-  yield { path: file, directory: false };
+/** 在独立线程中搜索：模型给出的正则即使回溯失控，也只占用这个线程，超时或取消时终止它。 */
+function runGrep(job: GrepJob, timeoutMs: number, signal: AbortSignal | undefined): Promise<GrepOutcome> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(GREP_WORKER, { workerData: { [GREP_THREAD]: job } });
+    let settled = false;
+    const finish = (outcome: { value: GrepOutcome } | { error: Error }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      // 等线程实际停止再交回结果，工具结束后不留下仍在运行的搜索。
+      worker.terminate().catch(() => undefined).finally(() => {
+        if ("value" in outcome) resolve(outcome.value);
+        else reject(outcome.error);
+      });
+    };
+    const timer = setTimeout(() => {
+      finish({ error: new Error(`搜索超过 ${timeoutMs / 1000} 秒仍未完成，已经停止；可以缩小搜索范围或换用更简单的 pattern`) });
+    }, timeoutMs);
+    const abort = () => finish({ error: new Error("Operation aborted") });
+    signal?.addEventListener("abort", abort, { once: true });
+    // 搜索线程只回传 GrepOutcome，由同一进程的 search.ts 构造。
+    worker.once("message", (value: GrepOutcome) => finish({ value }));
+    worker.once("error", error => finish({ error }));
+    worker.once("exit", code => finish({ error: new Error(`搜索线程意外退出（${code}）`) }));
+  });
 }
 
 // Pi 的 grep 直接对搜索路径启动 ripgrep，operations 只能检查起点；从空间根目录搜索时仍会进入 .repa/，
-// 所以插件 Agent 的 grep 沿用 Pi 的参数与输出格式，在进程内遍历空间。
-function grepTool(scope: FileScope): ToolDefinition {
+// 所以插件 Agent 的 grep 沿用 Pi 的参数与输出格式，在独立线程中遍历空间。
+function grepTool(scope: FileScope, timeoutMs: number): ToolDefinition {
   const builtin = createGrepToolDefinition(scope.root);
   return defineTool({
     ...builtin,
-    description: `在当前空间的文件中搜索内容，返回匹配行的路径和行号。pattern 按 JavaScript 正则表达式解释，literal 为 true 时按原文匹配。不进入 .repa、.git、node_modules，不跟随符号链接，跳过二进制文件和超过 10MB 的文件。最多返回 ${GREP_LIMIT} 个匹配或 ${DEFAULT_MAX_BYTES / 1024}KB。`,
+    description: `在当前空间的文件中搜索内容，返回匹配行的路径和行号。pattern 按 JavaScript 正则表达式解释，literal 为 true 时按原文匹配。不进入 .repa、.git、node_modules，不跟随符号链接，跳过二进制文件和超过 10MB 的文件。最多返回 ${GREP_LIMIT} 个匹配或 ${DEFAULT_MAX_BYTES / 1024}KB，超过 ${timeoutMs / 1000} 秒停止。`,
     async execute(_callId, input, signal) {
       signal?.throwIfAborted();
       const target = await scope.resolve(input.path ?? ".");
-      const directory = (await stat(target)).isDirectory();
       const limit = Math.max(1, input.limit ?? GREP_LIMIT);
-      const around = input.context !== undefined && input.context > 0 ? input.context : 0;
       const source = input.literal ? input.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : input.pattern;
-      const expression = new RegExp(source, input.ignoreCase ? "i" : "");
-      const output: string[] = [];
-      let matches = 0;
+      const flags = input.ignoreCase ? "i" : "";
+      // 先在主线程编译一次，pattern 有语法错误时直接作为工具错误返回。
+      new RegExp(source, flags);
+      const outcome = await runGrep({
+        root: scope.resolvedRoot,
+        target,
+        directory: (await stat(target)).isDirectory(),
+        source,
+        flags,
+        ...(input.glob === undefined ? {} : { glob: input.glob }),
+        limit,
+        context: input.context !== undefined && input.context > 0 ? input.context : 0,
+      }, timeoutMs, signal);
+      if (outcome.matches === 0) return { content: [{ type: "text" as const, text: "No matches found" }], details: undefined };
       let linesTruncated = false;
-      for await (const entry of directory ? walk(scope, target) : only(target)) {
-        if (entry.directory) continue;
-        const relative = directory ? posixPath(path.relative(target, entry.path)) : path.basename(entry.path);
-        if (input.glob !== undefined && !grepMatches(input.glob, relative)) continue;
-        signal?.throwIfAborted();
-        const text = await searchableText(entry.path);
-        if (text === undefined) continue;
-        const lines = text.replace(/\r\n?/g, "\n").split("\n");
-        for (let index = 0; index < lines.length && matches < limit; index++) {
-          if (!expression.test(lines[index] ?? "")) continue;
-          matches++;
-          const last = Math.min(lines.length - 1, index + around);
-          for (let line = Math.max(0, index - around); line <= last; line++) {
-            const shown = truncateLine(lines[line] ?? "");
-            if (shown.wasTruncated) linesTruncated = true;
-            output.push(line === index ? `${relative}:${line + 1}: ${shown.text}` : `${relative}-${line + 1}- ${shown.text}`);
-          }
-        }
-        if (matches >= limit) break;
-      }
-      if (matches === 0) return { content: [{ type: "text" as const, text: "No matches found" }], details: undefined };
+      const output = outcome.lines.map(line => {
+        const shown = truncateLine(line.text);
+        if (shown.wasTruncated) linesTruncated = true;
+        return line.match ? `${line.file}:${line.line}: ${shown.text}` : `${line.file}-${line.line}- ${shown.text}`;
+      });
       const truncation = truncateHead(output.join("\n"), { maxLines: Number.MAX_SAFE_INTEGER });
       const details: GrepToolDetails = {};
       const notices: string[] = [];
-      if (matches >= limit) {
+      if (outcome.matches >= limit) {
         notices.push(`已达到 ${limit} 个匹配的上限，可用 limit=${limit * 2} 或更具体的 pattern 继续`);
         details.matchLimitReached = limit;
       }

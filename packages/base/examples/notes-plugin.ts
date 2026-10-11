@@ -173,7 +173,7 @@ export function createNotesPlugin(childPlugin: Plugin = notebook): Plugin {
         return {
           instructions: () => `笔记插件用于保存文字和整理笔记。${opened.instructions?.() ?? ""}`,
           tools: () => opened.tools?.() ?? [],
-          agents: () => [{
+          agents: () => [...(opened.agents?.() ?? []), {
             id: "notes-organizer",
             description: "阅读 notes/ 中的笔记并给出整理建议",
             instructions: () => "你阅读 notes/ 中的笔记，给出整理建议。你只能读取和查找空间内的文件，不修改它们。",

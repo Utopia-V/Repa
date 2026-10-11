@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { Check } from "typebox/value";
-import { BUILTIN_TOOLS, type AgentDefinition, type Host, type PluginInstance, type Tool } from "../plugin.js";
+import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type Host, type PluginInstance, type Tool } from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { object, parse, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
@@ -151,7 +151,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       ids.add(plugin.id);
     }
     const names = new Set<string>();
-    const reservedNames = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell", "subagent"]);
+    const reservedNames = new Set(RESERVED_TOOL_NAMES);
     const declaredAgents: AgentDefinition[] = [];
     for (const plugin of options.plugins) {
       const dataDir = await space.pluginDataDir(plugin.id);
