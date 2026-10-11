@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { RpcError, type RepaClient } from "@repa/base/client";
 
 import { StoreProvider } from "../src/hooks/use-app-store";
 import { createAppStore } from "../src/lib/store";
 import { LearningSpacePage } from "../src/pages/learning-space";
+import { fakeClient } from "./fake-client";
 
 afterEach(cleanup);
 
@@ -28,13 +30,20 @@ function fakeBackend(recent: string[], options: { failOpen?: unknown; failList?:
     }
     return Promise.reject(new Error(`未模拟的方法 ${method}`));
   });
-  return { call, client: { call } as unknown as RepaClient };
+  return { call, ...fakeClient(call) };
 }
 
 function renderPage(client: RepaClient) {
   const store = createAppStore();
   store.getState().setClient(client);
-  render(<StoreProvider store={store}><LearningSpacePage /></StoreProvider>);
+  render(<StoreProvider store={store}>
+    <MemoryRouter initialEntries={["/learning-space"]}>
+      <Routes>
+        <Route path="/learning-space" element={<LearningSpacePage />} />
+        <Route path="/conversation" element={<h2>对话页</h2>} />
+      </Routes>
+    </MemoryRouter>
+  </StoreProvider>);
   return store;
 }
 
@@ -48,17 +57,16 @@ it("列出最近空间，显示文件夹名和完整路径", async () => {
   expect(items.every((item) => item.getAttribute("aria-pressed") === "false")).toBe(true);
 });
 
-it("点击最近空间后打开它，并按后端结果更新顺序", async () => {
+it("点击最近空间后打开它并进入对话，按后端结果更新顺序", async () => {
   const { call, client } = fakeBackend(["/notes/physics", "/notes/history"]);
-  renderPage(client);
+  const store = renderPage(client);
 
   fireEvent.click(await screen.findByRole("button", { name: /history/ }));
 
-  expect(await screen.findByText("已打开 history，会话界面正在接入。")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "对话页" })).toBeTruthy();
   expect(call).toHaveBeenCalledWith("space.open", { root: "/notes/history" });
-  const items = within(screen.getByRole("list", { name: "最近打开" })).getAllByRole("button");
-  expect(items[0]?.textContent).toContain("/notes/history");
-  expect(items[0]?.getAttribute("aria-pressed")).toBe("true");
+  expect(store.getState().space).toBe("/notes/history");
+  expect(store.getState().resources.spaces.data).toEqual(["/notes/history", "/notes/physics"]);
 });
 
 it("打开失败时显示后端说明，列表仍可再次选择", async () => {

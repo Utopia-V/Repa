@@ -2,13 +2,17 @@ import { FolderOpen } from "lucide-react";
 import { NavLink } from "react-router";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarHeader,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar,
+  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem,
+  SidebarRail, SidebarTrigger, useSidebar,
 } from "@/components/ui/sidebar";
+import { useAppStore } from "@/hooks/use-app-store";
+import { folderName } from "@/lib/paths";
 
 const collapseLabel = "group-data-[collapsible=icon]:sr-only";
 
 export function AppSidebar() {
   const { state, setOpenMobile } = useSidebar();
+  const space = useAppStore((store) => store.space);
   const closeMobileSidebar = () => setOpenMobile(false);
   const collapsedTitle = (label: string) => state === "collapsed" ? label : undefined;
 
@@ -29,6 +33,16 @@ export function AppSidebar() {
                   <FolderOpen aria-hidden="true" /><span className={collapseLabel}>Learning Space</span>
                 </NavLink>
               </SidebarMenuButton>
+              {/* 后端一次只持有一个空间，这里只列出当前打开的那个，最近空间仍在 Learning Space 页选择。 */}
+              {space && <SidebarMenuSub>
+                <SidebarMenuSubItem>
+                  <SidebarMenuSubButton asChild>
+                    <NavLink to="/conversation" onClick={closeMobileSidebar} title={space}>
+                      <span>{folderName(space)}</span>
+                    </NavLink>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              </SidebarMenuSub>}
             </SidebarMenuItem>
           </SidebarMenu>
         </nav>

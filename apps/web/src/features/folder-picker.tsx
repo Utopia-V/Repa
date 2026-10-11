@@ -20,7 +20,7 @@ type Listing = Result<"space.browse">;
 type Roots = Result<"space.roots">;
 type View = { kind: "folder"; listing: Listing } | { kind: "roots"; roots: Roots };
 
-export function FolderPickerDialog({ open, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
+export function FolderPickerDialog({ open, onOpenChange, onOpened }: { open: boolean; onOpenChange(open: boolean): void; onOpened?(): void }) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader>
@@ -28,7 +28,10 @@ export function FolderPickerDialog({ open, onOpenChange }: { open: boolean; onOp
         <DialogDescription>选一个文件夹作为学习空间，Repa 会在里面保存学习数据。</DialogDescription>
       </DialogHeader>
       {/* 内容随对话框打开挂载，每次打开都从用户目录重新开始。 */}
-      <FolderBrowser onOpened={() => onOpenChange(false)} />
+      <FolderBrowser onOpened={() => {
+        onOpenChange(false);
+        onOpened?.();
+      }} />
     </DialogContent>
   </Dialog>;
 }

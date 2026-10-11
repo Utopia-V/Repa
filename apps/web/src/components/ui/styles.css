@@ -8,9 +8,11 @@
   }
   button[data-slot],
   input[data-slot],
-  select[data-slot] {
+  select[data-slot],
+  textarea[data-slot] {
     appearance: none;
     background-color: transparent;
+    color: inherit;
     font: inherit;
   }
   [data-slot="button"],

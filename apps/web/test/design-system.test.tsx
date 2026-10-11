@@ -133,6 +133,7 @@ describe("主题可读性", () => {
   );
   it.each([
     ["input", "card"],
+    ["input-focus", "card"],
     ["ring", "card"],
     ["ring", "accent"],
   ])("%s 在 %s 上有可辨识的控件边界", (fg, bg) =>

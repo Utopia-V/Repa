@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { RpcError, type RepaClient } from "@repa/base/client";
 
 import { StoreProvider } from "../src/hooks/use-app-store";
 import { createAppStore } from "../src/lib/store";
 import { LearningSpacePage } from "../src/pages/learning-space";
+import { fakeClient } from "./fake-client";
 
 afterEach(cleanup);
 
@@ -51,13 +53,20 @@ function fakeBackend(folders: Record<string, Folder>, options: { failOpen?: unkn
     }
     return Promise.reject(new Error(`未模拟的方法 ${method}`));
   });
-  return { call, client: { call } as unknown as RepaClient };
+  return { call, ...fakeClient(call) };
 }
 
 function renderPage(client: RepaClient) {
   const store = createAppStore();
   store.getState().setClient(client);
-  render(<StoreProvider store={store}><LearningSpacePage /></StoreProvider>);
+  render(<StoreProvider store={store}>
+    <MemoryRouter initialEntries={["/learning-space"]}>
+      <Routes>
+        <Route path="/learning-space" element={<LearningSpacePage />} />
+        <Route path="/conversation" element={<h2>对话页</h2>} />
+      </Routes>
+    </MemoryRouter>
+  </StoreProvider>);
 }
 
 async function openPicker() {
@@ -91,7 +100,7 @@ it("从用户目录开始浏览，标出已有空间，进入后提示这是已�
   expect(within(dialog).getByText("这是已有的学习空间。")).toBeTruthy();
 });
 
-it("在普通文件夹点打开后打开空间、关闭选择框并更新最近列表", async () => {
+it("在普通文件夹点打开后打开空间、关闭选择框并进入对话", async () => {
   const { call, client } = fakeBackend(tree);
   renderPage(client);
   const dialog = await openPicker();
@@ -101,10 +110,9 @@ it("在普通文件夹点打开后打开空间、关闭选择框并更新最近�
 
   fireEvent.click(within(dialog).getByRole("button", { name: "打开" }));
 
-  expect(await screen.findByText("已打开 notes，会话界面正在接入。")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "对话页" })).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(call).toHaveBeenCalledWith("space.open", { root: "C:\\Users\\aqua\\notes" });
-  expect(within(screen.getByRole("list", { name: "最近打开" })).getByRole("button").getAttribute("aria-pressed")).toBe("true");
 });
 
 it("走到盘的根目录后上一级列出磁盘，可以换到另一个盘继续浏览", async () => {

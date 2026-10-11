@@ -7,6 +7,7 @@ export function ConversationMessage({ sender, className, ...props }: Omit<Compon
     {...props}
     data-sender={sender}
     variant={sender === "user" ? "emphasized" : "default"}
-    className={cn("mb-4 max-w-[95%]", sender === "user" && "ml-auto w-fit", className)}
+    // 用户消息靠右、宽度随内容并按原文保留换行；助手消息占满整列，由调用方渲染成 Markdown。
+    className={cn("mb-4", sender === "user" && "ml-auto w-fit max-w-[95%] whitespace-pre-wrap", className)}
   />;
 }

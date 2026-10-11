@@ -5,14 +5,15 @@ import { RouterProvider } from "react-router/dom";
 import { StoreProvider } from "../src/hooks/use-app-store";
 import { createAppStore } from "../src/lib/store";
 import { routes } from "../src/routes";
+import { fakeClient } from "./fake-client";
 import { mockMatchMedia } from "./match-media";
 
 beforeEach(() => { mockMatchMedia(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
 
-function renderWorkspace(path = "/") {
+function renderWorkspace(path = "/", store = createAppStore()) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<StoreProvider store={createAppStore()}><RouterProvider router={router} /></StoreProvider>);
+  render(<StoreProvider store={store}><RouterProvider router={router} /></StoreProvider>);
   return router;
 }
 
@@ -21,6 +22,34 @@ it("默认进入 Learning Space，侧栏只有这一个栏目", async () => {
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
   expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space"]);
   expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
+});
+
+it("打开空间后在 Learning Space 下显示这个空间，点击进入对话页并标为当前项", async () => {
+  const call = vi.fn((method: string, params: Record<string, unknown>) => {
+    switch (method) {
+      case "space.open":
+        return Promise.resolve({ root: params.root });
+      case "space.list":
+      case "session.list":
+        return Promise.resolve([]);
+      default:
+        return Promise.reject(new Error(`未模拟的方法 ${method}`));
+    }
+  });
+  const store = createAppStore();
+  store.getState().setClient(fakeClient(call).client);
+  const router = renderWorkspace("/learning-space", store);
+  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space"]);
+
+  await act(() => store.getState().openSpace("/notes/calculus"));
+  const navigation = screen.getByRole("navigation", { name: "主导航" });
+  const space = within(navigation).getByRole("link", { name: "calculus" });
+  expect(space.getAttribute("title")).toBe("/notes/calculus");
+  fireEvent.click(space);
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
+  expect(space.getAttribute("aria-current")).toBe("page");
+  expect(within(navigation).getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBeNull();
 });
 
 it("导航抽屉可关闭、恢复焦点，选择目标后关闭并保留当前路由", async () => {

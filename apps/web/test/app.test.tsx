@@ -27,6 +27,7 @@ describe("Web App bootstrap", () => {
   it("开发态重复挂载不会建立即刻废弃的连接", async () => {
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
     const loadConnection = vi.fn(() => Promise.resolve(connection));
@@ -45,6 +46,7 @@ describe("Web App bootstrap", () => {
   it("自动获取连接并呈现工作台", async () => {
     const client = {
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     };
     vi.mocked(RepaClient.connect).mockResolvedValue(client as unknown as RepaClient);
@@ -65,6 +67,7 @@ describe("Web App bootstrap", () => {
       .mockResolvedValueOnce(connection);
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
 
@@ -80,6 +83,7 @@ describe("Web App bootstrap", () => {
     const loadConnection = () => Promise.resolve(connection);
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
         listener = value;
         return vi.fn();
@@ -101,12 +105,13 @@ it("断线后重新连接新底座，卸载时停止后续重试", async () => {
   let listener: ((connected: boolean) => void) | undefined;
   const first = {
     close: vi.fn(() => Promise.resolve()),
+    on: vi.fn(() => vi.fn()),
     onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
       listener = value;
       return vi.fn();
     }),
   };
-  const second = { close: vi.fn(() => Promise.resolve()), onConnectionChange: vi.fn(() => vi.fn()) };
+  const second = { close: vi.fn(() => Promise.resolve()), on: vi.fn(() => vi.fn()), onConnectionChange: vi.fn(() => vi.fn()) };
   vi.mocked(RepaClient.connect)
     .mockResolvedValueOnce(first as unknown as RepaClient)
     .mockRejectedValueOnce(new Error("尚未恢复"))

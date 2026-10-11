@@ -1,0 +1,58 @@
+import type { KeyboardEvent } from "react";
+import { ArrowUp, Square } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui/input-group";
+
+/**
+ * 消息输入框。Enter 发送、Shift+Enter 换行；输入法确认候选词的 Enter 不发送。
+ * 运行中仍可输入下一条，发送按钮换成停止。位置和用途在对话页里不言自明，
+ * 按规范的例外不显示标签，名称只提供给辅助技术。
+ */
+export function MessageComposer({ value, onChange, onSend, onStop, running, stopping, disabled }: {
+  value: string;
+  onChange(value: string): void;
+  onSend(): void;
+  onStop(): void;
+  running: boolean;
+  stopping: boolean;
+  disabled: boolean;
+}) {
+  const canSend = !running && !disabled && value.trim() !== "";
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Safari 确认候选词时 isComposing 已为 false，但 keyCode 仍是 229。
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (canSend) onSend();
+  }
+
+  // 文本框按内容定尺寸，最小宽度需要归零，长行才会在框内折行而不是撑宽页面。
+  return <form
+    className="min-w-0"
+    onSubmit={(event) => {
+      event.preventDefault();
+      if (canSend) onSend();
+    }}
+  >
+    <InputGroup>
+      <InputGroupTextarea
+        aria-label="消息"
+        className="max-h-[min(15rem,35dvh)]"
+        value={value}
+        placeholder="问点什么，或者说说你想学什么"
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+      />
+      <InputGroupAddon className="self-end">
+        {running
+          ? <Button variant="outline" size="icon" aria-label={stopping ? "正在停止" : "停止"} title={stopping ? "正在停止" : "停止"} disabled={stopping} onClick={onStop}>
+            <Square aria-hidden="true" />
+          </Button>
+          : <Button size="icon" type="submit" aria-label="发送" title="发送" disabled={!canSend}>
+            <ArrowUp aria-hidden="true" />
+          </Button>}
+      </InputGroupAddon>
+    </InputGroup>
+  </form>;
+}

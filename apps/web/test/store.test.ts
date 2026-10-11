@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
-import type { RepaClient } from "@repa/base/client";
 
 import { createAppStore } from "../src/lib/store";
+import { fakeClient } from "./fake-client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -12,7 +12,7 @@ afterEach(() => {
 function deferredClient() {
   const calls: { method: string; resolve: (value: unknown) => void }[] = [];
   const call = vi.fn((method: string) => new Promise((resolve) => { calls.push({ method, resolve }); }));
-  return { calls, client: { call } as unknown as RepaClient };
+  return { calls, ...fakeClient(call) };
 }
 
 it("同一份数据读取未完成时，重复读取只发一次请求", async () => {

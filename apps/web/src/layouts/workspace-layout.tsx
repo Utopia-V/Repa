@@ -1,6 +1,7 @@
 import { Outlet } from "react-router";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/domain/app-sidebar";
+import { CommandConfirmationDialog } from "@/features/command-confirmation";
 import { useAppStore } from "@/hooks/use-app-store";
 
 function WorkspaceContent() {
@@ -20,5 +21,6 @@ export function WorkspaceLayout() {
   return <SidebarProvider open={sidebar.open} onOpenChange={setSidebarOpen} width={sidebar.width} onWidthChange={setSidebarWidth}>
     <AppSidebar />
     <WorkspaceContent />
+    <CommandConfirmationDialog />
   </SidebarProvider>;
 }

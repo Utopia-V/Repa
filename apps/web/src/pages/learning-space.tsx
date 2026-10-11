@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { FolderOpen, FolderSearch, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -7,10 +8,7 @@ import { ErrorNotice } from "@/components/domain/error-notice";
 import { FolderPickerDialog } from "@/features/folder-picker";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { Resources } from "@/lib/store";
-
-function folderName(root: string): string {
-  return root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
-}
+import { folderName } from "@/lib/paths";
 
 export function LearningSpacePage() {
   const spaces = useAppStore((state) => state.resources.spaces);
@@ -20,6 +18,7 @@ export function LearningSpacePage() {
   const [opening, setOpening] = useState<string>();
   const [failure, setFailure] = useState<{ root: string; error: unknown }>();
   const [picking, setPicking] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     void loadSpaces();
@@ -30,6 +29,7 @@ export function LearningSpacePage() {
     setFailure(undefined);
     try {
       await openSpace(root);
+      void navigate("/conversation");
     } catch (error) {
       setFailure({ root, error });
     } finally {
@@ -52,7 +52,7 @@ export function LearningSpacePage() {
         onOpen={(root) => { void open(root); }}
         onRetry={() => { void loadSpaces(); }}
       />}
-    <FolderPickerDialog open={picking} onOpenChange={setPicking} />
+    <FolderPickerDialog open={picking} onOpenChange={setPicking} onOpened={() => { void navigate("/conversation"); }} />
   </>;
 }
 
@@ -136,8 +136,6 @@ function RecentSpaces({ spaces, active, opening, failure, onPick, onOpen, onRetr
           </SelectionButton>
         </li>)}
       </ul>}
-
-      {opening === undefined && active !== undefined && <p className="text-sm text-muted-foreground">已打开 {folderName(active)}，会话界面正在接入。</p>}
     </section>
   </div>;
 }

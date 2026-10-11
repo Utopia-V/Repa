@@ -16,6 +16,7 @@
   --theme-subtle: #596579;
   --theme-line: #d7dce5;
   --theme-control-line: #8590a3;
+  --theme-control-line-strong: #7a8599;
   --theme-brand: #4338ca;
   --theme-brand-ink: #312e81;
   --theme-tint: #eef2ff;
@@ -45,6 +46,7 @@
   --border-error: var(--destructive);
   --border-complete: var(--status-complete);
   --input: var(--theme-control-line);
+  --input-focus: var(--theme-control-line-strong);
   --ring: var(--theme-subtle);
   /* Status: mappings can change independently from actions. */
   --status-complete: var(--primary);
@@ -124,6 +126,7 @@
   --color-border-error: var(--border-error);
   --color-border-complete: var(--border-complete);
   --color-input: var(--input);
+  --color-input-focus: var(--input-focus);
   --color-ring: var(--ring);
   --color-status-complete: var(--status-complete);
   --color-status-complete-foreground: var(--status-complete-foreground);

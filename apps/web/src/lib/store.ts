@@ -1,7 +1,9 @@
 import { createStore } from "zustand/vanilla";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
-import { ConnectionError, type RepaClient } from "@repa/base/client";
-import type { Method, Params, Result } from "@repa/base/protocol";
+import { ConnectionError, RpcError, type RepaClient } from "@repa/base/client";
+import type { Confirmation, Method, Params, Result } from "@repa/base/protocol";
+
+import { applyEvent, emptyConversation, historyItems, type Conversation } from "@/lib/conversation";
 
 /** 一份从后端读取的数据；重新读取期间保留上一次的 data，界面不回到空白。 */
 export type Resource<T> = {
@@ -19,6 +21,9 @@ type ResourceName = keyof ResourceData;
 
 export type Resources = { [N in ResourceName]: Resource<ResourceData[N]> };
 
+/** 等待用户回答的命令授权，按到达顺序处理。 */
+export type PendingConfirmation = { id: string; request: Confirmation };
+
 /** 侧栏偏好；宽度未拖动过时为空，由侧栏组件使用默认值。 */
 export type SidebarPreference = { open: boolean; width?: number | undefined };
 
@@ -26,9 +31,12 @@ export type AppState = {
   /** 当前连接；重连后换成新实例，读取函数执行时才取用。 */
   client?: RepaClient;
   connected: boolean;
-  /** 本页面打开的空间。后端不提供查询当前空间的方法，换连接后无法确认，因此清空。 */
+  /** 本页面打开的空间。后端不提供查询当前空间的方法，换连接后重新打开它。 */
   space?: string | undefined;
   resources: Resources;
+  /** 当前空间里正在查看的会话。 */
+  conversation: Conversation;
+  confirmations: PendingConfirmation[];
   setClient(client: RepaClient): void;
   setConnected(connected: boolean): void;
   loadSpaces(): Promise<void>;
@@ -38,7 +46,13 @@ export type AppState = {
   /** 浏览结果只属于当次选择，不进入共享状态。 */
   browseFolder(path?: string): Promise<Result<"space.browse">>;
   listRoots(): Promise<Result<"space.roots">>;
-  /** 只有这一项保存在浏览器里，刷新后保留。 */
+  /** 读取最近建立的会话；空间里还没有会话时等第一次发送再建立。 */
+  loadConversation(): Promise<void>;
+  newConversation(): void;
+  /** 返回 false 表示消息没有发出去，错误放在 `conversation.sendError`。 */
+  sendMessage(text: string): Promise<boolean>;
+  stopRun(): Promise<void>;
+  replyConfirmation(id: string, allowed: boolean): Promise<void>;  /** 只有这一项保存在浏览器里，刷新后保留。 */
   sidebar: SidebarPreference;
   setSidebarOpen(open: boolean): void;
   setSidebarWidth(width: number): void;
@@ -108,16 +122,93 @@ export function createAppStore() {
       spaces: () => load("spaces", () => call("space.list", {})),
     };
 
+    function updateConversation(change: Partial<Conversation>): void {
+      set((state) => ({ conversation: { ...state.conversation, ...change } }));
+    }
+
+    // 会话读取共用一个序号：切换会话、换空间或再次读取后，先发出的读取结果作废。
+    let conversationRequest = 0;
+
+    /** 运行结束后用会话记录替换实时拼出的内容。运行中不替换，等 runEnd 再读。 */
+    async function reloadHistory(): Promise<void> {
+      const sessionId = get().conversation.sessionId;
+      if (!sessionId) return;
+      const id = ++conversationRequest;
+      try {
+        const entries = await call("session.history", { sessionId });
+        const current = get().conversation;
+        if (id !== conversationRequest || current.sessionId !== sessionId || current.run !== "idle") return;
+        updateConversation({ status: "ready", error: undefined, items: historyItems(entries), streaming: undefined });
+      } catch (error) {
+        // 已经显示的内容仍然可用，只在还没有内容时显示读取失败。
+        if (id === conversationRequest && get().conversation.status !== "ready") updateConversation({ status: "error", error });
+      }
+    }
+
+    /** 换连接后后端可能已经重启，重新打开原来的空间；打开同一个空间时后端直接返回。 */
+    async function resumeSpace(): Promise<void> {
+      const root = get().space;
+      if (!root) return;
+      try {
+        await call("space.open", { root });
+      } catch {
+        if (get().space === root) set({ space: undefined, conversation: emptyConversation });
+        return;
+      }
+      if (get().space === root && get().conversation.status !== "idle") await reloadHistory();
+    }
+
+    let unsubscribe: (() => void) | undefined;
+
+    function subscribe(client: RepaClient): void {
+      unsubscribe?.();
+      const offEvent = client.on("session.event", (event) => {
+        const conversation = get().conversation;
+        if (event.sessionId !== conversation.sessionId) return;
+        set({ conversation: applyEvent(conversation, event) });
+        if (event.type === "runEnd") void reloadHistory();
+      });
+      const offConfirm = client.on("confirm.request", ({ id, request }) => {
+        if (request.kind === "command") {
+          set((state) => ({ confirmations: [...state.confirmations, { id, request }] }));
+          return;
+        }
+        // 登录过程的输入和选择属于模型配置，界面还没有接入；直接取消，不让运行停在等待上。
+        client.call("confirm.reply", { id, value: null }).catch(() => undefined);
+      });
+      unsubscribe = () => {
+        offEvent();
+        offConfirm();
+      };
+    }
+
+    /** 已写进会话记录的失败，记录读回后在对话里显示，不再单独提示。 */
+    function recordedInSession(error: unknown): boolean {
+      if (!(error instanceof RpcError)) return false;
+      const code = error.data !== null && typeof error.data === "object" && "code" in error.data ? error.data.code : undefined;
+      return code === "model_error" || code === "cancelled";
+    }
+
     return {
       connected: false,
       resources: {
         spaces: { status: "idle" },
       },
+      conversation: emptyConversation,
+      confirmations: [],
       setClient(client) {
-        set({ client, connected: true, space: undefined });
+        // 旧连接上的授权请求已被后端取消；运行状态在新连接上无法查询，从空闲开始，收到事件再更新。
+        set((state) => ({
+          client,
+          connected: true,
+          confirmations: [],
+          conversation: { ...state.conversation, run: "idle", streaming: undefined },
+        }));
+        subscribe(client);
         // 旧连接上的读取不再等待；它们晚到的结果会被序号丢弃。
         pending.clear();
         void get().reloadLoaded();
+        void resumeSpace();
       },
       setConnected(connected) {
         set({ connected });
@@ -130,8 +221,11 @@ export function createAppStore() {
       },
       async openSpace(root) {
         const opened = await call("space.open", { root });
-        // 属于上一个空间的数据以后在这里清空。
-        set({ space: opened.root });
+        // 换了空间时，上一个空间的会话不再适用。
+        if (opened.root !== get().space) {
+          conversationRequest++;
+          set({ space: opened.root, conversation: emptyConversation });
+        }
         // 打开前发出的读取可能不含这次打开，重新读取。
         pending.delete("spaces");
         await loaders.spaces();
@@ -141,6 +235,73 @@ export function createAppStore() {
       },
       listRoots() {
         return call("space.roots", {});
+      },
+      async loadConversation() {
+        const id = ++conversationRequest;
+        updateConversation({ status: "loading", error: undefined });
+        try {
+          const sessions = await call("session.list", {});
+          const latest = sessions.reduce<(typeof sessions)[number] | undefined>(
+            (found, session) => !found || session.createdAt > found.createdAt ? session : found,
+            undefined,
+          );
+          const entries = latest ? await call("session.history", { sessionId: latest.id }) : [];
+          if (id !== conversationRequest) return;
+          set({ conversation: { ...emptyConversation, status: "ready", sessionId: latest?.id, items: historyItems(entries) } });
+        } catch (error) {
+          if (id === conversationRequest) updateConversation({ status: "error", error });
+        }
+      },
+      newConversation() {
+        if (get().conversation.run !== "idle") return;
+        conversationRequest++;
+        set({ conversation: { ...emptyConversation, status: "ready" } });
+      },
+      async sendMessage(text) {
+        const conversation = get().conversation;
+        if (conversation.run !== "idle") return false;
+        updateConversation({ run: "sending", sendError: undefined });
+        let sessionId = conversation.sessionId;
+        try {
+          if (!sessionId) {
+            sessionId = (await call("session.create", {})).id;
+            updateConversation({ sessionId });
+          }
+          // 后端等整次运行结束才返回，期间的内容由 session.event 送来。
+          await call("session.send", { sessionId, text });
+          return true;
+        } catch (error) {
+          if (recordedInSession(error)) return true;
+          if (get().conversation.sessionId === sessionId) updateConversation({ sendError: error });
+          return false;
+        } finally {
+          // 运行没有开始就失败时不会收到 runEnd；后端取消运行时也不会撤回发出的授权请求。
+          set({ confirmations: [] });
+          if (get().conversation.sessionId === sessionId) {
+            updateConversation({ run: "idle", streaming: undefined });
+            await reloadHistory();
+          }
+        }
+      },
+      async stopRun() {
+        const { sessionId, run } = get().conversation;
+        if (!sessionId || (run !== "running" && run !== "sending")) return;
+        updateConversation({ run: "stopping" });
+        try {
+          await call("session.abort", { sessionId });
+        } catch (error) {
+          updateConversation({ sendError: error });
+        } finally {
+          if (get().conversation.sessionId === sessionId && get().conversation.run === "stopping") updateConversation({ run: "idle" });
+        }
+      },
+      async replyConfirmation(id, allowed) {
+        set((state) => ({ confirmations: state.confirmations.filter((item) => item.id !== id) }));
+        try {
+          await call("confirm.reply", { id, value: allowed });
+        } catch {
+          // 请求可能已随取消或断线失效；后端那一侧会按拒绝处理，界面不需要再提示。
+        }
       },
       sidebar: { open: true },
       setSidebarOpen(open) {
