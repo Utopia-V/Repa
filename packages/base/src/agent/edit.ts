@@ -6,9 +6,15 @@ export interface EditFiles {
   /** 检查路径范围，返回解析后的绝对路径。 */
   resolve(file: string): Promise<string>;
   read(file: string): Promise<Buffer>;
-  /** 写回编辑结果。before 是这次编辑在文件队列里读到的原始字节，写入前核对磁盘上仍是它。 */
-  write(file: string, before: Buffer, after: string): Promise<void>;
+  /**
+   * 写回编辑结果。before 是这次编辑在文件队列里读到的原始字节，写入前核对磁盘上仍是它。
+   * unseen 表示 before 里有这个会话上次读取之后别人做的改动。
+   */
+  write(file: string, before: Buffer, after: string): Promise<{ unseen: boolean }>;
 }
+
+// 编辑叠在别人的改动上时附在结果后面，意思与 Claude Code 的同类提示相同：编辑已经生效，但文件里有模型没看过的内容。
+const UNSEEN_CHANGES = "注意：这个文件自上次读取后还有其他改动。编辑已按原文应用，但文件里有你没看过的内容；要做依赖上下文的修改，先重新读取。";
 
 /**
  * 保留 Pi 的参数与展示，只替换会规范化全文的编辑步骤。和 Pi 的 edit 一样在同一文件的写入队列里读出、替换、写回，
@@ -40,10 +46,10 @@ export function exactEditTool(cwd: string, files: EditFiles): ToolDefinition {
         for (const edit of replacements.toReversed()) after = after.slice(0, edit.start) + edit.text + after.slice(edit.end);
         if (after === before) throw new Error("编辑没有改变文件");
         signal?.throwIfAborted();
-        await files.write(file, original, after);
+        const { unseen } = await files.write(file, original, after);
         const diff = generateDiffString(before, after);
         return {
-          content: [{ type: "text" as const, text: `已精确编辑 ${input.path}` }],
+          content: [{ type: "text" as const, text: unseen ? `已精确编辑 ${input.path}。${UNSEEN_CHANGES}` : `已精确编辑 ${input.path}` }],
           details: { diff: diff.diff, patch: generateUnifiedPatch(input.path, before, after), firstChangedLine: diff.firstChangedLine },
         };
       });

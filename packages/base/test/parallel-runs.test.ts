@@ -434,7 +434,7 @@ function lastRun(session: AgentSession): string {
   return data.runId;
 }
 
-test("同一文件读过之后被别人改了：锚文本还在的编辑照常应用，整份覆盖被拒并拿到最新内容，据此重写后通过", async t => {
+test("同一文件读过之后被别人改了：锚文本还在的编辑照常应用并提示还有其他改动，整份覆盖被拒并拿到最新内容，据此重写后通过", async t => {
   const f = await spaceFixture(t, [writer]);
   const file = path.join(f.root, "lessons", "one.md");
   await mkdir(path.dirname(file));
@@ -449,38 +449,48 @@ test("同一文件读过之后被别人改了：锚文本还在的编辑照常�
     // 照旧读到的内容整份改写，会丢掉插件补的提示。
     fauxAssistantMessage(fauxToolCall("write", { path: "lessons/one.md", content: "第一课：变量\n练习：打印 1 到 5\n小结：range 不含终点\n" })),
     fauxAssistantMessage(fauxToolCall("write", { path: "lessons/one.md", content: "第一课：变量\n练习：打印 1 到 5\n提示：用 range\n小结：range 不含终点\n" })),
+    // 整份重写之后会话知道全文，这次编辑不再提示。
+    fauxAssistantMessage(fauxToolCall("edit", { path: "lessons/one.md", edits: [{ oldText: "range 不含终点", newText: "range(1, 6) 不含 6" }] })),
     fauxAssistantMessage("改好了"),
   ]);
   await session.send("把练习改成打印 1 到 5，再加一句小结");
   const results = toolResults(session).slice(1);
-  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["edit", false], ["write", true], ["write", false]]);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["edit", false], ["write", true], ["write", false], ["edit", false]]);
+  // 编辑叠在插件补的那行上，结果里告诉模型文件还有它没看过的改动。
+  assert.equal(results[0]?.text, "已精确编辑 lessons/one.md。注意：这个文件自上次读取后还有其他改动。编辑已按原文应用，但文件里有你没看过的内容；要做依赖上下文的修改，先重新读取。");
   assert.match(results[1]?.text ?? "", /没有写入：lessons\/one\.md 在这次会话上次读取之后被改过/u);
   // 被拒的结果里带着文件现在的内容：编辑已经生效，插件补的提示也在。
   assert.match(results[1]?.text ?? "", /第一课：变量\n练习：打印 1 到 5\n提示：用 range\n/u);
-  assert.equal(await readFile(file, "utf8"), "第一课：变量\n练习：打印 1 到 5\n提示：用 range\n小结：range 不含终点\n");
+  assert.equal(results[3]?.text, "已精确编辑 lessons/one.md");
+  assert.equal(await readFile(file, "utf8"), "第一课：变量\n练习：打印 1 到 5\n提示：用 range\n小结：range(1, 6) 不含 6\n");
   const run = lastRun(session);
   const feed = await f.host.history.changes();
-  assert.deepEqual(feed.revisions.slice(-3).map(revision => revision.source), [
+  assert.deepEqual(feed.revisions.slice(-4).map(revision => revision.source), [
     { kind: "plugin", pluginId: "learning" },
+    { kind: "agent", runId: run },
     { kind: "agent", runId: run },
     { kind: "agent", runId: run },
   ]);
 });
 
-test("没读过的已有文件不能整份覆盖，被拒时拿到它的内容；没有的新文件可以直接写", async t => {
+test("没读过的已有文件不能整份覆盖，被拒时拿到它的内容；没有的新文件可以直接写；编辑没读过的文件不提示", async t => {
   const f = await spaceFixture(t, [writer]);
   await writeFile(path.join(f.root, "plan.md"), "已有的学习计划\n");
+  await writeFile(path.join(f.root, "notes.md"), "没读过的笔记\n");
   const session = await f.space.create({ agent: "writer" });
   f.faux.setResponses([
     fauxAssistantMessage([
       fauxToolCall("write", { path: "plan.md", content: "覆盖掉的计划\n" }),
       fauxToolCall("write", { path: "lessons/new.md", content: "新的一课\n" }),
+      fauxToolCall("edit", { path: "notes.md", edits: [{ oldText: "没读过的", newText: "按锚文本改的" }] }),
     ]),
     fauxAssistantMessage("完成"),
   ]);
   await session.send("写计划和新课");
   const results = toolResults(session);
-  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["write", false]]);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["write", false], ["edit", false]]);
+  // 会话从没读过这个文件，谈不上"自上次读取后"，照常应用、不加提示。
+  assert.equal(results[2]?.text, "已精确编辑 notes.md");
   assert.match(results[0]?.text ?? "", /没有写入：plan\.md 已经存在，这次会话还没有读过它。下面是它现在的内容，请据此重新决定怎样修改：\n\n已有的学习计划\n/u);
   assert.equal(await readFile(path.join(f.root, "plan.md"), "utf8"), "已有的学习计划\n");
   assert.equal(await readFile(path.join(f.root, "lessons", "new.md"), "utf8"), "新的一课\n");
@@ -498,6 +508,7 @@ test("用户在编辑器里的改动发生在 Agent 写入之前，被记成 ext
   f.faux.setResponses([fauxAssistantMessage(fauxToolCall("edit", { path: "notes.md", edits: [{ oldText: "原文", newText: "整理后的原文" }] })), fauxAssistantMessage("改好了")]);
   await session.send("整理笔记");
   assert.equal(await readFile(file, "utf8"), "整理后的原文\n用户在编辑器里补的一行\n");
+  assert.match(toolResults(session).at(-1)?.text ?? "", /^已精确编辑 notes\.md。注意：这个文件自上次读取后还有其他改动/u);
   const run = lastRun(session);
   const [external, agent] = (await f.host.history.changes()).revisions.slice(-2);
   assert.deepEqual(external?.source, { kind: "external" });

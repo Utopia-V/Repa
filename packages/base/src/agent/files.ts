@@ -177,7 +177,10 @@ function writeTool(tools: FileTools): ToolDefinition {
   })));
 }
 
-/** 精确编辑：在同一文件的写入队列里读到最新内容后应用；写回前在历史队列里核对磁盘仍是读到的内容。 */
+/**
+ * 精确编辑：在同一文件的写入队列里读到最新内容后应用；写回前在历史队列里核对磁盘仍是读到的内容。
+ * 应用在别人改过的内容上时，结果里提示模型文件还有其他改动。
+ */
 function editTool(tools: FileTools): ToolDefinition {
   const { scope, writes, reads } = tools;
   return locked(tools, exactEditTool(scope.root, {
@@ -190,7 +193,10 @@ function editTool(tools: FileTools): ToolDefinition {
         await writeFile(file, after, "utf8");
       });
       // 编辑前会话看到的就是 before，编辑后的全文它也知道；否则文件里还有它没看过的改动，之后整份覆盖仍要核对。
-      if (reads.matches(file, before)) reads.remember(file, after);
+      const seen = reads.matches(file, before);
+      if (seen) reads.remember(file, after);
+      // 会话读过这个文件、这次读到的却不是它上次看到的内容，结果里提示模型；没读过的文件谈不上"自上次读取后"。
+      return { unseen: !seen && reads.has(file) };
     },
   }));
 }
