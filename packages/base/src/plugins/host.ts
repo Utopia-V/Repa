@@ -144,7 +144,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       ids.add(plugin.id);
     }
     const names = new Set<string>();
-    const reservedNames = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"]);
+    const reservedNames = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell", "subagent"]);
     const declaredAgents: AgentDefinition[] = [];
     for (const plugin of options.plugins) {
       const dataDir = await space.pluginDataDir(plugin.id);

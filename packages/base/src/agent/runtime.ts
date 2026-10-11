@@ -16,7 +16,7 @@ import {
   type ExtensionFactory,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { Static, TSchema } from "typebox";
+import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions } from "../agent.js";
 import { BUILTIN_TOOLS, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest, type Tool } from "../plugin.js";
@@ -54,6 +54,13 @@ export async function createAgentRuntimeForTest(options: AgentTestOptions): Prom
 
 const GENERAL_AGENT = "general";
 const AGENT_ENTRY = "repa-agent";
+const SUBAGENT_TOOL = "subagent";
+
+/** 子 Agent 的运行挂在父运行下。 */
+interface ParentRun {
+  runId: string;
+  sessionId: string;
+}
 
 /** 一个 Agent 在当前空间中的装配；会话初始化时取得，工具与 view 来源在会话内不变。 */
 interface AgentProfile {
@@ -65,6 +72,15 @@ interface AgentProfile {
   /** 本 Agent 自己的提示段：通用 Agent 为各插件说明，插件 Agent 为 agent:<id>。 */
   sections(): { id: string; text: string }[];
   views(): Promise<{ id: string; text: string }[]>;
+}
+
+/** 子 Agent 拿不到父 Agent 没有的工具；更高权限的工作由插件程序触发，不经 Agent 之间转托。 */
+function toolsBeyond(child: AgentProfile, parent: AgentProfile): string[] {
+  const allowed = new Set([...parent.builtins, ...parent.tools.map(tool => tool.name)]);
+  const beyond = [...child.builtins, ...child.tools.map(tool => tool.name)].filter(name => !allowed.has(name));
+  // 通用 Agent 的读取和搜索不限于空间，插件 Agent 的同名工具达不到这个范围。
+  if (child.general && !parent.general) beyond.push(...["read", "grep", "find", "ls"].filter(name => !beyond.includes(name)));
+  return beyond;
 }
 
 function byId<T extends { id: string }>(left: T, right: T): number {
@@ -428,6 +444,13 @@ class Space implements AgentSpace {
     return [...infos.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  /** 子 Agent 的会话用完即释放 Pi 会话；之后查看历史时再从文件打开。 */
+  async release(session: Session): Promise<void> {
+    const id = session.info().id;
+    this.sessions.delete(id);
+    await session.close();
+  }
+
   async runAgent(task: AgentTask): Promise<AgentWork> {
     const session = await this.create({ agent: task.agent, model: task.model });
     const result = session.send(task.text);
@@ -486,7 +509,7 @@ class Session implements AgentSession {
     const { runtime, options } = this.space;
     const profile = this.space.profile(this.agent);
     this.assembled = profile;
-    const reservedTools = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"]);
+    const reservedTools = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell", SUBAGENT_TOOL]);
     const names = new Set<string>();
     for (const tool of profile.tools) {
       // Pi 1.1.0 将这些字符解释为工具选择规则，插件工具必须是字面名称。
@@ -570,8 +593,13 @@ class Session implements AgentSession {
       sessionManager: this.manager,
       settingsManager: runtime.settings,
       resourceLoader: loader,
-      tools: [...profile.builtins, ...profile.tools.map(tool => tool.name), ...(profile.general ? runtime.options.toolNames ?? [] : [])],
-      customTools: [...fileTools, ...profile.tools.map(toolDefinition)],
+      tools: [
+        ...profile.builtins,
+        ...profile.tools.map(tool => tool.name),
+        ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
+        ...(profile.general ? runtime.options.toolNames ?? [] : []),
+      ],
+      customTools: [...fileTools, ...profile.tools.map(toolDefinition), ...(profile.subagents.length > 0 ? [this.subagentTool(profile)] : [])],
     });
     this.pi = result.session;
     const lastUsage = this.manager.getBranch().findLast(entry => {
@@ -622,6 +650,17 @@ class Session implements AgentSession {
   }
 
   async send(text: string): Promise<void> {
+    await this.run(text);
+  }
+
+  /** 子 Agent 的一次运行；取消或失败都抛错，交给父 Agent 作为工具结果。 */
+  async runChild(text: string, parent: ParentRun): Promise<{ runId: string; text: string }> {
+    const outcome = await this.run(text, parent);
+    if (outcome.status === "aborted") throw new RepaFault("cancelled", "子 Agent 运行已取消");
+    return { runId: outcome.runId, text: outcome.text };
+  }
+
+  private async run(text: string, parent?: ParentRun): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
     this.space.assertOpen();
     if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
     if (this.cancelling) throw new RepaFault("cancelled", "会话运行正在取消");
@@ -630,37 +669,45 @@ class Session implements AgentSession {
     let finish: () => void = () => undefined;
     const settled = new Promise<void>(resolve => { finish = resolve; });
     this.pending.set(controller, settled);
-    let status: "completed" | "failed" | "aborted" = "completed";
+    // 状态在 execute 闭包内更新；断言避免 TypeScript 按初值收窄。
+    let status = "completed" as "completed" | "failed" | "aborted";
     let started = false;
+    let reply = "";
+    const link = parent === undefined ? undefined : { parentRunId: parent.runId, parentSessionId: parent.sessionId };
+    const execute = async () => {
+      if (controller.signal.aborted) throw new RepaFault("cancelled", "排队中的会话运行已取消");
+      if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
+      this.runId = runId;
+      this.abortController = controller;
+      started = true;
+      this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart", ...(link === undefined ? {} : { data: link }) });
+      try {
+        // view、工具和文件写入都在运行上下文内执行，能读到本次 runId 与父运行。
+        const context = { runId, ...(link === undefined ? {} : { parentRunId: link.parentRunId }), sessionId: this.manager.getSessionId(), agent: this.agent };
+        await withRun(context, async () => {
+          // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
+          this.currentSections = await this.space.promptSections(this.profile);
+          this.currentViews = await this.profile.views();
+          controller.signal.throwIfAborted();
+          this.manager.appendCustomEntry("repa-run", { runId, ...link });
+          await this.session.prompt(text);
+        });
+        const last = this.session.messages.findLast(message => message.role === "assistant");
+        if (last?.role === "assistant" && last.stopReason === "aborted") status = "aborted";
+        if (last?.role === "assistant" && last.stopReason === "error") throw new RepaFault("model_error", last.errorMessage ?? "模型请求失败");
+        if (last?.role === "assistant") reply = textContent(last.content);
+      } catch (error) {
+        if (controller.signal.aborted) throw new RepaFault("cancelled", "会话运行已取消");
+        throw error;
+      } finally {
+        this.runId = undefined;
+        this.abortController = undefined;
+      }
+    };
     try {
-      await this.space.options.record(runId, async () => {
-        if (controller.signal.aborted) throw new RepaFault("cancelled", "排队中的会话运行已取消");
-        if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
-        this.runId = runId;
-        this.abortController = controller;
-        started = true;
-        this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart" });
-        try {
-          // view、工具和文件写入都在运行上下文内执行，能读到本次 runId。
-          await withRun({ runId, sessionId: this.manager.getSessionId(), agent: this.agent }, async () => {
-            // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
-            this.currentSections = await this.space.promptSections(this.profile);
-            this.currentViews = await this.profile.views();
-            controller.signal.throwIfAborted();
-            this.manager.appendCustomEntry("repa-run", { runId });
-            await this.session.prompt(text);
-          });
-          const last = this.session.messages.findLast(message => message.role === "assistant");
-          if (last?.role === "assistant" && last.stopReason === "aborted") status = "aborted";
-          if (last?.role === "assistant" && last.stopReason === "error") throw new RepaFault("model_error", last.errorMessage ?? "模型请求失败");
-        } catch (error) {
-          if (this.abortController.signal.aborted) throw new RepaFault("cancelled", "会话运行已取消");
-          throw error;
-        } finally {
-          this.runId = undefined;
-          this.abortController = undefined;
-        }
-      });
+      // 子 Agent 已经在父运行的记录窗口里；再进历史队列，就会和等待它结果的父运行互相等待。
+      if (parent === undefined) await this.space.options.record(runId, execute);
+      else await execute();
     } catch (error) {
       status = error instanceof RepaFault && error.code === "cancelled" ? "aborted" : "failed";
       this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "error", text: error instanceof RepaFault ? error.message : "Agent 运行失败", data: { code: error instanceof RepaFault ? error.code : "agent_error" } });
@@ -670,6 +717,53 @@ class Session implements AgentSession {
       this.pending.delete(controller);
       finish();
       if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
+    }
+    return { runId, status: status === "aborted" ? "aborted" : "completed", text: reply };
+  }
+
+  /** 父 Agent 的 subagent 工具；只能启动定义中列出的子 Agent。 */
+  private subagentTool(profile: AgentProfile): ToolDefinition {
+    const lines = profile.subagents.map(id => {
+      const description = this.space.options.agents?.().find(item => item.id === id)?.description;
+      return description === undefined ? `- ${id}` : `- ${id}：${description}`;
+    });
+    return defineTool({
+      name: SUBAGENT_TOOL,
+      label: SUBAGENT_TOOL,
+      description: `启动一个子 Agent 独立完成任务，返回它的最终回复。子 Agent 看不到当前对话，task 里要写清它需要的信息。可以启动的子 Agent：\n${lines.join("\n")}`,
+      parameters: Type.Object({
+        agent: Type.Union(profile.subagents.map(id => Type.Literal(id))),
+        task: Type.String({ minLength: 1, description: "交给子 Agent 的完整任务" }),
+      }, { additionalProperties: false }),
+      execute: async (_callId, input, signal) => {
+        const result = await this.startSubagent(input.agent, input.task, signal);
+        return {
+          content: [{ type: "text" as const, text: result.text }],
+          details: { sessionId: result.sessionId, runId: result.runId, agent: input.agent },
+        };
+      },
+    });
+  }
+
+  /** 子 Agent 在父运行内启动：工具不能超过父 Agent，父运行取消时一起取消，结束后释放会话。 */
+  private async startSubagent(agent: string, task: string, signal: AbortSignal | undefined): Promise<{ sessionId: string; runId: string; text: string }> {
+    const parentRunId = this.runId;
+    if (parentRunId === undefined) throw new RepaFault("run_not_active", "子 Agent 只能在运行中启动");
+    if (!this.profile.subagents.includes(agent)) throw new RepaFault("subagent_not_allowed", "当前 Agent 不能启动这个子 Agent", { agent });
+    const beyond = toolsBeyond(this.space.profile(agent), this.profile);
+    if (beyond.length > 0) throw new RepaFault("subagent_exceeds_parent", "子 Agent 的工具超过父 Agent，不能启动", { agent, tools: beyond });
+    signal?.throwIfAborted();
+    const model = this.session.model;
+    const child = await this.space.create({ agent, ...(model === undefined ? {} : { model: { provider: model.provider, id: model.id } }) });
+    const cancel = () => { child.abort().catch(() => undefined); };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      signal?.throwIfAborted();
+      const outcome = await child.runChild(task, { runId: parentRunId, sessionId: this.manager.getSessionId() });
+      return { sessionId: child.info().id, ...outcome };
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      await this.space.release(child);
     }
   }
 
