@@ -300,3 +300,52 @@ test("装配指定的直接对话 Agent 写错 id 时打开空间失败，而不
     return true;
   });
 });
+
+test("关掉通用 Agent 以后，它的旧会话照样能列出、能读历史，只是不能再运行", { timeout: 30000 }, async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-defs-dormant-"));
+  const opened: { client: RepaClient; server: Awaited<ReturnType<typeof startServer>> }[] = [];
+  // 先关闭服务，空间收尾时还要在目录里运行 git，之后才删除目录。
+  t.after(async () => {
+    for (const { client, server } of opened.reverse()) {
+      await client.close();
+      await server.close();
+    }
+    await rm(directory, { recursive: true, force: true });
+  });
+  const root = path.join(directory, "space");
+  const home = path.join(directory, "home");
+  await mkdir(root);
+  await mkdir(path.join(home, "agent"), { recursive: true });
+  const faux = fauxProvider({ api: `dormant-${randomUUID()}`, provider: `dormant-${randomUUID()}`, models: [{ id: "scripted", contextWindow: 16384, maxTokens: 256 }], tokensPerSecond: 0 });
+  const serve = async (generalAgent: boolean) => {
+    const modelRuntime = await ModelRuntime.create({ authPath: path.join(home, "agent", "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
+    modelRuntime.registerNativeProvider(faux.provider);
+    const runtime = await createAgentRuntimeForTest({
+      agentDir: path.join(home, "agent"),
+      modelRuntime,
+      defaultModel: { provider: faux.getModel().provider, id: "scripted" },
+      settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
+    });
+    const server = await startServer({ home, plugins: [learningPlugin()], runtime, generalAgent });
+    const client = await RepaClient.connect(server.connection);
+    opened.push({ client, server });
+    await client.call("space.open", { root });
+    return { server, client };
+  };
+  const before = await serve(true);
+  const session = await before.client.call("session.create", {});
+  faux.setResponses([fauxAssistantMessage("之前的回答")]);
+  await before.client.call("session.send", { sessionId: session.id, text: "之前的问题" });
+  await before.client.close();
+  await before.server.close();
+  const after = await serve(false);
+  const listed = (await after.client.call("session.list", {})).find(info => info.id === session.id);
+  assert.equal(listed?.agent, "general");
+  assert.deepEqual(listed?.model, { provider: faux.getModel().provider, id: "scripted" });
+  const history = await after.client.call("session.history", { sessionId: session.id });
+  assert.deepEqual(history.filter(entry => entry.type === "user" || entry.type === "assistant").map(entry => entry.text), ["之前的问题", "之前的回答"]);
+  await assert.rejects(after.client.call("session.send", { sessionId: session.id, text: "还能继续吗" }), rejectsWith("agent_not_found"));
+  await assert.rejects(after.client.call("session.compact", { sessionId: session.id }), rejectsWith("agent_not_found"));
+  await after.client.call("session.abort", { sessionId: session.id });
+  assert.equal(faux.state.callCount, 1);
+});

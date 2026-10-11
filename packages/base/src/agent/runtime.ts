@@ -314,6 +314,12 @@ class Space implements AgentSpace {
     return this.scope;
   }
 
+  /** Agent 能否运行：关掉的通用 Agent、已经不存在的插件 Agent 都不能。 */
+  available(id: string): boolean {
+    if (id === GENERAL_AGENT) return this.options.generalAgent !== false;
+    return this.options.agents?.().some(item => item.id === id) ?? false;
+  }
+
   private direct(id: string, fallback: boolean): boolean {
     return this.options.directAgents === undefined ? fallback : this.options.directAgents.includes(id);
   }
@@ -520,6 +526,8 @@ class Session implements AgentSession {
   }
 
   async initialize(reference?: ModelRef): Promise<void> {
+    // Agent 已关掉或不存在时只读打开：能列出和查看历史，不建 Pi 会话，也不能运行。
+    if (!this.space.available(this.agent)) return;
     const { runtime, options } = this.space;
     const profile = this.space.profile(this.agent);
     this.assembled = profile;
@@ -645,15 +653,29 @@ class Session implements AgentSession {
 
   info(): SessionInfo {
     const header = this.manager.getHeader();
-    const model = this.pi?.model;
+    const model = this.model();
     const name = this.manager.getSessionName();
     return {
       id: this.manager.getSessionId(),
       createdAt: header?.timestamp ?? new Date().toISOString(),
       ...(name ? { name } : {}),
-      ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+      ...(model ? { model } : {}),
       agent: this.agent,
     };
+  }
+
+  private model(): ModelRef | undefined {
+    if (this.pi !== undefined) {
+      const current = this.pi.model;
+      return current ? { provider: current.provider, id: current.id } : undefined;
+    }
+    // 只读打开的会话没有 Pi 会话，沿用记录里最后选用的模型。
+    const saved = this.manager.buildSessionProjection().model;
+    return saved ? { provider: saved.provider, id: saved.modelId } : undefined;
+  }
+
+  private assertRunnable(): void {
+    if (this.pi === undefined) throw new RepaFault("agent_not_found", "这个会话的 Agent 已关掉或不存在，只能查看历史", { agent: this.agent });
   }
 
   history() {
@@ -664,6 +686,7 @@ class Session implements AgentSession {
   }
 
   async send(text: string): Promise<void> {
+    this.assertRunnable();
     // 没有判断的 Agent 不经过 admit，同步进入 run：多一次 await 会让紧随其后的取消拿不到这次运行。
     if (this.profile.beforeMessage !== undefined) {
       this.assertAccepting();
@@ -678,6 +701,7 @@ class Session implements AgentSession {
   }
 
   private assertAccepting(): void {
+    this.assertRunnable();
     this.space.assertOpen();
     if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
     if (this.cancelling) throw new RepaFault("cancelled", "会话运行正在取消");
@@ -849,6 +873,8 @@ class Session implements AgentSession {
   }
 
   abort(): Promise<void> {
+    // 只读打开的会话没有在运行的工作。
+    if (this.pi === undefined) return Promise.resolve();
     if (this.cancelling) return this.cancelling;
     this.cancellations++;
     let resolve: () => void = () => {};
@@ -882,6 +908,7 @@ class Session implements AgentSession {
   }
 
   async setModel(reference: ModelRef): Promise<void> {
+    this.assertRunnable();
     this.space.assertOpen();
     const model = this.space.runtime.model(reference);
     if (!model) throw new RepaFault("model_not_found", "模型不存在");
@@ -889,12 +916,14 @@ class Session implements AgentSession {
   }
 
   async compact(): Promise<void> {
+    this.assertRunnable();
     this.space.assertOpen();
     this.currentViews = await this.profile.views();
     await this.session.compact();
   }
 
   async fork(entryId: string): Promise<AgentSession> {
+    this.assertRunnable();
     this.space.assertOpen();
     await this.session.waitForIdle();
     if (!this.manager.getBranch().some(entry => entry.id === entryId)) throw new RepaFault("entry_not_found", "会话条目不存在");
@@ -911,7 +940,7 @@ class Session implements AgentSession {
     this.closing ??= (async () => {
       this.closed = true;
       await this.abort();
-      this.session.dispose();
+      this.pi?.dispose();
     })();
     return this.closing;
   }
