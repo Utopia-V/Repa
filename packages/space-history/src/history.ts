@@ -86,6 +86,31 @@ function covered(file: string, roots: Set<string>, above: Set<string>): boolean 
   return false;
 }
 
+// 复制来源和祖先链，调用方之后改动数组不影响排队中的保存。根运行的空祖先链不写入提交，同一运行只有一种写法；
+// 运行出现在自己的祖先链里说明父子关系成环。
+function checkedSource(source: SnapshotSource): SnapshotSource {
+  if (source.kind !== "agent") return { ...source };
+  const { ancestorRunIds = [], ...rest } = source;
+  if (new Set([source.runId, ...ancestorRunIds]).size !== ancestorRunIds.length + 1) {
+    throw new Error(`运行不能出现在自己的祖先链里：${source.runId}`);
+  }
+  return ancestorRunIds.length > 0 ? { ...rest, ancestorRunIds: [...ancestorRunIds] } : rest;
+}
+
+// 一条 agent 来源同时给出了这个运行和它各级祖先的祖先链。
+function lineage(runId: string, ancestors: string[] = []): [string, string[]][] {
+  const chain = [runId, ...ancestors];
+  return chain.map((run, index) => [run, chain.slice(index + 1)]);
+}
+
+// 记下来源推出的各级祖先链；已有记录的运行保持原样。
+function remember(runs: Map<string, string[]>, source: Source): void {
+  if (source.kind !== "agent") return;
+  for (const [runId, chain] of lineage(source.runId, source.ancestorRunIds)) {
+    if (!runs.has(runId)) runs.set(runId, chain);
+  }
+}
+
 // fast-import 的引号路径只需转义反斜杠、双引号和换行，其余字节原样保留。
 function quoted(file: string): string {
   return `"${file.replace(/[\\"\n]/g, (character) => (character === "\n" ? "\\n" : `\\${character}`))}"`;
@@ -98,8 +123,8 @@ export class SpaceHistory {
   private head: string | null = null;
   // head 的完整树，随提交更新，按路径提交时就地修改；按路径记账只比较给定范围，不必每次重新列出整棵树。null 表示需要重新读取。
   private headTree: Map<string, Entry> | null = null;
-  // 运行到父运行的映射，第一次需要时从全部提交来源建立，之后随提交补充。
-  private runs: Map<string, string | null> | null = null;
+  // 运行到祖先链的映射，第一次需要时从全部提交来源建立，之后随提交补充；没有提交的运行由子孙的祖先链推出。
+  private runs: Map<string, string[]> | null = null;
   // scope 为 null 表示整个空间；保存失败后按同一来源和范围补完。
   private pending: { source: Source; scope: string[] | null } | null = null;
   private readonly listeners = new Set<(revision: string) => void | Promise<void>>();
@@ -190,7 +215,7 @@ export class SpaceHistory {
 
   snapshot(source: SnapshotSource = { kind: "external" }): Promise<Snapshot> {
     if (!Check(SnapshotSourceSchema, source)) throw new Error("无效的快照来源");
-    const captured = { ...source };
+    const captured = checkedSource(source);
     return this.serial(async () => {
       await this.checkRun(captured);
       return this.capture(captured);
@@ -199,7 +224,7 @@ export class SpaceHistory {
 
   record<T>(source: ActivitySource, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }> {
     if (!Check(ActivitySourceSchema, source)) throw new Error("无效的活动来源");
-    const captured = { ...source };
+    const captured = checkedSource(source);
     return this.serial(async () => {
       await this.checkRun(captured);
       await this.capture({ kind: "external" });
@@ -209,7 +234,7 @@ export class SpaceHistory {
 
   recordPaths<T>(source: ActivitySource, paths: string[], action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }> {
     if (!Check(ActivitySourceSchema, source)) throw new Error("无效的活动来源");
-    const captured = { ...source };
+    const captured = checkedSource(source);
     const scope = checkedPaths(paths);
     return this.serial(async () => {
       await this.checkRun(captured);
@@ -334,29 +359,23 @@ export class SpaceHistory {
     return this.headTree;
   }
 
-  // 同一运行可以多次提交，但各次的父运行必须一致，运行树也不能成环。
+  // 同一运行可以多次提交。它自己的提交和子孙提交推出的祖先链都必须一致，运行树才不会分叉或成环。
   private async checkRun(source: Source): Promise<void> {
     if (source.kind !== "agent") return;
-    const { runId, parentRunId = null } = source;
-    if (parentRunId === runId) throw new Error(`运行不能以自身为父运行：${runId}`);
     const runs = await this.runIndex();
-    if (runs.has(runId)) {
-      if (runs.get(runId) !== parentRunId) throw new Error(`运行的父运行与已有提交不一致：${runId}`);
-      return;
-    }
-    const seen = new Set<string>();
-    for (let current = parentRunId; current !== null && !seen.has(current); current = runs.get(current) ?? null) {
-      if (current === runId) throw new Error(`父运行不能是这个运行的子孙：${runId}`);
-      seen.add(current);
+    for (const [runId, chain] of lineage(source.runId, source.ancestorRunIds)) {
+      const known = runs.get(runId);
+      if (known && (known.length !== chain.length || known.some((run, index) => run !== chain[index]))) {
+        throw new Error(`运行的祖先链与已有提交不一致：${runId}`);
+      }
     }
   }
 
-  private async runIndex(): Promise<Map<string, string | null>> {
+  private async runIndex(): Promise<Map<string, string[]>> {
     if (!this.runs) {
-      const runs = new Map<string, string | null>();
-      for (const { source } of this.head ? await this.readLog(["--reverse", REF]) : []) {
-        if (source.kind === "agent" && !runs.has(source.runId)) runs.set(source.runId, source.parentRunId ?? null);
-      }
+      const revisions = this.head ? await this.readLog(["--reverse", REF]) : [];
+      const runs = new Map<string, string[]>();
+      for (const { source } of revisions) remember(runs, source);
       this.runs = runs;
     }
     return this.runs;
@@ -530,9 +549,7 @@ export class SpaceHistory {
     this.head = revision;
     this.headTree = tree;
     this.pending = null;
-    if (source.kind === "agent" && this.runs && !this.runs.has(source.runId)) {
-      this.runs.set(source.runId, source.parentRunId ?? null);
-    }
+    if (this.runs) remember(this.runs, source);
     for (const listener of this.listeners) {
       try {
         Promise.resolve(listener(revision)).catch((error: unknown) => { process.emitWarning(String(error)); });
@@ -559,19 +576,9 @@ export class SpaceHistory {
     return this.serial(async () => {
       await this.capture({ kind: "external" });
       const revisions = await this.readLog(["--reverse", REF]);
-      const children = new Map<string, Set<string>>();
-      for (const { source } of revisions) {
-        if (source.kind !== "agent" || source.parentRunId === undefined) continue;
-        const siblings = children.get(source.parentRunId) ?? new Set<string>();
-        siblings.add(source.runId);
-        children.set(source.parentRunId, siblings);
-      }
-      // 遍历中加入的子孙也会被访问；已在集合中的运行不会重复加入，遍历总会结束。
-      const runs = new Set([runId]);
-      for (const run of runs) {
-        for (const child of children.get(run) ?? []) runs.add(child);
-      }
-      const owned = ({ source }: Revision) => source.kind === "agent" && runs.has(source.runId);
+      // 子孙的每个提交都带着完整祖先链，中间运行即使没有提交也能找到。
+      const owned = ({ source }: Revision) => source.kind === "agent"
+        && (source.runId === runId || (source.ancestorRunIds ?? []).includes(runId));
       const start = revisions.findIndex(owned);
       if (start < 0) throw new Error(`历史中没有这个运行的提交：${runId}`);
       if (!revisions[start]?.parent) throw new Error("初始快照不能撤销");

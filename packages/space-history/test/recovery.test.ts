@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { GitError } from "../src/git.js";
-import { openHistory } from "../src/index.js";
+import { openHistory, type ActivitySource } from "../src/index.js";
 
 function deferred() {
   let resolve = () => {};
@@ -112,7 +112,7 @@ test("按路径提交失败后，后续操作先按原范围补完原来源，�
     await t.test(failure === "before" ? "引用更新前失败" : "引用更新后才报告失败", async (context) => {
       const f = await fixture(context, failure, "fast-import");
       let actions = 0;
-      const source = { kind: "agent", runId: `scoped-${failure}`, parentRunId: "lead" } as const;
+      const source: ActivitySource = { kind: "agent", runId: `scoped-${failure}`, ancestorRunIds: ["lead"] };
       await assert.rejects(f.history.recordPaths(source, ["agent.txt"], async () => {
         actions += 1;
         await writeFile(join(f.space, "agent.txt"), "按路径写入的内容\r\n");

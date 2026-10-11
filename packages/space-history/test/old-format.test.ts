@@ -5,7 +5,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { Git } from "../src/git.js";
-import { openHistory } from "../src/index.js";
+import { openHistory, type ActivitySource } from "../src/index.js";
 
 // 样本最后一个提交的原始 ID；重新导入后相同，说明旧提交逐字节保留。
 const OLD_HEAD = "58feeba191c9aa1996d689cb5efe9b537b527d56";
@@ -69,7 +69,7 @@ test("旧格式历史照常读取、按修订和按运行撤回，旧运行还�
   await assert.rejects(f.read("notes/renamed.md"), { code: "ENOENT" });
 
   const reused = { kind: "agent", runId: "old-empty" } as const;
-  const child = { kind: "agent", runId: "new-child", parentRunId: "old-empty" } as const;
+  const child: ActivitySource = { kind: "agent", runId: "new-child", ancestorRunIds: ["old-empty"] };
   await history.recordPaths(reused, ["notes/keep.txt"], () => f.write("notes/keep.txt", "沿用旧运行\n"));
   await history.recordPaths(child, ["progress.json"], () => f.write("progress.json", "{\"step\":2}\n"));
   const extended = await history.undoRun("old-empty");

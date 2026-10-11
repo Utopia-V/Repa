@@ -6,7 +6,8 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 
-import { openHistory } from "../src/history.js";
+import { openHistory, type SpaceHistory } from "../src/history.js";
+import type { ActivitySource } from "../src/schema.js";
 
 const execute = promisify(execFile);
 const sizes = [64, 1_000, 10_000];
@@ -62,23 +63,22 @@ for (const size of sizes) {
     }
     const opened = await measured(() => openHistory(space));
     const history = opened.value;
-    const runs = [
-      { kind: "agent", runId: "lead" },
-      { kind: "agent", runId: "helper", parentRunId: "lead" },
-      { kind: "agent", runId: "detail", parentRunId: "helper" },
-    ] as const;
+    const lead: ActivitySource = { kind: "agent", runId: "lead" };
+    const detail: ActivitySource = { kind: "agent", runId: "detail", ancestorRunIds: ["helper", "lead"] };
+    const runs: ActivitySource[] = [lead, { kind: "agent", runId: "helper", ancestorRunIds: ["lead"] }, detail];
     const pick = (step: number) => Math.floor((step * 7919) % size);
+    // 计时包括写入动作本身，也就是队列被占住的全部时间。
+    const write = (target: SpaceHistory, source: ActivitySource, index: number, version: number) =>
+      measured(() => target.recordPaths(source, [name(index)], () => writeFile(path.join(space, name(index)), content(index, version))));
 
     // 第一次调用还要从提交记录建立运行索引。
-    const cold = await measured(() => history.recordPaths(runs[0], [name(0)], () => writeFile(path.join(space, name(0)), content(0, 1))));
+    const cold = await write(history, lead, 0, 1);
     assert.equal(cold.value.snapshot.committed, true);
 
     const scoped: number[] = [];
     for (let step = 1; step <= scopedWrites; step += 1) {
       const index = pick(step);
-      const source = runs[step % runs.length] ?? runs[0];
-      const result = await measured(() => history.recordPaths(source, [name(index)], () =>
-        writeFile(path.join(space, name(index)), content(index, step + 1))));
+      const result = await write(history, runs[step % runs.length] ?? lead, index, step + 1);
       assert.equal(result.value.snapshot.committed, true);
       scoped.push(result.ms);
     }
@@ -88,8 +88,7 @@ for (const size of sizes) {
     for (let step = 1; step <= externalWrites; step += 1) {
       const index = pick(scopedWrites + step);
       await writeFile(path.join(space, name(index)), content(index, 100_000 + step));
-      const result = await measured(() => history.recordPaths(runs[0], [name(index)], () =>
-        writeFile(path.join(space, name(index)), content(index, 200_000 + step))));
+      const result = await write(history, lead, index, 200_000 + step);
       assert.equal(result.value.snapshot.committed, true);
       withExternal.push(result.ms);
     }
@@ -106,8 +105,7 @@ for (const size of sizes) {
 
     const commits = (await history.list(100_000)).length;
     const reopened = await openHistory(space);
-    const coldAfterHistory = await measured(() => reopened.recordPaths(runs[2], [name(1)], () =>
-      writeFile(path.join(space, name(1)), content(1, 400_000))));
+    const coldAfterHistory = await write(reopened, detail, 1, 400_000);
     const undo = await measured(() => reopened.undoRun("helper"));
     assert.equal((await reopened.snapshot()).committed, false);
 

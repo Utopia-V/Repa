@@ -32,8 +32,8 @@ async function fixture(t: TestContext, files: Record<string, string>) {
 }
 
 const lead = { kind: "agent", runId: "lead" } as const;
-const helper = { kind: "agent", runId: "helper", parentRunId: "lead" } as const;
-const detail = { kind: "agent", runId: "detail", parentRunId: "helper" } as const;
+const helper: ActivitySource = { kind: "agent", runId: "helper", ancestorRunIds: ["lead"] };
+const detail: ActivitySource = { kind: "agent", runId: "detail", ancestorRunIds: ["helper", "lead"] };
 const other = { kind: "agent", runId: "other" } as const;
 
 test("按运行撤回连带全部子孙运行，每个文件回到它们第一次修改之前，其他运行与外部改动不动", async (t) => {
@@ -74,7 +74,7 @@ test("按运行撤回连带全部子孙运行，每个文件回到它们第一�
 
 test("撤回子运行只撤它和它的子孙，父运行与兄弟运行的改动保留", async (t) => {
   const f = await fixture(t, { "plan.md": "原计划\n" });
-  const sibling = { kind: "agent", runId: "sibling", parentRunId: "lead" } as const;
+  const sibling: ActivitySource = { kind: "agent", runId: "sibling", ancestorRunIds: ["lead"] };
   await f.save(lead, "plan.md", "主运行修改\n");
   await f.save(helper, "helper.md", "子运行新增\n");
   await f.save(sibling, "sibling.md", "兄弟运行新增\n");
@@ -86,6 +86,22 @@ test("撤回子运行只撤它和它的子孙，父运行与兄弟运行的改�
   await assert.rejects(f.read("detail.md"), { code: "ENOENT" });
   assert.equal(await f.read("plan.md"), "主运行修改\n");
   assert.equal(await f.read("sibling.md"), "兄弟运行新增\n");
+});
+
+test("中间运行自己没有提交时，撤回更上层的运行仍能撤掉它子孙的改动", async (t) => {
+  const f = await fixture(t, { "c.md": "原文\n", "other.md": "无关原文\n" });
+  // G 起 P，P 只调度、没有提交；P 起 C，只有 C 写了文件。
+  const child: ActivitySource = { kind: "agent", runId: "C", ancestorRunIds: ["P", "G"] };
+  await f.save(child, "c.md", "C 写入\n");
+  await f.save(other, "other.md", "另一个运行\n");
+  const undone = await f.history.undoRun("G");
+  assert.deepEqual(undone.conflicts, []);
+  assert.deepEqual(undone.restored, ["c.md"]);
+  assert.equal(await f.read("c.md"), "原文\n");
+  assert.equal(await f.read("other.md"), "另一个运行\n");
+  const [revision] = await f.history.list(1);
+  assert.equal(revision?.id, undone.revision);
+  assert.deepEqual(revision?.source, { kind: "undo", runId: "G" });
 });
 
 test("第一次修改之后被其他来源碰过的文件报冲突且不还原，夹在两次写入之间的改动也算，之前的改动不算", async (t) => {
@@ -138,7 +154,7 @@ test("按运行撤回同时覆盖 record 与按路径提交，结果还能按修
 
 test("只作为父运行出现的运行可以撤回它的子运行；历史中没有的运行报错且不写入提交", async (t) => {
   const f = await fixture(t, { "plan.md": "原计划\n" });
-  const worker = { kind: "agent", runId: "worker", parentRunId: "orchestrator" } as const;
+  const worker: ActivitySource = { kind: "agent", runId: "worker", ancestorRunIds: ["orchestrator"] };
   await f.save(worker, "plan.md", "子运行修改\n");
   const count = (await f.history.list()).length;
   await assert.rejects(f.history.undoRun("missing"));

@@ -8,7 +8,7 @@ import { setTimeout } from "node:timers/promises";
 import { promisify } from "node:util";
 
 import { Git } from "../src/git.js";
-import { openHistory, type ChangeFeed } from "../src/index.js";
+import { openHistory, type ActivitySource, type ChangeFeed } from "../src/index.js";
 
 const execute = promisify(execFile);
 const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
@@ -137,7 +137,7 @@ test("不同来源并发写不同文件时，各自的动作依次执行，每�
       active -= 1;
     });
   const lead = { kind: "agent", runId: "lead" } as const;
-  const helper = { kind: "agent", runId: "helper", parentRunId: "lead" } as const;
+  const helper: ActivitySource = { kind: "agent", runId: "helper", ancestorRunIds: ["lead"] };
   const plugin = { kind: "plugin", pluginId: "learning" } as const;
   const other = { kind: "agent", runId: "other" } as const;
   const first = writer(lead, "lead-1.md", true);
@@ -327,7 +327,8 @@ test("按路径写入同样检查运行来源与路径格式，拒绝时不执�
   const action = async () => {
     actions += 1;
   };
-  await assert.rejects(history.recordPaths({ kind: "agent", runId: "lead", parentRunId: "other" }, ["never.txt"], action));
+  await assert.rejects(history.recordPaths({ kind: "agent", runId: "lead", ancestorRunIds: ["other"] }, ["never.txt"], action));
+  await assert.rejects(async () => history.recordPaths({ kind: "agent", runId: "self", ancestorRunIds: ["self"] }, ["never.txt"], action));
   for (const paths of [[], [""], ["../outside.txt"], ["/absolute.txt"], ["a//b.txt"], ["./a.txt"], ["dir/"]]) {
     await assert.rejects(async () => history.recordPaths(lead, paths, action));
   }
@@ -340,7 +341,7 @@ test("与 record 混用时按队列顺序执行：record 期间的按路径写�
   const history = await openHistory(f.space);
   const baseline = await head(history);
   const shell = { kind: "agent", runId: "shell" } as const;
-  const editor = { kind: "agent", runId: "editor", parentRunId: "shell" } as const;
+  const editor: ActivitySource = { kind: "agent", runId: "editor", ancestorRunIds: ["shell"] };
   const entered = deferred();
   const release = deferred();
   const events: string[] = [];
