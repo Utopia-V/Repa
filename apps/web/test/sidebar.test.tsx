@@ -14,35 +14,22 @@ function renderWorkspace(path = "/") {
   return router;
 }
 
-it("默认进入 Learning Space，侧栏仅有两个栏目", async () => {
+it("默认进入 Learning Space，侧栏只有这一个栏目", async () => {
   const router = renderWorkspace();
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
-  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space", "Settings"]);
+  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space"]);
   expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
-  expect(screen.getByRole("button", { name: "开始学习" })).toBeTruthy();
-  expect(screen.queryByText("尚未选择学习空间")).toBeNull();
-});
-
-it("切换栏目和返回历史更新当前项及内容", async () => {
-  const router = renderWorkspace("/learning-space");
-  fireEvent.click(screen.getByRole("link", { name: "Settings" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
-  expect(screen.getByRole("link", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
-  expect(screen.queryByRole("button", { name: "开始学习" })).toBeNull();
-  await act(() => router.navigate(-1));
-  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
-  expect(screen.getByRole("button", { name: "开始学习" })).toBeTruthy();
 });
 
 it("导航抽屉可关闭、恢复焦点，选择目标后关闭并保留当前路由", async () => {
   mockMatchMedia(true);
-  const router = renderWorkspace("/learning-space");
+  const router = renderWorkspace("/missing");
   const trigger = screen.getByRole("button", { name: "打开导航" });
   trigger.focus();
   fireEvent.click(trigger);
   const dialog = screen.getByRole("dialog", { name: "工作台导航" });
-  fireEvent.click(within(dialog).getByRole("link", { name: "Settings" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
+  fireEvent.click(within(dialog).getByRole("link", { name: "Learning Space" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   fireEvent.click(trigger);
@@ -79,9 +66,9 @@ it("折叠为图标栏后保留可访问名称与当前项", () => {
   // 文字由 CSS 在视觉上隐藏，但链接名称和当前项仍可被辅助技术识别。
   expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
   // 折叠时用 title 为鼠标用户补回标签，展开后移除。
-  expect(screen.getByRole("link", { name: "Settings" }).getAttribute("title")).toBe("Settings");
+  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("title")).toBe("Learning Space");
   fireEvent.click(screen.getByRole("button", { name: "打开导航" }));
-  expect(screen.getByRole("link", { name: "Settings" }).getAttribute("title")).toBeNull();
+  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("title")).toBeNull();
 });
 
 

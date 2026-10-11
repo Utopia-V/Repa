@@ -138,11 +138,11 @@ describe("主题可读性", () => {
   );
 });
 
-it("拓扑选择复用按钮焦点，切换节点后保留独立选择状态", async () => {
-  const { TopologyNode } = await import("../src/components/domain/topology-node");
+it("图标选择按钮复用按钮焦点，切换后保留独立选择状态", async () => {
+  const { SelectionButton } = await import("../src/components/ui/selection-button");
   function Graph() {
     const [selected, setSelected] = useState("A");
-    return <>{["A", "B"].map(name => <TopologyNode key={name} label={name} icon={<span aria-hidden="true">○</span>} selected={selected === name} onClick={() => setSelected(name)} />)}</>;
+    return <>{["A", "B"].map(name => <SelectionButton key={name} size="icon" aria-label={name} selected={selected === name} onClick={() => setSelected(name)}><span aria-hidden="true">○</span></SelectionButton>)}</>;
   }
   render(<Graph />);
   const a = screen.getByRole("button", { name: "A" });

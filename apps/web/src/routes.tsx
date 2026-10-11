@@ -9,7 +9,6 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/learning-space" replace /> },
       { path: "learning-space", element: <LearningSpacePage /> },
-      { path: "settings", element: null },
       { path: "*", element: <p className="p-8">未找到页面。</p> },
     ],
   },

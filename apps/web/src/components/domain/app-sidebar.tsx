@@ -1,7 +1,7 @@
-import { FolderOpen, Settings } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import { NavLink } from "react-router";
 import {
-  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader,
+  Sidebar, SidebarContent, SidebarGroup, SidebarHeader,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar,
 } from "@/components/ui/sidebar";
 
@@ -34,17 +34,6 @@ export function AppSidebar() {
         </nav>
       </SidebarGroup>
     </SidebarContent>
-    <SidebarFooter>
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton asChild>
-            <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle("Settings")}>
-              <Settings aria-hidden="true" /><span className={collapseLabel}>Settings</span>
-            </NavLink>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-    </SidebarFooter>
     <SidebarRail />
   </Sidebar>;
 }
