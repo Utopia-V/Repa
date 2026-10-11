@@ -20,7 +20,7 @@ import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions } from "../agent.js";
 import type { AgentTask, AgentWork, CompletionRequest, Tool } from "../plugin.js";
-import { RepaFault, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
+import { RepaFault, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection, type ProviderInfo } from "../schema.js";
 import { exactEditTool } from "./edit.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { applyPromptSections, promptSections } from "./prompts.js";
@@ -122,6 +122,38 @@ class Runtime implements AgentRuntime {
       name: model.name,
       available: keys.has(`${model.provider}/${model.id}`),
     }));
+  }
+
+  async listProviders(): Promise<ProviderInfo[]> {
+    this.assertOpen();
+    const models = this.options.modelRuntime;
+    const stored = new Set((await models.listCredentials()).map(entry => entry.providerId));
+    // checkAuth 当场解析保存的凭据和环境变量；getProviderAuthStatus 读的是异步刷新的快照，登录后可能还没更新。
+    const providers = await Promise.all(models.getProviders().map(async provider => {
+      const methods: ProviderInfo["methods"] = [];
+      if (provider.auth.oauth) methods.push({ type: "oauth", name: provider.auth.oauth.name, login: true });
+      if (provider.auth.apiKey) methods.push({ type: "api_key", name: provider.auth.apiKey.name, login: provider.auth.apiKey.login !== undefined });
+      const info: ProviderInfo = { id: provider.id, name: provider.name, methods, stored: stored.has(provider.id) };
+      const check = await models.checkAuth(provider.id);
+      if (check) info.configured = check.type;
+      return info;
+    }));
+    return providers.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  defaultModel(): ModelRef | undefined {
+    this.assertOpen();
+    const model = this.model();
+    return model && { provider: model.provider, id: model.id };
+  }
+
+  async setDefaultModel(reference: ModelRef): Promise<void> {
+    this.assertOpen();
+    this.model(reference);
+    // 沿用 Pi 自己的默认模型设置，与 Pi 会话切换模型时保存的是同一项。
+    this.settings.setDefaultModelAndProvider(reference.provider, reference.id);
+    await this.settings.flush();
+    this.checkSettings();
   }
 
   async login(provider: string, type: string, confirm: Confirm, signal?: AbortSignal): Promise<void> {

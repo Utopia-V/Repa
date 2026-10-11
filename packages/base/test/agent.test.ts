@@ -396,6 +396,41 @@ test("单 key 登录通过 SDK 持久化，重建运行时仍可用且登出删�
   assert(!JSON.stringify(f.events).includes("test-only-secret"));
 });
 
+test("提供方列表报告登录方式与已保存凭据，默认模型写入 Pi 设置", async t => {
+  const f = await fixture(t);
+  const provider = {
+    ...f.faux.provider,
+    name: "测试提供方",
+    auth: {
+      apiKey: {
+        name: "测试 key",
+        async login(interaction: import("@earendil-works/pi-ai").ProviderAuthInteraction) {
+          return { type: "api_key" as const, key: await interaction.prompt({ type: "secret", message: "API key" }) };
+        },
+        async resolve({ credential }: { credential?: import("@earendil-works/pi-ai").ApiKeyCredential }) {
+          return credential?.key ? { auth: { apiKey: credential.key } } : undefined;
+        },
+      },
+    },
+  };
+  f.models.registerNativeProvider(provider);
+  const settings = SettingsManager.inMemory({ cacheWarming: "off" });
+  const runtime = await createAgentRuntimeForTest({ agentDir: f.agentDir, modelRuntime: f.models, settingsManager: settings });
+  t.after(() => runtime.close());
+  const find = async () => (await runtime.listProviders()).find(entry => entry.id === provider.id);
+  const expected = { id: provider.id, name: "测试提供方", methods: [{ type: "api_key", name: "测试 key", login: true }] };
+  assert.deepEqual(await find(), { ...expected, stored: false });
+  await runtime.setKey(provider.id, "test-only-secret");
+  assert.deepEqual(await find(), { ...expected, configured: "api_key", stored: true });
+
+  await runtime.setDefaultModel({ provider: provider.id, id: "test" });
+  assert.deepEqual(runtime.defaultModel(), { provider: provider.id, id: "test" });
+  assert.equal(settings.getDefaultProvider(), provider.id);
+  assert.equal(settings.getDefaultModel(), "test");
+  await assert.rejects(runtime.setDefaultModel({ provider: provider.id, id: "missing" }), error => error !== null && typeof error === "object" && "code" in error && error.code === "model_not_found");
+  assert.equal(settings.getDefaultModel(), "test");
+});
+
 test("需要第二项信息的 key 登录要求交互登录，不保存半成品凭据", async t => {
   const f = await fixture(t);
   const provider = {

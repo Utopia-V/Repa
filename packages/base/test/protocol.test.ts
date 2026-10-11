@@ -22,6 +22,9 @@ async function fixture(
   const runtime: AgentRuntime = {
     async openSpace() { throw new Error("该协议边界测试不打开 Agent 空间"); },
     async listModels() { return []; },
+    async listProviders() { return []; },
+    defaultModel() { return undefined; },
+    async setDefaultModel() {},
     async login(_provider, _type, confirm, signal) { await login?.(confirm, signal); },
     async setKey() {},
     async logout() {},
@@ -208,6 +211,37 @@ test("登录上游错误不把凭据或错误细节返回到协议", async (t) =
   });
 });
 
+
+test("模型提供方与默认模型直接转给运行时，未设置默认模型时返回 null", async (t) => {
+  const saved: unknown[] = [];
+  let current: { provider: string; id: string } | undefined;
+  const provider = { id: "test", name: "Test", methods: [{ type: "api_key" as const, name: "Test key", login: true }], configured: "api_key" as const, stored: true };
+  const f = await fixture(t, undefined, { runtime: {
+    async listProviders() { return [provider]; },
+    defaultModel() { return current; },
+    async setDefaultModel(model) { saved.push(model); current = model; },
+  } });
+  const client = await f.client();
+  assert.deepEqual(await client.call("model.providers", {}), [provider]);
+  assert.equal(await client.call("model.getDefault", {}), null);
+  await client.call("model.setDefault", { model: { provider: "test", id: "m" } });
+  assert.deepEqual(saved, [{ provider: "test", id: "m" }]);
+  assert.deepEqual(await client.call("model.getDefault", {}), { provider: "test", id: "m" });
+});
+
+test("保存 key 时保留需要交互登录的错误码，其他上游错误不外泄", async (t) => {
+  let failure: Error = new RepaFault("requires_interactive_login", "此提供方需要额外登录信息，请使用交互登录");
+  const f = await fixture(t, undefined, { runtime: { async setKey() { throw failure; } } });
+  const client = await f.client();
+  await assert.rejects(client.call("auth.setKey", { provider: "test", key: "k" }), (error: unknown) => error instanceof RpcError && record(error.data)?.code === "requires_interactive_login");
+  failure = new Error("secret-key-from-upstream");
+  await assert.rejects(client.call("auth.setKey", { provider: "test", key: "k" }), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "auth_failed");
+    assert.equal(error.message.includes("secret-key"), false);
+    return true;
+  });
+});
 
 test("批量请求保留 id，客户端 notification 不启动需要确认的操作", async (t) => {
   const f = await fixture(t);

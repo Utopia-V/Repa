@@ -326,6 +326,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       }
       case "model.list":
         return runtime.listModels();
+      case "model.providers":
+        return runtime.listProviders();
+      case "model.getDefault":
+        return runtime.defaultModel() ?? null;
+      case "model.setDefault":
+        await runtime.setDefaultModel(p<"model.setDefault">().model);
+        return null;
       case "auth.login": {
         const input = p<"auth.login">();
         const controller = new AbortController();
@@ -347,7 +354,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         const input = p<"auth.setKey">();
         try {
           await runtime.setKey(input.provider, input.key);
-        } catch {
+        } catch (error) {
+          // requires_interactive_login 告诉前端改走 auth.login，不能被合并成笼统的失败。
+          if (error instanceof RepaFault) throw error;
           throw new RepaFault("auth_failed", "保存模型凭据失败");
         }
         return null;

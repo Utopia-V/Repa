@@ -1,6 +1,6 @@
 import type { Static, TSchema } from "typebox";
 import type { AgentTask, AgentWork, CompletionRequest, Tool } from "./plugin.js";
-import type { AgentEvent, Confirm, ModelRef, PromptOverrides, PromptSection, SessionEntry, SessionInfo } from "./schema.js";
+import type { AgentEvent, Confirm, ModelRef, PromptOverrides, PromptSection, ProviderInfo, SessionEntry, SessionInfo } from "./schema.js";
 
 export interface AgentSession {
   info(): SessionInfo;
@@ -39,6 +39,10 @@ export interface AgentSpaceOptions {
 export interface AgentRuntime {
   openSpace(options: AgentSpaceOptions): Promise<AgentSpace>;
   listModels(): Promise<{ provider: string; id: string; name: string; available: boolean }[]>;
+  listProviders(): Promise<ProviderInfo[]>;
+  /** 新会话不指定模型时使用的模型；没有可用模型时为 undefined。 */
+  defaultModel(): ModelRef | undefined;
+  setDefaultModel(model: ModelRef): Promise<void>;
   login(provider: string, type: string, confirm: Confirm, signal?: AbortSignal): Promise<void>;
   setKey(provider: string, key: string): Promise<void>;
   logout(provider: string): Promise<void>;

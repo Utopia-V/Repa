@@ -6,6 +6,17 @@ export const object = <T extends Record<string, TSchema>>(properties: T) =>
 export const identifier = Type.String({ minLength: 1 });
 export const ModelRefSchema = object({ provider: identifier, id: identifier });
 export type ModelRef = Static<typeof ModelRefSchema>;
+export const AuthTypeSchema = Type.Union([Type.Literal("api_key"), Type.Literal("oauth")]);
+export type AuthType = Static<typeof AuthTypeSchema>;
+// login 为 false 的方式只能在 Repa 之外配置（例如环境变量）；stored 表示有可由 auth.logout 删除的保存凭据。
+export const ProviderInfoSchema = object({
+  id: identifier,
+  name: Type.String(),
+  methods: Type.Array(object({ type: AuthTypeSchema, name: Type.String(), login: Type.Boolean() })),
+  configured: Type.Optional(AuthTypeSchema),
+  stored: Type.Boolean(),
+});
+export type ProviderInfo = Static<typeof ProviderInfoSchema>;
 export const PromptOverrideSchema = object({
   text: Type.Optional(Type.String()),
   enabled: Type.Optional(Type.Boolean()),
