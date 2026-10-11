@@ -61,6 +61,11 @@ export interface AgentRuntimeOptions {
   agentDir: string;
   /** 默认在提示段变化后的下一轮附上一次说明；关闭仅影响说明，不影响 Pi 的提示更新。 */
   promptChangeNotice?: boolean;
+  /**
+   * 子 Agent 最多嵌套几层，默认 3。这是 Repa 的假设：Agent 定义允许循环和重入，
+   * 用层数挡住失控的递归，以后按实际使用调整。超过时启动请求作为工具错误交回父 Agent。
+   */
+  maxSubagentDepth?: number;
 }
 
 export { createAgentRuntime } from "./agent/runtime.js";

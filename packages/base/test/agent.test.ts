@@ -104,7 +104,7 @@ test("插件工具和 view 在运行内读到本次 runId，运行之外没有�
   await f.session.send("读取运行");
   const run = f.session.history().find(entry => entry.type === "run");
   assert(run?.data !== null && typeof run?.data === "object" && "runId" in run.data);
-  const expected = { runId: run.data.runId, sessionId: f.session.info().id, agent: "general" };
+  const expected = { runId: run.data.runId, ancestorRunIds: [], sessionId: f.session.info().id, agent: "general" };
   assert.deepEqual(seen, [{ source: "view", run: expected }, { source: "tool", run: expected }]);
   assert.equal(currentRun(), undefined);
 });

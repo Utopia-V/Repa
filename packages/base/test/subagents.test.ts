@@ -21,10 +21,11 @@ function deferred<T = void>() {
 }
 
 const agents: AgentDefinition[] = [
-  { id: "lead", instructions: () => "你安排练习并检查答案。", tools: ["course_lookup", "read", "write"], subagents: ["checker", "greedy"], direct: true },
+  { id: "lead", instructions: () => "你安排练习并检查答案。", tools: ["course_lookup", "read", "write"], subagents: ["checker"], direct: true },
   { id: "checker", description: "检查练习答案", instructions: () => "你只检查答案。", tools: ["course_lookup"] },
-  { id: "greedy", description: "需要命令的检查", instructions: () => "你会运行命令。", tools: ["read", "write", "bash"] },
   { id: "other", instructions: () => "未被列为子 Agent。", tools: ["course_lookup"] },
+  // 可以把自己列为子 Agent；失控的重入由嵌套层数上限挡住。
+  { id: "loop", description: "再拆一层任务", instructions: () => "你把任务交给下一层。", tools: ["course_lookup"], subagents: ["loop"], direct: true },
 ];
 
 async function fixture(t: TestContext) {
@@ -129,28 +130,65 @@ test("子 Agent 的回复作为工具结果交回父 Agent，子运行有自己�
   assert.equal(typeof childRun.runId, "string");
   assert.notEqual(childRun.runId, leadRun);
   assert.deepEqual(childRun, { runId: childRun.runId, parentRunId: leadRun, parentSessionId: f.lead.info().id });
-  assert.deepEqual(f.runs, [{ runId: childRun.runId, parentRunId: leadRun, sessionId: child.id, agent: "checker" }]);
+  assert.deepEqual(f.runs, [{ runId: childRun.runId, ancestorRunIds: [leadRun], sessionId: child.id, agent: "checker" }]);
   assert.deepEqual(f.events.find(event => event.type === "runStart" && event.sessionId === child.id)?.data, { parentRunId: leadRun, parentSessionId: f.lead.info().id });
   // 只有父运行进入历史队列；子运行在父运行的记录窗口里完成。
   assert.deepEqual(f.recorded, [leadRun]);
 });
 
-test("子 Agent 只能起定义里列出的那些，工具超过父 Agent 的子 Agent 起不来", async t => {
+test("子 Agent 只能起定义里列出的那些，没列出的请求作为工具错误交回", async t => {
   const f = await fixture(t);
   f.faux.setResponses([
-    fauxAssistantMessage([
-      fauxToolCall("subagent", { agent: "other", task: "未列出的子 Agent" }),
-      fauxToolCall("subagent", { agent: "greedy", task: "需要 bash 的任务" }),
-    ]),
-    fauxAssistantMessage("都没有启动"),
+    fauxAssistantMessage(fauxToolCall("subagent", { agent: "other", task: "未列出的子 Agent" })),
+    fauxAssistantMessage("没有启动"),
   ]);
   await f.lead.send("试着启动子 Agent");
-  const results = toolResults(f.lead);
-  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["subagent", true], ["subagent", true]]);
-  assert.doesNotMatch(results[0]?.text ?? "", /答案/u);
-  assert.match(results[1]?.text ?? "", /子 Agent 的工具超过父 Agent/u);
+  assert.deepEqual(toolResults(f.lead).map(result => [result.tool, result.isError]), [["subagent", true]]);
   assert.equal(f.faux.state.callCount, 2);
   assert.deepEqual((await f.space.list()).map(info => info.agent), ["lead"]);
+});
+
+test("子 Agent 可以重入自己，嵌套超过默认的 3 层时启动请求作为工具错误交回，祖先链从近到远", async t => {
+  const f = await fixture(t);
+  const top = await f.space.create({ agent: "loop" });
+  const descend = (level: number) => fauxAssistantMessage(fauxToolCall("subagent", { agent: "loop", task: `第 ${level} 层任务` }));
+  f.faux.setResponses([
+    descend(1),
+    descend(2),
+    descend(3),
+    // 第 3 层的子 Agent 再读一次运行上下文，并尝试启动第 4 层。
+    fauxAssistantMessage([fauxToolCall("course_lookup", { topic: "层数" }), fauxToolCall("subagent", { agent: "loop", task: "第 4 层任务" })]),
+    fauxAssistantMessage("第 3 层完成"),
+    fauxAssistantMessage("第 2 层完成"),
+    fauxAssistantMessage("第 1 层完成"),
+    fauxAssistantMessage("全部完成"),
+  ]);
+  await top.send("开始拆分");
+  assert.equal(f.faux.state.callCount, 8);
+  const sessions = (await f.space.list()).filter(info => info.agent === "loop");
+  assert.equal(sessions.length, 4);
+  // 按运行记录里的父运行串起四层：第 0 层是直接对话的会话。
+  const runs = new Map<string, { runId: unknown; parentRunId: unknown; session: AgentSession }>();
+  for (const info of sessions) {
+    const session = await f.space.get(info.id);
+    const entry = runEntry(session);
+    runs.set(String(entry.runId), { runId: entry.runId, parentRunId: entry.parentRunId, session });
+  }
+  const chain: string[] = [];
+  let current = [...runs.values()].find(run => run.parentRunId === undefined);
+  while (current) {
+    chain.push(String(current.runId));
+    const parent = String(current.runId);
+    current = [...runs.values()].find(run => run.parentRunId === parent);
+  }
+  assert.equal(chain.length, 4);
+  const deepest = runs.get(chain[3] ?? "");
+  assert(deepest);
+  assert.deepEqual(f.runs, [{ runId: chain[3], ancestorRunIds: [chain[2], chain[1], chain[0]], sessionId: deepest.session.info().id, agent: "loop" }]);
+  const results = toolResults(deepest.session);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["course_lookup", false], ["subagent", true]]);
+  assert.match(results[1]?.text ?? "", /子 Agent 最多嵌套 3 层/u);
+  assert.equal(top.history().findLast(entry => entry.type === "assistant")?.text, "全部完成");
 });
 
 test("取消父运行会连带取消正在进行的子运行，取消完成时子运行已经结束", async t => {

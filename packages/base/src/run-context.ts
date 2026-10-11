@@ -1,9 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-/** 一次 Agent 运行的标识；子 Agent 的运行同时记下发起它的父运行。 */
+/** 一次 Agent 运行的标识。 */
 export interface RunContext {
   runId: string;
-  parentRunId?: string;
+  /**
+   * 祖先运行，从近到远：子运行的链是父运行的 runId 加上父运行自己的链，根运行的链为空。
+   * 同一个 runId 每次读到的链都相同；第一项就是父运行。
+   */
+  ancestorRunIds: readonly string[];
   sessionId: string;
   agent: string;
 }

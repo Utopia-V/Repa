@@ -13,7 +13,10 @@ const AgentFieldsSchema = object({
   direct: Type.Optional(Type.Boolean()),
 });
 
-/** 打开时一次核对全部定义：id 唯一，工具和子 Agent 都存在；子 Agent 的工具范围在启动时检查。 */
+/**
+ * 打开时一次核对全部定义：id 唯一，工具和子 Agent 都存在，子 Agent 的工具不超过父 Agent。
+ * 定义可以互相列为子 Agent，也可以列自己；失控的递归由运行时的嵌套层数上限挡住。
+ */
 function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): void {
   const ids = new Set<string>();
   for (const definition of definitions) {
@@ -32,15 +35,21 @@ function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): 
     ids.add(id);
   }
   const builtins = new Set<string>(BUILTIN_TOOLS);
+  const byId = new Map(definitions.map((definition) => [definition.id, definition]));
   for (const definition of definitions) {
     for (const tool of definition.tools) {
       if (!builtins.has(tool) && !pluginTools.has(tool)) {
         throw new RepaFault("unknown_agent_tool", "Agent 定义引用了不存在的工具", { agent: definition.id, tool });
       }
     }
+    const allowed = new Set(definition.tools);
     for (const subagent of definition.subagents ?? []) {
-      if (subagent === definition.id || !ids.has(subagent)) {
-        throw new RepaFault("unknown_subagent", "Agent 定义引用了不存在的子 Agent", { agent: definition.id, subagent });
+      const child = byId.get(subagent);
+      if (child === undefined) throw new RepaFault("unknown_subagent", "Agent 定义引用了不存在的子 Agent", { agent: definition.id, subagent });
+      // 更高权限的工作由插件程序触发，不能靠 Agent 之间转托取得。
+      const beyond = child.tools.filter((tool) => !allowed.has(tool));
+      if (beyond.length > 0) {
+        throw new RepaFault("subagent_exceeds_parent", "子 Agent 的工具超过父 Agent", { agent: definition.id, subagent, tools: beyond });
       }
     }
   }

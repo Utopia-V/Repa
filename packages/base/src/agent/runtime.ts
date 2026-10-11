@@ -57,10 +57,15 @@ const GENERAL_AGENT = "general";
 const AGENT_ENTRY = "repa-agent";
 const SUBAGENT_TOOL = "subagent";
 
-/** 子 Agent 的运行挂在父运行下。 */
+// 子 Agent 嵌套层数上限的默认值。这是 Repa 的假设：定义允许循环和重入，用层数挡住失控的递归，
+// 以后按实际使用调整。
+const SUBAGENT_DEPTH = 3;
+
+/** 子 Agent 的运行挂在父运行下；ancestorRunIds 是父运行自己的祖先链，从近到远。 */
 interface ParentRun {
   runId: string;
   sessionId: string;
+  ancestorRunIds: readonly string[];
 }
 
 /** 一个 Agent 在当前空间中的装配；会话初始化时取得，工具与 view 来源在会话内不变。 */
@@ -74,16 +79,6 @@ interface AgentProfile {
   sections(): { id: string; text: string }[];
   views(): Promise<{ id: string; text: string }[]>;
   beforeMessage?: AgentDefinition["beforeMessage"];
-}
-
-/** 子 Agent 拿不到父 Agent 没有的工具；更高权限的工作由插件程序触发，不经 Agent 之间转托。 */
-function toolsBeyond(child: AgentProfile, parent: AgentProfile): string[] {
-  const allowed = new Set([...parent.builtins, ...parent.tools.map(tool => tool.name)]);
-  const beyond = [...child.builtins, ...child.tools.map(tool => tool.name)].filter(name => !allowed.has(name));
-  // 通用 Agent 的读取和搜索不限于空间，插件 Agent 的同名工具达不到这个范围。插件宿主不允许把
-  // general 列为子 Agent，这里防的是直接构造 AgentSpaceOptions 的嵌入方。
-  if (child.general && !parent.general) beyond.push(...["read", "grep", "find", "ls"].filter(name => !beyond.includes(name)));
-  return beyond;
 }
 
 function byId<T extends { id: string }>(left: T, right: T): number {
@@ -495,6 +490,7 @@ class Session implements AgentSession {
   private pi?: PiSession;
   private assembled?: AgentProfile;
   private runId?: string;
+  private runAncestors?: readonly string[];
   private abortController?: AbortController;
   private currentViews: ViewSnapshot[] = [];
   private currentSections: PromptSection[] = [];
@@ -754,17 +750,18 @@ class Session implements AgentSession {
     let started = false;
     let reply = "";
     const link = parent === undefined ? undefined : { parentRunId: parent.runId, parentSessionId: parent.sessionId };
+    const ancestorRunIds = parent === undefined ? [] : [parent.runId, ...parent.ancestorRunIds];
     const execute = async () => {
       if (controller.signal.aborted) throw new RepaFault("cancelled", "排队中的会话运行已取消");
       if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
       this.runId = runId;
+      this.runAncestors = ancestorRunIds;
       this.abortController = controller;
       started = true;
       this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart", ...(link === undefined ? {} : { data: link }) });
       try {
-        // view、工具和文件写入都在运行上下文内执行，能读到本次 runId 与父运行。
-        const context = { runId, ...(link === undefined ? {} : { parentRunId: link.parentRunId }), sessionId: this.manager.getSessionId(), agent: this.agent };
-        await withRun(context, async () => {
+        // view、工具和文件写入都在运行上下文内执行，能读到本次 runId 与祖先链。
+        await withRun({ runId, ancestorRunIds, sessionId: this.manager.getSessionId(), agent: this.agent }, async () => {
           // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
           this.currentSections = await this.space.promptSections(this.profile);
           this.currentViews = await this.profile.views();
@@ -781,6 +778,7 @@ class Session implements AgentSession {
         throw error;
       } finally {
         this.runId = undefined;
+        this.runAncestors = undefined;
         this.abortController = undefined;
       }
     };
@@ -825,13 +823,18 @@ class Session implements AgentSession {
     });
   }
 
-  /** 子 Agent 在父运行内启动：工具不能超过父 Agent，父运行取消时一起取消，结束后释放会话。 */
+  /**
+   * 子 Agent 在父运行内启动，父运行取消时一起取消，结束后释放会话。工具不超过父 Agent 已在插件打开时检查；
+   * 这里限制嵌套层数，超过上限的请求作为工具错误交回父 Agent。
+   */
   private async startSubagent(agent: string, task: string, signal: AbortSignal | undefined): Promise<{ sessionId: string; runId: string; text: string }> {
     const parentRunId = this.runId;
-    if (parentRunId === undefined) throw new RepaFault("run_not_active", "子 Agent 只能在运行中启动");
+    const ancestors = this.runAncestors;
+    if (parentRunId === undefined || ancestors === undefined) throw new RepaFault("run_not_active", "子 Agent 只能在运行中启动");
     if (!this.profile.subagents.includes(agent)) throw new RepaFault("subagent_not_allowed", "当前 Agent 不能启动这个子 Agent", { agent });
-    const beyond = toolsBeyond(this.space.profile(agent), this.profile);
-    if (beyond.length > 0) throw new RepaFault("subagent_exceeds_parent", "子 Agent 的工具超过父 Agent，不能启动", { agent, tools: beyond });
+    // 子运行的祖先链比父运行多一层，链长就是它所在的嵌套层数。
+    const limit = this.space.runtime.options.maxSubagentDepth ?? SUBAGENT_DEPTH;
+    if (ancestors.length + 1 > limit) throw new RepaFault("subagent_depth_exceeded", `子 Agent 最多嵌套 ${limit} 层，不能再启动`, { agent, limit });
     signal?.throwIfAborted();
     const model = this.session.model;
     const child = await this.space.create({ agent, ...(model === undefined ? {} : { model: { provider: model.provider, id: model.id } }) });
@@ -839,7 +842,7 @@ class Session implements AgentSession {
     signal?.addEventListener("abort", cancel, { once: true });
     try {
       signal?.throwIfAborted();
-      const outcome = await child.runChild(task, { runId: parentRunId, sessionId: this.manager.getSessionId() });
+      const outcome = await child.runChild(task, { runId: parentRunId, sessionId: this.manager.getSessionId(), ancestorRunIds: ancestors });
       return { sessionId: child.info().id, ...outcome };
     } finally {
       signal?.removeEventListener("abort", cancel);
