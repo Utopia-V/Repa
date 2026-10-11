@@ -52,9 +52,10 @@ export const UsageSchema = object({
   input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(), cacheWrite: Type.Number(),
 });
 export type Usage = Static<typeof UsageSchema>;
+// updatedAt 是最后一条消息的时间，还没有消息时等于 createdAt；preview 是第一条用户消息的开头，供列表显示。
 export const SessionInfoSchema = object({
-  id: identifier, createdAt: Type.String(), name: Type.Optional(Type.String()),
-  model: Type.Optional(ModelRefSchema),
+  id: identifier, createdAt: Type.String(), updatedAt: Type.String(), name: Type.Optional(Type.String()),
+  preview: Type.Optional(Type.String()), model: Type.Optional(ModelRefSchema),
 });
 export type SessionInfo = Static<typeof SessionInfoSchema>;
 export const SessionEntrySchema = object({

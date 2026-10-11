@@ -161,6 +161,24 @@ test("首个 assistant 前用户消息已经持久化，重开空间沿用真实
   assert.deepEqual(session.history().filter(entry => entry.type === "user").map(entry => entry.text), ["需要保存的原始用户消息"]);
 });
 
+test("会话列表按最后消息排序，给出第一条用户消息和会话自己的模型，重开后不变", async t => {
+  const f = await fixture(t);
+  const later = await f.space.create();
+  assert.equal(later.info().preview, undefined);
+  assert.equal(later.info().updatedAt, later.info().createdAt);
+  f.faux.setResponses([fauxAssistantMessage("回答"), fauxAssistantMessage("回答")]);
+  await later.send("后建的会话");
+  await f.session.send("  先建的会话\n  最后说话  ");
+  const listed = await f.space.list();
+  assert.deepEqual(listed.map(info => info.id), [f.session.info().id, later.info().id]);
+  assert.equal(listed[0]?.preview, "先建的会话 最后说话");
+  assert(listed[0]!.updatedAt > listed[0]!.createdAt);
+  assert.deepEqual(listed.map(info => info.model), [{ provider: f.faux.getModel().provider, id: "test" }, { provider: f.faux.getModel().provider, id: "test" }]);
+  await f.space.close();
+  const reopened = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => true });
+  assert.deepEqual(await reopened.list(), listed);
+});
+
 test("运行中插话和追加沿用 SDK 队列，空闲追加直接启动下一轮", async t => {
   const f = await fixture(t);
   const started = deferred<void>();

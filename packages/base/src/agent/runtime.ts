@@ -342,10 +342,10 @@ class Space implements AgentSpace {
     for (const entry of await SessionManager.list(this.options.root, this.options.sessionsDir)) {
       const manager = SessionManager.open(entry.path, this.options.sessionsDir, this.options.root);
       const model = manager.buildSessionProjection().model;
-      infos.set(entry.id, { id: entry.id, createdAt: entry.created.toISOString(), ...(entry.name ? { name: entry.name } : {}), ...(model ? { model: { provider: model.provider, id: model.modelId } } : {}) });
+      infos.set(entry.id, describeSession(manager, model ? { provider: model.provider, id: model.modelId } : undefined));
     }
     for (const session of await Promise.all(this.sessions.values())) infos.set(session.info().id, session.info());
-    return [...infos.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return [...infos.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async runAgent(task: AgentTask): Promise<AgentWork> {
@@ -499,15 +499,8 @@ class Session implements AgentSession {
   }
 
   info(): SessionInfo {
-    const header = this.manager.getHeader();
     const model = this.pi?.model;
-    const name = this.manager.getSessionName();
-    return {
-      id: this.manager.getSessionId(),
-      createdAt: header?.timestamp ?? new Date().toISOString(),
-      ...(name ? { name } : {}),
-      ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
-    };
+    return describeSession(this.manager, model && { provider: model.provider, id: model.id });
   }
 
   history() {
@@ -657,4 +650,26 @@ class Session implements AgentSession {
 export function cacheStatusForTest(session: AgentSession) {
   if (!(session instanceof Session)) throw new Error("不是当前运行时的会话");
   return session.session.cacheWarmingStatus;
+}
+
+/** 列表用的会话摘要。时间和第一条用户消息与 Pi 的 SessionManager.list 取法一致，已打开的会话也能即时算出。 */
+function describeSession(manager: SessionManager, model: ModelRef | undefined): SessionInfo {
+  const createdAt = manager.getHeader()?.timestamp ?? new Date().toISOString();
+  let updatedAt = createdAt;
+  let preview: string | undefined;
+  for (const entry of manager.getEntries()) {
+    if (entry.type !== "message") continue;
+    if (entry.timestamp > updatedAt) updatedAt = entry.timestamp;
+    if (preview === undefined && entry.message.role === "user") {
+      const text = textContent(entry.message.content).replace(/\s+/gu, " ").trim();
+      if (text) preview = text.slice(0, 200);
+    }
+  }
+  const name = manager.getSessionName();
+  return {
+    id: manager.getSessionId(), createdAt, updatedAt,
+    ...(name ? { name } : {}),
+    ...(preview ? { preview } : {}),
+    ...(model ? { model } : {}),
+  };
 }
