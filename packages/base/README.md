@@ -102,7 +102,7 @@ await backend.close();
 | 组 | 方法 |
 | --- | --- |
 | 连接 | `initialize` |
-| 空间 | `space.list/open/create/close` |
+| 空间 | `space.list/open/create/close/roots/browse` |
 | 会话 | `session.list/create/history/send/steer/followUp/abort/setModel/compact/fork` |
 | 确认 | `confirm.reply`，通知 `confirm.request` |
 | 历史 | `history.list/changes/undo` |
@@ -110,6 +110,8 @@ await backend.close();
 | 提示 | `prompt.list/set/reset/preview` |
 | 模型 | `model.list`、`auth.login/setKey/logout` |
 | 设置 | `settings.get/set` |
+
+`space.browse` 为不能取得本地路径的 Web 前端列出某个文件夹下的子文件夹，不传路径时从用户目录开始，并标出含 `.repa/` 的已有空间；它只返回名称与路径，不读取文件。Node 读不到 Windows 的隐藏属性，因此除点开头的名称外，按名称跳过 `$` 开头的目录、`ProgramData`、`AppData` 等资源管理器默认不显示的系统目录，以及用户目录中拒绝读取的兼容链接；用户自行设为隐藏的文件夹仍会显示。单次最多返回 1000 个子文件夹并以 `truncated` 标记截断，不提供翻页游标。路径错误分别返回 `invalid_path`、`not_found`、`not_directory`、`permission_denied`（`EACCES` 与 `EPERM`）和 `unavailable`。`space.roots` 给出浏览起点：Windows 通过 PowerShell 读取盘符名称，失败时退回用户目录所在的盘；其他平台只有 `/`。
 
 运行增量、工具调用、usage 和起止通过 `session.event` 通知。`session.send` 等待整次运行；运行中的 `steer/followUp` 使用内嵌运行时的队列。无发起连接的后台命令在询问策略下无法取得授权，会被阻止；Full Access 是显式设置，不由插件自行提升。
 

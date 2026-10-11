@@ -26,6 +26,17 @@ export const SettingsSchema = object({
   prompts: PromptOverridesSchema,
 });
 export type Settings = Static<typeof SettingsSchema>;
+export const DirectoryRootSchema = object({ path: identifier, label: identifier });
+export type DirectoryRoot = Static<typeof DirectoryRootSchema>;
+export const DirectoryListingSchema = object({
+  path: identifier,
+  parent: Type.Union([identifier, Type.Null()]),
+  /** 文件夹内含 `.repa/` 时为已有空间。 */
+  space: Type.Boolean(),
+  entries: Type.Array(object({ name: identifier, path: identifier, space: Type.Boolean() })),
+  truncated: Type.Boolean(),
+});
+export type DirectoryListing = Static<typeof DirectoryListingSchema>;
 export const UsageSchema = object({
   input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(), cacheWrite: Type.Number(),
 });

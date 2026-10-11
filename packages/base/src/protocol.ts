@@ -3,6 +3,8 @@ import type { ChangeFeed, Revision, UndoResult } from "@repa/space-history";
 import {
   AgentEventSchema,
   ConfirmationSchema,
+  DirectoryListingSchema,
+  DirectoryRootSchema,
   ModelRefSchema,
   PromptOverrideSchema,
   PromptSectionSchema,
@@ -40,6 +42,8 @@ export const methods = {
   "space.open": { params: space, result: space },
   "space.create": { params: space, result: space },
   "space.close": { params: empty, result: nothing },
+  "space.roots": { params: empty, result: Type.Array(DirectoryRootSchema) },
+  "space.browse": { params: object({ path: Type.Optional(identifier) }), result: DirectoryListingSchema },
   "session.list": { params: empty, result: Type.Array(SessionInfoSchema) },
   "session.create": { params: object({ model: Type.Optional(ModelRefSchema) }), result: SessionInfoSchema },
   "session.history": { params: object(session), result: Type.Array(SessionEntrySchema) },

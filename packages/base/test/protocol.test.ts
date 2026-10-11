@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -104,6 +104,22 @@ test("浏览器客户端拒绝错误令牌并读取持久设置", async (t) => {
   assert.equal((await client.call("settings.get", {})).commandPolicy, "ask");
   assert.equal((await client.call("settings.set", { commandPolicy: "fullAccess" })).commandPolicy, "fullAccess");
   await assert.rejects(client.call("session.list", {}), (error: unknown) => error instanceof RpcError && record(error.data)?.code === "space_not_open");
+});
+
+test("未打开空间时也能浏览文件夹，错误码随 RPC 错误返回", async (t) => {
+  const f = await fixture(t);
+  const folder = path.join(f.root, "browse");
+  await mkdir(path.join(folder, "physics", ".repa"), { recursive: true });
+  const client = await f.client();
+
+  assert.ok((await client.call("space.roots", {})).length > 0);
+  const listing = await client.call("space.browse", { path: folder });
+  assert.equal(listing.path, await realpath(folder));
+  assert.deepEqual(listing.entries.map((entry) => [entry.name, entry.space]), [["physics", true]]);
+  await assert.rejects(
+    client.call("space.browse", { path: path.join(folder, "missing") }),
+    (error: unknown) => error instanceof RpcError && record(error.data)?.code === "not_found",
+  );
 });
 
 test("服务关闭通知断线，重新连接重新初始化且不重放请求", async (t) => {

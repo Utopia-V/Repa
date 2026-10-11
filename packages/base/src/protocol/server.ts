@@ -20,6 +20,7 @@ import {
 import { RepaFault, type Confirmation, type Confirm } from "../schema.js";
 import { SettingsStore } from "../settings.js";
 import { createSpace, openSpace, type Space } from "../space.js";
+import { browseDirectory, listRoots } from "../space/browse.js";
 import { errorResponse, parseRequest, RpcFault, type RpcId } from "./json-rpc.js";
 
 export interface ServerOptions {
@@ -232,6 +233,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       case "space.close":
         await serializeLifecycle(closeActive);
         return null;
+      case "space.roots":
+        return listRoots();
+      case "space.browse":
+        return browseDirectory(p<"space.browse">().path);
       case "session.list":
         return requireActive().agent.list();
       case "session.create":
