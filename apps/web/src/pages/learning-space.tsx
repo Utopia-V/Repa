@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, RefreshCw } from "lucide-react";
+import { FolderOpen, FolderSearch, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { SelectionButton } from "@/components/ui/selection-button";
 import { ErrorNotice } from "@/components/domain/error-notice";
+import { FolderPickerDialog } from "@/features/folder-picker";
 import { useAppStore } from "@/hooks/use-app-store";
+import type { Resources } from "@/lib/store";
 
 function folderName(root: string): string {
   return root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
@@ -17,6 +19,7 @@ export function LearningSpacePage() {
   const openSpace = useAppStore((state) => state.openSpace);
   const [opening, setOpening] = useState<string>();
   const [failure, setFailure] = useState<{ root: string; error: unknown }>();
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     void loadSpaces();
@@ -34,39 +37,107 @@ export function LearningSpacePage() {
     }
   }
 
-  return <div className="mx-auto grid w-full max-w-xl gap-6 px-4 py-16 md:px-8">
-    <header className="grid gap-2">
-      <h2 className="text-2xl font-semibold">学习空间</h2>
-      <p className="text-sm text-muted-foreground">选择最近打开过的学习空间。</p>
+  const recent = spaces.data;
+  const loadFailed = spaces.status === "error";
+  // 选择框放在两种布局之外：读取完成时布局切换，不会卸载已经打开的选择框。
+  return <>
+    {!loadFailed && recent?.length === 0
+      ? <FirstSpace onPick={() => setPicking(true)} />
+      : <RecentSpaces
+        spaces={spaces}
+        active={active}
+        opening={opening}
+        failure={failure}
+        onPick={() => setPicking(true)}
+        onOpen={(root) => { void open(root); }}
+        onRetry={() => { void loadSpaces(); }}
+      />}
+    <FolderPickerDialog open={picking} onOpenChange={setPicking} />
+  </>;
+}
+
+/** 第一次使用时没有可继续的空间，页面只引导选择文件夹。 */
+function FirstSpace({ onPick }: { onPick(): void }) {
+  // 在工作区里垂直居中；底部留白多一些，视觉重心略高于几何中心。
+  return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center justify-items-center gap-4 px-4 pt-16 pb-24 text-center md:px-8">
+      <h2 className="text-2xl font-semibold">开始第一个学习空间</h2>
+      <p className="text-sm text-balance text-muted-foreground">选一个文件夹作为学习空间，Repa 会在里面保存你的学习记录和进度。</p>
+      <Button onClick={onPick}>
+        <FolderSearch aria-hidden="true" />选择文件夹
+      </Button>
+    </div>;
+}
+
+function RecentSpaces({ spaces, active, opening, failure, onPick, onOpen, onRetry }: {
+  spaces: Resources["spaces"];
+  active: string | undefined;
+  opening: string | undefined;
+  failure: { root: string; error: unknown } | undefined;
+  onPick(): void;
+  onOpen(root: string): void;
+  onRetry(): void;
+}) {
+  const recent = spaces.data;
+  const loadFailed = spaces.status === "error";
+  const hasRecent = recent !== undefined && recent.length > 0;
+
+  return <div className="mx-auto grid w-full max-w-xl gap-8 px-4 py-16 md:px-8">
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="grid gap-2">
+        <h2 className="text-2xl font-semibold">学习空间</h2>
+        <p className="text-sm text-muted-foreground">
+          {hasRecent ? "从最近打开的空间继续，或选择其他文件夹。" : "选择一个文件夹作为学习空间。"}
+        </p>
+      </div>
+      {/* 最近列表可用时继续学习是主要操作，选择文件夹退为次要；列表读不出来时它是唯一入口。 */}
+      <Button
+        variant={loadFailed && !hasRecent ? "default" : "outline"}
+        className="w-full sm:w-auto"
+        disabled={opening !== undefined}
+        onClick={onPick}
+      >
+        <FolderSearch aria-hidden="true" />{hasRecent ? "选择其他文件夹" : "选择文件夹"}
+      </Button>
     </header>
 
-    {spaces.status === "error" && <div className="grid gap-3">
-      <ErrorNotice title="无法读取最近空间" error={spaces.error} />
-      <div>
-        <Button variant="outline" onClick={() => { void loadSpaces(); }}>
-          <RefreshCw aria-hidden="true" />重试
-        </Button>
-      </div>
-    </div>}
+    <section aria-labelledby="recent-spaces" className="grid gap-3">
+      <h3 id="recent-spaces" className="text-lg font-semibold">最近打开</h3>
 
-    {spaces.status === "loading" && !spaces.data && <p role="status" className="text-sm text-muted-foreground">正在读取最近空间…</p>}
+      {/* 读完之前不显示空状态，避免首次引导一闪而过。 */}
+      {!loadFailed && recent === undefined && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
 
-    {spaces.data && (spaces.data.length === 0
-      ? <p className="text-sm text-muted-foreground">还没有打开过学习空间。从目录选择学习空间的功能正在接入。</p>
-      : <ul aria-label="最近空间" className="m-0 grid list-none gap-2 p-0">
-        {spaces.data.map((root) => <li key={root}>
-          <SelectionButton className="w-full" selected={root === active} disabled={opening !== undefined} onClick={() => { void open(root); }}>
+      {loadFailed && <div className="grid gap-3">
+        <ErrorNotice title="无法读取最近空间" error={spaces.error} />
+        <div>
+          <Button variant="outline" onClick={onRetry}>
+            <RefreshCw aria-hidden="true" />重试
+          </Button>
+        </div>
+      </div>}
+
+      {failure && <ErrorNotice title={`无法打开 ${folderName(failure.root)}`} error={failure.error} />}
+
+      {hasRecent && <ul aria-labelledby="recent-spaces" className="m-0 grid list-none gap-2 p-0">
+        {recent.map((root) => <li key={root}>
+          <SelectionButton
+            className="w-full"
+            selected={root === active}
+            disabled={opening !== undefined}
+            aria-busy={opening === root}
+            onClick={() => onOpen(root)}
+          >
             <FolderOpen aria-hidden="true" />
             <span className="grid min-w-0 text-left">
               <span>{folderName(root)}</span>
-              <span className="text-xs font-normal break-all text-muted-foreground">{root}</span>
+              <span className="text-xs font-normal break-all text-muted-foreground">
+                {opening === root ? "正在打开…" : root}
+              </span>
             </span>
           </SelectionButton>
         </li>)}
-      </ul>)}
+      </ul>}
 
-    {opening !== undefined && <p role="status" className="text-sm text-muted-foreground">正在打开 {folderName(opening)}…</p>}
-    {failure && <ErrorNotice title={`无法打开 ${folderName(failure.root)}`} error={failure.error} />}
-    {opening === undefined && active !== undefined && <p className="text-sm text-muted-foreground">已打开 {folderName(active)}，会话界面正在接入。</p>}
+      {opening === undefined && active !== undefined && <p className="text-sm text-muted-foreground">已打开 {folderName(active)}，会话界面正在接入。</p>}
+    </section>
   </div>;
 }

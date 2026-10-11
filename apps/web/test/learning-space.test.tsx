@@ -42,7 +42,7 @@ it("列出最近空间，显示文件夹名和完整路径", async () => {
   const { client } = fakeBackend(["/notes/physics", "/notes/history"]);
   renderPage(client);
 
-  const list = await screen.findByRole("list", { name: "最近空间" });
+  const list = await screen.findByRole("list", { name: "最近打开" });
   const items = within(list).getAllByRole("button");
   expect(items.map((item) => item.textContent)).toEqual(["physics/notes/physics", "history/notes/history"]);
   expect(items.every((item) => item.getAttribute("aria-pressed") === "false")).toBe(true);
@@ -56,7 +56,7 @@ it("点击最近空间后打开它，并按后端结果更新顺序", async () =
 
   expect(await screen.findByText("已打开 history，会话界面正在接入。")).toBeTruthy();
   expect(call).toHaveBeenCalledWith("space.open", { root: "/notes/history" });
-  const items = within(screen.getByRole("list", { name: "最近空间" })).getAllByRole("button");
+  const items = within(screen.getByRole("list", { name: "最近打开" })).getAllByRole("button");
   expect(items[0]?.textContent).toContain("/notes/history");
   expect(items[0]?.getAttribute("aria-pressed")).toBe("true");
 });
@@ -87,10 +87,27 @@ it("读取最近空间失败时显示原因，重试后列出空间", async () =
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-it("没有最近空间时说明目录选择仍在接入", async () => {
+it("第一次使用时只引导选择文件夹，不显示最近列表", async () => {
   const { client } = fakeBackend([]);
   renderPage(client);
 
-  expect(await screen.findByText("还没有打开过学习空间。从目录选择学习空间的功能正在接入。")).toBeTruthy();
-  expect(screen.queryByRole("list", { name: "最近空间" })).toBeNull();
+  expect(await screen.findByRole("heading", { name: "开始第一个学习空间" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "选择文件夹" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "最近打开" })).toBeNull();
+});
+
+it("有最近空间时选择文件夹退为次要操作", async () => {
+  const { client } = fakeBackend(["/notes/physics"]);
+  renderPage(client);
+
+  await screen.findByRole("list", { name: "最近打开" });
+  expect(screen.getByRole("button", { name: "选择其他文件夹" }).getAttribute("data-variant")).toBe("outline");
+});
+
+it("读取失败时选择文件夹是主要入口", async () => {
+  const { client } = fakeBackend([], { failList: new Error("读取超时") });
+  renderPage(client);
+
+  await screen.findByRole("alert");
+  expect(screen.getByRole("button", { name: "选择文件夹" }).getAttribute("data-variant")).toBe("default");
 });
