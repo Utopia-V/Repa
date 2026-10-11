@@ -72,7 +72,7 @@ await client.close();
 await backend.close();
 ```
 
-共享入口启动构建后的 `repa-base serve`，读取 stdout 的连接信息，不写连接文件。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；客户端断开本身不关闭服务。Electron 使用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`closed` 可用于观察进程退出，`close()` 可以重复调用并等待正常收尾；异常退出会返回错误。只有启动失败的进程回收设置 5 秒强制终止期限。这个 Node 入口不从浏览器客户端导出。
+共享入口启动构建后的 `repa-base serve`，读取 stdout 的连接信息，不写连接文件。`plugins` 传入插件模块路径，`generalAgent: false` 关掉通用 Agent，分别对应 CLI 的 `--plugin` 和 `--no-general-agent`；插件模块由构建后的 CLI 直接导入，不经过 tsx。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；客户端断开本身不关闭服务。Electron 使用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`closed` 可用于观察进程退出，`close()` 可以重复调用并等待正常收尾；异常退出会返回错误。只有启动失败的进程回收设置 5 秒强制终止期限。这个 Node 入口不从浏览器客户端导出。
 
 ## 结构与责任
 
@@ -88,6 +88,7 @@ await backend.close();
 <space>/.repa/history.git/    影子 Git
 <space>/.repa/plugins/<id>/   插件自有数据
 <space>/.repa/prompts.json    空间提示覆盖
+<space>/.repa/.ignore         内容为 *，ripgrep 和 fd 从空间根目录搜索时不进 .repa/
 ```
 
 每个服务当前持有一个活动空间，多个授权连接共享它。切换空间会关闭原空间的会话与插件，再释放锁。锁使用 `proper-lockfile`；进程异常退出后的陈旧锁在 30 秒后可回收，正常关闭立即释放。
@@ -164,15 +165,15 @@ agents: () => [{
 }],
 ```
 
-`currentLesson`、`quizRunning` 等由插件自己实现。宿主打开时核对定义，id 不合格或重复、引用不存在的工具或子 Agent，分别以 `invalid_agent`、`invalid_agent_id`、`unknown_agent_tool`、`unknown_subagent` 拒绝打开，并逆序关闭已打开的实例。
+`currentLesson`、`quizRunning` 等由插件自己实现。宿主打开时核对定义：id 不合格或重复、引用不存在的工具或子 Agent、子 Agent 的工具超过父 Agent，分别以 `invalid_agent`、`invalid_agent_id`、`unknown_agent_tool`、`unknown_subagent`、`subagent_exceeds_parent` 拒绝打开，并逆序关闭已打开的实例，空间因此打开失败。定义可以互相列为子 Agent，也可以列自己。
 
 - **会话**：建会话或后台任务时选定 Agent，之后不能更换；Pi 只声明这个 Agent 的工具。插件 Agent 的提示只有空间段（空间路径与根目录 `AGENTS.md`）和 `agent:<id>`，view 只有 `agent:<id>`。基础说明、Skill 目录、工具清单段和各插件的说明只属于通用 Agent。
-- **通用 Agent**：底座自带，id 为 `general`，带全部内置工具和全部插件的说明、工具与 view。读取范围不变；写入和精确编辑只在空间内，包括 `.repa/`。
-- **文件范围**：插件 Agent 的 read、write、edit、ls、find、grep 只在空间内且不进 `.repa/`（不分大小写），字面路径和解析符号链接后的路径都要在范围内。find 与 grep 不进入 `.git`、`node_modules`，不跟随符号链接，不读 `.gitignore`；grep 的 pattern 按 JavaScript 正则表达式解释，跳过二进制文件和超过 10MB 的文件，在独立线程中搜索，超过 20 秒或运行取消时停止。bash 不限路径，仍按命令策略确认。
-- **子 Agent**：列了 `subagents` 的会话多一个 `subagent` 工具，参数为 `agent` 和 `task`；插件工具不能使用这个名字（保留名见 `RESERVED_TOOL_NAMES`）。子 Agent 的工具超过父 Agent 时不启动，工具结果为错误。子 Agent 在新会话中运行，看不到父对话，最后一条回复作为工具结果交回；父运行取消时子运行一起取消，空间关闭等待子运行结束。
+- **通用 Agent**：底座自带，id 为 `general`，带全部内置工具和全部插件的说明、工具与 view。读取和搜索沿用 Pi 的工具；写入和精确编辑只在空间内，不进 `.repa/`。
+- **文件范围**：插件 Agent 的 read、write、edit、ls、find、grep 只在空间内且不进 `.repa/`（不分大小写），字面路径和解析符号链接后的路径都要在范围内。find 用 Pi 的工具（fd），先检查搜索起点；从空间根目录查找时由 `.repa/.ignore` 挡住 `.repa/`，`.gitignore` 照常生效。grep 由底座在独立线程中搜索：不进入 `.repa`、`.git`、`node_modules`，不跟随符号链接，不读 `.gitignore`，pattern 按 JavaScript 正则表达式解释，跳过二进制文件和超过 10MB 的文件，超过 20 秒或运行取消时停止。bash 不限路径，仍按命令策略确认。
+- **子 Agent**：列了 `subagents` 的会话多一个 `subagent` 工具，参数为 `agent` 和 `task`；插件工具不能使用这个名字（保留名见 `RESERVED_TOOL_NAMES`）。子 Agent 在新会话中运行，看不到父对话，最后一条回复作为工具结果交回；父运行取消时子运行一起取消，空间关闭等待子运行结束。嵌套层数默认最多 3 层，可用 `createAgentRuntime({ agentDir, maxSubagentDepth })` 调整；这个上限是 Repa 的假设，用来挡住循环和重入失控，以后按使用调整。超过上限的启动请求作为工具错误交回父 Agent。
 - **后台任务**：`host.models.runAgent({ agent, text })` 运行指定 Agent，省略 `agent` 时为通用 Agent；后台 Agent 不必能直接对话。
 - **消息判断**：`beforeMessage` 收到 `{ sessionId, agent, mode, text, runId? }`，`mode` 为 `send`、`steer` 或 `followUp`，会话正在运行时带 `runId`。返回 `{ status: "rejected", reason, message, data? }` 时消息不进入会话；不返回或返回 `{ status: "accepted" }` 时照常处理。判断抛错同样不放行。后台任务和子 Agent 收到的任务不经过判断；判断期间用户取消了运行，这条消息不再投递。
-- **运行上下文**：运行内的工具、view 和插件写入可以调用 `currentRun()`，取得 `{ runId, parentRunId?, sessionId, agent }`；运行之外返回 `undefined`。
+- **运行上下文**：运行内的工具、view 和插件写入可以调用 `currentRun()`，取得 `{ runId, ancestorRunIds, sessionId, agent }`；运行之外返回 `undefined`。`ancestorRunIds` 由近到远：子运行的是父运行的 runId 加上父运行自己的链，根运行的为空数组。
 
 ## 插件的关闭责任
 
@@ -223,10 +224,11 @@ Agent 相关的约定：
 - `session.create` 接受 `agent`，省略时为 `general`；`SessionInfo` 带 `agent`，改动前的旧会话为 `general`。会话的 Agent 之后不能更换，`session.fork` 沿用原 Agent。
 - `session.create/send/steer/followUp/fork` 只对可直接对话的 Agent 开放；`session.history/abort` 对所有会话开放，前端可以查看并取消后台任务和子 Agent。`prompt.list/preview` 接受 `agent`，省略时为 `general`。
 - 子 Agent 的会话同样出现在 `session.list` 中，其 `runStart` 事件的 `data` 为 `{ parentRunId, parentSessionId }`；父会话中 `subagent` 工具的结果就是子 Agent 的最后回复。
+- 关掉的 Agent 和已卸载插件的 Agent，其旧会话仍在 `session.list` 中，`session.history` 照常可读，`session.abort` 没有可取消的工作；发消息、分支、压缩和换模型返回 `agent_not_found`。
 
 | 错误码 | 含义与 `details` |
 | --- | --- |
-| `agent_not_found` | Agent 不存在或已关掉，`{ agent }`；也用于打开这类 Agent 的旧会话 |
+| `agent_not_found` | Agent 不存在或已关掉，`{ agent }`；也用于向这类 Agent 的旧会话发消息、分支、压缩或换模型 |
 | `agent_not_direct` | Agent 不能直接对话，`{ agent }` |
 | `unknown_agent` | 打开空间时，装配指定的直接对话 Agent 不存在或已关掉，`{ agent }` |
 | `message_rejected` | 插件拒收用户消息；`message` 是插件给用户的说明，`details` 为 `{ agent, reason, data? }`，按 `reason` 分支处理 |
@@ -246,7 +248,6 @@ Agent 相关的约定：
 - 0.87.1 的冻结核实已使用已有 Codex OAuth 验证真实请求、锁内刷新、轮换结果持久化和刷新后接续。1.1.0 本轮覆盖脚本化登录映射和持久化，真实 OAuth 刷新及首次交互登录仍待单独核实。
 - 影子 Git 按所属包的规则排除 `.repa/`、用户 Git、嵌套仓库、忽略项和大文件。因此 `history.undo` 撤回空间文件，不回滚插件数据库、会话或设置。插件根据变化流更新自己的状态。
 - 插件是可信本机代码，文件接口和 Agent 文件工具的路径检查不是进程沙箱。bash 不限路径，在询问模式下须确认；经 bash 写到空间外的文件不属于影子 Git 的撤回范围。
-- 关掉的 Agent、已卸载插件的 Agent，其旧会话仍列在 `session.list` 中，但打开时返回 `agent_not_found`，暂时也不能读取历史。
 - 外部编辑器不受内部活动队列协调；恰好发生在运行期间的外部修改可能归入该运行。进程突然退出时，未提交内容在下次打开归为外部变化。空间历史永久保留，维护只整理对象布局。
 
 ## 验证入口与交付统计
