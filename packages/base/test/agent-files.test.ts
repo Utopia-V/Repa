@@ -103,3 +103,77 @@ test("通用 Agent 仍能在空间内及其 .repa 中写入，并照旧读取空
   assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", false], ["write", false], ["read", false]]);
   assert.match(results[2]?.text ?? "", /空间外的参考资料/u);
 });
+
+const writer = {
+  id: "writer",
+  instructions: () => "你在后台编写课程文件。",
+  tools: ["read", "write", "edit", "ls", "find", "grep"],
+};
+
+test("插件 Agent 的读写和编辑只在空间内且不进 .repa/，也不能经符号链接离开", async t => {
+  const f = await fixture(t, { agents: () => [writer] });
+  await mkdir(path.join(f.root, "lessons"));
+  await writeFile(path.join(f.root, "lessons", "one.md"), "第一课，（：\r\n");
+  await writeFile(path.join(f.root, ".repa", "private.txt"), "插件私有数据");
+  await writeFile(path.join(f.outside, "secret.txt"), "空间外的文件");
+  await symlink(f.outside, path.join(f.root, "linked"));
+  await symlink(path.join(f.outside, "secret.txt"), path.join(f.root, "lessons", "escape.md"));
+  const session = await f.space.create({ agent: "writer" });
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("write", { path: "lessons/two.md", content: "第二课\r\n" }),
+      fauxToolCall("write", { path: ".repa/injected.txt", content: "不应写入" }),
+      fauxToolCall("write", { path: path.join(f.outside, "created.txt"), content: "不应写入" }),
+      fauxToolCall("edit", { path: "lessons/one.md", edits: [{ oldText: "第一课", newText: "第 1 课" }] }),
+      fauxToolCall("edit", { path: ".repa/private.txt", edits: [{ oldText: "私有", newText: "公开" }] }),
+      fauxToolCall("read", { path: "linked/secret.txt" }),
+      fauxToolCall("read", { path: "lessons/escape.md" }),
+    ]),
+    fauxAssistantMessage("已处理"),
+  ]);
+  await session.send("整理课程文件");
+  assert.deepEqual(toolResults(session).map(result => [result.tool, result.isError]), [
+    ["write", false], ["write", true], ["write", true], ["edit", false], ["edit", true], ["read", true], ["read", true],
+  ]);
+  assert.equal(await readFile(path.join(f.root, "lessons", "two.md"), "utf8"), "第二课\r\n");
+  assert.equal(await readFile(path.join(f.root, "lessons", "one.md"), "utf8"), "第 1 课，（：\r\n");
+  assert.equal(await readFile(path.join(f.root, ".repa", "private.txt"), "utf8"), "插件私有数据");
+  await assert.rejects(readFile(path.join(f.root, ".repa", "injected.txt")), { code: "ENOENT" });
+  await assert.rejects(readFile(path.join(f.outside, "created.txt")), { code: "ENOENT" });
+  for (const result of toolResults(session).filter(item => item.isError)) assert.match(result.text, /只能访问当前空间内的文件，不含 \.repa\//u);
+});
+
+test("插件 Agent 列目录、查找和搜索都看不到 .repa/ 与空间外的内容", async t => {
+  const f = await fixture(t, { agents: () => [writer] });
+  const marker = "独特标记-42";
+  await mkdir(path.join(f.root, "notes"));
+  await writeFile(path.join(f.root, "notes", "a.md"), `第一行\r\n${marker} 在笔记里\r\n`);
+  await mkdir(path.join(f.root, ".repa", "plugins", "learning"), { recursive: true });
+  await writeFile(path.join(f.root, ".repa", "plugins", "learning", "state.md"), marker);
+  await writeFile(path.join(f.outside, "outside.md"), marker);
+  await symlink(f.outside, path.join(f.root, "linked"));
+  const session = await f.space.create({ agent: "writer" });
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("ls", {}),
+      fauxToolCall("ls", { path: ".repa" }),
+      fauxToolCall("find", { pattern: "*.md" }),
+      fauxToolCall("find", { pattern: "*.md", path: f.outside }),
+      fauxToolCall("grep", { pattern: marker }),
+      fauxToolCall("grep", { pattern: marker, path: ".repa" }),
+      fauxToolCall("grep", { pattern: "笔记", glob: "notes/*.md", context: 1 }),
+    ]),
+    fauxAssistantMessage("已查看"),
+  ]);
+  // 用户消息先写进 .repa/sessions；从空间根目录搜索也不能读到这份会话记录。
+  await session.send(`查找 ${marker}`);
+  const results = toolResults(session);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [
+    ["ls", false], ["ls", true], ["find", false], ["find", true], ["grep", false], ["grep", true], ["grep", false],
+  ]);
+  assert.deepEqual(results[0]?.text.split("\n"), ["notes/"]);
+  assert.deepEqual(results[2]?.text.split("\n"), ["notes/a.md"]);
+  assert.equal(results[4]?.text, `notes/a.md:2: ${marker} 在笔记里`);
+  assert.equal(results[6]?.text, `notes/a.md-1- 第一行\nnotes/a.md:2: ${marker} 在笔记里\nnotes/a.md-3- `);
+  for (const index of [1, 3, 5]) assert.match(results[index]?.text ?? "", /只能访问当前空间内的文件，不含 \.repa\//u);
+});

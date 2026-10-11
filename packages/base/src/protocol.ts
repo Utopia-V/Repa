@@ -2,6 +2,7 @@ import { Type, type Static } from "typebox";
 import type { ChangeFeed, Revision, UndoResult } from "@repa/space-history";
 import {
   AgentEventSchema,
+  AgentInfoSchema,
   ConfirmationSchema,
   ModelRefSchema,
   PromptOverrideSchema,
@@ -25,6 +26,8 @@ const preview = object({
   views: Type.Array(object({ id: identifier, text: Type.String() })),
 });
 const space = object({ root: identifier });
+// 省略 agent 时指通用 Agent。
+const agent = object({ agent: Type.Optional(identifier) });
 // 历史记录由所属模块校验；这里只描述传输容器，类型导入不会把 Node 实现带到浏览器。
 const historyList = Type.Unsafe<Revision[]>(Type.Array(Type.Unknown()));
 const historyChanges = Type.Unsafe<ChangeFeed>(Type.Object({}));
@@ -40,8 +43,9 @@ export const methods = {
   "space.open": { params: space, result: space },
   "space.create": { params: space, result: space },
   "space.close": { params: empty, result: nothing },
+  "agent.list": { params: empty, result: Type.Array(AgentInfoSchema) },
   "session.list": { params: empty, result: Type.Array(SessionInfoSchema) },
-  "session.create": { params: object({ model: Type.Optional(ModelRefSchema) }), result: SessionInfoSchema },
+  "session.create": { params: object({ model: Type.Optional(ModelRefSchema), agent: Type.Optional(identifier) }), result: SessionInfoSchema },
   "session.history": { params: object(session), result: Type.Array(SessionEntrySchema) },
   "session.send": { params: object(text), result: nothing },
   "session.steer": { params: object(text), result: nothing },
@@ -56,10 +60,10 @@ export const methods = {
   "history.undo": { params: object({ revision: identifier }), result: historyUndo },
   "plugin.list": { params: empty, result: Type.Array(object({ id: identifier, methods: Type.Array(identifier), tools: Type.Array(identifier) })) },
   "plugin.call": { params: object({ pluginId: identifier, method: identifier, input: Type.Unknown() }), result: Type.Unknown() },
-  "prompt.list": { params: empty, result: Type.Array(PromptSectionSchema) },
+  "prompt.list": { params: agent, result: Type.Array(PromptSectionSchema) },
   "prompt.set": { params: object({ scope, id: identifier, override: PromptOverrideSchema }), result: nothing },
   "prompt.reset": { params: object({ scope, id: identifier }), result: nothing },
-  "prompt.preview": { params: empty, result: preview },
+  "prompt.preview": { params: agent, result: preview },
   "model.list": { params: empty, result: Type.Array(object({ provider: identifier, id: identifier, name: Type.String(), available: Type.Boolean() })) },
   "auth.login": { params: object({ provider: identifier, type: identifier }), result: nothing },
   "auth.setKey": { params: object({ provider: identifier, key: identifier }), result: nothing },

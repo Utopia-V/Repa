@@ -28,6 +28,10 @@ export interface ServerOptions {
   token?: string;
   plugins?: Plugin[];
   runtime?: AgentRuntime;
+  /** 是否提供通用 Agent；学习者版本关掉它。默认提供。 */
+  generalAgent?: boolean;
+  /** 用户能直接对话的 Agent；省略时按各定义的 direct，通用 Agent 默认可以。 */
+  directAgents?: string[];
 }
 
 export interface RepaServer {
@@ -193,6 +197,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         instructions: () => host.instructions(),
         tools: () => host.tools(),
         views: () => host.views(),
+        agents: () => host.agents(),
+        generalAgent: options.generalAgent,
+        directAgents: options.directAgents,
         overrides: () => settings.overrides(space.root),
         commandPolicy: () => settings.get().commandPolicy,
         record: async (runId, action) => (await space.record({ kind: "agent", runId }, action)).value,
@@ -210,6 +217,19 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       throw error;
     }
   });
+
+  // 前端只能与可直接对话的 Agent 建会话和发消息；后台任务与子 Agent 不经过这里。
+  const requireDirect = (agent: AgentSpace, id: string) => {
+    const info = agent.agents().find((item) => item.id === id);
+    if (!info) throw new RepaFault("agent_not_found", "Agent 不存在或未启用", { agent: id });
+    if (!info.direct) throw new RepaFault("agent_not_direct", "这个 Agent 不能直接对话", { agent: id });
+  };
+  const directSession = async (sessionId: string) => {
+    const { agent } = requireActive();
+    const session = await agent.get(sessionId);
+    requireDirect(agent, session.info().agent);
+    return session;
+  };
 
   const dispatch = async (peer: Peer, method: Method, params: unknown): Promise<unknown> => {
     const p = <M extends Method>() => params as Params<M>;
@@ -232,25 +252,32 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       case "space.close":
         await serializeLifecycle(closeActive);
         return null;
+      case "agent.list":
+        return requireActive().agent.agents();
       case "session.list":
         return requireActive().agent.list();
-      case "session.create":
-        return (await requireActive().agent.create(p<"session.create">().model)).info();
+      case "session.create": {
+        const input = p<"session.create">();
+        const { agent } = requireActive();
+        const id = input.agent ?? "general";
+        requireDirect(agent, id);
+        return (await agent.create({ agent: id, model: input.model })).info();
+      }
       case "session.history":
         return (await requireActive().agent.get(p<"session.history">().sessionId)).history();
       case "session.send": {
         const input = p<"session.send">();
-        await (await requireActive().agent.get(input.sessionId)).send(input.text);
+        await (await directSession(input.sessionId)).send(input.text);
         return null;
       }
       case "session.steer": {
         const input = p<"session.steer">();
-        await (await requireActive().agent.get(input.sessionId)).steer(input.text);
+        await (await directSession(input.sessionId)).steer(input.text);
         return null;
       }
       case "session.followUp": {
         const input = p<"session.followUp">();
-        await (await requireActive().agent.get(input.sessionId)).followUp(input.text);
+        await (await directSession(input.sessionId)).followUp(input.text);
         return null;
       }
       case "session.abort":
@@ -266,7 +293,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return null;
       case "session.fork": {
         const input = p<"session.fork">();
-        return (await (await requireActive().agent.get(input.sessionId)).fork(input.entryId)).info();
+        return (await (await directSession(input.sessionId)).fork(input.entryId)).info();
       }
       case "confirm.reply": {
         const input = p<"confirm.reply">();
@@ -296,9 +323,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return requireActive().plugins.call(input.pluginId, input.method, input.input);
       }
       case "prompt.list":
-        return (await requireActive().agent.preview()).sections;
+        return (await requireActive().agent.preview(p<"prompt.list">().agent)).sections;
       case "prompt.preview":
-        return requireActive().agent.preview();
+        return requireActive().agent.preview(p<"prompt.preview">().agent);
       case "prompt.set": {
         const input = p<"prompt.set">();
         await settings.setPrompt(

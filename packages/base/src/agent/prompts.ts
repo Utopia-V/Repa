@@ -6,10 +6,9 @@ import { sectionId, sectionName } from "./views.js";
 
 export const BASE_INSTRUCTIONS = "你是 Repa 中帮助用户持续开展工作的 Agent。读取当前空间的资料，使用已提供的工具推进用户目标，并尊重用户的授权与已有工作。插件说明提供领域知识，运行时视图提供当前状态；需要更多状态时使用工具查询。";
 
-export async function promptSections(options: AgentSpaceOptions, defaults: { id: string; text: string }[] = []): Promise<PromptSection[]> {
+/** 按调用方给出的顺序应用覆盖；同一来源重复出现时拒绝，不静默合并。 */
+export async function promptSections(options: Pick<AgentSpaceOptions, "overrides">, sections: { id: string; text: string }[]): Promise<PromptSection[]> {
   const overrides = await options.overrides();
-  const instructions = [...options.instructions()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const sections = [{ id: "base", text: BASE_INSTRUCTIONS }, ...defaults, ...instructions];
   const ids = new Set<string>();
   return sections.map(section => {
     if (ids.has(section.id)) throw new Error(`提示来源重复：${section.id}`);

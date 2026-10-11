@@ -27,6 +27,33 @@ export interface CompletionRequest {
 export interface AgentTask {
   text: string;
   model?: ModelRef;
+  /** 运行哪个 Agent；省略时为通用 Agent。 */
+  agent?: string;
+}
+
+/** Agent 定义可以选用的 Pi 内置工具。 */
+export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
+export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
+
+/** 插件声明的 Agent。会话创建后工具与 view 来源固定，中途不换 Agent。 */
+export interface AgentDefinition {
+  /** 所有插件间唯一，仅含小写字母、数字和连字符；general 留给底座的通用 Agent。 */
+  id: string;
+  /** 简短用途，交给前端显示，也写进父 Agent 的子 Agent 工具说明。 */
+  description?: string;
+  /** 职责说明，作为提示段 agent:<id>。 */
+  instructions(): string;
+  /**
+   * 可用工具的名称：BUILTIN_TOOLS 中的内置工具与任一插件的工具。
+   * 内置文件工具限在空间内且不进 .repa/；bash 仍按命令策略确认。
+   */
+  tools: string[];
+  /** 可以启动的子 Agent；启动时子 Agent 的工具不能超过本 Agent。 */
+  subagents?: string[];
+  /** 用户能否直接与它建会话；装配可以另行指定。默认否。 */
+  direct?: boolean;
+  /** 本 Agent 的运行时状态，作为 view agent:<id>。 */
+  view?(): Promise<string | undefined>;
 }
 
 // Host.models 返回的句柄由宿主持有并在关闭时取消、等待 result；插件可提前取消，重复调用共享同一次取消。
@@ -83,6 +110,8 @@ export interface Plugin {
 export interface PluginInstance {
   instructions?(): string;
   tools?(): Tool[];
+  /** 本领域的 Agent；打开插件时读取一次。 */
+  agents?(): AgentDefinition[];
   view?(): Promise<string | undefined>;
   onChange?(revision: string): Promise<void>;
   methods?: Record<string, PluginMethod>;

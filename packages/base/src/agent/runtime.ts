@@ -19,12 +19,12 @@ import {
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions } from "../agent.js";
-import type { AgentTask, AgentWork, CompletionRequest, Tool } from "../plugin.js";
+import { BUILTIN_TOOLS, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest, type Tool } from "../plugin.js";
 import { withRun } from "../run-context.js";
-import { RepaFault, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
+import { RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
-import { FileScope, generalFileTools } from "./files.js";
-import { applyPromptSections, promptChangeNotice, promptSections } from "./prompts.js";
+import { FileScope, generalFileTools, spaceFileTools } from "./files.js";
+import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
 
 export interface AgentTestOptions extends AgentRuntimeOptions {
@@ -50,6 +50,35 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
 
 export async function createAgentRuntimeForTest(options: AgentTestOptions): Promise<AgentRuntime> {
   return new Runtime(options);
+}
+
+const GENERAL_AGENT = "general";
+const AGENT_ENTRY = "repa-agent";
+
+/** 一个 Agent 在当前空间中的装配；会话初始化时取得，工具与 view 来源在会话内不变。 */
+interface AgentProfile {
+  id: string;
+  general: boolean;
+  builtins: BuiltinTool[];
+  tools: Tool[];
+  subagents: string[];
+  /** 本 Agent 自己的提示段：通用 Agent 为各插件说明，插件 Agent 为 agent:<id>。 */
+  sections(): { id: string; text: string }[];
+  views(): Promise<{ id: string; text: string }[]>;
+}
+
+function byId<T extends { id: string }>(left: T, right: T): number {
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+/** 会话文件记下所属 Agent；改动前创建、没有这条记录的会话属于通用 Agent。 */
+function sessionAgent(manager: SessionManager): string {
+  const entry = manager.getEntries().find(item => item.type === "custom" && item.customType === AGENT_ENTRY);
+  if (entry === undefined) return GENERAL_AGENT;
+  const data: unknown = entry.type === "custom" ? entry.data : undefined;
+  if (data !== null && typeof data === "object" && "agent" in data && typeof data.agent === "string" && data.agent.length > 0) return data.agent;
+  // 记录损坏时不回退为通用 Agent，避免把受限的会话按完整权限打开。
+  throw new RepaFault("invalid_session_agent", "会话的 Agent 记录无法读取", { id: manager.getSessionId() });
 }
 
 function toolDefinition(tool: Tool): ToolDefinition {
@@ -238,54 +267,124 @@ class Runtime implements AgentRuntime {
 
 class Space implements AgentSpace {
   private sessions = new Map<string, Promise<Session>>();
-  private closed = false;
-  private writeScope?: Promise<FileScope>;
+  private closing?: Promise<void>;
+  private scopes = new Map<boolean, Promise<FileScope>>();
 
   constructor(readonly runtime: Runtime, readonly options: AgentSpaceOptions, private onClose: () => void) {}
 
   assertOpen(): void {
     this.runtime.assertOpen();
-    if (this.closed) throw new RepaFault("space_closed", "Agent 空间已经关闭");
+    if (this.closing !== undefined) throw new RepaFault("space_closed", "Agent 空间已经关闭");
   }
 
-  fileScope(): Promise<FileScope> {
-    this.writeScope ??= FileScope.create(this.options.root, false);
-    return this.writeScope;
+  /** 通用 Agent 的写入范围包括 .repa/；插件 Agent 的文件工具排除它。 */
+  fileScope(excludeData: boolean): Promise<FileScope> {
+    let scope = this.scopes.get(excludeData);
+    if (scope === undefined) {
+      scope = FileScope.create(this.options.root, excludeData);
+      this.scopes.set(excludeData, scope);
+    }
+    return scope;
   }
 
-  async defaults(): Promise<{ id: string; text: string }[]> {
-    const skills = [
-      ...loadSkillsFromDir({ dir: path.join(this.runtime.options.agentDir, "skills"), source: "repa" }).skills,
-      ...loadSkillsFromDir({ dir: path.join(this.options.root, ".repa", "skills"), source: "repa-space" }).skills,
-    ];
+  private direct(id: string, fallback: boolean): boolean {
+    return this.options.directAgents === undefined ? fallback : this.options.directAgents.includes(id);
+  }
+
+  agents(): AgentInfo[] {
+    this.assertOpen();
+    const result: AgentInfo[] = [];
+    if (this.options.generalAgent !== false) result.push({ id: GENERAL_AGENT, direct: this.direct(GENERAL_AGENT, true) });
+    for (const definition of [...(this.options.agents?.() ?? [])].sort(byId)) {
+      result.push({
+        id: definition.id,
+        ...(definition.description === undefined ? {} : { description: definition.description }),
+        direct: this.direct(definition.id, definition.direct ?? false),
+      });
+    }
+    return result;
+  }
+
+  profile(id: string): AgentProfile {
+    if (id === GENERAL_AGENT && this.options.generalAgent !== false) {
+      return {
+        id,
+        general: true,
+        builtins: [...BUILTIN_TOOLS],
+        tools: this.options.tools(),
+        subagents: [],
+        sections: () => [...this.options.instructions()].sort(byId),
+        views: () => this.options.views(),
+      };
+    }
+    const definition = id === GENERAL_AGENT ? undefined : this.options.agents?.().find(item => item.id === id);
+    if (definition === undefined) throw new RepaFault("agent_not_found", "Agent 不存在或未启用", { agent: id });
+    const names = new Set(definition.tools);
+    return {
+      id,
+      general: false,
+      builtins: BUILTIN_TOOLS.filter(name => names.has(name)),
+      tools: this.options.tools().filter(tool => names.has(tool.name)),
+      subagents: [...new Set(definition.subagents ?? [])],
+      sections: () => [{ id: `agent:${id}`, text: definition.instructions() }],
+      async views() {
+        const text = await definition.view?.();
+        return text === undefined ? [] : [{ id: `agent:${id}`, text }];
+      },
+    };
+  }
+
+  private async spaceSection(): Promise<{ id: string; text: string }> {
     let spaceInstructions = "";
     try {
       spaceInstructions = await readFile(path.join(this.options.root, "AGENTS.md"), "utf8");
     } catch (error) {
       if (!(error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
     }
-    const tools = ["read", "bash", "edit", "write", "grep", "find", "ls", ...this.options.tools().map(tool => tool.name)];
-    return [
-      { id: "space", text: [`当前空间：${this.options.root}`, spaceInstructions].filter(Boolean).join("\n\n") },
+    return { id: "space", text: [`当前空间：${this.options.root}`, spaceInstructions].filter(Boolean).join("\n\n") };
+  }
+
+  /**
+   * 通用 Agent 沿用原有分段：基础说明、空间、Skill、工具与各插件说明。
+   * 插件 Agent 只有空间说明和自己的职责：Skill 位于它的文件范围之外，工具清单已由 Pi 声明。
+   */
+  async promptSections(profile: AgentProfile): Promise<PromptSection[]> {
+    const space = await this.spaceSection();
+    if (!profile.general) return promptSections(this.options, [space, ...profile.sections()]);
+    const skills = [
+      ...loadSkillsFromDir({ dir: path.join(this.runtime.options.agentDir, "skills"), source: "repa" }).skills,
+      ...loadSkillsFromDir({ dir: path.join(this.options.root, ".repa", "skills"), source: "repa-space" }).skills,
+    ];
+    const tools = [...profile.builtins, ...profile.tools.map(tool => tool.name)];
+    return promptSections(this.options, [
+      { id: "base", text: BASE_INSTRUCTIONS },
+      space,
       { id: "skills", text: formatSkillsForPrompt(skills, "read") },
       { id: "tools", text: `使用已声明的工具。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：${tools.join("、")}` },
-    ];
+      ...profile.sections(),
+    ]);
   }
 
-  async preview() {
+  async preview(agent = GENERAL_AGENT) {
     this.assertOpen();
-    return { sections: await promptSections(this.options, await this.defaults()), views: await this.options.views() };
+    const profile = this.profile(agent);
+    return { sections: await this.promptSections(profile), views: await profile.views() };
   }
 
-  async create(reference?: ModelRef): Promise<AgentSession> {
+  async create(options: { agent?: string; model?: ModelRef } = {}): Promise<Session> {
     this.assertOpen();
+    const agent = options.agent ?? GENERAL_AGENT;
+    // 先确认 Agent 可用，不留下打不开的会话文件。
+    this.profile(agent);
     const file = path.join(this.options.sessionsDir, `${randomUUID()}.jsonl`);
     // Pi 的会话入口同步建立 header；同步创建这个空文件使初始化立即登记，close 能拥有整个生命周期。
     const descriptor = openSync(file, "wx");
     closeSync(descriptor);
     // 已打开的文件会逐条保存，首个 assistant 前也不丢消息。
     const manager = SessionManager.open(file, this.options.sessionsDir, this.options.root);
-    return this.load(manager, reference);
+    // 所属 Agent 写在会话开头，不进入模型上下文；分支复制全部条目，也就沿用同一个 Agent。
+    manager.appendCustomEntry(AGENT_ENTRY, { agent });
+    return this.load(manager, options.model);
   }
 
   load(manager: SessionManager, reference?: ModelRef): Promise<Session> {
@@ -302,7 +401,7 @@ class Space implements AgentSpace {
     return loading;
   }
 
-  async get(id: string): Promise<AgentSession> {
+  async get(id: string): Promise<Session> {
     this.assertOpen();
     const existing = this.sessions.get(id);
     if (existing) return existing;
@@ -317,33 +416,43 @@ class Space implements AgentSpace {
     for (const entry of await SessionManager.list(this.options.root, this.options.sessionsDir)) {
       const manager = SessionManager.open(entry.path, this.options.sessionsDir, this.options.root);
       const model = manager.buildSessionProjection().model;
-      infos.set(entry.id, { id: entry.id, createdAt: entry.created.toISOString(), ...(entry.name ? { name: entry.name } : {}), ...(model ? { model: { provider: model.provider, id: model.modelId } } : {}) });
+      infos.set(entry.id, {
+        id: entry.id,
+        createdAt: entry.created.toISOString(),
+        ...(entry.name ? { name: entry.name } : {}),
+        ...(model ? { model: { provider: model.provider, id: model.modelId } } : {}),
+        agent: sessionAgent(manager),
+      });
     }
     for (const session of await Promise.all(this.sessions.values())) infos.set(session.info().id, session.info());
     return [...infos.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async runAgent(task: AgentTask): Promise<AgentWork> {
-    const session = await this.create(task.model);
+    const session = await this.create({ agent: task.agent, model: task.model });
     const result = session.send(task.text);
     result.catch(() => undefined);
     return { id: session.info().id, result, cancel: () => session.abort() };
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-    await Promise.all([...this.sessions.values()].map(async pending => {
-      const session = await pending.catch(() => undefined);
-      await session?.close();
-    }));
-    this.sessions.clear();
-    this.onClose();
+  close(): Promise<void> {
+    // 会话的创建和登记是同步的，关闭开始后不会再有新会话加入。
+    this.closing ??= (async () => {
+      await Promise.all([...this.sessions.values()].map(async pending => {
+        const session = await pending.catch(() => undefined);
+        await session?.close();
+      }));
+      this.sessions.clear();
+      this.onClose();
+    })();
+    return this.closing;
   }
 }
 
 class Session implements AgentSession {
+  readonly agent: string;
   private pi?: PiSession;
+  private assembled?: AgentProfile;
   private runId?: string;
   private abortController?: AbortController;
   private currentViews: ViewSnapshot[] = [];
@@ -353,12 +462,20 @@ class Session implements AgentSession {
   private pending = new Map<AbortController, Promise<void>>();
   private enqueuing = new Set<Promise<unknown>>();
   private cancelling?: Promise<void>;
+  private closing?: Promise<void>;
 
-  constructor(private space: Space, private manager: SessionManager) {}
+  constructor(private space: Space, private manager: SessionManager) {
+    this.agent = sessionAgent(manager);
+  }
 
   get session(): PiSession {
     if (!this.pi) throw new RepaFault("session_unavailable", "会话尚未打开");
     return this.pi;
+  }
+
+  get profile(): AgentProfile {
+    if (!this.assembled) throw new RepaFault("session_unavailable", "会话尚未打开");
+    return this.assembled;
   }
 
   now(): number {
@@ -367,9 +484,11 @@ class Session implements AgentSession {
 
   async initialize(reference?: ModelRef): Promise<void> {
     const { runtime, options } = this.space;
+    const profile = this.space.profile(this.agent);
+    this.assembled = profile;
     const reservedTools = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"]);
     const names = new Set<string>();
-    for (const tool of options.tools()) {
+    for (const tool of profile.tools) {
       // Pi 1.1.0 将这些字符解释为工具选择规则，插件工具必须是字面名称。
       if (tool.name.includes("*") || /^[+-]/u.test(tool.name)) throw new RepaFault("invalid_tool_name", "插件工具名称不能包含选择规则", { name: tool.name });
       if (reservedTools.has(tool.name) || names.has(tool.name)) throw new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: tool.name });
@@ -440,6 +559,9 @@ class Session implements AgentSession {
     await loader.reload();
     const saved = this.manager.buildSessionProjection().model;
     const model = runtime.model(reference ?? (saved ? { provider: saved.provider, id: saved.modelId } : undefined));
+    // 工具清单在创建时固定；插件 Agent 的内置文件工具换成限在空间内、不进 .repa/ 的实现。
+    const scope = await this.space.fileScope(!profile.general);
+    const fileTools = profile.general ? generalFileTools(scope) : spaceFileTools(scope, profile.builtins);
     const result = await createAgentSession({
       cwd: options.root,
       agentDir: runtime.options.agentDir,
@@ -448,8 +570,8 @@ class Session implements AgentSession {
       sessionManager: this.manager,
       settingsManager: runtime.settings,
       resourceLoader: loader,
-      tools: ["read", "bash", "edit", "write", "grep", "find", "ls", ...options.tools().map(tool => tool.name), ...(runtime.options.toolNames ?? [])],
-      customTools: [...generalFileTools(await this.space.fileScope()), ...options.tools().map(toolDefinition)],
+      tools: [...profile.builtins, ...profile.tools.map(tool => tool.name), ...(profile.general ? runtime.options.toolNames ?? [] : [])],
+      customTools: [...fileTools, ...profile.tools.map(toolDefinition)],
     });
     this.pi = result.session;
     const lastUsage = this.manager.getBranch().findLast(entry => {
@@ -488,6 +610,7 @@ class Session implements AgentSession {
       createdAt: header?.timestamp ?? new Date().toISOString(),
       ...(name ? { name } : {}),
       ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+      agent: this.agent,
     };
   }
 
@@ -519,10 +642,10 @@ class Session implements AgentSession {
         this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart" });
         try {
           // view、工具和文件写入都在运行上下文内执行，能读到本次 runId。
-          await withRun({ runId, sessionId: this.manager.getSessionId(), agent: "general" }, async () => {
+          await withRun({ runId, sessionId: this.manager.getSessionId(), agent: this.agent }, async () => {
             // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
-            this.currentSections = await promptSections(this.space.options, await this.space.defaults());
-            this.currentViews = await this.space.options.views();
+            this.currentSections = await this.space.promptSections(this.profile);
+            this.currentViews = await this.profile.views();
             controller.signal.throwIfAborted();
             this.manager.appendCustomEntry("repa-run", { runId });
             await this.session.prompt(text);
@@ -614,7 +737,7 @@ class Session implements AgentSession {
 
   async compact(): Promise<void> {
     this.space.assertOpen();
-    this.currentViews = await this.space.options.views();
+    this.currentViews = await this.profile.views();
     await this.session.compact();
   }
 
@@ -630,11 +753,14 @@ class Session implements AgentSession {
     return this.space.load(manager);
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-    await this.abort();
-    this.session.dispose();
+  close(): Promise<void> {
+    // 多个持有者可能同时关闭同一会话，都等待同一次取消与释放。
+    this.closing ??= (async () => {
+      this.closed = true;
+      await this.abort();
+      this.session.dispose();
+    })();
+    return this.closing;
   }
 }
 

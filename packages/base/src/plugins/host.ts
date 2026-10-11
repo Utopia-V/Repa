@@ -1,12 +1,55 @@
-import type { Host, PluginInstance, Tool } from "../plugin.js";
+import { Type } from "typebox";
+import { Check } from "typebox/value";
+import { BUILTIN_TOOLS, type AgentDefinition, type Host, type PluginInstance, type Tool } from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
-import { parse, RepaFault } from "../schema.js";
+import { object, parse, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
+
+const AgentFieldsSchema = object({
+  id: Type.String({ pattern: "^[a-z][a-z0-9-]*$" }),
+  description: Type.Optional(Type.String()),
+  tools: Type.Array(Type.String()),
+  subagents: Type.Optional(Type.Array(Type.String())),
+  direct: Type.Optional(Type.Boolean()),
+});
+
+/** 打开时一次核对全部定义：id 唯一，工具和子 Agent 都存在；子 Agent 的工具范围在启动时检查。 */
+function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): void {
+  const ids = new Set<string>();
+  for (const definition of definitions) {
+    const { id, description, tools, subagents, direct } = definition;
+    const fields = {
+      id, tools,
+      ...(description === undefined ? {} : { description }),
+      ...(subagents === undefined ? {} : { subagents }),
+      ...(direct === undefined ? {} : { direct }),
+    };
+    if (!Check(AgentFieldsSchema, fields) || typeof definition.instructions !== "function" || (definition.view !== undefined && typeof definition.view !== "function")) {
+      throw new RepaFault("invalid_agent", "Agent 定义不符合接口要求", { id });
+    }
+    if (id === "general" || ids.has(id)) throw new RepaFault("invalid_agent_id", "Agent id 必须唯一，且不能使用 general", { id });
+    ids.add(id);
+  }
+  const builtins = new Set<string>(BUILTIN_TOOLS);
+  for (const definition of definitions) {
+    for (const tool of definition.tools) {
+      if (!builtins.has(tool) && !pluginTools.has(tool)) {
+        throw new RepaFault("unknown_agent_tool", "Agent 定义引用了不存在的工具", { agent: definition.id, tool });
+      }
+    }
+    for (const subagent of definition.subagents ?? []) {
+      if (subagent === definition.id || !ids.has(subagent)) {
+        throw new RepaFault("unknown_subagent", "Agent 定义引用了不存在的子 Agent", { agent: definition.id, subagent });
+      }
+    }
+  }
+}
 
 export async function openPluginHost(options: PluginHostOptions): Promise<PluginHost> {
   const { space } = options;
   const instances = new Map<string, PluginInstance>();
   const pluginTools = new Map<string, Tool[]>();
+  let agentDefinitions: AgentDefinition[] = [];
   let pending: Promise<void> = Promise.resolve();
   let pendingError: unknown;
   let closed = false;
@@ -27,6 +70,27 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     calls.add(operation);
     operation.then(() => { calls.delete(operation); }, () => { calls.delete(operation); });
     return operation;
+  }
+
+  function wrapAgent(definition: AgentDefinition): AgentDefinition {
+    const { view } = definition;
+    return {
+      id: definition.id,
+      ...(definition.description === undefined ? {} : { description: definition.description }),
+      instructions() {
+        checkOpen();
+        return definition.instructions();
+      },
+      tools: [...definition.tools],
+      ...(definition.subagents === undefined ? {} : { subagents: [...definition.subagents] }),
+      ...(definition.direct === undefined ? {} : { direct: definition.direct }),
+      ...(view === undefined ? {} : {
+        view() {
+          checkOpen();
+          return track(Promise.resolve().then(() => view.call(definition)));
+        },
+      }),
+    };
   }
 
   function orderedInstances(): [string, PluginInstance][] {
@@ -81,6 +145,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     }
     const names = new Set<string>();
     const reservedNames = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"]);
+    const declaredAgents: AgentDefinition[] = [];
     for (const plugin of options.plugins) {
       const dataDir = await space.pluginDataDir(plugin.id);
       const host: Host = {
@@ -119,7 +184,10 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         };
       });
       pluginTools.set(plugin.id, tools);
+      declaredAgents.push(...(instance.agents?.() ?? []));
     }
+    checkAgents(declaredAgents, names);
+    agentDefinitions = declaredAgents.map(wrapAgent).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
   } catch (error) {
     stopping = true;
     unsubscribe();
@@ -175,6 +243,10 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     tools() {
       checkOpen();
       return [...pluginTools.values()].flat().sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    },
+    agents() {
+      checkOpen();
+      return [...agentDefinitions];
     },
     views() {
       checkOpen();

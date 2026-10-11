@@ -525,3 +525,53 @@ test("关闭等待已接纳但还在读取历史的 start，停止追加初始�
   assert.equal(instanceClosed, true);
   assert.equal(changes, 0);
 });
+
+test("插件声明的 Agent 按 id 排序交给宿主，view 在宿主关闭后不再接纳", async (t) => {
+  const tool = { name: "lookup", description: "查询", parameters: empty, execute: async () => ({ text: "结果" }) };
+  const { host } = await fixture(t, [
+    { id: "zeta", open: async () => ({ agents: () => [{ id: "writer", instructions: () => "写课", tools: ["read", "lookup"], subagents: ["checker"] }] }) },
+    {
+      id: "alpha",
+      open: async () => ({
+        tools: () => [tool],
+        agents: () => [{ id: "checker", instructions: () => "检查", tools: ["lookup"], direct: true, view: async () => "检查进度" }],
+      }),
+    },
+  ]);
+  assert.deepEqual(host.agents().map((agent) => [agent.id, agent.tools, agent.subagents, agent.direct]), [
+    ["checker", ["lookup"], undefined, true],
+    ["writer", ["read", "lookup"], ["checker"], undefined],
+  ]);
+  const checker = host.agents()[0];
+  assert.equal(checker?.instructions(), "检查");
+  assert.equal(await checker?.view?.(), "检查进度");
+  await host.close();
+  await assert.rejects(async () => checker?.view?.(), fault("plugins_closed"));
+});
+
+test("Agent 定义引用不存在的工具或子 Agent、重名或使用 general 时打开失败，并清理已打开实例", async (t) => {
+  const space = await failureSpace(t);
+  const cases: [string, Plugin["open"]][] = [
+    ["unknown_agent_tool", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: ["read", "missing_tool"] }] })],
+    ["unknown_subagent", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [], subagents: ["missing"] }] })],
+    ["unknown_subagent", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [], subagents: ["tutor"] }] })],
+    ["invalid_agent_id", async () => ({ agents: () => [{ id: "general", instructions: () => "", tools: [] }] })],
+    ["invalid_agent", async () => ({ agents: () => [{ id: "Tutor", instructions: () => "", tools: [] }] })],
+  ];
+  for (const [code, open] of cases) {
+    const closed: string[] = [];
+    await assert.rejects(openPluginHost({
+      space, models: noModels, emit() {}, onError() {},
+      plugins: [
+        { id: "first", open: async () => ({ close: async () => { closed.push("first"); } }) },
+        { id: "declaring", async open(host) { const instance = await open(host); return { ...instance, close: async () => { closed.push("declaring"); } }; } },
+      ],
+    }), fault(code));
+    assert.deepEqual(closed, ["declaring", "first"]);
+  }
+  const duplicate: Plugin = { id: "copy", open: async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [] }] }) };
+  await assert.rejects(openPluginHost({
+    space, models: noModels, emit() {}, onError() {},
+    plugins: [{ ...duplicate, id: "one" }, { ...duplicate, id: "two" }],
+  }), fault("invalid_agent_id"));
+});
