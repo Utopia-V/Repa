@@ -4,12 +4,16 @@ import path from "node:path";
 
 // 同目录原子替换；文件和目录均完成同步后才向调用方报告保存成功。
 export async function writeJson(file: string, value: unknown): Promise<void> {
+  await writeText(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+export async function writeText(file: string, text: string): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   const temporary = path.join(path.dirname(file), `.repa-${randomUUID()}.tmp`);
   const handle = await open(temporary, "wx", 0o600);
   try {
     try {
-      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`);
+      await handle.writeFile(text);
       await handle.sync();
     } finally {
       await handle.close();

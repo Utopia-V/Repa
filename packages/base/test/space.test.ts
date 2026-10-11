@@ -92,6 +92,17 @@ test("外部编辑由 watcher 通知，控制目录变化不会形成历史修�
   assert.deepEqual(await space.history.list(), before);
 });
 
+test("打开空间时在 .repa/ 放一份忽略全部内容的 .ignore，被改动后再次打开会恢复", async (t) => {
+  const { space } = await fixture(t);
+  const file = path.join(space.dataDir, ".ignore");
+  assert.equal(await readFile(file, "utf8"), "*\n");
+  await space.close();
+  await writeFile(file, "!sessions\n");
+  const reopened = await openSpace(space.root, { watch: false });
+  await reopened.close();
+  assert.equal(await readFile(file, "utf8"), "*\n");
+});
+
 test("控制目录不能通过符号链接指向空间以外", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-space-control-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

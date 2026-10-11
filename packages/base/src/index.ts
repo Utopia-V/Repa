@@ -3,4 +3,4 @@ export { createAgentRuntime, type AgentRuntime, type AgentSpace, type AgentSessi
 export { openSpace, createSpace, type Space } from "./space.js";
 export { openPluginHost, type PluginHost } from "./plugins.js";
 export { RepaFault } from "./schema.js";
-export type { Plugin, PluginInstance, Host, Tool, PluginMethod } from "./plugin.js";
+export type { AgentDefinition, Plugin, PluginInstance, Host, Tool, PluginMethod } from "./plugin.js";

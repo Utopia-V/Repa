@@ -253,6 +253,7 @@ test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释�
   const cancel = async () => rejectWork(new RepaFault("cancelled", "初始化回合已取消"));
   t.signal.addEventListener("abort", () => { cancel().catch(() => undefined); });
   const agent: AgentSpace = {
+    agents() { return []; },
     async create() { throw new Error("未使用"); },
     async get() { throw new Error("未使用"); },
     async list() { return []; },
