@@ -6,6 +6,11 @@ import { watchHistory } from "../src/watch.js";
 
 const snapshotResult = { revision: "revision", committed: true, skipped: [] };
 
+// 只发不带路径的通知时，不应按路径快照。
+async function unexpectedPaths(): Promise<never> {
+  throw new Error("不带路径的通知不应按路径快照");
+}
+
 function deferred() {
   let resolve = () => {};
   const promise = new Promise<void>((done) => {
@@ -18,7 +23,7 @@ function fixture(snapshot: Pick<SpaceHistory, "snapshot">["snapshot"]) {
   let notify = () => {};
   let stops = 0;
   const errors: unknown[] = [];
-  const watcher = watchHistory({ snapshot }, (callback) => {
+  const watcher = watchHistory({ snapshot, snapshotPaths: unexpectedPaths }, (callback) => {
     notify = callback;
     return () => {
       stops += 1;
@@ -34,6 +39,7 @@ test("注册时同步通知与连续事件合并为 external 快照", async () =
       sources.push(source);
       return snapshotResult;
     },
+    snapshotPaths: unexpectedPaths,
   }, (notify) => {
     notify();
     notify();
@@ -146,6 +152,7 @@ test("后台快照失败交给 onError，后续通知仍能保存", async (t) =>
       if (calls === 1) throw failure;
       return snapshotResult;
     },
+    snapshotPaths: unexpectedPaths,
   }, (callback) => {
     notify = callback;
     return () => {};
@@ -163,4 +170,55 @@ test("后台快照失败交给 onError，后续通知仍能保存", async (t) =>
   await watcher.close();
   assert.deepEqual(errors, [failure]);
   assert.equal(calls, 2);
+});
+
+test("带路径的通知合并为一次按路径快照，保存期间收到的路径进入下一批", async () => {
+  const started = deferred();
+  const release = deferred();
+  const batches: string[][] = [];
+  let notify: (path?: string) => void = () => {};
+  const watcher = watchHistory({
+    snapshot: async () => assert.fail("带路径的通知不应扫描整个空间"),
+    snapshotPaths: async (paths) => {
+      batches.push([...paths].sort());
+      if (batches.length === 1) {
+        started.resolve();
+        await release.promise;
+      }
+      return snapshotResult;
+    },
+  }, (callback) => {
+    notify = callback;
+    return () => {};
+  }, { onError: (error) => assert.fail(String(error)) });
+  notify("notes/a.md");
+  notify("b.md");
+  notify("notes/a.md");
+  const flushing = watcher.flush();
+  await started.promise;
+  notify("c.md");
+  release.resolve();
+  await flushing;
+  await watcher.close();
+  assert.deepEqual(batches, [["b.md", "notes/a.md"], ["c.md"]]);
+});
+
+test("同一批里有不带路径的通知时改为扫描整个空间", async () => {
+  const sources: unknown[] = [];
+  let notify: (path?: string) => void = () => {};
+  const watcher = watchHistory({
+    snapshot: async (source) => {
+      sources.push(source);
+      return snapshotResult;
+    },
+    snapshotPaths: async () => assert.fail("这一批应当扫描整个空间"),
+  }, (callback) => {
+    notify = callback;
+    return () => {};
+  }, { onError: (error) => assert.fail(String(error)) });
+  notify("a.md");
+  notify();
+  notify("b.md");
+  await watcher.close();
+  assert.deepEqual(sources, [{ kind: "external" }]);
 });

@@ -27,6 +27,7 @@ export class Git {
   async run(
     args: string[],
     input?: string | Buffer | AsyncIterable<Buffer | string>,
+    options: { emptyIndex?: boolean } = {},
   ): Promise<Buffer> {
     const env: NodeJS.ProcessEnv = {};
     for (const [key, value] of Object.entries(process.env)) {
@@ -37,7 +38,8 @@ export class Git {
     env.GIT_CONFIG_NOSYSTEM = "1";
     env.GIT_CONFIG_GLOBAL = devNull;
     env.GIT_ATTR_NOSYSTEM = "1";
-    env.GIT_INDEX_FILE = join(this.gitDir, "index");
+    // empty-index 从不创建，Git 把缺失的索引当作空索引；只读命令借此不受共享索引内容影响。
+    env.GIT_INDEX_FILE = join(this.gitDir, options.emptyIndex ? "empty-index" : "index");
 
     let source: Readable;
     if (input === undefined) {

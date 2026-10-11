@@ -1,11 +1,14 @@
 import type { SpaceHistory } from "./history.js";
 
+// notify(path) 报告变化的路径，相对空间根目录、用 / 分隔；不知道具体路径时调用 notify()。
 export function watchHistory(
-  history: Pick<SpaceHistory, "snapshot">,
-  watch: (notify: () => void) => () => void,
+  history: Pick<SpaceHistory, "snapshot" | "snapshotPaths">,
+  watch: (notify: (path?: string) => void) => () => void,
   options: { debounceMs?: number; onError: (error: unknown) => void },
 ): { flush(): Promise<void>; close(): Promise<void> } {
-  let dirty = false;
+  // 一批通知都带路径时只记这些路径；其中有一次不带路径，就扫描整个空间。
+  let paths = new Set<string>();
+  let whole = false;
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let pending: Promise<void> | undefined;
@@ -20,12 +23,15 @@ export function watchHistory(
 
   async function flush(): Promise<void> {
     clearTimer();
-    while (dirty || pending !== undefined) {
+    while (whole || paths.size > 0 || pending !== undefined) {
       if (pending === undefined) {
-        dirty = false;
+        const batch = [...paths];
+        const scan = whole;
+        paths = new Set();
+        whole = false;
         clearTimer();
         pending = Promise.resolve()
-          .then(() => history.snapshot({ kind: "external" }))
+          .then(() => (scan ? history.snapshot({ kind: "external" }) : history.snapshotPaths(batch)))
           .catch((error: unknown) => options.onError(error))
           .then(() => {})
           .finally(() => {
@@ -37,9 +43,13 @@ export function watchHistory(
   }
 
   // 宿主排除 .repa/ 等控制目录的事件，避免历史写入再次触发快照。
-  const stop = watch(() => {
+  const stop = watch((path) => {
     if (closed) return;
-    dirty = true;
+    if (path === undefined) {
+      whole = true;
+    } else {
+      paths.add(path);
+    }
     clearTimer();
     timer = setTimeout(() => {
       timer = undefined;
