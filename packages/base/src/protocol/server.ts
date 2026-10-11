@@ -204,6 +204,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         overrides: () => settings.overrides(space.root),
         commandPolicy: () => settings.get().commandPolicy,
         record: async (runId, action) => (await space.record({ kind: "agent", runId }, action)).value,
+        writes: space.writes,
         onEvent: (event) => emit("session.event", event),
         confirm: (request, signal) => confirmFor(owner.getStore())(request, signal),
       });

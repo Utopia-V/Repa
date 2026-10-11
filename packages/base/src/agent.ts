@@ -1,6 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest, Tool } from "./plugin.js";
 import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, SessionEntry, SessionInfo } from "./schema.js";
+import type { SpaceWrites } from "./space.js";
 
 export interface AgentSession {
   info(): SessionInfo;
@@ -41,7 +42,10 @@ export interface AgentSpaceOptions {
   directAgents?: string[];
   overrides(): Promise<{ app: PromptOverrides; space: PromptOverrides }>;
   commandPolicy(): "ask" | "fullAccess";
+  /** 带命令行的运行整次在这里执行：持空间写锁独占，前后整体快照记到这个运行。其余运行不经过它。 */
   record<T>(runId: string, action: () => Promise<T>): Promise<T>;
+  /** 写入工具接入的空间写入路径；省略时直接写文件，不经过空间写锁和历史，供只测运行时的场合使用。 */
+  writes?: SpaceWrites;
   onEvent(event: AgentEvent): void;
   confirm: Confirm;
 }

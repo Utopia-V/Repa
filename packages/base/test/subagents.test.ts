@@ -132,8 +132,8 @@ test("子 Agent 的回复作为工具结果交回父 Agent，子运行有自己�
   assert.deepEqual(childRun, { runId: childRun.runId, parentRunId: leadRun, parentSessionId: f.lead.info().id });
   assert.deepEqual(f.runs, [{ runId: childRun.runId, ancestorRunIds: [leadRun], sessionId: child.id, agent: "checker" }]);
   assert.deepEqual(f.events.find(event => event.type === "runStart" && event.sessionId === child.id)?.data, { parentRunId: leadRun, parentSessionId: f.lead.info().id });
-  // 只有父运行进入历史队列；子运行在父运行的记录窗口里完成。
-  assert.deepEqual(f.recorded, [leadRun]);
+  // 父运行没有命令行，不整次进 record；子运行也不进。
+  assert.deepEqual(f.recorded, []);
 });
 
 test("子 Agent 只能起定义里列出的那些，没列出的请求作为工具错误交回", async t => {
@@ -259,7 +259,7 @@ test("空间关闭等待子运行结束后才完成", async t => {
   assert.deepEqual(runEnds(f.events, child.id), [{ status: "aborted" }]);
 });
 
-test("子 Agent 在父运行的记录窗口里写文件，历史只为父运行提交一次", { timeout: 30000 }, async t => {
+async function courseServer(t: TestContext, agents: AgentDefinition[]) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-subagents-e2e-"));
   const root = path.join(directory, "space");
   const home = path.join(directory, "home");
@@ -274,17 +274,7 @@ test("子 Agent 在父运行的记录窗口里写文件，历史只为父运行�
     defaultModel: { provider: faux.getModel().provider, id: "scripted" },
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
   });
-  const plugin: Plugin = {
-    id: "course",
-    async open() {
-      return {
-        agents: () => [
-          { id: "lead", instructions: () => "你安排课程编写。", tools: ["read", "write"], subagents: ["drafter"], direct: true },
-          { id: "drafter", description: "起草课程文件", instructions: () => "你起草课程文件。", tools: ["write"] },
-        ],
-      };
-    },
-  };
+  const plugin: Plugin = { id: "course", open: async () => ({ agents: () => agents }) };
   const server = await startServer({ home, plugins: [plugin], runtime });
   const client = await RepaClient.connect(server.connection);
   t.after(async () => {
@@ -293,25 +283,68 @@ test("子 Agent 在父运行的记录窗口里写文件，历史只为父运行�
     await rm(directory, { recursive: true, force: true });
   });
   await client.call("space.open", { root });
-  const before = await client.call("history.list", {});
-  const session = await client.call("session.create", { agent: "lead" });
-  faux.setResponses([
+  const runOf = async (sessionId: string) => {
+    const run = (await client.call("session.history", { sessionId })).find(entry => entry.type === "run")?.data;
+    assert(run !== null && typeof run === "object" && "runId" in run && typeof run.runId === "string");
+    return { runId: run.runId, parentRunId: "parentRunId" in run ? run.parentRunId : undefined };
+  };
+  return { root, client, faux, runOf };
+}
+
+test("子 Agent 的写入记在自己的运行下并挂在父运行下，按父运行撤回时一起撤回", { timeout: 30000 }, async t => {
+  const f = await courseServer(t, [
+    { id: "lead", instructions: () => "你安排课程编写。", tools: ["read", "write"], subagents: ["drafter"], direct: true },
+    { id: "drafter", description: "起草课程文件", instructions: () => "你起草课程文件。", tools: ["write"] },
+  ]);
+  const before = await f.client.call("history.list", {});
+  const session = await f.client.call("session.create", { agent: "lead" });
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("write", { path: "lessons/index.md", content: "目录：第一课\n" }),
+      fauxToolCall("subagent", { agent: "drafter", task: "写第一课到 lessons/one.md" }),
+    ]),
+    fauxAssistantMessage(fauxToolCall("write", { path: "lessons/one.md", content: "第一课：变量\r\n" })),
+    fauxAssistantMessage("写好了"),
+    fauxAssistantMessage("课程已安排"),
+  ]);
+  await f.client.call("session.send", { sessionId: session.id, text: "安排第一课" });
+  const lead = await f.runOf(session.id);
+  const drafter = (await f.client.call("session.list", {})).find(info => info.agent === "drafter");
+  assert(drafter);
+  const child = await f.runOf(drafter.id);
+  assert.equal(child.parentRunId, lead.runId);
+  const after = await f.client.call("history.list", {});
+  // 父运行和子运行各自按路径提交，子运行的来源带着祖先链。
+  assert.deepEqual(after.slice(0, after.length - before.length).map(revision => revision.source).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))), [
+    { kind: "agent", runId: child.runId, ancestorRunIds: [lead.runId] },
+    { kind: "agent", runId: lead.runId },
+  ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  const undone = await f.client.call("history.undoRun", { runId: lead.runId });
+  assert.deepEqual([undone.restored.sort(), undone.conflicts], [["lessons/index.md", "lessons/one.md"], []]);
+  await assert.rejects(readFile(path.join(f.root, "lessons", "one.md")), { code: "ENOENT" });
+  await assert.rejects(readFile(path.join(f.root, "lessons", "index.md")), { code: "ENOENT" });
+});
+
+test("带命令行的父运行窗口里，子 Agent 直接写文件，算在父运行的快照里，不会互相等待", { timeout: 30000 }, async t => {
+  const f = await courseServer(t, [
+    { id: "lead", instructions: () => "你安排课程编写。", tools: ["bash", "read", "write"], subagents: ["drafter"], direct: true },
+    { id: "drafter", description: "起草课程文件", instructions: () => "你起草课程文件。", tools: ["write"] },
+  ]);
+  const before = await f.client.call("history.list", {});
+  const session = await f.client.call("session.create", { agent: "lead" });
+  f.faux.setResponses([
     fauxAssistantMessage(fauxToolCall("subagent", { agent: "drafter", task: "写第一课到 lessons/one.md" })),
     fauxAssistantMessage(fauxToolCall("write", { path: "lessons/one.md", content: "第一课：变量\r\n" })),
     fauxAssistantMessage("写好了"),
     fauxAssistantMessage("课程已安排"),
   ]);
-  await client.call("session.send", { sessionId: session.id, text: "安排第一课" });
-  assert.equal(await readFile(path.join(root, "lessons", "one.md"), "utf8"), "第一课：变量\r\n");
-  const leadRun = (await client.call("session.history", { sessionId: session.id })).find(entry => entry.type === "run")?.data;
-  assert(leadRun !== null && typeof leadRun === "object" && "runId" in leadRun);
-  const after = await client.call("history.list", {});
+  await f.client.call("session.send", { sessionId: session.id, text: "安排第一课" });
+  assert.equal(await readFile(path.join(f.root, "lessons", "one.md"), "utf8"), "第一课：变量\r\n");
+  const lead = await f.runOf(session.id);
+  const after = await f.client.call("history.list", {});
   assert.equal(after.length, before.length + 1);
-  const revision = after[0];
-  assert.deepEqual(revision?.source, { kind: "agent", runId: leadRun.runId });
-  const drafter = (await client.call("session.list", {})).find(info => info.agent === "drafter");
+  assert.deepEqual(after[0]?.source, { kind: "agent", runId: lead.runId });
+  const drafter = (await f.client.call("session.list", {})).find(info => info.agent === "drafter");
   assert(drafter);
-  const childRun = (await client.call("session.history", { sessionId: drafter.id })).find(entry => entry.type === "run")?.data;
-  assert(childRun !== null && typeof childRun === "object" && "parentRunId" in childRun);
-  assert.equal(childRun.parentRunId, leadRun.runId);
+  assert.equal((await f.runOf(drafter.id)).parentRunId, lead.runId);
 });

@@ -23,7 +23,7 @@ import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTas
 import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
-import { FileScope, generalFileTools, spaceFileTools } from "./files.js";
+import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
 
@@ -55,6 +55,15 @@ export async function createAgentRuntimeForTest(options: AgentTestOptions): Prom
 const GENERAL_AGENT = "general";
 const AGENT_ENTRY = "repa-agent";
 const SUBAGENT_TOOL = "subagent";
+
+// 没有空间写入路径时（只测运行时、不接空间历史的场合）直接写文件。
+const DIRECT_WRITES = {
+  lock: <T>(action: () => Promise<T>) => action(),
+  commit: <T>(_file: string, action: () => Promise<T>) => action(),
+};
+
+// 这些工具会写到底座看不见的地方，带它们的运行是不透明写入者。
+const OPAQUE_TOOLS = new Set(["bash", "powershell"]);
 
 // 子 Agent 嵌套层数上限的默认值。这是 Repa 的假设：定义允许循环和重入，用层数挡住失控的递归，
 // 以后按实际使用调整。
@@ -489,6 +498,12 @@ class Session implements AgentSession {
   readonly agent: string;
   private pi?: PiSession;
   private assembled?: AgentProfile;
+  // 工具集里有命令行：整次运行持空间写锁独占，前后整体快照。由工具集推出，不由 Agent 自己声明。
+  private opaque = false;
+  // 整文件写入核对基线用的读取记录，属于这个会话。
+  private readonly reads = new ReadState();
+  // 同一会话的运行依次进行；后来的运行等前一个结束，不同会话之间互不等待。
+  private turn: Promise<void> = Promise.resolve();
   private runId?: string;
   private runAncestors?: readonly string[];
   private abortController?: AbortController;
@@ -601,8 +616,17 @@ class Session implements AgentSession {
     const saved = this.manager.buildSessionProjection().model;
     const model = runtime.model(reference ?? (saved ? { provider: saved.provider, id: saved.modelId } : undefined));
     // 工具清单在创建时固定；插件 Agent 的内置文件工具换成限在空间内、不进 .repa/ 的实现。
+    // 所有 Agent 的写入和编辑都经过空间的写入路径，只记这次碰到的文件。
     const scope = await this.space.fileScope();
-    const fileTools = profile.general ? generalFileTools(scope) : spaceFileTools(scope, profile.builtins);
+    const files = { scope, writes: options.writes ?? DIRECT_WRITES, reads: this.reads };
+    const fileTools = profile.general ? generalFileTools(files) : spaceFileTools(files, profile.builtins);
+    const toolNames = [
+      ...profile.builtins,
+      ...profile.tools.map(tool => tool.name),
+      ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
+      ...(profile.general ? runtime.options.toolNames ?? [] : []),
+    ];
+    this.opaque = toolNames.some(name => OPAQUE_TOOLS.has(name));
     const result = await createAgentSession({
       cwd: options.root,
       agentDir: runtime.options.agentDir,
@@ -611,12 +635,7 @@ class Session implements AgentSession {
       sessionManager: this.manager,
       settingsManager: runtime.settings,
       resourceLoader: loader,
-      tools: [
-        ...profile.builtins,
-        ...profile.tools.map(tool => tool.name),
-        ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
-        ...(profile.general ? runtime.options.toolNames ?? [] : []),
-      ],
+      tools: toolNames,
       customTools: [...fileTools, ...profile.tools.map(toolDefinition), ...(profile.subagents.length > 0 ? [this.subagentTool(profile)] : [])],
     });
     this.pi = result.session;
@@ -745,6 +764,8 @@ class Session implements AgentSession {
     let finish: () => void = () => undefined;
     const settled = new Promise<void>(resolve => { finish = resolve; });
     this.pending.set(controller, settled);
+    const previous = this.turn;
+    this.turn = settled;
     // 状态在 execute 闭包内更新；断言避免 TypeScript 按初值收窄。
     let status = "completed" as "completed" | "failed" | "aborted";
     let started = false;
@@ -783,15 +804,17 @@ class Session implements AgentSession {
       }
     };
     try {
-      // 子 Agent 已经在父运行的记录窗口里；再进历史队列，就会和等待它结果的父运行互相等待。
-      if (parent === undefined) await this.space.options.record(runId, execute);
+      await previous;
+      // 只有带命令行的运行整次进 record，持空间写锁独占；其余运行的写入各自按路径记账，可以并行。
+      // 子 Agent 不另进：不透明父运行的窗口里它直接写文件，算在父运行的快照里，否则会和等它结果的父运行互相等待。
+      if (parent === undefined && this.opaque) await this.space.options.record(runId, execute);
       else await execute();
     } catch (error) {
       status = error instanceof RepaFault && error.code === "cancelled" ? "aborted" : "failed";
       this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "error", text: error instanceof RepaFault ? error.message : "Agent 运行失败", data: { code: error instanceof RepaFault ? error.code : "agent_error" } });
       throw error;
     } finally {
-      // Repa 的运行结束包含空间快照提交；不能把 Pi 的模型循环结束当作整个运行结束。
+      // 不透明运行的结束包含空间快照提交；不能把 Pi 的模型循环结束当作整个运行结束。
       this.pending.delete(controller);
       finish();
       if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
