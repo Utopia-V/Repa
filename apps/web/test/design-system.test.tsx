@@ -123,6 +123,7 @@ describe("主题可读性", () => {
     ["muted-foreground", "card"],
     ["primary-foreground", "primary"],
     ["accent-foreground", "accent"],
+    ["foreground", "accent"],
     ["status-complete-foreground", "status-complete"],
     ["destructive-foreground", "destructive"],
     ["status-complete", "card"],
