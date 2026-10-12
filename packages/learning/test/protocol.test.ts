@@ -8,7 +8,7 @@ import { Value } from "typebox/value";
 
 import { checkResponse } from "@repa/base/protocol";
 import { publicItem, referenceResponse } from "../src/check/items.js";
-import { checkSubmission, FeedbackSchema, SubmitResultSchema, type Feedback } from "../src/protocol.js";
+import { checkSubmission, FeedbackSchema, readFeedback, readSubmitResult, SubmitResultSchema, type Feedback } from "../src/protocol.js";
 import { demoCourse } from "./demo-course.js";
 
 const SOURCE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src");
@@ -57,6 +57,42 @@ test("反馈和提交结果按约定严格校验，多余字段和不认识的�
   assert.equal(Value.Check(FeedbackSchema, { ...feedback, answer: "minus" }), false);
   assert.equal(Value.Check(SubmitResultSchema, { status: "rejected", problems: [] }), false);
   assert.equal(Value.Check(SubmitResultSchema, { status: "accepted" }), false);
+});
+
+test("前端宽松读取反馈：不认识的 verdict 读作 ungraded，不认识的 judge、标记、测试结果和评分要点逐条丢掉", () => {
+  const version = `sha256:${"1".repeat(64)}`;
+  const newer: unknown = {
+    item: { id: "t01.k1.q3", version },
+    verdict: "almost",
+    judge: "peer",
+    attempt: 3,
+    message: [{ type: "markdown", text: "再看看第二问。", tone: "gentle" }, { type: "video", asset: "hint" }],
+    slots: {
+      line: { verdict: "incorrect", marks: { plus: "incorrect", minus: "missed", other: "half" }, hint: "看减号" },
+      code: { verdict: "timeout_partial", tests: [{ name: "公开例子", result: "passed" }, { name: "更多输入", result: "skipped", hidden: true }] },
+      why: { verdict: "pending", criteria: [{ label: "说出原因", met: "unsure" }, { label: "举出例子", met: "partly" }] },
+    },
+  };
+  const feedback: Feedback = {
+    item: { id: "t01.k1.q3", version },
+    verdict: "ungraded",
+    message: [{ type: "markdown", text: "再看看第二问。" }],
+    slots: {
+      line: { verdict: "incorrect", marks: { plus: "incorrect", minus: "missed" } },
+      code: { verdict: "ungraded", tests: [{ name: "公开例子", result: "passed" }] },
+      why: { verdict: "pending", criteria: [{ label: "说出原因", met: "unsure" }] },
+    },
+  };
+  assert.deepEqual(readFeedback(newer), { ok: true, value: feedback });
+  assert.deepEqual(readSubmitResult({ status: "recorded", feedback: newer, next: "t01.k1.q4" }), { ok: true, value: { status: "recorded", feedback } });
+  assert.deepEqual(readSubmitResult({ status: "rejected", problems: [{ slot: "line", message: "请选择一项", code: "empty" }] }), {
+    ok: true, value: { status: "rejected", problems: [{ slot: "line", message: "请选择一项" }] },
+  });
+
+  // 认识的字段类型不对时读取失败并指出位置；认不出的提交结果读不了。
+  assert.deepEqual(readFeedback({ ...(newer as object), verdict: 1 }), { ok: false, path: "/verdict" });
+  assert.deepEqual(readFeedback({ ...(newer as object), score: { earned: "1", max: 2 } }), { ok: false, path: "/score/earned" });
+  assert.deepEqual(readSubmitResult({ status: "queued" }), { ok: false, path: "" });
 });
 
 /** 收集一个模块在运行时会加载的说明符；只有 import type 的语句在编译后消失，不算。 */

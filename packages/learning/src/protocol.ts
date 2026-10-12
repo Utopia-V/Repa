@@ -6,9 +6,10 @@
  * 定义照 2026-10-12 从底座移走的原文（dev 50d458b6c 的 interaction.ts），只留学习用得上的。
  *
  * 本文件经 @repa/learning/protocol 导出，只依赖 typebox 和 @repa/base/protocol，浏览器里也能用。
- * 规则与底座的词汇相同：只增不改，发送方按当前版本严格校验，多余字段直接拒绝。
+ * 规则与底座的词汇相同：只增不改，发送方按当前版本严格校验，多余字段直接拒绝；前端用 readFeedback、
+ * readSubmitResult 宽松读取，插件比前端新时也能显示。
  */
-import { Type, type Static } from "typebox";
+import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 
 import {
@@ -18,8 +19,11 @@ import {
   ContentSchema,
   ItemResponseSchema,
   object,
+  readLenient,
   type CheckResult,
   type Item,
+  type ReadFallback,
+  type ReadResult,
 } from "@repa/base/protocol";
 
 /** 指向一道题的某个版本：{ id, version }，与作答里的 item 相同。 */
@@ -130,3 +134,31 @@ export const SubmitResultSchema = Type.Union([
   object({ status: Type.Literal("recorded"), feedback: Type.Optional(FeedbackSchema) }),
 ]);
 export type SubmitResult = Static<typeof SubmitResultSchema>;
+
+// ---------------------------------------------------------------------------
+// 前端的宽松读取
+// ---------------------------------------------------------------------------
+
+const VERDICTS = new Set<unknown>(VerdictSchema.anyOf.map((member) => member.const));
+
+/** 认出判分结果这个联合。Type.Optional 会复制 schema，所以比成员，不比对象身份。 */
+function isVerdict(union: TSchema): boolean {
+  const members = (union as { anyOf?: { const?: unknown }[] }).anyOf ?? [];
+  return members.length === VERDICTS.size && members.every((member) => VERDICTS.has(member.const));
+}
+
+/** 不认识的 verdict 读作 ungraded，界面不标对错、只显示说明；其余认不出的值连同所在的一项丢掉。 */
+const fallback: ReadFallback = ({ union }) => (isVerdict(union) ? "ungraded" : undefined);
+
+/**
+ * 前端读取反馈。规则同底座的 readLenient：不认识的字段丢掉，认识的字段类型不对时读取失败。
+ * 不认识的 verdict 读作 ungraded；不认识的 judge 丢掉，不标来源；标记、测试结果和评分要点里不认识的条目逐条丢掉。
+ */
+export function readFeedback(value: unknown): ReadResult<Feedback> {
+  return readLenient<Feedback>(FeedbackSchema, value, fallback);
+}
+
+/** 前端读取提交结果，例如插件方法返回的 SubmitResult；其中的反馈按 readFeedback 的规则读取，认不出的 status 读取失败。 */
+export function readSubmitResult(value: unknown): ReadResult<SubmitResult> {
+  return readLenient<SubmitResult>(SubmitResultSchema, value, fallback);
+}

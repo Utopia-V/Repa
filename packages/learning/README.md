@@ -34,6 +34,7 @@
 | `SlotFeedback`、`Feedback` | 作答位一级和整题一级的反馈；`expected` 是参考答案，只在插件决定释放时出现；`Feedback.item` 指向作答时的题目和版本 |
 | `LearnerResponse`、`checkSubmission` | 底座的作答加上 `dontKnow`。学习者说“不会”时不带作答，只查题目和版本；平常的作答交给底座的 `checkResponse` |
 | `SubmitResult` | `rejected`：格式不对，没有记为作答，只交回问题列表；`recorded`：已记为一次作答，练习时通常带反馈，测验交卷前不带 |
+| `readFeedback`、`readSubmitResult` | 前端宽松读取，用底座的 `readLenient`：不认识的字段丢掉，认识的字段类型不对时读取失败；不认识的 verdict 读作 `ungraded`，不认识的 judge 丢掉，标记、测试结果和评分要点里不认识的条目逐条丢掉 |
 
 课程检查里的规则判分（[`src/check/grade.ts`](src/check/grade.ts)）用的就是这里的 `Verdict`。
 
@@ -90,7 +91,6 @@ pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们�
 | 其余 45 个 topic | 只有骨架；`notes` 里带着原稿的题型建议和范围约束 | 下一个任务按写课说明生成 |
 | 学习者作答的判分 | 这里只检查课程文件，并定下判分结果的公开约定。学习者的代码要在学习者端的沙箱里运行，判分、作答记录和学生模型还没有实现 | 插件接入任务 |
 | 交付时的呈现 | 底座不再要求排列块由后端打乱、选项 id 不暗示对错，这些现在归本插件。交付题目时要打乱排列块和选项并记进尝试；课程文件里有的选项 id 带有含义（例如 `faithful`） | 交付任务；选项 id 的写法要和写课的任务一起定 |
-| 反馈的宽松读取 | 约定只有严格校验。底座的通用宽松读取没有导出，前端读到更新版插件多出的字段时会读取失败 | 前端开始渲染反馈、插件和前端可能不同步时，请底座导出通用的读取，或在本包实现一份 |
 | 其他系统上的代码核对 | 依赖 Linux 的 Landlock（ABI 4 以上，Linux 6.7 起）、libseccomp 和 `/usr/bin/python3`；Windows、macOS 只能 `--no-run` | 需要时另做；社区作者可以先做结构检查 |
 | 内存与 CPU | `RLIMIT_DATA` 只管进程私有的可写内存，CPU 时间上限 600 秒；没有 cgroup 级的整树限制，线程数只受内存间接限制 | 课程检查够用；如要运行更不可信的内容再评估 |
 | 同一 topic 内的模块状态 | 任务后恢复常见的全局状态，但代码改动已导入模块（例如给 pandas 打补丁）时，影响会延续到同一 topic 的后续任务 | 换 topic 时换新沙箱；需要更强的隔离时改为每题一个沙箱，代价是每题约 2.5 秒 |
