@@ -1,7 +1,8 @@
 id: py22
 title: 明确改的是原表还是新结果
-status: outline
+status: complete
 minutes: 20
+summary: 用一次 df.loc[行, 列] = 值 改原表里选中的格；分清别名、派生结果和 copy：在 pandas 3 里，改派生结果不会改到原表。
 prerequisites:
   - topic: py21
     key: true
@@ -27,8 +28,826 @@ sources:
 notes: |
   建议题型与判分：追踪变量（P）、找错（P）、小改代码（T）。
   Python for Data Analysis 第 3 版不是按 pandas 3 写的：pandas 3 的 Copy-on-Write 使派生对象的修改不再回写原对象，链式赋值也不能更新原表。本节用 .loc 单次赋值讲清修改目标，不沿用旧的 view/copy 说法；行为以课程运行时为准。
+  范围：df.loc[掩码, 列名] = 值 改选中的格（含给选中的行写一列新列）；链式赋值不生效；别名（b = df）、派生结果（筛选结果、取出的一列、方法返回的新表）和 df.copy() 的区别；名字改指向派生结果以后不再影响原表。不讲 inplace、where/mask、clip（clip 只出现在小改代码题的等价写法里）。py18 不是先修，只用单个条件。
+  课程运行时里，链式赋值会给出 ChainedAssignmentError 警告但不报错，原表不变；题目只问原表变没变，不问警告的原文。给整行赋数（df.loc[掩码] = 10）会因为文字列放不下数而报 TypeError，只作为错误写法出现。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、三道练习 5 分钟；k2 讲解与例题 4 分钟、三道练习 5 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  前几节的代码大多是从原表算出新的结果：筛选出的行、新加的列。这一节要改原表里已有的格，例如把扣除本底后成了负数的读数改成 0。关键是说清楚：改的是哪张表的哪些格。
+
+  宿主已经导入了 pandas（`pd`）并准备好数据表；每道题都从题面给出的表重新开始。大多数题用表 T：`signal` 是扣除本底以后的读数，可能是负数。
+wrapup: |
+  要改原表，就写一次 `df.loc[行, 列] = 值`，行和列都写在同一对方括号里。要一份可以随便改、又不影响原表的表，就写 `df.copy()`，让读代码的人一眼看出来。
+
+  向 AI 提需求时，说清“直接改原表”还是“得到一张新表、原表不动”。拿到代码后，找出每一处修改：它改的是 df 本身，还是某个筛选结果或副本；`b = df` 这样的一行，意味着之后改 b 就是在改 df。
+data:
+  T:
+    kind: dataframe
+    name: df
+    caption: 表 T
+    index: [31, 7, 22, 4]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D]
+      signal: [8, -1, 13, -3]
+      group: [low, control, high, low]
+  T2:
+    kind: dataframe
+    name: df
+    caption: 另一张同结构的表
+    index: [90, 2, 60, 11, 45]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [X_A, X_B, X_C, X_D, X_E]
+      signal: [-2, 12, 5, -7, 20]
+      group: [high, control, low, high, low]
+  wells:
+    kind: dataframe
+    name: wells
+    caption: 表 wells：培养板上各孔的细胞计数和状态
+    index: [3, 11, 6, 9, 14]
+    indexHeader: 原行索引
+    columns:
+      well: [A1, A2, B1, B2, C1]
+      count: [120, 95, 150, 80, 110]
+      plate: [p1, p1, p2, p2, p3]
+      status: [ok, ok, ok, ok, ok]
+  wells2:
+    kind: dataframe
+    name: wells
+    caption: 另一块板的记录
+    index: [7, 2, 13, 5]
+    indexHeader: 原行索引
+    columns:
+      well: [D1, D2, E1, E2]
+      count: [60, 140, 90, 100]
+      plate: [p3, p2, p2, p1]
+      status: [ok, ok, hold, ok]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：四个样地的土层深度（厘米）
+    index: [5, 12, 3, 8]
+    indexHeader: 原行索引
+    columns:
+      plot: [P1, P2, P3, P4]
+      site: [北坡, 南坡, 东坡, 西坡]
+      depth: [30, 25, 35, 30]
+  temps:
+    kind: dataframe
+    name: temps
+    caption: 表 temps：四个气象站的凌晨气温（℃）
+    index: [1, 2, 3, 4]
+    indexHeader: 原行索引
+    columns:
+      station: [T1, T2, T3, T4]
+      temp: [-2.5, 1, 0, -0.5]
+    dtypes:
+      temp: float
 kps:
   - id: py22.k1
     title: 单次 loc 赋值表达修改目标
+    card:
+      name: loc 赋值
+      aliases: [修改原表, 链式赋值]
+      definition: df.loc[掩码, 列名] = 值 把原表里选中行、选中列的格改成新值，其余的格不动；行和列要写在同一对方括号里。
+      conditions:
+        - 链式赋值 df[掩码]["列"] = 值 先得到一张新表再改它，原表不变；pandas 3 只给一条警告，不报错。
+        - 列名还不存在时，选中的行得到新值，其余行是 NaN。
+      example:
+        from: py22.k1.e0
+        text: |
+          ```python
+          df.loc[df["signal"] < 0, "signal"] = 0
+          ```
+          表 T 的 signal 从 8、-1、13、-3 变成 8、0、13、0，df 自己被改了。
+    lesson: |
+      要改原表里的格，用一次 `.loc` 赋值，把**行**和**列**都写在同一对方括号里：
+
+      ```python
+      df.loc[df["signal"] < 0, "signal"] = 0
+      ```
+
+      读作：在 df 里，signal 小于 0 的那些行、signal 这一列，改成 0。逗号前选行，和[用掩码筛选](repa:concept/py17.k2)时一样；逗号后是要改的列；等号右边是新值。只有选中的格被改，其他格不动，被改的是 df 自己。
+
+      | 原行索引 | signal（改之前） | signal（改之后） |
+      |---:|---:|---:|
+      | 31 | 8 | 8 |
+      | 7 | -1 | 0 |
+      | 22 | 13 | 13 |
+      | 4 | -3 | 0 |
+
+      逗号后写一个还没有的列名，就是给选中的行写一列新值：`df.loc[df["signal"] < 0, "flag"] = "below"` 让索引 7、4 的 flag 是 below，其余行的 flag 是 NaN。
+
+      常见的错误写法是分两步选：
+
+      ```python
+      df[df["signal"] < 0]["signal"] = 0
+      ```
+
+      `df[df["signal"] < 0]` 先得到一张**新表**（筛选结果），后面的 `["signal"] = 0` 改的是这张新表。新表用完就没了，df 一格也没变。pandas 3 会给出一条 ChainedAssignmentError 警告，但程序照常往下运行，很容易漏看。`df["signal"][df["signal"] < 0] = 0` 也是两步，同样改不到 df。
+
+      规则只有一条：要改原表，写一次 `df.loc[行, 列] = 值`。
+    example:
+      id: py22.k1.e0
+      kind: [trace]
+      data: [T]
+      body: |
+        阅读代码，按原行索引填写运行后 df 的 signal。
+
+        ```python
+        df.loc[df["signal"] < 0, "signal"] = 0
+        ```
+      slots:
+        - id: signal
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: before, header: signal（运行前） }
+            - { id: after, header: signal（运行后）, input: integer }
+          rows:
+            - { id: r31, cells: { index: "31", before: "8", after: 8 } }
+            - { id: r7, cells: { index: "7", before: "-1", after: 0 } }
+            - { id: r22, cells: { index: "22", before: "13", after: 13 } }
+            - { id: r4, cells: { index: "4", before: "-3", after: 0 } }
+        - id: changed
+          type: choice
+          prompt: 运行后，df 自己变了吗？
+          options:
+            - { id: "yes", content: 变了，选中的两格改成了 0 }
+            - { id: "no", content: 没变，改的是一张新表 }
+          key: "yes"
+      explanation: |
+        运行后 signal 依次为 **8、0、13、0**。逗号前的掩码选中 signal 小于 0 的索引 7、4，逗号后选 signal 列，这两格改成 0；其余的格不动。这是一次 `.loc` 赋值，被改的是 **df 自己**。
+      verify: |
+        after = run()["df"]
+        answers = {
+            "signal": {f"r{label}": {"after": value} for label, value in after["signal"].items()},
+            "changed": "no" if after.equals(df) else "yes",
+        }
+    practice:
+      - id: py22.k1.q1
+        kind: [debug]
+        uses: [py17.k1, py17.k2]
+        data: [T]
+        body: |
+          同事想把负的读数改成 0，写了下面这行。运行时只出现一条警告，没有报错。
+
+          ```python
+          df[df["signal"] < 0]["signal"] = 0
+          ```
+        slots:
+          - id: after
+            type: table
+            prompt: 运行后，df 的 signal 是多少？
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: signal, header: signal（运行后）, input: integer }
+            rows:
+              - { id: r31, cells: { index: "31", signal: 8 } }
+              - { id: r7, cells: { index: "7", signal: -1 } }
+              - { id: r22, cells: { index: "22", signal: 13 } }
+              - { id: r4, cells: { index: "4", signal: -3 } }
+          - id: fix
+            type: choice
+            prompt: 应改成哪一行？
+            options:
+              - id: loc
+                content: |
+                  ```python
+                  df.loc[df["signal"] < 0, "signal"] = 0
+                  ```
+              - id: col_first
+                content: |
+                  ```python
+                  df["signal"][df["signal"] < 0] = 0
+                  ```
+                feedback: 这还是分两步：先取出 signal 这一列，再改取出的那一列，df 不变。
+              - id: rows_only
+                content: |
+                  ```python
+                  df.loc[df["signal"] < 0] = 0
+                  ```
+                feedback: 逗号后没写列名，会把选中行的每一列都改成 0；文字列放不下数，这里会报 TypeError。
+            key: loc
+        explanation: |
+          df 一格也没变，仍是 **8、-1、13、-3**。`df[df["signal"] < 0]` 先得到一张新表，`["signal"] = 0` 改的是这张新表，用完就没了。
+
+          改成一次 **`df.loc[df["signal"] < 0, "signal"] = 0`**，行和列写在同一对方括号里，才改到 df。先取出 signal 列再改，同样是两步；不写列名会去改整行。
+        verify: |
+          import warnings
+          with warnings.catch_warnings():
+              warnings.simplefilter("ignore")
+              after = run()["df"]
+              wanted = [0 if value < 0 else value for value in df["signal"]]
+              fits = []
+              for option, line in OPTIONS["fix"].items():
+                  attempt = run(line)
+                  if attempt.error is None and list(attempt["df"]["signal"]) == wanted and attempt["df"]["sample_id"].equals(df["sample_id"]):
+                      fits.append(option)
+          answers = {"after": {f"r{label}": {"signal": value} for label, value in after["signal"].items()}, "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py22.k1.q2
+        kind: [trace]
+        uses: [py17.k1]
+        data: [T]
+        body: |
+          阅读代码，按原行索引填写运行后新列 `flag` 的值。没有值的填 `NaN`。
+
+          ```python
+          df.loc[df["signal"] < 0, "flag"] = "below"
+          ```
+        slots:
+          - id: flag
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: signal, header: signal }
+              - { id: flag, header: flag, input: { type: text, quick: [NaN] } }
+            rows:
+              - { id: r31, cells: { index: "31", signal: "8", flag: NaN } }
+              - { id: r7, cells: { index: "7", signal: "-1", flag: below } }
+              - { id: r22, cells: { index: "22", signal: "13", flag: NaN } }
+              - { id: r4, cells: { index: "4", signal: "-3", flag: below } }
+          - id: ncols
+            type: text
+            format: integer
+            prompt: 运行后 df 有几列？
+            key: 4
+        explanation: |
+          flag 依次为 **NaN、below、NaN、below**。flag 原来不存在，这一行给 df 加了一列：选中的行写进 below，没选中的行没有值，是 NaN。df 原有 3 列，现在 **4** 列。
+        verify: |
+          after = run()["df"]
+          answers = {
+              "flag": {f"r{label}": {"flag": "NaN" if pd.isna(value) else value} for label, value in after["flag"].items()},
+              "ncols": after.shape[1],
+          }
+      - id: py22.k1.q3
+        kind: [modify]
+        uses: [py17.k1, py17.k2]
+        data: [T]
+        body: |
+          需求是：
+
+          > 直接修改 df：signal 超过 `limit` 的读数一律改成 `limit`，其他格保持不变。
+
+          同事写的代码在作答框里，运行后 df 没有任何变化。请改动它并提交。宿主另外提供了 `limit`，本例为 10。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              df[df["signal"] > limit]["signal"] = limit
+            solution: |
+              df.loc[df["signal"] > limit, "signal"] = limit
+            accepts:
+              - df.loc[df["signal"] > limit, ["signal"]] = limit
+              - df["signal"] = df["signal"].clip(upper=limit)
+            rejects:
+              - code: df["signal"][df["signal"] > limit] = limit
+                why: 仍是分两步，改的是取出的那一列
+              - code: df.loc[df["signal"] > limit] = limit
+                why: 没写列名，去改整行
+              - code: df = df.loc[df["signal"] <= limit]
+                why: 把超过的行删掉了，而不是改成 limit
+              - code: df["signal"] = limit
+                why: 把每一行都改成了 limit
+              - code: df.loc[df["signal"] > 10, "signal"] = 10
+                why: 把 limit 写死成 10
+            tests:
+              - name: 表 T，limit 为 10
+                setup: limit = 10
+                expect:
+                  df: 'pd.DataFrame({"sample_id": ["S_A", "S_B", "S_C", "S_D"], "signal": [8, -1, 10, -3], "group": ["low", "control", "high", "low"]}, index=[31, 7, 22, 4])'
+              - name: 换一张表和阈值
+                hidden: true
+                data: [T2]
+                setup: limit = 6
+                expect:
+                  df: 'pd.DataFrame({"sample_id": ["X_A", "X_B", "X_C", "X_D", "X_E"], "signal": [-2, 6, 5, -7, 6], "group": ["high", "control", "low", "high", "low"]}, index=[90, 2, 60, 11, 45])'
+        explanation: |
+          ```python
+          df.loc[df["signal"] > limit, "signal"] = limit
+          ```
+
+          原来的写法先筛出一张新表，再改新表，df 不变。改成一次 `.loc` 赋值：逗号前选出超过 limit 的行，逗号后是 signal 列。本例只有索引 22 的 13 改成 10。判分时还会换一张表、换阈值运行，检查整张 df。
+    review:
+      - id: py22.k1.r1
+        kind: [trace]
+        uses: [py17.k1]
+        data: [soil]
+        body: |
+          复测发现东坡的深度记错了。阅读代码，按原行索引填写运行后的 depth。
+
+          ```python
+          soil.loc[soil["site"] == "东坡", "depth"] = 32
+          ```
+        slots:
+          - id: depth
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: site, header: site }
+              - { id: depth, header: depth（运行后）, input: integer }
+            rows:
+              - { id: r5, cells: { index: "5", site: 北坡, depth: 30 } }
+              - { id: r12, cells: { index: "12", site: 南坡, depth: 25 } }
+              - { id: r3, cells: { index: "3", site: 东坡, depth: 32 } }
+              - { id: r8, cells: { index: "8", site: 西坡, depth: 30 } }
+        explanation: |
+          depth 依次为 **30、25、32、30**。只有 site 为东坡的索引 3 被选中，它的 depth 从 35 改成 32；其他格不动。
+        verify: |
+          after = run()["soil"]
+          answers = {"depth": {f"r{label}": {"depth": value} for label, value in after["depth"].items()}}
+      - id: py22.k1.r2
+        kind: [debug]
+        uses: [py17.k1, py17.k2]
+        data: [wells]
+        body: |
+          要把 wells 里计数低于 100 的孔改成 100。下面每一行单独运行，哪几行会真的改到 wells？选出所有会改到的。
+        slots:
+          - id: works
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: loc, content: "`wells.loc[wells[\"count\"] < 100, \"count\"] = 100`" }
+              - { id: filter_first, content: "`wells[wells[\"count\"] < 100][\"count\"] = 100`" }
+              - { id: column_first, content: "`wells[\"count\"][wells[\"count\"] < 100] = 100`" }
+              - { id: loc_then, content: "`wells.loc[wells[\"count\"] < 100][\"count\"] = 100`" }
+            key: [loc]
+        explanation: |
+          只有**行和列写在同一个 `.loc[...]` 里**的那一行会改到 wells。其余三行都是分两步：先得到一张新表或一列（哪怕第一步用的也是 `.loc`），再改它，wells 不变。
+
+          每个选项的勾选状态分别计分。
+        verify: |
+          import warnings
+          codes = {
+              "loc": 'wells.loc[wells["count"] < 100, "count"] = 100',
+              "filter_first": 'wells[wells["count"] < 100]["count"] = 100',
+              "column_first": 'wells["count"][wells["count"] < 100] = 100',
+              "loc_then": 'wells.loc[wells["count"] < 100]["count"] = 100',
+          }
+          works = []
+          with warnings.catch_warnings():
+              warnings.simplefilter("ignore")
+              for option, code in codes.items():
+                  attempt = run(code)
+                  if attempt.error is None and not attempt["wells"].equals(wells):
+                      works.append(option)
+          answers = {"works": works}
+    quiz:
+      - id: py22.k1.x1
+        kind: [modify]
+        uses: [py17.k1, py17.k2]
+        data: [wells]
+        body: |
+          需求是：
+
+          > 直接修改 wells：p2 板上的孔，status 一律改成 `recheck`；其他孔的 status 和其他列都保持原样。
+
+          同事写的代码在作答框里，运行后 wells 没有变化。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              p2 = wells[wells["plate"] == "p2"]
+              p2["status"] = "recheck"
+            solution: |
+              wells.loc[wells["plate"] == "p2", "status"] = "recheck"
+            rejects:
+              - code: |
+                  p2 = wells.loc[wells["plate"] == "p2"]
+                  p2.loc[:, "status"] = "recheck"
+                why: 改的仍是筛选出来的新表
+              - code: wells["status"] = "recheck"
+                why: 把每个孔都改成了 recheck
+              - code: wells.loc[wells["plate"] == "p2"] = "recheck"
+                why: 没写列名，把整行都改成了 recheck
+              - code: wells = wells.loc[wells["plate"] == "p2"]
+                why: 只剩 p2 板的孔，status 也没改
+            tests:
+              - name: 表 wells
+                expect:
+                  wells: 'pd.DataFrame({"well": ["A1", "A2", "B1", "B2", "C1"], "count": [120, 95, 150, 80, 110], "plate": ["p1", "p1", "p2", "p2", "p3"], "status": ["ok", "ok", "recheck", "recheck", "ok"]}, index=[3, 11, 6, 9, 14])'
+              - name: 换一块板的记录
+                hidden: true
+                data: [wells2]
+                expect:
+                  wells: 'pd.DataFrame({"well": ["D1", "D2", "E1", "E2"], "count": [60, 140, 90, 100], "plate": ["p3", "p2", "p2", "p1"], "status": ["ok", "recheck", "recheck", "ok"]}, index=[7, 2, 13, 5])'
+        explanation: |
+          ```python
+          wells.loc[wells["plate"] == "p2", "status"] = "recheck"
+          ```
+
+          原来的代码先筛出 p2 板的孔，存成新表 `p2`，再改 `p2`；wells 不变。要改 wells，就在 wells 上写一次 `.loc` 赋值，逗号前选 p2 板的行，逗号后是 status 列。判分时还会换一块板的记录运行，检查整张表。
+      - id: py22.k1.x2
+        kind: [predict]
+        uses: [py17.k1]
+        data: [temps]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          temps[temps["temp"] < 0]["temp"] = 0
+          print(temps["temp"].min())
+          temps.loc[temps["temp"] < 0, "temp"] = 0
+          print(temps["temp"].min())
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行输出
+            key: "-2.5"
+            feedback:
+              - when: "0.0"
+                message: 第 1 行改的是筛选出来的新表，temps 还没变。
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "0.0"
+        explanation: |
+          第一行 **-2.5**：第 1 行先筛出一张新表再改它，temps 不变，最低气温仍是 -2.5。第二行 **0.0**：第 3 行是一次 `.loc` 赋值，把 temps 里的两个负数改成了 0，最低的就是 0.0。
+        verify: |
+          import warnings
+          with warnings.catch_warnings():
+              warnings.simplefilter("ignore")
+              lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+
   - id: py22.k2
     title: 区分别名、派生结果与显式 copy，按 pandas 3 CoW 理解
+    card:
+      name: 别名与副本
+      aliases: [copy, 别名, Copy-on-Write]
+      definition: b = df 只是给同一张表多起一个名字，改 b 就是改 df；筛选结果、取出的一列等派生结果在 pandas 3 里与原表互不影响；df.copy() 明确得到一份独立的表。
+      conditions:
+        - 名字改指向派生结果以后（t = t.loc[...]），再改 t 就不会影响原表。
+        - 旧教程里 view、copy、SettingWithCopyWarning 的说法不适用于 pandas 3。
+      example:
+        from: py22.k2.e0
+        text: |
+          ```python
+          alias = df
+          sub = df.loc[df["signal"] > 0, ["sample_id", "signal"]]
+          alias.loc[7, "signal"] = 0
+          sub.loc[31, "signal"] = 99
+          ```
+          df 的索引 7 变成 0（alias 就是 df），索引 31 仍是 8（sub 是派生结果）。
+    lesson: |
+      [赋值](repa:concept/py01.k1)是让名字指向一个值。写 `b = df`，并没有复制出第二张表，只是同一张表多了一个名字 b，叫作**别名**。之后通过 b 改（`b.loc[...] = ...`、`b["new"] = ...`），df 也跟着变，因为它们本来就是同一张表。
+
+      由 df 算出来的东西，例如筛选结果 `df.loc[df["signal"] > 0]`、取出的一列 `df["signal"]`、`df.dropna()` 的结果，是**派生结果**。在 pandas 3 里，派生结果和原表互不影响：改派生结果不会改到 df，之后改 df 也不会改到已经得到的派生结果。pandas 在背后用一种叫 Copy-on-Write（写时复制）的办法省内存，但你看到的效果就是彼此独立。
+
+      | 写法 | 和 df 的关系 | 改它会改到 df 吗 |
+      |---|---|---|
+      | `b = df` | 同一张表的另一个名字 | 会 |
+      | `sub = df.loc[掩码]`、`col = df["signal"]` | 派生结果 | 不会 |
+      | `c = df.copy()` | 明确复制出的独立表 | 不会 |
+
+      既然派生结果已经独立，为什么还要 `copy()`？想要“一份可以随便改、又不影响原表的表”时，`b = df` 是错的写法，`b = df.copy()` 才对；写出 `copy()` 也让读代码的人一眼看出这是副本。
+
+      还有一种情形要留心：
+
+      ```python
+      t = df
+      t = t.loc[t["signal"] > 0]
+      ```
+
+      第一行 t 是 df 的别名；第二行让 t 改指向一个派生结果。从这时起，t 和 df 已经是两张表，再改 t 不会影响 df。
+
+      旧教程和旧版 pandas 讲过“视图（view）”“副本（copy）”和 SettingWithCopyWarning，那套说法不适用于 pandas 3。判断时只问三件事：这个名字是不是 df 的别名；它是不是由 df 算出来的；有没有写 `copy()`。
+    example:
+      id: py22.k2.e0
+      kind: [trace]
+      data: [T]
+      body: |
+        阅读代码，写出四行全部运行后的几个值。
+
+        ```python startLine=1
+        alias = df
+        sub = df.loc[df["signal"] > 0, ["sample_id", "signal"]]
+        alias.loc[7, "signal"] = 0
+        sub.loc[31, "signal"] = 99
+        ```
+      slots:
+        - id: values
+          type: table
+          columns:
+            - { id: what, header: 表达式 }
+            - { id: value, header: 值, input: integer }
+          rows:
+            - { id: df7, cells: { what: 'df.loc[7, "signal"]', value: 0 } }
+            - { id: df31, cells: { what: 'df.loc[31, "signal"]', value: 8 } }
+            - { id: sub31, cells: { what: 'sub.loc[31, "signal"]', value: 99 } }
+        - id: same
+          type: choice
+          prompt: alias 和 df 是什么关系？
+          options:
+            - { id: same, content: 同一张表的两个名字 }
+            - { id: copy, content: 两张内容相同、互不影响的表 }
+          key: same
+      explanation: |
+        - `df.loc[7, "signal"]` 是 **0**：alias 就是 df，第 3 行通过 alias 改的就是 df。
+        - `df.loc[31, "signal"]` 是 **8**：sub 是筛选出来的派生结果，第 4 行改 sub 不会改到 df。
+        - `sub.loc[31, "signal"]` 是 **99**：sub 自己被改了。
+
+        alias 和 df 是**同一张表的两个名字**。
+      verify: |
+        r = run()
+        answers = {
+            "values": {
+                "df7": {"value": r["df"].loc[7, "signal"]},
+                "df31": {"value": r["df"].loc[31, "signal"]},
+                "sub31": {"value": r["sub"].loc[31, "signal"]},
+            },
+            "same": "same" if r["alias"] is r["df"] else "copy",
+        }
+    practice:
+      - id: py22.k2.q1
+        kind: [predict]
+        uses: [py01.k1, py17.k1]
+        data: [T]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          backup = df.copy()
+          same = df
+          df.loc[df["signal"] < 0, "signal"] = 0
+          print(backup["signal"].min())
+          print(same["signal"].min())
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行输出
+            key: -3
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行输出
+            key: 0
+            feedback:
+              - when: -3
+                message: same = df 没有复制出新表，same 和 df 是同一张表。
+        explanation: |
+          第一行 **-3**：backup 是改之前用 `copy()` 复制出的独立的表，df 后来的修改与它无关。第二行 **0**：`same = df` 只是给同一张表多起一个名字，df 的负数改成 0 以后，通过 same 看到的也是改过的表。
+        verify: |
+          r = run()
+          lines = r.lines()
+          answers = {"first": int(lines[0]), "second": int(lines[1])}
+      - id: py22.k2.q2
+        kind: [debug]
+        uses: [py01.k1]
+        data: [T]
+        body: |
+          需求是：先留一份原始表 `raw`，再直接把 df 里的负数改成 0；raw 要保持原始读数。同事写了下面的代码，结果 raw 里也没有负数了。
+
+          ```python startLine=1
+          raw = df
+          df.loc[df["signal"] < 0, "signal"] = 0
+          ```
+        slots:
+          - id: fix
+            type: choice
+            prompt: 第 1 行应改成哪一种？
+            options:
+              - id: alias
+                content: |
+                  ```python
+                  raw = df.loc[df["signal"] < 0]
+                  ```
+                feedback: 这样 raw 只剩负数的那几行，不是一份完整的原始表。
+              - id: copy
+                content: |
+                  ```python
+                  raw = df.copy()
+                  ```
+              - id: swap
+                content: |
+                  ```python
+                  df = raw
+                  ```
+                feedback: 这时还没有 raw 这个名字，会报 NameError。
+            key: copy
+          - id: raw_min
+            type: text
+            format: integer
+            prompt: 改好以后，`raw["signal"].min()` 是多少？
+            key: -3
+        explanation: |
+          第 1 行改成 **`raw = df.copy()`**。原来的 `raw = df` 只是别名，第 2 行改 df，raw 看到的也是改过的表。用 `copy()` 先复制出一份独立的表，raw 的最小值仍是 **-3**。
+        verify: |
+          modify = 'df.loc[df["signal"] < 0, "signal"] = 0\n'
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              attempt = run(line.rstrip("\n") + "\n" + modify)
+              if attempt.error is None and attempt["raw"].equals(df) and attempt["df"]["signal"].min() == 0:
+                  fits.append(option)
+          chosen = run(OPTIONS["fix"][fits[0]].rstrip("\n") + "\n" + modify) if len(fits) == 1 else None
+          answers = {"fix": fits[0] if len(fits) == 1 else fits, "raw_min": int(chosen["raw"]["signal"].min())}
+      - id: py22.k2.q3
+        kind: [trace]
+        uses: [py01.k1, py17.k1]
+        data: [T]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python startLine=1
+          t = df
+          t = t.loc[t["signal"] > 0]
+          t.loc[22, "signal"] = 100
+          print(len(df))
+          print(df.loc[22, "signal"])
+          ```
+        slots:
+          - id: rows
+            type: text
+            format: integer
+            prompt: 第一行输出
+            key: 4
+          - id: value
+            type: text
+            format: integer
+            prompt: 第二行输出
+            key: 13
+            feedback:
+              - when: 100
+                message: 第 2 行之后 t 已经改指向筛选结果，不再是 df 的别名。
+        explanation: |
+          第一行 **4**，第二行 **13**。第 1 行 t 是 df 的别名；第 2 行让 t 改指向一个筛选结果（派生结果），从这时起 t 和 df 是两张表。第 3 行改的是 t，df 仍有 4 行，索引 22 仍是 13。
+        verify: |
+          lines = run().lines()
+          answers = {"rows": int(lines[0]), "value": int(lines[1])}
+    review:
+      - id: py22.k2.r1
+        kind: [explain]
+        uses: [py01.k1, py17.k1]
+        data: [wells]
+        body: |
+          宿主依次运行了下面四行。
+
+          ```python
+          a = wells
+          b = wells.copy()
+          c = wells.loc[wells["count"] > 100]
+          d = a
+          ```
+
+          之后通过哪些名字去改（例如 `名字.loc[3, "count"] = 0`），会改到 wells？选出所有会改到的。
+        slots:
+          - id: names
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: a, content: "`a`" }
+              - { id: b, content: "`b`" }
+              - { id: c, content: "`c`" }
+              - { id: d, content: "`d`" }
+            key: [a, d]
+        explanation: |
+          **a 和 d**。a 是 wells 的别名；d = a 让 d 也指向同一张表。b 是 `copy()` 复制出的独立的表；c 是筛选结果，在 pandas 3 里与 wells 互不影响。
+
+          每个选项的勾选状态分别计分。
+        verify: |
+          names = []
+          for name in ["a", "b", "c", "d"]:
+              attempt = run(CODE + f'\n{name}.loc[3, "count"] = 0\n')
+              if attempt["wells"].loc[3, "count"] == 0:
+                  names.append(name)
+          answers = {"names": names}
+      - id: py22.k2.r2
+        kind: [predict]
+        uses: [py16.k1, py16.k2]
+        data: [T]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          col = df["signal"]
+          col.iloc[0] = 99
+          print(df["signal"].iloc[0])
+          df.loc[31, "signal"] = 50
+          print(col.iloc[0])
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行输出
+            key: 8
+            feedback:
+              - when: 99
+                message: col 是从 df 取出的一列，是派生结果；在 pandas 3 里改它不会改到 df。
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行输出
+            key: 99
+        explanation: |
+          第一行 **8**：col 是从 df 取出的一列，是派生结果，改 col 不会改到 df。第二行 **99**：反过来，之后改 df 也不会改到已经取出的 col，它仍是自己改过的 99。两者从取出那一刻起就互不影响。
+        verify: |
+          lines = run().lines()
+          answers = {"first": int(lines[0]), "second": int(lines[1])}
+    quiz:
+      - id: py22.k2.x1
+        kind: [trace]
+        uses: [py01.k1, py17.k1]
+        data: [wells]
+        body: |
+          阅读代码，写出全部运行后的几个值。
+
+          ```python startLine=1
+          backup = wells.copy()
+          view = wells
+          part = wells.loc[wells["plate"] == "p1"]
+          view.loc[3, "count"] = 0
+          part.loc[11, "count"] = 0
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: what, header: 表达式 }
+              - { id: value, header: 值, input: integer }
+            rows:
+              - { id: w3, cells: { what: 'wells.loc[3, "count"]', value: 0 } }
+              - { id: w11, cells: { what: 'wells.loc[11, "count"]', value: 95 } }
+              - { id: b3, cells: { what: 'backup.loc[3, "count"]', value: 120 } }
+              - { id: p3, cells: { what: 'part.loc[3, "count"]', value: 120 } }
+        explanation: |
+          - `wells.loc[3, "count"]` 是 **0**：view 是 wells 的别名，第 4 行改的就是 wells。
+          - `wells.loc[11, "count"]` 是 **95**：part 是筛选结果，第 5 行改 part 不会改到 wells。
+          - `backup.loc[3, "count"]` 是 **120**：backup 是改之前复制出的独立的表。
+          - `part.loc[3, "count"]` 是 **120**：part 在第 3 行就得到了，之后 wells 的修改不会传到它。
+        verify: |
+          r = run()
+          answers = {"values": {
+              "w3": {"value": r["wells"].loc[3, "count"]},
+              "w11": {"value": r["wells"].loc[11, "count"]},
+              "b3": {"value": r["backup"].loc[3, "count"]},
+              "p3": {"value": r["part"].loc[3, "count"]},
+          }}
+      - id: py22.k2.x2
+        kind: [modify]
+        uses: [py01.k1, py17.k1, py17.k2]
+        data: [wells]
+        body: |
+          需求是：
+
+          > 得到一张新表 `clean`：计数低于 100 的孔，count 改成 100；其他格保持原样。原表 wells 不能改。
+
+          同事写的代码在作答框里，clean 是对的，却把 wells 也改了。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              clean = wells
+              clean.loc[clean["count"] < 100, "count"] = 100
+            solution: |
+              clean = wells.copy()
+              clean.loc[clean["count"] < 100, "count"] = 100
+            accepts:
+              - |
+                clean = wells.copy()
+                clean["count"] = clean["count"].clip(lower=100)
+            rejects:
+              - code: |
+                  wells.loc[wells["count"] < 100, "count"] = 100
+                  clean = wells
+                why: 先改了 wells
+              - code: |
+                  clean = wells.copy()
+                  clean[clean["count"] < 100]["count"] = 100
+                why: 链式赋值，clean 没有改
+              - code: clean = wells.loc[wells["count"] >= 100]
+                why: 把计数低于 100 的孔删掉了，而不是改成 100
+            tests:
+              - name: 表 wells
+                expect:
+                  clean: 'pd.DataFrame({"well": ["A1", "A2", "B1", "B2", "C1"], "count": [120, 100, 150, 100, 110], "plate": ["p1", "p1", "p2", "p2", "p3"], "status": ["ok", "ok", "ok", "ok", "ok"]}, index=[3, 11, 6, 9, 14])'
+                  wells: wells
+              - name: 换一块板的记录
+                hidden: true
+                data: [wells2]
+                expect:
+                  clean: 'pd.DataFrame({"well": ["D1", "D2", "E1", "E2"], "count": [100, 140, 100, 100], "plate": ["p3", "p2", "p2", "p1"], "status": ["ok", "ok", "hold", "ok"]}, index=[7, 2, 13, 5])'
+                  wells: wells
+        explanation: |
+          ```python
+          clean = wells.copy()
+          clean.loc[clean["count"] < 100, "count"] = 100
+          ```
+
+          `clean = wells` 只是给 wells 多起一个名字，改 clean 就是改 wells。用 `copy()` 先复制出一份独立的表，再在它上面做一次 `.loc` 赋值。判分时会检查 clean 的每一格，并确认 wells 没有被改；还会换一块板的记录运行。
