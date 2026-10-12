@@ -4,10 +4,13 @@ import path from "node:path";
 
 import type { Static, TSchema } from "typebox";
 
-import type { AgentTask, AgentWork, CompletionRequest, Models, Plugin } from "./plugin.js";
+import type { AskRoute } from "./ask.js";
+import type { AgentTask, AgentWork, CompletionRequest, Models, Plugin, Services } from "./plugin.js";
 import { openPluginHost, type PluginHost } from "./plugins.js";
 import { parse } from "./schema.js";
 import { createSpace, type Space } from "./space.js";
+
+export type { AskInput, AskRoute, AskRouteOptions } from "./ask.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -149,7 +152,19 @@ export interface PluginTestHost {
   close(): Promise<void>;
 }
 
-export async function createPluginTestHost(options: { plugins: Plugin[]; models?: ModelTestDriver }): Promise<PluginTestHost> {
+export interface PluginTestHostOptions {
+  plugins: Plugin[];
+  models?: ModelTestDriver;
+  /**
+   * 模拟用户回答 ToolContext.ask：收到整理好的题目（version 与 requires 已算出），返回询问的结局。
+   * 要模拟提交时调用 options.evaluate 得到插件的判分。省略时询问以 ask_unavailable 失败。
+   */
+  ask?: AskRoute;
+  /** 模拟前端声明的服务。省略时调用以 service_unavailable 失败。 */
+  services?: Services;
+}
+
+export async function createPluginTestHost(options: PluginTestHostOptions): Promise<PluginTestHost> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-plugin-test-"));
   const errors: unknown[] = [];
   const events: PluginTestHost["events"] = [];
@@ -187,6 +202,8 @@ export async function createPluginTestHost(options: { plugins: Plugin[]; models?
       space,
       plugins: options.plugins,
       models,
+      ...(options.ask === undefined ? {} : { ask: options.ask }),
+      ...(options.services === undefined ? {} : { services: options.services }),
       emit: (pluginId, event) => { events.push({ pluginId, event }); },
       onError: (error) => { errors.push(error); },
     });

@@ -16,7 +16,7 @@ import {
   type ItemResponse,
   type SubmitResult,
 } from "../interaction.js";
-import type { AskOutcome, Plugin } from "../plugin.js";
+import type { AskOutcome, Plugin, Services } from "../plugin.js";
 import { openPluginHost, type PluginHost } from "../plugins.js";
 import {
   methods,
@@ -61,6 +61,7 @@ interface Peer {
   serial: number;
   confirmations: Set<string>;
   asks: Set<string>;
+  services: Set<string>;
   logins: Set<AbortController>;
 }
 
@@ -82,6 +83,15 @@ interface PendingAsk {
   end(result: AskEnd, reason?: AskClosed["reason"]): void;
 }
 
+type ServiceEnd = { value: unknown } | { error: RepaFault };
+
+interface PendingService {
+  peer: Peer;
+  service: string;
+  /** reason 有值时通知前端停止这次请求。 */
+  end(result: ServiceEnd, reason?: "aborted" | "closed"): void;
+}
+
 interface ActiveSpace {
   space: Space;
   plugins: PluginHost;
@@ -98,6 +108,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const peers = new Set<Peer>();
   const confirmations = new Map<string, PendingConfirmation>();
   const asks = new Map<string, PendingAsk>();
+  const services = new Map<string, PendingService>();
   let initialized = 0;
   const owner = new AsyncLocalStorage<Peer>();
   const operations = new Set<Promise<unknown>>();
@@ -141,6 +152,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
     for (const id of [...peer.asks]) {
       asks.get(id)?.end({ error: new RepaFault("ask_cancelled", "用户没有作答：连接已断开", { reason: "disconnected" }) });
+    }
+    for (const id of [...peer.services]) {
+      const pending = services.get(id);
+      pending?.end({ error: new RepaFault("service_cancelled", "提供服务的连接已断开", { service: pending.service, reason: "disconnected" }) });
     }
     peers.delete(peer);
   };
@@ -251,6 +266,49 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     pending.end({ outcome: { action: "submit", response, result } }, "answered");
     return result;
   };
+  /**
+   * 前端服务的路由：优先交给发起当前操作的连接，它没有声明时交给最近初始化、声明了这项服务的连接。
+   * 中止、断线和关空间都结束请求，失败不自动换连接重试。
+   */
+  const serviceFor = (initiator: Peer | undefined): Services["call"] => (service, input, options = {}) => {
+    const signal = options.signal;
+    if (signal?.aborted) return Promise.reject(new RepaFault("service_cancelled", "服务请求已取消", { service, reason: "aborted" }));
+    const provides = (peer: Peer) => peer.alive && peer.authenticated && (peer.capabilities.services ?? []).includes(service);
+    const target = initiator !== undefined && provides(initiator)
+      ? initiator
+      : [...peers].filter(provides).sort((left, right) => right.serial - left.serial)[0];
+    if (stopping || target === undefined) return Promise.reject(new RepaFault("service_unavailable", "没有连接提供这项服务", { service }));
+    // 只转交 JSON 数据；先序列化一次，既拦下不能传输的值，也让之后对原对象的修改不影响请求。
+    let encoded: string | undefined;
+    try {
+      encoded = JSON.stringify(input);
+    } catch {
+      encoded = undefined;
+    }
+    if (encoded === undefined) return Promise.reject(new RepaFault("invalid_service_input", "服务输入必须是 JSON 数据", { service }));
+    const params = { id: randomUUID(), service, input: JSON.parse(encoded) as unknown };
+    const { id } = params;
+    return new Promise<unknown>((resolve, reject) => {
+      const abort = () => pending.end({ error: new RepaFault("service_cancelled", "服务请求已取消", { service, reason: "aborted" }) }, "aborted");
+      const pending: PendingService = {
+        peer: target,
+        service,
+        end(result, reason) {
+          if (services.get(id) !== pending) return;
+          services.delete(id);
+          target.services.delete(id);
+          signal?.removeEventListener("abort", abort);
+          if (reason !== undefined) send(target, { jsonrpc: "2.0", method: "service.closed", params: { id, reason } });
+          if ("error" in result) reject(result.error);
+          else resolve(result.value);
+        },
+      };
+      services.set(id, pending);
+      target.services.add(id);
+      signal?.addEventListener("abort", abort, { once: true });
+      send(target, { jsonrpc: "2.0", method: "service.request", params });
+    });
+  };
   const requireActive = (): ActiveSpace => {
     if (!active) throw new RepaFault("space_not_open", "请先打开空间");
     return active;
@@ -264,9 +322,12 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         pending.finish(undefined, new RepaFault("confirmation_cancelled", "空间正在关闭"));
       }
     }
-    // 询问出自这个空间的运行；先结束它们，插件宿主关闭时才不会一直等前端。
+    // 询问和服务请求都出自这个空间的运行和插件；先结束它们，插件宿主关闭时才不会一直等前端。
     for (const pending of [...asks.values()]) {
       pending.end({ error: new RepaFault("ask_cancelled", "询问已取消：空间正在关闭", { reason: "closed" }) }, "closed");
+    }
+    for (const pending of [...services.values()]) {
+      pending.end({ error: new RepaFault("service_cancelled", "服务请求已取消：空间正在关闭", { service: pending.service, reason: "closed" }) }, "closed");
     }
     const failures: unknown[] = [];
     // 先停止 Agent，再关插件；最后空间落盘并释放锁。每个 owner 都取得收尾机会。
@@ -298,6 +359,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         space,
         plugins: options.plugins ?? [],
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
+        services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
         models: {
           complete: (request) => runtime.complete(request),
           completeStructured: (request, schema) => runtime.completeStructured(request, schema),
@@ -434,6 +496,17 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       }
       case "ask.reply":
         return replyAsk(peer, p<"ask.reply">());
+      case "service.reply": {
+        const input = p<"service.reply">();
+        const pending = services.get(input.id);
+        if (!pending || pending.peer !== peer) throw new RepaFault("service_request_not_found", "服务请求不存在、已经结束或不属于当前连接");
+        if ("error" in input) {
+          pending.end({ error: new RepaFault("service_failed", input.error.message, { service: pending.service, code: input.error.code }) });
+        } else {
+          pending.end({ value: input.result });
+        }
+        return null;
+      }
       case "history.list":
         return requireActive().space.history.list(p<"history.list">().limit);
       case "history.changes":
@@ -557,6 +630,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       serial: 0,
       confirmations: new Set(),
       asks: new Set(),
+      services: new Set(),
       logins: new Set(),
     };
     peers.add(peer);

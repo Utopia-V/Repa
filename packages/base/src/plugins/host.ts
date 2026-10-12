@@ -11,6 +11,7 @@ import {
   type AskOutcome,
   type Host,
   type PluginInstance,
+  type Services,
 } from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { currentRun } from "../run-context.js";
@@ -18,6 +19,9 @@ import { object, parse, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
 
 const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
+const NO_SERVICES: Services = {
+  call: (service) => Promise.reject(new RepaFault("service_unavailable", "没有连接提供这项服务", { service })),
+};
 
 /**
  * 插件工具的 ToolContext.ask：来源写明插件、会话和工具调用，题目按词汇整理后交给路由。
@@ -99,6 +103,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   const instances = new Map<string, PluginInstance>();
   const pluginTools = new Map<string, AgentTool[]>();
   const askRoute = options.ask ?? NO_ASK;
+  const serviceRoute = options.services ?? NO_SERVICES;
   let agentDefinitions: AgentDefinition[] = [];
   let pending: Promise<void> = Promise.resolve();
   let pendingError: unknown;
@@ -218,6 +223,12 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           },
         },
         models: ownedModels.models,
+        services: {
+          call(service, input, callOptions) {
+            checkOpen();
+            return track(Promise.resolve().then(() => serviceRoute.call(service, input, callOptions)));
+          },
+        },
         emit: (event) => { options.emit(plugin.id, event); },
       };
       const instance = await plugin.open(host);

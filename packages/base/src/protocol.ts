@@ -23,7 +23,7 @@ import {
 
 export * from "./schema.js";
 export * from "./interaction.js";
-// 2：initialize 增加 capabilities，新增 ask.*。客户端严格校验已有消息，加字段必须升版本。
+// 2：initialize 增加 capabilities，新增 ask.* 与 service.*。客户端严格校验已有消息，加字段必须升版本。
 export const PROTOCOL_VERSION = "2";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
@@ -36,6 +36,14 @@ export const ClientCapabilitiesSchema = object({
   services: Type.Optional(Type.Array(serviceName, { maxItems: 64 })),
 });
 export type ClientCapabilities = Static<typeof ClientCapabilitiesSchema>;
+// 服务的输入和结果由提供方与调用方约定，底座只转交。
+const serviceRequest = object({ id: identifier, service: serviceName, input: Type.Unknown() });
+const serviceReply = Type.Union([
+  object({ id: identifier, result: Type.Unknown() }),
+  object({ id: identifier, error: object({ code: identifier, message: Type.String({ maxLength: 2_000 }) }) }),
+]);
+// aborted：调用方不再等待，例如运行中止；closed：空间关闭。断线时连接已经不在，不再通知。
+const serviceClosed = object({ id: identifier, reason: Type.Union([Type.Literal("aborted"), Type.Literal("closed")]) });
 const empty = object({});
 const nothing = Type.Null();
 const session = { sessionId: identifier };
@@ -76,6 +84,7 @@ export const methods = {
   "session.fork": { params: object({ ...session, entryId: identifier }), result: SessionInfoSchema },
   "confirm.reply": { params: object({ id: identifier, value: confirmationReply }), result: nothing },
   "ask.reply": { params: AskReplyParamsSchema, result: AskReplyResultSchema },
+  "service.reply": { params: serviceReply, result: nothing },
   "history.list": { params: object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })) }), result: historyList },
   "history.changes": { params: object({ since: Type.Optional(identifier) }), result: historyChanges },
   "history.undo": { params: object({ revision: identifier }), result: historyUndo },
@@ -103,6 +112,8 @@ export const notifications = {
   "confirm.request": object({ id: identifier, request: ConfirmationSchema }),
   "ask.request": AskRequestSchema,
   "ask.closed": AskClosedSchema,
+  "service.request": serviceRequest,
+  "service.closed": serviceClosed,
   "plugin.event": object({ pluginId: identifier, event: Type.Unknown() }),
 } as const;
 

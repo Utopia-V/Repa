@@ -6,6 +6,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { RepaClient, RpcError } from "../src/client.js";
@@ -21,7 +22,7 @@ import {
 import type { AskOutcome, MethodContext, Plugin } from "../src/plugin.js";
 import { record } from "../src/protocol/json-rpc.js";
 import { startServer } from "../src/protocol/server.js";
-import { object } from "../src/schema.js";
+import { object, parse } from "../src/schema.js";
 
 function deferred<T = void>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
@@ -65,17 +66,19 @@ const practiceItem: ItemDraft = {
   slots: [{ id: "output", type: "text", format: "integer" }],
 };
 
+const RunSchema = object({ code: Type.String() });
 const LeakSchema = object({ item: ItemSchema });
 
 interface PracticeState {
   evaluated: unknown[];
   outcomes: AskOutcome[];
   failures: unknown[];
+  controller?: AbortController;
   /** 判分时把作答写进空间文件，用来检查判分在提问的运行里执行。 */
   writeOnEvaluate: boolean;
 }
 
-// 学习插件的最小替身：一个出练习小题的工具和几种界面方法。
+// 学习插件的最小替身：一个出练习小题的工具、一个调用前端运行器的工具，以及几种界面方法。
 function practicePlugin(state: PracticeState): Plugin {
   return {
     id: "practice",
@@ -112,8 +115,25 @@ function practicePlugin(state: PracticeState): Plugin {
               }
             },
           },
+          {
+            name: "run_code",
+            description: "在学习者的浏览器里运行代码",
+            parameters: RunSchema,
+            async execute(input, context) {
+              const result = await host.services.call("python.run", parse(RunSchema, input), { signal: context.signal });
+              return { text: JSON.stringify(result) };
+            },
+          },
         ],
         methods: {
+          run: {
+            parameters: RunSchema,
+            async invoke(input) {
+              state.controller = new AbortController();
+              return host.services.call("python.run", parse(RunSchema, input), { signal: state.controller.signal });
+            },
+          },
+          stop: { parameters: object({}), invoke: async () => { state.controller?.abort(); return null; } },
           inspect: { parameters: object({}), invoke: async (_input: unknown, context: MethodContext) => context.caller ?? null },
           leak: {
             parameters: object({}),
@@ -283,6 +303,71 @@ test("带命令行的运行持空间写锁等待回答，插件判分时写文�
   const runId = record(run?.data)?.runId;
   const feed = await client.call("history.changes", { since: before.id });
   assert.deepEqual(feed.revisions.map(revision => [revision.source, revision.changes.map(change => change.path)]), [[{ kind: "agent", runId }, ["attempts/py01.k1.q1.txt"]]]);
+});
+
+test("服务请求交给声明了它的连接：发起连接自己声明时优先，否则交给最近声明的连接，结果原样交回", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const owner = await f.connect({ ...FULL, services: ["python.run"] });
+  const provider = await f.connect({ services: ["python.run"] });
+  const plain = await f.connect(FULL);
+  await plain.call("space.open", { root: f.root });
+  const served: string[] = [];
+  for (const [name, client] of [["owner", owner], ["provider", provider]] as const) {
+    client.on("service.request", ({ id, service, input }) => {
+      served.push(name);
+      assert.equal(service, "python.run");
+      void client.call("service.reply", { id, result: { stdout: `${name}:${JSON.stringify(input)}` } });
+    });
+  }
+  plain.on("service.request", () => served.push("plain"));
+  assert.deepEqual(await plain.call("plugin.call", { pluginId: "practice", method: "run", input: { code: "print(1)" } }), { stdout: "provider:{\"code\":\"print(1)\"}" });
+  assert.deepEqual(await owner.call("plugin.call", { pluginId: "practice", method: "run", input: { code: "print(2)" } }), { stdout: "owner:{\"code\":\"print(2)\"}" });
+  assert.deepEqual(served, ["provider", "owner"]);
+  // Agent 的工具在运行里调用服务，同样交给提供方。
+  const session = await plain.call("session.create", {});
+  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("run_code", { code: "print(3)" })), f.reply("运行完了")]);
+  await plain.call("session.send", { sessionId: session.id, text: "运行代码" });
+  assert.deepEqual(toolResults(f.captures.at(-1) as TranscriptContext), [{ tool: "run_code", isError: false, text: JSON.stringify({ stdout: "provider:{\"code\":\"print(3)\"}" }) }]);
+});
+
+test("服务请求在调用方中止、提供方断线和空间关闭时收尾，没有提供方时报 service_unavailable", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const plain = await f.connect(FULL);
+  await plain.call("space.open", { root: f.root });
+  const run = () => plain.call("plugin.call", { pluginId: "practice", method: "run", input: { code: "while True: pass" } });
+  await assert.rejects(run(), rejectsWith("service_unavailable", { service: "python.run" }));
+
+  const provider = await f.connect({ services: ["python.run"] });
+  let requested = next(provider, "service.request");
+  const aborted = assert.rejects(run(), rejectsWith("service_cancelled", { service: "python.run", reason: "aborted" }));
+  const first = await requested;
+  const stopped = next(provider, "service.closed");
+  await plain.call("plugin.call", { pluginId: "practice", method: "stop", input: {} });
+  assert.deepEqual(await stopped, { id: first.id, reason: "aborted" });
+  await aborted;
+  await assert.rejects(provider.call("service.reply", { id: first.id, result: null }), rejectsWith("service_request_not_found"));
+
+  requested = next(provider, "service.request");
+  const failing = assert.rejects(run(), rejectsWith("service_failed", { service: "python.run", code: "runner_crashed" }));
+  const second = await requested;
+  await assert.rejects(plain.call("service.reply", { id: second.id, result: "冒充" }), rejectsWith("service_request_not_found"));
+  await provider.call("service.reply", { id: second.id, error: { code: "runner_crashed", message: "Pyodide 未能加载" } });
+  await failing;
+
+  requested = next(provider, "service.request");
+  const disconnected = assert.rejects(run(), rejectsWith("service_cancelled", { service: "python.run", reason: "disconnected" }));
+  await requested;
+  await provider.close();
+  await disconnected;
+
+  const remaining = await f.connect({ services: ["python.run"] });
+  requested = next(remaining, "service.request");
+  const closing = assert.rejects(run(), rejectsWith("service_cancelled", { service: "python.run", reason: "closed" }));
+  const third = await requested;
+  const closed = next(remaining, "service.closed");
+  await plain.call("space.close", {});
+  assert.deepEqual(await closed, { id: third.id, reason: "closed" });
+  await closing;
 });
 
 test("插件方法收到调用方的能力声明，声明的结果 schema 拦下多带的答案字段", { timeout: 30000 }, async t => {

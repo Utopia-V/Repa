@@ -60,6 +60,18 @@ export interface PluginMethod {
   invoke(input: unknown, context: MethodContext): Promise<unknown>;
 }
 
+/**
+ * 前端声明的服务，例如浏览器隔离环境里的 python.run。底座只负责路由：优先交给发起当前操作的连接，
+ * 它没有声明时交给最近声明这项服务的连接。结果由调用方自己校验。
+ */
+export interface Services {
+  /**
+   * 没有任何连接声明这项服务时以 service_unavailable 拒绝；signal 中止、连接断开或空间关闭时以 service_cancelled 拒绝，
+   * details.reason 说明原因；前端报告失败时以 service_failed 拒绝。工具里调用时传入 ToolContext.signal，运行取消时一起取消。
+   */
+  call(service: string, input: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
+}
+
 export interface CompletionRequest {
   prompt: string;
   system?: string;
@@ -160,6 +172,7 @@ export interface Host {
   files: Files;
   history: History;
   models: Models;
+  services: Services;
   emit(event: unknown): void;
 }
 
