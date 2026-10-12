@@ -49,7 +49,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
   return createAgentRuntimeForTest({ ...options, modelRuntime });
 }
 
-export async function createAgentRuntimeForTest(options: AgentTestOptions): Promise<AgentRuntime> {
+/** 测试需要读到运行时实际使用的 Pi 设置，所以比公开的 AgentRuntime 多暴露 settings。 */
+export async function createAgentRuntimeForTest(options: AgentTestOptions): Promise<AgentRuntime & { readonly settings: SettingsManager }> {
   return new Runtime(options);
 }
 
@@ -124,6 +125,16 @@ function toolDefinition(tool: AgentTool): ToolDefinition {
   });
 }
 
+/**
+ * Repa 的缓存保温缺省是 idle，Pi 的缺省是 streaming。用户在 settings.json 里写过 cacheWarming（含 off、streaming）
+ * 就按用户的；没写过，缺省只在这个实例的内存里生效，不写进用户的设置文件。Pi 的 getCacheWarmingMode 只读全局设置，
+ * 也没有设缺省值的入口，而 setCacheWarmingMode 一定会落盘，所以在这个实例上包一层读取。
+ */
+function defaultToIdleCacheWarming(settings: SettingsManager): void {
+  const stored = settings.getCacheWarmingMode.bind(settings);
+  settings.getCacheWarmingMode = () => (settings.getGlobalSettings().cacheWarming === undefined ? "idle" : stored());
+}
+
 class Runtime implements AgentRuntime {
   readonly settings: SettingsManager;
   private spaces = new Set<Space>();
@@ -132,7 +143,7 @@ class Runtime implements AgentRuntime {
   constructor(readonly options: AgentTestOptions) {
     // 项目设置只由 Repa 持有；Pi 不读取空间中的 .pi/settings.json。
     this.settings = options.settingsManager ?? SettingsManager.create(options.agentDir, options.agentDir, { projectTrusted: false });
-    if (options.settingsManager === undefined && this.settings.getGlobalSettings().cacheWarming === undefined) this.settings.setCacheWarmingMode("idle");
+    if (options.settingsManager === undefined) defaultToIdleCacheWarming(this.settings);
     this.checkSettings();
   }
 

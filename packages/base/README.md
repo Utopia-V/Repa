@@ -264,7 +264,7 @@ async execute(input, context) {
 
 运行开始时读取一次 view，与最近的有效版本比较，变化才通过 Pi 的 `nextTurn` 队列追加。这样首轮也是先放系统提示与工具声明，再放用户消息和 view；以后删除旧 view 就不会改变稳定前缀的位置。默认每个来源累积 3 份旧版本后，在回合结束时批量清理，下一次请求使用清理后的上下文；缓存已过期时提前清理，寿命采用模型公开的 short 缓存寿命作保守判断。压缩不把旧 view 当成会话事实写入摘要，完成后补回最新一份。清理使用追加的上下文编辑记录，原始会话证据仍保留。
 
-缓存保温使用内嵌运行时的 idle 策略，在模型声明缓存寿命、估算收益达到内置门槛时请求。每个 Agent 模型回复以及保温、压缩的 usage 都可从会话记录或事件中核对 `input`、`output`、`cacheRead`、`cacheWrite`。`input` 是非缓存输入，完整输入为 `input + cacheRead + cacheWrite`；一次压缩可能包含两个模型请求，会话条目保存其合计。Pi 把服务未提供的缓存计数映射为 0，因此判断字段是否真的被报告还需检查原始响应。真实 Codex 的用量、清理代价和保温限制见[核实报告](../../docs/research/base-real-model-check.md)。
+缓存保温使用内嵌运行时的 idle 策略，在模型声明缓存寿命、估算收益达到内置门槛时请求。idle 是 Repa 的缺省，只在运行时的内存里生效，不写进 agentDir 的 `settings.json`；用户在那里写过 `cacheWarming`（含 `off`、`streaming`）就按用户的。每个 Agent 模型回复以及保温、压缩的 usage 都可从会话记录或事件中核对 `input`、`output`、`cacheRead`、`cacheWrite`。`input` 是非缓存输入，完整输入为 `input + cacheRead + cacheWrite`；一次压缩可能包含两个模型请求，会话条目保存其合计。Pi 把服务未提供的缓存计数映射为 0，因此判断字段是否真的被报告还需检查原始响应。真实 Codex 的用量、清理代价和保温限制见[核实报告](../../docs/research/base-real-model-check.md)。
 
 ## 协议入口
 
@@ -481,7 +481,7 @@ npm run real-model-check --workspace=@repa/base -- \
 | `context_edit`、`turn_end`、`agent_before_settle` | 批清、过期清理及移除来源后，下一份实际请求只包含仍有效的 view，原始历史保持；自动 overflow 的两份摘要不含 view，第一份 retry 已取得唯一的最新 view。[Agent 回归](test/agent.test.ts)、[端到端回归](test/e2e.test.ts)。 |
 | 缓存保温 | 新版发布包仍只有对象身份比较，因此补丁继续保留。强制把重建消息的 timestamp 增加 60 秒仍可保温；实际内容、details、view 来源、系统段、工具或模型变化使缓存失效。含／不含 view 的真实定时保温和 usage 落盘也通过。[上下文比较回归](test/pi-cache-context.test.ts)、[实际保温回归](test/agent.test.ts)。 |
 | `ModelRuntime` 登录 | 原生委托收到稳定 UUID 与 `agentName: "Repa"`；登录返回时 ID 已落盘，重建后 ID 和凭据保持。授权码、选择、密文、链接、取消及保存错误映射通过。[登录与持久设置](test/agent-settings.test.ts)、[OAuth 协议交互](test/e2e.test.ts)。 |
-| `SettingsManager` | 默认 `idle` 能持久化，已有 `off`／`streaming`／`idle` 不被覆盖；底座只使用全局安装标识，项目设置不能覆盖它。损坏文件保持原字节，读写错误通过 `agent_settings` 返回。[设置回归](test/agent-settings.test.ts)。 |
+| `SettingsManager` | 默认 `idle` 只在内存里生效、不写 `settings.json`（升级时的回归曾是“能持久化”，现已改成不写），已有 `off`／`streaming`／`idle` 不被覆盖；底座只使用全局安装标识，项目设置不能覆盖它。损坏文件保持原字节，读写错误通过 `agent_settings` 返回。[设置回归](test/agent-settings.test.ts)。 |
 | `edit` 同名覆盖 | 原生注册表仍允许底座的精确 edit 覆盖内置 edit；实际执行保留全角标点与混合换行，并拒绝规范化匹配。[精确编辑回归](test/agent.test.ts)。 |
 | `tool_call` 钩子 | 普通与嵌套 bash 的允许、拒绝、确认抛错、Full Access 和确认中取消均通过，文件副作用与嵌套父调用关系一致。嵌套入口只由内部测试工厂提供，生产插件 API 没有扩展。[权限回归](test/pi-tool-permissions.test.ts)。 |
 

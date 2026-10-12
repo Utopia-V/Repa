@@ -62,16 +62,35 @@ function fault(code: string) {
   return (error: unknown) => error !== null && typeof error === "object" && "code" in error && error.code === code;
 }
 
-test("首次启动持久化 idle 默认值，重建运行时沿用该设置", async (t) => {
+test("没有保温设置时缺省用 idle，只在内存里生效，不写用户的 settings.json", async (t) => {
+  const f = await fixture(t);
+  const settingsFile = path.join(f.agentDir, "settings.json");
+  const runtime = await f.createRuntime();
+  assert.equal(runtime.settings.getCacheWarmingMode(), "idle");
+  await runtime.close();
+  await assert.rejects(readFile(settingsFile), { code: "ENOENT" });
+
+  // 已有其他设置的文件逐字节保持原样，没有补上 cacheWarming。
+  const original = JSON.stringify({ defaultProvider: "somewhere" }, null, 2);
+  await writeFile(settingsFile, original);
+  const again = await f.createRuntime();
+  assert.equal(again.settings.getCacheWarmingMode(), "idle");
+  await again.close();
+  assert.equal(await readFile(settingsFile, "utf8"), original);
+});
+
+test("缺省 idle 之后用户改保温模式照常落盘，之后读到的是用户选的", async (t) => {
   const f = await fixture(t);
   const runtime = await f.createRuntime();
+  runtime.settings.setCacheWarmingMode("off");
+  assert.equal(runtime.settings.getCacheWarmingMode(), "off");
+  await runtime.settings.flush();
   await runtime.close();
   const saved: unknown = JSON.parse(await readFile(path.join(f.agentDir, "settings.json"), "utf8"));
   assert(saved !== null && typeof saved === "object" && "cacheWarming" in saved);
-  assert.equal(saved.cacheWarming, "idle");
-  const settings = SettingsManager.create(f.agentDir, f.agentDir, { projectTrusted: false });
-  assert.equal(settings.getCacheWarmingMode(), "idle");
-  await f.createRuntime({ settingsManager: settings });
+  assert.equal(saved.cacheWarming, "off");
+  const reopened = await f.createRuntime();
+  assert.equal(reopened.settings.getCacheWarmingMode(), "off");
 });
 
 for (const mode of ["off", "streaming", "idle"] as const) {
