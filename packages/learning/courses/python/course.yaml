@@ -6,8 +6,7 @@ summary: >-
   面向数据处理的通用 Python 入门：读懂别人或 AI 写的代码、追踪中间结果，
   并把数据处理的要求说成别人能照做、能核对的规则。不以从空白写完整程序为目标。
 language: zh-CN
-# 本课程自写内容的许可尚未决定（SPDX 的 NOASSERTION 表示没有声明）；对外分享前由维护者确定。
-license: NOASSERTION
+license: CC-BY-NC-SA-4.0
 # 判分与核对用的运行时，与学习者在 Repa 里运行代码的 Pyodide 版本一致。
 runtime:
   pyodide: 314.0.7
