@@ -8,7 +8,7 @@
       "repa-62617365": "<repa-62617365>\n<repa-instructions source=\"base\">\n你是 Repa 中帮助用户持续开展工作的 Agent。读取当前空间的资料，使用已提供的工具推进用户目标，并尊重用户的授权与已有工作。插件说明提供领域知识，运行时视图提供当前状态；需要更多状态时使用工具查询。\n</repa-instructions>\n</repa-62617365>",
       "repa-7370616365": "<repa-7370616365>\n<repa-instructions source=\"space\">\n当前空间：<root>\n\n空间说明：保持中文回答。\n</repa-instructions>\n</repa-7370616365>",
       "repa-736b696c6c73": "<repa-736b696c6c73>\n<repa-instructions source=\"skills\">\n\n</repa-instructions>\n</repa-736b696c6c73>",
-      "repa-746f6f6c73": "<repa-746f6f6c73>\n<repa-instructions source=\"tools\">\n使用已声明的工具。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：read、bash、edit、write、grep、find、ls、course_lookup\n</repa-instructions>\n</repa-746f6f6c73>",
+      "repa-746f6f6c73": "<repa-746f6f6c73>\n<repa-instructions source=\"tools\">\n使用已声明的工具。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：read、bash、edit、write、grep、find、ls、course_lookup、ask_user\n</repa-instructions>\n</repa-746f6f6c73>",
       "repa-706c7567696e3a636f75727365": "<repa-706c7567696e3a636f75727365>\n<repa-instructions source=\"plugin:course\">\n课程插件说明\n</repa-instructions>\n</repa-706c7567696e3a636f75727365>"
     },
     "toolsAdded": [
@@ -223,6 +223,113 @@
           "properties": {
             "topic": {
               "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "ask_user",
+        "description": "向用户提出 1–4 个问题，等用户在界面上作答，回答作为工具结果交回。用于需要用户决定或澄清的地方；也可以出练习小题，把 purpose 设为 practice，用户作答后由你讲评。参数里不要写答案、解析或提示答案的内容，它们会在用户作答前显示出来。用户可以不按卡片作答而回一句话，也可以关掉询问。",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "questions"
+          ],
+          "properties": {
+            "purpose": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "question"
+                },
+                {
+                  "type": "string",
+                  "const": "practice"
+                }
+              ],
+              "description": "question（默认）：请用户决定或澄清；practice：给用户出练习小题，作答后由你讲评"
+            },
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "question"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+                    "description": "可选的问题标识"
+                  },
+                  "question": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "description": "问题，Markdown"
+                  },
+                  "header": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "description": "很短的标签"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "label"
+                      ],
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "description": "选项，Markdown"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 300,
+                          "description": "选项说明，Markdown"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 2,
+                    "maxItems": 6
+                  },
+                  "multiple": {
+                    "type": "boolean",
+                    "description": "有选项时允许多选"
+                  },
+                  "allowOther": {
+                    "type": "boolean",
+                    "description": "有选项时允许用户自填，默认允许"
+                  },
+                  "input": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "text"
+                      },
+                      {
+                        "type": "string",
+                        "const": "longText"
+                      },
+                      {
+                        "type": "string",
+                        "const": "number"
+                      }
+                    ],
+                    "description": "没有选项时的输入方式，默认 text"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 4
             }
           },
           "additionalProperties": false

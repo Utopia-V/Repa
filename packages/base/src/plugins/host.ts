@@ -4,6 +4,7 @@ import { Check } from "typebox/value";
 import type { AgentTool } from "../agent.js";
 import { prepareItem, type AskRoute } from "../ask.js";
 import {
+  ASK_USER_TOOL,
   BUILTIN_TOOLS,
   RESERVED_TOOL_NAMES,
   type AgentDefinition,
@@ -72,7 +73,7 @@ function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): 
     if (id === "general" || ids.has(id)) throw new RepaFault("invalid_agent_id", "Agent id 必须唯一，且不能使用 general", { id });
     ids.add(id);
   }
-  const builtins = new Set<string>(BUILTIN_TOOLS);
+  const builtins = new Set<string>([...BUILTIN_TOOLS, ASK_USER_TOOL]);
   const byId = new Map(definitions.map((definition) => [definition.id, definition]));
   for (const definition of definitions) {
     for (const tool of definition.tools) {

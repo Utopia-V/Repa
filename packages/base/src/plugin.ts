@@ -89,8 +89,10 @@ export interface AgentTask {
 /** 底座提供的 Pi 内置工具。通用 Agent 全部都有；插件 Agent 不能选 grep，见 AgentDefinition.tools。 */
 export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
-/** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent。 */
-export const RESERVED_TOOL_NAMES: readonly string[] = [...BUILTIN_TOOLS, "powershell", "subagent"];
+/** 底座的询问工具：通用 Agent 默认带上，插件 Agent 在 tools 里列出才有。参数里没有答案字段。 */
+export const ASK_USER_TOOL = "ask_user";
+/** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent、ask_user。 */
+export const RESERVED_TOOL_NAMES: readonly string[] = [...BUILTIN_TOOLS, "powershell", "subagent", ASK_USER_TOOL];
 
 /** 用户经前端发给插件 Agent 会话的一条消息。后台任务与子 Agent 收到的任务不经过这里。 */
 export interface UserMessage {
@@ -112,7 +114,7 @@ export interface AgentDefinition {
   /** 职责说明，作为提示段 agent:<id>。 */
   instructions(): string;
   /**
-   * 可用工具的名称：BUILTIN_TOOLS 中除 grep 外的内置工具与任一插件的工具。
+   * 可用工具的名称：BUILTIN_TOOLS 中除 grep 外的内置工具、ask_user 与任一插件的工具。
    * 内置文件工具限在空间内且不进 .repa/；bash 仍按命令策略确认。列了 grep 时插件打开失败，
    * 需要搜索内容的插件提供自己的工具。
    */

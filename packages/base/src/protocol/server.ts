@@ -387,6 +387,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         writes: space.writes,
         onEvent: (event) => emit("session.event", event),
         confirm: (request, signal) => confirmFor(owner.getStore())(request, signal),
+        ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
       });
       await host.start();
       await settings.remember(space.root);

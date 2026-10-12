@@ -1,4 +1,5 @@
 import type { Static, TSchema } from "typebox";
+import type { AskRoute } from "./ask.js";
 import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest } from "./plugin.js";
 import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, SessionEntry, SessionInfo } from "./schema.js";
 import type { SpaceWrites } from "./space.js";
@@ -56,6 +57,8 @@ export interface AgentSpaceOptions {
   writes?: SpaceWrites;
   onEvent(event: AgentEvent): void;
   confirm: Confirm;
+  /** ask_user 的询问路由，绑定发起运行的连接；省略时 ask_user 以 ask_unavailable 交回模型。 */
+  ask?: AskRoute;
 }
 
 export interface AgentRuntime {

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, type TranscriptContext } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -124,6 +124,10 @@ function practicePlugin(state: PracticeState): Plugin {
               return { text: JSON.stringify(result) };
             },
           },
+        ],
+        agents: () => [
+          { id: "asker", instructions: () => "你向学习者提问。", tools: ["ask_user"], direct: true },
+          { id: "quiet", instructions: () => "你只读课程。", tools: ["read"], direct: true },
         ],
         methods: {
           run: {
@@ -396,4 +400,100 @@ test("initialize 严格校验能力声明，旧版本客户端不能连接", { t
   const response = new Promise<unknown>(resolve => socket.addEventListener("message", event => resolve(JSON.parse(String(event.data))), { once: true }));
   socket.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { token: f.server.connection.token, version: "1" } }));
   assert.equal(record(record(await response)?.error)?.code, -32002);
+});
+
+test("前端没有声明题目需要的能力时不发送询问，Agent 得知卡片无法显示", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const textOnly = await f.connect({ interaction: { vocabulary: 1, supports: ["block.markdown", "slot.text"] } });
+  const undeclared = await f.connect();
+  await textOnly.call("space.open", { root: f.root });
+  const received: unknown[] = [];
+  for (const client of [textOnly, undeclared]) client.on("ask.request", request => received.push(request));
+  const question = { questions: [{ question: "导出结果要用哪种格式？", options: [{ label: "CSV" }, { label: "Excel" }] }] };
+  for (const client of [textOnly, undeclared]) {
+    const session = await client.call("session.create", {});
+    f.faux.setResponses([fauxAssistantMessage(fauxToolCall("ask_user", question)), f.reply("改用文字问")]);
+    await client.call("session.send", { sessionId: session.id, text: "帮我导出" });
+    assert.deepEqual(toolResults(f.captures.at(-1) as TranscriptContext), [{ tool: "ask_user", isError: false, text: "当前界面无法显示这张询问卡片，用户没有看到问题。请改用文字提问。" }]);
+  }
+  assert.deepEqual(received, []);
+});
+
+test("ask_user 把作答交回模型：选择交回选项名，填写原样交回，decline 附的一句话原样交回", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const client = await f.connect(FULL);
+  await client.call("space.open", { root: f.root });
+  const session = await client.call("session.create", {});
+  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("ask_user", { questions: [
+    { question: "导出结果要用哪种格式？", header: "格式", multiple: true, options: [{ label: "CSV", description: "表格软件都能打开" }, { label: "Excel" }] },
+    { id: "extra", question: "还有什么要求？", input: "longText" },
+  ] }, { id: "call-ask-1" })), f.reply("按 Excel 导出")]);
+  const asked = next(client, "ask.request");
+  const running = client.call("session.send", { sessionId: session.id, text: "帮我导出" });
+  const request = await asked;
+  assert.deepEqual(request.origin, { kind: "agent", sessionId: session.id, callId: "call-ask-1" });
+  assert.equal(request.purpose, "question");
+  assert.match(request.item.id, /^ask:/u);
+  assert.deepEqual(request.item.slots.map(slot => [slot.id, slot.type]), [["q1", "choice"], ["extra", "text"]]);
+  const choice = request.item.slots[0];
+  assert(choice?.type === "choice");
+  assert.deepEqual(choice.options.map(option => [option.id, option.label, option.content]), [
+    ["o1", "CSV", [{ type: "markdown", text: "**CSV**：表格软件都能打开" }]],
+    ["o2", "Excel", [{ type: "markdown", text: "Excel" }]],
+  ]);
+  assert.deepEqual([choice.multiple, choice.other, choice.label], [true, { label: "其他" }, "格式"]);
+  const reference = { id: request.item.id, version: request.item.version };
+  const answers = { q1: { type: "choice" as const, selected: ["o2"], other: "再附一份 CSV" }, extra: { type: "text" as const, text: "每个工作表一个 sheet\n保留公式" } };
+  assert.deepEqual(await client.call("ask.reply", { id: request.id, action: "submit", response: { item: reference, answers } }), { status: "recorded" });
+  await running;
+  assert.deepEqual(toolResults(f.captures.at(-1) as TranscriptContext), [{
+    tool: "ask_user",
+    isError: false,
+    text: "用户已作答：\n- 导出结果要用哪种格式？ → Excel、其他：再附一份 CSV\n- 还有什么要求？ → 每个工作表一个 sheet\n保留公式",
+  }]);
+  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("ask_user", { purpose: "practice", questions: [{ question: "`len([1, 2])` 等于几？", input: "number" }] })), f.reply("那我先解释")]);
+  const practice = next(client, "ask.request");
+  const second = client.call("session.send", { sessionId: session.id, text: "考考我" });
+  const declined = await practice;
+  assert.equal(declined.purpose, "practice");
+  assert.deepEqual(declined.item.slots.map(slot => slot.type === "text" ? slot.format : undefined), ["number"]);
+  assert.equal(await client.call("ask.reply", { id: declined.id, action: "decline", message: "我想先问一下 len 是什么意思" }), null);
+  await second;
+  assert.deepEqual(toolResults(f.captures.at(-1) as TranscriptContext).at(-1), { tool: "ask_user", isError: false, text: "用户没有按卡片作答，留言：我想先问一下 len 是什么意思" });
+});
+
+test("ask_user 的参数里不能带答案字段，模型得到校验错误，界面收不到询问", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const client = await f.connect(FULL);
+  await client.call("space.open", { root: f.root });
+  const session = await client.call("session.create", {});
+  const received: unknown[] = [];
+  client.on("ask.request", request => received.push(request));
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("ask_user", { questions: [{ question: "1 + 1 = ?", input: "number" }], answer: "2" }),
+      fauxToolCall("ask_user", { questions: [{ question: "1 + 1 = ?", options: [{ label: "2", correct: true }, { label: "3" }] }] }),
+    ]),
+    f.reply("重新出题"),
+  ]);
+  await client.call("session.send", { sessionId: session.id, text: "出题" });
+  const results = toolResults(f.captures.at(-1) as TranscriptContext);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["ask_user", true], ["ask_user", true]]);
+  for (const result of results) assert.match(result.text, /Validation failed for tool "ask_user"/u);
+  assert.deepEqual(received, []);
+});
+
+test("通用 Agent 默认带 ask_user，插件 Agent 在定义里列出才有", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const client = await f.connect(FULL);
+  await client.call("space.open", { root: f.root });
+  const declared: string[][] = [];
+  for (const agent of ["general", "asker", "quiet"]) {
+    const session = await client.call("session.create", { agent });
+    f.faux.setResponses([f.reply("好的")]);
+    await client.call("session.send", { sessionId: session.id, text: "你好" });
+    declared.push(getCurrentTools((f.captures.at(-1) as TranscriptContext).messages).map(tool => tool.name));
+  }
+  assert.ok(declared[0]?.includes("ask_user"));
+  assert.deepEqual(declared.slice(1), [["ask_user"], ["read"]]);
 });

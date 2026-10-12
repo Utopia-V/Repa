@@ -100,6 +100,7 @@ function viewTexts(context: TranscriptContext): string[] {
 
 // 固定样本由改动前的 04b0671d0 在 Pi 1.1.0 上生成：同一组插件说明、工具、view 与空间 AGENTS.md 下，
 // 通用会话首个模型请求的系统段、工具声明和消息。去掉时间戳，把空间路径替换为 <root>。
+// 加入 ask_user 时重新生成，与原样本相比只在工具声明末尾多了 ask_user，工具段的清单末尾多了“、ask_user”。
 test("通用 Agent 的首个请求与改动前逐字相同，插件声明的 Agent 不改变它", async t => {
   const f = await runtimeFixture(t, { tools: () => [courseLookup] });
   await writeFile(path.join(f.root, "AGENTS.md"), "空间说明：保持中文回答。");

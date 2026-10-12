@@ -19,9 +19,10 @@ import {
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool } from "../agent.js";
-import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
+import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
+import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
@@ -82,6 +83,8 @@ interface AgentProfile {
   general: boolean;
   builtins: BuiltinTool[];
   tools: AgentTool[];
+  /** 是否带底座的 ask_user：通用 Agent 默认带上，插件 Agent 在定义里列出才有。 */
+  askUser: boolean;
   subagents: string[];
   /** 本 Agent 自己的提示段：通用 Agent 为各插件说明，插件 Agent 为 agent:<id>。 */
   sections(): { id: string; text: string }[];
@@ -348,6 +351,7 @@ class Space implements AgentSpace {
         general: true,
         builtins: [...BUILTIN_TOOLS],
         tools: this.options.tools(),
+        askUser: true,
         subagents: [],
         sections: () => [...this.options.instructions()].sort(byId),
         views: () => this.options.views(),
@@ -362,6 +366,7 @@ class Space implements AgentSpace {
       // 插件宿主在打开时已经拒绝列了 grep 的定义；这里也不把 Pi 的 grep 交给插件 Agent，它会越过 .repa/.ignore。
       builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep"),
       tools: this.options.tools().filter(tool => names.has(tool.name)),
+      askUser: names.has(ASK_USER_TOOL),
       subagents: [...new Set(definition.subagents ?? [])],
       sections: () => [{ id: `agent:${id}`, text: definition.instructions() }],
       async views() {
@@ -393,7 +398,7 @@ class Space implements AgentSpace {
       ...loadSkillsFromDir({ dir: path.join(this.runtime.options.agentDir, "skills"), source: "repa" }).skills,
       ...loadSkillsFromDir({ dir: path.join(this.options.root, ".repa", "skills"), source: "repa-space" }).skills,
     ];
-    const tools = [...profile.builtins, ...profile.tools.map(tool => tool.name)];
+    const tools = [...profile.builtins, ...profile.tools.map(tool => tool.name), ...(profile.askUser ? [ASK_USER_TOOL] : [])];
     return promptSections(this.options, [
       { id: "base", text: BASE_INSTRUCTIONS },
       space,
@@ -624,6 +629,7 @@ class Session implements AgentSession {
       ...profile.builtins,
       ...profile.tools.map(tool => tool.name),
       ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
+      ...(profile.askUser ? [ASK_USER_TOOL] : []),
       ...(profile.general ? runtime.options.toolNames ?? [] : []),
     ];
     this.opaque = toolNames.some(name => OPAQUE_TOOLS.has(name));
@@ -636,7 +642,12 @@ class Session implements AgentSession {
       settingsManager: runtime.settings,
       resourceLoader: loader,
       tools: toolNames,
-      customTools: [...fileTools, ...profile.tools.map(toolDefinition), ...(profile.subagents.length > 0 ? [this.subagentTool(profile)] : [])],
+      customTools: [
+        ...fileTools,
+        ...profile.tools.map(toolDefinition),
+        ...(profile.subagents.length > 0 ? [this.subagentTool(profile)] : []),
+        ...(profile.askUser ? [askUserTool(options.ask)] : []),
+      ],
     });
     this.pi = result.session;
     const lastUsage = this.manager.getBranch().findLast(entry => {
