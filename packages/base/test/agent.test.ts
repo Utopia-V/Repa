@@ -388,8 +388,8 @@ test("禁用 Pi 资源发现仍加载底座工厂，外部扩展和项目 Skill 
   assert(capture);
   assert.doesNotMatch(getCurrentSystemPrompt(capture.messages), /不应加载的 Pi/u);
   assert.match(JSON.stringify(capture.messages), /当前状态/u);
-  // 通用 Agent 默认只有七个 Pi 工具和底座的 ask_user，没有自动出现 MCP 或 codemode。
-  assert.deepEqual(getCurrentTools(capture.messages).map(tool => tool.name).sort(), ["ask_user", "bash", "edit", "find", "grep", "ls", "read", "write"]);
+  // 通用 Agent 默认只有七个 Pi 工具和底座的 ask_user、subagent，没有自动出现 MCP 或 codemode。
+  assert.deepEqual(getCurrentTools(capture.messages).map(tool => tool.name).sort(), ["ask_user", "bash", "edit", "find", "grep", "ls", "read", "subagent", "write"]);
 });
 
 test("单 key 登录通过 SDK 持久化，重建运行时仍可用且登出删除凭据", async t => {

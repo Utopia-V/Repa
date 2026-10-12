@@ -70,6 +70,9 @@ const OPAQUE_TOOLS = new Set(["bash", "powershell"]);
 // 以后按实际使用调整。
 const SUBAGENT_DEPTH = 3;
 
+// 通用 Agent 起自己时，subagent 工具里给它的说明，相当于 Claude Code 的通用子代理。
+const GENERAL_SUBAGENT = "通用 Agent，工具与你相同，适合交给它独立完成的调研、修改和多步任务";
+
 /** 子 Agent 的运行挂在父运行下；ancestorRunIds 是父运行自己的祖先链，从近到远。 */
 interface ParentRun {
   runId: string;
@@ -352,7 +355,8 @@ class Space implements AgentSpace {
         builtins: [...BUILTIN_TOOLS],
         tools: this.options.tools(),
         askUser: true,
-        subagents: [],
+        // 和 Claude Code 一样能起子 Agent：自己，以及空间里定义的任何插件 Agent。插件 Agent 的工具都在通用 Agent 的范围内。
+        subagents: [GENERAL_AGENT, ...(this.options.agents?.() ?? []).map(item => item.id).sort()],
         sections: () => [...this.options.instructions()].sort(byId),
         views: () => this.options.views(),
       };
@@ -398,7 +402,12 @@ class Space implements AgentSpace {
       ...loadSkillsFromDir({ dir: path.join(this.runtime.options.agentDir, "skills"), source: "repa" }).skills,
       ...loadSkillsFromDir({ dir: path.join(this.options.root, ".repa", "skills"), source: "repa-space" }).skills,
     ];
-    const tools = [...profile.builtins, ...profile.tools.map(tool => tool.name), ...(profile.askUser ? [ASK_USER_TOOL] : [])];
+    const tools = [
+      ...profile.builtins,
+      ...profile.tools.map(tool => tool.name),
+      ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
+      ...(profile.askUser ? [ASK_USER_TOOL] : []),
+    ];
     return promptSections(this.options, [
       { id: "base", text: BASE_INSTRUCTIONS },
       space,
@@ -833,16 +842,19 @@ class Session implements AgentSession {
     return { runId, status: status === "aborted" ? "aborted" : "completed", text: reply };
   }
 
-  /** 父 Agent 的 subagent 工具；只能启动定义中列出的子 Agent。 */
+  /**
+   * 父 Agent 的 subagent 工具；只能启动定义中列出的子 Agent。Pi 默认并行执行同一条回复里的工具调用，
+   * 这个工具不标 sequential，一条回复里起的几个子 Agent 就同时运行。
+   */
   private subagentTool(profile: AgentProfile): ToolDefinition {
     const lines = profile.subagents.map(id => {
-      const description = this.space.options.agents?.().find(item => item.id === id)?.description;
+      const description = id === GENERAL_AGENT ? GENERAL_SUBAGENT : this.space.options.agents?.().find(item => item.id === id)?.description;
       return description === undefined ? `- ${id}` : `- ${id}：${description}`;
     });
     return defineTool({
       name: SUBAGENT_TOOL,
       label: SUBAGENT_TOOL,
-      description: `启动一个子 Agent 独立完成任务，返回它的最终回复。子 Agent 看不到当前对话，task 里要写清它需要的信息。可以启动的子 Agent：\n${lines.join("\n")}`,
+      description: `启动一个子 Agent 独立完成任务，返回它的最终回复。子 Agent 看不到当前对话，task 里要写清它需要的信息。一条回复里起的几个子 Agent 同时运行。可以启动的子 Agent：\n${lines.join("\n")}`,
       parameters: Type.Object({
         agent: Type.Union(profile.subagents.map(id => Type.Literal(id))),
         task: Type.String({ minLength: 1, description: "交给子 Agent 的完整任务" }),
