@@ -1,7 +1,8 @@
 id: py04
 title: 读懂一次函数调用
-status: outline
+status: complete
 minutes: 20
+summary: 读懂 名字(实参)：实参按位置或按名字交给函数，调用处换成返回值；后面还要用的结果要存进名字，print 只负责显示。
 prerequisites:
   - topic: py03
     key: true
@@ -20,12 +21,1079 @@ sources:
     where: 教程第 4 章 §4.9.2
     url: https://docs.python.org/3.12/tutorial/controlflow.html
     use: reference
+  - source: python-docs
+    where: 标准库：内置函数（abs、len、max、min、print、round）
+    url: https://docs.python.org/3.12/library/functions.html
+    use: reference
 notes: |
-  建议题型与判分：追踪变量（P）、解释代码（S/O）、小改代码（T）。
+  范围：只读调用内置函数 abs、len、max、min、round、print，以及 py03 用过的 int、float、str。max、min 在这里接几个单独的数，放进列表的用法留给 py07；len 只用于文字，列表的 len 在 py06。不讲定义函数（py40）、import（py13）、点号方法调用（py05）。round 只用保留几位小数的普通情况，例子避开 .5 边界和二进制尾数，参数名只用 ndigits。print 的关键字参数讲 sep，end 只在讲解里提一句，不出题。
+  py03.k3 的 None 在 k3 里重新用到（print 交回 None），先修的 covers 目前只写了 py03.k1、k2，是否补上 py03.k3 待维护者决定。
+  建议题型与判分：追踪变量（P）、解释代码（S/O）、小改代码（T）。解释代码一律做成可由程序核对的结构化选择，复习和测验里没有 manual 作答位。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 4 分钟；k3 讲解与例题 2 分钟、练习 4 分钟；收束 1 分钟。
+  讲解、例题和题目为本课自拟。
+intro: |
+  在 py03 里你已经写过 `int("12")`、`str(7)` 这样的式子。这一节把这种写法看清楚：它叫**函数调用**，AI 写的代码里到处都会遇到它。
+
+  程序仍然当作一段短脚本，从第一行往下运行，只有 `print` 才在屏幕上显示东西。
+wrapup: |
+  读一次调用，问三件事：调用的是哪个函数；交给它的实参是什么，按位置还是按名字；它交回的返回值去了哪里，是存进了名字、接着参与计算，还是只显示出来就没了。
+
+  读 AI 写的代码时，后面要用的值如果只在 `print` 里出现过，多半就是没有存下来。
 kps:
   - id: py04.k1
     title: 函数名、实参和返回结果
+    card:
+      name: 函数调用
+      aliases: [调用, 实参, 返回值]
+      definition: "`名字(实参)` 把括号里的值交给这个函数，函数算出一个结果交回来，叫返回值；这次调用在式子里就换成返回值。"
+      conditions:
+        - 括号里先算好再交给函数；调用套着调用时，从最里面一层往外算。
+        - 换成返回值以后，这一行照常往下算，例如 `abs(-4) + 1` 先得 4，再得 5。
+      example:
+        from: py04.k1.e0
+        text: |
+          ```python
+          low = min(12, 7, 9)
+          high = max(12, 7, 9)
+          spread = high - low
+          print(spread)
+          ```
+          两次调用分别交回 7 和 12，spread 是 12 - 7 = 5，最后显示 5。
+    lesson: |
+      `abs(-4)` 是一次**函数调用**：`abs` 是函数名，括号里的 `-4` 是交给函数的值，叫**实参**。函数算完交回一个值，叫**返回值**；`abs` 交回去掉负号以后的数，也就是 4。
+
+      读到一次调用，就把它换成返回值，再接着读这一行：
+
+      | 调用 | 返回值 | 做了什么 |
+      |---|---|---|
+      | `abs(-4)` | 4 | 绝对值 |
+      | `max(3, 9, 5)` | 9 | 几个数里最大的 |
+      | `min(3, 9, 5)` | 3 | 几个数里最小的 |
+      | `len("sample")` | 6 | 文字有几个字符 |
+      | `round(3.14159, 2)` | 3.14 | 保留两位小数 |
+      | `int("12")` | 12 | py03 里的[转换](repa:concept/py03.k2)，也是一次调用 |
+
+      所以 `total = abs(-4) + 1` 先把 `abs(-4)` 换成 4，再算 4 + 1，`total` 指向 5。有几个实参时用逗号隔开。
+
+      实参也可以是一个式子，或者另一次调用。Python 先把括号里算好，再交给函数：`max(2 + 5, 6)` 先算出 7，结果是 7；`abs(min(-3, 2))` 先算里面的 `min(-3, 2)` 得 -3，再算 `abs(-3)` 得 3。
+    example:
+      id: py04.k1.e0
+      kind: [trace, predict]
+      body: |
+        同一份样本测了三次，读数分别是 12、7、9。阅读下面的程序。
+
+        ```python
+        low = min(12, 7, 9)
+        high = max(12, 7, 9)
+        spread = high - low
+        print(spread)
+        ```
+      slots:
+        - id: low
+          type: text
+          format: integer
+          label: low
+          prompt: "`low` 指向多少？"
+          key: 7
+        - id: high
+          type: text
+          format: integer
+          label: high
+          prompt: "`high` 指向多少？"
+          key: 12
+        - id: output
+          type: text
+          format: integer
+          prompt: 程序最后显示什么？
+          key: 5
+      explanation: |
+        `low` 是 **7**，`high` 是 **12**，最后显示 **5**。第 1 行的 `min(12, 7, 9)` 交回三个数里最小的 7，这一行就相当于 `low = 7`；第 2 行同理得到 12。第 3 行只是普通的减法，12 - 7 = 5。
+      verify: |
+        r = run()
+        answers = {"low": r["low"], "high": r["high"], "output": int(r.out)}
+    practice:
+      - id: py04.k1.q1
+        kind: [predict]
+        body: |
+          ```python
+          print(abs(3 - 8) + 1)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 显示什么？
+            key: 6
+            feedback:
+              - when: -4
+                message: 括号里的 3 - 8 得 -5，`abs` 交回的是去掉负号的 5，再加 1。
+        explanation: |
+          显示 **6**。先算括号里的 `3 - 8` 得 -5；`abs(-5)` 交回 5；这次调用换成 5 以后，再算 5 + 1。
+        verify: |
+          answers = {"output": int(run().out)}
+      - id: py04.k1.q2
+        kind: [trace]
+        body: |
+          ```python
+          size = max(len("ctrl"), len("drug_a"))
+          ```
+
+          这一行里一共有三次调用。按 Python 计算的先后，填写每次调用的返回值。
+        slots:
+          - id: calls
+            type: table
+            columns:
+              - id: call
+                header: 调用
+              - id: value
+                header: 返回值
+                input: integer
+            rows:
+              - id: c1
+                cells: { call: 'len("ctrl")', value: 4 }
+              - id: c2
+                cells: { call: 'len("drug_a")', value: 6 }
+              - id: c3
+                cells: { call: 'max(4, 6)', value: 6 }
+        explanation: |
+          先算 `max` 括号里的两个实参：`len("ctrl")` 交回 **4**，`len("drug_a")` 交回 **6**（下划线也算一个字符）。两个实参都算好了，才调用 `max(4, 6)`，交回 **6**，`size` 指向 6。
+        verify: |
+          answers = {"calls": {
+              "c1": {"value": run('v = len("ctrl")')["v"]},
+              "c2": {"value": run('v = len("drug_a")')["v"]},
+              "c3": {"value": run()["size"]},
+          }}
+      - id: py04.k1.q3
+        kind: [explain]
+        uses: [py03.k2]
+        body: |
+          ```python
+          reading = int("15") + 5
+          ```
+
+          逐项说出这一行里的调用。
+        slots:
+          - id: name
+            type: choice
+            prompt: 调用的函数名是
+            options:
+              - { id: reading, content: "`reading`" }
+              - { id: text, content: '`"15"`' }
+              - { id: int, content: "`int`" }
+            key: int
+          - id: argument
+            type: choice
+            prompt: 交给函数的实参是
+            options:
+              - { id: text, content: '`"15"`，一段文字' }
+              - { id: five, content: "`5`" }
+              - { id: reading, content: "`reading`" }
+            key: text
+          - id: returned
+            type: text
+            format: integer
+            prompt: 这次调用的返回值
+            key: 15
+          - id: reading
+            type: text
+            format: integer
+            prompt: 运行之后 `reading` 指向
+            key: 20
+        explanation: |
+          函数名是 **int**，实参是文字 **"15"**，返回值是整数 **15**；调用处换成 15 以后再加 5，`reading` 指向 **20**。`+ 5` 不在 `int` 的括号里，不是交给 `int` 的实参。
+        verify: |
+          import ast
+          call = next(node for node in ast.walk(ast.parse(CODE)) if isinstance(node, ast.Call))
+          # 选项与它们代表的源码写法；从语法树里读出函数名和实参，再找对应的选项。
+          names = {"reading": "reading", "text": "'15'", "int": "int"}
+          arguments = {"text": "'15'", "five": "5", "reading": "reading"}
+          name = [option for option, source in names.items() if source == ast.unparse(call.func)]
+          argument = [option for option, source in arguments.items() if [source] == [ast.unparse(a) for a in call.args]]
+          answers = {
+              "name": name[0] if len(name) == 1 else name,
+              "argument": argument[0] if len(argument) == 1 else argument,
+              "returned": run("v = " + ast.unparse(call))["v"],
+              "reading": run()["reading"],
+          }
+    review:
+      - id: py04.k1.r1
+        kind: [explain]
+        uses: [py03.k1, py03.k2]
+        body: |
+          样本编号是 `S_017`。哪一行让 `n` 指向这个编号有几个字符？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: bare
+                content: |
+                  ```python
+                  n = len(S_017)
+                  ```
+                feedback: 没有引号时，`S_017` 被当成一个名字，而这个名字没有赋过值。
+              - id: length
+                content: |
+                  ```python
+                  n = len("S_017")
+                  ```
+              - id: copy
+                content: |
+                  ```python
+                  n = "S_017"
+                  ```
+                feedback: 这一行没有调用任何函数，`n` 指向的是编号本身。
+              - id: convert
+                content: |
+                  ```python
+                  n = int("S_017")
+                  ```
+                feedback: "`int` 把文字转成整数，`S_017` 不是一个整数的写法，会报错。"
+            key: length
+        explanation: |
+          `n = len("S_017")` 正确：`len` 交回文字的字符个数 5。去掉引号，`S_017` 就成了一个没有赋值的名字，会报错；`n = "S_017"` 没有调用，`n` 指向编号本身；`int("S_017")` 也会报错，因为这段文字不是整数。
+        verify: |
+          # 逐个运行选项，留下不报错、并且 n 恰好是 S_017 字符个数的那一行。
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if run(code).error is None and run(code).vars.get("n") == len("S_017")]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py04.k1.r2
+        kind: [trace]
+        body: |
+          上午 20 度，下午 26 度。下面先算温差，再取温差和两个参考值里最大的一个。
+
+          ```python startLine=1
+          gap = abs(20 - 26)
+          worst = max(gap, 4, 9)
+          print(worst * 2)
+          ```
+        slots:
+          - id: trace
+            type: table
+            prompt: 填写每行执行后 `gap` 与 `worst` 的值，还没有赋值的填“尚未定义”。
+            columns:
+              - id: line
+                header: 执行到
+              - id: gap
+                header: gap
+                input: { type: text, format: integer, quick: [尚未定义] }
+              - id: worst
+                header: worst
+                input: { type: text, format: integer, quick: [尚未定义] }
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, gap: 6, worst: 尚未定义 }
+              - id: l2
+                cells: { line: 第 2 行, gap: 6, worst: 9 }
+          - id: output
+            type: text
+            format: integer
+            prompt: 第 3 行显示什么？
+            key: 18
+        explanation: |
+          第 1 行：`20 - 26` 得 -6，`abs` 交回 **6**。第 2 行：`max(6, 4, 9)` 交回三个数里最大的 **9**，不是第一个实参 6。第 3 行显示 9 × 2 = **18**。
+        verify: |
+          names = ["gap", "worst"]
+          states = trace(names=names)[:2]
+          answers = {
+              "trace": {f"l{i}": {name: state.get(name, "尚未定义") for name in names} for i, state in enumerate(states, 1)},
+              "output": int(run().out),
+          }
+    quiz:
+      - id: py04.k1.x1
+        kind: [trace, predict]
+        body: |
+          ```python
+          print(max(abs(-7), 5) - min(4, 9))
+          ```
+        slots:
+          - id: inner
+            type: text
+            format: integer
+            prompt: "`abs(-7)` 交回"
+            key: 7
+          - id: largest
+            type: text
+            format: integer
+            prompt: "`max(abs(-7), 5)` 交回"
+            key: 7
+          - id: smallest
+            type: text
+            format: integer
+            prompt: "`min(4, 9)` 交回"
+            key: 4
+          - id: output
+            type: text
+            format: integer
+            prompt: 最后显示
+            key: 3
+        explanation: |
+          从里往外算：`abs(-7)` 交回 **7**；于是 `max(7, 5)` 交回 **7**；`min(4, 9)` 交回 **4**；最后 7 - 4，显示 **3**。
+        verify: |
+          answers = {
+              "inner": run("v = abs(-7)")["v"],
+              "largest": run("v = max(abs(-7), 5)")["v"],
+              "smallest": run("v = min(4, 9)")["v"],
+              "output": int(run().out),
+          }
+      - id: py04.k1.x2
+        kind: [explain]
+        body: |
+          运行下面这一行之后，哪一句说法正确？
+
+          ```python
+          size = len("sample")
+          ```
+        slots:
+          - id: claim
+            type: choice
+            options:
+              - id: shown
+                content: 屏幕上显示了 6
+                feedback: 赋值和调用都不会显示东西，要显示得用 print。
+              - id: text
+                content: "`size` 指向文字 sample"
+                feedback: 等号右边的调用先被换成返回值，`size` 指向的是返回值。
+              - id: function
+                content: "`size` 指向 `len` 这个函数"
+                feedback: 函数名后面有括号，就是调用了它；`size` 得到的是调用的结果。
+              - id: correct
+                content: "`len` 交回 6，`size` 指向 6，屏幕上什么也不显示"
+            key: correct
+        explanation: |
+          “`len` 交回 6，`size` 指向 6，屏幕上什么也不显示”这一句正确。`len("sample")` 交回 sample 的字符个数 6，等号让 `size` 指向这个返回值；整行没有 `print`，所以什么也不显示。
+        verify: |
+          r = run()
+          # 逐句核对每个说法，成立的必须恰好一句。
+          holds = {
+              "shown": r.out.strip() == "6",
+              "text": r["size"] == "sample",
+              "correct": r["size"] == 6 and r.out == "",
+              "function": callable(r["size"]),
+          }
+          true = [claim for claim, ok in holds.items() if ok]
+          answers = {"claim": true[0] if len(true) == 1 else true}
+
   - id: py04.k2
     title: 位置参数与关键字参数
+    card:
+      name: 关键字参数
+      aliases: [位置参数, 参数名, sep]
+      definition: 实参可以按位置交给函数，第几个位置代表什么由函数规定；也可以写成 名字=值，指明交给哪一个参数，这叫关键字参数。
+      conditions:
+        - 位置调换，含义就变了：`round(2.468, 2)` 里的 2 是保留几位小数。
+        - 关键字参数写在位置参数后面；没写的参数用函数自带的缺省值，例如 print 的 sep 缺省是一个空格。
+      example:
+        from: py04.k2.e0
+        text: |
+          ```python
+          print(round(3.14159, 3))
+          print(round(3.14159, ndigits=1))
+          print("S1", "S2", sep=",")
+          ```
+          依次显示 3.142、3.1 和 S1,S2。
+    lesson: |
+      `round(2.468, 2)` 交给 `round` 两个实参：第一个位置是要处理的数，第二个位置是保留几位小数，结果是 2.47。这样按先后位置交给函数的实参叫**位置参数**。每个位置代表什么由函数规定，调换了就是另一个意思：`round(2, 2.468)` 是要把 2 保留“2.468 位”小数，会报错。
+
+      也可以写明交给哪一个参数：`round(2.468, ndigits=2)`。`ndigits` 是 `round` 第二个参数的名字（number of digits，位数）。这种 `名字=值` 的写法叫**关键字参数**，读代码的人不用记位置，也知道这个 2 是什么。
+
+      没写的参数用函数自带的缺省值：`round(2.468)` 不给位数，就取整，结果是整数 2。
+
+      `print` 可以一次显示几个值，它有个关键字参数 `sep`，规定这几个值之间放什么，缺省是一个空格：
+
+      | 写法 | 显示 |
+      |---|---|
+      | `print("A", "B")` | A B |
+      | `print("A", "B", sep="-")` | A-B |
+      | `print(1, 2, sep="")` | 12 |
+
+      另一个关键字参数 `end` 规定显示完以后放什么，缺省是换行，所以每个 `print` 各占一行。
+
+      关键字参数要写在位置参数的后面，`round(ndigits=2, 2.468)` 这种写法 Python 不接受。
+    example:
+      id: py04.k2.e0
+      kind: [predict]
+      body: |
+        ```python
+        print(round(3.14159, 3))
+        print(round(3.14159, ndigits=1))
+        print("S1", "S2", sep=",")
+        ```
+      slots:
+        - id: line1
+          type: text
+          match: output
+          prompt: 第一行显示
+          key: "3.142"
+        - id: line2
+          type: text
+          match: output
+          prompt: 第二行显示
+          key: "3.1"
+        - id: line3
+          type: text
+          match: output
+          prompt: 第三行显示
+          key: "S1,S2"
+      explanation: |
+        依次显示 **3.142**、**3.1**、**S1,S2**。第一行按位置给出位数 3；第二行用关键字参数 `ndigits=1` 写明保留一位；第三行 `sep=","` 让两个值之间放一个逗号，不再是缺省的空格。
+      verify: |
+        lines = run().lines()
+        answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+    practice:
+      - id: py04.k2.q1
+        kind: [predict]
+        body: |
+          ```python
+          print("drug", "A")
+          print("drug", "A", sep="_")
+          print(10, 20, 30, sep="")
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "drug A"
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "drug_A"
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行显示
+            key: "102030"
+            feedback:
+              - when: "10 20 30"
+                message: "`sep=\"\"` 让几个值之间什么也不放，连空格也没有。"
+        explanation: |
+          依次显示 **drug A**、**drug_A**、**102030**。没写 `sep` 时，几个值之间放一个空格；`sep="_"` 放下划线；`sep=""` 是一段空文字，值与值之间什么也不放。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+      - id: py04.k2.q2
+        kind: [debug]
+        body: |
+          要让 `x` 指向 2.718 保留一位小数的结果 2.7。下面哪些写法能做到？选出所有能做到的。
+        slots:
+          - id: forms
+            type: choice
+            multiple: true
+            options:
+              - id: positional
+                content: |
+                  ```python
+                  x = round(2.718, 1)
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  x = round(1, 2.718)
+                  ```
+                feedback: 第一个位置是要处理的数，第二个位置是位数；调换后会报错。
+              - id: keyword
+                content: |
+                  ```python
+                  x = round(2.718, ndigits=1)
+                  ```
+              - id: keyword_first
+                content: |
+                  ```python
+                  x = round(ndigits=1, 2.718)
+                  ```
+                feedback: 关键字参数要写在位置参数后面，这样写 Python 不接受。
+              - id: no_digits
+                content: |
+                  ```python
+                  x = round(2.718)
+                  ```
+                feedback: 不给位数时 round 取整，得到 3。
+            key: [positional, keyword]
+        explanation: |
+          `round(2.718, 1)` 和 `round(2.718, ndigits=1)` 都得到 2.7：一个按位置、一个按名字给出位数。`round(1, 2.718)` 把两个位置调换了，会报错；`round(ndigits=1, 2.718)` 把关键字参数写在了位置参数前面，Python 不接受；`round(2.718)` 没给位数，取整得 3。
+        verify: |
+          fits = [option for option, code in OPTIONS["forms"].items()
+                  if run(code).error is None and run(code).vars.get("x") == 2.7]
+          answers = {"forms": fits}
+      - id: py04.k2.q3
+        kind: [modify]
+        uses: [py03.k1]
+        body: |
+          宿主准备了两个样本编号 `first` 和 `second`，都是文字。要把它们显示在一行里，中间只放一个逗号、没有空格，例如编号是 S_01 和 S_02 时显示 `S_01,S_02`。
+
+          作答框里的代码中间放的是空格。请改好它；换了编号也要照这个格式显示。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              print(first, second)
+            solution: |
+              print(first, second, sep=",")
+            accepts:
+              - print(first + "," + second)
+            rejects:
+              - code: print(first, ",", second)
+                why: 逗号成了第三个值，前后仍各有一个空格
+              - code: print(first, second, sep=", ")
+                why: 逗号后面多了一个空格
+              - code: print("S_01,S_02")
+                why: 把这一次的编号写死了
+              - code: print(first, second, end=",")
+                why: end 管的是显示完以后放什么，两个值之间仍是空格
+            tests:
+              - name: 编号 S_01 和 S_02
+                setup: |
+                  first = "S_01"
+                  second = "S_02"
+                stdout: S_01,S_02
+              - name: 换一组编号
+                hidden: true
+                setup: |
+                  first = "C_7"
+                  second = "D_12"
+                stdout: C_7,D_12
+        explanation: |
+          ```python
+          print(first, second, sep=",")
+          ```
+
+          加上关键字参数 `sep=","`，两个值之间就放逗号而不是空格。写成 `print(first + "," + second)` 先把三段文字接成一段再显示，也对。
+    review:
+      - id: py04.k2.r1
+        kind: [predict]
+        body: |
+          一次量得 5.678 毫升。如果把下面每个式子交给 `print`，各显示什么？会报错的填 ERROR。
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - id: expression
+                header: 式子
+              - id: display
+                header: 显示
+                input: { type: text, match: output, quick: [ERROR] }
+            rows:
+              - id: two
+                cells: { expression: 'round(5.678, 2)', display: "5.68" }
+              - id: keyword
+                cells: { expression: 'round(5.678, ndigits=1)', display: "5.7" }
+              - id: none
+                cells: { expression: 'round(5.678)', display: "6" }
+              - id: swapped
+                cells: { expression: 'round(2, 5.678)', display: ERROR }
+        explanation: |
+          依次是 **5.68**、**5.7**、**6**、**ERROR**。按位置给出 2，保留两位；`ndigits=1` 写明保留一位；不给位数就取整成 6；把两个实参调换以后，位数成了 5.678，不是整数，会报错。
+        verify: |
+          rows = {"two": "round(5.678, 2)", "keyword": "round(5.678, ndigits=1)", "none": "round(5.678)", "swapped": "round(2, 5.678)"}
+          # repl 给出交互解释器的显示内容，报错时为 ERROR；对这些数值，print 显示的与它相同。
+          answers = {"shown": {row: {"display": repl(expression)[0]} for row, expression in rows.items()}}
+      - id: py04.k2.r2
+        kind: [debug]
+        body: |
+          三个孔的读数是 12、15、9。要显示成用短横线连起来的一行：`12-15-9`。哪一行做到了？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: sep
+                content: |
+                  ```python
+                  print(12, 15, 9, sep="-")
+                  ```
+              - id: extra
+                content: |
+                  ```python
+                  print(12, 15, 9, "-")
+                  ```
+                feedback: 短横线成了第四个值，显示为 12 15 9 -。
+              - id: minus
+                content: |
+                  ```python
+                  print(12-15-9)
+                  ```
+                feedback: 没有引号的短横线是减号，这一行显示的是 12 - 15 - 9 的结果。
+              - id: front
+                content: |
+                  ```python
+                  print("-", 12, 15, 9)
+                  ```
+                feedback: 短横线成了第一个值，值与值之间仍是空格。
+            key: sep
+        explanation: |
+          `print(12, 15, 9, sep="-")` 正确：`sep` 规定值与值之间放短横线。把 `"-"` 写成普通的位置参数，它只是又一个要显示的值；不加引号的 `12-15-9` 是减法，显示 -12。
+        verify: |
+          fits = [option for option, code in OPTIONS["line"].items() if run(code).out.strip() == "12-15-9"]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py04.k2.x1
+        kind: [modify]
+        body: |
+          宿主准备了 `value`（一个测量值）和 `digits`（要保留的小数位数）。同事的代码把两个实参的位置写反了，一运行就报错。改好它，让 `rounded` 指向把 `value` 保留 `digits` 位小数的结果；换了 `value` 或 `digits` 也要照样工作。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              rounded = round(digits, value)
+            solution: |
+              rounded = round(value, digits)
+            accepts:
+              - rounded = round(value, ndigits=digits)
+            rejects:
+              - code: rounded = round(value)
+                why: 没有给位数，round 取整
+              - code: rounded = round(value, 2)
+                why: 把位数写死成 2
+              - code: rounded = round(value, digits=digits)
+                why: round 的第二个参数叫 ndigits，不叫 digits
+            tests:
+              - name: 保留两位
+                setup: |
+                  value = 3.14159
+                  digits = 2
+                expect:
+                  rounded: "3.14"
+              - name: 保留一位
+                hidden: true
+                setup: |
+                  value = 12.3456
+                  digits = 1
+                expect:
+                  rounded: "12.3"
+              - name: 保留三位
+                hidden: true
+                setup: |
+                  value = 0.4567
+                  digits = 3
+                expect:
+                  rounded: "0.457"
+        explanation: |
+          ```python
+          rounded = round(value, digits)
+          ```
+
+          第一个位置放要处理的数，第二个位置放位数。写成 `round(value, ndigits=digits)` 也对；关键字参数的名字要写 round 自己规定的 `ndigits`，写成 `digits=` 会报错。
+      - id: py04.k2.x2
+        kind: [predict, explain]
+        body: |
+          ```python
+          print(round(8.765, 1), "mL", sep="")
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 显示什么？
+            key: "8.8mL"
+          - id: keywords
+            type: choice
+            multiple: true
+            minSelected: 0
+            prompt: 这一行里，哪些是关键字参数？选出所有的。
+            options:
+              - { id: digits, content: "`1`" }
+              - { id: sep, content: '`sep=""`' }
+              - { id: unit, content: '`"mL"`' }
+              - { id: number, content: "`8.765`" }
+            key: [sep]
+        explanation: |
+          显示 **8.8mL**。`round(8.765, 1)` 交回 8.8，它和 `"mL"` 是交给 `print` 的两个位置参数；`sep=""` 是唯一的关键字参数，让两个值之间什么也不放。`8.765` 和 `1` 是按位置交给 `round` 的。
+        verify: |
+          import ast
+          # 选项与它们代表的源码写法；从语法树里找出所有写成 名字=值 的实参。
+          sources = {"digits": "1", "sep": "sep=''", "unit": "'mL'", "number": "8.765"}
+          keywords = [ast.unparse(node) for node in ast.walk(ast.parse(CODE)) if isinstance(node, ast.keyword)]
+          answers = {
+              "output": run().lines()[0],
+              "keywords": [option for option, source in sources.items() if source in keywords],
+          }
+
   - id: py04.k3
     title: 把返回结果交给下一步而不是只显示
+    card:
+      name: 接住返回值
+      aliases: [保存结果, print 的返回值]
+      definition: 调用交回的值，要存进一个名字或直接放进下一步的式子，后面才用得上；单独一行的调用既不显示也不保存，print 只负责显示，交回的是 None。
+      conditions:
+        - 单独一行 `round(x, 1)` 不会改变 x；要保留，写 `x = round(x, 1)` 或存进新名字。
+        - "`result = print(5)` 会显示 5，但 result 指向 None，之后拿它计算会报错。"
+      example:
+        from: py04.k3.e0
+        text: |
+          ```python
+          dose = 2.468
+          round(dose, 1)
+          print(dose)
+          dose = round(dose, 1)
+          print(dose)
+          ```
+          第 2 行算出 2.5 却没有存下，第一次显示 2.468；第 4 行把结果存回 dose，第二次显示 2.5。
+    lesson: |
+      一次调用交回返回值以后，这个值去了哪里，要看调用写在哪里：
+
+      ```python startLine=1
+      value = 2.468
+      round(value, 1)
+      rounded = round(value, 1)
+      print(round(value, 1))
+      ```
+
+      - 第 2 行：算出了 2.5，但没有存进任何名字，也不显示，随即丢掉。它**不会**把 `value` 改成 2.5，`value` 仍是 2.468。
+      - 第 3 行：返回值存进 `rounded`，后面的代码可以接着用。
+      - 第 4 行：返回值交给 `print` 显示在屏幕上；显示完同样没有存下来。
+
+      `print` 是把值显示出来，它自己交回的是 [None](repa:concept/py03.k3)。所以 `result = print(5)` 会显示 5，但之后 `result` 是 None，`result + 1` 会报错。
+
+      AI 写的代码里常见这种情况：上一步只用 `print` 显示了一个结果，下一步却想用它。看到后面要用的值，先找它有没有被存进名字。
+    example:
+      id: py04.k3.e0
+      kind: [trace, predict]
+      body: |
+        ```python startLine=1
+        dose = 2.468
+        round(dose, 1)
+        print(dose)
+        dose = round(dose, 1)
+        print(dose)
+        ```
+      slots:
+        - id: first
+          type: text
+          match: output
+          prompt: 第一次显示什么？
+          key: "2.468"
+        - id: second
+          type: text
+          match: output
+          prompt: 第二次显示什么？
+          key: "2.5"
+        - id: line2
+          type: choice
+          prompt: 第 2 行做了什么？
+          options:
+            - id: lost
+              content: 算出 2.5，但没有存下也没有显示，dose 不变
+            - id: changed
+              content: 把 dose 改成了 2.5
+            - id: shown
+              content: 在屏幕上显示了 2.5
+          key: lost
+      explanation: |
+        第一次显示 **2.468**，第二次显示 **2.5**。第 2 行的 `round(dose, 1)` 算出了 2.5，可是它单独一行，既没有存进名字，也没有交给 `print`，算完就丢了，`dose` 仍是 2.468。第 4 行把同样的返回值存回 `dose`，之后 `dose` 才是 2.5。
+      verify: |
+        lines = run().lines()
+        states = trace(names=["dose"])
+        # 第 2 行执行前后 dose 是否相同；第 2 行单独运行时是否有输出。
+        unchanged = states[1]["dose"] == states[0]["dose"]
+        silent = run("dose = 2.468\nround(dose, 1)").out == ""
+        answers = {
+            "first": lines[0],
+            "second": lines[1],
+            "line2": "lost" if unchanged and silent else ("changed" if not unchanged else "shown"),
+        }
+    practice:
+      - id: py04.k3.q1
+        kind: [predict]
+        body: |
+          逐行写出：运行到这一行时，屏幕上新显示了什么。这一行什么也不显示，就填 NOTHING。
+
+          ```python startLine=1
+          signal = 12.34
+          round(signal, 1)
+          print(round(signal, 1))
+          print(signal)
+          ```
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - id: line
+                header: 运行到
+              - id: display
+                header: 这一行显示
+                input: { type: text, match: output, quick: [NOTHING] }
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, display: NOTHING }
+              - id: l2
+                cells: { line: 第 2 行, display: NOTHING }
+              - id: l3
+                cells: { line: 第 3 行, display: "12.3" }
+              - id: l4
+                cells: { line: 第 4 行, display: "12.34" }
+        explanation: |
+          第 1、2 行都显示 **NOTHING**：赋值不显示；第 2 行的调用算出了 12.3，但单独一行，不显示也不保存。第 3 行把返回值交给 `print`，显示 **12.3**。第 4 行显示的是 `signal` 本身，它一直没变，仍是 **12.34**。
+        verify: |
+          # 一行一行运行，每行接着上一行留下的变量，记下这一行打印的内容。
+          nothing = repl("pass")[0]
+          state = {}
+          shown = {}
+          for number, line in enumerate(CODE.strip().splitlines(), 1):
+              r = run(line, **state)
+              shown[f"l{number}"] = {"display": r.lines()[0] if r.lines() else nothing}
+              state = r.vars
+          answers = {"shown": shown}
+      - id: py04.k3.q2
+        kind: [explain]
+        uses: [py03.k3]
+        body: |
+          `signal` 是 12.34。下一步要用它保留一位小数以后的值，再乘 2。下面四段代码之后都接着一行 `print(doubled)`。哪一段会显示 24.6？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: discarded
+                content: |
+                  ```python
+                  round(signal, 1)
+                  doubled = signal * 2
+                  ```
+                feedback: 第一行的结果没有存下，第二行用的还是 12.34。
+              - id: stored
+                content: |
+                  ```python
+                  rounded = round(signal, 1)
+                  doubled = rounded * 2
+                  ```
+              - id: printed
+                content: |
+                  ```python
+                  rounded = print(round(signal, 1))
+                  doubled = rounded * 2
+                  ```
+                feedback: print 只负责显示，rounded 拿到的是 None，第二行会报错。
+              - id: late
+                content: |
+                  ```python
+                  doubled = round(signal * 2, 1)
+                  ```
+                feedback: 这是先乘 2 再保留一位：24.68 保留一位得 24.7。
+            key: stored
+        explanation: |
+          先把返回值存进 `rounded`、再拿 `rounded` 乘 2 的那一段显示 **24.6**。单独一行的 `round(signal, 1)` 算完就丢了；`print` 交回 None，拿 None 乘 2 会报错；先乘 2 再保留一位，顺序反了，得到 24.7。
+        verify: |
+          shows = [option for option, code in OPTIONS["program"].items()
+                   if (r := run(code + "\nprint(doubled)", signal=12.34)).error is None and r.lines()[-1] == "24.6"]
+          answers = {"program": shows[0] if len(shows) == 1 else shows}
+      - id: py04.k3.q3
+        kind: [modify]
+        uses: [py02.k2, py02.k3]
+        body: |
+          宿主准备了 `minutes`，是一次实验用的分钟数。后面的步骤要用换算成小时、保留两位小数的值，所以要求：
+
+          > 把结果存进 `hours`，再显示 `hours`。
+
+          同事写的代码在作答框里：它把结果显示出来了，`hours` 却拿不到这个值。请改好它。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              hours = print(round(minutes / 60, 2))
+            solution: |
+              hours = round(minutes / 60, 2)
+              print(hours)
+            accepts:
+              - |
+                hours = round(minutes / 60, ndigits=2)
+                print(hours)
+              - |
+                hours = minutes / 60
+                hours = round(hours, 2)
+                print(hours)
+            rejects:
+              - code: |
+                  round(minutes / 60, 2)
+                  print(hours)
+                why: 调用的结果没有存下，hours 没有赋值
+              - code: |
+                  hours = minutes / 60
+                  print(round(hours, 2))
+                why: 只在显示时保留两位，hours 本身没有保留两位
+              - code: hours = round(minutes / 60, 2)
+                why: 存下了，但没有显示
+              - code: |
+                  hours = round(minutes / 60)
+                  print(hours)
+                why: 没有给位数，取成了整数
+              - code: |
+                  hours = 2.25
+                  print(hours)
+                why: 把这一次的结果写死了
+            tests:
+              - name: 135 分钟
+                setup: minutes = 135
+                expect:
+                  hours: "2.25"
+                stdout: "2.25"
+              - name: 除不尽的分钟数
+                hidden: true
+                setup: minutes = 50
+                expect:
+                  hours: "0.83"
+                stdout: "0.83"
+              - name: 再换一个
+                hidden: true
+                setup: minutes = 200
+                expect:
+                  hours: "3.33"
+                stdout: "3.33"
+        explanation: |
+          ```python
+          hours = round(minutes / 60, 2)
+          print(hours)
+          ```
+
+          先把返回值存进 `hours`，再把 `hours` 交给 `print`。原来的写法里，`round` 的结果交给了 `print`，`hours` 得到的是 `print` 交回的 None。只在 `print` 里保留两位也不够：显示的是两位小数，`hours` 本身仍是 0.8333… 这样的长小数，后面的步骤拿到的不是要求的值。
+    review:
+      - id: py04.k3.r1
+        kind: [debug, predict]
+        body: |
+          本意是先把体积保留两位小数，再乘 2。程序却显示 4.912。
+
+          ```python startLine=1
+          volume_ml = 2.456
+          round(volume_ml, 2)
+          total_ml = volume_ml * 2
+          print(total_ml)
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 问题出在哪一行？
+            options:
+              - { id: l1, content: 第 1 行 }
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+            key: l2
+          - id: fixed
+            type: text
+            match: output
+            prompt: 把这一行改成 `volume_ml = round(volume_ml, 2)` 以后，程序显示什么？
+            key: "4.92"
+        explanation: |
+          问题在**第 2 行**：`round` 算出了 2.46，但结果没有存下，第 3 行用的仍是 2.456，所以显示 4.912。改成 `volume_ml = round(volume_ml, 2)` 以后，`volume_ml` 指向 2.46，显示 **4.92**。
+        verify: |
+          import ast
+          # 找出单独成行、结果没有存下来的调用（print 除外）。
+          lost = [node.lineno for node in ast.parse(CODE).body
+                  if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+                  and ast.unparse(node.value.func) != "print"]
+          lines = CODE.strip().splitlines()
+          number = lost[0]
+          lines[number - 1] = "volume_ml = " + lines[number - 1]
+          answers = {"line": f"l{number}" if len(lost) == 1 else lost, "fixed": run("\n".join(lines)).lines()[0]}
+      - id: py04.k3.r2
+        kind: [predict, trace]
+        uses: [py03.k3]
+        body: |
+          ```python startLine=1
+          total = 4 + 5
+          shown = print(total)
+          print(shown)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 屏幕上第一行显示什么？
+            key: "9"
+          - id: second
+            type: text
+            match: output
+            prompt: 屏幕上第二行显示什么？
+            key: None
+            feedback:
+              - when: "9"
+                message: 第 2 行的 print 显示了 9，但它交回的不是 9；shown 存下的是 print 的返回值。
+        explanation: |
+          第一行显示 **9**：第 2 行的 `print(total)` 把 9 显示出来。第二行显示 **None**：`print` 交回的是 None，`shown` 存下的就是它，第 3 行把它显示出来。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+    quiz:
+      - id: py04.k3.x1
+        kind: [trace]
+        uses: [py01.k2, py03.k3]
+        body: |
+          按运行顺序填写每行执行后 `value` 与 `result` 的值。还没有赋值的填“尚未定义”，没有值的写 None。
+
+          ```python startLine=1
+          value = abs(-2.4)
+          round(value)
+          result = print(value)
+          ```
+        slots:
+          - id: trace
+            type: table
+            columns:
+              - id: line
+                header: 执行到
+              - id: value
+                header: value
+                input: { type: text, quick: [尚未定义, None] }
+              - id: result
+                header: result
+                input: { type: text, quick: [尚未定义, None] }
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, value: "2.4", result: 尚未定义 }
+              - id: l2
+                cells: { line: 第 2 行, value: "2.4", result: 尚未定义 }
+              - id: l3
+                cells: { line: 第 3 行, value: "2.4", result: None }
+        explanation: |
+          | 执行到 | value | result |
+          |---|---|---|
+          | 第 1 行 | 2.4 | 尚未定义 |
+          | 第 2 行 | 2.4 | 尚未定义 |
+          | 第 3 行 | 2.4 | None |
+
+          第 2 行的 `round(value)` 算出 2，但没有存下，`value` 不变。第 3 行显示 2.4，`print` 交回 None，`result` 指向 None。
+        verify: |
+          names = ["value", "result"]
+          states = trace(names=names)
+          answers = {"trace": {f"l{i}": {name: state[name] if name in state else "尚未定义" for name in names} for i, state in enumerate(states, 1)}}
+      - id: py04.k3.x2
+        kind: [debug]
+        uses: [py03.k3]
+        body: |
+          下面这段 AI 写的代码运行到某一行报错停下了。
+
+          ```python startLine=1
+          total_ml = 12.5 + 7.5
+          print(total_ml)
+          average_ml = print(total_ml / 2)
+          check_ml = average_ml * 2
+          print(check_ml)
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 在哪一行报错？
+            options:
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+              - { id: l5, content: 第 5 行 }
+            key: l4
+          - id: average
+            type: text
+            match: output
+            prompt: 报错时，`average_ml` 指向什么？（像 print 那样写出它的显示）
+            key: None
+        explanation: |
+          在**第 4 行**报错。第 3 行显示了 10.0，可是 `average_ml` 存下的是 `print` 交回的 **None**；第 4 行拿 None 乘 2，就报错了。要接着用平均值，第 3 行应写成 `average_ml = total_ml / 2`，需要看结果时再另写一行 `print(average_ml)`。
+        verify: |
+          lines = CODE.strip().splitlines()
+          # 逐次多运行一行，第一次出错的就是报错的那一行。
+          failing = next(number for number in range(1, len(lines) + 1) if run("\n".join(lines[:number])).error is not None)
+          before = run("\n".join(lines[:failing - 1]))
+          # 用 print 显示报错前 average_ml 的值，得到的是显示内容。
+          answers = {"line": f"l{failing}", "average": run("print(average_ml)", average_ml=before["average_ml"]).lines()[0]}
