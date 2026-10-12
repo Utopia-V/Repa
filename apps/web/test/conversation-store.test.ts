@@ -57,6 +57,7 @@ function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, Se
         return Promise.resolve(info);
       }
       case "confirm.reply":
+      case "space.close":
         return Promise.resolve(null);
       default:
         return Promise.reject(new Error(`未模拟的方法 ${method}`));
@@ -348,4 +349,29 @@ it("排队失败时移出队列并返回 false，保留原因", async () => {
 
   backend.runs[0]?.finish();
   await sending;
+});
+
+it("关闭空间后清空会话、会话列表和授权；运行中不关闭", async () => {
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }], { s1: [{ id: "u1", type: "user", timestamp: at, text: "极限" }] });
+  const store = await openedStore(backend);
+
+  const sending = store.getState().sendMessage("出一道题");
+  await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+  backend.emit("confirm.request", { id: "c1", request: { kind: "command", title: "允许执行命令？", message: "ls" } });
+  await store.getState().closeSpace();
+  expect(backend.call).not.toHaveBeenCalledWith("space.close", {});
+  expect(store.getState().space).toBe("/notes/calculus");
+  backend.runs[0]?.finish();
+  await sending;
+
+  backend.emit("confirm.request", { id: "c2", request: { kind: "command", title: "允许执行命令？", message: "ls" } });
+  await store.getState().closeSpace();
+  expect(backend.call).toHaveBeenCalledWith("space.close", {});
+  expect(store.getState()).toMatchObject({
+    space: undefined,
+    conversation: { status: "idle", items: [], run: "idle" },
+    confirmations: [],
+    resources: { sessions: { status: "idle" } },
+  });
+  expect(store.getState().conversation.sessionId).toBeUndefined();
 });

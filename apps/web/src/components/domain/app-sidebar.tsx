@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { FolderOpen, History, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FolderOpen, History, Settings, X } from "lucide-react";
 import { NavLink, useMatch, useNavigate } from "react-router";
 import type { SessionInfo } from "@repa/base/protocol";
 import {
@@ -7,6 +7,8 @@ import {
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem,
   SidebarRail, SidebarTrigger, useSidebar,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { ErrorNotice } from "@/components/domain/error-notice";
 import { SessionList } from "@/components/domain/session-list";
 import { useAppStore } from "@/hooks/use-app-store";
 import { folderName } from "@/lib/paths";
@@ -19,10 +21,13 @@ export function AppSidebar() {
   const sessions = useAppStore((store) => store.resources.sessions);
   const loadSessions = useAppStore((store) => store.loadSessions);
   const openSession = useAppStore((store) => store.openSession);
+  const closeSpace = useAppStore((store) => store.closeSpace);
   const sessionId = useAppStore((store) => store.conversation.sessionId);
   const running = useAppStore((store) => store.conversation.run !== "idle");
   const inConversation = useMatch("/conversation") !== null;
   const navigate = useNavigate();
+  const [closing, setClosing] = useState(false);
+  const [closeFailure, setCloseFailure] = useState<{ space: string; error: unknown }>();
   const closeMobileSidebar = () => setOpenMobile(false);
 
   useEffect(() => {
@@ -33,6 +38,21 @@ export function AppSidebar() {
     closeMobileSidebar();
     void openSession(session);
     void navigate("/conversation");
+  }
+
+  async function close(root: string) {
+    setClosing(true);
+    setCloseFailure(undefined);
+    try {
+      await closeSpace();
+      closeMobileSidebar();
+      void navigate("/learning-space");
+    } catch (error) {
+      // 失败时保留抽屉和这一项，原因显示在它下面，可以再关一次。
+      setCloseFailure({ space: root, error });
+    } finally {
+      setClosing(false);
+    }
   }
   const collapsedTitle = (label: string) => state === "collapsed" ? label : undefined;
 
@@ -53,14 +73,30 @@ export function AppSidebar() {
                   <FolderOpen aria-hidden="true" /><span className={collapseLabel}>Learning Space</span>
                 </NavLink>
               </SidebarMenuButton>
-              {/* 后端一次只持有一个空间，这里只列出当前打开的那个，最近空间仍在 Learning Space 页选择。 */}
+              {/* 后端一次只持有一个空间，这里只列出当前打开的那个，最近空间仍在 Learning Space 页选择。
+                  运行中不能关闭，后端关闭空间会中止运行。 */}
               {space && <SidebarMenuSub>
                 <SidebarMenuSubItem>
-                  <SidebarMenuSubButton asChild>
-                    <NavLink to="/conversation" onClick={closeMobileSidebar} title={space}>
-                      <span>{folderName(space)}</span>
-                    </NavLink>
-                  </SidebarMenuSubButton>
+                  <div className="flex items-center gap-1">
+                    <SidebarMenuSubButton asChild>
+                      <NavLink to="/conversation" onClick={closeMobileSidebar} title={space}>
+                        <span>{folderName(space)}</span>
+                      </NavLink>
+                    </SidebarMenuSubButton>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`关闭空间 ${folderName(space)}`}
+                      title="关闭空间"
+                      disabled={running || closing}
+                      onClick={() => { void close(space); }}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  </div>
+                  {closeFailure?.space === space && <div className="mt-1">
+                    <ErrorNotice title="关闭空间时出错" error={closeFailure.error} />
+                  </div>}
                 </SidebarMenuSubItem>
               </SidebarMenuSub>}
             </SidebarMenuItem>

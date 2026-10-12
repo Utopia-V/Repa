@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createMemoryRouter } from "react-router";
+import { RpcError } from "@repa/base/client";
 import { RouterProvider } from "react-router/dom";
 import { StoreProvider } from "../src/hooks/use-app-store";
 import { createAppStore } from "../src/lib/store";
@@ -90,6 +91,57 @@ it("侧栏列出当前空间的会话，点击打开它，运行中不能切到�
   await waitFor(() => expect(finish).toBeDefined());
   expect((within(sessions).getByRole("button", { name: "导数是什么" }) as HTMLButtonElement).disabled).toBe(true);
   await act(async () => { finish?.(); });
+});
+
+it("关闭当前空间后回到 Learning Space；运行中不能关，关闭失败时显示原因并可以再关", async () => {
+  let finish: (() => void) | undefined;
+  let closeFails = true;
+  const call = vi.fn((method: string, params: Record<string, unknown>) => {
+    switch (method) {
+      case "space.open":
+        return Promise.resolve({ root: params.root });
+      case "space.list":
+      case "session.list":
+      case "session.history":
+        return Promise.resolve([]);
+      case "session.create":
+        return Promise.resolve({ id: "s1", createdAt: "2026-10-12T00:00:00.000Z", updatedAt: "2026-10-12T00:00:00.000Z" });
+      case "session.send":
+        return new Promise((resolve) => { finish = () => resolve(null); });
+      case "space.close":
+        if (closeFails) {
+          closeFails = false;
+          return Promise.reject(new RpcError(-32603, "Internal error"));
+        }
+        return Promise.resolve(null);
+      default:
+        return Promise.reject(new Error(`未模拟的方法 ${method}`));
+    }
+  });
+  const store = createAppStore();
+  store.getState().setClient(fakeClient(call).client);
+  await act(() => store.getState().openSpace("/notes/calculus"));
+  const router = renderWorkspace("/conversation", store);
+  const navigation = screen.getByRole("navigation", { name: "主导航" });
+  const close = within(navigation).getByRole("button", { name: "关闭空间 calculus" });
+  await screen.findByText("这是一个新会话。说说你想学什么，或者直接提问。");
+
+  act(() => { void store.getState().sendMessage("继续"); });
+  await waitFor(() => expect(finish).toBeDefined());
+  await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(true));
+  await act(async () => { finish?.(); });
+  await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(false));
+
+  fireEvent.click(close);
+  expect((await within(navigation).findByRole("alert")).textContent).toContain("关闭空间时出错");
+  expect(router.state.location.pathname).toBe("/conversation");
+
+  fireEvent.click(close);
+  await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
+  expect(call.mock.calls.filter(([method]) => method === "space.close")).toHaveLength(2);
+  expect(within(navigation).queryByRole("link", { name: "calculus" })).toBeNull();
+  expect(within(navigation).queryByRole("alert")).toBeNull();
+  expect(store.getState().space).toBeUndefined();
 });
 
 it("导航抽屉可关闭、恢复焦点，选择目标后关闭并保留当前路由", async () => {

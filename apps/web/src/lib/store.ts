@@ -86,6 +86,11 @@ export type AppState = {
   /** 重新读取已经读过的数据，用于重连和窗口切回。 */
   reloadLoaded(): Promise<void>;
   openSpace(root: string): Promise<void>;
+  /**
+   * 运行中不关闭：后端关闭空间会中止正在进行的运行。失败时抛给调用方并保留空间；
+   * 后端报错时已经放下了这个空间，再关一次就能完成。
+   */
+  closeSpace(): Promise<void>;
   /** 浏览结果只属于当次选择，不进入共享状态。 */
   browseFolder(path?: string): Promise<Result<"space.browse">>;
   listRoots(): Promise<Result<"space.roots">>;
@@ -398,6 +403,13 @@ export function createAppStore() {
         // 打开前发出的读取可能不含这次打开，重新读取。
         pending.delete("spaces");
         await loaders.spaces();
+      },
+      async closeSpace() {
+        if (!get().space || get().conversation.run !== "idle") return;
+        await call("space.close", {});
+        conversationRequest++;
+        resetSpaceData();
+        set({ space: undefined, conversation: emptyConversation, confirmations: [] });
       },
       browseFolder(path) {
         return call("space.browse", path === undefined ? {} : { path });

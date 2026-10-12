@@ -82,7 +82,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 
 页面要读后端数据，而连接会在断线后换成新的 `RepaClient`，读取结果也需要在多个页面之间共用，因此 Web 用一个 Zustand store 持有这些状态。`src/lib/store.ts` 的 `createAppStore()` 创建 vanilla store，`src/main.tsx` 创建实例并传给 `App`；`hooks/use-app-store.tsx` 的 `StoreProvider` 把它交给路由内的页面，页面通过 `useAppStore(selector)` 选取需要的字段。测试每次新建 store，不共享模块级单例。
 
-从后端读取的数据统一用 `Resource` 表示：`status` 为 idle、loading、ready 或 error，重新读取期间保留上一次的 `data`，界面不会回到空白。同一份数据只保留一个进行中的读取，并以序号丢弃先发后到的旧结果。`App` 连接成功后调用 `setClient`，store 换用新连接并重新读取已经读过的数据；标签页切回可见时 `StoreProvider` 也会重新读取，因为后端不推送设置和空间列表的变化。修改类操作（目前是 `openSpace`）把失败抛给调用页面，由页面在本地状态里显示进行中与失败。
+从后端读取的数据统一用 `Resource` 表示：`status` 为 idle、loading、ready 或 error，重新读取期间保留上一次的 `data`，界面不会回到空白。同一份数据只保留一个进行中的读取，并以序号丢弃先发后到的旧结果。`App` 连接成功后调用 `setClient`，store 换用新连接并重新读取已经读过的数据；标签页切回可见时 `StoreProvider` 也会重新读取，因为后端不推送设置和空间列表的变化。修改类操作（目前是 `openSpace` 和 `closeSpace`）把失败抛给调用页面，由页面在本地状态里显示进行中与失败。
 
 目前 store 持有最近空间（`space.list`，最新的在前）、模型提供方（`model.providers`）、模型列表（`model.list`）、默认模型（`model.getDefault`）、当前空间的会话列表（`session.list`，换空间时清空）、当前空间最近的修改历史（`history.list` 与 `history.changes`，换空间时清空）、本页面打开的空间、当前会话、待回答的命令授权、进行中的模型登录和侧栏偏好；只有侧栏偏好保存在浏览器里。后端没有查询当前空间的方法，`setClient` 换连接后对原来的空间再调一次 `space.open`：同一个空间后端直接返回，后端重启过则重新打开；打不开时清空空间，对话页回到空间选择。会话列表和修改历史依赖打开的空间，不随其他数据在换连接时直接重读，而是在空间重新打开之后再读。`setClient` 同时在新连接上订阅 `session.event` 和 `confirm.request`，旧连接上的授权请求随断线由后端取消，store 一并清空。
 
@@ -93,9 +93,9 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 - `SidebarRail` 是侧栏边缘的 16 px 手势条，点击切换展开/收起，悬停显示 2 px 中性 `border` 竖线；支持拖动调整宽度、双击重置，键盘方向键调整、Home 重置、Enter/空格切换；上游的 offcanvas 类保留但当前未被使用。
 - `layouts/workspace-layout.tsx` 通过 SidebarProvider 组合应用侧栏、打开入口和空白路由出口。桌面展开宽度 280 px，收起为 56 px 常驻图标栏（`collapsible="icon"`）；移动端由官方 `useIsMobile` 与 Sheet 切换为侧边面板。桌面折叠栏自带展开入口，工作区只在移动端渲染浮动打开按钮。桌面可拖动至 200 px—480 px，最大不超过视口的 40%；拖至最小宽度以下收起，折叠时向外拖至 200 px 展开阈值才展开，小幅拖动保持折叠；展开使用完整过渡并结束本次拖动。桌面的展开状态和宽度由 Zustand store 的 `persist` 写入 `localStorage`（键 `repa.web.preferences`，只含侧栏偏好），刷新后保留；存储不可用时退回默认展开、默认宽度，格式不对的项逐项回到默认值；移动端抽屉每次从关闭开始，不保存。拖动期间用 80 ms 短过渡平滑调整宽度，跨过收起阈值时恢复完整折叠动画，取消、失去指针捕获或卸载时清理拖动状态。
 - 折叠栏沿用 SidebarMenuButton 的 token 与交互状态，通过 `sr-only` 保留标签的可访问名称，并用 `title` 提供图标提示。侧栏支持拖动调宽、收起与展开；移动端复用 Sheet 的关闭、Escape 和焦点恢复行为。
-- Web 的 `components/domain/app-sidebar.tsx` 组合 Learning Space 和 Settings 两个栏目；打开空间后，它下面的二级菜单项显示这个空间的文件夹名（悬停显示完整路径），点击进入对话页，在对话页时为当前项。后端一次只持有一个空间，所以只列当前打开的这一个，最近空间仍在 Learning Space 页选择；整页刷新后页面不知道当前空间，这一项随之消失。侧栏收起为图标栏时二级菜单隐藏。打开空间后，主导航下方的“会话”组由 `components/domain/session-list.tsx` 列出这个空间的会话，最近有消息的在前，名称取会话名，没有时取第一条消息的开头，悬停显示全文；点击打开该会话并进入对话页，在对话页时正在查看的会话为当前项。运行中其他会话不能点，因为运行状态只属于当前会话，切走后无法再查询。会话很多时随侧栏滚动，还没有分页；收起为图标栏时整组隐藏。打开空间后，Learning Space 和 Settings 之间还会出现 History 栏目，进入这个空间的修改历史页，见下方“修改历史页”；Desktop 没有这一栏。Settings 目前有模型设置和命令授权，见下方“设置页”。Desktop 的 Settings 仍是空页面。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources 或本地空间提示卡，布局不再保存会话展开状态。
+- Web 的 `components/domain/app-sidebar.tsx` 组合 Learning Space 和 Settings 两个栏目；打开空间后，它下面的二级菜单项显示这个空间的文件夹名（悬停显示完整路径），点击进入对话页，在对话页时为当前项。后端一次只持有一个空间，所以只列当前打开的这一个，最近空间仍在 Learning Space 页选择；整页刷新后页面不知道当前空间，这一项随之消失。名称右侧的关闭按钮调用 `space.close`，成功后 store 清空这个空间的会话、会话列表、修改历史和待回答的授权，页面回到 Learning Space；后端关闭空间会中止正在进行的运行，所以运行中不能关。关闭失败时原因显示在这一项下面，空间仍按打开处理；后端报错时其实已经放下了这个空间，再关一次就能完成。侧栏收起为图标栏时二级菜单隐藏。打开空间后，主导航下方的“会话”组由 `components/domain/session-list.tsx` 列出这个空间的会话，最近有消息的在前，名称取会话名，没有时取第一条消息的开头，悬停显示全文；点击打开该会话并进入对话页，在对话页时正在查看的会话为当前项。运行中其他会话不能点，因为运行状态只属于当前会话，切走后无法再查询。会话很多时随侧栏滚动，还没有分页；收起为图标栏时整组隐藏。打开空间后，Learning Space 和 Settings 之间还会出现 History 栏目，进入这个空间的修改历史页，见下方“修改历史页”；Desktop 没有这一栏。Settings 目前有模型设置和命令授权，见下方“设置页”。Desktop 的 Settings 仍是空页面。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources 或本地空间提示卡，布局不再保存会话展开状态。
 - `/` 重定向到 `/learning-space`，未知地址显示未找到页面，两者共用工作台布局。Desktop 另有内容为空的 `/settings`。
-- Web 的 `test/sidebar.test.tsx` 验证栏目、默认页、会话列表的顺序、切换与运行中禁用、移动抽屉的导航与焦点恢复、图标栏、拖动调宽和刷新后保留侧栏状态；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航；`test/store.test.ts` 验证读取去重、重连后重新读取、旧结果丢弃，以及侧栏偏好的保存、格式校验和存储不可用时的退路。
+- Web 的 `test/sidebar.test.tsx` 验证栏目、默认页、会话列表的顺序、切换与运行中禁用、关闭当前空间（运行中禁用、失败后再关、回到 Learning Space）、移动抽屉的导航与焦点恢复、图标栏、拖动调宽和刷新后保留侧栏状态；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航；`test/store.test.ts` 验证读取去重、重连后重新读取、旧结果丢弃，以及侧栏偏好的保存、格式校验和存储不可用时的退路。
 
 ## Learning Space 页面
 
@@ -127,7 +127,7 @@ Web 的 `pages/conversation.tsx` 挂在 `/conversation`，没有打开空间时�
 
 Agent 调用 `bash` 时后端发出 `confirm.request`。`features/command-confirmation.tsx` 挂在工作区布局上，离开对话页也能看到，显示命令和“拒绝／允许”，关闭对话框按拒绝回复；登录用的 input、select、display 请求由设置页的登录流程处理，没有进行中的登录时 store 直接回复取消，避免后端停在等待上。后端取消运行时不撤回已发出的授权请求，`sendMessage` 结束时清空。
 
-`test/conversation.test.ts` 覆盖记录与事件的转换和可以分叉的回答，`test/conversation-store.test.ts` 覆盖按最后消息打开会话、切换会话与运行中不切换、给新会话或已建立的会话换模型、从回答分叉并打开新会话、换空间清空会话列表、延迟建立会话、实时显示与运行结束后替换、失败分类、停止、运行中排队与送达、排队失败、授权排队和重连后重新打开空间，`test/conversation-page.test.tsx` 覆盖页面的发送、输入法回车、停止、运行中继续发送与排队显示、停止后排队消息回到输入框、失败退回输入框、授权对话框、两种发送者的显示方式、会话模型的显示与更换，以及分叉后打开新会话并聚焦输入框、运行中禁用和分叉失败，`test/markdown.test.tsx` 覆盖 Markdown 元素、两种公式写法、链接与图片限制和生成中的语法补全。
+`test/conversation.test.ts` 覆盖记录与事件的转换和可以分叉的回答，`test/conversation-store.test.ts` 覆盖按最后消息打开会话、切换会话与运行中不切换、给新会话或已建立的会话换模型、从回答分叉并打开新会话、换空间清空会话列表、关闭空间清空会话状态与运行中不关闭、延迟建立会话、实时显示与运行结束后替换、失败分类、停止、运行中排队与送达、排队失败、授权排队和重连后重新打开空间，`test/conversation-page.test.tsx` 覆盖页面的发送、输入法回车、停止、运行中继续发送与排队显示、停止后排队消息回到输入框、失败退回输入框、授权对话框、两种发送者的显示方式、会话模型的显示与更换，以及分叉后打开新会话并聚焦输入框、运行中禁用和分叉失败，`test/markdown.test.tsx` 覆盖 Markdown 元素、两种公式写法、链接与图片限制和生成中的语法补全。
 
 ## 修改历史页
 
