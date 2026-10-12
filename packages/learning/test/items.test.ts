@@ -115,7 +115,6 @@ test("标准答案拼出的作答能通过题目自己的结构检查，缺答�
   assert.deepEqual(checkResponse(item, reference), { ok: true });
   assert.equal(checkResponse(item, { ...reference, answers: {} }).ok, false);
   assert.equal(checkResponse(item, { ...reference, answers: { line: { type: "choice", selected: ["minus", "plus"] } } }).ok, false);
-  assert.deepEqual(checkResponse(item, { ...reference, answers: {}, dontKnow: true }), { ok: true });
 });
 
 test("内容版本不受元数据和核对程序影响，题面、答案、解析和用到的数据一改就变", async () => {

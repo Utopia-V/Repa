@@ -5,11 +5,13 @@
 
 import type { Answer } from "@repa/base/protocol";
 import type { SlotDef, TextMatch } from "../format/schema.js";
+import type { Verdict } from "../protocol.js";
 import { acceptedValues, inputCells, itemIndent, scalarText, textMatch, type CellMatch, type Scalar } from "./items.js";
 import { sameDisplay } from "./literal.js";
 
+/** 规则判分是同步的，不会是 pending。 */
 export interface SlotGrade {
-  verdict: "correct" | "partial" | "incorrect" | "ungraded";
+  verdict: Exclude<Verdict, "pending">;
   earned: number;
   max: number;
 }
