@@ -41,9 +41,6 @@ wrapup: |
 
   导出以后，把文件读回来核对：行数对不对，键有没有重复，挑一两个能手算的值看一看。编号列按文字读回，别让读法吃掉前导零。
 data:
-  pandas:
-    kind: python
-    code: import pandas as pd
   kept:
     kind: dataframe
     name: kept
@@ -231,7 +228,7 @@ kps:
     example:
       id: py34.k1.e0
       kind: [predict]
-      data: [pandas, kept]
+      data: [kept]
       body: |
         阅读代码，说出写出的文件 `kept.csv` 里有什么。
 
@@ -265,7 +262,7 @@ kps:
     practice:
       - id: py34.k1.q1
         kind: [predict]
-        data: [pandas, kept]
+        data: [kept]
         body: |
           阅读代码，说出写出的文件 `kept_q1.csv` 里有什么。
 
@@ -299,7 +296,7 @@ kps:
           answers = {"header": lines[0], "nlines": len(lines), "second": lines[1]}
       - id: py34.k1.q2
         kind: [modify]
-        data: [pandas, kept]
+        data: [kept]
         body: |
           需求是：导出 `out.csv`，**signal 在前、sample_id 在后**，不要行索引，行的顺序不变。哪一行代码符合需求？
         slots:
@@ -343,7 +340,7 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py34.k1.q3
         kind: [specify]
-        data: [pandas, sites]
+        data: [sites]
         body: |
           表 sites 要导出成 `sites.csv`，发给一位用 Windows 的同事，他会双击用 Excel 打开。他只要 site 和 depth 两列（site 在前），不要行索引。哪一行代码符合要求？
         slots:
@@ -389,7 +386,7 @@ kps:
     review:
       - id: py34.k1.r1
         kind: [modify]
-        data: [pandas, summary]
+        data: [summary]
         body: |
           需求是：把 summary 导出成 `summary_r1.csv`，只要 group 和 mean_signal 两列（group 在前），不要行索引，编码用 utf-8-sig。从下面的代码块里选出需要的，排成程序；用不到的不要放进来。
         slots:
@@ -416,7 +413,7 @@ kps:
           先 `out = summary[["group", "mean_signal"]]` 选出两列并定下顺序，再 `out.to_csv("summary_r1.csv", index=False, encoding="utf-8-sig")` 写出。文件内容是一行列名 `group,mean_signal` 加两行记录，开头有 utf-8-sig 的标记。直接导出 `summary` 会多出 n 列；少了 `index=False` 会多出行索引列。
       - id: py34.k1.r2
         kind: [predict]
-        data: [pandas, soil]
+        data: [soil]
         body: |
           下面三行各写出一个文件。分别写出每个文件的第一行。
 
@@ -448,7 +445,7 @@ kps:
     quiz:
       - id: py34.k1.x1
         kind: [modify]
-        data: [pandas, report]
+        data: [report]
         body: |
           需求是：
 
@@ -489,7 +486,7 @@ kps:
                   report: report
               - name: 换一张索引不按顺序的表
                 hidden: true
-                data: [pandas, report2]
+                data: [report2]
                 setup: |
                   import os
                   if os.path.exists("report.csv"):
@@ -505,7 +502,7 @@ kps:
           三处要改：先选出 group、mean_signal 两列并定下顺序；`index=False` 去掉行索引列；`encoding="utf-8-sig"` 让 Excel 认出中文。文件内容是 `group,mean_signal`、`对照,8.5`、`处理,12.5` 三行，开头带一个看不见的标记。
       - id: py34.k1.x2
         kind: [predict]
-        data: [pandas, counts]
+        data: [counts]
         body: |
           阅读代码，说出写出的文件 `counts.csv` 里有什么。
 
@@ -566,7 +563,7 @@ kps:
       id: py34.k2.e0
       kind: [predict]
       uses: [py15.k2, py15.k3]
-      data: [pandas, per_sample]
+      data: [per_sample]
       body: |
         需求是“每个样本一行，共 3 个样本，编号保留前导零”。阅读导出和核对的代码。
 
@@ -612,7 +609,7 @@ kps:
       - id: py34.k2.q1
         kind: [predict]
         uses: [py15.k2]
-        data: [pandas, plots]
+        data: [plots]
         body: |
           阅读代码。
 
@@ -646,7 +643,7 @@ kps:
       - id: py34.k2.q2
         kind: [predict, debug]
         uses: [py25.k1, py15.k3]
-        data: [pandas, merged]
+        data: [merged]
         body: |
           需求是“每个样本一行，共 3 个样本（S_A、S_B、S_C）”。拼表以后导出，再读回来核对。
 
@@ -693,7 +690,7 @@ kps:
       - id: py34.k2.q3
         kind: [modify]
         uses: [py15.k2, py15.k3]
-        data: [pandas, checked]
+        data: [checked]
         body: |
           文件 `export.csv` 已经导出好了，内容就是上面这张表。核对的代码只写了第一行，请补全另外两行：
 
@@ -743,14 +740,14 @@ kps:
                   ids_unique: "True"
               - name: 有重复编号的文件
                 hidden: true
-                data: [pandas, checked2]
+                data: [checked2]
                 setup: export.to_csv("export.csv", index=False)
                 expect:
                   n_rows: "4"
                   ids_unique: "False"
               - name: 只有两行的文件
                 hidden: true
-                data: [pandas, checked3]
+                data: [checked3]
                 setup: export.to_csv("export.csv", index=False)
                 expect:
                   n_rows: "2"
@@ -767,7 +764,7 @@ kps:
       - id: py34.k2.r1
         kind: [debug]
         uses: [py25.k1, py15.k3]
-        data: [pandas, site_means]
+        data: [site_means]
         body: |
           需求是：“导出 site_means.csv，列为 site、mean_depth；每个采样点一行，共 4 个采样点（北坡、南坡、东坡、西坡），site 不重复。”导出以后读回来：
 
@@ -800,7 +797,7 @@ kps:
       - id: py34.k2.r2
         kind: [explain]
         uses: [py15.k2]
-        data: [pandas, tubes]
+        data: [tubes]
         body: |
           同事导出后读回来，发现编号变成了 7、8、12，于是说：“导出把编号前面的 0 弄丢了，文件坏了。”
 
@@ -838,7 +835,7 @@ kps:
       - id: py34.k2.x1
         kind: [predict, debug]
         uses: [py25.k1, py15.k3]
-        data: [pandas, final]
+        data: [final]
         body: |
           需求是“每个样本一行，共 4 个样本（S01、S02、S03、S04），列为 sample_id、signal”。导出后读回来，打印三项核对的结果。
 
@@ -882,7 +879,7 @@ kps:
       - id: py34.k2.x2
         kind: [modify]
         uses: [py15.k2]
-        data: [pandas, batch]
+        data: [batch]
         body: |
           文件 `batch.csv` 已经导出好了，内容就是上面这张表。需求是：编号保留前导零，signal 照常是整数。
 
@@ -920,7 +917,7 @@ kps:
                   n_rows: "3"
               - name: 换一份文件
                 hidden: true
-                data: [pandas, batch2]
+                data: [batch2]
                 setup: batch.to_csv("batch.csv", index=False)
                 expect:
                   ids: '["0001", "0420"]'

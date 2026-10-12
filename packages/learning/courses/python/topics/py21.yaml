@@ -103,10 +103,6 @@ data:
     columns:
       plot: [P1, P2, P3, P4]
       depth: [30, 25, 35, 30]
-  libs:
-    kind: python
-    code: |
-      import pandas as pd
 kps:
   - id: py21.k1
     title: 整列算术与单位转换
@@ -887,7 +883,6 @@ kps:
     example:
       id: py21.k3.e0
       kind: [predict]
-      data: [libs]
       body: |
         阅读代码，按标签填写 `total` 的值。
 
@@ -925,7 +920,6 @@ kps:
     practice:
       - id: py21.k3.q1
         kind: [predict]
-        data: [libs]
         body: |
           阅读代码，按标签填写 `result` 的值。没有值的填 `NaN`。
 
@@ -952,7 +946,7 @@ kps:
       - id: py21.k3.q2
         kind: [predict]
         uses: [py14.k1]
-        data: [W, libs]
+        data: [W]
         body: |
           另一张表给出了两个样本的参考质量，存成 `ref`，标签是样本在表 W 里的原行索引。阅读代码，按原行索引填写新列 `ref` 的值。没有值的填 `NaN`。
 
@@ -1016,7 +1010,6 @@ kps:
     review:
       - id: py21.k3.r1
         kind: [predict]
-        data: [libs]
         body: |
           阅读代码，写出输出。
 
@@ -1041,7 +1034,7 @@ kps:
       - id: py21.k3.r2
         kind: [predict]
         uses: [py14.k1]
-        data: [soil, libs]
+        data: [soil]
         body: |
           复测了两个样地的深度，存成 `recheck`，标签是样地在表 soil 里的原行索引。阅读代码，按原行索引填写 `diff` 的值，没有值的填 `NaN`。
 
@@ -1069,7 +1062,7 @@ kps:
       - id: py21.k3.x1
         kind: [predict]
         uses: [py14.k1]
-        data: [runs, libs]
+        data: [runs]
         body: |
           另一份记录给出了两次培养的接种量，存成 `seed`，标签是培养在表 runs 里的原行索引。阅读代码，按原行索引填写新列 `seed` 的值，没有值的填 `NaN`。
 
@@ -1094,7 +1087,6 @@ kps:
           answers = {"values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in after["seed"].items()}}
       - id: py21.k3.x2
         kind: [explain]
-        data: [libs]
         body: |
           哪一段代码得到的 `total` 在标签 x 上是 11、在标签 y 上是 22？
         slots:

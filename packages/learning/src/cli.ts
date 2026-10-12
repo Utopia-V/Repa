@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdir, stat, writeFile } from "node:fs/promises";
+import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -120,6 +120,16 @@ function describeOutcome(outcome: ConfirmOutcome): string {
   return lines.join("\n");
 }
 
+/** 在发任何请求之前独占创建 --log 的文件；已经存在就报错，免得核对做完才发现日志写不进去。 */
+async function openLog(file: string): Promise<FileHandle> {
+  try {
+    return await open(path.resolve(file), "wx");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`--log 指定的文件已经存在：${path.resolve(file)}。换一个文件名，或先自己处理掉它`);
+    throw error;
+  }
+}
+
 async function confirm(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args, allowPositionals: true,
@@ -137,45 +147,47 @@ async function confirm(args: string[]): Promise<number> {
   if (!Number.isInteger(maxRequests) || maxRequests < 1 || maxRequests > 200) throw new Error("--max-requests 要是 1 到 200 的整数");
   const model = parseModel(values.model);
   const courses = positionals.length > 0 ? positionals.map((item) => path.resolve(item)) : await defaultCourses();
-  const requestsSent: { question: string; system: string; prompt: string }[] = [];
-  const run = async (complete: Parameters<typeof confirmCourse>[1]["complete"]) => {
-    const results = [];
-    let remaining = maxRequests;
-    for (const course of courses) {
-      const result = await confirmCourse(course, {
-        complete, model: values.model, maxRequests: remaining,
-        ...(values.topic ? { topics: values.topic } : {}), ...(values.force ? { force: true } : {}), ...(values["dry-run"] ? { dryRun: true } : {}),
-        onRequest: (question, request) => requestsSent.push({ question, ...request }),
-      });
-      remaining -= result.requests;
-      results.push(result);
+  const log = values.log ? await openLog(values.log) : undefined;
+  try {
+    const requestsSent: { question: string; system: string; prompt: string }[] = [];
+    const run = async (complete: Parameters<typeof confirmCourse>[1]["complete"]) => {
+      const results = [];
+      let remaining = maxRequests;
+      for (const course of courses) {
+        const result = await confirmCourse(course, {
+          complete, model: values.model, maxRequests: remaining,
+          ...(values.topic ? { topics: values.topic } : {}), ...(values.force ? { force: true } : {}), ...(values["dry-run"] ? { dryRun: true } : {}),
+          onRequest: (question, request) => requestsSent.push({ question, ...request }),
+          // 每道题一有结果就写进日志，中途出错也不会丢掉已经花了钱的那些。
+          onOutcome: async (outcome, request) => {
+            await log?.appendFile(`${JSON.stringify({ ...outcome, model: values.model, request: request?.prompt })}\n`);
+          },
+        });
+        remaining -= result.requests;
+        results.push(result);
+      }
+      return results;
+    };
+    const dryRun = values["dry-run"] === true;
+    const results = dryRun
+      ? await run(async () => { throw new Error("--dry-run 不调用模型"); })
+      : await withModel(path.resolve(values["agent-dir"]), model, run);
+    let failed = false;
+    for (const result of results) {
+      for (const diagnostic of result.diagnostics) process.stdout.write(`${formatDiagnostic(diagnostic)}\n`);
+      if (result.diagnostics.length > 0) failed = true;
+      for (const item of result.outcomes) {
+        process.stdout.write(`${describeOutcome(item)}\n`);
+        if (item.status === "disagreed" || item.status === "unusable" || (item.status === "skipped" && !dryRun && item.detail !== "已有当前版本的核对记录")) failed = true;
+      }
     }
-    return results;
-  };
-  const dryRun = values["dry-run"] === true;
-  const outcome = dryRun
-    ? { value: await run(async () => { throw new Error("--dry-run 不调用模型"); }) }
-    : await withModel(path.resolve(values["agent-dir"]), model, run);
-  let failed = false;
-  for (const result of outcome.value) {
-    for (const diagnostic of result.diagnostics) process.stdout.write(`${formatDiagnostic(diagnostic)}\n`);
-    if (result.diagnostics.length > 0) failed = true;
-    for (const item of result.outcomes) {
-      process.stdout.write(`${describeOutcome(item)}\n`);
-      if (item.status === "disagreed" || item.status === "unusable" || (item.status === "skipped" && !dryRun && item.detail !== "已有当前版本的核对记录")) failed = true;
-    }
+    if (dryRun) for (const request of requestsSent) process.stdout.write(`\n----- ${request.question}\n${request.system}\n\n${request.prompt}\n`);
+    const total = results.reduce((sum, result) => sum + result.requests, 0);
+    process.stdout.write(`\n共发请求 ${total} 次（上限 ${maxRequests}）。\n`);
+    return failed ? 1 : 0;
+  } finally {
+    await log?.close();
   }
-  if (dryRun) for (const request of requestsSent) process.stdout.write(`\n----- ${request.question}\n${request.system}\n\n${request.prompt}\n`);
-  const total = outcome.value.reduce((sum, result) => sum + result.requests, 0);
-  process.stdout.write(`\n共发请求 ${total} 次（上限 ${maxRequests}）。\n`);
-  if (outcome.warning) process.stdout.write(`${outcome.warning}\n`);
-  if (values.log) {
-    const lines = outcome.value.flatMap((result) => result.outcomes).map((item) => JSON.stringify({
-      ...item, model: values.model, request: requestsSent.find((request) => request.question === item.question)?.prompt,
-    }));
-    await writeFile(path.resolve(values.log), `${lines.join("\n")}\n`, { flag: "wx" });
-  }
-  return failed ? 1 : 0;
 }
 
 async function main(): Promise<void> {

@@ -32,11 +32,11 @@
     "check": "tsc --noEmit",
     "pretest": "npm run build --workspace=@repa/base",
     "test": "node --import tsx --test test/*.test.ts",
-    "precourse:check": "npm run build --workspace=@repa/base",
+    "precourse:check": "tsx scripts/ensure-base.ts",
     "course:check": "tsx src/cli.ts check",
-    "precourse:runtime": "npm run build --workspace=@repa/base",
+    "precourse:runtime": "tsx scripts/ensure-base.ts",
     "course:runtime": "tsx src/cli.ts runtime",
-    "precourse:confirm": "npm run build --workspace=@repa/base",
+    "precourse:confirm": "tsx scripts/ensure-base.ts",
     "course:confirm": "tsx src/cli.ts confirm"
   },
   "dependencies": {

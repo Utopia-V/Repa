@@ -38,9 +38,6 @@ wrapup: |
 
   拿到结果后先核对三件事：行数是不是各批之和，列是不是没有多出来，有没有意外的 NaN。
 data:
-  pandas:
-    kind: python
-    code: import pandas as pd
   A:
     kind: dataframe
     name: a
@@ -213,7 +210,7 @@ kps:
       id: py30.k1.e0
       kind: [predict]
       uses: [py06.k1, py14.k1, py14.k2]
-      data: [pandas, A, B]
+      data: [A, B]
       body: |
         两批测量要放进一张表。阅读代码，说出 `result` 的样子。
 
@@ -254,7 +251,7 @@ kps:
       - id: py30.k1.q1
         kind: [predict]
         uses: [py06.k1, py14.k2]
-        data: [pandas, A, B]
+        data: [A, B]
         body: |
           这次把 b 写在列表的前面。
 
@@ -285,7 +282,7 @@ kps:
       - id: py30.k1.q2
         kind: [predict, explain]
         uses: [py14.k1, py16.k1]
-        data: [pandas, A, C]
+        data: [A, C]
         body: |
           表 c 的两列先后与 a 不同。阅读代码，说出 `result` 的样子。
 
@@ -331,7 +328,7 @@ kps:
       - id: py30.k1.q3
         kind: [predict, debug]
         uses: [py14.k2, py19.k1]
-        data: [pandas, A, D]
+        data: [A, D]
         body: |
           表 d 把测量值的列名写成了 `Signal`。屏幕上依次显示什么？
 
@@ -383,7 +380,7 @@ kps:
       - id: py30.k1.r1
         kind: [predict, explain]
         uses: [py14.k1, py14.k2, py19.k1]
-        data: [pandas, spring, autumn]
+        data: [spring, autumn]
         body: |
           春季和秋季的记录要放进一张表。判断下面每句关于 `both` 的话对不对。
 
@@ -414,7 +411,7 @@ kps:
       - id: py30.k1.r2
         kind: [predict, debug]
         uses: [py19.k1]
-        data: [pandas, north, south_typo]
+        data: [north, south_typo]
         body: |
           南站的问卷把年龄一列写成了 `Age`。叠起来以后，每一列各有几个缺失值？
 
@@ -440,7 +437,7 @@ kps:
       - id: py30.k1.x1
         kind: [predict]
         uses: [py06.k1, py14.k2]
-        data: [pandas, jan, feb]
+        data: [jan, feb]
         body: |
           要把二月的浊度记录接在一月的下面，得到一张 6 行 2 列的表。哪一行代码做到了？
         slots:
@@ -484,7 +481,7 @@ kps:
       - id: py30.k1.x2
         kind: [predict]
         uses: [py14.k1, py19.k1]
-        data: [pandas, plot_a, plot_b]
+        data: [plot_a, plot_b]
         body: |
           乙地块的表多记了一列备注 `note`。阅读代码，说出 `result` 的样子。没有值的格子填 NaN。
 
@@ -554,7 +551,7 @@ kps:
       id: py30.k2.e0
       kind: [predict]
       uses: [py14.k1, py16.k2]
-      data: [pandas, A, B]
+      data: [A, B]
       body: |
         阅读代码，按从上到下的顺序填写 `result` 各行的行索引，再回答两个问题。
 
@@ -597,7 +594,7 @@ kps:
       - id: py30.k2.q1
         kind: [predict]
         uses: [py16.k2]
-        data: [pandas, A, B]
+        data: [A, B]
         body: |
           屏幕上依次显示什么？
 
@@ -627,7 +624,7 @@ kps:
       - id: py30.k2.q2
         kind: [modify]
         uses: [py06.k1, py14.k1]
-        data: [pandas, A, B]
+        data: [A, B]
         body: |
           需求是：
 
@@ -672,7 +669,7 @@ kps:
                   b: b
               - name: 换两批行数不同的表
                 hidden: true
-                data: [pandas, A2, B2]
+                data: [A2, B2]
                 expect:
                   result: 'pd.DataFrame({"sample_id": ["S_K", "S_L", "S_M", "S_N"], "signal": [5, 12, 7, 9], "batch": ["A", "A", "A", "B"]})'
                   a: a
@@ -711,7 +708,7 @@ kps:
       - id: py30.k2.r1
         kind: [predict, explain]
         uses: [py16.k2]
-        data: [pandas, spring, autumn]
+        data: [spring, autumn]
         body: |
           同事想看秋季的第 2 个采样点（秋季表里行索引为 1 的那一行），写了：
 
@@ -749,7 +746,7 @@ kps:
       - id: py30.k2.r2
         kind: [modify]
         uses: [py06.k1]
-        data: [pandas, spring, autumn]
+        data: [spring, autumn]
         body: |
           把下面的代码行排成一段程序：叠起春秋两季的记录，加一列 season（春季写 "spring"，秋季写 "autumn"），行索引从 0 重新编号，春季的行在上面。有的行用不上。
         slots:
@@ -777,7 +774,7 @@ kps:
       - id: py30.k2.x1
         kind: [predict]
         uses: [py14.k2, py16.k2]
-        data: [pandas, north, south]
+        data: [north, south]
         body: |
           阅读代码，回答问题。
 
@@ -823,7 +820,7 @@ kps:
       - id: py30.k2.x2
         kind: [modify]
         uses: [py06.k1, py14.k1]
-        data: [pandas, jan, feb]
+        data: [jan, feb]
         body: |
           需求是：
 
@@ -861,7 +858,7 @@ kps:
                   feb: feb
               - name: 换一年，两个月的行数不同
                 hidden: true
-                data: [pandas, jan2, feb2]
+                data: [jan2, feb2]
                 expect:
                   result: 'pd.DataFrame({"point": ["W4", "W4", "W5", "W6", "W7"], "ntu": [7, 6, 11, 13, 5], "month": ["jan", "feb", "feb", "feb", "feb"]})'
                   jan: jan

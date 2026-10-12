@@ -228,10 +228,11 @@ export class SandboxRunner {
     return versions;
   }
 
+  /** 每个任务都带上课程清单声明的运行前导，运行器在任务的命名空间里先运行它。 */
   async run(job: Record<string, unknown>, timeoutMs?: number): Promise<JobOutcome> {
     await this.start();
     if (!this.current) throw new SandboxUnavailable("沙箱没有启动");
-    return this.current.run(job, timeoutMs);
+    return this.current.run({ prelude: this.options.assets.prelude, ...job }, timeoutMs);
   }
 
   async close(): Promise<void> {

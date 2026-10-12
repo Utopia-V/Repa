@@ -44,9 +44,6 @@ wrapup: |
 
   对应的代码是 `how="left"`、`validate="many_to_one"`、`indicator=True`。拿到别人的拼表代码，先看 how 留下谁，再问右表的键是不是唯一，最后比一比结果和左表的行数。
 data:
-  pandas:
-    kind: python
-    code: import pandas as pd
   samples:
     kind: dataframe
     name: samples
@@ -238,7 +235,7 @@ kps:
       id: py29.k1.e0
       kind: [predict]
       uses: [py14.k1, py19.k1]
-      data: [pandas, samples, sites]
+      data: [samples, sites]
       body: |
         要给每个样本补上采样点，同事写了下面这行。阅读代码，说出 `result` 的样子。
 
@@ -292,7 +289,7 @@ kps:
       - id: py29.k1.q1
         kind: [predict]
         uses: [py14.k2]
-        data: [pandas, samples, sites]
+        data: [samples, sites]
         body: |
           这次同事只想要两张表都有记录的样本。阅读代码，说出 `result` 的样子。
 
@@ -333,7 +330,7 @@ kps:
       - id: py29.k1.q2
         kind: [predict]
         uses: [py14.k1]
-        data: [pandas, samples, sites]
+        data: [samples, sites]
         body: |
           同一对表，分别用两种写法拼接：
 
@@ -372,7 +369,7 @@ kps:
       - id: py29.k1.q3
         kind: [debug]
         uses: [py12.k1]
-        data: [pandas, samples, sites]
+        data: [samples, sites]
         body: |
           需求是：“给每个样本补上采样点；samples 里的样本一个都不能少，查不到采样点的留空。”同事写的是：
 
@@ -419,7 +416,7 @@ kps:
       - id: py29.k1.r1
         kind: [predict, explain]
         uses: [py14.k1]
-        data: [pandas, plants, plots, shown]
+        data: [plants, plots, shown]
         body: |
           同事用下面某一行代码，从 plants 和 plots 得到了上面第三张表 result。
         slots:
@@ -464,7 +461,7 @@ kps:
       - id: py29.k1.r2
         kind: [predict]
         uses: [py14.k1, py19.k1]
-        data: [pandas, survey, regions]
+        data: [survey, regions]
         body: |
           阅读代码，按 `result` 的行顺序，写出每一行的 resp_id 和 region；没有值的写 NaN。
 
@@ -512,7 +509,7 @@ kps:
       - id: py29.k1.x1
         kind: [predict]
         uses: [py14.k2]
-        data: [pandas, bottles, labs]
+        data: [bottles, labs]
         body: |
           ```python
           by_left = pd.merge(bottles, labs, on="bottle_id", how="left")
@@ -554,7 +551,7 @@ kps:
       - id: py29.k1.x2
         kind: [explain]
         uses: [py14.k1, py19.k1]
-        data: [pandas, bottles, labs]
+        data: [bottles, labs]
         body: |
           ```python
           result = pd.merge(bottles, labs, on="bottle_id", how="left")
@@ -628,7 +625,7 @@ kps:
       id: py29.k2.e0
       kind: [predict]
       uses: [py29.k1, py25.k1]
-      data: [pandas, samples, sites_dup]
+      data: [samples, sites_dup]
       body: |
         这次的 sites 里，S_A 被记了两次。阅读代码，回答下面的问题。
 
@@ -665,7 +662,7 @@ kps:
       - id: py29.k2.q1
         kind: [predict]
         uses: [py29.k1]
-        data: [pandas, samples, sites_dup3]
+        data: [samples, sites_dup3]
         body: |
           这份 sites 里，S_B 被记了三次。
 
@@ -700,7 +697,7 @@ kps:
       - id: py29.k2.q2
         kind: [debug]
         uses: [py29.k1, py25.k2]
-        data: [pandas, samples, sites_dup]
+        data: [samples, sites_dup]
         body: |
           同事拼完表后，用下面的代码数样本数，屏幕显示 5，可是 samples 里只有 4 个样本。
 
@@ -744,7 +741,7 @@ kps:
       - id: py29.k2.q3
         kind: [predict]
         uses: [py25.k2]
-        data: [pandas, samples, sites_dup]
+        data: [samples, sites_dup]
         body: |
           拼表之前，先查 sites 的键有没有重复：
 
@@ -784,7 +781,7 @@ kps:
       - id: py29.k2.r1
         kind: [predict, explain]
         uses: [py29.k1]
-        data: [pandas, survey, regions_dup]
+        data: [survey, regions_dup]
         body: |
           ```python
           result = pd.merge(survey, regions, on="resp_id", how="left")
@@ -821,7 +818,7 @@ kps:
       - id: py29.k2.r2
         kind: [predict]
         uses: [py29.k1]
-        data: [pandas, plants, plots_dup]
+        data: [plants, plots_dup]
         body: |
           ```python
           result = pd.merge(plants, plots, on="plant_id", how="inner")
@@ -848,7 +845,7 @@ kps:
       - id: py29.k2.x1
         kind: [predict]
         uses: [py29.k1]
-        data: [pandas, bottles, labs_dup]
+        data: [bottles, labs_dup]
         body: |
           ```python
           by_left = pd.merge(bottles, labs, on="bottle_id", how="left")
@@ -887,7 +884,7 @@ kps:
       - id: py29.k2.x2
         kind: [predict, explain]
         uses: [py29.k1, py25.k1]
-        data: [pandas, bottles_rep, labs_full]
+        data: [bottles_rep, labs_full]
         body: |
           这次 bottles 里 B1 测了两次 pH，labs 里每瓶水样只登记一次。
 
@@ -972,7 +969,7 @@ kps:
       id: py29.k3.e0
       kind: [predict]
       uses: [py29.k1, py29.k2]
-      data: [pandas, samples, sites]
+      data: [samples, sites]
       body: |
         阅读代码，说出运行的结果。
 
@@ -1027,7 +1024,7 @@ kps:
       - id: py29.k3.q1
         kind: [predict]
         uses: [py29.k2]
-        data: [pandas, samples, sites_dup]
+        data: [samples, sites_dup]
         body: |
           这次的 sites 里，S_A 被记了两次。
 
@@ -1062,7 +1059,7 @@ kps:
       - id: py29.k3.q2
         kind: [predict]
         uses: [py17.k1, py17.k2, py29.k1]
-        data: [pandas, samples, sites]
+        data: [samples, sites]
         body: |
           阅读代码，说出 `unmatched` 的样子。
 
@@ -1140,7 +1137,7 @@ kps:
       - id: py29.k3.r1
         kind: [explain]
         uses: [py29.k2, py25.k1]
-        data: [pandas, plants_rep, plots]
+        data: [plants_rep, plots]
         body: |
           plants 里同一株可以量好几次（P1 就有两行），plots 里每株只能登记一个地块。要让拼表在 plots 的 plant_id 有重复时报错、没有重复时照常运行，应该用哪一行？
         slots:
@@ -1184,7 +1181,7 @@ kps:
       - id: py29.k3.r2
         kind: [predict, explain]
         uses: [py29.k1, py19.k1]
-        data: [pandas, plants, plots]
+        data: [plants, plots]
         body: |
           ```python
           result = pd.merge(plants, plots, on="plant_id", how="left", indicator=True)
@@ -1219,7 +1216,7 @@ kps:
       - id: py29.k3.x1
         kind: [predict]
         uses: [py29.k2, py25.k2]
-        data: [pandas, bottles, labs_dup]
+        data: [bottles, labs_dup]
         body: |
           ```python
           result = pd.merge(bottles, labs, on="bottle_id", how="left", validate="many_to_one")
@@ -1253,7 +1250,7 @@ kps:
       - id: py29.k3.x2
         kind: [specify]
         uses: [py12.k1, py29.k1, py29.k2]
-        data: [pandas, survey, regions]
+        data: [survey, regions]
         body: |
           需求是：“给每份问卷补上地区：survey 里的问卷一份不能少，也不能因为 regions 登记重复而多出行——regions 里同一份问卷出现两次就报错；还要能数出有几份问卷没查到地区。”哪一种写法符合这条需求？
         slots:

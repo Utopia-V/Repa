@@ -182,7 +182,7 @@ kps:
         text: |
           表 T 有 sample_id、signal、group 三列，四行的行索引是 31、7、22、4。`df["group"]` 是一列四个值的 Series，行索引仍是 31、7、22、4。
     lesson: |
-      pandas 用 **DataFrame** 表示一张表。下面是表 T，宿主把它放在名字 `df` 里：
+      pandas 用 **DataFrame** 表示一张表。后面的代码默认已经 `import pandas as pd`。下面是表 T，宿主把它放在名字 `df` 里：
 
       | 行索引 | sample_id | signal | group |
       |---:|---|---:|---|
