@@ -4,6 +4,10 @@ import type { ClientConnection } from "./client.js";
 
 export interface RepaProcessOptions {
   home?: string;
+  /** 本机可信插件模块的路径，按顺序传给 --plugin。 */
+  plugins?: string[];
+  /** 为 false 时关掉通用 Agent（--no-general-agent），学习者版本使用。 */
+  generalAgent?: boolean;
   nodeExecutable?: string;
   environment?: NodeJS.ProcessEnv;
   startupTimeoutMs?: number;
@@ -23,6 +27,8 @@ export async function startRepaProcess(options: RepaProcessOptions = {}): Promis
   }
   const args = [fileURLToPath(new URL("./cli.js", import.meta.url)), "serve"];
   if (options.home !== undefined) args.push("--home", options.home);
+  for (const plugin of options.plugins ?? []) args.push("--plugin", plugin);
+  if (options.generalAgent === false) args.push("--no-general-agent");
   const child = spawn(options.nodeExecutable ?? process.execPath, args, {
     env: options.environment ?? process.env,
     stdio: ["ignore", "pipe", "pipe"],

@@ -9,6 +9,7 @@ import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { cacheStatusForTest, createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/runtime.js";
 import type { AgentSpaceOptions } from "../src/agent.js";
+import { currentRun, type RunContext } from "../src/plugin.js";
 
 async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, options: Pick<AgentTestOptions, "extensionFactories" | "promptChangeNotice"> = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-agent-"));
@@ -80,6 +81,32 @@ test("多份 view 首轮在 system 之后进入请求，默认批清后保留原
     assert.equal(getCurrentSystemPrompt(capture.messages), getCurrentSystemPrompt(first.messages));
     assert.deepEqual(resolveTranscriptTools(capture.messages, true), { requestTools: initial.toolsAdded, anchorsAdditions: true });
   }
+});
+
+test("插件工具和 view 在运行内读到本次 runId，运行之外没有上下文", async t => {
+  const seen: { source: string; run: RunContext | undefined }[] = [];
+  const f = await fixture(t, {
+    views: async () => {
+      seen.push({ source: "view", run: currentRun() });
+      return [];
+    },
+    tools: () => [{
+      name: "probe_run",
+      description: "读取当前运行",
+      parameters: Type.Object({}),
+      execute: async () => {
+        seen.push({ source: "tool", run: currentRun() });
+        return { text: "已读取" };
+      },
+    }],
+  });
+  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("probe_run", {})), fauxAssistantMessage("完成")]);
+  await f.session.send("读取运行");
+  const run = f.session.history().find(entry => entry.type === "run");
+  assert(run?.data !== null && typeof run?.data === "object" && "runId" in run.data);
+  const expected = { runId: run.data.runId, ancestorRunIds: [], sessionId: f.session.info().id, agent: "general" };
+  assert.deepEqual(seen, [{ source: "view", run: expected }, { source: "tool", run: expected }]);
+  assert.equal(currentRun(), undefined);
 });
 
 test("真实 SDK 压缩保留会话摘要并补回一份当前视图", async t => {

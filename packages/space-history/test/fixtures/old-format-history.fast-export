@@ -1,0 +1,136 @@
+# 旧格式空间历史样本：由本次改动前的 @repa/space-history（dev 04b0671d0）调用 openHistory、snapshot、record 和 undo 生成，
+# 再用 git fast-export --show-original-ids 导出；重新导入后各提交 ID 与原仓库一致。
+# 用途：检查运行树与按路径记账改动后，旧历史仍能读取、按修订撤回和按运行撤回。
+blob
+mark :1
+original-oid a32742e580f44aa5ba2a81b5ef0a099b3d503f12
+data 7
+草稿
+
+blob
+mark :2
+original-oid 08a9fd68846e34384c1d15c490dd2d1d59a52962
+data 7
+保留
+
+blob
+mark :3
+original-oid 67ba41f45091b88d4539878817e045b80b4edb32
+data 22
+旧计划
+第二行
+
+reset refs/heads/history
+commit refs/heads/history
+mark :4
+original-oid 5f920d835f1d07376f32c6d8e77e9e89caf5a713
+author Repa <history@repa.local> 1791730498 +0800
+committer Repa <history@repa.local> 1791730498 +0800
+data 20
+{"kind":"external"}
+M 100644 :1 draft.txt
+M 100644 :2 notes/keep.txt
+M 100644 :3 notes/plan.md
+
+blob
+mark :5
+original-oid 6abcd761c83fd6140db08faf00ef50500766aea8
+data 13
+外部修改
+
+commit refs/heads/history
+mark :6
+original-oid 263956de2e71cc01beef8216b55978327e15b302
+author Repa <history@repa.local> 1791730498 +0800
+committer Repa <history@repa.local> 1791730498 +0800
+data 20
+{"kind":"external"}
+from :4
+M 100644 :5 notes/keep.txt
+
+blob
+mark :7
+original-oid 84d53c3d4d01f84114658397de7106aad8f3d973
+data 16
+旧运行新增
+
+blob
+mark :8
+original-oid 47d62c018e35ea341126f0e01b39763911a0974c
+data 16
+旧运行修改
+
+commit refs/heads/history
+mark :9
+original-oid 8509f0aaf62c19ac5e30232f0c5c271e97227a85
+author Repa <history@repa.local> 1791730498 +0800
+committer Repa <history@repa.local> 1791730498 +0800
+data 35
+{"kind":"agent","runId":"old-run"}
+from :6
+D draft.txt
+M 100644 :7 notes/new.md
+M 100644 :8 notes/plan.md
+
+blob
+mark :10
+original-oid cb75a817e86b8a9bcca14dd28a085567b168ad90
+data 11
+{"step":1}
+
+commit refs/heads/history
+mark :11
+original-oid f4ad922a8333dacbd33cc395b1efb1991dff50aa
+author Repa <history@repa.local> 1791730498 +0800
+committer Repa <history@repa.local> 1791730498 +0800
+data 40
+{"kind":"plugin","pluginId":"learning"}
+from :9
+M 100644 :10 progress.json
+
+commit refs/heads/history
+mark :12
+original-oid c998008e2cae8af6d1598296cf98b50592b5864b
+author Repa <history@repa.local> 1791730498 +0800
+committer Repa <history@repa.local> 1791730498 +0800
+data 37
+{"kind":"agent","runId":"old-empty"}
+from :11
+
+blob
+mark :13
+original-oid ef48c3c40426a9b00ddc0b1f801c7b1cc1cd0131
+data 13
+将被撤销
+
+commit refs/heads/history
+mark :14
+original-oid 5f27d3152adf29ce44909a860636e5afd3f29d8c
+author Repa <history@repa.local> 1791730498 +0800
+committer Repa <history@repa.local> 1791730498 +0800
+data 38
+{"kind":"agent","runId":"old-undone"}
+from :12
+M 100644 :13 notes/keep.txt
+
+commit refs/heads/history
+mark :15
+original-oid 850a8cc6f5bf6cd706a8ec1a8e6fa8906ceb7dec
+author Repa <history@repa.local> 1791730498 +0800
+committer Repa <history@repa.local> 1791730498 +0800
+data 70
+{"kind":"undo","revision":"5f27d3152adf29ce44909a860636e5afd3f29d8c"}
+from :14
+M 100644 :5 notes/keep.txt
+
+commit refs/heads/history
+mark :16
+original-oid 58feeba191c9aa1996d689cb5efe9b537b527d56
+author Repa <history@repa.local> 1791730498 +0800
+committer Repa <history@repa.local> 1791730498 +0800
+data 38
+{"kind":"agent","runId":"old-rename"}
+from :15
+D notes/new.md
+M 100644 :7 notes/renamed.md
+

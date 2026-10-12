@@ -8,7 +8,7 @@ import { createAssistantMessageEventStream, fauxAssistantMessage, fauxProvider, 
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
-import { RepaClient } from "../src/client.js";
+import { RepaClient, RpcError } from "../src/client.js";
 import type { ChangeFeed, Plugin } from "../src/plugin.js";
 import { startServer } from "../src/protocol/server.js";
 import { object, parse } from "../src/schema.js";
@@ -165,6 +165,23 @@ test("通过浏览器客户端打开空间、调用插件工具、记录整次�
   await f.client.call("space.close", {});
   await f.client.call("space.open", { root: f.root });
   assert((await f.history()).some(entry => entry.type === "run" && entry.data !== null && typeof entry.data === "object" && "runId" in entry.data && entry.data.runId === recordedRunId));
+});
+
+test("撤回不存在的修订、初始快照或没有写过文件的运行时，前端拿到可处理的错误码", { timeout: 30000 }, async (t) => {
+  const f = await fixture(t);
+  const rejectsWith = (code: string, details: unknown) => (error: unknown): boolean => {
+    assert.ok(error instanceof RpcError);
+    assert.deepEqual(error.data, { code, details });
+    return true;
+  };
+  const missing = "0".repeat(40);
+  await assert.rejects(f.client.call("history.undo", { revision: missing }), rejectsWith("revision_not_found", { revision: missing }));
+  await assert.rejects(f.client.call("history.undo", { revision: "不是修订" }), rejectsWith("revision_not_found", { revision: "不是修订" }));
+  await assert.rejects(f.client.call("history.changes", { since: missing }), rejectsWith("revision_not_found", { revision: missing }));
+  const baseline = (await f.client.call("history.list", {})).at(-1);
+  assert(baseline);
+  await assert.rejects(f.client.call("history.undo", { revision: baseline.id }), rejectsWith("nothing_to_undo", { revision: baseline.id }));
+  await assert.rejects(f.client.call("history.undoRun", { runId: "没有这个运行" }), rejectsWith("nothing_to_undo", { runId: "没有这个运行" }));
 });
 
 test("view 按变化追加、批量清理和过期清理，提示覆盖仅追加一段", { timeout: 30000 }, async (t) => {
