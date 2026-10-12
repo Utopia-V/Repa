@@ -1,7 +1,8 @@
 id: py02
 title: 把计算写成表达式
-status: outline
+status: complete
 minutes: 20
+summary: 读懂一行算式的计算顺序和括号；分清 /、// 和 %；换算时把单位写进名字，并用量级核对结果。
 prerequisites:
   - topic: py01
     key: true
@@ -17,11 +18,1137 @@ sources:
     url: https://docs.python.org/3.12/tutorial/introduction.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+  范围：先修 py01（名字、赋值、print 显示整数、逐行追踪）。本节引入 `*`、`/`、`//`、`%` 和括号；只用正数，不讲负数整除和 `**`。`/` 的结果只说“总带小数点”，int、float 的说法留给 py03；round 等函数留给 py04；比较留给 py08。单位只作为写进名字、核对乘除和量级的习惯，不引入单位库。
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）；k1 复习和 k3 练习各加一道小改代码（T），k3 测验用一道按测试判的排列题。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 4 分钟；收束 1 分钟。
+  讲解、例题和题目为本课自拟。
+intro: |
+  上一节的程序只做加减。这一节把几步计算写进一行：乘、除、括号，以及怎样让算出来的数带着正确的单位。
+
+  程序仍当作一段短脚本，从第一行往下运行，只有 `print` 会在屏幕上显示东西。
+wrapup: |
+  读一行算式，先找括号，再算乘除（`*`、`/`、`//`、`%`），最后算加减，同一级从左往右；`/` 的结果总带小数点。算完再看单位：名字里写的是什么单位，换算该乘还是该除，结果的大小说不说得通。
+
+  向同事或 AI 提计算要求时，把“先合起来再乘”“保留小数”“结果以小时为单位”这类信息说出来，对方就不用猜。
 kps:
   - id: py02.k1
     title: 括号与运算顺序
+    card:
+      name: 运算顺序
+      aliases: [括号, 先乘除后加减]
+      definition: 一行算式里先算括号里的，再算乘除，最后算加减；同一级从左往右。想让加减先算，就把它放进括号。
+      conditions:
+        - 乘号要写成 `*`，不能省略，也不能写成 ×。
+        - 把需求写成算式时，先想清楚哪几个数要先合在一起，再决定括号放在哪里。
+      example:
+        from: py02.k1.e0
+        text: |
+          ```python
+          tubes = boxes * per_box + loose
+          ```
+          boxes 为 4、per_box 为 8、loose 为 3 时，先算 4 * 8 得 32，再加 3，tubes 是 35。
+    lesson: |
+      Python 的乘号写成 `*`。一行算式里既有加减又有乘时，计算顺序和数学课一样：
+
+      1. 括号里的先算；
+      2. 再算乘（下一个知识点的除法也在这一级）；
+      3. 最后算加减；同一级的从左往右算。
+
+      | 算式 | 怎样算 | 结果 |
+      |---|---|---:|
+      | `4 * 8 + 3` | 先算 `4 * 8` 得 32，再加 3 | 35 |
+      | `4 * (8 + 3)` | 先算括号里的 `8 + 3` 得 11，再乘 4 | 44 |
+      | `10 - 4 - 3` | 从左往右：`10 - 4` 得 6，再减 3 | 3 |
+
+      [赋值](repa:concept/py01.k1)的读法不变：先把等号右边整个算完，再让左边的名字指向结果。
+
+      把一句需求写成算式时，先想清楚哪几个数要先合在一起。“单价加运费，再乘份数”里，单价和运费要先相加，就得写成 `(price + fee) * count`；不加括号，乘法先算，就成了只有运费乘了份数。乘号也不能省：数学里的 `2(3 + 4)` 在 Python 里要写成 `2 * (3 + 4)`。
+    example:
+      id: py02.k1.e0
+      kind: [predict, explain]
+      uses: [py01.k1]
+      body: |
+        每盒装 8 管样本，一共 4 盒，另外还有 3 管散装。阅读下面的程序。
+
+        ```python startLine=1
+        boxes = 4
+        per_box = 8
+        loose = 3
+        tubes = boxes * per_box + loose
+        print(tubes)
+        ```
+      slots:
+        - id: first
+          type: choice
+          prompt: 第 4 行等号右边，最先算的是哪一步？
+          options:
+            - id: add
+              content: "`per_box + loose`，得 11"
+            - id: mul
+              content: "`boxes * per_box`，得 32"
+          key: mul
+        - id: output
+          type: text
+          format: integer
+          prompt: 程序显示哪个整数？
+          key: 35
+      explanation: |
+        第 4 行没有括号，乘法先算：`boxes * per_box` 是 4 * 8 = 32，再加上 `loose` 的 3，得 **35**，然后让 `tubes` 指向 35。最后一行显示 **35**。
+
+        如果写成 `boxes * (per_box + loose)`，就成了 4 * 11 = 44，意思变成“每盒 11 管”，和实际情况不符。
+      verify: |
+        import ast
+        # 按 Python 的计算顺序遍历第 4 行右边的算式，记下每一步运算完成的先后。
+        done = []
+        def walk(node):
+            if isinstance(node, ast.BinOp):
+                walk(node.left)
+                walk(node.right)
+                done.append(type(node.op).__name__)
+        walk(ast.parse(CODE).body[3].value)
+        answers = {"first": {"Mult": "mul", "Add": "add"}[done[0]], "output": int(run().out)}
+    practice:
+      - id: py02.k1.q1
+        kind: [predict]
+        body: |
+          ```python
+          print(2 + 3 * 4)
+          print((2 + 3) * 4)
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 14
+            feedback:
+              - when: 20
+                message: 没有括号时乘法先算：先算 3 * 4 得 12，再加 2。
+          - id: line2
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 20
+            feedback:
+              - when: 14
+                message: 括号里的 2 + 3 先算，得 5，再乘 4。
+        explanation: |
+          第一行显示 **14**：没有括号，先算 `3 * 4` 得 12，再加 2。第二行显示 **20**：括号里的 `2 + 3` 先算得 5，再乘 4。两行只差一对括号，结果就不同。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": int(lines[1])}
+      - id: py02.k1.q2
+        kind: [specify]
+        uses: [py01.k1]
+        body: |
+          一份试剂单价 `price` 元，每买一份另收运费 `fee` 元，一共买 `count` 份。哪一行能算出要付的总钱数 `cost`？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: fee_only
+                content: |
+                  ```python
+                  cost = price + fee * count
+                  ```
+                feedback: 没有括号时 `fee * count` 先算，单价只算了一份。
+              - id: both
+                content: |
+                  ```python
+                  cost = (price + fee) * count
+                  ```
+              - id: once
+                content: |
+                  ```python
+                  cost = price * count + fee
+                  ```
+                feedback: 运费是每份都收，这一行只加了一次。
+            key: both
+        explanation: |
+          `cost = (price + fee) * count` 正确：每一份要付单价加运费，所以先把两者加起来，再乘份数。例如单价 12、运费 3、买 5 份，要付 15 × 5 = 75 元。
+
+          `price + fee * count` 先算了运费乘份数，单价只算了一份，得 27；`price * count + fee` 只收了一次运费，得 63。
+        verify: |
+          # 按需求逐份累加：每买一份，都付一次单价和一次运费。
+          def expected(price, fee, count):
+              total = 0
+              for _ in range(count):
+                  total = total + price + fee
+              return total
+          cases = [(12, 3, 5), (20, 4, 2)]
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if all(run(code, price=p, fee=f, count=c)["cost"] == expected(p, f, c) for p, f, c in cases)]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py02.k1.q3
+        kind: [trace]
+        uses: [py01.k1, py01.k2]
+        body: |
+          ```python startLine=1
+          n = 2
+          n = n * 3 + 1
+          n = (n - 1) * 2
+          print(n)
+          ```
+        slots:
+          - id: trace
+            type: table
+            prompt: 填写前三行各自执行后 `n` 的值。
+            columns:
+              - id: line
+                header: 执行到
+              - id: "n"
+                header: "n"
+                input: integer
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, "n": 2 }
+              - id: l2
+                cells: { line: 第 2 行, "n": 7 }
+              - id: l3
+                cells: { line: 第 3 行, "n": 12 }
+          - id: output
+            type: text
+            format: integer
+            prompt: 最后显示什么？
+            key: 12
+            feedback:
+              - when: 5
+                message: 括号里的 n - 1 先算。第 3 行的 n 是 7，括号里得 6，再乘 2。
+        explanation: |
+          `n` 依次是 **2 → 7 → 12**，最后显示 **12**。第 2 行先算 `2 * 3` 得 6，再加 1 得 7；第 3 行先算括号里的 `7 - 1` 得 6，再乘 2 得 12。每一行都用那一刻的 `n`。
+        verify: |
+          states = trace(names=["n"])[:3]
+          answers = {
+              "trace": {f"l{i}": {"n": state["n"]} for i, state in enumerate(states, 1)},
+              "output": int(run().out),
+          }
+    review:
+      - id: py02.k1.r1
+        kind: [trace]
+        uses: [py01.k1]
+        body: |
+          库存原有 20 份样本，用掉 2 批、每批 3 份，又收到 4 份。同事写下了这一行：
+
+          ```python
+          stock = 20 - 2 * 3 + 4
+          ```
+        slots:
+          - id: steps
+            type: order
+            partial: true
+            prompt: 按 Python 实际计算的先后，排出等号右边的计算步骤；不会发生的步骤不要放进来。
+            items:
+              - { id: sub, content: "`20 - 6` 得 14" }
+              - { id: early_sub, content: "`20 - 2` 得 18" }
+              - { id: add, content: "`14 + 4` 得 18" }
+              - { id: mul, content: "`2 * 3` 得 6" }
+              - { id: early_add, content: "`3 + 4` 得 7" }
+            key: [mul, sub, add]
+          - id: result
+            type: text
+            format: integer
+            prompt: "`stock` 最后是多少？"
+            key: 18
+        explanation: |
+          先算乘法 `2 * 3` 得 6；剩下的减和加是同一级，从左往右：`20 - 6` 得 14，再 `14 + 4` 得 **18**。
+
+          `20 - 2` 不会发生，因为 2 先要和 3 相乘；`3 + 4` 也不会发生，因为 3 已经在乘法里用掉了。
+        verify: |
+          import ast
+          # 按 Python 的计算顺序遍历算式，记下每一步实际算的是哪两个数。
+          steps = []
+          def value(node):
+              if isinstance(node, ast.Constant):
+                  return node.value
+              left, right = value(node.left), value(node.right)
+              symbol = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*"}[type(node.op)]
+              steps.append(f"{left} {symbol} {right}")
+              return eval(f"{left} {symbol} {right}")
+          result = value(ast.parse(CODE).body[0].value)
+          # 把算出的步骤对应到块；不在这里的块就是不会发生的步骤。
+          blocks = {"2 * 3": "mul", "20 - 6": "sub", "14 + 4": "add", "20 - 2": "early_sub", "3 + 4": "early_add"}
+          answers = {"steps": [blocks[step] for step in steps], "result": run()["stock"]}
+      - id: py02.k1.r2
+        kind: [modify]
+        uses: [py01.k1]
+        body: |
+          每块板有 96 个孔，每块板都要留出 6 个孔放对照，其余的孔放样本。`plates` 是板数。
+
+          作答框里的代码想算出一共能放多少个样本，存进 `capacity`，但只在一块板时算对。请改正它，结果变量仍叫 `capacity`。宿主提供了 `plates = 2`，换一次实验可能是别的板数。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              capacity = plates * 96 - 6
+            solution: |
+              capacity = plates * (96 - 6)
+            accepts:
+              - capacity = (96 - 6) * plates
+              - capacity = plates * 96 - plates * 6
+              - capacity = plates * 90
+            rejects:
+              - code: capacity = plates * 96
+                why: 没有扣掉对照孔
+              - code: capacity = plates * 96 - 6 * 2
+                why: 只在两块板时碰巧算对
+              - code: capacity = (plates - 6) * 96
+                why: 括号括错了位置
+              - code: capacity = 180
+                why: 把结果写死成两块板的数
+            tests:
+              - name: 两块板
+                setup: plates = 2
+                expect:
+                  capacity: "180"
+              - name: 三块板
+                hidden: true
+                setup: plates = 3
+                expect:
+                  capacity: "270"
+              - name: 五块板
+                hidden: true
+                setup: plates = 5
+                expect:
+                  capacity: "450"
+        explanation: |
+          ```python
+          capacity = plates * (96 - 6)
+          ```
+
+          每块板能放样本的孔是 96 - 6 = 90 个，要先在括号里算出来，再乘板数。原来的 `plates * 96 - 6` 先算乘法，只扣了一次 6 个孔，所以只有一块板时才对。写成 `plates * 96 - plates * 6` 也对。
+    quiz:
+      - id: py02.k1.x1
+        kind: [predict]
+        body: |
+          逐行写出程序显示的整数。
+
+          ```python startLine=1
+          print(10 - 4 - 3)
+          print(10 - (4 - 3))
+          print(2 * 3 + 2 * 4)
+          print(2 * (3 + 2) * 4)
+          ```
+        slots:
+          - id: outputs
+            type: table
+            columns:
+              - id: line
+                header: 第几行
+              - id: shown
+                header: 显示
+                input: integer
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, shown: 3 }
+              - id: l2
+                cells: { line: 第 2 行, shown: 9 }
+              - id: l3
+                cells: { line: 第 3 行, shown: 14 }
+              - id: l4
+                cells: { line: 第 4 行, shown: 40 }
+        explanation: |
+          | 行 | 怎样算 | 显示 |
+          |---|---|---:|
+          | 1 | 从左往右：10 - 4 得 6，再减 3 | 3 |
+          | 2 | 括号先算：4 - 3 得 1，10 - 1 | 9 |
+          | 3 | 两个乘法先算：6 + 8 | 14 |
+          | 4 | 括号先算得 5，再从左往右乘：2 × 5 × 4 | 40 |
+
+          第 1、2 行只差一对括号：减法从左往右算，括号改变了先后，结果也就不同。
+        verify: |
+          lines = run().lines()
+          answers = {"outputs": {f"l{i}": {"shown": int(line)} for i, line in enumerate(lines, 1)}}
+      - id: py02.k1.x2
+        kind: [debug, predict]
+        uses: [py01.k1]
+        body: |
+          需求是：每个样本先离心 5 分钟，再静置 10 分钟；`n` 个样本一个接一个处理，算出一共要多少分钟。同事写的程序是：
+
+          ```python
+          n = 4
+          minutes = n * 5 + 10
+          print(minutes)
+          ```
+        slots:
+          - id: shown
+            type: text
+            format: integer
+            prompt: 程序显示多少？
+            key: 30
+          - id: needed
+            type: text
+            format: integer
+            prompt: 按需求，4 个样本一共要多少分钟？
+            suffix: 分钟
+            key: 60
+          - id: fix
+            type: choice
+            prompt: 第 2 行改成哪一种，换成任何样本数都对？
+            options:
+              - id: grouped_left
+                content: |
+                  ```python
+                  minutes = (n * 5) + 10
+                  ```
+              - id: plus_n
+                content: |
+                  ```python
+                  minutes = n * 5 + n + 10
+                  ```
+              - id: grouped
+                content: |
+                  ```python
+                  minutes = n * (5 + 10)
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  minutes = n + 5 * 10
+                  ```
+            key: grouped
+        explanation: |
+          程序显示 **30**：先算 `4 * 5` 得 20，再加 10，静置时间只算了一次。按需求，每个样本要 5 + 10 = 15 分钟，4 个样本是 **60** 分钟。
+
+          改成 `minutes = n * (5 + 10)`：先在括号里算出每个样本的 15 分钟，再乘样本数。`(n * 5) + 10` 的括号没有改变任何先后，仍是 30；另外两种写法得到的也不是每个样本 15 分钟的总和。
+        verify: |
+          # 按需求逐个样本累加：每个样本 5 分钟加 10 分钟。
+          def needed(n):
+              total = 0
+              for _ in range(n):
+                  total = total + 5 + 10
+              return total
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if all(run(code, n=n)["minutes"] == needed(n) for n in (4, 7))]
+          r = run()
+          answers = {"shown": int(r.out), "needed": needed(r["n"]), "fix": fits[0] if len(fits) == 1 else fits}
+
   - id: py02.k2
     title: 除法 /、整除 // 与余数 %
+    card:
+      name: 三种除法
+      aliases: [整除, 余数, "//", "%"]
+      definition: "`/` 是普通除法，结果总带小数点；`//` 只留下整除的整数部分；`%` 取余数。"
+      conditions:
+        - "`/` 除得尽也带小数点：`6 / 2` 显示 3.0，不是 3。"
+        - "`//` 与 `%` 常一起用：装满几盒、还剩几个。这里只用正数。"
+        - 它们和 `*` 同一级，比加减先算；求平均要写成 `(a + b) / 2`。
+      example:
+        from: py02.k2.e0
+        text: |
+          50 管样本装进每盒 8 管的盒子：`50 // 8` 得 6（装满 6 盒），`50 % 8` 得 2（还剩 2 管），`50 / 8` 得 6.25。
+    lesson: |
+      Python 有三种和除法有关的写法。把 50 管样本装进每盒 8 管的盒子：
+
+      | 写法 | 结果 | 意思 |
+      |---|---:|---|
+      | `50 / 8` | 6.25 | 普通除法 |
+      | `50 // 8` | 6 | 整除：能装满 6 盒 |
+      | `50 % 8` | 2 | 余数：装满后还剩 2 管 |
+
+      可以这样核对：6 盒 × 8 管 + 2 管 = 50 管。
+
+      - `/` 的结果总带小数点，即使除得尽：`6 / 2` 显示 `3.0`，不是 `3`。
+      - `//` 只留下整数部分，不四舍五入：`50 // 8` 是 6，不是 7。
+      - `%` 读作“除以……的余数”。这一节只用正数。
+
+      这三种写法和 `*` 是同一级，比加减先算（见[运算顺序](repa:concept/py02.k1)）。所以两个读数的平均要写成 `(a + b) / 2`：写成 `a + b / 2`，会先算 `b / 2`，再加上 `a`。
+    example:
+      id: py02.k2.e0
+      kind: [predict]
+      uses: [py01.k1]
+      body: |
+        50 管样本，每盒装 8 管。阅读下面的程序。
+
+        ```python startLine=1
+        tubes = 50
+        per_box = 8
+        full = tubes // per_box
+        left = tubes % per_box
+        print(full)
+        print(left)
+        print(tubes / per_box)
+        ```
+      slots:
+        - id: line1
+          type: text
+          format: integer
+          prompt: 第一行显示（装满几盒）
+          key: 6
+        - id: line2
+          type: text
+          format: integer
+          prompt: 第二行显示（还剩几管）
+          key: 2
+        - id: line3
+          type: text
+          match: output
+          prompt: 第三行显示
+          key: "6.25"
+      explanation: |
+        依次显示 **6**、**2**、**6.25**。`50 // 8` 只留下整除的整数部分 6，也就是能装满 6 盒；`50 % 8` 是余数 2，装满后还剩 2 管；`50 / 8` 是普通除法，得 6.25。
+
+        核对一下：6 × 8 + 2 = 50，一管不多一管不少。
+      verify: |
+        lines = run().lines()
+        answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": lines[2]}
+    practice:
+      - id: py02.k2.q1
+        kind: [predict]
+        body: |
+          逐行写出程序显示的内容。注意带不带小数点：`3` 和 `3.0` 算不同的答案。
+
+          ```python startLine=1
+          print(9 / 3)
+          print(9 // 2)
+          print(9 % 2)
+          print(7 / 2)
+          ```
+        slots:
+          - id: outputs
+            type: table
+            columns:
+              - id: line
+                header: 第几行
+              - id: shown
+                header: 显示
+                input: { type: text, match: output }
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, shown: "3.0" }
+              - id: l2
+                cells: { line: 第 2 行, shown: "4" }
+              - id: l3
+                cells: { line: 第 3 行, shown: "1" }
+              - id: l4
+                cells: { line: 第 4 行, shown: "3.5" }
+        explanation: |
+          | 行 | 显示 | 为什么 |
+          |---|---|---|
+          | 1 | 3.0 | `/` 的结果总带小数点，除得尽也一样 |
+          | 2 | 4 | 9 里有 4 个完整的 2 |
+          | 3 | 1 | 9 = 4 × 2 + 1，余数是 1 |
+          | 4 | 3.5 | 普通除法 |
+        verify: |
+          lines = run().lines()
+          answers = {"outputs": {f"l{i}": {"shown": line} for i, line in enumerate(lines, 1)}}
+      - id: py02.k2.q2
+        kind: [predict]
+        uses: [py01.k1]
+        body: |
+          两次测量的读数分别是 12 和 15，想求平均值。
+
+          ```python
+          a = 12
+          b = 15
+          print(a + b / 2)
+          print((a + b) / 2)
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "19.5"
+            feedback:
+              - when: "13.5"
+                message: 没有括号时 `b / 2` 先算，得 7.5，再加上 a。
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "13.5"
+        explanation: |
+          第一行显示 **19.5**：除法比加法先算，先算 `15 / 2` 得 7.5，再加 12。第二行显示 **13.5**：括号里先加得 27，再除以 2。求平均要用第二种写法。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1]}
+      - id: py02.k2.q3
+        kind: [specify]
+        uses: [py01.k1]
+        body: |
+          `samples` 份样本平均分给 `people` 位同学，每人只拿整份，分不完的交回冰箱。例如 30 份分给 4 人，每人 7 份，交回 2 份。哪一行算的是交回冰箱的份数 `back`？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: div
+                content: |
+                  ```python
+                  back = samples / people
+                  ```
+                feedback: 普通除法得 7.5，这是平均每人分到多少，不是剩下多少。
+              - id: floor
+                content: |
+                  ```python
+                  back = samples // people
+                  ```
+                feedback: 这是每人拿到的整份数 7。
+              - id: minus
+                content: |
+                  ```python
+                  back = samples - people
+                  ```
+              - id: mod
+                content: |
+                  ```python
+                  back = samples % people
+                  ```
+            key: mod
+        explanation: |
+          `back = samples % people`：余数就是分完整份后剩下的份数，30 % 4 得 2。`samples // people` 得 7，是每人拿到的份数；`samples / people` 得 7.5；`samples - people` 得 26，和分配无关。
+        verify: |
+          # 一轮一轮地发：每轮每人拿一份，直到不够发一轮，剩下的就是交回的份数。
+          def left_over(samples, people):
+              while samples >= people:
+                  samples = samples - people
+              return samples
+          cases = [(30, 4), (23, 5)]
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if all(run(code, samples=s, people=p)["back"] == left_over(s, p) for s, p in cases)]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py02.k2.r1
+        kind: [trace]
+        uses: [py01.k1]
+        body: |
+          每块板有 96 个孔，一共 250 个样本，先把板一块块放满。
+
+          ```python startLine=1
+          wells = 96
+          samples = 250
+          plates = samples // wells
+          extra = samples % wells
+          check = plates * wells + extra
+          ```
+        slots:
+          - id: values
+            type: table
+            prompt: 程序运行完以后，下面三个名字各是多少？
+            columns:
+              - id: name
+                header: 名字
+              - id: value
+                header: 值
+                input: integer
+            rows:
+              - id: plates
+                cells: { name: plates, value: 2 }
+              - id: extra
+                cells: { name: extra, value: 58 }
+              - id: check
+                cells: { name: check, value: 250 }
+        explanation: |
+          `plates` 是 **2**：250 里有 2 个完整的 96。`extra` 是 **58**：放满 2 块板用掉 192 个，剩下 58 个放在第三块不满的板上。`check` 是 **250**：2 × 96 + 58 正好回到样本总数，说明整除和余数没有算错。
+        verify: |
+          r = run()
+          answers = {"values": {name: {"value": r[name]} for name in ("plates", "extra", "check")}}
+      - id: py02.k2.r2
+        kind: [predict]
+        body: |
+          哪一段程序显示 `4`，不带小数点？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: slash
+                content: |
+                  ```python
+                  print(8 / 2)
+                  ```
+                feedback: "`/` 的结果总带小数点，这里显示 4.0。"
+              - id: floor
+                content: |
+                  ```python
+                  print(8 // 2)
+                  ```
+              - id: half
+                content: |
+                  ```python
+                  print(9 / 2)
+                  ```
+              - id: rest
+                content: |
+                  ```python
+                  print(8 % 2)
+                  ```
+            key: floor
+        explanation: |
+          `print(8 // 2)` 显示 **4**。`8 / 2` 虽然除得尽，`/` 的结果仍带小数点，显示 4.0；`9 / 2` 显示 4.5；`8 % 2` 是余数，显示 0。
+        verify: |
+          fits = [option for option, code in OPTIONS["program"].items() if run(code).out.strip() == "4"]
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py02.k2.x1
+        kind: [specify]
+        uses: [py01.k1]
+        body: |
+          一共 75 管样本。前两个空：离心机每次最多放 12 管，要算能满载离心几次、满载之后还剩几管。第三个空：把 75 管平均分成 12 份，每份平均几管（可以带小数）。
+
+          ```python startLine=1
+          tubes = 75
+          n = 12
+          full_runs = tubes ▢ n
+          left = tubes ▢ n
+          average = tubes ▢ n
+          ```
+
+          每个 ▢ 各应填哪个运算符？
+        slots:
+          - id: full
+            type: choice
+            layout: row
+            prompt: 第 3 行（满载几次）
+            options:
+              - { id: div, content: "`/`" }
+              - { id: floor, content: "`//`" }
+              - { id: mod, content: "`%`" }
+            key: floor
+          - id: left
+            type: choice
+            layout: row
+            prompt: 第 4 行（还剩几管）
+            options:
+              - { id: div, content: "`/`" }
+              - { id: floor, content: "`//`" }
+              - { id: mod, content: "`%`" }
+            key: mod
+          - id: average
+            type: choice
+            layout: row
+            prompt: 第 5 行（平均每份几管）
+            options:
+              - { id: div, content: "`/`" }
+              - { id: floor, content: "`//`" }
+              - { id: mod, content: "`%`" }
+            key: div
+        explanation: |
+          满载次数用 `//`：75 // 12 得 6。剩下的管数用 `%`：75 % 12 得 3（6 × 12 + 3 = 75）。平均每份要保留小数，用 `/`：75 / 12 得 6.25。
+        verify: |
+          from fractions import Fraction
+          tubes, n = 75, 12
+          # 独立算出三个目标：一次次装满来数满载次数和剩余，平均值用分数精确算。
+          runs, rest = 0, tubes
+          while rest >= n:
+              rest = rest - n
+              runs = runs + 1
+          targets = {"full": runs, "left": rest, "average": Fraction(tubes, n)}
+          symbols = {"div": "/", "floor": "//", "mod": "%"}
+          def pick(target):
+              fits = [option for option, symbol in symbols.items() if eval(f"{tubes} {symbol} {n}") == target]
+              return fits[0] if len(fits) == 1 else fits
+          answers = {slot: pick(target) for slot, target in targets.items()}
+      - id: py02.k2.x2
+        kind: [modify]
+        body: |
+          需求：算出三个读数 `a`、`b`、`c` 的平均值，存进 `mean`，保留小数。
+
+          作答框里的代码算错了，请改正，结果变量仍叫 `mean`。宿主提供了 `a`、`b`、`c` 的值，换一批读数时代码也要算对。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              mean = a + b + c / 3
+            solution: |
+              mean = (a + b + c) / 3
+            accepts:
+              - |
+                total = a + b + c
+                mean = total / 3
+            rejects:
+              - code: mean = (a + b + c) // 3
+                why: 整除丢掉了小数部分
+              - code: mean = (a + b + c) / 2
+                why: 除数应当是读数的个数 3
+              - code: mean = a + (b + c) / 3
+                why: 括号没有把 a 包进去
+              - code: mean = 6.0
+                why: 把结果写死成第一组读数的平均
+            tests:
+              - name: 读数 3、6、9
+                setup: |
+                  a = 3
+                  b = 6
+                  c = 9
+                expect:
+                  mean: "6.0"
+              - name: 平均值带小数
+                hidden: true
+                setup: |
+                  a = 1
+                  b = 2
+                  c = 4
+                expect:
+                  mean: (1 + 2 + 4) / 3
+              - name: 另一组读数
+                hidden: true
+                setup: |
+                  a = 10
+                  b = 12
+                  c = 11
+                expect:
+                  mean: "11.0"
+        explanation: |
+          ```python
+          mean = (a + b + c) / 3
+          ```
+
+          `/` 比 `+` 先算，原来的代码只把 `c` 除以了 3。要先用括号把三个读数加起来，再除以 3。不能用 `//`：读数 1、2、4 的平均是 2.33…，整除会只留下 2。
+
   - id: py02.k3
     title: 单位随计算一起核对
+    card:
+      name: 单位核对
+      aliases: [单位换算, 量级检查]
+      definition: 每个数都带着单位：把单位写进名字，换算时核对该乘还是该除、乘除的数对不对，算完再看结果的大小说不说得通。
+      conditions:
+        - 小单位换大单位用除：分钟变小时除以 60，µL 变 mL 除以 1000；大单位换小单位用乘。
+        - 浓度（mg/mL）乘体积（mL）得到质量（mg）；单位对不上的算式多半写错了。
+        - 换算要保留小数时用 `/`，不要用 `//`。
+      example:
+        from: py02.k3.e0
+        text: |
+          135 分钟：`135 // 60` 得 2，`135 % 60` 得 15，即 2 小时 15 分；`135 / 60` 得 2.25，单位是小时。
+    lesson: |
+      数据里的数几乎都带单位：分钟、毫升、mg/mL。Python 只认数，不管单位，所以要把单位写进名字（`minutes`、`volume_ul`、`conc_mg_per_ml`），每一步自己核对。
+
+      换算时先想“1 个大单位等于多少个小单位”：1 小时 = 60 分钟，1 mL = 1000 µL。
+
+      - 小单位换成大单位，用除：`hours = minutes / 60`，`volume_ml = volume_ul / 1000`。
+      - 大单位换成小单位，用乘：`minutes = hours * 60`。
+      - 浓度乘体积得到质量：`mass_mg = conc_mg_per_ml * volume_ml`，单位上 mg/mL × mL = mg。
+
+      | 要算 | 写法 | 结果 |
+      |---|---|---:|
+      | 90 分钟是几小时 | `90 / 60` | 1.5 |
+      | 250 µL 是几 mL | `250 / 1000` | 0.25 |
+      | 2 mg/mL 的溶液取 5 mL，含多少 mg | `2 * 5` | 10 |
+      | 135 分钟是几小时几分 | `135 // 60` 和 `135 % 60` | 2 小时 15 分 |
+
+      最后一行用的是[三种除法](repa:concept/py02.k2)里的 `//` 和 `%`。要保留小数的换算用 `/`：`250 // 1000` 得 0，0.25 mL 就丢了。
+
+      算完再估一下大小：一个下午的实验算出要几千小时，一管样本算出几万毫升，多半是乘除用反了。
+    example:
+      id: py02.k3.e0
+      kind: [predict, explain]
+      uses: [py01.k1]
+      body: |
+        一次实验用了 135 分钟。阅读下面的程序。
+
+        ```python startLine=1
+        minutes = 135
+        hours = minutes // 60
+        rest_minutes = minutes % 60
+        print(hours)
+        print(rest_minutes)
+        print(minutes / 60)
+        ```
+      slots:
+        - id: line1
+          type: text
+          format: integer
+          prompt: 第一行显示
+          key: 2
+        - id: line2
+          type: text
+          format: integer
+          prompt: 第二行显示
+          key: 15
+        - id: line3
+          type: text
+          match: output
+          prompt: 第三行显示
+          key: "2.25"
+        - id: unit
+          type: choice
+          prompt: 第三行显示的数，单位是什么？
+          options:
+            - { id: minute, content: 分钟 }
+            - { id: hour, content: 小时 }
+            - { id: second, content: 秒 }
+          key: hour
+      explanation: |
+        依次显示 **2**、**15**、**2.25**。135 分钟里有 2 个完整的 60 分钟，余下 15 分钟，所以是 2 小时 15 分。`minutes / 60` 把分钟换成小时，得 2.25 **小时**：0.25 小时就是 15 分钟，两种写法说的是同一段时间。
+      verify: |
+        lines = run().lines()
+        answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": lines[2]}
+      manual: [unit]
+    practice:
+      - id: py02.k3.q1
+        kind: [specify]
+        uses: [py01.k1]
+        body: |
+          `volume_ul` 是以微升（µL）为单位的体积，例如 250。要得到以毫升（mL）为单位的体积 `volume_ml`，哪一行对？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: times
+                content: |
+                  ```python
+                  volume_ml = volume_ul * 1000
+                  ```
+                feedback: 微升换成毫升是小单位换大单位，数应当变小。250 µL 不会是 250000 mL。
+              - id: floor
+                content: |
+                  ```python
+                  volume_ml = volume_ul // 1000
+                  ```
+                feedback: 整除只留下整数部分，250 µL 会算成 0 mL。
+              - id: div
+                content: |
+                  ```python
+                  volume_ml = volume_ul / 1000
+                  ```
+              - id: hundred
+                content: |
+                  ```python
+                  volume_ml = volume_ul / 100
+                  ```
+                feedback: 1 mL 是 1000 µL，不是 100 µL。
+            key: div
+        explanation: |
+          `volume_ml = volume_ul / 1000`：1 mL = 1000 µL，小单位换大单位用除，250 µL 得 0.25 mL。乘 1000 方向反了；`// 1000` 会把 0.25 丢成 0；除以 100 用错了换算的数。
+        verify: |
+          # 换算对的写法，把结果再换回微升时应当得到原来的数；用两个体积核对。
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if all(run(code, volume_ul=v)["volume_ml"] * 1000 == v for v in (250, 1500))]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py02.k3.q2
+        kind: [predict, explain]
+        uses: [py01.k1]
+        body: |
+          溶液浓度是 2 mg/mL，取 500 µL。
+
+          ```python startLine=1
+          conc_mg_per_ml = 2
+          volume_ul = 500
+          volume_ml = volume_ul / 1000
+          mass_mg = conc_mg_per_ml * volume_ml
+          print(mass_mg)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "1.0"
+            feedback:
+              - when: "1000"
+                message: 第 4 行用的是第 3 行换算后的毫升数 0.5，不是 500。
+          - id: unit
+            type: choice
+            prompt: 显示的数，单位是什么？
+            options:
+              - { id: ml, content: mL }
+              - { id: mg_per_ml, content: mg/mL }
+              - { id: mg, content: mg }
+            key: mg
+        explanation: |
+          显示 **1.0**，单位是 **mg**。第 3 行把 500 µL 换成 0.5 mL；第 4 行浓度乘体积，2 mg/mL × 0.5 mL = 1.0 mg。0.5 来自 `/`，所以结果带小数点。
+
+          如果跳过第 3 行，直接用 500 去乘，会得到 1000，单位却成了 mg/mL × µL，对不上 mg。
+        verify: |
+          answers = {"output": run().out}
+        manual: [unit]
+      - id: py02.k3.q3
+        kind: [modify]
+        uses: [py01.k1]
+        body: |
+          需求：把用时 `minutes`（分钟）换算成小时，存进 `hours`，保留小数。
+
+          作答框里的代码算出的数大得离谱。请改正它，结果变量仍叫 `hours`。宿主提供了 `minutes = 90`，换一次实验可能是别的分钟数。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              hours = minutes * 60
+            solution: |
+              hours = minutes / 60
+            rejects:
+              - code: hours = minutes // 60
+                why: 整除丢掉了不满一小时的部分
+              - code: hours = minutes / 100
+                why: 1 小时是 60 分钟，不是 100 分钟
+              - code: hours = 1.5
+                why: 把结果写死成 90 分钟的答案
+            tests:
+              - name: 90 分钟
+                setup: minutes = 90
+                expect:
+                  hours: "1.5"
+                  minutes: "90"
+              - name: 不满一小时
+                hidden: true
+                setup: minutes = 45
+                expect:
+                  hours: "0.75"
+              - name: 正好两小时
+                hidden: true
+                setup: minutes = 120
+                expect:
+                  hours: "2.0"
+        explanation: |
+          ```python
+          hours = minutes / 60
+          ```
+
+          分钟是小单位、小时是大单位，换算用除，90 分钟得 1.5 小时。原来的 `minutes * 60` 得 5400，按小时算超过 200 天，一看量级就不对。`// 60` 会把 45 分钟算成 0 小时。
+    review:
+      - id: py02.k3.r1
+        kind: [debug, predict]
+        uses: [py01.k1]
+        body: |
+          一共 40 个样本，每个样本取 250 µL。同事想算出一共要多少 mL，写了：
+
+          ```python
+          total_ml = 40 * 250 * 1000
+          print(total_ml)
+          ```
+        slots:
+          - id: shown
+            type: text
+            format: integer
+            prompt: 程序显示多少？
+            key: 10000000
+          - id: correct
+            type: text
+            format: number
+            prompt: 一共实际需要多少 mL？
+            suffix: mL
+            key: 10
+        explanation: |
+          程序显示 **10000000**，也就是一千万毫升，四十管样本不可能用这么多。40 × 250 = 10000 µL；µL 换 mL 应当除以 1000，实际需要 **10** mL。这一行把除写成了乘。
+        verify: |
+          shown = int(run().out)
+          # 先按微升累加，再按 1 mL = 1000 µL 换算。
+          total_ul = 0
+          for _ in range(40):
+              total_ul = total_ul + 250
+          answers = {"shown": shown, "correct": total_ul / 1000}
+      - id: py02.k3.r2
+        kind: [specify]
+        uses: [py01.k1]
+        body: |
+          溶液浓度是 `conc_mg_per_ml`（mg/mL），一次实验需要 `mass_mg`（mg）的药。例如浓度 4 mg/mL、需要 10 mg 时，应当取 2.5 mL。哪一行算出要取的体积 `volume_ml`？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: times
+                content: |
+                  ```python
+                  volume_ml = mass_mg * conc_mg_per_ml
+                  ```
+              - id: inverse
+                content: |
+                  ```python
+                  volume_ml = conc_mg_per_ml / mass_mg
+                  ```
+              - id: floor
+                content: |
+                  ```python
+                  volume_ml = mass_mg // conc_mg_per_ml
+                  ```
+              - id: div
+                content: |
+                  ```python
+                  volume_ml = mass_mg / conc_mg_per_ml
+                  ```
+            key: div
+        explanation: |
+          `volume_ml = mass_mg / conc_mg_per_ml`：单位上 mg ÷ (mg/mL) = mL，10 ÷ 4 得 2.5 mL。核对：2.5 mL × 4 mg/mL = 10 mg。
+
+          质量乘浓度的单位是 mg × mg/mL，不是体积；浓度除以质量倒过来了；`//` 会把 2.5 丢成 2。
+        verify: |
+          # 取出的体积乘浓度，应当正好是需要的质量；用两组数核对。
+          cases = [(10, 4), (9, 2)]
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if all(run(code, mass_mg=m, conc_mg_per_ml=c)["volume_ml"] * c == m for m, c in cases)]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py02.k3.x1
+        kind: [predict]
+        uses: [py01.k1]
+        body: |
+          一次测量用时 `seconds` 秒，下面的代码把它写成“几分几秒”：
+
+          ```python
+          minutes = seconds // 60
+          rest_seconds = seconds % 60
+          ```
+
+          `seconds` 取下面的值时，`minutes` 和 `rest_seconds` 各是多少？
+        slots:
+          - id: values
+            type: table
+            columns:
+              - id: seconds
+                header: seconds
+              - id: minutes
+                header: minutes
+                input: integer
+              - id: rest
+                header: rest_seconds
+                input: integer
+            rows:
+              - id: s75
+                cells: { seconds: "75", minutes: 1, rest: 15 }
+              - id: s200
+                cells: { seconds: "200", minutes: 3, rest: 20 }
+              - id: s59
+                cells: { seconds: "59", minutes: 0, rest: 59 }
+        explanation: |
+          | seconds | minutes | rest_seconds |
+          |---:|---:|---:|
+          | 75 | 1 | 15 |
+          | 200 | 3 | 20 |
+          | 59 | 0 | 59 |
+
+          `// 60` 数出有几个完整的 60 秒，`% 60` 是剩下不满一分钟的秒数。59 秒不满一分钟，所以是 0 分 59 秒。核对：3 × 60 + 20 = 200。
+        verify: |
+          rows = {}
+          for value in (75, 200, 59):
+              r = run(seconds=value)
+              rows[f"s{value}"] = {"minutes": r["minutes"], "rest": r["rest_seconds"]}
+          answers = {"values": rows}
+      - id: py02.k3.x2
+        kind: [modify]
+        uses: [py01.k1]
+        body: |
+          一共 6 个样本，每个样本处理 15 分钟。用下面的代码行拼出一段程序，显示总共要几小时（保留小数）。不需要的行不要放进来。
+        slots:
+          - id: lines
+            type: order
+            partial: true
+            items:
+              - { id: hours_times, code: total_hours = total_minutes * 60 }
+              - { id: each, code: minutes_each = 15 }
+              - { id: show, code: print(total_hours) }
+              - { id: hours, code: total_hours = total_minutes / 60 }
+              - { id: samples, code: samples = 6 }
+              - { id: hours_floor, code: total_hours = total_minutes // 60 }
+              - { id: total, code: total_minutes = samples * minutes_each }
+            key: [samples, each, total, hours, show]
+            alternatives:
+              - [each, samples, total, hours, show]
+            tests:
+              - name: 显示总小时数
+                stdout: "1.5"
+                expect:
+                  total_hours: "1.5"
+        explanation: |
+          ```python
+          samples = 6
+          minutes_each = 15
+          total_minutes = samples * minutes_each
+          total_hours = total_minutes / 60
+          print(total_hours)
+          ```
+
+          先给样本数和每个样本的分钟数赋值（这两行谁先都可以），算出总分钟数 90，再除以 60 换成小时，显示 **1.5**。乘 60 方向反了，会得到 5400；`// 60` 会把 1.5 小时丢成 1。
