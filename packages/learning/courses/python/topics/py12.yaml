@@ -277,7 +277,7 @@ kps:
       - id: py12.k1.r2
         kind: [debug]
         body: |
-          同事写下的要求是：“从 samples 表保留 temperature 低于 5 的样本，按 temperature 从低到高排列。”别人照做时，还要猜哪几项？选出所有缺少的信息。
+          同事写下的要求是：“从 samples 表保留 temperature 低于 5 的样本，等于 5 的不要，按 temperature 从低到高排列。”别人照做时，还要猜哪几项？选出所有缺少的信息。
         slots:
           - id: missing
             type: choice
@@ -291,7 +291,7 @@ kps:
               - { id: order, content: 行的顺序 }
             key: [columns]
         explanation: |
-          只缺**输出哪些列**。表名、比较关系和顺序都写了：“低于 5”本身就不包含 5，排序方式也说清了。缺的那一项要补上，别人才不用猜。
+          只缺**输出哪些列**。表名写了；“等于 5 的不要”说清了等于阈值的算不算；排序方式也写了。缺的那一项要补上，别人才不用猜。
         manual: [missing]
     quiz:
       - id: py12.k1.x1
