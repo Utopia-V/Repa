@@ -1,7 +1,8 @@
 id: py24
 title: 清理整列文字但保留编号含义
-status: outline
+status: complete
 minutes: 20
+summary: 用 .str.strip()、.str.lower() 逐格清理一整列文字；清理后为空的格按需求处理成缺失；编号列只做约定好的清理，不转成数、不改大小写。
 prerequisites:
   - topic: py05
     key: true
@@ -26,10 +27,1272 @@ sources:
     use: reference
 notes: |
   建议题型与判分：预测输出（P）、小改代码（T）、写清需求（S/O）。
+  范围：.str.strip、.str.lower 及其链式写法；清理后的空串用 列.replace("", np.nan) 换成缺失（整格替换，与 .str.replace 改一格里的部分文字区分）；编号列不转数、不改大小写，用 nunique 检查清理前后不同编号的个数。不讲 .str.replace 的正则、.str.contains、.str.split（py47）。
+  py21、py22 不是先修：“赋回一列”（df["group"] = ...）在 k1 讲解里就地说明。
+  空串和首尾空格在表格显示里看不出来，题面一律用 python 夹具自己画表，文字格加引号；作答时空串填 ""，缺失填 NaN，两者都给快捷按钮。
+  k3.r2 用 python 夹具在沙箱的内存文件系统里写一个小 CSV，再用 read_csv 读，接上 py15 的 dtype={"sample_id": "str"}。
+  “清理后为空算不算缺失”“编号能不能改大小写”属于业务规则，复习和测验各有题列进 manual，由 course:confirm 核对；其余由程序核对。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 3 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  手工录入的文字列常有多余的空格、大小写不统一的写法：" Low"、"HIGH "、"low" 其实是同两个组，比较和计数时却会被当成不同的组。这一节学怎样一次清理整列，同时不把空白和编号处理坏。
+
+  宿主已经导入了 pandas（`pd`）和 NumPy（`np`），并准备好数据表；每道题都从题面给出的表重新开始。题面里的文字格都加了引号，好看清首尾的空格；`""` 是空串，`NaN` 是缺失。
+wrapup: |
+  向同事或 AI 提清理要求时，按列说清楚：哪些列去首尾空白、统一大小写；清理后为空的格算不算缺失、要不要报告个数；编号列只去首尾空白，不转成数、不改大小写。
+
+  拿到代码后，看每一步有没有 `.str`、顺序是不是先 strip 再处理空串；对编号列，清理前后各数一次 `nunique()`，个数变了就要问为什么。
+data:
+  G:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame(
+          {"sample_id": ["S_A", "S_B", "S_C", "S_D", "S_E", "S_F"], "group": [" Low", "HIGH ", "control", "low", "  ", None]},
+          index=[31, 7, 22, 4, 18, 9],
+      )
+    display: |
+      表 G（变量名 `df`）：六个样本的实验组，手工录入。group 每格加了引号；索引 18 那一格是两个空格。
+
+      | 原行索引 | sample_id | group |
+      |---:|---|---|
+      | 31 | S_A | `" Low"` |
+      | 7 | S_B | `"HIGH "` |
+      | 22 | S_C | `"control"` |
+      | 4 | S_D | `"low"` |
+      | 18 | S_E | `"  "` |
+      | 9 | S_F | NaN |
+  G2:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame(
+          {"sample_id": ["X_A", "X_B", "X_C", "X_D", "X_E"], "group": ["high dose ", " Control", "", None, "LOW"]},
+          index=[90, 2, 60, 11, 45],
+      )
+    display: |
+      另一张录入表（变量名 `df`），group 每格加了引号。
+
+      | 原行索引 | sample_id | group |
+      |---:|---|---|
+      | 90 | X_A | `"high dose "` |
+      | 2 | X_B | `" Control"` |
+      | 60 | X_C | `""` |
+      | 11 | X_D | NaN |
+      | 45 | X_E | `"LOW"` |
+  plots:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      plots = pd.DataFrame({"plot": ["P1", "P2", "P3", "P4"], "site": ["  北坡", "南坡  ", "东 坡", None]}, index=[5, 12, 3, 8])
+    display: |
+      表 plots：四个样地的坡向，site 每格加了引号。
+
+      | 原行索引 | plot | site |
+      |---:|---|---|
+      | 5 | P1 | `"  北坡"` |
+      | 12 | P2 | `"南坡  "` |
+      | 3 | P3 | `"东 坡"` |
+      | 8 | P4 | NaN |
+  lab:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      lab = pd.DataFrame({"reagent": ["R1", "R2", "R3", "R4", "R5"], "unit": [" mg", "MG", "mg ", "g", "Mg"]}, index=[1, 2, 3, 4, 5])
+    display: |
+      表 lab：五种试剂用量的单位，unit 每格加了引号。
+
+      | 原行索引 | reagent | unit |
+      |---:|---|---|
+      | 1 | R1 | `" mg"` |
+      | 2 | R2 | `"MG"` |
+      | 3 | R3 | `"mg "` |
+      | 4 | R4 | `"g"` |
+      | 5 | R5 | `"Mg"` |
+  lab2:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      lab = pd.DataFrame({"reagent": ["Q1", "Q2", "Q3", "Q4"], "unit": ["G ", " mg", "Mg", None]}, index=[7, 3, 9, 2])
+    display: |
+      另一张试剂表，unit 每格加了引号。
+
+      | 原行索引 | reagent | unit |
+      |---:|---|---|
+      | 7 | Q1 | `"G "` |
+      | 3 | Q2 | `" mg"` |
+      | 9 | Q3 | `"Mg"` |
+      | 2 | Q4 | NaN |
+  N:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame({"sample_id": ["S_A", "S_B", "S_C", "S_D", "S_E"], "note": [" 复测 ", "", "  ", None, "污染"]}, index=[1, 2, 3, 4, 5])
+    display: |
+      表 N（变量名 `df`）：五个样本的备注，note 每格加了引号；索引 3 那一格是两个空格。
+
+      | 原行索引 | sample_id | note |
+      |---:|---|---|
+      | 1 | S_A | `" 复测 "` |
+      | 2 | S_B | `""` |
+      | 3 | S_C | `"  "` |
+      | 4 | S_D | NaN |
+      | 5 | S_E | `"污染"` |
+  N2:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame({"sample_id": ["X_A", "X_B", "X_C", "X_D"], "note": [" ok", "   ", "重做 ", None]}, index=[8, 6, 4, 2])
+    display: |
+      另一张备注表（变量名 `df`），note 每格加了引号。
+
+      | 原行索引 | sample_id | note |
+      |---:|---|---|
+      | 8 | X_A | `" ok"` |
+      | 6 | X_B | `"   "` |
+      | 4 | X_C | `"重做 "` |
+      | 2 | X_D | NaN |
+  visits:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      visits = pd.DataFrame(
+          {"patient": ["P1", "P2", "P3", "P4", "P5"], "reason": ["", None, "复查", " ", "N/A"]},
+          index=[11, 12, 13, 14, 15],
+      )
+    display: |
+      表 visits：五次就诊记录，reason 每格加了引号；索引 14 那一格是一个空格。
+
+      | 原行索引 | patient | reason |
+      |---:|---|---|
+      | 11 | P1 | `""` |
+      | 12 | P2 | NaN |
+      | 13 | P3 | `"复查"` |
+      | 14 | P4 | `" "` |
+      | 15 | P5 | `"N/A"` |
+  comments:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      comments = pd.DataFrame({"run": ["R1", "R2", "R3", "R4", "R5"], "comment": [" ", "ok", None, "", " 待查"]}, index=[1, 2, 3, 4, 5])
+    display: |
+      表 comments：五次实验的评语，comment 每格加了引号；索引 1 那一格是一个空格。
+
+      | 原行索引 | run | comment |
+      |---:|---|---|
+      | 1 | R1 | `" "` |
+      | 2 | R2 | `"ok"` |
+      | 3 | R3 | NaN |
+      | 4 | R4 | `""` |
+      | 5 | R5 | `" 待查"` |
+  ids:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      ids = pd.DataFrame({"sample_id": ["007", "012", "070", "7", "S-12"], "signal": [5, 8, 3, 6, 9]}, index=[0, 1, 2, 3, 4])
+    display: |
+      表 ids：五个样本，sample_id 是文字，每格加了引号。“007”和“7”是两个不同的样本。
+
+      | 原行索引 | sample_id | signal |
+      |---:|---|---:|
+      | 0 | `"007"` | 5 |
+      | 1 | `"012"` | 8 |
+      | 2 | `"070"` | 3 |
+      | 3 | `"7"` | 6 |
+      | 4 | `"S-12"` | 9 |
+  codes:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame({"sample_id": ["007", "012", "070", "7"], "signal": [5, 8, 3, 6]}, index=[0, 1, 2, 3])
+    display: |
+      表 codes（变量名 `df`）：四个样本，sample_id 是文字，每格加了引号，四个编号各不相同。
+
+      | 原行索引 | sample_id | signal |
+      |---:|---|---:|
+      | 0 | `"007"` | 5 |
+      | 1 | `"012"` | 8 |
+      | 2 | `"070"` | 3 |
+      | 3 | `"7"` | 6 |
+  mice:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      mice = pd.DataFrame({"mouse_id": ["M-01", "m-01", "M-02", "M-03 "], "weight": [21, 19, 23, 20]}, index=[0, 1, 2, 3])
+    display: |
+      表 mice：四只小鼠，mouse_id 每格加了引号。实验记录显示 M-01 和 m-01 是两只不同的小鼠。
+
+      | 原行索引 | mouse_id | weight |
+      |---:|---|---:|
+      | 0 | `"M-01"` | 21 |
+      | 1 | `"m-01"` | 19 |
+      | 2 | `"M-02"` | 23 |
+      | 3 | `"M-03 "` | 20 |
+  ids2:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame({"sample_id": [" 007", "S-01 ", "s-01", "012"], "signal": [4, 7, 2, 9]}, index=[10, 20, 30, 40])
+    display: |
+      表 ids2（变量名 `df`）：四个样本，sample_id 每格加了引号。S-01 和 s-01 是两个不同的样本。
+
+      | 原行索引 | sample_id | signal |
+      |---:|---|---:|
+      | 10 | `" 007"` | 4 |
+      | 20 | `"S-01 "` | 7 |
+      | 30 | `"s-01"` | 2 |
+      | 40 | `"012"` | 9 |
+  ids3:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame({"sample_id": [" 0042", "0042", "B-7 "], "signal": [1, 2, 3]}, index=[5, 6, 7])
+    display: |
+      第三张编号表（变量名 `df`），sample_id 每格加了引号。
+
+      | 原行索引 | sample_id | signal |
+      |---:|---|---:|
+      | 5 | `" 0042"` | 1 |
+      | 6 | `"0042"` | 2 |
+      | 7 | `"B-7 "` | 3 |
+  csv:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      with open("samples.csv", "w", encoding="utf-8") as file:
+          file.write("sample_id,signal\n007,5\n012,8\n120,3\n")
+    display: |
+      宿主准备好了文件 samples.csv，内容是：
+
+      ```text
+      sample_id,signal
+      007,5
+      012,8
+      120,3
+      ```
 kps:
   - id: py24.k1
     title: str.strip/str.lower 的逐元素作用
+    card:
+      name: .str 逐格清理
+      aliases: [str.strip, str.lower, 清理文字列]
+      definition: 列.str.strip()、列.str.lower() 把字符串方法逐格用到一整列上，得到一列新的结果；缺失的格仍是缺失。
+      conditions:
+        - 少了 .str 会报 AttributeError；链式写法的每一步都要带 .str。
+        - strip 只去掉首尾的空白，中间的空格不动。
+        - 结果是新的一列，要保留就赋回：df["group"] = df["group"].str.strip()。
+      example:
+        from: py24.k1.e0
+        text: |
+          ```python
+          clean = df["group"].str.strip().str.lower()
+          ```
+          表 G 的 " Low"、"HIGH " 变成 "low"、"high"；两个空格的格变成空串 ""，缺失的格仍是 NaN。
+    lesson: |
+      学过对一段文字用 [strip、lower](repa:concept/py05.k2)：`" Low".strip()` 得到 `"Low"`。表里的一列有很多格，要逐格做同样的事，就在列后面加 `.str`：
+
+      ```python
+      clean = df["group"].str.strip().str.lower()
+      ```
+
+      [调用链从左往右](repa:concept/py05.k3)：先 `.str.strip()` 去掉每格首尾的空白，再 `.str.lower()` 变成小写。每一步都要带 `.str`。
+
+      | 原行索引 | group | `.str.strip()` | 再 `.str.lower()` |
+      |---:|---|---|---|
+      | 31 | `" Low"` | `"Low"` | `"low"` |
+      | 7 | `"HIGH "` | `"HIGH"` | `"high"` |
+      | 22 | `"control"` | `"control"` | `"control"` |
+      | 4 | `"low"` | `"low"` | `"low"` |
+      | 18 | `"  "` | `""` | `""` |
+      | 9 | NaN | NaN | NaN |
+
+      缺失的格不会报错，仍是 NaN。只有两个空格的那一格成了空串 `""`，下一个知识点专门讲它。
+
+      为什么要清理？`df["group"] == "low"` 只找到索引 4 一行：`" Low"` 多了一个空格、大小写也不同，在比较、计数、分组时都会被当成另一个组。清理以后，低剂量组有两行。
+
+      常见的错误：
+
+      - 少了 `.str`：`df["group"].strip()` 报 `AttributeError`，因为一整列本身没有 strip，要经过 `.str` 才能逐格用字符串方法。`df["group"].str.strip().lower()` 第二步少了 `.str`，也一样报错。
+      - 用 `.str.replace(" ", "")` 去空格：它会把中间的空格也删掉，`"high dose "` 变成 `"highdose"`。strip 只去首尾。
+
+      `clean` 是一列新的值，df 没有变。要换掉原来的列，就把结果赋回去：
+
+      ```python
+      df["group"] = df["group"].str.strip().str.lower()
+      ```
+
+      等号左边写列名，意思是把这一列换成右边算出的新列。
+    example:
+      id: py24.k1.e0
+      kind: [predict]
+      data: [G]
+      body: |
+        阅读代码，按原行索引填写 `clean` 的值。空串填 `""`，缺失填 `NaN`。
+
+        ```python
+        clean = df["group"].str.strip().str.lower()
+        ```
+      slots:
+        - id: clean
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: raw, header: group }
+            - { id: clean, header: clean, input: { type: text, quick: [NaN, '""'] } }
+          rows:
+            - { id: r31, cells: { index: "31", raw: '" Low"', clean: low } }
+            - { id: r7, cells: { index: "7", raw: '"HIGH "', clean: high } }
+            - { id: r22, cells: { index: "22", raw: '"control"', clean: control } }
+            - { id: r4, cells: { index: "4", raw: '"low"', clean: low } }
+            - { id: r18, cells: { index: "18", raw: '"  "', clean: '""' } }
+            - { id: r9, cells: { index: "9", raw: NaN, clean: NaN } }
+      explanation: |
+        依次为 **low、high、control、low、""、NaN**。每一格先去首尾空白、再变小写。两个空格去掉以后什么也不剩，成了空串；缺失的格仍是缺失，不报错。
+      verify: |
+        def shown(value):
+            return "NaN" if pd.isna(value) else ('""' if value == "" else value)
+        clean = run()["clean"]
+        answers = {"clean": {f"r{label}": {"clean": shown(value)} for label, value in clean.items()}}
+    practice:
+      - id: py24.k1.q1
+        kind: [debug]
+        uses: [py05.k3]
+        data: [G]
+        body: |
+          需求是把 group 去掉首尾空白并统一成小写。同事写了下面这行。
+
+          ```python
+          clean = df["group"].strip().lower()
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行这一行会怎样？
+            options:
+              - { id: ok, content: 得到清理好的一列 }
+              - { id: attr, content: 报 AttributeError：一整列没有 strip 方法 }
+              - { id: first, content: 只清理了第一格 }
+            key: attr
+          - id: fix
+            type: choice
+            prompt: 应改成哪一行？
+            options:
+              - id: right
+                content: |
+                  ```python
+                  clean = df["group"].str.strip().str.lower()
+                  ```
+              - id: half
+                content: |
+                  ```python
+                  clean = df["group"].str.strip().lower()
+                  ```
+                feedback: 第二步也要带 .str，否则同样报 AttributeError。
+              - id: replace
+                content: |
+                  ```python
+                  clean = df["group"].str.replace(" ", "").str.lower()
+                  ```
+                feedback: 这会把中间的空格也删掉，例如 "high dose" 变成 "highdose"。
+            key: right
+        explanation: |
+          这一行报 **AttributeError**：`df["group"]` 是一整列，它本身没有 strip 方法。要逐格用字符串方法，每一步都写 `.str`：**`df["group"].str.strip().str.lower()`**。
+
+          第二步漏了 `.str` 同样报错；用 `.str.replace(" ", "")` 会把中间的空格也删掉，不只是首尾。
+        verify: |
+          r = run()
+          other = pd.DataFrame({"group": ["high dose ", " Control", None]})
+          def wanted(table):
+              return [value.strip().lower() if isinstance(value, str) else None for value in table["group"]]
+          def same(result, table):
+              return [None if pd.isna(value) else value for value in result] == wanted(table)
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              # 在原表和一张有中间空格的表上，都要只去首尾空白并变小写。
+              runs = [run(line, df=table) for table in (df, other)]
+              if all(attempt.error is None and same(attempt["clean"], table) for attempt, table in zip(runs, (df, other))):
+                  fits.append(option)
+          answers = {"outcome": "attr" if r.error == "AttributeError" else "other", "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py24.k1.q2
+        kind: [predict]
+        uses: [py17.k1, py19.k1]
+        data: [G]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          print((df["group"] == "low").sum())
+          clean = df["group"].str.strip().str.lower()
+          print((clean == "low").sum())
+          ```
+        slots:
+          - id: before
+            type: text
+            format: integer
+            prompt: 第一行输出
+            key: 1
+          - id: after
+            type: text
+            format: integer
+            prompt: 第二行输出
+            key: 2
+        explanation: |
+          第一行 **1**：清理之前，只有索引 4 的格恰好是 "low"，" Low" 多了空格、首字母大写，不相等。第二行 **2**：清理之后，" Low" 也成了 "low"。
+
+          不清理就去筛选或计数，同一个组会被拆成几份。
+        verify: |
+          lines = run().lines()
+          answers = {"before": int(lines[0]), "after": int(lines[1])}
+      - id: py24.k1.q3
+        kind: [modify]
+        uses: [py05.k2, py05.k3]
+        data: [G]
+        body: |
+          需求是：
+
+          > 直接把 df 的 group 列换成清理后的值：去掉每格首尾的空白，统一成小写。中间的空格保留，缺失的格保持缺失，其他列不变。
+
+          同事写的代码在作答框里。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              df["group"] = df["group"].str.lower()
+            solution: |
+              df["group"] = df["group"].str.strip().str.lower()
+            accepts:
+              - df["group"] = df["group"].str.lower().str.strip()
+            rejects:
+              - code: df["group"] = df["group"].str.strip()
+                why: 没有统一成小写
+              - code: df["group"].str.strip().str.lower()
+                why: 算出了结果却没有赋回，df 没变
+              - code: df["group"] = df["group"].str.replace(" ", "").str.lower()
+                why: 把中间的空格也删掉了
+            tests:
+              - name: 表 G
+                expect:
+                  df: 'pd.DataFrame({"sample_id": ["S_A", "S_B", "S_C", "S_D", "S_E", "S_F"], "group": ["low", "high", "control", "low", "", None]}, index=[31, 7, 22, 4, 18, 9])'
+              - name: 换一张有中间空格的表
+                hidden: true
+                data: [G2]
+                expect:
+                  df: 'pd.DataFrame({"sample_id": ["X_A", "X_B", "X_C", "X_D", "X_E"], "group": ["high dose", "control", "", None, "low"]}, index=[90, 2, 60, 11, 45])'
+        explanation: |
+          ```python
+          df["group"] = df["group"].str.strip().str.lower()
+          ```
+
+          原来的代码只统一了大小写，" Low" 变成 " low"，前面的空格还在。加上 `.str.strip()`，再把结果赋回 group 列。这里先 strip 再 lower、先 lower 再 strip 结果相同。判分时还会换一张有中间空格的表运行，检查整张 df。
+    review:
+      - id: py24.k1.r1
+        kind: [predict]
+        data: [plots]
+        body: |
+          阅读代码，按原行索引填写 `site` 的值。缺失填 `NaN`。
+
+          ```python
+          site = plots["site"].str.strip()
+          ```
+        slots:
+          - id: site
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: raw, header: site（原值） }
+              - { id: clean, header: site, input: { type: text, quick: [NaN] } }
+            rows:
+              - { id: r5, cells: { index: "5", raw: '"  北坡"', clean: 北坡 } }
+              - { id: r12, cells: { index: "12", raw: '"南坡  "', clean: 南坡 } }
+              - { id: r3, cells: { index: "3", raw: '"东 坡"', clean: 东 坡 } }
+              - { id: r8, cells: { index: "8", raw: NaN, clean: NaN } }
+        explanation: |
+          依次为 **北坡、南坡、东 坡、NaN**。strip 只去掉首尾的空白；“东 坡”中间的空格不在首尾，保留。缺失的格仍是缺失。
+        verify: |
+          site = run()["site"]
+          answers = {"site": {f"r{label}": {"clean": "NaN" if pd.isna(value) else value} for label, value in site.items()}}
+      - id: py24.k1.r2
+        kind: [debug]
+        uses: [py05.k3]
+        data: [G]
+        body: |
+          宿主先运行了 `s = df["group"]`。下面每一行单独接在它后面运行。哪几行不报错，并且把每格清理成去掉首尾空白的小写文字？选出所有符合的。
+        slots:
+          - id: ways
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: strip_lower, content: "`clean = s.str.strip().str.lower()`" }
+              - { id: lower_strip, content: "`clean = s.str.lower().str.strip()`" }
+              - { id: no_str, content: "`clean = s.strip().lower()`" }
+              - { id: half, content: "`clean = s.str.strip().lower()`" }
+            key: [strip_lower, lower_strip]
+        explanation: |
+          **`s.str.strip().str.lower()`** 和 **`s.str.lower().str.strip()`** 都符合：两步都带 `.str`，这两步谁先谁后结果一样。另外两行报 AttributeError：一整列没有 strip、lower 方法，要经过 `.str`。
+
+          每个选项的勾选状态分别计分。
+        verify: |
+          wanted = [value.strip().lower() if isinstance(value, str) else None for value in df["group"]]
+          codes = {
+              "strip_lower": "clean = s.str.strip().str.lower()",
+              "lower_strip": "clean = s.str.lower().str.strip()",
+              "no_str": "clean = s.strip().lower()",
+              "half": "clean = s.str.strip().lower()",
+          }
+          ways = []
+          for option, code in codes.items():
+              attempt = run('s = df["group"]\n' + code)
+              if attempt.error is None and [None if pd.isna(value) else value for value in attempt["clean"]] == wanted:
+                  ways.append(option)
+          answers = {"ways": ways}
+    quiz:
+      - id: py24.k1.x1
+        kind: [predict]
+        uses: [py17.k1]
+        data: [lab]
+        body: |
+          阅读代码，按原行索引填写 `mask` 的值。
+
+          ```python
+          mask = lab["unit"].str.strip().str.lower() == "mg"
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: unit, header: unit }
+              - { id: mask, header: mask, input: bool }
+            rows:
+              - { id: r1, cells: { index: "1", unit: '" mg"', mask: true } }
+              - { id: r2, cells: { index: "2", unit: '"MG"', mask: true } }
+              - { id: r3, cells: { index: "3", unit: '"mg "', mask: true } }
+              - { id: r4, cells: { index: "4", unit: '"g"', mask: false } }
+              - { id: r5, cells: { index: "5", unit: '"Mg"', mask: true } }
+        explanation: |
+          依次为 **True、True、True、False、True**。四种写法的毫克清理后都是 "mg"，只有 R4 的单位是克。不清理直接比较，五格里没有一格恰好等于 "mg"，mask 会全是 False。
+        verify: |
+          mask = run()["mask"]
+          answers = {"mask": {f"r{label}": {"mask": value} for label, value in mask.items()}}
+      - id: py24.k1.x2
+        kind: [modify]
+        uses: [py05.k2, py05.k3]
+        data: [lab]
+        body: |
+          需求是：
+
+          > 在 lab 里新增一列 `unit_clean`：unit 去掉首尾空白并统一成小写。原来的 unit 列保留原样，缺失的格保持缺失。
+
+          同事写的代码在作答框里。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              lab["unit_clean"] = lab["unit"].str.strip()
+            solution: |
+              lab["unit_clean"] = lab["unit"].str.strip().str.lower()
+            accepts:
+              - lab["unit_clean"] = lab["unit"].str.lower().str.strip()
+            rejects:
+              - code: lab["unit"] = lab["unit"].str.strip().str.lower()
+                why: 改掉了原来的 unit 列，也没有新增 unit_clean
+              - code: lab["unit_clean"] = lab["unit"].str.lower()
+                why: 没有去掉首尾空白
+            tests:
+              - name: 表 lab
+                expect:
+                  'lab["unit_clean"]': 'pd.Series(["mg", "mg", "mg", "g", "mg"], index=[1, 2, 3, 4, 5], name="unit_clean")'
+                  'lab["unit"]': 'lab["unit"]'
+              - name: 换一张有缺失的表
+                hidden: true
+                data: [lab2]
+                expect:
+                  'lab["unit_clean"]': 'pd.Series(["g", "mg", "mg", None], index=[7, 3, 9, 2], name="unit_clean")'
+                  'lab["unit"]': 'lab["unit"]'
+        explanation: |
+          ```python
+          lab["unit_clean"] = lab["unit"].str.strip().str.lower()
+          ```
+
+          原来的代码只去了空白，"MG"、"Mg" 还是大写。再接一步 `.str.lower()`，结果存进新列 unit_clean，unit 原列不动。判分时还会换一张有缺失的表运行。
+
   - id: py24.k2
     title: 空串与缺失分别处理
+    card:
+      name: 空串转缺失
+      aliases: [空串, 空白格, replace]
+      definition: strip 以后只剩空白的格成了空串 ""，它不是缺失；需求把它当作缺失时，用 列.replace("", np.nan) 把整格等于空串的换成 NaN。
+      conditions:
+        - 先 strip 再 replace：只有空格的格要先变成 ""，才会被换掉。
+        - 列.replace 换整格，.str.replace 改一格里的部分文字，两者不同。
+        - 空白算不算缺失、“N/A”这类文字怎么办，按业务规则写进需求。
+      example:
+        from: py24.k2.e0
+        text: |
+          表 G 的 group strip 以后有 1 个缺失、1 个空串；`replace("", np.nan)` 以后缺失变成 2 个。
+    lesson: |
+      清理 group 以后，原来只有两个空格的那一格成了空串 `""`。[空串不是缺失](repa:concept/py19.k2)：`isna()` 判它为 False，要用 `(clean == "").sum()` 才数得到。
+
+      这一格多半是录入时漏填了。按需求要把它当作缺失时，把整格等于空串的换成 NaN：
+
+      ```python
+      clean = df["group"].str.strip().str.lower()
+      clean = clean.replace("", np.nan)
+      ```
+
+      `列.replace(旧值, 新值)` 换的是**整格**等于旧值的格；学过的 `.str.replace` 改的是一格里的**一部分**文字。这里要的是前一种。
+
+      顺序要对：**先 strip，再 replace**。写反成 `df["group"].replace("", np.nan).str.strip()`，replace 的时候那一格还是两个空格，不等于 `""`，没有被换掉；strip 之后它又成了空串。
+
+      换不换、换成什么，是[业务规则](repa:concept/py19.k3)：录入漏填的当作缺失；有的表里空白就表示“没有”，那就不该换。手打的“N/A”“无”是文字，replace("", ...) 不会动它们，要不要处理也得另行约定。写需求时说清：清理后为空的格怎样处理，要不要报告个数。
+    example:
+      id: py24.k2.e0
+      kind: [trace]
+      data: [G]
+      body: |
+        阅读代码，写出 a、b、c 的值。
+
+        ```python startLine=1
+        clean = df["group"].str.strip()
+        a = clean.isna().sum()
+        b = (clean == "").sum()
+        clean = clean.replace("", np.nan)
+        c = clean.isna().sum()
+        ```
+      slots:
+        - id: a
+          type: text
+          format: integer
+          prompt: "`a` 是多少？"
+          key: 1
+        - id: b
+          type: text
+          format: integer
+          prompt: "`b` 是多少？"
+          key: 1
+        - id: c
+          type: text
+          format: integer
+          prompt: "`c` 是多少？"
+          key: 2
+      explanation: |
+        `a` 是 **1**：strip 以后只有索引 9 原本就缺失。`b` 是 **1**：索引 18 的两个空格成了空串，它不是缺失，`isna()` 不算它。`c` 是 **2**：第 4 行把整格等于空串的换成 NaN，缺失变成了 2 个。
+      verify: |
+        r = run()
+        answers = {"a": int(r["a"]), "b": int(r["b"]), "c": int(r["c"])}
+    practice:
+      - id: py24.k2.q1
+        kind: [predict, explain]
+        uses: [py19.k1]
+        data: [G]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          wrong = df["group"].replace("", np.nan).str.strip()
+          right = df["group"].str.strip().replace("", np.nan)
+          print(wrong.isna().sum())
+          print(right.isna().sum())
+          ```
+        slots:
+          - id: wrong
+            type: text
+            format: integer
+            prompt: 第一行输出
+            key: 1
+          - id: right
+            type: text
+            format: integer
+            prompt: 第二行输出
+            key: 2
+          - id: why
+            type: choice
+            prompt: 为什么两行不一样？
+            options:
+              - { id: order, content: wrong 先 replace 时那一格还是两个空格，不等于 ""，没被换掉 }
+              - { id: replace, content: replace 只能用在 strip 之后，否则不起作用 }
+              - { id: random, content: 两次运行的结果本来就可能不同 }
+            key: order
+        explanation: |
+          第一行 **1**，第二行 **2**。`wrong` 先 replace：那时索引 18 的格是两个空格，不等于 `""`，没被换掉；strip 之后它成了空串，仍不是缺失。`right` 先 strip，那一格先变成 `""`，再被换成 NaN。
+
+          replace 本身在哪里都能用，只是它换的是“此刻整格等于空串”的格，所以要排在 strip 后面。
+        verify: |
+          r = run()
+          lines = r.lines()
+          # 先 replace 时，原表里没有恰好是空串的格，所以 wrong 多出的空串来自 strip。
+          order = "order" if (df["group"] == "").sum() == 0 and (r["wrong"] == "").sum() > 0 else "other"
+          answers = {"wrong": int(lines[0]), "right": int(lines[1]), "why": order}
+      - id: py24.k2.q2
+        kind: [specify]
+        uses: [py19.k3, py12.k1]
+        body: |
+          清理 group 列之前，负责人说：
+
+          > 空白的 group 是录入时漏填的，算作缺失，不参加分组比较；结果里写明有几个。有人写的“N/A”是特意注明“不适用”，保留原样。
+
+          把这条规则填成下面三个字段。
+        slots:
+          - id: blank
+            type: choice
+            prompt: 清理后为空的格
+            options:
+              - { id: keep, content: 保留空串 }
+              - { id: missing, content: 换成缺失 }
+              - { id: unknown, content: 填成 "unknown" }
+            key: missing
+          - id: na_text
+            type: choice
+            prompt: 写着“N/A”的格
+            options:
+              - { id: missing, content: 换成缺失 }
+              - { id: keep, content: 保留原样 }
+            key: keep
+          - id: report
+            type: choice
+            prompt: 要不要报告个数
+            options:
+              - { id: "yes", content: 要，写明有几个漏填 }
+              - { id: "no", content: 不用 }
+            key: "yes"
+        explanation: |
+          清理后为空的格**换成缺失**；“N/A”**保留原样**；**要**报告个数。代码上是先 `.str.strip()`，再 `.replace("", np.nan)`，最后数 `isna().sum()`；“N/A”不是空串，replace 不会动它。
+        manual: [blank, na_text, report]
+      - id: py24.k2.q3
+        kind: [modify]
+        uses: [py19.k3]
+        data: [N]
+        body: |
+          需求是：
+
+          > 直接把 df 的 note 列换成清理后的值：去掉每格首尾的空白；清理后为空的格换成缺失；其他列不变。
+
+          同事写的代码在作答框里，结果里仍有空串。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              df["note"] = df["note"].replace("", np.nan).str.strip()
+            solution: |
+              df["note"] = df["note"].str.strip().replace("", np.nan)
+            accepts:
+              - |
+                clean = df["note"].str.strip()
+                df["note"] = clean.replace("", None)
+            rejects:
+              - code: df["note"] = df["note"].str.strip()
+                why: 空串没有换成缺失
+              - code: df["note"] = df["note"].str.strip().replace("", "NA")
+                why: 换成了两个字母 NA，那是文字，不是缺失
+              - code: df = df.dropna(subset=["note"])
+                why: 删掉了行，也没有清理空白
+            tests:
+              - name: 表 N
+                expect:
+                  df: 'pd.DataFrame({"sample_id": ["S_A", "S_B", "S_C", "S_D", "S_E"], "note": ["复测", None, None, None, "污染"]}, index=[1, 2, 3, 4, 5])'
+              - name: 换一张表
+                hidden: true
+                data: [N2]
+                expect:
+                  df: 'pd.DataFrame({"sample_id": ["X_A", "X_B", "X_C", "X_D"], "note": ["ok", None, "重做", None]}, index=[8, 6, 4, 2])'
+        explanation: |
+          ```python
+          df["note"] = df["note"].str.strip().replace("", np.nan)
+          ```
+
+          原来的代码先 replace 再 strip：索引 3 的两个空格在 replace 时还不是空串，strip 以后才变成空串，就漏掉了。把两步对调。本例 note 依次为 复测、NaN、NaN、NaN、污染。判分时还会换一张表运行。
+    review:
+      - id: py24.k2.r1
+        kind: [predict]
+        uses: [py19.k1, py19.k2]
+        data: [visits]
+        body: |
+          阅读代码，回答下面的问题。
+
+          ```python
+          c = visits["reason"].str.strip().replace("", np.nan)
+          ```
+        slots:
+          - id: missing
+            type: text
+            format: integer
+            prompt: "`c.isna().sum()` 是多少？"
+            key: 3
+          - id: na_text
+            type: choice
+            prompt: 索引 15 那一格（原来是 "N/A"）在 c 里是什么？
+            options:
+              - { id: missing, content: 缺失 NaN }
+              - { id: text, content: 仍是文字 "N/A" }
+              - { id: empty, content: 空串 "" }
+            key: text
+        explanation: |
+          缺失有 **3** 个：索引 11 的空串、索引 14 的一个空格（strip 后成了空串）都被换成 NaN，再加上原本就缺失的索引 12。
+
+          索引 15 **仍是文字 "N/A"**：它不是空串，replace("", ...) 不会动它。要不要把它也当作缺失，得另行约定。
+        verify: |
+          c = run()["c"]
+          value = c[15]
+          answers = {
+              "missing": int(c.isna().sum()),
+              "na_text": "missing" if pd.isna(value) else ("empty" if value == "" else "text"),
+          }
+      - id: py24.k2.r2
+        kind: [specify]
+        uses: [py19.k3, py12.k1]
+        body: |
+          负责人确认的规则是：“备注去掉首尾的空白；清理后为空的当作缺失；手写的‘无’保留原样。”下面哪一种做法与它完全一致？
+        slots:
+          - id: plan
+            type: choice
+            options:
+              - id: a
+                content: 先去掉每格首尾的空白，再把整格为空的换成缺失；“无”不动
+              - id: b
+                content: 先把整格为空的换成缺失，再去掉每格首尾的空白；“无”不动
+              - id: c
+                content: 先去掉每格首尾的空白，再把整格为空的和写着“无”的都换成缺失
+              - id: d
+                content: 先删掉每格里所有的空格（包括中间的），再把整格为空的换成缺失；“无”不动
+            key: a
+        explanation: |
+          “先去掉首尾空白，再把整格为空的换成缺失，‘无’不动”这一种与规则一致。
+
+          先换缺失再去空白，只有空格的格会漏掉，清理后仍是空串；把“无”也换成缺失违背了“保留原样”；删掉所有空格会改动中间的空格，规则只说首尾。
+        manual: [plan]
+    quiz:
+      - id: py24.k2.x1
+        kind: [specify, debug]
+        uses: [py19.k2, py19.k3]
+        body: |
+          需求是“备注清理后为空的格当作缺失”。AI 交来的代码是：
+
+          ```python
+          df["note"] = df["note"].str.strip().replace("", "NA")
+          ```
+
+          这行代码的问题是什么？
+        slots:
+          - id: problem
+            type: choice
+            options:
+              - id: a
+                content: strip 和 replace 的顺序反了
+              - id: b
+                content: 换进去的 "NA" 是两个字母，不是缺失；isna() 数不到它
+              - id: c
+                content: replace 只能换数字，不能换文字
+              - id: d
+                content: 没有问题，"NA" 就是缺失
+            key: b
+        explanation: |
+          问题在于**换进去的 "NA" 是两个字母**：它是一段文字，`isna()` 判为 False，后面按缺失处理的步骤都数不到它。应换成真正的缺失：`.replace("", np.nan)`。
+
+          这行先 strip 再 replace，顺序是对的；replace 也可以换文字。
+        manual: [problem]
+      - id: py24.k2.x2
+        kind: [predict]
+        uses: [py19.k1]
+        data: [comments]
+        body: |
+          阅读代码。
+
+          ```python
+          c = comments["comment"].str.strip().replace("", np.nan)
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: "`c` 里哪些行是缺失？按先后顺序排出原行索引。"
+            items:
+              - { id: "1", content: "1" }
+              - { id: "2", content: "2" }
+              - { id: "3", content: "3" }
+              - { id: "4", content: "4" }
+              - { id: "5", content: "5" }
+            key: ["1", "3", "4"]
+          - id: last
+            type: text
+            prompt: 索引 5 那一格在 c 里是什么文字？
+            key: 待查
+        explanation: |
+          索引 **1、3、4** 是缺失：1 是一个空格，strip 后成了空串，被换掉；3 原本就缺失；4 原本就是空串。索引 5 的 " 待查" 去掉首尾空白后是 **待查**，不是空串，保留。
+        verify: |
+          c = run()["c"]
+          answers = {"rows": [str(label) for label, value in c.items() if pd.isna(value)], "last": c[5]}
+
   - id: py24.k3
     title: 编号列不要任意转数值或改写
+    card:
+      name: 编号保持原样
+      aliases: [编号, sample_id, 前导零, nunique]
+      definition: 编号是名字，不是数量；清理时只做需求约定的改动（通常只去首尾空白），不转成数、不改大小写、不补零也不去零。
+      conditions:
+        - 转成数会去掉前导零："007" 和 "7" 成了同一个 7，带字母的编号成了缺失或报错。
+        - 改大小写可能把本来不同的编号并成一个；清理前后各数一次 nunique()。
+        - '从文件读入时用 dtype={"sample_id": "str"}，编号就保持文字。'
+      example:
+        from: py24.k3.e0
+        text: |
+          表 ids 有 5 个不同的编号；`pd.to_numeric` 以后成了 7、12、70、7、NaN，只剩 3 个不同的值。
+    lesson: |
+      sample_id 这样的编号看起来像数，其实是**名字**：没有人拿它加减，“007”和“7”可能是两个不同的样本。清理文字列时，编号列要格外小心。
+
+      ```python
+      n = pd.to_numeric(ids["sample_id"], errors="coerce")
+      ```
+
+      | 原行索引 | sample_id | n |
+      |---:|---|---:|
+      | 0 | `"007"` | 7.0 |
+      | 1 | `"012"` | 12.0 |
+      | 2 | `"070"` | 70.0 |
+      | 3 | `"7"` | 7.0 |
+      | 4 | `"S-12"` | NaN |
+
+      前导零没了，“007”和“7”成了同一个数，“S-12”成了缺失。`astype(int)` 遇到“S-12”会报错；编号全是数字时它不报错，但同样丢掉前导零。
+
+      改大小写也会出事：`.str.lower()` 把“M-01”和“m-01”变成同一个编号。如果它们本来是两只不同的小鼠，就被悄悄并成了一只。
+
+      检查的办法是清理前后各数一次**不同编号的个数**。`列.nunique()` 给出一列里有多少个不同的值（不算缺失）：表 ids 原来 5 个，转成数以后只剩 3 个，说明有编号被并掉或丢了。
+
+      所以对编号列：
+
+      - 只做需求约定的清理，通常是去掉首尾空白 `.str.strip()`；
+      - 不转成数、不改大小写、不补零也不去零，除非需求方明确说可以，例如确认“p01 和 P01 是同一个样地”；
+      - 从文件读入时，用 [dtype={"sample_id": "str"}](repa:concept/py15.k2) 让编号保持文字，前导零就不会丢。
+    example:
+      id: py24.k3.e0
+      kind: [predict]
+      data: [ids]
+      body: |
+        阅读代码，按原行索引填写 `n` 的值（缺失填 `NaN`），再写出两个 nunique 的结果。
+
+        ```python
+        n = pd.to_numeric(ids["sample_id"], errors="coerce")
+        before = ids["sample_id"].nunique()
+        after = n.nunique()
+        ```
+      slots:
+        - id: n
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: raw, header: sample_id }
+            - { id: n, header: n, input: { type: text, format: number, quick: [NaN] } }
+          rows:
+            - { id: r0, cells: { index: "0", raw: '"007"', n: 7 } }
+            - { id: r1, cells: { index: "1", raw: '"012"', n: 12 } }
+            - { id: r2, cells: { index: "2", raw: '"070"', n: 70 } }
+            - { id: r3, cells: { index: "3", raw: '"7"', n: 7 } }
+            - { id: r4, cells: { index: "4", raw: '"S-12"', n: NaN } }
+        - id: before
+          type: text
+          format: integer
+          prompt: "`before` 是多少？"
+          key: 5
+        - id: after
+          type: text
+          format: integer
+          prompt: "`after` 是多少？"
+          key: 3
+      explanation: |
+        `n` 依次为 **7.0、12.0、70.0、7.0、NaN**。`before` 是 **5**，`after` 是 **3**：“007”和“7”成了同一个 7，“S-12”成了缺失（nunique 不算缺失）。五个不同的样本，转成数以后只认得出三个。
+      verify: |
+        r = run()
+        answers = {
+            "n": {f"r{label}": {"n": "NaN" if pd.isna(value) else value} for label, value in r["n"].items()},
+            "before": int(r["before"]),
+            "after": int(r["after"]),
+        }
+    practice:
+      - id: py24.k3.q1
+        kind: [debug]
+        data: [codes]
+        body: |
+          同事为了“统一编号格式”，写了下面这行。四个编号都是数字，运行没有报错。
+
+          ```python
+          df["sample_id"] = df["sample_id"].astype(int)
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 运行后，索引 0 的 sample_id 是多少？
+            key: 7
+          - id: count
+            type: text
+            format: integer
+            prompt: 运行后，`df["sample_id"].nunique()` 是多少？
+            key: 3
+          - id: better
+            type: choice
+            prompt: 对这一列，合适的做法是哪一种？
+            options:
+              - id: keep
+                content: 保持文字，最多去掉首尾空白
+              - id: float
+                content: 改用 astype(float)，就不会丢东西
+              - id: zfill
+                content: 先转成数，再统一补成三位
+            key: keep
+        explanation: |
+          索引 0 成了 **7**，不同编号只剩 **3** 个：“007”和“7”并成了一个。
+
+          编号应当**保持文字**，最多去掉首尾空白。改成浮点照样丢前导零；转成数再补成三位，会把本来是“7”的样本改成“007”，和真正的“007”撞在一起。
+        verify: |
+          after = run()["df"]["sample_id"]
+          # 两种改写都在“007”和“7”这两个不同的编号上检查：只有保持文字能让它们仍然不同。
+          pair = pd.Series(["007", "7"])
+          float_same = pair.astype(float).nunique() == 1
+          zfill_same = pd.to_numeric(pair).astype(str).str.zfill(3).nunique() == 1
+          keep_same = pair.str.strip().nunique() == 1
+          better = [name for name, merged in {"keep": keep_same, "float": float_same, "zfill": zfill_same}.items() if not merged]
+          answers = {"first": int(after[0]), "count": int(after.nunique()), "better": better[0] if len(better) == 1 else better}
+      - id: py24.k3.q2
+        kind: [predict, explain]
+        uses: [py05.k3]
+        data: [mice]
+        body: |
+          阅读代码，写出 a、b、c 的值。
+
+          ```python
+          a = mice["mouse_id"].nunique()
+          b = mice["mouse_id"].str.strip().nunique()
+          c = mice["mouse_id"].str.strip().str.lower().nunique()
+          ```
+        slots:
+          - id: a
+            type: text
+            format: integer
+            prompt: "`a` 是多少？"
+            key: 4
+          - id: b
+            type: text
+            format: integer
+            prompt: "`b` 是多少？"
+            key: 4
+          - id: c
+            type: text
+            format: integer
+            prompt: "`c` 是多少？"
+            key: 3
+          - id: step
+            type: choice
+            prompt: 哪一步把两只不同的小鼠并成了一个编号？
+            options:
+              - { id: strip, content: .str.strip() }
+              - { id: lower, content: .str.lower() }
+              - { id: none, content: 哪一步都没有 }
+            key: lower
+        explanation: |
+          `a`、`b` 都是 **4**，`c` 是 **3**。strip 只去掉了“M-03 ”末尾的空格，不同编号还是 4 个；`.str.lower()` 把“M-01”和“m-01”都变成“m-01”，两只不同的小鼠并成了一个编号。
+
+          每清理一步就数一次 nunique，数目变了的那一步就是要追问的地方。
+        verify: |
+          r = run()
+          a, b, c = int(r["a"]), int(r["b"]), int(r["c"])
+          step = "lower" if b > c and a == b else ("strip" if a > b else "none")
+          answers = {"a": a, "b": b, "c": c, "step": step}
+      - id: py24.k3.q3
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          你要请 AI 清理一张样本表。表里的 sample_id 有“007”“S-12 ”这样的写法，有的带首尾空格。
+
+          请写一句关于 sample_id 列的清理要求，让 AI 不会把编号改坏。
+        slots:
+          - id: rule
+            type: text
+            lines: 4
+            rubric:
+              - id: allowed
+                label: 允许的清理
+                guide: 写明只去掉首尾空白（或其他明确约定的改动）。
+              - id: forbidden
+                label: 不许做的改动
+                guide: 写明不转成数、不改大小写、不补零或去零中的至少两项，或者概括为“其余保持原样”并点出前导零。
+              - id: check
+                label: 怎样核对
+                guide: 要求清理前后核对不同编号的个数不变，或者列出被改动的编号给人看。
+        explanation: |
+          一种写法：**sample_id 只去掉首尾空白，其余保持原样：不转成数、不改大小写、不补零也不去零；清理前后各报告一次不同编号的个数，两者应当相同。**
+
+          三点各算一项。只写“把编号整理一下”，AI 很可能把它转成数或统一大小写。
+    review:
+      - id: py24.k3.r1
+        kind: [explain]
+        data: [ids]
+        body: |
+          宿主先运行了 `s = pd.Series(["007", "7"])`，这是两个不同样本的编号。下面每一行单独接在它后面运行。哪几行会让两个编号变得一样？选出所有会的；报错的不算。
+        slots:
+          - id: merged
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: strip, content: "`t = s.str.strip()`" }
+              - { id: numeric, content: "`t = pd.to_numeric(s)`" }
+              - { id: integer, content: "`t = s.astype(int)`" }
+              - { id: lower, content: "`t = s.str.lower()`" }
+            key: [numeric, integer]
+        explanation: |
+          **`pd.to_numeric`** 和 **`astype(int)`** 会让两个编号都成为 7，前导零丢了。strip 和 lower 对这两个编号不起作用，它们仍然不同。
+
+          每个选项的勾选状态分别计分。
+        verify: |
+          codes = {
+              "strip": "t = s.str.strip()",
+              "numeric": "t = pd.to_numeric(s)",
+              "integer": "t = s.astype(int)",
+              "lower": "t = s.str.lower()",
+          }
+          merged = []
+          for option, code in codes.items():
+              attempt = run('s = pd.Series(["007", "7"])\n' + code)
+              if attempt.error is None and attempt["t"].iloc[0] == attempt["t"].iloc[1]:
+                  merged.append(option)
+          answers = {"merged": merged}
+      - id: py24.k3.r2
+        kind: [predict]
+        uses: [py15.k2]
+        data: [csv]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          a = pd.read_csv("samples.csv")
+          b = pd.read_csv("samples.csv", dtype={"sample_id": "str"})
+          print(a.loc[0, "sample_id"])
+          print(b.loc[0, "sample_id"])
+          ```
+        slots:
+          - id: first
+            type: text
+            prompt: 第一行输出
+            key: "7"
+          - id: second
+            type: text
+            prompt: 第二行输出
+            key: "007"
+        explanation: |
+          第一行 **7**：不指定类型时，read_csv 看到一列全是数字，就读成了整数，前导零在读入时就丢了。第二行 **007**：`dtype={"sample_id": "str"}` 让这一列按文字读入，编号保持原样。
+        verify: |
+          lines = run().lines()
+          answers = {"first": str(lines[0]), "second": str(lines[1])}
+    quiz:
+      - id: py24.k3.x1
+        kind: [modify]
+        data: [ids2]
+        body: |
+          需求是：
+
+          > 直接修改 df 的 sample_id：只去掉每格首尾的空白，其余保持原样（不转成数、不改大小写）。其他列不变。
+
+          同事写的代码在作答框里。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              df["sample_id"] = df["sample_id"].str.strip().str.upper()
+            solution: |
+              df["sample_id"] = df["sample_id"].str.strip()
+            rejects:
+              - code: df["sample_id"] = df["sample_id"].str.strip().str.lower()
+                why: 改了大小写，S-01 和 s-01 并成了一个
+              - code: df["sample_id"] = pd.to_numeric(df["sample_id"], errors="coerce")
+                why: 转成了数，前导零丢了，带字母的编号成了缺失
+              - code: df["sample_id"] = df["sample_id"].str.lstrip("0").str.strip()
+                why: 去掉了前导零
+            tests:
+              - name: 表 ids2
+                expect:
+                  df: 'pd.DataFrame({"sample_id": ["007", "S-01", "s-01", "012"], "signal": [4, 7, 2, 9]}, index=[10, 20, 30, 40])'
+              - name: 换一张编号表
+                hidden: true
+                data: [ids3]
+                expect:
+                  df: 'pd.DataFrame({"sample_id": ["0042", "0042", "B-7"], "signal": [1, 2, 3]}, index=[5, 6, 7])'
+        explanation: |
+          ```python
+          df["sample_id"] = df["sample_id"].str.strip()
+          ```
+
+          原来的代码多做了一步 `.str.upper()`，把“S-01”和“s-01”变成同一个编号。需求只允许去首尾空白，就只写 strip。本例结果是 007、S-01、s-01、012，四个编号仍然各不相同。判分时还会换一张编号表运行。
+      - id: py24.k3.x2
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          一张样地表的 plot_id 有“P01”“p01”“ P02”这样的写法。负责人确认：“P01 和 p01 是同一个样地，只是录入时大小写不统一；编号里的 0 都要保留。”把 plot_id 的清理规则填成下面三个字段。
+        slots:
+          - id: strip
+            type: choice
+            prompt: 首尾空白
+            options:
+              - { id: keep, content: 保留 }
+              - { id: remove, content: 去掉 }
+            key: remove
+          - id: case
+            type: choice
+            prompt: 大小写
+            options:
+              - { id: keep, content: 保持原样 }
+              - { id: upper, content: 统一成大写 }
+            key: upper
+          - id: numeric
+            type: choice
+            prompt: 要不要转成数
+            options:
+              - { id: "no", content: 不转，保持文字 }
+              - { id: "yes", content: 转成数 }
+            key: "no"
+        explanation: |
+          首尾空白**去掉**；大小写**统一成大写**；**不转成数**。
+
+          这里能统一大小写，是因为负责人确认了“P01 和 p01 是同一个样地”。编号能不能改、怎样改，要有需求方的明确规定；没有这种确认时，大小写应保持原样。“0 都要保留”排除了转成数。
+        manual: [strip, case, numeric]
+
+verified:
+  - question: py24.k2.r2
+    version: sha256:6411e44a187c50eb61480c084146a1190e263708ec0fa844f6e8b952ab6ee6f1
+    slots: [plan]
+    model: deepseek/deepseek-flash
+    date: 2026-10-13
+  - question: py24.k2.x1
+    version: sha256:9a58f6f878483fe98a77adfff5ded259186aca21b06a05db26fe92b21a317325
+    slots: [problem]
+    model: deepseek/deepseek-flash
+    date: 2026-10-13
+  - question: py24.k3.x2
+    version: sha256:6407762af28885cf38676046e869db62fe9cefad837b2c9c2946d6788940f981
+    slots: [strip, case, numeric]
+    model: deepseek/deepseek-flash
+    date: 2026-10-13
