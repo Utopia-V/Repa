@@ -1,7 +1,8 @@
 id: py10
 title: 有条件地做一件事
-status: outline
+status: complete
 minutes: 20
+summary: 读懂 if/elif/else：一组分支只走一条路径；缩进划出哪些行受条件控制；按实际走过的路径追踪变量的值。
 prerequisites:
   - topic: py09
     key: true
@@ -22,10 +23,1173 @@ sources:
     use: reference
 notes: |
   建议题型与判分：预测输出（P）、追踪变量（P）、找错（P）。
+  范围：只用一层 if/elif/else，条件只用 py08 的比较和 py09 的 and/or/not；不嵌套 if，不用循环、列表和函数定义。程序仍按 py01 的约定当作短脚本从上往下运行。
+  很多题由宿主事先给输入变量赋值（例如 signal），代码里不写这一行，同一段代码换几个值运行，这样能直接比较不同路径；题面每次都说明。
+  k2 的 Parsons 题按测试判，测试用 setup 给输入变量赋不同的值，学生排出的程序不能把值写死。
+  核对里的 ran() 用 sys.settrace 记下实际执行过的行号；else: 这一行本身没有字节码，不会被记下，所以只问分支里的行。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 4 分钟；k2 讲解与例题 2 分钟、练习 4 分钟；k3 讲解与例题 2 分钟、练习 3 分钟；收束 1 分钟。
+  情境与数据为本课自拟，阈值都是题目约定，不是科研结论。
+intro: |
+  这一节读带条件的代码：程序走到 `if` 时先算出条件是 True 还是 False，再决定下面几行做不做。
+
+  代码仍当作短脚本从上往下运行。有些题会说“宿主事先给 `signal` 赋了值”，这时代码里不写这一行，同一段代码会换不同的值运行，你要分别说出结果。题里的阈值都是题目自己的约定。
+wrapup: |
+  读一段带 `if` 的代码，可以按三步走：先算条件，找出这次走的是哪一条路径；再看缩进，分清哪些行属于这条路径、哪些行之后无论如何都会执行；最后只执行这条路径上的赋值，写下各个名字的值。
+
+  向 AI 描述分类规则时，也按这个顺序说：每一档的条件（含不含等号）、档与档的先后、都不满足时怎么办。
 kps:
   - id: py10.k1
     title: if/elif/else 的互斥路径
+    card:
+      name: if/elif/else
+      aliases: [条件分支, 分支]
+      definition: 从上往下依次检查条件，第一个为 True 的分支执行，同一组里其余的分支都跳过；条件都不成立时执行 else。
+      conditions:
+        - 一组 if/elif/else 只走一条路径；前面的条件成立以后，后面的 elif 不再检查，所以条件的先后会影响结果。
+        - 分开写的两个 if 是两组，各查各的，可能都执行。
+      example:
+        from: py10.k1.e0
+        text: |
+          ```python
+          signal = 12
+          if signal >= 15:
+              level = "高"
+          elif signal >= 10:
+              level = "中"
+          else:
+              level = "低"
+          print(level)
+          ```
+          `signal >= 15` 为 False，接着查 `signal >= 10`，为 True，于是 level 为“中”，else 被跳过；显示“中”。
+    lesson: |
+      程序走到 `if` 这一行时，先算出冒号前面的条件，也就是 [比较](repa:concept/py08.k1) 或 [and/or/not](repa:concept/py09.k1) 得到的 True 或 False。条件为 True，就执行它下面缩进的几行；为 False，就跳过这几行。
+
+      几种情况可以连成一组：`elif` 是“否则，如果……”，`else` 是“否则”，`else` 后面不写条件。
+
+      ```python
+      if signal >= 15:
+          level = "高"
+      elif signal >= 10:
+          level = "中"
+      else:
+          level = "低"
+      ```
+
+      Python 从上往下检查：
+
+      1. 先看 `signal >= 15`。成立就让 level 为“高”，**这一组到此结束**，后面的 elif 和 else 都不再看。
+      2. 不成立，才看 `signal >= 10`。
+      3. 前面的条件都不成立，执行 else 下面的行。
+
+      | signal | `signal >= 15` | `signal >= 10` | level |
+      |---:|---|---|---|
+      | 18 | True | （不再检查） | 高 |
+      | 12 | False | True | 中 |
+      | 7 | False | False | 低 |
+
+      所以一组 if/elif/else 恰好走一条路径；没有 else 时，条件都不成立就一条也不走。signal 为 18 时 `signal >= 10` 其实也成立，但它排在后面，轮不到它：**条件的先后会影响结果**。
+
+      如果写成两个分开的 `if`，就是两组，第二个 if 不管第一个成不成立都会检查，两块可能都执行。
+    example:
+      id: py10.k1.e0
+      kind: [predict, trace]
+      uses: [py08.k1, py08.k2]
+      body: |
+        把测量值分成高、中、低三档。阅读代码。
+
+        ```python startLine=1
+        signal = 12
+        if signal >= 15:
+            level = "高"
+        elif signal >= 10:
+            level = "中"
+        else:
+            level = "低"
+        print(level)
+        ```
+      slots:
+        - id: conds
+          type: table
+          prompt: 这次运行时，下面两个条件分别是 True 还是 False？
+          columns:
+            - { id: line, header: 行 }
+            - { id: cond, header: 条件 }
+            - { id: value, header: 结果, input: bool }
+          rows:
+            - { id: c2, cells: { line: 第 2 行, cond: "`signal >= 15`", value: false } }
+            - { id: c4, cells: { line: 第 4 行, cond: "`signal >= 10`", value: true } }
+        - id: output
+          type: text
+          match: text
+          prompt: 第 8 行显示什么？
+          key: "中"
+      explanation: |
+        signal 是 12：第 2 行的 `signal >= 15` 为 **False**，跳过第 3 行，接着查第 4 行；`signal >= 10` 为 **True**，执行第 5 行，level 为“中”。这一组到此结束，else 下面的第 7 行不执行。最后显示 **中**。
+      verify: |
+        import re
+        lines = CODE.splitlines()
+        # 从题面代码里取出第 2、4 行的条件文字，按这次运行时 signal 的值求出 True/False。
+        conds = {f"c{n}": re.match(r"\s*(?:if|elif) (.*):$", lines[n - 1]).group(1) for n in (2, 4)}
+        r = run()
+        answers = {
+            "conds": {row: {"value": eval(cond, {"signal": r["signal"]})} for row, cond in conds.items()},
+            "output": r.out.strip(),
+        }
+    practice:
+      - id: py10.k1.q1
+        kind: [predict]
+        uses: [py08.k2]
+        body: |
+          还是分三档的代码，这次测量值恰好是 15。
+
+          ```python startLine=1
+          signal = 15
+          if signal >= 15:
+              level = "高"
+          elif signal >= 10:
+              level = "中"
+          else:
+              level = "低"
+          print(level)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: text
+            prompt: 第 8 行显示什么？
+            key: "高"
+            feedback:
+              - when: "中"
+                message: 15 满足 `signal >= 15`（`>=` 包含等号），第一个分支就执行了，轮不到 elif。
+          - id: checked
+            type: choice
+            prompt: 第 4 行的条件 `signal >= 10` 这次有没有被检查？
+            options:
+              - { id: "no", content: 没有，第 2 行的条件已经成立，这一组到此结束 }
+              - { id: "yes", content: 检查了，而且也是 True }
+            key: "no"
+        explanation: |
+          显示 **高**。15 满足 `signal >= 15`，执行第 3 行；一组 if/elif/else 只走一条路径，所以第 4 行的条件**没有被检查**，else 也被跳过。虽然 15 也满足 `signal >= 10`，但它排在后面，轮不到它。
+        verify: |
+          import sys
+          def ran(code=CODE):
+              lines = set()
+              def tracer(frame, event, arg):
+                  if frame.f_code.co_filename == "<ran>" and event == "line":
+                      lines.add(frame.f_lineno)
+                  return tracer
+              sys.settrace(tracer)
+              try:
+                  exec(compile(code, "<ran>", "exec"), {})
+              finally:
+                  sys.settrace(None)
+              return lines
+          answers = {"output": run().out.strip(), "checked": "yes" if 4 in ran() else "no"}
+      - id: py10.k1.q2
+        kind: [debug, predict]
+        body: |
+          有人想把测量值分成高（至少 15）、中（10 到 14）、低（低于 10）三档，写成了下面的样子。
+
+          ```python startLine=1
+          signal = 18
+          if signal >= 10:
+              level = "中"
+          elif signal >= 15:
+              level = "高"
+          else:
+              level = "低"
+          print(level)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: text
+            prompt: 第 8 行显示什么？
+            key: "中"
+          - id: when_high
+            type: choice
+            prompt: 把第 1 行换成别的整数，level 什么时候会是“高”？
+            options:
+              - { id: at_least_15, content: signal 至少为 15 时 }
+              - { id: between, content: signal 在 10 到 14 之间时 }
+              - { id: never, content: 不管 signal 是多少，都不会 }
+            key: never
+        explanation: |
+          显示 **中**。18 满足第 2 行的 `signal >= 10`，执行第 3 行后这一组就结束了。
+
+          而且**不管 signal 是多少，level 都不会是“高”**：能满足 `signal >= 15` 的值一定也满足 `signal >= 10`，早在第 2 行就走掉了，第 4 行的分支永远轮不到。要把“高”分出来，得把更严格的 `signal >= 15` 放在前面。
+        verify: |
+          # 把第 1 行换成 -50 到 99 的每个整数，收集出现过的 level。
+          body = CODE.split("\n", 1)[1]
+          levels = {run(body, signal=s)["level"] for s in range(-50, 100)}
+          answers = {"output": run().out.strip(), "when_high": "never" if "高" not in levels else "other"}
+      - id: py10.k1.q3
+        kind: [predict]
+        body: |
+          两段代码只差一个词：A 用了两个分开的 `if`，B 的第二个是 `elif`。
+
+          A：
+
+          ```python
+          signal = 16
+          if signal >= 10:
+              print("达标")
+          if signal >= 15:
+              print("偏高")
+          ```
+
+          B：
+
+          ```python
+          signal = 16
+          if signal >= 10:
+              print("达标")
+          elif signal >= 15:
+              print("偏高")
+          ```
+        slots:
+          - id: a_lines
+            type: text
+            format: integer
+            prompt: A 一共显示几行？
+            key: 2
+          - id: b_lines
+            type: text
+            format: integer
+            prompt: B 一共显示几行？
+            key: 1
+            feedback:
+              - when: 2
+                message: B 是一组 if/elif，第一个条件成立后，elif 不再检查。
+        explanation: |
+          A 显示 **2** 行：“达标”“偏高”。两个分开的 if 是两组，各查各的，16 两个条件都满足。
+
+          B 只显示 **1** 行：“达标”。`elif` 和前面的 `if` 是一组，第一个条件成立以后，elif 就不再检查。
+        verify: |
+          answers = {"a_lines": len(run(BLOCKS[0]).lines()), "b_lines": len(run(BLOCKS[1]).lines())}
+    review:
+      - id: py10.k1.r1
+        kind: [trace]
+        uses: [py08.k1, py08.k2]
+        body: |
+          冷藏样本要求温度在 2 到 8 度之间（含 2 和 8）。宿主事先给 `temp` 赋了值，代码里没有这一行。
+
+          ```python
+          if temp > 8:
+              status = "过热"
+          elif temp < 2:
+              status = "过冷"
+          else:
+              status = "正常"
+          ```
+
+          这段代码分别在下表的四个温度下运行，写出每次运行后 `status` 的值。
+        slots:
+          - id: status
+            type: table
+            columns:
+              - { id: temp, header: temp }
+              - { id: status, header: status, input: text }
+            rows:
+              - { id: t1, cells: { temp: "1", status: 过冷 } }
+              - { id: t2, cells: { temp: "2", status: 正常 } }
+              - { id: t8, cells: { temp: "8", status: 正常 } }
+              - { id: t9, cells: { temp: "9", status: 过热 } }
+        explanation: |
+          | temp | `temp > 8` | `temp < 2` | status |
+          |---:|---|---|---|
+          | 1 | False | True | 过冷 |
+          | 2 | False | False | 正常 |
+          | 8 | False | False | 正常 |
+          | 9 | True | （不再检查） | 过热 |
+
+          2 和 8 恰好在边界上：`temp > 8` 和 `temp < 2` 都不含等号，两个条件都不成立，走到 else。
+        verify: |
+          answers = {"status": {f"t{t}": {"status": run(temp=t)["status"]} for t in (1, 2, 8, 9)}}
+      - id: py10.k1.r2
+        kind: [explain]
+        uses: [py08.k2]
+        body: |
+          要求：pH 低于 6 记为“酸”，高于 8 记为“碱”，其余（包括恰好为 6 和 8）记为“中性”。宿主事先给 `ph` 赋了值。
+
+          哪一段代码对任何 pH 值都符合要求？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: wide
+                content: |
+                  ```python
+                  if ph <= 6:
+                      label = "酸"
+                  elif ph >= 8:
+                      label = "碱"
+                  else:
+                      label = "中性"
+                  ```
+                feedback: 恰好为 6 或 8 时应记为“中性”，`<=` 和 `>=` 把它们分进了酸和碱。
+              - id: right
+                content: |
+                  ```python
+                  if ph < 6:
+                      label = "酸"
+                  elif ph > 8:
+                      label = "碱"
+                  else:
+                      label = "中性"
+                  ```
+              - id: two_ifs
+                content: |
+                  ```python
+                  label = "中性"
+                  if ph < 6:
+                      label = "酸"
+                  if ph < 8:
+                      label = "碱"
+                  ```
+                feedback: 第二个条件写成了 `ph < 8`：pH 为 5 时先记为“酸”，接着又被改成“碱”。
+            key: right
+        explanation: |
+          用 `ph < 6`、`ph > 8`，再用 else 接住其余情况的那一段符合要求：恰好 6 和 8 两个条件都不成立，走到 else，记为“中性”。
+
+          写成 `<=`、`>=` 的那段把 6 和 8 分错了档。两个分开的 if 那段，第二个条件写反了方向，pH 为 5 时会先记“酸”又被改成“碱”，pH 为 7 也会被记成“碱”。
+        verify: |
+          def wanted(ph):
+              return "酸" if ph < 6 else "碱" if ph > 8 else "中性"
+          values = [3, 5.5, 6, 6.5, 7, 8, 8.5, 10]
+          fits = [option for option, code in OPTIONS["program"].items()
+                  if all(run(code, ph=v)["label"] == wanted(v) for v in values)]
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py10.k1.x1
+        kind: [predict, trace]
+        uses: [py09.k1, py08.k1]
+        body: |
+          ```python startLine=1
+          signal = 12
+          group = "drug"
+          if signal >= 10 and group == "control":
+              note = "对照组达标"
+          elif signal >= 10:
+              note = "达标"
+          else:
+              note = "未达标"
+          print(note)
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 第 4、6、8 行里，哪一行被执行了？
+            options:
+              - { id: l4, content: 第 4 行 }
+              - { id: l6, content: 第 6 行 }
+              - { id: l8, content: 第 8 行 }
+            key: l6
+          - id: output
+            type: text
+            match: text
+            prompt: 第 9 行显示什么？
+            key: "达标"
+        explanation: |
+          第 3 行的条件要两边都成立：`signal >= 10` 为 True，但 `group == "control"` 为 False，所以整个条件是 False。接着查第 5 行，`signal >= 10` 为 True，执行**第 6 行**，这一组结束。显示 **达标**。
+        verify: |
+          import sys
+          def ran(code=CODE):
+              lines = set()
+              def tracer(frame, event, arg):
+                  if frame.f_code.co_filename == "<ran>" and event == "line":
+                      lines.add(frame.f_lineno)
+                  return tracer
+              sys.settrace(tracer)
+              try:
+                  exec(compile(code, "<ran>", "exec"), {})
+              finally:
+                  sys.settrace(None)
+              return lines
+          hit = [f"l{n}" for n in (4, 6, 8) if n in ran()]
+          answers = {"line": hit[0] if len(hit) == 1 else hit, "output": run().out.strip()}
+      - id: py10.k1.x2
+        kind: [debug]
+        uses: [py08.k2]
+        body: |
+          要求：signal 至少 20 记为“很高”，至少 10（但不到 20）记为“高”，其余记为“低”。有人写成了下面的代码，宿主事先给 `signal` 赋了值。
+
+          ```python
+          if signal >= 10:
+              level = "高"
+          elif signal >= 20:
+              level = "很高"
+          else:
+              level = "低"
+          ```
+        slots:
+          - id: wrong
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 用下面哪些 signal 运行，得到的 level 会和要求不一致？选出所有不一致的。
+            options:
+              - { id: s5, content: "5" }
+              - { id: s12, content: "12" }
+              - { id: s20, content: "20" }
+              - { id: s25, content: "25" }
+            key: [s20, s25]
+        explanation: |
+          **20 和 25** 不一致：按要求应记为“很高”，但它们先满足了第 1 行的 `signal >= 10`，被记成“高”，elif 轮不到。5 记为“低”、12 记为“高”，都与要求一致。
+
+          更严格的条件 `signal >= 20` 要放在前面检查。
+        verify: |
+          def wanted(s):
+              return "很高" if s >= 20 else "高" if s >= 10 else "低"
+          answers = {"wrong": [f"s{s}" for s in (5, 12, 20, 25) if run(signal=s)["level"] != wanted(s)]}
+
   - id: py10.k2
     title: 缩进划定执行范围
+    card:
+      name: 缩进
+      aliases: [代码块, 缩进块]
+      definition: 冒号下面向右缩进的连续几行属于这个 if（或 elif、else），条件决定它们整块做或不做；回到原来位置的第一行起，就不再受这个条件控制。
+      conditions:
+        - 一行和哪一行左边对齐，就和它同级；同一块里的行要对齐，习惯每层 4 个空格。
+        - 冒号下面没有缩进的行、或同一块没有对齐，Python 读不懂，一行都不会运行（IndentationError）。
+      example:
+        from: py10.k2.e0
+        text: |
+          两段代码只差最后一行 `print(total)` 的缩进：放在 if 外面，signal 为 12 时也会显示 0；缩进到 if 里面，条件不成立时整块跳过，什么也不显示。
+    lesson: |
+      `if` 这一行末尾的冒号表示“下面是一块”。冒号下面**向右缩进**的连续几行都属于这个 if：条件成立就整块执行，不成立就整块跳过。第一条**回到原来位置**的行，是这块之后的普通代码，无论条件如何都会执行。
+
+      ```python startLine=1
+      signal = 25
+      if signal > 20:
+          print("偏高")
+          checked = "需复核"
+      print("记录完成")
+      ```
+
+      第 3、4 行属于这个 if；第 5 行和 `if` 左边对齐，不属于它。signal 为 25 时显示“偏高”“记录完成”；把第 1 行换成 `signal = 12`，只显示“记录完成”，第 4 行的赋值也没有发生。
+
+      所以两段代码哪怕只差一行的缩进，意思也可能完全不同。读的时候竖着看左边：一行和哪一行对齐，就和它同级。elif、else 下面的块也是这样划分的。
+
+      缩进由空格组成，习惯每层 4 个空格。冒号下面一行缩进都没有，或同一块里的行没有对齐，Python 读不懂这段代码，会报 IndentationError，程序一行都不会运行。
+    example:
+      id: py10.k2.e0
+      kind: [predict]
+      body: |
+        两段代码只差最后一行的缩进。
+
+        A：
+
+        ```python startLine=1
+        signal = 12
+        total = 0
+        if signal > 20:
+            print("偏高")
+            total = total + 1
+        print(total)
+        ```
+
+        B：
+
+        ```python startLine=1
+        signal = 12
+        total = 0
+        if signal > 20:
+            print("偏高")
+            total = total + 1
+            print(total)
+        ```
+      slots:
+        - id: a
+          type: choice
+          prompt: A 显示什么？
+          options:
+            - { id: zero, content: "0" }
+            - { id: one, content: "1" }
+            - { id: nothing, content: 什么也不显示 }
+          key: zero
+        - id: b
+          type: choice
+          prompt: B 显示什么？
+          options:
+            - { id: zero, content: "0" }
+            - { id: one, content: "1" }
+            - { id: nothing, content: 什么也不显示 }
+          key: nothing
+      explanation: |
+        signal 是 12，`signal > 20` 为 False，if 下面缩进的那一块整块跳过。
+
+        - A 的第 6 行和 `if` 对齐，不属于这块，照常执行，显示 **0**。
+        - B 的第 6 行缩进到了块里，和第 4、5 行一起被跳过，**什么也不显示**。
+      verify: |
+        def shown(code):
+            out = run(code).out.strip()
+            return {"0": "zero", "1": "one", "": "nothing"}.get(out, out)
+        answers = {"a": shown(BLOCKS[0]), "b": shown(BLOCKS[1])}
+    practice:
+      - id: py10.k2.q1
+        kind: [trace, predict]
+        body: |
+          ```python startLine=1
+          signal = 14
+          if signal < 10:
+              print("偏低")
+              signal = 10
+          print(signal)
+          ```
+        slots:
+          - id: lines
+            type: choice
+            multiple: true
+            scoring: options
+            prompt: 这次运行，第 1–5 行里哪几行执行了？
+            options:
+              - { id: l1, content: 第 1 行 }
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+              - { id: l5, content: 第 5 行 }
+            key: [l1, l2, l5]
+          - id: output
+            type: text
+            format: integer
+            prompt: 显示什么？
+            key: 14
+        explanation: |
+          执行了**第 1、2、5 行**。第 2 行要先算条件，所以它总会执行；`14 < 10` 为 False，缩进的第 3、4 行整块跳过；第 5 行回到了左边，不属于 if，照常执行，显示 **14**。
+        verify: |
+          import sys
+          def ran(code=CODE):
+              lines = set()
+              def tracer(frame, event, arg):
+                  if frame.f_code.co_filename == "<ran>" and event == "line":
+                      lines.add(frame.f_lineno)
+                  return tracer
+              sys.settrace(tracer)
+              try:
+                  exec(compile(code, "<ran>", "exec"), {})
+              finally:
+                  sys.settrace(None)
+              return lines
+          answers = {"lines": [f"l{n}" for n in sorted(ran())], "output": int(run().out)}
+      - id: py10.k2.q2
+        kind: [debug]
+        body: |
+          要求：signal 超过 20 时显示“偏高”并把 `flagged` 设为 1；不管 signal 是多少，最后都显示“完成”。宿主事先给 `signal` 和 `flagged = 0` 赋了值。
+
+          ```python startLine=1
+          if signal > 20:
+              print("偏高")
+              flagged = 1
+              print("完成")
+          ```
+
+          signal 为 12 时，这段代码什么也不显示。
+        slots:
+          - id: line
+            type: choice
+            prompt: 哪一行的缩进错了？
+            options:
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+            key: l4
+        explanation: |
+          **第 4 行**。`print("完成")` 缩进在 if 的块里，只在 signal 超过 20 时才执行。要求是“不管 signal 是多少都显示”，它应该和 `if` 左边对齐，放到块外面。第 2、3 行只在超过 20 时做，缩进是对的。
+        verify: |
+          # 逐行试着把缩进去掉，看哪一种改法对 signal 为 12 和 25 都符合要求；符合的必须恰好一行。
+          def wanted(signal):
+              return (["偏高", "完成"] if signal > 20 else ["完成"]), (1 if signal > 20 else 0)
+          lines = CODE.splitlines()
+          fits = []
+          for n in (2, 3, 4):
+              changed = "\n".join(line.strip() if i == n else line for i, line in enumerate(lines, 1))
+              try:
+                  results = [run(changed, signal=s, flagged=0) for s in (12, 25)]
+              except Exception:
+                  continue
+              if all(r.error is None and (r.lines(), r["flagged"]) == wanted(s) for r, s in zip(results, (12, 25))):
+                  fits.append(f"l{n}")
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py10.k2.q3
+        kind: [modify]
+        body: |
+          要求：温度 `temp` 高于 8 时，先显示“过热”，再显示“请检查”；不管温度如何，最后都显示“记录完成”。宿主事先给 `temp` 赋了值。
+
+          把下面四行排成程序，并给每一行设好缩进。
+        slots:
+          - id: program
+            type: order
+            indent: 1
+            items:
+              - { id: done, code: print("记录完成") }
+              - { id: check, code: print("请检查") }
+              - { id: cond, code: "if temp > 8:" }
+              - { id: hot, code: print("过热") }
+            key: [cond, hot, check, done]
+            indents: { cond: 0, hot: 1, check: 1, done: 0 }
+            tests:
+              - name: 温度为 10
+                setup: temp = 10
+                stdout: "过热\n请检查\n记录完成"
+              - name: 温度为 5
+                setup: temp = 5
+                stdout: 记录完成
+              - name: 温度恰好为 8
+                hidden: true
+                setup: temp = 8
+                stdout: 记录完成
+        explanation: |
+          ```python
+          if temp > 8:
+              print("过热")
+              print("请检查")
+          print("记录完成")
+          ```
+
+          “过热”和“请检查”只在高于 8 时显示，所以缩进到 if 的块里，先后按要求排；“记录完成”每次都要显示，和 `if` 对齐放在块外。判分时会用不同的温度运行你排出的程序。
+    review:
+      - id: py10.k2.r1
+        kind: [modify, debug]
+        body: |
+          要求：`weight` 为负数时，先显示“读数为负，按 0 处理”，再把 `weight` 改为 0；不是负数时保持原值。最后无论如何都显示 `weight`。宿主事先给 `weight` 赋了值。
+
+          作答框里的代码缩进有问题：`weight` 为 3 时也显示 0。只改缩进，让它符合要求。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 6
+            starter: |
+              if weight < 0:
+                  print("读数为负，按 0 处理")
+              weight = 0
+              print(weight)
+            solution: |
+              if weight < 0:
+                  print("读数为负，按 0 处理")
+                  weight = 0
+              print(weight)
+            rejects:
+              - code: |
+                  if weight < 0:
+                      print("读数为负，按 0 处理")
+                      weight = 0
+                      print(weight)
+                why: 把最后的 print 也缩进了，不是负数时什么也不显示
+              - code: |
+                  if weight < 0:
+                      print("读数为负，按 0 处理")
+                  weight = 0
+                  print(weight)
+                why: 没有改动，赋值 0 仍在块外
+            tests:
+              - name: weight 为 -2
+                setup: weight = -2
+                stdout: "读数为负，按 0 处理\n0"
+              - name: weight 为 3
+                setup: weight = 3
+                stdout: "3"
+              - name: weight 恰好为 0
+                hidden: true
+                setup: weight = 0
+                stdout: "0"
+        explanation: |
+          `weight = 0` 要缩进到 if 的块里，只在负数时执行；`print(weight)` 留在块外，每次都显示。
+
+          ```python
+          if weight < 0:
+              print("读数为负，按 0 处理")
+              weight = 0
+          print(weight)
+          ```
+
+          原来的第 3 行和 `if` 对齐，不受条件控制，所以不管 weight 是多少都被改成了 0。
+      - id: py10.k2.r2
+        kind: [trace]
+        body: |
+          ```python startLine=1
+          dose = 3
+          if dose > 5:
+              print("高剂量")
+              group = "A"
+          else:
+              print("低剂量")
+              group = "B"
+          print(group)
+          ```
+        slots:
+          - id: lines
+            type: choice
+            multiple: true
+            scoring: options
+            prompt: 这次运行，下面哪几行执行了？
+            options:
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+              - { id: l6, content: 第 6 行 }
+              - { id: l7, content: 第 7 行 }
+              - { id: l8, content: 第 8 行 }
+            key: [l6, l7, l8]
+          - id: last
+            type: text
+            match: text
+            prompt: 第 8 行显示什么？
+            key: B
+        explanation: |
+          `3 > 5` 为 False，if 下面的第 3、4 行整块跳过，执行 else 下面缩进的**第 6、7 行**；第 8 行和 `if`、`else` 对齐，不属于任何一块，总会执行，显示 **B**。
+        verify: |
+          import sys
+          def ran(code=CODE):
+              lines = set()
+              def tracer(frame, event, arg):
+                  if frame.f_code.co_filename == "<ran>" and event == "line":
+                      lines.add(frame.f_lineno)
+                  return tracer
+              sys.settrace(tracer)
+              try:
+                  exec(compile(code, "<ran>", "exec"), {})
+              finally:
+                  sys.settrace(None)
+              return lines
+          executed = ran()
+          answers = {"lines": [f"l{n}" for n in (3, 4, 6, 7, 8) if n in executed], "last": run().lines()[-1]}
+    quiz:
+      - id: py10.k2.x1
+        kind: [modify]
+        uses: [py08.k1]
+        body: |
+          要求：`group` 是 "drug" 时，显示“用药组”，并把 `n_drug` 加 1；否则显示“对照组”。最后不管哪一组，都显示 `n_drug`。宿主事先给 `group` 和 `n_drug` 赋了值。
+
+          把下面的块排成程序，并设好缩进。
+        slots:
+          - id: program
+            type: order
+            indent: 1
+            items:
+              - { id: show, code: print(n_drug) }
+              - { id: other, code: "else:" }
+              - { id: add, code: n_drug = n_drug + 1 }
+              - { id: cond, code: "if group == \"drug\":" }
+              - { id: control, code: print("对照组") }
+              - { id: drug, code: print("用药组") }
+            key: [cond, drug, add, other, control, show]
+            indents: { cond: 0, drug: 1, add: 1, other: 0, control: 1, show: 0 }
+            tests:
+              - name: 用药组
+                setup: |
+                  group = "drug"
+                  n_drug = 4
+                stdout: "用药组\n5"
+              - name: 对照组
+                setup: |
+                  group = "control"
+                  n_drug = 4
+                stdout: "对照组\n4"
+        explanation: |
+          ```python
+          if group == "drug":
+              print("用药组")
+              n_drug = n_drug + 1
+          else:
+              print("对照组")
+          print(n_drug)
+          ```
+
+          加 1 只在用药组做，所以和“用药组”一起缩进在 if 的块里（这两行谁先谁后都可以）；`else:` 和 `if` 对齐；最后的 `print(n_drug)` 回到左边，两组都会执行。
+      - id: py10.k2.x2
+        kind: [predict]
+        body: |
+          两段代码只差最后一行的缩进。宿主事先给 `x` 赋了值。
+
+          A：
+
+          ```python
+          if x > 5:
+              print("超出")
+              x = 5
+          print(x)
+          ```
+
+          B：
+
+          ```python
+          if x > 5:
+              print("超出")
+              x = 5
+              print(x)
+          ```
+        slots:
+          - id: counts
+            type: table
+            prompt: 填写每段代码在两种 x 下各显示几行。
+            columns:
+              - { id: program, header: 代码 }
+              - { id: x3, header: x 为 3 时, input: integer }
+              - { id: x9, header: x 为 9 时, input: integer }
+            rows:
+              - { id: a, cells: { program: A, x3: 1, x9: 2 } }
+              - { id: b, cells: { program: B, x3: 0, x9: 2 } }
+        explanation: |
+          | 代码 | x 为 3 时 | x 为 9 时 |
+          |---|---:|---:|
+          | A | 1 | 2 |
+          | B | 0 | 2 |
+
+          x 为 9 时条件成立，两段都显示“超出”和 5。x 为 3 时块被跳过：A 的 `print(x)` 在块外，照样显示 3；B 的 `print(x)` 在块里，跟着被跳过，什么也不显示。
+        verify: |
+          answers = {"counts": {
+              row: {f"x{x}": len(run(code, x=x).lines()) for x in (3, 9)}
+              for row, code in zip(("a", "b"), BLOCKS)
+          }}
+
   - id: py10.k3
     title: 每条路径后的变量值
+    card:
+      name: 分支后的变量
+      aliases: [默认值, 路径追踪]
+      definition: 一组 if 之后某个名字的值，取决于这次实际走了哪条路径；没走到的分支里的赋值不会发生。
+      conditions:
+        - 只在某个分支里赋值的名字，没走那条路时保持原来的值；原来就没有值的，之后一用就报 NameError。
+        - 在 if 之前先给一个默认值，或者用 else 接住其余情况，可以保证每条路径之后都有值。
+      example:
+        from: py10.k3.e0
+        text: |
+          ```python
+          flag = "正常"
+          if signal > 20:
+              flag = "偏高"
+          print(flag)
+          ```
+          signal 为 25 时显示“偏高”；为 12 时第 3 行没有执行，flag 保持默认值，显示“正常”。
+    lesson: |
+      读完一组 if，要回答“之后这个名字是多少”，先确定这次走的是哪条路径，再只执行这条路径上的赋值，[按顺序记下每个名字的值](repa:concept/py01.k2)。没走到的分支，里面写了什么赋值都不算数。
+
+      常见的写法是**先给默认值，再在分支里改**：
+
+      ```python startLine=1
+      flag = "正常"
+      if signal > 20:
+          flag = "偏高"
+      print(flag)
+      ```
+
+      | signal | 走的路径 | 第 4 行时 flag |
+      |---:|---|---|
+      | 25 | 执行第 3 行 | 偏高 |
+      | 12 | 跳过第 3 行 | 正常 |
+
+      如果去掉第 1 行，signal 为 12 时 `flag` 从来没有被赋值，第 4 行用到它就会报 NameError：这个名字还不存在。
+
+      有几个分开的 if 时，每个 if 都可能改同一个名字。逐个看条件，成立一次就执行一次那里的赋值，例如成立两次就加了两次。
+    example:
+      id: py10.k3.e0
+      kind: [trace]
+      body: |
+        宿主事先给 `signal` 赋了值，代码里没有这一行。
+
+        ```python startLine=1
+        flag = "正常"
+        if signal > 20:
+            flag = "偏高"
+        print(flag)
+        ```
+      slots:
+        - id: shown
+          type: table
+          prompt: 这段代码分别在 signal 为 25 和 12 时运行，第 4 行各显示什么？
+          columns:
+            - { id: signal, header: signal }
+            - { id: flag, header: 显示, input: text }
+          rows:
+            - { id: s25, cells: { signal: "25", flag: 偏高 } }
+            - { id: s12, cells: { signal: "12", flag: 正常 } }
+        - id: line3
+          type: choice
+          prompt: signal 为 12 时，第 3 行执行了吗？
+          options:
+            - { id: "yes", content: 执行了 }
+            - { id: "no", content: 没有执行 }
+          key: "no"
+      explanation: |
+        signal 为 25 时条件成立，第 3 行把 flag 改为“偏高”，显示 **偏高**。signal 为 12 时条件不成立，第 3 行**没有执行**，flag 保持第 1 行给的默认值，显示 **正常**。
+      verify: |
+        import sys
+        def ran(code=CODE, **inputs):
+            lines = set()
+            def tracer(frame, event, arg):
+                if frame.f_code.co_filename == "<ran>" and event == "line":
+                    lines.add(frame.f_lineno)
+                return tracer
+            sys.settrace(tracer)
+            try:
+                exec(compile(code, "<ran>", "exec"), dict(inputs))
+            finally:
+                sys.settrace(None)
+            return lines
+        answers = {
+            "shown": {f"s{s}": {"flag": run(signal=s).out.strip()} for s in (25, 12)},
+            "line3": "yes" if 3 in ran(signal=12) else "no",
+        }
+    practice:
+      - id: py10.k3.q1
+        kind: [predict, debug]
+        body: |
+          和例题相比，这段代码少了默认值那一行。宿主事先给 `signal` 赋了 12。
+
+          ```python startLine=1
+          if signal > 20:
+              flag = "偏高"
+          print(flag)
+          ```
+        slots:
+          - id: result
+            type: choice
+            prompt: 运行结果是什么？
+            options:
+              - { id: high, content: 显示“偏高” }
+              - { id: nothing, content: 什么也不显示，正常结束 }
+              - { id: error, content: 第 3 行报错：`flag` 这个名字还没有值 }
+            key: error
+        explanation: |
+          **第 3 行报错**（NameError）。12 不满足 `signal > 20`，第 2 行没有执行，`flag` 从来没有被赋值；第 3 行要用它，Python 找不到这个名字。
+
+          补上 `flag = "正常"` 作为默认值，或者加一个 else 分支，每条路径之后 `flag` 就都有值了。
+        verify: |
+          r = run(signal=12)
+          answers = {"result": "error" if r.error == "NameError" else "nothing" if r.out == "" else "high"}
+      - id: py10.k3.q2
+        kind: [trace]
+        uses: [py08.k1]
+        body: |
+          宿主事先给 `a` 和 `b` 赋了值。
+
+          ```python startLine=1
+          count = 0
+          if a >= 10:
+              count = count + 1
+          if b >= 10:
+              count = count + 1
+          print(count)
+          ```
+        slots:
+          - id: count
+            type: table
+            prompt: 分别按下表的值运行，第 6 行显示多少？
+            columns:
+              - { id: a, header: a }
+              - { id: b, header: b }
+              - { id: count, header: 显示, input: integer }
+            rows:
+              - { id: r1, cells: { a: "12", b: "7", count: 1 } }
+              - { id: r2, cells: { a: "12", b: "15", count: 2 } }
+              - { id: r3, cells: { a: "3", b: "4", count: 0 } }
+        explanation: |
+          两个 if 是分开的两组，各查各的，每成立一个就给 count 加一次 1。
+
+          | a | b | 成立的条件 | count |
+          |---:|---:|---|---:|
+          | 12 | 7 | 只有 `a >= 10` | 1 |
+          | 12 | 15 | 两个都成立 | 2 |
+          | 3 | 4 | 都不成立 | 0 |
+        verify: |
+          cases = {"r1": (12, 7), "r2": (12, 15), "r3": (3, 4)}
+          answers = {"count": {row: {"count": int(run(a=a, b=b).out)} for row, (a, b) in cases.items()}}
+      - id: py10.k3.q3
+        kind: [trace]
+        body: |
+          宿主事先给 `signal` 赋了值。
+
+          ```python startLine=1
+          score = 0
+          note = "无"
+          if signal >= 15:
+              score = 2
+              note = "高"
+          elif signal >= 10:
+              score = 1
+          ```
+        slots:
+          - id: state
+            type: table
+            prompt: 分别在下表的 signal 下运行，写出运行完以后 `score` 和 `note` 的值。
+            columns:
+              - { id: signal, header: signal }
+              - { id: score, header: score, input: integer }
+              - { id: note, header: note, input: text }
+            rows:
+              - { id: s16, cells: { signal: "16", score: 2, note: 高 } }
+              - { id: s12, cells: { signal: "12", score: 1, note: 无 } }
+              - { id: s5, cells: { signal: "5", score: 0, note: 无 } }
+        explanation: |
+          | signal | 走的路径 | score | note |
+          |---:|---|---:|---|
+          | 16 | 第 4、5 行 | 2 | 高 |
+          | 12 | 第 7 行 | 1 | 无 |
+          | 5 | 两个分支都不走 | 0 | 无 |
+
+          signal 为 12 时只执行了第 7 行，它只改 score；note 没有被改，仍是默认的“无”。signal 为 5 时一个分支都不走，两个名字都保持默认值。
+        verify: |
+          answers = {"state": {f"s{s}": {"score": run(signal=s)["score"], "note": run(signal=s)["note"]} for s in (16, 12, 5)}}
+    review:
+      - id: py10.k3.r1
+        kind: [predict, debug]
+        body: |
+          宿主事先给 `ph` 赋了值。
+
+          ```python startLine=1
+          if ph < 6:
+              label = "酸"
+          elif ph > 8:
+              label = "碱"
+          print(label)
+          ```
+        slots:
+          - id: fails
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 分别用下面的 ph 运行，哪几次会在第 5 行报错？选出所有会报错的。
+            options:
+              - { id: p5, content: "5" }
+              - { id: p6, content: "6" }
+              - { id: p7, content: "7" }
+              - { id: p9, content: "9" }
+            key: [p6, p7]
+        explanation: |
+          **6 和 7** 会报错。这两个值 `ph < 6` 和 `ph > 8` 都不成立，两个分支都不走，`label` 从来没有被赋值，第 5 行用到它时报 NameError。5 走第一个分支、9 走第二个分支，label 都有值。
+
+          这里少了一条“其余情况”的路径：加一个 else，或者在 if 之前给 label 一个默认值。
+        verify: |
+          answers = {"fails": [f"p{v}" for v in (5, 6, 7, 9) if run(ph=v).error == "NameError"]}
+      - id: py10.k3.r2
+        kind: [trace]
+        body: |
+          宿主事先给 `signal` 赋了值。
+
+          ```python startLine=1
+          bonus = 0
+          if signal >= 15:
+              bonus = bonus + 2
+          elif signal >= 10:
+              bonus = bonus + 1
+          total = signal + bonus
+          ```
+        slots:
+          - id: total
+            type: table
+            prompt: 分别在下表的 signal 下运行，写出运行完以后 `total` 的值。
+            columns:
+              - { id: signal, header: signal }
+              - { id: total, header: total, input: integer }
+            rows:
+              - { id: s15, cells: { signal: "15", total: 17 } }
+              - { id: s12, cells: { signal: "12", total: 13 } }
+              - { id: s9, cells: { signal: "9", total: 9 } }
+        explanation: |
+          | signal | 走的路径 | bonus | total |
+          |---:|---|---:|---:|
+          | 15 | 第 3 行 | 2 | 17 |
+          | 12 | 第 5 行 | 1 | 13 |
+          | 9 | 都不走 | 0 | 9 |
+
+          15 满足第一个条件，只加 2，elif 不再检查；第 6 行不在任何块里，每次都执行。
+        verify: |
+          answers = {"total": {f"s{s}": {"total": run(signal=s)["total"]} for s in (15, 12, 9)}}
+    quiz:
+      - id: py10.k3.x1
+        kind: [trace]
+        uses: [py09.k1]
+        body: |
+          按实验第几天 `day` 决定组别和剂量。宿主事先给 `day` 赋了值。
+
+          ```python startLine=1
+          group = "对照"
+          dose = 0
+          if day >= 3 and day <= 5:
+              group = "用药"
+              dose = 10
+          elif day > 5:
+              dose = 5
+          ```
+        slots:
+          - id: state
+            type: table
+            prompt: 分别在下表的 day 下运行，写出运行完以后 `group` 和 `dose` 的值。
+            columns:
+              - { id: day, header: day }
+              - { id: group, header: group, input: text }
+              - { id: dose, header: dose, input: integer }
+            rows:
+              - { id: d2, cells: { day: "2", group: 对照, dose: 0 } }
+              - { id: d3, cells: { day: "3", group: 用药, dose: 10 } }
+              - { id: d6, cells: { day: "6", group: 对照, dose: 5 } }
+        explanation: |
+          | day | 走的路径 | group | dose |
+          |---:|---|---|---:|
+          | 2 | 都不走 | 对照 | 0 |
+          | 3 | 第 4、5 行 | 用药 | 10 |
+          | 6 | 第 7 行 | 对照 | 5 |
+
+          day 为 3 时 `day >= 3` 和 `day <= 5` 都成立。day 为 6 时第 3 行的 and 不成立，走 elif，只改了 dose；group 没有被改，仍是默认的“对照”。
+        verify: |
+          answers = {"state": {f"d{d}": {"group": run(day=d)["group"], "dose": run(day=d)["dose"]} for d in (2, 3, 6)}}
+      - id: py10.k3.x2
+        kind: [explain]
+        uses: [py08.k1]
+        body: |
+          要求：`count` 小于 0 时 `label` 为“无效”，否则为“有效”。宿主事先给 `count` 赋了值，每段代码之后都会执行 `print(label)`。
+
+          哪几段代码对任何整数 `count` 都符合要求，并且 `print(label)` 不会报错？选出所有符合的。
+        slots:
+          - id: programs
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: default
+                content: |
+                  ```python
+                  label = "有效"
+                  if count < 0:
+                      label = "无效"
+                  ```
+              - id: only_if
+                content: |
+                  ```python
+                  if count < 0:
+                      label = "无效"
+                  ```
+              - id: with_else
+                content: |
+                  ```python
+                  if count < 0:
+                      label = "无效"
+                  else:
+                      label = "有效"
+                  ```
+              - id: two_ifs
+                content: |
+                  ```python
+                  if count < 0:
+                      label = "无效"
+                  if count > 0:
+                      label = "有效"
+                  ```
+            key: [default, with_else]
+        explanation: |
+          **先给默认值的那段**和**带 else 的那段**符合要求：不论走哪条路径，label 最后都有值，而且值是对的。
+
+          只有一个 if 的那段，count 不小于 0 时 label 从来没被赋值，print 会报 NameError。两个 if 的那段漏掉了 count 恰好为 0 的情况：两个条件都不成立，同样报错。
+        verify: |
+          def wanted(count):
+              return "无效" if count < 0 else "有效"
+          fits = []
+          for option, code in OPTIONS["programs"].items():
+              results = [(v, run(code + "\nprint(label)", count=v)) for v in (-5, -1, 0, 1, 7)]
+              if all(r.error is None and r.out.strip() == wanted(v) for v, r in results):
+                  fits.append(option)
+          answers = {"programs": fits}
