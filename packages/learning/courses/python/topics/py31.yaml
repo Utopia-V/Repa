@@ -1,7 +1,8 @@
 id: py31
 title: 长表和宽表只是同一批观测的不同排法
-status: outline
+status: complete
 minutes: 20
+summary: 认出标识列、变量列和值列；读懂 melt 把几列测量拆成多行，pivot 把长表变回宽表，并知道键组合重复时怎样处理是一项要写明的决定。
 prerequisites:
   - topic: py25
     key: true
@@ -13,19 +14,1218 @@ prerequisites:
     covers: [py27.k1, py27.k2]
 sources:
   - source: pydata-book
-    where: 第 8 章 §8.3
+    where: 第 8 章 §8.3（长宽格式的变形）
     url: https://wesmckinney.com/book/data-wrangling
     use: reference
   - source: pandas-docs
     where: 入门教程：长宽变形
     url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/07_reshape_table_layout.html
     use: reference
+  - source: pandas-docs
+    where: 用户指南：变形与透视表（melt、pivot、pivot_table）
+    url: https://pandas.pydata.org/docs/user_guide/reshaping.html
+    use: reference
 notes: |
-  建议题型与判分：预测输出（P）、解释代码（S/O）、写清需求（S/O）。
+  范围：只有一个标识列（或一个标识列加一个随行带着的文字列）、一个变量、一个值列。melt 只用 id_vars、value_vars、var_name、value_name；pivot 只用 index、columns、values；pivot_table 只讲默认取平均和 aggfunc="first"，不讲多层列、fill_value、margins，也不讲 stack/unstack。行和列按标签排序、melt 后行标签从 0 重编，都在讲解里点明。组名、列名用字母或英文，避免中文排序干扰。
+  k1 的“角色”判断容易全靠语义：例题和练习里允许 manual，复习和测验尽量用测量个数、键组合是否唯一、把长表填回宽表这类能由程序算出的问法。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 3 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+  模型核对：复习和测验里 py31.k1.x2 的 roles（给长表的三列认角色）和 py31.k3.x2 的 next（重复测量交人核对时下一步做什么）程序算不出，列进 manual；同题的其余作答位由 verify 核对。练习和例题里的 manual 不强制核对。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码，不需要写导入或构造数据的代码。每道题都从题面给出的表重新开始，前面题目里的变量都已清除。
+
+  这一节常用两张表。表 W 是**宽表**：`sample_id` 是样本编号，`day1`、`day2` 分别是第 1 天、第 2 天测到的 signal（任意单位）。表 L 是**长表**：同样的测量，每行一个，`day` 写第几天，`signal` 是测到的值。左边的行标签是表的原行索引。
+wrapup: |
+  拿到一张表，先说出三种列：谁（标识列）、什么条件（变量列，可能藏在列名里）、测到的数（值列）。宽变长、长变宽前后，测量个数应当不变。
+
+  向同事或 AI 提变形需求时，可以说：“把宽表排成长表，每行一个样本一天的测量，列依次为 sample_id、day、signal。转回宽表前，先按 sample_id 和 day 检查重复；同一样本同一天有两个不同的数时，列出来给我核对，不要默认取平均。”
+data:
+  W:
+    kind: dataframe
+    name: wide
+    caption: 表 W：三个样本两天的测量（宽表）
+    index: [31, 7, 22]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C]
+      day1: [8, 10, 13]
+      day2: [9, 12, 11]
+  W3:
+    kind: dataframe
+    name: wide
+    caption: 另一张宽表：两个样本三天的测量
+    index: [5, 18]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_D, S_E]
+      day1: [7, 15]
+      day2: [6, 14]
+      day3: [9, 16]
+  Wg:
+    kind: dataframe
+    name: wide
+    caption: 带组别的宽表
+    index: [31, 7]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B]
+      group: [control, drug]
+      day1: [8, 10]
+      day2: [9, 12]
+  L:
+    kind: dataframe
+    name: long
+    caption: 表 L：同一批测量排成长表（行的先后是录入的先后）
+    columns:
+      sample_id: [S_C, S_A, S_B, S_A, S_C, S_B]
+      day: [day2, day1, day1, day2, day1, day2]
+      signal: [11, 8, 10, 9, 13, 12]
+  Ldup:
+    kind: dataframe
+    name: long
+    caption: 一张长表（行的先后是录入的先后）
+    columns:
+      sample_id: [S_A, S_B, S_C, S_A, S_B, S_C, S_B]
+      day: [day1, day1, day1, day2, day2, day2, day1]
+      signal: [8, 10, 13, 9, 12, 11, 14]
+  heights:
+    kind: dataframe
+    name: heights
+    caption: 表 heights：四个采样点三年的平均株高（厘米）
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡]
+      y2023: [31, 28, 35, 30]
+      y2024: [33, 29, 36, 30]
+      y2025: [34, 31, 38, 32]
+  trees:
+    kind: dataframe
+    name: trees
+    caption: 表 trees：树干周长（厘米）
+    columns:
+      tree_id: [T1, T1, T2, T2]
+      season: [spring, autumn, spring, autumn]
+      girth_cm: [31, 33, 28, 29]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：三个采样点两个季节的土层深度（厘米）
+    columns:
+      site: [北坡, 南坡, 东坡]
+      spring: [30, 25, 30]
+      autumn: [25, 28, 30]
+  survey:
+    kind: dataframe
+    name: survey
+    caption: 表 survey：四位受访者两轮问卷的得分
+    columns:
+      respondent: [R1, R2, R3, R4]
+      wave1: [4, 5, 3, 4]
+      wave2: [5, 5, 2, 4]
+  farm_long:
+    kind: dataframe
+    name: farm
+    caption: 表 farm：三块地两年的产量（千克），每行一个测量
+    columns:
+      plot: [B, A, C, A, C, B]
+      year: [y2025, y2024, y2024, y2025, y2025, y2024]
+      kg: [7, 4, 5, 5, 3, 6]
+  birds:
+    kind: dataframe
+    name: birds
+    caption: 表 birds：两条样线在 5 月、6 月数到的鸟
+    columns:
+      line: [L1, L2, L1, L2]
+      month: [5, 5, 6, 6]
+      n_birds: [12, 7, 9, 11]
+  rain:
+    kind: dataframe
+    name: rain
+    caption: 表 rain：三个站点两个月的降水量（毫米）
+    columns:
+      station: [N, S, E]
+      jun: [120, 95, 140]
+      jul: [80, 110, 60]
+  temps:
+    kind: dataframe
+    name: temps
+    caption: 表 temps：两个站点上午、下午的水温（摄氏度）
+    columns:
+      station: [N1, N2]
+      am: [12, 15]
+      pm: [18, 20]
+  farm2:
+    kind: dataframe
+    name: farm
+    caption: 表 farm：两块地两年的产量（千克）
+    columns:
+      plot: [B, A]
+      y2024: [6, 4]
+      y2025: [7, 5]
+  soil3:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：三个采样点两季的深度（厘米），note 是记录员的备注
+    columns:
+      site: [N, S, E]
+      spring: [32, 26, 35]
+      autumn: [29, 27, 33]
+      note: [ok, 补测, ok]
+  soil4:
+    kind: dataframe
+    name: soil
+    caption: 另一份同样格式的记录
+    columns:
+      site: [W, X]
+      spring: [20, 22]
+      autumn: [21, 26]
+      note: [ok, ok]
+  farm_dup:
+    kind: dataframe
+    name: farm
+    caption: 表 farm：两块地两年的产量记录（千克）
+    columns:
+      plot: [A, B, A, B, A]
+      year: [y2024, y2024, y2025, y2025, y2024]
+      kg: [4, 6, 5, 7, 6]
+  temps_dup:
+    kind: dataframe
+    name: temps
+    caption: 表 temps：水温记录（摄氏度），行的先后是录入的先后
+    columns:
+      station: [N1, N2, N1, N2, N1]
+      time: [am, am, pm, pm, am]
+      temp: [12, 15, 18, 20, 14]
+  growth:
+    kind: dataframe
+    name: growth
+    caption: 表 growth：培养皿在 0 小时和 24 小时的菌落数
+    columns:
+      dish: [D2, D1, D2, D1, D2]
+      hour: [h0, h0, h24, h24, h24]
+      colonies: [10, 12, 30, 26, 34]
 kps:
   - id: py31.k1
     title: 辨认标识列、变量列和值列
+    card:
+      name: 长表与宽表
+      aliases: [标识列, 变量列, 值列]
+      definition: 一个测量值靠标识列（测的是谁）和变量列（在什么条件下测的）来定位；宽表把变量藏在列名里，长表把它单独放成一列，每行一个测量。
+      conditions:
+        - 两种排法的测量个数相同：宽表行数 × 测量列数 = 长表行数。
+        - 长表里，标识列加变量列应当唯一，它们就是长表的业务键。
+      example:
+        from: py31.k1.e0
+        text: |
+          表 W（3 个样本 × day1、day2 两列）排成长表是 6 行：sample_id 是标识列，day 是变量列（原来藏在列名里），signal 是值列。
+    lesson: |
+      同一批测量可以有两种排法。表 W 是**宽表**，每个样本一行、每天一列：
+
+      | sample_id | day1 | day2 |
+      |---|---:|---:|
+      | S_A | 8 | 9 |
+      | S_B | 10 | 12 |
+      | S_C | 13 | 11 |
+
+      排成**长表**，每个测量一行：
+
+      | sample_id | day | signal |
+      |---|---|---:|
+      | S_A | day1 | 8 |
+      | S_B | day1 | 10 |
+      | S_C | day1 | 13 |
+      | S_A | day2 | 9 |
+      | S_B | day2 | 12 |
+      | S_C | day2 | 11 |
+
+      两张表记的是同样的 6 个测量（3 个样本 × 2 天）。读任何一种排法，都先认出三种列：
+
+      - **标识列**：测的是谁。这里是 sample_id。
+      - **变量列**：这个数是在什么条件下测的，这里是“第几天”。宽表里它没有单独成列，而是藏在列名 day1、day2 里；长表里它是 day 这一列。
+      - **值列**：测到的数。宽表里分散在 day1、day2 两列，长表里集中在 signal 一列。
+
+      两条核对办法：测量个数不变，宽表行数 × 测量列数 = 长表行数，3 × 2 = 6；长表里标识列加变量列合起来应当唯一，它们就是长表的[业务键](repa:concept/py25.k1)。同一个样本同一天出现两行，说明有重复测量，要先弄清楚。
+
+      哪种排法更好，看下一步做什么：宽表便于人眼对照同一样本的两天；长表便于[按组汇总](repa:concept/py27.k1)，例如 `long.groupby("day")["signal"].mean()` 一行算出每天的平均。
+    example:
+      id: py31.k1.e0
+      kind: [explain, predict]
+      uses: [py25.k1]
+      data: [W]
+      body: |
+        表 W 是宽表。现在要把它排成长表：每行一个测量，列为 sample_id、day、signal。
+      slots:
+        - id: rows
+          type: text
+          format: integer
+          prompt: 长表有几行？
+          key: 6
+        - id: where
+          type: choice
+          prompt: 在宽表里，“第几天”这个信息写在哪里？
+          options:
+            - { id: names, content: 写在列名 day1、day2 里 }
+            - { id: sample, content: 写在 sample_id 列里 }
+            - { id: index, content: 写在原行索引 31、7、22 里 }
+          key: names
+        - id: key
+          type: choice
+          multiple: true
+          prompt: 长表里，哪几列合起来应当唯一（每种组合只出现一次）？
+          options:
+            - { id: sample_id, content: sample_id }
+            - { id: day, content: day }
+            - { id: signal, content: signal }
+          key: [sample_id, day]
+        - id: lookup
+          type: text
+          format: integer
+          prompt: 长表里 sample_id 为 S_B、day 为 day2 的那一行，signal 是多少？
+          key: 12
+      explanation: |
+        长表有 **6** 行：3 个样本 × 2 天，每个测量一行。“第几天”在宽表里**写在列名 day1、day2 里**，排成长表后成了 day 列的值。长表里 **sample_id 和 day** 合起来认出一个测量，应当唯一；signal 是测到的数，不同测量完全可能相同，不能拿来认记录。S_B 第 2 天的值在宽表 S_B 那一行的 day2 列，是 **12**。
+      verify: |
+        value_columns = [column for column in wide.columns if column != "sample_id"]
+        records = [(sample, column, value) for sample, values in zip(wide["sample_id"], wide[value_columns].values.tolist())
+                   for column, value in zip(value_columns, values)]
+        lookup = [value for sample, column, value in records if (sample, column) == ("S_B", "day2")]
+        answers = {"rows": len(records), "lookup": lookup[0] if len(lookup) == 1 else lookup}
+      manual: [where, key]
+    practice:
+      - id: py31.k1.q1
+        kind: [predict]
+        uses: [py14.k2]
+        data: [heights]
+        body: |
+          把表 heights 排成长表：每行一个采样点一年的株高，列为 site、year、height。
+        slots:
+          - id: measurements
+            type: text
+            format: integer
+            prompt: 宽表里一共记了几个株高？
+            key: 12
+          - id: rows
+            type: text
+            format: integer
+            prompt: 长表有几行？
+            key: 12
+          - id: columns
+            type: text
+            format: integer
+            prompt: 长表有几列？
+            key: 3
+          - id: lookup
+            type: text
+            format: integer
+            prompt: 长表里 site 为东坡、year 为 y2024 的那一行，height 是多少？
+            key: 36
+        explanation: |
+          4 个采样点 × 3 年 = **12** 个株高，长表就有 **12** 行；列只有 site、year、height **3** 列，原来的 y2023、y2024、y2025 三个列名成了 year 列的值。东坡 y2024 那一格是 **36**。
+        verify: |
+          years = [column for column in heights.columns if column != "site"]
+          records = [(site, year, value) for site, values in zip(heights["site"], heights[years].values.tolist())
+                     for year, value in zip(years, values)]
+          long = pd.DataFrame(records, columns=["site", "year", "height"])
+          lookup = long.loc[(long["site"] == "东坡") & (long["year"] == "y2024"), "height"]
+          answers = {"measurements": int(heights[years].size), "rows": long.shape[0], "columns": long.shape[1], "lookup": lookup.iloc[0]}
+      - id: py31.k1.q2
+        kind: [explain]
+        data: [trees]
+        body: |
+          表 trees 是一张长表。给它的每一列认出角色，再想想排成宽表（每棵树一行）的样子。
+        slots:
+          - id: roles
+            type: table
+            columns:
+              - { id: column, header: 列 }
+              - id: role
+                header: 角色
+                input:
+                  type: choice
+                  options:
+                    - { id: id, label: 标识列 }
+                    - { id: variable, label: 变量列 }
+                    - { id: value, label: 值列 }
+            rows:
+              - { id: tree_id, cells: { column: tree_id, role: id } }
+              - { id: season, cells: { column: season, role: variable } }
+              - { id: girth_cm, cells: { column: girth_cm, role: value } }
+          - id: wide_rows
+            type: text
+            format: integer
+            prompt: 排成宽表（每棵树一行、每个季节一列）后有几行？
+            key: 2
+          - id: wide_values
+            type: text
+            format: integer
+            prompt: 宽表里有几列周长？
+            key: 2
+        explanation: |
+          tree_id 说明测的是哪棵树，是**标识列**；season 说明在哪个季节测的，是**变量列**；girth_cm 是测到的周长，是**值列**。排成宽表时每棵树一行，T1、T2 共 **2** 行；每个季节一列，spring、autumn 共 **2** 列周长。
+        verify: |
+          answers = {"wide_rows": trees["tree_id"].nunique(), "wide_values": trees["season"].nunique()}
+        manual: [roles]
+      - id: py31.k1.q3
+        kind: [debug]
+        uses: [py25.k1, py25.k2]
+        data: [Ldup]
+        body: |
+          约定每个样本每天只测一次。检查这张长表是否符合约定。
+        slots:
+          - id: ok
+            type: choice
+            prompt: 符合约定吗？
+            options:
+              - { id: "yes", content: 符合，每个样本每天只有一行 }
+              - { id: "no", content: 不符合，有样本同一天出现了不止一行 }
+            key: "no"
+          - id: which
+            type: choice
+            prompt: 哪一个组合出现了不止一次？
+            options:
+              - { id: S_A-day1, content: S_A 的 day1 }
+              - { id: S_B-day1, content: S_B 的 day1 }
+              - { id: S_B-day2, content: S_B 的 day2 }
+              - { id: S_C-day2, content: S_C 的 day2 }
+            key: S_B-day1
+          - id: marked
+            type: text
+            format: integer
+            prompt: "`long.duplicated(subset=[\"sample_id\", \"day\"], keep=False)` 里有几个 True？"
+            key: 2
+        explanation: |
+          **不符合**。**S_B 的 day1** 出现了两行，signal 一个是 10、一个是 14：同一样本同一天的两个不同的数，是冲突。按 sample_id 和 day 用 `keep=False` 标重复时，这两行都标 True，共 **2** 个。
+        verify: |
+          marked = long.duplicated(subset=["sample_id", "day"], keep=False)
+          combos = sorted({f"{sample}-{day}" for sample, day, flag in zip(long["sample_id"], long["day"], marked) if flag})
+          answers = {"ok": "no" if marked.any() else "yes", "which": combos[0] if len(combos) == 1 else combos, "marked": int(marked.sum())}
+    review:
+      - id: py31.k1.r1
+        kind: [predict]
+        uses: [py25.k1]
+        data: [soil]
+        body: |
+          把表 soil 排成长表：每行一个采样点一个季节的深度，列为 site、season、depth。
+        slots:
+          - id: rows
+            type: text
+            format: integer
+            prompt: 长表有几行？
+            key: 6
+          - id: pair
+            type: choice
+            prompt: 在这张长表里，哪两列合起来能认出唯一的一行（每种组合只出现一次）？
+            options:
+              - { id: site_depth, content: site 和 depth }
+              - { id: site_season, content: site 和 season }
+              - { id: season_depth, content: season 和 depth }
+            key: site_season
+        explanation: |
+          3 个采样点 × 2 个季节，长表 **6** 行。**site 和 season** 合起来正好认出一个测量。另外两种组合在这批数据里就已经重复：东坡春、秋两季都是 30 厘米，所以 site 和 depth 的组合“东坡、30”出现两次；春季北坡、东坡都是 30，season 和 depth 的组合“spring、30”也出现两次。测到的数可能相同，不能拿来认记录。
+        verify: |
+          seasons = [column for column in soil.columns if column != "site"]
+          records = [(site, season, value) for site, values in zip(soil["site"], soil[seasons].values.tolist())
+                     for season, value in zip(seasons, values)]
+          long = pd.DataFrame(records, columns=["site", "season", "depth"])
+          pairs = {"site_depth": ["site", "depth"], "site_season": ["site", "season"], "season_depth": ["season", "depth"]}
+          unique = [pair for pair, columns in pairs.items() if not long.duplicated(subset=columns).any()]
+          answers = {"rows": len(long), "pair": unique[0] if len(unique) == 1 else unique}
+      - id: py31.k1.r2
+        kind: [explain]
+        data: [survey]
+        body: |
+          把表 survey 排成长表：每行是一位受访者一轮的作答，列为 respondent、wave、score。判断每句话对不对。
+        slots:
+          - id: claims
+            type: table
+            columns:
+              - { id: claim, header: 说法 }
+              - { id: ok, header: 对吗, input: bool }
+            rows:
+              - { id: c1, cells: { claim: 长表有 8 行, ok: true } }
+              - { id: c2, cells: { claim: 长表的行数和宽表一样多, ok: false } }
+              - { id: c3, cells: { claim: 长表里 respondent 列中每个编号只出现一次, ok: false } }
+              - { id: c4, cells: { claim: 长表里 wave 列的值是 wave1 和 wave2, ok: true } }
+        explanation: |
+          第 1、4 句对，第 2、3 句错。4 位受访者 × 2 轮 = 8 行，比宽表的 4 行多；每位受访者有两轮作答，所以每个编号在长表里出现两次；wave1、wave2 原来是列名，排成长表后成了 wave 列的值。
+        verify: |
+          waves = [column for column in survey.columns if column != "respondent"]
+          records = [(person, wave, value) for person, values in zip(survey["respondent"], survey[waves].values.tolist())
+                     for wave, value in zip(waves, values)]
+          long = pd.DataFrame(records, columns=["respondent", "wave", "score"])
+          answers = {"claims": {
+              "c1": {"ok": len(long) == 8},
+              "c2": {"ok": len(long) == len(survey)},
+              "c3": {"ok": not long["respondent"].duplicated().any()},
+              "c4": {"ok": sorted(set(long["wave"])) == ["wave1", "wave2"]},
+          }}
+    quiz:
+      - id: py31.k1.x1
+        kind: [trace]
+        data: [farm_long]
+        body: |
+          表 farm 是长表。把它排成宽表：每块地一行，每年一列，格子里是产量。填写宽表。
+        slots:
+          - id: wide
+            type: table
+            columns:
+              - { id: plot, header: plot }
+              - { id: y2024, header: y2024, input: integer }
+              - { id: y2025, header: y2025, input: integer }
+            rows:
+              - { id: A, cells: { plot: A, y2024: 4, y2025: 5 } }
+              - { id: B, cells: { plot: B, y2024: 6, y2025: 7 } }
+              - { id: C, cells: { plot: C, y2024: 5, y2025: 3 } }
+        explanation: |
+          | plot | y2024 | y2025 |
+          |---|---:|---:|
+          | A | 4 | 5 |
+          | B | 6 | 7 |
+          | C | 5 | 3 |
+
+          plot 是标识列，成了宽表的行；year 是变量列，它的值 y2024、y2025 成了列名；kg 是值列，填进格子。长表 6 行，宽表 3 行 × 2 列，测量个数相同。
+        verify: |
+          cells = {}
+          for plot, year, kg in zip(farm["plot"], farm["year"], farm["kg"]):
+              assert (plot, year) not in cells
+              cells[(plot, year)] = kg
+          answers = {"wide": {plot: {year: value for (p, year), value in cells.items() if p == plot} for plot in sorted(set(farm["plot"]))}}
+      - id: py31.k1.x2
+        kind: [explain]
+        data: [birds]
+        body: |
+          表 birds 是一张长表。给它的每一列认出角色。
+        slots:
+          - id: role_line
+            type: choice
+            prompt: "`line` 列是什么角色？"
+            options:
+              - { id: id, content: 标识列（说明测的是谁） }
+              - { id: variable, content: 变量列（说明在什么条件下测的） }
+              - { id: value, content: 值列（测到的数） }
+            key: id
+          - id: role_month
+            type: choice
+            prompt: "`month` 列是什么角色？"
+            options:
+              - { id: id, content: 标识列（说明测的是谁） }
+              - { id: variable, content: 变量列（说明在什么条件下测的） }
+              - { id: value, content: 值列（测到的数） }
+            key: variable
+          - id: role_n_birds
+            type: choice
+            prompt: "`n_birds` 列是什么角色？"
+            options:
+              - { id: id, content: 标识列（说明测的是谁） }
+              - { id: variable, content: 变量列（说明在什么条件下测的） }
+              - { id: value, content: 值列（测到的数） }
+            key: value
+          - id: wide_values
+            type: text
+            format: integer
+            prompt: 排成宽表（每条样线一行）后，有几列鸟的数量？
+            key: 2
+        explanation: |
+          line 说明数的是哪条样线，是**标识列**；month 说明在哪个月数的，是**变量列**——它是数字，但在这里表示条件，不是测到的量；n_birds 是数到的鸟，是**值列**。排成宽表时，5 月、6 月各成一列，共 **2** 列。
+        verify: |
+          answers = {"wide_values": birds["month"].nunique()}
+        manual: [role_line, role_month, role_n_birds]
+
   - id: py31.k2
     title: melt 从多列变多行
+    card:
+      name: melt
+      aliases: [宽变长, 多列变多行]
+      definition: melt 把几列测量拆成多行：id_vars 的列原样带着，value_vars 里每一列的每个值各成一行，原来的列名写进 var_name 那一列，值写进 value_name 那一列。
+      conditions:
+        - 行数 = 原行数 × value_vars 的列数；先排完第一个被拆的列，再排下一个。
+        - 结果的行标签从 0 重新编号；不写 value_vars 时，id_vars 以外的列全部被拆。
+      example:
+        from: py31.k2.e0
+        text: |
+          ```python
+          long = wide.melt(id_vars=["sample_id"], value_vars=["day1", "day2"], var_name="day", value_name="signal")
+          ```
+          表 W 的 3 行变成 6 行：先是 day1 的三行，再是 day2 的三行。
+    lesson: |
+      宽表变长表用 `melt`：
+
+      ```python
+      long = wide.melt(id_vars=["sample_id"], value_vars=["day1", "day2"], var_name="day", value_name="signal")
+      ```
+
+      | 参数 | 意思 | 这里 |
+      |---|---|---|
+      | `id_vars` | 原样带着、不拆的列（标识列） | sample_id |
+      | `value_vars` | 要拆成多行的测量列 | day1、day2 |
+      | `var_name` | 新的变量列叫什么，里面放原来的列名 | day |
+      | `value_name` | 新的值列叫什么，里面放原来格子里的数 | signal |
+
+      结果有 3 × 2 = 6 行。行的先后是：先把 day1 这一列从上到下拆完（S_A、S_B、S_C），再拆 day2。day 列里的值就是原来的列名文字 `"day1"`、`"day2"`。结果的行标签从 0 重新编号，原行索引 31、7、22 不保留。
+
+      两个省略要留意：不写 `var_name`、`value_name` 时，新列叫 `variable` 和 `value`；不写 `value_vars` 时，id_vars 以外的列**全部**被拆。表里还有别的列（比如组别）却忘了放进 id_vars，它也会被当成一种“测量”拆进来。
+    example:
+      id: py31.k2.e0
+      kind: [predict]
+      uses: [py14.k1]
+      data: [W]
+      body: |
+        阅读代码，说出 `long` 的样子。
+
+        ```python
+        long = wide.melt(id_vars=["sample_id"], value_vars=["day1", "day2"], var_name="day", value_name="signal")
+        ```
+      slots:
+        - id: nrows
+          type: text
+          format: integer
+          prompt: "`long` 有几行？"
+          key: 6
+        - id: columns
+          type: order
+          partial: true
+          prompt: "`long` 有哪些列？按顺序排列，不属于它的不要放进来。"
+          items:
+            - { id: signal, content: "`signal`" }
+            - { id: variable, content: "`variable`" }
+            - { id: sample_id, content: "`sample_id`" }
+            - { id: day, content: "`day`" }
+            - { id: day1, content: "`day1`" }
+          key: [sample_id, day, signal]
+        - id: sample
+          type: text
+          prompt: 行标签为 3 的那一行，sample_id 是什么？
+          key: S_A
+        - id: day
+          type: text
+          prompt: 这一行的 day 是什么？
+          key: day2
+        - id: signal
+          type: text
+          format: integer
+          prompt: 这一行的 signal 是多少？
+          key: 9
+      explanation: |
+        | 行标签 | sample_id | day | signal |
+        |---:|---|---|---:|
+        | 0 | S_A | day1 | 8 |
+        | 1 | S_B | day1 | 10 |
+        | 2 | S_C | day1 | 13 |
+        | 3 | S_A | day2 | 9 |
+        | 4 | S_B | day2 | 12 |
+        | 5 | S_C | day2 | 11 |
+
+        共 **6** 行，列依次是 **sample_id、day、signal**。先拆完 day1 的三行（标签 0–2），再拆 day2，所以行标签 3 是 **S_A** 的 **day2**，signal 为 **9**。
+      verify: |
+        long = run()["long"]
+        answers = {
+            "nrows": len(long),
+            "columns": list(long.columns),
+            "sample": long.loc[3, "sample_id"],
+            "day": long.loc[3, "day"],
+            "signal": long.loc[3, "signal"],
+        }
+    practice:
+      - id: py31.k2.q1
+        kind: [predict]
+        uses: [py14.k1]
+        data: [W]
+        body: |
+          这次没有写 var_name 和 value_name。阅读代码，说出 `long` 的样子。
+
+          ```python
+          long = wide.melt(id_vars=["sample_id"])
+          ```
+        slots:
+          - id: columns
+            type: order
+            partial: true
+            prompt: "`long` 有哪些列？按顺序排列。"
+            items:
+              - { id: value, content: "`value`" }
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: day, content: "`day`" }
+              - { id: variable, content: "`variable`" }
+              - { id: signal, content: "`signal`" }
+            key: [sample_id, variable, value]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`long` 有几行？"
+            key: 6
+          - id: cell
+            type: text
+            prompt: 行标签为 4 的那一行，variable 列是什么？
+            key: day2
+        explanation: |
+          列是 **sample_id、variable、value**：没写名字时，pandas 用默认的 variable 和 value。没写 value_vars，id_vars 以外的 day1、day2 全部被拆，仍是 **6** 行。行标签 4 是 day2 那一段的第二行（S_B），variable 是 **day2**。
+        verify: |
+          long = run()["long"]
+          answers = {"columns": list(long.columns), "nrows": len(long), "cell": long.loc[4, "variable"]}
+      - id: py31.k2.q2
+        kind: [trace]
+        data: [W3]
+        body: |
+          阅读代码，填写 `long` 每一行的 sample_id 和 signal。
+
+          ```python
+          long = wide.melt(id_vars=["sample_id"], var_name="day", value_name="signal")
+          ```
+        slots:
+          - id: rows
+            type: table
+            columns:
+              - { id: label, header: 行标签 }
+              - { id: day, header: day }
+              - { id: sample_id, header: sample_id, input: text }
+              - { id: signal, header: signal, input: integer }
+            rows:
+              - { id: r0, cells: { label: "0", day: day1, sample_id: S_D, signal: 7 } }
+              - { id: r1, cells: { label: "1", day: day1, sample_id: S_E, signal: 15 } }
+              - { id: r2, cells: { label: "2", day: day2, sample_id: S_D, signal: 6 } }
+              - { id: r3, cells: { label: "3", day: day2, sample_id: S_E, signal: 14 } }
+              - { id: r4, cells: { label: "4", day: day3, sample_id: S_D, signal: 9 } }
+              - { id: r5, cells: { label: "5", day: day3, sample_id: S_E, signal: 16 } }
+        explanation: |
+          2 个样本 × 3 天 = 6 行。每拆一列，都按原表的行序走一遍：S_D、S_E；所以 sample_id 依次是 S_D、S_E 交替，signal 依次是 **7、15、6、14、9、16**。
+        verify: |
+          long = run()["long"]
+          answers = {"rows": {f"r{label}": {"sample_id": long.loc[label, "sample_id"], "signal": long.loc[label, "signal"]} for label in long.index}}
+      - id: py31.k2.q3
+        kind: [debug]
+        uses: [py14.k3]
+        data: [Wg]
+        body: |
+          要求是：“排成长表，每行一个测量，列为 sample_id、group、day、signal。”同事写了：
+
+          ```python
+          long = wide.melt(id_vars=["sample_id"], var_name="day", value_name="signal")
+          ```
+        slots:
+          - id: got
+            type: text
+            format: integer
+            prompt: 这段代码得到几行？
+            key: 6
+          - id: problem
+            type: choice
+            prompt: 问题出在哪里？
+            options:
+              - id: group
+                content: group 没放进 id_vars，被当成一种测量拆进了 day 和 signal
+              - id: order
+                content: 行的顺序不对，应该按 sample_id 排
+              - id: names
+                content: var_name 和 value_name 写反了
+            key: group
+          - id: fix
+            type: choice
+            prompt: 哪一行代码符合要求？
+            options:
+              - id: both
+                content: |
+                  ```python
+                  long = wide.melt(id_vars=["sample_id", "group"], var_name="day", value_name="signal")
+                  ```
+              - id: drop
+                content: |
+                  ```python
+                  long = wide.melt(id_vars=["sample_id"], value_vars=["day1", "day2"], var_name="day", value_name="signal")
+                  ```
+              - id: group_only
+                content: |
+                  ```python
+                  long = wide.melt(id_vars=["group"], var_name="day", value_name="signal")
+                  ```
+            key: both
+        explanation: |
+          得到 **6** 行而不是 4 行：**group 没放进 id_vars**，于是 day 列里多出了“group”，signal 列里混进了 control、drug 这样的文字。把 group 也放进 id_vars，`id_vars=["sample_id", "group"]`，就得到 4 行、四列。只写 value_vars 而不放 group，结果里就没有 group 列了；只放 group，sample_id 又被拆了进来。
+        verify: |
+          r = run()
+          long = r["long"]
+          days = [column for column in wide.columns if column not in ("sample_id", "group")]
+          expected = [[sample, group, day, value]
+                       for day in days
+                       for sample, group, value in zip(wide["sample_id"], wide["group"], wide[day])]
+          def fits(code):
+              result = run(code)["long"]
+              return list(result.columns) == ["sample_id", "group", "day", "signal"] and result.values.tolist() == expected
+          ok = [option for option, code in OPTIONS["fix"].items() if fits(code)]
+          answers = {"got": len(long), "problem": "group" if "group" in set(long["day"]) else "other", "fix": ok[0] if len(ok) == 1 else ok}
+    review:
+      - id: py31.k2.r1
+        kind: [explain]
+        data: [rain]
+        body: |
+          要从表 rain 得到下面这张长表。哪一行代码符合要求？
+
+          | station | month | mm |
+          |---|---|---:|
+          | N | jun | 120 |
+          | S | jun | 95 |
+          | E | jun | 140 |
+          | N | jul | 80 |
+          | S | jul | 110 |
+          | E | jul | 60 |
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: swapped
+                content: |
+                  ```python
+                  long = rain.melt(id_vars=["station"], var_name="mm", value_name="month")
+                  ```
+              - id: default
+                content: |
+                  ```python
+                  long = rain.melt(id_vars=["station"])
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  long = rain.melt(id_vars=["station"], var_name="month", value_name="mm")
+                  ```
+              - id: one
+                content: |
+                  ```python
+                  long = rain.melt(id_vars=["station"], value_vars=["jun"], var_name="month", value_name="mm")
+                  ```
+            key: right
+        explanation: |
+          `var_name="month", value_name="mm"` 的那一行符合要求：原来的列名 jun、jul 进 month 列，降水量进 mm 列。把两个名字写反，列名就和内容对不上；不写名字得到的是 variable、value；只拆 jun 一列只有 3 行。
+        verify: |
+          months = [column for column in rain.columns if column != "station"]
+          expected = [[station, month, value] for month in months for station, value in zip(rain["station"], rain[month])]
+          def fits(code):
+              result = run(code)["long"]
+              return list(result.columns) == ["station", "month", "mm"] and result.values.tolist() == expected
+          ok = [option for option, code in OPTIONS["code"].items() if fits(code)]
+          answers = {"code": ok[0] if len(ok) == 1 else ok}
+      - id: py31.k2.r2
+        kind: [predict]
+        uses: [py16.k2]
+        data: [temps]
+        body: |
+          屏幕上依次显示什么？
+
+          ```python
+          long = temps.melt(id_vars=["station"], var_name="time", value_name="temp")
+          print(len(long))
+          print(long.loc[1, "time"])
+          print(long.loc[2, "temp"])
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行
+            key: 4
+          - id: line2
+            type: text
+            prompt: 第二行
+            key: am
+          - id: line3
+            type: text
+            format: integer
+            prompt: 第三行
+            key: 18
+        explanation: |
+          依次显示 **4、am、18**。2 个站点 × 2 个时段 = 4 行；先拆 am 列（标签 0 是 N1、1 是 N2），再拆 pm 列（标签 2 是 N1、3 是 N2）。所以标签 1 的 time 是 am，标签 2 是 N1 下午的 18。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": lines[1], "line3": int(lines[2])}
+    quiz:
+      - id: py31.k2.x1
+        kind: [predict]
+        data: [farm2]
+        body: |
+          阅读代码，按 `long` 里的先后排出每一行是哪块地、哪一年。
+
+          ```python
+          long = farm.melt(id_vars=["plot"], var_name="year", value_name="kg")
+          ```
+        slots:
+          - id: rows
+            type: order
+            items:
+              - { id: A-y2024, content: A，y2024 }
+              - { id: A-y2025, content: A，y2025 }
+              - { id: B-y2024, content: B，y2024 }
+              - { id: B-y2025, content: B，y2025 }
+            key: [B-y2024, A-y2024, B-y2025, A-y2025]
+        explanation: |
+          先拆 y2024 这一列，按原表的行序是 B、A；再拆 y2025，还是 B、A。所以依次是 **B y2024、A y2024、B y2025、A y2025**。melt 不会按地块名排序，也不会把同一块地的两年排在一起。
+        verify: |
+          long = run()["long"]
+          answers = {"rows": [f"{plot}-{year}" for plot, year in zip(long["plot"], long["year"])]}
+      - id: py31.k2.x2
+        kind: [modify]
+        uses: [py14.k1]
+        data: [soil3]
+        body: |
+          需求是：
+
+          > 把宽表排成长表，每行一个采样点一个季节的深度，列依次为 site、season、depth；note 列不要。不改变 `soil`。
+
+          作答框里的代码还不符合需求。请改动它并提交，结果变量仍叫 `long`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              long = soil.melt(id_vars=["site"])
+            solution: |
+              long = soil.melt(id_vars=["site"], value_vars=["spring", "autumn"], var_name="season", value_name="depth")
+            accepts:
+              - long = soil[["site", "spring", "autumn"]].melt(id_vars=["site"], var_name="season", value_name="depth")
+              - long = soil.melt(id_vars="site", value_vars=["spring", "autumn"], var_name="season", value_name="depth")
+            rejects:
+              - code: long = soil.melt(id_vars=["site"], var_name="season", value_name="depth")
+                why: 没写 value_vars，note 也被拆了进来
+              - code: long = soil.melt(id_vars=["site"], value_vars=["spring", "autumn"])
+                why: 列名还是默认的 variable、value
+              - code: long = soil.melt(id_vars=["site"], value_vars=["spring", "autumn"], var_name="depth", value_name="season")
+                why: var_name 和 value_name 写反了
+              - code: long = soil.melt(id_vars=["site", "note"], value_vars=["spring", "autumn"], var_name="season", value_name="depth")
+                why: 把 note 当成标识列留了下来
+              - code: long = soil.melt(id_vars=["site"], value_vars=["spring"], var_name="season", value_name="depth")
+                why: 只拆了 spring 一列
+            tests:
+              - name: 表 soil
+                expect:
+                  long: 'pd.DataFrame({"site": ["N", "S", "E", "N", "S", "E"], "season": ["spring", "spring", "spring", "autumn", "autumn", "autumn"], "depth": [32, 26, 35, 29, 27, 33]})'
+                  soil: soil
+              - name: 另一份记录
+                hidden: true
+                data: [soil4]
+                expect:
+                  long: 'pd.DataFrame({"site": ["W", "X", "W", "X"], "season": ["spring", "spring", "autumn", "autumn"], "depth": [20, 22, 21, 26]})'
+                  soil: soil
+        explanation: |
+          ```python
+          long = soil.melt(id_vars=["site"], value_vars=["spring", "autumn"], var_name="season", value_name="depth")
+          ```
+
+          value_vars 只写两个季节，note 就不会被拆进来，也不会留在结果里；var_name、value_name 定下新列的名字。先选出 site、spring、autumn 三列再 melt 也对。
+
   - id: py31.k3
     title: pivot 要求键组合唯一，聚合是另一项决定
+    card:
+      name: pivot 与聚合
+      aliases: [长变宽, pivot_table]
+      definition: pivot 把长表变回宽表：index 的值成为行，columns 的值成为列，values 填进格子；它要求每个（行, 列）组合只出现一次。
+      conditions:
+        - 组合重复时 pivot 报 ValueError；pivot_table 不报错，默认对重复的值取平均。
+        - 重复了取平均、取第一条还是先查清，是统计上的决定，要在需求里写明。
+      example:
+        from: py31.k3.e0
+        text: |
+          ```python
+          wide = long.pivot(index="sample_id", columns="day", values="signal")
+          ```
+          表 L 变回宽表：行是 S_A、S_B、S_C，列是 day1、day2，按标签排好序。
+    lesson: |
+      长表变宽表用 `pivot`：
+
+      ```python
+      wide = long.pivot(index="sample_id", columns="day", values="signal")
+      ```
+
+      `index` 那一列的值成为行标签，`columns` 那一列的值成为列名，`values` 那一列的数填进格子。行和列都**按标签排好序**，与长表里行的先后无关：表 L 里 S_C 先出现，结果里仍是 S_A、S_B、S_C。
+
+      每一格只能放一个数，所以 pivot 要求每个（sample_id, day）组合只出现一次。同一样本同一天有两行时，pivot 报 **ValueError**（Index contains duplicate entries, cannot reshape）。这个报错是在提醒你：数据和“每个样本每天一个测量”的约定不符，先用 [duplicated](repa:concept/py25.k2) 找出是哪几行。
+
+      `pivot_table` 写法相同，但遇到重复不报错，而是**默认取平均**；写 `aggfunc="first"` 则只留先出现的一条。取平均、取第一条，还是先交人核对，是对数据的一项决定，和[分组聚合](repa:concept/py27.k1)选 mean 还是 max 一样，要在需求里写明，不能让默认值替你决定。
+    example:
+      id: py31.k3.e0
+      kind: [predict]
+      uses: [py14.k1, py16.k2]
+      data: [L]
+      body: |
+        阅读代码，说出 `wide` 的样子。
+
+        ```python
+        wide = long.pivot(index="sample_id", columns="day", values="signal")
+        ```
+      slots:
+        - id: rows
+          type: order
+          prompt: "`wide` 的行标签，按结果里的顺序排列。"
+          items:
+            - { id: S_C, content: S_C }
+            - { id: S_A, content: S_A }
+            - { id: S_B, content: S_B }
+          key: [S_A, S_B, S_C]
+        - id: columns
+          type: order
+          partial: true
+          prompt: "`wide` 的列，按顺序排列，不属于它的不要放进来。"
+          items:
+            - { id: day2, content: "`day2`" }
+            - { id: signal, content: "`signal`" }
+            - { id: day1, content: "`day1`" }
+          key: [day1, day2]
+        - id: cell
+          type: text
+          format: integer
+          prompt: "`wide.loc[\"S_C\", \"day2\"]` 是多少？"
+          key: 11
+      explanation: |
+        | sample_id | day1 | day2 |
+        |---|---:|---:|
+        | S_A | 8 | 9 |
+        | S_B | 10 | 12 |
+        | S_C | 13 | 11 |
+
+        行标签按顺序是 **S_A、S_B、S_C**，列是 **day1、day2**，都按标签排序，与长表里谁先出现无关；signal 是填进格子的值，不再是列名。S_C 第 2 天是 **11**。
+      verify: |
+        wide = run()["wide"]
+        answers = {"rows": [str(label) for label in wide.index], "columns": [str(label) for label in wide.columns], "cell": wide.loc["S_C", "day2"]}
+    practice:
+      - id: py31.k3.q1
+        kind: [predict, debug]
+        uses: [py25.k2]
+        data: [Ldup]
+        body: |
+          对这张长表运行下面的代码。
+
+          ```python
+          wide = long.pivot(index="sample_id", columns="day", values="signal")
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 会发生什么？
+            options:
+              - { id: error, content: 报 ValueError，没有得到 wide }
+              - { id: mean, content: 不报错，重复的那一格取平均 }
+              - { id: first, content: 不报错，重复的那一格留先出现的值 }
+            key: error
+          - id: which
+            type: choice
+            prompt: 是哪个组合重复了？
+            options:
+              - { id: S_A-day1, content: S_A 的 day1 }
+              - { id: S_B-day1, content: S_B 的 day1 }
+              - { id: S_B-day2, content: S_B 的 day2 }
+            key: S_B-day1
+        explanation: |
+          **报 ValueError**：**S_B 的 day1** 有两行（10 和 14），宽表的一格放不下两个数，pivot 不替你选，直接报错。要先弄清这两次测量哪个对，或者定下处理规则。
+        verify: |
+          r = run()
+          marked = long.duplicated(subset=["sample_id", "day"], keep=False)
+          combos = sorted({f"{sample}-{day}" for sample, day, flag in zip(long["sample_id"], long["day"], marked) if flag})
+          answers = {"outcome": "error" if r.error == "ValueError" else "other", "which": combos[0] if len(combos) == 1 else combos}
+      - id: py31.k3.q2
+        kind: [predict]
+        uses: [py16.k2, py26.k2]
+        data: [Ldup]
+        body: |
+          同一张长表，改用 pivot_table。
+
+          ```python
+          a = long.pivot_table(index="sample_id", columns="day", values="signal")
+          b = long.pivot_table(index="sample_id", columns="day", values="signal", aggfunc="first")
+          ```
+        slots:
+          - id: a
+            type: text
+            format: number
+            prompt: "`a.loc[\"S_B\", \"day1\"]` 是多少？"
+            key: 12
+          - id: b
+            type: text
+            format: number
+            prompt: "`b.loc[\"S_B\", \"day1\"]` 是多少？"
+            key: 10
+          - id: used
+            type: text
+            format: integer
+            prompt: "`a` 里 S_B、day1 那一格是由几个测量算出来的？"
+            key: 2
+        explanation: |
+          `a` 默认取平均：(10 + 14) / 2 = **12.0**；`b` 只留先出现的那一条，是 **10**。这一格由 **2** 个测量得来，而宽表上看不出这一点：12.0 看起来和别的格子一样，像是一次测到的值。
+        verify: |
+          r = run()
+          values = [signal for sample, day, signal in zip(long["sample_id"], long["day"], long["signal"]) if (sample, day) == ("S_B", "day1")]
+          assert r["a"].loc["S_B", "day1"] == sum(values) / len(values) and r["b"].loc["S_B", "day1"] == values[0]
+          answers = {"a": r["a"].loc["S_B", "day1"], "b": r["b"].loc["S_B", "day1"], "used": len(values)}
+      - id: py31.k3.q3
+        kind: [specify]
+        body: |
+          同事说：“把长表转成宽表给我，每个样本一行、每天一列。”你检查后发现 S_B 第 1 天测了两次，一次 10、一次 14。
+
+          请写一段可核对的要求或回复，说清：① 宽表的行、列和格子分别是什么；② 发现的重复是什么；③ 重复怎样处理由谁定、按什么规则。
+        slots:
+          - id: spec
+            type: text
+            lines: 6
+            rubric:
+              - id: shape
+                label: 宽表的样子
+                guide: 写明每个 sample_id 一行、每个 day 一列、格子是 signal。
+              - id: duplicate
+                label: 指出重复
+                guide: 具体指出 S_B 的 day1 有两条不同的记录（10 和 14），而不是笼统说“有问题”。
+              - id: rule
+                label: 处理规则
+                guide: 请对方决定或写明规则：例如核对后保留正确的一条、取平均并注明 n，或保留先录入的一条；不能自己默认取平均而不说明。
+        explanation: |
+          一种回复：**“宽表按 sample_id 分行、按 day 分列，格子是 signal。转换前我发现 S_B 第 1 天有两条记录，signal 分别是 10 和 14。这两次哪个对，或者要不要取平均、平均时是否注明用了 2 次测量，请你定一下；确认之前我先不合并。”**
+
+          关键是让“重复怎么处理”成为一项明确的决定，而不是被 pivot_table 的默认平均悄悄做掉。
+    review:
+      - id: py31.k3.r1
+        kind: [predict, explain]
+        uses: [py16.k2]
+        data: [farm_dup]
+        body: |
+          判断每句话对不对。说法里的参数都是 `index="plot", columns="year", values="kg"`。
+        slots:
+          - id: claims
+            type: table
+            columns:
+              - { id: claim, header: 说法 }
+              - { id: ok, header: 对吗, input: bool }
+            rows:
+              - { id: c1, cells: { claim: "`farm.pivot(...)` 会报错", ok: true } }
+              - { id: c2, cells: { claim: 把 pivot 换成 pivot_table，参数不变，就不报错, ok: true } }
+              - { id: c3, cells: { claim: pivot_table 的结果里，A、y2024 那一格是 4, ok: false } }
+              - { id: c4, cells: { claim: pivot_table 的结果和 farm 一样有 5 行, ok: false } }
+        explanation: |
+          第 1、2 句对，第 3、4 句错。A 在 y2024 有两条记录（4 和 6），pivot 报错；pivot_table 不报错，默认取平均，那一格是 5.0 而不是 4；结果每块地一行，只有 A、B 两行。
+        verify: |
+          strict = run('w = farm.pivot(index="plot", columns="year", values="kg")')
+          table = run('w = farm.pivot_table(index="plot", columns="year", values="kg")')
+          answers = {"claims": {
+              "c1": {"ok": strict.error is not None},
+              "c2": {"ok": table.error is None},
+              "c3": {"ok": table["w"].loc["A", "y2024"] == 4},
+              "c4": {"ok": len(table["w"]) == len(farm)},
+          }}
+      - id: py31.k3.r2
+        kind: [explain]
+        uses: [py25.k2]
+        data: [temps_dup]
+        body: |
+          需求是：“每个站点一行，每个时段一列，格子是水温；同一站点同一时段记了不止一次时，只留表里先出现的那一次。”哪一行代码符合需求？
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: pivot
+                content: |
+                  ```python
+                  wide = temps.pivot(index="station", columns="time", values="temp")
+                  ```
+              - id: mean
+                content: |
+                  ```python
+                  wide = temps.pivot_table(index="station", columns="time", values="temp")
+                  ```
+              - id: max
+                content: |
+                  ```python
+                  wide = temps.pivot_table(index="station", columns="time", values="temp", aggfunc="max")
+                  ```
+              - id: first
+                content: |
+                  ```python
+                  wide = temps.pivot_table(index="station", columns="time", values="temp", aggfunc="first")
+                  ```
+            key: first
+        explanation: |
+          `aggfunc="first"` 的那一行符合需求：N1 上午记了 12 和 14，留先出现的 12。pivot 遇到重复会报错；不写 aggfunc 默认取平均，得 13.0；`aggfunc="max"` 留的是较大的 14。
+        verify: |
+          first = {}
+          for station, time, temp in zip(temps["station"], temps["time"], temps["temp"]):
+              first.setdefault((station, time), temp)
+          def fits(code):
+              r = run(code)
+              if r.error is not None:
+                  return False
+              wide = r["wide"]
+              return all(wide.loc[station, time] == value for (station, time), value in first.items())
+          ok = [option for option, code in OPTIONS["code"].items() if fits(code)]
+          answers = {"code": ok[0] if len(ok) == 1 else ok}
+    quiz:
+      - id: py31.k3.x1
+        kind: [predict]
+        uses: [py14.k2, py16.k2]
+        data: [growth]
+        body: |
+          屏幕上依次显示什么？
+
+          ```python
+          wide = growth.pivot_table(index="dish", columns="hour", values="colonies")
+          print(wide.shape)
+          print(wide.loc["D2", "h24"])
+          print(wide.loc["D1", "h0"])
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行
+            key: (2, 2)
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行
+            key: "32.0"
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行
+            key: "12.0"
+            feedback:
+              - when: "12"
+                message: pivot_table 默认取平均，结果是浮点数；只有一个值时平均也写成 12.0。
+        explanation: |
+          依次显示 **(2, 2)、32.0、12.0**。两个培养皿、两个时间点，宽表 2 行 2 列。D2 在 24 小时记了两次（30 和 34），pivot_table 默认取平均得 32.0；D1 在 0 小时只有一次 12，取平均后也成了浮点数 12.0。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+      - id: py31.k3.x2
+        kind: [specify]
+        uses: [py25.k2]
+        data: [Ldup]
+        body: |
+          负责人的要求是：“同一样本同一天测出两个不同的数时，先拿给我核对，不要让程序自己挑一个或者取平均。”
+        slots:
+          - id: marked
+            type: text
+            format: integer
+            prompt: 按 sample_id 和 day，用 keep=False 标出的重复行有几行？
+            key: 2
+          - id: next
+            type: choice
+            prompt: 转成宽表之前，下一步最合适的是哪一项？
+            options:
+              - id: mean
+                content: 直接用 `pivot_table`，按默认取平均
+              - id: first
+                content: 用 `pivot_table` 加 `aggfunc="first"`，只留先出现的一条
+              - id: check
+                content: 先用 `duplicated(subset=["sample_id", "day"], keep=False)` 标出这些行，交给负责人核对，确认后再 pivot
+              - id: full
+                content: 先用 `drop_duplicates()` 去掉整行重复，再 pivot
+            key: check
+        explanation: |
+          标出 **2** 行：S_B 的 day1 那两行。负责人要求先核对，所以应当**先标出这些行交给负责人，确认后再 pivot**。取平均、取第一条都是程序替人做了决定；`drop_duplicates()` 不写 subset 只去整行相同的行，这两行 signal 不同，去不掉，之后 pivot 照样报错。
+        verify: |
+          answers = {"marked": int(long.duplicated(subset=["sample_id", "day"], keep=False).sum())}
+        manual: [next]
+
+verified:
+  - question: py31.k1.x2
+    version: sha256:a3c9cdaae049c45d04b5e24c81ef3acb687f7b194b30f85c970524e57c5a01b5
+    slots: [role_line, role_month, role_n_birds]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py31.k3.x2
+    version: sha256:87ad2e3399c748841f0627a4e453edb3fa33b07241b294902b2b2ac0635e031e
+    slots: [next]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
