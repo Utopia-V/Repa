@@ -1,7 +1,8 @@
 id: py27
 title: 按组回答一个问题
-status: outline
+status: complete
 minutes: 20
+summary: 读懂 df.groupby("分组列")["值列"].聚合()：先按组分开，组内照常汇总，再合成每组一行的结果；分清每条记录一行、每组一行和整张表一个数。
 prerequisites:
   - topic: py26
     key: true
@@ -13,18 +14,771 @@ prerequisites:
     covers: [py16.k1]
 sources:
   - source: pydata-book
-    where: 第 10 章 §10.1–10.2
+    where: 第 10 章 §10.1–10.2（分组机制与数据聚合）
     url: https://wesmckinney.com/book/data-aggregation
     use: reference
   - source: pandas-docs
-    where: 入门教程：汇总统计
+    where: 入门教程：汇总统计（按类别分组汇总）
     url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/06_calculate_statistics.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、解释代码（S/O）、小改代码（T）。
-  书 §10 里 groupby(..., axis="columns") 的写法在 pandas 3 已移除，不进入本课。
+  范围：只用一个分组列、一个值列和一种聚合（mean、sum、count、max）。命名聚合 .agg(新列名=(列, 操作)) 和分组键缺失时的 dropna 由 py28 承担；size 与 count 的区别也留给 py28.k2。书 §10 里 groupby(..., axis="columns") 的写法在 pandas 3 已移除，不进入本课。组名用英文或字母，避免中文组名的排序顺序干扰判断。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、练习 4 分钟；k2 讲解与例题 3 分钟、两道读结果题 3 分钟、小改代码题 4 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。k1.q2 的三个结构字段要靠读代码判断，列在 manual 里；它是练习，不强制模型核对。复习和测验题全部由程序核对。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码，不需要写导入或构造数据的代码。
+
+  每道题都从题面给出的表重新开始。大多数题用表 G：`sample_id` 是样本编号，`group` 是实验组标签，`signal` 是一次测量的值（任意单位），NaN 表示没测到。左边的原行索引是原表的行标签。
+
+  上一节用掩码一次筛出一个组再汇总；这一节一行代码对每个组都汇总一遍。
+wrapup: |
+  读到 `groupby` 时，先找三样：按哪一列分组、对哪一列算、算什么；再说出结果的样子：每组一行，行标签是排好序的组名，有几个组就有几行。
+
+  向同事或 AI 提要求时，可以说：“按 group 分组，对每组的 signal 求平均（跳过缺失），输出一张表，group 一列、signal 一列，每组一行。”
+data:
+  G:
+    kind: dataframe
+    name: df
+    caption: 表 G
+    index: [31, 7, 22, 4, 15, 9]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E, S_F]
+      group: [drug, control, drug, control, drug, control]
+      signal: [8.0, 10.0, 13.0, null, 12.0, 6.0]
+    dtypes:
+      signal: float
+  G2:
+    kind: dataframe
+    name: df
+    caption: 另一张同结构的表
+    index: [8, 40, 15, 3, 27]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [Z_C, Z_A, Z_E, Z_B, Z_D]
+      group: [placebo, drug, control, drug, placebo]
+      signal: [5.0, 9.0, 7.0, null, 3.0]
+    dtypes:
+      signal: float
+  G3:
+    kind: dataframe
+    name: df
+    caption: 第三张同结构的表
+    index: [2, 11, 6, 19]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [Y_A, Y_B, Y_C, Y_D]
+      group: [drug, drug, control, drug]
+      signal: [4.0, 6.0, 9.0, 11.0]
+    dtypes:
+      signal: float
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：五个采样点的土层深度（厘米），plot 是所在地块
+    index: [5, 12, 3, 8, 21]
+    indexHeader: 原行索引
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡, 山顶]
+      plot: [C, A, C, B, A]
+      depth: [30, 25, 34, 28, 21]
+  plants:
+    kind: dataframe
+    name: plants
+    caption: 表 plants：六株幼苗的高度（厘米），plot 是所在地块
+    columns:
+      plant_id: [H1, H2, H3, H4, H5, H6]
+      plot: [A, B, A, C, B, A]
+      height: [12, 15, 10, 9, 13, 14]
+  water:
+    kind: dataframe
+    name: water
+    caption: 表 water：三个站点的多次采样浓度（mg/L），没测到的为 NaN
+    columns:
+      station: [B, A, C, A, B, C]
+      conc: [6.0, 3.0, 5.0, null, 8.0, 7.0]
+    dtypes:
+      conc: float
+  water2:
+    kind: dataframe
+    name: water
+    caption: 另一份采样记录
+    columns:
+      station: [N, M, N, K, M, N, K]
+      conc: [2.0, null, 4.0, 1.0, 3.0, null, 5.0]
+    dtypes:
+      conc: float
+  survey:
+    kind: dataframe
+    name: survey
+    caption: 表 survey：六位受访者的城市和年龄
+    columns:
+      respondent: [R1, R2, R3, R4, R5, R6]
+      city: [上海, 北京, 上海, 广州, 北京, 上海]
+      age: [30, 41, 36, 25, 39, 33]
+  farm:
+    kind: dataframe
+    name: farm
+    caption: 表 farm：六块试验地的作物和产量（千克）
+    columns:
+      plot: [P1, P2, P3, P4, P5, P6]
+      crop: [wheat, corn, wheat, rice, corn, wheat]
+      yield_kg: [4, 5, 6, 3, 7, 5]
 kps:
   - id: py27.k1
     title: groupby 先分组再聚合
+    card:
+      name: 分组聚合
+      aliases: [groupby, 按组汇总]
+      definition: df.groupby("分组列")["值列"].聚合() 先按分组列的取值把行分成几组，在每组里对值列做同一种汇总，再把各组的结果合在一起。
+      conditions:
+        - 读代码时依次找三样：按哪一列分组、对哪一列算、算什么。
+        - 组内照常跳过缺失：每组的 mean 除以这一组的 count。
+      example:
+        from: py27.k1.e0
+        text: |
+          ```python
+          result = df.groupby("group")["signal"].mean()
+          ```
+          表 G 里 control 组为 10.0、NaN、6.0，平均 8.0；drug 组为 8.0、13.0、12.0，平均 11.0。
+    lesson: |
+      上一节要算 drug 组的平均，先用掩码筛出 drug 组，再求 `mean()`。组多了，一组一组筛很麻烦。下面这一行对每个组都算一遍：
+
+      ```python
+      result = df.groupby("group")["signal"].mean()
+      ```
+
+      从左往右读三段：
+
+      1. `groupby("group")`：按 group 列的取值分组。表 G 里只有 drug 和 control 两种，于是分成两组。
+      2. `["signal"]`：在每一组里取出 signal 这一列。
+      3. `.mean()`：对每一组的 signal 求平均。
+
+      手算时也照这三步做：
+
+      | 组 | 这一组的 signal | 平均 |
+      |---|---|---:|
+      | control | 10.0、NaN、6.0 | 8.0 |
+      | drug | 8.0、13.0、12.0 | 11.0 |
+
+      组内的汇总照[跳过缺失](repa:concept/py26.k2)的规则：control 组有 3 行，只有 2 个值，16.0 / 2 = 8.0。把 `.mean()` 换成 `.sum()`、`.count()`、`.max()`，就是对每组做另一种汇总。
+    example:
+      id: py27.k1.e0
+      kind: [predict]
+      uses: [py26.k1, py26.k2, py16.k1]
+      data: [G]
+      body: |
+        阅读代码，写出每个组的结果。
+
+        ```python
+        result = df.groupby("group")["signal"].mean()
+        ```
+      slots:
+        - id: means
+          type: table
+          columns:
+            - { id: group, header: 组 }
+            - { id: mean, header: 平均, input: { type: text, format: number } }
+          rows:
+            - { id: control, cells: { group: control, mean: 8 } }
+            - { id: drug, cells: { group: drug, mean: 11 } }
+        - id: used
+          type: text
+          format: integer
+          prompt: control 组的平均用到了几个值？
+          key: 2
+      explanation: |
+        control 组是索引 7、4、9 三行，signal 为 10.0、NaN、6.0，跳过 NaN 后平均 16.0 / 2 = **8.0**，用到 **2** 个值；drug 组是索引 31、22、15，(8.0 + 13.0 + 12.0) / 3 = **11.0**。
+      verify: |
+        result = run()["result"]
+        groups = {}
+        for label, value in zip(df["group"].tolist(), df["signal"].tolist()):
+            if value == value:  # 跳过 NaN
+                groups.setdefault(label, []).append(value)
+        assert all(result[label] == sum(values) / len(values) for label, values in groups.items())
+        answers = {"means": {label: {"mean": result[label]} for label in result.index}, "used": len(groups["control"])}
+    practice:
+      - id: py27.k1.q1
+        kind: [predict]
+        uses: [py26.k1, py26.k2]
+        data: [G]
+        body: |
+          阅读代码，填写 `total` 和 `n` 里每个组的值。
+
+          ```python
+          total = df.groupby("group")["signal"].sum()
+          n = df.groupby("group")["signal"].count()
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: group, header: 组 }
+              - { id: total, header: total, input: { type: text, format: number } }
+              - { id: n, header: "n", input: integer }
+            rows:
+              - { id: control, cells: { group: control, total: 16, n: 2 } }
+              - { id: drug, cells: { group: drug, total: 33, n: 3 } }
+        explanation: |
+          control 组：10.0 + 6.0 = **16.0**，有值的 **2** 个；drug 组：8.0 + 13.0 + 12.0 = **33.0**，有值的 **3** 个。count 在每组里只数有值的格子，所以 control 组是 2 而不是 3。
+        verify: |
+          r = run()
+          answers = {"values": {label: {"total": r["total"][label], "n": r["n"][label]} for label in r["total"].index}}
+      - id: py27.k1.q2
+        kind: [explain, predict]
+        uses: [py16.k1]
+        data: [soil]
+        body: |
+          阅读代码，说出它在做什么。
+
+          ```python
+          deepest = soil.groupby("plot")["depth"].max()
+          ```
+        slots:
+          - id: key
+            type: choice
+            prompt: 按哪一列分组？
+            options:
+              - { id: site, content: site }
+              - { id: plot, content: plot }
+              - { id: depth, content: depth }
+            key: plot
+          - id: value
+            type: choice
+            prompt: 对哪一列做汇总？
+            options:
+              - { id: site, content: site }
+              - { id: plot, content: plot }
+              - { id: depth, content: depth }
+            key: depth
+          - id: how
+            type: choice
+            prompt: 做什么汇总？
+            options:
+              - { id: max, content: 取最大值 }
+              - { id: mean, content: 求平均 }
+              - { id: count, content: 数有几个 }
+            key: max
+          - id: plot_c
+            type: text
+            format: integer
+            prompt: 地块 C 的结果是多少？
+            key: 34
+        explanation: |
+          按 **plot** 分组，对 **depth** 取**最大值**：每个地块里最深的那个采样点有多深。地块 C 有北坡 30 和东坡 34 两个采样点，结果是 **34**。
+        verify: |
+          deepest = run()["deepest"]
+          answers = {"plot_c": deepest["C"]}
+        manual: [key, value, how]
+      - id: py27.k1.q3
+        kind: [debug]
+        uses: [py16.k1]
+        data: [G]
+        body: |
+          要求是“每个组 signal 的最大值”。同事写了：
+
+          ```python
+          result = df.groupby("signal")["group"].max()
+          ```
+        slots:
+          - id: problem
+            type: choice
+            prompt: 问题在哪里？
+            options:
+              - id: swapped
+                content: 分组列和值列写反了：按 signal 分组，对 group 取最大
+              - id: agg
+                content: 应该用 mean 而不是 max
+              - id: fine
+                content: 没有问题，结果就是每组的最大值
+            key: swapped
+          - id: rows
+            type: text
+            format: integer
+            prompt: 这段代码的结果有几行？
+            key: 5
+          - id: drug_max
+            type: text
+            format: number
+            prompt: 改对以后，drug 组的结果是多少？
+            key: 13
+        explanation: |
+          分组列和值列**写反了**。`groupby("signal")` 把每个不同的 signal 值当作一组：5 个有值的 signal 各不相同，于是得到 **5** 行（NaN 那一行不成组），每行是这一组的 group 文字，回答的不是要求的问题。改成 `df.groupby("group")["signal"].max()` 后，drug 组的最大值是 **13.0**。
+        verify: |
+          wrong = run()["result"]
+          fixed = run('result = df.groupby("group")["signal"].max()')["result"]
+          by_hand = max(value for label, value in zip(df["group"], df["signal"]) if label == "drug" and value == value)
+          answers = {
+              "problem": "swapped" if list(wrong.index) != list(fixed.index) and fixed["drug"] == by_hand else "fine",
+              "rows": len(wrong),
+              "drug_max": fixed["drug"],
+          }
+    review:
+      - id: py27.k1.r1
+        kind: [modify]
+        uses: [py16.k1]
+        data: [plants]
+        body: |
+          把下面四块拼成一行代码，算出每个地块幼苗的平均高度，存进 `result`。每块都要用上。
+        slots:
+          - id: chunks
+            type: order
+            items:
+              - { id: mean, code: .mean() }
+              - { id: start, code: result = plants }
+              - { id: column, code: '["height"]' }
+              - { id: group, code: .groupby("plot") }
+            key: [start, group, column, mean]
+          - id: plot_b
+            type: text
+            format: number
+            prompt: 地块 B 的平均高度是多少？
+            key: 14
+        explanation: |
+          拼成 `result = plants.groupby("plot")["height"].mean()`：先分组，再取 height 列，最后求平均。地块 B 有 15 和 13 两株，平均 **14.0**。
+
+          先取列再分组（`plants["height"].groupby("plot")`）会报错，因为单独取出的 height 列里没有 plot；先求平均再取列，会对 plant_id 这样的文字列也求平均而报错。
+        verify: |
+          import itertools
+          chunks = {"start": 'result = plants', "group": '.groupby("plot")', "column": '["height"]', "mean": '.mean()'}
+          groups = {}
+          for plot, height in zip(plants["plot"].tolist(), plants["height"].tolist()):
+              groups.setdefault(plot, []).append(height)
+          expected = {plot: sum(values) / len(values) for plot, values in groups.items()}
+          fits = []
+          for rest in itertools.permutations(["group", "column", "mean"]):
+              order = ["start", *rest]
+              r = run("".join(chunks[part] for part in order))
+              if r.error is None and isinstance(r["result"], pd.Series) and r["result"].to_dict() == expected:
+                  fits.append(order)
+          answers = {"chunks": fits[0] if len(fits) == 1 else fits, "plot_b": expected["B"]}
+      - id: py27.k1.r2
+        kind: [predict]
+        uses: [py26.k2]
+        data: [water]
+        body: |
+          阅读代码，填写每个站点的结果。
+
+          ```python
+          avg = water.groupby("station")["conc"].mean()
+          ```
+        slots:
+          - id: avg
+            type: table
+            columns:
+              - { id: station, header: 站点 }
+              - { id: value, header: 平均浓度, input: { type: text, format: number } }
+            rows:
+              - { id: A, cells: { station: A, value: 3 } }
+              - { id: B, cells: { station: B, value: 7 } }
+              - { id: C, cells: { station: C, value: 6 } }
+        explanation: |
+          A 站：3.0 和 NaN，跳过 NaN 后只剩 3.0，平均 **3.0**；B 站：(6.0 + 8.0) / 2 = **7.0**；C 站：(5.0 + 7.0) / 2 = **6.0**。A 站的平均只来自一次测量，报告时最好附上 n。
+        verify: |
+          avg = run()["avg"]
+          answers = {"avg": {station: {"value": avg[station]} for station in avg.index}}
+    quiz:
+      - id: py27.k1.x1
+        kind: [predict]
+        uses: [py16.k2]
+        data: [survey]
+        body: |
+          屏幕上显示什么？`.loc["上海"]` 按行标签取出上海那一组的值。
+
+          ```python
+          by_city = survey.groupby("city")["age"].mean()
+          print(by_city.loc["上海"])
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            key: "33.0"
+        explanation: |
+          显示 **33.0**。上海组是 R1、R3、R6 三位，年龄 30、36、33，平均 99 / 3 = 33.0。平均值是浮点数，所以显示 33.0 而不是 33。
+        verify: |
+          answers = {"output": run().lines()[0]}
+      - id: py27.k1.x2
+        kind: [explain]
+        uses: [py16.k1]
+        data: [farm]
+        body: |
+          要求是“每种作物的总产量”。哪一行代码符合要求？
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: swapped
+                content: |
+                  ```python
+                  result = farm.groupby("yield_kg")["crop"].sum()
+                  ```
+              - id: whole
+                content: |
+                  ```python
+                  result = farm["yield_kg"].sum()
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  result = farm.groupby("crop")["yield_kg"].sum()
+                  ```
+              - id: mean
+                content: |
+                  ```python
+                  result = farm.groupby("crop")["yield_kg"].mean()
+                  ```
+            key: right
+        explanation: |
+          `farm.groupby("crop")["yield_kg"].sum()` 符合要求：按作物分组，对产量求和，wheat 为 15、corn 为 12、rice 为 3。`farm["yield_kg"].sum()` 是全部地块的总产量 30，不分作物；把分组列和值列写反，是按产量分组去拼作物名；`.mean()` 算的是平均产量而不是总产量。
+        verify: |
+          totals = {}
+          for crop, value in zip(farm["crop"].tolist(), farm["yield_kg"].tolist()):
+              totals[crop] = totals.get(crop, 0) + value
+          def fits(code):
+              result = run(code)["result"]
+              return isinstance(result, pd.Series) and result.to_dict() == totals
+          ok = [option for option, code in OPTIONS["code"].items() if fits(code)]
+          answers = {"code": ok[0] if len(ok) == 1 else ok}
+
   - id: py27.k2
     title: 区分每条记录与每组一行的结果
+    card:
+      name: 每组一行
+      aliases: [分组结果的形状]
+      definition: 分组汇总的结果每组一行：行数等于不同组的个数，行标签是排好序的组名，而不是原表的行索引。
+      conditions:
+        - 结果默认按组名排序，不按组在原表里第一次出现的顺序。
+        - 写成 [["signal"]] 得到一张表；再接 reset_index()，组名会变成普通的一列。
+      example:
+        from: py27.k2.e0
+        text: |
+          表 G 有 6 行；`df.groupby("group")["signal"].mean()` 只有 2 行，行标签依次是 control、drug。
+    lesson: |
+      同一张表，可以得到三种“粒度”的结果：
+
+      | 代码 | 结果是什么 | 表 G 上有几个值 |
+      |---|---|---:|
+      | `df` | 每条记录一行 | 6 行 |
+      | `df.groupby("group")["signal"].mean()` | 每组一行 | 2 个 |
+      | `df["signal"].mean()` | 整张表一个数 | 1 个 |
+
+      分组的结果是一列（Series），行标签是组名，不是原来的 31、7、22……。组名**默认按字母顺序排好**：表 G 里 drug 先出现，结果里却是 control 在前。行数等于有几个不同的组，和原表行数无关，所以不能把它和原表一行一行地对齐。`df` 本身也没有变。
+
+      需要一张表时，有两处可以改：
+
+      - 值列写成列名列表 `[["signal"]]`，结果是一张表（[单列与多列](repa:concept/py16.k1)的区别照样成立）；
+      - 再接 `.reset_index()`，组名从行标签变成普通的一列 group，行标签重新编为 0、1……。写成 `df.groupby("group", as_index=False)["signal"].mean()` 效果相同。
+    example:
+      id: py27.k2.e0
+      kind: [predict]
+      uses: [py14.k1, py16.k1]
+      data: [G]
+      body: |
+        阅读代码，说出 `result` 的样子。
+
+        ```python
+        result = df.groupby("group")["signal"].mean()
+        ```
+      slots:
+        - id: labels
+          type: order
+          partial: true
+          prompt: "`result` 的行标签是什么？按结果里的顺序排出来，不属于它的不要放进来。"
+          items:
+            - { id: drug, content: drug }
+            - { id: control, content: control }
+            - { id: "31", content: "31" }
+            - { id: "7", content: "7" }
+          key: [control, drug]
+        - id: nrows
+          type: text
+          format: integer
+          prompt: "`result` 有几行？"
+          key: 2
+        - id: df_rows
+          type: text
+          format: integer
+          prompt: 运行之后，`df` 有几行？
+          key: 6
+      explanation: |
+        `result` 只有 **2** 行，行标签依次是 **control、drug**：组名按字母排序，虽然 drug 在原表里先出现；原行索引 31、7 不会出现在结果里。`df` 没有变，仍是 **6** 行。
+      verify: |
+        r = run()
+        result = r["result"]
+        assert set(result.index) == set(df["group"]) and list(result.index) == sorted(set(df["group"]))
+        answers = {"labels": [str(label) for label in result.index], "nrows": len(result), "df_rows": len(r["df"])}
+    practice:
+      - id: py27.k2.q1
+        kind: [predict]
+        uses: [py14.k1]
+        data: [soil]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          result = soil.groupby("plot")["depth"].mean()
+          ```
+        slots:
+          - id: labels
+            type: order
+            partial: true
+            prompt: 行标签按结果里的顺序排出来。
+            items:
+              - { id: C, content: C }
+              - { id: A, content: A }
+              - { id: B, content: B }
+              - { id: "5", content: "5" }
+            key: [A, B, C]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`result` 有几行？"
+            key: 3
+          - id: plot_a
+            type: text
+            format: number
+            prompt: 地块 A 的值是多少？
+            key: 23
+        explanation: |
+          三个地块，结果 **3** 行，行标签按字母排成 **A、B、C**，与它们在原表里出现的先后（C、A、C、B、A）无关。地块 A 是南坡 25 和山顶 21，平均 **23.0**。
+        verify: |
+          result = run()["result"]
+          answers = {"labels": [str(label) for label in result.index], "nrows": len(result), "plot_a": result["A"]}
+      - id: py27.k2.q2
+        kind: [predict]
+        uses: [py16.k1]
+        data: [G]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          result = df.groupby("group")[["signal"]].mean().reset_index()
+          ```
+        slots:
+          - id: columns
+            type: order
+            partial: true
+            prompt: "`result` 有哪些列？按顺序排列。"
+            items:
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+              - { id: group, content: "`group`" }
+            key: [group, signal]
+          - id: index
+            type: choice
+            prompt: "`result` 的行标签是什么？"
+            options:
+              - { id: names, content: control、drug }
+              - { id: numbers, content: 0、1 }
+              - { id: original, content: 7、31 }
+            key: numbers
+          - id: cell
+            type: text
+            prompt: 行标签为 1 的那一行，group 是什么？
+            key: drug
+        explanation: |
+          `[["signal"]]` 让结果是一张表；`reset_index()` 把组名从行标签变成普通的一列，所以列依次是 **group、signal**，行标签重新编为 **0、1**。组名仍按字母排序，行 1 的 group 是 **drug**，signal 是 11.0。
+        verify: |
+          result = run()["result"]
+          labels = list(result.index)
+          kinds = {"names": ["control", "drug"], "numbers": [0, 1], "original": [7, 31]}
+          index = [kind for kind, values in kinds.items() if labels == values]
+          answers = {"columns": list(result.columns), "index": index[0] if len(index) == 1 else index, "cell": result.loc[1, "group"]}
+      - id: py27.k2.q3
+        kind: [modify]
+        uses: [py16.k1]
+        data: [G]
+        body: |
+          需求是：
+
+          > 按 group 分组，对每组的 signal 求平均（跳过缺失）。结果是一张表：第一列 group，第二列 signal，每组一行，组名按字母顺序，行标签从 0 开始。不改变 `df`。
+
+          作答框里是 AI 给的代码，它离需求还差两处。请改动它并提交，结果变量仍叫 `result`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              result = df.groupby("group")["signal"].sum()
+            solution: |
+              result = df.groupby("group")["signal"].mean().reset_index()
+            accepts:
+              - result = df.groupby("group")[["signal"]].mean().reset_index()
+              - result = df.groupby("group", as_index=False)["signal"].mean()
+            rejects:
+              - code: result = df.groupby("group")["signal"].mean()
+                why: 组名还是行标签，结果是一列而不是带 group 列的表
+              - code: result = df.groupby("group")["signal"].sum().reset_index()
+                why: 仍是求和而不是平均
+              - code: result = df.groupby("group", sort=False)["signal"].mean().reset_index()
+                why: 关掉了排序，组按首次出现的顺序排列
+              - code: result = df.groupby("group").mean().reset_index()
+                why: 没有选出 signal 列，对文字列 sample_id 求平均会报错
+              - code: result = df.groupby("group")["signal"].mean().reset_index(drop=True)
+                why: drop=True 把组名直接丢掉了
+            tests:
+              - name: 表 G
+                expect:
+                  result: 'pd.DataFrame({"group": ["control", "drug"], "signal": [8.0, 11.0]})'
+                  df: df
+              - name: 三个组、首次出现的顺序不是字母顺序
+                hidden: true
+                data: [G2]
+                expect:
+                  result: 'pd.DataFrame({"group": ["control", "drug", "placebo"], "signal": [7.0, 9.0, 4.0]})'
+                  df: df
+              - name: 只有两个组、drug 先出现
+                hidden: true
+                data: [G3]
+                expect:
+                  result: 'pd.DataFrame({"group": ["control", "drug"], "signal": [9.0, 7.0]})'
+                  df: df
+        explanation: |
+          要改两处：`.sum()` 改成 `.mean()`；再接 `.reset_index()`，让组名成为 group 列。
+
+          ```python
+          result = df.groupby("group")["signal"].mean().reset_index()
+          ```
+
+          写成 `df.groupby("group", as_index=False)["signal"].mean()` 也对。表 G 上结果是两行：control 8.0、drug 11.0。判分时还会换几张组的出现顺序不同、有缺失值的表运行你的代码。
+    review:
+      - id: py27.k2.r1
+        kind: [explain]
+        uses: [py14.k1]
+        data: [farm]
+        body: |
+          运行 `by_crop = farm.groupby("crop")["yield_kg"].sum()` 之后，判断每句话对不对。
+        slots:
+          - id: claims
+            type: table
+            columns:
+              - { id: claim, header: 说法 }
+              - { id: ok, header: 对吗, input: bool }
+            rows:
+              - { id: c1, cells: { claim: by_crop 的行数和 farm 一样多, ok: false } }
+              - { id: c2, cells: { claim: by_crop 的第一行是 farm 里第一个出现的作物 wheat, ok: false } }
+              - { id: c3, cells: { claim: by_crop 的行标签是作物名, ok: true } }
+              - { id: c4, cells: { claim: 运行之后 farm 仍有 6 行, ok: true } }
+        explanation: |
+          第 3、4 句对，第 1、2 句错。farm 有 6 行，但只有 corn、rice、wheat 三种作物，by_crop 是 3 行；组名按字母排序，第一行是 corn 而不是先出现的 wheat；分组汇总不改变 farm。
+        verify: |
+          r = run('by_crop = farm.groupby("crop")["yield_kg"].sum()')
+          by_crop = r["by_crop"]
+          answers = {"claims": {
+              "c1": {"ok": len(by_crop) == len(farm)},
+              "c2": {"ok": by_crop.index[0] == farm["crop"].iloc[0]},
+              "c3": {"ok": set(by_crop.index) == set(farm["crop"])},
+              "c4": {"ok": len(r["farm"]) == 6},
+          }}
+      - id: py27.k2.r2
+        kind: [predict]
+        uses: [py06.k2]
+        data: [survey]
+        body: |
+          屏幕上依次显示什么？
+
+          ```python
+          by_city = survey.groupby("city")["age"].max()
+          print(len(survey))
+          print(len(by_city))
+          print(by_city.loc["北京"])
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行
+            key: 6
+          - id: line2
+            type: text
+            format: integer
+            prompt: 第二行
+            key: 3
+          - id: line3
+            type: text
+            format: integer
+            prompt: 第三行
+            key: 41
+        explanation: |
+          依次显示 **6、3、41**。survey 每位受访者一行，共 6 行；by_city 每个城市一行，上海、北京、广州共 3 行；北京组是 41 岁和 39 岁，最大值 41。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
+    quiz:
+      - id: py27.k2.x1
+        kind: [modify]
+        uses: [py16.k1, py26.k1]
+        data: [water]
+        body: |
+          需求是：
+
+          > 每个站点测到浓度的次数（不算没测到的）。结果是一张表：第一列 station，第二列 conc 存次数，每个站点一行，站点按字母顺序，行标签从 0 开始。
+
+          作答框里的代码得到的是一列而不是表。请改动它并提交，结果变量仍叫 `result`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              result = water.groupby("station")["conc"].count()
+            solution: |
+              result = water.groupby("station")["conc"].count().reset_index()
+            accepts:
+              - result = water.groupby("station", as_index=False)["conc"].count()
+              - result = water.groupby("station")[["conc"]].count().reset_index()
+            rejects:
+              - code: result = water.groupby("station")["conc"].size().reset_index()
+                why: size 数的是行数，把没测到的也算上了
+              - code: result = water.groupby("station")["conc"].count().reset_index(drop=True)
+                why: drop=True 把站点名丢掉了
+              - code: result = water.groupby("station", sort=False)["conc"].count().reset_index()
+                why: 站点按首次出现的顺序排列
+            tests:
+              - name: 表 water
+                expect:
+                  result: 'pd.DataFrame({"station": ["A", "B", "C"], "conc": [1, 2, 2]})'
+                  water: water
+              - name: 另一份采样记录
+                hidden: true
+                data: [water2]
+                expect:
+                  result: 'pd.DataFrame({"station": ["K", "M", "N"], "conc": [2, 1, 2]})'
+                  water: water
+        explanation: |
+          在后面接 `.reset_index()`：
+
+          ```python
+          result = water.groupby("station")["conc"].count().reset_index()
+          ```
+
+          结果三行：A 1 次（另一次没测到）、B 2 次、C 2 次。写成 `water.groupby("station", as_index=False)["conc"].count()` 也对。
+      - id: py27.k2.x2
+        kind: [predict]
+        uses: [py14.k2, py16.k1]
+        data: [plants]
+        body: |
+          写出每个表达式的结果里有几个值。一个单独的数算 1 个。
+        slots:
+          - id: sizes
+            type: table
+            columns:
+              - { id: expr, header: 表达式 }
+              - { id: size, header: 有几个值, input: integer }
+            rows:
+              - { id: column, cells: { expr: "`plants[\"height\"]`", size: 6 } }
+              - { id: by_plot, cells: { expr: "`plants.groupby(\"plot\")[\"height\"].mean()`", size: 3 } }
+              - { id: whole, cells: { expr: "`plants[\"height\"].mean()`", size: 1 } }
+              - { id: by_id, cells: { expr: "`plants.groupby(\"plant_id\")[\"height\"].mean()`", size: 6 } }
+        explanation: |
+          依次是 **6、3、1、6**。取出的一列每株一个值；按 plot 分组每个地块一个值，A、B、C 共 3 个；整列求平均只有 1 个数。按 plant_id 分组时，每株幼苗编号都不同，各自成一组，于是又回到 6 个：每组一行，组有多少，结果就有多少行。
+        verify: |
+          expressions = {
+              "column": 'plants["height"]',
+              "by_plot": 'plants.groupby("plot")["height"].mean()',
+              "whole": 'plants["height"].mean()',
+              "by_id": 'plants.groupby("plant_id")["height"].mean()',
+          }
+          answers = {"sizes": {row: {"size": int(np.size(run("value = " + code)["value"]))} for row, code in expressions.items()}}
