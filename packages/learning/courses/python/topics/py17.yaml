@@ -871,7 +871,7 @@ kps:
               - { id: c4, cells: { claim: "运行之后，`df` 也只剩 2 行", ok: false } }
               - { id: c5, cells: { claim: "`result` 里原行索引为 60 的那一行，sample_id 是 X_C", ok: true } }
         explanation: |
-          表 T2 里 signal 至少为 12 的是原行索引 2 和 60 两行，所以 `result` 有 2 行。
+          题面里的表中 signal 至少为 12 的是原行索引 2 和 60 两行，所以 `result` 有 2 行。
 
           - 逗号后面列的先后是 `["signal", "sample_id"]`，第一列是 signal，不是 sample_id；
           - 筛选保留原行索引 2 和 60，不会重新编号成 0、1；
