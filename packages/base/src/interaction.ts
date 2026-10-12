@@ -12,7 +12,7 @@
  *
  * 本文件经 @repa/base/protocol 与 @repa/base/plugin 导出，保持浏览器可用。
  */
-import { Type, type Static } from "typebox";
+import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { object, RepaFault } from "./schema.js";
 
@@ -578,6 +578,23 @@ class Unreadable extends Error {
 interface ReadContext {
   /** 读 Item 时收集读不懂的作答位和内容块对应的能力名；读别的内容时没有。 */
   needs?: Set<string>;
+  fallback?: ReadFallback;
+}
+
+/**
+ * 联合里没有成员认领的值交给调用方的退路：value 是读到的值，union 是那个联合的 schema，path 是位置。
+ * 返回替代的值，它必须是这个联合认得的成员；返回 undefined 则连同所在的一项丢掉，与没有退路时相同。
+ */
+export type ReadFallback = (unknown: { value: unknown; union: TSchema; path: string }) => unknown;
+
+/** 没有成员认领时：有退路就交给退路，否则丢掉。 */
+function unclaimed(schema: JsonSchema, value: unknown, path: string, context: ReadContext): unknown {
+  if (context.fallback === undefined) return DROP;
+  const union = schema as unknown as TSchema;
+  const replacement = context.fallback({ value, union, path });
+  if (replacement === undefined) return DROP;
+  if (!Value.Check(union, replacement)) throw new TypeError(`退路给 ${path || "/"} 的值不是这个联合的成员`);
+  return replacement;
 }
 
 /** 联合各分支的判别值。Type.Optional 会复制 schema，所以按判别值认出联合，不比对象身份。 */
@@ -619,8 +636,8 @@ function readUnion(schema: JsonSchema, value: unknown, path: string, context: Re
   if (variants.every((variant) => variant.const !== undefined)) {
     if (variants.some((variant) => variant.const === value)) return value;
     if (!variants.some((variant) => matches(variant.type, value))) throw new Unreadable(path);
-    // 不认识的取值连同所在的一项丢掉，例如不认识的 layout 用默认布局。
-    return DROP;
+    // 不认识的取值连同所在的一项丢掉，例如不认识的 layout 用默认布局；调用方给了退路时交给退路。
+    return unclaimed(schema, value, path, context);
   }
   if (!plain(value)) throw new Unreadable(path);
   const claimed = variants.find((variant) => claims(variant, value));
@@ -632,7 +649,7 @@ function readUnion(schema: JsonSchema, value: unknown, path: string, context: Re
   const signature = discriminants(schema);
   if (typeof type === "string" && signature === SLOT_TYPES && variants[0]?.properties?.id !== undefined) context.needs?.add(`slot.${type}`);
   if (typeof type === "string" && signature === BLOCK_TYPES) context.needs?.add(`block.${type}`);
-  return DROP;
+  return unclaimed(schema, value, path, context);
 }
 
 function readObject(schema: JsonSchema, value: unknown, path: string, context: ReadContext): unknown {
@@ -712,6 +729,16 @@ export function readItem(value: unknown): ReadResult<Item> {
   if (!result.ok) return result;
   const requires = [...new Set([...result.value.requires, ...requiredCapabilities(result.value), ...needs])].sort();
   return { ok: true, value: { ...result.value, requires } };
+}
+
+/**
+ * 按词汇的规则宽松读取任意 schema 描述的值，供插件给自己的公开约定写读取函数：不认识的字段丢掉；
+ * 联合里没有成员认领的值交给 fallback，没有 fallback 或它返回 undefined 时连同所在的一项丢掉；
+ * 认识的字段类型不对时读取失败，path 指出位置。长度、个数这类上限不查。
+ * 例如健康插件读取打卡记录时，把不认识的心情读作“未记录”，不认识的提醒方式连同那条提醒丢掉。
+ */
+export function readLenient<T>(schema: TSchema, value: unknown, fallback?: ReadFallback): ReadResult<T> {
+  return read<T>(schema, value, fallback === undefined ? {} : { fallback });
 }
 
 /** 读取 ask.reply 的结果：invalid 的问题列表和 accepted 附的内容块同样宽松读取。 */

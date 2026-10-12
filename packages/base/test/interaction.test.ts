@@ -1,23 +1,27 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 import {
   canRender,
   checkResponse,
+  ContentSchema,
   contentVersion,
   INTERACTION_CAPABILITIES,
   INTERACTION_VOCABULARY,
   ItemSchema,
   readAskReplyResult,
   readItem,
+  readLenient,
+  type ReadFallback,
   requiredCapabilities,
   type Answer,
   type Item,
   type ItemDraft,
   type ItemResponse,
 } from "../src/interaction.js";
-import { RepaFault } from "../src/schema.js";
+import { object, RepaFault } from "../src/schema.js";
 
 const fault = (code: string) => (error: unknown): boolean => error instanceof RepaFault && error.code === code;
 
@@ -318,4 +322,47 @@ test("前端宽松读取 ask.reply 的结果：问题列表和附带内容里不
   assert.deepEqual(readAskReplyResult(null), { ok: true, value: null });
   assert.equal(readAskReplyResult({ status: "queued" }).ok, false);
   assert.equal(readAskReplyResult({ status: "accepted", message: "不是内容块" }).ok, false);
+});
+
+test("插件的公开约定也能宽松读取：不认识的字段丢掉，联合里认不出的值交给退路，认识的字段类型不对时指出位置", () => {
+  // 一个健康插件的打卡记录：心情多了“未记录”，提醒方式以后可能增加。
+  const Mood = Type.Union([Type.Literal("good"), Type.Literal("low"), Type.Literal("unrecorded")]);
+  const CheckinSchema = object({
+    day: Type.String(),
+    mood: Mood,
+    note: Type.Optional(ContentSchema),
+    reminders: Type.Array(object({ at: Type.String(), via: Type.Union([Type.Literal("push"), Type.Literal("email")]) })),
+    moods: Type.Optional(Type.Record(Type.String(), Mood)),
+  });
+  const newer: unknown = {
+    day: "2026-10-12",
+    mood: "great",
+    weather: "晴",
+    note: [{ type: "markdown", text: "睡得不错", tone: "warm" }, { type: "video", asset: "walk" }],
+    reminders: [{ at: "08:00", via: "push", sound: "bell" }, { at: "21:00", via: "sms" }],
+    moods: { morning: "good", evening: "calm" },
+  };
+  const seen: string[] = [];
+  const fallback: ReadFallback = ({ value, path }) => {
+    seen.push(`${path}=${JSON.stringify(value).slice(0, 20)}`);
+    return path === "/mood" ? "unrecorded" : undefined;
+  };
+  assert.deepEqual(readLenient(CheckinSchema, newer, fallback), {
+    ok: true,
+    value: {
+      day: "2026-10-12",
+      mood: "unrecorded",
+      note: [{ type: "markdown", text: "睡得不错" }],
+      reminders: [{ at: "08:00", via: "push" }],
+      moods: { morning: "good" },
+    },
+  });
+  assert.deepEqual(seen.sort(), ['/mood="great"', '/moods/evening="calm"', '/note/1={"type":"video","ass', '/reminders/1/via="sms"']);
+
+  // 没有退路时，必需字段里认不出的值让整条记录读不了；认识的字段类型不对时指出位置。
+  assert.deepEqual(readLenient(CheckinSchema, newer), { ok: false, path: "" });
+  assert.deepEqual(readLenient(CheckinSchema, { ...(newer as object), reminders: [{ at: 8, via: "push" }] }, fallback), { ok: false, path: "/reminders/0/at" });
+  assert.deepEqual(readLenient(CheckinSchema, { ...(newer as object), mood: 3 }, fallback), { ok: false, path: "/mood" });
+  // 退路给的值也要是这个联合的成员。
+  assert.throws(() => readLenient(CheckinSchema, newer, () => "excellent"), TypeError);
 });
