@@ -1,7 +1,8 @@
 id: py28
 title: 把分组统计口径写明确
-status: outline
+status: complete
 minutes: 20
+summary: 用 .agg(输出列名=("源列", "操作")) 把分组汇总的每一列写明白；分组列有缺失时用 dropna 说清要不要留下这些行，并用 size 与 count 核对行数。
 prerequisites:
   - topic: py27
     key: true
@@ -17,18 +18,883 @@ prerequisites:
     covers: [py12.k1]
 sources:
   - source: pydata-book
-    where: 第 10 章 §10.2
+    where: 第 10 章 §10.2（数据聚合、命名聚合）
     url: https://wesmckinney.com/book/data-aggregation
     use: reference
   - source: pandas-docs
-    where: 用户指南：分组
+    where: 用户指南：分组（命名聚合、分组键中的缺失值）
     url: https://pandas.pydata.org/docs/user_guide/groupby.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
-  出现 `("signal", "mean")` 时，就地说明两个位置各代表什么，只读写这一种形式；完整的元组行为由 py38 承担。先用普通字符串分组键；category 与 observed 的差别等实际数据需要时再补，不塞进这 20 分钟。
+  范围：只读写 .agg(输出列名=("源列", "操作")) 这一种固定形式，操作用 mean、sum、count、size、max、min；括号里两个位置的含义在 k1 讲解里就地说明，完整的元组行为由 py38 承担。分组键先用普通字符串，不讲 category 与 observed。k2 只讲分组列缺失时 dropna 的默认与 dropna=False，以及 size 与 count 的区别。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、练习 4 分钟；k2 讲解与例题 4 分钟、练习 5 分钟；收束 2 分钟。
+  小表、讲解和题目为本课自拟。例题里“第一个位置表示什么”一问列在 manual 里（例题，不强制核对）；k1.q3 的配置表由程序在候选的源列和操作里逐个运行、找出唯一符合要求的组合来核对。复习和测验题全部由程序核对。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码，不需要写导入或构造数据的代码。
+
+  每道题都从题面给出的表重新开始。大多数题用表 B 和表 A：`sample_id` 是样本编号，`group` 是实验组标签，`signal` 是一次测量的值（任意单位）；NaN 表示缺失。表 A 里有一个样本没有标组。
+
+  上一节的分组结果只有一列、名字沿用原来的列名。交给别人的汇总表往往要好几列，每一列是什么，要写在代码里，也要写在要求里。
+wrapup: |
+  读一段 `.agg(...)`，每一行都读成“输出列名 = （从哪一列取值，怎样算）”，然后只相信括号里的内容，列名只是名字。再核对一次行数：各组的 size 加起来等不等于原表行数，不等就是有行因为分组列缺失被丢掉了。
+
+  向同事或 AI 提要求时，可以说：“按 group 分组，输出 mean_signal（signal 的平均，跳过缺失）和 n_valid（有 signal 的样本数）两列；没有标组的样本单独列为一组，不要丢掉。”
+data:
+  B:
+    kind: dataframe
+    name: df
+    caption: 表 B
+    index: [31, 7, 22, 4, 15, 9]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E, S_F]
+      group: [drug, control, control, drug, control, drug]
+      signal: [8.0, 10.0, 11.0, null, 9.0, 13.0]
+    dtypes:
+      signal: float
+  A:
+    kind: dataframe
+    name: df
+    caption: 表 A：S_C 没有标组
+    index: [31, 7, 22, 4, 15, 9]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E, S_F]
+      group: [drug, control, null, drug, control, drug]
+      signal: [8.0, 10.0, 12.0, null, 9.0, 13.0]
+    dtypes:
+      signal: float
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：六个采样点的土层深度（厘米），plot 是所在地块，没测到的为 NaN
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡, 山顶, 谷底]
+      plot: [C, A, C, B, A, B]
+      depth: [30.0, 25.0, null, 28.0, 21.0, 33.0]
+    dtypes:
+      depth: float
+  soil2:
+    kind: dataframe
+    name: soil
+    caption: 另一片样地
+    columns:
+      site: [甲, 乙, 丙, 丁]
+      plot: [B, A, A, B]
+      depth: [12.0, 18.0, null, 20.0]
+    dtypes:
+      depth: float
+  water:
+    kind: dataframe
+    name: water
+    caption: 表 water：三个站点多次采样的 pH，没测到的为 NaN
+    columns:
+      station: [S1, S2, S1, S3, S2, S1]
+      ph: [7.2, 6.8, null, 8.0, 6.5, 7.4]
+    dtypes:
+      ph: float
+  farm:
+    kind: dataframe
+    name: farm
+    caption: 表 farm：六块试验地的作物和产量（千克）
+    columns:
+      plot: [P1, P2, P3, P4, P5, P6]
+      crop: [wheat, corn, wheat, rice, corn, wheat]
+      yield_kg: [4, 6, 6, 3, 7, 5]
+  plants:
+    kind: dataframe
+    name: plants
+    caption: 表 plants：六株幼苗的高度（厘米），没量到的为 NaN
+    columns:
+      plant_id: [H1, H2, H3, H4, H5, H6]
+      plot: [A, B, A, B, A, B]
+      height: [12.0, 15.0, null, 12.0, 14.0, 9.0]
+    dtypes:
+      height: float
+  traps:
+    kind: dataframe
+    name: traps
+    caption: 表 traps：诱虫灯每晚的记录，有一晚忘了写灯号，有几晚没数
+    columns:
+      night: [N1, N2, N3, N4, N5, N6]
+      trap: [T1, T2, T1, null, T2, T1]
+      insects: [3.0, null, 5.0, 2.0, 4.0, null]
+    dtypes:
+      insects: float
+  survey:
+    kind: dataframe
+    name: survey
+    caption: 表 survey：问卷记录，地区或收入没填的为 NaN
+    columns:
+      respondent: [R1, R2, R3, R4, R5, R6]
+      region: [north, south, null, north, null, south]
+      income: [5.0, null, 7.0, 6.0, 4.0, 8.0]
+    dtypes:
+      income: float
+  visits:
+    kind: dataframe
+    name: visits
+    caption: 表 visits：门诊候诊时间（分钟），诊室或时间没记的为 NaN
+    columns:
+      visit: [V1, V2, V3, V4, V5, V6, V7]
+      clinic: [K2, K1, null, K1, K2, null, K1]
+      wait_min: [10.0, null, 15.0, 20.0, 5.0, 8.0, 12.0]
+    dtypes:
+      wait_min: float
 kps:
   - id: py28.k1
     title: named aggregation 的固定（源列, 操作）配置指明输出
+    card:
+      name: 命名聚合
+      aliases: [agg, named aggregation]
+      definition: .agg(输出列名=("源列", "操作")) 写明结果的每一列：等号前是这一列的名字，括号里第一个位置是从哪一列取值，第二个位置是怎样算。
+      conditions:
+        - 结果的列按写的先后排列；每组一行，行标签是排好序的组名。
+        - 输出列名只是名字，算的是什么由括号里的源列和操作决定。
+      example:
+        from: py28.k1.e0
+        text: |
+          ```python
+          summary = df.groupby("group").agg(
+              mean_signal=("signal", "mean"),
+              n_valid=("signal", "count"),
+          )
+          ```
+          表 B：control 组 mean_signal 10.0、n_valid 3；drug 组 10.5、2。
+    lesson: |
+      上一节的 `df.groupby("group")["signal"].mean()` 只得到一列，名字沿用 signal。交给别人的汇总表常常要好几列，而且每列叫什么、怎么算都要说得清。这时写成：
+
+      ```python
+      summary = df.groupby("group").agg(
+          mean_signal=("signal", "mean"),
+          n_valid=("signal", "count"),
+      )
+      ```
+
+      括号没有合上之前可以换行，所以这是一行代码分几行写。`.agg(...)` 里每一行都照同一个格式读：
+
+      > **输出列名 = ("从哪一列取值", "怎样算")**
+
+      圆括号里有两个位置：第一个位置写源列的名字，第二个位置写操作的名字，常用的有 `"mean"`、`"sum"`、`"count"`、`"max"`、`"min"`。所以 `n_valid=("signal", "count")` 的意思是：数一数每组 signal 有值的格子，结果放进叫 n_valid 的一列。
+
+      结果每组一行，行标签是排好序的组名（和 [每组一行](repa:concept/py27.k2) 一样），列按写的先后排列。
+
+      输出列名可以随便起，pandas 不会检查它和括号里是否相符：写 `mean_signal=("signal", "max")` 也能运行，只是名不副实。核对一段 `.agg` 时，要看括号里的源列和操作，而不是只看列名。
+    example:
+      id: py28.k1.e0
+      kind: [predict, explain]
+      uses: [py27.k1, py27.k2]
+      data: [B]
+      body: |
+        阅读代码，说出 `summary` 的样子。
+
+        ```python
+        summary = df.groupby("group").agg(
+            mean_signal=("signal", "mean"),
+            n_valid=("signal", "count"),
+        )
+        ```
+      slots:
+        - id: columns
+          type: order
+          partial: true
+          prompt: "`summary` 有哪些列？按顺序排列。"
+          items:
+            - { id: group, content: "`group`" }
+            - { id: n_valid, content: "`n_valid`" }
+            - { id: signal, content: "`signal`" }
+            - { id: mean_signal, content: "`mean_signal`" }
+          key: [mean_signal, n_valid]
+        - id: values
+          type: table
+          prompt: 填写每组的值。
+          columns:
+            - { id: group, header: 组 }
+            - { id: mean_signal, header: mean_signal, input: { type: text, format: number } }
+            - { id: n_valid, header: n_valid, input: integer }
+          rows:
+            - { id: control, cells: { group: control, mean_signal: 10, n_valid: 3 } }
+            - { id: drug, cells: { group: drug, mean_signal: 10.5, n_valid: 2 } }
+        - id: first
+          type: choice
+          prompt: "`(\"signal\", \"count\")` 里的 `\"signal\"` 表示什么？"
+          options:
+            - { id: name, content: 输出列的名字 }
+            - { id: source, content: 从哪一列取值 }
+            - { id: key, content: 按哪一列分组 }
+          key: source
+      explanation: |
+        列依次是 **mean_signal、n_valid**，组名 control、drug 是行标签，不是列。control 组 signal 为 10.0、11.0、9.0，平均 **10.0**，有值 **3** 个；drug 组为 8.0、NaN、13.0，平均 **10.5**，有值 **2** 个。
+
+        `("signal", "count")` 里的 `"signal"` 是**从哪一列取值**；输出列的名字写在等号前面，分组列写在 `groupby` 里。
+      verify: |
+        summary = run()["summary"]
+        answers = {
+            "columns": list(summary.columns),
+            "values": {label: {"mean_signal": summary.loc[label, "mean_signal"], "n_valid": summary.loc[label, "n_valid"]} for label in summary.index},
+        }
+      manual: [first]
+    practice:
+      - id: py28.k1.q1
+        kind: [predict]
+        uses: [py27.k1, py27.k2]
+        data: [B]
+        body: |
+          阅读代码，说出 `summary` 的样子。
+
+          ```python
+          summary = df.groupby("group").agg(
+              total=("signal", "sum"),
+              top=("signal", "max"),
+          )
+          ```
+        slots:
+          - id: columns
+            type: order
+            partial: true
+            prompt: "`summary` 有哪些列？按顺序排列。"
+            items:
+              - { id: top, content: "`top`" }
+              - { id: signal, content: "`signal`" }
+              - { id: total, content: "`total`" }
+            key: [total, top]
+          - id: values
+            type: table
+            columns:
+              - { id: group, header: 组 }
+              - { id: total, header: total, input: { type: text, format: number } }
+              - { id: top, header: top, input: { type: text, format: number } }
+            rows:
+              - { id: control, cells: { group: control, total: 30, top: 11 } }
+              - { id: drug, cells: { group: drug, total: 21, top: 13 } }
+        explanation: |
+          列依次是 **total、top**，和写的先后一致。control 组：10.0 + 11.0 + 9.0 = **30.0**，最大 **11.0**；drug 组跳过 NaN，8.0 + 13.0 = **21.0**，最大 **13.0**。
+        verify: |
+          summary = run()["summary"]
+          answers = {
+              "columns": list(summary.columns),
+              "values": {label: {"total": summary.loc[label, "total"], "top": summary.loc[label, "top"]} for label in summary.index},
+          }
+      - id: py28.k1.q2
+        kind: [debug]
+        uses: [py27.k1]
+        data: [B]
+        body: |
+          要求是：“按 group 分组，mean_signal 是 signal 的平均，n_valid 是有 signal 的样本数。”同事写了：
+
+          ```python startLine=1
+          summary = df.groupby("group").agg(
+              mean_signal=("signal", "mean"),
+              n_valid=("sample_id", "count"),
+          )
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 哪一行不符合要求？
+            options:
+              - { id: l1, content: 第 1 行：分组列写错了 }
+              - { id: l2, content: 第 2 行：平均的源列写错了 }
+              - { id: l3, content: 第 3 行：数的是 sample_id 有值的个数，不是 signal 有值的个数 }
+            key: l3
+          - id: got
+            type: text
+            format: integer
+            prompt: 这段代码算出的 drug 组 n_valid 是多少？
+            key: 3
+          - id: right
+            type: text
+            format: integer
+            prompt: 按要求应当是多少？
+            key: 2
+        explanation: |
+          问题在**第 3 行**。`("sample_id", "count")` 数的是 sample_id 有值的格子，每个样本都有编号，于是 drug 组得到 **3**，把 signal 缺失的 S_D 也算了进去。要求的是有 signal 的样本数，应写 `n_valid=("signal", "count")`，drug 组是 **2**。
+        verify: |
+          wrong = run()["summary"]
+          fixed = run(CODE.replace('("sample_id", "count")', '("signal", "count")'))["summary"]
+          by_hand = sum(1 for label, value in zip(df["group"], df["signal"]) if label == "drug" and value == value)
+          # 只改第 3 行的源列就得到要求的结果，说明错在第 3 行。
+          answers = {
+              "line": "l3" if fixed.loc["drug", "n_valid"] == by_hand and wrong.loc["drug", "mean_signal"] == fixed.loc["drug", "mean_signal"] else "other",
+              "got": wrong.loc["drug", "n_valid"],
+              "right": by_hand,
+          }
+      - id: py28.k1.q3
+        kind: [specify]
+        uses: [py12.k1]
+        data: [B]
+        body: |
+          要求是：“按 group 分组，输出两列：peak 是每组 signal 的最大值；n 是每组有 signal 的样本数。”
+
+          代码写成 `df.groupby("group").agg(peak=(源列, 操作), n=(源列, 操作))`。把两处括号里的源列和操作填上。
+        slots:
+          - id: config
+            type: table
+            columns:
+              - { id: output, header: 输出列 }
+              - id: source
+                header: 源列
+                input: { type: choice, options: [{ id: sample_id, label: sample_id }, { id: group, label: group }, { id: signal, label: signal }] }
+              - id: op
+                header: 操作
+                input: { type: choice, options: [{ id: mean, label: mean }, { id: sum, label: sum }, { id: count, label: count }, { id: max, label: max }] }
+            rows:
+              - { id: peak, cells: { output: peak, source: signal, op: max } }
+              - { id: "n", cells: { output: "n", source: signal, op: count } }
+        explanation: |
+          peak 填 **("signal", "max")**；n 填 **("signal", "count")**：
+
+          ```python
+          summary = df.groupby("group").agg(
+              peak=("signal", "max"),
+              n=("signal", "count"),
+          )
+          ```
+
+          n 不能写 `("sample_id", "count")`：sample_id 没有缺失，会把 signal 缺失的样本也数进去。
+        verify: |
+          # 按要求逐组手算，再在候选的源列和操作里找出唯一能得到这个结果的组合。
+          peak, n = {}, {}
+          for label, value in zip(df["group"].tolist(), df["signal"].tolist()):
+              if value == value:
+                  peak[label] = max(peak.get(label, value), value)
+                  n[label] = n.get(label, 0) + 1
+          def found(target):
+              hits = []
+              for source in ["sample_id", "group", "signal"]:
+                  for op in ["mean", "sum", "count", "max"]:
+                      r = run(f'out = df.groupby("group").agg(x=("{source}", "{op}"))["x"]')
+                      if r.error is None and r["out"].to_dict() == target:
+                          hits.append((source, op))
+              return hits
+          peak_hits, n_hits = found(peak), found(n)
+          assert len(peak_hits) == 1 and len(n_hits) == 1, (peak_hits, n_hits)
+          answers = {"config": {
+              "peak": {"source": peak_hits[0][0], "op": peak_hits[0][1]},
+              "n": {"source": n_hits[0][0], "op": n_hits[0][1]},
+          }}
+    review:
+      - id: py28.k1.r1
+        kind: [modify]
+        uses: [py27.k1]
+        data: [soil]
+        body: |
+          要求是：“按地块 plot 分组，依次输出两列：deepest 是测到的最大深度；n_sites 是测到深度的采样点个数。”
+
+          挑出需要的行，排成一段代码，结果存进 `summary`。不需要的行不要放进来。
+        slots:
+          - id: lines
+            type: order
+            partial: true
+            items:
+              - { id: close, code: ) }
+              - { id: n_site, code: 'n_sites=("site", "count"),' }
+              - { id: deepest, code: 'deepest=("depth", "max"),' }
+              - { id: open, code: 'summary = soil.groupby("plot").agg(' }
+              - { id: n_depth, code: 'n_sites=("depth", "count"),' }
+              - { id: deep_mean, code: 'deepest=("depth", "mean"),' }
+            key: [open, deepest, n_depth, close]
+            tests:
+              - name: 表 soil
+                expect:
+                  summary: 'pd.DataFrame({"deepest": [25.0, 33.0, 30.0], "n_sites": [2, 2, 1]}, index=["A", "B", "C"])'
+              - name: 另一片样地
+                hidden: true
+                data: [soil2]
+                expect:
+                  summary: 'pd.DataFrame({"deepest": [18.0, 20.0], "n_sites": [1, 2]}, index=["A", "B"])'
+        explanation: |
+          ```python
+          summary = soil.groupby("plot").agg(
+              deepest=("depth", "max"),
+              n_sites=("depth", "count"),
+          )
+          ```
+
+          deepest 要的是最大值，用 `"max"` 而不是 `"mean"`；n_sites 要数的是测到深度的采样点，源列应是 depth：地块 C 的东坡没测到深度，`("site", "count")` 会把它也数进去，得到 2 而不是 1。两列的先后也要照要求排。
+      - id: py28.k1.r2
+        kind: [predict]
+        uses: [py27.k1, py27.k2]
+        data: [water]
+        body: |
+          阅读代码，填写 `summary` 里每个站点的值。
+
+          ```python
+          summary = water.groupby("station").agg(
+              lowest=("ph", "min"),
+              n=("ph", "count"),
+          )
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: station, header: 站点 }
+              - { id: lowest, header: lowest, input: { type: text, format: number } }
+              - { id: "n", header: "n", input: integer }
+            rows:
+              - { id: S1, cells: { station: S1, lowest: 7.2, "n": 2 } }
+              - { id: S2, cells: { station: S2, lowest: 6.5, "n": 2 } }
+              - { id: S3, cells: { station: S3, lowest: 8.0, "n": 1 } }
+        explanation: |
+          S1 测到 7.2 和 7.4（另一次没测到），最小 **7.2**，n 为 **2**；S2 测到 6.8 和 6.5，最小 **6.5**，n 为 **2**；S3 只有一次 8.0，n 为 **1**。lowest 和 n 都是从 ph 这一列算的。
+        verify: |
+          summary = run()["summary"]
+          answers = {"values": {label: {"lowest": summary.loc[label, "lowest"], "n": summary.loc[label, "n"]} for label in summary.index}}
+    quiz:
+      - id: py28.k1.x1
+        kind: [specify]
+        uses: [py12.k1, py27.k1]
+        data: [farm]
+        body: |
+          要求是：“按作物 crop 分组，依次输出两列：total_kg 是总产量，n_plots 是种这种作物的地块数。”哪一段代码符合要求？
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: swapped
+                content: |
+                  ```python
+                  summary = farm.groupby("crop").agg(
+                      total_kg=("yield_kg", "count"),
+                      n_plots=("yield_kg", "sum"),
+                  )
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  summary = farm.groupby("crop").agg(
+                      total_kg=("yield_kg", "sum"),
+                      n_plots=("plot", "count"),
+                  )
+                  ```
+              - id: mean
+                content: |
+                  ```python
+                  summary = farm.groupby("crop").agg(
+                      total_kg=("yield_kg", "mean"),
+                      n_plots=("plot", "count"),
+                  )
+                  ```
+              - id: order
+                content: |
+                  ```python
+                  summary = farm.groupby("crop").agg(
+                      n_plots=("plot", "count"),
+                      total_kg=("yield_kg", "sum"),
+                  )
+                  ```
+            key: right
+        explanation: |
+          total_kg 用 `("yield_kg", "sum")`、n_plots 用 `("plot", "count")`、两列按要求的先后写的那一段符合要求：wheat 15 千克、3 块地，corn 13 千克、2 块，rice 3 千克、1 块。把 sum 和 count 交换，列名就名不副实；`"mean"` 算的是平均产量；n_plots 写在前面，列的先后与要求不符。
+        verify: |
+          totals, plots = {}, {}
+          for crop, value in zip(farm["crop"].tolist(), farm["yield_kg"].tolist()):
+              totals[crop] = totals.get(crop, 0) + value
+              plots[crop] = plots.get(crop, 0) + 1
+          def fits(code):
+              summary = run(code)["summary"]
+              return (list(summary.columns) == ["total_kg", "n_plots"]
+                      and summary["total_kg"].to_dict() == totals and summary["n_plots"].to_dict() == plots)
+          ok = [option for option, code in OPTIONS["code"].items() if fits(code)]
+          answers = {"code": ok[0] if len(ok) == 1 else ok}
+      - id: py28.k1.x2
+        kind: [debug, predict]
+        uses: [py27.k1]
+        data: [plants]
+        body: |
+          要求是：“按地块 plot 分组，avg_height 是量到的幼苗的平均高度。”同事写了：
+
+          ```python
+          summary = plants.groupby("plot").agg(
+              avg_height=("height", "max"),
+          )
+          ```
+        slots:
+          - id: got
+            type: text
+            format: number
+            prompt: 这段代码给地块 A 算出的 avg_height 是多少？
+            key: 14
+          - id: right
+            type: text
+            format: number
+            prompt: 按要求，地块 A 应当是多少？
+            key: 13
+          - id: fix
+            type: choice
+            prompt: 应当怎样改？
+            options:
+              - { id: name, content: 把列名 avg_height 改成 max_height }
+              - { id: op, content: 把括号里的 "max" 改成 "mean" }
+              - { id: source, content: 把括号里的 "height" 改成 "plant_id" }
+            key: op
+        explanation: |
+          这段代码给地块 A 算出 **14.0**：括号里写的是 `"max"`，列名虽叫 avg_height，算的却是最大值。地块 A 量到 12.0 和 14.0（H3 没量到），平均应是 **13.0**。要满足要求，应把括号里的 **"max" 改成 "mean"**；只改列名会让名字对上，但算的仍不是平均高度。
+        verify: |
+          got = run()["summary"].loc["A", "avg_height"]
+          measured = [value for plot, value in zip(plants["plot"], plants["height"]) if plot == "A" and value == value]
+          right = sum(measured) / len(measured)
+          fixed = run(CODE.replace('"max"', '"mean"'))["summary"].loc["A", "avg_height"]
+          answers = {"got": got, "right": right, "fix": "op" if fixed == right else "other"}
+
   - id: py28.k2
     title: 分组键缺失用 dropna 明确是否保留，并核对 count/size
+    card:
+      name: 分组键缺失
+      aliases: [dropna, size 与 count]
+      definition: 分组列是缺失（NaN）的行，groupby 默认整行丢掉、不进任何一组；写 dropna=False 才会把它们留成单独的一组。
+      conditions:
+        - 核对：各组 size 加起来应等于原表行数；少了，就是有行因分组列缺失被丢掉了。
+        - size 数这一组有几行；count 只数源列里有值的格子。
+      example:
+        from: py28.k2.e0
+        text: |
+          表 A 有 6 行，S_C 没有标组：默认分组只有 control（2 行）和 drug（3 行），共 5 行；dropna=False 多出一组 NaN（1 行）。
+    lesson: |
+      表 A 里 S_C 的 group 是 NaN。分组时，这一行默认**整行丢掉**：它不属于 control，也不属于 drug，也不会单独成组，结果里根本看不到它，也没有任何提示。
+
+      要发现这一点，在汇总里同时放两种计数：
+
+      ```python
+      summary = df.groupby("group").agg(
+          rows=("signal", "size"),
+          n_valid=("signal", "count"),
+      )
+      ```
+
+      - `"size"` 数这一组**有几行**，源列里是不是缺失都算；
+      - `"count"` 只数源列里**有值**的格子，和 [行数与 count](repa:concept/py26.k1) 里一样。
+
+      表 A 上，control 组 rows 2、n_valid 2；drug 组 rows 3、n_valid 2（S_D 没测到）。rows 加起来是 5，而 `len(df)` 是 6：差的那一行就是没标组的 S_C。
+
+      想把没标组的行留下，写 `df.groupby("group", dropna=False)`，结果会多一行，组名显示为 NaN，排在最后。留下还是丢掉，是一条要写进要求的规则：丢掉时要报告丢了几行，留下时要说明这一组代表“没有标组”。
+    example:
+      id: py28.k2.e0
+      kind: [predict]
+      uses: [py19.k1, py26.k1]
+      data: [A]
+      body: |
+        两段代码分别得到 `s1` 和 `s2`。
+
+        ```python
+        s1 = df.groupby("group").agg(rows=("signal", "size"))
+        s2 = df.groupby("group", dropna=False).agg(rows=("signal", "size"))
+        ```
+      slots:
+        - id: s1_groups
+          type: text
+          format: integer
+          prompt: "`s1` 有几行（几个组）？"
+          key: 2
+        - id: s1_total
+          type: text
+          format: integer
+          prompt: "`s1` 的 rows 加起来是多少？"
+          key: 5
+        - id: s2_groups
+          type: text
+          format: integer
+          prompt: "`s2` 有几行？"
+          key: 3
+        - id: s2_total
+          type: text
+          format: integer
+          prompt: "`s2` 的 rows 加起来是多少？"
+          key: 6
+        - id: dropped
+          type: text
+          prompt: "`s1` 里少了哪个样本？写出它的 sample_id。"
+          key: S_C
+      explanation: |
+        `s1` 只有 control、drug **2** 组，rows 加起来 **5**；`s2` 多出组名为 NaN 的一组，共 **3** 行，rows 加起来 **6**，等于 `len(df)`。`s1` 里少的是没有标组的 **S_C**。
+      verify: |
+        r = run()
+        s1, s2 = r["s1"], r["s2"]
+        lost = [sample for sample, label in zip(df["sample_id"], df["group"]) if label != label]
+        assert len(df) - s1["rows"].sum() == len(lost)
+        answers = {
+            "s1_groups": len(s1), "s1_total": s1["rows"].sum(),
+            "s2_groups": len(s2), "s2_total": s2["rows"].sum(),
+            "dropped": lost[0] if len(lost) == 1 else lost,
+        }
+    practice:
+      - id: py28.k2.q1
+        kind: [predict]
+        uses: [py26.k1]
+        data: [A]
+        body: |
+          阅读代码，填写 `summary` 每一行的值。组名为 NaN 的那一行也要填。
+
+          ```python
+          summary = df.groupby("group", dropna=False).agg(
+              rows=("signal", "size"),
+              n_valid=("signal", "count"),
+          )
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: group, header: 组 }
+              - { id: rows, header: rows, input: integer }
+              - { id: n_valid, header: n_valid, input: integer }
+            rows:
+              - { id: control, cells: { group: control, rows: 2, n_valid: 2 } }
+              - { id: drug, cells: { group: drug, rows: 3, n_valid: 2 } }
+              - { id: missing, cells: { group: NaN, rows: 1, n_valid: 1 } }
+        explanation: |
+          | 组 | rows | n_valid |
+          |---|---:|---:|
+          | control | 2 | 2 |
+          | drug | 3 | 2 |
+          | NaN | 1 | 1 |
+
+          drug 组有 3 行，但 S_D 的 signal 没测到，所以 size 是 3、count 是 2。NaN 组就是没标组的 S_C，它测到了 signal，两种计数都是 1。三组的 rows 加起来是 6，没有行被丢掉。
+        verify: |
+          summary = run()["summary"]
+          def row_id(label):
+              return "missing" if label != label else label
+          answers = {"values": {row_id(label): {"rows": summary.loc[label, "rows"], "n_valid": summary.loc[label, "n_valid"]}
+                                for label in summary.index if label == label}}
+          nan_rows = summary[summary.index.isna()]
+          answers["values"]["missing"] = {"rows": nan_rows["rows"].iloc[0], "n_valid": nan_rows["n_valid"].iloc[0]}
+      - id: py28.k2.q2
+        kind: [debug]
+        uses: [py19.k1, py26.k1]
+        data: [A]
+        body: |
+          同事交来的汇总表是这样算的：
+
+          ```python
+          summary = df.groupby("group").agg(rows=("signal", "size"))
+          ```
+
+          他发现 rows 加起来是 5，可表 A 明明有 6 行。
+        slots:
+          - id: why
+            type: choice
+            prompt: 少的那一行是怎么回事？
+            options:
+              - id: key_missing
+                content: 有一行 group 是缺失，默认分组时整行被丢掉了
+              - id: value_missing
+                content: 有一行 signal 是缺失，size 没有数它
+              - id: duplicate
+                content: 有两行重复，被合并成了一行
+            key: key_missing
+          - id: fix
+            type: choice
+            prompt: 想让这一行作为单独一组留在结果里，应当怎样改？
+            options:
+              - { id: dropna, content: 在 groupby 里加上 dropna=False }
+              - { id: count, content: 把 "size" 改成 "count" }
+              - { id: column, content: 把源列 signal 改成 sample_id }
+            key: dropna
+        explanation: |
+          少的是 group 为缺失的 S_C：默认分组把分组列缺失的行**整行丢掉**。不是 signal 缺失的缘故：size 数行，S_D 的 signal 缺失照样被数进 drug 组。加上 **dropna=False** 后，S_C 会单独成为组名为 NaN 的一组，rows 加起来就是 6。把 size 换成 count 或换源列，都找不回整行被丢掉的 S_C。
+        verify: |
+          r = run()
+          missing_keys = int(df["group"].isna().sum())
+          lost = len(df) - r["summary"]["rows"].sum()
+          why = "key_missing" if lost == missing_keys and lost > 0 else "other"
+          trials = {
+              "dropna": 'summary = df.groupby("group", dropna=False).agg(rows=("signal", "size"))',
+              "count": 'summary = df.groupby("group").agg(rows=("signal", "count"))',
+              "column": 'summary = df.groupby("group").agg(rows=("sample_id", "size"))',
+          }
+          fixes = [option for option, code in trials.items() if run(code)["summary"]["rows"].sum() == len(df)]
+          answers = {"why": why, "fix": fixes[0] if len(fixes) == 1 else fixes}
+      - id: py28.k2.q3
+        kind: [specify]
+        uses: [py12.k1, py19.k3]
+        body: |
+          表里有些样本没有标组（group 是缺失），有些样本没测到 signal。同事只说：“按组算一下 signal 的平均值。”
+
+          请写一段要求，说清：① 没有标组的样本怎么处理；② 汇总表里除了平均值，还要附上哪两种计数，各说明什么。
+        slots:
+          - id: spec
+            type: text
+            lines: 6
+            rubric:
+              - id: key
+                label: 没有标组的样本
+                guide: 明确是单独列为一组（dropna=False），还是排除并报告排除了几个；不能不提。
+              - id: counts
+                label: 两种计数
+                guide: 每组的行数（size，样本数）和有 signal 的个数（count，参与平均的个数），并说清两者的区别。
+        explanation: |
+          一种写法：**按 group 分组，计算每组 signal 的平均值（跳过缺失）。没有标组的样本单独列为一组，不要丢掉。每组另给两列：rows 是这一组的样本数，n_valid 是这一组有 signal 的样本数，也就是平均值用到的个数。**
+
+          也可以要求排除没有标组的样本，但要写明，并要求报告排除了几个。
+    review:
+      - id: py28.k2.r1
+        kind: [predict]
+        uses: [py19.k1]
+        data: [traps]
+        body: |
+          有一晚的记录忘了写灯号。
+
+          ```python
+          s1 = traps.groupby("trap").agg(nights=("insects", "size"))
+          s2 = traps.groupby("trap", dropna=False).agg(nights=("insects", "size"))
+          ```
+        slots:
+          - id: s1_rows
+            type: text
+            format: integer
+            prompt: "`s1` 有几行？"
+            key: 2
+          - id: s1_total
+            type: text
+            format: integer
+            prompt: "`s1` 的 nights 加起来是多少？"
+            key: 5
+          - id: s2_rows
+            type: text
+            format: integer
+            prompt: "`s2` 有几行？"
+            key: 3
+          - id: t1
+            type: text
+            format: integer
+            prompt: "`s1` 里 T1 的 nights 是多少？"
+            key: 3
+        explanation: |
+          `s1` 只有 T1、T2 两行，nights 共 **5**，N4 那一晚没写灯号，被整行丢掉了；`s2` 多出组名为 NaN 的一行，共 **3** 行。T1 有 N1、N3、N6 三晚，size 数的是行，N6 虽然没数虫子也算在内，所以是 **3**。
+        verify: |
+          r = run()
+          answers = {
+              "s1_rows": len(r["s1"]), "s1_total": r["s1"]["nights"].sum(),
+              "s2_rows": len(r["s2"]), "t1": r["s1"].loc["T1", "nights"],
+          }
+      - id: py28.k2.r2
+        kind: [explain]
+        uses: [py19.k1, py26.k1]
+        data: [survey]
+        body: |
+          运行下面的代码之后，判断每句话对不对。
+
+          ```python
+          summary = survey.groupby("region").agg(
+              people=("income", "size"),
+              answered=("income", "count"),
+          )
+          ```
+        slots:
+          - id: claims
+            type: table
+            columns:
+              - { id: claim, header: 说法 }
+              - { id: ok, header: 对吗, input: bool }
+            rows:
+              - { id: c1, cells: { claim: summary 的 people 加起来等于 len(survey), ok: false } }
+              - { id: c2, cells: { claim: south 组的 people 比 answered 大, ok: true } }
+              - { id: c3, cells: { claim: 没填地区的两位受访者在 summary 里单独成一组, ok: false } }
+              - { id: c4, cells: { claim: north 组的 people 和 answered 相等, ok: true } }
+        explanation: |
+          第 2、4 句对，第 1、3 句错。没填地区的 R3、R5 默认被整行丢掉，不会单独成组，所以 people 加起来是 4 而不是 6。south 组有 R2、R6 两人，R2 没填收入，people 为 2、answered 为 1；north 组的 R1、R4 都填了收入，两种计数都是 2。
+        verify: |
+          summary = run()["summary"]
+          answers = {"claims": {
+              "c1": {"ok": summary["people"].sum() == len(survey)},
+              "c2": {"ok": summary.loc["south", "people"] > summary.loc["south", "answered"]},
+              "c3": {"ok": bool(summary.index.isna().any())},
+              "c4": {"ok": summary.loc["north", "people"] == summary.loc["north", "answered"]},
+          }}
+    quiz:
+      - id: py28.k2.x1
+        kind: [specify]
+        uses: [py12.k1, py26.k1]
+        data: [visits]
+        body: |
+          要求是：“按诊室 clinic 分组，依次输出两列：visits 是就诊人次（每行一次），timed 是记下了候诊时间的人次。没记诊室的就诊单独作为一组，不要丢掉。”哪一段代码符合要求？
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: default
+                content: |
+                  ```python
+                  summary = visits.groupby("clinic").agg(
+                      visits=("wait_min", "size"),
+                      timed=("wait_min", "count"),
+                  )
+                  ```
+              - id: both_count
+                content: |
+                  ```python
+                  summary = visits.groupby("clinic", dropna=False).agg(
+                      visits=("wait_min", "count"),
+                      timed=("wait_min", "count"),
+                  )
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  summary = visits.groupby("clinic", dropna=False).agg(
+                      visits=("wait_min", "size"),
+                      timed=("wait_min", "count"),
+                  )
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  summary = visits.groupby("clinic", dropna=False).agg(
+                      visits=("wait_min", "count"),
+                      timed=("wait_min", "size"),
+                  )
+                  ```
+            key: right
+        explanation: |
+          带 `dropna=False`、visits 用 `"size"`、timed 用 `"count"` 的那一段符合要求：K1 3 人次、记了时间 2 人次；K2 2 人次、2 人次；没记诊室的 2 人次、2 人次。不写 dropna=False 会把没记诊室的 V3、V6 整行丢掉；visits 用 count 会漏掉 V2 这样没记时间的就诊；把 size 和 count 交换，两列就名不副实。
+        verify: |
+          # 按要求逐行手算：诊室缺失的单独成组，visits 数行，timed 数有时间的行。
+          groups = {}
+          for clinic, wait in zip(visits["clinic"].tolist(), visits["wait_min"].tolist()):
+              key = "缺失" if clinic != clinic else clinic
+              rows, timed = groups.get(key, (0, 0))
+              groups[key] = (rows + 1, timed + (1 if wait == wait else 0))
+          def fits(code):
+              summary = run(code)["summary"]
+              got = {("缺失" if label != label else label): (summary.loc[label, "visits"] if label == label else summary[summary.index.isna()]["visits"].iloc[0],
+                                                          summary.loc[label, "timed"] if label == label else summary[summary.index.isna()]["timed"].iloc[0])
+                     for label in summary.index}
+              return got == groups
+          ok = [option for option, code in OPTIONS["code"].items() if fits(code)]
+          answers = {"code": ok[0] if len(ok) == 1 else ok}
+      - id: py28.k2.x2
+        kind: [predict]
+        uses: [py19.k1, py26.k1]
+        data: [visits]
+        body: |
+          屏幕上依次显示什么？
+
+          ```python
+          a = visits.groupby("clinic").agg(n=("visit", "size"))
+          b = visits.groupby("clinic", dropna=False).agg(n=("visit", "size"))
+          print(len(visits))
+          print(a["n"].sum())
+          print(b["n"].sum())
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行
+            key: 7
+          - id: line2
+            type: text
+            format: integer
+            prompt: 第二行
+            key: 5
+          - id: line3
+            type: text
+            format: integer
+            prompt: 第三行
+            key: 7
+        explanation: |
+          依次显示 **7、5、7**。表里 7 次就诊；默认分组丢掉了没记诊室的 V3、V6，各组加起来只有 5；加上 dropna=False 后，它们单独成组，加起来又是 7。拿各组 size 之和和原表行数对一下，就能发现有没有行被悄悄丢掉。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
