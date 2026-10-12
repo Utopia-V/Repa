@@ -4,6 +4,8 @@ import type { MessageDecision, ModelRef } from "./schema.js";
 
 export type { MessageDecision, ModelRef } from "./schema.js";
 export type { ActivitySource, ChangeFeed, Revision } from "@repa/space-history";
+// 交互词汇：题目、作答、反馈的 schema 与类型，以及 contentVersion 等纯函数。
+export * from "./interaction.js";
 
 export interface Tool {
   name: string;

@@ -15,6 +15,7 @@ import {
 } from "./schema.js";
 
 export * from "./schema.js";
+export * from "./interaction.js";
 export const PROTOCOL_VERSION = "1";
 const empty = object({});
 const nothing = Type.Null();
