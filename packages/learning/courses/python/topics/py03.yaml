@@ -375,11 +375,10 @@ kps:
           # 逐步加长程序，第一次出错的长度就是停下的那一行。
           stops = [i for i in range(1, len(lines) + 1) if run("\n".join(lines[:i])).error]
           r = run()
-          shown = type(r.out)  # “显示内容”的类型：作答原样比较
           answers = {
               "line": f"l{stops[0]}",
               "note": r["note"],
-              "printed": r.out if r.out.strip() else shown("NOTHING"),
+              "printed": r.out if r.out.strip() else NOTHING,
           }
     quiz:
       - id: py03.k1.x1
@@ -1118,9 +1117,8 @@ kps:
         verify: |
           r = run()
           zero = run(CODE.replace("plate_2 = None", "plate_2 = 0"))
-          shown = type(r.out)  # “显示内容”的类型：作答原样比较
           answers = {
-              "output": shown("ERROR") if r.error else r.out,
+              "output": ERROR if r.error else r.out,
               "zero": int(zero.out),
           }
         manual: [meaning]

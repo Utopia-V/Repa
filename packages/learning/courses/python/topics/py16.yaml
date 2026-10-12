@@ -11,7 +11,7 @@ prerequisites:
   - topic: py06
     key: true
     weight: 0.67
-    covers: [py06.k2, py06.k3]
+    covers: [py06.k1, py06.k2, py06.k3]
 sources:
   - source: pydata-book
     where: 第 5 章 §5.2

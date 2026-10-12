@@ -741,12 +741,12 @@ kps:
                   result = water.groupby("station")[["conc"]].count()
                   ```
                 feedback: 是一张表，但 station 还在行标签里，行标签不是 0、1、2。
-              - id: size
+              - id: total
                 content: |
                   ```python
-                  result = water.groupby("station")["conc"].size().reset_index()
+                  result = water.groupby("station")["conc"].sum().reset_index()
                   ```
-                feedback: size 数的是行数，没测到的也算，A 站成了 2，不是 1。
+                feedback: sum 是把浓度加起来，A 站得 3.0，不是次数 1。
             key: [reset, as_index]
         explanation: |
           要的是一张表：station 是普通的一列，行标签是 0、1、2。
@@ -755,7 +755,7 @@ kps:
           - `groupby("station", as_index=False)`：一开始就不让 station 进行标签，结果相同。
           - 只写 `["conc"].count()` 得到一列，station 在行标签里。
           - `[["conc"]].count()` 得到一张表，但 station 仍在行标签里，要再接 `reset_index()`。
-          - `size()` 数的是行数（没测到的也算），A 站有 2 行，得到 2，不是 1。
+          - `sum()` 是把浓度加起来，不是数次数：A 站得 3.0，不是 1。
         verify: |
           expected = pd.DataFrame({"station": ["A", "B", "C"], "conc": [1, 2, 2]})
           fits = []

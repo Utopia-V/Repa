@@ -829,7 +829,7 @@ kps:
           第 1、2 行都显示 **NOTHING**：赋值不显示；第 2 行的调用算出了 12.3，但单独一行，不显示也不保存。第 3 行把返回值交给 `print`，显示 **12.3**。第 4 行显示的是 `signal` 本身，它一直没变，仍是 **12.34**。
         verify: |
           # 一行一行运行，每行接着上一行留下的变量，记下这一行打印的内容。
-          nothing = repl("pass")[0]
+          nothing = NOTHING
           state = {}
           shown = {}
           for number, line in enumerate(CODE.strip().splitlines(), 1):

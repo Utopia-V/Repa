@@ -248,7 +248,7 @@ kps:
           answers = {"after": {f"r{label}": {"signal": value} for label, value in after["signal"].items()}, "fix": fits[0] if len(fits) == 1 else fits}
       - id: py22.k1.q2
         kind: [trace]
-        uses: [py17.k1]
+        uses: [py17.k1, py21.k1]
         data: [T]
         body: |
           阅读代码，按原行索引填写运行后新列 `flag` 的值。没有值的填 `NaN`。
