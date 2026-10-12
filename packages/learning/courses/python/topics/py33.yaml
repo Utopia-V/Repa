@@ -734,7 +734,7 @@ kps:
           summary.plot.line(ylabel="平均 OD")
           ```
 
-          作答框里准备数据的那一行没有求平均，同一天的两次读数都会画成点。请改它，让 `summary` 是每天一个平均值、索引是天数。不要改动 `growth`。
+          作答框里准备数据的那一行没有求平均（`set_index("day")` 只是把 day 这一列改作行索引，每行仍是一次读数），同一天的两次读数都会画成点。请改它，让 `summary` 是每天一个平均值、索引是天数。不要改动 `growth`。
         slots:
           - id: code
             type: code

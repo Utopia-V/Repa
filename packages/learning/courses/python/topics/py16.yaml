@@ -151,7 +151,7 @@ kps:
     lesson: |
       [取出一列](repa:concept/py14.k1)写 `df["signal"]`，得到 Series：一列值，带着行索引。它只有一个方向，shape 只有一个数，写成 `(4,)`。
 
-      要取几列，在方括号里放一个**列名列表**：`df[["sample_id", "signal"]]`。外层的方括号是“从 df 里取”，里层的方括号是一个[列表](repa:concept/py06.k2)。得到的是一张表（DataFrame），列按列表里的顺序排列，行和行索引不变。
+      要取几列，在方括号里放一个**列名列表**：`df[["sample_id", "signal"]]`。外层的方括号是“从 df 里取”，里层的方括号是一个[列表](repa:concept/py06.k1)。得到的是一张表（DataFrame），列按列表里的顺序排列，行和行索引不变。
 
       | 写法 | 得到 | 表 T 上的 shape |
       |---|---|---|

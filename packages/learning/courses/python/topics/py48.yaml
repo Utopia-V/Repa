@@ -31,7 +31,7 @@ notes: |
   按原稿约束：用预先给出的 8～15 行以内的有效代码、最多两张各 4～6 行的小表，每次聚焦一种需求偏差；综合题按知识点拆成例题和短练习，不变成从空白写完整分析项目的大作业。
   情境：样本测量表 samples 与样本信息表 sites（练习），土层深度 readings 与样点表 plots、培养皿计数 counts 与处理表 dishes、受试者成绩 scores 与分批表 people（复习与测验）。中文组名按编码顺序排序：东坡、北坡、南坡；第一批、第二批。
   “规则对应哪一行”由 verify 按这一行调用的函数或比较符找出；“哪一句描述这一行”由 verify 换一张输入表运行、看行数是否保留来判断；“哪个修改符合需求”“哪个验收条件查得到偏差”都由 verify 逐个代入原脚本和改好的脚本运行。复习和测验题没有需要模型核对的作答位；练习 py48.k3.q3（哪些说法算得上验收条件）是语义判断，列为 manual，练习不要求模型核对。
-  读文件和 notebook 的题用 python 夹具每次重写文件，并删掉上一次留下的输出文件（同一个 topic 的核对共用一个内存文件系统）。notebook 单元格按 py45 的写法，写成带“单元格 n，编号 [k]”的独立代码块，verify 用 BLOCKS 按执行顺序或屏幕顺序拼出程序。
+  读文件和 notebook 的题用 python 夹具每次重写文件，并删掉上一次留下的输出文件（同一个 topic 的核对共用一个内存文件系统）。notebook 单元格按 py45 的写法，写成带“单元格 字母，编号 [k]”的独立代码块，verify 用 BLOCKS 按执行顺序或屏幕顺序拼出程序。
   节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 4 分钟；k2 讲解与例题 3 分钟、练习 4 分钟；k3 讲解与例题 2 分钟、练习 3 分钟。整节偏紧，试做时若超时，先把 k3 的练习留到下一次。
   小表、脚本和题目为本课自拟。
 intro: |
@@ -939,25 +939,25 @@ kps:
         body: |
           AI 发来一份 notebook，说“运行过，结果没问题”。屏幕上从上到下是下面四个单元格，标出了编号。它之前运行过一个 `limit = 10` 的单元格（编号 `[3]`），后来把那个单元格删掉了。
 
-          单元格 1，编号 `[1]`：
+          单元格 A，编号 `[1]`：
 
           ```python
           import pandas as pd
           ```
 
-          单元格 2，编号 `[2]`：
+          单元格 B，编号 `[2]`：
 
           ```python
           samples = pd.read_csv("samples.csv", dtype={"sample_id": "str"})
           ```
 
-          单元格 3，编号 `[4]`：
+          单元格 C，编号 `[4]`：
 
           ```python
           passed = samples.loc[samples["signal"] >= limit]
           ```
 
-          单元格 4，编号 `[5]`：
+          单元格 D，编号 `[5]`：
 
           ```python
           print(len(passed))
@@ -966,16 +966,16 @@ kps:
           - id: now
             type: text
             format: integer
-            prompt: 不重启，单元格 4 现在显示的数是多少？
+            prompt: 不重启，单元格 D 现在显示的数是多少？
             key: 4
           - id: stops
             type: choice
             prompt: 重启内核、从上到下运行全部单元格，在哪个单元格停下？
             options:
-              - { id: c1, content: 单元格 1 }
-              - { id: c2, content: 单元格 2 }
-              - { id: c3, content: 单元格 3 }
-              - { id: c4, content: 单元格 4 }
+              - { id: c1, content: 单元格 A }
+              - { id: c2, content: 单元格 B }
+              - { id: c3, content: 单元格 C }
+              - { id: c4, content: 单元格 D }
               - { id: none, content: 不会停下 }
             key: c3
           - id: error
@@ -983,11 +983,11 @@ kps:
             prompt: 报什么异常？写出异常类型。
             key: NameError
         explanation: |
-          按编号的顺序，内核里先有了 pandas 和 samples，再运行了已删掉的 `limit = 10`，然后才是单元格 3、4。samples 没有去重，signal 至少为 10 的是 12、11、10、15，单元格 4 显示 **4**。
+          按编号的顺序，内核里先有了 pandas 和 samples，再运行了已删掉的 `limit = 10`，然后才是单元格 C、D。samples 没有去重，signal 至少为 10 的是 12、11、10、15，单元格 D 显示 **4**。
 
-          重启后内核里什么都没有，从上到下运行：单元格 3 用到 `limit`，可是定义它的单元格已经不在了，在**单元格 3** 停下，报 **NameError**。“运行过”只说明在那一刻的内核里能跑，不说明这份 notebook 本身是完整的。
+          重启后内核里什么都没有，从上到下运行：单元格 C 用到 `limit`，可是定义它的单元格已经不在了，在**单元格 C** 停下，报 **NameError**。“运行过”只说明在那一刻的内核里能跑，不说明这份 notebook 本身是完整的。
         verify: |
-          # 按编号：单元格 1、2，已删掉的 limit = 10，再单元格 3、4。
+          # 按编号：单元格 A、B，已删掉的 limit = 10，再单元格 C、D。
           history = [BLOCKS[0], BLOCKS[1], "limit = 10", BLOCKS[2], BLOCKS[3]]
           now = run("\n".join(history))
           stopped, error = "none", None
@@ -1156,33 +1156,33 @@ kps:
         uses: [py45.k1, py45.k2]
         data: [cells_files]
         body: |
-          同事的 notebook 屏幕上从上到下是五个单元格，标出了编号。单元格 3 原来写的是 `limit = 45`，运行过（编号 `[3]`）；后来同事把它改成了 `limit = 50` 又运行了一次（编号 `[6]`），接着只重新运行了单元格 5。
+          同事的 notebook 屏幕上从上到下是五个单元格，标出了编号。单元格 C 原来写的是 `limit = 45`，运行过（编号 `[3]`）；后来同事把它改成了 `limit = 50` 又运行了一次（编号 `[6]`），接着只重新运行了单元格 E。
 
-          单元格 1，编号 `[1]`：
+          单元格 A，编号 `[1]`：
 
           ```python
           import pandas as pd
           ```
 
-          单元格 2，编号 `[2]`：
+          单元格 B，编号 `[2]`：
 
           ```python
           counts = pd.read_csv("counts.csv", dtype={"dish_id": "str"})
           ```
 
-          单元格 3，编号 `[6]`：
+          单元格 C，编号 `[6]`：
 
           ```python
           limit = 50
           ```
 
-          单元格 4，编号 `[4]`：
+          单元格 D，编号 `[4]`：
 
           ```python
           good = counts.loc[counts["cells"] >= limit]
           ```
 
-          单元格 5，编号 `[7]`：
+          单元格 E，编号 `[7]`：
 
           ```python
           print(len(good))
@@ -1191,29 +1191,29 @@ kps:
           - id: now
             type: text
             format: integer
-            prompt: 单元格 5 现在显示的数是多少？
+            prompt: 单元格 E 现在显示的数是多少？
             key: 4
           - id: restart
             type: text
             format: integer
-            prompt: 重启内核、从上到下运行全部单元格，单元格 5 显示多少？
+            prompt: 重启内核、从上到下运行全部单元格，单元格 E 显示多少？
             key: 1
           - id: rerun
             type: choice
             prompt: 不重启的话，至少要重新运行哪个单元格，`good` 才和屏幕上的代码一致？
             options:
-              - { id: c3, content: 单元格 3 }
-              - { id: c4, content: 单元格 4 }
-              - { id: c5, content: 单元格 5 }
+              - { id: c3, content: 单元格 C }
+              - { id: c4, content: 单元格 D }
+              - { id: c5, content: 单元格 E }
               - { id: none, content: 都不用，已经一致 }
             key: c4
         explanation: |
-          单元格 4 的编号是 [4]，比单元格 3 的 [6] 小：它是在 limit 还是 45 的时候运行的。counts 没有去重，至少 45 的计数是 52、45、47、48，所以单元格 5 现在显示 **4**。
+          单元格 D 的编号是 [4]，比单元格 C 的 [6] 小：它是在 limit 还是 45 的时候运行的。counts 没有去重，至少 45 的计数是 52、45、47、48，所以单元格 E 现在显示 **4**。
 
-          屏幕上写的是 `limit = 50`，从上到下重跑后只有 52 达到，显示 **1**。不重启的话，要重新运行**单元格 4**，good 才按 50 重新筛选；只重跑单元格 5 只是把旧的 good 再显示一遍。
+          屏幕上写的是 `limit = 50`，从上到下重跑后只有 52 达到，显示 **1**。不重启的话，要重新运行**单元格 D**，good 才按 50 重新筛选；只重跑单元格 E 只是把旧的 good 再显示一遍。
         verify: |
           import itertools
-          # 实际执行过的顺序：1、2、旧的单元格 3（limit = 45）、4、5（第一次），然后新的单元格 3、5。
+          # 实际执行过的顺序：A、B、旧的单元格 C（limit = 45）、D、E（第一次），然后新的单元格 C、E。
           history = [BLOCKS[0], BLOCKS[1], "limit = 45", BLOCKS[3], BLOCKS[4], BLOCKS[2], BLOCKS[4]]
           now = run("\n".join(history))
           fresh = run("\n".join(BLOCKS))
