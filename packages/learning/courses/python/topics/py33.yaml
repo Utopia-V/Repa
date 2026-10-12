@@ -1,7 +1,8 @@
 id: py33
 title: 从一张表读出图想说明什么
-status: outline
+status: complete
 minutes: 20
+summary: 按要回答的问题选柱状图、折线图或散点图；从两三行画图代码读出横轴、纵轴、单位，以及画之前有没有先按组聚合。
 prerequisites:
   - topic: py27
     key: true
@@ -17,7 +18,7 @@ prerequisites:
     covers: [py13.k2]
 sources:
   - source: pydata-book
-    where: 第 9 章 §9.2
+    where: 第 9 章 §9.2（用 pandas 画图）
     url: https://wesmckinney.com/book/plotting-and-visualization
     use: reference
   - source: pandas-docs
@@ -25,10 +26,827 @@ sources:
     url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/04_plotting.html
     use: reference
 notes: |
-  建议题型与判分：解释代码（S/O）、找错（P）、小改代码（T）。
-  用已给的 2～3 行绘图代码读轴和分组，不讲完整的样式 API。
+  范围：只读 pandas 自带的三种画法 `.plot.bar()`、`.plot.line()`、`.plot.scatter(x=, y=)`，以及 `x=`、`y=`、`ylabel=` 三个参数；不讲 matplotlib、颜色、图例、子图和完整的样式 API。题目给出已经写好的 2～3 行代码，学生读出图上会有什么，不要求从空白写画图代码。
+  判分运行时里没有 matplotlib，画图那一行运行不了。所以题面把准备数据的代码和画图代码分开写；verify 只运行 `.plot` 前面的部分，从被画的那份数据算出几根柱、几个点、横轴顺序和柱高。代码题只让学生改画图之前的 `summary = ...` 一行，画图那一行在题面里写明“已写好，不用改”，测试只检查 `summary`。
+  按问题选图（k1）是语义判断，复习和测验里的这些选择题列进 manual，由 course:confirm 让模型独立再解核对；k2 的单位一问同样列进 manual，其余作答位由程序算出。题型建议原为：解释代码（S/O）、找错（P）、小改代码（T）。
+  groupby 按组名排序；中文组名的排序不直观（东坡、北坡、南坡），所以题目不问中文组名的先后。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 4 分钟；k2 讲解与例题 4 分钟、两道读码题 3 分钟、小改代码题 3 分钟；收束 2 分钟。
+  取材：Python for Data Analysis 第 9 章与 pandas 绘图教程只作画法的参照；问题、小表和题目为本课自拟，沿用 py12、py17 的 sample_id、signal、group、site、depth 情境。
+intro: |
+  AI 给的分析脚本里，最后常常是一两行画图代码。这一节不看图片本身，而是练习在运行之前，从代码读出图上会有什么：画的是哪份数据，横轴、纵轴各是什么，有几根柱或几个点。
+
+  宿主已经准备好 pandas 和题目里的表。每道题都从题面给出的表重新开始。
+wrapup: |
+  拿到一张图或一段画图代码，先问它想回答什么：比较几个组、看随时间的变化，还是看两个量的关系，再看图的种类是否对得上。
+
+  然后读 `.plot` 前面的那份数据：它有几行，图上就有几根柱或几个点；横轴按行的顺序排，纵轴标签上的单位要和数一致。向 AI 提要求时，可以直接说：“按 group 求平均 signal，每组一根柱，从高到低排列，纵轴标签写明单位。”
+data:
+  trial:
+    kind: dataframe
+    name: trial
+    caption: 表 trial：一次试验的五个样本
+    showIndex: false
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E]
+      group: [control, drug, control, drug, drug]
+      signal: [8, 13, 10, 11, 12]
+  trial3:
+    kind: dataframe
+    name: trial
+    caption: 另一张同结构的表，有三个组
+    showIndex: false
+    columns:
+      sample_id: [S_1, S_2, S_3, S_4, S_5, S_6, S_7, S_8, S_9]
+      group: [control, placebo, drug, control, placebo, control, drug, placebo, control]
+      signal: [8, 11, 14, 10, 9, 9, 12, 10, 9]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：五份土样，depth_cm 是采样深度（厘米），moisture 是湿度（%）
+    showIndex: false
+    columns:
+      site: [北坡, 南坡, 北坡, 东坡, 南坡]
+      depth_cm: [30, 25, 34, 35, 27]
+      moisture: [21, 26, 19, 17, 24]
+  field:
+    kind: dataframe
+    name: field
+    caption: 表 field：五份土样的采样深度（厘米）和湿度（%）
+    showIndex: false
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E]
+      depth: [10, 25, 15, 30, 20]
+      moisture: [32, 21, 28, 18, 25]
+  plants:
+    kind: dataframe
+    name: plants
+    caption: 表 plants：同一天测的四株植物
+    showIndex: false
+    columns:
+      plant: [P1, P2, P3, P4]
+      root_mm: [42, 66, 38, 70]
+      height_cm: [18, 25, 16, 27]
+  incubator:
+    kind: dataframe
+    name: incubator
+    caption: 表 incubator：A 号培养箱每天记一次
+    showIndex: false
+    columns:
+      day: [1, 2, 3, 4, 5, 6, 7, 8]
+      temp: [37, 37, 36, 38, 37, 39, 37, 37]
+      humidity: [60, 62, 61, 58, 60, 63, 59, 61]
+  daily:
+    kind: dataframe
+    name: daily
+    caption: 表 daily：每天收到的样本数
+    showIndex: false
+    columns:
+      day: [3, 1, 4, 2]
+      count: [5, 2, 6, 4]
+  temps:
+    kind: dataframe
+    name: temps
+    caption: 表 temps：四天的温度记录
+    index: [10, 11, 12, 13]
+    indexHeader: 原行索引
+    columns:
+      day: [2, 4, 1, 3]
+      temp: [18, 21, 16, 15]
+  growth:
+    kind: dataframe
+    name: growth
+    caption: 表 growth：每天测两次的 OD 读数
+    showIndex: false
+    columns:
+      day: [2, 1, 3, 1, 2, 3]
+      od: [0.42, 0.12, 0.31, 0.10, 0.38, 0.29]
+    dtypes:
+      od: float
+  growth2:
+    kind: dataframe
+    name: growth
+    caption: 另一批 OD 读数
+    showIndex: false
+    columns:
+      day: [4, 2, 1, 3, 2, 4, 1]
+      od: [0.50, 0.21, 0.08, 0.35, 0.25, 0.54, 0.10]
+    dtypes:
+      od: float
+  roots:
+    kind: dataframe
+    name: roots
+    caption: 表 roots：两种处理下的根长（毫米）
+    showIndex: false
+    columns:
+      plant: [P1, P2, P3, P4, P5]
+      treatment: [low, high, low, high, high]
+      root_mm: [42, 66, 38, 70, 62]
 kps:
   - id: py33.k1
     title: 按比较、趋势或关系选 bar/line/scatter
+    card:
+      name: 图的种类
+      aliases: [bar, line, scatter, 柱状图, 折线图, 散点图]
+      definition: 按要回答的问题选图：比较几个组的一个数用柱状图 bar，看一个量随有序的 x（如时间）变化用折线图 line，看两个数值量有没有关系用散点图 scatter。
+      conditions:
+        - 折线会把相邻的点连起来，暗示它们之间有先后；没有先后的组别不要用折线连。
+        - 散点图每一行画一个点，横轴、纵轴各用一列数。
+      example:
+        from: py33.k1.e0
+        text: |
+          问“control 组和 drug 组的平均 signal 谁高”，是在比较两个组：先按组求平均，再画柱状图，每组一根柱，比高低。
+    lesson: |
+      画图之前先问一句：这张图要回答什么问题？常见的问题有三类，各对应一种图：
+
+      | 要回答的问题 | 图 | pandas 写法 |
+      |---|---|---|
+      | 几个组的某个数谁高谁低（比较） | 柱状图 bar | `summary.plot.bar()` |
+      | 一个量随时间或其他有先后的 x 怎样变化（趋势） | 折线图 line | `daily.plot.line(x="day", y="count")` |
+      | 两个数值量之间有没有关系（关系） | 散点图 scatter | `field.plot.scatter(x="depth", y="moisture")` |
+
+      三点区别：
+
+      - **柱状图**每个组一根柱，柱的高度就是那个组的数。比较组别时，通常先按组聚合（[每组一行](repa:concept/py27.k2)），再画。
+      - **折线图**把相邻的点用线连起来。线本身在说“从这个点到下一个点发生了变化”，所以横轴要有先后，例如第几天、第几小时。几个采样点、几个处理组之间没有先后，用线连起来会让人读出并不存在的“趋势”。
+      - **散点图**表里每一行画一个点：横坐标取 `x=` 那一列，纵坐标取 `y=` 那一列。点的整体走向回答“一个大，另一个是不是也大”。
+    example:
+      id: py33.k1.e0
+      kind: [explain]
+      uses: [py27.k2]
+      data: [trial]
+      body: |
+        要回答的问题：control 组和 drug 组的平均 signal 谁高？同事已经按组算好了平均值：
+
+        ```python
+        summary = trial.groupby("group")["signal"].mean()
+        ```
+      slots:
+        - id: chart
+          type: choice
+          prompt: 用哪种图回答这个问题？
+          options:
+            - id: line
+              content: 折线图：把两组的平均值连成一条线
+            - id: bar
+              content: 柱状图：每组一根柱，比较高低
+            - id: scatter
+              content: 散点图：每个样本一个点，横轴、纵轴各用一列数
+          key: bar
+        - id: count
+          type: text
+          format: integer
+          prompt: "`summary` 里有几个数？"
+          key: 2
+      explanation: |
+        这是在**比较两个组**，用**柱状图**：`summary.plot.bar()` 每组一根柱，柱高是组平均，一眼就能比出高低。
+
+        `summary` 是按组聚合后的结果，每组一个数，共 **2** 个，所以柱状图上有 2 根柱。折线会把 control 和 drug 连起来，好像两组之间有先后变化；散点图用来看两个数值量的关系，这里只有一个数要比较。
+      verify: |
+        summary = run()["summary"]
+        answers = {"count": len(summary)}
+      manual: [chart]
+    practice:
+      - id: py33.k1.q1
+        kind: [explain]
+        uses: [py27.k2]
+        data: [soil]
+        body: |
+          要回答的问题：北坡、南坡、东坡三个采样点，平均采样深度谁深谁浅？`summary` 已经算好：
+
+          ```python
+          summary = soil.groupby("site")["depth_cm"].mean()
+          ```
+        slots:
+          - id: code
+            type: choice
+            prompt: 用哪一行画图？
+            options:
+              - id: scatter
+                content: |
+                  ```python
+                  soil.plot.scatter(x="depth_cm", y="moisture")
+                  ```
+                feedback: 散点图看的是深度和湿度两个量的关系，不是三个采样点的比较。
+              - id: line
+                content: |
+                  ```python
+                  summary.plot.line()
+                  ```
+                feedback: 三个采样点之间没有先后，用线连起来像是在说深度从一个点“变”到另一个点。
+              - id: bar
+                content: |
+                  ```python
+                  summary.plot.bar()
+                  ```
+            key: bar
+        explanation: |
+          用 `summary.plot.bar()`：三个采样点各一根柱，柱高是平均深度，比较深浅。
+
+          折线把三个采样点连起来，读的人会以为深度沿着某个方向在变化，可采样点之间并没有先后；散点图画的是每份土样的深度和湿度，回答的是另一个问题。
+        manual: [code]
+      - id: py33.k1.q2
+        kind: [predict]
+        data: [field]
+        body: |
+          要回答的问题：采样越深，土壤是不是越干？同事画了散点图：
+
+          ```python
+          field.plot.scatter(x="depth", y="moisture")
+          ```
+        slots:
+          - id: points
+            type: text
+            format: integer
+            prompt: 图上有几个点？
+            key: 5
+          - id: sc_x
+            type: text
+            format: integer
+            prompt: 样本 S_C 那个点的横坐标是多少？
+            key: 15
+          - id: sc_y
+            type: text
+            format: integer
+            prompt: 样本 S_C 那个点的纵坐标是多少？
+            key: 28
+        explanation: |
+          表有 5 行，散点图每行画一个点，共 **5** 个点。横坐标取 `x="depth"`，纵坐标取 `y="moisture"`，所以 S_C 的点在横坐标 **15**、纵坐标 **28** 的位置。
+
+          把五个点看一遍：深度越大的点，湿度越低，点从左上往右下排。散点图就是用这种整体走向回答“两个量有没有关系”。
+        verify: |
+          plotted = run("data = " + BLOCKS[0].split(".plot")[0])["data"]
+          row = plotted.loc[plotted["sample_id"] == "S_C"].iloc[0]
+          answers = {"points": len(plotted), "sc_x": row["depth"], "sc_y": row["moisture"]}
+      - id: py33.k1.q3
+        kind: [explain]
+        data: [plants]
+        body: |
+          同事画了下面这张图，却在报告里写：“这张图显示株高随时间增长。”
+
+          ```python
+          plants.plot.scatter(x="root_mm", y="height_cm")
+          ```
+        slots:
+          - id: question
+            type: choice
+            prompt: 这张图实际回答的是哪个问题？
+            options:
+              - id: groups
+                content: 不同处理组的平均株高谁高
+              - id: relation
+                content: 根长和株高有没有关系
+              - id: time
+                content: 株高怎样随时间变化
+                feedback: 表里四株植物是同一天测的，没有时间这一列。
+            key: relation
+          - id: points
+            type: text
+            format: integer
+            prompt: 图上有几个点？
+            key: 4
+        explanation: |
+          这是散点图，横轴是根长 root_mm，纵轴是株高 height_cm，每株植物一个点，共 **4** 个点。它回答的是**根长和株高有没有关系**。
+
+          表里四株植物是同一天测的，没有时间；要看株高随时间的变化，需要同一株植物在不同日子的记录，画折线图。图里也没有处理组，比不出组间高低。
+        verify: |
+          plotted = run("data = " + BLOCKS[0].split(".plot")[0])["data"]
+          answers = {"points": len(plotted)}
+        manual: [question]
+    review:
+      - id: py33.k1.r1
+        kind: [explain]
+        data: [incubator]
+        body: |
+          要回答的问题：A 号培养箱这 8 天里，温度是怎样变化的？表 incubator 每天一行。
+        slots:
+          - id: chart
+            type: choice
+            prompt: 哪一种图回答这个问题？
+            options:
+              - id: scatter
+                content: 散点图：横轴是 temp，纵轴是 humidity
+              - id: line
+                content: 折线图：横轴是 day，从第 1 天到第 8 天；纵轴是 temp
+              - id: bar
+                content: 柱状图：只有一根柱，高度是 8 天的平均 temp
+            key: line
+        explanation: |
+          “这 8 天里怎样变化”问的是**随时间的趋势**：用折线图，横轴是按先后排好的 day，纵轴是 temp，相邻两天用线连起来，升降一目了然。
+
+          温度对湿度的散点图回答的是“温度高时湿度是不是也高”；一根平均值的柱把 8 天压成一个数，看不出变化。
+        manual: [chart]
+      - id: py33.k1.r2
+        kind: [explain]
+        body: |
+          下面哪个问题最适合用散点图回答？
+        slots:
+          - id: question
+            type: choice
+            options:
+              - id: count
+                content: 三个采样点各收到了多少份样本
+              - id: od
+                content: 一份培养液在 12 小时里 OD 读数怎样变化
+              - id: leaves
+                content: 植株的叶片数和株高有没有关系
+              - id: diff
+                content: drug 组的平均 signal 比 control 组高多少
+            key: leaves
+        explanation: |
+          “叶片数和株高有没有关系”最适合散点图：每株植物一个点，横轴叶片数、纵轴株高，看点的整体走向。
+
+          各采样点的样本数和两组平均 signal 的差，都是在比较几个组，用柱状图；12 小时里 OD 的变化是随时间的趋势，用折线图。
+        manual: [question]
+    quiz:
+      - id: py33.k1.x1
+        kind: [explain]
+        body: |
+          为每个问题选一种图。
+        slots:
+          - id: charts
+            type: table
+            columns:
+              - id: question
+                header: 要回答的问题
+              - id: chart
+                header: 图
+                input:
+                  type: choice
+                  options:
+                    - { id: bar, label: 柱状图 bar }
+                    - { id: line, label: 折线图 line }
+                    - { id: scatter, label: 散点图 scatter }
+            rows:
+              - id: moisture
+                cells: { question: 四个采样点的平均土壤湿度谁高谁低, chart: bar }
+              - id: relation
+                cells: { question: 每份样本的 signal 和它的采样深度有没有关系, chart: scatter }
+              - id: hours
+                cells: { question: 同一份培养液在 0、2、4、6 小时的 OD 怎样变化, chart: line }
+        explanation: |
+          | 要回答的问题 | 图 |
+          |---|---|
+          | 四个采样点的平均土壤湿度谁高谁低 | 柱状图：比较几个组 |
+          | 每份样本的 signal 和它的采样深度有没有关系 | 散点图：两个数值量的关系 |
+          | 同一份培养液在 0、2、4、6 小时的 OD 怎样变化 | 折线图：随时间的趋势 |
+
+          采样点之间没有先后，不用折线连；0、2、4、6 小时有先后，用折线把相邻时间点连起来。
+        manual: [charts]
+      - id: py33.k1.x2
+        kind: [explain]
+        body: |
+          下面哪些问题适合用折线图回答？选出全部。
+        slots:
+          - id: questions
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: groups
+                content: control 组和 drug 组各有几只小鼠
+              - id: week
+                content: 一周 7 天里每天的最高气温怎样变化
+              - id: protein
+                content: 每份样本的蛋白含量和吸光度有没有关系
+              - id: minutes
+                content: 一份样本在第 0、10、20、30 分钟的温度怎样变化
+            key: [week, minutes]
+        explanation: |
+          适合折线图的是**一周 7 天的最高气温**和**第 0、10、20、30 分钟的温度**：横轴是有先后的时间，问的是怎样变化。
+
+          两组各有几只小鼠是比较组别，用柱状图；蛋白含量和吸光度的关系是两个数值量的关系，用散点图。每个选项的勾选状态分别计分。
+        manual: [questions]
+
   - id: py33.k2
     title: 从代码核对横轴、纵轴、单位和是否先聚合
+    card:
+      name: 读画图代码
+      aliases: [横轴, 纵轴, 先聚合, ylabel]
+      definition: "`.plot` 前面的对象就是被画的数据：它有几行就有几根柱或几个点；横轴是 x 指定的列或 Series 的索引，按行的顺序排列，纵轴是 y 列或 Series 的值。"
+      conditions:
+        - 整张表直接画柱状图是每条记录一根柱；要每组一根，先 groupby 聚合。
+        - 折线按行的顺序连点，x 没排好要先 sort_values；ylabel 只是文字，不会换算单位。
+      example:
+        from: py33.k2.e0
+        text: |
+          `trial.plot.bar(x="group", y="signal")` 画 5 根柱，每个样本一根；`trial.groupby("group")["signal"].mean().plot.bar()` 画 2 根柱，每组一根，drug 那根高 12.0。
+    lesson: |
+      读一行画图代码，按顺序问四件事。
+
+      **1. 画的是哪份数据？** 看 `.plot` 前面的那个对象。它有几行，图上就有几根柱或几个点。
+
+      ```python
+      trial.plot.bar(x="group", y="signal")                 # 整张表：每个样本一根柱
+      trial.groupby("group")["signal"].mean().plot.bar()     # 先聚合：每组一根柱
+      ```
+
+      第一行没有聚合，表有 5 行就画 5 根柱，横轴上 control、drug 会重复出现；要比较组平均，必须先像第二行那样按组聚合（[每组一行](repa:concept/py27.k2)）。
+
+      **2. 横轴是什么，按什么顺序？** 给了 `x="day"`，横轴就是 day 这一列；直接画一个 Series（例如聚合结果）时，横轴是它的索引。点和柱按数据里**行的顺序**排列，画图不会替你排序。折线把相邻两行的点连起来，day 没排好，线就会来回折，所以要先[排序](repa:concept/py23.k1)：`daily.sort_values("day").plot.line(x="day", y="count")`。
+
+      **3. 纵轴是什么？** `y=` 指定的列，或者 Series 本身的值。
+
+      **4. 单位对不对？** `ylabel="平均深度（cm）"` 只是写在纵轴旁边的文字，不会换算数值。列是厘米、标签写米，图就差了 100 倍；数值除以了 100，标签也要跟着改。
+
+      查一个画图参数时，可以像读文档那样找它的名字和含义：`x` 是横轴用的列名，`y` 是纵轴用的列名，`ylabel` 是纵轴旁边的文字。
+    example:
+      id: py33.k2.e0
+      kind: [predict]
+      uses: [py27.k2]
+      data: [trial]
+      body: |
+        需求：比较 control 和 drug 两组的平均 signal。同事写了两种画法。
+
+        第一种：
+
+        ```python
+        trial.plot.bar(x="group", y="signal")
+        ```
+
+        第二种：
+
+        ```python
+        trial.groupby("group")["signal"].mean().plot.bar()
+        ```
+      slots:
+        - id: bars_first
+          type: text
+          format: integer
+          prompt: 第一种画出几根柱？
+          key: 5
+        - id: bars_second
+          type: text
+          format: integer
+          prompt: 第二种画出几根柱？
+          key: 2
+        - id: drug
+          type: text
+          format: number
+          prompt: 第二种里，drug 那根柱有多高？
+          key: 12
+      explanation: |
+        第一种画 **5** 根柱：它直接画整张表，每个样本一根，横轴依次是 control、drug、control、drug、drug，组名重复出现，比不出组平均。
+
+        第二种先按 group 求平均，得到每组一个数，画 **2** 根柱。drug 组是 13、11、12，平均 **12.0**；control 组是 8、10，平均 9.0。符合需求的是第二种。
+      verify: |
+        def plotted(line):
+            # .plot 前面的部分就是被画的数据；只运行这一部分，不调用画图。
+            return run("data = " + line.split(".plot")[0])["data"]
+        first, second = plotted(BLOCKS[0]), plotted(BLOCKS[1])
+        answers = {"bars_first": len(first), "bars_second": len(second), "drug": second["drug"]}
+    practice:
+      - id: py33.k2.q1
+        kind: [predict]
+        uses: [py23.k1]
+        data: [daily]
+        body: |
+          需求：画出每天收到的样本数怎样变化。同事写了：
+
+          ```python
+          daily.plot.line(x="day", y="count")
+          ```
+        slots:
+          - id: path
+            type: order
+            prompt: 折线按什么顺序连过各天？从第一个点开始，依次排出天数。
+            items:
+              - { id: d1, content: 第 1 天 }
+              - { id: d2, content: 第 2 天 }
+              - { id: d3, content: 第 3 天 }
+              - { id: d4, content: 第 4 天 }
+            key: [d3, d1, d4, d2]
+          - id: shape
+            type: choice
+            prompt: 这条线在横轴上是怎样走的？
+            options:
+              - id: forward
+                content: 从左到右一路往前
+              - id: zigzag
+                content: 在横轴上来回折返
+            key: zigzag
+        explanation: |
+          折线按表里行的顺序连点：第 3 天 → 第 1 天 → 第 4 天 → 第 2 天。横轴上先往左、再往右、又往左，**来回折返**，读的人很难看出变化。
+
+          画图不会替你排序。先按 day 排好再画：`daily.sort_values("day").plot.line(x="day", y="count")`，线就从第 1 天一路连到第 4 天。
+        verify: |
+          plotted = run("data = " + BLOCKS[0].split(".plot")[0])["data"]
+          days = list(plotted["day"])
+          answers = {"path": [f"d{day}" for day in days], "shape": "forward" if days == sorted(days) else "zigzag"}
+      - id: py33.k2.q2
+        kind: [debug]
+        uses: [py27.k2]
+        data: [soil]
+        body: |
+          需求：比较三个采样点的平均采样深度，纵轴用厘米。同事写了：
+
+          ```python
+          summary = soil.groupby("site")["depth_cm"].mean()
+          ```
+
+          ```python
+          summary.plot.bar(ylabel="平均深度（m）")
+          ```
+        slots:
+          - id: north
+            type: text
+            format: number
+            prompt: 北坡那根柱有多高（照 `summary` 里的数填）？
+            key: 32
+          - id: fix
+            type: choice
+            prompt: 这张图要怎样改？
+            options:
+              - id: keep
+                content: 不用改，北坡平均深 32 米
+              - id: label
+                content: 把纵轴标签改成“平均深度（cm）”，数不用动
+              - id: axis
+                content: 把纵轴换成 site
+            key: label
+        explanation: |
+          北坡两份土样是 30、34 厘米，平均 **32.0**，柱就是这么高。`depth_cm` 是厘米，数没有换算过，纵轴标签却写着米，读图的人会读成 32 米。需求要的就是厘米，所以**把标签改成“平均深度（cm）”**，数不用动。
+
+          `ylabel` 只是写在纵轴旁边的文字，它不会替你换算；数和标签的单位要自己核对一致。
+        verify: |
+          summary = run(BLOCKS[0])["summary"]
+          answers = {"north": summary["北坡"]}
+        manual: [fix]
+      - id: py33.k2.q3
+        kind: [modify]
+        uses: [py27.k1, py27.k2, py23.k1]
+        data: [trial]
+        body: |
+          需求：
+
+          > 比较各组的平均 signal，每组一根柱，柱从高到低排列。
+
+          画图那一行已经写好，不用改：
+
+          ```python
+          summary.plot.bar(ylabel="平均 signal")
+          ```
+
+          作答框里是同事准备数据的那一行，它没有按组求平均。请改它，让 `summary` 是每组一个平均值（索引是组名），并且从高到低排好。不要改动 `trial`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              summary = trial[["group", "signal"]]
+            solution: |
+              summary = trial.groupby("group")["signal"].mean().sort_values(ascending=False)
+            accepts:
+              - |
+                means = trial.groupby("group")["signal"].mean()
+                summary = means.sort_values(ascending=False)
+              - summary = trial.groupby("group")["signal"].agg("mean").sort_values(ascending=False)
+            rejects:
+              - code: summary = trial.groupby("group")["signal"].mean()
+                why: 没有排序，柱按组名顺序排列
+              - code: summary = trial.groupby("group")["signal"].mean().sort_values()
+                why: 从低到高排了
+              - code: summary = trial.groupby("group")["signal"].sum().sort_values(ascending=False)
+                why: 求的是总和，不是平均
+              - code: summary = trial.sort_values("signal", ascending=False)
+                why: 只排了序，没有按组聚合，仍是每个样本一根柱
+            tests:
+              - name: 表 trial
+                expect:
+                  summary: 'pd.Series({"drug": 12.0, "control": 9.0}, name="signal")'
+                  trial: trial
+              - name: 换一张有三个组、各组样本数不同的表
+                hidden: true
+                data: [trial3]
+                expect:
+                  summary: 'pd.Series({"drug": 13.0, "placebo": 10.0, "control": 9.0}, name="signal")'
+                  trial: trial
+        explanation: |
+          ```python
+          summary = trial.groupby("group")["signal"].mean().sort_values(ascending=False)
+          ```
+
+          先按 group 求平均，每组得到一个数，柱状图才是每组一根柱；再用 `sort_values(ascending=False)` 从高到低排，柱就按这个顺序从左到右排列。本例 drug 平均 12.0 在前，control 平均 9.0 在后。
+
+          只求平均不排序，柱会按组名的顺序排；求总和会让样本多的组显得更高。判分时还会换一张有三个组、各组样本数不同的表运行你的代码。
+    review:
+      - id: py33.k2.r1
+        kind: [predict]
+        uses: [py27.k2]
+        data: [soil]
+        body: |
+          下面三行画图代码分别会画出几根柱或几个点？每根柱或每个点代表什么？
+        slots:
+          - id: read
+            type: table
+            columns:
+              - id: code
+                header: 画图代码
+              - id: count
+                header: 柱或点的个数
+                input: integer
+              - id: unit
+                header: 每根柱或每个点代表
+                input:
+                  type: choice
+                  options:
+                    - { id: record, label: 一份土样（表的一行） }
+                    - { id: site, label: 一个采样点 }
+            rows:
+              - id: a
+                cells: { code: 'soil.plot.bar(x="site", y="depth_cm")', count: 5, unit: record }
+              - id: b
+                cells: { code: 'soil.groupby("site")["depth_cm"].max().plot.bar()', count: 3, unit: site }
+              - id: c
+                cells: { code: 'soil.plot.scatter(x="depth_cm", y="moisture")', count: 5, unit: record }
+        explanation: |
+          | 画图代码 | 个数 | 每个代表 |
+          |---|---:|---|
+          | `soil.plot.bar(x="site", y="depth_cm")` | 5 | 一份土样 |
+          | `soil.groupby("site")["depth_cm"].max().plot.bar()` | 3 | 一个采样点 |
+          | `soil.plot.scatter(x="depth_cm", y="moisture")` | 5 | 一份土样 |
+
+          看 `.plot` 前面是什么：直接画 soil，表有 5 行，就是 5 根柱或 5 个点，每个对应一份土样，北坡、南坡各出现两次；先按 site 聚合，每个采样点只剩一行，就是 3 根柱。
+        verify: |
+          codes = {
+              "a": 'soil.plot.bar(x="site", y="depth_cm")',
+              "b": 'soil.groupby("site")["depth_cm"].max().plot.bar()',
+              "c": 'soil.plot.scatter(x="depth_cm", y="moisture")',
+          }
+          read = {}
+          for row, line in codes.items():
+              plotted = run("data = " + line.split(".plot")[0])["data"]
+              read[row] = {"count": len(plotted), "unit": "record" if len(plotted) == len(soil) else "site"}
+          answers = {"read": read}
+      - id: py33.k2.r2
+        kind: [debug]
+        uses: [py23.k1]
+        data: [temps]
+        body: |
+          需求：画出温度随天数的变化，折线从第 1 天依次连到第 4 天。哪一行能做到？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: plain
+                content: |
+                  ```python
+                  temps.plot.line(x="day", y="temp")
+                  ```
+              - id: by_temp
+                content: |
+                  ```python
+                  temps.sort_values("temp").plot.line(x="day", y="temp")
+                  ```
+              - id: by_day
+                content: |
+                  ```python
+                  temps.sort_values("day").plot.line(x="day", y="temp")
+                  ```
+              - id: by_index
+                content: |
+                  ```python
+                  temps.sort_index().plot.line(x="day", y="temp")
+                  ```
+            key: by_day
+        explanation: |
+          `temps.sort_values("day").plot.line(x="day", y="temp")`：先按 day 排好，折线才会从第 1 天依次连到第 4 天。
+
+          不排序时按表里的行顺序连，是第 2、4、1、3 天；按 temp 排序连的是第 3、1、2、4 天；表的原行索引 10、11、12、13 已经是从小到大，按索引排序不会改变顺序，仍是第 2、4、1、3 天。
+        verify: |
+          # 每个选项只运行 .plot 前面的部分，看折线连点时 day 的先后是否从小到大。
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              days = list(run("data = " + line.split(".plot")[0])["data"]["day"])
+              if days == sorted(days):
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py33.k2.x1
+        kind: [modify]
+        uses: [py27.k1, py27.k2, py23.k1]
+        data: [growth]
+        body: |
+          需求：
+
+          > 每天测了两次 OD，先按天求平均，再画平均 OD 随天数变化的折线；横轴是天数，从小到大。
+
+          画图那一行已经写好，不用改：
+
+          ```python
+          summary.plot.line(ylabel="平均 OD")
+          ```
+
+          作答框里准备数据的那一行没有求平均，同一天的两次读数都会画成点。请改它，让 `summary` 是每天一个平均值、索引是天数。不要改动 `growth`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              summary = growth.set_index("day")["od"]
+            solution: |
+              summary = growth.groupby("day")["od"].mean()
+            accepts:
+              - summary = growth.groupby("day")["od"].mean().sort_index()
+              - summary = growth.groupby("day")["od"].agg("mean")
+            rejects:
+              - code: summary = growth.groupby("day")["od"].mean().sort_values()
+                why: 按平均值排了序，横轴上的天数不再从小到大
+              - code: summary = growth.groupby("day")["od"].sum()
+                why: 求的是每天两次读数的总和
+              - code: summary = growth.groupby("day")["od"].max()
+                why: 取了每天较大的一次，不是平均
+              - code: summary = growth.sort_values("day")
+                why: 只排了序，没有按天聚合
+            tests:
+              - name: 表 growth
+                expect:
+                  summary: 'pd.Series({1: 0.11, 2: 0.40, 3: 0.30}, name="od")'
+                  growth: growth
+              - name: 换一批读数
+                hidden: true
+                data: [growth2]
+                expect:
+                  summary: 'pd.Series({1: 0.09, 2: 0.23, 3: 0.35, 4: 0.52}, name="od")'
+                  growth: growth
+        explanation: |
+          ```python
+          summary = growth.groupby("day")["od"].mean()
+          ```
+
+          按 day 分组求平均，每天只剩一个数；groupby 的结果按天数从小到大排好，直接画 Series 时横轴就是这个索引，折线从第 1 天连到第 3 天。本例三天的平均依次是 0.11、0.40、0.30。
+
+          再按平均值排序会把第 3 天排到第 2 天前面，折线就乱了；求总和或取最大值都不是需求里的平均。判分时还会换一批读数运行你的代码。
+      - id: py33.k2.x2
+        kind: [debug]
+        uses: [py27.k2]
+        data: [roots]
+        body: |
+          需求：比较两种处理的平均根长，纵轴用厘米。同事写了：
+
+          ```python
+          summary = roots.groupby("treatment")["root_mm"].mean() / 10
+          ```
+
+          ```python
+          summary.plot.bar(ylabel="平均根长（mm）")
+          ```
+        slots:
+          - id: bars
+            type: text
+            format: integer
+            prompt: 图上有几根柱？
+            key: 2
+          - id: high
+            type: text
+            format: number
+            prompt: high 那根柱有多高（照 `summary` 里的数填）？
+            key: 6.6
+          - id: fix
+            type: choice
+            prompt: 怎样改才符合需求？
+            options:
+              - id: drop_division
+                content: 去掉 `/ 10`，标签不动
+              - id: keep
+                content: 都不用改
+              - id: label
+                content: 把纵轴标签改成“平均根长（cm）”，`/ 10` 保留
+            key: label
+        explanation: |
+          按 treatment 聚合后有 low、high 两组，**2** 根柱。high 组根长 66、70、62 毫米，平均 66.0，除以 10 得到 **6.6**，单位已经是厘米。
+
+          数换成了厘米，标签却还写着毫米，读的人会以为根只有 6.6 毫米长。需求要厘米，所以**保留 `/ 10`，把标签改成“平均根长（cm）”**。去掉 `/ 10` 能让数和“mm”对上，但不符合“纵轴用厘米”的需求。
+        verify: |
+          summary = run(BLOCKS[0])["summary"]
+          answers = {"bars": len(summary), "high": summary["high"]}
+        manual: [fix]
+
+verified:
+  - question: py33.k1.r1
+    version: sha256:c3b1e90a308d7088f85ddf8b1e6e462ad2f4c903dc05054c166cb078919b501d
+    slots: [chart]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py33.k1.r2
+    version: sha256:130f21fd422c4132a2f0526d1f9933aec53eed218cea3366afe64f22a9e67ac6
+    slots: [question]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py33.k1.x1
+    version: sha256:7cd38ca596c9361a8f4490e2c27ddfa1aed8a41bf8f03888e9f5bc901480d1ba
+    slots: [charts]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py33.k1.x2
+    version: sha256:adacd760d4d35cae7ad1e1866adaabf8bcaed0d5651b9401b3b78cfb7b3704ad
+    slots: [questions]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py33.k2.x2
+    version: sha256:4a4e230cb8e0fc8c75ce7b7b6217d3de7106b621feeff83dd7adb5d229525566
+    slots: [fix]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
