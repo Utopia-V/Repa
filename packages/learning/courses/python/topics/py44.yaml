@@ -7,15 +7,15 @@ prerequisites:
   - topic: py43
     key: true
     weight: 0.67
-    covers: [py43.k1, py43.k2]
+    covers: [py43.k2]
   - topic: py37
     key: true
     weight: 0.67
-    covers: [py37.k1, py37.k2]
+    covers: [py37.k1, py37.k2, py37.k3]
   - topic: py15
     key: false
     weight: 0.33
-    covers: [py15.k1]
+    covers: [py15.k1, py15.k2]
 sources:
   - source: pydata-book
     where: 第 6 章 §6.1
@@ -362,7 +362,7 @@ data:
       002,                  002,未测
       003,12                003,12
       ```
-  depth_csvs:
+  depth_mixed:
     kind: python
     code: |
       import shutil
@@ -370,18 +370,18 @@ data:
       import pandas as pd
       shutil.rmtree("field", ignore_errors=True)
       Path("field").mkdir()
-      Path("field/day1.csv").write_text("site,depth\n北坡,30\n南坡,25\n东坡,35\n", encoding="utf-8")
-      Path("field/day2.csv").write_text("site,depth\n北坡,31\n南坡,\n东坡,34\n", encoding="utf-8")
-      Path("field/day3.csv").write_text("site,depth\n北坡,29\n南坡,约 26\n东坡,36\n", encoding="utf-8")
+      Path("field/day4.csv").write_text("site,depth\n北坡,30\n南坡,25\n东坡,35\n西坡,28\n山顶,约 21\n谷底,33\n", encoding="utf-8")
     display: |
-      三天的野外记录，各读一次：`df = pd.read_csv(文件路径)`。
+      第四天的野外记录 `field/day4.csv`，内容是：
 
       ```text
-      field/day1.csv     field/day2.csv     field/day3.csv
-      site,depth         site,depth         site,depth
-      北坡,30            北坡,31            北坡,29
-      南坡,25            南坡,              南坡,约 26
-      东坡,35            东坡,34            东坡,36
+      site,depth
+      北坡,30
+      南坡,25
+      东坡,35
+      西坡,28
+      山顶,约 21
+      谷底,33
       ```
 kps:
   - id: py44.k1
@@ -989,44 +989,72 @@ kps:
           answers = {"fix": fits[0] if len(fits) == 1 else fits}
     quiz:
       - id: py44.k2.x1
-        kind: [modify]
+        kind: [explain, debug]
         uses: [py37.k2, py06.k2]
         data: [responses_a]
         body: |
-          需求是：取出列表里**第二位**受访者对问题 q2 的回答，存进 `value`。换一份同样结构的文件，代码也要取对。
+          需求是：取出列表里**第二位**受访者对问题 q2 的回答，存进 `value`。换一份同样结构的文件，代码也要取对，别的文件里的受访者人数不一定是 3。
 
-          作答框里的代码一运行就报错。请改动它并提交。
+          下面哪几段代码能做到？选出所有能做到的。
         slots:
           - id: code
-            type: code
-            language: python
-            maxLines: 3
-            starter: |
-              value = responses["R2"]["q2"]
-            solution: |
-              value = responses[1]["answers"]["q2"]
-            rejects:
-              - code: value = 2
-                why: 照着眼前的文件抄了值
-              - code: value = responses[1]["q2"]
-                why: 漏了 answers 这一层
-              - code: value = responses[2]["answers"]["q2"]
-                why: 第二位的位置是 1，不是 2
-            tests:
-              - name: 本文件
-                expect:
-                  value: "2"
-              - name: 换一份问卷
-                hidden: true
-                data: [responses_b]
-                expect:
-                  value: "6"
+            type: choice
+            multiple: true
+            options:
+              - id: direct
+                content: |
+                  ```python
+                  value = responses[1]["answers"]["q2"]
+                  ```
+              - id: stepwise
+                content: |
+                  ```python
+                  second = responses[1]
+                  value = second["answers"]["q2"]
+                  ```
+              - id: with_get
+                content: |
+                  ```python
+                  value = responses[1]["answers"].get("q2")
+                  ```
+              - id: from_end
+                content: |
+                  ```python
+                  value = responses[-2]["answers"]["q2"]
+                  ```
+                feedback: 倒数第二位只有在恰好 3 个人时才是第二位；换成 2 个人的文件，它取到的是第一位。
+              - id: by_id
+                content: |
+                  ```python
+                  value = responses["R2"]["answers"]["q2"]
+                  ```
+                feedback: 最外层是列表，只能按位置取，用文字 "R2" 会报 TypeError。
+              - id: third
+                content: |
+                  ```python
+                  value = responses[2]["answers"]["q2"]
+                  ```
+                feedback: 位置从 0 数起，位置 2 是第三位。
+            key: [direct, stepwise, with_get]
         explanation: |
-          ```python
-          value = responses[1]["answers"]["q2"]
-          ```
+          最外层是列表，第二位的位置是 1；取出的字典里，回答放在 `"answers"` 这个字典里，再取 `"q2"`。
 
-          `responses` 最外层是列表，只能按位置取，第二位是位置 1；取出的字典里，回答放在 `"answers"` 这个字典里，再用 "q2" 取值。本文件得到 2。
+          - `responses[1]["answers"]["q2"]`、先存成 `second` 再取，两种写法一回事，都对。
+          - `.get("q2")` 在键存在时取到同一个值，也对。
+          - `responses[-2]` 是倒数第二位：本文件正好 3 人，碰巧也是第二位；换成 2 个人的文件，它就成了第一位。要“第二位”，就写位置 1。
+          - `responses["R2"]` 用文字去取列表，报 TypeError；`responses[2]` 是第三位。
+        verify: |
+          other = [{"id": "R7", "answers": {"q1": 1, "q2": 1}}, {"id": "R8", "answers": {"q1": 2, "q2": 6}}]
+          fits = []
+          for option, code in OPTIONS["code"].items():
+              good = True
+              for survey in (responses, other):
+                  r = run(code, responses=survey)
+                  if r.error is not None or r["value"] != survey[1]["answers"]["q2"]:
+                      good = False
+              if good:
+                  fits.append(option)
+          answers = {"code": fits}
       - id: py44.k2.x2
         kind: [debug]
         uses: [py11.k2, py37.k2, py06.k2]
@@ -1107,7 +1135,7 @@ kps:
       - `rec["signal"]` 遇到缺键会报错；`rec.get("signal")` 不报错，缺键时得到 None，也可以写 `rec.get("signal", 默认值)`。默认值只在**缺这一项**时才用，值写着 null 时仍是 None。
       - `type(值)` 告诉你类型：`type(12)` 是 int，`type("12")` 是 str。文字 "12" 看着像数，却不能直接拿来算。
 
-      CSV 读成表时也有对应的情况：空着的格子读成 **NaN**，整数列会因此变成小数列（float64）；一列里只要有一格写着“未测”这样的文字，整列都成了文字列（str）。
+      CSV 读成表时也有对应的情况：空着的格子读成 **NaN**，整数列会因此变成小数列（float64）；一列里只要有一格写着“未测”这样的文字，整列都成了文字列（str）。`df["列"].dtype` 可以查看一列的类型。
 
       查出来之后，怎样处理是业务规则，要写清楚，而不是让代码悄悄决定。尤其不要把缺失补成 0：0 是一个真实的测量结果，缺测不是。
     example:
@@ -1393,37 +1421,64 @@ kps:
           answers = {"claim": true[0] if len(true) == 1 else true}
     quiz:
       - id: py44.k3.x1
-        kind: [predict]
+        kind: [explain, predict]
         uses: [py15.k1, py14.k3]
-        data: [depth_csvs]
+        data: [depth_mixed]
         body: |
-          每个文件分别用 `df = pd.read_csv(文件路径)` 读进来。
+          用 `df = pd.read_csv("field/day4.csv")` 读进文件。读完发现 depth 一列不能直接求平均。
         slots:
-          - id: numeric
+          - id: dtype
             type: choice
-            multiple: true
-            prompt: 读进来后，哪些文件的 depth 是数字列（整数或小数）？选出所有。
+            prompt: "`df[\"depth\"]` 读成了什么类型？"
             options:
-              - { id: day1, content: field/day1.csv }
-              - { id: day2, content: field/day2.csv }
-              - { id: day3, content: field/day3.csv }
-            key: [day1, day2]
-          - id: blank
+              - { id: int64, content: int64（整数） }
+              - { id: float64, content: float64（小数） }
+              - { id: str, content: str（文字） }
+            key: str
+          - id: culprit
             type: choice
-            prompt: day2 里南坡那一格读成了什么？
+            prompt: 哪个采样点的那一格，让整列都成了这个类型？
             options:
-              - { id: nan, content: NaN（缺失） }
-              - { id: zero, content: "0" }
-              - { id: empty, content: 空的文字 "" }
-            key: nan
+              - { id: north, content: 北坡 }
+              - { id: south, content: 南坡 }
+              - { id: east, content: 东坡 }
+              - { id: west, content: 西坡 }
+              - { id: peak, content: 山顶 }
+              - { id: valley, content: 谷底 }
+            key: peak
+          - id: fixed
+            type: choice
+            prompt: 如果把那一格改成 21（其余不变）再读，depth 是什么类型？
+            options:
+              - { id: int64, content: int64（整数） }
+              - { id: float64, content: float64（小数） }
+              - { id: str, content: str（文字） }
+            key: int64
         explanation: |
-          **day1 和 day2** 的 depth 是数字列：day1 是整数列；day2 的空格子读成 **NaN**，整列成了小数列，仍是数字。day3 里有一格“约 26”是文字，整列都成了文字列，不能直接拿来算平均。
+          一列只有一种类型。只要有一格不是数，`约 21` 这样的写法，整列都会读成文字：谷底的 33、北坡的 30 在 `df` 里也是文字，不能直接算平均。
+
+          是哪一格出的问题，可以逐个看：只有山顶那格带着汉字。把它改成 21，六格都是整数，depth 就读成 int64。
+
+          读完先看 `df.dtypes`：该是数的列显示 str，就回头在文件里找夹着文字的那一格。至于“约 21”该改成 21、记为缺失，还是去问记录的人，要按需求定，不能让程序悄悄决定。
         verify: |
-          frames = {day: pd.read_csv(f"field/{day}.csv") for day in ("day1", "day2", "day3")}
-          numeric = [day for day, frame in frames.items() if frame["depth"].dtype.kind in "if"]
-          day2 = frames["day2"]
-          cell = day2.loc[day2["site"] == "南坡", "depth"].iloc[0]
-          answers = {"numeric": numeric, "blank": "nan" if pd.isna(cell) else "other"}
+          import io
+          from pathlib import Path
+          text = Path("field/day4.csv").read_text(encoding="utf-8")
+          header, *rows = text.strip().split("\n")
+
+          def kind(lines):
+              frame = pd.read_csv(io.StringIO("\n".join([header] + lines)))
+              dtype = frame["depth"].dtype
+              return "int64" if dtype.kind == "i" else "float64" if dtype.kind == "f" else "str"
+
+          sites = ["north", "south", "east", "west", "peak", "valley"]
+          culprits = [sites[i] for i in range(len(rows)) if kind(rows[:i] + rows[i + 1:]) != "str"]
+          fixed_rows = [row.replace("约 ", "") for row in rows]
+          answers = {
+              "dtype": kind(rows),
+              "culprit": culprits[0] if len(culprits) == 1 else culprits,
+              "fixed": kind(fixed_rows),
+          }
       - id: py44.k3.x2
         kind: [explain]
         uses: [py37.k2]

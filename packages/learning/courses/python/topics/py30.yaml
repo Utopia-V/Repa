@@ -159,22 +159,6 @@ data:
     columns:
       point: [W1, W2, W3]
       ntu: [10, 9, 14]
-  jan2:
-    kind: dataframe
-    name: jan
-    caption: 另一年的一月
-    indexHeader: 行索引
-    columns:
-      point: [W4]
-      ntu: [7]
-  feb2:
-    kind: dataframe
-    name: feb
-    caption: 另一年的二月
-    indexHeader: 行索引
-    columns:
-      point: [W4, W5, W6, W7]
-      ntu: [6, 11, 13, 5]
 kps:
   - id: py30.k1
     title: concat 沿行叠加并按列名对齐
@@ -818,54 +802,68 @@ kps:
               "north_cols": r["north"].shape[1],
           }
       - id: py30.k2.x2
-        kind: [modify]
+        kind: [explain, predict]
         uses: [py06.k1, py14.k1]
         data: [jan, feb]
         body: |
-          需求是：
+          同事发来一张叠好的表，是把一月的表 jan 和二月的表 feb 上下叠起来的结果，多了一列 month 记录来源，行索引从 0 重新编号：
 
-          > 把一月、二月的浊度记录上下叠起来，一月在上；加一列 month，一月的行写 "jan"，二月的行写 "feb"；行索引从 0 重新编号。不改变 jan、feb。
-
-          作答框里的代码有两处不符合需求。请改动它并提交，结果仍叫 `result`。
-        slots:
-          - id: code
-            type: code
-            language: python
-            maxLines: 5
-            starter: |
-              result = pd.concat([jan.assign(month="jan"), feb.assign(month="jan")])
-            solution: |
-              result = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")], ignore_index=True)
-            accepts:
-              - |
-                first = jan.assign(month="jan")
-                second = feb.assign(month="feb")
-                result = pd.concat([first, second], ignore_index=True)
-            rejects:
-              - code: result = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")])
-                why: 没有重新编号
-              - code: result = pd.concat([jan.assign(month="jan"), feb.assign(month="jan")], ignore_index=True)
-                why: 二月的行仍写成 jan
-              - code: result = pd.concat([feb.assign(month="feb"), jan.assign(month="jan")], ignore_index=True)
-                why: 二月排到了上面
-              - code: result = pd.concat([jan, feb], ignore_index=True)
-                why: 没有 month 列
-            tests:
-              - name: 一月和二月
-                expect:
-                  result: 'pd.DataFrame({"point": ["W1", "W2", "W3", "W1", "W2", "W3"], "ntu": [12, 8, 15, 10, 9, 14], "month": ["jan", "jan", "jan", "feb", "feb", "feb"]})'
-                  jan: jan
-                  feb: feb
-              - name: 换一年，两个月的行数不同
-                hidden: true
-                data: [jan2, feb2]
-                expect:
-                  result: 'pd.DataFrame({"point": ["W4", "W4", "W5", "W6", "W7"], "ntu": [7, 6, 11, 13, 5], "month": ["jan", "feb", "feb", "feb", "feb"]})'
-                  jan: jan
-                  feb: feb
-        explanation: |
-          ```python
-          result = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")], ignore_index=True)
+          ```text
+            point  ntu month
+          0    W1   12   jan
+          1    W2    8   jan
+          2    W3   15   jan
+          3    W1   10   feb
+          4    W2    9   feb
+          5    W3   14   feb
           ```
 
-          两处：二月的来源写成了 "jan"，要改成 "feb"；没有重新编号，要加 `ignore_index=True`。结果 6 行 3 列，行索引 0 到 5。判分时还会换一年两个月行数不同的记录运行你的代码。
+          他没有写代码。
+        slots:
+          - id: code
+            type: choice
+            prompt: 下面哪一段代码能得到这张表？
+            options:
+              - id: right
+                content: |
+                  ```python
+                  result = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")], ignore_index=True)
+                  ```
+              - id: no_renumber
+                content: |
+                  ```python
+                  result = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")])
+                  ```
+                feedback: 没有重新编号，行索引是 0、1、2、0、1、2。
+              - id: swapped
+                content: |
+                  ```python
+                  result = pd.concat([feb.assign(month="feb"), jan.assign(month="jan")], ignore_index=True)
+                  ```
+                feedback: 二月的行排到了上面。
+              - id: wrong_label
+                content: |
+                  ```python
+                  result = pd.concat([jan.assign(month="jan"), feb.assign(month="jan")], ignore_index=True)
+                  ```
+                feedback: 二月的行 month 仍写成 jan。
+            key: right
+          - id: last
+            type: text
+            format: integer
+            prompt: 如果去掉 `ignore_index=True`，叠出来的表最后一行的行索引是多少？
+            key: 2
+        explanation: |
+          要同时满足三点：一月在上、二月在下；每张表叠之前各加自己的来源（`jan.assign(month="jan")`、`feb.assign(month="feb")`）；`ignore_index=True` 把行索引重新编号为 0 到 5。
+
+          去掉 `ignore_index=True`，各表原来的行索引会一起带过来：jan 的 0、1、2，feb 的 0、1、2，所以最后一行的行索引是 **2**，同一个标签出现了两次。
+        verify: |
+          expected = pd.DataFrame({"point": ["W1", "W2", "W3", "W1", "W2", "W3"], "ntu": [12, 8, 15, 10, 9, 14],
+                                   "month": ["jan", "jan", "jan", "feb", "feb", "feb"]})
+          fits = []
+          for option, code in OPTIONS["code"].items():
+              r = run(code)
+              if r.error is None and r["result"].equals(expected):
+                  fits.append(option)
+          plain = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")])
+          answers = {"code": fits[0] if len(fits) == 1 else fits, "last": int(plain.index[-1])}

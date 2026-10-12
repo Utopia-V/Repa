@@ -7,7 +7,7 @@ prerequisites:
   - topic: py06
     key: true
     weight: 0.33
-    covers: [py06.k1]
+    covers: [py06.k1, py06.k2]
   - topic: py01
     key: true
     weight: 1.00

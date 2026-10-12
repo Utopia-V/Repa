@@ -848,41 +848,48 @@ kps:
                   fits.append(option)
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py32.k2.r2
-        kind: [predict]
+        kind: [debug, predict]
         data: [rain]
         body: |
-          每次降雨从开始那天下到结束那天，两天都下了雨。阅读代码。
+          每次降雨从开始那天下到结束那天，两天都下了雨。同事用下面的代码算每次下了几天雨：
 
           ```python
           start = pd.to_datetime(rain["start"], format="%Y-%m-%d")
           end = pd.to_datetime(rain["end"], format="%Y-%m-%d")
-          gap = (end - start).dt.days
-          rain_days = gap + 1
+          rain_days = (end - start).dt.days
           ```
+
+          他看到 E1（6 月 28 日到 7 月 3 日）的 `rain_days` 是 5，就在报告里写：“E1 一共下了 5 天雨。”
         slots:
-          - id: e1_gap
+          - id: verdict
+            type: choice
+            prompt: 这句报告对吗？
+            options:
+              - { id: right, content: 对，相隔几天就是下了几天 }
+              - { id: add_one, content: 不对：开始和结束两天都下了雨，应当比相隔天数多 1，一共 6 天 }
+              - { id: minus_one, content: 不对：开始那天不算，应当比相隔天数少 1，一共 4 天 }
+            key: add_one
+          - id: e2
             type: text
             format: integer
-            prompt: E1 的 `gap` 是多少？
-            key: 5
-          - id: e1_days
+            prompt: E2 开始和结束是同一天（7 月 9 日），代码里它的 `rain_days` 是多少？
+            key: 0
+          - id: e3
             type: text
             format: integer
-            prompt: E1 一共下了几天雨（`rain_days`）？
-            key: 6
-          - id: e2_days
-            type: text
-            format: integer
-            prompt: E2 一共下了几天雨？
-            key: 1
-            feedback:
-              - when: 0
-                message: 开始和结束是同一天，相隔 0 天，但这一天下了雨，算 1 天。
+            prompt: E3 从 7 月 20 日下到 7 月 22 日，按“两天都算”，一共下了几天雨？
+            key: 3
         explanation: |
-          E1 从 6 月 28 日到 7 月 3 日，6 月有 30 天，相隔 **5** 天；两头都下了雨，一共 **6** 天（6 月 28、29、30 日和 7 月 1、2、3 日）。E2 开始和结束是同一天，相隔 0 天，下了 **1** 天雨。
+          `(end - start).dt.days` 算的是**相隔**几天：E1 是 5 天（6 月有 30 天，28 日到 3 日隔 5 天）。可是降雨从开始那天下到结束那天，两头都下了雨，6 月 28、29、30 日和 7 月 1、2、3 日，一共 **6** 天，要在相隔天数上加 1。
+
+          E2 开始和结束是同一天，相隔 **0** 天，但那天下了雨，一共 1 天。E3 相隔 2 天，从 20 日到 22 日三天都下了雨，一共 **3** 天。“相隔几天”和“一共几天”差 1，需求里要写明是哪一种。
         verify: |
           r = run()
-          answers = {"e1_gap": r["gap"].iloc[0], "e1_days": r["rain_days"].iloc[0], "e2_days": r["rain_days"].iloc[1]}
+          gap = r["rain_days"]
+          # 两头都算：把开始到结束的每一天列出来数。
+          inclusive = [len(pd.date_range(a, b)) for a, b in zip(r["start"], r["end"])]
+          verdict = "add_one" if inclusive[0] == gap.iloc[0] + 1 else "minus_one" if inclusive[0] == gap.iloc[0] - 1 else "right"
+          answers = {"verdict": verdict, "e2": int(gap.iloc[1]), "e3": inclusive[2]}
     quiz:
       - id: py32.k2.x1
         kind: [modify]

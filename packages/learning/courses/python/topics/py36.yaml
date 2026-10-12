@@ -7,7 +7,7 @@ prerequisites:
   - topic: py35
     key: true
     weight: 0.67
-    covers: [py35.k1, py35.k2]
+    covers: [py35.k1, py35.k2, py35.k3]
   - topic: py10
     key: true
     weight: 0.67
@@ -219,6 +219,7 @@ kps:
           answers = {"rounds": len(r["_rounds"]), "appends": len(r["_appends"]), "output": run().lines()[0]}
       - id: py36.k1.q2
         kind: [debug, predict]
+        uses: [py35.k3]
         body: |
           下面的程序想收集至少为 10 的读数，结果不对。
 

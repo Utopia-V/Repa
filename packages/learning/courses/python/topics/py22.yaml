@@ -7,11 +7,11 @@ prerequisites:
   - topic: py21
     key: true
     weight: 0.33
-    covers: [py21.k2]
+    covers: [py21.k1]
   - topic: py17
     key: true
     weight: 0.50
-    covers: [py17.k2]
+    covers: [py17.k1, py17.k2]
   - topic: py01
     key: true
     weight: 0.50
@@ -35,7 +35,7 @@ notes: |
 intro: |
   前几节的代码大多是从原表算出新的结果：筛选出的行、新加的列。这一节要改原表里已有的格，例如把扣除本底后成了负数的读数改成 0。关键是说清楚：改的是哪张表的哪些格。
 
-  宿主已经导入了 pandas（`pd`）并准备好数据表；每道题都从题面给出的表重新开始。大多数题用表 T：`signal` 是扣除本底以后的读数，可能是负数。
+  宿主已经导入了 pandas（`pd`）并准备好数据表；每道题都从题面给出的表重新开始。大多数题用表 T：`signal` 是扣除本底以后的读数，可能是负数。题里常用 `.min()` 取出一列的最小值，用来看还有没有负数。
 wrapup: |
   要改原表，就写一次 `df.loc[行, 列] = 值`，行和列都写在同一对方括号里。要一份可以随便改、又不影响原表的表，就写 `df.copy()`，让读代码的人一眼看出来。
 
@@ -248,7 +248,7 @@ kps:
           answers = {"after": {f"r{label}": {"signal": value} for label, value in after["signal"].items()}, "fix": fits[0] if len(fits) == 1 else fits}
       - id: py22.k1.q2
         kind: [trace]
-        uses: [py17.k1]
+        uses: [py17.k1, py21.k1]
         data: [T]
         body: |
           阅读代码，按原行索引填写运行后新列 `flag` 的值。没有值的填 `NaN`。

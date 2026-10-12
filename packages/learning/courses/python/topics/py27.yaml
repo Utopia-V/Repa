@@ -11,7 +11,7 @@ prerequisites:
   - topic: py16
     key: true
     weight: 0.33
-    covers: [py16.k1]
+    covers: [py16.k1, py16.k2]
 sources:
   - source: pydata-book
     where: 第 10 章 §10.1–10.2（分组机制与数据聚合）
@@ -97,15 +97,6 @@ data:
     columns:
       station: [B, A, C, A, B, C]
       conc: [6.0, 3.0, 5.0, null, 8.0, 7.0]
-    dtypes:
-      conc: float
-  water2:
-    kind: dataframe
-    name: water
-    caption: 另一份采样记录
-    columns:
-      station: [N, M, N, K, M, N, K]
-      conc: [2.0, null, 4.0, 1.0, 3.0, null, 5.0]
     dtypes:
       conc: float
   survey:
@@ -674,7 +665,7 @@ kps:
           }}
       - id: py27.k2.r2
         kind: [predict]
-        uses: [py06.k2]
+        uses: [py16.k2]
         data: [survey]
         body: |
           屏幕上依次显示什么？
@@ -708,53 +699,72 @@ kps:
           answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
     quiz:
       - id: py27.k2.x1
-        kind: [modify]
+        kind: [explain, predict]
         uses: [py16.k1, py26.k1]
         data: [water]
         body: |
-          需求是：
+          同事发来分组统计的结果，要的是每个站点测到浓度的次数（没测到的不算）：一张表，第一列 station，第二列 conc 存次数，行标签从 0 开始，站点按字母顺序：
 
-          > 每个站点测到浓度的次数（不算没测到的）。结果是一张表：第一列 station，第二列 conc 存次数，每个站点一行，站点按字母顺序，行标签从 0 开始。
-
-          作答框里的代码得到的是一列而不是表。请改动它并提交，结果变量仍叫 `result`。
-        slots:
-          - id: code
-            type: code
-            language: python
-            maxLines: 3
-            starter: |
-              result = water.groupby("station")["conc"].count()
-            solution: |
-              result = water.groupby("station")["conc"].count().reset_index()
-            accepts:
-              - result = water.groupby("station", as_index=False)["conc"].count()
-              - result = water.groupby("station")[["conc"]].count().reset_index()
-            rejects:
-              - code: result = water.groupby("station")["conc"].size().reset_index()
-                why: size 数的是行数，把没测到的也算上了
-              - code: result = water.groupby("station")["conc"].count().reset_index(drop=True)
-                why: drop=True 把站点名丢掉了
-              - code: result = water.groupby("station", sort=False)["conc"].count().reset_index()
-                why: 站点按首次出现的顺序排列
-            tests:
-              - name: 表 water
-                expect:
-                  result: 'pd.DataFrame({"station": ["A", "B", "C"], "conc": [1, 2, 2]})'
-                  water: water
-              - name: 另一份采样记录
-                hidden: true
-                data: [water2]
-                expect:
-                  result: 'pd.DataFrame({"station": ["K", "M", "N"], "conc": [2, 1, 2]})'
-                  water: water
-        explanation: |
-          在后面接 `.reset_index()`：
-
-          ```python
-          result = water.groupby("station")["conc"].count().reset_index()
+          ```text
+            station  conc
+          0       A     1
+          1       B     2
+          2       C     2
           ```
 
-          结果三行：A 1 次（另一次没测到）、B 2 次、C 2 次。写成 `water.groupby("station", as_index=False)["conc"].count()` 也对。
+          他说这是用表 water 算出来的，却没写代码。
+        slots:
+          - id: code
+            type: choice
+            multiple: true
+            prompt: 下面哪些代码在表 water 上运行，得到的 `result` 正好是上面这张表？选出所有的。
+            options:
+              - id: reset
+                content: |
+                  ```python
+                  result = water.groupby("station")["conc"].count().reset_index()
+                  ```
+              - id: as_index
+                content: |
+                  ```python
+                  result = water.groupby("station", as_index=False)["conc"].count()
+                  ```
+              - id: series
+                content: |
+                  ```python
+                  result = water.groupby("station")["conc"].count()
+                  ```
+                feedback: 结果是一列（Series），station 在行标签里，不是一列。
+              - id: frame_only
+                content: |
+                  ```python
+                  result = water.groupby("station")[["conc"]].count()
+                  ```
+                feedback: 是一张表，但 station 还在行标签里，行标签不是 0、1、2。
+              - id: total
+                content: |
+                  ```python
+                  result = water.groupby("station")["conc"].sum().reset_index()
+                  ```
+                feedback: sum 是把浓度加起来，A 站得 3.0，不是次数 1。
+            key: [reset, as_index]
+        explanation: |
+          要的是一张表：station 是普通的一列，行标签是 0、1、2。
+
+          - `.count().reset_index()`：先得到以 station 为行标签的一列，`reset_index()` 把 station 变回普通的一列，行标签重新编为 0、1、2。
+          - `groupby("station", as_index=False)`：一开始就不让 station 进行标签，结果相同。
+          - 只写 `["conc"].count()` 得到一列，station 在行标签里。
+          - `[["conc"]].count()` 得到一张表，但 station 仍在行标签里，要再接 `reset_index()`。
+          - `sum()` 是把浓度加起来，不是数次数：A 站得 3.0，不是 1。
+        verify: |
+          expected = pd.DataFrame({"station": ["A", "B", "C"], "conc": [1, 2, 2]})
+          fits = []
+          for option, code in OPTIONS["code"].items():
+              r = run(code)
+              out = r["result"] if r.error is None else None
+              if isinstance(out, pd.DataFrame) and list(out.columns) == ["station", "conc"] and out.equals(expected):
+                  fits.append(option)
+          answers = {"code": fits}
       - id: py27.k2.x2
         kind: [predict]
         uses: [py14.k2, py16.k1]

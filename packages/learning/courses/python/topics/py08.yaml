@@ -7,7 +7,7 @@ prerequisites:
   - topic: py03
     key: true
     weight: 0.33
-    covers: [py03.k1]
+    covers: [py03.k1, py03.k2]
   - topic: py02
     key: false
     weight: 0.33
@@ -742,31 +742,56 @@ kps:
       - id: py08.k2.x1
         kind: [specify]
         body: |
-          同事写了 `keep = depth < 30`，你怀疑应该是 `keep = depth <= 30`。你打算拿一组 depth 值，把两种写法各运行一遍，看结果有没有不同。
+          脚本里有一行比较，决定一个采样点是不是“保留”。你只看到它的运行结果：把 depth 分别设成 20、30、40 运行，`keep` 依次是
+
+          | depth | keep |
+          |---:|---|
+          | 20 | True |
+          | 30 | False |
+          | 40 | False |
         slots:
-          - id: group
+          - id: line
             type: choice
-            prompt: 用哪一组值，才能看出两种写法的差别？
+            prompt: 这一行最可能是哪一种写法？
             options:
-              - { id: low, content: 10、20 }
-              - { id: around, content: 29、30、31 }
-              - { id: spread, content: 25、35 }
-              - { id: high, content: 40、50 }
-            key: around
+              - id: lt
+                content: |
+                  ```python
+                  keep = depth < 30
+                  ```
+              - id: le
+                content: |
+                  ```python
+                  keep = depth <= 30
+                  ```
+              - id: gt
+                content: |
+                  ```python
+                  keep = depth > 30
+                  ```
+              - id: ge
+                content: |
+                  ```python
+                  keep = depth >= 30
+                  ```
+            key: lt
           - id: value
             type: text
             format: integer
-            prompt: 这一组里，哪个值让两种写法的结果不同？
+            prompt: 20、30、40 三个值里，哪一个能分出带等号和不带等号的写法？
             key: 30
         explanation: |
-          用 **29、30、31** 这一组，起作用的是 **30**：`depth < 30` 得 False，`depth <= 30` 得 True。其他几组里没有恰好等于 30 的值，两种写法给出的结果完全一样，看不出差别。
+          20 得 True、40 得 False：留下的是小于 30 的一边，所以是 `<` 或 `<=`，排除 `>`、`>=`。再看 **30**：结果是 False，说明恰好等于 30 的不保留，是 `depth < 30`。如果写的是 `depth <= 30`，30 这一行应当是 True。
+
+          20 和 40 离阈值很远，带不带等号结果都一样；只有恰好等于阈值的 **30** 才分得出来。这也是检查阈值时一定要试恰好等于它的值的原因。
         verify: |
-          groups = {"low": [10, 20], "around": [29, 30, 31], "spread": [25, 35], "high": [40, 50]}
+          observed = {20: True, 30: False, 40: False}
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if all(run(code, depth=depth)["keep"] == value for depth, value in observed.items())]
           def differs(depth):
               return run("keep = depth < 30", depth=depth)["keep"] != run("keep = depth <= 30", depth=depth)["keep"]
-          fits = [name for name, values in groups.items() if any(differs(depth) for depth in values)]
-          values = [depth for depth in groups[fits[0]] if differs(depth)] if len(fits) == 1 else fits
-          answers = {"group": fits[0] if len(fits) == 1 else fits, "value": values[0] if len(values) == 1 else values}
+          values = [depth for depth in observed if differs(depth)]
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "value": values[0] if len(values) == 1 else values}
       - id: py08.k2.x2
         kind: [predict, specify]
         body: |

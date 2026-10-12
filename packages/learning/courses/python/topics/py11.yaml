@@ -433,77 +433,89 @@ kps:
           answers = {"claims": [claim for claim, ok in holds.items() if ok]}
     quiz:
       - id: py11.k1.x1
-        kind: [debug]
+        kind: [debug, predict]
         uses: [py03.k1, py03.k2]
         body: |
-          下面五段代码各自单独保存成一个文件运行，都会报错。
+          下面五段代码各自单独保存成一个文件运行，第 1 行都是 `print("开始")`，第 2 行都有问题。
 
           代码 1：
 
           ```python
+          print("开始")
           label = "第" + 3 + "组"
           ```
 
           代码 2：
 
           ```python
+          print("开始")
           count = 3 +
           ```
 
           代码 3：
 
           ```python
+          print("开始")
           name = 'S_A"
           ```
 
           代码 4：
 
           ```python
+          print("开始")
           value = float("abc")
           ```
 
           代码 5：
 
           ```python
+          print("开始")
           ratio = 5 / (2 - 2)
           ```
         slots:
-          - id: kinds
+          - id: shown
             type: table
-            prompt: 每段代码的报错是哪一种？
+            prompt: 运行每一段，报错之前屏幕上有没有显示“开始”？
             columns:
               - { id: code, header: 代码 }
-              - id: kind
-                header: 哪一种报错
-                input:
-                  type: choice
-                  options:
-                    - { id: syntax, label: 语法错误 }
-                    - { id: runtime, label: 运行时异常 }
+              - { id: shown, header: 显示了“开始”, input: bool }
             rows:
-              - { id: c1, cells: { code: 代码 1, kind: runtime } }
-              - { id: c2, cells: { code: 代码 2, kind: syntax } }
-              - { id: c3, cells: { code: 代码 3, kind: syntax } }
-              - { id: c4, cells: { code: 代码 4, kind: runtime } }
-              - { id: c5, cells: { code: 代码 5, kind: runtime } }
+              - { id: c1, cells: { code: 代码 1, shown: true } }
+              - { id: c2, cells: { code: 代码 2, shown: false } }
+              - { id: c3, cells: { code: 代码 3, shown: false } }
+              - { id: c4, cells: { code: 代码 4, shown: true } }
+              - { id: c5, cells: { code: 代码 5, shown: true } }
+          - id: common
+            type: choice
+            prompt: 没有显示“开始”的那几段，有什么共同点？
+            options:
+              - { id: syntax, content: 都是语法错误：Python 读不懂整段代码，一行都没有运行 }
+              - { id: line1, content: 都是第 1 行的 print 写错了 }
+              - { id: name_error, content: 报的都是 NameError }
+            key: syntax
         explanation: |
-          | 代码 | 报错 | 哪一种 |
+          | 代码 | 报错 | 屏幕上有“开始”吗 |
           |---|---|---|
-          | 1 | TypeError：文字和整数不能直接相加 | 运行时异常 |
-          | 2 | SyntaxError：`+` 后面缺了东西 | 语法错误 |
-          | 3 | SyntaxError：单引号开头、双引号结尾，文字没有收尾 | 语法错误 |
-          | 4 | ValueError：`"abc"` 不是数的写法 | 运行时异常 |
-          | 5 | ZeroDivisionError：`2 - 2` 算出来是 0 | 运行时异常 |
+          | 1 | TypeError：文字和整数不能直接相加，停在第 2 行 | 有，第 1 行已经运行了 |
+          | 2 | SyntaxError：`+` 后面缺了东西 | 没有，整段读不懂，一行也没运行 |
+          | 3 | SyntaxError：单引号开头、双引号结尾，文字没有收尾 | 没有 |
+          | 4 | ValueError：`"abc"` 不是数的写法，停在第 2 行 | 有 |
+          | 5 | ZeroDivisionError：`2 - 2` 是 0，停在第 2 行 | 有 |
 
-          代码 1、4、5 的写法都合规，要运行到那一行，算出具体的值，才发现问题；代码 2、3 写法本身不完整，Python 读都读不下去。
+          显示不显示“开始”，正好分出两种报错：语法错误发生在读代码的时候，第 1 行也不会运行；运行时异常发生在运行到那一行的时候，前面的行已经执行了。
         verify: |
-          def kind(code):
-              try:
-                  compile(code, "<q>", "exec")
-              except SyntaxError:
-                  return "syntax"
-              return "runtime" if run(code).error is not None else "no error"
-          answers = {"kinds": {f"c{i}": {"kind": kind(code)} for i, code in enumerate(BLOCKS, 1)}}
+          shown = {}
+          syntax_only = True
+          for i, code in enumerate(BLOCKS, 1):
+              r = run(code)
+              shown[f"c{i}"] = {"shown": "开始" in r.out}
+              if "开始" not in r.out:
+                  try:
+                      compile(code, "<q>", "exec")
+                      syntax_only = False
+                  except SyntaxError:
+                      pass
+          answers = {"shown": shown, "common": "syntax" if syntax_only else "other"}
       - id: py11.k1.x2
         kind: [predict]
         uses: [py06.k2]
@@ -825,23 +837,24 @@ kps:
     review:
       - id: py11.k2.r1
         kind: [debug, trace]
+        uses: [py03.k2]
         body: |
           运行 clean.py，出现了下面的报错。
 
           ```python startLine=1
           total = 24
-          samples = 3
-          failed = 3
-          usable = samples - failed
-          per_sample = total / usable
-          print(per_sample)
+          samples = 5
+          per_box = 8
+          boxes = int(samples / per_box)
+          per_box_signal = total / boxes
+          print(per_box_signal)
           ```
 
           ```text
           Traceback (most recent call last):
             File "clean.py", line 5, in <module>
-              per_sample = total / usable
-                           ~~~~~~^~~~~~~~
+              per_box_signal = total / boxes
+                               ~~~~~~^~~~~~~
           ZeroDivisionError: division by zero
           ```
         slots:
@@ -850,26 +863,35 @@ kps:
             prompt: 第 5 行里，哪个值出了问题？
             options:
               - { id: total, content: "`total`" }
-              - { id: usable, content: "`usable`" }
-              - { id: per_sample, content: "`per_sample`" }
-            key: usable
+              - { id: boxes, content: "`boxes`" }
+              - { id: per_box_signal, content: "`per_box_signal`" }
+            key: boxes
           - id: set_at
             type: text
             format: integer
             prompt: 这个值是在第几行变成 0 的？
             key: 4
+          - id: why
+            type: choice
+            prompt: 它为什么是 0？
+            options:
+              - { id: floor, content: 5 个样本装不满一盒 8 个的盒子：5 / 8 是 0.625，`int()` 直接截掉小数部分，所以是 0 }
+              - { id: minus, content: 5 减 8 得到 0 }
+              - { id: zero_input, content: "`samples` 本来就是 0" }
+            key: floor
         explanation: |
-          ZeroDivisionError 说除数是 0。第 5 行的除数是 **`usable`**；往上找，它是第 **4** 行用 samples - failed 算出来的，3 - 3 = 0。
+          ZeroDivisionError 说除数是 0。第 5 行的除数是 **`boxes`**；往上找，它是第 **4** 行 `int(samples / per_box)` 算出来的：5 / 8 是 0.625，`int()` 直接截掉小数部分，得到 0。
 
-          第 5 行本身写得没错，要追问的是第 4 行的结果：是不是所有样本都失败了？这种情况下要不要算每份的量？这是数据和需求上的问题，不是把除数改成 1 就能解决的。
+          第 5 行本身写得没错，要追问的是第 4 行的结果：样本不够装满一盒时，盒数算成 0 对不对，还要不要往下算？这是数据和需求上的问题，不是把除数改成 1 就能解决的。
         verify: |
           lines = CODE.splitlines()
           before = run("\n".join(lines[:4]))
-          zero = [name for name in ("total", "usable") if before[name] == 0]
-          # 逐条运行出错行之前的语句，找出 usable 第一次变成 0 的那一行。
-          states = trace(code="\n".join(lines[:4]), names=["usable"])
-          first = [i for i, state in enumerate(states, 1) if state.get("usable") == 0]
-          answers = {"which": zero[0] if len(zero) == 1 else zero, "set_at": first[0]}
+          zero = [name for name in ("total", "boxes") if before[name] == 0]
+          # 逐条运行出错行之前的语句，找出 boxes 第一次变成 0 的那一行。
+          states = trace(code="\n".join(lines[:4]), names=["boxes"])
+          first = [i for i, state in enumerate(states, 1) if state.get("boxes") == 0]
+          why = "floor" if int(before["samples"] / before["per_box"]) == 0 and before["samples"] / before["per_box"] != 0 else "other"
+          answers = {"which": zero[0] if len(zero) == 1 else zero, "set_at": first[0], "why": why}
       - id: py11.k2.r2
         kind: [explain]
         uses: [py03.k1, py03.k2]

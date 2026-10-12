@@ -7,11 +7,11 @@ prerequisites:
   - topic: py15
     key: true
     weight: 0.67
-    covers: [py15.k1, py15.k3]
+    covers: [py15.k1, py15.k2, py15.k3]
   - topic: py12
     key: true
     weight: 1.00
-    covers: [py12.k1, py12.k2]
+    covers: [py12.k1]
   - topic: py25
     key: false
     weight: 0.50
@@ -33,7 +33,7 @@ notes: |
   节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 5 分钟；k2 讲解与例题 3 分钟、练习 6 分钟；收束 2 分钟。
   取材：to_csv、read_csv 的参数参照 pandas 入门教程与 Python for Data Analysis 第 6 章，小表、讲解和题目为本课自拟。
 intro: |
-  宿主已经准备好 pandas 和数据表。题目里写出的文件放在一个临时的文件夹里，写完可以马上读回来看。
+  宿主已经准备好 pandas 和数据表。题目里写出的文件放在一个临时的文件夹里，写完可以马上读回来看。读回来的一列常用 `.tolist()` 变成列表，一眼就能看清每个值。
 
   导出的 CSV 会交给同事、导入别的软件，或者用 Excel 打开。文件里有哪些列、按什么顺序、第一列是什么，都由导出的那一行代码决定；对方拿到文件时不会看到你的代码，只会看到这些约定的结果。
 wrapup: |
@@ -554,7 +554,7 @@ kps:
 
       1. **行数**：需求说“每个样本一行，共 3 个样本”，`len(back)` 就应该是 3。
       2. **键**：样本编号这样的业务键不能重复。`back["sample_id"].is_unique` 在这一列没有重复值时是 True，有重复时是 False。
-      3. **数值**：挑一两个能手算的值看一看，例如某个样本的 signal。
+      3. **数值**：挑一两个能手算的值看一看，例如某个样本的 signal。取一列的第一个值，可以写 `back["sample_id"].iloc[0]`。
 
       行数对了也别急着放心：一个样本重复、另一个样本缺了，行数照样对得上，所以键要单独查。
 
@@ -833,49 +833,67 @@ kps:
           answers = {"line": lines[1], "cause": "read" if file_has_zeros and read_as_numbers else "export"}
     quiz:
       - id: py34.k2.x1
-        kind: [predict, debug]
+        kind: [specify, debug]
         uses: [py25.k1, py15.k3]
         data: [final]
         body: |
-          需求是“每个样本一行，共 4 个样本（S01、S02、S03、S04），列为 sample_id、signal”。导出后读回来，打印三项核对的结果。
+          需求是“每个样本一行，共 4 个样本（S01、S02、S03、S04），列为 sample_id、signal”。导出后读回来：
 
           ```python
           final.to_csv("final.csv", index=False)
           back = pd.read_csv("final.csv")
-          print(len(back) == 4)
-          print(back["sample_id"].is_unique)
-          print(list(back.columns) == ["sample_id", "signal"])
           ```
+
+          在这两行后面再加一行 `print(...)` 做核对，条件成立显示 True，不成立显示 False。下面哪几行在这份文件上会显示 False，也就是能发现它不符合需求？选出所有能发现的。
         slots:
           - id: checks
-            type: table
-            columns:
-              - { id: check, header: 核对 }
-              - { id: shown, header: 显示, input: bool }
-            rows:
-              - { id: c1, cells: { check: 行数等于 4, shown: true } }
-              - { id: c2, cells: { check: sample_id 没有重复, shown: false } }
-              - { id: c3, cells: { check: 列名依次是 sample_id、signal, shown: true } }
-          - id: deliver
             type: choice
-            prompt: 这个文件能按需求交出去吗？
+            multiple: true
             options:
-              - id: "yes"
-                content: 能，行数对了
-              - id: "no"
-                content: 不能，S03 出现了两次，S04 缺了
-            key: "no"
+              - id: rows
+                content: |
+                  ```python
+                  print(len(back) == 4)
+                  ```
+                feedback: 文件正好有 4 行，这一行显示 True，发现不了问题。
+              - id: unique
+                content: |
+                  ```python
+                  print(back["sample_id"].is_unique)
+                  ```
+              - id: columns
+                content: |
+                  ```python
+                  print(list(back.columns) == ["sample_id", "signal"])
+                  ```
+                feedback: 列名没有问题，这一行显示 True，发现不了问题。
+              - id: ids
+                content: |
+                  ```python
+                  print(list(back["sample_id"]) == ["S01", "S02", "S03", "S04"])
+                  ```
+              - id: width
+                content: |
+                  ```python
+                  print(len(back.columns) == 2)
+                  ```
+                feedback: 正好两列，这一行显示 True，发现不了问题。
+            key: [unique, ids]
         explanation: |
-          三行依次显示 **True、False、True**。行数恰好是 4，但那是因为 S03 出现了两次、S04 缺了，两处错误互相抵消了。所以**不能**交出去：只看行数会漏掉这种问题，键要单独查。
+          这份文件 4 行、两列、列名也对，但 S03 出现了两次、S04 没有，一多一少，行数恰好抵消。
+
+          - 查行数、查列名、查列数，三项都显示 True，看不出问题。
+          - `is_unique` 显示 False：S03 重复了。
+          - 把读回来的编号和应有的四个编号比较，读回来的是 S01、S02、S03、S03，对不上，也显示 False。
+
+          行数对了不代表没问题。键（编号）要单独查：有没有重复，该有的是不是都在。
         verify: |
-          r = run()
-          shown = [line.strip() == "True" for line in r.lines()]
-          ids = set(r["back"]["sample_id"])
-          deliver = all(shown) and ids == {"S01", "S02", "S03", "S04"}
-          answers = {
-              "checks": {f"c{i}": {"shown": value} for i, value in enumerate(shown, 1)},
-              "deliver": "yes" if deliver else "no",
-          }
+          fits = []
+          for option, code in OPTIONS["checks"].items():
+              r = run(BLOCKS[0] + "\n" + code)
+              if r.error is None and r.lines()[-1] == "False":
+                  fits.append(option)
+          answers = {"checks": fits}
       - id: py34.k2.x2
         kind: [modify]
         uses: [py15.k2]

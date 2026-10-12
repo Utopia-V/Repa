@@ -7,7 +7,7 @@ prerequisites:
   - topic: py03
     key: true
     weight: 0.67
-    covers: [py03.k1, py03.k2]
+    covers: [py03.k1, py03.k2, py03.k3]
 sources:
   - source: think-python
     where: 第 2 章 §2.7
@@ -27,12 +27,12 @@ sources:
     use: reference
 notes: |
   范围：只读调用内置函数 abs、len、max、min、round、print，以及 py03 用过的 int、float、str。max、min 在这里接几个单独的数，放进列表的用法留给 py07；len 只用于文字，列表的 len 在 py06。不讲定义函数（py40）、import（py13）、点号方法调用（py05）。round 只用保留几位小数的普通情况，例子避开 .5 边界和二进制尾数，参数名只用 ndigits。print 的关键字参数讲 sep，end 只在讲解里提一句，不出题。
-  py03.k3 的 None 在 k3 里重新用到（print 交回 None），先修的 covers 目前只写了 py03.k1、k2，是否补上 py03.k3 待维护者决定。
+  py03.k3 的 None 在 k3 里重新用到（print 交回 None），先修的 covers 因此包含 py03.k3。
   建议题型与判分：追踪变量（P）、解释代码（S/O）、小改代码（T）。解释代码一律做成可由程序核对的结构化选择，复习和测验里没有 manual 作答位。
   节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 4 分钟；k3 讲解与例题 2 分钟、练习 4 分钟；收束 1 分钟。
   讲解、例题和题目为本课自拟。
 intro: |
-  在 py03 里你已经写过 `int("12")`、`str(7)` 这样的式子。这一节把这种写法看清楚：它叫**函数调用**，AI 写的代码里到处都会遇到它。
+  前面学转换时，你已经写过 `int("12")`、`str(7)` 这样的式子。这一节把这种写法看清楚：它叫**函数调用**，AI 写的代码里到处都会遇到它。
 
   程序仍然当作一段短脚本，从第一行往下运行，只有 `print` 才在屏幕上显示东西。
 wrapup: |
@@ -71,7 +71,7 @@ kps:
       | `min(3, 9, 5)` | 3 | 几个数里最小的 |
       | `len("sample")` | 6 | 文字有几个字符 |
       | `round(3.14159, 2)` | 3.14 | 保留两位小数 |
-      | `int("12")` | 12 | py03 里的[转换](repa:concept/py03.k2)，也是一次调用 |
+      | `int("12")` | 12 | 前面学过的[转换](repa:concept/py03.k2)，也是一次调用 |
 
       所以 `total = abs(-4) + 1` 先把 `abs(-4)` 换成 4，再算 4 + 1，`total` 指向 5。有几个实参时用逗号隔开。
 
@@ -829,7 +829,7 @@ kps:
           第 1、2 行都显示 **NOTHING**：赋值不显示；第 2 行的调用算出了 12.3，但单独一行，不显示也不保存。第 3 行把返回值交给 `print`，显示 **12.3**。第 4 行显示的是 `signal` 本身，它一直没变，仍是 **12.34**。
         verify: |
           # 一行一行运行，每行接着上一行留下的变量，记下这一行打印的内容。
-          nothing = repl("pass")[0]
+          nothing = NOTHING
           state = {}
           shown = {}
           for number, line in enumerate(CODE.strip().splitlines(), 1):

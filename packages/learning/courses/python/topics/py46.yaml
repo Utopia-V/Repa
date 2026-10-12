@@ -7,7 +7,7 @@ prerequisites:
   - topic: py34
     key: true
     weight: 0.50
-    covers: [py34.k2]
+    covers: [py34.k1]
   - topic: py28
     key: true
     weight: 1.00

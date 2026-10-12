@@ -7,7 +7,7 @@ prerequisites:
   - topic: py16
     key: true
     weight: 0.33
-    covers: [py16.k1]
+    covers: [py16.k1, py16.k2]
   - topic: py02
     key: true
     weight: 0.67
@@ -878,7 +878,7 @@ kps:
 
       同一张表里的两列，行索引一模一样，所以 `df["mass_mg"] / df["volume_ml"]` 看起来就是逐行运算。要留神的是**从别处来的** Series：
 
-      - 只取出一部分行，例如 `df.loc[[22, 31], "volume_ml"]`，再和整列运算，其余行得到 NaN；
+      - 只取出一部分行，例如 `df.loc[[22, 31], "volume_ml"]`（逗号前的方括号里写行标签，这里是 22 和 31 两行），再和整列运算，其余行得到 NaN；
       - 把另一个 Series 赋成新列，`df["ref"] = ref`，pandas 按 df 的行索引去 ref 里找同名标签，找不到的行是 NaN，而不是按先后顺序填进去。
     example:
       id: py21.k3.e0
@@ -1060,31 +1060,73 @@ kps:
           answers = {"values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in diff.items()}}
     quiz:
       - id: py21.k3.x1
-        kind: [predict]
+        kind: [debug, predict]
         uses: [py14.k1]
         data: [runs]
         body: |
-          另一份记录给出了两次培养的接种量，存成 `seed`，标签是培养在表 runs 里的原行索引。阅读代码，按原行索引填写新列 `seed` 的值，没有值的填 `NaN`。
+          表 runs 里 R1、R2、R3 三次培养的接种量依次是 500、300、450。同事想算每次培养的细胞计数除以接种量，把接种量存成 `seed`，并给它配了标签 0、1、2：
 
           ```python
-          seed = pd.Series([500, 300], index=[6, 3])
-          runs["seed"] = seed
+          seed = pd.Series([500, 300, 450], index=[0, 1, 2])
+          runs["rate"] = runs["cells"] / seed
           ```
         slots:
-          - id: values
-            type: table
-            columns:
-              - { id: index, header: 原行索引 }
-              - { id: value, header: seed, input: { type: text, format: number, quick: [NaN] } }
-            rows:
-              - { id: r3, cells: { index: "3", value: 300 } }
-              - { id: r11, cells: { index: "11", value: NaN } }
-              - { id: r6, cells: { index: "6", value: 500 } }
+          - id: nan
+            type: text
+            format: integer
+            prompt: 运行之后，`runs["rate"]` 里有几个 NaN？
+            key: 3
+          - id: cause
+            type: choice
+            prompt: 为什么会这样？
+            options:
+              - { id: labels, content: "`seed` 的标签 0、1、2 和 `runs` 的原行索引 3、11、6 一个也对不上，pandas 按标签配对，配不上的就是 NaN" }
+              - { id: missing, content: 三个接种量里有缺失 }
+              - { id: dtype, content: "`cells` 是整数，不能除以 `seed`" }
+            key: labels
+          - id: fix
+            type: choice
+            multiple: true
+            prompt: 要让 R1 除以 500、R2 除以 300、R3 除以 450，第一行应改成哪几种？选出所有可以的。
+            options:
+              - id: labels
+                content: |
+                  ```python
+                  seed = pd.Series([500, 300, 450], index=[3, 11, 6])
+                  ```
+              - id: same_index
+                content: |
+                  ```python
+                  seed = pd.Series([500, 300, 450], index=runs.index)
+                  ```
+              - id: default
+                content: |
+                  ```python
+                  seed = pd.Series([500, 300, 450])
+                  ```
+              - id: shuffled
+                content: |
+                  ```python
+                  seed = pd.Series([500, 300, 450], index=[11, 3, 6])
+                  ```
+            key: [labels, same_index]
         explanation: |
-          依次为 **300、NaN、500**。pandas 按 runs 的行索引去 seed 里找：3 找到 300，6 找到 500，11 找不到，是 NaN。500 虽然写在前面，但它的标签是 6。
+          `runs` 的原行索引是 3、11、6，`seed` 的标签是 0、1、2，两边一个标签也对不上，三个格子都是 **NaN**。pandas 先按标签配对，位置在前不在前不起作用。
+
+          让两边的标签对上就行：标签写成 3、11、6，或者直接用 `runs.index`，R1 用 500、R2 用 300、R3 用 450。不写 `index` 时标签默认是 0、1、2，和 `runs` 仍然对不上；写成 11、3、6 能对上，但配错了对象：原行索引 3 的 R1 会除以 300。
         verify: |
-          after = run()["runs"]
-          answers = {"values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in after["seed"].items()}}
+          r = run()
+          expected = runs["cells"].to_numpy() / np.array([500, 300, 450])
+          fits = []
+          for option, code in OPTIONS["fix"].items():
+              result = run(code + '\nruns["rate"] = runs["cells"] / seed')
+              if result.error is None and np.array_equal(result["runs"]["rate"].to_numpy(), expected):
+                  fits.append(option)
+          answers = {
+              "nan": int(r["runs"]["rate"].isna().sum()),
+              "cause": "labels" if not set(r["seed"].index) & set(r["runs"].index) else "other",
+              "fix": fits,
+          }
       - id: py21.k3.x2
         kind: [explain]
         body: |
