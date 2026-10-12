@@ -26,7 +26,8 @@
     "test": "npm run test --workspaces --if-present",
     "postinstall": "patch-package",
     "course:check": "npm run course:check --workspace=@repa/learning --",
-    "course:runtime": "npm run course:runtime --workspace=@repa/learning --"
+    "course:runtime": "npm run course:runtime --workspace=@repa/learning --",
+    "course:confirm": "npm run course:confirm --workspace=@repa/learning --"
   },
   "devDependencies": {
     "patch-package": "^8.0.1"

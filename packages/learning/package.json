@@ -30,7 +30,9 @@
     "precourse:check": "npm run build --workspace=@repa/base",
     "course:check": "tsx src/cli.ts check",
     "precourse:runtime": "npm run build --workspace=@repa/base",
-    "course:runtime": "tsx src/cli.ts runtime"
+    "course:runtime": "tsx src/cli.ts runtime",
+    "precourse:confirm": "npm run build --workspace=@repa/base",
+    "course:confirm": "tsx src/cli.ts confirm"
   },
   "dependencies": {
     "@repa/base": "0.1.0",

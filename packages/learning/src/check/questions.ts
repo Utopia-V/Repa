@@ -6,17 +6,56 @@
 import { Value } from "typebox/value";
 
 import { checkResponse, ItemSchema, type Item } from "@repa/base/protocol";
-import type { Report } from "../format/diagnostics.js";
+
+import type { Report, SourceFile } from "../format/diagnostics.js";
 import type { LoadedCourse } from "../format/load.js";
+import type { Topic } from "../format/schema.js";
+import { currentConfirmation, needsConfirmation } from "./confirm.js";
 import { gradeSlot } from "./grade.js";
-import { publicItem, referenceResponse, scalarText, topicQuestions } from "./items.js";
+import { publicItem, referenceResponse, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
+
+/** verified 段的记录要指向本 topic 存在的题和作答位，每道题一条。 */
+function checkRecords(topic: Topic, file: SourceFile, report: Report): void {
+  const questions = new Map(topicQuestions(topic).map((entry) => [entry.question.id, entry.question]));
+  const seen = new Set<string>();
+  (topic.verified ?? []).forEach((record, index) => {
+    const at = ["verified", index];
+    const question = questions.get(record.question);
+    if (!question) {
+      report.error("verified_unknown", `核对记录里的 ${record.question} 不是本 topic 的题目`, file, [...at, "question"]);
+      return;
+    }
+    if (seen.has(record.question)) report.error("verified_duplicate", `${record.question} 有两条核对记录`, file, [...at, "question"]);
+    seen.add(record.question);
+    for (const slot of record.slots) {
+      if (!question.slots.some((candidate) => candidate.id === slot)) report.error("verified_unknown", `核对记录里的 ${slot} 不是 ${record.question} 的作答位`, file, [...at, "slots"]);
+    }
+  });
+}
+
+/** 复习和测验题的 manual 作答位要有当前版本的模型核对记录。 */
+function checkConfirmation(topic: Topic, file: SourceFile, entry: QuestionEntry, version: string, report: Report): void {
+  if (!needsConfirmation(entry) || currentConfirmation(topic, entry.question, version)) return;
+  const stale = (topic.verified ?? []).some((record) => record.question === entry.question.id);
+  const slots = (entry.question.manual ?? []).join("、");
+  report.error(
+    "manual_unconfirmed",
+    stale
+      ? `${entry.question.id} 的核对记录对应的是旧版本或没有覆盖 ${slots}；题目改过后要重新核对：npm run course:confirm -- --topic ${topic.id}`
+      : `复习和测验题 ${entry.question.id} 的作答位 ${slots} 还没有模型核对记录：npm run course:confirm -- --topic ${topic.id}`,
+    file, [...entry.at, "manual"],
+  );
+}
 
 export async function checkReferences(course: LoadedCourse, report: Report): Promise<Map<string, Item>> {
   const items = new Map<string, Item>();
   for (const { topic, file } of course.topics) {
-    for (const { question, at } of topicQuestions(topic)) {
+    checkRecords(topic, file, report);
+    for (const entry of topicQuestions(topic)) {
+      const { question, at } = entry;
       const item = await publicItem(question, topic);
       items.set(question.id, item);
+      checkConfirmation(topic, file, entry, item.version, report);
       if (!Value.Check(ItemSchema, item)) {
         const first = Value.Errors(ItemSchema, item)[0];
         report.error("item_invalid", `投影出的题目不符合交互词汇：${first?.instancePath ?? ""} ${first?.message ?? ""}`, file, at);

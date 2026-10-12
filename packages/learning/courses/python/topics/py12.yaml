@@ -21,7 +21,7 @@ notes: |
   范围：不依赖 Python 语法。输入是一张能直接读的小表；本节不实现筛选算法，不讲统计检验。题中的阈值都是题设约定，不是研究结论。
   材料只提供接口与小步核对的思想，把它们转成数据处理要求是本课自拟的内容，需要试用检验。
   节奏（待试做校准）：目标 1 分钟；k1 讲解与例题 3 分钟、练习 5 分钟；k2 讲解与例题 3 分钟、练习 6 分钟；收束 2 分钟。开放题可以口述。
-  把自然语言要求填成字段的题只能人工核对，列在 manual 里；边界例子的结果由程序独立算出。
+  把自然语言要求填成字段的题程序算不出答案，列在 manual 里，复习和测验题由 course:confirm 让模型独立再解核对；边界例子的结果由程序独立算出。
 intro: |
   这一节不写 Python。你会看到一些小表，任务是把一句含糊的要求，说成别人拿到同一张表就能照做、结果也能核对的规则。
 
@@ -595,3 +595,25 @@ kps:
               "first": list(samples.loc[samples["signal"] >= 10, "sample_id"]),
               "second": list(samples.loc[samples["signal"] > 10, "sample_id"]),
           }
+
+verified:
+  - question: py12.k1.r1
+    version: sha256:043b7526fd9cd60eb5016c76003f139a6c378cb2c2ef02575292c1b6bbbcd57b
+    slots: [rewrite]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py12.k1.r2
+    version: sha256:a8370ef7a021f99a27d7ad8a08f2e95185f54d424ec8becc3b5efdf9229b0432
+    slots: [missing]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py12.k1.x1
+    version: sha256:8a636bc58bac9f552d344ef255e0fa07eed43c10387e5e1544b4e69ca20bb984
+    slots: [column, operator, threshold, output, order]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py12.k1.x2
+    version: sha256:1463b26b85de5e469e60c8bcb04d26fbe642d2cc1e6df6a959262a0f187db64a
+    slots: [next]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12

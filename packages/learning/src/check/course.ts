@@ -23,8 +23,8 @@ export interface CheckSummary {
   course?: { id: string; version: string };
   topics: { complete: number; outline: number };
   questions: number;
-  /** 复习和测验题池里没有程序核对、要人工核对的作答位，写成“题目 id/作答位 id”。 */
-  manualInPools: string[];
+  /** 复习和测验题池里由模型核对的作答位，写成“题目 id/作答位 id”；缺少当前版本记录的另作为错误报告。 */
+  confirmationSlots: string[];
   /** 代码核对是否真的运行了。 */
   ran: boolean;
   runtime?: RuntimeVersions;
@@ -40,7 +40,7 @@ export interface CheckResult {
 export async function checkCourse(root: string, options: CheckOptions = {}): Promise<CheckResult> {
   const report = new Report();
   const code: CodeStats = { verifyJobs: 0, verifiedSlots: 0, testRuns: 0 };
-  const summary: CheckSummary = { topics: { complete: 0, outline: 0 }, questions: 0, manualInPools: [], ran: false, code };
+  const summary: CheckSummary = { topics: { complete: 0, outline: 0 }, questions: 0, confirmationSlots: [], ran: false, code };
   const loaded = await loadCourse(root, report, options.base);
   if (!loaded) return { diagnostics: report.diagnostics, summary };
   summary.course = { id: loaded.course.id, version: loaded.course.version };
@@ -49,7 +49,7 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     for (const { question, pool } of topicQuestions(topic)) {
       summary.questions += 1;
       if (pool !== "review" && pool !== "quiz") continue;
-      for (const slot of question.manual ?? []) summary.manualInPools.push(`${question.id}/${slot}`);
+      for (const slot of question.manual ?? []) summary.confirmationSlots.push(`${question.id}/${slot}`);
     }
   }
   checkRules(loaded, report);

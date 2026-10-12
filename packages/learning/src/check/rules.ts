@@ -20,7 +20,7 @@ export interface CourseIndex {
   ancestors: Map<string, Set<string>>;
 }
 
-/** 需要人工核对或由测试、评分要点负责的作答位。 */
+/** 要由 verify 核对或列进 manual 的作答位；代码题、带测试的排列题和开放作答由测试或评分要点负责。 */
 export function slotNeedsVerification(slot: SlotDef): boolean {
   if (slot.type === "code") return false;
   if (slot.type === "order" && slot.tests) return false;

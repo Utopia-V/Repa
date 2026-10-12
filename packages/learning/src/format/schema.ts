@@ -343,7 +343,10 @@ export const QuestionSchema = object({
    * 以及题目 data 里的数据。
    */
   verify: Type.Optional(text(20_000)),
-  /** 无法用程序核对、需要人工核对的作答位。 */
+  /**
+   * 程序算不出答案、需要语义判断的作答位。复习和测验题里的这些作答位，要由 course:confirm
+   * 用一次隔离的模型调用独立再解，一致后在 topic 的 verified 段留下记录。
+   */
   manual: Type.Optional(Type.Array(IdSchema, { maxItems: 24 })),
   // 以下为解释性元数据，不进内容哈希。
   /** 题型：预测输出、追踪变量、找错、解释代码、小改代码、写清需求。 */
@@ -389,6 +392,21 @@ export const KpSchema = object({
 });
 export type Kp = Static<typeof KpSchema>;
 
+/**
+ * 一条模型核对记录：只把题目的公开部分交给模型独立作答，按作答位自己的判分规则与标准答案比对，
+ * slots 里的 manual 作答位全部一致时才记下。记录放在 topic 文件里、不在题目里，所以不进题目版本；
+ * 题目改动后版本变了，旧记录就不再算数。
+ */
+export const ConfirmationSchema = object({
+  question: QuestionIdSchema,
+  version: Type.String({ pattern: "^sha256:[0-9a-f]{64}$", description: "题目版本写成 sha256:<64 位十六进制>" }),
+  slots: Type.Array(IdSchema, { minItems: 1, maxItems: 24 }),
+  /** provider/id，例如 deepseek/deepseek-flash。 */
+  model: text(100),
+  date: Type.String({ pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "日期写成 YYYY-MM-DD" }),
+});
+export type Confirmation = Static<typeof ConfirmationSchema>;
+
 export const TopicSchema = object({
   id: TopicIdSchema,
   title: text(80),
@@ -405,5 +423,7 @@ export const TopicSchema = object({
   wrapup: Type.Optional(ContentInputSchema),
   data: Type.Optional(Type.Record(NameSchema, FixtureSchema)),
   kps: Type.Array(KpSchema, { minItems: 1, maxItems: 8 }),
+  /** manual 作答位的模型核对记录，由 course:confirm 写入，每道题一条。 */
+  verified: Type.Optional(Type.Array(ConfirmationSchema, { maxItems: 500 })),
 });
 export type Topic = Static<typeof TopicSchema>;
