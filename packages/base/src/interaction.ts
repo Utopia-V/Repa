@@ -1,12 +1,13 @@
 /**
- * 交互词汇：题面怎样写、作答长什么样、提交结果和反馈怎样回。
+ * 交互词汇：向用户要结构化输入时，说明怎样写、作答长什么样。
  *
- * 词汇只描述交卷前可以给学生看的东西和交卷后已释放的反馈；答案、评分规则、解析和学习证据都留在插件。
- * 任务区和概念卡由插件把 Item 等嵌进自己的契约，对话里的询问走底座的 ask.*。
+ * 底座只管这一件事：把内容块和作答位交给前端，收回原样的作答，查结构。作答怎样解释、算不算数、
+ * 要不要记下来，都由调用方决定，例如健康插件记下当天的打卡，写作插件按用户挑的方案继续，Agent 拿到澄清问题的回答。
+ * 插件自己的界面把 Item 等嵌进自己的契约，对话里的询问走底座的 ask.*。
  *
- * 版本规则：词汇只增不改。已有类型名、字段含义、默认值和作答格式不改；新增作答位、影响题意的内容块
- * 和忽略后会改变题意的特性进 Item.requires；可以忽略的呈现提示直接加。每次新增把
- * INTERACTION_VOCABULARY 加一。发送方按当前版本严格校验，多余字段直接拒绝；前端用 readItem、readFeedback
+ * 版本规则：词汇只增不改。已有类型名、字段含义、默认值和作答格式不改；新增作答位、影响含义的内容块
+ * 和忽略后会改变含义的特性进 Item.requires；可以忽略的呈现提示直接加。每次新增把
+ * INTERACTION_VOCABULARY 加一。发送方按当前版本严格校验，多余字段直接拒绝；前端用 readItem
  * 宽松读取，丢掉不认识的字段，再按 requires 决定能不能作答。
  *
  * 本文件经 @repa/base/protocol 与 @repa/base/plugin 导出，保持浏览器可用。
@@ -29,7 +30,7 @@ export const INTERACTION_CAPABILITIES = [
 ] as const;
 export type InteractionCapability = (typeof INTERACTION_CAPABILITIES)[number];
 
-/** 题目、小问、选项、单元格等的标识，题内唯一即可。 */
+/** Item、小问、选项、单元格等的标识，在所属的 Item 内唯一即可。 */
 const id = Type.String({ minLength: 1, maxLength: 120, pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" });
 const reference = object({ id, version: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }) });
 
@@ -42,7 +43,7 @@ export const InteractionCapabilitiesSchema = object({
 export type InteractionCapabilities = Static<typeof InteractionCapabilitiesSchema>;
 
 // ---------------------------------------------------------------------------
-// 内容块：题面、小问、选项和反馈共用
+// 内容块：说明、小问和选项共用
 // ---------------------------------------------------------------------------
 
 /**
@@ -56,7 +57,7 @@ export const MarkdownBlockSchema = object({
   math: Type.Optional(Type.Boolean()),
 });
 
-/** 代码块。startLine 有值时显示行号并从该值起算，题目可以说“第 3 行”。 */
+/** 代码块。startLine 有值时显示行号并从该值起算，说明里可以说“第 3 行”。 */
 export const CodeBlockSchema = object({
   type: Type.Literal("code"),
   language: Type.String({ maxLength: 32 }),
@@ -67,7 +68,7 @@ export const CodeBlockSchema = object({
 
 /**
  * 图像。asset 是内容所属插件里的不可变资产 id，读取入口另定。
- * 默认视为影响题意；decorative 为 true 时，不能显示图像的前端可以只给 alt。
+ * 默认视为影响内容的含义；decorative 为 true 时，不能显示图像的前端可以只给 alt。
  */
 export const ImageBlockSchema = object({
   type: Type.Literal("image"),
@@ -82,27 +83,27 @@ export const ContentSchema = Type.Array(BlockSchema, { maxItems: 64 });
 export type Content = Static<typeof ContentSchema>;
 
 // ---------------------------------------------------------------------------
-// 作答位：一道题由题面和若干作答位组成，每种作答位只有一种作答形状
+// 作答位：一次询问由说明和若干作答位组成，每种作答位只有一种作答形状
 // ---------------------------------------------------------------------------
 
 const slotBase = {
   id,
-  /** 这一小问的题面；省略时只看 Item.body。 */
+  /** 这一小问的说明；省略时只看 Item.body。 */
   prompt: Type.Optional(ContentSchema),
-  /** 简短名称，供读屏和反馈定位。 */
+  /** 简短名称，供读屏和定位问题。 */
   label: Type.Optional(Type.String({ maxLength: 80 })),
   /** 默认必答。可选的小问不答也能提交。 */
   optional: Type.Optional(Type.Boolean()),
 };
 
-// 选项 id 不能暗示对错；顺序由后端决定，前端不重排。
+// 选项按给出的顺序显示，前端不重排。
 const OptionSchema = object({
   id,
   content: ContentSchema,
   label: Type.Optional(Type.String({ maxLength: 80 })),
 });
 
-/** 选择：单选、多选、判断、下拉。other 允许自填“其他”，主要给询问用；layout 只是呈现提示。 */
+/** 选择：单选、多选、是否、下拉，例如写作时让用户挑一个方案。other 允许用户自填“其他”；layout 只是呈现提示。 */
 export const ChoiceSlotSchema = object({
   ...slotBase,
   type: Type.Literal("choice"),
@@ -115,8 +116,8 @@ export const ChoiceSlotSchema = object({
 });
 
 /**
- * 文本输入：短答、数值、表达式、逐行输出、开放说明。format 只是输入提示（integer、number、math、date），
- * 不认识的 format 按普通文本框处理；quick 是一键填入的固定文字，不受 format 限制。作答永远是原样文本。
+ * 文本输入：短文本、数值、日期、表达式、多行说明。format 只是输入提示（integer、number、math、date），
+ * 不认识的 format 按普通文本框处理；quick 是一键填入的固定文字，例如“不适用”，不受 format 限制。作答永远是原样文本。
  */
 export const TextSlotSchema = object({
   ...slotBase,
@@ -130,7 +131,7 @@ export const TextSlotSchema = object({
 });
 
 /**
- * 排列：排序、Parsons、从候选里挑出并排好。items 的交付顺序就是初始顺序，必须由后端整体打乱并记进尝试。
+ * 排列：给候选排序，或从候选里挑出一部分再排好，例如写作时排定章节顺序。items 按给出的顺序作为初始顺序，前端不重排。
  * partial 为 true 时可以留下不用的块；indent 是允许的最大缩进层级，省略则不缩进。
  */
 export const OrderSlotSchema = object({
@@ -154,8 +155,8 @@ const ChoiceCellSchema = object({
 });
 
 /**
- * 表格：追踪表、逐行掩码、WWPD。行列由题目给定；单元格要么是固定文字（Markdown 行内子集），
- * 要么是文本或选择输入格。第一版不能增删行列。
+ * 表格：逐行填写的记录，例如一周里每天的睡眠时长和是否服药。行列由调用方给定；单元格要么是固定文字
+ * （Markdown 行内子集），要么是文本或选择输入格。第一版不能增删行列。
  */
 export const TableSlotSchema = object({
   ...slotBase,
@@ -171,7 +172,7 @@ export const TableSlotSchema = object({
   }), { minItems: 1, maxItems: 60 }),
 });
 
-/** 代码编辑：小改代码、骨架代码加测试。运行和判分在插件的隔离环境里，前端只交代码。 */
+/** 代码编辑：在给出的起始内容上修改一段代码或配置，前端只交编辑后的文本。 */
 export const CodeSlotSchema = object({
   ...slotBase,
   type: Type.Literal("code"),
@@ -184,13 +185,14 @@ export const SlotSchema = Type.Union([ChoiceSlotSchema, TextSlotSchema, OrderSlo
 export type Slot = Static<typeof SlotSchema>;
 
 // ---------------------------------------------------------------------------
-// 题目：只含交卷前可以给学生看的部分
+// Item：一次询问交给前端的内容
 // ---------------------------------------------------------------------------
 
 /**
- * id 是插件内稳定的题目标识；Agent 临时出的题由底座生成 ask:<uuid>。
- * version 是完整题目定义（公开部分、答案、评分规则、解析、测试）经 contentVersion 得到的哈希。
- * requires 由 requiredCapabilities 从结构算出，不手写；前端缺任何一项，就不能把这道题显示成可提交的题。
+ * Item 只含可以给用户看的部分；调用方自己保留的数据，例如解释作答用的规则，不放进来。
+ * id 是调用方内稳定的标识；Agent 临时提的问题由底座生成 ask:<uuid>。
+ * version 是调用方对完整定义（包括它自己保留的部分）经 contentVersion 得到的哈希；没有私有部分时对公开内容计算。
+ * requires 由 requiredCapabilities 从结构算出，不手写；前端缺任何一项，就不能把它显示成可以提交的表单。
  * 0 个作答位表示只读内容。
  */
 export const ItemSchema = object({
@@ -202,11 +204,11 @@ export const ItemSchema = object({
   slots: Type.Array(SlotSchema, { maxItems: 24 }),
 });
 export type Item = Static<typeof ItemSchema>;
-/** 交给底座的题可以不带 version 和 requires，由底座补上。 */
+/** 交给底座的 Item 可以不带 version 和 requires，由底座补上。 */
 export type ItemDraft = Omit<Item, "version" | "requires">;
 
 // ---------------------------------------------------------------------------
-// 作答：前端提交原样输入，不去空白、不改大小写、不判断对错、不带分数
+// 作答：前端提交原样输入，不去空白、不改大小写，也不做别的处理
 // ---------------------------------------------------------------------------
 
 export const ChoiceAnswerSchema = object({
@@ -236,81 +238,16 @@ export const CodeAnswerSchema = object({
 export const AnswerSchema = Type.Union([ChoiceAnswerSchema, TextAnswerSchema, OrderAnswerSchema, TableAnswerSchema, CodeAnswerSchema]);
 export type Answer = Static<typeof AnswerSchema>;
 
-/**
- * 一道题的作答。answers 以作答位 id 为键，缺键表示这一小问没答。
- * dontKnow 表示学习者明确说“不会”：此时可以不填任何作答位，checkResponse 不再要求必答位。
- */
+/** 一次作答。answers 以作答位 id 为键，缺键表示这一小问没答。 */
 export const ItemResponseSchema = object({
   item: reference,
   answers: Type.Record(Type.String(), AnswerSchema),
-  dontKnow: Type.Optional(Type.Literal(true)),
 });
 export type ItemResponse = Static<typeof ItemResponseSchema>;
 
-// ---------------------------------------------------------------------------
-// 提交结果与反馈
-// ---------------------------------------------------------------------------
-
-// ungraded：本来就不判；pending：已保存，判分还没完成。
-const VerdictSchema = Type.Union([
-  Type.Literal("correct"), Type.Literal("partial"), Type.Literal("incorrect"),
-  Type.Literal("ungraded"), Type.Literal("pending"),
-]);
-const ScoreSchema = object({ earned: Type.Number({ minimum: 0 }), max: Type.Number({ minimum: 0 }) });
-
-export const SlotFeedbackSchema = object({
-  verdict: VerdictSchema,
-  score: Type.Optional(ScoreSchema),
-  message: Type.Optional(ContentSchema),
-  /** 参考答案，用作答格式表示；只在插件决定释放时出现。 */
-  expected: Type.Optional(AnswerSchema),
-  /** 选项、单元格（"rowId/columnId"）或排列位置级的标记。 */
-  marks: Type.Optional(Type.Record(Type.String(), Type.Union([Type.Literal("correct"), Type.Literal("incorrect"), Type.Literal("missed")]))),
-  /** 代码题的用例结果；hidden 的用例只报告结果，不给输入和期望。 */
-  tests: Type.Optional(Type.Array(object({
-    name: Type.String({ maxLength: 200 }),
-    result: Type.Union([Type.Literal("passed"), Type.Literal("failed"), Type.Literal("error"), Type.Literal("timeout")]),
-    hidden: Type.Optional(Type.Boolean()),
-    detail: Type.Optional(ContentSchema),
-  }), { maxItems: 100 })),
-  /** 按评分要点给的反馈。unsure 表示判分方没有把握，不等于学生错。 */
-  criteria: Type.Optional(Type.Array(object({
-    label: Type.String({ maxLength: 200 }),
-    met: Type.Union([Type.Literal("yes"), Type.Literal("no"), Type.Literal("unsure")]),
-    comment: Type.Optional(Type.String({ maxLength: 2_000 })),
-  }), { maxItems: 20 })),
-});
-
-/** judge 为 model 时，界面标明模型反馈仅供参考；它不更新学习状态，由插件保证。 */
-export const FeedbackSchema = object({
-  item: reference,
-  verdict: VerdictSchema,
-  judge: Type.Optional(Type.Union([Type.Literal("rule"), Type.Literal("tests"), Type.Literal("model"), Type.Literal("person")])),
-  score: Type.Optional(ScoreSchema),
-  message: Type.Optional(ContentSchema),
-  slots: Type.Optional(Type.Record(Type.String(), SlotFeedbackSchema)),
-});
-export type Feedback = Static<typeof FeedbackSchema>;
-
-/** 结构或格式问题；slot 指向出问题的小问。 */
+/** 作答的结构或格式问题；slot 指向出问题的小问。 */
 const ProblemSchema = object({ slot: Type.Optional(id), message: Type.String({ maxLength: 500 }) });
 export type Problem = Static<typeof ProblemSchema>;
-
-/**
- * rejected：格式不合要求，没有记为作答，改好可以再交；只返回问题列表，不透露其他小问的对错。
- * recorded：已经记为一次作答。练习时通常带 feedback，测验交卷前不带。
- */
-export const SubmitResultSchema = Type.Union([
-  object({
-    status: Type.Literal("rejected"),
-    problems: Type.Array(ProblemSchema, { minItems: 1, maxItems: 24 }),
-  }),
-  object({
-    status: Type.Literal("recorded"),
-    feedback: Type.Optional(FeedbackSchema),
-  }),
-]);
-export type SubmitResult = Static<typeof SubmitResultSchema>;
 
 // ---------------------------------------------------------------------------
 // 对话里的询问：ask.request、ask.reply、ask.closed
@@ -321,7 +258,6 @@ const originId = Type.String({ minLength: 1, maxLength: 200 });
 
 /**
  * 通知 ask.request：只发给发起这次 Agent 运行的连接。origin.callId 让前端把卡片放在对应工具调用的位置。
- * purpose 为 question 表示 Agent 在问意见；practice 是练习小题，可以有反馈，不计入学习记录。
  */
 export const AskRequestSchema = object({
   id,
@@ -331,11 +267,10 @@ export const AskRequestSchema = object({
     sessionId: Type.Optional(originId),
     callId: Type.Optional(originId),
   }),
-  purpose: Type.Union([Type.Literal("question"), Type.Literal("practice")]),
   item: ItemSchema,
 });
 export type AskRequest = Static<typeof AskRequestSchema>;
-// ask.request 的信封：除题目外都严格校验，题目交给 readItem。
+// ask.request 的信封：除 Item 外都严格校验，Item 交给 readItem。
 const AskEnvelopeSchema = object({ ...AskRequestSchema.properties, item: Type.Unknown() });
 
 /**
@@ -351,7 +286,7 @@ export type AskClosed = Static<typeof AskClosedSchema>;
 /**
  * 方法 ask.reply：submit 交作答；decline 不按卡片作答，可以附一句话交回模型；cancel 直接关掉；
  * unsupported 表示前端无法渲染（正常情况下底座已按能力拦住）。response 只随 submit，message 只随 decline。
- * 结果：submit 为 SubmitResult，rejected 时询问保持打开，改好可以再交；其他动作为 null。
+ * 结果：submit 为 AskSubmitResult，其他动作为 null。
  */
 export const AskReplyParamsSchema = object({
   id,
@@ -360,7 +295,25 @@ export const AskReplyParamsSchema = object({
   message: Type.Optional(Type.String({ maxLength: 4_000 })),
 });
 export type AskReplyParams = Static<typeof AskReplyParamsSchema>;
-export const AskReplyResultSchema = Type.Union([SubmitResultSchema, Type.Null()]);
+
+/**
+ * 一次提交的结果，调用方只能二选一：invalid 是格式不对，交回问题列表，卡片保持打开，用户改好可以再交；
+ * accepted 是接受了这次作答，可以附一段内容显示在卡片上，例如“已记下今天的打卡”，然后卡片关闭。
+ * 怎样解释作答、要不要记下来，都由调用方自己决定，不在协议里。
+ */
+export const AskSubmitResultSchema = Type.Union([
+  object({
+    status: Type.Literal("invalid"),
+    problems: Type.Array(ProblemSchema, { minItems: 1, maxItems: 24 }),
+  }),
+  object({
+    status: Type.Literal("accepted"),
+    message: Type.Optional(ContentSchema),
+  }),
+]);
+export type AskSubmitResult = Static<typeof AskSubmitResultSchema>;
+export const AskReplyResultSchema = Type.Union([AskSubmitResultSchema, Type.Null()]);
+export type AskReplyResult = Static<typeof AskReplyResultSchema>;
 
 // ---------------------------------------------------------------------------
 // 纯函数：浏览器与 Node 都可用
@@ -369,7 +322,7 @@ export const AskReplyResultSchema = Type.Union([SubmitResultSchema, Type.Null()]
 const LONE_SURROGATE = /[\uD800-\uDFFF]/u;
 
 function notCanonical(path: string): RepaFault {
-  return new RepaFault("invalid_definition", "题目定义里有不能规范化的值，只能使用 JSON 数据", { path });
+  return new RepaFault("invalid_definition", "定义里有不能规范化的值，只能使用 JSON 数据", { path });
 }
 
 /**
@@ -413,9 +366,9 @@ function canonical(value: unknown, path: string): string {
 }
 
 /**
- * 完整题目定义经 RFC 8785 规范化后取 SHA-256，返回 "sha256:<hex>"。所有插件用同一个实现，版本才可比。
- * 进哈希的是学生看到什么、怎样判：公开部分、答案、评分规则、解析和测试；知识点归属、难度、标签和交付时的打乱顺序
- * 不放进 definition。只看得到公开内容的场合（Agent 的临时题）对公开内容计算。
+ * 完整定义经 RFC 8785 规范化后取 SHA-256，返回 "sha256:<hex>"。所有插件用同一个实现，版本才可比。
+ * 调用方决定 definition 里放什么：通常是用户看到的内容加上它自己保留、会影响含义的部分；
+ * 只看得到公开内容的场合（Agent 临时提的问题）对公开内容计算。
  */
 export async function contentVersion(definition: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(canonical(definition, ""));
@@ -425,7 +378,7 @@ export async function contentVersion(definition: unknown): Promise<string> {
 
 function contentNeeds(content: Content | undefined, needs: Set<string>): void {
   for (const block of content ?? []) {
-    // 装饰图不影响题意：不能显示图像的前端只给 alt 也能作答。
+    // 装饰图不影响含义：不能显示图像的前端只给 alt 也能作答。
     if (block.type === "image" && block.decorative === true) continue;
     needs.add(`block.${block.type}`);
     if (block.type === "markdown" && block.math === true) needs.add("markdown.math");
@@ -433,7 +386,7 @@ function contentNeeds(content: Content | undefined, needs: Set<string>): void {
 }
 
 /**
- * 从题目结构推出渲染这道题必须理解的能力：用到的作答位、内容块，以及 markdown.math。
+ * 从 Item 的结构推出渲染它必须理解的能力：用到的作答位、内容块，以及 markdown.math。
  * format、layout、placeholder、quick、other 这些可以忽略的提示不进 requires。结果排序去重。
  */
 export function requiredCapabilities(item: ItemDraft): string[] {
@@ -456,7 +409,7 @@ export function canRender(capabilities: InteractionCapabilities | undefined, ite
 
 export type CheckResult = { ok: true } | { ok: false; problems: Problem[] };
 
-// SubmitResult 最多带 24 条问题。
+// ask.reply 的 invalid 结果最多带 24 条问题。
 const MAX_PROBLEMS = 24;
 
 function characters(text: string): number {
@@ -479,29 +432,27 @@ function own<T>(record: Record<string, T> | undefined, key: string): T | undefin
 }
 
 /**
- * 结构检查，与判分无关：作答对应的题目和版本一致，作答类型与作答位一致；选项、块、行列 id 存在且不重复；
+ * 结构检查，不解释作答的含义：作答对应的 Item 和版本一致，作答类型与作答位一致；选项、块、行列 id 存在且不重复；
  * 选择个数、排列是否完整、缩进长度和范围、文本长度和代码行数都在声明的范围内；必答位不缺。
- * dontKnow 为 true 时不查必答和完整性，其余照查。format 的含义由插件判断，这里不查。
- * 失败时返回 problems，插件可以原样作为 rejected 结果交回前端。
+ * format 的含义由调用方判断，这里不查。失败时返回 problems，调用方可以原样作为 invalid 交回前端。
  */
 export function checkResponse(item: Item, response: ItemResponse): CheckResult {
   if (!Value.Check(ItemResponseSchema, response)) {
     return { ok: false, problems: [{ message: "作答不符合接口要求" }] };
   }
   if (response.item.id !== item.id || response.item.version !== item.version) {
-    return { ok: false, problems: [{ message: "作答对应的题目已经变化，请重新读取题目后作答" }] };
+    return { ok: false, problems: [{ message: "作答对应的内容已经变化，请重新读取后作答" }] };
   }
   const problems: Problem[] = [];
-  const complete = response.dontKnow !== true;
   const slots = new Map(item.slots.map((slot) => [slot.id, slot]));
   for (const key of Object.keys(response.answers)) {
-    if (!slots.has(key)) problems.push({ message: "作答里有题目中不存在的小问" });
+    if (!slots.has(key)) problems.push({ message: "作答里有不存在的小问" });
   }
   for (const slot of item.slots) {
     const report = (message: string) => problems.push({ slot: slot.id, message });
     const answer = own(response.answers, slot.id);
     if (answer === undefined) {
-      if (complete && slot.optional !== true) report("这一小问还没有作答");
+      if (slot.optional !== true) report("这一小问还没有作答");
       continue;
     }
     if (answer.type !== slot.type) {
@@ -519,11 +470,11 @@ export function checkResponse(item: Item, response: ItemResponse): CheckResult {
       const multiple = slot.multiple === true;
       const min = multiple ? slot.minSelected ?? 1 : 1;
       const max = multiple ? slot.maxSelected ?? slot.options.length + (slot.other === undefined ? 0 : 1) : 1;
-      if (complete && count < min) report(multiple ? `至少选择 ${min} 项` : "请选择一项");
+      if (count < min) report(multiple ? `至少选择 ${min} 项` : "请选择一项");
       if (count > max) report(multiple ? `最多选择 ${max} 项` : "只能选择一项");
     } else if (slot.type === "text" && answer.type === "text") {
       if (answer.text === "") {
-        if (complete && slot.optional !== true) report("这一小问还没有作答");
+        if (slot.optional !== true) report("这一小问还没有作答");
       } else if (slot.maxLength !== undefined && characters(answer.text) > slot.maxLength) {
         report(`不能超过 ${slot.maxLength} 个字`);
       }
@@ -531,8 +482,8 @@ export function checkResponse(item: Item, response: ItemResponse): CheckResult {
       const known = new Set(slot.items.map((block) => block.id));
       if (answer.items.some((block) => !known.has(block))) report("排列里有不存在的块");
       if (new Set(answer.items).size !== answer.items.length) report("同一个块排了不止一次");
-      if (complete && slot.partial !== true && answer.items.length < slot.items.length) report("还有块没有排进去");
-      if (complete && slot.partial === true && answer.items.length === 0 && slot.optional !== true) report("这一小问还没有作答");
+      if (slot.partial !== true && answer.items.length < slot.items.length) report("还有块没有排进去");
+      if (slot.partial === true && answer.items.length === 0 && slot.optional !== true) report("这一小问还没有作答");
       if (slot.indent === undefined) {
         if (answer.indents !== undefined) report("这一小问不需要缩进");
       } else if (answer.indents === undefined || answer.indents.length !== answer.items.length) {
@@ -577,10 +528,10 @@ export function checkResponse(item: Item, response: ItemResponse): CheckResult {
           if (filled === undefined || (filled.type === "text" && filled.text === "") || (filled.type === "choice" && filled.selected.length === 0)) missing++;
         }
       }
-      if (complete && missing > 0) report(`表格还有 ${missing} 格没有填写`);
+      if (missing > 0) report(`表格还有 ${missing} 格没有填写`);
     } else if (slot.type === "code" && answer.type === "code") {
       if (answer.code === "") {
-        if (complete && slot.optional !== true) report("这一小问还没有作答");
+        if (slot.optional !== true) report("这一小问还没有作答");
       } else if (slot.maxLines !== undefined && lineCount(answer.code) > slot.maxLines) {
         report(`代码不能超过 ${slot.maxLines} 行`);
       }
@@ -593,8 +544,8 @@ export function checkResponse(item: Item, response: ItemResponse): CheckResult {
 // ---------------------------------------------------------------------------
 // 前端的宽松读取
 // ---------------------------------------------------------------------------
-// 词汇只增不改：新版本可以给题目和反馈加可选字段，也可以加作答位、内容块这类必须理解的特性，
-// 后者一定进 requires。旧前端如果严格校验，词汇每加一个字段就读不了题；所以前端读的时候认识的字段照常查类型，
+// 词汇只增不改：新版本可以给 Item 加可选字段，也可以加作答位、内容块这类必须理解的特性，
+// 后者一定进 requires。旧前端如果严格校验，词汇每加一个字段就读不了；所以前端读的时候认识的字段照常查类型，
 // 不认识的字段丢掉，读不懂的部分连同它所在的那一项丢掉，再按 requires 决定能不能作答。
 // 长度、个数这类上限读取时不查：放宽上限也属于必须理解的变化，同样经 requires 拦下。
 
@@ -625,7 +576,7 @@ class Unreadable extends Error {
 }
 
 interface ReadContext {
-  /** 读题目时收集读不懂的作答位和内容块对应的能力名；读反馈时没有。 */
+  /** 读 Item 时收集读不懂的作答位和内容块对应的能力名；读别的内容时没有。 */
   needs?: Set<string>;
 }
 
@@ -636,7 +587,6 @@ function discriminants(union: JsonSchema): string {
 
 const BLOCK_TYPES = discriminants(json(BlockSchema));
 const SLOT_TYPES = discriminants(json(SlotSchema));
-const VERDICTS = discriminants(json(VerdictSchema));
 
 function plain(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -669,9 +619,8 @@ function readUnion(schema: JsonSchema, value: unknown, path: string, context: Re
   if (variants.every((variant) => variant.const !== undefined)) {
     if (variants.some((variant) => variant.const === value)) return value;
     if (!variants.some((variant) => matches(variant.type, value))) throw new Unreadable(path);
-    // 不认识的 verdict 按中性显示：读成 ungraded，界面不标对错，只显示说明。其余取值连同所在的一项丢掉，
-    // 例如不认识的 judge 不标来源，不认识的 layout 用默认布局。
-    return discriminants(schema) === VERDICTS ? "ungraded" : DROP;
+    // 不认识的取值连同所在的一项丢掉，例如不认识的 layout 用默认布局。
+    return DROP;
   }
   if (!plain(value)) throw new Unreadable(path);
   const claimed = variants.find((variant) => claims(variant, value));
@@ -753,7 +702,7 @@ function read<T>(schema: unknown, value: unknown, context: ReadContext = {}): Re
 }
 
 /**
- * 前端读取题目，例如插件方法返回的题目。认识的字段照常查类型，类型不对时读取失败；不认识的字段丢掉。
+ * 前端读取 Item，例如插件方法返回的内容。认识的字段照常查类型，类型不对时读取失败；不认识的字段丢掉。
  * 读不懂的作答位和内容块也丢掉，并把 slot.<type>、block.<type> 补进 requires；requires 还并上从结构算出的能力。
  * 所以词汇加了可以忽略的字段，旧前端照常显示；加了必须理解的特性，canRender 判为不能作答。
  */
@@ -765,20 +714,13 @@ export function readItem(value: unknown): ReadResult<Item> {
   return { ok: true, value: { ...result.value, requires } };
 }
 
-/**
- * 前端读取反馈。规则同 readItem，但反馈没有 requires，读不懂的部分只是丢掉：不认识的 judge 不标来源，
- * 不认识的 verdict 读成 ungraded、按中性显示 message；标记、用例结果和评分要点里不认识的取值连同那一项丢掉。
- */
-export function readFeedback(value: unknown): ReadResult<Feedback> {
-  return read<Feedback>(FeedbackSchema, value);
+/** 读取 ask.reply 的结果：invalid 的问题列表和 accepted 附的内容块同样宽松读取。 */
+export function readAskReplyResult(value: unknown): ReadResult<AskReplyResult> {
+  if (value === null) return { ok: true, value: null };
+  return read<AskSubmitResult>(AskSubmitResultSchema, value);
 }
 
-/** 前端读取提交结果，例如插件方法返回的 SubmitResult；其中的反馈按 readFeedback 的规则读取。 */
-export function readSubmitResult(value: unknown): ReadResult<SubmitResult> {
-  return read<SubmitResult>(SubmitResultSchema, value);
-}
-
-/** 读取 ask.request：信封仍严格校验，里面的题目按 readItem 读取。 */
+/** 读取 ask.request：信封仍严格校验，里面的 Item 按 readItem 读取。 */
 export function readAskRequest(value: unknown): ReadResult<AskRequest> {
   if (!Value.Check(AskEnvelopeSchema, value)) return { ok: false, path: "" };
   const item = readItem(value.item);

@@ -7,8 +7,8 @@ import {
   type AskRequest,
   type Item,
   type ItemDraft,
+  type AskSubmitResult,
   type ItemResponse,
-  type SubmitResult,
 } from "./interaction.js";
 import type { AskOutcome } from "./plugin.js";
 import { object, RepaFault } from "./schema.js";
@@ -18,8 +18,8 @@ export type AskInput = Omit<AskRequest, "id">;
 
 export interface AskRouteOptions {
   signal?: AbortSignal;
-  /** 作答通过结构检查后的判分；返回 rejected 时询问保持打开。 */
-  evaluate?(response: ItemResponse): Promise<SubmitResult>;
+  /** 作答通过结构检查后交给调用方：invalid 时卡片保持打开，accepted 时关闭。省略时通过结构检查就接受。 */
+  onSubmit?(response: ItemResponse): Promise<AskSubmitResult>;
 }
 
 /**
@@ -28,7 +28,7 @@ export interface AskRouteOptions {
  */
 export type AskRoute = (request: AskInput, options: AskRouteOptions) => Promise<AskOutcome>;
 
-// 交给底座的题：可以带插件算好的 version；requires 由底座从结构算出，带了就必须与结构一致。
+// 交给底座的 Item：可以带插件算好的 version；requires 由底座从结构算出，带了就必须与结构一致。
 const ItemInputSchema = object({
   ...ItemSchema.properties,
   version: Type.Optional(ItemSchema.properties.version),
@@ -82,20 +82,20 @@ function sameNames(left: readonly string[], right: readonly string[]): boolean {
 }
 
 /**
- * 把插件或 Agent 给的题整理成可以交付的 Item：按词汇严格校验（多带的答案字段在这里被拒绝），
+ * 把插件或 Agent 给的内容整理成可以交付的 Item：按词汇严格校验（多带的字段在这里被拒绝），
  * 检查 id 等一致性，算出 requires；没有 version 时对公开内容计算。
  */
 export async function prepareItem(input: ItemDraft | Item): Promise<Item> {
   if (!Value.Check(ItemInputSchema, input)) {
     const [first] = Value.Errors(ItemInputSchema, input);
-    throw new RepaFault("invalid_item", "题目不符合交互词汇", { path: first?.instancePath ?? "" });
+    throw new RepaFault("invalid_item", "Item 不符合交互词汇", { path: first?.instancePath ?? "" });
   }
   const { version, requires, ...draft } = input as ItemDraft & Partial<Pick<Item, "version" | "requires">>;
   const problems = itemProblems(draft);
-  if (problems.length > 0) throw new RepaFault("invalid_item", "题目结构不一致", { problems });
+  if (problems.length > 0) throw new RepaFault("invalid_item", "Item 的结构不一致", { problems });
   const needed = requiredCapabilities(draft);
   if (requires !== undefined && !sameNames(requires, needed)) {
-    throw new RepaFault("invalid_item", "题目的 requires 与结构不符，应由 requiredCapabilities 计算", { requires: needed });
+    throw new RepaFault("invalid_item", "Item 的 requires 与结构不符，应由 requiredCapabilities 计算", { requires: needed });
   }
   return { ...draft, version: version ?? await contentVersion(draft), requires: needed };
 }
