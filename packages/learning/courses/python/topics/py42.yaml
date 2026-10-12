@@ -300,61 +300,65 @@ kps:
         body: |
           要求：`in_range(value, low, high)` 在 value 介于 low 和 high 之间时交回 True，**两端都算**；否则交回 False。
 
-          同事先写了函数，再运行函数，把运行出来的结果抄成了期望：
+          同事先写了函数：
 
-          ```python startLine=1
+          ```python
           def in_range(value, low, high):
               return value > low and value < high
-
-          assert in_range(7, 5, 10) == True
-          assert in_range(5, 5, 10) == False
-          assert in_range(10, 5, 10) == False
-          assert in_range(11, 5, 10) == False
-          print("全部通过")
           ```
+
+          然后运行函数，把运行出来的结果抄成了期望，得到四条测试：
+
+          | 测试 | 调用 | 同事写的期望 |
+          |---|---|---|
+          | 1 | `in_range(7, 5, 10)` | True |
+          | 2 | `in_range(5, 5, 10)` | False |
+          | 3 | `in_range(10, 5, 10)` | False |
+          | 4 | `in_range(11, 5, 10)` | False |
         slots:
           - id: passes
             type: choice
-            prompt: 运行这段程序，会显示“全部通过”吗？
+            prompt: 这个函数能通过这四条测试吗？
             options:
-              - { id: "yes", content: 会，四条断言都成立 }
-              - { id: "no", content: 不会，有断言失败 }
+              - { id: "yes", content: 能，四条的期望都和函数交回的一样 }
+              - { id: "no", content: 不能，有测试会失败 }
             key: "yes"
           - id: tests
             type: table
-            prompt: 按要求（两端都算），每条断言的期望对吗？
+            prompt: 按要求（两端都算），每条测试的期望对吗？
             columns:
-              - { id: test, header: 断言 }
+              - { id: test, header: 测试 }
               - { id: ok, header: 期望符合要求, input: bool }
             rows:
-              - { id: l4, cells: { test: "第 4 行 in_range(7, 5, 10) == True", ok: true } }
-              - { id: l5, cells: { test: "第 5 行 in_range(5, 5, 10) == False", ok: false } }
-              - { id: l6, cells: { test: "第 6 行 in_range(10, 5, 10) == False", ok: false } }
-              - { id: l7, cells: { test: "第 7 行 in_range(11, 5, 10) == False", ok: true } }
+              - { id: t1, cells: { test: "测试 1：in_range(7, 5, 10) 期望 True", ok: true } }
+              - { id: t2, cells: { test: "测试 2：in_range(5, 5, 10) 期望 False", ok: false } }
+              - { id: t3, cells: { test: "测试 3：in_range(10, 5, 10) 期望 False", ok: false } }
+              - { id: t4, cells: { test: "测试 4：in_range(11, 5, 10) 期望 False", ok: true } }
           - id: verdict
             type: choice
-            prompt: 全部通过，能说明这个函数符合要求吗？
+            prompt: 四条测试都通过，能说明这个函数符合要求吗？
             options:
               - { id: "yes", content: 能，测试都通过了 }
               - { id: copied, content: 不能：期望是照着函数的输出抄的，函数错了，测试也跟着错 }
             key: copied
         explanation: |
-          函数写成了 `value > low and value < high`，两端都不算。同事把它的输出抄成期望，所以四条断言全部通过，会显示“全部通过”。
+          函数写成了 `value > low and value < high`，两端都不算。同事把它的输出抄成期望，所以四条测试都能通过。
 
-          可是要求是**两端都算**：5 和 10 恰好落在两端，应当交回 True。第 5、6 行的期望写成 False，正是照着函数的输出抄的，它们与要求矛盾。7 在中间、11 在外面，两种写法答案一样，所以第 4、7 行没有问题。
+          可是要求是**两端都算**：5 和 10 恰好落在两端，应当交回 True。测试 2、3 的期望写成 False，正是照着函数的输出抄的，与要求矛盾。7 在中间、11 在外面，两种写法答案一样，所以测试 1、4 没有问题。
 
           期望要从要求推出来，不能照着函数的输出抄：测试通过只说明函数和测试一致，不说明函数符合要求。
         verify: |
           def spec(value, low, high):
               return low <= value <= high
-          lines = {"l4": ((7, 5, 10), True), "l5": ((5, 5, 10), False), "l6": ((10, 5, 10), False), "l7": ((11, 5, 10), False)}
-          r = run()
-          copied = r.error is None and r.out.strip() == "全部通过"
-          ok = {row: {"ok": spec(*args) == written} for row, (args, written) in lines.items()}
+          tests = {"t1": ((7, 5, 10), True), "t2": ((5, 5, 10), False), "t3": ((10, 5, 10), False), "t4": ((11, 5, 10), False)}
+          probe = BLOCKS[0] + "\n" + "\n".join(f"print(in_range{args} == {written})" for args, written in tests.values())
+          r = run(probe)
+          passes = r.error is None and all(line == "True" for line in r.lines())
+          ok = {row: {"ok": spec(*args) == written} for row, (args, written) in tests.items()}
           answers = {
-              "passes": "yes" if copied else "no",
+              "passes": "yes" if passes else "no",
               "tests": ok,
-              "verdict": "copied" if copied and not all(cell["ok"] for cell in ok.values()) else "yes",
+              "verdict": "copied" if passes and not all(cell["ok"] for cell in ok.values()) else "yes",
           }
       - id: py42.k1.x2
         kind: [debug]

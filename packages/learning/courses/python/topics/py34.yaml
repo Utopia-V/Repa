@@ -844,7 +844,7 @@ kps:
           back = pd.read_csv("final.csv")
           ```
 
-          在这两行后面再加一行 assert 做核对。下面哪几行在这份文件上会报 AssertionError，也就是能发现它不符合需求？选出所有能发现的。
+          在这两行后面再加一行 `print(...)` 做核对，条件成立显示 True，不成立显示 False。下面哪几行在这份文件上会显示 False，也就是能发现它不符合需求？选出所有能发现的。
         slots:
           - id: checks
             type: choice
@@ -853,45 +853,45 @@ kps:
               - id: rows
                 content: |
                   ```python
-                  assert len(back) == 4
+                  print(len(back) == 4)
                   ```
-                feedback: 文件正好有 4 行，这一行通过，发现不了问题。
+                feedback: 文件正好有 4 行，这一行显示 True，发现不了问题。
               - id: unique
                 content: |
                   ```python
-                  assert back["sample_id"].is_unique
+                  print(back["sample_id"].is_unique)
                   ```
               - id: columns
                 content: |
                   ```python
-                  assert list(back.columns) == ["sample_id", "signal"]
+                  print(list(back.columns) == ["sample_id", "signal"])
                   ```
-                feedback: 列名没有问题，这一行通过，发现不了问题。
+                feedback: 列名没有问题，这一行显示 True，发现不了问题。
               - id: ids
                 content: |
                   ```python
-                  assert set(back["sample_id"]) == {"S01", "S02", "S03", "S04"}
+                  print(list(back["sample_id"]) == ["S01", "S02", "S03", "S04"])
                   ```
-              - id: signal
+              - id: width
                 content: |
                   ```python
-                  assert back["signal"].count() == 4
+                  print(len(back.columns) == 2)
                   ```
-                feedback: signal 四格都有值，这一行通过，发现不了问题。
+                feedback: 正好两列，这一行显示 True，发现不了问题。
             key: [unique, ids]
         explanation: |
-          这份文件 4 行、列名也对，但 S03 出现了两次、S04 没有，一多一少，行数恰好抵消。
+          这份文件 4 行、两列、列名也对，但 S03 出现了两次、S04 没有，一多一少，行数恰好抵消。
 
-          - 查行数、查列名、查 signal 有没有缺失，三项都通过，看不出问题。
-          - `is_unique` 查出 S03 重复，报 AssertionError。
-          - 比较编号的集合：读回来的是 S01、S02、S03，少了 S04，集合对不上，也报 AssertionError。
+          - 查行数、查列名、查列数，三项都显示 True，看不出问题。
+          - `is_unique` 显示 False：S03 重复了。
+          - 把读回来的编号和应有的四个编号比较，读回来的是 S01、S02、S03、S03，对不上，也显示 False。
 
           行数对了不代表没问题。键（编号）要单独查：有没有重复，该有的是不是都在。
         verify: |
           fits = []
           for option, code in OPTIONS["checks"].items():
               r = run(BLOCKS[0] + "\n" + code)
-              if r.error == "AssertionError":
+              if r.error is None and r.lines()[-1] == "False":
                   fits.append(option)
           answers = {"checks": fits}
       - id: py34.k2.x2

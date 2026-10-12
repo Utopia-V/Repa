@@ -663,31 +663,49 @@ kps:
           原来的代码有两处不对：先 `head(3)` 再排序，取的是原表的前 3 行，不是最高的 3 个；结果的行索引还是原行号。先排序再取前 3 行，最后 `reset_index(drop=True)` 重新编号。本例得到 S_C、S_E、S_A，行索引 0、1、2。判分时还会换一张表运行。
     review:
       - id: py23.k2.r1
-        kind: [predict]
+        kind: [predict, explain]
         uses: [py16.k2]
         data: [plates]
         body: |
-          阅读代码，写出两行输出。
+          表 plates 按 od 从小到大排好以后，存成 `r`，打印出来是：
 
-          ```python
-          r = plates.sort_values("od")
-          print(r.iloc[0]["well"])
-          print(r.loc[0, "well"])
+          ```text
+            well    od
+          1   A2  0.18
+          3   A4  0.27
+          2   A3  0.35
+          0   A1  0.42
+          4   A5  0.51
           ```
         slots:
-          - id: first
+          - id: third
             type: text
-            prompt: 第一行输出
-            key: A2
-          - id: second
+            prompt: "`r.iloc[2][\"well\"]`，也就是按位置数排在第 3 的孔，是哪个？"
+            key: A3
+          - id: label3
             type: text
-            prompt: 第二行输出
-            key: A1
+            prompt: "`r.loc[3, \"well\"]`，也就是行索引为 3 的孔，是哪个？"
+            key: A4
+          - id: same
+            type: choice
+            prompt: "`r.iloc[3]` 和 `r.loc[3]` 取到的是同一行吗？"
+            options:
+              - { id: same, content: 是同一行，写的都是 3 }
+              - { id: different, content: "不是：`iloc[3]` 是排在第 4 的 A1，`loc[3]` 是行索引为 3 的 A4" }
+            key: different
         explanation: |
-          第一行 **A2**：按 od 从小到大，最小的 0.18 是 A2，`iloc[0]` 取排在最前的一行。第二行 **A1**：`loc[0]` 取原行索引为 0 的行，它的 od 是 0.42，排在第四。
+          打印出来的表，最左边是行索引（原来的标签），从上到下的先后才是排名的位置。
+
+          `iloc[2]` 按位置取：位置从 0 数起，位置 2 是排在第 3 的一行，是 **A3**。`loc[3]` 按标签取：行索引为 3 的是排在第 2 的 **A4**。
+
+          同样写 3，`iloc[3]` 取位置 3（第 4 行，A1，它的行索引是 0），`loc[3]` 取标签 3（A4），两者不是同一行。排序以后，位置和标签不再一致。
         verify: |
-          lines = run().lines()
-          answers = {"first": str(lines[0]), "second": str(lines[1])}
+          r = plates.sort_values("od")
+          answers = {
+              "third": r.iloc[2]["well"],
+              "label3": r.loc[3, "well"],
+              "same": "same" if r.iloc[3]["well"] == r.loc[3, "well"] else "different",
+          }
       - id: py23.k2.r2
         kind: [explain]
         uses: [py16.k2]

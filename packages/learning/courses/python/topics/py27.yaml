@@ -746,7 +746,7 @@ kps:
                   ```python
                   result = water.groupby("station")["conc"].size().reset_index()
                   ```
-                feedback: size 数的是行数，A 站成了 2，而且次数那一列的名字也不是 conc。
+                feedback: size 数的是行数，没测到的也算，A 站成了 2，不是 1。
             key: [reset, as_index]
         explanation: |
           要的是一张表：station 是普通的一列，行标签是 0、1、2。
