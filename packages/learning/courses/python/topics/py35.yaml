@@ -1,7 +1,8 @@
 id: py35
 title: 循环：同一句指令轮流处理谁
-status: outline
+status: complete
 minutes: 20
+summary: 读懂 for 循环：列表有几个元素，循环体就按顺序执行几遍；分清循环里和循环后的名字，读出累计的结果。
 prerequisites:
   - topic: py06
     key: true
@@ -25,11 +26,1089 @@ sources:
     url: https://docs.python.org/3.12/tutorial/controlflow.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、追踪变量（P）、找错（P）。
+  范围：只用列表、整数、文字、名字、加减乘和 print。不出现 if（py10 不是本节先修，按条件收集留给 py36），不用 range、enumerate、zip（py38）和推导式（py39）。for 那一行的冒号和缩进在 k1 里就地讲清，不以 py10 为前提。程序都当作从上往下运行的短脚本，用 print 看结果（py01 的约定）。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 2 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 4 分钟；收束 1 分钟。三个知识点都有练习，20 分钟偏紧，试做后可能把 k3 的 Parsons 挪进复习。
+  题型：预测输出、追踪变量（按轮次的状态表）、找错，k3 各有一道 Parsons。逐轮的状态由 verify 在循环体末尾插入一行记录、实际运行算出；找错题的改法由 verify 把每种改法套到题面代码上运行，挑出结果符合要求的那一种。
+  例题、练习的情境与数据为本课自拟。
+intro: |
+  前面读的代码，每一行只执行一次。这一节读 `for` 循环：几行代码对列表里的每个元素各执行一遍。
+
+  程序仍当作一段从上往下运行的短脚本，`print` 显示那一刻的值。读循环时最有用的，还是前面用过的那张状态表，只是这次按“第几轮”来记。
+wrapup: |
+  读一个 for 循环，先回答三个问题：它轮流处理的是哪个列表；每一轮循环体做什么；哪些行缩进在循环里，哪些行在循环之后。
+
+  看到累计的写法，再查两处：起点是不是写在循环前，结果是不是在循环后才显示。请 AI 写这类代码时，也可以直接这样说：“先把 total 设为 0，对列表里每个值加一次，循环结束后只显示一次总和。”
+data:
+  samples:
+    kind: python
+    code: samples = ["S_A", "S_B", "S_C", "S_D"]
+    display: |
+      宿主已经准备好列表：
+
+      ```python
+      samples = ["S_A", "S_B", "S_C", "S_D"]
+      ```
 kps:
   - id: py35.k1
     title: for 逐个取得列表元素
+    card:
+      name: for 循环
+      aliases: [循环, 循环体, 循环变量]
+      definition: "`for v in values:` 按列表顺序让 v 依次指向每个元素；每指向一个，就把下面缩进的循环体从上到下执行一遍。"
+      conditions:
+        - 列表有几个元素，循环体就执行几遍，顺序就是列表里的顺序；空列表一遍也不执行。
+        - 循环体是 for 那一行（末尾有冒号）下面缩进的几行；一轮把这几行全部执行完，才轮到下一个元素。
+      example:
+        from: py35.k1.e0
+        text: |
+          ```python
+          counts = [3, 5, 2]
+          for n in counts:
+              print(n + 1)
+          ```
+          n 依次指向 3、5、2，循环体执行 3 遍，依次显示 4、6、3。
+    lesson: |
+      同一件事要对列表里的每个元素都做一遍，就写一个 `for` 循环：
+
+      ```python
+      signals = [8, 10, 13]
+      for v in signals:
+          print(v * 2)
+      ```
+
+      这样读：`for v in signals:` 先让名字 `v` 指向列表的第一个元素 8，执行一遍下面缩进的那一行；再让 `v` 指向 10，又执行一遍；最后指向 13，再执行一遍。列表里没有下一个元素了，循环结束，程序接着往下走。
+
+      | 第几轮 | v | 显示 |
+      |---|---:|---:|
+      | 1 | 8 | 16 |
+      | 2 | 10 | 20 |
+      | 3 | 13 | 26 |
+
+      读的时候看清三件事：
+
+      - **哪几行在循环里。** `for` 那一行末尾有冒号，下面**缩进**（通常是 4 个空格）的几行叫循环体。每一轮把循环体从上到下全部执行完，才轮到下一个元素。没有缩进的行不属于循环。
+      - **执行几遍、什么顺序。** 列表有几个元素，循环体就执行几遍；顺序就是列表里的顺序，不会自动排序。列表是空的，就一遍也不执行。
+      - **`v` 只是一个名字。** 每一轮开始时，它被赋值为当前这个元素，就像写了一句 `v = 8`。写成 `x`、`s` 效果完全一样。
+    example:
+      id: py35.k1.e0
+      kind: [predict]
+      body: |
+        `counts` 是三批样本各自的份数。阅读下面的程序。
+
+        ```python
+        counts = [3, 5, 2]
+        for n in counts:
+            print(n + 1)
+        ```
+      slots:
+        - id: times
+          type: text
+          format: integer
+          prompt: 循环体 `print(n + 1)` 一共执行几遍？
+          key: 3
+        - id: lines
+          type: table
+          prompt: 按先后顺序写出显示的每一行。
+          columns:
+            - { id: line, header: 输出 }
+            - { id: value, header: 显示, input: integer }
+          rows:
+            - { id: l1, cells: { line: 第 1 行, value: 4 } }
+            - { id: l2, cells: { line: 第 2 行, value: 6 } }
+            - { id: l3, cells: { line: 第 3 行, value: 3 } }
+      explanation: |
+        循环体执行 **3** 遍，依次显示 **4、6、3**。
+
+        | 第几轮 | n | 显示 |
+        |---|---:|---:|
+        | 1 | 3 | 4 |
+        | 2 | 5 | 6 |
+        | 3 | 2 | 3 |
+
+        `n` 按列表顺序依次指向 3、5、2，每指向一个就执行一遍 `print(n + 1)`。输出的顺序跟着列表走，所以最后一行是 3，不会自动从小到大排好。
+      verify: |
+        lines = run().lines()
+        answers = {"times": len(lines), "lines": {f"l{i}": {"value": int(line)} for i, line in enumerate(lines, 1)}}
+    practice:
+      - id: py35.k1.q1
+        kind: [predict]
+        uses: [py06.k1]
+        body: |
+          四个采样点的土层深度（厘米）放在列表里，每个都要减去 5 厘米的表层。阅读程序，按先后顺序写出全部输出。
+
+          ```python
+          depths = [30, 25, 35, 30]
+          for d in depths:
+              print(d - 5)
+          ```
+        slots:
+          - id: lines
+            type: table
+            columns:
+              - { id: line, header: 输出 }
+              - { id: value, header: 显示, input: integer }
+            rows:
+              - { id: l1, cells: { line: 第 1 行, value: 25 } }
+              - { id: l2, cells: { line: 第 2 行, value: 20 } }
+              - { id: l3, cells: { line: 第 3 行, value: 30 } }
+              - { id: l4, cells: { line: 第 4 行, value: 25 } }
+        explanation: |
+          依次显示 **25、20、30、25**。`d` 按列表顺序指向 30、25、35、30，每一轮显示 `d - 5`。列表里有两个 30，它们是两个元素，各处理一遍，所以 25 出现两次。
+        verify: |
+          lines = run().lines()
+          answers = {"lines": {f"l{i}": {"value": int(line)} for i, line in enumerate(lines, 1)}}
+      - id: py35.k1.q2
+        kind: [trace]
+        uses: [py06.k1]
+        body: |
+          ```python
+          labels = ["S_A", "S_B", "S_C", "S_D", "S_E"]
+          for label in labels:
+              print(label)
+          ```
+        slots:
+          - id: third
+            type: text
+            prompt: 第 3 轮循环开始时，`label` 指向什么？
+            key: S_C
+          - id: count
+            type: text
+            format: integer
+            prompt: 程序一共显示几行？
+            key: 5
+        explanation: |
+          第 3 轮时 `label` 指向列表的第三个元素 **S_C**；列表有 5 个元素，循环体执行 5 遍，一共显示 **5** 行。
+        verify: |
+          import ast
+          tree = ast.parse(CODE)
+          loop = next(node for node in tree.body if isinstance(node, ast.For))
+          loop.body.insert(0, ast.parse("_seen.append(label)").body[0])
+          seen = run(ast.unparse(tree), _seen=[])["_seen"]
+          answers = {"third": seen[2], "count": len(run().lines())}
+      - id: py35.k1.q3
+        kind: [predict, debug]
+        body: |
+          哪一段程序会依次显示 9、12、15 三行？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: reversed
+                content: |
+                  ```python
+                  for v in [5, 4, 3]:
+                      print(v * 3)
+                  ```
+                feedback: 循环按列表顺序处理，这一段先显示 15。
+              - id: flat
+                content: |
+                  ```python
+                  for v in [3, 4, 5]:
+                  print(v * 3)
+                  ```
+                feedback: for 下面的循环体必须缩进；这里没有缩进，程序会报错。
+              - id: right
+                content: |
+                  ```python
+                  for v in [3, 4, 5]:
+                      print(v * 3)
+                  ```
+              - id: twice
+                content: |
+                  ```python
+                  for v in [9, 12, 15]:
+                      print(v * 3)
+                  ```
+                feedback: 列表里已经是 9、12、15，再乘 3 就成了 27、36、45。
+            key: right
+        explanation: |
+          列表是 `[3, 4, 5]`、`print(v * 3)` 缩进在循环里的那一段：三轮分别显示 9、12、15。列表倒过来写的那段先显示 15；`print` 没有缩进的那段，for 下面缺了循环体，会报错；列表本身写成 9、12、15 的那段又乘了一次 3。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["program"].items():
+              r = run(code)
+              if r.error is None and r.lines() == ["9", "12", "15"]:
+                  fits.append(option)
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py35.k1.r1
+        kind: [predict]
+        body: |
+          循环体有两行。阅读程序，把显示的四行按出现的先后排好。
+
+          ```python
+          signals = [8, 10]
+          for v in signals:
+              print(v)
+              print(v * 10)
+          ```
+        slots:
+          - id: lines
+            type: order
+            items:
+              - { id: s10, content: "`10`" }
+              - { id: s80, content: "`80`" }
+              - { id: s100, content: "`100`" }
+              - { id: s8, content: "`8`" }
+            key: [s8, s80, s10, s100]
+        explanation: |
+          依次是 **8、80、10、100**。第 1 轮 `v` 指向 8，把循环体的两行都执行完（显示 8 和 80），才进入第 2 轮；第 2 轮再显示 10 和 100。排成 8、10、80、100 是把两行 `print` 当成了各自先跑完整个列表。
+        verify: |
+          ids = {"8": "s8", "80": "s80", "10": "s10", "100": "s100"}
+          answers = {"lines": [ids[line] for line in run().lines()]}
+      - id: py35.k1.r2
+        kind: [predict]
+        body: |
+          下面四段程序里，哪一段显示的行数最多？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: four
+                content: |
+                  ```python
+                  for s in ["甲", "乙", "丙", "丁"]:
+                      print(s)
+                  ```
+              - id: empty
+                content: |
+                  ```python
+                  for s in []:
+                      print(s)
+                      print(s)
+                      print(s)
+                  ```
+              - id: two_lines
+                content: |
+                  ```python
+                  for s in ["甲", "乙", "丙"]:
+                      print(s)
+                      print("--")
+                  ```
+              - id: after
+                content: |
+                  ```python
+                  for s in ["甲", "乙"]:
+                      print(s)
+                  print("完")
+                  ```
+            key: two_lines
+        explanation: |
+          三个元素、循环体两行的那一段最多：3 轮 × 2 行 = **6** 行。四个元素、循环体一行的那段显示 4 行；空列表那段循环体一遍也不执行，显示 0 行；最后那段循环体执行 2 遍，再加上循环后的一行，共 3 行。
+        verify: |
+          counts = {option: len(run(code).lines()) for option, code in OPTIONS["program"].items()}
+          most = max(counts.values())
+          fits = [option for option, count in counts.items() if count == most]
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py35.k1.x1
+        kind: [predict]
+        body: |
+          ```python
+          sites = ["北坡", "南坡", "东坡"]
+          for site in sites:
+              print(site)
+              print("--")
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 一共显示几行？
+            key: 6
+          - id: third
+            type: text
+            prompt: 第 3 行显示什么？
+            key: 南坡
+          - id: last
+            type: text
+            prompt: 最后一行显示什么？
+            key: "--"
+        explanation: |
+          一共 **6** 行：北坡、--、南坡、--、东坡、--。每一轮把两行 `print` 都执行完才换下一个采样点，所以第 3 行是第 2 轮的 **南坡**，最后一行是第 3 轮的 **--**。
+        verify: |
+          lines = run().lines()
+          answers = {"count": len(lines), "third": lines[2], "last": lines[-1]}
+      - id: py35.k1.x2
+        kind: [predict]
+        body: |
+          下面两段程序各自的循环体执行几遍？
+
+          程序甲：
+
+          ```python
+          values = [7, 7, 7]
+          for v in values:
+              print(v)
+          ```
+
+          程序乙：
+
+          ```python
+          values = []
+          for v in values:
+              print(v)
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 程序甲的循环体执行几遍？
+            key: 3
+            feedback:
+              - when: 1
+                message: 三个元素的值相同，也是三个元素，各执行一遍。
+          - id: second
+            type: text
+            format: integer
+            prompt: 程序乙的循环体执行几遍？
+            key: 0
+        explanation: |
+          程序甲执行 **3** 遍：列表里有三个元素，值都是 7 也要各处理一遍。程序乙执行 **0** 遍：空列表里没有元素，循环体一次也不执行，程序什么也不显示。
+        verify: |
+          import ast
+          def rounds(code):
+              tree = ast.parse(code)
+              loop = next(node for node in tree.body if isinstance(node, ast.For))
+              loop.body.insert(0, ast.parse("_seen.append(v)").body[0])
+              return len(run(ast.unparse(tree), _seen=[])["_seen"])
+          answers = {"first": rounds(BLOCKS[0]), "second": rounds(BLOCKS[1])}
+
   - id: py35.k2
     title: 循环内外的变量状态
+    card:
+      name: 循环后的名字
+      aliases: [循环内外, 循环结束后]
+      definition: 循环结束后，循环变量和循环体里赋值的名字都还在，指向最后一轮留下的值；缩进在循环体里的行每轮执行一次，退回到 for 那一层的行在循环结束后只执行一次。
+      conditions:
+        - 判断一行在不在循环里只看缩进：和循环体对齐的在循环里，和 for 对齐的在循环后。
+        - 列表是空的时，循环体里的赋值一次也没有发生，名字保持循环前的样子。
+      example:
+        from: py35.k2.e0
+        text: |
+          ```python
+          counts = [3, 5, 2]
+          for n in counts:
+              scaled = n * 10
+          print(scaled)
+          ```
+          print 没有缩进，循环结束后只执行一次，显示最后一轮的 20。
+    lesson: |
+      循环结束以后，循环里用过的名字并不会消失。
+
+      ```python
+      signals = [8, 10, 13]
+      for v in signals:
+          doubled = v * 2
+      print(v)
+      print(doubled)
+      ```
+
+      `for` 下面只有 `doubled = v * 2` 一行缩进，它是循环体，执行 3 遍；后面两行 `print` 没有缩进，在循环结束后各执行一次。那时 `v` 还指向最后一个元素 13，`doubled` 是最后一轮算出的 26，所以显示 13 和 26。前两轮的 16、20 被后来的赋值替换掉了，和[重新赋值](repa:concept/py01.k2)一样。
+
+      同样一行 `print(doubled)`，缩进与否结果完全不同：
+
+      | 写法 | 执行几次 | 显示 |
+      |---|---|---|
+      | 缩进在循环体里 | 每轮一次，共 3 次 | 16、20、26 |
+      | 不缩进，写在循环后 | 循环结束后 1 次 | 26 |
+
+      所以读循环时，先找出循环体到哪一行为止：缩进退回到和 `for` 对齐的第一行，就是循环之后的代码。
+    example:
+      id: py35.k2.e0
+      kind: [predict]
+      body: |
+        两段程序只差最后一行的缩进。
+
+        程序甲：
+
+        ```python
+        counts = [3, 5, 2]
+        for n in counts:
+            scaled = n * 10
+            print(scaled)
+        ```
+
+        程序乙：
+
+        ```python
+        counts = [3, 5, 2]
+        for n in counts:
+            scaled = n * 10
+        print(scaled)
+        ```
+      slots:
+        - id: first
+          type: text
+          format: integer
+          prompt: 程序甲显示几行？
+          key: 3
+        - id: second
+          type: text
+          format: integer
+          prompt: 程序乙显示几行？
+          key: 1
+        - id: shown
+          type: text
+          format: integer
+          prompt: 程序乙显示的那个数是多少？
+          key: 20
+      explanation: |
+        程序甲的 `print` 缩进在循环体里，每轮显示一次，共 **3** 行：30、50、20。程序乙的 `print` 和 `for` 对齐，在循环结束后只执行 **1** 次；那时 `scaled` 是最后一轮算出的 **20**。
+      verify: |
+        first = run(BLOCKS[0]).lines()
+        second = run(BLOCKS[1]).lines()
+        answers = {"first": len(first), "second": len(second), "shown": int(second[0])}
+    practice:
+      - id: py35.k2.q1
+        kind: [predict]
+        body: |
+          三批样本的重量（千克），在循环里换算成克。
+
+          ```python
+          weights = [12, 7, 20]
+          for w in weights:
+              grams = w * 1000
+          print(w)
+          print(grams)
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 20
+            feedback:
+              - when: 12
+                message: 循环结束时，w 已经依次指向过三个元素，停在最后一个。
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 20000
+        explanation: |
+          显示 **20** 和 **20000**。两行 `print` 都在循环后，各执行一次。循环结束时 `w` 停在最后一个元素 20，`grams` 是最后一轮算出的 20000；前两轮的 12000、7000 已经被替换掉。
+        verify: |
+          lines = run().lines()
+          answers = {"first": int(lines[0]), "second": int(lines[1])}
+      - id: py35.k2.q2
+        kind: [debug]
+        body: |
+          下面的程序想在处理完全部样本之后，**只显示一次**最后处理的样本编号。它却显示了三行。
+
+          ```python startLine=1
+          labels = ["S_A", "S_B", "S_C"]
+          for label in labels:
+              last = label
+              print(last)
+          ```
+        slots:
+          - id: fix
+            type: choice
+            prompt: 怎样改才符合要求？
+            options:
+              - id: drop3
+                content: 删掉第 3 行
+                feedback: 删掉以后 last 从来没有被赋值，第 4 行用它会报错。
+              - id: dedent3
+                content: 第 3 行去掉缩进，和 for 对齐
+                feedback: 这样 for 下面第一行就没有缩进，循环体断开了，程序会报错。
+              - id: dedent4
+                content: 第 4 行去掉缩进，和 for 对齐
+            key: dedent4
+        explanation: |
+          把第 4 行去掉缩进。`print(last)` 退到循环后，只在循环结束时执行一次；那时 `last` 是最后一轮的 S_C。删掉第 3 行，`last` 就没有值；把第 3 行退出来，for 下面紧跟的一行没有缩进，程序会报错。
+        verify: |
+          lines = CODE.splitlines()
+          variants = {
+              "drop3": [lines[0], lines[1], lines[3]],
+              "dedent3": [lines[0], lines[1], lines[2].strip(), lines[3]],
+              "dedent4": [lines[0], lines[1], lines[2], lines[3].strip()],
+          }
+          fits = []
+          for option, program in variants.items():
+              r = run("\n".join(program))
+              if r.error is None and r.lines() == ["S_C"]:
+                  fits.append(option)
+          answers = {"fix": fits[0] if len(fits) == 1 else fits}
+      - id: py35.k2.q3
+        kind: [predict]
+        uses: [py03.k1]
+        body: |
+          两段文字用 `+` 连起来，就是把它们拼成一段。
+
+          ```python
+          note = "未开始"
+          for s in ["S_A", "S_B"]:
+              note = "处理到" + s
+          print(note)
+          ```
+        slots:
+          - id: output
+            type: text
+            prompt: 程序显示什么？
+            key: 处理到S_B
+          - id: empty
+            type: text
+            prompt: 如果把第 2 行的列表换成空列表 `[]`，程序显示什么？
+            key: 未开始
+        explanation: |
+          显示 **处理到S_B**：循环里给 `note` 赋值了两次，循环后读到的是最后一次的结果。换成空列表时，循环体一次也不执行，`note` 还是循环前的 **未开始**。
+        verify: |
+          answers = {
+              "output": run().out.strip(),
+              "empty": run(CODE.replace('["S_A", "S_B"]', "[]")).out.strip(),
+          }
+    review:
+      - id: py35.k2.r1
+        kind: [explain]
+        body: |
+          下面的程序运行结束后，哪一句说法正确？
+
+          ```python
+          readings = [4, 9, 6]
+          for r in readings:
+              diff = r - 1
+          ```
+        slots:
+          - id: claim
+            type: choice
+            options:
+              - id: gone
+                content: "`r` 和 `diff` 只在循环里有效，循环结束后就不存在了"
+              - id: first
+                content: "`r` 回到了列表开头，指向 4"
+              - id: last
+                content: "`r` 指向 6，`diff` 是 5"
+              - id: all
+                content: "`diff` 保存了每一轮的结果 3、8、5"
+            key: last
+        explanation: |
+          “`r` 指向 6，`diff` 是 5”正确。循环结束后两个名字都还在：`r` 停在最后一个元素 6，`diff` 是最后一轮算出的 5。每一轮的 `diff = r - 1` 都让 `diff` 改指向新值，前两轮的 3、8 没有另外保存。
+        verify: |
+          r = run()
+          holds = {
+              "gone": "r" not in r.vars and "diff" not in r.vars,
+              "first": r.vars.get("r") == 4,
+              "last": r.vars.get("r") == 6 and r.vars.get("diff") == 5,
+              "all": r.vars.get("diff") == [3, 8, 5],
+          }
+          fits = [claim for claim, ok in holds.items() if ok]
+          answers = {"claim": fits[0] if len(fits) == 1 else fits}
+      - id: py35.k2.r2
+        kind: [predict]
+        body: |
+          ```python
+          for d in [30, 25]:
+              print(d)
+              print("测完一个")
+          print("全部测完")
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 一共显示几行？
+            key: 5
+          - id: each
+            type: text
+            format: integer
+            prompt: “测完一个”显示几次？
+            key: 2
+          - id: done
+            type: text
+            format: integer
+            prompt: “全部测完”显示几次？
+            key: 1
+        explanation: |
+          一共 **5** 行：30、测完一个、25、测完一个、全部测完。“测完一个”缩进在循环体里，两轮各显示一次，共 **2** 次；“全部测完”和 `for` 对齐，在循环结束后只显示 **1** 次。
+        verify: |
+          lines = run().lines()
+          answers = {"count": len(lines), "each": lines.count("测完一个"), "done": lines.count("全部测完")}
+    quiz:
+      - id: py35.k2.x1
+        kind: [predict]
+        uses: [py01.k2]
+        body: |
+          列表里的样本编号没有按顺序排列。
+
+          ```python
+          labels = ["S_C", "S_A", "S_B"]
+          for label in labels:
+              current = label
+          print(current)
+          print(label)
+          ```
+        slots:
+          - id: first
+            type: text
+            prompt: 第一行显示
+            key: S_B
+            feedback:
+              - when: S_C
+                message: 循环按列表的顺序走，最后一轮是列表的最后一个元素，不是编号最大的那个。
+          - id: second
+            type: text
+            prompt: 第二行显示
+            key: S_B
+        explanation: |
+          两行都显示 **S_B**。循环按列表顺序依次处理 S_C、S_A、S_B，最后一轮 `label` 指向 S_B，`current` 也在这一轮被赋值为 S_B。循环不会按编号大小排序。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+      - id: py35.k2.x2
+        kind: [debug]
+        body: |
+          下面的程序想把每个深度从厘米换算成毫米，**每个都显示出来**。它却只显示了一行。
+
+          ```python startLine=1
+          depths = [30, 25, 35]
+          for d in depths:
+              mm = d * 10
+          print(mm)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 现在显示的那一行是什么？
+            key: 350
+          - id: fix
+            type: choice
+            prompt: 怎样改才能三个都显示？
+            options:
+              - id: indent4
+                content: 第 4 行加上缩进，和第 3 行对齐
+              - id: dedent3
+                content: 第 3 行去掉缩进
+              - id: list
+                content: 第 1 行改成 `depths = [[30, 25, 35]]`
+            key: indent4
+        explanation: |
+          现在显示 **350**：`print(mm)` 在循环后，只执行一次，那时 `mm` 是最后一轮的 350。把第 4 行缩进到循环体里，每轮都显示一次，依次是 300、250、350。去掉第 3 行的缩进会让 for 下面缺了循环体而报错；把列表再套一层，循环只有一轮，算出的也不是三个深度。
+        verify: |
+          lines = CODE.splitlines()
+          variants = {
+              "indent4": [lines[0], lines[1], lines[2], "    " + lines[3]],
+              "dedent3": [lines[0], lines[1], lines[2].strip(), lines[3]],
+              "list": ["depths = [[30, 25, 35]]", lines[1], lines[2], lines[3]],
+          }
+          wanted = [str(d * 10) for d in run()["depths"]]
+          fits = [option for option, program in variants.items()
+                  if run("\n".join(program)).error is None and run("\n".join(program)).lines() == wanted]
+          answers = {"output": int(run().out), "fix": fits[0] if len(fits) == 1 else fits}
+
   - id: py35.k3
     title: 初始化与累计值的位置
+    card:
+      name: 累计值
+      aliases: [累加, 计数, 初始化]
+      definition: 在循环前给累计的名字一个起点（如 total = 0），循环体每轮用 total = total + v 把当前元素加进去；循环结束后，它才是全部元素的累计结果。
+      conditions:
+        - 起点写进循环体，每轮都会被设回起点，最后只剩最后一轮的值。
+        - 加法从 0 起，乘法从 1 起；只要最终结果时，print 写在循环后。
+      example:
+        from: py35.k3.e0
+        text: |
+          ```python
+          counts = [4, 6, 5]
+          total = 0
+          for c in counts:
+              total = total + c
+          print(total)
+          ```
+          total 依次是 0、4、10、15，循环后显示 15。
+    lesson: |
+      想把一个列表里的数加起来，常见的写法是：
+
+      ```python
+      signals = [8, 10, 13]
+      total = 0
+      for v in signals:
+          total = total + v
+      print(total)
+      ```
+
+      `total = 0` 在循环**前**执行一次，给累计一个起点；循环体每一轮用 `total` 现在的值加上当前的 `v`，再让 `total` 指向新结果；循环结束后 `print` 执行一次。按轮次记状态表：
+
+      | 执行到 | v | total |
+      |---|---:|---:|
+      | 循环前 | 尚未定义 | 0 |
+      | 第 1 轮后 | 8 | 8 |
+      | 第 2 轮后 | 10 | 18 |
+      | 第 3 轮后 | 13 | 31 |
+
+      显示 31。每一轮的 `total + v` 用的都是上一轮留下的 `total`，这就是“累计”。数个数也是同一个写法：先 `count = 0`，每轮 `count = count + 1`。
+
+      最常见的两处错位：
+
+      - 把 `total = 0` 缩进到循环体里：每一轮先被设回 0，再加上当前的 `v`，最后只剩最后一个元素 13。
+      - 把 `print(total)` 缩进到循环体里：每一轮都显示一次中间值 8、18、31，而不是只显示最终结果。
+
+      起点也要想一想：加法从 0 开始；乘法从 1 开始，从 0 开始乘多少次都是 0。
+    example:
+      id: py35.k3.e0
+      kind: [trace]
+      body: |
+        `counts` 是三批样本各自的份数，程序算出一共多少份。按执行顺序填写状态表，再写出显示的结果。
+
+        ```python
+        counts = [4, 6, 5]
+        total = 0
+        for c in counts:
+            total = total + c
+        print(total)
+        ```
+      slots:
+        - id: trace
+          type: table
+          label: 状态表
+          columns:
+            - { id: step, header: 执行到 }
+            - { id: c, header: c, input: integer }
+            - { id: total, header: total, input: integer }
+          rows:
+            - { id: before, cells: { step: 循环前, c: { value: 尚未定义 }, total: 0 } }
+            - { id: r1, cells: { step: 第 1 轮后, c: 4, total: 4 } }
+            - { id: r2, cells: { step: 第 2 轮后, c: 6, total: 10 } }
+            - { id: r3, cells: { step: 第 3 轮后, c: 5, total: 15 } }
+        - id: output
+          type: text
+          format: integer
+          prompt: 最后显示什么？
+          key: 15
+      explanation: |
+        | 执行到 | c | total |
+        |---|---:|---:|
+        | 循环前 | 尚未定义 | 0 |
+        | 第 1 轮后 | 4 | 4 |
+        | 第 2 轮后 | 6 | 10 |
+        | 第 3 轮后 | 5 | 15 |
+
+        最后显示 **15**。`total = 0` 只在循环前执行一次；每一轮都用上一轮留下的 `total` 加上当前的 `c`。`print` 在循环后，只显示最终结果。
+      verify: |
+        import ast
+        before = trace(names=["total"])[1]["total"]
+        tree = ast.parse(CODE)
+        loop = next(node for node in tree.body if isinstance(node, ast.For))
+        loop.body.append(ast.parse("_log.append((c, total))").body[0])
+        log = run(ast.unparse(tree), _log=[])["_log"]
+        rows = {"before": {"total": before}}
+        rows.update({f"r{i}": {"c": c, "total": total} for i, (c, total) in enumerate(log, 1)})
+        answers = {"trace": rows, "output": int(run().out)}
+    practice:
+      - id: py35.k3.q1
+        kind: [debug, predict]
+        body: |
+          下面的程序想算出三批样本的总重量（克）。
+
+          ```python startLine=1
+          weights = [12, 7, 20]
+          for w in weights:
+              total = 0
+              total = total + w
+          print(total)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示什么？
+            key: 20
+            feedback:
+              - when: 39
+                message: 39 是想要的结果；再看第 3 行在不在循环体里。
+          - id: fix
+            type: choice
+            prompt: 怎样改才能显示总重量？
+            options:
+              - id: indent5
+                content: 第 5 行加上缩进，放进循环体
+              - id: move3
+                content: 第 3 行移到 for 之前，并去掉缩进
+              - id: assign
+                content: 第 4 行改成 `total = w`
+            key: move3
+        explanation: |
+          现在显示 **20**：`total = 0` 在循环体里，每一轮先被设回 0，再加上当前的 `w`，最后只剩最后一批的 20。把第 3 行移到 for 之前、去掉缩进，起点只设一次，结果才是 39。把 `print` 放进循环会显示 12、7、20 三行；改成 `total = w` 仍然只记住最后一批。
+        verify: |
+          lines = CODE.splitlines()
+          variants = {
+              "indent5": [lines[0], lines[1], lines[2], lines[3], "    " + lines[4]],
+              "move3": [lines[0], lines[2].strip(), lines[1], lines[3], lines[4]],
+              "assign": [lines[0], lines[1], lines[2], "    total = w", lines[4]],
+          }
+          wanted = [str(sum(run()["weights"]))]
+          fits = [option for option, program in variants.items() if run("\n".join(program)).lines() == wanted]
+          answers = {"output": int(run().out), "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py35.k3.q2
+        kind: [trace, predict]
+        uses: [py01.k2]
+        body: |
+          同一个循环里同时数个数、算总和。
+
+          ```python
+          signals = [9, 12, 10]
+          count = 0
+          total = 0
+          for v in signals:
+              count = count + 1
+              total = total + v
+          print(count)
+          print(total)
+          ```
+        slots:
+          - id: middle
+            type: text
+            format: integer
+            prompt: 第 2 轮结束时，`total` 是多少？
+            key: 21
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 3
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 31
+        explanation: |
+          第 2 轮结束时 `total` 是 9 + 12 = **21**。循环结束后显示 **3** 和 **31**：`count` 每轮加 1，数的是元素个数；`total` 每轮加上当前的 `v`，是总和。
+        verify: |
+          import ast
+          tree = ast.parse(CODE)
+          loop = next(node for node in tree.body if isinstance(node, ast.For))
+          loop.body.append(ast.parse("_log.append(total)").body[0])
+          log = run(ast.unparse(tree), _log=[])["_log"]
+          lines = run().lines()
+          answers = {"middle": log[1], "first": int(lines[0]), "second": int(lines[1])}
+      - id: py35.k3.q3
+        kind: [modify]
+        body: |
+          宿主已经准备好列表 `weights`，是每批样本的重量（克）。把下面的代码块排成一段程序：算出总重量，**最后只显示一次**总和。用不到的块不要放进来，每一块的缩进也要排对。
+        slots:
+          - id: program
+            type: order
+            partial: true
+            indent: 2
+            items:
+              - { id: show, code: print(total) }
+              - { id: assign, code: total = w }
+              - { id: add, code: total = total + w }
+              - { id: loop, code: "for w in weights:" }
+              - { id: start, code: total = 0 }
+            key: [start, loop, add, show]
+            indents: { start: 0, loop: 0, add: 1, show: 0 }
+            tests:
+              - name: 三批样本
+                setup: weights = [12, 7, 20]
+                stdout: "39"
+              - name: 只有一批
+                hidden: true
+                setup: weights = [5]
+                stdout: "5"
+              - name: 一批都没有
+                hidden: true
+                setup: weights = []
+                stdout: "0"
+        explanation: |
+          ```python
+          total = 0
+          for w in weights:
+              total = total + w
+          print(total)
+          ```
+
+          `total = 0` 在循环前、不缩进；`total = total + w` 缩进一层，是循环体；`print(total)` 退回不缩进，循环结束后只显示一次。`total = w` 只会记住最后一批，用不上。一批都没有时，循环体不执行，显示起点 0。
+    review:
+      - id: py35.k3.r1
+        kind: [trace]
+        body: |
+          一份溶液连续稀释了三次，`factors` 是每次的稀释倍数。程序算出总的稀释倍数。按执行顺序填写状态表。
+
+          ```python
+          factors = [2, 5, 10]
+          dilution = 1
+          for f in factors:
+              dilution = dilution * f
+          print(dilution)
+          ```
+        slots:
+          - id: trace
+            type: table
+            columns:
+              - { id: step, header: 执行到 }
+              - { id: f, header: f, input: integer }
+              - { id: dilution, header: dilution, input: integer }
+            rows:
+              - { id: before, cells: { step: 循环前, f: { value: 尚未定义 }, dilution: 1 } }
+              - { id: r1, cells: { step: 第 1 轮后, f: 2, dilution: 2 } }
+              - { id: r2, cells: { step: 第 2 轮后, f: 5, dilution: 10 } }
+              - { id: r3, cells: { step: 第 3 轮后, f: 10, dilution: 100 } }
+          - id: output
+            type: text
+            format: integer
+            prompt: 最后显示什么？
+            key: 100
+        explanation: |
+          | 执行到 | f | dilution |
+          |---|---:|---:|
+          | 循环前 | 尚未定义 | 1 |
+          | 第 1 轮后 | 2 | 2 |
+          | 第 2 轮后 | 5 | 10 |
+          | 第 3 轮后 | 10 | 100 |
+
+          最后显示 **100**。乘起来的累计从 1 开始；如果起点写成 0，乘多少次都是 0。
+        verify: |
+          import ast
+          before = trace(names=["dilution"])[1]["dilution"]
+          tree = ast.parse(CODE)
+          loop = next(node for node in tree.body if isinstance(node, ast.For))
+          loop.body.append(ast.parse("_log.append((f, dilution))").body[0])
+          log = run(ast.unparse(tree), _log=[])["_log"]
+          rows = {"before": {"dilution": before}}
+          rows.update({f"r{i}": {"f": f, "dilution": d} for i, (f, d) in enumerate(log, 1)})
+          answers = {"trace": rows, "output": int(run().out)}
+      - id: py35.k3.r2
+        kind: [predict, debug]
+        body: |
+          下面的程序想显示三批样本一共多少份。
+
+          ```python startLine=1
+          counts = [3, 4, 5]
+          n = 0
+          for c in counts:
+              n = n + c
+              print(n)
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 一共显示几行？
+            key: 3
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 3
+          - id: fix
+            type: choice
+            prompt: 要只显示一次总数，应该怎样改？
+            options:
+              - id: move2
+                content: 把第 2 行移进循环体
+              - id: dedent5
+                content: 第 5 行去掉缩进，和 for 对齐
+              - id: start
+                content: 第 2 行改成 `n = 3`
+            key: dedent5
+        explanation: |
+          显示 **3** 行：3、7、12，每一轮都显示一次中间结果，第一行是 **3**。把第 5 行退到和 for 对齐，`print` 就只在循环结束后执行一次，显示 12。把起点移进循环体会每轮清零，起点改成 3 会多加 3；这两种改法都没动 `print`，仍然每轮显示一次。
+        verify: |
+          lines = CODE.splitlines()
+          variants = {
+              "move2": [lines[0], lines[2], "    " + lines[1], lines[3], lines[4]],
+              "dedent5": [lines[0], lines[1], lines[2], lines[3], lines[4].strip()],
+              "start": [lines[0], "n = 3", lines[2], lines[3], lines[4]],
+          }
+          wanted = [str(sum(run()["counts"]))]
+          fits = [option for option, program in variants.items() if run("\n".join(program)).lines() == wanted]
+          shown = run().lines()
+          answers = {"count": len(shown), "first": int(shown[0]), "fix": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py35.k3.x1
+        kind: [predict]
+        data: [samples]
+        body: |
+          哪一段程序会显示 `samples` 里一共有几个样本（只显示一行）？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: reset
+                content: |
+                  ```python
+                  for s in samples:
+                      n = 0
+                      n = n + 1
+                  print(n)
+                  ```
+              - id: inside
+                content: |
+                  ```python
+                  n = 0
+                  for s in samples:
+                      n = n + 1
+                      print(n)
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  n = 0
+                  for s in samples:
+                      n = n + 1
+                  print(n)
+                  ```
+              - id: text
+                content: |
+                  ```python
+                  n = 0
+                  for s in samples:
+                      n = n + s
+                  print(n)
+                  ```
+            key: right
+        explanation: |
+          `n = 0` 在循环前、`print(n)` 在循环后的那一段显示 **4**。把 `n = 0` 写进循环的那段每轮清零，只显示 1；`print` 缩进在循环里的那段显示 1、2、3、4 四行；`n = n + s` 是把数字和文字相加，会报错，而且数个数本来就该每轮加 1。
+        verify: |
+          wanted = [str(len(samples))]
+          fits = []
+          for option, code in OPTIONS["program"].items():
+              r = run(code)
+              if r.error is None and r.lines() == wanted:
+                  fits.append(option)
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+      - id: py35.k3.x2
+        kind: [predict, debug]
+        uses: [py06.k2]
+        body: |
+          AI 写了一段程序，说是算出三个读数的总和。
+
+          ```python
+          signals = [9, 12, 10]
+          total = signals[0]
+          for v in signals:
+              total = total + v
+          print(total)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示什么？
+            key: 40
+            feedback:
+              - when: 31
+                message: 31 是三个读数的和；再看 total 的起点是多少，循环又从哪个元素开始加。
+          - id: why
+            type: choice
+            prompt: 结果和三个读数的和差在哪里？
+            options:
+              - id: right
+                content: 没有差别，结果就是总和
+              - id: missing
+                content: 少加了最后一个读数
+              - id: double
+                content: 第一个读数被算了两次
+            key: double
+        explanation: |
+          显示 **40**，比真正的总和 31 多出 9。起点已经是第一个读数 9，循环又从第一个元素开始，把 9 再加了一次，所以第一个读数被算了两次。起点写成 0 就对了。
+        verify: |
+          r = run()
+          shown = int(r.out)
+          expected = sum(r["signals"])
+          extra = shown - expected
+          why = "right" if extra == 0 else "double" if extra == r["signals"][0] else "missing" if extra == -r["signals"][-1] else "other"
+          answers = {"output": shown, "why": why}
