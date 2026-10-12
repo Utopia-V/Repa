@@ -54,6 +54,19 @@ export class FileScope {
     throw new RepaFault("file_outside_space", `只能访问当前空间内的文件，不含 .repa/：${file}`, { path: file });
   }
 
+  /**
+   * 通用 Agent 写入的目标：字面路径和解析后的路径都在空间内时，经空间的写入路径记进历史；
+   * 有一个在空间外（包括经符号链接出去的），就是空间外的写入，要先经用户确认。空间的 .repa/ 一律不写。
+   */
+  async writeTarget(file: string): Promise<{ inside: boolean; path: string }> {
+    const lexical = path.resolve(this.root, file);
+    const canonical = await existingPath(lexical);
+    if (inDataDir(this.root, lexical) || inDataDir(this.realRoot, canonical)) {
+      throw new RepaFault("file_in_data_dir", `不能写入空间的 .repa/，那里是历史库、会话和插件数据：${file}`, { path: file });
+    }
+    return { inside: within(this.root, lexical) && within(this.realRoot, canonical), path: canonical };
+  }
+
   /** 用于已解析的路径：是否为空间根目录。 */
   isRoot(file: string): boolean {
     return file === this.realRoot;
@@ -93,9 +106,18 @@ export interface FileTools {
   reads: ReadState;
 }
 
-/** 通用 Agent 的读取和搜索沿用 Pi 默认实现，读取另外记下读到的内容；写入和精确编辑只在空间内且不进 .repa/。 */
-export function generalFileTools(tools: FileTools): ToolDefinition[] {
-  return [recordingReadTool(tools), writeTool(tools), editTool(tools)];
+/** 空间外的写入取得用户同意；不同意时抛错，工具就不写。 */
+export type ApproveOutside = (target: string, signal: AbortSignal | undefined) => Promise<void>;
+
+// 写到空间外时附在工具结果后面：这次改动没有经过空间的写入路径，撤回找不到它。
+const OUTSIDE_WRITE = "这个文件在空间外，这次改动没有进入历史，不能撤回。";
+
+/**
+ * 通用 Agent 的读取和搜索沿用 Pi 默认实现，读取另外记下读到的内容。写入和精确编辑在空间内照常记进历史；
+ * 写空间外的文件和命令一样先经确认，写入不进历史；空间的 .repa/ 一律不写。
+ */
+export function generalFileTools(tools: FileTools, approve: ApproveOutside): ToolDefinition[] {
+  return [recordingReadTool(tools), generalWriteTool(tools, approve), generalEditTool(tools, approve)];
 }
 
 /**
@@ -132,7 +154,8 @@ async function currentContent(file: string): Promise<Buffer | undefined> {
  * 有了内容，它可以直接据此重新决定，这份内容也算这个会话读过。
  */
 function staleFile(tools: FileTools, file: string, current: Buffer | undefined, reason: string): Error {
-  const shown = path.relative(tools.scope.resolvedRoot, file).split(path.sep).join("/");
+  const root = tools.scope.resolvedRoot;
+  const shown = within(root, file) ? path.relative(root, file).split(path.sep).join("/") : file;
   if (current === undefined) return new Error(`没有写入：${shown} ${reason}，现在已经不存在。`);
   tools.reads.remember(file, current);
   const text = truncateHead(current.toString("utf8"));
@@ -151,27 +174,54 @@ function locked(tools: FileTools, tool: ToolDefinition): ToolDefinition {
   });
 }
 
+/** 整文件覆盖的基线：已有的文件要和这个会话上一次读到的内容一致；没读过的新文件可以直接写。 */
+async function checkBaseline(tools: FileTools, target: string): Promise<void> {
+  const { reads } = tools;
+  const current = await currentContent(target);
+  if (current !== undefined && !reads.matches(target, current)) {
+    throw staleFile(tools, target, current, reads.has(target) ? "在这次会话上次读取之后被改过" : "已经存在，这次会话还没有读过它");
+  }
+}
+
+/** 空间内的整文件写入：经过空间的写入路径，只提交这个文件；基线核对在历史队列里做。 */
+async function writeInside(tools: FileTools, target: string, content: string): Promise<void> {
+  await tools.writes.commit(target, async () => {
+    await checkBaseline(tools, target);
+    await writeFile(target, content, "utf8");
+  });
+  tools.reads.remember(target, content);
+}
+
+/** 写回精确编辑的结果：before 是编辑时读到的原始字节，写入前核对磁盘上仍是它。 */
+async function writeEdited(tools: FileTools, file: string, before: Buffer, after: string): Promise<void> {
+  const current = await currentContent(file);
+  if (current === undefined || !current.equals(before)) throw staleFile(tools, file, current, "在这次编辑读取之后、写回之前被改过");
+  await writeFile(file, after, "utf8");
+}
+
+/** 编辑写回之后更新读取记录，返回编辑是否叠在这个会话没看过的改动上。 */
+function rememberEdit(tools: FileTools, file: string, before: Buffer, after: string): { unseen: boolean } {
+  const { reads } = tools;
+  // 编辑前会话看到的就是 before，编辑后的全文它也知道；否则文件里还有它没看过的改动，之后整份覆盖仍要核对。
+  const seen = reads.matches(file, before);
+  if (seen) reads.remember(file, after);
+  // 会话读过这个文件、这次读到的却不是它上次看到的内容，结果里提示模型；没读过的文件谈不上"自上次读取后"。
+  return { unseen: !seen && reads.has(file) };
+}
+
 /**
  * Pi 的 write，写入经过空间的写入路径，只提交这个文件。整文件覆盖要求这个会话上一次读到的内容与磁盘一致，
  * 核对在历史队列里做；没读过的新文件可以直接写。
  */
 function writeTool(tools: FileTools): ToolDefinition {
-  const { scope, writes, reads } = tools;
+  const { scope } = tools;
   return locked(tools, defineTool(createWriteToolDefinition(scope.root, {
     operations: {
       async mkdir(directory) {
         await mkdir(await scope.resolve(directory), { recursive: true });
       },
       async writeFile(file, content) {
-        const target = await scope.resolve(file);
-        await writes.commit(target, async () => {
-          const current = await currentContent(target);
-          if (current !== undefined && !reads.matches(target, current)) {
-            throw staleFile(tools, target, current, reads.has(target) ? "在这次会话上次读取之后被改过" : "已经存在，这次会话还没有读过它");
-          }
-          await writeFile(target, content, "utf8");
-        });
-        reads.remember(target, content);
+        await writeInside(tools, await scope.resolve(file), content);
       },
     },
   })));
@@ -182,21 +232,93 @@ function writeTool(tools: FileTools): ToolDefinition {
  * 应用在别人改过的内容上时，结果里提示模型文件还有其他改动。
  */
 function editTool(tools: FileTools): ToolDefinition {
-  const { scope, writes, reads } = tools;
+  const { scope, writes } = tools;
   return locked(tools, exactEditTool(scope.root, {
     resolve: file => scope.resolve(file),
     read: file => readFile(file),
     async write(file, before, after) {
-      await writes.commit(file, async () => {
-        const current = await currentContent(file);
-        if (current === undefined || !current.equals(before)) throw staleFile(tools, file, current, "在这次编辑读取之后、写回之前被改过");
-        await writeFile(file, after, "utf8");
-      });
-      // 编辑前会话看到的就是 before，编辑后的全文它也知道；否则文件里还有它没看过的改动，之后整份覆盖仍要核对。
-      const seen = reads.matches(file, before);
-      if (seen) reads.remember(file, after);
-      // 会话读过这个文件、这次读到的却不是它上次看到的内容，结果里提示模型；没读过的文件谈不上"自上次读取后"。
-      return { unseen: !seen && reads.has(file) };
+      await writes.commit(file, () => writeEdited(tools, file, before, after));
+      return rememberEdit(tools, file, before, after);
+    },
+  }));
+}
+
+/** 写到空间外的工具结果：原来的文字后面注明不能撤回。 */
+function noteOutside<T extends { content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] }>(result: T): T {
+  const text = result.content.flatMap(part => part.type === "text" ? [part.text] : []).join("");
+  return { ...result, content: [{ type: "text" as const, text: `${text}\n${OUTSIDE_WRITE}` }, ...result.content.filter(part => part.type !== "text")] };
+}
+
+/**
+ * 通用 Agent 的 write：空间内的照 writeTool 记进历史。空间外的先核对基线，免得用户同意之后才发现写不了；
+ * 再经确认，建父目录、直接写入，结果里注明不能撤回。Pi 先建父目录再写文件，所以空间外的父目录等确认之后才建。
+ * 确认期间文件可能又被改过，写之前再核对一次基线。
+ */
+function generalWriteTool(tools: FileTools, approve: ApproveOutside): ToolDefinition {
+  const { scope } = tools;
+  // 每次调用一份定义：空间外的写入要用这次调用的取消信号，并记下有没有写到空间外。
+  const definition = (signal: AbortSignal | undefined, outside: { wrote: boolean }) => createWriteToolDefinition(scope.root, {
+    operations: {
+      async mkdir(directory) {
+        const target = await scope.writeTarget(directory);
+        if (target.inside) await mkdir(target.path, { recursive: true });
+      },
+      async writeFile(file, content) {
+        const target = await scope.writeTarget(file);
+        if (target.inside) {
+          await writeInside(tools, target.path, content);
+          return;
+        }
+        await checkBaseline(tools, target.path);
+        await approve(target.path, signal);
+        await mkdir(path.dirname(target.path), { recursive: true });
+        await checkBaseline(tools, target.path);
+        await writeFile(target.path, content, "utf8");
+        tools.reads.remember(target.path, content);
+        outside.wrote = true;
+      },
+    },
+  });
+  return locked(tools, defineTool({
+    ...definition(undefined, { wrote: false }),
+    async execute(callId, input, signal, onUpdate, ctx) {
+      const outside = { wrote: false };
+      const result = await defineTool(definition(signal, outside)).execute(callId, input, signal, onUpdate, ctx);
+      return outside.wrote ? noteOutside(result) : result;
+    },
+  }));
+}
+
+/**
+ * 通用 Agent 的精确编辑：空间内的照 editTool 记进历史。空间外的在文件队列里算好结果再经确认，
+ * 锚文本不在时就不必问；写回前核对磁盘仍是编辑时读到的内容，结果里注明不能撤回。
+ */
+function generalEditTool(tools: FileTools, approve: ApproveOutside): ToolDefinition {
+  const { scope, writes } = tools;
+  const definition = (signal: AbortSignal | undefined, outside: { target: boolean; wrote: boolean }) => exactEditTool(scope.root, {
+    async resolve(file) {
+      const target = await scope.writeTarget(file);
+      outside.target = !target.inside;
+      return target.path;
+    },
+    read: file => readFile(file),
+    async write(file, before, after) {
+      if (!outside.target) {
+        await writes.commit(file, () => writeEdited(tools, file, before, after));
+        return rememberEdit(tools, file, before, after);
+      }
+      await approve(file, signal);
+      await writeEdited(tools, file, before, after);
+      outside.wrote = true;
+      return rememberEdit(tools, file, before, after);
+    },
+  });
+  return locked(tools, defineTool({
+    ...definition(undefined, { target: false, wrote: false }),
+    async execute(callId, input, signal, onUpdate, ctx) {
+      const outside = { target: false, wrote: false };
+      const result = await definition(signal, outside).execute(callId, input, signal, onUpdate, ctx);
+      return outside.wrote ? noteOutside(result) : result;
     },
   }));
 }

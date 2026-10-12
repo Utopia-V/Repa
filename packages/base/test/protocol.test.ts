@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import type { AgentRuntime, AgentSpace } from "../src/agent.js";
 import type { Plugin } from "../src/plugin.js";
 import { ConnectionError, RepaClient, RpcError } from "../src/client.js";
-import { PROTOCOL_VERSION } from "../src/protocol.js";
+import { canRender, INTERACTION_CAPABILITIES, PROTOCOL_VERSION, type AskRequest } from "../src/protocol.js";
 import { record } from "../src/protocol/json-rpc.js";
 import { startServer } from "../src/protocol/server.js";
 import { RepaFault, type Confirm } from "../src/schema.js";
@@ -300,4 +302,104 @@ test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释�
   assert.equal(pluginClosed, true);
   const reopened = await openSpace(root, { watch: false });
   await reopened.close();
+});
+
+/** 按脚本回答的后端：用来模拟词汇比客户端新的后端，或发来无效数据的后端。也可以主动推送通知。 */
+async function scriptedBackend(t: TestContext, results: Record<string, unknown>) {
+  const http = createServer();
+  const websocket = new WebSocketServer({ server: http, path: "/rpc" });
+  const sockets = new Set<WebSocket>();
+  websocket.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    socket.on("message", (data) => {
+      const request = record(JSON.parse(String(data)));
+      const method = String(request?.method);
+      // 脚本里没有的方法不回答，调用一直等着。
+      if (method !== "initialize" && !Object.hasOwn(results, method)) return;
+      const result = method === "initialize" ? { version: PROTOCOL_VERSION, serverId: "scripted" } : results[method];
+      socket.send(JSON.stringify({ jsonrpc: "2.0", id: request?.id, result }));
+    });
+  });
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    for (const socket of sockets) socket.terminate();
+    await new Promise<void>((resolve) => websocket.close(() => resolve()));
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+  });
+  const { port } = http.address() as AddressInfo;
+  return {
+    connection: { url: `ws://127.0.0.1:${port}/rpc`, token: "x".repeat(64) },
+    push(method: string, params: unknown) {
+      for (const socket of sockets) socket.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+    },
+    raw(text: string) {
+      for (const socket of sockets) socket.send(text);
+    },
+  };
+}
+
+test("后端发来无效 JSON 或不合 schema 的已知通知时，客户端主动断开，在途请求的结果标为未知", async (t) => {
+  const backend = await scriptedBackend(t, {});
+  const invalid = [() => backend.raw("{"), () => backend.push("session.event", { sessionId: "s-1", type: "unknownType" })];
+  for (const send of invalid) {
+    const client = await RepaClient.connect(backend.connection);
+    t.after(() => client.close());
+    // 脚本里没有 settings.get 的结果，这次调用一直等着，直到连接断开。
+    const pending = assert.rejects(client.call("settings.get", {}), (error: unknown) => error instanceof ConnectionError && error.outcome === "unknown");
+    const disconnected = new Promise<void>((resolve) => client.onConnectionChange((connected) => { if (!connected) resolve(); }));
+    send();
+    await disconnected;
+    await pending;
+    assert.equal(client.connected, false);
+  }
+});
+
+test("旧客户端读较新后端的题目：不认识的可选字段丢掉照常显示，必须理解的特性按 requires 判为不能作答", async (t) => {
+  const capabilities = { interaction: { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] } };
+  const item = {
+    id: "py01.k1.q1",
+    version: `sha256:${"a".repeat(64)}`,
+    requires: ["block.markdown", "slot.text"],
+    body: [{ type: "markdown", text: "运行后输出什么？" }],
+    slots: [{ id: "output", type: "text" }],
+  };
+  const reference = { id: item.id, version: item.version };
+  const backend = await scriptedBackend(t, {
+    "ask.reply": { status: "recorded", attempt: 2, feedback: { item: reference, verdict: "almost", judge: "peer", tone: "warm" } },
+  });
+  const client = await RepaClient.connect(backend.connection, { capabilities });
+  t.after(() => client.close());
+  const received: AskRequest[] = [];
+  const both = new Promise<void>((resolve) => client.on("ask.request", (request) => {
+    received.push(request);
+    if (received.length === 2) resolve();
+  }));
+  const envelope = { origin: { kind: "agent", sessionId: "s-1", callId: "call-1" }, purpose: "question" };
+  backend.push("ask.request", { ...envelope, id: "ask-1", item: { ...item, hint: "先看 print", slots: [{ id: "output", type: "text", unit: "行" }] } });
+  backend.push("ask.request", { ...envelope, id: "ask-2", item: { ...item, requires: [...item.requires, "text.handwriting"], slots: [{ id: "output", type: "text", handwriting: true }] } });
+  await both;
+  assert.deepEqual(received.map((request) => request.item), [item, { ...item, requires: [...item.requires, "text.handwriting"] }]);
+  assert.deepEqual(received.map((request) => canRender(capabilities.interaction, request.item)), [true, false]);
+  // 提交结果里的反馈同样宽松读取：不认识的字段和来源丢掉，不认识的 verdict 按中性读成 ungraded。
+  const result = await client.call("ask.reply", { id: "ask-1", action: "submit", response: { item: reference, answers: { output: { type: "text", text: "5" } } } });
+  assert.deepEqual(result, { status: "recorded", feedback: { item: reference, verdict: "ungraded" } });
+  assert.equal(client.connected, true);
+});
+
+test("询问的信封多了字段，或题目里认识的字段类型不对时，客户端仍按无效协议数据断开", async (t) => {
+  const item = { id: "q", version: `sha256:${"a".repeat(64)}`, requires: ["slot.text"], body: [], slots: [{ id: "a", type: "text" }] };
+  const envelope = { id: "ask-1", origin: { kind: "agent" }, purpose: "question" };
+  const backend = await scriptedBackend(t, {});
+  for (const params of [{ ...envelope, item, priority: 1 }, { ...envelope, item: { ...item, slots: [{ id: "a", type: "text", lines: "多行" }] } }]) {
+    const client = await RepaClient.connect(backend.connection);
+    t.after(() => client.close());
+    const received: unknown[] = [];
+    client.on("ask.request", (request) => received.push(request));
+    const disconnected = new Promise<void>((resolve) => client.onConnectionChange((connected) => { if (!connected) resolve(); }));
+    backend.push("ask.request", params);
+    await disconnected;
+    assert.equal(client.connected, false);
+    assert.deepEqual(received, []);
+  }
 });
