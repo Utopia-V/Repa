@@ -10,7 +10,7 @@ import { sameDisplay } from "../src/check/literal.js";
 import { sameValue } from "../src/check/values.js";
 import { toContent } from "../src/format/markdown.js";
 import type { SlotDef, Topic } from "../src/format/schema.js";
-import { checkResponse, contentVersion, ItemSchema } from "../src/interaction.js";
+import { checkResponse, contentVersion, ItemSchema } from "@repa/base/protocol";
 import { demoCourse } from "./demo-course.js";
 
 function t01(): Topic {

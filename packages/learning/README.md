@@ -14,7 +14,7 @@
 
 能用程序核对的答案，由作者写的 `verify` 程序独立算一遍，再按作答位自己的判分规则去判；代码题由参考答案、等价写法、常见错误写法和作答框里的初始代码各跑一遍测试。这些都在 Pyodide 314.0.7 里运行，与学习者运行代码的版本相同，不用本机的 CPython 和 pandas 代替。运行放在沙箱里：系统 python3 运行的 `sandbox/launch.py` 先用 Landlock 和 seccomp 限制自己，再 exec 成 Node 加载 Pyodide。Ubuntu 默认限制非特权进程使用 user namespace，没有专用 AppArmor 配置时 bwrap 建不了 namespace，而 Landlock 和 seccomp 普通用户就能用，所以这里不用 bwrap。
 
-交互词汇已经在 `interaction-protocol` 分支实现进 `@repa/base/protocol`，还没合进 `dev`。在那之前，[`src/interaction.ts`](src/interaction.ts) 逐段复制了那份实现里课程检查用到的部分，本包只从这个文件导入交互词汇；合并以后把它的内容换成 `export * from "@repa/base/protocol";`，再加上对 `@repa/base` 的依赖即可。
+题面、作答位、作答、结构检查 `checkResponse` 和版本 `contentVersion` 都从 `@repa/base/protocol` 导入，与前端和对话询问用的是同一份交互词汇。本包因此依赖 `@repa/base`，`check`、`test`、`build` 和课程命令运行前会先构建底座。
 
 ## 实现细节
 
@@ -62,7 +62,6 @@ pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们�
 
 | 项目 | 现状与影响 | 接续 |
 | --- | --- | --- |
-| 交互词汇 | `src/interaction.ts` 是 `interaction-protocol` 分支提交 `040bae4f2` 的临时副本 | 那个分支合进 `dev` 后换成从 `@repa/base/protocol` 导入，再重跑课程检查 |
 | 其余 45 个 topic | 只有骨架；`notes` 里带着原稿的题型建议和范围约束 | 下一个任务按写课说明生成 |
 | 学习者作答的判分 | 这里只检查课程文件。学习者的代码要在学习者端的沙箱里运行，判分、作答记录和学生模型还没有实现 | 插件接入任务 |
 | 其他系统上的代码核对 | 依赖 Linux 的 Landlock（ABI 4 以上，Linux 6.7 起）、libseccomp 和 `/usr/bin/python3`；Windows、macOS 只能 `--no-run` | 需要时另做；社区作者可以先做结构检查 |

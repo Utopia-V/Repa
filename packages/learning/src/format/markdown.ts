@@ -1,4 +1,4 @@
-import type { Block, Content } from "../interaction.js";
+import type { Block, Content } from "@repa/base/protocol";
 import type { ContentInput } from "./schema.js";
 
 export interface ContentResult {

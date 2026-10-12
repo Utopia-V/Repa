@@ -1,7 +1,7 @@
 import {
   contentVersion, requiredCapabilities,
   type Answer, type Content, type Item, type ItemDraft, type ItemResponse, type Slot,
-} from "../interaction.js";
+} from "@repa/base/protocol";
 import { toContent } from "../format/markdown.js";
 import {
   type CellInputDef, type ContentInput, type Fixture, type Kp, type OrderSlot, type Question, type SlotDef,

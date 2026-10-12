@@ -1,14 +1,14 @@
 /**
  * 课程文件格式：一份课程清单 course.yaml，加每个 topic 一个 topics/<id>.yaml。
  *
- * 写法尽量贴近交互词汇（interaction.ts）的 Item：题面、作答位、选项和单元格的字段名一致，
+ * 写法尽量贴近交互词汇（@repa/base/protocol）的 Item：题面、作答位、选项和单元格的字段名一致，
  * 再在作答位上加只留在插件里的部分（key、match、tests 等）。投影成学生可见的 Item 时按白名单取字段，
  * 这些私有字段不会带出去。凡是 Content 的位置，都可以直接写一段 Markdown 字符串，加载时拆成内容块。
  */
 
 import { Type, type Static, type TSchema } from "typebox";
 
-import { BlockSchema } from "../interaction.js";
+import { BlockSchema } from "@repa/base/protocol";
 
 const object = <T extends Record<string, TSchema>>(properties: T) =>
   Type.Object(properties, { additionalProperties: false });

@@ -7,7 +7,7 @@
  * 运行在沙箱里进行，结果的比较在沙箱外。
  */
 
-import type { Answer } from "../interaction.js";
+import type { Answer } from "@repa/base/protocol";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedTopic } from "../format/load.js";
 import type { CodeTest, Question, SlotDef, Topic } from "../format/schema.js";

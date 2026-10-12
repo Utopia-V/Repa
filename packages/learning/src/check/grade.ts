@@ -3,7 +3,7 @@
  * 代码题和按测试判的 Parsons 题要在沙箱里运行，这里返回 ungraded；开放作答由人或模型评，同样返回 ungraded。
  */
 
-import type { Answer } from "../interaction.js";
+import type { Answer } from "@repa/base/protocol";
 import type { SlotDef, TextMatch } from "../format/schema.js";
 import { acceptedValues, inputCells, itemIndent, scalarText, textMatch, type CellMatch, type Scalar } from "./items.js";
 import { sameDisplay } from "./literal.js";

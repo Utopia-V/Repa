@@ -4,7 +4,7 @@
 
 import { isScalar, isSeq } from "yaml";
 
-import type { Content } from "../interaction.js";
+import type { Content } from "@repa/base/protocol";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedCourse, LoadedTopic } from "../format/load.js";
 import { markdownLinks, markdownTexts, toContent } from "../format/markdown.js";

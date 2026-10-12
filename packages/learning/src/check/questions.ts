@@ -5,7 +5,7 @@
 
 import { Value } from "typebox/value";
 
-import { checkResponse, ItemSchema, type Item } from "../interaction.js";
+import { checkResponse, ItemSchema, type Item } from "@repa/base/protocol";
 import type { Report } from "../format/diagnostics.js";
 import type { LoadedCourse } from "../format/load.js";
 import { gradeSlot } from "./grade.js";
