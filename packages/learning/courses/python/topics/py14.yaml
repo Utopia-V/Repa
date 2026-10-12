@@ -1,7 +1,8 @@
 id: py14
 title: 一张数据表里有什么
-status: outline
+status: complete
 minutes: 20
+summary: 认出 DataFrame 的行、列、行索引和取出的一列 Series；用 shape 看大小、head 看样子；读出每列的类型，并说清一行代表什么。
 prerequisites:
   - topic: py06
     key: true
@@ -26,10 +27,1098 @@ sources:
     use: reference
 notes: |
   建议题型与判分：预测输出（P）、解释代码（S/O）、写清需求（S/O）。
+  范围：宿主已经运行 import pandas as pd 并准备好小表，不出现 pd.DataFrame({...}) 构造（避免提前用到字典）。只读表、取单列 df["列名"]、len、list(df.columns)、list(df.index)、shape、head、dtypes；df[["列"]]、loc、iloc 留给 py16。dtype 只讲 int64、float64、str、bool 四种，缺失值让列变成浮点留给 py19。
+  pandas 3 的文字列 dtype 显示为 str；它的 repr 是 <StringDtype(...)>，不好读，所以题目问 df.dtypes 里显示的名字（str(dtype)），不让学生写 repr。
+  表 T 与 py17 的表 T 相同（行索引 31、7、22、4 不按大小），让 py16、py17 接着用同一张表；本节把左边那列叫“行索引”。
+  WWPD 题的 >>> 约定在 py13.k2 引入，但 py14 只以 py13.k1 为先修，所以 intro 里再说明一次。
+  “一行代表什么”的题用“哪几列合起来能唯一确定一行”让程序核对（用 duplicated 检查），文字选项只是这个判断的说法。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 2 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 4 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  这一节开始读数据表。宿主已经运行了 `import pandas as pd`，并把题目用到的表准备好，题面最前面会显示这张表；你直接读表和代码，不需要写导入或构造数据的代码。每道题都从题面的表重新开始。
+
+  有些题用交互窗口的形式：`>>>` 后面是输入的一行，你填写 Python 显示的内容。交互窗口会自动显示表达式的值；赋值什么也不显示，填 NOTHING；报错填 ERROR。
+wrapup: |
+  拿到一张表，先回答四个问题：有哪些列，列名怎样拼写；有多少行、多少列（shape）；前几行长什么样（head）；每列是什么类型，一行代表什么。
+
+  这四件事说清了，再向同事或 AI 提要求，例如“表 visits 一行是一个样本某一天的一次称重，sample_id 是文字编号”，对方就不会把称重次数当成样本数。
+data:
+  T:
+    kind: dataframe
+    name: df
+    caption: 表 T
+    index: [31, 7, 22, 4]
+    indexHeader: 行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D]
+      signal: [8, 10, 13, 10]
+      group: [control, drug, drug, control]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：四个采样点的土层深度（厘米）
+    index: [5, 12, 3, 8]
+    indexHeader: 行索引
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡]
+      depth: [30, 25, 35, 30]
+  field:
+    kind: dataframe
+    name: field
+    caption: 表 field：三块试验田的产量（千克）
+    index: [P1, P2, P3]
+    indexHeader: 行索引
+    columns:
+      crop: [小麦, 玉米, 大豆]
+      yield_kg: [520, 610, 480]
+  M:
+    kind: dataframe
+    name: df
+    caption: 表 M：七次测量
+    index: [12, 3, 25, 8, 40, 17, 5]
+    indexHeader: 行索引
+    columns:
+      sample_id: [S_E, S_A, S_G, S_C, S_F, S_B, S_D]
+      signal: [11, 8, 15, 10, 9, 13, 12]
+      group: [drug, control, drug, control, drug, control, drug]
+  runs:
+    kind: dataframe
+    name: runs
+    caption: 表 runs：六次仪器运行的时长（分钟）
+    index: [9, 2, 14, 6, 11, 1]
+    indexHeader: 行索引
+    columns:
+      run_id: [R05, R02, R07, R04, R06, R01]
+      minutes: [42, 38, 51, 40, 45, 36]
+  visits:
+    kind: dataframe
+    name: visits
+    caption: 表 visits：样本称重记录（克）
+    columns:
+      sample_id: ["001", "001", "002", "002", "003"]
+      day: [1, 3, 1, 3, 1]
+      weight: [2.5, 2.7, 3.1, 3.0, 2.2]
+      passed: [true, true, false, true, true]
+    dtypes: { weight: float }
+  lab:
+    kind: dataframe
+    name: lab
+    caption: 表 lab：三块板的计数
+    columns:
+      plate: [P1, P2, P3]
+      count: [12, 9, 30]
+      note: ["12", "9", "30"]
+  water:
+    kind: dataframe
+    name: water
+    caption: 表 water：三个采样点的 pH
+    columns:
+      site: [S1, S1, S2, S2, S3, S3]
+      date: ["2026-05-01", "2026-05-08", "2026-05-01", "2026-05-08", "2026-05-01", "2026-05-08"]
+      ph: [7.1, 7.1, 6.8, 6.9, 7.4, 7.2]
+    dtypes: { ph: float }
+  ids_a:
+    kind: dataframe
+    name: a
+    caption: 表 a
+    columns:
+      sample_id: [1, 2, 10]
+      signal: [8, 10, 13]
+  ids_b:
+    kind: dataframe
+    name: b
+    caption: 表 b
+    columns:
+      sample_id: ["001", "002", "010"]
+      signal: [8, 10, 13]
+  plants:
+    kind: dataframe
+    name: plants
+    caption: 表 plants：四株植物
+    columns:
+      plant_id: [A01, A02, A03, A04]
+      height_cm: [12.5, 13.0, 11.8, 12.2]
+      leaves: [6, 7, 5, 6]
+      flowering: [false, true, false, true]
+    dtypes: { height_cm: float }
+  doses:
+    kind: dataframe
+    name: doses
+    caption: 表 doses：受试者的给药记录
+    columns:
+      subject: [K01, K01, K01, K02, K02, K03]
+      visit: [1, 2, 3, 1, 2, 1]
+      dose_mg: [10, 10, 20, 10, 15, 10]
+  cells:
+    kind: dataframe
+    name: cells
+    caption: 表 cells：细胞计数
+    columns:
+      well: [A1, A2, B1, B2]
+      cells_k: [12.0, 8.0, 15.0, 9.0]
+      treated: [true, false, true, false]
+      batch: ["07", "07", "12", "12"]
+    dtypes: { cells_k: float }
+  plots:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：样方调查
+    columns:
+      plot: [Q1, Q1, Q1, Q2, Q2, Q3]
+      species: [蒲公英, 车前草, 狗尾草, 蒲公英, 狗尾草, 车前草]
+      count: [4, 2, 7, 3, 5, 1]
 kps:
   - id: py14.k1
     title: DataFrame、Series、行列和索引
+    card:
+      name: DataFrame
+      aliases: [数据表, 表, Series, 行索引]
+      definition: DataFrame 是一张有列名和行索引的表；用 `df["列名"]` 取出其中一列，得到 Series，它带着和原表相同的行索引。
+      conditions:
+        - 左边的行索引是每一行的标签，不是表里的一列，也不一定是 0、1、2……
+        - 方括号里的列名要和表里的完全一样，大小写和空格都算。
+      example:
+        from: py14.k1.e0
+        text: |
+          表 T 有 sample_id、signal、group 三列，四行的行索引是 31、7、22、4。`df["group"]` 是一列四个值的 Series，行索引仍是 31、7、22、4。
+    lesson: |
+      pandas 用 **DataFrame** 表示一张表。下面是表 T，宿主把它放在名字 `df` 里：
+
+      | 行索引 | sample_id | signal | group |
+      |---:|---|---:|---|
+      | 31 | S_A | 8 | control |
+      | 7 | S_B | 10 | drug |
+      | 22 | S_C | 13 | drug |
+      | 4 | S_D | 10 | control |
+
+      - **列**：每列有一个列名，例如 `signal`。同一列放同一种量。
+      - **行**：每行是一条记录，这里是一个样本。
+      - **行索引**：最左边的 31、7、22、4 是每一行的**标签**。它不是表里的一列，也不一定从 0 开始、按大小排；表经过筛选或排序以后，原来的标签会跟着行走。
+
+      取出一列，在方括号里写列名：`df["signal"]`。列名要带引号，大小写要和表里一致，写成 `df["Signal"]` 会报错。取出来的是 **Series**：一列值，带着和原表相同的行索引。用 print 显示它是这样的：
+
+      ```text
+      31     8
+      7     10
+      22    13
+      4     10
+      Name: signal, dtype: int64
+      ```
+
+      左边是行索引，右边是值，最后一行写着它来自哪一列（Name）和值的类型（dtype）。
+
+      还有几个查看表的写法：`len(df)` 是行数；`list(df.columns)` 把列名排成一个列表；`list(df.index)` 把行索引排成一个列表。
+    example:
+      id: py14.k1.e0
+      kind: [predict, explain]
+      data: [T]
+      body: |
+        读题面最前面的表 T，回答下面的问题。
+      slots:
+        - id: rows
+          type: text
+          format: integer
+          prompt: 表 T 有几行？
+          key: 4
+        - id: label
+          type: text
+          format: integer
+          prompt: 样本 S_C 所在那一行的行索引是多少？
+          key: 22
+        - id: value
+          type: text
+          format: integer
+          prompt: 行索引为 7 的那一行，signal 是多少？
+          key: 10
+        - id: column
+          type: choice
+          prompt: "`df[\"group\"]` 得到的是什么？"
+          options:
+            - { id: series, content: 一列值（Series），共 4 个，行索引仍是 31、7、22、4 }
+            - { id: unique, content: group 列里出现过的组别：control 和 drug }
+            - { id: first, content: 第一行的组别 control }
+          key: series
+      explanation: |
+        表 T 有 **4** 行。S_C 在第三行，它的行索引是 **22**；行索引为 7 的是 S_B 那一行，signal 是 **10**。注意行索引是标签，不是第几行：7 在第二行。
+
+        `df["group"]` 取出整列，是一个 **Series**，有 4 个值 control、drug、drug、control，行索引仍是 31、7、22、4。它不会去重，也不只取第一行。
+      verify: |
+        column = df["group"]
+        is_series = isinstance(column, pd.Series) and len(column) == len(df) and list(column.index) == list(df.index)
+        answers = {
+            "rows": len(df),
+            "label": df.index[df["sample_id"] == "S_C"][0],
+            "value": df.loc[7, "signal"],
+            "column": "series" if is_series else "other",
+        }
+    practice:
+      - id: py14.k1.q1
+        kind: [explain]
+        data: [T]
+        body: |
+          表 T 里，下面四样东西各是什么？
+        slots:
+          - id: parts
+            type: table
+            columns:
+              - { id: item, header: 表里的 }
+              - id: part
+                header: 它是
+                input:
+                  type: choice
+                  options:
+                    - { id: index, label: 行索引 }
+                    - { id: column, label: 列名 }
+                    - { id: value, label: 表里的一个值 }
+            rows:
+              - { id: i31, cells: { item: 最左边的 31, part: index } }
+              - { id: isignal, cells: { item: 最上面的 signal, part: column } }
+              - { id: isb, cells: { item: S_B, part: value } }
+              - { id: icontrol, cells: { item: control, part: value } }
+        explanation: |
+          31 是**行索引**，标出第一行；signal 是**列名**；S_B 和 control 都是表里的**值**，分别在 sample_id 列和 group 列里。
+
+          行索引不是表里的一列：`list(df.columns)` 里只有 sample_id、signal、group。
+        verify: |
+          def part(item):
+              if item in list(df.index):
+                  return "index"
+              if item in list(df.columns):
+                  return "column"
+              if (df == item).any().any():
+                  return "value"
+              return "none"
+          items = {"i31": 31, "isignal": "signal", "isb": "S_B", "icontrol": "control"}
+          answers = {"parts": {row: {"part": part(item)} for row, item in items.items()}}
+      - id: py14.k1.q2
+        kind: [predict]
+        uses: [py06.k1]
+        data: [T]
+        body: |
+          在交互窗口里依次输入下面几行。`df` 是表 T。
+        slots:
+          - id: wwpd
+            type: table
+            prompt: Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+            columns:
+              - { id: input, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: r1, cells: { input: "`>>> len(df)`", shown: "4" } }
+              - { id: r2, cells: { input: "`>>> list(df.columns)`", shown: "['sample_id', 'signal', 'group']" } }
+              - { id: r3, cells: { input: "`>>> list(df.index)`", shown: "[31, 7, 22, 4]" } }
+              - { id: r4, cells: { input: "`>>> df[\"Signal\"]`", shown: ERROR } }
+        explanation: |
+          | 输入 | 显示 |
+          |---|---|
+          | `len(df)` | 4：表有 4 行 |
+          | `list(df.columns)` | `['sample_id', 'signal', 'group']`：列名，按表里的顺序 |
+          | `list(df.index)` | `[31, 7, 22, 4]`：行索引，按表里的顺序，不按大小 |
+          | `df["Signal"]` | ERROR：列名是小写的 signal，大小写不同就找不到这一列 |
+        verify: |
+          inputs = ["len(df)", "list(df.columns)", "list(df.index)", 'df["Signal"]']
+          shown = repl("\n".join(inputs))
+          answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}}
+      - id: py14.k1.q3
+        kind: [predict, explain]
+        data: [soil]
+        body: |
+          ```python
+          depths = soil["depth"]
+          print(depths)
+          ```
+
+          显示的是：
+
+          ```text
+          5     30
+          12    25
+          3     35
+          8     30
+          Name: depth, dtype: int64
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: "`depths` 里有几个值？"
+            key: 4
+          - id: left
+            type: choice
+            prompt: 左边的 5、12、3、8 是什么？
+            options:
+              - { id: index, content: 原表 soil 的行索引 }
+              - { id: position, content: 每个值是第几个 }
+              - { id: values, content: depth 列的另一部分值 }
+            key: index
+          - id: at3
+            type: text
+            format: integer
+            prompt: 行索引为 3 的那个值是多少？
+            key: 35
+        explanation: |
+          `soil["depth"]` 取出 depth 这一列，是一个 Series，有 **4** 个值。左边的 5、12、3、8 是**原表 soil 的行索引**，取出这一列时跟着带了过来；它们不是第几个的意思。行索引为 3 的是东坡那一行，值是 **35**。
+        verify: |
+          depths = run()["depths"]
+          left = "index" if list(depths.index) == list(soil.index) else "other"
+          answers = {"count": len(depths), "left": left, "at3": depths[3]}
+    review:
+      - id: py14.k1.r1
+        kind: [predict, explain]
+        data: [field]
+        body: |
+          读题面最前面的表 field，回答下面的问题。
+        slots:
+          - id: rows
+            type: text
+            format: integer
+            prompt: 表有几行？
+            key: 3
+          - id: cols
+            type: text
+            format: integer
+            prompt: 表有几列（不算行索引）？
+            key: 2
+          - id: p2
+            type: choice
+            prompt: P2 是什么？
+            options:
+              - { id: value, content: crop 列里的一个值 }
+              - { id: index, content: 一行的行索引 }
+              - { id: column, content: 一个列名 }
+            key: index
+          - id: crop
+            type: text
+            match: text
+            prompt: 行索引为 P3 的那一行，crop 是什么？
+            key: 大豆
+        explanation: |
+          3 行、2 列（crop 和 yield_kg）。左边的 P1、P2、P3 是**行索引**，这里用文字作标签，不是 crop 列的值。行索引为 P3 的那一行，crop 是**大豆**。
+        verify: |
+          answers = {
+              "rows": len(field),
+              "cols": len(field.columns),
+              "p2": "index" if "P2" in list(field.index) else "column" if "P2" in list(field.columns) else "value",
+              "crop": field.loc["P3", "crop"],
+          }
+      - id: py14.k1.r2
+        kind: [debug]
+        data: [soil]
+        body: |
+          想取出 soil 表的 depth 这一列。下面哪几种写法能做到？选出所有可以的。
+        slots:
+          - id: ways
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: exact
+                content: |
+                  ```python
+                  depths = soil["depth"]
+                  ```
+              - id: upper
+                content: |
+                  ```python
+                  depths = soil["Depth"]
+                  ```
+              - id: bare
+                content: |
+                  ```python
+                  depths = soil[depth]
+                  ```
+              - id: space
+                content: |
+                  ```python
+                  depths = soil["depth "]
+                  ```
+            key: [exact]
+        explanation: |
+          只有 `soil["depth"]` 可以。列名要和表里的一模一样：`"Depth"` 大小写不同，`"depth "` 多了一个空格，都找不到这一列；不加引号的 `depth` 被当成一个名字，而这个名字没有赋过值，报 NameError。
+        verify: |
+          def gets_depth(code):
+              r = run(code)
+              return r.error is None and isinstance(r["depths"], pd.Series) and r["depths"].name == "depth"
+          answers = {"ways": [option for option, code in OPTIONS["ways"].items() if gets_depth(code)]}
+    quiz:
+      - id: py14.k1.x1
+        kind: [explain]
+        data: [field]
+        body: |
+          同事看着表 field 说：“这张表的第一列是 P1、P2、P3。”
+        slots:
+          - id: claim
+            type: choice
+            prompt: 这句话对吗？
+            options:
+              - { id: right, content: 对，P1、P2、P3 就是第一列 }
+              - { id: wrong, content: 不对，P1、P2、P3 是行索引，不是表里的列 }
+            key: wrong
+          - id: first
+            type: text
+            match: text
+            prompt: 表里第一列的列名是什么？
+            key: crop
+        explanation: |
+          **不对。** P1、P2、P3 显示在最左边，但它们是每一行的标签，也就是行索引；`list(field.columns)` 里只有 crop 和 yield_kg。表里的第一列是 **crop**。
+        verify: |
+          columns = list(field.columns)
+          answers = {"claim": "wrong" if "P1" in list(field.index) and "P1" not in columns else "right", "first": columns[0]}
+      - id: py14.k1.x2
+        kind: [predict]
+        uses: [py06.k1]
+        data: [field]
+        body: |
+          在交互窗口里依次输入下面几行。
+        slots:
+          - id: wwpd
+            type: table
+            prompt: Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+            columns:
+              - { id: input, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: r1, cells: { input: "`>>> crops = field[\"crop\"]`", shown: NOTHING } }
+              - { id: r2, cells: { input: "`>>> len(crops)`", shown: "3" } }
+              - { id: r3, cells: { input: "`>>> list(crops.index)`", shown: "['P1', 'P2', 'P3']" } }
+              - { id: r4, cells: { input: "`>>> field[\"产量\"]`", shown: ERROR } }
+        explanation: |
+          | 输入 | 显示 |
+          |---|---|
+          | `crops = field["crop"]` | NOTHING：赋值不显示 |
+          | `len(crops)` | 3：取出的一列有 3 个值 |
+          | `list(crops.index)` | `['P1', 'P2', 'P3']`：这一列带着原表的行索引 |
+          | `field["产量"]` | ERROR：表里的列名是 yield_kg，没有叫“产量”的列 |
+        verify: |
+          inputs = ['crops = field["crop"]', "len(crops)", "list(crops.index)", 'field["产量"]']
+          shown = repl("\n".join(inputs))
+          answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}}
+
   - id: py14.k2
     title: shape 与 head 分别告诉你什么
+    card:
+      name: shape 与 head
+      aliases: [shape, head, 行数, 列数]
+      definition: "`df.shape` 是（行数, 列数）两个数，告诉你表有多大；`df.head(n)` 取出前 n 行（省略 n 时是 5 行）看看样子，不会改变 df。"
+      conditions:
+        - shape 不把行索引算作一列，后面不加括号；head 按表里现在的先后取前几行，不是取行索引最小的几行。
+        - 表不足 n 行时，head(n) 给出全部行，不会报错。
+      example:
+        from: py14.k2.e0
+        text: |
+          表 M 有 7 行 3 列，`df.shape` 是 (7, 3)。`df.head(3)` 取出行索引为 12、3、25 的前三行；之后 df 仍有 7 行。
+    lesson: |
+      拿到一张表，先问两件事：它有多大？长什么样？
+
+      **`df.shape` 回答“有多大”**：两个数，（行数, 列数）。行索引不算一列。shape 是表自带的一项信息，后面**不加括号**，写成 `df.shape()` 会报错。`df.shape[0]` 是行数，`df.shape[1]` 是列数；`len(df)` 也是行数。
+
+      **`df.head(n)` 回答“长什么样”**：取出表里**前 n 行**，组成一张小表；n 省略时是 5。真实的数据可能有几千行，先看前几行，就能确认列名和值的样子对不对。有三点要注意：
+
+      - “前 n 行”按表里现在的先后，不是按行索引的大小。表 M 的行索引是 12、3、25、8……，`head(3)` 取的是 12、3、25 这三行，不是 3、5、8。
+      - head 只是取出来看，**df 本身一行都没有少**。想留着这几行，要把结果赋给一个新名字，例如 `top = df.head(3)`。
+      - 表不足 n 行时，给出全部的行，不会报错。
+    example:
+      id: py14.k2.e0
+      kind: [predict]
+      data: [M]
+      body: |
+        `df` 是表 M。阅读代码。
+
+        ```python
+        print(df.shape)
+        top = df.head(3)
+        print(top.shape)
+        print(len(df))
+        ```
+      slots:
+        - id: nrows
+          type: text
+          format: integer
+          prompt: "`df.shape` 的第一个数（行数）"
+          key: 7
+        - id: ncols
+          type: text
+          format: integer
+          prompt: "`df.shape` 的第二个数（列数）"
+          key: 3
+        - id: top
+          type: order
+          partial: true
+          prompt: "`top` 里有哪几行？按先后排出它们的行索引，没有的不要放进来。"
+          items:
+            - { id: "12", content: "12" }
+            - { id: "3", content: "3" }
+            - { id: "25", content: "25" }
+            - { id: "8", content: "8" }
+            - { id: "40", content: "40" }
+            - { id: "17", content: "17" }
+            - { id: "5", content: "5" }
+          key: ["12", "3", "25"]
+        - id: after
+          type: text
+          format: integer
+          prompt: 最后一行显示的 `len(df)` 是多少？
+          key: 7
+      explanation: |
+        表 M 有 7 行、3 列（sample_id、signal、group），`df.shape` 是 **(7, 3)**，行索引不算一列。
+
+        `df.head(3)` 按表里的先后取前三行：行索引 **12、3、25**，所以 `top.shape` 是 (3, 3)。它不是取行索引最小的 3、5、8。head 不改变 df，最后 `len(df)` 仍是 **7**。
+      verify: |
+        r = run()
+        top = r["top"]
+        answers = {
+            "nrows": r["df"].shape[0],
+            "ncols": r["df"].shape[1],
+            "top": [str(label) for label in top.index],
+            "after": int(r.lines()[-1]),
+        }
+    practice:
+      - id: py14.k2.q1
+        kind: [predict]
+        data: [M]
+        body: |
+          在交互窗口里依次输入下面几行。`df` 是表 M。
+        slots:
+          - id: wwpd
+            type: table
+            prompt: Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+            columns:
+              - { id: input, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: r1, cells: { input: "`>>> df.shape`", shown: "(7, 3)" } }
+              - { id: r2, cells: { input: "`>>> df.shape[0]`", shown: "7" } }
+              - { id: r3, cells: { input: "`>>> df.head(2).shape`", shown: "(2, 3)" } }
+              - { id: r4, cells: { input: "`>>> df.head(10).shape`", shown: "(7, 3)" } }
+              - { id: r5, cells: { input: "`>>> df.shape()`", shown: ERROR } }
+        explanation: |
+          | 输入 | 显示 |
+          |---|---|
+          | `df.shape` | (7, 3) |
+          | `df.shape[0]` | 7：行数 |
+          | `df.head(2).shape` | (2, 3)：前两行，列不变 |
+          | `df.head(10).shape` | (7, 3)：表只有 7 行，就给出全部 7 行 |
+          | `df.shape()` | ERROR：shape 后面不加括号 |
+        verify: |
+          inputs = ["df.shape", "df.shape[0]", "df.head(2).shape", "df.head(10).shape", "df.shape()"]
+          shown = repl("\n".join(inputs))
+          answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}}
+      - id: py14.k2.q2
+        kind: [predict]
+        data: [M]
+        body: |
+          `df` 是表 M。
+
+          ```python
+          first = df.head(4)
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: "`first` 里有哪几行？按先后排出它们的行索引。"
+            items:
+              - { id: "3", content: "3" }
+              - { id: "5", content: "5" }
+              - { id: "8", content: "8" }
+              - { id: "12", content: "12" }
+              - { id: "17", content: "17" }
+              - { id: "25", content: "25" }
+              - { id: "40", content: "40" }
+            key: ["12", "3", "25", "8"]
+          - id: last
+            type: text
+            match: text
+            prompt: "`first` 最后一行的 sample_id 是什么？"
+            key: S_C
+        explanation: |
+          head 按表里现在的先后取前四行：行索引 **12、3、25、8**，不按大小排成 3、5、8、12。第四行是行索引 8 的那一行，sample_id 是 **S_C**。
+        verify: |
+          first = run()["first"]
+          answers = {"rows": [str(label) for label in first.index], "last": first["sample_id"].iloc[-1]}
+      - id: py14.k2.q3
+        kind: [explain]
+        data: [M]
+        body: |
+          同事说：“我运行了 `df.head()`，现在 df 只剩 5 行了。”`df` 是表 M。
+
+          ```python
+          df.head()
+          print(len(df))
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 第 2 行显示什么？
+            key: 7
+          - id: claim
+            type: choice
+            prompt: 同事的说法对吗？
+            options:
+              - { id: wrong, content: 不对，head 只是取出前几行组成新表，df 本身没有变 }
+              - { id: right, content: 对，head 会把 df 截成前 5 行 }
+            key: wrong
+        explanation: |
+          显示 **7**。`df.head()` 取出前 5 行组成一张新表，这里没有把它赋给任何名字，也没有改动 df。df 仍是完整的 7 行，同事的说法**不对**。
+        verify: |
+          r = run()
+          answers = {"output": int(r.out), "claim": "wrong" if len(r["df"]) == len(df) else "right"}
+    review:
+      - id: py14.k2.r1
+        kind: [predict]
+        data: [T]
+        body: |
+          `df` 是表 T。
+
+          ```python
+          small = df.head()
+          two = df.head(2)
+          ```
+        slots:
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`small.shape` 的第一个数（行数）"
+            key: 4
+          - id: ncols
+            type: text
+            format: integer
+            prompt: "`small.shape` 的第二个数（列数）"
+            key: 3
+          - id: two
+            type: order
+            partial: true
+            prompt: "`two` 里有哪几行？按先后排出它们的行索引。"
+            items:
+              - { id: "4", content: "4" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "31", content: "31" }
+            key: ["31", "7"]
+        explanation: |
+          表 T 只有 4 行，不足 head 默认的 5 行，`df.head()` 就给出全部 4 行，`small.shape` 是 **(4, 3)**，不会报错。`df.head(2)` 按表里的先后取前两行：**31、7**，不是行索引最小的 4、7。
+        verify: |
+          r = run()
+          answers = {
+              "nrows": r["small"].shape[0],
+              "ncols": r["small"].shape[1],
+              "two": [str(label) for label in r["two"].index],
+          }
+      - id: py14.k2.r2
+        kind: [explain]
+        data: [M]
+        body: |
+          `df` 是表 M。下面哪几个表达式的值等于 df 的行数？选出所有等于的。
+        slots:
+          - id: exprs
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: len, content: "`len(df)`" }
+              - { id: shape0, content: "`df.shape[0]`" }
+              - { id: shape1, content: "`df.shape[1]`" }
+              - { id: head0, content: "`df.head().shape[0]`" }
+              - { id: columns, content: "`len(df.columns)`" }
+            key: [len, shape0]
+        explanation: |
+          **`len(df)` 和 `df.shape[0]`** 都是 7。`df.shape[1]` 和 `len(df.columns)` 是列数 3；`df.head().shape[0]` 是取出来的前几行有几行，表 M 有 7 行，head 只取 5 行，所以是 5，不是整张表的行数。
+        verify: |
+          exprs = {"len": "len(df)", "shape0": "df.shape[0]", "shape1": "df.shape[1]", "head0": "df.head().shape[0]", "columns": "len(df.columns)"}
+          rows = len(df.index)
+          answers = {"exprs": [option for option, expr in exprs.items() if eval(expr, {"df": df}) == rows]}
+    quiz:
+      - id: py14.k2.x1
+        kind: [predict]
+        data: [runs]
+        body: |
+          ```python
+          first = runs.head(3)
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: "`first` 里有哪几行？按先后排出它们的行索引。"
+            items:
+              - { id: "1", content: "1" }
+              - { id: "2", content: "2" }
+              - { id: "6", content: "6" }
+              - { id: "9", content: "9" }
+              - { id: "11", content: "11" }
+              - { id: "14", content: "14" }
+            key: ["9", "2", "14"]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 运行之后，`runs.shape` 的第一个数（行数）是多少？
+            key: 6
+          - id: ncols
+            type: text
+            format: integer
+            prompt: "`runs.shape` 的第二个数（列数）是多少？"
+            key: 2
+        explanation: |
+          `runs.head(3)` 按表里的先后取前三行：行索引 **9、2、14**，不是最小的 1、2、6。head 不改变 runs，它仍是 **6** 行、**2** 列（run_id、minutes），`runs.shape` 是 (6, 2)。
+        verify: |
+          r = run()
+          answers = {
+              "rows": [str(label) for label in r["first"].index],
+              "nrows": r["runs"].shape[0],
+              "ncols": r["runs"].shape[1],
+          }
+      - id: py14.k2.x2
+        kind: [explain]
+        data: [runs]
+        body: |
+          同事说：“`runs.shape` 应该是 (6, 3)：左边的行索引也算一列。”
+        slots:
+          - id: claim
+            type: choice
+            prompt: 这句话对吗？
+            options:
+              - { id: right, content: 对，shape 把行索引也算作一列 }
+              - { id: wrong, content: 不对，行索引不是表里的列，shape 不算它 }
+            key: wrong
+          - id: ncols
+            type: text
+            format: integer
+            prompt: "`runs.shape` 的第二个数是多少？"
+            key: 2
+        explanation: |
+          **不对。** 行索引是每一行的标签，不是表里的一列，shape 不算它。runs 只有 run_id 和 minutes 两列，`runs.shape` 是 (6, **2**)。
+        verify: |
+          answers = {
+              "claim": "wrong" if runs.shape[1] == len(runs.columns) else "right",
+              "ncols": runs.shape[1],
+          }
+
   - id: py14.k3
     title: 每列 dtype 与样本单位
+    card:
+      name: dtype 与样本单位
+      aliases: [dtype, 列类型, 样本单位, 一行代表什么]
+      definition: 每列有一个类型（dtype），常见的是 int64 整数、float64 小数、str 文字、bool 真假；样本单位是一行代表的那个东西，例如一个样本，或者一个样本的一次测量。
+      conditions:
+        - 编号这类“像数的名字”应当是 str；而存成 str 的数字不能直接拿来算。
+        - 同一个编号出现在好几行时，一行是一次测量而不是一个样本；数样本要数不同的编号，不是数行。
+      example:
+        from: py14.k3.e0
+        text: |
+          表 visits 的 sample_id 是 str，day 是 int64，weight 是 float64，passed 是 bool。001 出现在两行，一行是“一个样本某一天的一次称重”：5 行，3 个样本。
+    lesson: |
+      一列里的值是同一种类型，pandas 把它叫做这一列的 **dtype**。`print(visits.dtypes)` 列出表 visits 每列的类型：
+
+      ```text
+      sample_id        str
+      day            int64
+      weight       float64
+      passed          bool
+      dtype: object
+      ```
+
+      最后一行 `dtype: object` 说的是这份清单本身，不用管。
+
+      | dtype | 意思 | visits 里的例子 |
+      |---|---|---|
+      | int64 | 整数 | day：1、3 |
+      | float64 | 小数 | weight：2.5、3.0 |
+      | str | 文字 | sample_id："001" |
+      | bool | True 或 False | passed |
+
+      类型决定了这一列能怎样用。数值列可以加减、比较大小；文字列不行，[文字 "12" 和整数 12 是两回事](repa:concept/py03.k1)。所以要留意两种情况：
+
+      - **编号**这类“看起来像数、其实是名字”的列应当是 str，否则 001 会变成 1，001 和 01 也分不开了。读入文件时怎样保住它，后面讲读 CSV 时再说。
+      - **存成 str 的数字**，例如一列 "12"、"9"、"30"，看起来是数，却不能直接加减。
+
+      另一件要先弄清的事是**样本单位**：一行代表什么？表 visits 里，001 出现了两行，day 不同。所以它的一行是“一个样本在某一天的一次称重”，不是一个样本：表有 5 行，样本只有 3 个。问“有几个样本”时数不同的编号；问“称了几次”时才数行。
+
+      判断一行代表什么，可以看**哪几列合起来才能唯一确定一行**：visits 里单看 sample_id 有重复，sample_id 加上 day 就没有重复了，一行就是“某个样本、某一天”。
+    example:
+      id: py14.k3.e0
+      kind: [explain]
+      data: [visits]
+      body: |
+        读题面最前面的表 visits，回答下面的问题。
+      slots:
+        - id: dtypes
+          type: table
+          prompt: "`visits.dtypes` 里，每列显示的类型是什么？"
+          columns:
+            - { id: column, header: 列 }
+            - id: dtype
+              header: dtype
+              input:
+                type: choice
+                options:
+                  - { id: int64, label: int64 }
+                  - { id: float64, label: float64 }
+                  - { id: str, label: str }
+                  - { id: bool, label: bool }
+          rows:
+            - { id: sample_id, cells: { column: sample_id, dtype: str } }
+            - { id: day, cells: { column: day, dtype: int64 } }
+            - { id: weight, cells: { column: weight, dtype: float64 } }
+            - { id: passed, cells: { column: passed, dtype: bool } }
+        - id: unit
+          type: choice
+          prompt: 表 visits 的一行代表什么？
+          options:
+            - { id: sample, content: 一个样本 }
+            - { id: weighing, content: 一个样本在某一天的一次称重 }
+            - { id: day, content: 某一天的全部称重 }
+          key: weighing
+        - id: samples
+          type: text
+          format: integer
+          prompt: 表里一共有几个不同的样本？
+          key: 3
+      explanation: |
+        sample_id 是编号，存成文字 **str**（所以 001 前面的零还在）；day 是整数 **int64**；weight 有小数，是 **float64**；passed 只有 True 和 False，是 **bool**。
+
+        001 和 002 各出现了两次，day 不同：sample_id 加上 day 才能确定一行，一行是**一个样本在某一天的一次称重**。表有 5 行，不同的样本只有 001、002、003 这 **3** 个。
+      verify: |
+        unique_by = lambda columns: not visits.duplicated(subset=columns).any()
+        unit = "weighing" if not unique_by(["sample_id"]) and unique_by(["sample_id", "day"]) else "sample" if unique_by(["sample_id"]) else "day"
+        answers = {
+            "dtypes": {column: {"dtype": str(visits[column].dtype)} for column in visits.columns},
+            "unit": unit,
+            "samples": visits["sample_id"].nunique(),
+        }
+    practice:
+      - id: py14.k3.q1
+        kind: [predict]
+        uses: [py03.k1]
+        data: [lab]
+        body: |
+          表 lab 里，count 和 note 两列看起来一样。
+        slots:
+          - id: note_dtype
+            type: choice
+            prompt: "`lab.dtypes` 里，note 显示的类型是什么？"
+            options:
+              - { id: int64, content: int64 }
+              - { id: str, content: str }
+              - { id: float64, content: float64 }
+            key: str
+          - id: plus_count
+            type: text
+            format: integer
+            prompt: "`lab[\"count\"] + 3` 得到的一列里，第一个值是多少？"
+            key: 15
+          - id: plus_note
+            type: choice
+            prompt: "`lab[\"note\"] + 3` 会怎样？"
+            options:
+              - { id: numbers, content: 得到 15、12、33 }
+              - { id: error, content: 报错（TypeError），文字不能和整数相加 }
+              - { id: text, content: 得到文字 "123"、"93"、"303" }
+            key: error
+        explanation: |
+          表里显示的样子一样，类型却不同：count 是 int64，note 存的是文字，dtype 是 **str**。
+
+          整列加 3 是逐个值做的：`lab["count"] + 3` 得到 15、12、33，第一个是 **15**。`lab["note"] + 3` 是文字加整数，**报 TypeError**。（如果写成 `+ "3"`，文字会被接起来，得到 "123" 这样的结果，也不是想要的数。）
+        verify: |
+          note = run('result = lab["note"] + 3')
+          answers = {
+              "note_dtype": str(lab["note"].dtype),
+              "plus_count": (lab["count"] + 3).iloc[0],
+              "plus_note": "error" if note.error == "TypeError" else "other",
+          }
+      - id: py14.k3.q2
+        kind: [explain]
+        data: [water]
+        body: |
+          读题面最前面的表 water，回答下面的问题。
+        slots:
+          - id: key
+            type: choice
+            prompt: 哪两列合起来能唯一确定一行？
+            options:
+              - { id: site_date, content: site 和 date }
+              - { id: site_ph, content: site 和 ph }
+              - { id: site_only, content: 只要 site 就够了 }
+            key: site_date
+          - id: unit
+            type: choice
+            prompt: 一行代表什么？
+            options:
+              - { id: site, content: 一个采样点 }
+              - { id: visit, content: 一个采样点在某一天的一次测量 }
+              - { id: date, content: 某一天的全部测量 }
+            key: visit
+          - id: sites
+            type: text
+            format: integer
+            prompt: 一共有几个不同的采样点？
+            key: 3
+        explanation: |
+          每个采样点出现两次，日期不同，所以只看 site 有重复；site 和 date 合起来，每行都不一样。一行是**一个采样点在某一天的一次测量**，表有 6 行，采样点只有 S1、S2、S3 这 **3** 个。
+
+          site 和 ph 不行：S1 两次测得的都是 7.1。ph 是测出来的值，本来就可能相同，不能用来标识一行。
+        verify: |
+          unique_by = lambda columns: not water.duplicated(subset=columns).any()
+          options = {"site_date": ["site", "date"], "site_ph": ["site", "ph"], "site_only": ["site"]}
+          fits = [option for option, columns in options.items() if unique_by(columns)]
+          key = fits[0] if len(fits) == 1 else fits
+          answers = {
+              "key": key,
+              "unit": "visit" if key == "site_date" else "site",
+              "sites": water["site"].nunique(),
+          }
+      - id: py14.k3.q3
+        kind: [explain]
+        data: [ids_a, ids_b]
+        body: |
+          原始记录里的编号是 001、002、010。两个人分别整理成了表 a 和表 b。
+        slots:
+          - id: keeps
+            type: choice
+            prompt: 哪张表保留了原来的编号？
+            options:
+              - { id: a, content: 表 a }
+              - { id: b, content: 表 b }
+            key: b
+          - id: a_dtype
+            type: choice
+            prompt: 表 a 的 sample_id 是什么类型？
+            options:
+              - { id: int64, content: int64 }
+              - { id: str, content: str }
+            key: int64
+        explanation: |
+          **表 b** 的 sample_id 是文字（str），001、002、010 原样保留。表 a 把编号当成了整数（**int64**），前面的零没了，变成 1、2、10。编号是名字，不是拿来计算的数，应当存成文字；否则 001 和 01 这样的编号就分不开了。
+        verify: |
+          original = ["001", "002", "010"]
+          keeps = [name for name, table in (("a", a), ("b", b)) if list(table["sample_id"]) == original]
+          answers = {"keeps": keeps[0] if len(keeps) == 1 else keeps, "a_dtype": str(a["sample_id"].dtype)}
+    review:
+      - id: py14.k3.r1
+        kind: [explain]
+        data: [plants]
+        body: |
+          读题面最前面的表 plants，回答下面的问题。
+        slots:
+          - id: numeric
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 哪几列的类型是数值（int64 或 float64）？选出所有是的。
+            options:
+              - { id: plant_id, content: plant_id }
+              - { id: height_cm, content: height_cm }
+              - { id: leaves, content: leaves }
+              - { id: flowering, content: flowering }
+            key: [height_cm, leaves]
+          - id: height
+            type: choice
+            prompt: height_cm 是哪一种？
+            options:
+              - { id: int64, content: int64 }
+              - { id: float64, content: float64 }
+              - { id: str, content: str }
+            key: float64
+        explanation: |
+          数值列是 **height_cm 和 leaves**：height_cm 带小数，是 **float64**（13.0 也是小数的写法）；leaves 是整数 int64。plant_id 是编号，是文字 str；flowering 只有 True 和 False，是 bool。
+        verify: |
+          kinds = {column: str(plants[column].dtype) for column in plants.columns}
+          answers = {
+              "numeric": [column for column, kind in kinds.items() if kind in ("int64", "float64")],
+              "height": kinds["height_cm"],
+          }
+      - id: py14.k3.r2
+        kind: [explain]
+        data: [doses]
+        body: |
+          同事要报告“这项研究有几位受试者”，写了 `len(doses)`，得到 6。
+        slots:
+          - id: right
+            type: choice
+            prompt: 这个数对吗？
+            options:
+              - { id: "yes", content: 对，一行就是一位受试者 }
+              - { id: "no", content: 不对，一行是一位受试者的一次访视，同一位受试者占好几行 }
+            key: "no"
+          - id: subjects
+            type: text
+            format: integer
+            prompt: 实际有几位受试者？
+            key: 3
+        explanation: |
+          **不对。** K01 出现了三行、K02 两行，visit 不同：一行是一位受试者的一次访视，`len(doses)` 数的是访视次数 6。受试者只有 K01、K02、K03 这 **3** 位，要数不同的 subject。
+        verify: |
+          unique_by = lambda columns: not doses.duplicated(subset=columns).any()
+          answers = {
+              "right": "yes" if unique_by(["subject"]) else "no",
+              "subjects": doses["subject"].nunique(),
+          }
+    quiz:
+      - id: py14.k3.x1
+        kind: [explain]
+        data: [cells]
+        body: |
+          读题面最前面的表 cells。
+        slots:
+          - id: dtypes
+            type: table
+            prompt: "`cells.dtypes` 里，每列显示的类型是什么？"
+            columns:
+              - { id: column, header: 列 }
+              - id: dtype
+                header: dtype
+                input:
+                  type: choice
+                  options:
+                    - { id: int64, label: int64 }
+                    - { id: float64, label: float64 }
+                    - { id: str, label: str }
+                    - { id: bool, label: bool }
+            rows:
+              - { id: well, cells: { column: well, dtype: str } }
+              - { id: cells_k, cells: { column: cells_k, dtype: float64 } }
+              - { id: treated, cells: { column: treated, dtype: bool } }
+              - { id: batch, cells: { column: batch, dtype: str } }
+        explanation: |
+          | 列 | dtype | 依据 |
+          |---|---|---|
+          | well | str | 孔位编号 A1、B2 是文字 |
+          | cells_k | float64 | 写成 12.0、8.0，是小数，即使小数部分是 0 |
+          | treated | bool | 只有 True 和 False |
+          | batch | str | "07"、"12" 是批号，存成了文字，前导零还在 |
+        verify: |
+          answers = {"dtypes": {column: {"dtype": str(cells[column].dtype)} for column in cells.columns}}
+      - id: py14.k3.x2
+        kind: [explain]
+        data: [plots]
+        body: |
+          读题面最前面的表 plots：在几个样方里数了各种植物的株数。
+        slots:
+          - id: key
+            type: choice
+            prompt: 哪几列合起来能唯一确定一行？
+            options:
+              - { id: plot, content: 只要 plot }
+              - { id: plot_species, content: plot 和 species }
+              - { id: species, content: 只要 species }
+            key: plot_species
+          - id: plots
+            type: text
+            format: integer
+            prompt: 一共调查了几个样方？
+            key: 3
+          - id: rows
+            type: text
+            format: integer
+            prompt: 表有几行？
+            key: 6
+        explanation: |
+          Q1 出现三次、蒲公英出现两次，单看 plot 或 species 都有重复；**plot 和 species** 合起来每行都不一样。一行是“某个样方里某种植物的株数”。表有 **6** 行，样方只有 Q1、Q2、Q3 这 **3** 个。
+        verify: |
+          unique_by = lambda columns: not plots.duplicated(subset=columns).any()
+          options = {"plot": ["plot"], "species": ["species"], "plot_species": ["plot", "species"]}
+          fits = [option for option, columns in options.items() if unique_by(columns)]
+          answers = {"key": fits[0] if len(fits) == 1 else fits, "plots": plots["plot"].nunique(), "rows": len(plots)}
