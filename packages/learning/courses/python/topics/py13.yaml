@@ -1,7 +1,8 @@
 id: py13
 title: 导入工具，读一小段文档
-status: outline
+status: complete
 minutes: 20
+summary: 用 import、import as、from import 让模块里的名字可用；从签名、说明和 >>> 示例读出参数、默认值、返回值和副作用。
 prerequisites:
   - topic: py04
     key: true
@@ -20,10 +21,848 @@ sources:
     where: 教程第 6 章 §6.1–6.3
     url: https://docs.python.org/3.12/tutorial/modules.html
     use: reference
+  - source: python-docs
+    where: 标准库：内置函数 round、print（签名与说明，课程用中文自写摘要）
+    url: https://docs.python.org/3.12/library/functions.html
+    use: reference
+  - source: python-docs
+    where: 标准库：math 模块的 sqrt、log、floor、ceil（课程用中文自写摘要）
+    url: https://docs.python.org/3.12/library/math.html
+    use: reference
 notes: |
   建议题型与判分：找错（P）、解释代码（S/O）、小改代码（T）。
+  范围：只用标准库 math 和 pandas 的导入；pandas 在本节只导入、建一张空表，不讲它的功能（留给 py14）。题面里的“文档”是课程参照 Python 官方文档自写的中文摘要，不是原文；math.log 的官方签名用方括号表示可省略的参数，这里改写成说明文字，避免多引入一种记法。
+  k2 引入 >>> 交互形式和 WWPD（What Would Python Display）作答约定：交互窗口里表达式会自动显示值，什么也不显示填 NOTHING，报错填 ERROR。py01 起的脚本约定不变：脚本里只有 print 会显示。这个约定在 intro 和 k2 讲解里说明，WWPD 题题面里再提醒一次。py14、py16 沿用。
+  WWPD 题的输入写在表格里，核对程序把同样的输入交给 repl() 独立算出显示内容；签名题用 inspect.signature 读出参数默认值。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 5 分钟；k2 讲解与例题 4 分钟、练习 5 分钟；收束 2 分钟。
+  情境与数据为本课自拟。
+intro: |
+  这一节学两件事：用 import 把现成的工具拿进来；读一小段文档，弄清一个函数要什么、交回什么、还做了什么。
+
+  代码仍当作脚本运行，只有 print 会显示内容。第二个知识点会引入文档里常见的交互形式：`>>>` 后面是输入的一行，下一行是 Python 显示的结果。
+wrapup: |
+  读到 import，先记下它创建了哪个名字，后面的代码就只能用这个名字。用一个不熟的函数，先看签名里有哪些参数、哪些带默认值，再看说明里它返回什么、有没有副作用和例外，最后用示例核对自己的理解。
+
+  请 AI 写代码时，也可以要求它“写明从哪个模块导入、用到的参数是什么意思”，读起来就有据可查。
 kps:
   - id: py13.k1
     title: import/as 让名称可用
+    card:
+      name: import
+      aliases: [导入, 模块, import as]
+      definition: import 让模块里的工具在之后的代码里可用，用的名字取决于写法：`import math` 创建 math，`import pandas as pd` 只创建 pd，`from math import sqrt` 只创建 sqrt。
+      conditions:
+        - import 那一行要在用到这个名字之前运行；忘了导入，用到时报 NameError。
+        - 后面写的名字要和导入时创建的一致：写了 `as pd`，就用 `pd.`，不能写 `pandas.`。
+      example:
+        from: py13.k1.e0
+        text: |
+          ```python
+          import math
+          root = math.sqrt(16)
+          ```
+          第 1 行创建名字 math；`math.sqrt` 是“math 里面的 sqrt”，算出 4.0。
+    lesson: |
+      Python 一开始只认识少数内置的名字，例如 `print`、`int`、`round`。更多的工具放在**模块**里，要先导入才能用：
+
+      ```python startLine=1
+      import math
+      root = math.sqrt(16)
+      ```
+
+      第 1 行运行之后，名字 `math` 才存在。`math.sqrt` 读作“math 里面的 sqrt”：点号前面是模块的名字，后面是模块里的函数。
+
+      导入有三种常见写法，区别在于**之后能用哪个名字**：
+
+      | 写法 | 之后能用的名字 | 怎样调用 |
+      |---|---|---|
+      | `import math` | math | `math.sqrt(16)` |
+      | `import pandas as pd` | pd，**不是** pandas | `pd.DataFrame()` |
+      | `from math import sqrt` | sqrt，**不是** math | `sqrt(16)` |
+
+      `as` 给模块起一个短名字。数据分析的代码几乎都以 `import pandas as pd` 开头，之后看到 `pd.`，指的就是 pandas。
+
+      导入出问题时的报错，都可以用 [读报错](repa:concept/py11.k1) 的办法看：
+
+      - 用到 `math.sqrt` 之前没有运行 `import math`：NameError，名字还不存在。
+      - 写了 `import pandas as pd`，后面却写 `pandas.`：也是 NameError，因为只创建了 pd。
+      - 模块名拼错，例如 `import maths`：ModuleNotFoundError，找不到这个模块。
+      - 模块里没有这个名字，例如 `math.squareroot`：AttributeError。
+    example:
+      id: py13.k1.e0
+      kind: [predict, explain]
+      body: |
+        `math.sqrt(x)` 算 x 的平方根，结果是小数（float）。
+
+        ```python startLine=1
+        import math
+        side = 16
+        root = math.sqrt(side)
+        print(root)
+        ```
+      slots:
+        - id: name
+          type: choice
+          prompt: 第 1 行运行之后，多了哪个可以用的名字？
+          options:
+            - { id: math, content: "`math`" }
+            - { id: sqrt, content: "`sqrt`" }
+            - { id: both, content: "`math` 和 `sqrt` 都有" }
+          key: math
+        - id: output
+          type: text
+          match: output
+          prompt: 第 4 行显示什么？
+          key: "4.0"
+          feedback:
+            - when: "4"
+              message: sqrt 的结果是小数，显示 4.0。
+      explanation: |
+        `import math` 只创建了名字 **math**；sqrt 在 math 里面，要写成 `math.sqrt`，单独写 `sqrt` 是不存在的名字。
+
+        第 3 行算 16 的平方根，结果是小数，显示 **4.0**。
+      verify: |
+        names = run(BLOCKS[0].splitlines()[0]).vars
+        made = [name for name in ("math", "sqrt") if name in names]
+        answers = {"name": made[0] if len(made) == 1 else "both", "output": run().lines()[-1]}
+    practice:
+      - id: py13.k1.q1
+        kind: [predict]
+        body: |
+          填写表格：每一行的导入语句单独运行之后，下面三个名字能不能用？
+
+          提示：`import math as m` 和 `import pandas as pd` 是同一种写法。
+        slots:
+          - id: names
+            type: table
+            columns:
+              - { id: stmt, header: 导入语句 }
+              - { id: math, header: 能用 math 吗, input: bool }
+              - { id: m, header: 能用 m 吗, input: bool }
+              - { id: sqrt, header: 能用 sqrt 吗, input: bool }
+            rows:
+              - { id: plain, cells: { stmt: "`import math`", math: true, m: false, sqrt: false } }
+              - { id: alias, cells: { stmt: "`import math as m`", math: false, m: true, sqrt: false } }
+              - { id: from, cells: { stmt: "`from math import sqrt`", math: false, m: false, sqrt: true } }
+        explanation: |
+          | 导入语句 | math | m | sqrt |
+          |---|---|---|---|
+          | `import math` | 能 | 不能 | 不能 |
+          | `import math as m` | 不能 | 能 | 不能 |
+          | `from math import sqrt` | 不能 | 不能 | 能 |
+
+          每种写法只创建一个名字。`as m` 之后只有 m，要写 `m.sqrt`；`from math import sqrt` 之后只有 sqrt，直接写 `sqrt(...)`，math 这个名字并不存在。
+        verify: |
+          statements = {"plain": "import math", "alias": "import math as m", "from": "from math import sqrt"}
+          answers = {"names": {
+              row: {name: name in run(code).vars for name in ("math", "m", "sqrt")}
+              for row, code in statements.items()
+          }}
+      - id: py13.k1.q2
+        kind: [debug]
+        uses: [py11.k1]
+        body: |
+          `math.floor(x)` 去掉 x 的小数部分，向下取整。运行 clean.py，出现了报错。
+
+          ```python startLine=1
+          import math as m
+          value = math.floor(7.8)
+          print(value)
+          ```
+        slots:
+          - id: error
+            type: choice
+            prompt: 报错是哪一种？
+            options:
+              - { id: name, content: NameError：名字 math 不存在 }
+              - { id: module, content: ModuleNotFoundError：找不到 math 模块 }
+              - { id: attribute, content: AttributeError：math 里面没有 floor }
+            key: name
+          - id: fix
+            type: choice
+            prompt: 第 2 行应改成哪一种，程序才会显示 7？
+            options:
+              - id: alias
+                content: |
+                  ```python
+                  value = m.floor(7.8)
+                  ```
+              - id: bare
+                content: |
+                  ```python
+                  value = floor(7.8)
+                  ```
+              - id: same
+                content: |
+                  ```python
+                  value = math.floor(m)
+                  ```
+            key: alias
+        explanation: |
+          第 1 行写了 `as m`，只创建了名字 m，第 2 行用到的 math 不存在，报 **NameError**。math 模块本身找得到，floor 也确实在里面。
+
+          改成 **`m.floor(7.8)`**，显示 7。单独写 `floor` 同样是没有导入的名字。
+        verify: |
+          lines = CODE.splitlines()
+          r = run()
+          error = {"NameError": "name", "ModuleNotFoundError": "module", "AttributeError": "attribute"}.get(r.error, r.error)
+          fits = [option for option, line in OPTIONS["fix"].items()
+                  if run("\n".join([lines[0], line, lines[2]])).out.strip() == "7"]
+          answers = {"error": error, "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py13.k1.q3
+        kind: [debug]
+        uses: [py11.k1]
+        body: |
+          下面四段代码各自单独运行，都会报错。
+
+          代码 1：
+
+          ```python
+          print(math.pi)
+          ```
+
+          代码 2：
+
+          ```python
+          import maths
+          ```
+
+          代码 3：
+
+          ```python
+          import math
+          print(math.squareroot(9))
+          ```
+
+          代码 4：
+
+          ```python
+          import math as m
+          print(math.sqrt(9))
+          ```
+        slots:
+          - id: errors
+            type: table
+            prompt: 每段代码报的是哪一种错？
+            columns:
+              - { id: code, header: 代码 }
+              - id: error
+                header: 报错类型
+                input:
+                  type: choice
+                  options:
+                    - { id: NameError, label: NameError }
+                    - { id: ModuleNotFoundError, label: ModuleNotFoundError }
+                    - { id: AttributeError, label: AttributeError }
+            rows:
+              - { id: c1, cells: { code: 代码 1, error: NameError } }
+              - { id: c2, cells: { code: 代码 2, error: ModuleNotFoundError } }
+              - { id: c3, cells: { code: 代码 3, error: AttributeError } }
+              - { id: c4, cells: { code: 代码 4, error: NameError } }
+        explanation: |
+          | 代码 | 报错 | 原因 |
+          |---|---|---|
+          | 1 | NameError | 没有导入，math 这个名字不存在 |
+          | 2 | ModuleNotFoundError | 模块叫 math，没有叫 maths 的模块 |
+          | 3 | AttributeError | math 导入了，但里面没有 squareroot，平方根叫 sqrt |
+          | 4 | NameError | `as m` 只创建了 m，没有 math |
+
+          三种报错分别指向三个问题：名字不存在、模块找不到、模块里没有这一项。
+        verify: |
+          answers = {"errors": {f"c{i}": {"error": run(code).error} for i, code in enumerate(BLOCKS, 1)}}
+    review:
+      - id: py13.k1.r1
+        kind: [modify]
+        body: |
+          要求：显示 30.25 的平方根。作答框里的代码运行时报 NameError：`name 'sqrt' is not defined`。补上导入，让它正常显示 5.5。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              value = sqrt(30.25)
+              print(value)
+            solution: |
+              from math import sqrt
+              value = sqrt(30.25)
+              print(value)
+            accepts:
+              - |
+                import math
+                value = math.sqrt(30.25)
+                print(value)
+            rejects:
+              - code: |
+                  import math
+                  value = sqrt(30.25)
+                  print(value)
+                why: "`import math` 只创建 math，sqrt 仍不存在"
+              - code: |
+                  value = sqrt(30.25)
+                  from math import sqrt
+                  print(value)
+                why: 导入写在用到 sqrt 之后
+            tests:
+              - name: 显示平方根
+                stdout: "5.5"
+        explanation: |
+          第 1 行用到了 sqrt，就要在它前面创建这个名字：
+
+          ```python
+          from math import sqrt
+          value = sqrt(30.25)
+          print(value)
+          ```
+
+          也可以写 `import math`，再把调用改成 `math.sqrt(30.25)`。只加 `import math` 而不改调用不行，那样只有 math，没有 sqrt；导入写在后面也不行，用到时名字还不存在。
+      - id: py13.k1.r2
+        kind: [predict]
+        uses: [py11.k1]
+        body: |
+          ```python startLine=1
+          print("开始")
+          root = math.sqrt(9)
+          import math
+          print(root)
+          ```
+        slots:
+          - id: result
+            type: choice
+            prompt: 运行结果是什么？
+            options:
+              - { id: works, content: 显示“开始”和 3.0，正常结束 }
+              - { id: start_then_error, content: 显示“开始”，然后第 2 行报 NameError }
+              - { id: nothing, content: 什么也不显示，直接报错 }
+            key: start_then_error
+          - id: stop
+            type: text
+            format: integer
+            prompt: 程序停在第几行？
+            key: 2
+        explanation: |
+          程序从上往下运行。第 1 行显示“开始”；第 2 行用到 math 时，第 3 行的 import 还没有运行，名字不存在，报 **NameError**，停在第 **2** 行。这是运行时异常，不是语法错误，所以第 1 行已经显示出来了。
+
+          import 和赋值一样，要写在用到这个名字之前；通常把所有 import 放在文件最上面。
+        verify: |
+          import traceback
+          def stop_line(code=CODE):
+              try:
+                  exec(compile(code, "<q>", "exec"), {})
+              except SyntaxError as error:
+                  return error.lineno
+              except Exception as error:
+                  return [frame.lineno for frame in traceback.extract_tb(error.__traceback__) if frame.filename == "<q>"][-1]
+              return None
+          r = run()
+          if r.error is None:
+              result = "works"
+          elif r.lines() == ["开始"] and r.error == "NameError":
+              result = "start_then_error"
+          else:
+              result = "nothing"
+          answers = {"result": result, "stop": stop_line()}
+    quiz:
+      - id: py13.k1.x1
+        kind: [predict]
+        body: |
+          `sqrt` 在 math 模块里，算平方根，结果是小数。下面哪几段程序能正常运行并显示 3.0？选出所有可以的。
+        slots:
+          - id: programs
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: plain
+                content: |
+                  ```python
+                  import math
+                  print(math.sqrt(9))
+                  ```
+              - id: alias_wrong
+                content: |
+                  ```python
+                  import math as m
+                  print(math.sqrt(9))
+                  ```
+              - id: from
+                content: |
+                  ```python
+                  from math import sqrt
+                  print(sqrt(9))
+                  ```
+              - id: from_wrong
+                content: |
+                  ```python
+                  from math import sqrt
+                  print(math.sqrt(9))
+                  ```
+              - id: late
+                content: |
+                  ```python
+                  print(math.sqrt(9))
+                  import math
+                  ```
+            key: [plain, from]
+        explanation: |
+          能显示 3.0 的是 **`import math` 加 `math.sqrt(9)`** 和 **`from math import sqrt` 加 `sqrt(9)`**：用的名字和导入时创建的一致。
+
+          `as m` 之后只有 m，`from math import sqrt` 之后只有 sqrt，这两段再写 `math.` 都会报 NameError；import 写在 print 之后，用到时 math 还不存在，也报 NameError。
+        verify: |
+          answers = {"programs": [option for option, code in OPTIONS["programs"].items()
+                                  if run(code).error is None and run(code).out.strip() == "3.0"]}
+      - id: py13.k1.x2
+        kind: [debug]
+        uses: [py11.k1]
+        body: |
+          `pd.DataFrame()` 建一张空表，`len(表)` 是它的行数。运行 clean.py，出现了下面的报错。
+
+          ```python startLine=1
+          import pandas as pd
+          table = pandas.DataFrame()
+          print(len(table))
+          ```
+
+          ```text
+          Traceback (most recent call last):
+            File "clean.py", line 2, in <module>
+              table = pandas.DataFrame()
+                      ^^^^^^
+          NameError: name 'pandas' is not defined
+          ```
+        slots:
+          - id: cause
+            type: choice
+            prompt: 问题出在哪里？
+            options:
+              - { id: missing, content: 电脑上没有装 pandas }
+              - { id: alias, content: 第 1 行只创建了名字 pd，没有创建 pandas }
+              - { id: attribute, content: pandas 里面没有 DataFrame }
+            key: alias
+          - id: fix
+            type: choice
+            prompt: 第 2 行应改成哪一种？
+            options:
+              - id: pd
+                content: |
+                  ```python
+                  table = pd.DataFrame()
+                  ```
+              - id: bare
+                content: |
+                  ```python
+                  table = DataFrame()
+                  ```
+              - id: lower
+                content: |
+                  ```python
+                  table = pd.dataframe()
+                  ```
+            key: pd
+        explanation: |
+          报错是第 2 行的 NameError：名字 pandas 不存在。第 1 行没有报错，说明 pandas 装好了（没装会在第 1 行报 ModuleNotFoundError）；只是 `as pd` 让它以 **pd** 这个名字出现。
+
+          第 2 行改成 **`pd.DataFrame()`**，显示 0。单独写 `DataFrame` 是没有导入的名字；`pd.dataframe` 大小写不对，pandas 里没有这一项。
+        verify: |
+          lines = CODE.splitlines()
+          first = run(lines[0])
+          # 第 1 行单独运行没有出错，并且只创建了 pd。
+          cause = "alias" if first.error is None and "pd" in first.vars and "pandas" not in first.vars and run().error == "NameError" else "other"
+          fits = [option for option, line in OPTIONS["fix"].items()
+                  if run("\n".join([lines[0], line, lines[2]])).out.strip() == "0"]
+          answers = {"cause": cause, "fix": fits[0] if len(fits) == 1 else fits}
+
   - id: py13.k2
     title: 从签名和示例找参数、返回值与副作用
+    card:
+      name: 读函数文档
+      aliases: [签名, 文档, 返回值, 副作用, 默认值]
+      definition: 签名列出参数的名字和顺序，带 = 的参数有默认值、可以省略；说明和示例告诉你函数交回什么（返回值），以及在返回之外还做了什么（副作用）。
+      conditions:
+        - 返回值要赋给名字或交给下一步才能继续用；显示在屏幕上是副作用，print 显示了内容，交回的却是 None。
+        - 文档示例里 `>>>` 后面是输入，下一行是显示的结果；交互窗口会自动显示表达式的值，脚本不会。
+      example:
+        from: py13.k2.e0
+        text: |
+          `round(number, ndigits=None)`：ndigits 有默认值，可以省略。`round(3.14159, 2)` 是 3.14，`round(3.14159)` 是 3；恰好在正中间时取偶数，`round(2.5)` 是 2。
+    lesson: |
+      用一个不熟的函数之前，先读它的文档。一条文档通常有三部分。
+
+      **签名**，例如 `round(number, ndigits=None)`：
+
+      - 括号里是参数的名字，按位置排列：第一个是 number，第二个是 ndigits。
+      - 写了 `=` 的参数有**默认值**，调用时可以省略，省略时就用默认值；没有 `=` 的参数必须给。
+      - 可以按位置给，`round(3.14159, 2)`；也可以写参数名，`round(3.14159, ndigits=2)`。
+
+      **说明**：它返回什么，有没有例外。round 的说明大意是：把 number 舍入到小数点后 ndigits 位，返回舍入后的数；省略 ndigits 时，返回最接近的整数。还有一句容易漏掉：恰好在两个整数正中间时，取偶数的那一个，所以 `round(2.5)` 是 2，`round(3.5)` 是 4。
+
+      **示例**：文档里的示例常写成交互形式。`>>>` 后面是输入的一行，下一行是 Python 显示的结果：
+
+      ```text
+      >>> round(3.14159, 2)
+      3.14
+      >>> round(3.14159)
+      3
+      >>> x = round(2.5)
+      >>> x
+      2
+      ```
+
+      交互窗口里，输入一个有值的表达式会**自动显示**它的值；赋值和 import 什么也不显示。脚本里不会自动显示，要用 print。本课的 WWPD 题（Python 会显示什么）就用这种形式：什么也不显示填 NOTHING，报错填 ERROR。
+
+      最后分清**返回值**和**副作用**。返回值是函数交回来的结果，可以赋给名字，交给下一步。副作用是函数在交回结果之外做的事，例如在屏幕上显示、写入文件。print 的作用是显示，它交回的是 None：
+
+      ```text
+      >>> x = print("已保存")
+      已保存
+      >>> print(x)
+      None
+      ```
+
+      “已保存”是 print 的副作用；x 得到的是返回值 None。所以要继续用一个结果，就把返回值赋给名字，而不是只把它显示出来。
+    example:
+      id: py13.k2.e0
+      kind: [predict, explain]
+      uses: [py04.k1, py04.k2]
+      body: |
+        round 的文档摘要：
+
+        > **round(number, ndigits=None)**
+        >
+        > 把 number 舍入到小数点后 ndigits 位，返回舍入后的数。省略 ndigits 时，返回最接近的整数。恰好在两个整数正中间时，取偶数的那一个。
+      slots:
+        - id: omit
+          type: choice
+          prompt: 调用 round 时，哪个参数可以省略？
+          options:
+            - { id: number, content: number }
+            - { id: ndigits, content: ndigits }
+            - { id: none, content: 两个都必须给 }
+          key: ndigits
+        - id: wwpd
+          type: table
+          prompt: 在交互窗口里依次输入下面几行，Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+          columns:
+            - { id: input, header: 输入 }
+            - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+          rows:
+            - { id: r1, cells: { input: "`>>> round(3.14159, 2)`", shown: "3.14" } }
+            - { id: r2, cells: { input: "`>>> round(3.14159)`", shown: "3" } }
+            - { id: r3, cells: { input: "`>>> round(2.5)`", shown: "2" } }
+            - { id: r4, cells: { input: "`>>> round(7.46, ndigits=1)`", shown: "7.5" } }
+      explanation: |
+        签名里 ndigits 写了 `=None`，有默认值，**可以省略**；number 没有 `=`，必须给。
+
+        | 输入 | 显示 | 读法 |
+        |---|---|---|
+        | `round(3.14159, 2)` | 3.14 | 第二个参数按位置给了 ndigits，保留两位 |
+        | `round(3.14159)` | 3 | 省略 ndigits，返回最接近的整数 |
+        | `round(2.5)` | 2 | 正中间取偶数，不是 3 |
+        | `round(7.46, ndigits=1)` | 7.5 | 用参数名给 ndigits，保留一位 |
+
+        `round(2.5)` 是 2，这一点只有读了说明才知道；按“四舍五入”的习惯会以为是 3。
+      verify: |
+        import inspect
+        params = inspect.signature(round).parameters
+        optional = [name for name, p in params.items() if p.default is not inspect.Parameter.empty]
+        inputs = ["round(3.14159, 2)", "round(3.14159)", "round(2.5)", "round(7.46, ndigits=1)"]
+        shown = repl("\n".join(inputs))
+        answers = {
+            "omit": optional[0] if len(optional) == 1 else "none",
+            "wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)},
+        }
+    practice:
+      - id: py13.k2.q1
+        kind: [predict]
+        uses: [py04.k1]
+        body: |
+          math.log 的文档摘要：
+
+          > **math.log(x, base)**
+          >
+          > 只给 x 时，返回 x 的自然对数（以 e 为底）。给了 base 时，返回以 base 为底的 x 的对数。结果是小数。
+        slots:
+          - id: base
+            type: choice
+            prompt: 在 `math.log(8, 2)` 里，2 是什么？
+            options:
+              - { id: x, content: 要取对数的数 }
+              - { id: base, content: 对数的底 }
+              - { id: digits, content: 保留的小数位数 }
+            key: base
+          - id: wwpd
+            type: table
+            prompt: 在交互窗口里依次输入下面几行，Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+            columns:
+              - { id: input, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: r1, cells: { input: "`>>> import math`", shown: NOTHING } }
+              - { id: r2, cells: { input: "`>>> math.log(8, 2)`", shown: "3.0" } }
+              - { id: r3, cells: { input: "`>>> math.log(100, 10)`", shown: "2.0" } }
+              - { id: r4, cells: { input: "`>>> math.log(1)`", shown: "0.0" } }
+        explanation: |
+          第二个参数是**对数的底**：`math.log(8, 2)` 问“2 的几次方是 8”，答案 3，结果是小数，显示 **3.0**。
+
+          | 输入 | 显示 |
+          |---|---|
+          | `import math` | NOTHING：import 什么也不显示 |
+          | `math.log(8, 2)` | 3.0 |
+          | `math.log(100, 10)` | 2.0 |
+          | `math.log(1)` | 0.0：只给 x，取自然对数，1 的对数是 0 |
+        verify: |
+          import math
+          inputs = ["import math", "math.log(8, 2)", "math.log(100, 10)", "math.log(1)"]
+          shown = repl("\n".join(inputs))
+          # 2 是底：2 的 3 次方是 8，与 math.log(8, 2) 的结果一致。
+          answers = {
+              "base": "base" if math.isclose(2 ** math.log(8, 2), 8) else "other",
+              "wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)},
+          }
+      - id: py13.k2.q2
+        kind: [predict, explain]
+        uses: [py04.k3]
+        body: |
+          在交互窗口里依次输入下面几行。print 把内容显示在屏幕上，它交回的是 None；交互窗口不显示 None 这个值本身。
+        slots:
+          - id: wwpd
+            type: table
+            prompt: Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+            columns:
+              - { id: input, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: r1, cells: { input: "`>>> y = round(3.7)`", shown: NOTHING } }
+              - { id: r2, cells: { input: "`>>> y`", shown: "4" } }
+              - { id: r3, cells: { input: "`>>> x = print(\"已保存\")`", shown: 已保存 } }
+              - { id: r4, cells: { input: "`>>> x`", shown: NOTHING } }
+              - { id: r5, cells: { input: "`>>> print(x)`", shown: None } }
+          - id: side
+            type: choice
+            prompt: 第 3 行显示的“已保存”是什么？
+            options:
+              - { id: effect, content: print 的副作用，不是它的返回值 }
+              - { id: value, content: print 的返回值，已经存进了 x }
+            key: effect
+        explanation: |
+          | 输入 | 显示 | 原因 |
+          |---|---|---|
+          | `y = round(3.7)` | NOTHING | 赋值不显示 |
+          | `y` | 4 | y 是 round 的返回值 |
+          | `x = print("已保存")` | 已保存 | 赋值本身不显示，但 print 运行时把文字显示了出来 |
+          | `x` | NOTHING | x 是 print 的返回值 None，交互窗口不显示 None |
+          | `print(x)` | None | 用 print 才把 None 显示出来 |
+
+          “已保存”是 print 的**副作用**，x 得到的是返回值 None。round 正好相反：没有副作用，靠返回值交出结果。
+        verify: |
+          inputs = ["y = round(3.7)", "y", 'x = print("已保存")', "x", "print(x)"]
+          shown = repl("\n".join(inputs))
+          r = run('x = print("已保存")')
+          # print 运行时显示了文字，交回的值却是 None：显示的内容不是返回值。
+          side = "effect" if r.out.strip() == "已保存" and r["x"] is None else "value"
+          answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}, "side": side}
+      - id: py13.k2.q3
+        kind: [modify]
+        uses: [py04.k2, py04.k3]
+        body: |
+          宿主事先给 `mean` 赋了一个平均值，例如 3.14159。要求：把它舍入到小数点后 2 位，**存进 `result`**，后面的代码还要用 result 继续计算。
+
+          作答框里的代码只把结果显示了出来，result 并没有得到它。按 round 的签名 `round(number, ndigits=None)` 改动代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              print(round(mean, 2))
+            solution: |
+              result = round(mean, 2)
+            accepts:
+              - result = round(mean, ndigits=2)
+              - |
+                result = round(mean, 2)
+                print(result)
+            rejects:
+              - code: result = round(mean)
+                why: 省略了 ndigits，得到的是整数
+              - code: result = print(round(mean, 2))
+                why: result 接住的是 print 的返回值 None
+              - code: result = round(2, mean)
+                why: 参数顺序反了，2 被当成要舍入的数
+              - code: result = 3.14
+                why: 照着例子写死了结果
+            tests:
+              - name: mean 为 3.14159
+                setup: mean = 3.14159
+                expect:
+                  result: "3.14"
+              - name: mean 为 2.71828
+                hidden: true
+                setup: mean = 2.71828
+                expect:
+                  result: "2.72"
+        explanation: |
+          ```python
+          result = round(mean, 2)
+          ```
+
+          round 的返回值要赋给 result 才能继续用。`print(round(mean, 2))` 只是显示，result 没有得到任何值；`result = print(...)` 得到的是 print 的返回值 None。第二个参数按位置给 ndigits，写成 `ndigits=2` 也可以；写成 `round(2, mean)` 就把顺序弄反了。
+    review:
+      - id: py13.k2.r1
+        kind: [predict]
+        uses: [py04.k2]
+        body: |
+          print 的文档摘要：
+
+          > **print(值1, 值2, …, sep=" ")**
+          >
+          > 把各个值依次显示在一行里，相邻两个值之间插入 sep，sep 默认是一个空格。返回 None。
+        slots:
+          - id: wwpd
+            type: table
+            prompt: 在交互窗口里依次输入下面几行，Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+            columns:
+              - { id: input, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: r1, cells: { input: "`>>> print(\"A\", \"B\")`", shown: A B } }
+              - { id: r2, cells: { input: "`>>> print(\"A\", \"B\", sep=\"-\")`", shown: A-B } }
+              - { id: r3, cells: { input: "`>>> print(\"2026\", \"10\", \"12\", sep=\"/\")`", shown: 2026/10/12 } }
+              - { id: r4, cells: { input: "`>>> print(\"A\", \"B\", sep=\"\")`", shown: AB } }
+        explanation: |
+          | 输入 | 显示 |
+          |---|---|
+          | `print("A", "B")` | A B：没给 sep，用默认的一个空格 |
+          | `print("A", "B", sep="-")` | A-B |
+          | `print("2026", "10", "12", sep="/")` | 2026/10/12：每两个相邻的值之间插一个 sep |
+          | `print("A", "B", sep="")` | AB：sep 是空文字，什么也不插 |
+
+          sep 只能用参数名给：前面的位置都是要显示的值，写成 `print("A", "B", "-")` 会把 - 当成第三个值显示出来。
+        verify: |
+          inputs = ['print("A", "B")', 'print("A", "B", sep="-")', 'print("2026", "10", "12", sep="/")', 'print("A", "B", sep="")']
+          shown = repl("\n".join(inputs))
+          answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}}
+      - id: py13.k2.r2
+        kind: [modify]
+        uses: [py04.k2]
+        body: |
+          宿主事先给 `year`、`month`、`day` 赋了文字，例如 `"2026"`、`"10"`、`"12"`。要求：显示成一行 `2026-10-12` 这样的日期。
+
+          作答框里的代码显示的是 `2026 10 12`。参照 print 的签名 `print(值1, 值2, …, sep=" ")` 改动它。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              print(year, month, day)
+            solution: |
+              print(year, month, day, sep="-")
+            accepts:
+              - print(year + "-" + month + "-" + day)
+            rejects:
+              - code: print(year, "-", month, "-", day)
+                why: 把 - 当成了要显示的值，两边还各有一个默认的空格
+              - code: print(year, month, day, "-")
+                why: 按位置给的 - 只是多显示了一个值
+              - code: print("2026-10-12")
+                why: 照着例子写死了日期
+            tests:
+              - name: 2026 年 10 月 12 日
+                setup: |
+                  year = "2026"
+                  month = "10"
+                  day = "12"
+                stdout: 2026-10-12
+              - name: 另一个日期
+                hidden: true
+                setup: |
+                  year = "2025"
+                  month = "03"
+                  day = "07"
+                stdout: 2025-03-07
+        explanation: |
+          ```python
+          print(year, month, day, sep="-")
+          ```
+
+          sep 有默认值一个空格，所以原来显示 `2026 10 12`；用参数名把它改成 `"-"`。把 `"-"` 写成普通的值，它只会被当成又一个要显示的值，两边还会各插一个空格。
+    quiz:
+      - id: py13.k2.x1
+        kind: [explain]
+        uses: [py04.k1]
+        body: |
+          math 模块的文档摘要：
+
+          > **math.floor(x)**：返回不大于 x 的最大整数（向下取整）。
+          >
+          > **math.ceil(x)**：返回不小于 x 的最小整数（向上取整）。
+
+          一共 200 个样本，每块板最多装 96 个。至少需要几块板？宿主已经运行了 `import math`。哪一行算得对？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: round
+                content: |
+                  ```python
+                  plates = round(200 / 96)
+                  ```
+              - id: floor
+                content: |
+                  ```python
+                  plates = math.floor(200 / 96)
+                  ```
+              - id: ceil
+                content: |
+                  ```python
+                  plates = math.ceil(200 / 96)
+                  ```
+              - id: int
+                content: |
+                  ```python
+                  plates = int(200 / 96)
+                  ```
+            key: ceil
+        explanation: |
+          200 / 96 约等于 2.08。两块板只能装 192 个，剩下的 8 个还要一块板，所以至少 3 块：要“不小于它的最小整数”，也就是 **`math.ceil`**，得 3。
+
+          `math.floor` 和 `int` 都去掉小数部分得 2；`round` 取最接近的整数，也得 2。它们都少算了一块板。
+        verify: |
+          import math
+          need = next(n for n in range(1, 100) if n * 96 >= 200)
+          fits = [option for option, line in OPTIONS["line"].items() if run("import math\n" + line)["plates"] == need]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py13.k2.x2
+        kind: [predict]
+        uses: [py04.k3]
+        body: |
+          `math.ceil` 交回向上取整的结果；print 显示内容，交回 None。这段代码当作脚本运行。
+
+          ```python startLine=1
+          import math
+          a = math.ceil(4.2)
+          b = print(a)
+          c = round(4.2)
+          print(b)
+          print(c)
+          ```
+        slots:
+          - id: lines
+            type: table
+            prompt: 按顺序写出屏幕上显示的每一行。
+            columns:
+              - { id: order, header: 显示顺序 }
+              - { id: shown, header: 显示, input: { type: text, match: output } }
+            rows:
+              - { id: l1, cells: { order: 第 1 行, shown: "5" } }
+              - { id: l2, cells: { order: 第 2 行, shown: None } }
+              - { id: l3, cells: { order: 第 3 行, shown: "4" } }
+        explanation: |
+          一共显示三行：**5**、**None**、**4**。
+
+          第 3 行的 print 先把 a（5）显示出来，这是它的副作用；它交回的 None 存进了 b，所以第 5 行显示 None。第 4 行的 round 没有副作用，只把 4 交回给 c，这一行本身什么也不显示，到第 6 行才显示出来。
+        verify: |
+          lines = run().lines()
+          answers = {"lines": {f"l{i}": {"shown": text} for i, text in enumerate(lines, 1)}}
