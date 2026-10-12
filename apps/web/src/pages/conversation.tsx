@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate } from "react-router";
 import { ChevronDown, Clock, MessageSquarePlus, RefreshCw, Split } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { StatusNotice } from "@/components/ui/status-notice";
+import { AskCard } from "@/components/domain/ask-card";
 import { ConversationMessage } from "@/components/domain/conversation-message";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { MessageComposer } from "@/components/domain/message-composer";
@@ -12,6 +13,7 @@ import { ToolActivity } from "@/components/domain/tool-activity";
 import { ConversationModelDialog } from "@/features/model-picker";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { ConversationItem } from "@/lib/conversation";
+import type { Ask } from "@/lib/store";
 import { errorCode } from "@/lib/errors";
 import { folderName } from "@/lib/paths";
 import { cn } from "@/lib/utils";
@@ -30,6 +32,9 @@ function Conversation({ space }: { space: string }) {
   const sendMessage = useAppStore((state) => state.sendMessage);
   const stopRun = useAppStore((state) => state.stopRun);
   const forkSession = useAppStore((state) => state.forkSession);
+  const asks = useAppStore((state) => state.asks);
+  const submitAsk = useAppStore((state) => state.submitAsk);
+  const cancelAsk = useAppStore((state) => state.cancelAsk);
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
   const models = useAppStore((state) => state.resources.models);
   const providers = useAppStore((state) => state.resources.providers);
@@ -63,7 +68,7 @@ function Conversation({ space }: { space: string }) {
   useLayoutEffect(() => {
     const element = record.current;
     if (element && following.current) element.scrollTop = element.scrollHeight;
-  }, [conversation.items, conversation.queued]);
+  }, [conversation.items, conversation.queued, asks]);
 
   function onScroll() {
     const element = record.current;
@@ -105,6 +110,17 @@ function Conversation({ space }: { space: string }) {
 
   const { run, status, items } = conversation;
   const running = run !== "idle";
+  // 询问显示在发起它的工具调用下面；找不到那次调用时（例如插件或子 Agent 发起的）放在记录末尾。
+  const toolIds = new Set(items.flatMap((item) => item.kind === "tool" ? [item.id] : []));
+  const asksAt = (id: string) => asks.filter((ask) => ask.request.origin.callId === id);
+  const unplaced = asks.filter((ask) => ask.request.origin.callId === undefined || !toolIds.has(ask.request.origin.callId));
+  const waiting = asks.some((ask) => ask.closed === undefined);
+  const askCard = (ask: Ask) => <AskCard
+    key={ask.request.id}
+    ask={ask}
+    onSubmit={(response) => { void submitAsk(ask.request.id, response); }}
+    onCancel={() => { void cancelAsk(ask.request.id); }}
+  />;
   // 已建立的会话用自己保存的模型，还没建立的用选中的或默认模型。
   const model = conversation.model ?? defaultModel.data ?? undefined;
   const modelInfo = model && models.data?.find((item) => item.provider === model.provider && item.id === model.id);
@@ -148,14 +164,18 @@ function Conversation({ space }: { space: string }) {
         {status === "ready" && items.length === 0 && !running && <p className="text-sm text-muted-foreground">
           这是一个新会话。说说你想学什么，或者直接提问。
         </p>}
-        {items.map((item) => <Item
-          key={item.id}
-          item={item}
-          streaming={item.id === conversation.streaming}
-          onFork={item.kind === "assistant" && item.forkable ? () => { void fork(item.id); } : undefined}
-          forkDisabled={running || forking || !connected}
-        />)}
-        {running && conversation.streaming === undefined && <p role="status" className="mb-4 text-sm text-muted-foreground">
+        {items.map((item) => <Fragment key={item.id}>
+          <Item
+            item={item}
+            streaming={item.id === conversation.streaming}
+            onFork={item.kind === "assistant" && item.forkable ? () => { void fork(item.id); } : undefined}
+            forkDisabled={running || forking || !connected}
+          />
+          {item.kind === "tool" && asksAt(item.id).map(askCard)}
+        </Fragment>)}
+        {unplaced.map(askCard)}
+        {/* 等待作答时卡片本身就是状态，不再显示“正在处理”。 */}
+        {running && !waiting && conversation.streaming === undefined && <p role="status" className="mb-4 text-sm text-muted-foreground">
           {run === "stopping" ? "正在停止…" : "Agent 正在处理…"}
         </p>}
         {/* 排队的消息留在记录末尾，送达后换成记录里的用户消息，位置基本不动。 */}
@@ -186,6 +206,7 @@ function Conversation({ space }: { space: string }) {
         onStop={() => { void stop(); }}
         running={running}
         stopping={run === "stopping"}
+        answering={waiting}
         // 运行开始前还没有可以排队的运行，停止中再发的消息会被一起取消。
         disabled={!connected || status !== "ready" || run === "sending" || run === "stopping"}
       />

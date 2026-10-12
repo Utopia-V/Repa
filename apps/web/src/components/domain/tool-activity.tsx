@@ -1,7 +1,7 @@
 import { CircleAlert, CircleCheck, CircleDashed, LoaderCircle } from "lucide-react";
 import type { ToolStatus } from "@/lib/conversation";
 
-// Pi 内置工具用动作描述；插件工具没有中文名称，显示原名。
+// Pi 内置工具和底座的 ask_user 用动作描述；插件工具没有中文名称，显示原名。
 const toolNames: Record<string, string> = {
   read: "读取文件",
   write: "写入文件",
@@ -10,6 +10,7 @@ const toolNames: Record<string, string> = {
   grep: "搜索内容",
   find: "查找文件",
   ls: "列出文件",
+  ask_user: "向你提问",
 };
 
 const statusText: Record<ToolStatus, string> = {

@@ -7,6 +7,7 @@ import { useStore } from "zustand";
 import { routes } from "./routes";
 import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
 import { StoreProvider } from "@/hooks/use-app-store";
+import { interactionCapabilities } from "@/lib/ask";
 import type { AppStore } from "@/lib/store";
 
 type BootstrapState =
@@ -78,7 +79,7 @@ export function App({
       try {
         const connection = await loadConnection();
         if (!active) return;
-        const next = await RepaClient.connect(connection);
+        const next = await RepaClient.connect(connection, { capabilities: { interaction: interactionCapabilities } });
         if (!active) {
           await next.close();
           return;

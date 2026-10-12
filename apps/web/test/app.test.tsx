@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RepaClient } from "@repa/base/client";
 
 import { App, type LoadConnection } from "../src/app";
+import { interactionCapabilities } from "../src/lib/ask";
 import { createAppStore } from "../src/lib/store";
 import { mockMatchMedia } from "./match-media";
 
@@ -58,7 +59,8 @@ describe("Web App bootstrap", () => {
     expect(screen.getByRole("heading", { name: "正在准备 Repa" })).toBeTruthy();
     expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
     expect(loadConnection).toHaveBeenCalledOnce();
-    expect(RepaClient.connect).toHaveBeenCalledWith(connection);
+    // 连接时声明对话里的询问卡片能显示的作答位。
+    expect(RepaClient.connect).toHaveBeenCalledWith(connection, { capabilities: { interaction: interactionCapabilities } });
   });
 
   it("启动失败时显示原因并允许重试", async () => {

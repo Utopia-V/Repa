@@ -1,8 +1,23 @@
 import { createStore } from "zustand/vanilla";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { ConnectionError, RpcError, type RepaClient } from "@repa/base/client";
-import type { Confirmation, Method, ModelRef, Params, PromptOverride, Result, SessionInfo } from "@repa/base/protocol";
+import {
+  canRender,
+  type AskClosed,
+  type AskRequest,
+  type Confirmation,
+  type Feedback,
+  type ItemResponse,
+  type Method,
+  type ModelRef,
+  type Params,
+  type Problem,
+  type PromptOverride,
+  type Result,
+  type SessionInfo,
+} from "@repa/base/protocol";
 
+import { interactionCapabilities } from "@/lib/ask";
 import { applyEvent, emptyConversation, historyItems, type Conversation } from "@/lib/conversation";
 import { errorCode } from "@/lib/errors";
 
@@ -78,6 +93,26 @@ export type LoginState = {
   cancelled: boolean;
 };
 
+/**
+ * 对话里 Agent 或插件发来的询问。结束后留在原处显示作答和反馈，换会话或空间时清掉；
+ * 重新读取会话后只剩工具调用那一行。
+ */
+export type Ask = {
+  request: AskRequest;
+  /** 结束原因；disconnected 表示连接断开，后端已经结束询问，不再通知。 */
+  closed?: AskClosed["reason"] | "disconnected" | undefined;
+  submitting: boolean;
+  /** 上一次提交被退回的原因，改好可以再交。 */
+  problems: Problem[];
+  /** 已经记下的作答。 */
+  response?: ItemResponse | undefined;
+  /** 没有按卡片作答，在输入框里回的话。 */
+  declined?: string | undefined;
+  feedback?: Feedback | undefined;
+  /** 提交或关闭没有送达的错误。 */
+  error?: unknown;
+};
+
 /** 侧栏偏好；宽度未拖动过时为空，由侧栏组件使用默认值。 */
 export type SidebarPreference = { open: boolean; width?: number | undefined };
 
@@ -96,6 +131,8 @@ export type AppState = {
   /** 当前空间里正在查看的会话。 */
   conversation: Conversation;
   confirmations: PendingConfirmation[];
+  /** 当前会话里的询问，按到达顺序。 */
+  asks: Ask[];
   /** 正在进行的模型登录。 */
   activeLogin?: LoginState | undefined;
   setClient(client: RepaClient): void;
@@ -135,12 +172,17 @@ export type AppState = {
   setConversationModel(model: ModelRef): Promise<void>;
   /**
    * 空闲时开始一次运行；运行中用 `session.steer` 排队，Agent 做完当前这一步后读到。
+   * 有询问等待作答时，这句话代替作答交回 Agent。
    * 返回 false 表示消息没有发出去，错误放在 `conversation.sendError`。
    */
   sendMessage(text: string): Promise<boolean>;
   /** 返回随取消被后端丢弃、没送到 Agent 的排队消息，由调用方放回输入框。 */
   stopRun(): Promise<string[]>;
   replyConfirmation(id: string, allowed: boolean): Promise<void>;
+  /** 交卷；格式不对时询问保持打开，问题记在 problems。 */
+  submitAsk(id: string, response: ItemResponse): Promise<void>;
+  /** 不作答，直接关掉询问。 */
+  cancelAsk(id: string): Promise<void>;
   /** 读取设置页需要的提供方、模型和默认模型。 */
   loadModelSettings(): Promise<void>;
   setDefaultModel(model: Params<"model.setDefault">["model"]): Promise<void>;
@@ -289,6 +331,10 @@ export function createAppStore() {
       });
     }
 
+    function updateAsk(id: string, change: Partial<Ask>): void {
+      set((state) => ({ asks: state.asks.map((ask) => ask.request.id === id ? { ...ask, ...change } : ask) }));
+    }
+
     function updateConversation(change: Partial<Conversation>): void {
       set((state) => ({ conversation: { ...state.conversation, ...change } }));
     }
@@ -323,7 +369,7 @@ export function createAppStore() {
         if (!(error instanceof ConnectionError) && get().space === root) {
           conversationRequest++;
           resetSpaceData();
-          set({ space: undefined, resumeFailure: { root, error }, conversation: emptyConversation });
+          set({ space: undefined, resumeFailure: { root, error }, conversation: emptyConversation, asks: [] });
         }
         return false;
       });
@@ -367,9 +413,22 @@ export function createAppStore() {
         // 输入和选择只来自本页面发起的登录；没有进行中的登录时直接取消，不让后端停在等待上。
         void reply(id, null);
       });
+      const offAsk = client.on("ask.request", (request) => {
+        // 后端已按声明的能力筛过；宽松读取后仍有不认识的必需特性时，告诉 Agent 这里显示不了。
+        if (!canRender(interactionCapabilities, request.item)) {
+          void call("ask.reply", { id: request.id, action: "unsupported" }).catch(() => undefined);
+          return;
+        }
+        set((state) => ({ asks: [...state.asks, { request, submitting: false, problems: [] }] }));
+      });
+      const offAskClosed = client.on("ask.closed", ({ id, reason }) => {
+        updateAsk(id, { closed: reason });
+      });
       unsubscribe = () => {
         offEvent();
         offConfirm();
+        offAsk();
+        offAskClosed();
       };
     }
 
@@ -414,12 +473,15 @@ export function createAppStore() {
       },
       conversation: emptyConversation,
       confirmations: [],
+      asks: [],
       setClient(client) {
         // 旧连接上的授权请求已被后端取消；运行状态在新连接上无法查询，从空闲开始，收到事件再更新。
         set((state) => ({
           client,
           connected: true,
           confirmations: [],
+          // 断线时后端已经结束旧连接上的询问。
+          asks: state.asks.map((ask) => ask.closed === undefined ? { ...ask, closed: "disconnected" as const, submitting: false } : ask),
           // 登录随旧连接断开而失败，未回答的请求一并作废；auth.login 的调用会以连接中断结束。
           activeLogin: state.activeLogin && { ...state.activeLogin, prompts: [] },
           // 排队消息是否送到同样无法查询，重读的会话记录里能看到已经送到的。
@@ -446,7 +508,7 @@ export function createAppStore() {
         if (opened.root !== get().space) {
           conversationRequest++;
           resetSpaceData();
-          set({ space: opened.root, conversation: emptyConversation });
+          set({ space: opened.root, conversation: emptyConversation, asks: [] });
         }
         set({ resumeFailure: undefined });
         // 打开前发出的读取可能不含这次打开，重新读取。
@@ -458,7 +520,7 @@ export function createAppStore() {
         await call("space.close", {});
         conversationRequest++;
         resetSpaceData();
-        set({ space: undefined, conversation: emptyConversation, confirmations: [] });
+        set({ space: undefined, conversation: emptyConversation, confirmations: [], asks: [] });
       },
       browseFolder(path) {
         return call("space.browse", path === undefined ? {} : { path });
@@ -516,7 +578,7 @@ export function createAppStore() {
         const current = get().conversation;
         if (current.run !== "idle" || (current.sessionId === session.id && current.status === "ready")) return;
         const id = ++conversationRequest;
-        set({ confirmations: [], conversation: { ...emptyConversation, status: "loading", sessionId: session.id, model: session.model } });
+        set({ confirmations: [], asks: [], conversation: { ...emptyConversation, status: "loading", sessionId: session.id, model: session.model } });
         try {
           const entries = await call("session.history", { sessionId: session.id });
           if (id === conversationRequest) updateConversation({ status: "ready", items: historyItems(entries) });
@@ -527,7 +589,7 @@ export function createAppStore() {
       newConversation() {
         if (get().conversation.run !== "idle") return;
         conversationRequest++;
-        set({ conversation: { ...emptyConversation, status: "ready" } });
+        set({ conversation: { ...emptyConversation, status: "ready" }, asks: [] });
       },
       async forkSession(entryId) {
         const { sessionId, run } = get().conversation;
@@ -545,6 +607,20 @@ export function createAppStore() {
         if (get().conversation.sessionId === sessionId) updateConversation({ model });
       },
       async sendMessage(text) {
+        // 等着作答的询问挡住了 Agent，排队的消息要等它结束才读到；不按卡片作答，把这句话直接交回去。
+        const waiting = get().asks.findLast((ask) => ask.closed === undefined);
+        if (waiting) {
+          const id = waiting.request.id;
+          updateConversation({ sendError: undefined });
+          try {
+            await call("ask.reply", { id, action: "decline", message: text });
+            updateAsk(id, { declined: text, closed: "answered", error: undefined });
+            return true;
+          } catch (error) {
+            updateConversation({ sendError: error });
+            return false;
+          }
+        }
         const conversation = get().conversation;
         if (conversation.run === "running" && conversation.sessionId) return await steer(conversation.sessionId, text);
         if (conversation.run !== "idle") return false;
@@ -599,6 +675,28 @@ export function createAppStore() {
           await call("confirm.reply", { id, value: allowed });
         } catch {
           // 请求可能已随取消或断线失效；后端那一侧会按拒绝处理，界面不需要再提示。
+        }
+      },
+      async submitAsk(id, response) {
+        updateAsk(id, { submitting: true, problems: [], error: undefined });
+        try {
+          const result = await call("ask.reply", { id, action: "submit", response });
+          if (result?.status === "rejected") updateAsk(id, { problems: result.problems });
+          // ask.closed 在结果之前到达；没收到时也按已作答收起。
+          else updateAsk(id, { response, feedback: result?.feedback, closed: get().asks.find((ask) => ask.request.id === id)?.closed ?? "answered" });
+        } catch (error) {
+          updateAsk(id, { error });
+        } finally {
+          updateAsk(id, { submitting: false });
+        }
+      },
+      async cancelAsk(id) {
+        updateAsk(id, { error: undefined });
+        try {
+          await call("ask.reply", { id, action: "cancel" });
+          updateAsk(id, { closed: "cancelled" });
+        } catch (error) {
+          updateAsk(id, { error });
         }
       },
       async loadModelSettings() {

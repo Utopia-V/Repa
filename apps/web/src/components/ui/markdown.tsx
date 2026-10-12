@@ -20,12 +20,12 @@ import "katex/dist/katex.min.css";
 import { cn } from "@/lib/utils";
 
 // 中文里 `20~25` 常表示范围，只认双波浪线为删除线。
-const remarkPlugins: Options["remarkPlugins"] = [
+const textPlugins: NonNullable<Options["remarkPlugins"]> = [
   [remarkGfm, { singleTilde: false }],
   remarkCjkFriendly,
   [remarkCjkFriendlyStrikethrough, { singleTilde: false }],
-  remarkMath,
 ];
+const remarkPlugins: Options["remarkPlugins"] = [...textPlugins, remarkMath];
 
 // 按 Shiki 的细粒度引入只带几种常用语言，同步创建，渲染时不需要等待。
 // 语法颜色直接用 Catppuccin Mocha 主题；代码块底色和正文色由 Code token 提供，与主题一致。
@@ -37,11 +37,13 @@ const highlighter = createHighlighterCoreSync({
 
 // 写错的公式显示原文，不让整条消息出错；中文写进公式不在控制台告警。
 // 代码只高亮标了语言且已加载的几种，其他语言和没标语言的代码块按纯文本显示。
+// 高亮出错时保留原样的代码块，不让整条消息渲染失败。
+const highlight: NonNullable<Options["rehypePlugins"]>[number] = [rehypeShikiFromHighlighter, highlighter, { theme: "catppuccin-mocha", addLanguageClass: true, onError: () => undefined }];
 const rehypePlugins: Options["rehypePlugins"] = [
   [rehypeKatex, { throwOnError: false, strict: false, errorColor: "var(--muted-foreground)" }],
-  // 高亮出错时保留原样的代码块，不让整条消息渲染失败。
-  [rehypeShikiFromHighlighter, highlighter, { theme: "catppuccin-mocha", addLanguageClass: true, onError: () => undefined }],
+  highlight,
 ];
+const plainRehypePlugins: Options["rehypePlugins"] = [highlight];
 
 const codeText = "font-mono text-[length:var(--type-code-size)] leading-[var(--type-code-line)]";
 const headingText = "m-0 font-(family-name:--font-heading) font-semibold";
@@ -122,8 +124,9 @@ const components: Components = {
 /**
  * 渲染模型写的 Markdown：GFM、公式（`$…$`、`$$…$$`、`\(…\)`、`\[…\]`）和代码块。
  * 原始 HTML 按文本显示。`streaming` 时先补全还没写完的语法，避免排版来回跳。
+ * `math` 为 false 时不排公式，`$` 就是普通字符，用于交互词汇里没有声明公式的内容块。
  */
-export const Markdown = memo(function Markdown({ text, streaming = false, className }: { text: string; streaming?: boolean; className?: string }) {
+export const Markdown = memo(function Markdown({ text, streaming = false, math = true, className }: { text: string; streaming?: boolean; math?: boolean; className?: string }) {
   const source = streaming ? remend(text, { inlineKatex: true, linkMode: "text-only" }) : text;
   return <div
     data-slot="markdown"
@@ -133,6 +136,10 @@ export const Markdown = memo(function Markdown({ text, streaming = false, classN
       className,
     )}
   >
-    <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>{source}</ReactMarkdown>
+    <ReactMarkdown
+      remarkPlugins={math ? remarkPlugins : textPlugins}
+      rehypePlugins={math ? rehypePlugins : plainRehypePlugins}
+      components={components}
+    >{source}</ReactMarkdown>
   </div>;
 });
