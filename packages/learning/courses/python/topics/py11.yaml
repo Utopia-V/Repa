@@ -1,7 +1,8 @@
 id: py11
 title: 报错告诉你停在了哪里
-status: outline
+status: complete
 minutes: 20
+summary: 分清语法错误（一行都不运行）和运行时异常（停在出错的那一行）；从错误类型和指向的行出发，找出造成问题的值和它是在哪一行定下的。
 prerequisites:
   - topic: py03
     key: true
@@ -22,8 +23,1025 @@ sources:
     use: reference
 notes: |
   建议题型与判分：找错（P）、解释代码（S/O）、小改代码（T）。
+  范围：只读报错，不讲 try/except；报错都来自单个脚本 clean.py 的顶层代码，没有函数调用形成的多层 traceback。用到的类型：SyntaxError、NameError、TypeError、ValueError、ZeroDivisionError，以及 py06 先修带来的 IndexError（只在 k1.x2、k2.x2 出现，标了 uses）。不用 if（py10 不是先修），所以不出 IndentationError。
+  题面里的 traceback 是在课程运行时（Python 3.14.2）里实际运行这些代码得到的，按直接运行脚本的样子去掉了运行器自己的那一层；语法错误没有 “Traceback” 那一行，这和真实运行脚本一致。题目只问类型、行号和原因，不考说明文字，因为不同版本的说明会变（例如 3.14 的 NameError 会加 “Did you mean”）。
+  核对程序里的 stop_line 用 compile 和 traceback 独立求出程序停下的行；ran 用 sys.settrace 记下实际执行到的行。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 4 分钟；k2 讲解与例题 4 分钟、练习 6 分钟；收束 2 分钟。
+  情境与数据为本课自拟。
+intro: |
+  程序出错时，Python 会停下来，显示一段报错。这一节练习读它：是哪一种错、停在了哪一行、问题可能出在哪里。
+
+  题里的程序都当作一个名为 clean.py 的脚本，从第一行往下运行。报错按课程使用的 Python 3.14 的样子给出；别的版本里说明文字可能稍有不同，但错误类型和行号的读法一样。题目只问类型、行号和原因，不要求背说明文字。
+wrapup: |
+  看到报错，先读最后一行的错误类型，再看它指向第几行，然后回到代码里，找出那一行用到的值是在哪里定下的。语法错误一行都不运行；运行时异常停在出错的那一行，之前的行已经做完了。
+
+  把报错交给 AI 或同事时，带上完整的报错和它指向的那几行代码，比只说“程序报错了”有用得多。
 kps:
   - id: py11.k1
     title: 区分语法错误与运行时异常
+    card:
+      name: 语法错误与运行时异常
+      aliases: [SyntaxError, 异常, 报错]
+      definition: 语法错误是 Python 读不懂这段代码，一行都不运行；运行时异常是代码读得懂，运行到某一行出了问题，停在那一行，之前的行已经执行过。
+      conditions:
+        - 看报错最后一行冒号前的类型名：SyntaxError 是语法错误；NameError、TypeError、ValueError 等是运行时异常。
+        - 运行时异常之前的 print 已经显示出来了；语法错误时，连第 1 行的 print 也不会显示。
+      example:
+        from: py11.k1.e0
+        text: |
+          ```python
+          print("开始核对")
+          count = 3
+          label = "样本数：" + count
+          ```
+          第 3 行把文字和整数相加，报 TypeError，是运行时异常：第 1 行已经显示了“开始核对”，第 3 行之后的代码不再运行。
+    lesson: |
+      Python 运行一个程序分两步：先把整段代码**读一遍**，确认写法合规；读懂了，才从第一行开始**逐行运行**。两步各有一种报错。
+
+      **语法错误**：写法不合规，例如括号没有配对、引号没有收尾。Python 在第一步就停下，**一行都不运行**，所以即使第 1 行是 print，也什么都不显示。报错指向 Python 发现读不下去的位置：
+
+      ```text
+        File "clean.py", line 3
+          total = (count + 2
+                  ^
+      SyntaxError: '(' was never closed
+      ```
+
+      **运行时异常**：写法没有问题，运行到某一行时出了状况，例如把文字和数字相加、用了还没有赋值的名字。这一行之前的代码**已经执行**，它们的 print 已经显示出来；**程序停在出错的这一行**，后面的行不再运行：
+
+      ```text
+      Traceback (most recent call last):
+        File "clean.py", line 3, in <module>
+          label = "样本数：" + count
+                  ~~~~~~~~~~~^~~~~~~
+      TypeError: can only concatenate str (not "int") to str
+      ```
+
+      两种报错都先看**最后一行**：冒号前面是错误类型，后面是说明。类型是 SyntaxError 的是语法错误；NameError、TypeError、ValueError、ZeroDivisionError 这些都是运行时异常。`line 3` 是报错指向的行号。
+    example:
+      id: py11.k1.e0
+      kind: [debug, predict]
+      uses: [py03.k1]
+      body: |
+        运行 clean.py，最后出现了下面的报错。
+
+        ```python startLine=1
+        print("开始核对")
+        count = 3
+        label = "样本数：" + count
+        print(label)
+        print("核对结束")
+        ```
+
+        ```text
+        Traceback (most recent call last):
+          File "clean.py", line 3, in <module>
+            label = "样本数：" + count
+                    ~~~~~~~~~~~^~~~~~~
+        TypeError: can only concatenate str (not "int") to str
+        ```
+      slots:
+        - id: kind
+          type: choice
+          prompt: 这是哪一种报错？
+          options:
+            - { id: syntax, content: 语法错误：Python 读不懂这段代码 }
+            - { id: runtime, content: 运行时异常：运行到某一行时出了问题 }
+          key: runtime
+        - id: shown
+          type: order
+          partial: true
+          prompt: 报错出现之前，屏幕上显示了哪些内容？按显示的先后排列，没有显示的不要放进来。
+          items:
+            - { id: start, content: 开始核对 }
+            - { id: label, content: 样本数：3 }
+            - { id: end, content: 核对结束 }
+          key: [start]
+        - id: after
+          type: choice
+          prompt: 第 4、5 行执行了吗？
+          options:
+            - { id: both, content: 都执行了 }
+            - { id: neither, content: 都没有执行 }
+            - { id: last, content: 只执行了第 5 行 }
+          key: neither
+      explanation: |
+        最后一行的类型是 TypeError，是**运行时异常**：代码读得懂，运行到第 3 行时，文字 `"样本数："` 和整数 `count` 不能直接相加。
+
+        运行时异常之前的行已经执行，所以第 1 行的“**开始核对**”已经显示出来了；程序停在第 3 行，第 4、5 行**都没有执行**，“样本数：3”和“核对结束”都不会出现。
+      verify: |
+        import sys
+        def ran(code=CODE):
+            lines = set()
+            def tracer(frame, event, arg):
+                if frame.f_code.co_filename == "<ran>" and event == "line":
+                    lines.add(frame.f_lineno)
+                return tracer
+            sys.settrace(tracer)
+            try:
+                exec(compile(code, "<ran>", "exec"), {})
+            except Exception:
+                pass
+            finally:
+                sys.settrace(None)
+            return lines
+        r = run()
+        ids = {"开始核对": "start", "样本数：3": "label", "核对结束": "end"}
+        executed = ran()
+        after = {(True, True): "both", (False, False): "neither", (False, True): "last"}.get((4 in executed, 5 in executed), "other")
+        answers = {
+            "kind": "syntax" if r.error == "SyntaxError" else "runtime",
+            "shown": [ids[line] for line in r.lines()],
+            "after": after,
+        }
+    practice:
+      - id: py11.k1.q1
+        kind: [debug, predict]
+        body: |
+          这次第 3 行少了一个引号。运行 clean.py，出现了下面的报错。
+
+          ```python startLine=1
+          print("开始核对")
+          count = 3
+          label = "样本数： + str(count)
+          print(label)
+          print("核对结束")
+          ```
+
+          ```text
+            File "clean.py", line 3
+              label = "样本数： + str(count)
+                      ^
+          SyntaxError: unterminated string literal (detected at line 3)
+          ```
+        slots:
+          - id: shown
+            type: choice
+            prompt: 报错出现之前，屏幕上显示了什么？
+            options:
+              - { id: start, content: 显示了“开始核对” }
+              - { id: nothing, content: 什么也没有显示 }
+              - { id: two, content: 显示了“开始核对”和“样本数：3” }
+            key: nothing
+          - id: why
+            type: choice
+            prompt: 为什么会这样？
+            options:
+              - { id: read_first, content: Python 先读整段代码，读不懂就一行都不运行 }
+              - { id: line1_bad, content: 第 1 行本身也写错了 }
+              - { id: stops_at_3, content: 程序运行到第 3 行才停下 }
+            key: read_first
+        explanation: |
+          **什么也没有显示。** 最后一行是 SyntaxError：第 3 行的文字少了收尾的引号，Python 在读代码这一步就停下了，一行都没有运行，所以第 1 行写得没错，也不会显示“开始核对”。
+
+          对比例题：那里是运行时异常，第 1 行已经运行，“开始核对”显示出来了。
+        verify: |
+          r = run()
+          first = run(CODE.splitlines()[0])
+          # 第 1 行单独运行没有问题；整段代码却连它也没显示，说明在运行任何一行之前就停下了。
+          answers = {
+              "shown": "nothing" if r.out == "" else "start" if r.lines() == ["开始核对"] else "two",
+              "why": "read_first" if r.error == "SyntaxError" and r.out == "" and first.error is None and first.out.strip() == "开始核对" else "other",
+          }
+      - id: py11.k1.q2
+        kind: [debug]
+        uses: [py03.k1, py03.k2]
+        body: |
+          下面四段代码各自单独保存成一个文件运行，都会报错。
+
+          代码 1：
+
+          ```python
+          ratio = 12 / 0
+          ```
+
+          代码 2：
+
+          ```python
+          name = "S_A
+          ```
+
+          代码 3：
+
+          ```python
+          print(sample_count)
+          ```
+
+          代码 4：
+
+          ```python
+          total = (3 + 4
+          ```
+        slots:
+          - id: kinds
+            type: table
+            prompt: 每段代码的报错是哪一种？
+            columns:
+              - { id: code, header: 代码 }
+              - id: kind
+                header: 哪一种报错
+                input:
+                  type: choice
+                  options:
+                    - { id: syntax, label: 语法错误 }
+                    - { id: runtime, label: 运行时异常 }
+            rows:
+              - { id: c1, cells: { code: 代码 1, kind: runtime } }
+              - { id: c2, cells: { code: 代码 2, kind: syntax } }
+              - { id: c3, cells: { code: 代码 3, kind: runtime } }
+              - { id: c4, cells: { code: 代码 4, kind: syntax } }
+        explanation: |
+          | 代码 | 报错 | 哪一种 |
+          |---|---|---|
+          | 1 | ZeroDivisionError：除数是 0 | 运行时异常 |
+          | 2 | SyntaxError：文字少了收尾的引号 | 语法错误 |
+          | 3 | NameError：`sample_count` 还没有赋值 | 运行时异常 |
+          | 4 | SyntaxError：括号没有配对 | 语法错误 |
+
+          判断的办法：写法本身合不合规？代码 1 和代码 3 写法都没问题，Python 读得懂，是运行时才发现除数为 0、名字不存在。代码 2 和代码 4 缺了引号或括号，Python 读都读不下去。
+        verify: |
+          def kind(code):
+              try:
+                  compile(code, "<q>", "exec")
+              except SyntaxError:
+                  return "syntax"
+              return "runtime" if run(code).error is not None else "no error"
+          answers = {"kinds": {f"c{i}": {"kind": kind(code)} for i, code in enumerate(BLOCKS, 1)}}
+      - id: py11.k1.q3
+        kind: [predict]
+        uses: [py03.k2]
+        body: |
+          ```python startLine=1
+          print("第一步：读入")
+          raw = "12.5"
+          print("第二步：转换")
+          value = int(raw)
+          print("第三步：完成")
+          print(value)
+          ```
+
+          提示：`int()` 只认得整数的写法，`int("12.5")` 会报 ValueError。
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 报错之前，屏幕上一共显示了几行？
+            key: 2
+          - id: stop
+            type: text
+            format: integer
+            prompt: 程序停在第几行？
+            key: 4
+        explanation: |
+          显示了 **2** 行：“第一步：读入”和“第二步：转换”。这是运行时异常，第 1–3 行正常执行；第 **4** 行的 `int("12.5")` 报 ValueError，程序停在这里，第 5、6 行不再运行。
+        verify: |
+          import traceback
+          def stop_line(code=CODE):
+              try:
+                  exec(compile(code, "<q>", "exec"), {})
+              except SyntaxError as error:
+                  return error.lineno
+              except Exception as error:
+                  return [frame.lineno for frame in traceback.extract_tb(error.__traceback__) if frame.filename == "<q>"][-1]
+              return None
+          answers = {"count": len(run().lines()), "stop": stop_line()}
+    review:
+      - id: py11.k1.r1
+        kind: [predict]
+        body: |
+          ```python startLine=1
+          total = 24
+          groups = 0
+          print("开始计算")
+          per_group = total / groups
+          print("每组的份数：")
+          print(per_group)
+          ```
+        slots:
+          - id: shown
+            type: table
+            prompt: 运行这段代码，下面三行 print 各自的内容显示出来了吗？
+            columns:
+              - { id: line, header: 行 }
+              - { id: shown, header: 显示了吗, input: bool }
+            rows:
+              - { id: l3, cells: { line: 第 3 行, shown: true } }
+              - { id: l5, cells: { line: 第 5 行, shown: false } }
+              - { id: l6, cells: { line: 第 6 行, shown: false } }
+          - id: stop
+            type: text
+            format: integer
+            prompt: 程序停在第几行？
+            key: 4
+        explanation: |
+          第 4 行除以 0，报 ZeroDivisionError，是运行时异常，程序停在第 **4** 行。之前的第 3 行已经执行，“开始计算”**显示了**；第 5、6 行在出错的行之后，**都没有显示**。
+        verify: |
+          import sys, traceback
+          def ran(code=CODE):
+              lines = set()
+              def tracer(frame, event, arg):
+                  if frame.f_code.co_filename == "<ran>" and event == "line":
+                      lines.add(frame.f_lineno)
+                  return tracer
+              sys.settrace(tracer)
+              try:
+                  exec(compile(code, "<ran>", "exec"), {})
+              except Exception:
+                  pass
+              finally:
+                  sys.settrace(None)
+              return lines
+          def stop_line(code=CODE):
+              try:
+                  exec(compile(code, "<q>", "exec"), {})
+              except SyntaxError as error:
+                  return error.lineno
+              except Exception as error:
+                  return [frame.lineno for frame in traceback.extract_tb(error.__traceback__) if frame.filename == "<q>"][-1]
+              return None
+          stop = stop_line()
+          executed = ran()
+          # 一行 print 显示出来，要它执行到了，而且不是出错停下的那一行。
+          answers = {"shown": {f"l{n}": {"shown": n in executed and n != stop} for n in (3, 5, 6)}, "stop": stop}
+      - id: py11.k1.r2
+        kind: [explain]
+        uses: [py03.k2]
+        body: |
+          运行 clean.py，出现了下面的报错。
+
+          ```python startLine=1
+          print("开始")
+          width = 4
+          height = 3
+          area = width * height
+          print("面积是" + str(area)
+          print("结束")
+          ```
+
+          ```text
+            File "clean.py", line 5
+              print("面积是" + str(area)
+                   ^
+          SyntaxError: '(' was never closed
+          ```
+        slots:
+          - id: claims
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 下面哪些说法正确？选出所有正确的。
+            options:
+              - { id: printed, content: 报错之前，屏幕上先显示了“开始” }
+              - { id: none_ran, content: 第 1–4 行一行都没有运行 }
+              - { id: syntax, content: 这是语法错误，第 5 行的括号没有配对 }
+              - { id: runtime, content: 这是运行时异常，程序运行到第 5 行时停下 }
+            key: [none_ran, syntax]
+        explanation: |
+          正确的是“**第 1–4 行一行都没有运行**”和“**这是语法错误，第 5 行的括号没有配对**”。
+
+          最后一行是 SyntaxError：Python 在读代码时发现第 5 行的左括号没有对应的右括号，读不下去，于是一行都没有运行。第 1 行虽然写得没错，“开始”也不会显示。它不是运行到第 5 行才停下的。
+        verify: |
+          import sys
+          def ran(code=CODE):
+              lines = set()
+              def tracer(frame, event, arg):
+                  if frame.f_code.co_filename == "<ran>" and event == "line":
+                      lines.add(frame.f_lineno)
+                  return tracer
+              sys.settrace(tracer)
+              try:
+                  exec(compile(code, "<ran>", "exec"), {})
+              except Exception:
+                  pass
+              finally:
+                  sys.settrace(None)
+              return lines
+          r = run()
+          try:
+              compile(CODE, "<q>", "exec")
+              syntax_line = None
+          except SyntaxError as error:
+              syntax_line = error.lineno
+          executed = ran()
+          holds = {
+              "printed": r.out.startswith("开始"),
+              "none_ran": not any(n in executed for n in (1, 2, 3, 4)),
+              "syntax": r.error == "SyntaxError" and syntax_line == 5,
+              "runtime": r.error not in (None, "SyntaxError"),
+          }
+          answers = {"claims": [claim for claim, ok in holds.items() if ok]}
+    quiz:
+      - id: py11.k1.x1
+        kind: [debug]
+        uses: [py03.k1, py03.k2]
+        body: |
+          下面五段代码各自单独保存成一个文件运行，都会报错。
+
+          代码 1：
+
+          ```python
+          label = "第" + 3 + "组"
+          ```
+
+          代码 2：
+
+          ```python
+          count = 3 +
+          ```
+
+          代码 3：
+
+          ```python
+          name = 'S_A"
+          ```
+
+          代码 4：
+
+          ```python
+          value = float("abc")
+          ```
+
+          代码 5：
+
+          ```python
+          ratio = 5 / (2 - 2)
+          ```
+        slots:
+          - id: kinds
+            type: table
+            prompt: 每段代码的报错是哪一种？
+            columns:
+              - { id: code, header: 代码 }
+              - id: kind
+                header: 哪一种报错
+                input:
+                  type: choice
+                  options:
+                    - { id: syntax, label: 语法错误 }
+                    - { id: runtime, label: 运行时异常 }
+            rows:
+              - { id: c1, cells: { code: 代码 1, kind: runtime } }
+              - { id: c2, cells: { code: 代码 2, kind: syntax } }
+              - { id: c3, cells: { code: 代码 3, kind: syntax } }
+              - { id: c4, cells: { code: 代码 4, kind: runtime } }
+              - { id: c5, cells: { code: 代码 5, kind: runtime } }
+        explanation: |
+          | 代码 | 报错 | 哪一种 |
+          |---|---|---|
+          | 1 | TypeError：文字和整数不能直接相加 | 运行时异常 |
+          | 2 | SyntaxError：`+` 后面缺了东西 | 语法错误 |
+          | 3 | SyntaxError：单引号开头、双引号结尾，文字没有收尾 | 语法错误 |
+          | 4 | ValueError：`"abc"` 不是数的写法 | 运行时异常 |
+          | 5 | ZeroDivisionError：`2 - 2` 算出来是 0 | 运行时异常 |
+
+          代码 1、4、5 的写法都合规，要运行到那一行，算出具体的值，才发现问题；代码 2、3 写法本身不完整，Python 读都读不下去。
+        verify: |
+          def kind(code):
+              try:
+                  compile(code, "<q>", "exec")
+              except SyntaxError:
+                  return "syntax"
+              return "runtime" if run(code).error is not None else "no error"
+          answers = {"kinds": {f"c{i}": {"kind": kind(code)} for i, code in enumerate(BLOCKS, 1)}}
+      - id: py11.k1.x2
+        kind: [predict]
+        uses: [py06.k2]
+        body: |
+          列表 `signals` 里有三个测量值，位置从 0 开始数。
+
+          ```python startLine=1
+          signals = [8, 10, 13]
+          print("第一个：")
+          print(signals[0])
+          print("第四个：")
+          print(signals[3])
+          print("读完了")
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 运行这段代码，报错之前屏幕上一共显示了几行？
+            key: 3
+          - id: last
+            type: text
+            match: text
+            prompt: 报错之前显示的最后一行是什么？
+            key: 第四个：
+          - id: stop
+            type: text
+            format: integer
+            prompt: 程序停在第几行？
+            key: 5
+        explanation: |
+          列表只有位置 0、1、2，`signals[3]` 超出范围，第 **5** 行报 IndexError，这是运行时异常。之前的第 2–4 行已经执行，显示了“第一个：”“8”“第四个：”共 **3** 行，最后一行是“**第四个：**”；“读完了”不会显示。
+        verify: |
+          import traceback
+          def stop_line(code=CODE):
+              try:
+                  exec(compile(code, "<q>", "exec"), {})
+              except SyntaxError as error:
+                  return error.lineno
+              except Exception as error:
+                  return [frame.lineno for frame in traceback.extract_tb(error.__traceback__) if frame.filename == "<q>"][-1]
+              return None
+          lines = run().lines()
+          answers = {"count": len(lines), "last": lines[-1], "stop": stop_line()}
+
   - id: py11.k2
     title: 从异常类型和指向的行缩小原因
+    card:
+      name: 读报错
+      aliases: [traceback, 报错信息, 异常类型]
+      definition: 先读最后一行的错误类型，再看它指向的行和这一行用到的值；程序停下的行不一定是要改的行，造成问题的值可能在更早的行就定下了。
+      conditions:
+        - NameError 看拼写和这个名字之前有没有赋值；TypeError 看值的类型；ValueError 看值的写法；ZeroDivisionError 看除数从哪里来。
+        - 修改要针对原因：在出错的行上硬改一个值让它不报错，可能得到错误的结果。
+      example:
+        from: py11.k2.q1
+        text: |
+          ```python
+          used = 5
+          left = total - used
+          total = 12
+          ```
+          报错指向第 2 行的 NameError：用到 total 时它还没有赋值。要改的是顺序，把 `total = 12` 移到前面，而不是在第 2 行前面随便给 total 一个值。
+    lesson: |
+      一段报错从下往上读最快。
+
+      **1. 最后一行：错误类型和说明。** 类型告诉你是哪一类问题：
+
+      | 类型 | 意思 | 先去看 |
+      |---|---|---|
+      | NameError | 这个名字还不存在 | 拼写（大小写也算）；用到它之前有没有赋过值 |
+      | TypeError | 这种类型的值不能这样用 | 这一行里各个值是什么类型，例如文字和整数直接相加，或者值是 None |
+      | ValueError | 类型对了，但内容不认得 | 值的写法，例如 `int("12.5")`、`float("12,5")` |
+      | ZeroDivisionError | 除数是 0 | 除数是从哪里算出来的 |
+      | IndexError | 位置超出了列表的范围 | 列表有几项，位置从 0 开始数 |
+
+      **2. 上面的 `File "clean.py", line 5`：程序停在第几行。** 下面一行是那一行代码，`^` 和 `~` 标出出问题的那一段。
+
+      **3. 回到代码里**：找出这一行用到了哪些值，再往上找它们是在哪一行定下的。
+
+      ```text
+      Traceback (most recent call last):
+        File "clean.py", line 5, in <module>
+          per_sample = total / usable
+                       ~~~~~~^~~~~~~~
+      ZeroDivisionError: division by zero
+      ```
+
+      这个报错指向第 5 行，但第 5 行本身写得没错：问题是 `usable` 是 0。要往上看 usable 是怎样算出 0 的，也许是第 4 行的减法，也许是更早的数据。**程序停下的行，不一定是要改的行。**
+
+      改的时候要针对原因。在出错的行前面随手加一个 `usable = 1`，报错没了，结果却是错的。
+
+      以后读 AI 或别人写的代码，报错可能有很多层，夹着库里的文件。办法一样：最后一行看类型，再在报错里找到你自己的文件名和那一行。
+    example:
+      id: py11.k2.e0
+      kind: [debug, explain]
+      uses: [py03.k1, py03.k2]
+      body: |
+        运行 clean.py，出现了下面的报错。
+
+        ```python startLine=1
+        count = 3
+        label = "样本数：" + count
+        print(label)
+        ```
+
+        ```text
+        Traceback (most recent call last):
+          File "clean.py", line 2, in <module>
+            label = "样本数：" + count
+                    ~~~~~~~~~~~^~~~~~~
+        TypeError: can only concatenate str (not "int") to str
+        ```
+      slots:
+        - id: cause
+          type: choice
+          prompt: 问题出在哪里？
+          options:
+            - { id: undefined, content: "`count` 这个名字还没有赋值" }
+            - { id: number, content: "`count` 是整数，不能直接和文字相加" }
+            - { id: label, content: 文字“样本数：”写错了 }
+          key: number
+        - id: fix
+          type: choice
+          prompt: 要显示“样本数：3”，第 2 行应改成哪一种？
+          options:
+            - id: quoted
+              content: |
+                ```python
+                label = "样本数：" + "count"
+                ```
+            - id: to_int
+              content: |
+                ```python
+                label = "样本数：" + int(count)
+                ```
+            - id: to_str
+              content: |
+                ```python
+                label = "样本数：" + str(count)
+                ```
+          key: to_str
+      explanation: |
+        最后一行是 TypeError：这一行里有一个值的类型不对。第 2 行用到两个值，`"样本数："` 是文字，`count` 是第 1 行赋的整数 3；文字只能和文字相加，所以问题是 **count 是整数**。
+
+        改法是先把 count 转成文字：`"样本数：" + str(count)`，得到“样本数：3”。写成 `"count"` 会接上字母 count 本身，显示“样本数：count”；`int(count)` 还是整数，报同样的错。
+      verify: |
+        r = run()
+        # 出错时 count 是整数，而这一行另一边是文字。
+        cause = "number" if r.error == "TypeError" and isinstance(r["count"], int) else "other"
+        lines = CODE.splitlines()
+        fits = [option for option, line in OPTIONS["fix"].items()
+                if run("\n".join([lines[0], line, lines[2]])).out.strip() == "样本数：3"]
+        answers = {"cause": cause, "fix": fits[0] if len(fits) == 1 else fits}
+    practice:
+      - id: py11.k2.q1
+        kind: [debug]
+        body: |
+          运行 clean.py，出现了下面的报错。程序原本应显示 7。
+
+          ```python startLine=1
+          used = 5
+          left = total - used
+          total = 12
+          print(left)
+          ```
+
+          ```text
+          Traceback (most recent call last):
+            File "clean.py", line 2, in <module>
+              left = total - used
+                     ^^^^^
+          NameError: name 'total' is not defined
+          ```
+        slots:
+          - id: cause
+            type: choice
+            prompt: 问题出在哪里？
+            options:
+              - { id: typo, content: "`total` 拼错了" }
+              - { id: not_yet, content: 第 2 行用到 `total` 时，它还没有被赋值 }
+              - { id: minus, content: 整数不能做减法 }
+            key: not_yet
+          - id: fix
+            type: choice
+            prompt: 怎样改，程序才会显示 7？
+            options:
+              - { id: zero, content: 在第 2 行前面加一行 `total = 0` }
+              - { id: move, content: 把第 3 行 `total = 12` 移到第 2 行前面 }
+              - { id: rename, content: 把第 2 行的 `total` 改成 `used` }
+            key: move
+        explanation: |
+          NameError 说 `total` 还不存在。拼写没有问题，第 3 行确实给 total 赋了值，但程序从上往下运行，第 2 行**用到 total 时，第 3 行还没有执行**。
+
+          要改的是顺序：**把 `total = 12` 移到第 2 行前面**，left 就是 12 - 5 = 7。在第 2 行前面加 `total = 0` 也不会报错，但 left 成了 -5；把 total 改成 used 得到 0。两种都只是让报错消失，结果是错的。
+        verify: |
+          lines = CODE.splitlines()
+          # 第 2 行之前 total 有没有值：只运行第 1 行，看 total 是否存在；再确认后面确实给 total 赋了值。
+          before = run(lines[0])
+          later = run("\n".join(lines[2:3]))
+          cause = "not_yet" if "total" not in before.vars and "total" in later.vars and run().error == "NameError" else "other"
+          changes = {
+              "zero": [lines[0], "total = 0", *lines[1:]],
+              "move": [lines[2], lines[0], lines[1], lines[3]],
+              "rename": [lines[0], lines[1].replace("total", "used"), *lines[2:]],
+          }
+          fits = [option for option, program in changes.items() if run("\n".join(program)).out.strip() == "7"]
+          answers = {"cause": cause, "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py11.k2.q2
+        kind: [debug, explain]
+        uses: [py03.k2]
+        body: |
+          从一份表格里抄来的读数是 `"12,5"`。运行 clean.py，出现了下面的报错。
+
+          ```python startLine=1
+          raw = "12,5"
+          value = float(raw)
+          doubled = value * 2
+          print(doubled)
+          ```
+
+          ```text
+          Traceback (most recent call last):
+            File "clean.py", line 2, in <module>
+              value = float(raw)
+          ValueError: could not convert string to float: '12,5'
+          ```
+        slots:
+          - id: cause
+            type: choice
+            prompt: 问题出在哪里？
+            options:
+              - { id: text, content: raw 是文字，文字都不能转成小数 }
+              - { id: comma, content: 小数点写成了逗号，float 认不出这种写法 }
+              - { id: multiply, content: 第 3 行的乘法写错了 }
+            key: comma
+          - id: fixed
+            type: text
+            match: output
+            prompt: 如果把第 1 行改成 `raw = "12.5"`，第 4 行显示什么？
+            key: "25.0"
+            feedback:
+              - when: "25"
+                message: value 是 float 转出来的小数，乘 2 以后仍是小数，显示 25.0。
+        explanation: |
+          ValueError 说明类型没问题（float 本来就是把文字转成小数），但**内容的写法认不出来**：`"12,5"` 用逗号当小数点，Python 只认 `"12.5"` 这种写法。文字并不是都不能转，`float("12.5")` 就可以；报错停在第 2 行，第 3 行根本没有运行。
+
+          改成 `"12.5"` 以后，value 是 12.5，doubled 是 **25.0**。真实数据里，这类问题要先弄清整列读数是怎样写的，再决定怎样转换，而不是改一个值了事。
+        verify: |
+          r = run()
+          # 同样是文字，用小数点写的能转，用逗号写的不能：问题在写法，不在类型。
+          dot_ok = run('value = float("12.5")').error is None
+          cause = "comma" if r.error == "ValueError" and dot_ok and "," in r["raw"] else "other"
+          answers = {"cause": cause, "fixed": run(CODE.replace('"12,5"', '"12.5"')).lines()[-1]}
+      - id: py11.k2.q3
+        kind: [modify]
+        uses: [py03.k2]
+        body: |
+          宿主事先给 `count` 赋了一个文字形式的整数，例如 `"12"`，它是从文件里读来的。要求：显示加上 3 份以后的总数，例如 count 为 `"12"` 时显示 15。
+
+          作答框里的代码运行时报 TypeError：
+
+          ```text
+          Traceback (most recent call last):
+            File "clean.py", line 1, in <module>
+              total = count + 3
+                      ~~~~~~^~~
+          TypeError: can only concatenate str (not "int") to str
+          ```
+
+          改动代码，让它符合要求。不要自己给 count 赋值。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              total = count + 3
+              print(total)
+            solution: |
+              total = int(count) + 3
+              print(total)
+            accepts:
+              - |
+                count = int(count)
+                total = count + 3
+                print(total)
+              - print(int(count) + 3)
+            rejects:
+              - code: |
+                  total = count + "3"
+                  print(total)
+                why: 把 3 也写成文字，得到的是拼接出的“123”
+              - code: |
+                  total = 15
+                  print(total)
+                why: 照着例子写死了结果
+              - code: |
+                  total = float(count) + 3
+                  print(total)
+                why: 转成了小数，显示 15.0
+            tests:
+              - name: count 为 "12"
+                setup: count = "12"
+                stdout: "15"
+              - name: count 为 "40"
+                hidden: true
+                setup: count = "40"
+                stdout: "43"
+        explanation: |
+          TypeError 说文字和整数不能直接相加：count 虽然看起来是 12，其实是文字 `"12"`。先用 `int(count)` 把它转成整数，再加 3：
+
+          ```python
+          total = int(count) + 3
+          print(total)
+          ```
+
+          写成 `count + "3"` 不会报错，但得到的是两段文字接起来的“123”。判分时还会换一个 count 运行你的代码。
+    review:
+      - id: py11.k2.r1
+        kind: [debug, trace]
+        body: |
+          运行 clean.py，出现了下面的报错。
+
+          ```python startLine=1
+          total = 24
+          samples = 3
+          failed = 3
+          usable = samples - failed
+          per_sample = total / usable
+          print(per_sample)
+          ```
+
+          ```text
+          Traceback (most recent call last):
+            File "clean.py", line 5, in <module>
+              per_sample = total / usable
+                           ~~~~~~^~~~~~~~
+          ZeroDivisionError: division by zero
+          ```
+        slots:
+          - id: which
+            type: choice
+            prompt: 第 5 行里，哪个值出了问题？
+            options:
+              - { id: total, content: "`total`" }
+              - { id: usable, content: "`usable`" }
+              - { id: per_sample, content: "`per_sample`" }
+            key: usable
+          - id: set_at
+            type: text
+            format: integer
+            prompt: 这个值是在第几行变成 0 的？
+            key: 4
+        explanation: |
+          ZeroDivisionError 说除数是 0。第 5 行的除数是 **`usable`**；往上找，它是第 **4** 行用 samples - failed 算出来的，3 - 3 = 0。
+
+          第 5 行本身写得没错，要追问的是第 4 行的结果：是不是所有样本都失败了？这种情况下要不要算每份的量？这是数据和需求上的问题，不是把除数改成 1 就能解决的。
+        verify: |
+          lines = CODE.splitlines()
+          before = run("\n".join(lines[:4]))
+          zero = [name for name in ("total", "usable") if before[name] == 0]
+          # 逐条运行出错行之前的语句，找出 usable 第一次变成 0 的那一行。
+          states = trace(code="\n".join(lines[:4]), names=["usable"])
+          first = [i for i, state in enumerate(states, 1) if state.get("usable") == 0]
+          answers = {"which": zero[0] if len(zero) == 1 else zero, "set_at": first[0]}
+      - id: py11.k2.r2
+        kind: [explain]
+        uses: [py03.k1, py03.k2]
+        body: |
+          下面是四段报错的最后一行。为每一段选出最可能的原因，每个原因只对应一段。
+
+          报错 1：
+
+          ```text
+          NameError: name 'Signal' is not defined. Did you mean: 'signal'?
+          ```
+
+          报错 2：
+
+          ```text
+          TypeError: can only concatenate str (not "int") to str
+          ```
+
+          报错 3：
+
+          ```text
+          ValueError: invalid literal for int() with base 10: 'abc'
+          ```
+
+          报错 4：
+
+          ```text
+          ZeroDivisionError: division by zero
+          ```
+        slots:
+          - id: causes
+            type: table
+            columns:
+              - { id: error, header: 报错 }
+              - id: cause
+                header: 最可能的原因
+                input:
+                  type: choice
+                  options:
+                    - { id: case, label: 名字的大小写写错了 }
+                    - { id: mix, label: 把文字和整数直接相加 }
+                    - { id: content, label: 要转成整数的文字不是整数的写法 }
+                    - { id: divisor, label: 除数算出来是 0 }
+            rows:
+              - { id: e1, cells: { error: 报错 1, cause: case } }
+              - { id: e2, cells: { error: 报错 2, cause: mix } }
+              - { id: e3, cells: { error: 报错 3, cause: content } }
+              - { id: e4, cells: { error: 报错 4, cause: divisor } }
+        explanation: |
+          - 报错 1：NameError 是名字不存在；“Did you mean: 'signal'?”提示有一个只差大小写的名字，原因是**大小写写错了**。
+          - 报错 2：TypeError 是类型不对，说明里说只能把文字和文字接起来，原因是**把文字和整数直接相加**。
+          - 报错 3：ValueError 是内容不认得，`int()` 收到的 `'abc'` 不是整数的写法。
+          - 报错 4：ZeroDivisionError 就是**除数为 0**。
+        verify: |
+          # 每个原因写一段会造成它的代码，运行后看报错的类型和说明开头，与四段报错逐一对应。
+          examples = {
+              "case": ("signal = 3", "print(Signal)"),
+              "mix": ("count = 3", 'label = "第" + count'),
+              "content": ('raw = "abc"', "n = int(raw)"),
+              "divisor": ("count = 0", "mean = 12 / count"),
+          }
+          shown = {
+              "e1": "NameError: name 'Signal' is not defined",
+              "e2": 'TypeError: can only concatenate str (not "int") to str',
+              "e3": "ValueError: invalid literal for int() with base 10: 'abc'",
+              "e4": "ZeroDivisionError: division by zero",
+          }
+          produced = {}
+          for cause, (setup, line) in examples.items():
+              r = run(setup + "\n" + line)
+              produced[cause] = f"{r.error}: {r.message}"
+          answers = {"causes": {
+              row: {"cause": [cause for cause, text in produced.items() if text.startswith(expected)][0]}
+              for row, expected in shown.items()
+          }}
+    quiz:
+      - id: py11.k2.x1
+        kind: [debug, trace]
+        uses: [py03.k1]
+        body: |
+          基线读数是从表格里抄来的。运行 clean.py，出现了下面的报错。
+
+          ```python startLine=1
+          signal = 15
+          baseline = "3"
+          note = "基线从表格读入"
+          change = signal - baseline
+          print(change)
+          ```
+
+          ```text
+          Traceback (most recent call last):
+            File "clean.py", line 4, in <module>
+              change = signal - baseline
+                       ~~~~~~~^~~~~~~~~~
+          TypeError: unsupported operand type(s) for -: 'int' and 'str'
+          ```
+        slots:
+          - id: which
+            type: choice
+            prompt: 第 4 行里，哪个值让减法做不下去？
+            options:
+              - { id: signal, content: "`signal`" }
+              - { id: baseline, content: "`baseline`" }
+              - { id: change, content: "`change`" }
+            key: baseline
+          - id: set_at
+            type: text
+            format: integer
+            prompt: 这个值是在第几行定下的？
+            key: 2
+        explanation: |
+          TypeError 的说明是：减法的两边一个是 int（整数）、一个是 str（文字）。第 4 行的 `signal` 是整数 15，**`baseline`** 是带引号的 `"3"`，是文字，文字不能参加减法。它是第 **2** 行定下的。
+
+          `change` 在第 4 行还没有算出来，不会是原因。要改的是 baseline 的类型，例如用 `int(baseline)` 转成整数；如果整列读数都是这样读进来的，更该在读入的地方一次处理好。
+        verify: |
+          lines = CODE.splitlines()
+          before = run("\n".join(lines[:3]))
+          bad = [name for name in ("signal", "baseline") if isinstance(before[name], str)]
+          states = trace(code="\n".join(lines[:3]), names=["baseline"])
+          first = [i for i, state in enumerate(states, 1) if isinstance(state.get("baseline"), str)]
+          answers = {"which": bad[0] if len(bad) == 1 else bad, "set_at": first[0]}
+      - id: py11.k2.x2
+        kind: [debug]
+        uses: [py06.k2]
+        body: |
+          想显示列表里最后一个测量值 13。运行 clean.py，出现了下面的报错。
+
+          ```python startLine=1
+          signals = [8, 10, 13]
+          print("最后一个测量值：")
+          print(signals[3])
+          ```
+
+          ```text
+          Traceback (most recent call last):
+            File "clean.py", line 3, in <module>
+              print(signals[3])
+                    ~~~~~~~^^^
+          IndexError: list index out of range
+          ```
+        slots:
+          - id: fixes
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 把第 3 行改成下面哪几种写法，能显示 13？选出所有可以的。
+            options:
+              - id: two
+                content: |
+                  ```python
+                  print(signals[2])
+                  ```
+              - id: minus_one
+                content: |
+                  ```python
+                  print(signals[-1])
+                  ```
+              - id: one
+                content: |
+                  ```python
+                  print(signals[1])
+                  ```
+              - id: four
+                content: |
+                  ```python
+                  print(signals[4])
+                  ```
+            key: [two, minus_one]
+        explanation: |
+          IndexError 说位置超出了列表的范围：三个值的位置是 0、1、2，没有位置 3。最后一个值在位置 **2**，也可以用 **-1** 表示“倒数第一个”。`signals[1]` 是 10；`signals[4]` 同样超出范围。
+        verify: |
+          prelude = CODE.splitlines()[0] + "\n"
+          answers = {"fixes": [option for option, line in OPTIONS["fixes"].items() if run(prelude + line).out.strip() == "13"]}

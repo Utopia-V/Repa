@@ -1,7 +1,8 @@
 id: py16
 title: 取列、取行，先辨认用的是哪种索引
-status: outline
+status: complete
 minutes: 20
+summary: 分清 df["列"] 和 df[["列", …]] 取出的形状；loc 按标签、iloc 按位置取行和值；同样写 2:4，loc 包含右端、iloc 不包含。
 prerequisites:
   - topic: py14
     key: true
@@ -27,10 +28,1074 @@ sources:
 notes: |
   建议题型与判分：预测输出（P）、找错（P）、解释代码（S/O）。
   loc 与 iloc 的差异先用唯一、已排序标签的小表讨论切片，不引入重复索引或非单调标签的特殊情况。
+  范围：k1 只讲 df["列"] 与 df[["列", ...]]；k2 用 loc/iloc 取单个值和单行（单行得到 Series，只说“取到一行”，不展开它的结构）；k3 只切行，不切列。布尔掩码和 df.loc[掩码, 列名列表] 留给 py17。
+  k2 沿用 py14、py17 的表 T（行索引 31、7、22、4，不按大小），让标签和位置明显分开；k3 按备注用唯一、排好序的标签：daily 的行索引是第几天，从 1 开始，所以标签和位置差 1；samples 用 S01 这样的文字标签。代码题的隐藏测试换一张标签起点不同的表，照着位置写死的答案过不了。
+  NumPy 2 下，交互窗口显示 pandas 取出的单个整数是 np.int64(13) 而不是 13，所以取值题用文字格（按文字比较）问“值是多少”，不用 WWPD 的显示比较；WWPD 只问 shape、列名列表这类显示稳定的东西。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 4 分钟；k3 讲解与例题 2 分钟、练习 3 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  这一节从表里取出需要的列、行和值。宿主已经准备好 pandas 和数据表，题面最前面会显示要用的表；每道题都从题面的表重新开始。
+
+  很多题用表 T。它左边的行索引是 31、7、22、4，是每一行的标签，不是从 0 开始的序号；这一节的关键就是分清“标签”和“第几个”。有些题用交互窗口的形式：`>>>` 后面是输入，什么也不显示填 NOTHING，报错填 ERROR。
+wrapup: |
+  读到取数据的代码，先认写法：`df["列"]` 是一列，`df[["列", …]]` 是一张表；`loc` 用标签和列名，`iloc` 用从 0 开始的位置；切片时 loc 包含右端，iloc 不包含。
+
+  向 AI 描述要哪几行时，说清是“行索引为 22 的样本”还是“表里的第 3 行”，是“第 2 天到第 5 天，含第 5 天”还是“前 4 行”。这两种说法在表经过筛选、排序以后会指向不同的行。
+data:
+  T:
+    kind: dataframe
+    name: df
+    caption: 表 T
+    index: [31, 7, 22, 4]
+    indexHeader: 行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D]
+      signal: [8, 10, 13, 10]
+      group: [control, drug, drug, control]
+  T2:
+    kind: dataframe
+    name: df
+    caption: 另一张同结构的表
+    index: [90, 2, 60, 11]
+    indexHeader: 行索引
+    columns:
+      sample_id: [X_A, X_B, X_C, X_D]
+      signal: [5, 12, 12, 9]
+      group: [control, drug, drug, control]
+  T3:
+    kind: dataframe
+    name: df
+    caption: 第三张同结构的表
+    index: [8, 40, 15, 3, 27]
+    indexHeader: 行索引
+    columns:
+      sample_id: [Z_C, Z_A, Z_E, Z_B, Z_D]
+      signal: [14, 9, 10, 12, 7]
+      group: [drug, control, drug, control, drug]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：四个采样点的土层深度（厘米）
+    index: [5, 12, 3, 8]
+    indexHeader: 行索引
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡]
+      depth: [30, 25, 35, 30]
+  field:
+    kind: dataframe
+    name: field
+    caption: 表 field：三块试验田的产量（千克）
+    index: [P1, P2, P3]
+    indexHeader: 行索引
+    columns:
+      crop: [小麦, 玉米, 大豆]
+      yield_kg: [520, 610, 480]
+  daily:
+    kind: dataframe
+    name: daily
+    caption: 表 daily：逐日记录，行索引是第几天
+    index: [1, 2, 3, 4, 5, 6]
+    indexHeader: 第几天（行索引）
+    columns:
+      temp: [18, 21, 19, 24, 22, 20]
+      rain: [0, 3, 0, 1, 5, 0]
+  daily2:
+    kind: dataframe
+    name: daily
+    caption: 另一段逐日记录，从第 3 天开始
+    index: [3, 4, 5, 6, 7, 8]
+    indexHeader: 第几天（行索引）
+    columns:
+      temp: [17, 20, 23, 21, 19, 18]
+      rain: [2, 0, 0, 4, 1, 0]
+  samples:
+    kind: dataframe
+    name: samples
+    caption: 表 samples：行索引是样本编号
+    index: [S01, S02, S03, S04, S05]
+    indexHeader: 行索引
+    columns:
+      signal: [8, 10, 13, 9, 11]
+      group: [control, drug, drug, control, drug]
+  samples2:
+    kind: dataframe
+    name: samples
+    caption: 另一批样本，编号从 S02 开始
+    index: [S02, S03, S04, S05, S06]
+    indexHeader: 行索引
+    columns:
+      signal: [7, 12, 9, 15, 6]
+      group: [drug, control, drug, control, drug]
+  plates:
+    kind: dataframe
+    name: plates
+    caption: 表 plates：六块板的细胞数（千个）
+    index: [P01, P02, P03, P04, P05, P06]
+    indexHeader: 行索引
+    columns:
+      cells_k: [12, 8, 15, 9, 11, 14]
 kps:
   - id: py16.k1
     title: 单列与多列选择返回不同形状
+    card:
+      name: 取列
+      aliases: [选列, 单列, 多列, 双层方括号]
+      definition: "`df[\"signal\"]` 取出一列，得到 Series，shape 只有一个数；`df[[\"signal\"]]`、`df[[\"group\", \"sample_id\"]]` 用列名列表取列，得到 DataFrame，列按列表里的顺序排。"
+      conditions:
+        - 外层方括号是“从表里取”，里层方括号是列名列表；列表只有一项时，结果也是一张表。
+        - 取几列要写成列表：`df["a", "b"]` 不是取两列，会报 KeyError。
+      example:
+        from: py16.k1.e0
+        text: |
+          表 T 里，`df["signal"]` 是 Series，shape 为 (4,)；`df[["signal"]]` 是只有一列的表，(4, 1)；`df[["group", "sample_id"]]` 是两列的表，group 在前，(4, 2)。
+    lesson: |
+      [取出一列](repa:concept/py14.k1)写 `df["signal"]`，得到 Series：一列值，带着行索引。它只有一个方向，shape 只有一个数，写成 `(4,)`。
+
+      要取几列，在方括号里放一个**列名列表**：`df[["sample_id", "signal"]]`。外层的方括号是“从 df 里取”，里层的方括号是一个[列表](repa:concept/py06.k2)。得到的是一张表（DataFrame），列按列表里的顺序排列，行和行索引不变。
+
+      | 写法 | 得到 | 表 T 上的 shape |
+      |---|---|---|
+      | `df["signal"]` | Series，一列值 | (4,) |
+      | `df[["signal"]]` | DataFrame，只有一列的表 | (4, 1) |
+      | `df[["group", "sample_id"]]` | DataFrame，两列，group 在前 | (4, 2) |
+
+      列表里只有一个列名时，结果仍是一张表。要把结果当表继续用（例如再选行、导出），就写成列表。
+
+      少写一层方括号，`df["sample_id", "signal"]`，pandas 会去找一个名叫 ('sample_id', 'signal') 的列，找不到，报 KeyError。
+    example:
+      id: py16.k1.e0
+      kind: [predict]
+      uses: [py14.k1, py14.k2]
+      data: [T]
+      body: |
+        ```python
+        a = df["signal"]
+        b = df[["signal"]]
+        c = df[["group", "sample_id"]]
+        ```
+      slots:
+        - id: kinds
+          type: table
+          prompt: a、b、c 各是什么？在交互窗口里输入 `a.shape` 这样的表达式，显示什么？
+          columns:
+            - { id: name, header: 名字 }
+            - id: kind
+              header: 是什么
+              input:
+                type: choice
+                options:
+                  - { id: series, label: 一列（Series） }
+                  - { id: dataframe, label: 表（DataFrame） }
+            - { id: shape, header: shape 显示, input: { type: text, match: output } }
+          rows:
+            - { id: a, cells: { name: a, kind: series, shape: "(4,)" } }
+            - { id: b, cells: { name: b, kind: dataframe, shape: "(4, 1)" } }
+            - { id: c, cells: { name: c, kind: dataframe, shape: "(4, 2)" } }
+        - id: first
+          type: text
+          match: text
+          prompt: c 的第一列是哪一列？
+          key: group
+      explanation: |
+        - `a` 是 **Series**，一列 4 个值，shape 是 **(4,)**：只有一个数，后面的逗号表示这是只有一项的一组数。
+        - `b` 用列名列表取列，即使只有一项，也是一张表（**DataFrame**），4 行 1 列，**(4, 1)**。
+        - `c` 是 4 行 2 列的表，**(4, 2)**，列按列表的顺序排，第一列是 **group**，不按原表的顺序。
+      verify: |
+        r = run()
+        kinds = {}
+        for name in ("a", "b", "c"):
+            value = r[name]
+            kinds[name] = {
+                "kind": "dataframe" if isinstance(value, pd.DataFrame) else "series",
+                "shape": repl(f"{name}.shape", **{name: value})[0],
+            }
+        answers = {"kinds": kinds, "first": list(r["c"].columns)[0]}
+    practice:
+      - id: py16.k1.q1
+        kind: [predict]
+        data: [soil]
+        body: |
+          在交互窗口里依次输入下面几行。
+        slots:
+          - id: wwpd
+            type: table
+            prompt: Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+            columns:
+              - { id: input, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: r1, cells: { input: "`>>> soil[\"depth\"].shape`", shown: "(4,)" } }
+              - { id: r2, cells: { input: "`>>> soil[[\"depth\"]].shape`", shown: "(4, 1)" } }
+              - { id: r3, cells: { input: "`>>> list(soil[[\"depth\", \"site\"]].columns)`", shown: "['depth', 'site']" } }
+              - { id: r4, cells: { input: "`>>> soil[\"depth\", \"site\"]`", shown: ERROR } }
+        explanation: |
+          | 输入 | 显示 |
+          |---|---|
+          | `soil["depth"].shape` | (4,)：一列 Series |
+          | `soil[["depth"]].shape` | (4, 1)：只有一列的表 |
+          | `list(soil[["depth", "site"]].columns)` | ['depth', 'site']：按列表的顺序，depth 在前 |
+          | `soil["depth", "site"]` | ERROR：少了一层方括号，pandas 去找一个叫 ('depth', 'site') 的列，报 KeyError |
+        verify: |
+          inputs = ['soil["depth"].shape', 'soil[["depth"]].shape', 'list(soil[["depth", "site"]].columns)', 'soil["depth", "site"]']
+          shown = repl("\n".join(inputs))
+          answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}}
+      - id: py16.k1.q2
+        kind: [explain]
+        data: [T]
+        body: |
+          需要一张**表**（DataFrame），只有 sample_id 一列，行和行索引不变。哪一行做得到？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: single
+                content: |
+                  ```python
+                  result = df["sample_id"]
+                  ```
+                feedback: 这是一列（Series），不是表。
+              - id: list
+                content: |
+                  ```python
+                  result = df[["sample_id"]]
+                  ```
+              - id: two
+                content: |
+                  ```python
+                  result = df[["sample_id", "signal"]]
+                  ```
+                feedback: 多了 signal 一列。
+            key: list
+        explanation: |
+          **`df[["sample_id"]]`**：里层是只有一项的列名列表，结果是 4 行 1 列的表。`df["sample_id"]` 得到的是一列 Series；`df[["sample_id", "signal"]]` 多了一列。
+        verify: |
+          def fits(code):
+              result = run(code)["result"]
+              return isinstance(result, pd.DataFrame) and list(result.columns) == ["sample_id"] and list(result.index) == list(df.index)
+          good = [option for option, code in OPTIONS["line"].items() if fits(code)]
+          answers = {"line": good[0] if len(good) == 1 else good}
+      - id: py16.k1.q3
+        kind: [debug]
+        data: [T]
+        body: |
+          想要一张只有 signal 和 group 两列的表，运行下面这行报 KeyError：
+
+          ```python
+          result = df["signal", "group"]
+          ```
+        slots:
+          - id: cause
+            type: choice
+            prompt: 问题出在哪里？
+            options:
+              - { id: names, content: 表里没有 signal 或 group 这两列 }
+              - { id: brackets, content: 少了一层方括号，两个列名没有写成列表 }
+              - { id: order, content: signal 和 group 的顺序写反了 }
+            key: brackets
+          - id: fix
+            type: choice
+            prompt: 应改成哪一种？
+            options:
+              - id: list
+                content: |
+                  ```python
+                  result = df[["signal", "group"]]
+                  ```
+              - id: two_lookups
+                content: |
+                  ```python
+                  result = df["signal"]["group"]
+                  ```
+              - id: parens
+                content: |
+                  ```python
+                  result = df[("signal", "group")]
+                  ```
+            key: list
+        explanation: |
+          两列都在表里。问题是**少了一层方括号**：`df["signal", "group"]` 让 pandas 去找一个名叫 ('signal', 'group') 的列。取几列要把列名写成列表，**`df[["signal", "group"]]`**。
+
+          `df["signal"]["group"]` 先取出 signal 这一列，再去这一列里找标签 group，同样报错；加圆括号和原来是一回事。
+        verify: |
+          r = run()
+          both_exist = all(name in df.columns for name in ("signal", "group"))
+          cause = "brackets" if r.error == "KeyError" and both_exist else "names"
+          def fits(code):
+              attempt = run(code)
+              return attempt.error is None and isinstance(attempt["result"], pd.DataFrame) and list(attempt["result"].columns) == ["signal", "group"]
+          good = [option for option, code in OPTIONS["fix"].items() if fits(code)]
+          answers = {"cause": cause, "fix": good[0] if len(good) == 1 else good}
+    review:
+      - id: py16.k1.r1
+        kind: [predict]
+        data: [T]
+        body: |
+          ```python
+          result = df[["group", "signal", "sample_id"]]
+          ```
+        slots:
+          - id: columns
+            type: order
+            prompt: "`result` 的列依次是什么？"
+            items:
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+              - { id: group, content: "`group`" }
+            key: [group, signal, sample_id]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`result.shape` 的第一个数"
+            key: 4
+          - id: ncols
+            type: text
+            format: integer
+            prompt: "`result.shape` 的第二个数"
+            key: 3
+        explanation: |
+          列按列表里的顺序排：**group、signal、sample_id**，不再是原表的顺序。行没有变，shape 是 **(4, 3)**。
+        verify: |
+          result = run()["result"]
+          answers = {"columns": list(result.columns), "nrows": result.shape[0], "ncols": result.shape[1]}
+      - id: py16.k1.r2
+        kind: [explain]
+        data: [T]
+        body: |
+          下面哪几个表达式得到的是一张表（DataFrame）？选出所有是表的。
+        slots:
+          - id: tables
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: single, content: "`df[\"group\"]`" }
+              - { id: list1, content: "`df[[\"group\"]]`" }
+              - { id: list2, content: "`df[[\"group\", \"signal\"]]`" }
+              - { id: head, content: "`df.head(2)`" }
+              - { id: column_head, content: "`df[\"signal\"].head(2)`" }
+            key: [list1, list2, head]
+        explanation: |
+          是表的有：**`df[["group"]]`**、**`df[["group", "signal"]]`**（列名列表）和 **`df.head(2)`**（表的前两行仍是表）。
+
+          `df["group"]` 是一列 Series；`df["signal"].head(2)` 先取出一列，再取它的前两个值，仍是 Series。
+        verify: |
+          exprs = {
+              "single": 'df["group"]', "list1": 'df[["group"]]', "list2": 'df[["group", "signal"]]',
+              "head": "df.head(2)", "column_head": 'df["signal"].head(2)',
+          }
+          answers = {"tables": [option for option, expr in exprs.items() if isinstance(eval(expr, {"df": df}), pd.DataFrame)]}
+    quiz:
+      - id: py16.k1.x1
+        kind: [modify, debug]
+        data: [T]
+        body: |
+          需求：得到一张表 `result`，只有 signal 和 sample_id 两列，signal 在前；行和行索引不变，不改变 `df`。
+
+          作答框里的代码报 KeyError。改动它。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              result = df["signal", "sample_id"]
+            solution: |
+              result = df[["signal", "sample_id"]]
+            rejects:
+              - code: result = df[["sample_id", "signal"]]
+                why: 列的顺序反了
+              - code: result = df["signal"]
+                why: 只取了一列，还是 Series
+              - code: result = df
+                why: 留下了全部列
+            tests:
+              - name: 表 T
+                expect:
+                  result: 'pd.DataFrame({"signal": [8, 10, 13, 10], "sample_id": ["S_A", "S_B", "S_C", "S_D"]}, index=[31, 7, 22, 4])'
+                  df: df
+              - name: 换一张表
+                hidden: true
+                data: [T2]
+                expect:
+                  result: 'pd.DataFrame({"signal": [5, 12, 12, 9], "sample_id": ["X_A", "X_B", "X_C", "X_D"]}, index=[90, 2, 60, 11])'
+                  df: df
+        explanation: |
+          两个列名要写成列表，再放进取列的方括号里，顺序按需求：
+
+          ```python
+          result = df[["signal", "sample_id"]]
+          ```
+      - id: py16.k1.x2
+        kind: [explain]
+        data: [field]
+        body: |
+          同事说：“`field[["crop"]]` 和 `field["crop"]` 是一样的，只是多写了一对括号。”
+        slots:
+          - id: claim
+            type: choice
+            prompt: 这句话对吗？
+            options:
+              - { id: right, content: 对，两者完全一样 }
+              - { id: wrong, content: 不对，一个是只有一列的表，一个是一列 Series }
+            key: wrong
+          - id: shapes
+            type: table
+            prompt: 两者的 shape 在交互窗口里各显示什么？
+            columns:
+              - { id: expr, header: 表达式 }
+              - { id: shape, header: shape 显示, input: { type: text, match: output } }
+            rows:
+              - { id: double, cells: { expr: "`field[[\"crop\"]].shape`", shape: "(3, 1)" } }
+              - { id: single, cells: { expr: "`field[\"crop\"].shape`", shape: "(3,)" } }
+        explanation: |
+          **不对。** `field[["crop"]]` 里层是列名列表，得到 3 行 1 列的表，shape 是 **(3, 1)**；`field["crop"]` 是一列 Series，shape 是 **(3,)**。两者的值相同，但是两种东西，后面能接的操作也不完全一样。
+        verify: |
+          double, single = field[["crop"]], field["crop"]
+          same = type(double) is type(single)
+          answers = {
+              "claim": "right" if same else "wrong",
+              "shapes": {"double": {"shape": repl("x.shape", x=double)[0]}, "single": {"shape": repl("x.shape", x=single)[0]}},
+          }
+
   - id: py16.k2
     title: loc 用标签，iloc 用位置
+    card:
+      name: loc 与 iloc
+      aliases: [loc, iloc, 标签, 位置]
+      definition: "`df.loc[行标签, 列名]` 按行索引里的标签和列名取；`df.iloc[行位置, 列位置]` 按从 0 开始数的位置取。"
+      conditions:
+        - 行索引不是 0、1、2…… 时，同一个数在 loc 和 iloc 里指的是不同的行，或者根本不存在。
+        - loc 找不到标签报 KeyError；iloc 的位置超出范围报 IndexError。
+      example:
+        from: py16.k2.e0
+        text: |
+          表 T 里，`df.loc[22, "signal"]` 和 `df.iloc[2, 1]` 都是 13：标签 22 的那一行恰好在位置 2。`df.loc[2]` 报 KeyError，因为没有标签为 2 的行。
+    lesson: |
+      要从表里取某一个值或某一行，先分清用的是哪一种“地址”。
+
+      - **`df.loc[...]` 按标签**：行用行索引里写的标签，列用列名。`df.loc[22, "signal"]` 是“行索引为 22 的那一行的 signal”。
+      - **`df.iloc[...]` 按位置**：行和列都用[从 0 开始数的位置](repa:concept/py06.k2)。`df.iloc[2, 1]` 是“位置 2 的行、位置 1 的列”，也就是第 3 行、第 2 列。
+
+      逗号前是行，逗号后是列。用表 T 对照：
+
+      | 位置 | 行索引（标签） | sample_id | signal | group |
+      |---:|---:|---|---:|---|
+      | 0 | 31 | S_A | 8 | control |
+      | 1 | 7 | S_B | 10 | drug |
+      | 2 | 22 | S_C | 13 | drug |
+      | 3 | 4 | S_D | 10 | control |
+
+      - `df.loc[22, "signal"]` 和 `df.iloc[2, 1]` 都是 13。
+      - 只写行，取到的是一整行：`df.loc[7]` 是标签 7 的那一行，也就是 S_B 那一行；`df.iloc[0]` 是位置 0 的那一行 S_A，它的标签是 31。
+      - `df.loc[2]` 报 KeyError：没有标签为 2 的行。`df.iloc[4]` 报 IndexError：位置只有 0 到 3。`df.iloc[-1]` 是最后一行。
+
+      行索引恰好是 0、1、2…… 时，两种写法取到同一行，看不出区别；表经过筛选、排序以后，标签和位置就分开了。读代码时先看是 loc 还是 iloc，再去对应的地址找。
+    example:
+      id: py16.k2.e0
+      kind: [predict]
+      data: [T]
+      body: |
+        读下面四个表达式，填写各自取到的值。
+      slots:
+        - id: values
+          type: table
+          columns:
+            - { id: expr, header: 表达式 }
+            - { id: value, header: 取到的值, input: text }
+          rows:
+            - { id: loc22, cells: { expr: "`df.loc[22, \"signal\"]`", value: "13" } }
+            - { id: iloc21, cells: { expr: "`df.iloc[2, 1]`", value: "13" } }
+            - { id: loc7, cells: { expr: "`df.loc[7, \"sample_id\"]`", value: S_B } }
+            - { id: iloc00, cells: { expr: "`df.iloc[0, 0]`", value: S_A } }
+        - id: loc2
+          type: choice
+          prompt: "`df.loc[2, \"signal\"]` 会怎样？"
+          options:
+            - { id: value, content: 取到 13，第 3 行的 signal }
+            - { id: keyerror, content: 报 KeyError，没有标签为 2 的行 }
+            - { id: indexerror, content: 报 IndexError，位置超出范围 }
+          key: keyerror
+      explanation: |
+        | 表达式 | 怎样找 | 值 |
+        |---|---|---|
+        | `df.loc[22, "signal"]` | 标签 22 的行，signal 列 | 13 |
+        | `df.iloc[2, 1]` | 位置 2 的行（第 3 行），位置 1 的列（signal） | 13 |
+        | `df.loc[7, "sample_id"]` | 标签 7 的行，它在第 2 行 | S_B |
+        | `df.iloc[0, 0]` | 第 1 行第 1 列 | S_A |
+
+        `df.loc[2, "signal"]` 按标签找 2，表里的标签只有 31、7、22、4，**报 KeyError**。它不会退回去按位置找。
+      verify: |
+        exprs = {"loc22": 'df.loc[22, "signal"]', "iloc21": "df.iloc[2, 1]", "loc7": 'df.loc[7, "sample_id"]', "iloc00": "df.iloc[0, 0]"}
+        errors = {"KeyError": "keyerror", "IndexError": "indexerror", None: "value"}
+        answers = {
+            "values": {row: {"value": eval(expr, {"df": df})} for row, expr in exprs.items()},
+            "loc2": errors.get(run('x = df.loc[2, "signal"]').error, "other"),
+        }
+    practice:
+      - id: py16.k2.q1
+        kind: [predict]
+        data: [T]
+        body: |
+          读下面四个表达式，填写各自取到的值。
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: expr, header: 表达式 }
+              - { id: value, header: 取到的值, input: text }
+            rows:
+              - { id: loc4, cells: { expr: "`df.loc[4, \"group\"]`", value: control } }
+              - { id: iloc32, cells: { expr: "`df.iloc[3, 2]`", value: control } }
+              - { id: ilocm1, cells: { expr: "`df.iloc[-1, 0]`", value: S_D } }
+              - { id: loc31, cells: { expr: "`df.loc[31, \"signal\"]`", value: "8" } }
+        explanation: |
+          | 表达式 | 怎样找 | 值 |
+          |---|---|---|
+          | `df.loc[4, "group"]` | 标签 4 的行，在最后一行 | control |
+          | `df.iloc[3, 2]` | 位置 3 的行（第 4 行），位置 2 的列（group） | control |
+          | `df.iloc[-1, 0]` | 最后一行，第 1 列 | S_D |
+          | `df.loc[31, "signal"]` | 标签 31 的行，在第 1 行 | 8 |
+
+          标签 4 的行在位置 3，标签 31 的行在位置 0：数字大小和位置没有关系。
+        verify: |
+          exprs = {"loc4": 'df.loc[4, "group"]', "iloc32": "df.iloc[3, 2]", "ilocm1": "df.iloc[-1, 0]", "loc31": 'df.loc[31, "signal"]'}
+          answers = {"values": {row: {"value": eval(expr, {"df": df})} for row, expr in exprs.items()}}
+      - id: py16.k2.q2
+        kind: [debug]
+        data: [T]
+        body: |
+          想取表里第一行（样本 S_A）的 signal，写了下面这行，报 KeyError：
+
+          ```python
+          value = df.loc[0, "signal"]
+          ```
+        slots:
+          - id: fixes
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 改成下面哪几种写法，能取到 S_A 的 signal？选出所有可以的。
+            options:
+              - id: iloc
+                content: |
+                  ```python
+                  value = df.iloc[0, 1]
+                  ```
+              - id: label
+                content: |
+                  ```python
+                  value = df.loc[31, "signal"]
+                  ```
+              - id: one
+                content: |
+                  ```python
+                  value = df.loc[1, "signal"]
+                  ```
+              - id: mixed
+                content: |
+                  ```python
+                  value = df.iloc[0, "signal"]
+                  ```
+            key: [iloc, label]
+        explanation: |
+          loc 按标签找 0，表里没有标签 0。要么改用位置，**`df.iloc[0, 1]`**（第 1 行、第 2 列）；要么用这一行真正的标签，**`df.loc[31, "signal"]`**。
+
+          `df.loc[1, "signal"]` 同样没有标签 1；`df.iloc[0, "signal"]` 把位置和列名混在一起，iloc 只认位置，会报错。
+        verify: |
+          target = df.loc[df["sample_id"] == "S_A", "signal"].iloc[0]
+          def fits(code):
+              r = run(code)
+              return r.error is None and r["value"] == target
+          answers = {"fixes": [option for option, code in OPTIONS["fixes"].items() if fits(code)]}
+      - id: py16.k2.q3
+        kind: [predict]
+        data: [T]
+        body: |
+          下面四行各自单独运行，结果是什么？
+        slots:
+          - id: outcomes
+            type: table
+            columns:
+              - { id: expr, header: 代码 }
+              - id: outcome
+                header: 结果
+                input:
+                  type: choice
+                  options:
+                    - { id: row, label: 取到一行 }
+                    - { id: keyerror, label: 报 KeyError }
+                    - { id: indexerror, label: 报 IndexError }
+            rows:
+              - { id: loc7, cells: { expr: "`row = df.loc[7]`", outcome: row } }
+              - { id: loc3, cells: { expr: "`row = df.loc[3]`", outcome: keyerror } }
+              - { id: iloc3, cells: { expr: "`row = df.iloc[3]`", outcome: row } }
+              - { id: iloc7, cells: { expr: "`row = df.iloc[7]`", outcome: indexerror } }
+        explanation: |
+          | 代码 | 结果 |
+          |---|---|
+          | `df.loc[7]` | 有标签 7，取到 S_B 那一行 |
+          | `df.loc[3]` | 没有标签 3，报 KeyError |
+          | `df.iloc[3]` | 位置 3 是最后一行，取到 S_D 那一行 |
+          | `df.iloc[7]` | 只有位置 0 到 3，报 IndexError |
+
+          同一个数字，换成 loc 或 iloc，能不能取到、取到哪一行都不一样。
+        verify: |
+          codes = {"loc7": "row = df.loc[7]", "loc3": "row = df.loc[3]", "iloc3": "row = df.iloc[3]", "iloc7": "row = df.iloc[7]"}
+          names = {None: "row", "KeyError": "keyerror", "IndexError": "indexerror"}
+          answers = {"outcomes": {row: {"outcome": names.get(run(code).error, "other")} for row, code in codes.items()}}
+    review:
+      - id: py16.k2.r1
+        kind: [predict]
+        data: [soil]
+        body: |
+          读下面四个表达式，填写各自取到的值。
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: expr, header: 表达式 }
+              - { id: value, header: 取到的值, input: text }
+            rows:
+              - { id: loc3, cells: { expr: "`soil.loc[3, \"site\"]`", value: 东坡 } }
+              - { id: iloc30, cells: { expr: "`soil.iloc[3, 0]`", value: 西坡 } }
+              - { id: loc12, cells: { expr: "`soil.loc[12, \"depth\"]`", value: "25" } }
+              - { id: iloc11, cells: { expr: "`soil.iloc[1, 1]`", value: "25" } }
+        explanation: |
+          | 表达式 | 怎样找 | 值 |
+          |---|---|---|
+          | `soil.loc[3, "site"]` | 标签 3 的行，在第 3 行 | 东坡 |
+          | `soil.iloc[3, 0]` | 位置 3 的行，是第 4 行 | 西坡 |
+          | `soil.loc[12, "depth"]` | 标签 12 的行，在第 2 行 | 25 |
+          | `soil.iloc[1, 1]` | 位置 1 的行（第 2 行），位置 1 的列（depth） | 25 |
+
+          同样写 3，loc 找到的是标签 3 的东坡，iloc 找到的是位置 3 的西坡。
+        verify: |
+          exprs = {"loc3": 'soil.loc[3, "site"]', "iloc30": "soil.iloc[3, 0]", "loc12": 'soil.loc[12, "depth"]', "iloc11": "soil.iloc[1, 1]"}
+          answers = {"values": {row: {"value": eval(expr, {"soil": soil})} for row, expr in exprs.items()}}
+      - id: py16.k2.r2
+        kind: [explain]
+        data: [soil]
+        body: |
+          同事说：“`soil.loc[5]` 和 `soil.iloc[0]` 取到的是同一行；`soil.loc[8]` 和 `soil.iloc[3]` 也是同一行。所以 loc 和 iloc 在这张表上没有区别。”
+        slots:
+          - id: claim
+            type: choice
+            prompt: 这个结论对吗？
+            options:
+              - { id: right, content: 对，在这张表上两者总是取到同一行 }
+              - { id: wrong, content: 不对，那两对只是碰巧对上，换个数就不一样 }
+            key: wrong
+          - id: example
+            type: choice
+            prompt: 下面哪一对能说明两者不同？
+            options:
+              - { id: pair12, content: "`soil.loc[12]` 和 `soil.iloc[1]`" }
+              - { id: pair3, content: "`soil.loc[3]` 和 `soil.iloc[3]`" }
+              - { id: pair8, content: "`soil.loc[8]` 和 `soil.iloc[3]`" }
+            key: pair3
+        explanation: |
+          **不对。** 标签 5 恰好在位置 0、标签 8 恰好在位置 3，所以那两对取到同一行。换成 **`soil.loc[3]` 和 `soil.iloc[3]`**：前者是标签 3 的东坡，后者是位置 3 的西坡，不是同一行。`soil.loc[12]` 和 `soil.iloc[1]` 又碰巧是同一行（南坡）。
+
+          loc 和 iloc 用的是两种地址，结果相同只能说明这张表上这两个地址指向同一行。
+        verify: |
+          pairs = {"pair12": (12, 1), "pair3": (3, 3), "pair8": (8, 3)}
+          differ = [pair for pair, (label, position) in pairs.items() if soil.loc[label, "site"] != soil.iloc[position]["site"]]
+          claimed_same = soil.loc[5, "site"] == soil.iloc[0]["site"] and soil.loc[8, "site"] == soil.iloc[3]["site"]
+          answers = {"claim": "wrong" if claimed_same and differ else "right", "example": differ[0] if len(differ) == 1 else differ}
+    quiz:
+      - id: py16.k2.x1
+        kind: [modify, debug]
+        data: [T]
+        body: |
+          宿主事先给 `label` 赋了一个行索引，例如 22。需求：取出行索引为 `label` 的那一行的 signal，存进 `value`。表换了、label 换了，代码都要能用。
+
+          作答框里的代码报 IndexError。改动它。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              value = df.iloc[label, 1]
+            solution: |
+              value = df.loc[label, "signal"]
+            rejects:
+              - code: value = df.iloc[2, 1]
+                why: 照着表 T 写死了位置
+              - code: value = df.loc[label, "group"]
+                why: 取错了列
+              - code: value = df.loc[22, "signal"]
+                why: 写死了标签，没有用 label
+            tests:
+              - name: 表 T，label 为 22
+                setup: label = 22
+                expect:
+                  value: "13"
+              - name: 表 T，label 为 4
+                hidden: true
+                setup: label = 4
+                expect:
+                  value: "10"
+              - name: 换一张表
+                hidden: true
+                data: [T3]
+                setup: label = 15
+                expect:
+                  value: "10"
+        explanation: |
+          label 是行索引里的标签，要用 loc 按标签找，列用列名：
+
+          ```python
+          value = df.loc[label, "signal"]
+          ```
+
+          `df.iloc[label, 1]` 把 22 当成位置，表只有 4 行，报 IndexError。照着表 T 写成 `df.iloc[2, 1]` 只在这张表、这个 label 上碰巧对。
+      - id: py16.k2.x2
+        kind: [predict]
+        data: [field]
+        body: |
+          表 field 的行索引是文字 P1、P2、P3。
+        slots:
+          - id: values
+            type: table
+            prompt: 填写各自取到的值；会报错的写“报错”。
+            columns:
+              - { id: expr, header: 表达式 }
+              - { id: value, header: 结果, input: { type: text, quick: [报错] } }
+            rows:
+              - { id: locp2, cells: { expr: "`field.loc[\"P2\", \"crop\"]`", value: 玉米 } }
+              - { id: iloc21, cells: { expr: "`field.iloc[2, 1]`", value: "480" } }
+              - { id: iloc0, cells: { expr: "`field.iloc[0, 0]`", value: 小麦 } }
+              - { id: loc1, cells: { expr: "`field.loc[1, \"crop\"]`", value: 报错 } }
+        explanation: |
+          | 表达式 | 怎样找 | 结果 |
+          |---|---|---|
+          | `field.loc["P2", "crop"]` | 标签 P2 的行，crop 列 | 玉米 |
+          | `field.iloc[2, 1]` | 位置 2 的行（P3），位置 1 的列（yield_kg） | 480 |
+          | `field.iloc[0, 0]` | 第 1 行第 1 列 | 小麦 |
+          | `field.loc[1, "crop"]` | 标签里没有 1 | 报错（KeyError） |
+
+          行索引是文字时，loc 要写文字标签；数字只能交给 iloc 当位置用。
+        verify: |
+          exprs = {"locp2": 'field.loc["P2", "crop"]', "iloc21": "field.iloc[2, 1]", "iloc0": "field.iloc[0, 0]", "loc1": 'field.loc[1, "crop"]'}
+          values = {}
+          for row, expr in exprs.items():
+              r = run("x = " + expr)
+              values[row] = {"value": "报错" if r.error else r["x"]}
+          answers = {"values": values}
+
   - id: py16.k3
     title: 标签切片与位置切片的右端差异
+    card:
+      name: 切片的右端
+      aliases: [loc 切片, iloc 切片, 右端]
+      definition: "`df.iloc[a:b]` 按位置切片，取位置 a 到 b-1，不含 b，和列表一样；`df.loc[a:b]` 按标签切片，从标签 a 取到标签 b，包含 b。"
+      conditions:
+        - 同样写 2:4，loc 和 iloc 的起点和终点都可能指向不同的行，取到的行数也可能不同。
+        - 本课只在行索引不重复、按顺序排好的表上用标签切片。
+      example:
+        from: py16.k3.e0
+        text: |
+          表 daily 的行索引是第几天（1 到 6）。`daily.loc[2:4]` 取第 2、3、4 天，3 行；`daily.iloc[2:4]` 取位置 2、3，也就是第 3、4 天，2 行。
+    lesson: |
+      [列表的切片](repa:concept/py06.k3) `values[1:3]` 取位置 1 和 2，不含 3：左闭右开。`df.iloc[1:3]` 按位置切行，规则完全一样。
+
+      `df.loc[a:b]` 按**标签**切片，规则不同：从标签 a 一直取到标签 b，**包含 b**。标签不一定是连续的整数，可能是编号或日期；“取到 S04 为止”时，通常就是要包括 S04。
+
+      用逐日记录表 daily 对照，它的行索引是第几天，从 1 开始，所以标签总比位置大 1：
+
+      | 位置 | 第几天（标签） | temp |
+      |---:|---:|---:|
+      | 0 | 1 | 18 |
+      | 1 | 2 | 21 |
+      | 2 | 3 | 19 |
+      | 3 | 4 | 24 |
+      | 4 | 5 | 22 |
+      | 5 | 6 | 20 |
+
+      - `daily.loc[2:4]`：从第 2 天取到第 4 天，含第 4 天，3 行。
+      - `daily.iloc[2:4]`：位置 2、3，也就是第 3、4 天，2 行。
+
+      同样写 `2:4`，起点一个是标签 2、一个是位置 2；终点一个包含、一个不包含。省略一端的写法也一样：`daily.loc[4:]` 是第 4 天到最后，`daily.iloc[4:]` 是位置 4 到最后，即第 5、6 天。
+
+      读代码时先认出是 loc 还是 iloc，再决定冒号两边的数指的是什么、右端算不算。
+    example:
+      id: py16.k3.e0
+      kind: [predict]
+      uses: [py06.k3]
+      data: [daily]
+      body: |
+        ```python
+        a = daily.loc[2:4]
+        b = daily.iloc[2:4]
+        ```
+      slots:
+        - id: a
+          type: order
+          partial: true
+          prompt: "`a` 里有哪几天？按先后排出它们的行索引。"
+          items:
+            - { id: "1", content: "1" }
+            - { id: "2", content: "2" }
+            - { id: "3", content: "3" }
+            - { id: "4", content: "4" }
+            - { id: "5", content: "5" }
+            - { id: "6", content: "6" }
+          key: ["2", "3", "4"]
+        - id: b
+          type: order
+          partial: true
+          prompt: "`b` 里有哪几天？按先后排出它们的行索引。"
+          items:
+            - { id: "1", content: "1" }
+            - { id: "2", content: "2" }
+            - { id: "3", content: "3" }
+            - { id: "4", content: "4" }
+            - { id: "5", content: "5" }
+            - { id: "6", content: "6" }
+          key: ["3", "4"]
+      explanation: |
+        `a = daily.loc[2:4]` 按标签：从第 **2** 天取到第 **4** 天，包含第 4 天，共 3 行。
+
+        `b = daily.iloc[2:4]` 按位置：位置 2、3，不含 4。位置 2 是第 **3** 天，位置 3 是第 **4** 天，共 2 行。
+      verify: |
+        r = run()
+        answers = {"a": [str(label) for label in r["a"].index], "b": [str(label) for label in r["b"].index]}
+    practice:
+      - id: py16.k3.q1
+        kind: [predict]
+        data: [daily]
+        body: |
+          ```python
+          a = daily.loc[4:]
+          b = daily.iloc[4:]
+          c = daily.iloc[:3]
+          ```
+        slots:
+          - id: rows
+            type: table
+            prompt: 每个结果取到第几天到第几天？
+            columns:
+              - { id: name, header: 名字 }
+              - { id: start, header: 从第几天, input: integer }
+              - { id: end, header: 到第几天（含）, input: integer }
+            rows:
+              - { id: a, cells: { name: a, start: 4, end: 6 } }
+              - { id: b, cells: { name: b, start: 5, end: 6 } }
+              - { id: c, cells: { name: c, start: 1, end: 3 } }
+        explanation: |
+          | 名字 | 怎样切 | 取到的天 |
+          |---|---|---|
+          | `daily.loc[4:]` | 从标签 4 到最后 | 第 4–6 天 |
+          | `daily.iloc[4:]` | 从位置 4 到最后 | 第 5–6 天 |
+          | `daily.iloc[:3]` | 位置 0、1、2 | 第 1–3 天 |
+
+          `daily.loc[:3]` 也是第 1–3 天：这里碰巧相同，因为 iloc 少取的右端，正好被标签比位置大 1 抵消了。不能凭这一次相同就认为两者一样。
+        verify: |
+          r = run()
+          answers = {"rows": {name: {"start": int(r[name].index[0]), "end": int(r[name].index[-1])} for name in ("a", "b", "c")}}
+      - id: py16.k3.q2
+        kind: [predict]
+        data: [samples]
+        body: |
+          表 samples 的行索引是样本编号。
+
+          ```python
+          a = samples.loc["S02":"S04"]
+          b = samples.iloc[1:3]
+          ```
+        slots:
+          - id: a
+            type: order
+            partial: true
+            prompt: "`a` 里有哪些样本？按先后排列。"
+            items:
+              - { id: S01, content: S01 }
+              - { id: S02, content: S02 }
+              - { id: S03, content: S03 }
+              - { id: S04, content: S04 }
+              - { id: S05, content: S05 }
+            key: [S02, S03, S04]
+          - id: b
+            type: order
+            partial: true
+            prompt: "`b` 里有哪些样本？按先后排列。"
+            items:
+              - { id: S01, content: S01 }
+              - { id: S02, content: S02 }
+              - { id: S03, content: S03 }
+              - { id: S04, content: S04 }
+              - { id: S05, content: S05 }
+            key: [S02, S03]
+        explanation: |
+          `samples.loc["S02":"S04"]` 按标签，从 S02 取到 S04，包含 S04：**S02、S03、S04**。
+
+          `samples.iloc[1:3]` 按位置，取位置 1、2，不含 3：**S02、S03**。
+        verify: |
+          r = run()
+          answers = {"a": list(r["a"].index), "b": list(r["b"].index)}
+      - id: py16.k3.q3
+        kind: [modify, debug]
+        data: [daily]
+        body: |
+          需求：取出第 2 天到第 5 天（含第 5 天）的记录，存进 `result`。行索引就是第几天；换一段从别的日子开始的记录，代码也要按天数取。
+
+          作答框里的代码取到的是第 3 天到第 5 天。改动它。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              result = daily.iloc[2:5]
+            solution: |
+              result = daily.loc[2:5]
+            rejects:
+              - code: result = daily.iloc[1:5]
+                why: 照着这张表改了位置，记录换成从第 3 天开始就错了
+              - code: result = daily.loc[2:4]
+                why: 按列表的习惯少取了右端，loc 本来就包含右端
+              - code: result = daily.loc[2:6]
+                why: 多取了第 6 天
+            tests:
+              - name: 第 1–6 天的记录
+                expect:
+                  result: 'pd.DataFrame({"temp": [21, 19, 24, 22], "rain": [3, 0, 1, 5]}, index=[2, 3, 4, 5])'
+              - name: 从第 3 天开始的记录
+                hidden: true
+                data: [daily2]
+                expect:
+                  result: 'pd.DataFrame({"temp": [17, 20, 23], "rain": [2, 0, 0]}, index=[3, 4, 5])'
+        explanation: |
+          需求说的是第几天，也就是行索引的标签，用 loc；loc 的切片包含右端，直接写 5：
+
+          ```python
+          result = daily.loc[2:5]
+          ```
+
+          改成 `daily.iloc[1:5]` 在这张表上也能得到第 2–5 天，但那是照着“标签比位置大 1”凑出来的；记录从第 3 天开始时，位置 1 到 4 就成了第 4–7 天。判分时会换一段这样的记录运行你的代码。
+    review:
+      - id: py16.k3.r1
+        kind: [predict]
+        data: [plates]
+        body: |
+          ```python
+          a = plates.loc["P02":"P05"]
+          b = plates.iloc[2:5]
+          ```
+        slots:
+          - id: a_rows
+            type: text
+            format: integer
+            prompt: "`a` 有几行？"
+            key: 4
+          - id: b
+            type: order
+            partial: true
+            prompt: "`b` 里有哪几块板？按先后排列。"
+            items:
+              - { id: P01, content: P01 }
+              - { id: P02, content: P02 }
+              - { id: P03, content: P03 }
+              - { id: P04, content: P04 }
+              - { id: P05, content: P05 }
+              - { id: P06, content: P06 }
+            key: [P03, P04, P05]
+        explanation: |
+          `plates.loc["P02":"P05"]` 从 P02 取到 P05，含 P05：P02、P03、P04、P05，**4** 行。
+
+          `plates.iloc[2:5]` 取位置 2、3、4：**P03、P04、P05**。位置 2 是第 3 块板，右端位置 5（P06）不含。
+        verify: |
+          r = run()
+          answers = {"a_rows": len(r["a"]), "b": list(r["b"].index)}
+      - id: py16.k3.r2
+        kind: [explain]
+        data: [daily]
+        body: |
+          要取出第 3、4、5 天的记录。下面哪几种写法可以？选出所有可以的。
+        slots:
+          - id: ways
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: loc35, content: "`daily.loc[3:5]`" }
+              - { id: iloc25, content: "`daily.iloc[2:5]`" }
+              - { id: iloc35, content: "`daily.iloc[3:5]`" }
+              - { id: loc36, content: "`daily.loc[3:6]`" }
+            key: [loc35, iloc25]
+        explanation: |
+          可以的是 **`daily.loc[3:5]`**（标签 3 到 5，含 5）和 **`daily.iloc[2:5]`**（位置 2、3、4，正是第 3、4、5 天）。
+
+          `daily.iloc[3:5]` 是位置 3、4，即第 4、5 天；`daily.loc[3:6]` 多了第 6 天。
+        verify: |
+          exprs = {"loc35": "daily.loc[3:5]", "iloc25": "daily.iloc[2:5]", "iloc35": "daily.iloc[3:5]", "loc36": "daily.loc[3:6]"}
+          answers = {"ways": [option for option, expr in exprs.items() if list(eval(expr, {"daily": daily}).index) == [3, 4, 5]]}
+    quiz:
+      - id: py16.k3.x1
+        kind: [predict]
+        data: [daily]
+        body: |
+          下面四个切片各取到几行？
+        slots:
+          - id: counts
+            type: table
+            columns:
+              - { id: expr, header: 表达式 }
+              - { id: rows, header: 行数, input: integer }
+            rows:
+              - { id: loc13, cells: { expr: "`daily.loc[1:3]`", rows: 3 } }
+              - { id: iloc13, cells: { expr: "`daily.iloc[1:3]`", rows: 2 } }
+              - { id: loc5, cells: { expr: "`daily.loc[5:]`", rows: 2 } }
+              - { id: iloc2, cells: { expr: "`daily.iloc[:2]`", rows: 2 } }
+        explanation: |
+          | 表达式 | 取到 | 行数 |
+          |---|---|---:|
+          | `daily.loc[1:3]` | 第 1、2、3 天，含右端 | 3 |
+          | `daily.iloc[1:3]` | 位置 1、2，即第 2、3 天 | 2 |
+          | `daily.loc[5:]` | 第 5 天到最后：第 5、6 天 | 2 |
+          | `daily.iloc[:2]` | 位置 0、1，即第 1、2 天 | 2 |
+        verify: |
+          exprs = {"loc13": "daily.loc[1:3]", "iloc13": "daily.iloc[1:3]", "loc5": "daily.loc[5:]", "iloc2": "daily.iloc[:2]"}
+          answers = {"counts": {row: {"rows": len(eval(expr, {"daily": daily}))} for row, expr in exprs.items()}}
+      - id: py16.k3.x2
+        kind: [modify, debug]
+        data: [samples]
+        body: |
+          需求：取出样本 S02 到 S04（含 S04）的记录，存进 `result`。换一批编号起点不同的样本，代码也要按编号取。
+
+          作答框里的代码取到的是 S03 和 S04。改动它。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              result = samples.iloc[2:4]
+            solution: |
+              result = samples.loc["S02":"S04"]
+            rejects:
+              - code: result = samples.iloc[1:4]
+                why: 照着这张表改了位置，编号从 S02 开始的一批就错了
+              - code: result = samples.loc["S02":"S03"]
+                why: 少取了 S04，loc 本来就包含右端
+            tests:
+              - name: S01 到 S05 这一批
+                expect:
+                  result: 'pd.DataFrame({"signal": [10, 13, 9], "group": ["drug", "drug", "control"]}, index=["S02", "S03", "S04"])'
+              - name: 编号从 S02 开始的一批
+                hidden: true
+                data: [samples2]
+                expect:
+                  result: 'pd.DataFrame({"signal": [7, 12, 9], "group": ["drug", "control", "drug"]}, index=["S02", "S03", "S04"])'
+        explanation: |
+          需求说的是编号，也就是行索引的标签，用 loc，右端直接写 S04：
+
+          ```python
+          result = samples.loc["S02":"S04"]
+          ```
+
+          `samples.iloc[1:4]` 在这一批上碰巧也是 S02 到 S04；编号从 S02 开始的那一批里，位置 1 到 3 是 S03 到 S05。
