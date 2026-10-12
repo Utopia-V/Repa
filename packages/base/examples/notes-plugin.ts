@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { Type, type TSchema } from "typebox";
 
-import { createModelScope, type Host, type Plugin, type PluginInstance } from "../src/plugin.js";
+import { createModelScope, type Host, type MethodContext, type Plugin, type PluginInstance } from "../src/plugin.js";
 import { directory, failure, parse, scopedFile, writeJson } from "./files.js";
 
 const object = <T extends Record<string, TSchema>>(properties: T) =>
@@ -183,7 +183,7 @@ export function createNotesPlugin(childPlugin: Plugin = notebook): Plugin {
           onChange: (revision) => opened.onChange?.(revision) ?? Promise.resolve(),
           methods: Object.fromEntries(Object.entries(methods).map(([name, method]) => [name, {
             ...method,
-            invoke: (input: unknown) => call(() => method.invoke(input)),
+            invoke: (input: unknown, context: MethodContext) => call(() => method.invoke(input, context)),
           }])),
           close() {
             closing ??= (async () => {

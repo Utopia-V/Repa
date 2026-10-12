@@ -18,10 +18,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
-import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions } from "../agent.js";
-import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest, type Tool } from "../plugin.js";
+import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool } from "../agent.js";
+import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
+import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
@@ -69,6 +70,9 @@ const OPAQUE_TOOLS = new Set(["bash", "powershell"]);
 // 以后按实际使用调整。
 const SUBAGENT_DEPTH = 3;
 
+// 通用 Agent 起自己时，subagent 工具里给它的说明，相当于 Claude Code 的通用子代理。
+const GENERAL_SUBAGENT = "通用 Agent，工具与你相同，适合交给它独立完成的调研、修改和多步任务";
+
 /** 子 Agent 的运行挂在父运行下；ancestorRunIds 是父运行自己的祖先链，从近到远。 */
 interface ParentRun {
   runId: string;
@@ -81,7 +85,9 @@ interface AgentProfile {
   id: string;
   general: boolean;
   builtins: BuiltinTool[];
-  tools: Tool[];
+  tools: AgentTool[];
+  /** 是否带底座的 ask_user：通用 Agent 默认带上，插件 Agent 在定义里列出才有。 */
+  askUser: boolean;
   subagents: string[];
   /** 本 Agent 自己的提示段：通用 Agent 为各插件说明，插件 Agent 为 agent:<id>。 */
   sections(): { id: string; text: string }[];
@@ -103,7 +109,7 @@ function sessionAgent(manager: SessionManager): string {
   throw new RepaFault("invalid_session_agent", "会话的 Agent 记录无法读取", { id: manager.getSessionId() });
 }
 
-function toolDefinition(tool: Tool): ToolDefinition {
+function toolDefinition(tool: AgentTool): ToolDefinition {
   return defineTool({
     name: tool.name,
     label: tool.name,
@@ -348,7 +354,9 @@ class Space implements AgentSpace {
         general: true,
         builtins: [...BUILTIN_TOOLS],
         tools: this.options.tools(),
-        subagents: [],
+        askUser: true,
+        // 和 Claude Code 一样能起子 Agent：自己，以及空间里定义的任何插件 Agent。插件 Agent 的工具都在通用 Agent 的范围内。
+        subagents: [GENERAL_AGENT, ...(this.options.agents?.() ?? []).map(item => item.id).sort()],
         sections: () => [...this.options.instructions()].sort(byId),
         views: () => this.options.views(),
       };
@@ -362,6 +370,7 @@ class Space implements AgentSpace {
       // 插件宿主在打开时已经拒绝列了 grep 的定义；这里也不把 Pi 的 grep 交给插件 Agent，它会越过 .repa/.ignore。
       builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep"),
       tools: this.options.tools().filter(tool => names.has(tool.name)),
+      askUser: names.has(ASK_USER_TOOL),
       subagents: [...new Set(definition.subagents ?? [])],
       sections: () => [{ id: `agent:${id}`, text: definition.instructions() }],
       async views() {
@@ -393,7 +402,12 @@ class Space implements AgentSpace {
       ...loadSkillsFromDir({ dir: path.join(this.runtime.options.agentDir, "skills"), source: "repa" }).skills,
       ...loadSkillsFromDir({ dir: path.join(this.options.root, ".repa", "skills"), source: "repa-space" }).skills,
     ];
-    const tools = [...profile.builtins, ...profile.tools.map(tool => tool.name)];
+    const tools = [
+      ...profile.builtins,
+      ...profile.tools.map(tool => tool.name),
+      ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
+      ...(profile.askUser ? [ASK_USER_TOOL] : []),
+    ];
     return promptSections(this.options, [
       { id: "base", text: BASE_INSTRUCTIONS },
       space,
@@ -619,11 +633,14 @@ class Session implements AgentSession {
     // 所有 Agent 的写入和编辑都经过空间的写入路径，只记这次碰到的文件。
     const scope = await this.space.fileScope();
     const files = { scope, writes: options.writes ?? DIRECT_WRITES, reads: this.reads };
-    const fileTools = profile.general ? generalFileTools(files) : spaceFileTools(files, profile.builtins);
+    const fileTools = profile.general
+      ? generalFileTools(files, (target, signal) => this.approveOutsideWrite(target, signal))
+      : spaceFileTools(files, profile.builtins);
     const toolNames = [
       ...profile.builtins,
       ...profile.tools.map(tool => tool.name),
       ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
+      ...(profile.askUser ? [ASK_USER_TOOL] : []),
       ...(profile.general ? runtime.options.toolNames ?? [] : []),
     ];
     this.opaque = toolNames.some(name => OPAQUE_TOOLS.has(name));
@@ -636,7 +653,12 @@ class Session implements AgentSession {
       settingsManager: runtime.settings,
       resourceLoader: loader,
       tools: toolNames,
-      customTools: [...fileTools, ...profile.tools.map(toolDefinition), ...(profile.subagents.length > 0 ? [this.subagentTool(profile)] : [])],
+      customTools: [
+        ...fileTools,
+        ...profile.tools.map(toolDefinition),
+        ...(profile.subagents.length > 0 ? [this.subagentTool(profile)] : []),
+        ...(profile.askUser ? [askUserTool(options.ask)] : []),
+      ],
     });
     this.pi = result.session;
     const lastUsage = this.manager.getBranch().findLast(entry => {
@@ -822,16 +844,34 @@ class Session implements AgentSession {
     return { runId, status: status === "aborted" ? "aborted" : "completed", text: reply };
   }
 
-  /** 父 Agent 的 subagent 工具；只能启动定义中列出的子 Agent。 */
+  /**
+   * 通用 Agent 写空间外的文件：和命令一样先问发起这次运行的连接，Full Access 时不问。
+   * 这次写入不经过空间的写入路径，不进历史，也就不能撤回，确认里要说清楚。
+   */
+  private async approveOutsideWrite(target: string, signal: AbortSignal | undefined): Promise<void> {
+    const options = this.space.options;
+    if (options.commandPolicy() === "fullAccess") return;
+    const answer = await options.confirm({
+      kind: "command",
+      title: "允许写入空间外的文件？",
+      message: `${target}\n这次写入不会进入空间的历史，之后不能撤回。`,
+    }, signal ?? this.abortController?.signal);
+    if (answer !== true) throw new RepaFault("write_not_allowed", `用户没有允许写入空间外的文件：${target}`, { path: target });
+  }
+
+  /**
+   * 父 Agent 的 subagent 工具；只能启动定义中列出的子 Agent。Pi 默认并行执行同一条回复里的工具调用，
+   * 这个工具不标 sequential，一条回复里起的几个子 Agent 就同时运行。
+   */
   private subagentTool(profile: AgentProfile): ToolDefinition {
     const lines = profile.subagents.map(id => {
-      const description = this.space.options.agents?.().find(item => item.id === id)?.description;
+      const description = id === GENERAL_AGENT ? GENERAL_SUBAGENT : this.space.options.agents?.().find(item => item.id === id)?.description;
       return description === undefined ? `- ${id}` : `- ${id}：${description}`;
     });
     return defineTool({
       name: SUBAGENT_TOOL,
       label: SUBAGENT_TOOL,
-      description: `启动一个子 Agent 独立完成任务，返回它的最终回复。子 Agent 看不到当前对话，task 里要写清它需要的信息。可以启动的子 Agent：\n${lines.join("\n")}`,
+      description: `启动一个子 Agent 独立完成任务，返回它的最终回复。子 Agent 看不到当前对话，task 里要写清它需要的信息。一条回复里起的几个子 Agent 同时运行。可以启动的子 Agent：\n${lines.join("\n")}`,
       parameters: Type.Object({
         agent: Type.Union(profile.subagents.map(id => Type.Literal(id))),
         task: Type.String({ minLength: 1, description: "交给子 Agent 的完整任务" }),

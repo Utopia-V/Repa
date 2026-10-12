@@ -168,10 +168,10 @@ test("笔记插件作为子插件提前关闭，主动取消整理工作并等�
       const child = await notesPlugin.open(host);
       return {
         methods: {
-          organize: { parameters: empty, async invoke() {
+          organize: { parameters: empty, async invoke(_input, context) {
             const method = child.methods?.organize;
             assert.ok(method);
-            return method.invoke({});
+            return method.invoke({}, context);
           } },
           closeChild: { parameters: empty, invoke: async () => child.close?.() },
           inspect: { parameters: empty, invoke: async () => "父插件仍然可用" },

@@ -259,6 +259,58 @@ test("空间关闭等待子运行结束后才完成", async t => {
   assert.deepEqual(runEnds(f.events, child.id), [{ status: "aborted" }]);
 });
 
+test("通用 Agent 能起空间里定义的任何插件 Agent，子会话只带插件定义的工具", async t => {
+  const f = await fixture(t);
+  const top = await f.space.create();
+  const captures: TranscriptContext[] = [];
+  f.faux.setResponses([
+    context => {
+      captures.push(structuredClone(context));
+      return fauxAssistantMessage(fauxToolCall("subagent", { agent: "checker", task: "检查答案：print(1)" }));
+    },
+    context => {
+      captures.push(structuredClone(context));
+      return fauxAssistantMessage("答案正确");
+    },
+    fauxAssistantMessage("检查完成"),
+  ]);
+  await top.send("请检查答案");
+  const [parent, child] = captures;
+  assert(parent && child);
+  const subagent = getCurrentTools(parent.messages).find(tool => tool.name === "subagent");
+  // 自己排在最前，插件 Agent 按 id 排序；没被别的 Agent 列为子 Agent、不能直接对话的也在其中。
+  assert.deepEqual([...(subagent?.description ?? "").matchAll(/^- ([a-z-]+)/gmu)].map(match => match[1]), ["general", "checker", "lead", "loop", "other"]);
+  assert.match(subagent?.description ?? "", /general：通用 Agent，工具与你相同/u);
+  assert.deepEqual(getCurrentTools(child.messages).map(tool => tool.name), ["course_lookup"]);
+  assert.deepEqual(toolResults(top), [{ tool: "subagent", isError: false, text: "答案正确" }]);
+});
+
+test("通用 Agent 可以层层起通用子 Agent，嵌套超过默认的 3 层时启动请求作为工具错误交回", async t => {
+  const f = await fixture(t);
+  const top = await f.space.create();
+  const descend = (level: number) => fauxAssistantMessage(fauxToolCall("subagent", { agent: "general", task: `第 ${level} 层任务` }));
+  f.faux.setResponses([
+    descend(1),
+    descend(2),
+    descend(3),
+    descend(4),
+    fauxAssistantMessage("第 3 层完成"),
+    fauxAssistantMessage("第 2 层完成"),
+    fauxAssistantMessage("第 1 层完成"),
+    fauxAssistantMessage("全部完成"),
+  ]);
+  await top.send("开始拆分");
+  assert.equal(f.faux.state.callCount, 8);
+  const sessions = (await f.space.list()).filter(info => info.agent === "general");
+  assert.equal(sessions.length, 4);
+  const rejected: { tool: unknown; isError: unknown; text: string }[] = [];
+  for (const info of sessions) rejected.push(...toolResults(await f.space.get(info.id)).filter(result => result.isError === true));
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0]?.tool, "subagent");
+  assert.match(rejected[0]?.text ?? "", /子 Agent 最多嵌套 3 层/u);
+  assert.equal(top.history().findLast(entry => entry.type === "assistant")?.text, "全部完成");
+});
+
 async function courseServer(t: TestContext, agents: AgentDefinition[]) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-subagents-e2e-"));
   const root = path.join(directory, "space");
@@ -288,7 +340,7 @@ async function courseServer(t: TestContext, agents: AgentDefinition[]) {
     assert(run !== null && typeof run === "object" && "runId" in run && typeof run.runId === "string");
     return { runId: run.runId, parentRunId: "parentRunId" in run ? run.parentRunId : undefined };
   };
-  return { root, client, faux, runOf };
+  return { root, client, faux, runOf, connection: server.connection };
 }
 
 test("子 Agent 的写入记在自己的运行下并挂在父运行下，按父运行撤回时一起撤回", { timeout: 30000 }, async t => {
@@ -347,4 +399,84 @@ test("带命令行的父运行窗口里，子 Agent 直接写文件，算在父�
   const drafter = (await f.client.call("session.list", {})).find(info => info.agent === "drafter");
   assert(drafter);
   assert.equal((await f.runOf(drafter.id)).parentRunId, lead.runId);
+});
+
+test("通用 Agent 在一条回复里起两个通用子 Agent，两个同时运行，工具与父 Agent 相同，写入算在父运行的快照里", { timeout: 30000 }, async t => {
+  const f = await courseServer(t, [{ id: "drafter", description: "起草课程文件", instructions: () => "你起草课程文件。", tools: ["write"] }]);
+  const before = await f.client.call("history.list", {});
+  const session = await f.client.call("session.create", {});
+  let parentTools: string[] = [];
+  const childTools: string[][] = [];
+  let active = 0;
+  let peak = 0;
+  let arrivals = 0;
+  const bothArrived = deferred();
+  // 两个子 Agent 的第一次请求都等对方也到了才回答。依次运行时第二个到不了，等两秒后照常回答，peak 停在 1。
+  const child = async (context: TranscriptContext) => {
+    childTools.push(getCurrentTools(context.messages).map(tool => tool.name));
+    active++;
+    peak = Math.max(peak, active);
+    arrivals++;
+    if (arrivals === 2) bothArrived.resolve();
+    await Promise.race([bothArrived.promise, new Promise(resolve => setTimeout(resolve, 2000))]);
+    active--;
+    const name = JSON.stringify(context.messages).includes("写 a.md") ? "a.md" : "b.md";
+    return fauxAssistantMessage(fauxToolCall("write", { path: name, content: `${name} 的内容\n` }));
+  };
+  f.faux.setResponses([
+    context => {
+      parentTools = getCurrentTools(context.messages).map(tool => tool.name);
+      return fauxAssistantMessage([
+        fauxToolCall("subagent", { agent: "general", task: "写 a.md" }),
+        fauxToolCall("subagent", { agent: "general", task: "写 b.md" }),
+      ]);
+    },
+    child,
+    child,
+    fauxAssistantMessage("写好了"),
+    fauxAssistantMessage("写好了"),
+    fauxAssistantMessage("两份都写好了"),
+  ]);
+  await f.client.call("session.send", { sessionId: session.id, text: "同时写两份文件" });
+  assert.equal(peak, 2);
+  assert.ok(parentTools.includes("bash") && parentTools.includes("subagent"));
+  assert.deepEqual(childTools, [parentTools, parentTools]);
+  assert.equal(await readFile(path.join(f.root, "a.md"), "utf8"), "a.md 的内容\n");
+  assert.equal(await readFile(path.join(f.root, "b.md"), "utf8"), "b.md 的内容\n");
+  const parent = await f.runOf(session.id);
+  const children = (await f.client.call("session.list", {})).filter(info => info.agent === "general" && info.id !== session.id);
+  assert.equal(children.length, 2);
+  for (const info of children) assert.equal((await f.runOf(info.id)).parentRunId, parent.runId);
+  // 父运行带命令行，整次进 record；两个子 Agent 在它的窗口里直接写，只有一条记到父运行名下的修订。
+  const after = await f.client.call("history.list", {});
+  assert.equal(after.length, before.length + 1);
+  assert.deepEqual(after[0]?.source, { kind: "agent", runId: parent.runId });
+  const latest = before[0];
+  assert(latest);
+  const feed = await f.client.call("history.changes", { since: latest.id });
+  assert.deepEqual(feed.revisions.flatMap(revision => revision.changes.map(change => change.path)).sort(), ["a.md", "b.md"]);
+});
+
+test("通用子 Agent 运行命令时，确认照旧发给发起这次运行的连接", { timeout: 30000 }, async t => {
+  const f = await courseServer(t, []);
+  const watcher = await RepaClient.connect(f.connection);
+  t.after(() => watcher.close());
+  const seenByWatcher: unknown[] = [];
+  watcher.on("confirm.request", request => seenByWatcher.push(request));
+  const asked = new Promise<{ id: string; request: { kind: string; message?: string } }>(resolve => f.client.on("confirm.request", resolve));
+  const session = await f.client.call("session.create", {});
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("subagent", { agent: "general", task: "运行命令" })),
+    fauxAssistantMessage(fauxToolCall("bash", { command: "printf child > child.txt" })),
+    fauxAssistantMessage("命令完成"),
+    fauxAssistantMessage("子 Agent 完成"),
+  ]);
+  const running = f.client.call("session.send", { sessionId: session.id, text: "让子 Agent 运行命令" });
+  const { id, request } = await asked;
+  assert.equal(request.kind, "command");
+  assert.match(request.message ?? "", /printf child/u);
+  await f.client.call("confirm.reply", { id, value: true });
+  await running;
+  assert.equal(await readFile(path.join(f.root, "child.txt"), "utf8"), "child");
+  assert.deepEqual(seenByWatcher, []);
 });

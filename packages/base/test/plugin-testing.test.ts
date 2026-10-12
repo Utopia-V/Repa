@@ -3,7 +3,8 @@ import { stat } from "node:fs/promises";
 import test from "node:test";
 
 import { Type } from "typebox";
-import { createPluginTestHost, ModelTestDriver } from "@repa/base/testing";
+import { checkResponse, contentVersion, type AskOutcome, type ItemDraft, type Plugin } from "@repa/base/plugin";
+import { createPluginTestHost, ModelTestDriver, type AskInput } from "@repa/base/testing";
 
 const fault = (code: string) => (error: unknown): boolean => error instanceof Error && "code" in error && error.code === code;
 
@@ -51,4 +52,79 @@ test("离线宿主初始化失败关闭已打开实例并释放临时目录", as
   }), /打开失败/);
   assert.equal(closed, true);
   await assert.rejects(stat(directory), fault("ENOENT"));
+});
+
+test("离线宿主把插件的询问交给测试提供的路由：题目已补上版本和能力，多带答案字段的题在交出前被拒绝", async (t) => {
+  const asked: AskInput[] = [];
+  const outcomes: AskOutcome[] = [];
+  const draft: ItemDraft = { id: "py01.k1.q1", body: [{ type: "markdown", text: "输出是什么？" }], slots: [{ id: "output", type: "text" }] };
+  const plugin: Plugin = {
+    id: "practice",
+    async open(host) {
+      return {
+        tools: () => [{
+          name: "practice_once",
+          description: "出一道练习",
+          parameters: Type.Object({ leak: Type.Boolean() }, { additionalProperties: false }),
+          async execute(input, context) {
+            const leak = (input as { leak: boolean }).leak;
+            const item = leak ? { ...draft, answer: "5" } : draft;
+            outcomes.push(await context.ask({
+              item,
+              purpose: "practice",
+              evaluate: async (response) => ({ status: "recorded", feedback: { item: response.item, verdict: "correct" } }),
+            }));
+            const result = await host.services.call("python.run", { code: "print(5)" }, { signal: context.signal });
+            return { text: JSON.stringify(result) };
+          },
+        }],
+      };
+    },
+  };
+  const testing = await createPluginTestHost({
+    plugins: [plugin],
+    async ask(request, options) {
+      asked.push(request);
+      const response = { item: { id: request.item.id, version: request.item.version }, answers: { output: { type: "text" as const, text: "5" } } };
+      const checked = checkResponse(request.item, response);
+      assert.equal(checked.ok, true);
+      return { action: "submit", response, ...(options.evaluate === undefined ? {} : { result: await options.evaluate(response) }) };
+    },
+    services: { call: async (service, input) => ({ service, input }) },
+  });
+  t.after(() => testing.close());
+  const [tool] = testing.host.tools();
+  assert.ok(tool);
+  const context = { signal: new AbortController().signal, callId: "call-1" };
+  assert.equal((await tool.execute({ leak: false }, context)).text, JSON.stringify({ service: "python.run", input: { code: "print(5)" } }));
+  assert.equal(asked.length, 1);
+  assert.deepEqual(asked[0]?.origin, { kind: "plugin", pluginId: "practice", callId: "call-1" });
+  assert.deepEqual(asked[0]?.item.requires, ["block.markdown", "slot.text"]);
+  assert.equal(asked[0]?.item.version, await contentVersion(draft));
+  assert.equal(outcomes[0]?.action === "submit" ? outcomes[0].result?.status : undefined, "recorded");
+  await assert.rejects(tool.execute({ leak: true }, context), fault("invalid_item"));
+  assert.equal(asked.length, 1);
+});
+
+test("离线宿主没有提供询问和服务时，插件得到明确的错误码", async (t) => {
+  const plugin: Plugin = {
+    id: "lonely",
+    async open(host) {
+      return {
+        tools: () => [{
+          name: "lonely_ask",
+          description: "提问",
+          parameters: Type.Object({}, { additionalProperties: false }),
+          execute: async (_input, context) => ({ text: (await context.ask({ item: { id: "q", body: [], slots: [{ id: "a", type: "text" }] }, purpose: "question" })).action }),
+        }],
+        methods: { run: { parameters: Type.Object({}, { additionalProperties: false }), invoke: async () => host.services.call("python.run", {}) } },
+      };
+    },
+  };
+  const testing = await createPluginTestHost({ plugins: [plugin] });
+  t.after(() => testing.close());
+  const [tool] = testing.host.tools();
+  assert.ok(tool);
+  await assert.rejects(tool.execute({}, { signal: new AbortController().signal, callId: "call-1" }), fault("ask_unavailable"));
+  await assert.rejects(testing.host.call("lonely", "run", {}), fault("service_unavailable"));
 });

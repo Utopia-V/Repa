@@ -1,6 +1,16 @@
 import { Type, type Static } from "typebox";
 import type { ChangeFeed, Revision, UndoResult } from "@repa/space-history";
 import {
+  AskClosedSchema,
+  AskReplyParamsSchema,
+  AskReplyResultSchema,
+  AskRequestSchema,
+  InteractionCapabilitiesSchema,
+  readAskRequest,
+  readSubmitResult,
+  type ReadResult,
+} from "./interaction.js";
+import {
   AgentEventSchema,
   AgentInfoSchema,
   ConfirmationSchema,
@@ -15,7 +25,29 @@ import {
 } from "./schema.js";
 
 export * from "./schema.js";
-export const PROTOCOL_VERSION = "1";
+export * from "./interaction.js";
+// 2：initialize 增加 capabilities，新增 ask.* 与 service.*。客户端严格校验已有消息的信封，加字段必须升版本；
+// 信封里的题目和反馈按词汇的规则宽松读取，见 lenientNotifications。
+export const PROTOCOL_VERSION = "2";
+
+const serviceName = Type.String({ minLength: 1, maxLength: 64 });
+/**
+ * 连接在 initialize 里声明的能力：interaction 是能显示的作答位、内容块和特性，services 是能提供的服务，
+ * 例如浏览器隔离环境里的 python.run。服务端按连接保存；ask 只发给能显示那道题的连接，服务请求只发给声明了它的连接。
+ */
+export const ClientCapabilitiesSchema = object({
+  interaction: Type.Optional(InteractionCapabilitiesSchema),
+  services: Type.Optional(Type.Array(serviceName, { maxItems: 64 })),
+});
+export type ClientCapabilities = Static<typeof ClientCapabilitiesSchema>;
+// 服务的输入和结果由提供方与调用方约定，底座只转交。
+const serviceRequest = object({ id: identifier, service: serviceName, input: Type.Unknown() });
+const serviceReply = Type.Union([
+  object({ id: identifier, result: Type.Unknown() }),
+  object({ id: identifier, error: object({ code: identifier, message: Type.String({ maxLength: 2_000 }) }) }),
+]);
+// aborted：调用方不再等待，例如运行中止；closed：空间关闭。断线时连接已经不在，不再通知。
+const serviceClosed = object({ id: identifier, reason: Type.Union([Type.Literal("aborted"), Type.Literal("closed")]) });
 const empty = object({});
 const nothing = Type.Null();
 const session = { sessionId: identifier };
@@ -36,7 +68,7 @@ const confirmationReply = Type.Union([Type.String(), Type.Boolean(), Type.Null()
 
 export const methods = {
   initialize: {
-    params: object({ token: identifier, version: Type.String() }),
+    params: object({ token: identifier, version: Type.String(), capabilities: Type.Optional(ClientCapabilitiesSchema) }),
     result: object({ version: Type.Literal(PROTOCOL_VERSION), serverId: identifier }),
   },
   "space.list": { params: empty, result: Type.Array(identifier) },
@@ -55,6 +87,8 @@ export const methods = {
   "session.compact": { params: object(session), result: nothing },
   "session.fork": { params: object({ ...session, entryId: identifier }), result: SessionInfoSchema },
   "confirm.reply": { params: object({ id: identifier, value: confirmationReply }), result: nothing },
+  "ask.reply": { params: AskReplyParamsSchema, result: AskReplyResultSchema },
+  "service.reply": { params: serviceReply, result: nothing },
   "history.list": { params: object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })) }), result: historyList },
   "history.changes": { params: object({ since: Type.Optional(identifier) }), result: historyChanges },
   "history.undo": { params: object({ revision: identifier }), result: historyUndo },
@@ -80,8 +114,23 @@ export const methods = {
 export const notifications = {
   "session.event": AgentEventSchema,
   "confirm.request": object({ id: identifier, request: ConfirmationSchema }),
+  "ask.request": AskRequestSchema,
+  "ask.closed": AskClosedSchema,
+  "service.request": serviceRequest,
+  "service.closed": serviceClosed,
   "plugin.event": object({ pluginId: identifier, event: Type.Unknown() }),
 } as const;
+
+/**
+ * 接收方读取带题目或反馈的消息时，不整体严格校验：信封仍按 schema 严格校验，里面的题目和反馈按词汇的规则宽松读取。
+ * 这样词汇加了可选字段，旧前端照常显示；加了必须理解的特性，按 requires 判为不能作答。没有登记的消息照旧严格校验。
+ */
+export const lenientNotifications: Partial<Record<Notification, (params: unknown) => ReadResult<unknown>>> = {
+  "ask.request": readAskRequest,
+};
+export const lenientResults: Partial<Record<Method, (result: unknown) => ReadResult<unknown>>> = {
+  "ask.reply": (result) => result === null ? { ok: true, value: null } : readSubmitResult(result),
+};
 
 export type Method = keyof typeof methods;
 export type Params<M extends Method> = Static<(typeof methods)[M]["params"]>;

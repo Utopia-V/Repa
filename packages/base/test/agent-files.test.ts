@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -11,10 +11,12 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
+import type { Confirmation } from "../src/schema.js";
 import { createSpace } from "../src/space.js";
 
 // 用真实空间打开：.repa/ 里的锁、历史库和 .ignore 都由空间宿主放好，搜索工具面对的就是实际布局。
-async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}) {
+// approve 是用户对确认的回答，确认请求记在 confirmations 里。
+async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, approve = false) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-files-"));
   const outside = await mkdtemp(path.join(os.tmpdir(), "repa-agent-outside-"));
   const host = await createSpace(path.join(directory, "space"), { watch: false });
@@ -36,6 +38,7 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}) {
     await rm(directory, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   });
+  const confirmations: Confirmation[] = [];
   const space = await runtime.openSpace({
     root,
     sessionsDir: host.sessionsDir,
@@ -46,10 +49,13 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}) {
     commandPolicy: () => "ask",
     record: async (_id, action) => action(),
     onEvent: () => undefined,
-    confirm: async () => false,
+    confirm: async request => {
+      confirmations.push(request);
+      return approve;
+    },
     ...extra,
   });
-  return { root, outside, faux, space };
+  return { root, outside: await realpath(outside), faux, space, confirmations };
 }
 
 function toolResults(session: AgentSession) {
@@ -59,27 +65,40 @@ function toolResults(session: AgentSession) {
   });
 }
 
-test("通用 Agent 写入和编辑空间外的文件被拒绝，空间外原文保持不变", async t => {
+/** 确认里写明的路径；确认框一律写明这次写入不进历史、不能撤回。 */
+function approvals(confirmations: Confirmation[]): string[] {
+  return confirmations.map(request => {
+    assert.equal(request.kind, "command");
+    assert.equal(request.title, "允许写入空间外的文件？");
+    const [target, note] = (request.message ?? "").split("\n");
+    assert.equal(note, "这次写入不会进入空间的历史，之后不能撤回。");
+    return target ?? "";
+  }).sort();
+}
+
+test("通用 Agent 写空间外的文件先问确认，拒绝时写入和编辑都不发生，确认里写明路径", async t => {
   const f = await fixture(t);
   const target = path.join(f.outside, "target.txt");
   await writeFile(target, "空间外原文\r\n");
   const session = await f.space.create();
   f.faux.setResponses([
     fauxAssistantMessage([
-      fauxToolCall("write", { path: path.join(f.outside, "created.txt"), content: "不应出现" }),
+      fauxToolCall("write", { path: path.join(f.outside, "nested", "created.txt"), content: "不应出现" }),
       fauxToolCall("edit", { path: target, edits: [{ oldText: "原文", newText: "改写" }] }),
     ]),
     fauxAssistantMessage("已尝试"),
   ]);
   await session.send("写到空间外");
-  await assert.rejects(readFile(path.join(f.outside, "created.txt")), { code: "ENOENT" });
+  // 父目录也要等用户同意之后才建。
+  await assert.rejects(readFile(path.join(f.outside, "nested")), { code: "ENOENT" });
   assert.equal(await readFile(target, "utf8"), "空间外原文\r\n");
+  assert.deepEqual(approvals(f.confirmations), [path.join(f.outside, "nested", "created.txt"), target].sort());
   const results = toolResults(session);
   assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["edit", true]]);
-  for (const result of results) assert.match(result.text, /只能访问当前空间内的文件，不含 \.repa\//u);
+  for (const result of results) assert.match(result.text, /用户没有允许写入空间外的文件/u);
 });
 
-test("通用 Agent 不能经空间内的符号链接写到空间外", async t => {
+test("通用 Agent 经空间内的符号链接写到空间外，同样先问确认，确认里写的是实际写到的位置", async t => {
   const f = await fixture(t);
   await symlink(f.outside, path.join(f.root, "linked"));
   const session = await f.space.create();
@@ -89,7 +108,47 @@ test("通用 Agent 不能经空间内的符号链接写到空间外", async t =>
   ]);
   await session.send("经链接写入");
   await assert.rejects(readFile(path.join(f.outside, "escape.txt")), { code: "ENOENT" });
+  assert.deepEqual(approvals(f.confirmations), [path.join(f.outside, "escape.txt")]);
   assert.equal(toolResults(session)[0]?.isError, true);
+});
+
+test("用户同意后写到空间外并注明不能撤回；没读过的已有文件先交回内容，不必问用户", async t => {
+  const f = await fixture(t, {}, true);
+  const target = path.join(f.outside, "target.txt");
+  const unread = path.join(f.outside, "unread.txt");
+  await writeFile(target, "空间外原文\r\n");
+  await writeFile(unread, "没读过的内容");
+  const session = await f.space.create();
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("write", { path: path.join(f.outside, "nested", "created.txt"), content: "新文件，（：\r\n" }),
+      fauxToolCall("edit", { path: target, edits: [{ oldText: "原文", newText: "改写" }] }),
+      fauxToolCall("write", { path: unread, content: "覆盖" }),
+    ]),
+    fauxAssistantMessage("已写好"),
+  ]);
+  await session.send("写到空间外");
+  assert.equal(await readFile(path.join(f.outside, "nested", "created.txt"), "utf8"), "新文件，（：\r\n");
+  assert.equal(await readFile(target, "utf8"), "空间外改写\r\n");
+  assert.equal(await readFile(unread, "utf8"), "没读过的内容");
+  assert.deepEqual(approvals(f.confirmations), [path.join(f.outside, "nested", "created.txt"), target].sort());
+  const results = toolResults(session);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", false], ["edit", false], ["write", true]]);
+  for (const result of results.slice(0, 2)) assert.match(result.text, /这个文件在空间外，这次改动没有进入历史，不能撤回。$/u);
+  assert.match(results[2]?.text ?? "", /这次会话还没有读过它[\s\S]*没读过的内容/u);
+});
+
+test("Full Access 时写空间外的文件不问用户", async t => {
+  const f = await fixture(t, { commandPolicy: () => "fullAccess" });
+  const session = await f.space.create();
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("write", { path: path.join(f.outside, "created.txt"), content: "直接写入" })),
+    fauxAssistantMessage("已写好"),
+  ]);
+  await session.send("写到空间外");
+  assert.equal(await readFile(path.join(f.outside, "created.txt"), "utf8"), "直接写入");
+  assert.deepEqual(f.confirmations, []);
+  assert.match(toolResults(session)[0]?.text ?? "", /不能撤回/u);
 });
 
 test("通用 Agent 在空间内照常写入，写不进 .repa/，读取空间外的文件不变", async t => {
@@ -112,8 +171,10 @@ test("通用 Agent 在空间内照常写入，写不进 .repa/，读取空间外
   assert.equal(await readFile(path.join(f.root, ".repa", "plugins", "state.txt"), "utf8"), "插件数据");
   const results = toolResults(session);
   assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", false], ["write", true], ["edit", true], ["read", false]]);
-  assert.match(results[1]?.text ?? "", /只能访问当前空间内的文件，不含 \.repa\//u);
+  for (const result of results.slice(1, 3)) assert.match(result.text, /不能写入空间的 \.repa\//u);
   assert.match(results[3]?.text ?? "", /空间外的参考资料/u);
+  // .repa/ 一律不写，也不问用户。
+  assert.deepEqual(f.confirmations, []);
 });
 
 const writer = {

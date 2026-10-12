@@ -1,9 +1,48 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
-import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type Host, type PluginInstance, type Tool } from "../plugin.js";
+import type { AgentTool } from "../agent.js";
+import { prepareItem, type AskRoute } from "../ask.js";
+import {
+  ASK_USER_TOOL,
+  BUILTIN_TOOLS,
+  RESERVED_TOOL_NAMES,
+  type AgentDefinition,
+  type AskOptions,
+  type AskOutcome,
+  type Host,
+  type PluginInstance,
+  type Services,
+} from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
+import { currentRun } from "../run-context.js";
 import { object, parse, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
+
+const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
+const NO_SERVICES: Services = {
+  call: (service) => Promise.reject(new RepaFault("service_unavailable", "没有连接提供这项服务", { service })),
+};
+
+/**
+ * 插件工具的 ToolContext.ask：来源写明插件、会话和工具调用，题目按词汇整理后交给路由。
+ * 判分回调在提问时的上下文里执行：它属于这次工具调用，写入记在这次运行名下；
+ * 带命令行的运行持有空间写锁等待回答，判分若在回复的上下文里写文件就会和它互相等待。
+ */
+async function askAs(route: AskRoute, pluginId: string, context: { signal: AbortSignal; callId: string }, options: AskOptions): Promise<AskOutcome> {
+  const item = await prepareItem(options.item);
+  const run = currentRun();
+  const evaluate = options.evaluate;
+  const inCall = AsyncLocalStorage.snapshot();
+  return route({
+    origin: { kind: "plugin", pluginId, ...(run === undefined ? {} : { sessionId: run.sessionId }), callId: context.callId },
+    purpose: options.purpose,
+    item,
+  }, {
+    signal: context.signal,
+    ...(evaluate === undefined ? {} : { evaluate: (response) => inCall(() => evaluate.call(options, response)) }),
+  });
+}
 
 const AgentFieldsSchema = object({
   id: Type.String({ pattern: "^[a-z][a-z0-9-]*$" }),
@@ -34,7 +73,7 @@ function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): 
     if (id === "general" || ids.has(id)) throw new RepaFault("invalid_agent_id", "Agent id 必须唯一，且不能使用 general", { id });
     ids.add(id);
   }
-  const builtins = new Set<string>(BUILTIN_TOOLS);
+  const builtins = new Set<string>([...BUILTIN_TOOLS, ASK_USER_TOOL]);
   const byId = new Map(definitions.map((definition) => [definition.id, definition]));
   for (const definition of definitions) {
     for (const tool of definition.tools) {
@@ -63,7 +102,9 @@ function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): 
 export async function openPluginHost(options: PluginHostOptions): Promise<PluginHost> {
   const { space } = options;
   const instances = new Map<string, PluginInstance>();
-  const pluginTools = new Map<string, Tool[]>();
+  const pluginTools = new Map<string, AgentTool[]>();
+  const askRoute = options.ask ?? NO_ASK;
+  const serviceRoute = options.services ?? NO_SERVICES;
   let agentDefinitions: AgentDefinition[] = [];
   let pending: Promise<void> = Promise.resolve();
   let pendingError: unknown;
@@ -183,11 +224,17 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           },
         },
         models: ownedModels.models,
+        services: {
+          call(service, input, callOptions) {
+            checkOpen();
+            return track(Promise.resolve().then(() => serviceRoute.call(service, input, callOptions)));
+          },
+        },
         emit: (event) => { options.emit(plugin.id, event); },
       };
       const instance = await plugin.open(host);
       instances.set(plugin.id, instance);
-      const tools = (instance.tools?.() ?? []).map((tool): Tool => {
+      const tools = (instance.tools?.() ?? []).map((tool): AgentTool => {
         if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(tool.name)) {
           throw new RepaFault("invalid_tool_name", "插件工具名称必须有效且不能重复", { name: tool.name });
         }
@@ -196,11 +243,17 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         }
         names.add(tool.name);
         return {
-          ...tool,
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
           execute(input, context) {
             checkOpen();
             const checked = parse(tool.parameters, input);
-            return track(Promise.resolve().then(() => tool.execute(checked, context)));
+            const ask = (askOptions: AskOptions) => {
+              checkOpen();
+              return askAs(askRoute, plugin.id, context, askOptions);
+            };
+            return track(Promise.resolve().then(() => tool.execute(checked, { ...context, ask })));
           },
         };
       });
@@ -280,18 +333,22 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         return result;
       })());
     },
-    call(pluginId, methodName, input) {
+    call(pluginId, methodName, input, caller) {
       checkOpen();
       const operation = (async () => {
         const instance = instances.get(pluginId);
         if (!instance) throw new RepaFault("plugin_not_found", "插件不存在", { pluginId });
         const method = Object.hasOwn(instance.methods ?? {}, methodName) ? instance.methods?.[methodName] : undefined;
         if (!method) throw new RepaFault("plugin_method_not_found", "插件方法不存在", { pluginId, methodName });
-        const result = await method.invoke(parse(method.parameters, input));
+        const result = await method.invoke(parse(method.parameters, input), caller === undefined ? {} : { caller });
         // 插件自有目录不在影子历史中，但界面方法仍然是一次状态唤醒。
         const [latest] = await space.history.list(1);
         if (latest) wake(latest.id);
         await flush();
+        // 方法已经执行，状态照常唤醒；只是不把不符合声明的值交给调用方，多带的答案字段在这里被拦下。
+        if (method.result !== undefined && !Check(method.result, result)) {
+          throw new RepaFault("invalid_plugin_result", "插件方法的返回值不符合它声明的 schema", { pluginId, methodName });
+        }
         return result;
       })();
       return track(operation);
