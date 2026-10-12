@@ -1,7 +1,8 @@
 id: py34
 title: 导出的是结果，也是约定
-status: outline
+status: complete
 minutes: 20
+summary: 读懂 to_csv 写出的文件里有什么：行索引列、列的顺序和编码；导出后把文件读回来，按需求核对行数、键和数值。
 prerequisites:
   - topic: py15
     key: true
@@ -25,9 +26,909 @@ sources:
     url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/02_read_write.html
     use: reference
 notes: |
-  建议题型与判分：找错（P）、小改代码（T）、写清需求（S/O）。
+  范围：只用 to_csv 的文件名、index、encoding 三个参数，列的顺序通过先选列来定；读回只用 read_csv 加 dtype={"列名": "str"}（py15.k2 已讲）。核对只用 len、list(columns) 和 Series.is_unique 这几种短写法，is_unique 在讲解里就地说明；按条件选行（py17）不是本 topic 的先修，没有用。不讲路径（py43）、分隔符和其他编码。
+  “Excel 双击打开不带 BOM 的 UTF-8 文件常显示乱码，utf-8-sig 能避免”是常见的经验，取决于 Excel 版本和系统设置；课里只说“常常”，判分只考 utf-8-sig 会在文件开头写入标记这件确定的事。
+  运行时行为（Pyodide 里核对过）：to_csv 写进内存文件系统，同一 topic 的任务之间文件会留着，所以每道题用不同的文件名，测试的 setup 先删掉旧文件；read_csv 读带 BOM 的文件时列名不受影响。题目代码的命名空间里没有 pd，用不显示的 python 夹具 import pandas as pd 补上。
+  建议题型与判分：找错（P）、小改代码（T）、写清需求（S/O）。复习和测验的答案都由 verify 或测试算出，没有 manual。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 5 分钟；k2 讲解与例题 3 分钟、练习 6 分钟；收束 2 分钟。
+  取材：to_csv、read_csv 的参数参照 pandas 入门教程与 Python for Data Analysis 第 6 章，小表、讲解和题目为本课自拟。
+intro: |
+  宿主已经准备好 pandas 和数据表。题目里写出的文件放在一个临时的文件夹里，写完可以马上读回来看。
+
+  导出的 CSV 会交给同事、导入别的软件，或者用 Excel 打开。文件里有哪些列、按什么顺序、第一列是什么，都由导出的那一行代码决定；对方拿到文件时不会看到你的代码，只会看到这些约定的结果。
+wrapup: |
+  向同事或 AI 提导出的需求时，可以这样说：“导出 site_depth.csv：只要 site 和 mean_depth 两列，按这个顺序；不写行索引；编码用 utf-8-sig，方便用 Excel 打开；每个采样点一行，共 4 行，site 不重复。”
+
+  导出以后，把文件读回来核对：行数对不对，键有没有重复，挑一两个能手算的值看一看。编号列按文字读回，别让读法吃掉前导零。
+data:
+  pandas:
+    kind: python
+    code: import pandas as pd
+  kept:
+    kind: dataframe
+    name: kept
+    caption: 表 kept：筛选后留下的三行，左边是原行索引
+    index: [7, 22, 4]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_B, S_C, S_D]
+      signal: [10, 13, 10]
+  sites:
+    kind: dataframe
+    name: sites
+    caption: 表 sites：三个采样点的土层深度（厘米）
+    index: [5, 12, 3]
+    indexHeader: 原行索引
+    columns:
+      depth: [30, 25, 35]
+      site: [北坡, 南坡, 东坡]
+  summary:
+    kind: dataframe
+    name: summary
+    caption: 表 summary：每组一行的汇总结果
+    columns:
+      group: [control, drug]
+      n: [2, 2]
+      mean_signal: [9.5, 11.5]
+    dtypes:
+      mean_signal: float
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：四个采样点的土层深度（厘米）
+    index: [5, 12, 3, 8]
+    indexHeader: 原行索引
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡]
+      depth: [30, 25, 35, 30]
+  report:
+    kind: dataframe
+    name: report
+    caption: 表 report：每组一行的汇总结果
+    columns:
+      group: [对照, 处理]
+      n: [4, 5]
+      mean_signal: [8.5, 12.5]
+    dtypes:
+      mean_signal: float
+  report2:
+    kind: dataframe
+    name: report
+    caption: 另一张同结构的表
+    index: [2, 0, 1]
+    columns:
+      group: [高剂量, 对照, 低剂量]
+      n: [2, 3, 3]
+      mean_signal: [13.5, 8.0, 10.5]
+    dtypes:
+      mean_signal: float
+  counts:
+    kind: dataframe
+    name: counts
+    caption: 表 counts：五次观测的计数，左边是原行索引
+    index: [10, 20, 30, 40, 50]
+    indexHeader: 原行索引
+    columns:
+      obs_id: [O1, O2, O3, O4, O5]
+      count: [3, 0, 7, 2, 5]
+  per_sample:
+    kind: dataframe
+    name: per_sample
+    caption: 表 per_sample：每个样本一行
+    columns:
+      sample_id: ["001", "002", "010"]
+      signal: [8, 10, 13]
+  plots:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：三块样地的编号和深度
+    columns:
+      plot_id: ["007", "012", "100"]
+      depth: [30, 25, 35]
+  merged:
+    kind: dataframe
+    name: merged
+    caption: 表 merged：两张表拼起来以后的结果
+    columns:
+      sample_id: [S_A, S_B, S_B, S_C]
+      site: [北坡, 南坡, 南坡, 东坡]
+      signal: [8, 10, 11, 13]
+  checked:
+    kind: dataframe
+    name: export
+    caption: 已经导出的文件 export.csv 的内容
+    showIndex: false
+    columns:
+      sample_id: ["001", "002", "003"]
+      signal: [8, 10, 13]
+  checked2:
+    kind: dataframe
+    name: export
+    caption: 另一份同结构的文件
+    showIndex: false
+    columns:
+      sample_id: ["001", "002", "002", "003"]
+      signal: [8, 10, 11, 13]
+  checked3:
+    kind: dataframe
+    name: export
+    caption: 第三份同结构的文件
+    showIndex: false
+    columns:
+      sample_id: ["010", "100"]
+      signal: [5, 6]
+  site_means:
+    kind: dataframe
+    name: site_means
+    caption: 表 site_means：要导出的结果
+    columns:
+      site: [北坡, 南坡, 东坡, 南坡, 西坡]
+      mean_depth: [30, 25, 35, 26, 30]
+  tubes:
+    kind: dataframe
+    name: tubes
+    caption: 表 tubes：三支样品管的编号和体积（毫升）
+    columns:
+      tube_id: ["007", "008", "012"]
+      volume: [5, 2, 3]
+  final:
+    kind: dataframe
+    name: final
+    caption: 表 final：要交出去的结果
+    columns:
+      sample_id: [S01, S02, S03, S03]
+      signal: [9, 10, 12, 12]
+  batch:
+    kind: dataframe
+    name: batch
+    caption: 已经导出的文件 batch.csv 的内容
+    showIndex: false
+    columns:
+      sample_id: ["007", "012", "100"]
+      signal: [8, 10, 13]
+  batch2:
+    kind: dataframe
+    name: batch
+    caption: 另一份同结构的文件
+    showIndex: false
+    columns:
+      sample_id: ["0001", "0420"]
+      signal: [4, 9]
 kps:
   - id: py34.k1
     title: to_csv 的列顺序、index=False 与编码
+    card:
+      name: to_csv 导出
+      aliases: [导出 CSV, index=False, utf-8-sig]
+      definition: df.to_csv("文件名.csv") 把表写成逗号分隔的文字文件；默认把行索引也写成第一列，index=False 不写；列按表里的顺序写出。
+      conditions:
+        - 要换列的顺序或只要几列，先选列：df[["site", "depth"]].to_csv(...)。
+        - 含中文、要用 Excel 双击打开的文件，加 encoding="utf-8-sig"，否则常常显示成乱码。
+      example:
+        from: py34.k1.e0
+        text: |
+          ```python
+          kept.to_csv("kept.csv")
+          ```
+          文件第一行是 `,sample_id,signal`：开头多出一列没有列名的行索引，下面每行以 7、22、4 开头。
+    lesson: |
+      `kept.to_csv("kept.csv")` 把表 `kept` 写成一个文字文件：第一行是列名，下面每行一条记录，格子之间用逗号隔开。
+
+      默认情况下，**行索引也会被写进去**，成为第一列。这一列没有列名，所以第一行以逗号开头：
+
+      ```
+      ,sample_id,signal
+      7,S_B,10
+      22,S_C,13
+      4,S_D,10
+      ```
+
+      同事用 Excel 打开，会看到最左边多了一列没有标题的 7、22、4。行索引对对方没有意义时，写 `index=False`，文件就只有表里的列。
+
+      列按表里现在的顺序写出。需求要求别的顺序，或者只要其中几列，先选列再导出：`kept[["signal", "sample_id"]].to_csv("out.csv", index=False)`。
+
+      还有编码。文件里有中文、对方要用 Excel 双击打开时，写 `encoding="utf-8-sig"`。它会在文件最开头写一个看不见的标记，Excel 靠它认出这是 UTF-8 文字；不写的话，中文常常显示成乱码。pandas 读回时，有没有这个标记都能读对。
+    example:
+      id: py34.k1.e0
+      kind: [predict]
+      data: [pandas, kept]
+      body: |
+        阅读代码，说出写出的文件 `kept.csv` 里有什么。
+
+        ```python
+        kept.to_csv("kept.csv")
+        ```
+      slots:
+        - id: header
+          type: text
+          match: text
+          prompt: 文件的第一行原样是什么？
+          key: ",sample_id,signal"
+        - id: second
+          type: text
+          match: text
+          prompt: 文件的第二行原样是什么？
+          key: "7,S_B,10"
+        - id: ncols
+          type: text
+          format: integer
+          prompt: 用 Excel 打开，一共有几列？
+          key: 3
+      explanation: |
+        第一行是 **`,sample_id,signal`**，第二行是 **`7,S_B,10`**，用 Excel 打开有 **3** 列。没写 `index=False`，行索引 7、22、4 也被写成了第一列；这一列在表里没有列名，所以第一行以一个逗号开头。
+
+        要是写成 `kept.to_csv("kept.csv", index=False)`，第一行就是 `sample_id,signal`，只有两列。
+      verify: |
+        r = run()
+        lines = open("kept.csv", encoding="utf-8").read().splitlines()
+        answers = {"header": lines[0], "second": lines[1], "ncols": len(lines[0].split(","))}
+    practice:
+      - id: py34.k1.q1
+        kind: [predict]
+        data: [pandas, kept]
+        body: |
+          阅读代码，说出写出的文件 `kept_q1.csv` 里有什么。
+
+          ```python
+          kept.to_csv("kept_q1.csv", index=False)
+          ```
+        slots:
+          - id: header
+            type: text
+            match: text
+            prompt: 文件的第一行原样是什么？
+            key: "sample_id,signal"
+            feedback:
+              - when: ",sample_id,signal"
+                message: 写了 index=False，行索引不会写进文件，第一行不再以逗号开头。
+          - id: nlines
+            type: text
+            format: integer
+            prompt: 文件一共有几行（列名那一行也算）？
+            key: 4
+          - id: second
+            type: text
+            match: text
+            prompt: 文件的第二行原样是什么？
+            key: "S_B,10"
+        explanation: |
+          第一行是 **`sample_id,signal`**，一共 **4** 行（1 行列名加 3 行记录），第二行是 **`S_B,10`**。`index=False` 让行索引 7、22、4 不进文件。
+        verify: |
+          run()
+          lines = open("kept_q1.csv", encoding="utf-8").read().splitlines()
+          answers = {"header": lines[0], "nlines": len(lines), "second": lines[1]}
+      - id: py34.k1.q2
+        kind: [modify]
+        data: [pandas, kept]
+        body: |
+          需求是：导出 `out.csv`，**signal 在前、sample_id 在后**，不要行索引，行的顺序不变。哪一行代码符合需求？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: plain
+                content: |
+                  ```python
+                  kept.to_csv("out.csv", index=False)
+                  ```
+                feedback: 列按表里原来的顺序写出，sample_id 仍在前。
+              - id: index
+                content: |
+                  ```python
+                  kept[["signal", "sample_id"]].to_csv("out.csv")
+                  ```
+                feedback: 列的顺序对了，但没写 index=False，行索引成了第一列。
+              - id: right
+                content: |
+                  ```python
+                  kept[["signal", "sample_id"]].to_csv("out.csv", index=False)
+                  ```
+              - id: sorted
+                content: |
+                  ```python
+                  kept.sort_values("signal").to_csv("out.csv", index=False)
+                  ```
+                feedback: sort_values 调换的是行的顺序，不是列的顺序。
+            key: right
+        explanation: |
+          `kept[["signal", "sample_id"]].to_csv("out.csv", index=False)`：先按需求的顺序选出两列，再不带行索引写出。直接导出 `kept` 时列的顺序没变；忘了 `index=False` 会多出行索引那一列；排序改的是行的先后，列的顺序不变。
+        verify: |
+          # 按需求独立写出期望的文件内容：先 signal 后 sample_id，没有行索引，行序不变。
+          expected = ["signal,sample_id"] + [f"{s},{i}" for i, s in zip(kept["sample_id"], kept["signal"])]
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              result = run(code)
+              if result.error is None and open("out.csv", encoding="utf-8").read().splitlines() == expected:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py34.k1.q3
+        kind: [specify]
+        data: [pandas, sites]
+        body: |
+          表 sites 要导出成 `sites.csv`，发给一位用 Windows 的同事，他会双击用 Excel 打开。他只要 site 和 depth 两列（site 在前），不要行索引。哪一行代码符合要求？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: no_bom
+                content: |
+                  ```python
+                  sites[["site", "depth"]].to_csv("sites.csv", index=False)
+                  ```
+                feedback: 没写 encoding="utf-8-sig"，Excel 双击打开时“北坡”这些中文常常显示成乱码。
+              - id: right
+                content: |
+                  ```python
+                  sites[["site", "depth"]].to_csv("sites.csv", index=False, encoding="utf-8-sig")
+                  ```
+              - id: with_index
+                content: |
+                  ```python
+                  sites[["site", "depth"]].to_csv("sites.csv", encoding="utf-8-sig")
+                  ```
+                feedback: 没写 index=False，行索引 5、12、3 成了第一列。
+              - id: order
+                content: |
+                  ```python
+                  sites.to_csv("sites.csv", index=False, encoding="utf-8-sig")
+                  ```
+                feedback: 表里 depth 在前，直接导出时列的顺序不符合要求。
+            key: right
+        explanation: |
+          `sites[["site", "depth"]].to_csv("sites.csv", index=False, encoding="utf-8-sig")` 三处都符合：先选列定下 site 在前，`index=False` 不写行索引，`encoding="utf-8-sig"` 在文件开头写入标记，让 Excel 认出中文。其他几行各少了一处。
+        verify: |
+          BOM = b"\xef\xbb\xbf"
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              result = run(code)
+              raw = open("sites.csv", "rb").read()
+              header = raw.decode("utf-8-sig").splitlines()[0]
+              if result.error is None and raw.startswith(BOM) and header == "site,depth":
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py34.k1.r1
+        kind: [modify]
+        data: [pandas, summary]
+        body: |
+          需求是：把 summary 导出成 `summary_r1.csv`，只要 group 和 mean_signal 两列（group 在前），不要行索引，编码用 utf-8-sig。从下面的代码块里选出需要的，排成程序；用不到的不要放进来。
+        slots:
+          - id: lines
+            type: order
+            partial: true
+            items:
+              - { id: write_index, code: 'out.to_csv("summary_r1.csv", encoding="utf-8-sig")' }
+              - { id: pick_wrong, code: 'out = summary[["mean_signal", "group"]]' }
+              - { id: write, code: 'out.to_csv("summary_r1.csv", index=False, encoding="utf-8-sig")' }
+              - { id: pick, code: 'out = summary[["group", "mean_signal"]]' }
+              - { id: write_all, code: 'summary.to_csv("summary_r1.csv", index=False, encoding="utf-8-sig")' }
+            key: [pick, write]
+            tests:
+              - name: 文件内容符合需求
+                setup: |
+                  import os
+                  if os.path.exists("summary_r1.csv"):
+                      os.remove("summary_r1.csv")
+                expect:
+                  open("summary_r1.csv", encoding="utf-8").read(): '"﻿group,mean_signal\ncontrol,9.5\ndrug,11.5\n"'
+                  summary: summary
+        explanation: |
+          先 `out = summary[["group", "mean_signal"]]` 选出两列并定下顺序，再 `out.to_csv("summary_r1.csv", index=False, encoding="utf-8-sig")` 写出。文件内容是一行列名 `group,mean_signal` 加两行记录，开头有 utf-8-sig 的标记。直接导出 `summary` 会多出 n 列；少了 `index=False` 会多出行索引列。
+      - id: py34.k1.r2
+        kind: [predict]
+        data: [pandas, soil]
+        body: |
+          下面三行各写出一个文件。分别写出每个文件的第一行。
+
+          ```python startLine=1
+          soil.to_csv("a.csv")
+          soil[["depth", "site"]].to_csv("b.csv", index=False)
+          soil[["site"]].to_csv("c.csv")
+          ```
+        slots:
+          - id: headers
+            type: table
+            columns:
+              - { id: line, header: 代码 }
+              - { id: file, header: 文件 }
+              - { id: header, header: 文件的第一行, input: { type: text, match: text } }
+            rows:
+              - { id: a, cells: { line: 第 1 行, file: a.csv, header: ",site,depth" } }
+              - { id: b, cells: { line: 第 2 行, file: b.csv, header: "depth,site" } }
+              - { id: c, cells: { line: 第 3 行, file: c.csv, header: ",site" } }
+        explanation: |
+          - `a.csv`：**`,site,depth`**。没写 `index=False`，行索引成了没有列名的第一列。
+          - `b.csv`：**`depth,site`**。先选列定下了 depth 在前，`index=False` 不写行索引。
+          - `c.csv`：**`,site`**。只选了 site 一列，但仍带着行索引。
+        verify: |
+          answers = {"headers": {}}
+          for line, name in zip(CODE.splitlines(), ["a", "b", "c"]):
+              run(line)
+              answers["headers"][name] = {"header": open(f"{name}.csv", encoding="utf-8").read().splitlines()[0]}
+    quiz:
+      - id: py34.k1.x1
+        kind: [modify]
+        data: [pandas, report]
+        body: |
+          需求是：
+
+          > 把 report 导出成 `report.csv`，只要 group 和 mean_signal 两列（group 在前），不要行索引；同事会用 Excel 打开，组名是中文，编码用 utf-8-sig。
+
+          作答框里的代码不符合需求，请改动它并提交。判分时会读出文件的全部内容核对，还会换一张表运行你的代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              report.to_csv("report.csv")
+            solution: |
+              report[["group", "mean_signal"]].to_csv("report.csv", index=False, encoding="utf-8-sig")
+            accepts:
+              - |
+                out = report[["group", "mean_signal"]]
+                out.to_csv("report.csv", encoding="utf-8-sig", index=False)
+            rejects:
+              - code: report[["group", "mean_signal"]].to_csv("report.csv", index=False)
+                why: 没写 utf-8-sig，Excel 打开中文可能乱码
+              - code: report[["group", "mean_signal"]].to_csv("report.csv", encoding="utf-8-sig")
+                why: 行索引写进了文件
+              - code: report.to_csv("report.csv", index=False, encoding="utf-8-sig")
+                why: 多导出了 n 列
+              - code: report[["mean_signal", "group"]].to_csv("report.csv", index=False, encoding="utf-8-sig")
+                why: 列的顺序反了
+            tests:
+              - name: 表 report
+                setup: |
+                  import os
+                  if os.path.exists("report.csv"):
+                      os.remove("report.csv")
+                expect:
+                  open("report.csv", "rb").read(3): 'b"\xef\xbb\xbf"'
+                  open("report.csv", encoding="utf-8-sig").read(): '"group,mean_signal\n对照,8.5\n处理,12.5\n"'
+                  report: report
+              - name: 换一张索引不按顺序的表
+                hidden: true
+                data: [pandas, report2]
+                setup: |
+                  import os
+                  if os.path.exists("report.csv"):
+                      os.remove("report.csv")
+                expect:
+                  open("report.csv", "rb").read(3): 'b"\xef\xbb\xbf"'
+                  open("report.csv", encoding="utf-8-sig").read(): '"group,mean_signal\n高剂量,13.5\n对照,8.0\n低剂量,10.5\n"'
+        explanation: |
+          ```python
+          report[["group", "mean_signal"]].to_csv("report.csv", index=False, encoding="utf-8-sig")
+          ```
+
+          三处要改：先选出 group、mean_signal 两列并定下顺序；`index=False` 去掉行索引列；`encoding="utf-8-sig"` 让 Excel 认出中文。文件内容是 `group,mean_signal`、`对照,8.5`、`处理,12.5` 三行，开头带一个看不见的标记。
+      - id: py34.k1.x2
+        kind: [predict]
+        data: [pandas, counts]
+        body: |
+          阅读代码，说出写出的文件 `counts.csv` 里有什么。
+
+          ```python
+          counts.to_csv("counts.csv")
+          ```
+        slots:
+          - id: nlines
+            type: text
+            format: integer
+            prompt: 文件一共有几行（列名那一行也算）？
+            key: 6
+          - id: nfields
+            type: text
+            format: integer
+            prompt: 每一行有几个用逗号隔开的格子？
+            key: 3
+          - id: last
+            type: text
+            match: text
+            prompt: 文件的最后一行原样是什么？
+            key: "50,O5,5"
+        explanation: |
+          一共 **6** 行：1 行列名加 5 行记录。没写 `index=False`，行索引也写进去了，所以每行有 **3** 个格子：行索引、obs_id、count。最后一行是 **`50,O5,5`**。
+        verify: |
+          run()
+          lines = open("counts.csv", encoding="utf-8").read().splitlines()
+          widths = {len(line.split(",")) for line in lines}
+          answers = {"nlines": len(lines), "nfields": widths.pop() if len(widths) == 1 else sorted(widths), "last": lines[-1]}
+
   - id: py34.k2
     title: 输出后按需求核对行数、键和数值
+    card:
+      name: 导出后核对
+      aliases: [读回核对, 前导零, is_unique]
+      definition: 导出后把文件读回来，按需求核对：行数是否等于应有的条数，业务键有没有重复，挑一两个能手算的值看对不对。
+      conditions:
+        - '编号列读回时写 dtype={"sample_id": "str"}，否则 "001" 会被读成数字 1，看起来像文件错了。'
+        - 行数对了不代表没问题：可能一条重复、另一条缺了，键也要查。
+      example:
+        from: py34.k2.e0
+        text: |
+          ```python
+          back = pd.read_csv("per_sample.csv", dtype={"sample_id": "str"})
+          ```
+          读回 3 行，sample_id 没有重复，第一个编号仍是 001；不写 dtype 时会读成 1。
+    lesson: |
+      代码运行完、文件写出来了，还不等于交付完成。把文件读回来，照着需求核对三样：
+
+      1. **行数**：需求说“每个样本一行，共 3 个样本”，`len(back)` 就应该是 3。
+      2. **键**：样本编号这样的业务键不能重复。`back["sample_id"].is_unique` 在这一列没有重复值时是 True，有重复时是 False。
+      3. **数值**：挑一两个能手算的值看一看，例如某个样本的 signal。
+
+      行数对了也别急着放心：一个样本重复、另一个样本缺了，行数照样对得上，所以键要单独查。
+
+      读回时要按需求的口径读。编号 `001` 在文件里写得好好的，但 `pd.read_csv` 默认把这一列读成数字 1，前导零就没了，看起来像是文件出了错。读回时写 `dtype={"sample_id": "str"}`，编号才按文字读进来，和需求里的写法一致。
+    example:
+      id: py34.k2.e0
+      kind: [predict]
+      uses: [py15.k2, py15.k3]
+      data: [pandas, per_sample]
+      body: |
+        需求是“每个样本一行，共 3 个样本，编号保留前导零”。阅读导出和核对的代码。
+
+        ```python
+        per_sample.to_csv("per_sample.csv", index=False)
+        back = pd.read_csv("per_sample.csv", dtype={"sample_id": "str"})
+        n_rows = len(back)
+        unique = back["sample_id"].is_unique
+        first = back["sample_id"].iloc[0]
+        ```
+      slots:
+        - id: n_rows
+          type: text
+          format: integer
+          prompt: "`n_rows` 是多少？"
+          key: 3
+        - id: unique
+          type: choice
+          prompt: "`unique` 是什么？"
+          options:
+            - { id: "True", content: "True" }
+            - { id: "False", content: "False" }
+          key: "True"
+        - id: first
+          type: text
+          match: text
+          prompt: "`first` 是什么？"
+          key: "001"
+        - id: plain
+          type: text
+          match: output
+          prompt: '如果第二行不写 `dtype={"sample_id": "str"}`，`first` 用 print 显示出来是什么？'
+          key: "1"
+      explanation: |
+        `n_rows` 是 **3**，`unique` 是 **True**，`first` 是 **001**：按文字读回，前导零还在。
+
+        不写 dtype 时，pandas 看这一列都是数字，就读成整数，`first` 显示为 **1**。文件里写的仍是 `001`，变的是读法。
+      verify: |
+        r = run()
+        plain = run(CODE.replace(', dtype={"sample_id": "str"}', "") + "\nprint(first)")
+        answers = {"n_rows": r["n_rows"], "unique": str(bool(r["unique"])), "first": r["first"], "plain": plain.lines()[0]}
+    practice:
+      - id: py34.k2.q1
+        kind: [predict]
+        uses: [py15.k2]
+        data: [pandas, plots]
+        body: |
+          阅读代码。
+
+          ```python
+          plots.to_csv("plots_q1.csv", index=False)
+          back = pd.read_csv("plots_q1.csv")
+          print(back["plot_id"].tolist())
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "[7, 12, 100]"
+            feedback:
+              - when: "['007', '012', '100']"
+                message: 读回时没有写 dtype，pandas 把这一列读成了整数。
+          - id: file
+            type: choice
+            prompt: 文件 plots_q1.csv 里，第一块样地的编号写的是什么？
+            options:
+              - { id: zeros, content: "`007`" }
+              - { id: seven, content: "`7`" }
+            key: zeros
+        explanation: |
+          显示 **`[7, 12, 100]`**。文件里写的是 **`007`**，前导零是在读回时丢的：不写 `dtype`，pandas 把全是数字的一列读成整数。要保留编号的原样，读回时写 `dtype={"plot_id": "str"}`。
+        verify: |
+          r = run()
+          second_line = open("plots_q1.csv", encoding="utf-8").read().splitlines()[1]
+          answers = {"output": r.lines()[0], "file": "zeros" if second_line.split(",")[0] == "007" else "seven"}
+      - id: py34.k2.q2
+        kind: [predict, debug]
+        uses: [py25.k1, py15.k3]
+        data: [pandas, merged]
+        body: |
+          需求是“每个样本一行，共 3 个样本（S_A、S_B、S_C）”。拼表以后导出，再读回来核对。
+
+          ```python
+          merged.to_csv("merged.csv", index=False)
+          back = pd.read_csv("merged.csv")
+          n_rows = len(back)
+          unique = back["sample_id"].is_unique
+          ```
+        slots:
+          - id: n_rows
+            type: text
+            format: integer
+            prompt: "`n_rows` 是多少？"
+            key: 4
+          - id: unique
+            type: choice
+            prompt: "`unique` 是什么？"
+            options:
+              - { id: "False", content: "False" }
+              - { id: "True", content: "True" }
+            key: "False"
+          - id: dup
+            type: text
+            match: text
+            prompt: 哪个 sample_id 出现了不止一次？
+            key: S_B
+          - id: ok
+            type: choice
+            prompt: 这个文件符合需求吗？
+            options:
+              - { id: "yes", content: 符合，文件能读回来就行 }
+              - { id: "no", content: 不符合，行数和键都不对 }
+            key: "no"
+        explanation: |
+          `n_rows` 是 **4**，`unique` 是 **False**：**S_B** 出现了两次，两行的 signal 还不一样（10 和 11）。需求是每个样本一行、共 3 行，所以**不符合**，要回头查拼表那一步为什么多出一行，而不是随手删掉一行。
+        verify: |
+          r = run()
+          back = r["back"]
+          counts = back["sample_id"].value_counts()
+          dups = list(counts[counts > 1].index)
+          ok = len(back) == 3 and back["sample_id"].is_unique
+          answers = {"n_rows": r["n_rows"], "unique": str(bool(r["unique"])), "dup": dups[0] if len(dups) == 1 else dups, "ok": "yes" if ok else "no"}
+      - id: py34.k2.q3
+        kind: [modify]
+        uses: [py15.k2, py15.k3]
+        data: [pandas, checked]
+        body: |
+          文件 `export.csv` 已经导出好了，内容就是上面这张表。核对的代码只写了第一行，请补全另外两行：
+
+          - `n_rows`：读回来的行数；
+          - `ids_unique`：sample_id 这一列没有重复值时为 True，有重复时为 False。
+
+          判分时还会换几份文件运行你的代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              back = pd.read_csv("export.csv", dtype={"sample_id": "str"})
+              n_rows = ...
+              ids_unique = ...
+            solution: |
+              back = pd.read_csv("export.csv", dtype={"sample_id": "str"})
+              n_rows = len(back)
+              ids_unique = back["sample_id"].is_unique
+            accepts:
+              - |
+                back = pd.read_csv("export.csv", dtype={"sample_id": "str"})
+                n_rows = back.shape[0]
+                ids_unique = not back["sample_id"].duplicated().any()
+            rejects:
+              - code: |
+                  back = pd.read_csv("export.csv", dtype={"sample_id": "str"})
+                  n_rows = len(back)
+                  ids_unique = True
+                why: 没有真正检查，直接写 True
+              - code: |
+                  back = pd.read_csv("export.csv", dtype={"sample_id": "str"})
+                  n_rows = 3
+                  ids_unique = back["sample_id"].is_unique
+                why: 照着这份文件把行数写死
+              - code: |
+                  back = pd.read_csv("export.csv", dtype={"sample_id": "str"})
+                  n_rows = len(back.columns)
+                  ids_unique = back["sample_id"].is_unique
+                why: 数成了列数
+            tests:
+              - name: 文件 export.csv
+                setup: export.to_csv("export.csv", index=False)
+                expect:
+                  n_rows: "3"
+                  ids_unique: "True"
+              - name: 有重复编号的文件
+                hidden: true
+                data: [pandas, checked2]
+                setup: export.to_csv("export.csv", index=False)
+                expect:
+                  n_rows: "4"
+                  ids_unique: "False"
+              - name: 只有两行的文件
+                hidden: true
+                data: [pandas, checked3]
+                setup: export.to_csv("export.csv", index=False)
+                expect:
+                  n_rows: "2"
+                  ids_unique: "True"
+                  back["sample_id"].tolist(): '["010", "100"]'
+        explanation: |
+          ```python
+          n_rows = len(back)
+          ids_unique = back["sample_id"].is_unique
+          ```
+
+          `len(back)` 是读回来的行数；`.is_unique` 直接回答“这一列有没有重复”。两个值都从读回来的表算出，换一份文件照样能用；照着这份文件写死 3 或 True，换一份有重复的文件就查不出问题了。
+    review:
+      - id: py34.k2.r1
+        kind: [debug]
+        uses: [py25.k1, py15.k3]
+        data: [pandas, site_means]
+        body: |
+          需求是：“导出 site_means.csv，列为 site、mean_depth；每个采样点一行，共 4 个采样点（北坡、南坡、东坡、西坡），site 不重复。”导出以后读回来：
+
+          ```python
+          site_means.to_csv("site_means.csv", index=False)
+          back = pd.read_csv("site_means.csv")
+          ```
+        slots:
+          - id: failed
+            type: choice
+            multiple: true
+            prompt: 下面几项核对，哪几项**没有通过**？选出全部。
+            options:
+              - { id: columns, content: "列名依次是 site、mean_depth" }
+              - { id: rows, content: 行数等于 4 }
+              - { id: key, content: site 没有重复 }
+              - { id: covered, content: 四个采样点都出现了 }
+            key: [rows, key]
+        explanation: |
+          **行数**和**键**没有通过：读回来有 5 行，南坡出现了两次。列名依次是 site、mean_depth，四个采样点也都出现了，这两项通过。这份结果还不能交出去，要先弄清南坡为什么有两行。
+        verify: |
+          back = run()["back"]
+          results = {
+              "columns": list(back.columns) == ["site", "mean_depth"],
+              "rows": len(back) == 4,
+              "key": bool(back["site"].is_unique),
+              "covered": set(back["site"]) >= {"北坡", "南坡", "东坡", "西坡"},
+          }
+          answers = {"failed": [name for name, passed in results.items() if not passed]}
+      - id: py34.k2.r2
+        kind: [explain]
+        uses: [py15.k2]
+        data: [pandas, tubes]
+        body: |
+          同事导出后读回来，发现编号变成了 7、8、12，于是说：“导出把编号前面的 0 弄丢了，文件坏了。”
+
+          ```python
+          tubes.to_csv("tubes.csv", index=False)
+          back = pd.read_csv("tubes.csv")
+          print(back["tube_id"].tolist())
+          ```
+        slots:
+          - id: line
+            type: text
+            match: text
+            prompt: 文件 tubes.csv 的第二行原样是什么？
+            key: "007,5"
+          - id: cause
+            type: choice
+            prompt: 编号变成 7、8、12 的原因是什么？
+            options:
+              - id: export
+                content: to_csv 写文件时去掉了前导零
+              - id: read
+                content: 文件里还是 007，读回时没写 dtype，pandas 把这一列读成了整数
+              - id: excel
+                content: 文件要用 utf-8-sig 编码才能保留前导零
+            key: read
+        explanation: |
+          文件第二行是 **`007,5`**，导出没有问题。编号变成 7、8、12，是因为**读回时没写 dtype**，pandas 把全是数字的一列读成了整数。核对时写 `pd.read_csv("tubes.csv", dtype={"tube_id": "str"})`，读回来就是 007、008、012。编码管的是文字怎样存，和前导零无关。
+        verify: |
+          r = run()
+          lines = open("tubes.csv", encoding="utf-8").read().splitlines()
+          file_has_zeros = lines[1].split(",")[0] == "007"
+          read_as_numbers = r["back"]["tube_id"].tolist() == [7, 8, 12]
+          answers = {"line": lines[1], "cause": "read" if file_has_zeros and read_as_numbers else "export"}
+    quiz:
+      - id: py34.k2.x1
+        kind: [predict, debug]
+        uses: [py25.k1, py15.k3]
+        data: [pandas, final]
+        body: |
+          需求是“每个样本一行，共 4 个样本（S01、S02、S03、S04），列为 sample_id、signal”。导出后读回来，打印三项核对的结果。
+
+          ```python
+          final.to_csv("final.csv", index=False)
+          back = pd.read_csv("final.csv")
+          print(len(back) == 4)
+          print(back["sample_id"].is_unique)
+          print(list(back.columns) == ["sample_id", "signal"])
+          ```
+        slots:
+          - id: checks
+            type: table
+            columns:
+              - { id: check, header: 核对 }
+              - { id: shown, header: 显示, input: bool }
+            rows:
+              - { id: c1, cells: { check: 行数等于 4, shown: true } }
+              - { id: c2, cells: { check: sample_id 没有重复, shown: false } }
+              - { id: c3, cells: { check: 列名依次是 sample_id、signal, shown: true } }
+          - id: deliver
+            type: choice
+            prompt: 这个文件能按需求交出去吗？
+            options:
+              - id: "yes"
+                content: 能，行数对了
+              - id: "no"
+                content: 不能，S03 出现了两次，S04 缺了
+            key: "no"
+        explanation: |
+          三行依次显示 **True、False、True**。行数恰好是 4，但那是因为 S03 出现了两次、S04 缺了，两处错误互相抵消了。所以**不能**交出去：只看行数会漏掉这种问题，键要单独查。
+        verify: |
+          r = run()
+          shown = [line.strip() == "True" for line in r.lines()]
+          ids = set(r["back"]["sample_id"])
+          deliver = all(shown) and ids == {"S01", "S02", "S03", "S04"}
+          answers = {
+              "checks": {f"c{i}": {"shown": value} for i, value in enumerate(shown, 1)},
+              "deliver": "yes" if deliver else "no",
+          }
+      - id: py34.k2.x2
+        kind: [modify]
+        uses: [py15.k2]
+        data: [pandas, batch]
+        body: |
+          文件 `batch.csv` 已经导出好了，内容就是上面这张表。需求是：编号保留前导零，signal 照常是整数。
+
+          作答框里的核对代码读回时丢了前导零，请改动它并提交，变量名不变。判分时还会换一份文件运行你的代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              back = pd.read_csv("batch.csv")
+              ids = back["sample_id"].tolist()
+              n_rows = len(back)
+            solution: |
+              back = pd.read_csv("batch.csv", dtype={"sample_id": "str"})
+              ids = back["sample_id"].tolist()
+              n_rows = len(back)
+            rejects:
+              - code: |
+                  back = pd.read_csv("batch.csv")
+                  ids = back["sample_id"].astype(str).tolist()
+                  n_rows = len(back)
+                why: 读成整数以后再转回文字，前导零已经没了
+              - code: |
+                  back = pd.read_csv("batch.csv", dtype=str)
+                  ids = back["sample_id"].tolist()
+                  n_rows = len(back)
+                why: 把所有列都读成文字，signal 也成了文字
+            tests:
+              - name: 文件 batch.csv
+                setup: batch.to_csv("batch.csv", index=False)
+                expect:
+                  ids: '["007", "012", "100"]'
+                  back["signal"].tolist(): "[8, 10, 13]"
+                  n_rows: "3"
+              - name: 换一份文件
+                hidden: true
+                data: [pandas, batch2]
+                setup: batch.to_csv("batch.csv", index=False)
+                expect:
+                  ids: '["0001", "0420"]'
+                  back["signal"].tolist(): "[4, 9]"
+                  n_rows: "2"
+        explanation: |
+          ```python
+          back = pd.read_csv("batch.csv", dtype={"sample_id": "str"})
+          ```
+
+          只给 sample_id 这一列指定按文字读，编号就保留 `007` 的原样，signal 仍按整数读。先读成整数再 `astype(str)` 已经晚了，得到的是 `"7"`；`dtype=str` 把所有列都读成文字，signal 也成了 `"8"`。
