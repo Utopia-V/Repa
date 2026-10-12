@@ -497,3 +497,42 @@ test("通用 Agent 默认带 ask_user，插件 Agent 在定义里列出才有", 
   assert.ok(declared[0]?.includes("ask_user"));
   assert.deepEqual(declared.slice(1), [["ask_user"], ["read"]]);
 });
+
+test("前端关闭询问或报告无法显示时，Agent 得到相应的工具结果", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const client = await f.connect(FULL);
+  await client.call("space.open", { root: f.root });
+  const session = await client.call("session.create", {});
+  const texts: string[] = [];
+  for (const action of ["cancel", "unsupported"] as const) {
+    f.faux.setResponses([fauxAssistantMessage(fauxToolCall("ask_user", { questions: [{ question: "继续吗？" }] })), f.reply("好的")]);
+    const asked = next(client, "ask.request");
+    const running = client.call("session.send", { sessionId: session.id, text: "开始" });
+    const request = await asked;
+    const closed = next(client, "ask.closed");
+    assert.equal(await client.call("ask.reply", { id: request.id, action }), null);
+    assert.deepEqual(await closed, { id: request.id, reason: "cancelled" });
+    await running;
+    texts.push(toolResults(f.captures.at(-1) as TranscriptContext).at(-1)?.text ?? "");
+  }
+  assert.deepEqual(texts, ["用户关闭了询问，没有作答。", "当前界面无法显示这张询问卡片，用户没有看到问题。请改用文字提问。"]);
+});
+
+test("关闭空间时在途询问以 closed 结束，前端收起卡片，工具得到 ask_cancelled", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const client = await f.connect(FULL);
+  await client.call("space.open", { root: f.root });
+  const session = await client.call("session.create", {});
+  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("practice_once", {}))]);
+  const asked = next(client, "ask.request");
+  const sending = client.call("session.send", { sessionId: session.id, text: "练习" });
+  sending.catch(() => undefined);
+  const request = await asked;
+  const closed = next(client, "ask.closed");
+  await client.call("space.close", {});
+  assert.deepEqual(await closed, { id: request.id, reason: "closed" });
+  await sending.catch(() => undefined);
+  const failure = f.state.failures.at(-1);
+  assert.ok(failure instanceof Error && "code" in failure && failure.code === "ask_cancelled");
+  assert.deepEqual("details" in failure ? failure.details : undefined, { reason: "closed" });
+});
