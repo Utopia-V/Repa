@@ -1,9 +1,43 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
-import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type Host, type PluginInstance, type Tool } from "../plugin.js";
+import type { AgentTool } from "../agent.js";
+import { prepareItem, type AskRoute } from "../ask.js";
+import {
+  BUILTIN_TOOLS,
+  RESERVED_TOOL_NAMES,
+  type AgentDefinition,
+  type AskOptions,
+  type AskOutcome,
+  type Host,
+  type PluginInstance,
+} from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
+import { currentRun } from "../run-context.js";
 import { object, parse, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
+
+const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
+
+/**
+ * 插件工具的 ToolContext.ask：来源写明插件、会话和工具调用，题目按词汇整理后交给路由。
+ * 判分回调在提问时的上下文里执行：它属于这次工具调用，写入记在这次运行名下；
+ * 带命令行的运行持有空间写锁等待回答，判分若在回复的上下文里写文件就会和它互相等待。
+ */
+async function askAs(route: AskRoute, pluginId: string, context: { signal: AbortSignal; callId: string }, options: AskOptions): Promise<AskOutcome> {
+  const item = await prepareItem(options.item);
+  const run = currentRun();
+  const evaluate = options.evaluate;
+  const inCall = AsyncLocalStorage.snapshot();
+  return route({
+    origin: { kind: "plugin", pluginId, ...(run === undefined ? {} : { sessionId: run.sessionId }), callId: context.callId },
+    purpose: options.purpose,
+    item,
+  }, {
+    signal: context.signal,
+    ...(evaluate === undefined ? {} : { evaluate: (response) => inCall(() => evaluate.call(options, response)) }),
+  });
+}
 
 const AgentFieldsSchema = object({
   id: Type.String({ pattern: "^[a-z][a-z0-9-]*$" }),
@@ -63,7 +97,8 @@ function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): 
 export async function openPluginHost(options: PluginHostOptions): Promise<PluginHost> {
   const { space } = options;
   const instances = new Map<string, PluginInstance>();
-  const pluginTools = new Map<string, Tool[]>();
+  const pluginTools = new Map<string, AgentTool[]>();
+  const askRoute = options.ask ?? NO_ASK;
   let agentDefinitions: AgentDefinition[] = [];
   let pending: Promise<void> = Promise.resolve();
   let pendingError: unknown;
@@ -187,7 +222,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       };
       const instance = await plugin.open(host);
       instances.set(plugin.id, instance);
-      const tools = (instance.tools?.() ?? []).map((tool): Tool => {
+      const tools = (instance.tools?.() ?? []).map((tool): AgentTool => {
         if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(tool.name)) {
           throw new RepaFault("invalid_tool_name", "插件工具名称必须有效且不能重复", { name: tool.name });
         }
@@ -196,11 +231,17 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         }
         names.add(tool.name);
         return {
-          ...tool,
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
           execute(input, context) {
             checkOpen();
             const checked = parse(tool.parameters, input);
-            return track(Promise.resolve().then(() => tool.execute(checked, context)));
+            const ask = (askOptions: AskOptions) => {
+              checkOpen();
+              return askAs(askRoute, plugin.id, context, askOptions);
+            };
+            return track(Promise.resolve().then(() => tool.execute(checked, { ...context, ask })));
           },
         };
       });

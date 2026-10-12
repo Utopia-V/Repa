@@ -1,5 +1,6 @@
 import type { Static, TSchema } from "typebox";
 import type { ActivitySource, ChangeFeed, Revision, Snapshot } from "@repa/space-history";
+import type { Item, ItemDraft, ItemResponse, SubmitResult } from "./interaction.js";
 import type { ClientCapabilities } from "./protocol.js";
 import type { MessageDecision, ModelRef } from "./schema.js";
 
@@ -9,11 +10,42 @@ export type { ClientCapabilities } from "./protocol.js";
 // 交互词汇：题目、作答、反馈的 schema 与类型，以及 contentVersion 等纯函数。
 export * from "./interaction.js";
 
+/** 工具在对话里向用户提问时交给 ToolContext.ask 的内容。 */
+export interface AskOptions {
+  /** 题库题带插件对完整定义算好的 version；没有时底座对公开内容计算。requires 由底座计算。 */
+  item: ItemDraft | Item;
+  /** question：征求意见；practice：练习小题，可以有反馈，不计入学习记录。 */
+  purpose: "question" | "practice";
+  /**
+   * 作答通过结构检查后由插件判分并返回反馈；返回 rejected 时询问保持打开，用户改好可以再交。省略则不判。
+   * 它在提问时的运行上下文里执行，期间的写入仍记在这次运行名下。
+   */
+  evaluate?(response: ItemResponse): Promise<SubmitResult>;
+}
+
+/** 询问的结局。decline 是用户不按卡片作答，可以附一句话；unsupported 表示前端不能显示这道题。 */
+export type AskOutcome =
+  | { action: "submit"; response: ItemResponse; result?: SubmitResult }
+  | { action: "decline"; message?: string }
+  | { action: "cancel" }
+  | { action: "unsupported" };
+
+export interface ToolContext {
+  signal: AbortSignal;
+  callId: string;
+  /**
+   * 向发起这次运行的连接提问，等用户作答。只发给这一个连接；它没有声明题目所需的能力时直接得到 unsupported。
+   * 没有发起连接时以 ask_unavailable 拒绝，题目不合词汇时以 invalid_item 拒绝；
+   * 运行中止、断线或空间关闭时以 ask_cancelled 拒绝，details.reason 说明原因。默认不设超时。
+   */
+  ask(options: AskOptions): Promise<AskOutcome>;
+}
+
 export interface Tool {
   name: string;
   description: string;
   parameters: TSchema;
-  execute(input: unknown, context: { signal: AbortSignal; callId: string }): Promise<{ text: string; data?: unknown }>;
+  execute(input: unknown, context: ToolContext): Promise<{ text: string; data?: unknown }>;
 }
 
 export interface MethodContext {

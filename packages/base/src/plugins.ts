@@ -1,11 +1,14 @@
-import type { AgentDefinition, MethodContext, Models, Plugin, Tool } from "./plugin.js";
+import type { AgentTool } from "./agent.js";
+import type { AskRoute } from "./ask.js";
+import type { AgentDefinition, MethodContext, Models, Plugin } from "./plugin.js";
 import type { Space } from "./space.js";
 
 export interface PluginHost {
   start(): Promise<void>;
   list(): { id: string; methods: string[]; tools: string[] }[];
   instructions(): { id: string; text: string }[];
-  tools(): Tool[];
+  /** 包装后的插件工具：宿主校验参数，并给上下文补上 ask。 */
+  tools(): AgentTool[];
   /** 全部插件声明的 Agent，按 id 排序；引用的工具与子 Agent 已在打开时核对。 */
   agents(): AgentDefinition[];
   views(): Promise<{ id: string; text: string }[]>;
@@ -19,6 +22,8 @@ export interface PluginHostOptions {
   space: Space;
   plugins: Plugin[];
   models: Models;
+  /** 对话里的询问，绑定发起运行的连接。省略时 ToolContext.ask 以 ask_unavailable 拒绝。 */
+  ask?: AskRoute;
   emit(pluginId: string, event: unknown): void;
   onError(error: unknown): void;
 }

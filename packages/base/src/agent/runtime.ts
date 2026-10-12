@@ -18,8 +18,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
-import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions } from "../agent.js";
-import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest, type Tool } from "../plugin.js";
+import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool } from "../agent.js";
+import { BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
@@ -81,7 +81,7 @@ interface AgentProfile {
   id: string;
   general: boolean;
   builtins: BuiltinTool[];
-  tools: Tool[];
+  tools: AgentTool[];
   subagents: string[];
   /** 本 Agent 自己的提示段：通用 Agent 为各插件说明，插件 Agent 为 agent:<id>。 */
   sections(): { id: string; text: string }[];
@@ -103,7 +103,7 @@ function sessionAgent(manager: SessionManager): string {
   throw new RepaFault("invalid_session_agent", "会话的 Agent 记录无法读取", { id: manager.getSessionId() });
 }
 
-function toolDefinition(tool: Tool): ToolDefinition {
+function toolDefinition(tool: AgentTool): ToolDefinition {
   return defineTool({
     name: tool.name,
     label: tool.name,

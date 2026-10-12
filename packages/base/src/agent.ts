@@ -1,7 +1,15 @@
 import type { Static, TSchema } from "typebox";
-import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest, Tool } from "./plugin.js";
+import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest } from "./plugin.js";
 import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, SessionEntry, SessionInfo } from "./schema.js";
 import type { SpaceWrites } from "./space.js";
+
+/** 交给运行时的工具。运行时只提供 signal 与 callId；插件工具的参数校验和 ToolContext.ask 由插件宿主补上。 */
+export interface AgentTool {
+  name: string;
+  description: string;
+  parameters: TSchema;
+  execute(input: unknown, context: { signal: AbortSignal; callId: string }): Promise<{ text: string; data?: unknown }>;
+}
 
 export interface AgentSession {
   info(): SessionInfo;
@@ -32,7 +40,7 @@ export interface AgentSpaceOptions {
   sessionsDir: string;
   /** 全部插件的说明、工具和 view，组成通用 Agent。 */
   instructions(): { id: string; text: string }[];
-  tools(): Tool[];
+  tools(): AgentTool[];
   views(): Promise<{ id: string; text: string }[]>;
   /** 插件声明的 Agent。 */
   agents?(): AgentDefinition[];

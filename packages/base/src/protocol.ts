@@ -1,6 +1,12 @@
 import { Type, type Static } from "typebox";
 import type { ChangeFeed, Revision, UndoResult } from "@repa/space-history";
-import { InteractionCapabilitiesSchema } from "./interaction.js";
+import {
+  AskClosedSchema,
+  AskReplyParamsSchema,
+  AskReplyResultSchema,
+  AskRequestSchema,
+  InteractionCapabilitiesSchema,
+} from "./interaction.js";
 import {
   AgentEventSchema,
   AgentInfoSchema,
@@ -17,7 +23,7 @@ import {
 
 export * from "./schema.js";
 export * from "./interaction.js";
-// 2：initialize 增加 capabilities。客户端严格校验已有消息，加字段必须升版本。
+// 2：initialize 增加 capabilities，新增 ask.*。客户端严格校验已有消息，加字段必须升版本。
 export const PROTOCOL_VERSION = "2";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
@@ -69,6 +75,7 @@ export const methods = {
   "session.compact": { params: object(session), result: nothing },
   "session.fork": { params: object({ ...session, entryId: identifier }), result: SessionInfoSchema },
   "confirm.reply": { params: object({ id: identifier, value: confirmationReply }), result: nothing },
+  "ask.reply": { params: AskReplyParamsSchema, result: AskReplyResultSchema },
   "history.list": { params: object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })) }), result: historyList },
   "history.changes": { params: object({ since: Type.Optional(identifier) }), result: historyChanges },
   "history.undo": { params: object({ revision: identifier }), result: historyUndo },
@@ -94,6 +101,8 @@ export const methods = {
 export const notifications = {
   "session.event": AgentEventSchema,
   "confirm.request": object({ id: identifier, request: ConfirmationSchema }),
+  "ask.request": AskRequestSchema,
+  "ask.closed": AskClosedSchema,
   "plugin.event": object({ pluginId: identifier, event: Type.Unknown() }),
 } as const;
 
