@@ -143,7 +143,7 @@ export async function preparePackages(assets: RuntimeAssets, options: PrepareOpt
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    const temporary = `${target}.partial`;
+    const temporary = `${target}.${process.pid}.partial`;
     if (options.from) {
       await copyFile(path.join(options.from, wheel.file), temporary);
     } else {
