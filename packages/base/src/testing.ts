@@ -156,8 +156,8 @@ export interface PluginTestHostOptions {
   plugins: Plugin[];
   models?: ModelTestDriver;
   /**
-   * 模拟用户回答 ToolContext.ask：收到整理好的题目（version 与 requires 已算出），返回询问的结局。
-   * 要模拟提交时调用 options.evaluate 得到插件的判分。省略时询问以 ask_unavailable 失败。
+   * 模拟用户回答 ToolContext.ask：收到整理好的 Item（version 与 requires 已算出），返回询问的结局。
+   * 要模拟提交时调用 options.onSubmit 得到插件的处理结果。省略时询问以 ask_unavailable 失败。
    */
   ask?: AskRoute;
   /** 模拟前端声明的服务。省略时调用以 service_unavailable 失败。 */

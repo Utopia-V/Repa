@@ -6,8 +6,8 @@ import {
   AskReplyResultSchema,
   AskRequestSchema,
   InteractionCapabilitiesSchema,
+  readAskReplyResult,
   readAskRequest,
-  readSubmitResult,
   type ReadResult,
 } from "./interaction.js";
 import {
@@ -27,13 +27,13 @@ import {
 export * from "./schema.js";
 export * from "./interaction.js";
 // 2：initialize 增加 capabilities，新增 ask.* 与 service.*。客户端严格校验已有消息的信封，加字段必须升版本；
-// 信封里的题目和反馈按词汇的规则宽松读取，见 lenientNotifications。
+// 信封里的 Item 和内容块按词汇的规则宽松读取，见 lenientNotifications。
 export const PROTOCOL_VERSION = "2";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
 /**
  * 连接在 initialize 里声明的能力：interaction 是能显示的作答位、内容块和特性，services 是能提供的服务，
- * 例如浏览器隔离环境里的 python.run。服务端按连接保存；ask 只发给能显示那道题的连接，服务请求只发给声明了它的连接。
+ * 例如浏览器隔离环境里的 python.run。服务端按连接保存；ask 只发给能显示那份 Item 的连接，服务请求只发给声明了它的连接。
  */
 export const ClientCapabilitiesSchema = object({
   interaction: Type.Optional(InteractionCapabilitiesSchema),
@@ -122,14 +122,14 @@ export const notifications = {
 } as const;
 
 /**
- * 接收方读取带题目或反馈的消息时，不整体严格校验：信封仍按 schema 严格校验，里面的题目和反馈按词汇的规则宽松读取。
+ * 接收方读取带 Item 或内容块的消息时，不整体严格校验：信封仍按 schema 严格校验，里面的 Item 和内容块按词汇的规则宽松读取。
  * 这样词汇加了可选字段，旧前端照常显示；加了必须理解的特性，按 requires 判为不能作答。没有登记的消息照旧严格校验。
  */
 export const lenientNotifications: Partial<Record<Notification, (params: unknown) => ReadResult<unknown>>> = {
   "ask.request": readAskRequest,
 };
 export const lenientResults: Partial<Record<Method, (result: unknown) => ReadResult<unknown>>> = {
-  "ask.reply": (result) => result === null ? { ok: true, value: null } : readSubmitResult(result),
+  "ask.reply": readAskReplyResult,
 };
 
 export type Method = keyof typeof methods;

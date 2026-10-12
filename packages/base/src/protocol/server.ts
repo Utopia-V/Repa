@@ -10,11 +10,11 @@ import type { AskRoute } from "../ask.js";
 import {
   canRender,
   checkResponse,
-  SubmitResultSchema,
+  AskSubmitResultSchema,
   type AskClosed,
   type AskRequest,
+  type AskSubmitResult,
   type ItemResponse,
-  type SubmitResult,
 } from "../interaction.js";
 import type { AskOutcome, Plugin, Services } from "../plugin.js";
 import { openPluginHost, type PluginHost } from "../plugins.js";
@@ -76,8 +76,8 @@ type AskEnd = { outcome: AskOutcome } | { error: RepaFault };
 interface PendingAsk {
   peer: Peer;
   request: AskRequest;
-  evaluate?: (response: ItemResponse) => Promise<SubmitResult>;
-  /** 正在判分，同一询问的下一次提交要等它结束。 */
+  onSubmit?: (response: ItemResponse) => Promise<AskSubmitResult>;
+  /** 调用方正在处理上一次提交，同一询问的下一次提交要等它结束。 */
   busy: boolean;
   /** reason 有值时通知前端收起卡片；断线时连接已经不在，不通知。 */
   end(result: AskEnd, reason?: AskClosed["reason"]): void;
@@ -188,7 +188,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   };
   /**
    * 对话里的询问只发给发起这次运行的连接，沿用确认通道的待答表、连接绑定和取消：断线、运行中止和关空间都结束询问。
-   * 连接没有声明这道题需要的能力时不发送，直接得到 unsupported。
+   * 连接没有声明 Item 需要的能力时不发送，直接得到 unsupported。
    */
   const askFor = (peer: Peer | undefined): AskRoute => (input, options) => {
     const signal = options.signal;
@@ -205,7 +205,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       const pending: PendingAsk = {
         peer,
         request,
-        ...(options.evaluate === undefined ? {} : { evaluate: options.evaluate }),
+        ...(options.onSubmit === undefined ? {} : { onSubmit: options.onSubmit }),
         busy: false,
         end(result, reason) {
           if (asks.get(id) !== pending) return;
@@ -223,7 +223,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       send(peer, { jsonrpc: "2.0", method: "ask.request", params: request });
     });
   };
-  const replyAsk = async (peer: Peer, input: Params<"ask.reply">): Promise<SubmitResult | null> => {
+  const replyAsk = async (peer: Peer, input: Params<"ask.reply">): Promise<AskSubmitResult | null> => {
     const pending = asks.get(input.id);
     if (!pending || pending.peer !== peer) throw new RepaFault("ask_not_found", "询问不存在、已经结束或不属于当前连接");
     const response = input.response;
@@ -240,30 +240,26 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
     // 前面已确认 submit 带了作答；这里再查一次，类型上也就收窄了。
     if (response === undefined) throw new RepaFault("invalid_ask_reply", "提交需要带上作答");
-    if (pending.busy) throw new RepaFault("ask_busy", "上一次提交还在判分，请稍后再交");
-    const item = pending.request.item;
-    const checked = checkResponse(item, response);
-    if (!checked.ok) return { status: "rejected", problems: checked.problems };
-    let result: SubmitResult = { status: "recorded" };
-    if (pending.evaluate !== undefined) {
+    if (pending.busy) throw new RepaFault("ask_busy", "上一次提交还在处理，请稍后再交");
+    const checked = checkResponse(pending.request.item, response);
+    if (!checked.ok) return { status: "invalid", problems: checked.problems };
+    let result: AskSubmitResult = { status: "accepted" };
+    if (pending.onSubmit !== undefined) {
       pending.busy = true;
       try {
-        result = await pending.evaluate(response);
+        result = await pending.onSubmit(response);
       } catch {
-        // 插件判分失败时询问保持打开，用户可以再交或不按卡片作答；不把插件内部错误交给前端。
-        throw new RepaFault("ask_evaluation_failed", "这次作答没能判分，请再交一次或换一种方式回答");
+        // 调用方处理失败时询问保持打开，用户可以再交或不按卡片作答；不把插件内部错误交给前端。
+        throw new RepaFault("ask_submit_failed", "这次作答没能处理，请再交一次或换一种方式回答");
       } finally {
         pending.busy = false;
       }
-      const matches = (reference: { id: string; version: string }) => reference.id === item.id && reference.version === item.version;
-      if (!Check(SubmitResultSchema, result) || (result.status === "recorded" && result.feedback !== undefined && !matches(result.feedback.item))) {
-        throw new RepaFault("ask_evaluation_failed", "插件的判分结果不符合交互词汇");
-      }
+      if (!Check(AskSubmitResultSchema, result)) throw new RepaFault("ask_submit_failed", "调用方对这次作答的处理结果不符合交互词汇");
     }
-    // 判分期间询问可能已经因为中止、断线或关空间结束；结果不再交回。
+    // 处理期间询问可能已经因为中止、断线或关空间结束；结果不再交回。
     if (asks.get(input.id) !== pending) throw new RepaFault("ask_not_found", "询问已经结束");
-    if (result.status === "rejected") return result;
-    pending.end({ outcome: { action: "submit", response, result } }, "answered");
+    if (result.status === "invalid") return result;
+    pending.end({ outcome: { action: "submit", response } }, "answered");
     return result;
   };
   /**

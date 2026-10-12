@@ -355,18 +355,18 @@ test("后端发来无效 JSON 或不合 schema 的已知通知时，客户端主
   }
 });
 
-test("旧客户端读较新后端的题目：不认识的可选字段丢掉照常显示，必须理解的特性按 requires 判为不能作答", async (t) => {
+test("旧客户端读较新后端的询问：不认识的可选字段丢掉照常显示，必须理解的特性按 requires 判为不能作答", async (t) => {
   const capabilities = { interaction: { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] } };
   const item = {
-    id: "py01.k1.q1",
+    id: "health.sleep",
     version: `sha256:${"a".repeat(64)}`,
     requires: ["block.markdown", "slot.text"],
-    body: [{ type: "markdown", text: "运行后输出什么？" }],
-    slots: [{ id: "output", type: "text" }],
+    body: [{ type: "markdown", text: "昨晚睡了几个小时？" }],
+    slots: [{ id: "sleep", type: "text" }],
   };
   const reference = { id: item.id, version: item.version };
   const backend = await scriptedBackend(t, {
-    "ask.reply": { status: "recorded", attempt: 2, feedback: { item: reference, verdict: "almost", judge: "peer", tone: "warm" } },
+    "ask.reply": { status: "accepted", attempt: 2, message: [{ type: "markdown", text: "已记下", tone: "warm" }, { type: "video", asset: "tip" }] },
   });
   const client = await RepaClient.connect(backend.connection, { capabilities });
   t.after(() => client.close());
@@ -375,21 +375,21 @@ test("旧客户端读较新后端的题目：不认识的可选字段丢掉照�
     received.push(request);
     if (received.length === 2) resolve();
   }));
-  const envelope = { origin: { kind: "agent", sessionId: "s-1", callId: "call-1" }, purpose: "question" };
-  backend.push("ask.request", { ...envelope, id: "ask-1", item: { ...item, hint: "先看 print", slots: [{ id: "output", type: "text", unit: "行" }] } });
-  backend.push("ask.request", { ...envelope, id: "ask-2", item: { ...item, requires: [...item.requires, "text.handwriting"], slots: [{ id: "output", type: "text", handwriting: true }] } });
+  const envelope = { origin: { kind: "agent", sessionId: "s-1", callId: "call-1" } };
+  backend.push("ask.request", { ...envelope, id: "ask-1", item: { ...item, hint: "按小时填", slots: [{ id: "sleep", type: "text", unit: "小时" }] } });
+  backend.push("ask.request", { ...envelope, id: "ask-2", item: { ...item, requires: [...item.requires, "text.handwriting"], slots: [{ id: "sleep", type: "text", handwriting: true }] } });
   await both;
   assert.deepEqual(received.map((request) => request.item), [item, { ...item, requires: [...item.requires, "text.handwriting"] }]);
   assert.deepEqual(received.map((request) => canRender(capabilities.interaction, request.item)), [true, false]);
-  // 提交结果里的反馈同样宽松读取：不认识的字段和来源丢掉，不认识的 verdict 按中性读成 ungraded。
-  const result = await client.call("ask.reply", { id: "ask-1", action: "submit", response: { item: reference, answers: { output: { type: "text", text: "5" } } } });
-  assert.deepEqual(result, { status: "recorded", feedback: { item: reference, verdict: "ungraded" } });
+  // 提交结果同样宽松读取：附带内容里不认识的字段和内容块丢掉。
+  const result = await client.call("ask.reply", { id: "ask-1", action: "submit", response: { item: reference, answers: { sleep: { type: "text", text: "7" } } } });
+  assert.deepEqual(result, { status: "accepted", message: [{ type: "markdown", text: "已记下" }] });
   assert.equal(client.connected, true);
 });
 
-test("询问的信封多了字段，或题目里认识的字段类型不对时，客户端仍按无效协议数据断开", async (t) => {
+test("询问的信封多了字段，或 Item 里认识的字段类型不对时，客户端仍按无效协议数据断开", async (t) => {
   const item = { id: "q", version: `sha256:${"a".repeat(64)}`, requires: ["slot.text"], body: [], slots: [{ id: "a", type: "text" }] };
-  const envelope = { id: "ask-1", origin: { kind: "agent" }, purpose: "question" };
+  const envelope = { id: "ask-1", origin: { kind: "agent" } };
   const backend = await scriptedBackend(t, {});
   for (const params of [{ ...envelope, item, priority: 1 }, { ...envelope, item: { ...item, slots: [{ id: "a", type: "text", lines: "多行" }] } }]) {
     const client = await RepaClient.connect(backend.connection);

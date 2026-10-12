@@ -261,26 +261,13 @@
       },
       {
         "name": "ask_user",
-        "description": "向用户提出 1–4 个问题，等用户在界面上作答，回答作为工具结果交回。用于需要用户决定或澄清的地方；也可以出练习小题，把 purpose 设为 practice，用户作答后由你讲评。参数里不要写答案、解析或提示答案的内容，它们会在用户作答前显示出来。用户可以不按卡片作答而回一句话，也可以关掉询问。",
+        "description": "向用户提出 1–4 个问题，等用户在界面上作答，回答原样作为工具结果交回。用于需要用户决定、选择或澄清的地方。用户可以不按卡片作答而回一句话，也可以关掉询问。",
         "parameters": {
           "type": "object",
           "required": [
             "questions"
           ],
           "properties": {
-            "purpose": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "const": "question"
-                },
-                {
-                  "type": "string",
-                  "const": "practice"
-                }
-              ],
-              "description": "question（默认）：请用户决定或澄清；practice：给用户出练习小题，作答后由你讲评"
-            },
             "questions": {
               "type": "array",
               "items": {

@@ -25,22 +25,21 @@ const NO_SERVICES: Services = {
 };
 
 /**
- * 插件工具的 ToolContext.ask：来源写明插件、会话和工具调用，题目按词汇整理后交给路由。
- * 判分回调在提问时的上下文里执行：它属于这次工具调用，写入记在这次运行名下；
- * 带命令行的运行持有空间写锁等待回答，判分若在回复的上下文里写文件就会和它互相等待。
+ * 插件工具的 ToolContext.ask：来源写明插件、会话和工具调用，Item 按词汇整理后交给路由。
+ * onSubmit 在提问时的上下文里执行：它属于这次工具调用，写入记在这次运行名下；
+ * 带命令行的运行持有空间写锁等待回答，onSubmit 若在回复的上下文里写文件就会和它互相等待。
  */
 async function askAs(route: AskRoute, pluginId: string, context: { signal: AbortSignal; callId: string }, options: AskOptions): Promise<AskOutcome> {
   const item = await prepareItem(options.item);
   const run = currentRun();
-  const evaluate = options.evaluate;
+  const onSubmit = options.onSubmit;
   const inCall = AsyncLocalStorage.snapshot();
   return route({
     origin: { kind: "plugin", pluginId, ...(run === undefined ? {} : { sessionId: run.sessionId }), callId: context.callId },
-    purpose: options.purpose,
     item,
   }, {
     signal: context.signal,
-    ...(evaluate === undefined ? {} : { evaluate: (response) => inCall(() => evaluate.call(options, response)) }),
+    ...(onSubmit === undefined ? {} : { onSubmit: (response) => inCall(() => onSubmit.call(options, response)) }),
   });
 }
 
@@ -345,7 +344,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         const [latest] = await space.history.list(1);
         if (latest) wake(latest.id);
         await flush();
-        // 方法已经执行，状态照常唤醒；只是不把不符合声明的值交给调用方，多带的答案字段在这里被拦下。
+        // 方法已经执行，状态照常唤醒；只是不把不符合声明的值交给调用方，多带的字段在这里被拦下。
         if (method.result !== undefined && !Check(method.result, result)) {
           throw new RepaFault("invalid_plugin_result", "插件方法的返回值不符合它声明的 schema", { pluginId, methodName });
         }
