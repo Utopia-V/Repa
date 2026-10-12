@@ -1,7 +1,8 @@
 id: py43
 title: 读写文件时，先确认对象和范围
-status: outline
+status: complete
 minutes: 20
+summary: 读写文件前先确认三件事：相对路径从哪里算起，用什么编码读，打开方式会不会清空原有内容。
 prerequisites:
   - topic: py13
     key: true
@@ -29,11 +30,1388 @@ sources:
     url: https://docs.python.org/3.12/library/pathlib.html
     use: reference
 notes: |
-  建议题型与判分：解释代码（S/O）、找错（P）、写清需求（S/O）。
+  范围：只用 pathlib 的 Path 拼路径和 .name、.suffix、.parent、.exists()，open 加 with 读写整段文字，r/w/a 三种模式。不讲 if、循环、自定义函数、字典和 pandas（都不是本节的先修）；逐行读文件留给需要循环的地方。with 下面的缩进在本节就地说明。
+  运行环境：课程运行时的文件系统是 POSIX 写法，工作目录是 /home/pyodide。讲到 Windows 时用 PureWindowsPath 在核对程序里推出完整路径，题面不让学生在代码里写反斜杠。每道读写文件的题都在自己的 python 夹具里把要用的目录删掉重建，因为同一 topic 的核对任务共用一个内存文件系统。
+  “工作目录换了”这类题无法真的切换目录，核对程序在一个单独的模拟目录里建出同样的文件结构，再把相对路径接在模拟的工作目录后面判断能不能找到文件。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 3 分钟；收束 1 分钟。
+  情境、文件内容和题目为本课自拟。复习和测验题全部由程序核对，没有 manual 作答位。
+intro: |
+  这一节的代码会真的读写文件。读文件出错，最常见的不是代码写错了，而是：找的不是你以为的那个文件，读的编码和保存时不一样，或者一打开就把原来的内容清掉了。
+
+  课程的运行环境里，路径用 `/` 分隔；每道题开始前，题目用到的文件都会按题面重新准备好。你在 Windows 上看到的路径用反斜杠 `\`，道理完全相同。
+wrapup: |
+  读写文件之前，先回答三个问题：这个相对路径是从哪个文件夹算起的？文件是用什么编码保存的？这次打开会不会清空原来的内容？
+
+  向同事或 AI 提要求时，可以直接写：“从工作目录下的 data/plate1.csv 读，编码 UTF-8；结果写到 results 文件夹里的新文件，不要以写入方式打开 data 里的任何文件。”
+data:
+  plates:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("data", ignore_errors=True)
+      Path("data").mkdir()
+      Path("data/plate1.csv").write_text("sample_id,signal\nS_A,8\nS_B,10\n", encoding="utf-8")
+      Path("data/plate2.csv").write_text("sample_id,signal\nS_C,13\nS_D,10\n", encoding="utf-8")
+    display: |
+      当前工作目录里有一个 `data` 文件夹，里面只有 `plate1.csv` 和 `plate2.csv` 两个文件。
+  pathlib_ready:
+    kind: python
+    code: |
+      from pathlib import Path
+    display: |
+      已经运行过 `from pathlib import Path`。
+  raw_sites:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("raw", ignore_errors=True)
+      Path("north.csv").unlink(missing_ok=True)
+      Path("raw").mkdir()
+      Path("raw/north.csv").write_text("site,depth\n北坡,30\n", encoding="utf-8")
+      Path("raw/south.csv").write_text("site,depth\n南坡,25\n", encoding="utf-8")
+    display: |
+      当前工作目录里有一个 `raw` 文件夹，里面只有 `north.csv` 和 `south.csv`；工作目录本身没有其他 csv 文件。
+  note_plate1:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("notes", ignore_errors=True)
+      Path("notes").mkdir()
+      Path("notes/plate1.txt").write_text("批次 P1，共 4 个样本\n", encoding="utf-8")
+    display: |
+      文件 `notes/plate1.txt`（UTF-8 编码）的内容只有一行：
+
+      ```text
+      批次 P1，共 4 个样本
+      ```
+  log_run2:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("logs", ignore_errors=True)
+      Path("logs").mkdir()
+      Path("logs/run2.txt").write_text("  Signal OK  \n", encoding="utf-8")
+    display: |
+      文件 `logs/run2.txt`（UTF-8 编码）只有一行，开头和结尾各有两个空格：
+
+      ```text
+        Signal OK
+      ```
+  export_gbk:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("export", ignore_errors=True)
+      Path("export").mkdir()
+      PLATE2_TEXT = "样本,信号\nS_A,8\n"
+      Path("export/plate2.csv").write_bytes(PLATE2_TEXT.encode("gbk"))
+    display: |
+      `export/plate2.csv` 是用旧版 Windows 软件导出的，按 GBK 编码保存，用记事本打开看到的是：
+
+      ```text
+      样本,信号
+      S_A,8
+      ```
+  log_run5:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("logs", ignore_errors=True)
+      Path("logs").mkdir()
+      Path("logs/run5.txt").write_text("run 5 ok\n", encoding="utf-8")
+    display: |
+      文件 `logs/run5.txt`（UTF-8 编码）的内容是一行 `run 5 ok`。
+  log_run5b:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("logs", ignore_errors=True)
+      Path("logs").mkdir()
+      Path("logs/run5.txt").write_text("run 5 failed\n", encoding="utf-8")
+  field_gbk:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("field", ignore_errors=True)
+      Path("field").mkdir()
+      NOTE_TEXT = "北坡 30 厘米\n"
+      Path("field/site_notes.txt").write_bytes(NOTE_TEXT.encode("gbk"))
+    display: |
+      野外记录 `field/site_notes.txt` 是旧版记事本按 GBK 编码保存的，原文是一行：
+
+      ```text
+      北坡 30 厘米
+      ```
+  log_run7:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("logs", ignore_errors=True)
+      Path("logs").mkdir()
+      Path("logs/run7.txt").write_text("S_A 8\nS_B 10\nS_C 13\n", encoding="utf-8")
+    display: |
+      文件 `logs/run7.txt`（UTF-8 编码）的内容：
+
+      ```text
+      S_A 8
+      S_B 10
+      S_C 13
+      ```
+  survey_a:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("survey", ignore_errors=True)
+      Path("survey").mkdir()
+      ANSWERS = "问卷 12 份，有效 11 份\n"
+      Path("survey/answers.txt").write_bytes(ANSWERS.encode("gbk"))
+    display: |
+      `survey/answers.txt` 是旧版 Windows 软件导出的，按 GBK 编码保存，原文是一行 `问卷 12 份，有效 11 份`。
+  survey_b:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("survey", ignore_errors=True)
+      Path("survey").mkdir()
+      ANSWERS = "问卷 9 份，有效 9 份\n"
+      Path("survey/answers.txt").write_bytes(ANSWERS.encode("gbk"))
+  records_log:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("records", ignore_errors=True)
+      Path("records").mkdir()
+      Path("records/log.txt").write_text("P1\n", encoding="utf-8")
+    display: |
+      开始时 `records/log.txt` 里只有一行 `P1`。
+  raw_plate1:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("raw", ignore_errors=True)
+      Path("raw").mkdir()
+      RAW = "sample_id,signal\nS_A,8\nS_B,10\n"
+      Path("raw/plate1.csv").write_text(RAW, encoding="utf-8")
+    display: |
+      原始数据 `raw/plate1.csv` 有三行：
+
+      ```text
+      sample_id,signal
+      S_A,8
+      S_B,10
+      ```
+  empty_results:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("results", ignore_errors=True)
+      Path("results").mkdir()
+    display: |
+      `results` 文件夹是空的。
+  save_summary:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("raw", ignore_errors=True)
+      shutil.rmtree("results", ignore_errors=True)
+      Path("raw").mkdir()
+      Path("results").mkdir()
+      RAW = "sample_id,signal\nS_A,8\nS_B,10\n"
+      Path("raw/plate1.csv").write_text(RAW, encoding="utf-8")
+      summary = "样本数 2，平均 9.0\n"
+    display: |
+      原始数据在 `raw/plate1.csv`；`results` 文件夹是空的。变量 `summary` 已经算好，是一行文字 `样本数 2，平均 9.0`。
+  runlog:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("logs", ignore_errors=True)
+      Path("logs").mkdir()
+      RUNLOG = "run 1\nrun 2\nrun 3\n"
+      Path("logs/runlog.txt").write_text(RUNLOG, encoding="utf-8")
+    display: |
+      `logs/runlog.txt` 里已经有三行：
+
+      ```text
+      run 1
+      run 2
+      run 3
+      ```
+  log_x1:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("raw", ignore_errors=True)
+      shutil.rmtree("results", ignore_errors=True)
+      Path("raw").mkdir()
+      Path("results").mkdir()
+      RAW3 = "sample_id,signal\nS_E,12\n"
+      LOG = "P1 done\nP2 done\n"
+      Path("raw/plate3.csv").write_text(RAW3, encoding="utf-8")
+      Path("results/log.txt").write_text(LOG, encoding="utf-8")
+    display: |
+      原始数据在 `raw/plate3.csv`。处理记录 `results/log.txt` 里已经有两行：
+
+      ```text
+      P1 done
+      P2 done
+      ```
+  log_x1b:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("raw", ignore_errors=True)
+      shutil.rmtree("results", ignore_errors=True)
+      Path("raw").mkdir()
+      Path("results").mkdir()
+      RAW3 = "sample_id,signal\nS_F,7\nS_G,15\n"
+      LOG = "P1 done\n"
+      Path("raw/plate3.csv").write_text(RAW3, encoding="utf-8")
+      Path("results/log.txt").write_text(LOG, encoding="utf-8")
+  batch:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("results", ignore_errors=True)
+      Path("results").mkdir()
+      Path("results/batch.txt").write_text("sample_id,signal\n", encoding="utf-8")
+    display: |
+      开始时 `results/batch.txt` 里只有一行表头 `sample_id,signal`。
 kps:
   - id: py43.k1
     title: Path 与相对路径的基准
+    card:
+      name: 相对路径
+      aliases: [工作目录, Path]
+      definition: 不以盘符或根目录开头的路径是相对路径；Python 从当前工作目录出发找它，而不是从脚本或 notebook 文件所在的位置。
+      conditions:
+        - notebook 的工作目录通常是它所在的文件夹；在命令行运行脚本时，是你输入命令时所在的文件夹。
+        - Path("data") / "plate1.csv" 只是拼出一个路径；文件在不在，要用 .exists() 去查。
+      example:
+        from: py43.k1.e0
+        text: |
+          ```python
+          p = Path("data") / "plate1.csv"
+          ```
+          p.name 是 plate1.csv，p.suffix 是 .csv；工作目录下的 data 文件夹里有这个文件时，p.exists() 为 True。
+    lesson: |
+      电脑上每个文件都有一条**路径**。从盘符写起的叫绝对路径，例如 `C:\Users\lin\project\data\plate1.csv`；像 `data/plate1.csv` 这样不从盘符写起的叫**相对路径**。
+
+      相对路径要接在某个文件夹后面才完整。Python 接的是**当前工作目录**，而不是你的脚本或 notebook 文件放在哪里：
+
+      - 在 notebook 里，工作目录通常就是这个 notebook 所在的文件夹；
+      - 在命令行里运行脚本时，工作目录是你输入命令时所在的文件夹。脚本放在 `scripts` 子文件夹里，不会让路径从 `scripts` 算起。
+
+      所以同一行 `open("data/plate1.csv")`，换一个工作目录运行，找的就是另一个文件，可能报 FileNotFoundError，也可能悄悄打开了另一份同名的旧文件。
+
+      标准库 pathlib 里的 `Path` 用来拼路径和查看路径的各个部分：
+
+      ```python
+      from pathlib import Path
+      p = Path("data") / "plate1.csv"
+      ```
+
+      `/` 在这里不是除法，而是把两段接成一条路径。`p.name` 是最后一段 `plate1.csv`，`p.suffix` 是扩展名 `.csv`，`p.parent` 是上一层 `data`。拼路径不会去检查文件在不在；要查，用 `p.exists()`，它从工作目录出发去找，得到 True 或 False。
+
+      在 Windows 上 `print(p)` 显示的是 `data\plate1.csv`，课程的运行环境里显示 `data/plate1.csv`，意思一样。写代码时用 `/` 拼接就好，Windows 上也认。
+    example:
+      id: py43.k1.e0
+      kind: [predict]
+      uses: [py13.k1]
+      data: [plates]
+      body: |
+        阅读程序，写出第 3–6 行各显示什么。
+
+        ```python startLine=1
+        from pathlib import Path
+        p = Path("data") / "plate1.csv"
+        print(p.name)
+        print(p.suffix)
+        print(p.exists())
+        print((Path("data") / "plate3.csv").exists())
+        ```
+      slots:
+        - id: output
+          type: table
+          label: 各行显示
+          columns:
+            - { id: line, header: 代码行 }
+            - { id: shown, header: 显示, input: text }
+          rows:
+            - { id: l3, cells: { line: 第 3 行, shown: plate1.csv } }
+            - { id: l4, cells: { line: 第 4 行, shown: .csv } }
+            - { id: l5, cells: { line: 第 5 行, shown: "True" } }
+            - { id: l6, cells: { line: 第 6 行, shown: "False" } }
+        - id: where
+          type: choice
+          prompt: "`p.exists()` 去哪里找 `data` 文件夹？"
+          options:
+            - { id: cwd, content: 当前工作目录 }
+            - { id: install, content: Python 程序安装的位置 }
+            - { id: anywhere, content: 整台电脑上所有叫 data 的文件夹 }
+          key: cwd
+      explanation: |
+        依次显示 **plate1.csv**、**.csv**、**True**、**False**。
+
+        `p.name` 是路径的最后一段，`p.suffix` 是扩展名。`p.exists()` 从当前工作目录出发，去找 `data` 文件夹里的 `plate1.csv`，找到了，所以是 True；`plate3.csv` 不存在，第 6 行显示 False。第 2 行只是拼出路径，不会因为文件不存在而报错。
+      verify: |
+        lines = run().lines()
+        answers = {"output": {f"l{number}": {"shown": text} for number, text in zip(range(3, 7), lines)}}
+      manual: [where]
+    practice:
+      - id: py43.k1.q1
+        kind: [predict]
+        uses: [py13.k1]
+        body: |
+          林老师在 Windows 上打开 `C:\Users\lin\project\analysis.ipynb`，这个 notebook 的工作目录是 `C:\Users\lin\project`。下面这行代码指向哪个文件？
+
+          ```python
+          p = Path("data") / "plate1.csv"
+          ```
+        slots:
+          - id: file
+            type: choice
+            options:
+              - id: home
+                content: '`C:\Users\lin\data\plate1.csv`'
+              - id: flat
+                content: '`C:\Users\lin\project\plate1.csv`'
+                feedback: 中间还有一层 data 文件夹。
+              - id: project
+                content: '`C:\Users\lin\project\data\plate1.csv`'
+              - id: drive
+                content: '`C:\data\plate1.csv`'
+                feedback: 相对路径接在工作目录后面，不是从盘符开始。
+            key: project
+        explanation: |
+          指向 `C:\Users\lin\project\data\plate1.csv`：把相对路径 `data\plate1.csv` 接在工作目录 `C:\Users\lin\project` 后面。
+        verify: |
+          from pathlib import PureWindowsPath
+          target = PureWindowsPath(r"C:\Users\lin\project") / "data" / "plate1.csv"
+          candidates = {
+              "home": PureWindowsPath(r"C:\Users\lin\data\plate1.csv"),
+              "flat": PureWindowsPath(r"C:\Users\lin\project\plate1.csv"),
+              "project": PureWindowsPath(r"C:\Users\lin\project\data\plate1.csv"),
+              "drive": PureWindowsPath(r"C:\data\plate1.csv"),
+          }
+          fits = [option for option, path in candidates.items() if path == target]
+          answers = {"file": fits[0] if len(fits) == 1 else fits}
+      - id: py43.k1.q2
+        kind: [debug]
+        uses: [py13.k1, py11.k2]
+        body: |
+          林老师把 notebook 挪进了 `C:\Users\lin\project\notebooks\` 文件夹，工作目录也随之变成这个文件夹。数据没有动，仍在 `C:\Users\lin\project\data\plate1.csv`。原来能运行的代码现在出了问题：
+
+          ```python startLine=1
+          from pathlib import Path
+          p = Path("data") / "plate1.csv"
+          print(p.exists())
+          f = open(p)
+          ```
+
+          `open(p)` 打开这个文件，下一个知识点再细讲。
+        slots:
+          - id: looked
+            type: choice
+            prompt: Python 现在去找的是哪个文件？
+            options:
+              - id: notebooks
+                content: '`C:\Users\lin\project\notebooks\data\plate1.csv`'
+              - id: project
+                content: '`C:\Users\lin\project\data\plate1.csv`'
+                feedback: 这是文件真正的位置，但工作目录已经变成 notebooks 文件夹了。
+              - id: home
+                content: '`C:\Users\lin\data\plate1.csv`'
+            key: notebooks
+          - id: exists
+            type: choice
+            prompt: 第 3 行显示什么？
+            options:
+              - { id: "True", content: "True" }
+              - { id: "False", content: "False" }
+            key: "False"
+          - id: error
+            type: text
+            prompt: 第 4 行报的是哪种异常？写出异常类型的名字。
+            key: FileNotFoundError
+        explanation: |
+          相对路径 `data\plate1.csv` 现在接在 `C:\Users\lin\project\notebooks` 后面，Python 去找 `C:\Users\lin\project\notebooks\data\plate1.csv`。那里没有这个文件，所以第 3 行显示 **False**，第 4 行报 **FileNotFoundError**。
+
+          文件没有丢，变的是工作目录。可以把 notebook 放回原处，或者问清数据该放在哪里，再改路径。
+        verify: |
+          import shutil
+          from pathlib import Path, PureWindowsPath
+          # 在模拟目录里建出同样的结构：root 对应 C:\Users\lin。
+          root = Path("sim_py43_k1_q2")
+          shutil.rmtree(root, ignore_errors=True)
+          (root / "project" / "data").mkdir(parents=True)
+          (root / "project" / "notebooks").mkdir()
+          (root / "project" / "data" / "plate1.csv").write_text("sample_id,signal\n", encoding="utf-8")
+          relative = Path("data") / "plate1.csv"
+          looked = root / "project" / "notebooks" / relative
+          try:
+              open(looked).close()
+              error = None
+          except Exception as caught:
+              error = type(caught).__name__
+          target = PureWindowsPath(r"C:\Users\lin\project\notebooks") / "data" / "plate1.csv"
+          candidates = {
+              "notebooks": PureWindowsPath(r"C:\Users\lin\project\notebooks\data\plate1.csv"),
+              "project": PureWindowsPath(r"C:\Users\lin\project\data\plate1.csv"),
+              "home": PureWindowsPath(r"C:\Users\lin\data\plate1.csv"),
+          }
+          fits = [option for option, path in candidates.items() if path == target]
+          answers = {"looked": fits[0] if len(fits) == 1 else fits, "exists": looked.exists(), "error": error}
+      - id: py43.k1.q3
+        kind: [explain]
+        uses: [py13.k1]
+        data: [pathlib_ready]
+        body: |
+          要指向 `results` 文件夹里 `week2` 子文件夹中的 `depth.csv`。下面哪几行写对了？选出所有写对的。
+        slots:
+          - id: line
+            type: choice
+            multiple: true
+            options:
+              - id: slash
+                content: |
+                  ```python
+                  p = Path("results") / "week2" / "depth.csv"
+                  ```
+              - id: strdiv
+                content: |
+                  ```python
+                  p = Path("results" / "week2" / "depth.csv")
+                  ```
+                feedback: 括号里先算 "results" / "week2"，两段文字不能相除。
+              - id: whole
+                content: |
+                  ```python
+                  p = Path("results/week2/depth.csv")
+                  ```
+              - id: plus
+                content: |
+                  ```python
+                  p = Path("results") + "week2" + "depth.csv"
+                  ```
+                feedback: 路径用 / 拼接，不能用 + 。
+            key: [slash, whole]
+        explanation: |
+          `Path("results") / "week2" / "depth.csv"` 和 `Path("results/week2/depth.csv")` 都对，得到同一条路径。
+
+          `Path("results" / "week2" / "depth.csv")` 先在括号里拿两段文字相除，报 TypeError；`/` 要放在 Path 的后面才表示拼路径。`Path(...) + "week2"` 也报 TypeError，路径不能用 `+` 接。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              r = run(code)
+              if r.error is None and r["p"].parts == ("results", "week2", "depth.csv"):
+                  fits.append(option)
+          answers = {"line": fits}
+    review:
+      - id: py43.k1.r1
+        kind: [predict]
+        uses: [py13.k1]
+        body: |
+          野外数据整理脚本放在 `D:\fieldwork\scripts\depth.py`，里面有这样一行：
+
+          ```python
+          p = Path("raw") / "north.csv"
+          ```
+
+          同事用两种方式运行它。每种方式下，`p` 指向哪个文件？
+        slots:
+          - id: files
+            type: table
+            columns:
+              - { id: how, header: 运行方式 }
+              - id: file
+                header: p 指向
+                input:
+                  type: choice
+                  options:
+                    - { id: fieldwork, label: 'D:\fieldwork\raw\north.csv' }
+                    - { id: scripts, label: 'D:\fieldwork\scripts\raw\north.csv' }
+                    - { id: drive, label: 'D:\raw\north.csv' }
+            rows:
+              - { id: from_root, cells: { how: '在 D:\fieldwork 输入 python scripts\depth.py', file: fieldwork } }
+              - { id: from_scripts, cells: { how: '在 D:\fieldwork\scripts 输入 python depth.py', file: scripts } }
+        explanation: |
+          在 `D:\fieldwork` 运行时，工作目录是 `D:\fieldwork`，`p` 指向 `D:\fieldwork\raw\north.csv`；先进入 `scripts` 再运行时，工作目录是 `D:\fieldwork\scripts`，`p` 指向 `D:\fieldwork\scripts\raw\north.csv`。
+
+          同一个脚本、同一行代码，只因为输入命令的位置不同，就找不同的文件。相对路径看的是工作目录，不看脚本放在哪里。
+        verify: |
+          from pathlib import PureWindowsPath
+          labels = {
+              "fieldwork": PureWindowsPath(r"D:\fieldwork\raw\north.csv"),
+              "scripts": PureWindowsPath(r"D:\fieldwork\scripts\raw\north.csv"),
+              "drive": PureWindowsPath(r"D:\raw\north.csv"),
+          }
+          working = {"from_root": PureWindowsPath(r"D:\fieldwork"), "from_scripts": PureWindowsPath(r"D:\fieldwork\scripts")}
+          files = {}
+          for row, cwd in working.items():
+              target = cwd / "raw" / "north.csv"
+              fits = [option for option, path in labels.items() if path == target]
+              files[row] = {"file": fits[0] if len(fits) == 1 else fits}
+          answers = {"files": files}
+      - id: py43.k1.r2
+        kind: [predict]
+        uses: [py13.k1]
+        data: [raw_sites]
+        body: |
+          阅读程序，写出第 2–4 行各显示 True 还是 False。
+
+          ```python startLine=1
+          from pathlib import Path
+          print(Path("raw/north.csv").exists())
+          print((Path("raw") / "east.csv").exists())
+          print(Path("north.csv").exists())
+          ```
+        slots:
+          - id: output
+            type: table
+            columns:
+              - { id: line, header: 代码行 }
+              - { id: shown, header: 显示, input: bool }
+            rows:
+              - { id: l2, cells: { line: 第 2 行, shown: true } }
+              - { id: l3, cells: { line: 第 3 行, shown: false } }
+              - { id: l4, cells: { line: 第 4 行, shown: false } }
+        explanation: |
+          依次是 **True、False、False**。`raw/north.csv` 存在；`raw` 里没有 `east.csv`；第 4 行只写了文件名，Python 在工作目录本身找 `north.csv`，而它在 `raw` 文件夹里，所以找不到。
+        verify: |
+          lines = run().lines()
+          answers = {"output": {f"l{number}": {"shown": text} for number, text in zip(range(2, 5), lines)}}
+    quiz:
+      - id: py43.k1.x1
+        kind: [predict]
+        uses: [py13.k1, py05.k3]
+        data: [pathlib_ready]
+        body: |
+          阅读程序，写出四行显示的内容。
+
+          ```python startLine=1
+          p = Path("results") / "week1" / "summary.txt"
+          print(p.name)
+          print(p.suffix)
+          print(p.parent.name)
+          print(p.parent.parent.name)
+          ```
+        slots:
+          - id: output
+            type: table
+            columns:
+              - { id: line, header: 代码行 }
+              - { id: shown, header: 显示, input: text }
+            rows:
+              - { id: l2, cells: { line: 第 2 行, shown: summary.txt } }
+              - { id: l3, cells: { line: 第 3 行, shown: .txt } }
+              - { id: l4, cells: { line: 第 4 行, shown: week1 } }
+              - { id: l5, cells: { line: 第 5 行, shown: results } }
+        explanation: |
+          依次是 **summary.txt**、**.txt**、**week1**、**results**。`p.parent` 是去掉最后一段的路径 `results/week1`，它的 `.name` 是 `week1`；再往上一层是 `results`。点号从左往右一步步取。
+        verify: |
+          lines = run().lines()
+          answers = {"output": {f"l{number}": {"shown": text} for number, text in zip(range(2, 6), lines)}}
+      - id: py43.k1.x2
+        kind: [debug]
+        uses: [py13.k1]
+        body: |
+          林老师电脑上有两份同名文件：
+
+          - `C:\Users\lin\project\data\plate1.csv`（新数据）
+          - `C:\Users\lin\backup\data\plate1.csv`（上个月的旧备份）
+
+          `C:\Users\lin\project` 里另有一个 `notebooks` 文件夹，里面没有 data 文件夹。代码是：
+
+          ```python
+          f = open("data/plate1.csv")
+          ```
+        slots:
+          - id: cwd
+            type: choice
+            multiple: true
+            prompt: 工作目录是哪些文件夹时，这行代码能打开一个文件而不报错？选出所有。
+            options:
+              - { id: project, content: '`C:\Users\lin\project`' }
+              - { id: notebooks, content: '`C:\Users\lin\project\notebooks`' }
+              - { id: home, content: '`C:\Users\lin`' }
+              - { id: backup, content: '`C:\Users\lin\backup`' }
+            key: [project, backup]
+          - id: opened
+            type: choice
+            prompt: 工作目录是 `C:\Users\lin\backup` 时，打开的是哪份数据？
+            options:
+              - { id: new, content: 新数据 }
+              - { id: old, content: 旧备份 }
+              - { id: none, content: 哪份也打不开，会报错 }
+            key: old
+        explanation: |
+          工作目录是 **project** 或 **backup** 时都能打开文件：两处下面都有 `data\plate1.csv`。在 notebooks 和 `C:\Users\lin` 下，接出来的路径没有文件，报 FileNotFoundError。
+
+          在 backup 下运行时打开的是**旧备份**，而且不会报任何错。相对路径没有说清从哪里算起时，最危险的不是报错，而是悄悄读了另一份同名文件。
+        verify: |
+          import shutil
+          from pathlib import Path
+          # 模拟目录 root 对应 C:\Users\lin，在里面建出同样的结构。
+          root = Path("sim_py43_k1_x2")
+          shutil.rmtree(root, ignore_errors=True)
+          for folder in ["project/data", "project/notebooks", "backup/data"]:
+              (root / folder).mkdir(parents=True)
+          (root / "project/data/plate1.csv").write_text("新数据\n", encoding="utf-8")
+          (root / "backup/data/plate1.csv").write_text("旧备份\n", encoding="utf-8")
+          folders = {"project": root / "project", "notebooks": root / "project" / "notebooks", "home": root, "backup": root / "backup"}
+          relative = Path("data/plate1.csv")
+          found = [option for option, folder in folders.items() if (folder / relative).exists()]
+          content = (folders["backup"] / relative).read_text(encoding="utf-8").strip()
+          answers = {"cwd": found, "opened": {"新数据": "new", "旧备份": "old"}[content]}
+
   - id: py43.k2
     title: with 管理文本文件及编码
+    card:
+      name: with 打开文件
+      aliases: [open, encoding, 编码]
+      definition: '用 with open(路径, encoding="utf-8") as f 打开文件，在下面缩进的几行里读写，离开缩进时文件自动关闭；encoding 说明文件里的字节按哪种编码变成文字。'
+      conditions:
+        - 读要写在 with 的缩进里；离开后再用 f 读会报 ValueError，但已经读出来的文字变量照样能用。
+        - 编码要和文件保存时一致：按 UTF-8 读 GBK 文件会报 UnicodeDecodeError，用错的编码也可能不报错、只读出乱码。
+      example:
+        from: py43.k2.e0
+        text: |
+          ```python
+          with open("notes/plate1.txt", encoding="utf-8") as f:
+              text = f.read()
+          print(text.strip())
+          ```
+          在缩进里读出整段文字，离开 with 后文件已关闭，text 仍可以用。
+    lesson: |
+      读一个文本文件，常见的写法是：
+
+      ```python
+      with open("notes/plate1.txt", encoding="utf-8") as f:
+          text = f.read()
+      print(text)
+      ```
+
+      - `open(...)` 打开文件，`as f` 给打开的文件起名叫 `f`。
+      - `with` 那一行以冒号结尾，下面**缩进**的几行属于它。在这几行里，文件是打开的；离开缩进，文件就自动关上了。
+      - `f.read()` 把整个文件读成一段文字（字符串）。读出来的 `text` 是普通的字符串，文件关了它也还在。
+
+      离开缩进以后再写 `f.read()`，文件已经关了，会报 **ValueError**。
+
+      **编码**说明文件里存的字节怎样变成文字。现在大多数文件用 UTF-8；但中文 Windows 上的旧版记事本、一些仪器软件或用 Excel 另存的 CSV，常常用 GBK。编码对不上时：
+
+      - 按 UTF-8 读 GBK 文件，通常报 **UnicodeDecodeError**；
+      - 按某些编码读，不报错，却读出一堆乱码，更难发现。
+
+      不写 `encoding` 时，Python 用这台电脑的默认编码。在中文 Windows 上它常常不是 UTF-8，于是同一段代码换一台电脑可能读出不同的结果。所以读写文字文件时把 `encoding` 写清楚；遇到 UnicodeDecodeError，先问清文件是用什么编码保存的，再改成对应的 `encoding="gbk"` 之类。
+    example:
+      id: py43.k2.e0
+      kind: [predict]
+      uses: [py05.k2]
+      data: [note_plate1]
+      body: |
+        阅读程序，写出它显示的内容。
+
+        ```python
+        with open("notes/plate1.txt", encoding="utf-8") as f:
+            text = f.read()
+        print(text.strip())
+        ```
+
+        如果把最后一行改成在缩进外面直接读文件：
+
+        ```python
+        with open("notes/plate1.txt", encoding="utf-8") as f:
+            text = f.read()
+        print(f.read())
+        ```
+      slots:
+        - id: output
+          type: text
+          prompt: 第一段程序显示什么？
+          key: 批次 P1，共 4 个样本
+        - id: after
+          type: choice
+          prompt: 第二段程序的最后一行会怎样？
+          options:
+            - { id: same, content: 再显示一次同样的文字 }
+            - { id: blank, content: 显示一个空行 }
+            - { id: ValueError, content: 报 ValueError，文件已经关了 }
+          key: ValueError
+      explanation: |
+        第一段显示 **批次 P1，共 4 个样本**。`f.read()` 在缩进里读出整行文字，`strip()` 去掉末尾的换行。
+
+        第二段的最后一行在缩进外面，这时文件已经自动关上，`f.read()` 报 **ValueError**。要用文件内容，就在缩进里先读进一个名字（这里是 `text`），出来以后用这个名字。
+      verify: |
+        answers = {"output": run(BLOCKS[0]).lines()[0], "after": run(BLOCKS[1]).error}
+    practice:
+      - id: py43.k2.q1
+        kind: [predict]
+        uses: [py05.k2, py05.k3]
+        data: [log_run2]
+        body: |
+          阅读程序，写出它显示的内容。
+
+          ```python
+          with open("logs/run2.txt", encoding="utf-8") as f:
+              text = f.read()
+          print(text.strip().lower())
+          ```
+        slots:
+          - id: output
+            type: text
+            prompt: 显示什么？
+            key: signal ok
+            feedback:
+              - when: Signal OK
+                message: 后面还有一步 lower()，大写字母都变成了小写。
+        explanation: |
+          显示 **signal ok**。`f.read()` 读出整行，包括两边的空格和末尾的换行；`strip()` 去掉两边的空白，`lower()` 再把字母变成小写。
+        verify: |
+          answers = {"output": run().lines()[0]}
+      - id: py43.k2.q2
+        kind: [debug]
+        uses: [py11.k2]
+        data: [log_run2]
+        body: |
+          ```python startLine=1
+          with open("logs/run2.txt", encoding="utf-8") as f:
+              first = f.read()
+          second = f.read()
+          print(first.strip())
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 程序在第几行停下来报错？
+            options:
+              - { id: l1, content: 第 1 行 }
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+            key: l3
+          - id: error
+            type: text
+            prompt: 报的是哪种异常？写出异常类型的名字。
+            key: ValueError
+        explanation: |
+          停在**第 3 行**，报 **ValueError**。第 2 行在缩进里，文件开着，读得出来；第 3 行已经离开 with，文件关了，不能再读。程序停在第 3 行，第 4 行没有机会运行。
+        verify: |
+          lines = CODE.splitlines()
+          stopped = None
+          for count in range(1, len(lines) + 1):
+              error = run("\n".join(lines[:count])).error
+              # 截到一半的 with 语句是不完整的代码，不算运行时的报错。
+              if error not in (None, "SyntaxError", "IndentationError"):
+                  stopped = count
+                  break
+          answers = {"line": f"l{stopped}", "error": run().error}
+      - id: py43.k2.q3
+        kind: [debug]
+        uses: [py11.k2, py04.k2]
+        data: [export_gbk]
+        body: |
+          ```python
+          with open("export/plate2.csv", encoding="utf-8") as f:
+              text = f.read()
+          ```
+        slots:
+          - id: error
+            type: text
+            prompt: 运行这段代码，报的是哪种异常？写出异常类型的名字。
+            key: UnicodeDecodeError
+          - id: fix
+            type: choice
+            prompt: 把 `encoding="utf-8"` 换成哪一个，`text` 才能得到记事本里看到的原文？
+            options:
+              - { id: ascii, content: '`encoding="ascii"`' }
+              - { id: gbk, content: '`encoding="gbk"`' }
+              - { id: utf-8, content: '`encoding="utf-8"`，再运行一次' }
+            key: gbk
+        explanation: |
+          报 **UnicodeDecodeError**：文件按 GBK 保存，却按 UTF-8 去解读，中文字节对不上。改成 **`encoding="gbk"`**，和保存时的编码一致，才能读出原文。ascii 只认英文字母和数字，同样读不了中文；再运行一次 UTF-8 结果不会变。
+        verify: |
+          error = run().error
+          readable = []
+          for option, encoding in {"ascii": "ascii", "gbk": "gbk", "utf-8": "utf-8"}.items():
+              try:
+                  with open("export/plate2.csv", encoding=encoding) as f:
+                      if f.read() == PLATE2_TEXT:
+                          readable.append(option)
+              except UnicodeDecodeError:
+                  pass
+          answers = {"error": error, "fix": readable[0] if len(readable) == 1 else readable}
+    review:
+      - id: py43.k2.r1
+        kind: [modify]
+        uses: [py05.k2, py05.k3]
+        data: [log_run5]
+        body: |
+          把下面三行排成一段程序：读出 `logs/run5.txt` 的内容，去掉两边空白、换成大写后显示。每一行都要用上，并设好缩进。
+        slots:
+          - id: lines
+            type: order
+            indent: 1
+            items:
+              - { id: show, code: print(text.strip().upper()) }
+              - { id: read, code: text = f.read() }
+              - { id: open, code: 'with open("logs/run5.txt", encoding="utf-8") as f:' }
+            key: [open, read, show]
+            indents: { open: 0, read: 1, show: 0 }
+            tests:
+              - name: 显示整理后的内容
+                stdout: RUN 5 OK
+              - name: 换一份记录
+                hidden: true
+                data: [log_run5b]
+                stdout: RUN 5 FAILED
+        explanation: |
+          ```python
+          with open("logs/run5.txt", encoding="utf-8") as f:
+              text = f.read()
+          print(text.strip().upper())
+          ```
+
+          `text = f.read()` 要缩进在 with 下面，趁文件开着读出来；`print` 放在缩进外面或里面都可以，因为它用的是已经读出的 `text`。如果把读的那一行放到缩进外面，会报 ValueError。
+      - id: py43.k2.r2
+        kind: [predict]
+        uses: [py04.k2]
+        data: [field_gbk]
+        body: |
+          分别用三种编码读这个文件，只改下面代码里 `encoding` 的值：
+
+          ```python
+          with open("field/site_notes.txt", encoding="utf-8") as f:
+              text = f.read()
+          ```
+        slots:
+          - id: result
+            type: table
+            prompt: 每种编码的结果是什么？
+            columns:
+              - { id: encoding, header: encoding }
+              - id: outcome
+                header: 结果
+                input:
+                  type: choice
+                  options:
+                    - { id: same, label: 读出原文 }
+                    - { id: garbled, label: 读出乱码，不报错 }
+                    - { id: error, label: 报错 }
+            rows:
+              - { id: utf8, cells: { encoding: '"utf-8"', outcome: error } }
+              - { id: gbk, cells: { encoding: '"gbk"', outcome: same } }
+              - { id: latin1, cells: { encoding: '"latin-1"', outcome: garbled } }
+        explanation: |
+          **utf-8 报错**（UnicodeDecodeError），**gbk 读出原文**，**latin-1 读出乱码但不报错**。
+
+          latin-1 把每个字节都当成一个西文字符，所以永远不会报错，读出来却是 `±±ÆÂ 30 ÀåÃ×` 这样的乱码。不报错不等于读对了；读完看一眼内容，才知道编码对不对。
+        verify: |
+          outcomes = {}
+          for row, encoding in {"utf8": "utf-8", "gbk": "gbk", "latin1": "latin-1"}.items():
+              try:
+                  with open("field/site_notes.txt", encoding=encoding) as f:
+                      text = f.read()
+                  outcomes[row] = {"outcome": "same" if text == NOTE_TEXT else "garbled"}
+              except UnicodeDecodeError:
+                  outcomes[row] = {"outcome": "error"}
+          answers = {"result": outcomes}
+    quiz:
+      - id: py43.k2.x1
+        kind: [predict]
+        uses: [py06.k1]
+        data: [log_run7]
+        body: |
+          `text.splitlines()` 把一段文字按行切开，得到一个列表。
+
+          ```python startLine=1
+          with open("logs/run7.txt", encoding="utf-8") as f:
+              text = f.read()
+          rows = text.splitlines()
+          print(len(rows))
+          ```
+        slots:
+          - id: safe
+            type: choice
+            prompt: 第 3 行已经在 with 的缩进外面了，它会怎样？
+            options:
+              - { id: error, content: 报 ValueError，文件已经关了 }
+              - { id: fine, content: 正常运行，它用的是已经读出来的文字 }
+            key: fine
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示什么？
+            key: 3
+        explanation: |
+          第 3 行**正常运行**，程序显示 **3**。文件确实已经关了，但第 3 行没有再读文件，它切的是第 2 行读出来的字符串 `text`。会出错的是在缩进外面再用 `f` 读文件。
+        verify: |
+          r = run()
+          answers = {"safe": "fine" if r.error is None else "error", "output": int(r.out)}
+      - id: py43.k2.x2
+        kind: [modify]
+        uses: [py04.k2, py11.k2]
+        data: [survey_a]
+        body: |
+          作答框里的代码一运行就报 UnicodeDecodeError。请改动它，让 `text` 得到文件里的原文。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              with open("survey/answers.txt", encoding="utf-8") as f:
+                  text = f.read()
+            solution: |
+              with open("survey/answers.txt", encoding="gbk") as f:
+                  text = f.read()
+            accepts:
+              - |
+                with open("survey/answers.txt", encoding="GBK") as f:
+                    text = f.read()
+              - |
+                with open("survey/answers.txt", encoding="gb18030") as f:
+                    text = f.read()
+            rejects:
+              - code: |
+                  with open("survey/answers.txt", encoding="latin-1") as f:
+                      text = f.read()
+                why: 换成一个不报错的编码，读出来的是乱码
+              - code: |
+                  text = open("survey/answers.txt").read()
+                why: 不写编码，按这台电脑的默认编码读
+            tests:
+              - name: 读出原文
+                expect:
+                  text: ANSWERS
+              - name: 换一份问卷记录
+                hidden: true
+                data: [survey_b]
+                expect:
+                  text: ANSWERS
+        explanation: |
+          ```python
+          with open("survey/answers.txt", encoding="gbk") as f:
+              text = f.read()
+          ```
+
+          文件按 GBK 保存，就按 GBK 读。换成 latin-1 之类的编码虽然不报错，读出的是乱码，测试会比较读出的文字是否与原文一致。
+
   - id: py43.k3
     title: r/w/a 的行为和覆盖风险
+    card:
+      name: 打开方式 r/w/a
+      aliases: [文件模式, 覆盖, 追加]
+      definition: open 的第二个参数决定怎样用文件："r" 只读，文件必须已经存在；"w" 写入，打开那一刻就清空原有内容；"a" 追加，新内容接在末尾。
+      conditions:
+        - '"w" 一打开就清空，即使后面一个字也没写成；不要用 "w" 打开原始数据文件。'
+        - 'write 不会自动换行，每行末尾要自己写 \n；"a" 的代码多运行一次，内容就多一份。'
+      example:
+        from: py43.k3.e0
+        text: |
+          records/log.txt 原有 P1。用 "a" 写入 P2 后有 P1、P2 两行；接着用 "w" 写入 P3，只剩 P3。
+    lesson: |
+      `open` 的第二个参数是**打开方式**，不写时是 `"r"`：
+
+      | 打开方式 | 意思 | 文件不存在时 | 文件已存在时 |
+      |---|---|---|---|
+      | `"r"` | 只读 | 报 FileNotFoundError | 从头读 |
+      | `"w"` | 写入 | 新建 | **打开那一刻就清空** |
+      | `"a"` | 追加 | 新建 | 新内容接在末尾 |
+
+      写文字用 `f.write(...)`：
+
+      ```python
+      with open("results/log.txt", "a", encoding="utf-8") as f:
+          f.write("P2 done\n")
+      ```
+
+      `write` 不会自动换行，`\n` 表示换行，每行末尾要自己写上。
+
+      最大的风险在 `"w"`：它在打开时就清空文件，哪怕紧接着的那行写入出了错、一个字也没写成，原来的内容也已经没了。所以：
+
+      - 原始数据只用 `"r"` 读，结果写到另一个文件夹里的新文件；
+      - 追加记录用 `"a"`，但要记得同一段代码运行两次，记录就多一份，在 notebook 里重复运行单元格时尤其容易发生。
+    example:
+      id: py43.k3.e0
+      kind: [trace]
+      data: [records_log]
+      body: |
+        阅读程序。
+
+        ```python startLine=1
+        with open("records/log.txt", "a", encoding="utf-8") as f:
+            f.write("P2\n")
+        with open("records/log.txt", "w", encoding="utf-8") as f:
+            f.write("P3\n")
+        ```
+      slots:
+        - id: after_first
+          type: order
+          partial: true
+          prompt: 第 1–2 行运行完时，文件里有哪几行？按先后顺序排出，没有的不要放进来。
+          items:
+            - { id: P1, content: P1 }
+            - { id: P2, content: P2 }
+            - { id: P3, content: P3 }
+          key: [P1, P2]
+        - id: after_all
+          type: order
+          partial: true
+          prompt: 四行全部运行完时，文件里有哪几行？
+          items:
+            - { id: P1, content: P1 }
+            - { id: P2, content: P2 }
+            - { id: P3, content: P3 }
+          key: [P3]
+      explanation: |
+        第 1–2 行用 `"a"`，P2 接在原有的 P1 后面，文件里是 **P1、P2**。第 3 行用 `"w"` 打开，文件立刻被清空，再写入 P3，最后只剩 **P3**。
+      verify: |
+        def lines_now():
+            with open("records/log.txt", encoding="utf-8") as f:
+                return f.read().splitlines()
+        run("\n".join(CODE.splitlines()[:2]))
+        first = lines_now()
+        run()
+        answers = {"after_first": first, "after_all": lines_now()}
+    practice:
+      - id: py43.k3.q1
+        kind: [debug]
+        uses: [py11.k2]
+        data: [raw_plate1]
+        body: |
+          有人想给原始数据加一行表头说明，写了下面的代码，但忘了先定义 `header`。
+
+          ```python
+          with open("raw/plate1.csv", "w", encoding="utf-8") as f:
+              f.write(header)
+          ```
+        slots:
+          - id: error
+            type: text
+            prompt: 运行时报的是哪种异常？写出异常类型的名字。
+            key: NameError
+          - id: lines
+            type: text
+            format: integer
+            prompt: 报错之后，`raw/plate1.csv` 里还剩几行？
+            key: 0
+            feedback:
+              - when: 3
+                message: 程序在写入时才报错，但 "w" 在打开那一刻已经清空了文件。
+        explanation: |
+          报 **NameError**，而 `raw/plate1.csv` 里只剩 **0** 行。第 1 行用 `"w"` 打开时文件就被清空了；第 2 行写入时才因为 `header` 没定义而报错，什么也没写成。原始数据就这样丢了，所以不要用 `"w"` 打开原始数据文件。
+        verify: |
+          r = run()
+          with open("raw/plate1.csv", encoding="utf-8") as f:
+              left = f.read().splitlines()
+          answers = {"error": r.error, "lines": len(left)}
+      - id: py43.k3.q2
+        kind: [trace]
+        data: [empty_results]
+        body: |
+          下面四段代码按顺序运行。每段运行完时，`results/log.txt` 里有几行？
+
+          第 1 段：
+
+          ```python
+          with open("results/log.txt", "a", encoding="utf-8") as f:
+              f.write("S_A 8\n")
+          ```
+
+          第 2 段：
+
+          ```python
+          with open("results/log.txt", "a", encoding="utf-8") as f:
+              f.write("S_B 10\n")
+          ```
+
+          第 3 段：
+
+          ```python
+          with open("results/log.txt", "w", encoding="utf-8") as f:
+              f.write("S_C 13\n")
+          ```
+
+          第 4 段：
+
+          ```python
+          with open("results/log.txt", "a", encoding="utf-8") as f:
+              f.write("S_D 10\n")
+          ```
+        slots:
+          - id: trace
+            type: table
+            columns:
+              - { id: step, header: 运行完 }
+              - { id: lines, header: 文件行数, input: integer }
+            rows:
+              - { id: s1, cells: { step: 第 1 段, lines: 1 } }
+              - { id: s2, cells: { step: 第 2 段, lines: 2 } }
+              - { id: s3, cells: { step: 第 3 段, lines: 1 } }
+              - { id: s4, cells: { step: 第 4 段, lines: 2 } }
+        explanation: |
+          行数依次是 **1、2、1、2**。第 1 段时文件还不存在，`"a"` 新建它并写入一行；第 2 段接在末尾；第 3 段 `"w"` 清空后只写入 S_C 一行；第 4 段再接一行，最后是 S_C、S_D 两行。
+        verify: |
+          counts = {}
+          for step in range(1, len(BLOCKS) + 1):
+              run("\n".join(BLOCKS[:step]))
+              with open("results/log.txt", encoding="utf-8") as f:
+                  counts[f"s{step}"] = {"lines": len(f.read().splitlines())}
+          answers = {"trace": counts}
+      - id: py43.k3.q3
+        kind: [explain]
+        data: [save_summary]
+        body: |
+          要求是：把 `summary` 保存成 `results/summary.txt`，不能改动 `raw/plate1.csv`。哪一段代码符合要求？
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: append_raw
+                content: |
+                  ```python
+                  with open("raw/plate1.csv", "a", encoding="utf-8") as f:
+                      f.write(summary)
+                  ```
+                feedback: 原始数据没被清空，但末尾多了一行汇总，也算改动了。
+              - id: read_mode
+                content: |
+                  ```python
+                  with open("results/summary.txt", "r", encoding="utf-8") as f:
+                      f.write(summary)
+                  ```
+                feedback: '"r" 只能读，而且 results/summary.txt 还不存在，会报 FileNotFoundError。'
+              - id: new_file
+                content: |
+                  ```python
+                  with open("results/summary.txt", "w", encoding="utf-8") as f:
+                      f.write(summary)
+                  ```
+              - id: overwrite_raw
+                content: |
+                  ```python
+                  with open("raw/plate1.csv", "w", encoding="utf-8") as f:
+                      f.write(summary)
+                  ```
+            key: new_file
+        explanation: |
+          用 `"w"` 打开 `results/summary.txt` 的那一段符合要求：这个文件原本不存在，`"w"` 新建它并写入汇总，原始数据没有被碰。
+
+          用 `"w"` 打开 `raw/plate1.csv` 会把原始数据清空；用 `"a"` 打开它虽然没清空，却在原始数据末尾多出一行；用 `"r"` 打开一个还不存在的文件会报错，而且 `"r"` 本来也不能写。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["code"].items():
+              r = run(code)
+              with open("raw/plate1.csv", encoding="utf-8") as f:
+                  raw_kept = f.read() == RAW
+              saved = Path("results/summary.txt")
+              saved_right = saved.exists() and saved.read_text(encoding="utf-8") == r["summary"]
+              if r.error is None and raw_kept and saved_right:
+                  fits.append(option)
+          answers = {"code": fits[0] if len(fits) == 1 else fits}
+      - id: py43.k3.q4
+        kind: [specify]
+        body: |
+          你请 AI 写一段代码，把整理好的结果保存下来。原始数据都在 `raw` 文件夹里，绝不能被改动。
+
+          用一两句话写出你给 AI 的要求，说清结果写到哪里、原始数据怎样保护。
+        slots:
+          - id: request
+            type: text
+            lines: 4
+            rubric:
+              - id: target
+                label: 说清结果写到哪里
+                guide: 指定一个不在 raw 里的位置或新文件，例如 results 文件夹里的 summary.csv。
+              - id: protect
+                label: 说清原始数据怎样保护
+                guide: 明确 raw 里的文件只读、不能用写入方式打开，或不能覆盖、不能追加。
+              - id: exists
+                label: 说清目标文件已存在时怎么办
+                guide: 例如先停下来问、换一个新文件名，或明确允许覆盖结果文件。只要写明了其中一种就算。
+        explanation: |
+          一种写法：**“结果写到 results 文件夹里的新文件 summary.csv；raw 文件夹里的文件只读，不要用 "w" 或 "a" 打开它们。如果 results/summary.csv 已经存在，先停下来告诉我，不要直接覆盖。”**
+
+          三件事各算一项：写到哪里、原始数据怎样保护、目标文件已经存在时怎么办。只说“小心一点，别弄坏数据”不算，因为别人没法照着检查。
+    review:
+      - id: py43.k3.r1
+        kind: [explain]
+        data: [runlog]
+        body: |
+          要在 `logs/runlog.txt` 末尾接上一行 `run 4`，原有的三行都要保留。哪一段代码能做到？
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: other_file
+                content: |
+                  ```python
+                  with open("logs/run_log.txt", "a", encoding="utf-8") as f:
+                      f.write("run 4\n")
+                  ```
+                feedback: 文件名多了一个下划线，"a" 新建了另一个文件，runlog.txt 没有变。
+              - id: write
+                content: |
+                  ```python
+                  with open("logs/runlog.txt", "w", encoding="utf-8") as f:
+                      f.write("run 4\n")
+                  ```
+              - id: append
+                content: |
+                  ```python
+                  with open("logs/runlog.txt", "a", encoding="utf-8") as f:
+                      f.write("run 4\n")
+                  ```
+              - id: read
+                content: |
+                  ```python
+                  with open("logs/runlog.txt", "r", encoding="utf-8") as f:
+                      f.write("run 4\n")
+                  ```
+            key: append
+        explanation: |
+          用 `"a"` 打开 `logs/runlog.txt` 的那一段：新的一行接在末尾，原有三行都在。用 `"w"` 会先清空，只剩 run 4；用 `"r"` 打开的文件不能写，会报错；文件名写成 `run_log.txt` 时，`"a"` 悄悄新建了另一个文件，要改的文件没变。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["code"].items():
+              r = run(code)
+              with open("logs/runlog.txt", encoding="utf-8") as f:
+                  now = f.read()
+              if r.error is None and now == RUNLOG + "run 4\n":
+                  fits.append(option)
+          answers = {"code": fits[0] if len(fits) == 1 else fits}
+      - id: py43.k3.r2
+        kind: [predict]
+        data: [empty_results]
+        body: |
+          ```python
+          with open("results/ids.txt", "w", encoding="utf-8") as f:
+              f.write("S_A")
+              f.write("S_B\n")
+              f.write("S_C\n")
+          ```
+        slots:
+          - id: lines
+            type: order
+            partial: true
+            prompt: 运行之后，`results/ids.txt` 里有哪几行？按先后顺序排出，用不到的不要放进来。
+            items:
+              - { id: S_A, content: S_A }
+              - { id: S_B, content: S_B }
+              - { id: S_C, content: S_C }
+              - { id: S_AS_B, content: S_AS_B }
+            key: [S_AS_B, S_C]
+        explanation: |
+          只有两行：**S_AS_B**、**S_C**。`write` 不会自己换行，第一次写的 `S_A` 后面没有 `\n`，紧接着写的 `S_B` 就连在同一行上。三次写入都在同一个 with 里，`"w"` 只在打开时清空一次。
+        verify: |
+          run()
+          with open("results/ids.txt", encoding="utf-8") as f:
+              answers = {"lines": f.read().splitlines()}
+    quiz:
+      - id: py43.k3.x1
+        kind: [modify]
+        data: [log_x1]
+        body: |
+          需求是：
+
+          > 在处理记录 `results/log.txt` 的末尾接上一行 `P3 done`，原有的记录都要保留；不能改动 `raw` 里的任何文件。
+
+          作答框里的代码会把已有记录清掉。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              with open("results/log.txt", "w", encoding="utf-8") as f:
+                  f.write("P3 done\n")
+            solution: |
+              with open("results/log.txt", "a", encoding="utf-8") as f:
+                  f.write("P3 done\n")
+            rejects:
+              - code: |
+                  with open("results/log.txt", "a", encoding="utf-8") as f:
+                      f.write("P3 done")
+                why: 漏了换行符，下一次追加会连在同一行
+              - code: |
+                  with open("raw/plate3.csv", "a", encoding="utf-8") as f:
+                      f.write("P3 done\n")
+                why: 写进了原始数据文件
+            tests:
+              - name: 记录接在末尾，原始数据不变
+                expect:
+                  'open("results/log.txt", encoding="utf-8").read()': 'LOG + "P3 done\n"'
+                  'open("raw/plate3.csv", encoding="utf-8").read()': RAW3
+              - name: 换一份已有记录
+                hidden: true
+                data: [log_x1b]
+                expect:
+                  'open("results/log.txt", encoding="utf-8").read()': 'LOG + "P3 done\n"'
+                  'open("raw/plate3.csv", encoding="utf-8").read()': RAW3
+        explanation: |
+          ```python
+          with open("results/log.txt", "a", encoding="utf-8") as f:
+              f.write("P3 done\n")
+          ```
+
+          把 `"w"` 改成 `"a"`，新的一行接在末尾，原有记录保留。末尾的 `\n` 不能省，否则下一条记录会接在同一行。
+      - id: py43.k3.x2
+        kind: [predict]
+        data: [batch]
+        body: |
+          notebook 里有一个单元格，内容如下。你不小心把它**运行了两次**。
+
+          ```python
+          with open("results/batch.txt", "a", encoding="utf-8") as f:
+              f.write("S_A,8\n")
+          ```
+
+          如果单元格写的是下面这样，同样运行两次：
+
+          ```python
+          with open("results/batch.txt", "w", encoding="utf-8") as f:
+              f.write("sample_id,signal\nS_A,8\n")
+          ```
+        slots:
+          - id: append_twice
+            type: text
+            format: integer
+            prompt: 第一种写法运行两次后，`results/batch.txt` 有几行？
+            key: 3
+          - id: write_twice
+            type: text
+            format: integer
+            prompt: 第二种写法运行两次后，有几行？
+            key: 2
+        explanation: |
+          第一种是 **3** 行：表头加上两行 `S_A,8`，同一条记录重复了。`"a"` 每运行一次就接一份。
+
+          第二种是 **2** 行：每次 `"w"` 都先清空，再写入表头和一行数据，运行几次结果都一样。用 `"a"` 记录时，要想到代码可能被重复运行。
+        verify: |
+          def count_lines():
+              with open("results/batch.txt", encoding="utf-8") as f:
+                  return len(f.read().splitlines())
+          run(BLOCKS[0] + "\n" + BLOCKS[0])
+          append_twice = count_lines()
+          run(BLOCKS[1] + "\n" + BLOCKS[1])
+          answers = {"append_twice": append_twice, "write_twice": count_lines()}
