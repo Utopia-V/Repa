@@ -216,3 +216,18 @@ it("练习可以说不会，提问卡片没有这个按钮", async () => {
   }));
   expect(await screen.findByText("你说这道题不会")).toBeTruthy();
 });
+
+it("多选题的题面已经写了可多选时不再重复提示", async () => {
+  const fake = backend();
+  await renderPage(fake);
+  const choice = item.slots[0] as Extract<Item["slots"][number], { type: "choice" }>;
+  const slots: Item["slots"] = [
+    { ...choice, multiple: true, prompt: [{ type: "markdown", text: "你偏好哪种复习方式?(可多选)" }] },
+    { ...choice, id: "q2", multiple: true },
+  ];
+  act(() => fake.emit("ask.request", request({ item: { ...item, slots } })));
+
+  // 只有第二问加提示；第一问的名称里只有模型写的那一次。
+  expect(screen.getAllByText("（可多选）")).toHaveLength(1);
+  expect(screen.getByRole("group", { name: /^1\.\s*你偏好哪种复习方式\?\(可多选\)$/u })).toBeTruthy();
+});

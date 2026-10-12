@@ -9,7 +9,7 @@ import { Markdown } from "@/components/ui/markdown";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorNotice } from "@/components/domain/error-notice";
-import { answerText, slotName } from "@/lib/ask";
+import { answerText, plainText, slotName } from "@/lib/ask";
 import type { Ask } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -294,7 +294,9 @@ export function AskCard({ ask, onSubmit, onCancel }: {
       const describedBy = problems.length > 0 ? problemsId : undefined;
       const value = draft[slot.id];
       const update = (next: ChoiceDraft | string) => setDraft((current) => ({ ...current, [slot.id]: next }));
-      const hint = slot.type === "choice" && slot.multiple === true ? "（可多选）" : slot.optional === true ? "（可不答）" : "";
+      // 模型常在题面里自己写“可多选”，已经写了就不再重复。
+      const multiple = slot.type === "choice" && slot.multiple === true;
+      const hint = multiple ? plainText(slot.prompt).includes("多选") ? "" : "（可多选）" : slot.optional === true ? "（可不答）" : "";
       return <div key={slot.id} className="grid gap-2">
         <div id={labelId} className="flex items-start gap-1 text-sm font-semibold">
           {numbered && <span className="shrink-0">{index + 1}.</span>}
