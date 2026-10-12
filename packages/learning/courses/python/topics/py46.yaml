@@ -1,7 +1,8 @@
 id: py46
 title: 把数据处理拆成可核对的步骤
-status: outline
+status: complete
 minutes: 20
+summary: 把一段数据处理读成读入、校验、变换、汇总、输出几步，说清每一步拿到什么、交出什么；结果不对时逐步比对中间结果，找到第一个偏离需求的步骤。
 prerequisites:
   - topic: py34
     key: true
@@ -29,11 +30,1226 @@ sources:
     url: https://swcarpentry.github.io/python-novice-inflammation/11-debugging.html
     use: reference
 notes: |
-  建议题型与判分：解释代码（S/O）、写清需求（S/O）、小改代码（T）。
-  自拟部分：自拟综合任务。
-  用预先给出的 8～15 行有效代码、最多两张各 4～6 行的小表，每次聚焦一种需求偏差。综合题仍按知识点拆成例题和短练习，不变成从空白写完整分析项目的大作业。
+  范围：k1 讲一条“读入→校验→变换→汇总→输出”的流程里每一步的输入和输出（哪张表、哪些列、几行），步骤之间用 assert 检查交接的结果，以及把一步写成函数时只用参数、用 return 交出结果。k2 讲按需求在小表上手算每一步应有的中间结果，与代码的中间结果逐步比对，找出第一个分歧的步骤并只改那一步。
+  先修祖先里没有多条件筛选（py18）、新列运算（py21）、排序（py23）和 merge（py29），本节只用单列条件，不排序、不算新列、不连接表。检查点只用 len、count、数值列的 sum 和 assert。分组汇总的组名在索引里，所以导出汇总表时保留索引，讲解里就地说明，与 py34 导出逐行表时写 index=False 的情况区分。groupby 结果按组名排序，中文组名按编码顺序排，题目不问中文组名的先后。
+  按原稿约束：用预先给出的 8～15 行以内的有效代码、最多两张各 4～6 行的小表，每次聚焦一种需求偏差；综合题按知识点拆成例题和短练习，不变成从空白写完整分析项目的大作业。k2 里各题聚焦的偏差：例题为去重没写 subset，练习为阈值少了等号、分组丢掉缺失的组、计数漏掉缺失值，复习为 dropna 没写 subset、该留最后一次却留了第一次，测验为阈值少了等号（换成小改代码）、去重用错了列。“分歧从哪一行开始”的答案分别落在第 1、2 行，避免学生学到“总是第一行”。
+  “哪一行属于哪一步”按这一行调用的函数归类：read_csv 为读入，assert 为校验，groupby 为汇总，to_csv 为输出，其余为变换；verify 按这条规则算出。“哪一处修改能让结果符合需求”的选项由 verify 逐个代入运行。本节没有需要模型核对的作答位。
+  读文件的题用 python 夹具每次重写文件，并删掉上一次留下的输出文件（同一个 topic 的核对共用一个内存文件系统）。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、练习 5 分钟；k2 讲解与例题 4 分钟、练习 5 分钟；收束 1 分钟。
+  小表、流程和题目为本课自拟。
+intro: |
+  这一节把前面学过的读表、校验、去重、去掉缺失、筛选、分组汇总和导出连成一条流程。你不用从空白写分析，要练的是两件事：说出每一步拿到什么、交出什么；结果不对时，找出是哪一步偏离了需求。
+
+  每道题都从题面给出的文件或表重新开始，宿主已经准备好 pandas（`pd`）。题目里的阈值和“达标”都是题目约定，不是科研结论。
+wrapup: |
+  向同事或 AI 提需求时，可以按步骤说：从哪个文件读入；读入后先检查什么；怎样去重、去掉什么；按哪一列分组、算什么；结果写到哪个文件。
+
+  拿到代码后，按同样的步骤逐个看中间结果：几行、留下了哪些编号。在小表上按需求手算一遍，第一个对不上的地方就是要改的那一步；只改那一步，再从头核对。
+data:
+  plate_file:
+    kind: python
+    code: |
+      import os
+      import pandas as pd
+      with open("plate.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id,group,signal\n001,control,8\n002,drug,12\n002,drug,13\n003,drug,\n004,control,10\n005,drug,9\n")
+      if os.path.exists("summary.csv"):
+          os.remove("summary.csv")
+    display: |
+      文件 plate.csv 的内容（002 测了两次；003 的 signal 是空的，读入后是缺失值 NaN）：
+
+      ```text
+      sample_id,group,signal
+      001,control,8
+      002,drug,12
+      002,drug,13
+      003,drug,
+      004,control,10
+      005,drug,9
+      ```
+  plots_file:
+    kind: python
+    code: |
+      import os
+      import pandas as pd
+      with open("plots.csv", "w", encoding="utf-8") as f:
+          f.write("plot_id,site,depth\nP1,北坡,32\nP2,南坡,28\nP3,北坡,\nP4,南坡,35\nP5,东坡,30\n")
+      if os.path.exists("depth_summary.csv"):
+          os.remove("depth_summary.csv")
+    display: |
+      文件 plots.csv 的内容（P3 的 depth 是空的）：
+
+      ```text
+      plot_id,site,depth
+      P1,北坡,32
+      P2,南坡,28
+      P3,北坡,
+      P4,南坡,35
+      P5,东坡,30
+      ```
+  dishes_file:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("dishes.csv", "w", encoding="utf-8") as f:
+          f.write("dish_id,treatment,cells\n01,control,52\n02,drug,40\n03,drug,\n04,control,48\n05,drug,45\n")
+    display: |
+      文件 dishes.csv 的内容（每行是一个培养皿的细胞计数；03 的 cells 是空的）：
+
+      ```text
+      dish_id,treatment,cells
+      01,control,52
+      02,drug,40
+      03,drug,
+      04,control,48
+      05,drug,45
+      ```
+  R:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：读入后的样本表（002 测了两次，003 的 signal 缺失）
+    columns:
+      sample_id: ["001", "002", "002", "003", "004", "005"]
+      group: [control, drug, drug, drug, control, drug]
+      signal: [8, 12, 13, null, 10, 9]
+    dtypes:
+      signal: float
+  M:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：另一批读入的记录
+    columns:
+      sample_id: ["001", null, "003", "004"]
+      group: [control, drug, drug, control]
+      signal: [8, 11, 10, 12]
+  G:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：五个样本，每个只测了一次
+    columns:
+      sample_id: ["051", "052", "053", "054", "055"]
+      group: [control, drug, control, drug, drug]
+      signal: [9, 14, 11, 10, 12]
+  S:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：五个样点（P3 的 site 缺失，P4 的 depth 缺失）
+    columns:
+      plot_id: [P1, P2, P3, P4, P5]
+      site: [北坡, 南坡, null, 南坡, 东坡]
+      depth: [32, 28, 31, null, 30]
+    dtypes:
+      depth: float
+  T1:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：五个样本，014 的 signal 缺失
+    columns:
+      sample_id: ["011", "012", "013", "014", "015"]
+      group: [control, drug, drug, control, drug]
+      signal: [10, 14, 10, null, 11]
+    dtypes:
+      signal: float
+  T2:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：022 的组别没有记下来
+    columns:
+      sample_id: ["021", "022", "023", "024"]
+      group: [control, null, drug, drug]
+      signal: [9, 12, 11, 8]
+  T3:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：032 的 signal 缺失
+    columns:
+      sample_id: ["031", "032", "033", "034", "035"]
+      group: [control, drug, drug, control, drug]
+      signal: [9, null, 12, 11, 10]
+    dtypes:
+      signal: float
+  P:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：五个样点，note 是备注，没有备注的是缺失值
+    columns:
+      plot_id: [P1, P2, P3, P4, P5]
+      site: [北坡, 南坡, 北坡, 南坡, 东坡]
+      depth: [32, 28, null, 35, 30]
+      note: [null, 重测, null, null, 积水]
+    dtypes:
+      depth: float
+  K:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：042 测了两次，第二次是复测
+    columns:
+      sample_id: ["041", "042", "042", "043", "044"]
+      group: [control, drug, drug, control, drug]
+      signal: [9, 8, 12, 11, 13]
+  S3:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：五个样点的土层深度（厘米）
+    columns:
+      plot_id: [P1, P2, P3, P4, P5]
+      site: [北坡, 南坡, 北坡, 东坡, 南坡]
+      depth: [34, 30, 27, 31, 30]
+  C:
+    kind: dataframe
+    name: dishes
+    caption: 表 dishes：02 号培养皿计了两次，03 号的计数缺失
+    columns:
+      dish_id: ["01", "02", "02", "03", "04"]
+      treatment: [control, drug, drug, drug, control]
+      cells: [52, 40, 41, null, 48]
+    dtypes:
+      cells: float
 kps:
   - id: py46.k1
     title: 读入→校验→变换→汇总→输出的接口
+    card:
+      name: 步骤的接口
+      aliases: [处理流程, 中间结果, 检查点]
+      definition: 把一段数据处理分成读入、校验、变换、汇总、输出几步，每一步说清拿到哪张表、交出哪张表（哪些列、几行）；下一步只用上一步交出的结果。
+      conditions:
+        - 中间结果各起一个名字，才能逐步查看和核对。
+        - 步骤之间的 assert 检查交接的结果是否符合约定；条件不成立时程序在这一行停下，报 AssertionError。
+        - 把一步写成函数时，只用参数拿输入，用 return 交出结果，这一步才能换一批数据照样用。
+      example:
+        from: py46.k1.e0
+        text: |
+          ```python
+          first = raw.drop_duplicates(subset=["sample_id"])
+          measured = first.dropna(subset=["signal"])
+          ```
+          变换这一步拿到读入的 6 行：每个编号留第一次，剩 5 行；再去掉 signal 缺失的，剩 4 行。
+    lesson: |
+      一段数据处理代码读起来常常是一长串。把它拆成几步，每一步只回答一个问题：
+
+      | 步骤 | 做什么 | 交出什么 |
+      |---|---|---|
+      | 读入 | 从文件得到一张表 | 原始表，行数等于文件里的数据行数 |
+      | 校验 | 检查表是否符合约定，不改表 | 不交出新表；不符合就停下 |
+      | 变换 | 去重、去掉缺失、筛选 | 一张更干净或更小的表 |
+      | 汇总 | 按组计数、求平均 | 每组一行的汇总表 |
+      | 输出 | 把结果写进文件 | 一个文件 |
+
+      读每一步时，问三件事：它拿到的是哪张表，交出的是哪张表，交出的表有哪些列、几行。下一步只应该用上一步交出的结果。中间结果各有名字，例如 `first`、`measured`，你随时可以看它有几行、留下了哪些编号。
+
+      步骤之间可以放检查点。[assert](repa:concept/py42.k2) 后面写一个应当成立的条件：成立时什么也不发生；不成立时程序在这一行停下，报 AssertionError。数据处理里常用的检查点：
+
+      ```python
+      assert raw["sample_id"].count() == len(raw)
+      assert summary["n"].sum() == len(measured)
+      ```
+
+      第一行说“sample_id 的非缺失个数等于行数”，也就是编号没有缺失；第二行说“各组的 n 加起来等于参加统计的行数”，如果有行在分组时被漏掉，程序会在这里停下。
+
+      把一步写成函数，接口就更清楚：参数是这一步拿到的表，`return` 交出的是这一步的结果。函数里只用参数，不去拿外面的 `raw`，这一步才能换一批数据照样用。
+
+      汇总表每组一行，组名在索引里。导出汇总表时要保留索引，组名才会写进文件；导出逐行的表时才常写 `index=False`。
+    example:
+      id: py46.k1.e0
+      kind: [explain, trace]
+      uses: [py15.k1, py15.k2, py19.k3, py25.k2, py28.k1, py34.k1, py42.k2]
+      data: [plate_file]
+      body: |
+        需求是：每个样本只留第一次测量；signal 缺失的样本不参加统计；按组数出样本数 n，并求平均 signal；结果写进 summary.csv。
+
+        ```python startLine=1
+        raw = pd.read_csv("plate.csv", dtype={"sample_id": "str"})
+        assert raw["sample_id"].count() == len(raw)
+        first = raw.drop_duplicates(subset=["sample_id"])
+        measured = first.dropna(subset=["signal"])
+        summary = measured.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+        assert summary["n"].sum() == len(measured)
+        summary.to_csv("summary.csv")
+        ```
+
+        填写每一行属于哪一步。会交出一张表的行，再写出这张表有几行。
+      slots:
+        - id: steps
+          type: table
+          columns:
+            - { id: line, header: 行 }
+            - id: step
+              header: 属于哪一步
+              input:
+                type: choice
+                options:
+                  - { id: read, label: 读入 }
+                  - { id: check, label: 校验 }
+                  - { id: transform, label: 变换 }
+                  - { id: summarize, label: 汇总 }
+                  - { id: output, label: 输出 }
+            - { id: rows, header: 交出的表有几行, input: integer }
+          rows:
+            - { id: l1, cells: { line: 第 1 行, step: read, rows: 6 } }
+            - { id: l2, cells: { line: 第 2 行, step: check, rows: { value: "—" } } }
+            - { id: l3, cells: { line: 第 3 行, step: transform, rows: 5 } }
+            - { id: l4, cells: { line: 第 4 行, step: transform, rows: 4 } }
+            - { id: l5, cells: { line: 第 5 行, step: summarize, rows: 2 } }
+            - { id: l6, cells: { line: 第 6 行, step: check, rows: { value: "—" } } }
+            - { id: l7, cells: { line: 第 7 行, step: output, rows: { value: "—" } } }
+      explanation: |
+        | 行 | 步骤 | 交出 |
+        |---|---|---|
+        | 第 1 行 | 读入 | `raw`，6 行，和文件的 6 行数据一样 |
+        | 第 2 行 | 校验 | 编号没有缺失，什么也不发生 |
+        | 第 3 行 | 变换 | `first`，5 行：002 只留第一次 |
+        | 第 4 行 | 变换 | `measured`，4 行：003 的 signal 缺失，去掉 |
+        | 第 5 行 | 汇总 | `summary`，2 行：control 和 drug 各一行 |
+        | 第 6 行 | 校验 | n 是 2 和 2，加起来 4，等于 `measured` 的行数 |
+        | 第 7 行 | 输出 | 写出 summary.csv，组名在索引里，所以保留索引 |
+
+        每一步都只用上一步交出的表：第 4 行用的是 `first`，不是 `raw`。中间结果都有名字，核对时可以逐个看它们的行数。
+      verify: |
+        r = run()
+        def step(line):
+            if "read_csv" in line:
+                return "read"
+            if line.startswith("assert"):
+                return "check"
+            if "groupby" in line:
+                return "summarize"
+            if "to_csv" in line:
+                return "output"
+            return "transform"
+        tables = {"l1": "raw", "l3": "first", "l4": "measured", "l5": "summary"}
+        rows = {}
+        for i, line in enumerate(CODE.splitlines(), 1):
+            cells = {"step": step(line)}
+            if f"l{i}" in tables:
+                cells["rows"] = len(r[tables[f"l{i}"]])
+            rows[f"l{i}"] = cells
+        answers = {"steps": rows}
+    practice:
+      - id: py46.k1.q1
+        kind: [explain, trace]
+        uses: [py19.k3, py25.k2, py40.k2]
+        data: [R]
+        body: |
+          同事把变换这一步写成了函数：
+
+          ```python
+          def clean(table):
+              first = table.drop_duplicates(subset=["sample_id"])
+              return first.dropna(subset=["signal"])
+
+          measured = clean(raw)
+          ```
+        slots:
+          - id: input
+            type: choice
+            prompt: "`clean` 这一步拿到的是什么？"
+            options:
+              - id: global
+                content: 外面的变量 `first`
+                feedback: "`first` 是函数里面算出的中间结果，不是输入。"
+              - id: param
+                content: 参数 `table`；这次调用时它就是 `raw`
+              - id: file
+                content: 直接从 plate.csv 读进来的内容
+            key: param
+          - id: output
+            type: choice
+            prompt: "`clean` 交出什么？"
+            options:
+              - id: printed
+                content: 什么也不交出，只是把结果显示在屏幕上
+              - id: modified
+                content: 什么也不交出，只是把 `raw` 改成了去重后的表
+              - id: table
+                content: 一张去重并去掉 signal 缺失之后的新表
+            key: table
+          - id: rows
+            type: text
+            format: integer
+            prompt: "`measured` 有几行？"
+            key: 4
+          - id: raw_rows
+            type: text
+            format: integer
+            prompt: 调用之后，`raw` 有几行？
+            key: 6
+            feedback:
+              - when: 4
+                message: "`clean` 交出的是一张新表，`raw` 本身没有变。"
+        explanation: |
+          `clean` 的输入是参数 `table`，调用 `clean(raw)` 时它就是 `raw`；`return` 交出一张新表：002 只留第一次（5 行），再去掉 signal 缺失的 003，剩 **4** 行。`raw` 没有被改，仍是 **6** 行。
+
+          换一批数据时写 `clean(另一张表)` 就行，这一步不依赖外面的名字。
+        verify: |
+          r = run()
+          clean = r["clean"]
+          # 换一张只有前两行的表，结果跟着变，说明输入来自参数。
+          depends = len(clean(raw.iloc[:2])) != len(clean(raw))
+          measured = r["measured"]
+          answers = {
+              "input": "param" if depends else "global",
+              "output": "table" if isinstance(measured, pd.DataFrame) and len(r["raw"]) == 6 else "other",
+              "rows": len(measured),
+              "raw_rows": len(r["raw"]),
+          }
+      - id: py46.k1.q2
+        kind: [predict, debug]
+        uses: [py11.k2, py26.k1, py42.k2]
+        data: [M]
+        body: |
+          读入的表里有一行没有编号。阅读代码。
+
+          ```python startLine=1
+          assert raw["sample_id"].count() == len(raw)
+          first = raw.drop_duplicates(subset=["sample_id"])
+          print(len(first))
+          ```
+        slots:
+          - id: stops
+            type: choice
+            prompt: 程序运行到哪里？
+            options:
+              - { id: l1, content: 在第 1 行停下 }
+              - { id: l2, content: 在第 2 行停下 }
+              - { id: l3, content: 在第 3 行停下 }
+              - { id: none, content: 不会停下，显示 4 }
+            key: l1
+          - id: error
+            type: text
+            prompt: 报的是什么异常？写出异常类型。
+            key: AssertionError
+        explanation: |
+          在**第 1 行**停下，报 **AssertionError**。`raw["sample_id"].count()` 只数非缺失的编号，是 3；`len(raw)` 是 4。两边不相等，检查点不成立，后面的去重和显示都不会运行。
+
+          这正是检查点的用处：编号缺失的表不该悄悄进入去重和汇总，在读入后马上停下，比最后对着汇总表猜原因省事。
+        verify: |
+          lines = CODE.splitlines()
+          stopped = None
+          error = None
+          for i in range(1, len(lines) + 1):
+              result = run("\n".join(lines[:i]))
+              if result.error is not None:
+                  stopped, error = f"l{i}", result.error
+                  break
+          answers = {"stops": stopped or "none", "error": error}
+      - id: py46.k1.q3
+        kind: [modify]
+        uses: [py19.k3, py25.k2, py40.k2]
+        data: [R]
+        body: |
+          需求是：
+
+          > 把变换这一步写成函数 `clean(table)`：输入一张样本表 `table`，每个 sample_id 只留第一次测量；第一次测量的 signal 缺失的样本，不参加统计。返回新表，不改输入的表。
+
+          作答框里的函数在表 raw 上结果是对的，可换一张表调用就不对了。找出原因，改好并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 6
+            starter: |
+              def clean(table):
+                  first = raw.drop_duplicates(subset=["sample_id"])
+                  return first.dropna(subset=["signal"])
+            solution: |
+              def clean(table):
+                  first = table.drop_duplicates(subset=["sample_id"])
+                  return first.dropna(subset=["signal"])
+            accepts:
+              - |
+                def clean(table):
+                    return table.drop_duplicates(subset=["sample_id"]).dropna(subset=["signal"])
+            rejects:
+              - code: |
+                  def clean(table):
+                      first = table.dropna(subset=["signal"])
+                      return first.drop_duplicates(subset=["sample_id"])
+                why: 先去缺失再去重，第一次测量缺失时会改用第二次测量
+              - code: |
+                  def clean(table):
+                      first = table.drop_duplicates()
+                      return first.dropna(subset=["signal"])
+                why: 去重没写 subset，同一编号的两次测量值不同时都会留下
+              - code: |
+                  def clean(table):
+                      return table.dropna(subset=["signal"])
+                why: 漏了去重
+              - code: |
+                  def clean(table):
+                      first = table.drop_duplicates(subset=["sample_id"])
+                      print(first.dropna(subset=["signal"]))
+                why: 只显示结果，没有交出
+            tests:
+              - name: 表 raw
+                expect:
+                  clean(raw): 'pd.DataFrame({"sample_id": ["001", "002", "004", "005"], "group": ["control", "drug", "control", "drug"], "signal": [8.0, 12.0, 10.0, 9.0]}, index=[0, 1, 4, 5])'
+                  raw: raw
+              - name: 换一张表，第一次测量缺失
+                hidden: true
+                setup: |
+                  import pandas as pd
+                  other = pd.DataFrame({
+                      "sample_id": ["101", "102", "102", "103", "103"],
+                      "group": ["drug", "control", "control", "drug", "drug"],
+                      "signal": [7.0, None, 11.0, 15.0, 16.0],
+                  })
+                expect:
+                  clean(other): 'pd.DataFrame({"sample_id": ["101", "103"], "group": ["drug", "drug"], "signal": [7.0, 15.0]}, index=[0, 3])'
+                  other: 'pd.DataFrame({"sample_id": ["101", "102", "102", "103", "103"], "group": ["drug", "control", "control", "drug", "drug"], "signal": [7.0, None, 11.0, 15.0, 16.0]})'
+        explanation: |
+          把函数里的 `raw` 换成参数 `table`：
+
+          ```python
+          def clean(table):
+              first = table.drop_duplicates(subset=["sample_id"])
+              return first.dropna(subset=["signal"])
+          ```
+
+          原来的写法不管调用时传进来什么，都去处理外面的 `raw`，所以在 raw 上碰巧对，换一张表就错。判分时还会换一张表：102 的第一次测量缺失，按需求它不参加统计；先去缺失再去重的写法会改用第二次的 11，也判错。
+    review:
+      - id: py46.k1.r1
+        kind: [modify]
+        uses: [py15.k1, py19.k3, py28.k1, py34.k1, py42.k2]
+        data: [plots_file]
+        body: |
+          需求是：读入 plots.csv；检查 plot_id 没有缺失；去掉 depth 缺失的样点；按 site 数出样点个数 n、求平均深度 mean_depth；把汇总表写进 depth_summary.csv。
+
+          下面五行代码的顺序被打乱了。把它们排成能按需求运行的流程，每一行都要用上。
+        slots:
+          - id: lines
+            type: order
+            items:
+              - id: save
+                code: summary.to_csv("depth_summary.csv")
+              - id: clean
+                code: measured = plots.dropna(subset=["depth"])
+              - id: check
+                code: assert plots["plot_id"].count() == len(plots)
+              - id: summarize
+                code: 'summary = measured.groupby("site").agg(n=("plot_id", "count"), mean_depth=("depth", "mean"))'
+              - id: read
+                code: 'plots = pd.read_csv("plots.csv", dtype={"plot_id": "str"})'
+            key: [read, check, clean, summarize, save]
+            tests:
+              - name: 汇总表与写出的文件
+                expect:
+                  summary: 'pd.DataFrame({"n": [1, 1, 2], "mean_depth": [30.0, 32.0, 31.5]}, index=["东坡", "北坡", "南坡"])'
+                  open("depth_summary.csv", encoding="utf-8").read(): '"site,n,mean_depth\n东坡,1,30.0\n北坡,1,32.0\n南坡,2,31.5\n"'
+                  len(measured): "4"
+        explanation: |
+          ```python
+          plots = pd.read_csv("plots.csv", dtype={"plot_id": "str"})
+          assert plots["plot_id"].count() == len(plots)
+          measured = plots.dropna(subset=["depth"])
+          summary = measured.groupby("site").agg(n=("plot_id", "count"), mean_depth=("depth", "mean"))
+          summary.to_csv("depth_summary.csv")
+          ```
+
+          每一行都要用到上一行交出的名字：去掉缺失要用读入的 `plots`，分组要用 `measured`，写文件要用 `summary`。校验不改表，放在读入之后、汇总之前的哪个位置都能运行，按需求放在读入后最先检查。P3 的 depth 缺失被去掉，汇总表 3 行，南坡有 2 个样点。
+      - id: py46.k1.r2
+        kind: [predict, explain]
+        uses: [py19.k3, py26.k1, py28.k2, py42.k2]
+        data: [S]
+        body: |
+          阅读代码。
+
+          ```python startLine=1
+          measured = plots.dropna(subset=["depth"])
+          summary = measured.groupby("site").agg(n=("plot_id", "count"), mean_depth=("depth", "mean"))
+          ```
+
+          运行之后，有人想在步骤之间加下面几个检查点。逐个判断：在这张表上，条件成立吗？
+        slots:
+          - id: checks
+            type: table
+            columns:
+              - { id: check, header: 检查点 }
+              - { id: holds, header: 成立吗, input: bool }
+            rows:
+              - { id: a1, cells: { check: 'assert plots["plot_id"].count() == len(plots)', holds: true } }
+              - { id: a2, cells: { check: 'assert len(measured) == len(plots)', holds: false } }
+              - { id: a3, cells: { check: 'assert measured["depth"].count() == len(measured)', holds: true } }
+              - { id: a4, cells: { check: 'assert summary["n"].sum() == len(measured)', holds: false } }
+          - id: total
+            type: text
+            format: integer
+            prompt: "`summary[\"n\"].sum()` 是多少？"
+            key: 3
+        explanation: |
+          | 检查点 | 成立吗 | 原因 |
+          |---|---|---|
+          | plot_id 没有缺失 | True | 5 个编号都在 |
+          | measured 和 plots 一样多行 | False | P4 的 depth 缺失被去掉，measured 只有 4 行 |
+          | measured 里 depth 没有缺失 | True | 去掉缺失之后，4 个 depth 都有值 |
+          | 各组 n 加起来等于 measured 的行数 | False | P3 的 site 缺失，groupby 默认不把它放进任何组 |
+
+          `summary["n"].sum()` 是 **3**（东坡、北坡、南坡各 1），比 `measured` 的 4 行少 1。第四个检查点正好能拦下“分组时漏掉了行”这种问题；第二个不成立是去掉缺失的正常结果，要不要这样检查，看需求是否允许去掉行。
+        verify: |
+          r = run()
+          expressions = {
+              "a1": 'plots["plot_id"].count() == len(plots)',
+              "a2": 'len(measured) == len(plots)',
+              "a3": 'measured["depth"].count() == len(measured)',
+              "a4": 'summary["n"].sum() == len(measured)',
+          }
+          answers = {
+              "checks": {row: {"holds": bool(eval(expression, {}, r.vars))} for row, expression in expressions.items()},
+              "total": int(r["summary"]["n"].sum()),
+          }
+    quiz:
+      - id: py46.k1.x1
+        kind: [trace, explain]
+        uses: [py15.k1, py19.k3, py28.k1, py40.k2]
+        data: [dishes_file]
+        body: |
+          这段代码把流程写成了三个函数，最后一行把它们接起来。
+
+          ```python startLine=1
+          def load(path):
+              return pd.read_csv(path, dtype={"dish_id": "str"})
+
+          def clean(table):
+              return table.dropna(subset=["cells"])
+
+          def summarize(table):
+              return table.groupby("treatment").agg(dishes=("dish_id", "count"), mean_cells=("cells", "mean"))
+
+          result = summarize(clean(load("dishes.csv")))
+          ```
+        slots:
+          - id: source
+            type: choice
+            prompt: "`clean` 拿到的表是谁交出的？"
+            options:
+              - { id: summarize, content: "`summarize`" }
+              - { id: file, content: 文件 dishes.csv，不经过任何函数 }
+              - { id: load, content: "`load`" }
+            key: load
+          - id: rows_in
+            type: text
+            format: integer
+            prompt: "`clean` 拿到的表有几行？"
+            key: 5
+          - id: rows_out
+            type: text
+            format: integer
+            prompt: "`clean` 交出的表有几行？"
+            key: 4
+          - id: result_rows
+            type: text
+            format: integer
+            prompt: "`result` 有几行？"
+            key: 2
+          - id: columns
+            type: order
+            partial: true
+            prompt: "`result` 有哪些列？按顺序排列，组名所在的索引不算列。"
+            items:
+              - { id: dish_id, content: "`dish_id`" }
+              - { id: treatment, content: "`treatment`" }
+              - { id: cells, content: "`cells`" }
+              - { id: dishes, content: "`dishes`" }
+              - { id: mean_cells, content: "`mean_cells`" }
+            key: [dishes, mean_cells]
+        explanation: |
+          最后一行从里往外读：先 `load("dishes.csv")` 读入 **5** 行，交给 `clean`；`clean` 去掉 cells 缺失的 03，交出 **4** 行，再交给 `summarize`；`summarize` 按 treatment 分组，交出 **2** 行（control、drug），列是 **dishes、mean_cells**，组名在索引里。
+
+          每个函数的输入都是参数，输出都是 `return` 的结果，所以三步能这样一个接一个地套起来。
+        verify: |
+          import ast
+          r = run()
+          call = ast.parse(CODE.splitlines()[-1]).body[0].value
+          # summarize(clean(load(...)))：clean 的实参是哪个函数的调用
+          inner = call.args[0].args[0]
+          table = r["load"]("dishes.csv")
+          result = r["result"]
+          answers = {
+              "source": inner.func.id,
+              "rows_in": len(table),
+              "rows_out": len(r["clean"](table)),
+              "result_rows": len(result),
+              "columns": list(result.columns),
+          }
+      - id: py46.k1.x2
+        kind: [modify]
+        uses: [py28.k1, py40.k2]
+        data: [G]
+        body: |
+          需求是：
+
+          > 把汇总这一步写成函数 `summarize(table)`：输入一张样本表，按 group 分组，n 为每组 sample_id 的个数，mean_signal 为每组 signal 的平均。把汇总表交给下一步（输出那一步要用它写文件）。
+
+          输出那一步写的是 `summary = summarize(measured)`，接着 `summary.to_csv("summary.csv")`，运行时却报错：`summary` 是 None。作答框里是汇总这一步的函数，改好并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 6
+            starter: |
+              def summarize(table):
+                  summary = table.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+                  print(summary)
+            solution: |
+              def summarize(table):
+                  summary = table.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+                  return summary
+            accepts:
+              - |
+                def summarize(table):
+                    return table.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+            rejects:
+              - code: |
+                  def summarize(table):
+                      summary = raw.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+                      return summary
+                why: 用了外面的 raw，没有只用参数
+              - code: |
+                  def summarize(table):
+                      summary = table.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+                      return print(summary)
+                why: 交出的是 print 的结果 None
+              - code: |
+                  def summarize(table):
+                      return table.groupby("group").agg(count=("sample_id", "count"), mean=("signal", "mean"))
+                why: 列名不是需求里的 n 和 mean_signal
+            tests:
+              - name: 表 raw
+                expect:
+                  summarize(raw): 'pd.DataFrame({"n": [2, 3], "mean_signal": [10.0, 12.0]}, index=["control", "drug"])'
+                  raw: raw
+              - name: 换一张表
+                hidden: true
+                setup: |
+                  import pandas as pd
+                  other = pd.DataFrame({
+                      "sample_id": ["201", "202", "203"],
+                      "group": ["drug", "drug", "control"],
+                      "signal": [6, 9, 15],
+                  })
+                expect:
+                  summarize(other): 'pd.DataFrame({"n": [1, 2], "mean_signal": [15.0, 7.5]}, index=["control", "drug"])'
+        explanation: |
+          最后一行改成 `return summary`：
+
+          ```python
+          def summarize(table):
+              summary = table.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+              return summary
+          ```
+
+          `print` 只是显示，函数交出的仍是 None，下一步写文件时拿不到表。表 raw 上的结果是 control 2 个、平均 10.0，drug 3 个、平均 12.0。判分时还会换一张表调用，检查函数只用了参数。
+
   - id: py46.k2
     title: 从一个中间结果定位需求与代码的分歧
+    card:
+      name: 定位分歧
+      aliases: [逐步核对, 第一个对不上的步骤]
+      definition: 结果不符合需求时，按需求在小表上手算每一步应有的中间结果，与代码每一步实际的结果比对；第一个对不上的步骤就是要改的地方。
+      conditions:
+        - 第一个对不上的步骤之后，后面的结果都会跟着错；只改那一步，再从头核对。
+        - 小表要能暴露分歧：有重复测量、有缺失、有恰好等于阈值的值。
+      example:
+        from: py46.k2.e0
+        text: |
+          需求要每个编号只留第一次，代码写 `raw.drop_duplicates()` 没写 subset：按需求去重后应剩 5 行，代码实际仍是 6 行，分歧从去重这一步开始。
+    lesson: |
+      最后的汇总表看着不对时，先别整段重写。拿需求在小表上手算每一步应当交出什么，再看代码每一步实际交出了什么，逐步比对。比如一段四步的代码，比对下来是这样：
+
+      | 步骤 | 按需求应当 | 代码实际 |
+      |---|---:|---:|
+      | 读入后 | 6 行 | 6 行 |
+      | 去掉缺失后 | 5 行 | 5 行 |
+      | 筛选后 | 3 行 | 2 行 |
+      | 汇总后 drug 组的 n | 2 | 1 |
+
+      第一个对不上的是筛选，分歧就在那一步。它后面的步骤即使代码没错，也会因为拿到了错的输入而跟着错；所以要找“第一个”，而不是“最显眼的那个”。
+
+      前面学过的几种常见分歧：
+
+      - 去重：需求说“同一个编号只留第一次”，代码写 `drop_duplicates()` 没写 subset，只去掉整行完全相同的行；
+      - 去掉缺失：需求只说 signal 缺失的不要，代码写 `dropna()` 没写 subset，别的列缺失的行也被去掉；
+      - 阈值：需求说“至少 10”，代码写 `> 10`，恰好为 10 的行被丢掉；
+      - 分组：groupby 默认不把分组列缺失的行放进任何组，这些行在汇总时悄悄消失；
+      - 计数：`("signal", "count")` 只数有值的 signal，需求要的若是“每组有几个样本”，缺失的也要算。
+
+      找到分歧后只改那一步，再从头跑一遍，逐步核对。
+    example:
+      id: py46.k2.e0
+      kind: [trace, debug]
+      uses: [py19.k3, py25.k1, py25.k2, py28.k1]
+      data: [R]
+      body: |
+        需求是：每个 sample_id 只留第一次测量；去掉 signal 缺失的样本；按 group 数出样本数 n。
+
+        ```python startLine=1
+        first = raw.drop_duplicates()
+        measured = first.dropna(subset=["signal"])
+        summary = measured.groupby("group").agg(n=("sample_id", "count"))
+        ```
+
+        先按需求在表上手算每一步应有的结果，再写出代码实际的结果。
+      slots:
+        - id: steps
+          type: table
+          columns:
+            - { id: what, header: 中间结果 }
+            - { id: need, header: 按需求应当, input: integer }
+            - { id: actual, header: 代码实际, input: integer }
+          rows:
+            - { id: first, cells: { what: first 的行数, need: 5, actual: 6 } }
+            - { id: measured, cells: { what: measured 的行数, need: 4, actual: 5 } }
+            - { id: drug, cells: { what: drug 组的 n, need: 2, actual: 3 } }
+        - id: line
+          type: choice
+          prompt: 分歧从哪一行开始？
+          options:
+            - { id: l1, content: 第 1 行 }
+            - { id: l2, content: 第 2 行 }
+            - { id: l3, content: 第 3 行 }
+          key: l1
+      explanation: |
+        | 中间结果 | 按需求应当 | 代码实际 |
+        |---|---:|---:|
+        | first 的行数 | 5 | 6 |
+        | measured 的行数 | 4 | 5 |
+        | drug 组的 n | 2 | 3 |
+
+        分歧从**第 1 行**开始。002 测了两次，signal 分别是 12 和 13，两行不完全相同；`drop_duplicates()` 没写 subset，只去掉整行完全相同的行，所以两行都留下了。第 2、3 行本身没错，只是拿到了多一行的表，结果跟着多一。
+
+        只改第 1 行：`first = raw.drop_duplicates(subset=["sample_id"])`。
+      verify: |
+        r = run()
+        # 按需求实现一遍，得到每一步应有的结果。
+        first = raw.drop_duplicates(subset=["sample_id"])
+        measured = first.dropna(subset=["signal"])
+        summary = measured.groupby("group").agg(n=("sample_id", "count"))
+        need = {"first": len(first), "measured": len(measured), "drug": int(summary.loc["drug", "n"])}
+        actual = {"first": len(r["first"]), "measured": len(r["measured"]), "drug": int(r["summary"].loc["drug", "n"])}
+        lines = [i for i, key in enumerate(["first", "measured", "drug"], 1) if need[key] != actual[key]]
+        answers = {
+            "steps": {key: {"need": need[key], "actual": actual[key]} for key in need},
+            "line": f"l{lines[0]}",
+        }
+    practice:
+      - id: py46.k2.q1
+        kind: [predict, debug]
+        uses: [py08.k2, py17.k2, py28.k1]
+        data: [T1]
+        body: |
+          需求是：去掉 signal 缺失的样本；signal 至少为 10 的样本算达标；按 group 数出达标样本数 n。
+
+          ```python startLine=1
+          measured = raw.dropna(subset=["signal"])
+          passed = measured.loc[measured["signal"] > 10]
+          summary = passed.groupby("group").agg(n=("sample_id", "count"))
+          ```
+        slots:
+          - id: need
+            type: order
+            partial: true
+            prompt: 按需求，哪些样本应当达标？按原表顺序排出 sample_id。
+            items:
+              - { id: "011", content: "011" }
+              - { id: "012", content: "012" }
+              - { id: "013", content: "013" }
+              - { id: "014", content: "014" }
+              - { id: "015", content: "015" }
+            key: ["011", "012", "013", "015"]
+          - id: actual
+            type: order
+            partial: true
+            prompt: 代码的 `passed` 实际留下了哪些？按顺序排出 sample_id。
+            items:
+              - { id: "011", content: "011" }
+              - { id: "012", content: "012" }
+              - { id: "013", content: "013" }
+              - { id: "014", content: "014" }
+              - { id: "015", content: "015" }
+            key: ["012", "015"]
+          - id: summary_rows
+            type: text
+            format: integer
+            prompt: 代码的 `summary` 有几行？
+            key: 1
+          - id: line
+            type: choice
+            prompt: 分歧从哪一行开始？
+            options:
+              - { id: l1, content: 第 1 行 }
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+            key: l2
+        explanation: |
+          第 1 行去掉 signal 缺失的 014，按需求和按代码都一样，剩 4 行。按需求应当达标的是 **011、012、013、015**；代码第 2 行用了 `> 10`，恰好为 10 的 011 和 013 被丢掉，只留下 **012、015**。分歧从**第 2 行**开始。
+
+          第 3 行没写错，但它拿到的表里只剩 drug 组的两行，所以 `summary` 只有 **1** 行，control 组整个不见了。看到汇总表少了一组，要往前找原因，而不是去改分组那一行。
+        verify: |
+          r = run()
+          # 按需求实现一遍，逐步比对，找第一个对不上的中间结果。
+          measured = raw.dropna(subset=["signal"])
+          passed = measured.loc[measured["signal"] >= 10]
+          summary = passed.groupby("group").agg(n=("sample_id", "count"))
+          steps = [("l1", measured, r["measured"]), ("l2", passed, r["passed"]), ("l3", summary, r["summary"])]
+          diverged = [line for line, need, actual in steps if not need.equals(actual)]
+          answers = {
+              "need": list(passed["sample_id"]),
+              "actual": list(r["passed"]["sample_id"]),
+              "summary_rows": len(r["summary"]),
+              "line": diverged[0],
+          }
+      - id: py46.k2.q2
+        kind: [predict, debug]
+        uses: [py19.k1, py28.k2]
+        data: [T2]
+        body: |
+          需求是：按 group 数出每组的样本数 n；组别缺失的样本单独算一组，不能丢掉。
+
+          ```python startLine=1
+          summary = raw.groupby("group").agg(n=("sample_id", "count"))
+          print(summary["n"].sum())
+          print(len(raw))
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 3
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 4
+          - id: fix
+            type: choice
+            prompt: 第 1 行改成哪一种，结果才符合需求？
+            options:
+              - id: drop
+                content: |
+                  ```python
+                  summary = raw.dropna(subset=["group"]).groupby("group").agg(n=("sample_id", "count"))
+                  ```
+                feedback: 这是明确地把组别缺失的样本去掉，和需求正好相反。
+              - id: signal
+                content: |
+                  ```python
+                  summary = raw.groupby("group").agg(n=("signal", "count"))
+                  ```
+                feedback: 换一列计数不影响分组；组别缺失的行仍不在任何组里。
+              - id: keep
+                content: |
+                  ```python
+                  summary = raw.groupby("group", dropna=False).agg(n=("sample_id", "count"))
+                  ```
+            key: keep
+        explanation: |
+          先显示 **3**，再显示 **4**。各组的 n 加起来比表的行数少 1：022 的组别缺失，groupby 默认不把它放进任何组。这一个中间结果就说明分歧出在分组这一步。
+
+          改成 `raw.groupby("group", dropna=False)`，组别缺失的样本会单独成一组（组名显示为 NaN），n 加起来就是 4。
+        verify: |
+          r = run()
+          lines = r.lines()
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if run(code)["summary"]["n"].sum() == len(raw)]
+          answers = {
+              "first": int(lines[0]),
+              "second": int(lines[1]),
+              "fix": fits[0] if len(fits) == 1 else fits,
+          }
+      - id: py46.k2.q3
+        kind: [modify]
+        uses: [py26.k1, py28.k1, py28.k2]
+        data: [T3]
+        body: |
+          需求是：
+
+          > 按 group 汇总：n 为每组的样本数，signal 缺失的样本也算在内；mean_signal 为每组有值的 signal 的平均。
+
+          核对中间结果时发现：表里 drug 组有 3 个样本，汇总表里 drug 的 n 却是 2。作答框里是同事的代码，只改出错的地方并提交，结果仍叫 `summary`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              summary = raw.groupby("group").agg(n=("signal", "count"), mean_signal=("signal", "mean"))
+            solution: |
+              summary = raw.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+            accepts:
+              - summary = raw.groupby("group").agg(n=("signal", "size"), mean_signal=("signal", "mean"))
+              - summary = raw.groupby("group").agg(n=("sample_id", "size"), mean_signal=("signal", "mean"))
+            rejects:
+              - code: summary = raw.dropna(subset=["signal"]).groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+                why: 先去掉了缺失的样本，n 仍然少数
+              - code: summary = raw.groupby("group").agg(n=("sample_id", "count"), mean_signal=("sample_id", "count"))
+                why: 把平均也改成了计数
+            tests:
+              - name: 表 raw
+                expect:
+                  summary: 'pd.DataFrame({"n": [2, 3], "mean_signal": [10.0, 11.0]}, index=["control", "drug"])'
+              - name: 换一张表，缺失在 control 组
+                hidden: true
+                setup: |
+                  import pandas as pd
+                  raw = pd.DataFrame({
+                      "sample_id": ["301", "302", "303", "304"],
+                      "group": ["control", "control", "drug", "drug"],
+                      "signal": [None, 8.0, 12.0, 14.0],
+                  })
+                expect:
+                  summary: 'pd.DataFrame({"n": [2, 2], "mean_signal": [8.0, 13.0]}, index=["control", "drug"])'
+        explanation: |
+          只改 n 的来源：
+
+          ```python
+          summary = raw.groupby("group").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+          ```
+
+          `("signal", "count")` 只数有值的 signal，032 的 signal 缺失，所以 drug 的 n 少了 1。sample_id 没有缺失，数它就是每组的样本数；写成 `("signal", "size")` 也对，size 数的是行数，不管有没有值。mean_signal 本来就只用有值的 signal，不用改：drug 是 (12 + 10) ÷ 2 = 11.0。
+    review:
+      - id: py46.k2.r1
+        kind: [trace, debug]
+        uses: [py17.k2, py19.k3, py28.k1]
+        data: [P]
+        body: |
+          需求是：去掉 depth 缺失的样点；depth 至少为 30 的算深层；按 site 数出深层样点的个数。
+
+          ```python startLine=1
+          measured = plots.dropna()
+          deep = measured.loc[measured["depth"] >= 30]
+          summary = deep.groupby("site").agg(n=("plot_id", "count"))
+          ```
+        slots:
+          - id: steps
+            type: table
+            columns:
+              - { id: what, header: 中间结果 }
+              - { id: need, header: 按需求应当, input: integer }
+              - { id: actual, header: 代码实际, input: integer }
+            rows:
+              - { id: measured, cells: { what: measured 的行数, need: 4, actual: 2 } }
+              - { id: deep, cells: { what: deep 的行数, need: 3, actual: 1 } }
+              - { id: summary, cells: { what: summary 的行数, need: 3, actual: 1 } }
+          - id: fix
+            type: choice
+            prompt: 只改一行，改成哪一种？
+            options:
+              - id: threshold
+                content: |
+                  ```python
+                  deep = measured.loc[measured["depth"] > 30]
+                  ```
+              - id: subset
+                content: |
+                  ```python
+                  measured = plots.dropna(subset=["depth"])
+                  ```
+              - id: group
+                content: |
+                  ```python
+                  summary = deep.groupby("site", dropna=False).agg(n=("plot_id", "count"))
+                  ```
+            key: subset
+        explanation: |
+          | 中间结果 | 按需求应当 | 代码实际 |
+          |---|---:|---:|
+          | measured 的行数 | 4 | 2 |
+          | deep 的行数 | 3 | 1 |
+          | summary 的行数 | 3 | 1 |
+
+          第一个对不上的是 `measured`。`dropna()` 没写 subset，只要一行里有任何缺失就去掉：P1、P4 只是没有备注，也被去掉了，只剩 P2、P5。改成 `plots.dropna(subset=["depth"])`，只按 depth 去掉 P3；之后 P1、P4、P5 达到 30，三个坡各一个。改阈值或分组那一行都碰不到真正的原因。
+        verify: |
+          r = run()
+          measured = plots.dropna(subset=["depth"])
+          deep = measured.loc[measured["depth"] >= 30]
+          summary = deep.groupby("site").agg(n=("plot_id", "count"))
+          need = {"measured": len(measured), "deep": len(deep), "summary": len(summary)}
+          lines = CODE.splitlines()
+          def fixed(option_code):
+              name = option_code.split(" = ")[0]
+              return "\n".join(option_code if line.startswith(name + " = ") else line for line in lines)
+          fits = []
+          for option, code in OPTIONS["fix"].items():
+              result = run(fixed(code))
+              if {key: len(result[key]) for key in need} == need:
+                  fits.append(option)
+          answers = {
+              "steps": {key: {"need": need[key], "actual": len(r[key])} for key in need},
+              "fix": fits[0] if len(fits) == 1 else fits,
+          }
+      - id: py46.k2.r2
+        kind: [predict, debug]
+        uses: [py25.k2, py28.k1]
+        data: [K]
+        body: |
+          需求是：同一个 sample_id 测了两次时，用最后一次（复测）的结果；按 group 求平均 signal。
+
+          ```python startLine=1
+          latest = raw.drop_duplicates(subset=["sample_id"])
+          summary = latest.groupby("group").agg(mean_signal=("signal", "mean"))
+          ```
+        slots:
+          - id: need
+            type: text
+            format: number
+            prompt: 按需求，drug 组的平均 signal 应当是多少？
+            key: 12.5
+          - id: actual
+            type: text
+            format: number
+            prompt: 代码算出的 drug 组平均是多少？
+            key: 10.5
+          - id: fix
+            type: choice
+            prompt: 第 1 行改成哪一种，结果才符合需求？
+            options:
+              - id: whole
+                content: |
+                  ```python
+                  latest = raw.drop_duplicates(keep="last")
+                  ```
+              - id: none
+                content: |
+                  ```python
+                  latest = raw.drop_duplicates(subset=["sample_id"], keep=False)
+                  ```
+              - id: last
+                content: |
+                  ```python
+                  latest = raw.drop_duplicates(subset=["sample_id"], keep="last")
+                  ```
+            key: last
+        explanation: |
+          按需求，042 用复测的 12，drug 组是 042 和 044：(12 + 13) ÷ 2 = **12.5**。代码的 `drop_duplicates` 默认留第一次，用的是 8：(8 + 13) ÷ 2 = **10.5**。control 组两者都是 10.0，只看 control 发现不了。
+
+          改成 `keep="last"` 并保留 `subset=["sample_id"]`。只写 `keep="last"` 不写 subset，两行 042 不完全相同，都会留下；`keep=False` 会把 042 两次都去掉。
+        verify: |
+          r = run()
+          latest = raw.drop_duplicates(subset=["sample_id"], keep="last")
+          need = latest.groupby("group").agg(mean_signal=("signal", "mean"))
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if run(code + "\n" + CODE.splitlines()[1])["summary"].equals(need)]
+          answers = {
+              "need": float(need.loc["drug", "mean_signal"]),
+              "actual": float(r["summary"].loc["drug", "mean_signal"]),
+              "fix": fits[0] if len(fits) == 1 else fits,
+          }
+    quiz:
+      - id: py46.k2.x1
+        kind: [modify]
+        uses: [py08.k2, py17.k2, py28.k1]
+        data: [S3]
+        body: |
+          需求是：
+
+          > depth 至少为 30 的样点算深层；按 site 数出深层样点的个数 n。
+
+          核对中间结果时，打印 `deep` 发现只有 P1、P4 两行。作答框里是同事的代码，只改出错的那一步并提交，结果仍叫 `summary`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              deep = plots.loc[plots["depth"] > 30]
+              summary = deep.groupby("site").agg(n=("plot_id", "count"))
+            solution: |
+              deep = plots.loc[plots["depth"] >= 30]
+              summary = deep.groupby("site").agg(n=("plot_id", "count"))
+            rejects:
+              - code: |
+                  deep = plots.loc[plots["depth"] > 30]
+                  summary = deep.groupby("site", dropna=False).agg(n=("plot_id", "count"))
+                why: 改了分组那一行，没碰到真正的原因
+              - code: |
+                  deep = plots
+                  summary = deep.groupby("site").agg(n=("plot_id", "count"))
+                why: 去掉了筛选，浅的样点也算进去了
+              - code: |
+                  deep = plots.loc[plots["depth"] > 29]
+                  summary = deep.groupby("site").agg(n=("plot_id", "count"))
+                why: 改成“大于 29”，只在整数深度上碰巧等于“至少 30”
+            tests:
+              - name: 表 plots
+                expect:
+                  summary: 'pd.DataFrame({"n": [1, 1, 2]}, index=["东坡", "北坡", "南坡"])'
+                  plots: plots
+              - name: 换一张表，深度带小数
+                hidden: true
+                setup: |
+                  import pandas as pd
+                  plots = pd.DataFrame({
+                      "plot_id": ["Q1", "Q2", "Q3", "Q4"],
+                      "site": ["北坡", "北坡", "南坡", "南坡"],
+                      "depth": [29.5, 30.0, 33.5, 28.0],
+                  })
+                expect:
+                  summary: 'pd.DataFrame({"n": [1, 1]}, index=["北坡", "南坡"])'
+        explanation: |
+          分歧在第 1 行：`> 30` 不包含恰好为 30 的 P2、P5。只改比较符：
+
+          ```python
+          deep = plots.loc[plots["depth"] >= 30]
+          summary = deep.groupby("site").agg(n=("plot_id", "count"))
+          ```
+
+          改后 deep 有 P1、P2、P4、P5 四行，南坡 2 个，东坡、北坡各 1 个。第 2 行不用动：南坡原来不在汇总表里，是因为它的两个样点都在第 1 行被丢掉了。判分时还会换一张深度带小数的表，“大于 29”这样碰巧对整数成立的写法会被查出来。
+      - id: py46.k2.x2
+        kind: [trace, debug]
+        uses: [py25.k1, py25.k2, py28.k1]
+        data: [C]
+        body: |
+          需求是：去掉 cells 缺失的计数；每个 dish_id 只留第一次计数；按 treatment 数出培养皿的个数 n。
+
+          ```python startLine=1
+          counted = dishes.dropna(subset=["cells"])
+          first = counted.drop_duplicates(subset=["treatment"])
+          summary = first.groupby("treatment").agg(n=("dish_id", "count"))
+          ```
+        slots:
+          - id: steps
+            type: table
+            columns:
+              - { id: what, header: 中间结果 }
+              - { id: need, header: 按需求应当, input: integer }
+              - { id: actual, header: 代码实际, input: integer }
+            rows:
+              - { id: counted, cells: { what: counted 的行数, need: 4, actual: 4 } }
+              - { id: first, cells: { what: first 的行数, need: 3, actual: 2 } }
+              - { id: control, cells: { what: control 的 n, need: 2, actual: 1 } }
+              - { id: drug, cells: { what: drug 的 n, need: 1, actual: 1 } }
+          - id: line
+            type: choice
+            prompt: 分歧从哪一行开始？
+            options:
+              - { id: l1, content: 第 1 行 }
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+            key: l2
+        explanation: |
+          | 中间结果 | 按需求应当 | 代码实际 |
+          |---|---:|---:|
+          | counted 的行数 | 4 | 4 |
+          | first 的行数 | 3 | 2 |
+          | control 的 n | 2 | 1 |
+          | drug 的 n | 1 | 1 |
+
+          第 1 行去掉计数缺失的 03，两边一样。分歧从**第 2 行**开始：去重用错了列。`subset=["treatment"]` 让每种处理只留第一行，只剩 01 和 02；需求要的是按 `dish_id` 去重，只去掉 02 的第二次计数，留下 01、02、04 三行。
+
+          drug 的 n 碰巧两边都是 1，只看这一个数会以为没问题；逐步比对行数，才看得出第 2 行就已经错了。
+        verify: |
+          r = run()
+          # 按需求实现一遍，逐步比对。
+          counted = dishes.dropna(subset=["cells"])
+          first = counted.drop_duplicates(subset=["dish_id"])
+          summary = first.groupby("treatment").agg(n=("dish_id", "count"))
+          need = {"counted": len(counted), "first": len(first),
+                  "control": int(summary.loc["control", "n"]), "drug": int(summary.loc["drug", "n"])}
+          actual = {"counted": len(r["counted"]), "first": len(r["first"]),
+                    "control": int(r["summary"].loc["control", "n"]), "drug": int(r["summary"].loc["drug", "n"])}
+          steps = [("l1", counted, r["counted"]), ("l2", first, r["first"]), ("l3", summary, r["summary"])]
+          diverged = [line for line, expected, got in steps if not expected.equals(got)]
+          answers = {
+              "steps": {key: {"need": need[key], "actual": actual[key]} for key in need},
+              "line": diverged[0],
+          }

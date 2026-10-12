@@ -1,7 +1,8 @@
 id: py41
 title: 函数的默认值和作用范围
-status: outline
+status: complete
 minutes: 20
+summary: 读懂默认参数在省略时怎样补上；分清函数里的局部名字和外面的同名名字；记住没有 return 的函数交回 None。
 prerequisites:
   - topic: py40
     key: true
@@ -29,11 +30,1313 @@ sources:
     url: https://docs.python.org/3.12/tutorial/classes.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、追踪变量（P）、找错（P）。
+  范围：接着 py40 的 net_signal、label，只用数、简单字符串、比较和 if/elif/else，不用列表、循环和 pandas。默认值只讲不可变的数和字符串，不讲可变默认值的陷阱；作用范围只讲“函数里赋值的名字是局部的”和“没赋值的名字到外面找”，不讲 global、nonlocal 和嵌套函数。UnboundLocalError 只在一道找错题里出现，只问类型，改法是把值传进去、用 return 交回来。
+  py41.k3 是 py40.k2 里“只 print 不 return 得到 None”的展开：缺 return 的路径、None 在后面才引起 TypeError。
+  节奏（待试做校准）：开场 1 分钟；三个知识点各约 6 分钟（讲解与例题 2 分钟、练习 4 分钟）；收束 1 分钟。
+  讲解、例子和题目为本课自拟。所有答案都由 verify 或测试用程序算出：形参实际接收的值用 sys.settrace 在调用时读出，改法选项逐个拼成程序运行；没有 manual 作答位。
+intro: |
+  上一节读了自己定义的函数。这一节看三处容易读错的地方：调用时少写了一个实参，函数用的是哪个值；函数里和外面有同名的名字，改的是谁；函数最后一行算出了值，却没有 return，调用处拿到什么。
+wrapup: |
+  读一次调用时，可以连着问三句：没写的实参用了哪个默认值？函数里赋值的名字是不是只在函数里？每条路径最后有没有 return？
+
+  这三句也适合拿来问 AI：“这个参数省略时默认是多少？这个函数会不会改到外面的变量？哪条路径会交回 None？”
 kps:
   - id: py41.k1
     title: 默认参数用于省略输入
+    card:
+      name: 默认参数
+      aliases: [默认值, 省略参数]
+      definition: 定义时写成“形参=值”，调用时省略这个实参就用默认值；给了实参（按位置或按名字），就用给的值。
+      conditions:
+        - 位置实参从左往右依次给形参：label(15) 里的 15 给的是 signal，不是 limit。
+        - 带默认值的形参写在不带默认值的后面；不带默认值的形参调用时必须给。
+      example:
+        from: py41.k1.e0
+        text: |
+          ```python
+          def label(signal, limit=10):
+              if signal >= limit:
+                  return "达标"
+              return "未达标"
+          ```
+          label(10) 省略 limit，用默认值 10，交回“达标”；label(10, 12) 里 limit 是 12，交回“未达标”。
+    lesson: |
+      `label(signal, limit)` 每次都要写两个实参。如果大多数分析都用同一个阈值 10，可以在定义时给 limit 一个**默认值**：
+
+      ```python
+      def label(signal, limit=10):
+          if signal >= limit:
+              return "达标"
+          return "未达标"
+      ```
+
+      调用时：
+
+      - `label(12)`：只给了一个实参，它按位置交给 signal；limit 没有给，就用默认值 10。
+      - `label(12, 15)`：第二个实参按位置交给 limit，默认值不用。
+      - `label(12, limit=15)`：按名字给 limit，同样不用默认值。
+
+      默认值只在省略时才用。没有默认值的形参必须给：`label()` 没给 signal，会报 TypeError。定义时，带默认值的形参要写在不带默认值的后面。
+
+      读别人的调用时，先数实参：位置实参从左往右依次给形参，按名字给的对号入座，剩下没给的形参才用默认值。最容易读错的是只写一个数的调用：`label(15)` 里的 15 给的是 signal，阈值仍是默认的 10。
+    example:
+      id: py41.k1.e0
+      kind: [trace, predict]
+      uses: [py40.k2, py04.k2]
+      body: |
+        ```python startLine=1
+        def label(signal, limit=10):
+            if signal >= limit:
+                return "达标"
+            return "未达标"
+
+        print(label(10))
+        print(label(10, 12))
+        print(label(signal=13, limit=12))
+        ```
+      slots:
+        - id: calls
+          type: table
+          prompt: 填写每次调用时 limit 的值，以及显示的结果。
+          columns:
+            - { id: call, header: 调用 }
+            - { id: limit, header: limit, input: integer }
+            - id: result
+              header: 显示
+              input: { type: choice, options: [{ id: pass, label: 达标 }, { id: fail, label: 未达标 }] }
+          rows:
+            - { id: c6, cells: { call: 第 6 行, limit: 10, result: pass } }
+            - { id: c7, cells: { call: 第 7 行, limit: 12, result: fail } }
+            - { id: c8, cells: { call: 第 8 行, limit: 12, result: pass } }
+      explanation: |
+        | 调用 | signal | limit | 显示 |
+        |---|---:|---:|---|
+        | 第 6 行 | 10 | 10（默认值） | 达标 |
+        | 第 7 行 | 10 | 12 | 未达标 |
+        | 第 8 行 | 13 | 12 | 达标 |
+
+        第 6 行只给了一个实参，limit 用默认值 10，10 >= 10 成立。第 7 行按位置给了 limit，默认值不用。第 8 行按名字给了两个形参，13 >= 12 成立。
+      verify: |
+        import sys
+        seen = []
+        def watch(frame, event, arg):
+            if event == "call" and frame.f_code.co_name == "label":
+                seen.append(dict(frame.f_locals))
+        sys.settrace(watch)
+        try:
+            r = run()
+        finally:
+            sys.settrace(None)
+        ids = {"达标": "pass", "未达标": "fail"}
+        answers = {"calls": {f"c{row}": {"limit": call["limit"], "result": ids[line]}
+                             for row, call, line in zip((6, 7, 8), seen, r.lines())}}
+    practice:
+      - id: py41.k1.q1
+        kind: [predict]
+        uses: [py40.k2, py04.k2]
+        body: |
+          `to_mm` 把长度换算成毫米，unit 省略时按厘米算。
+
+          ```python
+          def to_mm(value, unit="cm"):
+              if unit == "cm":
+                  return value * 10
+              elif unit == "m":
+                  return value * 1000
+              return value
+          ```
+        slots:
+          - id: results
+            type: table
+            prompt: 填写每次调用交回的数。
+            columns:
+              - { id: call, header: 调用 }
+              - { id: result, header: 交回, input: integer }
+            rows:
+              - { id: c1, cells: { call: to_mm(3), result: 30 } }
+              - { id: c2, cells: { call: 'to_mm(3, "m")', result: 3000 } }
+              - { id: c3, cells: { call: 'to_mm(unit="mm", value=3)', result: 3 } }
+              - { id: c4, cells: { call: 'to_mm(2, unit="cm")', result: 20 } }
+        explanation: |
+          依次是 **30、3000、3、20**。`to_mm(3)` 省略 unit，按默认的 "cm" 乘 10；`to_mm(3, "m")` 按位置给了 "m"；`to_mm(unit="mm", value=3)` 两个都按名字给，"mm" 不是 "cm" 也不是 "m"，走到最后原样交回 3；`to_mm(2, unit="cm")` 明写了默认值，结果和省略一样。
+        verify: |
+          r = run(CODE + '\nresults = [to_mm(3), to_mm(3, "m"), to_mm(unit="mm", value=3), to_mm(2, unit="cm")]')
+          answers = {"results": {f"c{i}": {"result": value} for i, value in enumerate(r["results"], 1)}}
+      - id: py41.k1.q2
+        kind: [debug]
+        uses: [py04.k2]
+        body: |
+          ```python
+          def label(signal, limit=10):
+              if signal >= limit:
+                  return "达标"
+              return "未达标"
+          ```
+
+          同事想用阈值 15 判断 signal 为 12 的样本，写成了 `label(15)`。
+        slots:
+          - id: result
+            type: choice
+            prompt: "`label(15)` 交回什么？"
+            options:
+              - { id: pass, content: 达标 }
+              - { id: fail, content: 未达标 }
+            key: pass
+          - id: calls
+            type: choice
+            multiple: true
+            prompt: 下面哪些写法才是“用阈值 15 判断 signal 为 12”？选出所有正确的。
+            options:
+              - { id: positional, content: "`label(12, 15)`" }
+              - { id: swapped, content: "`label(15, 12)`" }
+              - { id: limit_only, content: "`label(limit=15)`" }
+              - { id: keyword, content: "`label(12, limit=15)`" }
+            key: [positional, keyword]
+        explanation: |
+          `label(15)` 交回 **达标**：15 按位置给了 signal，limit 仍用默认值 10，15 >= 10。
+
+          正确的写法是 **`label(12, 15)`** 和 **`label(12, limit=15)`**。`label(15, 12)` 把两个数给反了；`label(limit=15)` 没给 signal，会报 TypeError。
+        verify: |
+          import sys
+          r = run(CODE + "\nresult = label(15)")
+          calls = {"positional": "label(12, 15)", "swapped": "label(15, 12)", "limit_only": "label(limit=15)", "keyword": "label(12, limit=15)"}
+          right = []
+          for option, call in calls.items():
+              seen = []
+              def watch(frame, event, arg):
+                  if event == "call" and frame.f_code.co_name == "label":
+                      seen.append(dict(frame.f_locals))
+              sys.settrace(watch)
+              try:
+                  outcome = run(CODE + "\n" + call)
+              finally:
+                  sys.settrace(None)
+              if outcome.error is None and seen == [{"signal": 12, "limit": 15}]:
+                  right.append(option)
+          answers = {"result": "pass" if r["result"] == "达标" else "fail", "calls": right}
+      - id: py41.k1.q3
+        kind: [modify]
+        uses: [py40.k2]
+        body: |
+          需求：大多数样本的本底是 0。希望调用 `net_signal` 时可以省略 blank，省略就按 0 算；给了 blank 就照常减去。
+
+          作答框里是现在的函数，省略 blank 会报 TypeError。请改动它并提交。
+
+          ```python
+          >>> net_signal(12, 3)
+          9
+          >>> net_signal(12)
+          12
+          ```
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              def net_signal(raw, blank):
+                  return raw - blank
+            solution: |
+              def net_signal(raw, blank=0):
+                  return raw - blank
+            rejects:
+              - code: |
+                  def net_signal(raw, blank=3):
+                      return raw - blank
+                why: 默认值写成了 3，不是 0
+              - code: |
+                  def net_signal(blank=0, raw=0):
+                      return raw - blank
+                why: 把形参的顺序换了，位置实参给错了形参
+              - code: |
+                  def net_signal(raw=0, blank):
+                      return raw - blank
+                why: 带默认值的形参写在了不带默认值的前面，语法错误
+            tests:
+              - name: 需求给出的例子
+                doctest: |
+                  >>> net_signal(12, 3)
+                  9
+                  >>> net_signal(12)
+                  12
+              - name: 按名字给
+                hidden: true
+                doctest: |
+                  >>> net_signal(raw=8)
+                  8
+                  >>> net_signal(5, blank=2)
+                  3
+        explanation: |
+          只要给 blank 加上默认值 0：
+
+          ```python
+          def net_signal(raw, blank=0):
+              return raw - blank
+          ```
+
+          形参的顺序不能变：调用 `net_signal(12, 3)` 时，12 仍要给 raw、3 给 blank。带默认值的形参要写在后面，写成 `def net_signal(raw=0, blank):` 是语法错误。
+    review:
+      - id: py41.k1.r1
+        kind: [explain]
+        uses: [py04.k2, py02.k2]
+        body: |
+          `per_hour` 把一段时间里的计数换算成每小时的次数，minutes 省略时按 60 分钟算。
+
+          ```python
+          def per_hour(count, minutes=60):
+              return count * 60 // minutes
+          ```
+
+          下面哪些调用交回的结果和 `per_hour(30)` **一定相同**？选出所有的。
+        slots:
+          - id: same
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: explicit, content: "`per_hour(30, 60)`" }
+              - { id: swapped, content: "`per_hour(60, 30)`" }
+              - { id: keyword, content: "`per_hour(minutes=60, count=30)`" }
+              - { id: half, content: "`per_hour(30, minutes=30)`" }
+              - { id: count_only, content: "`per_hour(count=30)`" }
+            key: [explicit, keyword, count_only]
+        explanation: |
+          `per_hour(30)` 里 count 是 30，minutes 用默认值 60。和它相同的是：**`per_hour(30, 60)`**（明写默认值）、**`per_hour(minutes=60, count=30)`**（按名字给，顺序无关）、**`per_hour(count=30)`**（同样省略 minutes）。
+
+          `per_hour(60, 30)` 让 count 是 60、minutes 是 30，交回 120；`per_hour(30, minutes=30)` 改了 minutes，交回 60。它们交给函数的输入和 `per_hour(30)` 不同，结果也就不同。每个选项的勾选状态分别计分。
+        verify: |
+          import sys
+          calls = {"explicit": "per_hour(30, 60)", "swapped": "per_hour(60, 30)", "keyword": "per_hour(minutes=60, count=30)",
+                   "half": "per_hour(30, minutes=30)", "count_only": "per_hour(count=30)"}
+          def inputs(call):
+              seen = []
+              def watch(frame, event, arg):
+                  if event == "call" and frame.f_code.co_name == "per_hour":
+                      seen.append(dict(frame.f_locals))
+              sys.settrace(watch)
+              try:
+                  run(CODE + "\n" + call)
+              finally:
+                  sys.settrace(None)
+              return seen
+          base = inputs("per_hour(30)")
+          answers = {"same": [option for option, call in calls.items() if inputs(call) == base]}
+      - id: py41.k1.r2
+        kind: [trace, predict]
+        uses: [py10.k1, py04.k2]
+        body: |
+          ```python
+          def mark(value, low=5, high=10):
+              if value < low:
+                  return "偏低"
+              elif value > high:
+                  return "偏高"
+              return "正常"
+          ```
+
+          填写每次调用时 low、high 的值和交回的结果。
+        slots:
+          - id: calls
+            type: table
+            columns:
+              - { id: call, header: 调用 }
+              - { id: low, header: low, input: integer }
+              - { id: high, header: high, input: integer }
+              - id: result
+                header: 交回
+                input: { type: choice, options: [{ id: low, label: 偏低 }, { id: high, label: 偏高 }, { id: ok, label: 正常 }] }
+            rows:
+              - { id: c1, cells: { call: mark(7), low: 5, high: 10, result: ok } }
+              - { id: c2, cells: { call: "mark(7, 8)", low: 8, high: 10, result: low } }
+              - { id: c3, cells: { call: "mark(7, high=6)", low: 5, high: 6, result: high } }
+              - { id: c4, cells: { call: "mark(4, low=3)", low: 3, high: 10, result: ok } }
+        explanation: |
+          - `mark(7)`：low、high 都用默认值 5 和 10，7 在中间，**正常**。
+          - `mark(7, 8)`：第二个位置实参给 low，low 是 8，high 仍是 10；7 < 8，**偏低**。
+          - `mark(7, high=6)`：low 用默认值 5，high 是 6；7 > 6，**偏高**。
+          - `mark(4, low=3)`：low 是 3，high 用默认值 10；4 不低于 3 也不高于 10，**正常**。
+        verify: |
+          import sys
+          ids = {"偏低": "low", "偏高": "high", "正常": "ok"}
+          rows = {}
+          for row, call in (("c1", "mark(7)"), ("c2", "mark(7, 8)"), ("c3", "mark(7, high=6)"), ("c4", "mark(4, low=3)")):
+              seen = []
+              def watch(frame, event, arg):
+                  if event == "call" and frame.f_code.co_name == "mark":
+                      seen.append(dict(frame.f_locals))
+              sys.settrace(watch)
+              try:
+                  r = run(CODE + "\nresult = " + call)
+              finally:
+                  sys.settrace(None)
+              rows[row] = {"low": seen[0]["low"], "high": seen[0]["high"], "result": ids[r["result"]]}
+          answers = {"calls": rows}
+    quiz:
+      - id: py41.k1.x1
+        kind: [trace, predict]
+        uses: [py08.k2, py10.k1, py04.k2]
+        body: |
+          `deep` 判断一个采样点算不算深层：strict 为 True 时要求严格超过 limit，否则达到 limit 就算。
+
+          ```python
+          def deep(depth, limit=30, strict=False):
+              if strict:
+                  return depth > limit
+              return depth >= limit
+          ```
+        slots:
+          - id: calls
+            type: table
+            prompt: 填写每次调用时 limit 的值和交回的结果。
+            columns:
+              - { id: call, header: 调用 }
+              - { id: limit, header: limit, input: integer }
+              - { id: result, header: 交回, input: bool }
+            rows:
+              - { id: c1, cells: { call: deep(30), limit: 30, result: true } }
+              - { id: c2, cells: { call: "deep(30, strict=True)", limit: 30, result: false } }
+              - { id: c3, cells: { call: "deep(30, 35)", limit: 35, result: false } }
+              - { id: c4, cells: { call: "deep(limit=25, depth=30)", limit: 25, result: true } }
+        explanation: |
+          - `deep(30)`：limit 30、strict False，30 >= 30，**True**。
+          - `deep(30, strict=True)`：limit 仍是默认的 30，但要求严格超过，30 > 30 不成立，**False**。
+          - `deep(30, 35)`：第二个位置实参给 limit，30 >= 35 不成立，**False**。
+          - `deep(limit=25, depth=30)`：按名字给，30 >= 25，**True**。
+        verify: |
+          import sys
+          rows = {}
+          for row, call in (("c1", "deep(30)"), ("c2", "deep(30, strict=True)"), ("c3", "deep(30, 35)"), ("c4", "deep(limit=25, depth=30)")):
+              seen = []
+              def watch(frame, event, arg):
+                  if event == "call" and frame.f_code.co_name == "deep":
+                      seen.append(dict(frame.f_locals))
+              sys.settrace(watch)
+              try:
+                  r = run(CODE + "\nresult = " + call)
+              finally:
+                  sys.settrace(None)
+              rows[row] = {"limit": seen[0]["limit"], "result": r["result"]}
+          answers = {"calls": rows}
+      - id: py41.k1.x2
+        kind: [debug]
+        uses: [py04.k2]
+        body: |
+          函数体是 `return count / minutes`，要让下面三次调用都按注释工作：
+
+          ```python
+          per_minute(120)                   # minutes 省略时按 60 算，交回 2.0
+          per_minute(30, 10)                # 交回 3.0
+          per_minute(minutes=5, count=20)   # 交回 4.0
+          ```
+
+          函数的第一行应写成哪一种？
+        slots:
+          - id: header
+            type: choice
+            options:
+              - { id: swapped, content: "`def per_minute(minutes, count=60):`" }
+              - { id: no_default, content: "`def per_minute(count, minutes):`" }
+              - { id: right, content: "`def per_minute(count, minutes=60):`" }
+              - { id: default_first, content: "`def per_minute(minutes=60, count):`" }
+            key: right
+        explanation: |
+          **`def per_minute(count, minutes=60):`**。第一个位置实参要给 count，minutes 省略时才用 60。
+
+          把 minutes 写在前面时，`per_minute(120)` 会让 minutes 成为 120；不给 minutes 默认值，`per_minute(120)` 报 TypeError；带默认值的形参写在不带默认值的前面，是语法错误。
+        verify: |
+          checks = "results = [per_minute(120), per_minute(30, 10), per_minute(minutes=5, count=20)]"
+          headers = {"swapped": "def per_minute(minutes, count=60):", "no_default": "def per_minute(count, minutes):",
+                     "right": "def per_minute(count, minutes=60):", "default_first": "def per_minute(minutes=60, count):"}
+          fits = []
+          for option, header in headers.items():
+              r = run(header + "\n    return count / minutes\n" + checks)
+              if r.error is None and r["results"] == [2.0, 3.0, 4.0]:
+                  fits.append(option)
+          answers = {"header": fits[0] if len(fits) == 1 else fits}
+
   - id: py41.k2
     title: 局部名称与外部名称的区别
+    card:
+      name: 局部名字
+      aliases: [局部变量, 作用范围]
+      definition: 函数里赋值的名字（包括形参）只属于这一次调用，和外面同名的名字互不影响；函数里没赋值的名字才到外面去找。
+      conditions:
+        - 调用结束后局部名字就不在了，在外面用它会报 NameError。
+        - 函数里只要给某个名字赋值，它在整个函数里都是局部的；先读后赋值会报 UnboundLocalError。
+      example:
+        from: py41.k2.e0
+        text: |
+          ```python
+          limit = 10
+
+          def label(signal):
+              limit = 12
+              ...
+          ```
+          函数里的 limit = 12 只属于这次调用，用 12 判断；调用之后外面的 limit 仍是 10。
+    lesson: |
+      函数里赋值的名字是**局部**的：它在这次调用里新建，调用结束就消失，和函数外面同名的名字互不相干。
+
+      ```python
+      limit = 10
+
+      def label(signal):
+          limit = 12
+          if signal >= limit:
+              return "达标"
+          return "未达标"
+      ```
+
+      函数里的 `limit = 12` 新建了一个只属于这次调用的 limit，判断时用 12；外面的 limit 仍是 10。形参也是局部名字：调用时接收实参，调用结束就消失。
+
+      函数里**没有赋值**的名字，会到外面去找：
+
+      ```python
+      blank = 2
+
+      def net(raw):
+          return raw - blank
+      ```
+
+      这里的 blank 读的是外面的 blank，而且是**调用那一刻**的值。外面后来改了 blank，下次调用就用新值。这样写容易出错，结果取决于调用之前外面发生过什么；更清楚的写法是把 blank 也写成形参，调用时传进来。
+
+      两种常见的报错：
+
+      - 在函数外面用函数里的局部名字：报 NameError，外面从来没有这个名字。
+      - 函数里先读一个名字、后面又给它赋值，例如 `count = count + 1`：Python 认定它是局部名字，读的时候它还没有值，报 UnboundLocalError。想更新外面的值，就把值传进去，再用 return 交回来：`count = add_one(count)`。
+    example:
+      id: py41.k2.e0
+      kind: [trace, predict]
+      uses: [py40.k2, py10.k1]
+      body: |
+        ```python startLine=1
+        limit = 10
+
+        def label(signal):
+            limit = 12
+            if signal >= limit:
+                return "达标"
+            return "未达标"
+
+        result = label(11)
+        print(result)
+        print(limit)
+        ```
+      slots:
+        - id: inside
+          type: text
+          format: integer
+          prompt: 调用 `label(11)` 时，第 5 行比较用的 limit 是多少？
+          key: 12
+        - id: line1
+          type: choice
+          prompt: 第 10 行显示什么？
+          options:
+            - { id: pass, content: 达标 }
+            - { id: fail, content: 未达标 }
+          key: fail
+        - id: line2
+          type: text
+          format: integer
+          prompt: 第 11 行显示什么？
+          key: 10
+          feedback:
+            - when: 12
+              message: 第 4 行的 limit 只属于那一次调用，外面的 limit 没有被改。
+      explanation: |
+        调用时，第 4 行新建了函数自己的 limit，比较用的是 **12**；11 >= 12 不成立，交回 **未达标**。
+
+        调用结束，函数里的 limit 消失了。第 11 行显示的是外面的 limit，第 1 行赋的 **10**，从来没有被改过。
+      verify: |
+        import sys
+        seen = []
+        def watch(frame, event, arg):
+            if frame.f_code.co_name == "label":
+                if event == "line" and frame.f_lineno == 5:
+                    seen.append(frame.f_locals["limit"])
+                return watch
+        sys.settrace(watch)
+        try:
+            r = run()
+        finally:
+            sys.settrace(None)
+        lines = r.lines()
+        answers = {"inside": seen[0], "line1": "pass" if lines[0] == "达标" else "fail", "line2": int(lines[1])}
+    practice:
+      - id: py41.k2.q1
+        kind: [predict, explain]
+        uses: [py01.k2, py40.k2]
+        body: |
+          ```python startLine=1
+          blank = 2
+
+          def net(raw):
+              return raw - blank
+
+          a = net(9)
+          blank = 5
+          b = net(9)
+          print(a)
+          print(b)
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 7
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 4
+            feedback:
+              - when: 7
+                message: net 每次调用时才去外面读 blank；第 8 行调用时 blank 已经是 5。
+          - id: when
+            type: choice
+            prompt: net 里的 blank 读的是什么时候的值？
+            options:
+              - { id: define, content: 定义函数（第 3 行）那一刻外面的 blank }
+              - { id: call, content: 每次调用那一刻外面的 blank }
+            key: call
+        explanation: |
+          显示 **7** 和 **4**。net 里没有给 blank 赋值，所以去外面找，而且是在**每次调用那一刻**去读：第 6 行调用时 blank 是 2，第 8 行调用时已经是 5。
+
+          同样的 `net(9)` 两次结果不同，原因藏在函数外面。把 blank 写成形参、调用时明着传进去，就不会这样。
+        verify: |
+          r = run()
+          lines = r.lines()
+          # 两次调用的输入相同，结果不同，且第二次等于用调用时的 blank 算出的值：读的是调用那一刻的值。
+          answers = {"first": int(lines[0]), "second": int(lines[1]),
+                     "when": "call" if r["b"] == 9 - r["blank"] and r["a"] != r["b"] else "define"}
+      - id: py41.k2.q2
+        kind: [predict, debug]
+        uses: [py40.k3]
+        body: |
+          ```python startLine=1
+          def net(raw, blank):
+              result = raw - blank
+              return result
+
+          value = net(10, 4)
+          print(value)
+          print(result)
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行这段程序会怎样？
+            options:
+              - { id: twice, content: 显示两次 6 }
+              - { id: none, content: 先显示 6，再显示 None }
+              - { id: error, content: 显示 6 之后，第 7 行报 NameError }
+              - { id: early, content: 第 6 行就报错，什么也不显示 }
+            key: error
+        explanation: |
+          第 6 行显示 **6**。result 是函数里的局部名字，调用结束就不在了，外面从来没有 result 这个名字，所以**第 7 行报 NameError**。结果已经通过 return 交给了 value，在外面用 value 就行。
+        verify: |
+          r = run()
+          outcomes = {
+              "twice": r.error is None and r.lines() == ["6", "6"],
+              "none": r.error is None and r.lines() == ["6", "None"],
+              "error": r.error == "NameError" and r.lines() == ["6"],
+              "early": r.error is not None and r.out == "",
+          }
+          true = [name for name, ok in outcomes.items() if ok]
+          answers = {"outcome": true[0] if len(true) == 1 else true}
+      - id: py41.k2.q3
+        kind: [debug]
+        uses: [py40.k2]
+        body: |
+          同事想每处理一份样本，就让外面的 count 加 1。
+
+          ```python startLine=1
+          count = 0
+
+          def add_sample():
+              count = count + 1
+              return count
+
+          add_sample()
+          ```
+        slots:
+          - id: error
+            type: choice
+            prompt: 运行这段程序会怎样？
+            options:
+              - { id: works, content: 不报错，外面的 count 变成 1 }
+              - { id: unbound, content: 第 4 行报 UnboundLocalError }
+              - { id: type, content: 第 4 行报 TypeError }
+            key: unbound
+          - id: fix
+            type: choice
+            prompt: 哪一种改法运行后外面的 count 是 1？
+            options:
+              - id: no_return
+                content: |
+                  ```python
+                  count = 0
+
+                  def add_sample(count):
+                      count = count + 1
+
+                  add_sample(count)
+                  ```
+              - id: pass_back
+                content: |
+                  ```python
+                  count = 0
+
+                  def add_sample(count):
+                      return count + 1
+
+                  count = add_sample(count)
+                  ```
+              - id: new_name
+                content: |
+                  ```python
+                  count = 0
+
+                  def add_sample():
+                      new = count + 1
+
+                  add_sample()
+                  ```
+            key: pass_back
+        explanation: |
+          第 4 行给 count 赋值，所以整个函数里 count 都是局部名字；可是右边要先读 count，这时局部的 count 还没有值，于是**报 UnboundLocalError**。
+
+          把 count 作为形参传进去、用 return 交回、再在外面赋值：`count = add_sample(count)`，外面的 count 才变成 1。只在函数里改形参不 return，外面不变；另起一个名字 new 也只是局部的。
+        verify: |
+          r = run()
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if run(code).error is None and run(code)["count"] == 1]
+          answers = {
+              "error": "unbound" if r.error == "UnboundLocalError" else ("type" if r.error == "TypeError" else "works"),
+              "fix": fits[0] if len(fits) == 1 else fits,
+          }
+    review:
+      - id: py41.k2.r1
+        kind: [trace]
+        uses: [py40.k2, py01.k2]
+        body: |
+          ```python startLine=1
+          x = 5
+
+          def change(x):
+              x = x * 2
+              return x
+
+          y = change(x)
+          z = change(y)
+          ```
+        slots:
+          - id: values
+            type: table
+            prompt: 程序运行完后，外面的 x、y、z 各是多少？
+            columns:
+              - { id: name, header: 名字 }
+              - { id: value, header: 值, input: integer }
+            rows:
+              - { id: x, cells: { name: x, value: 5 } }
+              - { id: "y", cells: { name: "y", value: 10 } }
+              - { id: z, cells: { name: z, value: 20 } }
+        explanation: |
+          x 仍是 **5**。形参 x 和函数里的 `x = x * 2` 都是局部的：第 7 行调用时，局部的 x 接收 5、变成 10 后交回，外面的 x 没被碰过。y 是 **10**；第 8 行把 10 传进去，交回 20，z 是 **20**。
+        verify: |
+          r = run()
+          answers = {"values": {name: {"value": r[name]} for name in ("x", "y", "z")}}
+      - id: py41.k2.r2
+        kind: [predict, debug]
+        uses: [py02.k2, py40.k3]
+        body: |
+          ```python startLine=1
+          total = 100
+
+          def share(n):
+              part = total // n
+              return part
+
+          a = share(4)
+          ```
+        slots:
+          - id: a
+            type: text
+            format: integer
+            prompt: 程序运行完，a 是多少？
+            key: 25
+          - id: source
+            type: choice
+            prompt: share 里的 total 是从哪里来的？
+            options:
+              - { id: outside, content: 函数里没有给 total 赋值，读的是外面的 total }
+              - { id: param, content: total 是 share 的形参 }
+              - { id: local, content: total 是 share 自己新建的局部名字 }
+            key: outside
+          - id: after
+            type: choice
+            prompt: 在程序末尾加一行 `print(part)`，会怎样？
+            options:
+              - { id: shows, content: 显示 25 }
+              - { id: none, content: 显示 None }
+              - { id: error, content: 报 NameError }
+            key: error
+        explanation: |
+          a 是 **25**。share 里没有给 total 赋值，也没有叫 total 的形参，所以**读的是外面的 total**（100），100 // 4 = 25。part 是函数里赋值的局部名字，调用结束就不在了，在外面 `print(part)` **报 NameError**。
+        verify: |
+          r = run()
+          # 改外面的 total，share 的结果跟着变，说明读的是外面的名字。
+          changed = run(CODE.replace("total = 100", "total = 40", 1))
+          after = run(CODE + "\nprint(part)")
+          answers = {
+              "a": r["a"],
+              "source": "outside" if changed["a"] == 40 // 4 and "total" in r.vars else "local",
+              "after": "error" if after.error == "NameError" else ("none" if after.lines()[-1] == "None" else "shows"),
+          }
+    quiz:
+      - id: py41.k2.x1
+        kind: [predict, trace]
+        uses: [py40.k2, py01.k2]
+        body: |
+          ```python startLine=1
+          n = 1
+
+          def bump(n):
+              n = n + 10
+              return n
+
+          print(bump(n))
+          print(n)
+          print(bump(5) + n)
+          m = bump(n)
+          print(m)
+          ```
+        slots:
+          - id: lines
+            type: table
+            prompt: 按顺序填写显示的四行。
+            columns:
+              - { id: line, header: 输出的第几行 }
+              - { id: shown, header: 显示, input: integer }
+            rows:
+              - { id: l1, cells: { line: 第 1 行, shown: 11 } }
+              - { id: l2, cells: { line: 第 2 行, shown: 1 } }
+              - { id: l3, cells: { line: 第 3 行, shown: 16 } }
+              - { id: l4, cells: { line: 第 4 行, shown: 11 } }
+        explanation: |
+          依次是 **11、1、16、11**。bump 里的 n 是形参，是局部名字：每次调用它接收实参、加 10 后交回，外面的 n 始终是 1。所以第 8 行显示 1，第 9 行是 15 + 1 = 16，第 10 行又把 1 传进去，m 是 11。
+        verify: |
+          answers = {"lines": {f"l{i}": {"shown": int(line)} for i, line in enumerate(run().lines(), 1)}}
+      - id: py41.k2.x2
+        kind: [predict, debug]
+        uses: [py40.k2]
+        body: |
+          有人以为调用 `reset()` 能把外面的 level 清零。
+
+          ```python startLine=1
+          level = 7
+
+          def reset():
+              level = 0
+
+          reset()
+          print(level)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 显示什么？
+            key: 7
+          - id: fix
+            type: choice
+            prompt: 哪一种写法运行后外面的 level 是 0？
+            options:
+              - id: param
+                content: |
+                  ```python
+                  level = 7
+
+                  def reset(level):
+                      level = 0
+
+                  reset(level)
+                  ```
+              - id: call_only
+                content: |
+                  ```python
+                  level = 7
+
+                  def reset():
+                      level = 0
+                      return level
+
+                  reset()
+                  ```
+              - id: assign_back
+                content: |
+                  ```python
+                  level = 7
+
+                  def reset():
+                      return 0
+
+                  level = reset()
+                  ```
+            key: assign_back
+        explanation: |
+          显示 **7**。第 4 行的 `level = 0` 新建的是 reset 自己的局部名字，调用结束就消失了，外面的 level 没被改。
+
+          要改外面的 level，就让函数交回 0，再在外面赋值：`level = reset()`。把 level 当形参传进去再改，改的仍是局部名字；函数交回了 0，但调用处没有接住它，外面也不变。
+        verify: |
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if run(code).error is None and run(code)["level"] == 0]
+          answers = {"output": int(run().out), "fix": fits[0] if len(fits) == 1 else fits}
+
   - id: py41.k3
     title: Python 不自动返回最后一个表达式
+    card:
+      name: 没有 return 得到 None
+      aliases: [None, 缺少 return]
+      definition: Python 函数只交回 return 后面的值；运行到函数体末尾都没遇到 return，就交回 None，最后一行算出的值不会自动交回。
+      conditions:
+        - 错误常在后面才露面：拿 None 去计算会报 TypeError。
+        - 有分支时逐条路径检查，每条路径都要有 return。
+      example:
+        from: py41.k3.e0
+        text: |
+          ```python
+          def net(raw, blank):
+              raw - blank
+
+          value = net(10, 3)
+          ```
+          raw - blank 算出了 7，但没有 return，value 是 None。
+    lesson: |
+      有些工具会把函数最后一行算出的值当作结果交回；Python 不会。Python 的函数只交回 `return` 后面的值；运行到函数体末尾都没有遇到 `return`，就交回 **None**。
+
+      ```python
+      def net(raw, blank):
+          raw - blank
+      ```
+
+      `raw - blank` 算出来了，可是没有交给任何人，算完就丢掉。`value = net(10, 3)` 让 value 指向 None。
+
+      这类错误常常不在函数里露面，而是在后面：`value + 1` 报 TypeError，因为 None 不能做加法。看到报错信息里提到 NoneType，就回头找给这个名字赋值的那次调用，看函数有没有 return。
+
+      函数里有分支时，要逐条路径检查：if/elif/else 里只要有一条路径没有 return，走到那条路径时就交回 None。只写 `print(...)` 也一样，显示出来不等于交回。
+    example:
+      id: py41.k3.e0
+      kind: [predict, debug]
+      uses: [py03.k3, py40.k2]
+      body: |
+        ```python startLine=1
+        def net(raw, blank):
+            raw - blank
+
+        value = net(10, 3)
+        print(value)
+        ```
+      slots:
+        - id: output
+          type: text
+          match: output
+          prompt: 显示什么？
+          key: "None"
+          feedback:
+            - when: "7"
+              message: 第 2 行算出了 7，但没有 return，这个值没有交回。
+        - id: fix
+          type: choice
+          prompt: 第 2 行改成哪一行，程序才显示 7？
+          options:
+            - { id: print, content: "`print(raw - blank)`" }
+            - { id: assign, content: "`value = raw - blank`" }
+            - { id: return, content: "`return raw - blank`" }
+          key: return
+      explanation: |
+        显示 **None**。第 2 行算出 7 后就丢掉了：函数体运行到末尾没有遇到 return，交回 None。
+
+        改成 `return raw - blank` 才把 7 交回。改成 print 只会在函数里显示 7，第 5 行仍显示 None；在函数里写 `value = ...` 赋的是局部名字，外面的 value 仍是 None。
+      verify: |
+        lines = CODE.splitlines()
+        fixes = []
+        for option, text in {"print": "print(raw - blank)", "assign": "value = raw - blank", "return": "return raw - blank"}.items():
+            r = run("\n".join([lines[0], "    " + text] + lines[2:]))
+            if r.error is None and r.lines() == ["7"]:
+                fixes.append(option)
+        answers = {"output": run().lines()[0], "fix": fixes[0] if len(fixes) == 1 else fixes}
+    practice:
+      - id: py41.k3.q1
+        kind: [predict, trace]
+        uses: [py10.k1, py03.k3]
+        body: |
+          ```python
+          def label(signal, limit):
+              if signal >= limit:
+                  return "达标"
+              elif signal >= limit - 2:
+                  "接近"
+              else:
+                  return "未达标"
+          ```
+
+          填写每次调用交回的值。
+        slots:
+          - id: results
+            type: table
+            columns:
+              - { id: call, header: 调用 }
+              - id: result
+                header: 交回
+                input: { type: choice, options: [{ id: pass, label: 达标 }, { id: near, label: 接近 }, { id: fail, label: 未达标 }, { id: none, label: None }] }
+            rows:
+              - { id: c1, cells: { call: "label(12, 10)", result: pass } }
+              - { id: c2, cells: { call: "label(9, 10)", result: none } }
+              - { id: c3, cells: { call: "label(5, 10)", result: fail } }
+              - { id: c4, cells: { call: "label(8, 10)", result: none } }
+        explanation: |
+          依次是 **达标、None、未达标、None**。9 和 8 都落在 elif 那条路径上，那里只写了 `"接近"`，没有 return，函数走到末尾，交回 None。另外两条路径都有 return。
+        verify: |
+          r = run(CODE + "\nresults = [label(12, 10), label(9, 10), label(5, 10), label(8, 10)]")
+          ids = {"达标": "pass", "接近": "near", "未达标": "fail", None: "none"}
+          answers = {"results": {f"c{i}": {"result": ids[value]} for i, value in enumerate(r["results"], 1)}}
+      - id: py41.k3.q2
+        kind: [debug]
+        uses: [py03.k3, py40.k2]
+        body: |
+          ```python startLine=1
+          def double(x):
+              x * 2
+
+          a = double(4)
+          b = a + 1
+          print(b)
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 程序在第几行报错？
+            options:
+              - { id: l2, content: 第 2 行 }
+              - { id: l4, content: 第 4 行 }
+              - { id: l5, content: 第 5 行 }
+              - { id: l6, content: 第 6 行 }
+            key: l5
+          - id: type
+            type: choice
+            prompt: 报的是哪种错误？
+            options:
+              - { id: name, content: NameError }
+              - { id: type, content: TypeError }
+              - { id: syntax, content: SyntaxError }
+            key: type
+          - id: a
+            type: text
+            match: output
+            prompt: 报错时 a 是什么？
+            key: "None"
+        explanation: |
+          第 4 行不报错：double(4) 正常运行完，只是没有 return，a 指向 **None**。到**第 5 行**算 `None + 1` 才出问题，报 **TypeError**。
+
+          错误露面的地方（第 5 行）和真正的原因（第 2 行缺 return）不在一处。
+        verify: |
+          import ast
+          lines = CODE.splitlines()
+          # 逐条顶层语句往下运行，第一次出错的那条语句就是报错的行。
+          ends = [node.end_lineno for node in ast.parse(CODE).body]
+          failing = [end for end in ends if run("\n".join(lines[:end])).error is not None]
+          r = run()
+          answers = {"line": f"l{failing[0]}", "type": {"NameError": "name", "TypeError": "type", "SyntaxError": "syntax"}[r.error],
+                     "a": r["a"]}
+      - id: py41.k3.q3
+        kind: [modify]
+        uses: [py40.k2, py41.k1]
+        body: |
+          `to_mm` 想把长度换算成毫米，可现在每次都交回 None。请改动作答框里的函数，让每条路径都交回换算结果。
+
+          ```python
+          >>> to_mm(3, "cm")
+          30
+          >>> to_mm(2, "m")
+          2000
+          >>> to_mm(7, "mm")
+          7
+          ```
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 10
+            starter: |
+              def to_mm(value, unit):
+                  if unit == "cm":
+                      value * 10
+                  elif unit == "m":
+                      value * 1000
+                  else:
+                      value
+            solution: |
+              def to_mm(value, unit):
+                  if unit == "cm":
+                      return value * 10
+                  elif unit == "m":
+                      return value * 1000
+                  else:
+                      return value
+            rejects:
+              - code: |
+                  def to_mm(value, unit):
+                      if unit == "cm":
+                          return value * 10
+                      elif unit == "m":
+                          value * 1000
+                      else:
+                          value
+                why: 只给第一条路径加了 return
+              - code: |
+                  def to_mm(value, unit):
+                      if unit == "cm":
+                          print(value * 10)
+                      elif unit == "m":
+                          print(value * 1000)
+                      else:
+                          print(value)
+                why: 只显示不交回
+              - code: |
+                  def to_mm(value, unit):
+                      if unit == "cm":
+                          return value * 10
+                      elif unit == "m":
+                          return value * 1000
+                why: 去掉了 else，单位是 mm 时交回 None
+            tests:
+              - name: 三种单位
+                doctest: |
+                  >>> to_mm(3, "cm")
+                  30
+                  >>> to_mm(2, "m")
+                  2000
+                  >>> to_mm(7, "mm")
+                  7
+              - name: 交回的值能接着算
+                hidden: true
+                doctest: |
+                  >>> to_mm(3, "cm") + 1
+                  31
+                  >>> to_mm(1, "m") + to_mm(5, "mm")
+                  1005
+        explanation: |
+          三条路径各加一个 return：
+
+          ```python
+          def to_mm(value, unit):
+              if unit == "cm":
+                  return value * 10
+              elif unit == "m":
+                  return value * 1000
+              else:
+                  return value
+          ```
+
+          只改成 print 不行：屏幕上看着有数，调用处拿到的仍是 None，`to_mm(3, "cm") + 1` 会报 TypeError。判分时会把交回的值接着计算。
+    review:
+      - id: py41.k3.r1
+        kind: [explain]
+        uses: [py40.k2, py40.k3]
+        body: |
+          下面哪些函数的调用 `f(3)` 会交回 6？选出所有的。
+        slots:
+          - id: returns
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: bare
+                content: |
+                  ```python
+                  def f(x):
+                      x * 2
+                  ```
+              - id: direct
+                content: |
+                  ```python
+                  def f(x):
+                      return x * 2
+                  ```
+              - id: printed
+                content: |
+                  ```python
+                  def f(x):
+                      print(x * 2)
+                  ```
+              - id: via_name
+                content: |
+                  ```python
+                  def f(x):
+                      y = x * 2
+                      return y
+                  ```
+              - id: last_name
+                content: |
+                  ```python
+                  def f(x):
+                      y = x * 2
+                      y
+                  ```
+            key: [direct, via_name]
+        explanation: |
+          只有写了 `return` 的两个：`return x * 2`，以及先算 y 再 `return y`。
+
+          只写表达式 `x * 2` 或最后一行只写 `y`，值算出来就丢掉了；`print(x * 2)` 会显示 6，但交回的是 None。每个选项的勾选状态分别计分。
+        verify: |
+          answers = {"returns": [option for option, code in OPTIONS["returns"].items()
+                                 if run(code + "\nresult = f(3)")["result"] == 6]}
+      - id: py41.k3.r2
+        kind: [debug, trace]
+        uses: [py10.k1, py03.k3]
+        body: |
+          ```python
+          def depth_class(depth):
+              if depth < 20:
+                  return "浅"
+              if depth < 40:
+                  "中"
+              if depth >= 40:
+                  return "深"
+          ```
+
+          下面哪些调用会交回 None？选出所有的。
+        slots:
+          - id: none
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: d10, content: "`depth_class(10)`" }
+              - { id: d20, content: "`depth_class(20)`" }
+              - { id: d39, content: "`depth_class(39)`" }
+              - { id: d40, content: "`depth_class(40)`" }
+            key: [d20, d39]
+        explanation: |
+          **`depth_class(20)`** 和 **`depth_class(39)`**。这两个深度不小于 20、又小于 40，走到第二个 if 下面，那里只写了 `"中"`，没有 return；第三个 if 也不成立，函数走到末尾，交回 None。10 和 40 各自遇到了 return。
+        verify: |
+          calls = {"d10": 10, "d20": 20, "d39": 39, "d40": 40}
+          answers = {"none": [option for option, depth in calls.items()
+                              if run(CODE + f"\nresult = depth_class({depth})")["result"] is None]}
+    quiz:
+      - id: py41.k3.x1
+        kind: [predict, explain]
+        uses: [py40.k2, py03.k3]
+        body: |
+          ```python
+          def a(n):
+              return n + 1
+
+          def b(n):
+              n + 1
+
+          def c(n):
+              print(n + 1)
+          ```
+
+          对每个函数，填写调用时传入 2 会不会在屏幕上显示东西，以及交回的值（写成 Python 显示的样子，例如 3 或 None）。
+        slots:
+          - id: calls
+            type: table
+            columns:
+              - { id: call, header: 调用 }
+              - { id: shows, header: 调用时显示东西, input: bool }
+              - id: value
+                header: 交回的值
+                input: { type: text, match: output, quick: [None] }
+            rows:
+              - { id: a, cells: { call: a(2), shows: false, value: "3" } }
+              - { id: b, cells: { call: b(2), shows: false, value: None } }
+              - { id: c, cells: { call: c(2), shows: true, value: None } }
+        explanation: |
+          - `a(2)`：不显示，交回 **3**。
+          - `b(2)`：`n + 1` 算出 3 就丢掉了，不显示，交回 **None**。
+          - `c(2)`：**显示** 3，但交回的是 **None**。
+
+          屏幕上看到一个数，不代表函数交回了它；反过来，交回了值也不会自动显示。
+        verify: |
+          rows = {}
+          for name in ("a", "b", "c"):
+              r = run(CODE + f"\nvalue = {name}(2)")
+              rows[name] = {"shows": r.out != "", "value": r["value"]}
+          answers = {"calls": rows}
+      - id: py41.k3.x2
+        kind: [modify]
+        uses: [py41.k1, py40.k3]
+        body: |
+          需求：`net_signal(raw, blank=0)` 交回减去本底后的值，不在屏幕上显示任何东西。
+
+          作答框里的函数只把结果显示出来，调用处拿不到。请改动它并提交。
+
+          ```python
+          >>> net_signal(12, 2) * 2
+          20
+          >>> net_signal(5)
+          5
+          ```
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 6
+            starter: |
+              def net_signal(raw, blank=0):
+                  net = raw - blank
+                  print(net)
+            solution: |
+              def net_signal(raw, blank=0):
+                  net = raw - blank
+                  return net
+            accepts:
+              - |
+                def net_signal(raw, blank=0):
+                    return raw - blank
+            rejects:
+              - code: |
+                  def net_signal(raw, blank=0):
+                      net = raw - blank
+                      print(net)
+                      return net
+                why: 交回了，但仍在屏幕上显示
+              - code: |
+                  def net_signal(raw, blank=0):
+                      net = raw - blank
+                      return print(net)
+                why: 交回的是 print 的结果 None
+              - code: |
+                  def net_signal(raw, blank):
+                      net = raw - blank
+                      return net
+                why: 去掉了 blank 的默认值
+            tests:
+              - name: 需求给出的例子
+                doctest: |
+                  >>> net_signal(12, 2) * 2
+                  20
+                  >>> net_signal(5)
+                  5
+              - name: 交回的值接着算
+                hidden: true
+                doctest: |
+                  >>> net_signal(9, 4) + net_signal(3)
+                  8
+        explanation: |
+          把 print 换成 return：
+
+          ```python
+          def net_signal(raw, blank=0):
+              net = raw - blank
+              return net
+          ```
+
+          既 print 又 return 会多显示一行，不符合“不在屏幕上显示”；`return print(net)` 交回的是 print 的结果 None。blank 的默认值 0 要保留，`net_signal(5)` 才能省略本底。

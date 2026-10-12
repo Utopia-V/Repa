@@ -1,7 +1,8 @@
 id: py42
 title: 用小例子检查一个函数
-status: outline
+status: complete
 minutes: 20
+summary: 把一条要求写成正常、边界、空输入三类“调用 → 期望”的测试，再用 assert 逐条核对，从第一条失败的断言定位差异。
 prerequisites:
   - topic: py40
     key: true
@@ -25,7 +26,7 @@ sources:
     url: https://docs.python.org/3.12/reference/simple_stmts.html#the-assert-statement
     use: reference
   - source: swc-python
-    where: 第 10 节：防御性编程（（断言））
+    where: 第 10 节：防御性编程（断言）
     url: https://swcarpentry.github.io/python-novice-inflammation/10-defensive.html
     use: reference
   - source: python-docs
@@ -33,10 +34,889 @@ sources:
     url: https://docs.python.org/3.12/tutorial/stdlib.html
     use: reference
 notes: |
-  建议题型与判分：找错（P）、小改代码（T）、写清需求（S/O）。
-  assert 用于练习测试；正式运行时 -O 会去掉断言，不把它当作数据入口的校验机制。
+  范围：先修是 py40（形参与 return）、py12（正常、边界、无结果例子）和 py11（异常类型与报错的行）。py41 不是本节的先修，所以题里的函数不用默认参数，也不依赖“没有 return 得到 None”；空输入交回 None 都是要求里明写的。函数体只用数、比较和 if/elif/else，不用循环、列表和 pandas。判断是不是 None 写 `is None`，在 k2 讲解里就地说明。
+  沿用 py40 的 label(signal, limit)，新增 mean_signal(total, n)：“n 份样本的平均信号，没有样本（n 为 0）时交回 None”。“正常、边界、空输入”三类测试和 `assert 函数(输入) == 期望` 的写法，py46 会接着用。
+  assert 只用于练习和自查：python -O 会跳过断言，不把它当作检查正式输入数据的手段，讲解里明说。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、练习 5 分钟；k2 讲解与例题 4 分钟、练习 5 分钟（含一道改代码题）；收束 1 分钟。
+  讲解、例子和题目为本课自拟。期望结果都由 verify 按要求另写一份实现算出，再与题里的函数对照；py42.k1.q2 问“要求没写空输入时下一步做什么”，是练习题，列在 manual 里。复习和测验题没有 manual 作答位。
+intro: |
+  前两节读懂了函数怎样接收输入、交回结果。这一节反过来：拿到一个函数，不管是自己写的、同事写的还是 AI 写的，怎样用几个小例子检查它符不符合要求。
+
+  在“把‘处理一下’变成可核对的要求”那一节，你用正常、边界和没有结果的例子检查过一条筛选规则。这里把同样的例子写成可以反复运行的测试。
+wrapup: |
+  检查一个函数，先从要求里推出几条“调用 → 期望”：正常值各一个、恰好等于阈值的边界、没有数据的空输入。再把它们写成 assert，一运行就知道哪一条没通过。
+
+  拿 AI 写的函数时，也可以直接要求：“请附上覆盖正常、边界和空输入的 assert 测试，期望结果按我的要求写，不要照着函数的输出抄。”
 kps:
   - id: py42.k1
     title: 正常、边界和空输入转成测试
+    card:
+      name: 三类测试
+      aliases: [测试例子, 正常、边界、空输入]
+      definition: 把要求写成“调用 → 期望结果”的测试：正常值各一个、恰好等于阈值的边界值、没有数据的空输入；期望从要求推出，不从函数的输出抄。
+      conditions:
+        - 一组测试要让常见的错误写法至少失败一条；只有普通值时，查不出 >= 写成 > 的错误。
+        - 要求没写空输入怎样处理时，先问清楚，不要按函数现在的行为补上期望。
+      example:
+        from: py42.k1.e0
+        text: |
+          要求“signal 大于或等于 limit 记为达标”：label(12, 10) 期望“达标”、label(8, 10) 期望“未达标”是正常；label(10, 10) 期望“达标”是边界。mean_signal(0, 0) 期望 None 是空输入。
+    lesson: |
+      一条**测试**就是一次调用，加上**按要求算出的**期望结果。要求是“signal 大于或等于 limit 记为达标，否则未达标”时：
+
+      | 测试 | 调用 | 期望 |
+      |---|---|---|
+      | 正常（应达标） | `label(12, 10)` | "达标" |
+      | 正常（不达标） | `label(8, 10)` | "未达标" |
+      | 边界 | `label(10, 10)` | "达标" |
+
+      期望要从要求里推出来，而不是先运行函数、再把它交回的东西抄成期望：那样函数错了，测试也跟着错。
+
+      挑例子和检查筛选规则时一样：
+
+      1. **正常**：明显该达标、明显不达标的普通值，各一个；
+      2. **边界**：恰好等于阈值的值。把 `>=` 写成 `>`，只有这一条测试会失败；
+      3. **空输入**：没有数据时的情况。例如 `mean_signal(total, n)` 算 n 份样本的平均信号，要求写明“没有样本（n 为 0）时交回 None”，就要有一条 `mean_signal(0, 0)` 期望 None 的测试。要求里没写空输入怎样处理时，先去问清楚，再写这条测试。
+
+      一组测试好不好，看它能不能分出常见的错误写法：拿错误写法去跑，至少要有一条失败。只有 `label(12, 10)` 和 `label(8, 10)` 两条时，`>=` 和 `>` 都能全部通过，这组测试就查不出等号的问题。
+    example:
+      id: py42.k1.e0
+      kind: [specify]
+      uses: [py12.k2, py40.k2]
+      body: |
+        两条要求：
+
+        - `label(signal, limit)`：signal 大于或等于 limit 时交回 "达标"，否则交回 "未达标"。
+        - `mean_signal(total, n)`：交回 n 份样本的平均信号 total / n；没有样本（n 为 0）时交回 None。
+
+        为下面四条测试填上期望结果，并说出每条属于哪一类。
+      slots:
+        - id: tests
+          type: table
+          columns:
+            - { id: call, header: 调用 }
+            - id: expect
+              header: 期望
+              input: { type: choice, options: [{ id: pass, label: 达标 }, { id: fail, label: 未达标 }, { id: none, label: None }] }
+            - id: kind
+              header: 类别
+              input: { type: choice, options: [{ id: normal, label: 正常 }, { id: boundary, label: 边界 }, { id: empty, label: 空输入 }] }
+          rows:
+            - { id: t1, cells: { call: "label(12, 10)", expect: pass, kind: normal } }
+            - { id: t2, cells: { call: "label(8, 10)", expect: fail, kind: normal } }
+            - { id: t3, cells: { call: "label(10, 10)", expect: pass, kind: boundary } }
+            - { id: t4, cells: { call: "mean_signal(0, 0)", expect: none, kind: empty } }
+      explanation: |
+        | 调用 | 期望 | 类别 |
+        |---|---|---|
+        | `label(12, 10)` | 达标 | 正常 |
+        | `label(8, 10)` | 未达标 | 正常 |
+        | `label(10, 10)` | 达标 | 边界：恰好等于阈值，“大于或等于”包含它 |
+        | `mean_signal(0, 0)` | None | 空输入：要求明写没有样本时交回 None |
+
+        这四条期望都是从要求读出来的，题目里根本没有给函数的代码，也不需要。
+      verify: |
+        # 按要求另写一份实现，算出期望；类别按输入与要求的关系判断。
+        def spec_label(signal, limit):
+            return "达标" if signal >= limit else "未达标"
+        def spec_mean(total, n):
+            return None if n == 0 else total / n
+        ids = {"达标": "pass", "未达标": "fail", None: "none"}
+        label_rows = {"t1": (12, 10), "t2": (8, 10), "t3": (10, 10)}
+        rows = {row: {"expect": ids[spec_label(*args)], "kind": "boundary" if args[0] == args[1] else "normal"}
+                for row, args in label_rows.items()}
+        total, n = 0, 0
+        rows["t4"] = {"expect": ids[spec_mean(total, n)], "kind": "empty" if n == 0 else "normal"}
+        answers = {"tests": rows}
+    practice:
+      - id: py42.k1.q1
+        kind: [debug]
+        uses: [py12.k2, py08.k2]
+        body: |
+          要求：signal 大于或等于 limit 时交回 "达标"，否则交回 "未达标"。有人写成了：
+
+          ```python
+          def label(signal, limit):
+              if signal > limit:
+                  return "达标"
+              return "未达标"
+          ```
+
+          用下面四条测试去检查它，哪些测试会失败？选出所有会失败的。
+        slots:
+          - id: failing
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: t1, content: "`label(12, 10)` 期望 \"达标\"" }
+              - { id: t2, content: "`label(10, 10)` 期望 \"达标\"" }
+              - { id: t3, content: "`label(9, 10)` 期望 \"未达标\"" }
+              - { id: t4, content: "`label(20, 20)` 期望 \"达标\"" }
+            key: [t2, t4]
+        explanation: |
+          **`label(10, 10)`** 和 **`label(20, 20)`** 会失败：它们恰好等于阈值，要求说算达标，`>` 却把它们判成未达标。另外两条是普通值，`>` 和 `>=` 给出的结果一样，查不出这个错误。每个选项的勾选状态分别计分。
+        verify: |
+          def spec(signal, limit):
+              return "达标" if signal >= limit else "未达标"
+          tests = {"t1": (12, 10), "t2": (10, 10), "t3": (9, 10), "t4": (20, 20)}
+          failing = []
+          for test, args in tests.items():
+              got = run(CODE + f"\nresult = label{args}")["result"]
+              if got != spec(*args):
+                  failing.append(test)
+          answers = {"failing": failing}
+      - id: py42.k1.q2
+        kind: [specify]
+        uses: [py12.k1, py12.k2]
+        body: |
+          同事给你的要求只有一句：“`mean_signal(total, n)` 交回 n 份样本的平均信号 total / n。”你在写测试。
+        slots:
+          - id: normal
+            type: text
+            format: number
+            prompt: 按这句要求，`mean_signal(30, 4)` 的期望是多少？
+            key: 7.5
+          - id: empty
+            type: choice
+            prompt: 空输入 `mean_signal(0, 0)` 的期望该怎样写？
+            options:
+              - id: zero
+                content: 写期望 0，没有样本就当平均值是 0
+                feedback: 平均值 0 和“没有样本”是两回事，要求没有授权你这样定。
+              - id: current
+                content: 先运行函数，它报什么错就把什么当期望
+                feedback: 这是在照着函数现在的行为写测试，函数错了测试也跟着错。
+              - id: ask
+                content: 先问清楚：没有样本时交回什么（例如 None），确认后再写这条测试
+              - id: skip
+                content: 不写这条测试，反正很少遇到
+            key: ask
+        explanation: |
+          `mean_signal(30, 4)` 期望 **7.5**。
+
+          空输入的期望要求里没写，应当**先问清楚**再写。自己定成 0，等于替对方补了一条规则；照函数现在报的错写，测试就失去了检查的意义；不写这条，最容易出问题的地方就没人看。
+        verify: |
+          answers = {"normal": 30 / 4}
+        manual: [empty]
+      - id: py42.k1.q3
+        kind: [specify]
+        uses: [py12.k2, py08.k2]
+        body: |
+          `label(signal, limit)` 的要求不变：signal 大于或等于 limit 时交回 "达标"。现在阈值 limit 取 15。
+
+          请构造一条测试，让正确的写法（`>=`）通过、错误的写法（`>`）失败：填 signal 的值和这条测试的期望。
+        slots:
+          - id: signal
+            type: text
+            format: integer
+            prompt: signal 取多少？
+            key: 15
+          - id: expect
+            type: choice
+            prompt: 这条测试的期望
+            options:
+              - { id: pass, content: 达标 }
+              - { id: fail, content: 未达标 }
+            key: pass
+        explanation: |
+          signal 取 **15**，期望 **达标**。只有恰好等于阈值时，`>=` 和 `>` 结果不同：正确写法交回达标，错误写法交回未达标，测试就会失败。取 16、14 这样的值，两种写法结果一样，查不出问题。
+        verify: |
+          values = [v for v in range(-100, 101) if (v >= 15) != (v > 15)]
+          value = values[0] if len(values) == 1 else values
+          answers = {"signal": value, "expect": "pass" if value >= 15 else "fail"}
+    review:
+      - id: py42.k1.r1
+        kind: [specify, debug]
+        uses: [py12.k2]
+        body: |
+          要求：`is_deep(depth)` 在深度**超过** 30 厘米时交回 True，恰好 30 不算，交回 False。
+
+          担心有人把它写成了 `return depth >= 30`。哪一组测试能查出这个错误？
+        slots:
+          - id: tests
+            type: choice
+            options:
+              - id: far
+                content: "`is_deep(35)` 期望 True；`is_deep(10)` 期望 False"
+              - id: above
+                content: "`is_deep(40)` 期望 True；`is_deep(31)` 期望 True"
+              - id: boundary
+                content: "`is_deep(30)` 期望 False；`is_deep(35)` 期望 True"
+              - id: below
+                content: "`is_deep(29)` 期望 False；`is_deep(20)` 期望 False"
+            key: boundary
+        explanation: |
+          含有 **`is_deep(30)` 期望 False** 的那一组。错误写法 `depth >= 30` 会把 30 判成 True，这条测试失败。其余几组都只有离 30 远的值或 31、29 这样的普通值，`>=` 和 `>` 结果一样，全部通过，查不出问题。
+        verify: |
+          def spec(depth):
+              return depth > 30
+          def wrong(depth):
+              return depth >= 30
+          groups = {"far": [(35, True), (10, False)], "above": [(40, True), (31, True)],
+                    "boundary": [(30, False), (35, True)], "below": [(29, False), (20, False)]}
+          # 每组的期望都按要求写对；能查出错误的组，要让错误写法至少失败一条。
+          assert all(spec(depth) == expect for group in groups.values() for depth, expect in group)
+          fits = [name for name, group in groups.items() if any(wrong(depth) != expect for depth, expect in group)]
+          answers = {"tests": fits[0] if len(fits) == 1 else fits}
+      - id: py42.k1.r2
+        kind: [specify]
+        uses: [py12.k2, py03.k3]
+        body: |
+          要求：`rate(count, minutes)` 交回每分钟的次数 count / minutes；没有观察时间（minutes 为 0）时交回 None。
+
+          按要求填写下面每条测试的期望（写成 Python 显示的样子，例如 2.0 或 None），并说出类别。
+        slots:
+          - id: tests
+            type: table
+            columns:
+              - { id: call, header: 调用 }
+              - id: expect
+                header: 期望
+                input: { type: text, match: output, quick: [None] }
+              - id: kind
+                header: 类别
+                input: { type: choice, options: [{ id: normal, label: 正常 }, { id: empty, label: 空输入 }] }
+            rows:
+              - { id: t1, cells: { call: "rate(30, 10)", expect: "3.0", kind: normal } }
+              - { id: t2, cells: { call: "rate(0, 5)", expect: "0.0", kind: normal } }
+              - { id: t3, cells: { call: "rate(5, 0)", expect: None, kind: empty } }
+        explanation: |
+          - `rate(30, 10)`：30 / 10 = **3.0**，正常。
+          - `rate(0, 5)`：观察了 5 分钟，一次也没有，每分钟 **0.0** 次。这是正常的结果，不是空输入。
+          - `rate(5, 0)`：没有观察时间，要求说交回 **None**，这是空输入。
+
+          “计数为 0”和“没有观察时间”要分开：前者有确定的答案 0.0，后者要按要求交回 None。
+        verify: |
+          def spec(count, minutes):
+              return None if minutes == 0 else count / minutes
+          rows = {"t1": (30, 10), "t2": (0, 5), "t3": (5, 0)}
+          answers = {"tests": {row: {"expect": spec(*args), "kind": "empty" if args[1] == 0 else "normal"} for row, args in rows.items()}}
+    quiz:
+      - id: py42.k1.x1
+        kind: [specify]
+        uses: [py12.k2, py09.k1]
+        body: |
+          要求：`in_range(value, low, high)` 在 value 介于 low 和 high 之间时交回 True，**两端都算**；否则交回 False。
+
+          按要求填写每条测试的期望，并说出它是正常还是边界测试。
+        slots:
+          - id: tests
+            type: table
+            columns:
+              - { id: call, header: 调用 }
+              - { id: expect, header: 期望, input: bool }
+              - id: kind
+                header: 类别
+                input: { type: choice, options: [{ id: normal, label: 正常 }, { id: boundary, label: 边界 }] }
+            rows:
+              - { id: t1, cells: { call: "in_range(5, 5, 10)", expect: true, kind: boundary } }
+              - { id: t2, cells: { call: "in_range(7, 5, 10)", expect: true, kind: normal } }
+              - { id: t3, cells: { call: "in_range(10, 5, 10)", expect: true, kind: boundary } }
+              - { id: t4, cells: { call: "in_range(11, 5, 10)", expect: false, kind: normal } }
+        explanation: |
+          5 和 10 恰好落在两端，“两端都算”，期望 **True**，它们是**边界**测试：把 `<=` 写成 `<` 的错误，只有它们能查出来。7 在中间，期望 True；11 在外面，期望 False，都是普通的**正常**测试。这个要求有两个端点，所以要两条边界测试。
+        verify: |
+          def spec(value, low, high):
+              return low <= value <= high
+          rows = {"t1": (5, 5, 10), "t2": (7, 5, 10), "t3": (10, 5, 10), "t4": (11, 5, 10)}
+          answers = {"tests": {row: {"expect": spec(*args), "kind": "boundary" if args[0] in (args[1], args[2]) else "normal"}
+                               for row, args in rows.items()}}
+      - id: py42.k1.x2
+        kind: [debug]
+        uses: [py12.k2, py40.k2]
+        body: |
+          要求：`mean_signal(total, n)` 交回 n 份样本的平均信号 total / n；没有样本（n 为 0）时交回 None。两个人分别写了：
+
+          ```python
+          def mean_a(total, n):
+              return total / n
+
+          def mean_b(total, n):
+              if total == 0:
+                  return None
+              return total / n
+          ```
+
+          对每条测试，填写两个实现能不能通过（交回的值等于期望才算通过，报错算不通过）。
+        slots:
+          - id: results
+            type: table
+            columns:
+              - { id: test, header: 测试 }
+              - { id: a, header: 甲（mean_a）通过, input: bool }
+              - { id: b, header: 乙（mean_b）通过, input: bool }
+            rows:
+              - { id: t1, cells: { test: "调用 (30, 3)，期望 10.0", a: true, b: true } }
+              - { id: t2, cells: { test: "调用 (0, 4)，期望 0.0", a: true, b: false } }
+              - { id: t3, cells: { test: "调用 (0, 0)，期望 None", a: false, b: true } }
+        explanation: |
+          - (30, 3)：两个都交回 10.0，都通过。
+          - (0, 4)：四份样本的总信号是 0，平均就是 0.0。甲交回 0.0，通过；乙看到 total 为 0 就交回 None，**不通过**。
+          - (0, 0)：甲算 0 / 0 报 ZeroDivisionError，**不通过**；乙交回 None，通过。
+
+          甲漏了空输入，乙把“总信号为 0”错当成了“没有样本”。只用正常测试，两个都看不出问题；正常值 0.0 和空输入各有一条测试，才把两种错误都查出来。
+        verify: |
+          tests = {"t1": ((30, 3), 10.0), "t2": ((0, 4), 0.0), "t3": ((0, 0), None)}
+          def passes(name, args, expect):
+              r = run(CODE + f"\nresult = {name}{args}")
+              if r.error is not None:
+                  return False
+              return r["result"] is None if expect is None else r["result"] == expect
+          answers = {"results": {row: {"a": passes("mean_a", args, expect), "b": passes("mean_b", args, expect)}
+                                 for row, (args, expect) in tests.items()}}
+
   - id: py42.k2
     title: assert 表达期望并在失败时定位差异
+    card:
+      name: assert 断言
+      aliases: [AssertionError, 断言]
+      definition: "`assert 条件` 在条件为 True 时什么也不做；为 False 时报 AssertionError 并停在这一行，逗号后的说明一起显示。"
+      conditions:
+        - 第一条失败的 assert 就让程序停下，它前面的都通过了，后面的不再运行。
+        - assert 用于练习和自查；python -O 会跳过它，不拿它检查正式输入的数据。
+      example:
+        from: py42.k2.e0
+        text: |
+          ```python
+          assert label(12, 10) == "达标"
+          assert label(8, 10) == "未达标"
+          assert label(10, 10) == "达标", "等于阈值也算达标"
+          ```
+          函数把 >= 写成了 >，前两条通过，第三条报 AssertionError，并显示“等于阈值也算达标”。
+    lesson: |
+      测试表写好了，可以让 Python 替你逐条核对。`assert 条件` 的意思是“我断定这个条件成立”：
+
+      ```python
+      assert label(12, 10) == "达标"
+      ```
+
+      - 条件为 True：什么也不发生，不显示任何东西，程序接着往下走；
+      - 条件为 False：报 **AssertionError**，程序停在这一行，后面的行都不运行。
+
+      一条测试写成一行 `assert 调用 == 期望`。期望是 None 时写 `assert mean_signal(0, 0) is None`：判断一个值是不是 None，习惯用 `is None`。
+
+      逗号后面可以加一句说明，失败时随错误一起显示，告诉读的人这一条在查什么：
+
+      ```python
+      assert label(10, 10) == "达标", "等于阈值也算达标"
+      ```
+
+      失败时这样定位：
+
+      1. 看报错指向哪一行，就知道哪一条测试没通过；它前面的 assert 都通过了。
+      2. 单独运行那一行里的调用，例如 `print(label(10, 10))`，看函数实际交回了什么，和期望对比。
+      3. 回到函数里，追是哪条路径、哪个中间量出了问题。也可能是测试的期望写错了：拿要求再核对一遍，不要改测试去迁就函数。
+
+      assert 适合练习和自查。用 `python -O` 运行时，Python 会跳过所有 assert；所以不要拿它检查正式输入的数据是否合格，那要用一直会运行的检查。
+    example:
+      id: py42.k2.e0
+      kind: [debug, predict]
+      uses: [py11.k2, py40.k2]
+      body: |
+        要求：signal 大于或等于 limit 时交回 "达标"，否则交回 "未达标"。
+
+        ```python startLine=1
+        def label(signal, limit):
+            if signal > limit:
+                return "达标"
+            return "未达标"
+
+        assert label(12, 10) == "达标"
+        assert label(8, 10) == "未达标"
+        assert label(10, 10) == "达标", "等于阈值也算达标"
+        print("全部通过")
+        ```
+      slots:
+        - id: line
+          type: text
+          format: integer
+          prompt: 程序停在第几行？
+          key: 8
+        - id: shown
+          type: choice
+          prompt: 会显示“全部通过”吗？
+          options:
+            - { id: "yes", content: 会 }
+            - { id: "no", content: 不会 }
+          key: "no"
+        - id: actual
+          type: choice
+          prompt: "`label(10, 10)` 实际交回什么？"
+          options:
+            - { id: pass, content: 达标 }
+            - { id: fail, content: 未达标 }
+          key: fail
+        - id: fix
+          type: choice
+          prompt: 按要求，应该改哪里？
+          options:
+            - id: expect
+              content: 把第 8 行的期望改成 "未达标"
+              feedback: 这是改测试去迁就函数；要求明说等于阈值算达标。
+            - id: condition
+              content: 把第 2 行改成 `if signal >= limit:`
+            - id: always
+              content: 把第 4 行改成 `return "达标"`
+              feedback: 那样什么都算达标，第 7 行的测试就会失败。
+          key: condition
+      explanation: |
+        第 6、7 行的 assert 条件成立，什么也不显示。第 **8** 行失败：`label(10, 10)` 实际交回 **未达标**，不等于期望的“达标”，于是报 AssertionError，并显示说明“等于阈值也算达标”。程序停在这里，“全部通过”**不会**显示。
+
+        对照要求，错的是函数：第 2 行的 `>` 不包含等号，应改成 `>=`。改测试的期望是迁就函数；让第 4 行也交回“达标”会让不达标的样本也算达标。
+      verify: |
+        import ast
+        lines = CODE.splitlines()
+        ends = [node.end_lineno for node in ast.parse(CODE).body]
+        failing = [end for end in ends if run("\n".join(lines[:end])).error is not None]
+        r = run()
+        actual = run(CODE.split("assert")[0] + "result = label(10, 10)")["result"]
+        def spec(signal, limit):
+            return "达标" if signal >= limit else "未达标"
+        edits = {"expect": (7, 'assert label(10, 10) == "未达标"'), "condition": (1, "    if signal >= limit:"), "always": (3, '    return "达标"')}
+        fixes = []
+        for option, (index, text) in edits.items():
+            changed = "\n".join(lines[:index] + [text] + lines[index + 1:])
+            result = run(changed + "\nchecks = [label(s, l) for s, l in ((12, 10), (8, 10), (10, 10), (3, 3))]")
+            if result.error is None and result["checks"] == [spec(s, l) for s, l in ((12, 10), (8, 10), (10, 10), (3, 3))]:
+                fixes.append(option)
+        answers = {
+            "line": failing[0],
+            "shown": "yes" if "全部通过" in r.lines() else "no",
+            "actual": "pass" if actual == "达标" else "fail",
+            "fix": fixes[0] if len(fixes) == 1 else fixes,
+        }
+    practice:
+      - id: py42.k2.q1
+        kind: [debug]
+        uses: [py11.k2, py12.k2]
+        body: |
+          `net(raw, blank)` 应当交回 raw 减去 blank，有人把减号写成了加号。
+
+          ```python startLine=1
+          def net(raw, blank):
+              return raw + blank
+
+          assert net(5, 0) == 5
+          assert net(9, 4) == 5
+          assert net(3, 3) == 0
+          ```
+        slots:
+          - id: stop
+            type: choice
+            prompt: 程序停在哪一行？
+            options:
+              - { id: l4, content: 第 4 行 }
+              - { id: l5, content: 第 5 行 }
+              - { id: l6, content: 第 6 行 }
+              - { id: none, content: 不会停，全部通过 }
+            key: l5
+          - id: ran6
+            type: choice
+            prompt: 第 6 行的 assert 运行了吗？
+            options:
+              - { id: "yes", content: 运行了 }
+              - { id: "no", content: 没有运行 }
+            key: "no"
+          - id: blind
+            type: choice
+            prompt: 哪一条测试无论写加号还是减号都会通过，查不出这个错误？
+            options:
+              - { id: l4, content: 第 4 行 }
+              - { id: l5, content: 第 5 行 }
+              - { id: l6, content: 第 6 行 }
+            key: l4
+        explanation: |
+          第 4 行 `net(5, 0)`：blank 是 0，5 + 0 和 5 - 0 都是 5，通过，所以这条**查不出**加减写反。第 **5** 行 `net(9, 4)` 实际交回 13，不等于 5，报 AssertionError，程序停下，第 6 行**没有运行**。
+
+          本底为 0 的例子看着正常，却分不出加减；挑测试时要选能让错误写法露馅的值。
+        verify: |
+          import ast
+          lines = CODE.splitlines()
+          ends = [node.end_lineno for node in ast.parse(CODE).body]
+          failing = [end for end in ends if run("\n".join(lines[:end])).error is not None]
+          right = CODE.replace("raw + blank", "raw - blank")
+          blind = []
+          for number in (4, 5, 6):
+              statement = lines[number - 1]
+              definition = "\n".join(lines[:2])
+              passes_wrong = run(definition + "\n" + statement).error is None
+              passes_right = run("\n".join(right.splitlines()[:2]) + "\n" + statement).error is None
+              if passes_wrong and passes_right:
+                  blind.append(f"l{number}")
+          answers = {"stop": f"l{failing[0]}" if failing else "none", "ran6": "no" if failing and failing[0] < 6 else "yes",
+                     "blind": blind[0] if len(blind) == 1 else blind}
+      - id: py42.k2.q2
+        kind: [debug, specify]
+        uses: [py12.k2]
+        body: |
+          要求：signal 大于或等于 limit 时交回 "达标"。现有的测试只有：
+
+          ```python
+          assert label(12, 10) == "达标"
+          assert label(5, 10) == "未达标"
+          ```
+
+          有人把条件写成了 `signal > limit`，这两条都通过了。再加哪一条 assert，就能查出这个错误？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: high
+                content: "`assert label(15, 10) == \"达标\"`"
+                feedback: 15 离阈值很远，`>` 和 `>=` 都交回达标。
+              - id: wrong_expect
+                content: "`assert label(10, 10) == \"未达标\"`"
+                feedback: 按要求，10 等于阈值应当达标，这条测试的期望写错了。
+              - id: boundary
+                content: "`assert label(10, 10) == \"达标\"`"
+              - id: low
+                content: "`assert label(9, 10) == \"未达标\"`"
+            key: boundary
+        explanation: |
+          加 **`assert label(10, 10) == "达标"`**。恰好等于阈值的这一条，正确写法通过、`>` 的写法失败。15 和 9 都不在边界上，两种写法结果一样；期望写成“未达标”的那条违背了要求，反而会让正确的函数失败。
+        verify: |
+          right = 'def label(signal, limit):\n    if signal >= limit:\n        return "达标"\n    return "未达标"\n'
+          wrong = right.replace(">=", ">")
+          # 与选项里的四行断言逐字相同。
+          options = {"high": 'assert label(15, 10) == "达标"', "wrong_expect": 'assert label(10, 10) == "未达标"',
+                     "boundary": 'assert label(10, 10) == "达标"', "low": 'assert label(9, 10) == "未达标"'}
+          fits = []
+          for option, code in options.items():
+              if run(right + code).error is None and run(wrong + code).error == "AssertionError":
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py42.k2.q3
+        kind: [modify]
+        uses: [py40.k2, py10.k1, py03.k3]
+        body: |
+          要求：`mean_signal(total, n)` 交回 n 份样本的平均信号 total / n；没有样本（n 为 0）时交回 None。
+
+          作答框里是现在的函数和三条测试。运行时第三条测试没有通过：调用 `mean_signal(0, 0)` 时就报了 ZeroDivisionError，还没走到比较。请改函数，让三条测试全部通过；测试本身不要改。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 12
+            starter: |
+              def mean_signal(total, n):
+                  return total / n
+
+              assert mean_signal(30, 3) == 10
+              assert mean_signal(7, 2) == 3.5
+              assert mean_signal(0, 0) is None, "没有样本时交回 None"
+            solution: |
+              def mean_signal(total, n):
+                  if n == 0:
+                      return None
+                  return total / n
+
+              assert mean_signal(30, 3) == 10
+              assert mean_signal(7, 2) == 3.5
+              assert mean_signal(0, 0) is None, "没有样本时交回 None"
+            rejects:
+              - code: |
+                  def mean_signal(total, n):
+                      if total == 0:
+                          return None
+                      return total / n
+
+                  assert mean_signal(30, 3) == 10
+                  assert mean_signal(7, 2) == 3.5
+                  assert mean_signal(0, 0) is None, "没有样本时交回 None"
+                why: 把“总信号为 0”当成了“没有样本”
+              - code: |
+                  def mean_signal(total, n):
+                      if n == 0:
+                          return 0
+                      return total / n
+
+                  assert mean_signal(30, 3) == 10
+                  assert mean_signal(7, 2) == 3.5
+                  assert mean_signal(0, 0) == 0
+                why: 改了测试去迁就函数，没有样本时交回 0
+              - code: |
+                  def mean_signal(total, n):
+                      return total / n
+
+                  assert mean_signal(30, 3) == 10
+                  assert mean_signal(7, 2) == 3.5
+                why: 删掉了失败的测试，函数没改
+            tests:
+              - name: 作答里的三条断言全部通过
+                expect:
+                  mean_signal(30, 3): "10.0"
+              - name: 没有样本
+                hidden: true
+                doctest: |
+                  >>> mean_signal(5, 0) is None
+                  True
+              - name: 总信号为 0 但有样本
+                hidden: true
+                doctest: |
+                  >>> mean_signal(0, 5)
+                  0.0
+                  >>> mean_signal(9, 4)
+                  2.25
+        explanation: |
+          在除法之前先处理空输入：
+
+          ```python
+          def mean_signal(total, n):
+              if n == 0:
+                  return None
+              return total / n
+          ```
+
+          判断的是 n（有没有样本），不是 total：四份样本总信号为 0 时，平均值是 0.0，不是 None。删掉失败的测试、或把期望改成 0，都只是让报错消失，函数仍不符合要求。判分时还会单独调用 `mean_signal(5, 0)` 和 `mean_signal(0, 5)`。
+    review:
+      - id: py42.k2.r1
+        kind: [debug, predict]
+        uses: [py11.k2, py12.k2]
+        body: |
+          要求：深度**超过** 30 厘米才算深，恰好 30 不算。
+
+          ```python startLine=1
+          def is_deep(depth):
+              return depth >= 30
+
+          print("开始检查")
+          assert is_deep(35) == True
+          assert is_deep(30) == False, "恰好 30 不算深"
+          print("检查完毕")
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 屏幕上显示了几行 print 的内容？
+            key: 1
+          - id: line
+            type: text
+            format: integer
+            prompt: 哪一行报了 AssertionError？
+            key: 6
+          - id: who
+            type: choice
+            prompt: 按要求，是谁错了？
+            options:
+              - { id: test, content: 测试错了：第 6 行的期望应当是 True }
+              - { id: function, content: 函数错了：第 2 行应当用 `>` }
+            key: function
+        explanation: |
+          第 4 行显示“开始检查”；第 5 行通过；第 **6** 行 `is_deep(30)` 实际交回 True，不等于期望的 False，报 AssertionError，并显示“恰好 30 不算深”。程序停下，“检查完毕”不显示，所以只显示了 **1** 行。
+
+          要求说恰好 30 不算深，第 6 行的期望是对的，**错在函数**：`>=` 应改成 `>`。
+        verify: |
+          import ast
+          lines = CODE.splitlines()
+          ends = [node.end_lineno for node in ast.parse(CODE).body]
+          failing = [end for end in ends if run("\n".join(lines[:end])).error is not None]
+          r = run()
+          def spec(depth):
+              return depth > 30
+          got = run(CODE.split("print")[0] + "result = is_deep(30)")["result"]
+          # 第 6 行期望 False；期望与要求一致而函数不一致，错在函数。
+          answers = {"count": len(r.lines()), "line": failing[0],
+                     "who": "function" if spec(30) == False and got != spec(30) else "test"}
+      - id: py42.k2.r2
+        kind: [explain]
+        uses: [py11.k1]
+        body: |
+          关于 `assert`，下面哪些说法正确？选出所有正确的。
+        slots:
+          - id: claims
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: quiet, content: 条件成立时，assert 什么也不显示 }
+              - { id: continues, content: 一条 assert 失败后，后面的行照样运行 }
+              - { id: value_error, content: 条件不成立时，报的是 ValueError }
+              - { id: message, content: 逗号后面的说明文字，会在失败时随错误一起显示 }
+              - { id: skipped, content: 用 python -O 运行时，assert 会被跳过 }
+            key: [quiet, message, skipped]
+        explanation: |
+          正确的是：条件成立时**什么也不显示**；逗号后的**说明文字**在失败时随错误显示；用 **python -O** 运行时 assert 会被跳过。
+
+          一条 assert 失败，程序就停在那一行，后面的行不再运行；报的是 AssertionError，不是 ValueError。正因为 -O 会跳过它，assert 只用来练习和自查，不拿来检查正式输入的数据。每个选项的勾选状态分别计分。
+        verify: |
+          passing = run("assert 1 + 1 == 2\n")
+          failing = run('assert 1 == 2\nprint("后面")\n')
+          described = run('assert 1 == 2, "说明文字"\n')
+          try:
+              exec(compile("assert 1 == 2\n", "<optimized>", "exec", optimize=1), {})
+              skipped = True
+          except AssertionError:
+              skipped = False
+          holds = {
+              "quiet": passing.error is None and passing.out == "",
+              "continues": "后面" in failing.out,
+              "value_error": failing.error == "ValueError",
+              "message": described.error == "AssertionError" and described.message == "说明文字",
+              "skipped": skipped,
+          }
+          answers = {"claims": [claim for claim, ok in holds.items() if ok]}
+    quiz:
+      - id: py42.k2.x1
+        kind: [debug, trace]
+        uses: [py11.k2, py10.k1]
+        body: |
+          要求：`to_mm(value, unit)` 把长度换算成毫米：unit 为 "cm" 时乘 10，为 "m" 时乘 1000，其他单位原样交回。
+
+          ```python startLine=1
+          def to_mm(value, unit):
+              if unit == "cm":
+                  return value * 10
+              elif unit == "m":
+                  return value * 100
+              return value
+
+          assert to_mm(3, "cm") == 30
+          assert to_mm(2, "mm") == 2
+          assert to_mm(2, "m") == 2000
+          ```
+        slots:
+          - id: line
+            type: text
+            format: integer
+            prompt: 哪一行报了 AssertionError？
+            key: 10
+          - id: actual
+            type: text
+            format: integer
+            prompt: 那一行里的调用实际交回多少？
+            key: 200
+          - id: fix
+            type: choice
+            prompt: 按要求，应当怎样改？
+            options:
+              - { id: expect, content: '把第 10 行改成 `assert to_mm(2, "m") == 200`' }
+              - { id: line5, content: 把第 5 行改成 `return value * 1000` }
+              - { id: line3, content: 把第 3 行改成 `return value * 100` }
+            key: line5
+        explanation: |
+          第 8、9 行通过，第 **10** 行失败：`to_mm(2, "m")` 走第 5 行，实际交回 2 × 100 = **200**，期望是 2000。
+
+          按要求，“m”要乘 1000，错在第 5 行，改成 `return value * 1000`。把测试的期望改成 200 是迁就函数；改第 3 行会弄坏本来正确的厘米换算。
+        verify: |
+          import ast
+          lines = CODE.splitlines()
+          ends = [node.end_lineno for node in ast.parse(CODE).body]
+          failing = [end for end in ends if run("\n".join(lines[:end])).error is not None]
+          actual = run("\n".join(lines[:6]) + '\nresult = to_mm(2, "m")')["result"]
+          def spec(value, unit):
+              return value * {"cm": 10, "m": 1000}.get(unit, 1)
+          cases = [(3, "cm"), (2, "m"), (2, "mm"), (5, "m")]
+          edits = {"expect": (9, 'assert to_mm(2, "m") == 200'), "line5": (4, "        return value * 1000"), "line3": (2, "        return value * 100")}
+          fixes = []
+          for option, (index, text) in edits.items():
+              changed = "\n".join(lines[:index] + [text] + lines[index + 1:])
+              result = run(changed + "\nchecks = [to_mm(v, u) for v, u in cases]", cases=cases)
+              if result.error is None and result["checks"] == [spec(v, u) for v, u in cases]:
+                  fixes.append(option)
+          answers = {"line": failing[0], "actual": actual, "fix": fixes[0] if len(fixes) == 1 else fixes}
+      - id: py42.k2.x2
+        kind: [modify]
+        uses: [py10.k1, py08.k2, py12.k2]
+        body: |
+          要求：深度小于 10 厘米是“表层”；10 厘米及以上、小于 30 厘米是“中层”；30 厘米及以上是“深层”。
+
+          作答框里的函数没有通过下面的断言。请改函数，让断言全部通过；断言本身不要改。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 12
+            starter: |
+              def layer(depth):
+                  if depth <= 10:
+                      return "表层"
+                  elif depth <= 30:
+                      return "中层"
+                  return "深层"
+
+              assert layer(5) == "表层"
+              assert layer(10) == "中层", "10 厘米算中层"
+              assert layer(30) == "深层", "30 厘米算深层"
+            solution: |
+              def layer(depth):
+                  if depth < 10:
+                      return "表层"
+                  elif depth < 30:
+                      return "中层"
+                  return "深层"
+
+              assert layer(5) == "表层"
+              assert layer(10) == "中层", "10 厘米算中层"
+              assert layer(30) == "深层", "30 厘米算深层"
+            rejects:
+              - code: |
+                  def layer(depth):
+                      if depth < 10:
+                          return "表层"
+                      elif depth <= 30:
+                          return "中层"
+                      return "深层"
+
+                  assert layer(5) == "表层"
+                  assert layer(10) == "中层", "10 厘米算中层"
+                  assert layer(30) == "深层", "30 厘米算深层"
+                why: 只改了第一个边界
+              - code: |
+                  def layer(depth):
+                      if depth <= 10:
+                          return "表层"
+                      elif depth <= 30:
+                          return "中层"
+                      return "深层"
+
+                  assert layer(5) == "表层"
+                  assert layer(10) == "表层"
+                  assert layer(30) == "中层"
+                why: 改了断言去迁就函数
+              - code: |
+                  def layer(depth):
+                      if depth < 10:
+                          return "表层"
+                      elif depth < 29:
+                          return "中层"
+                      return "深层"
+
+                  assert layer(5) == "表层"
+                  assert layer(10) == "中层", "10 厘米算中层"
+                  assert layer(30) == "深层", "30 厘米算深层"
+                why: 把第二个阈值改成了 29，30 是对了，29 却成了深层
+            tests:
+              - name: 两个边界
+                doctest: |
+                  >>> layer(10)
+                  '中层'
+                  >>> layer(30)
+                  '深层'
+              - name: 边界两侧
+                hidden: true
+                doctest: |
+                  >>> layer(9)
+                  '表层'
+                  >>> layer(29)
+                  '中层'
+                  >>> layer(31)
+                  '深层'
+                  >>> layer(0)
+                  '表层'
+        explanation: |
+          两个阈值都要“及以上”归到下一层，所以比较要用不含等号的 `<`：
+
+          ```python
+          def layer(depth):
+              if depth < 10:
+                  return "表层"
+              elif depth < 30:
+                  return "中层"
+              return "深层"
+          ```
+
+          第 9 行的断言先失败，提示 10 厘米被判成了表层；只改第一个比较，第 10 行又会失败，提示 30 厘米被判成了中层。按失败的断言一条条定位，直到全部通过。判分时还会检查 9、29、31 这些紧挨着边界的值。

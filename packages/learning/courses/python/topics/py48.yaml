@@ -1,7 +1,8 @@
 id: py48
 title: 读懂一份 AI 给的分析脚本，并说清怎样改
-status: outline
+status: complete
 minutes: 20
+summary: 把 AI 写的短脚本逐行对到需求里的规则和输入输出；用恰好等于阈值、键重复、键找不到、notebook 重跑这类小反例检查偏差；提出只改一处的修改，并写下能直接核对的验收条件。
 prerequisites:
   - topic: py46
     key: true
@@ -25,13 +26,1684 @@ sources:
     url: https://allendowney.github.io/ThinkPython/chap19.html
     use: reference
 notes: |
-  建议题型与判分：解释代码（S/O）、找错（P）、小改代码（T）、写清需求（S/O）。
-  自拟部分：自拟整合任务。
-  用预先给出的 8～15 行有效代码、最多两张各 4～6 行的小表，每次聚焦一种需求偏差。综合题仍按知识点拆成例题和短练习，不变成从空白写完整分析项目的大作业。
+  范围：k1 把一份 AI 写的 4～10 行脚本逐行对到需求里的规则，并说出每一行拿到什么、交出什么（重点是 merge 这一行：两张输入表、配对列、how 保留谁的行、交出哪些列）；k2 在小反例上预测脚本的结果，与按需求手算的结果比对（恰好等于阈值、右表键重复、左表键在右表找不到、groupby 丢掉缺失的组、notebook 删掉单元格或改了没重跑）；k3 只改造成偏差的那一处，并写下能直接核对的验收条件（assert 或一个明确的数），用“原脚本上不成立、改好后成立”来挑验收条件。
+  先修祖先里没有多条件筛选、新列运算和排序，本节同样只用单列条件、不排序。验收条件只用 len、count、数值列的 sum、loc 取一格和 merge 的 validate；indicator 只在讲解里提到。
+  按原稿约束：用预先给出的 8～15 行以内的有效代码、最多两张各 4～6 行的小表，每次聚焦一种需求偏差；综合题按知识点拆成例题和短练习，不变成从空白写完整分析项目的大作业。
+  情境：样本测量表 samples 与样本信息表 sites（练习），土层深度 readings 与样点表 plots、培养皿计数 counts 与处理表 dishes、受试者成绩 scores 与分批表 people（复习与测验）。中文组名按编码顺序排序：东坡、北坡、南坡；第一批、第二批。
+  “规则对应哪一行”由 verify 按这一行调用的函数或比较符找出；“哪一句描述这一行”由 verify 换一张输入表运行、看行数是否保留来判断；“哪个修改符合需求”“哪个验收条件查得到偏差”都由 verify 逐个代入原脚本和改好的脚本运行。复习和测验题没有需要模型核对的作答位；练习 py48.k3.q3（哪些说法算得上验收条件）是语义判断，列为 manual，练习不要求模型核对。
+  读文件和 notebook 的题用 python 夹具每次重写文件，并删掉上一次留下的输出文件（同一个 topic 的核对共用一个内存文件系统）。notebook 单元格按 py45 的写法，写成带“单元格 n，编号 [k]”的独立代码块，verify 用 BLOCKS 按执行顺序或屏幕顺序拼出程序。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 4 分钟；k2 讲解与例题 3 分钟、练习 4 分钟；k3 讲解与例题 2 分钟、练习 3 分钟。整节偏紧，试做时若超时，先把 k3 的练习留到下一次。
+  小表、脚本和题目为本课自拟。
+intro: |
+  这一节是课程的收尾。你会读几份 AI 写的短分析脚本，做三件事：说出每一行对应需求里的哪条规则、拿到什么交出什么；用专门造的小反例检查它在边界上是不是还对；找到偏差后，只改一处，并写下改好以后怎样核对。
+
+  脚本都不长，表也都很小。每道题从题面给出的文件或表重新开始。阈值和“达标”都是题目约定，不是科研结论。
+wrapup: |
+  拿到 AI 给的脚本，可以按这一节的顺序回它一段话：
+
+  - 哪一行对应哪条规则，哪条规则找不到对应的行；
+  - 在哪张小反例上它与需求不符：输入是什么，它给出什么，需求要什么；
+  - 只改哪一处；
+  - 改完用哪几条能直接检查的条件验收，例如“合并后行数等于样本表的行数”“在这张反例表上，北坡的 n 是 2”。
+
+  这样的回复，AI 和同事都能照着改，你也能自己核对改得对不对。
+data:
+  files:
+    kind: python
+    code: |
+      import os
+      with open("samples.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id,signal\n001,12\n002,9\n002,11\n003,10\n004,15\n005,8\n")
+      with open("sites.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id,site\n001,北坡\n002,南坡\n003,北坡\n004,南坡\n005,东坡\n")
+      if os.path.exists("site_summary.csv"):
+          os.remove("site_summary.csv")
+    display: |
+      文件 samples.csv（每行是一次测量，002 测了两次）：
+
+      ```text
+      sample_id,signal
+      001,12
+      002,9
+      002,11
+      003,10
+      004,15
+      005,8
+      ```
+
+      文件 sites.csv（每个样本的采样点）：
+
+      ```text
+      sample_id,site
+      001,北坡
+      002,南坡
+      003,北坡
+      004,南坡
+      005,东坡
+      ```
+  cells_files:
+    kind: python
+    code: |
+      import os
+      with open("counts.csv", "w", encoding="utf-8") as f:
+          f.write("dish_id,cells\n01,52\n02,40\n03,45\n03,47\n04,48\n")
+      with open("dishes.csv", "w", encoding="utf-8") as f:
+          f.write("dish_id,treatment\n01,control\n02,drug\n03,drug\n04,control\n")
+      if os.path.exists("treatment_summary.csv"):
+          os.remove("treatment_summary.csv")
+    display: |
+      文件 counts.csv（每行是一次细胞计数，03 号培养皿计了两次）：
+
+      ```text
+      dish_id,cells
+      01,52
+      02,40
+      03,45
+      03,47
+      04,48
+      ```
+
+      文件 dishes.csv（每个培养皿的处理）：
+
+      ```text
+      dish_id,treatment
+      01,control
+      02,drug
+      03,drug
+      04,control
+      ```
+  SA:
+    kind: dataframe
+    name: samples
+    caption: 表 samples：测量记录（002 测了两次）
+    columns:
+      sample_id: ["001", "002", "002", "003", "004", "005"]
+      signal: [12, 9, 11, 10, 15, 8]
+  ST:
+    kind: dataframe
+    name: sites
+    caption: 表 sites：样本信息
+    columns:
+      sample_id: ["001", "002", "003", "004", "005"]
+      site: [北坡, 南坡, 北坡, 南坡, 东坡]
+  STD:
+    kind: dataframe
+    name: sites
+    caption: 表 sites：003 登记了两次，采样点还不一样
+    columns:
+      sample_id: ["001", "002", "003", "003", "004", "005"]
+      site: [北坡, 南坡, 北坡, 南坡, 南坡, 东坡]
+  STM:
+    kind: dataframe
+    name: sites
+    caption: 表 sites：004 没有登记
+    columns:
+      sample_id: ["001", "002", "003", "005"]
+      site: [北坡, 南坡, 北坡, 东坡]
+  RD:
+    kind: dataframe
+    name: readings
+    caption: 表 readings：土层深度测量（厘米，P2 测了两次）
+    columns:
+      plot_id: [P1, P2, P2, P3, P4]
+      depth: [32, 28, 30, 35, 26]
+  PL:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：每个样点在哪个坡
+    columns:
+      plot_id: [P1, P2, P3, P4]
+      site: [北坡, 南坡, 北坡, 东坡]
+  PLM:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：P4 没有登记
+    columns:
+      plot_id: [P1, P2, P3]
+      site: [北坡, 南坡, 北坡]
+  CT:
+    kind: dataframe
+    name: counts
+    caption: 表 counts：细胞计数（03 号计了两次）
+    columns:
+      dish_id: ["01", "02", "03", "03", "04"]
+      cells: [52, 40, 45, 47, 48]
+  DS:
+    kind: dataframe
+    name: dishes
+    caption: 表 dishes：每个培养皿的处理
+    columns:
+      dish_id: ["01", "02", "03", "04"]
+      treatment: [control, drug, drug, control]
+  DSM:
+    kind: dataframe
+    name: dishes
+    caption: 表 dishes：04 号没有登记
+    columns:
+      dish_id: ["01", "02", "03"]
+      treatment: [control, drug, drug]
+  SC:
+    kind: dataframe
+    name: scores
+    caption: 表 scores：受试者的测试成绩（A2 测了两次）
+    columns:
+      pid: [A1, A2, A2, A3, A4]
+      score: [78, 65, 70, 88, 57]
+  PP:
+    kind: dataframe
+    name: people
+    caption: 表 people：受试者属于哪一批
+    columns:
+      pid: [A1, A2, A3, A4]
+      cohort: [第一批, 第二批, 第一批, 第二批]
+  PPM:
+    kind: dataframe
+    name: people
+    caption: 表 people：A4 没有登记
+    columns:
+      pid: [A1, A2, A3]
+      cohort: [第一批, 第二批, 第一批]
+  PPD:
+    kind: dataframe
+    name: people
+    caption: 表 people：A3 登记了两次，批次还不一样
+    columns:
+      pid: [A1, A2, A3, A3, A4]
+      cohort: [第一批, 第二批, 第一批, 第二批, 第二批]
 kps:
   - id: py48.k1
     title: 把每段代码对应到输入输出与业务规则
+    card:
+      name: 规则对到代码
+      aliases: [读脚本, 代码与需求对照]
+      definition: 读一份脚本时，把需求拆成一条条规则，逐条找出实现它的那一行，并说出这一行拿到哪张表、交出哪张表；找不到对应行、或只做了一部分的规则，就是要问清楚的地方。
+      conditions:
+        - 一行代码可能只做了规则的一部分，例如“用最后一次测量”写成了默认的 drop_duplicates，留的是第一次。
+        - 读 merge 这一行要说全：两张输入表、按哪一列配对、how 保留谁的行、交出哪些列。
+      example:
+        from: py48.k1.e0
+        text: |
+          ```python
+          first = samples.drop_duplicates(subset=["sample_id"])
+          merged = first.merge(sites, on="sample_id", how="left")
+          ```
+          第一行对应“每个样本只用第一次测量”，6 行变 5 行；第二行对应“补上采样点”，拿到 first 和 sites，交出 5 行、多了 site 列的表。
+    lesson: |
+      AI 给的脚本往往一口气写完。读它的时候，先把你的需求拆成几条规则，再逐条去脚本里找实现它的那一行，像对答案一样。找的时候可以看这一行用了什么：
+
+      | 需求里的说法 | 去找什么样的代码 | 核对什么 |
+      |---|---|---|
+      | 只用第一次 / 最后一次 | `drop_duplicates` | subset 是不是编号列，keep 是不是对 |
+      | 补上另一张表的信息 | `merge` | on 是哪一列，how 保留谁的行 |
+      | 至少 / 超过多少算达标 | `loc` 里的比较 | 比较符有没有等号 |
+      | 按组数个数、求平均 | `groupby(...).agg(...)` | 分组列、计数列、缺失的组 |
+      | 写进文件 | `to_csv` | 文件名、要不要索引 |
+
+      每找到一行，再说出它拿到哪张表、交出哪张表、交出的表大概几行。对完以后看两种情况：
+
+      - 需求里的某条规则找不到对应的行，或者那一行只做了一部分：脚本没做到它；
+      - 脚本里有一行对应不到任何规则：问清它为什么在那里，它可能悄悄改了结果。
+
+      merge 这一行最容易说漏。[合并](repa:concept/py29.k1)要说全四样：两张输入表各是什么；按哪一列配对；`how="left"` 保留左表的每一行（右表里找不到的，补上的列是缺失），`how="inner"` 只留两边都有的编号；交出的表有哪些列。
+    example:
+      id: py48.k1.e0
+      kind: [explain, trace]
+      uses: [py15.k2, py25.k2, py29.k1, py28.k1, py34.k1, py46.k1]
+      data: [files]
+      body: |
+        你向 AI 提的需求是：
+
+        > ① 每个样本只用第一次测量；② 按 sites.csv 给每个样本补上采样点 site；③ signal 至少为 10 的算达标；④ 按 site 数出达标样本数 n，并求平均 signal；⑤ 结果写进 site_summary.csv。
+
+        AI 给的脚本：
+
+        ```python startLine=1
+        import pandas as pd
+
+        samples = pd.read_csv("samples.csv", dtype={"sample_id": "str"})
+        sites = pd.read_csv("sites.csv", dtype={"sample_id": "str"})
+
+        first = samples.drop_duplicates(subset=["sample_id"])
+        merged = first.merge(sites, on="sample_id", how="left")
+        passed = merged.loc[merged["signal"] >= 10]
+        summary = passed.groupby("site").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+        summary.to_csv("site_summary.csv")
+        ```
+      slots:
+        - id: rules
+          type: table
+          prompt: 每条规则由第几行实现？
+          columns:
+            - { id: rule, header: 规则 }
+            - { id: line, header: 第几行, input: integer }
+          rows:
+            - { id: r1, cells: { rule: ① 只用第一次测量, line: 6 } }
+            - { id: r2, cells: { rule: ② 补上采样点, line: 7 } }
+            - { id: r3, cells: { rule: ③ 至少 10 算达标, line: 8 } }
+            - { id: r4, cells: { rule: ④ 按 site 计数、求平均, line: 9 } }
+            - { id: r5, cells: { rule: ⑤ 写进文件, line: 10 } }
+        - id: merged_rows
+          type: text
+          format: integer
+          prompt: "`merged` 有几行？"
+          key: 5
+        - id: passed_rows
+          type: text
+          format: integer
+          prompt: "`passed` 有几行？"
+          key: 3
+      explanation: |
+        | 规则 | 行 | 拿到 → 交出 |
+        |---|---:|---|
+        | ① 只用第一次测量 | 6 | samples 6 行 → first 5 行（002 留第一次的 9） |
+        | ② 补上采样点 | 7 | first 和 sites → merged 5 行，多了 site 列 |
+        | ③ 至少 10 算达标 | 8 | merged → passed 3 行（001、003、004） |
+        | ④ 按 site 计数、求平均 | 9 | passed → summary，北坡、南坡各一行 |
+        | ⑤ 写进文件 | 10 | summary → site_summary.csv |
+
+        第 3、4 行是读入，需求里没单独写，但它们决定了 sample_id 按文字读（保留前导零）。`how="left"` 保留 first 的每一行，sites 里每个样本只登记了一次，所以 merged 仍是 **5** 行。003 的 signal 恰好是 10，`>=` 把它留下，passed 是 **3** 行。
+      verify: |
+        r = run()
+        lines = CODE.splitlines()
+        def find(token):
+            hits = [i for i, line in enumerate(lines, 1) if token in line]
+            return hits[0] if len(hits) == 1 else hits
+        tokens = {"r1": "drop_duplicates", "r2": ".merge(", "r3": ">=", "r4": "groupby", "r5": "to_csv"}
+        answers = {
+            "rules": {row: {"line": find(token)} for row, token in tokens.items()},
+            "merged_rows": len(r["merged"]),
+            "passed_rows": len(r["passed"]),
+        }
+    practice:
+      - id: py48.k1.q1
+        kind: [explain, trace]
+        uses: [py25.k2, py29.k1]
+        data: [SA, ST]
+        body: |
+          只看脚本里去重和合并这两行：
+
+          ```python startLine=1
+          first = samples.drop_duplicates(subset=["sample_id"])
+          merged = first.merge(sites, on="sample_id", how="left")
+          ```
+        slots:
+          - id: inputs
+            type: choice
+            multiple: true
+            scoring: options
+            prompt: 第 2 行拿到哪几张表？选出全部。
+            options:
+              - { id: samples, content: "`samples`" }
+              - { id: first, content: "`first`" }
+              - { id: sites, content: "`sites`" }
+              - { id: merged, content: "`merged`" }
+            key: [first, sites]
+          - id: keeps
+            type: choice
+            prompt: 第 2 行保留谁的行？
+            options:
+              - id: inner
+                content: 只留 first 和 sites 里都有的编号
+                feedback: 那是 how="inner"。
+              - id: right
+                content: sites 的每一行都留下
+              - id: left
+                content: first 的每一行都留下；在 sites 里找不到的，site 为缺失
+            key: left
+          - id: columns
+            type: order
+            partial: true
+            prompt: "`merged` 有哪些列？按顺序排列。"
+            items:
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+              - { id: site, content: "`site`" }
+              - { id: merge_flag, content: "`_merge`" }
+            key: [sample_id, signal, site]
+          - id: rows
+            type: text
+            format: integer
+            prompt: "`merged` 有几行？"
+            key: 5
+        explanation: |
+          第 2 行拿到 **first** 和 **sites** 两张表（不是原来的 samples），按 sample_id 配对。`how="left"` 保留 first 的每一行，找不到采样点的样本 site 为缺失。交出的表列是 **sample_id、signal、site**：左表的列在前，补上的列在后；没写 `indicator=True`，所以没有 `_merge` 列。first 有 5 行，每个编号在 sites 里只有一行，merged 也是 **5** 行。
+        verify: |
+          import ast
+          r = run()
+          call = ast.parse(CODE.splitlines()[1]).body[0].value
+          names = {node.id for node in ast.walk(call) if isinstance(node, ast.Name)}
+          # 去掉 sites 的第一行再运行：first 的行都还在，就是保留左表的每一行。
+          fewer = run(sites=sites.iloc[1:])
+          answers = {
+              "inputs": [name for name in ["samples", "first", "sites", "merged"] if name in names],
+              "keeps": "left" if len(fewer["merged"]) == len(fewer["first"]) else "inner",
+              "columns": list(r["merged"].columns),
+              "rows": len(r["merged"]),
+          }
+      - id: py48.k1.q2
+        kind: [explain, debug]
+        uses: [py25.k2, py29.k1, py17.k2, py28.k1]
+        data: [SA, ST]
+        body: |
+          这次的需求是：
+
+          > ① 同一个样本测了两次时，用最后一次（复测）的结果；② 按 sites 给每个样本补上 site，样本一个不少；③ signal 至少为 10 的算达标；④ 按 site 数出达标样本数 n。
+
+          AI 给的脚本：
+
+          ```python startLine=1
+          first = samples.drop_duplicates(subset=["sample_id"])
+          merged = first.merge(sites, on="sample_id", how="left")
+          passed = merged.loc[merged["signal"] >= 10]
+          summary = passed.groupby("site").agg(n=("sample_id", "count"))
+          ```
+        slots:
+          - id: rules
+            type: table
+            prompt: 第 n 行对应规则 n。这一行完全做到了这条规则吗？
+            columns:
+              - { id: rule, header: 规则 }
+              - { id: done, header: 做到了吗, input: bool }
+            rows:
+              - { id: r1, cells: { rule: ① 用最后一次测量（第 1 行）, done: false } }
+              - { id: r2, cells: { rule: ② 补上 site，样本一个不少（第 2 行）, done: true } }
+              - { id: r3, cells: { rule: ③ 至少 10 算达标（第 3 行）, done: true } }
+              - { id: r4, cells: { rule: ④ 按 site 计数（第 4 行）, done: true } }
+          - id: south
+            type: text
+            format: integer
+            prompt: 脚本算出的南坡 n 是多少？
+            key: 1
+          - id: south_need
+            type: text
+            format: integer
+            prompt: 按需求，南坡的 n 应当是多少？
+            key: 2
+        explanation: |
+          第 1 行只做了一半：`drop_duplicates(subset=["sample_id"])` 默认 `keep="first"`，002 留下的是第一次的 9，而需求要复测的 11。其余三行都按各自的规则做了。
+
+          这一处让结果不同：脚本里 002 的 9 不达标，南坡只有 004，n 为 **1**；按需求 002 用 11，达标，南坡 n 应为 **2**。第 1 行要加上 `keep="last"`。
+        verify: |
+          r = run()
+          # 每条规则：用同一个输入按规则做一遍这一步，和脚本这一步的结果比较。
+          latest = samples.drop_duplicates(subset=["sample_id"], keep="last")
+          done = {
+              "r1": r["first"].equals(latest),
+              "r2": r["merged"].equals(r["first"].merge(sites, on="sample_id", how="left")),
+              "r3": r["passed"].equals(r["merged"].loc[r["merged"]["signal"] >= 10]),
+              "r4": r["summary"].equals(r["passed"].groupby("site").agg(n=("sample_id", "count"))),
+          }
+          merged = latest.merge(sites, on="sample_id", how="left")
+          need = merged.loc[merged["signal"] >= 10].groupby("site").agg(n=("sample_id", "count"))
+          answers = {
+              "rules": {row: {"done": value} for row, value in done.items()},
+              "south": int(r["summary"].loc["南坡", "n"]),
+              "south_need": int(need.loc["南坡", "n"]),
+          }
+      - id: py48.k1.q3
+        kind: [predict, explain]
+        uses: [py28.k1, py34.k1]
+        data: [files]
+        body: |
+          还是例题里那份脚本。运行之后，打开它写出的 site_summary.csv。
+
+          ```python startLine=1
+          import pandas as pd
+
+          samples = pd.read_csv("samples.csv", dtype={"sample_id": "str"})
+          sites = pd.read_csv("sites.csv", dtype={"sample_id": "str"})
+
+          first = samples.drop_duplicates(subset=["sample_id"])
+          merged = first.merge(sites, on="sample_id", how="left")
+          passed = merged.loc[merged["signal"] >= 10]
+          summary = passed.groupby("site").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+          summary.to_csv("site_summary.csv")
+          ```
+        slots:
+          - id: header
+            type: choice
+            prompt: 文件的第一行（表头）是哪一种？
+            options:
+              - { id: no_index, content: "`n,mean_signal`" }
+              - { id: full, content: "`site,n,mean_signal`" }
+              - { id: blank, content: "`,n,mean_signal`" }
+            key: full
+          - id: rows
+            type: text
+            format: integer
+            prompt: 表头下面有几行数据？
+            key: 2
+          - id: east
+            type: choice
+            prompt: 东坡在文件里吗？
+            options:
+              - { id: one, content: 在，n 为 1 }
+              - { id: zero, content: 在，n 为 0 }
+              - { id: absent, content: 不在 }
+            key: absent
+          - id: north_mean
+            type: text
+            format: number
+            prompt: 北坡的 mean_signal 是多少？
+            key: 11
+        explanation: |
+          表头是 **site,n,mean_signal**：组名在汇总表的索引里，`to_csv` 默认把索引写成第一列，索引名 site 就是第一列的表头。下面 **2** 行数据，北坡和南坡。
+
+          东坡**不在**文件里：东坡只有 005，signal 是 8，没有达标；groupby 只为 passed 里出现的组生成一行，不会给东坡写一行 n 为 0。北坡是 001 的 12 和 003 的 10，平均 **11.0**。
+        verify: |
+          r = run()
+          text = open("site_summary.csv", encoding="utf-8").read().splitlines()
+          headers = {"site,n,mean_signal": "full", "n,mean_signal": "no_index", ",n,mean_signal": "blank"}
+          summary = r["summary"]
+          if "东坡" not in summary.index:
+              east = "absent"
+          else:
+              east = "zero" if summary.loc["东坡", "n"] == 0 else "one"
+          answers = {
+              "header": headers.get(text[0], text[0]),
+              "rows": len(text) - 1,
+              "east": east,
+              "north_mean": float(summary.loc["北坡", "mean_signal"]),
+          }
+    review:
+      - id: py48.k1.r1
+        kind: [explain, trace]
+        uses: [py25.k2, py29.k1, py28.k1]
+        data: [RD, PL]
+        body: |
+          AI 写的土层深度分析：
+
+          ```python startLine=1
+          first = readings.drop_duplicates(subset=["plot_id"], keep="last")
+          merged = first.merge(plots, on="plot_id", how="left")
+          deep = merged.loc[merged["depth"] >= 30]
+          summary = deep.groupby("site").agg(n=("plot_id", "count"))
+          ```
+        slots:
+          - id: line1
+            type: choice
+            prompt: 第 1 行对应需求里的哪一句？
+            options:
+              - { id: first, content: 每个样点测了多次时，只用第一次 }
+              - { id: whole, content: 只去掉完全相同的重复行 }
+              - { id: last, content: 每个样点测了多次时，只用最后一次 }
+            key: last
+          - id: line2
+            type: choice
+            prompt: 第 2 行对应需求里的哪一句？
+            options:
+              - { id: only_known, content: 只留 plots 表里登记过的样点 }
+              - { id: keep_all, content: 给每个样点补上 site，样点一个不少 }
+            key: keep_all
+          - id: merged_rows
+            type: text
+            format: integer
+            prompt: "`merged` 有几行？"
+            key: 4
+          - id: summary_rows
+            type: text
+            format: integer
+            prompt: "`summary` 有几行？"
+            key: 2
+        explanation: |
+          第 1 行按 plot_id 去重并 `keep="last"`，对应“只用最后一次”：P2 留下 30，不是 28。第 2 行 `how="left"`，对应“样点一个不少地补上 site”：merged 仍是 **4** 行。
+
+          达到 30 的是 P1（32，北坡）、P2（30，南坡）、P3（35，北坡），P4 只有 26。summary 有北坡、南坡 **2** 行。
+        verify: |
+          r = run()
+          variants = {
+              "last": readings.drop_duplicates(subset=["plot_id"], keep="last"),
+              "first": readings.drop_duplicates(subset=["plot_id"]),
+              "whole": readings.drop_duplicates(),
+          }
+          line1 = [name for name, table in variants.items() if table.equals(r["first"])]
+          # 去掉 plots 的最后一行再运行：样点数不变，就是保留左表的每一行。
+          fewer = run(plots=plots.iloc[:-1])
+          answers = {
+              "line1": line1[0] if len(line1) == 1 else line1,
+              "line2": "keep_all" if len(fewer["merged"]) == len(fewer["first"]) else "only_known",
+              "merged_rows": len(r["merged"]),
+              "summary_rows": len(r["summary"]),
+          }
+      - id: py48.k1.r2
+        kind: [modify]
+        uses: [py25.k2, py29.k1, py17.k2, py28.k1]
+        data: [CT, DS]
+        body: |
+          需求是：
+
+          > ① 每个培养皿只用第一次计数；② 按 dishes 表补上 treatment，培养皿一个不少；③ cells 至少为 45 的算长得好；④ 按 treatment 数出长得好的培养皿个数 n。
+
+          从下面的代码行里挑出需要的，按规则的顺序排好，组成一段脚本；用不到的行不要放进来。
+        slots:
+          - id: lines
+            type: order
+            partial: true
+            items:
+              - id: strict
+                code: good = merged.loc[merged["cells"] > 45]
+              - id: summary
+                code: 'summary = good.groupby("treatment").agg(n=("dish_id", "count"))'
+              - id: inner
+                code: merged = first.merge(dishes, on="dish_id", how="inner")
+              - id: first
+                code: first = counts.drop_duplicates(subset=["dish_id"])
+              - id: good
+                code: good = merged.loc[merged["cells"] >= 45]
+              - id: merged
+                code: merged = first.merge(dishes, on="dish_id", how="left")
+            key: [first, merged, good, summary]
+            tests:
+              - name: 表 counts 和 dishes
+                expect:
+                  summary: 'pd.DataFrame({"n": [2, 1]}, index=["control", "drug"])'
+                  len(merged): "4"
+              - name: 有一个培养皿没登记
+                hidden: true
+                setup: dishes = dishes.loc[dishes["dish_id"] != "04"]
+                expect:
+                  summary: 'pd.DataFrame({"n": [1, 1]}, index=["control", "drug"])'
+                  len(merged): "4"
+        explanation: |
+          ```python
+          first = counts.drop_duplicates(subset=["dish_id"])
+          merged = first.merge(dishes, on="dish_id", how="left")
+          good = merged.loc[merged["cells"] >= 45]
+          summary = good.groupby("treatment").agg(n=("dish_id", "count"))
+          ```
+
+          四条规则各对一行。“一个不少”要用 `how="left"`：没登记的培养皿也留在 merged 里；`how="inner"` 会把它去掉，判分时会换一张少登记了一个培养皿的 dishes 表检查行数。“至少 45”要用 `>=`：03 第一次计数恰好是 45。
+    quiz:
+      - id: py48.k1.x1
+        kind: [explain, trace]
+        uses: [py25.k2, py29.k1]
+        data: [SC, PPM]
+        body: |
+          AI 写的成绩分析里有这样两行：
+
+          ```python startLine=1
+          first = scores.drop_duplicates(subset=["pid"])
+          matched = first.merge(people, on="pid", how="inner")
+          ```
+        slots:
+          - id: rows
+            type: text
+            format: integer
+            prompt: "`matched` 有几行？"
+            key: 3
+          - id: kept
+            type: order
+            partial: true
+            prompt: "`matched` 里有哪些受试者？按先后顺序排出 pid。"
+            items:
+              - { id: A1, content: A1 }
+              - { id: A2, content: A2 }
+              - { id: A3, content: A3 }
+              - { id: A4, content: A4 }
+            key: [A1, A2, A3]
+          - id: columns
+            type: order
+            partial: true
+            prompt: "`matched` 有哪些列？按顺序排列。"
+            items:
+              - { id: cohort, content: "`cohort`" }
+              - { id: pid, content: "`pid`" }
+              - { id: merge_flag, content: "`_merge`" }
+              - { id: score, content: "`score`" }
+            key: [pid, score, cohort]
+          - id: rule
+            type: choice
+            prompt: 第 2 行对应下面哪一句需求？
+            options:
+              - { id: all, content: 每个受试者都要出现在结果里，没登记批次的 cohort 记为缺失 }
+              - { id: only, content: 只统计 people 表里登记过的受试者 }
+              - { id: people_all, content: people 表里的每个人都要出现在结果里 }
+            key: only
+        explanation: |
+          第 1 行去重后有 A1、A2、A3、A4 四人（A2 留第一次的 65）。第 2 行 `how="inner"` 只留两张表都有的 pid，A4 没在 people 里登记，被去掉：matched 是 **A1、A2、A3** 共 **3** 行，列是 **pid、score、cohort**。所以这一行对应的是“**只统计 people 表里登记过的受试者**”；如果需求是“每个受试者都要出现”，应当用 `how="left"`。
+        verify: |
+          r = run()
+          matched = r["matched"]
+          answers = {
+              "rows": len(matched),
+              "kept": list(matched["pid"]),
+              "columns": list(matched.columns),
+              # 结果里少了左表的人，说明只留下两边都有的。
+              "rule": "only" if len(matched) < len(r["first"]) else "all",
+          }
+      - id: py48.k1.x2
+        kind: [explain, trace]
+        uses: [py15.k2, py25.k2, py29.k1, py28.k1, py34.k1]
+        data: [cells_files]
+        body: |
+          你的需求（按你想到的先后写的）：
+
+          > ① 按 treatment 数出长得好的培养皿个数 n；② 每个培养皿只用第一次计数；③ 按 dishes.csv 补上 treatment；④ cells 至少为 45 的算长得好；⑤ 结果写进 treatment_summary.csv。
+
+          AI 给的脚本：
+
+          ```python startLine=1
+          import pandas as pd
+
+          counts = pd.read_csv("counts.csv", dtype={"dish_id": "str"})
+          dishes = pd.read_csv("dishes.csv", dtype={"dish_id": "str"})
+          merged = counts.merge(dishes, on="dish_id", how="left")
+          first = merged.drop_duplicates(subset=["dish_id"])
+          good = first.loc[first["cells"] >= 45]
+          summary = good.groupby("treatment").agg(n=("dish_id", "count"))
+          summary.to_csv("treatment_summary.csv")
+          ```
+        slots:
+          - id: rules
+            type: table
+            prompt: 每条规则由第几行实现？
+            columns:
+              - { id: rule, header: 规则 }
+              - { id: line, header: 第几行, input: integer }
+            rows:
+              - { id: r1, cells: { rule: ① 按 treatment 计数, line: 8 } }
+              - { id: r2, cells: { rule: ② 只用第一次计数, line: 6 } }
+              - { id: r3, cells: { rule: ③ 补上 treatment, line: 5 } }
+              - { id: r4, cells: { rule: ④ 至少 45 算长得好, line: 7 } }
+              - { id: r5, cells: { rule: ⑤ 写进文件, line: 9 } }
+          - id: merged_rows
+            type: text
+            format: integer
+            prompt: "`merged` 有几行？"
+            key: 5
+          - id: good_rows
+            type: text
+            format: integer
+            prompt: "`good` 有几行？"
+            key: 3
+        explanation: |
+          | 规则 | 行 |
+          |---|---:|
+          | ① 按 treatment 计数 | 8 |
+          | ② 只用第一次计数 | 6 |
+          | ③ 补上 treatment | 5 |
+          | ④ 至少 45 算长得好 | 7 |
+          | ⑤ 写进文件 | 9 |
+
+          脚本的顺序和你写需求的顺序不同：它先合并再去重。这里两种顺序结果一样，因为 dishes 里每个培养皿只有一行。merged 有 **5** 行（counts 的 5 次计数都配上了 treatment）；去重后 03 留第一次的 45，达到 45 的是 01、03、04，good 有 **3** 行。
+        verify: |
+          r = run()
+          lines = CODE.splitlines()
+          def find(token):
+              hits = [i for i, line in enumerate(lines, 1) if token in line]
+              return hits[0] if len(hits) == 1 else hits
+          tokens = {"r1": "groupby", "r2": "drop_duplicates", "r3": ".merge(", "r4": ">=", "r5": "to_csv"}
+          answers = {
+              "rules": {row: {"line": find(token)} for row, token in tokens.items()},
+              "merged_rows": len(r["merged"]),
+              "good_rows": len(r["good"]),
+          }
+
   - id: py48.k2
     title: 用边界和反例检查偏差
+    card:
+      name: 反例
+      aliases: [小反例, 边界例子]
+      definition: 专门造的一张小表，让脚本可能出错的地方真的出现；先按需求手算应有的结果，再预测脚本的结果，两者不同就找到了一处偏差。
+      conditions:
+        - 常用的反例：恰好等于阈值的值、右表编号重复、左表编号在右表里找不到、分组列缺失、notebook 重启后从头运行。
+        - 反例上两者一致，只说明这一处没问题，不说明脚本处处都对。
+      example:
+        from: py48.k2.e0
+        text: |
+          sites 里 003 登记了两次：left merge 后 003 变成两行，merged 从 5 行变成 6 行，达标样本只有 3 个，汇总表的 n 却加起来是 4。
+    lesson: |
+      AI 的脚本在你手上那张表上跑出了看着合理的结果，不等于它照需求做了。在一张“正常”的表上，好几种写法常常碰巧给出一样的结果。要检查偏差，就造一张小表，让可能出错的地方真的出现：
+
+      | 可能的偏差 | 反例里放什么 | 脚本出错时的样子 |
+      |---|---|---|
+      | 比较符多了或少了等号 | 恰好等于阈值的值 | 该留的没留，或不该留的留下了 |
+      | 右表编号重复 | 同一个编号在右表登记两次 | merge 之后行数变多，同一个样本被算了两次 |
+      | 左表编号在右表找不到 | 一个没登记的样本 | left merge 后补上的列是缺失，groupby 默认不把它放进任何组；inner merge 直接把它去掉 |
+      | notebook 依赖了隐藏的状态 | 重启内核，从头运行全部单元格 | 报 NameError，或结果和屏幕上的代码对不上 |
+
+      在反例上先按需求手算应有的结果，再预测脚本会给出什么。两者不同，就把三样一起写下来：输入是什么，脚本给出什么，需求要什么。这就是一份别人能照着复现的问题报告。
+    example:
+      id: py48.k2.e0
+      kind: [predict, debug]
+      uses: [py25.k2, py29.k2, py28.k1]
+      data: [SA, STD]
+      body: |
+        需求是：每个样本只用第一次测量；补上采样点 site；signal 至少为 10 的算达标；按 site 数出达标样本数。每个样本只能算一次。
+
+        这张 sites 表是一个反例：003 被登记了两次。
+
+        ```python startLine=1
+        first = samples.drop_duplicates(subset=["sample_id"])
+        merged = first.merge(sites, on="sample_id", how="left")
+        passed = merged.loc[merged["signal"] >= 10]
+        summary = passed.groupby("site").agg(n=("sample_id", "count"))
+        ```
+      slots:
+        - id: merged_rows
+          type: text
+          format: integer
+          prompt: "`merged` 有几行？"
+          key: 6
+        - id: total
+          type: text
+          format: integer
+          prompt: 汇总表里各组的 n 加起来是多少？
+          key: 4
+        - id: need
+          type: text
+          format: integer
+          prompt: 实际达标的样本有几个？
+          key: 3
+        - id: cause
+          type: choice
+          prompt: 多出来的那一个是怎么来的？
+          options:
+            - id: dedupe
+              content: 第 1 行没有去掉 003 的重复测量
+            - id: dup
+              content: 003 在 sites 里有两行，第 2 行把它配成了两行
+            - id: threshold
+              content: 第 3 行的 `>=` 多算了恰好为 10 的样本
+          key: dup
+      explanation: |
+        first 有 5 行，每个样本一行。merge 时 003 在 sites 里能配上两行（北坡、南坡），于是 merged 里 003 也成了两行，共 **6** 行。达标的样本是 001、003、004，只有 **3** 个，但 003 的两行都达标，汇总表里北坡、南坡各算了它一次，n 加起来是 **4**。
+
+        第 1 行没问题，003 在 samples 里只测了一次；`>=` 与“至少为 10”一致。问题出在右表编号重复。这时该做的不是在脚本里随便删一行 sites，而是把反例交回去：003 到底在哪个坡，要由登记数据的人确定。
+      verify: |
+        r = run()
+        first, merged = r["first"], r["merged"]
+        # 逐个核对三种说法。
+        holds = {
+            "dedupe": len(first) != len(samples.drop_duplicates(subset=["sample_id"])),
+            "dup": len(merged) > len(first),
+            "threshold": not r["passed"].equals(merged.loc[merged["signal"] >= 10]),
+        }
+        true = [cause for cause, ok in holds.items() if ok]
+        answers = {
+            "merged_rows": len(merged),
+            "total": int(r["summary"]["n"].sum()),
+            "need": r["passed"]["sample_id"].nunique(),
+            "cause": true[0] if len(true) == 1 else true,
+        }
+    practice:
+      - id: py48.k2.q1
+        kind: [specify, predict]
+        uses: [py08.k2, py17.k2, py42.k1]
+        body: |
+          需求是：signal **超过** 10 的样本算达标，恰好为 10 的不算。AI 的脚本里筛选这一行是：
+
+          ```python
+          passed = merged.loc[merged["signal"] >= 10]
+          ```
+
+          你想造一张三行的小表，看它会不会多留。
+        slots:
+          - id: table
+            type: choice
+            prompt: 哪一张小表能暴露这处偏差？
+            options:
+              - { id: a, content: signal 依次为 8、12、15 }
+              - { id: b, content: signal 依次为 9、10、11 }
+              - { id: c, content: signal 依次为 11、13、20 }
+            key: b
+          - id: script_count
+            type: text
+            format: integer
+            prompt: 在你选的那张表上，脚本留下几行？
+            key: 2
+          - id: need_count
+            type: text
+            format: integer
+            prompt: 按需求应当留下几行？
+            key: 1
+        explanation: |
+          选 **9、10、11** 这一张：只有恰好等于 10 的值，在 `>= 10` 和“超过 10”下结果不同。脚本留下 10 和 11 两行（**2** 行），需求只要 11（**1** 行）。另外两张表里没有 10，两种写法结果一样，查不出问题。
+        verify: |
+          candidates = {"a": [8, 12, 15], "b": [9, 10, 11], "c": [11, 13, 20]}
+          def script(values):
+              return len(run(merged=pd.DataFrame({"signal": values}))["passed"])
+          def need(values):
+              return len([value for value in values if value > 10])
+          reveal = [name for name, values in candidates.items() if script(values) != need(values)]
+          chosen = candidates[reveal[0]]
+          answers = {
+              "table": reveal[0] if len(reveal) == 1 else reveal,
+              "script_count": script(chosen),
+              "need_count": need(chosen),
+          }
+      - id: py48.k2.q2
+        kind: [predict, debug]
+        uses: [py19.k1, py29.k1, py28.k2]
+        data: [SA, STM]
+        body: |
+          需求是：每个样本只用第一次测量；补上采样点 site；signal 至少为 10 的算达标；按 site 数出达标样本数。没有采样点信息的样本单独算一组，不能丢。
+
+          这张 sites 表是一个反例：004 没有登记。
+
+          ```python startLine=1
+          first = samples.drop_duplicates(subset=["sample_id"])
+          merged = first.merge(sites, on="sample_id", how="left")
+          passed = merged.loc[merged["signal"] >= 10]
+          summary = passed.groupby("site").agg(n=("sample_id", "count"))
+          ```
+        slots:
+          - id: site_004
+            type: choice
+            prompt: 在 `merged` 里，004 这一行的 site 是什么？
+            options:
+              - { id: south, content: 南坡，沿用上一行的值 }
+              - { id: absent, content: 004 不在 merged 里 }
+              - { id: missing, content: 缺失值 NaN }
+            key: missing
+          - id: passed_rows
+            type: text
+            format: integer
+            prompt: "`passed` 有几行？"
+            key: 3
+          - id: total
+            type: text
+            format: integer
+            prompt: 汇总表里各组的 n 加起来是多少？
+            key: 2
+          - id: lost
+            type: choice
+            prompt: 哪个样本达标了，却没有出现在汇总表里？
+            options:
+              - { id: "001", content: "001" }
+              - { id: "003", content: "003" }
+              - { id: "004", content: "004" }
+            key: "004"
+        explanation: |
+          `how="left"` 保留 004 这一行，但 sites 里找不到它，site 是**缺失值**。004 的 signal 是 15，达标，passed 有 001、003、004 共 **3** 行。groupby 默认不把分组列缺失的行放进任何组，所以汇总表只有北坡一行，n 加起来是 **2**：**004** 悄悄消失了。按需求它应当单独成一组。
+        verify: |
+          r = run()
+          merged, passed = r["merged"], r["passed"]
+          row = merged.loc[merged["sample_id"] == "004", "site"]
+          if len(row) == 0:
+              site = "absent"
+          else:
+              site = "missing" if row.isna().iloc[0] else "south"
+          counted = set(r["summary"].index)
+          lost = [sid for sid, s in zip(passed["sample_id"], passed["site"]) if s not in counted]
+          answers = {
+              "site_004": site,
+              "passed_rows": len(passed),
+              "total": int(r["summary"]["n"].sum()),
+              "lost": lost[0] if len(lost) == 1 else lost,
+          }
+      - id: py48.k2.q3
+        kind: [trace, debug]
+        uses: [py45.k1, py45.k2]
+        data: [files]
+        body: |
+          AI 发来一份 notebook，说“运行过，结果没问题”。屏幕上从上到下是下面四个单元格，标出了编号。它之前运行过一个 `limit = 10` 的单元格（编号 `[3]`），后来把那个单元格删掉了。
+
+          单元格 1，编号 `[1]`：
+
+          ```python
+          import pandas as pd
+          ```
+
+          单元格 2，编号 `[2]`：
+
+          ```python
+          samples = pd.read_csv("samples.csv", dtype={"sample_id": "str"})
+          ```
+
+          单元格 3，编号 `[4]`：
+
+          ```python
+          passed = samples.loc[samples["signal"] >= limit]
+          ```
+
+          单元格 4，编号 `[5]`：
+
+          ```python
+          print(len(passed))
+          ```
+        slots:
+          - id: now
+            type: text
+            format: integer
+            prompt: 不重启，单元格 4 现在显示的数是多少？
+            key: 4
+          - id: stops
+            type: choice
+            prompt: 重启内核、从上到下运行全部单元格，在哪个单元格停下？
+            options:
+              - { id: c1, content: 单元格 1 }
+              - { id: c2, content: 单元格 2 }
+              - { id: c3, content: 单元格 3 }
+              - { id: c4, content: 单元格 4 }
+              - { id: none, content: 不会停下 }
+            key: c3
+          - id: error
+            type: text
+            prompt: 报什么异常？写出异常类型。
+            key: NameError
+        explanation: |
+          按编号的顺序，内核里先有了 pandas 和 samples，再运行了已删掉的 `limit = 10`，然后才是单元格 3、4。samples 没有去重，signal 至少为 10 的是 12、11、10、15，单元格 4 显示 **4**。
+
+          重启后内核里什么都没有，从上到下运行：单元格 3 用到 `limit`，可是定义它的单元格已经不在了，在**单元格 3** 停下，报 **NameError**。“运行过”只说明在那一刻的内核里能跑，不说明这份 notebook 本身是完整的。
+        verify: |
+          # 按编号：单元格 1、2，已删掉的 limit = 10，再单元格 3、4。
+          history = [BLOCKS[0], BLOCKS[1], "limit = 10", BLOCKS[2], BLOCKS[3]]
+          now = run("\n".join(history))
+          stopped, error = "none", None
+          for i in range(1, len(BLOCKS) + 1):
+              result = run("\n".join(BLOCKS[:i]))
+              if result.error is not None:
+                  stopped, error = f"c{i}", result.error
+                  break
+          answers = {"now": int(now.out), "stops": stopped, "error": error}
+    review:
+      - id: py48.k2.r1
+        kind: [predict, debug]
+        uses: [py25.k2, py29.k1]
+        data: [RD, PLM]
+        body: |
+          需求是：每个样点只用第一次测量；按 plots 补上 site，样点一个不少，没登记的 site 记为缺失。
+
+          这张 plots 表是一个反例：P4 没有登记。
+
+          ```python startLine=1
+          first = readings.drop_duplicates(subset=["plot_id"])
+          merged = first.merge(plots, on="plot_id", how="inner")
+          ```
+        slots:
+          - id: need_rows
+            type: text
+            format: integer
+            prompt: 按需求，`merged` 应当有几行？
+            key: 4
+          - id: rows
+            type: text
+            format: integer
+            prompt: 脚本的 `merged` 实际有几行？
+            key: 3
+          - id: lost
+            type: choice
+            prompt: 哪个样点不见了？
+            options:
+              - { id: P1, content: P1 }
+              - { id: P2, content: P2 }
+              - { id: P3, content: P3 }
+              - { id: P4, content: P4 }
+            key: P4
+        explanation: |
+          去重后有 P1、P2、P3、P4 四个样点。按需求，合并后应当仍是 **4** 行，P4 的 site 为缺失；脚本用了 `how="inner"`，只留两张表都有的编号，**P4** 被去掉，只剩 **3** 行。在登记齐全的表上，inner 和 left 结果一样，只有这种“有人没登记”的反例才看得出来。
+        verify: |
+          r = run()
+          need = r["first"].merge(plots, on="plot_id", how="left")
+          lost = [pid for pid in r["first"]["plot_id"] if pid not in set(r["merged"]["plot_id"])]
+          answers = {
+              "need_rows": len(need),
+              "rows": len(r["merged"]),
+              "lost": lost[0] if len(lost) == 1 else lost,
+          }
+      - id: py48.k2.r2
+        kind: [specify, predict]
+        uses: [py29.k2, py42.k1]
+        data: [CT]
+        body: |
+          需求是：按 dishes 表给每个培养皿补上 treatment，合并后每个培养皿仍只有一行。AI 的脚本：
+
+          ```python startLine=1
+          first = counts.drop_duplicates(subset=["dish_id"])
+          merged = first.merge(dishes, on="dish_id", how="left")
+          ```
+
+          你想检查：dishes 表里如果有人把同一个培养皿登记了两次，脚本会不会把它算成两行。
+        slots:
+          - id: table
+            type: choice
+            prompt: 用下面哪一张 dishes 表做反例最合适？
+            options:
+              - id: missing
+                content: |
+                  | dish_id | treatment |
+                  |---|---|
+                  | 01 | control |
+                  | 02 | drug |
+                  | 03 | drug |
+              - id: twice
+                content: |
+                  | dish_id | treatment |
+                  |---|---|
+                  | 01 | control |
+                  | 02 | drug |
+                  | 03 | drug |
+                  | 03 | control |
+                  | 04 | control |
+              - id: clean
+                content: |
+                  | dish_id | treatment |
+                  |---|---|
+                  | 01 | control |
+                  | 02 | drug |
+                  | 03 | drug |
+                  | 04 | control |
+            key: twice
+          - id: rows
+            type: text
+            format: integer
+            prompt: 在你选的那张表上，`merged` 有几行？
+            key: 5
+        explanation: |
+          选 **03 登记了两次**的那一张。first 有 01–04 四行；03 在这张 dishes 表里能配上两行，merged 变成 **5** 行，同一个培养皿被算了两次。另外两张表上 merged 都是 4 行：少登记了 04 的表，left merge 仍保留 04（treatment 为缺失）；登记齐全的表本来就没有问题。
+        verify: |
+          candidates = {
+              "missing": pd.DataFrame({"dish_id": ["01", "02", "03"], "treatment": ["control", "drug", "drug"]}),
+              "twice": pd.DataFrame({"dish_id": ["01", "02", "03", "03", "04"], "treatment": ["control", "drug", "drug", "control", "control"]}),
+              "clean": pd.DataFrame({"dish_id": ["01", "02", "03", "04"], "treatment": ["control", "drug", "drug", "control"]}),
+          }
+          results = {name: run(dishes=table) for name, table in candidates.items()}
+          reveal = [name for name, result in results.items() if len(result["merged"]) > len(result["first"])]
+          answers = {
+              "table": reveal[0] if len(reveal) == 1 else reveal,
+              "rows": len(results[reveal[0]]["merged"]),
+          }
+    quiz:
+      - id: py48.k2.x1
+        kind: [predict, debug]
+        uses: [py25.k2, py29.k2, py28.k1]
+        data: [SC, PPD]
+        body: |
+          需求是：每个受试者只用第一次成绩；按 people 补上 cohort；按 cohort 数人数 n、求平均成绩。每个受试者只能算一次。
+
+          这张 people 表是一个反例：A3 登记了两次。
+
+          ```python startLine=1
+          first = scores.drop_duplicates(subset=["pid"])
+          merged = first.merge(people, on="pid", how="left")
+          summary = merged.groupby("cohort").agg(n=("pid", "count"), mean_score=("score", "mean"))
+          ```
+        slots:
+          - id: merged_rows
+            type: text
+            format: integer
+            prompt: "`merged` 有几行？"
+            key: 5
+          - id: second_n
+            type: text
+            format: integer
+            prompt: 第二批的 n 是多少？
+            key: 3
+          - id: second_mean
+            type: text
+            format: number
+            prompt: 第二批的 mean_score 是多少？
+            key: 70
+          - id: people_count
+            type: text
+            format: integer
+            prompt: 实际有几个受试者？
+            key: 4
+        explanation: |
+          first 是 A1 78、A2 65、A3 88、A4 57 四个人。A3 在 people 里配上两行，merged 有 **5** 行。第二批里是 A2、A3、A4，n 为 **3**，平均 (65 + 88 + 57) ÷ 3 = **70.0**；第一批是 A1、A3。两批的 n 加起来是 5，可受试者只有 **4** 个：A3 两批各算了一次。
+        verify: |
+          r = run()
+          summary = r["summary"]
+          answers = {
+              "merged_rows": len(r["merged"]),
+              "second_n": int(summary.loc["第二批", "n"]),
+              "second_mean": float(summary.loc["第二批", "mean_score"]),
+              "people_count": len(r["first"]),
+          }
+      - id: py48.k2.x2
+        kind: [trace, debug]
+        uses: [py45.k1, py45.k2]
+        data: [cells_files]
+        body: |
+          同事的 notebook 屏幕上从上到下是五个单元格，标出了编号。单元格 3 原来写的是 `limit = 45`，运行过（编号 `[3]`）；后来同事把它改成了 `limit = 50` 又运行了一次（编号 `[6]`），接着只重新运行了单元格 5。
+
+          单元格 1，编号 `[1]`：
+
+          ```python
+          import pandas as pd
+          ```
+
+          单元格 2，编号 `[2]`：
+
+          ```python
+          counts = pd.read_csv("counts.csv", dtype={"dish_id": "str"})
+          ```
+
+          单元格 3，编号 `[6]`：
+
+          ```python
+          limit = 50
+          ```
+
+          单元格 4，编号 `[4]`：
+
+          ```python
+          good = counts.loc[counts["cells"] >= limit]
+          ```
+
+          单元格 5，编号 `[7]`：
+
+          ```python
+          print(len(good))
+          ```
+        slots:
+          - id: now
+            type: text
+            format: integer
+            prompt: 单元格 5 现在显示的数是多少？
+            key: 4
+          - id: restart
+            type: text
+            format: integer
+            prompt: 重启内核、从上到下运行全部单元格，单元格 5 显示多少？
+            key: 1
+          - id: rerun
+            type: choice
+            prompt: 不重启的话，至少要重新运行哪个单元格，`good` 才和屏幕上的代码一致？
+            options:
+              - { id: c3, content: 单元格 3 }
+              - { id: c4, content: 单元格 4 }
+              - { id: c5, content: 单元格 5 }
+              - { id: none, content: 都不用，已经一致 }
+            key: c4
+        explanation: |
+          单元格 4 的编号是 [4]，比单元格 3 的 [6] 小：它是在 limit 还是 45 的时候运行的。counts 没有去重，至少 45 的计数是 52、45、47、48，所以单元格 5 现在显示 **4**。
+
+          屏幕上写的是 `limit = 50`，从上到下重跑后只有 52 达到，显示 **1**。不重启的话，要重新运行**单元格 4**，good 才按 50 重新筛选；只重跑单元格 5 只是把旧的 good 再显示一遍。
+        verify: |
+          import itertools
+          # 实际执行过的顺序：1、2、旧的单元格 3（limit = 45）、4、5（第一次），然后新的单元格 3、5。
+          history = [BLOCKS[0], BLOCKS[1], "limit = 45", BLOCKS[3], BLOCKS[4], BLOCKS[2], BLOCKS[4]]
+          now = run("\n".join(history))
+          fresh = run("\n".join(BLOCKS))
+          target = len(fresh["good"])
+          rerun = "none" if len(now["good"]) == target else None
+          if rerun is None:
+              # 找出最少要重跑的单元格：只重跑一个就能让 good 一致的那个。
+              singles = [f"c{i + 1}" for i in range(len(BLOCKS))
+                         if len(run("\n".join(history + [BLOCKS[i]]))["good"]) == target]
+              rerun = singles[0] if len(singles) == 1 else singles
+          answers = {"now": int(now.lines()[-1]), "restart": int(fresh.out), "rerun": rerun}
+
   - id: py48.k3
     title: 提出最小修改及可复验的验收条件
+    card:
+      name: 最小修改与验收
+      aliases: [验收条件, 只改一处]
+      definition: 找到偏差后，只改造成偏差的那一处；同时写下能直接核对的验收条件，例如“合并后行数等于样本表行数”或“在这张反例表上北坡的 n 是 2”，改完后逐条核对。
+      conditions:
+        - “看起来合理”“写得更规范”不是验收条件；验收条件要能写成 assert，或者是一个明确的数。
+        - 好的验收条件在原来的脚本上不成立、在改好的脚本上成立；两边都成立的条件查不出这处偏差。
+      example:
+        from: py48.k3.e0
+        text: |
+          004 没登记采样点，汇总时丢了：只把分组那一行改成 `groupby("site", dropna=False)`；验收条件 `assert summary["n"].sum() == len(passed)` 在原脚本上不成立，改好后成立。
+    lesson: |
+      找到偏差以后，回复 AI 或同事时说清两件事：改哪里，怎样算改好了。
+
+      **只改一处。** 偏差出在哪一步就改哪一步，其余代码不动。让 AI 整段重写，会带进新的变化，原来对的地方也得重新核对一遍。
+
+      **验收条件要能直接检查。** 常见的几类：
+
+      | 想确认的事 | 写法 |
+      |---|---|
+      | 合并没有让行数变多或变少 | `assert len(merged) == len(first)` |
+      | 右表每个编号最多一行 | merge 里加 `validate="many_to_one"`，不满足时报 MergeError |
+      | 每个样本都配上了信息 | `assert merged["site"].count() == len(merged)`，或加 `indicator=True` 看有没有 left_only |
+      | 分组没有漏掉行 | `assert summary["n"].sum() == len(passed)` |
+      | 在一张小表上的具体结果 | “在反例表上，北坡的 n 是 2，缺失的组 n 是 1” |
+
+      “结果看起来合理”“代码更规范”“AI 说检查过了”都不是验收条件：别人没法照着核对。
+
+      挑验收条件时，拿原来的脚本和改好的脚本各试一次。好的验收条件在原来的脚本上不成立（运行到它会停下），在改好的脚本上成立；两边都成立的条件，查不出这处偏差。
+    example:
+      id: py48.k3.e0
+      kind: [modify, specify]
+      uses: [py28.k2, py29.k1, py42.k2]
+      data: [SA, STM]
+      body: |
+        需求是：每个样本只用第一次测量；补上采样点 site；signal 至少为 10 的算达标；按 site 数出达标样本数 n。没有采样点信息的样本单独算一组，不能丢。
+
+        在 004 没登记的反例上，脚本把 004 丢了。
+
+        ```python startLine=1
+        first = samples.drop_duplicates(subset=["sample_id"])
+        merged = first.merge(sites, on="sample_id", how="left")
+        passed = merged.loc[merged["signal"] >= 10]
+        summary = passed.groupby("site").agg(n=("sample_id", "count"))
+        ```
+      slots:
+        - id: fix
+          type: choice
+          prompt: 只改一行，改成哪一种？
+          options:
+            - id: inner
+              content: |
+                ```python
+                merged = first.merge(sites, on="sample_id", how="inner")
+                ```
+            - id: keep
+              content: |
+                ```python
+                summary = passed.groupby("site", dropna=False).agg(n=("sample_id", "count"))
+                ```
+            - id: strict
+              content: |
+                ```python
+                passed = merged.loc[merged["signal"] > 10]
+                ```
+          key: keep
+        - id: checks
+          type: choice
+          multiple: true
+          scoring: options
+          prompt: 在这张反例表上，哪些验收条件在原脚本上不成立、改好后成立？选出全部。
+          options:
+            - id: sum
+              content: |
+                ```python
+                assert summary["n"].sum() == len(passed)
+                ```
+            - id: rows
+              content: |
+                ```python
+                assert len(merged) == len(first)
+                ```
+            - id: north
+              content: |
+                ```python
+                assert summary.loc["北坡", "n"] == 2
+                ```
+            - id: groups
+              content: |
+                ```python
+                assert len(summary) == 2
+                ```
+          key: [sum, groups]
+      explanation: |
+        改分组那一行：`groupby("site", dropna=False)`，site 缺失的 004 单独成一组。改成 inner 会在合并时就把 004 去掉，和需求正好相反；改比较符碰不到原因。
+
+        四个验收条件在原脚本和改好的脚本上分别是：
+
+        | 验收条件 | 原脚本 | 改好后 |
+        |---|---|---|
+        | n 加起来等于 passed 的行数 | 2 ≠ 3，不成立 | 3 = 3，成立 |
+        | merged 行数等于 first | 成立 | 成立 |
+        | 北坡的 n 是 2 | 成立 | 成立 |
+        | 汇总表有 2 行 | 只有北坡 1 行，不成立 | 北坡和缺失组 2 行，成立 |
+
+        中间两条两边都成立，查不出这处偏差；它们可以留着防别的问题，但不能用来验收这次修改。
+      verify: |
+        lines = CODE.splitlines()
+        def patched(code):
+            name = code.split(" = ")[0]
+            return "\n".join(code if line.startswith(name + " = ") else line for line in lines)
+        # 按需求实现一遍。
+        first = samples.drop_duplicates(subset=["sample_id"])
+        merged = first.merge(sites, on="sample_id", how="left")
+        passed = merged.loc[merged["signal"] >= 10]
+        need = passed.groupby("site", dropna=False).agg(n=("sample_id", "count"))
+        fits = [option for option, code in OPTIONS["fix"].items() if run(patched(code))["summary"].equals(need)]
+        original = run()
+        fixed = run(patched(OPTIONS["fix"][fits[0]]))
+        def holds(result, check):
+            try:
+                exec(check, {}, dict(result.vars))
+                return True
+            except Exception:
+                return False
+        good = [option for option, check in OPTIONS["checks"].items() if not holds(original, check) and holds(fixed, check)]
+        answers = {"fix": fits[0] if len(fits) == 1 else fits, "checks": good}
+    practice:
+      - id: py48.k3.q1
+        kind: [modify]
+        uses: [py08.k2, py17.k2, py29.k1, py28.k1]
+        data: [SA, ST]
+        body: |
+          需求是：
+
+          > 每个样本只用第一次测量；按 sites 补上采样点 site；signal 至少为 10 的算达标；按 site 数出达标样本数 n，并求平均 signal mean_signal。
+
+          AI 的脚本在作答框里。核对时发现：signal 恰好为 10 的 003 没有算进去。只改出错的那一处并提交，结果仍叫 `summary`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 6
+            starter: |
+              first = samples.drop_duplicates(subset=["sample_id"])
+              merged = first.merge(sites, on="sample_id", how="left")
+              passed = merged.loc[merged["signal"] > 10]
+              summary = passed.groupby("site").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+            solution: |
+              first = samples.drop_duplicates(subset=["sample_id"])
+              merged = first.merge(sites, on="sample_id", how="left")
+              passed = merged.loc[merged["signal"] >= 10]
+              summary = passed.groupby("site").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+            rejects:
+              - code: |
+                  first = samples.drop_duplicates(subset=["sample_id"])
+                  merged = first.merge(sites, on="sample_id", how="left")
+                  passed = merged.loc[merged["signal"] > 9]
+                  summary = passed.groupby("site").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+                why: 改成“大于 9”，只在整数上碰巧等于“至少 10”
+              - code: |
+                  merged = samples.merge(sites, on="sample_id", how="left")
+                  passed = merged.loc[merged["signal"] >= 10]
+                  summary = passed.groupby("site").agg(n=("sample_id", "count"), mean_signal=("signal", "mean"))
+                why: 顺手删掉了去重，002 的复测也被算了进去
+            tests:
+              - name: 表 samples 和 sites
+                expect:
+                  summary: 'pd.DataFrame({"n": [2, 1], "mean_signal": [11.0, 15.0]}, index=["北坡", "南坡"])'
+                  samples: samples
+              - name: 换一组带小数的测量
+                hidden: true
+                setup: |
+                  import pandas as pd
+                  samples = pd.DataFrame({"sample_id": ["101", "102", "103"], "signal": [9.5, 10.0, 12.0]})
+                  sites = pd.DataFrame({"sample_id": ["101", "102", "103"], "site": ["北坡", "北坡", "南坡"]})
+                expect:
+                  summary: 'pd.DataFrame({"n": [1, 1], "mean_signal": [10.0, 12.0]}, index=["北坡", "南坡"])'
+        explanation: |
+          只改第 3 行的比较符：
+
+          ```python
+          passed = merged.loc[merged["signal"] >= 10]
+          ```
+
+          其余三行不动。改后北坡是 001 和 003，n 为 2、平均 11.0；南坡是 004，n 为 1、平均 15.0。判分时还会换一组带小数的测量：“大于 9”会把 9.5 也算进去。删掉去重那一行虽然也“改了一处”，却把 002 的复测 11 带了进来，结果跟着变了。
+      - id: py48.k3.q2
+        kind: [modify]
+        uses: [py29.k2, py40.k2, py42.k1]
+        body: |
+          合并之后，同事想加一个验收条件。AI 建议的是“合并后的表不是空的”，可这查不出右表编号重复让行数变多。
+
+          把作答框里的函数改成：合并后的行数与合并前相同时返回 True，否则返回 False。以后这样用：`assert rows_kept(first, merged)`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              def rows_kept(before, after):
+                  return len(after) > 0
+            solution: |
+              def rows_kept(before, after):
+                  return len(after) == len(before)
+            rejects:
+              - code: |
+                  def rows_kept(before, after):
+                      return len(after) >= len(before)
+                why: 行数变多时也返回 True
+              - code: |
+                  def rows_kept(before, after):
+                      return len(after) <= len(before)
+                why: 合并后少了行也返回 True
+            tests:
+              - name: 行数不变与右表编号重复
+                setup: |
+                  import pandas as pd
+                  first = pd.DataFrame({"sample_id": ["001", "002", "003", "004"], "signal": [12, 9, 10, 15]})
+                  sites = pd.DataFrame({"sample_id": ["001", "002", "003", "004"], "site": ["北坡", "南坡", "北坡", "南坡"]})
+                  sites_dup = pd.DataFrame({"sample_id": ["001", "002", "003", "003", "004"], "site": ["北坡", "南坡", "北坡", "南坡", "南坡"]})
+                  merged_ok = first.merge(sites, on="sample_id", how="left")
+                  merged_dup = first.merge(sites_dup, on="sample_id", how="left")
+                doctest: |
+                  >>> rows_kept(first, merged_ok)
+                  True
+                  >>> rows_kept(first, merged_dup)
+                  False
+              - name: 合并后少了行
+                hidden: true
+                setup: |
+                  import pandas as pd
+                  first = pd.DataFrame({"sample_id": ["001", "002", "003", "004"], "signal": [12, 9, 10, 15]})
+                  sites = pd.DataFrame({"sample_id": ["001", "002", "003"], "site": ["北坡", "南坡", "北坡"]})
+                  merged_lost = first.merge(sites, on="sample_id", how="inner")
+                doctest: |
+                  >>> rows_kept(first, merged_lost)
+                  False
+        explanation: |
+          ```python
+          def rows_kept(before, after):
+              return len(after) == len(before)
+          ```
+
+          “不是空的”在行数变多时照样成立，查不出编号重复。要比的是合并前后的行数：变多（右表编号重复）、变少（how="inner" 去掉了没登记的样本）都返回 False。写成 `>=` 或 `<=` 只能拦下其中一种。
+      - id: py48.k3.q3
+        kind: [specify]
+        uses: [py42.k1]
+        body: |
+          你改好了脚本的合并那一行，准备回复 AI：“这样算改好了”。下面哪些能当验收条件？选出全部。
+        slots:
+          - id: conditions
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: looks, content: 汇总结果看起来合理 }
+              - { id: rows, content: 合并后 merged 的行数等于 first 的行数 }
+              - { id: style, content: 代码写得更规范、更简洁 }
+              - { id: number, content: 在 004 没登记的那张反例表上，汇总表里有一行组名为缺失、n 为 1 }
+              - { id: ai, content: AI 说它已经检查过了 }
+            key: [rows, number]
+        explanation: |
+          “merged 的行数等于 first 的行数”和“在那张反例表上有一行组名为缺失、n 为 1”能当验收条件：前者能写成 `assert len(merged) == len(first)`，后者是一个明确的数，谁拿同一张表运行都能核对。
+
+          “看起来合理”“写得更规范”没有标准，没法核对；“AI 说检查过了”是别人的结论，不是你能复验的条件。
+        manual: [conditions]
+    review:
+      - id: py48.k3.r1
+        kind: [modify]
+        uses: [py25.k2, py29.k1, py28.k2]
+        data: [RD, PLM]
+        body: |
+          需求是：
+
+          > 每个样点只用第一次测量；按 plots 补上 site，样点一个不少，没登记的单独算一组；按 site 数出样点个数 n。
+
+          在 P4 没登记的反例上，汇总表里没有缺失的那一组。作答框里是 AI 的脚本，只改出错的那一处并提交，结果仍叫 `summary`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              first = readings.drop_duplicates(subset=["plot_id"])
+              merged = first.merge(plots, on="plot_id", how="inner")
+              summary = merged.groupby("site", dropna=False).agg(n=("plot_id", "count"))
+            solution: |
+              first = readings.drop_duplicates(subset=["plot_id"])
+              merged = first.merge(plots, on="plot_id", how="left")
+              summary = merged.groupby("site", dropna=False).agg(n=("plot_id", "count"))
+            rejects:
+              - code: |
+                  first = readings.drop_duplicates(subset=["plot_id"])
+                  merged = first.merge(plots, on="plot_id", how="right")
+                  summary = merged.groupby("site", dropna=False).agg(n=("plot_id", "count"))
+                why: right 保留的是 plots 的行，没登记的样点仍然不在
+              - code: |
+                  first = readings.drop_duplicates(subset=["plot_id"])
+                  merged = first.merge(plots, on="plot_id", how="left")
+                  summary = merged.groupby("site").agg(n=("plot_id", "count"))
+                why: 改了合并，却把分组的 dropna=False 删了，缺失的组又丢了
+            tests:
+              - name: P4 没登记
+                expect:
+                  summary: 'pd.DataFrame({"n": [2, 1, 1]}, index=["北坡", "南坡", np.nan])'
+                  len(merged): "4"
+              - name: 换一个没登记的样点
+                hidden: true
+                data: [RD, PL]
+                setup: plots = plots.loc[plots["plot_id"] != "P1"]
+                expect:
+                  summary: 'pd.DataFrame({"n": [1, 1, 1, 1]}, index=["东坡", "北坡", "南坡", np.nan])'
+                  len(merged): "4"
+        explanation: |
+          只改合并那一行，`how="inner"` 改成 `how="left"`：
+
+          ```python
+          merged = first.merge(plots, on="plot_id", how="left")
+          ```
+
+          分组那一行已经写了 `dropna=False`，它没错，只是 inner 在它之前就把 P4 去掉了，缺失的组无从出现。改后 merged 是 4 行，汇总表是北坡 2、南坡 1、缺失 1。
+      - id: py48.k3.r2
+        kind: [specify, debug]
+        uses: [py17.k2, py28.k1, py42.k2]
+        data: [CT, DS]
+        body: |
+          需求是：每个培养皿只用第一次计数；按 dishes 补上 treatment；cells **至少为 45** 的算长得好；按 treatment 数出个数 n。AI 的脚本：
+
+          ```python startLine=1
+          first = counts.drop_duplicates(subset=["dish_id"])
+          merged = first.merge(dishes, on="dish_id", how="left")
+          good = merged.loc[merged["cells"] > 45]
+          summary = good.groupby("treatment").agg(n=("dish_id", "count"))
+          ```
+
+          第 3 行要改成 `>= 45`。改之前先挑验收条件：在这张表上，哪些检查在原来的脚本上不成立（运行到它会停下，不论报什么错），在改好的脚本上成立？
+        slots:
+          - id: checks
+            type: choice
+            multiple: true
+            scoring: options
+            options:
+              - id: rows
+                content: |
+                  ```python
+                  assert len(merged) == len(first)
+                  ```
+              - id: good3
+                content: |
+                  ```python
+                  assert len(good) == 3
+                  ```
+              - id: sum
+                content: |
+                  ```python
+                  assert summary["n"].sum() == len(good)
+                  ```
+              - id: drug
+                content: |
+                  ```python
+                  assert summary.loc["drug", "n"] == 1
+                  ```
+            key: [good3, drug]
+        explanation: |
+          first 是 01（52）、02（40）、03（45）、04（48）。原脚本用 `> 45`，03 恰好是 45 被丢掉，good 只有 01、04 两行，汇总表里只有 control。
+
+          | 验收条件 | 原脚本 | 改好后 |
+          |---|---|---|
+          | merged 行数等于 first | 成立 | 成立 |
+          | good 有 3 行 | 2 行，不成立 | 成立 |
+          | n 加起来等于 good 的行数 | 成立 | 成立 |
+          | drug 的 n 是 1 | 汇总表里没有 drug，停下 | 成立 |
+
+          **good 有 3 行**和 **drug 的 n 是 1** 查得到这处偏差。另外两条两边都成立：它们检查的是合并和分组，和比较符无关。
+        verify: |
+          original = run()
+          fixed = run(CODE.replace('merged["cells"] > 45', 'merged["cells"] >= 45'))
+          def holds(result, check):
+              try:
+                  exec(check, {}, dict(result.vars))
+                  return True
+              except Exception:
+                  return False
+          good = [option for option, check in OPTIONS["checks"].items() if not holds(original, check) and holds(fixed, check)]
+          answers = {"checks": good}
+    quiz:
+      - id: py48.k3.x1
+        kind: [modify]
+        uses: [py25.k2, py29.k1, py28.k1]
+        data: [SC, PP]
+        body: |
+          需求是：
+
+          > 同一个受试者测了两次时，用最后一次的成绩；按 people 补上 cohort；按 cohort 求平均成绩 mean_score。
+
+          核对时发现：A2 用的是第一次的 65，不是复测的 70。作答框里是 AI 的脚本，只改出错的那一处并提交，结果仍叫 `summary`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              latest = scores.drop_duplicates(subset=["pid"])
+              merged = latest.merge(people, on="pid", how="left")
+              summary = merged.groupby("cohort").agg(mean_score=("score", "mean"))
+            solution: |
+              latest = scores.drop_duplicates(subset=["pid"], keep="last")
+              merged = latest.merge(people, on="pid", how="left")
+              summary = merged.groupby("cohort").agg(mean_score=("score", "mean"))
+            rejects:
+              - code: |
+                  latest = scores.drop_duplicates(keep="last")
+                  merged = latest.merge(people, on="pid", how="left")
+                  summary = merged.groupby("cohort").agg(mean_score=("score", "mean"))
+                why: 没写 subset，A2 的两次成绩不同，两行都留下了
+              - code: |
+                  latest = scores.drop_duplicates(subset=["pid"], keep=False)
+                  merged = latest.merge(people, on="pid", how="left")
+                  summary = merged.groupby("cohort").agg(mean_score=("score", "mean"))
+                why: keep=False 把测了两次的 A2 整个去掉了
+            tests:
+              - name: 表 scores 和 people
+                expect:
+                  summary: 'pd.DataFrame({"mean_score": [83.0, 63.5]}, index=["第一批", "第二批"])'
+                  scores: scores
+              - name: 换一组受试者
+                hidden: true
+                setup: |
+                  import pandas as pd
+                  scores = pd.DataFrame({"pid": ["B1", "B1", "B2", "B3", "B3"], "score": [60, 80, 75, 90, 70]})
+                  people = pd.DataFrame({"pid": ["B1", "B2", "B3"], "cohort": ["第一批", "第二批", "第二批"]})
+                expect:
+                  summary: 'pd.DataFrame({"mean_score": [80.0, 72.5]}, index=["第一批", "第二批"])'
+        explanation: |
+          只改第 1 行，加上 `keep="last"`：
+
+          ```python
+          latest = scores.drop_duplicates(subset=["pid"], keep="last")
+          ```
+
+          变量名叫 latest，代码却留的是第一次，名字不能代替核对。改后第二批是 A2 的 70 和 A4 的 57，平均 63.5；第一批是 83.0。只写 `keep="last"` 不写 subset，A2 两行不完全相同，都会留下；`keep=False` 会把 A2 整个去掉。
+      - id: py48.k3.x2
+        kind: [specify, predict]
+        uses: [py25.k2, py29.k1, py28.k2, py42.k1]
+        data: [CT, DSM]
+        body: |
+          需求是：每个培养皿只用第一次计数；按 dishes 补上 treatment，没登记的单独算一组（组名为缺失）；cells 至少为 45 的算长得好；按 treatment 数出长得好的培养皿个数 n。
+
+          把这张反例表交给 AI 之前，先写好验收数字：按需求，改好的脚本在这张表上应当给出什么？
+        slots:
+          - id: groups
+            type: table
+            columns:
+              - { id: group, header: 组 }
+              - { id: n, header: n, input: integer }
+            rows:
+              - { id: control, cells: { group: control, n: 1 } }
+              - { id: drug, cells: { group: drug, n: 1 } }
+              - { id: missing, cells: { group: 缺失, n: 1 } }
+          - id: rows
+            type: text
+            format: integer
+            prompt: 汇总表共有几行？
+            key: 3
+        explanation: |
+          first 是 01（52）、02（40）、03（45，第一次计数）、04（48）。04 没登记，treatment 为缺失。至少 45 的是 01（control）、03（drug）、04（缺失），三组各 **1** 个，汇总表 **3** 行。
+
+          这几个数就是验收条件：AI 改完以后，在这张表上运行，汇总表应当正好是这三行。
+        verify: |
+          first = counts.drop_duplicates(subset=["dish_id"])
+          merged = first.merge(dishes, on="dish_id", how="left")
+          good = merged.loc[merged["cells"] >= 45]
+          summary = good.groupby("treatment", dropna=False).agg(n=("dish_id", "count"))
+          values = {("missing" if pd.isna(label) else label): int(n) for label, n in summary["n"].items()}
+          answers = {
+              "groups": {row: {"n": values.get(row, 0)} for row in ["control", "drug", "missing"]},
+              "rows": len(summary),
+          }
