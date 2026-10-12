@@ -8,6 +8,7 @@
   "workspaces": [
     "packages/space-history",
     "packages/base",
+    "packages/learning",
     "apps/*"
   ],
   "scripts": {
@@ -23,7 +24,9 @@
     "predev:backend": "npm run build:backend",
     "start": "npm --workspace=@repa/base run start -- serve",
     "test": "npm run test --workspaces --if-present",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "course:check": "npm run course:check --workspace=@repa/learning --",
+    "course:runtime": "npm run course:runtime --workspace=@repa/learning --"
   },
   "devDependencies": {
     "patch-package": "^8.0.1"

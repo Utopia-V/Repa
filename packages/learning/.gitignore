@@ -1,0 +1,2 @@
+# 本包准备的离线 Pyodide 包（npm run course:runtime），可重建
+/.cache/
