@@ -1,7 +1,8 @@
 id: py40
 title: 读懂自己定义的函数
-status: outline
+status: complete
 minutes: 20
+summary: 分清 def 定义与调用两次动作；读出形参接收了哪个实参、return 交回什么；顺着中间量追到函数的结果。
 prerequisites:
   - topic: py04
     key: true
@@ -25,11 +26,1304 @@ sources:
     url: https://docs.python.org/3.12/tutorial/controlflow.html
     use: reference
 notes: |
-  建议题型与判分：追踪变量（P）、解释代码（S/O）、小改代码（T）。
+  范围：先修只到 py04（调用现成函数、位置与关键字参数、把返回结果交给下一步）和 py10（if/elif/else、缩进、各路径后的变量）。函数体里只用数、简单字符串、比较和 if/elif/else；不用列表、字符串方法、循环和 pandas。程序仍按短脚本从上往下运行，不用交互解释器或 notebook 末行自动显示的规则。默认参数、局部与外部同名、没有 return 得到 None 的细节留给 py41；本节只在 k2 里点到“只 print 不 return 时调用处拿到 None”，承接 py04.k3。
+  情境沿用前面的测量数据：net_signal(raw, blank) 减本底、label(signal, limit) 判“达标”，py41、py42 接着用这两个函数。“达标”只是题目约定的规则。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 2 分钟、练习 4 分钟（含一道改代码题）；收束 1 分钟。
+  讲解、例子和题目为本课自拟。所有答案都由 verify 用程序算出：输出用 run()，形参接收的值用 sys.settrace 在调用时读出，函数体内的中间量把函数体去掉缩进后用 trace() 逐行追踪；没有 manual 作答位。
+intro: |
+  前面你调用过别人写好的函数，例如 `int("12")`、`round(2.567, 1)`：给它输入，拿回一个结果。AI 写的分析代码里，常常还会自己定义函数，把几步计算包成一个名字。
+
+  这一节练三件事：分清“定义”和“调用”；读出每个输入交给了哪个名字、最后交回了什么；顺着函数里的中间量，找到结果是怎样算出来的。
+wrapup: |
+  读一个自己定义的函数，可以按这个顺序：先找到调用它的那一行，确定每个形参接收了哪个值；再像读普通程序一样逐行追踪函数体；最后看 return 后面写的是谁，那才是调用处拿到的结果。
+
+  向 AI 提问时也可以这样说：“这个函数的输入是什么、交回的是哪个值？中间哪一步减了本底？”
 kps:
   - id: py40.k1
     title: def 定义与调用是两次不同动作
+    card:
+      name: 定义与调用
+      aliases: [def, 函数定义, 调用函数]
+      definition: "`def` 只记下函数名和它的做法，缩进的几行这时不运行；写 `名字()` 调用时才运行一遍，调用几次就运行几次。"
+      conditions:
+        - 函数要先定义、后调用；调用写在 def 之前会报 NameError。
+        - 函数体里的 print 在调用时才显示，和外面的 print 按实际运行顺序交错。
+      example:
+        from: py40.k1.e0
+        text: |
+          ```python
+          def show_start():
+              print("开始测量")
+
+          print("准备样本")
+          show_start()
+          show_start()
+          ```
+          def 那两行不显示任何东西；先显示“准备样本”，两次调用各显示一次“开始测量”。
+    lesson: |
+      除了调用别人写好的函数，也可以自己定义一个：
+
+      ```python
+      def show_start():
+          print("开始测量")
+      ```
+
+      `def 名字():` 这一行，加上下面缩进的几行（叫**函数体**），合起来是一次**定义**。Python 只记下“`show_start` 这个名字代表这几行做法”，这时缩进的几行**一行也不运行**，屏幕上什么也不显示。
+
+      要让做法真正运行，得**调用**它：写 `show_start()`，带上括号。每调用一次，函数体就从头运行一遍；调用两次，就运行两遍。
+
+      读一段含 `def` 的程序，仍然从上往下按顺序走：
+
+      1. 走到 `def`，只记下名字，跳过缩进的部分；
+      2. 走到调用的那一行，转进函数里，把函数体运行完，再回到调用处，接着往下走。
+
+      函数要先定义、后调用。调用写在 `def` 前面时，Python 走到那一行还不认识这个名字，会报 NameError（意思是“不认识这个名字”），和使用还没赋值的名字一样。
+    example:
+      id: py40.k1.e0
+      kind: [predict, trace]
+      uses: [py01.k2, py04.k1]
+      body: |
+        阅读下面的程序。
+
+        ```python startLine=1
+        def show_start():
+            print("开始测量")
+
+        print("准备样本")
+        show_start()
+        show_start()
+        ```
+      slots:
+        - id: before
+          type: choice
+          prompt: 刚运行完第 1–2 行（def 那两行）时，屏幕上显示了什么？
+          options:
+            - { id: nothing, content: 什么也没有显示 }
+            - { id: start, content: 显示了一次“开始测量” }
+          key: nothing
+        - id: lines
+          type: table
+          label: 输出
+          prompt: 按先后顺序选出整个程序显示的每一行。
+          columns:
+            - { id: line, header: 输出的第几行 }
+            - id: shown
+              header: 显示
+              input: { type: choice, options: [{ id: prep, label: 准备样本 }, { id: start, label: 开始测量 }] }
+          rows:
+            - { id: l1, cells: { line: 第 1 行, shown: prep } }
+            - { id: l2, cells: { line: 第 2 行, shown: start } }
+            - { id: l3, cells: { line: 第 3 行, shown: start } }
+        - id: runs
+          type: text
+          format: integer
+          prompt: 函数体 `print("开始测量")` 一共运行了几次？
+          key: 2
+      explanation: |
+        第 1–2 行只是定义，**什么也不显示**。第 4 行显示“准备样本”；第 5 行调用一次，转进函数显示“开始测量”；第 6 行再调用一次，又显示一次。
+
+        所以输出依次是 **准备样本、开始测量、开始测量**，函数体运行了 **2** 次：调用几次，就运行几次。
+      verify: |
+        import sys
+        calls = []
+        def watch(frame, event, arg):
+            if event == "call" and frame.f_code.co_name == "show_start":
+                calls.append(1)
+        sys.settrace(watch)
+        try:
+            r = run()
+        finally:
+            sys.settrace(None)
+        labels = {"准备样本": "prep", "开始测量": "start"}
+        after_def = run("\n".join(CODE.splitlines()[:2]))
+        answers = {
+            "before": "nothing" if after_def.out == "" else "start",
+            "lines": {f"l{i}": {"shown": labels[line]} for i, line in enumerate(r.lines(), 1)},
+            "runs": len(calls),
+        }
+    practice:
+      - id: py40.k1.q1
+        kind: [predict]
+        uses: [py04.k1]
+        body: |
+          ```python startLine=1
+          def warn():
+              print("信号偏低，请复测")
+
+          print("检查结束")
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 屏幕上一共显示几行？
+            key: 1
+            feedback:
+              - when: 2
+                message: 第 1–2 行只定义了 warn，程序里没有一行写 `warn()`。
+          - id: runs
+            type: text
+            format: integer
+            prompt: warn 的函数体运行了几次？
+            key: 0
+        explanation: |
+          只显示 **1** 行“检查结束”。程序定义了 warn，却没有任何一行调用它，所以函数体运行了 **0** 次，“信号偏低，请复测”一次也不显示。
+        verify: |
+          import sys
+          calls = []
+          def watch(frame, event, arg):
+              if event == "call" and frame.f_code.co_name == "warn":
+                  calls.append(1)
+          sys.settrace(watch)
+          try:
+              r = run()
+          finally:
+              sys.settrace(None)
+          answers = {"count": len(r.lines()), "runs": len(calls)}
+      - id: py40.k1.q2
+        kind: [debug, predict]
+        uses: [py04.k1]
+        body: |
+          同事想先显示“开始”，再显示“报告已生成”。
+
+          ```python startLine=1
+          print("开始")
+          report()
+
+          def report():
+              print("报告已生成")
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行这段程序会怎样？
+            options:
+              - { id: ok, content: 先显示“开始”，再显示“报告已生成” }
+              - { id: reversed, content: 先显示“报告已生成”，再显示“开始” }
+              - id: error
+                content: 显示“开始”之后，在第 2 行报 NameError
+              - { id: silent, content: 什么也不显示，直接报错 }
+            key: error
+          - id: fix
+            type: choice
+            prompt: 怎样改，才能先显示“开始”、再显示“报告已生成”？
+            options:
+              - id: noparen
+                content: 把第 2 行的 `report()` 改成 `report`，去掉括号
+                feedback: 去掉括号也要先认识 report 这个名字，第 2 行照样报 NameError；而且不带括号就不是调用。
+              - id: delete
+                content: 删掉第 2 行
+                feedback: 删掉以后程序里没有调用 report，“报告已生成”一次也不显示。
+              - id: move
+                content: 把第 4–5 行的定义移到第 1 行之前
+            key: move
+        explanation: |
+          第 1 行先显示“开始”；第 2 行要调用 report，可这时第 4 行的 def 还没运行，Python 不认识这个名字，于是**在第 2 行报 NameError**，程序停下。
+
+          把定义移到最前面：先定义、再调用，就会依次显示“开始”和“报告已生成”。删掉第 2 行就没有调用了；只去掉括号，第 2 行仍然要用到这个还不认识的名字。
+        verify: |
+          lines = CODE.splitlines()
+          r = run()
+          outcomes = {
+              "ok": r.error is None and r.out == "开始\n报告已生成\n",
+              "reversed": r.out.startswith("报告已生成"),
+              "error": r.error == "NameError" and r.out == "开始\n",
+              "silent": r.error is not None and r.out == "",
+          }
+          programs = {
+              "noparen": "\n".join([lines[0], "report"] + lines[3:]),
+              "delete": "\n".join([lines[0]] + lines[3:]),
+              "move": "\n".join(lines[3:] + lines[:2]),
+          }
+          fixes = [name for name, code in programs.items()
+                   if run(code).error is None and run(code).out == "开始\n报告已生成\n"]
+          true = [name for name, ok in outcomes.items() if ok]
+          answers = {"outcome": true[0] if len(true) == 1 else true, "fix": fixes[0] if len(fixes) == 1 else fixes}
+      - id: py40.k1.q3
+        kind: [trace, predict]
+        uses: [py01.k2, py04.k1]
+        body: |
+          一个函数里也可以调用另一个函数。
+
+          ```python startLine=1
+          def weigh():
+              print("称重")
+
+          def record():
+              print("记录")
+              weigh()
+
+          record()
+          print("换下一份")
+          weigh()
+          ```
+        slots:
+          - id: lines
+            type: table
+            prompt: 按先后顺序选出程序显示的每一行。
+            columns:
+              - { id: line, header: 输出的第几行 }
+              - id: shown
+                header: 显示
+                input: { type: choice, options: [{ id: weigh, label: 称重 }, { id: record, label: 记录 }, { id: next, label: 换下一份 }] }
+            rows:
+              - { id: l1, cells: { line: 第 1 行, shown: record } }
+              - { id: l2, cells: { line: 第 2 行, shown: weigh } }
+              - { id: l3, cells: { line: 第 3 行, shown: next } }
+              - { id: l4, cells: { line: 第 4 行, shown: weigh } }
+          - id: runs
+            type: text
+            format: integer
+            prompt: weigh 的函数体一共运行了几次？
+            key: 2
+        explanation: |
+          输出依次是 **记录、称重、换下一份、称重**。
+
+          第 8 行调用 record：先显示“记录”，接着 record 的第二行调用 weigh，显示“称重”，然后回到第 8 行之后。第 9 行显示“换下一份”，第 10 行再调用一次 weigh。weigh 一共被调用 **2** 次：一次在 record 里面，一次在第 10 行。
+        verify: |
+          import sys
+          calls = []
+          def watch(frame, event, arg):
+              if event == "call" and frame.f_code.co_name == "weigh":
+                  calls.append(1)
+          sys.settrace(watch)
+          try:
+              r = run()
+          finally:
+              sys.settrace(None)
+          labels = {"称重": "weigh", "记录": "record", "换下一份": "next"}
+          answers = {
+              "lines": {f"l{i}": {"shown": labels[line]} for i, line in enumerate(r.lines(), 1)},
+              "runs": len(calls),
+          }
+    review:
+      - id: py40.k1.r1
+        kind: [modify]
+        uses: [py04.k1]
+        body: |
+          把下面的代码块排成一段程序：先显示“开始”，再把 measure 的做法运行两遍，每遍显示一次“测量”。每一块都要用上，并排好缩进。
+        slots:
+          - id: program
+            type: order
+            indent: 1
+            items:
+              - { id: call1, code: measure() }
+              - { id: start, code: print("开始") }
+              - { id: body, code: print("测量") }
+              - { id: call2, code: measure() }
+              - { id: def, code: "def measure():" }
+            key: [def, body, start, call1, call2]
+            alternatives:
+              - [start, def, body, call1, call2]
+            indents: { def: 0, body: 1, start: 0, call1: 0, call2: 0 }
+            tests:
+              - name: 依次显示开始、测量、测量
+                stdout: |
+                  开始
+                  测量
+                  测量
+        explanation: |
+          `print("测量")` 要缩进在 `def measure():` 下面，作为函数体；两次 `measure()` 不缩进，要放在定义之后。`print("开始")` 放在两次调用之前，放在定义的前面或后面都可以，因为定义本身不显示任何东西。
+
+          ```python
+          def measure():
+              print("测量")
+
+          print("开始")
+          measure()
+          measure()
+          ```
+      - id: py40.k1.r2
+        kind: [trace]
+        uses: [py01.k2, py04.k1]
+        body: |
+          ```python startLine=1
+          def done():
+              print("记录完成")
+
+          total = 3
+          done()
+          total = total + 1
+          done()
+          ```
+        slots:
+          - id: early
+            type: text
+            format: integer
+            prompt: 第 4 行运行完时，屏幕上已经显示了几次“记录完成”？
+            key: 0
+            feedback:
+              - when: 1
+                message: 第 1–2 行只是定义，“记录完成”要等第 5 行调用时才第一次显示。
+          - id: total
+            type: text
+            format: integer
+            prompt: 整个程序一共显示几次“记录完成”？
+            key: 2
+        explanation: |
+          第 4 行运行完时显示了 **0** 次：前两行只是定义 done，第 4 行只给 total 赋值。第 5 行和第 7 行各调用一次，所以一共显示 **2** 次。
+        verify: |
+          first_four = "\n".join(CODE.splitlines()[:4])
+          answers = {
+              "early": run(first_four).lines().count("记录完成"),
+              "total": run().lines().count("记录完成"),
+          }
+    quiz:
+      - id: py40.k1.x1
+        kind: [predict, debug]
+        uses: [py04.k1]
+        body: |
+          哪一段程序会依次显示“开始”“测量”“结束”三行？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: never
+                content: |
+                  ```python
+                  print("开始")
+                  def measure():
+                      print("测量")
+                  print("结束")
+                  ```
+              - id: early
+                content: |
+                  ```python
+                  print("开始")
+                  measure()
+                  def measure():
+                      print("测量")
+                  print("结束")
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  def measure():
+                      print("测量")
+                  print("开始")
+                  measure()
+                  print("结束")
+                  ```
+              - id: first
+                content: |
+                  ```python
+                  def measure():
+                      print("测量")
+                  measure()
+                  print("开始")
+                  print("结束")
+                  ```
+            key: right
+        explanation: |
+          先定义 measure、再显示“开始”、然后调用、最后显示“结束”的那一段是对的。
+
+          只定义不调用的那一段，“测量”一次也不显示；在 def 之前调用的那一段，第 2 行报 NameError；先调用再显示“开始”的那一段，顺序成了测量、开始、结束。
+        verify: |
+          fits = [option for option, code in OPTIONS["program"].items()
+                  if run(code).error is None and run(code).lines() == ["开始", "测量", "结束"]]
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+      - id: py40.k1.x2
+        kind: [trace]
+        uses: [py01.k2, py04.k1]
+        body: |
+          填写运行到每一处时，屏幕上**一共**已经显示了几行。
+
+          ```python startLine=1
+          def check():
+              print("检查")
+              print("通过")
+
+          print("开始")
+          check()
+          check()
+          ```
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - { id: at, header: 运行完 }
+              - { id: count, header: 已显示的行数, input: integer }
+            rows:
+              - { id: d, cells: { at: 第 1–3 行（定义）, count: 0 } }
+              - { id: l5, cells: { at: 第 5 行, count: 1 } }
+              - { id: l6, cells: { at: 第 6 行, count: 3 } }
+              - { id: l7, cells: { at: 第 7 行, count: 5 } }
+        explanation: |
+          定义不显示任何东西，所以第 1–3 行运行完是 **0** 行。第 5 行显示“开始”，共 **1** 行；第 6 行调用 check，函数体的两行 print 各显示一行，共 **3** 行；第 7 行再调用一次，共 **5** 行。
+        verify: |
+          lines = CODE.splitlines()
+          count = lambda n: len(run("\n".join(lines[:n])).lines())
+          answers = {"shown": {"d": {"count": count(3)}, "l5": {"count": count(5)}, "l6": {"count": count(6)}, "l7": {"count": count(7)}}}
+
   - id: py40.k2
     title: 形参接收实参，return 把值交回
+    card:
+      name: 参数与返回值
+      aliases: [形参, 实参, return, 返回值]
+      definition: 调用时，形参按位置或按名字接收实参；return 把一个值交回调用处，并结束这次调用。
+      conditions:
+        - 按位置给实参只看顺序：net_signal(3, 12) 里 raw 是 3，blank 是 12。
+        - 只 print 不 return 时，调用处拿到的是 None，不能接着计算。
+      example:
+        from: py40.k2.e0
+        text: |
+          ```python
+          def net_signal(raw, blank):
+              return raw - blank
+
+          a = net_signal(12, 3)
+          b = net_signal(blank=2, raw=7)
+          ```
+          第一次调用 raw 为 12、blank 为 3，交回 9；第二次按名字给，raw 为 7、blank 为 2，交回 5。
+    lesson: |
+      函数常常需要输入。写在 `def` 后面括号里的名字叫**形参**，调用时写在括号里的值叫**实参**：
+
+      ```python
+      def net_signal(raw, blank):
+          return raw - blank
+      ```
+
+      调用 `net_signal(12, 3)` 时，形参先按位置接收实参：`raw` 指向 12，`blank` 指向 3，就像函数一开始先做了 `raw = 12`、`blank = 3`。也可以按名字给，`net_signal(blank=3, raw=12)` 的结果一样。按位置给时只看顺序：`net_signal(3, 12)` 会让 `raw` 指向 3。
+
+      `return 值` 把这个值**交回**调用的地方，整个调用就被这个值取代。`x = net_signal(12, 3) + 1` 先算出 `net_signal(12, 3)` 是 9，再算 9 + 1。
+
+      `return` 同时结束这次调用，它后面的行不再运行。函数里有 if/elif/else 时，走到哪条路径上的 `return`，就交回哪个值：
+
+      ```python
+      def label(signal, limit):
+          if signal >= limit:
+              return "达标"
+          else:
+              return "未达标"
+      ```
+
+      只 `print` 不 `return` 的函数，会把结果显示在屏幕上，但调用处拿到的是 None（表示没有值），不能接着算。要把结果交给下一步，就要 `return`。
+    example:
+      id: py40.k2.e0
+      kind: [trace, predict]
+      uses: [py04.k1, py04.k2]
+      body: |
+        ```python startLine=1
+        def net_signal(raw, blank):
+            return raw - blank
+
+        a = net_signal(12, 3)
+        b = net_signal(blank=2, raw=7)
+        print(a + b)
+        ```
+      slots:
+        - id: params
+          type: table
+          label: 每次调用时形参的值
+          columns:
+            - { id: call, header: 调用 }
+            - { id: raw, header: raw, input: integer }
+            - { id: blank, header: blank, input: integer }
+          rows:
+            - { id: c1, cells: { call: 第 4 行, raw: 12, blank: 3 } }
+            - { id: c2, cells: { call: 第 5 行, raw: 7, blank: 2 } }
+        - id: output
+          type: text
+          format: integer
+          prompt: 最后显示什么？
+          key: 14
+      explanation: |
+        | 调用 | raw | blank | 交回 |
+        |---|---:|---:|---:|
+        | 第 4 行 | 12 | 3 | 9 |
+        | 第 5 行 | 7 | 2 | 5 |
+
+        第 4 行按位置给：第一个实参 12 给 raw，第二个 3 给 blank。第 5 行按名字给，写的顺序不影响：raw 是 7，blank 是 2。两次调用分别被交回的 9 和 5 取代，最后显示 **14**。
+      verify: |
+        import sys
+        seen = []
+        def watch(frame, event, arg):
+            if event == "call" and frame.f_code.co_name == "net_signal":
+                seen.append(dict(frame.f_locals))
+        sys.settrace(watch)
+        try:
+            r = run()
+        finally:
+            sys.settrace(None)
+        answers = {
+            "params": {f"c{i}": {"raw": call["raw"], "blank": call["blank"]} for i, call in enumerate(seen, 1)},
+            "output": int(r.out),
+        }
+    practice:
+      - id: py40.k2.q1
+        kind: [predict]
+        uses: [py04.k1]
+        body: |
+          ```python startLine=1
+          def double(n):
+              return n * 2
+              print("算完了")
+
+          result = double(5)
+          print(result)
+          ```
+        slots:
+          - id: shown
+            type: choice
+            prompt: 屏幕上显示什么？
+            options:
+              - { id: both, content: 先显示“算完了”，再显示 10 }
+              - { id: after, content: 先显示 10，再显示“算完了” }
+              - { id: only, content: 只显示 10 }
+              - { id: none, content: 只显示“算完了” }
+            key: only
+        explanation: |
+          **只显示 10**。第 2 行的 return 把 10 交回，同时结束这次调用，第 3 行的 print 永远不会运行。第 6 行显示 result，也就是 10。
+        verify: |
+          lines = run().lines()
+          shown = {("算完了", "10"): "both", ("10", "算完了"): "after", ("10",): "only", ("算完了",): "none"}
+          answers = {"shown": shown[tuple(lines)]}
+      - id: py40.k2.q2
+        kind: [predict]
+        uses: [py04.k2, py08.k2, py10.k1]
+        body: |
+          ```python
+          def label(signal, limit):
+              if signal >= limit:
+                  return "达标"
+              else:
+                  return "未达标"
+          ```
+
+          这里的“达标”只是题目约定的规则。填写每次调用交回的结果。
+        slots:
+          - id: results
+            type: table
+            columns:
+              - { id: call, header: 调用 }
+              - id: result
+                header: 交回
+                input: { type: choice, options: [{ id: pass, label: 达标 }, { id: fail, label: 未达标 }] }
+            rows:
+              - { id: c1, cells: { call: "label(12, 10)", result: pass } }
+              - { id: c2, cells: { call: "label(10, 10)", result: pass } }
+              - { id: c3, cells: { call: "label(10, 12)", result: fail } }
+              - { id: c4, cells: { call: "label(limit=8, signal=7)", result: fail } }
+        explanation: |
+          依次是 **达标、达标、未达标、未达标**。
+
+          - `label(12, 10)`：signal 为 12，limit 为 10，12 >= 10，走第一条路径。
+          - `label(10, 10)`：恰好等于阈值，`>=` 包含等号，也是达标。
+          - `label(10, 12)`：按位置给，signal 是 10、limit 是 12，10 >= 12 不成立，走 else。
+          - `label(limit=8, signal=7)`：按名字给，signal 是 7、limit 是 8，未达标。
+        verify: |
+          r = run(CODE + "\nresults = [label(12, 10), label(10, 10), label(10, 12), label(limit=8, signal=7)]")
+          ids = {"达标": "pass", "未达标": "fail"}
+          answers = {"results": {f"c{i}": {"result": ids[value]} for i, value in enumerate(r["results"], 1)}}
+      - id: py40.k2.q3
+        kind: [predict, debug]
+        uses: [py03.k3, py04.k3]
+        body: |
+          ```python startLine=1
+          def ratio(part, total):
+              print(part / total)
+
+          r = ratio(3, 4)
+          print(r)
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行显示什么？
+            key: "0.75"
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示什么？
+            key: "None"
+            feedback:
+              - when: "0.75"
+                message: ratio 只把结果显示出来，没有 return，r 拿到的是 None。
+          - id: fix
+            type: choice
+            prompt: 要让 `r` 拿到 0.75，第 2 行应改成哪一行？
+            options:
+              - id: assign
+                content: |
+                  ```python
+                      r = part / total
+                  ```
+                feedback: 函数里的 r 和外面的 r 不是同一个名字；不 return，调用处仍然拿到 None。
+              - id: return
+                content: |
+                  ```python
+                      return part / total
+                  ```
+              - id: print_return
+                content: |
+                  ```python
+                      print(return part / total)
+                  ```
+            key: return
+        explanation: |
+          第一行显示 **0.75**：那是函数里的 print 显示的。第二行显示 **None**：ratio 没有 return，调用处拿到的是 None，r 就指向 None。
+
+          把第 2 行改成 `return part / total`，结果才会交回给 r。在函数里另写 `r = ...` 不会改变外面的 r；把 return 写进 print 的括号里不是合法的写法。
+        verify: |
+          lines = CODE.splitlines()
+          r = run()
+          fixes = []
+          for option, line in OPTIONS["fix"].items():
+              result = run("\n".join([lines[0], line] + lines[2:]))
+              if result.error is None and result.vars.get("r") == 0.75:
+                  fixes.append(option)
+          answers = {"line1": r.lines()[0], "line2": r.lines()[1], "fix": fixes[0] if len(fixes) == 1 else fixes}
+    review:
+      - id: py40.k2.r1
+        kind: [modify]
+        uses: [py08.k1, py10.k1, py10.k2]
+        body: |
+          需求：`classify(depth)` 在深度小于 20 时交回 `"浅"`，否则交回 `"深"`。把代码块排成这个函数，并排好缩进。有一块用不上。
+        slots:
+          - id: function
+            type: order
+            partial: true
+            indent: 2
+            items:
+              - { id: ret_deep, code: return "深" }
+              - { id: if, code: "if depth < 20:" }
+              - { id: show, code: print("浅") }
+              - { id: def, code: "def classify(depth):" }
+              - { id: else, code: "else:" }
+              - { id: ret_shallow, code: return "浅" }
+            key: [def, if, ret_shallow, else, ret_deep]
+            indents: { def: 0, if: 1, ret_shallow: 2, else: 1, ret_deep: 2, show: 2 }
+            tests:
+              - name: 浅、深和边界
+                doctest: |
+                  >>> classify(5)
+                  '浅'
+                  >>> classify(20)
+                  '深'
+                  >>> classify(19)
+                  '浅'
+              - name: 交回的值能接着用
+                hidden: true
+                doctest: |
+                  >>> classify(3) + "层"
+                  '浅层'
+                  >>> classify(40) + "层"
+                  '深层'
+        explanation: |
+          ```python
+          def classify(depth):
+              if depth < 20:
+                  return "浅"
+              else:
+                  return "深"
+          ```
+
+          `if` 和 `else` 缩进一层，属于函数体；两个 return 再缩进一层，分别属于各自的路径。`print("浅")` 用不上：它只显示，不交回，调用处拿到的是 None，`classify(3) + "层"` 就会出错。
+      - id: py40.k2.r2
+        kind: [trace, predict]
+        uses: [py10.k1, py10.k3]
+        body: |
+          ```python startLine=1
+          def grade(depth):
+              if depth < 20:
+                  return "浅"
+              elif depth < 40:
+                  return "中"
+              print("进入最后一段")
+              return "深"
+          ```
+
+          对每次调用，填写交回的结果，以及调用时会不会显示“进入最后一段”。
+        slots:
+          - id: calls
+            type: table
+            columns:
+              - { id: call, header: 调用 }
+              - id: result
+                header: 交回
+                input: { type: choice, options: [{ id: shallow, label: 浅 }, { id: middle, label: 中 }, { id: deep, label: 深 }] }
+              - { id: shows, header: 显示“进入最后一段”, input: bool }
+            rows:
+              - { id: c5, cells: { call: grade(5), result: shallow, shows: false } }
+              - { id: c20, cells: { call: grade(20), result: middle, shows: false } }
+              - { id: c40, cells: { call: grade(40), result: deep, shows: true } }
+        explanation: |
+          - `grade(5)`：5 < 20，第 3 行 return，交回 **浅**，调用到此结束，不显示。
+          - `grade(20)`：20 < 20 不成立；20 < 40 成立，第 5 行交回 **中**，也不显示。
+          - `grade(40)`：两个条件都不成立，才走到第 6 行，**显示**“进入最后一段”，再交回 **深**。
+
+          return 一旦运行，这次调用就结束了，后面的行都不会运行。
+        verify: |
+          ids = {"浅": "shallow", "中": "middle", "深": "deep"}
+          rows = {}
+          for depth in (5, 20, 40):
+              r = run(CODE + f"\nresult = grade({depth})")
+              rows[f"c{depth}"] = {"result": ids[r["result"]], "shows": "进入最后一段" in r.lines()}
+          answers = {"calls": rows}
+    quiz:
+      - id: py40.k2.x1
+        kind: [trace, predict]
+        uses: [py04.k2]
+        body: |
+          `change(before, after)` 算一个采样点前后两次测得的深度变化。
+
+          ```python startLine=1
+          def change(before, after):
+              return after - before
+
+          print(change(30, 25))
+          print(change(after=30, before=25))
+          ```
+        slots:
+          - id: before
+            type: text
+            format: integer
+            prompt: 第 4 行的调用里，before 是多少？
+            key: 30
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: -5
+            feedback:
+              - when: 5
+                message: 按位置给时，30 给第一个形参 before，25 给 after，算的是 25 - 30。
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 5
+        explanation: |
+          第 4 行按位置给：before 是 **30**，after 是 25，交回 25 - 30 = **-5**。第 5 行按名字给：after 是 30，before 是 25，交回 **5**。写在括号里的先后顺序不决定谁给谁，位置调用看位置，名字调用看名字。
+        verify: |
+          import sys
+          seen = []
+          def watch(frame, event, arg):
+              if event == "call" and frame.f_code.co_name == "change":
+                  seen.append(dict(frame.f_locals))
+          sys.settrace(watch)
+          try:
+              r = run()
+          finally:
+              sys.settrace(None)
+          lines = r.lines()
+          answers = {"before": seen[0]["before"], "first": int(lines[0]), "second": int(lines[1])}
+      - id: py40.k2.x2
+        kind: [debug, predict]
+        uses: [py03.k3, py04.k3]
+        body: |
+          ```python startLine=1
+          def total(a, b):
+              print(a + b)
+
+          s = total(2, 3) * 2
+          print(s)
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行这段程序会怎样？
+            options:
+              - { id: ten, content: 只显示 10 }
+              - { id: both, content: 先显示 5，再显示 10 }
+              - { id: error, content: 显示 5 之后，第 4 行报 TypeError }
+              - { id: silent, content: 什么也不显示，直接报错 }
+            key: error
+          - id: fix
+            type: choice
+            prompt: 第 2 行改成哪一行，程序就只显示 10？
+            options:
+              - { id: bare, content: "`a + b`" }
+              - { id: assign, content: "`s = a + b`" }
+              - { id: return, content: "`return a + b`" }
+            key: return
+        explanation: |
+          第 4 行先调用 `total(2, 3)`：函数里的 print 显示 **5**，但没有 return，调用处拿到 None。接着算 `None * 2`，None 不能做乘法，**报 TypeError**，第 5 行不再运行。
+
+          把第 2 行改成 `return a + b`，调用处拿到 5，s 是 10，程序只显示 10。只写 `a + b` 算完就丢掉了；`s = a + b` 改的是函数里的名字，外面仍拿到 None。
+        verify: |
+          r = run()
+          outcomes = {
+              "ten": r.error is None and r.lines() == ["10"],
+              "both": r.error is None and r.lines() == ["5", "10"],
+              "error": r.error == "TypeError" and r.lines() == ["5"],
+              "silent": r.error is not None and r.out == "",
+          }
+          true = [name for name, ok in outcomes.items() if ok]
+          lines = CODE.splitlines()
+          fixes = []
+          for option, text in {"bare": "a + b", "assign": "s = a + b", "return": "return a + b"}.items():
+              result = run("\n".join([lines[0], "    " + text] + lines[2:]))
+              if result.error is None and result.lines() == ["10"]:
+                  fixes.append(option)
+          answers = {"outcome": true[0] if len(true) == 1 else true, "fix": fixes[0] if len(fixes) == 1 else fixes}
+
   - id: py40.k3
     title: 局部中间量如何流向结果
+    card:
+      name: 函数里的中间量
+      aliases: [局部变量, 中间结果]
+      definition: 函数体里算出的中间量只在这一次调用里存在；只有 return 后面的那个值被交回，其余的调用结束就丢掉。
+      conditions:
+        - 从 return 倒着追：交回的名字在哪一行算出、用了哪些名字，一直追到形参。
+        - 中间量算对了却没有被交回，调用处仍然拿不到它。
+      example:
+        from: py40.k3.e0
+        text: |
+          ```python
+          def corrected(raw, blank, factor):
+              net = raw - blank
+              scaled = net * factor
+              return scaled
+          ```
+          corrected(14, 2, 3)：net 是 12，scaled 是 36，交回 36。
+    lesson: |
+      函数里常常不是一步算完，而是先算出几个**中间量**：
+
+      ```python
+      def corrected(raw, blank, factor):
+          net = raw - blank
+          scaled = net * factor
+          return scaled
+      ```
+
+      读一次调用，比如 `corrected(14, 2, 3)`，就像读一段普通程序：先写下形参接收的值，再逐行记状态表。
+
+      | 运行到 | raw | blank | factor | net | scaled |
+      |---|---:|---:|---:|---:|---:|
+      | 刚进入函数 | 14 | 2 | 3 | 尚未定义 | 尚未定义 |
+      | 第 2 行 | 14 | 2 | 3 | 12 | 尚未定义 |
+      | 第 3 行 | 14 | 2 | 3 | 12 | 36 |
+
+      第 4 行交回 scaled，也就是 36。
+
+      结果是哪一个，只看 return 后面写的是谁。中间量只活在这一次调用里：调用结束，`net`、`scaled` 就不在了，调用处只拿到交回的那个值。
+
+      读 AI 写的函数时，可以从 return 倒着查：交回的名字在哪一行算出 → 那一行用了哪些名字 → 那些名字又从哪里来……一直追到形参。漏掉的一步（例如没减本底）、用错的名字（例如用了 `raw` 而不是 `net`），都会在这条链上露出来。
+    example:
+      id: py40.k3.e0
+      kind: [trace]
+      uses: [py01.k2, py04.k1]
+      body: |
+        填写调用 `corrected(14, 2, 3)` 时，函数体第 2、3 行运行完后 `net` 和 `scaled` 的值，还没有赋值的填“尚未定义”。
+
+        ```python startLine=1
+        def corrected(raw, blank, factor):
+            net = raw - blank
+            scaled = net * factor
+            return scaled
+
+        result = corrected(14, 2, 3)
+        ```
+      slots:
+        - id: trace
+          type: table
+          columns:
+            - { id: line, header: 运行到 }
+            - id: net
+              header: net
+              input: { type: text, format: integer, quick: [尚未定义] }
+            - id: scaled
+              header: scaled
+              input: { type: text, format: integer, quick: [尚未定义] }
+          rows:
+            - { id: l2, cells: { line: 第 2 行, net: 12, scaled: 尚未定义 } }
+            - { id: l3, cells: { line: 第 3 行, net: 12, scaled: 36 } }
+        - id: result
+          type: text
+          format: integer
+          prompt: 第 6 行运行完，result 是多少？
+          key: 36
+      explanation: |
+        进入函数时 raw 是 14、blank 是 2、factor 是 3。第 2 行算出 net = 14 - 2 = **12**；第 3 行用 net 算出 scaled = 12 × 3 = **36**；第 4 行交回 scaled，所以 result 是 **36**。
+
+        倒着看也一样：result 来自 scaled，scaled 来自 net 和 factor，net 来自 raw 和 blank。
+      verify: |
+        import textwrap
+        lines = CODE.splitlines()
+        body = textwrap.dedent("\n".join(lines[1:3]))
+        states = trace(code=body, names=["net", "scaled"], raw=14, blank=2, factor=3)
+        answers = {
+            "trace": {f"l{i}": {name: state.get(name, "尚未定义") for name in ("net", "scaled")} for i, state in enumerate(states, 2)},
+            "result": run()["result"],
+        }
+    practice:
+      - id: py40.k3.q1
+        kind: [debug, trace]
+        uses: [py02.k1]
+        body: |
+          需求：`mean_of_two(a, b)` 交回两次读数的平均值。
+
+          ```python startLine=1
+          def mean_of_two(a, b):
+              total = a + b
+              mean = total / 2
+              return total
+          ```
+        slots:
+          - id: value
+            type: text
+            format: integer
+            prompt: "`mean_of_two(6, 10)` 交回多少？"
+            key: 16
+            feedback:
+              - when: 8
+                message: 平均值 8 确实算出来了，存在 mean 里；但第 4 行交回的是 total。
+          - id: fix
+            type: choice
+            prompt: 怎样改，才符合需求？
+            options:
+              - { id: line3, content: 第 3 行改成 `mean = total * 2` }
+              - { id: line2, content: 第 2 行改成 `total = a - b` }
+              - { id: line4, content: 第 4 行改成 `return mean` }
+            key: line4
+        explanation: |
+          交回 **16**。平均值 8 在第 3 行已经算出来、存在 mean 里了，可第 4 行交回的是 total，mean 在调用结束时被丢掉。
+
+          把第 4 行改成 `return mean` 就对了。另外两种改法改的是中间量的算法，交回的仍不是平均值。
+        verify: |
+          lines = CODE.splitlines()
+          r = run(CODE + "\nvalue = mean_of_two(6, 10)")
+          edits = {"line3": (2, "    mean = total * 2"), "line2": (1, "    total = a - b"), "line4": (3, "    return mean")}
+          fixes = []
+          for option, (index, text) in edits.items():
+              changed = lines[:index] + [text] + lines[index + 1:]
+              result = run("\n".join(changed) + "\nchecks = [mean_of_two(6, 10), mean_of_two(3, 4)]")
+              if result.error is None and result["checks"] == [8, 3.5]:
+                  fixes.append(option)
+          answers = {"value": r["value"], "fix": fixes[0] if len(fixes) == 1 else fixes}
+      - id: py40.k3.q2
+        kind: [trace, explain]
+        uses: [py01.k2, py02.k1]
+        body: |
+          配 50 毫升稀释液，原液占总体积的五分之一：`split_volume` 算出要取多少原液，以及要加多少水。
+
+          ```python startLine=1
+          def split_volume(volume, ratio):
+              sample = volume / ratio
+              water = volume - sample
+              return sample
+
+          result = split_volume(50, 5)
+          print(result)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 第 7 行显示什么？
+            key: "10.0"
+          - id: water
+            type: choice
+            prompt: 调用里算出的 water 后来怎样了？
+            options:
+              - { id: returned, content: 和 sample 一起交回给 result }
+              - { id: shown, content: 调用时自动显示在屏幕上 }
+              - { id: dropped, content: 调用里算出了 40.0，但调用结束就丢掉了，调用处拿不到 }
+            key: dropped
+          - id: outside
+            type: choice
+            prompt: 如果在程序末尾再加一行 `print(water)`，会怎样？
+            options:
+              - { id: forty, content: 显示 40.0 }
+              - { id: error, content: 报 NameError }
+              - { id: none, content: 显示 None }
+            key: error
+        explanation: |
+          显示 **10.0**：sample = 50 / 5，除法 `/` 的结果是小数。water 在调用里算出 40.0，但 return 只交回 sample，调用结束后 water 就不在了，调用处拿不到它；在外面 `print(water)` 会报 **NameError**，因为外面从来没有这个名字。
+
+          如果需要加水量，就要另外把它交回，而不是指望它“留在外面”。
+        verify: |
+          import textwrap
+          lines = CODE.splitlines()
+          r = run()
+          body = textwrap.dedent("\n".join(lines[1:3]))
+          inside = trace(code=body, names=["water"], volume=50, ratio=5)[-1]["water"]
+          after = run(CODE + "\nprint(water)")
+          holds = {
+              "returned": r["result"] == inside,
+              "shown": str(inside) in r.lines(),
+              "dropped": "water" not in r.vars and r["result"] != inside,
+          }
+          true = [name for name, ok in holds.items() if ok]
+          answers = {
+              "output": r.lines()[0],
+              "water": true[0] if len(true) == 1 else true,
+              "outside": "error" if after.error == "NameError" else ("none" if after.lines()[-1] == "None" else "forty"),
+          }
+      - id: py40.k3.q3
+        kind: [modify]
+        uses: [py02.k1]
+        body: |
+          需求：`net_ratio(raw, blank, ref)` 先从读数 raw 减去本底 blank，再除以参照值 ref，交回这个比值。
+
+          同事写的函数在作答框里，下面的例子是需求给出的期望结果，现在没有全部通过。请改动函数并提交。
+
+          ```python
+          >>> net_ratio(12, 2, 5)
+          2.0
+          >>> net_ratio(9, 1, 4)
+          2.0
+          ```
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 8
+            starter: |
+              def net_ratio(raw, blank, ref):
+                  net = raw - blank
+                  ratio = raw / ref
+                  return ratio
+            solution: |
+              def net_ratio(raw, blank, ref):
+                  net = raw - blank
+                  ratio = net / ref
+                  return ratio
+            accepts:
+              - |
+                def net_ratio(raw, blank, ref):
+                    return (raw - blank) / ref
+            rejects:
+              - code: |
+                  def net_ratio(raw, blank, ref):
+                      net = raw - blank
+                      ratio = net / ref
+                      return net
+                why: 比值算对了，却交回了中间量 net
+              - code: |
+                  def net_ratio(raw, blank, ref):
+                      ratio = raw - blank / ref
+                      return ratio
+                why: 少了括号，先算了 blank / ref
+              - code: |
+                  def net_ratio(raw, blank, ref):
+                      net = raw - blank
+                      ratio = net / ref
+                      print(ratio)
+                why: 只显示不交回
+            tests:
+              - name: 需求给出的例子
+                doctest: |
+                  >>> net_ratio(12, 2, 5)
+                  2.0
+                  >>> net_ratio(9, 1, 4)
+                  2.0
+              - name: 读数等于本底
+                hidden: true
+                doctest: |
+                  >>> net_ratio(7, 7, 2)
+                  0.0
+              - name: 交回的值能接着算
+                hidden: true
+                doctest: |
+                  >>> net_ratio(20, 4, 8) * 10
+                  20.0
+        explanation: |
+          第 3 行用的是 raw，没有用减过本底的 net，本底那一步白算了。改成：
+
+          ```python
+          def net_ratio(raw, blank, ref):
+              net = raw - blank
+              ratio = net / ref
+              return ratio
+          ```
+
+          也可以直接写 `return (raw - blank) / ref`，括号不能省：没有括号时会先算 `blank / ref`。判分时还会用读数等于本底、把结果接着乘 10 等例子检查。
+    review:
+      - id: py40.k3.r1
+        kind: [modify]
+        uses: [py02.k1]
+        body: |
+          需求：`change_pct(before, after)` 先算差值 after - before，再除以 before、乘 100，交回变化的百分比。把代码块排成这个函数，并排好缩进。有一块用不上。
+        slots:
+          - id: function
+            type: order
+            partial: true
+            indent: 1
+            items:
+              - { id: ret_pct, code: return pct }
+              - { id: pct, code: pct = diff / before * 100 }
+              - { id: def, code: "def change_pct(before, after):" }
+              - { id: ret_diff, code: return diff }
+              - { id: diff, code: diff = after - before }
+            key: [def, diff, pct, ret_pct]
+            indents: { def: 0, diff: 1, pct: 1, ret_pct: 1, ret_diff: 1 }
+            tests:
+              - name: 增加与减少
+                doctest: |
+                  >>> change_pct(20, 25)
+                  25.0
+                  >>> change_pct(50, 40)
+                  -20.0
+              - name: 没有变化
+                hidden: true
+                doctest: |
+                  >>> change_pct(8, 8)
+                  0.0
+        explanation: |
+          ```python
+          def change_pct(before, after):
+              diff = after - before
+              pct = diff / before * 100
+              return pct
+          ```
+
+          pct 要用到 diff，所以先算 diff；最后交回 pct。`return diff` 交回的是差值，不是百分比；而且放在 `return pct` 前面的话，后面那行就不会运行。
+      - id: py40.k3.r2
+        kind: [trace]
+        uses: [py03.k1, py03.k2]
+        body: |
+          `tag` 给采样点生成一个标签。填写调用 `tag("北坡", 30)` 时函数里各中间量的值（文字直接写，不用加引号），再写出 result。
+
+          ```python startLine=1
+          def tag(site, depth):
+              unit = "cm"
+              text = site + "-" + str(depth)
+              full = text + unit
+              return text
+
+          result = tag("北坡", 30)
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: name, header: 中间量 }
+              - { id: value, header: 调用中的值, input: text }
+            rows:
+              - { id: unit, cells: { name: unit, value: cm } }
+              - { id: text, cells: { name: text, value: 北坡-30 } }
+              - { id: full, cells: { name: full, value: 北坡-30cm } }
+          - id: result
+            type: text
+            prompt: result 是什么？
+            key: 北坡-30
+            feedback:
+              - when: 北坡-30cm
+                message: 带单位的 full 确实算出来了，但第 5 行交回的是 text。
+        explanation: |
+          unit 是 **cm**；text 是 site、“-”和 `str(30)` 连起来的 **北坡-30**；full 在 text 后面接上单位，是 **北坡-30cm**。
+
+          第 5 行交回的是 text，所以 result 是 **北坡-30**，不带单位。full 算出来了，但没有被交回，调用结束就丢掉了。
+        verify: |
+          import textwrap
+          lines = CODE.splitlines()
+          body = textwrap.dedent("\n".join(lines[1:4]))
+          state = trace(code=body, names=["unit", "text", "full"], site="北坡", depth=30)[-1]
+          answers = {
+              "values": {name: {"value": state[name]} for name in ("unit", "text", "full")},
+              "result": run()["result"],
+          }
+    quiz:
+      - id: py40.k3.x1
+        kind: [debug, explain]
+        uses: [py02.k1]
+        body: |
+          需求：先从读数 raw 减去本底 blank，再乘以系数 factor，交回结果。哪一个函数符合需求？
+        slots:
+          - id: function
+            type: choice
+            options:
+              - id: raw_used
+                content: |
+                  ```python
+                  def corrected(raw, blank, factor):
+                      net = raw - blank
+                      scaled = raw * factor
+                      return scaled
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  def corrected(raw, blank, factor):
+                      scaled = raw * factor
+                      net = scaled - blank
+                      return net
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  def corrected(raw, blank, factor):
+                      net = raw - blank
+                      scaled = net * factor
+                      return scaled
+                  ```
+              - id: wrong_return
+                content: |
+                  ```python
+                  def corrected(raw, blank, factor):
+                      net = raw - blank
+                      scaled = net * factor
+                      return net
+                  ```
+            key: right
+        explanation: |
+          先算 `net = raw - blank`、再算 `scaled = net * factor`、交回 scaled 的那一个符合需求。
+
+          从 return 倒着追就能看出另外几个的问题：有一个算了 net 却用 raw 去乘，本底没减；有一个先乘后减，只减了一份本底；还有一个乘完了却交回 net。
+        verify: |
+          def spec(raw, blank, factor):
+              return (raw - blank) * factor
+          cases = [(14, 2, 3), (9, 4, 2), (5, 1, 1)]
+          fits = []
+          for option, code in OPTIONS["function"].items():
+              r = run(code + "\nresults = [corrected(*case) for case in cases]", cases=cases)
+              if r.error is None and r["results"] == [spec(*case) for case in cases]:
+                  fits.append(option)
+          answers = {"function": fits[0] if len(fits) == 1 else fits}
+      - id: py40.k3.x2
+        kind: [trace, debug]
+        uses: [py02.k2]
+        body: |
+          `boxes_needed` 想算出：一共有 samples 份样本，每盒装 per_box 份，需要几个盒子。
+
+          ```python startLine=1
+          def boxes_needed(samples, per_box):
+              full = samples // per_box
+              left = samples % per_box
+              boxes = full + 1
+              return boxes
+
+          n = boxes_needed(20, 5)
+          ```
+        slots:
+          - id: trace
+            type: table
+            prompt: 填写调用 `boxes_needed(20, 5)` 时各中间量的值。
+            columns:
+              - { id: name, header: 中间量 }
+              - { id: value, header: 值, input: integer }
+            rows:
+              - { id: full, cells: { name: full, value: 4 } }
+              - { id: left, cells: { name: left, value: 0 } }
+              - { id: boxes, cells: { name: boxes, value: 5 } }
+          - id: actual
+            type: text
+            format: integer
+            prompt: 20 份样本、每盒 5 份，实际需要几个盒子？
+            key: 4
+          - id: correct
+            type: choice
+            prompt: 这次调用交回的 n 对吗？
+            options:
+              - { id: "yes", content: 对，交回的就是需要的盒数 }
+              - { id: "no", content: 不对，left 是 0 时不需要多加一个盒子 }
+            key: "no"
+        explanation: |
+          full = 20 // 5 = **4**，left = 20 % 5 = **0**，boxes = 4 + 1 = **5**，n 是 5。
+
+          可 20 份正好装满 **4** 个盒子，交回的 5 **不对**。left 这个中间量算出来了，却没有被用到：只有 left 大于 0 时才需要多加一个盒子。追踪中间量时，留意哪个算出来的值根本没有流向结果。
+        verify: |
+          import math, textwrap
+          lines = CODE.splitlines()
+          body = textwrap.dedent("\n".join(lines[1:4]))
+          state = trace(code=body, names=["full", "left", "boxes"], samples=20, per_box=5)[-1]
+          need = math.ceil(20 / 5)
+          n = run()["n"]
+          answers = {
+              "trace": {name: {"value": state[name]} for name in ("full", "left", "boxes")},
+              "actual": need,
+              "correct": "yes" if n == need else "no",
+          }
