@@ -1,7 +1,8 @@
 id: py47
 title: 兴趣支线：小说里的名字出现了几次
-status: outline
+status: complete
 minutes: 20
+summary: 用 count、in、split 和短循环按字面数名字，再把“提到这个人”写成别名、排除词和计数单位都清楚的规则。
 prerequisites:
   - topic: py05
     key: true
@@ -24,12 +25,874 @@ sources:
     where: 第 12 章
     url: https://allendowney.github.io/ThinkPython/chap12.html
     use: reference
+  - source: python-docs
+    where: 标准库：字符串方法（str.count、str.split、str.replace）
+    url: https://docs.python.org/3.12/library/stdtypes.html#string-methods
+    use: reference
 notes: |
-  建议题型与判分：预测输出（P）、解释代码（S/O）、写清需求（S/O）。
-  自拟部分：自拟小说小任务。
+  范围：只处理题面给出的一小段自拟文字，用 count、in、split 和 py35、py36 的短循环；不讲分词、正则表达式，也不读整本书的文件。py37 的字典只在 k2 例题里用来并排看几个次数。split 和 count 在本节第一次出现，在 k1 讲解里讲清。
   兴趣支线，主线完成不以它为关键先修。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 5 分钟；k2 讲解与例题 4 分钟、练习 5 分钟；收束 2 分钟。
+  小说片段、人物和题目都是本课自拟。复习和测验题的答案全部由 verify 用另一种算法（re 正则或逐句计算）独立算出，没有 manual 作答位；k2.q3 是写规则的开放作答，只放在练习里。
+  几段文字特意让“只数字面”和“按规则数”的结果不同，避免错误做法碰巧得出正确的数；改文字时要重新核对这一点。
+intro: |
+  这一节是兴趣支线：数一数一段小说里某个人物被提到了几次。按字面数的工具很简单，难处在于“提到这个人”到底指什么。
+
+  题目里的小说片段都是本课自己编的。变量 `text` 里放的就是题面展示的那段文字，每道题都从题面给出的文字重新开始。
+wrapup: |
+  让 AI 帮你数人物时，可以这样说：“数沈青被提到的次数：‘沈青’‘青儿’都算；‘沈青山’是另一个人，不算；一句里出现两次算两次。”
+
+  拿到结果后，先在原文里找一处名字藏在更长的词里的地方、一处别名，核对它们有没有按规则处理。
+data:
+  story:
+    kind: python
+    code: |
+      text = "沈青推开院门。娘在灶台边喊青儿带上伞。沈青应了一声，往青石桥走去。桥头站着叔叔沈青山，沈青山冲她招手。"
+    display: |
+      变量 `text` 里是下面这段小说（一整段，中间没有换行）：
+
+      ```text
+      沈青推开院门。娘在灶台边喊青儿带上伞。沈青应了一声，往青石桥走去。桥头站着叔叔沈青山，沈青山冲她招手。
+      ```
+  story2:
+    kind: python
+    code: |
+      text = "青儿起得早。沈青山来借锄头，沈青把锄头递给他。沈青说青儿明天也去。沈青笑了。"
+    display: |
+      变量 `text` 里是另一段小说：
+
+      ```text
+      青儿起得早。沈青山来借锄头，沈青把锄头递给他。沈青说青儿明天也去。沈青笑了。
+      ```
+  story_lin:
+    kind: python
+    code: |
+      text = "林舟把小舟系在渡口。娘喊舟儿快回来，舟儿！林舟听见了，划着小舟往回走。林舟渡的老人都笑了。"
+    display: |
+      变量 `text` 里是下面这段小说：
+
+      ```text
+      林舟把小舟系在渡口。娘喊舟儿快回来，舟儿！林舟听见了，划着小舟往回走。林舟渡的老人都笑了。
+      ```
+  story_zhou:
+    kind: python
+    code: |
+      text = "周明德一早出门了。明哥，明天还去河边吗？周明点点头。周明把网收好，等周明德回来。"
+    display: |
+      变量 `text` 里是下面这段小说：
+
+      ```text
+      周明德一早出门了。明哥，明天还去河边吗？周明点点头。周明把网收好，等周明德回来。
+      ```
+  story_mu:
+    kind: python
+    code: |
+      text = "阿木扛着木头回家。娘说木头，先吃饭。阿木放下木头，笑了。村口的阿木叔也来了。"
+    display: |
+      变量 `text` 里是下面这段小说：
+
+      ```text
+      阿木扛着木头回家。娘说木头，先吃饭。阿木放下木头，笑了。村口的阿木叔也来了。
+      ```
+  note_en:
+    kind: python
+    code: |
+      note = "Ann met Anna. Ann smiled."
+    display: |
+      变量 `note` 里是一句英文：
+
+      ```text
+      Ann met Anna. Ann smiled.
+      ```
 kps:
   - id: py47.k1
     title: 用 split/count 或短循环追踪明确的字面匹配
+    card:
+      name: 字面匹配
+      aliases: [count, in, split]
+      definition: "`count` 数一段文字里某几个字连着出现了几处，`in` 只回答有没有；两者都只认字面，不管前后挨着什么字。"
+      conditions:
+        - "`split(\"。\")` 在每个句号处切开得到列表；文字以句号结尾时，最后多一个空字符串。"
+        - 循环里每句加 1 数的是句子数；要数出现次数，就把每句的 count 加起来。
+      example:
+        from: py47.k1.e0
+        text: |
+          ```python
+          total = text.count("沈青")
+          ```
+          在“……叔叔沈青山，沈青山冲她招手”这段里，count 把“沈青山”里的“沈青”也数了进去，得到 4；按句子数，提到“沈青”的句子只有 3 句。
+    lesson: |
+      数名字，最直接的工具是字符串的 `count`：`text.count("沈青")` 从头到尾找“沈青”这两个字连在一起出现的地方，数一共几处，得到一个整数。它只认字面：前后挨着什么字都不管，所以“沈青山”里的“沈青”也会被数进去；一处都对不上就是 0。
+
+      `"沈青" in s` 只回答“有没有”，结果是 True 或 False，不告诉你有几处。
+
+      要按句子看，可以先用 `split` 把文字切开：`text.split("。")` 在每个句号处切一刀，得到一个列表，句号本身不留下。文字以句号结尾时，最后一刀后面什么也没有，所以列表最后多出一个空字符串 `""`。英文常用不带参数的 `split()`，按空格切成单词，标点会粘在单词上，例如 `"Anna."`。
+
+      切成句子后，用一个短循环逐句检查：
+
+      ```python
+      n = 0
+      for s in text.split("。"):
+          if "沈青" in s:
+              n = n + 1
+      ```
+
+      这样数出来的是“提到沈青的句子有几句”：一句里出现两次，也只加 1。想数出现次数，就把每句的次数加起来：`n = n + s.count("沈青")`，结果和直接写 `text.count("沈青")` 一样。两个数都有用，但回答的不是同一个问题，提需求时要说清要哪一个。
+    example:
+      id: py47.k1.e0
+      kind: [predict, explain]
+      uses: [py36.k1, py35.k3]
+      data: [story]
+      body: |
+        我们想知道沈青在这段文字里被提到了几次。先看程序按字面能数出什么。
+
+        ```python
+        total = text.count("沈青")
+        n = 0
+        for s in text.split("。"):
+            if "沈青" in s:
+                n = n + 1
+        print(total)
+        print(n)
+        ```
+      slots:
+        - id: total
+          type: text
+          format: integer
+          prompt: 第一行显示
+          key: 4
+        - id: n
+          type: text
+          format: integer
+          prompt: 第二行显示
+          key: 3
+        - id: why
+          type: choice
+          prompt: 两个数为什么不一样？
+          options:
+            - id: empty
+              content: 最后切出来的空字符串也被算了一句
+            - id: twice
+              content: 最后一句里“沈青”出现了两次，按句子数只加 1
+            - id: alias
+              content: "`count` 把“青儿”也算成了“沈青”"
+          key: twice
+      explanation: |
+        第一行显示 **4**，第二行显示 **3**。
+
+        `count` 只认字面：两处“沈青”，再加上“沈青山”出现的两次里各带一个“沈青”，一共 4 处。循环按句子数：`text.split("。")` 切出 5 段（最后一段是空字符串），提到“沈青”的是第 1、3、4 段，所以 n 是 3。第 4 段“桥头站着叔叔沈青山，沈青山冲她招手”里出现了两次，按句子只加 1，这就是两个数的差别。空字符串里没有“沈青”，不会被算进去；“青儿”和“沈青”不是同样的字，count 不会把它算进去。
+
+        还要注意：这两个数里都包含了“沈青山”，他是另一个人。下一个知识点专门处理这件事。
+      verify: |
+        r = run()
+        lines = r.lines()
+        sentences = text.split("。")
+        holds = {
+            "twice": any(s.count("沈青") > 1 for s in sentences),
+            "empty": "沈青" in "",
+            "alias": text.count("沈青") != text.replace("青儿", "").count("沈青"),
+        }
+        true = [option for option, ok in holds.items() if ok]
+        answers = {"total": int(lines[0]), "n": int(lines[1]), "why": true[0] if len(true) == 1 else true}
+    practice:
+      - id: py47.k1.q1
+        kind: [predict]
+        data: [story]
+        body: |
+          下面每一行单独输入交互解释器，写出它显示的内容。
+
+          ```python
+          text.count("青")
+          text.count("沈青山")
+          "青儿" in text
+          text.count("林")
+          ```
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - { id: expr, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output } }
+            rows:
+              - { id: r1, cells: { expr: '`text.count("青")`', shown: "6" } }
+              - { id: r2, cells: { expr: '`text.count("沈青山")`', shown: "2" } }
+              - { id: r3, cells: { expr: '`"青儿" in text`', shown: "True" } }
+              - { id: r4, cells: { expr: '`text.count("林")`', shown: "0" } }
+        explanation: |
+          依次是 **6、2、True、0**。
+
+          “青”这个字出现在两处“沈青”、“青儿”、“青石桥”和两处“沈青山”里，一共 6 处：count 不管它是名字的一部分还是桥名。“沈青山”出现 2 次。`in` 只回答有没有，所以是 True，而不是 1。文中没有“林”字，count 得到 0。
+        verify: |
+          shown = repl()
+          answers = {"shown": {f"r{i}": {"shown": value} for i, value in enumerate(shown, 1)}}
+      - id: py47.k1.q2
+        kind: [trace]
+        uses: [py36.k1, py35.k2]
+        data: [story]
+        body: |
+          `text.split("。")` 切出 5 段。按循环的顺序，填写每一轮 `"沈青" in s` 的结果，以及这一轮结束后 `n` 的值，再写出最后显示什么。
+
+          ```python
+          n = 0
+          for s in text.split("。"):
+              if "沈青" in s:
+                  n = n + 1
+          print(n)
+          ```
+        slots:
+          - id: rounds
+            type: table
+            columns:
+              - { id: s, header: 这一轮的 s }
+              - { id: hit, header: '"沈青" in s', input: bool }
+              - { id: n, header: 这一轮结束后的 n, input: integer }
+            rows:
+              - { id: s1, cells: { s: 沈青推开院门, hit: true, n: 1 } }
+              - { id: s2, cells: { s: 娘在灶台边喊青儿带上伞, hit: false, n: 1 } }
+              - { id: s3, cells: { s: 沈青应了一声，往青石桥走去, hit: true, n: 2 } }
+              - { id: s4, cells: { s: 桥头站着叔叔沈青山，沈青山冲她招手, hit: true, n: 3 } }
+              - { id: s5, cells: { s: '""（空字符串）', hit: false, n: 3 } }
+          - id: output
+            type: text
+            format: integer
+            prompt: 最后显示什么？
+            key: 3
+            feedback:
+              - when: 4
+                message: 第 4 段里“沈青”出现了两次，但这个循环每句最多加 1。
+              - when: 2
+                message: 第 4 段的“沈青山”里也有“沈青”两个字，`in` 只认字面，这一段是 True。
+        explanation: |
+          `n` 依次是 **1、1、2、3、3**，最后显示 **3**。
+
+          第 2 段只有“青儿”，没有“沈青”两个字连在一起，所以是 False。第 4 段的“沈青山”里有“沈青”，`in` 只认字面，是 True；它出现了两次，但这个循环每句最多加 1。最后一段是句号后面切出来的空字符串，什么都不包含。
+        verify: |
+          n = 0
+          rows = {}
+          for i, s in enumerate(text.split("。"), 1):
+              hit = "沈青" in s
+              if hit:
+                  n = n + 1
+              rows[f"s{i}"] = {"hit": hit, "n": n}
+          answers = {"rounds": rows, "output": int(run().out)}
+      - id: py47.k1.q3
+        kind: [modify]
+        uses: [py36.k1, py35.k3]
+        data: [story]
+        body: |
+          需求是：
+
+          > 数出名字 `name` 在 `text` 里一共出现了几次，同一句里出现两次算两次，结果放在 `n` 里。
+
+          同事写的代码在作答框里，它数成了句子数。请改动它并提交。宿主提供了 `text` 和 `name`；这次 `name` 是 `"沈青"`，换一次分析可以是别的名字。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 6
+            starter: |
+              n = 0
+              for s in text.split("。"):
+                  if name in s:
+                      n = n + 1
+            solution: |
+              n = 0
+              for s in text.split("。"):
+                  n = n + s.count(name)
+            accepts:
+              - n = text.count(name)
+              - |
+                n = 0
+                for s in text.split("。"):
+                    if name in s:
+                        n = n + s.count(name)
+            rejects:
+              - code: n = text.count("沈青")
+                why: 把名字写死成“沈青”
+              - code: n = len(text.split("。"))
+                why: 数的是切出来的段数
+              - code: n = len(text.split(name))
+                why: 按名字切开后的段数比出现次数多 1
+            tests:
+              - name: 沈青
+                setup: name = "沈青"
+                expect:
+                  n: "4"
+              - name: 换一个名字
+                hidden: true
+                setup: name = "青儿"
+                expect:
+                  n: "1"
+              - name: 换一段文字，同一句里出现两次
+                hidden: true
+                data: [story_lin]
+                setup: name = "舟儿"
+                expect:
+                  n: "2"
+        explanation: |
+          把“这句有没有”换成“这句有几处”，再累加：
+
+          ```python
+          n = 0
+          for s in text.split("。"):
+              n = n + s.count(name)
+          ```
+
+          直接写 `n = text.count(name)` 也对，结果相同。本例 n 是 4；判分时还会换名字、换一段一句里出现两次的文字运行你的代码。名字要用 `name`，不要写死成“沈青”。
+    review:
+      - id: py47.k1.r1
+        kind: [predict]
+        data: [note_en]
+        body: |
+          英文常按空格把一句话切成单词。下面每一行依次输入交互解释器，写出第 1、3、4 行显示的内容。
+
+          ```python
+          note.count("Ann")
+          words = note.split()
+          words.count("Ann")
+          words.count("Anna")
+          ```
+        slots:
+          - id: c1
+            type: text
+            match: output
+            prompt: '`note.count("Ann")` 显示'
+            key: "3"
+          - id: c3
+            type: text
+            match: output
+            prompt: '`words.count("Ann")` 显示'
+            key: "2"
+          - id: c4
+            type: text
+            match: output
+            prompt: '`words.count("Anna")` 显示'
+            key: "0"
+          - id: why
+            type: choice
+            prompt: 最后一行为什么是这个结果？
+            options:
+              - id: case
+                content: "`count` 不区分大小写，“Anna”被算成了“Ann”"
+              - id: period
+                content: "`split()` 只按空格切，列表里的是 `\"Anna.\"`，带着句点，和 `\"Anna\"` 不是同一个字符串"
+              - id: twice
+                content: “Anna”已经在第 1 行被数过，不会再数一次
+            key: period
+        explanation: |
+          依次显示 **3、2、0**。
+
+          字符串的 `count` 按字面找“Ann”：两个 Ann 各一处，“Anna”的前三个字母也是一处，共 3。`note.split()` 得到 `['Ann', 'met', 'Anna.', 'Ann', 'smiled.']`，列表的 `count` 要整个元素完全相同才算：两个 `'Ann'` 算，`'Anna.'` 不算，所以是 2。同理，列表里没有恰好等于 `'Anna'` 的元素——那个元素带着句点，是 `'Anna.'`——所以是 0。
+        verify: |
+          shown = repl()
+          words = note.split()
+          holds = {
+              "period": "Anna." in words and "Anna" not in words,
+              "case": note.count("ann") == note.count("Ann") and "ann" in note,
+              "twice": False,
+          }
+          true = [option for option, ok in holds.items() if ok]
+          answers = {"c1": shown[0], "c3": shown[2], "c4": shown[3], "why": true[0] if len(true) == 1 else true}
+      - id: py47.k1.r2
+        kind: [modify]
+        uses: [py36.k1, py35.k1, py35.k3]
+        body: |
+          日记 `lines` 是一个列表，每个元素是一行字。把下面的代码块排成程序：数出有几行提到了 `name`（同一行提到两次也只算 1 行），最后显示这个数。拖动时也要排好缩进。不是每一块都要用。
+        slots:
+          - id: program
+            type: order
+            partial: true
+            indent: 2
+            items:
+              - { id: count, code: n = n + line.count(name) }
+              - { id: show, code: print(n) }
+              - { id: loop, code: "for line in lines:" }
+              - { id: add, code: n = n + 1 }
+              - { id: init, code: n = 0 }
+              - { id: check, code: "if name in line:" }
+              - { id: length, code: n = len(lines) }
+            key: [init, loop, check, add, show]
+            indents: { init: 0, loop: 0, check: 1, add: 2, show: 0, count: 2, length: 0 }
+            tests:
+              - name: 一行里提到两次
+                setup: |
+                  lines = ["今天见到阿木", "阿木说阿木的狗丢了", "晚上下雨"]
+                  name = "阿木"
+                stdout: "2"
+              - name: 没有一行提到
+                hidden: true
+                setup: |
+                  lines = ["下雨", "又下雨"]
+                  name = "阿木"
+                stdout: "0"
+              - name: 换一个名字
+                hidden: true
+                setup: |
+                  lines = ["小满来了", "小满和小满的妹妹", "阿木", "小满"]
+                  name = "小满"
+                stdout: "3"
+        explanation: |
+          ```python
+          n = 0
+          for line in lines:
+              if name in line:
+                  n = n + 1
+          print(n)
+          ```
+
+          `n = 0` 放在循环前面，只做一次；`if` 缩进在循环里，加 1 再缩进一层，只在这一行提到名字时执行；`print` 不缩进，循环结束后显示一次。“n = n + line.count(name)”数的是出现次数，第二行提到两次会加 2；“n = len(lines)”数的是总行数。
+    quiz:
+      - id: py47.k1.x1
+        kind: [predict]
+        uses: [py36.k1, py35.k3]
+        data: [story_lin]
+        body: |
+          要数出“舟儿”在 `text` 里一共出现几次，同一句里出现两次算两次。哪一段代码把正确的次数放进了 `n`？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: per_sentence
+                content: |
+                  ```python
+                  n = 0
+                  for s in text.split("。"):
+                      if "舟儿" in s:
+                          n = n + 1
+                  ```
+              - id: split_len
+                content: |
+                  ```python
+                  n = len(text.split("舟儿"))
+                  ```
+              - id: summed
+                content: |
+                  ```python
+                  n = 0
+                  for s in text.split("。"):
+                      n = n + s.count("舟儿")
+                  ```
+              - id: one_char
+                content: |
+                  ```python
+                  n = text.count("舟")
+                  ```
+            key: summed
+        explanation: |
+          把每句的 `count` 加起来的那一段正确，n 是 2。“娘喊舟儿快回来，舟儿！”是同一句，里面有两处“舟儿”：按句子加 1 的那段只得到 1；按“舟儿”切开会切成 3 段，比出现次数多 1；只数“舟”这一个字，连“林舟”“小舟”“林舟渡”都算进去，得到 7。
+        verify: |
+          import re
+          expected = len(re.findall("舟儿", text))
+          fits = [option for option, code in OPTIONS["program"].items() if run(code)["n"] == expected]
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+      - id: py47.k1.x2
+        kind: [trace]
+        uses: [py35.k2, py35.k3]
+        body: |
+          按循环的顺序，填写每一轮 `line.count("山")` 的值和这一轮结束后 `n` 的值，再回答两个问题。
+
+          ```python
+          lines = ["山前有座庙", "庙后山连山", "下山的路"]
+          n = 0
+          for line in lines:
+              n = n + line.count("山")
+          print(n)
+          ```
+        slots:
+          - id: rounds
+            type: table
+            columns:
+              - { id: line, header: 这一轮的 line }
+              - { id: found, header: '`line.count("山")`', input: integer }
+              - { id: n, header: 这一轮结束后的 n, input: integer }
+            rows:
+              - { id: l1, cells: { line: 山前有座庙, found: 1, n: 1 } }
+              - { id: l2, cells: { line: 庙后山连山, found: 2, n: 3 } }
+              - { id: l3, cells: { line: 下山的路, found: 1, n: 4 } }
+          - id: output
+            type: text
+            format: integer
+            prompt: 最后显示什么？
+            key: 4
+          - id: lines_with
+            type: text
+            format: integer
+            prompt: 三行里有几行提到了“山”？
+            key: 3
+        explanation: |
+          每一轮的次数是 **1、2、1**，n 依次是 **1、3、4**，最后显示 **4**。第二行“庙后山连山”里有两个“山”，这一轮加 2。
+
+          提到“山”的行有 **3** 行。4 是出现次数，3 是行数：这个循环把每行的次数加起来，所以数的是前者。
+        verify: |
+          lines = run()["lines"]
+          n = 0
+          rows = {}
+          for i, line in enumerate(lines, 1):
+              found = line.count("山")
+              n = n + found
+              rows[f"l{i}"] = {"found": found, "n": n}
+          answers = {
+              "rounds": rows,
+              "output": int(run().out),
+              "lines_with": len([line for line in lines if "山" in line]),
+          }
+
   - id: py47.k2
     title: 区分字符串出现与人物身份，规定别名和误匹配范围
+    card:
+      name: 别名与误匹配
+      aliases: [人物计数规则, 排除词]
+      definition: 数人物不等于数字符串：先写明哪些叫法算这个人、哪些包含这些字的更长的词不算、按次数还是按句子数，程序再照规则数。
+      conditions:
+        - 名字可能藏在别的词里：“沈青山”里也有“沈青”，count 照样数它。
+        - 同一个词可能有别的意思（“木头”是外号还是木料），程序分不出时，规则里要写明怎样处理。
+      example:
+        from: py47.k2.e0
+        text: |
+          规则“沈青、青儿算；沈青山不算”：
+          ```python
+          person = text.count("沈青") - text.count("沈青山") + text.count("青儿")
+          ```
+          4 - 2 + 1 = 3：先数字面，减去藏在“沈青山”里的，再加上别名。
+    lesson: |
+      程序数的是字，你关心的是人。两者至少有三处对不上：
+
+      - **一个人有几种叫法**：沈青，娘叫她“青儿”。只数“沈青”会漏掉。
+      - **名字藏在别的词里**：“沈青山”是她叔叔，`count("沈青")` 照样把他数进去；只数一个“青”字，连“青石桥”也算上。
+      - **数的单位**：数出现几次，还是数提到她的句子有几句。
+
+      所以写代码之前，先把规则写清楚：哪些叫法算这个人；哪些包含这些字的更长的词不算；按次数还是按句子数。规则定了，程序才有确定的做法。例如“沈青、青儿算；沈青山不算；按次数”可以写成：
+
+      ```python
+      person = text.count("沈青") - text.count("沈青山") + text.count("青儿")
+      ```
+
+      先数字面，减去不该算的，再加上别名。也可以先用 `replace` 把“沈青山”换成别的字，再在换过的文字里数：`text.replace("沈青山", "某人").count("沈青")`。这时要记得后面的 `count` 是对换过的文字做的。
+
+      有些情况规则也说不清：“木头”可能是人的外号，也可能就是一根木头。程序分不出这种意思，规则里要写明怎样处理，例如“只在作称呼时算，逐处人工核对”。
+    example:
+      id: py47.k2.e0
+      kind: [predict, explain]
+      uses: [py37.k1, py37.k2]
+      data: [story]
+      body: |
+        规则：沈青的叫法有“沈青”“青儿”两种；“沈青山”是她叔叔，不算沈青；一句里出现两次算两次。先把三个字面次数并排放进字典里看，再按规则算。
+
+        ```python
+        counts = {"沈青": text.count("沈青"), "青儿": text.count("青儿"), "沈青山": text.count("沈青山")}
+        person = counts["沈青"] - counts["沈青山"] + counts["青儿"]
+        print(person)
+        ```
+      slots:
+        - id: counts
+          type: table
+          label: counts 里的值
+          columns:
+            - { id: key, header: 键 }
+            - { id: value, header: 值, input: integer }
+          rows:
+            - { id: shen, cells: { key: 沈青, value: 4 } }
+            - { id: er, cells: { key: 青儿, value: 1 } }
+            - { id: shan, cells: { key: 沈青山, value: 2 } }
+        - id: person
+          type: text
+          format: integer
+          prompt: 程序显示什么？
+          key: 3
+        - id: why
+          type: choice
+          prompt: 为什么要减去 `counts["沈青山"]`？
+          options:
+            - id: alias
+              content: “沈青山”是沈青的另一种叫法
+            - id: duplicate
+              content: “沈青山”在文中出现了两次，要去掉重复的一次
+            - id: inside
+              content: “沈青山”里含有“沈青”两个字，`count("沈青")` 把它也数了进去
+          key: inside
+      explanation: |
+        counts 里是 **沈青 4、青儿 1、沈青山 2**，程序显示 **3**。
+
+        “沈青”的 4 处里，有 2 处其实是“沈青山”的前两个字，按规则不算，所以减去 2；娘喊的“青儿”是沈青，加上 1。4 - 2 + 1 = 3，对应原文里“沈青推开院门”“喊青儿”“沈青应了一声”这三处。
+      verify: |
+        r = run()
+        counts = r["counts"]
+        cleaned = text.replace("沈青山", "")
+        holds = {
+            "inside": "沈青" in "沈青山" and cleaned.count("沈青") == counts["沈青"] - counts["沈青山"],
+            "alias": False,
+            "duplicate": False,
+        }
+        true = [option for option, ok in holds.items() if ok]
+        answers = {
+            "counts": {"shen": {"value": counts["沈青"]}, "er": {"value": counts["青儿"]}, "shan": {"value": counts["沈青山"]}},
+            "person": int(r.out),
+            "why": true[0] if len(true) == 1 else true,
+        }
+    practice:
+      - id: py47.k2.q1
+        kind: [predict, specify]
+        data: [story]
+        body: |
+          同一段文字，按下面四种规则分别数，各得几次？都按出现次数数。
+        slots:
+          - id: rules
+            type: table
+            columns:
+              - { id: rule, header: 规则 }
+              - { id: count, header: 次数, input: integer }
+            rows:
+              - { id: literal, cells: { rule: 只数“沈青”两个字连着出现的地方, count: 4 } }
+              - { id: excluded, cells: { rule: 数“沈青”，但“沈青山”里的不算, count: 2 } }
+              - { id: person, cells: { rule: 数“沈青”和“青儿”，“沈青山”里的不算, count: 3 } }
+              - { id: char, cells: { rule: 只数“青”这一个字, count: 6 } }
+        explanation: |
+          依次是 **4、2、3、6**。
+
+          同一段文字，规则不同，数出来的就不同。只有第三条符合“数沈青这个人”：它排除了叔叔“沈青山”，又加上了娘喊的“青儿”。只数一个“青”字时，连“青石桥”都算进去了。
+        verify: |
+          import re
+          answers = {"rules": {
+              "literal": {"count": len(re.findall("沈青", text))},
+              "excluded": {"count": len(re.findall("沈青(?!山)", text))},
+              "person": {"count": len(re.findall("沈青(?!山)|青儿", text))},
+              "char": {"count": len(re.findall("青", text))},
+          }}
+      - id: py47.k2.q2
+        kind: [debug, modify]
+        uses: [py05.k2, py05.k3]
+        data: [story]
+        body: |
+          规则：沈青的叫法是“沈青”“青儿”；“沈青山”是她叔叔，不算；按出现次数数。
+
+          同事的代码先把“沈青山”替换掉了，可结果还是不对。请改正它，结果仍放在 `total` 里。这条规则只针对这几个名字，名字可以直接写在代码里；但换一段文字，代码也要照这条规则数对。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              cleaned = text.replace("沈青山", "某人")
+              total = text.count("沈青") + text.count("青儿")
+            solution: |
+              cleaned = text.replace("沈青山", "某人")
+              total = cleaned.count("沈青") + cleaned.count("青儿")
+            accepts:
+              - total = text.count("沈青") - text.count("沈青山") + text.count("青儿")
+            rejects:
+              - code: |
+                  cleaned = text.replace("沈青山", "某人")
+                  total = cleaned.count("沈青")
+                why: 漏了别名“青儿”
+              - code: total = 3
+                why: 照这段文字写死了结果
+              - code: total = text.count("青")
+                why: 只数一个“青”字，把桥名和叔叔都算进去
+              - code: |
+                  cleaned = text.replace("沈青", "某人")
+                  total = cleaned.count("沈青") + cleaned.count("青儿")
+                why: 把沈青本人也替换掉了
+            tests:
+              - name: 题面这段文字
+                expect:
+                  total: "3"
+              - name: 换一段文字
+                hidden: true
+                data: [story2]
+                expect:
+                  total: "5"
+        explanation: |
+          替换之后要在**换过的文字** `cleaned` 里数，原来的 `text` 并没有被改动（字符串不能原地改写，`replace` 交回的是一份新的文字）：
+
+          ```python
+          cleaned = text.replace("沈青山", "某人")
+          total = cleaned.count("沈青") + cleaned.count("青儿")
+          ```
+
+          写成 `total = text.count("沈青") - text.count("沈青山") + text.count("青儿")` 也对。本例 total 是 3；判分时还会换一段“沈青山”出现次数不同的文字。
+      - id: py47.k2.q3
+        kind: [specify]
+        data: [story_mu]
+        body: |
+          你想请 AI 帮你数“阿木”在这段文字里被提到了几次。娘喊他“木头”；村口的“阿木叔”是另一个人；文中的“木头”有的是外号，有的是真的木头。
+
+          写一条规则，让别人照做能得到同一个数。至少写清：① 哪些叫法算阿木；② 哪些包含这些字的词或别的意思不算，分不清的怎样处理；③ 按出现次数还是按句子数。
+        slots:
+          - id: rule
+            type: text
+            lines: 5
+            rubric:
+              - id: names
+                label: 哪些叫法算阿木
+                guide: 写出“阿木”和作称呼的“木头”。只写“阿木”也可以，但要明确说外号不算。
+              - id: exclude
+                label: 排除与分不清的情况
+                guide: 写明“阿木叔”不算；写明作木料讲的“木头”不算，或者说明这类要逐处人工判断。只说“排除无关的”不算。
+              - id: unit
+                label: 计数单位
+                guide: 明确按出现次数（一句两次算两次）或按句子数。
+        explanation: |
+          一种写法：**“阿木”和娘作称呼用的“木头”都算阿木；“阿木叔”是另一个人，不算；当木料讲的“木头”不算，这类程序分不出，要逐处人工看；按出现次数数，一句里出现两次算两次。**
+
+          照这条规则，本段是 3 次：“阿木扛着”“木头，先吃饭”“阿木放下”。其他写法只要三项都说清、别人照做得到同一个数，也成立。注意“木头”这种一词两义的情况，`count` 一定会把三处“木头”都数进去，规则里必须交代。
+    review:
+      - id: py47.k2.r1
+        kind: [predict, specify]
+        data: [story_lin]
+        body: |
+          规则：林舟的叫法是“林舟”“舟儿”；“林舟渡”是村名，不算；“小舟”是船，不算；按出现次数数。
+        slots:
+          - id: literal
+            type: text
+            format: integer
+            prompt: '`text.count("林舟")` 是多少？'
+            key: 3
+          - id: person
+            type: text
+            format: integer
+            prompt: 按规则，林舟一共被提到几次？
+            key: 4
+          - id: wrong
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 如果只数“舟”这一个字，会把下面哪些也数进去、而按规则不该算？选出所有。
+            options:
+              - { id: boat, content: “小舟” }
+              - { id: alias, content: “舟儿” }
+              - { id: village, content: “林舟渡” }
+              - { id: name, content: “林舟”（指人的那几处） }
+            key: [boat, village]
+        explanation: |
+          `text.count("林舟")` 是 **3**：“林舟把”“林舟听见”，还有“林舟渡”里的一处。按规则要去掉村名那一处，再加上两处“舟儿”：3 - 1 + 2 = **4**。
+
+          只数“舟”时，“小舟”和“林舟渡”都会被数进去，它们按规则不算；“舟儿”和指人的“林舟”本来就该算，不是误算。
+        verify: |
+          import re
+          aliases = ["林舟", "舟儿"]
+          excluded = ["林舟渡", "小舟"]
+          candidates = {"boat": "小舟", "alias": "舟儿", "village": "林舟渡", "name": "林舟"}
+          answers = {
+              "literal": len(re.findall("林舟", text)),
+              "person": len(re.findall("林舟(?!渡)|舟儿", text)),
+              "wrong": [option for option, word in candidates.items() if "舟" in word and word not in aliases],
+          }
+      - id: py47.k2.r2
+        kind: [modify]
+        uses: [py05.k2]
+        data: [story_lin]
+        body: |
+          规则：林舟的叫法是“林舟”“舟儿”；“林舟渡”是村名，不算；按出现次数数。把代码块排成程序，显示林舟被提到的次数。不是每一块都要用。
+        slots:
+          - id: program
+            type: order
+            partial: true
+            items:
+              - { id: raw, code: 'total = text.count("林舟") + text.count("舟儿")' }
+              - { id: show, code: print(total) }
+              - { id: replace, code: 'cleaned = text.replace("林舟渡", "某村")' }
+              - { id: wrong_replace, code: 'cleaned = text.replace("林舟", "某人")' }
+              - { id: total, code: 'total = cleaned.count("林舟") + cleaned.count("舟儿")' }
+            key: [replace, total, show]
+            tests:
+              - name: 题面这段文字
+                stdout: "4"
+              - name: 换一段村名出现两次的文字
+                hidden: true
+                setup: text = "林舟渡口有棵树。舟儿爬了上去。林舟渡的人都来看。"
+                stdout: "1"
+        explanation: |
+          ```python
+          cleaned = text.replace("林舟渡", "某村")
+          total = cleaned.count("林舟") + cleaned.count("舟儿")
+          print(total)
+          ```
+
+          先把村名换掉，再在换过的文字里数两种叫法。直接在 `text` 里数会把“林舟渡”也算进去，得到 5；把“林舟”换成“某人”则连林舟本人也换掉了。本例显示 4。
+    quiz:
+      - id: py47.k2.x1
+        kind: [predict, specify]
+        data: [story_zhou]
+        body: |
+          规则：周明的叫法是“周明”“明哥”；“周明德”是他父亲，不算；按出现次数数。
+        slots:
+          - id: sentences
+            type: table
+            prompt: 逐句判断：按规则，这一句提到周明了吗？
+            columns:
+              - { id: sentence, header: 句子 }
+              - { id: hit, header: 提到周明, input: bool }
+            rows:
+              - { id: s1, cells: { sentence: 周明德一早出门了, hit: false } }
+              - { id: s2, cells: { sentence: 明哥，明天还去河边吗, hit: true } }
+              - { id: s3, cells: { sentence: 周明点点头, hit: true } }
+              - { id: s4, cells: { sentence: 周明把网收好，等周明德回来, hit: true } }
+          - id: total
+            type: text
+            format: integer
+            prompt: 按规则，周明一共被提到几次？
+            key: 3
+          - id: one_char
+            type: text
+            format: integer
+            prompt: 如果只数“明”这一个字，得几次？
+            key: 6
+        explanation: |
+          逐句是 **否、是、是、是**，一共 **3** 次：“明哥”“周明点点头”“周明把网收好”。第一句只有父亲“周明德”；最后一句里的“周明德”不算，但同一句的“周明把网收好”算。
+
+          只数“明”会得到 **6**：两处“周明德”、“明哥”、“明天”和两处“周明”各有一个。“明天”和人没有关系，也被数了进去。
+        verify: |
+          import re
+          rule = "周明(?!德)|明哥"
+          sentences = [s for s in re.split("[。？]", text) if s]
+          answers = {
+              "sentences": {f"s{i}": {"hit": bool(re.search(rule, s))} for i, s in enumerate(sentences, 1)},
+              "total": len(re.findall(rule, text)),
+              "one_char": len(re.findall("明", text)),
+          }
+      - id: py47.k2.x2
+        kind: [debug]
+        uses: [py05.k2]
+        data: [story_zhou]
+        body: |
+          规则：周明的叫法是“周明”“明哥”；“周明德”是他父亲，不算；按出现次数数。哪一段代码按这条规则把次数放进了 `total`？换一段文字也要数对。
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: no_exclude
+                content: |
+                  ```python
+                  total = text.count("周明") + text.count("明哥")
+                  ```
+              - id: one_char
+                content: |
+                  ```python
+                  total = text.count("明")
+                  ```
+              - id: wrong_replace
+                content: |
+                  ```python
+                  cleaned = text.replace("周明", "某人")
+                  total = cleaned.count("周明德") + cleaned.count("明哥")
+                  ```
+              - id: rule
+                content: |
+                  ```python
+                  cleaned = text.replace("周明德", "某人")
+                  total = cleaned.count("周明") + cleaned.count("明哥")
+                  ```
+            key: rule
+        explanation: |
+          先把“周明德”换掉、再在换过的文字里数“周明”和“明哥”的那一段正确，本段得到 3。
+
+          没有排除的那段把父亲也算进去，得到 5；只数“明”连“明天”都算上，得到 6；把“周明”换掉的那段，连周明本人和“周明德”一起换成了“某人”，只剩“明哥”，得到 1。
+        verify: |
+          import re
+          rule = "周明(?!德)|明哥"
+          second = "周明来了。周明德也来了。明哥笑了。"
+          fits = [option for option, code in OPTIONS["program"].items()
+                  if run(code)["total"] == len(re.findall(rule, text))
+                  and run(code, text=second)["total"] == len(re.findall(rule, second))]
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
