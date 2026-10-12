@@ -195,6 +195,8 @@ agents: () => [{
 
 前端在 `initialize` 的 `capabilities` 里声明 `interaction: { vocabulary, supports }` 和 `services`，服务端按连接保存。后端据此不把前端不认识的题交给它：`ask` 直接比对声明，插件方法从调用上下文读取。
 
+发送方按当前词汇严格校验，前端读取时则要宽松：词汇只增不改，新版本加了字段，旧前端不能因此读不了题。前端用 `readItem`、`readFeedback`、`readSubmitResult` 读取题目、反馈和提交结果，例如解析 `plugin.call` 返回的题目。认识的字段照常检查类型，类型不对时读取失败；不认识的字段丢掉；读不懂的作答位和内容块连同所在的一项丢掉，并把 `slot.<type>`、`block.<type>` 补进 `requires`。反馈里不认识的 `verdict` 读成 `ungraded`，按中性显示；不认识的 `judge` 不标来源。长度和个数的上限读取时不查，放宽上限的题目同样经 `requires` 拦下。这样词汇加了可以忽略的字段，旧前端照常显示；加了必须理解的特性，`canRender` 判为不能作答。`RepaClient` 收到 `ask.request` 时信封仍严格校验，题目按 `readItem` 读取；`ask.reply` 的结果按 `readSubmitResult` 读取。
+
 **对话里的询问。** 工具执行上下文多了 `ask`：
 
 ```ts
@@ -209,6 +211,8 @@ async execute(input, context) {
 ```
 
 `toPublic` 和 `grade` 由插件实现。底座按词汇校验题目、算出 `requires`，没有 `version` 时对公开内容计算；手写的 `requires` 与结构不符、id 重复或单元格引用不存在的列时以 `invalid_item` 拒绝。询问只发给发起这次运行的连接；它没有声明所需能力时不发送，直接得到 `unsupported`。作答先经 `checkResponse`，不合格时前端收到 `rejected`，不调用 `evaluate`。`evaluate` 在提问时的运行上下文里执行：带命令行的运行持有空间写锁等待回答，判分在别处写文件会和它互相等待；在这里写入则记在这次运行名下。没有发起连接时 `ask` 以 `ask_unavailable` 拒绝；运行中止、断线和空间关闭分别以 `ask_cancelled` 拒绝，`details.reason` 为 `aborted`、`disconnected`、`closed`。默认不设超时。
+
+测验这类限制由插件通过 `beforeMessage`、自己的触发时机和 Agent 定义来保证，底座不另设询问的判断入口：测验期间用户的消息被 `beforeMessage` 拒收，辅导会话就不会运行；后台 Agent 什么时候启动、带不带 `ask_user` 由插件决定；测验开始前插件中止进行中的辅导运行，在途的询问随运行一起取消。
 
 底座内置的 `ask_user` 让 Agent 直接提问：参数是 1–4 个问题，每个问题有选项（选择）或输入方式（`text`、`longText`、`number`），没有答案字段，多带字段由 Pi 的参数校验拒绝。回答以“问题 → 选择或填写的内容”交回模型；用户不按卡片作答时附的一句话原样交回，关闭询问、界面无法显示和断线也都写成工具结果，模型据此改用文字交流。
 
@@ -258,7 +262,7 @@ async execute(input, context) {
 
 ## 协议入口
 
-协议版本为 `2`，采用带令牌的 JSON-RPC 2.0 WebSocket。参数、响应与通知类型见 [`protocol.ts`](src/protocol.ts)。`2` 在 `initialize` 里增加可选的 `capabilities`，新增询问和服务两组消息；客户端严格校验已有消息，所以给已有消息加字段要升版本。
+协议版本为 `2`，采用带令牌的 JSON-RPC 2.0 WebSocket。参数、响应与通知类型见 [`protocol.ts`](src/protocol.ts)。`2` 在 `initialize` 里增加可选的 `capabilities`，新增询问和服务两组消息。客户端严格校验消息的信封，所以给信封加字段要升版本；信封里的题目和反馈按词汇规则宽松读取，词汇加字段不用升协议版本。后端发来无效数据时，客户端以 4002 主动断开。
 
 | 组 | 方法 |
 | --- | --- |

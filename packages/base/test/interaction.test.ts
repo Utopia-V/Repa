@@ -9,6 +9,9 @@ import {
   INTERACTION_CAPABILITIES,
   INTERACTION_VOCABULARY,
   ItemSchema,
+  readFeedback,
+  readItem,
+  readSubmitResult,
   requiredCapabilities,
   SubmitResultSchema,
   type Answer,
@@ -240,4 +243,111 @@ test("“不会”是正式作答：可以不填任何作答位，结构问题�
   assert.deepEqual(problemsOf(mixed, respond(mixed, { pick: { type: "choice", selected: ["z"] } }, { dontKnow: true })).map(problem => problem.slot), ["pick"]);
   const mask = await item(maskDraft);
   assert.deepEqual(checkResponse(mask, respond(mask, { mask: { type: "table", cells: { r31: { mask: { type: "choice", selected: ["true"] } } } } }, { dontKnow: true })), { ok: true });
+});
+
+// 第一版前端声明全部能力。
+const V1 = { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] };
+
+test("前端宽松读取题目：多出不认识的可选字段时丢掉，旧前端照常显示", async () => {
+  const mask = await item(maskDraft);
+  const table = mask.slots[0];
+  assert(table?.type === "table");
+  // 较新词汇在题目、内容块、作答位、行和输入格上加的可以忽略的字段。
+  const newer: unknown = {
+    ...mask,
+    hint: "先看第 2 行",
+    body: mask.body.map((block) => ({ ...block, caption: "题干" })),
+    slots: [{
+      ...table,
+      striped: true,
+      rows: table.rows.map((row) => ({ ...row, note: "说明", cells: { ...row.cells, mask: { input: { ...BOOL, style: "toggle" } } } })),
+    }],
+  };
+  const read = readItem(newer);
+  assert.deepEqual(read, { ok: true, value: mask });
+  assert.ok(read.ok && canRender(V1, read.value));
+  // 不认识的 layout 这类呈现提示同样丢掉，按默认布局显示。
+  const mixed = await item(mixedDraft);
+  const pick = mixed.slots[2];
+  assert(pick?.type === "choice");
+  const laidOut = readItem({ ...mixed, slots: mixed.slots.map((slot) => slot.id === "pick" ? { ...pick, layout: "grid" } : slot) });
+  assert.deepEqual(laidOut, { ok: true, value: mixed });
+});
+
+test("前端宽松读取题目：多出必须理解的特性时，按 requires 判为不能作答", async () => {
+  const mask = await item(maskDraft);
+  const table = mask.slots[0];
+  assert(table?.type === "table");
+  // 草案预计的新特性：学生自己增删行。旧前端读不懂 dynamicRows，requires 里的名字也不在它的声明里。
+  const dynamic = readItem({ ...mask, requires: [...mask.requires, "table.dynamicRows"], slots: [{ ...table, dynamicRows: true }] });
+  assert.ok(dynamic.ok);
+  assert.deepEqual(dynamic.value.slots, mask.slots);
+  assert.ok(dynamic.value.requires.includes("table.dynamicRows"));
+  assert.equal(canRender(V1, dynamic.value), false);
+  // 新的作答位读不懂，连同它丢掉；发送方漏写 requires 时由读取补上，照样不能作答。
+  for (const requires of [[...mask.requires, "slot.graph"], mask.requires]) {
+    const read = readItem({ ...mask, requires, slots: [...mask.slots, { id: "plot", type: "graph", axes: 2 }] });
+    assert.ok(read.ok);
+    assert.deepEqual(read.value.slots.map((slot) => slot.id), ["mask"]);
+    assert.ok(read.value.requires.includes("slot.graph"));
+    assert.equal(canRender(V1, read.value), false);
+  }
+  // 新的内容块同理。
+  const video = readItem({ ...mask, body: [...mask.body, { type: "video", asset: "clip" }] });
+  assert.ok(video.ok);
+  assert.deepEqual(video.value.body, mask.body);
+  assert.ok(video.value.requires.includes("block.video"));
+  assert.equal(canRender(V1, video.value), false);
+});
+
+test("前端宽松读取时，认识的字段类型不对照样失败", async () => {
+  const mask = await item(maskDraft);
+  const table = mask.slots[0];
+  assert(table?.type === "table");
+  assert.deepEqual(readItem({ ...mask, id: 5 }), { ok: false, path: "/id" });
+  assert.deepEqual(readItem({ ...mask, body: undefined }), { ok: false, path: "/body" });
+  assert.deepEqual(readItem({ ...mask, slots: [{ ...table, rows: "r31" }] }), { ok: false, path: "/slots/0/rows" });
+  assert.deepEqual(readItem({ ...mask, slots: [{ ...table, type: 5 }] }), { ok: false, path: "/slots/0/type" });
+  assert.deepEqual(readItem({ ...mask, slots: [{ ...table, optional: "否" }] }), { ok: false, path: "/slots/0/optional" });
+  assert.deepEqual(readItem("不是题目"), { ok: false, path: "" });
+  assert.deepEqual(readFeedback({ item: { id: mask.id, version: mask.version }, verdict: 3 }), { ok: false, path: "/verdict" });
+});
+
+test("前端宽松读取反馈和提交结果：不认识的字段与取值丢掉，verdict 按中性读成 ungraded", async () => {
+  const mixed = await item(mixedDraft);
+  const reference = { id: mixed.id, version: mixed.version };
+  const newer: unknown = {
+    item: reference,
+    verdict: "almost",
+    judge: "peer",
+    tone: "warm",
+    message: [{ type: "markdown", text: "差一点" }, { type: "video", asset: "explain" }],
+    slots: {
+      changes: {
+        verdict: "partial",
+        marks: { threshold: "correct", order: "half" },
+        tests: [{ name: "公开用例", result: "passed" }, { name: "新用例", result: "skipped" }],
+        criteria: [{ label: "阈值", met: "yes" }, { label: "顺序", met: "mostly" }],
+        expected: { type: "graph", points: [] },
+        highlight: true,
+      },
+    },
+  };
+  const expected = {
+    item: reference,
+    verdict: "ungraded",
+    message: [{ type: "markdown", text: "差一点" }],
+    slots: {
+      changes: {
+        verdict: "partial",
+        marks: { threshold: "correct" },
+        tests: [{ name: "公开用例", result: "passed" }],
+        criteria: [{ label: "阈值", met: "yes" }],
+      },
+    },
+  };
+  assert.deepEqual(readFeedback(newer), { ok: true, value: expected });
+  assert.deepEqual(readSubmitResult({ status: "recorded", feedback: newer, attempt: 2 }), { ok: true, value: { status: "recorded", feedback: expected } });
+  assert.deepEqual(readSubmitResult({ status: "rejected", problems: [{ slot: "count", message: "太长", code: "too_long" }] }), { ok: true, value: { status: "rejected", problems: [{ slot: "count", message: "太长" }] } });
+  assert.equal(readSubmitResult({ status: "queued" }).ok, false);
 });

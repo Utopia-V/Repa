@@ -6,7 +6,8 @@
  *
  * 版本规则：词汇只增不改。已有类型名、字段含义、默认值和作答格式不改；新增作答位、影响题意的内容块
  * 和忽略后会改变题意的特性进 Item.requires；可以忽略的呈现提示直接加。每次新增把
- * INTERACTION_VOCABULARY 加一。发送方按当前版本严格校验，多余字段直接拒绝。
+ * INTERACTION_VOCABULARY 加一。发送方按当前版本严格校验，多余字段直接拒绝；前端用 readItem、readFeedback
+ * 宽松读取，丢掉不认识的字段，再按 requires 决定能不能作答。
  *
  * 本文件经 @repa/base/protocol 与 @repa/base/plugin 导出，保持浏览器可用。
  */
@@ -334,6 +335,8 @@ export const AskRequestSchema = object({
   item: ItemSchema,
 });
 export type AskRequest = Static<typeof AskRequestSchema>;
+// ask.request 的信封：除题目外都严格校验，题目交给 readItem。
+const AskEnvelopeSchema = object({ ...AskRequestSchema.properties, item: Type.Unknown() });
 
 /**
  * 通知 ask.closed：询问已经结束，前端收起卡片。answered 为提交或拒绝作答，cancelled 为前端关闭或无法显示，
@@ -585,4 +588,200 @@ export function checkResponse(item: Item, response: ItemResponse): CheckResult {
   }
   if (problems.length === 0) return { ok: true };
   return { ok: false, problems: problems.slice(0, MAX_PROBLEMS) };
+}
+
+// ---------------------------------------------------------------------------
+// 前端的宽松读取
+// ---------------------------------------------------------------------------
+// 词汇只增不改：新版本可以给题目和反馈加可选字段，也可以加作答位、内容块这类必须理解的特性，
+// 后者一定进 requires。旧前端如果严格校验，词汇每加一个字段就读不了题；所以前端读的时候认识的字段照常查类型，
+// 不认识的字段丢掉，读不懂的部分连同它所在的那一项丢掉，再按 requires 决定能不能作答。
+// 长度、个数这类上限读取时不查：放宽上限也属于必须理解的变化，同样经 requires 拦下。
+
+/** 读取结果。失败时 path 指向第一个读不了的位置，例如 /slots/0/options。 */
+export type ReadResult<T> = { ok: true; value: T } | { ok: false; path: string };
+
+// TypeBox 1.x 的 schema 就是普通的 JSON Schema；读取只用到下面这些关键字。
+interface JsonSchema {
+  type?: string;
+  const?: unknown;
+  anyOf?: JsonSchema[];
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  patternProperties?: Record<string, JsonSchema>;
+  items?: JsonSchema;
+}
+
+// TSchema 的类型不暴露这些关键字；只在读取的入口转换一次。
+const json = (schema: unknown) => schema as JsonSchema;
+
+/** 读不懂、要丢掉的值。它向上传到能丢掉它的那一层：可选字段、数组元素或映射里的一项。 */
+const DROP = Symbol("drop");
+
+class Unreadable extends Error {
+  constructor(readonly path: string) {
+    super(`读不了 ${path || "/"}`);
+  }
+}
+
+interface ReadContext {
+  /** 读题目时收集读不懂的作答位和内容块对应的能力名；读反馈时没有。 */
+  needs?: Set<string>;
+}
+
+/** 联合各分支的判别值。Type.Optional 会复制 schema，所以按判别值认出联合，不比对象身份。 */
+function discriminants(union: JsonSchema): string {
+  return (union.anyOf ?? []).map((variant) => String(variant.const ?? variant.properties?.type?.const)).join("|");
+}
+
+const BLOCK_TYPES = discriminants(json(BlockSchema));
+const SLOT_TYPES = discriminants(json(SlotSchema));
+const VERDICTS = discriminants(json(VerdictSchema));
+
+function plain(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function matches(type: string | undefined, value: unknown): boolean {
+  switch (type) {
+    case undefined: return true;
+    case "string": return typeof value === "string";
+    case "number": return typeof value === "number" && Number.isFinite(value);
+    case "integer": return Number.isInteger(value);
+    case "boolean": return typeof value === "boolean";
+    case "null": return value === null;
+    case "array": return Array.isArray(value);
+    case "object": return plain(value);
+    default: return false;
+  }
+}
+
+/** 某个分支是否认领这个值：有判别字段时看判别值，没有时看必需字段是否都在。 */
+function claims(variant: JsonSchema, value: Record<string, unknown>): boolean {
+  const required = variant.required ?? [];
+  const keys = required.filter((key) => variant.properties?.[key]?.const !== undefined);
+  if (keys.length > 0) return keys.every((key) => value[key] === variant.properties?.[key]?.const);
+  return required.every((key) => Object.hasOwn(value, key));
+}
+
+function readUnion(schema: JsonSchema, value: unknown, path: string, context: ReadContext): unknown {
+  const variants = schema.anyOf ?? [];
+  if (variants.every((variant) => variant.const !== undefined)) {
+    if (variants.some((variant) => variant.const === value)) return value;
+    if (!variants.some((variant) => matches(variant.type, value))) throw new Unreadable(path);
+    // 不认识的 verdict 按中性显示：读成 ungraded，界面不标对错，只显示说明。其余取值连同所在的一项丢掉，
+    // 例如不认识的 judge 不标来源，不认识的 layout 用默认布局。
+    return discriminants(schema) === VERDICTS ? "ungraded" : DROP;
+  }
+  if (!plain(value)) throw new Unreadable(path);
+  const claimed = variants.find((variant) => claims(variant, value));
+  if (claimed !== undefined) return readValue(claimed, value, path, context);
+  const type = value.type;
+  const discriminated = variants.every((variant) => variant.properties?.type?.const !== undefined);
+  // 有判别字段的联合，判别值不是字符串就是类型不对；是字符串而读不懂，才是新版本加的分支。
+  if (discriminated && typeof type !== "string") throw new Unreadable(`${path}/type`);
+  const signature = discriminants(schema);
+  if (typeof type === "string" && signature === SLOT_TYPES && variants[0]?.properties?.id !== undefined) context.needs?.add(`slot.${type}`);
+  if (typeof type === "string" && signature === BLOCK_TYPES) context.needs?.add(`block.${type}`);
+  return DROP;
+}
+
+function readObject(schema: JsonSchema, value: unknown, path: string, context: ReadContext): unknown {
+  if (!plain(value)) throw new Unreadable(path);
+  const required = new Set(schema.required ?? []);
+  const result: Record<string, unknown> = {};
+  for (const [key, property] of Object.entries(schema.properties ?? {})) {
+    const member = Object.hasOwn(value, key) ? value[key] : undefined;
+    if (member === undefined) {
+      if (required.has(key)) throw new Unreadable(`${path}/${key}`);
+      continue;
+    }
+    const read = readValue(property, member, `${path}/${key}`, context);
+    if (read === DROP) {
+      // 必需的部分读不懂，这一项整个读不懂。
+      if (required.has(key)) return DROP;
+      continue;
+    }
+    result[key] = read;
+  }
+  return result;
+}
+
+function readRecord(schema: JsonSchema, value: unknown, path: string, context: ReadContext): unknown {
+  if (!plain(value)) throw new Unreadable(path);
+  const [entrySchema] = Object.values(schema.patternProperties ?? {});
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const read = entrySchema === undefined ? entry : readValue(entrySchema, entry, `${path}/${key}`, context);
+    if (read === DROP) continue;
+    // 键来自外部 JSON，可能是 __proto__；按普通成员写入，不改原型。
+    Object.defineProperty(result, key, { value: read, enumerable: true, writable: true, configurable: true });
+  }
+  return result;
+}
+
+function readValue(schema: JsonSchema, value: unknown, path: string, context: ReadContext): unknown {
+  if (schema.anyOf !== undefined) return readUnion(schema, value, path, context);
+  if (schema.const !== undefined) {
+    if (value !== schema.const) throw new Unreadable(path);
+    return value;
+  }
+  if (schema.type === "object") {
+    return schema.patternProperties === undefined ? readObject(schema, value, path, context) : readRecord(schema, value, path, context);
+  }
+  if (schema.type === "array") {
+    if (!Array.isArray(value)) throw new Unreadable(path);
+    const result: unknown[] = [];
+    value.forEach((entry: unknown, index) => {
+      const read = schema.items === undefined ? entry : readValue(schema.items, entry, `${path}/${index}`, context);
+      if (read !== DROP) result.push(read);
+    });
+    return result;
+  }
+  if (!matches(schema.type, value)) throw new Unreadable(path);
+  return value;
+}
+
+function read<T>(schema: unknown, value: unknown, context: ReadContext = {}): ReadResult<T> {
+  try {
+    const result = readValue(json(schema), value, "", context);
+    return result === DROP ? { ok: false, path: "" } : { ok: true, value: result as T };
+  } catch (error) {
+    if (error instanceof Unreadable) return { ok: false, path: error.path };
+    throw error;
+  }
+}
+
+/**
+ * 前端读取题目，例如插件方法返回的题目。认识的字段照常查类型，类型不对时读取失败；不认识的字段丢掉。
+ * 读不懂的作答位和内容块也丢掉，并把 slot.<type>、block.<type> 补进 requires；requires 还并上从结构算出的能力。
+ * 所以词汇加了可以忽略的字段，旧前端照常显示；加了必须理解的特性，canRender 判为不能作答。
+ */
+export function readItem(value: unknown): ReadResult<Item> {
+  const needs = new Set<string>();
+  const result = read<Item>(ItemSchema, value, { needs });
+  if (!result.ok) return result;
+  const requires = [...new Set([...result.value.requires, ...requiredCapabilities(result.value), ...needs])].sort();
+  return { ok: true, value: { ...result.value, requires } };
+}
+
+/**
+ * 前端读取反馈。规则同 readItem，但反馈没有 requires，读不懂的部分只是丢掉：不认识的 judge 不标来源，
+ * 不认识的 verdict 读成 ungraded、按中性显示 message；标记、用例结果和评分要点里不认识的取值连同那一项丢掉。
+ */
+export function readFeedback(value: unknown): ReadResult<Feedback> {
+  return read<Feedback>(FeedbackSchema, value);
+}
+
+/** 前端读取提交结果，例如插件方法返回的 SubmitResult；其中的反馈按 readFeedback 的规则读取。 */
+export function readSubmitResult(value: unknown): ReadResult<SubmitResult> {
+  return read<SubmitResult>(SubmitResultSchema, value);
+}
+
+/** 读取 ask.request：信封仍严格校验，里面的题目按 readItem 读取。 */
+export function readAskRequest(value: unknown): ReadResult<AskRequest> {
+  if (!Value.Check(AskEnvelopeSchema, value)) return { ok: false, path: "" };
+  const item = readItem(value.item);
+  if (!item.ok) return { ok: false, path: `/item${item.path}` };
+  return { ok: true, value: { ...value, item: item.value } };
 }

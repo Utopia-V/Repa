@@ -1,5 +1,7 @@
 import { Check } from "typebox/value";
 import {
+  lenientNotifications,
+  lenientResults,
   methods,
   notifications,
   PROTOCOL_VERSION,
@@ -8,6 +10,7 @@ import {
   type Notification,
   type NotificationParams,
   type Params,
+  type ReadResult,
   type Result,
 } from "./protocol.js";
 import { record } from "./protocol/json-rpc.js";
@@ -55,6 +58,19 @@ type Listener = (params: unknown) => void;
 // 后端发来无效数据时主动断开。浏览器的 WebSocket 只允许客户端用 1000 或 3000–4999 关闭，
 // 用 1002 会抛 InvalidAccessError，连接反而留着；所以用应用自定的 4002，与服务端的 4001 相邻。
 const INVALID_DATA = 4002;
+
+// 带题目或反馈的消息按协议登记的宽松规则读取，其余消息严格校验。
+function readNotification(method: Notification, params: unknown): ReadResult<unknown> {
+  const read = lenientNotifications[method];
+  if (read !== undefined) return read(params);
+  return Check(notifications[method], params) ? { ok: true, value: params } : { ok: false, path: "" };
+}
+
+function readResult(method: Method, result: unknown): ReadResult<unknown> {
+  const read = lenientResults[method];
+  if (read !== undefined) return read(result);
+  return Check(methods[method].result, result) ? { ok: true, value: result } : { ok: false, path: "" };
+}
 
 export class RepaClient {
   readonly #pending = new Map<string, Pending>();
@@ -202,9 +218,10 @@ export class RepaClient {
     if (typeof message.method === "string" && !Object.hasOwn(message, "id")) {
       if (!Object.hasOwn(notifications, message.method)) return;
       const method = message.method as Notification;
-      if (!Check(notifications[method], message.params)) return this.#invalidResponse();
+      const read = readNotification(method, message.params);
+      if (!read.ok) return this.#invalidResponse();
       for (const listener of this.#listeners.get(method) ?? []) {
-        listener(message.params);
+        listener(read.value);
       }
       return;
     }
@@ -216,12 +233,15 @@ export class RepaClient {
     const error = record(message.error);
     if (error && typeof error.code === "number" && typeof error.message === "string" && !Object.hasOwn(message, "result")) {
       pending.reject(new RpcError(error.code, error.message, error.data));
-    } else if (!Object.hasOwn(message, "error") && Check(methods[pending.method].result, message.result)) {
-      pending.resolve(message.result);
-    } else {
-      pending.reject(new ConnectionError("后端返回了无效响应。"));
-      this.#invalidResponse();
+      return;
     }
+    const read = Object.hasOwn(message, "error") ? undefined : readResult(pending.method, message.result);
+    if (read?.ok === true) {
+      pending.resolve(read.value);
+      return;
+    }
+    pending.reject(new ConnectionError("后端返回了无效响应。"));
+    this.#invalidResponse();
   }
 
   #invalidResponse(): void {

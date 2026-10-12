@@ -6,6 +6,9 @@ import {
   AskReplyResultSchema,
   AskRequestSchema,
   InteractionCapabilitiesSchema,
+  readAskRequest,
+  readSubmitResult,
+  type ReadResult,
 } from "./interaction.js";
 import {
   AgentEventSchema,
@@ -23,7 +26,8 @@ import {
 
 export * from "./schema.js";
 export * from "./interaction.js";
-// 2：initialize 增加 capabilities，新增 ask.* 与 service.*。客户端严格校验已有消息，加字段必须升版本。
+// 2：initialize 增加 capabilities，新增 ask.* 与 service.*。客户端严格校验已有消息的信封，加字段必须升版本；
+// 信封里的题目和反馈按词汇的规则宽松读取，见 lenientNotifications。
 export const PROTOCOL_VERSION = "2";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
@@ -116,6 +120,17 @@ export const notifications = {
   "service.closed": serviceClosed,
   "plugin.event": object({ pluginId: identifier, event: Type.Unknown() }),
 } as const;
+
+/**
+ * 接收方读取带题目或反馈的消息时，不整体严格校验：信封仍按 schema 严格校验，里面的题目和反馈按词汇的规则宽松读取。
+ * 这样词汇加了可选字段，旧前端照常显示；加了必须理解的特性，按 requires 判为不能作答。没有登记的消息照旧严格校验。
+ */
+export const lenientNotifications: Partial<Record<Notification, (params: unknown) => ReadResult<unknown>>> = {
+  "ask.request": readAskRequest,
+};
+export const lenientResults: Partial<Record<Method, (result: unknown) => ReadResult<unknown>>> = {
+  "ask.reply": (result) => result === null ? { ok: true, value: null } : readSubmitResult(result),
+};
 
 export type Method = keyof typeof methods;
 export type Params<M extends Method> = Static<(typeof methods)[M]["params"]>;
