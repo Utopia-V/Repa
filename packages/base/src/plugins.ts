@@ -1,4 +1,4 @@
-import type { AgentDefinition, Models, Plugin, Tool } from "./plugin.js";
+import type { AgentDefinition, MethodContext, Models, Plugin, Tool } from "./plugin.js";
 import type { Space } from "./space.js";
 
 export interface PluginHost {
@@ -9,7 +9,8 @@ export interface PluginHost {
   /** 全部插件声明的 Agent，按 id 排序；引用的工具与子 Agent 已在打开时核对。 */
   agents(): AgentDefinition[];
   views(): Promise<{ id: string; text: string }[]>;
-  call(pluginId: string, method: string, input: unknown): Promise<unknown>;
+  /** caller 是经协议发起调用的连接；方法声明了 result 时按它校验返回值。 */
+  call(pluginId: string, method: string, input: unknown, caller?: MethodContext["caller"]): Promise<unknown>;
   flush(): Promise<void>;
   close(): Promise<void>;
 }

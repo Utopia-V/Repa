@@ -1,5 +1,6 @@
 import { Type, type Static } from "typebox";
 import type { ChangeFeed, Revision, UndoResult } from "@repa/space-history";
+import { InteractionCapabilitiesSchema } from "./interaction.js";
 import {
   AgentEventSchema,
   AgentInfoSchema,
@@ -16,7 +17,19 @@ import {
 
 export * from "./schema.js";
 export * from "./interaction.js";
-export const PROTOCOL_VERSION = "1";
+// 2：initialize 增加 capabilities。客户端严格校验已有消息，加字段必须升版本。
+export const PROTOCOL_VERSION = "2";
+
+const serviceName = Type.String({ minLength: 1, maxLength: 64 });
+/**
+ * 连接在 initialize 里声明的能力：interaction 是能显示的作答位、内容块和特性，services 是能提供的服务，
+ * 例如浏览器隔离环境里的 python.run。服务端按连接保存；ask 只发给能显示那道题的连接，服务请求只发给声明了它的连接。
+ */
+export const ClientCapabilitiesSchema = object({
+  interaction: Type.Optional(InteractionCapabilitiesSchema),
+  services: Type.Optional(Type.Array(serviceName, { maxItems: 64 })),
+});
+export type ClientCapabilities = Static<typeof ClientCapabilitiesSchema>;
 const empty = object({});
 const nothing = Type.Null();
 const session = { sessionId: identifier };
@@ -37,7 +50,7 @@ const confirmationReply = Type.Union([Type.String(), Type.Boolean(), Type.Null()
 
 export const methods = {
   initialize: {
-    params: object({ token: identifier, version: Type.String() }),
+    params: object({ token: identifier, version: Type.String(), capabilities: Type.Optional(ClientCapabilitiesSchema) }),
     result: object({ version: Type.Literal(PROTOCOL_VERSION), serverId: identifier }),
   },
   "space.list": { params: empty, result: Type.Array(identifier) },

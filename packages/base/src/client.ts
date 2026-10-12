@@ -3,6 +3,7 @@ import {
   methods,
   notifications,
   PROTOCOL_VERSION,
+  type ClientCapabilities,
   type Method,
   type Notification,
   type NotificationParams,
@@ -18,6 +19,11 @@ export interface ClientConnection {
 
 export interface ClientOptions {
   requestTimeoutMs?: number;
+  /**
+   * 在 initialize 里声明的能力：能显示的作答位、内容块和特性，以及能提供的服务。
+   * 不声明时后端不向这个连接发询问和服务请求。
+   */
+  capabilities?: ClientCapabilities;
 }
 
 export class RpcError extends Error {
@@ -91,7 +97,11 @@ export class RepaClient {
     const client = new RepaClient(connection, options);
     try {
       await client.#open();
-      await client.#send("initialize", { token: connection.token, version: PROTOCOL_VERSION });
+      await client.#send("initialize", {
+        token: connection.token,
+        version: PROTOCOL_VERSION,
+        ...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
+      });
       client.#setReady(true);
       return client;
     } catch (error) {

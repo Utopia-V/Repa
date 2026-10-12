@@ -48,12 +48,12 @@ test("子笔记插件关闭等待迟到的整理句柄，取消后等待终态�
   assert.ok(organize);
   assert.ok(setStyle);
   const work = models.expectAgent({ cancel: "manual" });
-  const launching = organize.invoke({});
+  const launching = organize.invoke({}, {});
   await entered.promise;
   let stopped = false;
   const closing = child.close?.().then(() => { stopped = true; });
-  await assert.rejects(async () => organize.invoke({}), fault("plugin_closed"));
-  await assert.rejects(async () => setStyle.invoke({ style: "不应写入" }), fault("plugin_closed"));
+  await assert.rejects(async () => organize.invoke({}, {}), fault("plugin_closed"));
+  await assert.rejects(async () => setStyle.invoke({ style: "不应写入" }, {}), fault("plugin_closed"));
   created.resolve();
   await work.cancelRequested;
   assert.equal(stopped, false);
@@ -81,8 +81,8 @@ test("子笔记插件提前关闭取消未完成的改写和概括，停止自�
   assert.ok(summarize);
   const rewritePlan = testing.models.expectComplete();
   const summaryPlan = testing.models.expectStructured();
-  const rewriting = assert.rejects(rewrite.invoke({ text: "原文", style: "简短" }), { name: "AbortError" });
-  const summarizing = assert.rejects(summarize.invoke({ text: "原文" }), { name: "AbortError" });
+  const rewriting = assert.rejects(rewrite.invoke({ text: "原文", style: "简短" }, {}), { name: "AbortError" });
+  const summarizing = assert.rejects(summarize.invoke({ text: "原文" }, {}), { name: "AbortError" });
   const [rewriteRequest, summaryRequest] = await Promise.all([rewritePlan.requested, summaryPlan.requested]);
   await child.close?.();
   assert.equal(rewriteRequest.signal?.aborted, true);

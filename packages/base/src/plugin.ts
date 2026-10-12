@@ -1,9 +1,11 @@
 import type { Static, TSchema } from "typebox";
 import type { ActivitySource, ChangeFeed, Revision, Snapshot } from "@repa/space-history";
+import type { ClientCapabilities } from "./protocol.js";
 import type { MessageDecision, ModelRef } from "./schema.js";
 
 export type { MessageDecision, ModelRef } from "./schema.js";
 export type { ActivitySource, ChangeFeed, Revision } from "@repa/space-history";
+export type { ClientCapabilities } from "./protocol.js";
 // 交互词汇：题目、作答、反馈的 schema 与类型，以及 contentVersion 等纯函数。
 export * from "./interaction.js";
 
@@ -14,9 +16,16 @@ export interface Tool {
   execute(input: unknown, context: { signal: AbortSignal; callId: string }): Promise<{ text: string; data?: unknown }>;
 }
 
+export interface MethodContext {
+  /** 经协议调用时是发起调用的连接；capabilities 是它在 initialize 里的声明，挑题时用 canRender 过滤。 */
+  caller?: { capabilities: ClientCapabilities };
+}
+
 export interface PluginMethod {
   parameters: TSchema;
-  invoke(input: unknown): Promise<unknown>;
+  /** 返回值的 schema。宿主交回前按它校验，不符合时以 invalid_plugin_result 拒绝；严格对象能拦住多带的答案字段。 */
+  result?: TSchema;
+  invoke(input: unknown, context: MethodContext): Promise<unknown>;
 }
 
 export interface CompletionRequest {

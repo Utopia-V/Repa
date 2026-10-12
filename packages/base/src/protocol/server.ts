@@ -12,6 +12,7 @@ import {
   methods,
   notifications,
   PROTOCOL_VERSION,
+  type ClientCapabilities,
   type Method,
   type Notification,
   type NotificationParams,
@@ -44,6 +45,10 @@ interface Peer {
   socket: WebSocket;
   authenticated: boolean;
   alive: boolean;
+  /** initialize 里的声明；没有声明时为空对象。 */
+  capabilities: ClientCapabilities;
+  /** 初始化的先后，同一服务有多个提供方时交给最近初始化的连接。 */
+  serial: number;
   confirmations: Set<string>;
   logins: Set<AbortController>;
 }
@@ -69,6 +74,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const serverId = randomUUID();
   const peers = new Set<Peer>();
   const confirmations = new Map<string, PendingConfirmation>();
+  let initialized = 0;
   const owner = new AsyncLocalStorage<Peer>();
   const operations = new Set<Promise<unknown>>();
   let active: ActiveSpace | undefined;
@@ -243,6 +249,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new RpcFault(-32001, "连接授权失败");
         if (input.version !== PROTOCOL_VERSION) throw new RpcFault(-32002, "协议版本不兼容");
         peer.authenticated = true;
+        peer.capabilities = input.capabilities ?? {};
+        peer.serial = ++initialized;
         return { version: PROTOCOL_VERSION, serverId };
       }
       case "space.list":
@@ -324,7 +332,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return requireActive().plugins.list();
       case "plugin.call": {
         const input = p<"plugin.call">();
-        return requireActive().plugins.call(input.pluginId, input.method, input.input);
+        // 交给插件的是副本，插件改动它不会影响这个连接的路由。
+        return requireActive().plugins.call(input.pluginId, input.method, input.input, { capabilities: structuredClone(peer.capabilities) });
       }
       case "prompt.list":
         return (await requireActive().agent.preview(p<"prompt.list">().agent)).sections;
@@ -430,6 +439,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       socket,
       authenticated: false,
       alive: true,
+      capabilities: {},
+      serial: 0,
       confirmations: new Set(),
       logins: new Set(),
     };
