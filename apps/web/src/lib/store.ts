@@ -1,7 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { ConnectionError, RpcError, type RepaClient } from "@repa/base/client";
-import type { Confirmation, Method, ModelRef, Params, Result, SessionInfo } from "@repa/base/protocol";
+import type { Confirmation, Method, ModelRef, Params, PromptOverride, Result, SessionInfo } from "@repa/base/protocol";
 
 import { applyEvent, emptyConversation, historyItems, type Conversation } from "@/lib/conversation";
 import { errorCode } from "@/lib/errors";
@@ -31,11 +31,24 @@ type ResourceData = {
   commandPolicy: CommandPolicy;
   /** 当前空间最近的文件修改记录；换空间时清空。 */
   history: SpaceHistory;
+  /** 当前空间的提示各段；换空间时清空。 */
+  prompts: PromptSettings;
 };
 
 type ResourceName = keyof ResourceData;
 
 export type Resources = { [N in ResourceName]: Resource<ResourceData[N]> };
+
+/**
+ * 提示各段的有效内容，以及应用级覆盖。空间级覆盖存在空间目录里，协议读不到，
+ * 由有效内容与应用级、默认内容比较推出。
+ */
+export type PromptSettings = {
+  sections: Result<"prompt.list">;
+  app: Result<"settings.get">["prompts"];
+};
+
+export type PromptScope = Params<"prompt.set">["scope"];
 
 /** 空间历史里的一次提交及其改动的文件。 */
 export type HistoryRevision = Result<"history.changes">["revisions"][number];
@@ -106,6 +119,11 @@ export type AppState = {
   loadConversation(): Promise<void>;
   loadSessions(): Promise<void>;
   loadHistory(): Promise<void>;
+  loadPrompts(): Promise<void>;
+  /** 写入一级覆盖；没有内容时清除这一级。失败抛给调用方，完成或失败后都重新读取。 */
+  savePrompt(scope: PromptScope, id: string, override: PromptOverride): Promise<void>;
+  /** 预览只属于当次查看，不进入共享状态。 */
+  previewPrompts(): Promise<Result<"prompt.preview">>;
   /** 撤回一次提交改动的文件；冲突的文件保持现状，列在结果里。完成或失败后都重新读取历史。 */
   undoRevision(revision: string): Promise<Result<"history.undo">>;
   /** 运行中不切换：运行状态只属于当前会话，切走后无法再查询。 */
@@ -176,7 +194,7 @@ export function createAppStore() {
     let resuming: Promise<void> | undefined;
 
     async function call<M extends Method>(method: M, params: Params<M>): Promise<Result<M>> {
-      if (resuming && (method.startsWith("session.") || method.startsWith("history."))) await resuming;
+      if (resuming && (method.startsWith("session.") || method.startsWith("history.") || method.startsWith("prompt."))) await resuming;
       const client = get().client;
       if (!client) throw new ConnectionError("尚未连接后端。");
       return await client.call(method, params);
@@ -214,6 +232,10 @@ export function createAppStore() {
       sessions: () => load("sessions", () => call("session.list", {})),
       commandPolicy: () => load("commandPolicy", async () => (await call("settings.get", {})).commandPolicy),
       history: () => load("history", readHistory),
+      prompts: () => load("prompts", async () => {
+        const [sections, settings] = await Promise.all([call("prompt.list", {}), call("settings.get", {})]);
+        return { sections, app: settings.prompts };
+      }),
     };
 
     /** list 只给出最近的提交，没有文件；从其中最早一条的父提交开始取变化，就得到同一段带文件的记录。 */
@@ -226,7 +248,7 @@ export function createAppStore() {
 
     /** 换空间后丢弃旧空间的会话列表和修改历史，进行中的读取结果也作废。 */
     function resetSpaceData(): void {
-      for (const name of ["sessions", "history"] as const) {
+      for (const name of ["sessions", "history", "prompts"] as const) {
         pending.delete(name);
         sequence.set(name, (sequence.get(name) ?? 0) + 1);
         update(name, { status: "idle" });
@@ -238,6 +260,13 @@ export function createAppStore() {
       if (get().resources.sessions.status === "idle") return;
       pending.delete("sessions");
       await loaders.sessions();
+    }
+
+    /** 改过提示或重新打开空间后重新读取；没读过时不读。 */
+    async function reloadPrompts(): Promise<void> {
+      if (get().resources.prompts.status === "idle") return;
+      pending.delete("prompts");
+      await loaders.prompts();
     }
 
     /** 撤回或重新打开空间后历史可能变了；没读过时不读。 */
@@ -303,10 +332,10 @@ export function createAppStore() {
       const opened = await opening;
       if (resuming === done) resuming = undefined;
       if (!opened || get().space !== root) return;
-      // 会话列表和修改历史依赖打开的空间，不随 reloadLoaded 在打开前读取。
+      // 会话列表、修改历史和提示依赖打开的空间，不随 reloadLoaded 在打开前读取。
       // 正在读取的会话由那次读取完成，这里只重读已经显示过的。
       const { status } = get().conversation;
-      await Promise.all([reloadSessions(), reloadSpaceHistory(), status === "ready" || status === "error" ? reloadHistory() : undefined]);
+      await Promise.all([reloadSessions(), reloadSpaceHistory(), reloadPrompts(), status === "ready" || status === "error" ? reloadHistory() : undefined]);
     }
 
     let unsubscribe: (() => void) | undefined;
@@ -381,6 +410,7 @@ export function createAppStore() {
         sessions: { status: "idle" },
         commandPolicy: { status: "idle" },
         history: { status: "idle" },
+        prompts: { status: "idle" },
       },
       conversation: emptyConversation,
       confirmations: [],
@@ -407,7 +437,7 @@ export function createAppStore() {
       loadSpaces: loaders.spaces,
       async reloadLoaded() {
         const { resources } = get();
-        const names = (Object.keys(loaders) as ResourceName[]).filter((name) => name !== "sessions" && name !== "history" && resources[name].status !== "idle");
+        const names = (Object.keys(loaders) as ResourceName[]).filter((name) => name !== "sessions" && name !== "history" && name !== "prompts" && resources[name].status !== "idle");
         await Promise.all(names.map((name) => loaders[name]()));
       },
       async openSpace(root) {
@@ -461,6 +491,19 @@ export function createAppStore() {
       },
       loadSessions: loaders.sessions,
       loadHistory: loaders.history,
+      loadPrompts: loaders.prompts,
+      async savePrompt(scope, id, override) {
+        try {
+          if (override.text === undefined && override.enabled === undefined) await call("prompt.reset", { scope, id });
+          else await call("prompt.set", { scope, id, override });
+        } finally {
+          pending.delete("prompts");
+          await loaders.prompts();
+        }
+      },
+      previewPrompts() {
+        return call("prompt.preview", {});
+      },
       async undoRevision(revision) {
         try {
           return await call("history.undo", { revision });

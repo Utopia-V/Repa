@@ -14,6 +14,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { DefaultModelDialog } from "@/features/model-picker";
+import { PromptSettingsSection } from "@/features/prompt-settings";
 import { ProviderConnectDialog } from "@/features/provider-connect";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { CommandPolicy } from "@/lib/store";
@@ -131,6 +132,8 @@ export function SettingsPage() {
     </>}
 
     <CommandPolicySection />
+
+    <PromptSettingsSection />
 
     <ProviderConnectDialog open={connecting} onOpenChange={setConnecting} providers={providers.data ?? []} />
     <DefaultModelDialog open={picking} onOpenChange={setPicking} models={available} providerNames={providerNames} current={current} />

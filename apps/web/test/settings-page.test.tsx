@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { RpcError } from "@repa/base/client";
-import type { Result } from "@repa/base/protocol";
+import type { PromptOverride, Result } from "@repa/base/protocol";
 
 import { StoreProvider } from "../src/hooks/use-app-store";
 import { createAppStore } from "../src/lib/store";
@@ -34,6 +34,23 @@ function backend() {
   ];
   let chosen: { provider: string; id: string } | undefined;
   const settings: { commandPolicy: "ask" | "fullAccess"; saveError?: unknown } = { commandPolicy: "ask" };
+  // 提示按默认、应用、空间三级合成；`prompts.saveError` 有值时下一次 prompt.set 以它失败。
+  const prompts: {
+    defaults: Record<string, string>;
+    app: Record<string, PromptOverride>;
+    space: Record<string, PromptOverride>;
+    saveError?: unknown;
+  } = {
+    defaults: { base: "你是 Repa 的 Agent。", space: "当前空间：/notes/calculus", skills: "", tools: "可用工具：read" },
+    app: {},
+    space: {},
+  };
+  const sections = () => Object.entries(prompts.defaults).map(([id, defaultText]) => ({
+    id,
+    defaultText,
+    text: prompts.space[id]?.text ?? prompts.app[id]?.text ?? defaultText,
+    enabled: prompts.space[id]?.enabled ?? prompts.app[id]?.enabled ?? true,
+  }));
   const logins: { provider: string; type: string; finish(error?: unknown): void }[] = [];
   const connect = (id: string, type: "api_key" | "oauth") => {
     const provider = providers.find((item) => item.id === id)!;
@@ -81,7 +98,27 @@ function backend() {
       case "confirm.reply":
         return Promise.resolve(null);
       case "settings.get":
-        return Promise.resolve({ commandPolicy: settings.commandPolicy, recentSpaces: [], prompts: {} });
+        return Promise.resolve({ commandPolicy: settings.commandPolicy, recentSpaces: [], prompts: structuredClone(prompts.app) });
+      case "space.open":
+        return Promise.resolve({ root: params.root });
+      case "space.list":
+        return Promise.resolve([]);
+      case "prompt.list":
+        return Promise.resolve(sections());
+      case "prompt.set": {
+        const error = prompts.saveError;
+        if (error !== undefined) {
+          delete prompts.saveError;
+          return Promise.reject(error);
+        }
+        prompts[params.scope as "app" | "space"][String(params.id)] = params.override as PromptOverride;
+        return Promise.resolve(null);
+      }
+      case "prompt.reset":
+        delete prompts[params.scope as "app" | "space"][String(params.id)];
+        return Promise.resolve(null);
+      case "prompt.preview":
+        return Promise.resolve({ sections: sections(), views: [] });
       case "settings.set": {
         const error = settings.saveError;
         if (error !== undefined) {
@@ -95,12 +132,13 @@ function backend() {
         return Promise.reject(new Error(`未模拟的方法 ${method}`));
     }
   });
-  return { call, logins, settings, ...fakeClient(call) };
+  return { call, logins, settings, prompts, ...fakeClient(call) };
 }
 
-async function renderSettings(fake: ReturnType<typeof backend>) {
+async function renderSettings(fake: ReturnType<typeof backend>, space?: string) {
   const store = createAppStore();
   store.getState().setClient(fake.client);
+  if (space) await store.getState().openSpace(space);
   render(<StoreProvider store={store}><MemoryRouter><SettingsPage /></MemoryRouter></StoreProvider>);
   await screen.findByRole("heading", { name: "默认模型" });
   return store;
@@ -294,4 +332,98 @@ it("保存命令授权失败时显示原因，保留原来的策略", async () =
 
   expect((await policy.findByRole("alert")).textContent).toContain("无法保存命令授权设置");
   expect(policy.getByRole("radio", { name: "每次询问" }).getAttribute("aria-checked")).toBe("true");
+});
+
+it("没有打开空间时，提示区块只给出去选空间的入口", async () => {
+  await renderSettings(backend());
+  const prompts = within(section("提示"));
+  expect(prompts.getByRole("link", { name: "去选空间" }).getAttribute("href")).toBe("/learning-space");
+  expect(prompts.queryByRole("button", { name: "预览" })).toBeNull();
+});
+
+it("按装配顺序列出各段，开关只写本空间这一级", async () => {
+  const fake = backend();
+  await renderSettings(fake, "/notes/calculus");
+  const list = within(await within(section("提示")).findByRole("list", { name: "提示" }));
+  expect(list.getAllByRole("listitem").map((item) => item.querySelector("span")?.textContent)).toEqual(["基础说明", "空间说明", "Skill 目录", "工具说明"]);
+  expect(list.getByText("空间路径和 calculus/AGENTS.md")).toBeTruthy();
+
+  fireEvent.click(list.getByRole("switch", { name: "启用 工具说明" }));
+  await vi.waitFor(() => expect(list.getByText("已停用")).toBeTruthy());
+  expect(fake.call).toHaveBeenCalledWith("prompt.set", { scope: "space", id: "tools", override: { enabled: false } });
+
+  // 重新启用时这一级不再有覆盖，改为清除。
+  fireEvent.click(list.getByRole("switch", { name: "启用 工具说明" }));
+  await vi.waitFor(() => expect(list.queryByText("已停用")).toBeNull());
+  expect(fake.call).toHaveBeenCalledWith("prompt.reset", { scope: "space", id: "tools" });
+});
+
+it("编辑时两级各有草稿；本空间的修改可以改回所有空间的内容", async () => {
+  const fake = backend();
+  fake.prompts.app.base = { text: "所有空间的基础说明" };
+  fake.prompts.space.base = { text: "本空间的基础说明" };
+  await renderSettings(fake, "/notes/calculus");
+  const list = within(await within(section("提示")).findByRole("list", { name: "提示" }));
+  expect(within(list.getAllByRole("listitem")[0]!).getByText("已修改")).toBeTruthy();
+
+  fireEvent.click(list.getByRole("button", { name: "编辑 基础说明" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "编辑 基础说明" }));
+  const text = dialog.getByLabelText("内容") as HTMLTextAreaElement;
+  expect(text.value).toBe("本空间的基础说明");
+  fireEvent.click(dialog.getByRole("radio", { name: "所有空间" }));
+  expect(text.value).toBe("所有空间的基础说明");
+  expect(dialog.getByText(/本空间另有修改/)).toBeTruthy();
+  fireEvent.change(text, { target: { value: "草稿" } });
+  fireEvent.click(dialog.getByRole("radio", { name: "只在本空间（calculus）" }));
+  expect(text.value).toBe("本空间的基础说明");
+
+  fireEvent.click(dialog.getByRole("button", { name: "改回所有空间的内容" }));
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(fake.call).toHaveBeenCalledWith("prompt.reset", { scope: "space", id: "base" });
+  expect(fake.prompts.app.base).toEqual({ text: "所有空间的基础说明" });
+});
+
+it("保存和上一级相同的内容时不留覆盖，保存失败时保留对话框和草稿", async () => {
+  const fake = backend();
+  fake.prompts.space.skills = { enabled: false };
+  await renderSettings(fake, "/notes/calculus");
+  const list = within(await within(section("提示")).findByRole("list", { name: "提示" }));
+
+  fireEvent.click(list.getByRole("button", { name: "编辑 Skill 目录" }));
+  let dialog = within(await screen.findByRole("dialog", { name: "编辑 Skill 目录" }));
+  expect(dialog.getByText(/按 Skill 文件夹生成/)).toBeTruthy();
+  expect((dialog.getByRole("button", { name: "恢复默认" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(dialog.getByLabelText("内容"), { target: { value: "使用 notes skill。" } });
+  fireEvent.click(dialog.getByRole("button", { name: "保存" }));
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  // 文字覆盖和已有的停用写在同一级。
+  expect(fake.prompts.space.skills).toEqual({ enabled: false, text: "使用 notes skill。" });
+
+  fireEvent.click(list.getByRole("button", { name: "编辑 Skill 目录" }));
+  dialog = within(await screen.findByRole("dialog", { name: "编辑 Skill 目录" }));
+  fake.prompts.saveError = new RpcError(-32000, "写入失败", { code: "storage_failed" });
+  fireEvent.change(dialog.getByLabelText("内容"), { target: { value: "" } });
+  fireEvent.click(dialog.getByRole("button", { name: "保存" }));
+  expect((await dialog.findByRole("alert")).textContent).toContain("无法保存");
+  expect((dialog.getByLabelText("内容") as HTMLTextAreaElement).value).toBe("");
+
+  fireEvent.click(dialog.getByRole("button", { name: "保存" }));
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(fake.prompts.space.skills).toEqual({ enabled: false });
+});
+
+it("预览按发送顺序编号，停用的段落标明不发送", async () => {
+  const fake = backend();
+  fake.prompts.space.space = { enabled: false };
+  await renderSettings(fake, "/notes/calculus");
+  fireEvent.click(within(section("提示")).getByRole("button", { name: "预览" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "下一条消息会带上的内容" }));
+  const system = within(await dialog.findByRole("list"));
+  expect(system.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+    "1 · 基础说明你是 Repa 的 Agent。",
+    "空间说明：已停用，不发送",
+    "2 · Skill 目录这一段是空的。",
+    "3 · 工具说明可用工具：read",
+  ]);
+  expect(dialog.getByText("没有插件提供视图。")).toBeTruthy();
 });
