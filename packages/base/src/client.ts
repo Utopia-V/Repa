@@ -52,6 +52,10 @@ interface Pending {
 
 type Listener = (params: unknown) => void;
 
+// 后端发来无效数据时主动断开。浏览器的 WebSocket 只允许客户端用 1000 或 3000–4999 关闭，
+// 用 1002 会抛 InvalidAccessError，连接反而留着；所以用应用自定的 4002，与服务端的 4001 相邻。
+const INVALID_DATA = 4002;
+
 export class RepaClient {
   readonly #pending = new Map<string, Pending>();
   readonly #listeners = new Map<Notification, Set<Listener>>();
@@ -75,7 +79,7 @@ export class RepaClient {
         value = JSON.parse(String(event.data));
       } catch {
         this.#fail(new ConnectionError("后端返回了无效 JSON。"));
-        this.#socket.close(1002, "invalid JSON");
+        this.#socket.close(INVALID_DATA, "invalid JSON");
         return;
       }
       for (const item of Array.isArray(value) ? value : [value]) {
@@ -222,7 +226,7 @@ export class RepaClient {
 
   #invalidResponse(): void {
     this.#fail(new ConnectionError("后端返回了无效协议数据。"));
-    this.#socket.close(1002, "invalid response");
+    this.#socket.close(INVALID_DATA, "invalid response");
   }
 
   #fail(error: Error): void {

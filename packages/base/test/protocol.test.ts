@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import type { AgentRuntime, AgentSpace } from "../src/agent.js";
 import type { Plugin } from "../src/plugin.js";
 import { ConnectionError, RepaClient, RpcError } from "../src/client.js";
@@ -300,4 +302,55 @@ test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释�
   assert.equal(pluginClosed, true);
   const reopened = await openSpace(root, { watch: false });
   await reopened.close();
+});
+
+/** 按脚本回答的后端：用来模拟词汇比客户端新的后端，或发来无效数据的后端。也可以主动推送通知。 */
+async function scriptedBackend(t: TestContext, results: Record<string, unknown>) {
+  const http = createServer();
+  const websocket = new WebSocketServer({ server: http, path: "/rpc" });
+  const sockets = new Set<WebSocket>();
+  websocket.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    socket.on("message", (data) => {
+      const request = record(JSON.parse(String(data)));
+      const method = String(request?.method);
+      // 脚本里没有的方法不回答，调用一直等着。
+      if (method !== "initialize" && !Object.hasOwn(results, method)) return;
+      const result = method === "initialize" ? { version: PROTOCOL_VERSION, serverId: "scripted" } : results[method];
+      socket.send(JSON.stringify({ jsonrpc: "2.0", id: request?.id, result }));
+    });
+  });
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    for (const socket of sockets) socket.terminate();
+    await new Promise<void>((resolve) => websocket.close(() => resolve()));
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+  });
+  const { port } = http.address() as AddressInfo;
+  return {
+    connection: { url: `ws://127.0.0.1:${port}/rpc`, token: "x".repeat(64) },
+    push(method: string, params: unknown) {
+      for (const socket of sockets) socket.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+    },
+    raw(text: string) {
+      for (const socket of sockets) socket.send(text);
+    },
+  };
+}
+
+test("后端发来无效 JSON 或不合 schema 的已知通知时，客户端主动断开，在途请求的结果标为未知", async (t) => {
+  const backend = await scriptedBackend(t, {});
+  const invalid = [() => backend.raw("{"), () => backend.push("session.event", { sessionId: "s-1", type: "unknownType" })];
+  for (const send of invalid) {
+    const client = await RepaClient.connect(backend.connection);
+    t.after(() => client.close());
+    // 脚本里没有 settings.get 的结果，这次调用一直等着，直到连接断开。
+    const pending = assert.rejects(client.call("settings.get", {}), (error: unknown) => error instanceof ConnectionError && error.outcome === "unknown");
+    const disconnected = new Promise<void>((resolve) => client.onConnectionChange((connected) => { if (!connected) resolve(); }));
+    send();
+    await disconnected;
+    await pending;
+    assert.equal(client.connected, false);
+  }
 });
