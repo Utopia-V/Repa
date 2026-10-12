@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { FolderOpen, Settings } from "lucide-react";
+import { FolderOpen, History, Settings } from "lucide-react";
 import { NavLink, useMatch, useNavigate } from "react-router";
 import type { SessionInfo } from "@repa/base/protocol";
 import {
@@ -64,6 +64,14 @@ export function AppSidebar() {
                 </SidebarMenuSubItem>
               </SidebarMenuSub>}
             </SidebarMenuItem>
+            {/* 修改历史属于当前空间，打开空间后才有。 */}
+            {space && <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <NavLink to="/history" onClick={closeMobileSidebar} title={collapsedTitle("History")}>
+                  <History aria-hidden="true" /><span className={collapseLabel}>History</span>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>}
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
                 <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle("Settings")}>

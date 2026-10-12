@@ -29,11 +29,26 @@ type ResourceData = {
   sessions: Result<"session.list">;
   /** Agent 执行命令前是否询问；应用级设置，对所有空间生效。设置里的其他字段由各自的入口读取。 */
   commandPolicy: CommandPolicy;
+  /** 当前空间最近的文件修改记录；换空间时清空。 */
+  history: SpaceHistory;
 };
 
 type ResourceName = keyof ResourceData;
 
 export type Resources = { [N in ResourceName]: Resource<ResourceData[N]> };
+
+/** 空间历史里的一次提交及其改动的文件。 */
+export type HistoryRevision = Result<"history.changes">["revisions"][number];
+
+/** 一次读取最多查看的历史提交数；没有文件变化的 Agent 运行也各占一条。 */
+export const HISTORY_LIMIT = 200;
+
+export type SpaceHistory = {
+  /** 最新的在前。 */
+  revisions: HistoryRevision[];
+  /** 已经读到建立历史时的初始状态，没有更早的记录。 */
+  complete: boolean;
+};
 
 /** 等待用户回答的命令授权，按到达顺序处理。 */
 export type PendingConfirmation = { id: string; request: Confirmation };
@@ -77,6 +92,9 @@ export type AppState = {
   /** 读取会话列表并打开最近有消息的会话；空间里还没有会话时等第一次发送再建立。 */
   loadConversation(): Promise<void>;
   loadSessions(): Promise<void>;
+  loadHistory(): Promise<void>;
+  /** 撤回一次提交改动的文件；冲突的文件保持现状，列在结果里。完成或失败后都重新读取历史。 */
+  undoRevision(revision: string): Promise<Result<"history.undo">>;
   /** 运行中不切换：运行状态只属于当前会话，切走后无法再查询。 */
   openSession(session: SessionInfo): Promise<void>;
   newConversation(): void;
@@ -178,13 +196,24 @@ export function createAppStore() {
       defaultModel: () => load("defaultModel", () => call("model.getDefault", {})),
       sessions: () => load("sessions", () => call("session.list", {})),
       commandPolicy: () => load("commandPolicy", async () => (await call("settings.get", {})).commandPolicy),
+      history: () => load("history", readHistory),
     };
 
-    /** 换空间后丢弃旧空间的会话列表，进行中的读取结果也作废。 */
-    function resetSessions(): void {
-      pending.delete("sessions");
-      sequence.set("sessions", (sequence.get("sessions") ?? 0) + 1);
-      update("sessions", { status: "idle" });
+    /** list 只给出最近的提交，没有文件；从其中最早一条的父提交开始取变化，就得到同一段带文件的记录。 */
+    async function readHistory(): Promise<SpaceHistory> {
+      const recent = await call("history.list", { limit: HISTORY_LIMIT });
+      const parent = recent.at(-1)?.parent;
+      const feed = await call("history.changes", parent ? { since: parent } : {});
+      return { revisions: [...feed.revisions].reverse(), complete: recent.length < HISTORY_LIMIT };
+    }
+
+    /** 换空间后丢弃旧空间的会话列表和修改历史，进行中的读取结果也作废。 */
+    function resetSpaceData(): void {
+      for (const name of ["sessions", "history"] as const) {
+        pending.delete(name);
+        sequence.set(name, (sequence.get(name) ?? 0) + 1);
+        update(name, { status: "idle" });
+      }
     }
 
     /** 发送后会话的排序、预览可能变了；没读过时不读。 */
@@ -192,6 +221,13 @@ export function createAppStore() {
       if (get().resources.sessions.status === "idle") return;
       pending.delete("sessions");
       await loaders.sessions();
+    }
+
+    /** 撤回或重新打开空间后历史可能变了；没读过时不读。 */
+    async function reloadSpaceHistory(): Promise<void> {
+      if (get().resources.history.status === "idle") return;
+      pending.delete("history");
+      await loaders.history();
     }
 
     /** 凭据或默认模型变了之后，丢弃进行中的旧读取并重新读取；没读过的等页面需要时再读。 */
@@ -240,14 +276,14 @@ export function createAppStore() {
         await call("space.open", { root });
       } catch {
         if (get().space === root) {
-          resetSessions();
+          resetSpaceData();
           set({ space: undefined, conversation: emptyConversation });
         }
         return;
       }
       if (get().space !== root) return;
-      // 会话列表依赖打开的空间，不随 reloadLoaded 在打开前读取。
-      await Promise.all([reloadSessions(), get().conversation.status !== "idle" ? reloadHistory() : undefined]);
+      // 会话列表和修改历史依赖打开的空间，不随 reloadLoaded 在打开前读取。
+      await Promise.all([reloadSessions(), reloadSpaceHistory(), get().conversation.status !== "idle" ? reloadHistory() : undefined]);
     }
 
     let unsubscribe: (() => void) | undefined;
@@ -321,6 +357,7 @@ export function createAppStore() {
         defaultModel: { status: "idle" },
         sessions: { status: "idle" },
         commandPolicy: { status: "idle" },
+        history: { status: "idle" },
       },
       conversation: emptyConversation,
       confirmations: [],
@@ -347,7 +384,7 @@ export function createAppStore() {
       loadSpaces: loaders.spaces,
       async reloadLoaded() {
         const { resources } = get();
-        const names = (Object.keys(loaders) as ResourceName[]).filter((name) => name !== "sessions" && resources[name].status !== "idle");
+        const names = (Object.keys(loaders) as ResourceName[]).filter((name) => name !== "sessions" && name !== "history" && resources[name].status !== "idle");
         await Promise.all(names.map((name) => loaders[name]()));
       },
       async openSpace(root) {
@@ -355,7 +392,7 @@ export function createAppStore() {
         // 换了空间时，上一个空间的会话不再适用。
         if (opened.root !== get().space) {
           conversationRequest++;
-          resetSessions();
+          resetSpaceData();
           set({ space: opened.root, conversation: emptyConversation });
         }
         // 打开前发出的读取可能不含这次打开，重新读取。
@@ -388,6 +425,15 @@ export function createAppStore() {
         }
       },
       loadSessions: loaders.sessions,
+      loadHistory: loaders.history,
+      async undoRevision(revision) {
+        try {
+          return await call("history.undo", { revision });
+        } finally {
+          // 失败时也可能已经恢复了一部分文件并记成一次撤回。
+          await reloadSpaceHistory();
+        }
+      },
       async openSession(session) {
         const current = get().conversation;
         if (current.run !== "idle" || (current.sessionId === session.id && current.status === "ready")) return;
