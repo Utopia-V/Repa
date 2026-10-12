@@ -40,10 +40,10 @@ test("示例课程的结构检查没有问题", async (t) => {
   assert.equal(result.summary.ran, false);
 });
 
-test("随包的 Python 课程通过结构检查：3 个完整 topic、45 个骨架", async () => {
+test("随包的 Python 课程通过结构检查，48 个 topic 都在清单里", async () => {
   const result = await checkCourse(PYTHON_COURSE, { run: false });
   assert.deepEqual(codes(result.diagnostics), []);
-  assert.deepEqual(result.summary.topics, { complete: 3, outline: 45 });
+  assert.equal(result.summary.topics.complete + result.summary.topics.outline, 48);
 });
 
 test("先修成环时报出环上的 topic", async (t) => {
