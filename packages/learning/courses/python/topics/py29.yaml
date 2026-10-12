@@ -1,7 +1,8 @@
 id: py29
 title: 拼两张表之前先检查键
-status: outline
+status: complete
 minutes: 20
+summary: 用 pd.merge 按键把另一张表的列补上：分清 left 与 inner 留下哪些行，看出右表键重复造成的行数增长，用 validate 和 indicator 让关系错误和没配上的行显出来。
 prerequisites:
   - topic: py25
     key: true
@@ -29,12 +30,1284 @@ sources:
     url: https://pandas.pydata.org/docs/reference/api/pandas.merge.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
-  先给非缺失的键、唯一的右表和一个右表键重复的反例，集中看行数与 validate；真实任务里再先检查空键。pandas 的空键可以互相匹配，不能默认等同于 SQL 的 NULL 规则。
+  范围：只用 pd.merge 的 on、how（left、inner）、validate、indicator，键都是一列、没有缺失。right、outer、多列键、suffixes、按索引连接都不在本节。pandas 的缺失键会互相配上，只在 k3 的讲解和概念卡里提醒一句，不出题。groupby、count 等汇总由 py26、py27 承担，这里的行数只用 len 和 shape 读。
+  衔接：k2 用 py25 的 duplicated(subset=..., keep=False) 先查右表的键；k3 的未匹配行用 py17 的 `.loc[掩码, 列名列表]` 取出，题面里“布尔列 .sum() 数 True 的个数”就地说明。
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。没有小改代码题；“选哪一行代码符合需求”的题由程序逐个运行选项核对。
+  节奏（待试做校准）：开场与读表 2 分钟；k1 讲解及例题 3 分钟、练习 3 分钟；k2 讲解及例题 2 分钟、练习 3 分钟；k3 讲解及例题 3 分钟、练习 3 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。复习和测验题全部由程序核对：挑写法的题，另用把右表某一行复制一份的表逐个运行选项，检查是否在键重复时报错。只有练习 py29.k3.q3（把需求对应到三个参数）程序算不出，列在 manual。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码，不需要写导入或构造数据的代码。
+
+  每道题都从题面给出的表重新开始，前面题目里的 `result` 等变量都已清除。大多数题用两张表：表 samples 是四个样本的测量记录，`sample_id` 是样本编号，`signal` 是测量值（任意单位），左边是原行索引；表 sites 记下每个样本是在哪个采样点（`site`）取的。按 `sample_id` 把采样点补到 samples 上，就是这一节要读的“拼表”。NaN 表示缺失值。
+wrapup: |
+  向同事或 AI 提拼表的需求时，可以这样说：“按 sample_id 把 sites 的 site 补到 samples 上：samples 每一行都保留，配不上的留空；sites 里每个 sample_id 最多一行，重复就报错；配不上的样本单独列出来。结果的行数应当等于 samples 的行数。”
+
+  对应的代码是 `how="left"`、`validate="many_to_one"`、`indicator=True`。拿到别人的拼表代码，先看 how 留下谁，再问右表的键是不是唯一，最后比一比结果和左表的行数。
+data:
+  pandas:
+    kind: python
+    code: import pandas as pd
+  samples:
+    kind: dataframe
+    name: samples
+    caption: 表 samples：四个样本的测量值
+    index: [31, 7, 22, 4]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D]
+      signal: [8, 10, 13, 10]
+  sites:
+    kind: dataframe
+    name: sites
+    caption: 表 sites：样本在哪个采样点取的
+    showIndex: false
+    columns:
+      sample_id: [S_B, S_A, S_E]
+      site: [北坡, 南坡, 东坡]
+  sites_dup:
+    kind: dataframe
+    name: sites
+    caption: 表 sites：S_A 被记了两次
+    showIndex: false
+    columns:
+      sample_id: [S_B, S_A, S_E, S_A]
+      site: [北坡, 南坡, 东坡, 西坡]
+  sites_dup3:
+    kind: dataframe
+    name: sites
+    caption: 另一份 sites：S_B 被记了三次
+    showIndex: false
+    columns:
+      sample_id: [S_B, S_A, S_B, S_B]
+      site: [北坡, 南坡, 东坡, 西坡]
+  plants:
+    kind: dataframe
+    name: plants
+    caption: 表 plants：四株植株的株高（厘米）
+    index: [12, 5, 30, 8]
+    indexHeader: 原行索引
+    columns:
+      plant_id: [P1, P2, P3, P4]
+      height: [21, 18, 25, 19]
+  plants_rep:
+    kind: dataframe
+    name: plants
+    caption: 表 plants：P1 量了两次株高（厘米）
+    index: [12, 5, 30, 8, 41]
+    indexHeader: 原行索引
+    columns:
+      plant_id: [P1, P2, P3, P4, P1]
+      height: [21, 18, 25, 19, 22]
+  plots:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：植株种在哪个地块
+    showIndex: false
+    columns:
+      plant_id: [P4, P7, P2]
+      plot: [乙, 丙, 甲]
+  plots_dup:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：P2 登记了两个地块
+    showIndex: false
+    columns:
+      plant_id: [P2, P4, P2, P7]
+      plot: [甲, 乙, 丁, 丙]
+  shown:
+    kind: dataframe
+    name: shown
+    caption: 同事得到的 result
+    index: [0, 1]
+    indexHeader: 行索引
+    columns:
+      plant_id: [P2, P4]
+      height: [18, 19]
+      plot: [甲, 乙]
+  survey:
+    kind: dataframe
+    name: survey
+    caption: 表 survey：五份问卷的满意度评分（1–5）
+    index: [3, 9, 1, 6, 2]
+    indexHeader: 原行索引
+    columns:
+      resp_id: [R1, R2, R3, R4, R5]
+      score: [4, 2, 5, 3, 4]
+  regions:
+    kind: dataframe
+    name: regions
+    caption: 表 regions：问卷来自哪个地区
+    showIndex: false
+    columns:
+      resp_id: [R3, R1, R4, R9]
+      region: [华北, 华东, 西南, 华南]
+  regions_dup:
+    kind: dataframe
+    name: regions
+    caption: 表 regions：有的问卷登记了不止一次
+    showIndex: false
+    columns:
+      resp_id: [R1, R3, R2, R3, R3]
+      region: [华东, 华北, 西南, 华北, 东北]
+  bottles:
+    kind: dataframe
+    name: bottles
+    caption: 表 bottles：四瓶水样的 pH
+    index: [20, 3, 11, 7]
+    indexHeader: 原行索引
+    columns:
+      bottle_id: [B1, B2, B3, B4]
+      ph: [7.1, 6.8, 7.4, 6.9]
+    dtypes: { ph: float }
+  bottles_rep:
+    kind: dataframe
+    name: bottles
+    caption: 表 bottles：B1 测了两次 pH
+    index: [20, 3, 11, 7, 15]
+    indexHeader: 原行索引
+    columns:
+      bottle_id: [B1, B2, B3, B4, B1]
+      ph: [7.1, 6.8, 7.4, 6.9, 7.2]
+    dtypes: { ph: float }
+  labs:
+    kind: dataframe
+    name: labs
+    caption: 表 labs：水样送到了哪个实验室
+    showIndex: false
+    columns:
+      bottle_id: [B2, B8, B4]
+      lab: [甲, 丙, 乙]
+  labs_full:
+    kind: dataframe
+    name: labs
+    caption: 表 labs：每瓶水样送到了哪个实验室
+    showIndex: false
+    columns:
+      bottle_id: [B3, B1, B4, B2]
+      lab: [甲, 乙, 甲, 丙]
+  labs_dup:
+    kind: dataframe
+    name: labs
+    caption: 表 labs：有的水样登记了不止一次
+    showIndex: false
+    columns:
+      bottle_id: [B2, B1, B4, B2, B4, B4]
+      lab: [甲, 乙, 乙, 丙, 甲, 丙]
 kps:
   - id: py29.k1
     title: left/inner join 怎样保留记录
+    card:
+      name: 按键拼表
+      aliases: [merge, left join, inner join, 连接]
+      definition: pd.merge(左表, 右表, on=键列, how=...) 按键列的值把右表的列配到左表的行上：how="left" 留下左表每一行，配不上的补 NaN；how="inner" 只留两张表都有的键。
+      conditions:
+        - 只在右表里出现的键，left 和 inner 都不会加进结果。
+        - 结果的行顺序跟左表走，行索引重新编号为 0、1、2……，左表原来的行索引不保留。
+      example:
+        from: py29.k1.e0
+        text: |
+          ```python
+          result = pd.merge(samples, sites, on="sample_id", how="left")
+          ```
+          samples 的 S_A、S_B、S_C、S_D 都留下；sites 里没有 S_C、S_D，它们的 site 是 NaN；只在 sites 里的 S_E 不出现。行索引变成 0、1、2、3。
+    lesson: |
+      想知道每个样本是在哪个采样点取的，就要按两张表都有的 `sample_id`，把 sites 的 `site` 配到 samples 的每一行上。这一列叫**键**：两边的值相同，就认为说的是同一个样本。
+
+      ```python
+      result = pd.merge(samples, sites, on="sample_id", how="left")
+      ```
+
+      `pd.merge` 的第一张表叫左表，第二张叫右表；`on` 写键列，`how` 决定留下哪些行：
+
+      - `how="left"`：左表每一行都留下。右表里找不到的样本，补上的列是缺失值 NaN。
+      - `how="inner"`：只留两张表都有的键，配不上的左表行被丢掉。
+
+      上面这行代码的结果：
+
+      | 行索引 | sample_id | signal | site |
+      |---:|---|---:|---|
+      | 0 | S_A | 8 | 南坡 |
+      | 1 | S_B | 10 | 北坡 |
+      | 2 | S_C | 13 | NaN |
+      | 3 | S_D | 10 | NaN |
+
+      换成 `how="inner"`，只剩 S_A、S_B 两行。只在 sites 里出现的 S_E，两种写法都不会加进来。
+
+      还有两处要留意：行的顺序跟左表走，不跟右表；结果的行索引重新从 0 编号，samples 原来的 31、7、22、4 没有带过来。`samples.merge(sites, on="sample_id", how="left")` 是同一件事的另一种写法。
+    example:
+      id: py29.k1.e0
+      kind: [predict]
+      uses: [py14.k1, py19.k1]
+      data: [pandas, samples, sites]
+      body: |
+        要给每个样本补上采样点，同事写了下面这行。阅读代码，说出 `result` 的样子。
+
+        ```python
+        result = pd.merge(samples, sites, on="sample_id", how="left")
+        ```
+      slots:
+        - id: rows
+          type: order
+          partial: true
+          prompt: "`result` 里依次是哪些样本？按结果的先后顺序排出 sample_id，结果里没有的不要放进来。"
+          items:
+            - { id: SA, content: S_A }
+            - { id: SB, content: S_B }
+            - { id: SC, content: S_C }
+            - { id: SD, content: S_D }
+            - { id: SE, content: S_E }
+          key: [SA, SB, SC, SD]
+        - id: site
+          type: text
+          prompt: 结果里 S_C 那一行的 site 是什么？
+          quick: [NaN]
+          key: "NaN"
+        - id: index
+          type: choice
+          prompt: "`result` 的行索引依次是"
+          options:
+            - { id: original, content: 31、7、22、4 }
+            - { id: renumbered, content: 0、1、2、3 }
+            - { id: sorted, content: 4、7、22、31 }
+          key: renumbered
+      explanation: |
+        | 行索引 | sample_id | signal | site |
+        |---:|---|---:|---|
+        | 0 | S_A | 8 | 南坡 |
+        | 1 | S_B | 10 | 北坡 |
+        | 2 | S_C | 13 | NaN |
+        | 3 | S_D | 10 | NaN |
+
+        `how="left"` 留下 samples 的**全部四行**，顺序和 samples 一样，不按 sites 的顺序。sites 里没有 S_C，它的 site 是 **NaN**；只在 sites 里的 S_E 不进结果。行索引重新编号为 **0、1、2、3**，原来的 31、7、22、4 没有带过来。
+      verify: |
+        res = run()["result"]
+        c = res.loc[res["sample_id"] == "S_C", "site"]
+        labels = list(res.index)
+        answers = {
+            "rows": [s.replace("_", "") for s in res["sample_id"]],
+            "site": "NaN" if len(c) == 1 and pd.isna(c.iloc[0]) else list(c),
+            "index": "renumbered" if labels == list(range(len(res))) else "original" if labels == list(samples.index) else labels,
+        }
+    practice:
+      - id: py29.k1.q1
+        kind: [predict]
+        uses: [py14.k2]
+        data: [pandas, samples, sites]
+        body: |
+          这次同事只想要两张表都有记录的样本。阅读代码，说出 `result` 的样子。
+
+          ```python
+          result = pd.merge(samples, sites, on="sample_id", how="inner")
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 留下了哪些样本？按结果的先后顺序排出 sample_id。
+            items:
+              - { id: SA, content: S_A }
+              - { id: SB, content: S_B }
+              - { id: SC, content: S_C }
+              - { id: SD, content: S_D }
+              - { id: SE, content: S_E }
+            key: [SA, SB]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`result.shape` 的第一个数（行数）"
+            key: 2
+          - id: ncols
+            type: text
+            format: integer
+            prompt: "`result.shape` 的第二个数（列数）"
+            key: 3
+        explanation: |
+          只留 **S_A、S_B** 两行，顺序跟 samples 走（S_A 在前），不跟 sites（sites 里 S_B 在前）。S_C、S_D 在 sites 里找不到，inner 把它们丢掉；S_E 只在 sites 里，也不进结果。列是 sample_id、signal、site 三列，键列只出现一次，shape 为 **(2, 3)**。
+        verify: |
+          res = run()["result"]
+          answers = {
+              "rows": [s.replace("_", "") for s in res["sample_id"]],
+              "nrows": res.shape[0],
+              "ncols": res.shape[1],
+          }
+      - id: py29.k1.q2
+        kind: [predict]
+        uses: [py14.k1]
+        data: [pandas, samples, sites]
+        body: |
+          同一对表，分别用两种写法拼接：
+
+          ```python
+          left_result = pd.merge(samples, sites, on="sample_id", how="left")
+          inner_result = pd.merge(samples, sites, on="sample_id", how="inner")
+          ```
+
+          S_C 只在 samples 里，S_E 只在 sites 里。它们各自会不会出现在每种结果里？出现填 True，不出现填 False。
+        slots:
+          - id: presence
+            type: table
+            columns:
+              - { id: way, header: 结果 }
+              - { id: sc, header: S_C 出现吗, input: bool }
+              - { id: se, header: S_E 出现吗, input: bool }
+            rows:
+              - { id: left, cells: { way: left_result, sc: true, se: false } }
+              - { id: inner, cells: { way: inner_result, sc: false, se: false } }
+        explanation: |
+          | 结果 | S_C | S_E |
+          |---|---|---|
+          | left_result | True | False |
+          | inner_result | False | False |
+
+          left 保留左表每一行，所以 S_C 在（site 为 NaN）；inner 只留两边都有的键，S_C 被丢掉。S_E 只在右表，**两种写法都不会加进来**：left 和 inner 都以左表为准，不会多出左表没有的样本。
+        verify: |
+          r = run()
+          answers = {"presence": {
+              name: {
+                  "sc": "S_C" in list(r[f"{name}_result"]["sample_id"]),
+                  "se": "S_E" in list(r[f"{name}_result"]["sample_id"]),
+              }
+              for name in ["left", "inner"]
+          }}
+      - id: py29.k1.q3
+        kind: [debug]
+        uses: [py12.k1]
+        data: [pandas, samples, sites]
+        body: |
+          需求是：“给每个样本补上采样点；samples 里的样本一个都不能少，查不到采样点的留空。”同事写的是：
+
+          ```python
+          result = pd.merge(samples, sites, on="sample_id", how="inner")
+          ```
+
+          结果只有 2 行。应该把这一行改成哪一种？
+        slots:
+          - id: fix
+            type: choice
+            options:
+              - id: swap
+                content: |
+                  ```python
+                  result = pd.merge(sites, samples, on="sample_id", how="inner")
+                  ```
+                feedback: 交换左右表，inner 仍然只留两边都有的键，S_C、S_D 还是没有。
+              - id: left
+                content: |
+                  ```python
+                  result = pd.merge(samples, sites, on="sample_id", how="left")
+                  ```
+              - id: sitesleft
+                content: |
+                  ```python
+                  result = pd.merge(sites, samples, on="sample_id", how="left")
+                  ```
+                feedback: 这样 sites 成了左表，留下的是 sites 的每一行：S_E 进来了，S_C、S_D 还是没有。
+            key: left
+        explanation: |
+          改成 `pd.merge(samples, sites, on="sample_id", how="left")`：samples 是左表，`how="left"` 让它的四行都留下，查不到采样点的 S_C、S_D 的 site 为 NaN。
+
+          只交换两张表的位置没有用：inner 不管谁在左边，都只留两边都有的键；把 sites 放在左边再用 left，留下的就成了 sites 的每一行。
+        verify: |
+          need = list(samples["sample_id"])
+          fits = []
+          for option, code in OPTIONS["fix"].items():
+              res = run(code)["result"]
+              if list(res["sample_id"]) == need and list(res["signal"]) == list(samples["signal"]):
+                  fits.append(option)
+          answers = {"fix": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py29.k1.r1
+        kind: [predict, explain]
+        uses: [py14.k1]
+        data: [pandas, plants, plots, shown]
+        body: |
+          同事用下面某一行代码，从 plants 和 plots 得到了上面第三张表 result。
+        slots:
+          - id: line
+            type: choice
+            prompt: 是哪一行？
+            options:
+              - id: plotsfirst
+                content: |
+                  ```python
+                  result = pd.merge(plots, plants, on="plant_id", how="inner")
+                  ```
+                feedback: plots 在左边时，行按 plots 的顺序排（P4 在 P2 前面），列也是 plot 在 height 前面。
+              - id: left
+                content: |
+                  ```python
+                  result = pd.merge(plants, plots, on="plant_id", how="left")
+                  ```
+                feedback: left 会留下 plants 的全部四株，P1、P3 的 plot 为 NaN。
+              - id: inner
+                content: |
+                  ```python
+                  result = pd.merge(plants, plots, on="plant_id", how="inner")
+                  ```
+            key: inner
+          - id: other
+            type: text
+            format: integer
+            prompt: 如果写成 `pd.merge(plants, plots, on="plant_id", how="left")`，result 有几行？
+            key: 4
+        explanation: |
+          是 `pd.merge(plants, plots, on="plant_id", how="inner")`。result 只有 P2、P4：这两株在两张表里都有，P1、P3 在 plots 里找不到被丢掉，只在 plots 里的 P7 不进结果。行的顺序（P2 在前）和列的顺序（height 在 plot 前）都跟 plants 走，说明 plants 是左表。
+
+          换成 left，plants 的 **4** 株都留下，P1、P3 的 plot 为 NaN。
+        verify: |
+          def same(res):
+              return (list(res.columns) == list(shown.columns)
+                      and res.astype(str).values.tolist() == shown.astype(str).values.tolist())
+          fits = [option for option, code in OPTIONS["line"].items() if same(run(code)["result"])]
+          left = run('result = pd.merge(plants, plots, on="plant_id", how="left")')["result"]
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "other": len(left)}
+      - id: py29.k1.r2
+        kind: [predict]
+        uses: [py14.k1, py19.k1]
+        data: [pandas, survey, regions]
+        body: |
+          阅读代码，按 `result` 的行顺序，写出每一行的 resp_id 和 region；没有值的写 NaN。
+
+          ```python
+          result = pd.merge(survey, regions, on="resp_id", how="left")
+          ```
+        slots:
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`result` 有几行？"
+            key: 5
+          - id: rows
+            type: table
+            columns:
+              - { id: pos, header: 行索引 }
+              - { id: resp, header: resp_id, input: text }
+              - { id: region, header: region, input: { type: text, quick: [NaN] } }
+            rows:
+              - { id: r0, cells: { pos: "0", resp: R1, region: 华东 } }
+              - { id: r1, cells: { pos: "1", resp: R2, region: "NaN" } }
+              - { id: r2, cells: { pos: "2", resp: R3, region: 华北 } }
+              - { id: r3, cells: { pos: "3", resp: R4, region: 西南 } }
+              - { id: r4, cells: { pos: "4", resp: R5, region: "NaN" } }
+        explanation: |
+          | 行索引 | resp_id | score | region |
+          |---:|---|---:|---|
+          | 0 | R1 | 4 | 华东 |
+          | 1 | R2 | 2 | NaN |
+          | 2 | R3 | 5 | 华北 |
+          | 3 | R4 | 3 | 西南 |
+          | 4 | R5 | 4 | NaN |
+
+          `how="left"` 留下 survey 的 **5** 行，顺序跟 survey 走；R2、R5 在 regions 里找不到，region 为 NaN；只在 regions 里的 R9 不进结果。行索引重新编号为 0 到 4。
+        verify: |
+          res = run()["result"]
+          answers = {
+              "nrows": len(res),
+              "rows": {
+                  f"r{position}": {"resp": row["resp_id"], "region": "NaN" if pd.isna(row["region"]) else row["region"]}
+                  for position, (_, row) in enumerate(res.iterrows())
+              },
+          }
+    quiz:
+      - id: py29.k1.x1
+        kind: [predict]
+        uses: [py14.k2]
+        data: [pandas, bottles, labs]
+        body: |
+          ```python
+          by_left = pd.merge(bottles, labs, on="bottle_id", how="left")
+          by_inner = pd.merge(bottles, labs, on="bottle_id", how="inner")
+          ```
+        slots:
+          - id: nleft
+            type: text
+            format: integer
+            prompt: "`by_left` 有几行？"
+            key: 4
+          - id: ninner
+            type: text
+            format: integer
+            prompt: "`by_inner` 有几行？"
+            key: 2
+          - id: dropped
+            type: order
+            partial: true
+            prompt: 哪些水样在 `by_left` 里有、在 `by_inner` 里没有？按它们在 `by_left` 里的先后排出 bottle_id。
+            items:
+              - { id: B1, content: B1 }
+              - { id: B2, content: B2 }
+              - { id: B3, content: B3 }
+              - { id: B4, content: B4 }
+              - { id: B8, content: B8 }
+            key: [B1, B3]
+        explanation: |
+          `by_left` 有 **4** 行：bottles 的每瓶水样都留下，B1、B3 的 lab 为 NaN。`by_inner` 只有 B2、B4 两行，被丢掉的是在 labs 里找不到的 **B1、B3**。B8 只在 labs 里，两种结果都没有它。
+        verify: |
+          r = run()
+          left_ids = list(r["by_left"]["bottle_id"])
+          inner_ids = list(r["by_inner"]["bottle_id"])
+          answers = {
+              "nleft": len(r["by_left"]),
+              "ninner": len(r["by_inner"]),
+              "dropped": [b for b in left_ids if b not in inner_ids],
+          }
+      - id: py29.k1.x2
+        kind: [explain]
+        uses: [py14.k1, py19.k1]
+        data: [pandas, bottles, labs]
+        body: |
+          ```python
+          result = pd.merge(bottles, labs, on="bottle_id", how="left")
+          ```
+
+          关于 `result`，下面哪些说法正确？选出所有正确的。
+        slots:
+          - id: claims
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: index, content: "`result` 的行索引仍是 20、3、11、7" }
+              - { id: kept, content: bottles 的四瓶水样都在 `result` 里 }
+              - { id: b8, content: 只在 labs 里登记的 B8 也在 `result` 里 }
+              - { id: b3nan, content: B3 那一行的 lab 是 NaN }
+              - { id: two, content: "`result` 只有 2 行" }
+            key: [kept, b3nan]
+        explanation: |
+          正确的是“bottles 的四瓶水样都在 result 里”和“B3 那一行的 lab 是 NaN”。left 留下左表每一行，B3 在 labs 里找不到，lab 补 NaN。
+
+          B8 只在右表，不会加进来；只有 2 行的是 inner 的结果；行索引重新编号为 0、1、2、3，不再是 20、3、11、7。每个选项的勾选状态分别计分。
+        verify: |
+          res = run()["result"]
+          ids = list(res["bottle_id"])
+          b3 = res.loc[res["bottle_id"] == "B3", "lab"]
+          holds = {
+              "index": list(res.index) == list(bottles.index),
+              "kept": all(b in ids for b in bottles["bottle_id"]),
+              "b8": "B8" in ids,
+              "b3nan": len(b3) == 1 and bool(b3.isna().all()),
+              "two": len(res) == 2,
+          }
+          answers = {"claims": [claim for claim, ok in holds.items() if ok]}
+
   - id: py29.k2
     title: 一对多造成行数增长
+    card:
+      name: 一对多行数增长
+      aliases: [一对多, 行数膨胀, 键重复]
+      definition: 右表里同一个键有几行，左表这个键的每一行就配出几行；所以右表的键有重复时，拼出的结果比左表的行多。
+      conditions:
+        - left 的结果行数 = 左表每行配上的行数之和，一行也配不上的算 1；inner 配不上的不算。
+        - 多出的行不报错，之后数样本、算平均会把同一个值重复算；拼之前用 duplicated 查右表的键。
+      example:
+        from: py29.k2.e0
+        text: |
+          sites 里 S_A 有南坡、西坡两行，`pd.merge(samples, sites, on="sample_id", how="left")` 得到 5 行：S_A 两行（signal 8 出现两次），S_B、S_C、S_D 各一行。
+    lesson: |
+      上一个知识点里，sites 每个样本只有一行。如果 sites 里 S_A 被记了两次，一次南坡、一次西坡，samples 的 S_A 会和这两行**都**配上：
+
+      | 行索引 | sample_id | signal | site |
+      |---:|---|---:|---|
+      | 0 | S_A | 8 | 南坡 |
+      | 1 | S_A | 8 | 西坡 |
+      | 2 | S_B | 10 | 北坡 |
+      | 3 | S_C | 13 | NaN |
+      | 4 | S_D | 10 | NaN |
+
+      规则是：左表的每一行，右表里有几行同样的键，就配出几行。一行也配不上时，left 仍留它一行（补 NaN），inner 不留。所以 left 结果的行数，是左表每行“配上几行，至少算 1”加起来：这里 2 + 1 + 1 + 1 = 5。
+
+      多出来的行不会报错，看起来也很正常。可之后数样本、算平均，S_A 和它的 8 都会被算两次。所以拼之前，先用 [duplicated](repa:concept/py25.k2) 查右表的键有没有重复：
+
+      ```python
+      sites.duplicated(subset=["sample_id"], keep=False)
+      ```
+
+      有 True 就说明这个键在右表里不止一行。这时先弄清哪一行对、该怎样处理，再拼表。
+    example:
+      id: py29.k2.e0
+      kind: [predict]
+      uses: [py29.k1, py25.k1]
+      data: [pandas, samples, sites_dup]
+      body: |
+        这次的 sites 里，S_A 被记了两次。阅读代码，回答下面的问题。
+
+        ```python
+        result = pd.merge(samples, sites, on="sample_id", how="left")
+        ```
+      slots:
+        - id: nrows
+          type: text
+          format: integer
+          prompt: "`result` 有几行？"
+          key: 5
+        - id: counts
+          type: table
+          prompt: 每个样本在 `result` 里出现几次？
+          columns:
+            - { id: sid, header: sample_id }
+            - { id: n, header: 出现次数, input: integer }
+          rows:
+            - { id: a, cells: { sid: S_A, n: 2 } }
+            - { id: b, cells: { sid: S_B, n: 1 } }
+            - { id: c, cells: { sid: S_C, n: 1 } }
+            - { id: d, cells: { sid: S_D, n: 1 } }
+      explanation: |
+        **5** 行。S_A 在 sites 里有南坡、西坡两行，samples 的 S_A 配上了两行，所以出现 **2** 次，signal 8 也跟着出现两次。S_B 配上一行；S_C、S_D 配不上，left 仍各留一行，site 为 NaN。合起来 2 + 1 + 1 + 1 = 5。
+      verify: |
+        res = run()["result"]
+        ids = list(res["sample_id"])
+        answers = {
+            "nrows": len(res),
+            "counts": {sid[-1].lower(): {"n": ids.count(sid)} for sid in samples["sample_id"]},
+        }
+    practice:
+      - id: py29.k2.q1
+        kind: [predict]
+        uses: [py29.k1]
+        data: [pandas, samples, sites_dup3]
+        body: |
+          这份 sites 里，S_B 被记了三次。
+
+          ```python
+          by_left = pd.merge(samples, sites, on="sample_id", how="left")
+          by_inner = pd.merge(samples, sites, on="sample_id", how="inner")
+          ```
+        slots:
+          - id: nleft
+            type: text
+            format: integer
+            prompt: "`by_left` 有几行？"
+            key: 6
+            feedback:
+              - when: 4
+                message: S_B 在 sites 里有三行，samples 的 S_B 会配出三行。
+          - id: ninner
+            type: text
+            format: integer
+            prompt: "`by_inner` 有几行？"
+            key: 4
+            feedback:
+              - when: 6
+                message: inner 不留配不上的行，S_C、S_D 不算。
+        explanation: |
+          逐个样本数配上几行：S_A 1 行，S_B 3 行，S_C、S_D 各 0 行。
+
+          left 里配不上的也留一行：1 + 3 + 1 + 1 = **6**。inner 只算配上的：1 + 3 = **4**。两种写法都因为 S_B 重复而多出了行。
+        verify: |
+          r = run()
+          answers = {"nleft": len(r["by_left"]), "ninner": len(r["by_inner"])}
+      - id: py29.k2.q2
+        kind: [debug]
+        uses: [py29.k1, py25.k2]
+        data: [pandas, samples, sites_dup]
+        body: |
+          同事拼完表后，用下面的代码数样本数，屏幕显示 5，可是 samples 里只有 4 个样本。
+
+          ```python
+          result = pd.merge(samples, sites, on="sample_id", how="left")
+          print(len(result))
+          ```
+        slots:
+          - id: key
+            type: text
+            prompt: sites 里哪个 sample_id 不止一行？
+            key: S_A
+          - id: reason
+            type: choice
+            prompt: 多出的一行是怎么来的？
+            options:
+              - id: extra
+                content: sites 独有的 S_E 被加进了结果
+                feedback: left 以左表为准，只在右表的键不会加进来。
+              - id: nan
+                content: 配不上的 S_C、S_D 被各算了两次
+                feedback: 配不上的样本在 left 里只留一行。
+              - id: dup
+                content: S_A 在 sites 里有两行，samples 的 S_A 配上了两行
+            key: dup
+        explanation: |
+          sites 里 **S_A** 有两行（南坡、西坡），samples 的 S_A 和两行都配上，结果多出一行。S_E 只在右表，不会进 left 的结果；S_C、S_D 配不上，各留一行。
+
+          `len(result)` 数的是行数，不是样本数。右表的键有重复时，两者就不再相等。
+        verify: |
+          res = run()["result"]
+          ids = list(res["sample_id"])
+          dups = list(sites.loc[sites.duplicated(subset=["sample_id"], keep=False), "sample_id"].unique())
+          holds = {
+              "dup": len(dups) > 0 and all(ids.count(s) == list(sites["sample_id"]).count(s) for s in dups),
+              "extra": "S_E" in ids,
+              "nan": ids.count("S_C") > 1 or ids.count("S_D") > 1,
+          }
+          true = [reason for reason, ok in holds.items() if ok]
+          answers = {"key": dups[0] if len(dups) == 1 else dups, "reason": true[0] if len(true) == 1 else true}
+      - id: py29.k2.q3
+        kind: [predict]
+        uses: [py25.k2]
+        data: [pandas, samples, sites_dup]
+        body: |
+          拼表之前，先查 sites 的键有没有重复：
+
+          ```python
+          flags = sites.duplicated(subset=["sample_id"], keep=False)
+          ```
+        slots:
+          - id: flags
+            type: table
+            prompt: 按 sites 的行顺序填写 `flags` 的值。
+            columns:
+              - { id: sid, header: sample_id }
+              - { id: site, header: site }
+              - { id: flag, header: flags, input: bool }
+            rows:
+              - { id: r0, cells: { sid: S_B, site: 北坡, flag: false } }
+              - { id: r1, cells: { sid: S_A, site: 南坡, flag: true } }
+              - { id: r2, cells: { sid: S_E, site: 东坡, flag: false } }
+              - { id: r3, cells: { sid: S_A, site: 西坡, flag: true } }
+          - id: extra
+            type: text
+            format: integer
+            prompt: 用这份 sites 和 samples 按 sample_id 做 left 拼接，结果比 samples 多几行？
+            key: 1
+        explanation: |
+          `flags` 依次为 **False、True、False、True**：`keep=False` 把重复键的每一次出现都标成 True，两行 S_A 都是 True。
+
+          S_A 在 sites 里有两行，samples 的 S_A 会配出两行，所以结果比 samples 多 **1** 行。看到 True，就该先弄清 S_A 到底在南坡还是西坡，再拼表。
+        verify: |
+          r = run()
+          res = pd.merge(samples, sites, on="sample_id", how="left")
+          answers = {
+              "flags": {f"r{label}": {"flag": bool(value)} for label, value in r["flags"].items()},
+              "extra": len(res) - len(samples),
+          }
+    review:
+      - id: py29.k2.r1
+        kind: [predict, explain]
+        uses: [py29.k1]
+        data: [pandas, survey, regions_dup]
+        body: |
+          ```python
+          result = pd.merge(survey, regions, on="resp_id", how="left")
+          ```
+
+          运行之后，下面哪些说法正确？选出所有正确的。
+        slots:
+          - id: claims
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: changed, content: survey 本身也变成了 7 行 }
+              - { id: seven, content: "`result` 有 7 行" }
+              - { id: r4gone, content: R4 在 regions 里找不到，被丢掉了 }
+              - { id: r3three, content: R3 的评分 5 在 `result` 里出现了 3 次 }
+            key: [seven, r3three]
+        explanation: |
+          正确的是“result 有 7 行”和“R3 的评分 5 出现了 3 次”。逐份问卷数配上几行：R1 1 行，R2 1 行，R3 3 行，R4、R5 配不上但 left 各留一行，合计 1 + 1 + 3 + 1 + 1 = 7。R3 的每一行都带着同一个评分 5。
+
+          R4 没有被丢掉，它的 region 是 NaN；`pd.merge` 得到的是新表，survey 仍是 5 行。每个选项的勾选状态分别计分。
+        verify: |
+          r = run()
+          res = r["result"]
+          ids = list(res["resp_id"])
+          holds = {
+              "changed": len(r["survey"]) == 7,
+              "seven": len(res) == 7,
+              "r4gone": "R4" not in ids,
+              "r3three": list(res.loc[res["resp_id"] == "R3", "score"]) == [5, 5, 5],
+          }
+          answers = {"claims": [claim for claim, ok in holds.items() if ok]}
+      - id: py29.k2.r2
+        kind: [predict]
+        uses: [py29.k1]
+        data: [pandas, plants, plots_dup]
+        body: |
+          ```python
+          result = pd.merge(plants, plots, on="plant_id", how="inner")
+          print(len(result))
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示什么？
+            key: 3
+          - id: twice
+            type: text
+            prompt: 哪一株在 `result` 里出现了不止一次？写出它的 plant_id。
+            key: P2
+        explanation: |
+          显示 **3**。inner 只算配上的行：P1、P3 在 plots 里找不到，不留；**P2** 在 plots 里有甲、丁两行，配出两行；P4 配出一行。2 + 1 = 3。P7 只在 plots 里，不进结果。
+        verify: |
+          r = run()
+          ids = list(r["result"]["plant_id"])
+          many = [p for p in dict.fromkeys(ids) if ids.count(p) > 1]
+          answers = {"output": int(r.out), "twice": many[0] if len(many) == 1 else many}
+    quiz:
+      - id: py29.k2.x1
+        kind: [predict]
+        uses: [py29.k1]
+        data: [pandas, bottles, labs_dup]
+        body: |
+          ```python
+          by_left = pd.merge(bottles, labs, on="bottle_id", how="left")
+          by_inner = pd.merge(bottles, labs, on="bottle_id", how="inner")
+          ```
+        slots:
+          - id: counts
+            type: table
+            prompt: 每瓶水样在两个结果里各出现几次？
+            columns:
+              - { id: bid, header: bottle_id }
+              - { id: left, header: 在 by_left 里, input: integer }
+              - { id: inner, header: 在 by_inner 里, input: integer }
+            rows:
+              - { id: b1, cells: { bid: B1, left: 1, inner: 1 } }
+              - { id: b2, cells: { bid: B2, left: 2, inner: 2 } }
+              - { id: b3, cells: { bid: B3, left: 1, inner: 0 } }
+              - { id: b4, cells: { bid: B4, left: 3, inner: 3 } }
+        explanation: |
+          | bottle_id | labs 里的行数 | 在 by_left 里 | 在 by_inner 里 |
+          |---|---:|---:|---:|
+          | B1 | 1 | 1 | 1 |
+          | B2 | 2 | 2 | 2 |
+          | B3 | 0 | 1 | 0 |
+          | B4 | 3 | 3 | 3 |
+
+          配上几行就出现几次；B3 在 labs 里一行都没有，left 留它一行（lab 为 NaN），inner 不留。by_left 共 7 行、by_inner 共 6 行，都比 bottles 的 4 行多。
+        verify: |
+          r = run()
+          left_ids = list(r["by_left"]["bottle_id"])
+          inner_ids = list(r["by_inner"]["bottle_id"])
+          answers = {"counts": {
+              b.lower(): {"left": left_ids.count(b), "inner": inner_ids.count(b)}
+              for b in bottles["bottle_id"]
+          }}
+      - id: py29.k2.x2
+        kind: [predict, explain]
+        uses: [py29.k1, py25.k1]
+        data: [pandas, bottles_rep, labs_full]
+        body: |
+          这次 bottles 里 B1 测了两次 pH，labs 里每瓶水样只登记一次。
+
+          ```python
+          result = pd.merge(bottles, labs, on="bottle_id", how="left")
+          print(len(bottles))
+          print(len(result))
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 5
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 5
+          - id: why
+            type: choice
+            prompt: 为什么两个数一样？
+            options:
+              - id: merged
+                content: bottles 里重复的 B1 被合并成了一行
+              - id: unique
+                content: labs 里每个 bottle_id 只有一行，bottles 的每一行都只配上一行
+              - id: dedup
+                content: pd.merge 会自动去掉键重复的行
+            key: unique
+        explanation: |
+          两行都显示 **5**。行数会不会变多，要看**右表**的键：labs 里每瓶水样只有一行，bottles 的每一行（包括两行 B1）都只配上一行，所以结果仍是 5 行，两行 B1 都留着，各自配上同一个实验室。
+
+          左表里同一个键出现几次没关系，这正是“左边多、右边一”的正常情况。pd.merge 不会合并或去掉重复的行。
+        verify: |
+          r = run()
+          lines = r.lines()
+          res = r["result"]
+          b1 = list(res["bottle_id"]).count("B1")
+          holds = {
+              "merged": b1 == 1,
+              "unique": (not labs.duplicated(subset=["bottle_id"]).any()) and len(res) == len(bottles),
+              "dedup": b1 < list(bottles["bottle_id"]).count("B1"),
+          }
+          true = [reason for reason, ok in holds.items() if ok]
+          answers = {"first": int(lines[0]), "second": int(lines[1]), "why": true[0] if len(true) == 1 else true}
+
   - id: py29.k3
     title: validate 与 indicator 暴露关系错误和未匹配项
+    card:
+      name: validate 与 indicator
+      aliases: [validate, indicator, _merge, MergeError]
+      definition: validate="many_to_one" 要求右表每个键最多一行，不满足就报 MergeError；indicator=True 加一列 _merge，标出每行是 both（配上了）还是 left_only（只在左表）。
+      conditions:
+        - validate 只查键有没有重复，不查配不配得上；没配上的要看 _merge 去数。
+        - 两张表的键列都有缺失时，pandas 会让缺失的键互相配上；拼之前先用 isna 查键列。
+      example:
+        from: py29.k3.e0
+        text: |
+          ```python
+          result = pd.merge(samples, sites, on="sample_id", how="left",
+                            validate="many_to_one", indicator=True)
+          ```
+          sites 的键不重复，不报错；_merge 依次为 both、both、left_only、left_only，S_C、S_D 没配上。
+    lesson: |
+      行数变多不会报错，配不上的行也只是悄悄补 NaN。`pd.merge` 有两个参数，能把这两件事摆到明面上。
+
+      **validate 写下两张表的键是什么关系。** `validate="many_to_one"` 的意思是“左边多、右边一”：左表里同一个键可以有好几行（比如同一个样本测了两次），右表里每个键最多一行。右表的键一旦重复，`pd.merge` 不再悄悄多出行，而是报错 `MergeError`，程序停在这一行。同样的读法，`"one_to_many"` 是“左边一、右边多”，`"one_to_one"` 要求两边的键都不重复。validate 只检查键有没有重复，不管配不配得上。
+
+      **indicator 给每一行标出来历。** 加上 `indicator=True`，结果多出一列 `_merge`：`both` 是两边都有，`left_only` 是只在左表、没配上。（`right_only` 只出现在保留右表独有键的拼法里，left 和 inner 都不会有。）
+
+      ```python
+      result = pd.merge(samples, sites, on="sample_id", how="left",
+                        validate="many_to_one", indicator=True)
+      unmatched = result.loc[result["_merge"] == "left_only", ["sample_id"]]
+      ```
+
+      第二行用[布尔掩码](repa:concept/py17.k1)取出没配上的样本，交给负责人核对。
+
+      还有一点要先查：如果两张表的键列都有缺失值，pandas 会让缺失的键互相配上，这和很多人的直觉不同。拼之前，先用 [isna](repa:concept/py19.k1) 看看键列有没有缺失。
+    example:
+      id: py29.k3.e0
+      kind: [predict]
+      uses: [py29.k1, py29.k2]
+      data: [pandas, samples, sites]
+      body: |
+        阅读代码，说出运行的结果。
+
+        ```python
+        result = pd.merge(samples, sites, on="sample_id", how="left",
+                          validate="many_to_one", indicator=True)
+        ```
+      slots:
+        - id: error
+          type: choice
+          prompt: 这一行会报错吗？
+          options:
+            - { id: merge-error, content: 报 MergeError }
+            - { id: "no", content: 不报错，正常得到 result }
+          key: "no"
+        - id: merge
+          type: table
+          prompt: 按结果的行顺序填写 `_merge` 列。
+          columns:
+            - { id: sid, header: sample_id }
+            - id: merge
+              header: _merge
+              input:
+                type: choice
+                options:
+                  - { id: both, label: both }
+                  - { id: leftonly, label: left_only }
+                  - { id: rightonly, label: right_only }
+          rows:
+            - { id: r0, cells: { sid: S_A, merge: both } }
+            - { id: r1, cells: { sid: S_B, merge: both } }
+            - { id: r2, cells: { sid: S_C, merge: leftonly } }
+            - { id: r3, cells: { sid: S_D, merge: leftonly } }
+        - id: unmatched
+          type: text
+          format: integer
+          prompt: "`_merge` 为 left_only 的有几行？"
+          key: 2
+      explanation: |
+        **不报错**：sites 里每个 sample_id 只有一行，符合“左边多、右边一”。
+
+        `_merge` 依次为 **both、both、left_only、left_only**：S_A、S_B 在两张表里都有；S_C、S_D 只在 samples 里，没配上。所以 left_only 有 **2** 行。只在 sites 里的 S_E 不进 left 的结果，也就没有 right_only。
+      verify: |
+        r = run()
+        res = r["result"]
+        answers = {
+            "error": "no" if r.error is None else "merge-error" if r.error == "MergeError" else r.error,
+            "merge": {f"r{position}": {"merge": str(value).replace("_", "")} for position, value in enumerate(res["_merge"])},
+            "unmatched": int((res["_merge"] == "left_only").sum()),
+        }
+    practice:
+      - id: py29.k3.q1
+        kind: [predict]
+        uses: [py29.k2]
+        data: [pandas, samples, sites_dup]
+        body: |
+          这次的 sites 里，S_A 被记了两次。
+
+          ```python
+          result = pd.merge(samples, sites, on="sample_id", how="left", validate="many_to_one")
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行这一行会怎样？
+            options:
+              - { id: five, content: 不报错，result 有 5 行 }
+              - { id: error, content: 报 MergeError，没有得到 result }
+              - id: four
+                content: 不报错，result 有 4 行，重复的 S_A 只留一行
+                feedback: validate 不会替你挑一行留下，它只检查，不满足就报错。
+            key: error
+          - id: without
+            type: text
+            format: integer
+            prompt: 如果去掉 `validate="many_to_one"`，这一行不报错，result 有几行？
+            key: 5
+        explanation: |
+          **报 MergeError**。`many_to_one` 要求右表每个 sample_id 最多一行，sites 里 S_A 有两行，不满足，程序停在这一行。
+
+          去掉 validate，它就照常拼出 **5** 行，S_A 多出一行，而且不会提醒任何人。validate 的用处就在这里：把“右表每个键只有一行”这个前提写进代码，不满足时立刻停下。
+        verify: |
+          r = run()
+          plain = run('result = pd.merge(samples, sites, on="sample_id", how="left")')
+          outcome = "error" if r.error == "MergeError" else {5: "five", 4: "four"}.get(len(r["result"]), "other") if r.error is None else r.error
+          answers = {"outcome": outcome, "without": len(plain["result"])}
+      - id: py29.k3.q2
+        kind: [predict]
+        uses: [py17.k1, py17.k2, py29.k1]
+        data: [pandas, samples, sites]
+        body: |
+          阅读代码，说出 `unmatched` 的样子。
+
+          ```python
+          result = pd.merge(samples, sites, on="sample_id", how="left", indicator=True)
+          unmatched = result.loc[result["_merge"] == "left_only", ["sample_id"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: "`unmatched` 里有哪些样本？按先后顺序排出 sample_id。"
+            items:
+              - { id: SA, content: S_A }
+              - { id: SB, content: S_B }
+              - { id: SC, content: S_C }
+              - { id: SD, content: S_D }
+              - { id: SE, content: S_E }
+            key: [SC, SD]
+          - id: index
+            type: choice
+            prompt: "`unmatched` 的行索引是"
+            options:
+              - { id: original, content: 22、4 }
+              - { id: zeroone, content: 0、1 }
+              - { id: twothree, content: 2、3 }
+            key: twothree
+        explanation: |
+          `unmatched` 里是 **S_C、S_D**：它们在 sites 里找不到，`_merge` 为 left_only。
+
+          行索引是 **2、3**。`result` 的行索引已经重新编号为 0 到 3，`.loc` 用掩码选行时保留的是 `result` 的标签，所以是 2、3；samples 原来的 22、4 在拼表时就没有带过来。
+        verify: |
+          u = run()["unmatched"]
+          labels = tuple(int(label) for label in u.index)
+          answers = {
+              "rows": [s.replace("_", "") for s in u["sample_id"]],
+              "index": {(22, 4): "original", (0, 1): "zeroone", (2, 3): "twothree"}.get(labels, "other"),
+          }
+      - id: py29.k3.q3
+        kind: [specify]
+        uses: [py12.k1, py25.k1]
+        body: |
+          负责人的要求是：“给每个样本补上采样点：samples 里的样本一个不能少，也不能因为 sites 记重了而多出行——sites 里同一个样本出现两次就立刻报错；配不上的样本要能单独列出来。”
+
+          把它对应到 `pd.merge(samples, sites, on="sample_id", ...)` 的三个参数。
+        slots:
+          - id: how
+            type: choice
+            prompt: how
+            options:
+              - { id: inner, content: '`how="inner"`' }
+              - { id: left, content: '`how="left"`' }
+            key: left
+          - id: validate
+            type: choice
+            prompt: validate
+            options:
+              - { id: none, content: 不写 validate }
+              - { id: onemany, content: '`validate="one_to_many"`' }
+              - { id: manyone, content: '`validate="many_to_one"`' }
+            key: manyone
+          - id: indicator
+            type: choice
+            prompt: indicator
+            options:
+              - { id: "yes", content: "`indicator=True`" }
+              - { id: "no", content: 不写 indicator }
+            key: "yes"
+        explanation: |
+          `how="left"`、`validate="many_to_one"`、`indicator=True`。
+
+          “一个不能少”要 left，inner 会丢掉配不上的样本；“sites 记重了就报错”是右表每个键最多一行，也就是“左边多、右边一”，`one_to_many` 检查的是左表，方向反了，不写 validate 则只会悄悄多出行；“配不上的单独列出来”可以用 `_merge` 为 left_only 的行取出。
+        manual: [how, validate, indicator]
+    review:
+      - id: py29.k3.r1
+        kind: [explain]
+        uses: [py29.k2, py25.k1]
+        data: [pandas, plants_rep, plots]
+        body: |
+          plants 里同一株可以量好几次（P1 就有两行），plots 里每株只能登记一个地块。要让拼表在 plots 的 plant_id 有重复时报错、没有重复时照常运行，应该用哪一行？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: oneone
+                content: |
+                  ```python
+                  result = pd.merge(plants, plots, on="plant_id", how="left", validate="one_to_one")
+                  ```
+                feedback: one_to_one 还要求 plants 的键不重复；P1 量了两次，现在就会报错。
+              - id: none
+                content: |
+                  ```python
+                  result = pd.merge(plants, plots, on="plant_id", how="left")
+                  ```
+                feedback: 不写 validate，plots 记重了也不会报错，只会悄悄多出行。
+              - id: manyone
+                content: |
+                  ```python
+                  result = pd.merge(plants, plots, on="plant_id", how="left", validate="many_to_one")
+                  ```
+              - id: onemany
+                content: |
+                  ```python
+                  result = pd.merge(plants, plots, on="plant_id", how="left", validate="one_to_many")
+                  ```
+                feedback: one_to_many 要求的是 plants 的键不重复，方向反了；P1 量了两次，现在就会报错。
+            key: manyone
+        explanation: |
+          用 `validate="many_to_one"`：左表 plants 里同一株可以有多行，右表 plots 里每株最多一行。现在的 plots 没有重复，照常运行；plots 一旦记重，就报 MergeError。
+
+          `one_to_one` 和 `one_to_many` 都要求 plants 的键不重复，P1 有两行，现在就会报错；不写 validate 则永远不会报错。
+        verify: |
+          # 另造一份把第一行复制一次的 plots，检查每个写法在两种 plots 下的表现。
+          dup = pd.concat([plots, plots.iloc[[0]]], ignore_index=True)
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if run(code).error is None and run(code, plots=dup).error == "MergeError"]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py29.k3.r2
+        kind: [predict, explain]
+        uses: [py29.k1, py19.k1]
+        data: [pandas, plants, plots]
+        body: |
+          ```python
+          result = pd.merge(plants, plots, on="plant_id", how="left", indicator=True)
+          ```
+
+          关于 `result`，下面哪些说法正确？选出所有正确的。
+        slots:
+          - id: claims
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: boththree, content: "`_merge` 为 both 的有 3 行" }
+              - { id: p7right, content: "P7 那一行的 `_merge` 是 right_only" }
+              - { id: noright, content: "`_merge` 列里没有 right_only" }
+              - { id: leftnan, content: "`_merge` 为 left_only 的行，plot 都是 NaN" }
+            key: [noright, leftnan]
+        explanation: |
+          正确的是“没有 right_only”和“left_only 的行，plot 都是 NaN”。left 以 plants 为准：P2、P4 配上了，是 both（2 行，不是 3 行）；P1、P3 没配上，是 left_only，plot 补 NaN。P7 只在 plots 里，根本不进结果，所以也没有 right_only 的行。每个选项的勾选状态分别计分。
+        verify: |
+          res = run()["result"]
+          tag = res["_merge"].astype(str)
+          holds = {
+              "boththree": int((tag == "both").sum()) == 3,
+              "p7right": bool(((res["plant_id"] == "P7") & (tag == "right_only")).any()),
+              "noright": not bool((tag == "right_only").any()),
+              "leftnan": bool((tag == "left_only").any()) and bool(res.loc[tag == "left_only", "plot"].isna().all()),
+          }
+          answers = {"claims": [claim for claim, ok in holds.items() if ok]}
+    quiz:
+      - id: py29.k3.x1
+        kind: [predict]
+        uses: [py29.k2, py25.k2]
+        data: [pandas, bottles, labs_dup]
+        body: |
+          ```python
+          result = pd.merge(bottles, labs, on="bottle_id", how="left", validate="many_to_one")
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行这一行会怎样？
+            options:
+              - { id: seven, content: 不报错，result 有 7 行 }
+              - { id: four, content: 不报错，result 有 4 行 }
+              - { id: error, content: 报 MergeError }
+            key: error
+          - id: culprits
+            type: choice
+            multiple: true
+            prompt: labs 里哪些 bottle_id 不止一行？选出所有的。
+            options:
+              - { id: B1, content: B1 }
+              - { id: B2, content: B2 }
+              - { id: B3, content: B3 }
+              - { id: B4, content: B4 }
+            key: [B2, B4]
+        explanation: |
+          **报 MergeError**。labs 里 **B2** 有两行、**B4** 有三行，不满足右表每个键最多一行。没有 validate 时，这一行会悄悄拼出 7 行；有了它，错误在拼表这一步就暴露出来，要先弄清这两瓶水样到底送到了哪个实验室。
+        verify: |
+          r = run()
+          outcome = "error" if r.error == "MergeError" else {7: "seven", 4: "four"}.get(len(r["result"]), "other") if r.error is None else r.error
+          dups = labs.loc[labs.duplicated(subset=["bottle_id"], keep=False), "bottle_id"].unique()
+          answers = {"outcome": outcome, "culprits": sorted(dups)}
+      - id: py29.k3.x2
+        kind: [specify]
+        uses: [py12.k1, py29.k1, py29.k2]
+        data: [pandas, survey, regions]
+        body: |
+          需求是：“给每份问卷补上地区：survey 里的问卷一份不能少，也不能因为 regions 登记重复而多出行——regions 里同一份问卷出现两次就报错；还要能数出有几份问卷没查到地区。”哪一种写法符合这条需求？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: plain
+                content: |
+                  ```python
+                  result = pd.merge(survey, regions, on="resp_id", how="left",
+                                    indicator=True)
+                  ```
+                feedback: 没写 validate，regions 记重了也不会报错，只会悄悄多出行。
+              - id: onemany
+                content: |
+                  ```python
+                  result = pd.merge(survey, regions, on="resp_id", how="left",
+                                    validate="one_to_many", indicator=True)
+                  ```
+                feedback: one_to_many 检查的是 survey 的键，regions 记重了照样通过。
+              - id: inner
+                content: |
+                  ```python
+                  result = pd.merge(survey, regions, on="resp_id", how="inner",
+                                    validate="many_to_one", indicator=True)
+                  ```
+                feedback: inner 会丢掉没查到地区的问卷。
+              - id: right
+                content: |
+                  ```python
+                  result = pd.merge(survey, regions, on="resp_id", how="left",
+                                    validate="many_to_one", indicator=True)
+                  ```
+            key: right
+        explanation: |
+          符合的是 `how="left"`、`validate="many_to_one"`、`indicator=True` 那一种。left 让 survey 的问卷一份不少；`many_to_one` 要求 regions 每个 resp_id 最多一行，记重了就报错；`_merge` 为 left_only 的行就是没查到地区的问卷，这张表里是 R2、R5 两份。
+
+          inner 会丢掉 R2、R5；不写 validate 或写成 `one_to_many`，regions 记重时都不会报错。
+        verify: |
+          # 逐个运行写法：现在的表上要保留全部问卷、标出没配上的；把 regions 的一行复制一份后要报 MergeError。
+          dup = pd.concat([regions, regions.iloc[[0]]], ignore_index=True)
+          ids = list(survey["resp_id"])
+          missing = len([resp for resp in ids if resp not in list(regions["resp_id"])])
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              now = run(code)
+              if now.error is not None:
+                  continue
+              res = now["result"]
+              if list(res["resp_id"]) != ids or "_merge" not in res.columns:
+                  continue
+              if int((res["_merge"] == "left_only").sum()) != missing:
+                  continue
+              if run(code, regions=dup).error != "MergeError":
+                  continue
+              fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
