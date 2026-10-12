@@ -41,7 +41,7 @@ npm run start --workspace=@repa/base -- serve \
 ```ts
 import { RepaClient } from "@repa/base/client";
 
-// capabilities 声明这个前端能显示的题型、内容块和能提供的服务；不声明时后端不向它发询问和服务请求。
+// capabilities 声明这个前端能显示的作答位、内容块和能提供的服务；不声明时后端不向它发询问和服务请求。
 const client = await RepaClient.connect({ url, token }, { capabilities });
 client.on("session.event", event => renderEvent(event));
 client.on("confirm.request", async ({ id, request }) => {
@@ -57,7 +57,7 @@ await client.call("session.send", { sessionId: session.id, text: "查看这个�
 
 `askUser`、`renderEvent` 和 `capabilities` 由前端提供。命令确认返回布尔值，登录输入和选择返回字符串，取消返回 `null`；`display` 展示链接或进度，阅读后回复即可。登录确认只交给发起连接，其他连接不能代答。
 
-对话里的提问走另一条通道：`ask.request` 带一道题（见[题型词汇、询问与前端服务](#题型词汇询问与前端服务)），前端用 `ask.reply` 提交、拒绝作答或关闭，`ask.closed` 通知卡片已经结束。前端声明的服务收到 `service.request`，用 `service.reply` 回结果或错误；`service.closed` 表示后端不再等待，前端应停止这次运行。
+对话里的提问走另一条通道：`ask.request` 带一份 `Item`（见[交互词汇、询问与前端服务](#交互词汇询问与前端服务)），前端用 `ask.reply` 提交、拒绝作答或关闭，`ask.closed` 通知卡片已经结束。前端声明的服务收到 `service.request`，用 `service.reply` 回结果或错误；`service.closed` 表示后端不再等待，前端应停止这次运行。
 
 客户端不自动重放请求。连接中断或显式设置的请求超时会返回 `ConnectionError`，其中 `outcome` 为 `unknown`；重连后读取 `session.history` 与当前插件状态，再判断原操作的结果。普通调用默认等待完成，连接与初始化限时 15 秒。
 
@@ -139,7 +139,7 @@ test("笔记插件使用模型改写文字", async (t) => {
 
 `host.start()` 开始追赶变化；`writeFile()` 保存文件并等待历史与插件处理完成，不靠 watcher 的触发速度判断测试结束。你也可以从 `space.files` 和 `space.history` 核对文件及修订，从 `events` 和 `errors` 断言插件发出的事件与后台错误。
 
-工具里的 `context.ask` 和 `host.services` 需要有人回答。`createPluginTestHost({ plugins, ask, services })` 的 `ask` 模拟用户：它收到已经补上 `version` 与 `requires` 的题目，返回询问的结局，要模拟提交时调用其中的 `evaluate` 取得插件判分；`services` 模拟前端的服务。省略时两者分别以 `ask_unavailable`、`service_unavailable` 失败。直接调用 `host.tools()` 返回的工具时传入 `{ signal, callId }` 即可，`ask` 由宿主补上。
+工具里的 `context.ask` 和 `host.services` 需要有人回答。`createPluginTestHost({ plugins, ask, services })` 的 `ask` 模拟用户：它收到已经补上 `version` 与 `requires` 的 `Item`，返回询问的结局，要模拟提交时调用其中的 `onSubmit` 取得插件的处理结果；`services` 模拟前端的服务。省略时两者分别以 `ask_unavailable`、`service_unavailable` 失败。直接调用 `host.tools()` 返回的工具时传入 `{ signal, callId }` 即可，`ask` 由宿主补上。
 
 模型替身按接口分别排队。先用 `expectComplete()`、`expectStructured()` 或 `expectAgent()` 登记一次调用，再给出结果；没有安排的调用会立即报错。完成请求的 `succeed(value)` 和 `fail(error)` 可以在调用之前使用，也可以先等待 `requested`，检查请求后再决定结果。结构化结果仍按插件提供的 schema 校验。`expectAgent({ cancel: "manual" })` 返回 `cancelRequested` 和 `finish()`／`fail()`：先等取消信号，再手动结束任务，就能检查 `close()` 是否真的等待了终态。
 
@@ -184,51 +184,57 @@ agents: () => [{
 - **消息判断**：`beforeMessage` 收到 `{ sessionId, agent, mode, text, runId? }`，`mode` 为 `send`、`steer` 或 `followUp`，会话正在运行时带 `runId`。返回 `{ status: "rejected", reason, message, data? }` 时消息不进入会话；不返回或返回 `{ status: "accepted" }` 时照常处理。判断抛错同样不放行。后台任务和子 Agent 收到的任务不经过判断；判断期间用户取消了运行，这条消息不再投递。
 - **运行上下文**：运行内的工具、view 和插件写入可以调用 `currentRun()`，取得 `{ runId, ancestorRunIds, sessionId, agent }`；运行之外返回 `undefined`。`ancestorRunIds` 由近到远：子运行的是父运行的 runId 加上父运行自己的链，根运行的为空数组。
 
-## 题型词汇、询问与前端服务
+## 交互词汇、询问与前端服务
 
-同一套作答组件要出现在任务区、对话里 Agent 出的小题和概念卡上，所以题目和作答的形状由底座统一定义在 [`interaction.ts`](src/interaction.ts)，经 `@repa/base/protocol` 和 `@repa/base/plugin` 导出，浏览器也能用。一道题 `Item` 由题面内容块（`markdown`、`code`、`image`）和若干作答位（`choice`、`text`、`order`、`table`、`code`）组成，只含交卷前可以给学生看的部分。这些 schema 都是严格对象，多带一个答案字段就校验不过。题目怎样交付、提交到哪里由各自的路由决定：任务区和概念卡走插件方法，对话里的提问走底座的 `ask`。词汇另带四个纯函数：
+很多插件都要向用户要一份结构化的输入：健康插件请用户填一周的打卡表，写作插件请用户在几个方案里挑一个、排定章节顺序，Agent 在动手前问清导出格式。这些输入的形状由底座统一定义在 [`interaction.ts`](src/interaction.ts)，经 `@repa/base/protocol` 和 `@repa/base/plugin` 导出，浏览器也能用，前端因此用同一套组件显示它们。一次询问的内容 `Item` 由说明内容块（`markdown`、`code`、`image`）和若干作答位（`choice`、`text`、`order`、`table`、`code`）组成，只含可以给用户看的部分；schema 都是严格对象，多带一个字段就校验不过。底座只负责把 `Item` 交给前端、收回原样的作答、检查结构；作答怎样解释、要不要记下来，由调用方决定。插件自己的界面把 `Item` 嵌进插件方法的契约，对话里的提问走底座的 `ask`。词汇另带四个纯函数：
 
-- `contentVersion(definition)`：RFC 8785 规范化后取 SHA-256，返回 `sha256:<hex>`。插件对完整题目定义（公开部分、答案、评分规则、解析和测试）计算；值为 `undefined` 的成员视为不存在，`NaN`、日期对象等不是 JSON 的值以 `invalid_definition` 拒绝。
-- `requiredCapabilities(item)`：从结构算出渲染这道题必须理解的能力，例如 `slot.table`、`block.code`、`markdown.math`。装饰图和 `format`、`layout`、`other` 这类可以忽略的提示不算。
+- `contentVersion(definition)`：RFC 8785 规范化后取 SHA-256，返回 `sha256:<hex>`。调用方对完整定义计算，包括它自己保留、不给用户看的部分；值为 `undefined` 的成员视为不存在，`NaN`、日期对象等不是 JSON 的值以 `invalid_definition` 拒绝。
+- `requiredCapabilities(item)`：从结构算出渲染它必须理解的能力，例如 `slot.table`、`block.code`、`markdown.math`。装饰图和 `format`、`layout`、`other` 这类可以忽略的提示不算。
 - `canRender(capabilities, item)`：前端声明的 `supports` 是否覆盖 `item.requires`。
-- `checkResponse(item, response)`：作答的结构检查，不判分。题目版本、作答类型、选项与行列 id、个数、长度、缩进和代码行数不合要求，或必答位空着，都返回 `problems`，插件可以原样作为 `rejected` 交回；`dontKnow` 为 `true` 时不查必答。`format` 的含义由插件判断。
+- `checkResponse(item, response)`：作答的结构检查，不解释含义。版本、作答类型、选项与行列 id、个数、长度、缩进和代码行数不合要求，或必答位空着，都返回 `problems`。`format` 的含义由调用方判断。
 
-前端在 `initialize` 的 `capabilities` 里声明 `interaction: { vocabulary, supports }` 和 `services`，服务端按连接保存。后端据此不把前端不认识的题交给它：`ask` 直接比对声明，插件方法从调用上下文读取。
+前端在 `initialize` 的 `capabilities` 里声明 `interaction: { vocabulary, supports }` 和 `services`，服务端按连接保存。后端据此不把前端不认识的 `Item` 交给它：`ask` 直接比对声明，插件方法从调用上下文读取。
 
-发送方按当前词汇严格校验，前端读取时则要宽松：词汇只增不改，新版本加了字段，旧前端不能因此读不了题。前端用 `readItem`、`readFeedback`、`readSubmitResult` 读取题目、反馈和提交结果，例如解析 `plugin.call` 返回的题目。认识的字段照常检查类型，类型不对时读取失败；不认识的字段丢掉；读不懂的作答位和内容块连同所在的一项丢掉，并把 `slot.<type>`、`block.<type>` 补进 `requires`。反馈里不认识的 `verdict` 读成 `ungraded`，按中性显示；不认识的 `judge` 不标来源。长度和个数的上限读取时不查，放宽上限的题目同样经 `requires` 拦下。这样词汇加了可以忽略的字段，旧前端照常显示；加了必须理解的特性，`canRender` 判为不能作答。`RepaClient` 收到 `ask.request` 时信封仍严格校验，题目按 `readItem` 读取；`ask.reply` 的结果按 `readSubmitResult` 读取。
+发送方按当前词汇严格校验，前端读取时则要宽松：词汇只增不改，新版本加了字段，旧前端不能因此读不了。前端用 `readItem` 读取 `Item`，例如解析 `plugin.call` 返回的内容。认识的字段照常检查类型，类型不对时读取失败；不认识的字段丢掉；读不懂的作答位和内容块连同所在的一项丢掉，并把 `slot.<type>`、`block.<type>` 补进 `requires`。长度和个数的上限读取时不查，放宽上限的 `Item` 同样经 `requires` 拦下。这样词汇加了可以忽略的字段，旧前端照常显示；加了必须理解的特性，`canRender` 判为不能作答。`RepaClient` 收到 `ask.request` 时信封仍严格校验，`Item` 按 `readItem` 读取；`ask.reply` 的结果按同样的规则宽松读取。
 
 **对话里的询问。** 工具执行上下文多了 `ask`：
 
 ```ts
 async execute(input, context) {
   const outcome = await context.ask({
-    item: toPublic(question),              // 插件自己按白名单构造的 ItemDraft，可以带算好的 version
-    purpose: "practice",                   // question 或 practice
-    evaluate: async (response) => grade(question, response), // 返回 SubmitResult；rejected 时询问保持打开
+    item: weekCheckin(),                   // 插件自己构造的 ItemDraft，可以带算好的 version
+    onSubmit: async (response) => {        // 作答通过结构检查后交给插件，二选一
+      const problems = checkHours(response);
+      if (problems.length > 0) return { status: "invalid", problems };        // 卡片保持打开，用户改好再交
+      await saveCheckin(response);
+      return { status: "accepted", message: [{ type: "markdown", text: "已记下本周打卡" }] }; // 显示在卡片上，然后关闭
+    },
   });
-  // outcome.action：submit（带 response 与 result）、decline（可带 message）、cancel、unsupported
+  // outcome.action：submit（带 response）、decline（可带 message）、cancel、unsupported
 }
 ```
 
-`toPublic` 和 `grade` 由插件实现。底座按词汇校验题目、算出 `requires`，没有 `version` 时对公开内容计算；手写的 `requires` 与结构不符、id 重复或单元格引用不存在的列时以 `invalid_item` 拒绝。询问只发给发起这次运行的连接；它没有声明所需能力时不发送，直接得到 `unsupported`。作答先经 `checkResponse`，不合格时前端收到 `rejected`，不调用 `evaluate`。`evaluate` 在提问时的运行上下文里执行：带命令行的运行持有空间写锁等待回答，判分在别处写文件会和它互相等待；在这里写入则记在这次运行名下。没有发起连接时 `ask` 以 `ask_unavailable` 拒绝；运行中止、断线和空间关闭分别以 `ask_cancelled` 拒绝，`details.reason` 为 `aborted`、`disconnected`、`closed`。默认不设超时。
+`weekCheckin`、`checkHours` 和 `saveCheckin` 由插件实现。底座按词汇校验 `Item`、算出 `requires`，没有 `version` 时对公开内容计算；手写的 `requires` 与结构不符、id 重复或单元格引用不存在的列时以 `invalid_item` 拒绝。询问只发给发起这次运行的连接；它没有声明所需能力时不发送，直接得到 `unsupported`。作答先经 `checkResponse`，结构不对时前端直接收到 `invalid`，不调用 `onSubmit`。省略 `onSubmit` 时，通过结构检查就接受。`onSubmit` 在提问时的运行上下文里执行：带命令行的运行持有空间写锁等待回答，在别处写文件会和它互相等待；在这里写入则记在这次运行名下。没有发起连接时 `ask` 以 `ask_unavailable` 拒绝；运行中止、断线和空间关闭分别以 `ask_cancelled` 拒绝，`details.reason` 为 `aborted`、`disconnected`、`closed`。默认不设超时。
 
-测验这类限制由插件通过 `beforeMessage`、自己的触发时机和 Agent 定义来保证，底座不另设询问的判断入口：测验期间用户的消息被 `beforeMessage` 拒收，辅导会话就不会运行；后台 Agent 什么时候启动、带不带 `ask_user` 由插件决定；测验开始前插件中止进行中的辅导运行，在途的询问随运行一起取消。
+`ask.reply` 的结果因此只有两种：`{ status: "invalid", problems }` 时卡片保持打开，`{ status: "accepted", message? }` 时卡片显示附带的内容块后关闭；`decline`、`cancel`、`unsupported` 的结果为 `null`。
 
-底座内置的 `ask_user` 让 Agent 直接提问：参数是 1–4 个问题，每个问题有选项（选择）或输入方式（`text`、`longText`、`number`），没有答案字段，多带字段由 Pi 的参数校验拒绝。回答以“问题 → 选择或填写的内容”交回模型；用户不按卡片作答时附的一句话原样交回，关闭询问、界面无法显示和断线也都写成工具结果，模型据此改用文字交流。
+某段时间里不允许提问这类限制，由插件通过 `beforeMessage`、自己的触发时机和 Agent 定义来保证，底座不另设询问的判断入口：被 `beforeMessage` 拒收的消息不会启动运行；后台 Agent 什么时候启动、带不带 `ask_user` 由插件决定；插件可以先中止进行中的运行，在途的询问随运行一起取消。
 
-**插件方法。** `invoke(input, context)` 的 `context.caller.capabilities` 是发起调用的连接的声明，挑题时用 `canRender` 过滤；离线测试宿主直接调用时没有 `caller`。方法可以声明 `result` schema，宿主在交回前校验，不符合时以 `invalid_plugin_result` 拒绝，方法已有的副作用和状态唤醒照常保留。
+底座内置的 `ask_user` 让 Agent 直接提问：参数是 1–4 个问题，每个问题有选项（选择）或输入方式（`text`、`longText`、`number`），多带字段由 Pi 的参数校验拒绝。回答原样交回模型，写成“问题 → 选择或填写的内容”；用户不按卡片作答时附的一句话原样交回，关闭询问、界面无法显示和断线也都写成工具结果，模型据此改用文字交流。
+
+**插件方法。** `invoke(input, context)` 的 `context.caller.capabilities` 是发起调用的连接的声明，挑选交给前端的内容时用 `canRender` 过滤；离线测试宿主直接调用时没有 `caller`。方法可以声明 `result` schema，宿主在交回前校验，不符合时以 `invalid_plugin_result` 拒绝，方法已有的副作用和状态唤醒照常保留。
 
 **前端服务。** `host.services.call(service, input, { signal })` 把请求交给声明了这项服务的连接：发起当前操作的连接自己声明时交给它，否则交给最近初始化、声明了这项服务的连接。输入必须是 JSON 数据，结果由调用方自己校验。工具里调用时传入 `context.signal`，运行取消时请求一起结束。失败不自动换连接重试。
 
 | 错误码 | 含义与 `details` |
 | --- | --- |
-| `invalid_item` | 交给询问的题目不合词汇或结构不一致，`{ path }` 或 `{ problems }` |
+| `invalid_item` | 交给询问的 `Item` 不合词汇或结构不一致，`{ path }` 或 `{ problems }` |
 | `ask_unavailable` | 当前运行没有可以作答的连接 |
 | `ask_cancelled` | 询问没有得到回答就结束，`{ reason }` |
 | `ask_not_found` | `ask.reply` 指向的询问不存在、已经结束或不属于这个连接 |
 | `invalid_ask_reply` | `response` 只随 `submit`，`message` 只随 `decline` |
-| `ask_busy` | 上一次提交还在判分 |
-| `ask_evaluation_failed` | 插件判分抛错或结果不合词汇；询问保持打开 |
+| `ask_busy` | 上一次提交还在处理 |
+| `ask_submit_failed` | `onSubmit` 抛错或返回的结果不合词汇；询问保持打开 |
 | `service_unavailable` | 没有连接声明这项服务，`{ service }` |
 | `service_cancelled` | 请求没有得到结果就结束，`{ service, reason }` |
 | `service_failed` | 前端报告失败，`message` 是前端的说明，`{ service, code }` |
@@ -262,7 +268,7 @@ async execute(input, context) {
 
 ## 协议入口
 
-协议版本为 `2`，采用带令牌的 JSON-RPC 2.0 WebSocket。参数、响应与通知类型见 [`protocol.ts`](src/protocol.ts)。`2` 在 `initialize` 里增加可选的 `capabilities`，新增询问和服务两组消息。客户端严格校验消息的信封，所以给信封加字段要升版本；信封里的题目和反馈按词汇规则宽松读取，词汇加字段不用升协议版本。后端发来无效数据时，客户端以 4002 主动断开。
+协议版本为 `2`，采用带令牌的 JSON-RPC 2.0 WebSocket。参数、响应与通知类型见 [`protocol.ts`](src/protocol.ts)。`2` 在 `initialize` 里增加可选的 `capabilities`，新增询问和服务两组消息。客户端严格校验消息的信封，所以给信封加字段要升版本；信封里的 `Item` 和内容块按词汇规则宽松读取，词汇加字段不用升协议版本。后端发来无效数据时，客户端以 4002 主动断开。
 
 | 组 | 方法 |
 | --- | --- |
