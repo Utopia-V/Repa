@@ -1,0 +1,31 @@
+id: py37
+title: 用字典描述一条记录
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py06
+    key: true
+    weight: 0.33
+    covers: [py06.k2]
+  - topic: py03
+    key: true
+    weight: 0.33
+    covers: [py03.k3]
+sources:
+  - source: think-python
+    where: 第 10 章
+    url: https://allendowney.github.io/ThinkPython/chap10.html
+    use: reference
+  - source: python-docs
+    where: 教程第 5 章 §5.5
+    url: https://docs.python.org/3.12/tutorial/datastructures.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、解释代码（S/O）。
+kps:
+  - id: py37.k1
+    title: 键和值与位置索引的区别
+  - id: py37.k2
+    title: 索引取值与 get 默认值
+  - id: py37.k3
+    title: in 检查键是否存在

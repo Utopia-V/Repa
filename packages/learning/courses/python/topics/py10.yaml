@@ -1,0 +1,31 @@
+id: py10
+title: 有条件地做一件事
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py09
+    key: true
+    weight: 0.50
+    covers: [py09.k1]
+  - topic: py01
+    key: true
+    weight: 0.50
+    covers: [py01.k2]
+sources:
+  - source: think-python
+    where: 第 5 章 （跳过递归）
+    url: https://allendowney.github.io/ThinkPython/chap05.html
+    use: reference
+  - source: python-docs
+    where: 教程第 4 章 §4.1
+    url: https://docs.python.org/3.12/tutorial/controlflow.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、追踪变量（P）、找错（P）。
+kps:
+  - id: py10.k1
+    title: if/elif/else 的互斥路径
+  - id: py10.k2
+    title: 缩进划定执行范围
+  - id: py10.k3
+    title: 每条路径后的变量值

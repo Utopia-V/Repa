@@ -1,0 +1,31 @@
+id: py31
+title: 长表和宽表只是同一批观测的不同排法
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py25
+    key: true
+    weight: 0.50
+    covers: [py25.k1]
+  - topic: py27
+    key: false
+    weight: 1.00
+    covers: [py27.k1, py27.k2]
+sources:
+  - source: pydata-book
+    where: 第 8 章 §8.3
+    url: https://wesmckinney.com/book/data-wrangling
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：长宽变形
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/07_reshape_table_layout.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、解释代码（S/O）、写清需求（S/O）。
+kps:
+  - id: py31.k1
+    title: 辨认标识列、变量列和值列
+  - id: py31.k2
+    title: melt 从多列变多行
+  - id: py31.k3
+    title: pivot 要求键组合唯一，聚合是另一项决定

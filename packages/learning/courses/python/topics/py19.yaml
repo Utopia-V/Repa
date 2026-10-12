@@ -1,0 +1,35 @@
+id: py19
+title: 缺失不等于零，也不等于空串
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py14
+    key: true
+    weight: 0.33
+    covers: [py14.k3]
+  - topic: py17
+    key: true
+    weight: 1.00
+    covers: [py17.k1, py17.k2]
+  - topic: py12
+    key: true
+    weight: 0.50
+    covers: [py12.k1]
+sources:
+  - source: pydata-book
+    where: 第 7 章 §7.1
+    url: https://wesmckinney.com/book/data-cleaning
+    use: reference
+  - source: pandas-docs
+    where: 用户指南：缺失值
+    url: https://pandas.pydata.org/docs/user_guide/missing_data.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+kps:
+  - id: py19.k1
+    title: isna/notna 识别缺失而不靠 ==
+  - id: py19.k2
+    title: 不同 dtype 下缺失表示可能不同
+  - id: py19.k3
+    title: 删除、保留或填补需要业务规则

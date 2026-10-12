@@ -1,0 +1,27 @@
+id: py02
+title: 把计算写成表达式
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py01
+    key: true
+    weight: 0.50
+    covers: [py01.k1]
+sources:
+  - source: think-python
+    where: 第 1 章 §1
+    url: https://allendowney.github.io/ThinkPython/chap01.html
+    use: reference
+  - source: python-docs
+    where: 教程第 3 章 §3.1.1
+    url: https://docs.python.org/3.12/tutorial/introduction.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+kps:
+  - id: py02.k1
+    title: 括号与运算顺序
+  - id: py02.k2
+    title: 除法 /、整除 // 与余数 %
+  - id: py02.k3
+    title: 单位随计算一起核对

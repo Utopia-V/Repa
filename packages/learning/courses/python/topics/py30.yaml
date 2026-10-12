@@ -1,0 +1,33 @@
+id: py30
+title: 把同结构的多份记录叠起来
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py14
+    key: true
+    weight: 0.67
+    covers: [py14.k1, py14.k2]
+  - topic: py19
+    key: true
+    weight: 0.33
+    covers: [py19.k1]
+  - topic: py06
+    key: false
+    weight: 0.33
+    covers: [py06.k1]
+sources:
+  - source: pydata-book
+    where: 第 8 章 §8.2
+    url: https://wesmckinney.com/book/data-wrangling
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：多表组合
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/08_combine_dataframes.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、小改代码（T）、写清需求（S/O）。
+kps:
+  - id: py30.k1
+    title: concat 沿行叠加并按列名对齐
+  - id: py30.k2
+    title: ignore_index 与来源列的用途

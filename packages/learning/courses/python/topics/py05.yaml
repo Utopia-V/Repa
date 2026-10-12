@@ -1,0 +1,35 @@
+id: py05
+title: 清理一段文字
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py04
+    key: true
+    weight: 0.67
+    covers: [py04.k1, py04.k3]
+  - topic: py03
+    key: true
+    weight: 0.33
+    covers: [py03.k1]
+sources:
+  - source: think-python
+    where: 第 8 章
+    url: https://allendowney.github.io/ThinkPython/chap08.html
+    use: reference
+  - source: pydata-book
+    where: 第 7 章 §7.4（字符串）
+    url: https://wesmckinney.com/book/data-cleaning
+    use: reference
+  - source: python-docs
+    where: 教程第 3 章 §3.1.2
+    url: https://docs.python.org/3.12/tutorial/introduction.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、追踪变量（P）、小改代码（T）。
+kps:
+  - id: py05.k1
+    title: 字符串不可原位改写
+  - id: py05.k2
+    title: strip/lower/replace 的结果
+  - id: py05.k3
+    title: 点号方法调用与调用链从左到右

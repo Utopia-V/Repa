@@ -1,0 +1,35 @@
+id: py14
+title: 一张数据表里有什么
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py06
+    key: true
+    weight: 0.33
+    covers: [py06.k1]
+  - topic: py13
+    key: true
+    weight: 0.50
+    covers: [py13.k1]
+  - topic: py03
+    key: true
+    weight: 0.33
+    covers: [py03.k1]
+sources:
+  - source: pydata-book
+    where: 第 5 章 §5.1
+    url: https://wesmckinney.com/book/pandas-basics
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：表格数据
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/01_table_oriented.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、解释代码（S/O）、写清需求（S/O）。
+kps:
+  - id: py14.k1
+    title: DataFrame、Series、行列和索引
+  - id: py14.k2
+    title: shape 与 head 分别告诉你什么
+  - id: py14.k3
+    title: 每列 dtype 与样本单位

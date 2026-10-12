@@ -1,0 +1,42 @@
+id: py42
+title: 用小例子检查一个函数
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py40
+    key: true
+    weight: 0.33
+    covers: [py40.k2]
+  - topic: py12
+    key: true
+    weight: 0.50
+    covers: [py12.k2]
+  - topic: py11
+    key: false
+    weight: 0.50
+    covers: [py11.k2]
+sources:
+  - source: think-python
+    where: 第 6 章 增量开发
+    url: https://allendowney.github.io/ThinkPython/chap06.html
+    use: reference
+  - source: python-docs
+    where: 语言参考：assert 语句（§7.3）
+    url: https://docs.python.org/3.12/reference/simple_stmts.html#the-assert-statement
+    use: reference
+  - source: swc-python
+    where: 第 10 节：防御性编程（（断言））
+    url: https://swcarpentry.github.io/python-novice-inflammation/10-defensive.html
+    use: reference
+  - source: python-docs
+    where: 教程第 10 章 §10.11（测试思想）
+    url: https://docs.python.org/3.12/tutorial/stdlib.html
+    use: reference
+notes: |
+  建议题型与判分：找错（P）、小改代码（T）、写清需求（S/O）。
+  assert 用于练习测试；正式运行时 -O 会去掉断言，不把它当作数据入口的校验机制。
+kps:
+  - id: py42.k1
+    title: 正常、边界和空输入转成测试
+  - id: py42.k2
+    title: assert 表达期望并在失败时定位差异

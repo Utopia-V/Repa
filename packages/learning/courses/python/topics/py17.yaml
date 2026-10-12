@@ -1,0 +1,899 @@
+id: py17
+title: 先算条件，再留下需要的行
+status: complete
+minutes: 20
+summary: 用单列比较得到布尔掩码，再用 df.loc[掩码, 列名列表] 留下需要的行和列，并读出结果的形状。
+prerequisites:
+  - topic: py16
+    key: true
+    weight: 0.67
+    covers: [py16.k1, py16.k2]
+  - topic: py08
+    key: true
+    weight: 1.00
+    covers: [py08.k1, py08.k2]
+sources:
+  - source: think-python
+    where: 第 5 章（比较与条件）
+    url: https://allendowney.github.io/ThinkPython/chap05.html
+    use: reference
+  - source: pydata-book
+    where: 第 5 章 §5.2
+    url: https://wesmckinney.com/book/pandas-basics
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：子集与筛选
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/03_subset_data.html
+    use: reference
+notes: |
+  范围：只用单列条件。函数定义、字典构造、缺失值处理、多条件组合都不在本节。py14 的 DataFrame、Series、shape 由 py16 的先修路径承接。
+  原稿 py17.k2 要学生逐格写出结果表，第一版交互词汇的 table 不能让学生增删行，按交互协议报告 5.2 节改成：用两个 order 小问分别问留下哪些行、哪些列及其顺序，再问 shape，并补一问某一格的值。
+  节奏（待试做校准）：开场与读表 2 分钟；k1 讲解及例题 3 分钟、三道练习 3 分钟；k2 讲解及例题 3 分钟、两道读码题 3 分钟、小改代码题 4 分钟；收束 2 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码，不需要写导入或构造数据的代码。
+
+  每道题都从题面给出的表重新开始，前面题目里的 `mask`、`result` 等变量都已清除。大多数题用表 T：`sample_id` 是样本编号，`signal` 是一次测量的值（任意单位），`group` 是实验组标签；左边的原行索引是原表的行标签，不是从小到大的序号。题目里的“达标”只是人为约定的筛选规则，不代表科研结论。
+wrapup: |
+  向同事或 AI 提需求时，可以直接说：“在原表中保留 signal 至少达到 limit 的行，包括恰好等于阈值的行；输出 sample_id 一列，仍然是表，保留原行顺序和原索引。”
+
+  拿到代码后，先看比较符是否包含等号，再看 `.loc` 逗号后面的列名是否符合要求，最后找出原表中恰好等于阈值的行，核对它有没有留下。
+data:
+  T:
+    kind: dataframe
+    name: df
+    caption: 表 T
+    index: [31, 7, 22, 4]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D]
+      signal: [8, 10, 13, 10]
+      group: [control, drug, drug, control]
+  T2:
+    kind: dataframe
+    name: df
+    caption: 另一张同结构的表
+    index: [90, 2, 60, 11]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [X_A, X_B, X_C, X_D]
+      signal: [5, 12, 12, 9]
+      group: [control, drug, drug, control]
+  T3:
+    kind: dataframe
+    name: df
+    caption: 第三张同结构的表
+    index: [8, 40, 15, 3, 27]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [Z_C, Z_A, Z_E, Z_B, Z_D]
+      signal: [14, 9, 10, 12, 7]
+      group: [drug, control, drug, control, drug]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：四个采样点的土层深度（厘米）
+    index: [5, 12, 3, 8]
+    indexHeader: 原行索引
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡]
+      depth: [30, 25, 35, 30]
+kps:
+  - id: py17.k1
+    title: 单列比较生成逐行布尔掩码
+    card:
+      name: 布尔掩码
+      aliases: [mask, 掩码, 逐行比较]
+      definition: 对一列做比较时，pandas 逐行判断，得到一列与原表行一一对应的 True/False，叫布尔掩码。
+      conditions:
+        - 掩码只标记哪些行符合条件，这一步还没有从表里去掉任何行。
+        - 掩码保留原来的行索引；>= 包含等号，> 不包含。
+      example:
+        from: py17.k1.e0
+        text: |
+          ```python
+          mask = df["signal"] >= 10
+          ```
+          表 T 的 signal 依次为 8、10、13、10，mask 依次为 False、True、True、True。
+    lesson: |
+      先看条件作用在哪一列。`df["signal"]` 取出 signal 这一列；把这一列与 10 比较时，pandas 对每一行分别做同样的比较，所以结果是一列 True/False。它的长度仍然是 4，索引也和原来的列一一对应。
+
+      | 原行索引 | signal | `df["signal"] >= 10` |
+      |---:|---:|---|
+      | 31 | 8 | False |
+      | 7 | 10 | True |
+      | 22 | 13 | True |
+      | 4 | 10 | True |
+
+      这列结果叫**布尔掩码**。它告诉你哪些行符合条件，但这一步还没有把任何行从 `df` 里去掉：`df` 仍然是原来的四行表。把结果赋给 `mask`，只是给这列 True/False 起了个名字。
+
+      比较符决定边界上的行：`>=` 包含等号，`>` 不包含；`==` 是比较是否相等，`=` 是赋值。
+    example:
+      id: py17.k1.e0
+      kind: [predict]
+      data: [T]
+      body: |
+        我们约定 signal 至少为 10 的样本符合筛选条件。阅读代码，按原行索引填写 `mask` 的值，并写出现在 `df` 有几行。
+
+        ```python
+        mask = df["signal"] >= 10
+        ```
+      slots:
+        - id: mask
+          type: table
+          label: mask 的值
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: signal, header: signal }
+            - { id: mask, header: mask, input: bool }
+          rows:
+            - { id: r31, cells: { index: "31", signal: "8", mask: false } }
+            - { id: r7, cells: { index: "7", signal: "10", mask: true } }
+            - { id: r22, cells: { index: "22", signal: "13", mask: true } }
+            - { id: r4, cells: { index: "4", signal: "10", mask: true } }
+        - id: rows
+          type: text
+          format: integer
+          prompt: 运行这一行之后，`df` 有几行？
+          key: 4
+      explanation: |
+        `mask` 依次为 **False、True、True、True**。索引 7 和 4 的测量值恰好是 10，`>=` 包含等号，所以都是 True。
+
+        `mask` 是一列布尔值（布尔 Series），共 4 个值；`df` 没有变，仍有 **4** 行。
+      verify: |
+        r = run()
+        answers = {
+            "mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()},
+            "rows": len(r["df"]),
+        }
+    practice:
+      - id: py17.k1.q1
+        kind: [predict]
+        uses: [py08.k1, py08.k2, py16.k1]
+        data: [T]
+        body: |
+          阅读代码，按原行索引填写 `mask` 的值。不要填写筛选后的样本编号。
+
+          ```python
+          mask = df["signal"] > 10
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: signal, header: signal }
+              - { id: mask, header: mask, input: bool }
+            rows:
+              - { id: r31, cells: { index: "31", signal: "8", mask: false } }
+              - { id: r7, cells: { index: "7", signal: "10", mask: false } }
+              - { id: r22, cells: { index: "22", signal: "13", mask: true } }
+              - { id: r4, cells: { index: "4", signal: "10", mask: false } }
+        explanation: |
+          依次为 **False、False、True、False**。恰好等于 10 的两行不满足“严格大于 10”：`>` 不包含等号。
+        verify: |
+          r = run()
+          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+      - id: py17.k1.q2
+        kind: [predict]
+        uses: [py08.k1, py16.k1]
+        data: [T]
+        body: |
+          这次要标记的是测量值恰好为 10 的行。阅读代码，按原行索引填写 `mask` 的值。
+
+          ```python
+          mask = df["signal"] == 10
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: signal, header: signal }
+              - { id: mask, header: mask, input: bool }
+            rows:
+              - { id: r31, cells: { index: "31", signal: "8", mask: false } }
+              - { id: r7, cells: { index: "7", signal: "10", mask: true } }
+              - { id: r22, cells: { index: "22", signal: "13", mask: false } }
+              - { id: r4, cells: { index: "4", signal: "10", mask: true } }
+        explanation: |
+          依次为 **False、True、False、True**。`==` 逐行比较是否相等；索引 22 的值虽然更大，但不等于 10，所以是 False。
+        verify: |
+          r = run()
+          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+      - id: py17.k1.q3
+        kind: [explain]
+        uses: [py08.k1, py16.k1]
+        data: [T]
+        body: |
+          有人把下面这行代码解释为“得到 signal 小于 10 的样本表”。请用五个字段给出准确的解释。
+
+          ```python
+          mask = df["signal"] < 10
+          ```
+        slots:
+          - id: column
+            type: choice
+            prompt: 被比较的列
+            options:
+              - { id: group, content: group }
+              - { id: signal, content: signal }
+              - { id: sample_id, content: sample_id }
+            key: signal
+          - id: object
+            type: choice
+            prompt: mask 是什么
+            options:
+              - { id: bool_series, content: 一列布尔值（布尔 Series） }
+              - { id: dataframe, content: 筛选后的表（DataFrame） }
+              - { id: bool, content: 单个 True 或 False }
+            key: bool_series
+          - id: count
+            type: choice
+            prompt: mask 里有几个值
+            options:
+              - { id: "1", content: "1" }
+              - { id: "3", content: "3" }
+              - { id: "4", content: "4" }
+            key: "4"
+          - id: meaning
+            type: choice
+            prompt: 某一行的 True 表示什么
+            options:
+              - { id: removed, content: 这一行已经从原表删除 }
+              - { id: at_least, content: 这一行的 signal 至少为 10 }
+              - { id: below, content: 这一行的 signal 小于 10 }
+            key: below
+          - id: rows
+            type: choice
+            prompt: 运行之后 df 有几行
+            options:
+              - { id: "1", content: "1" }
+              - { id: "3", content: "3" }
+              - { id: "4", content: "4" }
+            key: "4"
+        explanation: |
+          signal；一列布尔值；4 个值；True 表示这一行的 signal 小于 10；df 仍有 4 行。
+
+          连起来说：取出 signal 列，对每一行判断是否小于 10，把四个判断结果保存为 mask；True 标出符合条件的行，df 仍是原来的四行表。“得到样本表”说错了两处：这一步得到的不是表，也没有去掉任何行。
+        verify: |
+          r = run()
+          mask = r["mask"]
+          answers = {
+              "object": "bool_series" if isinstance(mask, pd.Series) and mask.dtype == bool else "other",
+              "count": len(mask),
+              "rows": len(r["df"]),
+          }
+        manual: [column, meaning]
+    review:
+      - id: py17.k1.r1
+        kind: [predict]
+        uses: [py08.k1, py08.k2, py16.k1]
+        data: [soil]
+        body: |
+          阅读代码，按原行索引填写 `mask` 的值。
+
+          ```python
+          mask = soil["depth"] >= 30
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: depth, header: depth }
+              - { id: mask, header: mask, input: bool }
+            rows:
+              - { id: r5, cells: { index: "5", depth: "30", mask: true } }
+              - { id: r12, cells: { index: "12", depth: "25", mask: false } }
+              - { id: r3, cells: { index: "3", depth: "35", mask: true } }
+              - { id: r8, cells: { index: "8", depth: "30", mask: true } }
+        explanation: |
+          依次为 **True、False、True、True**。深度恰好为 30 的两行也满足“至少 30”。
+        verify: |
+          r = run()
+          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+      - id: py17.k1.r2
+        kind: [predict]
+        uses: [py08.k1, py16.k1]
+        data: [T]
+        body: |
+          阅读代码，按原行索引填写 `mask` 的值。
+
+          ```python
+          mask = df["group"] == "drug"
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: group, header: group }
+              - { id: mask, header: mask, input: bool }
+            rows:
+              - { id: r31, cells: { index: "31", group: control, mask: false } }
+              - { id: r7, cells: { index: "7", group: drug, mask: true } }
+              - { id: r22, cells: { index: "22", group: drug, mask: true } }
+              - { id: r4, cells: { index: "4", group: control, mask: false } }
+        explanation: |
+          依次为 **False、True、True、False**。文字列也可以逐行比较是否相等，结果同样是一列布尔值。
+        verify: |
+          r = run()
+          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+    quiz:
+      - id: py17.k1.x1
+        kind: [predict]
+        uses: [py08.k1, py08.k2, py16.k1]
+        data: [T2]
+        body: |
+          阅读代码，按原行索引填写 `mask` 的值。
+
+          ```python
+          mask = df["signal"] <= 9
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: signal, header: signal }
+              - { id: mask, header: mask, input: bool }
+            rows:
+              - { id: r90, cells: { index: "90", signal: "5", mask: true } }
+              - { id: r2, cells: { index: "2", signal: "12", mask: false } }
+              - { id: r60, cells: { index: "60", signal: "12", mask: false } }
+              - { id: r11, cells: { index: "11", signal: "9", mask: true } }
+        explanation: |
+          依次为 **True、False、False、True**。`<=` 包含等号，signal 恰好为 9 的索引 11 也是 True。
+        verify: |
+          r = run()
+          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+      - id: py17.k1.x2
+        kind: [explain]
+        uses: [py08.k1, py16.k1]
+        data: [T]
+        body: |
+          运行下面这行代码之后，哪一句说法正确？
+
+          ```python
+          mask = df["signal"] >= 13
+          ```
+        slots:
+          - id: claim
+            type: choice
+            options:
+              - id: table
+                content: mask 是只剩下索引 22 那一行的表
+                feedback: 比较得到的是一列 True/False，还没有用它去选行。
+              - id: shrunk
+                content: df 现在只剩 1 行
+                feedback: 计算掩码不会改变 df。
+              - id: single
+                content: mask 只有 1 个值
+                feedback: 比较是逐行做的，有几行就有几个值。
+              - id: series
+                content: mask 有 4 个值，只有索引 22 那一个为 True；df 仍有 4 行
+            key: series
+        explanation: |
+          “mask 有 4 个值，只有索引 22 那一个为 True；df 仍有 4 行”这一句正确。掩码逐行给出 True/False，共 4 个值，只有 signal 为 13 的索引 22 满足条件；计算掩码不会从 df 中去掉任何行，也还不是一张表。
+        verify: |
+          r = run()
+          mask, df = r["mask"], r["df"]
+          # 逐句核对每个说法，成立的必须恰好一句。
+          holds = {
+              "table": isinstance(mask, pd.DataFrame),
+              "series": isinstance(mask, pd.Series) and len(mask) == 4 and list(mask[mask].index) == [22] and len(df) == 4,
+              "shrunk": len(df) == 1,
+              "single": len(mask) == 1,
+          }
+          true = [claim for claim, ok in holds.items() if ok]
+          answers = {"claim": true[0] if len(true) == 1 else true}
+
+  - id: py17.k2
+    title: 用掩码留下行，再明确需要的列
+    card:
+      name: loc 筛选
+      aliases: [df.loc, 选行选列]
+      definition: df.loc[掩码, 列名列表] 用掩码选行、用列名列表选列：True 的行按原顺序留下并保留原索引，列按列表里的顺序排列。
+      conditions:
+        - 结果不会自动排序，索引也不会重新编号。
+        - 列名列表只有一项时，例如 ["sample_id"]，结果仍是一张表（DataFrame）。
+      example:
+        from: py17.k2.e0
+        text: |
+          ```python
+          mask = df["signal"] >= 10
+          result = df.loc[mask, ["sample_id", "signal"]]
+          ```
+          留下索引 7、22、4 三行和 sample_id、signal 两列，shape 为 (3, 2)。
+    lesson: |
+      得到 `mask` 之后，把它放在 `.loc` 方括号里逗号的前面，就是用它选行；逗号后面的列名列表决定留下哪些列，以及列的排列顺序。True 对应的行留下，False 对应的行不进入结果。
+
+      ```python
+      result = df.loc[mask, ["sample_id", "signal"]]
+      ```
+
+      筛选保留原表中入选行的先后顺序和原索引：不会自动按测量值排序，也不会把索引重新编号。即使只要一列，写成 `["sample_id"]` 仍然得到一张表（DataFrame），便于继续把结果当表使用。
+
+      读一个筛选结果时，可以依次回答三个问题：留下哪些行、按什么顺序；留下哪些列、按什么顺序；形状 shape 是多少，也就是（行数, 列数）。
+    example:
+      id: py17.k2.e0
+      kind: [predict]
+      data: [T]
+      body: |
+        研究记录需要“signal 至少为 10 的样本，只导出 sample_id 和 signal”。阅读代码，说出 `result` 的样子。
+
+        ```python
+        mask = df["signal"] >= 10
+        result = df.loc[mask, ["sample_id", "signal"]]
+        ```
+      slots:
+        - id: rows
+          type: order
+          partial: true
+          prompt: "`result` 留下了哪些行？按结果里的先后顺序排出它们的原行索引，没留下的不要放进来。"
+          items:
+            - { id: "31", content: "31" }
+            - { id: "7", content: "7" }
+            - { id: "22", content: "22" }
+            - { id: "4", content: "4" }
+          key: ["7", "22", "4"]
+        - id: columns
+          type: order
+          partial: true
+          prompt: "`result` 有哪些列？按结果里的顺序排列。"
+          items:
+            - { id: sample_id, content: "`sample_id`" }
+            - { id: signal, content: "`signal`" }
+            - { id: group, content: "`group`" }
+          key: [sample_id, signal]
+        - id: nrows
+          type: text
+          format: integer
+          prompt: "`result.shape` 的第一个数（行数）"
+          key: 3
+        - id: ncols
+          type: text
+          format: integer
+          prompt: "`result.shape` 的第二个数（列数）"
+          key: 2
+        - id: cell
+          type: text
+          prompt: 结果里原行索引为 22 的那一行，sample_id 是什么？
+          key: S_C
+      explanation: |
+        | 原行索引 | sample_id | signal |
+        |---:|---|---:|
+        | 7 | S_B | 10 |
+        | 22 | S_C | 13 |
+        | 4 | S_D | 10 |
+
+        留下索引 **7、22、4**，顺序与原表相同；列依次是 **sample_id、signal**；shape 为 **(3, 2)**。索引仍是 7、22、4，而不是 0、1、2；值随行一起带出，索引 22 那一行的 sample_id 是 **S_C**。
+      verify: |
+        result = run()["result"]
+        answers = {
+            "rows": [str(label) for label in result.index],
+            "columns": list(result.columns),
+            "nrows": result.shape[0],
+            "ncols": result.shape[1],
+            "cell": result.loc[22, "sample_id"],
+        }
+    practice:
+      - id: py17.k2.q1
+        kind: [predict]
+        uses: [py16.k1, py16.k2]
+        data: [T]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          mask = df["signal"] < 10
+          result = df.loc[mask, ["sample_id"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 留下了哪些行？按先后顺序排出原行索引。
+            items:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "4", content: "4" }
+            key: ["31"]
+          - id: columns
+            type: order
+            partial: true
+            prompt: 有哪些列？按顺序排列。
+            items:
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+              - { id: group, content: "`group`" }
+            key: [sample_id]
+          - id: object
+            type: choice
+            prompt: "`result` 是什么？"
+            options:
+              - id: series
+                content: 一列（Series）
+                feedback: 列名写成列表 ["sample_id"]，即使只有一项，结果也是表。
+              - { id: dataframe, content: 表（DataFrame） }
+            key: dataframe
+          - id: shape
+            type: choice
+            prompt: "`result.shape` 是多少？"
+            options:
+              - { id: s4x1, content: "`(4, 1)`" }
+              - { id: s1, content: "`(1,)`" }
+              - { id: s1x1, content: "`(1, 1)`" }
+            key: s1x1
+        explanation: |
+          只留下索引 **31** 一行和 **sample_id** 一列，单元格是 S_A。列名写成列表，所以结果是表（DataFrame），shape 为 **(1, 1)**。
+        verify: |
+          result = run()["result"]
+          shapes = {(1, 1): "s1x1", (1,): "s1", (4, 1): "s4x1"}
+          answers = {
+              "rows": [str(label) for label in result.index],
+              "columns": list(result.columns),
+              "object": "dataframe" if isinstance(result, pd.DataFrame) else "series",
+              "shape": shapes.get(result.shape, "other"),
+          }
+      - id: py17.k2.q2
+        kind: [predict]
+        uses: [py16.k1, py16.k2]
+        data: [T]
+        body: |
+          我们要复核测量值恰好为 10 的样本，并把 signal 放在 sample_id 前面。阅读代码，说出 `result` 的样子。
+
+          ```python
+          mask = df["signal"] == 10
+          result = df.loc[mask, ["signal", "sample_id"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 留下了哪些行？按先后顺序排出原行索引。
+            items:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "4", content: "4" }
+            key: ["7", "4"]
+          - id: columns
+            type: order
+            partial: true
+            prompt: 有哪些列？按顺序排列。
+            items:
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+              - { id: group, content: "`group`" }
+            key: [signal, sample_id]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 行数
+            key: 2
+          - id: ncols
+            type: text
+            format: integer
+            prompt: 列数
+            key: 2
+          - id: cell
+            type: text
+            format: integer
+            prompt: 结果里原行索引为 4 的那一行，signal 是多少？
+            key: 10
+        explanation: |
+          留下索引 **7、4** 两行，保持原表的先后顺序，而不是按索引大小排成 4、7；列依次是 **signal、sample_id**，由列表决定；shape 为 **(2, 2)**；索引 4 那一行的 signal 是 **10**。
+        verify: |
+          result = run()["result"]
+          answers = {
+              "rows": [str(label) for label in result.index],
+              "columns": list(result.columns),
+              "nrows": result.shape[0],
+              "ncols": result.shape[1],
+              "cell": result.loc[4, "signal"],
+          }
+      - id: py17.k2.q3
+        kind: [modify]
+        uses: [py08.k1, py16.k1, py16.k2]
+        data: [T]
+        body: |
+          需求是：
+
+          > 保留 signal 至少达到 `limit` 的行，只输出 sample_id 一列，结果仍是一张表。保留原行顺序和原索引，不改变 `df`。`limit` 或原表的测量值变化时，代码仍按这一规则工作。
+
+          同事写的代码在作答框里。请改动它并提交，最终结果变量仍叫 `result`。宿主另外提供了 `limit = 10`，它表示本次分析的阈值，换一次分析可以取别的值。不用写函数、导入或构造数据；可以分两行，也可以把条件直接放进 `.loc`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              mask = df["signal"] > limit
+              result = df.loc[mask, ["sample_id", "signal"]]
+            solution: |
+              mask = df["signal"] >= limit
+              result = df.loc[mask, ["sample_id"]]
+            accepts:
+              - result = df.loc[df["signal"] >= limit, ["sample_id"]]
+              - result = df[df["signal"] >= limit][["sample_id"]]
+            rejects:
+              - code: |
+                  mask = df["signal"] >= limit
+                  result = df.loc[mask, ["sample_id", "signal"]]
+                why: 只改了比较符，仍多输出 signal 列
+              - code: |
+                  mask = df["signal"] > limit
+                  result = df.loc[mask, ["sample_id"]]
+                why: 只删了列，仍漏掉恰好等于阈值的行
+              - code: result = df.loc[df["signal"] >= 10, ["sample_id"]]
+                why: 把阈值写死成 10
+              - code: result = df.loc[df["signal"] >= limit, "sample_id"]
+                why: 列名没有写成列表，结果成了一列（Series）
+              - code: result = df.loc[df["signal"] >= limit, ["sample_id"]].reset_index(drop=True)
+                why: 把索引重新编号成 0、1、2
+              - code: |
+                  df = df[df["signal"] >= limit]
+                  result = df[["sample_id"]]
+                why: 把 df 换成了筛选后的表
+              - code: result = df.loc[df["signal"] >= limit, ["sample_id"]].sort_values("sample_id")
+                why: 按 sample_id 重新排了序
+            tests:
+              - name: 基本情况与等号边界
+                setup: limit = 10
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_B", "S_C", "S_D"]}, index=[7, 22, 4])'
+                  df: df
+              - name: 没有符合条件的行
+                hidden: true
+                setup: limit = 14
+                expect:
+                  result: 'pd.DataFrame(columns=["sample_id"])'
+                  df: df
+              - name: 换一个阈值
+                hidden: true
+                setup: limit = 8
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_A", "S_B", "S_C", "S_D"]}, index=[31, 7, 22, 4])'
+                  df: df
+              - name: 换一张索引不按大小排列的表
+                hidden: true
+                data: [T2]
+                setup: limit = 12
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["X_B", "X_C"]}, index=[2, 60])'
+                  df: df
+              - name: 换一张编号不按顺序排列的表
+                hidden: true
+                data: [T3]
+                setup: limit = 10
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["Z_C", "Z_E", "Z_B"]}, index=[8, 15, 3])'
+                  df: df
+        explanation: |
+          要改两处：比较符改成 `>=`，才包含恰好等于 `limit` 的行；列名列表只留 `["sample_id"]`，结果才只有一列且仍是表。
+
+          ```python
+          mask = df["signal"] >= limit
+          result = df.loc[mask, ["sample_id"]]
+          ```
+
+          直接写成 `result = df.loc[df["signal"] >= limit, ["sample_id"]]` 也对。本例结果的索引是 7、22、4，shape 为 (3, 1)。判分时还会换阈值、换一张表运行你的代码，检查结果的类型、形状、行列顺序、全部值，以及 `df` 没有被改变。
+    review:
+      - id: py17.k2.r1
+        kind: [predict]
+        uses: [py08.k1, py16.k1, py16.k2]
+        data: [soil]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          result = soil.loc[soil["depth"] >= 30, ["site"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 留下了哪些行？按先后顺序排出原行索引。
+            items:
+              - { id: "5", content: "5" }
+              - { id: "12", content: "12" }
+              - { id: "3", content: "3" }
+              - { id: "8", content: "8" }
+            key: ["5", "3", "8"]
+          - id: columns
+            type: order
+            partial: true
+            prompt: 有哪些列？按顺序排列。
+            items:
+              - { id: site, content: "`site`" }
+              - { id: depth, content: "`depth`" }
+            key: [site]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 行数
+            key: 3
+          - id: ncols
+            type: text
+            format: integer
+            prompt: 列数
+            key: 1
+        explanation: |
+          留下索引 **5、3、8**，顺序与原表相同；只有 **site** 一列；shape 为 **(3, 1)**。深度恰好为 30 的两行也留下了。
+        verify: |
+          result = run()["result"]
+          answers = {
+              "rows": [str(label) for label in result.index],
+              "columns": list(result.columns),
+              "nrows": result.shape[0],
+              "ncols": result.shape[1],
+          }
+      - id: py17.k2.r2
+        kind: [predict]
+        uses: [py08.k1, py16.k1, py16.k2]
+        data: [T]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          result = df.loc[df["group"] == "control", ["group", "sample_id"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 留下了哪些行？按先后顺序排出原行索引。
+            items:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "4", content: "4" }
+            key: ["31", "4"]
+          - id: columns
+            type: order
+            partial: true
+            prompt: 有哪些列？按顺序排列。
+            items:
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+              - { id: group, content: "`group`" }
+            key: [group, sample_id]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 行数
+            key: 2
+          - id: ncols
+            type: text
+            format: integer
+            prompt: 列数
+            key: 2
+        explanation: |
+          留下索引 **31、4** 两行；列依次是 **group、sample_id**，按列表的顺序；shape 为 **(2, 2)**。
+        verify: |
+          result = run()["result"]
+          answers = {
+              "rows": [str(label) for label in result.index],
+              "columns": list(result.columns),
+              "nrows": result.shape[0],
+              "ncols": result.shape[1],
+          }
+    quiz:
+      - id: py17.k2.x1
+        kind: [predict]
+        uses: [py08.k1, py16.k1, py16.k2]
+        data: [T2]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          mask = df["signal"] >= 12
+          result = df.loc[mask, ["signal", "sample_id"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 留下了哪些行？按先后顺序排出原行索引。
+            items:
+              - { id: "90", content: "90" }
+              - { id: "2", content: "2" }
+              - { id: "60", content: "60" }
+              - { id: "11", content: "11" }
+            key: ["2", "60"]
+          - id: columns
+            type: order
+            partial: true
+            prompt: 有哪些列？按顺序排列。
+            items:
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+              - { id: group, content: "`group`" }
+            key: [signal, sample_id]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 行数
+            key: 2
+          - id: ncols
+            type: text
+            format: integer
+            prompt: 列数
+            key: 2
+          - id: cell
+            type: text
+            prompt: 结果里原行索引为 60 的那一行，sample_id 是什么？
+            key: X_C
+        explanation: |
+          留下索引 **2、60**，顺序与原表相同；列依次是 **signal、sample_id**；shape 为 **(2, 2)**；索引 60 那一行的 sample_id 是 **X_C**。
+        verify: |
+          result = run()["result"]
+          answers = {
+              "rows": [str(label) for label in result.index],
+              "columns": list(result.columns),
+              "nrows": result.shape[0],
+              "ncols": result.shape[1],
+              "cell": result.loc[60, "sample_id"],
+          }
+      - id: py17.k2.x2
+        kind: [modify]
+        uses: [py08.k1, py16.k1, py16.k2]
+        data: [T]
+        body: |
+          需求是：
+
+          > 保留 group 为 drug 的行，依次输出 sample_id 和 signal 两列，保留原行顺序和原索引，不改变 `df`。
+
+          作答框里的代码筛错了组，列的顺序也不对。请改动它并提交，最终结果变量仍叫 `result`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              result = df.loc[df["group"] == "control", ["signal", "sample_id"]]
+            solution: |
+              result = df.loc[df["group"] == "drug", ["sample_id", "signal"]]
+            accepts:
+              - |
+                mask = df["group"] == "drug"
+                result = df.loc[mask, ["sample_id", "signal"]]
+            rejects:
+              - code: result = df.loc[df["group"] == "drug", ["signal", "sample_id"]]
+                why: 列的顺序没改
+              - code: result = df.loc[df["group"] == "control", ["sample_id", "signal"]]
+                why: 仍筛的是 control 组
+              - code: result = df.loc[df["group"] == "drug"]
+                why: 留下了全部列
+              - code: result = df.loc[[7, 22], ["sample_id", "signal"]]
+                why: 照着这张表写死了行索引
+              - code: result = df.iloc[1:3][["sample_id", "signal"]]
+                why: 照着这张表按位置取了第 2、3 行
+              - code: result = df.loc[df["group"] == "drug", ["sample_id", "signal"]].sort_values("sample_id")
+                why: 按 sample_id 重新排了序
+            tests:
+              - name: 表 T
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_B", "S_C"], "signal": [10, 13]}, index=[7, 22])'
+                  df: df
+              - name: 换一张表
+                hidden: true
+                data: [T2]
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["X_B", "X_C"], "signal": [12, 12]}, index=[2, 60])'
+                  df: df
+              - name: 换一张组别排列不同、编号不按顺序的表
+                hidden: true
+                data: [T3]
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["Z_C", "Z_E", "Z_D"], "signal": [14, 10, 7]}, index=[8, 15, 27])'
+                  df: df
+        explanation: |
+          ```python
+          result = df.loc[df["group"] == "drug", ["sample_id", "signal"]]
+          ```
+
+          逗号前的条件改成 `== "drug"`，逗号后的列名列表按需求的顺序写成 `["sample_id", "signal"]`。结果留下索引 7、22 两行。

@@ -1,0 +1,29 @@
+id: py18
+title: 筛选多个条件
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py17
+    key: true
+    weight: 1.00
+    covers: [py17.k1, py17.k2]
+  - topic: py09
+    key: true
+    weight: 1.00
+    covers: [py09.k1, py09.k2]
+sources:
+  - source: pydata-book
+    where: 第 5 章 §5.2
+    url: https://wesmckinney.com/book/pandas-basics
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：子集与筛选
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/03_subset_data.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、小改代码（T）。
+kps:
+  - id: py18.k1
+    title: 逐元素 &、|、~ 与单值 and/or 的区别
+  - id: py18.k2
+    title: 每个比较加括号，isin 表示属于一个集合

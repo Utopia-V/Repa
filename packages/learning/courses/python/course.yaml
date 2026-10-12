@@ -1,0 +1,120 @@
+# 课程清单。topic 内容在 topics/<id>.yaml；写法见 ../README.md。
+id: python
+version: 0.1.0
+title: Python：读懂代码，说清需求
+summary: >-
+  面向数据处理的通用 Python 入门：读懂别人或 AI 写的代码、追踪中间结果，
+  并把数据处理的要求说成别人能照做、能核对的规则。不以从空白写完整程序为目标。
+language: zh-CN
+# 本课程自写内容的许可尚未决定（SPDX 的 NOASSERTION 表示没有声明）；对外分享前由维护者确定。
+license: NOASSERTION
+# 判分与核对用的运行时，与学习者在 Repa 里运行代码的 Pyodide 版本一致。
+runtime:
+  pyodide: 314.0.7
+  python: 3.14.2
+  packages:
+    numpy: 2.4.6
+    pandas: 3.0.2
+
+# 用到的外部材料。permits 列出许可允许的用法：reference 只作取材参照、内容自行编写；
+# adapt 改编文字；code 复用代码；quote 短引用。许可依据 2026-10-11 的材料调查。
+sources:
+  think-python:
+    title: Think Python，第 3 版
+    author: Allen B. Downey
+    url: https://allendowney.github.io/ThinkPython/
+    version: 第 3 版（2024 年 5 月），在线版，2026-10-11 访问
+    license: 文字 CC BY-NC-SA 4.0；代码 MIT
+    permits: [reference, adapt, code]
+    note: 改编文字须署名、非商业、相同方式共享；对外产品若有商业用途须另行确认授权。notebook 混有文字与代码，不能整体按 MIT 处理。
+  pydata-book:
+    title: Python for Data Analysis，第 3 版
+    author: Wes McKinney
+    url: https://wesmckinney.com/book/
+    version: 第 3 版（2022 年 8 月），免费 HTML 版最近更新 2023-04-12，按 pandas 2.0 写成
+    license: 正文可免费阅读，作者声明一般不得复制再现；代码 MIT
+    permits: [reference, code]
+    note: 正文只链接、不搬运也不整段翻译。书中部分 pandas 行为已被 pandas 3 改变（Copy-on-Write、groupby 的 axis 参数等），选用示例前要在课程运行时里核对。
+  python-docs:
+    title: Python 官方文档（教程、标准库与语言参考）
+    author: Python Software Foundation
+    url: https://docs.python.org/3.12/
+    version: 3.12 系列，2026-10-11 访问（课程运行时为 Python 3.14.2）
+    license: 文档 PSF License v2；示例代码另可按 0BSD 使用
+    permits: [reference, adapt, code]
+    note: 复用正文时保留许可与版权说明，分发修改版时注明修改。
+  pandas-docs:
+    title: pandas 文档（入门教程、用户指南与 API）
+    author: pandas 开发团队
+    url: https://pandas.pydata.org/docs/
+    version: 访问页为 3.0.6，2026-10-11 访问（课程运行时为 pandas 3.0.2）
+    license: BSD-3-Clause
+    permits: [reference, adapt, code]
+    note: 复用时保留版权、许可条件和免责声明；页面里的第三方素材另行核对。
+  swc-python:
+    title: "Software Carpentry: Programming with Python"
+    author: The Carpentries
+    url: https://swcarpentry.github.io/python-novice-inflammation/
+    version: 滚动课程，基础章更新于 2026-09-15
+    license: 文字 CC BY 4.0；示例代码 MIT（单独声明者除外）
+    permits: [reference, adapt, code]
+    note: 复用时署名并保留许可声明。
+  jupyter-notebook:
+    title: "Jupyter Notebook 文档：Running Code"
+    author: Project Jupyter
+    url: https://jupyter-notebook.readthedocs.io/en/stable/
+    version: stable，2026-10-11 访问
+    license: 未核对
+    permits: [reference]
+    note: 许可尚未核对，只作链接参照。
+
+# topic 的稳定 id。顺序只是浏览顺序，学习安排由先修图和学习状态决定。
+topics:
+  - py01
+  - py02
+  - py03
+  - py04
+  - py05
+  - py06
+  - py07
+  - py08
+  - py09
+  - py10
+  - py11
+  - py12
+  - py13
+  - py14
+  - py15
+  - py16
+  - py17
+  - py18
+  - py19
+  - py20
+  - py21
+  - py22
+  - py23
+  - py24
+  - py25
+  - py26
+  - py27
+  - py28
+  - py29
+  - py30
+  - py31
+  - py32
+  - py33
+  - py34
+  - py35
+  - py36
+  - py37
+  - py38
+  - py39
+  - py40
+  - py41
+  - py42
+  - py43
+  - py44
+  - py45
+  - py46
+  - py47
+  - py48

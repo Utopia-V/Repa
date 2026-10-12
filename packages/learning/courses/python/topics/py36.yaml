@@ -1,0 +1,33 @@
+id: py36
+title: 把“逐个检查并收集”读成循环
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py35
+    key: true
+    weight: 0.67
+    covers: [py35.k1, py35.k2]
+  - topic: py10
+    key: true
+    weight: 0.67
+    covers: [py10.k1, py10.k2]
+  - topic: py06
+    key: true
+    weight: 0.33
+    covers: [py06.k1]
+sources:
+  - source: think-python
+    where: 第 9 章
+    url: https://allendowney.github.io/ThinkPython/chap09.html
+    use: reference
+  - source: python-docs
+    where: 教程第 5 章 §5.1
+    url: https://docs.python.org/3.12/tutorial/datastructures.html
+    use: reference
+notes: |
+  建议题型与判分：追踪变量（P）、解释代码（S/O）、小改代码（T）。
+kps:
+  - id: py36.k1
+    title: for+if+append 的处理顺序
+  - id: py36.k2
+    title: 列表原位修改及别名与独立副本

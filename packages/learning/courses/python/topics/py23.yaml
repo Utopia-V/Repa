@@ -1,0 +1,30 @@
+id: py23
+title: 排序后，位置不再等于原来的标签
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py16
+    key: true
+    weight: 0.67
+    covers: [py16.k2, py16.k3]
+  - topic: py12
+    key: true
+    weight: 1.00
+    covers: [py12.k1, py12.k2]
+sources:
+  - source: pydata-book
+    where: 第 5 章 §5.2
+    url: https://wesmckinney.com/book/pandas-basics
+    use: reference
+  - source: pandas-docs
+    where: 用户指南：索引与选择
+    url: https://pandas.pydata.org/docs/user_guide/indexing.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+  先要求写出明确的次要排序键；业务需要同值保持原顺序时，再用单列稳定排序讲解，不让默认排序的偶然结果进入标准答案。
+kps:
+  - id: py23.k1
+    title: 按一列或多列排序及并列顺序
+  - id: py23.k2
+    title: reset_index 与保留原索引的取舍

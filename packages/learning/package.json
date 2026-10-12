@@ -1,0 +1,52 @@
+{
+  "name": "@repa/learning",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist",
+    "sandbox",
+    "courses"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    }
+  },
+  "bin": {
+    "repa-course": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "prebuild": "npm run build --workspace=@repa/base",
+    "build": "tsc -p tsconfig.build.json",
+    "precheck": "npm run build --workspace=@repa/base",
+    "check": "tsc --noEmit",
+    "pretest": "npm run build --workspace=@repa/base",
+    "test": "node --import tsx --test test/*.test.ts",
+    "precourse:check": "npm run build --workspace=@repa/base",
+    "course:check": "tsx src/cli.ts check",
+    "precourse:runtime": "npm run build --workspace=@repa/base",
+    "course:runtime": "tsx src/cli.ts runtime",
+    "precourse:confirm": "npm run build --workspace=@repa/base",
+    "course:confirm": "tsx src/cli.ts confirm"
+  },
+  "dependencies": {
+    "@repa/base": "0.1.0",
+    "pyodide": "314.0.7",
+    "typebox": "1.3.27",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.21",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,32 @@
+id: py15
+title: 读入 CSV，先确认没有读错
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py14
+    key: true
+    weight: 1.00
+    covers: [py14.k1, py14.k2, py14.k3]
+  - topic: py04
+    key: true
+    weight: 0.33
+    covers: [py04.k2]
+sources:
+  - source: pydata-book
+    where: 第 6 章 §6.1
+    url: https://wesmckinney.com/book/accessing-data
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：表格读写
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/02_read_write.html
+    use: reference
+notes: |
+  建议题型与判分：找错（P）、小改代码（T）、写清需求（S/O）。
+  出现 `dtype={"id": "str"}` 时，就地说明“把列名映射到读入类型”这一固定配置，只读写这一种形式；完整的字典行为由 py37 承担。
+kps:
+  - id: py15.k1
+    title: read_csv 的路径、分隔符和编码
+  - id: py15.k2
+    title: "读懂 dtype={\"id\": \"str\"} 的列名到类型配置，保留前导零"
+  - id: py15.k3
+    title: 核对列名、行数与样例

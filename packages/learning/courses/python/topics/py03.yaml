@@ -1,0 +1,39 @@
+id: py03
+title: 数字、文字和缺省值不是一回事
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py01
+    key: true
+    weight: 0.50
+    covers: [py01.k1]
+  - topic: py02
+    key: false
+    weight: 0.33
+    covers: [py02.k1]
+sources:
+  - source: think-python
+    where: 第 1 章
+    url: https://allendowney.github.io/ThinkPython/chap01.html
+    use: reference
+  - source: think-python
+    where: 第 6 章
+    url: https://allendowney.github.io/ThinkPython/chap06.html
+    use: reference
+  - source: python-docs
+    where: 教程第 3 章 §3.1
+    url: https://docs.python.org/3.12/tutorial/introduction.html
+    use: reference
+  - source: python-docs
+    where: 教程第 4 章 §4.8
+    url: https://docs.python.org/3.12/tutorial/controlflow.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、小改代码（T）。
+kps:
+  - id: py03.k1
+    title: int、float、str 的行为差别
+  - id: py03.k2
+    title: 显式 int/float/str 转换
+  - id: py03.k3
+    title: None 表示没有值而不是零

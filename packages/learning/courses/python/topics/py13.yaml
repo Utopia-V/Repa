@@ -1,0 +1,29 @@
+id: py13
+title: 导入工具，读一小段文档
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py04
+    key: true
+    weight: 1.00
+    covers: [py04.k1, py04.k2, py04.k3]
+  - topic: py11
+    key: false
+    weight: 0.50
+    covers: [py11.k1]
+sources:
+  - source: think-python
+    where: 第 2 章 §2.4
+    url: https://allendowney.github.io/ThinkPython/chap02.html
+    use: reference
+  - source: python-docs
+    where: 教程第 6 章 §6.1–6.3
+    url: https://docs.python.org/3.12/tutorial/modules.html
+    use: reference
+notes: |
+  建议题型与判分：找错（P）、解释代码（S/O）、小改代码（T）。
+kps:
+  - id: py13.k1
+    title: import/as 让名称可用
+  - id: py13.k2
+    title: 从签名和示例找参数、返回值与副作用

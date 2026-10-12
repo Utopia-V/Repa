@@ -1,0 +1,32 @@
+id: py32
+title: 日期是一种有单位的值
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py20
+    key: true
+    weight: 1.00
+    covers: [py20.k1, py20.k2]
+  - topic: py18
+    key: true
+    weight: 1.00
+    covers: [py18.k1, py18.k2]
+sources:
+  - source: pydata-book
+    where: 第 11 章 §11.1–11.3
+    url: https://wesmckinney.com/book/time-series
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：日期时间
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/09_timeseries.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+  固定输入格式和同一时区，只用简单的天数间隔；跨时区、夏令时和日历偏移另开后续内容。
+kps:
+  - id: py32.k1
+    title: 按固定格式读懂 to_datetime 与转换失败
+  - id: py32.k2
+    title: 同一时区的简单时间差和天数单位
+  - id: py32.k3
+    title: 按日期区间筛选，明确左右边界

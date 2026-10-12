@@ -1,0 +1,40 @@
+id: py29
+title: 拼两张表之前先检查键
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py25
+    key: true
+    weight: 0.50
+    covers: [py25.k1]
+  - topic: py19
+    key: true
+    weight: 0.33
+    covers: [py19.k1]
+  - topic: py12
+    key: true
+    weight: 1.00
+    covers: [py12.k1, py12.k2]
+sources:
+  - source: pydata-book
+    where: 第 8 章 §8.2
+    url: https://wesmckinney.com/book/data-wrangling
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：多表组合
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/08_combine_dataframes.html
+    use: reference
+  - source: pandas-docs
+    where: API：pandas.merge
+    url: https://pandas.pydata.org/docs/reference/api/pandas.merge.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+  先给非缺失的键、唯一的右表和一个右表键重复的反例，集中看行数与 validate；真实任务里再先检查空键。pandas 的空键可以互相匹配，不能默认等同于 SQL 的 NULL 规则。
+kps:
+  - id: py29.k1
+    title: left/inner join 怎样保留记录
+  - id: py29.k2
+    title: 一对多造成行数增长
+  - id: py29.k3
+    title: validate 与 indicator 暴露关系错误和未匹配项

@@ -1,0 +1,33 @@
+id: py08
+title: 比较得到 True 或 False
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py03
+    key: true
+    weight: 0.33
+    covers: [py03.k1]
+  - topic: py02
+    key: false
+    weight: 0.33
+    covers: [py02.k1]
+sources:
+  - source: think-python
+    where: 第 5 章 条件部分
+    url: https://allendowney.github.io/ThinkPython/chap05.html
+    use: reference
+  - source: python-docs
+    where: 教程第 4 章 §4.1
+    url: https://docs.python.org/3.12/tutorial/controlflow.html
+    use: reference
+  - source: python-docs
+    where: 教程第 5 章 §5.7
+    url: https://docs.python.org/3.12/tutorial/datastructures.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+kps:
+  - id: py08.k1
+    title: ==、!=、大小比较的结果
+  - id: py08.k2
+    title: 阈值含不含等号与边界例子

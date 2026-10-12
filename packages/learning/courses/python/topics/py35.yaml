@@ -1,0 +1,35 @@
+id: py35
+title: 循环：同一句指令轮流处理谁
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py06
+    key: true
+    weight: 0.33
+    covers: [py06.k1]
+  - topic: py01
+    key: true
+    weight: 1.00
+    covers: [py01.k1, py01.k2]
+  - topic: py02
+    key: false
+    weight: 0.33
+    covers: [py02.k1]
+sources:
+  - source: think-python
+    where: 第 7 章
+    url: https://allendowney.github.io/ThinkPython/chap07.html
+    use: reference
+  - source: python-docs
+    where: 教程第 4 章 §4.2–4.3
+    url: https://docs.python.org/3.12/tutorial/controlflow.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、追踪变量（P）、找错（P）。
+kps:
+  - id: py35.k1
+    title: for 逐个取得列表元素
+  - id: py35.k2
+    title: 循环内外的变量状态
+  - id: py35.k3
+    title: 初始化与累计值的位置

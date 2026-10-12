@@ -1,0 +1,619 @@
+id: py12
+title: 把“处理一下”变成可核对的要求
+status: complete
+minutes: 20
+summary: 把一句含糊的数据处理要求说成别人能照做、能核对的规则，并用边界例子检查它。
+prerequisites: []
+sources:
+  - source: think-python
+    where: 第 4 章（函数与接口：输入和输出的约定）
+    url: https://allendowney.github.io/ThinkPython/chap04.html
+    use: reference
+  - source: think-python
+    where: 第 6 章（增量开发：小步核对）
+    url: https://allendowney.github.io/ThinkPython/chap06.html
+    use: reference
+  - source: swc-python
+    where: 第 11 节：调试
+    url: https://swcarpentry.github.io/python-novice-inflammation/11-debugging.html
+    use: reference
+notes: |
+  范围：不依赖 Python 语法。输入是一张能直接读的小表；本节不实现筛选算法，不讲统计检验。题中的阈值都是题设约定，不是研究结论。
+  材料只提供接口与小步核对的思想，把它们转成数据处理要求是本课自拟的内容，需要试用检验。
+  节奏（待试做校准）：目标 1 分钟；k1 讲解与例题 3 分钟、练习 5 分钟；k2 讲解与例题 3 分钟、练习 6 分钟；收束 2 分钟。开放题可以口述。
+  把自然语言要求填成字段的题程序算不出答案，列在 manual 里，复习和测验题由 course:confirm 让模型独立再解核对；边界例子的结果由程序独立算出。
+intro: |
+  这一节不写 Python。你会看到一些小表，任务是把一句含糊的要求，说成别人拿到同一张表就能照做、结果也能核对的规则。
+
+  题目里的阈值都是题目自己的约定，不是科研结论。
+wrapup: |
+  当你把“多一点”“正常”“处理一下”改成可以检查的规则时，你在帮双方少猜一步。遇到还没定下的统计口径，能问出问题本身就够了，不必替研究者作科学判断。
+data:
+  samples3:
+    kind: dataframe
+    name: samples
+    caption: 输入表 samples
+    showIndex: false
+    columns:
+      sample_id: [A, B, C]
+      signal: [9, 10, 12]
+  samples4:
+    kind: dataframe
+    name: samples
+    caption: 输入表 samples
+    showIndex: false
+    columns:
+      sample_id: [A, B, C, D]
+      signal: [9, 10, 11, 10]
+  samples2:
+    kind: dataframe
+    name: samples
+    caption: 输入表 samples
+    showIndex: false
+    columns:
+      sample_id: [A, B]
+      signal: [8, 9]
+  samples4b:
+    kind: dataframe
+    name: samples
+    caption: 输入表 samples
+    showIndex: false
+    columns:
+      sample_id: [A, B, C, D]
+      signal: [4, 7, 7, 12]
+  samples3b:
+    kind: dataframe
+    name: samples
+    caption: 检查用的小表
+    showIndex: false
+    columns:
+      sample_id: [A, B, C]
+      signal: [8, 12, 15]
+  samples5:
+    kind: dataframe
+    name: samples
+    caption: 输入表 samples
+    showIndex: false
+    columns:
+      sample_id: [A, B, C, D, E]
+      signal: [10, 7, 13, 10, 11]
+kps:
+  - id: py12.k1
+    title: 说清输入、筛选规则和输出
+    card:
+      name: 可核对的要求
+      aliases: [需求, 筛选规则]
+      definition: 一份要求说清从哪张表取数、按哪一列用什么条件留下哪些行、输出哪些列、按什么顺序，别人照做时不用再猜。
+      conditions:
+        - “至少”“超过”这类词要落实成 ≥ 或 >，写明等于阈值的算不算。
+        - 还没确定的条件要追问，不能替对方补成既定事实。
+      example:
+        from: py12.k1.e0
+        text: |
+          “把高的挑出来”确认之后写成：从 samples 表中保留 signal 大于或等于 10 的行，只输出 sample_id 一列，保持输入中的原顺序。
+    lesson: |
+      同事说“把高的挑出来给我”。这句话听着清楚，交给别人去做，却至少留下三处要猜的空白：
+
+      - **比较哪一列**：是 signal，还是别的测量值？
+      - **多高算高**：阈值是多少？恰好等于阈值的算不算？
+      - **要什么结果**：只要样本编号，还是整行？按原来的顺序，还是重新排序？
+
+      把已经确认的条件写成一句别人能照做的话：“从 samples 表中保留 signal 大于或等于 10 的行，只输出 sample_id 一列，保持输入中的原顺序。”这样写之后，任何人拿到同一张表，都会得到同一个结果。
+
+      还没确定的条件要去问，而不是替对方补上。数据来自哪张表、每行代表什么、缺失值怎样处理，只要会影响结果，也要说明或者追问。
+    example:
+      id: py12.k1.e0
+      kind: [specify]
+      body: |
+        同事说：“把高的挑出来给我。”你向同事确认了：
+
+        - 输入是 samples 表，sample_id 各不相同，signal 是完整的整数列；
+        - “高”指 signal 至少为 10；
+        - 只要样本编号，并保持输入行的顺序。
+
+        把这条要求填成下面五个字段。
+      slots:
+        - id: column
+          type: choice
+          prompt: 按哪一列筛选
+          options:
+            - { id: sample_id, content: sample_id }
+            - { id: signal, content: signal }
+          key: signal
+        - id: operator
+          type: choice
+          prompt: 比较关系
+          options:
+            - { id: ge, content: 大于或等于（≥） }
+            - { id: gt, content: 大于（>） }
+            - { id: eq, content: 等于（=） }
+            - { id: le, content: 小于或等于（≤） }
+          key: ge
+        - id: threshold
+          type: text
+          format: integer
+          prompt: 阈值
+          key: 10
+        - id: output
+          type: choice
+          prompt: 输出哪些列
+          options:
+            - { id: id_signal, content: sample_id 和 signal }
+            - { id: all, content: 全部列 }
+            - { id: id_only, content: 只有 sample_id }
+          key: id_only
+        - id: order
+          type: choice
+          prompt: 行的顺序
+          options:
+            - { id: desc, content: 按 signal 从高到低 }
+            - { id: original, content: 输入中的原顺序 }
+            - { id: by_id, content: 按 sample_id 排序 }
+          key: original
+      explanation: |
+        可以写成：**从 samples 表中保留 signal 大于或等于 10 的行，只输出 sample_id 一列，保持输入中的原顺序。**
+
+        这句话没有擅自排序，也没有改变“至少”的含义。“不低于 10”与“大于或等于 10”说的是同一件事，用自己的话写也可以。
+      manual: [column, operator, threshold, output, order]
+    practice:
+      - id: py12.k1.q1
+        kind: [specify]
+        body: |
+          输入还是 samples 表，各列含义同上。负责人明确说：“signal 严格大于 12 的样本，只给 sample_id，按原顺序。”把它填成五个字段。
+        slots:
+          - id: column
+            type: choice
+            prompt: 按哪一列筛选
+            options:
+              - { id: signal, content: signal }
+              - { id: sample_id, content: sample_id }
+            key: signal
+          - id: operator
+            type: choice
+            prompt: 比较关系
+            options:
+              - id: ge
+                content: 大于或等于（≥）
+                feedback: “严格大于”不包含 12 本身。
+              - { id: eq, content: 等于（=） }
+              - { id: gt, content: 大于（>） }
+              - { id: le, content: 小于或等于（≤） }
+            key: gt
+          - id: threshold
+            type: text
+            format: integer
+            prompt: 阈值
+            key: 12
+          - id: output
+            type: choice
+            prompt: 输出哪些列
+            options:
+              - { id: id_signal, content: sample_id 和 signal }
+              - { id: all, content: 全部列 }
+              - { id: id_only, content: 只有 sample_id }
+            key: id_only
+          - id: order
+            type: choice
+            prompt: 行的顺序
+            options:
+              - { id: by_id, content: 按 sample_id 排序 }
+              - { id: desc, content: 按 signal 从高到低 }
+              - { id: original, content: 输入中的原顺序 }
+            key: original
+        explanation: |
+          signal；大于（>）；12；只有 sample_id；原顺序。“严格大于 12”不包含恰好等于 12 的样本，所以不能选“大于或等于”。
+        manual: [column, operator, threshold, output, order]
+      - id: py12.k1.q2
+        kind: [debug]
+        body: |
+          已确认的要求是：“signal 至少 10，只输出 sample_id，保留原顺序。”有人把它改写成：
+
+          > signal 大于 10 的行全部留下，输出所有列，并按 signal 从高到低排序。
+
+          这份改写在哪几处改变了要求？选出所有改变了的地方。
+        slots:
+          - id: changes
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: threshold, content: 阈值是否包含等号 }
+              - { id: columns, content: 输出列 }
+              - { id: order, content: 行顺序 }
+              - { id: table, content: 输入表 }
+            key: [threshold, columns, order]
+        explanation: |
+          改变了三处：“大于 10”去掉了等于 10 的行；“输出所有列”多出了 sample_id 以外的列；“按 signal 从高到低排序”打乱了原顺序。输入表没有变。
+
+          每个选项的勾选状态分别计分；只有三处都选出、并且没有误选输入表，才算完全答对。
+        manual: [changes]
+      - id: py12.k1.q3
+        kind: [specify]
+        body: |
+          同事只说：“去掉不可靠的样本，给我统计结果。”
+
+          请针对下面三个方面各提一个具体的追问，让别人能接着确定任务：① 输入或记录范围；② 排除或保留的规则；③ 统计目标或输出口径。题目没有授权你自己设定“可靠”的阈值。
+        slots:
+          - id: questions
+            type: text
+            lines: 6
+            rubric:
+              - id: scope
+                label: 输入或记录范围
+                guide: 追问用哪张表、每行代表什么样本或记录。
+              - id: rule
+                label: 排除或保留的规则
+                guide: 追问“不可靠”按哪一列或哪套规则判断、缺失怎样处理。提出一个可商量的阈值并明确问“是否采用”也算；把自定的阈值写成已确认的事实不算。
+              - id: output
+                label: 统计目标或输出口径
+                guide: 追问统计哪个指标、是否分组、最后输出哪些列。
+        explanation: |
+          一种回答：**用哪张表、每行代表什么样本？“不可靠”按哪一列或哪套规则判断，缺失怎样处理？要统计哪个指标、按哪些组，最后输出哪些列？**
+
+          其他同样会影响结果的具体追问也成立，例如重复记录要不要合并。三个方面各算一项，同一个问题换句话说不重复算；只说“请详细一点”不算。
+    review:
+      - id: py12.k1.r1
+        kind: [specify]
+        body: |
+          负责人确认的要求是：“保留 depth 不超过 30 的样本，输出 sample_id 和 depth 两列，保持原顺序。”下面哪一种改写与它完全一致？
+        slots:
+          - id: rewrite
+            type: choice
+            options:
+              - id: strict
+                content: 保留 depth 小于 30 的样本，输出 sample_id 和 depth，保持原顺序
+                feedback: “不超过 30”包含恰好等于 30 的样本，“小于 30”不包含。
+              - id: all_columns
+                content: 保留 depth 不超过 30 的样本，输出全部列，保持原顺序
+              - id: sorted
+                content: 保留 depth 不超过 30 的样本，输出 sample_id 和 depth，按 depth 从小到大排列
+              - id: faithful
+                content: 保留 depth 小于或等于 30 的样本，只输出 sample_id 和 depth 两列，行的顺序与输入相同
+            key: faithful
+        explanation: |
+          “小于或等于 30、只输出 sample_id 和 depth 两列、行的顺序与输入相同”这一种。“不超过 30”就是“小于或等于 30”；写成“小于 30”会去掉等于 30 的样本，“输出全部列”多出了列，“按 depth 从小到大排列”改了行的顺序。
+        manual: [rewrite]
+      - id: py12.k1.r2
+        kind: [debug]
+        body: |
+          同事写下的要求是：“从 samples 表保留 temperature 低于 5 的样本，等于 5 的不要，按 temperature 从低到高排列。”别人照做时，还要猜哪几项？选出所有缺少的信息。
+        slots:
+          - id: missing
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: table, content: 用哪张表 }
+              - { id: comparison, content: 等于 5 的样本算不算 }
+              - { id: columns, content: 输出哪些列 }
+              - { id: order, content: 行的顺序 }
+            key: [columns]
+        explanation: |
+          只缺**输出哪些列**。表名写了；“等于 5 的不要”说清了等于阈值的算不算；排序方式也写了。缺的那一项要补上，别人才不用猜。
+        manual: [missing]
+    quiz:
+      - id: py12.k1.x1
+        kind: [specify]
+        body: |
+          负责人确认：“保留 count 至少为 3 的记录，只输出 site 一列，保持原顺序。”把它填成五个字段。
+        slots:
+          - id: column
+            type: choice
+            prompt: 按哪一列筛选
+            options:
+              - { id: count, content: count }
+              - { id: site, content: site }
+            key: count
+          - id: operator
+            type: choice
+            prompt: 比较关系
+            options:
+              - { id: gt, content: 大于（>） }
+              - { id: lt, content: 小于（<） }
+              - { id: ge, content: 大于或等于（≥） }
+              - { id: le, content: 小于或等于（≤） }
+            key: ge
+          - id: threshold
+            type: text
+            format: integer
+            prompt: 阈值
+            key: 3
+          - id: output
+            type: choice
+            prompt: 输出哪些列
+            options:
+              - { id: site_count, content: site 和 count }
+              - { id: site_only, content: 只有 site }
+              - { id: all, content: 全部列 }
+            key: site_only
+          - id: order
+            type: choice
+            prompt: 行的顺序
+            options:
+              - { id: desc, content: 按 count 从多到少 }
+              - { id: by_site, content: 按 site 排序 }
+              - { id: original, content: 输入中的原顺序 }
+            key: original
+        explanation: |
+          count；大于或等于（≥）；3；只有 site；原顺序。“至少为 3”包含恰好为 3 的记录。
+        manual: [column, operator, threshold, output, order]
+      - id: py12.k1.x2
+        kind: [specify]
+        body: |
+          同事说：“把信号弱的样本去掉。”你还不知道“弱”指什么，也没有被授权自己决定。下一步最合适的是哪一句？
+        slots:
+          - id: next
+            type: choice
+            options:
+              - id: assume
+                content: “我先按 signal < 10 去掉了。”
+              - id: half
+                content: “我把 signal 最低的一半样本去掉了。”
+              - id: ask
+                content: “‘信号弱’是指 signal 低于多少？恰好等于这个值的要不要去掉？”
+              - id: proceed
+                content: “好的，马上处理。”
+            key: ask
+        explanation: |
+          应当先追问：阈值是多少、等于阈值的算不算。自己定一个阈值或比例，都是替对方补上了还没确认的条件；直接答应则把猜测留给了后面的人。
+        manual: [next]
+
+  - id: py12.k2
+    title: 用正常、边界和无结果例子消除歧义
+    card:
+      name: 边界例子
+      aliases: [反例, 测试例子]
+      definition: 用一个应留下的普通值、一个应丢弃的普通值、一个恰好等于阈值的值，以及“没有任何行满足”的情况，检查一条规则有没有歧义。
+      conditions:
+        - 恰好等于阈值的行专门检查等号：≥ 10 与 > 10 只在等于 10 的行上不同。
+        - 例子用来检查规则，不能代替适用于新输入的规则。
+      example:
+        from: py12.k2.e0
+        text: |
+          要求 signal ≥ 10，输入 A=9、B=10、C=12：输出 B、C。B 恰好等于 10，专门检查“包含等号”。
+    lesson: |
+      一句要求读起来没问题，落到一行具体数据上，分歧才会暴露出来。检查一条要求时，可以按顺序举四种例子：
+
+      1. 一个**应当留下**的普通值，例如 signal 为 12；
+      2. 一个**应当丢弃**的普通值，例如 signal 为 9；
+      3. 一个**恰好等于阈值**的值，例如 signal 为 10：“至少 10”留下它，“超过 10”丢弃它；
+      4. **没有任何行满足**时输出什么：一张只有列名、没有行的表，而不是写着“无”的一行，也不是数字 0。
+
+      这些例子帮你和对方确认规则，但例子本身不是规则：换一张新表，仍要按规则逐行判断。
+    example:
+      id: py12.k2.e0
+      kind: [predict, specify]
+      data: [samples3]
+      body: |
+        要求：保留 signal 大于或等于 10 的行，只输出 sample_id，保持原顺序。
+      slots:
+        - id: result
+          type: order
+          partial: true
+          prompt: 按输出的先后顺序排出留下的 sample_id；不该留下的不要放进来。
+          items:
+            - { id: A, content: A }
+            - { id: B, content: B }
+            - { id: C, content: C }
+          key: [B, C]
+        - id: boundary
+          type: choice
+          prompt: 哪一行专门检查“包含等号”？
+          options:
+            - { id: A, content: A }
+            - { id: B, content: B }
+            - { id: C, content: C }
+          key: B
+      explanation: |
+        输出 **B、C**，B 是边界例子：它恰好等于 10，“至少 10”留下它，“超过 10”会丢掉它。A 检查低于阈值的情况，C 检查高于阈值的情况。结果是一列两行的样本编号，不把 signal 也加进输出。
+      verify: |
+        keep = samples.loc[samples["signal"] >= 10, "sample_id"]
+        # 只有恰好等于阈值的行，在 >= 与 > 下结果不同。
+        boundary = samples.loc[(samples["signal"] >= 10) != (samples["signal"] > 10), "sample_id"]
+        answers = {"result": list(keep), "boundary": boundary.iloc[0]}
+    practice:
+      - id: py12.k2.q1
+        kind: [predict]
+        data: [samples4]
+        body: |
+          要求仍是：保留 signal 大于或等于 10 的行，只输出 sample_id，保持原顺序。
+        slots:
+          - id: result
+            type: order
+            partial: true
+            prompt: 按输出的先后顺序排出留下的 sample_id。
+            items:
+              - { id: A, content: A }
+              - { id: B, content: B }
+              - { id: C, content: C }
+              - { id: D, content: D }
+            key: [B, C, D]
+        explanation: |
+          输出 **B、C、D**。B 和 D 恰好等于 10，也要留下；顺序保持输入中的先后，不按 signal 排序。
+        verify: |
+          answers = {"result": list(samples.loc[samples["signal"] >= 10, "sample_id"])}
+      - id: py12.k2.q2
+        kind: [predict, specify]
+        data: [samples2]
+        body: |
+          要求不变：保留 signal 大于或等于 10 的行，只输出 sample_id，保持原顺序。需求还规定：没有结果时，也要保留输出的列名。
+        slots:
+          - id: rows
+            type: text
+            format: integer
+            prompt: 输出有几行？
+            key: 0
+          - id: column
+            type: choice
+            prompt: 输出里保留哪一列的列名？
+            options:
+              - { id: sample_id, content: sample_id }
+              - { id: none, content: 不保留任何列，写一行“无” }
+              - { id: both, content: sample_id 和 signal }
+            key: sample_id
+        explanation: |
+          **0 行**，仍然有 **sample_id** 这一列的列名。没有结果不等于输出一行写着“无”，也不是数字 0，更不能沿用上一次的结果。
+        verify: |
+          # 按要求实现一遍：保留 signal ≥ 10 的行，只要 sample_id 一列。
+          result = samples.loc[samples["signal"] >= 10, ["sample_id"]]
+          answers = {"rows": len(result), "column": list(result.columns)[0] if list(result.columns) == ["sample_id"] else "other"}
+      - id: py12.k2.q3
+        kind: [specify]
+        body: |
+          实现甲按“signal ≥ 10”筛选，实现乙按“signal > 10”筛选。请构造一行输入，让两个实现给出不同的结果：填一个样本编号和 signal 值，再分别写出这一行在甲、乙中是否留下。
+        slots:
+          - id: sample
+            type: text
+            prompt: 样本编号（自己起一个）
+            match: nonempty
+          - id: signal
+            type: text
+            format: integer
+            prompt: signal 值
+            key: 10
+          - id: first
+            type: choice
+            prompt: 在实现甲中
+            options:
+              - { id: keep, content: 留下 }
+              - { id: drop, content: 丢弃 }
+            key: keep
+          - id: second
+            type: choice
+            prompt: 在实现乙中
+            options:
+              - { id: keep, content: 留下 }
+              - { id: drop, content: 丢弃 }
+            key: drop
+        explanation: |
+          signal 必须**恰好是 10**：甲留下，乙丢弃。样本编号写什么都可以，只要不是空的；关键是这个值落在两条规则唯一的分歧上。
+        verify: |
+          value = next(v for v in range(-100, 101) if (v >= 10) != (v > 10))
+          answers = {
+              "signal": value,
+              "first": "keep" if value >= 10 else "drop",
+              "second": "keep" if value > 10 else "drop",
+          }
+    review:
+      - id: py12.k2.r1
+        kind: [predict]
+        data: [samples4b]
+        body: |
+          要求：保留 signal 大于 7 的行，只输出 sample_id，保持原顺序。
+        slots:
+          - id: result
+            type: order
+            partial: true
+            prompt: 按输出的先后顺序排出留下的 sample_id。
+            items:
+              - { id: A, content: A }
+              - { id: B, content: B }
+              - { id: C, content: C }
+              - { id: D, content: D }
+            key: [D]
+        explanation: |
+          只有 **D**。B 和 C 恰好等于 7，“大于 7”不包含它们。
+        verify: |
+          answers = {"result": list(samples.loc[samples["signal"] > 7, "sample_id"])}
+      - id: py12.k2.r2
+        kind: [specify]
+        body: |
+          要求是“signal ≥ 15”。你想用一行数据检查实现有没有漏掉等号。下面哪个 signal 值最合适？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - { id: v14, content: "14" }
+              - { id: v15, content: "15" }
+              - { id: v16, content: "16" }
+              - { id: v30, content: "30" }
+            key: v15
+        explanation: |
+          **15**。只有恰好等于阈值的值，在“≥ 15”和“> 15”下结果不同；14、16、30 在两种写法下结果一样，查不出等号的问题。
+        verify: |
+          answers = {"value": next(f"v{v}" for v in (14, 15, 16, 30) if (v >= 15) != (v > 15))}
+    quiz:
+      - id: py12.k2.x1
+        kind: [specify]
+        data: [samples3b]
+        body: |
+          一位同事想用这张小表，检查某个实现有没有把“signal ≥ 10”写成了“signal > 10”。
+        slots:
+          - id: enough
+            type: choice
+            prompt: 这三行够不够查出这个错误？
+            options:
+              - { id: not_enough, content: 不够，没有一行在两种写法下结果不同 }
+              - { id: enough, content: 够，三行在两种写法下结果不同 }
+            key: not_enough
+          - id: value
+            type: text
+            format: integer
+            prompt: 补一行数据，它的 signal 应该是多少？
+            key: 10
+        explanation: |
+          **不够**。8、12、15 在“≥ 10”和“> 10”下结果都一样，查不出等号的问题；要补一行 signal 恰好为 **10** 的数据。
+        verify: |
+          values = list(samples["signal"])
+          differs = any((v >= 10) != (v > 10) for v in values)
+          boundary = [v for v in range(-100, 101) if (v >= 10) != (v > 10)]
+          answers = {"enough": "enough" if differs else "not_enough", "value": boundary[0] if len(boundary) == 1 else boundary}
+      - id: py12.k2.x2
+        kind: [predict]
+        data: [samples5]
+        body: |
+          实现甲按“signal ≥ 10”筛选，实现乙按“signal > 10”筛选，两者都只输出 sample_id，保持原顺序。
+        slots:
+          - id: first
+            type: order
+            partial: true
+            prompt: 实现甲输出哪些 sample_id？按先后顺序排列。
+            items:
+              - { id: A, content: A }
+              - { id: B, content: B }
+              - { id: C, content: C }
+              - { id: D, content: D }
+              - { id: E, content: E }
+            key: [A, C, D, E]
+          - id: second
+            type: order
+            partial: true
+            prompt: 实现乙输出哪些 sample_id？按先后顺序排列。
+            items:
+              - { id: A, content: A }
+              - { id: B, content: B }
+              - { id: C, content: C }
+              - { id: D, content: D }
+              - { id: E, content: E }
+            key: [C, E]
+        explanation: |
+          甲输出 **A、C、D、E**，乙输出 **C、E**。两者只在 signal 恰好为 10 的 A 和 D 上不同。
+        verify: |
+          answers = {
+              "first": list(samples.loc[samples["signal"] >= 10, "sample_id"]),
+              "second": list(samples.loc[samples["signal"] > 10, "sample_id"]),
+          }
+
+verified:
+  - question: py12.k1.r1
+    version: sha256:043b7526fd9cd60eb5016c76003f139a6c378cb2c2ef02575292c1b6bbbcd57b
+    slots: [rewrite]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py12.k1.r2
+    version: sha256:a8370ef7a021f99a27d7ad8a08f2e95185f54d424ec8becc3b5efdf9229b0432
+    slots: [missing]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py12.k1.x1
+    version: sha256:8a636bc58bac9f552d344ef255e0fa07eed43c10387e5e1544b4e69ca20bb984
+    slots: [column, operator, threshold, output, order]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py12.k1.x2
+    version: sha256:1463b26b85de5e469e60c8bcb04d26fbe642d2cc1e6df6a959262a0f187db64a
+    slots: [next]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12

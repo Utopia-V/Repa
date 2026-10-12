@@ -1,0 +1,29 @@
+id: py39
+title: 把一行推导式展开来看
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py36
+    key: true
+    weight: 0.50
+    covers: [py36.k1]
+  - topic: py38
+    key: false
+    weight: 0.33
+    covers: [py38.k1]
+sources:
+  - source: think-python
+    where: 第 18 章
+    url: https://allendowney.github.io/ThinkPython/chap18.html
+    use: reference
+  - source: python-docs
+    where: 教程第 5 章 §5.1.3
+    url: https://docs.python.org/3.12/tutorial/datastructures.html
+    use: reference
+notes: |
+  建议题型与判分：解释代码（S/O）、小改代码（T）、追踪变量（P）。
+kps:
+  - id: py39.k1
+    title: 列表推导式中的取元素、条件和结果
+  - id: py39.k2
+    title: 与显式 for/if 的等价关系
