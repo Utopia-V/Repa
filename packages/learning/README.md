@@ -54,13 +54,15 @@
 1. 读取与 schema 校验。
 2. 交叉规则（[`src/check/rules.ts`](src/check/rules.ts)）：id 唯一且前缀正确；先修指向存在的 topic、覆盖的知识点存在、图里没有环；完整 topic 的每个知识点有概念卡、讲解、例题、至少 3 道练习、复习和测验题池；复习和测验题至少有一个由程序判分的作答位，不含开放作答；来源登记在清单里，用法在许可范围内；链接只用 `https:` 和 `repa:concept/`，概念引用指向存在的知识点；每个作答位要么有 `verify`、要么列进 `manual`、要么由测试负责；标准答案引用的选项、块和单元格存在；要按写法显示或比较的文字写成字符串，小表里的数保留写法（`001`、`1e3`、未声明 `float` 的小数都会报出）。
 3. 标准答案自洽（[`src/check/questions.ts`](src/check/questions.ts)）：投影出的 `Item` 符合交互词汇；用标准答案拼出的作答能通过 `checkResponse`，并按判分规则（[`src/check/grade.ts`](src/check/grade.ts)）得满分；登记的错误答案确实判错；复习和测验题的 `manual` 作答位有当前版本的核对记录，`verified` 里的记录指向本 topic 存在的题和作答位。
-4. 运行核对（[`src/check/code.ts`](src/check/code.ts)）：核对实际加载的 Pyodide、Python 和包版本与清单一致；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致；代码题和 Parsons 题的参考答案、`accepts` 必须通过全部测试，`rejects` 和作答框里的初始代码必须至少错一个；期望值也在沙箱里算出。比较在沙箱外进行，超过一万个元素的值不截断比较，直接报“太大，无法比较”。
+4. 运行核对（[`src/check/code.ts`](src/check/code.ts)）：核对实际加载的 Pyodide、Python 和包版本与清单一致；每个任务先运行清单 `runtime.prelude` 里的前导（本课是导入 `pd`、`np`），学习者在 Repa 里运行代码时用同一份；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致；代码题和 Parsons 题的参考答案、`accepts` 必须通过全部测试，`rejects` 和作答框里的初始代码必须至少错一个；期望值也在沙箱里算出。比较在沙箱外进行，超过一万个元素的值不截断比较，直接报“太大，无法比较”。
 
 ### 模型核对
 
 [`src/check/confirm.ts`](src/check/confirm.ts) 把投影出的 `Item`（与学习者看到的同一份，不含答案、解析和核对程序）写成文字请求，系统说明只交代任务和输出格式；读回模型的 JSON 作答后先做 `checkResponse` 结构检查，再逐个 `manual` 作答位按判分规则比对。输出不合格式时重试一次，仍不行就记为“输出不合格式”交给人看。写回时只替换 topic 文件末尾的 `verified` 段，文件其余部分逐字不动。
 
-[`src/check/model.ts`](src/check/model.ts) 用 `--agent-dir`（默认 `~/.repa/agent`）创建底座的 Agent 运行时，凭据由 Pi 从其中的 `auth.json` 读取。运行时在 `settings.json` 缺 `cacheWarming` 时会补上 `idle`；核对只是借用凭据，所以结束时若文件只多了这一项，就恢复原样，有其他改动则保留并提示。
+发给模型的是换过 id 的题目：单选多选的选项、排列块和表格选择格的 id 按出现顺序换成 a、b、c……（课程里的 id 可以带含义，例如 `faithful`，原样发出去等于告诉模型答案），模型的回答再换回课程里的 id 去判，报告和日志里的差异也写课程里的 id。多行代码选项原样缩进排在编号下面，选择格显示标签，带 `startLine` 的代码块每行前写行号。只有一列要填的表格，模型答 `{行 id: 值}` 也接受。
+
+[`src/check/model.ts`](src/check/model.ts) 用 `--agent-dir`（默认 `~/.repa/agent`）创建底座的 Agent 运行时，凭据由 Pi 从其中的 `auth.json` 读取。运行时的 `cacheWarming` 缺省值（`idle`）只在内存里生效，不写 `settings.json`，所以核对不会改动用户设置，几个核对同时运行也不会互相覆盖。`--log` 的文件在发请求之前独占创建，已存在就报错，之后每道题有结果就写一行。写 topic 文件末尾的 `verified` 段时，并入的是写入那一刻磁盘上的记录，先写临时文件再改名，同一个 topic 上同时进行的核对不会丢掉对方的记录。
 
 ### 沙箱
 
@@ -73,7 +75,7 @@
 
 限制建立不了时以退出码 70 结束，检查报 `sandbox_unavailable`，不会改用不受限的运行。另外，[`sandbox/runner.mjs`](sandbox/runner.mjs) 让 Python 的 `js` 模块只看到一个空对象，Node 也以 `--disallow-code-generation-from-strings` 启动，所以 Python 代码拿不到 `process`、`require`、`fetch` 和 `Function` 构造器；这一层减少意外和干扰，安全边界仍是上面的内核限制。
 
-[`src/sandbox/session.ts`](src/sandbox/session.ts) 启动沙箱、逐个发送任务（每行一个 JSON），单个任务默认 10 秒超时，超时就结束整个进程，下一个任务换一个新沙箱。每个 topic 用一个新沙箱；同一 topic 的任务共享解释器，每个任务用全新的命名空间，任务后恢复 pandas 与 NumPy 的选项、builtins、输出流、warnings 过滤器，并取消挂起的 asyncio 任务。任务留下的异步错误记在这个任务上，并换新沙箱。[`sandbox/runner.py`](sandbox/runner.py) 负责执行和把 Python 值序列化，判断对错在沙箱外。
+[`src/sandbox/session.ts`](src/sandbox/session.ts) 启动沙箱、逐个发送任务（每行一个 JSON），单个任务默认 10 秒超时，超时就结束整个进程，下一个任务换一个新沙箱。每个 topic 用一个新沙箱；同一 topic 的任务共享解释器（每题重启太慢），但每个任务从全新的命名空间开始，先运行课程清单 `runtime.prelude` 声明的运行前导，工作目录是空的。任务后恢复 pandas 与 NumPy 的选项、builtins、输出流、`sys.path`、环境变量、warnings 过滤器，取消挂起的 asyncio 任务，并删掉任务在工作目录、`/tmp` 和根目录下新建的文件。任务留下的异步错误记在这个任务上，并换新沙箱。[`sandbox/runner.py`](sandbox/runner.py) 负责执行和把 Python 值序列化，判断对错在沙箱外。
 
 pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们准备到 `packages/learning/.cache/pyodide/<版本>/`（`REPA_PYODIDE_PACKAGES` 可改位置）：`--from` 从已有目录复制，不给时从 jsDelivr 下载；两种方式都按 Pyodide 发行 lockfile 的 SHA-256 核对，检查前也会再核对一次。解释器和标准库来自 npm 包本身，由 npm 按 `package-lock.json` 里的摘要核对，这里不另外核对。
 
@@ -93,12 +95,14 @@ pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们�
 | 交付时的 id 与顺序 | 课程文件里的选项、排列块等 id 可以带含义（例如 `faithful`），方便作者写题和写反馈，课程内容不用改。底座不管打乱和 id 是否泄露答案，这归本插件 | 做交付时实现：按每次作答把这些 id 换成不透明的，同时打乱顺序，并记进这次作答；收回作答时再换回课程里的 id |
 | 其他系统上的代码核对 | 依赖 Linux 的 Landlock（ABI 4 以上，Linux 6.7 起）、libseccomp 和 `/usr/bin/python3`；Windows、macOS 只能 `--no-run` | 需要时另做；社区作者可以先做结构检查 |
 | 内存与 CPU | `RLIMIT_DATA` 只管进程私有的可写内存，CPU 时间上限 600 秒；没有 cgroup 级的整树限制，线程数只受内存间接限制 | 课程检查够用；如要运行更不可信的内容再评估 |
-| 同一 topic 内的模块状态 | 任务后恢复常见的全局状态，但代码改动已导入模块（例如给 pandas 打补丁）时，影响会延续到同一 topic 的后续任务 | 换 topic 时换新沙箱；需要更强的隔离时改为每题一个沙箱，代价是每题约 2.5 秒 |
+| 同一 topic 内的模块状态 | 任务后恢复命名空间、工作目录、临时文件、pandas 与 NumPy 选项等常见状态，但代码改动已导入模块（例如给 pandas 打补丁）、在 `/lib` 下写文件时，影响会延续到同一 topic 的后续任务 | 换 topic 时换新沙箱；需要更强的隔离时改为每题一个沙箱，代价是每题约 2.5 秒 |
 | 课程内容许可 | 清单写 `NOASSERTION`，本课程自写内容的对外许可尚未决定 | 维护者决定后改清单 |
 | 模型核对的强度 | 每道题只请模型解一次。选择题有猜中的可能，模型和作者也可能有同样的误读；一致只说明题面能读出这个答案 | 需要更强的核对时，可以换模型或多次采样，或在试用中看学习者的作答 |
 | 学习效果 | 题目和讲解只经过程序核对、模型核对和作者自查，没有学习者试做 | 试用后调整节奏、题量和难度 |
 
 ## 验证入口
+
+`course:check`、`course:runtime`、`course:confirm` 运行前由 [`scripts/ensure-base.ts`](scripts/ensure-base.ts) 确认 `@repa/base` 的构建产物是新的：只在产物缺失或比源码旧时构建，同一时间只有一个进程在构建，其余的等它做完。所以同一个 worktree 里可以同时运行几个检查和核对。
 
 在仓库根目录：
 
@@ -110,4 +114,4 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 npm test --workspace=@repa/learning
 ```
 
-测试在 [`test/`](test/)：`rules.test.ts` 用一份小课程逐项弄坏结构、先修、完整性、来源、链接、数的写法和标准答案；`items.test.ts` 覆盖判分、字面量比较、投影和内容版本；`sandbox.test.ts` 检查沙箱确实读不到宿主文件、写不了文件、建不了进程、不能向别的进程发信号或调优先级、连不上本机端口，Python 拿不到 Node 的接口，任务之间恢复全局状态，并检查内存上限与超时；`protocol.test.ts` 检查“不会”的结构检查、反馈与提交结果的严格校验，并沿导入链确认公开约定只加载 `typebox` 和底座的交互词汇；`confirm.test.ts` 用假的模型输出检查核对流程：缺记录时检查不通过、一致时写入记录、不一致和输出不合格式时不记录、请求数不超过上限、题目改过后旧记录失效、请求里不带答案和解析；`code.test.ts` 在 Pyodide 里核对小课程和随包课程，并检查答案错误、多写的可接受值、漏核对、忘写 input 的答案列、显示内容按 repr 核对、参考答案不过、错误写法或初始代码通过、Parsons 缩进错误、超时和运行时版本不符都能报出。Pyodide 包没有准备好或这台机器建不了沙箱时，需要运行代码的测试会跳过并写明原因。
+测试在 [`test/`](test/)：`rules.test.ts` 用一份小课程逐项弄坏结构、先修、完整性、来源、链接、数的写法和标准答案；`items.test.ts` 覆盖判分、字面量比较、投影和内容版本；`sandbox.test.ts` 检查沙箱确实读不到宿主文件、写不了文件、建不了进程、不能向别的进程发信号或调优先级、连不上本机端口，Python 拿不到 Node 的接口，任务之间恢复全局状态（含工作目录和临时文件），运行前导在每个任务里先运行，核对程序的辅助函数（出错行号、实际执行的行、函数收到的参数、显示内容的标记、固定格）可用，并检查内存上限与超时；`protocol.test.ts` 检查“不会”的结构检查、反馈与提交结果的严格校验，并沿导入链确认公开约定只加载 `typebox` 和底座的交互词汇；`confirm.test.ts` 用假的模型输出检查核对流程：缺记录时检查不通过、一致时写入记录、不一致和输出不合格式时不记录、请求数不超过上限、题目改过后旧记录失效、请求里不带答案和解析、选项 id 换成不透明编号并换回、多行代码和选择格标签保留、记录并入磁盘上的最新内容、`--log` 文件已存在时在发请求前报错；`code.test.ts` 在 Pyodide 里核对小课程和随包课程，并检查答案错误、多写的可接受值、漏核对、忘写 input 的答案列、显示内容按 repr 核对、参考答案不过、错误写法或初始代码通过、Parsons 缩进错误、超时和运行时版本不符都能报出。Pyodide 包没有准备好或这台机器建不了沙箱时，需要运行代码的测试会跳过并写明原因。
