@@ -1,7 +1,8 @@
 id: py38
 title: 同时读到编号和值
-status: outline
+status: complete
 minutes: 20
+summary: 读懂元组和解包的数量对应，用 enumerate 同时拿到位置和元素，用 zip 把两个列表按位置配对，并留意长度不同时的截断。
 prerequisites:
   - topic: py35
     key: true
@@ -13,19 +14,1177 @@ prerequisites:
     covers: [py06.k1, py06.k2]
 sources:
   - source: think-python
-    where: 第 11 章
+    where: 第 11 章（元组、元组赋值、zip 与 enumerate）
     url: https://allendowney.github.io/ThinkPython/chap11.html
     use: reference
   - source: python-docs
-    where: 教程第 5 章 §5.3、5.6
+    where: 教程第 5 章 §5.3（元组与序列）、§5.6（循环技巧）
     url: https://docs.python.org/3.12/tutorial/datastructures.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、追踪变量（P）、找错（P）。
+  范围：纯 Python 短脚本，不用 pandas。只用元组的建立、按位置取值和解包，不讲元组的方法、单元素元组和嵌套解包；enumerate 只讲 start 参数；zip 只配两个列表，strict=True 只讲“长度不同时报 ValueError”。py10 的 if 不是本节先修，循环体里不用 if；追加元素的 append 在 py36，本节也不用。
+  循环的说法沿用 py35：for 下面缩进的几行是循环体，每轮取出一个元素做一遍。print 里用逗号隔开几个值、显示时中间隔一个空格，在 k2 讲解里就地说明。
+  zip 加 strict=True 写在 for 里时，会先处理完能配上的几对，走到短的一边用完时才报错；讲解里提一句，题目只在 x1 的第二问里用到“先显示能配上的几行”。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 3 分钟；收束 1 分钟。
+  情境沿用 py12、py17 的样本编号、signal、site、depth；例子、数据和题目为本课自拟。
+intro: |
+  一个样本常常同时带着几样信息：编号、测量值、组别。前面学过用 `for` 从列表里逐个取出元素，这一节看三件相关的事：
+
+  - 怎样把几个值装在一起，再一次拆给几个名字（元组和解包）；
+  - 循环时怎样同时知道“这是第几个”和“它的值”（`enumerate`）；
+  - 编号和测量值分放在两个列表里时，怎样按位置把它们配成对（`zip`），以及两个列表不一样长时会发生什么。
+
+  下面的程序都当作短脚本，从第一行往下运行。
+wrapup: |
+  读到 `a, b = ...`，先数左右两边的个数是否对得上；读到 `enumerate`，先看编号从 0 还是从 1 开始；读到 `zip`，先确认两个列表的顺序一一对应、长度相同。
+
+  请 AI 写这类代码时，可以直接要求：“编号和测量值按位置一一对应，长度不同时报错，不要悄悄丢掉多出来的记录。”
+data:
+  reading:
+    kind: python
+    code: |
+      reading = ("S_A", 8, "control")
+    display: |
+      准备代码：
+
+      ```python
+      reading = ("S_A", 8, "control")
+      ```
 kps:
   - id: py38.k1
     title: 元组及解包的数量对应
+    card:
+      name: 元组解包
+      aliases: [元组, tuple, 解包]
+      definition: 用逗号把几个值写在一起就是元组；`a, b = 元组` 按位置把元素依次交给左边的名字，名字的个数必须和元素的个数相同。
+      conditions:
+        - 左边的名字比元素多或少，都会报 ValueError，不会自动补上空值，也不会丢掉多余的元素。
+        - "`a, b = b, a` 先算出右边的整个元组，再依次赋值，所以一行就能交换两个值。"
+      example:
+        from: py38.k1.e0
+        text: |
+          ```python
+          record = ("S_B", 10)
+          sid, value = record
+          ```
+          第 2 行让 sid 指向 "S_B"、value 指向 10，等同于 `sid = record[0]` 和 `value = record[1]` 两行。
+    lesson: |
+      一个样本的编号和测量值可以写在一起：
+
+      ```python
+      record = ("S_A", 8)
+      ```
+
+      圆括号里用逗号隔开的几个值叫**元组**（tuple）。它和列表一样按位置取值，`record[0]` 是 `"S_A"`，`record[1]` 是 8，`len(record)` 是 2。区别是元组建好以后不能改动里面的元素，这一节只读它，不改它。
+
+      想把元组里的值分别交给几个名字，可以一行写完，这叫**解包**：
+
+      ```python
+      sid, value = record
+      ```
+
+      左边第一个名字拿第 0 个元素，第二个名字拿第 1 个元素，效果和 `sid = record[0]`、`value = record[1]` 两行相同。
+
+      解包要求**个数对得上**：元组有 3 个元素，左边就要写 3 个名字。写少了或写多了，Python 都会报 `ValueError`，不会自己补一个空值，也不会悄悄丢掉多出来的元素。只写一个名字 `whole = record` 不算解包，`whole` 拿到的是整个元组。
+
+      还记得用 `a = b`、`b = a` 交换两个值会失败吗？（见[重新赋值](repa:concept/py01.k2)）写成 `a, b = b, a` 就能交换：Python 先算出右边的元组（b 现在的值, a 现在的值），再依次交给 `a` 和 `b`，赋值时用的都是交换前的值。
+    example:
+      id: py38.k1.e0
+      kind: [predict, explain]
+      uses: [py06.k2, py01.k1]
+      body: |
+        阅读下面的程序。
+
+        ```python startLine=1
+        record = ("S_B", 10)
+        sid, value = record
+        print(sid)
+        print(value + 1)
+        ```
+      slots:
+        - id: first
+          type: text
+          prompt: 第一行显示什么？
+          key: S_B
+        - id: second
+          type: text
+          format: integer
+          prompt: 第二行显示哪个整数？
+          key: 11
+        - id: same
+          type: choice
+          prompt: 第 2 行的效果和哪两行赋值相同？
+          options:
+            - id: swapped
+              content: |
+                ```python
+                sid = record[1]
+                value = record[0]
+                ```
+            - id: whole
+              content: |
+                ```python
+                sid = record
+                value = record
+                ```
+            - id: by_position
+              content: |
+                ```python
+                sid = record[0]
+                value = record[1]
+                ```
+          key: by_position
+      explanation: |
+        第一行显示 **S_B**，第二行显示 **11**。第 2 行按位置解包：`sid` 拿第 0 个元素 `"S_B"`，`value` 拿第 1 个元素 10，所以它和 `sid = record[0]`、`value = record[1]` 两行效果相同。第 4 行先算 10 + 1，再显示 11。
+
+        把位置反过来，`sid` 会拿到 10；让两个名字都等于 `record`，它们拿到的都是整个元组，不是其中一个值。
+      verify: |
+        r = run()
+        lines = r.lines()
+        # 逐个运行选项，和解包的效果比较；用两个不同的元组，避免碰巧相同。
+        fits = []
+        for option, code in OPTIONS["same"].items():
+            same = True
+            for record in [("S_B", 10), ("X_Q", 3)]:
+                unpacked = run("sid, value = record", record=record)
+                tried = run(code, record=record)
+                if tried.error or tried.vars.get("sid") != unpacked["sid"] or tried.vars.get("value") != unpacked["value"]:
+                    same = False
+            if same:
+                fits.append(option)
+        answers = {"first": lines[0], "second": int(lines[1]), "same": fits[0] if len(fits) == 1 else fits}
+    practice:
+      - id: py38.k1.q1
+        kind: [predict]
+        body: |
+          一行记录有三样信息：编号、测量值和组别。
+
+          ```python startLine=1
+          row = ("S_C", 13, "drug")
+          sid, signal, group = row
+          print(group)
+          print(signal - 3)
+          ```
+        slots:
+          - id: first
+            type: text
+            prompt: 第一行显示什么？
+            key: drug
+            feedback:
+              - when: S_C
+                message: 第 3 行显示的是 group。三个名字按位置依次拿到 "S_C"、13、"drug"，group 是第三个。
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示哪个整数？
+            key: 10
+            feedback:
+              - when: 13
+                message: 第 4 行显示的是 signal - 3，不是 signal 本身。
+        explanation: |
+          第一行显示 **drug**，第二行显示 **10**。三个名字按位置拿值：`sid` 是 `"S_C"`，`signal` 是 13，`group` 是 `"drug"`；第 4 行算 13 - 3 得到 10。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": int(lines[1])}
+      - id: py38.k1.q2
+        kind: [debug]
+        body: |
+          ```python startLine=1
+          row = ("S_D", 10, "control")
+          sid, signal = row
+          print(sid)
+          ```
+        slots:
+          - id: result
+            type: choice
+            prompt: 运行这段程序会怎样？
+            options:
+              - id: drops_extra
+                content: 显示 S_D，多出来的 "control" 被丢掉
+                feedback: 解包不会悄悄丢掉多出来的元素，个数对不上就报错。
+              - id: shows_pair
+                content: 显示 ('S_D', 10)
+              - id: value_error
+                content: 第 2 行报 ValueError，什么也不显示
+              - id: name_error
+                content: 第 3 行报 NameError，因为 sid 没有值
+            key: value_error
+          - id: fix
+            type: choice
+            prompt: 第 2 行改成哪一行，程序就能显示 S_D，并让 signal 指向 10？
+            options:
+              - id: first_only
+                content: |
+                  ```python
+                  sid, signal = row[0]
+                  ```
+              - id: three_names
+                content: |
+                  ```python
+                  sid, signal, group = row
+                  ```
+              - id: skip_middle
+                content: |
+                  ```python
+                  sid, signal = row[0], row[2]
+                  ```
+            key: three_names
+        explanation: |
+          元组有 3 个元素，左边只写了 2 个名字，个数对不上，**第 2 行报 ValueError**，程序在这里停下，后面的 `print` 不会运行。
+
+          改成 `sid, signal, group = row`，三个名字对三个元素就行了。`row[0]` 是一段文字 `"S_D"`，拆给两个名字也对不上，同样报错；`row[0], row[2]` 能运行，但 `signal` 拿到的是 `"control"`，不是 10。
+        verify: |
+          r = run()
+          if r.error == "ValueError" and r.out == "":
+              result = "value_error"
+          elif r.error == "NameError":
+              result = "name_error"
+          elif r.error is None and r.out.strip() == "S_D":
+              result = "drops_extra"
+          else:
+              result = "shows_pair"
+          lines = CODE.splitlines()
+          fits = []
+          for option, code in OPTIONS["fix"].items():
+              tried = run("\n".join([lines[0], code.strip(), lines[2]]))
+              if tried.error is None and tried.out.strip() == "S_D" and tried.vars.get("signal") == 10:
+                  fits.append(option)
+          answers = {"result": result, "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py38.k1.q3
+        kind: [trace]
+        body: |
+          按运行顺序填写前三行各自执行后 `low` 和 `high` 的值，再写出第 4 行显示的内容。还没有赋值的名字填“尚未定义”。
+
+          ```python startLine=1
+          low = 13
+          high = 8
+          low, high = high, low
+          print(low, high)
+          ```
+        slots:
+          - id: trace
+            type: table
+            columns:
+              - id: line
+                header: 执行到
+              - id: low
+                header: low
+                input: { type: text, format: integer, quick: [尚未定义] }
+              - id: high
+                header: high
+                input: { type: text, format: integer, quick: [尚未定义] }
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, low: 13, high: 尚未定义 }
+              - id: l2
+                cells: { line: 第 2 行, low: 13, high: 8 }
+              - id: l3
+                cells: { line: 第 3 行, low: 8, high: 13 }
+          - id: output
+            type: text
+            match: output
+            prompt: 第 4 行显示什么？（两个数之间隔一个空格）
+            key: "8 13"
+        explanation: |
+          | 执行到 | low | high |
+          |---|---:|---:|
+          | 第 1 行 | 13 | 尚未定义 |
+          | 第 2 行 | 13 | 8 |
+          | 第 3 行 | 8 | 13 |
+
+          第 3 行先算出右边的元组 (8, 13)，用的是交换前的值，再依次交给 `low` 和 `high`，所以两个值互换了，第 4 行显示 **8 13**。
+        verify: |
+          names = ["low", "high"]
+          states = trace(names=names)[:3]
+          answers = {
+              "trace": {f"l{i}": {name: state.get(name, "尚未定义") for name in names} for i, state in enumerate(states, 1)},
+              "output": run().lines()[0],
+          }
+    review:
+      - id: py38.k1.r1
+        kind: [explain]
+        uses: [py01.k2]
+        body: |
+          开始时 `first` 是 3，`second` 是 5。下面哪几段程序运行后，`first` 变成 5、`second` 变成 3？选出所有符合的。
+        slots:
+          - id: ways
+            type: choice
+            multiple: true
+            scoring: options
+            options:
+              - id: one_line
+                content: |
+                  ```python
+                  first, second = second, first
+                  ```
+              - id: two_lines
+                content: |
+                  ```python
+                  first = second
+                  second = first
+                  ```
+              - id: same_order
+                content: |
+                  ```python
+                  first, second = first, second
+                  ```
+              - id: helper
+                content: |
+                  ```python
+                  temp = first
+                  first = second
+                  second = temp
+                  ```
+            key: [one_line, helper]
+        explanation: |
+          一行写成 `first, second = second, first` 的能交换：右边先算出 (5, 3)，再依次交给两个名字。借助 `temp` 先存下旧的 `first`，再分三行赋值，也能交换。
+
+          分两行写 `first = second`、`second = first` 不行：第一行之后 `first` 已经是 5，第二行读到的也是 5，两个名字都成了 5。`first, second = first, second` 右边的顺序没变，两个值原样不动。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["ways"].items():
+              r = run(code, first=3, second=5)
+              if r.error is None and r["first"] == 5 and r["second"] == 3:
+                  fits.append(option)
+          answers = {"ways": fits}
+      - id: py38.k1.r2
+        kind: [predict]
+        data: [reading]
+        body: |
+          表里每一行都单独从上面这一行准备代码开始运行，互不影响。填写每一行运行后的结果。
+        slots:
+          - id: results
+            type: table
+            columns:
+              - id: code
+                header: 代码
+              - id: result
+                header: 结果
+                input:
+                  type: choice
+                  options:
+                    - { id: ok, label: 正常运行 }
+                    - { id: error, label: 报 ValueError }
+            rows:
+              - id: three
+                cells: { code: "a, b, c = reading", result: ok }
+              - id: two
+                cells: { code: "a, b = reading", result: error }
+              - id: one
+                cells: { code: "a = reading", result: ok }
+              - id: four
+                cells: { code: "a, b, c, d = reading", result: error }
+          - id: whole
+            type: text
+            match: output
+            prompt: 第三行 `a = reading` 运行后，`print(a)` 会显示什么？
+            key: "('S_A', 8, 'control')"
+            feedback:
+              - when: "'S_A'"
+                message: 左边只有一个名字时不是解包，a 拿到的是整个元组。
+        explanation: |
+          元组有 3 个元素：写 3 个名字的正常运行；写 2 个或 4 个名字的个数对不上，报 **ValueError**。只写一个名字 `a = reading` 不是解包，`a` 拿到整个元组，显示 **('S_A', 8, 'control')**。
+        verify: |
+          codes = {"three": "a, b, c = reading", "two": "a, b = reading", "one": "a = reading", "four": "a, b, c, d = reading"}
+          results = {}
+          for row, code in codes.items():
+              error = run(code).error
+              results[row] = {"result": "ok" if error is None else ("error" if error == "ValueError" else error)}
+          answers = {"results": results, "whole": run("a = reading")["a"]}
+    quiz:
+      - id: py38.k1.x1
+        kind: [predict, trace]
+        uses: [py01.k2]
+        body: |
+          一次野外采样记下了日期、采样点和深度（厘米）。
+
+          ```python startLine=1
+          visit = ("2026-03-05", "南坡", 25)
+          day, site, depth = visit
+          depth = depth + 5
+          print(site)
+          print(depth)
+          print(visit[2])
+          ```
+        slots:
+          - id: first
+            type: text
+            prompt: 第一行显示什么？
+            key: 南坡
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示哪个整数？
+            key: 30
+          - id: third
+            type: text
+            format: integer
+            prompt: 第三行显示哪个整数？
+            key: 25
+            feedback:
+              - when: 30
+                message: 第 3 行只让名字 depth 指向新的值 30；元组 visit 里的第 2 个元素还是 25。
+        explanation: |
+          依次显示 **南坡**、**30**、**25**。第 2 行把三个元素分别交给 `day`、`site`、`depth`；第 3 行让 `depth` 改指向 25 + 5 算出的 30。元组 `visit` 没有被改动，`visit[2]` 仍是 25。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": int(lines[1]), "third": int(lines[2])}
+      - id: py38.k1.x2
+        kind: [trace]
+        uses: [py01.k2]
+        body: |
+          ```python startLine=1
+          a = 1
+          b = 2
+          c = 3
+          a, b, c = c, a, b
+          ```
+
+          把第 4 行换成三行 `a = c`、`b = a`、`c = b`，结果又是什么？分别填写两种写法运行完以后三个名字的值。
+        slots:
+          - id: finals
+            type: table
+            columns:
+              - id: way
+                header: 第 4 行的写法
+              - id: a
+                header: a
+                input: integer
+              - id: b
+                header: b
+                input: integer
+              - id: c
+                header: c
+                input: integer
+            rows:
+              - id: one_line
+                cells: { way: "一行：a, b, c = c, a, b", a: 3, b: 1, c: 2 }
+              - id: three_lines
+                cells: { way: 拆成三行, a: 3, b: 3, c: 3 }
+        explanation: |
+          一行的写法先算出右边的元组：此刻 c、a、b 是 3、1、2，再依次交给 a、b、c，所以 **a = 3，b = 1，c = 2**。
+
+          拆成三行时，每一行都读到上一行改过的值：`a = c` 之后 a 是 3，`b = a` 读到的也是 3，`c = b` 读到的还是 3，三个名字**都是 3**。
+        verify: |
+          lines = CODE.splitlines()
+          one = run()
+          three = run("\n".join(lines[:3] + ["a = c", "b = a", "c = b"]))
+          answers = {"finals": {
+              "one_line": {name: one[name] for name in "abc"},
+              "three_lines": {name: three[name] for name in "abc"},
+          }}
+
   - id: py38.k2
     title: enumerate 给元素配位置
+    card:
+      name: enumerate
+      aliases: [编号, 序号]
+      definition: "`for i, v in enumerate(列表):` 每轮同时拿到位置 i 和元素 v；i 默认从 0 开始，写 `start=1` 才从 1 开始。"
+      conditions:
+        - start 只改变编号从几开始，不会跳过元素，也不改变取元素的顺序。
+        - 报告里的“第 1 个”通常从 1 数；把默认从 0 起的编号直接写进报告，会差 1。
+      example:
+        from: py38.k2.e0
+        text: |
+          ```python
+          ids = ["S_A", "S_B", "S_C"]
+          for i, sid in enumerate(ids):
+              print(i, sid)
+          ```
+          依次显示 0 S_A、1 S_B、2 S_C；写成 `enumerate(ids, start=1)` 才显示 1 S_A、2 S_B、3 S_C。
+    lesson: |
+      `for sid in ids:` 每轮只拿到一个元素。想同时知道它是第几个，用 `enumerate`：
+
+      ```python
+      ids = ["S_A", "S_B", "S_C"]
+      for i, sid in enumerate(ids):
+          print(i, sid)
+      ```
+
+      `print` 里用逗号隔开几个值时，会依次显示它们，中间隔一个空格。这段程序显示：
+
+      | 第几轮 | i | sid | 显示 |
+      |---|---:|---|---|
+      | 1 | 0 | S_A | `0 S_A` |
+      | 2 | 1 | S_B | `1 S_B` |
+      | 3 | 2 | S_C | `2 S_C` |
+
+      `enumerate` 每轮给出一个（位置, 元素）元组，`i, sid` 就是上一个知识点的解包。位置默认**从 0 开始**，和列表的索引一致，所以 `ids[i]` 就是这一轮的 `sid`。
+
+      要写给人看的“第 1 个、第 2 个”，就写 `enumerate(ids, start=1)`，编号从 1 开始。`start` 只改编号，不会跳过 S_A：仍然是三轮，依次显示 `1 S_A`、`2 S_B`、`3 S_C`。
+
+      常见的差 1 错误有两种：把从 0 起的编号当成“第几个”写进报告；或者编号改成从 1 起之后，又拿它当索引去取 `ids[i]`，取到的是下一个元素。
+    example:
+      id: py38.k2.e0
+      kind: [predict, modify]
+      uses: [py35.k1]
+      body: |
+        ```python
+        ids = ["S_A", "S_B", "S_C"]
+        for i, sid in enumerate(ids):
+            print(i, sid)
+        ```
+      slots:
+        - id: shown
+          type: table
+          prompt: 按显示的先后，填写每一行里的两个值。
+          columns:
+            - id: row
+              header: 显示的第几行
+            - id: i
+              header: i
+              input: integer
+            - id: sid
+              header: sid
+              input: text
+          rows:
+            - id: o1
+              cells: { row: 第 1 行, i: 0, sid: S_A }
+            - id: o2
+              cells: { row: 第 2 行, i: 1, sid: S_B }
+            - id: o3
+              cells: { row: 第 3 行, i: 2, sid: S_C }
+        - id: fix
+          type: choice
+          prompt: 想让它依次显示 1 S_A、2 S_B、3 S_C，循环的第一行应改成哪一种？
+          options:
+            - id: slice
+              content: |
+                ```python
+                for i, sid in enumerate(ids[1:]):
+                    print(i, sid)
+                ```
+            - id: start_one
+              content: |
+                ```python
+                for i, sid in enumerate(ids, start=1):
+                    print(i, sid)
+                ```
+            - id: start_zero
+              content: |
+                ```python
+                for i, sid in enumerate(ids, start=0):
+                    print(i, sid)
+                ```
+          key: start_one
+      explanation: |
+        依次显示 **0 S_A、1 S_B、2 S_C**：编号默认从 0 开始，和索引一致。
+
+        加上 `start=1` 后显示 1 S_A、2 S_B、3 S_C，三个样本都还在。`ids[1:]` 先去掉了 S_A，再从 0 编号，显示的是 0 S_B、1 S_C；`start=0` 就是默认写法，结果不变。
+      verify: |
+        r = run()
+        shown = {}
+        for n, line in enumerate(r.lines(), 1):
+            number, sid = line.split()
+            shown[f"o{n}"] = {"i": int(number), "sid": sid}
+        wanted = ["1 S_A", "2 S_B", "3 S_C"]
+        fits = [option for option, code in OPTIONS["fix"].items() if run(code, ids=r["ids"]).lines() == wanted]
+        answers = {"shown": shown, "fix": fits[0] if len(fits) == 1 else fits}
+    practice:
+      - id: py38.k2.q1
+        kind: [predict]
+        body: |
+          ```python
+          depths = [30, 25, 35]
+          for n, d in enumerate(depths, start=1):
+              print(n, d)
+          ```
+        slots:
+          - id: shown
+            type: table
+            prompt: 按显示的先后，填写每一行里的两个数。
+            columns:
+              - id: row
+                header: 显示的第几行
+              - id: "n"
+                header: "n"
+                input: integer
+              - id: d
+                header: d
+                input: integer
+            rows:
+              - id: o1
+                cells: { row: 第 1 行, "n": 1, d: 30 }
+              - id: o2
+                cells: { row: 第 2 行, "n": 2, d: 25 }
+              - id: o3
+                cells: { row: 第 3 行, "n": 3, d: 35 }
+          - id: count
+            type: text
+            format: integer
+            prompt: 一共显示几行？
+            key: 3
+            feedback:
+              - when: 2
+                message: start=1 只让编号从 1 开始，不会跳过第一个元素 30。
+        explanation: |
+          显示 **1 30、2 25、3 35**，一共 **3** 行。`start=1` 让编号从 1 开始，元素仍从第一个 30 取起，一个也不少。
+        verify: |
+          lines = run().lines()
+          shown = {}
+          for row, line in enumerate(lines, 1):
+              number, depth = line.split()
+              shown[f"o{row}"] = {"n": int(number), "d": int(depth)}
+          answers = {"shown": shown, "count": len(lines)}
+      - id: py38.k2.q2
+        kind: [debug]
+        uses: [py06.k2]
+        body: |
+          有人想逐个显示 `signals` 里的值，写了下面的程序。
+
+          ```python startLine=1
+          signals = [8, 10, 13, 10]
+          for i, v in enumerate(signals, start=1):
+              print(signals[i])
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示哪个整数？
+            key: 10
+            feedback:
+              - when: 8
+                message: 第一轮 i 是 1（start=1），signals[1] 取的是位置 1 上的 10，不是 8。
+          - id: last_round
+            type: choice
+            prompt: 第 4 轮会怎样？
+            options:
+              - id: wraps
+                content: 显示 8，又从头取起
+              - id: index_error
+                content: 报错：位置 4 超出了列表的范围（IndexError）
+              - id: shows_ten
+                content: 显示 10，正常结束
+            key: index_error
+        explanation: |
+          第一行显示 **10**。编号从 1 开始，第一轮 `i` 是 1，`signals[1]` 取到的是位置 1 上的 10。之后依次显示 13、10；第 4 轮 `i` 是 4，可列表只有位置 0 到 3，**报 IndexError**。
+
+          编号从 1 开始只适合写给人看，不能再拿来当索引。这里直接 `print(v)` 就对了：`v` 本来就是这一轮的元素。
+        verify: |
+          r = run()
+          answers = {
+              "first": int(r.lines()[0]),
+              "last_round": "index_error" if r.error == "IndexError" and len(r.lines()) == 3 else "other",
+          }
+      - id: py38.k2.q3
+        kind: [trace]
+        uses: [py35.k1]
+        body: |
+          ```python startLine=1
+          depths = [30, 25, 35, 40]
+          for i, d in enumerate(depths):
+              print(d)
+          print(i)
+          ```
+        slots:
+          - id: last
+            type: text
+            format: integer
+            prompt: 最后一行（第 4 行的 print）显示哪个整数？
+            key: 3
+            feedback:
+              - when: 4
+                message: 编号从 0 开始，四个元素的编号是 0、1、2、3，最后一轮 i 是 3。
+              - when: 40
+                message: 第 4 行显示的是 i，不是 d。
+          - id: relation
+            type: choice
+            prompt: 循环结束时，`i` 和 `len(depths)` 是什么关系？
+            options:
+              - id: equal
+                content: i 等于 len(depths)
+              - id: minus_one
+                content: i 等于 len(depths) - 1
+              - id: unrelated
+                content: 两者没有固定关系
+            key: minus_one
+        explanation: |
+          最后显示 **3**。循环结束后，`i` 停在最后一轮的值上；编号从 0 开始，四个元素的编号是 0、1、2、3，所以 `i` 是 3，正好比 `len(depths)` 少 1。
+        verify: |
+          r = run()
+          i, n = r["i"], len(r["depths"])
+          answers = {"last": int(r.lines()[-1]), "relation": "minus_one" if i == n - 1 else ("equal" if i == n else "unrelated")}
+    review:
+      - id: py38.k2.r1
+        kind: [modify]
+        body: |
+          把需要的代码块排成一段程序，让它依次显示：
+
+          ```text
+          1 北坡
+          2 南坡
+          3 东坡
+          ```
+
+          有的块用不上；排好后还要给块设好缩进。
+        slots:
+          - id: program
+            type: order
+            partial: true
+            indent: 1
+            items:
+              - { id: loop_zero, code: "for n, site in enumerate(sites):" }
+              - { id: show, code: "print(n, site)" }
+              - { id: sites, code: 'sites = ["北坡", "南坡", "东坡"]' }
+              - { id: show_swapped, code: "print(site, n)" }
+              - { id: loop_one, code: "for n, site in enumerate(sites, start=1):" }
+            key: [sites, loop_one, show]
+            indents: { sites: 0, loop_zero: 0, loop_one: 0, show: 1, show_swapped: 1 }
+            tests:
+              - name: 依次显示编号和采样点
+                stdout: |
+                  1 北坡
+                  2 南坡
+                  3 东坡
+        explanation: |
+          ```python
+          sites = ["北坡", "南坡", "东坡"]
+          for n, site in enumerate(sites, start=1):
+              print(n, site)
+          ```
+
+          先建列表，再写循环；编号要从 1 开始，所以用带 `start=1` 的那一行；`print(n, site)` 缩进一层，编号在前、采样点在后。不带 `start` 的循环会显示 0 北坡。
+      - id: py38.k2.r2
+        kind: [predict]
+        body: |
+          ```python
+          codes = ["A1", "B2", "C3", "D4"]
+          for i, c in enumerate(codes, start=10):
+              print(i, c)
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 一共显示几行？
+            key: 4
+          - id: last_number
+            type: text
+            format: integer
+            prompt: 最后一行显示的数是多少？
+            key: 13
+            feedback:
+              - when: 3
+                message: start=10 让编号从 10 开始，依次是 10、11、12、13。
+              - when: 14
+                message: 第一个编号就是 10，四个元素的编号是 10 到 13。
+        explanation: |
+          显示 **4** 行：10 A1、11 B2、12 C3、13 D4，最后一行的数是 **13**。`start` 写几，编号就从几开始；元素一个不少，仍是四轮。
+        verify: |
+          lines = run().lines()
+          answers = {"count": len(lines), "last_number": int(lines[-1].split()[0])}
+    quiz:
+      - id: py38.k2.x1
+        kind: [predict]
+        uses: [py06.k3]
+        body: |
+          ```python
+          sites = ["东坡", "西坡", "北坡"]
+          ```
+
+          接着运行下面哪一段，显示的**第一行**是 `1 西坡`？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: plain
+                content: |
+                  ```python
+                  for i, s in enumerate(sites):
+                      print(i, s)
+                  ```
+              - id: start_one
+                content: |
+                  ```python
+                  for i, s in enumerate(sites, start=1):
+                      print(i, s)
+                  ```
+              - id: plus_one
+                content: |
+                  ```python
+                  for i, s in enumerate(sites):
+                      print(i + 1, s)
+                  ```
+              - id: slice_start_one
+                content: |
+                  ```python
+                  for i, s in enumerate(sites[1:], start=1):
+                      print(i, s)
+                  ```
+            key: slice_start_one
+        explanation: |
+          `sites[1:]` 先去掉东坡，从西坡开始取；`start=1` 让编号从 1 开始，所以第一行是 **1 西坡**。
+
+          另外三段的第一行分别是 0 东坡、1 东坡、1 东坡：编号从几开始，和从哪个元素开始取，是两件事。
+        verify: |
+          fits = [option for option, code in OPTIONS["program"].items() if run(BLOCKS[0] + "\n" + code).lines()[0] == "1 西坡"]
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+      - id: py38.k2.x2
+        kind: [explain]
+        body: |
+          ```python
+          ids = ["S_A", "S_B", "S_C", "S_D", "S_E"]
+          for i, sid in enumerate(ids):
+              print(i, sid)
+          ```
+
+          同事看着这段程序的输出说：“编号是 3 的那一行，就是第 3 个样本。”
+        slots:
+          - id: shown
+            type: text
+            prompt: 输出里编号为 3 的那一行，显示的样本编号是什么？
+            key: S_D
+          - id: third
+            type: text
+            prompt: 按日常说法从 1 数起，第 3 个样本实际是哪个？
+            key: S_C
+        explanation: |
+          编号默认从 0 开始，编号 3 的那一行显示 **S_D**，它是第 4 个样本；从 1 数起的第 3 个样本是 **S_C**。同事把从 0 起的编号当成了“第几个”，差了 1。要给人看的报告，写 `enumerate(ids, start=1)`。
+        verify: |
+          r = run()
+          by_number = dict(line.split() for line in r.lines())
+          answers = {"shown": by_number["3"], "third": r["ids"][3 - 1]}
+
   - id: py38.k3
     title: zip 配对并留意长度不同时的截断
+    card:
+      name: zip 配对
+      aliases: [zip, 配对]
+      definition: "`zip(甲, 乙)` 按位置把两个列表的元素配成一对对元组：第 0 个配第 0 个，第 1 个配第 1 个，依此类推。"
+      conditions:
+        - 两个列表长度不同时，配到短的那个用完就停，多出的元素被悄悄丢掉，不报错。
+        - zip 只看位置，不看内容；两份列表的顺序对不上，配出来的就是错的。加 `strict=True` 时长度不同会报 ValueError。
+      example:
+        from: py38.k3.e0
+        text: |
+          ```python
+          ids = ["S_A", "S_B", "S_C", "S_D"]
+          signals = [8, 10, 13]
+          pairs = list(zip(ids, signals))
+          ```
+          pairs 是 [('S_A', 8), ('S_B', 10), ('S_C', 13)]，S_D 没有配上，被丢掉了，程序也没有报错。
+    lesson: |
+      样本编号和测量值常常分放在两个列表里，位置一一对应。`zip` 把它们按位置配成对：
+
+      ```python
+      ids = ["S_A", "S_B", "S_C"]
+      signals = [8, 10, 13]
+      for sid, v in zip(ids, signals):
+          print(sid, v)
+      ```
+
+      显示 `S_A 8`、`S_B 10`、`S_C 13`。每一轮 `zip` 给出一个元组（ids 的第 i 个, signals 的第 i 个），`sid, v` 再把它解包。想一次看到全部配对，可以写 `list(zip(ids, signals))`，得到 `[('S_A', 8), ('S_B', 10), ('S_C', 13)]`。
+
+      读 `zip` 的代码时要留意两件事：
+
+      1. **只按位置配，不看内容。** 如果 `signals` 是按测量先后记的，顺序和 `ids` 不一样，`zip` 照样一对一配上，配出来的就是错的。
+      2. **长度不同时悄悄截断。** 两个列表一长一短时，配到短的那个用完就停，长的那个多出来的元素直接丢掉，程序不报错。4 个编号配 3 个值，只得到 3 对，第 4 个样本从结果里消失了。
+
+      两份数据本该一样长时，可以写 `zip(ids, signals, strict=True)`：长度不同就报 `ValueError`，不让记录悄悄丢失。写在 `for` 里时，前面能配上的几对会先照常处理，走到短的一边用完时才报错。
+    example:
+      id: py38.k3.e0
+      kind: [predict]
+      body: |
+        ```python startLine=1
+        ids = ["S_A", "S_B", "S_C", "S_D"]
+        signals = [8, 10, 13]
+        pairs = list(zip(ids, signals))
+        print(pairs)
+        print(len(pairs))
+        ```
+      slots:
+        - id: pairs
+          type: text
+          match: output
+          prompt: 第一行显示什么？
+          key: "[('S_A', 8), ('S_B', 10), ('S_C', 13)]"
+        - id: count
+          type: text
+          format: integer
+          prompt: 第二行显示哪个整数？
+          key: 3
+        - id: fate
+          type: choice
+          prompt: S_D 怎样了？
+          options:
+            - id: with_none
+              content: 和 None 配成了一对
+            - id: error
+              content: 第 3 行因为长度不同报错
+            - id: dropped
+              content: 没有配上，被悄悄丢掉，程序不报错
+          key: dropped
+      explanation: |
+        第一行显示 **[('S_A', 8), ('S_B', 10), ('S_C', 13)]**，第二行显示 **3**。`signals` 只有 3 个值，配到第 3 对就停了；S_D 没有出现在结果里，也**没有报错**。`zip` 不会用 None 补齐短的一边。
+      verify: |
+        r = run()
+        lines = r.lines()
+        if r.error:
+            fate = "error"
+        elif all(sid != "S_D" for sid, _ in r["pairs"]):
+            fate = "dropped"
+        else:
+            fate = "with_none"
+        answers = {"pairs": lines[0], "count": int(lines[1]), "fate": fate}
+    practice:
+      - id: py38.k3.q1
+        kind: [predict]
+        uses: [py35.k1]
+        body: |
+          ```python
+          sites = ["北坡", "南坡", "东坡"]
+          depths = [30, 25, 35]
+          for site, d in zip(sites, depths):
+              print(site, d)
+          ```
+        slots:
+          - id: shown
+            type: table
+            prompt: 按显示的先后，填写每一行里的采样点和深度。
+            columns:
+              - id: row
+                header: 显示的第几行
+              - id: site
+                header: site
+                input: text
+              - id: d
+                header: d
+                input: integer
+            rows:
+              - id: o1
+                cells: { row: 第 1 行, site: 北坡, d: 30 }
+              - id: o2
+                cells: { row: 第 2 行, site: 南坡, d: 25 }
+              - id: o3
+                cells: { row: 第 3 行, site: 东坡, d: 35 }
+        explanation: |
+          依次是 **北坡 30、南坡 25、东坡 35**。`zip` 每轮取两个列表同一位置上的元素配成一对，`site, d` 再把它们分开。
+        verify: |
+          shown = {}
+          for row, line in enumerate(run().lines(), 1):
+              site, depth = line.split()
+              shown[f"o{row}"] = {"site": site, "d": int(depth)}
+          answers = {"shown": shown}
+      - id: py38.k3.q2
+        kind: [predict]
+        body: |
+          ```python
+          ids = ["S_A", "S_B", "S_C"]
+          signals = [8, 10, 13, 10, 9]
+          for sid, v in zip(ids, signals):
+              print(sid, v)
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: 一共显示几行？
+            key: 3
+            feedback:
+              - when: 5
+                message: ids 只有 3 个编号，配到第 3 对就停了，signals 多出的 10 和 9 被丢掉。
+          - id: last
+            type: text
+            match: output
+            prompt: 最后一行显示什么？（两个值之间隔一个空格）
+            key: S_C 13
+        explanation: |
+          显示 **3** 行，最后一行是 **S_C 13**。这次长的是 `signals`：`ids` 用完时 `zip` 就停了，`signals` 末尾的 10 和 9 没有出现在输出里，程序也没有报错。哪一边短，就按哪一边停。
+        verify: |
+          lines = run().lines()
+          answers = {"count": len(lines), "last": lines[-1]}
+      - id: py38.k3.q3
+        kind: [predict, debug]
+        body: |
+          ```python startLine=1
+          ids = ["S_A", "S_B", "S_C", "S_D"]
+          signals = [8, 10, 13]
+          pairs = list(zip(ids, signals, strict=True))
+          print(len(pairs))
+          ```
+        slots:
+          - id: result
+            type: choice
+            prompt: 运行这段程序会怎样？
+            options:
+              - id: shows_three
+                content: 显示 3
+              - id: value_error
+                content: 第 3 行报 ValueError
+              - id: shows_four
+                content: 显示 4
+              - id: warns
+                content: 显示 3，并提示少了一个值
+            key: value_error
+          - id: plain
+            type: text
+            format: integer
+            prompt: 如果把第 3 行的 `, strict=True` 删掉，会显示哪个整数？
+            key: 3
+        explanation: |
+          加了 `strict=True`，长度不同时 `zip` 不再悄悄截断，而是**报 ValueError**，第 4 行不会运行。删掉 `strict=True` 就回到默认做法：配到第 3 对停下，显示 **3**，S_D 被丢掉。
+        verify: |
+          r = run()
+          plain = run(CODE.replace(", strict=True", ""))
+          answers = {"result": "value_error" if r.error == "ValueError" else "other", "plain": int(plain.out)}
+    review:
+      - id: py38.k3.r1
+        kind: [debug]
+        body: |
+          `ids` 按编号排好了，`signals` 却是按测量先后记下的：实际先测了 S_C，得到 13；再测 S_A，得到 8；最后测 S_B，得到 10。
+
+          ```python
+          ids = ["S_A", "S_B", "S_C"]
+          signals = [13, 8, 10]
+          pairs = list(zip(ids, signals))
+          print(pairs[0])
+          ```
+        slots:
+          - id: shown
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "('S_A', 13)"
+          - id: actual
+            type: text
+            format: integer
+            prompt: S_A 实际测得的值是多少？
+            key: 8
+        explanation: |
+          程序显示 **('S_A', 13)**，可 S_A 实际测得的是 **8**。`zip` 只按位置配对，不看编号：位置 0 的 S_A 配上了位置 0 的 13，那其实是 S_C 的值。两份列表的顺序对不上时，要先按同一种顺序排好，或者把编号和值一起记在同一条记录里，`zip` 本身查不出这种错。
+        verify: |
+          r = run()
+          measured_order = ["S_C", "S_A", "S_B"]
+          answers = {"shown": r.lines()[0], "actual": r["signals"][measured_order.index("S_A")]}
+      - id: py38.k3.r2
+        kind: [predict]
+        body: |
+          ```python
+          groups = ["control", "drug"]
+          sites = ["北坡", "南坡", "东坡"]
+          print(list(zip(groups, sites)))
+          print(len(list(zip(sites, groups))))
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示什么？
+            key: "[('control', '北坡'), ('drug', '南坡')]"
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示哪个整数？
+            key: 2
+            feedback:
+              - when: 3
+                message: 换了顺序，短的仍是 groups；配到它用完就停，只有 2 对。
+        explanation: |
+          第一行显示 **[('control', '北坡'), ('drug', '南坡')]**：`groups` 只有 2 个，东坡没有配上。第二行显示 **2**：把两个列表的顺序换过来，每对里的先后变了，但能配上的对数仍由短的那个决定。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": int(lines[1])}
+    quiz:
+      - id: py38.k3.x1
+        kind: [predict]
+        uses: [py35.k1]
+        body: |
+          ```python
+          ids = ["S_A", "S_B", "S_C", "S_D"]
+          signals = [8, 10, 13, 10]
+          groups = ["control", "drug", "drug"]
+          ```
+
+          接着分别运行下面的循环。
+        slots:
+          - id: four_lines
+            type: choice
+            prompt: 哪一段会正常运行完，并显示 4 行？
+            options:
+              - id: ids_groups
+                content: |
+                  ```python
+                  for a, b in zip(ids, groups):
+                      print(a, b)
+                  ```
+              - id: groups_ids
+                content: |
+                  ```python
+                  for a, b in zip(groups, ids):
+                      print(a, b)
+                  ```
+              - id: ids_signals
+                content: |
+                  ```python
+                  for a, b in zip(ids, signals):
+                      print(a, b)
+                  ```
+              - id: strict
+                content: |
+                  ```python
+                  for a, b in zip(ids, groups, strict=True):
+                      print(a, b)
+                  ```
+            key: ids_signals
+          - id: strict_lines
+            type: text
+            format: integer
+            prompt: 加了 `strict=True` 的那一段，报错之前显示了几行？
+            key: 3
+            feedback:
+              - when: 0
+                message: 写在 for 里时，能配上的几对会先照常处理，走到 groups 用完时才报错。
+        explanation: |
+          只有 `zip(ids, signals)` 两边都是 4 个，正常显示 **4** 行。`groups` 只有 3 个，和它配对时不管写在前面还是后面，都只有 3 对。
+
+          加了 `strict=True` 的那一段先显示 S_A control、S_B drug、S_C drug 这 **3** 行，轮到第 4 对时发现 `groups` 已经用完，报 ValueError。
+        verify: |
+          setup = BLOCKS[0]
+          results = {option: run(setup + "\n" + code) for option, code in OPTIONS["four_lines"].items()}
+          fits = [option for option, r in results.items() if r.error is None and len(r.lines()) == 4]
+          strict = [r for r in results.values() if r.error == "ValueError"]
+          answers = {
+              "four_lines": fits[0] if len(fits) == 1 else fits,
+              "strict_lines": len(strict[0].lines()) if len(strict) == 1 else -1,
+          }
+      - id: py38.k3.x2
+        kind: [modify]
+        body: |
+          `ids` 是样本编号，`signals` 是对应的测量值，两份列表本该一样长。你希望程序在两份长度不同时停下来报错，而不是悄悄少处理几个样本。
+        slots:
+          - id: line
+            type: choice
+            prompt: 应该用哪一行？
+            options:
+              - id: swapped
+                content: |
+                  ```python
+                  pairs = list(zip(signals, ids))
+                  ```
+              - id: strict
+                content: |
+                  ```python
+                  pairs = list(zip(ids, signals, strict=True))
+                  ```
+              - id: plain
+                content: |
+                  ```python
+                  pairs = list(zip(ids, signals))
+                  ```
+            key: strict
+          - id: lost
+            type: text
+            format: integer
+            prompt: 如果 `ids` 有 5 个、`signals` 有 4 个，用不加 strict 的那一行，`pairs` 里有几对？
+            key: 4
+        explanation: |
+          用 `zip(ids, signals, strict=True)`：长度相同时照常配对，长度不同时报 ValueError。另外两行在长度不同时都悄悄截断，只是每对里的先后不同。
+
+          不加 strict 时，5 个编号配 4 个值只得到 **4** 对，第 5 个样本不见了，也没有任何提示。
+        verify: |
+          equal = {"ids": ["S_A", "S_B"], "signals": [8, 10]}
+          unequal = {"ids": ["S_A", "S_B", "S_C"], "signals": [8, 10]}
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if run(code, **equal).error is None and run(code, **unequal).error == "ValueError"]
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "lost": len(list(zip(range(5), range(4))))}
