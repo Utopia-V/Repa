@@ -1,7 +1,8 @@
 id: py36
 title: 把“逐个检查并收集”读成循环
-status: outline
+status: complete
 minutes: 20
+summary: 读懂“逐个检查，满足条件的收进新列表”：for、if、append 的执行顺序和缩进；分清两个名字指向同一个列表和各自独立的副本。
 prerequisites:
   - topic: py35
     key: true
@@ -25,9 +26,933 @@ sources:
     url: https://docs.python.org/3.12/tutorial/datastructures.html
     use: reference
 notes: |
-  建议题型与判分：追踪变量（P）、解释代码（S/O）、小改代码（T）。
+  范围：for、if/else、比较、列表和 append，外加 copy() 与 list() 两种复制写法。不用 range、enumerate、zip（py38）和推导式（py39）；小改代码题接受推导式写法，但讲解不提。k1 的变量名和情境（signals、kept、阈值 10）有意保持朴素，py39 会把同样的循环和列表推导式对照。k2 回应 py01 卡片里“列表另有情况”的伏笔；pandas 表的别名与 Copy-on-Write 在 py22，本节不提。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、练习 6 分钟（含一道小改代码）；k2 讲解与例题 3 分钟、练习 4 分钟；收束 2 分钟。
+  题型：追踪表、预测输出、找错、Parsons、小改代码（骨架和改错各一）。原稿建议的“解释代码”做成可由程序核对的选择题：别名题用 is 判断两个名字是否指向同一个列表，找错题把每种改法套到题面代码上运行。
+  例题、练习的情境与数据为本课自拟。
+intro: |
+  上一节的循环对每个元素做同样的事。这一节在循环里加一个 `if`：逐个检查，满足条件的收进一个新列表。AI 写的数据处理代码里，这是最常见的样子之一。
+
+  后半节看一个和“收集”紧挨着的坑：两个名字可能指向同一个列表，改一个，另一个也跟着变。
+wrapup: |
+  读“逐个检查并收集”的循环，按顺序找四处：空列表在哪里建（应在循环前）；每轮检查什么条件；`append` 是否缩进在 `if` 下面；结果在哪里显示。结果总是按原列表的顺序排列。
+
+  看到 `backup = data` 这类写法，先问一句：这是同一个列表的另一个名字，还是一份独立的副本？要副本就写 `data.copy()`。
+data:
+  depth_setup:
+    kind: python
+    code: |
+      depths = [30, 25, 35, 30]
+      limit = 30
+    display: |
+      宿主已经准备好：
+
+      ```python
+      depths = [30, 25, 35, 30]
+      limit = 30
+      ```
+  wells_setup:
+    kind: python
+    code: |
+      wells = ["S1", "blank", "S2", "S3", "blank"]
+    display: |
+      宿主已经准备好一块板上各孔的标记，`"blank"` 是空白对照孔：
+
+      ```python
+      wells = ["S1", "blank", "S2", "S3", "blank"]
+      ```
 kps:
   - id: py36.k1
     title: for+if+append 的处理顺序
+    card:
+      name: 筛选收集
+      aliases: [append, 逐个检查]
+      definition: 先在循环前建空列表 kept = []，循环里逐个检查，满足条件的用 kept.append(v) 加到末尾；结果只含满足条件的元素，按原列表的顺序排列。
+      conditions:
+        - kept = [] 写进循环体，每轮都会被清空，最后最多剩下一个元素。
+        - append 要比 if 多缩进一层才只收满足条件的；和 if 对齐的行不归 if 管，每轮都执行。
+      example:
+        from: py36.k1.e0
+        text: |
+          ```python
+          signals = [8, 12, 10, 7, 15]
+          kept = []
+          for v in signals:
+              if v >= 10:
+                  kept.append(v)
+          print(kept)
+          ```
+          逐个检查，12、10、15 满足条件，显示 [12, 10, 15]，顺序与原列表相同。
+    lesson: |
+      “把 signal 至少为 10 的读数挑出来”，写成循环通常是这样：
+
+      ```python
+      signals = [8, 12, 10, 7, 15]
+      kept = []
+      for v in signals:
+          if v >= 10:
+              kept.append(v)
+      print(kept)
+      ```
+
+      逐行读：
+
+      1. `kept = []` 建一个空列表，用来装结果。它在循环**前**，只执行一次。
+      2. `for v in signals:` 让 `v` 依次指向每个读数，每轮执行一遍缩进的循环体。
+      3. 循环体里是一个 `if`：条件成立时，才执行比 `if` 再多缩进一层的那一行。
+      4. `kept.append(v)` 在 `kept` 这个列表的末尾加上当前的 `v`。它直接改动 `kept` 这个列表，不需要再写 `kept = ...`。
+      5. 循环结束后，`print(kept)` 显示一次结果。
+
+      按轮次记下来：
+
+      | 第几轮 | v | `v >= 10` | 这一轮后的 kept |
+      |---|---:|---|---|
+      | 1 | 8 | False | `[]` |
+      | 2 | 12 | True | `[12]` |
+      | 3 | 10 | True | `[12, 10]` |
+      | 4 | 7 | False | `[12, 10]` |
+      | 5 | 15 | True | `[12, 10, 15]` |
+
+      结果 `[12, 10, 15]` 按原列表的顺序排列，不会自动排序。这里有两层缩进：循环体缩进一层，`if` 下面的那一行再缩进一层。只有比 `if` 多缩进一层的行才归 `if` 管；和 `if` 对齐的行不论条件成不成立，每轮都执行，`append` 写在那里就会把每个读数都收进来。`kept = []` 如果写进循环体，每一轮都会被清空。
+    example:
+      id: py36.k1.e0
+      kind: [trace]
+      body: |
+        按轮次填写：这一轮的条件是否成立，以及这一轮结束后 `kept` 的样子。再写出最后显示的内容。
+
+        ```python
+        signals = [8, 12, 10, 7, 15]
+        kept = []
+        for v in signals:
+            if v >= 10:
+                kept.append(v)
+        print(kept)
+        ```
+      slots:
+        - id: trace
+          type: table
+          label: 状态表
+          columns:
+            - { id: round, header: 第几轮 }
+            - { id: v, header: v }
+            - { id: cond, header: "v >= 10", input: bool }
+            - { id: kept, header: 这一轮后的 kept, input: { type: text, match: output } }
+          rows:
+            - { id: r1, cells: { round: "1", v: "8", cond: false, kept: "[]" } }
+            - { id: r2, cells: { round: "2", v: "12", cond: true, kept: "[12]" } }
+            - { id: r3, cells: { round: "3", v: "10", cond: true, kept: "[12, 10]" } }
+            - { id: r4, cells: { round: "4", v: "7", cond: false, kept: "[12, 10]" } }
+            - { id: r5, cells: { round: "5", v: "15", cond: true, kept: "[12, 10, 15]" } }
+        - id: output
+          type: text
+          match: output
+          prompt: 最后显示什么？
+          key: "[12, 10, 15]"
+      explanation: |
+        | 第几轮 | v | `v >= 10` | 这一轮后的 kept |
+        |---|---:|---|---|
+        | 1 | 8 | False | `[]` |
+        | 2 | 12 | True | `[12]` |
+        | 3 | 10 | True | `[12, 10]` |
+        | 4 | 7 | False | `[12, 10]` |
+        | 5 | 15 | True | `[12, 10, 15]` |
+
+        最后显示 **[12, 10, 15]**。条件不成立的轮次，`append` 不执行，`kept` 保持上一轮的样子。10 恰好等于阈值，`>=` 包含它。结果按原列表的顺序，不是从小到大。
+      verify: |
+        import ast
+        tree = ast.parse(CODE)
+        loop = next(node for node in tree.body if isinstance(node, ast.For))
+        check = next(node for node in loop.body if isinstance(node, ast.If))
+        loop.body.insert(0, ast.parse(f"_cond.append({ast.unparse(check.test)})").body[0])
+        loop.body.append(ast.parse("_kept.append(list(kept))").body[0])
+        r = run(ast.unparse(tree), _cond=[], _kept=[])
+        answers = {
+            "trace": {f"r{i}": {"cond": cond, "kept": kept} for i, (cond, kept) in enumerate(zip(r["_cond"], r["_kept"]), 1)},
+            "output": run().lines()[0],
+        }
+    practice:
+      - id: py36.k1.q1
+        kind: [predict]
+        uses: [py35.k1]
+        body: |
+          要挑出深度小于 30 厘米的采样点读数。
+
+          ```python
+          depths = [30, 25, 35, 30, 20]
+          shallow = []
+          for d in depths:
+              if d < 30:
+                  shallow.append(d)
+          print(shallow)
+          ```
+        slots:
+          - id: rounds
+            type: text
+            format: integer
+            prompt: 循环体一共执行几遍？
+            key: 5
+          - id: appends
+            type: text
+            format: integer
+            prompt: "`shallow.append(d)` 一共执行几次？"
+            key: 2
+          - id: output
+            type: text
+            match: output
+            prompt: 最后显示什么？
+            key: "[25, 20]"
+            feedback:
+              - when: "[20, 25]"
+                message: 收集的结果按原列表的顺序排列，不会自动排序。
+              - when: "[30, 25, 30, 20]"
+                message: "`<` 不包含等号，恰好是 30 的不算。"
+        explanation: |
+          循环体执行 **5** 遍，每个深度都检查一次；只有 25 和 20 小于 30，`append` 执行 **2** 次。最后显示 **[25, 20]**，按原列表的顺序。“检查几次”和“收进几个”是两回事。
+        verify: |
+          import ast
+          tree = ast.parse(CODE)
+          loop = next(node for node in tree.body if isinstance(node, ast.For))
+          loop.body.insert(0, ast.parse("_rounds.append(1)").body[0])
+          check = next(node for node in loop.body if isinstance(node, ast.If))
+          check.body.insert(0, ast.parse("_appends.append(1)").body[0])
+          r = run(ast.unparse(tree), _rounds=[], _appends=[])
+          answers = {"rounds": len(r["_rounds"]), "appends": len(r["_appends"]), "output": run().lines()[0]}
+      - id: py36.k1.q2
+        kind: [debug, predict]
+        body: |
+          下面的程序想收集至少为 10 的读数，结果不对。
+
+          ```python startLine=1
+          signals = [8, 12, 10, 7, 15]
+          for v in signals:
+              kept = []
+              if v >= 10:
+                  kept.append(v)
+          print(kept)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "[15]"
+          - id: fix
+            type: choice
+            prompt: 怎样改才对？
+            options:
+              - id: indent6
+                content: 第 6 行缩进进循环体
+              - id: assign
+                content: 第 5 行改成 `kept = [v]`
+              - id: move3
+                content: 第 3 行移到 for 之前，并去掉缩进
+            key: move3
+        explanation: |
+          显示 **[15]**。`kept = []` 在循环体里，每一轮开头都把 `kept` 换成一个新的空列表，前面收进去的 12、10 都丢了；最后一轮的 15 满足条件，所以只剩 `[15]`。把第 3 行移到循环前，空列表只建一次，结果才是 `[12, 10, 15]`。把 `print` 放进循环只会把每轮的残缺结果都显示出来；改成 `kept = [v]` 也只记住最后一个。
+        verify: |
+          lines = CODE.splitlines()
+          variants = {
+              "indent6": lines[:5] + ["    " + lines[5]],
+              "assign": lines[:4] + ["        kept = [v]", lines[5]],
+              "move3": [lines[0], lines[2].strip(), lines[1], lines[3], lines[4], lines[5]],
+          }
+          wanted = [repr([v for v in run()["signals"] if v >= 10])]
+          fits = [option for option, program in variants.items() if run("\n".join(program)).lines() == wanted]
+          answers = {"output": run().lines()[0], "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py36.k1.q3
+        kind: [modify]
+        data: [depth_setup]
+        body: |
+          需求是：
+
+          > 从 `depths` 里收集**至少达到** `limit` 的深度，放进列表 `deep`，保持原来的顺序，不改动 `depths`。
+
+          同事写的代码在作答框里，有两处错误。请改对并提交，结果仍放在 `deep` 里。判分时还会换别的 `depths` 和 `limit` 运行你的代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 8
+            starter: |
+              for d in depths:
+                  deep = []
+                  if d > limit:
+                      deep.append(d)
+            solution: |
+              deep = []
+              for d in depths:
+                  if d >= limit:
+                      deep.append(d)
+            accepts:
+              - |
+                deep = []
+                for d in depths:
+                    if not d < limit:
+                        deep.append(d)
+              - |
+                deep = []
+                for d in depths:
+                    if d >= limit:
+                        deep = deep + [d]
+              - deep = [d for d in depths if d >= limit]
+            rejects:
+              - code: |
+                  deep = []
+                  for d in depths:
+                      if d > limit:
+                          deep.append(d)
+                why: 只挪了空列表，仍漏掉恰好等于阈值的深度
+              - code: |
+                  for d in depths:
+                      deep = []
+                      if d >= limit:
+                          deep.append(d)
+                why: 只改了比较符，空列表仍在循环里每轮清空
+              - code: |
+                  deep = []
+                  for d in depths:
+                      if d >= limit:
+                          pass
+                      deep.append(d)
+                why: append 没有缩进在 if 下面，每个深度都收了
+              - code: deep = [30, 35, 30]
+                why: 照着这一组数据写死了结果
+              - code: |
+                  deep = []
+                  for d in depths:
+                      if d >= limit:
+                          deep.append(d)
+                  deep.sort()
+                why: 把结果重新排了序
+            tests:
+              - name: 题面里的数据（含恰好等于阈值的深度）
+                expect:
+                  deep: "[30, 35, 30]"
+                  depths: depths
+              - name: 换一组深度和阈值
+                hidden: true
+                setup: |
+                  depths = [40, 12, 40, 18, 55]
+                  limit = 18
+                expect:
+                  deep: "[40, 40, 18, 55]"
+                  depths: depths
+              - name: 没有达到阈值的深度
+                hidden: true
+                setup: |
+                  depths = [10, 20]
+                  limit = 25
+                expect:
+                  deep: "[]"
+              - name: 列表是空的
+                hidden: true
+                setup: |
+                  depths = []
+                  limit = 10
+                expect:
+                  deep: "[]"
+        explanation: |
+          两处错误：`deep = []` 在循环体里，每轮清空；`>` 不包含恰好等于 `limit` 的深度。改成：
+
+          ```python
+          deep = []
+          for d in depths:
+              if d >= limit:
+                  deep.append(d)
+          ```
+
+          题面数据的结果是 `[30, 35, 30]`，两个恰好等于 30 的深度都留下，顺序与原列表相同。判分时还会换数据：没有深度达标时 `deep` 是空列表 `[]`；`depths` 本身是空列表时，循环体不执行，`deep` 也要是 `[]`，所以空列表必须在循环前建好。
+    review:
+      - id: py36.k1.r1
+        kind: [modify]
+        body: |
+          宿主已经准备好 `readings`，是一组温度读数（摄氏度），其中 `-999` 表示仪器没有读到，其他负数是正常的低温读数。把下面的代码块排成程序：把所有不是 `-999` 的读数按原顺序收进 `clean`，最后显示一次 `clean`。用不到的块不要放进来，缩进也要排对。
+        slots:
+          - id: program
+            type: order
+            partial: true
+            indent: 2
+            items:
+              - { id: add, code: clean.append(t) }
+              - { id: positive, code: "if t > 0:" }
+              - { id: show, code: print(clean) }
+              - { id: loop, code: "for t in readings:" }
+              - { id: check, code: "if t != -999:" }
+              - { id: start, code: "clean = []" }
+            key: [start, loop, check, add, show]
+            indents: { start: 0, loop: 0, check: 1, add: 2, show: 0 }
+            tests:
+              - name: 有坏值也有正常的负数
+                setup: readings = [12, -999, -3, 8]
+                stdout: "[12, -3, 8]"
+              - name: 全是坏值
+                hidden: true
+                setup: readings = [-999, -999]
+                stdout: "[]"
+              - name: 没有读数
+                hidden: true
+                setup: readings = []
+                stdout: "[]"
+              - name: 只有一个读数
+                hidden: true
+                setup: readings = [5]
+                stdout: "[5]"
+        explanation: |
+          ```python
+          clean = []
+          for t in readings:
+              if t != -999:
+                  clean.append(t)
+          print(clean)
+          ```
+
+          空列表在循环前；`if` 缩进一层，是循环体；`append` 再缩进一层，归 `if` 管；`print` 不缩进，循环后显示一次。`if t > 0:` 会把 -3 这样正常的低温读数也去掉，不符合要求。
+      - id: py36.k1.r2
+        kind: [predict]
+        uses: [py10.k1]
+        body: |
+          一次循环同时分成两组。
+
+          ```python
+          high = []
+          low = []
+          for v in [9, 14, 10, 3]:
+              if v >= 10:
+                  high.append(v)
+              else:
+                  low.append(v)
+          print(high)
+          print(low)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "[14, 10]"
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "[9, 3]"
+        explanation: |
+          显示 **[14, 10]** 和 **[9, 3]**。每个读数只走 `if` 和 `else` 中的一条路：至少为 10 的进 `high`，其余的进 `low`。两个列表里的顺序都跟着原列表走。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+    quiz:
+      - id: py36.k1.x1
+        kind: [debug, predict]
+        body: |
+          下面的程序想数出至少为 10 的读数有几个，并把它们收进 `kept`。
+
+          ```python startLine=1
+          signals = [8, 12, 10, 7]
+          kept = []
+          n = 0
+          for v in signals:
+              if v >= 10:
+                  n = n + 1
+              kept.append(v)
+          print(n)
+          print(kept)
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 2
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "[8, 12, 10, 7]"
+          - id: fix
+            type: choice
+            prompt: 要让 `kept` 只收至少为 10 的读数、`n` 的结果不变，应该怎样改？
+            options:
+              - id: strict
+                content: 第 5 行改成 `if v > 10:`
+              - id: indent7
+                content: 第 7 行再缩进一层，和第 6 行对齐
+              - id: move2
+                content: 第 2 行移进循环体，放在第 5 行之前
+            key: indent7
+        explanation: |
+          显示 **2** 和 **[8, 12, 10, 7]**。第 6 行比 `if` 多缩进一层，只在条件成立时执行，所以 `n` 是 2；第 7 行和 `if` 对齐，不归 `if` 管，每个读数都被收进 `kept`。把第 7 行再缩进一层，`kept` 才是 `[12, 10]`。改成 `>` 会漏掉恰好为 10 的读数；把空列表移进循环会每轮清空。
+        verify: |
+          lines = CODE.splitlines()
+          variants = {
+              "strict": lines[:4] + ["    if v > 10:"] + lines[5:],
+              "indent7": lines[:6] + ["    " + lines[6]] + lines[7:],
+              "move2": [lines[0], lines[2], lines[3], "    " + lines[1]] + lines[4:],
+          }
+          signals = run()["signals"]
+          wanted = {"n": sum(1 for v in signals if v >= 10), "kept": [v for v in signals if v >= 10]}
+          fits = []
+          for option, program in variants.items():
+              r = run("\n".join(program))
+              if r.error is None and r.vars.get("n") == wanted["n"] and r.vars.get("kept") == wanted["kept"]:
+                  fits.append(option)
+          shown = run().lines()
+          answers = {"first": int(shown[0]), "second": shown[1], "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py36.k1.x2
+        kind: [modify]
+        data: [wells_setup]
+        body: |
+          需求是：
+
+          > 把 `wells` 里不是空白对照孔（`"blank"`）的孔位标记，按原顺序收进 `sample_wells`，不改动 `wells`。
+
+          作答框里已经写好了空列表和循环，把 `...` 那一行换成检查和收集的代码。判分时还会换别的 `wells` 运行你的代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 8
+            starter: |
+              sample_wells = []
+              for w in wells:
+                  ...
+            solution: |
+              sample_wells = []
+              for w in wells:
+                  if w != "blank":
+                      sample_wells.append(w)
+            accepts:
+              - |
+                sample_wells = []
+                for w in wells:
+                    if not w == "blank":
+                        sample_wells.append(w)
+              - |
+                sample_wells = []
+                for w in wells:
+                    if w == "blank":
+                        pass
+                    else:
+                        sample_wells.append(w)
+              - sample_wells = [w for w in wells if w != "blank"]
+            rejects:
+              - code: |
+                  sample_wells = []
+                  for w in wells:
+                      if w == "blank":
+                          sample_wells.append(w)
+                why: 条件写反了，收的是空白对照孔
+              - code: |
+                  sample_wells = []
+                  for w in wells:
+                      if w != "blank":
+                          pass
+                      sample_wells.append(w)
+                why: append 没有缩进在 if 下面，每个孔都收了
+              - code: sample_wells = ["S1", "S2", "S3"]
+                why: 照着这一组数据写死了结果
+              - code: |
+                  sample_wells = []
+                  for w in wells:
+                      if w != "blank":
+                          sample_wells.append(w)
+                  sample_wells.sort()
+                why: 把结果重新排了序
+            tests:
+              - name: 题面里的孔位
+                expect:
+                  sample_wells: '["S1", "S2", "S3"]'
+                  wells: wells
+              - name: 全是空白对照
+                hidden: true
+                setup: wells = ["blank", "blank"]
+                expect:
+                  sample_wells: "[]"
+              - name: 没有空白对照，编号也不按顺序
+                hidden: true
+                setup: wells = ["S9", "S1", "S4"]
+                expect:
+                  sample_wells: '["S9", "S1", "S4"]'
+                  wells: wells
+              - name: 一个孔都没有
+                hidden: true
+                setup: wells = []
+                expect:
+                  sample_wells: "[]"
+        explanation: |
+          ```python
+          sample_wells = []
+          for w in wells:
+              if w != "blank":
+                  sample_wells.append(w)
+          ```
+
+          `if` 缩进一层，在循环体里逐个检查；`append` 再缩进一层，只在不是 `"blank"` 时执行。题面数据的结果是 `["S1", "S2", "S3"]`。判分时还会换数据：全是空白对照时结果是空列表；编号不按顺序时，结果保持原来的顺序，不排序。
+
   - id: py36.k2
     title: 列表原位修改及别名与独立副本
+    card:
+      name: 列表别名
+      aliases: [别名, 副本, copy]
+      definition: b = a 不复制列表，只让 b 也指向 a 指向的那个列表；之后用任何一个名字 append，两个名字看到的都变了。要独立的一份，写 a.copy() 或 list(a)。
+      conditions:
+        - a = a + [5] 先造出新列表再让 a 改指向它，别名 b 仍指向旧列表；append 是在原列表上改。
+        - 整数没有原地修改，n = n + 1 总是让名字改指向新值，所以另一个名字不受影响。
+      example:
+        from: py36.k2.e0
+        text: |
+          ```python
+          a = [8, 10]
+          b = a
+          c = a.copy()
+          b.append(13)
+          ```
+          a 和 b 指向同一个列表，都成了 [8, 10, 13]；c 是独立副本，仍是 [8, 10]。
+    lesson: |
+      讲[重新赋值](repa:concept/py01.k2)时说过：`saved = count` 之后再改 `count`，`saved` 不变。换成列表，再用上 `append`，情况就不一样了：
+
+      ```python
+      a = [8, 10]
+      b = a
+      b.append(13)
+      print(a)
+      ```
+
+      显示 `[8, 10, 13]`。`b = a` 并没有复制出第二个列表，只是让 `b` 也指向 `a` 指向的那**同一个**列表，就像同一个文件夹有两个快捷方式。`b.append(13)` 直接改动这个列表，从 `a` 看过去当然也变了。两个名字指向同一个列表，`b` 就是 `a` 的**别名**。
+
+      要一份独立的副本，写 `a.copy()` 或 `list(a)`：它们造出一个内容相同的新列表，之后改一个，另一个不受影响。
+
+      | 第二行写成 | 造了新列表吗 | 之后 `b.append(13)`，a 变不变 |
+      |---|---|---|
+      | `b = a` | 没有，b 是别名 | 变 |
+      | `b = a.copy()` | 造了 | 不变 |
+      | `b = list(a)` | 造了 | 不变 |
+
+      还有一处容易混：`a = a + [5]` 照“先算右边”来读，用 `a` 现在的内容和 `[5]` 拼出一个**新**列表，再让 `a` 改指向它；原来的列表没有被改，别名 `b` 仍指向原来那个。`a.append(5)` 则是在原列表上改，`b` 也会看到。
+
+      为什么要在意：AI 写的代码有时先 `backup = data`，想“留一份原始数据”，再往 `data` 里加东西或做清理。这样留下的不是备份，原始数据也跟着变了。
+    example:
+      id: py36.k2.e0
+      kind: [trace]
+      body: |
+        按执行顺序填写第 3 行和第 4 行执行完后，三个名字各指向什么样的列表；再判断第 4 行之后哪两个名字指向同一个列表。
+
+        ```python startLine=1
+        a = [8, 10]
+        b = a
+        c = a.copy()
+        b.append(13)
+        ```
+      slots:
+        - id: trace
+          type: table
+          label: 状态表
+          columns:
+            - { id: step, header: 执行到 }
+            - { id: a, header: a, input: { type: text, match: output } }
+            - { id: b, header: b, input: { type: text, match: output } }
+            - { id: c, header: c, input: { type: text, match: output } }
+          rows:
+            - { id: l3, cells: { step: 第 3 行, a: "[8, 10]", b: "[8, 10]", c: "[8, 10]" } }
+            - { id: l4, cells: { step: 第 4 行, a: "[8, 10, 13]", b: "[8, 10, 13]", c: "[8, 10]" } }
+        - id: same
+          type: choice
+          prompt: 第 4 行之后，哪两个名字指向同一个列表？
+          options:
+            - { id: ac, content: a 和 c }
+            - { id: ab, content: a 和 b }
+            - { id: bc, content: b 和 c }
+          key: ab
+      explanation: |
+        | 执行到 | a | b | c |
+        |---|---|---|---|
+        | 第 3 行 | [8, 10] | [8, 10] | [8, 10] |
+        | 第 4 行 | [8, 10, 13] | [8, 10, 13] | [8, 10] |
+
+        第 3 行时三个名字显示的内容一样，但只有 **a 和 b** 是同一个列表：`b = a` 没有复制，`c = a.copy()` 造了一个新列表。所以第 4 行通过 `b` 加上 13 以后，`a` 也变了，`c` 不变。内容相同不等于是同一个列表。
+      verify: |
+        states = trace(names=["a", "b", "c"])
+        r = run()
+        pairs = {"ab": ("a", "b"), "ac": ("a", "c"), "bc": ("b", "c")}
+        same = [pair for pair, (x, y) in pairs.items() if r[x] is r[y]]
+        answers = {
+            "trace": {"l3": states[2], "l4": states[3]},
+            "same": same[0] if len(same) == 1 else same,
+        }
+    practice:
+      - id: py36.k2.q1
+        kind: [predict, explain]
+        body: |
+          有人想先留一份原始读数，再往 `raw` 里补一个新读数。
+
+          ```python
+          raw = [5, 7, 9]
+          backup = raw
+          raw.append(-1)
+          print(backup)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "[5, 7, 9, -1]"
+            feedback:
+              - when: "[5, 7, 9]"
+                message: 第 2 行没有复制列表，backup 和 raw 是同一个列表的两个名字。
+          - id: why
+            type: choice
+            prompt: 哪一句解释了这个结果？
+            options:
+              - id: same
+                content: "`backup` 和 `raw` 指向同一个列表，通过 `raw` 改动，从 `backup` 也看得到"
+              - id: all
+                content: "`append` 会给程序里所有的列表都加上 -1"
+              - id: copy
+                content: "`backup = raw` 复制了一份，但 print 显示的其实是 `raw`"
+            key: same
+        explanation: |
+          显示 **[5, 7, 9, -1]**。`backup = raw` 只让 `backup` 也指向同一个列表，`raw.append(-1)` 改的就是这个列表，所以从 `backup` 看也多了 -1。这样留下的不是备份；要备份应写 `backup = raw.copy()`。
+        verify: |
+          r = run()
+          answers = {"output": r.lines()[0], "why": "same" if r["backup"] is r["raw"] else "other"}
+      - id: py36.k2.q2
+        kind: [predict]
+        uses: [py01.k1]
+        body: |
+          ```python
+          a = [1, 2]
+          b = a
+          a = a + [3]
+          print(a)
+          print(b)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "[1, 2, 3]"
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "[1, 2]"
+            feedback:
+              - when: "[1, 2, 3]"
+                message: "`a + [3]` 拼出的是一个新列表，第 3 行只让 a 改指向它，原来的列表没有被改。"
+        explanation: |
+          显示 **[1, 2, 3]** 和 **[1, 2]**。第 3 行先算右边，拼出一个新列表 `[1, 2, 3]`，再让 `a` 改指向它；`b` 仍指向原来的 `[1, 2]`。如果第 3 行写成 `a.append(3)`，改的是原来那个列表，两行就都是 `[1, 2, 3]`。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+      - id: py36.k2.q3
+        kind: [explain]
+        body: |
+          第 2 行想留一份**不受后面修改影响**的原始读数。
+
+          ```python startLine=1
+          raw = [5, 7, 9]
+          # 第 2 行写在这里
+          raw.append(-1)
+          ```
+
+          下面哪些写法能做到？选出所有能做到的。
+        slots:
+          - id: lines
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: alias
+                content: |
+                  ```python
+                  backup = raw
+                  ```
+              - id: copy
+                content: |
+                  ```python
+                  backup = raw.copy()
+                  ```
+              - id: nested
+                content: |
+                  ```python
+                  backup = [raw]
+                  ```
+              - id: list
+                content: |
+                  ```python
+                  backup = list(raw)
+                  ```
+            key: [copy, list]
+        explanation: |
+          `backup = raw.copy()` 和 `backup = list(raw)` 能做到：它们各造出一个内容相同的新列表，第 3 行改 `raw` 不影响它。`backup = raw` 只是别名，会跟着变成 `[5, 7, 9, -1]`；`backup = [raw]` 造的是“装着 raw 这个列表的列表”，里面那个仍是同一个列表，也会跟着变。
+        verify: |
+          lines = CODE.splitlines()
+          fits = []
+          for option, code in OPTIONS["lines"].items():
+              r = run("\n".join([lines[0], code.strip(), lines[2]]))
+              if r.error is None and r["backup"] == [5, 7, 9]:
+                  fits.append(option)
+          answers = {"lines": fits}
+    review:
+      - id: py36.k2.r1
+        kind: [predict]
+        uses: [py36.k1]
+        body: |
+          ```python
+          kept = []
+          alias = kept
+          for v in [4, 11, 12]:
+              if v > 10:
+                  alias.append(v)
+          print(kept)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "[11, 12]"
+            feedback:
+              - when: "[]"
+                message: 循环里是通过 alias 加的，但 alias 和 kept 是同一个列表。
+          - id: same
+            type: choice
+            prompt: "`kept` 和 `alias` 是什么关系？"
+            options:
+              - id: two
+                content: 两个各自独立的空列表
+              - id: one
+                content: 同一个列表的两个名字
+            key: one
+        explanation: |
+          显示 **[11, 12]**。第 2 行让 `alias` 也指向 `kept` 那个空列表；循环里通过 `alias.append(v)` 加进去的 11、12，改的就是这一个列表，从 `kept` 看也一样。
+        verify: |
+          r = run()
+          answers = {"output": r.lines()[0], "same": "one" if r["alias"] is r["kept"] else "two"}
+      - id: py36.k2.r2
+        kind: [explain]
+        body: |
+          运行下面三行之后，哪一句说法正确？
+
+          ```python
+          a = [3, 6]
+          b = list(a)
+          b.append(0)
+          ```
+        slots:
+          - id: claim
+            type: choice
+            options:
+              - id: both
+                content: a 和 b 都是 [3, 6, 0]
+              - id: only_b
+                content: a 还是 [3, 6]，b 是 [3, 6, 0]
+              - id: swapped
+                content: a 是 [3, 6, 0]，b 还是 [3, 6]
+              - id: zero
+                content: b 只剩 [0]
+            key: only_b
+        explanation: |
+          “a 还是 [3, 6]，b 是 [3, 6, 0]”正确。`list(a)` 造了一个内容相同的新列表，`b.append(0)` 只改这个新列表，`a` 不受影响。
+        verify: |
+          r = run()
+          a, b = r["a"], r["b"]
+          holds = {
+              "both": a == [3, 6, 0] and b == [3, 6, 0],
+              "only_b": a == [3, 6] and b == [3, 6, 0],
+              "swapped": a == [3, 6, 0] and b == [3, 6],
+              "zero": b == [0],
+          }
+          fits = [claim for claim, ok in holds.items() if ok]
+          answers = {"claim": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py36.k2.x1
+        kind: [predict]
+        body: |
+          ```python
+          x = [1]
+          y = x
+          z = x.copy()
+          x.append(2)
+          y = y + [3]
+          print(x)
+          print(y)
+          print(z)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "[1, 2]"
+            feedback:
+              - when: "[1, 2, 3]"
+                message: 第 5 行的 y + [3] 拼出了新列表，再让 y 改指向它，x 那个列表没有被改。
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "[1, 2, 3]"
+          - id: third
+            type: text
+            match: output
+            prompt: 第三行显示
+            key: "[1]"
+        explanation: |
+          依次显示 **[1, 2]**、**[1, 2, 3]**、**[1]**。
+
+          - 第 2 行让 `y` 成为 `x` 的别名；第 3 行给 `z` 造了一份副本 `[1]`。
+          - 第 4 行在原列表上加 2，`x` 和 `y` 都看到 `[1, 2]`，`z` 不变。
+          - 第 5 行先算右边，拼出新列表 `[1, 2, 3]`，再让 `y` 改指向它；从这以后 `y` 和 `x` 不再是同一个列表，`x` 仍是 `[1, 2]`。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1], "third": lines[2]}
+      - id: py36.k2.x2
+        kind: [debug, predict]
+        body: |
+          `day1` 是第一天的两个读数。想得到 `day2`：在第一天的读数后面加上第二天的新读数 14；同时 `day1` 保持只有第一天的两个读数。
+
+          ```python startLine=1
+          day1 = [12, 9]
+          day2 = day1
+          day2.append(14)
+          print(day1)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 现在程序显示什么？
+            key: "[12, 9, 14]"
+          - id: fix
+            type: choice
+            prompt: 第 2 行应该改成哪一种？
+            options:
+              - id: nested
+                content: |
+                  ```python
+                  day2 = [day1]
+                  ```
+              - id: empty
+                content: |
+                  ```python
+                  day2 = []
+                  ```
+              - id: copy
+                content: |
+                  ```python
+                  day2 = day1.copy()
+                  ```
+            key: copy
+        explanation: |
+          现在显示 **[12, 9, 14]**：`day2` 是 `day1` 的别名，第 3 行改的是同一个列表。第 2 行改成 `day2 = day1.copy()`，`day2` 是独立副本，加上 14 以后是 `[12, 9, 14]`，`day1` 仍是 `[12, 9]`。写成 `[day1]` 得到的是“装着 day1 的列表”，再加 14 成了 `[[12, 9], 14]`；写成空列表就丢了第一天的读数。
+        verify: |
+          lines = CODE.splitlines()
+          fits = []
+          for option, code in OPTIONS["fix"].items():
+              r = run("\n".join([lines[0], code.strip(), lines[2]]))
+              if r.error is None and r["day1"] == [12, 9] and r["day2"] == [12, 9, 14]:
+                  fits.append(option)
+          answers = {"output": run().lines()[0], "fix": fits[0] if len(fits) == 1 else fits}

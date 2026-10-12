@@ -1,7 +1,8 @@
 id: py32
 title: 日期是一种有单位的值
-status: outline
+status: complete
 minutes: 20
+summary: 按约定的格式把文字读成日期并数清读不了的值；两个日期相减得到时间差，取出整数天数；按日期区间筛选时写明两端算不算。
 prerequisites:
   - topic: py20
     key: true
@@ -21,12 +22,1328 @@ sources:
     url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/09_timeseries.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
-  固定输入格式和同一时区，只用简单的天数间隔；跨时区、夏令时和日历偏移另开后续内容。
+  范围：输入格式固定、同一时区，日期只到“日”，只用简单的天数间隔；跨时区、夏令时、月份或工作日这类日历偏移另开后续内容。k3 有一道带时刻的题，只用来说明右边界为什么写成“小于下个月 1 日”，不展开时间处理。不问 dtype 的显示文字（pandas 3 里是 datetime64[us]，与教材不同）。
+  运行时行为（Pyodide 里核对过）：format 为 "%Y-%m-%d" 时，"2026/03/09"、"20260402"、"2026-02-30" 都读不了，默认报 ValueError，加 errors="coerce" 变成 NaT；空字符串和原本的缺失不报错，直接是 NaT。题目里没有用不补零的写法（如 "2026-3-9"，这个格式也能读）。时间差不能直接和整数比较（TypeError），要先 .dt.days；时间差没有 .dt.day（AttributeError），日期才有 .dt.day（几号）。两个比较不加括号用 & 连起来时报 TypeError。
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。复习和测验的答案都由 verify 或测试算出，没有 manual。
+  节奏（待试做校准）：开场 1 分钟；k1、k2、k3 各约 6 分钟（讲解与例题 2 分钟、练习 4 分钟）；收束 1 分钟。三个知识点偏紧，试用时若超时，优先把 k3 的带时刻一题移到复习。
+  取材：日期转换与时间差的写法参照 pandas 入门教程与 Python for Data Analysis 第 11 章，小表、讲解和题目为本课自拟。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码。
+
+  从 CSV 或 Excel 读进来的日期，在 pandas 里往往只是一串文字，例如 `"2026-03-02"`。文字不能相减，也不能按先后比较大小。这一节先按约定的格式把它读成日期，再算相隔几天、筛出某段时间的记录。本节的日期都在同一个时区，只精确到“日”。
+wrapup: |
+  向同事或 AI 提日期相关的需求时，可以照这三句说：
+
+  - “collected 列按 年-月-日 读成日期，读不了的变成缺失，并告诉我有几个。”
+  - “等待天数是检测日期减采样日期的整数天数，采样当天算第 0 天。”
+  - “只要 3 月 1 日（含）到 4 月 1 日（不含）之间采的样本。”
+
+  拿到代码后，看 format 是否与数据的写法一致，看有没有数读不了的值，看区间两端用的是 `>=`、`>` 还是 `<`、`<=`。
+data:
+  pandas:
+    kind: python
+    code: import pandas as pd
+  raw:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：四个样本登记的采样日期（还是文字）
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D]
+      collected: ["2026-03-02", "2026/03/09", "2026-03-15", "2026-02-30"]
+  raw2:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：另一批样本的采样日期（还是文字）
+    columns:
+      sample_id: [S_E, S_F, S_G, S_H, S_I]
+      collected: ["2026-04-01", "20260402", "2026-04-03", "2026-04-31", "2026-04-05"]
+  raw3:
+    kind: dataframe
+    name: raw
+    caption: 表 raw：三个样本的采样日期（还是文字）
+    columns:
+      sample_id: [S_J, S_K, S_L]
+      collected: ["2026-05-06", "2026-05-07", "2026.05.08"]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：四个采样点登记的采样日期（还是文字）
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡]
+      sampled: ["2026-06-10", "2026-06-31", "6/12/2026", "2026-06-12"]
+  lab:
+    kind: dataframe
+    name: lab
+    caption: 表 lab：仪器导出的测量日期（还是文字）
+    columns:
+      run_id: [R1, R2]
+      date: ["05/06/2026", "12/01/2026"]
+  plots:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：四块样地的播种日期（还是文字）
+    columns:
+      plot_id: [P1, P2, P3, P4]
+      sown: ["2026-04-03", "2026/04/10", "2026-04-17", "unknown"]
+  plots2:
+    kind: dataframe
+    name: plots
+    caption: 另一张同结构的表
+    columns:
+      plot_id: [Q1, Q2, Q3]
+      sown: ["04/05/2026", "2026-04-12", "2026-04-19"]
+  plots3:
+    kind: dataframe
+    name: plots
+    caption: 第三张同结构的表
+    columns:
+      plot_id: [Q4, Q5, Q6]
+      sown: ["2026-05-01", "2026-05-02", "2026-05-03"]
+  assay:
+    kind: dataframe
+    name: assay
+    caption: 表 assay：五个样本的检测日期（还是文字）
+    columns:
+      sample_id: [A1, A2, A3, A4, A5]
+      tested: ["2026-07-01", "2026-07-15", "2026-07-32", "2026-07-20", "2026-07-28"]
+  log:
+    kind: dataframe
+    name: log
+    caption: 表 log：四个样本的采样日期和检测日期（还是文字）
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D]
+      collected: ["2026-03-02", "2026-03-15", "2026-03-31", "2026-04-01"]
+      tested: ["2026-03-05", "2026-03-15", "2026-04-02", "2026-04-08"]
+  log2:
+    kind: dataframe
+    name: log
+    caption: 另一张同结构的表
+    columns:
+      sample_id: [S_E, S_F, S_G, S_H, S_I]
+      collected: ["2026-02-27", "2026-03-01", "2026-03-10", "2026-03-31", "2026-04-15"]
+      tested: ["2026-03-02", "2026-03-01", "2026-03-12", "2026-04-01", "2026-04-20"]
+  trials:
+    kind: dataframe
+    name: trials
+    caption: 表 trials：三次田间实验的开始和结束日期（两天都做了实验）
+    columns:
+      trial: [T1, T2, T3]
+      start: ["2026-03-30", "2026-04-10", "2026-02-27"]
+      end: ["2026-04-02", "2026-04-10", "2026-03-02"]
+  ship:
+    kind: dataframe
+    name: ship
+    caption: 表 ship：五份样品的寄出日期和到达实验室的日期（还是文字）
+    columns:
+      sample_id: [P1, P2, P3, P4, P5]
+      sent: ["2026-05-04", "2026-05-04", "2026-05-06", "2026-05-08", "2026-05-29"]
+      arrived: ["2026-05-05", "2026-05-07", "2026-05-08", "2026-05-08", "2026-06-01"]
+  rain:
+    kind: dataframe
+    name: rain
+    caption: 表 rain：监测站记录的三次连续降雨，开始和结束那天都下了雨
+    columns:
+      event: [E1, E2, E3]
+      start: ["2026-06-28", "2026-07-09", "2026-07-20"]
+      end: ["2026-07-03", "2026-07-09", "2026-07-22"]
+  cages:
+    kind: dataframe
+    name: cages
+    caption: 表 cages：三只小鼠放入和取出代谢笼的日期（还是文字）
+    columns:
+      mouse: [M1, M2, M3]
+      moved_in: ["2026-08-03", "2026-08-10", "2026-08-28"]
+      moved_out: ["2026-08-06", "2026-08-10", "2026-09-04"]
+  cages2:
+    kind: dataframe
+    name: cages
+    caption: 另一张同结构的表
+    columns:
+      mouse: [M4, M5]
+      moved_in: ["2026-02-26", "2026-12-30"]
+      moved_out: ["2026-03-01", "2027-01-02"]
+  freezer:
+    kind: dataframe
+    name: freezer
+    caption: 表 freezer：三份样本冻存和解冻的日期（还是文字）
+    columns:
+      sample_id: [F1, F2, F3]
+      frozen: ["2026-01-30", "2026-02-10", "2026-03-31"]
+      thawed: ["2026-03-02", "2026-02-11", "2026-03-31"]
+  visits:
+    kind: dataframe
+    name: visits
+    caption: 表 visits：五次野外采样的日期（还是文字）
+    columns:
+      visit: [V1, V2, V3, V4, V5]
+      day: ["2026-03-14", "2026-03-15", "2026-03-20", "2026-03-31", "2026-04-01"]
+  readings:
+    kind: dataframe
+    name: readings
+    caption: 表 readings：仪器的四条读数记录，时间带时刻（年-月-日 时:分）
+    columns:
+      reading_id: [D1, D2, D3, D4]
+      time: ["2026-03-30 09:00", "2026-03-31 08:00", "2026-03-31 14:20", "2026-04-01 06:00"]
+  quarter:
+    kind: dataframe
+    name: q
+    caption: 表 q：六次采样的日期（还是文字）
+    columns:
+      sample_id: [G1, G2, G3, G4, G5, G6]
+      day: ["2026-03-31", "2026-04-01", "2026-05-15", "2026-06-30", "2026-07-01", "2026-07-02"]
+  weekly:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：五个采样点的采样日期（还是文字）
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡, 谷底]
+      sampled: ["2026-04-30", "2026-05-01", "2026-05-07", "2026-05-08", "2026-05-03"]
+  week:
+    kind: dataframe
+    name: obs
+    caption: 表 obs：六次观测的日期（还是文字）
+    columns:
+      obs_id: [O1, O2, O3, O4, O5, O6]
+      day: ["2026-03-08", "2026-03-09", "2026-03-12", "2026-03-16", "2026-03-15", "2026-03-17"]
 kps:
   - id: py32.k1
     title: 按固定格式读懂 to_datetime 与转换失败
+    card:
+      name: 按格式读日期
+      aliases: [to_datetime, NaT, format]
+      definition: pd.to_datetime(列, format="%Y-%m-%d") 按给定格式把文字逐个读成日期；格式对不上的值默认让整行报 ValueError，加 errors="coerce" 时变成缺失 NaT。
+      conditions:
+        - 用了 errors="coerce" 不等于都读对了，要用 isna().sum() 数出有几个 NaT，写进结果说明。
+        - 03/04/2026 是 3 月 4 日还是 4 月 3 日只能由数据来源说明，format 要照着说明写。
+        - 原本就空着的格子不算格式错误，也直接是 NaT。
+      example:
+        from: py32.k1.e0
+        text: |
+          ```python
+          dates = pd.to_datetime(raw["collected"], format="%Y-%m-%d", errors="coerce")
+          n_bad = dates.isna().sum()
+          ```
+          "2026/03/09" 用了斜杠，"2026-02-30" 日历上没有，这两个变成 NaT，n_bad 为 2。
+    lesson: |
+      读进来的日期往往还是文字。`pd.to_datetime` 把一列文字读成日期，`format` 告诉它每个值长什么样：
+
+      | 写法 | 意思 |
+      |---|---|
+      | `%Y` | 四位年份，例如 2026 |
+      | `%m` | 月份，例如 03 |
+      | `%d` | 几号，例如 09 |
+
+      `format="%Y-%m-%d"` 就是“年-月-日，中间用短横线”。连接符号也要一模一样：`"2026/03/09"` 用了斜杠，对不上；`"2026-02-30"` 写法对，但日历上没有 2 月 30 日，也读不了。
+
+      遇到读不了的值，默认整行代码报 **ValueError**，什么结果也不产生。加上 `errors="coerce"`，读不了的值变成 **NaT**（日期的缺失值），其余照常读。这和把文字转成数字时的做法一样：程序不报错了，但坏值还在，要用 `.isna().sum()` 数出有几个，写进结果说明。
+
+      格式还决定怎样理解一个值。`"03/04/2026"` 按 `"%d/%m/%Y"`（日/月/年）是 4 月 3 日，按 `"%m/%d/%Y"`（月/日/年）是 3 月 4 日，两种都读得通、都不报错。哪一种对，只能由数据的来源说明，需求里要写明。
+    example:
+      id: py32.k1.e0
+      kind: [predict]
+      uses: [py20.k1, py19.k1]
+      data: [pandas, raw]
+      body: |
+        登记表约定采样日期写成“年-月-日”。阅读代码，回答下面几问。
+
+        ```python
+        dates = pd.to_datetime(raw["collected"], format="%Y-%m-%d", errors="coerce")
+        n_bad = dates.isna().sum()
+        ```
+      slots:
+        - id: nat
+          type: table
+          label: 哪些值变成了 NaT
+          columns:
+            - { id: sample_id, header: sample_id }
+            - { id: collected, header: collected }
+            - { id: nat, header: 变成 NaT 吗, input: bool }
+          rows:
+            - { id: r0, cells: { sample_id: S_A, collected: "2026-03-02", nat: false } }
+            - { id: r1, cells: { sample_id: S_B, collected: "2026/03/09", nat: true } }
+            - { id: r2, cells: { sample_id: S_C, collected: "2026-03-15", nat: false } }
+            - { id: r3, cells: { sample_id: S_D, collected: "2026-02-30", nat: true } }
+        - id: n_bad
+          type: text
+          format: integer
+          prompt: "`n_bad` 是多少？"
+          key: 2
+        - id: strict
+          type: choice
+          prompt: 如果去掉 `errors="coerce"`，第一行运行时会怎样？
+          options:
+            - id: skip
+              content: 只把读不了的两个值变成 NaT，其余照常
+            - id: drop
+              content: 把读不了的两行从表里删掉
+            - id: error
+              content: 报 ValueError，`dates` 没有得到任何值
+          key: error
+      explanation: |
+        S_B 和 S_D 变成 **NaT**，`n_bad` 是 **2**。S_B 的 `"2026/03/09"` 用了斜杠，和格式里的短横线对不上；S_D 的 `"2026-02-30"` 写法没错，但日历上没有 2 月 30 日。
+
+        去掉 `errors="coerce"` 时，遇到第一个读不了的值就**报 ValueError**，这一行没有完成，`dates` 也就没有被赋值。`errors="coerce"` 也不会删掉任何行：`dates` 仍有 4 个值，只是其中两个是 NaT。
+      verify: |
+        r = run()
+        dates = r["dates"]
+        strict = run(CODE.replace(', errors="coerce"', ""))
+        answers = {
+            "nat": {f"r{label}": {"nat": bool(value)} for label, value in dates.isna().items()},
+            "n_bad": r["n_bad"],
+            "strict": "error" if strict.error == "ValueError" and "dates" not in strict.vars else "other",
+        }
+    practice:
+      - id: py32.k1.q1
+        kind: [predict]
+        uses: [py20.k1, py19.k1]
+        data: [pandas, raw2]
+        body: |
+          日期约定写成“年-月-日”。阅读代码。
+
+          ```python
+          dates = pd.to_datetime(raw["collected"], format="%Y-%m-%d", errors="coerce")
+          ```
+        slots:
+          - id: bad
+            type: choice
+            multiple: true
+            prompt: 哪几个样本的日期读不了，变成了 NaT？选出全部。
+            options:
+              - { id: S_E, content: "S_E（`2026-04-01`）" }
+              - { id: S_F, content: "S_F（`20260402`）" }
+              - { id: S_G, content: "S_G（`2026-04-03`）" }
+              - { id: S_H, content: "S_H（`2026-04-31`）" }
+              - { id: S_I, content: "S_I（`2026-04-05`）" }
+            key: [S_F, S_H]
+          - id: size
+            type: text
+            format: integer
+            prompt: "`dates` 一共有几个值（包括 NaT）？"
+            key: 5
+            feedback:
+              - when: 3
+                message: errors="coerce" 不删值，读不了的位置留下 NaT，个数和原来的列一样。
+        explanation: |
+          **S_F 和 S_H** 读不了：`"20260402"` 中间没有短横线；4 月只有 30 天，`"2026-04-31"` 不存在。`dates` 仍有 **5** 个值，读不了的位置是 NaT，没有被删掉。
+        verify: |
+          dates = run()["dates"]
+          answers = {"bad": list(raw["sample_id"][dates.isna()]), "size": len(dates)}
+      - id: py32.k1.q2
+        kind: [debug]
+        uses: [py20.k1]
+        data: [pandas, raw3]
+        body: |
+          下面的程序想数出读不了的日期有几个。
+
+          ```python startLine=1
+          dates = pd.to_datetime(raw["collected"], format="%Y-%m-%d")
+          print(dates.isna().sum())
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行结果是什么？
+            options:
+              - id: one
+                content: 显示 1
+              - id: error
+                content: 第 1 行报 ValueError，第 2 行没有运行
+              - id: zero
+                content: 显示 0
+            key: error
+          - id: fix
+            type: choice
+            prompt: 把第 1 行换成哪一行，程序就能显示读不了的个数 1？
+            options:
+              - id: coerce
+                content: |
+                  ```python
+                  dates = pd.to_datetime(raw["collected"], format="%Y-%m-%d", errors="coerce")
+                  ```
+              - id: dots
+                content: |
+                  ```python
+                  dates = pd.to_datetime(raw["collected"], format="%Y.%m.%d")
+                  ```
+                feedback: 换成点号以后，另外两个用短横线的值又对不上了，照样报错。
+              - id: noformat
+                content: |
+                  ```python
+                  dates = pd.to_datetime(raw["collected"])
+                  ```
+                feedback: 不写 format 时 pandas 按第一个值猜格式，第三个值仍然对不上，照样报错。
+            key: coerce
+        explanation: |
+          `"2026.05.08"` 用的是点号，和 `"%Y-%m-%d"` 对不上，所以第 1 行**报 ValueError**，程序停在这里，第 2 行没有机会运行。
+
+          加上 `errors="coerce"` 后，这个值变成 NaT，第 2 行显示 1。把格式改成点号，另外两个值又对不上；去掉 format，pandas 按第一个值猜出“年-月-日”，第三个值照样报错。
+        verify: |
+          r = run()
+          prelude_ok = [option for option, line in OPTIONS["fix"].items()
+                        if run(line + "\nprint(dates.isna().sum())").error is None
+                        and run(line + "\nprint(dates.isna().sum())").out.strip() == "1"]
+          answers = {
+              "outcome": "error" if r.error == "ValueError" and r.out == "" else ("one" if r.out.strip() == "1" else "zero"),
+              "fix": prelude_ok[0] if len(prelude_ok) == 1 else prelude_ok,
+          }
+      - id: py32.k1.q3
+        kind: [specify]
+        body: |
+          合作实验室发来的表里，日期写成 `03/04/2026`、`25/04/2026` 这样。对方说明：前两位是“日”，中间两位是“月”，最后是年。
+        slots:
+          - id: fmt
+            type: choice
+            prompt: "`pd.to_datetime` 的 format 应该写哪一个？"
+            options:
+              - { id: mdy, content: '`"%m/%d/%Y"`' }
+              - { id: ymd, content: '`"%Y-%m-%d"`' }
+              - { id: dmy, content: '`"%d/%m/%Y"`' }
+              - { id: ymd_slash, content: '`"%Y/%m/%d"`' }
+            key: dmy
+          - id: month
+            type: text
+            format: integer
+            prompt: 按对方的说明，`03/04/2026` 是几月？
+            key: 4
+            feedback:
+              - when: 3
+                message: 前两位 03 是日，中间的 04 才是月。
+        explanation: |
+          写 **`"%d/%m/%Y"`**：`%d` 是日，`%m` 是月，`%Y` 是四位年份，中间用斜杠。按这个格式，`03/04/2026` 是 **4** 月 3 日。
+
+          如果写成 `"%m/%d/%Y"`，`03/04/2026` 也能读，只是读成了 3 月 4 日，程序不会提醒你；`25/04/2026` 才会因为没有 25 月而读不了。所以一列里日和月都不超过 12 时，只能靠来源说明来定格式。
+        verify: |
+          formats = {"mdy": "%m/%d/%Y", "ymd": "%Y-%m-%d", "dmy": "%d/%m/%Y", "ymd_slash": "%Y/%m/%d"}
+          # 对方说明前两位是日：用一个不会混淆的值 25/04/2026 挑出把它读成 4 月 25 日的格式。
+          fits = []
+          for option, fmt in formats.items():
+              value = pd.to_datetime(pd.Series(["25/04/2026"]), format=fmt, errors="coerce").iloc[0]
+              if value is not pd.NaT and (value.month, value.day) == (4, 25):
+                  fits.append(option)
+          chosen = formats[fits[0]] if len(fits) == 1 else None
+          answers = {
+              "fmt": fits[0] if len(fits) == 1 else fits,
+              "month": pd.to_datetime(pd.Series(["03/04/2026"]), format=chosen).iloc[0].month,
+          }
+    review:
+      - id: py32.k1.r1
+        kind: [predict]
+        uses: [py20.k1, py19.k1, py17.k2]
+        data: [pandas, soil]
+        body: |
+          采样日期约定写成“年-月-日”。阅读代码，回答下面两问。
+
+          ```python
+          when = pd.to_datetime(soil["sampled"], format="%Y-%m-%d", errors="coerce")
+          print(when.isna().sum())
+          ok = soil.loc[when.notna(), ["site"]]
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示哪个整数？
+            key: 2
+          - id: kept
+            type: order
+            partial: true
+            prompt: "`ok` 里留下了哪些采样点？按先后顺序排出来，没留下的不要放进来。"
+            items:
+              - { id: n, content: 北坡 }
+              - { id: s, content: 南坡 }
+              - { id: e, content: 东坡 }
+              - { id: w, content: 西坡 }
+            key: [n, w]
+        explanation: |
+          显示 **2**。南坡的 `"2026-06-31"` 不存在（6 月只有 30 天），东坡的 `"6/12/2026"` 写法和“年-月-日”对不上，都变成 NaT。`when.notna()` 标出读得了的行，`ok` 按原顺序留下**北坡、西坡**。
+        verify: |
+          r = run()
+          ids = {"北坡": "n", "南坡": "s", "东坡": "e", "西坡": "w"}
+          answers = {"output": int(r.out), "kept": [ids[site] for site in r["ok"]["site"]]}
+      - id: py32.k1.r2
+        kind: [predict]
+        data: [pandas, lab]
+        body: |
+          这台仪器的说明书写着：导出的日期按“月/日/年”记录。阅读代码，填出两次测量各是几月几号。
+
+          ```python
+          d = pd.to_datetime(lab["date"], format="%m/%d/%Y")
+          ```
+        slots:
+          - id: parts
+            type: table
+            columns:
+              - { id: run_id, header: run_id }
+              - { id: date, header: date }
+              - { id: month, header: 月, input: integer }
+              - { id: day, header: 日, input: integer }
+            rows:
+              - { id: r0, cells: { run_id: R1, date: "05/06/2026", month: 5, day: 6 } }
+              - { id: r1, cells: { run_id: R2, date: "12/01/2026", month: 12, day: 1 } }
+        explanation: |
+          格式 `"%m/%d/%Y"` 的第一段是月、第二段是日：R1 是 **5 月 6 日**，R2 是 **12 月 1 日**。同样的文字如果按“日/月/年”读，就成了 6 月 5 日和 1 月 12 日，而且不会报错，所以格式一定要照来源说明写。
+        verify: |
+          d = run()["d"]
+          answers = {"parts": {f"r{label}": {"month": value.month, "day": value.day} for label, value in d.items()}}
+    quiz:
+      - id: py32.k1.x1
+        kind: [modify]
+        uses: [py20.k1, py20.k2, py19.k1]
+        data: [pandas, plots]
+        body: |
+          需求是：
+
+          > sown 列按“年-月-日”读成日期，结果叫 `dates`；读不了的值变成缺失，不要让程序报错。`n_bad` 是读不了的个数。不改变 `plots`。
+
+          作答框里的代码一运行就报错，`n_bad` 也写死成了 0。请改动它并提交。判分时还会换一张表运行你的代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              dates = pd.to_datetime(plots["sown"], format="%Y-%m-%d")
+              n_bad = 0
+            solution: |
+              dates = pd.to_datetime(plots["sown"], format="%Y-%m-%d", errors="coerce")
+              n_bad = dates.isna().sum()
+            accepts:
+              - |
+                dates = pd.to_datetime(plots["sown"], errors="coerce", format="%Y-%m-%d")
+                n_bad = int(dates.isna().sum())
+            rejects:
+              - code: |
+                  dates = pd.to_datetime(plots["sown"], errors="coerce")
+                  n_bad = dates.isna().sum()
+                why: 没写 format，pandas 按第一个值猜格式，第一个值写法不同时整列都读错
+              - code: |
+                  dates = pd.to_datetime(plots["sown"], format="%Y-%m-%d", errors="coerce")
+                  n_bad = 2
+                why: 照着这张表把个数写死
+              - code: |
+                  dates = pd.to_datetime(plots["sown"], format="%Y/%m/%d", errors="coerce")
+                  n_bad = dates.isna().sum()
+                why: 格式写成了斜杠
+              - code: |
+                  dates = pd.to_datetime(plots["sown"], format="%Y-%m-%d", errors="coerce")
+                  n_bad = dates.notna().sum()
+                why: 数成了读得了的个数
+            tests:
+              - name: 表 plots
+                expect:
+                  n_bad: "2"
+                  dates.isna().tolist(): "[False, True, False, True]"
+                  dates.dropna().dt.day.tolist(): "[3, 17]"
+                  plots: plots
+              - name: 第一个值写法不同的表
+                hidden: true
+                data: [pandas, plots2]
+                expect:
+                  n_bad: "1"
+                  dates.isna().tolist(): "[True, False, False]"
+                  plots: plots
+              - name: 全部读得了的表
+                hidden: true
+                data: [pandas, plots3]
+                expect:
+                  n_bad: "0"
+                  dates.dt.day.tolist(): "[1, 2, 3]"
+        explanation: |
+          ```python
+          dates = pd.to_datetime(plots["sown"], format="%Y-%m-%d", errors="coerce")
+          n_bad = dates.isna().sum()
+          ```
+
+          加上 `errors="coerce"`，`"2026/04/10"` 和 `"unknown"` 变成 NaT，程序不再报错；`n_bad` 由 `dates` 数出来，是 2。format 要留着：换一张第一个值写成 `"04/05/2026"` 的表，不写 format 时 pandas 会照这个值猜成“月/日/年”，后面按“年-月-日”写的值反而全读不了。
+      - id: py32.k1.x2
+        kind: [explain]
+        uses: [py20.k1, py20.k2, py19.k1]
+        data: [pandas, assay]
+        body: |
+          同事运行了下面这行，没有报错，于是说：“加了 `errors="coerce"` 以后不报错了，说明 tested 列的日期全都读对了。”
+
+          ```python
+          dates = pd.to_datetime(assay["tested"], format="%Y-%m-%d", errors="coerce")
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: "`dates` 里有几个 NaT？"
+            key: 1
+          - id: claim
+            type: choice
+            prompt: 同事的说法对吗？
+            options:
+              - id: right
+                content: 对，没报错就说明都读对了
+              - id: dropped
+                content: 不对，读不了的那一行已经从 assay 里删掉了
+              - id: hidden
+                content: 不对，读不了的值变成了 NaT，要数出个数并在结果里说明
+            key: hidden
+        explanation: |
+          有 **1** 个 NaT：A3 的 `"2026-07-32"` 不存在。`errors="coerce"` 的作用是把读不了的值变成 NaT、让程序继续往下走，并不保证都读对了；它也不删行，`assay` 和 `dates` 都还是 5 行。所以要数出 NaT 的个数，写进结果说明。
+        verify: |
+          r = run()
+          dates = r["dates"]
+          n = int(dates.isna().sum())
+          kept_all = len(dates) == len(assay) == len(r["assay"])
+          answers = {"count": n, "claim": "right" if n == 0 else ("hidden" if kept_all else "dropped")}
+
   - id: py32.k2
     title: 同一时区的简单时间差和天数单位
+    card:
+      name: 时间差与天数
+      aliases: [Timedelta, dt.days, 间隔天数]
+      definition: 两个日期相减得到时间差（显示为“3 days”），它带着单位，不是普通数字；.dt.days 取出整数天数，才能和数字比较。
+      conditions:
+        - “间隔几天”是后一天减前一天；“包括首尾共几天”要再加 1，需求里要写明是哪一种。
+        - 时间差直接和整数比较会报 TypeError；.dt.day 是日期的“几号”，不是天数。
+      example:
+        from: py32.k2.e0
+        text: |
+          ```python
+          wait = (tested - collected).dt.days
+          ```
+          3 月 2 日采样、3 月 5 日检测，wait 为 3；3 月 31 日到 4 月 2 日跨了月份，wait 为 2。
+    lesson: |
+      把两列文字都读成日期以后，就可以相减：
+
+      ```python
+      collected = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+      tested = pd.to_datetime(log["tested"], format="%Y-%m-%d")
+      gap = tested - collected
+      ```
+
+      `gap` 的每个值是一个**时间差**，显示成 `3 days` 这样，带着单位。它不是普通的整数：写 `gap > 5` 会报 TypeError。取 `.dt.days` 才得到整数天数，之后才能和数字比较、筛选：
+
+      ```python
+      wait = gap.dt.days
+      ```
+
+      相减时 pandas 按日历算，跨月、跨年、2 月有几天都不用自己数。
+
+      “相隔几天”和“一共几天”差 1。3 月 2 日采样、3 月 5 日检测，相隔 5 − 2 = 3 天；如果说“从采样那天到检测那天，两头都算，一共几天”，是 4 天，要写成 `gap.dt.days + 1`。需求里要写明是哪一种，例如“采样当天算第 0 天”。
+    example:
+      id: py32.k2.e0
+      kind: [predict]
+      data: [pandas, log]
+      body: |
+        想知道每个样本采样后等了几天才检测。阅读代码，填出 `wait` 的值。
+
+        ```python
+        collected = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+        tested = pd.to_datetime(log["tested"], format="%Y-%m-%d")
+        wait = (tested - collected).dt.days
+        ```
+      slots:
+        - id: wait
+          type: table
+          columns:
+            - { id: sample_id, header: sample_id }
+            - { id: collected, header: collected }
+            - { id: tested, header: tested }
+            - { id: wait, header: wait, input: integer }
+          rows:
+            - { id: r0, cells: { sample_id: S_A, collected: "2026-03-02", tested: "2026-03-05", wait: 3 } }
+            - { id: r1, cells: { sample_id: S_B, collected: "2026-03-15", tested: "2026-03-15", wait: 0 } }
+            - { id: r2, cells: { sample_id: S_C, collected: "2026-03-31", tested: "2026-04-02", wait: 2 } }
+            - { id: r3, cells: { sample_id: S_D, collected: "2026-04-01", tested: "2026-04-08", wait: 7 } }
+        - id: span
+          type: text
+          format: integer
+          prompt: S_A 从采样那天到检测那天，两头都算，一共是几天？
+          key: 4
+      explanation: |
+        `wait` 依次为 **3、0、2、7**。S_B 当天采样当天检测，相隔 0 天；S_C 从 3 月 31 日到 4 月 2 日跨了月份，pandas 按日历算出 2 天。`.dt.days` 把每个时间差变成整数。
+
+        S_A 两头都算是 **4** 天（3 月 2、3、4、5 日），比相隔天数多 1。
+      verify: |
+        r = run()
+        wait = r["wait"]
+        answers = {
+            "wait": {f"r{label}": {"wait": value} for label, value in wait.items()},
+            "span": wait.iloc[0] + 1,
+        }
+    practice:
+      - id: py32.k2.q1
+        kind: [debug]
+        data: [pandas, log]
+        body: |
+          要标出等了超过 5 天才检测的样本。
+
+          ```python startLine=1
+          collected = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+          tested = pd.to_datetime(log["tested"], format="%Y-%m-%d")
+          gap = tested - collected
+          late = gap > 5
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行到第 4 行时会怎样？
+            options:
+              - id: values
+                content: "`late` 依次为 False、False、False、True"
+              - id: error
+                content: 报 TypeError：时间差不能直接和整数比较
+              - id: all_false
+                content: "`late` 全是 False"
+            key: error
+          - id: fix
+            type: choice
+            prompt: 第 4 行改成哪一行才对？
+            options:
+              - id: day
+                content: |
+                  ```python
+                  late = gap.dt.day > 5
+                  ```
+                feedback: 时间差没有 .dt.day（那是日期的“几号”），会报 AttributeError。
+              - id: days
+                content: |
+                  ```python
+                  late = gap.dt.days > 5
+                  ```
+              - id: plain
+                content: |
+                  ```python
+                  late = gap.days > 5
+                  ```
+                feedback: 一整列时间差要先写 .dt，才能取 days。
+            key: days
+        explanation: |
+          第 4 行**报 TypeError**：`gap` 里是带单位的时间差，pandas 不知道 5 是 5 天还是 5 秒，所以不让它和整数直接比较。
+
+          改成 `late = gap.dt.days > 5`：先取出整数天数（3、0、2、7），再比较，只有 S_D 是 True。`.dt.day` 是日期的“几号”，时间差没有它；不写 `.dt` 也取不到 days。
+        verify: |
+          import datetime
+          r = run()
+          prelude = "\n".join(CODE.splitlines()[:3]) + "\n"
+          # 用标准库的日期独立算出“超过 5 天”的结果，再挑出与它一致且不报错的那一行。
+          expected = [
+              (datetime.date.fromisoformat(t) - datetime.date.fromisoformat(c)).days > 5
+              for c, t in zip(log["collected"], log["tested"])
+          ]
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              result = run(prelude + line)
+              if result.error is None and list(result["late"]) == expected:
+                  fits.append(option)
+          answers = {"outcome": "error" if r.error == "TypeError" else "other", "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py32.k2.q2
+        kind: [predict, specify]
+        data: [pandas, trials]
+        body: |
+          每次实验从开始那天做到结束那天，两天都做了实验。阅读代码，填出 `gap` 和 `span`。
+
+          ```python
+          start = pd.to_datetime(trials["start"], format="%Y-%m-%d")
+          end = pd.to_datetime(trials["end"], format="%Y-%m-%d")
+          gap = (end - start).dt.days
+          span = gap + 1
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: trial, header: trial }
+              - { id: start, header: start }
+              - { id: end, header: end }
+              - { id: gap, header: gap, input: integer }
+              - { id: span, header: span, input: integer }
+            rows:
+              - { id: r0, cells: { trial: T1, start: "2026-03-30", end: "2026-04-02", gap: 3, span: 4 } }
+              - { id: r1, cells: { trial: T2, start: "2026-04-10", end: "2026-04-10", gap: 0, span: 1 } }
+              - { id: r2, cells: { trial: T3, start: "2026-02-27", end: "2026-03-02", gap: 3, span: 4 } }
+          - id: which
+            type: choice
+            prompt: “这次实验一共做了几天”应该用哪一列回答？
+            options:
+              - { id: gap, content: "`gap`" }
+              - { id: span, content: "`span`" }
+            key: span
+        explanation: |
+          `gap` 依次为 **3、0、3**，`span` 依次为 **4、1、4**。T2 开始和结束是同一天，相隔 0 天，但实验做了 1 天。T3 从 2 月 27 日到 3 月 2 日，2026 年 2 月只有 28 天，pandas 按日历算出相隔 3 天。
+
+          两头都做了实验，问“一共做了几天”要用 **`span`**，也就是相隔天数再加 1。
+        verify: |
+          r = run()
+          gap, span = r["gap"], r["span"]
+          answers = {"values": {f"r{label}": {"gap": gap[label], "span": span[label]} for label in gap.index}}
+        manual: [which]
+      - id: py32.k2.q3
+        kind: [predict]
+        uses: [py17.k2]
+        data: [pandas, log2]
+        body: |
+          阅读代码，说出 `slow` 留下了哪些样本。
+
+          ```python
+          collected = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+          tested = pd.to_datetime(log["tested"], format="%Y-%m-%d")
+          wait = (tested - collected).dt.days
+          slow = log.loc[wait >= 3, ["sample_id"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 按先后顺序排出 `slow` 里的 sample_id，没留下的不要放进来。
+            items:
+              - { id: S_E, content: S_E }
+              - { id: S_F, content: S_F }
+              - { id: S_G, content: S_G }
+              - { id: S_H, content: S_H }
+              - { id: S_I, content: S_I }
+            key: [S_E, S_I]
+        explanation: |
+          `wait` 依次为 3、0、2、1、5：S_E 从 2 月 27 日到 3 月 2 日跨过了只有 28 天的 2 月，是 3 天；S_H 从 3 月 31 日到 4 月 1 日是 1 天。`>= 3` 包含等号，留下 **S_E、S_I**。
+        verify: |
+          answers = {"rows": list(run()["slow"]["sample_id"])}
+    review:
+      - id: py32.k2.r1
+        kind: [specify]
+        data: [pandas, ship]
+        body: |
+          要求是：样品寄出后 **2 天以内**到达实验室算按时，寄出当天算第 0 天，第 2 天到达也算按时。前两行已经写好：
+
+          ```python
+          sent = pd.to_datetime(ship["sent"], format="%Y-%m-%d")
+          arrived = pd.to_datetime(ship["arrived"], format="%Y-%m-%d")
+          ```
+
+          第三行应写成哪一种？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: strict
+                content: |
+                  ```python
+                  on_time = (arrived - sent).dt.days < 2
+                  ```
+              - id: raw
+                content: |
+                  ```python
+                  on_time = (arrived - sent) <= 2
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  on_time = (arrived - sent).dt.days <= 2
+                  ```
+            key: right
+        explanation: |
+          `on_time = (arrived - sent).dt.days <= 2`。五份样品相隔 1、3、2、0、3 天；“第 2 天到达也算按时”要包含等号，P3 才算按时。写成 `< 2` 会把 P3 判成迟到；不取 `.dt.days` 直接拿时间差和 2 比较，会报 TypeError。
+        verify: |
+          import datetime
+          prelude = "\n".join(BLOCKS[0].splitlines()) + "\n"
+          expected = [
+              (datetime.date.fromisoformat(a) - datetime.date.fromisoformat(s)).days <= 2
+              for s, a in zip(ship["sent"], ship["arrived"])
+          ]
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              result = run(prelude + line)
+              if result.error is None and list(result["on_time"]) == expected:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py32.k2.r2
+        kind: [predict]
+        data: [pandas, rain]
+        body: |
+          每次降雨从开始那天下到结束那天，两天都下了雨。阅读代码。
+
+          ```python
+          start = pd.to_datetime(rain["start"], format="%Y-%m-%d")
+          end = pd.to_datetime(rain["end"], format="%Y-%m-%d")
+          gap = (end - start).dt.days
+          rain_days = gap + 1
+          ```
+        slots:
+          - id: e1_gap
+            type: text
+            format: integer
+            prompt: E1 的 `gap` 是多少？
+            key: 5
+          - id: e1_days
+            type: text
+            format: integer
+            prompt: E1 一共下了几天雨（`rain_days`）？
+            key: 6
+          - id: e2_days
+            type: text
+            format: integer
+            prompt: E2 一共下了几天雨？
+            key: 1
+            feedback:
+              - when: 0
+                message: 开始和结束是同一天，相隔 0 天，但这一天下了雨，算 1 天。
+        explanation: |
+          E1 从 6 月 28 日到 7 月 3 日，6 月有 30 天，相隔 **5** 天；两头都下了雨，一共 **6** 天（6 月 28、29、30 日和 7 月 1、2、3 日）。E2 开始和结束是同一天，相隔 0 天，下了 **1** 天雨。
+        verify: |
+          r = run()
+          answers = {"e1_gap": r["gap"].iloc[0], "e1_days": r["rain_days"].iloc[0], "e2_days": r["rain_days"].iloc[1]}
+    quiz:
+      - id: py32.k2.x1
+        kind: [modify]
+        data: [pandas, cages]
+        body: |
+          需求是：
+
+          > `days` 是每只小鼠在代谢笼里的天数，**放入和取出那天都算**，是整数。
+
+          作答框里前两行已经把日期读好了，第三行算出的还不是需求要的值。请改动它并提交，最终结果变量仍叫 `days`。判分时还会换一张表运行你的代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              start = pd.to_datetime(cages["moved_in"], format="%Y-%m-%d")
+              end = pd.to_datetime(cages["moved_out"], format="%Y-%m-%d")
+              days = end - start
+            solution: |
+              start = pd.to_datetime(cages["moved_in"], format="%Y-%m-%d")
+              end = pd.to_datetime(cages["moved_out"], format="%Y-%m-%d")
+              days = (end - start).dt.days + 1
+            rejects:
+              - code: |
+                  start = pd.to_datetime(cages["moved_in"], format="%Y-%m-%d")
+                  end = pd.to_datetime(cages["moved_out"], format="%Y-%m-%d")
+                  days = (end - start).dt.days
+                why: 算的是相隔天数，没有把两头都算上
+              - code: |
+                  start = pd.to_datetime(cages["moved_in"], format="%Y-%m-%d")
+                  end = pd.to_datetime(cages["moved_out"], format="%Y-%m-%d")
+                  days = end.dt.day - start.dt.day + 1
+                why: 只用几号相减，跨月时算错
+              - code: |
+                  start = pd.to_datetime(cages["moved_in"], format="%Y-%m-%d")
+                  end = pd.to_datetime(cages["moved_out"], format="%Y-%m-%d")
+                  days = (end - start).dt.days - 1
+                why: 两头都没算
+            tests:
+              - name: 表 cages
+                expect:
+                  days.tolist(): "[4, 1, 8]"
+              - name: 跨 2 月和跨年的表
+                hidden: true
+                data: [pandas, cages2]
+                expect:
+                  days.tolist(): "[4, 4]"
+        explanation: |
+          ```python
+          days = (end - start).dt.days + 1
+          ```
+
+          `end - start` 是时间差，不是整数，先取 `.dt.days` 得到相隔天数 3、0、7，再加 1 把放入和取出那天都算上，得到 4、1、8。只拿“几号”相减在跨月时会出错，例如 8 月 28 日到 9 月 4 日，4 − 28 是负数。
+      - id: py32.k2.x2
+        kind: [predict]
+        data: [pandas, freezer]
+        body: |
+          阅读代码，回答下面两问。
+
+          ```python
+          frozen = pd.to_datetime(freezer["frozen"], format="%Y-%m-%d")
+          thawed = pd.to_datetime(freezer["thawed"], format="%Y-%m-%d")
+          stored = (thawed - frozen).dt.days
+          ```
+        slots:
+          - id: f1
+            type: text
+            format: integer
+            prompt: F1 的 `stored` 是多少？
+            key: 31
+          - id: f3
+            type: text
+            format: integer
+            prompt: F3 的 `stored` 是多少？
+            key: 0
+        explanation: |
+          F1 从 1 月 30 日冻存到 3 月 2 日解冻：1 月还剩 1 天到 31 日，2026 年 2 月有 28 天，再到 3 月 2 日 2 天，共 **31** 天。pandas 按日历替你算，不用自己数。F3 冻存和解冻是同一天，`stored` 是 **0**。
+        verify: |
+          stored = run()["stored"]
+          answers = {"f1": stored.iloc[0], "f3": stored.iloc[2]}
+
   - id: py32.k3
     title: 按日期区间筛选，明确左右边界
+    card:
+      name: 日期区间
+      aliases: [左闭右开, 日期筛选]
+      definition: 读成日期后可以和 "2026-03-01" 这样的文字比较先后；一段时间用 & 连起两个加了括号的比较，3 月写成 >= 3 月 1 日且 < 4 月 1 日。
+      conditions:
+        - 需求要写明两端那一天算不算；右端写成“小于下个月 1 日”不用记每月几天。
+        - 记录带时刻时，<= "2026-03-31" 只到 3 月 31 日零点，当天下午的记录会漏掉。
+      example:
+        from: py32.k3.e0
+        text: |
+          ```python
+          march = log.loc[(collected >= "2026-03-01") & (collected < "2026-04-01"), ["sample_id"]]
+          ```
+          留下 3 月 2 日、15 日、31 日采的 S_A、S_B、S_C；4 月 1 日采的 S_D 不在 3 月。
+    lesson: |
+      读成日期以后，就能比较先后：`collected >= "2026-03-01"` 对每一行判断“是不是在 3 月 1 日或之后”，得到一列 True/False，右边的文字 pandas 会当作日期来比较。
+
+      一段时间要两个条件同时成立，用 `&` 连起来，每个比较加括号：
+
+      ```python
+      in_march = (collected >= "2026-03-01") & (collected < "2026-04-01")
+      ```
+
+      注意两端写法不同：左端 `>=` 包含 3 月 1 日，右端 `<` 不包含 4 月 1 日。这叫**左闭右开**，表示一个月很方便：不用记 3 月有 31 天，换成 2 月也照样写“小于 3 月 1 日”。
+
+      还有一个理由：有的记录带时刻，例如 `2026-03-31 14:20`。`"2026-03-31"` 当作日期时是 3 月 31 日零点，所以 `<= "2026-03-31"` 会漏掉 3 月 31 日下午的记录，而 `< "2026-04-01"` 不会。
+
+      不管怎样写，需求里都要说清两端那一天算不算，例如“3 月 1 日（含）到 4 月 1 日（不含）”。
+    example:
+      id: py32.k3.e0
+      kind: [predict]
+      uses: [py18.k1, py18.k2, py17.k2]
+      data: [pandas, log]
+      body: |
+        只要 3 月采的样本。阅读代码。
+
+        ```python
+        collected = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+        march = log.loc[(collected >= "2026-03-01") & (collected < "2026-04-01"), ["sample_id"]]
+        ```
+      slots:
+        - id: rows
+          type: order
+          partial: true
+          prompt: 按先后顺序排出 `march` 里的 sample_id。
+          items:
+            - { id: S_A, content: S_A }
+            - { id: S_B, content: S_B }
+            - { id: S_C, content: S_C }
+            - { id: S_D, content: S_D }
+          key: [S_A, S_B, S_C]
+        - id: why
+          type: choice
+          prompt: S_D 是 4 月 1 日采的，它为什么不在结果里？
+          options:
+            - id: strict
+              content: "右端写的是 `<`，不包含 4 月 1 日"
+            - id: left
+              content: "左端写的是 `>=`，把它排除了"
+            - id: format
+              content: 它的日期读不了
+          key: strict
+      explanation: |
+        留下 **S_A、S_B、S_C**（3 月 2 日、15 日、31 日）。S_D 是 4 月 1 日，右端的 `<` 不包含这一天，所以没有留下。3 月 31 日的 S_C 留下了，不用另外写“小于等于 3 月 31 日”。
+      verify: |
+        march = run()["march"]
+        answers = {"rows": list(march["sample_id"])}
+      manual: [why]
+    practice:
+      - id: py32.k3.q1
+        kind: [predict]
+        uses: [py18.k1, py18.k2]
+        data: [pandas, visits]
+        body: |
+          要标出 3 月 15 日到 3 月 31 日（两天都算）之间的采样。阅读代码，填写 `in_window` 的值。
+
+          ```python
+          d = pd.to_datetime(visits["day"], format="%Y-%m-%d")
+          in_window = (d >= "2026-03-15") & (d <= "2026-03-31")
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: visit, header: visit }
+              - { id: day, header: day }
+              - { id: in_window, header: in_window, input: bool }
+            rows:
+              - { id: r0, cells: { visit: V1, day: "2026-03-14", in_window: false } }
+              - { id: r1, cells: { visit: V2, day: "2026-03-15", in_window: true } }
+              - { id: r2, cells: { visit: V3, day: "2026-03-20", in_window: true } }
+              - { id: r3, cells: { visit: V4, day: "2026-03-31", in_window: true } }
+              - { id: r4, cells: { visit: V5, day: "2026-04-01", in_window: false } }
+        explanation: |
+          依次为 **False、True、True、True、False**。两端都写了等号，3 月 15 日和 3 月 31 日都算；3 月 14 日早于左端，4 月 1 日晚于右端。这张表只有日期、没有时刻，所以 `<= "2026-03-31"` 不会漏掉 3 月 31 日。
+        verify: |
+          mask = run()["in_window"]
+          answers = {"mask": {f"r{label}": {"in_window": bool(value)} for label, value in mask.items()}}
+      - id: py32.k3.q2
+        kind: [debug]
+        uses: [py18.k2]
+        data: [pandas, log]
+        body: |
+          下面的代码想标出 3 月采的样本。
+
+          ```python startLine=1
+          collected = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+          in_march = collected >= "2026-03-01" & collected < "2026-04-01"
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行到第 2 行时会怎样？
+            options:
+              - id: right
+                content: 得到 True、True、True、False
+              - id: first
+                content: 只按第一个条件判断，得到 True、True、True、True
+              - id: error
+                content: 报 TypeError
+            key: error
+          - id: fix
+            type: choice
+            prompt: 第 2 行改成哪一行才对？
+            options:
+              - id: and
+                content: |
+                  ```python
+                  in_march = (collected >= "2026-03-01") and (collected < "2026-04-01")
+                  ```
+                feedback: and 只能连接两个单独的 True/False；一整列要用 &。
+              - id: paren
+                content: |
+                  ```python
+                  in_march = (collected >= "2026-03-01") & (collected < "2026-04-01")
+                  ```
+              - id: or
+                content: |
+                  ```python
+                  in_march = (collected >= "2026-03-01") | (collected < "2026-04-01")
+                  ```
+                feedback: "| 表示两个条件满足一个就行，每一行都会是 True。"
+            key: paren
+        explanation: |
+          第 2 行**报 TypeError**。`&` 比 `>=`、`<` 先算，Python 先去算 `"2026-03-01" & collected`，文字和一列日期没法做 `&`。
+
+          给每个比较加上括号，写成 `(collected >= "2026-03-01") & (collected < "2026-04-01")`，得到 True、True、True、False。换成 `and` 会报错，因为它只能连接两个单独的 True/False；换成 `|` 则每一行都满足其中一个条件。
+        verify: |
+          import datetime
+          r = run()
+          prelude = CODE.splitlines()[0] + "\n"
+          lo, hi = datetime.date(2026, 3, 1), datetime.date(2026, 4, 1)
+          expected = [lo <= datetime.date.fromisoformat(day) < hi for day in log["collected"]]
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              result = run(prelude + line)
+              if result.error is None and list(result["in_march"]) == expected:
+                  fits.append(option)
+          answers = {"outcome": "error" if r.error == "TypeError" else "other", "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py32.k3.q3
+        kind: [predict, explain]
+        uses: [py18.k1, py18.k2, py17.k2]
+        data: [pandas, readings]
+        body: |
+          这张表的时间带时刻，格式是“年-月-日 时:分”，所以 format 多了 `%H:%M`（时和分）。两种写法都想留下 3 月的读数。
+
+          ```python
+          t = pd.to_datetime(readings["time"], format="%Y-%m-%d %H:%M")
+          a = readings.loc[(t >= "2026-03-01") & (t <= "2026-03-31"), ["reading_id"]]
+          b = readings.loc[(t >= "2026-03-01") & (t < "2026-04-01"), ["reading_id"]]
+          ```
+        slots:
+          - id: a_rows
+            type: text
+            format: integer
+            prompt: "`a` 有几行？"
+            key: 1
+          - id: b_rows
+            type: text
+            format: integer
+            prompt: "`b` 有几行？"
+            key: 3
+          - id: right
+            type: choice
+            prompt: 哪一种写法留下了全部 3 月的读数？
+            options:
+              - { id: a, content: "`a` 的写法" }
+              - { id: b, content: "`b` 的写法" }
+            key: b
+        explanation: |
+          `a` 只有 **1** 行，`b` 有 **3** 行。`"2026-03-31"` 当作时刻是 3 月 31 日 0 点，D2（8:00）和 D3（14:20）都晚于它，被 `<= "2026-03-31"` 漏掉了。**`b` 的写法**用“小于 4 月 1 日”，3 月 31 日一整天都在里面，D4（4 月 1 日 6:00）不在。
+        verify: |
+          import datetime
+          r = run()
+          # 用标准库独立判断哪些读数在 3 月：月份为 3 的就是。
+          in_march = [datetime.datetime.strptime(t, "%Y-%m-%d %H:%M").month == 3 for t in readings["time"]]
+          march_ids = [rid for rid, ok in zip(readings["reading_id"], in_march) if ok]
+          complete = [name for name in ("a", "b") if list(r[name]["reading_id"]) == march_ids]
+          answers = {"a_rows": len(r["a"]), "b_rows": len(r["b"]), "right": complete[0] if len(complete) == 1 else complete}
+    review:
+      - id: py32.k3.r1
+        kind: [specify]
+        uses: [py18.k1, py18.k2]
+        data: [pandas, quarter]
+        body: |
+          需求是：只要第二季度的采样，也就是 4 月 1 日到 6 月 30 日，**两天都算**。日期已经读好了：
+
+          ```python
+          d = pd.to_datetime(q["day"], format="%Y-%m-%d")
+          ```
+
+          标出第二季度的那一行应写成哪一种？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: open_left
+                content: |
+                  ```python
+                  keep = (d > "2026-04-01") & (d < "2026-07-01")
+                  ```
+              - id: either
+                content: |
+                  ```python
+                  keep = (d >= "2026-04-01") | (d < "2026-07-01")
+                  ```
+              - id: short
+                content: |
+                  ```python
+                  keep = (d >= "2026-04-01") & (d < "2026-06-30")
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  keep = (d >= "2026-04-01") & (d < "2026-07-01")
+                  ```
+            key: right
+        explanation: |
+          `(d >= "2026-04-01") & (d < "2026-07-01")`：左端包含 4 月 1 日，右端“小于 7 月 1 日”正好把 6 月 30 日包括进来，留下 G2、G3、G4。`d > "2026-04-01"` 漏掉 4 月 1 日；`d < "2026-06-30"` 漏掉 6 月 30 日；用 `|` 时每一行都满足其中一个条件，什么也没筛掉。
+        verify: |
+          import datetime
+          prelude = BLOCKS[0] + "\n"
+          lo, hi = datetime.date(2026, 4, 1), datetime.date(2026, 6, 30)
+          expected = [lo <= datetime.date.fromisoformat(day) <= hi for day in q["day"]]
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              result = run(prelude + line)
+              if result.error is None and list(result["keep"]) == expected:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py32.k3.r2
+        kind: [predict]
+        uses: [py18.k1, py18.k2, py17.k2]
+        data: [pandas, weekly]
+        body: |
+          要找出**不在** 5 月第一周（5 月 1 日（含）到 5 月 8 日（不含））采样的点。阅读代码。
+
+          ```python
+          d = pd.to_datetime(soil["sampled"], format="%Y-%m-%d")
+          outside = soil.loc[~((d >= "2026-05-01") & (d < "2026-05-08")), ["site"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 按先后顺序排出 `outside` 里的采样点，没留下的不要放进来。
+            items:
+              - { id: n, content: 北坡 }
+              - { id: s, content: 南坡 }
+              - { id: e, content: 东坡 }
+              - { id: w, content: 西坡 }
+              - { id: v, content: 谷底 }
+            key: [n, w]
+        explanation: |
+          括号里的条件标出 5 月 1 日到 5 月 7 日的采样：南坡、东坡、谷底。`~` 把它反过来，留下**北坡**（4 月 30 日）和**西坡**（5 月 8 日）。5 月 8 日在右端，`<` 不包含它，所以它不在第一周里。
+        verify: |
+          ids = {"北坡": "n", "南坡": "s", "东坡": "e", "西坡": "w", "谷底": "v"}
+          answers = {"rows": [ids[site] for site in run()["outside"]["site"]]}
+    quiz:
+      - id: py32.k3.x1
+        kind: [modify]
+        uses: [py18.k1, py18.k2, py17.k2]
+        data: [pandas, log]
+        body: |
+          需求是：
+
+          > 留下采样日期在 `start`（含）到 `end`（不含）之间的样本，只输出 sample_id 一列，结果仍是一张表，保留原行顺序和原索引。
+
+          宿主另外提供了 `start` 和 `end` 两个变量，是“年-月-日”写法的文字，例如 `start = "2026-03-15"`、`end = "2026-04-01"`；换一次分析可以取别的值。作答框里的代码两端都写反了，请改动它并提交，最终结果变量仍叫 `result`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              d = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+              result = log.loc[(d > start) & (d <= end), ["sample_id"]]
+            solution: |
+              d = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+              result = log.loc[(d >= start) & (d < end), ["sample_id"]]
+            accepts:
+              - |
+                d = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+                mask = (d >= start) & (d < end)
+                result = log.loc[mask, ["sample_id"]]
+            rejects:
+              - code: |
+                  d = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+                  result = log.loc[(d >= start) & (d <= end), ["sample_id"]]
+                why: 右端包含了 end 那一天
+              - code: |
+                  d = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+                  result = log.loc[(d > start) & (d < end), ["sample_id"]]
+                why: 左端漏掉了 start 那一天
+              - code: |
+                  d = pd.to_datetime(log["collected"], format="%Y-%m-%d")
+                  result = log.loc[(d >= "2026-03-15") & (d < "2026-04-01"), ["sample_id"]]
+                why: 把日期写死了
+            tests:
+              - name: 3 月 15 日到 4 月 1 日
+                setup: |
+                  start = "2026-03-15"
+                  end = "2026-04-01"
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_B", "S_C"]}, index=[1, 2])'
+                  log: log
+              - name: 换一段时间
+                hidden: true
+                setup: |
+                  start = "2026-03-02"
+                  end = "2026-03-31"
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_A", "S_B"]}, index=[0, 1])'
+              - name: 换一张表
+                hidden: true
+                data: [pandas, log2]
+                setup: |
+                  start = "2026-03-01"
+                  end = "2026-03-31"
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_F", "S_G"]}, index=[1, 2])'
+        explanation: |
+          ```python
+          result = log.loc[(d >= start) & (d < end), ["sample_id"]]
+          ```
+
+          左端“含”写 `>=`，右端“不含”写 `<`。本例 start 是 3 月 15 日、end 是 4 月 1 日，留下 S_B（3 月 15 日，正好在左端）和 S_C（3 月 31 日）；S_D 是 4 月 1 日，正好在右端，不留下。
+      - id: py32.k3.x2
+        kind: [predict]
+        uses: [py18.k1, py18.k2]
+        data: [pandas, week]
+        body: |
+          要数出 3 月 9 日（含）到 3 月 16 日（不含）这一周的观测有几次。阅读代码。
+
+          ```python
+          d = pd.to_datetime(obs["day"], format="%Y-%m-%d")
+          in_week = (d >= "2026-03-09") & (d < "2026-03-16")
+          print(in_week.sum())
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示哪个整数？
+            key: 3
+          - id: o4
+            type: choice
+            prompt: O4（3 月 16 日）算不算在这一周里？
+            options:
+              - { id: "yes", content: 算 }
+              - { id: "no", content: 不算 }
+            key: "no"
+        explanation: |
+          显示 **3**：O2（3 月 9 日）、O3（3 月 12 日）、O5（3 月 15 日）。`in_week.sum()` 数的是 True 的个数。O1 早于左端；O4 的 3 月 16 日正好是右端，`<` **不算**它；O6 更晚。
+        verify: |
+          r = run()
+          answers = {"output": int(r.out), "o4": "yes" if bool(r["in_week"][obs["obs_id"] == "O4"].iloc[0]) else "no"}
