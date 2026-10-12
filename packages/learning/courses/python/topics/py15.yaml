@@ -1,7 +1,8 @@
 id: py15
 title: 读入 CSV，先确认没有读错
-status: outline
+status: complete
 minutes: 20
+summary: '用 read_csv 的路径、sep 和 encoding 把文件读对；用 dtype={"列名": "str"} 保住编号的前导零；读完核对列名、行数和前几行。'
 prerequisites:
   - topic: py14
     key: true
@@ -20,13 +21,1386 @@ sources:
     where: 入门教程：表格读写
     url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/02_read_write.html
     use: reference
+  - source: pandas-docs
+    where: API：pandas.read_csv 的 sep、encoding、dtype 参数
+    url: https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html
+    use: reference
 notes: |
   建议题型与判分：找错（P）、小改代码（T）、写清需求（S/O）。
   出现 `dtype={"id": "str"}` 时，就地说明“把列名映射到读入类型”这一固定配置，只读写这一种形式；完整的字典行为由 py37 承担。
+  范围：read_csv 只讲路径、sep、encoding、dtype 四样；header=None、names、skiprows、skipinitialspace 这些修补参数不讲，k3 只要求认出读错并说清楚。不讲 to_csv（py34）。
+  题目用的 CSV 由 python 夹具在运行环境里写出（核对时是 Pyodide 的内存文件系统），题面通过 display 显示文件内容；每道题用不同的文件名，因为同一个 topic 的核对共用一个解释器，文件会留到后面的题。夹具里同时 import pandas as pd，对应“宿主已经导入 pandas”。代码题的隐藏测试换一份内容不同、路径相同的文件。
+  GBK 文件用来代表中文 Windows 上 Excel 另存的 CSV；gb18030、cp936 也能读，代码题按读出的结果判，不限定写法。Windows 路径里的 \U 会让字符串字面量成为语法错误，只在 k1.r2 出现，用 compile 核对。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 5 分钟；k2 讲解与例题 2 分钟、练习 4 分钟；k3 讲解与例题 2 分钟、练习 3 分钟。
+  文件内容、讲解和题目为本课自拟。
+intro: |
+  这一节把文件读成表。题目会先显示文件的内容，也就是用记事本打开看到的样子；宿主已经运行了 `import pandas as pd`，并把文件放在了题目说的位置。
+
+  读文件最怕的不是报错，而是没报错却读错了。所以每次读完，都要核对一下读出来的表。
+wrapup: |
+  读一个 CSV，先说清四件事：文件在哪里（路径）、用什么隔开（sep）、按什么编码存的（encoding）、哪些编号列要按文字读（dtype）。读完马上核对列名、行数和前几行。
+
+  请别人或 AI 写读入代码时，可以把这几件事和核对结果一起写进要求，例如：“data/plates.csv，分号分隔，GBK 编码，well 和 batch 按文字读；读入后应有 96 行、5 列。”
+data:
+  semi:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("samples.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id;signal;group\nS_A;8;control\nS_B;10;drug\nS_C;13;drug\n")
+    display: |
+      文件 samples.csv 的内容：
+
+      ```text
+      sample_id;signal;group
+      S_A;8;control
+      S_B;10;drug
+      S_C;13;drug
+      ```
+  tabs:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("plate.tsv", "w", encoding="utf-8") as f:
+          f.write("well\tcount\nA1\t120\nA2\t98\nB1\t143\n")
+    display: |
+      文件 plate.tsv 的内容，同一行的值之间是一个制表符（Tab 键）：
+
+      ```text
+      well	count
+      A1	120
+      A2	98
+      B1	143
+      ```
+  gbk:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("groups.csv", "w", encoding="gbk") as f:
+          f.write("编号,组别,信号\nS_A,对照,8\nS_B,用药,10\nS_C,用药,13\n")
+    display: |
+      文件 groups.csv 是在中文 Windows 上用 Excel 另存的，编码是 GBK。内容：
+
+      ```text
+      编号,组别,信号
+      S_A,对照,8
+      S_B,用药,10
+      S_C,用药,13
+      ```
+  data_plates:
+    kind: python
+    code: |
+      import os
+      import pandas as pd
+      os.makedirs("data", exist_ok=True)
+      with open("data/plates.csv", "w", encoding="gbk") as f:
+          f.write("孔位;计数;处理\nA1;120;对照\nA2;98;用药\nB1;143;对照\n")
+    display: |
+      程序运行的文件夹里有一个 data 文件夹，plates.csv 在 data 里面。它用分号隔开，编码是 GBK。内容：
+
+      ```text
+      孔位;计数;处理
+      A1;120;对照
+      A2;98;用药
+      B1;143;对照
+      ```
+  data_plates2:
+    kind: python
+    code: |
+      import os
+      import pandas as pd
+      os.makedirs("data", exist_ok=True)
+      with open("data/plates.csv", "w", encoding="gbk") as f:
+          f.write("孔位;计数;处理\nC1;77;用药\nC2;150;对照\nD1;64;用药\nD2;101;对照\n")
+  sites:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("sites.csv", "w", encoding="utf-8") as f:
+          f.write("site,depth\n北坡,30\n南坡,25\n东坡,35\n")
+    display: |
+      文件 sites.csv 的内容：
+
+      ```text
+      site,depth
+      北坡,30
+      南坡,25
+      东坡,35
+      ```
+  survey:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("survey.csv", "w", encoding="gbk") as f:
+          f.write("样方;物种;株数\nQ1;蒲公英;4\nQ1;车前草;2\nQ2;狗尾草;7\n")
+    display: |
+      文件 survey.csv 用分号隔开，编码是 GBK。内容：
+
+      ```text
+      样方;物种;株数
+      Q1;蒲公英;4
+      Q1;车前草;2
+      Q2;狗尾草;7
+      ```
+  assays:
+    kind: python
+    code: |
+      import os
+      import pandas as pd
+      os.makedirs("data", exist_ok=True)
+      with open("data/assays.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id,signal\nS_A,8\nS_B,10\n")
+    display: |
+      程序运行的文件夹叫 project，里面有一个 data 文件夹，assays.csv 在 data 里面：
+
+      ```text
+      project/
+          data/
+              assays.csv
+      ```
+  ids:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("ids.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id,signal\n001,8\n002,10\n010,13\n")
+    display: |
+      文件 ids.csv 的内容：
+
+      ```text
+      sample_id,signal
+      001,8
+      002,10
+      010,13
+      ```
+  batches:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("batches.csv", "w", encoding="utf-8") as f:
+          f.write("well,batch,count\nA1,07,120\nA2,07,98\nB1,12,143\n")
+    display: |
+      文件 batches.csv 的内容：
+
+      ```text
+      well,batch,count
+      A1,07,120
+      A2,07,98
+      B1,12,143
+      ```
+  records:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("records.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id,batch,signal\n001,07,8\n002,07,10\n010,12,13\n")
+    display: |
+      文件 records.csv 的内容：
+
+      ```text
+      sample_id,batch,signal
+      001,07,8
+      002,07,10
+      010,12,13
+      ```
+  records2:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("records.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id,batch,signal\n0105,003,21\n0107,003,19\n0110,004,25\n0200,004,30\n")
+  stations:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("stations.csv", "w", encoding="utf-8") as f:
+          f.write("station,zip,count\n北站,010020,5\n南站,100871,3\n")
+    display: |
+      文件 stations.csv 的内容，zip 是邮政编码：
+
+      ```text
+      station,zip,count
+      北站,010020,5
+      南站,100871,3
+      ```
+  patients:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("patients.csv", "w", encoding="utf-8") as f:
+          f.write("patient_id,visit,dose\n0042,1,10\n0042,2,10\n0107,1,15\n")
+    display: |
+      文件 patients.csv 的内容：
+
+      ```text
+      patient_id,visit,dose
+      0042,1,10
+      0042,2,10
+      0107,1,15
+      ```
+  patients2:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("patients.csv", "w", encoding="utf-8") as f:
+          f.write("patient_id,visit,dose\n0009,1,5\n0090,1,5\n0900,2,20\n")
+  wells:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("wells.csv", "w", encoding="utf-8") as f:
+          f.write("well,batch,count\n01,007,120\n02,007,98\n03,012,143\n")
+    display: |
+      文件 wells.csv 的内容：
+
+      ```text
+      well,batch,count
+      01,007,120
+      02,007,98
+      03,012,143
+      ```
+  noheader:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("batch2.csv", "w", encoding="utf-8") as f:
+          f.write("S_A,8,control\nS_B,10,drug\nS_C,13,drug\nS_D,10,control\n")
+    display: |
+      同事导出的 batch2.csv 一共 4 行，内容：
+
+      ```text
+      S_A,8,control
+      S_B,10,drug
+      S_C,13,drug
+      S_D,10,control
+      ```
+
+      按约定，这三列应当是 sample_id、signal、group。
+  spaced:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("spaced.csv", "w", encoding="utf-8") as f:
+          f.write("sample_id, signal, group\nS_A,8,control\nS_B,10,drug\n")
+    display: |
+      文件 spaced.csv 的内容，第一行的逗号后面各有一个空格：
+
+      ```text
+      sample_id, signal, group
+      S_A,8,control
+      S_B,10,drug
+      ```
+  quadrats:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("quadrats.csv", "w", encoding="utf-8") as f:
+          f.write("plot,species,count\nQ01,蒲公英,4\nQ01,车前草,2\nQ02,狗尾草,7\nQ03,蒲公英,3\nQ03,狗尾草,5\n")
+    display: |
+      文件 quadrats.csv 的内容：
+
+      ```text
+      plot,species,count
+      Q01,蒲公英,4
+      Q01,车前草,2
+      Q02,狗尾草,7
+      Q03,蒲公英,3
+      Q03,狗尾草,5
+      ```
+  week2:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("week2.csv", "w", encoding="utf-8") as f:
+          f.write("R01,42,ok\nR02,38,ok\nR03,51,fail\nR04,40,ok\nR05,45,ok\nR06,36,fail\n")
+    display: |
+      文件 week2.csv 一共 6 行，每行是一次仪器运行的编号、时长和状态：
+
+      ```text
+      R01,42,ok
+      R02,38,ok
+      R03,51,fail
+      R04,40,ok
+      R05,45,ok
+      R06,36,fail
+      ```
+  depths:
+    kind: python
+    code: |
+      import pandas as pd
+      with open("depths.csv", "w", encoding="utf-8") as f:
+          f.write("site,Depth \n北坡,30\n南坡,25\n东坡,35\n西坡,30\n")
+    display: |
+      文件 depths.csv 的内容（第一行末尾 Depth 后面有一个空格，记事本里看不出来）：
+
+      ```text
+      site,Depth
+      北坡,30
+      南坡,25
+      东坡,35
+      西坡,30
+      ```
 kps:
   - id: py15.k1
     title: read_csv 的路径、分隔符和编码
+    card:
+      name: read_csv
+      aliases: [读入 CSV, sep, encoding, 路径]
+      definition: "`pd.read_csv(路径, sep=分隔符, encoding=编码)` 按路径找到文件，用 sep 把每行切成列，用 encoding 把文件里的字节解读成文字，得到一张表；sep 默认是逗号，encoding 默认是 UTF-8。"
+      conditions:
+        - 分隔符不对时不报错，整行挤成一列：列数是 1，列名里还带着分号或制表符。
+        - 中文 Windows 上 Excel 另存的 CSV 常是 GBK 编码，按默认的 UTF-8 读会报 UnicodeDecodeError，要写 encoding="gbk"。
+      example:
+        from: py15.k1.e0
+        text: |
+          samples.csv 用分号隔开。`pd.read_csv("samples.csv")` 读成 3 行 1 列，列名是一整串 sample_id;signal;group；加上 `sep=";"` 才是 3 列。
+    lesson: |
+      CSV 是用纯文字存的表格：一行是一条记录，同一行的值用分隔符隔开，第一行通常是列名。用 pandas 的 read_csv 把它读成一张表：
+
+      ```python
+      df = pd.read_csv("data/samples.csv")
+      ```
+
+      读之前要说清三件事。
+
+      **路径**：第一个参数，文件在哪里。`"data/samples.csv"` 是相对路径：从程序运行的文件夹出发，进入 data 文件夹，找 samples.csv。路径写错、或者文件不在那里，报 FileNotFoundError。
+
+      Windows 上复制来的完整路径带反斜杠，例如 `C:\Users\wang\samples.csv`。直接放进引号里不行：引号里的 `\U` 这类组合对 Python 有特殊含义，会报语法错误。改成正斜杠 `"C:/Users/wang/samples.csv"`，或者在引号前加一个 r：`r"C:\Users\wang\samples.csv"`。
+
+      **分隔符 sep**：默认是逗号。有的文件用分号（不少欧洲语言版本的 Excel 这样存）或制表符隔开，要写 `sep=";"` 或 `sep="\t"`（`\t` 代表制表符）。分隔符不对，read_csv **不会报错**，而是把整行当成一个值：表只剩一列，列名是 `sample_id;signal;group` 这样一整串。
+
+      **编码 encoding**：文件里的中文是按某种编码存成字节的，read_csv 默认按 UTF-8 解读。中文 Windows 上 Excel 另存的 CSV 常常是 GBK 编码，按默认方式读会报 UnicodeDecodeError，写 `encoding="gbk"` 让它按 GBK 解读。
+
+      sep 和 encoding 都是[关键字参数](repa:concept/py04.k2)，可以一起写，先后不限：
+
+      ```python
+      df = pd.read_csv("data/plates.csv", sep=";", encoding="gbk")
+      ```
+
+      读完先看 `df.shape` 和 `list(df.columns)`：列数和列名对了，分隔符就对了。
+    example:
+      id: py15.k1.e0
+      kind: [predict, debug]
+      data: [semi]
+      body: |
+        ```python
+        df = pd.read_csv("samples.csv")
+        print(df.shape)
+        ```
+      slots:
+        - id: nrows
+          type: text
+          format: integer
+          prompt: 读进来的表有几行？
+          key: 3
+        - id: ncols
+          type: text
+          format: integer
+          prompt: 有几列？
+          key: 1
+        - id: fix
+          type: choice
+          prompt: 要读成 sample_id、signal、group 三列，第 1 行应改成哪一种？
+          options:
+            - id: comma
+              content: |
+                ```python
+                df = pd.read_csv("samples.csv", sep=",")
+                ```
+            - id: semicolon
+              content: |
+                ```python
+                df = pd.read_csv("samples.csv", sep=";")
+                ```
+            - id: encoding
+              content: |
+                ```python
+                df = pd.read_csv("samples.csv", encoding="gbk")
+                ```
+          key: semicolon
+      explanation: |
+        文件用分号隔开，read_csv 默认按逗号切分。整行里一个逗号也没有，于是每行成了一个值：表有 **3** 行、**1** 列，列名是一整串 `sample_id;signal;group`。这时程序不报错，只有看 shape 或列名才会发现。
+
+        改成 **`sep=";"`** 就读成了 3 列。`sep=","` 就是默认值，结果不变；编码和这个问题无关。
+      verify: |
+        r = run()
+        lines = CODE.splitlines()
+        fits = [option for option, line in OPTIONS["fix"].items()
+                if run(line).error is None and list(run(line)["df"].columns) == ["sample_id", "signal", "group"]]
+        answers = {"nrows": r["df"].shape[0], "ncols": r["df"].shape[1], "fix": fits[0] if len(fits) == 1 else fits}
+    practice:
+      - id: py15.k1.q1
+        kind: [debug]
+        data: [tabs]
+        body: |
+          ```python
+          plate = pd.read_csv("plate.tsv")
+          ```
+        slots:
+          - id: ncols
+            type: text
+            format: integer
+            prompt: 读进来的表有几列？
+            key: 1
+          - id: fix
+            type: choice
+            prompt: 应改成哪一种？
+            options:
+              - id: tab
+                content: |
+                  ```python
+                  plate = pd.read_csv("plate.tsv", sep="\t")
+                  ```
+              - id: space
+                content: |
+                  ```python
+                  plate = pd.read_csv("plate.tsv", sep=" ")
+                  ```
+              - id: word
+                content: |
+                  ```python
+                  plate = pd.read_csv("plate.tsv", sep="tab")
+                  ```
+            key: tab
+        explanation: |
+          文件用制表符隔开，按默认的逗号切分，每行都切不开，只有 **1** 列。
+
+          制表符在引号里写成 **`"\t"`**。看起来像空格，但它不是空格，`sep=" "` 切不开；写成英文单词 `"tab"`，read_csv 会去找“tab”这三个字母，同样切不开。
+        verify: |
+          fits = [option for option, line in OPTIONS["fix"].items()
+                  if run(line).error is None and list(run(line)["plate"].columns) == ["well", "count"]]
+          answers = {"ncols": run()["plate"].shape[1], "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py15.k1.q2
+        kind: [debug]
+        data: [gbk]
+        body: |
+          ```python
+          groups = pd.read_csv("groups.csv")
+          ```
+
+          运行时报错，最后一行是：
+
+          ```text
+          UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb1 in position 0: invalid start byte
+          ```
+        slots:
+          - id: cause
+            type: choice
+            prompt: 问题出在哪里？
+            options:
+              - { id: path, content: 路径不对，找不到文件 }
+              - { id: encoding, content: 文件是 GBK 编码，read_csv 按默认的 UTF-8 去解读 }
+              - { id: sep, content: 分隔符不对 }
+            key: encoding
+          - id: fix
+            type: choice
+            prompt: 应改成哪一种？
+            options:
+              - id: gbk
+                content: |
+                  ```python
+                  groups = pd.read_csv("groups.csv", encoding="gbk")
+                  ```
+              - id: sep_gbk
+                content: |
+                  ```python
+                  groups = pd.read_csv("groups.csv", sep="gbk")
+                  ```
+              - id: utf8
+                content: |
+                  ```python
+                  groups = pd.read_csv("groups.csv", encoding="utf-8")
+                  ```
+            key: gbk
+        explanation: |
+          UnicodeDecodeError 说的是：按 'utf-8' 解读文件里的字节时，碰到了解读不了的字节。文件找到了（否则是 FileNotFoundError），分隔符的问题也不会报这个错；问题是**文件按 GBK 存、却按 UTF-8 读**。
+
+          改成 **`encoding="gbk"`**。编码要写给 encoding，写给 sep 没有用；`encoding="utf-8"` 就是默认值，结果不变。
+        verify: |
+          r = run()
+          cause = {"UnicodeDecodeError": "encoding", "FileNotFoundError": "path"}.get(r.error, "sep")
+          fits = [option for option, line in OPTIONS["fix"].items()
+                  if run(line).error is None and list(run(line)["groups"].columns) == ["编号", "组别", "信号"]]
+          answers = {"cause": cause, "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py15.k1.q3
+        kind: [modify]
+        uses: [py04.k2]
+        data: [data_plates]
+        body: |
+          要求：把 data 文件夹里的 plates.csv 读成一张表，存进 `plates`，三列依次是孔位、计数、处理。
+
+          作答框里的代码报 FileNotFoundError。改动它，让读出来的表正确。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              plates = pd.read_csv("plates.csv")
+            solution: |
+              plates = pd.read_csv("data/plates.csv", sep=";", encoding="gbk")
+            accepts:
+              - plates = pd.read_csv("data/plates.csv", encoding="gbk", sep=";")
+              - plates = pd.read_csv("data/plates.csv", sep=";", encoding="gb18030")
+            rejects:
+              - code: plates = pd.read_csv("data/plates.csv", encoding="gbk")
+                why: 只改了路径和编码，没写分号分隔，读成一列
+              - code: plates = pd.read_csv("data/plates.csv", sep=";")
+                why: 没写编码，按 UTF-8 读 GBK 文件报错
+              - code: plates = pd.read_csv("plates.csv", sep=";", encoding="gbk")
+                why: 路径没改，文件在 data 文件夹里
+            tests:
+              - name: 读出三列三行
+                expect:
+                  plates.shape: "(3, 3)"
+                  list(plates.columns): '["孔位", "计数", "处理"]'
+                  list(plates["计数"]): "[120, 98, 143]"
+              - name: 换一份同样格式的文件
+                hidden: true
+                data: [data_plates2]
+                expect:
+                  plates.shape: "(4, 3)"
+                  list(plates.columns): '["孔位", "计数", "处理"]'
+                  list(plates["孔位"]): '["C1", "C2", "D1", "D2"]'
+        explanation: |
+          三处都要说清：路径带上 data 文件夹，分号分隔，GBK 编码。
+
+          ```python
+          plates = pd.read_csv("data/plates.csv", sep=";", encoding="gbk")
+          ```
+
+          sep 和 encoding 都是关键字参数，谁先谁后都可以。只改一两处，要么还是报错，要么不报错却读成一列。
+    review:
+      - id: py15.k1.r1
+        kind: [predict]
+        data: [sites]
+        body: |
+          同事上次读的文件是分号分隔的，这次照抄了那一行代码，只改了文件名。
+
+          ```python
+          sites = pd.read_csv("sites.csv", sep=";")
+          ```
+        slots:
+          - id: result
+            type: choice
+            prompt: 运行结果是什么？
+            options:
+              - { id: error, content: 报错，因为文件里没有分号 }
+              - { id: one_column, content: "不报错，读成 3 行 1 列，列名是 site,depth" }
+              - { id: right, content: 不报错，读成 3 行 2 列 }
+            key: one_column
+          - id: ncols
+            type: text
+            format: integer
+            prompt: "`sites.shape` 的第二个数是多少？"
+            key: 1
+        explanation: |
+          这个文件用逗号隔开，却让 read_csv 按分号切分。行里一个分号也没有，整行成了一个值：**不报错**，读成 3 行 **1** 列，列名是一整串 `site,depth`。
+
+          分隔符不对时 read_csv 不会提醒你，所以读完要看列数和列名。
+        verify: |
+          r = run()
+          table = r["sites"]
+          result = "error" if r.error else "one_column" if table.shape[1] == 1 and list(table.columns) == ["site,depth"] else "right"
+          answers = {"result": result, "ncols": table.shape[1]}
+      - id: py15.k1.r2
+        kind: [debug]
+        body: |
+          AI 给的代码里，路径是从 Windows 的资源管理器复制的：
+
+          ```python
+          df = pd.read_csv("C:\Users\wang\samples.csv")
+          ```
+
+          运行时报语法错误：`SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes ...`
+        slots:
+          - id: fixes
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 改成下面哪几种写法，可以消除这个错误、仍然指向同一个文件？选出所有可以的。
+            options:
+              - id: forward
+                content: |
+                  ```python
+                  df = pd.read_csv("C:/Users/wang/samples.csv")
+                  ```
+              - id: raw
+                content: |
+                  ```python
+                  df = pd.read_csv(r"C:\Users\wang\samples.csv")
+                  ```
+              - id: encoding
+                content: |
+                  ```python
+                  df = pd.read_csv("C:\Users\wang\samples.csv", encoding="gbk")
+                  ```
+              - id: single
+                content: |
+                  ```python
+                  df = pd.read_csv('C:\Users\wang\samples.csv')
+                  ```
+            key: [forward, raw]
+        explanation: |
+          问题出在引号里的反斜杠：`\U` 对 Python 有特殊含义（后面应当跟一串十六进制数字），这里跟的是 sers，读不下去，所以连程序都没有开始运行。
+
+          可以的是**改成正斜杠**，Windows 同样认得；或者**在引号前加 r**，让反斜杠按原样保留。加 encoding 不碰引号里的写法；换成单引号也一样，单双引号在这里没有区别。（把每个反斜杠写成两个 `\\` 也可以。）
+        verify: |
+          import ast
+          def path_of(code):
+              try:
+                  tree = ast.parse(code)
+              except SyntaxError:
+                  return None
+              call = tree.body[0].value
+              return call.args[0].value
+          target = "C:/Users/wang/samples.csv"
+          fits = [option for option, code in OPTIONS["fixes"].items()
+                  if (path := path_of(code)) is not None and path.replace("\\", "/") == target]
+          answers = {"fixes": fits}
+    quiz:
+      - id: py15.k1.x1
+        kind: [predict]
+        data: [survey]
+        body: |
+          分别用下面三行代码读 survey.csv，结果各是什么？
+        slots:
+          - id: outcomes
+            type: table
+            columns:
+              - { id: call, header: 代码 }
+              - id: outcome
+                header: 结果
+                input:
+                  type: choice
+                  options:
+                    - { id: decode_error, label: 报 UnicodeDecodeError }
+                    - { id: one_column, label: 不报错，读成 1 列 }
+                    - { id: three_columns, label: 不报错，读成 3 列 }
+            rows:
+              - { id: plain, cells: { call: "`pd.read_csv(\"survey.csv\", sep=\";\")`", outcome: decode_error } }
+              - { id: enc, cells: { call: "`pd.read_csv(\"survey.csv\", encoding=\"gbk\")`", outcome: one_column } }
+              - { id: both, cells: { call: "`pd.read_csv(\"survey.csv\", sep=\";\", encoding=\"gbk\")`", outcome: three_columns } }
+        explanation: |
+          这个文件有两处和默认不同：分号分隔、GBK 编码。
+
+          | 代码 | 结果 |
+          |---|---|
+          | 只写 `sep=";"` | 仍按 UTF-8 解读 GBK 的字节，报 UnicodeDecodeError |
+          | 只写 `encoding="gbk"` | 中文读对了，但按逗号切分，读成 1 列 |
+          | 两个都写 | 读成样方、物种、株数 3 列 |
+
+          编码不对会报错；分隔符不对不报错，只会读成一列。
+        verify: |
+          calls = {
+              "plain": 'pd.read_csv("survey.csv", sep=";")',
+              "enc": 'pd.read_csv("survey.csv", encoding="gbk")',
+              "both": 'pd.read_csv("survey.csv", sep=";", encoding="gbk")',
+          }
+          def outcome(call):
+              r = run("table = " + call)
+              if r.error == "UnicodeDecodeError":
+                  return "decode_error"
+              return {1: "one_column", 3: "three_columns"}.get(r["table"].shape[1], "other")
+          answers = {"outcomes": {row: {"outcome": outcome(call)} for row, call in calls.items()}}
+      - id: py15.k1.x2
+        kind: [debug]
+        data: [assays]
+        body: |
+          程序在 project 文件夹里运行。下面哪一行能读到 assays.csv？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: bare
+                content: |
+                  ```python
+                  assays = pd.read_csv("assays.csv")
+                  ```
+              - id: data
+                content: |
+                  ```python
+                  assays = pd.read_csv("data/assays.csv")
+                  ```
+              - id: project
+                content: |
+                  ```python
+                  assays = pd.read_csv("project/data/assays.csv")
+                  ```
+            key: data
+        explanation: |
+          相对路径从**程序运行的文件夹**，也就是 project 出发。文件在 project 下面的 data 里，所以写 **`"data/assays.csv"`**。
+
+          只写 `"assays.csv"`，会在 project 里直接找，找不到；写 `"project/data/assays.csv"`，会去找 project 里面的又一个 project 文件夹，也找不到。两者都报 FileNotFoundError。
+        verify: |
+          fits = [option for option, line in OPTIONS["line"].items() if run(line).error is None]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+
   - id: py15.k2
     title: "读懂 dtype={\"id\": \"str\"} 的列名到类型配置，保留前导零"
+    card:
+      name: dtype 参数
+      aliases: [保留前导零, 按文字读入, 列名到类型]
+      definition: "`dtype={\"sample_id\": \"str\"}` 告诉 read_csv：sample_id 这一列按文字读，001 就保持 001；没写到的列仍由 pandas 自己判断类型。"
+      conditions:
+        - '大括号里每一项写成 "列名": "类型"，冒号前是列名、后是类型，几项之间用逗号隔开。'
+        - 要在读入时指定：读成整数以后，原来的 001 已经变成 1，事后转回文字也只能得到 "1"。
+      example:
+        from: py15.k2.e0
+        text: |
+          ids.csv 的编号是 001、002、010。不写 dtype 时读成 1、2、10；写了 `dtype={"sample_id": "str"}`，读成 '001'、'002'、'010'，signal 仍是整数。
+    lesson: |
+      read_csv 会自己猜每一列的类型。一列全是 001、002、010 这样的值，它当成整数，读成 1、2、10：前导零丢了，001 和 01 也分不开了。编号、邮编、批号这类列，要告诉它“按文字读”：
+
+      ```python
+      df = pd.read_csv("ids.csv", dtype={"sample_id": "str"})
+      ```
+
+      `dtype=` 后面大括号里是一份**对照表**，每一项写成 `"列名": "类型"`：冒号前是列名，冒号后是要读成的类型。这里只有一项，意思是“sample_id 这一列读成 str”。要设好几列，项与项之间用逗号隔开：
+
+      ```python
+      df = pd.read_csv("records.csv", dtype={"sample_id": "str", "batch": "str"})
+      ```
+
+      没写到的列照旧由 pandas 判断，signal 仍是整数。大括号这种写法以后讲字典时会细说，这里只要读懂、会写这一种固定形式。
+
+      两点要注意：
+
+      - **在读入时就指定。** 读成整数以后，原来是 001 还是 1 已经没有记录了，事后再转成文字只能得到 "1"。
+      - **冒号两边不能写反。** `{"str": "sample_id"}` 的意思成了“名叫 str 的列读成 sample_id 类型”，read_csv 不认识 sample_id 这种类型，会报错。另外，`dtype="str"` 不带大括号，会把**所有列**都读成文字，数值列也不能算了。
+    example:
+      id: py15.k2.e0
+      kind: [predict]
+      uses: [py14.k3]
+      data: [ids]
+      body: |
+        ```python
+        a = pd.read_csv("ids.csv")
+        b = pd.read_csv("ids.csv", dtype={"sample_id": "str"})
+        ```
+      slots:
+        - id: values
+          type: table
+          prompt: 在交互窗口里输入下面两行，各显示什么？
+          columns:
+            - { id: input, header: 输入 }
+            - { id: shown, header: 显示, input: { type: text, match: output } }
+          rows:
+            - { id: a, cells: { input: "`>>> list(a[\"sample_id\"])`", shown: "[1, 2, 10]" } }
+            - { id: b, cells: { input: "`>>> list(b[\"sample_id\"])`", shown: "['001', '002', '010']" } }
+        - id: signal
+          type: choice
+          prompt: 表 b 的 signal 列是什么类型？
+          options:
+            - { id: int64, content: int64，没写到的列照旧按整数读 }
+            - { id: str, content: str，dtype 让所有列都按文字读 }
+          key: int64
+      explanation: |
+        不写 dtype 时，read_csv 把 sample_id 当成整数：**[1, 2, 10]**，前导零丢了。写了 `dtype={"sample_id": "str"}`，这一列按文字读：**['001', '002', '010']**，带引号，因为是文字。
+
+        对照表里只写了 sample_id，signal 照旧由 pandas 判断，仍是 **int64**，可以计算。
+      verify: |
+        r = run()
+        shown = repl('list(a["sample_id"])\nlist(b["sample_id"])', a=r["a"], b=r["b"])
+        answers = {"values": {"a": {"shown": shown[0]}, "b": {"shown": shown[1]}}, "signal": str(r["b"]["signal"].dtype)}
+    practice:
+      - id: py15.k2.q1
+        kind: [predict]
+        data: [batches]
+        body: |
+          在交互窗口里依次输入下面几行。
+        slots:
+          - id: wwpd
+            type: table
+            prompt: Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
+            columns:
+              - { id: input, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: r1, cells: { input: "`>>> df = pd.read_csv(\"batches.csv\")`", shown: NOTHING } }
+              - { id: r2, cells: { input: "`>>> list(df[\"batch\"])`", shown: "[7, 7, 12]" } }
+              - { id: r3, cells: { input: "`>>> df2 = pd.read_csv(\"batches.csv\", dtype={\"batch\": \"str\"})`", shown: NOTHING } }
+              - { id: r4, cells: { input: "`>>> list(df2[\"batch\"])`", shown: "['07', '07', '12']" } }
+              - { id: r5, cells: { input: "`>>> list(df2[\"count\"])`", shown: "[120, 98, 143]" } }
+        explanation: |
+          | 输入 | 显示 |
+          |---|---|
+          | `df = pd.read_csv("batches.csv")` | NOTHING：赋值不显示 |
+          | `list(df["batch"])` | [7, 7, 12]：批号被当成整数，07 成了 7 |
+          | `df2 = pd.read_csv(..., dtype={"batch": "str"})` | NOTHING |
+          | `list(df2["batch"])` | ['07', '07', '12']：按文字读，零还在 |
+          | `list(df2["count"])` | [120, 98, 143]：count 没写进对照表，仍是整数 |
+        verify: |
+          inputs = [
+              'df = pd.read_csv("batches.csv")',
+              'list(df["batch"])',
+              'df2 = pd.read_csv("batches.csv", dtype={"batch": "str"})',
+              'list(df2["batch"])',
+              'list(df2["count"])',
+          ]
+          shown = repl("\n".join(inputs))
+          answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}}
+      - id: py15.k2.q2
+        kind: [explain]
+        data: [ids]
+        body: |
+          要求：读入 ids.csv，sample_id 保留 001 这样的写法，signal 仍是可以计算的整数。哪一行符合要求？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: reversed
+                content: |
+                  ```python
+                  df = pd.read_csv("ids.csv", dtype={"str": "sample_id"})
+                  ```
+                feedback: 冒号两边写反了，成了“名叫 str 的列读成 sample_id 类型”，会报错。
+              - id: all_str
+                content: |
+                  ```python
+                  df = pd.read_csv("ids.csv", dtype="str")
+                  ```
+                feedback: 不带大括号，所有列都按文字读，signal 也成了文字。
+              - id: right
+                content: |
+                  ```python
+                  df = pd.read_csv("ids.csv", dtype={"sample_id": "str"})
+                  ```
+              - id: none
+                content: |
+                  ```python
+                  df = pd.read_csv("ids.csv")
+                  ```
+                feedback: 不写 dtype，sample_id 被读成整数 1、2、10。
+            key: right
+        explanation: |
+          **`dtype={"sample_id": "str"}`** 那一行：冒号前是列名 sample_id，冒号后是类型 str，只改这一列，signal 照旧读成整数。
+
+          写反的那行会报错；`dtype="str"` 把 signal 也读成了文字；不写 dtype，编号丢了前导零。
+        verify: |
+          def fits(code):
+              r = run(code)
+              if r.error:
+                  return False
+              df = r["df"]
+              return list(df["sample_id"]) == ["001", "002", "010"] and str(df["signal"].dtype) == "int64"
+          good = [option for option, code in OPTIONS["line"].items() if fits(code)]
+          answers = {"line": good[0] if len(good) == 1 else good}
+      - id: py15.k2.q3
+        kind: [modify]
+        data: [records]
+        body: |
+          要求：读入 records.csv 存进 `df`，sample_id 和 batch 两列都保留原来的写法（例如 001、07），signal 仍是可以计算的整数。改动作答框里的代码。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              df = pd.read_csv("records.csv")
+            solution: |
+              df = pd.read_csv("records.csv", dtype={"sample_id": "str", "batch": "str"})
+            accepts:
+              - 'df = pd.read_csv("records.csv", dtype={"batch": "str", "sample_id": "str"})'
+              - 'df = pd.read_csv("records.csv", dtype={"sample_id": str, "batch": str})'
+            rejects:
+              - code: 'df = pd.read_csv("records.csv", dtype={"sample_id": "str"})'
+                why: 只写了 sample_id，batch 的 07 成了 7
+              - code: df = pd.read_csv("records.csv", dtype="str")
+                why: 所有列都成了文字，signal 也不能算了
+              - code: 'df = pd.read_csv("records.csv", dtype={"str": "sample_id", "str": "batch"})'
+                why: 冒号两边写反了
+            tests:
+              - name: 编号和批号保留原样
+                expect:
+                  list(df["sample_id"]): '["001", "002", "010"]'
+                  list(df["batch"]): '["07", "07", "12"]'
+                  str(df["signal"].dtype): '"int64"'
+              - name: 换一份文件
+                hidden: true
+                data: [records2]
+                expect:
+                  list(df["sample_id"]): '["0105", "0107", "0110", "0200"]'
+                  list(df["batch"]): '["003", "003", "004", "004"]'
+                  str(df["signal"].dtype): '"int64"'
+        explanation: |
+          对照表里写两项，用逗号隔开：
+
+          ```python
+          df = pd.read_csv("records.csv", dtype={"sample_id": "str", "batch": "str"})
+          ```
+
+          两项的先后不要紧。只写 sample_id，batch 会读成 7、7、12；`dtype="str"` 会把 signal 也读成文字。
+    review:
+      - id: py15.k2.r1
+        kind: [predict]
+        data: [stations]
+        body: |
+          分别用下面三行代码读 stations.csv。
+        slots:
+          - id: results
+            type: table
+            prompt: 每种读法下，在交互窗口里输入 `list(df["zip"])` 显示什么？count 列是什么类型？
+            columns:
+              - { id: call, header: dtype 参数 }
+              - { id: zip, header: "list(df[\"zip\"])", input: { type: text, match: output } }
+              - id: count
+                header: count 的类型
+                input:
+                  type: choice
+                  options:
+                    - { id: int64, label: int64 }
+                    - { id: str, label: str }
+            rows:
+              - { id: none, cells: { call: 不写 dtype, zip: "[10020, 100871]", count: int64 } }
+              - { id: zip_only, cells: { call: "`dtype={\"zip\": \"str\"}`", zip: "['010020', '100871']", count: int64 } }
+              - { id: both, cells: { call: "`dtype={\"zip\": \"str\", \"count\": \"str\"}`", zip: "['010020', '100871']", count: str } }
+        explanation: |
+          | dtype 参数 | `list(df["zip"])` | count |
+          |---|---|---|
+          | 不写 | [10020, 100871]：邮编被当成整数，010020 开头的 0 没了 | int64 |
+          | `{"zip": "str"}` | ['010020', '100871']：按文字读，0 还在 | int64：没写到，照旧 |
+          | `{"zip": "str", "count": "str"}` | ['010020', '100871'] | str：写进了对照表，也按文字读 |
+
+          对照表里写了哪一列，就只改哪一列。count 是要计算的数，不该写进去。
+        verify: |
+          calls = {
+              "none": 'df = pd.read_csv("stations.csv")',
+              "zip_only": 'df = pd.read_csv("stations.csv", dtype={"zip": "str"})',
+              "both": 'df = pd.read_csv("stations.csv", dtype={"zip": "str", "count": "str"})',
+          }
+          results = {}
+          for row, code in calls.items():
+              df = run(code)["df"]
+              results[row] = {"zip": repl('list(df["zip"])', df=df)[0], "count": str(df["count"].dtype)}
+          answers = {"results": results}
+      - id: py15.k2.r2
+        kind: [explain]
+        data: [batches]
+        body: |
+          ```python
+          df = pd.read_csv("batches.csv", dtype={"batch": "str"})
+          ```
+        slots:
+          - id: parts
+            type: table
+            prompt: 这一行里，下面两样东西各是什么？
+            columns:
+              - { id: item, header: 代码里的 }
+              - id: part
+                header: 它是
+                input:
+                  type: choice
+                  options:
+                    - { id: column, label: 文件里的一个列名 }
+                    - { id: type, label: 这一列要读成的类型 }
+                    - { id: file, label: 文件名 }
+            rows:
+              - { id: batch, cells: { item: "`\"batch\"`", part: column } }
+              - { id: str, cells: { item: "`\"str\"`", part: type } }
+          - id: count
+            type: choice
+            prompt: 文件里的 count 列会怎样读？
+            options:
+              - { id: str, content: 也读成文字，因为写了 dtype }
+              - { id: int64, content: 没写进对照表，照旧由 pandas 判断，读成整数 }
+            key: int64
+        explanation: |
+          冒号前的 `"batch"` 是**文件里的列名**，冒号后的 `"str"` 是**这一列要读成的类型**。对照表里只有 batch 这一项，count 没写，照旧由 pandas 判断，读成整数 int64。
+        verify: |
+          df = run()["df"]
+          parts = {
+              "batch": "column" if "batch" in df.columns else "type",
+              "str": "type" if str(df["batch"].dtype) == "str" and "str" not in df.columns else "column",
+          }
+          answers = {"parts": {row: {"part": part} for row, part in parts.items()}, "count": str(df["count"].dtype)}
+    quiz:
+      - id: py15.k2.x1
+        kind: [modify, debug]
+        data: [patients]
+        body: |
+          要求：读入 patients.csv 存进 `pts`，patient_id 保留 0042 这样的写法，visit 和 dose 仍是整数。
+
+          作答框里的代码运行时报 TypeError。改动它。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              pts = pd.read_csv("patients.csv", dtype={"str": "patient_id"})
+            solution: |
+              pts = pd.read_csv("patients.csv", dtype={"patient_id": "str"})
+            accepts:
+              - 'pts = pd.read_csv("patients.csv", dtype={"patient_id": str})'
+            rejects:
+              - code: pts = pd.read_csv("patients.csv")
+                why: 删掉了 dtype，编号读成整数 42
+              - code: pts = pd.read_csv("patients.csv", dtype="str")
+                why: 所有列都成了文字
+            tests:
+              - name: 编号保留原样
+                expect:
+                  list(pts["patient_id"]): '["0042", "0042", "0107"]'
+                  list(pts["dose"]): "[10, 10, 15]"
+              - name: 换一份文件
+                hidden: true
+                data: [patients2]
+                expect:
+                  list(pts["patient_id"]): '["0009", "0090", "0900"]'
+                  list(pts["visit"]): "[1, 1, 2]"
+        explanation: |
+          冒号两边写反了：原来的意思是“名叫 str 的列读成 patient_id 类型”，read_csv 不认识这种类型，报错。列名放在冒号前，类型放在冒号后：
+
+          ```python
+          pts = pd.read_csv("patients.csv", dtype={"patient_id": "str"})
+          ```
+      - id: py15.k2.x2
+        kind: [predict, debug]
+        data: [wells]
+        body: |
+          ```python
+          df = pd.read_csv("wells.csv", dtype={"well": "str"})
+          ```
+        slots:
+          - id: batch
+            type: text
+            match: output
+            prompt: 在交互窗口里输入 `list(df["batch"])`，显示什么？
+            key: "[7, 7, 12]"
+          - id: fix
+            type: choice
+            prompt: 要让 well 和 batch 都保留原来的写法，应改成哪一种？
+            options:
+              - id: two_items
+                content: |
+                  ```python
+                  df = pd.read_csv("wells.csv", dtype={"well": "str", "batch": "str"})
+                  ```
+              - id: list_names
+                content: |
+                  ```python
+                  df = pd.read_csv("wells.csv", dtype={"well", "batch": "str"})
+                  ```
+              - id: two_args
+                content: |
+                  ```python
+                  df = pd.read_csv("wells.csv", dtype={"well": "str"}, dtype={"batch": "str"})
+                  ```
+            key: two_items
+        explanation: |
+          对照表里只有 well，batch 照旧由 pandas 判断，读成整数：**[7, 7, 12]**，007 和 012 前面的零丢了。
+
+          要两列都按文字读，在**同一个对照表里写两项**，每项都是 `"列名": "类型"`，用逗号隔开。只在最后写一次类型不行，每一项都要有冒号和类型；dtype 也不能写两次。
+        verify: |
+          df = run()["df"]
+          def fits(code):
+              r = run(code)
+              return r.error is None and list(r["df"]["well"]) == ["01", "02", "03"] and list(r["df"]["batch"]) == ["007", "007", "012"]
+          good = [option for option, code in OPTIONS["fix"].items() if fits(code)]
+          answers = {"batch": repl('list(df["batch"])', df=df)[0], "fix": good[0] if len(good) == 1 else good}
+
   - id: py15.k3
     title: 核对列名、行数与样例
+    card:
+      name: 读入后核对
+      aliases: [核对读入, 列名检查, 行数检查]
+      definition: 读入以后马上核对三件事：列名和预期一致（拼写、大小写、空格）；行数等于文件里的数据行数（不算列名那一行）；前几行的值落在该在的列里，类型也对。
+      conditions:
+        - 列名多了空格或换了大小写，之后 `df["列名"]` 会报 KeyError。
+        - 文件没有列名行时，第一行数据会被当成列名：行数少 1，列名看起来像数据。
+      example:
+        from: py15.k3.e0
+        text: |
+          batch2.csv 有 4 行数据、没有列名行。读进来是 3 行，列名成了 S_A、8、control：第一行数据被当成了列名。
+    lesson: |
+      read_csv 不报错，不等于读对了。读完花半分钟核对三件事：
+
+      1. **列名**：`list(df.columns)` 和预期的一样吗？常见的问题有：列名首尾多了空格（`' signal'`）、大小写不同（`Depth` 和 `depth`），或者整行挤成了一个列名（分隔符不对）。列名不对，后面写 `df["signal"]` 就会报 KeyError。
+      2. **行数**：`len(df)` 应当等于文件里的**数据行数**，也就是用记事本看到的总行数减去列名那一行。少了一行，最常见的原因是文件根本没有列名行，第一行数据被当成了列名。
+      3. **样例**：`df.head()` 看前几行，值是不是落在了该在的列里，编号的前导零还在不在，数值列是不是数（`df.dtypes`）。
+
+      核对的结果可以写成一句话，交给同事或 AI 时就是一份验收条件：“读入后应有 4 行、3 列，列名依次是 sample_id、signal、group，sample_id 是文字。”
+    example:
+      id: py15.k3.e0
+      kind: [predict, debug]
+      data: [noheader]
+      body: |
+        ```python
+        df = pd.read_csv("batch2.csv")
+        ```
+      slots:
+        - id: rows
+          type: text
+          format: integer
+          prompt: "`len(df)` 是多少？"
+          key: 3
+        - id: first
+          type: text
+          match: text
+          prompt: "`list(df.columns)` 的第一个列名是什么？"
+          key: S_A
+        - id: cause
+          type: choice
+          prompt: 读对了吗？
+          options:
+            - { id: ok, content: 读对了，只是列名和约定的不一样 }
+            - { id: header, content: 没读对，文件没有列名行，第一行数据被当成了列名，少了一行 }
+            - { id: sep, content: 没读对，分隔符不对 }
+          key: header
+      explanation: |
+        read_csv 默认把文件的第一行当成列名。这个文件没有列名行，第一行 `S_A,8,control` 就成了列名：`list(df.columns)` 是 ['S_A', '8', 'control']，第一个是 **S_A**。剩下的 3 行才是数据，`len(df)` 是 **3**，而文件里有 4 条记录。
+
+        所以**没读对**：样本 S_A 的数据丢进了列名里。分隔符是对的，三列都切开了。只看程序没报错，发现不了这个问题，要拿行数和列名去和文件、和约定比。
+      verify: |
+        df = run()["df"]
+        with open("batch2.csv", encoding="utf-8") as f:
+            records = [line for line in f.read().splitlines() if line]
+        first_record = records[0].split(",")
+        cause = "header" if list(df.columns) == first_record and len(df) == len(records) - 1 else "ok"
+        answers = {"rows": len(df), "first": list(df.columns)[0], "cause": cause}
+    practice:
+      - id: py15.k3.q1
+        kind: [debug]
+        data: [spaced]
+        body: |
+          ```python
+          df = pd.read_csv("spaced.csv")
+          ```
+        slots:
+          - id: columns
+            type: text
+            match: output
+            prompt: 在交互窗口里输入 `list(df.columns)`，显示什么？
+            key: "['sample_id', ' signal', ' group']"
+          - id: get
+            type: choice
+            prompt: 接着输入 `df["signal"]`，会怎样？
+            options:
+              - { id: series, content: 取出 signal 这一列 }
+              - { id: error, content: 报 KeyError，表里没有叫 signal 的列 }
+            key: error
+        explanation: |
+          第一行的逗号后面有空格，read_csv 把空格也算进了列名：**['sample_id', ' signal', ' group']**，后两个列名以空格开头。
+
+          所以 `df["signal"]` 找不到这一列，**报 KeyError**。这类问题肉眼看文件很难发现，看 `list(df.columns)` 时注意引号里的空格。
+        verify: |
+          df = run()["df"]
+          answers = {
+              "columns": repl("list(df.columns)", df=df)[0],
+              "get": "error" if run('df = pd.read_csv("spaced.csv")\ncolumn = df["signal"]').error == "KeyError" else "series",
+          }
+      - id: py15.k3.q2
+        kind: [specify]
+        data: [quadrats]
+        body: |
+          你要请同事读入 quadrats.csv。先根据文件内容，写出读入后应当满足的核对条件。
+        slots:
+          - id: checks
+            type: table
+            columns:
+              - { id: item, header: 核对项 }
+              - { id: expected, header: 应当是, input: text }
+            rows:
+              - { id: rows, cells: { item: 行数（不算列名）, expected: "5" } }
+              - { id: cols, cells: { item: 列数, expected: "3" } }
+              - { id: last, cells: { item: 最后一列的列名, expected: count } }
+          - id: plot_type
+            type: choice
+            prompt: plot 列读进来应当是什么类型？
+            options:
+              - { id: str, content: str }
+              - { id: int64, content: int64 }
+            key: str
+        explanation: |
+          文件有 6 行，第一行是列名，所以数据是 **5** 行；每行 **3** 个值，最后一列叫 **count**。plot 列是 Q01 这样的样方编号，应当是文字 **str**。
+
+          写成一句话：读入后应有 5 行、3 列，列名依次是 plot、species、count，plot 是文字。
+        verify: |
+          with open("quadrats.csv", encoding="utf-8") as f:
+              lines = [line for line in f.read().splitlines() if line]
+          header = lines[0].split(",")
+          df = pd.read_csv("quadrats.csv")
+          answers = {
+              "checks": {"rows": {"expected": str(len(lines) - 1)}, "cols": {"expected": str(len(header))}, "last": {"expected": header[-1]}},
+              "plot_type": str(df["plot"].dtype),
+          }
+      - id: py15.k3.q3
+        kind: [debug]
+        body: |
+          四次读入的情况如下，预期的列都是 id 和 value。每次最可能是哪里出了问题？
+        slots:
+          - id: causes
+            type: table
+            columns:
+              - { id: seen, header: 读入后看到的 }
+              - id: cause
+                header: 最可能的问题
+                input:
+                  type: choice
+                  options:
+                    - { id: sep, label: 分隔符不对 }
+                    - { id: header, label: 文件没有列名行 }
+                    - { id: encoding, label: 编码不对 }
+                    - { id: none, label: 没有问题 }
+            rows:
+              - { id: c1, cells: { seen: "shape 是 (4, 1)，列名是 `id;value`", cause: sep } }
+              - { id: c2, cells: { seen: "文件有 4 行，shape 是 (3, 2)，列名是 `A01` 和 `7`", cause: header } }
+              - { id: c3, cells: { seen: 报 UnicodeDecodeError, cause: encoding } }
+              - { id: c4, cells: { seen: "文件有 5 行，shape 是 (4, 2)，列名是 `id` 和 `value`", cause: none } }
+        explanation: |
+          | 看到的 | 问题 |
+          |---|---|
+          | 只有 1 列，列名里有分号 | 分隔符不对，整行没切开 |
+          | 行数比文件少 1，列名像数据 | 文件没有列名行，第一行数据成了列名 |
+          | UnicodeDecodeError | 编码不对 |
+          | 5 行文件读出 4 行数据，列名正确 | 没有问题：第一行本来就是列名 |
+        verify: |
+          # 为每种问题造一个文件，读入后得到的现象与题面四行逐一对应。
+          files = {
+              "sep": ("id;value\nA01;7\nA02;3\nA03;5\nA04;9\n", "utf-8"),
+              "header": ("A01,7\nA02,3\nA03,5\nA04,9\n", "utf-8"),
+              "encoding": ("编号,value\n甲,7\n", "gbk"),
+              "none": ("id,value\nA01,7\nA02,3\nA03,5\nA04,9\n", "utf-8"),
+          }
+          seen = {}
+          for cause, (text, encoding) in files.items():
+              with open(f"check_{cause}.csv", "w", encoding=encoding) as f:
+                  f.write(text)
+              try:
+                  table = pd.read_csv(f"check_{cause}.csv")
+                  seen[cause] = (len(text.splitlines()), table.shape, list(table.columns))
+              except UnicodeDecodeError:
+                  seen[cause] = "UnicodeDecodeError"
+          described = {
+              "c1": lambda s: s != "UnicodeDecodeError" and s[1] == (4, 1) and s[2] == ["id;value"],
+              "c2": lambda s: s != "UnicodeDecodeError" and s[0] == 4 and s[1] == (3, 2) and s[2] == ["A01", "7"],
+              "c3": lambda s: s == "UnicodeDecodeError",
+              "c4": lambda s: s != "UnicodeDecodeError" and s[0] == 5 and s[1] == (4, 2) and s[2] == ["id", "value"],
+          }
+          answers = {"causes": {row: {"cause": [cause for cause, s in seen.items() if test(s)][0]} for row, test in described.items()}}
+    review:
+      - id: py15.k3.r1
+        kind: [predict, debug]
+        data: [week2]
+        body: |
+          ```python
+          runs = pd.read_csv("week2.csv")
+          ```
+        slots:
+          - id: shape
+            type: text
+            match: output
+            prompt: 在交互窗口里输入 `runs.shape`，显示什么？
+            key: "(5, 3)"
+          - id: where
+            type: choice
+            prompt: 运行 R01 的那条记录在读出的表里吗？
+            options:
+              - { id: first_row, content: 在，是第一行数据 }
+              - { id: header, content: 不在数据里，它成了列名 }
+              - { id: lost, content: 被丢掉了，哪里都没有 }
+            key: header
+        explanation: |
+          文件没有列名行，read_csv 照样把第一行当成列名：6 条记录只剩 5 行数据，`runs.shape` 是 **(5, 3)**。R01 那条记录**成了列名** R01、42、ok，不在数据里。
+
+          文件 6 行、表 5 行，这个差就是线索。
+        verify: |
+          runs = run()["runs"]
+          where = "header" if list(runs.columns)[0] == "R01" else "first_row" if runs.iloc[0, 0] == "R01" else "lost"
+          answers = {"shape": repl("runs.shape", runs=runs)[0], "where": where}
+      - id: py15.k3.r2
+        kind: [specify]
+        data: [noheader]
+        body: |
+          如果读入 batch2.csv 时第一行数据被当成了列名，下面哪几项核对能发现这个问题？选出所有能发现的。
+        slots:
+          - id: checks
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: rows, content: "`len(df)` 是否等于文件里的记录数 4" }
+              - { id: columns, content: "`list(df.columns)` 是否是 sample_id、signal、group" }
+              - { id: error, content: 程序运行时有没有报错 }
+              - { id: suffix, content: 文件名是否以 .csv 结尾 }
+            key: [rows, columns]
+        explanation: |
+          **行数**和**列名**这两项都能发现：读出 3 行而不是 4 行，列名是 S_A、8、control 而不是约定的名字。
+
+          程序不会报错，文件名也没有问题，这两项看不出任何异常。
+        verify: |
+          df = pd.read_csv("batch2.csv")
+          # 逐项做核对，没有通过的那几项就是能发现问题的核对。
+          passed = {
+              "rows": len(df) == 4,
+              "columns": list(df.columns) == ["sample_id", "signal", "group"],
+              "error": True,
+              "suffix": "batch2.csv".endswith(".csv"),
+          }
+          answers = {"checks": [check for check, ok in passed.items() if not ok]}
+    quiz:
+      - id: py15.k3.x1
+        kind: [debug]
+        body: |
+          读入 survey2.csv 以后，`df.shape` 是 (12, 1)，`list(df.columns)` 显示 `['site\tspecies\tcount']`（`\t` 是制表符）。最可能是哪里出了问题？
+        slots:
+          - id: cause
+            type: choice
+            options:
+              - { id: header, content: 文件没有列名行 }
+              - { id: encoding, content: 编码不对 }
+              - { id: sep, content: 文件用制表符分隔，却按逗号切分 }
+              - { id: none, content: 没有问题 }
+            key: sep
+        explanation: |
+          只有 1 列、列名里夹着制表符，说明每行都没有被切开：文件**用制表符分隔，read_csv 却按默认的逗号切分**，要加 `sep="\t"`。编码不对会报错；没有列名行时列数是对的，只是列名像数据。
+        verify: |
+          text = "site\tspecies\tcount\n" + "".join(f"S{i}\t物种{i}\t{i}\n" for i in range(12))
+          with open("survey2.csv", "w", encoding="utf-8") as f:
+              f.write(text)
+          table = pd.read_csv("survey2.csv")
+          right = pd.read_csv("survey2.csv", sep="\t")
+          cause = "sep" if table.shape == (12, 1) and list(table.columns) == ["site\tspecies\tcount"] and right.shape == (12, 3) else "other"
+          answers = {"cause": cause}
+      - id: py15.k3.x2
+        kind: [specify, debug]
+        data: [depths]
+        body: |
+          约定：depths.csv 读入后应有 4 行，列名依次是 site、depth，site 是文字。
+
+          ```python
+          df = pd.read_csv("depths.csv")
+          ```
+        slots:
+          - id: checks
+            type: table
+            prompt: 逐项核对，哪几项通过？
+            columns:
+              - { id: item, header: 核对项 }
+              - { id: passed, header: 通过了吗, input: bool }
+            rows:
+              - { id: rows, cells: { item: 有 4 行, passed: true } }
+              - { id: columns, cells: { item: 列名依次是 site、depth, passed: false } }
+              - { id: site, cells: { item: site 是文字, passed: true } }
+          - id: columns
+            type: text
+            match: output
+            prompt: 在交互窗口里输入 `list(df.columns)`，显示什么？
+            key: "['site', 'Depth ']"
+        explanation: |
+          行数和 site 的类型都对，**列名没有通过**：文件里写的是 `Depth `，大写 D，后面还有一个空格，读出来是 **['site', 'Depth ']**。之后写 `df["depth"]` 会报 KeyError。
+
+          只看文件很难发现末尾的空格，按约定逐项核对就能抓到。
+        verify: |
+          df = run()["df"]
+          answers = {
+              "checks": {
+                  "rows": {"passed": len(df) == 4},
+                  "columns": {"passed": list(df.columns) == ["site", "depth"]},
+                  "site": {"passed": str(df["site"].dtype) == "str"},
+              },
+              "columns": repl("list(df.columns)", df=df)[0],
+          }
