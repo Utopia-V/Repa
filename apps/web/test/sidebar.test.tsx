@@ -25,7 +25,7 @@ it("默认进入 Learning Space，侧栏有 Learning Space 和 Settings 两个�
   expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
 });
 
-it("打开空间后在 Learning Space 下显示这个空间，点击进入对话页并标为当前项", async () => {
+it("打开空间后 Learning Space 一项换成这个空间，下面是新会话，History 和 Settings 排在最后；点击空间进入对话页，换空间回到选空间页", async () => {
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
     switch (method) {
       case "space.open":
@@ -44,16 +44,23 @@ it("打开空间后在 Learning Space 下显示这个空间，点击进入对话
 
   await act(() => store.getState().openSpace("/notes/calculus"));
   const navigation = screen.getByRole("navigation", { name: "主导航" });
+  expect(within(navigation).getAllByRole("link").map((link) => link.getAttribute("aria-label") ?? link.textContent)).toEqual(["calculus", "换空间", "History", "Settings"]);
   const space = within(navigation).getByRole("link", { name: "calculus" });
   expect(space.getAttribute("title")).toBe("/notes/calculus");
   fireEvent.click(space);
 
   await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
-  expect(space.getAttribute("aria-current")).toBe("page");
-  expect(within(navigation).getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBeNull();
+  // 当前项标在空间下面的会话上；还没有会话时是新会话。
+  await waitFor(() => expect(within(navigation).getByRole("button", { name: "新会话" }).getAttribute("aria-current")).toBe("true"));
+  expect(space.getAttribute("aria-current")).toBeNull();
+
+  fireEvent.click(within(navigation).getByRole("link", { name: "换空间" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
+  expect(within(navigation).getByRole("link", { name: "换空间" }).getAttribute("aria-current")).toBe("page");
+  expect(within(navigation).getByRole("link", { name: "calculus" })).toBeTruthy();
 });
 
-it("侧栏列出当前空间的会话，点击打开它，运行中不能切到别的会话", async () => {
+it("空间下面列出它的会话，点击打开；新会话从任意页面开始一个空会话；运行中不能切换", async () => {
   const at = "2026-10-12T00:00:00.000Z";
   let finish: (() => void) | undefined;
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
@@ -79,17 +86,29 @@ it("侧栏列出当前空间的会话，点击打开它，运行中不能切到�
   store.getState().setClient(fakeClient(call).client);
   await act(() => store.getState().openSpace("/notes/calculus"));
   const router = renderWorkspace("/learning-space", store);
+  const navigation = screen.getByRole("navigation", { name: "主导航" });
 
-  const sessions = await screen.findByRole("navigation", { name: "会话" });
-  expect(within(sessions).getAllByRole("button").map((button) => button.textContent)).toEqual(["导数是什么", "极限怎么求"]);
+  await within(navigation).findByRole("button", { name: "导数是什么" });
+  const sessions = within(navigation).getByRole("button", { name: "新会话" }).closest("ul")!;
+  expect(within(sessions).getAllByRole("button").map((button) => button.textContent)).toEqual(["新会话", "导数是什么", "极限怎么求"]);
   fireEvent.click(within(sessions).getByRole("button", { name: "极限怎么求" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
   expect(await screen.findByText("b 的记录")).toBeTruthy();
   expect(within(sessions).getByRole("button", { name: "极限怎么求" }).getAttribute("aria-current")).toBe("true");
 
+  await act(() => router.navigate("/settings"));
+  fireEvent.click(within(sessions).getByRole("button", { name: "新会话" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
+  expect(await screen.findByText("这是一个新会话。说说你想学什么，或者直接提问。")).toBeTruthy();
+  expect(within(sessions).getByRole("button", { name: "新会话" }).getAttribute("aria-current")).toBe("true");
+  expect(within(sessions).getByRole("button", { name: "极限怎么求" }).getAttribute("aria-current")).toBeNull();
+
+  fireEvent.click(within(sessions).getByRole("button", { name: "导数是什么" }));
+  await screen.findByText("a 的记录");
   act(() => { void store.getState().sendMessage("继续"); });
   await waitFor(() => expect(finish).toBeDefined());
-  expect((within(sessions).getByRole("button", { name: "导数是什么" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(sessions).getByRole("button", { name: "极限怎么求" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(sessions).getByRole("button", { name: "新会话" }) as HTMLButtonElement).disabled).toBe(true);
   await act(async () => { finish?.(); });
 });
 
@@ -140,6 +159,7 @@ it("关闭当前空间后回到 Learning Space；运行中不能关，关闭失�
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
   expect(call.mock.calls.filter(([method]) => method === "space.close")).toHaveLength(2);
   expect(within(navigation).queryByRole("link", { name: "calculus" })).toBeNull();
+  await waitFor(() => expect(within(navigation).getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page"));
   expect(within(navigation).queryByRole("alert")).toBeNull();
   expect(store.getState().space).toBeUndefined();
 });

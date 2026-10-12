@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, History, Settings, X } from "lucide-react";
-import { NavLink, useMatch, useNavigate } from "react-router";
+import { ArrowLeftRight, FolderOpen, History, Settings, X } from "lucide-react";
+import { Link, NavLink, useMatch, useNavigate } from "react-router";
 import type { SessionInfo } from "@repa/base/protocol";
 import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarHeader,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem,
-  SidebarRail, SidebarTrigger, useSidebar,
+  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader,
+  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { ErrorNotice } from "@/components/domain/error-notice";
@@ -24,6 +23,8 @@ export function AppSidebar() {
   const closeSpace = useAppStore((store) => store.closeSpace);
   const sessionId = useAppStore((store) => store.conversation.sessionId);
   const running = useAppStore((store) => store.conversation.run !== "idle");
+  const conversationReady = useAppStore((store) => store.conversation.status === "ready");
+  const newConversation = useAppStore((store) => store.newConversation);
   const inConversation = useMatch("/conversation") !== null;
   const navigate = useNavigate();
   const [closing, setClosing] = useState(false);
@@ -37,6 +38,12 @@ export function AppSidebar() {
   function open(session: SessionInfo) {
     closeMobileSidebar();
     void openSession(session);
+    void navigate("/conversation");
+  }
+
+  function startNew() {
+    closeMobileSidebar();
+    newConversation();
     void navigate("/conversation");
   }
 
@@ -63,69 +70,79 @@ export function AppSidebar() {
         <SidebarTrigger />
       </div>
     </SidebarHeader>
-    <SidebarContent>
-      <SidebarGroup>
-        <nav aria-label="主导航">
+    {/* 内容区随会话增多滚动，History 和 Settings 留在底部。 */}
+    <nav aria-label="主导航" className="flex min-h-0 flex-1 flex-col">
+      <SidebarContent>
+        <SidebarGroup>
           <SidebarMenu>
+            {/* 打开的空间就是一个 Learning Space，所以合成一项：没打开时进选空间页，打开后显示空间名、进对话页。
+                后端一次只持有一个空间，换空间回到选空间页。当前项标在下面的会话上，空间这一行不重复标记。
+                运行中不能关闭，后端关闭空间会中止运行。 */}
             <SidebarMenuItem>
-              <SidebarMenuButton asChild>
+              {!space && <SidebarMenuButton asChild>
                 <NavLink to="/learning-space" onClick={closeMobileSidebar} title={collapsedTitle("Learning Space")}>
                   <FolderOpen aria-hidden="true" /><span className={collapseLabel}>Learning Space</span>
                 </NavLink>
-              </SidebarMenuButton>
-              {/* 后端一次只持有一个空间，这里只列出当前打开的那个，最近空间仍在 Learning Space 页选择。
-                  运行中不能关闭，后端关闭空间会中止运行。 */}
-              {space && <SidebarMenuSub>
-                <SidebarMenuSubItem>
-                  <div className="flex items-center gap-1">
-                    <SidebarMenuSubButton asChild>
-                      <NavLink to="/conversation" onClick={closeMobileSidebar} title={space}>
-                        <span>{folderName(space)}</span>
-                      </NavLink>
-                    </SidebarMenuSubButton>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`关闭空间 ${folderName(space)}`}
-                      title="关闭空间"
-                      disabled={running || closing}
-                      onClick={() => { void close(space); }}
-                    >
-                      <X aria-hidden="true" />
-                    </Button>
-                  </div>
-                  {closeFailure?.space === space && <div className="mt-1">
-                    <ErrorNotice title="关闭空间时出错" error={closeFailure.error} />
-                  </div>}
-                </SidebarMenuSubItem>
-              </SidebarMenuSub>}
-            </SidebarMenuItem>
-            {/* 修改历史属于当前空间，打开空间后才有。 */}
-            {space && <SidebarMenuItem>
-              <SidebarMenuButton asChild>
-                <NavLink to="/history" onClick={closeMobileSidebar} title={collapsedTitle("History")}>
-                  <History aria-hidden="true" /><span className={collapseLabel}>History</span>
-                </NavLink>
-              </SidebarMenuButton>
-            </SidebarMenuItem>}
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild>
-                <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle("Settings")}>
-                  <Settings aria-hidden="true" /><span className={collapseLabel}>Settings</span>
-                </NavLink>
-              </SidebarMenuButton>
+              </SidebarMenuButton>}
+              {space && <div className="flex items-center gap-1">
+                <SidebarMenuButton asChild>
+                  <Link to="/conversation" onClick={closeMobileSidebar} title={space}>
+                    <FolderOpen aria-hidden="true" /><span className={collapseLabel}>{folderName(space)}</span>
+                  </Link>
+                </SidebarMenuButton>
+                <span className="flex shrink-0 items-center gap-1 group-data-[collapsible=icon]:hidden">
+                  <Button asChild variant="ghost" size="icon">
+                    <NavLink to="/learning-space" onClick={closeMobileSidebar} aria-label="换空间" title="换空间">
+                      <ArrowLeftRight aria-hidden="true" />
+                    </NavLink>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`关闭空间 ${folderName(space)}`}
+                    title="关闭空间"
+                    disabled={running || closing}
+                    onClick={() => { void close(space); }}
+                  >
+                    <X aria-hidden="true" />
+                  </Button>
+                </span>
+              </div>}
+              {space && closeFailure?.space === space && <div className="mt-1 group-data-[collapsible=icon]:hidden">
+                <ErrorNotice title="关闭空间时出错" error={closeFailure.error} />
+              </div>}
+              {/* 会话列表读取失败时不提示，对话页有自己的读取与重试。 */}
+              {space && <SessionList
+                sessions={sessions.data ?? []}
+                current={inConversation ? sessionId ?? (conversationReady ? "new" : undefined) : undefined}
+                disabled={running}
+                onNew={startNew}
+                onOpen={open}
+              />}
             </SidebarMenuItem>
           </SidebarMenu>
-        </nav>
-      </SidebarGroup>
-      {/* 读取失败时不提示，对话页有自己的读取与重试；收起为图标栏时隐藏。 */}
-      {space && (sessions.data?.length ?? 0) > 0 && <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-        <nav aria-labelledby="sidebar-sessions" className="grid gap-1">
-          <h2 id="sidebar-sessions" className="m-0 px-4 text-xs font-medium text-muted-foreground">会话</h2>
-          <SessionList sessions={sessions.data ?? []} current={inConversation ? sessionId : undefined} disabled={running} onOpen={open} />
-        </nav>
-      </SidebarGroup>}
-    </SidebarContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          {/* 修改历史属于当前空间，打开空间后才有。 */}
+          {space && <SidebarMenuItem>
+            <SidebarMenuButton asChild>
+              <NavLink to="/history" onClick={closeMobileSidebar} title={collapsedTitle("History")}>
+                <History aria-hidden="true" /><span className={collapseLabel}>History</span>
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>}
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild>
+              <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle("Settings")}>
+                <Settings aria-hidden="true" /><span className={collapseLabel}>Settings</span>
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+    </nav>
     <SidebarRail />
   </Sidebar>;
 }
