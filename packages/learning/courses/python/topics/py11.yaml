@@ -837,23 +837,24 @@ kps:
     review:
       - id: py11.k2.r1
         kind: [debug, trace]
+        uses: [py03.k2]
         body: |
           运行 clean.py，出现了下面的报错。
 
           ```python startLine=1
           total = 24
-          samples = 3
-          failed = 3
-          usable = samples - failed
-          per_sample = total / usable
-          print(per_sample)
+          samples = 5
+          per_box = 8
+          boxes = int(samples / per_box)
+          per_box_signal = total / boxes
+          print(per_box_signal)
           ```
 
           ```text
           Traceback (most recent call last):
             File "clean.py", line 5, in <module>
-              per_sample = total / usable
-                           ~~~~~~^~~~~~~~
+              per_box_signal = total / boxes
+                               ~~~~~~^~~~~~~
           ZeroDivisionError: division by zero
           ```
         slots:
@@ -862,26 +863,35 @@ kps:
             prompt: 第 5 行里，哪个值出了问题？
             options:
               - { id: total, content: "`total`" }
-              - { id: usable, content: "`usable`" }
-              - { id: per_sample, content: "`per_sample`" }
-            key: usable
+              - { id: boxes, content: "`boxes`" }
+              - { id: per_box_signal, content: "`per_box_signal`" }
+            key: boxes
           - id: set_at
             type: text
             format: integer
             prompt: 这个值是在第几行变成 0 的？
             key: 4
+          - id: why
+            type: choice
+            prompt: 它为什么是 0？
+            options:
+              - { id: floor, content: 5 个样本装不满一盒 8 个的盒子：5 / 8 是 0.625，`int()` 直接截掉小数部分，所以是 0 }
+              - { id: minus, content: 5 减 8 得到 0 }
+              - { id: zero_input, content: "`samples` 本来就是 0" }
+            key: floor
         explanation: |
-          ZeroDivisionError 说除数是 0。第 5 行的除数是 **`usable`**；往上找，它是第 **4** 行用 samples - failed 算出来的，3 - 3 = 0。
+          ZeroDivisionError 说除数是 0。第 5 行的除数是 **`boxes`**；往上找，它是第 **4** 行 `int(samples / per_box)` 算出来的：5 / 8 是 0.625，`int()` 直接截掉小数部分，得到 0。
 
-          第 5 行本身写得没错，要追问的是第 4 行的结果：是不是所有样本都失败了？这种情况下要不要算每份的量？这是数据和需求上的问题，不是把除数改成 1 就能解决的。
+          第 5 行本身写得没错，要追问的是第 4 行的结果：样本不够装满一盒时，盒数算成 0 对不对，还要不要往下算？这是数据和需求上的问题，不是把除数改成 1 就能解决的。
         verify: |
           lines = CODE.splitlines()
           before = run("\n".join(lines[:4]))
-          zero = [name for name in ("total", "usable") if before[name] == 0]
-          # 逐条运行出错行之前的语句，找出 usable 第一次变成 0 的那一行。
-          states = trace(code="\n".join(lines[:4]), names=["usable"])
-          first = [i for i, state in enumerate(states, 1) if state.get("usable") == 0]
-          answers = {"which": zero[0] if len(zero) == 1 else zero, "set_at": first[0]}
+          zero = [name for name in ("total", "boxes") if before[name] == 0]
+          # 逐条运行出错行之前的语句，找出 boxes 第一次变成 0 的那一行。
+          states = trace(code="\n".join(lines[:4]), names=["boxes"])
+          first = [i for i, state in enumerate(states, 1) if state.get("boxes") == 0]
+          why = "floor" if int(before["samples"] / before["per_box"]) == 0 and before["samples"] / before["per_box"] != 0 else "other"
+          answers = {"which": zero[0] if len(zero) == 1 else zero, "set_at": first[0], "why": why}
       - id: py11.k2.r2
         kind: [explain]
         uses: [py03.k1, py03.k2]

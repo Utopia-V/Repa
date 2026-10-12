@@ -385,35 +385,19 @@ kps:
             prompt: 按需求，4 个样本一共要多少分钟？
             suffix: 分钟
             key: 60
-          - id: fix
+          - id: coincide
             type: choice
-            prompt: 第 2 行改成哪一种，换成任何样本数都对？
+            prompt: 同事先用一个样本试了试，结果和需求一样，就以为写对了。n 取下面哪个值时，`n * 5 + 10` 才会碰巧和需求算出同样的分钟数？
             options:
-              - id: grouped_left
-                content: |
-                  ```python
-                  minutes = (n * 5) + 10
-                  ```
-              - id: plus_n
-                content: |
-                  ```python
-                  minutes = n * 5 + n + 10
-                  ```
-              - id: grouped
-                content: |
-                  ```python
-                  minutes = n * (5 + 10)
-                  ```
-              - id: swapped
-                content: |
-                  ```python
-                  minutes = n + 5 * 10
-                  ```
-            key: grouped
+              - { id: n1, content: "1" }
+              - { id: n2, content: "2" }
+              - { id: n4, content: "4" }
+              - { id: n10, content: "10" }
+            key: n1
         explanation: |
-          程序显示 **30**：先算 `4 * 5` 得 20，再加 10，静置时间只算了一次。按需求，每个样本要 5 + 10 = 15 分钟，4 个样本是 **60** 分钟。
+          程序显示 **30**：先算 `4 * 5` 得 20，再加 10，静置时间只算了一次。按需求，每个样本要 5 + 10 = 15 分钟，4 个样本是 **60** 分钟，应当写成 `n * (5 + 10)`。
 
-          改成 `minutes = n * (5 + 10)`：先在括号里算出每个样本的 15 分钟，再乘样本数。`(n * 5) + 10` 的括号没有改变任何先后，仍是 30；另外两种写法得到的也不是每个样本 15 分钟的总和。
+          n 取 **1** 时，`1 * 5 + 10` 是 15，`1 * (5 + 10)` 也是 15：只有一个样本时，静置“算一次”和“每个样本各算一次”没有区别。n 是 2、4、10 时，错误写法分别得 20、30、60，而需求是 30、60、150。检查算式时只试一个样本，查不出这处括号的问题，要多试几个不同的值。
         verify: |
           # 按需求逐个样本累加：每个样本 5 分钟加 10 分钟。
           def needed(n):
@@ -421,10 +405,9 @@ kps:
               for _ in range(n):
                   total = total + 5 + 10
               return total
-          fits = [option for option, code in OPTIONS["fix"].items()
-                  if all(run(code, n=n)["minutes"] == needed(n) for n in (4, 7))]
+          same = [f"n{n}" for n in (1, 2, 4, 10) if n * 5 + 10 == needed(n)]
           r = run()
-          answers = {"shown": int(r.out), "needed": needed(r["n"]), "fix": fits[0] if len(fits) == 1 else fits}
+          answers = {"shown": int(r.out), "needed": needed(r["n"]), "coincide": same[0] if len(same) == 1 else same}
 
   - id: py02.k2
     title: 除法 /、整除 // 与余数 %

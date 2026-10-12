@@ -1221,55 +1221,55 @@ kps:
         kind: [debug, explain]
         uses: [py02.k1]
         body: |
-          需求：先从读数 raw 减去本底 blank，再乘以系数 factor，交回结果。哪一个函数符合需求？
+          需求：先把读数 count 乘以稀释倍数 dilution，再减去背景值 background，交回结果。哪一个函数符合需求？
         slots:
           - id: function
             type: choice
             options:
-              - id: raw_used
+              - id: count_used
                 content: |
                   ```python
-                  def corrected(raw, blank, factor):
-                      net = raw - blank
-                      scaled = raw * factor
-                      return scaled
+                  def adjust(count, dilution, background):
+                      diluted = count * dilution
+                      result = count - background
+                      return result
                   ```
               - id: swapped
                 content: |
                   ```python
-                  def corrected(raw, blank, factor):
-                      scaled = raw * factor
-                      net = scaled - blank
-                      return net
+                  def adjust(count, dilution, background):
+                      result = count - background
+                      diluted = result * dilution
+                      return diluted
                   ```
               - id: right
                 content: |
                   ```python
-                  def corrected(raw, blank, factor):
-                      net = raw - blank
-                      scaled = net * factor
-                      return scaled
+                  def adjust(count, dilution, background):
+                      diluted = count * dilution
+                      result = diluted - background
+                      return result
                   ```
               - id: wrong_return
                 content: |
                   ```python
-                  def corrected(raw, blank, factor):
-                      net = raw - blank
-                      scaled = net * factor
-                      return net
+                  def adjust(count, dilution, background):
+                      diluted = count * dilution
+                      result = diluted - background
+                      return diluted
                   ```
             key: right
         explanation: |
-          先算 `net = raw - blank`、再算 `scaled = net * factor`、交回 scaled 的那一个符合需求。
+          先算 `diluted = count * dilution`、再算 `result = diluted - background`、交回 result 的那一个符合需求。
 
-          从 return 倒着追就能看出另外几个的问题：有一个算了 net 却用 raw 去乘，本底没减；有一个先乘后减，只减了一份本底；还有一个乘完了却交回 net。
+          从 return 倒着追就能看出另外几个的问题：有一个算了 diluted 却用 count 去减，稀释倍数白算了；有一个先减后乘，背景值也被放大了；还有一个减完了却交回 diluted。
         verify: |
-          def spec(raw, blank, factor):
-              return (raw - blank) * factor
-          cases = [(14, 2, 3), (9, 4, 2), (5, 1, 1)]
+          def spec(count, dilution, background):
+              return count * dilution - background
+          cases = [(14, 3, 2), (9, 2, 4), (5, 1, 1)]
           fits = []
           for option, code in OPTIONS["function"].items():
-              r = run(code + "\nresults = [corrected(*case) for case in cases]", cases=cases)
+              r = run(code + "\nresults = [adjust(*case) for case in cases]", cases=cases)
               if r.error is None and r["results"] == [spec(*case) for case in cases]:
                   fits.append(option)
           answers = {"function": fits[0] if len(fits) == 1 else fits}
