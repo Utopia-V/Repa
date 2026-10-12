@@ -1255,51 +1255,65 @@ kps:
           三件事各算一项：写到哪里、原始数据怎样保护、目标文件已经存在时怎么办。只说“小心一点，别弄坏数据”不算，因为别人没法照着检查。
     review:
       - id: py43.k3.r1
-        kind: [explain]
+        kind: [specify]
         data: [runlog]
         body: |
-          要在 `logs/runlog.txt` 末尾接上一行 `run 4`，原有的三行都要保留。哪一段代码能做到？
+          `logs/runlog.txt` 里已经有三行记录。下面三种需求，各自该用哪种打开方式，也就是 `open("logs/runlog.txt", 打开方式, encoding="utf-8")` 里的第二个参数？
         slots:
-          - id: code
-            type: choice
-            options:
-              - id: other_file
-                content: |
-                  ```python
-                  with open("logs/run_log.txt", "a", encoding="utf-8") as f:
-                      f.write("run 4\n")
-                  ```
-                feedback: 文件名多了一个下划线，"a" 新建了另一个文件，runlog.txt 没有变。
-              - id: write
-                content: |
-                  ```python
-                  with open("logs/runlog.txt", "w", encoding="utf-8") as f:
-                      f.write("run 4\n")
-                  ```
-              - id: append
-                content: |
-                  ```python
-                  with open("logs/runlog.txt", "a", encoding="utf-8") as f:
-                      f.write("run 4\n")
-                  ```
-              - id: read
-                content: |
-                  ```python
-                  with open("logs/runlog.txt", "r", encoding="utf-8") as f:
-                      f.write("run 4\n")
-                  ```
-            key: append
+          - id: modes
+            type: table
+            columns:
+              - { id: need, header: 需求 }
+              - id: mode
+                header: 打开方式
+                input:
+                  type: choice
+                  options:
+                    - { id: r, label: "r（只读）" }
+                    - { id: w, label: "w（写入）" }
+                    - { id: a, label: "a（追加）" }
+            rows:
+              - { id: see, cells: { need: "只想读出里面写了什么，文件一个字也不能变", mode: r } }
+              - { id: add, cells: { need: "把一行 run 4 接在末尾，原来的三行都要保留", mode: a } }
+              - { id: replace, cells: { need: "整个换成只有 run 4 一行的新内容，旧内容不要了", mode: w } }
         explanation: |
-          用 `"a"` 打开 `logs/runlog.txt` 的那一段：新的一行接在末尾，原有三行都在。用 `"w"` 会先清空，只剩 run 4；用 `"r"` 打开的文件不能写，会报错；文件名写成 `run_log.txt` 时，`"a"` 悄悄新建了另一个文件，要改的文件没变。
+          | 需求 | 打开方式 | 为什么 |
+          |---|---|---|
+          | 只读不改 | `"r"` | 只读，文件原样不动；用 `"w"` 或 `"a"` 打开就不能读了，而且 `"w"` 一打开就清空 |
+          | 接在末尾 | `"a"` | 新内容接在原有内容后面；`"w"` 会先清空，只剩 run 4；`"r"` 不能写，会报错 |
+          | 整个换掉 | `"w"` | 打开那一刻就清空，再写入新内容；`"a"` 会把 run 4 接在旧内容后面 |
+
+          选的时候先问：旧内容要不要留。要留，就是读用 `"r"`、加东西用 `"a"`；不要了，才用 `"w"`。
         verify: |
-          fits = []
-          for option, code in OPTIONS["code"].items():
-              r = run(code)
-              with open("logs/runlog.txt", encoding="utf-8") as f:
-                  now = f.read()
-              if r.error is None and now == RUNLOG + "run 4\n":
-                  fits.append(option)
-          answers = {"code": fits[0] if len(fits) == 1 else fits}
+          from pathlib import Path
+          PATH = "logs/runlog.txt"
+
+          def trial(mode, action):
+              Path(PATH).write_text(RUNLOG, encoding="utf-8")
+              try:
+                  with open(PATH, mode, encoding="utf-8") as f:
+                      if action == "read":
+                          f.read()
+                      else:
+                          f.write("run 4\n")
+              except Exception:
+                  return None
+              return Path(PATH).read_text(encoding="utf-8")
+
+          GOALS = {
+              "see": ("read", lambda now: now == RUNLOG),
+              "add": ("write", lambda now: now == RUNLOG + "run 4\n"),
+              "replace": ("write", lambda now: now == "run 4\n"),
+          }
+          modes = {}
+          for row, (action, ok) in GOALS.items():
+              fits = []
+              for mode in ("r", "w", "a"):
+                  now = trial(mode, action)
+                  if now is not None and ok(now):
+                      fits.append(mode)
+              modes[row] = {"mode": fits[0] if len(fits) == 1 else fits}
+          answers = {"modes": modes}
       - id: py43.k3.r2
         kind: [predict]
         data: [empty_results]

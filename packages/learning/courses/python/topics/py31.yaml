@@ -400,11 +400,11 @@ kps:
           answers = {"ok": "no" if marked.any() else "yes", "which": combos[0] if len(combos) == 1 else combos, "marked": int(marked.sum())}
     review:
       - id: py31.k1.r1
-        kind: [predict]
+        kind: [predict, explain]
         uses: [py25.k1]
         data: [soil]
         body: |
-          把表 soil 排成长表：每行一个采样点一个季节的深度，列为 site、season、depth。
+          把表 soil 排成长表：每行是一个采样点在一个季节的一次深度测量，列为 site、season、depth。
         slots:
           - id: rows
             type: text
@@ -413,22 +413,27 @@ kps:
             key: 6
           - id: pair
             type: choice
-            prompt: 在这张长表里，哪两列合起来能认出唯一的一行（每种组合只出现一次）？
+            prompt: 按“一行是一个采样点在一个季节的一次测量”这个约定，长表的业务键是哪两列？
             options:
               - { id: site_depth, content: site 和 depth }
               - { id: site_season, content: site 和 season }
               - { id: season_depth, content: season 和 depth }
             key: site_season
         explanation: |
-          3 个采样点 × 2 个季节，长表 **6** 行。**site 和 season** 合起来正好认出一个测量。另外两种组合在这批数据里就已经重复：东坡春、秋两季都是 30 厘米，所以 site 和 depth 的组合“东坡、30”出现两次；春季北坡、东坡都是 30，season 和 depth 的组合“spring、30”也出现两次。测到的数可能相同，不能拿来认记录。
+          3 个采样点 × 2 个季节，长表 **6** 行。
+
+          业务键由“一行代表什么”决定，不看这一批数据里哪些列碰巧不重复。一行代表“一个采样点在一个季节的一次测量”，所以能认出这一行的是**测的是谁**（site）和**什么条件下测的**（season）；depth 是测到的值，是这一行的内容，不是用来认记录的。
+
+          用值来认记录靠不住：不同采样点、不同季节完全可能测到同样的深度。这批数据里就有：东坡春、秋两季都是 30 厘米，site 和 depth 的组合“东坡、30”出现两次；春季北坡、东坡都是 30，season 和 depth 的组合“spring、30”也出现两次。换一批数据，这两个组合碰巧不重复也说明不了什么，业务键仍然是 site 和 season。
         verify: |
           seasons = [column for column in soil.columns if column != "site"]
           records = [(site, season, value) for site, values in zip(soil["site"], soil[seasons].values.tolist())
                      for season, value in zip(seasons, values)]
           long = pd.DataFrame(records, columns=["site", "season", "depth"])
           pairs = {"site_depth": ["site", "depth"], "site_season": ["site", "season"], "season_depth": ["season", "depth"]}
-          unique = [pair for pair, columns in pairs.items() if not long.duplicated(subset=columns).any()]
-          answers = {"rows": len(long), "pair": unique[0] if len(unique) == 1 else unique}
+          # 业务键 = 标识列加变量列，也就是除了测到的值（depth）以外的两列；它们合起来也应当没有重复。
+          keys = [pair for pair, columns in pairs.items() if "depth" not in columns and not long.duplicated(subset=columns).any()]
+          answers = {"rows": len(long), "pair": keys[0] if len(keys) == 1 else keys}
       - id: py31.k1.r2
         kind: [explain]
         data: [survey]

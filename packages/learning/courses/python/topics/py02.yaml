@@ -1034,45 +1034,76 @@ kps:
               total_ul = total_ul + 250
           answers = {"shown": shown, "correct": total_ul / 1000}
       - id: py02.k3.r2
-        kind: [specify]
+        kind: [explain]
         uses: [py01.k1]
         body: |
-          溶液浓度是 `conc_mg_per_ml`（mg/mL），一次实验需要 `mass_mg`（mg）的药。例如浓度 4 mg/mL、需要 10 mg 时，应当取 2.5 mL。哪一行算出要取的体积 `volume_ml`？
-        slots:
-          - id: line
-            type: choice
-            options:
-              - id: times
-                content: |
-                  ```python
-                  volume_ml = mass_mg * conc_mg_per_ml
-                  ```
-              - id: inverse
-                content: |
-                  ```python
-                  volume_ml = conc_mg_per_ml / mass_mg
-                  ```
-              - id: floor
-                content: |
-                  ```python
-                  volume_ml = mass_mg // conc_mg_per_ml
-                  ```
-              - id: div
-                content: |
-                  ```python
-                  volume_ml = mass_mg / conc_mg_per_ml
-                  ```
-            key: div
-        explanation: |
-          `volume_ml = mass_mg / conc_mg_per_ml`：单位上 mg ÷ (mg/mL) = mL，10 ÷ 4 得 2.5 mL。核对：2.5 mL × 4 mg/mL = 10 mg。
+          三个名字都带着单位：`mass_mg` 是质量（mg），`volume_ml` 是体积（mL），`conc_mg_per_ml` 是浓度（mg/mL）。
 
-          质量乘浓度的单位是 mg × mg/mL，不是体积；浓度除以质量倒过来了；`//` 会把 2.5 丢成 2。
+          按单位推一推，下面每个算式算出来的数是什么单位？单位对不上、算出来没有意义的，选“没有意义”。
+        slots:
+          - id: units
+            type: table
+            columns:
+              - { id: expr, header: 算式 }
+              - id: unit
+                header: 算出的数是
+                input:
+                  type: choice
+                  options:
+                    - { id: mg, label: mg }
+                    - { id: ml, label: mL }
+                    - { id: mg_per_ml, label: mg/mL }
+                    - { id: none, label: 没有意义 }
+            rows:
+              - { id: r1, cells: { expr: "`mass_mg / volume_ml`", unit: mg_per_ml } }
+              - { id: r2, cells: { expr: "`conc_mg_per_ml * volume_ml`", unit: mg } }
+              - { id: r3, cells: { expr: "`mass_mg / conc_mg_per_ml`", unit: ml } }
+              - { id: r4, cells: { expr: "`mass_mg * volume_ml`", unit: none } }
+          - id: volume
+            type: text
+            match: output
+            prompt: 浓度 4 mg/mL、需要 10 mg 的药。按上表里算出 mL 的那个算式，要取多少 mL？
+            suffix: mL
+            key: "2.5"
+        explanation: |
+          | 算式 | 单位怎么推 | 算出的数 |
+          |---|---|---|
+          | `mass_mg / volume_ml` | mg ÷ mL | mg/mL，是浓度 |
+          | `conc_mg_per_ml * volume_ml` | mg/mL × mL，mL 约掉 | mg，是质量 |
+          | `mass_mg / conc_mg_per_ml` | mg ÷ (mg/mL)，mg 约掉 | mL，是体积 |
+          | `mass_mg * volume_ml` | mg × mL | mg·mL，不是任何要用的量，多半是写错了乘除 |
+
+          要取的体积是质量除以浓度：10 ÷ 4 = 2.5 mL。核对：2.5 mL × 4 mg/mL = 10 mg，正好回到需要的质量。
         verify: |
-          # 取出的体积乘浓度，应当正好是需要的质量；用两组数核对。
-          cases = [(10, 4), (9, 2)]
-          fits = [option for option, code in OPTIONS["line"].items()
-                  if all(run(code, mass_mg=m, conc_mg_per_ml=c)["volume_ml"] * c == m for m, c in cases)]
-          answers = {"line": fits[0] if len(fits) == 1 else fits}
+          import ast
+          UNITS = {"mass_mg": {"mg": 1}, "volume_ml": {"mL": 1}, "conc_mg_per_ml": {"mg": 1, "mL": -1}}
+
+          def unit_of(node):
+              if isinstance(node, ast.Name):
+                  return dict(UNITS[node.id])
+              left, right = unit_of(node.left), unit_of(node.right)
+              sign = 1 if isinstance(node.op, ast.Mult) else -1
+              out = dict(left)
+              for name, power in right.items():
+                  out[name] = out.get(name, 0) + sign * power
+              return {name: power for name, power in out.items() if power != 0}
+
+          NAMES = [({"mg": 1}, "mg"), ({"mL": 1}, "ml"), ({"mg": 1, "mL": -1}, "mg_per_ml")]
+
+          def label(unit):
+              for known, option in NAMES:
+                  if unit == known:
+                      return option
+              return "none"
+
+          units = {}
+          for row, cells in CELLS["units"].items():
+              expr = cells["expr"].strip("`")
+              units[row] = {"unit": label(unit_of(ast.parse(expr, mode="eval").body))}
+          ml = [cells["expr"].strip("`") for row, cells in CELLS["units"].items()
+                if label(unit_of(ast.parse(cells["expr"].strip("`"), mode="eval").body)) == "ml"]
+          volume = eval(ml[0], {"mass_mg": 10, "conc_mg_per_ml": 4})
+          answers = {"units": units, "volume": volume}
     quiz:
       - id: py02.k3.x1
         kind: [predict]

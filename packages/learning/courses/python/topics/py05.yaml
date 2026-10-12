@@ -1112,10 +1112,10 @@ kps:
       - id: py05.k3.x2
         kind: [debug, predict]
         body: |
-          同事想把组名里的空格换成下划线，并去掉两端的空格，例如 `" Drug A "` 要得到 `'Drug_A'`。他写的是：
+          同事想把组名里的空格换成下划线，并去掉两端的空格，例如 `" Placebo 2 "` 要得到 `'Placebo_2'`。他写的是：
 
           ```python startLine=1
-          raw = " Drug A "
+          raw = " Placebo 2 "
           clean = raw.replace(" ", "_").strip()
           ```
         slots:
@@ -1123,10 +1123,10 @@ kps:
             type: text
             match: output
             prompt: 这段代码运行后，`clean` 是什么？写成带引号的形式，引号里的字符照实写。
-            key: "'_Drug_A_'"
+            key: "'_Placebo_2_'"
           - id: fix
             type: choice
-            prompt: 把第 2 行换成哪一行，对 `" Drug A "` 和 `"  High Dose "` 这样的组名都能得到想要的结果？
+            prompt: 把第 2 行换成哪一行，对 `" Placebo 2 "` 和 `"  High Dose "` 这样的组名都能得到想要的结果？
             options:
               - id: no_space
                 content: |
@@ -1150,11 +1150,11 @@ kps:
                   ```
             key: reordered
         explanation: |
-          `clean` 是 **'_Drug_A_'**：`replace` 先把三个空格都换成下划线，两端已经没有空格，`strip()` 什么也没去掉。
+          `clean` 是 **'_Placebo_2_'**：`replace` 先把三个空格都换成下划线，两端已经没有空格，`strip()` 什么也没去掉。
 
-          换成 `clean = raw.strip().replace(" ", "_")`，先去两端再换中间，得到 `'Drug_A'`。`replace(" ", "")` 把空格删掉，得到 `'DrugA'`；只用 `strip()`，中间的空格没换；`replace("_", " ")` 把两个参数写反了，找的是下划线，结果仍是 `'Drug A'`。
+          换成 `clean = raw.strip().replace(" ", "_")`，先去两端再换中间，得到 `'Placebo_2'`。`replace(" ", "")` 把空格删掉，得到 `'Placebo2'`；只用 `strip()`，中间的空格没换；`replace("_", " ")` 把两个参数写反了，找的是下划线，结果仍是 `'Placebo 2'`。
         verify: |
-          cases = [" Drug A ", "  High Dose "]
+          cases = [" Placebo 2 ", "  High Dose "]
           fits = [option for option, code in OPTIONS["fix"].items()
                   if all(run(code, raw=case)["clean"] == "_".join(case.split()) for case in cases)]
           answers = {"value": run()["clean"], "fix": fits[0] if len(fits) == 1 else fits}

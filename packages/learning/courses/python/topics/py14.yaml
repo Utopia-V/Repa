@@ -470,30 +470,53 @@ kps:
         uses: [py06.k1]
         data: [field]
         body: |
-          在交互窗口里依次输入下面几行。
+          表 field 已经准备好。下面每个表达式单独求值，得到的是什么东西？会报错的选“报错”。
         slots:
-          - id: wwpd
+          - id: kinds
             type: table
-            prompt: Python 显示什么？什么也不显示填 NOTHING，报错填 ERROR。
             columns:
-              - { id: input, header: 输入 }
-              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+              - { id: expr, header: 表达式 }
+              - id: kind
+                header: 得到
+                input:
+                  type: choice
+                  options:
+                    - { id: table, label: 一张表（DataFrame） }
+                    - { id: series, label: 一列（Series） }
+                    - { id: number, label: 一个数 }
+                    - { id: items, label: 一个列表 }
+                    - { id: error, label: 报错 }
             rows:
-              - { id: r1, cells: { input: "`>>> crops = field[\"crop\"]`", shown: NOTHING } }
-              - { id: r2, cells: { input: "`>>> len(crops)`", shown: "3" } }
-              - { id: r3, cells: { input: "`>>> list(crops.index)`", shown: "['P1', 'P2', 'P3']" } }
-              - { id: r4, cells: { input: "`>>> field[\"产量\"]`", shown: ERROR } }
+              - { id: whole, cells: { expr: "`field`", kind: table } }
+              - { id: column, cells: { expr: "`field[\"crop\"]`", kind: series } }
+              - { id: size, cells: { expr: "`len(field)`", kind: number } }
+              - { id: names, cells: { expr: "`list(field.columns)`", kind: items } }
+              - { id: missing, cells: { expr: "`field[\"产量\"]`", kind: error } }
         explanation: |
-          | 输入 | 显示 |
-          |---|---|
-          | `crops = field["crop"]` | NOTHING：赋值不显示 |
-          | `len(crops)` | 3：取出的一列有 3 个值 |
-          | `list(crops.index)` | `['P1', 'P2', 'P3']`：这一列带着原表的行索引 |
-          | `field["产量"]` | ERROR：表里的列名是 yield_kg，没有叫“产量”的列 |
+          | 表达式 | 得到 | 为什么 |
+          |---|---|---|
+          | `field` | 一张表 | 整张表，有列名和行索引 |
+          | `field["crop"]` | 一列（Series） | 用列名取出的一列，带着原表的行索引 P1、P2、P3 |
+          | `len(field)` | 一个数 | 表有几行，这里是 3 |
+          | `list(field.columns)` | 一个列表 | 把列名排成列表：`['crop', 'yield_kg']` |
+          | `field["产量"]` | 报错 | 列名是 yield_kg，没有叫“产量”的列，KeyError |
+
+          看到一个表达式，先想它交回的是哪种东西，再想下一步能对它做什么。
         verify: |
-          inputs = ['crops = field["crop"]', "len(crops)", "list(crops.index)", 'field["产量"]']
-          shown = repl("\n".join(inputs))
-          answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}}
+          def kind(expr):
+              try:
+                  value = eval(expr, {"field": field})
+              except Exception:
+                  return "error"
+              if isinstance(value, pd.DataFrame):
+                  return "table"
+              if isinstance(value, pd.Series):
+                  return "series"
+              if isinstance(value, list):
+                  return "items"
+              return "number" if isinstance(value, int) else "other"
+          exprs = {"whole": "field", "column": 'field["crop"]', "size": "len(field)", "names": "list(field.columns)", "missing": 'field["产量"]'}
+          answers = {"kinds": {row: {"kind": kind(expr)} for row, expr in exprs.items()}}
 
   - id: py14.k2
     title: shape 与 head 分别告诉你什么
@@ -735,41 +758,53 @@ kps:
         kind: [predict]
         data: [runs]
         body: |
+          你和同事各写了一段，想看 runs 表的前 3 行。每段都从题面的表 runs 开始运行。
+
+          甲：
+
           ```python
           first = runs.head(3)
+          print(runs.shape)
+          ```
+
+          乙：
+
+          ```python
+          runs = runs.head(3)
+          print(runs.shape)
           ```
         slots:
-          - id: rows
-            type: order
-            partial: true
-            prompt: "`first` 里有哪几行？按先后排出它们的行索引。"
-            items:
-              - { id: "1", content: "1" }
-              - { id: "2", content: "2" }
-              - { id: "6", content: "6" }
-              - { id: "9", content: "9" }
-              - { id: "11", content: "11" }
-              - { id: "14", content: "14" }
-            key: ["9", "2", "14"]
-          - id: nrows
+          - id: a
             type: text
-            format: integer
-            prompt: 运行之后，`runs.shape` 的第一个数（行数）是多少？
-            key: 6
-          - id: ncols
+            match: output
+            prompt: 甲显示什么？
+            key: (6, 2)
+          - id: b
             type: text
-            format: integer
-            prompt: "`runs.shape` 的第二个数（列数）是多少？"
-            key: 2
+            match: output
+            prompt: 乙显示什么？
+            key: (3, 2)
+          - id: lost
+            type: choice
+            prompt: 乙运行之后，原来表里的哪些行在 `runs` 里不见了？
+            options:
+              - { id: tail, content: 排在后面的三行，行索引是 6、11、1 }
+              - { id: biggest, content: 行索引最大的三行，行索引是 14、11、9 }
+              - { id: none, content: 没有行不见 }
+            key: tail
         explanation: |
-          `runs.head(3)` 按表里的先后取前三行：行索引 **9、2、14**，不是最小的 1、2、6。head 不改变 runs，它仍是 **6** 行、**2** 列（run_id、minutes），`runs.shape` 是 (6, 2)。
+          甲把前三行放进了新名字 `first`，`runs` 本身没有变，仍是 6 行 2 列，显示 **(6, 2)**。
+
+          乙把名字 `runs` 改成指向前三行的那张小表，**(3, 2)**。`head(3)` 取的是表里排在最前的三行（行索引 9、2、14），不是行索引最小的三行；排在后面的 6、11、1 这三行，`runs` 里再也看不到了。要看一眼前几行，不要把结果赋回原来的名字。
         verify: |
-          r = run()
-          answers = {
-              "rows": [str(label) for label in r["first"].index],
-              "nrows": r["runs"].shape[0],
-              "ncols": r["runs"].shape[1],
-          }
+          a = run(BLOCKS[0])
+          b = run(BLOCKS[1])
+          original = list(runs.index)
+          kept = list(b["runs"].index)
+          missing = sorted(set(original) - set(kept))
+          options = {"tail": [1, 6, 11], "biggest": [9, 11, 14], "none": []}
+          fits = [name for name, labels in options.items() if labels == missing]
+          answers = {"a": a.lines()[0], "b": b.lines()[0], "lost": fits[0] if len(fits) == 1 else fits}
       - id: py14.k2.x2
         kind: [explain]
         data: [runs]
@@ -1095,30 +1130,33 @@ kps:
         kind: [explain]
         data: [plots]
         body: |
-          读题面最前面的表 plots：在几个样方里数了各种植物的株数。
+          读题面最前面的表 plots：在几个样方里数了各种植物的株数，一行是“某个样方里某种植物的一次计数”。
+
+          下面四件事，各要数出几个？
         slots:
-          - id: key
-            type: choice
-            prompt: 哪几列合起来能唯一确定一行？
-            options:
-              - { id: plot, content: 只要 plot }
-              - { id: plot_species, content: plot 和 species }
-              - { id: species, content: 只要 species }
-            key: plot_species
-          - id: plots
-            type: text
-            format: integer
-            prompt: 一共调查了几个样方？
-            key: 3
-          - id: rows
-            type: text
-            format: integer
-            prompt: 表有几行？
-            key: 6
+          - id: counts
+            type: table
+            columns:
+              - { id: what, header: 要数的 }
+              - { id: n, header: 个数, input: integer }
+            rows:
+              - { id: rows, cells: { what: 表有几行, n: 6 } }
+              - { id: plots, cells: { what: 一共调查了几个样方, n: 3 } }
+              - { id: species, cells: { what: 一共记录到几种植物, n: 3 } }
+              - { id: dandelion, cells: { what: 蒲公英出现在几个样方里, n: 2 } }
         explanation: |
-          Q1 出现三次、蒲公英出现两次，单看 plot 或 species 都有重复；**plot 和 species** 合起来每行都不一样。一行是“某个样方里某种植物的株数”。表有 **6** 行，样方只有 Q1、Q2、Q3 这 **3** 个。
+          同一个样方（Q1）占了三行，同一种植物（蒲公英）占了两行，所以要数的东西不同，数法也不同：
+
+          - 表有几行：**6**，每行是一次计数；
+          - 样方个数：数 plot 列里**不同的**编号，Q1、Q2、Q3，**3** 个，不是 6；
+          - 植物种数：数 species 列里不同的名字，蒲公英、车前草、狗尾草，**3** 种；
+          - 蒲公英出现在几个样方里：只看 species 是蒲公英的两行，它们在 Q1 和 Q2，**2** 个样方。
+
+          先想清楚一行代表什么，再决定数行，还是数某一列里不同的值。
         verify: |
-          unique_by = lambda columns: not plots.duplicated(subset=columns).any()
-          options = {"plot": ["plot"], "species": ["species"], "plot_species": ["plot", "species"]}
-          fits = [option for option, columns in options.items() if unique_by(columns)]
-          answers = {"key": fits[0] if len(fits) == 1 else fits, "plots": plots["plot"].nunique(), "rows": len(plots)}
+          answers = {"counts": {
+              "rows": {"n": len(plots)},
+              "plots": {"n": plots["plot"].nunique()},
+              "species": {"n": plots["species"].nunique()},
+              "dandelion": {"n": plots.loc[plots["species"] == "蒲公英", "plot"].nunique()},
+          }}

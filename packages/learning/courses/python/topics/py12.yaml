@@ -498,25 +498,42 @@ kps:
           }
     review:
       - id: py12.k2.r1
-        kind: [predict]
+        kind: [specify]
         data: [samples4b]
         body: |
-          要求：保留 signal 大于 7 的行，只输出 sample_id，保持原顺序。
+          同事的实现在这张 samples 上运行，输出是 B、C、D 三个 sample_id（只有这一列，保持原顺序）。他说这个实现是照要求写的，可你没看到要求原文。
         slots:
-          - id: result
-            type: order
-            partial: true
-            prompt: 按输出的先后顺序排出留下的 sample_id。
-            items:
-              - { id: A, content: A }
-              - { id: B, content: B }
-              - { id: C, content: C }
-              - { id: D, content: D }
-            key: [D]
+          - id: rules
+            type: choice
+            multiple: true
+            prompt: 下面哪些要求，用在这张表上都会得到 B、C、D？选出全部。
+            options:
+              - { id: ge7, content: signal 大于或等于 7 }
+              - { id: gt7, content: signal 大于 7 }
+              - { id: gt4, content: signal 大于 4 }
+              - { id: ge8, content: signal 大于或等于 8 }
+            key: [ge7, gt4]
+          - id: value
+            type: choice
+            prompt: 要分清“大于或等于 7”和“大于 4”到底是哪一个，在表里补一行，signal 取下面哪个值最合适？
+            options:
+              - { id: v3, content: "3" }
+              - { id: v5, content: "5" }
+              - { id: v7, content: "7" }
+              - { id: v9, content: "9" }
+            key: v5
         explanation: |
-          只有 **D**。B 和 C 恰好等于 7，“大于 7”不包含它们。
+          按这张表的四个 signal（4、7、7、12）算：“大于或等于 7”留下 B、C、D；“大于 4”也留下 B、C、D（4 本身不大于 4）；“大于 7”只留下 D；“大于或等于 8”也只留下 D。所以输出 B、C、D 只能排除后两种要求，剩下的两种分不开。
+
+          这说明一个例子可以和好几条规则都对得上，例子不能代替规则。要分开“≥ 7”和“> 4”，就补一行落在两个阈值之间的值：signal 为 5 时，前者丢掉它，后者留下它。取 3 两者都丢，取 7 或 9 两者都留，查不出区别。
         verify: |
-          answers = {"result": list(samples.loc[samples["signal"] > 7, "sample_id"])}
+          rules = {"ge7": lambda v: v >= 7, "gt7": lambda v: v > 7, "gt4": lambda v: v > 4, "ge8": lambda v: v >= 8}
+          wanted = ["B", "C", "D"]
+          fits = [name for name, test in rules.items()
+                  if list(samples.loc[samples["signal"].map(test), "sample_id"]) == wanted]
+          first, second = rules["ge7"], rules["gt4"]
+          apart = [f"v{v}" for v in (3, 5, 7, 9) if first(v) != second(v)]
+          answers = {"rules": fits, "value": apart[0] if len(apart) == 1 else apart}
       - id: py12.k2.r2
         kind: [specify]
         body: |

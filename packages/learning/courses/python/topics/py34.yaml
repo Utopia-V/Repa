@@ -833,49 +833,67 @@ kps:
           answers = {"line": lines[1], "cause": "read" if file_has_zeros and read_as_numbers else "export"}
     quiz:
       - id: py34.k2.x1
-        kind: [predict, debug]
+        kind: [specify, debug]
         uses: [py25.k1, py15.k3]
         data: [final]
         body: |
-          需求是“每个样本一行，共 4 个样本（S01、S02、S03、S04），列为 sample_id、signal”。导出后读回来，打印三项核对的结果。
+          需求是“每个样本一行，共 4 个样本（S01、S02、S03、S04），列为 sample_id、signal”。导出后读回来：
 
           ```python
           final.to_csv("final.csv", index=False)
           back = pd.read_csv("final.csv")
-          print(len(back) == 4)
-          print(back["sample_id"].is_unique)
-          print(list(back.columns) == ["sample_id", "signal"])
           ```
+
+          在这两行后面再加一行 assert 做核对。下面哪几行在这份文件上会报 AssertionError，也就是能发现它不符合需求？选出所有能发现的。
         slots:
           - id: checks
-            type: table
-            columns:
-              - { id: check, header: 核对 }
-              - { id: shown, header: 显示, input: bool }
-            rows:
-              - { id: c1, cells: { check: 行数等于 4, shown: true } }
-              - { id: c2, cells: { check: sample_id 没有重复, shown: false } }
-              - { id: c3, cells: { check: 列名依次是 sample_id、signal, shown: true } }
-          - id: deliver
             type: choice
-            prompt: 这个文件能按需求交出去吗？
+            multiple: true
             options:
-              - id: "yes"
-                content: 能，行数对了
-              - id: "no"
-                content: 不能，S03 出现了两次，S04 缺了
-            key: "no"
+              - id: rows
+                content: |
+                  ```python
+                  assert len(back) == 4
+                  ```
+                feedback: 文件正好有 4 行，这一行通过，发现不了问题。
+              - id: unique
+                content: |
+                  ```python
+                  assert back["sample_id"].is_unique
+                  ```
+              - id: columns
+                content: |
+                  ```python
+                  assert list(back.columns) == ["sample_id", "signal"]
+                  ```
+                feedback: 列名没有问题，这一行通过，发现不了问题。
+              - id: ids
+                content: |
+                  ```python
+                  assert set(back["sample_id"]) == {"S01", "S02", "S03", "S04"}
+                  ```
+              - id: signal
+                content: |
+                  ```python
+                  assert back["signal"].count() == 4
+                  ```
+                feedback: signal 四格都有值，这一行通过，发现不了问题。
+            key: [unique, ids]
         explanation: |
-          三行依次显示 **True、False、True**。行数恰好是 4，但那是因为 S03 出现了两次、S04 缺了，两处错误互相抵消了。所以**不能**交出去：只看行数会漏掉这种问题，键要单独查。
+          这份文件 4 行、列名也对，但 S03 出现了两次、S04 没有，一多一少，行数恰好抵消。
+
+          - 查行数、查列名、查 signal 有没有缺失，三项都通过，看不出问题。
+          - `is_unique` 查出 S03 重复，报 AssertionError。
+          - 比较编号的集合：读回来的是 S01、S02、S03，少了 S04，集合对不上，也报 AssertionError。
+
+          行数对了不代表没问题。键（编号）要单独查：有没有重复，该有的是不是都在。
         verify: |
-          r = run()
-          shown = [line.strip() == "True" for line in r.lines()]
-          ids = set(r["back"]["sample_id"])
-          deliver = all(shown) and ids == {"S01", "S02", "S03", "S04"}
-          answers = {
-              "checks": {f"c{i}": {"shown": value} for i, value in enumerate(shown, 1)},
-              "deliver": "yes" if deliver else "no",
-          }
+          fits = []
+          for option, code in OPTIONS["checks"].items():
+              r = run(BLOCKS[0] + "\n" + code)
+              if r.error == "AssertionError":
+                  fits.append(option)
+          answers = {"checks": fits}
       - id: py34.k2.x2
         kind: [modify]
         uses: [py15.k2]

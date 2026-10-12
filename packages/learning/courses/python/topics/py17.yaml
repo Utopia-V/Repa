@@ -294,60 +294,119 @@ kps:
           r = run()
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
       - id: py17.k1.r2
-        kind: [predict]
-        uses: [py08.k1, py16.k1]
-        data: [T]
+        kind: [predict, explain]
+        uses: [py08.k1, py08.k2, py16.k1]
+        data: [T2]
         body: |
-          阅读代码，按原行索引填写 `mask` 的值。
+          同事对题面里这张表（变量名 `df`）的 signal 列做了一次比较，把结果存进 `mask`，打印出来是：
 
-          ```python
-          mask = df["group"] == "drug"
+          ```text
+          90    False
+          2      True
+          60     True
+          11    False
+          Name: signal, dtype: bool
           ```
+
+          他没有写代码。
         slots:
-          - id: mask
-            type: table
-            columns:
-              - { id: index, header: 原行索引 }
-              - { id: group, header: group }
-              - { id: mask, header: mask, input: bool }
-            rows:
-              - { id: r31, cells: { index: "31", group: control, mask: false } }
-              - { id: r7, cells: { index: "7", group: drug, mask: true } }
-              - { id: r22, cells: { index: "22", group: drug, mask: true } }
-              - { id: r4, cells: { index: "4", group: control, mask: false } }
+          - id: line
+            type: choice
+            prompt: 这一行最可能是哪一种写法？
+            options:
+              - id: ge12
+                content: |
+                  ```python
+                  mask = df["signal"] >= 12
+                  ```
+              - id: gt12
+                content: |
+                  ```python
+                  mask = df["signal"] > 12
+                  ```
+                feedback: 结果会全是 False，因为 signal 最大是 12，不大于 12。
+              - id: ge9
+                content: |
+                  ```python
+                  mask = df["signal"] >= 9
+                  ```
+                feedback: signal 为 9 的那一行（原行索引 11）也会是 True。
+              - id: eq9
+                content: |
+                  ```python
+                  mask = df["signal"] == 9
+                  ```
+                feedback: 只有 signal 恰好为 9 的那一行是 True。
+            key: ge12
+          - id: edge
+            type: choice
+            multiple: true
+            prompt: 在这张表里，哪几行能分出 `>= 12` 和 `> 12`（也就是在两种写法下结果不同）？选出所有。
+            options:
+              - { id: r90, content: 原行索引 90（signal 为 5） }
+              - { id: r2, content: 原行索引 2（signal 为 12） }
+              - { id: r60, content: 原行索引 60（signal 为 12） }
+              - { id: r11, content: 原行索引 11（signal 为 9） }
+            key: [r2, r60]
         explanation: |
-          依次为 **False、True、True、False**。文字列也可以逐行比较是否相等，结果同样是一列布尔值。
+          True 的两行 signal 都是 12，False 的两行是 5 和 9，所以留下的是“至少 12”：`df["signal"] >= 12`。`> 12` 一行也留不下，`>= 9` 会连 signal 为 9 的那行也标 True，`== 9` 只标 signal 为 9 的那行。
+
+          `>=` 和 `>` 只在恰好等于阈值的行上不同，这里就是 signal 为 12 的两行（原行索引 2 和 60）。别的行离 12 很远或没有恰好等于 12，两种写法给出同样的结果。
         verify: |
-          r = run()
-          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+          target = [False, True, True, False]
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              r = run(code)
+              if r.error is None and list(r["mask"]) == target:
+                  fits.append(option)
+          differ = (df["signal"] >= 12) != (df["signal"] > 12)
+          answers = {"line": fits[0] if len(fits) == 1 else fits,
+                     "edge": [f"r{label}" for label in df.index[differ]]}
     quiz:
       - id: py17.k1.x1
         kind: [predict]
         uses: [py08.k1, py08.k2, py16.k1]
-        data: [T2]
+        data: [T3]
         body: |
-          阅读代码，按原行索引填写 `mask` 的值。
+          阅读代码。
 
           ```python
-          mask = df["signal"] <= 9
+          mask = df["signal"] >= 10
           ```
         slots:
-          - id: mask
-            type: table
-            columns:
-              - { id: index, header: 原行索引 }
-              - { id: signal, header: signal }
-              - { id: mask, header: mask, input: bool }
-            rows:
-              - { id: r90, cells: { index: "90", signal: "5", mask: true } }
-              - { id: r2, cells: { index: "2", signal: "12", mask: false } }
-              - { id: r60, cells: { index: "60", signal: "12", mask: false } }
-              - { id: r11, cells: { index: "11", signal: "9", mask: true } }
+          - id: true_rows
+            type: order
+            partial: true
+            prompt: "`mask` 里为 True 的是哪几行？按表里的先后顺序，排出它们的原行索引。"
+            items:
+              - { id: "8", content: "8" }
+              - { id: "40", content: "40" }
+              - { id: "15", content: "15" }
+              - { id: "3", content: "3" }
+              - { id: "27", content: "27" }
+            key: ["8", "15", "3"]
+          - id: size
+            type: text
+            format: integer
+            prompt: "`mask` 里一共有几个值？"
+            key: 5
+          - id: rows
+            type: text
+            format: integer
+            prompt: 运行之后，`df` 有几行？
+            key: 5
         explanation: |
-          依次为 **True、False、False、True**。`<=` 包含等号，signal 恰好为 9 的索引 11 也是 True。
+          题面里的表，signal 依次是 14、9、10、12、7，原行索引依次是 8、40、15、3、27。“至少 10”（含 10）的是 14、10、12，对应原行索引 **8、15、3**，其他两行是 False。
+
+          `mask` 对每一行各有一个值，所以有 **5** 个；它只是标记，没有把任何行从 `df` 里去掉，`df` 仍是 **5** 行。
         verify: |
           r = run()
-          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+          mask = r["mask"]
+          answers = {
+              "true_rows": [str(label) for label in mask.index[mask]],
+              "size": len(mask),
+              "rows": len(r["df"]),
+          }
       - id: py17.k1.x2
         kind: [explain]
         uses: [py08.k1, py16.k1]
@@ -732,112 +791,103 @@ kps:
               "ncols": result.shape[1],
           }
       - id: py17.k2.r2
-        kind: [predict]
+        kind: [predict, specify]
         uses: [py08.k1, py16.k1, py16.k2]
         data: [T]
         body: |
-          阅读代码，说出 `result` 的样子。
+          同事在表 T 上筛了一次，把结果存进 `result`，打印出来是：
 
-          ```python
-          result = df.loc[df["group"] == "control", ["group", "sample_id"]]
+          ```text
+             group sample_id
+          7   drug       S_B
+          22  drug       S_C
           ```
         slots:
-          - id: rows
-            type: order
-            partial: true
-            prompt: 留下了哪些行？按先后顺序排出原行索引。
-            items:
-              - { id: "31", content: "31" }
-              - { id: "7", content: "7" }
-              - { id: "22", content: "22" }
-              - { id: "4", content: "4" }
-            key: ["31", "4"]
-          - id: columns
-            type: order
-            partial: true
-            prompt: 有哪些列？按顺序排列。
-            items:
-              - { id: sample_id, content: "`sample_id`" }
-              - { id: signal, content: "`signal`" }
-              - { id: group, content: "`group`" }
-            key: [group, sample_id]
-          - id: nrows
+          - id: code
+            type: choice
+            prompt: 哪一行代码能得到这个 `result`？
+            options:
+              - id: right
+                content: |
+                  ```python
+                  result = df.loc[df["group"] == "drug", ["group", "sample_id"]]
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  result = df.loc[df["group"] == "drug", ["sample_id", "group"]]
+                  ```
+                feedback: 列的先后反了，应当 group 在前。
+              - id: other_group
+                content: |
+                  ```python
+                  result = df.loc[df["group"] == "control", ["group", "sample_id"]]
+                  ```
+                feedback: 留下的是 control 组的行，原行索引是 31 和 4。
+              - id: one_column
+                content: |
+                  ```python
+                  result = df.loc[df["group"] == "drug", ["group"]]
+                  ```
+                feedback: 只有 group 一列，少了 sample_id。
+            key: right
+          - id: cell
             type: text
-            format: integer
-            prompt: 行数
-            key: 2
-          - id: ncols
-            type: text
-            format: integer
-            prompt: 列数
-            key: 2
+            prompt: 在这个 `result` 里，原行索引为 22 的那一行，sample_id 是什么？
+            key: S_C
         explanation: |
-          留下索引 **31、4** 两行；列依次是 **group、sample_id**，按列表的顺序；shape 为 **(2, 2)**。
+          行索引 7 和 22 对应表 T 里 group 是 drug 的两行，所以条件是 `df["group"] == "drug"`；列是 group 在前、sample_id 在后，所以逗号后面写 `["group", "sample_id"]`。
+
+          换成 control，留下的是 31 和 4；列的先后写反，打印出来 sample_id 在前；只写 `["group"]` 会少一列。原行索引 22 那一行的 sample_id 是 S_C。
         verify: |
-          result = run()["result"]
-          answers = {
-              "rows": [str(label) for label in result.index],
-              "columns": list(result.columns),
-              "nrows": result.shape[0],
-              "ncols": result.shape[1],
-          }
+          wanted = repr(df.loc[df["group"] == "drug", ["group", "sample_id"]])
+          fits = []
+          for option, code in OPTIONS["code"].items():
+              r = run(code)
+              if r.error is None and repr(r["result"]) == wanted:
+                  fits.append(option)
+          answers = {"code": fits[0] if len(fits) == 1 else fits, "cell": df.loc[22, "sample_id"]}
     quiz:
       - id: py17.k2.x1
-        kind: [predict]
+        kind: [predict, explain]
         uses: [py08.k1, py16.k1, py16.k2]
         data: [T2]
         body: |
-          阅读代码，说出 `result` 的样子。
+          阅读代码，判断每句话对不对。
 
           ```python
-          mask = df["signal"] >= 12
-          result = df.loc[mask, ["signal", "sample_id"]]
+          result = df.loc[df["signal"] >= 12, ["signal", "sample_id"]]
           ```
         slots:
-          - id: rows
-            type: order
-            partial: true
-            prompt: 留下了哪些行？按先后顺序排出原行索引。
-            items:
-              - { id: "90", content: "90" }
-              - { id: "2", content: "2" }
-              - { id: "60", content: "60" }
-              - { id: "11", content: "11" }
-            key: ["2", "60"]
-          - id: columns
-            type: order
-            partial: true
-            prompt: 有哪些列？按顺序排列。
-            items:
-              - { id: sample_id, content: "`sample_id`" }
-              - { id: signal, content: "`signal`" }
-              - { id: group, content: "`group`" }
-            key: [signal, sample_id]
-          - id: nrows
-            type: text
-            format: integer
-            prompt: 行数
-            key: 2
-          - id: ncols
-            type: text
-            format: integer
-            prompt: 列数
-            key: 2
-          - id: cell
-            type: text
-            prompt: 结果里原行索引为 60 的那一行，sample_id 是什么？
-            key: X_C
+          - id: claims
+            type: table
+            columns:
+              - { id: claim, header: 说法 }
+              - { id: ok, header: 对吗, input: bool }
+            rows:
+              - { id: c1, cells: { claim: "`result` 有 2 行", ok: true } }
+              - { id: c2, cells: { claim: "`result` 的第一列是 sample_id", ok: false } }
+              - { id: c3, cells: { claim: "`result` 的行索引是 0、1", ok: false } }
+              - { id: c4, cells: { claim: "运行之后，`df` 也只剩 2 行", ok: false } }
+              - { id: c5, cells: { claim: "`result` 里原行索引为 60 的那一行，sample_id 是 X_C", ok: true } }
         explanation: |
-          留下索引 **2、60**，顺序与原表相同；列依次是 **signal、sample_id**；shape 为 **(2, 2)**；索引 60 那一行的 sample_id 是 **X_C**。
+          表 T2 里 signal 至少为 12 的是原行索引 2 和 60 两行，所以 `result` 有 2 行。
+
+          - 逗号后面列的先后是 `["signal", "sample_id"]`，第一列是 signal，不是 sample_id；
+          - 筛选保留原行索引 2 和 60，不会重新编号成 0、1；
+          - `df` 本身没有变，仍是 4 行；
+          - 原行索引 60 那一行是 X_C。
         verify: |
-          result = run()["result"]
-          answers = {
-              "rows": [str(label) for label in result.index],
-              "columns": list(result.columns),
-              "nrows": result.shape[0],
-              "ncols": result.shape[1],
-              "cell": result.loc[60, "sample_id"],
+          r = run()
+          result, after = r["result"], r["df"]
+          claims = {
+              "c1": len(result) == 2,
+              "c2": list(result.columns)[0] == "sample_id",
+              "c3": list(result.index) == [0, 1],
+              "c4": len(after) == 2,
+              "c5": result.loc[60, "sample_id"] == "X_C",
           }
+          answers = {"claims": {row: {"ok": value} for row, value in claims.items()}}
       - id: py17.k2.x2
         kind: [modify]
         uses: [py08.k1, py16.k1, py16.k2]

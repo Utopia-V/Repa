@@ -433,77 +433,89 @@ kps:
           answers = {"claims": [claim for claim, ok in holds.items() if ok]}
     quiz:
       - id: py11.k1.x1
-        kind: [debug]
+        kind: [debug, predict]
         uses: [py03.k1, py03.k2]
         body: |
-          下面五段代码各自单独保存成一个文件运行，都会报错。
+          下面五段代码各自单独保存成一个文件运行，第 1 行都是 `print("开始")`，第 2 行都有问题。
 
           代码 1：
 
           ```python
+          print("开始")
           label = "第" + 3 + "组"
           ```
 
           代码 2：
 
           ```python
+          print("开始")
           count = 3 +
           ```
 
           代码 3：
 
           ```python
+          print("开始")
           name = 'S_A"
           ```
 
           代码 4：
 
           ```python
+          print("开始")
           value = float("abc")
           ```
 
           代码 5：
 
           ```python
+          print("开始")
           ratio = 5 / (2 - 2)
           ```
         slots:
-          - id: kinds
+          - id: shown
             type: table
-            prompt: 每段代码的报错是哪一种？
+            prompt: 运行每一段，报错之前屏幕上有没有显示“开始”？
             columns:
               - { id: code, header: 代码 }
-              - id: kind
-                header: 哪一种报错
-                input:
-                  type: choice
-                  options:
-                    - { id: syntax, label: 语法错误 }
-                    - { id: runtime, label: 运行时异常 }
+              - { id: shown, header: 显示了“开始”, input: bool }
             rows:
-              - { id: c1, cells: { code: 代码 1, kind: runtime } }
-              - { id: c2, cells: { code: 代码 2, kind: syntax } }
-              - { id: c3, cells: { code: 代码 3, kind: syntax } }
-              - { id: c4, cells: { code: 代码 4, kind: runtime } }
-              - { id: c5, cells: { code: 代码 5, kind: runtime } }
+              - { id: c1, cells: { code: 代码 1, shown: true } }
+              - { id: c2, cells: { code: 代码 2, shown: false } }
+              - { id: c3, cells: { code: 代码 3, shown: false } }
+              - { id: c4, cells: { code: 代码 4, shown: true } }
+              - { id: c5, cells: { code: 代码 5, shown: true } }
+          - id: common
+            type: choice
+            prompt: 没有显示“开始”的那几段，有什么共同点？
+            options:
+              - { id: syntax, content: 都是语法错误：Python 读不懂整段代码，一行都没有运行 }
+              - { id: line1, content: 都是第 1 行的 print 写错了 }
+              - { id: name_error, content: 报的都是 NameError }
+            key: syntax
         explanation: |
-          | 代码 | 报错 | 哪一种 |
+          | 代码 | 报错 | 屏幕上有“开始”吗 |
           |---|---|---|
-          | 1 | TypeError：文字和整数不能直接相加 | 运行时异常 |
-          | 2 | SyntaxError：`+` 后面缺了东西 | 语法错误 |
-          | 3 | SyntaxError：单引号开头、双引号结尾，文字没有收尾 | 语法错误 |
-          | 4 | ValueError：`"abc"` 不是数的写法 | 运行时异常 |
-          | 5 | ZeroDivisionError：`2 - 2` 算出来是 0 | 运行时异常 |
+          | 1 | TypeError：文字和整数不能直接相加，停在第 2 行 | 有，第 1 行已经运行了 |
+          | 2 | SyntaxError：`+` 后面缺了东西 | 没有，整段读不懂，一行也没运行 |
+          | 3 | SyntaxError：单引号开头、双引号结尾，文字没有收尾 | 没有 |
+          | 4 | ValueError：`"abc"` 不是数的写法，停在第 2 行 | 有 |
+          | 5 | ZeroDivisionError：`2 - 2` 是 0，停在第 2 行 | 有 |
 
-          代码 1、4、5 的写法都合规，要运行到那一行，算出具体的值，才发现问题；代码 2、3 写法本身不完整，Python 读都读不下去。
+          显示不显示“开始”，正好分出两种报错：语法错误发生在读代码的时候，第 1 行也不会运行；运行时异常发生在运行到那一行的时候，前面的行已经执行了。
         verify: |
-          def kind(code):
-              try:
-                  compile(code, "<q>", "exec")
-              except SyntaxError:
-                  return "syntax"
-              return "runtime" if run(code).error is not None else "no error"
-          answers = {"kinds": {f"c{i}": {"kind": kind(code)} for i, code in enumerate(BLOCKS, 1)}}
+          shown = {}
+          syntax_only = True
+          for i, code in enumerate(BLOCKS, 1):
+              r = run(code)
+              shown[f"c{i}"] = {"shown": "开始" in r.out}
+              if "开始" not in r.out:
+                  try:
+                      compile(code, "<q>", "exec")
+                      syntax_only = False
+                  except SyntaxError:
+                      pass
+          answers = {"shown": shown, "common": "syntax" if syntax_only else "other"}
       - id: py11.k1.x2
         kind: [predict]
         uses: [py06.k2]

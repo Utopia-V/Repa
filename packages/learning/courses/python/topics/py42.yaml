@@ -295,34 +295,67 @@ kps:
           answers = {"tests": {row: {"expect": spec(*args), "kind": "empty" if args[1] == 0 else "normal"} for row, args in rows.items()}}
     quiz:
       - id: py42.k1.x1
-        kind: [specify]
+        kind: [debug, specify]
         uses: [py12.k2, py09.k1]
         body: |
           要求：`in_range(value, low, high)` 在 value 介于 low 和 high 之间时交回 True，**两端都算**；否则交回 False。
 
-          按要求填写每条测试的期望，并说出它是正常还是边界测试。
+          同事先写了函数，再运行函数，把运行出来的结果抄成了期望：
+
+          ```python startLine=1
+          def in_range(value, low, high):
+              return value > low and value < high
+
+          assert in_range(7, 5, 10) == True
+          assert in_range(5, 5, 10) == False
+          assert in_range(10, 5, 10) == False
+          assert in_range(11, 5, 10) == False
+          print("全部通过")
+          ```
         slots:
+          - id: passes
+            type: choice
+            prompt: 运行这段程序，会显示“全部通过”吗？
+            options:
+              - { id: "yes", content: 会，四条断言都成立 }
+              - { id: "no", content: 不会，有断言失败 }
+            key: "yes"
           - id: tests
             type: table
+            prompt: 按要求（两端都算），每条断言的期望对吗？
             columns:
-              - { id: call, header: 调用 }
-              - { id: expect, header: 期望, input: bool }
-              - id: kind
-                header: 类别
-                input: { type: choice, options: [{ id: normal, label: 正常 }, { id: boundary, label: 边界 }] }
+              - { id: test, header: 断言 }
+              - { id: ok, header: 期望符合要求, input: bool }
             rows:
-              - { id: t1, cells: { call: "in_range(5, 5, 10)", expect: true, kind: boundary } }
-              - { id: t2, cells: { call: "in_range(7, 5, 10)", expect: true, kind: normal } }
-              - { id: t3, cells: { call: "in_range(10, 5, 10)", expect: true, kind: boundary } }
-              - { id: t4, cells: { call: "in_range(11, 5, 10)", expect: false, kind: normal } }
+              - { id: l4, cells: { test: "第 4 行 in_range(7, 5, 10) == True", ok: true } }
+              - { id: l5, cells: { test: "第 5 行 in_range(5, 5, 10) == False", ok: false } }
+              - { id: l6, cells: { test: "第 6 行 in_range(10, 5, 10) == False", ok: false } }
+              - { id: l7, cells: { test: "第 7 行 in_range(11, 5, 10) == False", ok: true } }
+          - id: verdict
+            type: choice
+            prompt: 全部通过，能说明这个函数符合要求吗？
+            options:
+              - { id: "yes", content: 能，测试都通过了 }
+              - { id: copied, content: 不能：期望是照着函数的输出抄的，函数错了，测试也跟着错 }
+            key: copied
         explanation: |
-          5 和 10 恰好落在两端，“两端都算”，期望 **True**，它们是**边界**测试：把 `<=` 写成 `<` 的错误，只有它们能查出来。7 在中间，期望 True；11 在外面，期望 False，都是普通的**正常**测试。这个要求有两个端点，所以要两条边界测试。
+          函数写成了 `value > low and value < high`，两端都不算。同事把它的输出抄成期望，所以四条断言全部通过，会显示“全部通过”。
+
+          可是要求是**两端都算**：5 和 10 恰好落在两端，应当交回 True。第 5、6 行的期望写成 False，正是照着函数的输出抄的，它们与要求矛盾。7 在中间、11 在外面，两种写法答案一样，所以第 4、7 行没有问题。
+
+          期望要从要求推出来，不能照着函数的输出抄：测试通过只说明函数和测试一致，不说明函数符合要求。
         verify: |
           def spec(value, low, high):
               return low <= value <= high
-          rows = {"t1": (5, 5, 10), "t2": (7, 5, 10), "t3": (10, 5, 10), "t4": (11, 5, 10)}
-          answers = {"tests": {row: {"expect": spec(*args), "kind": "boundary" if args[0] in (args[1], args[2]) else "normal"}
-                               for row, args in rows.items()}}
+          lines = {"l4": ((7, 5, 10), True), "l5": ((5, 5, 10), False), "l6": ((10, 5, 10), False), "l7": ((11, 5, 10), False)}
+          r = run()
+          copied = r.error is None and r.out.strip() == "全部通过"
+          ok = {row: {"ok": spec(*args) == written} for row, (args, written) in lines.items()}
+          answers = {
+              "passes": "yes" if copied else "no",
+              "tests": ok,
+              "verdict": "copied" if copied and not all(cell["ok"] for cell in ok.values()) else "yes",
+          }
       - id: py42.k1.x2
         kind: [debug]
         uses: [py12.k2, py40.k2]

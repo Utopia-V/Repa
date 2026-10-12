@@ -117,15 +117,6 @@ data:
     columns:
       signal: [8, 10, 13, 9, 11]
       group: [control, drug, drug, control, drug]
-  samples2:
-    kind: dataframe
-    name: samples
-    caption: 另一批样本，编号从 S02 开始
-    index: [S02, S03, S04, S05, S06]
-    indexHeader: 行索引
-    columns:
-      signal: [7, 12, 9, 15, 6]
-      group: [drug, control, drug, control, drug]
   plates:
     kind: dataframe
     name: plates
@@ -647,33 +638,66 @@ kps:
           answers = {"outcomes": {row: {"outcome": names.get(run(code).error, "other")} for row, code in codes.items()}}
     review:
       - id: py16.k2.r1
-        kind: [predict]
+        kind: [predict, explain]
         data: [soil]
         body: |
-          读下面四个表达式，填写各自取到的值。
-        slots:
-          - id: values
-            type: table
-            columns:
-              - { id: expr, header: 表达式 }
-              - { id: value, header: 取到的值, input: text }
-            rows:
-              - { id: loc3, cells: { expr: "`soil.loc[3, \"site\"]`", value: 东坡 } }
-              - { id: iloc30, cells: { expr: "`soil.iloc[3, 0]`", value: 西坡 } }
-              - { id: loc12, cells: { expr: "`soil.loc[12, \"depth\"]`", value: "25" } }
-              - { id: iloc11, cells: { expr: "`soil.iloc[1, 1]`", value: "25" } }
-        explanation: |
-          | 表达式 | 怎样找 | 值 |
-          |---|---|---|
-          | `soil.loc[3, "site"]` | 标签 3 的行，在第 3 行 | 东坡 |
-          | `soil.iloc[3, 0]` | 位置 3 的行，是第 4 行 | 西坡 |
-          | `soil.loc[12, "depth"]` | 标签 12 的行，在第 2 行 | 25 |
-          | `soil.iloc[1, 1]` | 位置 1 的行（第 2 行），位置 1 的列（depth） | 25 |
+          同事在表 soil 上取了一行，打印出来是：
 
-          同样写 3，loc 找到的是标签 3 的东坡，iloc 找到的是位置 3 的西坡。
+          ```text
+          site     东坡
+          depth    35
+          Name: 3, dtype: object
+          ```
+        slots:
+          - id: exprs
+            type: choice
+            multiple: true
+            prompt: 下面哪些表达式取到的就是这一行？选出所有的。
+            options:
+              - id: loc3
+                content: |
+                  ```python
+                  row = soil.loc[3]
+                  ```
+              - id: iloc2
+                content: |
+                  ```python
+                  row = soil.iloc[2]
+                  ```
+              - id: loc2
+                content: |
+                  ```python
+                  row = soil.loc[2]
+                  ```
+                feedback: 没有标签为 2 的行，会报 KeyError。
+              - id: iloc3
+                content: |
+                  ```python
+                  row = soil.iloc[3]
+                  ```
+                feedback: 位置 3 是第 4 行，那是西坡，行索引是 8。
+            key: [loc3, iloc2]
+          - id: name
+            type: choice
+            prompt: "最后一行的 `Name: 3` 里，3 是什么？"
+            options:
+              - { id: label, content: 这一行的行索引，也就是标签 }
+              - { id: position, content: 这一行排第几，也就是位置 }
+              - { id: column, content: 一个列名 }
+            key: label
+        explanation: |
+          打印出来的是东坡那一行。`Name: 3` 里的 3 是这一行的**行索引**（标签），不是它的位置：东坡在表里排第 3 个，位置是 2，标签才是 3。
+
+          所以 `soil.loc[3]`（按标签 3 取）和 `soil.iloc[2]`（按位置 2 取）取到同一行。`soil.loc[2]` 没有这个标签，报 KeyError；`soil.iloc[3]` 取到位置 3 的西坡，Name 会是 8。
         verify: |
-          exprs = {"loc3": 'soil.loc[3, "site"]', "iloc30": "soil.iloc[3, 0]", "loc12": 'soil.loc[12, "depth"]', "iloc11": "soil.iloc[1, 1]"}
-          answers = {"values": {row: {"value": eval(expr, {"soil": soil})} for row, expr in exprs.items()}}
+          wanted = repr(soil.loc[3])
+          fits = []
+          for option, code in OPTIONS["exprs"].items():
+              r = run(code)
+              if r.error is None and repr(r["row"]) == wanted:
+                  fits.append(option)
+          row = soil.loc[3]
+          answers = {"exprs": fits, "name": "label" if row.name in soil.index and soil.index.get_loc(row.name) != row.name else "position"}
       - id: py16.k2.r2
         kind: [explain]
         data: [soil]
@@ -1062,40 +1086,79 @@ kps:
           exprs = {"loc13": "daily.loc[1:3]", "iloc13": "daily.iloc[1:3]", "loc5": "daily.loc[5:]", "iloc2": "daily.iloc[:2]"}
           answers = {"counts": {row: {"rows": len(eval(expr, {"daily": daily}))} for row, expr in exprs.items()}}
       - id: py16.k3.x2
-        kind: [modify, debug]
+        kind: [predict, debug]
         data: [samples]
         body: |
-          需求：取出样本 S02 到 S04（含 S04）的记录，存进 `result`。换一批编号起点不同的样本，代码也要按编号取。
+          需求：取出样本 S02 到 S04（含 S04）的记录。你和同事各写了一行，都在题面的表 samples（编号 S01 到 S05）上试过，取到的都是 S02、S03、S04：
 
-          作答框里的代码取到的是 S03 和 S04。改动它。
-        slots:
-          - id: code
-            type: code
-            language: python
-            maxLines: 3
-            starter: |
-              result = samples.iloc[2:4]
-            solution: |
-              result = samples.loc["S02":"S04"]
-            rejects:
-              - code: result = samples.iloc[1:4]
-                why: 照着这张表改了位置，编号从 S02 开始的一批就错了
-              - code: result = samples.loc["S02":"S03"]
-                why: 少取了 S04，loc 本来就包含右端
-            tests:
-              - name: S01 到 S05 这一批
-                expect:
-                  result: 'pd.DataFrame({"signal": [10, 13, 9], "group": ["drug", "drug", "control"]}, index=["S02", "S03", "S04"])'
-              - name: 编号从 S02 开始的一批
-                hidden: true
-                data: [samples2]
-                expect:
-                  result: 'pd.DataFrame({"signal": [7, 12, 9], "group": ["drug", "control", "drug"]}, index=["S02", "S03", "S04"])'
-        explanation: |
-          需求说的是编号，也就是行索引的标签，用 loc，右端直接写 S04：
+          甲：
 
           ```python
           result = samples.loc["S02":"S04"]
           ```
 
-          `samples.iloc[1:4]` 在这一批上碰巧也是 S02 到 S04；编号从 S02 开始的那一批里，位置 1 到 3 是 S03 到 S05。
+          乙：
+
+          ```python
+          result = samples.iloc[1:4]
+          ```
+
+          下一批样本的表也叫 samples，但编号从 S02 开始：
+
+          | 行索引 | signal | group |
+          |---|---:|---|
+          | S02 | 7 | drug |
+          | S03 | 12 | control |
+          | S04 | 9 | drug |
+          | S05 | 15 | control |
+          | S06 | 6 | drug |
+
+          把这两行代码用在下一批上，各会取到哪几个样本？
+        slots:
+          - id: a
+            type: order
+            partial: true
+            prompt: 甲取到的样本，按先后排列。
+            items:
+              - { id: S02, content: S02 }
+              - { id: S03, content: S03 }
+              - { id: S04, content: S04 }
+              - { id: S05, content: S05 }
+              - { id: S06, content: S06 }
+            key: [S02, S03, S04]
+          - id: b
+            type: order
+            partial: true
+            prompt: 乙取到的样本，按先后排列。
+            items:
+              - { id: S02, content: S02 }
+              - { id: S03, content: S03 }
+              - { id: S04, content: S04 }
+              - { id: S05, content: S05 }
+              - { id: S06, content: S06 }
+            key: [S03, S04, S05]
+          - id: safe
+            type: choice
+            prompt: 要“按编号取 S02 到 S04”，换一批样本也不出错的是哪一行？
+            options:
+              - { id: a, content: 甲，用 loc 按编号取 }
+              - { id: b, content: 乙，用 iloc 按位置取 }
+            key: a
+        explanation: |
+          需求说的是编号，编号是行索引的标签，用 `loc`，右端 S04 也包含在内：甲换一批仍取到 **S02、S03、S04**。
+
+          乙按位置取，位置 1 到 3（不含 4）。在第一批里位置 1 到 3 碰巧就是 S02 到 S04；下一批的位置 0 是 S02，位置 1 到 3 变成 **S03、S04、S05**，取错了一个，还多了 S05。试一次得到想要的结果，不等于写法在换批次之后还对。
+        verify: |
+          batch = pd.DataFrame({"signal": [7, 12, 9, 15, 6], "group": ["drug", "control", "drug", "control", "drug"]},
+                               index=["S02", "S03", "S04", "S05", "S06"])
+          first = run(BLOCKS[0], samples=samples)["result"]
+          second = run(BLOCKS[1], samples=samples)["result"]
+          assert list(first.index) == list(second.index) == ["S02", "S03", "S04"]
+          a = run(BLOCKS[0], samples=batch)["result"]
+          b = run(BLOCKS[1], samples=batch)["result"]
+          want = ["S02", "S03", "S04"]
+          answers = {
+              "a": list(a.index),
+              "b": list(b.index),
+              "safe": "a" if list(a.index) == want and list(b.index) != want else "b",
+          }
