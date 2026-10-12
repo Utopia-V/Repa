@@ -1,7 +1,8 @@
 id: py23
 title: 排序后，位置不再等于原来的标签
-status: outline
+status: complete
 minutes: 20
+summary: 用 sort_values 按一列或多列排序，并列时写明次要排序键或稳定排序；排序后分清位置和标签，按需求决定 reset_index 还是保留原索引。
 prerequisites:
   - topic: py16
     key: true
@@ -23,8 +24,795 @@ sources:
 notes: |
   建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
   先要求写出明确的次要排序键；业务需要同值保持原顺序时，再用单列稳定排序讲解，不让默认排序的偶然结果进入标准答案。
+  落实：凡是问完整顺序的题，要么没有并列，要么写了能分开并列的次要排序键，要么用 kind="stable"。课程运行时里默认排序在这些小表上恰好与稳定排序结果相同，所以“默认排序保证不了并列顺序”这一点不能靠运行核对：练习里的那一问由 verify 检查“确有并列”推出，测验里的追问题列进 manual。
+  范围：sort_values（单列、多列、ascending 列表、kind="stable"）、iloc 与 loc 在排序后的差别、reset_index 与 reset_index(drop=True)、head 与排序的先后。不讲 sort_index、rank、nlargest（nlargest 只出现在小改代码题的等价写法里）。py22 不是先修，只说“排序得到一张新表，df 不变”。
+  k2 的表用 0 开始的默认行索引，模拟刚从 CSV 读进来的表：排序前位置和标签恰好一致，排序后不再一致。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、三道练习 5 分钟；k2 讲解与例题 4 分钟、三道练习 5 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  排序看起来最简单：从大到小排一下。但两个样本数值相同时谁在前？排好以后说“第一行”，指的是排在最前面的那行，还是原来编号为 0 的那行？这一节把这两件事说清楚。
+
+  宿主已经导入了 pandas（`pd`）并准备好数据表；每道题都从题面给出的表重新开始。
+wrapup: |
+  向同事或 AI 提排序需求时，说全四件事：按哪一列、什么方向；并列时按哪一列、什么方向，或者保持原来的先后；结果要不要重新编号。例如：“按 signal 从高到低，signal 相同的按 sample_id 从小到大；输出时重新编号为 0、1、2……，不保留原行号。”
+
+  读排序后的代码，看到 `.loc[0]` 要停一下：它取的是标签为 0 的那一行，不一定排在最前面。
+data:
+  T:
+    kind: dataframe
+    name: df
+    caption: 表 T
+    index: [31, 7, 22, 4, 18]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E]
+      signal: [8, 10, 13, 10, 15]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：五个样地的土层深度（厘米）
+    index: [5, 12, 3, 8, 20]
+    indexHeader: 原行索引
+    columns:
+      plot: [P1, P2, P3, P4, P5]
+      depth: [30, 25, 35, 30, 40]
+  wells:
+    kind: dataframe
+    name: wells
+    caption: 表 wells：培养板上各孔的细胞计数
+    index: [3, 11, 6, 9, 14]
+    indexHeader: 原行索引
+    columns:
+      well: [A1, A2, B1, B2, C1]
+      count: [120, 95, 120, 80, 110]
+  R:
+    kind: dataframe
+    name: df
+    caption: 表 R：刚从文件读进来的表，行索引从 0 开始
+    index: [0, 1, 2, 3, 4]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E]
+      signal: [12, 5, 20, 9, 16]
+  R2:
+    kind: dataframe
+    name: df
+    caption: 另一张从文件读进来的表
+    index: [0, 1, 2, 3, 4, 5]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [X_A, X_B, X_C, X_D, X_E, X_F]
+      signal: [7, 30, 2, 18, 25, 11]
+  plates:
+    kind: dataframe
+    name: plates
+    caption: 表 plates：五个孔的吸光度，行索引从 0 开始
+    index: [0, 1, 2, 3, 4]
+    indexHeader: 原行索引
+    columns:
+      well: [A1, A2, A3, A4, A5]
+      od: [0.42, 0.18, 0.35, 0.27, 0.51]
+    dtypes:
+      od: float
 kps:
   - id: py23.k1
     title: 按一列或多列排序及并列顺序
+    card:
+      name: 排序与并列
+      aliases: [sort_values, 次要排序键, 稳定排序]
+      definition: df.sort_values(列) 得到按这一列排好的新表，整行连同行索引一起移动；并列行的先后要由次要排序键或 kind="stable" 写明。
+      conditions:
+        - 默认排序不保证并列行谁先谁后，碰巧的顺序不能当成结果。
+        - 多列排序写 sort_values(["signal", "sample_id"], ascending=[False, True])：先按第一列，相同再按第二列。
+        - 业务要求“同值保持原来的先后”时，用单列的 kind="stable"。
+      example:
+        from: py23.k1.e0
+        text: |
+          ```python
+          result = df.sort_values(["signal", "sample_id"], ascending=[False, True])
+          ```
+          表 T 排成 18、22、7、4、31：signal 同为 10 的 S_B、S_D 按 sample_id 排，S_B 在前。
+    lesson: |
+      `df.sort_values("signal")` 按 signal 从小到大排好，得到一张**新表**；df 本身不变，要用结果就存进一个名字。从大到小写 `ascending=False`。排序时整行一起移动，行索引跟着各自的行走：
+
+      | 原行索引 | sample_id | signal |
+      |---:|---|---:|
+      | 31 | S_A | 8 |
+      | 7 | S_B | 10 |
+      | 4 | S_D | 10 |
+      | 22 | S_C | 13 |
+      | 18 | S_E | 15 |
+
+      S_B 和 S_D 的 signal 都是 10，叫作**并列**。pandas 默认的排序**不保证**并列的行谁先谁后，这一次的顺序可能只是碰巧。结果要能复核，就要在需求和代码里写明并列时怎么办，有两种办法：
+
+      1. **次要排序键**：`df.sort_values(["signal", "sample_id"])` 先按 signal 排，signal 相同再按 sample_id 排。两列方向不同时，给 `ascending` 一个同样长的列表：`ascending=[False, True]` 表示 signal 从大到小、sample_id 从小到大。
+      2. **保持原来的先后**：如果业务上要求“同值按录入顺序”，用稳定排序 `df.sort_values("signal", kind="stable")`，它保证并列的行保持原表里的先后。
+
+      所以一条排序需求要说全：按哪一列、什么方向；并列时按哪一列、什么方向，或者保持原来的先后。只说“按 signal 排一下”，并列的那几行就留给了运气。
+    example:
+      id: py23.k1.e0
+      kind: [predict]
+      data: [T]
+      body: |
+        需求是“按 signal 从高到低排；signal 相同的，按 sample_id 从小到大”。阅读代码，说出 `result` 的样子。
+
+        ```python
+        result = df.sort_values(["signal", "sample_id"], ascending=[False, True])
+        ```
+      slots:
+        - id: rows
+          type: order
+          prompt: 按 `result` 里的先后顺序排出原行索引。
+          items:
+            - { id: "31", content: "31" }
+            - { id: "7", content: "7" }
+            - { id: "22", content: "22" }
+            - { id: "4", content: "4" }
+            - { id: "18", content: "18" }
+          key: ["18", "22", "7", "4", "31"]
+        - id: unchanged
+          type: choice
+          prompt: 运行后，df 本身的行顺序怎样了？
+          options:
+            - { id: sorted, content: 也排好了 }
+            - { id: same, content: 没变，排好的是新表 result }
+          key: same
+      explanation: |
+        顺序是 **18、22、7、4、31**。signal 从高到低是 15、13、10、10、8；并列的两个 10 再按 sample_id 从小到大，S_B（索引 7）在 S_D（索引 4）前面。行索引跟着各自的行走。
+
+        df 本身**没变**：sort_values 得到的是新表，存进了 result。
+      verify: |
+        r = run()
+        answers = {
+            "rows": [str(label) for label in r["result"].index],
+            "unchanged": "same" if r["df"].equals(df) else "sorted",
+        }
+    practice:
+      - id: py23.k1.q1
+        kind: [predict, explain]
+        uses: [py12.k2]
+        data: [T]
+        body: |
+          阅读代码。
+
+          ```python
+          result = df.sort_values("signal")
+          ```
+        slots:
+          - id: first
+            type: choice
+            prompt: "`result` 最前面一行的原行索引是？"
+            options:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "18", content: "18" }
+            key: "31"
+          - id: last
+            type: choice
+            prompt: 最后一行的原行索引是？
+            options:
+              - { id: "31", content: "31" }
+              - { id: "22", content: "22" }
+              - { id: "18", content: "18" }
+            key: "18"
+          - id: tie
+            type: choice
+            prompt: 索引 7 和 4 谁排在前面？
+            options:
+              - { id: "7", content: 一定是 7，因为它在原表里更靠前 }
+              - { id: "4", content: 一定是 4，因为 4 比 7 小 }
+              - { id: unspecified, content: 不一定：它们的 signal 并列，默认排序不保证谁先谁后 }
+            key: unspecified
+        explanation: |
+          最前面是 **31**（signal 8），最后是 **18**（signal 15）。
+
+          索引 7 和 4 的 signal 都是 10，是并列；默认排序**不保证**它们谁先谁后。即使这一次 7 在前，也只是碰巧。要固定顺序，就加次要排序键，或者在需要保持原顺序时用 `kind="stable"`。
+        verify: |
+          result = run()["result"]
+          ties = df.loc[[7, 4], "signal"]
+          answers = {
+              "first": str(result.index[0]),
+              "last": str(result.index[-1]),
+              # 两行的值相同，默认排序对它们的先后没有约定。
+              "tie": "unspecified" if ties.iloc[0] == ties.iloc[1] else str(result.index[1]),
+          }
+      - id: py23.k1.q2
+        kind: [debug]
+        uses: [py12.k1]
+        data: [T]
+        body: |
+          需求是“按 signal 从高到低排；signal 相同的，按 sample_id 从小到大（S_A 在前）”。同事写了下面这行。
+
+          ```python
+          result = df.sort_values(["signal", "sample_id"], ascending=False)
+          ```
+        slots:
+          - id: rows
+            type: order
+            prompt: 这行代码得到的 `result`，原行索引依次是？
+            items:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "4", content: "4" }
+              - { id: "18", content: "18" }
+            key: ["18", "22", "4", "7", "31"]
+          - id: fix
+            type: choice
+            prompt: 应改成哪一行？
+            options:
+              - id: list
+                content: |
+                  ```python
+                  result = df.sort_values(["signal", "sample_id"], ascending=[False, True])
+                  ```
+              - id: swap
+                content: |
+                  ```python
+                  result = df.sort_values(["sample_id", "signal"], ascending=[True, False])
+                  ```
+                feedback: 列的先后决定先按谁排；这样会先按 sample_id 排，signal 几乎不起作用。
+              - id: asc
+                content: |
+                  ```python
+                  result = df.sort_values(["signal", "sample_id"])
+                  ```
+                feedback: 两列都成了从小到大，signal 的方向反了。
+            key: list
+        explanation: |
+          这行得到 **18、22、4、7、31**：`ascending=False` 让两列都从大到小，并列的 S_D（索引 4）排到了 S_B（索引 7）前面。
+
+          两列方向不同，要给 `ascending` 一个列表：**`ascending=[False, True]`**，与列名列表一一对应。
+        verify: |
+          result = run()["result"]
+          # 按需求独立排一遍：signal 从高到低，相同时 sample_id 从小到大。
+          wanted = [label for label, row in sorted(df.iterrows(), key=lambda item: (-item[1]["signal"], item[1]["sample_id"]))]
+          fits = [option for option, line in OPTIONS["fix"].items() if list(run(line)["result"].index) == wanted]
+          answers = {"rows": [str(label) for label in result.index], "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py23.k1.q3
+        kind: [predict, explain]
+        data: [T]
+        body: |
+          负责人要求：按 signal 从低到高排；signal 相同的，保持原表里的先后。阅读代码。
+
+          ```python
+          result = df.sort_values("signal", kind="stable")
+          ```
+        slots:
+          - id: rows
+            type: order
+            prompt: 按 `result` 里的先后顺序排出原行索引。
+            items:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "4", content: "4" }
+              - { id: "18", content: "18" }
+            key: ["31", "7", "4", "22", "18"]
+          - id: why
+            type: choice
+            prompt: 索引 7 为什么排在索引 4 前面？
+            options:
+              - { id: label, content: 因为 7 这个标签比 4 小 }
+              - { id: stable, content: 因为两行 signal 并列，稳定排序保持了原表里 7 在 4 前面的先后 }
+              - { id: chance, content: 碰巧如此，下次运行可能不同 }
+            key: stable
+        explanation: |
+          顺序是 **31、7、4、22、18**。并列的两个 10 里，原表中 S_B（索引 7）排在 S_D（索引 4）前面；`kind="stable"` 是**稳定排序**，保证并列的行保持原来的先后，所以 7 在 4 前面。这不是碰巧，也和标签的大小无关：标签 7 其实比 4 大。
+        verify: |
+          result = run()["result"]
+          # Python 的 sorted 是稳定排序，用它独立排一遍对照。
+          wanted = [label for label, value in sorted(df["signal"].items(), key=lambda item: item[1])]
+          assert list(result.index) == wanted
+          original = list(df.index)
+          why = "stable" if original.index(7) < original.index(4) and df.loc[7, "signal"] == df.loc[4, "signal"] and 7 > 4 else "other"
+          answers = {"rows": [str(label) for label in result.index], "why": why}
+    review:
+      - id: py23.k1.r1
+        kind: [predict]
+        data: [soil]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          result = soil.sort_values(["depth", "plot"], ascending=[False, True])
+          ```
+        slots:
+          - id: rows
+            type: order
+            prompt: 按 `result` 里的先后顺序排出原行索引。
+            items:
+              - { id: "5", content: "5" }
+              - { id: "12", content: "12" }
+              - { id: "3", content: "3" }
+              - { id: "8", content: "8" }
+              - { id: "20", content: "20" }
+            key: ["20", "3", "5", "8", "12"]
+          - id: third
+            type: text
+            prompt: 排在第 3 位的是哪个样地（plot）？
+            key: P1
+        explanation: |
+          顺序是 **20、3、5、8、12**：深度 40、35、30、30、25。P1 和 P4 的深度都是 30，再按 plot 从小到大，P1 在前，所以第 3 位是 **P1**。
+        verify: |
+          result = run()["result"]
+          answers = {"rows": [str(label) for label in result.index], "third": result.iloc[2]["plot"]}
+      - id: py23.k1.r2
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          负责人说：“把孔按细胞数从多到少排；细胞数一样的，按孔号（well）从小到大。”把这条要求填成下面四个字段。
+        slots:
+          - id: column
+            type: choice
+            prompt: 先按哪一列排
+            options:
+              - { id: well, content: well }
+              - { id: count, content: count }
+            key: count
+          - id: direction
+            type: choice
+            prompt: 这一列的方向
+            options:
+              - { id: asc, content: 从小到大 }
+              - { id: desc, content: 从大到小 }
+            key: desc
+          - id: tie
+            type: choice
+            prompt: 并列时按哪一列排
+            options:
+              - { id: well, content: well }
+              - { id: count, content: count }
+              - { id: none, content: 不用管 }
+            key: well
+          - id: tie_direction
+            type: choice
+            prompt: 并列时那一列的方向
+            options:
+              - { id: asc, content: 从小到大 }
+              - { id: desc, content: 从大到小 }
+            key: asc
+        explanation: |
+          先按 **count**、**从大到小**；并列时按 **well**、**从小到大**。对应的代码是 `wells.sort_values(["count", "well"], ascending=[False, True])`。“不用管”会把并列的先后留给运气。
+        manual: [column, direction, tie, tie_direction]
+    quiz:
+      - id: py23.k1.x1
+        kind: [debug, specify]
+        uses: [py12.k1]
+        data: [wells]
+        body: |
+          需求是“按细胞数从多到少排；细胞数一样的，按孔号 well 从小到大”。
+        slots:
+          - id: line
+            type: choice
+            prompt: 哪一行符合需求？
+            options:
+              - id: both_desc
+                content: |
+                  ```python
+                  result = wells.sort_values(["count", "well"], ascending=False)
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  result = wells.sort_values(["count", "well"], ascending=[False, True])
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  result = wells.sort_values(["well", "count"], ascending=[True, False])
+                  ```
+              - id: both_asc
+                content: |
+                  ```python
+                  result = wells.sort_values(["count", "well"])
+                  ```
+            key: right
+          - id: second
+            type: text
+            prompt: 按需求排好以后，排第 2 的是哪个孔（well）？
+            key: B1
+        explanation: |
+          **`ascending=[False, True]`** 那一行符合需求。A1 和 B1 的细胞数都是 120，并列时按 well 从小到大，A1 第一、**B1** 第二。
+
+          两列都从大到小会把 B1 排到 A1 前面；把 well 写在前面会先按孔号排；都从小到大则细胞数的方向反了。
+        verify: |
+          wanted = [label for label, row in sorted(wells.iterrows(), key=lambda item: (-item[1]["count"], item[1]["well"]))]
+          fits = [option for option, line in OPTIONS["line"].items() if list(run(line)["result"].index) == wanted]
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "second": wells.loc[wanted[1], "well"]}
+      - id: py23.k1.x2
+        kind: [specify]
+        uses: [py12.k1, py12.k2]
+        body: |
+          同事说：“把样本按 signal 从高到低排一下发我。”你看了数据，有几个样本的 signal 一样。他没有说这些样本谁先谁后。下一步最合适的是哪一句？
+        slots:
+          - id: next
+            type: choice
+            options:
+              - id: a
+                content: “好的，直接用默认的排序发给你。”
+              - id: b
+                content: “signal 一样的样本，按什么排？比如按 sample_id，还是保持原表里的先后？”
+              - id: c
+                content: “我把 signal 一样的样本删掉了，免得顺序不确定。”
+              - id: d
+                content: “我按 signal 从低到高排好了。”
+            key: b
+        explanation: |
+          应当先**追问并列时怎么排**：按哪一列，还是保持原来的先后。默认排序不保证并列的先后，直接发出去，下次再跑可能不同；删掉并列的样本改变了数据；从低到高与要求相反。
+        manual: [next]
+
   - id: py23.k2
     title: reset_index 与保留原索引的取舍
+    card:
+      name: 排序后的位置与标签
+      aliases: [reset_index, iloc, 原行索引]
+      definition: 排序后行带着原标签换了位置；iloc 按位置取（排第几），loc 按标签取；reset_index(drop=True) 重新编号为 0、1、2……，reset_index() 把原标签存成一列。
+      conditions:
+        - 行索引从 0 开始的表，排序前位置和标签恰好相同，排序后不再相同。
+        - 还要回原表追查某一行时保留原标签；交出排名表、不需要原行号时才 drop。
+      example:
+        from: py23.k2.e0
+        text: |
+          表 R 按 signal 从高到低排序后，`ranked.iloc[0]` 是 S_C（排第一），`ranked.loc[0]` 是 S_A（原行索引为 0，排第三）。
+    lesson: |
+      排序以后，行带着原来的标签换了位置：**位置**（排第几）和**标签**（原行索引）不再一致。刚从文件读进来的表，行索引通常是 0、1、2……，排序前位置和标签恰好相等，最容易混用。
+
+      ```python
+      ranked = df.sort_values("signal", ascending=False)
+      ```
+
+      | 位置 | 原行索引 | sample_id | signal |
+      |---:|---:|---|---:|
+      | 0 | 2 | S_C | 20 |
+      | 1 | 4 | S_E | 16 |
+      | 2 | 0 | S_A | 12 |
+      | 3 | 3 | S_D | 9 |
+      | 4 | 1 | S_B | 5 |
+
+      [loc 和 iloc](repa:concept/py16.k2) 在这里分得很清楚：`ranked.iloc[0]` 按位置取，得到排第一的 S_C；`ranked.loc[0]` 按标签取，得到原行索引为 0 的 S_A，它排在第三。要“排名第一”，用 `iloc`。同样，`ranked.head(3)` 取的是排在最前的 3 行。
+
+      想让标签重新和位置一致，用 `reset_index`：
+
+      - `ranked.reset_index(drop=True)`：重新编号为 0、1、2……，原来的行索引**丢掉**；
+      - `ranked.reset_index()`：同样重新编号，但把原来的行索引**存成一列**，列名是 `index`。
+
+      该选哪一种？原行索引是回到原始表找到这一行的线索。之后还要和原表对照、追查某个样本，就保留它：不重新编号，或者用 `reset_index()` 存成一列。要交出一张从 0 开始编号的排名表、不再需要原行号，才用 `reset_index(drop=True)`。需求里要写明是哪一种。
+    example:
+      id: py23.k2.e0
+      kind: [predict]
+      uses: [py16.k2]
+      data: [R]
+      body: |
+        阅读代码，写出 a、b、c 三个名字的值。
+
+        ```python
+        ranked = df.sort_values("signal", ascending=False)
+        a = ranked.iloc[0]["sample_id"]
+        b = ranked.loc[0, "sample_id"]
+        c = ranked.reset_index(drop=True).loc[0, "sample_id"]
+        ```
+      slots:
+        - id: a
+          type: text
+          prompt: "`a` 是什么？"
+          key: S_C
+        - id: b
+          type: text
+          prompt: "`b` 是什么？"
+          key: S_A
+        - id: c
+          type: text
+          prompt: "`c` 是什么？"
+          key: S_C
+      explanation: |
+        - `a` 是 **S_C**：`iloc[0]` 按位置取排在最前的一行，signal 20。
+        - `b` 是 **S_A**：`loc[0]` 按标签取原行索引为 0 的行，它的 signal 是 12，排在第三。
+        - `c` 是 **S_C**：`reset_index(drop=True)` 重新编号以后，标签 0 就是排在最前的那一行。
+      verify: |
+        r = run()
+        answers = {"a": r["a"], "b": r["b"], "c": r["c"]}
+    practice:
+      - id: py23.k2.q1
+        kind: [debug]
+        uses: [py16.k2]
+        data: [R]
+        body: |
+          同事想取出 signal 最高的样本，写了：
+
+          ```python startLine=1
+          ranked = df.sort_values("signal", ascending=False)
+          top = ranked.loc[0]
+          ```
+        slots:
+          - id: got
+            type: text
+            prompt: "`top[\"sample_id\"]` 实际是什么？"
+            key: S_A
+          - id: fix
+            type: choice
+            prompt: 第 2 行应改成哪一种？
+            options:
+              - id: iloc
+                content: |
+                  ```python
+                  top = ranked.iloc[0]
+                  ```
+              - id: label2
+                content: |
+                  ```python
+                  top = ranked.loc[2]
+                  ```
+                feedback: 这只在这张表上碰巧对：最高的那行原行索引是 2，换一张表就不是了。
+              - id: df0
+                content: |
+                  ```python
+                  top = df.loc[0]
+                  ```
+                feedback: df 没有排序，标签 0 的行是 S_A。
+            key: iloc
+        explanation: |
+          `top["sample_id"]` 是 **S_A**：`loc[0]` 取的是原行索引为 0 的行，排序后它排在第三。
+
+          要“排在最前的一行”，按位置取：**`ranked.iloc[0]`**，得到 S_C。写死 `loc[2]` 只在这张表上碰巧对。
+        verify: |
+          r = run()
+          other = pd.DataFrame({"sample_id": ["X_A", "X_B", "X_C"], "signal": [7, 30, 2]})
+          prelude = 'ranked = df.sort_values("signal", ascending=False)\n'
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              # 在原表和另一张表上，都要取到 signal 最高的样本。
+              ok = all(
+                  run(prelude + line, df=table)["top"]["sample_id"] == table.loc[table["signal"].idxmax(), "sample_id"]
+                  for table in (df, other)
+              )
+              if ok:
+                  fits.append(option)
+          answers = {"got": r["top"]["sample_id"], "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py23.k2.q2
+        kind: [predict]
+        data: [R]
+        body: |
+          阅读代码。
+
+          ```python
+          ranked = df.sort_values("signal", ascending=False)
+          a = ranked.reset_index()
+          b = ranked.reset_index(drop=True)
+          ```
+        slots:
+          - id: a_columns
+            type: order
+            partial: true
+            prompt: "`a` 有哪些列？按顺序排列。"
+            items:
+              - { id: index, content: "`index`" }
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+            key: [index, sample_id, signal]
+          - id: b_columns
+            type: order
+            partial: true
+            prompt: "`b` 有哪些列？按顺序排列。"
+            items:
+              - { id: index, content: "`index`" }
+              - { id: sample_id, content: "`sample_id`" }
+              - { id: signal, content: "`signal`" }
+            key: [sample_id, signal]
+          - id: a_first
+            type: text
+            format: integer
+            prompt: "`a.loc[0, \"index\"]` 是多少？"
+            key: 2
+        explanation: |
+          `a` 有 **index、sample_id、signal** 三列：`reset_index()` 把原来的行索引存成了最前面的 index 列。`b` 只有 **sample_id、signal**：`drop=True` 把原行索引丢掉了。
+
+          两者的行都重新编号为 0 到 4。`a.loc[0, "index"]` 是 **2**：排第一的 S_C 原来的行索引是 2，靠这一列还能回原表找到它。
+        verify: |
+          r = run()
+          answers = {"a_columns": list(r["a"].columns), "b_columns": list(r["b"].columns), "a_first": int(r["a"].loc[0, "index"])}
+      - id: py23.k2.q3
+        kind: [modify]
+        uses: [py16.k1, py16.k2]
+        data: [R]
+        body: |
+          需求是：
+
+          > 按 signal 从高到低，取前 3 名，只输出 sample_id 和 signal 两列；做成排名表，行索引重新编号为 0、1、2，不保留原行号。不改变 `df`。
+
+          同事写的代码在作答框里。请改动它并提交，最终结果变量仍叫 `result`。这张表的 signal 没有并列。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              result = df.head(3).sort_values("signal", ascending=False)[["sample_id", "signal"]]
+            solution: |
+              result = df.sort_values("signal", ascending=False).head(3)[["sample_id", "signal"]].reset_index(drop=True)
+            accepts:
+              - |
+                ranked = df.sort_values("signal", ascending=False)
+                result = ranked.iloc[0:3][["sample_id", "signal"]].reset_index(drop=True)
+              - result = df.nlargest(3, "signal")[["sample_id", "signal"]].reset_index(drop=True)
+            rejects:
+              - code: result = df.sort_values("signal", ascending=False).head(3)[["sample_id", "signal"]]
+                why: 没有重新编号，行索引仍是原行号
+              - code: result = df.sort_values("signal", ascending=False).head(3)[["sample_id", "signal"]].reset_index()
+                why: 原行号存成了 index 列，多了一列
+              - code: result = df.sort_values("signal").head(3)[["sample_id", "signal"]].reset_index(drop=True)
+                why: 从低到高排，取到的是最低的 3 个
+              - code: result = df.head(3).sort_values("signal", ascending=False)[["sample_id", "signal"]].reset_index(drop=True)
+                why: 先取前 3 行再排序，取的是原表的前 3 行
+            tests:
+              - name: 表 R
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_C", "S_E", "S_A"], "signal": [20, 16, 12]})'
+                  df: df
+              - name: 换一张表
+                hidden: true
+                data: [R2]
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["X_B", "X_E", "X_D"], "signal": [30, 25, 18]})'
+                  df: df
+        explanation: |
+          ```python
+          result = df.sort_values("signal", ascending=False).head(3)[["sample_id", "signal"]].reset_index(drop=True)
+          ```
+
+          原来的代码有两处不对：先 `head(3)` 再排序，取的是原表的前 3 行，不是最高的 3 个；结果的行索引还是原行号。先排序再取前 3 行，最后 `reset_index(drop=True)` 重新编号。本例得到 S_C、S_E、S_A，行索引 0、1、2。判分时还会换一张表运行。
+    review:
+      - id: py23.k2.r1
+        kind: [predict]
+        uses: [py16.k2]
+        data: [plates]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          r = plates.sort_values("od")
+          print(r.iloc[0]["well"])
+          print(r.loc[0, "well"])
+          ```
+        slots:
+          - id: first
+            type: text
+            prompt: 第一行输出
+            key: A2
+          - id: second
+            type: text
+            prompt: 第二行输出
+            key: A1
+        explanation: |
+          第一行 **A2**：按 od 从小到大，最小的 0.18 是 A2，`iloc[0]` 取排在最前的一行。第二行 **A1**：`loc[0]` 取原行索引为 0 的行，它的 od 是 0.42，排在第四。
+        verify: |
+          lines = run().lines()
+          answers = {"first": str(lines[0]), "second": str(lines[1])}
+      - id: py23.k2.r2
+        kind: [explain]
+        uses: [py16.k2]
+        data: [plates]
+        body: |
+          宿主已经运行了 `r = plates.sort_values("od")`。排序结果要交给同事，他会拿着原行索引回到原始表核对每个孔。下面哪些做法交出的 `out` 能让他找回原行索引？选出所有能的。
+        slots:
+          - id: ways
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: keep, content: "`out = r`" }
+              - { id: column, content: "`out = r.reset_index()`" }
+              - { id: drop, content: "`out = r.reset_index(drop=True)`" }
+              - { id: drop_well, content: "`out = r[[\"well\"]].reset_index(drop=True)`" }
+            key: [keep, column]
+        explanation: |
+          **直接交出 r** 和 **`reset_index()`** 都能：前者原行索引还是行标签，后者把它存成了 index 列。用了 `drop=True` 的两种做法都把原行索引丢掉了，同事只能看到 0、1、2……
+
+          每个选项的勾选状态分别计分。
+        verify: |
+          prelude = 'r = plates.sort_values("od")\n'
+          codes = {
+              "keep": "out = r",
+              "column": "out = r.reset_index()",
+              "drop": "out = r.reset_index(drop=True)",
+              "drop_well": 'out = r[["well"]].reset_index(drop=True)',
+          }
+          ways = []
+          for option, code in codes.items():
+              attempt = run(prelude + code)
+              out, labels = attempt["out"], list(attempt["r"].index)
+              if list(out.index) == labels or ("index" in out.columns and list(out["index"]) == labels):
+                  ways.append(option)
+          answers = {"ways": ways}
+    quiz:
+      - id: py23.k2.x1
+        kind: [trace]
+        uses: [py16.k2]
+        data: [R2]
+        body: |
+          阅读代码，写出几个值。
+
+          ```python
+          ranked = df.sort_values("signal", ascending=False)
+          top = ranked.reset_index(drop=True)
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: what, header: 表达式 }
+              - { id: value, header: 值, input: text }
+            rows:
+              - { id: iloc1, cells: { what: 'ranked.iloc[1]["sample_id"]', value: X_E } }
+              - { id: loc1, cells: { what: 'ranked.loc[1, "sample_id"]', value: X_B } }
+              - { id: top1, cells: { what: 'top.loc[1, "sample_id"]', value: X_E } }
+          - id: label
+            type: text
+            format: integer
+            prompt: "`ranked.index[0]` 是多少？"
+            key: 1
+        explanation: |
+          signal 从高到低是 30（X_B）、25（X_E）、18（X_D）……
+
+          - `ranked.iloc[1]["sample_id"]` 是 **X_E**：排第二的那行。
+          - `ranked.loc[1, "sample_id"]` 是 **X_B**：原行索引为 1 的那行，它排第一。
+          - `top.loc[1, "sample_id"]` 是 **X_E**：重新编号后，标签 1 就是排第二的那行。
+
+          `ranked.index[0]` 是 **1**：排第一的 X_B 原来的行索引是 1。
+        verify: |
+          r = run()
+          ranked, top = r["ranked"], r["top"]
+          answers = {
+              "values": {
+                  "iloc1": {"value": ranked.iloc[1]["sample_id"]},
+                  "loc1": {"value": ranked.loc[1, "sample_id"]},
+                  "top1": {"value": top.loc[1, "sample_id"]},
+              },
+              "label": int(ranked.index[0]),
+          }
+      - id: py23.k2.x2
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          两份排序结果要交出去：
+
+          - 甲：按 signal 从高到低排好的表，同事要拿着每一行的原行索引回原始数据里核对仪器记录；
+          - 乙：一张前 10 名的排名表，放进报告，读者不需要知道原始数据里的行号，只看 0 到 9 的名次编号。
+
+          两份结果的行索引各应怎样处理？
+        slots:
+          - id: first
+            type: choice
+            prompt: 甲
+            options:
+              - { id: drop, content: 用 reset_index(drop=True) 重新编号 }
+              - { id: keep, content: 保留原行索引（或用 reset_index() 存成一列） }
+            key: keep
+          - id: second
+            type: choice
+            prompt: 乙
+            options:
+              - { id: drop, content: 用 reset_index(drop=True) 重新编号 }
+              - { id: keep, content: 保留原行索引（或用 reset_index() 存成一列） }
+            key: drop
+        explanation: |
+          甲要**保留原行索引**：同事要靠它回原始数据核对，丢了就找不回去。乙用 **reset_index(drop=True)** 重新编号：报告只要 0 到 9 的名次编号，原行号对读者没用。
+        manual: [first, second]
+
+verified:
+  - question: py23.k1.r2
+    version: sha256:3f9c01cc7f7db28be031eb232731a5723d12ac754e77e6ad3805acd85fb26108
+    slots: [column, direction, tie, tie_direction]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py23.k1.x2
+    version: sha256:881d8b4a3f16312c53397c4c11fe1819dafcada63160956d2ee178ebe7c05764
+    slots: [next]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py23.k2.x2
+    version: sha256:cd01c15da48958612103d98abfee9f72fa78c93af2e79e1d448d240ad16fd65c
+    slots: [first, second]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12

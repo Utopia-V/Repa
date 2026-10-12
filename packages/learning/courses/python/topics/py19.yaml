@@ -1,7 +1,8 @@
 id: py19
 title: 缺失不等于零，也不等于空串
-status: outline
+status: complete
 minutes: 20
+summary: 用 isna/notna 找出缺失值；认出 NaN、None 和“看起来像缺失”的记号的区别；删除、填补还是保留缺失，要按业务规则写进需求。
 prerequisites:
   - topic: py14
     key: true
@@ -26,10 +27,1127 @@ sources:
     use: reference
 notes: |
   建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+  范围：只讲识别缺失（isna/notna）、缺失参与比较的结果、整数列有缺失变浮点、哪些记号不是缺失，以及 dropna(subset=...)、fillna(0) 两种处理对结果的影响。不讲 sum/mean 跳过缺失的细节和全缺失风险（py26），不讲把空串、"NA" 之类清理成缺失（py24、py20），不讲多条件组合（py18 不是本节先修）。
+  k1 的表 M 里 S_C 的 signal 是真实测得的 0.0，S_B、S_E 缺失；note 列也有缺失，用来展示 dropna() 不写 subset 会删掉测量完好的行。
+  空串在 pandas 的表格显示里是一格空白，题面用 python 夹具自己画表，把空串写成 `""` 并说明。
+  k3 的“该删、该填还是该保留”没有程序能算的答案，复习和测验各有一道列进 manual，由 course:confirm 核对；其余都由程序核对。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 3 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  真实的数据表里总有空着的格：仪器没给出读数、有人漏填、某一项不适用。这一节先学会准确地找出它们，再学会把“空着的格怎么办”说成一条明确的规则。
+
+  宿主已经导入了 pandas（`pd`）和 NumPy（`np`），并准备好数据表；每道题都从题面给出的表重新开始。大多数题用表 M：`sample_id` 是样本编号，`signal` 是测量值，`note` 是备注。表里显示为 `NaN` 的格就是缺失。
+wrapup: |
+  读到 `NaN`，先问它为什么空着；读到 0、空白或 `NA` 这样的字，先问它是真实的值还是别人用来表示“没有”的记号。
+
+  向同事或 AI 提需求时，可以这样说：“signal 缺失的样本不参加筛选和平均，在结果里报告有几个；note 缺失的行照常保留。”拿到代码后，检查找缺失用的是 `isna()` 而不是 `== np.nan`，`dropna` 有没有写 `subset`，`fillna` 填进去的值是不是需求里说的那个。
+data:
+  M:
+    kind: dataframe
+    name: df
+    caption: 表 M
+    index: [31, 7, 22, 4, 18]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E]
+      signal: [8, null, 0, 13, null]
+      note: [null, 仪器故障, null, 重测, 漏测]
+    dtypes:
+      signal: float
+  libs:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+  birds:
+    kind: dataframe
+    name: birds
+    caption: 表 birds：五个样地一次调查记下的鸟巢数
+    index: [5, 12, 3, 8, 20]
+    indexHeader: 原行索引
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡, 山顶]
+      count: [3, null, 0, 5, null]
+    dtypes:
+      count: float
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：五个样地的土壤 pH
+    index: [5, 12, 3, 8, 20]
+    indexHeader: 原行索引
+    columns:
+      plot: [P1, P2, P3, P4, P5]
+      ph: [6.5, null, 5.5, 7.0, null]
+    dtypes:
+      ph: float
+  temps:
+    kind: dataframe
+    name: temps
+    caption: 表 temps：四个气象站的凌晨气温（℃）
+    index: [1, 2, 3, 4]
+    indexHeader: 原行索引
+    columns:
+      station: [T1, T2, T3, T4]
+      temp: [-2.5, null, 0, 3.5]
+    dtypes:
+      temp: float
+  temps2:
+    kind: dataframe
+    name: temps
+    caption: 另一份气温记录
+    index: [10, 30, 20, 40, 50]
+    indexHeader: 原行索引
+    columns:
+      station: [K1, K2, K3, K4, K5]
+      temp: [null, 0, null, -1, 2]
+    dtypes:
+      temp: float
+  log:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      log = pd.DataFrame(
+          {"sample_id": ["S_A", "S_B", "S_C", "S_D"], "count": [3, None, 0, -999], "note": ["ok", None, "", "NA"]},
+          index=[31, 7, 22, 4],
+      )
+    display: |
+      表 log：一份旧记录。写成 `""` 的格是**空串**，也就是一段一个字也没有的文字，pandas 显示它时这一格是空白；note 里的 `NA` 是有人手打的两个字母。
+
+      | 原行索引 | sample_id | count | note |
+      |---:|---|---:|---|
+      | 31 | S_A | 3.0 | ok |
+      | 7 | S_B | NaN | NaN |
+      | 22 | S_C | 0.0 | `""` |
+      | 4 | S_D | -999.0 | NA |
+  plants:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      plants = pd.DataFrame({"plant": ["G1", "G2", "G3"], "height": [12, None, 8]}, index=[0, 1, 2])
+    display: |
+      表 plants：原始记录里三株苗的高度（厘米）是整数 12、（没量）、8，读成表以后是这样：
+
+      | 原行索引 | plant | height |
+      |---:|---|---:|
+      | 0 | G1 | 12.0 |
+      | 1 | G2 | NaN |
+      | 2 | G3 | 8.0 |
+  visits:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      visits = pd.DataFrame(
+          {"patient": ["P1", "P2", "P3", "P4", "P5"], "reason": ["", None, "复查", " ", "N/A"]},
+          index=[11, 12, 13, 14, 15],
+      )
+    display: |
+      表 visits：五次就诊记录。写成 `""` 的格是空串，写成 `" "` 的格是一个空格，`N/A` 是手打的文字。
+
+      | 原行索引 | patient | reason |
+      |---:|---|---|
+      | 11 | P1 | `""` |
+      | 12 | P2 | NaN |
+      | 13 | P3 | 复查 |
+      | 14 | P4 | `" "` |
+      | 15 | P5 | N/A |
+  runs:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      runs = pd.DataFrame(
+          {"run": ["R1", "R2", "R3", "R4", "R5"], "remark": [None, "无", "", "NA", None]},
+          index=[0, 1, 2, 3, 4],
+      )
+    display: |
+      表 runs：五次实验的备注。写成 `""` 的格是空串。
+
+      | 原行索引 | run | remark |
+      |---:|---|---|
+      | 0 | R1 | NaN |
+      | 1 | R2 | 无 |
+      | 2 | R3 | `""` |
+      | 3 | R4 | NA |
+      | 4 | R5 | NaN |
 kps:
   - id: py19.k1
     title: isna/notna 识别缺失而不靠 ==
+    card:
+      name: isna 找缺失
+      aliases: [isna, notna, NaN, 缺失值]
+      definition: 列.isna() 逐行判断这一格是否缺失，得到一列布尔掩码；列.notna() 正好相反，标出有值的行。
+      conditions:
+        - 不能用 == np.nan 找缺失：NaN 和任何值比较都不相等，连和它自己比也不相等。
+        - 缺失的行在 >=、< 这类比较里都得到 False，两边的筛选都不会留下它。
+        - 0 是测到了零，不是缺失。
+      example:
+        from: py19.k1.e0
+        text: |
+          ```python
+          missing = df["signal"].isna()
+          wrong = df["signal"] == np.nan
+          ```
+          表 M 里 `missing` 在 S_B、S_E 两行为 True，`wrong` 全是 False；S_C 的 0.0 不算缺失。
+    lesson: |
+      表 M 里，S_C 的 signal 是 0.0：仪器测了，读数是零。S_B 和 S_E 显示 `NaN`（Not a Number，“不是一个数”）：这一格**没有值**。0 和缺失意思完全不同，不能混为一谈。
+
+      找缺失要用 `isna()`，它逐行判断这一格是不是缺失，得到一列[布尔掩码](repa:concept/py17.k1)；`notna()` 正好相反，标出有值的行：
+
+      ```python
+      missing = df["signal"].isna()
+      result = df.loc[df["signal"].notna(), ["sample_id"]]
+      ```
+
+      | 原行索引 | signal | `isna()` | `notna()` |
+      |---:|---:|---|---|
+      | 31 | 8.0 | False | True |
+      | 7 | NaN | True | False |
+      | 22 | 0.0 | False | True |
+      | 4 | 13.0 | False | True |
+      | 18 | NaN | True | False |
+
+      为什么不用 `df["signal"] == np.nan`？`np.nan` 是 NumPy 里表示缺失的值，但 NaN 有个特别的规定：它和任何值比较都不相等，连和它自己比也不相等。所以 `== np.nan` 每一行都是 False，一个缺失也找不出来；`!= np.nan` 则每一行都是 True。
+
+      同样的规定还有一个后果：缺失的行在 `>=`、`<` 这些比较里都得到 False。`df["signal"] >= 10` 留不下 S_B，`df["signal"] < 10` 也留不下它。把表按“至少 10”和“低于 10”分成两份，两份加起来会少掉缺失的那几行。
+
+      想知道缺了几个，可以写 `df["signal"].isna().sum()`：求和时 True 算 1、False 算 0，结果就是 True 的个数，这里是 2。
+    example:
+      id: py19.k1.e0
+      kind: [predict]
+      data: [M, libs]
+      body: |
+        阅读代码，按原行索引填写 `missing` 和 `wrong` 的值，再写出缺失的个数。
+
+        ```python
+        missing = df["signal"].isna()
+        wrong = df["signal"] == np.nan
+        n = missing.sum()
+        ```
+      slots:
+        - id: masks
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: signal, header: signal }
+            - { id: missing, header: missing, input: bool }
+            - { id: wrong, header: wrong, input: bool }
+          rows:
+            - { id: r31, cells: { index: "31", signal: "8.0", missing: false, wrong: false } }
+            - { id: r7, cells: { index: "7", signal: "NaN", missing: true, wrong: false } }
+            - { id: r22, cells: { index: "22", signal: "0.0", missing: false, wrong: false } }
+            - { id: r4, cells: { index: "4", signal: "13.0", missing: false, wrong: false } }
+            - { id: r18, cells: { index: "18", signal: "NaN", missing: true, wrong: false } }
+        - id: n
+          type: text
+          format: integer
+          prompt: "`n` 是多少？"
+          key: 2
+      explanation: |
+        `missing` 依次为 **False、True、False、False、True**：只有显示 NaN 的索引 7 和 18 缺失，索引 22 的 0.0 是一个真实的读数。
+
+        `wrong` **全是 False**：NaN 和任何值比较都不相等，连和 `np.nan` 自己比也不相等，所以 `== np.nan` 一个缺失也找不出来。
+
+        `n` 是 **2**：求和时 True 算 1、False 算 0。
+      verify: |
+        r = run()
+        answers = {
+            "masks": {f"r{label}": {"missing": r["missing"][label], "wrong": r["wrong"][label]} for label in df.index},
+            "n": int(r["n"]),
+        }
+    practice:
+      - id: py19.k1.q1
+        kind: [predict]
+        uses: [py17.k2]
+        data: [M]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          result = df.loc[df["signal"].notna(), ["sample_id"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 留下了哪些行？按先后顺序排出原行索引。
+            items:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "4", content: "4" }
+              - { id: "18", content: "18" }
+            key: ["31", "22", "4"]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`result` 有几行？"
+            key: 3
+        explanation: |
+          留下索引 **31、22、4**，共 **3** 行。`notna()` 标出有值的行；索引 22 的 signal 是 0.0，是一个真实的读数，也留下了。只有显示 NaN 的索引 7、18 被去掉。
+        verify: |
+          result = run()["result"]
+          answers = {"rows": [str(label) for label in result.index], "nrows": len(result)}
+      - id: py19.k1.q2
+        kind: [predict, explain]
+        uses: [py17.k1]
+        data: [M]
+        body: |
+          阅读代码，按原行索引填写 `high` 和 `low` 的值。
+
+          ```python
+          high = df["signal"] >= 10
+          low = df["signal"] < 10
+          ```
+        slots:
+          - id: masks
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: signal, header: signal }
+              - { id: high, header: high, input: bool }
+              - { id: low, header: low, input: bool }
+            rows:
+              - { id: r31, cells: { index: "31", signal: "8.0", high: false, low: true } }
+              - { id: r7, cells: { index: "7", signal: "NaN", high: false, low: false } }
+              - { id: r22, cells: { index: "22", signal: "0.0", high: false, low: true } }
+              - { id: r4, cells: { index: "4", signal: "13.0", high: true, low: false } }
+              - { id: r18, cells: { index: "18", signal: "NaN", high: false, low: false } }
+          - id: neither
+            type: text
+            format: integer
+            prompt: 有几行的 `high` 和 `low` 都是 False？
+            key: 2
+        explanation: |
+          | 原行索引 | signal | high | low |
+          |---:|---:|---|---|
+          | 31 | 8.0 | False | True |
+          | 7 | NaN | **False** | **False** |
+          | 22 | 0.0 | False | True |
+          | 4 | 13.0 | True | False |
+          | 18 | NaN | **False** | **False** |
+
+          有 **2** 行两个都是 False，就是 signal 缺失的索引 7 和 18：缺失的值在任何比较里都得到 False。用“至少 10”和“低于 10”把表分成两份，这两行哪份都不在。
+        verify: |
+          r = run()
+          high, low = r["high"], r["low"]
+          answers = {
+              "masks": {f"r{label}": {"high": high[label], "low": low[label]} for label in df.index},
+              "neither": int((~high & ~low).sum()),
+          }
+      - id: py19.k1.q3
+        kind: [debug]
+        uses: [py17.k1]
+        data: [M, libs]
+        body: |
+          同事想数出 signal 缺了几个，写了下面这行，结果显示 0。
+
+          ```python
+          print((df["signal"] == np.nan).sum())
+          ```
+        slots:
+          - id: fix
+            type: choice
+            prompt: 应改成哪一行？
+            options:
+              - id: none
+                content: |
+                  ```python
+                  print((df["signal"] == None).sum())
+                  ```
+                feedback: 和 None 比较同样逐行得到 False，缺失找不出来。
+              - id: zero
+                content: |
+                  ```python
+                  print((df["signal"] == 0).sum())
+                  ```
+                feedback: 这数的是读数恰好为 0 的样本，0 不是缺失。
+              - id: isna
+                content: |
+                  ```python
+                  print(df["signal"].isna().sum())
+                  ```
+            key: isna
+          - id: count
+            type: text
+            format: integer
+            prompt: 改对以后显示几？
+            key: 2
+        explanation: |
+          改成 **`df["signal"].isna().sum()`**，显示 **2**。
+
+          NaN 和任何值比较都不相等，所以 `== np.nan` 每一行都是 False，求和得到 0。和 None 比较也一样找不出缺失；`== 0` 数的是 S_C 那样读数为 0 的样本，那是真实的测量。
+        verify: |
+          import math
+          wanted = sum(1 for value in df["signal"] if isinstance(value, float) and math.isnan(value))
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              r = run(line)
+              if r.error is None and r.out.strip() == str(wanted):
+                  fits.append(option)
+          answers = {"fix": fits[0] if len(fits) == 1 else fits, "count": wanted}
+    review:
+      - id: py19.k1.r1
+        kind: [predict]
+        uses: [py17.k1]
+        data: [birds]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          print(birds["count"].isna().sum())
+          print((birds["count"] == 0).sum())
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行输出
+            key: 2
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行输出
+            key: 1
+        explanation: |
+          第一行 **2**：南坡和山顶的 count 缺失。第二行 **1**：只有东坡记下了 0 个巢，那是调查过、确实没有找到，不是缺失。两个数分开报告，才说得清“几个样地没调查”和“几个样地没有巢”。
+        verify: |
+          lines = run().lines()
+          answers = {"first": int(lines[0]), "second": int(lines[1])}
+      - id: py19.k1.r2
+        kind: [predict, explain]
+        uses: [py17.k1, py17.k2]
+        data: [soil]
+        body: |
+          有人想把样地分成“偏酸”和“不偏酸”两组。
+
+          ```python
+          acid = soil.loc[soil["ph"] < 6.0, ["plot"]]
+          other = soil.loc[soil["ph"] >= 6.0, ["plot"]]
+          ```
+        slots:
+          - id: acid
+            type: text
+            format: integer
+            prompt: "`acid` 有几行？"
+            key: 1
+          - id: other
+            type: text
+            format: integer
+            prompt: "`other` 有几行？"
+            key: 2
+          - id: lost
+            type: order
+            partial: true
+            prompt: 哪几行两组里都没有？按原行索引的先后顺序排出。
+            items:
+              - { id: "5", content: "5" }
+              - { id: "12", content: "12" }
+              - { id: "3", content: "3" }
+              - { id: "8", content: "8" }
+              - { id: "20", content: "20" }
+            key: ["12", "20"]
+        explanation: |
+          `acid` 有 **1** 行（P3），`other` 有 **2** 行（P1、P4），加起来只有 3 行。pH 缺失的索引 **12、20** 在 `< 6.0` 和 `>= 6.0` 里都得到 False，哪组都不在。分组之前要先决定缺失的行算哪一类，或者单独列出来。
+        verify: |
+          r = run()
+          acid, other = r["acid"], r["other"]
+          lost = [str(label) for label in soil.index if label not in acid.index and label not in other.index]
+          answers = {"acid": len(acid), "other": len(other), "lost": lost}
+    quiz:
+      - id: py19.k1.x1
+        kind: [explain]
+        uses: [py17.k1, py17.k2]
+        data: [temps, libs]
+        body: |
+          要只留下记录到了气温的气象站，气温缺失的站不要。下面哪些写法能做到？选出所有能做到的。
+        slots:
+          - id: ways
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: notna, content: "`temps.loc[temps[\"temp\"].notna()]`" }
+              - { id: ne_nan, content: "`temps.loc[temps[\"temp\"] != np.nan]`" }
+              - { id: positive, content: "`temps.loc[temps[\"temp\"] > 0]`" }
+              - { id: isna_false, content: "`temps.loc[temps[\"temp\"].isna() == False]`" }
+            key: [notna, isna_false]
+        explanation: |
+          **`notna()`** 和 **`isna() == False`** 都标出有值的行，留下 T1、T3、T4。
+
+          `!= np.nan` 每一行都是 True（NaN 和谁都不相等），连缺失的 T2 也留下了；`> 0` 只留下 T4，把 -2.5 ℃ 和 0 ℃ 这两个真实的读数也去掉了。
+        verify: |
+          import math
+          wanted = [label for label, value in temps["temp"].items() if not math.isnan(value)]
+          codes = {
+              "notna": 'result = temps.loc[temps["temp"].notna()]',
+              "ne_nan": 'result = temps.loc[temps["temp"] != np.nan]',
+              "positive": 'result = temps.loc[temps["temp"] > 0]',
+              "isna_false": 'result = temps.loc[temps["temp"].isna() == False]',
+          }
+          ways = []
+          for option, code in codes.items():
+              r = run(code)
+              if r.error is None and list(r["result"].index) == wanted:
+                  ways.append(option)
+          answers = {"ways": ways}
+      - id: py19.k1.x2
+        kind: [modify]
+        uses: [py17.k1, py17.k2]
+        data: [temps, libs]
+        body: |
+          需求是：
+
+          > 列出没有记录到气温的气象站，只输出 station 一列（结果仍是表），保留原行顺序和原索引，不改变 `temps`。
+
+          同事写的代码在作答框里，运行后得到一张没有行的表。请改动它并提交，最终结果变量仍叫 `result`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              result = temps.loc[temps["temp"] == np.nan, ["station"]]
+            solution: |
+              result = temps.loc[temps["temp"].isna(), ["station"]]
+            accepts:
+              - result = temps.loc[temps["temp"].notna() == False, ["station"]]
+            rejects:
+              - code: result = temps.loc[temps["temp"] == None, ["station"]]
+                why: 和 None 比较同样找不出缺失
+              - code: result = temps.loc[temps["temp"] == 0, ["station"]]
+                why: 把读数为 0 的站当成了缺失
+              - code: result = temps.loc[temps["temp"].notna(), ["station"]]
+                why: 留下的是有记录的站
+              - code: result = temps.loc[temps["temp"].isna(), "station"]
+                why: 列名没写成列表，结果成了一列（Series）
+            tests:
+              - name: 表 temps
+                expect:
+                  result: 'pd.DataFrame({"station": ["T2"]}, index=[2])'
+                  temps: temps
+              - name: 换一份有两个缺失的记录
+                hidden: true
+                data: [temps2, libs]
+                expect:
+                  result: 'pd.DataFrame({"station": ["K1", "K3"]}, index=[10, 20])'
+                  temps: temps
+        explanation: |
+          ```python
+          result = temps.loc[temps["temp"].isna(), ["station"]]
+          ```
+
+          `== np.nan` 每一行都是 False，所以原来的代码一行也留不下。改用 `isna()` 标出缺失的行，留下 T2。和 None 比较一样找不出缺失；`== 0` 会把真的读到 0 ℃ 的 T3 当成缺失。判分时还会换一份有两个缺失的记录运行。
+
   - id: py19.k2
     title: 不同 dtype 下缺失表示可能不同
+    card:
+      name: 缺失的样子
+      aliases: [NaN, None, NaT, 空串]
+      definition: pandas 用 NaN、None、NaT（日期）、<NA> 等表示缺失，isna() 都认；整数列里有缺失时，整列会存成浮点。
+      conditions:
+        - 空串 ""、空格、手打的 NA、0、-999 这类记号不是缺失，isna() 判为 False。
+        - 整数列有缺失时，3 会显示成 3.0，dtype 是 float64。
+      example:
+        from: py19.k2.e0
+        text: |
+          表 log 的 count 是 3.0、NaN、0.0、-999.0，note 是 ok、NaN、""、NA；`log.isna()` 只在 S_B 那一行为 True。
+    lesson: |
+      缺失在不同类型的列里，显示出来的样子不完全一样：
+
+      | 列的内容 | 缺失显示为 |
+      |---|---|
+      | 数（float64） | `NaN` |
+      | 文字（pandas 3 的 str 列） | `NaN` |
+      | 混放各种对象的列（object） | 可能是 `None` |
+      | 日期时间 | `NaT` |
+      | 可以有缺失的整数（Int64） | `<NA>` |
+
+      这些写法 `isna()` 都认得，都判为 True。
+
+      整数列有一个容易让人困惑的地方：原始记录里的 3、（空）、0，读成表以后显示为 3.0、NaN、0.0。普通的整数列放不下缺失，pandas 就把整列存成浮点（dtype 为 float64）。看到一列编号或计数突然带了 `.0`，先想想是不是有缺失。
+
+      反过来，有些值**看起来**像“没有”，pandas 却不认为它们是缺失：
+
+      - 空串 `""`：一段一个字也没有的文字，显示时是一格空白；
+      - 一个空格 `" "`；
+      - 手打的 `NA`、`N/A`、`无`：它们只是几个字；
+      - 0，以及旧仪器用来表示“没读到”的 -999 这类记号：它们是数。
+
+      对这些值，`isna()` 都是 False。它们算不算缺失、要不要改成缺失，是下一步要和需求方确认的事。
+    example:
+      id: py19.k2.e0
+      kind: [predict]
+      data: [log]
+      body: |
+        阅读代码，按原行索引填写 `log.isna()` 中 count 和 note 两列的值，再回答 count 列的类型。
+
+        ```python
+        flags = log.isna()
+        ```
+      slots:
+        - id: flags
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: count, header: count, input: bool }
+            - { id: note, header: note, input: bool }
+          rows:
+            - { id: r31, cells: { index: "31", count: false, note: false } }
+            - { id: r7, cells: { index: "7", count: true, note: true } }
+            - { id: r22, cells: { index: "22", count: false, note: false } }
+            - { id: r4, cells: { index: "4", count: false, note: false } }
+        - id: dtype
+          type: choice
+          prompt: "`log[\"count\"]` 是什么类型？"
+          options:
+            - { id: int, content: 整数（int64） }
+            - { id: float, content: 浮点（float64） }
+            - { id: str, content: 文字（str） }
+          key: float
+      explanation: |
+        只有索引 7（S_B）那一行两格都是 **True**，其余都是 **False**。
+
+        - 0.0 是一个数，-999.0 也是一个数，哪怕它原本是“没读到”的记号；
+        - 空串 `""` 是一段没有字的文字，`NA` 是两个字母，都不是缺失。
+
+        count 列是**浮点（float64）**：它有一个缺失，pandas 把整列存成浮点，所以 3 显示为 3.0。
+      verify: |
+        r = run()
+        flags = r["flags"]
+        answers = {
+            "flags": {f"r{label}": {"count": flags.loc[label, "count"], "note": flags.loc[label, "note"]} for label in log.index},
+            "dtype": {"f": "float", "i": "int"}.get(log["count"].dtype.kind, "str"),
+        }
+    practice:
+      - id: py19.k2.q1
+        kind: [predict]
+        uses: [py14.k3, py16.k2]
+        data: [birds]
+        body: |
+          表 birds 的原始调查表里，count 记的是整数 3、（空）、0、5、（空）。阅读代码，写出两行输出。
+
+          ```python
+          print(birds["count"].iloc[0])
+          print(birds["count"].dtype)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行输出
+            key: "3.0"
+            feedback:
+              - when: "3"
+                message: 这一列有缺失，pandas 把整列存成了浮点，3 显示为 3.0。
+          - id: second
+            type: text
+            prompt: 第二行输出
+            key: float64
+        explanation: |
+          第一行 **3.0**，第二行 **float64**。原始记录是整数，但这一列有两个缺失，普通的整数列放不下缺失，pandas 就把整列存成浮点。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": str(lines[1])}
+      - id: py19.k2.q2
+        kind: [explain]
+        uses: [py03.k3]
+        body: |
+          下面每个值单独放进一列，再对这一列用 `isna()`。哪些值会被判为缺失（True）？选出所有会的。
+        slots:
+          - id: missing
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: none, content: "`None`" }
+              - { id: nan, content: "`np.nan`" }
+              - { id: empty, content: "`\"\"`（空串）" }
+              - { id: na_text, content: "`\"NA\"`（两个字母）" }
+              - { id: zero, content: "`0`" }
+              - { id: code, content: "`-999`" }
+            key: [none, nan]
+        explanation: |
+          只有 **`None`** 和 **`np.nan`** 是缺失。空串是一段没有字的文字，`"NA"` 是两个字母，0 和 -999 都是数；即使它们在某份记录里表示“没有”，`isna()` 也不会替你这样理解。
+        verify: |
+          values = {"none": None, "nan": np.nan, "empty": "", "na_text": "NA", "zero": 0, "code": -999}
+          answers = {"missing": [option for option, value in values.items() if pd.Series([value], dtype=object).isna().iloc[0]]}
+      - id: py19.k2.q3
+        kind: [predict, explain]
+        uses: [py17.k2]
+        data: [log]
+        body: |
+          有人想找出“note 没有写内容”的样本，写了下面的代码。
+
+          ```python
+          result = log.loc[log["note"].isna(), ["sample_id"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: "`result` 留下了哪些行？按先后顺序排出原行索引。"
+            items:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "4", content: "4" }
+            key: ["7"]
+          - id: s_c
+            type: choice
+            prompt: S_C 的 note 是空串，它在结果里吗？
+            options:
+              - { id: "yes", content: 在，空串也是缺失 }
+              - { id: "no", content: 不在，空串不是缺失 }
+            key: "no"
+        explanation: |
+          只留下索引 **7**（S_B）。S_C 的 note 是空串，看起来什么也没写，但它是一段文字，`isna()` 判为 False，所以**不在**结果里。如果需求说的“没有写内容”也包括空串，就要在需求里写明，再另行处理。
+        verify: |
+          result = run()["result"]
+          rows = [str(label) for label in result.index]
+          answers = {"rows": rows, "s_c": "yes" if "S_C" in list(result["sample_id"]) else "no"}
+    review:
+      - id: py19.k2.r1
+        kind: [predict]
+        uses: [py14.k3]
+        data: [plants]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          print(plants["height"].dtype)
+          print(plants["height"].sum())
+          ```
+        slots:
+          - id: first
+            type: text
+            prompt: 第一行输出
+            key: float64
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "20.0"
+            feedback:
+              - when: "20"
+                message: 这一列存成了浮点，求和的结果也是浮点，显示为 20.0。
+        explanation: |
+          第一行 **float64**：原始记录虽然是整数，但有一株没量，整列存成了浮点。第二行 **20.0**：两个有值的高度相加，结果也是浮点。
+        verify: |
+          lines = run().lines()
+          answers = {"first": str(lines[0]), "second": lines[1]}
+      - id: py19.k2.r2
+        kind: [predict]
+        uses: [py17.k2]
+        data: [visits]
+        body: |
+          阅读代码，说出 `result` 留下了哪些行。
+
+          ```python
+          result = visits.loc[visits["reason"].notna(), ["patient"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 按先后顺序排出原行索引。
+            items:
+              - { id: "11", content: "11" }
+              - { id: "12", content: "12" }
+              - { id: "13", content: "13" }
+              - { id: "14", content: "14" }
+              - { id: "15", content: "15" }
+            key: ["11", "13", "14", "15"]
+        explanation: |
+          留下索引 **11、13、14、15**，只去掉 reason 为 NaN 的索引 12。空串、一个空格和手打的 `N/A` 都是文字，`notna()` 判为 True。要不要把它们也当成“没有填写”，得由需求说明。
+        verify: |
+          result = run()["result"]
+          answers = {"rows": [str(label) for label in result.index]}
+    quiz:
+      - id: py19.k2.x1
+        kind: [predict]
+        uses: [py17.k2]
+        data: [runs]
+        body: |
+          阅读代码，写出输出。
+
+          ```python
+          print(len(runs.loc[runs["remark"].isna()]))
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 显示什么？
+            key: 2
+        explanation: |
+          显示 **2**：只有 R1、R5 的 remark 是 NaN。手打的“无”、空串和 `NA` 都是文字，`isna()` 判为 False。
+        verify: |
+          answers = {"output": int(run().out)}
+      - id: py19.k2.x2
+        kind: [explain]
+        uses: [py14.k3]
+        body: |
+          一列批次号的原始记录是整数 1、2、（空）。读成表以后，这一列显示为 1.0、2.0、NaN。
+        slots:
+          - id: why
+            type: choice
+            prompt: 为什么 1 和 2 变成了 1.0 和 2.0？
+            options:
+              - id: divided
+                content: 读入时每个值都被除以了 1
+              - id: missing
+                content: 这一列有缺失，普通的整数列放不下缺失，pandas 把整列存成了浮点
+              - id: text
+                content: NaN 是一段文字，整列变成了文字列
+            key: missing
+          - id: without
+            type: choice
+            prompt: 如果第三批也有记录，是整数 3，这一列会是什么类型？
+            options:
+              - { id: int, content: 整数（int64） }
+              - { id: float, content: 浮点（float64） }
+            key: int
+        explanation: |
+          这一列**有缺失**，普通的整数列放不下缺失，pandas 就把整列存成浮点，于是 1、2 显示成 1.0、2.0。三批都有记录时没有缺失，这一列就是**整数（int64）**。
+        verify: |
+          with_missing = pd.Series([1, 2, None]).dtype.kind
+          complete = pd.Series([1, 2, 3]).dtype.kind
+          answers = {
+              "why": "missing" if with_missing == "f" and complete == "i" else "other",
+              "without": {"i": "int", "f": "float"}[complete],
+          }
+
   - id: py19.k3
     title: 删除、保留或填补需要业务规则
+    card:
+      name: 缺失处理规则
+      aliases: [dropna, fillna, 缺失值处理]
+      definition: 缺失是删掉（dropna）、填上（fillna）还是留着，会改变留下的行和算出的结果，要按缺失的原因写进需求。
+      conditions:
+        - dropna 不写 subset 时，任何一列有缺失的整行都会被删掉。
+        - fillna(0) 等于把“没测到”当成“测得 0”，会改变筛选结果和平均值。
+        - 这两种做法都得到新的结果，原表不变。
+      example:
+        from: py19.k3.e0
+        text: |
+          表 M 里 signal 低于 10 的原本是 S_A、S_C；`fillna(0)` 之后，缺失的 S_B、S_E 也被当成低信号样本留下。
+    lesson: |
+      空着的格怎么办，程序替你决定不了。常见的做法有三种，以表 M 为例：
+
+      1. **删除。**`df.dropna(subset=["signal"])` 得到一张去掉 signal 缺失行的新表，留下 S_A、S_C、S_D。`subset` 写明看哪一列；不写时，任何一列有缺失的整行都会被删掉。表 M 的 note 也有缺失，`df.dropna()` 只剩下 S_D 一行，S_A、S_C 好好的测量也被删了。
+      2. **填补。**`df["signal"].fillna(0)` 把缺失换成 0，等于说“没测到就是测得 0”。之后再筛“signal 低于 10”的样本，S_B、S_E 也会被当成低信号样本留下，平均值也会被拉低。
+      3. **保留。**不删也不填，后面每一步说明怎样对待缺失，并报告缺了几个。
+
+      这两个方法都返回新的结果，`df` 本身不变。
+
+      选哪一种，取决于**为什么缺**。S_B 是仪器故障，读数根本不存在，填 0 就是编造了一个测量；有些检测里“低于检出限”会按约定记成 0 或某个固定值，那是研究者定下的规则。这些判断属于业务，不属于代码。
+
+      所以[写需求](repa:concept/py12.k1)时，除了筛选条件，还要说清三件事：哪一列的缺失；删除、填补（填什么）还是保留；要不要报告受影响的行数。
+    example:
+      id: py19.k3.e0
+      kind: [predict]
+      data: [M]
+      body: |
+        阅读代码，比较两种处理方式。
+
+        ```python
+        low_raw = df.loc[df["signal"] < 10, ["sample_id"]]
+        filled = df["signal"].fillna(0)
+        low_filled = df.loc[filled < 10, ["sample_id"]]
+        kept = df.dropna(subset=["signal"])
+        ```
+      slots:
+        - id: raw
+          type: order
+          partial: true
+          prompt: "`low_raw` 留下了哪些行？按先后顺序排出原行索引。"
+          items:
+            - { id: "31", content: "31" }
+            - { id: "7", content: "7" }
+            - { id: "22", content: "22" }
+            - { id: "4", content: "4" }
+            - { id: "18", content: "18" }
+          key: ["31", "22"]
+        - id: filled
+          type: order
+          partial: true
+          prompt: "`low_filled` 留下了哪些行？按先后顺序排出原行索引。"
+          items:
+            - { id: "31", content: "31" }
+            - { id: "7", content: "7" }
+            - { id: "22", content: "22" }
+            - { id: "4", content: "4" }
+            - { id: "18", content: "18" }
+          key: ["31", "7", "22", "18"]
+        - id: kept
+          type: text
+          format: integer
+          prompt: "`kept` 有几行？"
+          key: 3
+      explanation: |
+        `low_raw` 留下 **31、22**：缺失的 S_B、S_E 在比较里得到 False，没有留下。
+
+        `low_filled` 留下 **31、7、22、18**：缺失被填成 0 以后，S_B、S_E 就成了“signal 为 0”的样本，也被当成低信号留下了。这等于替仪器编了两个读数。
+
+        `kept` 有 **3** 行：去掉 signal 缺失的 S_B、S_E，留下 S_A、S_C、S_D。哪一种对，要看需求方怎样看待这两个没有读数的样本。
+      verify: |
+        r = run()
+        answers = {
+            "raw": [str(label) for label in r["low_raw"].index],
+            "filled": [str(label) for label in r["low_filled"].index],
+            "kept": len(r["kept"]),
+        }
+    practice:
+      - id: py19.k3.q1
+        kind: [predict, explain]
+        uses: [py14.k3]
+        data: [M]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          print(len(df.dropna()))
+          print(len(df.dropna(subset=["signal"])))
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行输出
+            key: 1
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行输出
+            key: 3
+          - id: why
+            type: choice
+            prompt: 第一行为什么把 S_A 也删掉了？
+            options:
+              - { id: signal, content: S_A 的 signal 缺失 }
+              - { id: note, content: S_A 的 note 缺失，不写 subset 时任何一列缺失都会删掉整行 }
+              - { id: low, content: S_A 的 signal 太低 }
+            key: note
+        explanation: |
+          第一行 **1**，第二行 **3**。`dropna()` 不写 `subset` 时，只要某一行有任何一列缺失就删掉整行：S_A、S_C 的 note 空着，S_B、S_E 的 signal 空着，只剩 S_D。S_A 的读数是好的，它被删掉只因为**备注没写**。
+
+          写成 `dropna(subset=["signal"])`，只看 signal 这一列，留下 S_A、S_C、S_D。
+        verify: |
+          lines = run().lines()
+          first_kept = run("kept = df.dropna()")["kept"]
+          s_a = df.loc[31]
+          reason = "note" if 31 not in first_kept.index and pd.notna(s_a["signal"]) and pd.isna(s_a["note"]) else "other"
+          answers = {"first": int(lines[0]), "second": int(lines[1]), "why": reason}
+      - id: py19.k3.q2
+        kind: [specify]
+        uses: [py12.k1]
+        data: [M]
+        body: |
+          负责人看了表 M 以后说：“仪器故障和漏测的样本没有读数，不能当成 0，也不参加后面的筛选；S_C 的 0.0 是真实读数，要保留。备注空着不影响什么。最后告诉我去掉了几个样本。”把这条规则填成下面三个字段。
+        slots:
+          - id: column
+            type: choice
+            prompt: 按哪一列的缺失处理
+            options:
+              - { id: signal, content: 只看 signal }
+              - { id: note, content: 只看 note }
+              - { id: any, content: 任何一列缺失都算 }
+            key: signal
+          - id: action
+            type: choice
+            prompt: 缺失的行怎么办
+            options:
+              - { id: fill0, content: 把缺失填成 0，照常参加筛选 }
+              - { id: drop, content: 删除这些行，不参加后面的筛选 }
+              - { id: keep, content: 保留原样，不做处理 }
+            key: drop
+          - id: report
+            type: choice
+            prompt: 要不要报告受影响的行数
+            options:
+              - { id: "yes", content: 要，报告删掉了几个样本 }
+              - { id: "no", content: 不用 }
+            key: "yes"
+        explanation: |
+          只看 **signal**；**删除**这些行；**要**报告删掉了几个。对应的代码是 `df.dropna(subset=["signal"])`，删掉 S_B、S_E 两个，报告“去掉 2 个没有读数的样本”。
+
+          “任何一列缺失都算”会因为备注空着把 S_A、S_C 也删掉；填 0 违背了“不能当成 0”。
+        manual: [column, action, report]
+      - id: py19.k3.q3
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          同事发来一张表，说：“有些格空着，你先处理一下缺失，再算各组的平均值。”
+
+          在动手之前，请提出两个具体的追问，让对方能确定缺失怎样处理。题目没有授权你自己决定删除还是填补。
+        slots:
+          - id: questions
+            type: text
+            lines: 5
+            rubric:
+              - id: which
+                label: 哪些列、哪种情况算缺失
+                guide: 追问是哪一列的空格要处理，或者 0、空白、NA、-999 这类记号算不算缺失。
+              - id: rule
+                label: 删除、填补还是保留
+                guide: 追问缺失的行要删掉、填成什么值，还是保留并单独报告；可以先问缺失的原因。提出一个做法并明确问“是否采用”也算；直接替对方决定不算。
+        explanation: |
+          一种回答：**是哪几列的空格要处理？表里的 0 或“NA”算不算缺失？这些格为什么空着——没测、测不出来，还是不适用？空着的行要删掉、填成某个值，还是保留并在结果里注明缺了几个？**
+
+          其他同样会影响结果的具体追问也算，例如“删掉以后要不要告诉你每组少了几个”。只说“缺失怎么处理？”而不给出可选的做法，对方仍难回答。
+    review:
+      - id: py19.k3.r1
+        kind: [predict]
+        uses: [py17.k1, py17.k2]
+        data: [birds]
+        body: |
+          有人要找出“鸟巢少于 3 个”的样地，比较两种处理缺失的方式。
+
+          ```python
+          a = birds.dropna(subset=["count"])
+          rule_a = a.loc[a["count"] < 3, ["site"]]
+          b = birds["count"].fillna(0)
+          rule_b = birds.loc[b < 3, ["site"]]
+          ```
+        slots:
+          - id: a
+            type: text
+            format: integer
+            prompt: "`rule_a` 有几行？"
+            key: 1
+          - id: b
+            type: text
+            format: integer
+            prompt: "`rule_b` 有几行？"
+            key: 3
+        explanation: |
+          `rule_a` 有 **1** 行：先删掉没调查的南坡、山顶，剩下的样地里只有东坡少于 3 个。`rule_b` 有 **3** 行：南坡、山顶被填成 0，和东坡一起被当成“鸟巢很少”的样地。
+
+          同一张表、同一个筛选条件，只因缺失的处理不同，结果就从 1 个变成了 3 个。
+        verify: |
+          r = run()
+          answers = {"a": len(r["rule_a"]), "b": len(r["rule_b"])}
+      - id: py19.k3.r2
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          负责人确认的规则是：“depth 没有记录的样地不参加平均，但要在报告里写明有几个；其他列缺失不影响。”下面哪一种说法与它完全一致？
+        slots:
+          - id: rewrite
+            type: choice
+            options:
+              - id: a
+                content: 把 depth 缺失的样地记为 0，再和其他样地一起算平均，报告里写明有几个
+              - id: b
+                content: 删除任何一列有缺失的样地，再算 depth 的平均，报告里写明有几个
+              - id: c
+                content: 只删除 depth 缺失的样地，用其余样地算 depth 的平均，并在报告里写明删去了几个
+              - id: d
+                content: 只删除 depth 缺失的样地，用其余样地算 depth 的平均
+            key: c
+        explanation: |
+          “只删除 depth 缺失的样地，用其余样地算平均，并写明删去了几个”这一种与规则一致。
+
+          记为 0 等于编了一个深度，平均会被拉低；“任何一列有缺失”会把 depth 完好、只是别的列空着的样地也删掉；最后一种漏了“报告有几个”。
+        manual: [rewrite]
+    quiz:
+      - id: py19.k3.x1
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          负责人说：“count 空着的孔是漏数了，不是没有细胞，不能当成 0。这些孔先留在表里，但不参加平均；结果里写明漏数了几个孔。备注列空着没关系。”把这条规则填成下面三个字段。
+        slots:
+          - id: column
+            type: choice
+            prompt: 按哪一列的缺失处理
+            options:
+              - { id: any, content: 任何一列缺失都算 }
+              - { id: note, content: 只看备注列 }
+              - { id: count, content: 只看 count }
+            key: count
+          - id: action
+            type: choice
+            prompt: 缺失的孔怎么办
+            options:
+              - { id: fill0, content: 填成 0，参加平均 }
+              - { id: keep, content: 留在表里，不参加平均 }
+              - { id: drop_all, content: 从表里删掉，也不再提 }
+            key: keep
+          - id: report
+            type: choice
+            prompt: 要不要报告受影响的个数
+            options:
+              - { id: "no", content: 不用 }
+              - { id: "yes", content: 要，写明漏数了几个孔 }
+            key: "yes"
+        explanation: |
+          只看 **count**；**留在表里，不参加平均**；**要**写明漏数了几个孔。“不能当成 0”排除了填 0；“先留在表里”排除了删掉；备注空着不影响。
+        manual: [column, action, report]
+      - id: py19.k3.x2
+        kind: [specify, explain]
+        uses: [py12.k1]
+        data: [M]
+        body: |
+          需求是：“删除 signal 缺失的行，其他列有缺失的行照常保留。”
+        slots:
+          - id: line
+            type: choice
+            prompt: 哪一行代码符合这个需求？
+            options:
+              - id: all
+                content: |
+                  ```python
+                  result = df.dropna()
+                  ```
+              - id: fill
+                content: |
+                  ```python
+                  result = df.fillna(0)
+                  ```
+              - id: subset
+                content: |
+                  ```python
+                  result = df.dropna(subset=["signal"])
+                  ```
+              - id: nonzero
+                content: |
+                  ```python
+                  result = df.loc[df["signal"] != 0]
+                  ```
+            key: subset
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 按需求处理后，表 M 剩几行？
+            key: 3
+        explanation: |
+          **`df.dropna(subset=["signal"])`** 符合需求，剩 **3** 行（S_A、S_C、S_D）。
+
+          `dropna()` 不写 subset，会因为 note 空着把 S_A、S_C 也删掉；`fillna(0)` 没有删任何行，还把缺失改成了 0；`!= 0` 删掉的是读数为 0 的 S_C，缺失的 S_B、S_E 反而留下了（NaN 和 0 不相等）。
+        verify: |
+          import math
+          wanted = [label for label, value in df["signal"].items() if not math.isnan(value)]
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              r = run(line)
+              if r.error is None and list(r["result"].index) == wanted and r["result"]["signal"].isna().sum() == 0:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "nrows": len(wanted)}
+
+verified:
+  - question: py19.k3.r2
+    version: sha256:0916f89b6270d8def87eda35578fdafeae8e9951d202cabf823f7908ccf9ea1e
+    slots: [rewrite]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py19.k3.x1
+    version: sha256:58663f66cbced2b723a06b8b01d6c13b56cdf8b82bfc0716a6e7fe7f89373204
+    slots: [column, action, report]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12

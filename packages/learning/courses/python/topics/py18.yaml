@@ -1,7 +1,8 @@
 id: py18
 title: 筛选多个条件
-status: outline
+status: complete
 minutes: 20
+summary: 用 &、|、~ 把两列布尔掩码逐行组合；每个比较各加括号，用 isin 表示“属于这几个值之一”。
 prerequisites:
   - topic: py17
     key: true
@@ -22,8 +23,961 @@ sources:
     use: reference
 notes: |
   建议题型与判分：预测输出（P）、找错（P）、小改代码（T）。
+  范围：接着 py17 的单列掩码和 py09 的单值 and/or/not，只讲两三个条件的逐行组合。不讲 query、between、where，也不讲缺失值参与比较（py19）。
+  k1 的代码尽量先把每个条件存成一个名字（high、treated），避开运算顺序；k2 再讲为什么直接写在一行里要给每个比较加括号。缺括号时有的写法报错，有的不报错却算出别的结果（例如 ~df["signal"] >= 10 全为 False），两种都要见到。
+  “属于 low 或 high”与“不是 control”只在表里没有别的组时相同，讲解里点明，小改代码题用含 vehicle 组的表检查。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、三道练习 4 分钟；k2 讲解与例题 4 分钟、两道读码题 3 分钟、小改代码题 3 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  上一节用一个条件留下行，这一节把两个条件接起来：“signal 至少 10，并且不是对照组”“低剂量组或高剂量组”。
+
+  宿主已经准备好 pandas 和数据表，每道题都从题面给出的表重新开始。大多数题用表 T：`sample_id` 是样本编号，`signal` 是测量值（任意单位），`group` 是实验组：`control` 对照、`low` 低剂量、`high` 高剂量。左边的原行索引是行标签。题目里的筛选规则都是人为约定，不代表科研结论。
+wrapup: |
+  向同事或 AI 提多条件的要求时，说清是“同时满足”还是“满足其一”，属于哪几个组就把组名逐个列出来，例如：“保留 group 为 low 或 high、并且 signal 至少为 10 的行”。
+
+  拿到代码后，先看“并且”是不是写成了 `&`、“或者”是不是 `|`；再看每个比较是否各有一对括号；最后用一行恰好只满足一个条件的数据，核对它有没有被错误地留下。
+data:
+  T:
+    kind: dataframe
+    name: df
+    caption: 表 T
+    index: [31, 7, 22, 4, 18]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E]
+      signal: [8, 10, 13, 10, 6]
+      group: [low, control, high, low, control]
+  T2:
+    kind: dataframe
+    name: df
+    caption: 另一张同结构的表
+    index: [90, 2, 60, 11, 45, 5]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [X_A, X_B, X_C, X_D, X_E, X_F]
+      signal: [5, 12, 12, 9, 20, 11]
+      group: [high, control, low, high, vehicle, low]
+  T3:
+    kind: dataframe
+    name: df
+    caption: 第三张同结构的表
+    index: [8, 40, 15, 3]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [Z_C, Z_A, Z_E, Z_B]
+      signal: [14, 9, 10, 12]
+      group: [low, high, control, high]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：五个样地的土层深度（厘米）和 pH
+    index: [5, 12, 3, 8, 20]
+    indexHeader: 原行索引
+    columns:
+      plot: [P1, P2, P3, P4, P5]
+      site: [北坡, 南坡, 东坡, 西坡, 南坡]
+      depth: [30, 25, 35, 30, 40]
+      ph: [6.5, 5.8, 7.1, 5.5, 6.0]
+    dtypes:
+      ph: float
+  wells:
+    kind: dataframe
+    name: wells
+    caption: 表 wells：培养板上各孔的细胞计数
+    index: [3, 11, 6, 9, 14]
+    indexHeader: 原行索引
+    columns:
+      well: [A1, A2, B1, B2, C1]
+      count: [120, 95, 150, 80, 110]
+      plate: [p1, p1, p2, p2, p3]
+  wells2:
+    kind: dataframe
+    name: wells
+    caption: 另一张培养板记录
+    index: [7, 2, 13, 5, 10, 1]
+    indexHeader: 原行索引
+    columns:
+      well: [D1, D2, E1, E2, F1, F2]
+      count: [60, 140, 90, 100, 75, 99]
+      plate: [p3, p1, p2, p1, p4, p3]
+  masks:
+    kind: dataframe
+    name: masks
+    caption: 两列掩码 a、b，以及由它们算出的 c
+    showIndex: false
+    columns:
+      a: [true, true, false, false]
+      b: [true, false, true, false]
+      c: [false, true, false, false]
 kps:
   - id: py18.k1
     title: 逐元素 &、|、~ 与单值 and/or 的区别
+    card:
+      name: 组合掩码
+      aliases: ["&", "|", "~", 多条件筛选]
+      definition: "&、|、~ 把布尔掩码逐行组合：& 要同一行两个条件都为 True，| 只要其中一个为 True，~ 把每一行的 True 和 False 对调。"
+      conditions:
+        - and、or、not 只判断单个 True 或 False；用在一整列布尔值上会报 ValueError。
+        - 组合后仍是一列与原表逐行对应的 True/False，原表没有变；用它选行仍写 df.loc[掩码, 列名列表]。
+      example:
+        from: py18.k1.e0
+        text: |
+          ```python
+          high = df["signal"] >= 10
+          treated = df["group"] != "control"
+          both = high & treated
+          ```
+          表 T 里只有索引 22、4 两行同时满足，both 依次为 False、False、True、True、False。
+    lesson: |
+      [布尔掩码](repa:concept/py17.k1)是一列与原表逐行对应的 True/False。要同时用两个条件，可以先把每个条件各算成一列掩码，再把两列逐行组合起来：
+
+      ```python
+      high = df["signal"] >= 10
+      treated = df["group"] != "control"
+      both = high & treated
+      either = high | treated
+      ```
+
+      | 原行索引 | signal | group | high | treated | `high & treated` | `high \| treated` |
+      |---:|---:|---|---|---|---|---|
+      | 31 | 8 | low | False | True | False | True |
+      | 7 | 10 | control | True | False | False | True |
+      | 22 | 13 | high | True | True | True | True |
+      | 4 | 10 | low | True | True | True | True |
+      | 18 | 6 | control | False | False | False | False |
+
+      - `&` 读作“并且”：同一行两个都是 True，结果才是 True。
+      - `|` 读作“或者”：同一行只要有一个是 True，结果就是 True。它是键盘上的竖线，在回车键上方，按 Shift 输入。
+      - `~` 读作“不是”：把每一行的 True 和 False 对调，`~high` 依次为 True、False、False、False、True。
+
+      组合得到的仍是一列掩码，放进 `.loc` 就能选行：`df.loc[high & treated, ["sample_id"]]` 留下索引 22 和 4。
+
+      为什么不用学过的 `and`、`or`、`not`？它们一次只判断一个 True 或 False。写 `high and treated` 时，Python 要先回答“`high` 这一整列算 True 还是 False”，可这一列里两种都有，pandas 不替你猜，直接报 `ValueError`。所以：单个值用 `and`、`or`、`not`，一整列逐行组合用 `&`、`|`、`~`。
+    example:
+      id: py18.k1.e0
+      kind: [predict]
+      data: [T]
+      body: |
+        阅读代码，按原行索引填写 `both` 和 `either` 的值。
+
+        ```python
+        high = df["signal"] >= 10
+        treated = df["group"] != "control"
+        both = high & treated
+        either = high | treated
+        ```
+      slots:
+        - id: masks
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: signal, header: signal }
+            - { id: group, header: group }
+            - { id: both, header: both, input: bool }
+            - { id: either, header: either, input: bool }
+          rows:
+            - { id: r31, cells: { index: "31", signal: "8", group: low, both: false, either: true } }
+            - { id: r7, cells: { index: "7", signal: "10", group: control, both: false, either: true } }
+            - { id: r22, cells: { index: "22", signal: "13", group: high, both: true, either: true } }
+            - { id: r4, cells: { index: "4", signal: "10", group: low, both: true, either: true } }
+            - { id: r18, cells: { index: "18", signal: "6", group: control, both: false, either: false } }
+      explanation: |
+        | 原行索引 | high | treated | both | either |
+        |---:|---|---|---|---|
+        | 31 | False | True | **False** | **True** |
+        | 7 | True | False | **False** | **True** |
+        | 22 | True | True | **True** | **True** |
+        | 4 | True | True | **True** | **True** |
+        | 18 | False | False | **False** | **False** |
+
+        先逐行写出两个条件各自的结果，再组合：`both` 只在两个都为 True 的索引 22、4 上为 True；`either` 只在两个都为 False 的索引 18 上为 False。索引 7 的 signal 恰好是 10，满足 `>= 10`，但它是对照组，所以 `both` 为 False。
+      verify: |
+        r = run()
+        answers = {"masks": {f"r{label}": {"both": r["both"][label], "either": r["either"][label]} for label in df.index}}
+    practice:
+      - id: py18.k1.q1
+        kind: [predict]
+        uses: [py17.k1, py09.k1]
+        data: [T]
+        body: |
+          我们要标记“测量值偏低，或者属于高剂量组”的样本。阅读代码，按原行索引填写 `mask` 的值。
+
+          ```python
+          low_signal = df["signal"] < 10
+          is_high = df["group"] == "high"
+          mask = low_signal | is_high
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: signal, header: signal }
+              - { id: group, header: group }
+              - { id: mask, header: mask, input: bool }
+            rows:
+              - { id: r31, cells: { index: "31", signal: "8", group: low, mask: true } }
+              - { id: r7, cells: { index: "7", signal: "10", group: control, mask: false } }
+              - { id: r22, cells: { index: "22", signal: "13", group: high, mask: true } }
+              - { id: r4, cells: { index: "4", signal: "10", group: low, mask: false } }
+              - { id: r18, cells: { index: "18", signal: "6", group: control, mask: true } }
+        explanation: |
+          依次为 **True、False、True、False、True**。索引 31 和 18 的 signal 小于 10；索引 22 是高剂量组；`|` 只要满足一个就是 True。索引 7 和 4 的 signal 恰好是 10，不小于 10，又都不是高剂量组，所以是 False。
+        verify: |
+          r = run()
+          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+      - id: py18.k1.q2
+        kind: [predict]
+        uses: [py17.k1, py17.k2, py09.k1]
+        data: [T]
+        body: |
+          阅读代码，说出 `result` 的样子。
+
+          ```python
+          control = df["group"] == "control"
+          strong = df["signal"] >= 10
+          result = df.loc[~control & strong, ["sample_id", "group"]]
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: 留下了哪些行？按先后顺序排出原行索引。
+            items:
+              - { id: "31", content: "31" }
+              - { id: "7", content: "7" }
+              - { id: "22", content: "22" }
+              - { id: "4", content: "4" }
+              - { id: "18", content: "18" }
+            key: ["22", "4"]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`result.shape` 的第一个数（行数）"
+            key: 2
+          - id: dropped
+            type: choice
+            prompt: 索引 7 那一行为什么没有留下？
+            options:
+              - { id: weak, content: 它的 signal 没有达到 10 }
+              - { id: control, content: 它是对照组，`~control` 在这一行是 False }
+              - { id: order, content: 它排在后面，被挤掉了 }
+            key: control
+        explanation: |
+          `~control` 把“是对照组”对调成“不是对照组”：依次为 True、False、True、True、False。`strong` 依次为 False、True、True、True、False。两者 `&` 之后只有索引 **22、4** 为 True，所以留下这两行，行数是 **2**。
+
+          索引 7 的 signal 恰好是 10，满足 `strong`；它没留下，是因为它属于对照组，`~control` 在这一行是 False。
+        verify: |
+          r = run()
+          result = r["result"]
+          control_7 = bool(r["control"][7])
+          strong_7 = bool(r["strong"][7])
+          answers = {
+              "rows": [str(label) for label in result.index],
+              "nrows": result.shape[0],
+              "dropped": "control" if control_7 and strong_7 else ("weak" if not strong_7 else "order"),
+          }
+      - id: py18.k1.q3
+        kind: [debug]
+        uses: [py17.k2, py09.k1]
+        data: [T]
+        body: |
+          同事想留下“signal 至少为 10，并且不是对照组”的样本，写了下面的代码。
+
+          ```python startLine=1
+          high = df["signal"] >= 10
+          treated = df["group"] != "control"
+          result = df.loc[high and treated, ["sample_id"]]
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行这段代码会怎样？
+            options:
+              - { id: rows2, content: 得到索引 22、4 两行 }
+              - { id: error, content: 第 3 行报 ValueError，没有得到 result }
+              - { id: all, content: 得到全部 5 行 }
+              - { id: empty, content: 得到一张没有行的表 }
+            key: error
+          - id: fix
+            type: choice
+            prompt: 第 3 行应改成哪一种？
+            options:
+              - id: amp
+                content: |
+                  ```python
+                  result = df.loc[high & treated, ["sample_id"]]
+                  ```
+              - id: pipe
+                content: |
+                  ```python
+                  result = df.loc[high | treated, ["sample_id"]]
+                  ```
+                feedback: "`|` 是“或者”，只满足一个条件的行也会留下。"
+              - id: two
+                content: |
+                  ```python
+                  result = df.loc[high, treated, ["sample_id"]]
+                  ```
+                feedback: "`.loc` 的方括号里，逗号前是选行、逗号后是选列，不能再加第三项。"
+            key: amp
+        explanation: |
+          第 3 行会报 **ValueError**。`and` 要先把 `high` 整列当成一个 True 或 False，这一列里两种都有，pandas 无法判断，于是报错。
+
+          改成 `df.loc[high & treated, ["sample_id"]]`：`&` 逐行组合，留下索引 22、4 两行。`|` 会把只满足一个条件的索引 31、7 也留下。
+        verify: |
+          prelude = "\n".join(CODE.strip().splitlines()[:2]) + "\n"
+          outcome = run()
+          # 按要求逐行判断，得到应留下的行，再看哪一种改法恰好得到这些行。
+          wanted = [label for label, row in df.iterrows() if row["signal"] >= 10 and row["group"] != "control"]
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              r = run(prelude + line)
+              if r.error is None and list(r["result"].index) == wanted and list(r["result"].columns) == ["sample_id"]:
+                  fits.append(option)
+          answers = {
+              "outcome": "error" if outcome.error == "ValueError" else "other",
+              "fix": fits[0] if len(fits) == 1 else fits,
+          }
+    review:
+      - id: py18.k1.r1
+        kind: [modify]
+        uses: [py17.k1, py17.k2, py09.k1]
+        data: [wells]
+        body: |
+          要找出“计数低于 100，或者在 p3 板上”的孔。哪一行代码能得到这些孔？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: or_word
+                content: |
+                  ```python
+                  result = wells.loc[(wells["count"] < 100) or (wells["plate"] == "p3"), ["well"]]
+                  ```
+              - id: amp
+                content: |
+                  ```python
+                  result = wells.loc[(wells["count"] < 100) & (wells["plate"] == "p3"), ["well"]]
+                  ```
+              - id: pipe
+                content: |
+                  ```python
+                  result = wells.loc[(wells["count"] < 100) | (wells["plate"] == "p3"), ["well"]]
+                  ```
+              - id: negated
+                content: |
+                  ```python
+                  result = wells.loc[~(wells["count"] < 100) | (wells["plate"] == "p3"), ["well"]]
+                  ```
+            key: pipe
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 这样得到的 `result` 有几行？
+            key: 3
+        explanation: |
+          用 `|` 的那一行正确，留下 A2、B2、C1 共 **3** 行：A2 和 B2 的计数低于 100，C1 在 p3 板上。
+
+          `or` 用在整列上会报 ValueError；`&` 要求两个条件同时满足，这张表里没有这样的孔；`~(wells["count"] < 100)` 把“低于 100”对调成了“不低于 100”。
+        verify: |
+          wanted = [label for label, row in wells.iterrows() if row["count"] < 100 or row["plate"] == "p3"]
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              r = run(line)
+              if r.error is None and list(r["result"].index) == wanted:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "nrows": len(wanted)}
+      - id: py18.k1.r2
+        kind: [trace]
+        uses: [py17.k1, py09.k1]
+        data: [soil]
+        body: |
+          阅读代码，按原行索引填写 `flag` 的值。
+
+          ```python
+          deep = soil["depth"] >= 30
+          acidic = soil["ph"] < 6.0
+          flag = deep & ~acidic
+          ```
+        slots:
+          - id: flag
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: depth, header: depth }
+              - { id: ph, header: ph }
+              - { id: flag, header: flag, input: bool }
+            rows:
+              - { id: r5, cells: { index: "5", depth: "30", ph: "6.5", flag: true } }
+              - { id: r12, cells: { index: "12", depth: "25", ph: "5.8", flag: false } }
+              - { id: r3, cells: { index: "3", depth: "35", ph: "7.1", flag: true } }
+              - { id: r8, cells: { index: "8", depth: "30", ph: "5.5", flag: false } }
+              - { id: r20, cells: { index: "20", depth: "40", ph: "6.0", flag: true } }
+        explanation: |
+          `flag` 依次为 **True、False、True、False、True**：要深度至少 30，并且不偏酸（pH 不低于 6.0）。
+
+          索引 12 太浅；索引 8 深度够，但 pH 5.5 偏酸，`~acidic` 在这一行是 False；索引 20 的 pH 恰好是 6.0，不小于 6.0，所以不算偏酸。
+        verify: |
+          r = run()
+          answers = {"flag": {f"r{label}": {"flag": value} for label, value in r["flag"].items()}}
+    quiz:
+      - id: py18.k1.x1
+        kind: [explain]
+        uses: [py09.k1, py09.k2]
+        data: [masks]
+        body: |
+          表里每一行是 `a`、`b` 两列掩码在同一行上的值，`c` 是用其中一种写法由 `a`、`b` 逐行算出的。
+        slots:
+          - id: op
+            type: choice
+            prompt: "`c` 是用哪一种写法算出的？"
+            options:
+              - { id: and_, content: "`a & b`" }
+              - { id: or_, content: "`a | b`" }
+              - { id: not_a, content: "`~a`" }
+              - { id: a_not_b, content: "`a & ~b`" }
+            key: a_not_b
+          - id: meaning
+            type: choice
+            prompt: 用这种写法筛选，留下的是哪些行？
+            options:
+              - { id: both, content: a、b 都为 True 的行 }
+              - { id: only_a, content: a 为 True 而 b 为 False 的行 }
+              - { id: any, content: a、b 至少一个为 True 的行 }
+            key: only_a
+        explanation: |
+          `c` 由 **`a & ~b`** 算出：`~b` 依次为 False、True、False、True，再与 `a` 逐行“并且”，只有第二行（a 为 True、b 为 False）是 True。
+
+          用它筛选，留下的是 **a 为 True 而 b 为 False** 的行。`a & b` 只在第一行为 True，`a | b` 在前三行为 True，`~a` 在后两行为 True，都和 `c` 不同。
+        verify: |
+          a, b, c = masks["a"], masks["b"], masks["c"]
+          candidates = {"and_": a & b, "or_": a | b, "not_a": ~a, "a_not_b": a & ~b}
+          fits = [name for name, value in candidates.items() if value.tolist() == c.tolist()]
+          kept = [(bool(x), bool(y)) for x, y, keep in zip(a, b, c) if keep]
+          meaning = "only_a" if kept and all(x and not y for x, y in kept) else "other"
+          answers = {"op": fits[0] if len(fits) == 1 else fits, "meaning": meaning}
+      - id: py18.k1.x2
+        kind: [predict]
+        uses: [py09.k1]
+        data: [soil]
+        body: |
+          宿主已经算好两列掩码：
+
+          ```python
+          deep = soil["depth"] >= 30
+          acidic = soil["ph"] < 6.0
+          ```
+
+          下面每一行都单独接在这两行后面运行。哪几行会报错？选出所有会报错的。
+        slots:
+          - id: errors
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: amp, content: "`flag = deep & acidic`" }
+              - { id: and_, content: "`flag = deep and acidic`" }
+              - { id: tilde, content: "`flag = ~acidic`" }
+              - { id: not_, content: "`flag = not acidic`" }
+              - { id: pipe, content: "`flag = deep | acidic`" }
+              - { id: or_, content: "`flag = deep or acidic`" }
+            key: [and_, not_, or_]
+        explanation: |
+          用 **`and`、`not`、`or`** 的三行会报 ValueError：它们要把整列当成一个 True 或 False，这列里两种都有，无法判断。`&`、`~`、`|` 逐行组合，不会报错。
+
+          每个选项的勾选状态分别计分。
+        verify: |
+          prelude = 'deep = soil["depth"] >= 30\nacidic = soil["ph"] < 6.0\n'
+          lines = {
+              "amp": "flag = deep & acidic", "and_": "flag = deep and acidic", "tilde": "flag = ~acidic",
+              "not_": "flag = not acidic", "pipe": "flag = deep | acidic", "or_": "flag = deep or acidic",
+          }
+          answers = {"errors": [option for option, line in lines.items() if run(prelude + line).error is not None]}
+
   - id: py18.k2
     title: 每个比较加括号，isin 表示属于一个集合
+    card:
+      name: 括号与 isin
+      aliases: [isin, 运算顺序, 属于集合]
+      definition: 把比较直接写进 & 或 | 时，每个比较各加一对括号；判断一列的值是否属于几个值之一，用 列.isin([值1, 值2])。
+      conditions:
+        - "& 和 | 比 >=、== 先算；缺括号时有的写法报错，有的不报错却算出别的结果。"
+        - isin 要一个列表，只有一个值也写成 ["low"]；“不属于”写成 ~列.isin([...])。
+        - “属于 low 或 high”和“不是 control”只在表里没有别的组时相同。
+      example:
+        from: py18.k2.e0
+        text: |
+          ```python
+          treated = df["group"].isin(["low", "high"])
+          result = df.loc[treated & (df["signal"] < 12), ["sample_id", "group"]]
+          ```
+          `treated` 与 `(df["group"] == "low") | (df["group"] == "high")` 相同；表 T 里留下索引 31、4。
+    lesson: |
+      上一个知识点先把每个条件存成一个名字，再组合。把比较直接写在一行里时，要注意 Python 算式子的先后：`&` 和 `|` 比 `>=`、`==` 这些比较**先算**，就像乘法比加法先算。所以
+
+      ```python
+      mask = df["signal"] >= 10 & df["group"] == "low"
+      ```
+
+      会被读成先算 `10 & df["group"]`：拿一个数和一列文字做 `&`，没有意义，报 `TypeError`。办法是给每个比较各加一对括号，让两列 True/False 先算出来，再组合：
+
+      ```python
+      mask = (df["signal"] >= 10) & (df["group"] == "low")
+      ```
+
+      缺括号不一定报错。`~df["signal"] >= 10` 会先对数字做 `~`，得到 -9、-11 这样的数，再和 10 比较，结果全是 False，程序照常运行；要写 `~(df["signal"] >= 10)`。同时用 `&` 和 `|` 时，`&` 又比 `|` 先算，所以想先组合的部分要再套一层括号。范围条件也写成两个带括号的比较：`(df["signal"] >= 10) & (df["signal"] <= 13)`。
+
+      判断“group 是 low 或 high”，可以写两个比较再用 `|` 连起来，也可以用 `isin`：
+
+      ```python
+      treated = df["group"].isin(["low", "high"])
+      ```
+
+      `isin` 逐行检查这一格的值在不在列表里，得到的也是一列掩码。列表里的顺序不影响结果；只有一个值也要写成列表 `["low"]`。“不属于”写成 `~df["group"].isin(["control"])`，这里 `~` 作用在 `isin` 算出的掩码上，不用另加括号。
+
+      注意“属于 low 或 high”和“不是 control”不是一回事：表里一旦出现别的组（例如溶剂对照 `vehicle`），两种写法就会得到不同的行。需求里列的是哪几个组，代码里就列哪几个组。
+    example:
+      id: py18.k2.e0
+      kind: [predict, explain]
+      data: [T]
+      body: |
+        阅读代码，回答下面的问题。
+
+        ```python
+        treated = df["group"].isin(["low", "high"])
+        result = df.loc[treated & (df["signal"] < 12), ["sample_id", "group"]]
+        ```
+      slots:
+        - id: same
+          type: choice
+          prompt: "`treated` 与哪一种写法得到同一列 True/False？"
+          options:
+            - id: pipe
+              content: |
+                ```python
+                (df["group"] == "low") | (df["group"] == "high")
+                ```
+            - id: amp
+              content: |
+                ```python
+                (df["group"] == "low") & (df["group"] == "high")
+                ```
+            - id: bare
+              content: |
+                ```python
+                df["group"] == "low" | df["group"] == "high"
+                ```
+          key: pipe
+        - id: rows
+          type: order
+          partial: true
+          prompt: "`result` 留下了哪些行？按先后顺序排出原行索引。"
+          items:
+            - { id: "31", content: "31" }
+            - { id: "7", content: "7" }
+            - { id: "22", content: "22" }
+            - { id: "4", content: "4" }
+            - { id: "18", content: "18" }
+          key: ["31", "4"]
+      explanation: |
+        `treated` 与 **`(df["group"] == "low") | (df["group"] == "high")`** 相同：属于 low 或 high，依次为 True、False、True、True、False。用 `&` 连接的写法要求同一格既是 low 又是 high，永远是 False；不加括号的写法会先算 `"low" | df["group"]`，报错。
+
+        `df["signal"] < 12` 依次为 True、True、False、True、True。两者 `&` 之后，留下索引 **31、4**：索引 22 是高剂量组，但 signal 13 不小于 12。
+      verify: |
+        r = run()
+        treated = r["treated"]
+        fits = []
+        for option, code in OPTIONS["same"].items():
+            attempt = run("value = " + code.strip())
+            if attempt.error is None and attempt["value"].tolist() == treated.tolist():
+                fits.append(option)
+        answers = {"same": fits[0] if len(fits) == 1 else fits, "rows": [str(label) for label in r["result"].index]}
+    practice:
+      - id: py18.k2.q1
+        kind: [debug]
+        uses: [py17.k1, py09.k2]
+        data: [T]
+        body: |
+          同事想标记“signal 至少为 10 的低剂量组样本”，写了这一行，运行时报错了。
+
+          ```python
+          mask = df["signal"] >= 10 & df["group"] == "low"
+          ```
+        slots:
+          - id: first
+            type: choice
+            prompt: Python 最先算的是哪一部分？
+            options:
+              - { id: cmp, content: "`df[\"signal\"] >= 10`" }
+              - { id: amp, content: "`10 & df[\"group\"]`" }
+              - { id: eq, content: "`df[\"group\"] == \"low\"`" }
+            key: amp
+          - id: fix
+            type: choice
+            prompt: 应改成哪一种？
+            options:
+              - id: outer
+                content: |
+                  ```python
+                  mask = (df["signal"] >= 10 & df["group"] == "low")
+                  ```
+                feedback: 整行套一对括号不改变里面的先后，仍会先算 10 & df["group"]。
+              - id: each
+                content: |
+                  ```python
+                  mask = (df["signal"] >= 10) & (df["group"] == "low")
+                  ```
+              - id: and_
+                content: |
+                  ```python
+                  mask = (df["signal"] >= 10) and (df["group"] == "low")
+                  ```
+                feedback: "`and` 不能逐行组合两列，会报 ValueError。"
+            key: each
+        explanation: |
+          `&` 比 `>=`、`==` 先算，所以 Python 最先算的是 **`10 & df["group"]`**：一个数和一列文字做 `&`，报 TypeError。
+
+          给两个比较**各加一对括号**：`(df["signal"] >= 10) & (df["group"] == "low")`，先得到两列 True/False，再逐行“并且”，结果只有索引 4 为 True。整行套一对括号不改变里面的先后；`and` 不能逐行组合。
+        verify: |
+          import ast
+          # 从语法树里找出被 & 直接连接的两部分，就是最先组合的那一步。
+          tree = ast.parse(CODE.split("=", 1)[1].strip(), mode="eval")
+          first = [ast.unparse(node) for node in ast.walk(tree) if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitAnd)]
+          parts = {"cmp": 'df["signal"] >= 10', "amp": '10 & df["group"]', "eq": 'df["group"] == "low"'}
+          labels = {option: ast.unparse(ast.parse(text, mode="eval")) for option, text in parts.items()}
+          wanted = [label for label, row in df.iterrows() if row["signal"] >= 10 and row["group"] == "low"]
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              r = run(line)
+              if r.error is None and list(r["mask"][r["mask"]].index) == wanted and len(r["mask"]) == len(df):
+                  fits.append(option)
+          answers = {
+              "first": [option for option, text in labels.items() if text in first][0],
+              "fix": fits[0] if len(fits) == 1 else fits,
+          }
+      - id: py18.k2.q2
+        kind: [predict]
+        uses: [py17.k1, py09.k1]
+        data: [T]
+        body: |
+          阅读代码，按原行索引填写 `mask` 的值。
+
+          ```python
+          mask = ~df["group"].isin(["low"]) & (df["signal"] >= 10)
+          ```
+        slots:
+          - id: mask
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: signal, header: signal }
+              - { id: group, header: group }
+              - { id: mask, header: mask, input: bool }
+            rows:
+              - { id: r31, cells: { index: "31", signal: "8", group: low, mask: false } }
+              - { id: r7, cells: { index: "7", signal: "10", group: control, mask: true } }
+              - { id: r22, cells: { index: "22", signal: "13", group: high, mask: true } }
+              - { id: r4, cells: { index: "4", signal: "10", group: low, mask: false } }
+              - { id: r18, cells: { index: "18", signal: "6", group: control, mask: false } }
+        explanation: |
+          依次为 **False、True、True、False、False**。`~df["group"].isin(["low"])` 是“不属于低剂量组”：False、True、True、False、True；`df["signal"] >= 10` 是 False、True、True、True、False。两者都为 True 的只有索引 7 和 22。
+
+          `~` 作用在 `isin` 算出的掩码上；后面的比较加了括号，所以先算出 True/False 再组合。
+        verify: |
+          r = run()
+          answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
+      - id: py18.k2.q3
+        kind: [modify]
+        uses: [py17.k2, py09.k2]
+        data: [T]
+        body: |
+          需求是：
+
+          > 保留 group 为 low 或 high、并且 signal 至少达到 `limit` 的行，依次输出 sample_id 和 signal 两列，保留原行顺序和原索引，不改变 `df`。
+
+          同事写的代码在作答框里，运行时报错。请改动它并提交，最终结果变量仍叫 `result`。宿主另外提供了 `limit`，本例为 10，换一次分析可以取别的值。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              mask = df["group"] == "low" | df["group"] == "high" & df["signal"] >= limit
+              result = df.loc[mask, ["sample_id", "signal"]]
+            solution: |
+              mask = df["group"].isin(["low", "high"]) & (df["signal"] >= limit)
+              result = df.loc[mask, ["sample_id", "signal"]]
+            accepts:
+              - |
+                mask = ((df["group"] == "low") | (df["group"] == "high")) & (df["signal"] >= limit)
+                result = df.loc[mask, ["sample_id", "signal"]]
+              - result = df[df["group"].isin(["high", "low"]) & (df["signal"] >= limit)][["sample_id", "signal"]]
+            rejects:
+              - code: |
+                  mask = (df["group"] == "low") | (df["group"] == "high") & (df["signal"] >= limit)
+                  result = df.loc[mask, ["sample_id", "signal"]]
+                why: "& 先于 | 算，低剂量组的行不论 signal 多少都留下"
+              - code: |
+                  mask = df["group"].isin(["low", "high"]) | (df["signal"] >= limit)
+                  result = df.loc[mask, ["sample_id", "signal"]]
+                why: 把“并且”写成了 |
+              - code: |
+                  mask = df["group"].isin(["low", "high"]) & (df["signal"] > limit)
+                  result = df.loc[mask, ["sample_id", "signal"]]
+                why: 漏掉恰好等于 limit 的行
+              - code: |
+                  mask = df["group"].isin(["low", "high"]) & df["signal"] >= limit
+                  result = df.loc[mask, ["sample_id", "signal"]]
+                why: 比较没加括号，不报错却算出全为 False 的掩码
+              - code: |
+                  mask = ~df["group"].isin(["control"]) & (df["signal"] >= limit)
+                  result = df.loc[mask, ["sample_id", "signal"]]
+                why: 写成“不是 control”，表里有别的组时会多留下
+              - code: |
+                  mask = df["group"].isin(["low", "high"]) & (df["signal"] >= 10)
+                  result = df.loc[mask, ["sample_id", "signal"]]
+                why: 把阈值写死成 10
+            tests:
+              - name: 表 T，limit 为 10
+                setup: limit = 10
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_C", "S_D"], "signal": [13, 10]}, index=[22, 4])'
+                  df: df
+              - name: 换一张有 vehicle 组的表
+                hidden: true
+                data: [T2]
+                setup: limit = 12
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["X_C"], "signal": [12]}, index=[60])'
+                  df: df
+              - name: 换一个阈值
+                hidden: true
+                data: [T2]
+                setup: limit = 5
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["X_A", "X_C", "X_D", "X_F"], "signal": [5, 12, 9, 11]}, index=[90, 60, 11, 5])'
+                  df: df
+              - name: 第三张表
+                hidden: true
+                data: [T3]
+                setup: limit = 12
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["Z_C", "Z_B"], "signal": [14, 12]}, index=[8, 3])'
+                  df: df
+        explanation: |
+          ```python
+          mask = df["group"].isin(["low", "high"]) & (df["signal"] >= limit)
+          result = df.loc[mask, ["sample_id", "signal"]]
+          ```
+
+          原代码缺括号，先算了 `"low" | df["group"]` 这类没有意义的组合，所以报错。用 `isin` 写“属于 low 或 high”，再给阈值比较加括号，用 `&` 连起来。也可以写成 `((df["group"] == "low") | (df["group"] == "high")) & (df["signal"] >= limit)`：外面那层括号让 `|` 先算，不能省。
+
+          本例留下索引 22、4。判分时还会换阈值、换一张含 vehicle 组的表运行，检查结果的行列、值和 `df` 没有被改变。
+    review:
+      - id: py18.k2.r1
+        kind: [explain]
+        uses: [py17.k1, py09.k1]
+        data: [soil]
+        body: |
+          下面哪些写法与 `soil["site"].isin(["北坡", "南坡"])` 在这张表上得到同一列 True/False？选出所有相同的；会报错的不算相同。
+        slots:
+          - id: same
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: pipe, content: "`(soil[\"site\"] == \"北坡\") | (soil[\"site\"] == \"南坡\")`" }
+              - { id: amp, content: "`(soil[\"site\"] == \"北坡\") & (soil[\"site\"] == \"南坡\")`" }
+              - { id: bare, content: "`soil[\"site\"] == \"北坡\" | soil[\"site\"] == \"南坡\"`" }
+              - { id: swapped, content: "`soil[\"site\"].isin([\"南坡\", \"北坡\"])`" }
+              - { id: string, content: "`soil[\"site\"].isin(\"北坡南坡\")`" }
+            key: [pipe, swapped]
+        explanation: |
+          相同的是**两个比较加括号再用 `|` 连接**的写法，以及**把列表顺序换过来**的 `isin`：列表顺序不影响结果。
+
+          用 `&` 连接的写法要求一格同时是北坡和南坡，全为 False；不加括号的写法会先算 `"北坡" | soil["site"]`，报错；`isin` 要的是列表，传一个字符串会报 TypeError。
+        verify: |
+          target = soil["site"].isin(["北坡", "南坡"]).tolist()
+          codes = {
+              "pipe": '(soil["site"] == "北坡") | (soil["site"] == "南坡")',
+              "amp": '(soil["site"] == "北坡") & (soil["site"] == "南坡")',
+              "bare": 'soil["site"] == "北坡" | soil["site"] == "南坡"',
+              "swapped": 'soil["site"].isin(["南坡", "北坡"])',
+              "string": 'soil["site"].isin("北坡南坡")',
+          }
+          same = []
+          for option, code in codes.items():
+              r = run("value = " + code)
+              if r.error is None and r["value"].tolist() == target:
+                  same.append(option)
+          answers = {"same": same}
+      - id: py18.k2.r2
+        kind: [debug]
+        uses: [py17.k1, py17.k2]
+        data: [soil]
+        body: |
+          要留下“深度不到 30 厘米”的样地。下面的代码运行时没有报错。
+
+          ```python
+          result = soil.loc[~soil["depth"] >= 30, ["plot"]]
+          ```
+        slots:
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`result` 有几行？"
+            key: 0
+          - id: fix
+            type: choice
+            prompt: 应改成哪一种？
+            options:
+              - id: wrap
+                content: |
+                  ```python
+                  result = soil.loc[~(soil["depth"] >= 30), ["plot"]]
+                  ```
+              - id: same
+                content: |
+                  ```python
+                  result = soil.loc[(~soil["depth"]) >= 30, ["plot"]]
+                  ```
+              - id: not_
+                content: |
+                  ```python
+                  result = soil.loc[not soil["depth"] >= 30, ["plot"]]
+                  ```
+            key: wrap
+        explanation: |
+          `result` 有 **0** 行。`~` 先作用在深度的数字上，得到 -31、-26 这类负数，再和 30 比较，全为 False，于是一行也没留下，也不报错。
+
+          要先算比较、再取反：`~(soil["depth"] >= 30)`，留下深度 25 的 P2。把 `~soil["depth"]` 单独括起来与原来相同；`not` 不能用在一整列上。
+        verify: |
+          r = run()
+          wanted = [label for label, row in soil.iterrows() if not row["depth"] >= 30]
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              attempt = run(line)
+              if attempt.error is None and list(attempt["result"].index) == wanted:
+                  fits.append(option)
+          answers = {"nrows": len(r["result"]), "fix": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py18.k2.x1
+        kind: [modify]
+        uses: [py17.k2, py09.k2]
+        data: [wells]
+        body: |
+          需求是：
+
+          > 保留 p1 或 p3 板上、计数低于 `limit` 的孔，只输出 well 一列（结果仍是表），保留原行顺序和原索引，不改变 `wells`。
+
+          作答框里已经写好第二行，请把第一行的 `...` 换成筛选条件。宿主另外提供了 `limit`，本例为 100。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              mask = ...
+              result = wells.loc[mask, ["well"]]
+            solution: |
+              mask = wells["plate"].isin(["p1", "p3"]) & (wells["count"] < limit)
+              result = wells.loc[mask, ["well"]]
+            accepts:
+              - |
+                mask = ((wells["plate"] == "p1") | (wells["plate"] == "p3")) & (wells["count"] < limit)
+                result = wells.loc[mask, ["well"]]
+            rejects:
+              - code: |
+                  mask = (wells["plate"] == "p1") | (wells["plate"] == "p3") & (wells["count"] < limit)
+                  result = wells.loc[mask, ["well"]]
+                why: "& 先于 | 算，p1 板的孔不论计数都留下"
+              - code: |
+                  mask = wells["plate"].isin(["p1", "p3"]) | (wells["count"] < limit)
+                  result = wells.loc[mask, ["well"]]
+                why: 把“并且”写成了 |
+              - code: |
+                  mask = wells["plate"].isin(["p1", "p3"]) & (wells["count"] <= limit)
+                  result = wells.loc[mask, ["well"]]
+                why: 把恰好等于 limit 的孔也留下了
+              - code: |
+                  mask = ~wells["plate"].isin(["p2"]) & (wells["count"] < limit)
+                  result = wells.loc[mask, ["well"]]
+                why: 写成“不是 p2”，有别的板时会多留下
+            tests:
+              - name: 表 wells，limit 为 100
+                setup: limit = 100
+                expect:
+                  result: 'pd.DataFrame({"well": ["A2"]}, index=[11])'
+                  wells: wells
+              - name: 换一张有 p4 板的记录
+                hidden: true
+                data: [wells2]
+                setup: limit = 100
+                expect:
+                  result: 'pd.DataFrame({"well": ["D1", "F2"]}, index=[7, 1])'
+                  wells: wells
+              - name: 换一个阈值
+                hidden: true
+                setup: limit = 120
+                expect:
+                  result: 'pd.DataFrame({"well": ["A2", "C1"]}, index=[11, 14])'
+                  wells: wells
+        explanation: |
+          ```python
+          mask = wells["plate"].isin(["p1", "p3"]) & (wells["count"] < limit)
+          result = wells.loc[mask, ["well"]]
+          ```
+
+          “p1 或 p3 板”用 `isin(["p1", "p3"])`，“计数低于 limit”加括号，两者用 `&` 连接。本例只留下 A2：A1 在 p1 板但计数 120 不低于 100，C1 在 p3 板但计数 110 也不低于 100。判分时还会换一张有 p4 板的记录、换阈值运行。
+      - id: py18.k2.x2
+        kind: [specify, explain]
+        uses: [py17.k1, py09.k2]
+        data: [soil]
+        body: |
+          需求是：“site 为北坡或南坡，并且 pH 低于 6.0”。
+        slots:
+          - id: line
+            type: choice
+            prompt: 哪一种写法符合这个需求？
+            options:
+              - id: bare
+                content: |
+                  ```python
+                  mask = soil["site"].isin(["北坡", "南坡"]) & soil["ph"] < 6.0
+                  ```
+              - id: priority
+                content: |
+                  ```python
+                  mask = (soil["site"] == "北坡") | (soil["site"] == "南坡") & (soil["ph"] < 6.0)
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  mask = soil["site"].isin(["北坡", "南坡"]) & (soil["ph"] < 6.0)
+                  ```
+              - id: either
+                content: |
+                  ```python
+                  mask = soil["site"].isin(["北坡", "南坡"]) | (soil["ph"] < 6.0)
+                  ```
+            key: right
+          - id: count
+            type: text
+            format: integer
+            prompt: 按这个需求，表 soil 里有几行符合？
+            key: 1
+        explanation: |
+          **`soil["site"].isin(["北坡", "南坡"]) & (soil["ph"] < 6.0)`** 符合需求，只有 P2（南坡，pH 5.8）**1** 行。
+
+          比较不加括号的写法不报错，却先算了 `isin(...) & soil["ph"]`，结果每行都是 True；第二种写法里 `&` 先于 `|` 算，北坡的 P1 不论 pH 都会被留下；用 `|` 的写法把“并且”写成了“或者”。
+        verify: |
+          wanted = [label for label, row in soil.iterrows() if row["site"] in ("北坡", "南坡") and row["ph"] < 6.0]
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              r = run(line)
+              if r.error is None and list(r["mask"][r["mask"]].index) == wanted:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "count": len(wanted)}
