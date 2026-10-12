@@ -1,7 +1,8 @@
 id: py37
 title: 用字典描述一条记录
-status: outline
+status: complete
 minutes: 20
+summary: 用字典把“列名 → 值”写成一条记录：按键取值而不是按位置，缺键时用 get 给默认值，用 in 查键是否存在。
 prerequisites:
   - topic: py06
     key: true
@@ -13,7 +14,7 @@ prerequisites:
     covers: [py03.k3]
 sources:
   - source: think-python
-    where: 第 10 章
+    where: 第 10 章（字典）
     url: https://allendowney.github.io/ThinkPython/chap10.html
     use: reference
   - source: python-docs
@@ -21,11 +22,1137 @@ sources:
     url: https://docs.python.org/3.12/tutorial/datastructures.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、找错（P）、解释代码（S/O）。
+  范围：纯 Python，不用 pandas。只用字典字面量、按键取值与赋值、len、get、in 和 print；不讲 if（py10 不是本节先修）、循环遍历字典、keys/items 和嵌套字典（py44 再用）。`.values()` 只在 k3 作为“要查值时这样写”顺带出现。报错只问类型（KeyError、NameError），不问整段信息。
+  题型：预测输出（P）、找错（P）、解释代码（S，用代码选项由程序核对）、追踪表（P）。全部作答位由 verify 程序核对，没有 manual。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 2 分钟、练习 3 分钟；收束 2 分钟。
+  取材：Think Python 第 10 章与 Python 教程 §5.5 只作字典语义的参照；记录、样本数据和题目为本课自拟，沿用 py12、py17 的 sample_id、signal、group、site、depth。
+intro: |
+  表里的一行，比如样本 S_A 的 signal 是 8、group 是 control，可以写成 Python 的**字典**：每一项是“名字 → 值”，名字叫**键**。AI 写的代码里，配置、一条记录、按编号查值，常常都是字典。
+
+  这一节的程序都当作短脚本，从上往下运行。每道题都从题面给出的代码重新开始。
+wrapup: |
+  读到字典时，记住三件事：方括号里写的是键，不是位置；没把握有没有这个键时，`get` 给出默认值而不会报错，默认值要按需求选；`in` 只查键，不查值。
+
+  看到 `record["signal"]`，可以读成“这条记录的 signal”；看到 `record.get("depth", 0)`，要问一句：缺了 depth 时当成 0，符合需求吗？
 kps:
   - id: py37.k1
     title: 键和值与位置索引的区别
+    card:
+      name: 字典
+      aliases: [dict, 键, 值]
+      definition: 字典把键对应到值，`d[键]` 按键取出对应的值；它不按位置编号，同一个键只对应一个值。
+      conditions:
+        - "`d[0]` 找的是键 0，不是“第一项”；没有这个键就报 KeyError。"
+        - 给已有的键赋值是覆盖旧值，给新键赋值是添一项；len 数的是键的个数。
+      example:
+        from: py37.k1.e0
+        text: |
+          ```python
+          record = {"sample_id": "S_A", "signal": 8, "group": "control"}
+          print(record["group"])
+          ```
+          按键 group 取值，显示 control；`len(record)` 是 3，因为有三个键。
+    lesson: |
+      表里的一行可以写成字典：
+
+      ```python
+      record = {"sample_id": "S_A", "signal": 8, "group": "control"}
+      ```
+
+      花括号里每一项写成 `键: 值`，项与项之间用逗号隔开。这里的键是 `"sample_id"`、`"signal"`、`"group"`，就像表的列名；值是这一行在各列的内容。
+
+      取值时在方括号里写**键**：`record["signal"]` 得到 8。这和列表不一样：列表用 0、1、-1 这样的[位置](repa:concept/py06.k2)取元素，字典不按位置编号。`record[0]` 的意思是“找键 0”，这条记录里没有键 0，程序就在这一行报 KeyError 停下。
+
+      同一个键在字典里只有一个值：
+
+      - `record["signal"] = 12` 给已有的键赋值，旧值 8 被换成 12，键的个数不变；
+      - `record["depth"] = 30` 给新键赋值，字典多出一项；
+      - `len(record)` 数的是键的个数。
+    example:
+      id: py37.k1.e0
+      kind: [predict]
+      body: |
+        样本 S_A 的一条记录写成了字典。阅读程序。
+
+        ```python
+        record = {"sample_id": "S_A", "signal": 8, "group": "control"}
+        print(record["group"])
+        print(record["signal"] + 2)
+        print(len(record))
+        ```
+      slots:
+        - id: first
+          type: text
+          prompt: 第一行显示
+          key: control
+        - id: second
+          type: text
+          format: integer
+          prompt: 第二行显示
+          key: 10
+        - id: third
+          type: text
+          format: integer
+          prompt: 第三行显示
+          key: 3
+      explanation: |
+        依次显示 **control**、**10**、**3**。
+
+        `record["group"]` 按键 group 取出值 control；`record["signal"]` 取出 8，再加 2 得到 10；`len(record)` 数的是键的个数，这条记录有 sample_id、signal、group 三个键。print 显示文字时不带引号。
+      verify: |
+        lines = run().lines()
+        answers = {"first": str(lines[0]), "second": int(lines[1]), "third": int(lines[2])}
+    practice:
+      - id: py37.k1.q1
+        kind: [predict]
+        body: |
+          ```python
+          record = {"site": "南坡", "depth": 25, "slope": 8}
+          print(record["depth"])
+          print(record["site"])
+          print(record["depth"] - record["slope"])
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 25
+          - id: second
+            type: text
+            prompt: 第二行显示
+            key: 南坡
+          - id: third
+            type: text
+            format: integer
+            prompt: 第三行显示
+            key: 17
+        explanation: |
+          依次显示 **25**、**南坡**、**17**。每次都按方括号里的键找到对应的值；第三行取出 25 和 8 再相减。字典写下各项的先后与取值无关，取值只看键。
+        verify: |
+          lines = run().lines()
+          answers = {"first": int(lines[0]), "second": str(lines[1]), "third": int(lines[2])}
+      - id: py37.k1.q2
+        kind: [debug]
+        uses: [py06.k2]
+        body: |
+          同事想显示这条记录的第一项，写了下面的程序，以为第 2 行会像列表那样取出第一个值。
+
+          ```python startLine=1
+          record = {"sample_id": "S_A", "signal": 8, "group": "control"}
+          print(record[0])
+          ```
+        slots:
+          - id: what
+            type: choice
+            prompt: 运行第 2 行会怎样？
+            options:
+              - id: first_value
+                content: 显示 S_A
+                feedback: 字典不按位置取值，方括号里的 0 被当成键。
+              - id: keyerror
+                content: 报 KeyError 停下：字典里没有 0 这个键
+              - id: first_key
+                content: 显示 sample_id
+            key: keyerror
+          - id: fix
+            type: choice
+            prompt: 第 2 行改成哪一行，才会显示 S_A？
+            options:
+              - id: one
+                content: |
+                  ```python
+                  print(record[1])
+                  ```
+              - id: value
+                content: |
+                  ```python
+                  print(record["S_A"])
+                  ```
+              - id: key
+                content: |
+                  ```python
+                  print(record["sample_id"])
+                  ```
+            key: key
+        explanation: |
+          第 2 行**报 KeyError**。字典的方括号里写的是键，`record[0]` 是在找键 0；这条记录的键是 sample_id、signal、group，没有 0，所以报错停下。
+
+          要取 S_A，写它的键：`print(record["sample_id"])`。`record[1]` 同样是在找键 1；`record["S_A"]` 把值当成了键，也会报 KeyError。
+        verify: |
+          r = run()
+          shown = r.out.strip()
+          what = "keyerror" if r.error == "KeyError" else {"S_A": "first_value", "sample_id": "first_key"}.get(shown, "other")
+          prelude = BLOCKS[0].splitlines()[0] + "\n"
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              result = run(prelude + line)
+              if result.error is None and result.out.strip() == "S_A":
+                  fits.append(option)
+          answers = {"what": what, "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py37.k1.q3
+        kind: [trace, predict]
+        body: |
+          ```python startLine=1
+          record = {"sample_id": "S_B", "signal": 10}
+          record["signal"] = 12
+          record["group"] = "drug"
+          print(len(record))
+          print(record["signal"])
+          ```
+        slots:
+          - id: second_line
+            type: choice
+            prompt: 第 2 行做了什么？
+            options:
+              - id: added
+                content: 又加了一个叫 signal 的键，字典里现在有两个 signal
+                feedback: 同一个键在字典里只有一个值，给已有的键赋值是覆盖。
+              - id: replaced
+                content: 把键 signal 的值从 10 换成 12，键的个数不变
+            key: replaced
+          - id: count
+            type: text
+            format: integer
+            prompt: 第 4 行显示
+            key: 3
+          - id: value
+            type: text
+            format: integer
+            prompt: 第 5 行显示
+            key: 12
+        explanation: |
+          第 2 行给已有的键 signal 赋值，旧值 10 被**换成 12**，字典仍是两项；第 3 行给新键 group 赋值，字典多出一项。所以 `len(record)` 显示 **3**，`record["signal"]` 显示 **12**。
+        verify: |
+          states = trace(names=["record"])
+          before, after = states[0]["record"], states[1]["record"]
+          lines = run().lines()
+          answers = {
+              "second_line": "replaced" if len(after) == len(before) and after["signal"] != before["signal"] else "added",
+              "count": int(lines[0]),
+              "value": int(lines[1]),
+          }
+    review:
+      - id: py37.k1.r1
+        kind: [predict]
+        uses: [py06.k2]
+        body: |
+          一个采样点的信息写成了字典：
+
+          ```python
+          site = {"site": "北坡", "depth": 30, "slope": 12}
+          ```
+
+          表里每一行代码都单独接在上面这行后面运行。填写 print 显示的内容；会报错的填 ERROR。
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - id: code
+                header: 接着运行
+              - id: out
+                header: 显示
+                input: { type: text, match: output, quick: [ERROR] }
+            rows:
+              - id: a
+                cells: { code: 'print(site["depth"])', out: "30" }
+              - id: b
+                cells: { code: "print(site[0])", out: ERROR }
+              - id: c
+                cells: { code: "print(len(site))", out: "3" }
+              - id: d
+                cells: { code: 'print(site["site"])', out: 北坡 }
+              - id: e
+                cells: { code: "print(site[-1])", out: ERROR }
+        explanation: |
+          | 接着运行 | 显示 |
+          |---|---|
+          | `print(site["depth"])` | 30 |
+          | `print(site[0])` | ERROR |
+          | `print(len(site))` | 3 |
+          | `print(site["site"])` | 北坡 |
+          | `print(site[-1])` | ERROR |
+
+          按键取值才行：`site["depth"]` 是 30，`site["site"]` 是 北坡。`site[0]` 和 `site[-1]` 是在找键 0 和键 -1，字典里没有这两个键，都报 KeyError；列表的“第一个”“最后一个”在字典里不成立。`len` 数的是三个键。
+        verify: |
+          lines = {
+              "a": 'print(site["depth"])',
+              "b": "print(site[0])",
+              "c": "print(len(site))",
+              "d": 'print(site["site"])',
+              "e": "print(site[-1])",
+          }
+          # repl 逐条运行：print 那一条的显示内容，报错时为 ERROR。
+          answers = {"shown": {row: {"out": repl(BLOCKS[0] + "\n" + line)[-1]} for row, line in lines.items()}}
+      - id: py37.k1.r2
+        kind: [predict]
+        body: |
+          这次字典的键是样本编号，值是每个样本的读数。
+
+          ```python
+          reading = {"S_A": 8, "S_B": 10}
+          reading["S_A"] = 9
+          reading["S_C"] = 7
+          reading["S_A"] = reading["S_A"] + 1
+          print(reading)
+          print(len(reading))
+          ```
+        slots:
+          - id: whole
+            type: text
+            match: output
+            prompt: 第一行 print 显示的字典（照 Python 的写法填）
+            key: "{'S_A': 10, 'S_B': 10, 'S_C': 7}"
+          - id: count
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 3
+        explanation: |
+          显示 **{'S_A': 10, 'S_B': 10, 'S_C': 7}** 和 **3**。
+
+          S_A 先被覆盖成 9，最后一行赋值又用当时的 9 加 1 得到 10，自始至终只有一个键 S_A；S_C 是新键，添在后面。三个键，所以长度是 3。字典显示时按各键第一次加入的先后排列。
+        verify: |
+          lines = run().lines()
+          answers = {"whole": lines[0], "count": int(lines[1])}
+    quiz:
+      - id: py37.k1.x1
+        kind: [explain]
+        uses: [py06.k2]
+        body: |
+          前一行是：
+
+          ```python
+          record = {"site": "南坡", "depth": 25}
+          ```
+
+          哪一行会显示 25？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: position
+                content: |
+                  ```python
+                  print(record[1])
+                  ```
+              - id: last
+                content: |
+                  ```python
+                  print(record[-1])
+                  ```
+              - id: key
+                content: |
+                  ```python
+                  print(record["depth"])
+                  ```
+              - id: bare
+                content: |
+                  ```python
+                  print(record[depth])
+                  ```
+            key: key
+        explanation: |
+          `print(record["depth"])` 显示 25：方括号里写键 `"depth"`。
+
+          `record[1]` 和 `record[-1]` 把字典当成了列表，找的是键 1 和键 -1，都报 KeyError；`record[depth]` 少了引号，Python 把 depth 当成一个名字去找，这个名字没有赋过值，报 NameError。
+        verify: |
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              result = run(BLOCKS[0] + "\n" + line)
+              if result.error is None and result.out.strip() == "25":
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py37.k1.x2
+        kind: [trace]
+        body: |
+          按运行顺序填写每行执行后 `len(row)` 和 `row` 里 signal 的值。还没有 signal 这个键时填“没有这个键”。
+
+          ```python startLine=1
+          row = {"sample_id": "S_D"}
+          row["signal"] = 10
+          row["signal"] = 13
+          row["group"] = "control"
+          ```
+        slots:
+          - id: trace
+            type: table
+            columns:
+              - id: line
+                header: 执行到
+              - id: size
+                header: len(row)
+                input: integer
+              - id: signal
+                header: signal 的值
+                input: { type: text, format: integer, quick: [没有这个键] }
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, size: 1, signal: 没有这个键 }
+              - id: l2
+                cells: { line: 第 2 行, size: 2, signal: 10 }
+              - id: l3
+                cells: { line: 第 3 行, size: 2, signal: 13 }
+              - id: l4
+                cells: { line: 第 4 行, size: 3, signal: 13 }
+        explanation: |
+          | 执行到 | len(row) | signal 的值 |
+          |---|---:|---:|
+          | 第 1 行 | 1 | 没有这个键 |
+          | 第 2 行 | 2 | 10 |
+          | 第 3 行 | 2 | 13 |
+          | 第 4 行 | 3 | 13 |
+
+          第 2 行给新键 signal 赋值，多出一项；第 3 行给已有的 signal 赋值，只是把 10 换成 13，长度不变；第 4 行又添了新键 group。
+        verify: |
+          states = trace(names=["row"])
+          answers = {"trace": {
+              f"l{i}": {"size": len(state["row"]), "signal": state["row"].get("signal", "没有这个键")}
+              for i, state in enumerate(states, 1)
+          }}
+
   - id: py37.k2
     title: 索引取值与 get 默认值
+    card:
+      name: get 默认值
+      aliases: [get, KeyError, 默认值]
+      definition: "`d.get(键, 默认值)` 有这个键时取出它的值，没有时得到默认值（不写默认值就是 None），不报错，也不往字典里加键。"
+      conditions:
+        - "`d[键]` 遇到没有的键会报 KeyError 停下；get 不会。"
+        - 默认值只在键不存在时才用；默认值要按需求选，缺失的测量写成 0 会被当成真的测到 0。
+      example:
+        from: py37.k2.e0
+        text: |
+          ```python
+          record = {"sample_id": "S_A", "signal": 8}
+          print(record.get("depth"))
+          print(record.get("depth", 0))
+          ```
+          没有 depth 这个键：第一行显示 None，第二行显示 0；record 仍只有两个键。
+    lesson: |
+      用方括号取一个不存在的键，程序会报 **KeyError**，停在这一行，后面的代码都不再运行：
+
+      ```python
+      record = {"sample_id": "S_A", "signal": 8}
+      print(record["depth"])   # KeyError，程序停下
+      ```
+
+      有的记录可能缺某一项时，用字典自带的 `get`：
+
+      - `record.get("depth")`：有 depth 就取出它的值；没有就得到 [None](repa:concept/py03.k3)，不报错。
+      - `record.get("depth", 0)`：没有 depth 时得到你给的默认值 0。
+
+      两点要留意：
+
+      1. 默认值只在**键不存在**时才用。键存在、值恰好是 None 时，get 照样取出 None。
+      2. get 只是查，不会把键加进字典，`len(record)` 不变。
+
+      默认值不是随手填的。缺了 depth 表示没测，写成 `get("depth", 0)` 就把“没测”当成了“测到 0”；需求里要说清缺失时怎样处理。
+    example:
+      id: py37.k2.e0
+      kind: [predict]
+      uses: [py03.k3]
+      body: |
+        ```python
+        record = {"sample_id": "S_A", "signal": 8}
+        print(record.get("signal"))
+        print(record.get("depth"))
+        print(record.get("depth", 0))
+        print(len(record))
+        ```
+      slots:
+        - id: line1
+          type: text
+          match: output
+          prompt: 第一行显示
+          key: "8"
+        - id: line2
+          type: text
+          match: output
+          prompt: 第二行显示
+          key: None
+        - id: line3
+          type: text
+          match: output
+          prompt: 第三行显示
+          key: "0"
+        - id: line4
+          type: text
+          match: output
+          prompt: 第四行显示
+          key: "2"
+      explanation: |
+        依次显示 **8**、**None**、**0**、**2**。
+
+        signal 这个键存在，get 取出 8；depth 不存在，不写默认值时得到 None，写了默认值 0 就得到 0。两次 get 都没有往字典里加 depth，所以长度仍是 2。
+      verify: |
+        lines = run().lines()
+        answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2], "line4": lines[3]}
+    practice:
+      - id: py37.k2.q1
+        kind: [predict]
+        body: |
+          ```python
+          record = {"sample_id": "S_C", "group": "drug"}
+          print(record.get("group", "unknown"))
+          print(record.get("signal", "unknown"))
+          print(record.get("site"))
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: drug
+            feedback:
+              - when: unknown
+                message: group 这个键存在，get 取出它的值；默认值只在键不存在时才用。
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: unknown
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行显示
+            key: None
+        explanation: |
+          依次显示 **drug**、**unknown**、**None**。group 存在，取出 drug，写了默认值也不用；signal 不存在，得到默认值 unknown；site 不存在、也没写默认值，得到 None。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+      - id: py37.k2.q2
+        kind: [debug]
+        body: |
+          ```python startLine=1
+          record = {"sample_id": "S_A", "signal": 8}
+          print(record["depth"])
+          print("done")
+          ```
+        slots:
+          - id: what
+            type: choice
+            prompt: 运行后屏幕上会出现什么？
+            options:
+              - id: none_done
+                content: 先显示 None，再显示 done
+                feedback: 方括号取不存在的键不会得到 None，而是报错。
+              - id: error
+                content: 第 2 行报 KeyError，done 不会显示
+              - id: done_only
+                content: 跳过第 2 行，只显示 done
+            key: error
+          - id: fix
+            type: choice
+            prompt: 第 2 行改成哪一行，程序就能显示 None 和 done？
+            options:
+              - id: get
+                content: |
+                  ```python
+                  print(record.get("depth"))
+                  ```
+              - id: get_zero
+                content: |
+                  ```python
+                  print(record.get("depth", 0))
+                  ```
+              - id: brackets
+                content: |
+                  ```python
+                  print(record.get["depth"])
+                  ```
+            key: get
+        explanation: |
+          第 2 行按方括号取不存在的键 depth，**报 KeyError**，程序停在这里，第 3 行的 done 不会显示。
+
+          改成 `print(record.get("depth"))`，没有 depth 时得到 None，不报错，程序接着显示 done。写成 `get("depth", 0)` 会显示 0 而不是 None；`record.get["depth"]` 用了方括号，get 要用圆括号调用，这样写会报 TypeError。
+        verify: |
+          r = run()
+          what = "error" if r.error == "KeyError" and "done" not in r.out else ("none_done" if r.lines() == ["None", "done"] else "done_only")
+          lines = BLOCKS[0].splitlines()
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              result = run("\n".join([lines[0], line, lines[2]]))
+              if result.error is None and result.lines() == ["None", "done"]:
+                  fits.append(option)
+          answers = {"what": what, "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py37.k2.q3
+        kind: [explain]
+        uses: [py03.k3]
+        body: |
+          有的样本记录里有 depth，有的没有。需求是：
+
+          > 取出 depth；没有测 depth 的样本，结果是 None（表示没有值），不能当成 0，程序也不能报错停下。
+
+          `record` 是其中一条记录。哪一行符合需求？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: zero
+                content: |
+                  ```python
+                  depth = record.get("depth", 0)
+                  ```
+                feedback: 没测的样本会得到 0，像是测到了 0。
+              - id: index
+                content: |
+                  ```python
+                  depth = record["depth"]
+                  ```
+                feedback: 遇到没有 depth 的记录会报 KeyError 停下。
+              - id: get
+                content: |
+                  ```python
+                  depth = record.get("depth")
+                  ```
+            key: get
+        explanation: |
+          `depth = record.get("depth")` 符合需求：有 depth 时取出它的值，没有时得到 None，不报错。
+
+          `record["depth"]` 遇到缺 depth 的记录会报 KeyError；`record.get("depth", 0)` 不报错，却把“没测”变成了 0，后面算平均值时会把它当成一次真实的测量。
+        verify: |
+          # 每个选项分别用一条有 depth 和一条没有 depth 的记录运行。
+          with_depth = {"sample_id": "S_A", "depth": 30}
+          without = {"sample_id": "S_B"}
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              first, second = run(line, record=with_depth), run(line, record=without)
+              if first.error is None and second.error is None and first["depth"] == 30 and second["depth"] is None:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py37.k2.r1
+        kind: [predict]
+        body: |
+          `counts` 记录每组已经收到几份样本：
+
+          ```python
+          counts = {"control": 2, "drug": 3}
+          ```
+
+          表里每一行代码都单独接在上面这行后面运行。填写 print 显示的内容；会报错的填 ERROR。
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - id: code
+                header: 接着运行
+              - id: out
+                header: 显示
+                input: { type: text, match: output, quick: [ERROR, None] }
+            rows:
+              - id: a
+                cells: { code: 'print(counts.get("drug", 0))', out: "3" }
+              - id: b
+                cells: { code: 'print(counts.get("placebo", 0))', out: "0" }
+              - id: c
+                cells: { code: 'print(counts.get("placebo"))', out: None }
+              - id: d
+                cells: { code: 'print(counts["placebo"])', out: ERROR }
+        explanation: |
+          | 接着运行 | 显示 |
+          |---|---|
+          | `print(counts.get("drug", 0))` | 3 |
+          | `print(counts.get("placebo", 0))` | 0 |
+          | `print(counts.get("placebo"))` | None |
+          | `print(counts["placebo"])` | ERROR |
+
+          drug 这个键存在，get 取出 3，不用默认值；placebo 不存在，写了默认值得到 0，没写得到 None；方括号取不存在的键报 KeyError。这里“还没收到 placebo 组的样本”当成 0 份是合理的，因为它是计数，不是测量。
+        verify: |
+          lines = {
+              "a": 'print(counts.get("drug", 0))',
+              "b": 'print(counts.get("placebo", 0))',
+              "c": 'print(counts.get("placebo"))',
+              "d": 'print(counts["placebo"])',
+          }
+          # repl 逐条运行：print 那一条的显示内容，报错时为 ERROR。
+          answers = {"shown": {row: {"out": repl(BLOCKS[0] + "\n" + line)[-1]} for row, line in lines.items()}}
+      - id: py37.k2.r2
+        kind: [trace, predict]
+        body: |
+          ```python
+          info = {"site": "东坡"}
+          depth = info.get("depth", 35)
+          print(depth)
+          print(len(info))
+          print(info.get("depth"))
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "35"
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "1"
+            feedback:
+              - when: "2"
+                message: get 只是查，没有把 depth 加进 info。
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行显示
+            key: None
+            feedback:
+              - when: "35"
+                message: 35 只是上一次 get 给出的默认值，赋给了 depth 这个名字，没有存进 info。
+        explanation: |
+          依次显示 **35**、**1**、**None**。
+
+          info 里没有 depth，第 2 行的 get 得到默认值 35，赋给名字 `depth`；这一步没有往 info 里加任何键，所以 info 仍只有 site 一项，再 get 一次 depth（没写默认值）得到 None。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+    quiz:
+      - id: py37.k2.x1
+        kind: [explain]
+        body: |
+          前一行是：
+
+          ```python
+          sample = {"sample_id": "S_E", "signal": 11}
+          ```
+
+          哪一行会显示 no_group，而且不报错？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: index
+                content: |
+                  ```python
+                  print(sample["group"])
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  print(sample.get("no_group", "group"))
+                  ```
+              - id: plain
+                content: |
+                  ```python
+                  print(sample.get("group"))
+                  ```
+              - id: default
+                content: |
+                  ```python
+                  print(sample.get("group", "no_group"))
+                  ```
+            key: default
+        explanation: |
+          `print(sample.get("group", "no_group"))`：第一个位置是要找的键 group，第二个位置是找不到时的默认值 no_group。sample 里没有 group，所以显示 no_group。
+
+          `sample["group"]` 报 KeyError；`sample.get("group")` 没写默认值，显示 None；把两个位置写反的那一行是在找键 no_group，找不到时显示默认值 group。
+        verify: |
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              result = run(BLOCKS[0] + "\n" + line)
+              if result.error is None and result.out.strip() == "no_group":
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py37.k2.x2
+        kind: [predict]
+        uses: [py03.k3]
+        body: |
+          `latest` 记录每个样本最近一次的读数；S_B 这次没读到，记成了 None。
+
+          ```python
+          latest = {"S_A": 8, "S_B": None}
+          print(latest.get("S_B", 0))
+          print(latest.get("S_C", 0))
+          print(len(latest))
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: None
+            feedback:
+              - when: "0"
+                message: S_B 这个键存在，只是值为 None；默认值只在键不存在时才用。
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "0"
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行显示
+            key: "2"
+        explanation: |
+          依次显示 **None**、**0**、**2**。
+
+          S_B 这个键存在，值是 None，get 照样取出 None，默认值 0 用不上；S_C 这个键不存在，才得到默认值 0。get 不添键，latest 仍是两项。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+
   - id: py37.k3
     title: in 检查键是否存在
+    card:
+      name: in 查键
+      aliases: [in, 键是否存在]
+      definition: "`键 in d` 得到 True 或 False，表示字典 d 里有没有这个键；它只看键，不看值。"
+      conditions:
+        - 值里有 8 时，`8 in d` 仍可能是 False；要查值，写 `8 in d.values()`。
+        - 键要完全一样才算有：大小写、拼写不同就是 False。
+      example:
+        from: py37.k3.e0
+        text: |
+          ```python
+          record = {"sample_id": "S_B", "signal": 10, "group": "drug"}
+          print("signal" in record)
+          print(10 in record)
+          ```
+          第一行显示 True；10 只是 signal 的值，不是键，第二行显示 False。
+    lesson: |
+      想知道一条记录里有没有某一项，写 `键 in 字典`，结果是 True 或 False：
+
+      ```python
+      record = {"sample_id": "S_B", "signal": 10, "group": "drug"}
+      print("signal" in record)   # True
+      print("depth" in record)    # False
+      ```
+
+      `in` 对字典**只查键**。10 和 "drug" 都是这条记录里的值，但 `10 in record`、`"drug" in record` 都是 False，因为没有叫 10 或 drug 的键。真要查值，写 `10 in record.values()`。
+
+      对比一下：对列表，`in` 查的是元素，`8 in [8, 10]` 是 True；对字典，`in` 查的是键。
+
+      `in` 只是查，不取值，也不会报错。键要一字不差：`"Signal" in record` 是 False。
+    example:
+      id: py37.k3.e0
+      kind: [predict]
+      body: |
+        ```python
+        record = {"sample_id": "S_B", "signal": 10, "group": "drug"}
+        ```
+
+        表里每个表达式都在这行之后求值。填写结果是 True 还是 False。
+      slots:
+        - id: result
+          type: table
+          columns:
+            - id: expr
+              header: 表达式
+            - id: value
+              header: 结果
+              input: bool
+          rows:
+            - id: a
+              cells: { expr: '"signal" in record', value: true }
+            - id: b
+              cells: { expr: '"depth" in record', value: false }
+            - id: c
+              cells: { expr: "10 in record", value: false }
+            - id: d
+              cells: { expr: '"drug" in record', value: false }
+      explanation: |
+        依次为 **True、False、False、False**。
+
+        signal 是键，所以 True；depth 不是键，False。10 和 drug 虽然都出现在这条记录里，但它们是值，不是键，`in` 对字典只查键，所以也是 False。
+      verify: |
+        r = run()
+        record = r["record"]
+        answers = {"result": {
+            "a": {"value": "signal" in record},
+            "b": {"value": "depth" in record},
+            "c": {"value": 10 in record},
+            "d": {"value": "drug" in record},
+        }}
+    practice:
+      - id: py37.k3.q1
+        kind: [predict]
+        body: |
+          `done` 记录每个样本已经测了几次：
+
+          ```python
+          done = {"S_A": 1, "S_B": 0}
+          ```
+
+          表里每个表达式都在这行之后求值。填写结果是 True 还是 False。
+        slots:
+          - id: result
+            type: table
+            columns:
+              - id: expr
+                header: 表达式
+              - id: value
+                header: 结果
+                input: bool
+            rows:
+              - id: a
+                cells: { expr: '"S_B" in done', value: true }
+              - id: b
+                cells: { expr: '"S_C" in done', value: false }
+              - id: c
+                cells: { expr: "0 in done", value: false }
+              - id: d
+                cells: { expr: '"s_a" in done', value: false }
+        explanation: |
+          依次为 **True、False、False、False**。
+
+          S_B 是键，它的值是 0 也不影响，`in` 只问有没有这个键；S_C 不是键；0 是值，不是键；s_a 与键 S_A 大小写不同，不算同一个键。
+        verify: |
+          done = run()["done"]
+          answers = {"result": {
+              "a": {"value": "S_B" in done},
+              "b": {"value": "S_C" in done},
+              "c": {"value": 0 in done},
+              "d": {"value": "s_a" in done},
+          }}
+      - id: py37.k3.q2
+        kind: [explain, predict]
+        body: |
+          ```python startLine=1
+          record = {"sample_id": "S_A", "signal": 8}
+          print(8 in record)
+          print(8 in record.values())
+          ```
+
+          有人看到第 2 行显示 False，就说：“这条记录里没有 8。”
+        slots:
+          - id: line2
+            type: text
+            match: output
+            prompt: 第 2 行显示
+            key: "False"
+          - id: line3
+            type: text
+            match: output
+            prompt: 第 3 行显示
+            key: "True"
+          - id: claim
+            type: choice
+            prompt: 这个说法对吗？
+            options:
+              - id: right
+                content: 对，False 说明记录里没有 8
+              - id: keys_only
+                content: 不对，`in` 对字典只查键；8 是 signal 的值，不是键
+            key: keys_only
+        explanation: |
+          第 2 行显示 **False**，第 3 行显示 **True**。
+
+          `8 in record` 问的是“有没有叫 8 的键”，没有，所以 False；8 其实是 signal 的值，`8 in record.values()` 查的是值，得到 True。所以“记录里没有 8”这个说法不对。
+        verify: |
+          r = run()
+          lines = r.lines()
+          record = r["record"]
+          answers = {
+              "line2": lines[0],
+              "line3": lines[1],
+              "claim": "keys_only" if (8 in record) is False and 8 in record.values() else "right",
+          }
+      - id: py37.k3.q3
+        kind: [trace, predict]
+        body: |
+          ```python
+          seen = {}
+          print("S_A" in seen)
+          seen["S_A"] = 1
+          print("S_A" in seen)
+          print(1 in seen)
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "False"
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "True"
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行显示
+            key: "False"
+        explanation: |
+          依次显示 **False**、**True**、**False**。
+
+          `{}` 是一个空字典，一开始没有任何键；给 S_A 赋值以后，S_A 成了键；1 是 S_A 的值，不是键，所以最后一行仍是 False。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+    review:
+      - id: py37.k3.r1
+        kind: [explain]
+        body: |
+          要显示 `record` 里有没有 depth 这一项：有就显示 True，没有就显示 False，不管 depth 的值是多少。哪一行符合要求？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: values
+                content: |
+                  ```python
+                  print("depth" in record.values())
+                  ```
+              - id: key
+                content: |
+                  ```python
+                  print("depth" in record)
+                  ```
+              - id: bare
+                content: |
+                  ```python
+                  print(depth in record)
+                  ```
+              - id: lookup
+                content: |
+                  ```python
+                  print(record["depth"] in record)
+                  ```
+            key: key
+        explanation: |
+          `print("depth" in record)`：`in` 对字典查键，有 depth 这个键就是 True。
+
+          `"depth" in record.values()` 查的是值，问的是“有没有哪一项的值是文字 depth”；`depth in record` 少了引号，depth 被当成没赋过值的名字，报 NameError；`record["depth"] in record` 先取出 depth 的值再拿它去查键，没有 depth 时还会报 KeyError。
+        verify: |
+          # 每个选项分别用有 depth 和没有 depth 的两条记录运行，应先后显示 True 和 False。
+          has = {"site": "北坡", "depth": 30}
+          lacks = {"site": "南坡"}
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              first, second = run(line, record=has), run(line, record=lacks)
+              if first.error is None and second.error is None and first.out.strip() == "True" and second.out.strip() == "False":
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py37.k3.r2
+        kind: [predict]
+        uses: [py06.k1]
+        body: |
+          `ids` 是一个列表，`signals` 是一个字典：
+
+          ```python
+          ids = ["S_A", "S_B"]
+          signals = {"S_A": 8, "S_B": 10}
+          print(8 in ids)
+          print("S_A" in ids)
+          print(8 in signals)
+          print("S_B" in signals)
+          ```
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - id: line
+                header: 第几行输出
+              - id: value
+                header: 显示
+                input: bool
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, value: false }
+              - id: l2
+                cells: { line: 第 2 行, value: true }
+              - id: l3
+                cells: { line: 第 3 行, value: false }
+              - id: l4
+                cells: { line: 第 4 行, value: true }
+        explanation: |
+          依次显示 **False、True、False、True**。
+
+          对列表，`in` 查元素：ids 的元素是 S_A、S_B，没有 8。对字典，`in` 查键：signals 的键是 S_A、S_B，8 只是值，所以 `8 in signals` 是 False，`"S_B" in signals` 是 True。
+        verify: |
+          lines = run().lines()
+          answers = {"shown": {f"l{i}": {"value": line == "True"} for i, line in enumerate(lines, 1)}}
+    quiz:
+      - id: py37.k3.x1
+        kind: [predict]
+        body: |
+          一份导出设置写成了字典：
+
+          ```python
+          settings = {"sep": ",", "encoding": "utf-8", "index": False}
+          ```
+
+          下面哪些表达式在这行之后求值的结果是 True？选出全部。
+        slots:
+          - id: exprs
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: false_value
+                content: |
+                  ```python
+                  False in settings
+                  ```
+              - id: index_key
+                content: |
+                  ```python
+                  "index" in settings
+                  ```
+              - id: utf8_value
+                content: |
+                  ```python
+                  "utf-8" in settings
+                  ```
+              - id: sep_key
+                content: |
+                  ```python
+                  "sep" in settings
+                  ```
+              - id: utf8_values
+                content: |
+                  ```python
+                  "utf-8" in settings.values()
+                  ```
+            key: [index_key, sep_key, utf8_values]
+        explanation: |
+          结果为 True 的是 `"index" in settings`、`"sep" in settings` 和 `"utf-8" in settings.values()`。
+
+          index 和 sep 是键；index 的值是 False 也不影响“有没有这个键”。False 和 utf-8 都是值，不是键，所以 `False in settings`、`"utf-8" in settings` 是 False；要查值得写 `.values()`，`"utf-8" in settings.values()` 才是 True。
+
+          每个选项的勾选状态分别计分。
+        verify: |
+          settings = run()["settings"]
+          true = [option for option, expr in OPTIONS["exprs"].items() if eval(expr, {"settings": settings}) is True]
+          answers = {"exprs": true}
+      - id: py37.k3.x2
+        kind: [predict]
+        uses: [py37.k2, py03.k3]
+        body: |
+          ```python
+          record = {"sample_id": "S_C", "depth": None}
+          print("depth" in record)
+          print(record.get("depth", 0))
+          print("signal" in record)
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "True"
+            feedback:
+              - when: "False"
+                message: depth 这个键存在，它的值是 None 不影响 in 的结果。
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: None
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行显示
+            key: "False"
+        explanation: |
+          依次显示 **True**、**None**、**False**。
+
+          depth 是键，值为 None，`in` 只问键在不在，所以是 True；键存在，get 就取出它的值 None，默认值 0 用不上；记录里没有 signal 这个键，False。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
