@@ -79,6 +79,8 @@ export type AppState = {
   /** 运行中不切换：运行状态只属于当前会话，切走后无法再查询。 */
   openSession(session: SessionInfo): Promise<void>;
   newConversation(): void;
+  /** 从当前会话的一条记录分叉出新会话并打开它；运行中不分叉，失败抛给调用页面。 */
+  forkSession(entryId: string): Promise<void>;
   /** 已建立的会话调用 session.setModel；还没建立的记下来，建立时使用。 */
   setConversationModel(model: ModelRef): Promise<void>;
   /** 返回 false 表示消息没有发出去，错误放在 `conversation.sendError`。 */
@@ -374,6 +376,13 @@ export function createAppStore() {
         if (get().conversation.run !== "idle") return;
         conversationRequest++;
         set({ conversation: { ...emptyConversation, status: "ready" } });
+      },
+      async forkSession(entryId) {
+        const { sessionId, run } = get().conversation;
+        if (!sessionId || run !== "idle") return;
+        const forked = await call("session.fork", { sessionId, entryId });
+        // 新会话要出现在侧栏列表里。
+        await Promise.all([get().openSession(forked), reloadSessions()]);
       },
       async setConversationModel(model) {
         const { sessionId } = get().conversation;

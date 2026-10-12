@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, Ref } from "react";
 import { ArrowUp, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,9 @@ import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui
  * 运行中仍可输入下一条，发送按钮换成停止。位置和用途在对话页里不言自明，
  * 按规范的例外不显示标签，名称只提供给辅助技术。
  */
-export function MessageComposer({ value, onChange, onSend, onStop, running, stopping, disabled }: {
+export function MessageComposer({ inputRef, value, onChange, onSend, onStop, running, stopping, disabled }: {
+  /** 页面在需要时把焦点移回输入框。 */
+  inputRef?: Ref<HTMLTextAreaElement> | undefined;
   value: string;
   onChange(value: string): void;
   onSend(): void;
@@ -37,6 +39,7 @@ export function MessageComposer({ value, onChange, onSend, onStop, running, stop
   >
     <InputGroup>
       <InputGroupTextarea
+        ref={inputRef}
         aria-label="消息"
         className="max-h-[min(15rem,35dvh)]"
         value={value}

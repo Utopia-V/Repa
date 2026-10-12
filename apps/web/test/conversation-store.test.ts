@@ -42,6 +42,15 @@ function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, Se
         if (found) found.model = params.model as NonNullable<SessionInfo["model"]>;
         return Promise.resolve(null);
       }
+      case "session.fork": {
+        // 和后端一样复制到分叉点为止，原会话不变；新会话沿用原会话的模型。
+        const source = sessions.find((session) => session.id === params.sessionId);
+        const entries = history[String(params.sessionId)] ?? [];
+        const info: SessionInfo = { id: `s${sessions.length + 1}`, createdAt: at, updatedAt: at, ...(source?.model ? { model: source.model } : {}) };
+        history[info.id] = entries.slice(0, entries.findIndex((entry) => entry.id === params.entryId) + 1);
+        sessions.push(info);
+        return Promise.resolve(info);
+      }
       case "confirm.reply":
         return Promise.resolve(null);
       default:
@@ -111,7 +120,7 @@ it("空间里没有会话时第一次发送才建立；运行中按事件显示�
   expect(await sending).toBe(true);
   await vi.waitFor(() => expect(store.getState().conversation.items).toEqual([
     { kind: "user", id: "u1", text: "解释一下导数" },
-    { kind: "assistant", id: "a1", text: "导数描述变化率。" },
+    { kind: "assistant", id: "a1", text: "导数描述变化率。", forkable: true },
   ]));
   expect(store.getState().conversation.run).toBe("idle");
 });
@@ -250,4 +259,35 @@ it("换空间时清空上一个空间的会话列表", async () => {
   expect(store.getState().resources.sessions.data).toHaveLength(1);
   await store.getState().openSpace("/notes/algebra");
   expect(store.getState().resources.sessions).toEqual({ status: "idle" });
+});
+
+it("从一条回答分叉：打开新会话，记录到这条回答为止，侧栏列表重新读取；运行中不分叉", async () => {
+  const backend = sessionBackend(
+    [{ id: "s1", createdAt: at, updatedAt: at, model: { provider: "anthropic", id: "claude" } }],
+    {
+      s1: [
+        { id: "u1", type: "user", timestamp: at, text: "什么是极限" },
+        { id: "a1", type: "assistant", timestamp: at, text: "极限描述趋近。", data: { stopReason: "stop" } },
+        { id: "u2", type: "user", timestamp: at, text: "举个例子" },
+        { id: "a2", type: "assistant", timestamp: at, text: "1/n 趋近 0。", data: { stopReason: "stop" } },
+      ],
+    },
+  );
+  const store = await openedStore(backend);
+
+  await store.getState().forkSession("a1");
+  expect(backend.call).toHaveBeenCalledWith("session.fork", { sessionId: "s1", entryId: "a1" });
+  expect(store.getState().conversation).toMatchObject({
+    status: "ready", sessionId: "s2", model: { provider: "anthropic", id: "claude" },
+    items: [{ kind: "user", text: "什么是极限" }, { kind: "assistant", text: "极限描述趋近。" }],
+  });
+  expect(store.getState().resources.sessions.data?.map((session) => session.id)).toEqual(["s1", "s2"]);
+
+  const sending = store.getState().sendMessage("换个角度讲");
+  await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+  await store.getState().forkSession("a1");
+  expect(backend.call.mock.calls.filter(([method]) => method === "session.fork")).toHaveLength(1);
+  expect(store.getState().conversation.sessionId).toBe("s2");
+  backend.runs[0]?.finish();
+  await sending;
 });

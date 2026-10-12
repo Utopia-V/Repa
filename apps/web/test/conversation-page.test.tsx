@@ -17,7 +17,13 @@ const at = "2026-10-12T00:00:00.000Z";
 function backend(
   history: SessionEntry[] = [],
   defaultModel: { provider: string; id: string } | null = { provider: "test", id: "m" },
-  catalog: { sessions?: SessionInfo[]; models?: Result<"model.list">; providers?: Result<"model.providers"> } = {},
+  catalog: {
+    sessions?: SessionInfo[];
+    models?: Result<"model.list">;
+    providers?: Result<"model.providers">;
+    /** session.fork 建立的会话及其记录，或者分叉失败的原因。 */
+    fork?: { info: SessionInfo; history: SessionEntry[] } | Error;
+  } = {},
 ) {
   const sends: { text: string; finish(error?: unknown): void }[] = [];
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
@@ -33,7 +39,11 @@ function backend(
       case "model.providers":
         return catalog.providers ? Promise.resolve(catalog.providers) : Promise.reject(new Error("未模拟"));
       case "session.history":
+        if (catalog.fork && !(catalog.fork instanceof Error) && params.sessionId === catalog.fork.info.id) return Promise.resolve(catalog.fork.history);
         return Promise.resolve(history);
+      case "session.fork":
+        if (!catalog.fork) return Promise.reject(new Error("未模拟"));
+        return catalog.fork instanceof Error ? Promise.reject(catalog.fork) : Promise.resolve(catalog.fork.info);
       case "model.getDefault":
         return Promise.resolve(defaultModel);
       case "session.send":
@@ -205,4 +215,57 @@ it("显示会话自己的模型，换模型只改这个会话；提供方没连�
   expect(fake.call).toHaveBeenCalledWith("session.setModel", { sessionId: "s1", model: { provider: "anthropic", id: "claude" } });
   expect(fake.call).not.toHaveBeenCalledWith("model.setDefault", expect.anything());
   expect(screen.queryByText("Fake 还没有连接，发送会失败")).toBeNull();
+});
+
+const lesson: SessionEntry[] = [
+  { id: "u1", type: "user", timestamp: at, text: "看看我的笔记" },
+  { id: "a1", type: "assistant", timestamp: at, text: "我先读一下。", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "read" }] } },
+  { id: "t1", type: "tool", timestamp: at, data: { callId: "c1", isError: false } },
+  { id: "a2", type: "assistant", timestamp: at, text: "笔记讲的是极限。", data: { stopReason: "stop" } },
+  { id: "u2", type: "user", timestamp: at, text: "举个例子" },
+  { id: "a3", type: "assistant", timestamp: at, text: "1/n 趋近 0。", data: { stopReason: "stop" } },
+];
+
+it("从一条回答分叉后打开新会话，焦点回到输入框", async () => {
+  const fake = backend(lesson, { provider: "test", id: "m" }, {
+    fork: { info: { id: "s2", createdAt: at, updatedAt: at }, history: lesson.slice(0, 4) },
+  });
+  await renderConversation(fake);
+  const record = await screen.findByRole("region", { name: "对话记录" });
+  await within(record).findByText("1/n 趋近 0。");
+
+  // 带工具调用的那条回答还没说完，不能分叉。
+  const forks = within(record).getAllByRole("button", { name: "从这里分叉" });
+  expect(forks).toHaveLength(2);
+  fireEvent.click(forks[0]!);
+
+  expect(fake.call).toHaveBeenCalledWith("session.fork", { sessionId: "s1", entryId: "a2" });
+  await vi.waitFor(() => expect(within(record).queryByText("举个例子")).toBeNull());
+  expect(within(record).getByText("笔记讲的是极限。")).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "消息" }));
+});
+
+it("运行中不能分叉；分叉失败时显示原因，原会话不变", async () => {
+  const fake = backend(lesson, { provider: "test", id: "m" }, {
+    fork: new RpcError(-32000, "会话条目不存在", { code: "entry_not_found" }),
+  });
+  await renderConversation(fake);
+  const record = await screen.findByRole("region", { name: "对话记录" });
+  await within(record).findByText("1/n 趋近 0。");
+
+  const input = screen.getByRole("textbox", { name: "消息" });
+  fireEvent.change(input, { target: { value: "再来一个" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await vi.waitFor(() => expect(fake.sends).toHaveLength(1));
+  for (const fork of within(record).getAllByRole("button", { name: "从这里分叉" })) expect((fork as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => fake.sends[0]?.finish());
+
+  const fork = await vi.waitFor(() => {
+    const button = within(record).getAllByRole("button", { name: "从这里分叉" })[1] as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    return button;
+  });
+  fireEvent.click(fork);
+  expect((await screen.findByRole("alert")).textContent).toContain("会话条目不存在");
+  expect(within(record).getByText("举个例子")).toBeTruthy();
 });

@@ -113,6 +113,10 @@ Web 的 `pages/conversation.tsx` 挂在 `/conversation`，没有打开空间时�
 
 显示内容由 `lib/conversation.ts` 转换：`historyItems` 把会话记录转成用户消息、助手消息、工具调用、错误和“已停止”标记，提示、view、用量等运行细节不显示；`applyEvent` 按 `session.event` 实时更新，`textDelta` 拼到正在生成的助手消息上，完整的 `message` 覆盖拼接结果，工具调用按 `callId` 更新状态。运行结束（`runEnd` 或 `session.send` 返回）后重新读取会话记录，以记录替换实时内容。store 只处理当前会话的事件。
 
+想从某条回答换个方向接着问，可以点这条回答下方的“从这里分叉”。`session.fork` 由 Pi 复制整个会话文件，再把新会话的位置停在选中的条目上，所以新会话包含这条回答和它之前的全部内容，用分叉点那时记录的模型，原会话不变。store 的 `forkSession` 分叉后打开新会话并重新读取侧栏列表，页面把焦点移到输入框。新会话的 `updatedAt` 是分叉的时间，排在列表最前；`preview` 仍取第一条用户消息，会话名也一起复制过来，所以侧栏里它和原会话同名，只能靠当前项区分。只有结束一轮的回答可以分叉：带工具调用的消息后面还缺工具结果，出错或停止的回答不完整；实时拼出的消息还没有记录里的 id，`historyItems` 读回记录后才标出 `forkable`。按钮是 Ghost 图标按钮，能悬停的设备上悬停或键盘聚焦到这条消息时才显示，触屏上一直显示；隐藏时只是透明，仍在 Tab 顺序里。运行中不能分叉，失败原因显示在输入框上方。
+
+没有做成 Pi `/fork` 那样的“编辑并重发”：Pi 从用户消息之前分叉，并把原文放回输入框，而 `session.fork` 保留到选中的条目为止，从用户消息分叉会留下一条没有回答的提问。在用户消息之前分叉需要它的上一个条目，会话记录不公开 `parentId`，也不包含模型切换等条目，页面推断出的位置可能丢掉这些条目，所以等后端支持后再接。
+
 `session.send` 要等整次运行结束才返回，运行中发送按钮换成“停止”，调用 `session.abort`。模型出错和取消已写进会话记录，由记录显示；没写进记录的失败（例如连接中断）显示在输入框上方，消息内容退回输入框。进入对话页时读取 `model.getDefault`、`model.list` 和 `model.providers`；当前会话还没有模型且默认模型为 `null`（没有可用模型），或发送时后端报 `model_required`，输入框上方改为显示“还没有可用的模型”和去设置页的链接，不再重复显示错误。连接中断时运行状态无法查询，从空闲开始，收到事件再更新。
 
 页面占满一屏，只有对话记录区滚动，输入框留在底部。顶栏只占一行，铺满工作区宽度：左侧只显示空间名称，过长时截断，悬停显示完整路径；“新会话”是工具栏里的轻量操作，用 Ghost 按钮靠右；对话记录滚动离开顶部后才出现分隔线；移动端左侧让出浮动的导航按钮。对话记录停在底部附近时跟随新内容，往上翻看时不打断。`components/domain/message-composer.tsx` 用 `InputGroup` 把文本框和发送／停止按钮合成一个框（两个按钮都是带可访问名称的图标按钮，发送用 Primary，停止用 Outline），聚焦时边框加深为 `input-focus` 色并加阴影，不加粗，文本框随内容增高，最高 240px 且不超过视口高度的 35%，超出后在框内滚动，长行在框内折行、不撑宽页面；Enter 发送、Shift+Enter 换行，输入法确认候选词的 Enter（`isComposing` 或 Safari 的 `keyCode` 229）不发送；`components/domain/tool-activity.tsx` 用图标加文字显示工具状态，内置工具显示动作名称。用户消息按原文显示并保留换行；助手消息由 `components/ui/markdown.tsx` 渲染成 Markdown，正在生成的那条传 `streaming`。
@@ -123,7 +127,7 @@ Web 的 `pages/conversation.tsx` 挂在 `/conversation`，没有打开空间时�
 
 Agent 调用 `bash` 时后端发出 `confirm.request`。`features/command-confirmation.tsx` 挂在工作区布局上，离开对话页也能看到，显示命令和“拒绝／允许”，关闭对话框按拒绝回复；登录用的 input、select、display 请求由设置页的登录流程处理，没有进行中的登录时 store 直接回复取消，避免后端停在等待上。后端取消运行时不撤回已发出的授权请求，`sendMessage` 结束时清空。
 
-`test/conversation.test.ts` 覆盖记录与事件的转换，`test/conversation-store.test.ts` 覆盖按最后消息打开会话、切换会话与运行中不切换、给新会话或已建立的会话换模型、换空间清空会话列表、延迟建立会话、实时显示与运行结束后替换、失败分类、停止、授权排队和重连后重新打开空间，`test/conversation-page.test.tsx` 覆盖页面的发送、输入法回车、停止、失败退回输入框、授权对话框、两种发送者的显示方式以及会话模型的显示与更换，`test/markdown.test.tsx` 覆盖 Markdown 元素、两种公式写法、链接与图片限制和生成中的语法补全。
+`test/conversation.test.ts` 覆盖记录与事件的转换和可以分叉的回答，`test/conversation-store.test.ts` 覆盖按最后消息打开会话、切换会话与运行中不切换、给新会话或已建立的会话换模型、从回答分叉并打开新会话、换空间清空会话列表、延迟建立会话、实时显示与运行结束后替换、失败分类、停止、授权排队和重连后重新打开空间，`test/conversation-page.test.tsx` 覆盖页面的发送、输入法回车、停止、失败退回输入框、授权对话框、两种发送者的显示方式、会话模型的显示与更换，以及分叉后打开新会话并聚焦输入框、运行中禁用和分叉失败，`test/markdown.test.tsx` 覆盖 Markdown 元素、两种公式写法、链接与图片限制和生成中的语法补全。
 
 ## 设置页
 

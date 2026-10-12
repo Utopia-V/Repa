@@ -85,3 +85,19 @@ it("模型出错只显示一次，取消的运行只留下停止标记", () => {
   ]);
   expect(stopped.items.map((item) => item.kind)).toEqual(["assistant", "stopped"]);
 });
+
+it("只有结束一轮回答的助手消息可以分叉，带工具调用、出错或停止的不行", () => {
+  const items = historyItems([
+    { id: "u1", type: "user", timestamp: at, text: "帮我看看笔记" },
+    { id: "a1", type: "assistant", timestamp: at, text: "我先读一下。", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "read", input: {} }] } },
+    { id: "t1", type: "tool", timestamp: at, text: "内容", data: { callId: "c1", tool: "read", isError: false } },
+    { id: "a2", type: "assistant", timestamp: at, text: "笔记讲的是极限。", data: { stopReason: "stop" } },
+    { id: "u2", type: "user", timestamp: at, text: "写长一点" },
+    { id: "a3", type: "assistant", timestamp: at, text: "极限……", data: { stopReason: "length" } },
+    { id: "u3", type: "user", timestamp: at, text: "继续" },
+    { id: "a4", type: "assistant", timestamp: at, text: "好的", data: { stopReason: "aborted" } },
+    { id: "a5", type: "assistant", timestamp: at, text: "半句", data: { stopReason: "error", errorMessage: "连接中断" } },
+  ]);
+
+  expect(items.flatMap((item) => item.kind === "assistant" && item.forkable ? [item.id] : [])).toEqual(["a2", "a3"]);
+});

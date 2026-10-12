@@ -5,7 +5,11 @@ export type ToolStatus = "running" | "done" | "failed" | "incomplete";
 /** 对话页显示的一项。提示、view、用量等运行细节不显示。 */
 export type ConversationItem =
   | { kind: "user"; id: string; text: string }
-  | { kind: "assistant"; id: string; text: string }
+  | {
+    kind: "assistant"; id: string; text: string;
+    /** 会话记录里结束一轮回答的消息可以作为分叉点，这时 id 是记录条目的 id；实时拼出的消息没有。 */
+    forkable?: true;
+  }
   | { kind: "tool"; id: string; tool: string; status: ToolStatus }
   | { kind: "error"; id: string; text: string }
   | { kind: "stopped"; id: string };
@@ -60,13 +64,16 @@ export function historyItems(entries: SessionEntry[]): ConversationItem[] {
     if (entry.type === "user") {
       items.push({ kind: "user", id: entry.id, text: entry.text ?? "" });
     } else if (entry.type === "assistant") {
-      if (entry.text) items.push({ kind: "assistant", id: entry.id, text: entry.text });
-      for (const call of toolCalls(entry.data)) {
+      const calls = toolCalls(entry.data);
+      const stopReason = text(entry.data, "stopReason");
+      // 分叉保留到这条消息为止。带工具调用的消息后面还缺工具结果，出错或停止的回答不完整，都不作为分叉点。
+      const forkable = calls.length === 0 && stopReason !== "error" && stopReason !== "aborted";
+      if (entry.text) items.push({ kind: "assistant", id: entry.id, text: entry.text, ...(forkable ? { forkable } : {}) });
+      for (const call of calls) {
         const item = { kind: "tool" as const, id: call.id, tool: call.name, status: "incomplete" as ToolStatus };
         tools.set(call.id, item);
         items.push(item);
       }
-      const stopReason = text(entry.data, "stopReason");
       if (stopReason === "error") {
         items.push({ kind: "error", id: `${entry.id}:error`, text: text(entry.data, "errorMessage") ?? "模型请求失败" });
       } else if (stopReason === "aborted") {

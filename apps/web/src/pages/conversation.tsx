@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate } from "react-router";
-import { ChevronDown, MessageSquarePlus, RefreshCw } from "lucide-react";
+import { ChevronDown, MessageSquarePlus, RefreshCw, Split } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
@@ -29,6 +29,7 @@ function Conversation({ space }: { space: string }) {
   const newConversation = useAppStore((state) => state.newConversation);
   const sendMessage = useAppStore((state) => state.sendMessage);
   const stopRun = useAppStore((state) => state.stopRun);
+  const forkSession = useAppStore((state) => state.forkSession);
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
   const models = useAppStore((state) => state.resources.models);
   const providers = useAppStore((state) => state.resources.providers);
@@ -36,7 +37,11 @@ function Conversation({ space }: { space: string }) {
   const [draft, setDraft] = useState("");
   const [picking, setPicking] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [forking, setForking] = useState(false);
+  // 分叉失败只在原会话里提示，切到别的会话后不再显示。
+  const [forkError, setForkError] = useState<{ sessionId: string | undefined; error: unknown }>();
   const record = useRef<HTMLElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
   // 用户往上翻看时不打断，停在底部附近时跟随新内容。
   const following = useRef(true);
 
@@ -74,6 +79,22 @@ function Conversation({ space }: { space: string }) {
     const sent = await sendMessage(text);
     // 没发出去时把内容还回输入框，除非用户已经开始写下一条。
     if (!sent) setDraft((current) => current === "" ? text : current);
+  }
+
+  async function fork(entryId: string) {
+    const sessionId = conversation.sessionId;
+    setForking(true);
+    setForkError(undefined);
+    try {
+      await forkSession(entryId);
+      following.current = true;
+      // 原来的按钮随记录一起换掉，焦点交给输入框，接着在新会话里提问。
+      input.current?.focus();
+    } catch (error) {
+      setForkError({ sessionId, error });
+    } finally {
+      setForking(false);
+    }
   }
 
   const { run, status, items } = conversation;
@@ -121,7 +142,13 @@ function Conversation({ space }: { space: string }) {
         {status === "ready" && items.length === 0 && !running && <p className="text-sm text-muted-foreground">
           这是一个新会话。说说你想学什么，或者直接提问。
         </p>}
-        {items.map((item) => <Item key={item.id} item={item} streaming={item.id === conversation.streaming} />)}
+        {items.map((item) => <Item
+          key={item.id}
+          item={item}
+          streaming={item.id === conversation.streaming}
+          onFork={item.kind === "assistant" && item.forkable ? () => { void fork(item.id); } : undefined}
+          forkDisabled={running || forking || !connected}
+        />)}
         {running && conversation.streaming === undefined && <p role="status" className="text-sm text-muted-foreground">
           {run === "stopping" ? "正在停止…" : "Agent 正在处理…"}
         </p>}
@@ -137,7 +164,9 @@ function Conversation({ space }: { space: string }) {
       </div>}
       {conversation.sendError !== undefined && errorCode(conversation.sendError) !== "model_required"
         && <ErrorNotice title="消息没有完成" error={conversation.sendError} />}
+      {forkError && forkError.sessionId === conversation.sessionId && <ErrorNotice title="没能分叉会话" error={forkError.error} />}
       <MessageComposer
+        inputRef={input}
         value={draft}
         onChange={setDraft}
         onSend={() => { void send(); }}
@@ -173,12 +202,32 @@ function Conversation({ space }: { space: string }) {
   </div>;
 }
 
-function Item({ item, streaming }: { item: ConversationItem; streaming: boolean }) {
+function Item({ item, streaming, onFork, forkDisabled }: {
+  item: ConversationItem;
+  streaming: boolean;
+  /** 只有能作为分叉点的消息才有。 */
+  onFork?: (() => void) | undefined;
+  forkDisabled: boolean;
+}) {
   switch (item.kind) {
     case "user":
       return <ConversationMessage sender="user">{item.text}</ConversationMessage>;
-    case "assistant":
-      return <ConversationMessage sender="assistant"><Markdown text={item.text} streaming={streaming} /></ConversationMessage>;
+    case "assistant": {
+      // 分叉保留这条回答和它之前的全部内容，在新会话里换个方向接着问；原会话不变。
+      const actions = onFork && <Button
+        variant="ghost"
+        size="icon"
+        aria-label="从这里分叉"
+        title="从这里分叉：保留到这条回答，在新会话里继续"
+        disabled={forkDisabled}
+        onClick={onFork}
+      >
+        <Split aria-hidden="true" />
+      </Button>;
+      return <ConversationMessage sender="assistant" actions={actions}>
+        <Markdown text={item.text} streaming={streaming} />
+      </ConversationMessage>;
+    }
     case "tool":
       return <ToolActivity tool={item.tool} status={item.status} />;
     case "error":
