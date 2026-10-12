@@ -1,7 +1,8 @@
 id: py45
 title: 为什么同一本 notebook 重跑会变
-status: outline
+status: complete
 minutes: 20
+summary: notebook 里变量的值取决于单元格实际运行的先后和次数；重启内核再从上到下全部运行，才能查出依赖隐藏状态的结果。
 prerequisites:
   - topic: py01
     key: true
@@ -21,9 +22,850 @@ sources:
     url: https://jupyter-notebook.readthedocs.io/en/stable/examples/Notebook/Running%20Code.html#restarting-the-kernels
     use: reference
 notes: |
-  建议题型与判分：追踪变量（P）、找错（P）、写清需求（S/O）。
+  范围：只用整数、字符串、赋值、print 和 import，单元格都很短，重点在“哪些单元格按什么顺序、运行了几次”。不讲 notebook 的安装、快捷键和魔法命令；单元格末行自动显示值的规则只在讲解里提一句，题目一律用 print。
+  题面写法：每个单元格写成一个 python 代码块，前面用文字标出它在屏幕上的位置、名字和执行编号；运行的历史在题面里写明，不要求学生从编号反推单元格运行过几次（编号只记最近一次）。核对程序按题面给的历史，用 BLOCKS 拼出实际运行的程序，或在一个命名空间里逐个执行单元格、记下每个单元格是正常、报错还是显示了什么。
+  “全部运行遇到第一个报错就停下”按 Jupyter 的 Run All 行为写。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、练习 5 分钟；k2 讲解与例题 4 分钟、练习 5 分钟；收束 1 分钟。
+  情境与题目为本课自拟。复习和测验题全部由程序核对，没有 manual 作答位。
+intro: |
+  notebook（例如 Jupyter）把代码分成一个个单元格，可以单独运行、重复运行、改了再运行。背后有一个**内核**，记着运行过的所有名字和它们的值。
+
+  这很方便，也带来一个问题：屏幕上看到的代码和结果，不一定是内核里真正发生过的事。这一节的题目里，每个单元格写成一个代码块，前面标出它在屏幕上的位置和左边的执行编号，例如 `[3]`。
+wrapup: |
+  notebook 里一个值对不对，要看单元格实际怎样运行过，而不是屏幕上怎样排列。交付或依赖一个结果之前，先“重启内核并全部运行”：从上到下跑通、结果和之前一样，才算可以重现。
+
+  请 AI 或同事给你 notebook 时，可以直接要求：“请先重启内核、从上到下全部运行一遍，确认不报错、结果和你说的一致，再发给我。”
 kps:
   - id: py45.k1
     title: 执行顺序与屏幕排列可能不同
+    card:
+      name: 执行顺序
+      aliases: [单元格, 内核, 执行编号]
+      definition: notebook 里变量的值取决于单元格实际运行的先后和次数，而不是它们在屏幕上的排列；单元格左边的 [编号] 是它最近一次运行的顺序。
+      conditions:
+        - 同一个单元格运行两次，里面的 n = n + 5 就做了两次；屏幕上只留下最后一次的输出。
+        - 删掉或改动单元格，不会改变内核里已经有的变量，要重新运行才算数。
+      example:
+        from: py45.k1.e0
+        text: |
+          A: n = 10，B: n = n + 5，C: print(n)。依次运行 A、B、C、B：C 显示 15，但内核里的 n 已经是 20；编号是 A [1]、B [4]、C [3]。
+    lesson: |
+      在 notebook 里运行一个单元格，就是把这一格的代码交给内核执行。内核记着**所有运行过的**赋值，不管它们来自哪一格、那一格现在还在不在屏幕上。
+
+      所以读一本 notebook 时要分清两件事：
+
+      - **屏幕排列**：单元格从上到下怎么摆；
+      - **执行顺序**：它们实际按什么先后、运行了几次。
+
+      单元格左边的 `[编号]` 记的是这一格**最近一次**运行时排第几。编号不按从上到下递增，就说明运行顺序和屏幕排列不同；同一格运行了好几次，只留下最后一次的编号和输出。
+
+      几种常见情况：
+
+      - 同一格运行两次，里面的 `n = n + 5` 就加了两次，正像一段程序里把这一行写了两遍；
+      - 删掉一个运行过的单元格，它定义的名字仍留在内核里，后面的单元格照样能用；
+      - 改了某一格的代码却没有重新运行，屏幕上是新代码，内核里还是旧代码算出的值。
+
+      读的时候，按实际运行顺序把单元格接成一段程序，再像追踪普通程序那样逐行记下每个名字的值。
+
+      另外，notebook 会自动显示单元格最后一行表达式的值；这一节的题目都用 print 显示，避免混淆。
+    example:
+      id: py45.k1.e0
+      kind: [trace]
+      uses: [py01.k2]
+      body: |
+        屏幕上从上到下有三个单元格：
+
+        单元格 A：
+
+        ```python
+        n = 10
+        ```
+
+        单元格 B：
+
+        ```python
+        n = n + 5
+        ```
+
+        单元格 C：
+
+        ```python
+        print(n)
+        ```
+
+        打开 notebook 后，依次运行了 A、B、C、B。
+      slots:
+        - id: shown
+          type: text
+          format: integer
+          prompt: 屏幕上单元格 C 下面显示的是什么？
+          key: 15
+        - id: kernel
+          type: text
+          format: integer
+          prompt: 现在内核里的 `n` 是多少？
+          key: 20
+        - id: counts
+          type: table
+          prompt: 每个单元格左边的执行编号是多少？
+          columns:
+            - { id: cell, header: 单元格 }
+            - { id: count, header: 编号, input: integer }
+          rows:
+            - { id: A, cells: { cell: A, count: 1 } }
+            - { id: B, cells: { cell: B, count: 4 } }
+            - { id: C, cells: { cell: C, count: 3 } }
+      explanation: |
+        按运行顺序接起来就是：`n = 10`、`n = n + 5`、`print(n)`、`n = n + 5`。C 运行时 n 是 15，所以 C 下面显示 **15**；之后 B 又运行了一次，内核里的 n 变成 **20**，但 C 没有再运行，屏幕上仍是 15。
+
+        编号记最近一次运行：A 是 **[1]**，C 是 **[3]**，B 最后一次是第 4 次运行，显示 **[4]**。屏幕上 B 的编号比下面的 C 还大，就提示运行顺序和屏幕排列不同。
+      verify: |
+        history = [0, 1, 2, 1]
+        cells = ["A", "B", "C"]
+        last_c = max(step for step, cell in enumerate(history) if cell == 2)
+        shown = run("\n".join(BLOCKS[cell] for cell in history[:last_c + 1])).lines()[-1]
+        kernel = run("\n".join(BLOCKS[cell] for cell in history))["n"]
+        counts = {cells[cell]: {"count": step} for step, cell in enumerate(history, 1)}
+        answers = {"shown": int(shown), "kernel": kernel, "counts": counts}
+    practice:
+      - id: py45.k1.q1
+        kind: [trace]
+        uses: [py01.k2]
+        body: |
+          屏幕上从上到下有三个单元格，每个都只运行过一次：
+
+          单元格 A，编号 `[2]`：
+
+          ```python
+          x = x * 2
+          ```
+
+          单元格 B，编号 `[1]`：
+
+          ```python
+          x = 3
+          ```
+
+          单元格 C，编号 `[3]`：
+
+          ```python
+          print(x)
+          ```
+        slots:
+          - id: order
+            type: order
+            prompt: 按实际运行的先后排出三个单元格。
+            items:
+              - { id: A, content: 单元格 A }
+              - { id: B, content: 单元格 B }
+              - { id: C, content: 单元格 C }
+            key: [B, A, C]
+          - id: output
+            type: text
+            format: integer
+            prompt: C 下面显示什么？
+            key: 6
+        explanation: |
+          编号从小到大就是运行顺序：B（`x = 3`）、A（`x = x * 2`）、C。所以 C 显示 **6**。如果照屏幕从上往下读，会以为 A 先运行，那时 x 还没有定义。
+        verify: |
+          counts = {"A": 2, "B": 1, "C": 3}
+          names = ["A", "B", "C"]
+          order = sorted(names, key=lambda cell: counts[cell])
+          program = "\n".join(BLOCKS[names.index(cell)] for cell in order)
+          answers = {"order": order, "output": int(run(program).out)}
+      - id: py45.k1.q2
+        kind: [predict, explain]
+        uses: [py01.k2]
+        body: |
+          屏幕上现在有两个单元格：
+
+          单元格 A，编号 `[1]`：
+
+          ```python
+          total = 40
+          ```
+
+          单元格 C，编号 `[3]`，下面显示 45：
+
+          ```python
+          print(total + bonus)
+          ```
+
+          原来 A 和 C 之间还有一个单元格，内容如下。它运行过（编号 `[2]`），后来被删掉了：
+
+          ```python
+          bonus = 5
+          ```
+        slots:
+          - id: again
+            type: text
+            format: integer
+            prompt: 现在不重启，直接再运行一次 C，显示什么？
+            key: 45
+          - id: why
+            type: choice
+            prompt: 为什么还能这样显示？
+            options:
+              - { id: zero, content: 找不到 bonus 时，Python 把它当作 0 }
+              - { id: kept, content: 删掉单元格不会删掉它定义的变量，bonus 还在内核里 }
+              - { id: screen, content: 屏幕上显示的是上一次的结果，C 其实没有运行 }
+            key: kept
+        explanation: |
+          再运行 C 仍显示 **45**。删掉的单元格运行过，`bonus = 5` 已经存进内核；删掉的只是屏幕上的代码，变量还在。
+
+          这正是隐藏状态：只看屏幕，找不到 bonus 是从哪里来的。下一个知识点会看到，重启之后它就消失了。
+        verify: |
+          # 实际运行的历史：A、被删的格、C，再运行一次 C。
+          history = BLOCKS[0] + "\n" + BLOCKS[2] + "\n" + BLOCKS[1] + "\n" + BLOCKS[1]
+          r = run(history)
+          answers = {"again": int(r.lines()[-1]), "why": "kept" if r.error is None and r["bonus"] == 5 else "other"}
+      - id: py45.k1.q3
+        kind: [predict]
+        body: |
+          屏幕上有两个单元格：
+
+          单元格 A，编号 `[1]`：
+
+          ```python
+          limit = 12
+          ```
+
+          单元格 B，编号 `[2]`：
+
+          ```python
+          print(limit * 2)
+          ```
+
+          A 运行的时候写的是下面这一行；运行完以后才改成现在的 `limit = 12`，改完没有再运行：
+
+          ```python
+          limit = 10
+          ```
+        slots:
+          - id: shown
+            type: text
+            format: integer
+            prompt: 屏幕上 B 下面显示什么？
+            key: 20
+          - id: rerun_b
+            type: text
+            format: integer
+            prompt: 现在只再运行一次 B，显示什么？
+            key: 20
+          - id: rerun_both
+            type: text
+            format: integer
+            prompt: 如果先运行 A、再运行 B，B 显示什么？
+            key: 24
+        explanation: |
+          B 显示 **20**，只再运行 B 还是 **20**：内核里的 limit 是 A 改动之前算的 10，屏幕上的 `limit = 12` 还没有运行过。先运行 A、再运行 B，limit 才变成 12，B 显示 **24**。
+        verify: |
+          new_a, b, old_a = BLOCKS
+          answers = {
+              "shown": int(run(old_a + "\n" + b).lines()[-1]),
+              "rerun_b": int(run(old_a + "\n" + b + "\n" + b).lines()[-1]),
+              "rerun_both": int(run(old_a + "\n" + b + "\n" + new_a + "\n" + b).lines()[-1]),
+          }
+    review:
+      - id: py45.k1.r1
+        kind: [trace]
+        uses: [py01.k2]
+        body: |
+          屏幕上从上到下有三个单元格：
+
+          单元格 P：
+
+          ```python
+          count = 0
+          ```
+
+          单元格 Q：
+
+          ```python
+          count = count + 1
+          ```
+
+          单元格 R：
+
+          ```python
+          print(count)
+          ```
+
+          依次运行了 P、Q、Q、R、Q。
+        slots:
+          - id: trace
+            type: table
+            prompt: 每次运行之后，内核里的 count 是多少？
+            columns:
+              - { id: step, header: 第几次运行 }
+              - { id: cell, header: 运行的单元格 }
+              - { id: count, header: count, input: integer }
+            rows:
+              - { id: s1, cells: { step: "1", cell: P, count: 0 } }
+              - { id: s2, cells: { step: "2", cell: Q, count: 1 } }
+              - { id: s3, cells: { step: "3", cell: Q, count: 2 } }
+              - { id: s4, cells: { step: "4", cell: R, count: 2 } }
+              - { id: s5, cells: { step: "5", cell: Q, count: 3 } }
+          - id: shown
+            type: text
+            format: integer
+            prompt: 屏幕上 R 下面显示什么？
+            key: 2
+        explanation: |
+          count 依次是 0、1、2、2、3。R 是第 4 次运行的，那时 count 是 2，所以屏幕上 R 显示 **2**；之后 Q 又运行一次，内核里已经是 3，屏幕上的 2 并没有更新。
+        verify: |
+          history = [0, 1, 1, 2, 1]
+          trace_rows = {}
+          for step in range(1, len(history) + 1):
+              program = "\n".join(BLOCKS[cell] for cell in history[:step])
+              trace_rows[f"s{step}"] = {"count": run(program)["count"]}
+          shown = run("\n".join(BLOCKS[cell] for cell in history[:4])).lines()[-1]
+          answers = {"trace": trace_rows, "shown": int(shown)}
+      - id: py45.k1.r2
+        kind: [debug]
+        body: |
+          屏幕上从上到下有三个单元格，C 下面显示 8：
+
+          单元格 A：
+
+          ```python
+          y = 2
+          ```
+
+          单元格 B：
+
+          ```python
+          y = y * 4
+          ```
+
+          单元格 C：
+
+          ```python
+          print(y)
+          ```
+
+          下面哪一种运行顺序会让 C 显示 8？
+        slots:
+          - id: history
+            type: choice
+            options:
+              - { id: ac, content: A、C }
+              - { id: abbc, content: A、B、B、C }
+              - { id: acb, content: A、C、B }
+              - { id: abc, content: A、B、C }
+            key: abc
+        explanation: |
+          **A、B、C**：y 先是 2，B 把它乘成 8，C 显示 8。
+
+          A、C 显示 2；A、B、B、C 中 B 运行了两次，y 成了 32；A、C、B 里 C 在 B 之前运行，显示的是 2，之后 B 再运行也不会改变 C 下面已经显示的内容。
+        verify: |
+          histories = {"ac": "AC", "abbc": "ABBC", "acb": "ACB", "abc": "ABC"}
+          fits = []
+          for option, history in histories.items():
+              # C 下面留下的是 C 最近一次运行时显示的内容。
+              last_c = history.rindex("C")
+              program = "\n".join(BLOCKS["ABC".index(cell)] for cell in history[:last_c + 1])
+              if run(program).lines()[-1] == "8":
+                  fits.append(option)
+          answers = {"history": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py45.k1.x1
+        kind: [predict]
+        uses: [py01.k2]
+        body: |
+          屏幕上从上到下有三个单元格：
+
+          单元格 A，编号 `[1]`：
+
+          ```python
+          label = "plate"
+          ```
+
+          单元格 B，编号 `[3]`：
+
+          ```python
+          label = label + "_v2"
+          ```
+
+          单元格 C，编号 `[4]`：
+
+          ```python
+          print(label)
+          ```
+
+          B 第一次运行后，你以为没运行成功，又运行了一次 B，然后运行 C。
+        slots:
+          - id: output
+            type: text
+            prompt: C 下面显示什么？
+            key: plate_v2_v2
+            feedback:
+              - when: plate_v2
+                message: B 运行了两次，"_v2" 也接了两次。
+        explanation: |
+          显示 **plate_v2_v2**。B 第一次运行把 label 变成 plate_v2（编号 [2]），第二次在这个基础上又接了一次（编号 [3]）。在原值上改动的单元格，运行几次就改几次。
+        verify: |
+          program = "\n".join([BLOCKS[0], BLOCKS[1], BLOCKS[1], BLOCKS[2]])
+          answers = {"output": run(program).lines()[-1]}
+      - id: py45.k1.x2
+        kind: [trace]
+        uses: [py01.k2]
+        body: |
+          屏幕上从上到下有四个单元格，每个都只运行过一次，编号如下：
+
+          单元格 A，编号 `[3]`：
+
+          ```python
+          total = total + 7
+          ```
+
+          单元格 B，编号 `[1]`：
+
+          ```python
+          total = 0
+          ```
+
+          单元格 C，编号 `[4]`：
+
+          ```python
+          print(total)
+          ```
+
+          单元格 D，编号 `[2]`：
+
+          ```python
+          total = total + 5
+          ```
+        slots:
+          - id: trace
+            type: table
+            prompt: 每个单元格运行完的那一刻，total 是多少？
+            columns:
+              - { id: cell, header: 单元格（屏幕顺序） }
+              - { id: total, header: 运行完时的 total, input: integer }
+            rows:
+              - { id: A, cells: { cell: A, total: 12 } }
+              - { id: B, cells: { cell: B, total: 0 } }
+              - { id: C, cells: { cell: C, total: 12 } }
+              - { id: D, cells: { cell: D, total: 5 } }
+        explanation: |
+          按编号排出实际顺序：B（0）、D（5）、A（12）、C（显示 12）。所以 B 运行完时 total 是 **0**，D 是 **5**，A 是 **12**，C 运行时没有改 total，仍是 **12**。屏幕上 A 排在最前面，但它是第三个运行的。
+        verify: |
+          counts = {"A": 3, "B": 1, "C": 4, "D": 2}
+          names = ["A", "B", "C", "D"]
+          order = sorted(names, key=lambda cell: counts[cell])
+          totals = {}
+          for step in range(1, len(order) + 1):
+              program = "\n".join(BLOCKS[names.index(cell)] for cell in order[:step])
+              totals[order[step - 1]] = {"total": run(program)["total"]}
+          answers = {"trace": totals}
+
   - id: py45.k2
     title: 重启后从头运行才能核对隐藏状态
+    card:
+      name: 重启并全部运行
+      aliases: [Restart & Run All, 重启内核, 可重现]
+      definition: 重启内核会清掉所有变量和导入；再按屏幕顺序从上到下运行全部单元格，不报错、结果和之前一致，才说明 notebook 不依赖隐藏状态。
+      conditions:
+        - 全部运行遇到第一个报错就停下，后面的单元格不再运行。
+        - 交付或依赖一个结果之前做这一步；只重新运行其中某一格查不出隐藏状态。
+      example:
+        from: py45.k2.e0
+        text: |
+          屏幕上 A: print(total)、B: total = base + 5、C: base = 10，编号是 [3]、[2]、[1]。重启并全部运行时 A 先运行，报 NameError；把顺序调成 C、B、A 才能跑通。
+    lesson: |
+      **重启内核**（Restart）会把内核里的一切清掉：所有变量，包括 import 进来的名字。接着**全部运行**（Run All）会按屏幕顺序，从第一个单元格运行到最后一个。两步合起来，就是把 notebook 当成一段从上往下的普通程序重新跑一遍。
+
+      这一步能暴露上一个知识点里的各种隐藏状态：
+
+      - 某个名字是在下面的单元格、或者已经删掉的单元格里定义的：从上往下运行时，用到它的那一格报 **NameError**；
+      - 某一格在会话里运行过好几次，或者改了没重跑：结果和屏幕上原来显示的不一样。
+
+      全部运行遇到第一个报错就停下，后面的单元格不会运行；屏幕上如果还留着它们上一次的输出，那也不是这次运行的结果。
+
+      修好的标准是：重启并全部运行，中途不报错，关键结果和你要交付的一致。改的办法是把单元格挪到正确的位置、补回缺的那一步，或者删掉不该重复的操作，然后**再重启、再全部运行一次**确认。只重新运行出问题的那一格不算数，因为内核里可能还留着别的隐藏状态。
+    example:
+      id: py45.k2.e0
+      kind: [debug]
+      body: |
+        屏幕上从上到下有三个单元格，编号和输出如下：
+
+        单元格 A，编号 `[3]`，下面显示 15：
+
+        ```python
+        print(total)
+        ```
+
+        单元格 B，编号 `[2]`：
+
+        ```python
+        total = base + 5
+        ```
+
+        单元格 C，编号 `[1]`：
+
+        ```python
+        base = 10
+        ```
+
+        现在重启内核并全部运行。
+      slots:
+        - id: stopped
+          type: choice
+          prompt: 在哪个单元格停下来报错？
+          options:
+            - { id: A, content: 单元格 A }
+            - { id: B, content: 单元格 B }
+            - { id: C, content: 单元格 C }
+            - { id: none, content: 不报错，A 仍显示 15 }
+          key: A
+        - id: error
+          type: text
+          prompt: 报的是哪种异常？写出异常类型的名字。
+          key: NameError
+        - id: fixed
+          type: order
+          prompt: 把三个单元格在屏幕上重新排列，让重启并全部运行能跑通、最后显示 15。从上到下排出它们。
+          items:
+            - { id: A, content: 单元格 A }
+            - { id: B, content: 单元格 B }
+            - { id: C, content: 单元格 C }
+          key: [C, B, A]
+      explanation: |
+        全部运行从屏幕第一格开始，A 要显示 total，可内核刚清空，total 还不存在，在 **A** 就报 **NameError**，B、C 都没有运行。原来能显示 15，是因为会话里先运行了 C、再运行 B（编号 [1]、[2]）。
+
+        按依赖关系排成 **C、B、A**：先有 base，再算 total，最后显示。改完再重启、全部运行一次，确认 A 显示 15。
+      verify: |
+        from itertools import permutations
+        names = ["A", "B", "C"]
+        stopped = "none"
+        for count in range(1, len(BLOCKS) + 1):
+            if run("\n".join(BLOCKS[:count])).error:
+                stopped = names[count - 1]
+                break
+        orders = [list(order) for order in permutations(names)
+                  if run("\n".join(BLOCKS[names.index(cell)] for cell in order)).error is None
+                  and run("\n".join(BLOCKS[names.index(cell)] for cell in order)).out.strip() == "15"]
+        answers = {"stopped": stopped, "error": run().error, "fixed": orders[0] if len(orders) == 1 else orders}
+    practice:
+      - id: py45.k2.q1
+        kind: [debug]
+        uses: [py13.k1]
+        body: |
+          屏幕上现在有两个单元格：
+
+          单元格 A，编号 `[1]`：
+
+          ```python
+          total = 49
+          ```
+
+          单元格 C，编号 `[3]`，下面显示 7.0（`math.sqrt` 求平方根）：
+
+          ```python
+          print(math.sqrt(total))
+          ```
+
+          A 和 C 之间原来有一个单元格，运行过（编号 `[2]`）之后被删掉了，它的内容是：
+
+          ```python
+          import math
+          ```
+
+          现在重启内核并全部运行。
+        slots:
+          - id: stopped
+            type: choice
+            prompt: 结果怎样？
+            options:
+              - { id: fine, content: 跑通，C 仍显示 7.0 }
+              - { id: c_error, content: C 报错 }
+              - { id: a_error, content: A 报错 }
+            key: c_error
+          - id: error
+            type: text
+            prompt: 如果报错，是哪种异常？写出异常类型的名字；不报错写“无”。
+            key: NameError
+          - id: fix
+            type: choice
+            prompt: 怎样修好才算数？
+            options:
+              - { id: rerun_c, content: 不重启，再运行一次 C 看看 }
+              - { id: add_back, content: 在 C 前面补回 import math，再重启并全部运行确认 }
+              - { id: move_c, content: 把 C 挪到 A 前面 }
+            key: add_back
+        explanation: |
+          **C 报 NameError**：重启清掉了所有名字，也清掉了 import 进来的 math；屏幕上已经没有 `import math`，从上往下运行时 math 不存在。
+
+          修法是**在 C 前面补回 `import math`，再重启并全部运行**确认。不重启只再运行 C 什么也查不出；把 C 挪到 A 前面，连 total 也没有了。
+        verify: |
+          a, c, deleted = BLOCKS
+          after_restart = run(a + "\n" + c)
+          stopped = "fine" if after_restart.error is None else ("a_error" if run(a).error else "c_error")
+          # 逐个检验三种修法：从头运行修好后的屏幕内容，跑通并显示 7.0 的才算修好。
+          screens = {"rerun_c": a + "\n" + c, "add_back": a + "\n" + deleted + "\n" + c, "move_c": c + "\n" + a}
+          fixed = [option for option, program in screens.items()
+                   if run(program).error is None and run(program).out.strip() == "7.0"]
+          answers = {
+              "stopped": stopped,
+              "error": after_restart.error or "无",
+              "fix": fixed[0] if len(fixed) == 1 else fixed,
+          }
+      - id: py45.k2.q2
+        kind: [predict]
+        uses: [py01.k2]
+        body: |
+          屏幕上从上到下有三个单元格：
+
+          单元格 A：
+
+          ```python
+          count = 0
+          ```
+
+          单元格 B：
+
+          ```python
+          count = count + 1
+          ```
+
+          单元格 C：
+
+          ```python
+          print(count)
+          ```
+
+          会话里依次运行了 A、B、B、B、C。
+        slots:
+          - id: session
+            type: text
+            format: integer
+            prompt: 会话里 C 下面显示什么？
+            key: 3
+          - id: restart
+            type: text
+            format: integer
+            prompt: 重启内核并全部运行后，C 下面显示什么？
+            key: 1
+        explanation: |
+          会话里 B 运行了三次，C 显示 **3**；重启并全部运行时每格只运行一次，C 显示 **1**。两个结果不同，说明原来的 3 依赖“B 多运行了两次”这个屏幕上看不出来的历史。哪个才是想要的，要回到需求去问，而不是看哪个顺眼。
+        verify: |
+          session = run("\n".join(BLOCKS[cell] for cell in [0, 1, 1, 1, 2])).lines()[-1]
+          answers = {"session": int(session), "restart": int(run().lines()[-1])}
+      - id: py45.k2.q3
+        kind: [specify]
+        body: |
+          你要把一本分析 notebook 发给同事，让她可以直接用里面的结果。用一两句话写出你在发送前做了什么核对，让她知道这本 notebook 可以重现。
+        slots:
+          - id: note
+            type: text
+            lines: 4
+            rubric:
+              - id: restart
+                label: 重启内核
+                guide: 明确说重启了内核（或关掉重开），清掉了原来的变量。只说“重新运行了一下”不算。
+              - id: run_all
+                label: 从上到下全部运行
+                guide: 明确是按屏幕顺序从第一格运行到最后一格，而不是挑几格运行。
+              - id: same
+                label: 结果核对
+                guide: 说明中途没有报错，并且关键结果与之前一致（最好点出是哪个结果）。
+        explanation: |
+          一种写法：**“发送前我重启了内核，从第一个单元格到最后一个全部运行了一遍，中途没有报错，最后的样本数和平均值与我之前给你的一致。”**
+
+          三件事各算一项：重启内核、从上到下全部运行、没有报错且结果一致。
+    review:
+      - id: py45.k2.r1
+        kind: [modify]
+        uses: [py01.k1]
+        body: |
+          一本 notebook 的四个单元格各只有一行，屏幕顺序乱了，重启并全部运行会报错。把它们在屏幕上重新排好，让重启并全部运行能跑通、最后显示平均值。从上到下排出四个单元格。
+        slots:
+          - id: cells
+            type: order
+            items:
+              - { id: show, code: print(mean) }
+              - { id: mean, code: mean = total / n }
+              - { id: n, code: n = 4 }
+              - { id: total, code: total = 36 }
+            key: [total, n, mean, show]
+            alternatives:
+              - [n, total, mean, show]
+            tests:
+              - name: 从上到下运行显示平均值
+                stdout: "9.0"
+        explanation: |
+          `total = 36` 和 `n = 4` 放在最前面（两者谁先都可以），然后算 `mean`，最后显示。一个单元格要用到的名字，必须由它上面的单元格先定义好。
+      - id: py45.k2.r2
+        kind: [predict]
+        body: |
+          屏幕上从上到下有四个单元格。现在重启内核并全部运行。
+
+          单元格 A：
+
+          ```python
+          unit = "cm"
+          ```
+
+          单元格 B：
+
+          ```python
+          print(depth, unit)
+          ```
+
+          单元格 C：
+
+          ```python
+          depth = 30
+          ```
+
+          单元格 D：
+
+          ```python
+          print(depth + 5)
+          ```
+        slots:
+          - id: status
+            type: table
+            prompt: 每个单元格的结果是什么？
+            columns:
+              - { id: cell, header: 单元格 }
+              - id: outcome
+                header: 结果
+                input:
+                  type: choice
+                  options:
+                    - { id: ok, label: 正常运行 }
+                    - { id: error, label: 报错 }
+                    - { id: skipped, label: 没有运行 }
+            rows:
+              - { id: A, cells: { cell: A, outcome: ok } }
+              - { id: B, cells: { cell: B, outcome: error } }
+              - { id: C, cells: { cell: C, outcome: skipped } }
+              - { id: D, cells: { cell: D, outcome: skipped } }
+        explanation: |
+          A **正常运行**；B 要用 depth，可它定义在下面的 C 里，B **报错**（NameError）；全部运行遇到第一个报错就停下，C、D **没有运行**。把 C 挪到 B 前面再重启、全部运行，才能跑通。
+        verify: |
+          import contextlib
+          import io
+          names = ["A", "B", "C", "D"]
+          namespace = {}
+          status = {}
+          stopped = False
+          for name, block in zip(names, BLOCKS):
+              if stopped:
+                  status[name] = {"outcome": "skipped"}
+                  continue
+              try:
+                  with contextlib.redirect_stdout(io.StringIO()):
+                      exec(block, namespace)
+                  status[name] = {"outcome": "ok"}
+              except Exception:
+                  status[name] = {"outcome": "error"}
+                  stopped = True
+          answers = {"status": status}
+    quiz:
+      - id: py45.k2.x1
+        kind: [explain]
+        uses: [py01.k2]
+        body: |
+          屏幕上从上到下有三个单元格：
+
+          单元格 A，编号 `[4]`：
+
+          ```python
+          rate = 2
+          ```
+
+          单元格 B，编号 `[2]`：
+
+          ```python
+          amount = 10 * rate
+          ```
+
+          单元格 C，编号 `[3]`，下面显示 30：
+
+          ```python
+          print(amount)
+          ```
+
+          会话里的经过是：A 原来写的是下面这一行，依次运行了 A、B、C；之后把 A 改成现在的 `rate = 2` 并重新运行了 A，B 和 C 没有再运行。
+
+          ```python
+          rate = 3
+          ```
+
+          下面哪一句说法正确？
+        slots:
+          - id: claim
+            type: choice
+            options:
+              - id: still_30
+                content: 重启并全部运行后，C 仍显示 30
+              - id: matches
+                content: 屏幕上 C 显示的 30，就是现在 A、B 的代码算出来的结果
+              - id: becomes_20
+                content: 重启并全部运行后，C 显示 20
+              - id: name_error
+                content: 重启并全部运行会在 B 报 NameError
+            key: becomes_20
+        explanation: |
+          “重启并全部运行后，C 显示 20”正确。屏幕上的 30 是 A 改动之前（rate 为 3）算出来的，和现在的代码对不上；重启后按现在的代码从上往下运行，rate 是 2，amount 是 20。A 在 B 上面，B 不会报 NameError。
+        verify: |
+          new_a, b, c, old_a = BLOCKS
+          screen = run(old_a + "\n" + b + "\n" + c).lines()[-1]
+          restart = run(new_a + "\n" + b + "\n" + c)
+          holds = {
+              "still_30": restart.error is None and restart.lines()[-1] == "30",
+              "matches": restart.error is None and restart.lines()[-1] == screen,
+              "becomes_20": restart.error is None and restart.lines()[-1] == "20",
+              "name_error": run(new_a + "\n" + b).error == "NameError",
+          }
+          true = [claim for claim, ok in holds.items() if ok]
+          answers = {"claim": true[0] if len(true) == 1 else true}
+      - id: py45.k2.x2
+        kind: [trace]
+        body: |
+          屏幕上从上到下有三个单元格，之前都运行过：
+
+          单元格 A：
+
+          ```python
+          base = 10
+          ```
+
+          单元格 B：
+
+          ```python
+          total = base + 5
+          ```
+
+          单元格 C：
+
+          ```python
+          print(total)
+          ```
+
+          现在**只重启内核**，不全部运行，然后一格一格手动运行：先运行 C，再运行 A，再运行 C，再运行 B，最后运行 C。
+        slots:
+          - id: steps
+            type: table
+            prompt: 每一步显示什么？没有显示写 NOTHING，报错写 ERROR。
+            columns:
+              - { id: step, header: 第几步 }
+              - { id: cell, header: 运行的单元格 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: s1, cells: { step: "1", cell: C, shown: ERROR } }
+              - { id: s2, cells: { step: "2", cell: A, shown: NOTHING } }
+              - { id: s3, cells: { step: "3", cell: C, shown: ERROR } }
+              - { id: s4, cells: { step: "4", cell: B, shown: NOTHING } }
+              - { id: s5, cells: { step: "5", cell: C, shown: "15" } }
+        explanation: |
+          重启后内核是空的。第 1 步 C 用 total，报错；第 2 步 A 定义 base，不显示；第 3 步 C 仍报错，因为 total 要靠 B 来算，B 还没运行；第 4 步 B 算出 total，不显示；第 5 步 C 显示 **15**。
+
+          重启之前运行过什么都不算数，一个名字只有在重启后被重新运行出来才存在。
+        verify: |
+          # 重启后内核是空的；单元格各只有一条语句，像交互解释器那样逐条运行，报错后继续下一步。
+          shown = repl("\n".join(BLOCKS[cell] for cell in [2, 0, 2, 1, 2]))
+          answers = {"steps": {f"s{step}": {"shown": text} for step, text in enumerate(shown, 1)}}
