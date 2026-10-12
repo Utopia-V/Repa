@@ -1,7 +1,8 @@
 id: py20
 title: 把文字转成数字时怎样处理坏值
-status: outline
+status: complete
 minutes: 20
+summary: 用 pd.to_numeric 把文字列转成数；读懂转换失败的报错，用 errors="coerce" 把坏值变成缺失，并数清、列出坏值，把处理规则写进需求。
 prerequisites:
   - topic: py19
     key: true
@@ -26,8 +27,864 @@ sources:
     use: reference
 notes: |
   建议题型与判分：追踪变量（P）、小改代码（T）、写清需求（S/O）。
+  范围：只讲 pd.to_numeric 的默认行为（报错）和 errors="coerce"，以及转换前后数缺失、列出坏值。不讲用 str.replace 修正坏值的代码（py05、py24），修正只作为需求里的规则出现；不建新列（py21 不是先修），转换结果存成单独的名字。py18 不是先修，坏值清单用 loc[掩码] 再 dropna 取出，不用 &。
+  pandas 3 已经去掉 errors="ignore"，传入时报 ValueError；AI 或旧教程的代码里常见，讲解点一句，复习题里出现一次。
+  课程运行时里，前后带空格的数字能转换，空串会直接转成 NaN（不算失败）；为了不把“空串算不算失败”带进本节，表里的空格都写成缺失（None）。
+  文字列在 pandas 的表格显示里看不出引号和首尾空格，主表用 python 夹具自己画表，每格加引号。
+  k2 的规则判断题在复习和测验各有一道列进 manual，由 course:confirm 核对；其余由程序核对。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、三道练习 5 分钟；k2 讲解与例题 4 分钟、三道练习 5 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  从表格软件或仪器导出的数据，常有一列“看起来是数，其实是文字”：有人在格子里写了“未称”，有人把 10.2 写成了“10,2”。这一节学怎样把这样的列转成数，又不让写坏的值悄悄消失。
+
+  宿主已经导入了 pandas（`pd`）和 NumPy（`np`），并准备好数据表；每道题都从题面给出的表重新开始。
+wrapup: |
+  把文字列转成数时，先不加 `errors="coerce"` 试一次：报错信息会告诉你第一个转不了的值。决定用 coerce 以后，转换前后各数一次缺失，把多出来的那些原值列出来，交给需求方决定哪些能修正、哪些记为缺失。
+
+  向同事或 AI 提需求时，可以这样说：“把 weight 转成数；写成小数逗号的先把逗号改成点；其余转不了的记为缺失，不参加计算；在结果里报告转换失败的个数和原值。”
+data:
+  D:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame(
+          {"sample_id": ["S_A", "S_B", "S_C", "S_D", "S_E", "S_F"], "weight": ["12.5", "8", None, "未称", "10,2", " 9.5 "]},
+          index=[31, 7, 22, 4, 18, 9],
+      )
+    display: |
+      表 D（宿主已准备好，变量名 `df`）：六个样本的称重记录，单位是克。weight 列是**文字**，这里每格都加了引号，好看清里面写了什么；S_C 没有记录，显示为 NaN。
+
+      | 原行索引 | sample_id | weight |
+      |---:|---|---|
+      | 31 | S_A | `"12.5"` |
+      | 7 | S_B | `"8"` |
+      | 22 | S_C | NaN |
+      | 4 | S_D | `"未称"` |
+      | 18 | S_E | `"10,2"` |
+      | 9 | S_F | `" 9.5 "` |
+  D2:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame(
+          {"sample_id": ["X_A", "X_B", "X_C", "X_D", "X_E"], "weight": ["3", "n/a", "4.5", None, "2,5"]},
+          index=[90, 2, 60, 11, 45],
+      )
+    display: |
+      另一份称重记录（变量名 `df`），weight 列是文字，每格加了引号。
+
+      | 原行索引 | sample_id | weight |
+      |---:|---|---|
+      | 90 | X_A | `"3"` |
+      | 2 | X_B | `"n/a"` |
+      | 60 | X_C | `"4.5"` |
+      | 11 | X_D | NaN |
+      | 45 | X_E | `"2,5"` |
+  D3:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      df = pd.DataFrame({"sample_id": ["Z_A", "Z_B", "Z_C"], "weight": ["1", "2.5", "3"]}, index=[8, 40, 15])
+    display: |
+      第三份称重记录（变量名 `df`），weight 列是文字，每格都能转成数。
+
+      | 原行索引 | sample_id | weight |
+      |---:|---|---|
+      | 8 | Z_A | `"1"` |
+      | 40 | Z_B | `"2.5"` |
+      | 15 | Z_C | `"3"` |
+  readings:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      readings = pd.DataFrame(
+          {"station": ["T1", "T2", "T3", "T4", "T5"], "temp": ["21.5", "-", "19", "error", "20.0"]},
+          index=[1, 2, 3, 4, 5],
+      )
+    display: |
+      表 readings：五个温度探头导出的读数（℃），temp 列是文字，每格加了引号。
+
+      | 原行索引 | station | temp |
+      |---:|---|---|
+      | 1 | T1 | `"21.5"` |
+      | 2 | T2 | `"-"` |
+      | 3 | T3 | `"19"` |
+      | 4 | T4 | `"error"` |
+      | 5 | T5 | `"20.0"` |
+  lab:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      lab = pd.DataFrame({"od": ["0.52", "0,48", "0.61", "超量程", None, " 0.7"]}, index=[1, 2, 3, 4, 5, 6])
+    display: |
+      表 lab：六个孔的吸光度读数，od 列是文字，每格加了引号；第 5 个孔没有读数。
+
+      | 原行索引 | od |
+      |---:|---|
+      | 1 | `"0.52"` |
+      | 2 | `"0,48"` |
+      | 3 | `"0.61"` |
+      | 4 | `"超量程"` |
+      | 5 | NaN |
+      | 6 | `" 0.7"` |
+  plates:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      plates = pd.DataFrame(
+          {"well": ["A1", "A2", "A3", "A4", "A5", "A6"], "od": ["0.31", "0.29", "—", None, "0.3O", "0.33"]},
+          index=[0, 1, 2, 3, 4, 5],
+      )
+    display: |
+      表 plates：一块板上六个孔的读数，od 列是文字，每格加了引号。A5 的最后一个字符是大写字母 O，不是数字 0。
+
+      | 原行索引 | well | od |
+      |---:|---|---|
+      | 0 | A1 | `"0.31"` |
+      | 1 | A2 | `"0.29"` |
+      | 2 | A3 | `"—"` |
+      | 3 | A4 | NaN |
+      | 4 | A5 | `"0.3O"` |
+      | 5 | A6 | `"0.33"` |
+  survey:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
+      survey = pd.DataFrame(
+          {"person": ["R1", "R2", "R3", "R4", "R5", "R6"], "age": ["34", "二十八", "41", None, "29岁", "57"]},
+          index=[0, 1, 2, 3, 4, 5],
+      )
+    display: |
+      表 survey：一份问卷里填写的年龄，age 列是文字，每格加了引号。
+
+      | 原行索引 | person | age |
+      |---:|---|---|
+      | 0 | R1 | `"34"` |
+      | 1 | R2 | `"二十八"` |
+      | 2 | R3 | `"41"` |
+      | 3 | R4 | NaN |
+      | 4 | R5 | `"29岁"` |
+      | 5 | R6 | `"57"` |
+  libs:
+    kind: python
+    code: |
+      import numpy as np
+      import pandas as pd
 kps:
   - id: py20.k1
     title: to_numeric 的失败与 errors="coerce"
+    card:
+      name: to_numeric 转数字
+      aliases: [to_numeric, coerce, 文字转数字]
+      definition: pd.to_numeric(列) 把一列文字逐个转成数；有一个转不了就报 ValueError，加 errors="coerce" 则把转不了的变成 NaN。
+      conditions:
+        - 前后的空格不影响；“未称”“10,2”“1,200”这类写法转不了。
+        - coerce 不会提示丢了哪些值，转换前后要数一数缺失。
+        - 旧代码里的 errors="ignore" 在 pandas 3 里会报 ValueError。
+      example:
+        from: py20.k1.e0
+        text: |
+          ```python
+          num = pd.to_numeric(df["weight"], errors="coerce")
+          ```
+          表 D 的 weight 依次为 "12.5"、"8"、NaN、"未称"、"10,2"、" 9.5 "，num 依次为 12.5、8.0、NaN、NaN、NaN、9.5。
+    lesson: |
+      表 D 的 weight 看起来是一列重量，但有人写了“未称”，还有一格写成了“10,2”，所以整列读进来是**文字**。文字不能直接相加：`"12.5" + "8"` 得到 `"12.58"`，是把两段字接起来。要计算，先转成数。
+
+      学过的 `float("12.5")` 一次转一个值；`pd.to_numeric` 是整列版，逐个把文字转成数：
+
+      ```python
+      num = pd.to_numeric(df["weight"])
+      ```
+
+      这一行会报错：`ValueError: Unable to parse string "未称" at position 3`。信息里写明了第一个转不了的值是“未称”，它在第 3 个位置（从 0 数起，和原行索引无关）。整列转换要么全部成功，要么一个也不转。
+
+      加上 `errors="coerce"`，转不了的值变成 NaN，其余照常转换：
+
+      ```python
+      num = pd.to_numeric(df["weight"], errors="coerce")
+      ```
+
+      | 原行索引 | weight（文字） | num |
+      |---:|---|---:|
+      | 31 | `"12.5"` | 12.5 |
+      | 7 | `"8"` | 8.0 |
+      | 22 | NaN | NaN |
+      | 4 | `"未称"` | NaN |
+      | 18 | `"10,2"` | NaN |
+      | 9 | `" 9.5 "` | 9.5 |
+
+      前后的空格不影响转换；“未称”是字，“10,2”用逗号当小数点，都转不了。结果是一列浮点数，原本空着的 S_C 仍是 NaN。
+
+      coerce 很安静：它不提示任何东西。“10,2”本来是一次真实的称重，现在和“未称”一样成了 NaN。所以用 coerce 之后，一定要看看丢了什么，这是下一个知识点。
+
+      另外两种常见写法：`df["weight"].astype(float)` 和 `float()` 一样，遇到转不了的值就报错；旧代码里的 `errors="ignore"` 在 pandas 3 里已经去掉了，会报 ValueError。
+    example:
+      id: py20.k1.e0
+      kind: [trace]
+      data: [D]
+      body: |
+        阅读代码，按原行索引填写 `num` 的值。转成缺失的格填 `NaN`。
+
+        ```python
+        num = pd.to_numeric(df["weight"], errors="coerce")
+        ```
+      slots:
+        - id: num
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: weight, header: weight（文字） }
+            - { id: num, header: num, input: { type: text, format: number, quick: [NaN] } }
+          rows:
+            - { id: r31, cells: { index: "31", weight: '"12.5"', num: 12.5 } }
+            - { id: r7, cells: { index: "7", weight: '"8"', num: 8 } }
+            - { id: r22, cells: { index: "22", weight: NaN, num: NaN } }
+            - { id: r4, cells: { index: "4", weight: '"未称"', num: NaN } }
+            - { id: r18, cells: { index: "18", weight: '"10,2"', num: NaN } }
+            - { id: r9, cells: { index: "9", weight: '" 9.5 "', num: 9.5 } }
+        - id: dtype
+          type: choice
+          prompt: "`num` 是什么类型？"
+          options:
+            - { id: str, content: 文字（str） }
+            - { id: float, content: 浮点（float64） }
+            - { id: int, content: 整数（int64） }
+          key: float
+      explanation: |
+        `num` 依次为 **12.5、8.0、NaN、NaN、NaN、9.5**，类型是**浮点（float64）**。
+
+        “8”转成 8.0：这一列有缺失，整列存成浮点。“ 9.5 ”前后的空格不影响。索引 22 原本就空着，仍是 NaN；“未称”和“10,2”转不了，被 coerce 变成了 NaN。
+      verify: |
+        num = run()["num"]
+        answers = {
+            "num": {f"r{label}": {"num": "NaN" if pd.isna(value) else value} for label, value in num.items()},
+            "dtype": {"f": "float", "i": "int"}.get(num.dtype.kind, "str"),
+        }
+    practice:
+      - id: py20.k1.q1
+        kind: [debug]
+        uses: [py11.k2, py16.k2]
+        data: [D]
+        body: |
+          阅读代码。
+
+          ```python
+          num = pd.to_numeric(df["weight"])
+          ```
+        slots:
+          - id: outcome
+            type: choice
+            prompt: 运行这一行会怎样？
+            options:
+              - { id: nan, content: 转不了的值变成 NaN，其余转成数 }
+              - { id: error, content: 报 ValueError，num 没有得到值 }
+              - { id: text, content: 不报错，num 仍是原来的文字 }
+            key: error
+          - id: value
+            type: choice
+            prompt: 报错信息里点名的是哪个值？
+            options:
+              - { id: v12, content: "`\"12.5\"`" }
+              - { id: vnone, content: S_C 的 NaN }
+              - { id: vunk, content: "`\"未称\"`" }
+              - { id: vcomma, content: "`\"10,2\"`" }
+            key: vunk
+          - id: position
+            type: text
+            format: integer
+            prompt: 信息里说它在第几个位置（position 后面的数）？
+            key: 3
+        explanation: |
+          报 **ValueError**：`Unable to parse string "未称" at position 3`。不加 coerce 时，遇到第一个转不了的值就停下，整列一个也不转。
+
+          点名的是 **“未称”**，它是第一个转不了的值；“10,2”排在它后面，还没轮到。position 是 **3**：从 0 数起的位置（依次是 "12.5"、"8"、NaN、"未称"），不是原行索引 4。原本空着的 S_C 不算转换失败。
+        verify: |
+          r = run()
+          names = {"v12": "12.5", "vnone": "nan", "vunk": "未称", "vcomma": "10,2"}
+          named = [option for option, text in names.items() if f'"{text}"' in (r.message or "")]
+          position = int(r.message.rsplit("position", 1)[1].strip())
+          answers = {
+              "outcome": "error" if r.error == "ValueError" else "other",
+              "value": named[0] if len(named) == 1 else named,
+              "position": position,
+          }
+      - id: py20.k1.q2
+        kind: [predict]
+        uses: [py03.k2]
+        body: |
+          下面每个文字单独放进一列，再用 `pd.to_numeric(..., errors="coerce")` 转换。哪些能转成数（不是 NaN）？选出所有能转的。
+        slots:
+          - id: ok
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: dec, content: "`\"3.5\"`" }
+              - { id: spaced, content: "`\" 42 \"`（前后各有一个空格）" }
+              - { id: thousands, content: "`\"1,200\"`" }
+              - { id: unit, content: "`\"12mg\"`" }
+              - { id: negative, content: "`\"-7\"`" }
+              - { id: na_text, content: "`\"N/A\"`" }
+            key: [dec, spaced, negative]
+        explanation: |
+          **"3.5"、" 42 "、"-7"** 能转：前后的空格和负号都没问题。
+
+          "1,200" 里的逗号、"12mg" 里的单位、"N/A" 这几个字，都让它转不了，coerce 会把它们变成 NaN。其中 "1,200" 和 "12mg" 本来是有意义的数，如果直接 coerce，就丢了真实的值。
+        verify: |
+          values = {"dec": "3.5", "spaced": " 42 ", "thousands": "1,200", "unit": "12mg", "negative": "-7", "na_text": "N/A"}
+          answers = {"ok": [option for option, text in values.items()
+                            if pd.to_numeric(pd.Series([text]), errors="coerce").notna().iloc[0]]}
+      - id: py20.k1.q3
+        kind: [modify, debug]
+        uses: [py11.k2]
+        data: [D]
+        body: |
+          需求是：
+
+          > 把 weight 转成数，转不了的当作缺失、不计入；算出总重量 `total`。不改变 `df`。
+
+          作答框里是从一篇旧教程抄来的代码，在课程的 pandas 版本里一运行就报 ValueError。请改动它并提交，最终结果变量仍叫 `total`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              num = pd.to_numeric(df["weight"], errors="ignore")
+              total = num.sum()
+            solution: |
+              num = pd.to_numeric(df["weight"], errors="coerce")
+              total = num.sum()
+            accepts:
+              - total = pd.to_numeric(df["weight"], errors="coerce").sum()
+              - total = pd.to_numeric(df["weight"], errors="coerce").fillna(0).sum()
+            rejects:
+              - code: |
+                  num = pd.to_numeric(df["weight"])
+                  total = num.sum()
+                why: 不加 coerce，遇到转不了的值就报错
+              - code: |
+                  num = df["weight"].astype(float)
+                  total = num.sum()
+                why: astype(float) 遇到转不了的值同样报错
+              - code: total = df["weight"].sum()
+                why: 文字直接求和，得到的是首尾相接的一串字
+              - code: total = 30.0
+                why: 照着这张表写死了结果
+            tests:
+              - name: 表 D
+                expect:
+                  total: "30.0"
+                  df: df
+              - name: 换一份记录
+                hidden: true
+                data: [D2]
+                expect:
+                  total: "7.5"
+                  df: df
+              - name: 每格都能转换的记录
+                hidden: true
+                data: [D3]
+                expect:
+                  total: "6.5"
+                  df: df
+        explanation: |
+          ```python
+          num = pd.to_numeric(df["weight"], errors="coerce")
+          total = num.sum()
+          ```
+
+          `errors="ignore"` 是旧版 pandas 的写法，pandas 3 已经去掉了它，传进去就报 ValueError。按需求“转不了的当作缺失”，应改成 `errors="coerce"`。求和时缺失不计入，本例总重量是 12.5 + 8 + 9.5 = 30.0。判分时还会换两份记录运行。
+    review:
+      - id: py20.k1.r1
+        kind: [trace]
+        uses: [py19.k1]
+        data: [readings]
+        body: |
+          阅读代码，按原行索引填写 `t` 的值。转成缺失的格填 `NaN`。
+
+          ```python
+          t = pd.to_numeric(readings["temp"], errors="coerce")
+          ```
+        slots:
+          - id: t
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: temp, header: temp（文字） }
+              - { id: t, header: t, input: { type: text, format: number, quick: [NaN] } }
+            rows:
+              - { id: r1, cells: { index: "1", temp: '"21.5"', t: 21.5 } }
+              - { id: r2, cells: { index: "2", temp: '"-"', t: NaN } }
+              - { id: r3, cells: { index: "3", temp: '"19"', t: 19 } }
+              - { id: r4, cells: { index: "4", temp: '"error"', t: NaN } }
+              - { id: r5, cells: { index: "5", temp: '"20.0"', t: 20 } }
+          - id: missing
+            type: text
+            format: integer
+            prompt: "`t.isna().sum()` 是多少？"
+            key: 2
+        explanation: |
+          `t` 依次为 **21.5、NaN、19.0、NaN、20.0**，有 **2** 个缺失。单独一个减号和“error”都不是数，被 coerce 变成 NaN；“19”和“20.0”都转成浮点。
+        verify: |
+          t = run()["t"]
+          answers = {
+              "t": {f"r{label}": {"t": "NaN" if pd.isna(value) else value} for label, value in t.items()},
+              "missing": int(t.isna().sum()),
+          }
+      - id: py20.k1.r2
+        kind: [debug]
+        uses: [py11.k2, py03.k2]
+        data: [libs]
+        body: |
+          宿主先运行了这一行：
+
+          ```python
+          s = pd.Series(["5", "n.d.", "7"])
+          ```
+
+          下面每一行都单独接在它后面运行。哪几行会报错？选出所有会报错的。
+        slots:
+          - id: errors
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: plain, content: "`num = pd.to_numeric(s)`" }
+              - { id: coerce, content: "`num = pd.to_numeric(s, errors=\"coerce\")`" }
+              - { id: astype, content: "`num = s.astype(float)`" }
+              - { id: ignore, content: "`num = pd.to_numeric(s, errors=\"ignore\")`" }
+            key: [plain, astype, ignore]
+        explanation: |
+          **不加参数的 to_numeric、`astype(float)`、`errors="ignore"`** 这三行会报 ValueError。前两个遇到“n.d.”转不了；`errors="ignore"` 是 pandas 3 已经去掉的旧写法，传入时就报错。只有 `errors="coerce"` 不报错，把“n.d.”变成 NaN。
+        verify: |
+          prelude = 's = pd.Series(["5", "n.d.", "7"])\n'
+          lines = {
+              "plain": "num = pd.to_numeric(s)",
+              "coerce": 'num = pd.to_numeric(s, errors="coerce")',
+              "astype": "num = s.astype(float)",
+              "ignore": 'num = pd.to_numeric(s, errors="ignore")',
+          }
+          answers = {"errors": [option for option, line in lines.items() if run(prelude + line).error is not None]}
+    quiz:
+      - id: py20.k1.x1
+        kind: [predict]
+        uses: [py03.k1, py03.k2]
+        data: [libs]
+        body: |
+          阅读代码，写出三行输出。
+
+          ```python
+          counts = pd.Series(["12", "20", "n.d."])
+          print(counts.iloc[0] + counts.iloc[1])
+          num = pd.to_numeric(counts, errors="coerce")
+          print(num.sum())
+          print(num.dtype)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行输出
+            key: "1220"
+            feedback:
+              - when: "32"
+                message: 这两格还是文字，+ 把两段字接起来，不是相加。
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "32.0"
+          - id: third
+            type: text
+            prompt: 第三行输出
+            key: float64
+        explanation: |
+          第一行 **1220**：两格都是文字，`+` 把“12”和“20”接成“1220”。
+
+          第二行 **32.0**：转换以后“n.d.”成了 NaN，求和时不计入，12 + 20 = 32，结果是浮点。第三行 **float64**：有缺失的数值列存成浮点。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1], "third": str(lines[2])}
+      - id: py20.k1.x2
+        kind: [trace]
+        uses: [py19.k1]
+        data: [lab]
+        body: |
+          阅读代码。
+
+          ```python
+          od = pd.to_numeric(lab["od"], errors="coerce")
+          ```
+        slots:
+          - id: rows
+            type: order
+            partial: true
+            prompt: "`od` 里哪些行是 NaN？按先后顺序排出原行索引。"
+            items:
+              - { id: "1", content: "1" }
+              - { id: "2", content: "2" }
+              - { id: "3", content: "3" }
+              - { id: "4", content: "4" }
+              - { id: "5", content: "5" }
+              - { id: "6", content: "6" }
+            key: ["2", "4", "5"]
+          - id: original
+            type: choice
+            prompt: 其中哪一行在转换之前就已经缺失？
+            options:
+              - { id: "2", content: 索引 2 }
+              - { id: "4", content: 索引 4 }
+              - { id: "5", content: 索引 5 }
+            key: "5"
+        explanation: |
+          索引 **2、4、5** 是 NaN。“0,48”用逗号当小数点，“超量程”是字，都转不了；索引 **5** 在转换之前就没有读数。“ 0.7”开头的空格不影响转换。
+
+          这三个 NaN 来历不同：一个是原本就缺，两个是转换失败。只看转换后的结果，分不出它们。
+        verify: |
+          od = run()["od"]
+          answers = {
+              "rows": [str(label) for label, value in od.items() if pd.isna(value)],
+              "original": str([label for label, value in lab["od"].items() if pd.isna(value)][0]),
+          }
+
   - id: py20.k2
     title: 保留坏值计数并把处理规则写进需求
+    card:
+      name: 坏值清单
+      aliases: [转换失败, 坏值计数]
+      definition: 转换后新增的缺失就是转换失败的值；先数出个数、列出原值，再按需求决定哪些修正、哪些记为缺失。
+      conditions:
+        - 失败个数 = 转换后的缺失数 − 转换前的缺失数。
+        - 有的坏值能按规则修正（例如把小数逗号改成点），有的只能记为缺失，这要由需求方决定。
+      example:
+        from: py20.k2.e0
+        text: |
+          ```python
+          num = pd.to_numeric(df["weight"], errors="coerce")
+          bad = df["weight"].loc[num.isna()].dropna()
+          ```
+          表 D 转换前缺 1 个、转换后缺 3 个，失败 2 个：“未称”和“10,2”。
+    lesson: |
+      coerce 不会告诉你丢了什么，那就自己数。转换后多出来的缺失，就是转换失败的值：
+
+      ```python
+      num = pd.to_numeric(df["weight"], errors="coerce")
+      before = df["weight"].isna().sum()
+      after = num.isna().sum()
+      bad = df["weight"].loc[num.isna()].dropna()
+      ```
+
+      - `before` 是 1：S_C 原本就空着；`after` 是 3。两者相减，**转换失败 2 个**。
+      - `df["weight"].loc[num.isna()]` 取出转换后成了缺失的那些**原值**，再用 `dropna()` 去掉原本就空着的，剩下的就是**坏值清单**：“未称”“10,2”。
+
+      有了清单，才能作出有根据的决定：“10,2”多半是用逗号写的小数 10.2，可以先把逗号换成点再转；“未称”确实没有数，只能记为缺失。哪些能修、怎样修，是需求方的决定，不是 coerce 替你做的。
+
+      把这些写进需求，别人照做时就不会悄悄丢数据：
+
+      > 把 weight 转成数：写成小数逗号的，先把逗号改成点；其余转不了的记为缺失，不参加计算；在结果里报告转换失败的个数和原值。
+
+      拿到 AI 写的转换代码时，也按这三件事核对：失败的值去了哪里；有没有数出来；有没有列出原值给人看。
+    example:
+      id: py20.k2.e0
+      kind: [trace]
+      data: [D]
+      body: |
+        阅读代码，回答下面的问题。
+
+        ```python
+        num = pd.to_numeric(df["weight"], errors="coerce")
+        before = df["weight"].isna().sum()
+        after = num.isna().sum()
+        bad = df["weight"].loc[num.isna()].dropna()
+        ```
+      slots:
+        - id: before
+          type: text
+          format: integer
+          prompt: "`before` 是多少？"
+          key: 1
+        - id: after
+          type: text
+          format: integer
+          prompt: "`after` 是多少？"
+          key: 3
+        - id: failed
+          type: text
+          format: integer
+          prompt: 转换失败了几个值？
+          key: 2
+        - id: bad
+          type: order
+          partial: true
+          prompt: "`bad` 里有哪些原值？按先后顺序排列。"
+          items:
+            - { id: a, content: "`\"12.5\"`" }
+            - { id: b, content: "`\"8\"`" }
+            - { id: c, content: "`\"未称\"`" }
+            - { id: d, content: "`\"10,2\"`" }
+            - { id: e, content: "`\" 9.5 \"`" }
+          key: [c, d]
+      explanation: |
+        `before` 是 **1**（S_C），`after` 是 **3**，转换失败 **2** 个。`bad` 依次是 **“未称”“10,2”**：先取出转换后成了缺失的原值（NaN、“未称”“10,2”），再用 `dropna()` 去掉原本就空着的 NaN。
+
+        看到清单，就能和需求方商量：“10,2”可以改成 10.2 再转，“未称”记为缺失。
+      verify: |
+        r = run()
+        ids = {"12.5": "a", "8": "b", "未称": "c", "10,2": "d", " 9.5 ": "e"}
+        answers = {
+            "before": int(r["before"]),
+            "after": int(r["after"]),
+            "failed": int(r["after"] - r["before"]),
+            "bad": [ids[value] for value in r["bad"]],
+        }
+    practice:
+      - id: py20.k2.q1
+        kind: [predict]
+        uses: [py19.k1, py19.k3]
+        data: [D2]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          num = pd.to_numeric(df["weight"], errors="coerce")
+          print(num.isna().sum() - df["weight"].isna().sum())
+          print(list(df["weight"].loc[num.isna()].dropna()))
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行输出
+            key: 2
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "['n/a', '2,5']"
+        explanation: |
+          第一行 **2**：转换后缺 3 个，转换前缺 1 个（X_D），失败 2 个。第二行 **['n/a', '2,5']**：转换后成了缺失的原值是 “n/a”、NaN、“2,5”，`dropna()` 去掉原本就空着的那个。
+
+          “2,5”多半是小数 2.5，值得问一句要不要修正；“n/a”是没有数。
+        verify: |
+          lines = run().lines()
+          answers = {"first": int(lines[0]), "second": lines[1]}
+      - id: py20.k2.q2
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          转换 dose 列时，坏值清单是：`"1,5"`、`"未测"`、`"约2"`。负责人看了清单后说：
+
+          > “1,5”是用逗号写的小数，改成 1.5 再转；“未测”就是没有数；“约2”是估计值，不能当测量用。转不了的都别参加计算，最后把失败的个数和原值列给我。
+
+          把每个坏值的处理填进表里，再回答要不要报告。
+        slots:
+          - id: rules
+            type: table
+            columns:
+              - { id: value, header: 坏值 }
+              - id: action
+                header: 怎样处理
+                input:
+                  type: choice
+                  options:
+                    - { id: fix, label: 修正后再转 }
+                    - { id: missing, label: 记为缺失 }
+            rows:
+              - { id: comma, cells: { value: '"1,5"', action: fix } }
+              - { id: untested, cells: { value: '"未测"', action: missing } }
+              - { id: approx, cells: { value: '"约2"', action: missing } }
+          - id: report
+            type: choice
+            prompt: 要不要报告转换失败的个数和原值？
+            options:
+              - { id: "no", content: 不用，缺失不参加计算就够了 }
+              - { id: "yes", content: 要 }
+            key: "yes"
+        explanation: |
+          “1,5”**修正后再转**；“未测”和“约2”**记为缺失**；**要**报告失败的个数和原值。
+
+          “约2”能读出一个 2，但负责人说估计值不能当测量用，所以和“未测”一样记为缺失。这种判断来自业务，不能由 coerce 或写代码的人替对方决定。
+        manual: [rules, report]
+      - id: py20.k2.q3
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          同事给你一张表，说：“count 列有些格写得乱七八糟，你把它转成数再求和。”
+
+          请写一句完整的需求，让 AI 照着做时不会悄悄丢掉数据。题目没有告诉你哪些坏值能修正，需求里可以写成“交给负责人确认”。
+        slots:
+          - id: requirement
+            type: text
+            lines: 5
+            rubric:
+              - id: convert
+                label: 转换的列与失败时的去向
+                guide: 说明把 count 转成数，转不了的值记为缺失（或先停下来），并且不参加求和。
+              - id: report
+                label: 报告失败的个数和原值
+                guide: 要求在结果里列出转换失败的个数和这些原值。
+              - id: decide
+                label: 修正规则由谁决定
+                guide: 说明能修正的坏值按负责人确认的规则处理，或者先列出来请负责人确认；自己替对方决定修正方式不算。
+        explanation: |
+          一种写法：**把 count 转成数，转不了的记为缺失，不参加求和；在结果里报告转换失败的个数和每个原值；其中能修正的（例如带千分位逗号的数）先列给负责人确认，确认后再按规则修正。**
+
+          三点各算一项。只写“把 count 转成数再求和”的需求，和直接用 coerce 一样，会把坏值悄悄丢掉。
+    review:
+      - id: py20.k2.r1
+        kind: [trace]
+        uses: [py19.k1]
+        data: [plates]
+        body: |
+          阅读代码，回答下面的问题。
+
+          ```python
+          od = pd.to_numeric(plates["od"], errors="coerce")
+          before = plates["od"].isna().sum()
+          after = od.isna().sum()
+          ```
+        slots:
+          - id: before
+            type: text
+            format: integer
+            prompt: "`before` 是多少？"
+            key: 1
+          - id: after
+            type: text
+            format: integer
+            prompt: "`after` 是多少？"
+            key: 3
+          - id: bad
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            prompt: 哪些孔的读数是转换失败的？选出所有转换失败的。
+            options:
+              - { id: A1, content: A1 }
+              - { id: A3, content: A3 }
+              - { id: A4, content: A4 }
+              - { id: A5, content: A5 }
+              - { id: A6, content: A6 }
+            key: [A3, A5]
+        explanation: |
+          `before` 是 **1**（A4 原本就没有读数），`after` 是 **3**。转换失败的是 **A3 和 A5**：一条长横线不是数；“0.3O”的最后一个字符是字母 O，也转不了。A4 原本就缺，不算转换失败。
+
+          A5 多半是把 0.30 打错了，值得列出来请人确认，而不是悄悄变成缺失。
+        verify: |
+          r = run()
+          od = r["od"]
+          failed = [plates.loc[label, "well"] for label in plates.index if pd.isna(od[label]) and pd.notna(plates.loc[label, "od"])]
+          answers = {"before": int(r["before"]), "after": int(r["after"]), "bad": failed}
+      - id: py20.k2.r2
+        kind: [specify]
+        uses: [py12.k1]
+        body: |
+          负责人确认的规则是：“把 od 转成数；转不了的记为缺失，不参加计算；在结果里报告转换失败的个数和原值。”下面哪一种做法与它完全一致？
+        slots:
+          - id: plan
+            type: choice
+            options:
+              - id: a
+                content: 用 errors="coerce" 转换，再直接算平均值
+              - id: b
+                content: 转不了的填成 0 再算平均值，并报告转换失败的个数和原值
+              - id: c
+                content: 用 errors="coerce" 转换；列出转换前有值、转换后成了缺失的原值和个数；这些值不参加计算
+              - id: d
+                content: 只要有一个值转不了，就把整列都当作缺失
+            key: c
+        explanation: |
+          “列出转换前有值、转换后成了缺失的原值和个数，这些值不参加计算”这一种与规则一致。
+
+          直接算平均值漏了报告；填成 0 违背了“记为缺失、不参加计算”，还会拉低平均值；把整列当作缺失会丢掉所有能转的值。
+        manual: [plan]
+    quiz:
+      - id: py20.k2.x1
+        kind: [specify, debug]
+        uses: [py12.k1]
+        body: |
+          你请 AI 算一列剂量的平均值，它交来的代码是：
+
+          ```python
+          mean_dose = pd.to_numeric(df["dose"], errors="coerce").mean()
+          ```
+
+          结果看起来没问题，但你知道 dose 列里有人手写过一些备注。为了不让坏值悄悄消失，需求里最应当补上哪一句？
+        slots:
+          - id: add
+            type: choice
+            options:
+              - id: a
+                content: “把 errors 改成 ignore。”
+              - id: b
+                content: “转不了的值先填成 0 再算平均。”
+              - id: c
+                content: “平均值四舍五入到整数。”
+              - id: d
+                content: “报告转换失败的个数和这些原值。”
+            key: d
+        explanation: |
+          应补上“**报告转换失败的个数和这些原值**”。coerce 会把手写的备注和写坏的数一起变成缺失，平均值里看不出少了几个、少了什么。
+
+          errors="ignore" 在 pandas 3 里会报错；填 0 是替对方编造测量；四舍五入和坏值无关。
+        manual: [add]
+      - id: py20.k2.x2
+        kind: [trace]
+        uses: [py19.k1, py19.k3]
+        data: [survey]
+        body: |
+          阅读代码，回答下面的问题。
+
+          ```python
+          age = pd.to_numeric(survey["age"], errors="coerce")
+          bad = survey["age"].loc[age.isna()].dropna()
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: "`bad` 里有几个值？"
+            key: 2
+          - id: values
+            type: order
+            partial: true
+            prompt: "`bad` 里有哪些原值？按先后顺序排列。"
+            items:
+              - { id: a, content: "`\"34\"`" }
+              - { id: b, content: "`\"二十八\"`" }
+              - { id: c, content: "`\"41\"`" }
+              - { id: d, content: "`\"29岁\"`" }
+              - { id: e, content: "`\"57\"`" }
+            key: [b, d]
+        explanation: |
+          `bad` 里有 **2** 个值：**“二十八”“29岁”**。R4 原本就没填，被 `dropna()` 去掉了，不算转换失败。
+
+          这两个值其实都能读出年龄，只是写法不对；列出来以后，可以按负责人确认的规则改成 28、29 再转，而不是直接丢掉。
+        verify: |
+          bad = run()["bad"]
+          ids = {"34": "a", "二十八": "b", "41": "c", "29岁": "d", "57": "e"}
+          answers = {"count": len(bad), "values": [ids[value] for value in bad]}
+
+verified:
+  - question: py20.k2.r2
+    version: sha256:ef22db805c02e48e969dd10040c7bcdfb933b434da25e354bffaee60c5d49ed7
+    slots: [plan]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py20.k2.x1
+    version: sha256:18e64257888ab57407e98188f2f1c85fa3ae83e04efb617d7c95b2d187fd4a8e
+    slots: [add]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
