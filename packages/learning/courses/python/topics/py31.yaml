@@ -7,11 +7,11 @@ prerequisites:
   - topic: py25
     key: true
     weight: 0.50
-    covers: [py25.k1]
+    covers: [py25.k1, py25.k2]
   - topic: py27
     key: false
     weight: 1.00
-    covers: [py27.k1, py27.k2]
+    covers: [py27.k1]
 sources:
   - source: pydata-book
     where: 第 8 章 §8.3（长宽格式的变形）

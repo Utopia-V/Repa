@@ -11,7 +11,7 @@ prerequisites:
   - topic: py16
     key: true
     weight: 0.33
-    covers: [py16.k1]
+    covers: [py16.k1, py16.k2]
 sources:
   - source: pydata-book
     where: 第 10 章 §10.1–10.2（分组机制与数据聚合）
@@ -674,7 +674,7 @@ kps:
           }}
       - id: py27.k2.r2
         kind: [predict]
-        uses: [py06.k2]
+        uses: [py16.k2]
         data: [survey]
         body: |
           屏幕上依次显示什么？

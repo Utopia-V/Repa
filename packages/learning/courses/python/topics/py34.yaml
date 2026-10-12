@@ -7,11 +7,11 @@ prerequisites:
   - topic: py15
     key: true
     weight: 0.67
-    covers: [py15.k1, py15.k3]
+    covers: [py15.k1, py15.k2, py15.k3]
   - topic: py12
     key: true
     weight: 1.00
-    covers: [py12.k1, py12.k2]
+    covers: [py12.k1]
   - topic: py25
     key: false
     weight: 0.50

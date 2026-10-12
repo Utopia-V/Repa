@@ -11,7 +11,7 @@ prerequisites:
   - topic: py05
     key: true
     weight: 0.33
-    covers: [py05.k1]
+    covers: [py05.k1, py05.k2, py05.k3]
   - topic: py11
     key: false
     weight: 0.50

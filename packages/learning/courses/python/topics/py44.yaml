@@ -7,15 +7,15 @@ prerequisites:
   - topic: py43
     key: true
     weight: 0.67
-    covers: [py43.k1, py43.k2]
+    covers: [py43.k2]
   - topic: py37
     key: true
     weight: 0.67
-    covers: [py37.k1, py37.k2]
+    covers: [py37.k1, py37.k2, py37.k3]
   - topic: py15
     key: false
     weight: 0.33
-    covers: [py15.k1]
+    covers: [py15.k1, py15.k2]
 sources:
   - source: pydata-book
     where: 第 6 章 §6.1

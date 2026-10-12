@@ -8,10 +8,6 @@ prerequisites:
     key: true
     weight: 0.50
     covers: [py36.k1]
-  - topic: py38
-    key: false
-    weight: 0.33
-    covers: [py38.k1]
 sources:
   - source: think-python
     where: 第 18 章（列表推导式）
@@ -22,7 +18,7 @@ sources:
     url: https://docs.python.org/3.12/tutorial/datastructures.html
     use: reference
 notes: |
-  范围：只讲一个 for、最多一个 if 的列表推导式，以及它与 py36 的“空列表 + for + if + append”循环的等价改写。if 写在 for 前面的条件表达式（a if 条件 else b）、多个 for、字典和集合推导式都不在本节，只在 k2 讲解里提一句前者是另一回事。py38 的解包在推导式里不用，辅助先修的边保留给以后的变式题。
+  范围：只讲一个 for、最多一个 if 的列表推导式，以及它与 py36 的“空列表 + for + if + append”循环的等价改写。if 写在 for 前面的条件表达式（a if 条件 else b）、多个 for、字典和集合推导式都不在本节，只在 k2 讲解里提一句前者是另一回事。py38 的解包在推导式里不用，所以 py38 不列为先修。
   节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 4 分钟；k2 讲解与例题 4 分钟、练习 6 分钟；收束 2 分钟。
   题型：预测输出、逐元素追踪表、指认三部分（verify 用 ast 从题面代码里取出取元素的列表、条件和结果表达式，再与选项里的代码比对）、Parsons（带缩进、按测试判）、骨架代码加测试。代码题的初始代码用 ___ 留空，原样提交会因 NameError 不过测试。
   例题、练习的情境与数据为本课自拟；signals 与阈值 10 沿用 py17、py36 的约定。

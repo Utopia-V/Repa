@@ -7,11 +7,11 @@ prerequisites:
   - topic: py21
     key: true
     weight: 0.33
-    covers: [py21.k2]
+    covers: [py21.k1]
   - topic: py17
     key: true
     weight: 0.50
-    covers: [py17.k2]
+    covers: [py17.k1, py17.k2]
   - topic: py01
     key: true
     weight: 0.50

@@ -7,11 +7,11 @@ prerequisites:
   - topic: py35
     key: true
     weight: 0.33
-    covers: [py35.k1]
+    covers: [py35.k1, py35.k2]
   - topic: py06
     key: true
     weight: 0.67
-    covers: [py06.k1, py06.k2]
+    covers: [py06.k1, py06.k2, py06.k3]
 sources:
   - source: think-python
     where: 第 11 章（元组、元组赋值、zip 与 enumerate）
@@ -669,7 +669,7 @@ kps:
           }
       - id: py38.k2.q3
         kind: [trace]
-        uses: [py35.k1]
+        uses: [py35.k1, py35.k2]
         body: |
           ```python startLine=1
           depths = [30, 25, 35, 40]

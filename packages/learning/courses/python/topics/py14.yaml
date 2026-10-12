@@ -11,7 +11,7 @@ prerequisites:
   - topic: py13
     key: true
     weight: 0.50
-    covers: [py13.k1]
+    covers: [py13.k1, py13.k2]
   - topic: py03
     key: true
     weight: 0.33

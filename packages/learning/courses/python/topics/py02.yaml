@@ -7,7 +7,7 @@ prerequisites:
   - topic: py01
     key: true
     weight: 0.50
-    covers: [py01.k1]
+    covers: [py01.k1, py01.k2]
 sources:
   - source: think-python
     where: 第 1 章 §1

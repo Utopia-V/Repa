@@ -15,7 +15,7 @@ prerequisites:
   - topic: py02
     key: false
     weight: 0.33
-    covers: [py02.k1]
+    covers: [py02.k1, py02.k2]
 sources:
   - source: think-python
     where: 第 9 章（列表运算）
@@ -413,7 +413,7 @@ kps:
     example:
       id: py07.k2.e0
       kind: [trace, predict]
-      uses: [py04.k1, py04.k3, py06.k1]
+      uses: [py04.k1, py04.k3, py06.k1, py02.k2]
       body: |
         一份样本测了四次。阅读下面的程序。
 
@@ -460,7 +460,7 @@ kps:
     practice:
       - id: py07.k2.q1
         kind: [predict]
-        uses: [py02.k1]
+        uses: [py02.k1, py02.k2]
         body: |
           写出三行各显示什么。
 

@@ -7,15 +7,11 @@ prerequisites:
   - topic: py27
     key: true
     weight: 0.50
-    covers: [py27.k2]
+    covers: [py27.k1, py27.k2]
   - topic: py23
     key: true
     weight: 0.50
     covers: [py23.k1]
-  - topic: py13
-    key: false
-    weight: 0.50
-    covers: [py13.k2]
 sources:
   - source: pydata-book
     where: 第 9 章 §9.2（用 pandas 画图）
@@ -172,7 +168,7 @@ kps:
     example:
       id: py33.k1.e0
       kind: [explain]
-      uses: [py27.k2]
+      uses: [py27.k1, py27.k2]
       data: [trial]
       body: |
         要回答的问题：control 组和 drug 组的平均 signal 谁高？同事已经按组算好了平均值：
@@ -453,7 +449,7 @@ kps:
     example:
       id: py33.k2.e0
       kind: [predict]
-      uses: [py27.k2]
+      uses: [py27.k1, py27.k2]
       data: [trial]
       body: |
         需求：比较 control 和 drug 两组的平均 signal。同事写了两种画法。

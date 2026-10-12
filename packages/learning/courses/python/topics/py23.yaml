@@ -7,7 +7,7 @@ prerequisites:
   - topic: py16
     key: true
     weight: 0.67
-    covers: [py16.k2, py16.k3]
+    covers: [py16.k1, py16.k2]
   - topic: py12
     key: true
     weight: 1.00

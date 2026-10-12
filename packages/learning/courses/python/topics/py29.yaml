@@ -7,7 +7,7 @@ prerequisites:
   - topic: py25
     key: true
     weight: 0.50
-    covers: [py25.k1]
+    covers: [py25.k1, py25.k2]
   - topic: py19
     key: true
     weight: 0.33
@@ -15,7 +15,7 @@ prerequisites:
   - topic: py12
     key: true
     weight: 1.00
-    covers: [py12.k1, py12.k2]
+    covers: [py12.k1]
 sources:
   - source: pydata-book
     where: 第 8 章 §8.2

@@ -11,7 +11,7 @@ prerequisites:
   - topic: py12
     key: true
     weight: 0.50
-    covers: [py12.k2]
+    covers: [py12.k1, py12.k2]
   - topic: py11
     key: false
     weight: 0.50

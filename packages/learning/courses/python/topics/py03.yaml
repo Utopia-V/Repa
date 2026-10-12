@@ -146,6 +146,7 @@ kps:
     practice:
       - id: py03.k1.q1
         kind: [predict]
+        uses: [py02.k1]
         body: |
           下面四段程序各自单独运行。写出每段显示什么；如果程序报错停下，填 ERROR。
 
@@ -287,6 +288,7 @@ kps:
     review:
       - id: py03.k1.r1
         kind: [predict]
+        uses: [py02.k1]
         body: |
           下面哪些表达式算出的是文字（str）？选出全部。
         slots:
@@ -382,6 +384,7 @@ kps:
     quiz:
       - id: py03.k1.x1
         kind: [predict]
+        uses: [py02.k1]
         body: |
           哪一段程序会显示 10？
         slots:
@@ -600,7 +603,7 @@ kps:
           answers = {f"p{i}": repl(block)[-1] for i, block in enumerate(BLOCKS, 1)}
       - id: py03.k2.q2
         kind: [trace]
-        uses: [py01.k1]
+        uses: [py01.k1, py02.k1]
         body: |
           菌落数从表格里读进来，是文字 "38"。
 
@@ -1124,6 +1127,7 @@ kps:
     review:
       - id: py03.k3.r1
         kind: [predict]
+        uses: [py02.k1]
         body: |
           下面哪些表达式会报错？选出全部。
         slots:

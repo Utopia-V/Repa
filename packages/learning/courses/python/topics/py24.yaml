@@ -11,7 +11,7 @@ prerequisites:
   - topic: py19
     key: true
     weight: 0.67
-    covers: [py19.k1, py19.k3]
+    covers: [py19.k1, py19.k2, py19.k3]
   - topic: py15
     key: false
     weight: 0.33
