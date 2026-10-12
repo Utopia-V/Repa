@@ -93,7 +93,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 - `SidebarRail` 是侧栏边缘的 16 px 手势条，点击切换展开/收起，悬停显示 2 px 中性 `border` 竖线；支持拖动调整宽度、双击重置，键盘方向键调整、Home 重置、Enter/空格切换；上游的 offcanvas 类保留但当前未被使用。
 - `layouts/workspace-layout.tsx` 通过 SidebarProvider 组合应用侧栏、打开入口和空白路由出口。桌面展开宽度 280 px，收起为 56 px 常驻图标栏（`collapsible="icon"`）；移动端由官方 `useIsMobile` 与 Sheet 切换为侧边面板。桌面折叠栏自带展开入口，工作区只在移动端渲染浮动打开按钮。桌面可拖动至 200 px—480 px，最大不超过视口的 40%；拖至最小宽度以下收起，折叠时向外拖至 200 px 展开阈值才展开，小幅拖动保持折叠；展开使用完整过渡并结束本次拖动。桌面的展开状态和宽度由 Zustand store 的 `persist` 写入 `localStorage`（键 `repa.web.preferences`，只含侧栏偏好），刷新后保留；存储不可用时退回默认展开、默认宽度，格式不对的项逐项回到默认值；移动端抽屉每次从关闭开始，不保存。拖动期间用 80 ms 短过渡平滑调整宽度，跨过收起阈值时恢复完整折叠动画，取消、失去指针捕获或卸载时清理拖动状态。
 - 折叠栏沿用 SidebarMenuButton 的 token 与交互状态，通过 `sr-only` 保留标签的可访问名称，并用 `title` 提供图标提示。侧栏支持拖动调宽、收起与展开；移动端复用 Sheet 的关闭、Escape 和焦点恢复行为。
-- Web 的 `components/domain/app-sidebar.tsx` 组合 Learning Space 和 Settings 两个栏目；打开空间后，它下面的二级菜单项显示这个空间的文件夹名（悬停显示完整路径），点击进入对话页，在对话页时为当前项。后端一次只持有一个空间，所以只列当前打开的这一个，最近空间仍在 Learning Space 页选择；整页刷新后页面不知道当前空间，这一项随之消失。侧栏收起为图标栏时二级菜单隐藏。打开空间后，主导航下方的“会话”组由 `components/domain/session-list.tsx` 列出这个空间的会话，最近有消息的在前，名称取会话名，没有时取第一条消息的开头，悬停显示全文；点击打开该会话并进入对话页，在对话页时正在查看的会话为当前项。运行中其他会话不能点，因为运行状态只属于当前会话，切走后无法再查询。会话很多时随侧栏滚动，还没有分页；收起为图标栏时整组隐藏。Settings 目前只有模型设置，见下方“设置页”。Desktop 的 Settings 仍是空页面。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources、History 或本地空间提示卡，布局不再保存会话展开状态。
+- Web 的 `components/domain/app-sidebar.tsx` 组合 Learning Space 和 Settings 两个栏目；打开空间后，它下面的二级菜单项显示这个空间的文件夹名（悬停显示完整路径），点击进入对话页，在对话页时为当前项。后端一次只持有一个空间，所以只列当前打开的这一个，最近空间仍在 Learning Space 页选择；整页刷新后页面不知道当前空间，这一项随之消失。侧栏收起为图标栏时二级菜单隐藏。打开空间后，主导航下方的“会话”组由 `components/domain/session-list.tsx` 列出这个空间的会话，最近有消息的在前，名称取会话名，没有时取第一条消息的开头，悬停显示全文；点击打开该会话并进入对话页，在对话页时正在查看的会话为当前项。运行中其他会话不能点，因为运行状态只属于当前会话，切走后无法再查询。会话很多时随侧栏滚动，还没有分页；收起为图标栏时整组隐藏。Settings 目前有模型设置和命令授权，见下方“设置页”。Desktop 的 Settings 仍是空页面。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources、History 或本地空间提示卡，布局不再保存会话展开状态。
 - `/` 重定向到 `/learning-space`，未知地址显示未找到页面，两者共用工作台布局。Desktop 另有内容为空的 `/settings`。
 - Web 的 `test/sidebar.test.tsx` 验证栏目、默认页、会话列表的顺序、切换与运行中禁用、移动抽屉的导航与焦点恢复、图标栏、拖动调宽和刷新后保留侧栏状态；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航；`test/store.test.ts` 验证读取去重、重连后重新读取、旧结果丢弃，以及侧栏偏好的保存、格式校验和存储不可用时的退路。
 
@@ -127,9 +127,10 @@ Agent 调用 `bash` 时后端发出 `confirm.request`。`features/command-confir
 
 ## 设置页
 
-Web 的 `pages/settings.tsx` 挂在 `/settings`，目前只有模型设置，数据全部来自 Pi：提供方目录、凭据和默认模型都由底座转发，前端不维护提供方表。
+Web 的 `pages/settings.tsx` 挂在 `/settings`，目前有模型设置和命令授权。模型设置的数据全部来自 Pi：提供方目录、凭据和默认模型都由底座转发，前端不维护提供方表。
 
 - “默认模型”显示 `model.getDefault` 的结果，即新会话不指定模型时使用的模型：Pi 设置里的默认模型，没设置时是第一个可用模型。它的提供方没有连接时在名称下提示发送会失败。“更换”打开 `features/model-picker.tsx`，只列已连接提供方的模型；一个提供方可能有几百个模型，所以用搜索加列表，选中后调用 `model.setDefault`。
 - “模型提供方”列出 `configured` 的提供方及凭据类型。`stored` 的可以“断开”（`auth.logout`）；环境变量或 `models.json` 提供的凭据标“由环境变量或配置文件提供”，不显示断开。还没有连接时“添加提供方”是主按钮。
 - `features/provider-connect.tsx` 是连接对话框：先搜索选择提供方，有多种方式时再选“用账号登录”或“填写 API key”，只能在 Repa 之外配置的方式只给说明。key 用密码输入框，经 `auth.setKey` 保存；后端返回 `requires_interactive_login`（例如 Amazon Bedrock 还要选认证方式）时自动改走 `auth.login`。账号登录和这类 key 登录过程中，后端发来的 `display` 显示为说明和“打开链接”（新标签页），收到即回复，后端不用等用户点；`input`（`secret` 时为密码框）和 `select` 在对话框里排队回答。底座把选项写成 message 里的“id：名称 — 说明”，每项都能对上时按钮直接显示这一行。关闭对话框即取消：未回答的请求回复 `null`，之后的失败不再提示；只在浏览器里等待回调、没有可回答请求的步骤要等后端自己结束。登录失败显示原因，可以重试。
-- `test/settings-page.test.tsx` 用模拟后端覆盖列表与环境变量凭据、搜索后填 key 连接和断开、key 不够时改走交互登录、账号登录的链接与选项及关闭取消、登录失败重试、选择默认模型；`test/conversation-page.test.tsx` 覆盖没有可用模型时的引导。真实 Pi 提供方的 Anthropic 账号登录（选择方式、链接、授权码输入、取消）和 Amazon Bedrock 的 key 回退已在浏览器中走到授权前一步，没有用真实账号完成登录。
+- “命令授权”读写应用设置里的 `commandPolicy`（`settings.get`／`settings.set`），store 只取这一项，最近空间和提示覆盖由各自入口读取。“每次询问”（`ask`）时 Agent 每次调用 `bash` 都弹出对话页的授权对话框；“完全访问”（`fullAccess`）时直接运行，没有发起连接的后台命令也会运行，而询问模式下它们会被阻止。命令不在沙箱里，可能改动学习空间之外的文件，这些改动不在空间历史的撤回范围内，所以选完全访问时先用对话框说明后果，确认后才保存；改回询问没有风险，选中即保存。后端在每次命令执行前读取设置，保存后从下一条命令起生效，正在运行的会话也一样；已经弹出的授权对话框不会因此自动允许。设置对所有空间生效，保存失败时显示原因并保留原来的选项。
+- `test/settings-page.test.tsx` 用模拟后端覆盖列表与环境变量凭据、搜索后填 key 连接和断开、key 不够时改走交互登录、账号登录的链接与选项及关闭取消、登录失败重试、选择默认模型，以及开启完全访问前的确认与取消、改回询问、保存失败；`test/conversation-page.test.tsx` 覆盖没有可用模型时的引导。真实 Pi 提供方的 Anthropic 账号登录（选择方式、链接、授权码输入、取消）和 Amazon Bedrock 的 key 回退已在浏览器中走到授权前一步，没有用真实账号完成登录。

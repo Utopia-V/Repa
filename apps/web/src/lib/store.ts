@@ -12,6 +12,9 @@ export type Resource<T> = {
   error?: unknown;
 };
 
+/** ask 时 Agent 的每条命令都要用户允许，fullAccess 时直接运行。 */
+export type CommandPolicy = Result<"settings.get">["commandPolicy"];
+
 type ResourceData = {
   /** 最近打开的空间，最新的在前。 */
   spaces: Result<"space.list">;
@@ -23,6 +26,8 @@ type ResourceData = {
   defaultModel: Result<"model.getDefault">;
   /** 当前空间的会话，最近有消息的在前；换空间时清空。 */
   sessions: Result<"session.list">;
+  /** Agent 执行命令前是否询问；应用级设置，对所有空间生效。设置里的其他字段由各自的入口读取。 */
+  commandPolicy: CommandPolicy;
 };
 
 type ResourceName = keyof ResourceData;
@@ -86,6 +91,9 @@ export type AppState = {
   /** 失败时抛给调用方；需要更多信息的提供方抛出 requires_interactive_login，调用方改走 login。 */
   saveKey(provider: string, key: string): Promise<void>;
   logout(provider: string): Promise<void>;
+  loadCommandPolicy(): Promise<void>;
+  /** 失败时抛给调用方，界面保留原来的策略。 */
+  setCommandPolicy(policy: CommandPolicy): Promise<void>;
   /** 交互登录，等后端完成整个流程才返回；用户取消时同样以失败结束。 */
   login(provider: string, type: "api_key" | "oauth"): Promise<void>;
   answerLoginPrompt(id: string, value: string | null): Promise<void>;
@@ -162,6 +170,7 @@ export function createAppStore() {
       models: () => load("models", () => call("model.list", {})),
       defaultModel: () => load("defaultModel", () => call("model.getDefault", {})),
       sessions: () => load("sessions", () => call("session.list", {})),
+      commandPolicy: () => load("commandPolicy", async () => (await call("settings.get", {})).commandPolicy),
     };
 
     /** 换空间后丢弃旧空间的会话列表，进行中的读取结果也作废。 */
@@ -282,6 +291,7 @@ export function createAppStore() {
         models: { status: "idle" },
         defaultModel: { status: "idle" },
         sessions: { status: "idle" },
+        commandPolicy: { status: "idle" },
       },
       conversation: emptyConversation,
       confirmations: [],
@@ -437,6 +447,14 @@ export function createAppStore() {
       async logout(provider) {
         await call("auth.logout", { provider });
         await reloadModelState();
+      },
+      loadCommandPolicy: loaders.commandPolicy,
+      async setCommandPolicy(policy) {
+        const settings = await call("settings.set", { commandPolicy: policy });
+        // settings.set 返回保存后的设置；进行中的旧读取作废，直接用这份结果。
+        pending.delete("commandPolicy");
+        sequence.set("commandPolicy", (sequence.get("commandPolicy") ?? 0) + 1);
+        update("commandPolicy", { status: "ready", data: settings.commandPolicy });
       },
       async login(provider, type) {
         const id = ++loginRequest;

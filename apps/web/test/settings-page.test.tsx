@@ -13,7 +13,10 @@ afterEach(cleanup);
 
 type Provider = Result<"model.providers">[number];
 
-/** 模拟后端的提供方与凭据：OpenAI 来自环境变量，Bedrock 只填 key 不够，登录由测试控制何时结束。 */
+/**
+ * 模拟后端的提供方、凭据与应用设置：OpenAI 来自环境变量，Bedrock 只填 key 不够，登录由测试控制何时结束；
+ * `settings.saveError` 有值时下一次 settings.set 以它失败。
+ */
 function backend() {
   const providers: Provider[] = [
     { id: "bedrock", name: "Amazon Bedrock", methods: [{ type: "api_key", name: "AWS credentials", login: true }], stored: false },
@@ -30,6 +33,7 @@ function backend() {
     { provider: "anthropic", id: "claude", name: "Claude" },
   ];
   let chosen: { provider: string; id: string } | undefined;
+  const settings: { commandPolicy: "ask" | "fullAccess"; saveError?: unknown } = { commandPolicy: "ask" };
   const logins: { provider: string; type: string; finish(error?: unknown): void }[] = [];
   const connect = (id: string, type: "api_key" | "oauth") => {
     const provider = providers.find((item) => item.id === id)!;
@@ -76,11 +80,22 @@ function backend() {
         });
       case "confirm.reply":
         return Promise.resolve(null);
+      case "settings.get":
+        return Promise.resolve({ commandPolicy: settings.commandPolicy, recentSpaces: [], prompts: {} });
+      case "settings.set": {
+        const error = settings.saveError;
+        if (error !== undefined) {
+          delete settings.saveError;
+          return Promise.reject(error);
+        }
+        settings.commandPolicy = params.commandPolicy as typeof settings.commandPolicy;
+        return Promise.resolve({ commandPolicy: settings.commandPolicy, recentSpaces: [], prompts: {} });
+      }
       default:
         return Promise.reject(new Error(`未模拟的方法 ${method}`));
     }
   });
-  return { call, logins, ...fakeClient(call) };
+  return { call, logins, settings, ...fakeClient(call) };
 }
 
 async function renderSettings(fake: ReturnType<typeof backend>) {
@@ -229,4 +244,54 @@ it("从已连接提供方的模型里选择默认模型", async () => {
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(fake.call).toHaveBeenCalledWith("model.setDefault", { model: { provider: "deepseek", id: "deepseek-chat" } });
   expect(await within(section("默认模型")).findByText("DeepSeek Chat")).toBeTruthy();
+});
+
+it("开启完全访问前先说明后果，取消后仍然每次询问，确认后才保存", async () => {
+  const fake = backend();
+  await renderSettings(fake);
+  const policy = within(section("命令授权"));
+  const ask = await policy.findByRole("radio", { name: "每次询问" });
+  const full = policy.getByRole("radio", { name: "完全访问" });
+  expect(ask.getAttribute("aria-checked")).toBe("true");
+  expect(full.getAttribute("aria-checked")).toBe("false");
+
+  fireEvent.click(full);
+  const dialog = await screen.findByRole("dialog", { name: "让 Agent 直接执行命令？" });
+  expect(within(dialog).getByText(/学习空间之外的文件/)).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(fake.call).not.toHaveBeenCalledWith("settings.set", expect.anything());
+  expect(ask.getAttribute("aria-checked")).toBe("true");
+
+  fireEvent.click(full);
+  fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "开启完全访问" }));
+  await vi.waitFor(() => expect(full.getAttribute("aria-checked")).toBe("true"));
+  expect(fake.call).toHaveBeenCalledWith("settings.set", { commandPolicy: "fullAccess" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("从完全访问改回每次询问时直接保存", async () => {
+  const fake = backend();
+  fake.settings.commandPolicy = "fullAccess";
+  await renderSettings(fake);
+  const policy = within(section("命令授权"));
+  const ask = await policy.findByRole("radio", { name: "每次询问" });
+  await vi.waitFor(() => expect(policy.getByRole("radio", { name: "完全访问" }).getAttribute("aria-checked")).toBe("true"));
+
+  fireEvent.click(ask);
+  await vi.waitFor(() => expect(ask.getAttribute("aria-checked")).toBe("true"));
+  expect(fake.call).toHaveBeenCalledWith("settings.set", { commandPolicy: "ask" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("保存命令授权失败时显示原因，保留原来的策略", async () => {
+  const fake = backend();
+  fake.settings.saveError = new RpcError(-32000, "设置写入失败", { code: "storage_failed" });
+  await renderSettings(fake);
+  const policy = within(section("命令授权"));
+  fireEvent.click(await policy.findByRole("radio", { name: "完全访问" }));
+  fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "开启完全访问" }));
+
+  expect((await policy.findByRole("alert")).textContent).toContain("无法保存命令授权设置");
+  expect(policy.getByRole("radio", { name: "每次询问" }).getAttribute("aria-checked")).toBe("true");
 });
