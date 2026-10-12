@@ -25,7 +25,7 @@ it("默认进入 Learning Space，侧栏有 Learning Space 和 Settings 两个�
   expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
 });
 
-it("打开空间后 Learning Space 一项换成这个空间，下面是新会话，History 和 Settings 排在最后；点击空间进入对话页，换空间回到选空间页", async () => {
+it("打开空间后 Learning Space 一项换成这个空间，下面是新会话，History 和 Settings 排在最后；点击空间回到选空间页", async () => {
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
     switch (method) {
       case "space.open":
@@ -44,20 +44,21 @@ it("打开空间后 Learning Space 一项换成这个空间，下面是新会话
 
   await act(() => store.getState().openSpace("/notes/calculus"));
   const navigation = screen.getByRole("navigation", { name: "主导航" });
-  expect(within(navigation).getAllByRole("link").map((link) => link.getAttribute("aria-label") ?? link.textContent)).toEqual(["calculus", "换空间", "History", "Settings"]);
+  expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual(["calculus", "History", "Settings"]);
+  expect(within(navigation).queryByRole("button", { name: /关闭空间/ })).toBeNull();
   const space = within(navigation).getByRole("link", { name: "calculus" });
   expect(space.getAttribute("title")).toBe("/notes/calculus");
-  fireEvent.click(space);
+  expect(space.getAttribute("aria-current")).toBe("page");
 
+  fireEvent.click(within(navigation).getByRole("button", { name: "新会话" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
   // 当前项标在空间下面的会话上；还没有会话时是新会话。
   await waitFor(() => expect(within(navigation).getByRole("button", { name: "新会话" }).getAttribute("aria-current")).toBe("true"));
   expect(space.getAttribute("aria-current")).toBeNull();
 
-  fireEvent.click(within(navigation).getByRole("link", { name: "换空间" }));
+  fireEvent.click(space);
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
-  expect(within(navigation).getByRole("link", { name: "换空间" }).getAttribute("aria-current")).toBe("page");
-  expect(within(navigation).getByRole("link", { name: "calculus" })).toBeTruthy();
+  expect(space.getAttribute("aria-current")).toBe("page");
 });
 
 it("空间下面列出它的会话，点击打开；新会话从任意页面开始一个空会话；运行中不能切换", async () => {
@@ -112,7 +113,7 @@ it("空间下面列出它的会话，点击打开；新会话从任意页面开�
   await act(async () => { finish?.(); });
 });
 
-it("关闭当前空间后回到 Learning Space；运行中不能关，关闭失败时显示原因并可以再关", async () => {
+it("在选空间页关闭当前空间，侧栏回到 Learning Space；运行中不能关，关闭失败时显示原因并可以再关", async () => {
   let finish: (() => void) | undefined;
   let closeFails = true;
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
@@ -120,6 +121,7 @@ it("关闭当前空间后回到 Learning Space；运行中不能关，关闭失�
       case "space.open":
         return Promise.resolve({ root: params.root });
       case "space.list":
+        return Promise.resolve(["/notes/calculus"]);
       case "session.list":
       case "session.history":
         return Promise.resolve([]);
@@ -140,10 +142,10 @@ it("关闭当前空间后回到 Learning Space；运行中不能关，关闭失�
   const store = createAppStore();
   store.getState().setClient(fakeClient(call).client);
   await act(() => store.getState().openSpace("/notes/calculus"));
-  const router = renderWorkspace("/conversation", store);
+  const router = renderWorkspace("/learning-space", store);
   const navigation = screen.getByRole("navigation", { name: "主导航" });
-  const close = within(navigation).getByRole("button", { name: "关闭空间 calculus" });
-  await screen.findByText("这是一个新会话。说说你想学什么，或者直接提问。");
+  const workspace = screen.getByRole("main");
+  const close = await within(workspace).findByRole("button", { name: "关闭空间 calculus" });
 
   act(() => { void store.getState().sendMessage("继续"); });
   await waitFor(() => expect(finish).toBeDefined());
@@ -152,16 +154,17 @@ it("关闭当前空间后回到 Learning Space；运行中不能关，关闭失�
   await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(false));
 
   fireEvent.click(close);
-  expect((await within(navigation).findByRole("alert")).textContent).toContain("关闭空间时出错");
-  expect(router.state.location.pathname).toBe("/conversation");
+  expect((await within(workspace).findByRole("alert")).textContent).toContain("关闭 calculus 时出错");
+  expect(store.getState().space).toBe("/notes/calculus");
 
   fireEvent.click(close);
-  await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
+  await waitFor(() => expect(store.getState().space).toBeUndefined());
   expect(call.mock.calls.filter(([method]) => method === "space.close")).toHaveLength(2);
+  expect(router.state.location.pathname).toBe("/learning-space");
   expect(within(navigation).queryByRole("link", { name: "calculus" })).toBeNull();
-  await waitFor(() => expect(within(navigation).getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page"));
-  expect(within(navigation).queryByRole("alert")).toBeNull();
-  expect(store.getState().space).toBeUndefined();
+  expect(within(navigation).getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
+  expect(within(workspace).queryByRole("button", { name: /关闭空间/ })).toBeNull();
+  expect(within(workspace).queryByRole("alert")).toBeNull();
 });
 
 it("导航抽屉可关闭、恢复焦点，选择目标后关闭并保留当前路由", async () => {

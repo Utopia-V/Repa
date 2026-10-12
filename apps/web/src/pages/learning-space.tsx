@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { FolderOpen, FolderSearch, RefreshCw } from "lucide-react";
+import { FolderOpen, FolderSearch, RefreshCw, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { SelectionButton } from "@/components/ui/selection-button";
@@ -16,9 +16,13 @@ export function LearningSpacePage() {
   const loadSpaces = useAppStore((state) => state.loadSpaces);
   const openSpace = useAppStore((state) => state.openSpace);
   const resumeFailure = useAppStore((state) => state.resumeFailure);
+  const closeSpace = useAppStore((state) => state.closeSpace);
+  const running = useAppStore((state) => state.conversation.run !== "idle");
   const [opening, setOpening] = useState<string>();
   const [failure, setFailure] = useState<{ root: string; error: unknown }>();
   const [picking, setPicking] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [closeFailure, setCloseFailure] = useState<{ root: string; error: unknown }>();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -38,6 +42,19 @@ export function LearningSpacePage() {
     }
   }
 
+  async function close(root: string) {
+    setClosing(true);
+    setCloseFailure(undefined);
+    try {
+      await closeSpace();
+    } catch (error) {
+      // 后端报错时其实已经放下了这个空间，原因显示出来，可以再关一次。
+      setCloseFailure({ root, error });
+    } finally {
+      setClosing(false);
+    }
+  }
+
   const recent = spaces.data;
   const loadFailed = spaces.status === "error";
   // 选择框放在两种布局之外：读取完成时布局切换，不会卸载已经打开的选择框。
@@ -49,6 +66,10 @@ export function LearningSpacePage() {
         active={active}
         opening={opening}
         failure={failure ?? (resumeFailure && { ...resumeFailure, previous: true })}
+        closeFailure={closeFailure?.root === active ? closeFailure : undefined}
+        // 后端关闭空间会中止正在进行的运行，所以运行中不能关。
+        closeDisabled={running || closing}
+        onClose={(root) => { void close(root); }}
         onPick={() => setPicking(true)}
         onOpen={(root) => { void open(root); }}
         onRetry={() => { void loadSpaces(); }}
@@ -69,13 +90,16 @@ function FirstSpace({ onPick }: { onPick(): void }) {
     </div>;
 }
 
-function RecentSpaces({ spaces, active, opening, failure, onPick, onOpen, onRetry }: {
+function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDisabled, onPick, onOpen, onClose, onRetry }: {
   spaces: Resources["spaces"];
   active: string | undefined;
   opening: string | undefined;
   failure: { root: string; error: unknown; previous?: boolean } | undefined;
+  closeFailure: { root: string; error: unknown } | undefined;
+  closeDisabled: boolean;
   onPick(): void;
   onOpen(root: string): void;
+  onClose(root: string): void;
   onRetry(): void;
 }) {
   const recent = spaces.data;
@@ -117,11 +141,13 @@ function RecentSpaces({ spaces, active, opening, failure, onPick, onOpen, onRetr
       </div>}
 
       {failure && <ErrorNotice title={`无法打开${failure.previous ? "上次的空间 " : " "}${folderName(failure.root)}`} error={failure.error} />}
+      {closeFailure && <ErrorNotice title={`关闭 ${folderName(closeFailure.root)} 时出错`} error={closeFailure.error} />}
 
       {hasRecent && <ul aria-labelledby="recent-spaces" className="m-0 grid list-none gap-2 p-0">
-        {recent.map((root) => <li key={root}>
+        {/* 打开的空间旁边放关闭；它和其他空间一样可以点，继续回到对话。 */}
+        {recent.map((root) => <li key={root} className="flex items-center gap-2">
           <SelectionButton
-            className="w-full"
+            className="min-w-0 flex-1"
             selected={root === active}
             disabled={opening !== undefined}
             aria-busy={opening === root}
@@ -135,6 +161,14 @@ function RecentSpaces({ spaces, active, opening, failure, onPick, onOpen, onRetr
               </span>
             </span>
           </SelectionButton>
+          {root === active && <Button
+            variant="outline"
+            aria-label={`关闭空间 ${folderName(root)}`}
+            disabled={closeDisabled || opening !== undefined}
+            onClick={() => onClose(root)}
+          >
+            <X aria-hidden="true" />关闭
+          </Button>}
         </li>)}
       </ul>}
     </section>
