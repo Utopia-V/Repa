@@ -805,14 +805,14 @@ verified:
     version: sha256:3f9c01cc7f7db28be031eb232731a5723d12ac754e77e6ad3805acd85fb26108
     slots: [column, direction, tie, tie_direction]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13
   - question: py23.k1.x2
     version: sha256:881d8b4a3f16312c53397c4c11fe1819dafcada63160956d2ee178ebe7c05764
     slots: [next]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13
   - question: py23.k2.x2
     version: sha256:cd01c15da48958612103d98abfee9f72fa78c93af2e79e1d448d240ad16fd65c
     slots: [first, second]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13

@@ -1223,9 +1223,9 @@ verified:
     version: sha256:a3c9cdaae049c45d04b5e24c81ef3acb687f7b194b30f85c970524e57c5a01b5
     slots: [role_line, role_month, role_n_birds]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13
   - question: py31.k3.x2
     version: sha256:87ad2e3399c748841f0627a4e453edb3fa33b07241b294902b2b2ac0635e031e
     slots: [next]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13

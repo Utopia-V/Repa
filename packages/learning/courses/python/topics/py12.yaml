@@ -601,19 +601,19 @@ verified:
     version: sha256:043b7526fd9cd60eb5016c76003f139a6c378cb2c2ef02575292c1b6bbbcd57b
     slots: [rewrite]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13
   - question: py12.k1.r2
     version: sha256:a8370ef7a021f99a27d7ad8a08f2e95185f54d424ec8becc3b5efdf9229b0432
     slots: [missing]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13
   - question: py12.k1.x1
     version: sha256:8a636bc58bac9f552d344ef255e0fa07eed43c10387e5e1544b4e69ca20bb984
     slots: [column, operator, threshold, output, order]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13
   - question: py12.k1.x2
     version: sha256:1463b26b85de5e469e60c8bcb04d26fbe642d2cc1e6df6a959262a0f187db64a
     slots: [next]
     model: deepseek/deepseek-flash
-    date: 2026-10-12
+    date: 2026-10-13
