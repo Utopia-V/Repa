@@ -8,12 +8,17 @@ summary: >-
 language: zh-CN
 license: CC-BY-NC-SA-4.0
 # 判分与核对用的运行时，与学习者在 Repa 里运行代码的 Pyodide 版本一致。
+# prelude 是运行前导：每次运行题目代码、测试和核对程序之前，先在同一个命名空间里运行；
+# 学习者在 Repa 里运行代码时用的是同一份，所以题目里可以直接写 pd、np。
 runtime:
   pyodide: 314.0.7
   python: 3.14.2
   packages:
     numpy: 2.4.6
     pandas: 3.0.2
+  prelude: |
+    import pandas as pd
+    import numpy as np
 
 # 用到的外部材料。permits 列出许可允许的用法：reference 只作取材参照、内容自行编写；
 # adapt 改编文字；code 复用代码；quote 短引用。许可依据 2026-10-11 的材料调查。

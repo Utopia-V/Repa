@@ -41,6 +41,8 @@ export interface RuntimeAssets {
   /** 课程要求的包及其依赖。 */
   wheels: Wheel[];
   load: string[];
+  /** 课程清单声明的运行前导，每个任务在自己的命名空间里先运行它；没有声明为空串。 */
+  prelude: string;
 }
 
 export class RuntimeProblem extends Error {
@@ -94,6 +96,7 @@ export async function describeRuntime(runtime: Runtime, packagesDirectory?: stri
     packagesDirectory: packagesDirectory ?? defaultPackagesDirectory(manifest.version),
     wheels: [...wheels.values()].sort((left, right) => left.name.localeCompare(right.name)),
     load: Object.keys(runtime.packages),
+    prelude: runtime.prelude ?? "",
   };
 }
 

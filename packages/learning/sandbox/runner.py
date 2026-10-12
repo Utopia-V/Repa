@@ -1,9 +1,10 @@
 """课程检查在 Pyodide 里执行的部分，由 runner.mjs 加载。
 
-每个任务用全新的命名空间，任务前把解释器里常被改动的全局状态（pandas 与 NumPy 的选项、builtins、
-sys 的输出与显示钩子、warnings 过滤器、挂起的 asyncio 任务）恢复原样。模块本身仍在任务之间共享，
-所以检查程序每个 topic 换一个新运行器；这只为节省启动时间，不是安全边界（安全边界在 launch.py）。
-这里只负责执行和把结果序列化，是否正确由沙箱外的 TypeScript 比较。
+每个任务用全新的命名空间（先运行课程清单声明的运行前导），全新的工作目录，
+任务后把解释器里常被改动的全局状态（pandas 与 NumPy 的选项、builtins、sys 的输出与显示钩子和 path、
+环境变量、warnings 过滤器、挂起的 asyncio 任务、工作目录与临时目录里新建的文件）恢复原样。
+模块本身仍在任务之间共享，所以检查程序每个 topic 换一个新运行器；这只为节省启动时间，不是安全边界
+（安全边界在 launch.py）。这里只负责执行和把结果序列化，是否正确由沙箱外的 TypeScript 比较。
 """
 
 import ast
@@ -12,8 +13,11 @@ import builtins
 import contextlib
 import copy
 import importlib.metadata
+import inspect
 import io
 import json
+import os
+import shutil
 import sys
 import traceback
 import types
@@ -39,6 +43,32 @@ PRINT_OPTIONS = np.get_printoptions()
 NUMPY_ERRORS = np.geterr()
 WARNING_FILTERS = list(warnings.filters)
 STREAMS = (sys.stdout, sys.stderr, sys.displayhook)
+SYS_PATH = list(sys.path)
+ENVIRONMENT = dict(os.environ)
+# 工作目录是 Pyodide 默认的 /home/pyodide；这些目录里任务新建的东西在任务后删掉，下一个任务看到的是空目录。
+HOME = os.getcwd()
+SCRATCH_DIRECTORIES = ("/tmp", HOME)
+SCRATCH_BASELINE = {directory: set(os.listdir(directory)) for directory in SCRATCH_DIRECTORIES}
+ROOT_BASELINE = set(os.listdir("/"))
+
+
+def remove_path(path):
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    else:
+        os.remove(path)
+
+
+def clear_scratch():
+    """回到工作目录，删掉任务在工作目录、/tmp 和根目录下新建的文件与目录。"""
+    os.chdir(HOME)
+    for directory, baseline in SCRATCH_BASELINE.items():
+        for name in os.listdir(directory):
+            if name not in baseline:
+                remove_path(os.path.join(directory, name))
+    for name in os.listdir("/"):
+        if name not in ROOT_BASELINE:
+            remove_path(os.path.join("/", name))
 
 
 def reset_state():
@@ -56,6 +86,11 @@ def restore_state():
         if getattr(builtins, name, None) is not value:
             setattr(builtins, name, value)
     sys.stdout, sys.stderr, sys.displayhook = STREAMS
+    sys.settrace(None)
+    sys.path[:] = SYS_PATH
+    os.environ.clear()
+    os.environ.update(ENVIRONMENT)
+    clear_scratch()
     warnings.filters[:] = WARNING_FILTERS
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -86,20 +121,36 @@ def describe_error(error):
     return {"type": type(error).__name__, "message": str(error)[:2000]}
 
 
+def error_line(error, filename):
+    """异常停在 filename 这段代码的第几行：语法错误取它自己的行号，其余取调用栈里最里面一层属于这段代码的行。"""
+    if isinstance(error, SyntaxError) and error.filename == filename:
+        return error.lineno
+    line = None
+    for frame in traceback.extract_tb(error.__traceback__):
+        if frame.filename == filename:
+            line = frame.lineno
+    return line
+
+
 def run_quietly(code, namespace, filename):
-    """执行代码并捕获输出；返回 (输出, 异常描述或 None)。"""
+    """执行代码并捕获输出；返回 (输出, 异常描述或 None)，异常描述里的 line 是它停在这段代码的第几行。"""
     output = LimitedOutput()
     error = None
     with contextlib.redirect_stdout(output):
         try:
             exec(compile(code, filename, "exec"), namespace)
         except BaseException as caught:  # noqa: BLE001  作答代码可能 exit()，也要记下来
-            error = describe_error(caught)
+            error = {**describe_error(caught), "line": error_line(caught, filename)}
     return output.getvalue(), error
 
 
-def build_namespace(data):
+def build_namespace(data, prelude=""):
+    """全新的命名空间：先运行课程清单的运行前导，再准备题目的数据。"""
     namespace = {"__name__": "__main__", "__builtins__": builtins}
+    if prelude:
+        output, error = run_quietly(prelude, namespace, "<prelude>")
+        if error:
+            raise RuntimeError(f"课程清单的运行前导出错：{error['type']}: {error['message']}")
     for fixture in data:
         if fixture["kind"] == "dataframe":
             frame = pd.DataFrame(fixture["columns"], index=fixture.get("index"))
@@ -196,12 +247,39 @@ class Shown(str):
     """print 或交互解释器实际显示出来的文字。写成“显示内容”作答时原样使用，不再取 repr。"""
 
 
+# WWPD 约定的三个显示结果：报错、什么也不显示、显示一个函数。
+ERROR = Shown("ERROR")
+NOTHING = Shown("NOTHING")
+FUNCTION = Shown("FUNCTION")
+
+FUNCTION_TYPES = (types.FunctionType, types.BuiltinFunctionType, types.MethodType)
+
+
+def display_text(value):
+    """交互解释器对一个表达式的值显示什么：None 什么也不显示（空串），函数显示 FUNCTION，其余是 repr。"""
+    if value is None:
+        return ""
+    if isinstance(value, FUNCTION_TYPES):
+        return "FUNCTION"
+    return repr(value)
+
+
+def as_shown(text):
+    """把一段已经是“显示内容”的文字标出来，写进 match: output 的作答位时不再取 repr。"""
+    return Shown(text)
+
+
+def show(value):
+    """一个值在交互解释器里显示的内容，沿用 NOTHING、FUNCTION 的约定，可直接用作 match: output 的答案。"""
+    return Shown(display_text(value) or "NOTHING")
+
+
 def as_text(value, display=False):
     """把核对程序算出的值写成学生的作答。
 
     普通文字作答：字符串原样，其余用 repr（True 成为 "True"，4 成为 "4"）。
     显示内容作答（match: output）：Python 会显示什么就写什么，所以字符串也取 repr（'42' 带引号）；
-    run().out、lines() 和 repl() 给出的是已经显示出来的文字，原样使用。
+    run().out、lines()、repl()、as_shown()、show() 和 ERROR、NOTHING、FUNCTION 给出的是已经显示出来的文字，原样使用。
     """
     if isinstance(value, Shown):
         return str(value)
@@ -216,14 +294,17 @@ def as_text(value, display=False):
 # 核对程序可用的工具
 # ---------------------------------------------------------------------------
 
+QUESTION_FILE = "<题面代码>"
+
 
 class RunResult:
-    """run() 的结果：out 为打印内容，error 为异常类型名（没有异常为 None），vars 为运行后的变量。"""
+    """run() 的结果：out 为打印内容，error 为异常类型名（没有异常为 None），error_line 为它停在代码的第几行，vars 为运行后的变量。"""
 
     def __init__(self, out, error, namespace):
         self.out = Shown(out)
         self.error = error["type"] if error else None
         self.message = error["message"] if error else None
+        self.error_line = error["line"] if error else None
         self.vars = {name: item for name, item in namespace.items() if name not in ("__name__", "__builtins__")}
 
     def __getitem__(self, name):
@@ -231,6 +312,18 @@ class RunResult:
 
     def lines(self):
         return [Shown(line) for line in self.out.splitlines()]
+
+
+class Call:
+    """calls() 记下的一次函数调用：args 是调用时各形参收到的值，locals 是函数结束时局部变量的值，returned 是返回值。"""
+
+    def __init__(self, args):
+        self.args = args
+        self.locals = {}
+        self.returned = None
+
+    def __getitem__(self, name):
+        return self.args[name]
 
 
 def snapshot(value):
@@ -244,17 +337,67 @@ def statements(code):
     return ast.parse(code).body
 
 
-def make_helpers(data, question_code):
+def parameter_names(code_object):
+    count = code_object.co_argcount + code_object.co_kwonlyargcount
+    count += bool(code_object.co_flags & inspect.CO_VARARGS) + bool(code_object.co_flags & inspect.CO_VARKEYWORDS)
+    return code_object.co_varnames[:count]
+
+
+def make_helpers(data, question_code, prelude):
     def fresh(inputs):
-        namespace = build_namespace(data)
+        namespace = build_namespace(data, prelude)
         namespace.update(inputs)
         return namespace
 
     def run(code=None, **inputs):
         """在全新的命名空间里运行代码（缺省为题面代码 CODE），返回 RunResult。inputs 是事先赋好的变量。"""
         namespace = fresh(inputs)
-        out, error = run_quietly(question_code if code is None else code, namespace, "<题面代码>")
+        out, error = run_quietly(question_code if code is None else code, namespace, QUESTION_FILE)
         return RunResult(out, error, namespace)
+
+    def run_traced(code, inputs, trace):
+        namespace = fresh(inputs)
+        sys.settrace(trace)
+        try:
+            run_quietly(question_code if code is None else code, namespace, QUESTION_FILE)
+        finally:
+            sys.settrace(None)
+
+    def executed_lines(code=None, **inputs):
+        """运行代码，返回实际执行过的行号（升序，含函数体里的行）。def、else: 这类本身没有字节码的行不会出现。"""
+        lines = set()
+
+        def local(frame, event, arg):
+            if event == "line":
+                lines.add(frame.f_lineno)
+            return local
+
+        run_traced(code, inputs, lambda frame, event, arg: local if frame.f_code.co_filename == QUESTION_FILE else None)
+        return sorted(lines)
+
+    def calls(code=None, name=None, **inputs):
+        """运行代码，按调用的先后返回名为 name 的函数每次被调用的 Call 列表（args、locals、returned）。"""
+        if name is None:
+            raise TypeError("calls() 需要 name：要记录哪个函数的调用")
+        records = []
+
+        def on_call(frame, event, arg):
+            if frame.f_code.co_filename != QUESTION_FILE or frame.f_code.co_name != name:
+                return None
+            names = parameter_names(frame.f_code)
+            record = Call({key: snapshot(frame.f_locals[key]) for key in names if key in frame.f_locals})
+            records.append(record)
+
+            def local(frame, event, arg):
+                if event == "return":
+                    record.returned = snapshot(arg)
+                    record.locals = {key: snapshot(item) for key, item in frame.f_locals.items()}
+                return local
+
+            return local
+
+        run_traced(code, inputs, on_call)
+        return records
 
     def trace(code=None, names=(), **inputs):
         """逐条运行顶层语句，返回每条语句执行后 names 中已定义变量的值。"""
@@ -262,24 +405,21 @@ def make_helpers(data, question_code):
         states = []
         with contextlib.redirect_stdout(LimitedOutput()):
             for node in statements(question_code if code is None else code):
-                exec(compile(ast.Module(body=[node], type_ignores=[]), "<题面代码>", "exec"), namespace)
+                exec(compile(ast.Module(body=[node], type_ignores=[]), QUESTION_FILE, "exec"), namespace)
                 states.append({name: snapshot(namespace[name]) for name in names if name in namespace})
         return states
 
     def repl(code=None, **inputs):
         """像交互解释器那样逐条输入顶层语句，返回每条的显示内容；沿用 61A 的 NOTHING、ERROR、FUNCTION 约定。"""
         namespace = fresh(inputs)
-        shown = []
+        results = []
         for node in statements(question_code if code is None else code):
             output = LimitedOutput()
 
             def display(value):
-                if value is None:
-                    return
-                if isinstance(value, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
-                    output.write("FUNCTION\n")
-                else:
-                    output.write(repr(value) + "\n")
+                text = display_text(value)
+                if text:
+                    output.write(text + "\n")
 
             previous = sys.displayhook
             sys.displayhook = display
@@ -288,13 +428,13 @@ def make_helpers(data, question_code):
                     exec(compile(ast.Interactive(body=[node]), "<交互>", "single"), namespace)
                 text = output.getvalue().rstrip("\n")
             except Exception:  # noqa: BLE001  报错在 WWPD 里就是一种显示结果
-                text = "ERROR"
+                text = ERROR
             finally:
                 sys.displayhook = previous
-            shown.append(Shown(text if text else "NOTHING"))
-        return shown
+            results.append(Shown(text if text else NOTHING))
+        return results
 
-    return run, trace, repl
+    return {"run": run, "trace": trace, "repl": repl, "executed_lines": executed_lines, "calls": calls}
 
 
 # ---------------------------------------------------------------------------
@@ -328,11 +468,13 @@ def convert_answer(value, shape):
 
 
 def job_verify(job):
-    run, trace, repl = make_helpers(job["data"], job["code"])
-    environment = {name: item for name, item in build_namespace(job["data"]).items() if name not in ("__name__", "__builtins__")}
+    prelude = job.get("prelude", "")
+    helpers = make_helpers(job["data"], job["code"], prelude)
+    environment = {name: item for name, item in build_namespace(job["data"], prelude).items() if name not in ("__name__", "__builtins__")}
     environment.update({
-        "__name__": "__verify__", "__builtins__": builtins, "pd": pd, "np": np,
-        "run": run, "trace": trace, "repl": repl, "CODE": job["code"], "BLOCKS": job["blocks"], "OPTIONS": job["options"],
+        "__name__": "__verify__", "__builtins__": builtins, **helpers,
+        "as_shown": as_shown, "show": show, "ERROR": ERROR, "NOTHING": NOTHING, "FUNCTION": FUNCTION,
+        "CODE": job["code"], "BLOCKS": job["blocks"], "OPTIONS": job["options"], "CELLS": job["cells"],
     })
     with contextlib.redirect_stdout(LimitedOutput()):
         exec(compile(job["script"], "<verify>", "exec"), environment)
@@ -351,7 +493,7 @@ def job_verify(job):
 
 
 def prepared(job):
-    namespace = build_namespace(job["data"])
+    namespace = build_namespace(job["data"], job.get("prelude", ""))
     if job.get("setup"):
         out, error = run_quietly(job["setup"], namespace, "<setup>")
         if error:
@@ -363,7 +505,6 @@ def job_expect(job):
     results = {}
     for expression, source in job["exprs"].items():
         namespace = prepared(job)
-        namespace.update({"pd": pd, "np": np})
         try:
             with contextlib.redirect_stdout(LimitedOutput()):
                 results[expression] = {"value": canon(eval(compile(source, "<expect>", "eval"), namespace))}

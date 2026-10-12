@@ -79,6 +79,11 @@ export const RuntimeSchema = object({
   python: text(32),
   /** 需要预先加载的 Pyodide 包及其版本，检查时与实际加载的版本比对。 */
   packages: Type.Record(Type.String({ pattern: "^[a-z][a-z0-9_-]*$" }), text(32)),
+  /**
+   * 运行前导：每次运行题目代码、测试和核对程序之前，先在同一个命名空间里运行的 Python 代码，
+   * 例如 import pandas as pd。学习者在 Repa 里运行代码时也用这一份，所以写在清单里，不放在检查程序里。
+   */
+  prelude: Type.Optional(text(2_000)),
 });
 export type Runtime = Static<typeof RuntimeSchema>;
 

@@ -116,6 +116,109 @@ test("一个任务改动的 pandas 选项、NumPy 显示设置和 builtins，在
   });
 });
 
+test("每个任务从空的工作目录开始：留下的文件、改过的目录、环境变量、sys.path 和 pandas 选项都不带到下一个任务", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return t.skip(reason);
+  const sandbox = await runner(t);
+  const change = [
+    "import os, sys, pandas",
+    "open('data.csv', 'w').write('a,b')",
+    "open('/tmp/scratch.txt', 'w').write('x')",
+    "open('/top.txt', 'w').write('x')",
+    "os.makedirs('sub/deeper')",
+    "os.chdir('sub')",
+    "os.environ['LEFTOVER'] = '1'",
+    "sys.path.append('/nowhere')",
+    "pandas.set_option('display.max_rows', 3)",
+  ].join("\n");
+  assert.ok((await sandbox.run({ op: "program", data: [], program: change, captures: [], doctest: [] })).status === "done");
+  const read = [
+    "import os, sys, pandas",
+    "cwd = os.getcwd()",
+    "here = sorted(os.listdir('.'))",
+    "tmp = sorted(os.listdir('/tmp'))",
+    "top = os.path.exists('/top.txt')",
+    "leftover = os.environ.get('LEFTOVER')",
+    "path = '/nowhere' in sys.path",
+    "rows = pandas.get_option('display.max_rows')",
+  ].join("\n");
+  const outcome = await sandbox.run({ op: "program", data: [], program: read, captures: ["cwd", "here", "tmp", "top", "leftover", "path", "rows"], doctest: [] });
+  assert.ok(outcome.status === "done" && outcome.ok);
+  assert.deepEqual((outcome.result as { captures: unknown }).captures, {
+    cwd: { value: { t: "str", v: "/home/pyodide" } },
+    here: { value: { t: "list", v: [] } },
+    tmp: { value: { t: "list", v: [] } },
+    top: { value: { t: "bool", v: false } },
+    leftover: { value: { t: "none" } },
+    path: { value: { t: "bool", v: false } },
+    rows: { value: { t: "int", v: "60" } },
+  });
+});
+
+test("运行前导在每个任务的命名空间里先运行：数据夹具、setup、作答代码、期望表达式和核对程序都看得到它的名字；前导出错时报告", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return t.skip(reason);
+  const sandbox = await runner(t);
+  const prelude = "import numpy as np\nbase = 40";
+  const data = [{ kind: "python", label: "fixture", code: "total = base + 1" }];
+  const program = await sandbox.run({ op: "program", prelude, data, setup: "total = total + 1", program: "answer = total + int(np.float64(1))", captures: ["answer"], doctest: [] });
+  assert.ok(program.status === "done" && program.ok);
+  assert.deepEqual((program.result as { captures: unknown }).captures, { answer: { value: { t: "int", v: "43" } } });
+  const expect = await sandbox.run({ op: "expect", prelude, data: [], setup: "", exprs: { total: "base + np.int64(2)" } });
+  assert.ok(expect.status === "done" && expect.ok);
+  assert.deepEqual(expect.result, { total: { value: { t: "int", v: "42" } } });
+  const verify = await sandbox.run({
+    op: "verify", prelude, data, code: "", blocks: [], options: {}, cells: {}, shape: { value: "text" },
+    script: "answers = {'value': base + run('out = total * 2')['out']}",
+  });
+  assert.ok(verify.status === "done" && verify.ok);
+  assert.deepEqual(verify.result, { answers: { value: "122" }, unknown: [] });
+
+  const broken = await sandbox.run({ op: "program", prelude: "import no_such_module", data: [], program: "x = 1", captures: [], doctest: [] });
+  assert.ok(broken.status === "done" && !broken.ok);
+  assert.match(broken.error.message, /运行前导出错：ModuleNotFoundError/);
+});
+
+test("核对程序的辅助函数：出错行号、实际执行的行、函数收到的参数、显示内容的标记和固定格", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return t.skip(reason);
+  const sandbox = await runner(t);
+  const script = [
+    "plain = run(\"x = 1\\ny = 2\\nz = y / 0\\nprint('after')\")",
+    "inner = run(\"def f():\\n    return 1 / 0\\n\\nprint('a')\\nf()\")",
+    "broken = run(\"print('a')\\nx = (\\n\")",
+    "fine = run(\"x = 1\")",
+    "ran = executed_lines(\"a = 1\\nif a > 5:\\n    b = 2\\nelse:\\n    b = 3\")",
+    "seen = calls(\"def label(signal, limit=10):\\n    gap = signal - limit\\n    return gap > 0\\n\\nlabel(12)\\nlabel(3, limit=5)\", name='label')",
+    "answers = {",
+    "  'plain': plain.error_line, 'inner': inner.error_line, 'broken': broken.error_line, 'fine': fine.error_line,",
+    "  'ran': ran,",
+    "  'args': [call.args for call in seen], 'first': seen[0].locals, 'returned': [call.returned for call in seen],",
+    "  'nothing': show(None), 'function': show(len), 'value': show([1, 'a']),",
+    "  'error': ERROR, 'marked': as_shown('abc'), 'bare': 'abc',",
+    "  'cell': CELLS['grid']['r1']['input'],",
+    "}",
+  ].join("\n");
+  const shape = {
+    plain: "text", inner: "text", broken: "text", fine: "text", ran: "text", args: "text", first: "text", returned: "text",
+    nothing: "display", function: "display", value: "display", error: "display", marked: "display", bare: "display", cell: "text",
+  };
+  const outcome = await sandbox.run({
+    op: "verify", data: [], code: "", blocks: [], options: {}, cells: { grid: { r1: { input: "len('ab')" } } }, script, shape,
+  });
+  assert.ok(outcome.status === "done" && outcome.ok);
+  assert.deepEqual(outcome.result, {
+    answers: {
+      plain: "3", inner: "2", broken: "2", fine: "None", ran: "[1, 2, 5]",
+      args: "[{'signal': 12, 'limit': 10}, {'signal': 3, 'limit': 5}]",
+      first: "{'signal': 12, 'limit': 10, 'gap': 2}", returned: "[True, False]",
+      nothing: "NOTHING", function: "FUNCTION", value: "[1, 'a']", error: "ERROR", marked: "abc", bare: "'abc'",
+      cell: "len('ab')",
+    },
+    unknown: [],
+  });
+});
+
 test("分配超过内存上限时 Python 得到 MemoryError，沙箱仍可继续使用", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) return t.skip(reason);

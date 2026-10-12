@@ -14,7 +14,7 @@ import type { CodeTest, Question, SlotDef, Topic } from "../format/schema.js";
 import { parseDoctest, sameDoctestOutput } from "./doctest.js";
 import { gradeSlot, matchesCell, matchesText } from "./grade.js";
 import {
-  acceptedValues, content, inputCells, itemIndent, orderItemCode, scalarText, textMatch, topicQuestions, type QuestionEntry,
+  acceptedValues, content, inputCells, itemIndent, orderItemCode, scalarText, tableCell, textMatch, topicQuestions, type QuestionEntry,
 } from "./items.js";
 import { slotNeedsVerification } from "./rules.js";
 import { sameValue, showValue } from "./values.js";
@@ -173,6 +173,25 @@ function optionCode(question: Question): Record<string, Record<string, string>> 
   return options;
 }
 
+/** 表格里固定显示的文字：{作答位: {行: {列: 文字}}}，供核对程序读到 WWPD 题写在固定格里的输入。 */
+function fixedCells(question: Question): Record<string, Record<string, Record<string, string>>> {
+  const cells: Record<string, Record<string, Record<string, string>>> = {};
+  for (const slot of question.slots) {
+    if (slot.type !== "table") continue;
+    const rows: Record<string, Record<string, string>> = {};
+    for (const row of slot.rows) {
+      for (const column of slot.columns) {
+        const cell = tableCell(slot, row, column.id);
+        if (cell?.kind !== "fixed") continue;
+        const columns = (rows[row.id] ??= {});
+        columns[column.id] = cell.text;
+      }
+    }
+    cells[slot.id] = rows;
+  }
+  return cells;
+}
+
 async function runVerify(entry: QuestionEntry, at: ValuePath, context: Context): Promise<void> {
   const { question } = entry;
   const { report, loaded } = context;
@@ -185,7 +204,7 @@ async function runVerify(entry: QuestionEntry, at: ValuePath, context: Context):
   const shape = Object.fromEntries(verifiable.map((slot) => [slot.id, shapeOf(slot)]));
   context.stats.verifyJobs += 1;
   const outcome = await context.runner.run({
-    op: "verify", data, code: blocks.join("\n"), blocks, options: optionCode(question), script: question.verify, shape,
+    op: "verify", data, code: blocks.join("\n"), blocks, options: optionCode(question), cells: fixedCells(question), script: question.verify, shape,
   }, context.timeoutMs);
   const problem = failure(outcome);
   if (problem || outcome.status !== "done" || !outcome.ok) {
