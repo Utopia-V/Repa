@@ -1,7 +1,8 @@
 id: py21
 title: 从已有列算出新列
-status: outline
+status: complete
 minutes: 20
+summary: 对整列做算术、换算单位并存成新列；分步写中间列，按赋值顺序追踪数据流；两个 Series 运算时按标签对齐，不一律按位置。
 prerequisites:
   - topic: py16
     key: true
@@ -30,11 +31,1106 @@ sources:
     use: reference
 notes: |
   建议题型与判分：预测输出（P）、追踪变量（P）、小改代码（T）。
-  用两个各有 2 个元素的 Series 展示按标签对齐。
+  范围：df["新列"] = 整列算式；列与数、列与列的四则运算；分步的中间列；改动来源列后新列不会重算；两个 Series 按标签对齐，标签对不上得到 NaN。不讲 assign、apply、条件赋值（py22 的 loc 赋值）、排序（py23）；py17 不是先修，不用布尔掩码。
+  按骨架备注，标签对齐先用两个各有 2 个元素的 Series 讲；再用“从原表取出一部分再参与运算”和“把另一个 Series 赋成新列”两种真实情形练习。标签不完全相同时，运算结果的索引是两边标签的并集，并且会按标签排序；题目只按标签问值，不问顺序。
+  k2 的“扣除瓶重”沿用 py01 的重新赋值：来源列改了，之前算出的列不会跟着变。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 4 分钟；k3 讲解与例题 3 分钟、练习 2 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。
+intro: |
+  这一节在表的右边添新列：把毫克换成克、算出浓度、扣掉容器的重量。新列都由已有的列算出来，关键是看清每一列从哪里来。
+
+  宿主已经导入了 pandas（`pd`）并准备好数据表；每道题都从题面给出的表重新开始。大多数题用表 W：`sample_id` 是样本编号，`mass_mg` 是称得的质量（毫克），`volume_ml` 是溶液体积（毫升）。
+wrapup: |
+  新列的名字带上单位（`mass_g`、`conc_g_per_l`），换算分步写，每一步挑一行手算核对。读别人的代码时，按从上到下的顺序记下每一列是在哪一行、用哪些列算出来的；后面再改来源列，前面算好的列不会跟着变。
+
+  两个 Series 相加、相除时，pandas 按标签配对。来源不同的两列放在一起算之前，先确认它们的标签是不是一一对应。
+data:
+  W:
+    kind: dataframe
+    name: df
+    caption: 表 W
+    index: [31, 7, 22, 4]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D]
+      mass_mg: [1500, 820, 2400, 960]
+      volume_ml: [50, 20, 80, 40]
+  W2:
+    kind: dataframe
+    name: df
+    caption: 另一张同结构的表
+    index: [90, 2, 60]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [X_A, X_B, X_C]
+      mass_mg: [500, 1250, 3000]
+      volume_ml: [25, 50, 100]
+  runs:
+    kind: dataframe
+    name: runs
+    caption: 表 runs：三次培养的时长（分钟）和细胞计数
+    index: [3, 11, 6]
+    indexHeader: 原行索引
+    columns:
+      run: [R1, R2, R3]
+      duration_min: [90, 45, 150]
+      cells: [1800, 1350, 6000]
+  runs2:
+    kind: dataframe
+    name: runs
+    caption: 另一份培养记录
+    index: [5, 1, 9, 2]
+    indexHeader: 原行索引
+    columns:
+      run: [Q1, Q2, Q3, Q4]
+      duration_min: [60, 30, 135, 200]
+      cells: [600, 900, 2700, 5000]
+  field:
+    kind: dataframe
+    name: field
+    caption: 表 field：三个样点的气温（华氏度 °F）
+    index: [1, 2, 3]
+    indexHeader: 原行索引
+    columns:
+      site: [河滩, 林缘, 山脊]
+      temp_f: [50, 68, 86]
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：四个样地的土层深度（厘米）
+    index: [5, 12, 3, 8]
+    indexHeader: 原行索引
+    columns:
+      plot: [P1, P2, P3, P4]
+      depth: [30, 25, 35, 30]
+  libs:
+    kind: python
+    code: |
+      import pandas as pd
 kps:
   - id: py21.k1
     title: 整列算术与单位转换
+    card:
+      name: 整列运算
+      aliases: [新列, 衍生列, 单位换算]
+      definition: df["新列"] = 整列算式：pandas 对每一行做同样的运算，得到一列与原表逐行对应的结果，赋给新列名就在表右边多出一列。
+      conditions:
+        - 列与数运算，每一行都和这个数算；列与列运算，同一行的两个值相算。
+        - Python 的列表没有这种逐个运算：[1500, 820] * 2 是把列表重复两遍。
+        - 换算后挑一行手算核对单位：毫克换成克是除以 1000，不是乘。
+      example:
+        from: py21.k1.e0
+        text: |
+          ```python
+          df["mass_g"] = df["mass_mg"] / 1000
+          df["conc"] = df["mass_mg"] / df["volume_ml"]
+          ```
+          S_A 的 mass_g 是 1500 ÷ 1000 = 1.5，conc 是 1500 ÷ 50 = 30.0（毫克每毫升）。
+    lesson: |
+      `df["mass_mg"]` 取出一列。对这一列做算术，pandas 会对**每一行**做同样的运算，得到一列新的结果：
+
+      ```python
+      df["mass_g"] = df["mass_mg"] / 1000
+      ```
+
+      等号左边写一个还没有的列名，结果就作为新列加在表的最右边。表 W 原来 3 列，现在 4 列；行数和行索引都不变。
+
+      两列之间也可以运算，这时是**同一行**的两个值相算：
+
+      ```python
+      df["conc"] = df["mass_mg"] / df["volume_ml"]
+      ```
+
+      | 原行索引 | mass_mg | volume_ml | mass_g | conc |
+      |---:|---:|---:|---:|---:|
+      | 31 | 1500 | 50 | 1.5 | 30.0 |
+      | 7 | 820 | 20 | 0.82 | 41.0 |
+      | 22 | 2400 | 80 | 2.4 | 30.0 |
+      | 4 | 960 | 40 | 0.96 | 24.0 |
+
+      这种逐行运算是 pandas 列的本事。Python 的列表没有：`[1500, 820] * 2` 得到的是 `[1500, 820, 1500, 820]`，把列表重复了两遍。
+
+      算式里的先后照常：先乘除后加减，括号里的先算。华氏度换成摄氏度要写 `(df["temp_f"] - 32) * 5 / 9`，括号不能省。
+
+      换算单位最容易错在方向上：毫克换成克是**除以** 1000，分钟换成小时是**除以** 60。新列的名字带上单位，再挑一行手算一遍：S_A 是 1500 mg，1500 ÷ 1000 = 1.5 g，对得上。
+    example:
+      id: py21.k1.e0
+      kind: [predict]
+      data: [W]
+      body: |
+        阅读代码，按原行索引填写两列新列的值，再写出运行后 `df.shape` 的列数。
+
+        ```python
+        df["mass_g"] = df["mass_mg"] / 1000
+        df["conc"] = df["mass_mg"] / df["volume_ml"]
+        ```
+      slots:
+        - id: values
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: mass_mg, header: mass_mg }
+            - { id: volume_ml, header: volume_ml }
+            - { id: mass_g, header: mass_g, input: { type: text, format: number } }
+            - { id: conc, header: conc, input: { type: text, format: number } }
+          rows:
+            - { id: r31, cells: { index: "31", mass_mg: "1500", volume_ml: "50", mass_g: 1.5, conc: 30 } }
+            - { id: r7, cells: { index: "7", mass_mg: "820", volume_ml: "20", mass_g: 0.82, conc: 41 } }
+            - { id: r22, cells: { index: "22", mass_mg: "2400", volume_ml: "80", mass_g: 2.4, conc: 30 } }
+            - { id: r4, cells: { index: "4", mass_mg: "960", volume_ml: "40", mass_g: 0.96, conc: 24 } }
+        - id: ncols
+          type: text
+          format: integer
+          prompt: 运行后 `df` 有几列？
+          key: 5
+      explanation: |
+        mass_g 依次为 **1.5、0.82、2.4、0.96**：每一行的 mass_mg 各除以 1000。conc 依次为 **30.0、41.0、30.0、24.0**：同一行的 mass_mg 除以 volume_ml，单位是毫克每毫升。
+
+        原表 3 列，加了两列新列，共 **5** 列，行数不变。
+      verify: |
+        df_after = run()["df"]
+        answers = {
+            "values": {f"r{label}": {"mass_g": df_after.loc[label, "mass_g"], "conc": df_after.loc[label, "conc"]} for label in df_after.index},
+            "ncols": df_after.shape[1],
+        }
+    practice:
+      - id: py21.k1.q1
+        kind: [debug]
+        uses: [py02.k3]
+        data: [W]
+        body: |
+          同事想把质量换成克，写了下面这行。
+
+          ```python
+          df["mass_g"] = df["mass_mg"] * 1000
+          ```
+        slots:
+          - id: value
+            type: text
+            format: integer
+            prompt: 运行后，S_A（索引 31）的 mass_g 是多少？
+            key: 1500000
+          - id: fix
+            type: choice
+            prompt: 应改成哪一行？
+            options:
+              - id: div
+                content: |
+                  ```python
+                  df["mass_g"] = df["mass_mg"] / 1000
+                  ```
+              - id: floor
+                content: |
+                  ```python
+                  df["mass_g"] = df["mass_mg"] // 1000
+                  ```
+                feedback: "`//` 是整除，820 mg 会变成 0 g。"
+              - id: sub
+                content: |
+                  ```python
+                  df["mass_g"] = df["mass_mg"] - 1000
+                  ```
+            key: div
+        explanation: |
+          S_A 的 mass_g 成了 **1500000**：乘以 1000 是把克换成毫克的方向，换反了。1 g = 1000 mg，所以毫克换成克要**除以** 1000：`df["mass_mg"] / 1000`，S_A 得到 1.5。
+
+          `//` 是整除，S_B 的 820 mg 会变成 0；减去 1000 更不是换算。
+        verify: |
+          r = run()
+          # 1 g = 1000 mg：逐行用定义换算，作为标准。
+          wanted = [mg / 1000 for mg in df["mass_mg"]]
+          fits = []
+          for option, line in OPTIONS["fix"].items():
+              attempt = run(line)
+              if attempt.error is None and all(abs(x - y) < 1e-9 for x, y in zip(attempt["df"]["mass_g"], wanted)):
+                  fits.append(option)
+          answers = {"value": int(r["df"].loc[31, "mass_g"]), "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py21.k1.q2
+        kind: [predict]
+        uses: [py07.k1, py16.k1]
+        data: [W]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          values = [1500, 820]
+          print(values * 2)
+          print(list(df["mass_mg"] * 2))
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行输出
+            key: "[1500, 820, 1500, 820]"
+            feedback:
+              - when: "[3000, 1640]"
+                message: 列表乘以 2 是把列表重复两遍，不是每个数乘以 2。
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "[3000, 1640, 4800, 1920]"
+        explanation: |
+          第一行 **[1500, 820, 1500, 820]**：列表乘以 2 是把列表重复两遍。第二行 **[3000, 1640, 4800, 1920]**：pandas 的列乘以 2，是每一行各乘以 2；`list(...)` 只是把结果写成列表显示。
+
+          同样写 `* 2`，对列表和对表的列意思不同。整列运算是 pandas 列才有的。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+      - id: py21.k1.q3
+        kind: [modify]
+        uses: [py02.k3]
+        data: [runs]
+        body: |
+          需求是：
+
+          > 在 runs 表里新增一列 `hours`，把 duration_min 换算成小时（可以带小数）。其他列保持不变。
+
+          同事写的代码在作答框里。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              runs["hours"] = runs["duration_min"] * 60
+            solution: |
+              runs["hours"] = runs["duration_min"] / 60
+            rejects:
+              - code: runs["hours"] = runs["duration_min"] // 60
+                why: 整除把 90 分钟算成 1 小时，丢了小数
+              - code: runs["duration_min"] = runs["duration_min"] / 60
+                why: 覆盖了原来的 duration_min，没有新增 hours
+              - code: runs["hours"] = [1.5, 0.75, 2.5]
+                why: 照着这张表写死了结果
+            tests:
+              - name: 表 runs
+                expect:
+                  runs: 'pd.DataFrame({"run": ["R1", "R2", "R3"], "duration_min": [90, 45, 150], "cells": [1800, 1350, 6000], "hours": [1.5, 0.75, 2.5]}, index=[3, 11, 6])'
+              - name: 换一份记录
+                hidden: true
+                data: [runs2]
+                expect:
+                  runs: 'pd.DataFrame({"run": ["Q1", "Q2", "Q3", "Q4"], "duration_min": [60, 30, 135, 200], "cells": [600, 900, 2700, 5000], "hours": [1.0, 0.5, 2.25, 200 / 60]}, index=[5, 1, 9, 2])'
+        explanation: |
+          ```python
+          runs["hours"] = runs["duration_min"] / 60
+          ```
+
+          1 小时 = 60 分钟，分钟换成小时要除以 60。乘以 60 是反方向；整除 `//` 会把 90 分钟算成 1 小时；直接给 duration_min 赋值会把原始记录换掉。本例 hours 依次为 1.5、0.75、2.5。判分时还会换一份记录运行，检查新列和原有的列。
+    review:
+      - id: py21.k1.r1
+        kind: [trace]
+        uses: [py02.k1]
+        data: [field]
+        body: |
+          阅读代码，按原行索引填写 `temp_c` 的值。
+
+          ```python
+          field["temp_c"] = (field["temp_f"] - 32) * 5 / 9
+          ```
+        slots:
+          - id: temp_c
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: temp_f, header: temp_f }
+              - { id: temp_c, header: temp_c, input: { type: text, format: number } }
+            rows:
+              - { id: r1, cells: { index: "1", temp_f: "50", temp_c: 10 } }
+              - { id: r2, cells: { index: "2", temp_f: "68", temp_c: 20 } }
+              - { id: r3, cells: { index: "3", temp_f: "86", temp_c: 30 } }
+        explanation: |
+          `temp_c` 依次为 **10.0、20.0、30.0**。括号让每一行先减去 32，再乘以 5、除以 9：(50 − 32) × 5 ÷ 9 = 10。去掉括号就会先算 32 × 5 ÷ 9，结果完全不同。
+        verify: |
+          temp_c = run()["field"]["temp_c"]
+          answers = {"temp_c": {f"r{label}": {"temp_c": value} for label, value in temp_c.items()}}
+      - id: py21.k1.r2
+        kind: [explain]
+        uses: [py02.k3]
+        data: [soil]
+        body: |
+          要新增一列 `depth_m`，把 depth（厘米）换算成米。哪一行正确？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: times
+                content: |
+                  ```python
+                  soil["depth_m"] = soil["depth"] * 100
+                  ```
+              - id: div
+                content: |
+                  ```python
+                  soil["depth_m"] = soil["depth"] / 100
+                  ```
+              - id: div1000
+                content: |
+                  ```python
+                  soil["depth_m"] = soil["depth"] / 1000
+                  ```
+              - id: list
+                content: |
+                  ```python
+                  soil["depth_m"] = [0.3, 0.25, 0.35, 0.3]
+                  ```
+            key: div
+          - id: value
+            type: text
+            format: number
+            prompt: 按正确的写法，P3（索引 3）的 depth_m 是多少？
+            key: 0.35
+        explanation: |
+          **`soil["depth"] / 100`** 正确：1 米 = 100 厘米，厘米换成米除以 100。P3 的 35 厘米是 **0.35** 米。
+
+          乘以 100 方向反了；除以 1000 是毫米换成米；直接写一个列表虽然在这张表上碰巧对，换一张表就错了，也看不出是怎样算的。
+        verify: |
+          wanted = [cm / 100 for cm in soil["depth"]]
+          def matches(code, table):
+              attempt = run(code, soil=table)
+              return attempt.error is None and all(abs(x - y) < 1e-9 for x, y in zip(attempt["soil"]["depth_m"], [cm / 100 for cm in table["depth"]]))
+          other = pd.DataFrame({"plot": ["Q1", "Q2", "Q3", "Q4"], "depth": [10, 50, 20, 40]}, index=[1, 2, 3, 4])
+          # 在原表和另一张表上都要换算对，才算正确的写法。
+          fits = [option for option, code in OPTIONS["line"].items() if matches(code, soil.copy()) and matches(code, other.copy())]
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "value": wanted[list(soil.index).index(3)]}
+    quiz:
+      - id: py21.k1.x1
+        kind: [predict]
+        uses: [py16.k2, py14.k2]
+        data: [W]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          df["mass_g"] = df["mass_mg"] / 1000
+          df["half_g"] = df["mass_g"] / 2
+          print(df.shape)
+          print(df.loc[7, "half_g"])
+          ```
+        slots:
+          - id: shape
+            type: text
+            match: output
+            prompt: 第一行输出
+            key: "(4, 5)"
+          - id: value
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "0.41"
+        explanation: |
+          第一行 **(4, 5)**：行数不变，原有 3 列加上 mass_g、half_g 两列。第二行 **0.41**：索引 7 的 mass_mg 是 820，先换成 0.82 g，再除以 2。
+        verify: |
+          lines = run().lines()
+          answers = {"shape": lines[0], "value": lines[1]}
+      - id: py21.k1.x2
+        kind: [modify]
+        uses: [py02.k3]
+        data: [W]
+        body: |
+          需求是：
+
+          > 新增一列 `conc`，表示每毫升溶液里有多少毫克（mass_mg 除以 volume_ml）。其他列保持不变。
+
+          同事写的代码在作答框里。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              df["conc"] = df["volume_ml"] / df["mass_mg"]
+            solution: |
+              df["conc"] = df["mass_mg"] / df["volume_ml"]
+            rejects:
+              - code: df["conc"] = df["mass_mg"] / 1000 / df["volume_ml"]
+                why: 算成了每毫升多少克
+              - code: df["conc"] = df["mass_mg"] // df["volume_ml"]
+                why: 整除丢了小数
+              - code: df["conc"] = [30.0, 41.0, 30.0, 24.0]
+                why: 照着这张表写死了结果
+            tests:
+              - name: 表 W
+                expect:
+                  'df["conc"]': 'pd.Series([30.0, 41.0, 30.0, 24.0], index=[31, 7, 22, 4], name="conc")'
+                  'df[["sample_id", "mass_mg", "volume_ml"]]': df
+              - name: 换一张表
+                hidden: true
+                data: [W2]
+                expect:
+                  'df["conc"]': 'pd.Series([20.0, 25.0, 30.0], index=[90, 2, 60], name="conc")'
+                  'df[["sample_id", "mass_mg", "volume_ml"]]': df
+              - name: 浓度不是整数的表
+                hidden: true
+                data: [W2]
+                setup: df["volume_ml"] = [40, 50, 120]
+                expect:
+                  'df["conc"]': 'pd.Series([12.5, 25.0, 25.0], index=[90, 2, 60], name="conc")'
+        explanation: |
+          ```python
+          df["conc"] = df["mass_mg"] / df["volume_ml"]
+          ```
+
+          “每毫升有多少毫克”是毫克数除以毫升数，被除数和除数换了位置就成了“每毫克对应多少毫升”。本例 conc 依次为 30.0、41.0、30.0、24.0。判分时还会换一张表运行，检查 conc 和原有的列。
+
   - id: py21.k2
     title: 用中间列或分步赋值说明数据流
+    card:
+      name: 分步赋值
+      aliases: [中间列, 数据流]
+      definition: 把一个换算拆成几行，每行算出一列中间结果；每一列都在它那一行执行时算定，之后再改它依据的列，它不会跟着重算。
+      conditions:
+        - 覆盖原列（df["mass_mg"] = df["mass_mg"] - 100）会丢掉原始读数；想保留就存进新列。
+        - 读代码时从上往下，记下每一列是在哪一行、用哪些列算出的。
+      example:
+        from: py21.k2.e0
+        text: |
+          ```python
+          df["mass_g"] = df["mass_mg"] / 1000
+          df["mass_mg"] = df["mass_mg"] - 100
+          df["net_g"] = df["mass_mg"] / 1000
+          ```
+          S_A 的 mass_g 仍是 1.5，net_g 是 1.4：mass_g 在第 1 行就算定了。
+    lesson: |
+      复杂一点的换算，分几行写，每一行算出一列**中间列**，读的人可以一步一步核对：
+
+      ```python
+      df["mass_g"] = df["mass_mg"] / 1000
+      df["volume_l"] = df["volume_ml"] / 1000
+      df["conc_g_per_l"] = df["mass_g"] / df["volume_l"]
+      ```
+
+      每一行只做一件事，列名写着单位。核对时挑一行手算：S_A 是 1500 mg = 1.5 g，50 mL = 0.05 L，1.5 ÷ 0.05 = 30 g/L。一行写完 `df["mass_mg"] / 1000 / (df["volume_ml"] / 1000)` 结果相同，但算错时不好找是哪一步。
+
+      和[重新赋值](repa:concept/py01.k2)一样，一列是在**那一行执行时**算出来的。之后再改它依据的列，它不会跟着重算：
+
+      ```python startLine=1
+      df["mass_g"] = df["mass_mg"] / 1000
+      df["mass_mg"] = df["mass_mg"] - 100
+      ```
+
+      第 2 行想扣掉称量瓶的 100 mg。它执行之后 mass_mg 变了，mass_g 却还是第 1 行用扣除**之前**的数算的。要先扣除再换算，就要把两行的顺序对调。
+
+      第 2 行还有一个问题：它用新值**覆盖**了 mass_mg，原始读数从表里消失了。想留着原始读数，就把扣除后的结果存进新列，例如 `df["net_mg"] = df["mass_mg"] - 100`。
+
+      读别人的代码时，从上往下记下每一列是在哪一行、用哪些列算出来的，就能看清数据是怎样一步步流到结果里的。
+    example:
+      id: py21.k2.e0
+      kind: [trace]
+      data: [W]
+      body: |
+        按运行顺序，填写每行执行后**索引 31（S_A）**这一行的三列的值。还没有这一列时填“尚未定义”。
+
+        ```python startLine=1
+        df["mass_g"] = df["mass_mg"] / 1000
+        df["mass_mg"] = df["mass_mg"] - 100
+        df["net_g"] = df["mass_mg"] / 1000
+        ```
+      slots:
+        - id: trace
+          type: table
+          columns:
+            - { id: line, header: 执行到 }
+            - { id: mass_mg, header: mass_mg, input: { type: text, format: number, quick: [尚未定义] } }
+            - { id: mass_g, header: mass_g, input: { type: text, format: number, quick: [尚未定义] } }
+            - { id: net_g, header: net_g, input: { type: text, format: number, quick: [尚未定义] } }
+          rows:
+            - { id: l1, cells: { line: 第 1 行, mass_mg: 1500, mass_g: 1.5, net_g: 尚未定义 } }
+            - { id: l2, cells: { line: 第 2 行, mass_mg: 1400, mass_g: 1.5, net_g: 尚未定义 } }
+            - { id: l3, cells: { line: 第 3 行, mass_mg: 1400, mass_g: 1.5, net_g: 1.4 } }
+      explanation: |
+        | 执行到 | mass_mg | mass_g | net_g |
+        |---|---:|---:|---:|
+        | 第 1 行 | 1500 | 1.5 | 尚未定义 |
+        | 第 2 行 | 1400 | 1.5 | 尚未定义 |
+        | 第 3 行 | 1400 | 1.5 | 1.4 |
+
+        第 1 行用 1500 算出 mass_g = 1.5。第 2 行把 mass_mg 覆盖成 1400，mass_g **不会**跟着重算，仍是 1.5。第 3 行用的是覆盖后的 1400，所以 net_g 是 1.4。原始读数 1500 已经不在表里了。
+      verify: |
+        columns = ["mass_mg", "mass_g", "net_g"]
+        states = trace(names=["df"])
+        answers = {"trace": {
+            f"l{i}": {column: state["df"].loc[31, column] if column in state["df"].columns else "尚未定义" for column in columns}
+            for i, state in enumerate(states, 1)
+        }}
+    practice:
+      - id: py21.k2.q1
+        kind: [predict, explain]
+        uses: [py01.k2, py16.k2]
+        data: [W]
+        body: |
+          阅读代码，写出两行输出。
+
+          ```python
+          df["mass_g"] = df["mass_mg"] / 1000
+          df["mass_mg"] = 0
+          print(df.loc[22, "mass_g"])
+          print(df.loc[22, "mass_mg"])
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行输出
+            key: "2.4"
+            feedback:
+              - when: "0.0"
+                message: mass_g 在第 1 行就算定了，之后改 mass_mg 不会让它重算。
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "0"
+          - id: why
+            type: choice
+            prompt: 哪一句解释了第一行的结果？
+            options:
+              - { id: recompute, content: mass_g 会随 mass_mg 的变化重新计算 }
+              - { id: fixed, content: mass_g 存的是第 1 行执行时算出的结果 }
+            key: fixed
+        explanation: |
+          第一行 **2.4**，第二行 **0**。`df["mass_mg"] = 0` 把整列每一格都换成 0；mass_g 存的是第 1 行执行时用 2400 算出的 2.4，不会跟着重算。
+        verify: |
+          r = run()
+          lines = r.lines()
+          after = r["df"]
+          # mass_g 若会跟着重算，应当等于现在的 mass_mg / 1000。
+          recomputed = all(abs(g - mg / 1000) < 1e-9 for g, mg in zip(after["mass_g"], after["mass_mg"]))
+          answers = {"first": lines[0], "second": lines[1], "why": "recompute" if recomputed else "fixed"}
+      - id: py21.k2.q2
+        kind: [explain]
+        uses: [py02.k1]
+        data: [W]
+        body: |
+          下面三行算出每升溶液里有多少克溶质。
+
+          ```python
+          df["mass_g"] = df["mass_mg"] / 1000
+          df["volume_l"] = df["volume_ml"] / 1000
+          df["conc_g_per_l"] = df["mass_g"] / df["volume_l"]
+          ```
+
+          如果只用一行写出 conc_g_per_l，哪一种写法的结果与它相同？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: chain
+                content: |
+                  ```python
+                  df["conc_g_per_l"] = df["mass_mg"] / 1000 / df["volume_ml"] / 1000
+                  ```
+              - id: paren
+                content: |
+                  ```python
+                  df["conc_g_per_l"] = df["mass_mg"] / 1000 / (df["volume_ml"] / 1000)
+                  ```
+              - id: once
+                content: |
+                  ```python
+                  df["conc_g_per_l"] = df["mass_mg"] / df["volume_ml"] / 1000
+                  ```
+            key: paren
+          - id: value
+            type: text
+            format: number
+            prompt: S_B（索引 7）的 conc_g_per_l 是多少？
+            key: 41
+        explanation: |
+          **`df["mass_mg"] / 1000 / (df["volume_ml"] / 1000)`** 与三行的结果相同：括号让体积先换成升，再拿克数去除。不加括号时，从左往右依次除，最后的 `/ 1000` 又把结果缩小了 1000 倍。
+
+          S_B 是 0.82 g ÷ 0.02 L = **41** g/L。分三行写时，每一步都能单独核对，这正是中间列的好处。
+        verify: |
+          target = run()["df"]["conc_g_per_l"]
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              attempt = run(line)
+              if attempt.error is None and all(abs(x - y) < 1e-9 for x, y in zip(attempt["df"]["conc_g_per_l"], target)):
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits, "value": target[7]}
+      - id: py21.k2.q3
+        kind: [modify]
+        uses: [py02.k3]
+        data: [W]
+        body: |
+          需求是：
+
+          > 每个样本都装在 100 mg 的称量瓶里。新增一列 `net_g`：扣掉瓶重后的净质量，单位是克。表里原有的 mass_mg 要保留原始读数，不能改。
+
+          同事写的代码在作答框里，结果是对的，却改掉了原始读数。请改动它并提交。可以新增中间列。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              df["mass_mg"] = df["mass_mg"] - 100
+              df["net_g"] = df["mass_mg"] / 1000
+            solution: |
+              df["net_mg"] = df["mass_mg"] - 100
+              df["net_g"] = df["net_mg"] / 1000
+            accepts:
+              - df["net_g"] = (df["mass_mg"] - 100) / 1000
+            rejects:
+              - code: df["net_g"] = df["mass_mg"] - 100 / 1000
+                why: 没加括号，只从毫克里减去了 0.1
+              - code: |
+                  df["net_g"] = df["mass_mg"] / 1000
+                  df["mass_mg"] = df["mass_mg"] - 100
+                why: 先换算后扣除，net_g 没有扣掉瓶重，还改了原始读数
+              - code: df["net_g"] = df["mass_mg"] / 1000 - 100
+                why: 从克数里减去了 100，单位不一致
+            tests:
+              - name: 表 W
+                expect:
+                  'df["net_g"]': 'pd.Series([1.4, 0.72, 2.3, 0.86], index=[31, 7, 22, 4], name="net_g")'
+                  'df["mass_mg"]': df["mass_mg"]
+              - name: 换一张表
+                hidden: true
+                data: [W2]
+                expect:
+                  'df["net_g"]': 'pd.Series([0.4, 1.15, 2.9], index=[90, 2, 60], name="net_g")'
+                  'df["mass_mg"]': df["mass_mg"]
+        explanation: |
+          ```python
+          df["net_mg"] = df["mass_mg"] - 100
+          df["net_g"] = df["net_mg"] / 1000
+          ```
+
+          把扣除后的结果存进新列 net_mg，原始的 mass_mg 就留下了；再从 net_mg 换算成克。也可以一行写成 `(df["mass_mg"] - 100) / 1000`，括号保证先扣除再换算。本例 net_g 依次为 1.4、0.72、2.3、0.86。判分时还会换一张表运行，并检查 mass_mg 没有被改。
+    review:
+      - id: py21.k2.r1
+        kind: [trace, explain]
+        uses: [py01.k2]
+        data: [runs]
+        body: |
+          阅读代码。第 2 行是发现计时器每次都少记了 10 分钟，补上。
+
+          ```python startLine=1
+          runs["hours"] = runs["duration_min"] / 60
+          runs["duration_min"] = runs["duration_min"] + 10
+          ```
+        slots:
+          - id: minutes
+            type: text
+            format: integer
+            prompt: 运行后，R1（索引 3）的 duration_min 是多少？
+            key: 100
+          - id: hours
+            type: text
+            format: number
+            prompt: 运行后，R1 的 hours 是多少？
+            key: 1.5
+          - id: fix
+            type: choice
+            prompt: 要让 hours 用上补齐后的时长，应当怎样改？
+            options:
+              - { id: swap, content: 把两行的顺序对调 }
+              - { id: again, content: 什么都不用改，hours 会自动更新 }
+              - { id: delete, content: 删掉第 2 行 }
+            key: swap
+        explanation: |
+          duration_min 是 **100**，hours 仍是 **1.5**：第 1 行用补齐之前的 90 分钟算出了 hours，第 2 行改了 duration_min，hours 不会跟着重算。
+
+          把两行**对调**，先补齐再换算，R1 的 hours 才是 100 ÷ 60 ≈ 1.67。删掉第 2 行就没有补上那 10 分钟。
+        verify: |
+          r = run()
+          after = r["runs"]
+          lines = CODE.strip().splitlines()
+          swapped = run("\n".join(reversed(lines)))["runs"]
+          # 对调之后，hours 应当等于补齐后的分钟数除以 60。
+          swap_ok = all(abs(h - m / 60) < 1e-9 for h, m in zip(swapped["hours"], swapped["duration_min"]))
+          answers = {"minutes": int(after.loc[3, "duration_min"]), "hours": after.loc[3, "hours"], "fix": "swap" if swap_ok else "other"}
+      - id: py21.k2.r2
+        kind: [modify]
+        uses: [py02.k3]
+        data: [runs]
+        body: |
+          要在 runs 表里新增两列：`hours` 是培养时长（小时），`rate` 是每小时增加的细胞数（cells 除以 hours）。把需要的代码行排成正确的顺序；有一行用不到。
+        slots:
+          - id: lines
+            type: order
+            partial: true
+            items:
+              - { id: hours, code: 'runs["hours"] = runs["duration_min"] / 60' }
+              - { id: rate, code: 'runs["rate"] = runs["cells"] / runs["hours"]' }
+              - { id: wrong, code: 'runs["rate"] = runs["cells"] / runs["duration_min"]' }
+            key: [hours, rate]
+            tests:
+              - name: 新增 hours 和 rate
+                expect:
+                  'runs["hours"]': 'pd.Series([1.5, 0.75, 2.5], index=[3, 11, 6], name="hours")'
+                  'runs["rate"]': 'pd.Series([1200.0, 1800.0, 2400.0], index=[3, 11, 6], name="rate")'
+        explanation: |
+          先算 hours，再用它算 rate。rate 那一行用到 hours 这一列，如果排在前面，hours 还不存在，会报 KeyError。用 duration_min 直接去除的那一行算的是“每分钟”的细胞数，单位不对。本例 rate 依次为 1200、1800、2400。
+    quiz:
+      - id: py21.k2.x1
+        kind: [trace]
+        uses: [py01.k2, py16.k2]
+        data: [field]
+        body: |
+          阅读代码。第 2 行是发现温度计读数整体偏低 9 °F，补上。
+
+          ```python startLine=1
+          field["temp_c"] = (field["temp_f"] - 32) * 5 / 9
+          field["temp_f"] = field["temp_f"] + 9
+          field["temp_c2"] = (field["temp_f"] - 32) * 5 / 9
+          ```
+        slots:
+          - id: values
+            type: table
+            prompt: 运行后，林缘（索引 2）这一行的三列各是多少？
+            columns:
+              - { id: column, header: 列 }
+              - { id: value, header: 值, input: { type: text, format: number } }
+            rows:
+              - { id: temp_f, cells: { column: temp_f, value: 77 } }
+              - { id: temp_c, cells: { column: temp_c, value: 20 } }
+              - { id: temp_c2, cells: { column: temp_c2, value: 25 } }
+        explanation: |
+          temp_f 是 **77**（68 + 9）；temp_c 是 **20.0**，它在第 1 行用补正之前的 68 °F 算定，没有跟着重算；temp_c2 在第 3 行用补正之后的 77 °F 算出，是 **25.0**。
+
+          同一张表里两列摄氏温度对不上，就是因为它们在不同的时刻、用不同的 temp_f 算出。
+        verify: |
+          after = run()["field"]
+          answers = {"values": {column: {"value": after.loc[2, column]} for column in ["temp_f", "temp_c", "temp_c2"]}}
+      - id: py21.k2.x2
+        kind: [debug]
+        uses: [py02.k3]
+        data: [W]
+        body: |
+          需求是：先扣掉 100 mg 的瓶重，再换算成克，最后算出每升溶液里有多少克（`conc_g_per_l`）。同事写了下面四行，结果偏大。
+
+          ```python startLine=1
+          df["net_mg"] = df["mass_mg"] - 100
+          df["net_g"] = df["mass_mg"] / 1000
+          df["volume_l"] = df["volume_ml"] / 1000
+          df["conc_g_per_l"] = df["net_g"] / df["volume_l"]
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 从哪一行开始和需求不符？
+            options:
+              - { id: l1, content: 第 1 行 }
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+            key: l2
+          - id: value
+            type: text
+            format: number
+            prompt: 改正以后，S_A（索引 31）的 conc_g_per_l 是多少？
+            key: 28
+        explanation: |
+          **第 2 行**用的是原始的 mass_mg，没有用扣除瓶重后的 net_mg，所以 net_g 其实没扣瓶重，后面的浓度跟着偏大。应写 `df["net_g"] = df["net_mg"] / 1000`。
+
+          改正后，S_A 是 (1500 − 100) ÷ 1000 = 1.4 g，除以 0.05 L，得到 **28** g/L。逐列核对中间列，就能停在第一个出错的地方。
+        verify: |
+          after = run()["df"]
+          # 按需求逐步算出每一列应有的值，第一个对不上的列所在的行就是出错的行。
+          expected = {"net_mg": df["mass_mg"] - 100}
+          expected["net_g"] = expected["net_mg"] / 1000
+          expected["volume_l"] = df["volume_ml"] / 1000
+          expected["conc_g_per_l"] = expected["net_g"] / expected["volume_l"]
+          wrong = [i for i, column in enumerate(expected, 1) if not all(abs(x - y) < 1e-9 for x, y in zip(after[column], expected[column]))]
+          answers = {"line": f"l{wrong[0]}", "value": expected["conc_g_per_l"][31]}
+
   - id: py21.k3
     title: 两个 Series 运算按标签对齐而非一律按位置
+    card:
+      name: 按标签对齐
+      aliases: [对齐, 标签对齐, alignment]
+      definition: 两个 Series 相加、相除时，pandas 按行索引的标签配对，而不是按第几个配对；一边有、另一边没有的标签，结果是 NaN。
+      conditions:
+        - 同一张表里的两列标签一一对应，所以看起来像逐行运算。
+        - 从别处来的 Series（取出的一部分、另一张表的列）参与运算或赋成新列时，先核对标签。
+      example:
+        from: py21.k3.e0
+        text: |
+          ```python
+          a = pd.Series([10, 20], index=["x", "y"])
+          b = pd.Series([1, 2], index=["y", "x"])
+          total = a + b
+          ```
+          total 在 x 上是 10 + 2 = 12，在 y 上是 20 + 1 = 21，不是按位置得到的 11、22。
+    lesson: |
+      `pd.Series(值的列表, index=标签的列表)` 造出一列带标签的数。看两个各有 2 个值的 Series：
+
+      ```python
+      a = pd.Series([10, 20], index=["x", "y"])
+      b = pd.Series([1, 2], index=["y", "x"])
+      total = a + b
+      ```
+
+      | 标签 | a | b | a + b |
+      |---|---:|---:|---:|
+      | x | 10 | 2 | 12 |
+      | y | 20 | 1 | 21 |
+
+      pandas 先按**标签**配对：x 和 x 相加，y 和 y 相加。b 在第一个位置的是 y 的值 1，但它没有和 a 的第一个值相加。结果是 x 为 12、y 为 21，而不是按位置得到的 11、22。
+
+      一边有、另一边没有的标签，配不上对，结果是 NaN：
+
+      ```python
+      c = pd.Series([5, 7], index=["y", "z"])
+      ```
+
+      `a + c` 在 x 和 z 上是 NaN（只有一边有值），在 y 上是 20 + 5 = 25。标签不完全相同时，结果包含两边全部的标签，还会按标签排好顺序。
+
+      同一张表里的两列，行索引一模一样，所以 `df["mass_mg"] / df["volume_ml"]` 看起来就是逐行运算。要留神的是**从别处来的** Series：
+
+      - 只取出一部分行，例如 `df.loc[[22, 31], "volume_ml"]`，再和整列运算，其余行得到 NaN；
+      - 把另一个 Series 赋成新列，`df["ref"] = ref`，pandas 按 df 的行索引去 ref 里找同名标签，找不到的行是 NaN，而不是按先后顺序填进去。
+    example:
+      id: py21.k3.e0
+      kind: [predict]
+      data: [libs]
+      body: |
+        阅读代码，按标签填写 `total` 的值。
+
+        ```python
+        a = pd.Series([10, 20], index=["x", "y"])
+        b = pd.Series([1, 2], index=["y", "x"])
+        total = a + b
+        ```
+      slots:
+        - id: total
+          type: table
+          columns:
+            - { id: label, header: 标签 }
+            - { id: value, header: total, input: integer }
+          rows:
+            - { id: x, cells: { label: x, value: 12 } }
+            - { id: "y", cells: { label: "y", value: 21 } }
+        - id: rule
+          type: choice
+          prompt: pandas 是怎样把 a、b 的值配成对的？
+          options:
+            - { id: position, content: 按第几个配对：第一个和第一个、第二个和第二个 }
+            - { id: label, content: 按标签配对：x 和 x、y 和 y }
+          key: label
+      explanation: |
+        total 在 x 上是 **12**（10 + 2），在 y 上是 **21**（20 + 1）。pandas **按标签配对**：b 的第一个值 1 属于标签 y，所以和 a 的 20 相加。按位置相加会得到 11、22，那不是 pandas 的做法。
+      verify: |
+        r = run()
+        total = r["total"]
+        positional = [x + y for x, y in zip(r["a"], r["b"])]
+        answers = {
+            "total": {label: {"value": int(value)} for label, value in total.items()},
+            "rule": "label" if list(total) != positional else "position",
+        }
+    practice:
+      - id: py21.k3.q1
+        kind: [predict]
+        data: [libs]
+        body: |
+          阅读代码，按标签填写 `result` 的值。没有值的填 `NaN`。
+
+          ```python
+          a = pd.Series([10, 20], index=["x", "y"])
+          c = pd.Series([5, 7], index=["y", "z"])
+          result = a + c
+          ```
+        slots:
+          - id: result
+            type: table
+            columns:
+              - { id: label, header: 标签 }
+              - { id: value, header: result, input: { type: text, format: number, quick: [NaN] } }
+            rows:
+              - { id: x, cells: { label: x, value: NaN } }
+              - { id: "y", cells: { label: "y", value: 25 } }
+              - { id: z, cells: { label: z, value: NaN } }
+        explanation: |
+          x 是 **NaN**，y 是 **25**，z 是 **NaN**。只有 y 两边都有，20 + 5 = 25；x 只在 a 里，z 只在 c 里，配不上对。结果包含两边全部的标签。
+        verify: |
+          result = run()["result"]
+          answers = {"result": {label: {"value": "NaN" if pd.isna(value) else value} for label, value in result.items()}}
+      - id: py21.k3.q2
+        kind: [predict]
+        uses: [py14.k1]
+        data: [W, libs]
+        body: |
+          另一张表给出了两个样本的参考质量，存成 `ref`，标签是样本在表 W 里的原行索引。阅读代码，按原行索引填写新列 `ref` 的值。没有值的填 `NaN`。
+
+          ```python
+          ref = pd.Series([100, 200], index=[4, 31])
+          df["ref"] = ref
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: value, header: ref, input: { type: text, format: number, quick: [NaN] } }
+            rows:
+              - { id: r31, cells: { index: "31", value: 200 } }
+              - { id: r7, cells: { index: "7", value: NaN } }
+              - { id: r22, cells: { index: "22", value: NaN } }
+              - { id: r4, cells: { index: "4", value: 100 } }
+        explanation: |
+          依次为 **200、NaN、NaN、100**。赋成新列时，pandas 拿 df 的每个行索引去 ref 里找同名标签：31 找到 200，4 找到 100，7 和 22 找不到，是 NaN。它不会把 100、200 按先后顺序填进前两行。
+        verify: |
+          after = run()["df"]
+          answers = {"values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in after["ref"].items()}}
+      - id: py21.k3.q3
+        kind: [predict, explain]
+        uses: [py16.k2]
+        data: [W]
+        body: |
+          阅读代码，按原行索引填写 `ratio` 的值，没有值的填 `NaN`。
+
+          ```python
+          part = df.loc[[22, 31], "volume_ml"]
+          ratio = df["mass_mg"] / part
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: value, header: ratio, input: { type: text, format: number, quick: [NaN] } }
+            rows:
+              - { id: r31, cells: { index: "31", value: 30 } }
+              - { id: r7, cells: { index: "7", value: NaN } }
+              - { id: r22, cells: { index: "22", value: 30 } }
+              - { id: r4, cells: { index: "4", value: NaN } }
+          - id: missing
+            type: text
+            format: integer
+            prompt: "`ratio` 里有几个 NaN？"
+            key: 2
+        explanation: |
+          31 和 22 都是 **30.0**，7 和 4 是 **NaN**，共 **2** 个 NaN。`part` 只取出了 22、31 两行的体积，其余标签在 part 里找不到，配不上对。
+
+          结果仍有四个标签，而且按标签排成了 4、7、22、31 的顺序；这是标签不完全相同时 pandas 的做法，读结果时按标签找值，不要按位置找。
+        verify: |
+          ratio = run()["ratio"]
+          answers = {
+              "values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in ratio.items()},
+              "missing": int(ratio.isna().sum()),
+          }
+    review:
+      - id: py21.k3.r1
+        kind: [predict]
+        data: [libs]
+        body: |
+          阅读代码，写出输出。
+
+          ```python
+          a = pd.Series([1, 2], index=[0, 1])
+          b = pd.Series([10, 20], index=[1, 0])
+          print(list(a + b))
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 显示什么？
+            key: "[21, 12]"
+            feedback:
+              - when: "[11, 22]"
+                message: 这是按位置相加的结果；pandas 按标签配对，标签 0 的 1 和标签 0 的 20 相加。
+        explanation: |
+          显示 **[21, 12]**。标签 0 上是 1 + 20 = 21，标签 1 上是 2 + 10 = 12。标签恰好是 0、1 这样的数，也是按标签配对，不是按位置。
+        verify: |
+          answers = {"output": run().lines()[0]}
+      - id: py21.k3.r2
+        kind: [predict]
+        uses: [py14.k1]
+        data: [soil, libs]
+        body: |
+          复测了两个样地的深度，存成 `recheck`，标签是样地在表 soil 里的原行索引。阅读代码，按原行索引填写 `diff` 的值，没有值的填 `NaN`。
+
+          ```python
+          recheck = pd.Series([33, 27], index=[8, 12])
+          diff = recheck - soil["depth"]
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: value, header: diff, input: { type: text, format: number, quick: [NaN] } }
+            rows:
+              - { id: r5, cells: { index: "5", value: NaN } }
+              - { id: r12, cells: { index: "12", value: 2 } }
+              - { id: r3, cells: { index: "3", value: NaN } }
+              - { id: r8, cells: { index: "8", value: 3 } }
+        explanation: |
+          索引 12 是 27 − 25 = **2**，索引 8 是 33 − 30 = **3**，5 和 3 没有复测，是 **NaN**。recheck 的第一个值 33 属于标签 8，没有和 soil 的第一行（索引 5）相减。
+        verify: |
+          diff = run()["diff"]
+          answers = {"values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in diff.items()}}
+    quiz:
+      - id: py21.k3.x1
+        kind: [predict]
+        uses: [py14.k1]
+        data: [runs, libs]
+        body: |
+          另一份记录给出了两次培养的接种量，存成 `seed`，标签是培养在表 runs 里的原行索引。阅读代码，按原行索引填写新列 `seed` 的值，没有值的填 `NaN`。
+
+          ```python
+          seed = pd.Series([500, 300], index=[6, 3])
+          runs["seed"] = seed
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: value, header: seed, input: { type: text, format: number, quick: [NaN] } }
+            rows:
+              - { id: r3, cells: { index: "3", value: 300 } }
+              - { id: r11, cells: { index: "11", value: NaN } }
+              - { id: r6, cells: { index: "6", value: 500 } }
+        explanation: |
+          依次为 **300、NaN、500**。pandas 按 runs 的行索引去 seed 里找：3 找到 300，6 找到 500，11 找不到，是 NaN。500 虽然写在前面，但它的标签是 6。
+        verify: |
+          after = run()["runs"]
+          answers = {"values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in after["seed"].items()}}
+      - id: py21.k3.x2
+        kind: [explain]
+        data: [libs]
+        body: |
+          哪一段代码得到的 `total` 在标签 x 上是 11、在标签 y 上是 22？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: swapped
+                content: |
+                  ```python
+                  a = pd.Series([1, 2], index=["x", "y"])
+                  b = pd.Series([10, 20], index=["y", "x"])
+                  total = a + b
+                  ```
+              - id: same
+                content: |
+                  ```python
+                  a = pd.Series([1, 2], index=["x", "y"])
+                  b = pd.Series([20, 10], index=["y", "x"])
+                  total = a + b
+                  ```
+              - id: shifted
+                content: |
+                  ```python
+                  a = pd.Series([1, 2], index=["x", "y"])
+                  b = pd.Series([10, 20], index=["x", "z"])
+                  total = a + b
+                  ```
+            key: same
+        explanation: |
+          b 写成 `[20, 10]`、标签 `["y", "x"]` 的那一段：b 在 x 上是 10、在 y 上是 20，按标签相加得到 x 为 11、y 为 22。
+
+          b 写成 `[10, 20]`、标签 `["y", "x"]` 时，x 上是 1 + 20 = 21；b 的标签是 x、z 时，y 和 z 配不上对，得到 NaN。看 Series 的值，要连同它的标签一起看。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["program"].items():
+              total = run(code)["total"]
+              if total.get("x") == 11 and total.get("y") == 22 and len(total) == 2:
+                  fits.append(option)
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
