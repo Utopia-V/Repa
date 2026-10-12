@@ -2,7 +2,7 @@ import type { AgentEvent, ModelRef, SessionEntry } from "@repa/base/protocol";
 
 export type ToolStatus = "running" | "done" | "failed" | "incomplete";
 
-/** 对话页显示的一项。提示、view、用量等运行细节不显示。 */
+/** 对话页显示的一项。提示、view、用量等运行细节不显示；压缩只留一个标记，摘要本身不显示。 */
 export type ConversationItem =
   | { kind: "user"; id: string; text: string }
   | {
@@ -12,7 +12,8 @@ export type ConversationItem =
   }
   | { kind: "tool"; id: string; tool: string; status: ToolStatus }
   | { kind: "error"; id: string; text: string }
-  | { kind: "stopped"; id: string };
+  | { kind: "stopped"; id: string }
+  | { kind: "compaction"; id: string };
 
 export type RunStatus = "idle" | "sending" | "running" | "stopping";
 
@@ -88,6 +89,9 @@ export function historyItems(entries: SessionEntry[]): ConversationItem[] {
       const callId = text(entry.data, "callId");
       const item = callId ? tools.get(callId) : undefined;
       if (item) item.status = field(entry.data, "isError") === true ? "failed" : "done";
+    } else if (entry.type === "compaction") {
+      // 之前的记录仍然显示，标记说明 Agent 从这里起看到的是较早对话的摘要。
+      items.push({ kind: "compaction", id: entry.id });
     }
   }
   return items;

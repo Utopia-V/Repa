@@ -248,5 +248,7 @@ function Item({ item, streaming, onFork, forkDisabled }: {
       return <div className="mb-4"><StatusNotice status="error" title="运行出错"><p>{item.text}</p></StatusNotice></div>;
     case "stopped":
       return <p className="mb-4 text-sm text-muted-foreground">已停止</p>;
+    case "compaction":
+      return <p className="mb-4 text-sm text-muted-foreground">已压缩上下文，较早的对话已整理成摘要</p>;
   }
 }

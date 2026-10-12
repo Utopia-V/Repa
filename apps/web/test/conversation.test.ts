@@ -35,6 +35,23 @@ it("会话记录转成显示项：工具结果按调用配对，错误和停止�
   ]);
 });
 
+it("压缩条目留下一个标记、不显示摘要，压缩前的消息照常显示", () => {
+  const entries: SessionEntry[] = [
+    { id: "u1", type: "user", timestamp: at, text: "什么是极限" },
+    { id: "a1", type: "assistant", timestamp: at, text: "极限描述趋近。", data: { stopReason: "stop" } },
+    { id: "k1", type: "compaction", timestamp: at, text: "摘要：讲过极限", data: { firstKeptEntryId: "a1" } },
+    { id: "v1", type: "view", timestamp: at, text: "学习状态" },
+    { id: "u2", type: "user", timestamp: at, text: "继续" },
+  ];
+
+  expect(historyItems(entries)).toEqual([
+    { kind: "user", id: "u1", text: "什么是极限" },
+    { kind: "assistant", id: "a1", text: "极限描述趋近。", forkable: true },
+    { kind: "compaction", id: "k1" },
+    { kind: "user", id: "u2", text: "继续" },
+  ]);
+});
+
 function play(events: Omit<AgentEvent, "sessionId" | "runId">[]): Conversation {
   return events.reduce<Conversation>(
     (conversation, event) => applyEvent(conversation, { sessionId: "s1", runId: "r1", ...event }),
