@@ -1,7 +1,8 @@
 id: py39
 title: 把一行推导式展开来看
-status: outline
+status: complete
 minutes: 20
+summary: 读懂列表推导式里的取元素、条件和结果三部分，并能在推导式和 for、if、append 的循环之间来回改写。
 prerequisites:
   - topic: py36
     key: true
@@ -13,17 +14,964 @@ prerequisites:
     covers: [py38.k1]
 sources:
   - source: think-python
-    where: 第 18 章
+    where: 第 18 章（列表推导式）
     url: https://allendowney.github.io/ThinkPython/chap18.html
     use: reference
   - source: python-docs
-    where: 教程第 5 章 §5.1.3
+    where: 教程第 5 章 §5.1.3（列表推导式）
     url: https://docs.python.org/3.12/tutorial/datastructures.html
     use: reference
 notes: |
-  建议题型与判分：解释代码（S/O）、小改代码（T）、追踪变量（P）。
+  范围：只讲一个 for、最多一个 if 的列表推导式，以及它与 py36 的“空列表 + for + if + append”循环的等价改写。if 写在 for 前面的条件表达式（a if 条件 else b）、多个 for、字典和集合推导式都不在本节，只在 k2 讲解里提一句前者是另一回事。py38 的解包在推导式里不用，辅助先修的边保留给以后的变式题。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 4 分钟；k2 讲解与例题 4 分钟、练习 6 分钟；收束 2 分钟。
+  题型：预测输出、逐元素追踪表、指认三部分（verify 用 ast 从题面代码里取出取元素的列表、条件和结果表达式，再与选项里的代码比对）、Parsons（带缩进、按测试判）、骨架代码加测试。代码题的初始代码用 ___ 留空，原样提交会因 NameError 不过测试。
+  例题、练习的情境与数据为本课自拟；signals 与阈值 10 沿用 py17、py36 的约定。
+intro: |
+  上一节读过“逐个检查并收集”的循环：先建一个空列表，逐个取出元素，满足条件的用 `append` 放进去。AI 写代码时，常把这四行压成一行，叫**列表推导式**。
+
+  这一节把一行推导式拆开来读：从哪个列表取、条件是什么、放进结果的是什么；再练习在推导式和循环之间来回改写。程序仍当作从上往下运行的短脚本。
+wrapup: |
+  读到 `[… for … in … if …]`，先看中间的 for 从哪个列表取，再看末尾的 if 留下谁，最后回到最前面，看放进结果的是什么。拿不准时，就把它展开成空列表、for、if、append 四行，逐轮追踪。
+
+  请 AI 解释一段推导式时，也可以要它“展开成普通的 for 循环再写一遍”，两种写法的结果应当完全一样。
+data:
+  counts:
+    kind: python
+    code: |
+      counts = [4, 0, 7, 2]
+    display: |
+      准备代码：
+
+      ```python
+      counts = [4, 0, 7, 2]
+      ```
 kps:
   - id: py39.k1
     title: 列表推导式中的取元素、条件和结果
+    card:
+      name: 列表推导式
+      aliases: [推导式, list comprehension]
+      definition: "`[表达式 for v in 列表 if 条件]` 从列表里逐个取出 v，条件为 True 的才算出表达式，按原顺序放进一个新列表。"
+      conditions:
+        - 按“中间、末尾、开头”的顺序读：先看 for 从哪个列表取，再看 if 留下谁，最后看最前面放进结果的是什么。
+        - 没有 if 时每个元素都进结果；一个都不满足时得到空列表 []。
+      example:
+        from: py39.k1.e0
+        text: |
+          ```python
+          signals = [8, 12, 10, 7, 15]
+          doubled = [v * 2 for v in signals if v >= 10]
+          ```
+          从 signals 逐个取 v，留下 v >= 10 的 12、10、15，各乘 2，doubled 是 [24, 20, 30]。
+    lesson: |
+      上一节的循环这样收集 signal 至少为 10 的读数：
+
+      ```python
+      signals = [8, 12, 10, 7, 15]
+      kept = []
+      for v in signals:
+          if v >= 10:
+              kept.append(v)
+      ```
+
+      同样的事可以写成一行**列表推导式**：
+
+      ```python
+      kept = [v for v in signals if v >= 10]
+      ```
+
+      两种写法得到同一个 `kept`：`[12, 10, 15]`。方括号里有三部分，按“中间、末尾、开头”的顺序读最顺：
+
+      | 部分 | 写法 | 意思 |
+      |---|---|---|
+      | 取元素 | `for v in signals` | 从 signals 里逐个取出元素，每次叫 v |
+      | 条件 | `if v >= 10` | 只有条件为 True 的元素才往下走 |
+      | 结果 | 最前面的 `v` | 放进新列表的东西 |
+
+      最前面的部分不一定是 `v` 本身，也可以是用 v 算出来的值。仍用这个 `signals`：
+
+      - `[v * 2 for v in signals if v >= 10]` 得到 `[24, 20, 30]`：先筛，再把留下的各乘 2；
+      - `[v * 2 for v in signals]` 没有 if，每个都进结果，得到 `[16, 24, 20, 14, 30]`；
+      - `[v for v in signals if v > 20]` 一个都不满足，得到空列表 `[]`。
+
+      结果里的元素保持原列表中的先后顺序，长度可能比原列表短，但不会更长。
+    example:
+      id: py39.k1.e0
+      kind: [explain, predict]
+      uses: [py35.k1]
+      body: |
+        ```python
+        signals = [8, 12, 10, 7, 15]
+        doubled = [v * 2 for v in signals if v >= 10]
+        print(doubled)
+        ```
+      slots:
+        - id: source
+          type: choice
+          prompt: 从哪个列表逐个取元素？
+          options:
+            - id: doubled
+              content: |
+                ```python
+                doubled
+                ```
+            - id: signals
+              content: |
+                ```python
+                signals
+                ```
+            - id: v
+              content: |
+                ```python
+                v
+                ```
+          key: signals
+        - id: condition
+          type: choice
+          prompt: 条件是哪一部分？
+          options:
+            - id: expr
+              content: |
+                ```python
+                v * 2
+                ```
+            - id: loop
+              content: |
+                ```python
+                for v in signals
+                ```
+            - id: test
+              content: |
+                ```python
+                v >= 10
+                ```
+          key: test
+        - id: result
+          type: choice
+          prompt: 放进结果的是哪一部分？
+          options:
+            - id: value
+              content: |
+                ```python
+                v
+                ```
+            - id: doubled_value
+              content: |
+                ```python
+                v * 2
+                ```
+            - id: test
+              content: |
+                ```python
+                v >= 10
+                ```
+          key: doubled_value
+        - id: output
+          type: text
+          match: output
+          prompt: 程序显示什么？
+          key: "[24, 20, 30]"
+      explanation: |
+        从 **signals** 里逐个取 v；条件是 **v >= 10**；放进结果的是 **v * 2**。
+
+        逐个看：8 和 7 不满足条件，跳过；12、10、15 满足，各乘 2 得到 24、20、30。显示 **[24, 20, 30]**，顺序和原列表一致。`doubled` 是最后接住新列表的名字，不是取元素的来源。
+      verify: |
+        import ast
+        comp = next(node for node in ast.walk(ast.parse(CODE)) if isinstance(node, ast.ListComp))
+        loop = comp.generators[0]
+        parts = {"source": ast.unparse(loop.iter), "condition": ast.unparse(loop.ifs[0]), "result": ast.unparse(comp.elt)}
+        answers = {"output": run().lines()[0]}
+        for slot, text in parts.items():
+            fits = [option for option, code in OPTIONS[slot].items() if code.strip() == text]
+            answers[slot] = fits[0] if len(fits) == 1 else fits
+    practice:
+      - id: py39.k1.q1
+        kind: [predict]
+        body: |
+          `depths` 是四个采样点的土层深度（厘米）。
+
+          ```python
+          depths = [30, 25, 35, 30]
+          adjusted = [d - 5 for d in depths if d > 28]
+          print(adjusted)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "[25, 30, 25]"
+            feedback:
+              - when: "[30, 35, 30]"
+                message: 留下的是对的，但放进结果的是 d - 5，每个还要减 5。
+              - when: "[25, 20, 30, 25]"
+                message: 25 不满足 d > 28，不会进入结果。
+        explanation: |
+          显示 **[25, 30, 25]**。从 depths 逐个取 d：30、35、30 满足 d > 28，25 不满足；留下的三个各减 5，得到 25、30、25，顺序不变。
+        verify: |
+          answers = {"output": run().lines()[0]}
+      - id: py39.k1.q2
+        kind: [predict]
+        uses: [py06.k1]
+        body: |
+          ```python
+          signals = [8, 10, 13, 10]
+          high = [v for v in signals if v > 20]
+          print(high)
+          print(len(signals))
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示什么？
+            key: "[]"
+            feedback:
+              - when: None
+                message: 没有元素满足条件时，推导式仍然得到一个列表，只是里面什么也没有。
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示哪个整数？
+            key: 4
+            feedback:
+              - when: 0
+                message: 推导式建的是一个新列表，signals 本身没有被改动，仍有 4 个元素。
+        explanation: |
+          第一行显示 **[]**：四个值都不大于 20，一个也没留下，得到空列表。第二行显示 **4**：推导式只是从 signals 里读，另外建了一个新列表，signals 不变。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": int(lines[1])}
+      - id: py39.k1.q3
+        kind: [trace]
+        body: |
+          ```python
+          codes = [3, 8, 5, 8]
+          picked = [c * 10 for c in codes if c != 8]
+          print(picked)
+          ```
+        slots:
+          - id: steps
+            type: table
+            prompt: 按取出的先后，填写每个元素是否满足条件，以及它放进结果的值；不放入的填“不放入”。
+            columns:
+              - id: c
+                header: c
+              - id: test
+                header: c != 8
+                input: bool
+              - id: added
+                header: 放进结果的值
+                input: { type: text, format: integer, quick: [不放入] }
+            rows:
+              - id: e1
+                cells: { c: "3", test: true, added: 30 }
+              - id: e2
+                cells: { c: "8", test: false, added: 不放入 }
+              - id: e3
+                cells: { c: "5", test: true, added: 50 }
+              - id: e4
+                cells: { c: "8", test: false, added: 不放入 }
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "[30, 50]"
+        explanation: |
+          | c | c != 8 | 放进结果的值 |
+          |---:|---|---|
+          | 3 | True | 30 |
+          | 8 | False | 不放入 |
+          | 5 | True | 50 |
+          | 8 | False | 不放入 |
+
+          只有条件为 True 的元素才会算 `c * 10` 并放进结果，所以显示 **[30, 50]**。
+        verify: |
+          codes = run()["codes"]
+          steps = {}
+          for n, c in enumerate(codes, 1):
+              keep = c != 8
+              steps[f"e{n}"] = {"test": keep, "added": c * 10 if keep else "不放入"}
+          answers = {"steps": steps, "output": run().lines()[0]}
+    review:
+      - id: py39.k1.r1
+        kind: [explain]
+        body: |
+          ```python
+          depths = [30, 25, 35, 40]
+          ```
+
+          接着运行下面哪一行，`result` 会是 `[70, 80]`？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: ge
+                content: |
+                  ```python
+                  result = [d * 2 for d in depths if d >= 30]
+                  ```
+              - id: no_double
+                content: |
+                  ```python
+                  result = [d for d in depths if d > 30]
+                  ```
+              - id: no_condition
+                content: |
+                  ```python
+                  result = [d * 2 for d in depths]
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  result = [d * 2 for d in depths if d > 30]
+                  ```
+            key: right
+        explanation: |
+          `[d * 2 for d in depths if d > 30]`：留下大于 30 的 35、40，各乘 2 得到 [70, 80]。
+
+          用 `>= 30` 还会留下 30，得到 [60, 70, 80]；最前面只写 `d`，得到的是 [35, 40]；没有 if 时四个都进结果，得到 [60, 50, 70, 80]。
+        verify: |
+          fits = [option for option, code in OPTIONS["line"].items() if run(BLOCKS[0] + "\n" + code)["result"] == [70, 80]]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py39.k1.r2
+        kind: [predict]
+        data: [counts]
+        body: |
+          每一行都单独接在上面的准备代码之后，用 `print(...)` 显示这个表达式的值。写出会显示什么。
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - id: code
+                header: 表达式
+              - id: value
+                header: print 显示
+                input: { type: text, match: output }
+            rows:
+              - id: positive
+                cells: { code: "[c for c in counts if c > 0]", value: "[4, 7, 2]" }
+              - id: plus
+                cells: { code: "[c + 1 for c in counts]", value: "[5, 1, 8, 3]" }
+              - id: none
+                cells: { code: "[c for c in counts if c > 10]", value: "[]" }
+              - id: length
+                cells: { code: "len([c for c in counts if c != 0])", value: "3" }
+        explanation: |
+          - 留下大于 0 的：**[4, 7, 2]**，0 被去掉，顺序不变。
+          - 没有 if，每个加 1：**[5, 1, 8, 3]**，长度和原列表相同。
+          - 没有大于 10 的：**[]**。
+          - 不等于 0 的有 4、7、2 三个，`len` 得到 **3**。
+        verify: |
+          expressions = {
+              "positive": "[c for c in counts if c > 0]",
+              "plus": "[c + 1 for c in counts]",
+              "none": "[c for c in counts if c > 10]",
+              "length": "len([c for c in counts if c != 0])",
+          }
+          answers = {"shown": {row: {"value": run("value = " + expression)["value"]} for row, expression in expressions.items()}}
+    quiz:
+      - id: py39.k1.x1
+        kind: [predict]
+        body: |
+          `lengths` 是几段样品的长度，单位是厘米；下面把至少 25 厘米的换成毫米。
+
+          ```python
+          lengths = [12, 30, 7, 25]
+          long_mm = [n * 10 for n in lengths if n >= 25]
+          print(long_mm)
+          print(lengths)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示什么？
+            key: "[300, 250]"
+            feedback:
+              - when: "[30, 25]"
+                message: 放进结果的是 n * 10，留下的值还要乘 10。
+              - when: "[300]"
+                message: n >= 25 包含恰好等于 25 的那一段。
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行显示什么？
+            key: "[12, 30, 7, 25]"
+        explanation: |
+          第一行显示 **[300, 250]**：30 和 25 满足 n >= 25（包括恰好等于 25），各乘 10。第二行显示 **[12, 30, 7, 25]**：推导式另建了一个新列表，`lengths` 没有变。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+      - id: py39.k1.x2
+        kind: [explain]
+        body: |
+          ```python
+          ratios = [r / 10 for r in readings if r >= 50]
+          ```
+        slots:
+          - id: source
+            type: choice
+            prompt: 从哪个列表逐个取元素？
+            options:
+              - id: ratios
+                content: |
+                  ```python
+                  ratios
+                  ```
+              - id: r
+                content: |
+                  ```python
+                  r
+                  ```
+              - id: readings
+                content: |
+                  ```python
+                  readings
+                  ```
+            key: readings
+          - id: condition
+            type: choice
+            prompt: 决定留不留下的条件是哪一部分？
+            options:
+              - id: test
+                content: |
+                  ```python
+                  r >= 50
+                  ```
+              - id: expr
+                content: |
+                  ```python
+                  r / 10
+                  ```
+              - id: loop
+                content: |
+                  ```python
+                  for r in readings
+                  ```
+            key: test
+          - id: result
+            type: choice
+            prompt: 放进结果的是哪一部分？
+            options:
+              - id: test
+                content: |
+                  ```python
+                  r >= 50
+                  ```
+              - id: value
+                content: |
+                  ```python
+                  r
+                  ```
+              - id: divided
+                content: |
+                  ```python
+                  r / 10
+                  ```
+            key: divided
+          - id: count
+            type: text
+            format: integer
+            prompt: 如果 `readings` 是 `[40, 55, 60]`，`ratios` 里有几个元素？
+            key: 2
+        explanation: |
+          从 **readings** 逐个取 r；条件是 **r >= 50**；放进结果的是 **r / 10**。`ratios` 只是接住新列表的名字。
+
+          `readings` 是 [40, 55, 60] 时，只有 55 和 60 满足条件，`ratios` 里有 **2** 个元素：5.5 和 6.0。
+        verify: |
+          import ast
+          comp = next(node for node in ast.walk(ast.parse(CODE)) if isinstance(node, ast.ListComp))
+          loop = comp.generators[0]
+          parts = {"source": ast.unparse(loop.iter), "condition": ast.unparse(loop.ifs[0]), "result": ast.unparse(comp.elt)}
+          answers = {"count": len(run(readings=[40, 55, 60])["ratios"])}
+          for slot, text in parts.items():
+              fits = [option for option, code in OPTIONS[slot].items() if code.strip() == text]
+              answers[slot] = fits[0] if len(fits) == 1 else fits
+
   - id: py39.k2
     title: 与显式 for/if 的等价关系
+    card:
+      name: 推导式展开
+      aliases: [改写成循环]
+      definition: "`new = [表达式 for v in 列表 if 条件]` 等价于先写 `new = []`，再在 `for v in 列表:` 里、`if 条件:` 成立时 `new.append(表达式)`。"
+      conditions:
+        - 展开时三部分各就各位：for 行照抄 for 部分，if 行照抄条件，append 的括号里写最前面的表达式。
+        - 推导式总是建一个新列表，原列表不变；`a if 条件 else b` 写在 for 前面时是给每个元素二选一，不是筛选。
+      example:
+        from: py39.k2.e0
+        text: |
+          `kept = [v * 2 for v in signals if v >= 10]` 展开成：
+          ```python
+          kept = []
+          for v in signals:
+              if v >= 10:
+                  kept.append(v * 2)
+          ```
+    lesson: |
+      推导式和上一节的循环可以一一对上：
+
+      ```python
+      kept = []
+      for v in signals:
+          if v >= 10:
+              kept.append(v * 2)
+      ```
+
+      ```python
+      kept = [v * 2 for v in signals if v >= 10]
+      ```
+
+      | 循环里的 | 推导式里的 |
+      |---|---|
+      | `kept = []`，先建空列表 | 外面的一对方括号 |
+      | `for v in signals:` | 中间的 `for v in signals` |
+      | `if v >= 10:` | 末尾的 `if v >= 10` |
+      | `kept.append(v * 2)` 括号里的 `v * 2` | 最前面的 `v * 2` |
+
+      **把推导式展开成循环**：先写 `名字 = []`；再把 for 部分照抄成一行，末尾加冒号；if 部分照抄成下一行，缩进一层、加冒号；最后一行再缩进一层，写 `名字.append(最前面的表达式)`。没有 if 的推导式，就少掉 if 那一行，append 只缩进一层。
+
+      **把循环改写成推导式**：反过来，从 append 的括号里取出表达式放在最前面，后面接 for 部分和 if 部分。只有“空列表、for、可选的 if、append”这种形状的循环能这样改。
+
+      两种写法的结果完全一样：都按原顺序收集、都建一个新列表，原来的 `signals` 不变。
+
+      另外，AI 写的代码里有时会出现 `[a if 条件 else b for v in 列表]`，if 写在 for **前面**、还带 else。那是给每个元素二选一，结果和原列表一样长，不会去掉元素，和本节的筛选不是一回事，这里不展开。
+    example:
+      id: py39.k2.e0
+      kind: [modify]
+      uses: [py36.k1, py10.k2]
+      body: |
+        把下面这行推导式展开成循环：把需要的代码块排好，并设好缩进。有的块用不上。宿主已经准备好列表 `signals`。
+
+        ```python
+        kept = [v * 2 for v in signals if v >= 10]
+        ```
+      slots:
+        - id: program
+          type: order
+          partial: true
+          indent: 2
+          items:
+            - { id: append_plain, code: kept.append(v) }
+            - { id: loop, code: "for v in signals:" }
+            - { id: test_gt, code: "if v > 10:" }
+            - { id: start, code: "kept = []" }
+            - { id: append_double, code: kept.append(v * 2) }
+            - { id: test, code: "if v >= 10:" }
+          key: [start, loop, test, append_double]
+          indents: { start: 0, loop: 0, test: 1, test_gt: 1, append_double: 2, append_plain: 2 }
+          tests:
+            - name: 表里有恰好等于 10 的值
+              setup: signals = [8, 12, 10, 7, 15]
+              expect:
+                kept: "[24, 20, 30]"
+                signals: "[8, 12, 10, 7, 15]"
+            - name: 换一组值
+              hidden: true
+              setup: signals = [12, 9, 10, 30]
+              expect:
+                kept: "[24, 20, 60]"
+      explanation: |
+        ```python
+        kept = []
+        for v in signals:
+            if v >= 10:
+                kept.append(v * 2)
+        ```
+
+        先建空列表；for 部分照抄成第二行；条件照抄成 `if v >= 10:`，缩进一层；最前面的表达式 `v * 2` 写进 append 的括号，再缩进一层。`if v > 10:` 改了等号的含义，`kept.append(v)` 漏了乘 2，都用不上。
+    practice:
+      - id: py39.k2.q1
+        kind: [explain]
+        uses: [py36.k1, py35.k3]
+        body: |
+          ```python
+          big = [d * 2 for d in depths if d > 28]
+          ```
+
+          哪一段循环和这一行的结果总是相同？
+        slots:
+          - id: loop
+            type: choice
+            options:
+              - id: reset_inside
+                content: |
+                  ```python
+                  for d in depths:
+                      big = []
+                      if d > 28:
+                          big.append(d * 2)
+                  ```
+                feedback: big = [] 写进了循环，每一轮都重新清空，最后只剩最后一轮的结果。
+              - id: no_double
+                content: |
+                  ```python
+                  big = []
+                  for d in depths:
+                      if d > 28:
+                          big.append(d)
+                  ```
+              - id: same
+                content: |
+                  ```python
+                  big = []
+                  for d in depths:
+                      if d > 28:
+                          big.append(d * 2)
+                  ```
+              - id: ge
+                content: |
+                  ```python
+                  big = []
+                  for d in depths:
+                      if d >= 28:
+                          big.append(d * 2)
+                  ```
+            key: same
+        explanation: |
+          空列表写在循环前、条件照抄 `d > 28`、append 里写 `d * 2` 的那一段和推导式相同。
+
+          把 `big = []` 写进循环，每一轮都清空，只留下最后一轮的结果；append 里只写 `d`，漏了乘 2；`d >= 28` 会多留下恰好是 28 的值。
+        verify: |
+          cases = [[30, 25, 35, 30], [28, 40, 10], [50, 3], []]
+          fits = []
+          for option, code in OPTIONS["loop"].items():
+              if all(run(code, depths=case).vars.get("big") == run(CODE, depths=case)["big"] for case in cases):
+                  fits.append(option)
+          answers = {"loop": fits[0] if len(fits) == 1 else fits}
+      - id: py39.k2.q2
+        kind: [modify]
+        uses: [py36.k1]
+        body: |
+          下面的循环从 `readings` 里挑出高于本底 5 的读数，减去 5 后收集起来：
+
+          ```python
+          net = []
+          for r in readings:
+              if r > 5:
+                  net.append(r - 5)
+          ```
+
+          把它改写成一行推导式，结果仍叫 `net`。作答框里的 `___` 是要你填的地方。宿主已经准备好 `readings`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              net = [___ for r in readings if ___]
+            solution: |
+              net = [r - 5 for r in readings if r > 5]
+            rejects:
+              - code: net = [r for r in readings if r > 5]
+                why: 放进结果的是 r，忘了减去本底
+              - code: net = [r - 5 for r in readings if r >= 5]
+                why: 把“高于 5”写成了大于或等于，多留下恰好是 5 的读数
+              - code: net = [r - 5 for r in readings]
+                why: 漏了条件，每个读数都减 5 放进结果
+            tests:
+              - name: 有恰好等于本底的读数
+                setup: readings = [12, 4, 9, 5]
+                expect:
+                  net: "[7, 4]"
+                  readings: "[12, 4, 9, 5]"
+              - name: 换一组读数
+                hidden: true
+                setup: readings = [6, 5, 20]
+                expect:
+                  net: "[1, 15]"
+              - name: 没有高于本底的读数
+                hidden: true
+                setup: readings = [1, 2]
+                expect:
+                  net: "[]"
+        explanation: |
+          ```python
+          net = [r - 5 for r in readings if r > 5]
+          ```
+
+          append 括号里的 `r - 5` 放到最前面，for 部分和 if 部分照抄。`readings` 是 [12, 4, 9, 5] 时得到 [7, 4]：恰好等于 5 的读数不高于本底，不留下。判分时还会换几组读数运行。
+      - id: py39.k2.q3
+        kind: [predict]
+        body: |
+          ```python
+          signals = [8, 10, 13]
+          plus_one = [v + 1 for v in signals]
+          print(signals)
+          print(plus_one)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示什么？
+            key: "[8, 10, 13]"
+            feedback:
+              - when: "[9, 11, 14]"
+                message: 推导式建的是新列表，交给 plus_one；signals 本身没有改。
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行显示什么？
+            key: "[9, 11, 14]"
+        explanation: |
+          第一行显示 **[8, 10, 13]**，第二行显示 **[9, 11, 14]**。推导式和“空列表加 append”的循环一样，是另建一个新列表往里放，原来的 `signals` 不变。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+    review:
+      - id: py39.k2.r1
+        kind: [explain]
+        uses: [py36.k1]
+        body: |
+          下面每组有一行推导式（甲）和一段循环（乙），`nums` 是一个整数列表，可能有正数、0 和负数。
+
+          第 1 组：
+
+          ```python
+          out = [x + 1 for x in nums if x > 0]
+          ```
+
+          ```python
+          out = []
+          for x in nums:
+              if x > 0:
+                  out.append(x + 1)
+          ```
+
+          第 2 组：
+
+          ```python
+          out = [x for x in nums if x > 0]
+          ```
+
+          ```python
+          out = []
+          for x in nums:
+              if x > 0:
+                  out.append(x + 1)
+          ```
+
+          第 3 组：
+
+          ```python
+          out = [x * 2 for x in nums]
+          ```
+
+          ```python
+          out = []
+          for x in nums:
+              out.append(x * 2)
+          ```
+
+          第 4 组：
+
+          ```python
+          out = [x for x in nums if x != 0]
+          ```
+
+          ```python
+          out = []
+          for x in nums:
+              if x > 0:
+                  out.append(x)
+          ```
+        slots:
+          - id: same
+            type: table
+            prompt: 对任何 `nums`，甲和乙得到的 `out` 是否总是相同？
+            columns:
+              - id: group
+                header: 组
+              - id: same
+                header: 总是相同
+                input: bool
+            rows:
+              - id: g1
+                cells: { group: 第 1 组, same: true }
+              - id: g2
+                cells: { group: 第 2 组, same: false }
+              - id: g3
+                cells: { group: 第 3 组, same: true }
+              - id: g4
+                cells: { group: 第 4 组, same: false }
+        explanation: |
+          - 第 1 组**相同**：条件和表达式都对得上。
+          - 第 2 组**不同**：推导式放进结果的是 `x`，循环放的是 `x + 1`。
+          - 第 3 组**相同**：没有 if 的推导式，对应没有 if 的循环。
+          - 第 4 组**不同**：`x != 0` 会留下负数，`x > 0` 不会；`nums` 里有负数时结果就不一样。
+        verify: |
+          cases = [[3, 0, -2, 5], [1, 2], [-1, -4], [0], []]
+          same = {}
+          for n in range(4):
+              comprehension, loop = BLOCKS[2 * n], BLOCKS[2 * n + 1]
+              equal = all(run(comprehension, nums=case)["out"] == run(loop, nums=case)["out"] for case in cases)
+              same[f"g{n + 1}"] = {"same": equal}
+          answers = {"same": same}
+      - id: py39.k2.r2
+        kind: [modify]
+        uses: [py36.k1, py10.k2]
+        body: |
+          把下面这行推导式改写成 for 循环，结果仍叫 `selected`。作答框里的 `___` 是要你补写的地方，可以写成几行。宿主已经准备好 `groups`。
+
+          ```python
+          selected = [g for g in groups if g != "control"]
+          ```
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 6
+            starter: |
+              selected = []
+              for g in groups:
+                  ___
+            solution: |
+              selected = []
+              for g in groups:
+                  if g != "control":
+                      selected.append(g)
+            accepts:
+              - |
+                selected = [g for g in groups if g != "control"]
+            rejects:
+              - code: |
+                  selected = []
+                  for g in groups:
+                      selected.append(g)
+                why: 漏了条件，control 也被收集进来
+              - code: |
+                  for g in groups:
+                      selected = []
+                      if g != "control":
+                          selected.append(g)
+                why: 空列表写进了循环，每一轮都被清空
+              - code: |
+                  selected = []
+                  for g in groups:
+                      if g == "control":
+                          selected.append(g)
+                why: 条件写反了，收集的是 control
+            tests:
+              - name: 三种组别
+                setup: groups = ["control", "drug", "drug", "control", "placebo"]
+                expect:
+                  selected: '["drug", "drug", "placebo"]'
+                  groups: '["control", "drug", "drug", "control", "placebo"]'
+              - name: 只有对照组
+                hidden: true
+                setup: groups = ["control", "control"]
+                expect:
+                  selected: "[]"
+              - name: 最后一个不是对照组
+                hidden: true
+                setup: groups = ["drug", "control", "drug"]
+                expect:
+                  selected: '["drug", "drug"]'
+        explanation: |
+          ```python
+          selected = []
+          for g in groups:
+              if g != "control":
+                  selected.append(g)
+          ```
+
+          条件 `g != "control"` 照抄成 if 行，缩进一层；最前面的 `g` 写进 append 的括号，再缩进一层。空列表必须写在循环前面，否则每一轮都被清空。
+    quiz:
+      - id: py39.k2.x1
+        kind: [modify]
+        uses: [py36.k1, py10.k2]
+        body: |
+          把下面这行推导式展开成循环：把需要的代码块排好，并设好缩进。有的块用不上。宿主已经准备好 `temps`。
+
+          ```python
+          warm = [t - 20 for t in temps if t > 20]
+          ```
+        slots:
+          - id: program
+            type: order
+            partial: true
+            indent: 2
+            items:
+              - { id: test, code: "if t > 20:" }
+              - { id: append_plain, code: warm.append(t) }
+              - { id: start, code: "warm = []" }
+              - { id: append_diff, code: warm.append(t - 20) }
+              - { id: loop, code: "for t in temps:" }
+              - { id: test_diff, code: "if t - 20 > 20:" }
+            key: [start, loop, test, append_diff]
+            indents: { start: 0, loop: 0, test: 1, test_diff: 1, append_diff: 2, append_plain: 2 }
+            tests:
+              - name: 几天的温度
+                setup: temps = [18, 25, 20, 31]
+                expect:
+                  warm: "[5, 11]"
+                  temps: "[18, 25, 20, 31]"
+              - name: 换一组温度
+                hidden: true
+                setup: temps = [45, 21, 12]
+                expect:
+                  warm: "[25, 1]"
+        explanation: |
+          ```python
+          warm = []
+          for t in temps:
+              if t > 20:
+                  warm.append(t - 20)
+          ```
+
+          条件照抄 `t > 20`，不要把最前面的表达式也算进条件；放进结果的是 `t - 20`，写进 append 的括号。
+      - id: py39.k2.x2
+        kind: [trace]
+        uses: [py36.k1, py35.k2]
+        body: |
+          ```python
+          values = [5, 12, 9, 15]
+          kept = [v - 2 for v in values if v > 8]
+          ```
+
+          把第二行展开成“空列表、for、if、append”的循环，逐轮执行。填写每一轮结束时 `kept` 的值。
+        slots:
+          - id: rounds
+            type: table
+            columns:
+              - id: round
+                header: 第几轮
+              - id: v
+                header: v
+              - id: kept
+                header: 这一轮结束时的 kept
+                input: { type: text, match: output }
+            rows:
+              - id: r1
+                cells: { round: "1", v: "5", kept: "[]" }
+              - id: r2
+                cells: { round: "2", v: "12", kept: "[10]" }
+              - id: r3
+                cells: { round: "3", v: "9", kept: "[10, 7]" }
+              - id: r4
+                cells: { round: "4", v: "15", kept: "[10, 7, 13]" }
+        explanation: |
+          | 第几轮 | v | v > 8 | kept |
+          |---:|---:|---|---|
+          | 1 | 5 | False | [] |
+          | 2 | 12 | True | [10] |
+          | 3 | 9 | True | [10, 7] |
+          | 4 | 15 | True | [10, 7, 13] |
+
+          第 1 轮条件不成立，`kept` 仍是空列表；之后每轮把 `v - 2` 加到末尾。最后的 `kept` 是 [10, 7, 13]，和推导式直接算出的一样。
+        verify: |
+          import ast
+          values = run()["values"]
+          comp = next(node for node in ast.walk(ast.parse(CODE)) if isinstance(node, ast.ListComp))
+          loop = comp.generators[0]
+          name = ast.unparse(loop.target)
+          # 按展开后的循环逐轮执行，记下每轮结束时的列表。
+          kept, rounds = [], {}
+          for n, value in enumerate(values, 1):
+              scope = {name: value}
+              if all(eval(ast.unparse(test), scope) for test in loop.ifs):
+                  kept.append(eval(ast.unparse(comp.elt), scope))
+              rounds[f"r{n}"] = {"kept": list(kept)}
+          assert kept == run()["kept"]
+          answers = {"rounds": rounds}
