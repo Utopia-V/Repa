@@ -7,12 +7,9 @@ import { ASK_USER_TOOL, type AskOutcome } from "../plugin.js";
 import { currentRun } from "../run-context.js";
 import { object, RepaFault } from "../schema.js";
 
-// 参数只描述问题，没有答案字段：工具参数会经 session.event 和 session.history 发给所有连接。
+// 参数只描述问题；工具参数会经 session.event 和 session.history 发给所有连接。
 // 每次 1–4 问、每问 2–6 个选项的上限沿用草案，参照 Claude Code 的 AskUserQuestion。
 const AskUserSchema = object({
-  purpose: Type.Optional(Type.Union([Type.Literal("question"), Type.Literal("practice")], {
-    description: "question（默认）：请用户决定或澄清；practice：给用户出练习小题，作答后由你讲评",
-  })),
   questions: Type.Array(object({
     id: Type.Optional(Type.String({ maxLength: 40, pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]*$", description: "可选的问题标识" })),
     question: Type.String({ minLength: 1, maxLength: 2_000, description: "问题，Markdown" }),
@@ -32,9 +29,8 @@ type AskUserInput = Static<typeof AskUserSchema>;
 type Question = AskUserInput["questions"][number];
 
 const DESCRIPTION = [
-  "向用户提出 1–4 个问题，等用户在界面上作答，回答作为工具结果交回。",
-  "用于需要用户决定或澄清的地方；也可以出练习小题，把 purpose 设为 practice，用户作答后由你讲评。",
-  "参数里不要写答案、解析或提示答案的内容，它们会在用户作答前显示出来。",
+  "向用户提出 1–4 个问题，等用户在界面上作答，回答原样作为工具结果交回。",
+  "用于需要用户决定、选择或澄清的地方。",
   "用户可以不按卡片作答而回一句话，也可以关掉询问。",
 ].join("");
 
@@ -95,10 +91,10 @@ function describe(questions: Question[], ids: string[], outcome: AskOutcome): st
     const answer = Object.hasOwn(answers, id) ? answers[id] : undefined;
     return `- ${question.question.replace(/\s+/gu, " ").trim()} → ${answerText(question, answer)}`;
   });
-  return `${outcome.response.dontKnow === true ? "用户表示不会。" : "用户已作答："}\n${lines.join("\n")}`;
+  return `用户已作答：\n${lines.join("\n")}`;
 }
 
-/** 底座的 ask_user：把参数转换成题目，经询问路由发给发起这次运行的连接。 */
+/** 底座的 ask_user：把参数转换成 Item，经询问路由发给发起这次运行的连接。 */
 export function askUserTool(route: AskRoute | undefined): ToolDefinition {
   return defineTool({
     name: ASK_USER_TOOL,
@@ -113,7 +109,6 @@ export function askUserTool(route: AskRoute | undefined): ToolDefinition {
       const run = currentRun();
       const outcome = await route({
         origin: { kind: "agent", ...(run === undefined ? {} : { sessionId: run.sessionId }), callId },
-        purpose: input.purpose ?? "question",
         item,
       }, signal === undefined ? {} : { signal });
       return {

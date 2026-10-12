@@ -1,31 +1,30 @@
 import type { Static, TSchema } from "typebox";
 import type { ActivitySource, ChangeFeed, Revision, Snapshot } from "@repa/space-history";
-import type { Item, ItemDraft, ItemResponse, SubmitResult } from "./interaction.js";
+import type { AskSubmitResult, Item, ItemDraft, ItemResponse } from "./interaction.js";
 import type { ClientCapabilities } from "./protocol.js";
 import type { MessageDecision, ModelRef } from "./schema.js";
 
 export type { MessageDecision, ModelRef } from "./schema.js";
 export type { ActivitySource, ChangeFeed, Revision } from "@repa/space-history";
 export type { ClientCapabilities } from "./protocol.js";
-// 交互词汇：题目、作答、反馈的 schema 与类型，以及 contentVersion 等纯函数。
+// 交互词汇：Item 和作答的 schema 与类型，以及 contentVersion 等纯函数。
 export * from "./interaction.js";
 
-/** 工具在对话里向用户提问时交给 ToolContext.ask 的内容。 */
+/** 工具在对话里向用户要输入时交给 ToolContext.ask 的内容。 */
 export interface AskOptions {
-  /** 题库题带插件对完整定义算好的 version；没有时底座对公开内容计算。requires 由底座计算。 */
+  /** 可以带插件对完整定义算好的 version；没有时底座对公开内容计算。requires 由底座计算。 */
   item: ItemDraft | Item;
-  /** question：征求意见；practice：练习小题，可以有反馈，不计入学习记录。 */
-  purpose: "question" | "practice";
   /**
-   * 作答通过结构检查后由插件判分并返回反馈；返回 rejected 时询问保持打开，用户改好可以再交。省略则不判。
+   * 作答通过结构检查后交给插件，二选一：返回 invalid 时交回问题列表，卡片保持打开，用户改好可以再交；
+   * 返回 accepted 时接受这次作答，可以附一段内容显示在卡片上，然后卡片关闭。省略时通过结构检查就接受。
    * 它在提问时的运行上下文里执行，期间的写入仍记在这次运行名下。
    */
-  evaluate?(response: ItemResponse): Promise<SubmitResult>;
+  onSubmit?(response: ItemResponse): Promise<AskSubmitResult>;
 }
 
-/** 询问的结局。decline 是用户不按卡片作答，可以附一句话；unsupported 表示前端不能显示这道题。 */
+/** 询问的结局。decline 是用户不按卡片作答，可以附一句话；unsupported 表示前端不能显示这张卡片。 */
 export type AskOutcome =
-  | { action: "submit"; response: ItemResponse; result?: SubmitResult }
+  | { action: "submit"; response: ItemResponse }
   | { action: "decline"; message?: string }
   | { action: "cancel" }
   | { action: "unsupported" };
@@ -34,8 +33,8 @@ export interface ToolContext {
   signal: AbortSignal;
   callId: string;
   /**
-   * 向发起这次运行的连接提问，等用户作答。只发给这一个连接；它没有声明题目所需的能力时直接得到 unsupported。
-   * 没有发起连接时以 ask_unavailable 拒绝，题目不合词汇时以 invalid_item 拒绝；
+   * 向发起这次运行的连接提问，等用户作答。只发给这一个连接；它没有声明 Item 所需的能力时直接得到 unsupported。
+   * 没有发起连接时以 ask_unavailable 拒绝，Item 不合词汇时以 invalid_item 拒绝；
    * 运行中止、断线或空间关闭时以 ask_cancelled 拒绝，details.reason 说明原因。默认不设超时。
    */
   ask(options: AskOptions): Promise<AskOutcome>;
@@ -49,13 +48,13 @@ export interface Tool {
 }
 
 export interface MethodContext {
-  /** 经协议调用时是发起调用的连接；capabilities 是它在 initialize 里的声明，挑题时用 canRender 过滤。 */
+  /** 经协议调用时是发起调用的连接；capabilities 是它在 initialize 里的声明，挑选交给前端的内容时用 canRender 过滤。 */
   caller?: { capabilities: ClientCapabilities };
 }
 
 export interface PluginMethod {
   parameters: TSchema;
-  /** 返回值的 schema。宿主交回前按它校验，不符合时以 invalid_plugin_result 拒绝；严格对象能拦住多带的答案字段。 */
+  /** 返回值的 schema。宿主交回前按它校验，不符合时以 invalid_plugin_result 拒绝；严格对象能拦住多带的字段。 */
   result?: TSchema;
   invoke(input: unknown, context: MethodContext): Promise<unknown>;
 }
@@ -89,7 +88,7 @@ export interface AgentTask {
 /** 底座提供的 Pi 内置工具。通用 Agent 全部都有；插件 Agent 不能选 grep，见 AgentDefinition.tools。 */
 export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
-/** 底座的询问工具：通用 Agent 默认带上，插件 Agent 在 tools 里列出才有。参数里没有答案字段。 */
+/** 底座的询问工具：通用 Agent 默认带上，插件 Agent 在 tools 里列出才有。 */
 export const ASK_USER_TOOL = "ask_user";
 /** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent、ask_user。 */
 export const RESERVED_TOOL_NAMES: readonly string[] = [...BUILTIN_TOOLS, "powershell", "subagent", ASK_USER_TOOL];

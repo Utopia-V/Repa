@@ -59,7 +59,7 @@ type Listener = (params: unknown) => void;
 // 用 1002 会抛 InvalidAccessError，连接反而留着；所以用应用自定的 4002，与服务端的 4001 相邻。
 const INVALID_DATA = 4002;
 
-// 带题目或反馈的消息按协议登记的宽松规则读取，其余消息严格校验。
+// 带 Item 或内容块的消息按协议登记的宽松规则读取，其余消息严格校验。
 function readNotification(method: Notification, params: unknown): ReadResult<unknown> {
   const read = lenientNotifications[method];
   if (read !== undefined) return read(params);
