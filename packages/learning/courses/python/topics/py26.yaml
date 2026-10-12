@@ -1,7 +1,8 @@
 id: py26
 title: 汇总前先数清分母
-status: outline
+status: complete
 minutes: 20
+summary: 分清表的行数、一列有值的个数和缺失个数；读懂 sum、mean 默认跳过缺失，以及全缺失时的 0.0 和 NaN；报告汇总值时带上单位、有效样本量和比例的分母。
 prerequisites:
   - topic: py19
     key: true
@@ -13,7 +14,7 @@ prerequisites:
     covers: [py07.k2]
 sources:
   - source: pydata-book
-    where: 第 5 章 §5.3
+    where: 第 5 章 §5.3（汇总与描述统计）
     url: https://wesmckinney.com/book/pandas-basics
     use: reference
   - source: pandas-docs
@@ -21,15 +22,1058 @@ sources:
     url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/06_calculate_statistics.html
     use: reference
   - source: pandas-docs
-    where: 用户指南：缺失值
+    where: 用户指南：缺失值（计算时怎样处理缺失）
     url: https://pandas.pydata.org/docs/user_guide/missing_data.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+  范围：只汇总一列，用 len、count、isna().sum()、sum、mean；需要分组时用 py17 的掩码先筛出一组，不用 groupby（py27 承担）。fillna 只作为“把缺失当 0”的对照出现，填补规则本身由 py19.k3 承担；sum 的 min_count 只在讲解里提一句，不出题。布尔列求 sum、mean 的含义在 k1、k3 讲解里就地说明。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 2 分钟、练习 4 分钟；收束 1 分钟。
+  小表、讲解和题目为本课自拟。k3.q2（单位）的两个作答位要靠语义判断，列在 manual 里；它是练习，不强制模型核对。复习和测验题全部由程序核对。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码，不需要写导入或构造数据的代码。
+
+  每道题都从题面给出的表重新开始。大多数题用表 N：`sample_id` 是样本编号，`group` 是实验组，`signal` 是一次测量的值（任意单位）；表里的 NaN 表示这个样本没有测到值，也就是缺失。左边的原行索引是原表的行标签。
+
+  这一节只问一件事：算平均、算比例之前，先数清到底有几个数参与了计算。
+wrapup: |
+  报告一个汇总值时，把三样东西一起写上：值和它的单位、实际参与计算的个数 n、缺了几个。例如：“signal 均值 10.0（任意单位），n = 3，另有 2 个样本缺失。”
+
+  向同事或 AI 提要求时，比例要写明分母：“在测到 signal 的样本中，signal 至少为 10 的比例”，而不是只说“达标比例”。拿到代码后，先打印 count，再看求和、平均和比例。
+data:
+  N:
+    kind: dataframe
+    name: df
+    caption: 表 N
+    index: [31, 7, 22, 4, 15]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_C, S_D, S_E]
+      group: [control, drug, drug, control, drug]
+      signal: [8.0, null, 13.0, 9.0, null]
+    dtypes:
+      signal: float
+  N2:
+    kind: dataframe
+    name: df
+    caption: 另一批同结构的记录
+    index: [12, 5, 30, 18]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_F, S_G, S_H, S_I]
+      group: [control, drug, control, drug]
+      signal: [11.0, null, 7.0, null]
+    dtypes:
+      signal: float
+  soil:
+    kind: dataframe
+    name: soil
+    caption: 表 soil：六个采样点的土层深度（厘米），没测到的为 NaN
+    index: [5, 12, 3, 8, 21, 14]
+    indexHeader: 原行索引
+    columns:
+      site: [北坡, 南坡, 东坡, 西坡, 山顶, 谷底]
+      depth: [30.0, null, 25.0, 30.0, null, 35.0]
+    dtypes:
+      depth: float
+  survey:
+    kind: dataframe
+    name: survey
+    caption: 表 survey：一次问卷的部分记录，没填的为 NaN
+    columns:
+      respondent: [R1, R2, R3, R4, R5]
+      age: [30.0, null, 50.0, 25.0, null]
+      city: [北京, 上海, null, 广州, 上海]
+    dtypes:
+      age: float
+  farm:
+    kind: dataframe
+    name: farm
+    caption: 表 farm：六块试验地的产量（千克），没收到记录的为 NaN
+    columns:
+      plot: [P1, P2, P3, P4, P5, P6]
+      yield_kg: [4.0, null, 6.0, 5.0, null, 5.0]
+    dtypes:
+      yield_kg: float
+  plants:
+    kind: dataframe
+    name: plants
+    caption: 表 plants：六株幼苗的高度（厘米），没量到的为 NaN
+    columns:
+      plant_id: [A1, A2, A3, A4, A5, A6]
+      height: [33.0, null, 27.0, 36.0, null, 24.0]
+    dtypes:
+      height: float
+  water:
+    kind: dataframe
+    name: water
+    caption: 表 water：六个站点的硝酸盐浓度（mg/L），没测到的为 NaN
+    columns:
+      station: [W1, W2, W3, W4, W5, W6]
+      conc: [2.0, null, 6.0, 4.0, null, 8.0]
+    dtypes:
+      conc: float
+  water2:
+    kind: dataframe
+    name: water
+    caption: 表 water：三个站点的多次采样（mg/L），没测到的为 NaN
+    columns:
+      station: [A, A, B, B, C]
+      conc: [3.0, 5.0, null, null, 4.0]
+    dtypes:
+      conc: float
+  lab:
+    kind: dataframe
+    name: lab
+    caption: 表 lab：两批样品的测量值，没测到的为 NaN
+    columns:
+      sample_id: [L1, L2, L3, L4, L5]
+      batch: [甲, 乙, 甲, 乙, 甲]
+      value: [4.0, null, 6.0, null, 5.0]
+    dtypes:
+      value: float
 kps:
   - id: py26.k1
     title: 行数、count 和非缺失数的区别
+    card:
+      name: 行数与 count
+      aliases: [count, 非缺失个数, len]
+      definition: len(df) 数表有几行；df["列"].count() 只数这一列有值（非缺失）的格子；两者之差就是这一列缺失的个数。
+      conditions:
+        - count 按列各数各的：同一张表里，不同列的 count 可能不同。
+        - 缺失个数用 isna().sum() 数；行数 = count + 缺失个数。
+      example:
+        from: py26.k1.e0
+        text: |
+          表 N 有 5 行；signal 列 count 为 3，isna().sum() 为 2，3 + 2 = 5。
+    lesson: |
+      算平均、算比例之前，先回答：一共有几个数参与计算？表 N 有 5 行，但 signal 列只有 3 个格子有值，另外 2 个是 NaN（缺失）。三种“数一数”说的是三件不同的事：
+
+      | 写法 | 数的是什么 | 表 N 的结果 |
+      |---|---|---:|
+      | `len(df)` 或 `df.shape[0]` | 表有几行 | 5 |
+      | `df["signal"].count()` | signal 这一列有值的格子 | 3 |
+      | `df["signal"].isna().sum()` | signal 这一列缺失的格子 | 2 |
+
+      `isna()` 逐行给出 True/False（[缺失判断](repa:concept/py19.k1)），对它求 `sum()` 时，True 当作 1、False 当作 0，加起来就是缺失的个数。`notna().sum()` 同理，结果和 `count()` 相同。
+
+      `count` 按列各数各的：`df.count()` 会给出每一列有值的个数，同一张表里 sample_id 可能是 5，signal 只有 3。所以“表里有 5 个样本”不等于“5 个样本测到了 signal”。
+    example:
+      id: py26.k1.e0
+      kind: [predict]
+      uses: [py19.k1, py14.k2]
+      data: [N]
+      body: |
+        阅读表 N，写出每个表达式的值。
+      slots:
+        - id: values
+          type: table
+          columns:
+            - { id: expr, header: 表达式 }
+            - { id: value, header: 值, input: integer }
+          rows:
+            - { id: rows, cells: { expr: "`len(df)`", value: 5 } }
+            - { id: count, cells: { expr: "`df[\"signal\"].count()`", value: 3 } }
+            - { id: missing, cells: { expr: "`df[\"signal\"].isna().sum()`", value: 2 } }
+            - { id: ids, cells: { expr: "`df[\"sample_id\"].count()`", value: 5 } }
+      explanation: |
+        依次为 **5、3、2、5**。表有 5 行；signal 列有 3 个格子有值、2 个是 NaN，3 + 2 = 5。sample_id 列没有缺失，所以它的 count 是 5：count 只看括号前面那一列。
+      verify: |
+        answers = {"values": {
+            "rows": {"value": len(df)},
+            "count": {"value": df["signal"].count()},
+            "missing": {"value": df["signal"].isna().sum()},
+            "ids": {"value": df["sample_id"].count()},
+        }}
+    practice:
+      - id: py26.k1.q1
+        kind: [predict]
+        uses: [py19.k1]
+        data: [N]
+        body: |
+          屏幕上依次显示什么？
+
+          ```python
+          print(len(df))
+          print(df["signal"].count())
+          print(df["signal"].notna().sum())
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行
+            key: 5
+          - id: line2
+            type: text
+            format: integer
+            prompt: 第二行
+            key: 3
+            feedback:
+              - when: 5
+                message: count 只数有值的格子，signal 有两个 NaN。
+          - id: line3
+            type: text
+            format: integer
+            prompt: 第三行
+            key: 3
+        explanation: |
+          依次显示 **5、3、3**。`notna()` 在有值的行为 True，求和就是有值的个数，和 `count()` 一样；`len(df)` 数的是行，不管 signal 有没有值。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
+      - id: py26.k1.q2
+        kind: [predict]
+        uses: [py17.k1, py17.k2, py19.k1]
+        data: [N]
+        body: |
+          先筛出 drug 组的 signal，再数一数。逗号后面只写一个列名时，得到的是一列（Series）。
+
+          ```python
+          drug = df.loc[df["group"] == "drug", "signal"]
+          ```
+        slots:
+          - id: rows
+            type: text
+            format: integer
+            prompt: "`len(drug)` 是多少？"
+            key: 3
+          - id: count
+            type: text
+            format: integer
+            prompt: "`drug.count()` 是多少？"
+            key: 1
+          - id: claim
+            type: choice
+            prompt: 下面哪句话正确？
+            options:
+              - id: three
+                content: drug 组有 3 个样本测到了 signal
+                feedback: 3 是 drug 组的行数，其中两行 signal 是 NaN。
+              - id: one
+                content: drug 组有 3 个样本，其中只有 1 个测到了 signal
+              - id: zero
+                content: drug 组没有任何样本测到 signal
+            key: one
+        explanation: |
+          drug 组有 **3** 行（索引 7、22、15），但只有索引 22 测到了值，count 为 **1**。所以正确的说法是“drug 组有 3 个样本，其中只有 1 个测到了 signal”。
+        verify: |
+          drug = run()["drug"]
+          n_rows, n_count = len(drug), drug.count()
+          holds = {"three": n_count == 3, "one": n_rows == 3 and n_count == 1, "zero": n_count == 0}
+          true = [option for option, ok in holds.items() if ok]
+          answers = {"rows": n_rows, "count": n_count, "claim": true[0] if len(true) == 1 else true}
+      - id: py26.k1.q3
+        kind: [predict]
+        uses: [py19.k1]
+        data: [N2]
+        body: |
+          `df.count()` 对每一列分别数有值的格子。写出这张表每一列的结果。
+        slots:
+          - id: counts
+            type: table
+            columns:
+              - { id: column, header: 列 }
+              - { id: count, header: "`df.count()` 里的值", input: integer }
+            rows:
+              - { id: sample_id, cells: { column: sample_id, count: 4 } }
+              - { id: group, cells: { column: group, count: 4 } }
+              - { id: signal, cells: { column: signal, count: 2 } }
+        explanation: |
+          sample_id 和 group 都没有缺失，各为 **4**；signal 有两个 NaN，为 **2**。同一张表，不同列的 count 不一样，所以说“有几个”时要说清是哪一列。
+        verify: |
+          counts = df.count()
+          answers = {"counts": {column: {"count": counts[column]} for column in counts.index}}
+    review:
+      - id: py26.k1.r1
+        kind: [predict, explain]
+        uses: [py19.k1, py14.k2]
+        data: [soil]
+        body: |
+          项目负责人想知道：一共有几个采样点，测到深度的有几个，没测到的有几个。
+        slots:
+          - id: total
+            type: text
+            format: integer
+            prompt: 一共有几个采样点？
+            key: 6
+          - id: measured
+            type: text
+            format: integer
+            prompt: 测到深度的有几个？
+            key: 4
+          - id: code
+            type: choice
+            prompt: 哪一行代码算出的是“测到深度的采样点个数”？
+            options:
+              - id: len
+                content: |
+                  ```python
+                  n = len(soil)
+                  ```
+              - id: count
+                content: |
+                  ```python
+                  n = soil["depth"].count()
+                  ```
+              - id: isna
+                content: |
+                  ```python
+                  n = soil["depth"].isna().sum()
+                  ```
+              - id: site
+                content: |
+                  ```python
+                  n = soil["site"].count()
+                  ```
+            key: count
+        explanation: |
+          一共 **6** 个采样点，测到深度的 **4** 个，另外 2 个没测到。`soil["depth"].count()` 只数 depth 有值的格子；`len(soil)` 和 `soil["site"].count()` 都是 6，数的是采样点；`isna().sum()` 数的是没测到的 2 个。
+        verify: |
+          measured = int(soil["depth"].notna().sum())
+          fits = [option for option, code in OPTIONS["code"].items() if run(code)["n"] == measured]
+          answers = {"total": soil.shape[0], "measured": measured, "code": fits[0] if len(fits) == 1 else fits}
+      - id: py26.k1.r2
+        kind: [explain]
+        uses: [py19.k1]
+        data: [survey]
+        body: |
+          判断下面每句话对不对。
+        slots:
+          - id: claims
+            type: table
+            columns:
+              - { id: claim, header: 说法 }
+              - { id: ok, header: 对吗, input: bool }
+            rows:
+              - { id: c1, cells: { claim: "`len(survey)` 是 5", ok: true } }
+              - { id: c2, cells: { claim: "`survey[\"age\"].count()` 是 5", ok: false } }
+              - { id: c3, cells: { claim: "`survey[\"city\"].count()` 比 `survey[\"age\"].count()` 大", ok: true } }
+              - { id: c4, cells: { claim: "`survey[\"age\"].count()` 加上 `survey[\"age\"].isna().sum()` 等于 `len(survey)`", ok: true } }
+        explanation: |
+          第 1、3、4 句对，第 2 句错。表有 5 行；age 有 2 个没填，count 是 3；city 只有 1 个没填，count 是 4，比 age 的 3 大。任何一列的 count 加上它的缺失个数，都等于行数。
+        verify: |
+          age, city = survey["age"], survey["city"]
+          answers = {"claims": {
+              "c1": {"ok": len(survey) == 5},
+              "c2": {"ok": age.count() == 5},
+              "c3": {"ok": city.count() > age.count()},
+              "c4": {"ok": age.count() + age.isna().sum() == len(survey)},
+          }}
+    quiz:
+      - id: py26.k1.x1
+        kind: [predict]
+        uses: [py19.k1, py14.k2]
+        data: [farm]
+        body: |
+          屏幕上依次显示什么？
+
+          ```python
+          print(farm.shape[0])
+          print(farm["yield_kg"].count())
+          print(farm.shape[0] - farm["yield_kg"].count())
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行
+            key: 6
+          - id: line2
+            type: text
+            format: integer
+            prompt: 第二行
+            key: 4
+          - id: line3
+            type: text
+            format: integer
+            prompt: 第三行
+            key: 2
+        explanation: |
+          依次显示 **6、4、2**：6 块地，4 块有产量记录，相减得到没有记录的 2 块。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
+      - id: py26.k1.x2
+        kind: [explain]
+        uses: [py19.k1]
+        data: [plants]
+        body: |
+          报告里要写“有高度测量值的幼苗数”。哪个表达式算出的是这个数？
+        slots:
+          - id: expr
+            type: choice
+            options:
+              - id: isna
+                content: |
+                  ```python
+                  plants["height"].isna().sum()
+                  ```
+              - id: len
+                content: |
+                  ```python
+                  len(plants)
+                  ```
+              - id: count
+                content: |
+                  ```python
+                  plants["height"].count()
+                  ```
+              - id: ncols
+                content: |
+                  ```python
+                  plants.shape[1]
+                  ```
+            key: count
+        explanation: |
+          `plants["height"].count()`，结果是 4。`len(plants)` 是 6 株幼苗的总数；`isna().sum()` 是没量到的 2 株；`plants.shape[1]` 是列数 2，和测量值无关。
+        verify: |
+          measured = sum(1 for value in plants["height"].tolist() if value == value)  # NaN 不等于自己
+          fits = [option for option, code in OPTIONS["expr"].items() if run("n = " + code)["n"] == measured]
+          answers = {"expr": fits[0] if len(fits) == 1 else fits}
+
   - id: py26.k2
     title: sum/mean 的缺失处理与全缺失风险
+    card:
+      name: 跳过缺失
+      aliases: [skipna, 均值的分母, 全缺失]
+      definition: pandas 的 sum、mean 默认跳过缺失：sum 只加有值的格子，mean 用这个和除以 count，而不是除以行数。
+      conditions:
+        - 一列全是缺失时，sum 得 0.0、mean 得 NaN；0.0 看起来像真的测量结果，先看 count。
+        - 用 fillna(0) 把缺失当成 0，会把均值拉低；能不能这样做是业务规则。
+      example:
+        from: py26.k2.e0
+        text: |
+          表 N 的 signal 为 8.0、NaN、13.0、9.0、NaN：sum 为 30.0，mean 为 30.0 / 3 = 10.0，而不是 30.0 / 5 = 6.0。
+    lesson: |
+      pandas 求和、求平均时，默认跳过缺失：
+
+      - `df["signal"].sum()` 只把有值的格子加起来：8.0 + 13.0 + 9.0 = 30.0。
+      - `df["signal"].mean()` 用这个和除以 **count**：30.0 / 3 = 10.0。
+
+      自己写 `df["signal"].sum() / len(df)` 就错了：分母 5 里包括了两个没测到的样本，得到 6.0。把缺失先填成 0 再平均，`df["signal"].fillna(0).mean()`，也是 6.0：这等于说“没测到就是测到 0”。这样做对不对，要看[业务规则](repa:concept/py19.k3)，不能为了算得出数随手填。
+
+      还有一个容易漏看的情况：**一列全是缺失**。这时 `count()` 是 0，`mean()` 是 NaN，而 `sum()` 是 **0.0**。0.0 看起来像一个真的结果，其实是“没有数可加”。所以看到总和为 0 时，先看 count。（pandas 另有 `sum(min_count=1)`，要求至少有 1 个值才求和，否则给 NaN；这里知道有这个开关就够了。）
+    example:
+      id: py26.k2.e0
+      kind: [predict]
+      uses: [py19.k1, py07.k2]
+      data: [N]
+      body: |
+        阅读代码，写出三个名字的值。
+
+        ```python
+        total = df["signal"].sum()
+        avg = df["signal"].mean()
+        by_rows = total / len(df)
+        ```
+      slots:
+        - id: total
+          type: text
+          format: number
+          prompt: "`total`"
+          key: 30
+        - id: avg
+          type: text
+          format: number
+          prompt: "`avg`"
+          key: 10
+        - id: by_rows
+          type: text
+          format: number
+          prompt: "`by_rows`"
+          key: 6
+        - id: which
+          type: choice
+          prompt: 哪一个才是“测到的 signal 的平均值”？
+          options:
+            - { id: avg, content: "`avg`" }
+            - { id: by_rows, content: "`by_rows`" }
+          key: avg
+      explanation: |
+        `total` 是 **30.0**，只加了有值的 8.0、13.0、9.0；`avg` 是 **10.0**，等于 30.0 除以 count 3；`by_rows` 是 **6.0**，把两个没测到的样本也算进了分母。测到的 signal 的平均值是 `avg`。
+      verify: |
+        r = run()
+        measured = [value for value in df["signal"].tolist() if value == value]
+        own_mean = sum(measured) / len(measured)
+        answers = {
+            "total": r["total"],
+            "avg": r["avg"],
+            "by_rows": r["by_rows"],
+            "which": "avg" if r["avg"] == own_mean and r["by_rows"] != own_mean else "by_rows",
+        }
+    practice:
+      - id: py26.k2.q1
+        kind: [predict]
+        uses: [py17.k1, py17.k2, py19.k1]
+        data: [N2]
+        body: |
+          这批记录里，drug 组的 signal 全都没测到。屏幕上依次显示什么？没有数字时 Python 显示 `nan`。
+
+          ```python
+          drug = df.loc[df["group"] == "drug", "signal"]
+          print(drug.count())
+          print(drug.sum())
+          print(drug.mean())
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行
+            key: "0"
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行
+            key: "0.0"
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行
+            key: nan
+            feedback:
+              - when: "0.0"
+                message: 没有任何值时，平均数无从算起，mean 给出 nan。
+        explanation: |
+          依次显示 **0、0.0、nan**。drug 组的两个格子都是缺失：count 为 0；sum 把“没有数”加起来得到 0.0；mean 要除以 0 个值，给出 nan。只看 sum 会以为 drug 组测到的总和是 0，先看 count 才知道根本没有数据。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+      - id: py26.k2.q2
+        kind: [debug]
+        uses: [py07.k2, py14.k2]
+        data: [N]
+        body: |
+          同事想算“测到的 signal 的平均值”，写了下面的代码。
+
+          ```python startLine=1
+          total = df["signal"].sum()
+          n = len(df)
+          avg = total / n
+          ```
+        slots:
+          - id: got
+            type: text
+            format: number
+            prompt: 这段代码算出的 `avg` 是多少？
+            key: 6
+          - id: line
+            type: choice
+            prompt: 问题出在哪一行？
+            options:
+              - { id: l1, content: 第 1 行：sum 把缺失算成了 0 }
+              - { id: l2, content: 第 2 行：分母数的是行数，包括了没测到的样本 }
+              - { id: l3, content: 第 3 行：应该用 // 而不是 / }
+            key: l2
+          - id: right
+            type: text
+            format: number
+            prompt: 正确的平均值是多少？
+            key: 10
+        explanation: |
+          这段代码得到 **6.0**。第 1 行没问题：sum 跳过缺失，总和 30.0 只来自三个测到的值。问题在**第 2 行**：`len(df)` 是 5，把两个没测到的样本也放进了分母。正确的平均是 30.0 / 3 = **10.0**，直接写 `df["signal"].mean()`，或者把第 2 行改成 `n = df["signal"].count()`。
+        verify: |
+          r = run()
+          fixed = run(CODE.replace("len(df)", 'df["signal"].count()'))
+          # 只换第 2 行的分母就得到 mean()，说明错在第 2 行；第 1 行的总和本身与有值格子之和相同。
+          measured = [value for value in df["signal"].tolist() if value == value]
+          wrong_line = "l2" if fixed["avg"] == df["signal"].mean() and r["total"] == sum(measured) else "other"
+          answers = {"got": r["avg"], "line": wrong_line, "right": df["signal"].mean()}
+      - id: py26.k2.q3
+        kind: [predict, explain]
+        uses: [py19.k3]
+        data: [N]
+        body: |
+          `fillna(0)` 把缺失的格子填成 0，返回一列新的值。
+
+          ```python
+          a = df["signal"].mean()
+          b = df["signal"].fillna(0).mean()
+          ```
+        slots:
+          - id: a
+            type: text
+            format: number
+            prompt: "`a`"
+            key: 10
+          - id: b
+            type: text
+            format: number
+            prompt: "`b`"
+            key: 6
+          - id: meaning
+            type: choice
+            prompt: "`b` 背后的假设是什么？"
+            options:
+              - id: zero
+                content: 没测到的两个样本，测量值就是 0
+              - id: skip
+                content: 没测到的样本不参与平均
+              - id: same
+                content: 和 a 的假设一样，只是写法不同
+            key: zero
+        explanation: |
+          `a` 是 **10.0**，`b` 是 **6.0**。`b` 先把两个 NaN 填成 0，再按 5 个值平均，等于假设“没测到的样本测量值是 0”。没测到不等于测到 0；要不要这样填，是需要写进要求的业务规则。
+        verify: |
+          r = run()
+          # b 与“把缺失当作 0、按全部行平均”一致，而 a 与“只用有值的格子平均”一致。
+          as_zero = sum(0 if value != value else value for value in df["signal"].tolist()) / len(df)
+          answers = {"a": r["a"], "b": r["b"], "meaning": "zero" if r["b"] == as_zero and r["a"] != as_zero else "skip"}
+    review:
+      - id: py26.k2.r1
+        kind: [explain]
+        uses: [py19.k3]
+        data: [water]
+        body: |
+          要算的是“测到浓度的站点的平均浓度”。下面哪些写法得到这个数？选出所有正确的。
+        slots:
+          - id: ways
+            type: choice
+            multiple: true
+            scoring: options
+            options:
+              - id: mean
+                content: |
+                  ```python
+                  avg = water["conc"].mean()
+                  ```
+              - id: by_len
+                content: |
+                  ```python
+                  avg = water["conc"].sum() / len(water)
+                  ```
+              - id: by_count
+                content: |
+                  ```python
+                  avg = water["conc"].sum() / water["conc"].count()
+                  ```
+              - id: fill
+                content: |
+                  ```python
+                  avg = water["conc"].fillna(0).mean()
+                  ```
+            key: [mean, by_count]
+        explanation: |
+          `mean()` 和 `sum() / count()` 都得到 **5.0 mg/L**：20.0 除以 4 个测到的值。`sum() / len(water)` 除以 6 个站点，`fillna(0).mean()` 把没测到的当作 0，两者都得到约 3.33，把没测到的站点也算进了分母。
+        verify: |
+          measured = [value for value in water["conc"].tolist() if value == value]
+          target = sum(measured) / len(measured)
+          answers = {"ways": [option for option, code in OPTIONS["ways"].items() if abs(run(code)["avg"] - target) < 1e-9]}
+      - id: py26.k2.r2
+        kind: [predict, explain]
+        uses: [py17.k1, py17.k2]
+        data: [water2]
+        body: |
+          同事运行了下面两行，屏幕上显示 `0.0`，于是在报告里写：“B 站的硝酸盐浓度总和为 0。”
+
+          ```python
+          b = water.loc[water["station"] == "B", "conc"]
+          print(b.sum())
+          ```
+        slots:
+          - id: count
+            type: text
+            format: integer
+            prompt: "`b.count()` 是多少？"
+            key: 0
+          - id: verdict
+            type: choice
+            prompt: 这句报告对吗？
+            options:
+              - id: wrong
+                content: 不对。B 站没有任何测到的值，0.0 只是“没有数可加”的结果
+              - id: right
+                content: 对。B 站测到的浓度都是 0
+              - id: deleted
+                content: 不对。B 站的记录被 loc 删掉了
+            key: wrong
+        explanation: |
+          `b.count()` 是 **0**：B 站有两行记录，但两次都没测到。对全是缺失的一列求和，pandas 给出 0.0，这不是测量结果。报告应写“B 站没有测到浓度”，而不是“总和为 0”；`b.mean()` 会给出 NaN，更不容易被误读。记录也没有被删掉，`len(b)` 仍是 2。
+        verify: |
+          b = run()["b"]
+          rows, count, total = len(b), b.count(), b.sum()
+          verdict = "wrong" if count == 0 and total == 0 and rows > 0 else ("deleted" if rows == 0 else "right")
+          answers = {"count": count, "verdict": verdict}
+    quiz:
+      - id: py26.k2.x1
+        kind: [predict]
+        uses: [py07.k2, py14.k2]
+        data: [plants]
+        body: |
+          屏幕上依次显示什么？
+
+          ```python
+          h = plants["height"]
+          print(h.sum())
+          print(h.mean())
+          print(h.sum() / len(h))
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行
+            key: "120.0"
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行
+            key: "30.0"
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行
+            key: "20.0"
+            feedback:
+              - when: "30.0"
+                message: "`len(h)` 是 6，包括两株没量到的幼苗。"
+        explanation: |
+          依次显示 **120.0、30.0、20.0**。sum 只加 4 个量到的高度；mean 除以 count 4；第三行除以 `len(h)`，也就是 6 株幼苗，把没量到的也算进了分母。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
+      - id: py26.k2.x2
+        kind: [predict]
+        uses: [py17.k1, py17.k2]
+        data: [lab]
+        body: |
+          分两批取出测量值，再分别汇总。没有数字时，平均值填 NaN。
+
+          ```python
+          a = lab.loc[lab["batch"] == "甲", "value"]
+          b = lab.loc[lab["batch"] == "乙", "value"]
+          ```
+        slots:
+          - id: summary
+            type: table
+            columns:
+              - { id: name, header: 名字 }
+              - { id: count, header: "`count()`", input: integer }
+              - { id: sum, header: "`sum()`", input: { type: text, format: number } }
+              - { id: mean, header: "`mean()`", input: { type: text, format: number, quick: [NaN] } }
+            rows:
+              - { id: a, cells: { name: a（甲批）, count: 3, sum: 15, mean: 5 } }
+              - { id: b, cells: { name: b（乙批）, count: 0, sum: 0, mean: NaN } }
+        explanation: |
+          | 名字 | count() | sum() | mean() |
+          |---|---:|---:|---:|
+          | a（甲批） | 3 | 15.0 | 5.0 |
+          | b（乙批） | 0 | 0.0 | NaN |
+
+          乙批两个样品都没测到：count 为 0，sum 是 0.0，mean 是 NaN。只看 sum 会误以为乙批测到的总量是 0。
+        verify: |
+          r = run()
+          def summary(values):
+              mean = values.mean()
+              return {"count": values.count(), "sum": values.sum(), "mean": "NaN" if mean != mean else mean}
+          answers = {"summary": {"a": summary(r["a"]), "b": summary(r["b"])}}
+
   - id: py26.k3
     title: 结果的单位与有效样本量
+    card:
+      name: 有效样本量
+      aliases: [n, 分母, 单位]
+      definition: 报告一个汇总值时，同时说清单位、实际参与计算的值有几个（有效样本量 n），以及有几个缺失。
+      conditions:
+        - 均值和原来那一列同单位；count 的单位是“个样本”，不是测量单位。
+        - 比例要写明分母：是全部样本，还是测到值的样本。
+      example:
+        from: py26.k3.e0
+        text: |
+          表 N：“signal 均值 10.0（任意单位），n = 3，另有 2 个样本缺失。”
+    lesson: |
+      一个汇总值单独摆出来，别人没法核对。报告时把三样东西写在一起：
+
+      1. **值和单位**：均值和原来那一列同单位，深度的均值还是厘米；count 的单位是“个样本”。
+      2. **有效样本量 n**：实际参与计算的值有几个，也就是 count。
+      3. **缺了几个**：行数减去 n。
+
+      例如：“signal 均值 10.0（任意单位），n = 3，另有 2 个样本缺失。”
+
+      **比例**最容易弄错分母。要算“signal 至少为 10 的样本占多少”，可能写成：
+
+      ```python
+      share = (df["signal"] >= 10).mean()
+      ```
+
+      比较得到一列 True/False，对它求 `mean()` 就是 True 所占的比例。但缺失的格子比较出来是 **False**，所以这里的分母是全部 5 行：1 / 5 = 0.2。如果要的是“在测到 signal 的样本中”的比例，分母应是 count：
+
+      ```python
+      share = (df["signal"] >= 10).sum() / df["signal"].count()
+      ```
+
+      得到 1 / 3，约 0.33。两种分母回答的是两个不同的问题，要求里要写明是哪一个。
+    example:
+      id: py26.k3.e0
+      kind: [explain]
+      uses: [py19.k1]
+      data: [N]
+      body: |
+        要在报告里写表 N 的 signal 均值。下面哪句话写得正确、完整？
+      slots:
+        - id: report
+          type: choice
+          options:
+            - id: rows
+              content: signal 均值 6.0（任意单位），n = 5
+            - id: n5
+              content: signal 均值 10.0（任意单位），n = 5
+            - id: full
+              content: signal 均值 10.0（任意单位），n = 3，另有 2 个样本缺失
+            - id: unit
+              content: signal 均值 10.0 个样本，n = 3
+          key: full
+        - id: n
+          type: text
+          format: integer
+          prompt: 这句报告里的 n 应当是几？
+          key: 3
+      explanation: |
+        “signal 均值 10.0（任意单位），n = 3，另有 2 个样本缺失”正确。均值 10.0 来自 3 个测到的值，n 应是 **3**；写 n = 5 把没测到的也当作参与了计算，6.0 则是除错了分母。“10.0 个样本”把 count 的单位安到了均值上。
+      verify: |
+        mean, n, missing = df["signal"].mean(), df["signal"].count(), df["signal"].isna().sum()
+        # 每个说法写成（均值、单位是否为测量单位、n、缺失数），逐个与算出的结果比较；缺失数没写的记 None。
+        claims = {"rows": (6.0, True, 5, None), "n5": (10.0, True, 5, None), "full": (10.0, True, 3, 2), "unit": (10.0, False, 3, None)}
+        fits = [option for option, (value, unit_ok, claim_n, claim_missing) in claims.items()
+                if value == mean and unit_ok and claim_n == n and claim_missing == missing]
+        answers = {"report": fits[0] if len(fits) == 1 else fits, "n": n}
+    practice:
+      - id: py26.k3.q1
+        kind: [debug, predict]
+        uses: [py08.k1, py19.k1]
+        data: [N]
+        body: |
+          要求是：“在测到 signal 的样本中，signal 至少为 10 的占多少？”同事写了：
+
+          ```python
+          share = (df["signal"] >= 10).mean()
+          ```
+        slots:
+          - id: got
+            type: text
+            format: number
+            prompt: "`share` 是多少？"
+            key: 0.2
+          - id: denominator
+            type: choice
+            prompt: 这段代码的分母是什么？
+            options:
+              - { id: all, content: 全部 5 个样本 }
+              - { id: measured, content: 测到 signal 的 3 个样本 }
+            key: all
+          - id: right
+            type: text
+            format: number
+            tolerance: 0.01
+            prompt: 按要求，比例应当是多少？（保留两位小数）
+            key: 0.33
+        explanation: |
+          `share` 是 **0.2**。缺失的两个格子比较出来是 False，`mean()` 按全部 **5 个样本**算：只有索引 22 的 13.0 满足，1 / 5 = 0.2。要求问的是“在测到 signal 的样本中”，分母应是 count 3：1 / 3 ≈ **0.33**，写成 `(df["signal"] >= 10).sum() / df["signal"].count()`。
+        verify: |
+          share = run()["share"]
+          measured = [value for value in df["signal"].tolist() if value == value]
+          hits = sum(1 for value in measured if value >= 10)
+          answers = {
+              "got": share,
+              "denominator": "all" if share == hits / len(df) else "measured",
+              "right": round(hits / len(measured), 2),
+          }
+      - id: py26.k3.q2
+        kind: [explain]
+        uses: [py14.k3]
+        data: [soil]
+        body: |
+          表 soil 的 depth 单位是厘米。
+
+          ```python
+          avg = soil["depth"].mean()
+          n = soil["depth"].count()
+          ```
+        slots:
+          - id: avg_unit
+            type: choice
+            prompt: "`avg` 的单位是什么？"
+            options:
+              - { id: cm, content: 厘米 }
+              - { id: sites, content: 个采样点 }
+              - { id: none, content: 没有单位 }
+            key: cm
+          - id: n_unit
+            type: choice
+            prompt: "`n` 的单位是什么？"
+            options:
+              - { id: cm, content: 厘米 }
+              - { id: sites, content: 个采样点 }
+              - { id: none, content: 没有单位 }
+            key: sites
+          - id: avg
+            type: text
+            format: number
+            prompt: "`avg` 是多少？"
+            key: 30
+        explanation: |
+          `avg` 是 **30.0 厘米**：深度的平均值仍是深度，单位不变。`n` 是 4，单位是**个采样点**：它数的是有几个测到深度的采样点，不是一个长度。报告写成“平均深度 30.0 厘米，n = 4 个采样点，另有 2 个缺失”。
+        verify: |
+          answers = {"avg": run()["avg"]}
+        manual: [avg_unit, n_unit]
+      - id: py26.k3.q3
+        kind: [specify]
+        body: |
+          同事说：“帮我算一下 drug 组 signal 的平均值和达标比例（至少 10 算达标）。”表里有些样本没测到 signal。
+
+          请写一段可核对的要求，说清：① 平均值用哪些值算；② 达标比例的分母是什么；③ 报告里除了这两个数还要附上什么。
+        slots:
+          - id: spec
+            type: text
+            lines: 6
+            rubric:
+              - id: mean
+                label: 平均值用哪些值
+                guide: 写明只用测到 signal 的样本（跳过缺失），或明确提出要不要把缺失按某种规则处理并请对方确认；不能默认把缺失当 0。
+              - id: denominator
+                label: 比例的分母
+                guide: 写明分母是“drug 组测到 signal 的样本数”还是“drug 组全部样本数”，并说明等于 10 的算达标。
+              - id: report
+                label: 附上的信息
+                guide: 要求附上有效样本量 n（参与计算的个数）和缺失个数，必要时附单位。
+        explanation: |
+          一种写法：**在 drug 组中，只用测到 signal 的样本：报告 signal 的平均值；再报告 signal 大于或等于 10 的样本占“drug 组测到 signal 的样本”的比例。两个数都附上参与计算的样本数 n 和 drug 组缺失的样本数。**
+
+          如果你认为分母应当是 drug 组全部样本，也可以，但要写明，并说清没测到的样本按“未达标”计；关键是别人照做时不用猜分母。
+    review:
+      - id: py26.k3.r1
+        kind: [debug]
+        uses: [py19.k1]
+        data: [survey]
+        body: |
+          有人根据表 survey 写了一句报告：“受访者平均年龄 21.0 岁（n = 5）。”把它改对。
+        slots:
+          - id: mean
+            type: text
+            format: number
+            prompt: 平均年龄应当是多少岁？
+            key: 35
+          - id: n
+            type: text
+            format: integer
+            prompt: n 应当是多少？
+            key: 3
+          - id: missing
+            type: text
+            format: integer
+            prompt: 另有几位没填年龄？
+            key: 2
+        explanation: |
+          应改成“受访者平均年龄 **35.0** 岁（n = **3**，另有 **2** 位没填年龄）”。原句的 21.0 是 105 除以 5：把没填年龄的两位也算进了分母，n 也跟着写错了。
+        verify: |
+          age = survey["age"]
+          answers = {"mean": age.mean(), "n": age.count(), "missing": age.isna().sum()}
+      - id: py26.k3.r2
+        kind: [predict, explain]
+        uses: [py08.k1, py19.k1]
+        data: [water]
+        body: |
+          负责人想知道浓度至少 5 mg/L 的站点占多少。
+
+          ```python
+          p1 = (water["conc"] >= 5).mean()
+          p2 = (water["conc"] >= 5).sum() / water["conc"].count()
+          ```
+        slots:
+          - id: p1
+            type: text
+            format: number
+            tolerance: 0.01
+            prompt: "`p1` 是多少？（保留两位小数）"
+            key: 0.33
+          - id: p2
+            type: text
+            format: number
+            prompt: "`p2` 是多少？"
+            key: 0.5
+          - id: match
+            type: choice
+            prompt: 要求写的是“在测到浓度的站点中”。应当报告哪一个？
+            options:
+              - { id: p1, content: "`p1`" }
+              - { id: p2, content: "`p2`" }
+            key: p2
+        explanation: |
+          6.0 和 8.0 两个站点达到 5 mg/L。`p1` 的分母是全部 6 个站点，2 / 6 ≈ **0.33**；`p2` 的分母是测到浓度的 4 个站点，2 / 4 = **0.5**。要求写的是“在测到浓度的站点中”，应当报告 **`p2`**，并写明 n = 4。
+        verify: |
+          r = run()
+          measured = [value for value in water["conc"].tolist() if value == value]
+          hits = sum(1 for value in measured if value >= 5)
+          answers = {
+              "p1": round(r["p1"], 2),
+              "p2": r["p2"],
+              "match": "p2" if r["p2"] == hits / len(measured) and r["p1"] != hits / len(measured) else "p1",
+          }
+    quiz:
+      - id: py26.k3.x1
+        kind: [explain]
+        uses: [py19.k1]
+        data: [plants]
+        body: |
+          要在报告里写表 plants 的平均高度。哪一句正确、完整？
+        slots:
+          - id: report
+            type: choice
+            options:
+              - id: full
+                content: 平均高度 30.0 厘米，n = 4，另有 2 株没量到
+              - id: rows
+                content: 平均高度 20.0 厘米，n = 6
+              - id: unit
+                content: 平均高度 30.0 株，n = 4
+              - id: n6
+                content: 平均高度 30.0 厘米，n = 6
+            key: full
+        explanation: |
+          “平均高度 30.0 厘米，n = 4，另有 2 株没量到”正确：120.0 厘米除以 4 株量到的幼苗。20.0 是除以全部 6 株的结果；30.0 配上 n = 6 说错了参与计算的株数；“30.0 株”把单位写成了个数。
+        verify: |
+          h = plants["height"]
+          mean, n, missing = h.mean(), h.count(), h.isna().sum()
+          # 每个说法写成（均值、单位是否为长度、n、缺失数）。
+          claims = {"full": (30.0, True, 4, 2), "rows": (20.0, True, 6, None), "unit": (30.0, False, 4, None), "n6": (30.0, True, 6, None)}
+          fits = [option for option, (value, unit_ok, claim_n, claim_missing) in claims.items()
+                  if value == mean and unit_ok and claim_n == n and claim_missing == missing]
+          answers = {"report": fits[0] if len(fits) == 1 else fits}
+      - id: py26.k3.x2
+        kind: [explain]
+        uses: [py08.k1, py19.k1]
+        data: [plants]
+        body: |
+          要求是：“在量到高度的幼苗中，高度至少 25 厘米的占多少？”哪一段代码符合要求？
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: mean_all
+                content: |
+                  ```python
+                  share = (plants["height"] >= 25).mean()
+                  ```
+              - id: by_len
+                content: |
+                  ```python
+                  share = (plants["height"] >= 25).sum() / len(plants)
+                  ```
+              - id: by_count
+                content: |
+                  ```python
+                  share = (plants["height"] >= 25).sum() / plants["height"].count()
+                  ```
+              - id: measured
+                content: |
+                  ```python
+                  share = plants["height"].count() / len(plants)
+                  ```
+            key: by_count
+        explanation: |
+          分母用 `plants["height"].count()` 的那一段符合要求：3 株达到 25 厘米，除以量到高度的 4 株，得 0.75。直接对比较结果求 `mean()`，或者除以 `len(plants)`，分母都是全部 6 株，得 0.5；最后一段算的是“量到高度的幼苗占多少”，和 25 厘米无关。
+        verify: |
+          measured = [value for value in plants["height"].tolist() if value == value]
+          target = sum(1 for value in measured if value >= 25) / len(measured)
+          fits = [option for option, code in OPTIONS["code"].items() if abs(run(code)["share"] - target) < 1e-9]
+          answers = {"code": fits[0] if len(fits) == 1 else fits}
