@@ -1,7 +1,8 @@
 id: py30
 title: 把同结构的多份记录叠起来
-status: outline
+status: complete
 minutes: 20
+summary: 用 pd.concat 把几批同结构的记录上下叠成一张表：行数相加、列按列名对齐；看懂默认保留的重复行索引，用 ignore_index 重新编号，并在叠之前加一列来源。
 prerequisites:
   - topic: py14
     key: true
@@ -17,17 +18,857 @@ prerequisites:
     covers: [py06.k1]
 sources:
   - source: pydata-book
-    where: 第 8 章 §8.2
+    where: 第 8 章 §8.2（沿轴连接）
     url: https://wesmckinney.com/book/data-wrangling
     use: reference
   - source: pandas-docs
-    where: 入门教程：多表组合
+    where: 入门教程：多表组合（concat 部分）
     url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/08_combine_dataframes.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、小改代码（T）、写清需求（S/O）。
+  范围：只讲沿行叠加（pd.concat 的缺省方向）。axis=1 左右并排只作为错误选项出现；keys 参数、多层索引和按键拼表（py29 的 merge）不在本节。新列用 assign 就地说明（返回多了一列的新表，原表不变），不讲 .loc 赋值（py22）。去重不在本节（py25）。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、三道练习 5 分钟；k2 讲解与例题 3 分钟、两道读码题 3 分钟、小改代码题 4 分钟；收束 1 分钟。k2.q3 的开放题可以口述。
+  小表、讲解和题目为本课自拟。复习和测验题全部由程序或测试核对，没有交给模型核对的作答位。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码，不需要写导入或构造数据的代码。
+
+  每道题都从题面给出的表重新开始。这一节的表大多是同一项测量分几批记下的：`sample_id` 是样本编号，`signal` 是一次测量的值（任意单位）。每张表左边的行索引是这张表自己的行标签，读入时都从 0 开始编号，所以不同的表会有相同的行索引。
+wrapup: |
+  把几批记录叠成一张表时，可以这样提要求：“把 a、b 两批按这个顺序上下叠起来；列名必须一致，不一致就先停下来告诉我；叠之前给每批加一列 batch 记下来源；结果的行索引从 0 重新编号。”
+
+  拿到结果后先核对三件事：行数是不是各批之和，列是不是没有多出来，有没有意外的 NaN。
+data:
+  pandas:
+    kind: python
+    code: import pandas as pd
+  A:
+    kind: dataframe
+    name: a
+    caption: 表 a：第一批测量
+    indexHeader: 行索引
+    columns:
+      sample_id: [S_A, S_B]
+      signal: [8, 10]
+  B:
+    kind: dataframe
+    name: b
+    caption: 表 b：第二批测量
+    indexHeader: 行索引
+    columns:
+      sample_id: [S_C, S_D, S_E]
+      signal: [13, 10, 9]
+  C:
+    kind: dataframe
+    name: c
+    caption: 表 c：第三批测量，列的先后与 a 不同
+    indexHeader: 行索引
+    columns:
+      signal: [7, 12]
+      sample_id: [S_F, S_G]
+  D:
+    kind: dataframe
+    name: d
+    caption: 表 d：第四批测量，测量值的列名写成了 Signal
+    indexHeader: 行索引
+    columns:
+      sample_id: [S_H, S_I]
+      Signal: [11, 6]
+  A2:
+    kind: dataframe
+    name: a
+    caption: 另一份第一批测量
+    indexHeader: 行索引
+    columns:
+      sample_id: [S_K, S_L, S_M]
+      signal: [5, 12, 7]
+  B2:
+    kind: dataframe
+    name: b
+    caption: 另一份第二批测量
+    indexHeader: 行索引
+    columns:
+      sample_id: [S_N]
+      signal: [9]
+  spring:
+    kind: dataframe
+    name: spring
+    caption: 表 spring：春季三个采样点的土层深度（厘米）
+    indexHeader: 行索引
+    columns:
+      site: [北坡, 南坡, 东坡]
+      depth: [30, 25, 35]
+  autumn:
+    kind: dataframe
+    name: autumn
+    caption: 表 autumn：秋季两个采样点的土层深度（厘米），列的先后与春季不同
+    indexHeader: 行索引
+    columns:
+      depth: [28, 33]
+      site: [北坡, 东坡]
+  north:
+    kind: dataframe
+    name: north
+    caption: 表 north：北站的问卷
+    indexHeader: 行索引
+    columns:
+      respondent: [R1, R2, R3]
+      age: [34, 51, 28]
+  south_typo:
+    kind: dataframe
+    name: south
+    caption: 表 south：南站的问卷，年龄的列名写成了 Age
+    indexHeader: 行索引
+    columns:
+      respondent: [R4, R5]
+      Age: [45, 39]
+  south:
+    kind: dataframe
+    name: south
+    caption: 表 south：南站的问卷
+    indexHeader: 行索引
+    columns:
+      respondent: [R4, R5]
+      age: [45, 39]
+  plot_a:
+    kind: dataframe
+    name: plot_a
+    caption: 表 plot_a：甲地块的株高（厘米）
+    indexHeader: 行索引
+    columns:
+      plant_id: [A1, A2, A3]
+      height: [12, 15, 10]
+  plot_b:
+    kind: dataframe
+    name: plot_b
+    caption: 表 plot_b：乙地块的株高（厘米），多记了一列备注
+    indexHeader: 行索引
+    columns:
+      plant_id: [B1, B2]
+      height: [14, 9]
+      note: [叶片发黄, 正常]
+  jan:
+    kind: dataframe
+    name: jan
+    caption: 表 jan：一月三个采样点的浊度（NTU）
+    indexHeader: 行索引
+    columns:
+      point: [W1, W2, W3]
+      ntu: [12, 8, 15]
+  feb:
+    kind: dataframe
+    name: feb
+    caption: 表 feb：二月三个采样点的浊度（NTU）
+    indexHeader: 行索引
+    columns:
+      point: [W1, W2, W3]
+      ntu: [10, 9, 14]
+  jan2:
+    kind: dataframe
+    name: jan
+    caption: 另一年的一月
+    indexHeader: 行索引
+    columns:
+      point: [W4]
+      ntu: [7]
+  feb2:
+    kind: dataframe
+    name: feb
+    caption: 另一年的二月
+    indexHeader: 行索引
+    columns:
+      point: [W4, W5, W6, W7]
+      ntu: [6, 11, 13, 5]
 kps:
   - id: py30.k1
     title: concat 沿行叠加并按列名对齐
+    card:
+      name: 上下叠加
+      aliases: [concat, 纵向合并, 叠表]
+      definition: pd.concat([a, b]) 把列表里的表按顺序上下接起来：行数相加，列按列名配对，不按列的位置。
+      conditions:
+        - 列名只要差一点（大小写、拼写），就会成为两列，各自缺的地方是 NaN。
+        - 列表里排在前面的表，它的行在上面；结果的列沿用第一张表的先后。
+      example:
+        from: py30.k1.e0
+        text: |
+          ```python
+          result = pd.concat([a, b])
+          ```
+          a 的 2 行在上、b 的 3 行在下，共 5 行；列仍是 sample_id、signal 两列。
+    lesson: |
+      同一项测量分几批记下，每批一张表，列都一样。要把它们放进一张表，写：
+
+      ```python
+      result = pd.concat([a, b])
+      ```
+
+      方括号里是一个列表，`concat` 按[列表的顺序](repa:concept/py06.k1)把这些表上下接起来：a 的行在上，b 的行在下。行数相加，a 有 2 行、b 有 3 行，结果有 5 行。
+
+      列是**按列名**配对的，不看列在表里排第几。表 c 的列是 signal 在前、sample_id 在后，叠到 a 下面时，它的编号仍进 sample_id 列，测量值仍进 signal 列；结果的列沿用第一张表的先后。
+
+      反过来，列名只要差一点，pandas 就把它们当成两列。表 d 把测量值写成了 `Signal`（大写 S），`pd.concat([a, d])` 会得到 sample_id、signal、Signal 三列：a 的行在 Signal 列是 NaN，d 的行在 signal 列是 NaN。原来的整数也因为混进了 NaN 变成了小数（8.0）。
+
+      所以叠完先核对：行数是不是各表之和，列是不是没有多出来，有没有意外的[缺失](repa:concept/py19.k1)。
+    example:
+      id: py30.k1.e0
+      kind: [predict]
+      uses: [py06.k1, py14.k1, py14.k2]
+      data: [pandas, A, B]
+      body: |
+        两批测量要放进一张表。阅读代码，说出 `result` 的样子。
+
+        ```python
+        result = pd.concat([a, b])
+        ```
+      slots:
+        - id: rows
+          type: order
+          prompt: 按 `result` 里从上到下的顺序，排出各行的 sample_id。
+          items:
+            - { id: S_C, content: S_C }
+            - { id: S_A, content: S_A }
+            - { id: S_E, content: S_E }
+            - { id: S_B, content: S_B }
+            - { id: S_D, content: S_D }
+          key: [S_A, S_B, S_C, S_D, S_E]
+        - id: nrows
+          type: text
+          format: integer
+          prompt: "`result.shape` 的第一个数（行数）"
+          key: 5
+        - id: ncols
+          type: text
+          format: integer
+          prompt: "`result.shape` 的第二个数（列数）"
+          key: 2
+      explanation: |
+        a 的两行 **S_A、S_B** 在上，b 的三行 **S_C、S_D、S_E** 接在下面，各表内部的先后不变。行数 2 + 3 = **5**；两张表的列名相同，按名字配对后仍是 **2** 列，shape 为 (5, 2)。
+      verify: |
+        result = run()["result"]
+        answers = {
+            "rows": list(result["sample_id"]),
+            "nrows": result.shape[0],
+            "ncols": result.shape[1],
+        }
+    practice:
+      - id: py30.k1.q1
+        kind: [predict]
+        uses: [py06.k1, py14.k2]
+        data: [pandas, A, B]
+        body: |
+          这次把 b 写在列表的前面。
+
+          ```python
+          result = pd.concat([b, a])
+          ```
+        slots:
+          - id: rows
+            type: order
+            prompt: 按从上到下的顺序，排出各行的 sample_id。
+            items:
+              - { id: S_A, content: S_A }
+              - { id: S_B, content: S_B }
+              - { id: S_C, content: S_C }
+              - { id: S_D, content: S_D }
+              - { id: S_E, content: S_E }
+            key: [S_C, S_D, S_E, S_A, S_B]
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 行数
+            key: 5
+        explanation: |
+          依次是 **S_C、S_D、S_E、S_A、S_B**，共 **5** 行。列表里谁在前，谁的行就在上面；concat 不会按编号或测量值重新排序。
+        verify: |
+          result = run()["result"]
+          answers = {"rows": list(result["sample_id"]), "nrows": len(result)}
+      - id: py30.k1.q2
+        kind: [predict, explain]
+        uses: [py14.k1, py16.k1]
+        data: [pandas, A, C]
+        body: |
+          表 c 的两列先后与 a 不同。阅读代码，说出 `result` 的样子。
+
+          ```python
+          result = pd.concat([a, c])
+          ```
+        slots:
+          - id: columns
+            type: order
+            prompt: "`result` 的列从左到右是哪几列？"
+            items:
+              - { id: signal, content: "`signal`" }
+              - { id: sample_id, content: "`sample_id`" }
+            key: [sample_id, signal]
+          - id: cell
+            type: text
+            format: integer
+            prompt: "`result` 里 sample_id 为 S_F 的那一行，signal 是多少？"
+            key: 7
+          - id: why
+            type: choice
+            prompt: 为什么 c 的编号没有跑进 signal 列？
+            options:
+              - id: name
+                content: concat 按列名配对，不看列排在第几
+              - id: sorted
+                content: concat 先把每张表的列按字母排好再叠
+              - id: luck
+                content: 这只是碰巧，换一张表就会错位
+            key: name
+        explanation: |
+          列仍是 **sample_id、signal**，沿用第一张表 a 的先后。S_F 那一行的 signal 是 **7**：concat 按列名配对，c 里叫 signal 的那一列进 signal 列，叫 sample_id 的进 sample_id 列，与它们在 c 里排第几无关。
+        verify: |
+          result = run()["result"]
+          by_id = dict(zip(result["sample_id"], result["signal"]))
+          # c 的列序与 a 相反；如果按位置拼，S_F 的测量值就不会是 c 里与它同行的 signal。
+          aligned = all(by_id[sample] == value for sample, value in zip(c["sample_id"], c["signal"]))
+          answers = {
+              "columns": list(result.columns),
+              "cell": by_id["S_F"],
+              "why": "name" if aligned and list(result.columns) == list(a.columns) else "luck",
+          }
+      - id: py30.k1.q3
+        kind: [predict, debug]
+        uses: [py14.k2, py19.k1]
+        data: [pandas, A, D]
+        body: |
+          表 d 把测量值的列名写成了 `Signal`。屏幕上依次显示什么？
+
+          ```python
+          result = pd.concat([a, d])
+          print(result.shape)
+          print(result["signal"].isna().sum())
+          ```
+        slots:
+          - id: shape
+            type: text
+            match: output
+            prompt: 第一行
+            key: (4, 3)
+            feedback:
+              - when: (4, 2)
+                message: signal 和 Signal 名字不同，concat 把它们当成两列。
+          - id: missing
+            type: text
+            match: output
+            prompt: 第二行
+            key: "2"
+          - id: sign
+            type: choice
+            prompt: 下面哪个现象最能提醒你列名没有对上？
+            options:
+              - id: extra
+                content: 列数比每批表多了一列，而且 signal 列里出现了 NaN
+              - id: rows
+                content: 行数等于两批的行数之和
+              - id: order
+                content: d 的行排在 a 的行下面
+            key: extra
+        explanation: |
+          第一行显示 **(4, 3)**：行数 2 + 2 = 4 是对的，但列多了一列 `Signal`。第二行显示 **2**：d 的两行在 signal 列没有值。
+
+          行数相加、d 的行在下面都是正常现象；**多出一列、signal 列出现了原本没有的 NaN**，才说明列名没对上。修正的办法是先把列名统一，再叠。
+        verify: |
+          r = run()
+          lines = r.lines()
+          result = r["result"]
+          each = {len(a.columns), len(d.columns)}
+          answers = {
+              "shape": lines[0],
+              "missing": lines[1],
+              "sign": "extra" if result.shape[1] > max(each) and result["signal"].isna().any() else "other",
+          }
+    review:
+      - id: py30.k1.r1
+        kind: [predict, explain]
+        uses: [py14.k1, py14.k2, py19.k1]
+        data: [pandas, spring, autumn]
+        body: |
+          春季和秋季的记录要放进一张表。判断下面每句关于 `both` 的话对不对。
+
+          ```python
+          both = pd.concat([spring, autumn])
+          ```
+        slots:
+          - id: claims
+            type: table
+            columns:
+              - { id: claim, header: 说法 }
+              - { id: ok, header: 对吗, input: bool }
+            rows:
+              - { id: c1, cells: { claim: both 有 5 行, ok: true } }
+              - { id: c2, cells: { claim: both 最左边的一列是 depth, ok: false } }
+              - { id: c3, cells: { claim: 秋季的 28 和 33 都在 depth 列里, ok: true } }
+              - { id: c4, cells: { claim: both 里有缺失值（NaN）, ok: false } }
+        explanation: |
+          第 1、3 句对，第 2、4 句错。行数 3 + 2 = 5；列沿用第一张表 spring 的先后，最左边是 site；两张表的列名完全相同，只是先后不同，按列名配对后秋季的深度进了 depth 列，也就没有产生缺失值。
+        verify: |
+          both = run()["both"]
+          answers = {"claims": {
+              "c1": {"ok": len(both) == 5},
+              "c2": {"ok": both.columns[0] == "depth"},
+              "c3": {"ok": all(value in list(both["depth"]) for value in autumn["depth"])},
+              "c4": {"ok": bool(both.isna().any().any())},
+          }}
+      - id: py30.k1.r2
+        kind: [predict, debug]
+        uses: [py19.k1]
+        data: [pandas, north, south_typo]
+        body: |
+          南站的问卷把年龄一列写成了 `Age`。叠起来以后，每一列各有几个缺失值？
+
+          ```python
+          result = pd.concat([north, south])
+          ```
+        slots:
+          - id: missing
+            type: table
+            columns:
+              - { id: column, header: 列 }
+              - { id: n, header: "`result[列].isna().sum()`", input: integer }
+            rows:
+              - { id: respondent, cells: { column: respondent, n: 0 } }
+              - { id: age, cells: { column: age, n: 2 } }
+              - { id: Age, cells: { column: Age, n: 3 } }
+        explanation: |
+          respondent 两站都有，没有缺失，为 **0**；age 只有北站有，南站的 2 行在这里是 NaN，为 **2**；Age 只有南站有，北站的 3 行在这里是 NaN，为 **3**。一个人的年龄被拆进了两列，任何一列单独拿去计算都会少掉一部分人。
+        verify: |
+          result = run()["result"]
+          answers = {"missing": {column: {"n": result[column].isna().sum()} for column in result.columns}}
+    quiz:
+      - id: py30.k1.x1
+        kind: [predict]
+        uses: [py06.k1, py14.k2]
+        data: [pandas, jan, feb]
+        body: |
+          要把二月的浊度记录接在一月的下面，得到一张 6 行 2 列的表。哪一行代码做到了？
+        slots:
+          - id: code
+            type: choice
+            options:
+              - id: side
+                content: |
+                  ```python
+                  result = pd.concat([jan, feb], axis=1)
+                  ```
+              - id: reversed
+                content: |
+                  ```python
+                  result = pd.concat([feb, jan])
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  result = pd.concat([jan, feb])
+                  ```
+              - id: no_list
+                content: |
+                  ```python
+                  result = pd.concat(jan, feb)
+                  ```
+            key: right
+        explanation: |
+          `pd.concat([jan, feb])`：一月 3 行在上，二月 3 行在下，6 行 2 列。把 feb 写在前面，二月的行就跑到了上面；`axis=1` 是左右并排，得到 3 行 4 列；不写方括号时 concat 拿不到“一组表”，会报错。
+        verify: |
+          def fits(code):
+              r = run(code)
+              if r.error is not None:
+                  return False
+              result = r["result"]
+              return (result.shape == (6, 2)
+                      and list(result["point"]) == list(jan["point"]) + list(feb["point"])
+                      and list(result["ntu"]) == list(jan["ntu"]) + list(feb["ntu"]))
+          good = [option for option, code in OPTIONS["code"].items() if fits(code)]
+          answers = {"code": good[0] if len(good) == 1 else good}
+      - id: py30.k1.x2
+        kind: [predict]
+        uses: [py14.k1, py19.k1]
+        data: [pandas, plot_a, plot_b]
+        body: |
+          乙地块的表多记了一列备注 `note`。阅读代码，说出 `result` 的样子。没有值的格子填 NaN。
+
+          ```python
+          result = pd.concat([plot_a, plot_b])
+          ```
+        slots:
+          - id: columns
+            type: order
+            prompt: "`result` 的列从左到右是哪几列？"
+            items:
+              - { id: note, content: "`note`" }
+              - { id: height, content: "`height`" }
+              - { id: plant_id, content: "`plant_id`" }
+            key: [plant_id, height, note]
+          - id: first_note
+            type: text
+            prompt: "`result` 第一行（A1）的 note 是什么？"
+            quick: [NaN]
+            key: NaN
+          - id: missing
+            type: text
+            format: integer
+            prompt: "`result[\"note\"].isna().sum()` 是多少？"
+            key: 3
+        explanation: |
+          列是 **plant_id、height、note**：前两列沿用 plot_a 的先后，plot_b 多出的 note 接在后面。甲地块没有备注，A1 那一行的 note 是 **NaN**；甲地块的 3 行都缺 note，所以缺失个数是 **3**。height 两张表都有，不受影响。
+        verify: |
+          result = run()["result"]
+          first = result["note"].iloc[0]
+          answers = {
+              "columns": list(result.columns),
+              "first_note": "NaN" if first != first else first,
+              "missing": result["note"].isna().sum(),
+          }
+
   - id: py30.k2
     title: ignore_index 与来源列的用途
+    card:
+      name: 来源列
+      aliases: [ignore_index, 重新编号, batch 列]
+      definition: concat 默认保留各表原来的行索引，可能重复；ignore_index=True 从 0 重新编号，但原索引也丢了。要知道每行来自哪一批，叠之前给每张表加一列来源。
+      conditions:
+        - 行索引重复时，result.loc[0] 会取到不止一行。
+        - 重新编号以后，只有来源列还能说明一行来自哪张表。
+      example:
+        from: py30.k2.e0
+        text: |
+          `pd.concat([a, b])` 的行索引是 0、1、0、1、2；加 `ignore_index=True` 后是 0、1、2、3、4。
+    lesson: |
+      concat 默认把每张表原来的行索引一起带过来。a 的行索引是 0、1，b 的是 0、1、2，叠起来就是 **0、1、0、1、2**：同一个标签出现了两次。这时 `result.loc[0]` 按[标签](repa:concept/py16.k2)取行，会取到两行，一行来自 a，一行来自 b。
+
+      加上 `ignore_index=True`，结果的行索引从 0 重新编号为 0、1、2、3、4，不再重复：
+
+      ```python
+      result = pd.concat([a, b], ignore_index=True)
+      ```
+
+      但重新编号也把原来的索引丢了。无论编不编号，表里都没有哪一列写着“这一行来自哪一批”。要能追溯来源，叠之前给每张表加一列：
+
+      ```python
+      result = pd.concat([a.assign(batch="A"), b.assign(batch="B")], ignore_index=True)
+      ```
+
+      `a.assign(batch="A")` 返回一张多了 batch 列的新表，这一列每行都是 "A"；a 本身不变。这样叠完以后，行索引不重复，每一行也都带着自己的来源。如果文件里本来就有记录来源的列，就不必再加，但要先确认它确实存在、写得对。
+    example:
+      id: py30.k2.e0
+      kind: [predict]
+      uses: [py14.k1, py16.k2]
+      data: [pandas, A, B]
+      body: |
+        阅读代码，按从上到下的顺序填写 `result` 各行的行索引，再回答两个问题。
+
+        ```python
+        result = pd.concat([a, b])
+        ```
+      slots:
+        - id: labels
+          type: table
+          columns:
+            - { id: sample_id, header: sample_id }
+            - { id: label, header: 行索引, input: integer }
+          rows:
+            - { id: r1, cells: { sample_id: S_A, label: 0 } }
+            - { id: r2, cells: { sample_id: S_B, label: 1 } }
+            - { id: r3, cells: { sample_id: S_C, label: 0 } }
+            - { id: r4, cells: { sample_id: S_D, label: 1 } }
+            - { id: r5, cells: { sample_id: S_E, label: 2 } }
+        - id: loc0
+          type: text
+          format: integer
+          prompt: "`result.loc[0]` 取到几行？"
+          key: 2
+        - id: last
+          type: text
+          format: integer
+          prompt: 如果改成 `pd.concat([a, b], ignore_index=True)`，最后一行的行索引是多少？
+          key: 4
+      explanation: |
+        行索引依次是 **0、1、0、1、2**：a 和 b 各自的索引原样带了过来。标签 0 出现了两次，`result.loc[0]` 取到 **2** 行（S_A 和 S_C）。加上 `ignore_index=True` 后从 0 重新编号，5 行的最后一行是 **4**。
+      verify: |
+        result = run()["result"]
+        renumbered = run("result = pd.concat([a, b], ignore_index=True)")["result"]
+        answers = {
+            "labels": {f"r{position}": {"label": label} for position, label in enumerate(result.index, 1)},
+            "loc0": len(result.loc[0]),
+            "last": renumbered.index[-1],
+        }
+    practice:
+      - id: py30.k2.q1
+        kind: [predict]
+        uses: [py16.k2]
+        data: [pandas, A, B]
+        body: |
+          屏幕上依次显示什么？
+
+          ```python
+          r1 = pd.concat([a, b])
+          r2 = pd.concat([a, b], ignore_index=True)
+          print(r1.loc[2, "sample_id"])
+          print(r2.loc[2, "sample_id"])
+          ```
+        slots:
+          - id: line1
+            type: text
+            prompt: 第一行
+            key: S_E
+          - id: line2
+            type: text
+            prompt: 第二行
+            key: S_C
+            feedback:
+              - when: S_E
+                message: r2 已经重新编号，标签 2 是从上往下数的第 3 行。
+        explanation: |
+          第一行是 **S_E**：r1 保留原索引，标签 2 只在 b 里有，是 b 的第 3 行 S_E。第二行是 **S_C**：r2 从 0 重新编号，标签 2 是整张表的第 3 行，也就是 b 的第 1 行 S_C。同样写 `.loc[2]`，取到哪一行取决于有没有重新编号。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": str(lines[0]), "line2": str(lines[1])}
+      - id: py30.k2.q2
+        kind: [modify]
+        uses: [py06.k1, py14.k1]
+        data: [pandas, A, B]
+        body: |
+          需求是：
+
+          > 把 a、b 两批按这个顺序上下叠起来，行索引从 0 重新编号；加一列 batch，a 的行写 "A"，b 的行写 "B"。不改变 a、b。
+
+          作答框里的代码只做了第一步。请改动它并提交，结果仍叫 `result`。`a.assign(batch="A")` 返回一张多了 batch 列的新表，a 不变。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              result = pd.concat([a, b])
+            solution: |
+              result = pd.concat([a.assign(batch="A"), b.assign(batch="B")], ignore_index=True)
+            accepts:
+              - |
+                first = a.assign(batch="A")
+                second = b.assign(batch="B")
+                result = pd.concat([first, second], ignore_index=True)
+            rejects:
+              - code: result = pd.concat([a.assign(batch="A"), b.assign(batch="B")])
+                why: 没有重新编号，行索引仍是 0、1、0、1、2
+              - code: result = pd.concat([a, b], ignore_index=True)
+                why: 只重新编号，没有来源列
+              - code: result = pd.concat([a.assign(batch="B"), b.assign(batch="A")], ignore_index=True)
+                why: 两批的来源写反了
+              - code: result = pd.concat([b.assign(batch="B"), a.assign(batch="A")], ignore_index=True)
+                why: 两批的先后颠倒了
+              - code: result = pd.concat([a, b], ignore_index=True).assign(batch="A")
+                why: 叠完再加列，所有行都成了 "A"
+              - code: |
+                  a = a.assign(batch="A")
+                  b = b.assign(batch="B")
+                  result = pd.concat([a, b], ignore_index=True)
+                why: 把 a、b 换成了加过列的表
+            tests:
+              - name: 两批测量
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_A", "S_B", "S_C", "S_D", "S_E"], "signal": [8, 10, 13, 10, 9], "batch": ["A", "A", "B", "B", "B"]})'
+                  a: a
+                  b: b
+              - name: 换两批行数不同的表
+                hidden: true
+                data: [pandas, A2, B2]
+                expect:
+                  result: 'pd.DataFrame({"sample_id": ["S_K", "S_L", "S_M", "S_N"], "signal": [5, 12, 7, 9], "batch": ["A", "A", "A", "B"]})'
+                  a: a
+                  b: b
+        explanation: |
+          ```python
+          result = pd.concat([a.assign(batch="A"), b.assign(batch="B")], ignore_index=True)
+          ```
+
+          叠之前给每批加上来源列，叠的时候加 `ignore_index=True` 重新编号。结果 5 行 3 列，行索引 0 到 4，batch 列依次是 A、A、B、B、B。先叠再 `.assign(batch="A")` 会让所有行都写成 A；写成 `a = a.assign(...)` 则改掉了原来的 a。判分时还会换两批行数不同的表来运行你的代码。
+      - id: py30.k2.q3
+        kind: [specify]
+        body: |
+          同事说：“把三个站点的测量文件叠成一张表给我。”你打开文件发现：三个文件都没有记录站点的列，各自的行索引都从 0 开始；其中一个文件把测量值的列名写成了 `Signal`，另外两个写的是 `signal`。
+
+          请写一段可核对的要求，说清：① 叠起来以后怎样知道每行来自哪个站点；② 结果的行索引怎样处理；③ 列名不一致时怎么办。
+        slots:
+          - id: spec
+            type: text
+            lines: 6
+            rubric:
+              - id: source
+                label: 来源
+                guide: 要求叠之前给每个文件加一列站点（写明列名和取值），而不是靠行索引或行的先后去猜。
+              - id: index
+                label: 行索引
+                guide: 写明结果从 0 重新编号（或说明保留原索引的理由与用法），不能留着重复的行索引却按索引取行。
+              - id: columns
+                label: 列名不一致
+                guide: 写明先把 Signal 统一成 signal（或停下来确认哪个是对的）再叠，叠完核对列数没有变多、signal 列没有意外的缺失；不能接受多出一列。
+        explanation: |
+          一种写法：**叠之前给每个文件加一列 station，分别写站点名；把测量值的列名统一成 signal 再叠；叠的时候从 0 重新编号行索引。叠完核对：行数等于三个文件之和，列只有原来的几列加 station，signal 列没有新出现的缺失。**
+
+          列名的统一也可以写成“遇到不一致先停下来问我”，关键是不能让测量值被拆进两列。
+    review:
+      - id: py30.k2.r1
+        kind: [predict, explain]
+        uses: [py16.k2]
+        data: [pandas, spring, autumn]
+        body: |
+          同事想看秋季的第 2 个采样点（秋季表里行索引为 1 的那一行），写了：
+
+          ```python
+          both = pd.concat([spring, autumn])
+          x = both.loc[1]
+          ```
+        slots:
+          - id: rows
+            type: text
+            format: integer
+            prompt: "`x` 有几行？"
+            key: 2
+          - id: tell
+            type: choice
+            prompt: 只看 `x` 本身，能分出哪一行是秋季的吗？
+            options:
+              - id: label
+                content: 能，秋季那一行的行索引是 2
+              - id: cannot
+                content: 不能，两行的行索引都是 1，表里也没有记录季节的列
+              - id: position
+                content: 能，秋季那一行总是排在上面
+            key: cannot
+        explanation: |
+          `x` 有 **2** 行：春季的南坡和秋季的东坡，行索引都是 1。表里没有记录季节的列，只看 `x` 分不出哪一行是秋季的（秋季的行在下面，是因为 autumn 在列表里排在后面，不是一条可以依靠的标记）。叠之前加一列 season，再从 0 重新编号，才能按季节取行。
+        verify: |
+          x = run()["x"]
+          labels = list(x.index)
+          has_source = any(column not in ("site", "depth") for column in x.columns)
+          answers = {
+              "rows": len(x),
+              "tell": "cannot" if len(set(labels)) == 1 and not has_source else "label",
+          }
+      - id: py30.k2.r2
+        kind: [modify]
+        uses: [py06.k1]
+        data: [pandas, spring, autumn]
+        body: |
+          把下面的代码行排成一段程序：叠起春秋两季的记录，加一列 season（春季写 "spring"，秋季写 "autumn"），行索引从 0 重新编号，春季的行在上面。有的行用不上。
+        slots:
+          - id: lines
+            type: order
+            partial: true
+            items:
+              - { id: both_plain, code: 'both = pd.concat([spring, autumn], ignore_index=True)' }
+              - { id: t, code: 't = autumn.assign(season="autumn")' }
+              - { id: both_keep, code: 'both = pd.concat([s, t])' }
+              - { id: s, code: 's = spring.assign(season="spring")' }
+              - { id: both, code: 'both = pd.concat([s, t], ignore_index=True)' }
+            key: [s, t, both]
+            alternatives:
+              - [t, s, both]
+            tests:
+              - name: 叠好的表
+                expect:
+                  both: 'pd.DataFrame({"site": ["北坡", "南坡", "东坡", "北坡", "东坡"], "depth": [30, 25, 35, 28, 33], "season": ["spring", "spring", "spring", "autumn", "autumn"]})'
+                  spring: spring
+                  autumn: autumn
+        explanation: |
+          先用 assign 得到带 season 列的 `s` 和 `t`（这两行谁先都可以），再写 `both = pd.concat([s, t], ignore_index=True)`。直接叠 spring 和 autumn 没有季节列；不加 `ignore_index=True` 时行索引会是 0、1、2、0、1。
+    quiz:
+      - id: py30.k2.x1
+        kind: [predict]
+        uses: [py14.k2, py16.k2]
+        data: [pandas, north, south]
+        body: |
+          阅读代码，回答问题。
+
+          ```python
+          result = pd.concat([north.assign(station="N"), south.assign(station="S")], ignore_index=True)
+          ```
+        slots:
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`result` 有几行？"
+            key: 5
+          - id: ncols
+            type: text
+            format: integer
+            prompt: "`result` 有几列？"
+            key: 3
+          - id: station
+            type: text
+            prompt: "`result.loc[3, \"station\"]` 是什么？"
+            key: S
+          - id: respondent
+            type: text
+            prompt: "`result.loc[3, \"respondent\"]` 是什么？"
+            key: R4
+          - id: north_cols
+            type: text
+            format: integer
+            prompt: 运行之后，`north` 有几列？
+            key: 2
+        explanation: |
+          5 行、3 列（respondent、age、station）。重新编号后标签 3 是第 4 行，也就是南站的第一位受访者：station 是 **S**，respondent 是 **R4**。assign 返回新表，north 本身仍是 **2** 列。
+        verify: |
+          r = run()
+          result = r["result"]
+          answers = {
+              "nrows": result.shape[0],
+              "ncols": result.shape[1],
+              "station": result.loc[3, "station"],
+              "respondent": result.loc[3, "respondent"],
+              "north_cols": r["north"].shape[1],
+          }
+      - id: py30.k2.x2
+        kind: [modify]
+        uses: [py06.k1, py14.k1]
+        data: [pandas, jan, feb]
+        body: |
+          需求是：
+
+          > 把一月、二月的浊度记录上下叠起来，一月在上；加一列 month，一月的行写 "jan"，二月的行写 "feb"；行索引从 0 重新编号。不改变 jan、feb。
+
+          作答框里的代码有两处不符合需求。请改动它并提交，结果仍叫 `result`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 5
+            starter: |
+              result = pd.concat([jan.assign(month="jan"), feb.assign(month="jan")])
+            solution: |
+              result = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")], ignore_index=True)
+            accepts:
+              - |
+                first = jan.assign(month="jan")
+                second = feb.assign(month="feb")
+                result = pd.concat([first, second], ignore_index=True)
+            rejects:
+              - code: result = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")])
+                why: 没有重新编号
+              - code: result = pd.concat([jan.assign(month="jan"), feb.assign(month="jan")], ignore_index=True)
+                why: 二月的行仍写成 jan
+              - code: result = pd.concat([feb.assign(month="feb"), jan.assign(month="jan")], ignore_index=True)
+                why: 二月排到了上面
+              - code: result = pd.concat([jan, feb], ignore_index=True)
+                why: 没有 month 列
+            tests:
+              - name: 一月和二月
+                expect:
+                  result: 'pd.DataFrame({"point": ["W1", "W2", "W3", "W1", "W2", "W3"], "ntu": [12, 8, 15, 10, 9, 14], "month": ["jan", "jan", "jan", "feb", "feb", "feb"]})'
+                  jan: jan
+                  feb: feb
+              - name: 换一年，两个月的行数不同
+                hidden: true
+                data: [pandas, jan2, feb2]
+                expect:
+                  result: 'pd.DataFrame({"point": ["W4", "W4", "W5", "W6", "W7"], "ntu": [7, 6, 11, 13, 5], "month": ["jan", "feb", "feb", "feb", "feb"]})'
+                  jan: jan
+                  feb: feb
+        explanation: |
+          ```python
+          result = pd.concat([jan.assign(month="jan"), feb.assign(month="feb")], ignore_index=True)
+          ```
+
+          两处：二月的来源写成了 "jan"，要改成 "feb"；没有重新编号，要加 `ignore_index=True`。结果 6 行 3 列，行索引 0 到 5。判分时还会换一年两个月行数不同的记录运行你的代码。
