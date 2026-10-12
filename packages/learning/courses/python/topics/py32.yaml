@@ -40,9 +40,6 @@ wrapup: |
 
   拿到代码后，看 format 是否与数据的写法一致，看有没有数读不了的值，看区间两端用的是 `>=`、`>` 还是 `<`、`<=`。
 data:
-  pandas:
-    kind: python
-    code: import pandas as pd
   raw:
     kind: dataframe
     name: raw
@@ -242,7 +239,7 @@ kps:
       id: py32.k1.e0
       kind: [predict]
       uses: [py20.k1, py19.k1]
-      data: [pandas, raw]
+      data: [raw]
       body: |
         登记表约定采样日期写成“年-月-日”。阅读代码，回答下面几问。
 
@@ -296,7 +293,7 @@ kps:
       - id: py32.k1.q1
         kind: [predict]
         uses: [py20.k1, py19.k1]
-        data: [pandas, raw2]
+        data: [raw2]
         body: |
           日期约定写成“年-月-日”。阅读代码。
 
@@ -331,7 +328,7 @@ kps:
       - id: py32.k1.q2
         kind: [debug]
         uses: [py20.k1]
-        data: [pandas, raw3]
+        data: [raw3]
         body: |
           下面的程序想数出读不了的日期有几个。
 
@@ -429,7 +426,7 @@ kps:
       - id: py32.k1.r1
         kind: [predict]
         uses: [py20.k1, py19.k1, py17.k2]
-        data: [pandas, soil]
+        data: [soil]
         body: |
           采样日期约定写成“年-月-日”。阅读代码，回答下面两问。
 
@@ -462,7 +459,7 @@ kps:
           answers = {"output": int(r.out), "kept": [ids[site] for site in r["ok"]["site"]]}
       - id: py32.k1.r2
         kind: [predict]
-        data: [pandas, lab]
+        data: [lab]
         body: |
           这台仪器的说明书写着：导出的日期按“月/日/年”记录。阅读代码，填出两次测量各是几月几号。
 
@@ -489,7 +486,7 @@ kps:
       - id: py32.k1.x1
         kind: [modify]
         uses: [py20.k1, py20.k2, py19.k1]
-        data: [pandas, plots]
+        data: [plots]
         body: |
           需求是：
 
@@ -537,14 +534,14 @@ kps:
                   plots: plots
               - name: 第一个值写法不同的表
                 hidden: true
-                data: [pandas, plots2]
+                data: [plots2]
                 expect:
                   n_bad: "1"
                   dates.isna().tolist(): "[True, False, False]"
                   plots: plots
               - name: 全部读得了的表
                 hidden: true
-                data: [pandas, plots3]
+                data: [plots3]
                 expect:
                   n_bad: "0"
                   dates.dt.day.tolist(): "[1, 2, 3]"
@@ -558,7 +555,7 @@ kps:
       - id: py32.k1.x2
         kind: [explain]
         uses: [py20.k1, py20.k2, py19.k1]
-        data: [pandas, assay]
+        data: [assay]
         body: |
           同事运行了下面这行，没有报错，于是说：“加了 `errors="coerce"` 以后不报错了，说明 tested 列的日期全都读对了。”
 
@@ -628,7 +625,7 @@ kps:
     example:
       id: py32.k2.e0
       kind: [predict]
-      data: [pandas, log]
+      data: [log]
       body: |
         想知道每个样本采样后等了几天才检测。阅读代码，填出 `wait` 的值。
 
@@ -669,7 +666,7 @@ kps:
     practice:
       - id: py32.k2.q1
         kind: [debug]
-        data: [pandas, log]
+        data: [log]
         body: |
           要标出等了超过 5 天才检测的样本。
 
@@ -734,7 +731,7 @@ kps:
           answers = {"outcome": "error" if r.error == "TypeError" else "other", "fix": fits[0] if len(fits) == 1 else fits}
       - id: py32.k2.q2
         kind: [predict, specify]
-        data: [pandas, trials]
+        data: [trials]
         body: |
           每次实验从开始那天做到结束那天，两天都做了实验。阅读代码，填出 `gap` 和 `span`。
 
@@ -776,7 +773,7 @@ kps:
       - id: py32.k2.q3
         kind: [predict]
         uses: [py17.k2]
-        data: [pandas, log2]
+        data: [log2]
         body: |
           阅读代码，说出 `slow` 留下了哪些样本。
 
@@ -805,7 +802,7 @@ kps:
     review:
       - id: py32.k2.r1
         kind: [specify]
-        data: [pandas, ship]
+        data: [ship]
         body: |
           要求是：样品寄出后 **2 天以内**到达实验室算按时，寄出当天算第 0 天，第 2 天到达也算按时。前两行已经写好：
 
@@ -852,7 +849,7 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py32.k2.r2
         kind: [predict]
-        data: [pandas, rain]
+        data: [rain]
         body: |
           每次降雨从开始那天下到结束那天，两天都下了雨。阅读代码。
 
@@ -889,7 +886,7 @@ kps:
     quiz:
       - id: py32.k2.x1
         kind: [modify]
-        data: [pandas, cages]
+        data: [cages]
         body: |
           需求是：
 
@@ -931,7 +928,7 @@ kps:
                   days.tolist(): "[4, 1, 8]"
               - name: 跨 2 月和跨年的表
                 hidden: true
-                data: [pandas, cages2]
+                data: [cages2]
                 expect:
                   days.tolist(): "[4, 4]"
         explanation: |
@@ -942,7 +939,7 @@ kps:
           `end - start` 是时间差，不是整数，先取 `.dt.days` 得到相隔天数 3、0、7，再加 1 把放入和取出那天都算上，得到 4、1、8。只拿“几号”相减在跨月时会出错，例如 8 月 28 日到 9 月 4 日，4 − 28 是负数。
       - id: py32.k2.x2
         kind: [predict]
-        data: [pandas, freezer]
+        data: [freezer]
         body: |
           阅读代码，回答下面两问。
 
@@ -1002,7 +999,7 @@ kps:
       id: py32.k3.e0
       kind: [predict]
       uses: [py18.k1, py18.k2, py17.k2]
-      data: [pandas, log]
+      data: [log]
       body: |
         只要 3 月采的样本。阅读代码。
 
@@ -1042,7 +1039,7 @@ kps:
       - id: py32.k3.q1
         kind: [predict]
         uses: [py18.k1, py18.k2]
-        data: [pandas, visits]
+        data: [visits]
         body: |
           要标出 3 月 15 日到 3 月 31 日（两天都算）之间的采样。阅读代码，填写 `in_window` 的值。
 
@@ -1071,7 +1068,7 @@ kps:
       - id: py32.k3.q2
         kind: [debug]
         uses: [py18.k2]
-        data: [pandas, log]
+        data: [log]
         body: |
           下面的代码想标出 3 月采的样本。
 
@@ -1132,7 +1129,7 @@ kps:
       - id: py32.k3.q3
         kind: [predict, explain]
         uses: [py18.k1, py18.k2, py17.k2]
-        data: [pandas, readings]
+        data: [readings]
         body: |
           这张表的时间带时刻，格式是“年-月-日 时:分”，所以 format 多了 `%H:%M`（时和分）。两种写法都想留下 3 月的读数。
 
@@ -1173,7 +1170,7 @@ kps:
       - id: py32.k3.r1
         kind: [specify]
         uses: [py18.k1, py18.k2]
-        data: [pandas, quarter]
+        data: [quarter]
         body: |
           需求是：只要第二季度的采样，也就是 4 月 1 日到 6 月 30 日，**两天都算**。日期已经读好了：
 
@@ -1223,7 +1220,7 @@ kps:
       - id: py32.k3.r2
         kind: [predict]
         uses: [py18.k1, py18.k2, py17.k2]
-        data: [pandas, weekly]
+        data: [weekly]
         body: |
           要找出**不在** 5 月第一周（5 月 1 日（含）到 5 月 8 日（不含））采样的点。阅读代码。
 
@@ -1252,7 +1249,7 @@ kps:
       - id: py32.k3.x1
         kind: [modify]
         uses: [py18.k1, py18.k2, py17.k2]
-        data: [pandas, log]
+        data: [log]
         body: |
           需求是：
 
@@ -1305,7 +1302,7 @@ kps:
                   result: 'pd.DataFrame({"sample_id": ["S_A", "S_B"]}, index=[0, 1])'
               - name: 换一张表
                 hidden: true
-                data: [pandas, log2]
+                data: [log2]
                 setup: |
                   start = "2026-03-01"
                   end = "2026-03-31"
@@ -1320,7 +1317,7 @@ kps:
       - id: py32.k3.x2
         kind: [predict]
         uses: [py18.k1, py18.k2]
-        data: [pandas, week]
+        data: [week]
         body: |
           要数出 3 月 9 日（含）到 3 月 16 日（不含）这一周的观测有几次。阅读代码。
 

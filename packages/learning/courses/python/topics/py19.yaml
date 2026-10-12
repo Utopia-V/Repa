@@ -54,11 +54,6 @@ data:
       note: [null, 仪器故障, null, 重测, 漏测]
     dtypes:
       signal: float
-  libs:
-    kind: python
-    code: |
-      import numpy as np
-      import pandas as pd
   birds:
     kind: dataframe
     name: birds
@@ -218,7 +213,7 @@ kps:
     example:
       id: py19.k1.e0
       kind: [predict]
-      data: [M, libs]
+      data: [M]
       body: |
         阅读代码，按原行索引填写 `missing` 和 `wrong` 的值，再写出缺失的个数。
 
@@ -341,7 +336,7 @@ kps:
       - id: py19.k1.q3
         kind: [debug]
         uses: [py17.k1]
-        data: [M, libs]
+        data: [M]
         body: |
           同事想数出 signal 缺了几个，写了下面这行，结果显示 0。
 
@@ -461,7 +456,7 @@ kps:
       - id: py19.k1.x1
         kind: [explain]
         uses: [py17.k1, py17.k2]
-        data: [temps, libs]
+        data: [temps]
         body: |
           要只留下记录到了气温的气象站，气温缺失的站不要。下面哪些写法能做到？选出所有能做到的。
         slots:
@@ -498,7 +493,7 @@ kps:
       - id: py19.k1.x2
         kind: [modify]
         uses: [py17.k1, py17.k2]
-        data: [temps, libs]
+        data: [temps]
         body: |
           需求是：
 
@@ -532,7 +527,7 @@ kps:
                   temps: temps
               - name: 换一份有两个缺失的记录
                 hidden: true
-                data: [temps2, libs]
+                data: [temps2]
                 expect:
                   result: 'pd.DataFrame({"station": ["K1", "K3"]}, index=[10, 20])'
                   temps: temps

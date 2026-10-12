@@ -172,11 +172,6 @@ data:
       | 3 | R4 | NaN |
       | 4 | R5 | `"29岁"` |
       | 5 | R6 | `"57"` |
-  libs:
-    kind: python
-    code: |
-      import numpy as np
-      import pandas as pd
 kps:
   - id: py20.k1
     title: to_numeric 的失败与 errors="coerce"
@@ -444,7 +439,6 @@ kps:
       - id: py20.k1.r2
         kind: [debug]
         uses: [py11.k2, py03.k2]
-        data: [libs]
         body: |
           宿主先运行了这一行：
 
@@ -480,7 +474,6 @@ kps:
       - id: py20.k1.x1
         kind: [predict]
         uses: [py03.k1, py03.k2]
-        data: [libs]
         body: |
           阅读代码，写出三行输出。
 
