@@ -1,7 +1,8 @@
 id: py09
 title: 把两个条件接起来
-status: outline
+status: complete
 minutes: 20
+summary: 用 and、or、not 把比较接成一个 True 或 False；用括号定下先接哪两个，再用小真值表核对两种写法在哪些情况下不同。
 prerequisites:
   - topic: py08
     key: true
@@ -9,7 +10,7 @@ prerequisites:
     covers: [py08.k1, py08.k2]
 sources:
   - source: think-python
-    where: 第 5 章
+    where: 第 5 章（逻辑运算符）
     url: https://allendowney.github.io/ThinkPython/chap05.html
     use: reference
   - source: python-docs
@@ -17,9 +18,818 @@ sources:
     url: https://docs.python.org/3.12/tutorial/datastructures.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、解释代码（S/O）、小改代码（T）。
+  范围：and、or、not 只作用在 True/False 和比较的结果上，不讲 `0 or 5` 这类返回非布尔值的情况，也不讲短路求值的细节。if 在 py10（依赖本节 k1），表格逐行组合条件的 & | ~ 在 py18（依赖本节 k1、k2）。连写的 `10 <= signal <= 20` 只在讲解里提一句。
+  建议题型与判分：预测输出（P）、解释代码（S/O）、小改代码（T）。题目里的需求都写明了边界，核对程序按写明的规则独立算；把代码对应回一句自然语言需求的作答位程序算不出，列在 manual 里，复习和测验里的这类作答位由 course:confirm 让模型独立再解核对。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、练习 5 分钟；k2 讲解与例题 4 分钟、练习 5 分钟；收束 1 分钟。
+  讲解、例题和题目为本课自拟。
+intro: |
+  上一节的比较一次只问一件事。实际的要求常常同时有两三个条件，比如“drug 组里，signal 至少 10 的样本”。
+
+  这一节读 `and`、`or`、`not` 怎样把几个 True/False 接成一个结果，以及括号怎样决定先接哪两个。程序仍当作短脚本，从第一行往下运行，只有 `print` 才显示。
+wrapup: |
+  读一个组合条件，先把每个比较算成 True 或 False，再按 not、and、or 的先后接起来；有括号的先算括号里面。
+
+  向同事或 AI 提需求时，把“并且”“或者”各管哪几个条件说清楚；拿到代码后，挑一个只满足部分条件的例子试一下，看结果是不是你要的。
+data:
+  samples:
+    kind: dataframe
+    name: samples
+    caption: 四个样本
+    showIndex: false
+    columns:
+      sample_id: [S1, S2, S3, S4]
+      group: [drug, drug, control, control]
+      flagged: [false, true, false, true]
+  batch:
+    kind: dataframe
+    name: batch
+    caption: 一批样本
+    showIndex: false
+    columns:
+      sample_id: [A1, A2, A3, A4]
+      group: [drug, control, drug, control]
+      signal: [12, 15, 4, 4]
+      flagged: [false, true, true, false]
 kps:
   - id: py09.k1
     title: 单个布尔值的 and/or/not
+    card:
+      name: and/or/not
+      aliases: [逻辑运算, 并且, 或者, 取反]
+      definition: and 两边都是 True 才得 True；or 两边有一个是 True 就得 True；not 把 True 变成 False、False 变成 True。
+      conditions:
+        - 先把每个比较算成 True 或 False，再按 and、or 接起来。
+        - “在 10 到 20 之间（含两端）”是两个比较：`signal >= 10 and signal <= 20`。
+        - “control 组和 drug 组的样本”是属于任一组都要，写成 or；写成 and 永远得 False。
+      example:
+        from: py09.k1.e0
+        text: |
+          signal 为 12、group 为 "control" 时，`signal >= 10 and group == "drug"` 左边 True、右边 False，结果 False；换成 `or`，结果 True。
+    lesson: |
+      [比较](repa:concept/py08.k1)每次得到一个 True 或 False。`and`、`or`、`not` 把这样的值接起来：
+
+      | a | b | `a and b` | `a or b` |
+      |---|---|---|---|
+      | True | True | True | True |
+      | True | False | False | True |
+      | False | True | False | True |
+      | False | False | False | False |
+
+      `and` 要两边都成立；`or` 只要有一边成立。`not` 只管一个值：`not True` 是 False，`not False` 是 True。
+
+      读一个组合条件，先把每个比较算出来，再接起来。例如 signal 为 12、group 为 `"control"` 时，`signal >= 10 and group == "drug"`：左边 True，右边 False，`and` 要两边都成立，结果是 False。
+
+      日常说法里，“并且”“同时”“既……又……”对应 `and`；“或者”“任一”对应 `or`；“不是”“没有”对应 `not`。两处容易写错：
+
+      - “在 10 到 20 之间（含两端）”要写成两个比较：`signal >= 10 and signal <= 20`。Python 也接受连写 `10 <= signal <= 20`，意思相同。
+      - “control 组和 drug 组的样本”是说属于任一组都要，写成 `group == "control" or group == "drug"`。一个样本不可能同时属于两组，写成 `and` 永远得 False。
+    example:
+      id: py09.k1.e0
+      kind: [predict]
+      uses: [py08.k1, py08.k2]
+      body: |
+        先填出第 4、5 行里左右两个比较各自的结果，再填组合后的结果；最后写出第 6 行显示什么。
+
+        ```python startLine=1
+        signal = 12
+        group = "control"
+        flagged = False
+        print(signal >= 10 and group == "drug")
+        print(signal >= 10 or group == "drug")
+        print(not flagged)
+        ```
+      slots:
+        - id: parts
+          type: table
+          columns:
+            - { id: line, header: 行 }
+            - { id: left, header: "左边 signal >= 10", input: bool }
+            - { id: right, header: "右边 group == \"drug\"", input: bool }
+            - { id: result, header: 组合后的结果, input: bool }
+          rows:
+            - { id: l4, cells: { line: 第 4 行（and）, left: true, right: false, result: false } }
+            - { id: l5, cells: { line: 第 5 行（or）, left: true, right: false, result: true } }
+        - id: line6
+          type: text
+          match: output
+          prompt: 第 6 行显示什么？
+          key: "True"
+      explanation: |
+        两行的左边都是 True（12 至少为 10），右边都是 False（group 是 control）。
+
+        - 第 4 行用 `and`，要两边都成立，结果 **False**。
+        - 第 5 行用 `or`，有一边成立就行，结果 **True**。
+        - 第 6 行：flagged 是 False，`not` 把它反过来，显示 **True**。
+      verify: |
+        r = run()
+        shown = {"True": True, "False": False}
+        lines = r.lines()
+        left = r["signal"] >= 10
+        right = r["group"] == "drug"
+        answers = {
+            "parts": {
+                "l4": {"left": left, "right": right, "result": shown[lines[0]]},
+                "l5": {"left": left, "right": right, "result": shown[lines[1]]},
+            },
+            "line6": lines[2],
+        }
+    practice:
+      - id: py09.k1.q1
+        kind: [predict]
+        body: |
+          写出第 3–7 行各显示 True 还是 False。
+
+          ```python startLine=1
+          a = True
+          b = False
+          print(a and b)
+          print(a or b)
+          print(not a)
+          print(not b)
+          print(b or b)
+          ```
+        slots:
+          - id: results
+            type: table
+            columns:
+              - { id: line, header: 行 }
+              - { id: value, header: 显示, input: bool }
+            rows:
+              - { id: l3, cells: { line: 第 3 行, value: false } }
+              - { id: l4, cells: { line: 第 4 行, value: true } }
+              - { id: l5, cells: { line: 第 5 行, value: false } }
+              - { id: l6, cells: { line: 第 6 行, value: true } }
+              - { id: l7, cells: { line: 第 7 行, value: false } }
+        explanation: |
+          依次为 **False、True、False、True、False**。`a and b` 有一边是 False，所以 False；`a or b` 有一边是 True，所以 True；`not` 把值反过来；`b or b` 两边都是 False，结果 False。
+        verify: |
+          shown = {"True": True, "False": False}
+          lines = run().lines()
+          answers = {"results": {f"l{i}": {"value": shown[text]} for i, text in enumerate(lines, 3)}}
+      - id: py09.k1.q2
+        kind: [specify]
+        uses: [py08.k1]
+        body: |
+          需求是：留下 control 组和 drug 组的样本，属于这两组中任一组的都要，别的组（例如 blank）不要。`keep` 应存下 True 或 False。哪一行写对了？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: both
+                content: |
+                  ```python
+                  keep = group == "control" and group == "drug"
+                  ```
+                feedback: 一个样本只有一个组名，不可能同时等于两个，这一行永远得 False。
+              - id: either
+                content: |
+                  ```python
+                  keep = group == "control" or group == "drug"
+                  ```
+              - id: neither
+                content: |
+                  ```python
+                  keep = group != "control" and group != "drug"
+                  ```
+              - id: one
+                content: |
+                  ```python
+                  keep = group == "control"
+                  ```
+            key: either
+        explanation: |
+          `keep = group == "control" or group == "drug"`：属于任一组，其中一个比较就成立。
+
+          日常说“control 组和 drug 组的样本”，这个“和”是把两组的样本放在一起，写成代码是 `or`。用 `and` 要求一个样本同时属于两组，永远是 False；两个 `!=` 用 `and` 接起来，留下的恰好是别的组；只写一个比较，漏掉了 drug 组。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              ok = all(run(code, group=group)["keep"] is (group in ("control", "drug")) for group in ["control", "drug", "blank"])
+              if ok:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py09.k1.q3
+        kind: [predict]
+        uses: [py08.k2]
+        body: |
+          需求是：signal 在 10 到 20 之间（含 10 和 20）的样本留下。代码是：
+
+          ```python
+          keep = signal >= 10 and signal <= 20
+          ```
+        slots:
+          - id: table
+            type: table
+            prompt: 分别用下面的 signal 值运行，填写 `keep`。
+            columns:
+              - { id: signal, header: signal }
+              - { id: keep, header: keep, input: bool }
+            rows:
+              - { id: s9, cells: { signal: "9", keep: false } }
+              - { id: s10, cells: { signal: "10", keep: true } }
+              - { id: s15, cells: { signal: "15", keep: true } }
+              - { id: s20, cells: { signal: "20", keep: true } }
+              - { id: s21, cells: { signal: "21", keep: false } }
+          - id: changed
+            type: choice
+            multiple: true
+            prompt: 如果把 `and` 写成 `or`，上面哪些 signal 值的结果会改变？
+            options:
+              - { id: s9, content: "9" }
+              - { id: s10, content: "10" }
+              - { id: s15, content: "15" }
+              - { id: s20, content: "20" }
+              - { id: s21, content: "21" }
+            key: [s9, s21]
+        explanation: |
+          `keep` 依次是 **False、True、True、True、False**：10 和 20 两端都包含。
+
+          写成 `or` 以后，任何数至少满足其中一个比较（不是至少 10，就一定不超过 20），五个值全部得 True。原来是 False 的 **9 和 21** 改变了。
+        verify: |
+          values = [9, 10, 15, 20, 21]
+          with_and = {value: run(CODE, signal=value)["keep"] for value in values}
+          with_or = {value: run(CODE.replace(" and ", " or "), signal=value)["keep"] for value in values}
+          answers = {
+              "table": {f"s{value}": {"keep": with_and[value]} for value in values},
+              "changed": [f"s{value}" for value in values if with_and[value] != with_or[value]],
+          }
+    review:
+      - id: py09.k1.r1
+        kind: [debug]
+        uses: [py08.k2]
+        body: |
+          冷藏温度要求在 2 到 8 之间（含 2 和 8）。有人写了：
+
+          ```python
+          ok = temp >= 2 or temp <= 8
+          ```
+        slots:
+          - id: at12
+            type: text
+            match: output
+            prompt: temp 为 12 时，`ok` 是什么？
+            key: "True"
+          - id: fix
+            type: choice
+            prompt: 应当改成哪一行？
+            options:
+              - id: open
+                content: |
+                  ```python
+                  ok = temp > 2 and temp < 8
+                  ```
+              - id: outside
+                content: |
+                  ```python
+                  ok = temp <= 2 or temp >= 8
+                  ```
+              - id: closed
+                content: |
+                  ```python
+                  ok = temp >= 2 and temp <= 8
+                  ```
+            key: closed
+        explanation: |
+          temp 为 12 时 `ok` 是 **True**：12 至少为 2，`or` 只要一边成立就得 True。用 `or` 接这两个比较，任何温度都会得 True。
+
+          应改成 `ok = temp >= 2 and temp <= 8`：两个条件都要成立。`temp > 2 and temp < 8` 漏掉了 2 和 8 两端；`temp <= 2 or temp >= 8` 挑出的是范围外面（还多算了两端）。
+        verify: |
+          temps = [1, 2, 5, 8, 9, 12]
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if all(run(code, temp=temp)["ok"] is (2 <= temp <= 8) for temp in temps)]
+          answers = {"at12": run(CODE, temp=12)["ok"], "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py09.k1.r2
+        kind: [predict]
+        body: |
+          写出三个 `print` 各显示什么。
+
+          ```python startLine=1
+          group = "drug"
+          flagged = True
+          print(not flagged)
+          print(group != "control" and not flagged)
+          print(group == "control" or flagged)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第 3 行显示
+            key: "False"
+          - id: second
+            type: text
+            match: output
+            prompt: 第 4 行显示
+            key: "False"
+          - id: third
+            type: text
+            match: output
+            prompt: 第 5 行显示
+            key: "True"
+        explanation: |
+          依次是 **False、False、True**。
+
+          第 3 行：flagged 是 True，`not` 反过来得 False。第 4 行：左边 `group != "control"` 是 True，右边 `not flagged` 是 False，`and` 得 False。第 5 行：左边 False，右边 flagged 是 True，`or` 得 True。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1], "third": lines[2]}
+    quiz:
+      - id: py09.k1.x1
+        kind: [predict]
+        data: [samples]
+        body: |
+          要留下 drug 组里没有被标记（flagged 为 False）的样本。代码是：
+
+          ```python
+          keep = group == "drug" and not flagged
+          ```
+
+          把表里每个样本的 group 和 flagged 代进去运行一次。
+        slots:
+          - id: keep
+            type: table
+            columns:
+              - { id: sample, header: sample_id }
+              - { id: keep, header: keep, input: bool }
+            rows:
+              - { id: S1, cells: { sample: S1, keep: true } }
+              - { id: S2, cells: { sample: S2, keep: false } }
+              - { id: S3, cells: { sample: S3, keep: false } }
+              - { id: S4, cells: { sample: S4, keep: false } }
+        explanation: |
+          只有 **S1** 是 True：它在 drug 组，flagged 是 False，`not flagged` 为 True，两边都成立。S2 在 drug 组但被标记了；S3、S4 不在 drug 组，`and` 的左边已经是 False。
+        verify: |
+          answers = {"keep": {
+              row["sample_id"]: {"keep": run(CODE, group=row["group"], flagged=bool(row["flagged"]))["keep"]}
+              for _, row in samples.iterrows()
+          }}
+      - id: py09.k1.x2
+        kind: [specify]
+        uses: [py08.k2]
+        body: |
+          需要复查的样本：signal 低于 5 的，或者高于 50 的（恰好为 5 或 50 的都不用复查）。`recheck` 应存下 True 或 False。哪一行写对了？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: ends
+                content: |
+                  ```python
+                  recheck = signal <= 5 or signal >= 50
+                  ```
+              - id: inside
+                content: |
+                  ```python
+                  recheck = signal > 5 and signal < 50
+                  ```
+              - id: never
+                content: |
+                  ```python
+                  recheck = signal < 5 and signal > 50
+                  ```
+              - id: outside
+                content: |
+                  ```python
+                  recheck = signal < 5 or signal > 50
+                  ```
+            key: outside
+        explanation: |
+          `recheck = signal < 5 or signal > 50`：偏低或偏高，满足任一个就要复查；两端不算，所以不带等号。
+
+          用 `and` 接“低于 5”和“高于 50”，没有任何数能同时满足，永远是 False；`signal > 5 and signal < 50` 挑出的是正常范围；带等号的写法把恰好为 5 和 50 的也算了进去。
+        verify: |
+          values = [3, 5, 20, 50, 60]
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if all(run(code, signal=value)["recheck"] is (value < 5 or value > 50) for value in values)]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+
   - id: py09.k2
     title: 括号确定条件组合并用小真值表验证
+    card:
+      name: 条件的括号
+      aliases: [运算先后, 真值表]
+      definition: 没有括号时先算 not，再算 and，最后算 or；要改变组合方式就加括号，再用列出全部 True/False 组合的小真值表核对两种写法在哪几行不同。
+      conditions:
+        - "`a or b and c` 等于 `a or (b and c)`，不等于 `(a or b) and c`。"
+        - 两个条件有 4 种组合，三个条件有 8 种；逐行算一遍就看出差在哪。
+        - 拿不准先后时直接加括号，读的人也不用去记规则。
+      example:
+        from: py09.k2.e0
+        text: |
+          需求“drug 组里，signal 至少 10 或者被标记的”要写成 `group == "drug" and (signal >= 10 or flagged)`；不加括号时，control 组里被标记的样本也会留下。
+    lesson: |
+      三个条件接在一起，先接哪两个会改变结果。比如需求：
+
+      > drug 组里，signal 至少 10 或者被标记了的样本。
+
+      意思是先限定 drug 组，在这个组里再看“signal 至少 10”或“被标记”。写成代码要加括号：
+
+      ```python
+      keep = group == "drug" and (signal >= 10 or flagged)
+      ```
+
+      如果不加括号，写成 `group == "drug" and signal >= 10 or flagged`：Python 在没有括号时先算 `not`，再算 `and`，最后算 `or`，所以它等于 `(group == "drug" and signal >= 10) or flagged`。这样任何组里被标记的样本都会留下，包括 control 组的。
+
+      两种写法差在哪，用一张小真值表最清楚：把每个比较当作一个 True/False，列出全部组合，逐行算两种写法。
+
+      | drug 组 | signal ≥ 10 | flagged | 加括号 | 不加括号 |
+      |---|---|---|---|---|
+      | True | True | True | True | True |
+      | True | True | False | True | True |
+      | True | False | True | True | True |
+      | True | False | False | False | False |
+      | False | True | True | False | **True** |
+      | False | True | False | False | False |
+      | False | False | True | False | **True** |
+      | False | False | False | False | False |
+
+      只有“不在 drug 组、但被标记”的两行不同。两个条件只有 4 行，三个条件 8 行，算一遍并不费事。拿不准先后时，直接加括号。
+    example:
+      id: py09.k2.e0
+      kind: [predict, explain]
+      uses: [py08.k1, py08.k2]
+      body: |
+        需求是“drug 组里，signal 至少 10 或者被标记了的样本留下”。两位同事各写了一行，拿同一个样本运行：
+
+        ```python startLine=1
+        group = "control"
+        signal = 4
+        flagged = True
+        keep_a = group == "drug" and signal >= 10 or flagged
+        keep_b = group == "drug" and (signal >= 10 or flagged)
+        ```
+      slots:
+        - id: keep_a
+          type: text
+          match: output
+          prompt: "`keep_a` 是什么？"
+          key: "True"
+        - id: keep_b
+          type: text
+          match: output
+          prompt: "`keep_b` 是什么？"
+          key: "False"
+        - id: same
+          type: choice
+          prompt: 第 4 行实际按哪种方式组合？
+          options:
+            - id: right
+              content: |
+                ```python
+                group == "drug" and (signal >= 10 or flagged)
+                ```
+            - id: left
+              content: |
+                ```python
+                (group == "drug" and signal >= 10) or flagged
+                ```
+          key: left
+        - id: follows
+          type: choice
+          prompt: 哪一行符合需求？
+          options:
+            - { id: a, content: "`keep_a` 那一行" }
+            - { id: b, content: "`keep_b` 那一行" }
+          key: b
+      explanation: |
+        `keep_a` 是 **True**，`keep_b` 是 **False**。
+
+        第 4 行没有括号，先算 `and`：`group == "drug" and signal >= 10` 是 False；再算 `or flagged`，flagged 为 True，结果 True。所以它等于 **`(group == "drug" and signal >= 10) or flagged`**。
+
+        第 5 行先算括号里的 `signal >= 10 or flagged`，得 True；再和 `group == "drug"`（False）用 `and` 接，结果 False。需求先限定 drug 组，这个 control 组的样本不该留下，**`keep_b` 那一行**符合需求。
+      verify: |
+        r = run()
+        lines = CODE.splitlines()
+        combos = [(group, signal, flagged) for group in ("drug", "control") for signal in (12, 4) for flagged in (True, False)]
+        def keep_a(group, signal, flagged):
+            return run(lines[3], group=group, signal=signal, flagged=flagged)["keep_a"]
+        fits = [option for option, code in OPTIONS["same"].items()
+                if all(run("x = " + code, group=g, signal=s, flagged=f)["x"] is keep_a(g, s, f) for g, s, f in combos)]
+        answers = {"keep_a": r["keep_a"], "keep_b": r["keep_b"], "same": fits[0] if len(fits) == 1 else fits}
+      manual: [follows]
+    practice:
+      - id: py09.k2.q1
+        kind: [trace]
+        body: |
+          对比两种写法：`not a or b` 和 `not (a or b)`。把 a、b 的四种组合逐行算一遍。
+        slots:
+          - id: table
+            type: table
+            columns:
+              - { id: a, header: a }
+              - { id: b, header: b }
+              - { id: first, header: "not a or b", input: bool }
+              - { id: second, header: "not (a or b)", input: bool }
+            rows:
+              - { id: tt, cells: { a: "True", b: "True", first: true, second: false } }
+              - { id: tf, cells: { a: "True", b: "False", first: false, second: false } }
+              - { id: ft, cells: { a: "False", b: "True", first: true, second: false } }
+              - { id: ff, cells: { a: "False", b: "False", first: true, second: true } }
+          - id: differ
+            type: text
+            format: integer
+            prompt: 两种写法有几行结果不同？
+            key: 2
+        explanation: |
+          | a | b | `not a or b` | `not (a or b)` |
+          |---|---|---|---|
+          | True | True | True | False |
+          | True | False | False | False |
+          | False | True | True | False |
+          | False | False | True | True |
+
+          `not a or b` 先算 `not a`，再和 b 用 `or` 接；`not (a or b)` 先算括号里的 `a or b`，再整个取反。两种写法在 **2** 行不同：a、b 都为 True 的一行，以及 a 为 False、b 为 True 的一行。
+        verify: |
+          import itertools
+          rows = {}
+          for a, b in itertools.product([True, False], repeat=2):
+              rows[("t" if a else "f") + ("t" if b else "f")] = {
+                  "first": run("x = not a or b", a=a, b=b)["x"],
+                  "second": run("x = not (a or b)", a=a, b=b)["x"],
+              }
+          answers = {"table": rows, "differ": sum(row["first"] != row["second"] for row in rows.values())}
+      - id: py09.k2.q2
+        kind: [explain]
+        uses: [py08.k1]
+        body: |
+          下面哪一种写法和 `not flagged and signal >= 10` 意思相同？
+        slots:
+          - id: same
+            type: choice
+            options:
+              - id: whole
+                content: |
+                  ```python
+                  not (flagged and signal >= 10)
+                  ```
+              - id: first
+                content: |
+                  ```python
+                  (not flagged) and signal >= 10
+                  ```
+              - id: either
+                content: |
+                  ```python
+                  not (flagged or signal >= 10)
+                  ```
+            key: first
+        explanation: |
+          `(not flagged) and signal >= 10`。`not` 比 `and` 先算，它只管紧跟着的 `flagged`，不管后面整段。
+
+          `not (flagged and signal >= 10)` 把整段取反：比如 flagged 为 False、signal 为 5 时，原写法得 False，它却得 True。`not (flagged or signal >= 10)` 要求两个都不成立，意思又不一样。
+        verify: |
+          cases = [(flagged, signal) for flagged in (True, False) for signal in (5, 10, 15)]
+          original = {case: run("x = not flagged and signal >= 10", flagged=case[0], signal=case[1])["x"] for case in cases}
+          fits = [option for option, code in OPTIONS["same"].items()
+                  if all(run("x = " + code, flagged=f, signal=s)["x"] is original[(f, s)] for f, s in cases)]
+          answers = {"same": fits[0] if len(fits) == 1 else fits}
+      - id: py09.k2.q3
+        kind: [modify]
+        uses: [py08.k1, py08.k2]
+        body: |
+          需求是：
+
+          > control 组里，signal 低于 `limit` 或者被标记了的样本要复查，`recheck` 存下 True 或 False。别的组一律不复查。
+
+          同事写的代码在作答框里，它会把 drug 组里被标记的样本也算进去。宿主已经给 `group`、`signal`、`flagged`、`limit` 赋好了值。请改正它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              recheck = group == "control" and signal < limit or flagged
+            solution: |
+              recheck = group == "control" and (signal < limit or flagged)
+            accepts:
+              - recheck = (signal < limit or flagged) and group == "control"
+              - recheck = group == "control" and (flagged or signal < limit)
+            rejects:
+              - code: recheck = (group == "control" and signal < limit) or flagged
+                why: 和原来一样，只是把默认的先后写了出来
+              - code: recheck = group == "control" and signal < limit and flagged
+                why: 要求低于阈值和被标记同时成立
+              - code: recheck = group == "control" or signal < limit or flagged
+                why: 别的组里低于阈值或被标记的也算了进去
+              - code: recheck = group == "control" and (signal <= limit or flagged)
+                why: 恰好等于阈值的也算了进去
+              - code: recheck = group == "control" and (signal < 5 or flagged)
+                why: 把阈值写死成 5
+            tests:
+              - name: drug 组里被标记的样本
+                setup: |
+                  group = "drug"
+                  signal = 3
+                  flagged = True
+                  limit = 5
+                expect:
+                  recheck: "False"
+              - name: control 组，低于阈值
+                hidden: true
+                setup: |
+                  group = "control"
+                  signal = 3
+                  flagged = False
+                  limit = 5
+                expect:
+                  recheck: "True"
+              - name: control 组，被标记
+                hidden: true
+                setup: |
+                  group = "control"
+                  signal = 9
+                  flagged = True
+                  limit = 5
+                expect:
+                  recheck: "True"
+              - name: control 组，恰好等于阈值、没被标记
+                hidden: true
+                setup: |
+                  group = "control"
+                  signal = 5
+                  flagged = False
+                  limit = 5
+                expect:
+                  recheck: "False"
+              - name: drug 组，低于阈值
+                hidden: true
+                setup: |
+                  group = "drug"
+                  signal = 3
+                  flagged = False
+                  limit = 5
+                expect:
+                  recheck: "False"
+              - name: 换一个阈值
+                hidden: true
+                setup: |
+                  group = "control"
+                  signal = 6
+                  flagged = False
+                  limit = 8
+                expect:
+                  recheck: "True"
+        explanation: |
+          ```python
+          recheck = group == "control" and (signal < limit or flagged)
+          ```
+
+          括号把“低于阈值或被标记”先接成一个条件，再要求它和“在 control 组”同时成立。不加括号时先算 `and`，末尾的 `or flagged` 单独成了一条路，drug 组里被标记的样本也会得 True。判分时会换几组输入运行你的代码，包括 drug 组被标记、恰好等于阈值和换一个阈值的情况。
+    review:
+      - id: py09.k2.r1
+        kind: [explain]
+        body: |
+          两位同事写了两行，只差一对括号：
+
+          ```python
+          first = urgent or drug and high
+          second = (urgent or drug) and high
+          ```
+
+          下面四组取值里，哪几组能让 `first` 和 `second` 得到不同的结果？选出全部。
+        slots:
+          - id: combos
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - { id: ttf, content: "urgent=True，drug=True，high=False" }
+              - { id: ftt, content: "urgent=False，drug=True，high=True" }
+              - { id: tff, content: "urgent=True，drug=False，high=False" }
+              - { id: fft, content: "urgent=False，drug=False，high=True" }
+            key: [ttf, tff]
+        explanation: |
+          **urgent=True、high=False** 的两组（drug 是 True 还是 False 都一样）。
+
+          `first` 没有括号，先算 `drug and high`，等于 `urgent or (drug and high)`：urgent 为 True 时直接得 True。`second` 先算括号，再要求 high 成立：high 为 False 时一定得 False。所以 urgent 为 True、high 为 False 时两者不同；另外两组两种写法结果一样。
+        verify: |
+          options = {"ttf": (True, True, False), "ftt": (False, True, True), "tff": (True, False, False), "fft": (False, False, True)}
+          differ = []
+          for option, (urgent, drug, high) in options.items():
+              r = run(CODE, urgent=urgent, drug=drug, high=high)
+              if r["first"] != r["second"]:
+                  differ.append(option)
+          answers = {"combos": differ}
+      - id: py09.k2.r2
+        kind: [predict]
+        body: |
+          写出三个 `print` 各显示什么。
+
+          ```python startLine=1
+          low = True
+          drug = False
+          checked = True
+          print(low or drug and checked)
+          print(not checked or low)
+          print(not (checked or low))
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第 4 行显示
+            key: "True"
+          - id: second
+            type: text
+            match: output
+            prompt: 第 5 行显示
+            key: "True"
+          - id: third
+            type: text
+            match: output
+            prompt: 第 6 行显示
+            key: "False"
+        explanation: |
+          依次是 **True、True、False**。
+
+          第 4 行先算 `drug and checked`（False），再 `low or False`，得 True。第 5 行先算 `not checked`（False），再 `False or low`，得 True。第 6 行先算括号里的 `checked or low`（True），再取反，得 False。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1], "third": lines[2]}
+    quiz:
+      - id: py09.k2.x1
+        kind: [predict, debug]
+        uses: [py08.k1, py08.k2]
+        data: [batch]
+        body: |
+          需求是“drug 组里，signal 至少 10 或者被标记了的样本留下”。代码写成：
+
+          ```python
+          keep = group == "drug" and signal >= 10 or flagged
+          ```
+
+          把表里每个样本代进去运行一次。
+        slots:
+          - id: keep
+            type: table
+            prompt: 填写代码算出的 `keep`。
+            columns:
+              - { id: sample, header: sample_id }
+              - { id: keep, header: keep, input: bool }
+            rows:
+              - { id: A1, cells: { sample: A1, keep: true } }
+              - { id: A2, cells: { sample: A2, keep: true } }
+              - { id: A3, cells: { sample: A3, keep: true } }
+              - { id: A4, cells: { sample: A4, keep: false } }
+          - id: wrong
+            type: choice
+            prompt: 哪个样本的结果和需求不符？
+            options:
+              - { id: A1, content: A1 }
+              - { id: A2, content: A2 }
+              - { id: A3, content: A3 }
+              - { id: A4, content: A4 }
+            key: A2
+        explanation: |
+          代码算出 **True、True、True、False**。
+
+          **A2** 不符：它在 control 组，需求不要它，但代码先算 `group == "drug" and signal >= 10`（False），再 `or flagged`，flagged 为 True，就留下了。A3 在 drug 组、被标记，按需求也该留下，代码的结果碰巧对。应写成 `group == "drug" and (signal >= 10 or flagged)`。
+        verify: |
+          code_result = {}
+          wanted = {}
+          for _, row in batch.iterrows():
+              inputs = {"group": row["group"], "signal": int(row["signal"]), "flagged": bool(row["flagged"])}
+              code_result[row["sample_id"]] = run(CODE, **inputs)["keep"]
+              # 需求：先限定 drug 组，再看 signal 至少 10 或被标记。
+              wanted[row["sample_id"]] = inputs["group"] == "drug" and (inputs["signal"] >= 10 or inputs["flagged"])
+          wrong = [sample for sample in code_result if code_result[sample] != wanted[sample]]
+          answers = {
+              "keep": {sample: {"keep": value} for sample, value in code_result.items()},
+              "wrong": wrong[0] if len(wrong) == 1 else wrong,
+          }
+      - id: py09.k2.x2
+        kind: [explain]
+        body: |
+          下面这行代码挑出要复查的样本。哪一句话准确说出了它挑的是哪些样本？
+
+          ```python
+          recheck = not checked and (low or high)
+          ```
+
+          （`checked` 表示已经复查过，`low`、`high` 分别表示读数偏低、偏高。）
+        slots:
+          - id: meaning
+            type: choice
+            options:
+              - id: a
+                content: 还没复查过并且偏低的样本，再加上所有偏高的样本
+              - id: b
+                content: 偏低或偏高的样本，再加上所有还没复查过的样本
+              - id: c
+                content: 已经复查过的样本里，偏低或偏高的
+              - id: d
+                content: 还没复查过的样本里，偏低或偏高的
+            key: d
+        explanation: |
+          “还没复查过的样本里，偏低或偏高的”。括号先把 `low or high` 接成“偏低或偏高”，`not checked` 只管 checked，再用 `and` 要求两件事同时成立。
+
+          “还没复查过并且偏低，再加上所有偏高的”是 `(not checked and low) or high`，也就是去掉括号后的写法；“偏低或偏高，再加上所有没复查过的”用的是 or；“已经复查过的样本里”漏看了 `not`。
+        manual: [meaning]
+
+verified:
+  - question: py09.k2.x2
+    version: sha256:1d47217189fbc6b7075bf2d4d8fe46bf86d6c1087d33aab4cdff4843aac4b399
+    slots: [meaning]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
