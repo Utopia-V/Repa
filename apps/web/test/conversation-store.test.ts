@@ -24,7 +24,7 @@ function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, Se
       case "session.list":
         return Promise.resolve([...sessions]);
       case "session.create": {
-        const info: SessionInfo = { id: `s${sessions.length + 1}`, createdAt: at, updatedAt: at, model: (params.model as NonNullable<SessionInfo["model"]> | undefined) ?? { provider: "test", id: "default" } };
+        const info: SessionInfo = { id: `s${sessions.length + 1}`, createdAt: at, updatedAt: at, agent: "general", model: (params.model as NonNullable<SessionInfo["model"]> | undefined) ?? { provider: "test", id: "default" } };
         sessions.push(info);
         return Promise.resolve(info);
       }
@@ -53,7 +53,7 @@ function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, Se
         // 和后端一样复制到分叉点为止，原会话不变；新会话沿用原会话的模型。
         const source = sessions.find((session) => session.id === params.sessionId);
         const entries = history[String(params.sessionId)] ?? [];
-        const info: SessionInfo = { id: `s${sessions.length + 1}`, createdAt: at, updatedAt: at, ...(source?.model ? { model: source.model } : {}) };
+        const info: SessionInfo = { id: `s${sessions.length + 1}`, createdAt: at, updatedAt: at, agent: "general", ...(source?.model ? { model: source.model } : {}) };
         history[info.id] = entries.slice(0, entries.findIndex((entry) => entry.id === params.entryId) + 1);
         sessions.push(info);
         return Promise.resolve(info);
@@ -83,8 +83,8 @@ function event(sessionId: string, value: Omit<AgentEvent, "sessionId" | "runId">
 it("进入空间时打开最近有消息的会话，而不是最近建立的", async () => {
   const backend = sessionBackend(
     [
-      { id: "old", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-12T00:00:00.000Z", model: { provider: "anthropic", id: "claude" } },
-      { id: "new", createdAt: "2026-10-11T00:00:00.000Z", updatedAt: "2026-10-11T00:00:00.000Z" },
+      { id: "old", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-12T00:00:00.000Z", agent: "general", model: { provider: "anthropic", id: "claude" } },
+      { id: "new", createdAt: "2026-10-11T00:00:00.000Z", updatedAt: "2026-10-11T00:00:00.000Z", agent: "general" },
     ],
     { old: [{ id: "u1", type: "user", timestamp: at, text: "昨天学到哪了" }] },
   );
@@ -134,7 +134,7 @@ it("空间里没有会话时第一次发送才建立；运行中按事件显示�
 });
 
 it("没写进会话记录的失败返回 false 并保留原因；模型出错由记录显示，不另外提示", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
   const store = await openedStore(backend);
 
   const missingModel = store.getState().sendMessage("你好");
@@ -152,7 +152,7 @@ it("没写进会话记录的失败返回 false 并保留原因；模型出错由
 });
 
 it("停止运行时调用取消，取消完成前保持停止中，期间不能再发送", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
   const store = await openedStore(backend);
   const sending = store.getState().sendMessage("出一道题");
   await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
@@ -172,7 +172,7 @@ it("停止运行时调用取消，取消完成前保持停止中，期间不能�
 });
 
 it("命令授权按到达顺序排队，回答后发给后端；登录类请求直接取消；发送结束后清空", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
   const store = await openedStore(backend);
   const sending = store.getState().sendMessage("跑一下测试");
   await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
@@ -194,11 +194,11 @@ it("命令授权按到达顺序排队，回答后发给后端；登录类请求�
 });
 
 it("换连接后重新打开原来的空间并重读会话记录；空间打不开时回到未打开", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }], { s1: [] });
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }], { s1: [] });
   const store = await openedStore(backend);
   backend.history.s1 = [{ id: "u1", type: "user", timestamp: at, text: "断线前发的" }];
 
-  const next = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }], backend.history);
+  const next = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }], backend.history);
   store.getState().setClient(next.client);
   await vi.waitFor(() => expect(store.getState().conversation.items).toEqual([{ kind: "user", id: "u1", text: "断线前发的" }]));
   expect(next.call).toHaveBeenCalledWith("space.open", { root: "/notes/calculus" });
@@ -214,8 +214,8 @@ it("换连接后重新打开原来的空间并重读会话记录；空间打不�
 it("切换到列表里的另一个会话；运行中不切换", async () => {
   const backend = sessionBackend(
     [
-      { id: "a", createdAt: at, updatedAt: "2026-10-12T02:00:00.000Z", model: { provider: "fake", id: "tutor" } },
-      { id: "b", createdAt: at, updatedAt: "2026-10-12T01:00:00.000Z", model: { provider: "anthropic", id: "claude" } },
+      { id: "a", createdAt: at, updatedAt: "2026-10-12T02:00:00.000Z", agent: "general", model: { provider: "fake", id: "tutor" } },
+      { id: "b", createdAt: at, updatedAt: "2026-10-12T01:00:00.000Z", agent: "general", model: { provider: "anthropic", id: "claude" } },
     ],
     { b: [{ id: "u1", type: "user", timestamp: at, text: "另一个会话" }] },
   );
@@ -262,7 +262,7 @@ it("还没建立的会话记下选的模型，建立时使用；已建立的会�
 });
 
 it("换空间时清空上一个空间的会话列表", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
   const store = await openedStore(backend);
   expect(store.getState().resources.sessions.data).toHaveLength(1);
   await store.getState().openSpace("/notes/algebra");
@@ -271,7 +271,7 @@ it("换空间时清空上一个空间的会话列表", async () => {
 
 it("从一条回答分叉：打开新会话，记录到这条回答为止，侧栏列表重新读取；运行中不分叉", async () => {
   const backend = sessionBackend(
-    [{ id: "s1", createdAt: at, updatedAt: at, model: { provider: "anthropic", id: "claude" } }],
+    [{ id: "s1", createdAt: at, updatedAt: at, agent: "general", model: { provider: "anthropic", id: "claude" } }],
     {
       s1: [
         { id: "u1", type: "user", timestamp: at, text: "什么是极限" },
@@ -301,7 +301,7 @@ it("从一条回答分叉：打开新会话，记录到这条回答为止，侧�
 });
 
 it("运行中发出的消息用 session.steer 排队，送达事件到来后成为用户消息；停止时交还没送到的", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
   const store = await openedStore(backend);
   const sending = store.getState().sendMessage("讲讲链式法则");
   await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
@@ -335,7 +335,7 @@ it("运行中发出的消息用 session.steer 排队，送达事件到来后成�
 });
 
 it("排队失败时移出队列并返回 false，保留原因", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
   const store = await openedStore(backend);
   const sending = store.getState().sendMessage("出一道题");
   await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
@@ -354,7 +354,7 @@ it("排队失败时移出队列并返回 false，保留原因", async () => {
 });
 
 it("关闭空间后清空会话、会话列表和授权；运行中不关闭", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }], { s1: [{ id: "u1", type: "user", timestamp: at, text: "极限" }] });
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }], { s1: [{ id: "u1", type: "user", timestamp: at, text: "极限" }] });
   const store = await openedStore(backend);
 
   const sending = store.getState().sendMessage("出一道题");
@@ -380,8 +380,8 @@ it("关闭空间后清空会话、会话列表和授权；运行中不关闭", a
 
 it("新建的 store 读回上次的空间和会话：连上后先重新打开空间，再读这个会话", async () => {
   const sessions: SessionInfo[] = [
-    { id: "s1", createdAt: at, updatedAt: "2026-10-12T00:00:00.000Z" },
-    { id: "s2", createdAt: at, updatedAt: "2026-10-11T00:00:00.000Z" },
+    { id: "s1", createdAt: at, updatedAt: "2026-10-12T00:00:00.000Z", agent: "general" },
+    { id: "s2", createdAt: at, updatedAt: "2026-10-11T00:00:00.000Z", agent: "general" },
   ];
   const history = { s1: [], s2: [{ id: "u1", type: "user" as const, timestamp: at, text: "上次看的" }] };
   const before = await openedStore(sessionBackend(sessions, history));
@@ -410,7 +410,7 @@ it("新建的 store 读回上次的空间和会话：连上后先重新打开空
 });
 
 it("上次的会话已经不在列表里时打开最近有消息的会话", async () => {
-  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }], { s1: [] });
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }], { s1: [] });
   localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { space: "/notes/calculus", sessionId: "gone" }, version: 0 }));
   const store = createAppStore();
   store.getState().setClient(backend.client);

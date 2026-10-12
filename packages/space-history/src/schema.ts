@@ -10,8 +10,9 @@ export const HistoryOptionsSchema = object({
 });
 export type HistoryOptions = Static<typeof HistoryOptionsSchema>;
 
+// 同一 runId 可以有多次提交。ancestorRunIds 由近到远列出发起这个运行的各级运行，根运行不写；旧历史没有这个字段。
 export const ActivitySourceSchema = Type.Union([
-  object({ kind: Type.Literal("agent"), runId: identifier }),
+  object({ kind: Type.Literal("agent"), runId: identifier, ancestorRunIds: Type.Optional(Type.Array(identifier)) }),
   object({ kind: Type.Literal("plugin"), pluginId: identifier }),
 ]);
 export type ActivitySource = Static<typeof ActivitySourceSchema>;
@@ -25,6 +26,7 @@ export type SnapshotSource = Static<typeof SnapshotSourceSchema>;
 export const SourceSchema = Type.Union([
   SnapshotSourceSchema,
   object({ kind: Type.Literal("undo"), revision: identifier }),
+  object({ kind: Type.Literal("undo"), runId: identifier }),
 ]);
 export type Source = Static<typeof SourceSchema>;
 

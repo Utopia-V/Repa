@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { RepaClient } from "../src/client.js";
+import { fileURLToPath } from "node:url";
+import { RepaClient, RpcError } from "../src/client.js";
+import { record } from "../src/protocol/json-rpc.js";
 import { startRepaProcess } from "../dist/process.js";
 
 async function fixture(t: TestContext): Promise<string> {
@@ -23,6 +25,32 @@ test("Node 宿主从 stdout 取得连接并可重复关闭服务", async (t) => 
   await Promise.all([backend.close(), backend.close()]);
   await backend.closed;
   assert.equal(client.connected, false);
+});
+
+test("Node 宿主传入插件并关掉通用 Agent，前端只能与插件 Agent 建会话", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-process-agents-"));
+  let backend: Awaited<ReturnType<typeof startRepaProcess>> | undefined;
+  let client: RepaClient | undefined;
+  // 先关客户端和服务，再删除目录：服务关闭空间时还要在目录里收尾。
+  t.after(async () => {
+    await client?.close();
+    await backend?.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  backend = await startRepaProcess({
+    home: path.join(directory, "home"),
+    plugins: [fileURLToPath(new URL("fixtures/process-plugin.mjs", import.meta.url))],
+    generalAgent: false,
+  });
+  client = await RepaClient.connect(backend.connection);
+  await client.call("space.create", { root: path.join(directory, "space") });
+  assert.deepEqual(await client.call("agent.list", {}), [{ id: "helper", description: "进程测试用的 Agent", direct: true }]);
+  await assert.rejects(client.call("session.create", {}), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "agent_not_found");
+    return true;
+  });
+  assert.equal((await client.call("session.create", { agent: "helper" })).agent, "helper");
 });
 
 test("启动可执行文件不存在时返回错误而不遗留进程", async (t) => {

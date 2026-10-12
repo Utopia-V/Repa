@@ -19,6 +19,7 @@ import { guardProbeRuntime } from "./real-model/guard.js";
 import { createRequestProbe } from "./real-model/request.js";
 import { probePrompt } from "./real-model/prompt.js";
 import { installedPiVersion, probeAuth, selectProbeModel } from "./real-model/model.js";
+import { probeOptions } from "./real-model/options.js";
 import { assertModelBudget, summarizeUsage } from "./real-model/usage.js";
 
 const { values } = parseArgs({
@@ -31,15 +32,18 @@ const { values } = parseArgs({
     "cost-limit": { type: "string", default: "0.5" },
     "request-limit": { type: "string", default: "50" },
     "change-notice": { type: "boolean", default: false },
+    scenario: { type: "string" },
+    notice: { type: "string" },
     "skip-refresh": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
 });
 
 if (values.help || !values.output) {
-  console.log("用法：npm run real-model-check --workspace=@repa/base -- --output /绝对路径/新结果.jsonl [--provider openai-codex|deepseek] [--model 模型ID] [--limit 30] [--change-notice] [--skip-refresh]");
+  console.log("用法：npm run real-model-check --workspace=@repa/base -- --output /绝对路径/新结果.jsonl [--provider openai-codex|deepseek] [--model 模型ID] [--scenario full|prompt-change] [--notice none|generic|specific] [--limit 30] [--skip-refresh]");
   console.log("--limit 按 Pi 助手消息、压缩和保温操作计数，不是 HTTP 请求上限；一次压缩最多含两份摘要请求，OAuth 刷新另行执行一次。");
-  console.log("--change-notice 只在覆盖后的第一轮附加一条变更说明；默认不附加，底座默认行为不变。");
+  console.log("--scenario full|prompt-change 默认为 full；prompt-change 保留六轮旧规则历史和八轮覆盖后观察，共 14 次操作，不补缓存探测、不压缩、不观察保温、不刷新 OAuth。");
+  console.log("--notice none|generic|specific 默认为 generic，使用底座通用变更说明；none 禁用说明；specific 禁用通用说明，仅在覆盖第一轮附加实验原有具体说明。--change-notice 是 specific 的兼容写法。");
   console.log("--request-limit 按普通请求事件和压缩尝试上界计数（DeepSeek 每次压缩 2，Codex 8），不含 OAuth。");
   console.log("DeepSeek 默认每次运行 --cost-limit 0.5 美元、--request-limit 50（含压缩子请求和失败），输出上限 2048 token；请求上限对两家均生效。每次运行须从总授权中分配剩余额度；脚本不跨进程共享账本。API key 不执行 OAuth 刷新。");
   console.log("使用真实额度。先关闭使用同一 Repa agent 目录的进程；临时调整 settings.json，结束后恢复。凭据不复制，OAuth 刷新结果由 Pi 保存到原文件。");
@@ -53,6 +57,7 @@ const requestLimit = Number(values["request-limit"]);
 if (!Number.isFinite(costLimit) || costLimit <= 0 || costLimit > 1) throw new Error("cost_limit_must_be_positive_and_at_most_1");
 if (!Number.isInteger(requestLimit) || requestLimit < 1 || requestLimit > 100) throw new Error("request_limit_must_be_1_to_100");
 const model = selectProbeModel(values.provider, values.model);
+const { scenario, notice } = probeOptions({ scenario: values.scenario, notice: values.notice, changeNotice: values["change-notice"] });
 const output = path.resolve(values.output);
 await mkdir(path.dirname(output), { recursive: true });
 const logFile = openSync(output, "wx", 0o600);
@@ -93,11 +98,11 @@ process.once("SIGTERM", stop);
 try {
   const authPath = path.join(values["agent-dir"], "auth.json");
   const initialCredential = readStoredCredential(model.provider, authPath);
-  const auth = probeAuth(model.provider, initialCredential, values["skip-refresh"]);
+  const auth = probeAuth(model.provider, initialCredential, values["skip-refresh"] || scenario === "prompt-change");
   log({
     type: "environment", date: new Date().toISOString(), node: process.version,
     piVersion: installedPiVersion(), provider: model.provider, model: model.id, limit,
-    changeNotice: values["change-notice"],
+    changeNotice: notice !== "none", noticeMode: notice, scenario,
     modelConfiguration: "locked-catalog",
     requestLimit,
     sessionTransport: "sse", thinking: "off", viewBatchSize: 3,
@@ -118,6 +123,7 @@ try {
   const modelRuntime = await ModelRuntime.create({ authPath, modelsPath: null, allowModelNetwork: false });
   runtime = guardProbeRuntime(await createAgentRuntimeForTest({
     agentDir: values["agent-dir"], modelRuntime, extensionFactories: [probe.extensionFactory],
+    promptChangeNotice: notice === "generic",
   }));
   const probeNotes: Plugin = {
     ...notesPlugin,
@@ -194,6 +200,7 @@ try {
     log({
       type: "step", phase: label, version, replyMatches, replyCheck,
       viewsAdded: added.filter(entry => entry.type === "view").length,
+      promptChangesAdded: added.filter(entry => entry.type === "promptChange").length,
       editsAdded: added.filter(entry => entry.type === "contextEdit").length,
       promptSectionsAdded: newPrompts,
       compactionsAdded: added.filter(entry => entry.type === "compaction").length,
@@ -229,39 +236,41 @@ try {
     if (version <= 3 || version === 6) await send(`view-${version}-stable`);
     if (version === 2) {
       // 先取得已有缓存命中，再测覆盖是否保住前缀；至多补两次短探测，不无限等待服务命中。
-      for (let attempt = 1; attempt <= 2 && !(finalHistory.findLast(entry => entry.type === "assistant")?.usage?.cacheRead); attempt++) {
+      for (let attempt = 1; scenario === "full" && attempt <= 2 && !(finalHistory.findLast(entry => entry.type === "assistant")?.usage?.cacheRead); attempt++) {
         await send(`before-override-${attempt}`);
       }
       log({ type: "override-baseline", cached: finalHistory.findLast(entry => entry.type === "assistant")?.usage?.cacheRead ?? null });
       suffix = "B";
       await setSuffix();
-      await send("override", values["change-notice"]);
+      await send("override", notice === "specific");
       await send("override-stable");
     }
   }
-  // 让压缩后的正确答案只存在于新状态，不可能仅靠压缩前的对话复述。
-  version = 7;
-  phase = "compact";
-  assertModelBudget(await history(), limit);
-  await runOperation(() => activeClient.call("session.compact", { sessionId: session.id }));
-  await capture(phase, false);
-  await send("after-compact");
-  await send("after-compact-stable");
+  if (scenario === "full") {
+    // 让压缩后的正确答案只存在于新状态，不可能仅靠压缩前的对话复述。
+    version = 7;
+    phase = "compact";
+    assertModelBudget(await history(), limit);
+    await runOperation(() => activeClient.call("session.compact", { sessionId: session.id }));
+    await capture(phase, false);
+    await send("after-compact");
+    await send("after-compact-stable");
 
-  phase = "idle";
-  const beforeIdle = summarizeUsage(await history()).modelOperations;
-  const requestsBeforeIdle = probe.snapshot().observedRequests;
-  await sleep(2000, undefined, { signal: stopController.signal });
-  finalHistory = await history();
-  log({
-    type: "warming", waitMs: 2000,
-    observedRequestsDuringIdle: probe.snapshot().observedRequests - requestsBeforeIdle,
-    modelOperationsDuringIdle: summarizeUsage(finalHistory).modelOperations - beforeIdle,
-    cacheWarmEntries: finalHistory.filter(entry => entry.type === "usage" && object(entry.data).kind === "cache_warm").length,
-    catalogTtlAvailable: model.promptCache?.short !== undefined,
-    applicability: model.promptCache?.short === undefined ? "not-applicable-catalog-ttl-unavailable" : "available",
-    evidence: "catalog-and-source-plus-pi-history-observation",
-  });
+    phase = "idle";
+    const beforeIdle = summarizeUsage(await history()).modelOperations;
+    const requestsBeforeIdle = probe.snapshot().observedRequests;
+    await sleep(2000, undefined, { signal: stopController.signal });
+    finalHistory = await history();
+    log({
+      type: "warming", waitMs: 2000,
+      observedRequestsDuringIdle: probe.snapshot().observedRequests - requestsBeforeIdle,
+      modelOperationsDuringIdle: summarizeUsage(finalHistory).modelOperations - beforeIdle,
+      cacheWarmEntries: finalHistory.filter(entry => entry.type === "usage" && object(entry.data).kind === "cache_warm").length,
+      catalogTtlAvailable: model.promptCache?.short !== undefined,
+      applicability: model.promptCache?.short === undefined ? "not-applicable-catalog-ttl-unavailable" : "available",
+      evidence: "catalog-and-source-plus-pi-history-observation",
+    });
+  }
 
   if (auth.refresh) {
     if (interrupted) throw new Error("interrupted");

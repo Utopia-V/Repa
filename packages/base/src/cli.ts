@@ -8,15 +8,21 @@ import { record } from "./protocol/json-rpc.js";
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   if (args[0] === "--help" || args[0] === "-h") {
-    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 模块路径]\n");
+    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 模块路径] [--no-general-agent] [--direct-agent Agent]\n");
     return;
   }
   if (args.shift() !== "serve") throw new Error("请使用 repa-base serve 启动本机服务");
   let home: string | undefined;
   let port: number | undefined;
+  let generalAgent = true;
+  let directAgents: string[] | undefined;
   const plugins: Plugin[] = [];
   while (args.length) {
     const option = args.shift();
+    if (option === "--no-general-agent") {
+      generalAgent = false;
+      continue;
+    }
     const value = args.shift();
     if (!value) throw new Error(`${option ?? "参数"} 缺少值`);
     switch (option) {
@@ -40,11 +46,15 @@ async function run(): Promise<void> {
         plugins.push(plugin as unknown as Plugin);
         break;
       }
+      case "--direct-agent":
+        // 可以重复；给出后只有这些 Agent 能直接对话，覆盖定义中的 direct。
+        directAgents = [...(directAgents ?? []), value];
+        break;
       default:
         throw new Error(`未知参数：${option ?? ""}`);
     }
   }
-  const server = await startServer({ home, port, plugins, token: process.env.REPA_TOKEN });
+  const server = await startServer({ home, port, plugins, generalAgent, directAgents, token: process.env.REPA_TOKEN });
   const stop = () => {
     server.close().catch(() => {
       process.stderr.write("关闭服务失败\n");

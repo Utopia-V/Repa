@@ -102,7 +102,7 @@ function SpaceHistory({ space }: { space: string }) {
           {changed.map((revision) => <li key={revision.id}>
             <HistoryRevisionCard
               revision={revision}
-              undone={revision.source.kind === "undo" ? byId.get(revision.source.revision) : undefined}
+              undone={revision.source.kind === "undo" && "revision" in revision.source ? byId.get(revision.source.revision) : undefined}
               onUndo={() => chooseUndo(revision)}
             />
           </li>)}

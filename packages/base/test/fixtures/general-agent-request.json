@@ -1,0 +1,389 @@
+[
+  {
+    "role": "system",
+    "content": "",
+    "sections": {
+      "preamble": "Repa",
+      "cwd": "<cwd>\n<root>\n</cwd>",
+      "repa-62617365": "<repa-62617365>\n<repa-instructions source=\"base\">\n你是 Repa 中帮助用户持续开展工作的 Agent。读取当前空间的资料，使用已提供的工具推进用户目标，并尊重用户的授权与已有工作。插件说明提供领域知识，运行时视图提供当前状态；需要更多状态时使用工具查询。\n</repa-instructions>\n</repa-62617365>",
+      "repa-7370616365": "<repa-7370616365>\n<repa-instructions source=\"space\">\n当前空间：<root>\n\n空间说明：保持中文回答。\n</repa-instructions>\n</repa-7370616365>",
+      "repa-736b696c6c73": "<repa-736b696c6c73>\n<repa-instructions source=\"skills\">\n\n</repa-instructions>\n</repa-736b696c6c73>",
+      "repa-746f6f6c73": "<repa-746f6f6c73>\n<repa-instructions source=\"tools\">\n使用已声明的工具。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：read、bash、edit、write、grep、find、ls、course_lookup、subagent、ask_user\n</repa-instructions>\n</repa-746f6f6c73>",
+      "repa-706c7567696e3a636f75727365": "<repa-706c7567696e3a636f75727365>\n<repa-instructions source=\"plugin:course\">\n课程插件说明\n</repa-instructions>\n</repa-706c7567696e3a636f75727365>"
+    },
+    "toolsAdded": [
+      {
+        "name": "read",
+        "description": "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path to the file to read (relative or absolute)"
+            },
+            "offset": {
+              "type": "number",
+              "description": "Line number to start reading from (1-indexed)"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of lines to read"
+            }
+          }
+        },
+        "constrainedSampling": {
+          "type": "json_schema",
+          "strict": "prefer"
+        }
+      },
+      {
+        "name": "bash",
+        "description": "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "command"
+          ],
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Shell command to execute"
+            },
+            "timeout": {
+              "type": "number",
+              "description": "Timeout in seconds (optional, no default timeout)"
+            }
+          }
+        },
+        "constrainedSampling": {
+          "type": "json_schema",
+          "strict": "prefer"
+        }
+      },
+      {
+        "name": "edit",
+        "description": "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "path",
+            "edits"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path to the file to edit (relative or absolute)"
+            },
+            "edits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "oldText",
+                  "newText"
+                ],
+                "properties": {
+                  "oldText": {
+                    "type": "string",
+                    "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+                  },
+                  "newText": {
+                    "type": "string",
+                    "description": "Replacement text for this targeted edit."
+                  }
+                }
+              },
+              "description": "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+            }
+          }
+        },
+        "constrainedSampling": {
+          "type": "json_schema",
+          "strict": "prefer"
+        }
+      },
+      {
+        "name": "write",
+        "description": "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "path",
+            "content"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path to the file to write (relative or absolute)"
+            },
+            "content": {
+              "type": "string",
+              "description": "Content to write to the file"
+            }
+          }
+        },
+        "constrainedSampling": {
+          "type": "json_schema",
+          "strict": "prefer"
+        }
+      },
+      {
+        "name": "grep",
+        "description": "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "pattern"
+          ],
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Search pattern (regex or literal string)"
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory or file to search (default: current directory)"
+            },
+            "glob": {
+              "type": "string",
+              "description": "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'"
+            },
+            "ignoreCase": {
+              "type": "boolean",
+              "description": "Case-insensitive search (default: false)"
+            },
+            "literal": {
+              "type": "boolean",
+              "description": "Treat pattern as literal string instead of regex (default: false)"
+            },
+            "context": {
+              "type": "number",
+              "description": "Number of lines to show before and after each match (default: 0)"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of matches to return (default: 100)"
+            }
+          }
+        }
+      },
+      {
+        "name": "find",
+        "description": "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "pattern"
+          ],
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'"
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory to search in (default: current directory)"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of results (default: 1000)"
+            }
+          }
+        }
+      },
+      {
+        "name": "ls",
+        "description": "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Directory to list (default: current directory)"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of entries to return (default: 500)"
+            }
+          }
+        }
+      },
+      {
+        "name": "course_lookup",
+        "description": "查询课程",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "topic"
+          ],
+          "properties": {
+            "topic": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "subagent",
+        "description": "启动一个子 Agent 独立完成任务，返回它的最终回复。子 Agent 看不到当前对话，task 里要写清它需要的信息。一条回复里起的几个子 Agent 同时运行。可以启动的子 Agent：\n- general：通用 Agent，工具与你相同，适合交给它独立完成的调研、修改和多步任务\n- tutor：陪学习者练习 Python",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "agent",
+            "task"
+          ],
+          "properties": {
+            "agent": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "general"
+                },
+                {
+                  "type": "string",
+                  "const": "tutor"
+                }
+              ]
+            },
+            "task": {
+              "type": "string",
+              "minLength": 1,
+              "description": "交给子 Agent 的完整任务"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "ask_user",
+        "description": "向用户提出 1–4 个问题，等用户在界面上作答，回答作为工具结果交回。用于需要用户决定或澄清的地方；也可以出练习小题，把 purpose 设为 practice，用户作答后由你讲评。参数里不要写答案、解析或提示答案的内容，它们会在用户作答前显示出来。用户可以不按卡片作答而回一句话，也可以关掉询问。",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "questions"
+          ],
+          "properties": {
+            "purpose": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "question"
+                },
+                {
+                  "type": "string",
+                  "const": "practice"
+                }
+              ],
+              "description": "question（默认）：请用户决定或澄清；practice：给用户出练习小题，作答后由你讲评"
+            },
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "question"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+                    "description": "可选的问题标识"
+                  },
+                  "question": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "description": "问题，Markdown"
+                  },
+                  "header": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "description": "很短的标签"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "label"
+                      ],
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "description": "选项，Markdown"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 300,
+                          "description": "选项说明，Markdown"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 2,
+                    "maxItems": 6
+                  },
+                  "multiple": {
+                    "type": "boolean",
+                    "description": "有选项时允许多选"
+                  },
+                  "allowOther": {
+                    "type": "boolean",
+                    "description": "有选项时允许用户自填，默认允许"
+                  },
+                  "input": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "text"
+                      },
+                      {
+                        "type": "string",
+                        "const": "longText"
+                      },
+                      {
+                        "type": "string",
+                        "const": "number"
+                      }
+                    ],
+                    "description": "没有选项时的输入方式，默认 text"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 4
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "你好"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<repa-view source=\"plugin:course\">\n课程状态\n</repa-view>"
+      }
+    ]
+  }
+]

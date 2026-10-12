@@ -33,7 +33,7 @@ function backend(
       case "space.list":
         return Promise.resolve([]);
       case "session.list":
-        return Promise.resolve(catalog.sessions ?? [{ id: "s1", createdAt: at, updatedAt: at }]);
+        return Promise.resolve(catalog.sessions ?? [{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
       case "model.list":
         return catalog.models ? Promise.resolve(catalog.models) : Promise.reject(new Error("未模拟"));
       case "model.providers":
@@ -193,7 +193,7 @@ it("关闭授权对话框按拒绝回复", async () => {
 
 it("显示会话自己的模型，换模型只改这个会话；提供方没连接时提示", async () => {
   const fake = backend([], { provider: "anthropic", id: "claude" }, {
-    sessions: [{ id: "s1", createdAt: at, updatedAt: at, model: { provider: "fake", id: "tutor" } }],
+    sessions: [{ id: "s1", createdAt: at, updatedAt: at, agent: "general", model: { provider: "fake", id: "tutor" } }],
     models: [
       { provider: "fake", id: "tutor", name: "Fake Tutor", available: false },
       { provider: "anthropic", id: "claude", name: "Claude Sonnet", available: true },
@@ -229,7 +229,7 @@ const lesson: SessionEntry[] = [
 
 it("从一条回答分叉后打开新会话，焦点回到输入框", async () => {
   const fake = backend(lesson, { provider: "test", id: "m" }, {
-    fork: { info: { id: "s2", createdAt: at, updatedAt: at }, history: lesson.slice(0, 4) },
+    fork: { info: { id: "s2", createdAt: at, updatedAt: at, agent: "general" }, history: lesson.slice(0, 4) },
   });
   await renderConversation(fake);
   const record = await screen.findByRole("region", { name: "对话记录" });

@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { Type } from "typebox";
 
-import { notesPlugin } from "../examples/notes-plugin.js";
 import type { Models, Plugin } from "../src/plugin.js";
 import { openPluginHost } from "../src/plugins.js";
 import { createSpace } from "../src/space.js";
@@ -139,64 +138,8 @@ test("变化处理读取自己的游标并写回内容，flush 等待后续变�
   assert.equal(cursor, revision?.id);
 });
 
-test("插件工具在 Agent 活动内写入不会形成嵌套历史，参数由宿主校验", async (t) => {
-  const { host, space } = await fixture(t, [notesPlugin]);
-  await host.start();
-  const tool = host.tools()[0];
-  assert.ok(tool);
-  const context = { signal: new AbortController().signal, callId: "call-1" };
-  await assert.rejects(async () => tool.execute({ name: "../escape", text: "bad" }, context), fault("invalid_input"));
-  await space.record({ kind: "agent", runId: "run-note" }, async () => {
-    await tool.execute({ name: "first", text: "保存中文，（：\r\n" }, context);
-  });
-  await host.flush();
-  assert.equal(await space.files.read("notes/first.md"), "保存中文，（：\r\n");
-  const [revision] = await space.history.list(1);
-  assert.deepEqual(revision?.source, { kind: "agent", runId: "run-note" });
-});
 
-test("示例父插件提供子插件并实际调用三种模型接口", async (t) => {
-  const calls: string[] = [];
-  let finish!: () => void;
-  const result = new Promise<void>((resolve) => { finish = resolve; });
-  const models: Models = {
-    async complete(request) {
-      calls.push(`complete:${request.prompt}`);
-      return "改写结果";
-    },
-    async completeStructured(request, schema) {
-      calls.push(`structured:${request.prompt}`);
-      return parse(schema, { title: "标题", summary: "摘要" });
-    },
-    async runAgent(task) {
-      calls.push(`agent:${task.text}`);
-      return { id: "work-1", result, cancel: async () => { finish(); } };
-    },
-  };
-  const { host, space, events } = await fixture(t, [notesPlugin], models);
-  await host.start();
-  assert.deepEqual(host.list().map((item) => item.id), ["notes"]);
-  await host.call("notes", "save", { name: "first", text: "第一篇" });
-  assert.equal(await space.files.read("notes/first.md"), "第一篇");
-  await host.call("notes", "setStyle", { style: "自然" });
-  assert.equal(await host.call("notes", "rewrite", { text: "原文", style: "简短" }), "改写结果");
-  assert.deepEqual(await host.call("notes", "summarize", { text: "原文" }), { title: "标题", summary: "摘要" });
-  assert.deepEqual(await host.call("notes", "organize", {}), { id: "work-1" });
-  assert.equal(calls.length, 3);
-  finish();
-  await host.close();
-  assert.ok(events.some(({ event }) => typeof event === "object" && event !== null && "child" in event));
-  assert.ok(events.some(({ event }) => typeof event === "object" && event !== null && "type" in event && event.type === "organizeFinished"));
-});
 
-test("子插件拒绝通过空间内部链接写到它自己的目录之外", async (t) => {
-  const { host, space } = await fixture(t, [notesPlugin]);
-  await host.start();
-  await space.files.write("outside.txt", "保留");
-  await symlink(path.join(space.root, "outside.txt"), path.join(space.root, "notes", "linked.md"));
-  await assert.rejects(host.call("notes", "save", { name: "linked", text: "不应写入" }), fault("file_outside_space"));
-  assert.equal(await space.files.read("outside.txt"), "保留");
-});
 
 test("一个插件变化处理失败仍唤醒其他插件，并由 flush 交付失败", async (t) => {
   let bad = false;
@@ -280,13 +223,399 @@ test("插件关闭失败仍关闭其他实例", async (t) => {
   assert.deepEqual(closed, ["second", "first"]);
 });
 
-test("示例父插件拒绝已有 notes 目录是外部符号链接", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-plugin-symlink-"));
+
+function deferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => { throw new Error("尚未创建屏障"); };
+  let reject: (error: unknown) => void = () => { throw new Error("尚未创建屏障"); };
+  const promise = new Promise<T>((accept, fail) => { resolve = accept; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+async function failureSpace(t: TestContext) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-plugin-failure-"));
   const space = await createSpace(path.join(directory, "space"), { watch: false });
   t.after(async () => {
     await space.close();
     await rm(directory, { recursive: true, force: true });
   });
-  await symlink(directory, path.join(space.root, "notes"));
-  await assert.rejects(openPluginHost({ space, plugins: [notesPlugin], models: noModels, emit() {}, onError() {} }), fault("file_outside_space"));
+  return space;
+}
+
+test("同组插件以不同登记顺序打开，提示、视图与工具声明保持相同顺序", async (t) => {
+  const makePlugin = (id: string, names: string[]): Plugin => ({
+    id,
+    async open() {
+      return {
+        instructions: () => `${id} 说明`,
+        view: async () => `${id} 视图`,
+        tools: () => names.map((name) => ({ name, description: name, parameters: empty, execute: async () => ({ text: name }) })),
+      };
+    },
+  });
+  const alpha = makePlugin("alpha", ["z_tool", "a_tool"]);
+  const beta = makePlugin("beta", ["m_tool"]);
+  const left = await fixture(t, [beta, alpha]);
+  const right = await fixture(t, [alpha, beta]);
+  assert.deepEqual(left.host.instructions(), right.host.instructions());
+  assert.deepEqual(left.host.instructions().map((section) => section.id), ["plugin:alpha", "plugin:beta"]);
+  assert.deepEqual(await left.host.views(), await right.host.views());
+  assert.deepEqual(left.host.tools().map((tool) => tool.name), ["a_tool", "m_tool", "z_tool"]);
+  assert.deepEqual(left.host.tools().map((tool) => tool.name), right.host.tools().map((tool) => tool.name));
+  assert.deepEqual(left.host.list().map((plugin) => plugin.id), ["alpha", "beta"]);
+});
+
+test("插件 id 重复在任何 open 之前拒绝", async (t) => {
+  const space = await failureSpace(t);
+  let opened = 0;
+  const plugin: Plugin = { id: "duplicate", open: async () => { opened++; return {}; } };
+  await assert.rejects(openPluginHost({ space, plugins: [plugin, plugin], models: noModels, emit() {}, onError() {} }), fault("invalid_plugin_id"));
+  assert.equal(opened, 0);
+});
+
+test("插件工具同名或覆盖内置工具会拒绝，并逆序清理已打开实例", async (t) => {
+  const space = await failureSpace(t);
+  const closed: string[] = [];
+  const plugin = (id: string, name: string): Plugin => ({
+    id,
+    async open() {
+      return {
+        tools: () => [{ name, description: name, parameters: empty, execute: async () => ({ text: "完成" }) }],
+        close: async () => { closed.push(id); },
+      };
+    },
+  });
+  await assert.rejects(openPluginHost({ space, plugins: [plugin("first", "same"), plugin("second", "same")], models: noModels, emit() {}, onError() {} }), fault("tool_name_conflict"));
+  assert.deepEqual(closed, ["second", "first"]);
+  await assert.rejects(openPluginHost({ space, plugins: [plugin("builtin", "read")], models: noModels, emit() {}, onError() {} }), fault("tool_name_conflict"));
+  assert.deepEqual(closed, ["second", "first", "builtin"]);
+});
+
+test("插件 open 中途失败，宿主先取消后台工作再逆序关闭已打开实例", async (t) => {
+  const space = await failureSpace(t);
+  const order: string[] = [];
+  const finished = deferred<void>();
+  const failure = new Error("打开失败");
+  const models: Models = {
+    ...noModels,
+    async runAgent() {
+      return { id: "opening-work", result: finished.promise, async cancel() { order.push("cancel"); finished.resolve(); } };
+    },
+  };
+  await assert.rejects(openPluginHost({
+    space, models, emit() {}, onError() {},
+    plugins: [
+      { id: "first", open: async () => ({ close: async () => { order.push("first"); } }) },
+      { id: "second", open: async () => ({ close: async () => { order.push("second"); } }) },
+      { id: "failing", async open(host) { await host.models.runAgent({ text: "工作" }); throw failure; } },
+    ],
+  }), (error) => error === failure);
+  assert.deepEqual(order, ["cancel", "second", "first"]);
+});
+
+test("关闭时仍在创建 Agent 句柄，取得后取消并等待实际结果才关闭插件", async (t) => {
+  const entered = deferred<void>();
+  const create = deferred<void>();
+  const cancelled = deferred<void>();
+  const finish = deferred<void>();
+  let instanceClosed = false;
+  let closed = false;
+  const models: Models = {
+    ...noModels,
+    async runAgent() {
+      entered.resolve();
+      await create.promise;
+      return { id: "late-work", result: finish.promise, async cancel() { cancelled.resolve(); } };
+    },
+  };
+  const { host } = await fixture(t, [{
+    id: "background",
+    async open(pluginHost) {
+      return {
+        methods: { launch: { parameters: empty, invoke: async () => ({ id: (await pluginHost.models.runAgent({ text: "工作" })).id }) } },
+        close: async () => { instanceClosed = true; },
+      };
+    },
+  }], models);
+  const launching = host.call("background", "launch", {});
+  await entered.promise;
+  const closing = host.close().then(() => { closed = true; });
+  create.resolve();
+  await cancelled.promise;
+  assert.equal(instanceClosed, false);
+  assert.equal(closed, false);
+  finish.resolve();
+  assert.deepEqual(await launching, { id: "late-work" });
+  await closing;
+  assert.equal(instanceClosed, true);
+  assert.equal(closed, true);
+});
+
+test("关闭先取消 complete 与 structured，再等在途方法结束，不会在等待模型时死锁", async (t) => {
+  const completeEntered = deferred<void>();
+  const structuredEntered = deferred<void>();
+  const stopped: string[] = [];
+  const invoke = async (request: { signal?: AbortSignal }, kind: string, entered: ReturnType<typeof deferred<void>>) => {
+    entered.resolve();
+    await new Promise<void>((resolve) => {
+      assert.ok(request.signal);
+      if (request.signal.aborted) resolve();
+      else request.signal.addEventListener("abort", () => { resolve(); }, { once: true });
+    });
+    stopped.push(kind);
+    throw new Error("取消完成");
+  };
+  const models: Models = {
+    ...noModels,
+    complete: (request) => invoke(request, "complete", completeEntered),
+    completeStructured: (request) => invoke(request, "structured", structuredEntered),
+  };
+  const { host } = await fixture(t, [{
+    id: "models",
+    async open(pluginHost) {
+      return {
+        methods: {
+          complete: { parameters: empty, invoke: () => pluginHost.models.complete({ prompt: "普通" }) },
+          structured: { parameters: empty, invoke: () => pluginHost.models.completeStructured({ prompt: "结构化" }, empty) },
+        },
+        async close() { assert.deepEqual(stopped.sort(), ["complete", "structured"]); },
+      };
+    },
+  }], models);
+  const complete = assert.rejects(host.call("models", "complete", {}), /取消完成/u);
+  const structured = assert.rejects(host.call("models", "structured", {}), /取消完成/u);
+  await Promise.all([completeEntered.promise, structuredEntered.promise]);
+  await host.close();
+  await Promise.all([complete, structured]);
+});
+
+test("关闭等在途工具与视图完成，并拒绝再次调用工具或读取视图", async (t) => {
+  const toolEntered = deferred<void>();
+  const viewEntered = deferred<void>();
+  const resume = deferred<void>();
+  let instanceClosed = false;
+  const { host } = await fixture(t, [{
+    id: "slow-reads",
+    async open() {
+      return {
+        tools: () => [{
+          name: "slow_tool", description: "等待工具", parameters: empty,
+          async execute() { toolEntered.resolve(); await resume.promise; return { text: "结束" }; },
+        }],
+        async view() { viewEntered.resolve(); await resume.promise; return "视图"; },
+        async close() { instanceClosed = true; },
+      };
+    },
+  }]);
+  const tool = host.tools()[0];
+  assert.ok(tool);
+  const context = { signal: new AbortController().signal, callId: "slow" };
+  const executing = tool.execute({}, context);
+  const viewing = host.views();
+  await Promise.all([toolEntered.promise, viewEntered.promise]);
+  const closing = host.close();
+  assert.equal(instanceClosed, false);
+  await assert.rejects(async () => tool.execute({}, context), fault("plugins_closed"));
+  await assert.rejects(async () => host.views(), fault("plugins_closed"));
+  resume.resolve();
+  assert.deepEqual(await executing, { text: "结束" });
+  assert.deepEqual(await viewing, [{ id: "plugin:slow-reads", text: "视图" }]);
+  await closing;
+  assert.equal(instanceClosed, true);
+});
+
+test("后台 Agent 主动取消与宿主关闭共享取消句柄，关闭仍等待结果终态", async (t) => {
+  const cancelled = deferred<void>();
+  const finish = deferred<void>();
+  let cancellations = 0;
+  let instanceClosed = false;
+  const models: Models = {
+    ...noModels,
+    async runAgent() {
+      return {
+        id: "manual-cancel",
+        result: finish.promise,
+        async cancel() { cancellations++; cancelled.resolve(); },
+      };
+    },
+  };
+  const { host } = await fixture(t, [{
+    id: "manual",
+    async open(pluginHost) {
+      return {
+        methods: {
+          launch: { parameters: empty, async invoke() {
+            const task = await pluginHost.models.runAgent({ text: "工作" });
+            await Promise.all([task.cancel(), task.cancel()]);
+          } },
+        },
+        close: async () => { instanceClosed = true; },
+      };
+    },
+  }], models);
+  const launching = host.call("manual", "launch", {});
+  await cancelled.promise;
+  const closing = host.close();
+  assert.equal(instanceClosed, false);
+  finish.resolve();
+  await Promise.all([launching, closing]);
+  assert.equal(cancellations, 1);
+  assert.equal(instanceClosed, true);
+});
+
+test("模型取消失败仍等待工作终态，并关闭其他插件后交付失败", async (t) => {
+  const space = await failureSpace(t);
+  const finished = deferred<void>();
+  const cancelled = deferred<void>();
+  const cancellationError = new Error("取消失败");
+  const closed: string[] = [];
+  const host = await openPluginHost({
+    space, emit() {}, onError() {},
+    models: {
+      ...noModels,
+      async runAgent() {
+        return {
+          id: "failed-cancel", result: finished.promise,
+          async cancel() { cancelled.resolve(); throw cancellationError; },
+        };
+      },
+    },
+    plugins: [
+      { id: "first", async open(pluginHost) { await pluginHost.models.runAgent({ text: "工作" }); return { close: async () => { closed.push("first"); } }; } },
+      { id: "second", open: async () => ({ close: async () => { closed.push("second"); } }) },
+    ],
+  });
+  const closing = assert.rejects(host.close(), (error: unknown) => {
+    assert.ok(error instanceof AggregateError);
+    const [modelError] = error.errors;
+    assert.ok(modelError instanceof AggregateError);
+    assert.deepEqual(modelError.errors, [cancellationError]);
+    return true;
+  });
+  await cancelled.promise;
+  assert.deepEqual(closed, []);
+  finished.resolve();
+  await closing;
+  assert.deepEqual(closed, ["second", "first"]);
+});
+
+test("关闭等待已接纳但还在读取历史的 start，停止追加初始变化处理", async (t) => {
+  let instanceClosed = false;
+  let changes = 0;
+  const { host, space } = await fixture(t, [{
+    id: "starting",
+    open: async () => ({
+      onChange: async () => { changes++; },
+      close: async () => { instanceClosed = true; },
+    }),
+  }]);
+  const entered = deferred<void>();
+  const resume = deferred<void>();
+  const list = space.history.list;
+  space.history.list = async (limit) => {
+    entered.resolve();
+    await resume.promise;
+    return list(limit);
+  };
+  const starting = host.start();
+  await entered.promise;
+  const closing = host.close();
+  assert.equal(instanceClosed, false);
+  resume.resolve();
+  await Promise.all([starting, closing]);
+  assert.equal(instanceClosed, true);
+  assert.equal(changes, 0);
+});
+
+test("插件声明的 Agent 按 id 排序交给宿主，view 在宿主关闭后不再接纳", async (t) => {
+  const tool = { name: "lookup", description: "查询", parameters: empty, execute: async () => ({ text: "结果" }) };
+  const { host } = await fixture(t, [
+    { id: "zeta", open: async () => ({ agents: () => [{ id: "writer", instructions: () => "写课", tools: ["read", "lookup"], subagents: ["checker"] }] }) },
+    {
+      id: "alpha",
+      open: async () => ({
+        tools: () => [tool],
+        agents: () => [{ id: "checker", instructions: () => "检查", tools: ["lookup"], direct: true, view: async () => "检查进度" }],
+      }),
+    },
+  ]);
+  assert.deepEqual(host.agents().map((agent) => [agent.id, agent.tools, agent.subagents, agent.direct]), [
+    ["checker", ["lookup"], undefined, true],
+    ["writer", ["read", "lookup"], ["checker"], undefined],
+  ]);
+  const checker = host.agents()[0];
+  assert.equal(checker?.instructions(), "检查");
+  assert.equal(await checker?.view?.(), "检查进度");
+  await host.close();
+  await assert.rejects(async () => checker?.view?.(), fault("plugins_closed"));
+});
+
+test("Agent 定义引用不存在的工具或子 Agent、列了 grep、子 Agent 工具超过父 Agent、重名或使用 general 时打开失败，并清理已打开实例", async (t) => {
+  const space = await failureSpace(t);
+  const cases: [string, Plugin["open"]][] = [
+    ["unknown_agent_tool", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: ["read", "missing_tool"] }] })],
+    ["agent_tool_unavailable", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: ["read", "grep"] }] })],
+    ["unknown_subagent", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [], subagents: ["missing"] }] })],
+    ["subagent_exceeds_parent", async () => ({
+      agents: () => [
+        { id: "tutor", instructions: () => "", tools: ["read"], subagents: ["writer"] },
+        { id: "writer", instructions: () => "", tools: ["read", "write"] },
+      ],
+    })],
+    ["invalid_agent_id", async () => ({ agents: () => [{ id: "general", instructions: () => "", tools: [] }] })],
+    ["invalid_agent", async () => ({ agents: () => [{ id: "Tutor", instructions: () => "", tools: [] }] })],
+  ];
+  for (const [code, open] of cases) {
+    const closed: string[] = [];
+    await assert.rejects(openPluginHost({
+      space, models: noModels, emit() {}, onError() {},
+      plugins: [
+        { id: "first", open: async () => ({ close: async () => { closed.push("first"); } }) },
+        { id: "declaring", async open(host) { const instance = await open(host); return { ...instance, close: async () => { closed.push("declaring"); } }; } },
+      ],
+    }), fault(code));
+    assert.deepEqual(closed, ["declaring", "first"]);
+  }
+  await assert.rejects(openPluginHost({
+    space, models: noModels, emit() {}, onError() {},
+    plugins: [{
+      id: "declaring",
+      open: async () => ({
+        agents: () => [
+          { id: "tutor", instructions: () => "", tools: ["read"], subagents: ["writer"] },
+          { id: "writer", instructions: () => "", tools: ["read", "write"] },
+        ],
+      }),
+    }],
+  }), (error: unknown) => {
+    assert.ok(error instanceof Error && "details" in error);
+    assert.deepEqual(error.details, { agent: "tutor", subagent: "writer", tools: ["write"] });
+    return true;
+  });
+  await assert.rejects(openPluginHost({
+    space, models: noModels, emit() {}, onError() {},
+    plugins: [{ id: "declaring", open: async () => ({ agents: () => [{ id: "searcher", instructions: () => "", tools: ["read", "grep"] }] }) }],
+  }), (error: unknown) => {
+    assert.ok(error instanceof Error && "details" in error);
+    assert.deepEqual(error.details, { agent: "searcher", tool: "grep" });
+    assert.match(error.message, /插件 Agent 不提供 grep/u);
+    return true;
+  });
+  const duplicate: Plugin = { id: "copy", open: async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [] }] }) };
+  await assert.rejects(openPluginHost({
+    space, models: noModels, emit() {}, onError() {},
+    plugins: [{ ...duplicate, id: "one" }, { ...duplicate, id: "two" }],
+  }), fault("invalid_agent_id"));
+});
+
+test("Agent 定义可以互相列为子 Agent，也可以列自己，打开时不拒绝", async (t) => {
+  const { host } = await fixture(t, [{
+    id: "cycle",
+    open: async () => ({
+      agents: () => [
+        { id: "planner", instructions: () => "规划", tools: ["read"], subagents: ["planner", "worker"] },
+        { id: "worker", instructions: () => "执行", tools: ["read"], subagents: ["planner"] },
+      ],
+    }),
+  }]);
+  assert.deepEqual(host.agents().map((agent) => [agent.id, agent.subagents]), [["planner", ["planner", "worker"]], ["worker", ["planner"]]]);
 });

@@ -38,10 +38,11 @@ export function guardProbeRuntime(runtime: AgentRuntime): AgentRuntime {
         return session;
       };
       return {
-        create: async model => remember(await space.create(model)),
+        agents: () => space.agents(),
+        create: async options => remember(await space.create(options)),
         get: async id => remember(await space.get(id)),
         list: () => space.list(),
-        preview: () => space.preview(),
+        preview: agent => space.preview(agent),
         async runAgent() { throw new Error("probe_background_agent_blocked"); },
         async close() {
           await space.close();

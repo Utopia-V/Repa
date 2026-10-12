@@ -1,7 +1,10 @@
-import { lstat, mkdir, readlink, realpath } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import { RepaFault } from "../schema.js";
+import { writeText } from "../storage.js";
+
+const IGNORE_ALL = "*\n";
 
 // 同时检查输入路径与解析后的路径，符号链接不能把文件接口带出空间。
 export function within(root: string, file: string): boolean {
@@ -41,4 +44,16 @@ export async function directory(file: string): Promise<void> {
       if (!(await lstat(file)).isDirectory()) throw new RepaFault("invalid_control_directory", "控制目录必须是普通目录", { file });
     }
   }
+}
+
+/** ripgrep 和 fd 都读 .ignore：放一份忽略全部内容的文件，从空间根目录开始的搜索就不进 .repa/。 */
+export async function ignoreDataDir(dataDir: string): Promise<void> {
+  const file = path.join(dataDir, ".ignore");
+  try {
+    if (!(await lstat(file)).isFile()) throw new RepaFault("invalid_control_file", "控制文件必须是普通文件", { file });
+    if (await readFile(file, "utf8") === IGNORE_ALL) return;
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+  }
+  await writeText(file, IGNORE_ALL);
 }

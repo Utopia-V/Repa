@@ -42,7 +42,10 @@ export function HistoryRevisionCard({ revision, undone, onUndo }: {
   const hidden = revision.changes.length - shown.length;
   let undoneText: string | undefined;
   if (revision.source.kind === "undo") {
-    undoneText = undone
+    // 撤回整次运行时指向运行而不是某次提交。
+    undoneText = "runId" in revision.source
+      ? "，撤回一次 Agent 运行的修改"
+      : undone
       ? `，撤回 ${formatRevisionTime(undone.timestamp)} 的修改（${revisionSource(undone.source)}）`
       : "，撤回一次更早的修改";
   }

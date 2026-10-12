@@ -27,6 +27,10 @@
     "./process": {
       "types": "./dist/process.d.ts",
       "import": "./dist/process.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
     }
   },
   "bin": {

@@ -36,9 +36,8 @@ function deadline<T>(promise: Promise<T>, ms: number, message: () => string): Pr
   });
 }
 
-function launch(home: string, plugin?: string): RunningCli {
-  const args = ["--import", "tsx", "src/cli.ts", "serve", "--home", home];
-  if (plugin) args.push("--plugin", plugin);
+function launch(home: string, options: string[] = []): RunningCli {
+  const args = ["--import", "tsx", "src/cli.ts", "serve", "--home", home, ...options];
   const env = { ...process.env };
   delete env.REPA_TOKEN;
   delete env.REPA_HOME;
@@ -104,8 +103,8 @@ async function fixture(t: TestContext) {
   });
   return {
     root,
-    async start(name: string, plugin?: string) {
-      const cli = launch(path.join(root, name), plugin);
+    async start(name: string, options: string[] = []) {
+      const cli = launch(path.join(root, name), options);
       children.push(cli);
       const connection = await deadline(cli.connection, 10000, () => `CLI 未公布连接\n${cli.stderr()}`);
       const client = await RepaClient.connect(connection, { requestTimeoutMs: 10000 });
@@ -135,7 +134,7 @@ test("两个 CLI 进程争用同一空间，持锁进程退出后另一个进程
 
 test("CLI 通过模块路径加载笔记插件，界面调用完成真实保存和历史记录", async (t) => {
   const f = await fixture(t);
-  const { cli, client } = await f.start("plugin-home", "examples/notes-plugin.ts");
+  const { cli, client } = await f.start("plugin-home", ["--plugin", "examples/notes-plugin.ts"]);
   const space = path.join(f.root, "notes-space");
   await client.call("space.create", { root: space });
   const plugins = await client.call("plugin.list", {});
@@ -151,5 +150,23 @@ test("CLI 通过模块路径加载笔记插件，界面调用完成真实保存�
     return revision.source.kind === "plugin" && revision.source.pluginId === "notes"
       && revision.changes.some((change) => change.path === "notes/cli-smoke.md");
   }));
+  assert.deepEqual(await stop(cli), { code: 0, signal: null });
+});
+
+test("CLI 关掉通用 Agent 并指定直接对话的插件 Agent，前端只能与它建会话", async (t) => {
+  const f = await fixture(t);
+  const { cli, client } = await f.start("agents-home", [
+    "--plugin", "examples/notes-plugin.ts", "--no-general-agent", "--direct-agent", "notes-organizer",
+  ]);
+  await client.call("space.create", { root: path.join(f.root, "agents-space") });
+  assert.deepEqual(await client.call("agent.list", {}), [
+    { id: "notes-organizer", description: "阅读 notes/ 中的笔记并给出整理建议", direct: true },
+  ]);
+  await assert.rejects(client.call("session.create", {}), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "agent_not_found");
+    return true;
+  });
+  assert.equal((await client.call("session.create", { agent: "notes-organizer" })).agent, "notes-organizer");
   assert.deepEqual(await stop(cli), { code: 0, signal: null });
 });

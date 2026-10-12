@@ -56,13 +56,33 @@ export type Usage = Static<typeof UsageSchema>;
 export const SessionInfoSchema = object({
   id: identifier, createdAt: Type.String(), updatedAt: Type.String(), name: Type.Optional(Type.String()),
   preview: Type.Optional(Type.String()), model: Type.Optional(ModelRefSchema),
+  // 会话所属的 Agent 在创建时确定，之后不变；改动前的会话属于通用 Agent。
+  agent: identifier,
 });
 export type SessionInfo = Static<typeof SessionInfoSchema>;
+export const AgentInfoSchema = object({
+  id: identifier,
+  description: Type.Optional(Type.String()),
+  // 用户能否直接与它建会话和发消息；其余 Agent 只供后台任务与子 Agent 使用。
+  direct: Type.Boolean(),
+});
+export type AgentInfo = Static<typeof AgentInfoSchema>;
+// 插件对一条用户消息的判断。拒收时 reason 供前端分支处理，message 向用户说明原因。
+export const MessageDecisionSchema = Type.Union([
+  object({ status: Type.Literal("accepted") }),
+  object({
+    status: Type.Literal("rejected"),
+    reason: identifier,
+    message: Type.String({ minLength: 1 }),
+    data: Type.Optional(Type.Unknown()),
+  }),
+]);
+export type MessageDecision = Static<typeof MessageDecisionSchema>;
 export const SessionEntrySchema = object({
   id: identifier,
   type: Type.Union([
     Type.Literal("user"), Type.Literal("assistant"), Type.Literal("tool"),
-    Type.Literal("view"), Type.Literal("prompt"), Type.Literal("contextEdit"),
+    Type.Literal("view"), Type.Literal("prompt"), Type.Literal("promptChange"), Type.Literal("contextEdit"),
     Type.Literal("compaction"), Type.Literal("usage"), Type.Literal("run"),
   ]),
   timestamp: Type.String(),
