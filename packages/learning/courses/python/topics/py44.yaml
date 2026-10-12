@@ -1,7 +1,8 @@
 id: py44
 title: 从文件里的结构找到一条记录
-status: outline
+status: complete
 minutes: 20
+summary: 认出 CSV 的行列和 JSON 每一层是字典、列表还是值，按键和位置一层层走到目标值，并分清缺键、空值和类型不对。
 prerequisites:
   - topic: py43
     key: true
@@ -29,11 +30,1434 @@ sources:
     url: https://docs.python.org/3.12/library/json.html
     use: reference
 notes: |
-  建议题型与判分：追踪变量（P）、找错（P）、小改代码（T）。
+  范围：JSON 只用 json.load、json.loads 读入，再用方括号按键、按位置取值，get 和 in 处理缺键，type() 分辨类型；CSV 只用 py15 的 read_csv（含 dtype={"sample_id": "str"}、sep）和 py14 的 shape、columns、dtype。本节的先修里没有 if、循环、自定义函数和比较运算，所以“验证”停在用表达式查出每条记录的情况、并把处理规则写清楚，不写判断和循环。字典的 len 是键的个数，在讲解里就地说明。
+  运行环境：每道题的文件在自己的 python 夹具里删掉目录重建，再按题面读入；JSON 原文在 display 里给学生看。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 4 分钟；k3 讲解与例题 3 分钟、练习 3 分钟。
+  情境、文件内容和题目为本课自拟。复习和测验题全部由程序核对，没有 manual 作答位。
+intro: |
+  数据不只放在表格里。仪器导出、网页接口和配置文件常用 JSON，它像一层套一层的盒子：外面是一个字典，里面某个键对应一个列表，列表里每一项又是一个字典。
+
+  这一节练三件事：看出每一层是什么，一层层走到想要的那个值，以及遇到缺了、空了、类型不对的值时，先查出来、再说清怎么处理。题目里已经导入了 pandas（叫 `pd`），每道题用到的文件都会按题面重新准备好。
+wrapup: |
+  读一个结构化文件，先画出它的层次：最外层是字典还是列表？要的值在第几层、靠哪个键或哪个位置拿到？
+
+  拿不准的记录，不要让代码悄悄补成 0 或跳过。向同事或 AI 说清：“signal 缺这一项或为 null 的记为缺失，不当作 0；signal 是文字的，列出这些样本编号，先不要计算。”
+data:
+  p1_file:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      P1_TEXT = """{
+        "plate": "P1",
+        "operator": "lin",
+        "samples": [
+          {"sample_id": "S01", "signal": 8, "group": "control"},
+          {"sample_id": "S02", "signal": 10, "group": "drug"},
+          {"sample_id": "S03", "signal": 13, "group": "drug"},
+          {"sample_id": "S04", "signal": 10, "group": "control"}
+        ]
+      }
+      """
+      shutil.rmtree("plates", ignore_errors=True)
+      Path("plates").mkdir()
+      Path("plates/p1.json").write_text(P1_TEXT, encoding="utf-8")
+    display: |
+      文件 `plates/p1.json`（UTF-8 编码）的内容：
+
+      ```json
+      {
+        "plate": "P1",
+        "operator": "lin",
+        "samples": [
+          {"sample_id": "S01", "signal": 8, "group": "control"},
+          {"sample_id": "S02", "signal": 10, "group": "drug"},
+          {"sample_id": "S03", "signal": 13, "group": "drug"},
+          {"sample_id": "S04", "signal": 10, "group": "control"}
+        ]
+      }
+      ```
+  p1_data:
+    kind: python
+    code: |
+      import json
+      import shutil
+      from pathlib import Path
+      P1_TEXT = """{
+        "plate": "P1",
+        "operator": "lin",
+        "samples": [
+          {"sample_id": "S01", "signal": 8, "group": "control"},
+          {"sample_id": "S02", "signal": 10, "group": "drug"},
+          {"sample_id": "S03", "signal": 13, "group": "drug"},
+          {"sample_id": "S04", "signal": 10, "group": "control"}
+        ]
+      }
+      """
+      shutil.rmtree("plates", ignore_errors=True)
+      Path("plates").mkdir()
+      Path("plates/p1.json").write_text(P1_TEXT, encoding="utf-8")
+      with open("plates/p1.json", encoding="utf-8") as f:
+          data = json.load(f)
+    display: |
+      文件 `plates/p1.json` 已经用 `json.load` 读进来，结果叫 `data`。文件内容：
+
+      ```json
+      {
+        "plate": "P1",
+        "operator": "lin",
+        "samples": [
+          {"sample_id": "S01", "signal": 8, "group": "control"},
+          {"sample_id": "S02", "signal": 10, "group": "drug"},
+          {"sample_id": "S03", "signal": 13, "group": "drug"},
+          {"sample_id": "S04", "signal": 10, "group": "control"}
+        ]
+      }
+      ```
+  p2_csv:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      import pandas as pd
+      shutil.rmtree("plates", ignore_errors=True)
+      Path("plates").mkdir()
+      Path("plates/p2.csv").write_text(
+          "sample_id,signal,group\n001,8,control\n002,10,drug\n003,13,drug\n004,10,control\n", encoding="utf-8")
+    display: |
+      文件 `plates/p2.csv` 的全部内容：
+
+      ```text
+      sample_id,signal,group
+      001,8,control
+      002,10,drug
+      003,13,drug
+      004,10,control
+      ```
+  noheader_csv:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      import pandas as pd
+      shutil.rmtree("plates", ignore_errors=True)
+      Path("plates").mkdir()
+      Path("plates/p5.csv").write_text("S11,8,control\nS12,10,drug\nS13,13,drug\n", encoding="utf-8")
+    display: |
+      仪器导出的 `plates/p5.csv` 没有列名行，全部内容是：
+
+      ```text
+      S11,8,control
+      S12,10,drug
+      S13,13,drug
+      ```
+  semicolon_csv:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      import pandas as pd
+      shutil.rmtree("plates", ignore_errors=True)
+      Path("plates").mkdir()
+      Path("plates/p6.csv").write_text(
+          "sample_id;signal;group\nS21;9;control\nS22;11;drug\nS23;7;drug\n", encoding="utf-8")
+    display: |
+      另一台仪器导出的 `plates/p6.csv` 用分号分隔，全部内容是：
+
+      ```text
+      sample_id;signal;group
+      S21;9;control
+      S22;11;drug
+      S23;7;drug
+      ```
+  sites_data:
+    kind: python
+    code: |
+      import json
+      sites = json.loads("""[
+        {"site": "北坡", "depth": [30, 32]},
+        {"site": "南坡", "depth": [25, 27]},
+        {"site": "东坡", "depth": [35, 33]}
+      ]""")
+    display: |
+      野外记录已经用 json 读进来，结果叫 `sites`。原文：
+
+      ```json
+      [
+        {"site": "北坡", "depth": [30, 32]},
+        {"site": "南坡", "depth": [25, 27]},
+        {"site": "东坡", "depth": [35, 33]}
+      ]
+      ```
+  config_data:
+    kind: python
+    code: |
+      import json
+      config = json.loads("""{
+        "instrument": "reader-2",
+        "plates": [
+          {"plate": "P1", "wells": ["A1", "A2", "B1"]},
+          {"plate": "P2", "wells": ["C3"]}
+        ],
+        "calibrated": true
+      }""")
+    display: |
+      仪器设置已经用 json 读进来，结果叫 `config`。原文：
+
+      ```json
+      {
+        "instrument": "reader-2",
+        "plates": [
+          {"plate": "P1", "wells": ["A1", "A2", "B1"]},
+          {"plate": "P2", "wells": ["C3"]}
+        ],
+        "calibrated": true
+      }
+      ```
+  runs_a:
+    kind: python
+    code: |
+      import json
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("runs", ignore_errors=True)
+      Path("runs").mkdir()
+      Path("runs/r3.json").write_text("""{
+        "run": 3,
+        "plates": [
+          {"plate": "P1", "samples": [{"sample_id": "S01", "signal": 8}, {"sample_id": "S02", "signal": 10}]},
+          {"plate": "P2", "samples": [{"sample_id": "S05", "signal": 12}, {"sample_id": "S06", "signal": 9}]}
+        ]
+      }""", encoding="utf-8")
+      with open("runs/r3.json", encoding="utf-8") as f:
+          data = json.load(f)
+    display: |
+      文件 `runs/r3.json` 已经读进来，结果叫 `data`。文件内容：
+
+      ```json
+      {
+        "run": 3,
+        "plates": [
+          {"plate": "P1", "samples": [{"sample_id": "S01", "signal": 8}, {"sample_id": "S02", "signal": 10}]},
+          {"plate": "P2", "samples": [{"sample_id": "S05", "signal": 12}, {"sample_id": "S06", "signal": 9}]}
+        ]
+      }
+      ```
+  runs_b:
+    kind: python
+    code: |
+      import json
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("runs", ignore_errors=True)
+      Path("runs").mkdir()
+      Path("runs/r3.json").write_text("""{
+        "run": 4,
+        "plates": [
+          {"plate": "P7", "samples": [{"sample_id": "S31", "signal": 15}]},
+          {"plate": "P8", "samples": [{"sample_id": "S41", "signal": 7}, {"sample_id": "S42", "signal": 11}]},
+          {"plate": "P9", "samples": [{"sample_id": "S51", "signal": 6}]}
+        ]
+      }""", encoding="utf-8")
+      with open("runs/r3.json", encoding="utf-8") as f:
+          data = json.load(f)
+  responses_a:
+    kind: python
+    code: |
+      import json
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("survey", ignore_errors=True)
+      Path("survey").mkdir()
+      Path("survey/responses.json").write_text("""[
+        {"id": "R1", "answers": {"q1": 3, "q2": 5}},
+        {"id": "R2", "answers": {"q1": 4, "q2": 2}},
+        {"id": "R3", "answers": {"q1": 5, "q2": 4}}
+      ]""", encoding="utf-8")
+      with open("survey/responses.json", encoding="utf-8") as f:
+          responses = json.load(f)
+    display: |
+      问卷结果 `survey/responses.json` 已经读进来，结果叫 `responses`。文件内容：
+
+      ```json
+      [
+        {"id": "R1", "answers": {"q1": 3, "q2": 5}},
+        {"id": "R2", "answers": {"q1": 4, "q2": 2}},
+        {"id": "R3", "answers": {"q1": 5, "q2": 4}}
+      ]
+      ```
+  responses_b:
+    kind: python
+    code: |
+      import json
+      import shutil
+      from pathlib import Path
+      shutil.rmtree("survey", ignore_errors=True)
+      Path("survey").mkdir()
+      Path("survey/responses.json").write_text("""[
+        {"id": "R7", "answers": {"q1": 1, "q2": 1}},
+        {"id": "R8", "answers": {"q1": 2, "q2": 6}}
+      ]""", encoding="utf-8")
+      with open("survey/responses.json", encoding="utf-8") as f:
+          responses = json.load(f)
+  recs_a:
+    kind: python
+    code: |
+      import json
+      recs = json.loads("""[
+        {"sample_id": "S01", "signal": 12},
+        {"sample_id": "S02", "signal": "12"},
+        {"sample_id": "S03"},
+        {"sample_id": "S04", "signal": null}
+      ]""")
+    display: |
+      四条记录已经用 json 读进来，结果叫 `recs`。原文：
+
+      ```json
+      [
+        {"sample_id": "S01", "signal": 12},
+        {"sample_id": "S02", "signal": "12"},
+        {"sample_id": "S03"},
+        {"sample_id": "S04", "signal": null}
+      ]
+      ```
+  recs_b:
+    kind: python
+    code: |
+      import json
+      recs = json.loads("""[
+        {"sample_id": "S05", "signal": 9},
+        {"sample_id": "S06", "signal": null},
+        {"sample_id": "S07", "signal": "9.5"},
+        {"sample_id": "S08", "group": "drug"}
+      ]""")
+    display: |
+      第二块板的四条记录已经读进来，结果叫 `recs`。原文：
+
+      ```json
+      [
+        {"sample_id": "S05", "signal": 9},
+        {"sample_id": "S06", "signal": null},
+        {"sample_id": "S07", "signal": "9.5"},
+        {"sample_id": "S08", "group": "drug"}
+      ]
+      ```
+  signal_csvs:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      import pandas as pd
+      shutil.rmtree("plates", ignore_errors=True)
+      Path("plates").mkdir()
+      Path("plates/a.csv").write_text("sample_id,signal\n001,8\n002,\n003,12\n", encoding="utf-8")
+      Path("plates/b.csv").write_text("sample_id,signal\n001,8\n002,未测\n003,12\n", encoding="utf-8")
+    display: |
+      两个文件只差 002 那一格：`plates/a.csv` 里是空的，`plates/b.csv` 里写着“未测”。
+
+      ```text
+      plates/a.csv          plates/b.csv
+      sample_id,signal      sample_id,signal
+      001,8                 001,8
+      002,                  002,未测
+      003,12                003,12
+      ```
+  depth_csvs:
+    kind: python
+    code: |
+      import shutil
+      from pathlib import Path
+      import pandas as pd
+      shutil.rmtree("field", ignore_errors=True)
+      Path("field").mkdir()
+      Path("field/day1.csv").write_text("site,depth\n北坡,30\n南坡,25\n东坡,35\n", encoding="utf-8")
+      Path("field/day2.csv").write_text("site,depth\n北坡,31\n南坡,\n东坡,34\n", encoding="utf-8")
+      Path("field/day3.csv").write_text("site,depth\n北坡,29\n南坡,约 26\n东坡,36\n", encoding="utf-8")
+    display: |
+      三天的野外记录，各读一次：`df = pd.read_csv(文件路径)`。
+
+      ```text
+      field/day1.csv     field/day2.csv     field/day3.csv
+      site,depth         site,depth         site,depth
+      北坡,30            北坡,31            北坡,29
+      南坡,25            南坡,              南坡,约 26
+      东坡,35            东坡,34            东坡,36
+      ```
 kps:
   - id: py44.k1
     title: CSV 的行列与 JSON 的列表/字典层次
+    card:
+      name: 文件里的层次
+      aliases: [JSON, CSV, 嵌套]
+      definition: CSV 是一张表：第一行通常是列名，之后每行一条记录，字段用分隔符隔开；JSON 读进来后，花括号变成字典、方括号变成列表，可以一层套一层。
+      conditions:
+        - read_csv 默认把第一行当列名；文件没有列名行时，第一条记录会被当成列名。
+        - 字典的 len 是键的个数，不是里面列表的长度；要数记录，先走到放记录的那个列表。
+      example:
+        from: py44.k1.e0
+        text: |
+          plates/p1.json 读进来，data 是字典；data["samples"] 是列表；data["samples"][0] 是字典；data["samples"][0]["signal"] 是整数 8。
+    lesson: |
+      **CSV** 就是一张用文字写成的表：
+
+      ```text
+      sample_id,signal,group
+      001,8,control
+      002,10,drug
+      ```
+
+      第一行通常是**列名**，后面每一行是一条记录，同一行里的字段用逗号隔开。`pd.read_csv` 默认把第一行当列名，所以上面三行文字读成 2 行 3 列的表。文件没有列名行、或者用的不是逗号时，就要另外告诉 read_csv。
+
+      **JSON** 能表达一层套一层的结构。用 `json` 模块读进来以后：
+
+      | JSON 里写的 | 读进 Python 变成 |
+      |---|---|
+      | `{ ... }` 花括号 | 字典（dict） |
+      | `[ ... ]` 方括号 | 列表（list） |
+      | `"S01"` 带引号 | 字符串（str） |
+      | `8`、`9.5` | 整数（int）、小数（float） |
+      | `true` / `false` | `True` / `False` |
+      | `null` | `None` |
+
+      ```python
+      import json
+      with open("plates/p1.json", encoding="utf-8") as f:
+          data = json.load(f)
+      ```
+
+      `json.load(f)` 读一个打开的文件；`json.loads(文字)` 读一段已经在手里的文字。
+
+      读一个 JSON，先一层层认清：最外层是字典还是列表？某个键对应的是一个值、一个列表，还是又一个字典？注意 `len` 对字典数的是**键的个数**：`data` 有 plate、operator、samples 三个键，`len(data)` 是 3，跟有几条样本无关；样本数是 `len(data["samples"])`。
+    example:
+      id: py44.k1.e0
+      kind: [predict]
+      uses: [py43.k2, py37.k1]
+      data: [p1_file]
+      body: |
+        读入文件：
+
+        ```python
+        import json
+        with open("plates/p1.json", encoding="utf-8") as f:
+            data = json.load(f)
+        ```
+
+        按文件内容，写出下面每个表达式得到的是哪种东西。
+      slots:
+        - id: types
+          type: table
+          columns:
+            - { id: expr, header: 表达式 }
+            - id: kind
+              header: 类型
+              input:
+                type: choice
+                options:
+                  - { id: dict, label: 字典 dict }
+                  - { id: list, label: 列表 list }
+                  - { id: str, label: 字符串 str }
+                  - { id: int, label: 整数 int }
+          rows:
+            - { id: top, cells: { expr: data, kind: dict } }
+            - { id: plate, cells: { expr: 'data["plate"]', kind: str } }
+            - { id: samples, cells: { expr: 'data["samples"]', kind: list } }
+            - { id: first, cells: { expr: 'data["samples"][0]', kind: dict } }
+            - { id: signal, cells: { expr: 'data["samples"][0]["signal"]', kind: int } }
+      explanation: |
+        最外层是花括号，`data` 是**字典**；`data["plate"]` 是带引号的 "P1"，是**字符串**；`data["samples"]` 是方括号，是**列表**；列表里每一项是花括号，`data["samples"][0]` 是**字典**；它的 `"signal"` 是不带引号的 8，是**整数**。
+
+        一层层看下来：字典 → 列表 → 字典 → 值。每走一步，先想清楚手里拿着的是哪一种。
+      verify: |
+        data = run()["data"]
+        values = {
+            "top": data,
+            "plate": data["plate"],
+            "samples": data["samples"],
+            "first": data["samples"][0],
+            "signal": data["samples"][0]["signal"],
+        }
+        answers = {"types": {row: {"kind": type(value).__name__} for row, value in values.items()}}
+    practice:
+      - id: py44.k1.q1
+        kind: [predict]
+        uses: [py15.k1, py15.k2, py14.k2]
+        data: [p2_csv]
+        body: |
+          ```python
+          df = pd.read_csv("plates/p2.csv", dtype={"sample_id": "str"})
+          ```
+        slots:
+          - id: lines
+            type: text
+            format: integer
+            prompt: 文件 `plates/p2.csv` 一共有几行文字？
+            key: 5
+          - id: rows
+            type: text
+            format: integer
+            prompt: "`df.shape` 的第一个数（行数）"
+            key: 4
+            feedback:
+              - when: 5
+                message: 第一行是列名，不算一条记录。
+          - id: cols
+            type: text
+            format: integer
+            prompt: "`df.shape` 的第二个数（列数）"
+            key: 3
+          - id: header
+            type: choice
+            prompt: 文件的第一行在 `df` 里变成了什么？
+            options:
+              - { id: record, content: 第一条记录 }
+              - { id: columns, content: 列名 }
+              - { id: dropped, content: 被丢掉了，哪里都没有 }
+            key: columns
+        explanation: |
+          文件有 **5** 行文字：1 行列名加 4 行记录。read_csv 把第一行当**列名**，所以 `df` 是 **4** 行 **3** 列。数记录时不要把列名那一行算进去。
+        verify: |
+          df = run()["df"]
+          with open("plates/p2.csv", encoding="utf-8") as f:
+              lines = f.read().splitlines()
+          answers = {
+              "lines": len(lines),
+              "rows": df.shape[0],
+              "cols": df.shape[1],
+              "header": "columns" if list(df.columns) == lines[0].split(",") else "other",
+          }
+      - id: py44.k1.q2
+        kind: [predict]
+        uses: [py37.k2]
+        body: |
+          阅读程序，写出第 3–5 行各显示什么。
+
+          ```python startLine=1
+          import json
+          rec = json.loads('{"ok": true, "note": null, "ids": ["001", "002"]}')
+          print(rec["ok"])
+          print(rec["note"])
+          print(rec["ids"][0])
+          ```
+        slots:
+          - id: output
+            type: table
+            columns:
+              - { id: line, header: 代码行 }
+              - { id: shown, header: 显示, input: text }
+            rows:
+              - { id: l3, cells: { line: 第 3 行, shown: "True" } }
+              - { id: l4, cells: { line: 第 4 行, shown: None } }
+              - { id: l5, cells: { line: 第 5 行, shown: "001" } }
+        explanation: |
+          依次显示 **True**、**None**、**001**。JSON 的 `true` 读成 Python 的 True，`null` 读成 None；`"001"` 带引号，是字符串，前导零保留。
+        verify: |
+          lines = run().lines()
+          answers = {"output": {f"l{number}": {"shown": text} for number, text in zip(range(3, 6), lines)}}
+      - id: py44.k1.q3
+        kind: [predict, explain]
+        uses: [py06.k1, py37.k1]
+        data: [p1_data]
+        body: |
+          ```python startLine=1
+          print(len(data))
+          print(len(data["samples"]))
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第 1 行显示
+            key: 3
+          - id: second
+            type: text
+            format: integer
+            prompt: 第 2 行显示
+            key: 4
+          - id: count
+            type: choice
+            prompt: 要数这块板上有几条样本记录，用哪个表达式？
+            options:
+              - { id: samples, content: '`len(data["samples"])`' }
+              - { id: top, content: '`len(data)`' }
+            key: samples
+        explanation: |
+          第 1 行显示 **3**：`data` 是字典，`len` 数的是它的键 plate、operator、samples。第 2 行显示 **4**：`data["samples"]` 是放样本记录的列表，里面有 4 项。数记录要用 `len(data["samples"])`。
+        verify: |
+          lines = run().lines()
+          # 独立数一遍原文里的样本记录：每条记录有一个 "sample_id"。
+          records = P1_TEXT.count('"sample_id"')
+          candidates = {"samples": len(data["samples"]), "top": len(data)}
+          fits = [option for option, value in candidates.items() if value == records]
+          answers = {"first": int(lines[0]), "second": int(lines[1]), "count": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py44.k1.r1
+        kind: [explain]
+        uses: [py37.k1, py06.k1]
+        data: [sites_data]
+        body: |
+          根据原文，说出 `sites` 的结构。
+        slots:
+          - id: outer
+            type: choice
+            prompt: "`sites` 最外层是什么？"
+            options:
+              - { id: dict_by_site, content: 一个字典，键是采样点的名字 }
+              - { id: list_of_dicts, content: 一个列表，每一项是一个采样点的字典 }
+              - { id: text, content: 一段还没读开的文字 }
+            key: list_of_dicts
+          - id: count
+            type: text
+            format: integer
+            prompt: "`len(sites)` 是多少？"
+            key: 3
+          - id: depth
+            type: choice
+            prompt: "`sites[0][\"depth\"]` 是什么？"
+            options:
+              - { id: number, content: 一个整数 }
+              - { id: numbers, content: 一个列表，里面是两次测量的整数 }
+              - { id: words, content: 一个字符串 }
+            key: numbers
+        explanation: |
+          最外层是方括号，`sites` 是一个**列表**，每一项是一个采样点的**字典**；列表里有 3 项，`len(sites)` 是 **3**。每个采样点的 `"depth"` 又是方括号，是**两个整数组成的列表**。
+        verify: |
+          answers = {
+              "outer": "list_of_dicts" if type(sites) is list and all(type(item) is dict for item in sites) else "other",
+              "count": len(sites),
+              "depth": "numbers" if type(sites[0]["depth"]) is list and all(type(x) is int for x in sites[0]["depth"]) else "other",
+          }
+      - id: py44.k1.r2
+        kind: [predict, debug]
+        uses: [py15.k1, py14.k1]
+        data: [noheader_csv]
+        body: |
+          ```python
+          df = pd.read_csv("plates/p5.csv")
+          ```
+        slots:
+          - id: rows
+            type: text
+            format: integer
+            prompt: "`df` 有几行？"
+            key: 2
+          - id: header
+            type: choice
+            prompt: "`df` 的列名是什么？"
+            options:
+              - { id: numbers, content: 0、1、2 }
+              - { id: named, content: sample_id、signal、group }
+              - { id: first_record, content: S11、8、control }
+            key: first_record
+        explanation: |
+          `df` 只有 **2** 行，列名是 **S11、8、control**。read_csv 默认把第一行当列名，可这个文件没有列名行，于是第一条记录被拿去当了列名，记录也少了一条。读之前先看一眼文件的第一行是不是列名。
+        verify: |
+          df = run()["df"]
+          with open("plates/p5.csv", encoding="utf-8") as f:
+              first_line = f.read().splitlines()[0]
+          answers = {"rows": len(df), "header": "first_record" if list(df.columns) == first_line.split(",") else "other"}
+    quiz:
+      - id: py44.k1.x1
+        kind: [predict, debug]
+        uses: [py15.k1, py14.k2]
+        data: [semicolon_csv]
+        body: |
+          ```python
+          df = pd.read_csv("plates/p6.csv")
+          ```
+        slots:
+          - id: cols
+            type: text
+            format: integer
+            prompt: "`df` 有几列？"
+            key: 1
+          - id: fix
+            type: choice
+            prompt: 要读成 sample_id、signal、group 三列，应该改成哪一行？
+            options:
+              - id: encoding
+                content: |
+                  ```python
+                  df = pd.read_csv("plates/p6.csv", encoding="gbk")
+                  ```
+              - id: dtype
+                content: |
+                  ```python
+                  df = pd.read_csv("plates/p6.csv", dtype={"sample_id": "str"})
+                  ```
+              - id: sep
+                content: |
+                  ```python
+                  df = pd.read_csv("plates/p6.csv", sep=";")
+                  ```
+            key: sep
+        explanation: |
+          只有 **1** 列：read_csv 默认按逗号分字段，这个文件里没有逗号，整行都挤进了一列，列名是 `sample_id;signal;group`。加上 **`sep=";"`** 告诉它用分号分隔，才是 3 列。改编码或改编号列的类型都解决不了分隔符的问题。
+        verify: |
+          df = run()["df"]
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if run(code).error is None and list(run(code)["df"].columns) == ["sample_id", "signal", "group"]]
+          answers = {"cols": df.shape[1], "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py44.k1.x2
+        kind: [predict]
+        uses: [py37.k1]
+        data: [config_data]
+        body: |
+          写出下面每个表达式得到的是哪种东西。
+        slots:
+          - id: types
+            type: table
+            columns:
+              - { id: expr, header: 表达式 }
+              - id: kind
+                header: 类型
+                input:
+                  type: choice
+                  options:
+                    - { id: dict, label: 字典 dict }
+                    - { id: list, label: 列表 list }
+                    - { id: str, label: 字符串 str }
+                    - { id: bool, label: 布尔值 bool }
+            rows:
+              - { id: plates, cells: { expr: 'config["plates"]', kind: list } }
+              - { id: second, cells: { expr: 'config["plates"][1]', kind: dict } }
+              - { id: wells, cells: { expr: 'config["plates"][1]["wells"]', kind: list } }
+              - { id: well, cells: { expr: 'config["plates"][1]["wells"][0]', kind: str } }
+              - { id: calibrated, cells: { expr: 'config["calibrated"]', kind: bool } }
+        explanation: |
+          `config["plates"]` 是**列表**；它的第二项是 P2 那块板的**字典**；这块板的 `"wells"` 虽然只有一个孔位，仍是方括号，是**列表**；列表里的 "C3" 是**字符串**；`"calibrated"` 的 `true` 读成 True，是**布尔值**。只有一项的列表还是列表，不会自动变成那一项。
+        verify: |
+          values = {
+              "plates": config["plates"],
+              "second": config["plates"][1],
+              "wells": config["plates"][1]["wells"],
+              "well": config["plates"][1]["wells"][0],
+              "calibrated": config["calibrated"],
+          }
+          answers = {"types": {row: {"kind": type(value).__name__} for row, value in values.items()}}
+
   - id: py44.k2
     title: 按键和位置走到目标值
+    card:
+      name: 逐层取值
+      aliases: [嵌套取值, 路径]
+      definition: 从最外层开始，遇到字典用键、遇到列表用从 0 开始的位置，一层一层写方括号，直到拿到要的值。
+      conditions:
+        - 每一步先想手里是字典还是列表：对列表用文字键报 TypeError，键写错报 KeyError，位置超出报 IndexError。
+        - 对字典用数字位置，例如 data[0]，Python 会把 0 当成一个键去找，报 KeyError。
+      example:
+        from: py44.k2.e0
+        text: |
+          data["samples"][1]["signal"]：先取 samples 这个列表，再取第 2 项（位置 1）这个字典，最后取它的 signal，得到 10。
+    lesson: |
+      要的值藏在几层里面时，从最外层开始，一层一层往里走：
+
+      ```python
+      data["samples"][1]["signal"]
+      ```
+
+      读法是从左往右：
+
+      1. `data` 是字典，用键 `"samples"` 取出样本列表；
+      2. 列表按位置取，`[1]` 是第 2 项（位置从 0 开始），得到 S02 那条记录的字典；
+      3. 这个字典再用键 `"signal"`，得到 10。
+
+      走错一层时，报错的类型能告诉你错在哪：
+
+      | 写法 | 报错 | 原因 |
+      |---|---|---|
+      | `data["sample"]` | KeyError | 字典里没有这个键（少了一个 s） |
+      | `data["samples"]["S02"]` | TypeError | 列表只能按位置取，不能用文字 |
+      | `data["samples"][4]` | IndexError | 列表只有 4 项，位置最大是 3 |
+      | `data[0]` | KeyError | 字典没有位置，0 被当成一个键去找 |
+
+      还有一个常见的偷懒：照着眼前的文件把值抄成 `signal = 10`。换一份文件，它就错了。写出取值的路径，代码才能用在下一份文件上。
+    example:
+      id: py44.k2.e0
+      kind: [trace]
+      uses: [py37.k2, py06.k2]
+      data: [p1_data]
+      body: |
+        按顺序看 `data["samples"][1]["signal"]` 每走一步拿到了什么。
+      slots:
+        - id: steps
+          type: table
+          columns:
+            - { id: expr, header: 走到 }
+            - id: kind
+              header: 拿到的是
+              input:
+                type: choice
+                options:
+                  - { id: dict, label: 字典 dict }
+                  - { id: list, label: 列表 list }
+                  - { id: int, label: 整数 int }
+          rows:
+            - { id: s1, cells: { expr: 'data["samples"]', kind: list } }
+            - { id: s2, cells: { expr: 'data["samples"][1]', kind: dict } }
+            - { id: s3, cells: { expr: 'data["samples"][1]["signal"]', kind: int } }
+        - id: sample
+          type: text
+          prompt: 第二步拿到的是哪个样本的记录？写出它的 sample_id。
+          key: S02
+        - id: value
+          type: text
+          format: integer
+          prompt: 最后得到的值是多少？
+          key: 10
+      explanation: |
+        第一步用键取出**列表**；第二步按位置 1 取出第 2 项，是 **S02** 那条记录的**字典**；第三步用键 "signal" 取出**整数 10**。位置从 0 开始，`[1]` 是第二项，不是 S01。
+      verify: |
+        steps = [data["samples"], data["samples"][1], data["samples"][1]["signal"]]
+        answers = {
+            "steps": {f"s{number}": {"kind": type(value).__name__} for number, value in enumerate(steps, 1)},
+            "sample": steps[1]["sample_id"],
+            "value": steps[2],
+        }
+    practice:
+      - id: py44.k2.q1
+        kind: [modify]
+        uses: [py37.k2, py06.k2]
+        data: [p1_data]
+        body: |
+          要取出 S03 的 group。用下面的块拼出这个表达式，从左往右排；用不到的块不要放进来。
+        slots:
+          - id: path
+            type: order
+            partial: true
+            items:
+              - { id: group, content: '`["group"]`' }
+              - { id: i3, content: '`[3]`' }
+              - { id: data, content: '`data`' }
+              - { id: S03, content: '`["S03"]`' }
+              - { id: i2, content: '`[2]`' }
+              - { id: samples, content: '`["samples"]`' }
+            key: [data, samples, i2, group]
+        explanation: |
+          `data["samples"][2]["group"]`，得到 "drug"。S03 是列表里的第 3 项，位置是 2。`["S03"]` 不能用：列表只能按位置取，"S03" 只是记录里 sample_id 的值，不是键；`[3]` 是第 4 项 S04。
+        verify: |
+          samples = data["samples"]
+          # 独立找出 S03 在列表里的位置，再确认整条路径能取到它的 group。
+          position = [index for index, record in enumerate(samples) if record["sample_id"] == "S03"][0]
+          assert data["samples"][position]["group"] == "drug"
+          answers = {"path": ["data", "samples", f"i{position}", "group"]}
+      - id: py44.k2.q2
+        kind: [predict, debug]
+        uses: [py11.k2, py37.k2, py06.k2]
+        data: [p1_data]
+        body: |
+          写出每个表达式的结果：能取到值的写出值，报错的写出异常类型的名字。
+        slots:
+          - id: results
+            type: table
+            columns:
+              - { id: expr, header: 表达式 }
+              - { id: result, header: 结果, input: text }
+            rows:
+              - { id: r1, cells: { expr: 'data["sample"]', result: KeyError } }
+              - { id: r2, cells: { expr: 'data["samples"]["S02"]', result: TypeError } }
+              - { id: r3, cells: { expr: 'data["samples"][4]', result: IndexError } }
+              - { id: r4, cells: { expr: 'data["samples"][-1]["sample_id"]', result: S04 } }
+        explanation: |
+          - `data["sample"]`：键少了一个 s，字典里没有，**KeyError**。
+          - `data["samples"]["S02"]`：样本列表只能按位置取，用文字报 **TypeError**。
+          - `data["samples"][4]`：列表有 4 项，位置是 0–3，**IndexError**。
+          - `data["samples"][-1]["sample_id"]`：-1 是最后一项，得到 **S04**。
+        verify: |
+          expressions = {
+              "r1": 'data["sample"]',
+              "r2": 'data["samples"]["S02"]',
+              "r3": 'data["samples"][4]',
+              "r4": 'data["samples"][-1]["sample_id"]',
+          }
+          results = {}
+          for row, expression in expressions.items():
+              try:
+                  results[row] = {"result": eval(expression)}
+              except Exception as caught:
+                  results[row] = {"result": type(caught).__name__}
+          answers = {"results": results}
+      - id: py44.k2.q3
+        kind: [modify]
+        uses: [py37.k2, py06.k2]
+        data: [runs_a]
+        body: |
+          需求是：取出**第二块板**上**第一个样本**的 signal，存进 `signal`。换一份同样结构的文件，代码也要取对。
+
+          作答框里的代码取错了。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              signal = data["plates"][0]["samples"][1]["signal"]
+            solution: |
+              signal = data["plates"][1]["samples"][0]["signal"]
+            accepts:
+              - |
+                plate = data["plates"][1]
+                signal = plate["samples"][0]["signal"]
+            rejects:
+              - code: signal = 12
+                why: 照着眼前的文件把值抄成了 12
+              - code: signal = data["plates"][2]["samples"][1]["signal"]
+                why: 把“第二”“第一”写成了位置 2 和 1
+              - code: signal = data["plates"][1]["samples"][1]["signal"]
+                why: 样本位置还是 1，取成了第二个样本
+            tests:
+              - name: 本文件
+                expect:
+                  signal: "12"
+              - name: 换一份三块板的文件
+                hidden: true
+                data: [runs_b]
+                expect:
+                  signal: "7"
+        explanation: |
+          ```python
+          signal = data["plates"][1]["samples"][0]["signal"]
+          ```
+
+          第二块板是位置 1，第一个样本是位置 0。原来的代码把两个位置弄反了，取到的是第一块板的第二个样本 S02。本文件得到 12；判分时还会换一份三块板的文件检查。
+    review:
+      - id: py44.k2.r1
+        kind: [predict]
+        uses: [py06.k2, py37.k2]
+        data: [sites_data]
+        body: |
+          阅读程序，写出三行各显示什么。
+
+          ```python startLine=1
+          print(sites[1]["site"])
+          print(sites[0]["depth"][1])
+          print(sites[-1]["depth"][0])
+          ```
+        slots:
+          - id: output
+            type: table
+            columns:
+              - { id: line, header: 代码行 }
+              - { id: shown, header: 显示, input: text }
+            rows:
+              - { id: l1, cells: { line: 第 1 行, shown: 南坡 } }
+              - { id: l2, cells: { line: 第 2 行, shown: "32" } }
+              - { id: l3, cells: { line: 第 3 行, shown: "35" } }
+        explanation: |
+          依次是 **南坡**、**32**、**35**。`sites[1]` 是第二个采样点南坡；`sites[0]["depth"][1]` 是北坡的第二次测量；`sites[-1]` 是最后一个采样点东坡，它的第一次测量是 35。
+        verify: |
+          lines = run().lines()
+          answers = {"output": {f"l{number}": {"shown": text} for number, text in enumerate(lines, 1)}}
+      - id: py44.k2.r2
+        kind: [debug]
+        uses: [py11.k2, py37.k2]
+        data: [p1_data]
+        body: |
+          想显示 S02 的 signal，写成了 `print(data["samples"]["signal"])`，报了 TypeError。改成哪一行才对？
+        slots:
+          - id: fix
+            type: choice
+            options:
+              - id: by_id
+                content: |
+                  ```python
+                  print(data["samples"]["S02"]["signal"])
+                  ```
+              - id: no_list
+                content: |
+                  ```python
+                  print(data["signal"][1])
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  print(data["samples"][1]["signal"])
+                  ```
+              - id: off_by_one
+                content: |
+                  ```python
+                  print(data["samples"][2]["signal"])
+                  ```
+            key: right
+        explanation: |
+          `print(data["samples"][1]["signal"])`：样本列表要先按位置取出 S02（位置 1），再用键取 signal。
+
+          用 "S02" 去取列表同样报 TypeError；`data` 最外层没有 "signal" 这个键，报 KeyError；位置 2 是第三项 S03，会显示 13 而不是 S02 的 10。
+        verify: |
+          wanted = [record["signal"] for record in data["samples"] if record["sample_id"] == "S02"][0]
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if run(code).error is None and run(code).out.strip() == str(wanted)]
+          answers = {"fix": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py44.k2.x1
+        kind: [modify]
+        uses: [py37.k2, py06.k2]
+        data: [responses_a]
+        body: |
+          需求是：取出列表里**第二位**受访者对问题 q2 的回答，存进 `value`。换一份同样结构的文件，代码也要取对。
+
+          作答框里的代码一运行就报错。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              value = responses["R2"]["q2"]
+            solution: |
+              value = responses[1]["answers"]["q2"]
+            rejects:
+              - code: value = 2
+                why: 照着眼前的文件抄了值
+              - code: value = responses[1]["q2"]
+                why: 漏了 answers 这一层
+              - code: value = responses[2]["answers"]["q2"]
+                why: 第二位的位置是 1，不是 2
+            tests:
+              - name: 本文件
+                expect:
+                  value: "2"
+              - name: 换一份问卷
+                hidden: true
+                data: [responses_b]
+                expect:
+                  value: "6"
+        explanation: |
+          ```python
+          value = responses[1]["answers"]["q2"]
+          ```
+
+          `responses` 最外层是列表，只能按位置取，第二位是位置 1；取出的字典里，回答放在 `"answers"` 这个字典里，再用 "q2" 取值。本文件得到 2。
+      - id: py44.k2.x2
+        kind: [debug]
+        uses: [py11.k2, py37.k2, py06.k2]
+        data: [config_data]
+        body: |
+          想显示第一块板（P1）的孔位列表，写成了下面这行，一运行就报错。
+
+          ```python
+          print(config[0]["wells"])
+          ```
+        slots:
+          - id: error
+            type: choice
+            prompt: 报的是哪种异常？
+            options:
+              - { id: IndexError, content: IndexError }
+              - { id: TypeError, content: TypeError }
+              - { id: KeyError, content: KeyError }
+            key: KeyError
+          - id: fix
+            type: choice
+            prompt: 改成哪一行，才会显示 P1 的孔位列表？
+            options:
+              - id: by_name
+                content: |
+                  ```python
+                  print(config["plates"]["P1"]["wells"])
+                  ```
+              - id: second
+                content: |
+                  ```python
+                  print(config["plates"][1]["wells"])
+                  ```
+              - id: no_plates
+                content: |
+                  ```python
+                  print(config["wells"][0])
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  print(config["plates"][0]["wells"])
+                  ```
+            key: right
+        explanation: |
+          报 **KeyError**，不是 IndexError：`config` 是字典，没有“第 0 项”，Python 把 0 当成一个键去找，找不到。板的列表放在 `"plates"` 这个键下面，要先取出它，再按位置取第一块：`print(config["plates"][0]["wells"])`。
+
+          用 "P1" 去取列表报 TypeError；位置 1 是第二块板 P2；`config` 最外层没有 "wells" 这个键。
+        verify: |
+          wanted = [plate for plate in config["plates"] if plate["plate"] == "P1"][0]["wells"]
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if run(code).error is None and run(code).out.strip() == str(wanted)]
+          answers = {"error": run().error, "fix": fits[0] if len(fits) == 1 else fits}
+
   - id: py44.k3
     title: 缺键、缺失和字段类型的验证
+    card:
+      name: 缺失与类型
+      aliases: [缺键, "null", 字段类型]
+      definition: 一条记录的某个值可能缺这一项、写着 null（读成 None）、或者类型不对（例如文字 "12"）；先用 in、get 和 type() 查出是哪一种，再按写明的规则处理。
+      conditions:
+        - get 只在缺这一项时用默认值；键在而值是 null 时，get 照样得到 None。
+        - read_csv 把空格子读成 NaN，整列跟着变成小数；一列里只要有一格是文字，整列都成了文字。
+      example:
+        from: py44.k3.e0
+        text: |
+          S03 没有 signal 这一项："signal" in rec 是 False，rec.get("signal") 得到 None；S04 写着 null：in 是 True，get 同样得到 None。
+    lesson: |
+      从文件里取值时，同一个字段在不同记录里可能是三种不同的“不对劲”：
+
+      | 情况 | JSON 里的样子 | `"signal" in rec` | `rec.get("signal")` | `rec["signal"]` |
+      |---|---|---|---|---|
+      | 正常 | `"signal": 12` | True | 12 | 12 |
+      | 缺这一项 | 没有 `"signal"` | False | None | 报 KeyError |
+      | 值为空 | `"signal": null` | True | None | None |
+      | 类型不对 | `"signal": "12"` | True | `'12'`（文字） | `'12'` |
+
+      - `rec["signal"]` 遇到缺键会报错；`rec.get("signal")` 不报错，缺键时得到 None，也可以写 `rec.get("signal", 默认值)`。默认值只在**缺这一项**时才用，值写着 null 时仍是 None。
+      - `type(值)` 告诉你类型：`type(12)` 是 int，`type("12")` 是 str。文字 "12" 看着像数，却不能直接拿来算。
+
+      CSV 读成表时也有对应的情况：空着的格子读成 **NaN**，整数列会因此变成小数列（float64）；一列里只要有一格写着“未测”这样的文字，整列都成了文字列（str）。
+
+      查出来之后，怎样处理是业务规则，要写清楚，而不是让代码悄悄决定。尤其不要把缺失补成 0：0 是一个真实的测量结果，缺测不是。
+    example:
+      id: py44.k3.e0
+      kind: [predict]
+      uses: [py37.k2, py37.k3]
+      data: [recs_a]
+      body: |
+        对每条记录 `rec`，分别求出：`"signal" in rec`、`rec.get("signal")` 显示什么，以及 `type(rec.get("signal"))` 是哪种类型。
+      slots:
+        - id: checks
+          type: table
+          columns:
+            - { id: record, header: 记录 }
+            - { id: has, header: '"signal" in rec', input: bool }
+            - { id: got, header: rec.get("signal"), input: { type: text, match: output } }
+            - id: kind
+              header: 类型
+              input:
+                type: choice
+                options:
+                  - { id: int, label: int }
+                  - { id: str, label: str }
+                  - { id: NoneType, label: NoneType（None 的类型） }
+          rows:
+            - { id: S01, cells: { record: S01, has: true, got: "12", kind: int } }
+            - { id: S02, cells: { record: S02, has: true, got: "'12'", kind: str } }
+            - { id: S03, cells: { record: S03, has: false, got: None, kind: NoneType } }
+            - { id: S04, cells: { record: S04, has: true, got: None, kind: NoneType } }
+      explanation: |
+        | 记录 | in | get | 类型 |
+        |---|---|---|---|
+        | S01 | True | 12 | int |
+        | S02 | True | '12' | str |
+        | S03 | False | None | NoneType |
+        | S04 | True | None | NoneType |
+
+        S02 的值带引号，读进来是文字 '12'。S03 和 S04 用 get 都得到 None，但原因不同：S03 根本没有这一项，S04 有这一项、值写着 null。要分清这两种，就看 `in`。
+      verify: |
+        rows = {}
+        for rec in recs:
+            value = rec.get("signal")
+            rows[rec["sample_id"]] = {"has": "signal" in rec, "got": value, "kind": type(value).__name__}
+        answers = {"checks": rows}
+    practice:
+      - id: py44.k3.q1
+        kind: [predict]
+        uses: [py37.k2, py37.k3]
+        body: |
+          在交互解释器里依次输入下面几行。每一行显示什么？什么都不显示的写 NOTHING，报错的写 ERROR。
+
+          ```python startLine=1
+          rec = {"sample_id": "S03", "group": "drug"}
+          rec.get("signal")
+          rec.get("signal", "缺失")
+          "signal" in rec
+          rec["signal"]
+          ```
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - { id: line, header: 输入 }
+              - { id: shown, header: 显示, input: { type: text, match: output, quick: [NOTHING, ERROR] } }
+            rows:
+              - { id: l2, cells: { line: 第 2 行, shown: NOTHING } }
+              - { id: l3, cells: { line: 第 3 行, shown: "'缺失'" } }
+              - { id: l4, cells: { line: 第 4 行, shown: "False" } }
+              - { id: l5, cells: { line: 第 5 行, shown: ERROR } }
+        explanation: |
+          - 第 2 行：缺这一项，get 得到 None；交互解释器遇到 None **什么都不显示**（NOTHING）。
+          - 第 3 行：给了默认值，得到 **'缺失'**。
+          - 第 4 行：**False**，记录里没有 signal 这个键。
+          - 第 5 行：用方括号取一个不存在的键，报 KeyError（**ERROR**）。
+        verify: |
+          shown = repl()
+          answers = {"shown": {f"l{number}": {"shown": text} for number, text in zip(range(2, 6), shown[1:])}}
+      - id: py44.k3.q2
+        kind: [predict]
+        uses: [py15.k1, py15.k2, py14.k3]
+        data: [signal_csvs]
+        body: |
+          ```python startLine=1
+          a = pd.read_csv("plates/a.csv", dtype={"sample_id": "str"})
+          b = pd.read_csv("plates/b.csv", dtype={"sample_id": "str"})
+          print(a["signal"].dtype)
+          print(b["signal"].dtype)
+          ```
+        slots:
+          - id: dtypes
+            type: table
+            columns:
+              - { id: line, header: 代码行 }
+              - id: shown
+                header: 显示
+                input:
+                  type: choice
+                  options:
+                    - { id: int64, label: int64 }
+                    - { id: float64, label: float64 }
+                    - { id: str, label: str }
+            rows:
+              - { id: l3, cells: { line: 第 3 行, shown: float64 } }
+              - { id: l4, cells: { line: 第 4 行, shown: str } }
+          - id: blank
+            type: choice
+            prompt: "`a` 里 002 那一格读成了什么？"
+            options:
+              - { id: zero, content: "0" }
+              - { id: empty, content: 空的文字 "" }
+              - { id: nan, content: NaN（缺失） }
+            key: nan
+        explanation: |
+          第 3 行显示 **float64**：空格子读成 **NaN**，而 NaN 只能放在小数列里，整列的 8、12 也跟着成了 8.0、12.0。第 4 行显示 **str**：只要有一格是“未测”这样的文字，整列都成了文字，8 和 12 也成了文字 '8'、'12'。
+
+          两种情况都不会报错，读完看一眼每列的 dtype，才能发现。
+        verify: |
+          r = run()
+          a, b = r["a"], r["b"]
+          blank = a.loc[a["sample_id"] == "002", "signal"].iloc[0]
+          answers = {
+              "dtypes": {"l3": {"shown": str(a["signal"].dtype)}, "l4": {"shown": str(b["signal"].dtype)}},
+              "blank": "nan" if pd.isna(blank) else "other",
+          }
+      - id: py44.k3.q3
+        kind: [explain]
+        uses: [py37.k3, py03.k1]
+        data: [recs_b]
+        body: |
+          把每条记录的 signal 归到一类。
+        slots:
+          - id: classes
+            type: table
+            columns:
+              - { id: record, header: 记录 }
+              - id: category
+                header: signal 的情况
+                input:
+                  type: choice
+                  options:
+                    - { id: ok, label: 正常的数 }
+                    - { id: missing, label: 缺这一项 }
+                    - { id: "null", label: 值为 null }
+                    - { id: text, label: 是文字 }
+            rows:
+              - { id: S05, cells: { record: S05, category: ok } }
+              - { id: S06, cells: { record: S06, category: "null" } }
+              - { id: S07, cells: { record: S07, category: text } }
+              - { id: S08, cells: { record: S08, category: missing } }
+        explanation: |
+          S05 是**正常的数**；S06 有 signal 这一项，**值为 null**；S07 的 "9.5" 带引号，**是文字**；S08 只有 sample_id 和 group，**缺这一项**。
+
+          查的办法：先用 `"signal" in rec` 看有没有这一项，有的话再用 `type(rec["signal"])` 看是 int、float、str 还是 NoneType。
+        verify: |
+          classes = {}
+          for rec in recs:
+              if "signal" not in rec:
+                  category = "missing"
+              elif rec["signal"] is None:
+                  category = "null"
+              elif type(rec["signal"]) is str:
+                  category = "text"
+              else:
+                  category = "ok"
+              classes[rec["sample_id"]] = {"category": category}
+          answers = {"classes": classes}
+      - id: py44.k3.q4
+        kind: [specify]
+        body: |
+          你请 AI 从一批 JSON 记录里取出每个样本的 signal 来算平均值。记录里可能有：缺 signal 这一项的，signal 写着 null 的，signal 是文字（例如 "9.5"）的。
+
+          写一段给 AI 的要求，说清这三种情况各怎样处理。
+        slots:
+          - id: rule
+            type: text
+            lines: 5
+            rubric:
+              - id: missing
+                label: 缺这一项和 null 的处理
+                guide: 写明这两种算缺失、不当作 0，是否参与平均要说清楚（例如不参与）。只写“去掉”而没说明不补 0 也可以算，只要别人照做不会补 0。
+              - id: text
+                label: 文字值的处理
+                guide: 写明文字值怎么办，例如先列出这些样本编号给我看、不要自动转换；或者明确允许转成数，转不了的算缺失。
+              - id: report
+                label: 交回什么信息
+                guide: 要求把被排除或有问题的样本编号、各有几条报告出来，让人能核对。
+        explanation: |
+          一种写法：**“缺 signal 这一项或值为 null 的，记为缺失，不当作 0，不参与平均。signal 是文字的，先不要自动转换，把这些样本编号列出来给我确认。最后告诉我参与平均的有几条，缺失和文字的各是哪些样本。”**
+
+          三项各算一项：缺失怎样处理、文字怎样处理、交回哪些便于核对的信息。规则可以和这里不同，例如允许把 "9.5" 转成 9.5，但要写明，不能让 AI 自己决定。
+    review:
+      - id: py44.k3.r1
+        kind: [modify]
+        uses: [py37.k2]
+        body: |
+          每个采样点的记录 `rec` 是一个字典，可能没有 `"depth"` 这一项。需求是：
+
+          > 取出 depth 存进 `depth`；没有这一项时，`depth` 得到 None，不报错，也不补成 0。
+
+          作答框里的代码遇到缺 depth 的记录会报 KeyError。请改动它并提交。宿主会准备好不同的 `rec` 来检查。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              depth = rec["depth"]
+            solution: |
+              depth = rec.get("depth")
+            accepts:
+              - depth = rec.get("depth", None)
+            rejects:
+              - code: depth = rec.get("depth", 0)
+                why: 缺的时候补成了 0
+              - code: depth = "depth" in rec
+                why: 得到的是有没有这一项，不是深度
+            tests:
+              - name: 有 depth
+                setup: 'rec = {"site": "北坡", "depth": 30}'
+                expect:
+                  depth: "30"
+              - name: 缺 depth
+                setup: 'rec = {"site": "东坡"}'
+                expect:
+                  depth: None
+              - name: depth 为 None
+                hidden: true
+                setup: 'rec = {"site": "西坡", "depth": None}'
+                expect:
+                  depth: None
+              - name: depth 恰好是 0
+                hidden: true
+                setup: 'rec = {"site": "南坡", "depth": 0}'
+                expect:
+                  depth: "0"
+        explanation: |
+          ```python
+          depth = rec.get("depth")
+          ```
+
+          get 在缺这一项时得到 None，不报错。写成 `rec.get("depth", 0)` 会把缺测补成 0，和真的测出 0 分不开，不符合需求。
+      - id: py44.k3.r2
+        kind: [explain]
+        uses: [py37.k2, py37.k3]
+        body: |
+          两条记录：
+
+          ```python
+          rec_a = {"sample_id": "S07", "signal": None}
+          rec_b = {"sample_id": "S08"}
+          ```
+
+          `rec_a` 来自 JSON 里的 `"signal": null`。下面哪一句说法正确？
+        slots:
+          - id: claim
+            type: choice
+            options:
+              - id: both_no_key
+                content: 两条记录都没有 signal 这一项
+              - id: zero
+                content: rec_a 的 signal 是 0
+              - id: get_error
+                content: 对 rec_b 写 rec_b.get("signal") 会报 KeyError
+              - id: same_get
+                content: 两条记录用 get 取 signal 都得到 None，但只有 rec_a 有 signal 这一项
+            key: same_get
+        explanation: |
+          “两条记录用 get 都得到 None，但只有 rec_a 有 signal 这一项”正确。rec_a 的 null 读成 None，键还在；rec_b 根本没有这个键，get 不报错，也得到 None。要分清它们，用 `"signal" in rec`。null 不是 0。
+        verify: |
+          r = run()
+          a, b = r["rec_a"], r["rec_b"]
+          holds = {
+              "both_no_key": "signal" not in a and "signal" not in b,
+              "zero": a.get("signal") == 0 and a.get("signal") is not None,
+              "get_error": False,
+              "same_get": a.get("signal") is None and b.get("signal") is None and "signal" in a and "signal" not in b,
+          }
+          try:
+              b.get("signal")
+          except KeyError:
+              holds["get_error"] = True
+          true = [claim for claim, ok in holds.items() if ok]
+          answers = {"claim": true[0] if len(true) == 1 else true}
+    quiz:
+      - id: py44.k3.x1
+        kind: [predict]
+        uses: [py15.k1, py14.k3]
+        data: [depth_csvs]
+        body: |
+          每个文件分别用 `df = pd.read_csv(文件路径)` 读进来。
+        slots:
+          - id: numeric
+            type: choice
+            multiple: true
+            prompt: 读进来后，哪些文件的 depth 是数字列（整数或小数）？选出所有。
+            options:
+              - { id: day1, content: field/day1.csv }
+              - { id: day2, content: field/day2.csv }
+              - { id: day3, content: field/day3.csv }
+            key: [day1, day2]
+          - id: blank
+            type: choice
+            prompt: day2 里南坡那一格读成了什么？
+            options:
+              - { id: nan, content: NaN（缺失） }
+              - { id: zero, content: "0" }
+              - { id: empty, content: 空的文字 "" }
+            key: nan
+        explanation: |
+          **day1 和 day2** 的 depth 是数字列：day1 是整数列；day2 的空格子读成 **NaN**，整列成了小数列，仍是数字。day3 里有一格“约 26”是文字，整列都成了文字列，不能直接拿来算平均。
+        verify: |
+          frames = {day: pd.read_csv(f"field/{day}.csv") for day in ("day1", "day2", "day3")}
+          numeric = [day for day, frame in frames.items() if frame["depth"].dtype.kind in "if"]
+          day2 = frames["day2"]
+          cell = day2.loc[day2["site"] == "南坡", "depth"].iloc[0]
+          answers = {"numeric": numeric, "blank": "nan" if pd.isna(cell) else "other"}
+      - id: py44.k3.x2
+        kind: [explain]
+        uses: [py37.k2]
+        body: |
+          需求写着：“signal 缺失的样本记为缺失，不当作 0。”AI 给的代码对每条记录 `rec` 这样取值：
+
+          ```python
+          value = rec.get("signal", 0)
+          ```
+
+          下面哪些说法正确？选出所有。
+        slots:
+          - id: claims
+            type: choice
+            multiple: true
+            options:
+              - { id: missing_zero, content: 缺 signal 这一项的记录，value 得到 0 }
+              - { id: null_zero, content: signal 为 null 的记录，value 也得到 0 }
+              - { id: missing_error, content: 缺 signal 这一项的记录会报 KeyError }
+              - { id: mixed, content: 按这段代码，缺测的样本和真的测出 0 的样本分不出来 }
+            key: [missing_zero, mixed]
+        explanation: |
+          正确的是“缺这一项得到 0”和“缺测与真测出 0 分不出来”。get 的默认值只在缺这一项时使用，所以缺 signal 的记录得到 0，不会报错；signal 为 null 的记录键还在，得到的是 None，不是 0。
+
+          这段代码把缺测补成了 0，和需求不符：它应当得到 None（或单独记为缺失），而不是 0。
+        verify: |
+          code = CODE
+          missing = run(code, rec={"sample_id": "S03"})
+          null = run(code, rec={"sample_id": "S04", "signal": None})
+          zero = run(code, rec={"sample_id": "S09", "signal": 0})
+          holds = {
+              "missing_zero": missing.error is None and missing["value"] == 0,
+              "null_zero": null.error is None and null["value"] == 0 and null["value"] is not None,
+              "missing_error": missing.error == "KeyError",
+              "mixed": missing.error is None and missing["value"] == zero["value"],
+          }
+          answers = {"claims": [claim for claim, ok in holds.items() if ok]}
