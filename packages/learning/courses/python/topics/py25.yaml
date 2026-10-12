@@ -1,7 +1,8 @@
 id: py25
 title: 一条记录是否重复，取决于什么
-status: outline
+status: complete
 minutes: 20
+summary: 先按“一行代表什么”定出业务键，再用 duplicated/drop_duplicates 的 subset 和 keep 标出或去掉重复，分清录了两遍和数值冲突。
 prerequisites:
   - topic: py14
     key: true
@@ -13,13 +14,1085 @@ prerequisites:
     covers: [py12.k1, py12.k2]
 sources:
   - source: pydata-book
-    where: 第 7 章 §7.2
+    where: 第 7 章 §7.2（去除重复）
     url: https://wesmckinney.com/book/data-cleaning
     use: reference
+  - source: pandas-docs
+    where: API：DataFrame.duplicated
+    url: https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.duplicated.html
+    use: reference
+  - source: pandas-docs
+    where: API：DataFrame.drop_duplicates
+    url: https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.drop_duplicates.html
+    use: reference
 notes: |
-  建议题型与判分：预测输出（P）、小改代码（T）、写清需求（S/O）。
+  范围：本节的先修路径里没有比较运算（py08）、`df["列"]` 取列（py16）和掩码筛选（py17），所以只用 duplicated、drop_duplicates 两个方法、关键字参数、列名列表、len 和行索引；True/False 就地读作“是不是前面某行的重复”。不讲按条件筛出重复行、不讲排序后再去重，冲突怎样裁决只要求说清“交人核对”。
+  建议题型与判分：预测输出（P）、小改代码（T）、写清需求（S/O）。k1 用一张表把“整行相同”“业务键相同而值不同”“同一样本不同天”三种情况摆在一起；k2 讲 keep 的三种取值和 drop_duplicates，含一道小改代码题和一道写清需求题。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、三道练习 4 分钟；k2 讲解与例题 3 分钟、三道练习 6 分钟（含小改代码）；收束 2 分钟。
+  小表、讲解和题目为本课自拟。
+  模型核对：复习和测验里只有 py25.k1.x2 的 key（按“一行代表什么”选业务键）程序算不出，列进 manual；练习里的业务键选择和“标出还是去掉”也是 manual，不强制核对。其余作答位由 verify 或测试核对。
+intro: |
+  宿主已经准备好 pandas 和数据表，你直接读表和代码，不需要写导入或构造数据的代码。每道题都从题面给出的表重新开始，前面题目里的变量都已清除。
+
+  大多数题用表 M：`sample_id` 是样本编号，`day` 是第几天测的，`signal` 是一次测量的值（任意单位）。约定每个样本每天只测一次；表里行的先后就是录入的先后。左边的原行索引是原表的行标签，不是从小到大的序号。
+
+  代码结果里的 True/False 读作“是/否”。`len(表)` 是这张表的行数。
+wrapup: |
+  向同事或 AI 提去重需求时，可以直接说：“表的一行代表某个样本某一天的一次测量，按 sample_id 和 day 判断是不是同一条记录。同一样本同一天出现不止一次的，先全部列出来给我核对，不要自动挑一条留下。”
+
+  拿到去重代码后，先看 `subset` 里写的是不是业务键，再看 `keep` 留的是哪一次，最后数一数结果少了几行、少的是不是你预期的那几行。
+data:
+  M:
+    kind: dataframe
+    name: df
+    caption: 表 M：两天的测量记录
+    index: [31, 7, 22, 4, 15]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_A, S_B, S_A, S_A, S_B]
+      day: [1, 1, 2, 1, 1]
+      signal: [8, 10, 9, 8, 11]
+  M2:
+    kind: dataframe
+    name: df
+    caption: 另一份同样格式的测量记录
+    index: [12, 3, 40, 8, 21, 5]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_C, S_D, S_C, S_D, S_C, S_D]
+      day: [1, 1, 1, 2, 2, 1]
+      signal: [7, 12, 7, 12, 6, 13]
+  M3:
+    kind: dataframe
+    name: df
+    caption: 第三份同样格式的测量记录
+    index: [9, 30, 2, 17]
+    indexHeader: 原行索引
+    columns:
+      sample_id: [S_E, S_F, S_E, S_F]
+      day: [2, 1, 1, 2]
+      signal: [5, 14, 6, 14]
+  mice:
+    kind: dataframe
+    name: mice
+    caption: 表 mice：每周称一次的小鼠体重（克）
+    showIndex: false
+    columns:
+      mouse_id: [M1, M1, M2, M2, M3]
+      week: [1, 2, 1, 2, 1]
+      weight: [20, 21, 19, 22, 18]
+  plots:
+    kind: dataframe
+    name: plots
+    caption: 表 plots：采样点每年一次的株高测量（厘米）
+    index: [5, 12, 3, 8, 20]
+    indexHeader: 原行索引
+    columns:
+      site: [北坡, 南坡, 北坡, 北坡, 南坡]
+      year: [2024, 2024, 2025, 2024, 2025]
+      height: [31, 28, 33, 35, 28]
+  water:
+    kind: dataframe
+    name: water
+    caption: 表 water：采样点每天一次的浊度测量
+    index: [2, 9, 4, 7]
+    indexHeader: 原行索引
+    columns:
+      site: [W1, W2, W1, W2]
+      date: ["10-01", "10-01", "10-01", "10-02"]
+      turbidity: [12, 30, 15, 30]
+  survey:
+    kind: dataframe
+    name: survey
+    caption: 表 survey：问卷作答记录
+    index: [14, 6, 30, 2, 11, 25]
+    indexHeader: 原行索引
+    columns:
+      respondent: [R1, R2, R1, R2, R1, R3]
+      wave: [1, 1, 2, 1, 1, 1]
+      score: [4, 5, 3, 5, 2, 4]
+  temps:
+    kind: dataframe
+    name: temps
+    caption: 表 temps：河流水温记录（摄氏度）
+    index: [3, 9, 14, 6, 11]
+    indexHeader: 原行索引
+    columns:
+      site: [河口, 上游, 河口, 上游, 河口]
+      day: [1, 1, 2, 2, 1]
+      temp: [18, 16, 19, 17, 20]
+  traps:
+    kind: dataframe
+    name: traps
+    caption: 表 traps：诱虫灯每晚捕到的蛾子数
+    index: [6, 2, 9, 4, 11]
+    indexHeader: 原行索引
+    columns:
+      trap: [T1, T2, T1, T2, T1]
+      night: [1, 1, 1, 2, 2]
+      moths: [14, 9, 17, 9, 12]
+  plates:
+    kind: dataframe
+    name: plates
+    caption: 表 plates：培养板各孔的菌落计数
+    index: [3, 8, 1, 6, 10, 4]
+    indexHeader: 原行索引
+    columns:
+      plate: [P1, P1, P2, P1, P2, P2]
+      well: [A1, A2, A1, A1, A1, A2]
+      count: [120, 95, 110, 120, 108, 99]
+  plates2:
+    kind: dataframe
+    name: plates
+    caption: 另一份同样格式的培养板计数
+    index: [7, 2, 5, 9]
+    indexHeader: 原行索引
+    columns:
+      plate: [P3, P3, P3, P4]
+      well: [B1, B1, B2, B1]
+      count: [50, 52, 50, 61]
 kps:
   - id: py25.k1
     title: 业务键与整行重复的区别
+    card:
+      name: 业务键
+      aliases: [整行重复, 同一条记录]
+      definition: 按“一行代表什么”，能认出同一条记录的那几列叫业务键；业务键相同才是同一条记录，整行完全相同只是其中一种情况。
+      conditions:
+        - 不写 subset 的 duplicated() 只认整行完全相同；业务键相同、测量值不同的冲突行，它认不出来。
+        - 当前这张表里碰巧不重复的列，不一定是业务键；业务键来自一行代表什么，而不是来自这次的数据。
+        - 冲突不能让程序悄悄留一条，要按事先定好的规则处理，或去问负责数据的人。
+      example:
+        from: py25.k1.e0
+        text: |
+          ```python
+          full = df.duplicated()
+          by_key = df.duplicated(subset=["sample_id", "day"])
+          ```
+          表 M 里，`full` 只标出与索引 31 整行相同的索引 4；`by_key` 还标出了索引 15：它和索引 7 是 S_B 同一天的测量，signal 却一个是 10、一个是 11，这是冲突。
+    lesson: |
+      说“去重”之前，先问一行代表什么。表 M 的一行是“一个样本在某一天的一次测量”，并且约定每个样本每天只测一次。所以要认出“同一条记录”，看的是 sample_id 和 day 两列合起来：这两列都相同，说的就是同一个样本同一天的那次测量。这样一组列叫**业务键**。
+
+      按业务键看表 M，有三种情况：
+
+      | 原行索引 | sample_id | day | signal | 和前面的行比 |
+      |---:|---|---:|---:|---|
+      | 31 | S_A | 1 | 8 | 第一次出现 |
+      | 7 | S_B | 1 | 10 | 第一次出现 |
+      | 22 | S_A | 2 | 9 | 同一个样本的第 2 天：不是重复 |
+      | 4 | S_A | 1 | 8 | 与 31 整行相同：多半是录了两遍 |
+      | 15 | S_B | 1 | 11 | 与 7 业务键相同、signal 不同：**冲突** |
+
+      整行相同的两行，去掉一行不丢信息。冲突不一样：10 和 11 至少有一个不对，留哪个是业务上的决定，要按事先说好的规则处理，或者去问负责数据的人，不能让程序悄悄留下一条。
+
+      pandas 用 `duplicated` 方法标出重复。它对每一行回答：“这一行是不是和前面某一行重复？”结果是一列 True/False，与原表的行一一对应，索引不变；第一次出现的那行是 False，后面重复的是 True。
+
+      ```python
+      full = df.duplicated()
+      by_key = df.duplicated(subset=["sample_id", "day"])
+      ```
+
+      不写 `subset` 时，每一列都相同才算重复，所以 `full` 只标出索引 4，认不出冲突的索引 15。`subset=` 后面写一个列名列表，就只比较这几列：`by_key` 把 4 和 15 都标了出来。
+
+      还要注意：某几列在**这张表里**碰巧没有重复，不等于它们是业务键。比如某张表的 signal 恰好各不相同，下一批数据里两个样本完全可能测出同一个值。业务键来自“一行代表什么”，不来自这一次的数据。
+    example:
+      id: py25.k1.e0
+      kind: [predict]
+      data: [M]
+      body: |
+        阅读代码，按原行索引填写 `full` 和 `by_key` 的值，再回答索引 15 属于哪种情况。
+
+        ```python
+        full = df.duplicated()
+        by_key = df.duplicated(subset=["sample_id", "day"])
+        ```
+      slots:
+        - id: marks
+          type: table
+          columns:
+            - { id: index, header: 原行索引 }
+            - { id: sample_id, header: sample_id }
+            - { id: day, header: day }
+            - { id: signal, header: signal }
+            - { id: full, header: full, input: bool }
+            - { id: by_key, header: by_key, input: bool }
+          rows:
+            - { id: r31, cells: { index: "31", sample_id: S_A, day: "1", signal: "8", full: false, by_key: false } }
+            - { id: r7, cells: { index: "7", sample_id: S_B, day: "1", signal: "10", full: false, by_key: false } }
+            - { id: r22, cells: { index: "22", sample_id: S_A, day: "2", signal: "9", full: false, by_key: false } }
+            - { id: r4, cells: { index: "4", sample_id: S_A, day: "1", signal: "8", full: true, by_key: true } }
+            - { id: r15, cells: { index: "15", sample_id: S_B, day: "1", signal: "11", full: false, by_key: true } }
+        - id: kind
+          type: choice
+          prompt: 索引 15 被 `by_key` 标成 True，`full` 却是 False。它和前面的索引 7 是什么关系？
+          options:
+            - id: double
+              content: 两行整行相同，录了两遍
+              feedback: 两行的 signal 一个是 10、一个是 11，并不完全相同。
+            - id: conflict
+              content: 同一个样本同一天的测量，signal 不同，是冲突
+            - id: other_day
+              content: 同一个样本不同天的测量，不是重复
+              feedback: 两行的 day 都是 1。
+          key: conflict
+      explanation: |
+        | 原行索引 | full | by_key |
+        |---:|---|---|
+        | 31 | False | False |
+        | 7 | False | False |
+        | 22 | False | False |
+        | 4 | **True** | **True** |
+        | 15 | False | **True** |
+
+        索引 4 与 31 每一列都相同，两种写法都标出它。索引 15 与 7 的 sample_id、day 相同，signal 不同：整行比较时它不算重复，按业务键比较时它是同一条记录的第二次出现，所以是**冲突**。索引 22 是 S_A 的第 2 天，按业务键也不重复。第一次出现的行（31、7）都是 False。
+      verify: |
+        r = run()
+        full, by_key = r["full"], r["by_key"]
+        rows = list(zip(df.index, df["sample_id"], df["day"], df["signal"]))
+        # 找出索引 15 之前与它业务键相同的行，再看测量值是否相同。
+        position = [label for label, *_ in rows].index(15)
+        _, sample, day, signal = rows[position]
+        same_key = [row for row in rows[:position] if (row[1], row[2]) == (sample, day)]
+        kind = "other_day" if not same_key else "double" if any(row[3] == signal for row in same_key) else "conflict"
+        answers = {
+            "marks": {f"r{label}": {"full": full[label], "by_key": by_key[label]} for label in df.index},
+            "kind": kind,
+        }
+    practice:
+      - id: py25.k1.q1
+        kind: [predict, explain]
+        uses: [py14.k1, py06.k1]
+        data: [M]
+        body: |
+          有人只按样本编号去找重复。阅读代码，按原行索引填写 `marks` 的值，再判断这样做是否合适。
+
+          ```python
+          marks = df.duplicated(subset=["sample_id"])
+          ```
+        slots:
+          - id: marks
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: sample_id, header: sample_id }
+              - { id: day, header: day }
+              - { id: marks, header: marks, input: bool }
+            rows:
+              - { id: r31, cells: { index: "31", sample_id: S_A, day: "1", marks: false } }
+              - { id: r7, cells: { index: "7", sample_id: S_B, day: "1", marks: false } }
+              - { id: r22, cells: { index: "22", sample_id: S_A, day: "2", marks: true } }
+              - { id: r4, cells: { index: "4", sample_id: S_A, day: "1", marks: true } }
+              - { id: r15, cells: { index: "15", sample_id: S_B, day: "1", marks: true } }
+          - id: fit
+            type: choice
+            prompt: 表 M 的一行代表某个样本某一天的一次测量。只按 sample_id 找重复，合适吗？
+            options:
+              - id: too_wide
+                content: 不合适：索引 22 是 S_A 第 2 天的正常测量，也被当成了重复
+              - id: fits
+                content: 合适：同一个样本只应该有一行
+                feedback: 每个样本每天测一次，同一个样本可以有好几天的记录。
+            key: too_wide
+        explanation: |
+          依次为 **False、False、True、True、True**。只比较 sample_id 时，S_A 第二、三次出现（22、4）和 S_B 第二次出现（15）都是 True。
+
+          这**不合适**：索引 22 是 S_A 第 2 天的测量，按“一行代表某样本某天”它是一条新记录，却被当成了重复。只看 sample_id 认重复的范围太宽了，业务键要包括 day。
+        verify: |
+          marks = run()["marks"]
+          rows = list(zip(df.index, df["sample_id"], df["day"]))
+          # 被标出的行里，若有一行的 (sample_id, day) 此前没出现过，就是把新记录当成了重复。
+          wrongly = [label for position, (label, sample, day) in enumerate(rows)
+                     if marks[label] and (sample, day) not in [(s, d) for _, s, d in rows[:position]]]
+          answers = {
+              "marks": {f"r{label}": {"marks": value} for label, value in marks.items()},
+              "fit": "too_wide" if wrongly else "fits",
+          }
+      - id: py25.k1.q2
+        kind: [predict]
+        uses: [py14.k1]
+        data: [M2]
+        body: |
+          这份记录也约定每个样本每天只测一次，行的先后就是录入的先后。从上往下看，按 sample_id 和 day 判断，给每一行选一种情况。
+        slots:
+          - id: kinds
+            type: table
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: sample_id, header: sample_id }
+              - { id: day, header: day }
+              - { id: signal, header: signal }
+              - id: kind
+                header: 情况
+                input:
+                  type: choice
+                  options:
+                    - { id: new, label: 新记录（这个样本这一天第一次出现） }
+                    - { id: double, label: 与前面某行整行相同 }
+                    - { id: conflict, label: 与前面某行业务键相同、signal 不同 }
+            rows:
+              - { id: r12, cells: { index: "12", sample_id: S_C, day: "1", signal: "7", kind: new } }
+              - { id: r3, cells: { index: "3", sample_id: S_D, day: "1", signal: "12", kind: new } }
+              - { id: r40, cells: { index: "40", sample_id: S_C, day: "1", signal: "7", kind: double } }
+              - { id: r8, cells: { index: "8", sample_id: S_D, day: "2", signal: "12", kind: new } }
+              - { id: r21, cells: { index: "21", sample_id: S_C, day: "2", signal: "6", kind: new } }
+              - { id: r5, cells: { index: "5", sample_id: S_D, day: "1", signal: "13", kind: conflict } }
+        explanation: |
+          | 原行索引 | 情况 |
+          |---:|---|
+          | 12 | 新记录 |
+          | 3 | 新记录 |
+          | 40 | 与 12 整行相同 |
+          | 8 | 新记录 |
+          | 21 | 新记录 |
+          | 5 | 与 3 业务键相同、signal 不同（冲突） |
+
+          容易看错的是索引 8：它的 sample_id 和 signal 都与索引 3 一样，但 day 是 2，是 S_D 第 2 天的测量，属于新记录。测量值碰巧相同不说明是同一条记录。
+        verify: |
+          rows = list(zip(df.index, df["sample_id"], df["day"], df["signal"]))
+          kinds = {}
+          for position, (label, sample, day, signal) in enumerate(rows):
+              before = rows[:position]
+              if any(row[1:] == (sample, day, signal) for row in before):
+                  kind = "double"
+              elif any(row[1:3] == (sample, day) for row in before):
+                  kind = "conflict"
+              else:
+                  kind = "new"
+              kinds[f"r{label}"] = {"kind": kind}
+          answers = {"kinds": kinds}
+      - id: py25.k1.q3
+        kind: [specify]
+        uses: [py12.k1]
+        data: [mice]
+        body: |
+          表 mice 的一行代表“一只小鼠在某一周的一次称重”，约定每只小鼠每周称一次。
+
+          “按 `subset` 里的列找不出重复”意思是：`mice.duplicated(subset=…)` 每一行都是 False。
+        slots:
+          - id: unique
+            type: choice
+            multiple: true
+            prompt: 在**这张表**里，按下面哪些列组合找，都找不出重复？选出所有符合的。
+            options:
+              - { id: id_only, content: "`mouse_id`" }
+              - { id: week_only, content: "`week`" }
+              - { id: weight_only, content: "`weight`" }
+              - { id: id_week, content: "`mouse_id` 和 `week`" }
+            key: [weight_only, id_week]
+          - id: key
+            type: choice
+            prompt: 按一行代表什么，哪一组才是这张表的业务键？
+            options:
+              - { id: id_only, content: "`mouse_id`" }
+              - { id: week_only, content: "`week`" }
+              - { id: weight_only, content: "`weight`" }
+              - { id: id_week, content: "`mouse_id` 和 `week`" }
+            key: id_week
+        explanation: |
+          在这张表里，**weight** 一列和 **mouse_id 加 week** 都找不出重复；mouse_id、week 单独看都有重复。
+
+          但业务键是 **mouse_id 和 week**：一行代表“某只小鼠某一周”，这两列合起来才说明是哪一次称重。weight 碰巧各不相同，再称一周，两只小鼠完全可能一样重；拿它当业务键，会把同一只小鼠同一周录了两次、体重又不同的冲突当成两条不同的记录。
+        verify: |
+          columns = {"id_only": ["mouse_id"], "week_only": ["week"], "weight_only": ["weight"], "id_week": ["mouse_id", "week"]}
+          # 一组列的取值组合个数等于行数，就说明按这组列找不出重复。
+          unique = [option for option, names in columns.items()
+                    if len(set(zip(*[list(mice[name]) for name in names]))) == len(mice)]
+          answers = {"unique": unique}
+        manual: [key]
+    review:
+      - id: py25.k1.r1
+        kind: [predict]
+        uses: [py14.k1, py06.k1]
+        data: [plots]
+        body: |
+          表 plots 的一行代表“一个采样点在某一年的一次株高测量”，约定每个采样点每年只测一次。
+
+          ```python
+          full = plots.duplicated()
+          by_key = plots.duplicated(subset=["site", "year"])
+          ```
+        slots:
+          - id: full_true
+            type: text
+            format: integer
+            prompt: "`full` 里有几个 True？"
+            key: 0
+          - id: key_true
+            type: text
+            format: integer
+            prompt: "`by_key` 里有几个 True？"
+            key: 1
+          - id: row
+            type: choice
+            prompt: "`by_key` 标为 True 的是哪一行（原行索引）？"
+            options:
+              - { id: "5", content: "5" }
+              - { id: "12", content: "12" }
+              - { id: "3", content: "3" }
+              - { id: "8", content: "8" }
+              - { id: "20", content: "20" }
+            key: "8"
+          - id: relation
+            type: choice
+            prompt: 这一行和前面与它业务键相同的那一行是什么关系？
+            options:
+              - { id: other_year, content: 同一个采样点的不同年份，不是重复 }
+              - { id: double, content: 整行相同，录了两遍 }
+              - { id: conflict, content: 同一个采样点同一年，株高不同，是冲突 }
+            key: conflict
+        explanation: |
+          `full` 有 **0** 个 True：五行里没有两行每一列都相同。`by_key` 有 **1** 个 True，是索引 **8**：它和索引 5 都是北坡 2024 年，株高一个 31、一个 35，是**冲突**。
+
+          索引 20 和 12 的株高都是 28，但年份不同，是两条不同的记录，两种写法都不标它。
+        verify: |
+          r = run()
+          full, by_key = r["full"], r["by_key"]
+          flagged = [label for label in plots.index if by_key[label]]
+          rows = list(zip(plots.index, plots["site"], plots["year"], plots["height"]))
+          labels = [row[0] for row in rows]
+          relation = []
+          for label in flagged:
+              position = labels.index(label)
+              _, site, year, height = rows[position]
+              same_key = [row for row in rows[:position] if row[1:3] == (site, year)]
+              relation.append("double" if any(row[3] == height for row in same_key) else "conflict")
+          answers = {
+              "full_true": sum(bool(full[label]) for label in plots.index),
+              "key_true": len(flagged),
+              "row": str(flagged[0]) if len(flagged) == 1 else flagged,
+              "relation": relation[0] if len(relation) == 1 else relation,
+          }
+      - id: py25.k1.r2
+        kind: [explain]
+        uses: [py12.k1, py14.k1]
+        data: [water]
+        body: |
+          表 water 的一行代表“一个采样点在某一天的一次浊度测量”，约定每个采样点每天只测一次。同事检查之后说：
+
+          > `water.duplicated()` 全是 False，所以这张表里没有重复记录。
+        slots:
+          - id: claim
+            type: choice
+            prompt: 这个结论对吗？
+            options:
+              - id: right
+                content: 对：没有两行完全相同，就说明没有重复记录
+              - id: same_value
+                content: 不对：有两行浊度相同，它们是同一条记录录了两遍
+                feedback: 浊度都是 30 的两行日期不同，是两条不同的记录。
+              - id: conflict
+                content: 不对：有两行是同一个采样点同一天的测量，只是浊度不同
+            key: conflict
+          - id: rows
+            type: order
+            partial: true
+            prompt: 属于同一条记录的是哪几行？按原表里的先后排出原行索引。
+            items:
+              - { id: "2", content: "2" }
+              - { id: "9", content: "9" }
+              - { id: "4", content: "4" }
+              - { id: "7", content: "7" }
+            key: ["2", "4"]
+        explanation: |
+          结论**不对**。不写 `subset` 的 `duplicated()` 只认整行相同；索引 **2 和 4** 都是 W1 在 10-01 的测量，浊度一个 12、一个 15，整行不同，却是同一条记录，属于冲突。要用 `water.duplicated(subset=["site", "date"])` 才查得出来。
+
+          索引 9 和 7 的浊度都是 30，但日期不同，是两条不同的记录。
+        verify: |
+          rows = list(zip(water.index, water["site"], water["date"], water["turbidity"]))
+          groups = {}
+          for label, site, date, value in rows:
+              groups.setdefault((site, date), []).append((label, value))
+          repeated = [group for group in groups.values() if len(group) > 1]
+          # 测量值相同的两行，是否属于同一个业务键。
+          same_value_same_key = any(
+              a[3] == b[3] and a[1:3] == b[1:3] for i, a in enumerate(rows) for b in rows[i + 1:])
+          holds = {
+              "right": not repeated,
+              "same_value": same_value_same_key,
+              "conflict": any(len({value for _, value in group}) > 1 for group in repeated),
+          }
+          true = [claim for claim, ok in holds.items() if ok]
+          answers = {
+              "claim": true[0] if len(true) == 1 else true,
+              "rows": [str(label) for group in repeated for label, _ in group],
+          }
+    quiz:
+      - id: py25.k1.x1
+        kind: [predict]
+        uses: [py14.k1, py06.k1]
+        data: [survey]
+        body: |
+          表 survey 的一行代表“一位受访者在某一轮问卷里的一次作答”，约定每人每轮只答一次。阅读代码。
+
+          ```python
+          full = survey.duplicated()
+          by_key = survey.duplicated(subset=["respondent", "wave"])
+          ```
+        slots:
+          - id: full_rows
+            type: order
+            partial: true
+            prompt: "`full` 为 True 的行有哪些？按原表里的先后排出原行索引。"
+            items:
+              - { id: "14", content: "14" }
+              - { id: "6", content: "6" }
+              - { id: "30", content: "30" }
+              - { id: "2", content: "2" }
+              - { id: "11", content: "11" }
+              - { id: "25", content: "25" }
+            key: ["2"]
+          - id: key_rows
+            type: order
+            partial: true
+            prompt: "`by_key` 为 True 的行有哪些？按原表里的先后排出原行索引。"
+            items:
+              - { id: "14", content: "14" }
+              - { id: "6", content: "6" }
+              - { id: "30", content: "30" }
+              - { id: "2", content: "2" }
+              - { id: "11", content: "11" }
+              - { id: "25", content: "25" }
+            key: ["2", "11"]
+          - id: extra
+            type: choice
+            prompt: "`by_key` 比 `full` 多标出的那一行，属于哪种情况？"
+            options:
+              - { id: double, content: 与前面某行整行相同，录了两遍 }
+              - { id: other_wave, content: 同一位受访者另一轮的作答，不是重复 }
+              - { id: conflict, content: 同一位受访者同一轮的作答，分数不同，是冲突 }
+            key: conflict
+        explanation: |
+          `full` 只有索引 **2**：它与索引 6 每一列都相同（R2、第 1 轮、5 分）。`by_key` 有索引 **2、11**：11 是 R1 第 1 轮，与索引 14 业务键相同，分数一个 4、一个 2，是**冲突**。
+
+          索引 30 是 R1 的第 2 轮，不是重复；索引 25 的分数与 14 相同，但它是另一位受访者，也不是重复。
+        verify: |
+          r = run()
+          full, by_key = r["full"], r["by_key"]
+          full_rows = [label for label in survey.index if full[label]]
+          key_rows = [label for label in survey.index if by_key[label]]
+          rows = list(zip(survey.index, survey["respondent"], survey["wave"], survey["score"]))
+          labels = [row[0] for row in rows]
+          kinds = []
+          for label in key_rows:
+              if label in full_rows:
+                  continue
+              position = labels.index(label)
+              _, person, wave, score = rows[position]
+              same_key = [row for row in rows[:position] if row[1:3] == (person, wave)]
+              kinds.append("double" if any(row[3] == score for row in same_key) else "conflict")
+          answers = {
+              "full_rows": [str(label) for label in full_rows],
+              "key_rows": [str(label) for label in key_rows],
+              "extra": kinds[0] if len(kinds) == 1 else kinds,
+          }
+      - id: py25.k1.x2
+        kind: [specify, predict]
+        uses: [py12.k1, py14.k1]
+        data: [temps]
+        body: |
+          表 temps 的一行代表“一个采样点在某一天的一次水温记录”，约定每个采样点每天只记一次。这张表里 temp 一列碰巧各不相同。
+        slots:
+          - id: key
+            type: choice
+            prompt: 判断两行是不是同一条记录，应该按哪一组列？
+            options:
+              - { id: temp, content: "`temp`" }
+              - { id: site_temp, content: "`site` 和 `temp`" }
+              - { id: site_day, content: "`site` 和 `day`" }
+              - { id: site, content: "`site`" }
+            key: site_day
+          - id: count
+            type: text
+            format: integer
+            prompt: 运行 `temps.duplicated(subset=["site", "day"])`，结果里有几个 True？
+            key: 1
+          - id: row
+            type: choice
+            prompt: 那个 True 在哪一行（原行索引）？
+            options:
+              - { id: "3", content: "3" }
+              - { id: "9", content: "9" }
+              - { id: "14", content: "14" }
+              - { id: "6", content: "6" }
+              - { id: "11", content: "11" }
+            key: "11"
+        explanation: |
+          按 **site 和 day**：一行代表“某采样点某一天”，这两列合起来才说明是哪一次记录。temp 碰巧各不相同，换一批数据就可能有两天水温一样；按 temp 或 site 加 temp 找，会把同一天记了两次、读数又不同的情况漏掉。
+
+          按 site 和 day 找，有 **1** 个 True，在索引 **11**：它和索引 3 都是河口第 1 天，水温一个 18、一个 20，是冲突，要交人核对。
+        verify: |
+          marks = run("marks = temps.duplicated(subset=['site', 'day'])")["marks"]
+          seen = set()
+          repeated = []
+          for label, site, day in zip(temps.index, temps["site"], temps["day"]):
+              if (site, day) in seen:
+                  repeated.append(label)
+              seen.add((site, day))
+          assert repeated == [label for label in temps.index if marks[label]]
+          answers = {"count": len(repeated), "row": str(repeated[0]) if len(repeated) == 1 else repeated}
+        manual: [key]
+
   - id: py25.k2
     title: duplicated/drop_duplicates 的 subset、keep 规则
+    card:
+      name: keep 规则
+      aliases: [drop_duplicates, 去重, keep=False]
+      definition: duplicated 按 subset 里的列认重复，keep 决定哪一次不算重复："first" 留第一次，"last" 留最后一次，False 一次都不留；drop_duplicates 去掉标为 True 的行。
+      conditions:
+        - drop_duplicates 返回新表，保留原顺序和原索引；不赋值给原来的名字，df 不变。
+        - “第一次”“最后一次”按表里行的先后算；行的先后就是录入先后时，keep="last" 才是“留最后录入的”。
+        - keep=False 把出现不止一次的每一行都标出来，适合把冲突全部找出来交人核对。
+      example:
+        from: py25.k2.e0
+        text: |
+          ```python
+          result = df.drop_duplicates(subset=["sample_id", "day"], keep="last")
+          ```
+          表 M 里，S_A 第 1 天留下最后录入的索引 4，S_B 第 1 天留下索引 15，加上 S_A 第 2 天的索引 22：结果是 22、4、15 三行，df 仍是 5 行。
+    lesson: |
+      `duplicated` 还有一个关键字参数 `keep`，决定一组重复里**哪一次不算重复**。表 M 按业务键 `["sample_id", "day"]` 看，S_A 第 1 天出现在 31、4，S_B 第 1 天出现在 7、15：
+
+      | 原行索引 | `keep="first"`（缺省） | `keep="last"` | `keep=False` |
+      |---:|---|---|---|
+      | 31 | False | True | True |
+      | 7 | False | True | True |
+      | 22 | False | False | False |
+      | 4 | True | False | True |
+      | 15 | True | False | True |
+
+      - `"first"`：第一次出现的不算重复，后面的标 True。不写 `keep` 就是这一种。
+      - `"last"`：最后一次出现的不算重复，前面的标 True。
+      - `False`（不加引号）：一次都不留，凡是出现不止一次的全部标 True。想把冲突全部找出来交人核对，用它。
+
+      “第一次”“最后一次”按表里行的先后算。只有行的先后就是录入的先后时，`keep="last"` 才等于“留最后录入的那条”。
+
+      `drop_duplicates` 接受同样的 `subset` 和 `keep`，去掉会被标为 True 的行，留下其余的行：
+
+      ```python
+      result = df.drop_duplicates(subset=["sample_id", "day"], keep="last")
+      ```
+
+      结果留下 22、4、15 三行。留下的行保持原表里的先后和原索引，不会重新编号；结果是一张新表，要赋给一个名字，`df` 自己不变，仍是 5 行。结果的行数等于原表行数减去被标为 True 的行数。
+    example:
+      id: py25.k2.e0
+      kind: [predict]
+      data: [M]
+      body: |
+        负责人说：同一个样本同一天出现不止一次时，留最后录入的那一条。阅读代码，说出 `result` 的样子。
+
+        ```python
+        result = df.drop_duplicates(subset=["sample_id", "day"], keep="last")
+        ```
+      slots:
+        - id: rows
+          type: order
+          partial: true
+          prompt: "`result` 留下了哪些行？按结果里的先后顺序排出原行索引，没留下的不要放进来。"
+          items:
+            - { id: "31", content: "31" }
+            - { id: "7", content: "7" }
+            - { id: "22", content: "22" }
+            - { id: "4", content: "4" }
+            - { id: "15", content: "15" }
+          key: ["22", "4", "15"]
+        - id: nrows
+          type: text
+          format: integer
+          prompt: "`len(result)` 是多少？"
+          key: 3
+        - id: cell
+          type: text
+          format: integer
+          prompt: 结果里 S_B 第 1 天那一行的 signal 是多少？
+          key: 11
+        - id: df_rows
+          type: text
+          format: integer
+          prompt: 运行之后，`len(df)` 是多少？
+          key: 5
+      explanation: |
+        | 原行索引 | sample_id | day | signal |
+        |---:|---|---:|---:|
+        | 22 | S_A | 2 | 9 |
+        | 4 | S_A | 1 | 8 |
+        | 15 | S_B | 1 | 11 |
+
+        S_A 第 1 天出现在 31、4，留最后的 **4**；S_B 第 1 天出现在 7、15，留最后的 **15**；S_A 第 2 天只有 22，照样留下。结果按原表的先后排成 **22、4、15**，共 **3** 行，索引不重新编号；S_B 第 1 天留下的 signal 是 **11**。
+
+        `drop_duplicates` 返回新表，`df` 仍是 **5** 行。注意 keep="last" 只是按事先定好的规则挑了一条：10 和 11 哪个对，规则本身并不知道。
+      verify: |
+        r = run()
+        result = r["result"]
+        position = [(s, d) for s, d in zip(result["sample_id"], result["day"])].index(("S_B", 1))
+        answers = {
+            "rows": [str(label) for label in result.index],
+            "nrows": len(result),
+            "cell": list(result["signal"])[position],
+            "df_rows": len(r["df"]),
+        }
+    practice:
+      - id: py25.k2.q1
+        kind: [predict]
+        uses: [py14.k1, py06.k1]
+        data: [M2]
+        body: |
+          阅读代码，分别说出 `a` 和 `b` 留下了哪些行。
+
+          ```python
+          a = df.drop_duplicates(subset=["sample_id", "day"])
+          b = df.drop_duplicates(subset=["sample_id", "day"], keep=False)
+          ```
+        slots:
+          - id: a_rows
+            type: order
+            partial: true
+            prompt: "`a` 留下的行，按先后顺序排出原行索引。"
+            items:
+              - { id: "12", content: "12" }
+              - { id: "3", content: "3" }
+              - { id: "40", content: "40" }
+              - { id: "8", content: "8" }
+              - { id: "21", content: "21" }
+              - { id: "5", content: "5" }
+            key: ["12", "3", "8", "21"]
+          - id: b_rows
+            type: order
+            partial: true
+            prompt: "`b` 留下的行，按先后顺序排出原行索引。"
+            items:
+              - { id: "12", content: "12" }
+              - { id: "3", content: "3" }
+              - { id: "40", content: "40" }
+              - { id: "8", content: "8" }
+              - { id: "21", content: "21" }
+              - { id: "5", content: "5" }
+            key: ["8", "21"]
+        explanation: |
+          `a` 用缺省的 keep="first"：S_C 第 1 天出现在 12、40，留 12；S_D 第 1 天出现在 3、5，留 3。结果是 **12、3、8、21**。
+
+          `b` 用 keep=False：出现不止一次的业务键，每一行都去掉，12、40、3、5 全没了，只剩 **8、21**。S_C 和 S_D 的第 1 天在 `b` 里一条记录都不剩，所以 keep=False 适合用 `duplicated` 把冲突找出来看，直接拿去 `drop_duplicates` 会把这两天的数据整个丢掉。
+        verify: |
+          r = run()
+          answers = {
+              "a_rows": [str(label) for label in r["a"].index],
+              "b_rows": [str(label) for label in r["b"].index],
+          }
+      - id: py25.k2.q2
+        kind: [modify]
+        uses: [py04.k2, py06.k1]
+        data: [M]
+        body: |
+          需求是：
+
+          > 每个样本每天只留一条记录：同一个 sample_id 和 day 出现不止一次时，留最后录入的那一条（行的先后就是录入的先后）。保留原顺序和原索引，不改变 `df`。
+
+          同事写的代码在作答框里。请改动它并提交，最终结果变量仍叫 `result`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              result = df.drop_duplicates()
+            solution: |
+              result = df.drop_duplicates(subset=["sample_id", "day"], keep="last")
+            accepts:
+              - result = df.drop_duplicates(subset=["day", "sample_id"], keep="last")
+              - result = df.drop_duplicates(["sample_id", "day"], keep="last")
+            rejects:
+              - code: result = df.drop_duplicates(subset=["sample_id", "day"])
+                why: 没写 keep，留下的是第一次录入的那条
+              - code: result = df.drop_duplicates(keep="last")
+                why: 没写 subset，只去掉了整行相同的行，冲突还在
+              - code: result = df.drop_duplicates(subset=["sample_id"], keep="last")
+                why: 只按 sample_id 去重，同一个样本不同天的记录也被去掉了
+              - code: result = df.drop_duplicates(subset=["sample_id", "day"], keep=False)
+                why: keep=False 把有重复的记录全部去掉了
+              - code: result = df.drop_duplicates(subset=["sample_id", "day"], keep="last", ignore_index=True)
+                why: 把索引重新编号成 0、1、2
+              - code: |
+                  df = df.drop_duplicates(subset=["sample_id", "day"], keep="last")
+                  result = df
+                why: 把 df 换成了去重后的表
+            tests:
+              - name: 表 M
+                expect:
+                  result: df.loc[[22, 4, 15]]
+                  df: df
+              - name: 换一张有整行重复和冲突的表
+                hidden: true
+                data: [M2]
+                expect:
+                  result: df.loc[[40, 8, 21, 5]]
+                  df: df
+              - name: 换一张没有重复的表
+                hidden: true
+                data: [M3]
+                expect:
+                  result: df
+                  df: df
+        explanation: |
+          ```python
+          result = df.drop_duplicates(subset=["sample_id", "day"], keep="last")
+          ```
+
+          要补两处：`subset=["sample_id", "day"]` 按业务键认同一条记录，不写的话只去掉整行相同的行，S_B 第 1 天的两个值都会留下；`keep="last"` 留最后录入的那条，不写就留第一条。本例结果是索引 22、4、15 三行。判分时还会换两张表运行你的代码，并检查 `df` 没有被改变。
+      - id: py25.k2.q3
+        kind: [specify]
+        uses: [py12.k1, py12.k2]
+        data: [M]
+        body: |
+          负责人看到表 M 后说：
+
+          > S_B 第 1 天录了两个不同的值，我不知道哪个对。凡是同一个样本同一天出现不止一次的记录，全部列出来给我核对，我来决定留哪条。
+
+          用 `df.duplicated(subset=…, keep=…)` 标出这些行。
+        slots:
+          - id: subset
+            type: choice
+            prompt: "`subset` 写哪些列？"
+            options:
+              - { id: all, content: 不写，比较全部列 }
+              - { id: key, content: '`["sample_id", "day"]`' }
+              - { id: id, content: '`["sample_id"]`' }
+            key: key
+          - id: keep
+            type: choice
+            prompt: "`keep` 取哪个值？"
+            options:
+              - { id: first, content: '`"first"`' }
+              - { id: last, content: '`"last"`' }
+              - { id: none, content: "`False`" }
+            key: none
+          - id: count
+            type: text
+            format: integer
+            prompt: 这样会标出几行？
+            key: 4
+          - id: action
+            type: choice
+            prompt: 标出这些行之后，下一步交给负责人的是什么？
+            options:
+              - { id: drop, content: 用 drop_duplicates 把这些行去掉后的表 }
+              - { id: list, content: 被标出的这些行本身，原样交给负责人 }
+              - { id: pick, content: 每组里 signal 较大的那一行 }
+            key: list
+        explanation: |
+          `subset=["sample_id", "day"]`，`keep=False`，标出 **4** 行：31、7、4、15。
+
+          keep=False 才会把第一次出现的那行也标出来，负责人才能看到同一组的全部候选值；"first" 或 "last" 都会让其中一行显得“没有问题”。标出来之后交给负责人的是这些行本身：去掉它们会让 S_A、S_B 第 1 天的数据整个消失，挑 signal 较大的则是替负责人做了决定。
+
+          31 和 4 整行相同，也会被列出来，核对时一眼就能看出它们只是录了两遍。
+        verify: |
+          # 按需求独立算出要列出的行：(sample_id, day) 出现不止一次的每一行。
+          keys = list(zip(df["sample_id"], df["day"]))
+          target = [label for label, key in zip(df.index, keys) if keys.count(key) > 1]
+          def flagged(subset, keep):
+              marks = df.duplicated(subset=subset, keep=keep)
+              return [label for label in df.index if marks[label]]
+          subsets = {"all": None, "key": ["sample_id", "day"], "id": ["sample_id"]}
+          keeps = {"first": "first", "last": "last", "none": False}
+          fit_subset = [option for option, names in subsets.items() if flagged(names, False) == target]
+          fit_keep = [option for option, keep in keeps.items() if flagged(["sample_id", "day"], keep) == target]
+          answers = {
+              "subset": fit_subset[0] if len(fit_subset) == 1 else fit_subset,
+              "keep": fit_keep[0] if len(fit_keep) == 1 else fit_keep,
+              "count": len(target),
+          }
+        manual: [action]
+    review:
+      - id: py25.k2.r1
+        kind: [specify, predict]
+        uses: [py14.k1, py06.k1]
+        data: [plots]
+        body: |
+          表 plots 约定每个采样点每年只测一次，行的先后就是录入的先后。要求是：同一个采样点同一年出现不止一次时，留最后录入的那一条。
+        slots:
+          - id: code
+            type: choice
+            prompt: 哪一行代码符合要求？
+            options:
+              - id: first
+                content: |
+                  ```python
+                  result = plots.drop_duplicates(subset=["site", "year"])
+                  ```
+              - id: whole
+                content: |
+                  ```python
+                  result = plots.drop_duplicates(keep="last")
+                  ```
+              - id: right
+                content: |
+                  ```python
+                  result = plots.drop_duplicates(subset=["site", "year"], keep="last")
+                  ```
+              - id: site
+                content: |
+                  ```python
+                  result = plots.drop_duplicates(subset=["site"], keep="last")
+                  ```
+            key: right
+          - id: nrows
+            type: text
+            format: integer
+            prompt: 用符合要求的那行代码，`result` 有几行？
+            key: 4
+        explanation: |
+          `subset=["site", "year"], keep="last"` 的那一行符合要求，结果留下 12、3、8、20 共 **4** 行：北坡 2024 年出现在 5、8，留最后录入的 8。
+
+          不写 keep 的留下了第一次录入的 5；不写 subset 的只看整行，这张表没有整行相同的行，什么也没去掉；只按 site 去重，把不同年份的测量也去掉了，只剩每个采样点最后一行。
+        verify: |
+          labels = list(plots.index)
+          keys = list(zip(plots["site"], plots["year"]))
+          # 每个 (site, year) 最后一次出现的位置，按原顺序排列。
+          last = {key: position for position, key in enumerate(keys)}
+          target = [labels[position] for position in sorted(last.values())]
+          fits = [option for option, code in OPTIONS["code"].items() if list(run(code)["result"].index) == target]
+          answers = {"code": fits[0] if len(fits) == 1 else fits, "nrows": len(target)}
+      - id: py25.k2.r2
+        kind: [predict]
+        uses: [py14.k1, py06.k1]
+        data: [traps]
+        body: |
+          表 traps 的一行代表“一盏诱虫灯某一晚的一次计数”，约定每盏灯每晚只数一次。阅读代码。
+
+          ```python
+          flags = traps.duplicated(subset=["trap", "night"], keep=False)
+          kept = traps.drop_duplicates(subset=["trap", "night"], keep=False)
+          ```
+        slots:
+          - id: flags
+            type: table
+            prompt: 按原行索引填写 `flags` 的值。
+            columns:
+              - { id: index, header: 原行索引 }
+              - { id: trap, header: trap }
+              - { id: night, header: night }
+              - { id: moths, header: moths }
+              - { id: flag, header: flags, input: bool }
+            rows:
+              - { id: r6, cells: { index: "6", trap: T1, night: "1", moths: "14", flag: true } }
+              - { id: r2, cells: { index: "2", trap: T2, night: "1", moths: "9", flag: false } }
+              - { id: r9, cells: { index: "9", trap: T1, night: "1", moths: "17", flag: true } }
+              - { id: r4, cells: { index: "4", trap: T2, night: "2", moths: "9", flag: false } }
+              - { id: r11, cells: { index: "11", trap: T1, night: "2", moths: "12", flag: false } }
+          - id: nrows
+            type: text
+            format: integer
+            prompt: "`len(kept)` 是多少？"
+            key: 3
+          - id: left
+            type: choice
+            prompt: "`kept` 里还有 T1 第 1 晚的记录吗？"
+            options:
+              - { id: "yes", content: 有，留下了其中一条 }
+              - { id: "no", content: 没有，两条都被去掉了 }
+            key: "no"
+        explanation: |
+          `flags` 依次为 **True、False、True、False、False**：T1 第 1 晚出现在 6、9 两行（14 和 17），keep=False 把两行都标出来。索引 2 和 4 的蛾子数都是 9，但晚上不同，不是重复。
+
+          `kept` 去掉了 6、9，剩 **3** 行，T1 第 1 晚**一条记录都没有了**。这就是 keep=False 用在 drop_duplicates 上的代价：冲突的数据被整组丢掉，而不是交人核对。
+        verify: |
+          r = run()
+          flags, kept = r["flags"], r["kept"]
+          answers = {
+              "flags": {f"r{label}": {"flag": flags[label]} for label in traps.index},
+              "nrows": len(kept),
+              "left": "yes" if ("T1", 1) in list(zip(kept["trap"], kept["night"])) else "no",
+          }
+    quiz:
+      - id: py25.k2.x1
+        kind: [predict]
+        uses: [py14.k1, py14.k2, py06.k1]
+        data: [plates]
+        body: |
+          表 plates 的一行代表“一块培养板上一个孔的一次计数”，约定每个孔只数一次。程序依次显示哪三个数？
+
+          ```python
+          print(len(plates.drop_duplicates()))
+          print(len(plates.drop_duplicates(subset=["plate", "well"])))
+          print(len(plates.drop_duplicates(subset=["plate", "well"], keep=False)))
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 5
+          - id: line2
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 4
+          - id: line3
+            type: text
+            format: integer
+            prompt: 第三行显示
+            key: 2
+        explanation: |
+          依次显示 **5、4、2**。
+
+          - 整行比较：只有索引 6 与 3 每一列都相同（P1、A1、120），去掉 6，剩 5 行。
+          - 按 plate 和 well：P1 的 A1 出现在 3、6，P2 的 A1 出现在 1、10（110 和 108，冲突），各去掉后一次，剩 4 行。
+          - keep=False：这两组的四行全部去掉，只剩 8、4 两行。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
+      - id: py25.k2.x2
+        kind: [modify]
+        uses: [py04.k2, py06.k1]
+        data: [plates]
+        body: |
+          需求是：
+
+          > 标出 plate 和 well 相同、出现不止一次的**每一行**（包括第一次出现的那行），结果是一列 True/False，与 plates 的行一一对应，索引不变。不改变 `plates`。
+
+          作答框里的代码不符合需求。请改动它并提交，最终结果变量仍叫 `flags`。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              flags = plates.duplicated()
+            solution: |
+              flags = plates.duplicated(subset=["plate", "well"], keep=False)
+            accepts:
+              - flags = plates.duplicated(["plate", "well"], keep=False)
+              - flags = plates.duplicated(subset=["well", "plate"], keep=False)
+            rejects:
+              - code: flags = plates.duplicated(subset=["plate", "well"])
+                why: 缺省 keep="first"，第一次出现的那行没有标出来
+              - code: flags = plates.duplicated(keep=False)
+                why: 没写 subset，只标出整行相同的行，漏了冲突
+              - code: flags = plates.duplicated(subset=["plate"], keep=False)
+                why: 只按 plate 比较，同一块板的不同孔也被标出来
+              - code: flags = plates.duplicated(subset=["plate", "well"], keep="last")
+                why: keep="last" 标的是前面的，最后一次出现的没有标出来
+              - code: flags = plates.drop_duplicates(subset=["plate", "well"], keep=False)
+                why: 得到的是去掉这些行之后的表，不是标记
+            tests:
+              - name: 表 plates
+                expect:
+                  flags: pd.Series([True, False, True, True, True, False], index=[3, 8, 1, 6, 10, 4])
+                  plates: plates
+              - name: 换一张只有冲突、没有整行重复的表
+                hidden: true
+                data: [plates2]
+                expect:
+                  flags: pd.Series([True, True, False, False], index=[7, 2, 5, 9])
+                  plates: plates
+        explanation: |
+          ```python
+          flags = plates.duplicated(subset=["plate", "well"], keep=False)
+          ```
+
+          `subset=["plate", "well"]` 按业务键比较，才能认出 P2 的 A1 这种读数不同的冲突；`keep=False` 让第一次出现的那行也标 True。本例标出 3、1、6、10 四行。判分时还会换一张只有冲突、没有整行重复的表运行你的代码。
+
+verified:
+  - question: py25.k1.x2
+    version: sha256:e8e86baf6b0b281548eb06ca10d0f165421223a5f0284d4d6d7c49dad3ba7373
+    slots: [key]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
