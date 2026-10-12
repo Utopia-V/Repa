@@ -1,0 +1,37 @@
+id: py07
+title: 拼接列表，汇总一组数
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py06
+    key: true
+    weight: 0.33
+    covers: [py06.k1]
+  - topic: py04
+    key: true
+    weight: 0.67
+    covers: [py04.k1, py04.k3]
+  - topic: py02
+    key: false
+    weight: 0.33
+    covers: [py02.k1]
+sources:
+  - source: think-python
+    where: 第 9 章
+    url: https://allendowney.github.io/ThinkPython/chap09.html
+    use: reference
+  - source: pydata-book
+    where: 第 3 章 §3.1
+    url: https://wesmckinney.com/book/python-builtin
+    use: reference
+  - source: python-docs
+    where: 标准库：内置函数
+    url: https://docs.python.org/3.12/library/functions.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、解释代码（S/O）、找错（P）。
+kps:
+  - id: py07.k1
+    title: 列表 + 拼接、* 重复，不自动逐元素运算
+  - id: py07.k2
+    title: sum/len/min/max 对一组数做汇总

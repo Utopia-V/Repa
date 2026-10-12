@@ -1,0 +1,29 @@
+id: py45
+title: 为什么同一本 notebook 重跑会变
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py01
+    key: true
+    weight: 0.50
+    covers: [py01.k2]
+  - topic: py13
+    key: true
+    weight: 0.50
+    covers: [py13.k1]
+sources:
+  - source: pydata-book
+    where: 第 2 章 §2.2
+    url: https://wesmckinney.com/book/python-basics
+    use: reference
+  - source: jupyter-notebook
+    where: Running Code：内核状态与重启
+    url: https://jupyter-notebook.readthedocs.io/en/stable/examples/Notebook/Running%20Code.html#restarting-the-kernels
+    use: reference
+notes: |
+  建议题型与判分：追踪变量（P）、找错（P）、写清需求（S/O）。
+kps:
+  - id: py45.k1
+    title: 执行顺序与屏幕排列可能不同
+  - id: py45.k2
+    title: 重启后从头运行才能核对隐藏状态

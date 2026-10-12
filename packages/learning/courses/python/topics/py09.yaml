@@ -1,0 +1,25 @@
+id: py09
+title: 把两个条件接起来
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py08
+    key: true
+    weight: 1.00
+    covers: [py08.k1, py08.k2]
+sources:
+  - source: think-python
+    where: 第 5 章
+    url: https://allendowney.github.io/ThinkPython/chap05.html
+    use: reference
+  - source: python-docs
+    where: 教程第 5 章 §5.7
+    url: https://docs.python.org/3.12/tutorial/datastructures.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、解释代码（S/O）、小改代码（T）。
+kps:
+  - id: py09.k1
+    title: 单个布尔值的 and/or/not
+  - id: py09.k2
+    title: 括号确定条件组合并用小真值表验证

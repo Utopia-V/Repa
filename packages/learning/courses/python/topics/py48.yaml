@@ -1,0 +1,37 @@
+id: py48
+title: 读懂一份 AI 给的分析脚本，并说清怎样改
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py46
+    key: true
+    weight: 1.00
+    covers: [py46.k1, py46.k2]
+  - topic: py29
+    key: true
+    weight: 1.00
+    covers: [py29.k1, py29.k2, py29.k3]
+  - topic: py45
+    key: true
+    weight: 1.00
+    covers: [py45.k1, py45.k2]
+sources:
+  - source: pydata-book
+    where: 第 13 章 （情境参考）
+    url: https://wesmckinney.com/book/data-analysis-examples
+    use: reference
+  - source: think-python
+    where: 第 19 章
+    url: https://allendowney.github.io/ThinkPython/chap19.html
+    use: reference
+notes: |
+  建议题型与判分：解释代码（S/O）、找错（P）、小改代码（T）、写清需求（S/O）。
+  自拟部分：自拟整合任务。
+  用预先给出的 8～15 行有效代码、最多两张各 4～6 行的小表，每次聚焦一种需求偏差。综合题仍按知识点拆成例题和短练习，不变成从空白写完整分析项目的大作业。
+kps:
+  - id: py48.k1
+    title: 把每段代码对应到输入输出与业务规则
+  - id: py48.k2
+    title: 用边界和反例检查偏差
+  - id: py48.k3
+    title: 提出最小修改及可复验的验收条件

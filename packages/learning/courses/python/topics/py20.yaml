@@ -1,0 +1,33 @@
+id: py20
+title: 把文字转成数字时怎样处理坏值
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py19
+    key: true
+    weight: 0.67
+    covers: [py19.k1, py19.k3]
+  - topic: py03
+    key: true
+    weight: 0.33
+    covers: [py03.k2]
+  - topic: py11
+    key: false
+    weight: 0.50
+    covers: [py11.k2]
+sources:
+  - source: pandas-docs
+    where: API：pandas.to_numeric
+    url: https://pandas.pydata.org/docs/reference/api/pandas.to_numeric.html
+    use: reference
+  - source: pydata-book
+    where: 第 7 章 §7.1（转坏值后的缺失处理）
+    url: https://wesmckinney.com/book/data-cleaning
+    use: reference
+notes: |
+  建议题型与判分：追踪变量（P）、小改代码（T）、写清需求（S/O）。
+kps:
+  - id: py20.k1
+    title: to_numeric 的失败与 errors="coerce"
+  - id: py20.k2
+    title: 保留坏值计数并把处理规则写进需求

@@ -1,0 +1,35 @@
+id: py40
+title: 读懂自己定义的函数
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py04
+    key: true
+    weight: 0.67
+    covers: [py04.k1, py04.k3]
+  - topic: py10
+    key: true
+    weight: 0.67
+    covers: [py10.k1, py10.k3]
+sources:
+  - source: think-python
+    where: 第 3 章
+    url: https://allendowney.github.io/ThinkPython/chap03.html
+    use: reference
+  - source: think-python
+    where: 第 6 章
+    url: https://allendowney.github.io/ThinkPython/chap06.html
+    use: reference
+  - source: python-docs
+    where: 教程第 4 章 §4.8
+    url: https://docs.python.org/3.12/tutorial/controlflow.html
+    use: reference
+notes: |
+  建议题型与判分：追踪变量（P）、解释代码（S/O）、小改代码（T）。
+kps:
+  - id: py40.k1
+    title: def 定义与调用是两次不同动作
+  - id: py40.k2
+    title: 形参接收实参，return 把值交回
+  - id: py40.k3
+    title: 局部中间量如何流向结果

@@ -1,0 +1,31 @@
+id: py06
+title: 列表：位置和一段范围
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py03
+    key: true
+    weight: 0.33
+    covers: [py03.k1]
+  - topic: py04
+    key: false
+    weight: 0.33
+    covers: [py04.k1]
+sources:
+  - source: think-python
+    where: 第 9 章
+    url: https://allendowney.github.io/ThinkPython/chap09.html
+    use: reference
+  - source: python-docs
+    where: 教程第 3 章 §3.1.3
+    url: https://docs.python.org/3.12/tutorial/introduction.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、小改代码（T）。
+kps:
+  - id: py06.k1
+    title: 有序列表与 len
+  - id: py06.k2
+    title: 从 0 开始的索引和 -1
+  - id: py06.k3
+    title: 切片左闭右开

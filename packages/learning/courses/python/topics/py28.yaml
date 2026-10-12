@@ -1,0 +1,34 @@
+id: py28
+title: 把分组统计口径写明确
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py27
+    key: true
+    weight: 1.00
+    covers: [py27.k1, py27.k2]
+  - topic: py19
+    key: true
+    weight: 0.67
+    covers: [py19.k1, py19.k3]
+  - topic: py12
+    key: true
+    weight: 0.50
+    covers: [py12.k1]
+sources:
+  - source: pydata-book
+    where: 第 10 章 §10.2
+    url: https://wesmckinney.com/book/data-aggregation
+    use: reference
+  - source: pandas-docs
+    where: 用户指南：分组
+    url: https://pandas.pydata.org/docs/user_guide/groupby.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+  出现 `("signal", "mean")` 时，就地说明两个位置各代表什么，只读写这一种形式；完整的元组行为由 py38 承担。先用普通字符串分组键；category 与 observed 的差别等实际数据需要时再补，不塞进这 20 分钟。
+kps:
+  - id: py28.k1
+    title: named aggregation 的固定（源列, 操作）配置指明输出
+  - id: py28.k2
+    title: 分组键缺失用 dropna 明确是否保留，并核对 count/size

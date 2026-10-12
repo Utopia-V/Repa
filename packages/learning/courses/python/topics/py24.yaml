@@ -1,0 +1,35 @@
+id: py24
+title: 清理整列文字但保留编号含义
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py05
+    key: true
+    weight: 0.67
+    covers: [py05.k2, py05.k3]
+  - topic: py19
+    key: true
+    weight: 0.67
+    covers: [py19.k1, py19.k3]
+  - topic: py15
+    key: false
+    weight: 0.33
+    covers: [py15.k2]
+sources:
+  - source: pydata-book
+    where: 第 7 章 §7.4
+    url: https://wesmckinney.com/book/data-cleaning
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：文本列
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/10_text_data.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、小改代码（T）、写清需求（S/O）。
+kps:
+  - id: py24.k1
+    title: str.strip/str.lower 的逐元素作用
+  - id: py24.k2
+    title: 空串与缺失分别处理
+  - id: py24.k3
+    title: 编号列不要任意转数值或改写

@@ -1,0 +1,39 @@
+id: py41
+title: 函数的默认值和作用范围
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py40
+    key: true
+    weight: 1.00
+    covers: [py40.k1, py40.k2, py40.k3]
+  - topic: py03
+    key: true
+    weight: 0.33
+    covers: [py03.k3]
+sources:
+  - source: think-python
+    where: 第 3 章
+    url: https://allendowney.github.io/ThinkPython/chap03.html
+    use: reference
+  - source: think-python
+    where: 第 6 章
+    url: https://allendowney.github.io/ThinkPython/chap06.html
+    use: reference
+  - source: python-docs
+    where: 教程第 4 章 §4.9.1
+    url: https://docs.python.org/3.12/tutorial/controlflow.html
+    use: reference
+  - source: python-docs
+    where: 教程第 9 章 §9.2
+    url: https://docs.python.org/3.12/tutorial/classes.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、追踪变量（P）、找错（P）。
+kps:
+  - id: py41.k1
+    title: 默认参数用于省略输入
+  - id: py41.k2
+    title: 局部名称与外部名称的区别
+  - id: py41.k3
+    title: Python 不自动返回最后一个表达式

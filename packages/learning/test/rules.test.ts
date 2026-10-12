@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
 import type { ChoiceSlot, TableSlot } from "../src/format/schema.js";
 import { demoCourse, writeCourse, type DemoCourse } from "./demo-course.js";
+
+const PYTHON_COURSE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "courses", "python");
 
 function codes(diagnostics: Diagnostic[]): string[] {
   return diagnostics.filter((diagnostic) => diagnostic.severity === "error").map((diagnostic) => diagnostic.code).sort();
@@ -35,6 +38,12 @@ test("示例课程的结构检查没有问题", async (t) => {
   assert.deepEqual(result.summary.topics, { complete: 1, outline: 1 });
   assert.equal(result.summary.questions, 12);
   assert.equal(result.summary.ran, false);
+});
+
+test("随包的 Python 课程通过结构检查：3 个完整 topic、45 个骨架", async () => {
+  const result = await checkCourse(PYTHON_COURSE, { run: false });
+  assert.deepEqual(codes(result.diagnostics), []);
+  assert.deepEqual(result.summary.topics, { complete: 3, outline: 45 });
 });
 
 test("先修成环时报出环上的 topic", async (t) => {

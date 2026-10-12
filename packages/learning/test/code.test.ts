@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
 import type { CodeSlot, OrderSlot, TableSlot, TextSlot } from "../src/format/schema.js";
 import { demoCourse, runtimeUnavailable, writeCourse, type DemoCourse } from "./demo-course.js";
+
+const PYTHON_COURSE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "courses", "python");
 
 function errors(diagnostics: Diagnostic[]): string[] {
   return diagnostics.filter((diagnostic) => diagnostic.severity === "error").map((diagnostic) => diagnostic.code).sort();
@@ -102,6 +106,17 @@ test("课程清单要求的运行时与安装的不一致时报出，不运行�
   const result = await checkCourse(root, { base: root });
   assert.deepEqual(errors(result.diagnostics), ["runtime_mismatch"]);
   assert.equal(result.summary.ran, false);
+});
+
+test("随包的 Python 课程在 Pyodide 里全部核对通过", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return t.skip(reason);
+  const result = await checkCourse(PYTHON_COURSE);
+  assert.deepEqual(result.diagnostics, []);
+  assert.equal(result.summary.ran, true);
+  assert.deepEqual(result.summary.topics, { complete: 3, outline: 45 });
+  assert.ok(result.summary.code.verifiedSlots > 0);
+  assert.ok(result.summary.code.testRuns > 0);
 });
 
 test("verify 核对更严：多写的可接受值、忘了写 input 的答案列、按 repr 显示的字符串都会报出", async (t) => {

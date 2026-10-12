@@ -1,0 +1,31 @@
+id: py38
+title: 同时读到编号和值
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py35
+    key: true
+    weight: 0.33
+    covers: [py35.k1]
+  - topic: py06
+    key: true
+    weight: 0.67
+    covers: [py06.k1, py06.k2]
+sources:
+  - source: think-python
+    where: 第 11 章
+    url: https://allendowney.github.io/ThinkPython/chap11.html
+    use: reference
+  - source: python-docs
+    where: 教程第 5 章 §5.3、5.6
+    url: https://docs.python.org/3.12/tutorial/datastructures.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、追踪变量（P）、找错（P）。
+kps:
+  - id: py38.k1
+    title: 元组及解包的数量对应
+  - id: py38.k2
+    title: enumerate 给元素配位置
+  - id: py38.k3
+    title: zip 配对并留意长度不同时的截断

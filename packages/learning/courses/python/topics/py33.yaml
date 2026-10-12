@@ -1,0 +1,34 @@
+id: py33
+title: 从一张表读出图想说明什么
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py27
+    key: true
+    weight: 0.50
+    covers: [py27.k2]
+  - topic: py23
+    key: true
+    weight: 0.50
+    covers: [py23.k1]
+  - topic: py13
+    key: false
+    weight: 0.50
+    covers: [py13.k2]
+sources:
+  - source: pydata-book
+    where: 第 9 章 §9.2
+    url: https://wesmckinney.com/book/plotting-and-visualization
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：绘图
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/04_plotting.html
+    use: reference
+notes: |
+  建议题型与判分：解释代码（S/O）、找错（P）、小改代码（T）。
+  用已给的 2～3 行绘图代码读轴和分组，不讲完整的样式 API。
+kps:
+  - id: py33.k1
+    title: 按比较、趋势或关系选 bar/line/scatter
+  - id: py33.k2
+    title: 从代码核对横轴、纵轴、单位和是否先聚合

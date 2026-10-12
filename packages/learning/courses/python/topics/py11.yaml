@@ -1,0 +1,29 @@
+id: py11
+title: 报错告诉你停在了哪里
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py03
+    key: true
+    weight: 0.67
+    covers: [py03.k1, py03.k2]
+  - topic: py06
+    key: false
+    weight: 0.33
+    covers: [py06.k2]
+sources:
+  - source: think-python
+    where: 第 2 章 §2.9
+    url: https://allendowney.github.io/ThinkPython/chap02.html
+    use: reference
+  - source: python-docs
+    where: 教程第 8 章 §8.1–8.2
+    url: https://docs.python.org/3.12/tutorial/errors.html
+    use: reference
+notes: |
+  建议题型与判分：找错（P）、解释代码（S/O）、小改代码（T）。
+kps:
+  - id: py11.k1
+    title: 区分语法错误与运行时异常
+  - id: py11.k2
+    title: 从异常类型和指向的行缩小原因

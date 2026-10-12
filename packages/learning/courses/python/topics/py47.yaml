@@ -1,0 +1,35 @@
+id: py47
+title: 兴趣支线：小说里的名字出现了几次
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py05
+    key: true
+    weight: 0.67
+    covers: [py05.k2, py05.k3]
+  - topic: py36
+    key: true
+    weight: 0.50
+    covers: [py36.k1]
+  - topic: py37
+    key: false
+    weight: 0.33
+    covers: [py37.k1]
+sources:
+  - source: think-python
+    where: 第 8 章
+    url: https://allendowney.github.io/ThinkPython/chap08.html
+    use: reference
+  - source: think-python
+    where: 第 12 章
+    url: https://allendowney.github.io/ThinkPython/chap12.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、解释代码（S/O）、写清需求（S/O）。
+  自拟部分：自拟小说小任务。
+  兴趣支线，主线完成不以它为关键先修。
+kps:
+  - id: py47.k1
+    title: 用 split/count 或短循环追踪明确的字面匹配
+  - id: py47.k2
+    title: 区分字符串出现与人物身份，规定别名和误匹配范围

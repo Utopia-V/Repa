@@ -1,0 +1,39 @@
+id: py44
+title: 从文件里的结构找到一条记录
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py43
+    key: true
+    weight: 0.67
+    covers: [py43.k1, py43.k2]
+  - topic: py37
+    key: true
+    weight: 0.67
+    covers: [py37.k1, py37.k2]
+  - topic: py15
+    key: false
+    weight: 0.33
+    covers: [py15.k1]
+sources:
+  - source: pydata-book
+    where: 第 6 章 §6.1
+    url: https://wesmckinney.com/book/accessing-data
+    use: reference
+  - source: python-docs
+    where: 教程第 7 章 §7.2.2
+    url: https://docs.python.org/3.12/tutorial/inputoutput.html
+    use: reference
+  - source: python-docs
+    where: 标准库：json
+    url: https://docs.python.org/3.12/library/json.html
+    use: reference
+notes: |
+  建议题型与判分：追踪变量（P）、找错（P）、小改代码（T）。
+kps:
+  - id: py44.k1
+    title: CSV 的行列与 JSON 的列表/字典层次
+  - id: py44.k2
+    title: 按键和位置走到目标值
+  - id: py44.k3
+    title: 缺键、缺失和字段类型的验证

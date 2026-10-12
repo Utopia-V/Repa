@@ -1,0 +1,25 @@
+id: py25
+title: 一条记录是否重复，取决于什么
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py14
+    key: true
+    weight: 0.33
+    covers: [py14.k1]
+  - topic: py12
+    key: true
+    weight: 1.00
+    covers: [py12.k1, py12.k2]
+sources:
+  - source: pydata-book
+    where: 第 7 章 §7.2
+    url: https://wesmckinney.com/book/data-cleaning
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、小改代码（T）、写清需求（S/O）。
+kps:
+  - id: py25.k1
+    title: 业务键与整行重复的区别
+  - id: py25.k2
+    title: duplicated/drop_duplicates 的 subset、keep 规则

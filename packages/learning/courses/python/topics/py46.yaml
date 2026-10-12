@@ -1,0 +1,39 @@
+id: py46
+title: 把数据处理拆成可核对的步骤
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py34
+    key: true
+    weight: 0.50
+    covers: [py34.k2]
+  - topic: py28
+    key: true
+    weight: 1.00
+    covers: [py28.k1, py28.k2]
+  - topic: py42
+    key: true
+    weight: 1.00
+    covers: [py42.k1, py42.k2]
+sources:
+  - source: pydata-book
+    where: 第 13 章
+    url: https://wesmckinney.com/book/data-analysis-examples
+    use: reference
+  - source: think-python
+    where: 第 4 章
+    url: https://allendowney.github.io/ThinkPython/chap04.html
+    use: reference
+  - source: swc-python
+    where: 第 11 节：调试
+    url: https://swcarpentry.github.io/python-novice-inflammation/11-debugging.html
+    use: reference
+notes: |
+  建议题型与判分：解释代码（S/O）、写清需求（S/O）、小改代码（T）。
+  自拟部分：自拟综合任务。
+  用预先给出的 8～15 行有效代码、最多两张各 4～6 行的小表，每次聚焦一种需求偏差。综合题仍按知识点拆成例题和短练习，不变成从空白写完整分析项目的大作业。
+kps:
+  - id: py46.k1
+    title: 读入→校验→变换→汇总→输出的接口
+  - id: py46.k2
+    title: 从一个中间结果定位需求与代码的分歧

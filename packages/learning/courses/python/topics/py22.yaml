@@ -1,0 +1,34 @@
+id: py22
+title: 明确改的是原表还是新结果
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py21
+    key: true
+    weight: 0.33
+    covers: [py21.k2]
+  - topic: py17
+    key: true
+    weight: 0.50
+    covers: [py17.k2]
+  - topic: py01
+    key: true
+    weight: 0.50
+    covers: [py01.k1]
+sources:
+  - source: pandas-docs
+    where: 用户指南：Copy-on-Write
+    url: https://pandas.pydata.org/docs/user_guide/copy_on_write.html
+    use: reference
+  - source: pydata-book
+    where: 第 5 章 §5.1–5.2（按 3.0 勘正）
+    url: https://wesmckinney.com/book/pandas-basics
+    use: reference
+notes: |
+  建议题型与判分：追踪变量（P）、找错（P）、小改代码（T）。
+  Python for Data Analysis 第 3 版不是按 pandas 3 写的：pandas 3 的 Copy-on-Write 使派生对象的修改不再回写原对象，链式赋值也不能更新原表。本节用 .loc 单次赋值讲清修改目标，不沿用旧的 view/copy 说法；行为以课程运行时为准。
+kps:
+  - id: py22.k1
+    title: 单次 loc 赋值表达修改目标
+  - id: py22.k2
+    title: 区分别名、派生结果与显式 copy，按 pandas 3 CoW 理解

@@ -1,0 +1,39 @@
+id: py43
+title: 读写文件时，先确认对象和范围
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py13
+    key: true
+    weight: 0.50
+    covers: [py13.k1]
+  - topic: py05
+    key: true
+    weight: 0.33
+    covers: [py05.k1]
+  - topic: py11
+    key: false
+    weight: 0.50
+    covers: [py11.k2]
+sources:
+  - source: think-python
+    where: 第 13 章
+    url: https://allendowney.github.io/ThinkPython/chap13.html
+    use: reference
+  - source: python-docs
+    where: 教程第 7 章 §7.2
+    url: https://docs.python.org/3.12/tutorial/inputoutput.html
+    use: reference
+  - source: python-docs
+    where: 标准库：pathlib
+    url: https://docs.python.org/3.12/library/pathlib.html
+    use: reference
+notes: |
+  建议题型与判分：解释代码（S/O）、找错（P）、写清需求（S/O）。
+kps:
+  - id: py43.k1
+    title: Path 与相对路径的基准
+  - id: py43.k2
+    title: with 管理文本文件及编码
+  - id: py43.k3
+    title: r/w/a 的行为和覆盖风险

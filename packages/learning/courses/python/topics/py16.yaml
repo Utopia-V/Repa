@@ -1,0 +1,36 @@
+id: py16
+title: 取列、取行，先辨认用的是哪种索引
+status: outline
+minutes: 20
+prerequisites:
+  - topic: py14
+    key: true
+    weight: 0.67
+    covers: [py14.k1, py14.k2]
+  - topic: py06
+    key: true
+    weight: 0.67
+    covers: [py06.k2, py06.k3]
+sources:
+  - source: pydata-book
+    where: 第 5 章 §5.2
+    url: https://wesmckinney.com/book/pandas-basics
+    use: reference
+  - source: pandas-docs
+    where: 入门教程：子集与筛选
+    url: https://pandas.pydata.org/docs/getting_started/intro_tutorials/03_subset_data.html
+    use: reference
+  - source: pandas-docs
+    where: 用户指南：索引与选择
+    url: https://pandas.pydata.org/docs/user_guide/indexing.html
+    use: reference
+notes: |
+  建议题型与判分：预测输出（P）、找错（P）、解释代码（S/O）。
+  loc 与 iloc 的差异先用唯一、已排序标签的小表讨论切片，不引入重复索引或非单调标签的特殊情况。
+kps:
+  - id: py16.k1
+    title: 单列与多列选择返回不同形状
+  - id: py16.k2
+    title: loc 用标签，iloc 用位置
+  - id: py16.k3
+    title: 标签切片与位置切片的右端差异

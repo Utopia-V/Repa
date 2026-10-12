@@ -1,0 +1,654 @@
+id: py01
+title: 给数据起名，再按顺序读
+status: complete
+minutes: 20
+summary: 读懂赋值：先算右边再起名；逐行追踪名字的值，读出 print 显示什么。
+prerequisites: []
+sources:
+  - source: think-python
+    where: 第 2 章 §2.1–2.2、§2.5–2.6
+    url: https://allendowney.github.io/ThinkPython/chap02.html
+    use: reference
+  - source: python-docs
+    where: 教程第 3 章 §3.1.1
+    url: https://docs.python.org/3.12/tutorial/introduction.html
+    use: reference
+notes: |
+  范围：无 Python 先修，会日常整数加减即可。只使用整数、名字、=、加减和 print；print(x) 先理解为“显示 x 现在的值”，函数调用在 py04 展开。程序作为短脚本从上往下运行，不用 notebook 末行自动显示的规则。列表的共享与原位修改留到 py22、py36。
+  节奏（待试做校准）：目标与 print 1 分钟；k1 讲解与例题 3 分钟、练习 4 分钟；k2 讲解与例题 3 分钟、练习 6 分钟；收束 3 分钟。
+  例题、练习的情境与数据为本课自拟。
+intro: |
+  这一节先练看懂几行代码，不要求你从空白写出来。
+
+  下面的程序都当作一段短脚本，从第一行往下逐行运行。`print(x)` 暂时理解为“在屏幕上显示 x 现在的值”，它的完整含义在后面讲函数调用时再展开。
+wrapup: |
+  读到一行赋值，先算右边，再让左边的名字指向结果；读一段代码，就按运行顺序记下每个名字此刻的值。
+
+  试着用这两步说出一段代码在做什么，再看看这一节的两张概念卡。
+kps:
+  - id: py01.k1
+    title: 名字指向当前的值，赋值先算右边
+    card:
+      name: 赋值
+      aliases: [变量, 名字]
+      definition: "`=` 先算出右边的值，再让左边的名字指向这个值；赋值本身不在屏幕上显示任何东西。"
+      conditions:
+        - "`=` 是一个动作，不是在问两边是否相等。"
+        - 名字要先赋值才能使用；想看它现在的值，用 print。
+      example:
+        from: py01.k1.e0
+        text: |
+          ```python
+          samples = 6
+          reserve = 2
+          usable = samples - reserve
+          print(usable)
+          ```
+          第三行先算 6 - 2 得到 4，再让 `usable` 指向 4；最后一行显示 4。
+    lesson: |
+      一段程序从第一行开始往下运行。像 `samples = 6` 这样的一行叫**赋值**：Python 先算出等号右边的值，再让左边的名字指向这个值。之后在别处写 `samples`，读到的就是它现在指向的值。
+
+      赋值是一个动作，不是在问“两边是否相等”。读到 `usable = samples - reserve` 时，分两步读：
+
+      1. 先算右边：取 `samples` 现在的值和 `reserve` 现在的值，相减。
+      2. 再起名：让 `usable` 指向算出来的结果。
+
+      赋值本身不会在屏幕上显示任何东西。想看某个名字现在的值，就用 `print(名字)`。
+    example:
+      id: py01.k1.e0
+      kind: [predict, explain]
+      body: |
+        一次收到 6 份样本，其中预留 2 份。阅读下面的程序。
+
+        ```python
+        samples = 6
+        reserve = 2
+        usable = samples - reserve
+        print(usable)
+        ```
+      slots:
+        - id: output
+          type: text
+          format: integer
+          prompt: 程序最后显示哪个整数？
+          key: 4
+        - id: source
+          type: choice
+          prompt: "`usable` 的值是怎样来的？"
+          options:
+            - id: computed
+              content: "`samples` 减 `reserve` 算出的结果"
+            - id: literal
+              content: 程序里直接写下的数字 4
+            - id: printed
+              content: "`print` 算出来的"
+          key: computed
+      explanation: |
+        答案是 **4**。第三行先取 `samples` 的 6 和 `reserve` 的 2，算出 4，再让名字 `usable` 指向 4。前两行只是赋值，没有显示任何数字；最后一行的 `print` 才把 `usable` 现在的值显示出来。
+      verify: |
+        r = run()
+        answers = {"output": int(r.out)}
+      manual: [source]
+    practice:
+      - id: py01.k1.q1
+        kind: [predict]
+        body: |
+          ```python
+          total = 9
+          used = 4
+          remaining = total - used
+          print(remaining)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序最后显示哪个整数？
+            key: 5
+            feedback:
+              - when: 13
+                message: 第三行是 `total - used`，用的是减号。
+        explanation: |
+          答案是 **5**。第三行先算 9 - 4 得到 5，再让 `remaining` 指向 5；`print` 显示的就是这个值。
+        verify: |
+          answers = {"output": int(run().out)}
+      - id: py01.k1.q2
+        kind: [trace]
+        body: |
+          ```python
+          reading = 3
+          doubled = reading + reading
+          ```
+
+          这两行里没有 `print`，屏幕上什么也不显示，但两个名字都已经有了值。
+        slots:
+          - id: reading
+            type: text
+            format: integer
+            label: reading
+            prompt: 执行完两行后，`reading` 是多少？
+            key: 3
+          - id: doubled
+            type: text
+            format: integer
+            label: doubled
+            prompt: 执行完两行后，`doubled` 是多少？
+            key: 6
+        explanation: |
+          `reading` 是 **3**，`doubled` 是 **6**。第二行先取 `reading` 的值 3，算出 3 + 3 = 6，再让 `doubled` 指向 6；`reading` 自己没有改变。
+        verify: |
+          r = run()
+          answers = {"reading": r["reading"], "doubled": r["doubled"]}
+      - id: py01.k1.q3
+        kind: [explain]
+        body: |
+          `raw` 表示一批样本的总数，每批都固定预留 2 份，`raw` 至少为 2。哪一行能写出“剩下多少份”？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: plus
+                content: |
+                  ```python
+                  clean = raw + 2
+                  ```
+                feedback: 预留的 2 份要从总数里去掉，不是加上。
+              - id: minus
+                content: |
+                  ```python
+                  clean = raw - 2
+                  ```
+              - id: fixed
+                content: |
+                  ```python
+                  clean = 6
+                  ```
+                feedback: 6 只碰巧适合 raw 为 8 的那一批；换一批样本就不对了。
+            key: minus
+        explanation: |
+          `clean = raw - 2` 正确：raw 为 8 时得到 6，换成 raw 为 10 时得到 8。`raw + 2` 多加了预留的份数；`clean = 6` 只碰巧适合 raw 为 8 的那一批。
+        verify: |
+          # 每个选项分别用两批不同的 raw 运行，始终等于 raw - 2 的才符合要求；符合的必须恰好一行。
+          fits = [option for option, code in OPTIONS["line"].items()
+                  if all(run(code, raw=raw)["clean"] == raw - 2 for raw in (8, 10))]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py01.k1.r1
+        kind: [modify]
+        body: |
+          下面四行代码的顺序被打乱了。把它们排成一段能显示剩余份数的程序，每一行都要用上。
+        slots:
+          - id: lines
+            type: order
+            items:
+              - { id: show, code: print(left) }
+              - { id: left, code: left = total - used }
+              - { id: total, code: total = 9 }
+              - { id: used, code: used = 4 }
+            key: [total, used, left, show]
+            alternatives:
+              - [used, total, left, show]
+            tests:
+              - name: 显示剩余份数
+                stdout: "5"
+                expect:
+                  left: "5"
+        explanation: |
+          先给 `total` 和 `used` 赋值（这两行谁先都可以），再算 `left`，最后 `print`。如果把算 `left` 或 `print` 的那一行放在前面，用到的名字还没有值，程序会报错。
+      - id: py01.k1.r2
+        kind: [predict, explain]
+        body: |
+          有人说：“第 2 行 `y = x + 1` 把 `x` 改成了 4。”
+
+          ```python startLine=1
+          x = 3
+          y = x + 1
+          print(x)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示什么？
+            key: 3
+          - id: claim
+            type: choice
+            prompt: 这个说法对吗？
+            options:
+              - id: unchanged
+                content: 不对，第 2 行只给 `y` 赋值，`x` 还是 3
+              - id: changed
+                content: 对，第 2 行把 `x` 改成了 4
+            key: unchanged
+        explanation: |
+          显示 **3**。第 2 行先用 `x` 的值算出 4，再让 `y` 指向 4；等号左边是 `y`，`x` 没有被重新赋值。
+        verify: |
+          r = run()
+          answers = {"output": int(r.out), "claim": "unchanged" if r["x"] == 3 else "changed"}
+    quiz:
+      - id: py01.k1.x1
+        kind: [predict]
+        body: |
+          哪一段程序会显示 10？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: early
+                content: |
+                  ```python
+                  b = 6
+                  print(a + b)
+                  a = 4
+                  ```
+              - id: backwards
+                content: |
+                  ```python
+                  a + b = 10
+                  print(a)
+                  ```
+              - id: assigned
+                content: |
+                  ```python
+                  a = 4
+                  b = 6
+                  print(a + b)
+                  ```
+            key: assigned
+        explanation: |
+          先给 `a`、`b` 赋值、再把它们相加的那一段会显示 10。在 `a` 还没有值时就用它的那一段会报错；把算式 `a + b` 写在等号左边的那一段不是合法的赋值，等号左边要写名字。
+        verify: |
+          shows_ten = [option for option, code in OPTIONS["program"].items()
+                       if run(code).error is None and run(code).out.strip() == "10"]
+          answers = {"program": shows_ten[0] if len(shows_ten) == 1 else shows_ten}
+      - id: py01.k1.x2
+        kind: [explain]
+        body: |
+          前两行是 `total = 10` 和 `used = 4`。要让 `left` 指向 6，第三行应写成哪一种？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: correct
+                content: |
+                  ```python
+                  left = total - used
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  left = used - total
+                  ```
+              - id: backwards
+                content: |
+                  ```python
+                  total - used = left
+                  ```
+            key: correct
+        explanation: |
+          `left = total - used`：先算右边的 10 - 4，再让 `left` 指向 6。`used - total` 得到 -6；把算式写在等号左边不是合法的赋值。
+        verify: |
+          prelude = "total = 10\nused = 4\n"
+          fits = [option for option, line in OPTIONS["line"].items() if run(prelude + line).vars.get("left") == 6]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+
+  - id: py01.k2
+    title: 逐行追踪重新赋值，读出 print 的结果
+    card:
+      name: 重新赋值
+      aliases: [追踪, 状态表]
+      definition: 同一个名字可以再次赋值，之后读到的是新值；先前用它算出并存进别的名字的值不会跟着重算。
+      conditions:
+        - 每一行读到的是那一刻的值；按运行顺序记下各个名字的值，比凭印象可靠。
+        - 这里说的是整数这类值；列表等可以原地修改的对象另有情况，后面的课再讲。
+      example:
+        from: py01.k2.e0
+        text: |
+          ```python
+          count = 4
+          saved = count
+          count = count + 1
+          print(saved)
+          print(count)
+          ```
+          第 3 行用旧的 count（4）算出 5，再让 count 指向 5；saved 仍是第 2 行存下的 4。输出依次为 4、5。
+    lesson: |
+      同一个名字可以被赋值不止一次。`n = n + 2` 这样的行，也照“先算右边，再起名”来读：先用 `n` 现在的值算出结果，再让 `n` 改为指向新结果。
+
+      读一段代码时，可以边读边记一张小状态表：每执行一行，写下各个名字此刻的值。
+
+      | 执行到 | n |
+      |---|---:|
+      | `n = 3` | 3 |
+      | `n = n + 2` | 5 |
+
+      有两处容易读错：
+
+      - 一个名字改指向新的值以后，先前用它算出来、已经存进别的名字里的值，不会跟着重算。
+      - `print` 写在哪一行，就显示那一刻的值；同一个名字在不同位置 `print`，可能显示不同的数。
+    example:
+      id: py01.k2.e0
+      kind: [trace, predict]
+      body: |
+        按运行顺序填写每行执行后 `count` 与 `saved` 的值，再写出两行输出。还没有赋值的名字填“尚未定义”。
+
+        ```python startLine=1
+        count = 4
+        saved = count
+        count = count + 1
+        print(saved)
+        print(count)
+        ```
+      slots:
+        - id: trace
+          type: table
+          label: 状态表
+          columns:
+            - id: line
+              header: 执行到
+            - id: count
+              header: count
+              input: { type: text, format: integer, quick: [尚未定义] }
+            - id: saved
+              header: saved
+              input: { type: text, format: integer, quick: [尚未定义] }
+          rows:
+            - id: l1
+              cells: { line: 第 1 行, count: 4, saved: 尚未定义 }
+            - id: l2
+              cells: { line: 第 2 行, count: 4, saved: 4 }
+            - id: l3
+              cells: { line: 第 3 行, count: 5, saved: 4 }
+        - id: first
+          type: text
+          format: integer
+          prompt: 第一行输出
+          key: 4
+        - id: second
+          type: text
+          format: integer
+          prompt: 第二行输出
+          key: 5
+      explanation: |
+        | 执行到 | count | saved |
+        |---|---:|---:|
+        | 第 1 行 | 4 | 尚未定义 |
+        | 第 2 行 | 4 | 4 |
+        | 第 3 行 | 5 | 4 |
+
+        输出依次为 **4**、**5**。第 3 行先用旧的 `count`（4）算出 5，再让 `count` 指向 5；它没有再次执行 `saved = count`，所以 `saved` 仍是 4。“尚未定义”表示第 1 行执行完时 `saved` 这个名字还不存在。
+      verify: |
+        names = ["count", "saved"]
+        states = trace(names=names)[:3]
+        lines = run().lines()
+        answers = {
+            "trace": {f"l{i}": {name: state.get(name, "尚未定义") for name in names} for i, state in enumerate(states, 1)},
+            "first": int(lines[0]),
+            "second": int(lines[1]),
+        }
+    practice:
+      - id: py01.k2.q1
+        kind: [trace]
+        body: |
+          ```python startLine=1
+          n = 3
+          n = n + 2
+          n = n + 2
+          print(n)
+          ```
+        slots:
+          - id: trace
+            type: table
+            prompt: 填写前三行各自执行后 `n` 的值。
+            columns:
+              - id: line
+                header: 执行到
+              - id: n
+                header: "n"
+                input: integer
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, n: 3 }
+              - id: l2
+                cells: { line: 第 2 行, n: 5 }
+              - id: l3
+                cells: { line: 第 3 行, n: 7 }
+          - id: output
+            type: text
+            format: integer
+            prompt: 最后显示什么？
+            key: 7
+            feedback:
+              - when: 5
+                message: 第 3 行用的是第 2 行之后的 n，也就是 5，而不是最初的 3。
+        explanation: |
+          `n` 依次是 **3 → 5 → 7**，最后显示 **7**。每一行的 `n + 2` 都用当时的 `n`：第 2 行用 3，第 3 行用 5。
+        verify: |
+          states = trace(names=["n"])[:3]
+          answers = {
+              "trace": {f"l{i}": {"n": state["n"]} for i, state in enumerate(states, 1)},
+              "output": int(run().out),
+          }
+      - id: py01.k2.q2
+        kind: [predict, explain]
+        body: |
+          ```python
+          a = 2
+          b = a + 3
+          a = 9
+          print(b)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示什么？
+            key: 5
+            feedback:
+              - when: 12
+                message: 第 2 行计算 b 时，a 还是 2；后来 a 改成 9，不会让 b 重新计算。
+          - id: why
+            type: choice
+            prompt: 哪一句解释了这个结果？
+            options:
+              - id: recomputed
+                content: b 会随 a 的变化重新计算
+              - id: kept
+                content: b 保存的是第 2 行算出的结果
+            key: kept
+        explanation: |
+          显示 **5**。第 2 行用当时的 `a`（2）算出 5 并让 `b` 指向 5；第 3 行只让 `a` 改指向 9，`b` 不会重新计算。
+        verify: |
+          r = run()
+          # 第 2 行之后 a 被改成 9；b 仍等于用旧值 2 算出的结果，而不是 9 + 3，说明 b 保存的是当时的结果。
+          answers = {
+              "output": int(r.out),
+              "why": "kept" if r["b"] == 2 + 3 and r["b"] != r["a"] + 3 else "recomputed",
+          }
+      - id: py01.k2.q3
+        kind: [predict]
+        body: |
+          屏幕上先后显示什么？请按两行分别填写，不只写最后一个数。
+
+          ```python
+          n = 4
+          print(n)
+          n = n + 1
+          print(n)
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 4
+            feedback:
+              - when: 5
+                message: 第一次 print 发生在 n 改变之前，那时 n 还是 4。
+          - id: line2
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 5
+        explanation: |
+          先显示 **4**，再显示 **5**。第一次 `print` 时 `n` 还是 4；第 3 行把 `n` 改为 5 之后，第二次 `print` 才显示 5。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": int(lines[1])}
+    review:
+      - id: py01.k2.r1
+        kind: [trace]
+        body: |
+          ```python startLine=1
+          score = 5
+          score = score + 2
+          score = score + 2
+          score = score - 1
+          print(score)
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 第几行执行完以后，`score` 第一次等于 9？
+            options:
+              - { id: l1, content: 第 1 行 }
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+            key: l3
+          - id: output
+            type: text
+            format: integer
+            prompt: 最后显示什么？
+            key: 8
+        explanation: |
+          `score` 依次是 5、7、9、8：第 3 行执行完时第一次等于 9，第 4 行又减去 1，所以最后显示 **8**。
+        verify: |
+          states = trace(names=["score"])
+          first = [i for i, state in enumerate(states, 1) if state.get("score") == 9]
+          answers = {"line": f"l{first[0]}", "output": int(run().out)}
+      - id: py01.k2.r2
+        kind: [trace, explain]
+        body: |
+          有人想用下面的程序交换 `a` 和 `b` 的值。
+
+          ```python startLine=1
+          a = 1
+          b = 2
+          a = b
+          b = a
+          print(a)
+          print(b)
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 2
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 2
+          - id: swapped
+            type: choice
+            prompt: 交换成功了吗？
+            options:
+              - id: "no"
+                content: 没有。第 3 行之后 a 已经是 2，第 4 行读到的 a 也是 2
+              - id: "yes"
+                content: 成功了，a 是 2，b 是 1
+            key: "no"
+        explanation: |
+          两行都显示 **2**。第 3 行让 `a` 指向 `b` 的值 2；第 4 行读到的 `a` 已经是 2，所以 `b` 也成了 2。原来的 1 没有存到任何名字里，交换没有成功。
+        verify: |
+          r = run()
+          lines = r.lines()
+          answers = {
+              "first": int(lines[0]),
+              "second": int(lines[1]),
+              "swapped": "yes" if (r["a"], r["b"]) == (2, 1) else "no",
+          }
+    quiz:
+      - id: py01.k2.x1
+        kind: [trace]
+        body: |
+          按运行顺序填写每行执行后 `x` 与 `y` 的值。还没有赋值的名字填“尚未定义”。
+
+          ```python startLine=1
+          x = 2
+          y = x + 1
+          x = y + 1
+          y = x + y
+          ```
+        slots:
+          - id: trace
+            type: table
+            columns:
+              - id: line
+                header: 执行到
+              - id: x
+                header: x
+                input: { type: text, format: integer, quick: [尚未定义] }
+              - id: "y"
+                header: "y"
+                input: { type: text, format: integer, quick: [尚未定义] }
+            rows:
+              - id: l1
+                cells: { line: 第 1 行, x: 2, "y": 尚未定义 }
+              - id: l2
+                cells: { line: 第 2 行, x: 2, "y": 3 }
+              - id: l3
+                cells: { line: 第 3 行, x: 4, "y": 3 }
+              - id: l4
+                cells: { line: 第 4 行, x: 4, "y": 7 }
+        explanation: |
+          | 执行到 | x | y |
+          |---|---:|---:|
+          | 第 1 行 | 2 | 尚未定义 |
+          | 第 2 行 | 2 | 3 |
+          | 第 3 行 | 4 | 3 |
+          | 第 4 行 | 4 | 7 |
+
+          每一行都用那一刻的值：第 3 行用的是第 2 行算出的 y（3），第 4 行用的是第 3 行之后的 x（4）。
+        verify: |
+          names = ["x", "y"]
+          states = trace(names=names)
+          answers = {"trace": {f"l{i}": {name: state.get(name, "尚未定义") for name in names} for i, state in enumerate(states, 1)}}
+      - id: py01.k2.x2
+        kind: [predict, explain]
+        body: |
+          下面的程序想算出本周一共收到多少份样本。
+
+          ```python startLine=1
+          week = 0
+          week = week + 12
+          today = 5
+          week = week + today
+          today = 9
+          print(week)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 最后显示什么？
+            key: 17
+          - id: why
+            type: choice
+            prompt: 第 5 行把 `today` 改成 9 以后，`week` 怎样了？
+            options:
+              - id: follows
+                content: week 跟着变成 21
+              - id: fixed
+                content: week 不变，它保存的是第 4 行加上 5 那一刻的结果
+            key: fixed
+        explanation: |
+          显示 **17**。第 4 行用当时的 `today`（5）算出 17；第 5 行只让 `today` 改指向 9，`week` 不会重新计算。
+        verify: |
+          r = run()
+          answers = {
+              "output": int(r.out),
+              "why": "fixed" if r["week"] == 12 + 5 and r["week"] != 12 + r["today"] else "follows",
+          }
