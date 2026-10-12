@@ -1,9 +1,11 @@
-import { expect, it, vi } from "vitest";
-import { RpcError } from "@repa/base/client";
+import { afterEach, expect, it, vi } from "vitest";
+import { ConnectionError, RpcError } from "@repa/base/client";
 import type { AgentEvent, SessionEntry, SessionInfo } from "@repa/base/protocol";
 
 import { createAppStore } from "../src/lib/store";
 import { fakeClient } from "./fake-client";
+
+afterEach(() => { localStorage.clear(); });
 
 const at = "2026-10-12T00:00:00.000Z";
 
@@ -374,4 +376,72 @@ it("关闭空间后清空会话、会话列表和授权；运行中不关闭", a
     resources: { sessions: { status: "idle" } },
   });
   expect(store.getState().conversation.sessionId).toBeUndefined();
+});
+
+it("新建的 store 读回上次的空间和会话：连上后先重新打开空间，再读这个会话", async () => {
+  const sessions: SessionInfo[] = [
+    { id: "s1", createdAt: at, updatedAt: "2026-10-12T00:00:00.000Z" },
+    { id: "s2", createdAt: at, updatedAt: "2026-10-11T00:00:00.000Z" },
+  ];
+  const history = { s1: [], s2: [{ id: "u1", type: "user" as const, timestamp: at, text: "上次看的" }] };
+  const before = await openedStore(sessionBackend(sessions, history));
+  await before.getState().openSession(sessions[1]!);
+
+  const store = createAppStore();
+  expect(store.getState().space).toBe("/notes/calculus");
+  expect(store.getState().conversation).toMatchObject({ status: "idle", sessionId: "s2" });
+
+  // 后端刚启动，打开空间要等一会儿；这期间对话页已经开始读取。
+  const backend = sessionBackend(sessions, history);
+  let finishOpen!: () => void;
+  const opening = new Promise<void>((resolve) => { finishOpen = resolve; });
+  const call = vi.fn(async (method: string, params: Record<string, unknown>) => {
+    if (method === "space.open") await opening;
+    return await backend.call(method, params);
+  });
+  store.getState().setClient(fakeClient(call).client);
+  const loading = store.getState().loadConversation();
+  await Promise.resolve();
+  expect(call.mock.calls.map(([method]) => method)).toEqual(["space.open"]);
+
+  finishOpen();
+  await loading;
+  expect(store.getState().conversation).toMatchObject({ status: "ready", sessionId: "s2", items: [{ kind: "user", id: "u1", text: "上次看的" }] });
+});
+
+it("上次的会话已经不在列表里时打开最近有消息的会话", async () => {
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }], { s1: [] });
+  localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { space: "/notes/calculus", sessionId: "gone" }, version: 0 }));
+  const store = createAppStore();
+  store.getState().setClient(backend.client);
+  await store.getState().loadConversation();
+  expect(store.getState().conversation).toMatchObject({ status: "ready", sessionId: "s1" });
+});
+
+it("关闭空间后不再恢复；上次的空间打不开时记下原因，连接中断时保留空间等重连", async () => {
+  const store = await openedStore(sessionBackend());
+  await store.getState().closeSpace();
+  expect(createAppStore().getState().space).toBeUndefined();
+
+  localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { space: "/notes/calculus" }, version: 0 }));
+  const dropped = createAppStore();
+  const offline = sessionBackend();
+  offline.failOpen(new ConnectionError());
+  dropped.getState().setClient(offline.client);
+  await vi.waitFor(() => expect(offline.call).toHaveBeenCalledWith("space.open", { root: "/notes/calculus" }));
+  await Promise.resolve();
+  expect(dropped.getState().space).toBe("/notes/calculus");
+
+  const missing = createAppStore();
+  const broken = sessionBackend();
+  const error = new RpcError(-32000, "目录不存在", { code: "not_found" });
+  broken.failOpen(error);
+  missing.getState().setClient(broken.client);
+  await vi.waitFor(() => expect(missing.getState().space).toBeUndefined());
+  expect(missing.getState().resumeFailure).toEqual({ root: "/notes/calculus", error });
+  expect(createAppStore().getState().space).toBeUndefined();
+
+  missing.getState().setClient(sessionBackend().client);
+  await missing.getState().openSpace("/notes/physics");
+  expect(missing.getState().resumeFailure).toBeUndefined();
 });

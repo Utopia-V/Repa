@@ -72,8 +72,13 @@ export type AppState = {
   /** 当前连接；重连后换成新实例，读取函数执行时才取用。 */
   client?: RepaClient;
   connected: boolean;
-  /** 本页面打开的空间。后端不提供查询当前空间的方法，换连接后重新打开它。 */
+  /**
+   * 本页面打开的空间，和当前会话一起保存在浏览器里。后端不提供查询当前空间的方法，
+   * 连上后端（包括刷新、重启后第一次连接）时重新打开它。
+   */
   space?: string | undefined;
+  /** 重新打开上次的空间失败时记下原因，选空间页显示；之后成功打开空间时清除。 */
+  resumeFailure?: { root: string; error: unknown } | undefined;
   resources: Resources;
   /** 当前空间里正在查看的会话。 */
   conversation: Conversation;
@@ -94,7 +99,10 @@ export type AppState = {
   /** 浏览结果只属于当次选择，不进入共享状态。 */
   browseFolder(path?: string): Promise<Result<"space.browse">>;
   listRoots(): Promise<Result<"space.roots">>;
-  /** 读取会话列表并打开最近有消息的会话；空间里还没有会话时等第一次发送再建立。 */
+  /**
+   * 读取会话列表，打开上次查看的会话；它不在列表里时打开最近有消息的会话。
+   * 空间里还没有会话时等第一次发送再建立。
+   */
   loadConversation(): Promise<void>;
   loadSessions(): Promise<void>;
   loadHistory(): Promise<void>;
@@ -128,7 +136,7 @@ export type AppState = {
   login(provider: string, type: "api_key" | "oauth"): Promise<void>;
   answerLoginPrompt(id: string, value: string | null): Promise<void>;
   cancelLogin(): void;
-  /** 只有这一项保存在浏览器里，刷新后保留。 */
+  /** 保存在浏览器里，刷新后保留。 */
   sidebar: SidebarPreference;
   setSidebarOpen(open: boolean): void;
   setSidebarWidth(width: number): void;
@@ -164,7 +172,11 @@ export function createAppStore() {
   const sequence = new Map<ResourceName, number>();
 
   return createStore<AppState>()(persist((set, get) => {
+    // 重新打开空间期间，依赖空间的请求等它结束再发，否则后端可能还没打开空间。
+    let resuming: Promise<void> | undefined;
+
     async function call<M extends Method>(method: M, params: Params<M>): Promise<Result<M>> {
+      if (resuming && (method.startsWith("session.") || method.startsWith("history."))) await resuming;
       const client = get().client;
       if (!client) throw new ConnectionError("尚未连接后端。");
       return await client.call(method, params);
@@ -277,18 +289,24 @@ export function createAppStore() {
     async function resumeSpace(): Promise<void> {
       const root = get().space;
       if (!root) return;
-      try {
-        await call("space.open", { root });
-      } catch {
-        if (get().space === root) {
+      const opening = call("space.open", { root }).then(() => true, (error: unknown) => {
+        // 连接中断时保留空间，重连后再打开一次。
+        if (!(error instanceof ConnectionError) && get().space === root) {
+          conversationRequest++;
           resetSpaceData();
-          set({ space: undefined, conversation: emptyConversation });
+          set({ space: undefined, resumeFailure: { root, error }, conversation: emptyConversation });
         }
-        return;
-      }
-      if (get().space !== root) return;
+        return false;
+      });
+      const done = opening.then(() => undefined);
+      resuming = done;
+      const opened = await opening;
+      if (resuming === done) resuming = undefined;
+      if (!opened || get().space !== root) return;
       // 会话列表和修改历史依赖打开的空间，不随 reloadLoaded 在打开前读取。
-      await Promise.all([reloadSessions(), reloadSpaceHistory(), get().conversation.status !== "idle" ? reloadHistory() : undefined]);
+      // 正在读取的会话由那次读取完成，这里只重读已经显示过的。
+      const { status } = get().conversation;
+      await Promise.all([reloadSessions(), reloadSpaceHistory(), status === "ready" || status === "error" ? reloadHistory() : undefined]);
     }
 
     let unsubscribe: (() => void) | undefined;
@@ -400,6 +418,7 @@ export function createAppStore() {
           resetSpaceData();
           set({ space: opened.root, conversation: emptyConversation });
         }
+        set({ resumeFailure: undefined });
         // 打开前发出的读取可能不含这次打开，重新读取。
         pending.delete("spaces");
         await loaders.spaces();
@@ -421,17 +440,21 @@ export function createAppStore() {
         const id = ++conversationRequest;
         updateConversation({ status: "loading", error: undefined });
         try {
+          // 等空间重新打开后再读，读取不会被打开后的重新读取作废。
+          if (resuming) await resuming;
           pending.delete("sessions");
           await loaders.sessions();
           const { sessions } = get().resources;
           if (sessions.status === "error") throw sessions.error;
-          const latest = (sessions.data ?? []).reduce<SessionInfo | undefined>(
+          const list = sessions.data ?? [];
+          const previous = get().conversation.sessionId;
+          const target = list.find((session) => session.id === previous) ?? list.reduce<SessionInfo | undefined>(
             (found, session) => !found || session.updatedAt > found.updatedAt ? session : found,
             undefined,
           );
-          const entries = latest ? await call("session.history", { sessionId: latest.id }) : [];
+          const entries = target ? await call("session.history", { sessionId: target.id }) : [];
           if (id !== conversationRequest) return;
-          set({ conversation: { ...emptyConversation, status: "ready", sessionId: latest?.id, model: latest?.model, items: historyItems(entries) } });
+          set({ conversation: { ...emptyConversation, status: "ready", sessionId: target?.id, model: target?.model, items: historyItems(entries) } });
         } catch (error) {
           if (id === conversationRequest) updateConversation({ status: "error", error });
         }
@@ -593,10 +616,18 @@ export function createAppStore() {
   }, {
     name: "repa.web.preferences",
     storage: createJSONStorage(() => browserStorage),
-    partialize: (state) => ({ sidebar: state.sidebar }),
-    merge: (saved, current) => ({
-      ...current,
-      sidebar: restoreSidebar((saved as { sidebar?: unknown } | undefined)?.sidebar, current.sidebar),
-    }),
+    partialize: (state) => ({ sidebar: state.sidebar, space: state.space, sessionId: state.conversation.sessionId }),
+    merge: (saved, current) => {
+      const value = (typeof saved === "object" && saved !== null ? saved : {}) as Record<string, unknown>;
+      const space = typeof value.space === "string" && value.space ? value.space : undefined;
+      const sessionId = space && typeof value.sessionId === "string" && value.sessionId ? value.sessionId : undefined;
+      return {
+        ...current,
+        sidebar: restoreSidebar(value.sidebar, current.sidebar),
+        space,
+        // 会话内容在空间重新打开后由对话页读取。
+        conversation: { ...current.conversation, sessionId },
+      };
+    },
   }));
 }

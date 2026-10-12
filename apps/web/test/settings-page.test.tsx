@@ -9,7 +9,7 @@ import { createAppStore } from "../src/lib/store";
 import { SettingsPage } from "../src/pages/settings";
 import { fakeClient } from "./fake-client";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
 
 type Provider = Result<"model.providers">[number];
 

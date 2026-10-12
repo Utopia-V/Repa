@@ -8,7 +8,7 @@ import { createAppStore } from "../src/lib/store";
 import { LearningSpacePage } from "../src/pages/learning-space";
 import { fakeClient } from "./fake-client";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
 
 type Folder = { space?: boolean; children?: string[]; error?: unknown };
 

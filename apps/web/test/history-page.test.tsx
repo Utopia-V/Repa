@@ -205,6 +205,7 @@ it("打开空间后侧栏出现 History，进入修改历史页；没有打开�
   await waitFor(() => expect(router.state.location.pathname).toBe("/history"));
   expect(await screen.findByRole("heading", { name: "修改历史" })).toBeTruthy();
   cleanup();
+  localStorage.clear();
 
   const empty = createMemoryRouter(routes, { initialEntries: ["/history"] });
   render(<StoreProvider store={createAppStore()}><RouterProvider router={empty} /></StoreProvider>);

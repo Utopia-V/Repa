@@ -15,6 +15,7 @@ export function LearningSpacePage() {
   const active = useAppStore((state) => state.space);
   const loadSpaces = useAppStore((state) => state.loadSpaces);
   const openSpace = useAppStore((state) => state.openSpace);
+  const resumeFailure = useAppStore((state) => state.resumeFailure);
   const [opening, setOpening] = useState<string>();
   const [failure, setFailure] = useState<{ root: string; error: unknown }>();
   const [picking, setPicking] = useState(false);
@@ -47,7 +48,7 @@ export function LearningSpacePage() {
         spaces={spaces}
         active={active}
         opening={opening}
-        failure={failure}
+        failure={failure ?? (resumeFailure && { ...resumeFailure, previous: true })}
         onPick={() => setPicking(true)}
         onOpen={(root) => { void open(root); }}
         onRetry={() => { void loadSpaces(); }}
@@ -72,7 +73,7 @@ function RecentSpaces({ spaces, active, opening, failure, onPick, onOpen, onRetr
   spaces: Resources["spaces"];
   active: string | undefined;
   opening: string | undefined;
-  failure: { root: string; error: unknown } | undefined;
+  failure: { root: string; error: unknown; previous?: boolean } | undefined;
   onPick(): void;
   onOpen(root: string): void;
   onRetry(): void;
@@ -115,7 +116,7 @@ function RecentSpaces({ spaces, active, opening, failure, onPick, onOpen, onRetr
         </div>
       </div>}
 
-      {failure && <ErrorNotice title={`无法打开 ${folderName(failure.root)}`} error={failure.error} />}
+      {failure && <ErrorNotice title={`无法打开${failure.previous ? "上次的空间 " : " "}${folderName(failure.root)}`} error={failure.error} />}
 
       {hasRecent && <ul aria-labelledby="recent-spaces" className="m-0 grid list-none gap-2 p-0">
         {recent.map((root) => <li key={root}>

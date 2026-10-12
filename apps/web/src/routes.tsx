@@ -4,13 +4,20 @@ import { LearningSpacePage } from "@/pages/learning-space";
 import { SettingsPage } from "@/pages/settings";
 import { Navigate, type RouteObject } from "react-router";
 import { WorkspaceLayout } from "@/layouts/workspace-layout";
+import { useAppStore } from "@/hooks/use-app-store";
+
+/** 上次打开的空间还在时直接回到对话，没有时去选空间。 */
+function Start() {
+  const space = useAppStore((state) => state.space);
+  return <Navigate to={space ? "/conversation" : "/learning-space"} replace />;
+}
 
 export const routes: RouteObject[] = [
   {
     path: "/",
     element: <WorkspaceLayout />,
     children: [
-      { index: true, element: <Navigate to="/learning-space" replace /> },
+      { index: true, element: <Start /> },
       { path: "learning-space", element: <LearningSpacePage /> },
       { path: "conversation", element: <ConversationPage /> },
       { path: "history", element: <HistoryPage /> },

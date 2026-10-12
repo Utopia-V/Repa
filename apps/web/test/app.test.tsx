@@ -19,6 +19,7 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  localStorage.clear();
 });
 
 const connection = { url: "ws://127.0.0.1:4411/rpc", token: "secret" };

@@ -10,7 +10,7 @@ import { createAppStore } from "../src/lib/store";
 import { ConversationPage } from "../src/pages/conversation";
 import { fakeClient } from "./fake-client";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
 
 const at = "2026-10-12T00:00:00.000Z";
 

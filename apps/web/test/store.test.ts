@@ -65,7 +65,7 @@ it("重新读取期间保留上一次的数据", async () => {
   expect(store.getState().resources.spaces).toMatchObject({ status: "loading", data: ["/notes/physics"] });
 });
 
-it("只把侧栏偏好保存到浏览器，新建的 store 读回它", () => {
+it("侧栏偏好保存到浏览器，新建的 store 读回它", () => {
   const store = createAppStore();
   store.getState().setSidebarOpen(false);
   store.getState().setSidebarWidth(360);
