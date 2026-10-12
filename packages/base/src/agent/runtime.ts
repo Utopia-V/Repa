@@ -633,7 +633,9 @@ class Session implements AgentSession {
     // 所有 Agent 的写入和编辑都经过空间的写入路径，只记这次碰到的文件。
     const scope = await this.space.fileScope();
     const files = { scope, writes: options.writes ?? DIRECT_WRITES, reads: this.reads };
-    const fileTools = profile.general ? generalFileTools(files) : spaceFileTools(files, profile.builtins);
+    const fileTools = profile.general
+      ? generalFileTools(files, (target, signal) => this.approveOutsideWrite(target, signal))
+      : spaceFileTools(files, profile.builtins);
     const toolNames = [
       ...profile.builtins,
       ...profile.tools.map(tool => tool.name),
@@ -840,6 +842,21 @@ class Session implements AgentSession {
       if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
     }
     return { runId, status: status === "aborted" ? "aborted" : "completed", text: reply };
+  }
+
+  /**
+   * 通用 Agent 写空间外的文件：和命令一样先问发起这次运行的连接，Full Access 时不问。
+   * 这次写入不经过空间的写入路径，不进历史，也就不能撤回，确认里要说清楚。
+   */
+  private async approveOutsideWrite(target: string, signal: AbortSignal | undefined): Promise<void> {
+    const options = this.space.options;
+    if (options.commandPolicy() === "fullAccess") return;
+    const answer = await options.confirm({
+      kind: "command",
+      title: "允许写入空间外的文件？",
+      message: `${target}\n这次写入不会进入空间的历史，之后不能撤回。`,
+    }, signal ?? this.abortController?.signal);
+    if (answer !== true) throw new RepaFault("write_not_allowed", `用户没有允许写入空间外的文件：${target}`, { path: target });
   }
 
   /**
