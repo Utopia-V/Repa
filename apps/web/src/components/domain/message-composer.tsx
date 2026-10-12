@@ -6,7 +6,7 @@ import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui
 
 /**
  * 消息输入框。Enter 发送、Shift+Enter 换行；输入法确认候选词的 Enter 不发送。
- * 运行中仍可输入下一条，发送按钮换成停止。位置和用途在对话页里不言自明，
+ * 运行中发送按钮旁多出停止，发出的消息由调用方排队交给 Agent。位置和用途在对话页里不言自明，
  * 按规范的例外不显示标签，名称只提供给辅助技术。
  */
 export function MessageComposer({ inputRef, value, onChange, onSend, onStop, running, stopping, disabled }: {
@@ -18,9 +18,10 @@ export function MessageComposer({ inputRef, value, onChange, onSend, onStop, run
   onStop(): void;
   running: boolean;
   stopping: boolean;
+  /** 暂时不能发送，例如未连接、会话还在读取或运行正在开始、停止。 */
   disabled: boolean;
 }) {
-  const canSend = !running && !disabled && value.trim() !== "";
+  const canSend = !disabled && value.trim() !== "";
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Safari 确认候选词时 isComposing 已为 false，但 keyCode 仍是 229。
@@ -48,13 +49,12 @@ export function MessageComposer({ inputRef, value, onChange, onSend, onStop, run
         onKeyDown={onKeyDown}
       />
       <InputGroupAddon className="self-end">
-        {running
-          ? <Button variant="outline" size="icon" aria-label={stopping ? "正在停止" : "停止"} title={stopping ? "正在停止" : "停止"} disabled={stopping} onClick={onStop}>
-            <Square aria-hidden="true" />
-          </Button>
-          : <Button size="icon" type="submit" aria-label="发送" title="发送" disabled={!canSend}>
-            <ArrowUp aria-hidden="true" />
-          </Button>}
+        {running && <Button variant="outline" size="icon" aria-label={stopping ? "正在停止" : "停止"} title={stopping ? "正在停止" : "停止"} disabled={stopping} onClick={onStop}>
+          <Square aria-hidden="true" />
+        </Button>}
+        <Button size="icon" type="submit" aria-label="发送" title={running ? "发送，Agent 做完当前这一步后会看到" : "发送"} disabled={!canSend}>
+          <ArrowUp aria-hidden="true" />
+        </Button>
       </InputGroupAddon>
     </InputGroup>
   </form>;

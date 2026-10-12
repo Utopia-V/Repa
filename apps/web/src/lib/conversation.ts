@@ -16,6 +16,9 @@ export type ConversationItem =
 
 export type RunStatus = "idle" | "sending" | "running" | "stopping";
 
+/** 运行中发出、还没送到 Agent 的消息。 */
+export type QueuedMessage = { id: string; text: string };
+
 export type Conversation = {
   /** 读取会话列表与记录的状态；`idle` 表示进入空间后还没有读取。 */
   status: "idle" | "loading" | "ready" | "error";
@@ -28,11 +31,13 @@ export type Conversation = {
   /** 正在接收文字的助手消息；工具调用或消息结束后关闭。 */
   streaming?: string | undefined;
   run: RunStatus;
+  /** 运行中经 `session.steer` 排队的消息，按发出顺序；送达后作为用户消息出现在 items 里。 */
+  queued: QueuedMessage[];
   /** 发送或停止失败、且没有写进会话记录的错误。 */
   sendError?: unknown;
 };
 
-export const emptyConversation: Conversation = { status: "idle", items: [], run: "idle" };
+export const emptyConversation: Conversation = { status: "idle", items: [], run: "idle", queued: [] };
 
 function field(data: unknown, name: string): unknown {
   return data !== null && typeof data === "object" && name in data
@@ -112,7 +117,11 @@ export function applyEvent(conversation: Conversation, event: AgentEvent): Conve
     case "message": {
       const role = text(event.data, "role");
       if (role === "user") {
-        return { ...conversation, items: [...items, { kind: "user", id: nextId(), text: event.text ?? "" }] };
+        const delivered = event.text ?? "";
+        // 后端不转发队列变化。Pi 自己也按文字在队列里找到送达的那条并移除，这里用同样的方式对应。
+        const index = conversation.queued.findIndex((message) => message.text === delivered);
+        const queued = index === -1 ? conversation.queued : conversation.queued.filter((_, position) => position !== index);
+        return { ...conversation, queued, items: [...items, { kind: "user", id: nextId(), text: delivered }] };
       }
       if (role !== "assistant") return conversation;
       let next = items;

@@ -11,6 +11,7 @@ const at = "2026-10-12T00:00:00.000Z";
 function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, SessionEntry[]> = {}) {
   const runs: { sessionId: string; text: string; finish(error?: unknown): void }[] = [];
   const aborts: { finish(): void }[] = [];
+  const steers: { text: string; finish(error?: unknown): void }[] = [];
   let failOpen: unknown;
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
     switch (method) {
@@ -37,6 +38,10 @@ function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, Se
         });
       case "session.abort":
         return new Promise((resolve) => { aborts.push({ finish: () => resolve(null) }); });
+      case "session.steer":
+        return new Promise((resolve, reject) => {
+          steers.push({ text: String(params.text), finish: (error) => error ? reject(error) : resolve(null) });
+        });
       case "session.setModel": {
         const found = sessions.find((session) => session.id === params.sessionId);
         if (found) found.model = params.model as NonNullable<SessionInfo["model"]>;
@@ -57,7 +62,7 @@ function sessionBackend(sessions: SessionInfo[] = [], history: Record<string, Se
         return Promise.reject(new Error(`未模拟的方法 ${method}`));
     }
   });
-  return { call, runs, aborts, history, failOpen: (error: unknown) => { failOpen = error; }, ...fakeClient(call) };
+  return { call, runs, aborts, steers, history, failOpen: (error: unknown) => { failOpen = error; }, ...fakeClient(call) };
 }
 
 async function openedStore(backend: ReturnType<typeof sessionBackend>) {
@@ -288,6 +293,59 @@ it("从一条回答分叉：打开新会话，记录到这条回答为止，侧�
   await store.getState().forkSession("a1");
   expect(backend.call.mock.calls.filter(([method]) => method === "session.fork")).toHaveLength(1);
   expect(store.getState().conversation.sessionId).toBe("s2");
+  backend.runs[0]?.finish();
+  await sending;
+});
+
+it("运行中发出的消息用 session.steer 排队，送达事件到来后成为用户消息；停止时交还没送到的", async () => {
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const store = await openedStore(backend);
+  const sending = store.getState().sendMessage("讲讲链式法则");
+  await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+  // 运行开始前没有可以排队的运行。
+  expect(await store.getState().sendMessage("太快了")).toBe(false);
+  backend.emit("session.event", event("s1", { type: "runStart" }));
+  backend.emit("session.event", event("s1", { type: "message", text: "讲讲链式法则", data: { role: "user" } }));
+
+  const first = store.getState().sendMessage("能举个例子吗");
+  const second = store.getState().sendMessage("再慢一点");
+  expect(backend.call).toHaveBeenCalledWith("session.steer", { sessionId: "s1", text: "能举个例子吗" });
+  expect(store.getState().conversation.queued.map((message) => message.text)).toEqual(["能举个例子吗", "再慢一点"]);
+  backend.steers[0]?.finish();
+  backend.steers[1]?.finish();
+  expect(await first).toBe(true);
+  expect(await second).toBe(true);
+  // 入队返回不等于送达，仍然显示为排队。
+  expect(store.getState().conversation.queued).toHaveLength(2);
+
+  backend.emit("session.event", event("s1", { type: "message", text: "能举个例子吗", data: { role: "user" } }));
+  expect(store.getState().conversation.queued.map((message) => message.text)).toEqual(["再慢一点"]);
+  expect(store.getState().conversation.items.map((item) => "text" in item ? item.text : item.kind)).toEqual(["讲讲链式法则", "能举个例子吗"]);
+
+  const stopping = store.getState().stopRun();
+  backend.runs[0]?.finish(new RpcError(-32000, "会话运行已取消", { code: "cancelled" }));
+  backend.aborts[0]?.finish();
+  expect(await stopping).toEqual(["再慢一点"]);
+  await sending;
+  expect(store.getState().conversation.queued).toEqual([]);
+  expect(store.getState().conversation.run).toBe("idle");
+});
+
+it("排队失败时移出队列并返回 false，保留原因", async () => {
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at }]);
+  const store = await openedStore(backend);
+  const sending = store.getState().sendMessage("出一道题");
+  await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+  backend.emit("session.event", event("s1", { type: "runStart" }));
+
+  const steering = store.getState().sendMessage("换一道");
+  expect(store.getState().conversation.queued).toHaveLength(1);
+  backend.steers[0]?.finish(new RpcError(-32000, "会话运行正在取消", { code: "cancelled" }));
+  expect(await steering).toBe(false);
+  expect(store.getState().conversation.queued).toEqual([]);
+  expect(store.getState().conversation.sendError).toBeInstanceOf(RpcError);
+  expect(store.getState().conversation.run).toBe("running");
+
   backend.runs[0]?.finish();
   await sending;
 });

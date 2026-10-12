@@ -51,6 +51,7 @@ function backend(
           sends.push({ text: String(params.text), finish: (error) => error ? reject(error) : resolve(null) });
         });
       case "session.abort":
+      case "session.steer":
       case "session.setModel":
       case "confirm.reply":
         return Promise.resolve(null);
@@ -268,4 +269,38 @@ it("运行中不能分叉；分叉失败时显示原因，原会话不变", asyn
   fireEvent.click(fork);
   expect((await screen.findByRole("alert")).textContent).toContain("会话条目不存在");
   expect(within(record).getByText("举个例子")).toBeTruthy();
+});
+
+it("运行中可以继续发送，排队的消息显示为等待送达；停止后没送到的回到输入框", async () => {
+  const fake = backend();
+  await renderConversation(fake);
+  const record = await screen.findByRole("region", { name: "对话记录" });
+  const input = screen.getByRole("textbox", { name: "消息" });
+  fireEvent.change(input, { target: { value: "讲讲积分" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await vi.waitFor(() => expect(fake.sends).toHaveLength(1));
+  act(() => {
+    fake.emit("session.event", { sessionId: "s1", runId: "r1", type: "runStart" });
+    fake.emit("session.event", { sessionId: "s1", runId: "r1", type: "message", text: "讲讲积分", data: { role: "user" } });
+    fake.emit("session.event", { sessionId: "s1", runId: "r1", type: "textDelta", text: "积分是" });
+  });
+
+  expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
+  fireEvent.change(input, { target: { value: "用面积来讲" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(fake.call).toHaveBeenCalledWith("session.steer", { sessionId: "s1", text: "用面积来讲" });
+  expect((input as HTMLTextAreaElement).value).toBe("");
+  fireEvent.change(input, { target: { value: "再举个例子" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(within(record).getAllByText("排队中，Agent 做完当前这一步后会看到")).toHaveLength(2);
+
+  act(() => fake.emit("session.event", { sessionId: "s1", runId: "r1", type: "message", text: "用面积来讲", data: { role: "user" } }));
+  expect(within(record).getAllByText("排队中，Agent 做完当前这一步后会看到")).toHaveLength(1);
+  expect(within(record).getByText("用面积来讲")).toBeTruthy();
+
+  fireEvent.change(input, { target: { value: "还有" } });
+  fireEvent.click(screen.getByRole("button", { name: "停止" }));
+  await act(async () => fake.sends[0]?.finish(new RpcError(-32000, "会话运行已取消", { code: "cancelled" })));
+  await vi.waitFor(() => expect((input as HTMLTextAreaElement).value).toBe("再举个例子\n\n还有"));
+  expect(within(record).queryByText("排队中，Agent 做完当前这一步后会看到")).toBeNull();
 });

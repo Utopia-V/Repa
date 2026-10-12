@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate } from "react-router";
-import { ChevronDown, MessageSquarePlus, RefreshCw, Split } from "lucide-react";
+import { ChevronDown, Clock, MessageSquarePlus, RefreshCw, Split } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
@@ -63,7 +63,7 @@ function Conversation({ space }: { space: string }) {
   useLayoutEffect(() => {
     const element = record.current;
     if (element && following.current) element.scrollTop = element.scrollHeight;
-  }, [conversation.items]);
+  }, [conversation.items, conversation.queued]);
 
   function onScroll() {
     const element = record.current;
@@ -95,6 +95,12 @@ function Conversation({ space }: { space: string }) {
     } finally {
       setForking(false);
     }
+  }
+
+  async function stop() {
+    const unsent = await stopRun();
+    // 和 Pi 一样，取消时没送到的排队消息回到输入框，排在正在写的内容前面。
+    if (unsent.length > 0) setDraft((current) => [...unsent, current].filter((text) => text.trim() !== "").join("\n\n"));
   }
 
   const { run, status, items } = conversation;
@@ -149,9 +155,16 @@ function Conversation({ space }: { space: string }) {
           onFork={item.kind === "assistant" && item.forkable ? () => { void fork(item.id); } : undefined}
           forkDisabled={running || forking || !connected}
         />)}
-        {running && conversation.streaming === undefined && <p role="status" className="text-sm text-muted-foreground">
+        {running && conversation.streaming === undefined && <p role="status" className="mb-4 text-sm text-muted-foreground">
           {run === "stopping" ? "正在停止…" : "Agent 正在处理…"}
         </p>}
+        {/* 排队的消息留在记录末尾，送达后换成记录里的用户消息，位置基本不动。 */}
+        {conversation.queued.map((message) => <div key={message.id} className="mb-4 grid justify-items-end gap-1">
+          <ConversationMessage sender="user" className="mb-0">{message.text}</ConversationMessage>
+          <p className="flex items-center gap-1 text-sm text-muted-foreground">
+            <Clock aria-hidden="true" className="size-4 shrink-0" />排队中，Agent 做完当前这一步后会看到
+          </p>
+        </div>)}
       </div>
     </section>
 
@@ -170,10 +183,11 @@ function Conversation({ space }: { space: string }) {
         value={draft}
         onChange={setDraft}
         onSend={() => { void send(); }}
-        onStop={() => { void stopRun(); }}
+        onStop={() => { void stop(); }}
         running={running}
         stopping={run === "stopping"}
-        disabled={!connected || status !== "ready"}
+        // 运行开始前还没有可以排队的运行，停止中再发的消息会被一起取消。
+        disabled={!connected || status !== "ready" || run === "sending" || run === "stopping"}
       />
       {model && <div className="flex min-w-0 flex-wrap items-center gap-x-2">
         <Button

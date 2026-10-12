@@ -4,6 +4,7 @@ import { ConnectionError, RpcError, type RepaClient } from "@repa/base/client";
 import type { Confirmation, Method, ModelRef, Params, Result, SessionInfo } from "@repa/base/protocol";
 
 import { applyEvent, emptyConversation, historyItems, type Conversation } from "@/lib/conversation";
+import { errorCode } from "@/lib/errors";
 
 /** 一份从后端读取的数据；重新读取期间保留上一次的 data，界面不回到空白。 */
 export type Resource<T> = {
@@ -83,9 +84,13 @@ export type AppState = {
   forkSession(entryId: string): Promise<void>;
   /** 已建立的会话调用 session.setModel；还没建立的记下来，建立时使用。 */
   setConversationModel(model: ModelRef): Promise<void>;
-  /** 返回 false 表示消息没有发出去，错误放在 `conversation.sendError`。 */
+  /**
+   * 空闲时开始一次运行；运行中用 `session.steer` 排队，Agent 做完当前这一步后读到。
+   * 返回 false 表示消息没有发出去，错误放在 `conversation.sendError`。
+   */
   sendMessage(text: string): Promise<boolean>;
-  stopRun(): Promise<void>;
+  /** 返回随取消被后端丢弃、没送到 Agent 的排队消息，由调用方放回输入框。 */
+  stopRun(): Promise<string[]>;
   replyConfirmation(id: string, allowed: boolean): Promise<void>;
   /** 读取设置页需要的提供方、模型和默认模型。 */
   loadModelSettings(): Promise<void>;
@@ -208,6 +213,8 @@ export function createAppStore() {
 
     // 会话读取共用一个序号：切换会话、换空间或再次读取后，先发出的读取结果作废。
     let conversationRequest = 0;
+    // 排队消息在本页面内的编号。
+    let queuedCount = 0;
 
     /** 运行结束后用会话记录替换实时拼出的内容。运行中不替换，等 runEnd 再读。 */
     async function reloadHistory(): Promise<void> {
@@ -285,6 +292,26 @@ export function createAppStore() {
       return code === "model_error" || code === "cancelled";
     }
 
+    /**
+     * 运行中发出的消息先显示为排队，送达事件到来时移出。Pi 正在运行时 `session.steer` 入队即返回；
+     * 后端发现运行已经结束时改为直接开始下一轮，要等那一轮结束才返回，期间同样由事件显示。
+     */
+    async function steer(sessionId: string, text: string): Promise<boolean> {
+      const id = `queued:${++queuedCount}`;
+      set((state) => ({ conversation: { ...state.conversation, sendError: undefined, queued: [...state.conversation.queued, { id, text }] } }));
+      try {
+        await call("session.steer", { sessionId, text });
+        return true;
+      } catch (error) {
+        // 只有直接开始的那一轮会遇到模型错误，它已写进会话记录。
+        if (errorCode(error) === "model_error") return true;
+        if (get().conversation.sessionId === sessionId) {
+          set((state) => ({ conversation: { ...state.conversation, sendError: error, queued: state.conversation.queued.filter((message) => message.id !== id) } }));
+        }
+        return false;
+      }
+    }
+
     return {
       connected: false,
       resources: {
@@ -305,7 +332,8 @@ export function createAppStore() {
           confirmations: [],
           // 登录随旧连接断开而失败，未回答的请求一并作废；auth.login 的调用会以连接中断结束。
           activeLogin: state.activeLogin && { ...state.activeLogin, prompts: [] },
-          conversation: { ...state.conversation, run: "idle", streaming: undefined },
+          // 排队消息是否送到同样无法查询，重读的会话记录里能看到已经送到的。
+          conversation: { ...state.conversation, run: "idle", streaming: undefined, queued: [] },
         }));
         subscribe(client);
         // 旧连接上的读取不再等待；它们晚到的结果会被序号丢弃。
@@ -394,8 +422,10 @@ export function createAppStore() {
       },
       async sendMessage(text) {
         const conversation = get().conversation;
+        if (conversation.run === "running" && conversation.sessionId) return await steer(conversation.sessionId, text);
         if (conversation.run !== "idle") return false;
-        updateConversation({ run: "sending", sendError: undefined });
+        // 上一次运行里没对上的排队消息（例如插件的输入钩子改写了文字）不会再送达，不再显示。
+        updateConversation({ run: "sending", sendError: undefined, queued: [] });
         let sessionId = conversation.sessionId;
         try {
           if (!sessionId) {
@@ -423,12 +453,18 @@ export function createAppStore() {
       },
       async stopRun() {
         const { sessionId, run } = get().conversation;
-        if (!sessionId || (run !== "running" && run !== "sending")) return;
+        if (!sessionId || (run !== "running" && run !== "sending")) return [];
         updateConversation({ run: "stopping" });
         try {
           await call("session.abort", { sessionId });
+          // 取消完成时后端已清空队列；在这之前送到的消息已随事件移出 queued，剩下的都没有送到。
+          if (get().conversation.sessionId !== sessionId) return [];
+          const unsent = get().conversation.queued.map((message) => message.text);
+          updateConversation({ queued: [] });
+          return unsent;
         } catch (error) {
           updateConversation({ sendError: error });
+          return [];
         } finally {
           if (get().conversation.sessionId === sessionId && get().conversation.run === "stopping") updateConversation({ run: "idle" });
         }
