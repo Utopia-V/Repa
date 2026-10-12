@@ -1,7 +1,8 @@
 id: py05
 title: 清理一段文字
-status: outline
+status: complete
 minutes: 20
+summary: 读懂 strip、lower、replace 这类点号方法：它们得到新文字、不改原来的名字；调用链从左往右，每一步接着上一步的结果。
 prerequisites:
   - topic: py04
     key: true
@@ -24,12 +25,1136 @@ sources:
     where: 教程第 3 章 §3.1.2
     url: https://docs.python.org/3.12/tutorial/introduction.html
     use: reference
+  - source: python-docs
+    where: 标准库：内置类型，字符串方法（strip、lower、upper、replace）
+    url: https://docs.python.org/3.12/library/stdtypes.html#string-methods
+    use: reference
 notes: |
-  建议题型与判分：预测输出（P）、追踪变量（P）、小改代码（T）。
+  范围：用到 py03 的文字（str）和 + 拼接、py04 的调用与返回结果（含 len）。点号方法调用在本节第一次出现，只讲 strip()、lower()、upper()、replace(旧, 新) 四个方法，strip 不带参数。不讲索引与切片（py06）、split 和 count（py47）、pandas 的 str 方法（py24）、f-string。
+  判分：match: output 和 match: text 都会去掉首尾空白，所以凡是要比较两端空格的作答位，都让学生写带引号的 Python 文字（match: output 按字面量比较，空格个数也比较）；print 显示的结果用 print("[" + label + "]") 把两端包起来，按逐字比较。
+  建议题型与判分：预测输出（P）、追踪变量（P）、小改代码（T）。k3 的 Parsons 题按测试判，接受 strip 在 replace 之前的几种顺序。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 3 分钟；k3 讲解与例题 3 分钟、练习 3 分钟；收束 1 分钟。
+  讲解、例题和题目为本课自拟。
+intro: |
+  实验记录里的样本标签和组名常常写得不统一：两端多了空格，大小写不一致，连字符和空格混用。这一节读懂清理文字的三个常用工具 `strip`、`lower`、`replace`：每一步得到什么，原来的名字有没有变。
+
+  有些题要你写出一段文字的值。这时照 Python 的写法加上引号，例如 `'drug_a'`；引号之间的空格也是文字的一部分，要照实写。用 `print` 显示出来的结果不带引号，照屏幕上的样子写。
+wrapup: |
+  清理文字时记住三件事：方法得到的是一段新文字，要赋给名字才留得住；`strip` 只管两端，`lower` 只管字母，`replace` 换掉每一处并且区分大小写；调用链从左往右，每一步接着上一步的结果。
+
+  读 AI 写的清理代码时，可以把一长串调用拆开，逐步写下得到的文字，再和你想要的结果对一对。
 kps:
   - id: py05.k1
     title: 字符串不可原位改写
+    card:
+      name: 方法得到新文字
+      aliases: [字符串不可变, 方法调用]
+      definition: "`label.strip()` 这类方法不会改动原来的文字，而是另外得到一段新文字；不把结果赋给名字，它就丢掉了。"
+      conditions:
+        - "`label.strip()` 单独一行时，`label` 不变，算出的结果也没有留下。"
+        - "要保留结果，写 `label = label.strip()`，或存进新名字，如 `clean = label.strip()`。"
+      example:
+        from: py05.k1.e0
+        text: |
+          ```python
+          label = " Drug A "
+          clean = label.strip()
+          label.upper()
+          label = label.strip()
+          ```
+          第 2 行让 clean 指向 'Drug A'，label 不变；第 3 行算出的大写文字没有赋给任何名字，丢掉了；第 4 行之后 label 才变成 'Drug A'。
+    lesson: |
+      实验记录里的标签常带多余的空格，比如 `" Drug A "`。Python 的[文字（str）](repa:concept/py03.k1)带着一组清理用的工具，写在文字后面，用点号接上：
+
+      ```python
+      clean = label.strip()
+      ```
+
+      `label.strip()` 叫**方法调用**：点号前是要处理的文字，点号后是方法名和括号。它和[函数调用](repa:concept/py04.k1)一样会算出一个结果：`strip()` 得到去掉两端空格的文字，`lower()` 得到字母全变小写的文字，`upper()` 得到字母全变大写的文字。
+
+      要紧的是：这些方法**不改动原来的文字**，而是另外得到一段新文字，原来的名字仍然指向旧的那一段。
+
+      | 执行到 | label | clean |
+      |---|---|---|
+      | `label = "  Ctrl "` | `'  Ctrl '` | 尚未定义 |
+      | `label.lower()` | `'  Ctrl '` | 尚未定义 |
+      | `clean = label.strip()` | `'  Ctrl '` | `'Ctrl'` |
+      | `label = label.strip()` | `'Ctrl'` | `'Ctrl'` |
+
+      第 2 行算出了 `'  ctrl '`，却没有交给任何名字，结果就丢了，和[返回结果没有接住](repa:concept/py04.k3)一样。要保留结果，就把它赋给名字：存进新名字 `clean`，或者写 `label = label.strip()`，先算右边得到新文字，再让 `label` 改为指向它。
+
+      表里文字的值都带着引号：引号之间的内容就是这段文字，两端的空格也算在内。
+    example:
+      id: py05.k1.e0
+      kind: [trace]
+      uses: [py04.k3]
+      body: |
+        一个样本的组名录成了 `" Drug A "`，两端各多了一个空格。按运行顺序填写每行执行后 `label` 和 `clean` 的值，写成带引号的形式，例如 `'Drug A'`，引号里的空格照实写。
+
+        ```python startLine=1
+        label = " Drug A "
+        clean = label.strip()
+        label.upper()
+        label = label.strip()
+        ```
+      slots:
+        - id: trace
+          type: table
+          label: 状态表
+          columns:
+            - id: line
+              header: 执行到
+            - id: label
+              header: label
+              input: { type: text, match: output }
+            - id: clean
+              header: clean
+              input: { type: text, match: output }
+          rows:
+            - id: l1
+              cells:
+                line: 第 1 行
+                label: "' Drug A '"
+                clean: { value: 尚未定义 }
+            - id: l2
+              cells:
+                line: 第 2 行
+                label: "' Drug A '"
+                clean: "'Drug A'"
+            - id: l3
+              cells:
+                line: 第 3 行
+                label: "' Drug A '"
+                clean: "'Drug A'"
+            - id: l4
+              cells:
+                line: 第 4 行
+                label: "'Drug A'"
+                clean: "'Drug A'"
+        - id: kept
+          type: choice
+          prompt: 第 3 行算出的 `' DRUG A '` 存到了哪里？
+          options:
+            - { id: label, content: 存进了 `label`，label 变成大写 }
+            - { id: nowhere, content: 没有赋给任何名字，丢掉了 }
+            - { id: clean, content: 存进了 `clean` }
+          key: nowhere
+      explanation: |
+        | 执行到 | label | clean |
+        |---|---|---|
+        | 第 1 行 | `' Drug A '` | 尚未定义 |
+        | 第 2 行 | `' Drug A '` | `'Drug A'` |
+        | 第 3 行 | `' Drug A '` | `'Drug A'` |
+        | 第 4 行 | `'Drug A'` | `'Drug A'` |
+
+        第 2 行的 `strip()` 得到一段新文字 `'Drug A'`，交给了 `clean`，`label` 没有变。第 3 行算出了 `' DRUG A '`，但这一行没有等号，结果**没有赋给任何名字，丢掉了**。直到第 4 行写成 `label = label.strip()`，`label` 才改为指向去掉空格的新文字。
+      verify: |
+        names = ["label", "clean"]
+        states = trace(names=names)
+        # 第 3 行前后，两个名字都没变，说明第 3 行算出的结果没有存进任何名字。
+        changed = [name for name in names if states[2].get(name) != states[1].get(name)]
+        answers = {
+            "trace": {f"l{i}": {name: state[name] for name in names if name in state} for i, state in enumerate(states, 1)},
+            "kept": changed[0] if len(changed) == 1 else "nowhere" if not changed else changed,
+        }
+    practice:
+      - id: py05.k1.q1
+        kind: [predict]
+        uses: [py04.k3]
+        body: |
+          ```python
+          code = "ctrl-01"
+          code.upper()
+          print(code)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: text
+            prompt: 程序显示什么？
+            key: "ctrl-01"
+            feedback:
+              - when: "CTRL-01"
+                message: 第 2 行算出了大写的文字，但没有赋给任何名字；`code` 还是原来的文字。
+        explanation: |
+          显示 **ctrl-01**。第 2 行的 `code.upper()` 得到一段新文字 `'CTRL-01'`，但这一行没有把它赋给任何名字，结果丢掉了；`code` 仍然指向原来的 `'ctrl-01'`。
+        verify: |
+          answers = {"output": run().lines()[0]}
+      - id: py05.k1.q2
+        kind: [predict]
+        uses: [py04.k3]
+        body: |
+          哪一段程序运行完以后，`label` 本身指向 `'drug a'`？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: alone
+                content: |
+                  ```python
+                  label = "Drug A"
+                  label.lower()
+                  ```
+                feedback: "`label.lower()` 单独一行，算出的结果没有留下。"
+              - id: other
+                content: |
+                  ```python
+                  label = "Drug A"
+                  small = label.lower()
+                  ```
+                feedback: 小写的文字存进了 `small`，`label` 没有变。
+              - id: assigned
+                content: |
+                  ```python
+                  label = "Drug A"
+                  label = label.lower()
+                  ```
+              - id: shown
+                content: |
+                  ```python
+                  label = "Drug A"
+                  print(label.lower())
+                  ```
+                feedback: print 只把结果显示出来，`label` 没有变。
+            key: assigned
+        explanation: |
+          写成 `label = label.lower()` 的那一段：先算右边得到 `'drug a'`，再让 `label` 改为指向它。另外三段里，`'drug a'` 要么没有留下，要么存进了别的名字，要么只是显示了一次，`label` 都还是 `'Drug A'`。
+        verify: |
+          fits = [option for option, code in OPTIONS["program"].items() if run(code).vars.get("label") == "drug a"]
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+      - id: py05.k1.q3
+        kind: [modify]
+        uses: [py04.k3]
+        body: |
+          宿主已经给 `label` 赋了一个样本标签，例如 `'  S_07 '`。后面的代码都直接用 `label`，所以需要 `label` **本身**变成去掉两端空格的文字。作答框里的代码没有做到，请改好它。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              label.strip()
+            solution: |
+              label = label.strip()
+            rejects:
+              - code: clean = label.strip()
+                why: 结果存进了新名字，label 本身没有变
+              - code: print(label.strip())
+                why: 只显示了一次结果，label 没有变
+              - code: label = "S_07"
+                why: 照着例子写死了一个标签
+              - code: label = label.replace(" ", "")
+                why: 把中间的空格也删掉了
+            tests:
+              - name: 两端有空格的标签
+                setup: label = "  S_07 "
+                expect:
+                  label: '"S_07"'
+              - name: 另一个标签
+                hidden: true
+                setup: label = " ctrl-02  "
+                expect:
+                  label: '"ctrl-02"'
+              - name: 中间也有空格的标签
+                hidden: true
+                setup: label = " Drug A "
+                expect:
+                  label: '"Drug A"'
+              - name: 本来就没有多余空格
+                hidden: true
+                setup: label = "S_10"
+                expect:
+                  label: '"S_10"'
+        explanation: |
+          ```python
+          label = label.strip()
+          ```
+
+          `label.strip()` 单独一行时，算出的新文字没有留下。写成赋值，先算右边，再让 `label` 改为指向新文字。存进 `clean` 这样的新名字，`label` 本身仍然不变，后面用 `label` 的代码拿到的还是带空格的标签。
+    review:
+      - id: py05.k1.r1
+        kind: [trace]
+        uses: [py04.k3, py01.k2]
+        body: |
+          按运行顺序填写第 2–4 行执行后 `site` 和 `title` 的值，写成带引号的形式，例如 `'North Slope'`。第 1 行执行后，`site` 是 `'North Slope'`。
+
+          ```python startLine=1
+          site = "North Slope"
+          title = site.upper()
+          site.lower()
+          site = title
+          ```
+        slots:
+          - id: trace
+            type: table
+            columns:
+              - id: line
+                header: 执行到
+              - id: site
+                header: site
+                input: { type: text, match: output }
+              - id: title
+                header: title
+                input: { type: text, match: output }
+            rows:
+              - id: l2
+                cells:
+                  line: 第 2 行
+                  site: "'North Slope'"
+                  title: "'NORTH SLOPE'"
+              - id: l3
+                cells:
+                  line: 第 3 行
+                  site: "'North Slope'"
+                  title: "'NORTH SLOPE'"
+              - id: l4
+                cells:
+                  line: 第 4 行
+                  site: "'NORTH SLOPE'"
+                  title: "'NORTH SLOPE'"
+        explanation: |
+          | 执行到 | site | title |
+          |---|---|---|
+          | 第 2 行 | `'North Slope'` | `'NORTH SLOPE'` |
+          | 第 3 行 | `'North Slope'` | `'NORTH SLOPE'` |
+          | 第 4 行 | `'NORTH SLOPE'` | `'NORTH SLOPE'` |
+
+          第 2 行的大写结果交给了 `title`，`site` 不变。第 3 行算出的 `'north slope'` 没有赋给任何名字，什么也没改。第 4 行让 `site` 指向 `title` 的值，`site` 这才变成大写。
+        verify: |
+          names = ["site", "title"]
+          states = trace(names=names)
+          answers = {"trace": {f"l{i}": {name: states[i - 1][name] for name in names} for i in (2, 3, 4)}}
+      - id: py05.k1.r2
+        kind: [debug, predict]
+        uses: [py04.k3, py03.k1]
+        body: |
+          同事想让 `sample_id` 去掉两端的空格，用方括号把它包起来打印，应当显示 `[S-12]`。
+
+          ```python startLine=1
+          sample_id = " S-12 "
+          sample_id.strip()
+          print("[" + sample_id + "]")
+          ```
+        slots:
+          - id: output
+            type: text
+            match: text
+            prompt: 这段程序实际显示什么？方括号里的空格照实写。
+            key: "[ S-12 ]"
+          - id: fix
+            type: choice
+            prompt: 把第 2 行换成哪一行，就会显示 `[S-12]`？
+            options:
+              - id: shown
+                content: |
+                  ```python
+                  print(sample_id.strip())
+                  ```
+              - id: assigned
+                content: |
+                  ```python
+                  sample_id = sample_id.strip()
+                  ```
+              - id: other
+                content: |
+                  ```python
+                  clean = sample_id.strip()
+                  ```
+            key: assigned
+        explanation: |
+          实际显示 **[ S-12 ]**，两端的空格还在：第 2 行算出的新文字没有赋给任何名字，`sample_id` 没有变。
+
+          改成 `sample_id = sample_id.strip()` 才会显示 `[S-12]`。只 print 一次，会多显示一行 `S-12`，第 3 行照样带空格；存进 `clean`，第 3 行用的 `sample_id` 也还是旧的。
+        verify: |
+          lines = CODE.splitlines()
+          def shows(line):
+              result = run("\n".join([lines[0], line, lines[2]]))
+              return result.error is None and result.out.strip() == "[S-12]"
+          fits = [option for option, code in OPTIONS["fix"].items() if shows(code)]
+          answers = {"output": run().lines()[0], "fix": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py05.k1.x1
+        kind: [predict]
+        uses: [py04.k3, py03.k1]
+        body: |
+          ```python
+          unit = "mL"
+          unit.lower()
+          small = unit.lower()
+          print(unit + " / " + small)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: text
+            prompt: 程序显示什么？
+            key: "mL / ml"
+            feedback:
+              - when: "ml / ml"
+                message: 第 2 行的结果没有留下，`unit` 还是 `'mL'`；只有 `small` 指向小写的文字。
+        explanation: |
+          显示 **mL / ml**。第 2 行算出的 `'ml'` 没有赋给任何名字；第 3 行把它存进了 `small`。两次 `lower()` 都没有改动 `unit`，所以拼起来是原来的 `mL` 加上小写的 `ml`。
+        verify: |
+          answers = {"output": run().lines()[0]}
+      - id: py05.k1.x2
+        kind: [explain]
+        uses: [py04.k3]
+        body: |
+          `label` 开始时是 `'Ctrl 01'`。下面每一行都单独接在 `label = "Ctrl 01"` 后面运行。哪几行运行之后，`label` 指向的文字变了？选出所有。
+        slots:
+          - id: lines
+            type: choice
+            multiple: true
+            minSelected: 0
+            options:
+              - id: a
+                content: |
+                  ```python
+                  label.lower()
+                  ```
+              - id: b
+                content: |
+                  ```python
+                  label = label.lower()
+                  ```
+              - id: c
+                content: |
+                  ```python
+                  clean = label.upper()
+                  ```
+              - id: d
+                content: |
+                  ```python
+                  label = label.upper()
+                  ```
+              - id: e
+                content: |
+                  ```python
+                  print(label.lower())
+                  ```
+            key: [b, d]
+        explanation: |
+          只有 `label = label.lower()` 和 `label = label.upper()` 两行：等号左边是 `label`，它才改为指向新文字。单独一行的 `label.lower()` 把结果丢掉了；`clean = label.upper()` 把结果交给了 `clean`；`print(...)` 只显示一次。这三行之后 `label` 都还是 `'Ctrl 01'`。
+        verify: |
+          fits = [option for option, code in OPTIONS["lines"].items() if run(code, label="Ctrl 01")["label"] != "Ctrl 01"]
+          answers = {"lines": fits}
+
   - id: py05.k2
     title: strip/lower/replace 的结果
+    card:
+      name: strip/lower/replace
+      aliases: [去空格, 改小写, 替换]
+      definition: "`strip()` 去掉两端的空白，`lower()` 把字母改成小写，`replace(旧, 新)` 把每一处“旧”换成“新”；三者都得到新文字。"
+      conditions:
+        - "`strip()` 不动中间的空格；`lower()` 只改字母，数字和符号不变。"
+        - "`replace` 区分大小写，换掉所有出现的地方；找不到“旧”时原样返回，不报错。"
+      example:
+        from: py05.k2.e0
+        text: |
+          raw 为 `' Drug A-1 '`：`raw.strip()` 得 `'Drug A-1'`，`raw.lower()` 得 `' drug a-1 '`，`raw.replace("-", "_")` 得 `' Drug A_1 '`；`raw.replace("a", "o")` 找不到小写的 a，原样得到 `' Drug A-1 '`。
+    lesson: |
+      三个最常用的清理方法，各管一件事：
+
+      | 写法 | 做什么 | `"  Ctrl B-2 "` 得到 |
+      |---|---|---|
+      | `.strip()` | 去掉**两端**的空格（换行等空白也算） | `'Ctrl B-2'` |
+      | `.lower()` | 把**字母**改成小写，数字和符号不变；`.upper()` 改成大写 | `'  ctrl b-2 '` |
+      | `.replace("-", "_")` | 把**每一处** `-` 换成 `_` | `'  Ctrl B_2 '` |
+
+      容易看错的几处：
+
+      - `strip()` 只管两端，中间的空格不动：`" control group ".strip()` 得到 `'control group'`。要去掉所有空格，用 `replace(" ", "")`，把空格换成空文字。
+      - `replace(旧, 新)` 括号里先写要找的，再写换成什么。它区分大小写：`"Ctrl".replace("ctrl", "c")` 找不到小写的 ctrl，原样得到 `'Ctrl'`，也不报错。
+      - 三个方法都[得到新文字](repa:concept/py05.k1)，原来的名字不变。
+
+      用 print 显示文字时，两端的空格看不出来。题目里常写 `print("[" + label + "]")`，用方括号把文字包起来：显示 `[ Ctrl ]`，就说明两端各有一个空格。
+    example:
+      id: py05.k2.e0
+      kind: [predict]
+      body: |
+        先运行下面一行。表里每个写法都单独作用在这个 `raw` 上，填出各自得到的文字，写成带引号的形式，例如 `'Drug'`，引号里的空格照实写。
+
+        ```python
+        raw = " Drug A-1 "
+        ```
+      slots:
+        - id: values
+          type: table
+          columns:
+            - id: expr
+              header: 写法
+            - id: value
+              header: 得到的文字
+              input: { type: text, match: output }
+          rows:
+            - id: strip
+              cells:
+                expr: raw.strip()
+                value: "'Drug A-1'"
+            - id: lower
+              cells:
+                expr: raw.lower()
+                value: "' drug a-1 '"
+            - id: dash
+              cells:
+                expr: 'raw.replace("-", "_")'
+                value: "' Drug A_1 '"
+            - id: case
+              cells:
+                expr: 'raw.replace("a", "o")'
+                value: "' Drug A-1 '"
+      explanation: |
+        | 写法 | 得到的文字 |
+        |---|---|
+        | `raw.strip()` | `'Drug A-1'` |
+        | `raw.lower()` | `' drug a-1 '` |
+        | `raw.replace("-", "_")` | `' Drug A_1 '` |
+        | `raw.replace("a", "o")` | `' Drug A-1 '` |
+
+        `strip()` 去掉了两端的空格，中间的空格还在；`lower()` 只改字母，两端的空格、`-` 和 `1` 原样保留；`replace("-", "_")` 只换连字符。最后一行要找的是小写的 `a`，而 `raw` 里只有大写的 `A`，什么也没换，原样得到 `' Drug A-1 '`。
+      verify: |
+        exprs = {"strip": "raw.strip()", "lower": "raw.lower()", "dash": 'raw.replace("-", "_")', "case": 'raw.replace("a", "o")'}
+        answers = {"values": {row: {"value": run(CODE + "\nresult = " + expr)["result"]} for row, expr in exprs.items()}}
+    practice:
+      - id: py05.k2.q1
+        kind: [predict]
+        uses: [py03.k1]
+        body: |
+          ```python
+          group = "  control group  "
+          print("[" + group.strip() + "]")
+          print("[" + group.replace(" ", "") + "]")
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: text
+            prompt: 第一行显示
+            key: "[control group]"
+            feedback:
+              - when: "[controlgroup]"
+                message: "`strip()` 只去两端的空格，中间那个不动。"
+          - id: line2
+            type: text
+            match: text
+            prompt: 第二行显示
+            key: "[controlgroup]"
+            feedback:
+              - when: "[control group]"
+                message: "`replace(\" \", \"\")` 换掉每一个空格，包括中间那个。"
+        explanation: |
+          先显示 **[control group]**，再显示 **[controlgroup]**。`strip()` 只去掉两端的空格，中间的空格不动；`replace(" ", "")` 把每一个空格都换成空文字，中间那个也去掉了。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1]}
+      - id: py05.k2.q2
+        kind: [predict]
+        body: |
+          ```python
+          note = "Ctrl-01 / ctrl-02"
+          print(note.replace("ctrl", "ctl"))
+          print(note.replace("-", ""))
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: text
+            prompt: 第一行显示
+            key: "Ctrl-01 / ctl-02"
+            feedback:
+              - when: "ctl-01 / ctl-02"
+                message: "`replace` 区分大小写，开头的 `Ctrl` 是大写的 C，不等于 `ctrl`。"
+          - id: line2
+            type: text
+            match: text
+            prompt: 第二行显示
+            key: "Ctrl01 / ctrl02"
+            feedback:
+              - when: "Ctrl01 / ctrl-02"
+                message: "`replace` 换掉的是每一处，不只是第一处。"
+        explanation: |
+          先显示 **Ctrl-01 / ctl-02**，再显示 **Ctrl01 / ctrl02**。`replace` 区分大小写，只换掉了小写的 `ctrl`；它换的是每一处，所以两个连字符都去掉了。两次 `replace` 都作用在原来的 `note` 上，第二行不受第一行影响。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1]}
+      - id: py05.k2.q3
+        kind: [explain]
+        body: |
+          样本编号录成了 `'S 07'`、`'S 12'` 这样，中间夹着一个空格，要统一写成 `'S07'`、`'S12'`。`sample` 是其中一个编号，哪一行能做到？
+        slots:
+          - id: method
+            type: choice
+            options:
+              - id: no_space
+                content: |
+                  ```python
+                  fixed = sample.replace(" ", "")
+                  ```
+              - id: strip
+                content: |
+                  ```python
+                  fixed = sample.strip()
+                  ```
+                feedback: "`strip()` 只去两端的空格，中间的空格还在。"
+              - id: lower
+                content: |
+                  ```python
+                  fixed = sample.lower()
+                  ```
+              - id: drop_s
+                content: |
+                  ```python
+                  fixed = sample.replace("S", "")
+                  ```
+            key: no_space
+        explanation: |
+          `fixed = sample.replace(" ", "")`：把空格换成空文字，`'S 07'` 得到 `'S07'`。`strip()` 不动中间的空格，结果仍是 `'S 07'`；`lower()` 把 S 改成了小写；`replace("S", "")` 去掉的是字母 S，得到 `' 07'`。
+        verify: |
+          samples = ["S 07", "S 12"]
+          fits = [option for option, code in OPTIONS["method"].items()
+                  if all(run(code, sample=s)["fixed"] == "".join(s.split()) for s in samples)]
+          answers = {"method": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py05.k2.r1
+        kind: [explain]
+        body: |
+          ```python
+          s = "Site-3 north"
+          ```
+
+          下面每个写法都单独作用在这个 `s` 上。哪几个得到的文字与 `s` 完全相同？选出所有。
+        slots:
+          - id: same
+            type: choice
+            multiple: true
+            minSelected: 0
+            options:
+              - id: a
+                content: |
+                  ```python
+                  s.strip()
+                  ```
+              - id: b
+                content: |
+                  ```python
+                  s.lower()
+                  ```
+              - id: c
+                content: |
+                  ```python
+                  s.replace("South", "S")
+                  ```
+              - id: d
+                content: |
+                  ```python
+                  s.replace("north", "N")
+                  ```
+              - id: e
+                content: |
+                  ```python
+                  s.upper()
+                  ```
+            key: [a, c]
+        explanation: |
+          `s.strip()` 和 `s.replace("South", "S")` 两个。`s` 两端没有空格，`strip()` 没有可去的；`s` 里找不到 `South`，`replace` 原样返回，也不报错。`lower()` 把 S 改成了 s，`upper()` 把字母都改成大写，`replace("north", "N")` 找到了 north，得到 `'Site-3 N'`。
+        verify: |
+          s = run()["s"]
+          same = [option for option, code in OPTIONS["same"].items() if run(CODE + "\nresult = " + code)["result"] == s]
+          answers = {"same": same}
+      - id: py05.k2.r2
+        kind: [predict]
+        uses: [py04.k1]
+        body: |
+          `len(文字)` 数出一段文字有几个字符，空格也算一个。
+
+          ```python
+          code = "  S 08 "
+          print(len(code.strip()))
+          print(len(code.replace(" ", "")))
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 4
+            feedback:
+              - when: 3
+                message: "`strip()` 不去中间的空格，`'S 08'` 有 4 个字符。"
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 3
+        explanation: |
+          先显示 **4**，再显示 **3**。`code.strip()` 得到 `'S 08'`，中间的空格还在，共 4 个字符；`code.replace(" ", "")` 去掉了全部空格，得到 `'S08'`，共 3 个字符。
+        verify: |
+          lines = run().lines()
+          answers = {"first": int(lines[0]), "second": int(lines[1])}
+    quiz:
+      - id: py05.k2.x1
+        kind: [predict]
+        body: |
+          先运行下面一行。表里每个写法都单独作用在这个 `unit` 上，填出各自得到的文字，写成带引号的形式，引号里的空格照实写。
+
+          ```python
+          unit = " Mg/mL "
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - id: expr
+                header: 写法
+              - id: value
+                header: 得到的文字
+                input: { type: text, match: output }
+            rows:
+              - id: strip
+                cells:
+                  expr: unit.strip()
+                  value: "'Mg/mL'"
+              - id: lower
+                cells:
+                  expr: unit.lower()
+                  value: "' mg/ml '"
+              - id: upper_m
+                cells:
+                  expr: 'unit.replace("M", "m")'
+                  value: "' mg/mL '"
+              - id: per
+                cells:
+                  expr: 'unit.replace("/", " per ")'
+                  value: "' Mg per mL '"
+        explanation: |
+          | 写法 | 得到的文字 |
+          |---|---|
+          | `unit.strip()` | `'Mg/mL'` |
+          | `unit.lower()` | `' mg/ml '` |
+          | `unit.replace("M", "m")` | `' mg/mL '` |
+          | `unit.replace("/", " per ")` | `' Mg per mL '` |
+
+          `strip()` 只去两端；`lower()` 把 M 和 L 都改成小写，两端的空格留着；`replace("M", "m")` 只换大写的 M，`mL` 里的 L 不受影响；`replace("/", " per ")` 把斜杠换成前后带空格的 per。
+        verify: |
+          exprs = {"strip": "unit.strip()", "lower": "unit.lower()", "upper_m": 'unit.replace("M", "m")', "per": 'unit.replace("/", " per ")'}
+          answers = {"values": {row: {"value": run(CODE + "\nresult = " + expr)["result"]} for row, expr in exprs.items()}}
+      - id: py05.k2.x2
+        kind: [explain]
+        body: |
+          比较两条记录的组名时，`'drug '` 和 `'drug'` 被当成了两个不同的组：前一个末尾多了一个空格。对两个组名都用同一个写法处理，哪一个能让它们变得完全一样？`x` 代表其中一个组名。
+        slots:
+          - id: method
+            type: choice
+            options:
+              - id: lower
+                content: |
+                  ```python
+                  x.lower()
+                  ```
+              - id: upper
+                content: |
+                  ```python
+                  x.upper()
+                  ```
+              - id: strip
+                content: |
+                  ```python
+                  x.strip()
+                  ```
+              - id: capital
+                content: |
+                  ```python
+                  x.replace("d", "D")
+                  ```
+            key: strip
+        explanation: |
+          `x.strip()`：两个组名都得到 `'drug'`。另外三个写法只改字母，末尾的空格还在，处理后仍然一个带空格、一个不带。
+        verify: |
+          def result(code, x):
+              return run("result = " + code, x=x)["result"]
+          fits = [option for option, code in OPTIONS["method"].items() if result(code, "drug ") == result(code, "drug")]
+          answers = {"method": fits[0] if len(fits) == 1 else fits}
+
   - id: py05.k3
     title: 点号方法调用与调用链从左到右
+    card:
+      name: 调用链
+      aliases: [方法链, 点号调用]
+      definition: "`raw.strip().lower()` 从左往右算：先对 raw 调用 strip()，再对得到的新文字调用 lower()；每个点号前面都是上一步的结果。"
+      conditions:
+        - "顺序会改变结果：先 `replace(\" \", \"_\")` 再 `strip()`，两端的空格已成下划线，strip 去不掉。"
+        - 调用链也不改原来的名字，最后的结果要赋给名字才留得住。
+      example:
+        from: py05.k3.e0
+        text: |
+          ```python
+          raw = " Ctrl 01 "
+          label = raw.strip().lower().replace(" ", "-")
+          ```
+          依次得到 'Ctrl 01'、'ctrl 01'、'ctrl-01'；raw 仍是 ' Ctrl 01 '。
+    lesson: |
+      点号后面还可以接着点下去：
+
+      ```python
+      raw = " Drug A "
+      label = raw.strip().lower().replace(" ", "_")
+      ```
+
+      这一串叫**调用链**，从左往右读：先对 `raw` 调用 `strip()`，得到一段新文字；再对这段新文字调用 `lower()`；再对结果调用 `replace`。每个点号前面，都是上一步得到的文字。
+
+      | 读到 | 得到 |
+      |---|---|
+      | `raw` | `' Drug A '` |
+      | `.strip()` | `'Drug A'` |
+      | `.lower()` | `'drug a'` |
+      | `.replace(" ", "_")` | `'drug_a'` |
+
+      它和分成三行写是一回事：
+
+      ```python
+      step1 = raw.strip()
+      step2 = step1.lower()
+      label = step2.replace(" ", "_")
+      ```
+
+      顺序会改变结果。把 `replace` 放到 `strip` 前面，`raw.replace(" ", "_").strip()` 先把两端的空格也换成了下划线，得到 `'_Drug_A_'`，之后的 `strip()` 已经没有空格可去。
+
+      和单个方法一样，调用链也不改动 `raw`，最后的结果要赋给名字才留得住。读 AI 写的一长串调用时，照上面的表一步步写下得到的文字，就不容易看漏。
+    example:
+      id: py05.k3.e0
+      kind: [trace]
+      body: |
+        按调用链从左往右的顺序，写出每一步得到的文字，再写出运行完以后 `raw` 的值。都写成带引号的形式，引号里的空格照实写。
+
+        ```python
+        raw = " Ctrl 01 "
+        label = raw.strip().lower().replace(" ", "-")
+        ```
+      slots:
+        - id: steps
+          type: table
+          columns:
+            - id: step
+              header: 读到
+            - id: value
+              header: 得到
+              input: { type: text, match: output }
+          rows:
+            - id: s1
+              cells:
+                step: raw.strip()
+                value: "'Ctrl 01'"
+            - id: s2
+              cells:
+                step: 再 .lower()
+                value: "'ctrl 01'"
+            - id: s3
+              cells:
+                step: '再 .replace(" ", "-")'
+                value: "'ctrl-01'"
+        - id: raw
+          type: text
+          match: output
+          prompt: 运行完以后，`raw` 是什么？
+          key: "' Ctrl 01 '"
+      explanation: |
+        | 读到 | 得到 |
+        |---|---|
+        | `raw.strip()` | `'Ctrl 01'` |
+        | 再 `.lower()` | `'ctrl 01'` |
+        | 再 `.replace(" ", "-")` | `'ctrl-01'` |
+
+        每一步都作用在上一步的结果上：`lower()` 收到的是已经去掉两端空格的 `'Ctrl 01'`，`replace` 收到的是 `'ctrl 01'`，只剩中间一个空格可换。最后的 `'ctrl-01'` 交给了 `label`；`raw` 没有被赋值，仍是 `' Ctrl 01 '`。
+      verify: |
+        chains = {"s1": "raw.strip()", "s2": "raw.strip().lower()", "s3": 'raw.strip().lower().replace(" ", "-")'}
+        answers = {
+            "steps": {row: {"value": run(CODE + "\nresult = " + chain)["result"]} for row, chain in chains.items()},
+            "raw": run()["raw"],
+        }
+    practice:
+      - id: py05.k3.q1
+        kind: [predict]
+        uses: [py03.k1]
+        body: |
+          ```python
+          raw = " Ctrl 01 "
+          a = raw.strip().replace(" ", "_")
+          b = raw.replace(" ", "_").strip()
+          print("[" + a + "]")
+          print("[" + b + "]")
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: text
+            prompt: 第一行显示
+            key: "[Ctrl_01]"
+          - id: line2
+            type: text
+            match: text
+            prompt: 第二行显示
+            key: "[_Ctrl_01_]"
+            feedback:
+              - when: "[Ctrl_01]"
+                message: "`b` 那一行先做 replace：两端的空格已经变成下划线，之后的 strip() 没有空格可去。"
+        explanation: |
+          先显示 **[Ctrl_01]**，再显示 **[_Ctrl_01_]**。`a` 先去掉两端空格，再换中间的空格；`b` 先把三个空格都换成下划线，得到 `'_Ctrl_01_'`，这时两端已经没有空格，`strip()` 什么也没去掉。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1]}
+      - id: py05.k3.q2
+        kind: [modify]
+        body: |
+          组名要统一成：去掉两端的空格、字母全大写、中间的空格换成下划线，例如 `" drug a "` 变成 `'DRUG_A'`。下面四行分步做这件事，顺序被打乱了，把它们排成能得到正确结果的程序，每一行都要用上。宿主已经给 `raw` 赋了值。
+        slots:
+          - id: lines
+            type: order
+            items:
+              - { id: upper, code: label = label.upper() }
+              - { id: replace, code: 'label = label.replace(" ", "_")' }
+              - { id: start, code: label = raw }
+              - { id: strip, code: label = label.strip() }
+            key: [start, strip, upper, replace]
+            alternatives:
+              - [start, upper, strip, replace]
+              - [start, strip, replace, upper]
+            tests:
+              - name: 两端有空格的组名
+                setup: raw = " drug a "
+                expect:
+                  label: '"DRUG_A"'
+              - name: 另一个组名
+                hidden: true
+                setup: raw = "  ctrl 01 "
+                expect:
+                  label: '"CTRL_01"'
+        explanation: |
+          一种正确的顺序：
+
+          ```python
+          label = raw
+          label = label.strip()
+          label = label.upper()
+          label = label.replace(" ", "_")
+          ```
+
+          `label = raw` 必须在最前面，后面几行才有 `label` 可用。关键是 `strip` 要排在 `replace` 前面：先换空格，两端的空格就成了下划线，再也去不掉。改大写放在哪一步都可以，它不影响空格。判分时会把你排好的程序换几个组名运行。
+      - id: py05.k3.q3
+        kind: [modify]
+        body: |
+          需求：把记录里的剂量组名 `raw` 统一成小写、去掉两端的空格、中间的空格换成连字符，存进 `label`。例如 `" High Dose "` 要得到 `'high-dose'`。
+
+          作答框里的代码结果不对，请改好它。宿主已经给 `raw` 赋了值，换一个组名时代码也要能用。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              label = raw.replace(" ", "-").lower().strip()
+            solution: |
+              label = raw.strip().lower().replace(" ", "-")
+            accepts:
+              - label = raw.lower().strip().replace(" ", "-")
+              - label = raw.strip().replace(" ", "-").lower()
+              - |
+                trimmed = raw.strip()
+                lowered = trimmed.lower()
+                label = lowered.replace(" ", "-")
+            rejects:
+              - code: label = raw.strip().lower()
+                why: 没有把中间的空格换成连字符
+              - code: label = raw.lower().replace(" ", "-")
+                why: 没有去掉两端的空格，两端变成了连字符
+              - code: raw.strip().lower().replace(" ", "-")
+                why: 结果没有赋给 label
+              - code: label = raw.replace(" ", "").lower()
+                why: 把所有空格都删掉了，中间没有连字符
+              - code: label = "high-dose"
+                why: 照着例子写死了结果
+            tests:
+              - name: 例子里的组名
+                setup: raw = " High Dose "
+                expect:
+                  label: '"high-dose"'
+              - name: 换一个组名
+                hidden: true
+                setup: raw = "  Low Dose 2  "
+                expect:
+                  label: '"low-dose-2"'
+              - name: 没有多余空格的组名
+                hidden: true
+                setup: raw = "Control"
+                expect:
+                  label: '"control"'
+        explanation: |
+          ```python
+          label = raw.strip().lower().replace(" ", "-")
+          ```
+
+          原来的代码先做 `replace`，两端的空格先变成了连字符，得到 `'-high-dose-'`，后面的 `strip()` 已经去不掉。把 `strip()` 挪到 `replace` 前面就对了；`lower()` 放在哪一步都可以。判分时还会换两个组名运行。
+    review:
+      - id: py05.k3.r1
+        kind: [explain]
+        body: |
+          实验记录里的体积单位写成了 `' ML '`、`'mL'`、`' ml'` 几种，要都变成 `'ml'`。`u` 代表其中一个写法。下面哪几个写法对这三种都得到 `'ml'`？选出所有。
+        slots:
+          - id: chain
+            type: choice
+            multiple: true
+            minSelected: 0
+            options:
+              - id: a
+                content: |
+                  ```python
+                  u.lower()
+                  ```
+              - id: b
+                content: |
+                  ```python
+                  u.strip().upper()
+                  ```
+              - id: c
+                content: |
+                  ```python
+                  u.strip().lower()
+                  ```
+              - id: d
+                content: |
+                  ```python
+                  u.lower().strip()
+                  ```
+              - id: e
+                content: |
+                  ```python
+                  u.replace(" ", "").upper()
+                  ```
+            key: [c, d]
+        explanation: |
+          `u.strip().lower()` 和 `u.lower().strip()` 两个。去空格和改小写互不影响，谁先谁后结果一样。只用 `lower()`，`' ML '` 两端的空格还在；另外两个写法改成了大写，得到 `'ML'`。
+        verify: |
+          units = [" ML ", "mL", " ml"]
+          fits = [option for option, code in OPTIONS["chain"].items()
+                  if all(run("result = " + code, u=u)["result"] == "ml" for u in units)]
+          answers = {"chain": fits}
+      - id: py05.k3.r2
+        kind: [predict]
+        body: |
+          ```python
+          tag = "Batch-B"
+          first = tag.lower().replace("b", "p")
+          second = tag.replace("b", "p").lower()
+          print(first)
+          print(second)
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: text
+            prompt: 第一行显示
+            key: "patch-p"
+          - id: line2
+            type: text
+            match: text
+            prompt: 第二行显示
+            key: "batch-b"
+            feedback:
+              - when: "patch-p"
+                message: "`second` 先做 replace：`'Batch-B'` 里没有小写的 b，什么也没换，之后才改小写。"
+        explanation: |
+          先显示 **patch-p**，再显示 **batch-b**。`first` 先改小写，得到 `'batch-b'`，两个 b 都被换成了 p；`second` 先做 `replace`，这时 `'Batch-B'` 里只有大写的 B，`replace` 区分大小写，什么也没换，之后的 `lower()` 才得到 `'batch-b'`。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": lines[0], "line2": lines[1]}
+    quiz:
+      - id: py05.k3.x1
+        kind: [trace]
+        body: |
+          按调用链从左往右的顺序，写出每一步得到的文字，写成带引号的形式，引号里的空格照实写。
+
+          ```python
+          sample = "  s-07 b "
+          clean = sample.strip().upper().replace(" ", "")
+          ```
+        slots:
+          - id: steps
+            type: table
+            columns:
+              - id: step
+                header: 读到
+              - id: value
+                header: 得到
+                input: { type: text, match: output }
+            rows:
+              - id: s1
+                cells:
+                  step: sample.strip()
+                  value: "'s-07 b'"
+              - id: s2
+                cells:
+                  step: 再 .upper()
+                  value: "'S-07 B'"
+              - id: s3
+                cells:
+                  step: '再 .replace(" ", "")'
+                  value: "'S-07B'"
+        explanation: |
+          | 读到 | 得到 |
+          |---|---|
+          | `sample.strip()` | `'s-07 b'` |
+          | 再 `.upper()` | `'S-07 B'` |
+          | 再 `.replace(" ", "")` | `'S-07B'` |
+
+          `strip()` 去掉两端的空格，中间那个留着；`upper()` 只改字母，`-` 和数字不变；最后 `replace` 去掉中间剩下的空格。
+        verify: |
+          chains = {"s1": "sample.strip()", "s2": "sample.strip().upper()", "s3": 'sample.strip().upper().replace(" ", "")'}
+          answers = {"steps": {row: {"value": run(CODE + "\nresult = " + chain)["result"]} for row, chain in chains.items()}}
+      - id: py05.k3.x2
+        kind: [debug, predict]
+        body: |
+          同事想把组名里的空格换成下划线，并去掉两端的空格，例如 `" Drug A "` 要得到 `'Drug_A'`。他写的是：
+
+          ```python startLine=1
+          raw = " Drug A "
+          clean = raw.replace(" ", "_").strip()
+          ```
+        slots:
+          - id: value
+            type: text
+            match: output
+            prompt: 这段代码运行后，`clean` 是什么？写成带引号的形式，引号里的字符照实写。
+            key: "'_Drug_A_'"
+          - id: fix
+            type: choice
+            prompt: 把第 2 行换成哪一行，对 `" Drug A "` 和 `"  High Dose "` 这样的组名都能得到想要的结果？
+            options:
+              - id: no_space
+                content: |
+                  ```python
+                  clean = raw.replace(" ", "").strip()
+                  ```
+              - id: strip_only
+                content: |
+                  ```python
+                  clean = raw.strip()
+                  ```
+              - id: swapped
+                content: |
+                  ```python
+                  clean = raw.strip().replace("_", " ")
+                  ```
+              - id: reordered
+                content: |
+                  ```python
+                  clean = raw.strip().replace(" ", "_")
+                  ```
+            key: reordered
+        explanation: |
+          `clean` 是 **'_Drug_A_'**：`replace` 先把三个空格都换成下划线，两端已经没有空格，`strip()` 什么也没去掉。
+
+          换成 `clean = raw.strip().replace(" ", "_")`，先去两端再换中间，得到 `'Drug_A'`。`replace(" ", "")` 把空格删掉，得到 `'DrugA'`；只用 `strip()`，中间的空格没换；`replace("_", " ")` 把两个参数写反了，找的是下划线，结果仍是 `'Drug A'`。
+        verify: |
+          cases = [" Drug A ", "  High Dose "]
+          fits = [option for option, code in OPTIONS["fix"].items()
+                  if all(run(code, raw=case)["clean"] == "_".join(case.split()) for case in cases)]
+          answers = {"value": run()["clean"], "fix": fits[0] if len(fits) == 1 else fits}

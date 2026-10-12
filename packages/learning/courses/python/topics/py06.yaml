@@ -1,7 +1,8 @@
 id: py06
 title: 列表：位置和一段范围
-status: outline
+status: complete
 minutes: 20
+summary: 读懂列表：len 数出有几个元素，位置从 0 开始取出一个，切片包含起点、不包含终点取出一段。
 prerequisites:
   - topic: py03
     key: true
@@ -21,11 +22,1026 @@ sources:
     url: https://docs.python.org/3.12/tutorial/introduction.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、找错（P）、小改代码（T）。
+  范围：用到 py03 的整数与文字、py04 的函数调用（len 返回一个数）。只讲建立列表、len、按单个位置取值和切片。append 与原位修改留给 py36；列表的 + 和 *、sum/min/max 留给 py07；for 循环留给 py35；pandas 按位置取行和切片（iloc）留给 py16，本节统一说“位置（下标）”便于衔接。切片的步长、文字的索引与切片都不讲。越界只问会报错（ERROR），IndexError 的读法留给 py11。
+  题型：预测输出（P）、找错（P）、小改代码（T）；复习和测验另用了多选、拼程序（Parsons）和只按位置计数的题。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 2 分钟、练习 3 分钟；k2 讲解与例题 3 分钟、练习 4 分钟；k3 讲解与例题 3 分钟、练习 4 分钟（含一道小改代码）；收束 1 分钟。
+  讲解、例题和题目为本课自拟。
+intro: |
+  这一节读**列表**：一组按顺序排好的值，比如一次实验先后记下的几次读数。会练三件事：一共有几个、第几个是什么、取出其中一段。
+
+  程序照旧当作短脚本从上往下运行，只有 `print` 才显示。题目问“显示什么”时，如果程序在那一行报错停下，就填 ERROR。
+wrapup: |
+  读到方括号，先分清三种写法：`[12, 15, 9]` 是写下一个列表；`readings[2]` 是按位置取出一个元素，位置从 0 开始数；`readings[1:3]` 是取出一段，包含起点、不包含终点，结果仍是列表。
+
+  AI 写的代码里出现 `[0]`、`[-1]`、`[:3]` 时，先数清它取的是第几个、到哪里为止，再对照你的要求。
 kps:
   - id: py06.k1
     title: 有序列表与 len
+    card:
+      name: 列表
+      aliases: [list, len]
+      definition: 方括号里用逗号隔开的一组值，按写入的顺序保存；len(列表) 返回其中有几个元素。
+      conditions:
+        - len 数的是元素个数：一个元素是一段文字，也只算 1 个；重复的值各算一个。
+        - 空列表 [] 的 len 是 0；print 一个列表时，里面的文字带引号显示。
+      example:
+        from: py06.k1.e0
+        text: |
+          ```python
+          readings = [12, 15, 9, 20]
+          ids = ["S01", "S02", "S03"]
+          print(len(readings))
+          print(ids)
+          ```
+          显示 4 和 `['S01', 'S02', 'S03']`。
+    lesson: |
+      一次实验常常有好几次读数。与其起四个名字，不如把它们放进一个**列表**：
+
+      ```python
+      readings = [12, 15, 9, 20]
+      ids = ["S01", "S02", "S03"]
+      ```
+
+      方括号括起来，元素之间用逗号隔开。列表按写入的顺序保存元素：不会自动排序，也不会合并重复的值。元素可以是数，也可以是[文字](repa:concept/py03.k1)。
+
+      `len(列表)` 是一次[函数调用](repa:concept/py04.k1)，返回列表里有几个元素：`len(readings)` 是 4。它数的是元素，不是字符：`["S01", "S02", "S03"]` 有 3 个元素，每个编号自己有几个字符不影响。空列表 `[]` 的 len 是 0。
+
+      `print` 一个列表时，会显示方括号和逗号，里面的文字带引号：`print(ids)` 显示 `['S01', 'S02', 'S03']`（代码里写的是双引号，显示成单引号，意思一样）。而 `print("S01")` 只显示 `S01`，不带引号。
+    example:
+      id: py06.k1.e0
+      kind: [predict]
+      uses: [py04.k1, py03.k1]
+      body: |
+        一次实验记下了四次读数和三个样本编号。阅读下面的程序。
+
+        ```python
+        readings = [12, 15, 9, 20]
+        ids = ["S01", "S02", "S03"]
+        print(len(readings))
+        print(ids)
+        ```
+      slots:
+        - id: count
+          type: text
+          format: integer
+          prompt: 第一行显示哪个整数？
+          key: 4
+        - id: shown
+          type: text
+          match: output
+          prompt: 第二行显示什么？照屏幕上的样子写。
+          key: "['S01', 'S02', 'S03']"
+      explanation: |
+        第一行显示 **4**：`readings` 里有 12、15、9、20 四个元素。
+
+        第二行显示 **['S01', 'S02', 'S03']**。print 一个列表时，会连同方括号、逗号一起显示，里面的文字带上引号，表示它们是文字；代码里写双引号，显示成单引号，是同一个意思。
+      verify: |
+        lines = run().lines()
+        answers = {"count": int(lines[0]), "shown": lines[1]}
+    practice:
+      - id: py06.k1.q1
+        kind: [predict]
+        uses: [py04.k1, py03.k1]
+        body: |
+          ```python
+          groups = ["control", "drug"]
+          print(len(groups))
+          print(len("control"))
+          ```
+        slots:
+          - id: first
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 2
+            feedback:
+              - when: 11
+                message: len 用在列表上，数的是元素个数；两个组名是 2 个元素，不是把字母加起来。
+          - id: second
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 7
+        explanation: |
+          先显示 **2**，再显示 **7**。`groups` 是一个有两个元素的列表，len 数的是元素个数；`"control"` 本身是一段文字，len 用在文字上数的是字符，c-o-n-t-r-o-l 共 7 个。
+        verify: |
+          lines = run().lines()
+          answers = {"first": int(lines[0]), "second": int(lines[1])}
+      - id: py06.k1.q2
+        kind: [predict]
+        uses: [py04.k1, py03.k1]
+        body: |
+          ```python
+          groups = ["drug", "control", "drug"]
+          print(groups)
+          print(len(groups))
+          ```
+        slots:
+          - id: shown
+            type: text
+            match: output
+            prompt: 第一行显示什么？
+            key: "['drug', 'control', 'drug']"
+            feedback:
+              - when: "['control', 'drug', 'drug']"
+                message: 列表按写入的顺序保存，不会自动排序。
+              - when: "['drug', 'control']"
+                message: 重复的值不会被合并，两个 drug 都还在。
+          - id: count
+            type: text
+            format: integer
+            prompt: 第二行显示
+            key: 3
+            feedback:
+              - when: 2
+                message: 两个 drug 是两个元素，各算一个。
+        explanation: |
+          显示 **['drug', 'control', 'drug']** 和 **3**。列表照写入的顺序保存三个元素，不排序，也不把两个 drug 合成一个；len 数到 3 个。
+        verify: |
+          lines = run().lines()
+          answers = {"shown": lines[0], "count": int(lines[1])}
+      - id: py06.k1.q3
+        kind: [predict]
+        uses: [py04.k1, py03.k1]
+        body: |
+          ```python
+          a = []
+          b = [0]
+          c = ["", ""]
+          d = ["12 15 9"]
+          ```
+
+          填写这四个列表各自的 len。
+        slots:
+          - id: sizes
+            type: table
+            columns:
+              - id: name
+                header: 列表
+              - id: size
+                header: len
+                input: integer
+            rows:
+              - { id: a, cells: { name: "a", size: 0 } }
+              - { id: b, cells: { name: "b", size: 1 } }
+              - { id: c, cells: { name: "c", size: 2 } }
+              - { id: d, cells: { name: "d", size: 1 } }
+        explanation: |
+          依次是 **0、1、2、1**。
+
+          - `a` 是空列表，没有元素。
+          - `b` 有一个元素 0。0 也是一个值，同样算一个。
+          - `c` 有两个元素，都是空文字 `""`；元素里没有字符，也照样各算一个。
+          - `d` 只有一个元素：引号把 `12 15 9` 整段括成了一段文字。要存三个读数，应写成 `[12, 15, 9]`。
+        verify: |
+          r = run()
+          answers = {"sizes": {name: {"size": len(r[name])} for name in ["a", "b", "c", "d"]}}
+    review:
+      - id: py06.k1.r1
+        kind: [predict]
+        uses: [py04.k1, py03.k1]
+        body: |
+          三个采样点分别是北坡、南坡、东坡。下面哪一段程序会显示 3？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: joined
+                content: |
+                  ```python
+                  sites = ["北坡 南坡 东坡"]
+                  print(len(sites))
+                  ```
+              - id: text
+                content: |
+                  ```python
+                  sites = "北坡南坡东坡"
+                  print(len(sites))
+                  ```
+              - id: list
+                content: |
+                  ```python
+                  sites = ["北坡", "南坡", "东坡"]
+                  print(len(sites))
+                  ```
+              - id: extra
+                content: |
+                  ```python
+                  sites = ["北坡", "南坡", "东坡", ""]
+                  print(len(sites))
+                  ```
+            key: list
+        explanation: |
+          把三个名字分别写成三个元素的那一段显示 3。三个名字写在同一对引号里，列表只有 1 个元素；不加方括号写成一段文字，len 数的是 6 个字；末尾多了一个空文字 `""`，它也算一个元素，共 4 个。
+        verify: |
+          shows_three = [option for option, code in OPTIONS["program"].items() if run(code).out.strip() == "3"]
+          answers = {"program": shows_three[0] if len(shows_three) == 1 else shows_three}
+      - id: py06.k1.r2
+        kind: [trace, predict]
+        uses: [py01.k2, py04.k1, py03.k1]
+        body: |
+          ```python startLine=1
+          labels = []
+          print(len(labels))
+          labels = ["low", "high", "low"]
+          print(labels)
+          print(len(labels))
+          ```
+        slots:
+          - id: line1
+            type: text
+            format: integer
+            prompt: 第一行显示
+            key: 0
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "['low', 'high', 'low']"
+          - id: line3
+            type: text
+            format: integer
+            prompt: 第三行显示
+            key: 3
+        explanation: |
+          依次显示 **0**、**['low', 'high', 'low']**、**3**。第 2 行执行时 `labels` 还是空列表，len 为 0；第 3 行让 `labels` 改指向一个三元素的列表，照写入顺序显示，两个 low 各算一个。
+        verify: |
+          lines = run().lines()
+          answers = {"line1": int(lines[0]), "line2": lines[1], "line3": int(lines[2])}
+    quiz:
+      - id: py06.k1.x1
+        kind: [explain]
+        uses: [py03.k1, py04.k1]
+        body: |
+          要把三个样本编号 S01、S02、S03 存成一个列表 `ids`，让 `len(ids)` 是 3。哪一行写对了？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: one_text
+                content: |
+                  ```python
+                  ids = ["S01, S02, S03"]
+                  ```
+                feedback: 整段放在一对引号里，列表只有 1 个元素。
+              - id: no_quotes
+                content: |
+                  ```python
+                  ids = [S01, S02, S03]
+                  ```
+                feedback: 编号是文字，要加引号；不加引号时 Python 把 S01 当成名字去找，会报错。
+              - id: correct
+                content: |
+                  ```python
+                  ids = ["S01", "S02", "S03"]
+                  ```
+              - id: plain
+                content: |
+                  ```python
+                  ids = "S01 S02 S03"
+                  ```
+                feedback: 没有方括号，这是一整段文字，len 数的是 11 个字符。
+            key: correct
+        explanation: |
+          `ids = ["S01", "S02", "S03"]` 正确：每个编号各自加引号，用逗号隔开，放在方括号里，共 3 个元素。把三个编号写在一对引号里只有 1 个元素；不加引号会报错；不加方括号得到的是一段文字，len 为 11。
+        verify: |
+          def fits(code):
+              r = run(code)
+              return r.error is None and isinstance(r["ids"], list) and len(r["ids"]) == 3
+          ok = [option for option, code in OPTIONS["line"].items() if fits(code)]
+          answers = {"line": ok[0] if len(ok) == 1 else ok}
+      - id: py06.k1.x2
+        kind: [debug, modify]
+        uses: [py04.k1, py03.k1]
+        body: |
+          同事想把四次读数 12、15、9、20 存成列表，再数出有几个。可是运行后 `count` 是 1。
+
+          请改动作答框里的代码：让 `readings` 是含这四个整数读数的列表（顺序不变），`count` 用 len 数出来，等于 4。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              readings = ["12, 15, 9, 20"]
+              count = len(readings)
+            solution: |
+              readings = [12, 15, 9, 20]
+              count = len(readings)
+            rejects:
+              - code: |
+                  readings = ["12", "15", "9", "20"]
+                  count = len(readings)
+                why: 四个读数存成了文字，不是整数
+              - code: |
+                  readings = ["12, 15, 9, 20"]
+                  count = 4
+                why: 只把 count 写死成 4，列表仍只有一个元素
+              - code: |
+                  readings = [20, 15, 12, 9]
+                  count = len(readings)
+                why: 改动了读数的顺序
+            tests:
+              - name: 列表和个数
+                expect:
+                  readings: "[12, 15, 9, 20]"
+                  count: "4"
+        explanation: |
+          ```python
+          readings = [12, 15, 9, 20]
+          count = len(readings)
+          ```
+
+          原来的列表只有一个元素：一整段文字 `"12, 15, 9, 20"`。把四个读数分别写成元素、不加引号，它们才是四个整数，len 才数到 4。
   - id: py06.k2
     title: 从 0 开始的索引和 -1
+    card:
+      name: 索引
+      aliases: [下标, 位置]
+      definition: 列表名[位置] 取出一个元素；位置从 0 开始数，第 n 个元素的位置是 n - 1，-1 是最后一个。
+      conditions:
+        - 位置超出范围会报错（IndexError）：4 个元素时，能用的位置是 0 到 3，或 -1 到 -4。
+        - 取出的是元素本身，不是列表：readings[0] 是 12，不是 [12]。
+      example:
+        from: py06.k2.e0
+        text: |
+          ```python
+          readings = [12, 15, 9, 20]
+          print(readings[0])
+          print(readings[2])
+          print(readings[-1])
+          ```
+          依次显示 12、9、20：位置 2 是第 3 个，-1 是最后一个。
+    lesson: |
+      在列表名后面加方括号和位置，取出其中一个元素，例如 `readings[0]`。位置（也叫下标）**从 0 开始数**：
+
+      | 位置 | 0 | 1 | 2 | 3 |
+      |---|---:|---:|---:|---:|
+      | 元素 | 12 | 15 | 9 | 20 |
+      | 负数位置 | -4 | -3 | -2 | -1 |
+
+      所以第 1 个是 `readings[0]`，第 n 个是 `readings[n - 1]`。负数从末尾倒着数：`readings[-1]` 是最后一个，`readings[-2]` 是倒数第二个。列表变长或变短时，`[-1]` 始终是最后一个；同样的意思也可以写成 `readings[len(readings) - 1]`。
+
+      有 4 个元素时，能用的位置只有 0 到 3（或 -1 到 -4）。写 `readings[4]` 会让程序报错（IndexError）停下：位置 4 已经是“第 5 个”了。
+
+      取出来的是元素本身：`readings[0]` 是数 12，不是只含一个元素的列表。
+    example:
+      id: py06.k2.e0
+      kind: [predict]
+      body: |
+        ```python
+        readings = [12, 15, 9, 20]
+        print(readings[0])
+        print(readings[2])
+        print(readings[-1])
+        ```
+      slots:
+        - id: first
+          type: text
+          format: integer
+          prompt: 第一行显示
+          key: 12
+        - id: second
+          type: text
+          format: integer
+          prompt: 第二行显示
+          key: 9
+        - id: third
+          type: text
+          format: integer
+          prompt: 第三行显示
+          key: 20
+      explanation: |
+        依次显示 **12、9、20**。位置从 0 开始：`[0]` 是第 1 个 12，`[2]` 是第 3 个 9（不是第 2 个 15）；`[-1]` 从末尾数，是最后一个 20。
+      verify: |
+        lines = run().lines()
+        answers = {"first": int(lines[0]), "second": int(lines[1]), "third": int(lines[2])}
+    practice:
+      - id: py06.k2.q1
+        kind: [predict]
+        body: |
+          ```python
+          readings = [12, 15, 9, 20]
+          ```
+
+          填写每一行代码显示什么。每一行都单独从上面的 `readings` 出发运行；如果会报错，填 ERROR。
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - id: code
+                header: 代码
+              - id: value
+                header: 显示
+                input: { type: text, match: output, quick: [ERROR] }
+            rows:
+              - { id: p1, cells: { code: "print(readings[1])", value: "15" } }
+              - { id: p3, cells: { code: "print(readings[3])", value: "20" } }
+              - { id: m2, cells: { code: "print(readings[-2])", value: "9" } }
+              - { id: p4, cells: { code: "print(readings[4])", value: "ERROR" } }
+        explanation: |
+          | 代码 | 显示 |
+          |---|---|
+          | `print(readings[1])` | 15 |
+          | `print(readings[3])` | 20 |
+          | `print(readings[-2])` | 9 |
+          | `print(readings[4])` | ERROR |
+
+          位置 1 是第 2 个，位置 3 是第 4 个也就是最后一个，-2 是倒数第二个。列表只有 4 个元素，位置最大到 3，`readings[4]` 会报错（IndexError）。
+        verify: |
+          rows = {"p1": "print(readings[1])", "p3": "print(readings[3])", "m2": "print(readings[-2])", "p4": "print(readings[4])"}
+          answers = {"shown": {row: {"value": repl(CODE + "\n" + line)[-1]} for row, line in rows.items()}}
+      - id: py06.k2.q2
+        kind: [debug]
+        uses: [py03.k1]
+        body: |
+          同事想显示**第 3 个**样本编号 S03，写了：
+
+          ```python startLine=1
+          ids = ["S01", "S02", "S03", "S04"]
+          print(ids[3])
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 这段程序实际显示什么？
+            key: S04
+            feedback:
+              - when: S03
+                message: 位置从 0 开始，位置 3 是第 4 个。
+          - id: fix
+            type: choice
+            prompt: 第 2 行应改成哪一种？
+            options:
+              - id: last
+                content: |
+                  ```python
+                  print(ids[-1])
+                  ```
+              - id: four
+                content: |
+                  ```python
+                  print(ids[4])
+                  ```
+              - id: two
+                content: |
+                  ```python
+                  print(ids[2])
+                  ```
+              - id: neg3
+                content: |
+                  ```python
+                  print(ids[-3])
+                  ```
+            key: two
+        explanation: |
+          实际显示 **S04**：位置从 0 开始，`ids[3]` 是第 4 个。第 3 个的位置是 3 - 1 = 2，应改成 `print(ids[2])`。`ids[-1]` 是最后一个 S04；`ids[-3]` 从末尾倒数第三个，是 S02；`ids[4]` 超出范围，会报错。
+        verify: |
+          setup = CODE.splitlines()[0]
+          r = run()
+          # 第 3 个编号：按 1、2、3 数下去的那一个。
+          wanted = [item for n, item in enumerate(r["ids"], 1) if n == 3][0]
+          fits = [option for option, code in OPTIONS["fix"].items() if run(setup + "\n" + code).out.strip() == wanted]
+          answers = {"output": r.out, "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py06.k2.q3
+        kind: [trace, predict]
+        uses: [py04.k1, py01.k1]
+        body: |
+          如果某一行报错，填 ERROR。
+
+          ```python startLine=1
+          readings = [7, 11, 4, 18, 9]
+          last = len(readings) - 1
+          print(last)
+          print(readings[last])
+          print(readings[len(readings)])
+          ```
+        slots:
+          - id: line3
+            type: text
+            format: integer
+            prompt: 第 3 行显示
+            key: 4
+            feedback:
+              - when: 5
+                message: len(readings) 是 5，再减 1 是 4。
+          - id: line4
+            type: text
+            format: integer
+            prompt: 第 4 行显示
+            key: 9
+          - id: line5
+            type: text
+            match: output
+            prompt: 第 5 行显示什么？
+            key: ERROR
+        explanation: |
+          第 3 行显示 **4**：5 个元素，减 1 得 4。第 4 行显示 **9**：位置 4 是最后一个元素。第 5 行 **ERROR**：`len(readings)` 是 5，位置 5 已经超出 0 到 4 的范围，程序报 IndexError 停下。最后一个的位置是长度减 1，不是长度本身。
+        verify: |
+          shown = repl()
+          answers = {"line3": int(shown[2]), "line4": int(shown[3]), "line5": shown[4]}
+    review:
+      - id: py06.k2.r1
+        kind: [explain]
+        uses: [py04.k1]
+        body: |
+          `depths` 是按采样先后记下的土层深度（厘米）。以后还会加入新的采样点，列表会变长。要始终取出**最后一个**深度，下面哪些写法可以？选出所有可以的。
+
+          ```python
+          depths = [30, 25, 35, 30, 28]
+          ```
+        slots:
+          - id: ways
+            type: choice
+            multiple: true
+            options:
+              - id: four
+                content: |
+                  ```python
+                  depths[4]
+                  ```
+              - id: neg1
+                content: |
+                  ```python
+                  depths[-1]
+                  ```
+              - id: neg0
+                content: |
+                  ```python
+                  depths[-0]
+                  ```
+              - id: len_minus
+                content: |
+                  ```python
+                  depths[len(depths) - 1]
+                  ```
+              - id: len
+                content: |
+                  ```python
+                  depths[len(depths)]
+                  ```
+            key: [neg1, len_minus]
+        explanation: |
+          `depths[-1]` 和 `depths[len(depths) - 1]` 可以：前者从末尾数第一个，后者用长度减 1 算出最后的位置，列表变长后都会跟着变。
+
+          `depths[4]` 现在碰巧是最后一个，加入新采样点后就不是了；`depths[len(depths)]` 超出范围，会报错；`-0` 就是 0，取到的是第一个。
+        verify: |
+          def last_value(code, depths):
+              r = run("x = " + code.strip(), depths=depths)
+              return None if r.error else r["x"]
+          lists = [[30, 25, 35, 30, 28], [30, 25, 35, 30, 28, 41, 33]]
+          ok = [option for option, code in OPTIONS["ways"].items()
+                if all(last_value(code, d) == list(reversed(d))[0] for d in lists)]
+          answers = {"ways": ok}
+      - id: py06.k2.r2
+        kind: [explain]
+        body: |
+          一个列表里按顺序存了 6 个样本编号。不用看具体内容，只按位置回答。
+        slots:
+          - id: fourth
+            type: text
+            format: integer
+            prompt: 第 4 个编号的位置是多少（用正数写）？
+            key: 3
+          - id: first_neg
+            type: text
+            format: integer
+            prompt: 第 1 个编号用负数位置怎样写？
+            key: -6
+          - id: biggest
+            type: text
+            format: integer
+            prompt: 能用的最大正数位置是多少？
+            key: 5
+        explanation: |
+          第 4 个的位置是 **3**（从 0 开始数，减 1）。负数从末尾倒数，-1 是第 6 个，-6 是第 1 个，所以写 **-6**。6 个元素的位置是 0 到 5，最大是 **5**；写 6 会报错。
+        verify: |
+          ids = [f"第{n}个" for n in range(1, 7)]
+          def usable(i):
+              try:
+                  ids[i]
+                  return True
+              except IndexError:
+                  return False
+          valid = [i for i in range(-20, 21) if usable(i)]
+          answers = {
+              "fourth": [i for i in valid if i >= 0 and ids[i] == "第4个"][0],
+              "first_neg": [i for i in valid if i < 0 and ids[i] == "第1个"][0],
+              "biggest": max(valid),
+          }
+    quiz:
+      - id: py06.k2.x1
+        kind: [modify]
+        uses: [py04.k1]
+        body: |
+          `readings` 是一次实验按时间先后记下的读数，每次实验的读数个数不一样，但至少有一个。作答框里的代码想显示**最后一个**读数，却只在恰好有 4 个读数时才对。
+
+          请改动它并提交。宿主已经准备好 `readings`，不用自己写。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              print(readings[3])
+            solution: |
+              print(readings[-1])
+            accepts:
+              - print(readings[len(readings) - 1])
+              - |
+                last = readings[-1]
+                print(last)
+            rejects:
+              - code: print(readings[4])
+                why: 位置 4 是第 5 个，4 个读数时会报错
+              - code: print(readings[len(readings)])
+                why: 长度本身已经超出范围
+              - code: print(readings[-0])
+                why: -0 就是 0，取到的是第一个
+              - code: print(readings[-1:])
+                why: 切片得到的是列表，会显示成 [20]
+            tests:
+              - name: 四个读数
+                setup: readings = [12, 15, 9, 20]
+                stdout: "20"
+              - name: 五个读数
+                hidden: true
+                setup: readings = [7, 11, 4, 18, 9]
+                stdout: "9"
+              - name: 只有一个读数
+                hidden: true
+                setup: readings = [30]
+                stdout: "30"
+        explanation: |
+          ```python
+          print(readings[-1])
+          ```
+
+          `[-1]` 从末尾数，不管列表多长都是最后一个；写成 `readings[len(readings) - 1]` 也对。固定写 `[3]` 只在恰好 4 个时才是最后一个，读数更多时取错，更少时报错。
+      - id: py06.k2.x2
+        kind: [predict]
+        uses: [py03.k1]
+        body: |
+          ```python
+          ids = ["S01", "S02", "S03", "S04", "S05"]
+          print(ids[k])
+          ```
+
+          程序显示 S04。`k` 可能是下面哪些值？选出所有可能的。
+        slots:
+          - id: values
+            type: choice
+            multiple: true
+            options:
+              - { id: p4, content: "4" }
+              - { id: m2, content: "-2" }
+              - { id: p3, content: "3" }
+              - { id: m4, content: "-4" }
+              - { id: m1, content: "-1" }
+            key: [m2, p3]
+        explanation: |
+          **3** 和 **-2**。S04 是 5 个编号里的第 4 个，位置是 3；从末尾倒数它是第二个，位置是 -2。4 取到的是第 5 个 S05，-1 也是 S05，-4 是 S02。
+        verify: |
+          candidates = {"p4": 4, "m2": -2, "p3": 3, "m4": -4, "m1": -1}
+          ok = [option for option, k in candidates.items() if run(CODE, k=k).out.strip() == "S04"]
+          answers = {"values": ok}
   - id: py06.k3
     title: 切片左闭右开
+    card:
+      name: 切片
+      aliases: [slice, 左闭右开]
+      definition: 列表名[起点:终点] 取出从起点开始、到终点之前为止的一段，结果是一个新列表，有“终点 - 起点”个元素。
+      conditions:
+        - 包含起点、不包含终点；省略起点就从头开始，省略终点就取到末尾。
+        - 只取到一个元素也是列表（[9]，不是 9）；起点、终点超出范围不报错，只取到实际有的部分。
+      example:
+        from: py06.k3.e0
+        text: |
+          ```python
+          readings = [12, 15, 9, 20]
+          print(readings[1:3])
+          ```
+          取位置 1、2，不取位置 3，显示 [15, 9]。
+    lesson: |
+      方括号里写成 `起点:终点`，取出的是一段，叫**切片**。它包含起点、不包含终点（常说“左闭右开”），所以切片里有 `终点 - 起点` 个元素。
+
+      以 `readings = [12, 15, 9, 20]` 为例：
+
+      | 写法 | 取到的位置 | 结果 |
+      |---|---|---|
+      | `readings[1:3]` | 1、2 | `[15, 9]` |
+      | `readings[:2]` | 0、1 | `[12, 15]` |
+      | `readings[2:]` | 2、3 | `[9, 20]` |
+      | `readings[-2:]` | 倒数第二个到末尾 | `[9, 20]` |
+
+      省略起点表示从头开始，省略终点表示一直取到末尾。“前 3 个”就写 `[:3]`，“最后两个”就写 `[-2:]`。
+
+      切片的结果总是列表：`readings[2:3]` 是 `[9]`，而[按位置取出](repa:concept/py06.k2)的 `readings[2]` 是 9。起点或终点超出范围时切片不报错，只取到实际存在的部分：`readings[2:10]` 是 `[9, 20]`。起点等于终点时什么也取不到，得到空列表 `[]`。切片是新列表，原来的 `readings` 不变。
+    example:
+      id: py06.k3.e0
+      kind: [predict]
+      body: |
+        ```python
+        readings = [12, 15, 9, 20]
+        print(readings[1:3])
+        print(readings[:2])
+        print(readings[-2:])
+        ```
+      slots:
+        - id: first
+          type: text
+          match: output
+          prompt: 第一行显示
+          key: "[15, 9]"
+        - id: second
+          type: text
+          match: output
+          prompt: 第二行显示
+          key: "[12, 15]"
+        - id: third
+          type: text
+          match: output
+          prompt: 第三行显示
+          key: "[9, 20]"
+      explanation: |
+        - `[1:3]` 取位置 1、2，不取 3，显示 **[15, 9]**，共 3 - 1 = 2 个。
+        - `[:2]` 从头开始，取位置 0、1，显示 **[12, 15]**，也就是前两个。
+        - `[-2:]` 从倒数第二个取到末尾，显示 **[9, 20]**，也就是最后两个。
+      verify: |
+        lines = run().lines()
+        answers = {"first": lines[0], "second": lines[1], "third": lines[2]}
+    practice:
+      - id: py06.k3.q1
+        kind: [predict]
+        body: |
+          ```python
+          readings = [12, 15, 9, 20]
+          print(readings[2:3])
+          print(readings[2])
+          print(readings[2:10])
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "[9]"
+            feedback:
+              - when: "9"
+                message: 切片的结果总是列表，只取到一个元素也带方括号。
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "9"
+          - id: third
+            type: text
+            match: output
+            prompt: 第三行显示（如果报错，填 ERROR）
+            key: "[9, 20]"
+            feedback:
+              - when: ERROR
+                message: 切片超出范围不报错，只取到实际有的部分。
+        explanation: |
+          依次显示 **[9]**、**9**、**[9, 20]**。`[2:3]` 是切片，只取到位置 2 一个元素，结果仍是列表；`[2]` 是按位置取一个元素，得到的是 9 本身。`[2:10]` 的终点超出了范围，切片不报错，取到末尾为止。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1], "third": lines[2]}
+      - id: py06.k3.q2
+        kind: [predict]
+        uses: [py04.k1]
+        body: |
+          ```python
+          ids = ["S01", "S02", "S03", "S04", "S05", "S06"]
+          ```
+
+          不用写出内容，填写每个切片里有几个元素。
+        slots:
+          - id: sizes
+            type: table
+            columns:
+              - id: code
+                header: 切片
+              - id: size
+                header: 元素个数
+                input: integer
+            rows:
+              - { id: s14, cells: { code: "ids[1:4]", size: 3 } }
+              - { id: s05, cells: { code: "ids[:5]", size: 5 } }
+              - { id: s4e, cells: { code: "ids[4:]", size: 2 } }
+              - { id: s22, cells: { code: "ids[2:2]", size: 0 } }
+        explanation: |
+          依次是 **3、5、2、0**。
+
+          - `ids[1:4]`：4 - 1 = 3 个（位置 1、2、3）。
+          - `ids[:5]`：从 0 开始，5 - 0 = 5 个。
+          - `ids[4:]`：从位置 4 取到末尾，6 个元素的末尾是位置 5，所以是位置 4、5 两个。
+          - `ids[2:2]`：起点等于终点，一个也取不到，是空列表。
+        verify: |
+          slices = {"s14": "ids[1:4]", "s05": "ids[:5]", "s4e": "ids[4:]", "s22": "ids[2:2]"}
+          answers = {"sizes": {row: {"size": len(run(CODE + "\npart = " + code)["part"])} for row, code in slices.items()}}
+      - id: py06.k3.q3
+        kind: [modify]
+        body: |
+          需求是：
+
+          > 从 `readings` 取出**前 3 个**读数，存成列表 `first_three`，不改动 `readings`。读数的个数每次不同，但至少有 3 个。
+
+          作答框里的代码取错了。请改动它并提交。宿主已经准备好 `readings`，不用自己写。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              first_three = readings[1:3]
+            solution: |
+              first_three = readings[:3]
+            accepts:
+              - first_three = readings[0:3]
+              - first_three = [readings[0], readings[1], readings[2]]
+            rejects:
+              - code: first_three = readings[0:2]
+                why: 终点 2 不包含在内，只取到 2 个
+              - code: first_three = readings[1:4]
+                why: 从位置 1 开始，漏掉了第一个读数
+              - code: first_three = readings[:4]
+                why: 取到了 4 个
+              - code: first_three = readings[-3:]
+                why: 取的是最后 3 个
+              - code: first_three = [12, 15, 9]
+                why: 照着这次的数据把结果写死了
+            tests:
+              - name: 四个读数
+                setup: readings = [12, 15, 9, 20]
+                expect:
+                  first_three: "[12, 15, 9]"
+                  readings: readings
+              - name: 六个读数
+                hidden: true
+                setup: readings = [5, 8, 13, 21, 34, 55]
+                expect:
+                  first_three: "[5, 8, 13]"
+                  readings: readings
+              - name: 恰好三个读数
+                hidden: true
+                setup: readings = [7, 3, 6]
+                expect:
+                  first_three: "[7, 3, 6]"
+                  readings: readings
+        explanation: |
+          ```python
+          first_three = readings[:3]
+          ```
+
+          前 3 个是位置 0、1、2。切片不包含终点，所以终点要写 3；起点从头开始，可以省略，写成 `[0:3]` 也一样。原来的 `[1:3]` 从位置 1 开始，漏了第一个，而且只取到 2 个。
+    review:
+      - id: py06.k3.r1
+        kind: [explain]
+        body: |
+          ```python
+          ids = ["S01", "S02", "S03", "S04", "S05", "S06"]
+          ```
+
+          要取出**第 2 个到第 4 个**样本编号（两头都要），存进 `part`。哪一行写对了？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: s24
+                content: |
+                  ```python
+                  part = ids[2:4]
+                  ```
+              - id: s13
+                content: |
+                  ```python
+                  part = ids[1:3]
+                  ```
+              - id: s25
+                content: |
+                  ```python
+                  part = ids[2:5]
+                  ```
+              - id: s14
+                content: |
+                  ```python
+                  part = ids[1:4]
+                  ```
+            key: s14
+        explanation: |
+          `part = ids[1:4]`。第 2 个的位置是 1，第 4 个的位置是 3；切片不包含终点，终点要比 3 多一，写 4，得到 ['S02', 'S03', 'S04']。`[2:4]` 从第 3 个开始；`[1:3]` 漏了第 4 个；`[2:5]` 整体往后错了一位。
+        verify: |
+          ids = run()["ids"]
+          wanted = [item for n, item in enumerate(ids, 1) if 2 <= n <= 4]
+          fits = [option for option, code in OPTIONS["line"].items() if run(CODE + "\n" + code)["part"] == wanted]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py06.k3.r2
+        kind: [modify]
+        body: |
+          下面几块代码打乱了顺序，其中有的用不上。拼出一段程序，让它显示最后两次读数 `[20, 31]`。
+        slots:
+          - id: program
+            type: order
+            partial: true
+            items:
+              - { id: wrong_end, code: "last_two = readings[-2:-1]" }
+              - { id: show, code: print(last_two) }
+              - { id: right, code: "last_two = readings[-2:]" }
+              - { id: data, code: "readings = [12, 15, 9, 20, 31]" }
+              - { id: wrong_pos, code: "last_two = readings[3:4]" }
+            key: [data, right, show]
+            tests:
+              - name: 显示最后两次读数
+                stdout: "[20, 31]"
+                expect:
+                  last_two: "[20, 31]"
+        explanation: |
+          先写出 `readings`，再用 `readings[-2:]` 取最后两个，最后 `print`。`[-2:-1]` 不包含终点 -1，只取到 [20]；`[3:4]` 也只取到位置 3 一个元素。终点省略，才会一直取到末尾。
+    quiz:
+      - id: py06.k3.x1
+        kind: [predict]
+        uses: [py03.k1]
+        body: |
+          如果某一行报错，填 ERROR。
+
+          ```python
+          groups = ["control", "drug", "drug", "control", "drug"]
+          print(groups[-3:])
+          print(groups[1:2])
+          print(groups[4:4])
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第一行显示
+            key: "['drug', 'control', 'drug']"
+          - id: second
+            type: text
+            match: output
+            prompt: 第二行显示
+            key: "['drug']"
+          - id: third
+            type: text
+            match: output
+            prompt: 第三行显示
+            key: "[]"
+        explanation: |
+          - `[-3:]` 是最后三个：位置 2、3、4，显示 **['drug', 'control', 'drug']**。
+          - `[1:2]` 只取位置 1 一个元素，结果仍是列表，显示 **['drug']**。
+          - `[4:4]` 起点等于终点，什么也取不到，显示空列表 **[]**，不报错。
+        verify: |
+          shown = repl()
+          answers = {"first": shown[1], "second": shown[2], "third": shown[3]}
+      - id: py06.k3.x2
+        kind: [debug, predict]
+        body: |
+          同事要取出**第 3 到第 5 个**读数（共 3 个），写了：
+
+          ```python startLine=1
+          readings = [12, 15, 9, 20, 31, 26]
+          part = readings[3:5]
+          print(part)
+          ```
+        slots:
+          - id: shown
+            type: text
+            match: output
+            prompt: 程序实际显示什么？
+            key: "[20, 31]"
+          - id: count
+            type: text
+            format: integer
+            prompt: "`part` 里有几个读数？"
+            key: 2
+          - id: fix
+            type: choice
+            prompt: 第 2 行应改成哪一种？
+            options:
+              - id: s36
+                content: |
+                  ```python
+                  part = readings[3:6]
+                  ```
+              - id: s25
+                content: |
+                  ```python
+                  part = readings[2:5]
+                  ```
+              - id: s24
+                content: |
+                  ```python
+                  part = readings[2:4]
+                  ```
+            key: s25
+        explanation: |
+          实际显示 **[20, 31]**，只有 **2** 个：`[3:5]` 取位置 3、4，是第 4、第 5 个。第 3 个的位置是 2，第 5 个的位置是 4，终点要多写一位，所以是 `readings[2:5]`，得到 [9, 20, 31]。`[3:6]` 取的是第 4 到第 6 个；`[2:4]` 漏了第 5 个。
+        verify: |
+          r = run()
+          readings = r["readings"]
+          wanted = [item for n, item in enumerate(readings, 1) if 3 <= n <= 5]
+          setup = CODE.splitlines()[0]
+          fits = [option for option, code in OPTIONS["fix"].items() if run(setup + "\n" + code)["part"] == wanted]
+          answers = {"shown": r.out, "count": len(r["part"]), "fix": fits[0] if len(fits) == 1 else fits}

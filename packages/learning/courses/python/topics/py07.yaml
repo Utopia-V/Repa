@@ -1,7 +1,8 @@
 id: py07
 title: 拼接列表，汇总一组数
-status: outline
+status: complete
 minutes: 20
+summary: 读懂列表的 + 和 *：是拼接与重复，不是逐个数相加相乘；用 sum、len、min、max 把一组数汇总成一个数，平均值写成 sum(x) / len(x)。
 prerequisites:
   - topic: py06
     key: true
@@ -17,7 +18,7 @@ prerequisites:
     covers: [py02.k1]
 sources:
   - source: think-python
-    where: 第 9 章
+    where: 第 9 章（列表运算）
     url: https://allendowney.github.io/ThinkPython/chap09.html
     use: reference
   - source: pydata-book
@@ -25,13 +26,751 @@ sources:
     url: https://wesmckinney.com/book/python-builtin
     use: reference
   - source: python-docs
-    where: 标准库：内置函数
+    where: 标准库：内置函数（sum、len、min、max）
     url: https://docs.python.org/3.12/library/functions.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、解释代码（S/O）、找错（P）。
+  范围：用到 py06.k1 的列表、len 和列表的显示样子，py04.k1、k3 的调用与返回值，py02.k1 的运算顺序（平均值和加减混在一起时），以及 py02.k2 讲过的“/ 的结果总带小数点”。只讲列表的 + 和 * 与四个汇总函数。骨架原名“列表不是 R 的数值向量”，R 的对照没有带入；核心仍是列表的 + 和 * 不做逐个运算，逐个加减留给循环（py35）和 pandas 的整列运算（py21），本节只提一句。不讲 for、append（py36）、sorted、pandas；缺失值与分母留给 py26（依赖本节 k2）。
+  建议题型与判分：预测输出（P）、解释代码（S/O）、找错（P）；另有拼程序（Parsons，按测试判）和一道小改代码（T）。用自然语言说出“这一行算的是什么”的作答位列在 manual 里，复习和测验里的这类作答位由 course:confirm 让模型独立再解核对；其余由 verify 独立算出或按测试判。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 3 分钟、练习 5 分钟；k2 讲解与例题 4 分钟、练习 6 分钟（含一道小改代码）；收束 1 分钟。
+  讲解、例题和题目为本课自拟。
+intro: |
+  上一节把几次读数放进了[列表](repa:concept/py06.k1)。这一节读两件事：列表之间写 `+` 和 `*` 会得到什么；怎样把一组读数汇总成一个数，比如合计、平均、最大和最小。
+
+  如果你习惯 Excel 里整列加减，第一件事最容易读错，要特别留意。程序照旧当作短脚本从上往下运行，只有 `print` 才显示。
+wrapup: |
+  读到列表的 `+` 和 `*`，记住它们是在“接”和“重复”：列表变长了，里面的数一个也没变。读到 `sum`、`len`、`min`、`max`，就是把一组数换成一个数；看平均值时，检查分母是不是 `len(...)`，而不是写死的个数。
+
+  向同事或 AI 提需求时，如果要的是“每个读数各加 5”或“两组读数逐个相加”，要明说“逐个”，拿到结果后再核对长度有没有变。
 kps:
   - id: py07.k1
     title: 列表 + 拼接、* 重复，不自动逐元素运算
+    card:
+      name: 列表拼接
+      aliases: [列表的 +, 列表的 *, 重复]
+      definition: 列表 + 列表把两段接成一个新列表，列表 * 整数把整段重复几遍；它们不会对里面的数逐个做加法或乘法。
+      conditions:
+        - 两个等长的数字列表相加，是接在一起，长度变成两者之和，不是逐个相加。
+        - 列表 + 一个数会报 TypeError；要添上一个元素，写成 `+ [5]`。
+        - 拼接得到新列表，原来的列表不变。
+      example:
+        from: py07.k1.e0
+        text: |
+          ```python
+          morning = [12, 15]
+          evening = [11, 14]
+          both = morning + evening
+          ```
+          `both` 是 `[12, 15, 11, 14]`，4 个元素；不是逐个相加得到的 `[23, 29]`。
+    lesson: |
+      列表之间也能写 `+` 和 `*`，但意思和数不一样：
+
+      | 写法 | 结果 | 做了什么 |
+      |---|---|---|
+      | `[10, 20] + [30]` | `[10, 20, 30]` | 把两段接起来 |
+      | `[10, 20] * 2` | `[10, 20, 10, 20]` | 把整段重复两遍 |
+      | `[10, 20] + [1, 2]` | `[10, 20, 1, 2]` | 还是接起来，不是逐个相加 |
+      | `[10, 20] + 5` | 报 TypeError | 列表只能和列表接 |
+
+      这和[文字](repa:concept/py03.k1)的 `+` 一样：`"3" + "4"` 是接成 `"34"`，不是算成 7。
+
+      最容易读错的是第三行。如果你习惯 Excel 里整列相加，会以为两组等长的读数相加是逐个相加；在 Python 的列表上不是，得到的是一个更长的列表，长度是两者之和：`len(a + b)` 等于 `len(a) + len(b)`。想让每个读数都加 5，或者两组读数逐个相加，要用后面讲的循环或 pandas 的整列运算，这一节先认出 `+` 和 `*` 不做这件事。
+
+      拼接和重复都得到一个新列表，原来的列表不变；要留着结果，就把它存进一个名字。
+    example:
+      id: py07.k1.e0
+      kind: [predict]
+      uses: [py06.k1]
+      body: |
+        同一批样本上午、下午各测了两次。阅读下面的程序。
+
+        ```python startLine=1
+        morning = [12, 15]
+        evening = [11, 14]
+        both = morning + evening
+        print(both)
+        print(len(both))
+        print(morning)
+        ```
+      slots:
+        - id: both
+          type: text
+          match: output
+          prompt: 第 4 行显示什么？照屏幕上的样子写。
+          key: "[12, 15, 11, 14]"
+        - id: count
+          type: text
+          format: integer
+          prompt: 第 5 行显示哪个整数？
+          key: 4
+        - id: morning
+          type: text
+          match: output
+          prompt: 第 6 行显示什么？
+          key: "[12, 15]"
+        - id: how
+          type: choice
+          prompt: 第 3 行的 `+` 做了什么？
+          options:
+            - { id: added, content: 把两次读数逐个相加 }
+            - { id: joined, content: 把两个列表接成一个更长的列表 }
+          key: joined
+      explanation: |
+        依次显示 **[12, 15, 11, 14]**、**4**、**[12, 15]**。
+
+        第 3 行的 `+` 把两个列表**接在一起**：morning 的两个在前，evening 的两个在后，共 4 个元素。它不会逐个相加成 `[23, 29]`。拼接得到的是新列表，`morning` 本身没有变。
+      verify: |
+        r = run()
+        lines = r.lines()
+        joined = len(r["both"]) == len(r["morning"]) + len(r["evening"])
+        answers = {"both": lines[0], "count": int(lines[1]), "morning": lines[2], "how": "joined" if joined else "added"}
+    practice:
+      - id: py07.k1.q1
+        kind: [predict]
+        body: |
+          写出每一行显示什么，照屏幕上的样子写。
+
+          ```python startLine=1
+          print([1, 2] + [3])
+          print([0] * 3)
+          print([5, 6] + [5, 6])
+          print(["A"] * 2 + ["B"])
+          ```
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - { id: line, header: 行 }
+              - { id: output, header: 显示, input: { type: text, match: output } }
+            rows:
+              - { id: l1, cells: { line: 第 1 行, output: "[1, 2, 3]" } }
+              - { id: l2, cells: { line: 第 2 行, output: "[0, 0, 0]" } }
+              - { id: l3, cells: { line: 第 3 行, output: "[5, 6, 5, 6]" } }
+              - { id: l4, cells: { line: 第 4 行, output: "['A', 'A', 'B']" } }
+        explanation: |
+          - 第 1 行：接上一个元素，得 **[1, 2, 3]**。
+          - 第 2 行：`[0]` 重复 3 遍，得 **[0, 0, 0]**，常用来先建一个全是 0 的列表。
+          - 第 3 行：两个一样的列表相加，仍是接起来，得 **[5, 6, 5, 6]**，不是 [10, 12]。
+          - 第 4 行：先算 `["A"] * 2` 得 `['A', 'A']`，再接上 `['B']`，得 **['A', 'A', 'B']**。
+        verify: |
+          lines = run().lines()
+          answers = {"shown": {f"l{i}": {"output": line} for i, line in enumerate(lines, 1)}}
+      - id: py07.k1.q2
+        kind: [debug, predict]
+        body: |
+          同事想让每个读数都加上 5（仪器的校正量），写了：
+
+          ```python startLine=1
+          readings = [12, 15, 9]
+          shifted = readings + 5
+          print(shifted)
+          ```
+        slots:
+          - id: what
+            type: choice
+            prompt: 运行这段程序会怎样？
+            options:
+              - { id: added, content: "显示 `[17, 20, 14]`" }
+              - { id: appended, content: "显示 `[12, 15, 9, 5]`" }
+              - { id: error, content: 第 2 行报错 }
+            key: error
+          - id: bracketed
+            type: text
+            match: output
+            prompt: 如果把第 2 行改成 `shifted = readings + [5]`，第 3 行显示什么？
+            key: "[12, 15, 9, 5]"
+        explanation: |
+          第 2 行**报错**（TypeError）：列表只能和列表接，不能直接加一个数。
+
+          改成 `readings + [5]` 以后不报错了，但显示的是 **[12, 15, 9, 5]**：5 被接在末尾，成了第四个元素，仍然不是“每个读数加 5”。列表的 `+` 不做逐个加法；要逐个加，得用后面讲的循环或 pandas 的整列运算。
+        verify: |
+          r = run()
+          fixed = run(CODE.replace("readings + 5", "readings + [5]"))
+          if r.error == "TypeError":
+              what = "error"
+          else:
+              what = "appended" if r["shifted"] == [12, 15, 9, 5] else "added"
+          answers = {"what": what, "bracketed": fixed.lines()[0]}
+      - id: py07.k1.q3
+        kind: [explain]
+        body: |
+          要建一个列表，记下 4 个样本的初始体积，每个都是 8（mL）。哪一行能得到 `[8, 8, 8, 8]`？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: inside
+                content: |
+                  ```python
+                  volumes = [8 * 4]
+                  ```
+                feedback: 方括号里先算 8 * 4，得到只有一个元素的 [32]。
+              - id: swapped
+                content: |
+                  ```python
+                  volumes = [4] * 8
+                  ```
+              - id: repeat
+                content: |
+                  ```python
+                  volumes = [8] * 4
+                  ```
+              - id: number
+                content: |
+                  ```python
+                  volumes = 8 * 4
+                  ```
+            key: repeat
+        explanation: |
+          `volumes = [8] * 4`：把只有一个 8 的列表重复 4 遍。
+
+          `[8 * 4]` 先在方括号里算出 32，得到 `[32]`；`[4] * 8` 是 8 个 4；`8 * 4` 两边都是数，就是普通乘法，得到 32，不是列表。
+        verify: |
+          fits = [option for option, code in OPTIONS["line"].items() if run(code)["volumes"] == [8, 8, 8, 8]]
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    review:
+      - id: py07.k1.r1
+        kind: [trace, predict]
+        uses: [py01.k2]
+        body: |
+          两批样本编号先合在一起，后来第一批又补了一个。
+
+          ```python startLine=1
+          batch_a = ["S01", "S02"]
+          batch_b = ["S03"]
+          all_ids = batch_a + batch_b
+          batch_a = batch_a + ["S04"]
+          print(all_ids)
+          print(batch_a)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第 5 行显示什么？
+            key: "['S01', 'S02', 'S03']"
+          - id: second
+            type: text
+            match: output
+            prompt: 第 6 行显示什么？
+            key: "['S01', 'S02', 'S04']"
+        explanation: |
+          第 5 行显示 **['S01', 'S02', 'S03']**，第 6 行显示 **['S01', 'S02', 'S04']**。
+
+          第 3 行拼接出一个新列表存进 `all_ids`；第 4 行又拼接出另一个新列表，让 `batch_a` 改为指向它。`all_ids` 是第 3 行那一刻接好的结果，不会因为 `batch_a` 后来变了就跟着多出 S04。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+      - id: py07.k1.r2
+        kind: [explain]
+        body: |
+          每个样本测了两次，两组读数按样本顺序排好。同事想得到每个样本两次读数的和 `[13, 25, 21]`，写了：
+
+          ```python
+          first = [10, 20, 15]
+          second = [3, 5, 6]
+          sums = first + second
+          ```
+
+          运行之后，哪一句说法正确？
+        slots:
+          - id: claim
+            type: choice
+            options:
+              - id: error
+                content: 第 3 行报错，两个列表不能相加
+              - id: joined
+                content: "`sums` 有 6 个元素：前 3 个是 first 的，后 3 个是 second 的"
+              - id: added
+                content: "`sums` 是 `[13, 25, 21]`，和想要的一样"
+              - id: doubled
+                content: "`sums` 是 first 重复两遍"
+            key: joined
+        explanation: |
+          “`sums` 有 6 个元素，前 3 个是 first 的，后 3 个是 second 的”正确：`sums` 是 `[10, 20, 15, 3, 5, 6]`。
+
+          两个列表可以相加，不会报错，但 `+` 是把它们接起来，长度从 3 变成 6，不是逐个相加。这正是要警惕的地方：程序不报错，结果的长度却已经不是样本数了。
+        verify: |
+          r = run()
+          sums = r.vars.get("sums")
+          holds = {
+              "error": r.error is not None,
+              "joined": sums is not None and len(sums) == 6 and sums[:3] == r["first"] and sums[3:] == r["second"],
+              "added": sums == [a + b for a, b in zip(r["first"], r["second"])],
+              "doubled": sums == r["first"] + r["first"],
+          }
+          true = [claim for claim, ok in holds.items() if ok]
+          answers = {"claim": true[0] if len(true) == 1 else true}
+    quiz:
+      - id: py07.k1.x1
+        kind: [modify]
+        body: |
+          一块小板上有 4 个孔：前 3 个没加样（记 0），最后一个加了样（记 1）。用下面的块排出一段程序，让它显示 `[0, 0, 0, 1]`。不是每一块都要用到。
+        slots:
+          - id: program
+            type: order
+            partial: true
+            items:
+              - { id: wrong_order, code: "result = ones + zeros" }
+              - { id: zeros, code: "zeros = [0] * 3" }
+              - { id: show, code: "print(result)" }
+              - { id: wrong_zeros, code: "zeros = [0 * 3]" }
+              - { id: ones, code: "ones = [1]" }
+              - { id: result, code: "result = zeros + ones" }
+            key: [zeros, ones, result, show]
+            alternatives:
+              - [ones, zeros, result, show]
+            tests:
+              - name: 显示四个孔的记录
+                stdout: "[0, 0, 0, 1]"
+        explanation: |
+          ```python
+          zeros = [0] * 3
+          ones = [1]
+          result = zeros + ones
+          print(result)
+          ```
+
+          前两行谁先都可以。`[0] * 3` 得到三个 0；`[0 * 3]` 先算 0 * 3，只得到 `[0]`。拼接时谁在前，结果里谁就在前，`ones + zeros` 会得到 `[1, 0, 0, 0]`。
+      - id: py07.k1.x2
+        kind: [predict]
+        uses: [py02.k1, py06.k1]
+        body: |
+          宿主已经给 `a`、`b` 赋好了值：`a` 是有 3 个元素的列表，`b` 是有 5 个元素的列表，里面具体是什么不影响答案。写出每一行显示的整数。
+
+          ```python startLine=1
+          print(len(a + b))
+          print(len(a * 4))
+          print(len(b + a * 2))
+          print(len((b + a) * 2))
+          ```
+        slots:
+          - id: lengths
+            type: table
+            columns:
+              - { id: line, header: 行 }
+              - { id: value, header: 显示, input: integer }
+            rows:
+              - { id: l1, cells: { line: 第 1 行, value: 8 } }
+              - { id: l2, cells: { line: 第 2 行, value: 12 } }
+              - { id: l3, cells: { line: 第 3 行, value: 11 } }
+              - { id: l4, cells: { line: 第 4 行, value: 16 } }
+        explanation: |
+          **8、12、11、16**。拼接后的长度是两段长度相加，重复几遍长度就乘几。
+
+          - 第 1 行：3 + 5 = 8。
+          - 第 2 行：3 × 4 = 12。
+          - 第 3 行：和数的运算一样，先算 `a * 2`（6 个），再接上 b，5 + 6 = 11。
+          - 第 4 行：括号里先接成 8 个，再重复两遍，得 16。
+        verify: |
+          first = run(a=[1, 2, 3], b=[4, 5, 6, 7, 8]).lines()
+          second = run(a=["x", "y", "z"], b=[0, 0, 0, 0, 0]).lines()
+          assert first == second
+          answers = {"lengths": {f"l{i}": {"value": int(line)} for i, line in enumerate(first, 1)}}
+
   - id: py07.k2
     title: sum/len/min/max 对一组数做汇总
+    card:
+      name: 汇总一组数
+      aliases: [sum, min, max, 平均值]
+      definition: sum、len、min、max 各自把一个数字列表变成一个数：合计、个数、最小、最大；平均值写成 sum(x) / len(x)。
+      conditions:
+        - 平均值的分母写 len(x)，不要写死个数；用 / 除，结果总带小数点。
+        - 调用先算出数，再按运算顺序往下算：`sum(x) / len(x) + 1` 是平均值再加 1。
+        - 空列表：sum([]) 是 0，max([])、min([]) 报 ValueError，平均值会因为除以 0 报错。
+      example:
+        from: py07.k2.e0
+        text: |
+          ```python
+          readings = [12, 15, 9, 20]
+          mean = sum(readings) / len(readings)
+          spread = max(readings) - min(readings)
+          ```
+          合计 56、个数 4，`mean` 是 14.0；最大 20、最小 9，`spread` 是 11。
+    lesson: |
+      有了一组读数，常常要把它们汇总成一个数。Python 自带四个函数：
+
+      | 调用（`readings = [12, 15, 9, 20]`） | 返回值 | 意思 |
+      |---|---|---|
+      | `sum(readings)` | 56 | 合计 |
+      | `len(readings)` | 4 | 有几个 |
+      | `min(readings)` | 9 | 最小的 |
+      | `max(readings)` | 20 | 最大的 |
+
+      它们都是[函数调用](repa:concept/py04.k1)：交回一个数，调用处就换成这个数。py04 里的 `max(3, 9, 5)` 是把几个数分别写进括号；这里括号里放一整个列表，比的是列表里的元素。
+
+      平均值是合计除以个数：
+
+      ```python
+      mean = sum(readings) / len(readings)
+      ```
+
+      得到 **14.0**，用 `/` 除，结果总带小数点。分母写 `len(readings)`，不要写数出来的 4：读数多一个、少一个，代码照样对。极差（最大减最小）写成 `max(readings) - min(readings)`，得 11。
+
+      调用换成数以后，照[运算顺序](repa:concept/py02.k1)往下算：`sum(readings) / len(readings) + 1` 是平均值再加 1，得 15.0；`sum(readings) / (len(readings) + 1)` 是除以 5，得 11.2。
+
+      空列表要小心：`sum([])` 是 0，`len([])` 也是 0；`max([])`、`min([])` 会报 ValueError；平均值 `sum([]) / len([])` 是除以 0，同样会报错。
+    example:
+      id: py07.k2.e0
+      kind: [trace, predict]
+      uses: [py04.k1, py04.k3, py06.k1]
+      body: |
+        一份样本测了四次。阅读下面的程序。
+
+        ```python startLine=1
+        readings = [12, 15, 9, 20]
+        total = sum(readings)
+        count = len(readings)
+        mean = total / count
+        spread = max(readings) - min(readings)
+        print(mean)
+        print(spread)
+        ```
+      slots:
+        - id: total
+          type: text
+          format: integer
+          label: total
+          prompt: "`total` 是多少？"
+          key: 56
+        - id: count
+          type: text
+          format: integer
+          label: count
+          prompt: "`count` 是多少？"
+          key: 4
+        - id: mean
+          type: text
+          match: output
+          prompt: 第 6 行显示什么？
+          key: "14.0"
+        - id: spread
+          type: text
+          match: output
+          prompt: 第 7 行显示什么？
+          key: "11"
+      explanation: |
+        `total` 是 **56**（12 + 15 + 9 + 20），`count` 是 **4**。第 6 行显示 **14.0**：56 / 4，用 `/` 除，结果带小数点。第 7 行显示 **11**：最大的 20 减最小的 9。
+
+        每个调用都交回一个数，存进名字以后，下一行就能接着用。
+      verify: |
+        r = run()
+        lines = r.lines()
+        answers = {"total": r["total"], "count": r["count"], "mean": lines[0], "spread": lines[1]}
+    practice:
+      - id: py07.k2.q1
+        kind: [predict]
+        uses: [py02.k1]
+        body: |
+          写出三行各显示什么。
+
+          ```python startLine=1
+          doses = [2, 4, 6]
+          print(sum(doses) / len(doses))
+          print(sum(doses) / len(doses) + 1)
+          print(sum(doses) / (len(doses) + 1))
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第 2 行显示
+            key: "4.0"
+            feedback:
+              - when: "4"
+                message: 用 / 除，结果总带小数点。
+          - id: second
+            type: text
+            match: output
+            prompt: 第 3 行显示
+            key: "5.0"
+          - id: third
+            type: text
+            match: output
+            prompt: 第 4 行显示
+            key: "3.0"
+            feedback:
+              - when: "5.0"
+                message: 括号让 len(doses) + 1 先算，分母变成 4。
+        explanation: |
+          依次是 **4.0、5.0、3.0**。合计 12、个数 3。
+
+          第 3 行先算除法得 4.0，再加 1；第 4 行有括号，先算 3 + 1 = 4，再用 12 除以 4。两行只差一对括号，意思完全不同：前一行是“平均值加 1”，后一行是“除以个数加 1”。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1], "third": lines[2]}
+      - id: py07.k2.q2
+        kind: [predict]
+        body: |
+          这一批还没有任何读数。写出第 2–4 行各显示什么；如果某一行会报错，那一格填 ERROR。
+
+          ```python startLine=1
+          values = []
+          print(len(values))
+          print(sum(values))
+          print(max(values))
+          ```
+        slots:
+          - id: shown
+            type: table
+            columns:
+              - { id: line, header: 行 }
+              - { id: output, header: 显示, input: { type: text, match: output, quick: [ERROR] } }
+            rows:
+              - { id: l2, cells: { line: 第 2 行, output: "0" } }
+              - { id: l3, cells: { line: 第 3 行, output: "0" } }
+              - { id: l4, cells: { line: 第 4 行, output: ERROR } }
+          - id: mean
+            type: choice
+            prompt: 如果第 4 行换成 `print(sum(values) / len(values))`，会怎样？
+            options:
+              - { id: zero, content: 显示 0 }
+              - { id: error, content: 报错 }
+              - { id: zero_float, content: 显示 0.0 }
+            key: error
+        explanation: |
+          第 2、3 行都显示 **0**：没有元素，个数是 0，合计也是 0。第 4 行 **ERROR**：空列表里没有最大的那个，`max` 报 ValueError。
+
+          换成平均值也会**报错**：分子分母都是 0，除以 0 会报 ZeroDivisionError。所以拿到一组可能为空的数据时，要先说清楚“没有读数时输出什么”。
+        verify: |
+          shown = repl()
+          mean = run("values = []\nprint(sum(values) / len(values))")
+          answers = {
+              "shown": {f"l{i}": {"output": text} for i, text in enumerate(shown, 1) if i >= 2},
+              "mean": "error" if mean.error else ("zero_float" if mean.lines()[0] == "0.0" else "zero"),
+          }
+      - id: py07.k2.q3
+        kind: [modify]
+        uses: [py06.k1]
+        body: |
+          需求是：
+
+          > 根据读数列表 `readings` 算出平均值 `mean` 和极差 `spread`（最大减最小）。读数有几个都不一定，代码都要能用。
+
+          同事写的代码在作答框里，它只在恰好 4 个读数时算对平均值。宿主已经给 `readings` 赋好了值。请改正它并提交，两个结果仍存在 `mean` 和 `spread` 里。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              mean = sum(readings) / 4
+              spread = max(readings) - min(readings)
+            solution: |
+              mean = sum(readings) / len(readings)
+              spread = max(readings) - min(readings)
+            accepts:
+              - |
+                total = sum(readings)
+                count = len(readings)
+                mean = total / count
+                spread = max(readings) - min(readings)
+            rejects:
+              - code: |
+                  mean = sum(readings) / 5
+                  spread = max(readings) - min(readings)
+                why: 只是换了一个写死的个数
+              - code: |
+                  mean = sum(readings) // len(readings)
+                  spread = max(readings) - min(readings)
+                why: 用了整除，平均值丢了小数部分
+              - code: |
+                  mean = (max(readings) + min(readings)) / 2
+                  spread = max(readings) - min(readings)
+                why: 算的是最大最小的中点，不是平均值
+              - code: |
+                  print(sum(readings) / len(readings))
+                  spread = max(readings) - min(readings)
+                why: 只显示了平均值，没有存进 mean
+              - code: |
+                  mean = sum(readings) / len(readings)
+                why: 删掉了算 spread 的那一行
+            tests:
+              - name: 五个读数
+                setup: readings = [12, 15, 9, 20, 14]
+                expect:
+                  mean: "14.0"
+                  spread: "11"
+              - name: 三个读数
+                hidden: true
+                setup: readings = [2, 4, 6]
+                expect:
+                  mean: "4.0"
+                  spread: "4"
+              - name: 只有一个读数
+                hidden: true
+                setup: readings = [10]
+                expect:
+                  mean: "10.0"
+                  spread: "0"
+              - name: 平均值不是整数
+                hidden: true
+                setup: readings = [1, 2, 3, 4, 5, 6, 7, 8]
+                expect:
+                  mean: "4.5"
+                  spread: "7"
+        explanation: |
+          ```python
+          mean = sum(readings) / len(readings)
+          spread = max(readings) - min(readings)
+          ```
+
+          分母改成 `len(readings)`，读数有几个就除以几；极差那一行本来就对。判分时会换 3 个、1 个、8 个读数运行你的代码，写死任何一个个数都会在某组上出错。
+    review:
+      - id: py07.k2.r1
+        kind: [trace]
+        uses: [py04.k3]
+        body: |
+          冷库一天记了四次温度。填写程序运行完以后各个名字的值。
+
+          ```python startLine=1
+          temps = [4, 6, 5, 9]
+          high = max(temps)
+          low = min(temps)
+          gap = high - low
+          avg = sum(temps) / len(temps)
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: name, header: 名字 }
+              - { id: value, header: 值, input: { type: text, match: output } }
+            rows:
+              - { id: high, cells: { name: high, value: "9" } }
+              - { id: low, cells: { name: low, value: "4" } }
+              - { id: gap, cells: { name: gap, value: "5" } }
+              - { id: avg, cells: { name: avg, value: "6.0" } }
+        explanation: |
+          `high` 是 **9**，`low` 是 **4**，`gap` 是 **5**，`avg` 是 **6.0**（合计 24 除以 4 个，用 `/` 除，带小数点）。程序里没有 `print`，屏幕上什么也不显示，但每个调用的返回值都存进了名字。
+        verify: |
+          r = run()
+          answers = {"values": {name: {"value": r[name]} for name in ["high", "low", "gap", "avg"]}}
+      - id: py07.k2.r2
+        kind: [debug]
+        uses: [py02.k1]
+        body: |
+          仪器读数整体偏低 1，同事想算出“读数的平均值再加 1”。`r` 是读数列表。哪一行算对了？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: denominator
+                content: |
+                  ```python
+                  fixed = sum(r) / (len(r) + 1)
+                  ```
+              - id: numerator
+                content: |
+                  ```python
+                  fixed = (sum(r) + 1) / len(r)
+                  ```
+              - id: inside
+                content: |
+                  ```python
+                  fixed = sum(r + 1) / len(r)
+                  ```
+              - id: after
+                content: |
+                  ```python
+                  fixed = sum(r) / len(r) + 1
+                  ```
+            key: after
+        explanation: |
+          `fixed = sum(r) / len(r) + 1`：除法先算，得到平均值，再加 1。
+
+          `sum(r) / (len(r) + 1)` 把 1 加到了个数上；`(sum(r) + 1) / len(r)` 只给合计加了 1，平均下来每个读数只多了一小部分；`sum(r + 1)` 想把列表加 1，会报 TypeError。
+        verify: |
+          lists = [[2, 4, 6], [10, 20, 30, 40]]
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              ok = True
+              for values in lists:
+                  attempt = run(code, r=values)
+                  if attempt.error or attempt["fixed"] != sum(values) / len(values) + 1:
+                      ok = False
+              if ok:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+    quiz:
+      - id: py07.k2.x1
+        kind: [debug]
+        uses: [py01.k1]
+        body: |
+          下面这段代码用 `signal = [10, 30, 20]` 运行时，四个名字都算对了：合计、个数、平均值、最大值。
+
+          ```python startLine=1
+          total = sum(signal)
+          count = len(signal)
+          mean = total / 3
+          top = max(signal)
+          ```
+
+          现在 `signal` 换成了 `[10, 30, 20, 30]`。
+        slots:
+          - id: wrong
+            type: choice
+            prompt: 哪一个名字的值不再是它该表示的量？
+            options:
+              - { id: total, content: "`total`（合计）" }
+              - { id: count, content: "`count`（个数）" }
+              - { id: mean, content: "`mean`（平均值）" }
+              - { id: top, content: "`top`（最大值）" }
+            key: mean
+          - id: value
+            type: text
+            match: output
+            prompt: 换了数据以后，`mean` 实际是多少？照 Python 显示的样子写。
+            key: "30.0"
+          - id: right
+            type: text
+            match: output
+            prompt: 真正的平均值应当是多少？
+            key: "22.5"
+        explanation: |
+          是 **mean**：第 3 行把个数写死成了 3。合计变成 90，代码算出 90 / 3 = **30.0**，而真正的平均值是 90 / 4 = **22.5**。
+
+          `total`、`count`、`top` 都用函数现算，换了数据仍然对。第 3 行改成 `mean = total / count` 才能跟着数据走。
+        verify: |
+          new = [10, 30, 20, 30]
+          r = run(CODE, signal=new)
+          should = {"total": sum(new), "count": len(new), "mean": sum(new) / len(new), "top": max(new)}
+          wrong = [name for name, value in should.items() if r[name] != value]
+          answers = {"wrong": wrong[0] if len(wrong) == 1 else wrong, "value": r["mean"], "right": should["mean"]}
+      - id: py07.k2.x2
+        kind: [explain]
+        body: |
+          `values` 是一组读数。读下面这一行：
+
+          ```python
+          result = (sum(values) - max(values)) / (len(values) - 1)
+          ```
+        slots:
+          - id: number
+            type: text
+            match: output
+            prompt: "`values` 为 `[8, 12, 10, 30]` 时，`result` 是多少？照 Python 显示的样子写。"
+            key: "10.0"
+          - id: meaning
+            type: choice
+            prompt: 这一行算的是什么？
+            options:
+              - { id: a, content: 全部读数的平均值，再减去最大值 }
+              - { id: b, content: 去掉最大的一个读数以后，其余读数的平均值 }
+              - { id: c, content: 最大值和其余读数的差 }
+              - { id: d, content: 去掉最大值和最小值以后的平均值 }
+            key: b
+        explanation: |
+          `result` 是 **10.0**：合计 60 减去最大的 30 得 30，个数 4 减 1 得 3，30 / 3 = 10.0。
+
+          这一行算的是**去掉最大的一个读数以后，其余读数的平均值**：分子去掉了最大值，分母也相应少算一个。括号让减法先算，再做除法。
+        verify: |
+          answers = {"number": run(values=[8, 12, 10, 30])["result"]}
+        manual: [meaning]
+
+verified:
+  - question: py07.k2.x2
+    version: sha256:b0337a8b523432070b91d69c85b82f38dcd18947a5887e8b19474c5b76ac28e0
+    slots: [meaning]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12

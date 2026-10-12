@@ -1,7 +1,8 @@
 id: py08
 title: 比较得到 True 或 False
-status: outline
+status: complete
 minutes: 20
+summary: 读懂比较：==、!=、<、>、<=、>= 得到 True 或 False；把“至少”“超过”这类说法落实成比较符，并用恰好等于阈值的值检查。
 prerequisites:
   - topic: py03
     key: true
@@ -25,9 +26,791 @@ sources:
     url: https://docs.python.org/3.12/tutorial/datastructures.html
     use: reference
 notes: |
-  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。
+  范围：只比较两个单独的值（整数、小数、文字），结果存进名字或用 print 显示。and/or/not 在 py09，if 在 py10，整列比较得到布尔掩码在 py17；浮点数相等的坑（0.1 + 0.2 == 0.3）和 is 不在本节。py12（不写代码的需求课）讲过同样的边界思想，但它不是本 topic 的先修，这里用 Python 的写法重新讲一遍，不引用它的概念。
+  建议题型与判分：预测输出（P）、找错（P）、写清需求（S/O）。把日常说法对应到比较符的作答位程序算不出答案，列在 manual 里，复习和测验里的这类作答位由 course:confirm 让模型独立再解核对；其余答案由 verify 独立算出，小改代码题按测试判。
+  节奏（待试做校准）：开场 1 分钟；k1 讲解与例题 4 分钟、练习 5 分钟；k2 讲解与例题 3 分钟、练习 5 分钟；收束 2 分钟。
+  讲解、例题和题目为本课自拟。
+intro: |
+  这一节读的是“比较”：拿两个值比一比，结果只有两种，`True`（成立）或 `False`（不成立）。
+
+  后面按条件做事、从表格里挑出符合要求的行，都从这一步开始。程序仍当作一段短脚本，从第一行往下运行，只有 `print` 才在屏幕上显示。
+wrapup: |
+  读到一个比较，先认比较符：两个等号 `==` 才是比较，带等号的 `>=`、`<=` 包含阈值本身。
+
+  提需求时，把“至少”“超过”说清楚恰好等于阈值算不算；拿到代码后，用一个恰好等于阈值的值试一下，看结果是不是你要的。
 kps:
   - id: py08.k1
     title: ==、!=、大小比较的结果
+    card:
+      name: 比较
+      aliases: [比较符, 布尔值, True/False]
+      definition: 用 ==、!=、<、>、<=、>= 比较两个值，结果是 True（成立）或 False（不成立）；这个结果也是一个值，可以存进名字，也可以用 print 显示。
+      conditions:
+        - "`=` 是赋值，`==` 才是比较两边是否相等。"
+        - 两边有算式时，先算完算式再比较。
+        - 数和文字不相等：`10 == "10"` 是 False；文字和数比大小会报 TypeError。
+      example:
+        from: py08.k1.e0
+        text: |
+          ```python
+          signal = 12
+          limit = 10
+          passed = signal >= limit
+          print(passed)
+          ```
+          第 3 行先算出比较的结果 True，再让 `passed` 指向它；最后显示 True。
+    lesson: |
+      比较两个值时，结果只有两种：`True`（成立）或 `False`（不成立）。
+
+      | 写法 | 读作 | 例子 | 结果 |
+      |---|---|---|---|
+      | `==` | 等于 | `10 == 10` | True |
+      | `!=` | 不等于 | `10 != 12` | True |
+      | `>` | 大于 | `9 > 10` | False |
+      | `<` | 小于 | `9 < 10` | True |
+      | `>=` | 大于或等于 | `10 >= 10` | True |
+      | `<=` | 小于或等于 | `12 <= 10` | False |
+
+      True 和 False 也是值，可以像数一样存进名字。`passed = signal >= limit` 仍按[赋值](repa:concept/py01.k1)来读：先算右边的比较，得到 True 或 False，再让 `passed` 指向它。`print(passed)` 就显示 True 或 False。
+
+      三处容易读错：
+
+      - 一个等号 `=` 是赋值，两个等号 `==` 才是比较。
+      - 两边有算式时，先把算式算完再比较：`4 + 6 >= 10` 先得到 10，再比较，结果是 True。
+      - 值的类别会影响比较（见[三类值](repa:concept/py03.k1)）：数 10 和文字 `"10"` 不相等，`10 == "10"` 是 False；拿文字和数比大小，例如 `"10" < 9`，会报 TypeError。文字比较区分大小写，`"Drug" == "drug"` 是 False。整数和小数按数值比，`3 == 3.0` 是 True。
+    example:
+      id: py08.k1.e0
+      kind: [predict]
+      uses: [py01.k1]
+      body: |
+        阅读程序，写出两行输出，再说说 `passed` 指向的是什么。
+
+        ```python startLine=1
+        signal = 12
+        limit = 10
+        passed = signal >= limit
+        print(passed)
+        print(signal == limit)
+        ```
+      slots:
+        - id: line1
+          type: text
+          match: output
+          prompt: 第一行输出
+          key: "True"
+        - id: line2
+          type: text
+          match: output
+          prompt: 第二行输出
+          key: "False"
+        - id: kind
+          type: choice
+          prompt: 第 3 行执行后，`passed` 指向什么？
+          options:
+            - { id: number, content: 数字 12 }
+            - { id: truth, content: 比较的结果 True }
+            - { id: text, content: "文字 `\"signal >= limit\"`" }
+          key: truth
+      explanation: |
+        依次显示 **True**、**False**。
+
+        第 3 行先算右边：12 大于或等于 10，成立，得到 True；再让 `passed` 指向这个 True。它存的是比较的结果，不是 12，也不是那段写法本身。第 5 行比较 12 和 10 是否相等，不相等，显示 False。
+      verify: |
+        r = run()
+        lines = r.lines()
+        kinds = {bool: "truth", int: "number", str: "text"}
+        answers = {"line1": lines[0], "line2": lines[1], "kind": kinds[type(r["passed"])]}
+    practice:
+      - id: py08.k1.q1
+        kind: [predict]
+        uses: [py02.k1, py03.k1]
+        body: |
+          下面每一行都是一个比较。逐行写出它的结果是 True 还是 False。
+
+          ```python startLine=1
+          7 != 7
+          5 + 5 == 10
+          "drug" == "Drug"
+          3 == 3.0
+          12 <= 9
+          ```
+        slots:
+          - id: results
+            type: table
+            columns:
+              - { id: line, header: 比较 }
+              - { id: value, header: 结果, input: bool }
+            rows:
+              - { id: l1, cells: { line: 第 1 行, value: false } }
+              - { id: l2, cells: { line: 第 2 行, value: true } }
+              - { id: l3, cells: { line: 第 3 行, value: false } }
+              - { id: l4, cells: { line: 第 4 行, value: true } }
+              - { id: l5, cells: { line: 第 5 行, value: false } }
+        explanation: |
+          依次为 **False、True、False、True、False**。
+
+          - 第 1 行：7 等于 7，所以“不等于”不成立。
+          - 第 2 行：先算 5 + 5 得 10，再比较，成立。
+          - 第 3 行：大小写不同的两段文字不相等。
+          - 第 4 行：整数 3 和小数 3.0 按数值比较，相等。
+          - 第 5 行：12 不小于或等于 9。
+        verify: |
+          shown = {"True": True, "False": False}
+          answers = {"results": {f"l{i}": {"value": shown[text]} for i, text in enumerate(repl(), 1)}}
+      - id: py08.k1.q2
+        kind: [debug, predict]
+        uses: [py01.k1]
+        body: |
+          下面的程序想显示“signal 是否等于 limit”，应当显示 True 或 False。
+
+          ```python startLine=1
+          signal = 12
+          limit = 10
+          signal = limit
+          print(signal)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序实际显示什么？
+            key: 10
+          - id: fix
+            type: choice
+            prompt: 把第 3、4 行换成下面哪一行，才能显示 signal 是否等于 limit？
+            options:
+              - id: keyword
+                content: |
+                  ```python
+                  print(signal = limit)
+                  ```
+                feedback: 括号里的 `signal = limit` 不是比较；这一行运行时会报错。
+              - id: always
+                content: |
+                  ```python
+                  print(limit == limit)
+                  ```
+                feedback: limit 总是等于它自己，这一行无论 signal 是多少都显示 True。
+              - id: compare
+                content: |
+                  ```python
+                  print(signal == limit)
+                  ```
+            key: compare
+        explanation: |
+          实际显示 **10**。第 3 行只有一个等号，是赋值：它让 `signal` 改为指向 limit 的值 10，没有做任何比较，第 4 行显示的就是这个 10。
+
+          要比较，写两个等号：`print(signal == limit)`，这里显示 False。`print(signal = limit)` 会报错；`print(limit == limit)` 永远显示 True，和 signal 无关。
+        verify: |
+          r = run()
+          fits = []
+          for option, code in OPTIONS["fix"].items():
+              # 用两组值试：一组不相等、一组相等，显示的都要是 signal == limit 的结果。
+              ok = True
+              for signal, limit in [(12, 10), (10, 10)]:
+                  attempt = run(f"signal = {signal}\nlimit = {limit}\n" + code)
+                  if attempt.error is not None or attempt.out.strip() != str(signal == limit):
+                      ok = False
+              if ok:
+                  fits.append(option)
+          answers = {"output": int(r.out), "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py08.k1.q3
+        kind: [predict]
+        uses: [py03.k1, py03.k2]
+        body: |
+          `count` 是数，`label` 是从表单里读进来的文字。
+
+          ```python startLine=1
+          count = 10
+          label = "10"
+          print(count == label)
+          print(count != label)
+          print(count == int(label))
+          ```
+        slots:
+          - id: line1
+            type: text
+            match: output
+            prompt: 第一行输出
+            key: "False"
+            feedback:
+              - when: "True"
+                message: label 有引号，是文字；数 10 和文字 "10" 不相等。
+          - id: line2
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "True"
+          - id: line3
+            type: text
+            match: output
+            prompt: 第三行输出
+            key: "True"
+          - id: extra
+            type: choice
+            prompt: 如果在最后再加一行 `print(label < 9)`，这一行会怎样？
+            options:
+              - { id: "true", content: 显示 True }
+              - { id: error, content: 报错 }
+              - { id: "false", content: 显示 False }
+            key: error
+        explanation: |
+          依次显示 **False、True、True**。
+
+          `label` 指向的是文字 `"10"`，它和数 10 不相等，所以 `==` 得 False、`!=` 得 True。`int(label)` 先把文字转成数 10，再比较就相等了。
+
+          拿文字和数比大小（`label < 9`）会报 TypeError：Python 不替你决定按数还是按文字比较。
+        verify: |
+          r = run()
+          lines = r.lines()
+          extra = run(CODE + "\nprint(label < 9)")
+          answers = {
+              "line1": lines[0],
+              "line2": lines[1],
+              "line3": lines[2],
+              "extra": "error" if extra.error else extra.lines()[-1].lower(),
+          }
+    review:
+      - id: py08.k1.r1
+        kind: [debug]
+        uses: [py01.k1]
+        body: |
+          `signal` 和 `limit` 已经有值。要让 `same` 存下“signal 是否恰好等于 limit”的结果（True 或 False），并且不改变 `signal` 和 `limit`，应当写哪一行？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: chain
+                content: |
+                  ```python
+                  same = signal = limit
+                  ```
+              - id: opposite
+                content: |
+                  ```python
+                  same = signal != limit
+                  ```
+              - id: undefined
+                content: |
+                  ```python
+                  same == signal == limit
+                  ```
+              - id: store
+                content: |
+                  ```python
+                  same = signal == limit
+                  ```
+            key: store
+        explanation: |
+          `same = signal == limit` 正确：先算右边的比较，得到 True 或 False，再让 `same` 指向它。
+
+          `same = signal = limit` 里没有比较，它让 `same` 和 `signal` 都指向 limit 的值，还改掉了 signal；`same == signal == limit` 开头就用到还没有值的 `same`，会报错；`same = signal != limit` 存下的是“不相等”，正好相反。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              ok = True
+              for signal, limit in [(12, 10), (10, 10)]:
+                  attempt = run(code, signal=signal, limit=limit)
+                  if attempt.error or attempt.vars.get("same") is not (signal == limit) or attempt["signal"] != signal:
+                      ok = False
+              if ok:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py08.k1.r2
+        kind: [predict]
+        uses: [py03.k1]
+        body: |
+          写出三个 `print` 各显示什么。如果某一行会报错，那一格填 ERROR。
+
+          ```python startLine=1
+          site = "North"
+          depth = 30
+          print(site == "north")
+          print(depth != 30)
+          print(depth >= "25")
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第 3 行显示
+            key: "False"
+          - id: second
+            type: text
+            match: output
+            prompt: 第 4 行显示
+            key: "False"
+          - id: third
+            type: text
+            match: output
+            prompt: 第 5 行显示
+            key: ERROR
+        explanation: |
+          依次是 **False、False、ERROR**。
+
+          第 3 行：`"North"` 和 `"north"` 大小写不同，不相等。第 4 行：depth 就是 30，“不等于 30”不成立。第 5 行：`"25"` 带引号，是文字，拿数和文字比大小会报 TypeError。
+        verify: |
+          shown = repl()
+          answers = {"first": shown[2], "second": shown[3], "third": shown[4]}
+    quiz:
+      - id: py08.k1.x1
+        kind: [trace]
+        uses: [py01.k2]
+        body: |
+          填写第 2–4 行各自执行后 `dose_mg` 与 `ok` 的值。
+
+          ```python startLine=1
+          dose_mg = 5
+          ok = dose_mg <= 4
+          dose_mg = dose_mg - 1
+          ok = dose_mg <= 4
+          ```
+        slots:
+          - id: trace
+            type: table
+            columns:
+              - { id: line, header: 执行到 }
+              - { id: dose_mg, header: dose_mg, input: integer }
+              - { id: ok, header: ok, input: bool }
+            rows:
+              - { id: l2, cells: { line: 第 2 行, dose_mg: 5, ok: false } }
+              - { id: l3, cells: { line: 第 3 行, dose_mg: 4, ok: false } }
+              - { id: l4, cells: { line: 第 4 行, dose_mg: 4, ok: true } }
+        explanation: |
+          | 执行到 | dose_mg | ok |
+          |---|---:|---|
+          | 第 2 行 | 5 | False |
+          | 第 3 行 | 4 | False |
+          | 第 4 行 | 4 | True |
+
+          `ok` 存的是比较那一刻的结果。第 3 行把 dose_mg 改成 4 时，`ok` 不会跟着重新比较，仍是第 2 行算出的 False；第 4 行再比较一次，才变成 True。
+        verify: |
+          states = trace(names=["dose_mg", "ok"])
+          answers = {"trace": {f"l{i}": {"dose_mg": state["dose_mg"], "ok": state["ok"]} for i, state in enumerate(states, 1) if i >= 2}}
+      - id: py08.k1.x2
+        kind: [debug, predict]
+        uses: [py03.k1, py03.k2]
+        body: |
+          `reading` 是从仪器导出的文字。
+
+          ```python startLine=1
+          reading = "15"
+          limit = 12
+          high = reading > limit
+          ```
+        slots:
+          - id: what
+            type: choice
+            prompt: 运行这三行会怎样？
+            options:
+              - { id: "true", content: "`high` 是 True" }
+              - { id: "false", content: "`high` 是 False" }
+              - { id: error, content: 第 3 行报错 }
+            key: error
+          - id: fix
+            type: choice
+            prompt: 要按数的大小比较，第 3 行应改成哪一句？
+            options:
+              - id: quoted
+                content: |
+                  ```python
+                  high = "reading" > limit
+                  ```
+              - id: number
+                content: |
+                  ```python
+                  high = int(reading) > limit
+                  ```
+              - id: text
+                content: |
+                  ```python
+                  high = reading > str(limit)
+                  ```
+                feedback: 两边都成了文字，比的是字符的先后，不是数的大小。例如 "9" > "12" 也会得到 True。
+            key: number
+        explanation: |
+          第 3 行**报错**（TypeError）：`reading` 是文字 `"15"`，文字和数不能比大小。
+
+          改成 `high = int(reading) > limit`：先把文字转成数 15，再和 12 比，得到 True。`reading > str(limit)` 不报错，但两边都是文字，比的是字符先后，换成 `"9"` 时也会得到 True；`"reading" > limit` 把名字写成了文字，同样报错。
+        verify: |
+          first = run()
+          what = "error" if first.error == "TypeError" else str(first["high"]).lower()
+          fits = []
+          for option, code in OPTIONS["fix"].items():
+              ok = True
+              for reading in ["15", "9", "12"]:
+                  attempt = run(code, reading=reading, limit=12)
+                  if attempt.error or attempt["high"] is not (int(reading) > 12):
+                      ok = False
+              if ok:
+                  fits.append(option)
+          answers = {"what": what, "fix": fits[0] if len(fits) == 1 else fits}
+
   - id: py08.k2
     title: 阈值含不含等号与边界例子
+    card:
+      name: 阈值边界
+      aliases: [边界例子, 含不含等号]
+      definition: 把“至少”“超过”“不超过”“低于”分别写成 >=、>、<=、<；恰好等于阈值的值，是唯一能分出含不含等号的检查例子。
+      conditions:
+        - 至少、不低于 → >=；超过、大于 → >；不超过、最多 → <=；低于、少于 → <。
+        - 检查一个比较写得对不对时，一定要试一个恰好等于阈值的值。
+      example:
+        from: py08.k2.e0
+        text: |
+          limit 为 10 时，signal 为 9 或 12，`>=` 和 `>` 结果相同；只有 signal 恰好为 10 时，`signal >= limit` 得 True，`signal > limit` 得 False。
+    lesson: |
+      需求里的阈值常用日常说法给出。写成代码时，要选对比较符，区别全在“恰好等于阈值算不算”：
+
+      | 需求里的说法 | 写法（阈值为 10） | 恰好等于 10 时 |
+      |---|---|---|
+      | 至少 10、不低于 10 | `signal >= 10` | True |
+      | 超过 10、大于 10 | `signal > 10` | False |
+      | 不超过 10、最多 10 | `signal <= 10` | True |
+      | 低于 10、少于 10 | `signal < 10` | False |
+
+      `>=` 和 `>` 只在一处不同：值恰好等于阈值时。signal 为 9 或 12，两种写法结果一样；只有 signal 为 10，`>=` 得 True，`>` 得 False。所以检查一个比较时，除了一个明显高于、一个明显低于阈值的值，一定再试一个**恰好等于阈值**的值。
+
+      阈值常放在一个名字里，例如 `limit = 10`，比较写成 `signal >= limit`。换一次分析只改 `limit`，比较那一行不用动。
+    example:
+      id: py08.k2.e0
+      kind: [predict, specify]
+      body: |
+        约定：signal **至少**为 limit 的样本算达标。下面这段代码分别用 signal 为 9、10、12 运行：
+
+        ```python
+        limit = 10
+        passed = signal >= limit
+        ```
+
+        另一位同事把第 2 行写成了 `passed = signal > limit`。
+      slots:
+        - id: table
+          type: table
+          prompt: 填写两种写法下 `passed` 的值。
+          columns:
+            - { id: signal, header: signal }
+            - { id: ge, header: "signal >= limit", input: bool }
+            - { id: gt, header: "signal > limit", input: bool }
+          rows:
+            - { id: s9, cells: { signal: "9", ge: false, gt: false } }
+            - { id: s10, cells: { signal: "10", ge: true, gt: false } }
+            - { id: s12, cells: { signal: "12", ge: true, gt: true } }
+        - id: which
+          type: choice
+          prompt: 哪个 signal 值让两种写法给出不同的结果？
+          options:
+            - { id: v9, content: "9" }
+            - { id: v10, content: "10" }
+            - { id: v12, content: "12" }
+          key: v10
+        - id: right
+          type: choice
+          prompt: 按“至少为 limit”的约定，哪种写法对？
+          options:
+            - { id: gt, content: "`signal > limit`" }
+            - { id: ge, content: "`signal >= limit`" }
+          key: ge
+      explanation: |
+        | signal | `>=` | `>` |
+        |---:|---|---|
+        | 9 | False | False |
+        | 10 | True | False |
+        | 12 | True | True |
+
+        只有 **10** 让两种写法不同。“至少为 10”包含 10 本身，所以 **`signal >= limit`** 对。只用 9 和 12 检查，两种写法看起来一样好，漏掉等号的错误就查不出来。
+      verify: |
+        rows = {}
+        for value in (9, 10, 12):
+            rows[f"s{value}"] = {
+                "ge": run(CODE, signal=value)["passed"],
+                "gt": run(CODE.replace(">=", ">"), signal=value)["passed"],
+            }
+        differ = [value for value in (9, 10, 12) if rows[f"s{value}"]["ge"] != rows[f"s{value}"]["gt"]]
+        answers = {"table": rows, "which": f"v{differ[0]}" if len(differ) == 1 else differ}
+      manual: [right]
+    practice:
+      - id: py08.k2.q1
+        kind: [specify]
+        body: |
+          把每条需求对应到一个比较符。阈值都是 10，比较的都是 signal。
+        slots:
+          - id: phrases
+            type: table
+            columns:
+              - { id: phrase, header: 需求里的说法 }
+              - id: operator
+                header: 比较符
+                input:
+                  type: choice
+                  options:
+                    - { id: ge, label: ">=" }
+                    - { id: gt, label: ">" }
+                    - { id: le, label: "<=" }
+                    - { id: lt, label: "<" }
+            rows:
+              - { id: p1, cells: { phrase: signal 不低于 10, operator: ge } }
+              - { id: p2, cells: { phrase: signal 大于 10, operator: gt } }
+              - { id: p3, cells: { phrase: signal 最多为 10, operator: le } }
+              - { id: p4, cells: { phrase: signal 少于 10, operator: lt } }
+        explanation: |
+          **>=、>、<=、<**。
+
+          判断时只问一件事：signal 恰好是 10 的时候算不算？“不低于 10”“最多为 10”都包含 10，所以带等号；“大于 10”“少于 10”不包含 10，不带等号。
+        manual: [phrases]
+      - id: py08.k2.q2
+        kind: [specify]
+        body: |
+          需求是：count **至少为 3** 才算合格（恰好为 3 也算）。同事写成了：
+
+          ```python
+          ok = count > 3
+          ```
+
+          你想分别用几个 count 值运行它，看结果对不对。用下面哪些值能发现写错了？选出全部能发现的。
+        slots:
+          - id: values
+            type: choice
+            multiple: true
+            scoring: options
+            options:
+              - { id: c2, content: "2" }
+              - { id: c3, content: "3" }
+              - { id: c4, content: "4" }
+              - { id: c10, content: "10" }
+            key: [c3]
+        explanation: |
+          只有 **3**。count 为 3 时，需求要合格，`count > 3` 却得 False。2、4、10 在“至少为 3”和 `count > 3` 下结果一样，用它们试，看不出任何问题。
+        verify: |
+          values = [2, 3, 4, 10]
+          # 需求写明恰好为 3 也算合格；找出代码结果与需求不同的值。
+          wrong = [f"c{value}" for value in values if run(CODE, count=value)["ok"] != (value >= 3)]
+          answers = {"values": wrong}
+      - id: py08.k2.q3
+        kind: [modify]
+        uses: [py01.k1]
+        body: |
+          需求是：
+
+          > signal **至少达到** limit 的样本算达标，`passed` 存下 True 或 False。limit 换成别的值时，代码仍按这条规则工作。
+
+          同事写的代码在作答框里。宿主已经给 `signal` 和 `limit` 赋好了值。请改正它并提交，结果仍存在 `passed` 里。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              passed = signal > limit
+            solution: |
+              passed = signal >= limit
+            accepts:
+              - passed = limit <= signal
+            rejects:
+              - code: passed = signal >= 10
+                why: 把阈值写死成 10
+              - code: passed = signal == limit
+                why: 只有恰好等于阈值才算达标
+              - code: passed = signal <= limit
+                why: 方向反了
+              - code: print(signal >= limit)
+                why: 只显示了结果，没有存进 passed
+            tests:
+              - name: 恰好等于阈值
+                setup: |
+                  signal = 10
+                  limit = 10
+                expect:
+                  passed: "True"
+              - name: 高于阈值
+                hidden: true
+                setup: |
+                  signal = 12
+                  limit = 10
+                expect:
+                  passed: "True"
+              - name: 低于阈值
+                hidden: true
+                setup: |
+                  signal = 9
+                  limit = 10
+                expect:
+                  passed: "False"
+              - name: 换一个阈值，恰好相等
+                hidden: true
+                setup: |
+                  signal = 15
+                  limit = 15
+                expect:
+                  passed: "True"
+              - name: 换一个阈值，低于它
+                hidden: true
+                setup: |
+                  signal = 14
+                  limit = 15
+                expect:
+                  passed: "False"
+        explanation: |
+          ```python
+          passed = signal >= limit
+          ```
+
+          “至少达到”包含恰好等于 limit 的情况，要用 `>=`。写成 `limit <= signal` 意思相同，也对。判分时会换几组 signal 和 limit 运行你的代码，其中一定有恰好等于阈值的一组。
+    review:
+      - id: py08.k2.r1
+        kind: [predict, debug]
+        body: |
+          冷库规定：温度**低于 5** 的样品要重新冷藏（恰好为 5 的不用）。有人写了下面这一行，分别用 temp 为 4、5、6 运行：
+
+          ```python
+          recool = temp <= 5
+          ```
+        slots:
+          - id: table
+            type: table
+            prompt: 填写每次运行后 `recool` 的值。
+            columns:
+              - { id: temp, header: temp }
+              - { id: recool, header: recool, input: bool }
+            rows:
+              - { id: t4, cells: { temp: "4", recool: true } }
+              - { id: t5, cells: { temp: "5", recool: true } }
+              - { id: t6, cells: { temp: "6", recool: false } }
+          - id: wrong
+            type: choice
+            prompt: 这一行在哪个温度上和规定不符？
+            options:
+              - { id: t4, content: "4" }
+              - { id: none, content: 都符合 }
+              - { id: t6, content: "6" }
+              - { id: t5, content: "5" }
+            key: t5
+        explanation: |
+          三次分别是 **True、True、False**。
+
+          问题出在 **5**：规定是“低于 5”，恰好为 5 的不用重新冷藏，但 `temp <= 5` 在 5 上得 True。应当写 `recool = temp < 5`。4 和 6 在两种写法下结果相同，查不出这个错误。
+        verify: |
+          temps = [4, 5, 6]
+          values = {temp: run(CODE, temp=temp)["recool"] for temp in temps}
+          # 规定写明低于 5 才重新冷藏，恰好为 5 的不用。
+          wrong = [temp for temp in temps if values[temp] != (temp < 5)]
+          answers = {
+              "table": {f"t{temp}": {"recool": values[temp]} for temp in temps},
+              "wrong": f"t{wrong[0]}" if len(wrong) == 1 else ("none" if not wrong else wrong),
+          }
+      - id: py08.k2.r2
+        kind: [specify]
+        body: |
+          冷库的另一条规定：温度**不高于 8** 的样品记为合格，`ok` 为 True。
+        slots:
+          - id: line
+            type: choice
+            prompt: 哪一行符合这条规定？
+            options:
+              - id: a
+                content: |
+                  ```python
+                  ok = temperature < 8
+                  ```
+              - id: b
+                content: |
+                  ```python
+                  ok = temperature >= 8
+                  ```
+              - id: c
+                content: |
+                  ```python
+                  ok = temperature <= 8
+                  ```
+              - id: d
+                content: |
+                  ```python
+                  ok = temperature > 8
+                  ```
+            key: c
+          - id: at8
+            type: choice
+            prompt: 按这条规定，温度恰好为 8 的样品算不算合格？
+            options:
+              - { id: a, content: 不算 }
+              - { id: b, content: 算 }
+            key: b
+        explanation: |
+          **`ok = temperature <= 8`**，温度恰好为 8 的**算合格**。“不高于 8”就是小于或等于 8，包含 8 本身；`< 8` 漏掉了 8，`>= 8` 和 `> 8` 方向反了。
+        manual: [line, at8]
+    quiz:
+      - id: py08.k2.x1
+        kind: [specify]
+        body: |
+          同事写了 `keep = depth < 30`，你怀疑应该是 `keep = depth <= 30`。你打算拿一组 depth 值，把两种写法各运行一遍，看结果有没有不同。
+        slots:
+          - id: group
+            type: choice
+            prompt: 用哪一组值，才能看出两种写法的差别？
+            options:
+              - { id: low, content: 10、20 }
+              - { id: around, content: 29、30、31 }
+              - { id: spread, content: 25、35 }
+              - { id: high, content: 40、50 }
+            key: around
+          - id: value
+            type: text
+            format: integer
+            prompt: 这一组里，哪个值让两种写法的结果不同？
+            key: 30
+        explanation: |
+          用 **29、30、31** 这一组，起作用的是 **30**：`depth < 30` 得 False，`depth <= 30` 得 True。其他几组里没有恰好等于 30 的值，两种写法给出的结果完全一样，看不出差别。
+        verify: |
+          groups = {"low": [10, 20], "around": [29, 30, 31], "spread": [25, 35], "high": [40, 50]}
+          def differs(depth):
+              return run("keep = depth < 30", depth=depth)["keep"] != run("keep = depth <= 30", depth=depth)["keep"]
+          fits = [name for name, values in groups.items() if any(differs(depth) for depth in values)]
+          values = [depth for depth in groups[fits[0]] if differs(depth)] if len(fits) == 1 else fits
+          answers = {"group": fits[0] if len(fits) == 1 else fits, "value": values[0] if len(values) == 1 else values}
+      - id: py08.k2.x2
+        kind: [predict, specify]
+        body: |
+          ```python startLine=1
+          limit = 12
+          signal = 12
+          print(signal > limit)
+          print(signal >= limit)
+          ```
+        slots:
+          - id: first
+            type: text
+            match: output
+            prompt: 第 3 行显示
+            key: "False"
+          - id: second
+            type: text
+            match: output
+            prompt: 第 4 行显示
+            key: "True"
+          - id: alarm
+            type: choice
+            prompt: 需求是“signal **超过** limit 才报警”。哪一行的比较符合这条需求？
+            options:
+              - { id: a, content: 第 4 行的写法 }
+              - { id: b, content: 第 3 行的写法 }
+            key: b
+        explanation: |
+          依次显示 **False**、**True**。signal 恰好等于 limit：`>` 不包含等号，`>=` 包含。
+
+          “超过 12”不包含 12 本身，所以符合需求的是**第 3 行**的写法 `signal > limit`；恰好为 12 时不该报警。
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+        manual: [alarm]
+
+verified:
+  - question: py08.k2.r2
+    version: sha256:398fcd1b885dc55f986ab13be4b178b43f4a069c90dec3f8aad62cc95f2733e9
+    slots: [line, at8]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
+  - question: py08.k2.x2
+    version: sha256:b3bdbfa95994dd8006db5813fc07af50f56d6c931cd9dfbe24b25ca03c72c28d
+    slots: [alarm]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12

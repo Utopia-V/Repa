@@ -1,7 +1,8 @@
 id: py03
 title: 数字、文字和缺省值不是一回事
-status: outline
+status: complete
 minutes: 20
+summary: 分清整数、小数、文字三类值和表示“没有值”的 None；读懂 + 在不同类型上的结果，需要计算时先用 int、float、str 转换。
 prerequisites:
   - topic: py01
     key: true
@@ -29,11 +30,1263 @@ sources:
     url: https://docs.python.org/3.12/tutorial/controlflow.html
     use: reference
 notes: |
+  范围：先修 py01.k1 的赋值；py02.k1 的运算顺序只在算式里顺带用到。py02.k2 讲过 / 的结果带小数点，这里不用 //、%。只用整数、小数、文字、None 四种值，以及 int()、float()、str() 三个转换；转换的写法先理解为“把括号里的值转成另一类、得到新值”，函数调用的完整说法在 py04。不用列表、if、函数定义和多参数 print；不讲 is None 和 == 判断（比较在 py08，条件在 py10），也不讲函数返回 None（py04.k3 接上 print(...) 的结果）。样本编号应当是文字只提一句，读表时在 py15 展开。
+  本节首次讲“显示什么”的答题约定：报错填 ERROR，什么都不显示填 NOTHING；之后凡是答案可能是这两个词的题，题面都再写一遍。
   建议题型与判分：预测输出（P）、找错（P）、小改代码（T）。
+  节奏（待试做校准）：开场 1 分钟；每个知识点讲解与例题约 2 分钟、练习约 4 分钟；收束 1 分钟。
+  讲解、例题和题目为本课自拟。
+intro: |
+  这一节认识三类值：整数、小数和文字，再认识一个表示“没有值”的 None。读别人或 AI 写的数据处理代码时，很多“结果怪怪的”都出在这里：看起来是数，其实是文字；没测的数据被当成了 0。
+
+  程序仍然当作短脚本从上往下运行，只有 `print` 才在屏幕上显示东西。
+wrapup: |
+  读到一个值，先问它是哪一类：带引号的是文字，带小数点的是小数，`None` 是没有值。文字要先转换才能算数；没测的数据记 `None`，不记 0。
+
+  向 AI 提需求时，可以把这些说清楚：“这一列读进来是文字，请先转成小数再相加”“没测的样本记为没有值，不要当作 0”。
 kps:
   - id: py03.k1
     title: int、float、str 的行为差别
+    card:
+      name: 值的类型
+      aliases: [int, float, str, 整数, 小数, 文字]
+      definition: Python 的值分类型：整数 int、小数 float、文字 str。同一个符号作用在不同类型上结果不同，例如 + 对数是相加，对文字是拼接。
+      conditions:
+        - 带引号的是文字：print 显示 7 和 "7" 一模一样，要回到赋值的地方看有没有引号。
+        - 文字和数不能直接相加，会报 TypeError；整数和小数相加，结果是小数。
+        - 样本编号这类只当名字用、不拿来算的值，应当写成文字，例如 "007"。
+      example:
+        from: py03.k1.e0
+        text: |
+          ```python
+          a = 3
+          b = "3"
+          print(a + a)
+          print(b + b)
+          ```
+          a 是整数，3 + 3 显示 6；b 是文字，两段 "3" 接起来显示 33。再写 print(a + b) 会报 TypeError。
+    lesson: |
+      到现在为止我们算的都是整数。Python 的值分不同的**类型**，先认识三种：
+
+      | 写法 | 类型 | 常见用途 |
+      |---|---|---|
+      | `7`、`-2` | 整数 int | 份数、计数 |
+      | `2.5`、`7.0` | 小数 float | 体积、浓度 |
+      | `"7"`、`"S_A"` | 文字 str | 编号、组别 |
+
+      带引号的就是文字，哪怕引号里写的是数字。同一个符号作用在不同类型上，做的事不同：
+
+      - `3 + 4` 是 7；`"3" + "4"` 是把两段文字接起来，得到文字 `"34"`。
+      - `"3" * 2` 是把文字重复两次，得到 `"33"`。
+      - 整数和小数相加，结果是小数：`2 + 0.5` 是 2.5。
+      - 文字和数不能直接相加：`"ab" + 1` 会报错（TypeError），程序停在这一行，后面的行不再运行。
+
+      `print` 显示文字时不带引号，`print(7)` 和 `print("7")` 都显示 7。想知道一个值是哪一类，要回到它被[赋值](repa:concept/py01.k1)的地方，看有没有引号、有没有小数点。
+
+      样本编号 `"007"` 这类值应当写成文字：它只是名字，不拿来算；写成数 7 就丢掉了前面的 0。
+
+      **答题约定**：问“程序显示什么”时，照 print 显示的样子填，文字不加引号；如果程序在某一行报错停下，填 **ERROR**；如果什么也不显示，填 **NOTHING**。
+    example:
+      id: py03.k1.e0
+      kind: [predict]
+      uses: [py01.k1]
+      body: |
+        样本的份数本该写成整数，有一处却写成了文字。阅读程序。
+
+        ```python
+        a = 3
+        b = "3"
+        print(a + a)
+        print(b + b)
+        ```
+      slots:
+        - id: first
+          type: text
+          match: output
+          prompt: 第一行显示什么？
+          key: "6"
+        - id: second
+          type: text
+          match: output
+          prompt: 第二行显示什么？
+          key: "33"
+          feedback:
+            - when: "6"
+              message: b 带引号，是文字 "3"；`+` 把两段文字接在一起。
+        - id: kind
+          type: choice
+          prompt: "`b` 是哪一类值？"
+          options:
+            - { id: int, content: 整数 int }
+            - { id: float, content: 小数 float }
+            - { id: str, content: 文字 str }
+          key: str
+        - id: mixed
+          type: choice
+          prompt: 如果在末尾再加一行 `print(a + b)`，会怎样？
+          options:
+            - { id: six, content: 显示 6 }
+            - { id: error, content: 报错停下（TypeError） }
+            - { id: thirtythree, content: 显示 33 }
+          key: error
+      explanation: |
+        第一行显示 **6**：a 是整数 3，3 + 3 = 6。第二行显示 **33**：b 带引号，是文字 "3"，`+` 把两段文字接成 "33"，print 显示时不带引号。
+
+        整数和文字不能直接相加，所以 `print(a + b)` 会报 TypeError，程序停在那一行。
+      verify: |
+        r = run()
+        lines = r.lines()
+        extra = run(CODE + "\nprint(a + b)")
+        shown = {"6": "six", "33": "thirtythree"}
+        answers = {
+            "first": lines[0],
+            "second": lines[1],
+            "kind": type(r["b"]).__name__,
+            "mixed": "error" if extra.error == "TypeError" else shown.get(extra.lines()[-1], "other"),
+        }
+    practice:
+      - id: py03.k1.q1
+        kind: [predict]
+        body: |
+          下面四段程序各自单独运行。写出每段显示什么；如果程序报错停下，填 ERROR。
+
+          **①**
+
+          ```python
+          print(2 + 0.5)
+          ```
+
+          **②**
+
+          ```python
+          print("2" + "5")
+          ```
+
+          **③**
+
+          ```python
+          print("12" * 2)
+          ```
+
+          **④**
+
+          ```python
+          print("5" + 2)
+          ```
+        slots:
+          - id: p1
+            type: text
+            match: output
+            prompt: ① 显示
+            key: "2.5"
+          - id: p2
+            type: text
+            match: output
+            prompt: ② 显示
+            key: "25"
+            feedback:
+              - when: "7"
+                message: 两边都带引号，是两段文字，`+` 把它们接在一起。
+          - id: p3
+            type: text
+            match: output
+            prompt: ③ 显示
+            key: "1212"
+            feedback:
+              - when: "24"
+                message: "\"12\" 是文字，`* 2` 是把它重复两次。"
+          - id: p4
+            type: text
+            match: output
+            prompt: ④ 显示
+            key: ERROR
+            feedback:
+              - when: "7"
+                message: "\"5\" 是文字，2 是整数，文字和整数不能直接相加。"
+              - when: "52"
+                message: 文字只能和文字拼接；和整数 2 相加会报错。
+        explanation: |
+          ① **2.5**：整数加小数，结果是小数。② **25**：两段文字拼接。③ **1212**：文字重复两次。④ **ERROR**：文字 "5" 和整数 2 不能直接相加，报 TypeError。
+        verify: |
+          # 每段单独运行，取最后一行（print）显示的内容；报错时 repl 给出 ERROR。
+          answers = {f"p{i}": repl(block)[-1] for i, block in enumerate(BLOCKS, 1)}
+      - id: py03.k1.q2
+        kind: [trace]
+        uses: [py01.k1]
+        body: |
+          ```python
+          count = 12
+          volume_ml = 2.5
+          label = "12"
+          total = count + volume_ml
+          ```
+
+          四行都执行完以后，每个名字指向哪一类值？
+        slots:
+          - id: kinds
+            type: table
+            columns:
+              - { id: name, header: 名字 }
+              - id: kind
+                header: 类型
+                input:
+                  type: choice
+                  options:
+                    - { id: int, label: 整数 int }
+                    - { id: float, label: 小数 float }
+                    - { id: str, label: 文字 str }
+            rows:
+              - { id: r1, cells: { name: count, kind: int } }
+              - { id: r2, cells: { name: volume_ml, kind: float } }
+              - { id: r3, cells: { name: label, kind: str } }
+              - { id: r4, cells: { name: total, kind: float } }
+        explanation: |
+          `count` 是整数，`volume_ml` 是小数，`label` 带引号所以是文字，哪怕里面写的是 12。`total` 是整数 12 加小数 2.5，结果是小数 14.5。
+        verify: |
+          r = run()
+          names = ["count", "volume_ml", "label", "total"]
+          answers = {"kinds": {f"r{i}": {"kind": type(r[name]).__name__} for i, name in enumerate(names, 1)}}
+      - id: py03.k1.q3
+        kind: [debug]
+        uses: [py01.k1]
+        body: |
+          同事从表单里读到两次计数，想算出总数：
+
+          ```python
+          first = "4"
+          second = "6"
+          total = first + second
+          print(total)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: "46"
+            feedback:
+              - when: "10"
+                message: first 和 second 都带引号，是文字。
+          - id: reason
+            type: choice
+            prompt: 为什么没有得到 10？
+            options:
+              - id: print
+                content: print 把两个数并排显示了
+              - id: joined
+                content: first 和 second 是文字，`+` 把它们接在了一起
+              - id: math
+                content: Python 做加法时出了错
+            key: joined
+        explanation: |
+          显示 **46**。第 1、2 行的值带引号，是文字 "4" 和 "6"，`+` 把两段文字接成 "46"，并没有做加法。print 只是如实显示 total 的值。要得到 10，得先把文字转成数，下一个知识点就讲这个。
+        verify: |
+          r = run()
+          # 两个值都是文字、total 正好是两段文字接起来的结果，说明 + 做的是拼接。
+          joined = isinstance(r["first"], str) and isinstance(r["second"], str) and r["total"] == r["first"] + r["second"]
+          answers = {"output": r.out, "reason": "joined" if joined else "other"}
+    review:
+      - id: py03.k1.r1
+        kind: [predict]
+        body: |
+          下面哪些表达式算出的是文字（str）？选出全部。
+        slots:
+          - id: text
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: repeat
+                content: |
+                  ```python
+                  "5" * 2
+                  ```
+              - id: product
+                content: |
+                  ```python
+                  5 * 2
+                  ```
+              - id: mixed
+                content: |
+                  ```python
+                  5 + 2.0
+                  ```
+              - id: joined
+                content: |
+                  ```python
+                  "5" + "2"
+                  ```
+            key: [repeat, joined]
+          - id: shown
+            type: text
+            match: output
+            prompt: "`print(5 + 2.0)` 显示什么？"
+            key: "7.0"
+            feedback:
+              - when: "7"
+                message: 整数加小数，结果是小数，显示时带小数点。
+        explanation: |
+          `"5" * 2` 得到文字 "55"，`"5" + "2"` 得到文字 "52"，这两个是文字。`5 * 2` 是整数 10；`5 + 2.0` 是整数加小数，得到小数，print 显示 **7.0**。
+        verify: |
+          values = {option: run("v = " + code)["v"] for option, code in OPTIONS["text"].items()}
+          answers = {
+              "text": [option for option, value in values.items() if isinstance(value, str)],
+              "shown": repl("print(" + OPTIONS["text"]["mixed"].strip() + ")")[-1],
+          }
+      - id: py03.k1.r2
+        kind: [trace, debug]
+        uses: [py01.k1]
+        body: |
+          一段给采样点写备注的程序：
+
+          ```python startLine=1
+          site = "北坡"
+          depth = 30
+          unit = "cm"
+          note = site + unit
+          text = site + depth
+          print(text)
+          ```
+        slots:
+          - id: line
+            type: choice
+            prompt: 程序运行到第几行报错停下？
+            options:
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+              - { id: l5, content: 第 5 行 }
+              - { id: l6, content: 第 6 行 }
+            key: l5
+          - id: note
+            type: text
+            prompt: 停下时，`note` 的值是什么？（照 print 显示的样子写）
+            key: 北坡cm
+          - id: printed
+            type: text
+            match: output
+            prompt: 屏幕上显示了什么？如果什么也没显示，填 NOTHING。
+            key: NOTHING
+        explanation: |
+          第 4 行把两段文字 "北坡" 和 "cm" 接成 **北坡cm**，没有问题。第 5 行把文字 "北坡" 和整数 30 相加，报 TypeError，程序停在**第 5 行**；第 6 行的 print 没有运行，所以屏幕上什么也没显示（**NOTHING**）。
+        verify: |
+          lines = CODE.splitlines()
+          # 逐步加长程序，第一次出错的长度就是停下的那一行。
+          stops = [i for i in range(1, len(lines) + 1) if run("\n".join(lines[:i])).error]
+          r = run()
+          shown = type(r.out)  # “显示内容”的类型：作答原样比较
+          answers = {
+              "line": f"l{stops[0]}",
+              "note": r["note"],
+              "printed": r.out if r.out.strip() else shown("NOTHING"),
+          }
+    quiz:
+      - id: py03.k1.x1
+        kind: [predict]
+        body: |
+          哪一段程序会显示 10？
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: repeat
+                content: |
+                  ```python
+                  n = "5"
+                  print(n * 2)
+                  ```
+              - id: decimal
+                content: |
+                  ```python
+                  n = 5.0
+                  print(n + n)
+                  ```
+              - id: integer
+                content: |
+                  ```python
+                  n = 5
+                  print(n + n)
+                  ```
+              - id: mixed
+                content: |
+                  ```python
+                  n = "10"
+                  print(n + 0)
+                  ```
+            key: integer
+        explanation: |
+          `n = 5` 后 `print(n + n)` 显示 10。`n = "5"` 时 `n * 2` 是把文字重复两次，显示 55；`n = 5.0` 是小数，相加显示 10.0；`n = "10"` 是文字，和整数 0 相加会报错。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["program"].items():
+              r = run(code)
+              if r.error is None and r.out.strip() == "10":
+                  fits.append(option)
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
+      - id: py03.k1.x2
+        kind: [modify]
+        body: |
+          把下面的行排成一段程序，让它显示样本编号 S_07。用不到的行不要放进来。
+        slots:
+          - id: program
+            type: order
+            partial: true
+            items:
+              - { id: show, code: print(label) }
+              - { id: bad_add, code: label = prefix + 7 }
+              - { id: label, code: label = prefix + num }
+              - { id: num, code: 'num = "07"' }
+              - { id: bad_num, code: num = 07 }
+              - { id: prefix, code: 'prefix = "S_"' }
+            key: [prefix, num, label, show]
+            alternatives:
+              - [num, prefix, label, show]
+            tests:
+              - name: 显示 S_07
+                stdout: S_07
+                expect:
+                  label: '"S_07"'
+        explanation: |
+          先给 `prefix` 和 `num` 赋值（谁先都可以），再拼出 `label`，最后 print。编号 07 要写成文字 `"07"`：`num = 07` 不是合法的写法，写成整数还会丢掉前面的 0；`prefix + 7` 是文字加整数，会报 TypeError。
+
   - id: py03.k2
     title: 显式 int/float/str 转换
+    card:
+      name: 类型转换
+      aliases: [int(), float(), str(), 转换]
+      definition: int(值)、float(值)、str(值) 用原来的值算出一个新类型的值，例如文字 "12" 转成整数 12、数 7 转成文字 "7"；原来的值不变。
+      conditions:
+        - int("2.5") 会报 ValueError：带小数点的文字要用 float 转。
+        - int(2.9) 得到 2：直接截掉小数部分，不是四舍五入。
+        - 转换得到的是新值，要赋给名字才留得住。
+      example:
+        from: py03.k2.e0
+        text: |
+          ```python
+          volume_text = "2.5"
+          volume = float(volume_text)
+          print(volume + volume)
+          print(volume_text + volume_text)
+          ```
+          volume 是小数 2.5，相加显示 5.0；volume_text 仍是文字，拼接显示 2.52.5。
+    lesson: |
+      从文件、表格或网页表单读进来的数，常常是文字：`"12.5"` 看着是数，其实带着引号，拿来“相加”只会拼接。要计算，先转换：
+
+      | 写法 | 结果 | 说明 |
+      |---|---|---|
+      | `int("12")` | 12 | 文字转整数 |
+      | `float("2.5")` | 2.5 | 文字转小数 |
+      | `float("3")` | 3.0 | 转成小数，显示带 .0 |
+      | `str(7)` | "7" | 数转文字 |
+      | `int(2.9)` | 2 | 截掉小数部分，不是四舍五入 |
+      | `int("2.5")` | 报错 ValueError | int 不认带小数点的文字 |
+
+      写法和 `print(x)` 相似：名字后面跟一对括号，括号里放要转换的值，算出一个新值。它不改变原来的名字：写 `count = int(count_text)` 以后，`count_text` 仍是文字，`count` 才是整数。这种写法叫函数调用，后面再细讲。
+
+      反过来，要把数接进一段文字，先用 `str`：`str(3) + " 份"` 得到文字 "3 份"；直接写 `3 + " 份"` 会报 TypeError，因为[文字和数不能直接相加](repa:concept/py03.k1)。
+    example:
+      id: py03.k2.e0
+      kind: [predict]
+      uses: [py01.k1]
+      body: |
+        体积从表单里读进来，是文字 "2.5"。阅读程序。
+
+        ```python
+        volume_text = "2.5"
+        volume = float(volume_text)
+        print(volume + volume)
+        print(volume_text + volume_text)
+        ```
+      slots:
+        - id: first
+          type: text
+          match: output
+          prompt: 第一行显示什么？
+          key: "5.0"
+        - id: second
+          type: text
+          match: output
+          prompt: 第二行显示什么？
+          key: "2.52.5"
+        - id: kind
+          type: choice
+          prompt: 程序结束时，`volume_text` 是哪一类值？
+          options:
+            - { id: float, content: 小数 float }
+            - { id: str, content: 文字 str }
+            - { id: int, content: 整数 int }
+          key: str
+      explanation: |
+        第 2 行用文字 "2.5" 算出小数 2.5，赋给 `volume`；第一行显示 2.5 + 2.5 = **5.0**。`volume_text` 本身没有变，仍是文字，第二行把两段文字接起来，显示 **2.52.5**。
+      verify: |
+        r = run()
+        lines = r.lines()
+        answers = {"first": lines[0], "second": lines[1], "kind": type(r["volume_text"]).__name__}
+    practice:
+      - id: py03.k2.q1
+        kind: [predict]
+        body: |
+          下面五段程序各自单独运行。写出每段显示什么；如果程序报错停下，填 ERROR。
+
+          **①**
+
+          ```python
+          print(int("12") + 1)
+          ```
+
+          **②**
+
+          ```python
+          print(float("3"))
+          ```
+
+          **③**
+
+          ```python
+          print(int(2.9))
+          ```
+
+          **④**
+
+          ```python
+          print(int("2.5"))
+          ```
+
+          **⑤**
+
+          ```python
+          print(str(4) + "0")
+          ```
+        slots:
+          - id: p1
+            type: text
+            match: output
+            prompt: ① 显示
+            key: "13"
+          - id: p2
+            type: text
+            match: output
+            prompt: ② 显示
+            key: "3.0"
+            feedback:
+              - when: "3"
+                message: float 得到的是小数，显示时带 .0。
+          - id: p3
+            type: text
+            match: output
+            prompt: ③ 显示
+            key: "2"
+            feedback:
+              - when: "3"
+                message: int 直接截掉小数部分，不四舍五入。
+          - id: p4
+            type: text
+            match: output
+            prompt: ④ 显示
+            key: ERROR
+            feedback:
+              - when: "2"
+                message: int 不认带小数点的文字，会报 ValueError；要先用 float。
+          - id: p5
+            type: text
+            match: output
+            prompt: ⑤ 显示
+            key: "40"
+            feedback:
+              - when: "4"
+                message: str(4) 是文字 "4"，和文字 "0" 接在一起。
+        explanation: |
+          ① **13**：文字 "12" 转成整数后加 1。② **3.0**：float 得到小数。③ **2**：int 截掉小数部分，不四舍五入。④ **ERROR**：int 不认带小数点的文字，报 ValueError。⑤ **40**：str(4) 是文字 "4"，和 "0" 拼接成 "40"。
+        verify: |
+          answers = {f"p{i}": repl(block)[-1] for i, block in enumerate(BLOCKS, 1)}
+      - id: py03.k2.q2
+        kind: [trace]
+        uses: [py01.k1]
+        body: |
+          菌落数从表格里读进来，是文字 "38"。
+
+          ```python startLine=1
+          count_text = "38"
+          count = int(count_text)
+          double = count * 2
+          label = count_text * 2
+          ```
+        slots:
+          - id: double
+            type: text
+            format: integer
+            prompt: 执行完以后，`double` 是多少？
+            key: 76
+          - id: label
+            type: text
+            prompt: 执行完以后，`label` 的值是什么？（照 print 显示的样子写）
+            key: "3838"
+            feedback:
+              - when: "76"
+                message: 第 4 行用的是 count_text，它仍是文字。
+          - id: kind
+            type: choice
+            prompt: 第 2 行执行完以后，`count_text` 是哪一类值？
+            options:
+              - { id: int, content: 整数 int }
+              - { id: str, content: 文字 str }
+              - { id: float, content: 小数 float }
+            key: str
+        explanation: |
+          第 2 行用 `count_text` 的文字算出整数 38，赋给 `count`；`count_text` 本身不变，仍是文字。所以 `double` 是 38 × 2 = **76**，`label` 是文字 "38" 重复两次，即 **3838**。
+        verify: |
+          r = run()
+          answers = {"double": r["double"], "label": r["label"], "kind": type(r["count_text"]).__name__}
+      - id: py03.k2.q3
+        kind: [modify]
+        body: |
+          表单里读到的两次称重是文字，宿主已经提供了 `a = "12.5"` 和 `b = "3"`（单位都是克）。需求是：
+
+          > 把两次称重按数值相加，结果存进 `total`，是一个小数。两次称重都可能带小数点，换一组读数时代码仍然要对。
+
+          同事的代码在作答框里，它得到的 total 是文字 "12.53"。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              total = a + b
+            solution: |
+              total = float(a) + float(b)
+            accepts:
+              - |
+                first = float(a)
+                second = float(b)
+                total = first + second
+            rejects:
+              - code: total = float(a + b)
+                why: 先拼接成 "12.53" 再转换，得到的是 12.53
+              - code: total = int(a) + int(b)
+                why: int 不认带小数点的文字，会报 ValueError
+              - code: total = float(a) + b
+                why: 只转换了 a，小数和文字相加会报 TypeError
+              - code: total = 15.5
+                why: 写死了这一次的结果
+            tests:
+              - name: 本次读数
+                setup: |
+                  a = "12.5"
+                  b = "3"
+                expect:
+                  total: "15.5"
+              - name: 两次都带小数点
+                hidden: true
+                setup: |
+                  a = "0.25"
+                  b = "1.75"
+                expect:
+                  total: "2.0"
+              - name: 两次都没有小数点
+                hidden: true
+                setup: |
+                  a = "4"
+                  b = "6"
+                expect:
+                  total: "10.0"
+        explanation: |
+          两个读数都要先用 `float` 转成小数，再相加：
+
+          ```python
+          total = float(a) + float(b)
+          ```
+
+          `float(a + b)` 的顺序不对：括号里先把两段文字拼成 "12.53"，再转换就是 12.53。`int` 不认 "12.5" 这样带小数点的文字。判分时还会换几组读数运行你的代码。
+    review:
+      - id: py03.k2.r1
+        kind: [debug]
+        body: |
+          两块平板的菌落数从表格里读进来，是文字：
+
+          ```python
+          plate_a = "38"
+          plate_b = "41"
+          ```
+
+          要让 `total` 成为两块板的菌落总数，也就是整数 79，第三行应写哪一种？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: joined
+                content: |
+                  ```python
+                  total = plate_a + plate_b
+                  ```
+              - id: late
+                content: |
+                  ```python
+                  total = int(plate_a + plate_b)
+                  ```
+              - id: half
+                content: |
+                  ```python
+                  total = int(plate_a) + plate_b
+                  ```
+              - id: both
+                content: |
+                  ```python
+                  total = int(plate_a) + int(plate_b)
+                  ```
+            key: both
+        explanation: |
+          两个值都先转成整数再相加：`int(plate_a) + int(plate_b)` 得到 79。直接相加得到文字 "3841"；`int(plate_a + plate_b)` 先拼接再转换，得到整数 3841；只转换一个，整数和文字相加会报 TypeError。
+        verify: |
+          fits = []
+          for option, line in OPTIONS["line"].items():
+              r = run(CODE + "\n" + line)
+              if r.error is None and type(r["total"]) is int and r["total"] == 38 + 41:
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py03.k2.r2
+        kind: [predict]
+        uses: [py01.k1]
+        body: |
+          一次实验用了多少分钟，从记录表里读进来是文字 "95.8"。
+
+          ```python startLine=1
+          minutes_text = "95.8"
+          minutes = float(minutes_text)
+          whole = int(minutes)
+          print(whole)
+          ```
+        slots:
+          - id: output
+            type: text
+            format: integer
+            prompt: 程序显示哪个整数？
+            key: 95
+            feedback:
+              - when: 96
+                message: int 直接截掉小数部分，不四舍五入。
+          - id: kind
+            type: choice
+            prompt: "`minutes` 是哪一类值？"
+            options:
+              - { id: str, content: 文字 str }
+              - { id: int, content: 整数 int }
+              - { id: float, content: 小数 float }
+            key: float
+          - id: swap
+            type: choice
+            prompt: 如果把第 2 行写成 `minutes = int(minutes_text)`，程序会怎样？
+            options:
+              - { id: show96, content: 显示 96 }
+              - { id: error, content: 报错停下（ValueError） }
+              - { id: show95, content: 显示 95 }
+            key: error
+        explanation: |
+          显示 **95**：第 2 行把文字转成小数 95.8，第 3 行的 `int` 截掉小数部分，不是四舍五入。`minutes` 是**小数**。如果第 2 行直接写 `int(minutes_text)`，`int` 不认带小数点的文字，程序报 ValueError 停下。
+        verify: |
+          r = run()
+          alt = run(CODE.replace("float(minutes_text)", "int(minutes_text)"))
+          shown = {"95": "show95", "96": "show96"}
+          answers = {
+              "output": int(r.out),
+              "kind": type(r["minutes"]).__name__,
+              "swap": "error" if alt.error == "ValueError" else shown.get(alt.out.strip(), "other"),
+          }
+    quiz:
+      - id: py03.k2.x1
+        kind: [modify]
+        body: |
+          宿主提供了整数 `batch = 3`。需求是：
+
+          > 生成批次标签存进 `label`：“批次”两个字后面直接接批次号，批次号为 3 时是 `批次3`。换一个批次号，代码仍然要对。
+
+          作答框里的代码一运行就报 TypeError。请改动它并提交。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 4
+            starter: |
+              label = "批次" + batch
+            solution: |
+              label = "批次" + str(batch)
+            accepts:
+              - |
+                number = str(batch)
+                label = "批次" + number
+            rejects:
+              - code: label = "批次" + "batch"
+                why: 引号里的 batch 只是五个字母，不是名字 batch 的值
+              - code: label = "批次3"
+                why: 写死了批次号
+              - code: label = "批次" + int(batch)
+                why: int 得到的仍是整数，文字和整数不能相加
+              - code: label = str("批次" + batch)
+                why: 括号里先算 "批次" + batch，仍然报错
+            tests:
+              - name: 批次 3
+                setup: batch = 3
+                expect:
+                  label: '"批次3"'
+              - name: 换一个批次号
+                hidden: true
+                setup: batch = 12
+                expect:
+                  label: '"批次12"'
+        explanation: |
+          先用 `str` 把批次号转成文字，再和“批次”拼接：
+
+          ```python
+          label = "批次" + str(batch)
+          ```
+
+          `str("批次" + batch)` 不行：括号里的文字加整数先就报错了。写成 `"batch"` 带引号，得到的是字母 batch，不是名字 batch 的值。
+      - id: py03.k2.x2
+        kind: [predict]
+        body: |
+          下面哪些表达式算出的是整数 12？选出全部。
+        slots:
+          - id: exprs
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: as_float
+                content: |
+                  ```python
+                  float("12")
+                  ```
+              - id: cut
+                content: |
+                  ```python
+                  int(12.7)
+                  ```
+              - id: joined
+                content: |
+                  ```python
+                  "1" + "2"
+                  ```
+              - id: from_text
+                content: |
+                  ```python
+                  int("12")
+                  ```
+              - id: dotted
+                content: |
+                  ```python
+                  int("12.7")
+                  ```
+            key: [cut, from_text]
+        explanation: |
+          `int("12")` 和 `int(12.7)` 都得到整数 12，后者截掉了小数部分。`float("12")` 是小数 12.0；`"1" + "2"` 是文字 "12"；`int("12.7")` 会报 ValueError，因为 int 不认带小数点的文字。
+        verify: |
+          fits = []
+          for option, code in OPTIONS["exprs"].items():
+              r = run("v = " + code)
+              if r.error is None and type(r["v"]) is int and r["v"] == 12:
+                  fits.append(option)
+          answers = {"exprs": fits}
+
   - id: py03.k3
     title: None 表示没有值而不是零
+    card:
+      name: None
+      aliases: [没有值, 缺省值, 空值]
+      definition: None 是 Python 里表示“这里没有值”的特殊值，用来记没测、没记或还没算出来的数据；它不是 0，也不是空文字 ""。
+      conditions:
+        - 0 是测到了零，"" 是一段空文字，None 是没有值，三者不能互相代替。
+        - None 不能参与计算：None + 1 会报 TypeError。
+        - str(None) 是四个字母的文字 "None"，并不是空的。
+      example:
+        from: py03.k3.e0
+        text: |
+          ```python
+          plate_a = 0
+          plate_b = None
+          print(plate_a + 5)
+          print(plate_b)
+          ```
+          显示 5 和 None；再写 print(plate_b + 5) 会报 TypeError。
+    lesson: |
+      记录数据时，“测到 0”和“没测”是两回事。数平板上的菌落：一块板一个菌落也没长，记 0；另一块板被污染了没有数，就不该记 0，否则算平均时会把结果拉低。Python 用一个专门的值 `None` 表示“这里没有值”：
+
+      ```python
+      plate_a = 0      # 数过了，确实是 0 个
+      plate_b = None   # 没有数，没有值
+      ```
+
+      `None` 不加引号，首字母大写。它和另外两个“看起来像空”的值不同：
+
+      | 值 | 类型 | 意思 |
+      |---|---|---|
+      | `0` | 整数 | 测到了零 |
+      | `""` | 文字 | 一段空文字，里面没有字 |
+      | `None` | 特殊值 | 没有值 |
+
+      `print(plate_b)` 会显示 None。`None` 不能参与计算：`plate_b + 1` 会报 TypeError，程序停下。这是好事：缺了数据时程序停下来提醒你，比悄悄当成 0、算出一个错的结果好。
+
+      `str(None)` 得到的是四个字母的文字 "None"，不是空文字；把它拼进报告，报告里就会出现 None 这几个字母。
+    example:
+      id: py03.k3.e0
+      kind: [predict]
+      uses: [py01.k1]
+      body: |
+        两块平板：`plate_a` 数过了，一个菌落也没长；`plate_b` 被污染了，没有数。
+
+        ```python
+        plate_a = 0
+        plate_b = None
+        print(plate_a + 5)
+        print(plate_b)
+        ```
+      slots:
+        - id: first
+          type: text
+          format: integer
+          prompt: 第一行显示什么？
+          key: 5
+        - id: second
+          type: text
+          match: output
+          prompt: 第二行显示什么？
+          key: None
+        - id: extra
+          type: choice
+          prompt: 如果在末尾再加一行 `print(plate_b + 5)`，会怎样？
+          options:
+            - { id: none, content: 显示 None }
+            - { id: five, content: 显示 5 }
+            - { id: error, content: 报错停下（TypeError） }
+          key: error
+      explanation: |
+        第一行显示 **5**：0 是一个真正的数，0 + 5 = 5。第二行显示 **None**：print 把“没有值”显示成 None。
+
+        `None` 不能参与计算，`print(plate_b + 5)` 会报 TypeError。没数的板不会被悄悄当成 0 算进去。
+      verify: |
+        lines = run().lines()
+        extra = run(CODE + "\nprint(plate_b + 5)")
+        shown = {"5": "five", "None": "none"}
+        answers = {
+            "first": int(lines[0]),
+            "second": lines[1],
+            "extra": "error" if extra.error == "TypeError" else shown.get(extra.lines()[-1], "other"),
+        }
+    practice:
+      - id: py03.k3.q1
+        kind: [predict]
+        body: |
+          下面四段程序各自单独运行。写出每段显示什么；如果程序报错停下，填 ERROR。
+
+          **①**
+
+          ```python
+          reading = None
+          print(reading)
+          ```
+
+          **②**
+
+          ```python
+          reading = None
+          print(reading + 1)
+          ```
+
+          **③**
+
+          ```python
+          reading = None
+          note = "读数：" + str(reading)
+          print(note)
+          ```
+
+          **④**
+
+          ```python
+          reading = 0
+          print(reading + 1)
+          ```
+        slots:
+          - id: p1
+            type: text
+            match: output
+            prompt: ① 显示
+            key: None
+            feedback:
+              - when: NOTHING
+                message: print 会把 None 显示出来，显示的就是 None 这四个字母。
+          - id: p2
+            type: text
+            match: output
+            prompt: ② 显示
+            key: ERROR
+            feedback:
+              - when: "1"
+                message: None 不是 0，不能参与加法。
+          - id: p3
+            type: text
+            match: output
+            prompt: ③ 显示
+            key: 读数：None
+            feedback:
+              - when: 读数：
+                message: str(None) 是四个字母的文字 "None"，不是空文字。
+          - id: p4
+            type: text
+            match: output
+            prompt: ④ 显示
+            key: "1"
+        explanation: |
+          ① **None**。② **ERROR**：None 不能参与加法，报 TypeError。③ **读数：None**：str(None) 是文字 "None"，拼进了 note。④ **1**：0 是真正的数。
+        verify: |
+          # 每段单独运行，取最后一行（print）显示的内容；报错时 repl 给出 ERROR。
+          answers = {f"p{i}": repl(block)[-1] for i, block in enumerate(BLOCKS, 1)}
+      - id: py03.k3.q2
+        kind: [specify]
+        body: |
+          三份样本的菌落计数要录进程序，每份样本用一个名字记计数：
+
+          - S1 的平板数过了，一个菌落也没长；
+          - S2 的平板被污染了，没有数；
+          - S3 还没到计数的时间。
+
+          每份样本的计数应赋成哪个值？
+        slots:
+          - id: s1
+            type: choice
+            prompt: S1
+            options:
+              - { id: zero, content: "`0`" }
+              - { id: none, content: "`None`" }
+              - { id: empty, content: '`""`' }
+            key: zero
+          - id: s2
+            type: choice
+            prompt: S2
+            options:
+              - { id: zero, content: "`0`" }
+              - { id: none, content: "`None`" }
+              - { id: empty, content: '`""`' }
+            key: none
+          - id: s3
+            type: choice
+            prompt: S3
+            options:
+              - { id: zero, content: "`0`" }
+              - { id: none, content: "`None`" }
+              - { id: empty, content: '`""`' }
+            key: none
+        explanation: |
+          S1 数过了，结果就是 **0**。S2 和 S3 都没有计数，应记 **None**：它们不是零个菌落，而是没有值。`""` 是一段空文字，不适合用来记一个计数。
+        manual: [s1, s2, s3]
+      - id: py03.k3.q3
+        kind: [debug]
+        uses: [py01.k1]
+        body: |
+          三块平板，第二块没有数。
+
+          ```python startLine=1
+          plate_1 = 12
+          plate_2 = None
+          plate_3 = 9
+          total = plate_1 + plate_2 + plate_3
+          print(total)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？如果报错停下，填 ERROR。
+            key: ERROR
+          - id: zero
+            type: text
+            format: integer
+            prompt: 有人把第 2 行改成 `plate_2 = 0`，程序显示什么？
+            key: 21
+          - id: meaning
+            type: choice
+            prompt: 改成 0 以后显示的数，是三块板的菌落总数吗？
+            options:
+              - id: fake
+                content: 不是：第二块板没有数，这个数只是另外两块板的和
+              - id: real
+                content: 是：没数的板按 0 算就行
+            key: fake
+        explanation: |
+          原程序在第 4 行报 TypeError（**ERROR**），因为 None 不能参与加法。改成 0 以后显示 **21**，但这只是第一、三块板的和：第二块板没有数，并不是零个菌落。程序报错其实是在提醒你缺了数据，不能用 0 把它掩盖掉。
+        verify: |
+          r = run()
+          zero = run(CODE.replace("plate_2 = None", "plate_2 = 0"))
+          shown = type(r.out)  # “显示内容”的类型：作答原样比较
+          answers = {
+              "output": shown("ERROR") if r.error else r.out,
+              "zero": int(zero.out),
+          }
+        manual: [meaning]
+    review:
+      - id: py03.k3.r1
+        kind: [predict]
+        body: |
+          下面哪些表达式会报错？选出全部。
+        slots:
+          - id: errors
+            type: choice
+            multiple: true
+            minSelected: 0
+            scoring: options
+            options:
+              - id: zero_add
+                content: |
+                  ```python
+                  0 + 1
+                  ```
+              - id: none_add
+                content: |
+                  ```python
+                  None + 1
+                  ```
+              - id: text_none
+                content: |
+                  ```python
+                  str(None) + "1"
+                  ```
+              - id: none_mul
+                content: |
+                  ```python
+                  None * 2
+                  ```
+              - id: empty
+                content: |
+                  ```python
+                  "" + "1"
+                  ```
+            key: [none_add, none_mul]
+          - id: text
+            type: text
+            prompt: "`str(None) + \"1\"` 算出的文字是什么？（照 print 显示的样子写）"
+            key: None1
+        explanation: |
+          `None + 1` 和 `None * 2` 会报 TypeError：None 不能参与计算。`0 + 1` 是 1；`"" + "1"` 是空文字接上 "1"，得到 "1"；`str(None)` 是文字 "None"，接上 "1" 得到 **None1**。
+        verify: |
+          answers = {
+              "errors": [option for option, code in OPTIONS["errors"].items() if run("v = " + code).error],
+              "text": run("v = " + OPTIONS["errors"]["text_none"])["v"],
+          }
+      - id: py03.k3.r2
+        kind: [predict]
+        uses: [py01.k1]
+        body: |
+          一段写温度记录的程序，第二次没有读到温度。
+
+          ```python startLine=1
+          temp_1 = 21.5
+          temp_2 = None
+          note = "第二次读数：" + str(temp_2)
+          print(note)
+          ```
+        slots:
+          - id: output
+            type: text
+            match: output
+            prompt: 程序显示什么？
+            key: 第二次读数：None
+          - id: swap
+            type: choice
+            prompt: 如果第 3 行不用 str，写成 `note = "第二次读数：" + temp_2`，程序会怎样？
+            options:
+              - { id: blank, content: 显示“第二次读数：”，后面空着 }
+              - { id: error, content: 报错停下（TypeError） }
+              - { id: same, content: 显示“第二次读数：None” }
+            key: error
+        explanation: |
+          显示 **第二次读数：None**：`str(temp_2)` 把没有值变成了四个字母的文字 "None"。去掉 str，就是文字加 None，报 TypeError。如果报告里不想出现 None 字样，要另外说清楚缺失时写什么。
+        verify: |
+          r = run()
+          alt = run(CODE.replace("str(temp_2)", "temp_2"))
+          shown = {"第二次读数：": "blank", "第二次读数：None": "same"}
+          answers = {
+              "output": r.out,
+              "swap": "error" if alt.error == "TypeError" else shown.get(alt.out.strip(), "other"),
+          }
+    quiz:
+      - id: py03.k3.x1
+        kind: [trace, predict]
+        body: |
+          ```python
+          count_a = 0
+          count_b = None
+          note_a = ""
+          note_b = "None"
+          ```
+
+          四行都执行完以后，每个名字指向哪一类值？
+        slots:
+          - id: kinds
+            type: table
+            columns:
+              - { id: name, header: 名字 }
+              - id: kind
+                header: 类型
+                input:
+                  type: choice
+                  options:
+                    - { id: int, label: 整数 int }
+                    - { id: str, label: 文字 str }
+                    - { id: none, label: None（没有值） }
+            rows:
+              - { id: r1, cells: { name: count_a, kind: int } }
+              - { id: r2, cells: { name: count_b, kind: none } }
+              - { id: r3, cells: { name: note_a, kind: str } }
+              - { id: r4, cells: { name: note_b, kind: str } }
+          - id: shown
+            type: text
+            match: output
+            prompt: 再执行 `print(note_b + "!")`，显示什么？如果报错停下，填 ERROR。
+            key: None!
+        explanation: |
+          `count_a` 是整数 0；`count_b` 是 None，没有值；`note_a` 是一段空文字；`note_b` 带引号，是四个字母的文字 "None"，不是 None 本身。所以 `note_b + "!"` 是两段文字拼接，显示 **None!**，不会报错。
+        verify: |
+          r = run()
+          kinds = {"int": "int", "str": "str", "NoneType": "none"}
+          names = ["count_a", "count_b", "note_a", "note_b"]
+          answers = {
+              "kinds": {f"r{i}": {"kind": kinds[type(r[name]).__name__]} for i, name in enumerate(names, 1)},
+              "shown": repl(CODE + '\nprint(note_b + "!")')[-1],
+          }
+      - id: py03.k3.x2
+        kind: [specify]
+        body: |
+          一台仪器每天测三次读数。某天仪器坏了，第 3 次读数没有测到。录入程序时，`reading_3` 应该写成哪一种？
+        slots:
+          - id: record
+            type: choice
+            options:
+              - id: a
+                content: |
+                  ```python
+                  reading_3 = "None"
+                  ```
+              - id: b
+                content: |
+                  ```python
+                  reading_3 = 0
+                  ```
+              - id: c
+                content: |
+                  ```python
+                  reading_3 = None
+                  ```
+              - id: d
+                content: |
+                  ```python
+                  reading_3 = ""
+                  ```
+            key: c
+        explanation: |
+          写 `reading_3 = None`：没有测到，就是没有值。写 0 等于声称读数是零，平均时会拉低结果；`""` 是一段空文字，`"None"` 是四个字母的文字，都不是“没有值”，拿去计算时也看不出是缺了数据。
+        manual: [record]
+
+verified:
+  - question: py03.k3.x2
+    version: sha256:e40fc815d3b623ff33457f837baf5fcc14fe6e18ed0e903b37b8d1a17db3d06e
+    slots: [record]
+    model: deepseek/deepseek-flash
+    date: 2026-10-12
