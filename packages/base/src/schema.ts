@@ -6,6 +6,17 @@ export const object = <T extends Record<string, TSchema>>(properties: T) =>
 export const identifier = Type.String({ minLength: 1 });
 export const ModelRefSchema = object({ provider: identifier, id: identifier });
 export type ModelRef = Static<typeof ModelRefSchema>;
+export const AuthTypeSchema = Type.Union([Type.Literal("api_key"), Type.Literal("oauth")]);
+export type AuthType = Static<typeof AuthTypeSchema>;
+// login 为 false 的方式只能在 Repa 之外配置（例如环境变量）；stored 表示有可由 auth.logout 删除的保存凭据。
+export const ProviderInfoSchema = object({
+  id: identifier,
+  name: Type.String(),
+  methods: Type.Array(object({ type: AuthTypeSchema, name: Type.String(), login: Type.Boolean() })),
+  configured: Type.Optional(AuthTypeSchema),
+  stored: Type.Boolean(),
+});
+export type ProviderInfo = Static<typeof ProviderInfoSchema>;
 export const PromptOverrideSchema = object({
   text: Type.Optional(Type.String()),
   enabled: Type.Optional(Type.Boolean()),
@@ -26,15 +37,27 @@ export const SettingsSchema = object({
   prompts: PromptOverridesSchema,
 });
 export type Settings = Static<typeof SettingsSchema>;
+export const DirectoryRootSchema = object({ path: identifier, label: identifier });
+export type DirectoryRoot = Static<typeof DirectoryRootSchema>;
+export const DirectoryListingSchema = object({
+  path: identifier,
+  parent: Type.Union([identifier, Type.Null()]),
+  /** 文件夹内含 `.repa/` 时为已有空间。 */
+  space: Type.Boolean(),
+  entries: Type.Array(object({ name: identifier, path: identifier, space: Type.Boolean() })),
+  truncated: Type.Boolean(),
+});
+export type DirectoryListing = Static<typeof DirectoryListingSchema>;
 export const UsageSchema = object({
   input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(), cacheWrite: Type.Number(),
 });
 export type Usage = Static<typeof UsageSchema>;
 export const SessionParentSchema = object({ sessionId: identifier, runId: identifier, callId: identifier });
 export type SessionParent = Static<typeof SessionParentSchema>;
+// updatedAt 是最后一条消息的时间，还没有消息时等于 createdAt；preview 是第一条用户消息的开头，供列表显示。
 export const SessionInfoSchema = object({
-  id: identifier, createdAt: Type.String(), name: Type.Optional(Type.String()),
-  model: Type.Optional(ModelRefSchema),
+  id: identifier, createdAt: Type.String(), updatedAt: Type.String(), name: Type.Optional(Type.String()),
+  preview: Type.Optional(Type.String()), model: Type.Optional(ModelRefSchema),
   parent: Type.Optional(SessionParentSchema),
   // 会话所属的 Agent 在创建时确定，之后不变；改动前的会话属于通用 Agent。
   agent: identifier,

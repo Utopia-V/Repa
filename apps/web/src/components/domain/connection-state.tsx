@@ -1,13 +1,13 @@
 import { LoaderCircle, Network, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
-import { StatusNotice } from "@/components/ui/status-notice";
+import { ErrorNotice } from "@/components/domain/error-notice";
 
 export function StartupPanel({
   failure,
   onRetry,
 }: {
-  failure: { message: string } | undefined;
+  failure: { error: unknown } | undefined;
   onRetry: () => void;
 }) {
   return (
@@ -23,9 +23,7 @@ export function StartupPanel({
       </CardHeader>
       <CardContent>
         {failure ? (
-          <StatusNotice status="error" title="暂时无法连接">
-            {failure.message}
-          </StatusNotice>
+          <ErrorNotice title="暂时无法连接" error={failure.error} />
         ) : (
           <p role="status" className="flex items-start gap-2 text-sm text-muted-foreground">
             <LoaderCircle aria-hidden="true" className="size-5 shrink-0" />

@@ -23,9 +23,11 @@
 | Text | `muted-foreground` | 辅助说明与 metadata；仍须满足对比度 |
 | Border | `border` / `border-selected` / `border-error` / `border-complete` | 分别仅用于普通容器、持续选择、错误、完成边界 |
 | Border | `input` | 输入控件的可辨识边界 |
+| Border | `input-focus` | 不加 ring 的输入框聚焦时加深的边界，目前只用于对话输入框 |
 | Border | `ring` | 仅键盘焦点；不得表达选中、hover 或业务状态 |
 | Status | `status-complete` / `status-complete-foreground` | 完成提示及实心状态背景上的内容 |
 | Status | `destructive` / `destructive-foreground` | 仅危险操作或错误；必须辅以明确文字或图标 |
+| Code | `code-background` / `code-foreground` / `code-caption` | 仅代码块：深色底、代码正文和语言标签。语法颜色例外地由 Catppuccin Mocha 主题提供，不另设 token；主题颜色在 `code-background` 上均满足正文对比度 |
 | Overlay | `overlay` | 模态内容之外的遮罩，配合透明度使用 |
 
 语义职责不同的 token 不因当前颜色相同而互换。主题可将 `status-complete` 映射到 `primary`，但完成状态的调用方必须使用 `status-complete`。所有背景与前景配对必须通过对比度验证。
@@ -161,8 +163,8 @@ Standard Card 默认内距为 `--space-20`。紧凑型 Card 必须由基础组�
 - 正文及辅助文字与背景至少满足 WCAG AA 的 4.5:1 对比度；输入边界和焦点等重要非文字提示至少 3:1。
 - 重要状态必须有非颜色视觉提示，例如文字、图标或形状；不得以 `aria-*` 属性代替视觉反馈。
 - 交互状态必须提供对应的 ARIA 状态；原生控件已提供的状态语义不重复覆盖。自定义控件按角色使用 `aria-pressed`、`aria-selected`、`aria-expanded` 等属性，不混用不同角色的状态。
-- placeholder 只提供示例，不承担 label 功能；错误使用 `aria-invalid` 并通过 `aria-describedby` 关联说明。
-- 可交互元素的键盘焦点不得被移除。替换浏览器默认 outline 时必须提供可见焦点提示；普通控件使用 ring，下拉选项使用背景高亮并以明确的可见标记独立表示选择。
+- placeholder 只提供示例，不承担 label 功能。对话页的消息输入框是例外：它固定在对话记录下方，用途自明，不显示标签，以 `aria-label` 提供名称；错误使用 `aria-invalid` 并通过 `aria-describedby` 关联说明。
+- 可交互元素的键盘焦点不得被移除。替换浏览器默认 outline 时必须提供可见焦点提示；普通控件使用 ring，下拉选项使用背景高亮并以明确的可见标记独立表示选择。例外：对话输入框（InputGroup）聚焦时不加 2px ring，边框粗细不变、颜色加深为 `input-focus`，并加阴影；这层阴影只在聚焦时出现，属于焦点提示。框内按钮仍使用 ring。
 - 模态交互约束焦点在弹层内，支持 Escape 关闭，关闭后恢复到触发入口。
 - 减少动态效果的系统偏好应生效；移动端换行，不缩小正文来塞入布局。
 

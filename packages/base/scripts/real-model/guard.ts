@@ -4,6 +4,9 @@ import type { AgentRuntime, AgentSession } from "@repa/base";
 export function guardProbeRuntime(runtime: AgentRuntime): AgentRuntime {
   return {
     listModels: () => runtime.listModels(),
+    listProviders: () => runtime.listProviders(),
+    defaultModel: () => runtime.defaultModel(),
+    setDefaultModel: (...args) => runtime.setDefaultModel(...args),
     login: (...args) => runtime.login(...args),
     setKey: (...args) => runtime.setKey(...args),
     logout: (...args) => runtime.logout(...args),

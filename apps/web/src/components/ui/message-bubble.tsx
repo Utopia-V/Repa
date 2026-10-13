@@ -6,7 +6,7 @@ const bubbleVariants = cva("rounded-md border p-3 text-sm wrap-anywhere", {
   variants: {
     variant: {
       default: "border-border bg-surface-inset text-foreground",
-      emphasized: "border-transparent bg-primary text-primary-foreground",
+      emphasized: "border-transparent bg-accent text-foreground",
     },
   },
   defaultVariants: { variant: "default" },

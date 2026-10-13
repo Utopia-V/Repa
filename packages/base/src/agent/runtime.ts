@@ -21,7 +21,7 @@ import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
-import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection } from "../schema.js";
+import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
@@ -186,6 +186,38 @@ class Runtime implements AgentRuntime {
       name: model.name,
       available: keys.has(`${model.provider}/${model.id}`),
     }));
+  }
+
+  async listProviders(): Promise<ProviderInfo[]> {
+    this.assertOpen();
+    const models = this.options.modelRuntime;
+    const stored = new Set((await models.listCredentials()).map(entry => entry.providerId));
+    // checkAuth 当场解析保存的凭据和环境变量；getProviderAuthStatus 读的是异步刷新的快照，登录后可能还没更新。
+    const providers = await Promise.all(models.getProviders().map(async provider => {
+      const methods: ProviderInfo["methods"] = [];
+      if (provider.auth.oauth) methods.push({ type: "oauth", name: provider.auth.oauth.name, login: true });
+      if (provider.auth.apiKey) methods.push({ type: "api_key", name: provider.auth.apiKey.name, login: provider.auth.apiKey.login !== undefined });
+      const info: ProviderInfo = { id: provider.id, name: provider.name, methods, stored: stored.has(provider.id) };
+      const check = await models.checkAuth(provider.id);
+      if (check) info.configured = check.type;
+      return info;
+    }));
+    return providers.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  defaultModel(): ModelRef | undefined {
+    this.assertOpen();
+    const model = this.model();
+    return model && { provider: model.provider, id: model.id };
+  }
+
+  async setDefaultModel(reference: ModelRef): Promise<void> {
+    this.assertOpen();
+    this.model(reference);
+    // 沿用 Pi 自己的默认模型设置，与 Pi 会话切换模型时保存的是同一项。
+    this.settings.setDefaultModelAndProvider(reference.provider, reference.id);
+    await this.settings.flush();
+    this.checkSettings();
   }
 
   async login(provider: string, type: string, confirm: Confirm, signal?: AbortSignal): Promise<void> {
@@ -472,17 +504,10 @@ class Space implements AgentSpace {
       const manager = SessionManager.open(entry.path, this.options.sessionsDir, this.options.root);
       const model = manager.buildSessionProjection().model;
       const parent = await readParent(this.options.sessionsDir, entry.id);
-      infos.set(entry.id, {
-        id: entry.id,
-        createdAt: entry.created.toISOString(),
-        ...(entry.name ? { name: entry.name } : {}),
-        ...(model ? { model: { provider: model.provider, id: model.modelId } } : {}),
-        agent: sessionAgent(manager),
-        ...(parent === undefined ? {} : { parent }),
-      });
+      infos.set(entry.id, describeSession(manager, model ? { provider: model.provider, id: model.modelId } : undefined, sessionAgent(manager), parent));
     }
     for (const session of await Promise.all(this.sessions.values())) infos.set(session.info().id, session.info());
-    return [...infos.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return [...infos.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   /** 子 Agent 的会话用完即释放 Pi 会话；之后查看历史时再从文件打开。 */
@@ -697,17 +722,7 @@ class Session implements AgentSession {
   }
 
   info(): SessionInfo {
-    const header = this.manager.getHeader();
-    const model = this.model();
-    const name = this.manager.getSessionName();
-    return {
-      id: this.manager.getSessionId(),
-      createdAt: header?.timestamp ?? new Date().toISOString(),
-      ...(name ? { name } : {}),
-      ...(model ? { model } : {}),
-      agent: this.agent,
-      ...(this.parent === undefined ? {} : { parent: this.parent }),
-    };
+    return describeSession(this.manager, this.model(), this.agent, this.parent);
   }
 
   private model(): ModelRef | undefined {
@@ -1024,4 +1039,28 @@ class Session implements AgentSession {
 export function cacheStatusForTest(session: AgentSession) {
   if (!(session instanceof Session)) throw new Error("不是当前运行时的会话");
   return session.session.cacheWarmingStatus;
+}
+
+/** 列表用的会话摘要。时间和第一条用户消息与 Pi 的 SessionManager.list 取法一致，已打开的会话也能即时算出。 */
+function describeSession(manager: SessionManager, model: ModelRef | undefined, agent: string, parent: SessionParent | undefined): SessionInfo {
+  const createdAt = manager.getHeader()?.timestamp ?? new Date().toISOString();
+  let updatedAt = createdAt;
+  let preview: string | undefined;
+  for (const entry of manager.getEntries()) {
+    if (entry.type !== "message") continue;
+    if (entry.timestamp > updatedAt) updatedAt = entry.timestamp;
+    if (preview === undefined && entry.message.role === "user") {
+      const text = textContent(entry.message.content).replace(/\s+/gu, " ").trim();
+      if (text) preview = text.slice(0, 200);
+    }
+  }
+  const name = manager.getSessionName();
+  return {
+    id: manager.getSessionId(), createdAt, updatedAt,
+    ...(name ? { name } : {}),
+    ...(preview ? { preview } : {}),
+    ...(model ? { model } : {}),
+    agent,
+    ...(parent === undefined ? {} : { parent }),
+  };
 }
