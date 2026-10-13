@@ -4,17 +4,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RepaClient } from "@repa/base/client";
 
 import { App, type LoadConnection } from "../src/app";
+import { interactionCapabilities } from "../src/lib/ask";
+import { createAppStore } from "../src/lib/store";
 import { mockMatchMedia } from "./match-media";
 
 beforeEach(() => { mockMatchMedia(); window.history.replaceState(null, "", "/"); });
 
-vi.mock("@repa/base/client", () => ({ RepaClient: { connect: vi.fn() } }));
+vi.mock("@repa/base/client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@repa/base/client")>(),
+  RepaClient: { connect: vi.fn() },
+}));
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  localStorage.clear();
 });
 
 const connection = { url: "ws://127.0.0.1:4411/rpc", token: "secret" };
@@ -23,13 +29,14 @@ describe("Web App bootstrap", () => {
   it("开发态重复挂载不会建立即刻废弃的连接", async () => {
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
     const loadConnection = vi.fn(() => Promise.resolve(connection));
 
     render(
       <StrictMode>
-        <App loadConnection={loadConnection} />
+        <App store={createAppStore()} loadConnection={loadConnection} />
       </StrictMode>,
     );
 
@@ -41,17 +48,19 @@ describe("Web App bootstrap", () => {
   it("自动获取连接并呈现工作台", async () => {
     const client = {
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     };
     vi.mocked(RepaClient.connect).mockResolvedValue(client as unknown as RepaClient);
     const loadConnection = vi.fn().mockResolvedValue(connection);
 
-    render(<App loadConnection={loadConnection} />);
+    render(<App store={createAppStore()} loadConnection={loadConnection} />);
 
     expect(screen.getByRole("heading", { name: "正在准备 Repa" })).toBeTruthy();
     expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
     expect(loadConnection).toHaveBeenCalledOnce();
-    expect(RepaClient.connect).toHaveBeenCalledWith(connection);
+    // 连接时声明对话里的询问卡片能显示的作答位。
+    expect(RepaClient.connect).toHaveBeenCalledWith(connection, { capabilities: { interaction: interactionCapabilities } });
   });
 
   it("启动失败时显示原因并允许重试", async () => {
@@ -61,10 +70,11 @@ describe("Web App bootstrap", () => {
       .mockResolvedValueOnce(connection);
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
 
-    render(<App loadConnection={loadConnection} />);
+    render(<App store={createAppStore()} loadConnection={loadConnection} />);
     expect((await screen.findByRole("alert")).textContent).toContain("后端不可用");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
@@ -76,13 +86,14 @@ describe("Web App bootstrap", () => {
     const loadConnection = () => Promise.resolve(connection);
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
         listener = value;
         return vi.fn();
       }),
     } as unknown as RepaClient);
 
-    render(<App loadConnection={loadConnection} />);
+    render(<App store={createAppStore()} loadConnection={loadConnection} />);
     await screen.findByRole("link", { name: "Learning Space" });
     act(() => listener?.(false));
     expect(screen.getByText("后端连接已中断，正在自动重连…")).toBeTruthy();
@@ -97,18 +108,19 @@ it("断线后重新连接新底座，卸载时停止后续重试", async () => {
   let listener: ((connected: boolean) => void) | undefined;
   const first = {
     close: vi.fn(() => Promise.resolve()),
+    on: vi.fn(() => vi.fn()),
     onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
       listener = value;
       return vi.fn();
     }),
   };
-  const second = { close: vi.fn(() => Promise.resolve()), onConnectionChange: vi.fn(() => vi.fn()) };
+  const second = { close: vi.fn(() => Promise.resolve()), on: vi.fn(() => vi.fn()), onConnectionChange: vi.fn(() => vi.fn()) };
   vi.mocked(RepaClient.connect)
     .mockResolvedValueOnce(first as unknown as RepaClient)
     .mockRejectedValueOnce(new Error("尚未恢复"))
     .mockResolvedValueOnce(second as unknown as RepaClient);
   const loadConnection = vi.fn(() => Promise.resolve(connection));
-  const view = render(<App loadConnection={loadConnection} />);
+  const view = render(<App store={createAppStore()} loadConnection={loadConnection} />);
   await screen.findByRole("link", { name: "Learning Space" });
   vi.useFakeTimers();
   act(() => listener?.(false));

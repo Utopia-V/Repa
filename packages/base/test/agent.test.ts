@@ -188,6 +188,24 @@ test("首个 assistant 前用户消息已经持久化，重开空间沿用真实
   assert.deepEqual(session.history().filter(entry => entry.type === "user").map(entry => entry.text), ["需要保存的原始用户消息"]);
 });
 
+test("会话列表按最后消息排序，给出第一条用户消息和会话自己的模型，重开后不变", async t => {
+  const f = await fixture(t);
+  const later = await f.space.create();
+  assert.equal(later.info().preview, undefined);
+  assert.equal(later.info().updatedAt, later.info().createdAt);
+  f.faux.setResponses([fauxAssistantMessage("回答"), fauxAssistantMessage("回答")]);
+  await later.send("后建的会话");
+  await f.session.send("  先建的会话\n  最后说话  ");
+  const listed = await f.space.list();
+  assert.deepEqual(listed.map(info => info.id), [f.session.info().id, later.info().id]);
+  assert.equal(listed[0]?.preview, "先建的会话 最后说话");
+  assert(listed[0]!.updatedAt > listed[0]!.createdAt);
+  assert.deepEqual(listed.map(info => info.model), [{ provider: f.faux.getModel().provider, id: "test" }, { provider: f.faux.getModel().provider, id: "test" }]);
+  await f.space.close();
+  const reopened = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => true });
+  assert.deepEqual(await reopened.list(), listed);
+});
+
 test("运行中插话和追加沿用 SDK 队列，空闲追加直接启动下一轮", async t => {
   const f = await fixture(t);
   const started = deferred<void>();
@@ -422,6 +440,41 @@ test("单 key 登录通过 SDK 持久化，重建运行时仍可用且登出删�
   assert.equal((await models.listCredentials()).some(entry => entry.providerId === provider.id), false);
   assert.equal(await models.getAuth(provider.id), undefined);
   assert(!JSON.stringify(f.events).includes("test-only-secret"));
+});
+
+test("提供方列表报告登录方式与已保存凭据，默认模型写入 Pi 设置", async t => {
+  const f = await fixture(t);
+  const provider = {
+    ...f.faux.provider,
+    name: "测试提供方",
+    auth: {
+      apiKey: {
+        name: "测试 key",
+        async login(interaction: import("@earendil-works/pi-ai").ProviderAuthInteraction) {
+          return { type: "api_key" as const, key: await interaction.prompt({ type: "secret", message: "API key" }) };
+        },
+        async resolve({ credential }: { credential?: import("@earendil-works/pi-ai").ApiKeyCredential }) {
+          return credential?.key ? { auth: { apiKey: credential.key } } : undefined;
+        },
+      },
+    },
+  };
+  f.models.registerNativeProvider(provider);
+  const settings = SettingsManager.inMemory({ cacheWarming: "off" });
+  const runtime = await createAgentRuntimeForTest({ agentDir: f.agentDir, modelRuntime: f.models, settingsManager: settings });
+  t.after(() => runtime.close());
+  const find = async () => (await runtime.listProviders()).find(entry => entry.id === provider.id);
+  const expected = { id: provider.id, name: "测试提供方", methods: [{ type: "api_key", name: "测试 key", login: true }] };
+  assert.deepEqual(await find(), { ...expected, stored: false });
+  await runtime.setKey(provider.id, "test-only-secret");
+  assert.deepEqual(await find(), { ...expected, configured: "api_key", stored: true });
+
+  await runtime.setDefaultModel({ provider: provider.id, id: "test" });
+  assert.deepEqual(runtime.defaultModel(), { provider: provider.id, id: "test" });
+  assert.equal(settings.getDefaultProvider(), provider.id);
+  assert.equal(settings.getDefaultModel(), "test");
+  await assert.rejects(runtime.setDefaultModel({ provider: provider.id, id: "missing" }), error => error !== null && typeof error === "object" && "code" in error && error.code === "model_not_found");
+  assert.equal(settings.getDefaultModel(), "test");
 });
 
 test("需要第二项信息的 key 登录要求交互登录，不保存半成品凭据", async t => {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -24,6 +24,9 @@ async function fixture(
   const runtime: AgentRuntime = {
     async openSpace() { throw new Error("该协议边界测试不打开 Agent 空间"); },
     async listModels() { return []; },
+    async listProviders() { return []; },
+    defaultModel() { return undefined; },
+    async setDefaultModel() {},
     async login(_provider, _type, confirm, signal) { await login?.(confirm, signal); },
     async setKey() {},
     async logout() {},
@@ -106,6 +109,22 @@ test("浏览器客户端拒绝错误令牌并读取持久设置", async (t) => {
   assert.equal((await client.call("settings.get", {})).commandPolicy, "ask");
   assert.equal((await client.call("settings.set", { commandPolicy: "fullAccess" })).commandPolicy, "fullAccess");
   await assert.rejects(client.call("session.list", {}), (error: unknown) => error instanceof RpcError && record(error.data)?.code === "space_not_open");
+});
+
+test("未打开空间时也能浏览文件夹，错误码随 RPC 错误返回", async (t) => {
+  const f = await fixture(t);
+  const folder = path.join(f.root, "browse");
+  await mkdir(path.join(folder, "physics", ".repa"), { recursive: true });
+  const client = await f.client();
+
+  assert.ok((await client.call("space.roots", {})).length > 0);
+  const listing = await client.call("space.browse", { path: folder });
+  assert.equal(listing.path, await realpath(folder));
+  assert.deepEqual(listing.entries.map((entry) => [entry.name, entry.space]), [["physics", true]]);
+  await assert.rejects(
+    client.call("space.browse", { path: path.join(folder, "missing") }),
+    (error: unknown) => error instanceof RpcError && record(error.data)?.code === "not_found",
+  );
 });
 
 test("服务关闭通知断线，重新连接重新初始化且不重放请求", async (t) => {
@@ -194,6 +213,37 @@ test("登录上游错误不把凭据或错误细节返回到协议", async (t) =
   });
 });
 
+
+test("模型提供方与默认模型直接转给运行时，未设置默认模型时返回 null", async (t) => {
+  const saved: unknown[] = [];
+  let current: { provider: string; id: string } | undefined;
+  const provider = { id: "test", name: "Test", methods: [{ type: "api_key" as const, name: "Test key", login: true }], configured: "api_key" as const, stored: true };
+  const f = await fixture(t, undefined, { runtime: {
+    async listProviders() { return [provider]; },
+    defaultModel() { return current; },
+    async setDefaultModel(model) { saved.push(model); current = model; },
+  } });
+  const client = await f.client();
+  assert.deepEqual(await client.call("model.providers", {}), [provider]);
+  assert.equal(await client.call("model.getDefault", {}), null);
+  await client.call("model.setDefault", { model: { provider: "test", id: "m" } });
+  assert.deepEqual(saved, [{ provider: "test", id: "m" }]);
+  assert.deepEqual(await client.call("model.getDefault", {}), { provider: "test", id: "m" });
+});
+
+test("保存 key 时保留需要交互登录的错误码，其他上游错误不外泄", async (t) => {
+  let failure: Error = new RepaFault("requires_interactive_login", "此提供方需要额外登录信息，请使用交互登录");
+  const f = await fixture(t, undefined, { runtime: { async setKey() { throw failure; } } });
+  const client = await f.client();
+  await assert.rejects(client.call("auth.setKey", { provider: "test", key: "k" }), (error: unknown) => error instanceof RpcError && record(error.data)?.code === "requires_interactive_login");
+  failure = new Error("secret-key-from-upstream");
+  await assert.rejects(client.call("auth.setKey", { provider: "test", key: "k" }), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "auth_failed");
+    assert.equal(error.message.includes("secret-key"), false);
+    return true;
+  });
+});
 
 test("批量请求保留 id，客户端 notification 不启动需要确认的操作", async (t) => {
   const f = await fixture(t);

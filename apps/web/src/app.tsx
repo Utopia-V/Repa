@@ -2,14 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { RepaClient, type ClientConnection } from "@repa/base/client";
+import { useStore } from "zustand";
 
 import { routes } from "./routes";
 import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
+import { StoreProvider } from "@/hooks/use-app-store";
+import { interactionCapabilities } from "@/lib/ask";
+import type { AppStore } from "@/lib/store";
 
 type BootstrapState =
   | { status: "starting" }
-  | { status: "failed"; message: string }
-  | { status: "ready"; connected: boolean };
+  | { status: "failed"; error: unknown }
+  | { status: "ready" };
 
 export type LoadConnection = () => Promise<ClientConnection>;
 
@@ -52,13 +56,16 @@ export async function loadWebConnection(): Promise<ClientConnection> {
 }
 
 export function App({
+  store,
   loadConnection = loadWebConnection,
 }: {
+  store: AppStore;
   loadConnection?: LoadConnection;
 }) {
   const router = useMemo(() => createBrowserRouter(routes), []);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<BootstrapState>({ status: "starting" });
+  const connected = useStore(store, (current) => current.connected);
 
   useEffect(() => {
     let active = true;
@@ -72,7 +79,7 @@ export function App({
       try {
         const connection = await loadConnection();
         if (!active) return;
-        const next = await RepaClient.connect(connection);
+        const next = await RepaClient.connect(connection, { capabilities: { interaction: interactionCapabilities } });
         if (!active) {
           await next.close();
           return;
@@ -80,7 +87,7 @@ export function App({
         client = next;
         removeListener = next.onConnectionChange((connected) => {
           if (!active) return;
-          setState({ status: "ready", connected });
+          store.getState().setConnected(connected);
           if (!connected) {
             removeListener?.();
             removeListener = undefined;
@@ -88,16 +95,14 @@ export function App({
             reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
           }
         });
-        setState({ status: "ready", connected: true });
+        store.getState().setClient(next);
+        setState({ status: "ready" });
       } catch (error) {
         if (!active) return;
         if (reconnecting) {
           reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
         } else {
-          setState({
-            status: "failed",
-            message: error instanceof Error ? error.message : "无法启动 Repa。",
-          });
+          setState({ status: "failed", error });
         }
       }
     };
@@ -109,14 +114,14 @@ export function App({
       removeListener?.();
       void client?.close();
     };
-  }, [attempt, loadConnection]);
+  }, [attempt, loadConnection, store]);
 
   if (state.status !== "ready") {
     return (
       <main className="grid min-h-dvh place-items-center p-4 md:p-8">
         <div className="w-full max-w-xl">
           <StartupPanel
-            failure={state.status === "failed" ? { message: state.message } : undefined}
+            failure={state.status === "failed" ? { error: state.error } : undefined}
             onRetry={() => setAttempt((value) => value + 1)}
           />
         </div>
@@ -125,13 +130,15 @@ export function App({
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      {!state.connected && (
-        <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-8">
-          <ReconnectionNotice />
-        </div>
-      )}
-      <RouterProvider router={router} />
-    </div>
+    <StoreProvider store={store}>
+      <div className="flex min-h-dvh flex-col">
+        {!connected && (
+          <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-8">
+            <ReconnectionNotice />
+          </div>
+        )}
+        <RouterProvider router={router} />
+      </div>
+    </StoreProvider>
   );
 }

@@ -1,7 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { AskRoute } from "./ask.js";
 import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest } from "./plugin.js";
-import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, SessionEntry, SessionInfo } from "./schema.js";
+import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, ProviderInfo, SessionEntry, SessionInfo } from "./schema.js";
 import type { SpaceWrites } from "./space.js";
 
 /** 交给运行时的工具。运行时只提供 signal 与 callId；插件工具的参数校验和 ToolContext.ask 由插件宿主补上。 */
@@ -64,6 +64,10 @@ export interface AgentSpaceOptions {
 export interface AgentRuntime {
   openSpace(options: AgentSpaceOptions): Promise<AgentSpace>;
   listModels(): Promise<{ provider: string; id: string; name: string; available: boolean }[]>;
+  listProviders(): Promise<ProviderInfo[]>;
+  /** 新会话不指定模型时使用的模型；没有可用模型时为 undefined。 */
+  defaultModel(): ModelRef | undefined;
+  setDefaultModel(model: ModelRef): Promise<void>;
   login(provider: string, type: string, confirm: Confirm, signal?: AbortSignal): Promise<void>;
   setKey(provider: string, key: string): Promise<void>;
   logout(provider: string): Promise<void>;

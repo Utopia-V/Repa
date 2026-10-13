@@ -1,48 +1,181 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createMemoryRouter } from "react-router";
+import { RpcError } from "@repa/base/client";
 import { RouterProvider } from "react-router/dom";
+import { StoreProvider } from "../src/hooks/use-app-store";
+import { createAppStore } from "../src/lib/store";
 import { routes } from "../src/routes";
+import { fakeClient } from "./fake-client";
 import { mockMatchMedia } from "./match-media";
 
 beforeEach(() => { mockMatchMedia(); });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
 
-function renderWorkspace(path = "/") {
+function renderWorkspace(path = "/", store = createAppStore()) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<RouterProvider router={router} />);
+  render(<StoreProvider store={store}><RouterProvider router={router} /></StoreProvider>);
   return router;
 }
 
-it("默认进入 Learning Space，侧栏仅有两个栏目", async () => {
+it("默认进入 Learning Space，侧栏有 Learning Space 和 Settings 两个栏目", async () => {
   const router = renderWorkspace();
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
   expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space", "Settings"]);
   expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
-  expect(screen.getByRole("button", { name: "开始学习" })).toBeTruthy();
-  expect(screen.queryByText("尚未选择学习空间")).toBeNull();
 });
 
-it("切换栏目和返回历史更新当前项及内容", async () => {
-  const router = renderWorkspace("/learning-space");
-  fireEvent.click(screen.getByRole("link", { name: "Settings" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
-  expect(screen.getByRole("link", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
-  expect(screen.queryByRole("button", { name: "开始学习" })).toBeNull();
-  await act(() => router.navigate(-1));
-  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
-  expect(screen.getByRole("button", { name: "开始学习" })).toBeTruthy();
+it("打开空间后 Learning Space 一项换成这个空间，下面是新会话，History 和 Settings 排在最后；点击空间回到选空间页", async () => {
+  const call = vi.fn((method: string, params: Record<string, unknown>) => {
+    switch (method) {
+      case "space.open":
+        return Promise.resolve({ root: params.root });
+      case "space.list":
+      case "session.list":
+        return Promise.resolve([]);
+      default:
+        return Promise.reject(new Error(`未模拟的方法 ${method}`));
+    }
+  });
+  const store = createAppStore();
+  store.getState().setClient(fakeClient(call).client);
+  const router = renderWorkspace("/learning-space", store);
+  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space", "Settings"]);
+
+  await act(() => store.getState().openSpace("/notes/calculus"));
+  const navigation = screen.getByRole("navigation", { name: "主导航" });
+  expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual(["calculus", "History", "Settings"]);
+  expect(within(navigation).queryByRole("button", { name: /关闭空间/ })).toBeNull();
+  const space = within(navigation).getByRole("link", { name: "calculus" });
+  expect(space.getAttribute("title")).toBe("/notes/calculus");
+  expect(space.getAttribute("aria-current")).toBe("page");
+
+  fireEvent.click(within(navigation).getByRole("button", { name: "新会话" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
+  // 当前项标在空间下面的会话上；还没有会话时是新会话。
+  await waitFor(() => expect(within(navigation).getByRole("button", { name: "新会话" }).getAttribute("aria-current")).toBe("true"));
+  expect(space.getAttribute("aria-current")).toBeNull();
+
+  fireEvent.click(space);
+  await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
+  expect(space.getAttribute("aria-current")).toBe("page");
+});
+
+it("空间下面列出它的会话，点击打开；新会话从任意页面开始一个空会话；运行中不能切换", async () => {
+  const at = "2026-10-12T00:00:00.000Z";
+  let finish: (() => void) | undefined;
+  const call = vi.fn((method: string, params: Record<string, unknown>) => {
+    switch (method) {
+      case "space.open":
+        return Promise.resolve({ root: params.root });
+      case "space.list":
+        return Promise.resolve([]);
+      case "session.list":
+        return Promise.resolve([
+          { id: "a", createdAt: at, updatedAt: "2026-10-12T02:00:00.000Z", preview: "导数是什么" },
+          { id: "b", createdAt: at, updatedAt: "2026-10-12T01:00:00.000Z", preview: "极限怎么求" },
+        ]);
+      case "session.history":
+        return Promise.resolve([{ id: `${String(params.sessionId)}-u`, type: "user", timestamp: at, text: `${String(params.sessionId)} 的记录` }]);
+      case "session.send":
+        return new Promise((resolve) => { finish = () => resolve(null); });
+      default:
+        return Promise.reject(new Error(`未模拟的方法 ${method}`));
+    }
+  });
+  const store = createAppStore();
+  store.getState().setClient(fakeClient(call).client);
+  await act(() => store.getState().openSpace("/notes/calculus"));
+  const router = renderWorkspace("/learning-space", store);
+  const navigation = screen.getByRole("navigation", { name: "主导航" });
+
+  await within(navigation).findByRole("button", { name: "导数是什么" });
+  const sessions = within(navigation).getByRole("button", { name: "新会话" }).closest("ul")!;
+  expect(within(sessions).getAllByRole("button").map((button) => button.textContent)).toEqual(["新会话", "导数是什么", "极限怎么求"]);
+  fireEvent.click(within(sessions).getByRole("button", { name: "极限怎么求" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
+  expect(await screen.findByText("b 的记录")).toBeTruthy();
+  expect(within(sessions).getByRole("button", { name: "极限怎么求" }).getAttribute("aria-current")).toBe("true");
+
+  await act(() => router.navigate("/settings"));
+  fireEvent.click(within(sessions).getByRole("button", { name: "新会话" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
+  expect(await screen.findByText("这是一个新会话。说说你想学什么，或者直接提问。")).toBeTruthy();
+  expect(within(sessions).getByRole("button", { name: "新会话" }).getAttribute("aria-current")).toBe("true");
+  expect(within(sessions).getByRole("button", { name: "极限怎么求" }).getAttribute("aria-current")).toBeNull();
+
+  fireEvent.click(within(sessions).getByRole("button", { name: "导数是什么" }));
+  await screen.findByText("a 的记录");
+  act(() => { void store.getState().sendMessage("继续"); });
+  await waitFor(() => expect(finish).toBeDefined());
+  expect((within(sessions).getByRole("button", { name: "极限怎么求" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(sessions).getByRole("button", { name: "新会话" }) as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => { finish?.(); });
+});
+
+it("在选空间页关闭当前空间，侧栏回到 Learning Space；运行中不能关，关闭失败时显示原因并可以再关", async () => {
+  let finish: (() => void) | undefined;
+  let closeFails = true;
+  const call = vi.fn((method: string, params: Record<string, unknown>) => {
+    switch (method) {
+      case "space.open":
+        return Promise.resolve({ root: params.root });
+      case "space.list":
+        return Promise.resolve(["/notes/calculus"]);
+      case "session.list":
+      case "session.history":
+        return Promise.resolve([]);
+      case "session.create":
+        return Promise.resolve({ id: "s1", createdAt: "2026-10-12T00:00:00.000Z", updatedAt: "2026-10-12T00:00:00.000Z" });
+      case "session.send":
+        return new Promise((resolve) => { finish = () => resolve(null); });
+      case "space.close":
+        if (closeFails) {
+          closeFails = false;
+          return Promise.reject(new RpcError(-32603, "Internal error"));
+        }
+        return Promise.resolve(null);
+      default:
+        return Promise.reject(new Error(`未模拟的方法 ${method}`));
+    }
+  });
+  const store = createAppStore();
+  store.getState().setClient(fakeClient(call).client);
+  await act(() => store.getState().openSpace("/notes/calculus"));
+  const router = renderWorkspace("/learning-space", store);
+  const navigation = screen.getByRole("navigation", { name: "主导航" });
+  const workspace = screen.getByRole("main");
+  const close = await within(workspace).findByRole("button", { name: "关闭空间 calculus" });
+
+  act(() => { void store.getState().sendMessage("继续"); });
+  await waitFor(() => expect(finish).toBeDefined());
+  await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(true));
+  await act(async () => { finish?.(); });
+  await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(false));
+
+  fireEvent.click(close);
+  expect((await within(workspace).findByRole("alert")).textContent).toContain("关闭 calculus 时出错");
+  expect(store.getState().space).toBe("/notes/calculus");
+
+  fireEvent.click(close);
+  await waitFor(() => expect(store.getState().space).toBeUndefined());
+  expect(call.mock.calls.filter(([method]) => method === "space.close")).toHaveLength(2);
+  expect(router.state.location.pathname).toBe("/learning-space");
+  expect(within(navigation).queryByRole("link", { name: "calculus" })).toBeNull();
+  expect(within(navigation).getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
+  expect(within(workspace).queryByRole("button", { name: /关闭空间/ })).toBeNull();
+  expect(within(workspace).queryByRole("alert")).toBeNull();
 });
 
 it("导航抽屉可关闭、恢复焦点，选择目标后关闭并保留当前路由", async () => {
   mockMatchMedia(true);
-  const router = renderWorkspace("/learning-space");
+  const router = renderWorkspace("/missing");
   const trigger = screen.getByRole("button", { name: "打开导航" });
   trigger.focus();
   fireEvent.click(trigger);
   const dialog = screen.getByRole("dialog", { name: "工作台导航" });
-  fireEvent.click(within(dialog).getByRole("link", { name: "Settings" }));
-  await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
+  fireEvent.click(within(dialog).getByRole("link", { name: "Learning Space" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   fireEvent.click(trigger);
@@ -70,6 +203,25 @@ it("Sidebar 的桌面开关可收起并重新打开导航", () => {
 });
 
 
+it("刷新后保留桌面侧栏的收起状态和拖动出的宽度", () => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
+  renderWorkspace("/learning-space");
+  const rail = screen.getByRole("button", { name: "切换侧栏" });
+  vi.spyOn(document.querySelector<HTMLElement>('[data-slot="sidebar-container"]')!, "getBoundingClientRect")
+    .mockReturnValue({ width: 280 } as DOMRect);
+  fireEvent.pointerDown(rail, { clientX: 280, button: 0 });
+  fireEvent.pointerMove(rail, { clientX: 350 });
+  fireEvent.pointerUp(rail);
+  fireEvent.click(screen.getByRole("button", { name: "收起导航" }));
+  cleanup();
+
+  // 新的 store 相当于刷新页面，从浏览器存储恢复。
+  renderWorkspace("/learning-space");
+  expect(document.querySelector('[data-slot="sidebar"]')?.getAttribute("data-state")).toBe("collapsed");
+  expect(document.querySelector<HTMLElement>('[data-slot="sidebar-wrapper"]')?.style.getPropertyValue("--sidebar-width")).toContain("350px");
+});
+
+
 it("折叠为图标栏后保留可访问名称与当前项", () => {
   renderWorkspace("/learning-space");
   fireEvent.click(screen.getByRole("button", { name: "收起导航" }));
@@ -79,9 +231,9 @@ it("折叠为图标栏后保留可访问名称与当前项", () => {
   // 文字由 CSS 在视觉上隐藏，但链接名称和当前项仍可被辅助技术识别。
   expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
   // 折叠时用 title 为鼠标用户补回标签，展开后移除。
-  expect(screen.getByRole("link", { name: "Settings" }).getAttribute("title")).toBe("Settings");
+  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("title")).toBe("Learning Space");
   fireEvent.click(screen.getByRole("button", { name: "打开导航" }));
-  expect(screen.getByRole("link", { name: "Settings" }).getAttribute("title")).toBeNull();
+  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("title")).toBeNull();
 });
 
 
