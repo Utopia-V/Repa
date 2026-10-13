@@ -30,9 +30,12 @@ export const UsageSchema = object({
   input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(), cacheWrite: Type.Number(),
 });
 export type Usage = Static<typeof UsageSchema>;
+export const SessionParentSchema = object({ sessionId: identifier, runId: identifier, callId: identifier });
+export type SessionParent = Static<typeof SessionParentSchema>;
 export const SessionInfoSchema = object({
   id: identifier, createdAt: Type.String(), name: Type.Optional(Type.String()),
   model: Type.Optional(ModelRefSchema),
+  parent: Type.Optional(SessionParentSchema),
   // 会话所属的 Agent 在创建时确定，之后不变；改动前的会话属于通用 Agent。
   agent: identifier,
 });
@@ -75,6 +78,7 @@ export const AgentEventSchema = object({
     Type.Literal("toolStart"), Type.Literal("toolEnd"), Type.Literal("message"),
     Type.Literal("usage"), Type.Literal("error"), Type.Literal("compaction"),
   ]),
+  parent: Type.Optional(SessionParentSchema),
   runId: Type.Optional(identifier), text: Type.Optional(Type.String()),
   tool: Type.Optional(Type.String()), data: Type.Optional(Type.Unknown()),
   usage: Type.Optional(UsageSchema),

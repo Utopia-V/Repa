@@ -21,10 +21,11 @@ import { Value } from "typebox/value";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
-import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type PromptSection } from "../schema.js";
+import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
+import { readParent, saveParent } from "./parent.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
 
@@ -423,7 +424,7 @@ class Space implements AgentSpace {
     return { sections: await this.promptSections(profile), views: await profile.views() };
   }
 
-  async create(options: { agent?: string; model?: ModelRef } = {}): Promise<Session> {
+  async create(options: { agent?: string; model?: ModelRef; parent?: SessionParent } = {}): Promise<Session> {
     this.assertOpen();
     const agent = options.agent ?? GENERAL_AGENT;
     // 先确认 Agent 可用，不留下打不开的会话文件。
@@ -434,6 +435,8 @@ class Space implements AgentSpace {
     closeSync(descriptor);
     // 已打开的文件会逐条保存，首个 assistant 前也不丢消息。
     const manager = SessionManager.open(file, this.options.sessionsDir, this.options.root);
+    // 装配和运行之前保存父关联，runStart 只能看到已落盘的关联。
+    if (options.parent !== undefined) await saveParent(this.options.sessionsDir, manager.getSessionId(), options.parent);
     // 所属 Agent 写在会话开头，不进入模型上下文；分支复制全部条目，也就沿用同一个 Agent。
     manager.appendCustomEntry(AGENT_ENTRY, { agent });
     return this.load(manager, options.model);
@@ -468,12 +471,14 @@ class Space implements AgentSpace {
     for (const entry of await SessionManager.list(this.options.root, this.options.sessionsDir)) {
       const manager = SessionManager.open(entry.path, this.options.sessionsDir, this.options.root);
       const model = manager.buildSessionProjection().model;
+      const parent = await readParent(this.options.sessionsDir, entry.id);
       infos.set(entry.id, {
         id: entry.id,
         createdAt: entry.created.toISOString(),
         ...(entry.name ? { name: entry.name } : {}),
         ...(model ? { model: { provider: model.provider, id: model.modelId } } : {}),
         agent: sessionAgent(manager),
+        ...(parent === undefined ? {} : { parent }),
       });
     }
     for (const session of await Promise.all(this.sessions.values())) infos.set(session.info().id, session.info());
@@ -532,6 +537,8 @@ class Session implements AgentSession {
   private cancellations = 0;
   private closing?: Promise<void>;
 
+  private parent?: SessionParent;
+
   constructor(private space: Space, private manager: SessionManager) {
     this.agent = sessionAgent(manager);
   }
@@ -551,6 +558,7 @@ class Session implements AgentSession {
   }
 
   async initialize(reference?: ModelRef): Promise<void> {
+    this.parent = await readParent(this.space.options.sessionsDir, this.manager.getSessionId());
     // Agent 已关掉或不存在时只读打开：能列出和查看历史，不建 Pi 会话，也不能运行。
     if (!this.space.available(this.agent)) return;
     const { runtime, options } = this.space;
@@ -698,6 +706,7 @@ class Session implements AgentSession {
       ...(name ? { name } : {}),
       ...(model ? { model } : {}),
       agent: this.agent,
+      ...(this.parent === undefined ? {} : { parent: this.parent }),
     };
   }
 
@@ -801,7 +810,7 @@ class Session implements AgentSession {
       this.runAncestors = ancestorRunIds;
       this.abortController = controller;
       started = true;
-      this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart", ...(link === undefined ? {} : { data: link }) });
+      this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart", ...(this.parent === undefined ? {} : { parent: this.parent }), ...(link === undefined ? {} : { data: link }) });
       try {
         // view、工具和文件写入都在运行上下文内执行，能读到本次 runId 与祖先链。
         await withRun({ runId, ancestorRunIds, sessionId: this.manager.getSessionId(), agent: this.agent }, async () => {
@@ -876,8 +885,8 @@ class Session implements AgentSession {
         agent: Type.Union(profile.subagents.map(id => Type.Literal(id))),
         task: Type.String({ minLength: 1, description: "交给子 Agent 的完整任务" }),
       }, { additionalProperties: false }),
-      execute: async (_callId, input, signal) => {
-        const result = await this.startSubagent(input.agent, input.task, signal);
+      execute: async (callId, input, signal) => {
+        const result = await this.startSubagent(input.agent, input.task, callId, signal);
         return {
           content: [{ type: "text" as const, text: result.text }],
           details: { sessionId: result.sessionId, runId: result.runId, agent: input.agent },
@@ -890,7 +899,7 @@ class Session implements AgentSession {
    * 子 Agent 在父运行内启动，父运行取消时一起取消，结束后释放会话。工具不超过父 Agent 已在插件打开时检查；
    * 这里限制嵌套层数，超过上限的请求作为工具错误交回父 Agent。
    */
-  private async startSubagent(agent: string, task: string, signal: AbortSignal | undefined): Promise<{ sessionId: string; runId: string; text: string }> {
+  private async startSubagent(agent: string, task: string, callId: string, signal: AbortSignal | undefined): Promise<{ sessionId: string; runId: string; text: string }> {
     const parentRunId = this.runId;
     const ancestors = this.runAncestors;
     if (parentRunId === undefined || ancestors === undefined) throw new RepaFault("run_not_active", "子 Agent 只能在运行中启动");
@@ -900,7 +909,7 @@ class Session implements AgentSession {
     if (ancestors.length + 1 > limit) throw new RepaFault("subagent_depth_exceeded", `子 Agent 最多嵌套 ${limit} 层，不能再启动`, { agent, limit });
     signal?.throwIfAborted();
     const model = this.session.model;
-    const child = await this.space.create({ agent, ...(model === undefined ? {} : { model: { provider: model.provider, id: model.id } }) });
+    const child = await this.space.create({ agent, parent: { sessionId: this.manager.getSessionId(), runId: parentRunId, callId }, ...(model === undefined ? {} : { model: { provider: model.provider, id: model.id } }) });
     const cancel = () => { child.abort().catch(() => undefined); };
     signal?.addEventListener("abort", cancel, { once: true });
     try {

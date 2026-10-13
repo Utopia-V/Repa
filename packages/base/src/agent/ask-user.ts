@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { prepareItem, type AskRoute } from "../ask.js";
-import type { Answer, ItemDraft, Slot } from "../interaction.js";
+import type { Answer, Block, ItemDraft, Slot } from "../interaction.js";
 import { ASK_USER_TOOL, type AskOutcome } from "../plugin.js";
 import { currentRun } from "../run-context.js";
 import { object, RepaFault } from "../schema.js";
@@ -34,8 +34,13 @@ const DESCRIPTION = [
   "用户可以不按卡片作答而回一句话，也可以关掉询问。",
 ].join("");
 
+// 只给含 $ 的块要求 markdown.math，普通卡片仍能交给不支持公式的前端。
+function markdown(text: string): Block {
+  return { type: "markdown", text, ...(text.includes("$") ? { math: true } : {}) };
+}
+
 function slotFor(question: Question, id: string): Slot {
-  const prompt = [{ type: "markdown" as const, text: question.question }];
+  const prompt = [markdown(question.question)];
   const label = question.header === undefined ? {} : { label: question.header };
   if (question.options !== undefined) {
     return {
@@ -46,7 +51,7 @@ function slotFor(question: Question, id: string): Slot {
       options: question.options.map((option, index) => ({
         id: `o${index + 1}`,
         label: option.label,
-        content: [{ type: "markdown", text: option.description === undefined ? option.label : `**${option.label}**：${option.description}` }],
+        content: [markdown(option.description === undefined ? option.label : `**${option.label}**：${option.description}`)],
       })),
       ...(question.multiple === true ? { multiple: true } : {}),
       ...(question.allowOther === false ? {} : { other: { label: "其他" } }),
@@ -113,7 +118,7 @@ export function askUserTool(route: AskRoute | undefined): ToolDefinition {
       }, signal === undefined ? {} : { signal });
       return {
         content: [{ type: "text" as const, text: describe(input.questions, ids, outcome) }],
-        details: { item: { id: item.id, version: item.version }, outcome },
+        details: { item, outcome },
       };
     },
   });

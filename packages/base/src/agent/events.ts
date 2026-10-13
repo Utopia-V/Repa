@@ -11,6 +11,12 @@ export function textContent(content: unknown): string {
   }).join("");
 }
 
+// Pi 实时结果没有约束 result 的类型，在转换边界读取 details。
+function resultDetails(result: unknown): { details?: unknown } {
+  const details = result !== null && typeof result === "object" && "details" in result ? result.details : undefined;
+  return details === undefined ? {} : { details };
+}
+
 export function usageOf(usage: Usage): Usage {
   return {
     input: usage.input,
@@ -57,7 +63,7 @@ export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
         ...base,
         type: "tool",
         text: textContent(message.content),
-        data: { callId: message.toolCallId, tool: message.toolName, isError: message.isError },
+        data: { callId: message.toolCallId, tool: message.toolName, isError: message.isError, ...resultDetails(message) },
       };
     }
     return undefined;
@@ -96,7 +102,7 @@ export function convertEvent(sessionId: string, event: AgentSessionEvent, runId?
     return [{ ...base, type: "toolStart", tool: event.toolName, data: { callId: event.toolCallId, input: event.args } }];
   }
   if (event.type === "tool_execution_end") {
-    return [{ ...base, type: "toolEnd", tool: event.toolName, data: { callId: event.toolCallId, isError: event.isError } }];
+    return [{ ...base, type: "toolEnd", tool: event.toolName, data: { callId: event.toolCallId, isError: event.isError, ...resultDetails(event.result) } }];
   }
   if (event.type === "message_end" && event.message.role === "assistant") {
     const message = event.message;

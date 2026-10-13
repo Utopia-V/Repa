@@ -8,7 +8,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
-import type { AgentSession } from "../src/agent.js";
+import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
 import { RepaClient } from "../src/client.js";
 import { currentRun, type AgentDefinition, type Plugin, type RunContext, type Tool } from "../src/plugin.js";
 import { startServer } from "../src/protocol/server.js";
@@ -57,7 +57,7 @@ async function fixture(t: TestContext) {
   };
   const events: AgentEvent[] = [];
   const recorded: string[] = [];
-  const space = await runtime.openSpace({
+  const options: AgentSpaceOptions = {
     root,
     sessionsDir: path.join(root, ".repa", "sessions"),
     instructions: () => [],
@@ -72,9 +72,10 @@ async function fixture(t: TestContext) {
     },
     onEvent: event => events.push(event),
     confirm: async () => false,
-  });
+  };
+  const space = await runtime.openSpace(options);
   const lead = await space.create({ agent: "lead" });
-  return { root, faux, space, lead, runs, events, recorded };
+  return { root, faux, runtime, options, space, lead, runs, events, recorded };
 }
 
 function runEntry(session: AgentSession): Record<string, unknown> {
@@ -100,7 +101,7 @@ test("子 Agent 的回复作为工具结果交回父 Agent，子运行有自己�
   f.faux.setResponses([
     context => {
       captures.push(structuredClone(context));
-      return fauxAssistantMessage(fauxToolCall("subagent", { agent: "checker", task: "检查答案：for i in range(3): print(i)" }));
+      return fauxAssistantMessage(fauxToolCall("subagent", { agent: "checker", task: "检查答案：for i in range(3): print(i)" }, { id: "call-check" }));
     },
     context => {
       captures.push(structuredClone(context));
@@ -132,6 +133,26 @@ test("子 Agent 的回复作为工具结果交回父 Agent，子运行有自己�
   assert.deepEqual(childRun, { runId: childRun.runId, parentRunId: leadRun, parentSessionId: f.lead.info().id });
   assert.deepEqual(f.runs, [{ runId: childRun.runId, ancestorRunIds: [leadRun], sessionId: child.id, agent: "checker" }]);
   assert.deepEqual(f.events.find(event => event.type === "runStart" && event.sessionId === child.id)?.data, { parentRunId: leadRun, parentSessionId: f.lead.info().id });
+  const parent = { sessionId: f.lead.info().id, runId: String(leadRun), callId: "call-check" };
+  assert.deepEqual(child.parent, parent);
+  assert.deepEqual(childSession.info().parent, parent);
+  assert.deepEqual(f.events.find(event => event.type === "runStart" && event.sessionId === child.id)?.parent, parent);
+  assert.equal(Object.hasOwn(f.lead.info(), "parent"), false);
+  const details = { sessionId: child.id, runId: childRun.runId, agent: "checker" };
+  const toolData = f.lead.history().find(entry => entry.type === "tool")?.data;
+  assert(toolData !== null && typeof toolData === "object" && "details" in toolData);
+  assert.deepEqual(toolData.details, details);
+  const toolEnd = f.events.find(event => event.type === "toolEnd" && event.tool === "subagent")?.data;
+  assert(toolEnd !== null && typeof toolEnd === "object" && "details" in toolEnd);
+  assert.deepEqual(toolEnd.details, details);
+  const fork = await childSession.fork(childSession.history().find(entry => entry.type === "user")?.id ?? "");
+  assert.equal(Object.hasOwn(fork.info(), "parent"), false);
+  await f.space.close();
+  // 卸载 Agent 后仍能列出并只读打开旧子会话，父关联不依赖运行实例或工具结果。
+  const reopened = await f.runtime.openSpace({ ...f.options, agents: () => [] });
+  assert.deepEqual((await reopened.list()).find(info => info.id === child.id)?.parent, parent);
+  assert.deepEqual((await reopened.get(child.id)).info().parent, parent);
+  assert.equal(Object.hasOwn((await reopened.get(fork.info().id)).info(), "parent"), false);
   // 父运行没有命令行，不整次进 record；子运行也不进。
   assert.deepEqual(f.recorded, []);
 });
@@ -215,6 +236,12 @@ test("取消父运行会连带取消正在进行的子运行，取消完成时�
   const child = (await f.space.list()).find(info => info.agent === "checker");
   assert(child);
   assert.equal(runEntry(await f.space.get(child.id)).parentRunId, runEntry(f.lead).runId);
+  const call = f.events.find(event => event.type === "toolStart" && event.tool === "subagent")?.data;
+  assert(call !== null && typeof call === "object" && "callId" in call);
+  assert.deepEqual(child.parent, { sessionId: f.lead.info().id, runId: runEntry(f.lead).runId, callId: call.callId });
+  assert.deepEqual(f.events.find(event => event.type === "runStart" && event.sessionId === child.id)?.parent, child.parent);
+  assert.equal(f.events.some(event => event.type === "toolEnd" && event.tool === "subagent"), false);
+
   let cancelled = false;
   const cancelling = f.lead.abort().then(() => { cancelled = true; });
   await childAborted.promise;
