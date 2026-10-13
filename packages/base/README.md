@@ -220,7 +220,7 @@ async execute(input, context) {
 
 某段时间里不允许提问这类限制，由插件通过 `beforeMessage`、自己的触发时机和 Agent 定义来保证，底座不另设询问的判断入口：被 `beforeMessage` 拒收的消息不会启动运行；后台 Agent 什么时候启动、带不带 `ask_user` 由插件决定；插件可以先中止进行中的运行，在途的询问随运行一起取消。
 
-底座内置的 `ask_user` 让 Agent 直接提问：参数是 1–4 个问题，每个问题有选项（选择）或输入方式（`text`、`longText`、`number`），多带字段由 Pi 的参数校验拒绝。回答原样交回模型，写成“问题 → 选择或填写的内容”；用户不按卡片作答时附的一句话原样交回，关闭询问、界面无法显示和断线也都写成工具结果，模型据此改用文字交流。
+底座内置的 `ask_user` 在结果 `details` 中保存完整的 `{ item, outcome }`，刷新后可以原样恢复卡片。问题与选项中的 Markdown 只有含 `$` 时才设置 `math: true`，要求界面支持 `markdown.math`。这个工具让 Agent 直接提问：参数是 1–4 个问题，每个问题有选项（选择）或输入方式（`text`、`longText`、`number`），多带字段由 Pi 的参数校验拒绝。回答原样交回模型，写成“问题 → 选择或填写的内容”；用户不按卡片作答时附的一句话原样交回，关闭询问、界面无法显示和断线也都写成工具结果，模型据此改用文字交流。
 
 **插件方法。** `invoke(input, context)` 的 `context.caller.capabilities` 是发起调用的连接的声明，挑选交给前端的内容时用 `canRender` 过滤；离线测试宿主直接调用时没有 `caller`。方法可以声明 `result` schema，宿主在交回前校验，不符合时以 `invalid_plugin_result` 拒绝，方法已有的副作用和状态唤醒照常保留。
 

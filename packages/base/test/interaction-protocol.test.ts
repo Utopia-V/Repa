@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type JsonObject, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -440,6 +440,7 @@ test("ask_user 把作答交回模型：选择交回选项名，填写原样交�
     ["o2", "Excel", [{ type: "markdown", text: "Excel" }]],
   ]);
   assert.deepEqual([choice.multiple, choice.other, choice.label], [true, { label: "其他" }, "格式"]);
+  const ended = next(client, "session.event", event => event.type === "toolEnd" && event.sessionId === session.id);
   const reference = { id: request.item.id, version: request.item.version };
   const answers = { q1: { type: "choice" as const, selected: ["o2"], other: "再附一份 CSV" }, extra: { type: "text" as const, text: "每个工作表一个 sheet\n保留公式" } };
   assert.deepEqual(await client.call("ask.reply", { id: request.id, action: "submit", response: { item: reference, answers } }), { status: "accepted" });
@@ -449,6 +450,13 @@ test("ask_user 把作答交回模型：选择交回选项名，填写原样交�
     isError: false,
     text: "用户已作答：\n- 导出结果要用哪种格式？ → Excel、其他：再附一份 CSV\n- 还有什么要求？ → 每个工作表一个 sheet\n保留公式",
   }]);
+  const details = { item: request.item, outcome: { action: "submit", response: { item: reference, answers } } };
+  assert.deepEqual(record((await ended).data)?.details, details);
+  const history = await client.call("session.history", { sessionId: session.id });
+  assert.deepEqual(record(history.find(entry => entry.type === "tool")?.data)?.details, details);
+  await client.call("space.close", {});
+  await client.call("space.open", { root: f.root });
+  assert.deepEqual(await client.call("session.history", { sessionId: session.id }), history);
   f.faux.setResponses([fauxAssistantMessage(fauxToolCall("ask_user", { questions: [{ question: "这一章写多少字？", input: "number" }] })), f.reply("那先看前两章")]);
   const asking = next(client, "ask.request");
   const second = client.call("session.send", { sessionId: session.id, text: "开始写第三章" });
@@ -532,4 +540,51 @@ test("关闭空间时在途询问以 closed 结束，前端收起卡片，工具
   const failure = f.state.failures.at(-1);
   assert.ok(failure instanceof Error && "code" in failure && failure.code === "ask_cancelled");
   assert.deepEqual("details" in failure ? failure.details : undefined, { reason: "closed" });
+});
+
+
+test("ask_user 只给含 $ 的提示和选项标记公式，缺少公式能力的界面仍能接收普通卡片", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const noMath = await f.connect({ interaction: { vocabulary: 1, supports: INTERACTION_CAPABILITIES.filter(capability => capability !== "markdown.math") } });
+  const full = await f.connect(FULL);
+  await full.call("space.open", { root: f.root });
+  const cases: JsonObject[] = [
+    { question: "继续吗？", options: [{ label: "是" }, { label: "否", description: "稍后再说" }] },
+    { question: "求 $x^2$", options: [{ label: "平方" }, { label: "不确定" }] },
+    { question: "选出公式", options: [{ label: "$x^2$" }, { label: "不确定" }] },
+    { question: "选出解释", options: [{ label: "平方", description: "$x^2$" }, { label: "不确定" }] },
+  ];
+  for (const [index, question] of cases.entries()) {
+    for (const client of [noMath, full]) {
+      const session = await client.call("session.create", {});
+      const requests: NotificationParams<"ask.request">[] = [];
+      const stop = client.on("ask.request", request => { requests.push(request); });
+      f.faux.setResponses([fauxAssistantMessage(fauxToolCall("ask_user", { questions: [question] })), f.reply("收到")]);
+      const supported = client === full || index === 0;
+      const asked = supported ? next(client, "ask.request") : undefined;
+      const running = client.call("session.send", { sessionId: session.id, text: "提问" });
+      if (asked !== undefined) {
+        const request = await asked;
+        assert.equal(request.item.requires.includes("markdown.math"), index !== 0);
+        const slot = request.item.slots[0];
+        assert(slot?.type === "choice");
+        const blocks = [...(slot.prompt ?? []), ...slot.options.flatMap(option => option.content ?? [])];
+        for (const block of blocks) {
+          assert.equal(block.type, "markdown");
+          if (block.type === "markdown") {
+            assert.equal(block.math, block.text.includes("$") ? true : undefined);
+            assert.equal(Object.hasOwn(block, "math"), block.text.includes("$"));
+          }
+        }
+        await client.call("ask.reply", { id: request.id, action: "cancel" });
+      }
+      await running;
+      stop();
+      assert.equal(requests.length, supported ? 1 : 0);
+      const history = await client.call("session.history", { sessionId: session.id });
+      const details = record(record(history.find(entry => entry.type === "tool")?.data)?.details);
+      assert.equal(record(details?.outcome)?.action, supported ? "cancel" : "unsupported");
+      assert.equal(Value.Check(ItemSchema, details?.item), true);
+    }
+  }
 });
