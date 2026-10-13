@@ -292,7 +292,8 @@ Agent 相关的约定：
 - `agent.list` 返回当前可用的 Agent：`{ id, description?, direct }`。关掉的通用 Agent 不在其中；`direct` 为 `true` 的才能直接对话。
 - `session.create` 接受 `agent`，省略时为 `general`；`SessionInfo` 带 `agent`，改动前的旧会话为 `general`。会话的 Agent 之后不能更换，`session.fork` 沿用原 Agent。
 - `session.create/send/steer/followUp/fork` 只对可直接对话的 Agent 开放；`session.history/abort` 对所有会话开放，前端可以查看并取消后台任务和子 Agent。`prompt.list/preview` 接受 `agent`，省略时为 `general`。
-- 子 Agent 的会话同样出现在 `session.list` 中，其 `runStart` 事件的 `data` 为 `{ parentRunId, parentSessionId }`；父会话中 `subagent` 工具的结果就是子 Agent 的最后回复。
+- 子 Agent 的会话同样出现在 `session.list` 中，`SessionInfo.parent` 为 `{ sessionId, runId, callId }`，分别指向父会话、父运行和父运行的 `subagent` 工具调用；用户会话省略 `parent`，前端据此筛选列表。子会话的 `runStart` 也带同一份顶层 `parent`，原有 `data: { parentRunId, parentSessionId }` 保留。父会话中 `subagent` 的结果是子 Agent 的最后回复，`details` 带子会话的 `sessionId`、`runId` 和 `agent`。
+- 父关联保存在会话目录的 `<sessionId>.parent.json`，读取关联不需要加载对话记录。它与 Pi header 的 `parentSession`（fork 来源）独立；fork 使用新 id，不继承子 Agent 身份。旧会话没有关联文件时省略 `parent`。
 - `history.undoRun` 接受 `{ runId }`，runId 来自 `runStart` 事件或会话中的 `run` 条目；撤回这个运行及其全部子孙运行的写入，返回与 `history.undo` 相同的 `{ revision, restored, conflicts }`，冲突按文件判断。这个运行及其子孙运行没有写过文件时返回 `nothing_to_undo`；带命令行的运行总有一条整体快照的提交，撤回它不会得到这个错误码。`history.undo` 的修订不存在时返回 `revision_not_found`，`history.changes` 的 `since` 不存在时也是。
 - 关掉的 Agent 和已卸载插件的 Agent，其旧会话仍在 `session.list` 中，`session.history` 照常可读，`session.abort` 没有可取消的工作；发消息、分支、压缩和换模型返回 `agent_not_found`。
 
