@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -118,9 +118,10 @@ test("两个 CLI 进程争用同一空间，持锁进程退出后另一个进程
   const f = await fixture(t);
   const space = path.join(f.root, "space");
   await mkdir(space);
+  const canonical = await realpath(space);
   const first = await f.start("first-home");
   const second = await f.start("second-home");
-  assert.deepEqual(await first.client.call("space.open", { root: space }), { root: space });
+  assert.deepEqual(await first.client.call("space.open", { root: space }), { root: canonical });
   await assert.rejects(second.client.call("space.open", { root: space }), (error: unknown) => {
     assert.ok(error instanceof RpcError);
     assert.equal(record(error.data)?.code, "space_locked");
@@ -128,7 +129,7 @@ test("两个 CLI 进程争用同一空间，持锁进程退出后另一个进程
   });
   const exit = await stop(first.cli);
   assert.deepEqual(exit, { code: 0, signal: null });
-  assert.deepEqual(await second.client.call("space.open", { root: space }), { root: space });
+  assert.deepEqual(await second.client.call("space.open", { root: space }), { root: canonical });
   await second.client.call("space.close", {});
 });
 

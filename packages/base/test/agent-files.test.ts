@@ -12,14 +12,20 @@ import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
 import type { Confirmation } from "../src/schema.js";
-import { createSpace } from "../src/space.js";
+import { createSpace, openSpace } from "../src/space.js";
 
 // 用真实空间打开：.repa/ 里的锁、历史库和 .ignore 都由空间宿主放好，搜索工具面对的就是实际布局。
 // approve 是用户对确认的回答，确认请求记在 confirmations 里。
-async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, approve = false) {
+async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, approve = false, linkedRoot = false) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-files-"));
   const outside = await mkdtemp(path.join(os.tmpdir(), "repa-agent-outside-"));
-  const host = await createSpace(path.join(directory, "space"), { watch: false });
+  const inputRoot = path.join(directory, "space");
+  if (linkedRoot) {
+    const target = path.join(directory, "real-space");
+    await mkdir(target);
+    await symlink(target, inputRoot, "junction");
+  }
+  const host = await createSpace(inputRoot, { watch: linkedRoot });
   const root = host.root;
   const agentDir = path.join(root, ".repa", "test-agent");
   await mkdir(agentDir, { recursive: true });
@@ -48,6 +54,7 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, a
     overrides: async () => ({ app: {}, space: {} }),
     commandPolicy: () => "ask",
     record: async (_id, action) => action(),
+    writes: host.writes,
     onEvent: () => undefined,
     confirm: async request => {
       confirmations.push(request);
@@ -55,7 +62,7 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, a
     },
     ...extra,
   });
-  return { root, outside: await realpath(outside), faux, space, confirmations };
+  return { root, inputRoot, host, runtime, outside: await realpath(outside), faux, space, confirmations };
 }
 
 function toolResults(session: AgentSession) {
@@ -299,7 +306,14 @@ test("通用 Agent 从空间根目录用 Pi 的 grep 和 find 搜索时，也不
 
 test("插件 Agent 访问大小写不同的 .REPA 同样被拒绝，列目录也不显示它", async t => {
   const f = await fixture(t, { agents: () => [writer] });
-  await mkdir(path.join(f.root, ".REPA"));
+  const upper = path.join(f.root, ".REPA");
+  const canonical = await realpath(upper).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  // 大小写不敏感时复用已有 .repa，仍然验证混合大小写的访问与目录隐藏。
+  if (canonical === undefined) await mkdir(upper);
+  else assert.equal(canonical, path.join(f.root, ".repa"));
   await writeFile(path.join(f.root, ".REPA", "notes.txt"), "大小写不同的数据目录");
   const session = await f.space.create({ agent: "writer" });
   f.faux.setResponses([
@@ -331,4 +345,60 @@ test("插件 Agent 的 find 不需要 fd：PATH 里没有 fd、Pi 也不能下�
     env: { PATH: empty, HOME: directory, PI_OFFLINE: "1", PI_CODING_AGENT_DIR: path.join(directory, "pi-agent") },
   });
   assert.deepEqual(JSON.parse(stdout), { text: "lessons/one.md", isError: false });
+});
+
+test("通过符号链接打开空间时，Agent 文件范围、历史、会话路径和 watcher 使用同一根目录", { timeout: 30000 }, async t => {
+  const f = await fixture(t, { agents: () => [writer] }, false, true);
+  assert.equal(f.root, await realpath(f.inputRoot));
+  assert.notEqual(f.root, f.inputRoot);
+  const session = await f.space.create({ agent: "writer" });
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("write", { path: "lessons/one.md", content: "符号链接空间里的原文\r\n" }),
+      fauxToolCall("read", { path: ".repa/lock" }),
+      fauxToolCall("write", { path: path.join(f.outside, "escape.txt"), content: "不能越界" }),
+    ]),
+    fauxAssistantMessage("完成"),
+  ]);
+  await session.send("写第一课");
+  assert.deepEqual(toolResults(session).map(result => [result.tool, result.isError]), [["write", false], ["read", true], ["write", true]]);
+  assert.equal(await readFile(path.join(f.inputRoot, "lessons", "one.md"), "utf8"), "符号链接空间里的原文\r\n");
+  const run = session.history().find(entry => entry.type === "run")?.data;
+  assert(run !== null && typeof run === "object" && "runId" in run && typeof run.runId === "string");
+  const feed = await f.host.history.changes();
+  assert.deepEqual(feed.revisions.filter(revision => revision.source.kind === "agent").map(revision => ({ source: revision.source, paths: revision.changes.map(change => change.path) })), [
+    { source: { kind: "agent", runId: run.runId }, paths: ["lessons/one.md"] },
+  ]);
+  assert.equal((await f.space.list()).some(info => info.id === session.info().id), true);
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const file = SessionManager.findById(f.root, session.info().id, f.host.sessionsDir);
+  assert(file);
+  assert.equal(await realpath(path.dirname(file)), path.join(f.root, ".repa", "sessions"));
+  assert.equal(SessionManager.open(file, f.host.sessionsDir).getCwd(), f.root);
+  const changed = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("等待符号链接空间的 watcher 超时")), 5000);
+    const stop = f.host.onRevision(revision => {
+      if (revision.source.kind === "external") {
+        clearTimeout(timer);
+        stop();
+        resolve();
+      }
+    });
+    t.after(() => { clearTimeout(timer); stop(); });
+  });
+  await writeFile(path.join(f.inputRoot, "external.txt"), "经别名路径外部编辑");
+  await changed;
+  const watched = await f.host.history.changes();
+  assert.deepEqual(watched.revisions.filter(revision => revision.source.kind === "external").flatMap(revision => revision.changes.map(change => change.path)), ["external.txt"]);
+  await f.runtime.close();
+  await f.host.close();
+  const reopened = await openSpace(f.inputRoot, { watch: false });
+  try {
+    assert.equal(reopened.root, f.root);
+    assert.equal(reopened.sessionsDir, f.host.sessionsDir);
+    assert.deepEqual((await reopened.history.undoRun(run.runId)).restored, ["lessons/one.md"]);
+    assert.equal(await reopened.files.read("external.txt"), "经别名路径外部编辑");
+  } finally {
+    await reopened.close();
+  }
 });
