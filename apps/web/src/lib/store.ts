@@ -272,7 +272,8 @@ export function createAppStore() {
       providers: () => load("providers", () => call("model.providers", {})),
       models: () => load("models", () => call("model.list", {})),
       defaultModel: () => load("defaultModel", () => call("model.getDefault", {})),
-      sessions: () => load("sessions", () => call("session.list", {})),
+      // 子 Agent 的会话带 parent，用户不能直接对话，不列出也不自动打开。
+      sessions: () => load("sessions", async () => (await call("session.list", {})).filter((session) => session.parent === undefined)),
       commandPolicy: () => load("commandPolicy", async () => (await call("settings.get", {})).commandPolicy),
       history: () => load("history", readHistory),
       prompts: () => load("prompts", async () => {

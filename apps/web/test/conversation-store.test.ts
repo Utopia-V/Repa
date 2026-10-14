@@ -99,6 +99,17 @@ it("进入空间时打开最近有消息的会话，而不是最近建立的", a
   expect(store.getState().resources.sessions.data?.map((session) => session.id)).toEqual(["old", "new"]);
 });
 
+it("子 Agent 的会话不进会话列表，比用户的会话更新也不会被打开", async () => {
+  const backend = sessionBackend([
+    { id: "mine", createdAt: at, updatedAt: "2026-10-12T00:00:00.000Z", agent: "general" },
+    { id: "child", createdAt: at, updatedAt: "2026-10-12T01:00:00.000Z", agent: "general", preview: "整理笔记", parent: { sessionId: "mine", runId: "r1", callId: "c1" } },
+  ]);
+  const store = await openedStore(backend);
+
+  expect(store.getState().conversation.sessionId).toBe("mine");
+  expect(store.getState().resources.sessions.data?.map((session) => session.id)).toEqual(["mine"]);
+});
+
 it("空间里没有会话时第一次发送才建立；运行中按事件显示，结束后换成会话记录", async () => {
   const backend = sessionBackend();
   const store = await openedStore(backend);
