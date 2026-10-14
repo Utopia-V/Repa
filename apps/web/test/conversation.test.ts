@@ -35,6 +35,36 @@ it("会话记录转成显示项：工具结果按调用配对，错误和停止�
   ]);
 });
 
+it("ask_user 的结果带着提问和结局，读不懂的结局或别的工具不带", () => {
+  const item = {
+    id: "ask:1",
+    version: `sha256:${"0".repeat(64)}`,
+    requires: ["block.markdown", "slot.text"],
+    body: [],
+    // 新版本词汇多出来的字段宽松读取时丢掉。
+    slots: [{ id: "q1", type: "text", prompt: [{ type: "markdown", text: "每天多少分钟？" }], future: true }],
+  };
+  const response = { item: { id: "ask:1", version: item.version }, answers: { q1: { type: "text", text: "40" } } };
+  const calls = ["c1", "c2", "c3", "c4"].map((id) => ({ id, name: "ask_user", input: {} }));
+  const entries: SessionEntry[] = [
+    { id: "a1", type: "assistant", timestamp: at, text: "", data: { stopReason: "toolUse", calls: [...calls, { id: "c5", name: "read", input: {} }] } },
+    { id: "t1", type: "tool", timestamp: at, text: "用户已作答", data: { callId: "c1", tool: "ask_user", isError: false, details: { item, outcome: { action: "submit", response } } } },
+    { id: "t2", type: "tool", timestamp: at, text: "留言", data: { callId: "c2", tool: "ask_user", isError: false, details: { item, outcome: { action: "decline", message: "先不安排" } } } },
+    { id: "t3", type: "tool", timestamp: at, text: "?", data: { callId: "c3", tool: "ask_user", isError: false, details: { item, outcome: { action: "later" } } } },
+    { id: "t4", type: "tool", timestamp: at, text: "中止", data: { callId: "c4", tool: "ask_user", isError: true } },
+    { id: "t5", type: "tool", timestamp: at, text: "内容", data: { callId: "c5", tool: "read", isError: false, details: { item, outcome: { action: "cancel" } } } },
+  ];
+
+  const readable = { ...item, slots: [{ id: "q1", type: "text", prompt: [{ type: "markdown", text: "每天多少分钟？" }] }] };
+  expect(historyItems(entries)).toEqual([
+    { kind: "tool", id: "c1", tool: "ask_user", status: "done", ask: { item: readable, outcome: { action: "submit", response } } },
+    { kind: "tool", id: "c2", tool: "ask_user", status: "done", ask: { item: readable, outcome: { action: "decline", message: "先不安排" } } },
+    { kind: "tool", id: "c3", tool: "ask_user", status: "done" },
+    { kind: "tool", id: "c4", tool: "ask_user", status: "failed" },
+    { kind: "tool", id: "c5", tool: "read", status: "done" },
+  ]);
+});
+
 it("压缩条目留下一个标记、不显示摘要，压缩前的消息照常显示", () => {
   const entries: SessionEntry[] = [
     { id: "u1", type: "user", timestamp: at, text: "什么是极限" },

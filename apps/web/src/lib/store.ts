@@ -95,12 +95,12 @@ export type LoginState = {
 
 /**
  * 对话里 Agent 或插件发来的询问。结束后留在原处显示作答和后端附的说明，换会话或空间时清掉；
- * 重新读取会话后只剩工具调用那一行。
+ * 重新读取会话后，ask_user 的提问按会话记录显示（见 restoredAsk），其他询问只剩工具调用那一行。
  */
 export type Ask = {
   request: AskRequest;
-  /** 结束原因；disconnected 表示连接断开，后端已经结束询问，不再通知。 */
-  closed?: AskClosed["reason"] | "disconnected" | undefined;
+  /** 结束原因；disconnected 表示连接断开，后端已经结束询问，不再通知；unsupported 只出现在会话记录里，界面没能显示这张卡片。 */
+  closed?: AskClosed["reason"] | "disconnected" | "unsupported" | undefined;
   submitting: boolean;
   /** 上一次提交被退回的原因，改好可以再交。 */
   problems: Problem[];

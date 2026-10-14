@@ -183,6 +183,7 @@ const endedText = {
   aborted: "提问已结束：运行停止了",
   closed: "提问已结束：空间关闭了",
   disconnected: "提问已结束：连接中断了",
+  unsupported: "这次提问没能在界面上显示",
   answered: "提问已结束",
 } as const;
 

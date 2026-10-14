@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
-import type { AskRequest, AskSubmitResult, Item } from "@repa/base/protocol";
+import type { AskRequest, AskSubmitResult, Item, SessionEntry } from "@repa/base/protocol";
 
 import { StoreProvider } from "../src/hooks/use-app-store";
 import { createAppStore } from "../src/lib/store";
@@ -38,7 +38,12 @@ function request(overrides: Partial<AskRequest> = {}): AskRequest {
   return { id: "a1", origin: { kind: "agent", sessionId: "s1", callId: "c1" }, item, ...overrides };
 }
 
-function backend(replies: (AskSubmitResult | Error)[] = []) {
+const askHistory: SessionEntry[] = [
+  { id: "u1", type: "user", timestamp: at, text: "帮我安排复习" },
+  { id: "m1", type: "assistant", timestamp: at, text: "先问两件事。", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "ask_user" }] } },
+];
+
+function backend(replies: (AskSubmitResult | Error)[] = [], history: SessionEntry[] = askHistory) {
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
     switch (method) {
       case "space.open":
@@ -48,10 +53,7 @@ function backend(replies: (AskSubmitResult | Error)[] = []) {
       case "session.list":
         return Promise.resolve([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
       case "session.history":
-        return Promise.resolve([
-          { id: "u1", type: "user", timestamp: at, text: "帮我安排复习" },
-          { id: "m1", type: "assistant", timestamp: at, text: "先问两件事。", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "ask_user" }] } },
-        ]);
+        return Promise.resolve(history);
       case "model.getDefault":
         return Promise.resolve({ provider: "test", id: "m" });
       case "model.list":
@@ -202,4 +204,30 @@ it("多选题的题面已经写了可多选时不再重复提示", async () => {
   // 只有第二问加提示；第一问的名称里只有模型写的那一次。
   expect(screen.getAllByText("（可多选）")).toHaveLength(1);
   expect(screen.getByRole("group", { name: /^1\.\s*你偏好哪种复习方式\?\(可多选\)$/u })).toBeTruthy();
+});
+
+it("重新读取会话后按记录显示提问：答过的问题和回答、回的一句话、关闭；运行期间的卡片不重复", async () => {
+  const response = { item: { id: "ask:1", version }, answers: { q1: { type: "choice" as const, selected: ["o2"] }, q2: { type: "text" as const, text: "30" } } };
+  const tool = (callId: string, outcome: unknown) => ({ id: `t-${callId}`, type: "tool" as const, timestamp: at, text: "", data: { callId, tool: "ask_user", isError: false, details: { item, outcome } } });
+  const fake = backend([], [
+    { id: "u1", type: "user", timestamp: at, text: "帮我安排复习" },
+    { id: "m1", type: "assistant", timestamp: at, text: "先问两件事。", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "ask_user" }, { id: "c2", name: "ask_user" }, { id: "c3", name: "ask_user" }] } },
+    tool("c1", { action: "submit", response }),
+    tool("c2", { action: "decline", message: "这周先不安排了" }),
+    tool("c3", { action: "cancel" }),
+  ]);
+  await renderPage(fake);
+
+  const answered = screen.getByRole("region", { name: "你回答了 Agent 的提问" });
+  expect(within(answered).getByText("导数")).toBeTruthy();
+  expect(within(answered).getByText("30")).toBeTruthy();
+  const declined = screen.getByRole("region", { name: "你没有按卡片作答，回了一句话" });
+  expect(within(declined).getByText("这周先不安排了")).toBeTruthy();
+  expect(screen.getByText("你关闭了这次提问")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "提交" })).toBeNull();
+
+  // 同一次调用还有运行期间的卡片时只显示那一张。
+  act(() => fake.emit("ask.request", request({ id: "live", origin: { kind: "agent", sessionId: "s1", callId: "c3" } })));
+  expect(screen.queryByText("你关闭了这次提问")).toBeNull();
+  expect(screen.getByRole("region", { name: "Agent 想问你" })).toBeTruthy();
 });
