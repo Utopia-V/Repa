@@ -5,8 +5,8 @@ import {
   canRender,
   type AskClosed,
   type AskRequest,
+  type Block,
   type Confirmation,
-  type Feedback,
   type ItemResponse,
   type Method,
   type ModelRef,
@@ -94,7 +94,7 @@ export type LoginState = {
 };
 
 /**
- * 对话里 Agent 或插件发来的询问。结束后留在原处显示作答和反馈，换会话或空间时清掉；
+ * 对话里 Agent 或插件发来的询问。结束后留在原处显示作答和后端附的说明，换会话或空间时清掉；
  * 重新读取会话后只剩工具调用那一行。
  */
 export type Ask = {
@@ -108,7 +108,8 @@ export type Ask = {
   response?: ItemResponse | undefined;
   /** 没有按卡片作答，在输入框里回的话。 */
   declined?: string | undefined;
-  feedback?: Feedback | undefined;
+  /** 后端接受作答时附的内容块，例如“已记下本周打卡”。 */
+  message?: Block[] | undefined;
   /** 提交或关闭没有送达的错误。 */
   error?: unknown;
 };
@@ -681,9 +682,9 @@ export function createAppStore() {
         updateAsk(id, { submitting: true, problems: [], error: undefined });
         try {
           const result = await call("ask.reply", { id, action: "submit", response });
-          if (result?.status === "rejected") updateAsk(id, { problems: result.problems });
+          if (result?.status === "invalid") updateAsk(id, { problems: result.problems });
           // ask.closed 在结果之前到达；没收到时也按已作答收起。
-          else updateAsk(id, { response, feedback: result?.feedback, closed: get().asks.find((ask) => ask.request.id === id)?.closed ?? "answered" });
+          else updateAsk(id, { response, message: result?.message, closed: get().asks.find((ask) => ask.request.id === id)?.closed ?? "answered" });
         } catch (error) {
           updateAsk(id, { error });
         } finally {
