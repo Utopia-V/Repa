@@ -14,6 +14,7 @@ import { ConversationModelDialog } from "@/features/model-picker";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { ConversationItem } from "@/lib/conversation";
 import type { Ask } from "@/lib/store";
+import { restoredAsk } from "@/lib/ask";
 import { errorCode } from "@/lib/errors";
 import { folderName } from "@/lib/paths";
 import { cn } from "@/lib/utils";
@@ -171,7 +172,10 @@ function Conversation({ space }: { space: string }) {
             onFork={item.kind === "assistant" && item.forkable ? () => { void fork(item.id); } : undefined}
             forkDisabled={running || forking || !connected}
           />
-          {item.kind === "tool" && asksAt(item.id).map(askCard)}
+          {/* 运行期间的卡片优先；重新读取会话后没有了，按记录里保存的提问显示。 */}
+          {item.kind === "tool" && (asksAt(item.id).length > 0
+            ? asksAt(item.id).map(askCard)
+            : item.ask && askCard(restoredAsk(item.id, item.ask)))}
         </Fragment>)}
         {unplaced.map(askCard)}
         {/* 等待作答时卡片本身就是状态，不再显示“正在处理”。 */}

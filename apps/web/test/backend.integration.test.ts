@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "vite";
@@ -7,7 +7,8 @@ import { RepaClient } from "@repa/base/client";
 import { expect, it } from "vitest";
 
 it("Web 开发宿主交付新底座连接，关闭宿主后连接中断", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-web-integration-"));
+  // 后端返回解析后的真实路径；macOS 的临时目录在 /var 下，实际位于 /private/var。
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-web-integration-")));
   const oldHome = process.env.REPA_HOME;
   process.env.REPA_HOME = directory;
   const server = await createServer({ server: { port: 0 } });

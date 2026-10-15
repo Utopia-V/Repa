@@ -1,6 +1,16 @@
-import type { AgentEvent, ModelRef, SessionEntry } from "@repa/base/protocol";
+import { ItemResponseSchema, readItem, readLenient, type AgentEvent, type Item, type ItemResponse, type ModelRef, type SessionEntry } from "@repa/base/protocol";
 
 export type ToolStatus = "running" | "done" | "failed" | "incomplete";
+
+/** 会话记录里保存的一次 ask_user 提问：问了什么，以及怎样结束的。 */
+export type PastAsk = {
+  item: Item;
+  outcome:
+    | { action: "submit"; response: ItemResponse }
+    | { action: "decline"; message?: string }
+    | { action: "cancel" }
+    | { action: "unsupported" };
+};
 
 /** 对话页显示的一项。提示、view、用量等运行细节不显示；压缩只留一个标记，摘要本身不显示。 */
 export type ConversationItem =
@@ -10,7 +20,11 @@ export type ConversationItem =
     /** 会话记录里结束一轮回答的消息可以作为分叉点，这时 id 是记录条目的 id；实时拼出的消息没有。 */
     forkable?: true;
   }
-  | { kind: "tool"; id: string; tool: string; status: ToolStatus }
+  | {
+    kind: "tool"; id: string; tool: string; status: ToolStatus;
+    /** 会话记录里 ask_user 的结果带着完整的提问，重新读取后据此显示卡片。 */
+    ask?: PastAsk;
+  }
   | { kind: "error"; id: string; text: string }
   | { kind: "stopped"; id: string }
   | { kind: "compaction"; id: string };
@@ -62,6 +76,24 @@ function toolCalls(data: unknown): { id: string; name: string }[] {
   });
 }
 
+/** ask_user 结果的 details：Item 按词汇宽松读取，读不懂的部分不显示卡片。 */
+function pastAsk(details: unknown): PastAsk | undefined {
+  const item = readItem(field(details, "item"));
+  const outcome = field(details, "outcome");
+  if (!item.ok) return undefined;
+  const action = field(outcome, "action");
+  if (action === "submit") {
+    const response = readLenient<ItemResponse>(ItemResponseSchema, field(outcome, "response"));
+    return response.ok ? { item: item.value, outcome: { action, response: response.value } } : undefined;
+  }
+  if (action === "decline") {
+    const message = text(outcome, "message");
+    return { item: item.value, outcome: message === undefined ? { action } : { action, message } };
+  }
+  if (action === "cancel" || action === "unsupported") return { item: item.value, outcome: { action } };
+  return undefined;
+}
+
 /** 把会话记录转成显示项。记录是运行结束后的事实，实时拼出的内容以它为准。 */
 export function historyItems(entries: SessionEntry[]): ConversationItem[] {
   const items: ConversationItem[] = [];
@@ -88,7 +120,11 @@ export function historyItems(entries: SessionEntry[]): ConversationItem[] {
     } else if (entry.type === "tool") {
       const callId = text(entry.data, "callId");
       const item = callId ? tools.get(callId) : undefined;
-      if (item) item.status = field(entry.data, "isError") === true ? "failed" : "done";
+      if (item) {
+        item.status = field(entry.data, "isError") === true ? "failed" : "done";
+        const ask = item.tool === "ask_user" ? pastAsk(field(entry.data, "details")) : undefined;
+        if (ask) item.ask = ask;
+      }
     } else if (entry.type === "compaction") {
       // 之前的记录仍然显示，标记说明 Agent 从这里起看到的是较早对话的摘要。
       items.push({ kind: "compaction", id: entry.id });

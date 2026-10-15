@@ -5,8 +5,8 @@ import {
   canRender,
   type AskClosed,
   type AskRequest,
+  type Block,
   type Confirmation,
-  type Feedback,
   type ItemResponse,
   type Method,
   type ModelRef,
@@ -94,13 +94,13 @@ export type LoginState = {
 };
 
 /**
- * 对话里 Agent 或插件发来的询问。结束后留在原处显示作答和反馈，换会话或空间时清掉；
- * 重新读取会话后只剩工具调用那一行。
+ * 对话里 Agent 或插件发来的询问。结束后留在原处显示作答和后端附的说明，换会话或空间时清掉；
+ * 重新读取会话后，ask_user 的提问按会话记录显示（见 restoredAsk），其他询问只剩工具调用那一行。
  */
 export type Ask = {
   request: AskRequest;
-  /** 结束原因；disconnected 表示连接断开，后端已经结束询问，不再通知。 */
-  closed?: AskClosed["reason"] | "disconnected" | undefined;
+  /** 结束原因；disconnected 表示连接断开，后端已经结束询问，不再通知；unsupported 只出现在会话记录里，界面没能显示这张卡片。 */
+  closed?: AskClosed["reason"] | "disconnected" | "unsupported" | undefined;
   submitting: boolean;
   /** 上一次提交被退回的原因，改好可以再交。 */
   problems: Problem[];
@@ -108,7 +108,8 @@ export type Ask = {
   response?: ItemResponse | undefined;
   /** 没有按卡片作答，在输入框里回的话。 */
   declined?: string | undefined;
-  feedback?: Feedback | undefined;
+  /** 后端接受作答时附的内容块，例如“已记下本周打卡”。 */
+  message?: Block[] | undefined;
   /** 提交或关闭没有送达的错误。 */
   error?: unknown;
 };
@@ -271,7 +272,8 @@ export function createAppStore() {
       providers: () => load("providers", () => call("model.providers", {})),
       models: () => load("models", () => call("model.list", {})),
       defaultModel: () => load("defaultModel", () => call("model.getDefault", {})),
-      sessions: () => load("sessions", () => call("session.list", {})),
+      // 子 Agent 的会话带 parent，用户不能直接对话，不列出也不自动打开。
+      sessions: () => load("sessions", async () => (await call("session.list", {})).filter((session) => session.parent === undefined)),
       commandPolicy: () => load("commandPolicy", async () => (await call("settings.get", {})).commandPolicy),
       history: () => load("history", readHistory),
       prompts: () => load("prompts", async () => {
@@ -681,9 +683,9 @@ export function createAppStore() {
         updateAsk(id, { submitting: true, problems: [], error: undefined });
         try {
           const result = await call("ask.reply", { id, action: "submit", response });
-          if (result?.status === "rejected") updateAsk(id, { problems: result.problems });
+          if (result?.status === "invalid") updateAsk(id, { problems: result.problems });
           // ask.closed 在结果之前到达；没收到时也按已作答收起。
-          else updateAsk(id, { response, feedback: result?.feedback, closed: get().asks.find((ask) => ask.request.id === id)?.closed ?? "answered" });
+          else updateAsk(id, { response, message: result?.message, closed: get().asks.find((ask) => ask.request.id === id)?.closed ?? "answered" });
         } catch (error) {
           updateAsk(id, { error });
         } finally {

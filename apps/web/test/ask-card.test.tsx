@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
-import type { AskRequest, Item, SubmitResult } from "@repa/base/protocol";
+import type { AskRequest, AskSubmitResult, Item, SessionEntry } from "@repa/base/protocol";
 
 import { StoreProvider } from "../src/hooks/use-app-store";
 import { createAppStore } from "../src/lib/store";
@@ -35,10 +35,15 @@ const item: Item = {
 };
 
 function request(overrides: Partial<AskRequest> = {}): AskRequest {
-  return { id: "a1", origin: { kind: "agent", sessionId: "s1", callId: "c1" }, purpose: "question", item, ...overrides };
+  return { id: "a1", origin: { kind: "agent", sessionId: "s1", callId: "c1" }, item, ...overrides };
 }
 
-function backend(replies: (SubmitResult | Error)[] = []) {
+const askHistory: SessionEntry[] = [
+  { id: "u1", type: "user", timestamp: at, text: "帮我安排复习" },
+  { id: "m1", type: "assistant", timestamp: at, text: "先问两件事。", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "ask_user" }] } },
+];
+
+function backend(replies: (AskSubmitResult | Error)[] = [], history: SessionEntry[] = askHistory) {
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
     switch (method) {
       case "space.open":
@@ -48,10 +53,7 @@ function backend(replies: (SubmitResult | Error)[] = []) {
       case "session.list":
         return Promise.resolve([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
       case "session.history":
-        return Promise.resolve([
-          { id: "u1", type: "user", timestamp: at, text: "帮我安排复习" },
-          { id: "m1", type: "assistant", timestamp: at, text: "先问两件事。", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "ask_user" }] } },
-        ]);
+        return Promise.resolve(history);
       case "model.getDefault":
         return Promise.resolve({ provider: "test", id: "m" });
       case "model.list":
@@ -59,7 +61,7 @@ function backend(replies: (SubmitResult | Error)[] = []) {
         return Promise.reject(new Error("未模拟"));
       case "ask.reply": {
         if (params.action !== "submit") return Promise.resolve(null);
-        const next = replies.shift() ?? { status: "recorded" };
+        const next = replies.shift() ?? { status: "accepted" };
         return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
       }
       default:
@@ -81,7 +83,7 @@ async function renderPage(fake: ReturnType<typeof backend>) {
 }
 
 it("卡片出现在发起它的工具调用下面，格式不对时问题标在小问下，改好后收起成问题和回答", async () => {
-  const fake = backend([{ status: "rejected", problems: [{ slot: "q2", message: "这一小问还没有作答" }] }]);
+  const fake = backend([{ status: "invalid", problems: [{ slot: "q2", message: "这一小问还没有作答" }] }]);
   await renderPage(fake);
   act(() => fake.emit("ask.request", request()));
 
@@ -120,25 +122,16 @@ it("卡片出现在发起它的工具调用下面，格式不对时问题标在�
   expect(screen.queryByRole("button", { name: "提交" })).toBeNull();
 });
 
-it("多选可以同时选几项和其他，判分反馈显示在回答下面", async () => {
-  const practice: Item = {
+it("多选可以同时选几项和其他，后端接受时附的说明显示在回答下面", async () => {
+  const multiple: Item = {
     ...item,
     slots: [{ ...item.slots[0], multiple: true } as Item["slots"][number]],
   };
-  const fake = backend([{
-    status: "recorded",
-    feedback: {
-      item: { id: "ask:1", version },
-      verdict: "partial",
-      judge: "model",
-      score: { earned: 1, max: 2 },
-      slots: { q1: { verdict: "partial", message: [{ type: "markdown", text: "还漏了导数" }] } },
-    },
-  }]);
+  const fake = backend([{ status: "accepted", message: [{ type: "markdown", text: "已记下这周的**复习安排**" }] }]);
   await renderPage(fake);
-  act(() => fake.emit("ask.request", request({ purpose: "practice", item: practice })));
+  act(() => fake.emit("ask.request", request({ item: multiple })));
 
-  const card = screen.getByRole("region", { name: "练习" });
+  const card = screen.getByRole("region", { name: "Agent 想问你" });
   const group = within(card).getByRole("group", { name: /这周想复习哪一章/ });
   fireEvent.click(within(group).getByRole("checkbox", { name: "导数" }));
   fireEvent.click(within(group).getByRole("checkbox", { name: "极限：第 1 章" }));
@@ -148,11 +141,9 @@ it("多选可以同时选几项和其他，判分反馈显示在回答下面", a
   await vi.waitFor(() => expect(fake.call).toHaveBeenCalledWith("ask.reply", expect.objectContaining({
     response: { item: { id: "ask:1", version }, answers: { q1: { type: "choice", selected: ["o1", "o2"], other: "错题本" } } },
   })));
-  const answered = await screen.findByRole("region", { name: "你交了这道练习" });
+  const answered = await screen.findByRole("region", { name: "你回答了 Agent 的提问" });
   expect(within(answered).getByText("极限、导数、其他：错题本")).toBeTruthy();
-  expect(within(answered).getByText("部分正确 · 1 / 2")).toBeTruthy();
-  expect(within(answered).getByText("还漏了导数")).toBeTruthy();
-  expect(within(answered).getByText("由模型判分，仅供参考")).toBeTruthy();
+  expect(within(answered).getByText("复习安排").tagName).toBe("STRONG");
 });
 
 it("关闭提问告诉后端不作答；运行中止和断线时只留一行说明", async () => {
@@ -200,23 +191,6 @@ it("卡片开着时输入框里的话代替作答交回 Agent，卡片收起成�
   expect(input.getAttribute("placeholder")).toBe("问点什么，或者说说你想学什么");
 });
 
-it("练习可以说不会，提问卡片没有这个按钮", async () => {
-  const fake = backend();
-  await renderPage(fake);
-  act(() => fake.emit("ask.request", request()));
-  expect(screen.queryByRole("button", { name: "我不会" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "关闭提问" }));
-
-  act(() => fake.emit("ask.request", request({ id: "a2", purpose: "practice" })));
-  fireEvent.click(screen.getByRole("button", { name: "我不会" }));
-  await vi.waitFor(() => expect(fake.call).toHaveBeenCalledWith("ask.reply", {
-    id: "a2",
-    action: "submit",
-    response: { item: { id: "ask:1", version }, answers: {}, dontKnow: true },
-  }));
-  expect(await screen.findByText("你说这道题不会")).toBeTruthy();
-});
-
 it("多选题的题面已经写了可多选时不再重复提示", async () => {
   const fake = backend();
   await renderPage(fake);
@@ -230,4 +204,30 @@ it("多选题的题面已经写了可多选时不再重复提示", async () => {
   // 只有第二问加提示；第一问的名称里只有模型写的那一次。
   expect(screen.getAllByText("（可多选）")).toHaveLength(1);
   expect(screen.getByRole("group", { name: /^1\.\s*你偏好哪种复习方式\?\(可多选\)$/u })).toBeTruthy();
+});
+
+it("重新读取会话后按记录显示提问：答过的问题和回答、回的一句话、关闭；运行期间的卡片不重复", async () => {
+  const response = { item: { id: "ask:1", version }, answers: { q1: { type: "choice" as const, selected: ["o2"] }, q2: { type: "text" as const, text: "30" } } };
+  const tool = (callId: string, outcome: unknown) => ({ id: `t-${callId}`, type: "tool" as const, timestamp: at, text: "", data: { callId, tool: "ask_user", isError: false, details: { item, outcome } } });
+  const fake = backend([], [
+    { id: "u1", type: "user", timestamp: at, text: "帮我安排复习" },
+    { id: "m1", type: "assistant", timestamp: at, text: "先问两件事。", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "ask_user" }, { id: "c2", name: "ask_user" }, { id: "c3", name: "ask_user" }] } },
+    tool("c1", { action: "submit", response }),
+    tool("c2", { action: "decline", message: "这周先不安排了" }),
+    tool("c3", { action: "cancel" }),
+  ]);
+  await renderPage(fake);
+
+  const answered = screen.getByRole("region", { name: "你回答了 Agent 的提问" });
+  expect(within(answered).getByText("导数")).toBeTruthy();
+  expect(within(answered).getByText("30")).toBeTruthy();
+  const declined = screen.getByRole("region", { name: "你没有按卡片作答，回了一句话" });
+  expect(within(declined).getByText("这周先不安排了")).toBeTruthy();
+  expect(screen.getByText("你关闭了这次提问")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "提交" })).toBeNull();
+
+  // 同一次调用还有运行期间的卡片时只显示那一张。
+  act(() => fake.emit("ask.request", request({ id: "live", origin: { kind: "agent", sessionId: "s1", callId: "c3" } })));
+  expect(screen.queryByText("你关闭了这次提问")).toBeNull();
+  expect(screen.getByRole("region", { name: "Agent 想问你" })).toBeTruthy();
 });

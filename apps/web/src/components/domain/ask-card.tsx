@@ -1,6 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
-import { CircleAlert, CircleCheck, CircleHelp, CircleX, MessageCircle, PencilLine } from "lucide-react";
-import type { Answer, Block, Feedback, Item, ItemResponse, Problem } from "@repa/base/protocol";
+import { CircleAlert, CircleCheck, CircleHelp, CircleX, MessageCircle } from "lucide-react";
+import type { Answer, Block, Item, ItemResponse, Problem } from "@repa/base/protocol";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -178,64 +178,28 @@ function TextField({ slot, value, onChange, labelId, invalid, describedBy, disab
   </div>;
 }
 
-const verdictText: Record<Feedback["verdict"], string> = {
-  correct: "正确",
-  partial: "部分正确",
-  incorrect: "不正确",
-  ungraded: "未判分",
-  pending: "正在判分",
-};
-
-const criterionText = { yes: "做到了", no: "没做到", unsure: "不确定" } as const;
-
-/** 判分反馈：总评和分数、说明，以及每一问的判定、说明、参考答案和评分要点。 */
-function FeedbackView({ item, feedback }: { item: Item; feedback: Feedback }) {
-  const score = (value: { earned: number; max: number } | undefined) => value ? ` · ${value.earned} / ${value.max}` : "";
-  return <div className="grid gap-3 text-sm">
-    <p className="m-0 font-semibold">{verdictText[feedback.verdict]}{score(feedback.score)}</p>
-    <Content blocks={feedback.message} />
-    {item.slots.map((slot, index) => {
-      const result = feedback.slots?.[slot.id];
-      if (!result) return null;
-      return <div key={slot.id} className="grid gap-1">
-        <p className="m-0"><span className="text-muted-foreground">{slotName(slot, index)}：</span>{verdictText[result.verdict]}{score(result.score)}</p>
-        <Content blocks={result.message} />
-        {result.expected && <p className="m-0"><span className="text-muted-foreground">参考答案：</span>{answerText(slot, result.expected)}</p>}
-        {result.criteria && <ul className="m-0 grid list-none gap-1 p-0">
-          {result.criteria.map((criterion, position) => <li key={position} className="flex gap-2">
-            <span className="shrink-0 font-semibold">{criterionText[criterion.met]}</span>
-            <span>{criterion.label}{criterion.comment ? `：${criterion.comment}` : ""}</span>
-          </li>)}
-        </ul>}
-      </div>;
-    })}
-    {feedback.judge === "model" && <p className="m-0 text-muted-foreground">由模型判分，仅供参考</p>}
-  </div>;
-}
-
 const endedText = {
   cancelled: "你关闭了这次提问",
   aborted: "提问已结束：运行停止了",
   closed: "提问已结束：空间关闭了",
   disconnected: "提问已结束：连接中断了",
+  unsupported: "这次提问没能在界面上显示",
   answered: "提问已结束",
 } as const;
 
 /**
- * 对话里的一次询问。等待作答时是一张可以提交、关闭的卡片，练习还可以说“我不会”；交了以后收起成问题和回答，
- * 有判分时附上反馈；在输入框里回了一句话时显示这句话；其他方式结束时只留一行说明。
+ * 对话里的一次询问。等待作答时是一张可以提交、关闭的卡片；交了以后收起成问题和回答，
+ * 后端接受时附了说明就显示在下面；在输入框里回了一句话时显示这句话；其他方式结束时只留一行说明。
  */
 export function AskCard({ ask, onSubmit, onCancel }: {
   ask: Ask;
-  /** 作答；练习里点“我不会”时 answers 为空并带 dontKnow。 */
   onSubmit(response: ItemResponse): void;
   onCancel(): void;
 }) {
-  const { item, purpose } = ask.request;
+  const { item } = ask.request;
   const [draft, setDraft] = useState<Draft>(() => emptyDraft(item));
   const base = useId();
   const titleId = `${base}-title`;
-  const practice = purpose === "practice";
 
   if (ask.closed !== undefined) {
     if (ask.declined !== undefined) {
@@ -246,15 +210,10 @@ export function AskCard({ ask, onSubmit, onCancel }: {
         <p className="m-0 text-sm break-words whitespace-pre-wrap">{ask.declined}</p>
       </section>;
     }
-    if (ask.response?.dontKnow === true) {
-      return <p className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
-        <CircleCheck aria-hidden="true" className="size-4 shrink-0" />你说这道题不会
-      </p>;
-    }
     if (ask.response) {
       return <section aria-labelledby={titleId} className="mb-4 grid gap-3 rounded-md border border-border bg-card p-5 text-card-foreground">
         <h3 id={titleId} className="m-0 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-          <CircleCheck aria-hidden="true" className="size-4 shrink-0" />{practice ? "你交了这道练习" : "你回答了 Agent 的提问"}
+          <CircleCheck aria-hidden="true" className="size-4 shrink-0" />你回答了 Agent 的提问
         </h3>
         <dl className="m-0 grid gap-2 text-sm">
           {item.slots.map((slot, index) => <div key={slot.id} className="grid gap-0.5">
@@ -263,7 +222,7 @@ export function AskCard({ ask, onSubmit, onCancel }: {
             <dd className="m-0 break-words whitespace-pre-wrap">{answerText(slot, ask.response?.answers[slot.id])}</dd>
           </div>)}
         </dl>
-        {ask.feedback && <FeedbackView item={item} feedback={ask.feedback} />}
+        <Content blocks={ask.message} className="text-sm" />
       </section>;
     }
     const Icon = ask.closed === "cancelled" ? CircleX : CircleAlert;
@@ -275,12 +234,11 @@ export function AskCard({ ask, onSubmit, onCancel }: {
   const slotProblems = (id: string) => ask.problems.filter((problem) => problem.slot === id);
   const general = ask.problems.filter((problem) => problem.slot === undefined || !item.slots.some((slot) => slot.id === problem.slot));
   const numbered = item.slots.length > 1;
-  const TitleIcon = practice ? PencilLine : CircleHelp;
 
   return <section aria-labelledby={titleId} className="mb-4 grid gap-5 rounded-md border border-border-selected bg-card p-5 text-card-foreground">
     <div className="flex items-center justify-between gap-3">
       <h3 id={titleId} className="m-0 flex items-center gap-2 text-base font-semibold">
-        <TitleIcon aria-hidden="true" className="size-5 shrink-0 text-primary" />{item.title ?? (practice ? "练习" : "Agent 想问你")}
+        <CircleHelp aria-hidden="true" className="size-5 shrink-0 text-primary" />{item.title ?? "Agent 想问你"}
       </h3>
       <Button variant="ghost" size="icon" aria-label="关闭提问" title="关闭提问，不作答" onClick={onCancel}>
         <CircleX aria-hidden="true" />
@@ -316,12 +274,6 @@ export function AskCard({ ask, onSubmit, onCancel }: {
     {ask.error !== undefined && <ErrorNotice title="没能送出" error={ask.error} />}
     <p className="m-0 text-sm text-muted-foreground">不想按卡片答，也可以在下面的输入框里直接回一句。</p>
     <div className="flex flex-wrap items-center justify-end gap-3">
-      {practice && <Button
-        variant="ghost"
-        disabled={ask.submitting}
-        onClick={() => onSubmit({ item: { id: item.id, version: item.version }, answers: {}, dontKnow: true })}
-        className="mr-auto"
-      >我不会</Button>}
       <Button disabled={ask.submitting} onClick={() => onSubmit(buildResponse(item, draft))}>
         {ask.submitting ? "正在提交…" : "提交"}
       </Button>
