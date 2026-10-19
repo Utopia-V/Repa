@@ -70,7 +70,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     await directory(path.join(dataDir, "plugins"));
     await directory(path.join(dataDir, "history.git"));
     await ignoreDataDir(dataDir);
-    const raw = await openHistory(root);
+    const raw = await openHistory(root, { exclusive: true });
     // 不透明写入者（record）的窗口：动作结束时关上，此后仍在运行的异步工作按普通写入者处理。
     const activity = new AsyncLocalStorage<{ open: boolean }>();
     const owned = new AsyncLocalStorage<boolean>();

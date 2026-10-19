@@ -50,6 +50,24 @@ async function stat(file: string) {
   }
 }
 
+// 只有持有空间锁的宿主才能调用；不进入对象目录，也不沿符号链接清理其他位置。
+async function clearStaleLocks(gitDir: string): Promise<void> {
+  const names = ["index.lock", "HEAD.lock", "config.lock", "packed-refs.lock", "shallow.lock", "ORIG_HEAD.lock"];
+  for (const name of names) {
+    const file = path.join(gitDir, name);
+    if ((await stat(file))?.isFile()) await unlink(file);
+  }
+  async function refs(directory: string): Promise<void> {
+    if (!(await stat(directory))?.isDirectory()) return;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) await refs(file);
+      else if (entry.isFile() && entry.name.endsWith(".lock")) await unlink(file);
+    }
+  }
+  await refs(path.join(gitDir, "refs"));
+}
+
 function protectedPath(file: string): boolean {
   const parts = file.split("/");
   return parts[0] === ".repa" || parts.some((part) => part === ".git" || part === ".." || part === "." || part === "");
@@ -163,6 +181,7 @@ export class SpaceHistory {
       if (info && !info.isDirectory()) throw new Error(`历史目录必须是普通目录：${directory}`);
       await mkdir(directory, { recursive: true });
     }
+    if (options.exclusive) await clearStaleLocks(gitDir);
     if (!(await stat(path.join(gitDir, "config")))) {
       await history.git.run(["init", "--bare", "--object-format=sha1", "--initial-branch=history", gitDir]);
     }

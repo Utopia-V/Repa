@@ -46,7 +46,7 @@ test("按运行撤回连带全部子孙运行，每个文件回到它们第一�
   await f.write("user.md", "用户新建\n");
   await f.history.snapshot();
   await f.history.record(detail, async () => {
-    await execute("sh", ["-c", "rm shared.md"], { cwd: f.space });
+    await execute(process.execPath, ["-e", 'require("node:fs").unlinkSync("shared.md")'], { cwd: f.space });
   });
   const before = (await f.history.list(1))[0];
   assert.ok(before);
@@ -138,7 +138,7 @@ test("按运行撤回同时覆盖 record 与按路径提交，结果还能按修
   const run = { kind: "agent", runId: "mixed" } as const;
   await f.save(run, "draft.md", "按路径修改\n");
   await f.history.record(run, async () => {
-    await execute("sh", ["-c", 'printf "命令生成\\n" > generated.txt'], { cwd: f.space });
+    await execute(process.execPath, ["-e", 'require("node:fs").writeFileSync("generated.txt", "命令生成\\n")'], { cwd: f.space });
   });
   await f.history.record(run, async () => {});
   const undone = await f.history.undoRun("mixed");

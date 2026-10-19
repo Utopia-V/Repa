@@ -78,7 +78,7 @@ test("普通目录的已有内容进入基线，进程外增删由快照纳入�
   await f.write("old.txt", "启动时内容\n");
   const history = await openHistory(f.space);
   const baseline = await firstRevision(history);
-  await execute("sh", ["-c", 'printf "shell 写入\\n" > "shell.txt"; rm "old.txt"'], { cwd: f.space });
+  await execute(process.execPath, ["-e", 'const fs = require("node:fs"); fs.writeFileSync("shell.txt", "shell 写入\\n"); fs.unlinkSync("old.txt");'], { cwd: f.space });
   const snapshot = await history.snapshot();
   assert.equal(snapshot.committed, true);
   assert.notEqual(snapshot.revision, baseline.id);
@@ -415,29 +415,21 @@ test("已跟踪文件后来超限或被忽略，撤销不得删除仍在磁盘�
   assert.equal(await readFile(f.file("ignored.txt"), "utf8"), "后来用户保存的忽略内容\n");
 });
 
-test("原始 CRLF、二进制和换行文件名按字节恢复，符号链接不读取空间外内容", async (t) => {
+test("原始 CRLF 和二进制按字节恢复", async (t) => {
   const f = await fixture(t);
-  const filename = "行一\n行二.txt";
+  const filename = "原始字节.txt";
   const original = Buffer.from([0, 1, 13, 10, 255, 128]);
   await f.write(filename, original);
   await f.write("crlf.txt", "中文\r\n第二行\r\n");
-  const outside = path.join(f.root, "outside.txt");
-  await writeFile(outside, "空间外的秘密\n");
-  await symlink(outside, f.file("outside-link"));
   const history = await openHistory(f.space);
-  const baseline = await history.changesSince(null);
-  assert.ok(baseline.revisions.flatMap((revision) => revision.changes).some((change) => change.path === "outside-link"));
   const changed = await history.record({ kind: "agent", runId: "bytes" }, async () => {
     await f.write(filename, Buffer.from([42, 10]));
     await f.write("crlf.txt", "换成 LF\n");
-    await rm(f.file("outside-link"));
   });
   await history.undo(changed.snapshot.revision);
   assert.deepEqual(await readFile(f.file(filename)), original);
   assert.equal(await readFile(f.file("crlf.txt"), "utf8"), "中文\r\n第二行\r\n");
-  assert.ok((await lstat(f.file("outside-link"))).isSymbolicLink());
-  assert.equal(await readlink(f.file("outside-link")), outside);
-  assert.equal(await readFile(outside, "utf8"), "空间外的秘密\n");
+
 });
 
 test("运行前外部修改同一文件后再由运行覆盖，撤销回到外部版本而非旧基线", async (t) => {
@@ -521,7 +513,7 @@ test("撤销遇到父目录变为符号链接时报告冲突，不穿透链接�
   await mkdir(outside);
   await writeFile(path.join(outside, "content.txt"), "外部文件\n");
   await rm(f.file("notes"), { recursive: true });
-  await symlink(outside, f.file("notes"));
+  await symlink(outside, f.file("notes"), process.platform === "win32" ? "junction" : "dir");
   const undone = await history.undo(run.snapshot.revision);
   assert.deepEqual(undone.conflicts, ["notes/content.txt"]);
   assert.deepEqual(undone.restored, []);
@@ -572,8 +564,8 @@ test("用户 Git 配置及 attributes 不触发过滤器，也不把历史中的
   const f = await fixture(t);
   await git(f.space, "init", "--initial-branch=main");
   await git(f.space, "config", "core.autocrlf", "true");
-  await git(f.space, "config", "filter.history-test.clean", "sh -c 'printf triggered > filter-marker; cat'");
-  await git(f.space, "config", "filter.history-test.smudge", "sh -c 'printf triggered > filter-marker; cat'");
+  await git(f.space, "config", "filter.history-test.clean", `"${process.execPath.replaceAll("\\", "/")}" -e 'require("node:fs").writeFileSync("filter-marker", "triggered")'`);
+  await git(f.space, "config", "filter.history-test.smudge", `"${process.execPath.replaceAll("\\", "/")}" -e 'require("node:fs").writeFileSync("filter-marker", "triggered")'`);
   await git(f.space, "config", "filter.history-test.required", "true");
   await f.write(".gitattributes", "*.txt text eol=lf filter=history-test\n");
   const original = Buffer.from("中文\r\n原始第二行\r\n");
@@ -589,7 +581,7 @@ test("用户 Git 配置及 attributes 不触发过滤器，也不把历史中的
   await assert.rejects(readFile(f.file("filter-marker")), { code: "ENOENT" });
 });
 
-test("撤销保留现有文件的私有权限，恢复已删除文件时仅给予所有者权限", async (t) => {
+test("撤销保留现有文件的私有权限，恢复已删除文件时仅给予所有者权限", { skip: process.platform === "win32" ? "Windows 不支持 POSIX 权限位" : false }, async (t) => {
   const f = await fixture(t);
   await f.write("private.txt", "私有原内容\n");
   await f.write("deleted.txt", "被删除的私有内容\n");
@@ -640,13 +632,13 @@ test("整个空间目录搬家后历史仍可重开，原游标可追赶且原�
   await assert.rejects(readFile(path.join(relocated, "new.txt")), { code: "ENOENT" });
 });
 
-test("运行中的 shell 创建和删除进入运行来源，并可按该运行恢复", async (t) => {
+test("运行中的外部进程创建和删除进入运行来源，并可按该运行恢复", async (t) => {
   const f = await fixture(t);
   await f.write("removed.txt", "运行前保留内容\r\n");
   const history = await openHistory(f.space);
   const baseline = await firstRevision(history);
   const run = await history.record({ kind: "agent", runId: "shell-run" }, async () => {
-    await execute("sh", ["-c", 'mkdir -p shell; printf "运行 shell 创建\\n" > "shell/created.txt"; rm "removed.txt"'], { cwd: f.space });
+    await execute(process.execPath, ["-e", 'const fs = require("node:fs"); fs.mkdirSync("shell"); fs.writeFileSync("shell/created.txt", "运行 shell 创建\\n"); fs.unlinkSync("removed.txt");'], { cwd: f.space });
   });
   const caughtUp = await history.changesSince(baseline.id);
   assert.equal(caughtUp.revisions.length, 1);
@@ -750,4 +742,18 @@ test("全冲突撤销和空运行撤销也生成独立的 undo 来源提交", as
   assert.equal(emptyRevision.parent, emptyRun.snapshot.revision);
   assert.deepEqual(emptyRevision.source, { kind: "undo", revision: emptyRun.snapshot.revision });
   assert.deepEqual((await history.changesSince(emptyRun.snapshot.revision)).revisions[0]?.changes, []);
+});
+
+// Windows 文件符号链接需要管理员或开发者模式，普通写作者环境不要求具备。
+test("符号链接不读取空间外内容，撤回仍恢复链接本身", { skip: process.platform === "win32" ? "文件符号链接需要 Windows 额外权限" : false }, async (t) => {
+  const f = await fixture(t);
+  const outside = path.join(f.root, "outside.txt");
+  await writeFile(outside, "空间外的秘密\n");
+  await symlink(outside, f.file("outside-link"));
+  const history = await openHistory(f.space);
+  const changed = await history.record({ kind: "agent", runId: "links" }, () => rm(f.file("outside-link")));
+  await history.undo(changed.snapshot.revision);
+  assert.ok((await lstat(f.file("outside-link"))).isSymbolicLink());
+  assert.equal(await readlink(f.file("outside-link")), outside);
+  assert.equal(await readFile(outside, "utf8"), "空间外的秘密\n");
 });

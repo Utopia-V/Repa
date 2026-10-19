@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, readlink, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -204,7 +204,7 @@ test("路径可以是目录；文件与目录互换时上级条目一并更新�
   assert.equal((await head(await openHistory(f.space))).id, undone.revision);
 });
 
-test("文件名含双引号、反斜杠、换行和中文时按原样提交与撤回，可执行位一并记录", async (t) => {
+test("文件名含双引号、反斜杠、换行和中文时按原样提交与撤回，可执行位一并记录", { skip: process.platform === "win32" ? "Windows 不允许这些文件名，也不支持 POSIX 可执行位" : false }, async (t) => {
   const f = await fixture(t);
   const odd = "引\"号\\反斜杠\n换行.md";
   const script = "tools/run.sh";
@@ -248,7 +248,7 @@ test("给定路径的上级被换成指向空间外的符号链接时，只记�
   const source = { kind: "agent", runId: "linked" } as const;
   const result = await history.recordPaths(source, ["notes/content.txt"], async () => {
     await rm(f.file("notes"), { recursive: true });
-    await symlink(outside, f.file("notes"));
+    await symlink(outside, f.file("notes"), process.platform === "win32" ? "junction" : "dir");
   });
   assert.deepEqual(result.snapshot.skipped, [{ path: "notes/content.txt", reason: "repository" }]);
   assert.deepEqual(summary(await history.changesSince(baseline.id)), [{
@@ -264,7 +264,7 @@ test("给定路径的上级被换成指向空间外的符号链接时，只记�
   const git = new Git(f.space, path.join(f.space, ".repa", "history.git"));
   const [entry] = (await git.run(["ls-tree", revision.id, "notes"])).toString().split("\t");
   assert.match(entry ?? "", /^120000 blob /);
-  assert.equal((await git.run(["cat-file", "blob", `${revision.id}:notes`])).toString(), outside);
+  assert.equal((await git.run(["cat-file", "blob", `${revision.id}:notes`])).toString(), await readlink(f.file("notes")));
   assert.equal(await readFile(path.join(outside, "content.txt"), "utf8"), "空间外的秘密\n");
   assert.equal((await history.snapshot()).committed, false);
   assert.equal((await head(await openHistory(f.space))).id, revision.id);
@@ -347,12 +347,12 @@ test("与 record 混用时按队列顺序执行：record 期间的按路径写�
   const events: string[] = [];
   const opaque = history.record(shell, async () => {
     events.push("record 开始");
-    await execute("sh", ["-c", 'printf "命令输出\\n" > shell.txt'], { cwd: f.space });
+    await execute(process.execPath, ["-e", 'require("node:fs").writeFileSync("shell.txt", "命令输出\\n")'], { cwd: f.space });
     entered.resolve();
     await release.promise;
     events.push("record 结束");
   });
-  await entered.promise;
+  await Promise.race([entered.promise, opaque]);
   const scoped = history.recordPaths(editor, ["edit.md"], async () => {
     events.push("按路径写入");
     await f.write("edit.md", "编辑内容\n");
