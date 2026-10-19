@@ -105,6 +105,11 @@ export class Git {
     });
     await Promise.race([completion, writing]);
     const code = await completion;
+    if (!inputFinished && inputError === undefined && code === 0 && processError === undefined) {
+      // Windows 上子进程的 close 可能先于 stdin 的 finish 到达，负载高时很常见。Git 正常退出说明输入已经读完，
+      // 给写入一点时间收尾；但不无限等。
+      await Promise.race([writing, new Promise((resolve) => { setTimeout(resolve, 1000).unref(); })]);
+    }
     if (!inputFinished && inputError === undefined) {
       // 任意 AsyncIterable 的 next() 可能无法取消，进程结束后不能继续等它。
       const error = new Error("Git 在输入流结束前退出");
