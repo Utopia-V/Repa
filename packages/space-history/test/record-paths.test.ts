@@ -251,20 +251,25 @@ test("给定路径的上级被换成指向空间外的符号链接时，只记�
     await symlink(outside, f.file("notes"), process.platform === "win32" ? "junction" : "dir");
   });
   assert.deepEqual(result.snapshot.skipped, [{ path: "notes/content.txt", reason: "repository" }]);
+  // Git for Windows 把 junction 当作目录列出它里面的文件，不列 junction 本身，所以 Windows 上链接本身不进历史；
+  // 空间外的内容照样不读，原来的文件照样记为删除。
+  const linkRecorded = process.platform !== "win32";
   assert.deepEqual(summary(await history.changesSince(baseline.id)), [{
     source,
     changes: [
-      { kind: "added", path: "notes" },
+      ...(linkRecorded ? [{ kind: "added", path: "notes" }] : []),
       { kind: "deleted", path: "notes/content.txt" },
       { kind: "deleted", path: "notes/other.txt" },
     ],
   }]);
   const [revision] = await history.list(1);
   assert.ok(revision);
-  const git = new Git(f.space, path.join(f.space, ".repa", "history.git"));
-  const [entry] = (await git.run(["ls-tree", revision.id, "notes"])).toString().split("\t");
-  assert.match(entry ?? "", /^120000 blob /);
-  assert.equal((await git.run(["cat-file", "blob", `${revision.id}:notes`])).toString(), await readlink(f.file("notes")));
+  if (linkRecorded) {
+    const git = new Git(f.space, path.join(f.space, ".repa", "history.git"));
+    const [entry] = (await git.run(["ls-tree", revision.id, "notes"])).toString().split("\t");
+    assert.match(entry ?? "", /^120000 blob /);
+    assert.equal((await git.run(["cat-file", "blob", `${revision.id}:notes`])).toString(), await readlink(f.file("notes")));
+  }
   assert.equal(await readFile(path.join(outside, "content.txt"), "utf8"), "空间外的秘密\n");
   assert.equal((await history.snapshot()).committed, false);
   assert.equal((await head(await openHistory(f.space))).id, revision.id);

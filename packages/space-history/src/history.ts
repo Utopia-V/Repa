@@ -473,7 +473,8 @@ export class SpaceHistory {
   ): AsyncGenerator<[string, File]> {
     for (const file of files) {
       if (file.endsWith("/") || await this.boundary(file, boundaries)) {
-        skipped.push({ path: file, reason: "repository" });
+        // Git for Windows 会列出 junction 里的文件，按路径提交时它可能已经作为给定路径记过一次。
+        if (!skipped.some((item) => item.path === file)) skipped.push({ path: file, reason: "repository" });
         continue;
       }
       const info = await stat(path.join(this.space, file));
