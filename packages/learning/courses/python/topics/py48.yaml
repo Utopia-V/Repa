@@ -3,19 +3,11 @@ title: 读懂一份 AI 给的分析脚本，并说清怎样改
 status: complete
 minutes: 20
 summary: 把 AI 写的短脚本逐行对到需求里的规则和输入输出；用恰好等于阈值、键重复、键找不到、notebook 重跑这类小反例检查偏差；提出只改一处的修改，并写下能直接核对的验收条件。
-prerequisites:
-  - topic: py46
-    key: true
-    weight: 1.00
-    covers: [py46.k1, py46.k2]
-  - topic: py29
-    key: true
-    weight: 1.00
-    covers: [py29.k1, py29.k2, py29.k3]
-  - topic: py45
-    key: true
-    weight: 1.00
-    covers: [py45.k1, py45.k2]
+prerequisites: [py46, py29, py45]
+encompassings:
+  - {topic: py46, weight: 0.5}
+  - {topic: py29, weight: 0.5}
+  - {topic: py45, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 13 章 （情境参考）
@@ -212,6 +204,7 @@ data:
       cohort: [第一批, 第二批, 第一批, 第二批, 第二批]
 kps:
   - id: py48.k1
+    keyPrerequisites: [py46, py29]
     title: 把每段代码对应到输入输出与业务规则
     card:
       name: 规则对到代码
@@ -740,6 +733,7 @@ kps:
           }
 
   - id: py48.k2
+    keyPrerequisites: [py29, py45, py42]
     title: 用边界和反例检查偏差
     card:
       name: 反例
@@ -1227,6 +1221,7 @@ kps:
           answers = {"now": int(now.lines()[-1]), "restart": int(fresh.out), "rerun": rerun}
 
   - id: py48.k3
+    keyPrerequisites: [py29, py42, py28]
     title: 提出最小修改及可复验的验收条件
     card:
       name: 最小修改与验收

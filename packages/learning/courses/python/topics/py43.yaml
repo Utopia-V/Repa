@@ -3,19 +3,11 @@ title: 读写文件时，先确认对象和范围
 status: complete
 minutes: 20
 summary: 读写文件前先确认三件事：相对路径从哪里算起，用什么编码读，打开方式会不会清空原有内容。
-prerequisites:
-  - topic: py13
-    key: true
-    weight: 0.50
-    covers: [py13.k1]
-  - topic: py05
-    key: true
-    weight: 0.33
-    covers: [py05.k1, py05.k2, py05.k3]
-  - topic: py11
-    key: false
-    weight: 0.50
-    covers: [py11.k2]
+prerequisites: [py13, py05, py11]
+encompassings:
+  - {topic: py13, weight: 0.5}
+  - {topic: py05, weight: 0.5}
+  - {topic: py11, weight: 0.5}
 sources:
   - source: think-python
     where: 第 13 章
@@ -298,6 +290,7 @@ data:
       开始时 `results/batch.txt` 里只有一行表头 `sample_id,signal`。
 kps:
   - id: py43.k1
+    keyPrerequisites: [py13]
     title: Path 与相对路径的基准
     card:
       name: 相对路径
@@ -685,6 +678,7 @@ kps:
           answers = {"cwd": found, "opened": {"新数据": "new", "旧备份": "old"}[content]}
 
   - id: py43.k2
+    keyPrerequisites: [py05, py11]
     title: with 管理文本文件及编码
     card:
       name: with 打开文件
@@ -1017,6 +1011,7 @@ kps:
           文件按 GBK 保存，就按 GBK 读。换成 latin-1 之类的编码虽然不报错，读出的是乱码，测试会比较读出的文字是否与原文一致。
 
   - id: py43.k3
+    keyPrerequisites: []
     title: r/w/a 的行为和覆盖风险
     card:
       name: 打开方式 r/w/a

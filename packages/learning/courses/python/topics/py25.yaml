@@ -3,15 +3,10 @@ title: 一条记录是否重复，取决于什么
 status: complete
 minutes: 20
 summary: 先按“一行代表什么”定出业务键，再用 duplicated/drop_duplicates 的 subset 和 keep 标出或去掉重复，分清录了两遍和数值冲突。
-prerequisites:
-  - topic: py14
-    key: true
-    weight: 0.33
-    covers: [py14.k1]
-  - topic: py12
-    key: true
-    weight: 1.00
-    covers: [py12.k1, py12.k2]
+prerequisites: [py14, py12]
+encompassings:
+  - {topic: py14, weight: 0.5}
+  - {topic: py12, weight: 0}
 sources:
   - source: pydata-book
     where: 第 7 章 §7.2（去除重复）
@@ -153,6 +148,7 @@ data:
       count: [50, 52, 50, 61]
 kps:
   - id: py25.k1
+    keyPrerequisites: [py14]
     title: 业务键与整行重复的区别
     card:
       name: 业务键
@@ -362,7 +358,6 @@ kps:
           answers = {"kinds": kinds}
       - id: py25.k1.q3
         kind: [specify]
-        uses: [py12.k1]
         data: [mice]
         body: |
           表 mice 的一行代表“一只小鼠在某一周的一次称重”，约定每只小鼠每周称一次。
@@ -464,7 +459,7 @@ kps:
           }
       - id: py25.k1.r2
         kind: [explain]
-        uses: [py12.k1, py14.k1]
+        uses: [py14.k1]
         data: [water]
         body: |
           表 water 的一行代表“一个采样点在某一天的一次浊度测量”，约定每个采样点每天只测一次。同事检查之后说：
@@ -587,7 +582,7 @@ kps:
           }
       - id: py25.k1.x2
         kind: [specify, predict]
-        uses: [py12.k1, py14.k1]
+        uses: [py14.k1]
         data: [temps]
         body: |
           表 temps 的一行代表“一个采样点在某一天的一次水温记录”，约定每个采样点每天只记一次。这张表里 temp 一列碰巧各不相同。
@@ -633,6 +628,7 @@ kps:
         manual: [key]
 
   - id: py25.k2
+    keyPrerequisites: [py14]
     title: duplicated/drop_duplicates 的 subset、keep 规则
     card:
       name: keep 规则
@@ -839,7 +835,6 @@ kps:
           要补两处：`subset=["sample_id", "day"]` 按业务键认同一条记录，不写的话只去掉整行相同的行，S_B 第 1 天的两个值都会留下；`keep="last"` 留最后录入的那条，不写就留第一条。本例结果是索引 22、4、15 三行。判分时还会换两张表运行你的代码，并检查 `df` 没有被改变。
       - id: py25.k2.q3
         kind: [specify]
-        uses: [py12.k1, py12.k2]
         data: [M]
         body: |
           负责人看到表 M 后说：

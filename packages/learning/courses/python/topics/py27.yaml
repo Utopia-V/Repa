@@ -3,15 +3,10 @@ title: 按组回答一个问题
 status: complete
 minutes: 20
 summary: 读懂 df.groupby("分组列")["值列"].聚合()：先按组分开，组内照常汇总，再合成每组一行的结果；分清每条记录一行、每组一行和整张表一个数。
-prerequisites:
-  - topic: py26
-    key: true
-    weight: 0.67
-    covers: [py26.k1, py26.k2]
-  - topic: py16
-    key: true
-    weight: 0.33
-    covers: [py16.k1, py16.k2]
+prerequisites: [py26, py16]
+encompassings:
+  - {topic: py26, weight: 0.5}
+  - {topic: py16, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 10 章 §10.1–10.2（分组机制与数据聚合）
@@ -117,6 +112,7 @@ data:
       yield_kg: [4, 5, 6, 3, 7, 5]
 kps:
   - id: py27.k1
+    keyPrerequisites: [py26, py16]
     title: groupby 先分组再聚合
     card:
       name: 分组聚合
@@ -433,6 +429,7 @@ kps:
           answers = {"code": ok[0] if len(ok) == 1 else ok}
 
   - id: py27.k2
+    keyPrerequisites: [py26, py16]
     title: 区分每条记录与每组一行的结果
     card:
       name: 每组一行

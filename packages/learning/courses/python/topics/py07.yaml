@@ -3,19 +3,11 @@ title: 拼接列表，汇总一组数
 status: complete
 minutes: 20
 summary: 读懂列表的 + 和 *：是拼接与重复，不是逐个数相加相乘；用 sum、len、min、max 把一组数汇总成一个数，平均值写成 sum(x) / len(x)。
-prerequisites:
-  - topic: py06
-    key: true
-    weight: 0.33
-    covers: [py06.k1]
-  - topic: py04
-    key: true
-    weight: 0.67
-    covers: [py04.k1, py04.k3]
-  - topic: py02
-    key: false
-    weight: 0.33
-    covers: [py02.k1, py02.k2]
+prerequisites: [py06, py04, py02]
+encompassings:
+  - {topic: py06, weight: 0.5}
+  - {topic: py04, weight: 0.5}
+  - {topic: py02, weight: 0.5}
 sources:
   - source: think-python
     where: 第 9 章（列表运算）
@@ -44,6 +36,7 @@ wrapup: |
   向同事或 AI 提需求时，如果要的是“每个读数各加 5”或“两组读数逐个相加”，要明说“逐个”，拿到结果后再核对长度有没有变。
 kps:
   - id: py07.k1
+    keyPrerequisites: [py06]
     title: 列表 + 拼接、* 重复，不自动逐元素运算
     card:
       name: 列表拼接
@@ -369,6 +362,7 @@ kps:
           answers = {"lengths": {f"l{i}": {"value": int(line)} for i, line in enumerate(first, 1)}}
 
   - id: py07.k2
+    keyPrerequisites: [py04, py06, py02]
     title: sum/len/min/max 对一组数做汇总
     card:
       name: 汇总一组数

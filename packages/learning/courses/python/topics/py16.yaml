@@ -3,15 +3,10 @@ title: 取列、取行，先辨认用的是哪种索引
 status: complete
 minutes: 20
 summary: 分清 df["列"] 和 df[["列", …]] 取出的形状；loc 按标签、iloc 按位置取行和值；同样写 2:4，loc 包含右端、iloc 不包含。
-prerequisites:
-  - topic: py14
-    key: true
-    weight: 0.67
-    covers: [py14.k1, py14.k2]
-  - topic: py06
-    key: true
-    weight: 0.67
-    covers: [py06.k1, py06.k2, py06.k3]
+prerequisites: [py14, py06]
+encompassings:
+  - {topic: py14, weight: 0.5}
+  - {topic: py06, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 5 章 §5.2
@@ -127,6 +122,7 @@ data:
       cells_k: [12, 8, 15, 9, 11, 14]
 kps:
   - id: py16.k1
+    keyPrerequisites: [py14, py06]
     title: 单列与多列选择返回不同形状
     card:
       name: 取列
@@ -450,6 +446,7 @@ kps:
           }
 
   - id: py16.k2
+    keyPrerequisites: [py14, py06]
     title: loc 用标签，iloc 用位置
     card:
       name: loc 与 iloc
@@ -811,6 +808,7 @@ kps:
           answers = {"values": values}
 
   - id: py16.k3
+    keyPrerequisites: [py06]
     title: 标签切片与位置切片的右端差异
     card:
       name: 切片的右端

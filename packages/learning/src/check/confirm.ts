@@ -7,25 +7,42 @@
 
 import { readFile, rename, writeFile } from "node:fs/promises";
 
-import { checkResponse, type Answer, type Block, type Content, type Item, type Slot } from "@repa/base/protocol";
+import { checkResponse, contentVersion, type Answer, type Block, type Content, type Item, type Slot } from "@repa/base/protocol";
 import { Document, isMap, isSeq } from "yaml";
 
 import { checkSchema, parseYamlFile, Report, SourceFile, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
-import { TopicSchema, type Confirmation, type Question, type SlotDef, type Topic } from "../format/schema.js";
+import { TopicSchema, type Confirmation, type Question, type Runtime, type SlotDef, type Topic } from "../format/schema.js";
 import { gradeSlot } from "./grade.js";
-import { acceptedValues, inputCells, publicItem, referenceAnswer, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
+import { acceptedValues, inputCells, legacyVersionInput, publicItem, referenceAnswer, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
 
 /** 复习和测验题池里列了 manual 的题必须有模型核对记录；例题和练习不强制。 */
 export function needsConfirmation(entry: QuestionEntry): boolean {
   return (entry.pool === "review" || entry.pool === "quiz") && (entry.question.manual?.length ?? 0) > 0;
 }
 
-/** 这道题当前版本、覆盖全部 manual 作答位的核对记录。 */
-export function currentConfirmation(topic: Topic, question: Question, version: string): Confirmation | undefined {
+/** f374d34e2 的旧证明只在这份课程运行基线下复用；不能从当前清单推定旧环境。 */
+const LEGACY_RUNTIME: Runtime = {
+  pyodide: "314.0.7",
+  python: "3.14.2",
+  packages: { numpy: "2.4.6", pandas: "3.0.2" },
+  prelude: "import pandas as pd\nimport numpy as np\n",
+};
+
+/** 核对题面与判分定义，不把信用归属混入独立解题证明；请求或判分语义改变时升级 scope。 */
+export async function confirmationVersion(question: Question, topic: Topic, runtime: Runtime): Promise<string> {
+  return contentVersion({ definition: legacyVersionInput(question, topic), runtime: { ...runtime, prelude: runtime.prelude ?? "" } });
+}
+
+export async function currentConfirmation(topic: Topic, question: Question, runtime: Runtime): Promise<Confirmation | undefined> {
+  const version = await confirmationVersion(question, topic, runtime);
+  const legacy = await contentVersion(legacyVersionInput(question, topic));
+  const baseline = await contentVersion(runtime) === await contentVersion(LEGACY_RUNTIME);
   const manual = question.manual ?? [];
   return (topic.verified ?? []).find((record) =>
-    record.question === question.id && record.version === version && manual.every((slot) => record.slots.includes(slot)));
+    record.question === question.id
+    && (record.scope === "question-runtime-v1" ? record.version === version : baseline && record.version === legacy)
+    && manual.every((slot) => record.slots.includes(slot)));
 }
 
 export interface ModelRequest {
@@ -62,6 +79,7 @@ export interface SlotDifference {
 export interface ConfirmOutcome {
   topic: string;
   question: string;
+  /** 当前 question-runtime-v1 范围的核对哈希，与学习证据引用的题目版本分开。 */
   version: string;
   slots: string[];
   /** confirmed：全部一致并已记录；disagreed：有不一致，交给人看；unusable：模型的输出不合格式；skipped：没有发请求。 */
@@ -433,8 +451,8 @@ export async function confirmCourse(root: string, options: ConfirmOptions): Prom
   const confirmQuestion = async (topic: Topic, entry: QuestionEntry, outcome: ConfirmOutcome, item: Item): Promise<Confirmation | undefined> => {
     const { question } = entry;
     const slots = question.manual ?? [];
-    if (!options.force && currentConfirmation(topic, question, item.version)) {
-      outcome.detail = "已有当前版本的核对记录";
+    if (!options.force && await currentConfirmation(topic, question, loaded.course.runtime)) {
+      outcome.detail = "已有当前核对范围的证明";
       return undefined;
     }
     const aliased = aliasItem(item);
@@ -469,7 +487,14 @@ export async function confirmCourse(root: string, options: ConfirmOptions): Prom
       outcome.differences = judgement.differences;
     } else {
       outcome.status = "confirmed";
-      return { question: question.id, version: item.version, slots, model: options.model, date };
+      return {
+        question: question.id,
+        version: await confirmationVersion(question, topic, loaded.course.runtime),
+        scope: "question-runtime-v1",
+        slots,
+        model: options.model,
+        date,
+      };
     }
     return undefined;
   };
@@ -480,7 +505,12 @@ export async function confirmCourse(root: string, options: ConfirmOptions): Prom
     for (const entry of topicQuestions(topic).filter(needsConfirmation)) {
       const item = await publicItem(entry.question, topic);
       const outcome: ConfirmOutcome = {
-        topic: topic.id, question: entry.question.id, version: item.version, slots: entry.question.manual ?? [], status: "skipped", requests: 0,
+        topic: topic.id,
+        question: entry.question.id,
+        version: await confirmationVersion(entry.question, topic, loaded.course.runtime),
+        slots: entry.question.manual ?? [],
+        status: "skipped",
+        requests: 0,
       };
       outcomes.push(outcome);
       const record = await confirmQuestion(topic, entry, outcome, item);

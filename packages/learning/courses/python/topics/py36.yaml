@@ -3,19 +3,11 @@ title: 把“逐个检查并收集”读成循环
 status: complete
 minutes: 20
 summary: 读懂“逐个检查，满足条件的收进新列表”：for、if、append 的执行顺序和缩进；分清两个名字指向同一个列表和各自独立的副本。
-prerequisites:
-  - topic: py35
-    key: true
-    weight: 0.67
-    covers: [py35.k1, py35.k2, py35.k3]
-  - topic: py10
-    key: true
-    weight: 0.67
-    covers: [py10.k1, py10.k2]
-  - topic: py06
-    key: true
-    weight: 0.33
-    covers: [py06.k1]
+prerequisites: [py35, py10, py06]
+encompassings:
+  - {topic: py35, weight: 0.5}
+  - {topic: py10, weight: 0.5}
+  - {topic: py06, weight: 0.5}
 sources:
   - source: think-python
     where: 第 9 章
@@ -63,6 +55,7 @@ data:
       ```
 kps:
   - id: py36.k1
+    keyPrerequisites: [py35, py10]
     title: for+if+append 的处理顺序
     card:
       name: 筛选收集
@@ -116,6 +109,7 @@ kps:
       结果 `[12, 10, 15]` 按原列表的顺序排列，不会自动排序。这里有两层缩进：循环体缩进一层，`if` 下面的那一行再缩进一层。只有比 `if` 多缩进一层的行才归 `if` 管；和 `if` 对齐的行不论条件成不成立，每轮都执行，`append` 写在那里就会把每个读数都收进来。`kept = []` 如果写进循环体，每一轮都会被清空。
     example:
       id: py36.k1.e0
+      uses: [py06.k1]
       kind: [trace]
       body: |
         按轮次填写：这一轮的条件是否成立，以及这一轮结束后 `kept` 的样子。再写出最后显示的内容。
@@ -590,6 +584,7 @@ kps:
           `if` 缩进一层，在循环体里逐个检查；`append` 再缩进一层，只在不是 `"blank"` 时执行。题面数据的结果是 `["S1", "S2", "S3"]`。判分时还会换数据：全是空白对照时结果是空列表；编号不按顺序时，结果保持原来的顺序，不排序。
 
   - id: py36.k2
+    keyPrerequisites: [py06, py01]
     title: 列表原位修改及别名与独立副本
     card:
       name: 列表别名

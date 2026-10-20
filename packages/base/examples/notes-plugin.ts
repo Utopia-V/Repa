@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { Type, type TSchema } from "typebox";
 
-import { createModelScope, type Host, type MethodContext, type Plugin, type PluginInstance } from "../src/plugin.js";
+import { createModelScope, type Host, type MethodContext, type Plugin, type PluginInstance } from "@repa/base/plugin";
 import { directory, failure, parse, scopedFile, writeJson } from "./files.js";
 
 const object = <T extends Record<string, TSchema>>(properties: T) =>

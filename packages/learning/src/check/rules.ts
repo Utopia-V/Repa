@@ -10,7 +10,7 @@ import type { LoadedCourse, LoadedTopic } from "../format/load.js";
 import { markdownLinks, markdownTexts, toContent } from "../format/markdown.js";
 import type { ContentInput, Kp, Question, SlotDef, Topic } from "../format/schema.js";
 import { parseDoctest } from "./doctest.js";
-import { acceptedValues, inputCells, slotTests, tableCell, textMatch, topicQuestions, type QuestionEntry } from "./items.js";
+import { acceptedValues, inputCells, slotTests, tableCell, textMatch, topicQuestions, questionCredit, type QuestionEntry } from "./items.js";
 
 export interface CourseIndex {
   topics: Map<string, LoadedTopic>;
@@ -56,7 +56,7 @@ class TopicChecker {
 
   run(): void {
     this.checkKps();
-    this.checkPrerequisites();
+    this.checkRelations();
     this.checkSources();
     this.checkFixtures();
     this.checkContentInput(this.topic.intro, ["intro"]);
@@ -77,28 +77,20 @@ class TopicChecker {
     });
   }
 
-  private checkPrerequisites(): void {
-    const seen = new Set<string>();
-    this.topic.prerequisites.forEach((edge, index) => {
-      const at = ["prerequisites", index];
-      if (edge.topic === this.topic.id) {
-        this.error("prerequisite_self", "topic 不能以自己为先修", [...at, "topic"]);
-        return;
-      }
-      if (seen.has(edge.topic)) this.error("prerequisite_duplicate", `先修 ${edge.topic} 写了两次`, [...at, "topic"]);
-      seen.add(edge.topic);
-      if (!this.course.course.topics.includes(edge.topic)) {
-        this.error("prerequisite_unknown", `先修 ${edge.topic} 不在课程清单里`, [...at, "topic"]);
-        return;
-      }
-      const target = this.index.topics.get(edge.topic);
-      if (!target) return;
-      const kps = new Set(target.topic.kps.map((kp) => kp.id));
-      edge.covers.forEach((kp, kpIndex) => {
-        if (!kps.has(kp)) this.error("prerequisite_covers", `${kp} 不是 ${edge.topic} 的知识点`, [...at, "covers", kpIndex]);
+  private checkRelations(): void {
+    for (const field of ["prerequisites", "encompassings"] as const) {
+      const targets = field === "prerequisites"
+        ? this.topic.prerequisites
+        : (this.topic.encompassings ?? []).map((edge) => edge.topic);
+      const seen = new Set<string>();
+      targets.forEach((id, index) => {
+        const at = [field, index];
+        if (id === this.topic.id) this.error(`${field}_self`, "关系不能指向自身", at);
+        if (seen.has(id)) this.error(`${field}_duplicate`, `${id} 写了两次`, at);
+        seen.add(id);
+        if (!this.course.course.topics.includes(id)) this.error(`${field}_unknown`, `${id} 不在课程清单里`, at);
       });
-      if (new Set(edge.covers).size !== edge.covers.length) this.error("prerequisite_covers", "covers 里有重复的知识点", [...at, "covers"]);
-    });
+    }
   }
 
   private checkSources(): void {
@@ -171,6 +163,14 @@ class TopicChecker {
 
   private checkKp(kp: Kp, kpIndex: number): void {
     const at: ValuePath = ["kps", kpIndex];
+    const seen = new Set<string>();
+    (kp.keyPrerequisites ?? []).forEach((id, index) => {
+      if (seen.has(id)) this.error("key_prerequisite_duplicate", `${id} 写了两次`, [...at, "keyPrerequisites", index]);
+      seen.add(id);
+      if (!this.index.ancestors.get(this.topic.id)?.has(id)) {
+        this.error("key_prerequisite_not_ancestor", `${id} 必须是本 topic 的先修祖先`, [...at, "keyPrerequisites", index]);
+      }
+    });
     this.checkContentInput(kp.lesson, [...at, "lesson"]);
     if (kp.card) {
       this.checkContentInput(kp.card.example.text, [...at, "card", "example", "text"]);
@@ -241,9 +241,11 @@ class TopicChecker {
   }
 
   private checkKpReferences(question: Question, at: ValuePath): void {
-    const ancestors = this.index.ancestors.get(this.topic.id) ?? new Set<string>();
+    const measured = new Set(questionCredit(question).measures);
     for (const field of ["measures", "uses"] as const) {
-      (question[field] ?? []).forEach((kpId, index) => {
+      const ids = question[field] ?? [];
+      if (new Set(ids).size !== ids.length) this.error("kp_reference_duplicate", `${field} 里有重复知识点`, [...at, field]);
+      ids.forEach((kpId, index) => {
         const target = this.index.kps.get(kpId);
         if (!target) {
           this.error("kp_unknown", `${field} 里的 ${kpId} 不是课程里的知识点`, [...at, field, index]);
@@ -251,10 +253,10 @@ class TopicChecker {
         }
         const owner = target.loaded.topic.id;
         if (field === "measures" && owner !== this.topic.id) {
-          this.error("measures_other_topic", `measures 只写本 topic 的知识点；用到的先修写进 uses`, [...at, field, index]);
+          this.error("measures_other_topic", `measures 只写本 topic 的知识点；实际执行的其他子技能写进 uses`, [...at, field, index]);
         }
-        if (field === "uses" && owner !== this.topic.id && !ancestors.has(owner)) {
-          this.error("uses_not_prerequisite", `${kpId} 所在的 ${owner} 不是本 topic 的先修（直接或间接）`, [...at, field, index]);
+        if (field === "uses" && measured.has(kpId)) {
+          this.error("uses_measured", `${kpId} 已由 measures 直接考查，不重复列进 uses`, [...at, field, index]);
         }
       });
     }
@@ -442,9 +444,14 @@ class TopicChecker {
   }
 }
 
-/** 返回每个 topic 的全部祖先，并报告先修图里的环。 */
-function prerequisiteGraph(course: LoadedCourse, report: Report): Map<string, Set<string>> {
-  const edges = new Map(course.topics.map(({ topic }) => [topic.id, topic.prerequisites.map((edge) => edge.topic).filter((id) => id !== topic.id)]));
+/** 每张图独立查环并收集祖先；零权重声明也查环，正权重子图因此仍是 DAG。 */
+function relationGraph(course: LoadedCourse, report: Report, field: "prerequisites" | "encompassings"): Map<string, Set<string>> {
+  const edges = new Map(course.topics.map(({ topic }) => {
+    const targets = field === "prerequisites"
+      ? topic.prerequisites
+      : (topic.encompassings ?? []).map((edge) => edge.topic);
+    return [topic.id, targets.filter((id) => id !== topic.id)];
+  }));
   const files = new Map(course.topics.map((loaded) => [loaded.topic.id, loaded]));
   const state = new Map<string, "visiting" | "done">();
   const stack: string[] = [];
@@ -460,8 +467,9 @@ function prerequisiteGraph(course: LoadedCourse, report: Report): Map<string, Se
         if (!reported.has(signature)) {
           reported.add(signature);
           const owner = files.get(id);
-          const edgeIndex = owner?.topic.prerequisites.findIndex((edge) => edge.topic === next) ?? -1;
-          report.error("prerequisite_cycle", `先修关系成环：${cycle.join(" → ")}`, owner?.file, ["prerequisites", edgeIndex]);
+          const targets = field === "prerequisites" ? owner?.topic.prerequisites : owner?.topic.encompassings?.map((edge) => edge.topic);
+          const edgeIndex = targets?.indexOf(next) ?? -1;
+          report.error(`${field}_cycle`, `关系成环：${cycle.join(" → ")}`, owner?.file, [field, edgeIndex]);
         }
       } else if (!state.has(next)) {
         visit(next);
@@ -510,7 +518,15 @@ export function checkRules(course: LoadedCourse, report: Report): CourseIndex {
       index.questions.set(entry.question.id, { loaded, entry });
     }
   }
-  index.ancestors = prerequisiteGraph(course, report);
+  const retired = new Set(course.course.retiredIds ?? []);
+  for (const [id, loaded] of index.topics) {
+    if (retired.has(id)) report.error("retired_id", `${id} 已退役，不得复用`, loaded.file, ["id"]);
+  }
+  for (const [id, { loaded }] of [...index.kps, ...index.questions]) {
+    if (retired.has(id)) report.error("retired_id", `${id} 已退役，不得复用`, loaded.file);
+  }
+  index.ancestors = relationGraph(course, report, "prerequisites");
+  relationGraph(course, report, "encompassings");
   for (const loaded of course.topics) new TopicChecker(loaded, course, index, report).run();
   return index;
 }

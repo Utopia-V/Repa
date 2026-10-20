@@ -366,3 +366,23 @@ test("插件的公开约定也能宽松读取：不认识的字段丢掉，联�
   // 退路给的值也要是这个联合的成员。
   assert.throws(() => readLenient(CheckinSchema, newer, () => "excellent"), TypeError);
 });
+
+test("宽松读取可空对象与原始类型联合，保留 null 且拒绝已知字段的错误类型", () => {
+  const schema = object({
+    task: Type.Union([object({ id: Type.String() }), Type.Null()]),
+    eta: Type.Union([Type.Number(), Type.Null()]),
+  });
+  for (const value of [{ task: null, eta: null }, { task: { id: "one" }, eta: 3 }]) {
+    assert.deepEqual(readLenient(schema, value), { ok: true, value });
+  }
+  assert.deepEqual(readLenient(schema, { task: null, eta: "3" }), { ok: false, path: "/eta" });
+  assert.deepEqual(readLenient(schema, { task: { id: 1 }, eta: null }), { ok: false, path: "/task/id" });
+});
+
+test("TypeBox 枚举沿用联合的读取规则，未知值丢掉所在项，错误类型读取失败", () => {
+  const schema = object({ entries: Type.Array(object({ mode: Type.Enum(["practice", "quiz"]) })) });
+  assert.deepEqual(readLenient(schema, { entries: [{ mode: "future" }, { mode: "quiz" }] }), {
+    ok: true, value: { entries: [{ mode: "quiz" }] },
+  });
+  assert.deepEqual(readLenient(schema, { entries: [{ mode: 1 }] }), { ok: false, path: "/entries/0/mode" });
+});
