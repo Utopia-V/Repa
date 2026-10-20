@@ -3,19 +3,11 @@ title: 从文件里的结构找到一条记录
 status: complete
 minutes: 20
 summary: 认出 CSV 的行列和 JSON 每一层是字典、列表还是值，按键和位置一层层走到目标值，并分清缺键、空值和类型不对。
-prerequisites:
-  - topic: py43
-    key: true
-    weight: 0.67
-    covers: [py43.k2]
-  - topic: py37
-    key: true
-    weight: 0.67
-    covers: [py37.k1, py37.k2, py37.k3]
-  - topic: py15
-    key: false
-    weight: 0.33
-    covers: [py15.k1, py15.k2]
+prerequisites: [py43, py37, py15]
+encompassings:
+  - {topic: py43, weight: 0.5}
+  - {topic: py37, weight: 0.5}
+  - {topic: py15, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 6 章 §6.1
@@ -385,6 +377,7 @@ data:
       ```
 kps:
   - id: py44.k1
+    keyPrerequisites: [py43, py37, py15]
     title: CSV 的行列与 JSON 的列表/字典层次
     card:
       name: 文件里的层次
@@ -736,6 +729,7 @@ kps:
           answers = {"types": {row: {"kind": type(value).__name__} for row, value in values.items()}}
 
   - id: py44.k2
+    keyPrerequisites: [py37, py06]
     title: 按键和位置走到目标值
     card:
       name: 逐层取值
@@ -1110,6 +1104,7 @@ kps:
           answers = {"error": run().error, "fix": fits[0] if len(fits) == 1 else fits}
 
   - id: py44.k3
+    keyPrerequisites: [py37, py03, py15]
     title: 缺键、缺失和字段类型的验证
     card:
       name: 缺失与类型

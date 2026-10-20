@@ -3,11 +3,9 @@ title: 读懂一次函数调用
 status: complete
 minutes: 20
 summary: 读懂 名字(实参)：实参按位置或按名字交给函数，调用处换成返回值；后面还要用的结果要存进名字，print 只负责显示。
-prerequisites:
-  - topic: py03
-    key: true
-    weight: 0.67
-    covers: [py03.k1, py03.k2, py03.k3]
+prerequisites: [py03]
+encompassings:
+  - {topic: py03, weight: 0.5}
 sources:
   - source: think-python
     where: 第 2 章 §2.7
@@ -41,6 +39,7 @@ wrapup: |
   读 AI 写的代码时，后面要用的值如果只在 `print` 里出现过，多半就是没有存下来。
 kps:
   - id: py04.k1
+    keyPrerequisites: [py03]
     title: 函数名、实参和返回结果
     card:
       name: 函数调用
@@ -374,6 +373,7 @@ kps:
           answers = {"claim": true[0] if len(true) == 1 else true}
 
   - id: py04.k2
+    keyPrerequisites: [py03]
     title: 位置参数与关键字参数
     card:
       name: 关键字参数
@@ -713,6 +713,7 @@ kps:
           }
 
   - id: py04.k3
+    keyPrerequisites: [py01, py03]
     title: 把返回结果交给下一步而不是只显示
     card:
       name: 接住返回值

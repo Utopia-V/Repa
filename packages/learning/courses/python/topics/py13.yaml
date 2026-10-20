@@ -3,15 +3,10 @@ title: 导入工具，读一小段文档
 status: complete
 minutes: 20
 summary: 用 import、import as、from import 让模块里的名字可用；从签名、说明和 >>> 示例读出参数、默认值、返回值和副作用。
-prerequisites:
-  - topic: py04
-    key: true
-    weight: 1.00
-    covers: [py04.k1, py04.k2, py04.k3]
-  - topic: py11
-    key: false
-    weight: 0.50
-    covers: [py11.k1]
+prerequisites: [py04, py11]
+encompassings:
+  - {topic: py04, weight: 0.5}
+  - {topic: py11, weight: 0.5}
 sources:
   - source: think-python
     where: 第 2 章 §2.4
@@ -46,6 +41,7 @@ wrapup: |
   请 AI 写代码时，也可以要求它“写明从哪个模块导入、用到的参数是什么意思”，读起来就有据可查。
 kps:
   - id: py13.k1
+    keyPrerequisites: [py04, py11]
     title: import/as 让名称可用
     card:
       name: import
@@ -474,6 +470,7 @@ kps:
           answers = {"cause": cause, "fix": fits[0] if len(fits) == 1 else fits}
 
   - id: py13.k2
+    keyPrerequisites: [py04]
     title: 从签名和示例找参数、返回值与副作用
     card:
       name: 读函数文档

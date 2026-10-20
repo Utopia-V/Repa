@@ -3,19 +3,11 @@ title: 一张数据表里有什么
 status: complete
 minutes: 20
 summary: 认出 DataFrame 的行、列、行索引和取出的一列 Series；用 shape 看大小、head 看样子；读出每列的类型，并说清一行代表什么。
-prerequisites:
-  - topic: py06
-    key: true
-    weight: 0.33
-    covers: [py06.k1]
-  - topic: py13
-    key: true
-    weight: 0.50
-    covers: [py13.k1, py13.k2]
-  - topic: py03
-    key: true
-    weight: 0.33
-    covers: [py03.k1]
+prerequisites: [py06, py13, py03]
+encompassings:
+  - {topic: py06, weight: 0.5}
+  - {topic: py13, weight: 0}
+  - {topic: py03, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 5 章 §5.1
@@ -169,6 +161,7 @@ data:
       count: [4, 2, 7, 3, 5, 1]
 kps:
   - id: py14.k1
+    keyPrerequisites: [py06]
     title: DataFrame、Series、行列和索引
     card:
       name: DataFrame
@@ -519,6 +512,7 @@ kps:
           answers = {"kinds": {row: {"kind": kind(expr)} for row, expr in exprs.items()}}
 
   - id: py14.k2
+    keyPrerequisites: [py04, py06]
     title: shape 与 head 分别告诉你什么
     card:
       name: shape 与 head
@@ -832,6 +826,7 @@ kps:
           }
 
   - id: py14.k3
+    keyPrerequisites: [py03]
     title: 每列 dtype 与样本单位
     card:
       name: dtype 与样本单位

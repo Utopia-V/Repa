@@ -3,15 +3,10 @@ title: 比较得到 True 或 False
 status: complete
 minutes: 20
 summary: 读懂比较：==、!=、<、>、<=、>= 得到 True 或 False；把“至少”“超过”这类说法落实成比较符，并用恰好等于阈值的值检查。
-prerequisites:
-  - topic: py03
-    key: true
-    weight: 0.33
-    covers: [py03.k1, py03.k2]
-  - topic: py02
-    key: false
-    weight: 0.33
-    covers: [py02.k1]
+prerequisites: [py03, py02]
+encompassings:
+  - {topic: py03, weight: 0.5}
+  - {topic: py02, weight: 0.5}
 sources:
   - source: think-python
     where: 第 5 章 条件部分
@@ -40,6 +35,7 @@ wrapup: |
   提需求时，把“至少”“超过”说清楚恰好等于阈值算不算；拿到代码后，用一个恰好等于阈值的值试一下，看结果是不是你要的。
 kps:
   - id: py08.k1
+    keyPrerequisites: [py03]
     title: ==、!=、大小比较的结果
     card:
       name: 比较
@@ -447,6 +443,7 @@ kps:
           answers = {"what": what, "fix": fits[0] if len(fits) == 1 else fits}
 
   - id: py08.k2
+    keyPrerequisites: []
     title: 阈值含不含等号与边界例子
     card:
       name: 阈值边界

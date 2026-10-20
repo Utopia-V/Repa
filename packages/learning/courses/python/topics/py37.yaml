@@ -3,15 +3,10 @@ title: 用字典描述一条记录
 status: complete
 minutes: 20
 summary: 用字典把“列名 → 值”写成一条记录：按键取值而不是按位置，缺键时用 get 给默认值，用 in 查键是否存在。
-prerequisites:
-  - topic: py06
-    key: true
-    weight: 0.33
-    covers: [py06.k1, py06.k2]
-  - topic: py03
-    key: true
-    weight: 0.33
-    covers: [py03.k3]
+prerequisites: [py06, py03]
+encompassings:
+  - {topic: py06, weight: 0.5}
+  - {topic: py03, weight: 0.5}
 sources:
   - source: think-python
     where: 第 10 章（字典）
@@ -36,6 +31,7 @@ wrapup: |
   看到 `record["signal"]`，可以读成“这条记录的 signal”；看到 `record.get("depth", 0)`，要问一句：缺了 depth 时当成 0，符合需求吗？
 kps:
   - id: py37.k1
+    keyPrerequisites: [py06]
     title: 键和值与位置索引的区别
     card:
       name: 字典
@@ -412,6 +408,7 @@ kps:
           }}
 
   - id: py37.k2
+    keyPrerequisites: [py03]
     title: 索引取值与 get 默认值
     card:
       name: get 默认值
@@ -795,6 +792,7 @@ kps:
           answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
 
   - id: py37.k3
+    keyPrerequisites: [py06]
     title: in 检查键是否存在
     card:
       name: in 查键

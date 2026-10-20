@@ -48,20 +48,18 @@ test("随包的 Python 课程通过结构检查，48 个 topic 都在清单里",
 
 test("先修成环时报出环上的 topic", async (t) => {
   const demo = demoCourse();
-  topic(demo, "t01").prerequisites.push({ topic: "t02", key: false, weight: 0.5, covers: ["t02.k1"] });
+  topic(demo, "t01").prerequisites.push("t02");
   const result = await structuralCheck(t, demo);
-  assert.deepEqual(codes(result.diagnostics), ["prerequisite_cycle"]);
+  assert.deepEqual(codes(result.diagnostics), ["prerequisites_cycle"]);
   assert.match(result.diagnostics[0]?.message ?? "", /t01 → t02 → t01|t02 → t01 → t02/);
 });
 
-test("先修指向清单外的 topic、或覆盖对方没有的知识点时报出", async (t) => {
+test("先修与覆盖分别检查清单外的 topic", async (t) => {
   const demo = demoCourse();
-  topic(demo, "t02").prerequisites = [
-    { topic: "t09", key: true, weight: 0.5, covers: ["t09.k1"] },
-    { topic: "t01", key: true, weight: 0.5, covers: ["t01.k7"] },
-  ];
+  topic(demo, "t02").prerequisites = ["t09"];
+  topic(demo, "t02").encompassings = [{ topic: "t08", weight: 0.5 }];
   const result = await structuralCheck(t, demo);
-  assert.deepEqual(codes(result.diagnostics), ["prerequisite_covers", "prerequisite_unknown"]);
+  assert.deepEqual(codes(result.diagnostics), ["encompassings_unknown", "prerequisites_unknown"]);
 });
 
 test("完整 topic 缺例题、练习不足三道、缺复习或测验题池时逐项报出", async (t) => {

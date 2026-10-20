@@ -3,19 +3,12 @@ title: 从已有列算出新列
 status: complete
 minutes: 20
 summary: 对整列做算术、换算单位并存成新列；分步写中间列，按赋值顺序追踪数据流；两个 Series 运算时按标签对齐，不一律按位置。
-prerequisites:
-  - topic: py16
-    key: true
-    weight: 0.33
-    covers: [py16.k1, py16.k2]
-  - topic: py02
-    key: true
-    weight: 0.67
-    covers: [py02.k1, py02.k3]
-  - topic: py07
-    key: false
-    weight: 0.50
-    covers: [py07.k1]
+prerequisites: [py16, py02, py07]
+encompassings:
+  - {topic: py16, weight: 0.5}
+  - {topic: py02, weight: 0.5}
+  - {topic: py07, weight: 0.5}
+  - {topic: py01, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 5 章 §5.2
@@ -105,6 +98,7 @@ data:
       depth: [30, 25, 35, 30]
 kps:
   - id: py21.k1
+    keyPrerequisites: [py02, py16]
     title: 整列算术与单位转换
     card:
       name: 整列运算
@@ -472,6 +466,7 @@ kps:
           “每毫升有多少毫克”是毫克数除以毫升数，被除数和除数换了位置就成了“每毫克对应多少毫升”。本例 conc 依次为 30.0、41.0、30.0、24.0。判分时还会换一张表运行，检查 conc 和原有的列。
 
   - id: py21.k2
+    keyPrerequisites: [py01, py02]
     title: 用中间列或分步赋值说明数据流
     card:
       name: 分步赋值
@@ -835,6 +830,7 @@ kps:
           answers = {"line": f"l{wrong[0]}", "value": expected["conc_g_per_l"][31]}
 
   - id: py21.k3
+    keyPrerequisites: [py14, py16]
     title: 两个 Series 运算按标签对齐而非一律按位置
     card:
       name: 按标签对齐

@@ -3,11 +3,9 @@ title: 把一行推导式展开来看
 status: complete
 minutes: 20
 summary: 读懂列表推导式里的取元素、条件和结果三部分，并能在推导式和 for、if、append 的循环之间来回改写。
-prerequisites:
-  - topic: py36
-    key: true
-    weight: 0.50
-    covers: [py36.k1]
+prerequisites: [py36]
+encompassings:
+  - {topic: py36, weight: 0.5}
 sources:
   - source: think-python
     where: 第 18 章（列表推导式）
@@ -43,6 +41,7 @@ data:
       ```
 kps:
   - id: py39.k1
+    keyPrerequisites: [py36]
     title: 列表推导式中的取元素、条件和结果
     card:
       name: 列表推导式
@@ -486,6 +485,7 @@ kps:
               answers[slot] = fits[0] if len(fits) == 1 else fits
 
   - id: py39.k2
+    keyPrerequisites: [py36]
     title: 与显式 for/if 的等价关系
     card:
       name: 推导式展开

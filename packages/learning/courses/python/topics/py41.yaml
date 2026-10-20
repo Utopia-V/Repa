@@ -3,15 +3,10 @@ title: 函数的默认值和作用范围
 status: complete
 minutes: 20
 summary: 读懂默认参数在省略时怎样补上；分清函数里的局部名字和外面的同名名字；记住没有 return 的函数交回 None。
-prerequisites:
-  - topic: py40
-    key: true
-    weight: 1.00
-    covers: [py40.k1, py40.k2, py40.k3]
-  - topic: py03
-    key: true
-    weight: 0.33
-    covers: [py03.k3]
+prerequisites: [py40, py03]
+encompassings:
+  - {topic: py40, weight: 0.5}
+  - {topic: py03, weight: 0.5}
 sources:
   - source: think-python
     where: 第 3 章
@@ -42,6 +37,7 @@ wrapup: |
   这三句也适合拿来问 AI：“这个参数省略时默认是多少？这个函数会不会改到外面的变量？哪条路径会交回 None？”
 kps:
   - id: py41.k1
+    keyPrerequisites: [py40, py04]
     title: 默认参数用于省略输入
     card:
       name: 默认参数
@@ -456,6 +452,7 @@ kps:
           answers = {"header": fits[0] if len(fits) == 1 else fits}
 
   - id: py41.k2
+    keyPrerequisites: [py40, py01]
     title: 局部名称与外部名称的区别
     card:
       name: 局部名字
@@ -896,6 +893,7 @@ kps:
           answers = {"output": int(run().out), "fix": fits[0] if len(fits) == 1 else fits}
 
   - id: py41.k3
+    keyPrerequisites: [py40, py03]
     title: Python 不自动返回最后一个表达式
     card:
       name: 没有 return 得到 None

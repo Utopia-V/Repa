@@ -3,15 +3,10 @@ title: 为什么同一本 notebook 重跑会变
 status: complete
 minutes: 20
 summary: notebook 里变量的值取决于单元格实际运行的先后和次数；重启内核再从上到下全部运行，才能查出依赖隐藏状态的结果。
-prerequisites:
-  - topic: py01
-    key: true
-    weight: 0.50
-    covers: [py01.k1, py01.k2]
-  - topic: py13
-    key: true
-    weight: 0.50
-    covers: [py13.k1]
+prerequisites: [py01, py13]
+encompassings:
+  - {topic: py01, weight: 0.5}
+  - {topic: py13, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 2 章 §2.2
@@ -37,6 +32,7 @@ wrapup: |
   请 AI 或同事给你 notebook 时，可以直接要求：“请先重启内核、从上到下全部运行一遍，确认不报错、结果和你说的一致，再发给我。”
 kps:
   - id: py45.k1
+    keyPrerequisites: [py01]
     title: 执行顺序与屏幕排列可能不同
     card:
       name: 执行顺序
@@ -461,6 +457,7 @@ kps:
           answers = {"trace": totals}
 
   - id: py45.k2
+    keyPrerequisites: [py01, py13]
     title: 重启后从头运行才能核对隐藏状态
     card:
       name: 重启并全部运行

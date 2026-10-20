@@ -79,6 +79,7 @@ data:
       signal: [10, 7, 13, 10, 11]
 kps:
   - id: py12.k1
+    keyPrerequisites: []
     title: 说清输入、筛选规则和输出
     card:
       name: 可核对的要求
@@ -361,6 +362,7 @@ kps:
         manual: [next]
 
   - id: py12.k2
+    keyPrerequisites: []
     title: 用正常、边界和无结果例子消除歧义
     card:
       name: 边界例子

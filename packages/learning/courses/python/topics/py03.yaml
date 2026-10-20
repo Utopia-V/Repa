@@ -3,15 +3,10 @@ title: 数字、文字和缺省值不是一回事
 status: complete
 minutes: 20
 summary: 分清整数、小数、文字三类值和表示“没有值”的 None；读懂 + 在不同类型上的结果，需要计算时先用 int、float、str 转换。
-prerequisites:
-  - topic: py01
-    key: true
-    weight: 0.50
-    covers: [py01.k1]
-  - topic: py02
-    key: false
-    weight: 0.33
-    covers: [py02.k1]
+prerequisites: [py01, py02]
+encompassings:
+  - {topic: py01, weight: 0.5}
+  - {topic: py02, weight: 0}
 sources:
   - source: think-python
     where: 第 1 章
@@ -45,6 +40,7 @@ wrapup: |
   向 AI 提需求时，可以把这些说清楚：“这一列读进来是文字，请先转成小数再相加”“没测的样本记为没有值，不要当作 0”。
 kps:
   - id: py03.k1
+    keyPrerequisites: [py01]
     title: int、float、str 的行为差别
     card:
       name: 值的类型
@@ -146,7 +142,6 @@ kps:
     practice:
       - id: py03.k1.q1
         kind: [predict]
-        uses: [py02.k1]
         body: |
           下面四段程序各自单独运行。写出每段显示什么；如果程序报错停下，填 ERROR。
 
@@ -288,7 +283,6 @@ kps:
     review:
       - id: py03.k1.r1
         kind: [predict]
-        uses: [py02.k1]
         body: |
           下面哪些表达式算出的是文字（str）？选出全部。
         slots:
@@ -383,7 +377,6 @@ kps:
     quiz:
       - id: py03.k1.x1
         kind: [predict]
-        uses: [py02.k1]
         body: |
           哪一段程序会显示 10？
         slots:
@@ -451,6 +444,7 @@ kps:
           先给 `prefix` 和 `num` 赋值（谁先都可以），再拼出 `label`，最后 print。编号 07 要写成文字 `"07"`：`num = 07` 不是合法的写法，写成整数还会丢掉前面的 0；`prefix + 7` 是文字加整数，会报 TypeError。
 
   - id: py03.k2
+    keyPrerequisites: [py01]
     title: 显式 int/float/str 转换
     card:
       name: 类型转换
@@ -602,7 +596,7 @@ kps:
           answers = {f"p{i}": repl(block)[-1] for i, block in enumerate(BLOCKS, 1)}
       - id: py03.k2.q2
         kind: [trace]
-        uses: [py01.k1, py02.k1]
+        uses: [py01.k1]
         body: |
           菌落数从表格里读进来，是文字 "38"。
 
@@ -889,6 +883,7 @@ kps:
           answers = {"exprs": fits}
 
   - id: py03.k3
+    keyPrerequisites: []
     title: None 表示没有值而不是零
     card:
       name: None
@@ -1125,7 +1120,6 @@ kps:
     review:
       - id: py03.k3.r1
         kind: [predict]
-        uses: [py02.k1]
         body: |
           下面哪些表达式会报错？选出全部。
         slots:

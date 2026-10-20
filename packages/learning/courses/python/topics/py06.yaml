@@ -3,15 +3,10 @@ title: 列表：位置和一段范围
 status: complete
 minutes: 20
 summary: 读懂列表：len 数出有几个元素，位置从 0 开始取出一个，切片包含起点、不包含终点取出一段。
-prerequisites:
-  - topic: py03
-    key: true
-    weight: 0.33
-    covers: [py03.k1]
-  - topic: py04
-    key: false
-    weight: 0.33
-    covers: [py04.k1]
+prerequisites: [py03, py04]
+encompassings:
+  - {topic: py03, weight: 0.5}
+  - {topic: py04, weight: 0.5}
 sources:
   - source: think-python
     where: 第 9 章
@@ -36,6 +31,7 @@ wrapup: |
   AI 写的代码里出现 `[0]`、`[-1]`、`[:3]` 时，先数清它取的是第几个、到哪里为止，再对照你的要求。
 kps:
   - id: py06.k1
+    keyPrerequisites: [py03, py04]
     title: 有序列表与 len
     card:
       name: 列表
@@ -354,6 +350,7 @@ kps:
 
           原来的列表只有一个元素：一整段文字 `"12, 15, 9, 20"`。把四个读数分别写成元素、不加引号，它们才是四个整数，len 才数到 4。
   - id: py06.k2
+    keyPrerequisites: [py03]
     title: 从 0 开始的索引和 -1
     card:
       name: 索引
@@ -709,6 +706,7 @@ kps:
           ok = [option for option, k in candidates.items() if run(CODE, k=k).out.strip() == "S04"]
           answers = {"values": ok}
   - id: py06.k3
+    keyPrerequisites: []
     title: 切片左闭右开
     card:
       name: 切片

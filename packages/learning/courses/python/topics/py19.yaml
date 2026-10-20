@@ -3,19 +3,11 @@ title: 缺失不等于零，也不等于空串
 status: complete
 minutes: 20
 summary: 用 isna/notna 找出缺失值；认出 NaN、None 和“看起来像缺失”的记号的区别；删除、填补还是保留缺失，要按业务规则写进需求。
-prerequisites:
-  - topic: py14
-    key: true
-    weight: 0.33
-    covers: [py14.k3]
-  - topic: py17
-    key: true
-    weight: 1.00
-    covers: [py17.k1, py17.k2]
-  - topic: py12
-    key: true
-    weight: 0.50
-    covers: [py12.k1]
+prerequisites: [py14, py17, py12]
+encompassings:
+  - {topic: py14, weight: 0.5}
+  - {topic: py17, weight: 0.5}
+  - {topic: py12, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 7 章 §7.1
@@ -170,6 +162,7 @@ data:
       | 4 | R5 | NaN |
 kps:
   - id: py19.k1
+    keyPrerequisites: [py17]
     title: isna/notna 识别缺失而不靠 ==
     card:
       name: isna 找缺失
@@ -539,6 +532,7 @@ kps:
           `== np.nan` 每一行都是 False，所以原来的代码一行也留不下。改用 `isna()` 标出缺失的行，留下 T2。和 None 比较一样找不出缺失；`== 0` 会把真的读到 0 ℃ 的 T3 当成缺失。判分时还会换一份有两个缺失的记录运行。
 
   - id: py19.k2
+    keyPrerequisites: [py14, py03]
     title: 不同 dtype 下缺失表示可能不同
     card:
       name: 缺失的样子
@@ -819,6 +813,7 @@ kps:
           }
 
   - id: py19.k3
+    keyPrerequisites: [py12, py17]
     title: 删除、保留或填补需要业务规则
     card:
       name: 缺失处理规则
@@ -1030,7 +1025,6 @@ kps:
           answers = {"a": len(r["rule_a"]), "b": len(r["rule_b"])}
       - id: py19.k3.r2
         kind: [specify]
-        uses: [py12.k1]
         body: |
           负责人确认的规则是：“depth 没有记录的样地不参加平均，但要在报告里写明有几个；其他列缺失不影响。”下面哪一种说法与它完全一致？
         slots:
@@ -1086,7 +1080,6 @@ kps:
         manual: [column, action, report]
       - id: py19.k3.x2
         kind: [specify, explain]
-        uses: [py12.k1]
         data: [M]
         body: |
           需求是：“删除 signal 缺失的行，其他列有缺失的行照常保留。”

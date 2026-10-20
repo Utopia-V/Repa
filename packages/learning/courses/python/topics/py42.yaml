@@ -3,19 +3,11 @@ title: 用小例子检查一个函数
 status: complete
 minutes: 20
 summary: 把一条要求写成正常、边界、空输入三类“调用 → 期望”的测试，再用 assert 逐条核对，从第一条失败的断言定位差异。
-prerequisites:
-  - topic: py40
-    key: true
-    weight: 0.33
-    covers: [py40.k2]
-  - topic: py12
-    key: true
-    weight: 0.50
-    covers: [py12.k1, py12.k2]
-  - topic: py11
-    key: false
-    weight: 0.50
-    covers: [py11.k2]
+prerequisites: [py40, py12, py11]
+encompassings:
+  - {topic: py40, weight: 0.5}
+  - {topic: py12, weight: 0.5}
+  - {topic: py11, weight: 0.5}
 sources:
   - source: think-python
     where: 第 6 章 增量开发
@@ -49,6 +41,7 @@ wrapup: |
   拿 AI 写的函数时，也可以直接要求：“请附上覆盖正常、边界和空输入的 assert 测试，期望结果按我的要求写，不要照着函数的输出抄。”
 kps:
   - id: py42.k1
+    keyPrerequisites: [py12, py40]
     title: 正常、边界和空输入转成测试
     card:
       name: 三类测试
@@ -405,6 +398,7 @@ kps:
                                  for row, (args, expect) in tests.items()}}
 
   - id: py42.k2
+    keyPrerequisites: [py40, py11]
     title: assert 表达期望并在失败时定位差异
     card:
       name: assert 断言
