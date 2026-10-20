@@ -3,11 +3,9 @@ title: 把计算写成表达式
 status: complete
 minutes: 20
 summary: 读懂一行算式的计算顺序和括号；分清 /、// 和 %；换算时把单位写进名字，并用量级核对结果。
-prerequisites:
-  - topic: py01
-    key: true
-    weight: 0.50
-    covers: [py01.k1, py01.k2]
+prerequisites: [py01]
+encompassings:
+  - {topic: py01, weight: 0.5}
 sources:
   - source: think-python
     where: 第 1 章 §1
@@ -34,6 +32,7 @@ wrapup: |
   向同事或 AI 提计算要求时，把“先合起来再乘”“保留小数”“结果以小时为单位”这类信息说出来，对方就不用猜。
 kps:
   - id: py02.k1
+    keyPrerequisites: [py01]
     title: 括号与运算顺序
     card:
       name: 运算顺序
@@ -410,6 +409,7 @@ kps:
           answers = {"shown": int(r.out), "needed": needed(r["n"]), "coincide": same[0] if len(same) == 1 else same}
 
   - id: py02.k2
+    keyPrerequisites: [py01]
     title: 除法 /、整除 // 与余数 %
     card:
       name: 三种除法
@@ -784,6 +784,7 @@ kps:
           `/` 比 `+` 先算，原来的代码只把 `c` 除以了 3。要先用括号把三个读数加起来，再除以 3。不能用 `//`：读数 1、2、4 的平均是 2.33…，整除会只留下 2。
 
   - id: py02.k3
+    keyPrerequisites: [py01]
     title: 单位随计算一起核对
     card:
       name: 单位核对

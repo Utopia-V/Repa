@@ -27,6 +27,7 @@ wrapup: |
   试着用这两步说出一段代码在做什么，再看看这一节的两张概念卡。
 kps:
   - id: py01.k1
+    keyPrerequisites: []
     title: 名字指向当前的值，赋值先算右边
     card:
       name: 赋值
@@ -293,6 +294,7 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
 
   - id: py01.k2
+    keyPrerequisites: []
     title: 逐行追踪重新赋值，读出 print 的结果
     card:
       name: 重新赋值

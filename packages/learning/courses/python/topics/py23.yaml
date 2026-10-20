@@ -3,15 +3,10 @@ title: 排序后，位置不再等于原来的标签
 status: complete
 minutes: 20
 summary: 用 sort_values 按一列或多列排序，并列时写明次要排序键或稳定排序；排序后分清位置和标签，按需求决定 reset_index 还是保留原索引。
-prerequisites:
-  - topic: py16
-    key: true
-    weight: 0.67
-    covers: [py16.k1, py16.k2]
-  - topic: py12
-    key: true
-    weight: 1.00
-    covers: [py12.k1, py12.k2]
+prerequisites: [py16, py12]
+encompassings:
+  - {topic: py16, weight: 0.5}
+  - {topic: py12, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 5 章 §5.2
@@ -96,6 +91,7 @@ data:
       od: float
 kps:
   - id: py23.k1
+    keyPrerequisites: [py12]
     title: 按一列或多列排序及并列顺序
     card:
       name: 排序与并列
@@ -170,7 +166,6 @@ kps:
     practice:
       - id: py23.k1.q1
         kind: [predict, explain]
-        uses: [py12.k2]
         data: [T]
         body: |
           阅读代码。
@@ -218,7 +213,6 @@ kps:
           }
       - id: py23.k1.q2
         kind: [debug]
-        uses: [py12.k1]
         data: [T]
         body: |
           需求是“按 signal 从高到低排；signal 相同的，按 sample_id 从小到大（S_A 在前）”。同事写了下面这行。
@@ -378,7 +372,6 @@ kps:
     quiz:
       - id: py23.k1.x1
         kind: [debug, specify]
-        uses: [py12.k1]
         data: [wells]
         body: |
           需求是“按细胞数从多到少排；细胞数一样的，按孔号 well 从小到大”。
@@ -443,6 +436,7 @@ kps:
         manual: [next]
 
   - id: py23.k2
+    keyPrerequisites: [py16]
     title: reset_index 与保留原索引的取舍
     card:
       name: 排序后的位置与标签
@@ -791,7 +785,6 @@ kps:
           }
       - id: py23.k2.x2
         kind: [specify]
-        uses: [py12.k1]
         body: |
           两份排序结果要交出去：
 

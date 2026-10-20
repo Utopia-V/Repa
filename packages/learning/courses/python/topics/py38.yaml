@@ -3,15 +3,10 @@ title: 同时读到编号和值
 status: complete
 minutes: 20
 summary: 读懂元组和解包的数量对应，用 enumerate 同时拿到位置和元素，用 zip 把两个列表按位置配对，并留意长度不同时的截断。
-prerequisites:
-  - topic: py35
-    key: true
-    weight: 0.33
-    covers: [py35.k1, py35.k2]
-  - topic: py06
-    key: true
-    weight: 0.67
-    covers: [py06.k1, py06.k2, py06.k3]
+prerequisites: [py35, py06]
+encompassings:
+  - {topic: py35, weight: 0.5}
+  - {topic: py06, weight: 0.5}
 sources:
   - source: think-python
     where: 第 11 章（元组、元组赋值、zip 与 enumerate）
@@ -52,6 +47,7 @@ data:
       ```
 kps:
   - id: py38.k1
+    keyPrerequisites: [py06, py01]
     title: 元组及解包的数量对应
     card:
       name: 元组解包
@@ -475,6 +471,7 @@ kps:
           }}
 
   - id: py38.k2
+    keyPrerequisites: [py35, py06]
     title: enumerate 给元素配位置
     card:
       name: enumerate
@@ -847,6 +844,7 @@ kps:
           answers = {"shown": by_number["3"], "third": r["ids"][3 - 1]}
 
   - id: py38.k3
+    keyPrerequisites: [py35, py06]
     title: zip 配对并留意长度不同时的截断
     card:
       name: zip 配对

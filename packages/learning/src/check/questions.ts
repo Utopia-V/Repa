@@ -9,7 +9,7 @@ import { checkResponse, ItemSchema, type Item } from "@repa/base/protocol";
 
 import type { Report, SourceFile } from "../format/diagnostics.js";
 import type { LoadedCourse } from "../format/load.js";
-import type { Topic } from "../format/schema.js";
+import type { Runtime, Topic } from "../format/schema.js";
 import { currentConfirmation, needsConfirmation } from "./confirm.js";
 import { gradeSlot } from "./grade.js";
 import { publicItem, referenceResponse, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
@@ -33,15 +33,15 @@ function checkRecords(topic: Topic, file: SourceFile, report: Report): void {
   });
 }
 
-/** 复习和测验题的 manual 作答位要有当前版本的模型核对记录。 */
-function checkConfirmation(topic: Topic, file: SourceFile, entry: QuestionEntry, version: string, report: Report): void {
-  if (!needsConfirmation(entry) || currentConfirmation(topic, entry.question, version)) return;
+/** 复习和测验题的 manual 作答位要有当前题面、判分定义与运行依赖的核对记录。 */
+async function checkConfirmation(topic: Topic, file: SourceFile, entry: QuestionEntry, runtime: Runtime, report: Report): Promise<void> {
+  if (!needsConfirmation(entry) || await currentConfirmation(topic, entry.question, runtime)) return;
   const stale = (topic.verified ?? []).some((record) => record.question === entry.question.id);
   const slots = (entry.question.manual ?? []).join("、");
   report.error(
     "manual_unconfirmed",
     stale
-      ? `${entry.question.id} 的核对记录对应的是旧版本或没有覆盖 ${slots}；题目改过后要重新核对：npm run course:confirm -- --topic ${topic.id}`
+      ? `${entry.question.id} 的核对记录对应的是旧版本或没有覆盖 ${slots}；题面、判分或运行依赖变化后要重新核对：npm run course:confirm -- --topic ${topic.id}`
       : `复习和测验题 ${entry.question.id} 的作答位 ${slots} 还没有模型核对记录：npm run course:confirm -- --topic ${topic.id}`,
     file, [...entry.at, "manual"],
   );
@@ -55,7 +55,7 @@ export async function checkReferences(course: LoadedCourse, report: Report): Pro
       const { question, at } = entry;
       const item = await publicItem(question, topic);
       items.set(question.id, item);
-      checkConfirmation(topic, file, entry, item.version, report);
+      await checkConfirmation(topic, file, entry, course.course.runtime, report);
       if (!Value.Check(ItemSchema, item)) {
         const first = Value.Errors(ItemSchema, item)[0];
         report.error("item_invalid", `投影出的题目不符合交互词汇：${first?.instancePath ?? ""} ${first?.message ?? ""}`, file, at);

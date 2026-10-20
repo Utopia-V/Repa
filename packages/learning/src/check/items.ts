@@ -198,7 +198,7 @@ export function questionFixtures(question: Question): string[] {
   return [...names].sort();
 }
 
-/** 解释性元数据，不进内容哈希。 */
+/** 信用与解释性元数据在定义投影中忽略，保持原算法以复算旧核对哈希。 */
 const METADATA_FIELDS = ["kind", "measures", "uses"] as const;
 /** 只为检查课程而写的部分：改它们不改变学生看到什么、怎样判，不进内容哈希。 */
 const CHECK_ONLY_FIELDS = ["verify", "manual"] as const;
@@ -211,15 +211,28 @@ function without(value: object, fields: readonly string[]): Record<string, unkno
 }
 
 /**
- * 内容哈希的输入：学生看到什么、怎样判，也就是题面、作答位（含答案与判分规则）、解析和测试，
+ * 旧核对哈希的输入：学生看到什么、怎样判，也就是题面、作答位（含答案与判分规则）、解析和测试，
  * 再加上题目和测试用到的数据夹具。去掉解释性元数据和只为检查而写的部分，免得改一个标签或核对程序
  * 就把同一道题拆成新版本。输入是作者写下的定义，YAML 的排版不影响哈希。
  */
-export function versionInput(question: Question, topic: Topic): unknown {
+export function legacyVersionInput(question: Question, topic: Topic): unknown {
   const definition = without(question, [...METADATA_FIELDS, ...CHECK_ONLY_FIELDS]);
   definition.slots = question.slots.map((slot) => (slot.type === "code" ? without(slot, CHECK_ONLY_CODE_FIELDS) : slot));
   const data = Object.fromEntries(questionFixtures(question).map((name) => [name, topic.data?.[name] ?? null]));
   return { question: definition, data };
+}
+
+/** 有效信用归属是集合；缺省与显式等价写法共用版本。 */
+export function questionCredit(question: Question): Pick<Required<Question>, "measures" | "uses"> {
+  const owner = question.id.slice(0, question.id.lastIndexOf("."));
+  return {
+    measures: [...new Set(question.measures ?? [owner])].sort(),
+    uses: [...new Set(question.uses ?? [])].sort(),
+  };
+}
+
+export function versionInput(question: Question, topic: Topic): unknown {
+  return { definition: legacyVersionInput(question, topic), credit: questionCredit(question) };
 }
 
 export async function questionVersion(question: Question, topic: Topic): Promise<string> {

@@ -3,15 +3,10 @@ title: 从一张表读出图想说明什么
 status: complete
 minutes: 20
 summary: 按要回答的问题选柱状图、折线图或散点图；从两三行画图代码读出横轴、纵轴、单位，以及画之前有没有先按组聚合。
-prerequisites:
-  - topic: py27
-    key: true
-    weight: 0.50
-    covers: [py27.k1, py27.k2]
-  - topic: py23
-    key: true
-    weight: 0.50
-    covers: [py23.k1]
+prerequisites: [py27, py23]
+encompassings:
+  - {topic: py27, weight: 0.5}
+  - {topic: py23, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 9 章 §9.2（用 pandas 画图）
@@ -139,6 +134,7 @@ data:
       root_mm: [42, 66, 38, 70, 62]
 kps:
   - id: py33.k1
+    keyPrerequisites: [py27]
     title: 按比较、趋势或关系选 bar/line/scatter
     card:
       name: 图的种类
@@ -415,6 +411,7 @@ kps:
         manual: [questions]
 
   - id: py33.k2
+    keyPrerequisites: [py27, py23]
     title: 从代码核对横轴、纵轴、单位和是否先聚合
     card:
       name: 读画图代码

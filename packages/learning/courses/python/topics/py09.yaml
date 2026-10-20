@@ -3,11 +3,9 @@ title: 把两个条件接起来
 status: complete
 minutes: 20
 summary: 用 and、or、not 把比较接成一个 True 或 False；用括号定下先接哪两个，再用小真值表核对两种写法在哪些情况下不同。
-prerequisites:
-  - topic: py08
-    key: true
-    weight: 1.00
-    covers: [py08.k1, py08.k2]
+prerequisites: [py08]
+encompassings:
+  - {topic: py08, weight: 0.5}
 sources:
   - source: think-python
     where: 第 5 章（逻辑运算符）
@@ -52,6 +50,7 @@ data:
       flagged: [false, true, true, false]
 kps:
   - id: py09.k1
+    keyPrerequisites: [py08]
     title: 单个布尔值的 and/or/not
     card:
       name: and/or/not
@@ -404,6 +403,7 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
 
   - id: py09.k2
+    keyPrerequisites: [py08]
     title: 括号确定条件组合并用小真值表验证
     card:
       name: 条件的括号

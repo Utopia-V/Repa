@@ -3,19 +3,11 @@ title: 把数据处理拆成可核对的步骤
 status: complete
 minutes: 20
 summary: 把一段数据处理读成读入、校验、变换、汇总、输出几步，说清每一步拿到什么、交出什么；结果不对时逐步比对中间结果，找到第一个偏离需求的步骤。
-prerequisites:
-  - topic: py34
-    key: true
-    weight: 0.50
-    covers: [py34.k1]
-  - topic: py28
-    key: true
-    weight: 1.00
-    covers: [py28.k1, py28.k2]
-  - topic: py42
-    key: true
-    weight: 1.00
-    covers: [py42.k1, py42.k2]
+prerequisites: [py34, py28, py42]
+encompassings:
+  - {topic: py34, weight: 0.5}
+  - {topic: py28, weight: 0.5}
+  - {topic: py42, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 13 章
@@ -207,6 +199,7 @@ data:
       cells: float
 kps:
   - id: py46.k1
+    keyPrerequisites: [py34, py28, py42]
     title: 读入→校验→变换→汇总→输出的接口
     card:
       name: 步骤的接口
@@ -740,6 +733,7 @@ kps:
           `print` 只是显示，函数交出的仍是 None，下一步写文件时拿不到表。表 raw 上的结果是 control 2 个、平均 10.0，drug 3 个、平均 12.0。判分时还会换一张表调用，检查函数只用了参数。
 
   - id: py46.k2
+    keyPrerequisites: [py28, py25, py19]
     title: 从一个中间结果定位需求与代码的分歧
     card:
       name: 定位分歧

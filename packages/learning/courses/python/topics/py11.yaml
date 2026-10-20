@@ -3,15 +3,10 @@ title: 报错告诉你停在了哪里
 status: complete
 minutes: 20
 summary: 分清语法错误（一行都不运行）和运行时异常（停在出错的那一行）；从错误类型和指向的行出发，找出造成问题的值和它是在哪一行定下的。
-prerequisites:
-  - topic: py03
-    key: true
-    weight: 0.67
-    covers: [py03.k1, py03.k2]
-  - topic: py06
-    key: false
-    weight: 0.33
-    covers: [py06.k2]
+prerequisites: [py03, py06]
+encompassings:
+  - {topic: py03, weight: 0.5}
+  - {topic: py06, weight: 0.5}
 sources:
   - source: think-python
     where: 第 2 章 §2.9
@@ -38,6 +33,7 @@ wrapup: |
   把报错交给 AI 或同事时，带上完整的报错和它指向的那几行代码，比只说“程序报错了”有用得多。
 kps:
   - id: py11.k1
+    keyPrerequisites: [py03]
     title: 区分语法错误与运行时异常
     card:
       name: 语法错误与运行时异常
@@ -562,6 +558,7 @@ kps:
           answers = {"count": len(lines), "last": lines[-1], "stop": stop_line()}
 
   - id: py11.k2
+    keyPrerequisites: [py03, py06]
     title: 从异常类型和指向的行缩小原因
     card:
       name: 读报错

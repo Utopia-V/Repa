@@ -3,19 +3,12 @@ title: 清理整列文字但保留编号含义
 status: complete
 minutes: 20
 summary: 用 .str.strip()、.str.lower() 逐格清理一整列文字；清理后为空的格按需求处理成缺失；编号列只做约定好的清理，不转成数、不改大小写。
-prerequisites:
-  - topic: py05
-    key: true
-    weight: 0.67
-    covers: [py05.k2, py05.k3]
-  - topic: py19
-    key: true
-    weight: 0.67
-    covers: [py19.k1, py19.k2, py19.k3]
-  - topic: py15
-    key: false
-    weight: 0.33
-    covers: [py15.k2]
+prerequisites: [py05, py19, py15]
+encompassings:
+  - {topic: py05, weight: 0.5}
+  - {topic: py19, weight: 0.5}
+  - {topic: py15, weight: 0.5}
+  - {topic: py20, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 7 章 §7.4
@@ -287,6 +280,7 @@ data:
       ```
 kps:
   - id: py24.k1
+    keyPrerequisites: [py05]
     title: str.strip/str.lower 的逐元素作用
     card:
       name: .str 逐格清理
@@ -638,6 +632,7 @@ kps:
           原来的代码只去了空白，"MG"、"Mg" 还是大写。再接一步 `.str.lower()`，结果存进新列 unit_clean，unit 原列不动。判分时还会换一张有缺失的表运行。
 
   - id: py24.k2
+    keyPrerequisites: [py19, py05]
     title: 空串与缺失分别处理
     card:
       name: 空串转缺失
@@ -862,7 +857,7 @@ kps:
           }
       - id: py24.k2.r2
         kind: [specify]
-        uses: [py19.k3, py12.k1]
+        uses: [py19.k3]
         body: |
           负责人确认的规则是：“备注去掉首尾的空白；清理后为空的当作缺失；手写的‘无’保留原样。”下面哪一种做法与它完全一致？
         slots:
@@ -946,6 +941,7 @@ kps:
           answers = {"rows": [str(label) for label, value in c.items() if pd.isna(value)], "last": c[5]}
 
   - id: py24.k3
+    keyPrerequisites: [py15, py03]
     title: 编号列不要任意转数值或改写
     card:
       name: 编号保持原样
@@ -987,6 +983,7 @@ kps:
       - 从文件读入时，用 [dtype={"sample_id": "str"}](repa:concept/py15.k2) 让编号保持文字，前导零就不会丢。
     example:
       id: py24.k3.e0
+      uses: [py20.k1]
       kind: [predict]
       data: [ids]
       body: |

@@ -89,7 +89,7 @@ test("模型独立解出的答案与标准答案一致时写入记录，之后�
   const after = await topicFile(root);
   assert.ok(after.text.startsWith(before.trimEnd()), "topic 文件原有内容不变，记录追加在末尾");
   assert.deepEqual(after.verified, result.outcomes.map((outcome) => ({
-    question: outcome.question, version: outcome.version, slots: outcome.slots, model: "deepseek/deepseek-flash", date: "2026-10-12",
+    question: outcome.question, version: outcome.version, scope: "question-runtime-v1", slots: outcome.slots, model: "deepseek/deepseek-flash", date: "2026-10-12",
   })));
   const check = await checkCourse(root, { run: false, base: root });
   assert.deepEqual(check.diagnostics, []);

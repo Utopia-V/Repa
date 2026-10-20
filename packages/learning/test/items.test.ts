@@ -117,13 +117,13 @@ test("标准答案拼出的作答能通过题目自己的结构检查，缺答�
   assert.equal(checkResponse(item, { ...reference, answers: { line: { type: "choice", selected: ["minus", "plus"] } } }).ok, false);
 });
 
-test("内容版本不受元数据和核对程序影响，题面、答案、解析和用到的数据一改就变", async () => {
+test("内容版本不受题型和核对程序影响，题面、答案、解析和用到的数据一改就变", async () => {
   const topic = t01();
   const question = topic.kps[1]?.example;
   assert.ok(question);
   const original = await questionVersion(question, topic);
   assert.match(original, /^sha256:[0-9a-f]{64}$/);
-  assert.equal(await questionVersion({ ...question, kind: ["trace"], uses: ["t01.k1"] }, topic), original);
+  assert.equal(await questionVersion({ ...question, kind: ["trace"] }, topic), original);
   assert.equal(await questionVersion({ ...question, verify: "answers = {}", manual: ["mask"] }, topic), original);
   assert.notEqual(await questionVersion({ ...question, explanation: "False、True、True！" }, topic), original);
   const table = question.slots[0];
@@ -135,8 +135,8 @@ test("内容版本不受元数据和核对程序影响，题面、答案、解�
   assert.ok(nums?.kind === "dataframe");
   nums.columns.value = [3, 8, 6];
   assert.notEqual(await questionVersion(question, changedData), original);
-  // 输入里只有题目定义和它用到的数据。
-  assert.deepEqual(Object.keys(versionInput(question, topic) as object), ["question", "data"]);
+  // 版本输入分开保存题面／判分定义（含数据）和有效信用归属。
+  assert.deepEqual(Object.keys(versionInput(question, topic) as object), ["definition", "credit"]);
 });
 
 test("代码题的等价写法和错误写法只为检查而写，不影响版本；参考答案和测试会影响", async () => {

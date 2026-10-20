@@ -1,6 +1,6 @@
 # 课程清单。topic 内容在 topics/<id>.yaml；写法见 ../README.md。
 id: python
-version: 0.1.0
+version: 0.2.0
 title: Python：读懂代码，说清需求
 summary: >-
   面向数据处理的通用 Python 入门：读懂别人或 AI 写的代码、追踪中间结果，
@@ -71,6 +71,9 @@ sources:
     license: 未核对
     permits: [reference]
     note: 许可尚未核对，只作链接参照。
+
+# 尚未发布，身份退役清单从空开始；发布后退役 id 不得复用。
+retiredIds: []
 
 # topic 的稳定 id。顺序只是浏览顺序，学习安排由先修图和学习状态决定。
 topics:
