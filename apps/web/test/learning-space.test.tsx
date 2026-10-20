@@ -87,6 +87,19 @@ it("打开失败时显示后端说明，列表仍可再次选择", async () => {
   expect((item as HTMLButtonElement).disabled).toBe(false);
 });
 
+it("对话运行中只能回到当前空间，其他空间和选择文件夹不可用", async () => {
+  const { client } = fakeBackend(["/notes/physics", "/notes/history"]);
+  const store = renderPage(client);
+  await store.getState().openSpace("/notes/physics");
+  store.setState({ conversation: { ...store.getState().conversation, run: "running" } });
+
+  const list = await screen.findByRole("list", { name: "最近打开" });
+  expect((within(list).getByRole("button", { name: /history/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(list).getByRole("button", { name: /^physics/ }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "选择其他文件夹" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText("对话正在运行，结束或停止后才能换到别的空间。")).toBeTruthy();
+});
+
 it("读取最近空间失败时显示原因，重试后列出空间", async () => {
   const { client } = fakeBackend(["/notes/physics"], { failList: new Error("读取超时") });
   renderPage(client);

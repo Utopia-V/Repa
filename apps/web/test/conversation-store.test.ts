@@ -389,6 +389,27 @@ it("关闭空间后清空会话、会话列表和授权；运行中不关闭", a
   expect(store.getState().conversation.sessionId).toBeUndefined();
 });
 
+it("运行中不换到别的空间，回到当前空间照常打开", async () => {
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
+  const store = await openedStore(backend);
+
+  const sending = store.getState().sendMessage("出一道题");
+  await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+  await store.getState().openSpace("/notes/physics");
+  expect(backend.call).not.toHaveBeenCalledWith("space.open", { root: "/notes/physics" });
+  expect(store.getState()).toMatchObject({ space: "/notes/calculus", conversation: { sessionId: "s1", run: "sending" } });
+
+  backend.call.mockClear();
+  await store.getState().openSpace("/notes/calculus");
+  expect(backend.call).toHaveBeenCalledWith("space.open", { root: "/notes/calculus" });
+  expect(store.getState().conversation.run).toBe("sending");
+
+  backend.runs[0]?.finish();
+  await sending;
+  await store.getState().openSpace("/notes/physics");
+  expect(store.getState().space).toBe("/notes/physics");
+});
+
 it("新建的 store 读回上次的空间和会话：连上后先重新打开空间，再读这个会话", async () => {
   const sessions: SessionInfo[] = [
     { id: "s1", createdAt: at, updatedAt: "2026-10-12T00:00:00.000Z", agent: "general" },

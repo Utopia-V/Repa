@@ -141,6 +141,7 @@ export type AppState = {
   loadSpaces(): Promise<void>;
   /** 重新读取已经读过的数据，用于重连和窗口切回。 */
   reloadLoaded(): Promise<void>;
+  /** 运行中只能回到当前空间：后端打开另一个空间前会关闭当前空间，中止正在进行的运行。 */
   openSpace(root: string): Promise<void>;
   /**
    * 运行中不关闭：后端关闭空间会中止正在进行的运行。失败时抛给调用方并保留空间；
@@ -505,6 +506,7 @@ export function createAppStore() {
         await Promise.all(names.map((name) => loaders[name]()));
       },
       async openSpace(root) {
+        if (get().conversation.run !== "idle" && root !== get().space) return;
         const opened = await call("space.open", { root });
         // 换了空间时，上一个空间的会话不再适用。
         if (opened.root !== get().space) {

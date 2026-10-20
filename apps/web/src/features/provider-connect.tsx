@@ -31,6 +31,7 @@ type Step =
 
 const methodLabel = { api_key: "填写 API key", oauth: "用账号登录" } as const;
 
+
 /**
  * 连接模型提供方。key 由 auth.setKey 保存；账号登录和需要多项信息的 key 走 auth.login，
  * 过程中后端发来的输入、选择和链接显示在同一个对话框里。
@@ -235,13 +236,7 @@ function LoginFlow({ provider, type, onDone, onBack }: {
     {activeLogin && activeLogin.notices.length > 0 && <ul aria-label="登录说明" className="m-0 grid list-none gap-2 p-0">
       {activeLogin.notices.map((notice, index) => <li key={index} className="grid gap-2 text-sm">
         <p className="break-words">{notice.title}</p>
-        {notice.url && <div>
-          <Button asChild variant={prompt ? "outline" : "default"}>
-            <a href={notice.url} target="_blank" rel="noreferrer">
-              <ExternalLink aria-hidden="true" />打开链接
-            </a>
-          </Button>
-        </div>}
+        {notice.url && <NoticeLink url={notice.url} primary={!prompt} />}
       </li>)}
     </ul>}
     {running && prompt && <LoginPrompt key={prompt.id} prompt={prompt} />}
@@ -255,6 +250,18 @@ function LoginFlow({ provider, type, onDone, onBack }: {
 }
 
 /** 登录过程中后端要用户回答的一项：输入（可能是密文）或从选项中选一个。 */
+/** 登录链接来自提供方，只把网页链接做成按钮，其他协议照原文显示。 */
+function NoticeLink({ url, primary }: { url: string; primary: boolean }) {
+  if (!/^https?:/i.test(url)) return <p className="break-all text-muted-foreground">{url}</p>;
+  return <div>
+    <Button asChild variant={primary ? "default" : "outline"}>
+      <a href={url} target="_blank" rel="noreferrer">
+        <ExternalLink aria-hidden="true" />打开链接
+      </a>
+    </Button>
+  </div>;
+}
+
 function LoginPrompt({ prompt }: { prompt: PendingConfirmation }) {
   const answer = useAppStore((state) => state.answerLoginPrompt);
   const [value, setValue] = useState("");

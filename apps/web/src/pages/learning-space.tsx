@@ -69,6 +69,7 @@ export function LearningSpacePage() {
         closeFailure={closeFailure?.root === active ? closeFailure : undefined}
         // 后端关闭空间会中止正在进行的运行，所以运行中不能关。
         closeDisabled={running || closing}
+        running={running}
         onClose={(root) => { void close(root); }}
         onPick={() => setPicking(true)}
         onOpen={(root) => { void open(root); }}
@@ -90,13 +91,15 @@ function FirstSpace({ onPick }: { onPick(): void }) {
     </div>;
 }
 
-function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDisabled, onPick, onOpen, onClose, onRetry }: {
+function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDisabled, running, onPick, onOpen, onClose, onRetry }: {
   spaces: Resources["spaces"];
   active: string | undefined;
   opening: string | undefined;
   failure: { root: string; error: unknown; previous?: boolean } | undefined;
   closeFailure: { root: string; error: unknown } | undefined;
   closeDisabled: boolean;
+  /** 运行中只能回到当前空间，换到别的空间会中止运行。 */
+  running: boolean;
   onPick(): void;
   onOpen(root: string): void;
   onClose(root: string): void;
@@ -113,12 +116,13 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
         <p className="text-sm text-muted-foreground">
           {hasRecent ? "从最近打开的空间继续，或选择其他文件夹。" : "选择一个文件夹作为学习空间。"}
         </p>
+        {running && <p className="text-sm text-muted-foreground">对话正在运行，结束或停止后才能换到别的空间。</p>}
       </div>
       {/* 最近列表可用时继续学习是主要操作，选择文件夹退为次要；列表读不出来时它是唯一入口。 */}
       <Button
         variant={loadFailed && !hasRecent ? "default" : "outline"}
         className="w-full sm:w-auto"
-        disabled={opening !== undefined}
+        disabled={opening !== undefined || running}
         onClick={onPick}
       >
         <FolderSearch aria-hidden="true" />{hasRecent ? "选择其他文件夹" : "选择文件夹"}
@@ -149,7 +153,7 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
           <SelectionButton
             className="min-w-0 flex-1"
             selected={root === active}
-            disabled={opening !== undefined}
+            disabled={opening !== undefined || (running && root !== active)}
             aria-busy={opening === root}
             onClick={() => onOpen(root)}
           >
