@@ -20,6 +20,8 @@ function invalid(message: string): never {
   throw new RepaFault("invalid_learning_log", message);
 }
 
+type Viewed = Omit<Extract<RecordBody, { type: "viewed" }>, "type">;
+
 export class LearningRecords {
   private readonly entries: LearningRecord[] = [];
   get records(): LearningRecord[] { return structuredClone(this.entries); }
@@ -253,8 +255,15 @@ export class LearningRecords {
     });
   }
 
-  viewed(input: Omit<Extract<RecordBody, { type: "viewed" }>, "type">): Promise<void> {
-    return this.serial(() => this.append({ type: "viewed", ...input }));
+  viewed(
+    input: Viewed | ((current: Projection | undefined) => Promise<Viewed[]>),
+  ): Promise<void> {
+    return this.serial(async () => {
+      const entries = typeof input === "function" ? await input(this.current()) : [input];
+      for (const entry of entries) {
+        await this.append({ type: "viewed", ...entry });
+      }
+    });
   }
 
   async submit(input: LearningInput<"submission.submit">): Promise<SubmissionReceipt> {
