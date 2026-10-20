@@ -6,10 +6,12 @@ import { parse } from "@repa/base/protocol";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
 import { learningMethods, type LearningInput, type LearningState } from "./protocol.js";
 import { LearningRecords } from "./records.js";
+import { connectLearning } from "./flow.js";
 
 export interface LearningPluginOptions {
   sources?: CourseSource[];
-  /** c2 在同一持久入口上装配教学方法和判分；此层不选择教学转换。 */
+  now?: () => number;
+  /** 默认装配教学流程；自定义接入复用同一持久入口。 */
   connect?: (records: LearningRecords, course: ResolvedCourse, host: Host) => Promise<Pick<PluginInstance, "methods" | "close">>;
 }
 export function createLearningPlugin(options: LearningPluginOptions = {}): Plugin {
@@ -18,9 +20,11 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
     async open(host) {
       const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
       const course = await loadCourseSources(sources, host.files);
-      const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"));
+      const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"), options.now);
       try {
-        const connected = await options.connect?.(records, course, host);
+        const connected = await (options.connect
+          ? options.connect(records, course, host)
+          : connectLearning(records, course, host, options.now));
         function state(): LearningState {
           const stored = records.current()?.state;
           if (stored) return { ...stored, serverNow: Date.now() };

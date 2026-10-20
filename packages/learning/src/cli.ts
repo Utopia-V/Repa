@@ -18,7 +18,7 @@ const USAGE = `用法：
       保留原日志，将验证过的完整前缀写入新的文件。
   repa-course check [课程目录…] [--no-run] [--topic id …] [--packages 目录] [--json]
       检查课程文件；缺省检查 courses/ 下全部课程。--no-run 只做结构检查，不运行代码；
-      --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。
+      --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。完整核对成功后发布 expected.json。
   repa-course runtime [课程目录…] [--from 目录] [--packages 目录]
       准备离线 Pyodide 包；--from 从已有目录复制，不给时从 jsDelivr 下载。都会按 lockfile 核对 SHA-256。
   repa-course confirm [课程目录…] [--topic id …] [--max-requests 50] [--model deepseek/deepseek-flash]

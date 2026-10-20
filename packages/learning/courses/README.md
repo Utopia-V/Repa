@@ -108,6 +108,8 @@
 - **运行前导。** 清单 `runtime.prelude` 是一段 Python（本课是 `import pandas as pd` 和 `import numpy as np`）。每次运行题目代码、测试的 `setup`、`expect` 表达式和 `verify` 之前，都先在同一个命名空间里运行它，学习者在 Repa 里运行代码时用的也是同一份。所以题目里直接写 `pd`、`np`，不要再为它们加隐藏的 python 夹具。
 - **题与题互不影响。** 每次运行都用全新的命名空间和空的工作目录，pandas 与 NumPy 的选项、`sys.path`、环境变量也恢复原样，上一次写出的文件、留下的变量不会带到下一次。读写文件的题，文件要由自己的 python 夹具写出，不要指望别的题留下的文件，也不必为此给每道题换文件名。
 
+参考解、`accepts`、`rejects` 和 starter 各从干净解释器开始，按正式判分的顺序运行全部测试。前一份候选对模块的改动不会影响下一份候选。
+
 容易出错的地方：
 
 - pandas 3 的 Copy-on-Write：派生对象的修改不会回写原表，链式赋值不能更新原表。
@@ -131,6 +133,8 @@ npm run course:check -- --no-run                     # 只查结构，不运行�
 npm run course:confirm -- --topic py12 --dry-run     # 看要发给模型的请求，不调用模型
 npm run course:confirm -- --topic py12               # 模型核对复习和测验题里的 manual 作答位，会产生费用
 ```
+
+完整 `course:check` 成功后，会在课程根目录生成随课程发布的 `expected.json`。它保存代码题测试的预计算期望值；改动题目、夹具、运行前导或运行环境后，需要重新运行完整核对。只检查结构或限定 topic 时不发布产物，也不手工修改其中的期望值。绑定与使用方式见[Python 执行边界](../../../docs/development/learning-flow.md#python-内部执行边界)。
 
 `course:confirm` 经 Repa 底座的 Agent 运行时调用模型，凭据用 `~/.repa/agent/` 里已经登录的（`--agent-dir` 可改），不写进任何文件，也不改动那里的 `settings.json`。已有当前核对范围证明的题不再发请求；`--max-requests` 限制这次的请求数（默认 50，输出不合格式时重试一次也算在内），`--log` 把请求和模型的作答另存一份 JSONL（文件已存在时在发请求之前就报错，每道题有结果就写一行）。几个 `course:check`、`course:confirm` 可以在同一个 worktree 里同时运行。
 
