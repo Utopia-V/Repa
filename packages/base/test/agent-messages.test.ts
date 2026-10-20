@@ -50,6 +50,15 @@ function learningPlugin(state: LearningState): Plugin {
           },
         }],
         methods: {
+          abort: {
+            parameters: Type.Object({ agent: Type.String() }, { additionalProperties: false }),
+            async invoke(input) {
+              const { agent } = record(input) ?? {};
+              assert.equal(typeof agent, "string");
+              await host.abortAgent(String(agent));
+              return {};
+            },
+          },
           prepare: {
             parameters: Type.Object({}, { additionalProperties: false }),
             async invoke() {
@@ -80,7 +89,10 @@ async function fixture(t: TestContext) {
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
   });
   const state: LearningState = { quiz: false, practice: false, failing: false, asked: [] };
-  const server = await startServer({ home, plugins: [learningPlugin(state)], runtime, generalAgent: false });
+  const server = await startServer({ home, plugins: [learningPlugin(state), {
+    id: "other",
+    open: async () => ({ agents: () => [{ id: "other-agent", tools: [], instructions: () => "另一个插件" }] }),
+  }], runtime, generalAgent: false });
   const client = await RepaClient.connect(server.connection);
   t.after(async () => {
     await client.close();
@@ -212,4 +224,50 @@ test("插件判断期间用户取消运行，这条插话不在取消之后补�
   assert.equal(f.faux.state.callCount, 1);
   assert.deepEqual(await f.users(), ["开始"]);
   assert.deepEqual(f.state.asked.map(message => message.text), ["开始", "判断中的插话"]);
+});
+
+
+test("插件只能中止自己的 Agent，等待回复终态并清掉已排队的追加消息", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const abort = (agent = "tutor") => f.client.call("plugin.call", {
+    pluginId: "learning",
+    method: "abort",
+    input: { agent },
+  });
+  await assert.rejects(abort("other-agent"), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "agent_not_owned");
+    return true;
+  });
+  await assert.rejects(abort("general"), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "agent_not_owned");
+    return true;
+  });
+  const started = deferred();
+  const cancelled = deferred();
+  const release = deferred();
+  t.after(() => release.resolve());
+  f.faux.setResponses([async (_context, options) => {
+    started.resolve();
+    await new Promise<void>(resolve => options?.signal?.addEventListener("abort", () => resolve(), { once: true }));
+    cancelled.resolve();
+    await release.promise;
+    return fauxAssistantMessage("不应完成");
+  }]);
+  const running = f.client.call("session.send", { sessionId: f.session.id, text: "开始" });
+  await started.promise;
+  await f.client.call("session.followUp", { sessionId: f.session.id, text: "排队消息" });
+  let stopped = false;
+  const stopping = abort().then(() => { stopped = true; });
+  await cancelled.promise;
+  assert.equal(stopped, false);
+  release.resolve();
+  await stopping;
+  await running.catch(() => undefined);
+  assert.equal(f.faux.state.callCount, 1);
+  assert.deepEqual(await f.users(), ["开始"]);
+  f.faux.setResponses([fauxAssistantMessage("恢复聊天")]);
+  await f.client.call("session.send", { sessionId: f.session.id, text: "新消息" });
+  assert.deepEqual(await f.users(), ["开始", "新消息"]);
 });
