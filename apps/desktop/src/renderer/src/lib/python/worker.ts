@@ -5,15 +5,18 @@
  *   有了它，Worker 发不出任何网络请求，也不能字符串求值，只能编译 WebAssembly。启动前先确认它生效，否则拒绝运行。
  * - Python 的 js 模块只看得到一个空对象，与课程核对的 runner.mjs 相同。
  * Pyodide 和 wheel 由页面取好、核对 SHA-256 后交进来；启动期间 fetch 用这些文件应答，启动后换回原来的 fetch。
+ * 一个 Worker 只运行一批测试，用完由页面销毁，前一次提交的代码碰不到下一次。
  */
 import type { loadPyodide as LoadPyodide } from "pyodide";
+
+import type { PythonRunInput } from "@repa/learning/protocol";
 
 import type { WorkerMessage, WorkerRequest } from "./messages";
 
 type StartRequest = Extract<WorkerRequest, { type: "start" }>;
 
 const originalFetch = globalThis.fetch;
-let handleJob: ((line: string) => string) | undefined;
+let runTest: ((line: string, onPhase: (phase: unknown) => void) => unknown) | undefined;
 
 function send(message: WorkerMessage): void {
   postMessage(message);
@@ -36,7 +39,7 @@ async function isolated(): Promise<boolean> {
   }
 }
 
-async function start(request: StartRequest): Promise<void> {
+async function start(request: StartRequest): Promise<object> {
   if (!(await isolated())) {
     throw new Error("Python 运行环境没有隔离：Worker 脚本的响应头里缺少 CSP，不运行代码。");
   }
@@ -63,12 +66,46 @@ async function start(request: StartRequest): Promise<void> {
     });
     await pyodide.loadPackage(request.packages, { messageCallback: () => {} });
     pyodide.runPython(request.runner, { filename: "runner.py" });
-    const handle: unknown = pyodide.globals.get("handle_job");
-    if (typeof handle !== "function") throw new Error("runner.py 没有定义 handle_job");
-    handleJob = (line) => String(handle(line));
+    const { PyCallable, PyIterator, PyProxy } = pyodide.ffi;
+    const frontendTest: unknown = pyodide.globals.get("frontend_test");
+    const versions: unknown = pyodide.globals.get("runtime_versions");
+    if (!(frontendTest instanceof PyCallable) || !(versions instanceof PyCallable)) {
+      throw new Error("runner.py 没有定义 frontend_test 或 runtime_versions");
+    }
+    runTest = (line, onPhase) => {
+      const generator: unknown = frontendTest(line);
+      if (!(generator instanceof PyIterator)) throw new Error("frontend_test 没有返回生成器");
+      try {
+        for (;;) {
+          const step = generator.next();
+          if (step.done === true) return JSON.parse(String(step.value)) as unknown;
+          // 产出的是 (阶段, 序号) 元组，转成 JS 数组后释放代理。
+          if (step.value instanceof PyProxy) {
+            onPhase(step.value.toJs());
+            step.value.destroy();
+          }
+        }
+      } finally {
+        generator.destroy();
+      }
+    };
+    const runtime: unknown = JSON.parse(String(versions(pyodide.toPy(request.packages))));
+    return { pyodide: pyodide.version, ...(typeof runtime === "object" ? runtime : {}) };
   } finally {
     globalThis.fetch = originalFetch;
     files.clear();
+  }
+}
+
+/** 依次运行一批测试，每个阶段开始前告诉页面；某个测试没有正常结束就停下，剩下的由页面记为未执行。 */
+function run(input: PythonRunInput, test: NonNullable<typeof runTest>): void {
+  for (const [index, job] of input.tests.entries()) {
+    const response = test(JSON.stringify({ prelude: input.prelude ?? "", program: input.program, ...job }), (phase) => {
+      const [name, at]: unknown[] = Array.isArray(phase) ? phase : [];
+      send({ type: "phase", test: index, phase: String(name), index: typeof at === "number" ? at : null });
+    });
+    send({ type: "tested", test: index, response });
+    if (typeof response !== "object" || response === null || !("status" in response) || response.status !== "done") return;
   }
 }
 
@@ -76,23 +113,19 @@ addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
   if (request.type === "start") {
     start(request).then(
-      () => send({ type: "ready" }),
+      (runtime) => send({ type: "ready", runtime }),
       (error: unknown) => send({ type: "failed", message: error instanceof Error ? error.message : String(error) }),
     );
     return;
   }
-  if (!handleJob) {
+  if (!runTest) {
     send({ type: "failed", message: "Pyodide 还没有就绪" });
     return;
   }
-  let reply: string;
   try {
-    reply = handleJob(JSON.stringify({ op: "program", ...request.input }));
+    run(request.input, runTest);
   } catch (error) {
-    // handle_job 自己接住任务里的异常；漏到这里说明解释器状态没能恢复，这个 Worker 不能再用。
+    // frontend_test 自己接住测试里的异常；漏到这里说明解释器状态没能恢复，页面把它记为 Worker 失败。
     send({ type: "failed", message: error instanceof Error ? error.message : String(error) });
-    return;
   }
-  // 让任务排进事件循环的工作先跑一轮，与 runner.mjs 相同。
-  setTimeout(() => send({ type: "result", id: request.id, response: JSON.parse(reply) as unknown }), 0);
 });
