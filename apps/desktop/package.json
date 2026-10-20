@@ -9,6 +9,7 @@
     "build": "electron-vite build",
     "package:linux": "node scripts/package-linux.mjs",
     "verify:linux": "node scripts/verify-linux-package.mjs",
+    "verify:quit": "node scripts/verify-quit-signals.mjs",
     "check": "tsc --noEmit",
     "dev": "electron-vite dev",
     "predev": "npm run build:backend --prefix ../..",
