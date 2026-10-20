@@ -25,7 +25,9 @@ try {
   const base = path.join(application, "node_modules/@repa/base/dist");
   for (const file of [executable, path.join(base, "cli.js"), path.join(base, "process.js"),
     path.join(application, "node_modules/@repa/space-history/dist/index.js"),
-    path.join(application, "out/renderer/index.html")]) {
+    path.join(application, "out/renderer/index.html"),
+    // 主进程的 repa 协议从这里提供 Pyodide；wheel 由打包脚本按 lockfile 核对过。
+    ...["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"].map((name) => path.join(application, "pyodide", name))]) {
     await access(file);
   }
   const environment = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
