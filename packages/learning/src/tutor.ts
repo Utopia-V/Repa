@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
 import type { Host, PluginInstance, PluginMethod, Tool } from "@repa/base/plugin";
-import { object, parse } from "@repa/base/protocol";
+import { contentVersion, object, parse } from "@repa/base/protocol";
 import { memoryAt } from "@repa/learning-model";
 import { Type } from "typebox";
 import type { ResolvedCourse } from "./course-sources.js";
@@ -163,7 +163,43 @@ export async function connectTutor(
     result: { openedAt: clock() },
     viewed: viewed(current, find(pages, ref)),
   }), [ref]));
+  const TaskParametersSchema = object({
+    offset: Type.Optional(Type.Integer({ minimum: 0 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 3000 })),
+  });
   const tools: Tool[] = [
+    {
+      name: "learning_task",
+      description: "读取当前任务画面、练习的公开题面、已接受原答及已释放反馈。text 是 JSON 的片段，offset/limit 按 Unicode 字符计数；默认 2000、最多 3000 字符，按 total 继续读取，version 变化后重新从 0 开始。",
+      parameters: TaskParametersSchema,
+      async execute(raw) {
+        const { offset = 0, limit = 2000 } = parse(TaskParametersSchema, raw);
+        let text = "";
+        await observe(async (stored) => {
+          const current = requireReferenceAccess(stored);
+          const task = current.state.task;
+          const delivery = currentDelivery(task);
+          const submission = task?.submissions.find((entry) => entry.deliveryId === delivery?.deliveryId);
+          const focus = {
+            taskId: task?.taskId ?? null,
+            kind: task?.kind ?? null,
+            phase: task?.phase ?? null,
+            delivery: delivery ?? null,
+            submission: submission ?? null,
+          };
+          const serialized = Array.from(JSON.stringify(focus));
+          text = JSON.stringify({
+            version: await contentVersion(focus),
+            offset,
+            total: serialized.length,
+            text: serialized.slice(offset, offset + limit).join(""),
+          });
+          const ref = index.find((entry) => entry.ref.kind === "kp" && entry.ref.kpId === delivery?.kpId)?.ref;
+          return ref ? help(current, ref) : [];
+        });
+        return { text };
+      },
+    },
     {
       name: "learning_search",
       description: "搜索当前任务与已学内容，返回可用于即时回顾的版本引用和原学习位置；默认 10 项，最多 20 项。",

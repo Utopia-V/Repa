@@ -227,13 +227,23 @@ test("真实辅导请求只有学习工具，求助影响判分与下一轮 view
   const captures: TranscriptContext[] = [];
   f.faux.setResponses([(context) => {
     captures.push(structuredClone(context));
-    return fauxAssistantMessage([fauxToolCall("learning_search", { query: "赋值" })]);
+    return fauxAssistantMessage([
+      fauxToolCall("learning_task", {}),
+      fauxToolCall("learning_search", { query: "赋值" }),
+    ]);
   }, fauxAssistantMessage("先看右边的值")]);
   await f.client.call("session.send", { sessionId: f.session.id, text: "赋值是什么意思？" });
   const first = captures[0];
   assert.ok(first);
-  assert.deepEqual(getCurrentTools(first.messages).map((tool) => tool.name), ["learning_read", "learning_search"]);
+  assert.deepEqual(getCurrentTools(first.messages).map((tool) => tool.name), ["learning_read", "learning_search", "learning_task"]);
   assert.match(getCurrentSystemPrompt(first.messages), /学习辅导老师/u);
+  const history = await f.client.call("session.history", { sessionId: f.session.id });
+  const taskRead = history.find((entry) => entry.type === "tool" && entry.text?.includes('"total"'));
+  assert.ok(taskRead?.text);
+  const result: unknown = JSON.parse(taskRead.text);
+  assert.ok(result && typeof result === "object" && "text" in result && typeof result.text === "string");
+  assert.match(result.text, /"delivery":\{/u);
+  assert.match(result.text, /"submission":null/u);
   assert.match(JSON.stringify(first.messages), /agent:learning-tutor.*awaiting_answer/u);
   await f.submit();
   const after = await f.state();
@@ -333,7 +343,7 @@ function topic(id: string): Topic {
           name: kpId, definition: "概念定义", conditions: ["适用条件"],
           example: { from: question.id, text: "概念的例子" },
         },
-        practice: [question], review: [{ ...question, id: `${kpId}.r1` }],
+        practice: [{ ...question, body: index === 0 ? "当前题面。".repeat(800) : question.body }], review: [{ ...question, id: `${kpId}.r1` }],
       };
     }),
   };
@@ -375,6 +385,26 @@ test("检索稳定分页、批取和长块续取均可定位，卡片关联交�
   await f.advance();
   await f.advance();
   const current = await f.state();
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("learning_task", { offset: 0, limit: 3000 }),
+      fauxToolCall("learning_task", { offset: 3000, limit: 3000 }),
+    ]),
+    fauxAssistantMessage("已经读到当前题面"),
+  ]);
+  await f.client.call("session.send", { sessionId: f.session.id, text: "帮我看看当前题目" });
+  const history = await f.client.call("session.history", { sessionId: f.session.id });
+  const chunks = history.filter((entry) => entry.type === "tool").map((entry) => {
+    const value: unknown = JSON.parse(entry.text ?? "null");
+    assert.ok(value && typeof value === "object" && "text" in value && typeof value.text === "string");
+    assert.ok("version" in value && typeof value.version === "string");
+    assert.ok(Buffer.byteLength(entry.text ?? "") <= 16 * 1024);
+    return { text: value.text, version: value.version };
+  });
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[0]?.version, chunks[1]?.version);
+  const restored: unknown = JSON.parse(chunks.map((entry) => entry.text).join(""));
+  assert.match(JSON.stringify(restored), /当前题面/u);
   const card = hits.find((entry) => entry.ref.id === "t01.k1.card");
   assert.ok(card);
   const [page] = await f.call("content.read", { refs: [card.ref], offset: 0, limit: 8 });

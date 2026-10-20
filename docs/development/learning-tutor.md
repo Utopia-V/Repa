@@ -14,7 +14,7 @@
 
 ### Agent 与学习产品入口
 
-`plugin.ts` 默认把教学流程的 `beforeRestricted` hook 接到本插件的中止入口，并装配 `tutor.ts`。`learning-tutor` 可直接对话，只列出 `learning_search` 和 `learning_read`；文件、命令、网络和子 Agent 工具均不在声明中。
+`plugin.ts` 默认把教学流程的 `beforeRestricted` hook 接到本插件的中止入口，并装配 `tutor.ts`。`learning-tutor` 可直接对话，只列出 `learning_task`、`learning_search` 和 `learning_read`；文件、命令、网络和子 Agent 工具均不在声明中。
 
 在仓库根目录运行：
 
@@ -30,10 +30,13 @@ npm run dev:learning -- --home /absolute/repa-home
 
 | 入口 | 参数与结果 |
 | --- | --- |
+| `learning_task` | 读取当前 phase、交付的公开 Item、已接受原答和已释放反馈；返回 JSON 文本片段，`offset` / `limit` 按 Unicode 字符计数，默认 2,000、最多 3,000 字符；`version` 改变后从头重读 |
 | `content.search` | 显式传 `query`、`offset`、`limit`，最多 20 项；按内容 id 稳定排序，返回 `ref`、标题、短命中、`origin` 和 `nextOffset` |
 | `learning_search` | 同一处理器；省略时使用 `offset: 0`、`limit: 10` |
 | `content.read` / `learning_read` | 最多 8 个 `refs`，以 `offset`、`limit` 选择内容块；工具默认从第 0 块读 8 块，单次最多请求 64 块 |
 | `content.open` | 界面打开卡片或参考内容时登记实际打开事实，返回服务端 `openedAt` |
+
+当前任务工具只从公开投影取值，不读取私有快照中的答案或 rubric。它也逐次检查限制、记录帮助，因而模型可以直接看见正在讨论的题目，而不必要求学习者重新转述。
 
 搜索与批取的正常响应预算是 16 KiB；搜索可能提前返回 `nextOffset`，批取可能缩短最后一页或只返回前几个引用。每页的 `offset`、实际 `blocks.length` 和 `total` 用于继续读取，尚未返回的引用继续单独请求。分页保持课程原生内容块，不截断 Markdown 或代码块；某个单块已超过预算时报告 `content_block_too_large`，由内容作者拆分该块。预算和分页数量都是 Repa 的工程假设。
 
