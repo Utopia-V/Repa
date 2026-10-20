@@ -66,7 +66,8 @@ export async function workspacePythonDirectories(): Promise<PythonRuntimeDirecto
   const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
   const version = typeof manifest === "object" && manifest !== null && "version" in manifest ? manifest.version : undefined;
   if (typeof version !== "string") throw new Error(`${manifestPath} 里没有版本号`);
-  // 安装包里没有 @repa/learning，只在工作区里按需加载。
-  const { defaultPackagesDirectory } = await import("@repa/learning");
+  // 安装包里没有 @repa/learning，只在工作区里按需加载。只取这个子路径：包入口经底座带进 signal-exit，
+  // 它在进程里没有别的信号监听时会移除自己并重发信号，绕过 Electron 的退出流程，后端就收不到关闭请求。
+  const { defaultPackagesDirectory } = await import("@repa/learning/sandbox/runtime");
   return { pyodide: path.dirname(manifestPath), packages: defaultPackagesDirectory(version) };
 }
