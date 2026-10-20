@@ -92,9 +92,12 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     const published: Record<string, Expected> = {};
     const runnerHash = await runnerVersion();
     for (const { topic } of loaded.topics) {
-      for (const { question } of topicQuestions(topic)) published[question.id] = {
-        binding: await expectedBinding(question, topic, loaded.course.runtime, runnerHash), values: {},
-      };
+      for (const { question } of topicQuestions(topic)) {
+        published[question.id] = {
+          binding: await expectedBinding(question, topic, loaded.course.runtime, runnerHash),
+          values: {},
+        };
+      }
     }
     // 核对器在每份候选程序前关闭旧解释器，随后按正式测试顺序逐项执行。
     for (const topic of loaded.topics) {

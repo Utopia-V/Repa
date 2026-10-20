@@ -315,7 +315,9 @@ async function failingTests(program: string, tests: PreparedTest[], context: Con
   for (const prepared of tests) {
     const reason = await runTest(program, prepared, context);
     if (reason) failed.push(`“${prepared.test.name}”：${reason}`);
-    if (reason === "运行超时" || reason?.startsWith("运行器异常结束")) break;
+    if (reason === "运行超时" || reason?.startsWith("运行器异常结束")) {
+      break;
+    }
   }
   return failed;
 }
@@ -336,7 +338,9 @@ async function runSlotTests(question: Question, slot: SlotDef, at: ValuePath, co
   const prepared = await prepareTests(question, tests, at, context);
   if (!prepared) return;
   const expected = context.expected?.[question.id];
-  if (expected) expected.values[slot.id] = prepared.map((entry) => entry.expected);
+  if (expected) {
+    expected.values[slot.id] = prepared.map((entry) => entry.expected);
+  }
   const reference = slot.type === "code" ? slot.solution : assembleParsons(slot, slot.key);
   const referenceFailures = await failingTests(reference, prepared, context);
   if (referenceFailures.length > 0) {
@@ -364,13 +368,29 @@ async function runSlotTests(question: Question, slot: SlotDef, at: ValuePath, co
 
 // ---------------------------------------------------------------------------
 
-export async function checkTopicCode(loaded: LoadedTopic, runner: SandboxRunner, report: Report, stats: CodeStats, timeoutMs?: number, expected?: Record<string, Expected>): Promise<void> {
-  const context: Context = { runner, report, loaded, stats, ...(expected ? { expected } : {}), ...(timeoutMs ? { timeoutMs } : {}) };
+export async function checkTopicCode(
+  loaded: LoadedTopic,
+  runner: SandboxRunner,
+  report: Report,
+  stats: CodeStats,
+  timeoutMs?: number,
+  expected?: Record<string, Expected>,
+): Promise<void> {
+  const context: Context = {
+    runner,
+    report,
+    loaded,
+    stats,
+    ...(expected ? { expected } : {}),
+    ...(timeoutMs ? { timeoutMs } : {}),
+  };
   for (const entry of topicQuestions(loaded.topic)) {
     await runVerify(entry, entry.at, context);
     for (const [index, slot] of entry.question.slots.entries()) {
       await runSlotTests(entry.question, slot, [...entry.at, "slots", index], context);
-      if (slot.type === "code" || (slot.type === "order" && slot.tests)) await runner.close();
+      if (slot.type === "code" || (slot.type === "order" && slot.tests)) {
+        await runner.close();
+      }
     }
   }
 }

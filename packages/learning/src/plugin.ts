@@ -22,7 +22,9 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
       const course = await loadCourseSources(sources, host.files);
       const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"), options.now);
       try {
-        const connected = await (options.connect ? options.connect(records, course, host) : connectLearning(records, course, host, options.now));
+        const connected = await (options.connect
+          ? options.connect(records, course, host)
+          : connectLearning(records, course, host, options.now));
         function state(): LearningState {
           const stored = records.current()?.state;
           if (stored) return { ...stored, serverNow: Date.now() };

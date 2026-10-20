@@ -64,7 +64,9 @@ export class LearningRecords {
   snapshot(id: string): Snapshot | undefined { return structuredClone(this.snapshots.get(id)); }
   submission(id: string): Submission | undefined {
     const result = structuredClone(this.submissions.get(id));
-    if (result && this.appeals.has(id)) result.processing = this.judging.has(id) ? { status: "pending" } : { status: "interrupted", reason: "restart" };
+    if (result && this.appeals.has(id)) {
+      result.processing = this.judging.has(id) ? { status: "pending" } : { status: "interrupted", reason: "restart" };
+    }
     return result;
   }
 
@@ -89,7 +91,14 @@ export class LearningRecords {
       this.snapshots.set(record.digest, structuredClone(record.snapshot));
     } else if (record.type === "appeal") {
       const previous = this.submissions.get(record.submissionId);
-      if (!previous || previous.processing.status !== "completed" || previous.gradeRevision !== record.expectedGradeRevision || this.appeals.has(record.submissionId)) invalid("申诉版本已改变");
+      if (
+        !previous ||
+        previous.processing.status !== "completed" ||
+        previous.gradeRevision !== record.expectedGradeRevision ||
+        this.appeals.has(record.submissionId)
+      ) {
+        invalid("申诉版本已改变");
+      }
       this.appeals.add(record.submissionId);
     } else if (record.type === "checkpoint" || record.type === "graded" || record.type === "regraded") {
       const next = structuredClone(record.projection);
@@ -113,11 +122,21 @@ export class LearningRecords {
       if (record.type === "regraded") {
         const result = record.submission;
         const previous = this.submissions.get(result.submissionId);
-        if (!previous || !this.appeals.has(result.submissionId) || result.gradeRevision !== previous.gradeRevision + 1
-          || !isDeepStrictEqual({ ...originalAnswer(result), gradeRevision: previous.gradeRevision }, originalAnswer(previous))
-          || (result.feedback && !isDeepStrictEqual(result.feedback, record.grade.feedback))
-          || result.processing.status !== "completed" || record.grade.feedback.verdict === "pending"
-          || !isDeepStrictEqual(record.grade.feedback.item, previous.response.item)) invalid("重判必须保留原答并沿目标版本追加");
+        if (
+          !previous ||
+          !this.appeals.has(result.submissionId) ||
+          result.gradeRevision !== previous.gradeRevision + 1 ||
+          !isDeepStrictEqual(
+            { ...originalAnswer(result), gradeRevision: previous.gradeRevision },
+            originalAnswer(previous),
+          ) ||
+          (result.feedback && !isDeepStrictEqual(result.feedback, record.grade.feedback)) ||
+          result.processing.status !== "completed" ||
+          record.grade.feedback.verdict === "pending" ||
+          !isDeepStrictEqual(record.grade.feedback.item, previous.response.item)
+        ) {
+          invalid("重判必须保留原答并沿目标版本追加");
+        }
         this.appeals.delete(result.submissionId);
         this.submissions.set(result.submissionId, result);
         this.grades.set(result.submissionId, record.grade);
@@ -297,15 +316,28 @@ export class LearningRecords {
       }
       return this.serial(async () => {
         const current = this.current();
-        if (!current || (!prepared.appeal && current.state.task?.taskId !== prepared.submission.taskId)
-          || this.submissions.get(id)?.gradeRevision !== prepared.submission.gradeRevision
-          || this.appeals.has(id) !== (prepared.appeal ?? false)) throw new RepaFault("stale_state", "待判任务或目标版本已改变");
+        if (
+          !current ||
+          (!prepared.appeal && current.state.task?.taskId !== prepared.submission.taskId) ||
+          this.submissions.get(id)?.gradeRevision !== prepared.submission.gradeRevision ||
+          this.appeals.has(id) !== (prepared.appeal ?? false)
+        ) {
+          throw new RepaFault("stale_state", "待判任务或目标版本已改变");
+        }
         const projection = advance(current, prepared.submission, grade, this.clock());
         if (prepared.appeal) {
-          const submission: Submission = { ...prepared.submission, processing: { status: "completed" }, gradeRevision: prepared.submission.gradeRevision + 1 };
-          if (submission.feedback) submission.feedback = grade.feedback;
+          const submission: Submission = {
+            ...prepared.submission,
+            processing: { status: "completed" },
+            gradeRevision: prepared.submission.gradeRevision + 1,
+          };
+          if (submission.feedback) {
+            submission.feedback = grade.feedback;
+          }
           await this.append({ type: "regraded", submission, grade, projection });
-        } else await this.append({ type: "graded", submissionId: id, grade, projection });
+        } else {
+          await this.append({ type: "graded", submissionId: id, grade, projection });
+        }
         return { status: "recorded", submission: this.submission(id) ?? prepared.submission };
       });
     })();
@@ -318,8 +350,16 @@ export class LearningRecords {
   appeal(input: LearningInput<"submission.appeal">): Promise<void> {
     return this.serial(async () => {
       const previous = this.submissions.get(input.submissionId);
-      if (this.appeals.has(input.submissionId) && previous?.gradeRevision === input.expectedGradeRevision) return;
-      if (!previous || previous.processing.status !== "completed" || previous.gradeRevision !== input.expectedGradeRevision) throw new RepaFault("stale_state", "目标判分版本已改变");
+      if (this.appeals.has(input.submissionId) && previous?.gradeRevision === input.expectedGradeRevision) {
+        return;
+      }
+      if (
+        !previous ||
+        previous.processing.status !== "completed" ||
+        previous.gradeRevision !== input.expectedGradeRevision
+      ) {
+        throw new RepaFault("stale_state", "目标判分版本已改变");
+      }
       await this.append({ type: "appeal", ...input });
     });
   }

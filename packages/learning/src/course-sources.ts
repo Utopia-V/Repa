@@ -29,13 +29,22 @@ export async function loadCourseSources(sources: CourseSource[], files: Host["fi
       if (!loaded || report.errorCount > 0) throw new RepaFault("invalid_course", "课程加载失败", report.diagnostics);
       let expected: Record<string, Expected> = {};
       try {
-        expected = parse(Type.Record(Type.String(), ExpectedSchema), JSON.parse(await readFile(path.join(source.directory, "expected.json"), "utf8")));
+        expected = parse(
+          Type.Record(Type.String(), ExpectedSchema),
+          JSON.parse(await readFile(path.join(source.directory, "expected.json"), "utf8")),
+        );
       } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+          throw error;
+        }
       }
-      resolved = { expected,
-        course: loaded.course, topics: loaded.topics.map(({ topic }) => topic),
-        origins: Object.fromEntries(loaded.topics.map(({ topic }) => [topic.id, { source: source.directory, basedOn: loaded.course.version }])),
+      resolved = {
+        expected,
+        course: loaded.course,
+        topics: loaded.topics.map(({ topic }) => topic),
+        origins: Object.fromEntries(
+          loaded.topics.map(({ topic }) => [topic.id, { source: source.directory, basedOn: loaded.course.version }]),
+        ),
       };
     } else {
       const overlay = parse(OverlaySchema, JSON.parse(await files.read(source.file)));
@@ -54,11 +63,18 @@ export async function loadCourseSources(sources: CourseSource[], files: Host["fi
   for (const topic of resolved.topics) {
     for (const { question } of topicQuestions(topic)) {
       const expected = resolved.expected?.[question.id];
-      const complete = question.slots.every((slot) => slotTests(slot).every((test, index) => {
-        const values = expected?.values[slot.id]?.[index];
-        return values && Object.keys(test.expect ?? {}).every((expression) => expression in values);
-      }));
-      if (!complete || expected?.binding !== await expectedBinding(question, topic, resolved.course.runtime, runner)) delete resolved.expected?.[question.id];
+      const complete = question.slots.every((slot) =>
+        slotTests(slot).every((test, index) => {
+          const values = expected?.values[slot.id]?.[index];
+          return values && Object.keys(test.expect ?? {}).every((expression) => expression in values);
+        }),
+      );
+      if (
+        !complete ||
+        expected?.binding !== (await expectedBinding(question, topic, resolved.course.runtime, runner))
+      ) {
+        delete resolved.expected?.[question.id];
+      }
     }
   }
   return resolved;

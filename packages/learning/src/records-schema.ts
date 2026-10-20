@@ -8,10 +8,17 @@ import { ContentRefSchema, FeedbackSchema, LearningStateSchema, SubmissionSchema
 const time = Type.Integer({ minimum: 0 });
 const nullableId = Type.Union([identifier, Type.Null()]);
 export const SnapshotSchema = object({
-  course: CourseSchema, topic: TopicSchema, kpId: identifier, questionId: identifier,
-  topicVersion: identifier, kpVersion: identifier, questionVersion: identifier,
+  course: CourseSchema,
+  topic: TopicSchema,
+  kpId: identifier,
+  questionId: identifier,
+  topicVersion: identifier,
+  kpVersion: identifier,
+  questionVersion: identifier,
   expected: Type.Optional(ExpectedSchema),
-  item: ItemSchema, idMap: Type.Record(identifier, identifier), graph: KnowledgeGraphSchema,
+  item: ItemSchema,
+  idMap: Type.Record(identifier, identifier),
+  graph: KnowledgeGraphSchema,
 });
 export type Snapshot = Static<typeof SnapshotSchema>;
 export const DecisionSchema = object({
@@ -39,8 +46,20 @@ export const RecordSchema = Type.Union([
   object({ ...envelope, type: Type.Literal("snapshot"), digest: identifier, snapshot: SnapshotSchema }),
   object({ ...envelope, type: Type.Literal("checkpoint"), projection: ProjectionSchema, decision: DecisionSchema }),
   object({ ...envelope, type: Type.Literal("accepted"), submission: SubmissionSchema, context: AttemptContextSchema }),
-  object({ ...envelope, type: Type.Literal("appeal"), submissionId: identifier, expectedGradeRevision: Type.Integer({ minimum: 1 }), reason: Type.String({ minLength: 1, maxLength: 2_000 }) }),
-  object({ ...envelope, type: Type.Literal("regraded"), submission: SubmissionSchema, grade: GradeSchema, projection: ProjectionSchema }),
+  object({
+    ...envelope,
+    type: Type.Literal("appeal"),
+    submissionId: identifier,
+    expectedGradeRevision: Type.Integer({ minimum: 1 }),
+    reason: Type.String({ minLength: 1, maxLength: 2_000 }),
+  }),
+  object({
+    ...envelope,
+    type: Type.Literal("regraded"),
+    submission: SubmissionSchema,
+    grade: GradeSchema,
+    projection: ProjectionSchema,
+  }),
   object({ ...envelope, type: Type.Literal("graded"), submissionId: identifier, grade: GradeSchema, projection: ProjectionSchema }),
   object({
     ...envelope, type: Type.Literal("viewed"), taskId: identifier, deliveryId: Type.Optional(identifier),
