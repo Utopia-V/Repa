@@ -71,3 +71,6 @@ npm run build --workspace=@repa/learning
 ```
 
 `learning-tutor.test.ts` 使用真实 SDK、真实 HTTP/WebSocket 客户端及本地假 provider，组合验证 py01 上课、求助、判分、菜单、跨天复习、即时回顾和关闭后复制到新目录恢复。另验证稳定分页、8 引用批取、长文本续取、私有题解释放边界、取消停稳后才计时，以及准备失败后重开继续。设置 `REPA_LEARNING_EVIDENCE=/absolute/directory` 后，复制恢复用例会把关闭时的完整空间副本保存在新的 `tutor-restored-*` 子目录中。底座 `agent-messages.test.ts` 验证所有权拒绝、取消终态、排队清理与恢复聊天。
+
+
+2026-10-21，在 Ubuntu 24.04、Node.js 22.22.2 和 npm 12.0.2 下，底座 293 项、模型库 28 项测试通过。学习包的本轮全量运行 129 项通过，包含整门 Python 课程的 Pyodide 核对；补全当前任务读取工具后，最终候选的 120 项非 `code.test.ts` 测试及 31 项辅导／教学专项全部通过，未改动的 `code.test.ts` 10 项结果复用本轮全量运行。受影响包的类型检查、构建，以及构建插件的真实后端子进程启动、连接和退出检查通过。期间一次并行验证触发既有沙箱用例的 5 秒墙钟断言，保留原阈值的单独复验及最终 120 项重跑均通过。
