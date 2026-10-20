@@ -8,7 +8,10 @@ import { Value } from "typebox/value";
 
 import { checkResponse } from "@repa/base/protocol";
 import { publicItem, referenceResponse } from "../src/check/items.js";
-import { checkSubmission, FeedbackSchema, readFeedback, readSubmitResult, SubmitResultSchema, type Feedback } from "../src/protocol.js";
+import {
+  checkSubmission, FeedbackSchema, PythonRunInputSchema, PythonRunResultSchema, readFeedback, readSubmitResult, SubmitResultSchema,
+  type Feedback, type PythonRunInput, type PythonRunResult,
+} from "../src/protocol.js";
 import { demoCourse } from "./demo-course.js";
 
 const SOURCE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src");
@@ -93,6 +96,36 @@ test("前端宽松读取反馈：不认识的 verdict 读作 ungraded，不认�
   assert.deepEqual(readFeedback({ ...(newer as object), verdict: 1 }), { ok: false, path: "/verdict" });
   assert.deepEqual(readFeedback({ ...(newer as object), score: { earned: "1", max: 2 } }), { ok: false, path: "/score/earned" });
   assert.deepEqual(readSubmitResult({ status: "queued" }), { ok: false, path: "" });
+});
+
+test("python.run 的输入输出与 runner.py 的 program 任务一致，带答案的字段和多余字段被拒", () => {
+  const input: PythonRunInput = {
+    prelude: "import pandas as pd",
+    data: [
+      { kind: "dataframe", label: "sales", name: "sales", columns: { city: ["北京", "上海"], amount: [1.5, null] }, dtypes: { amount: "float" } },
+      { kind: "python", label: "limit", code: "limit = 10" },
+    ],
+    setup: "",
+    program: "total = sales['amount'].sum()\nprint(total)",
+    captures: ["total"],
+    doctest: ["total > limit"],
+  };
+  assert.ok(Value.Check(PythonRunInputSchema, input));
+  assert.ok(Value.Check(PythonRunInputSchema, { data: [], program: "print(1)", captures: [], doctest: [] }));
+  assert.equal(Value.Check(PythonRunInputSchema, { ...input, op: "program" }), false);
+  assert.equal(Value.Check(PythonRunInputSchema, { ...input, verify: "assert total == 1.5" }), false);
+  assert.equal(Value.Check(PythonRunInputSchema, { ...input, data: [{ kind: "python", label: "limit", code: "limit = 10", display: "上限" }] }), false);
+
+  const result: PythonRunResult = {
+    stdout: "1.5\n",
+    error: { type: "NameError", message: "name 'x' is not defined", line: 2 },
+    captures: { total: { value: 1.5 }, missing: { error: { type: "NameError", message: "name 'missing' is not defined" } } },
+    doctest: [{ out: "False\n", exception: null }],
+  };
+  assert.ok(Value.Check(PythonRunResultSchema, result));
+  assert.ok(Value.Check(PythonRunResultSchema, { stdout: "", error: { type: "SyntaxError", message: "invalid syntax", line: null }, captures: {}, doctest: [] }));
+  assert.equal(Value.Check(PythonRunResultSchema, { ...result, error: undefined }), false);
+  assert.equal(Value.Check(PythonRunResultSchema, { ...result, trace: "Traceback" }), false);
 });
 
 /** 收集一个模块在运行时会加载的说明符；只有 import type 的语句在编译后消失，不算。 */

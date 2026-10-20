@@ -26,6 +26,8 @@ import {
   type ReadResult,
 } from "@repa/base/protocol";
 
+import { DataFrameFixtureSchema, PythonFixtureSchema } from "./format/schema.js";
+
 /** 指向一道题的某个版本：{ id, version }，与作答里的 item 相同。 */
 const reference = ItemResponseSchema.properties.item;
 /** 结构问题的列表，与底座 ask 的 invalid 结果是同一份 schema。 */
@@ -134,6 +136,52 @@ export const SubmitResultSchema = Type.Union([
   object({ status: Type.Literal("recorded"), feedback: Type.Optional(FeedbackSchema) }),
 ]);
 export type SubmitResult = Static<typeof SubmitResultSchema>;
+
+// ---------------------------------------------------------------------------
+// python.run：在前端的隔离环境里运行学习者的代码
+// ---------------------------------------------------------------------------
+
+/**
+ * 前端服务 python.run 的输入，与课程核对交给 sandbox/runner.py 的 program 任务相同（不带 op），
+ * 前端用同一个 runner.py 执行，学习者看到的输出和课程核对一致。
+ * 在全新的命名空间里依次运行 prelude、准备 data、运行 setup 和 program，再对 captures 逐个求值、逐条运行 doctest。
+ * 这些内容都会交给前端，带答案的核对程序和隐藏测试不放进来。
+ */
+const label = Type.String({ minLength: 1, maxLength: 40 });
+export const PythonRunInputSchema = object({
+  prelude: Type.Optional(Type.String({ maxLength: 10_000 })),
+  data: Type.Array(Type.Union([
+    object({
+      kind: Type.Literal("dataframe"),
+      label,
+      name: DataFrameFixtureSchema.properties.name,
+      columns: DataFrameFixtureSchema.properties.columns,
+      index: DataFrameFixtureSchema.properties.index,
+      dtypes: DataFrameFixtureSchema.properties.dtypes,
+    }),
+    object({ kind: Type.Literal("python"), label, code: PythonFixtureSchema.properties.code }),
+  ]), { maxItems: 20 }),
+  setup: Type.Optional(Type.String({ maxLength: 10_000 })),
+  program: Type.String({ maxLength: 50_000 }),
+  captures: Type.Array(Type.String({ minLength: 1, maxLength: 1_000 }), { maxItems: 50 }),
+  doctest: Type.Array(Type.String({ minLength: 1, maxLength: 2_000 }), { maxItems: 50 }),
+});
+export type PythonRunInput = Static<typeof PythonRunInputSchema>;
+
+const pythonError = { type: Type.String(), message: Type.String() };
+
+/**
+ * python.run 的结果，即 runner.py 的 program 任务的结果。error 是 program 抛出的异常，line 是它停在 program 的第几行；
+ * captures 的 value 是 runner.py 序列化后的值；doctest 按输入顺序给出每条的输出或异常。
+ * prelude、data 或 setup 出错时没有结果，服务以错误回复。
+ */
+export const PythonRunResultSchema = object({
+  stdout: Type.String(),
+  error: Type.Union([object({ ...pythonError, line: Type.Union([Type.Integer(), Type.Null()]) }), Type.Null()]),
+  captures: Type.Record(Type.String(), Type.Union([object({ value: Type.Unknown() }), object({ error: object(pythonError) })])),
+  doctest: Type.Array(object({ out: Type.String(), exception: Type.Union([Type.String(), Type.Null()]) })),
+});
+export type PythonRunResult = Static<typeof PythonRunResultSchema>;
 
 // ---------------------------------------------------------------------------
 // 前端的宽松读取

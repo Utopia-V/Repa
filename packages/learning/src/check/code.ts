@@ -18,6 +18,7 @@ import {
 } from "./items.js";
 import { slotNeedsVerification } from "./rules.js";
 import { sameValue, showValue } from "./values.js";
+import type { PythonRunInput } from "../protocol.js";
 import type { JobOutcome, SandboxRunner } from "../sandbox/session.js";
 
 export interface CodeStats {
@@ -34,7 +35,8 @@ interface Context {
   timeoutMs?: number;
 }
 
-type RunnerData = Record<string, unknown>[];
+// 与前端服务 python.run 的 data 是同一个格式。
+type RunnerData = PythonRunInput["data"];
 
 /** 题目或测试用到的数据夹具，转成运行器的格式；有夹具没定义时返回 undefined（规则检查已报告）。 */
 function runnerData(names: readonly string[], topic: Topic): RunnerData | undefined {

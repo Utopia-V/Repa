@@ -17,7 +17,8 @@
     "./protocol": {
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
-    }
+    },
+    "./sandbox/runner.py": "./sandbox/runner.py"
   },
   "bin": {
     "repa-course": "dist/cli.js"
