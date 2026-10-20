@@ -5,7 +5,13 @@ import type { Grade, LearningRecord, Projection } from "./records-schema.js";
 import type { LearningTask, Submission } from "./protocol.js";
 import { updateStudent } from "./student-model.js";
 
-export const FLOW_VERSION = "repa-flow-v1";
+export const FLOW_VERSION = "repa-flow-v2";
+export const isQuiz = (task: LearningTask) => task.kind === "quiz" || task.kind === "retake";
+export function quizCorrect(entry: TaskEvidence, topicId: string): boolean {
+  return entry.attempts.some((attempt) => independentCorrect(attempt) && entry.task.deliveries.some(
+    (delivery) => delivery.topicId === topicId && delivery.deliveryId === attempt.submission.deliveryId,
+  ));
+}
 export const finished = (task: LearningTask) => ["completed", "aborted"].includes(task.phase.stage);
 export interface Attempt {
   submission: Submission;
@@ -16,13 +22,18 @@ export interface TaskEvidence {
   task: LearningTask;
   at: number;
   attempts: Attempt[];
+  minutes?: number;
 }
 
 /** 日志保留当时的任务；重算只替换采用判分，不改写既往选择和交付。 */
 export function taskEvidence(records: LearningRecord[], replacement?: { id: string; grade: Grade }): TaskEvidence[] {
   const tasks = new Map<string, TaskEvidence>();
+  const minutes = new Map<string, number>();
   const attempts = new Map<string, Attempt>();
   for (const record of records) {
+    if (record.type === "snapshot") {
+      minutes.set(record.digest, record.snapshot.topic.minutes);
+    }
     if (record.type === "checkpoint" || record.type === "graded" || record.type === "regraded") {
       const task = record.projection.state.task;
       if (task) {
@@ -35,6 +46,7 @@ export function taskEvidence(records: LearningRecord[], replacement?: { id: stri
           task: structuredClone(task),
           at: previous && finished(previous.task) ? previous.at : at,
           attempts: previous?.attempts ?? [],
+          minutes: minutes.get(record.projection.deliveries[task.deliveries[0]?.deliveryId ?? ""] ?? ""),
         });
       }
     }
@@ -136,7 +148,20 @@ export function replayLearning(
         .map((attempt) => attempt.submission.acceptedAt);
       repetitionAt = Math.max(entry.task.startedAt ?? entry.at, ...accepted);
     }
-    if (entry.task.kind === "lesson") {
+    if (isQuiz(entry.task) && entry.task.phase.stage === "completed") {
+      for (const id of entry.task.topicIds) {
+        const correct = quizCorrect(entry, id);
+        student = updateStudent(
+          graph,
+          student,
+          { topicId: id, outcome: correct ? "pass" : "fail", quality: 1 },
+          repetitionAt,
+        );
+        if (!correct) {
+          force(id, "review");
+        }
+      }
+    } else if (entry.task.kind === "lesson") {
       consecutiveReviews = 0;
       const progress = kpProgress(entry, lessons.get(topicId));
       lessons.set(topicId, progress);

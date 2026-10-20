@@ -1,0 +1,63 @@
+# 测验、XP 与进度
+
+学习插件在菜单中提供测验和换题重考，并从学习日志恢复奖励、日目标和完课估算。你可以用 `progress.get` 读取进度，用 `progress.setGoal` 修改默认的每日 20 XP 目标；测验通过现有学习契约中的 `quiz.start`、`quiz.finish` 和 `quiz.retake` 操作。
+
+## 设计思路
+
+XP 表示已完成的工作，而 HSRS 表示当前知识状态。因此，两者从同一份采用判分取证，却分别计算：XP 按任务结算，测验的 HSRS 则按 topic 更新。测验错题另外建立强制直接 review，不能因为模型计算出的到期量为零，就略过补救。复习失败后，继续沿[教学流程](learning-flow.md)转入重教。
+
+MA 官网采用约每 150 XP 测验一次的口径；测验从已学 topics 中抽取多样化集合，禁止参考材料。公开资料还给出约 30 XP 的延后开始窗口，以及错题复习后对同一批 topics 换题重考的做法。依据分别见 [How It Works](https://www.mathacademy.com/how-it-works)、[How Our AI Works](https://www.mathacademy.com/how-our-ai-works)、[The Math Academy Way 第 467 页](https://www.justinmath.com/files/the-math-academy-way.pdf#page=467)和[官方 FAQ](https://www.mathacademy.com/faq)。这里采用官网的 150 XP 口径；采访中另有 120 XP 的描述。
+
+以下精确公式与调度方式属于 Repa 假设，不作为 MA 已公开算法：奖励规则 `repa-xp-v1`；lesson/review 净奖励的历史高水位触发；最多五个不同 topic、每 topic 一题、固定 15 分钟；测验每个 topic 的 HSRS 更新取 `quality=1`；日目标默认值和 ETA 公式。开始前中止准备会归还这次门槛，开始后中止则按已有作答交卷。
+
+## 实现细节
+
+### 奖励与触发
+
+`progress.ts` 从教学证据计算任务奖励，再把差额写入 `Projection.xp.rewards`。奖励行保存 task、差额、服务端时间和规则版本，与采用判分或 checkpoint 共用[日志的原子提交](learning-records.md)。同一结果重复处理不增加奖励行；申诉改变判分时追加差额，旧奖励与已经出现的任务保留。
+
+| 任务 | `repa-xp-v1` 奖励 |
+| --- | --- |
+| lesson | 本次尝试通过后，`max(1, floor(minutes × 独立正确比例))`；失败或中止为 0 |
+| review | 通过后，`max(1, floor(5 × 独立正确比例))`；失败为 0 |
+| quiz、retake | `floor(15 × 独立正确题数 / 全部交付题数)`，未答也计入分母 |
+
+lesson 的 minutes 优先取交付快照，重试的比例只统计本次任务。辅助后正确不进入独立正确分子。已有旧日志首次补算 XP 时按原任务的服务端完成时间归日，原始记录保持原样。正常奖励与重判差额归入实际追加当天；当日净额为负时，公开 `todayXp` 显示 0，总余额仍包含完整差额。
+
+触发量只统计 lesson/review 的净奖励，并保存历史高水位；quiz/retake 奖励不参与触发。每次选中测验消耗一个 150 XP 门槛，余量保留，同一时刻只保留一场待开始测验。测验出现后，高水位再增加 30 XP 就关闭其他常规候选；已经开始的任务可以完成。强制补救优先于测验，测验在延后窗口内也排在新课前。
+
+### 选题、开始与恢复
+
+首次安排测验时保存 seed、topic 顺序与候选身份。抽样覆盖当前课程全部已完成且有可交付 quiz 题的 topics，先比较以往测验次数，再比较最近独立正确证据的时间；同组由 seed 打散，并优先分散直接依赖或共享先修的项。最多选五项，少于五项就按实际数量开始，没有可用项时菜单说明题量不足。题目沿原有未见优先策略交付，重复题保留 `repeated` 标记。
+
+`flow.ts` 先保存 `preparing` 和禁助限制，再调用 c3 的 `beginRestricted`，等待辅导中止完成以后才确定整场截止时间并冻结全部题目。准备失败或题量不足时仍停在 `preparing`，可以沿原 task 恢复，或中止准备后重新选择。
+
+每题沿现有提交入口锁定原答；判分后可以继续答其他题，但反馈与解析到整场结束才释放。`quiz.finish` 等待所有已接受原答完成判分，重复交卷返回已有终态。服务端接受时间必须严格小于 deadline；及时接受的待判原答即使跨过 deadline，也先沿原 submission 显式恢复。关闭空间不暂停计时，重新打开或下一次教学查询、命令会结算过期场次。超时终态中，没有 submission 的交付就是未答 timeout；它不伪造一份学习者原答。
+
+交卷后，每个 topic 根据该题的独立正确结果更新一次 HSRS，错误或未答取 fail，并进入强制直接 review。补救全部完成后，菜单提供最近一场非全对测验的 retake，保留同一批 topic，排除原场题目。库存无法换题时返回 `insufficient_items`，不会静默用原题代替。重考仍然出错时，同样先补救，再提供下一次换题重考。
+
+### 日目标与 ETA
+
+公开状态只包含当前课程；完成率取已完成 topic 比例，复习奖励不增加完成率。日目标设置保存在 checkpoint 中，默认时区取后端本地时区。日期切换、日汇总和重判差额都从日志恢复，不维护另一份日历数据库。
+
+ETA 是 Repa 的粗略估算：把剩余 lesson（含强制重教）的 minutes 总和乘 1.5，再加当前到期或强制 review 每项 5，除以最近七个完整本地自然日的平均 XP。七天包含零学习日，至少三个正 XP 日且平均值大于零才返回 `etaDays`；否则返回 `null`。前端呈现时应注明“估算”。
+
+## 未完成项与待验证项
+
+- f 接续测验、日目标和 ETA 的界面呈现；当前交付是后端能力与公开契约接入，尚待真实学习者体验验证。
+- 测验难度自适应、奖励数值及 ETA 校准按后续真实作答资料研究；本轮采用上述明确标注的 Repa 假设。
+- 整空间复制恢复沿用[辅导说明](learning-tutor.md)记录的 Pi 聊天历史迁址限制；学习任务、原答、学生投影与 XP 可以恢复，聊天历史迁址由底座另行处理。
+
+## 验证入口
+
+在仓库根目录运行：
+
+```sh
+npm run check --workspace=@repa/learning
+npm test --workspace=@repa/learning
+npm run build --workspace=@repa/learning
+```
+
+`learning-quiz-xp.test.ts` 使用真实 HTTP/WebSocket 客户端、临时空间、插件宿主与 JSONL 日志，模型边界只用本地替身。覆盖 149/150 XP、延后窗口、早期 topic 入选、重复交卷、错题强制复习、失败重教、换题重考与库存不足、并发判分、重判差额、日目标与七日 ETA，以及客户端断线重连、正常重开和完整空间复制恢复。截止前 1 毫秒、截止点和停机过期均用显式 now 检验。日志落盘失败和杀进程恢复继续复用 `learning-records.test.ts`，禁助与中止的 SDK 组合覆盖继续复用 `learning-tutor.test.ts`。
+
+2026-10-21，在 Ubuntu 24.04 下完成验证：Node.js 22.22.2、npm 10.9.3 上的学习包类型检查、构建、浏览器协议构建、最终 127 项非 `code.test.ts` 回归，以及模型库类型检查、构建和 28 项测试全部通过。新增 7 项测验专项在最终构建后再次通过。未修改的 `code.test.ts` 10 项包含整门课程的离线 Pyodide 核对，结果复用本轮初次全量运行：当时 Node.js 22.19.0 下的 134 项全部通过；随后增补的 3 项已包含在最终 127 项回归中。完整空间副本和用例终态可用 `REPA_LEARNING_EVIDENCE=/absolute/directory` 保留。

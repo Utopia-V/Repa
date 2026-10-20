@@ -48,11 +48,10 @@ npm run dev:learning -- --home /absolute/repa-home
 
 view 的先修排序使用已保存投影的决策时间，不使用每次查询时的相对时间。因此，状态相同时，view 文本保持稳定；下一轮运行通过 Pi 现有命名段和 view 更新看到新状态。
 
-复习的完整开始路径位于 `flow.ts` 的 `menu.select` / `task.resume`：先保存准备状态，再调用共享的 `beginRestricted(task, stop, deliver, clock, durationMs)` 等待取消、确定时间并冻结交付，最后保存公开投影。d 接入 quiz/retake 时复用这个函数，传入测验的时限与整场交付；调用前同样先持久保存 preparing，恢复时沿同一步骤继续。内容与消息限制已经按所有非 lesson 的未结束任务检查，覆盖 preparing、作答和恢复阶段。
+复习的完整开始路径位于 `flow.ts` 的 `menu.select` / `task.resume`：先保存准备状态，再调用共享的 `beginRestricted(task, stop, deliver, clock, durationMs)` 等待取消、确定时间并冻结交付，最后保存公开投影。quiz/retake 也复用这个函数，传入测验的时限与整场交付；调用前同样先持久保存 preparing，恢复时沿同一步骤继续，见[测验与进度说明](learning-quiz-xp.md)。内容与消息限制已经按所有非 lesson 的未结束任务检查，覆盖 preparing、作答和恢复阶段。
 
 ## 未完成项与待验证项
 
-- d 尚未合入本分支；quiz/retake 的正式开始、交卷、XP 和组合备份验收由其接续。当前受限开始的实际流程证据来自 review。
 - f/h 接续 Desktop 装配、概念链接、卡片和原位置跳转的界面交互。当前已验证真实客户端读取引用及原例题，没有声明界面验收完成。
 - 整空间复制到新目录后，学习日志、当前任务、学生投影和菜单恢复一致；Pi 1.1.0 的 `SessionManager.findById` / `list` 会按会话头中的原 cwd 过滤，现有聊天历史入口因而报告 `session_not_found`。原会话文件随空间复制保留，底座需要另行确定迁址恢复办法。这个缺口不在小型中止入口中扩展实现。
 - 真实辅导效果及学习外负担的变化，需要真实学习者使用。当前模型边界采用本地假 provider。

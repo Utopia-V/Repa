@@ -29,6 +29,23 @@ export type Decision = Static<typeof DecisionSchema>;
 export const ProjectionSchema = object({
   state: LearningStateSchema, student: StudentSchema,
   deliveries: Type.Record(identifier, identifier),
+  xp: Type.Optional(object({
+    rewards: Type.Array(object({
+      taskId: identifier,
+      xp: Type.Integer(),
+      at: time,
+      ruleVersion: identifier,
+    })),
+    highWater: time,
+    consumed: time,
+    origins: Type.Record(identifier, identifier),
+    pending: Type.Optional(object({
+      id: identifier,
+      atXp: time,
+      seed: Type.Integer(),
+      topicIds: Type.Array(identifier),
+    })),
+  })),
 });
 export type Projection = Static<typeof ProjectionSchema>;
 export const AttemptContextSchema = object({
