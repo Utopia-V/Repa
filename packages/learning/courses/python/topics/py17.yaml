@@ -261,6 +261,44 @@ kps:
               "rows": len(r["df"]),
           }
         manual: [column, meaning]
+      - id: py17.k1.q4
+        kind: [trace]
+        uses: [py08.k1]
+        body: |
+          掩码逐行比较，保留原来的行标签。写出比较产生的列表以及掩码的索引。
+
+          ```python
+          table = pd.DataFrame({"score": [8, 10, 7]}, index=[30, 10, 20])
+          mask = table["score"] >= 8
+          print(mask.tolist())
+          print(mask.index.tolist())
+          ```
+        slots:
+          - {id: values, type: text, match: output, prompt: 掩码值, key: "[True, True, False]"}
+          - {id: labels, type: text, match: output, prompt: 掩码索引, key: "[30, 10, 20]"}
+        explanation: "8 和 10 满足 >= 8，7 不满足；比较不会排序或重编号，因此掩码仍带有原来的 30、10、20。"
+        verify: |
+          lines = run().lines()
+          answers = {"values": lines[0], "labels": lines[1]}
+      - id: py17.k1.q5
+        uses: [py08.k1, py16.k1]
+        kind: [debug]
+        body: |
+          比较只生成掩码，并没有把原数值列改成布尔列。读出原列与比较结果。
+
+          ```python
+          table = pd.DataFrame({"value": [0, 5]})
+          mask = table["value"] > 0
+          print(table["value"].tolist())
+          print(mask.tolist())
+          ```
+        slots:
+          - {id: original, type: text, match: output, prompt: 原列, key: "[0, 5]"}
+          - {id: mask, type: text, match: output, prompt: 掩码, key: "[False, True]"}
+        explanation: "> 0 返回一列布尔判断；原表中的 0、5 保持原样。要筛选行还要把这个掩码交给选行操作。"
+        verify: |
+          lines = run().lines()
+          answers = {"original": lines[0], "mask": lines[1]}
     review:
       - id: py17.k1.r1
         kind: [predict]
@@ -444,6 +482,63 @@ kps:
           true = [claim for claim, ok in holds.items() if ok]
           answers = {"claim": true[0] if len(true) == 1 else true}
 
+      - id: py17.k1.x3
+        uses: [py08.k1]
+        kind:
+          - trace
+        body: |
+          比较相等产生逐行布尔值，重复的值分别在各自的位置得到 True。
+
+          ```python
+          values = pd.Series([4, 2, 4], index=[9, 3, 7])
+          mask = values == 4
+          print(mask.tolist())
+          print(mask.index.tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[True, False, True]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[9, 3, 7]'
+        explanation: 第一、第三项都等于 4；比较仍保留全部三个位置和原索引，不会自动筛掉 False。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py17.k1.x4
+        uses: [py08.k1, py08.k2]
+        kind:
+          - trace
+        body: |
+          严格阈值与包含等号的阈值对边界行有不同判断，但掩码长度不变。
+
+          ```python
+          values = pd.Series([5, 6, 7])
+          print((values > 6).tolist())
+          print((values >= 6).tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[False, False, True]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[False, True, True]'
+        explanation: '> 6 只让 7 通过，>= 6 还让恰好 6 的行通过；两种比较都为每个原位置产生一个布尔值。'
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py17.k2
     keyPrerequisites: [py16, py08]
     title: 用掩码留下行，再明确需要的列
@@ -737,6 +832,41 @@ kps:
           ```
 
           直接写成 `result = df.loc[df["signal"] >= limit, ["sample_id"]]` 也对。本例结果的索引是 7、22、4，shape 为 (3, 1)。判分时还会换阈值、换一张表运行你的代码，检查结果的类型、形状、行列顺序、全部值，以及 `df` 没有被改变。
+      - id: py17.k2.q4
+        kind: [trace]
+        uses: [py08.k1, py16.k1, py16.k2]
+        body: |
+          先按行筛选，再按明确的顺序选择列。填写输出的行标签和列名。
+
+          ```python
+          table = pd.DataFrame({"name": ["Li", "Wu", "He"], "score": [5, 9, 8]}, index=[7, 2, 9])
+          result = table.loc[table["score"] >= 8, ["score", "name"]]
+          print(result.index.tolist())
+          print(result.columns.tolist())
+          ```
+        slots:
+          - {id: rows, type: text, match: output, prompt: 行标签, key: "[2, 9]"}
+          - {id: columns, type: text, match: output, prompt: 列名, key: "['score', 'name']"}
+        explanation: "满足条件的是原标签 2、9 两行，不会重编号。列名列表要求 score 在前、name 在后，这与原表顺序不同。"
+        verify: |
+          lines = run().lines()
+          answers = {"rows": lines[0], "columns": lines[1]}
+      - id: py17.k2.q5
+        uses: [py08.k1, py16.k1, py16.k2]
+        kind: [debug]
+        body: |
+          没有任何行满足条件时，结果仍保留所选列。填写结果形状。
+
+          ```python
+          table = pd.DataFrame({"name": ["Li", "Wu"], "score": [5, 9]})
+          result = table.loc[table["score"] > 100, ["name"]]
+          print(result.shape)
+          ```
+        slots:
+          - {id: shape, type: text, match: output, prompt: 结果形状, key: "(0, 1)"}
+        explanation: "条件全为 False，因此没有数据行；name 这一列的结构仍保留，所以是 0 行 1 列，而不是 0 行 0 列。"
+        verify: |
+          answers = {"shape": run().lines()[0]}
     review:
       - id: py17.k2.r1
         kind: [predict]
@@ -844,6 +974,61 @@ kps:
               if r.error is None and repr(r["result"]) == wanted:
                   fits.append(option)
           answers = {"code": fits[0] if len(fits) == 1 else fits, "cell": df.loc[22, "sample_id"]}
+      - id: py17.k2.r3
+        uses: [py08.k1, py16.k1, py16.k2]
+        kind:
+          - trace
+        body: |
+          筛选后仍保留原来的标签；选择单列列表时，结果也仍是二维表。
+
+          ```python
+          table = pd.DataFrame({"id": ["A", "B", "C"], "score": [1, 9, 8]}, index=[8, 3, 6])
+          result = table.loc[table["score"] >= 8, ["id"]]
+          print(result.index.tolist())
+          print(result.shape)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[3, 6]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: (2, 1)
+        explanation: B、C 两行符合条件，原标签 3、6 被保留；用列名列表选择 id，得到 2 行 1 列的 DataFrame。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py17.k2.r4
+        kind: [modify]
+        uses: [py08.k1, py16.k1, py16.k2]
+        body: |
+          已有下面的表。要求保留 score 大于 0 的行，并且输出中只保留 id 一列，仍返回 DataFrame。哪条语句符合全部要求？
+
+          ```python
+          table = pd.DataFrame({"id": ["A", "B"], "score": [8, 9]})
+          ```
+        slots:
+          - id: select
+            type: choice
+            options:
+              - {id: all_columns, content: '`table.loc[table["score"] > 0]`'}
+              - {id: series, content: '`table.loc[table["score"] > 0, "id"]`'}
+              - {id: frame, content: '`table.loc[table["score"] > 0, ["id"]]`'}
+            key: frame
+        explanation: 两行都满足条件，但仍需明确输出列；第一项带出了 score，第二项返回 Series，只有列名列表形式得到只含 id 的 DataFrame。
+        verify: |
+          table = run()["table"]
+          expressions = {"all_columns": 'table.loc[table["score"] > 0]', "series": 'table.loc[table["score"] > 0, "id"]', "frame": 'table.loc[table["score"] > 0, ["id"]]'}
+          expected = pd.DataFrame({"id": ["A", "B"]})
+          fits = [key for key, expression in expressions.items()
+                  if isinstance(eval(expression), pd.DataFrame) and eval(expression).equals(expected)]
+          assert len(fits) == 1
+          answers = {"select": fits[0]}
     quiz:
       - id: py17.k2.x1
         kind: [predict, explain]
@@ -944,3 +1129,61 @@ kps:
           ```
 
           逗号前的条件改成 `== "drug"`，逗号后的列名列表按需求的顺序写成 `["sample_id", "signal"]`。结果留下索引 7、22 两行。
+      - id: py17.k2.x3
+        uses: [py08.k1, py16.k1, py16.k2]
+        kind:
+          - trace
+        body: |
+          从满足条件的行里只交付编号列，结果中不会附带未选中的数值列。
+
+          ```python
+          table = pd.DataFrame({"id": ["X", "Y", "Z"], "n": [2, 0, 3]})
+          result = table.loc[table["n"] > 0, ["id"]]
+          print(result["id"].tolist())
+          print(result.columns.tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[''X'', ''Z'']'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[''id'']'
+        explanation: X、Z 满足条件，n 只参与选行，没有被列入输出列表，因此结果里只有 id。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py17.k2.x4
+        uses: [py08.k1, py16.k1, py16.k2]
+        kind:
+          - trace
+        body: |
+          没有命中行也保留选定的两列及其顺序。填写输出形状与列名。
+
+          ```python
+          table = pd.DataFrame({"id": ["X"], "n": [2]})
+          result = table.loc[table["n"] < 0, ["n", "id"]]
+          print(result.shape)
+          print(result.columns.tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: (0, 2)
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[''n'', ''id'']'
+        explanation: 唯一一行不符合条件，所以是零行；列名列表仍定义了 n、id 两列及其次序。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}

@@ -280,6 +280,44 @@ kps:
           # 两个值都是文字、total 正好是两段文字接起来的结果，说明 + 做的是拼接。
           joined = isinstance(r["first"], str) and isinstance(r["second"], str) and r["total"] == r["first"] + r["second"]
           answers = {"output": r.out, "reason": "joined" if joined else "other"}
+      - id: py03.k1.q4
+        kind: [debug]
+        body: |
+          读下面两行，选择能准确描述结果的一项。不要把文字重复当作数字乘法。
+
+          ```python
+          print("4" * 2)
+          print(4 * 2)
+          ```
+        slots:
+          - id: behavior
+            type: choice
+            options:
+              - {id: both, content: 两行都显示 8}
+              - {id: text, content: 第一行显示 44，第二行显示 8}
+              - {id: error, content: 第一行不能运行}
+            key: text
+        explanation: '"4" 是 str，乘 2 得到重复两次的文字 "44"；4 是 int，乘 2 才是数值乘法 8。'
+        verify: |
+          lines = run().lines()
+          answers = {"behavior": "text" if lines == ["44", "8"] else "both"}
+      - id: py03.k1.q5
+        kind: [trace]
+        body: |
+          表格中的每一行独立求值，写出 Python 显示的结果。保留必要的引号和小数点。
+        slots:
+          - id: values
+            type: table
+            columns:
+              - {id: expression, header: 表达式}
+              - {id: result, header: 显示结果, input: {type: text, match: output}}
+            rows:
+              - {id: word, cells: {expression: '"6" + "2"', result: "'62'"}}
+              - {id: number, cells: {expression: '6 + 2', result: "8"}}
+              - {id: decimal, cells: {expression: '6.0 + 2', result: "8.0"}}
+        explanation: "两个 str 用 + 拼接，得到文字 '62'；两个整数相加是 8；参与加法的 6.0 是浮点数，因此最后一行是 8.0。"
+        verify: |
+          answers = {"values": {row: {"result": eval(CELLS["values"][row]["expression"])} for row in ["word", "number", "decimal"]}}
     review:
       - id: py03.k1.r1
         kind: [predict]
@@ -374,6 +412,32 @@ kps:
               "note": r["note"],
               "printed": r.out if r.out.strip() else NOTHING,
           }
+      - id: py03.k1.r3
+        kind:
+          - trace
+        body: |
+          数字文字的重复与浮点数乘法有不同的结果形状，保留输出中的引号与小数点。
+
+          ```python
+          print(repr("2" * 3))
+          print(2.0 * 3)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '''222'''
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '6.0'
+        explanation: str 乘整数重复文字，结果仍是文字；float 参与乘法得到浮点数 6.0。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py03.k1.x1
         kind: [predict]
@@ -443,6 +507,32 @@ kps:
         explanation: |
           先给 `prefix` 和 `num` 赋值（谁先都可以），再拼出 `label`，最后 print。编号 07 要写成文字 `"07"`：`num = 07` 不是合法的写法，写成整数还会丢掉前面的 0；`prefix + 7` 是文字加整数，会报 TypeError。
 
+      - id: py03.k1.x3
+        kind:
+          - trace
+        body: |
+          加号到底拼接还是求和，取决于参与运算的类型。保留显示中的引号与小数点。
+
+          ```python
+          print(repr("3" + "5"))
+          print(3 + 5.0)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '''35'''
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '8.0'
+        explanation: 两段文字拼成 '35'，并没有先转成数字；另一行有浮点数 5.0 参与，返回浮点数 8.0。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py03.k2
     keyPrerequisites: [py01]
     title: 显式 int/float/str 转换
@@ -692,6 +782,42 @@ kps:
           ```
 
           `float(a + b)` 的顺序不对：括号里先把两段文字拼成 "12.53"，再转换就是 12.53。`int` 不认 "12.5" 这样带小数点的文字。判分时还会换几组读数运行你的代码。
+      - id: py03.k2.q4
+        kind: [debug]
+        body: |
+          这段程序在哪个转换处停止？后面的 print 能执行吗？
+
+          ```python
+          count = int("7.0")
+          print(count)
+          ```
+        slots:
+          - id: error
+            type: choice
+            options:
+              - {id: value, content: int 不能直接读取带小数点的文字，程序停止}
+              - {id: seven, content: 自动去掉小数点，显示 7}
+              - {id: text, content: 保留文字，显示 7.0}
+            key: value
+        explanation: "int 可以读取整数形式的文字，但 '7.0' 不是这种形式。这里会抛出 ValueError，print 不会运行；需要这条转换路径时可以先 float 再 int。"
+        verify: |
+          answers = {"error": "value" if run().error == "ValueError" else "seven"}
+      - id: py03.k2.q5
+        kind: [predict]
+        body: |
+          一段编号文字转成整数后再转回文字，能恢复前导零吗？分别填两个 print 的结果。
+
+          ```python
+          print(int("0042"))
+          print(str(int("0042")))
+          ```
+        slots:
+          - {id: integer, type: text, match: output, prompt: 第一行显示, key: "42"}
+          - {id: string, type: text, match: output, prompt: 第二行显示（print 的内容，不加额外引号）, key: "42"}
+        explanation: "int 把 '0042' 转成数值 42，前导零不再存在。随后 str 只能得到 '42'，不会把丢失的前导零找回来；print 这两个对象时都显示 42。"
+        verify: |
+          lines = run().lines()
+          answers = {"integer": lines[0], "string": lines[1]}
     review:
       - id: py03.k2.r1
         kind: [debug]
@@ -786,6 +912,32 @@ kps:
               "kind": type(r["minutes"]).__name__,
               "swap": "error" if alt.error == "ValueError" else shown.get(alt.out.strip(), "other"),
           }
+      - id: py03.k2.r3
+        kind:
+          - trace
+        body: |
+          转整数会截去小数部分，而不是四舍五入；再转文字也不会恢复小数。
+
+          ```python
+          print(int(8.9))
+          print(repr(str(int(8.9))))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '8'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '''8'''
+        explanation: int(8.9) 得到 8，外层 str 只把现有整数写成文字 '8'，并不保留之前的小数部分。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py03.k2.x1
         kind: [modify]
@@ -882,6 +1034,33 @@ kps:
                   fits.append(option)
           answers = {"exprs": fits}
 
+      - id: py03.k2.x3
+        kind:
+          - trace
+        body: |
+          转换可以改变计算含义，但不会反向改变作为输入的文字对象。
+
+          ```python
+          text = "09"
+          print(int(text) + 1)
+          print(repr(text))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '10'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '''09'''
+        explanation: int(text) 的返回值是 9，参与加法得到 10；text 没有重新赋值，仍保留带前导零的文字。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py03.k3
     keyPrerequisites: []
     title: None 表示没有值而不是零
@@ -1117,6 +1296,44 @@ kps:
               "zero": int(zero.out),
           }
         manual: [meaning]
+      - id: py03.k3.q4
+        kind: [trace]
+        body: |
+          三种值都可能出现在登记表里，但它们不是一回事。按 Python 显示内容填写每行结果。
+
+          ```python
+          print(type(None).__name__)
+          print(type(0).__name__)
+          print(type("None").__name__)
+          ```
+        slots:
+          - {id: absent, type: text, match: text, prompt: 第一行, key: NoneType}
+          - {id: zero, type: text, match: text, prompt: 第二行, key: int}
+          - {id: word, type: text, match: text, prompt: 第三行, key: str}
+        explanation: "None 是 NoneType 的特殊值，表示没有值；0 是整数；带引号的 'None' 只是四个字母组成的文字。"
+        verify: |
+          lines = run().lines()
+          answers = {"absent": str(lines[0]), "zero": str(lines[1]), "word": str(lines[2])}
+      - id: py03.k3.q5
+        kind: [debug]
+        body: |
+          下面的调用表示“这次没有读数”。选择执行结果。
+
+          ```python
+          reading = None
+          print(reading + 1)
+          ```
+        slots:
+          - id: result
+            type: choice
+            options:
+              - {id: one, content: 显示 1，因为缺省值按 0 计算}
+              - {id: nothing, content: 静默跳过 print}
+              - {id: error, content: 加法不能把 None 当作数值，程序报错}
+            key: error
+        explanation: "None 没有自动变成 0 的规则，与整数相加会抛出 TypeError。缺测和测得零要保留为不同状态。"
+        verify: |
+          answers = {"result": "error" if run().error == "TypeError" else "one"}
     review:
       - id: py03.k3.r1
         kind: [predict]
@@ -1202,6 +1419,38 @@ kps:
               "output": r.out,
               "swap": "error" if alt.error == "TypeError" else shown.get(alt.out.strip(), "other"),
           }
+      - id: py03.k3.r3
+        kind:
+          - trace
+        body: |
+          print 可以分别显示缺失值、零和文字 None。用 repr 的结果区分对象本身与文字。
+
+          ```python
+          print(repr(None))
+          print(repr(0))
+          print(repr("None"))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: None
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '0'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '''None'''
+        explanation: None 是无值标记，0 是整数，带引号的 'None' 是字符串。repr 保留能区分它们的显示形式。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py03.k3.x1
         kind: [trace, predict]

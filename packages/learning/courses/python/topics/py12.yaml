@@ -253,6 +253,35 @@ kps:
           一种回答：**用哪张表、每行代表什么样本？“不可靠”按哪一列或哪套规则判断，缺失怎样处理？要统计哪个指标、按哪些组，最后输出哪些列？**
 
           其他同样会影响结果的具体追问也成立，例如重复记录要不要合并。三个方面各算一项，同一个问题换句话说不重复算；只说“请详细一点”不算。
+      - id: py12.k1.q4
+        kind: [specify]
+        body: |
+          同事说：“把报名表整理一下，只要成年人，发我结果。”输入已有 age、name、email 三列。
+          为了让另一个人能独立执行，还应优先补清哪组信息？
+        slots:
+          - id: missing
+            type: choice
+            options:
+              - {id: style, content: 喜欢浅色还是深色界面}
+              - {id: contract, content: 成年是否包含 18 岁，以及输出哪些列、保存成什么文件}
+              - {id: tool, content: 对方最喜欢用什么编辑器}
+            key: contract
+        explanation: "年龄边界决定筛选结果；输出列与文件形式决定交付内容。编辑器和界面外观不会消除这份数据处理要求中的歧义。"
+        manual: [missing]
+      - id: py12.k1.q5
+        kind: [specify]
+        body: |
+          “列出库存不足的商品”已有明确输入文件和输出列。下面哪条补充让筛选规则可以直接核对？
+        slots:
+          - id: rule
+            type: choice
+            options:
+              - {id: vague, content: 把不太够用的挑出来}
+              - {id: fixed, content: 保留 stock 小于 5 的行，stock 恰好为 5 时不保留}
+              - {id: pretty, content: 尽量整理得清楚一些}
+            key: fixed
+        explanation: "stock < 5 给出了字段、运算与阈值，还明确了等号边界，因此不同执行者能得到同一份筛选结果。"
+        manual: [rule]
     review:
       - id: py12.k1.r1
         kind: [specify]
@@ -361,6 +390,46 @@ kps:
           应当先追问：阈值是多少、等于阈值的算不算。自己定一个阈值或比例，都是替对方补上了还没确认的条件；直接答应则把猜测留给了后面的人。
         manual: [next]
 
+      - id: py12.k1.x3
+        kind:
+          - specify
+        body: |
+          需求是：“把活动报名表里合适的人选出来，发我名单。”输入文件已经给出。
+          下列哪项补充同时明确了筛选规则与输出内容？
+        slots:
+          - id: contract
+            type: choice
+            options:
+              - id: concrete
+                content: 保留 age 至少为 18 的行，只输出 name 和 email 两列为名单 CSV
+              - id: vague
+                content: 挑年龄差不多的人，整理得好看一些
+              - id: implementation
+                content: 让 AI 随便选一个 Python 库
+            key: concrete
+        explanation: 第一项写清了筛选列、包含等号的阈值、输出列与文件形式，能让执行者独立得到可核对的结果。
+        manual:
+          - contract
+      - id: py12.k1.x4
+        kind:
+          - specify
+        body: |
+          输入表有 stock 和 reserved 两列。需求方已经说清“输出商品编号为 CSV”，但只说“找库存紧张的商品”。
+          下一步最需要确认什么？
+        slots:
+          - id: clarification
+            type: choice
+            options:
+              - id: color
+                content: CSV 用什么界面颜色打开
+              - id: rule
+                content: 紧张是按 stock 还是扣除 reserved 后的可用量判断，阈值是多少、等号是否包含
+              - id: repeat
+                content: 再问一次是否要输出商品编号，忽略筛选规则
+            key: rule
+        explanation: 输出已清楚，剩下的歧义在筛选的字段含义与阈值边界。补清这一项才能让不同执行者选出同一批商品。
+        manual:
+          - clarification
   - id: py12.k2
     keyPrerequisites: []
     title: 用正常、边界和无结果例子消除歧义
@@ -498,6 +567,39 @@ kps:
               "first": "keep" if value >= 10 else "drop",
               "second": "keep" if value > 10 else "drop",
           }
+      - id: py12.k2.q4
+        kind: [specify]
+        body: |
+          规则是“分数至少 60 才通过”。只能增加一条检查来区分 score > 60 与 score >= 60，应该用哪个分数？
+        slots:
+          - id: boundary
+            type: choice
+            options:
+              - {id: low, content: "20"}
+              - {id: at, content: "60"}
+              - {id: high, content: "90"}
+            key: at
+        explanation: "两种条件在 20 与 90 上给出相同结果，只有恰好位于边界的 60 能把漏掉等号的问题暴露出来。"
+        verify: |
+          candidates = {"low": 20, "at": 60, "high": 90}
+          fits = [key for key, score in candidates.items() if (score > 60) != (score >= 60)]
+          assert len(fits) == 1
+          answers = {"boundary": fits[0]}
+      - id: py12.k2.q5
+        kind: [specify]
+        body: |
+          规则是“把库存小于 5 的行输出成表”。输入的库存只有 8、9、10。
+          下面哪项应当补进验收例子，才能约定无结果时的行为？
+        slots:
+          - id: empty
+            type: choice
+            options:
+              - {id: no_file, content: 不管是否有结果，都直接省略输出约定}
+              - {id: extra, content: 再加一条库存为 1 的正常例子就够了}
+              - {id: defined, content: 这份输入输出 0 行，但仍保留约定的列名和输出文件}
+            key: defined
+        explanation: "原输入没有任何行满足条件，正适合核对无结果行为。明确保留列名和文件，可以避免有人不输出、有人输出空表的分歧。"
+        manual: [empty]
     review:
       - id: py12.k2.r1
         kind: [specify]
@@ -553,6 +655,58 @@ kps:
           **15**。只有恰好等于阈值的值，在“≥ 15”和“> 15”下结果不同；14、16、30 在两种写法下结果一样，查不出等号的问题。
         verify: |
           answers = {"value": next(f"v{v}" for v in (14, 15, 16, 30) if (v >= 15) != (v > 15))}
+      - id: py12.k2.r3
+        kind:
+          - trace
+        body: |
+          规则是“大于 10 才保留”。用边界附近的三种输入核对，按顺序填写每个输入是否保留。
+
+          ```python
+          print(9 > 10)
+          print(10 > 10)
+          print(11 > 10)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'False'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'False'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: 'True'
+        explanation: 这组三点包含边界以下、恰好边界和边界以上；只有 11 保留，能够检出把 > 错写成 >= 的实现。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py12.k2.r4
+        kind:
+          - specify
+        body: |
+          规则是“保留库存小于 2 的行，输出 id、stock 两列”。验收输入只有 stock 为 3、4 的两行。
+          哪个期望结果把无命中情境写清楚了？
+        slots:
+          - id: empty
+            type: choice
+            options:
+              - id: defined
+                content: 输出 0 行，但保留 id、stock 两个列名
+              - id: omitted
+                content: 反正没有命中，什么都不约定
+              - id: include
+                content: 任取一行，避免出现空结果
+            key: defined
+        explanation: 两行都不满足条件，因此验收应明确零行结果及其结构。不能为了回避空结果而补入不符合条件的行。
+        manual:
+          - empty
     quiz:
       - id: py12.k2.x1
         kind: [specify]
@@ -615,6 +769,45 @@ kps:
               "second": list(samples.loc[samples["signal"] > 10, "sample_id"]),
           }
 
+      - id: py12.k2.x3
+        kind:
+          - specify
+        body: |
+          规则是“温度高于 30 才报警”。已有温度 20 的不报警例子和 40 的报警例子。
+          加入哪一条最能检出把 > 错写成 >= 的问题？
+        slots:
+          - id: boundary
+            type: choice
+            options:
+              - id: below
+                content: 温度 25，不报警
+              - id: at
+                content: 温度 30，不报警
+              - id: above
+                content: 温度 35，报警
+            key: at
+        explanation: '> 与 >= 在 25、35 上结果相同；只有正好 30 时，一个不报警、一个报警，因此边界例子最有区分力。'
+        manual:
+          - boundary
+      - id: py12.k2.x4
+        kind:
+          - specify
+        body: |
+          需求改成“金额达到 100 才免运”。只检查金额 80、120 会漏掉什么？
+        slots:
+          - id: gap
+            type: choice
+            options:
+              - id: boundary
+                content: 漏掉正好 100 的情况，无法区分 > 100 和 >= 100
+              - id: none
+                content: 两侧都有例子，所有边界已经覆盖
+              - id: average
+                content: 只需要再算 80 和 120 的平均值，不必约定期望结果
+            key: boundary
+        explanation: 两侧的正常例子不能决定等号归属，验收还应包含 100 并明确此时免运。算出一个平均值也不能代替写清该例子的期望。
+        manual:
+          - gap
 verified:
   - question: py12.k1.r1
     version: sha256:043b7526fd9cd60eb5016c76003f139a6c378cb2c2ef02575292c1b6bbbcd57b

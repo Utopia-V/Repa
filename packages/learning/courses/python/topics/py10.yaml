@@ -263,6 +263,44 @@ kps:
           B 只显示 **1** 行：“达标”。`elif` 和前面的 `if` 是一组，第一个条件成立以后，elif 就不再检查。
         verify: |
           answers = {"a_lines": len(run(BLOCKS[0]).lines()), "b_lines": len(run(BLOCKS[1]).lines())}
+      - id: py10.k1.q4
+        kind: [trace]
+        uses: [py08.k1]
+        body: |
+          两个条件本来都成立，但它们在同一条 if/elif 链里。最终显示哪一行？
+
+          ```python
+          score = 95
+          if score >= 60:
+              print("pass")
+          elif score >= 90:
+              print("excellent")
+          else:
+              print("retry")
+          ```
+        slots:
+          - {id: output, type: text, match: text, prompt: 显示内容, key: pass}
+        explanation: "第一条条件已经成立，执行 pass 后就跳过同一条链的其他分支。elif 不是再独立检查一次；如果要优先优秀档，应把较高阈值放在前面。"
+        verify: |
+          answers = {"output": str(run().lines()[0])}
+      - id: py10.k1.q5
+        kind: [debug]
+        uses: [py08.k1]
+        body: |
+          改为两个独立的 if 以后，屏幕会显示几行？填写行数。
+
+          ```python
+          score = 95
+          if score >= 60:
+              print("pass")
+          if score >= 90:
+              print("excellent")
+          ```
+        slots:
+          - {id: lines, type: text, format: integer, prompt: 显示行数, key: 2}
+        explanation: "两个 if 各自判断，95 同时满足两条条件，所以显示两行。它们不再是互斥的 if/elif 分支链。"
+        verify: |
+          answers = {"lines": len(run().lines())}
     review:
       - id: py10.k1.r1
         kind: [trace]
@@ -440,6 +478,34 @@ kps:
               return "很高" if s >= 20 else "高" if s >= 10 else "低"
           answers = {"wrong": [f"s{s}" for s in (5, 12, 20, 25) if run(signal=s)["level"] != wanted(s)]}
 
+      - id: py10.k1.x3
+        kind:
+          - trace
+        body: |
+          同一条分支链只选择第一条成立路径。观察中间档是否还会执行。
+
+          ```python
+          score = 92
+          if score >= 90:
+              print("high")
+          elif score >= 60:
+              print("middle")
+          else:
+              print("low")
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: high
+        explanation: 第一条已经命中，因此不再执行 elif，即使 score >= 60 本来也成立。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+        uses:
+          - py08.k1
   - id: py10.k2
     keyPrerequisites: []
     title: 缩进划定执行范围
@@ -646,6 +712,46 @@ kps:
           ```
 
           “过热”和“请检查”只在高于 8 时显示，所以缩进到 if 的块里，先后按要求排；“记录完成”每次都要显示，和 `if` 对齐放在块外。判分时会用不同的温度运行你排出的程序。
+      - id: py10.k2.q4
+        kind: [trace]
+        body: |
+          条件为 False，观察哪一行仍会执行。
+
+          ```python
+          enabled = False
+          if enabled:
+              print("inside")
+          print("outside")
+          ```
+        slots:
+          - {id: output, type: text, match: text, prompt: 显示内容, key: outside}
+        explanation: "inside 属于缩进的 if 代码块，被 False 跳过；outside 已经退回外层，不受这个条件控制。"
+        verify: |
+          answers = {"output": str(run().lines()[0])}
+      - id: py10.k2.q5
+        kind: [debug]
+        body: |
+          希望 disabled 时一行都不显示。只把最后一行向右缩进一级，能否达到这个效果？
+
+          ```python
+          enabled = False
+          if enabled:
+              print("open")
+          print("audit")
+          ```
+        slots:
+          - id: fix
+            type: choice
+            options:
+              - {id: works, content: 能，audit 也进入同一个 if 代码块}
+              - {id: no, content: 不能，缩进只影响外观}
+              - {id: always, content: 不能，print 总会运行}
+            key: works
+        explanation: "缩进决定代码块的归属。把最后一行缩进后，两次 print 都属于 if enabled；enabled 为 False 时两行都被跳过。"
+        verify: |
+          lines = CODE.splitlines()
+          changed = "\n".join(lines[:-1] + ["    " + lines[-1]])
+          answers = {"fix": "works" if run(changed).out == "" and run(changed).error is None else "no"}
     review:
       - id: py10.k2.r1
         kind: [modify, debug]
@@ -841,6 +947,30 @@ kps:
               for row, code in zip(("a", "b"), BLOCKS)
           }}
 
+      - id: py10.k2.x3
+        kind:
+          - trace
+        body: |
+          同一份 False 条件只控制缩进块，退回外层后的显示仍会执行。
+
+          ```python
+          ready = False
+          if ready:
+              print("A")
+              print("B")
+          print("C")
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: C
+        explanation: A、B 都位于 if 块中，被 False 一起跳过；C 没有缩进进该块，因此正常显示。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py10.k3
     keyPrerequisites: [py01, py08]
     title: 每条路径后的变量值
@@ -1031,6 +1161,43 @@ kps:
           signal 为 12 时只执行了第 7 行，它只改 score；note 没有被改，仍是默认的“无”。signal 为 5 时一个分支都不走，两个名字都保持默认值。
         verify: |
           answers = {"state": {f"s{s}": {"score": run(signal=s)["score"], "note": run(signal=s)["note"]} for s in (16, 12, 5)}}
+      - id: py10.k3.q4
+        kind: [trace]
+        uses: [py01.k2, py08.k1]
+        body: |
+          阅读完整路径，填写最后的余额，而不是只看初值。
+
+          ```python
+          balance = 8
+          if balance >= 5:
+              balance = balance - 5
+          else:
+              balance = balance + 2
+          print(balance)
+          ```
+        slots:
+          - {id: balance, type: text, format: integer, prompt: 最后显示, key: 3}
+        explanation: "条件成立，只执行扣除 5 的路径，余额变成 3；else 中加 2 的动作不会再发生。"
+        verify: |
+          answers = {"balance": int(run().out)}
+      - id: py10.k3.q5
+        kind: [debug]
+        uses: [py01.k2]
+        body: |
+          这里不是每条路径都会重新赋值。条件为 False 时，最后保留什么值？
+
+          ```python
+          result = 10
+          adjust = False
+          if adjust:
+              result = 99
+          print(result)
+          ```
+        slots:
+          - {id: result, type: text, format: integer, prompt: 最后显示, key: 10}
+        explanation: "result 在进入判断前已有值 10；条件为 False 时不执行重新赋值，所以它保留 10。跳过分支不会清空已经存在的名字。"
+        verify: |
+          answers = {"result": int(run().out)}
     review:
       - id: py10.k3.r1
         kind: [predict, debug]

@@ -221,6 +221,40 @@ kps:
         verify: |
           fits = [option for option, code in OPTIONS["line"].items() if run(code)["volumes"] == [8, 8, 8, 8]]
           answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py07.k1.q4
+        kind: [trace]
+        body: |
+          仓库把两段队列接起来，再把一段队列重复。写出最终列表，不要逐元素相加或相乘。
+
+          ```python
+          print([2, 5] + [8])
+          print([2, 5] * 2)
+          ```
+        slots:
+          - {id: concat, type: text, match: output, prompt: 第一行, key: "[2, 5, 8]"}
+          - {id: repeat, type: text, match: output, prompt: 第二行, key: "[2, 5, 2, 5]"}
+        explanation: "列表 + 把右侧整段接到末尾；列表 * 整数则重复整段。元素本身的值仍然是 2、5，而不是变成 4、10。"
+        verify: |
+          lines = run().lines()
+          answers = {"concat": lines[0], "repeat": lines[1]}
+      - id: py07.k1.q5
+        kind: [debug]
+        body: |
+          要把新编号 9 接到末尾，下面三种写法中哪一种能得到 [3, 6, 9]？
+        slots:
+          - id: append
+            type: choice
+            options:
+              - {id: scalar, content: '`result = [3, 6] + 9`'}
+              - {id: repeat, content: '`result = [3, 6] * 9`'}
+              - {id: list, content: '`result = [3, 6] + [9]`'}
+            key: list
+        explanation: "列表拼接两边都必须是列表，所以新编号要放进 [9]。直接加整数会报 TypeError；乘 9 会把原列表重复九遍。"
+        verify: |
+          programs = {"scalar": "result = [3, 6] + 9", "repeat": "result = [3, 6] * 9", "list": "result = [3, 6] + [9]"}
+          fits = [key for key, code in programs.items() if run(code).error is None and run(code)["result"] == [3, 6, 9]]
+          assert len(fits) == 1
+          answers = {"append": fits[0]}
     review:
       - id: py07.k1.r1
         kind: [trace, predict]
@@ -294,6 +328,32 @@ kps:
           }
           true = [claim for claim, ok in holds.items() if ok]
           answers = {"claim": true[0] if len(true) == 1 else true}
+      - id: py07.k1.r3
+        kind:
+          - trace
+        body: |
+          空列表参与拼接与重复时，分别观察结果，不把空列表当作零。
+
+          ```python
+          print([] + [4, 5])
+          print([4, 5] * 0)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[4, 5]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[]'
+        explanation: 拼接空列表不增添任何元素；重复零遍则没有任何元素，结果仍是空列表。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py07.k1.x1
         kind: [modify]
@@ -361,6 +421,52 @@ kps:
           assert first == second
           answers = {"lengths": {f"l{i}": {"value": int(line)} for i, line in enumerate(first, 1)}}
 
+      - id: py07.k1.x3
+        kind:
+          - trace
+        body: |
+          列表重复与拼接可以接续执行。先读清括号决定的整段，再观察元素顺序。
+
+          ```python
+          print(([1] + [2]) * 2)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[1, 2, 1, 2]'
+        explanation: 先拼成 [1, 2]，再重复整段两遍，并不是把每个数都乘 2。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py07.k1.x4
+        kind:
+          - trace
+        body: |
+          左右两边的顺序会影响拼接结果，哪怕两边包含相同的数字种类。
+
+          ```python
+          print([1, 2] + [3])
+          print([3] + [1, 2])
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[1, 2, 3]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[3, 1, 2]'
+        explanation: 列表拼接保留左段再接右段，所以不满足数值加法的交换顺序习惯。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py07.k2
     keyPrerequisites: [py04, py06, py02]
     title: sum/len/min/max 对一组数做汇总
@@ -610,6 +716,45 @@ kps:
           ```
 
           分母改成 `len(readings)`，读数有几个就除以几；极差那一行本来就对。判分时会换 3 个、1 个、8 个读数运行你的代码，写死任何一个个数都会在某组上出错。
+      - id: py07.k2.q4
+        kind: [debug]
+        body: |
+          汇总含负数的读数时，最大值不是绝对值最大的数。写出三个显示结果。
+
+          ```python
+          print(sum([-8, -3, -5]))
+          print(min([-8, -3, -5]))
+          print(max([-8, -3, -5]))
+          ```
+        slots:
+          - {id: total, type: text, format: integer, prompt: 总和, key: -16}
+          - {id: low, type: text, format: integer, prompt: 最小值, key: -8}
+          - {id: high, type: text, format: integer, prompt: 最大值, key: -3}
+        explanation: "sum 把各读数相加得到 -16；数轴上 -8 最小，-3 最大。max 比较的是数值顺序，不是离零的距离。"
+        verify: |
+          lines = run().lines()
+          answers = {"total": int(lines[0]), "low": int(lines[1]), "high": int(lines[2])}
+      - id: py07.k2.q5
+        kind: [trace]
+        body: |
+          同一份读数原样重复一遍之后，观察哪些汇总量翻倍、哪些保持不变。
+
+          ```python
+          readings = [2, 6]
+          doubled = readings * 2
+          print(sum(doubled))
+          print(len(doubled))
+          print(max(doubled))
+          ```
+        uses: [py07.k1]
+        slots:
+          - {id: total, type: text, format: integer, prompt: 总和, key: 16}
+          - {id: count, type: text, format: integer, prompt: 个数, key: 4}
+          - {id: high, type: text, format: integer, prompt: 最大值, key: 6}
+        explanation: "doubled 是 [2, 6, 2, 6]，所以总和与个数都翻倍，但最大值仍是 6。重复数据不会创造更大的单次读数。"
+        verify: |
+          lines = run().lines()
+          answers = {"total": int(lines[0]), "count": int(lines[1]), "high": int(lines[2])}
     review:
       - id: py07.k2.r1
         kind: [trace]
@@ -686,6 +831,132 @@ kps:
               if ok:
                   fits.append(option)
           answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py07.k2.r3
+        kind:
+          - trace
+        body: |
+          只有一个数的列表，总和、最小值和最大值都来自同一项，但个数仍是 1。
+
+          ```python
+          values = [9]
+          print(sum(values))
+          print(len(values))
+          print(min(values))
+          print(max(values))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '9'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '1'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '9'
+          - id: v3
+            type: text
+            match: output
+            prompt: 第 4 项
+            key: '9'
+        explanation: 单项列表的三个数值汇总都是 9，len 计算个数而不是数值，因而为 1。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py07.k2.r4
+        uses: [py02.k2]
+        kind:
+          - trace
+        body: |
+          求平均值要除以条目数量，不能除以最大读数。
+
+          ```python
+          readings = [2, 4, 6]
+          print(sum(readings) / len(readings))
+          print(sum(readings) / max(readings))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '4.0'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '2.0'
+        explanation: 总和是 12，数量是 3，因此平均为 4.0；把总和除以最大值 6 得到 2.0，并不是平均值。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py07.k2.r5
+        kind:
+          - trace
+        body: |
+          读数顺序变了，sum、min、max 的结果不会因此改变。分别填写总和与最小值。
+
+          ```python
+          print(sum([5, 1, 4]))
+          print(min([4, 5, 1]))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '10'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '1'
+        explanation: 这些汇总针对全部元素的数值，列表没有预先排序也可以求和、取最小值。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py07.k2.r6
+        kind:
+          - trace
+        body: |
+          大小值相同也会分别计入总和与长度，不会自动去重。
+
+          ```python
+          values = [3, 3, 3]
+          print(sum(values))
+          print(len(values))
+          print(max(values) - min(values))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '9'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '3'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '0'
+        explanation: 三项都计入，总和 9、长度 3；最大最小都为 3，所以它们的差为 0。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py07.k2.x1
         kind: [debug]
@@ -762,6 +1033,67 @@ kps:
           answers = {"number": run(values=[8, 12, 10, 30])["result"]}
         manual: [meaning]
 
+      - id: py07.k2.x3
+        kind:
+          - trace
+        body: |
+          不同汇总量回答不同问题：总量、个数和最大值不能互相代替。
+
+          ```python
+          loads = [0, 4, 4, 8]
+          print(sum(loads))
+          print(len(loads))
+          print(max(loads))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '16'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '4'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '8'
+        explanation: 零也算一条记录，所以有四项；总和是 16，单项最大为 8。重复的 4 仍分别计入总量与条目数。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py07.k2.x4
+        uses: [py02.k2]
+        kind:
+          - trace
+        body: |
+          差距与平均值都由汇总量计算，但使用的分母和操作不同。
+
+          ```python
+          values = [2, 8]
+          print(max(values) - min(values))
+          print(sum(values) / len(values))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '6'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '5.0'
+        explanation: 最大最小之差为 6；平均值是总和 10 除以数量 2，得到 5.0。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
 verified:
   - question: py07.k2.x2
     version: sha256:b0337a8b523432070b91d69c85b82f38dcd18947a5887e8b19474c5b76ac28e0
