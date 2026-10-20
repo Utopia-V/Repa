@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { Type } from "typebox";
+import { parse } from "@repa/base/protocol";
+import { ExpectedSchema, expectedBinding, runnerVersion } from "../src/python-execution.js";
 
 import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
@@ -153,4 +157,30 @@ test("代码题的初始代码已经能通过测试、verify 遇到有多种正�
   const root = await writeCourse(t, demo);
   const result = await checkCourse(root, { base: root });
   assert.deepEqual(errors(result.diagnostics), ["starter_passes", "verify_alternatives"]);
+});
+
+
+test("每份候选程序从干净解释器开始，发布期望值绑定内容、运行前导和 runner", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return t.skip(reason);
+  const demo = demoCourse();
+  const entry = Object.values(demo.topics).flatMap((topic) => topic.kps.flatMap((kp) => kp.practice ?? [])).find((question) => question.slots.some((slot) => slot.type === "code"));
+  assert.ok(entry);
+  const slot = entry.slots.find((slot): slot is CodeSlot => slot.type === "code");
+  assert.ok(slot);
+  const original = slot.solution;
+  slot.solution = `import math\nmath.c2_leak = True\n${original}`;
+  slot.accepts = [`import math\nassert not hasattr(math, "c2_leak")\n${original}`];
+  const root = await writeCourse(t, demo);
+  const result = await checkCourse(root);
+  assert.deepEqual(errors(result.diagnostics), []);
+  const expected = parse(Type.Record(Type.String(), ExpectedSchema), JSON.parse(await readFile(path.join(root, "expected.json"), "utf8")));
+  assert.equal(expected[entry.id]?.values[slot.id]?.length, slot.tests.length);
+  const topic = Object.values(demo.topics).find((topic) => topic.kps.some((kp) => kp.practice?.includes(entry)));
+  assert.ok(topic);
+  const runner = await runnerVersion();
+  const binding = await expectedBinding(entry, topic, demo.course.runtime, runner);
+  assert.equal(expected[entry.id]?.binding, binding);
+  assert.notEqual(await expectedBinding(entry, topic, { ...demo.course.runtime, prelude: "different" }, runner), binding);
+  assert.notEqual(await expectedBinding(entry, topic, demo.course.runtime, "different-runner"), binding);
 });

@@ -29,6 +29,7 @@ export class LearningRecords {
   private submissions = new Map<string, Submission>();
   private starts = new Map<string, number>();
   private grades = new Map<string, Grade>();
+  private appeals = new Set<string>();
   private tail: Promise<unknown> = Promise.resolve();
   private blocked = false;
   private closed = false;
@@ -61,7 +62,11 @@ export class LearningRecords {
   get incompleteTail(): boolean { return this.blocked; }
   current(): Projection | undefined { return structuredClone(this.projection); }
   snapshot(id: string): Snapshot | undefined { return structuredClone(this.snapshots.get(id)); }
-  submission(id: string): Submission | undefined { return structuredClone(this.submissions.get(id)); }
+  submission(id: string): Submission | undefined {
+    const result = structuredClone(this.submissions.get(id));
+    if (result && this.appeals.has(id)) result.processing = this.judging.has(id) ? { status: "pending" } : { status: "interrupted", reason: "restart" };
+    return result;
+  }
 
   private serial<T>(action: () => Promise<T>): Promise<T> {
     const result = this.tail.then(() => {
@@ -82,7 +87,11 @@ export class LearningRecords {
         || await contentVersion(snapshot.topic) !== snapshot.topicVersion || await contentVersion(entry.kp) !== snapshot.kpVersion
         || await contentVersion(versionInput(entry.question, snapshot.topic)) !== snapshot.questionVersion) invalid("快照身份或内容版本错误");
       this.snapshots.set(record.digest, structuredClone(record.snapshot));
-    } else if (record.type === "checkpoint" || record.type === "graded") {
+    } else if (record.type === "appeal") {
+      const previous = this.submissions.get(record.submissionId);
+      if (!previous || previous.processing.status !== "completed" || previous.gradeRevision !== record.expectedGradeRevision || this.appeals.has(record.submissionId)) invalid("申诉版本已改变");
+      this.appeals.add(record.submissionId);
+    } else if (record.type === "checkpoint" || record.type === "graded" || record.type === "regraded") {
       const next = structuredClone(record.projection);
       const deliveries = next.state.task?.deliveries ?? [];
       if (new Set(deliveries.map((entry) => entry.deliveryId)).size !== deliveries.length
@@ -100,6 +109,18 @@ export class LearningRecords {
         if (!snapshot || !isDeepStrictEqual(snapshot.item, delivery.item)
           || snapshot.topic.id !== delivery.topicId || snapshot.kpId !== delivery.kpId) invalid("交付必须引用已保存且匹配的快照");
         if (!this.starts.has(delivery.deliveryId)) this.starts.set(delivery.deliveryId, record.at);
+      }
+      if (record.type === "regraded") {
+        const result = record.submission;
+        const previous = this.submissions.get(result.submissionId);
+        if (!previous || !this.appeals.has(result.submissionId) || result.gradeRevision !== previous.gradeRevision + 1
+          || !isDeepStrictEqual({ ...originalAnswer(result), gradeRevision: previous.gradeRevision }, originalAnswer(previous))
+          || (result.feedback && !isDeepStrictEqual(result.feedback, record.grade.feedback))
+          || result.processing.status !== "completed" || record.grade.feedback.verdict === "pending"
+          || !isDeepStrictEqual(record.grade.feedback.item, previous.response.item)) invalid("重判必须保留原答并沿目标版本追加");
+        this.appeals.delete(result.submissionId);
+        this.submissions.set(result.submissionId, result);
+        this.grades.set(result.submissionId, record.grade);
       }
       if (record.type === "graded") {
         const previous = this.submissions.get(record.submissionId);
@@ -159,6 +180,7 @@ export class LearningRecords {
     candidate.submissions = new Map(structuredClone([...this.submissions]));
     candidate.starts = new Map(this.starts);
     candidate.grades = new Map(this.grades);
+    candidate.appeals = new Set(this.appeals);
     await candidate.apply(structuredClone(record));
     await contentVersion(record);
     try {
@@ -185,6 +207,7 @@ export class LearningRecords {
     this.submissions = candidate.submissions;
     this.starts = candidate.starts;
     this.grades = candidate.grades;
+    this.appeals = candidate.appeals;
     this.sequence = record.seq;
     this.entries.push(structuredClone(record));
   }
@@ -264,7 +287,7 @@ export class LearningRecords {
         const current = this.current();
         const snapshot = this.snapshot(current?.deliveries[submission.deliveryId] ?? "");
         if (!current || !snapshot) throw new RepaFault("invalid_input", "找不到原交付快照");
-        return { submission, snapshot };
+        return { submission, snapshot, appeal: this.appeals.has(id) };
       });
       if (prepared.submission.processing.status === "completed") return { status: "recorded", submission: prepared.submission };
       if (!prepared.snapshot) throw new RepaFault("invalid_input", "找不到原交付快照");
@@ -274,9 +297,15 @@ export class LearningRecords {
       }
       return this.serial(async () => {
         const current = this.current();
-        if (!current || current.state.task?.taskId !== prepared.submission.taskId) throw new RepaFault("stale_state", "待判任务已改变");
+        if (!current || (!prepared.appeal && current.state.task?.taskId !== prepared.submission.taskId)
+          || this.submissions.get(id)?.gradeRevision !== prepared.submission.gradeRevision
+          || this.appeals.has(id) !== (prepared.appeal ?? false)) throw new RepaFault("stale_state", "待判任务或目标版本已改变");
         const projection = advance(current, prepared.submission, grade, this.clock());
-        await this.append({ type: "graded", submissionId: id, grade, projection });
+        if (prepared.appeal) {
+          const submission: Submission = { ...prepared.submission, processing: { status: "completed" }, gradeRevision: prepared.submission.gradeRevision + 1 };
+          if (submission.feedback) submission.feedback = grade.feedback;
+          await this.append({ type: "regraded", submission, grade, projection });
+        } else await this.append({ type: "graded", submissionId: id, grade, projection });
         return { status: "recorded", submission: this.submission(id) ?? prepared.submission };
       });
     })();
@@ -284,6 +313,15 @@ export class LearningRecords {
     const cleanup = () => { this.judging.delete(id); };
     work.then(cleanup, cleanup);
     return work;
+  }
+
+  appeal(input: LearningInput<"submission.appeal">): Promise<void> {
+    return this.serial(async () => {
+      const previous = this.submissions.get(input.submissionId);
+      if (this.appeals.has(input.submissionId) && previous?.gradeRevision === input.expectedGradeRevision) return;
+      if (!previous || previous.processing.status !== "completed" || previous.gradeRevision !== input.expectedGradeRevision) throw new RepaFault("stale_state", "目标判分版本已改变");
+      await this.append({ type: "appeal", ...input });
+    });
   }
 
   async close(): Promise<void> {

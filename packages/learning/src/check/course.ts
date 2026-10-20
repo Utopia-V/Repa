@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { writeFile, rename } from "node:fs/promises";
+import path from "node:path";
+import { expectedBinding, runnerVersion, type Expected } from "../python-execution.js";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { describeRuntime, RuntimeProblem, verifyPackages } from "../sandbox/runtime.js";
@@ -85,12 +89,24 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
       return { diagnostics: report.diagnostics, summary };
     }
     summary.ran = true;
-    // 每个 topic 用一个新运行器：任务之间已恢复常见的全局状态，但模块仍是共享的，
-    // 一个 topic 里改动的模块不会影响另一个 topic 的核对。
+    const published: Record<string, Expected> = {};
+    const runnerHash = await runnerVersion();
+    for (const { topic } of loaded.topics) {
+      for (const { question } of topicQuestions(topic)) published[question.id] = {
+        binding: await expectedBinding(question, topic, loaded.course.runtime, runnerHash), values: {},
+      };
+    }
+    // 核对器在每份候选程序前关闭旧解释器，随后按正式测试顺序逐项执行。
     for (const topic of loaded.topics) {
       if (options.topics && !options.topics.includes(topic.topic.id)) continue;
-      await checkTopicCode(topic, runner, report, code, options.timeoutMs);
+      await checkTopicCode(topic, runner, report, code, options.timeoutMs, published);
       await runner.close();
+    }
+    if (!options.topics && report.errorCount === 0) {
+      const target = path.join(root, "expected.json");
+      const temporary = `${target}.${randomUUID()}.tmp`;
+      await writeFile(temporary, `${JSON.stringify(published)}\n`);
+      await rename(temporary, target);
     }
   } finally {
     await runner.close();
