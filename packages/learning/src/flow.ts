@@ -32,6 +32,23 @@ import type { LearningRecords } from "./records.js";
 import { pythonAvailable, runnerVersion } from "./python-execution.js";
 import { createSnapshot } from "./snapshot.js";
 
+/** 调用方先持久保存 preparing；复习与测验共用取消停稳后的计时、交付步骤。 */
+export async function beginRestricted(
+  task: LearningTask,
+  stop: () => Promise<void>,
+  deliver: () => Promise<void>,
+  clock = Date.now,
+  durationMs = 600_000,
+): Promise<void> {
+  if (task.phase.stage !== "preparing") {
+    throw new RepaFault("stale_state", "受限任务尚未进入准备阶段");
+  }
+  await stop();
+  task.startedAt = clock();
+  task.deadlineAt = task.startedAt + durationMs;
+  await deliver();
+}
+
 export async function connectLearning(
   records: LearningRecords,
   course: ResolvedCourse,
@@ -534,10 +551,14 @@ export async function connectLearning(
   async function startRestricted(current: Projection, context: MethodContext) {
     eligible(current);
     const task = requireTask(current);
-    await hooks.beforeRestricted?.(task);
-    task.startedAt = clock();
-    task.deadlineAt = task.startedAt + 600_000;
-    await nextQuestion(current, context.caller?.capabilities);
+    await beginRestricted(
+      task,
+      async () => {
+        await hooks.beforeRestricted?.(task);
+      },
+      () => nextQuestion(current, context.caller?.capabilities),
+      clock,
+    );
   }
   method("task.resume", async (input, context) => {
     const current = state();

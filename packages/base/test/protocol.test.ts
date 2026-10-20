@@ -309,6 +309,7 @@ test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释�
     async create() { throw new Error("未使用"); },
     async get() { throw new Error("未使用"); },
     async list() { return []; },
+    async abortAgent() { throw new Error("未使用"); },
     async preview() { return { sections: [], views: [] }; },
     async runAgent() {
       markStarted();
