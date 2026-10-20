@@ -12,10 +12,11 @@ Repa 是一个独立、本地优先的通用 Agent 底座，连接有限的模�
 | --- | --- |
 | [底座说明](packages/base/README.md) | 运行、协议、插件、提示、模型认证与当前限制 |
 | [空间历史说明](packages/space-history/README.md) | 文件历史、变更追赶、撤销、排除规则与维护 |
+| [学习记录说明](docs/development/learning-records.md) | 课程来源、交付快照、两阶段提交、日志恢复与学生模型接入 |
 | [开发指南](docs/development/README.md) | workspace、开发命令、代码入口与验证 |
 | [设计系统实现](docs/design-system-implementation.md) | 前端组件与设计系统；涉及接口的旧描述按当前客户端核对 |
 
-当前底座每次持有一个活动空间，多个授权连接共享它。会话由 Pi 持久化，空间文件的历史由空间宿主协调；插件负责自己的领域状态和变化游标。学习领域插件与 MA 式学生模型、知识传播和统一任务选择尚待实现。当前仓库提供底座及图形前端骨架，运行入口为本机服务和图形前端。
+当前底座每次持有一个活动空间，多个授权连接共享它。会话由 Pi 持久化，空间文件的历史由空间宿主协调；插件负责自己的领域状态和变化游标。学习插件已提供课程、持久记录与 HSRS 模型接入，正式教学链和统一任务选择尚待接通；当前产品关闭隐式知识传播。当前仓库提供底座及图形前端骨架，运行入口为本机服务和图形前端。
 
 ## 仓库结构
 
@@ -28,6 +29,8 @@ repa/
 │   └── desktop/          # Electron main/preload 与 renderer
 ├── packages/
 │   ├── base/             # 空间、Agent、插件宿主、CLI 与公开客户端
+│   ├── learning/         # 课程、公开契约、持久记录与恢复
+│   ├── learning-model/   # HSRS 学生模型与候选选择纯计算库
 │   └── space-history/    # 影子 Git 历史、变更流与局部撤销
 ├── package.json
 └── package-lock.json
