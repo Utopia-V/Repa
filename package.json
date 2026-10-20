@@ -9,6 +9,7 @@
   "workspaces": [
     "packages/space-history",
     "packages/base",
+    "packages/learning-model",
     "packages/learning",
     "apps/*"
   ],

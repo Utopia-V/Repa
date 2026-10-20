@@ -6,3 +6,9 @@ export { checkCourse, type CheckOptions, type CheckResult, type CheckSummary } f
 export { gradeSlot, type SlotGrade } from "./check/grade.js";
 export { publicItem, questionCredit, questionVersion, referenceResponse, topicQuestions, versionInput } from "./check/items.js";
 export { describeRuntime, preparePackages, verifyPackages } from "./sandbox/runtime.js";
+export { createLearningPlugin, type LearningPluginOptions } from "./plugin.js";
+export { LearningRecords, recoverLearningLog } from "./records.js";
+export * from "./records-schema.js";
+export { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
+export { MODEL_CONFIG_VERSION, updateStudent, chooseTasks } from "./student-model.js";
+export { createSnapshot } from "./snapshot.js";
