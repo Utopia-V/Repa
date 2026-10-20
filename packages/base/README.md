@@ -225,7 +225,7 @@ agents: () => [{
 
 前端在 `initialize` 的 `capabilities` 里声明 `interaction: { vocabulary, supports }` 和 `services`，服务端按连接保存。后端据此不把前端不认识的 `Item` 交给它：`ask` 直接比对声明，插件方法从调用上下文读取。
 
-发送方按当前词汇严格校验，前端读取时则要宽松：词汇只增不改，新版本加了字段，旧前端不能因此读不了。前端用 `readItem` 读取 `Item`，例如解析 `plugin.call` 返回的内容。认识的字段照常检查类型，类型不对时读取失败；不认识的字段丢掉；读不懂的作答位和内容块连同所在的一项丢掉，并把 `slot.<type>`、`block.<type>` 补进 `requires`。长度和个数的上限读取时不查，放宽上限的 `Item` 同样经 `requires` 拦下。这样词汇加了可以忽略的字段，旧前端照常显示；加了必须理解的特性，`canRender` 判为不能作答。`RepaClient` 收到 `ask.request` 时信封仍严格校验，`Item` 按 `readItem` 读取；`ask.reply` 的结果按同样的规则宽松读取。插件给自己的公开约定写读取函数时用 `readLenient(schema, value, fallback)`，规则相同：联合里认不出的值交给 `fallback`，例如健康插件把不认识的心情读作“未记录”；没有退路或退路返回 `undefined` 时，连同所在的一项丢掉；退路给的值必须是那个联合的成员。
+发送方按当前词汇严格校验，前端读取时则要宽松：词汇只增不改，新版本加了字段，旧前端不能因此读不了。前端用 `readItem` 读取 `Item`，例如解析 `plugin.call` 返回的内容。认识的字段照常检查类型，类型不对时读取失败；不认识的字段丢掉；读不懂的作答位和内容块连同所在的一项丢掉，并把 `slot.<type>`、`block.<type>` 补进 `requires`。长度和个数的上限读取时不查，放宽上限的 `Item` 同样经 `requires` 拦下。这样词汇加了可以忽略的字段，旧前端照常显示；加了必须理解的特性，`canRender` 判为不能作答。`RepaClient` 收到 `ask.request` 时信封仍严格校验，`Item` 按 `readItem` 读取；`ask.reply` 的结果按同样的规则宽松读取。插件给自己的公开约定写读取函数时用 `readLenient(schema, value, fallback)`，规则相同：联合里认不出的值交给 `fallback`，例如健康插件把不认识的心情读作“未记录”；没有退路或退路返回 `undefined` 时，连同所在的一项丢掉；退路给的值必须是那个联合的成员。可空对象及数值按实际类型读取，TypeBox 枚举沿用字面量联合的读取规则。
 
 **对话里的询问。** 工具执行上下文多了 `ask`：
 

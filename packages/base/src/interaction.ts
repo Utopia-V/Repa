@@ -556,6 +556,7 @@ export type ReadResult<T> = { ok: true; value: T } | { ok: false; path: string }
 interface JsonSchema {
   type?: string;
   const?: unknown;
+  enum?: unknown[];
   anyOf?: JsonSchema[];
   properties?: Record<string, JsonSchema>;
   required?: string[];
@@ -639,7 +640,13 @@ function readUnion(schema: JsonSchema, value: unknown, path: string, context: Re
     // 不认识的取值连同所在的一项丢掉，例如不认识的 layout 用默认布局；调用方给了退路时交给退路。
     return unclaimed(schema, value, path, context);
   }
-  if (!plain(value)) throw new Unreadable(path);
+  // 可空对象及 number | null 等联合先按原始类型选择，不能只按对象字段认领。
+  if (!plain(value)) {
+    const primitive = variants.find((variant) => variant.const !== undefined
+      ? variant.const === value : variant.type !== undefined && matches(variant.type, value));
+    if (primitive !== undefined) return readValue(primitive, value, path, context);
+    throw new Unreadable(path);
+  }
   const claimed = variants.find((variant) => claims(variant, value));
   if (claimed !== undefined) return readValue(claimed, value, path, context);
   const type = value.type;
@@ -687,6 +694,11 @@ function readRecord(schema: JsonSchema, value: unknown, path: string, context: R
 }
 
 function readValue(schema: JsonSchema, value: unknown, path: string, context: ReadContext): unknown {
+  if (schema.enum !== undefined) {
+    // TypeBox 的 Enum 不生成 type/anyOf，归一成字面量联合后复用类型检查与退路。
+    const anyOf = schema.enum.map((member) => ({ const: member, type: member === null ? "null" : typeof member }));
+    return readUnion({ anyOf }, value, path, context);
+  }
   if (schema.anyOf !== undefined) return readUnion(schema, value, path, context);
   if (schema.const !== undefined) {
     if (value !== schema.const) throw new Unreadable(path);
