@@ -101,7 +101,7 @@ if (state.ok) renderLearning(state.value);
 
 ### python.run
 
-代码题在前端运行。服务的输入输出由 #49 定义，Web 与 Desktop 的实现见 #51、#52：前端在隔离的 Worker 里执行 `runner.py` 的 program 任务并返回结果，测试编排、期望值和判分都在后端。后端接入时按以下要求使用它：
+代码题在前端运行。服务的输入输出见 `@repa/learning/protocol` 的 `PythonRunInputSchema` 与 `PythonRunResultSchema`，Web 与 Desktop 的实现见 #51、#52：一次调用带一批测试，前端在一个全新的 Worker 里按顺序执行，每个测试与 `runner.py` 的 program 任务相同；结果带实际加载的运行环境，每个测试是 `done`、`timeout`、`failed` 或 `not_run`，超时和失败写明停在哪个阶段。测试编排、期望值和判分都在后端。后端接入时按以下要求使用它：
 
 - 期望值在课程核对时预先算好，随课程发布，绑定题目内容版本、测试、夹具、prelude、运行环境和 runner 版本。运行时后端只比较；缺少有效的预计算结果时，这道题不用于正式判分。参考解、`verify`、期望值和 doctest 的期望输出不发给前端；测试的输入、setup、调用语句和 doctest 输入会发给前端，`hidden` 只控制展示。
 - 一次正式提交的全部测试，作为一次服务调用，在一个全新的 Worker 里按顺序执行。辅导、示例和学习者自己运行的代码不与正式判分共用 Worker。

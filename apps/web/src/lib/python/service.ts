@@ -27,6 +27,10 @@ export function servePythonRun(client: Pick<RepaClient, "on" | "call">, runner: 
       reply({ id, error: { code: "invalid_input", message: "python.run 的输入不符合 @repa/learning/protocol 的约定" } });
       return;
     }
+    if (new Set(input.tests.map((test) => test.id)).size !== input.tests.length) {
+      reply({ id, error: { code: "invalid_input", message: "python.run 的测试 id 有重复" } });
+      return;
+    }
     const controller = new AbortController();
     running.set(id, controller);
     runner.run(input, controller.signal).then(
@@ -38,7 +42,7 @@ export function servePythonRun(client: Pick<RepaClient, "on" | "call">, runner: 
           id,
           error: error instanceof PythonRunError
             ? { code: error.code, message: error.message }
-            : { code: "runner_crashed", message: error instanceof Error ? error.message : "Python 运行器出错" },
+            : { code: "runtime_unavailable", message: error instanceof Error ? error.message : "Python 运行器出错" },
         });
       },
     ).finally(() => running.delete(id));
