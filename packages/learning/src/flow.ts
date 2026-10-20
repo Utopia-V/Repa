@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
-import { isDue } from "@repa/learning-model";
 import type { Host, MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
 import { contentVersion, parse, type ClientCapabilities } from "@repa/base/protocol";
 import type { ResolvedCourse } from "./course-sources.js";
@@ -11,11 +10,14 @@ import {
   finished,
   FLOW_VERSION,
   graphFor,
+  isQuiz,
+  quizCorrect,
   kpProgress,
   replayLearning,
   requireTask,
   reviewResult,
   taskEvidence,
+  topicEligible,
   type TaskEvidence,
 } from "./flow-state.js";
 import { judgeSubmission } from "./judge.js";
@@ -29,8 +31,16 @@ import {
 } from "./protocol.js";
 import type { Grade, Projection } from "./records-schema.js";
 import type { LearningRecords } from "./records.js";
+import { progressMenu, updateProgress } from "./progress.js";
 import { pythonAvailable, runnerVersion } from "./python-execution.js";
 import { createSnapshot } from "./snapshot.js";
+
+const POOLS = {
+  lesson: "practice",
+  review: "review",
+  quiz: "quiz",
+  retake: "quiz",
+} as const;
 
 /** 调用方先持久保存 preparing；复习与测验共用取消停稳后的计时、交付步骤。 */
 export async function beginRestricted(
@@ -72,7 +82,7 @@ export async function connectLearning(
       return [];
     }
     return topicQuestions(topic).filter((entry) => {
-      const matchesPool = entry.pool === (kind === "lesson" ? "practice" : "review");
+      const matchesPool = entry.pool === POOLS[kind];
       if (!matchesPool) {
         return false;
       }
@@ -109,18 +119,14 @@ export async function connectLearning(
     const model = replayLearning(evidence, course);
     current.student = model.student;
     current.state.serverNow = now;
-    const timeZone = current.state.progress.timeZone;
-    current.state.progress.day = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(now);
-    current.state.progress.completedTopics = Object.keys(model.student).length;
-    current.state.progress.completionRate = Object.keys(model.student).length / course.topics.length;
-    const restricted = task?.kind === "review" && !finished(task);
+    updateProgress(current, evidence, course, now, (id) => questions(id, "quiz").length > 0);
+    const restricted = task && task.kind !== "lesson" && !finished(task);
+    let restriction: Projection["state"]["restrictions"]["kind"] = "none";
+    if (restricted) {
+      restriction = isQuiz(task) ? "quiz" : "review";
+    }
     current.state.restrictions = {
-      kind: restricted ? "review" : "none",
+      kind: restriction,
       tutorAllowed: !restricted,
       referenceContentAllowed: !restricted,
     };
@@ -142,7 +148,7 @@ export async function connectLearning(
       if (!current.state.menu && previous) {
         menu.menuId = opaqueId();
       }
-      current.state.menu = menu;
+      current.state.menu = progressMenu(current, evidence, course, menu);
     }
     return current;
   }
@@ -217,7 +223,6 @@ export async function connectLearning(
       taskEvidence(records.records).filter((entry) => entry.task.taskId !== task.taskId),
       course,
     );
-    const topic = course.topics.find((entry) => entry.id === task.topicIds[0]);
     const phase = task.phase;
     const deliveredKp =
       phase.stage === "awaiting_answer"
@@ -238,29 +243,30 @@ export async function connectLearning(
         state: current.state,
       });
     }
-    const remembered = model.student[task.topicIds[0] ?? ""];
-    const forcedReview = model.forced.get(task.topicIds[0] ?? "") === "review";
-    const ineligibleReview =
-      task.kind === "review" && (!remembered || (!forcedReview && !isDue(remembered, clock() / 86_400_000)));
-    const ineligibleLesson =
-      task.kind === "lesson" &&
-      (!topic?.prerequisites.every((id) => model.student[id]) ||
-        (model.forced.size && model.forced.get(topic.id) !== "lesson"));
-    if (ineligibleReview || ineligibleLesson) {
+    if (!topicEligible(course, model, task.topicIds[0] ?? "", task.kind, clock())) {
       throw new RepaFault("stale_state", "任务已失去学习资格，请中止当前任务后重新选择", {
         reason: "stale",
         state: current.state,
       });
     }
   }
-  async function nextQuestion(current: Projection, capabilities?: ClientCapabilities) {
+  async function nextQuestion(current: Projection, capabilities?: ClientCapabilities, topicId?: string) {
     pythonReady = await pythonAvailable(host, course.course.runtime, runner);
     const task = requireTask(current);
     const seen = new Set(Object.values(current.deliveries).map((digest) => records.snapshot(digest)?.questionId));
-    let pool = questions(task.topicIds[0] ?? "", task.kind);
+    const id = topicId ?? task.topicIds[0] ?? "";
+    let pool = questions(id, task.kind);
+    const originalId = current.xp?.origins[task.taskId];
+    if (originalId) {
+      const original = taskEvidence(records.records).find((entry) => entry.task.taskId === originalId);
+      const excluded = new Set(original?.task.deliveries.map((delivery) =>
+        records.snapshot(current.deliveries[delivery.deliveryId] ?? "")?.questionId,
+      ));
+      pool = pool.filter((entry) => !excluded.has(entry.question.id));
+    }
     if (task.kind === "lesson") {
       pool = pool.filter((entry) => entry.kp.id === task.kps.find((kp) => !kp.completed)?.kpId);
-    } else {
+    } else if (!isQuiz(task)) {
       const rotation = task.kps.filter((kp) => pool.some((entry) => entry.kp.id === kp.kpId));
       const nextKp = rotation[task.deliveries.length % rotation.length]?.kpId;
       const rotated = pool.filter((entry) => entry.kp.id === nextKp);
@@ -270,9 +276,9 @@ export async function connectLearning(
     }
     const entry = pool.find((entry) => !seen.has(entry.question.id)) ?? pool[0];
     if (!entry) {
-      throw new RepaFault("service_failed", "当前题池没有可交付题目");
+      throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
     }
-    const topic = course.topics.find((topic) => topic.id === task.topicIds[0]);
+    const topic = course.topics.find((topic) => topic.id === id);
     if (!topic) {
       throw new RepaFault("invalid_input", "课程不存在");
     }
@@ -280,7 +286,7 @@ export async function connectLearning(
       entry.question,
       topic,
       entry.kp.id,
-      task.kind === "lesson" ? "practice" : "review",
+      POOLS[task.kind],
       seen.has(entry.question.id),
     );
     const missing = missingDeliveryCapabilities(capabilities, delivery);
@@ -336,6 +342,18 @@ export async function connectLearning(
       }
       submission.feedback = grade.feedback;
       release(task, evidence);
+    } else if (isQuiz(task)) {
+      const pending = task.submissions.find((entry) => entry.processing.status !== "completed");
+      if (pending) {
+        task.phase = { stage: "judging", submissionId: pending.submissionId };
+      } else {
+        const next = task.deliveries.find((delivery) => !task.submissions.some((entry) => entry.deliveryId === delivery.deliveryId));
+        task.phase = { stage: "awaiting_answer", deliveryId: next?.deliveryId ?? submission.deliveryId };
+        if (task.deadlineAt !== null && now >= task.deadlineAt) {
+          completeQuiz(task, evidence, true);
+        }
+      }
+      return reconcile(current, evidence, now);
     } else {
       const result = reviewResult(entry);
       if (result.passed) {
@@ -351,6 +369,18 @@ export async function connectLearning(
       release(task, evidence);
     }
     return reconcile(current, evidence, now);
+  }
+  function completeQuiz(task: LearningTask, evidence: TaskEvidence[], expired: boolean) {
+    const entry = evidence.find((entry) => entry.task.taskId === task.taskId);
+    const passed = entry && task.topicIds.every((id) => quizCorrect(entry, id));
+    let outcome: "passed" | "failed" | "timeout" = "failed";
+    if (passed) {
+      outcome = "passed";
+    } else if (expired) {
+      outcome = "timeout";
+    }
+    task.phase = { stage: "completed", outcome };
+    release(task, evidence);
   }
   function release(task: LearningTask, evidence: TaskEvidence[]) {
     for (const submission of task.submissions) {
@@ -391,10 +421,22 @@ export async function connectLearning(
           const task = current.state.task;
           if (task?.taskId === submission.taskId) {
             const previousPhase = task.phase;
-            advanceGrade(current, id, grade, now);
-            if (!finished(task)) {
-              task.phase =
-                previousPhase.stage === "completed" ? { stage: "completed", outcome: "failed" } : previousPhase;
+            if (isQuiz(task)) {
+              const answer = task.submissions.find((entry) => entry.submissionId === id);
+              if (answer) {
+                answer.processing = { status: "completed" };
+                answer.gradeRevision++;
+              }
+              if (previousPhase.stage === "completed") {
+                completeQuiz(task, evidence, previousPhase.outcome === "timeout");
+              }
+            } else {
+              advanceGrade(current, id, grade, now);
+              if (!finished(task)) {
+                task.phase = previousPhase.stage === "completed"
+                  ? { stage: "completed", outcome: "failed" }
+                  : previousPhase;
+              }
             }
             if (finished(task)) {
               release(task, evidence);
@@ -438,30 +480,27 @@ export async function connectLearning(
   async function refresh() {
     const current = state();
     const task = current.state.task;
-    const expiredReview =
-      task?.kind === "review" &&
+    const expired =
+      task && task.kind !== "lesson" &&
       !finished(task) &&
       task.deadlineAt !== null &&
       clock() >= task.deadlineAt &&
       task.submissions.every((entry) => entry.processing.status === "completed");
-    if (expiredReview) {
-      task.phase = { stage: "completed", outcome: "timeout" };
-      release(task, taskEvidence(records.records));
+    if (expired) {
+      if (isQuiz(task)) {
+        completeQuiz(task, taskEvidence(records.records), true);
+      } else {
+        task.phase = { stage: "completed", outcome: "timeout" };
+        release(task, taskEvidence(records.records));
+      }
       await save(current);
     } else {
-      const day = new Intl.DateTimeFormat("en-CA", {
-        timeZone: current.state.progress.timeZone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(clock());
-      const menu =
-        !task || finished(task)
-          ? learningMenu(course, taskEvidence(records.records), clock(), current.state.menu, supply).menu
-          : current.state.menu;
-      const menuChanged = !isDeepStrictEqual(menu, current.state.menu);
-      if (current.state.progress.day !== day || menuChanged) {
-        await save(current);
+      const preview = reconcile(structuredClone(current), taskEvidence(records.records), clock());
+      const changed = !isDeepStrictEqual(preview.state.menu, current.state.menu)
+        || !isDeepStrictEqual(preview.state.progress, current.state.progress)
+        || !isDeepStrictEqual(preview.xp, current.xp);
+      if (changed) {
+        await save(preview);
       }
     }
     const result = { ...state().state, serverNow: clock() };
@@ -490,7 +529,9 @@ export async function connectLearning(
         }
         // 泛型索引的 schema 联合无法保留 M；parse 已校验所属方法的输入。
         try {
-          return await action(parse(learningMethods[name].input, raw) as LearningInput<M>, context);
+          const input = parse(learningMethods[name].input, raw) as LearningInput<M>;
+          await refresh();
+          return await action(input, context);
         } catch (error) {
           if (error instanceof RepaFault && error.code === "stale_state") {
             throw new RepaFault("stale_state", error.message, { reason: "stale", state: state().state });
@@ -501,13 +542,23 @@ export async function connectLearning(
     };
   }
   method("state.get", async () => refresh());
-  method("menu.select", async (input, context) => {
+  method("submission.get", async (input) => {
+    const submission = records.submission(input.submissionId);
+    return submission
+      ? { status: "found", submission, revision: records.revision }
+      : { status: "absent", submissionId: input.submissionId, revision: records.revision };
+  });
+  async function select(input: LearningInput<"menu.select">, context: MethodContext, originalTaskId?: string, quizOnly = false) {
     const current = state();
     const menu = current.state.menu;
     const candidate = menu?.candidates.find((entry) => entry.id === input.candidateId);
-    const valid = learningMenu(course, taskEvidence(records.records), clock(), menu, supply).menu.candidates;
+    const evidence = taskEvidence(records.records);
+    const normal = learningMenu(course, evidence, clock(), menu, supply).menu;
+    const valid = progressMenu(current, evidence, course, normal).candidates;
     const invalidSelection =
       !candidate ||
+      (originalTaskId !== undefined && candidate.originalTaskId !== originalTaskId) ||
+      (quizOnly && candidate.kind !== (originalTaskId ? "retake" : "quiz")) ||
       menu?.menuId !== input.menuId ||
       !valid.some((entry) => entry.id === candidate.id) ||
       (current.state.task && !finished(current.state.task));
@@ -519,7 +570,7 @@ export async function connectLearning(
       throw new RepaFault("invalid_input", "课程不存在");
     }
     const model = replayLearning(taskEvidence(records.records), course);
-    const seed = Math.floor(Math.random() * 0x7fffffff);
+    const seed = current.xp?.pending?.seed ?? Math.floor(Math.random() * 0x7fffffff);
     const kps = topic.kps.map((kp) => ({
       kpId: kp.id,
       attempts: 0,
@@ -533,12 +584,19 @@ export async function connectLearning(
       kind: candidate.kind,
       topicIds: candidate.topicIds,
       phase: { stage: "preparing" },
-      startedAt: candidate.kind === "review" ? null : clock(),
+      startedAt: candidate.kind === "lesson" ? clock() : null,
       deadlineAt: null,
       kps: candidate.kind === "review" ? shuffled(kps, seed) : kps,
       deliveries: [],
       submissions: [],
     };
+    const xp = current.xp;
+    if (xp && candidate.kind === "quiz") {
+      xp.consumed++;
+    }
+    if (xp && candidate.originalTaskId) {
+      xp.origins[current.state.task.taskId] = candidate.originalTaskId;
+    }
     current.state.menu = null;
     if (candidate.kind === "lesson") {
       await page(current.state.task, "explanation");
@@ -547,7 +605,10 @@ export async function connectLearning(
       await startRestricted(current, context);
     }
     return save(current, undefined, candidate.id, seed);
-  });
+  }
+  method("menu.select", (input, context) => select(input, context));
+  method("quiz.start", (input, context) => select(input, context, undefined, true));
+  method("quiz.retake", (input, context) => select(input, context, input.originalTaskId, true));
   async function startRestricted(current: Projection, context: MethodContext) {
     eligible(current);
     const task = requireTask(current);
@@ -556,9 +617,26 @@ export async function connectLearning(
       async () => {
         await hooks.beforeRestricted?.(task);
       },
-      () => nextQuestion(current, context.caller?.capabilities),
+      async () => {
+        if (isQuiz(task)) {
+          for (const id of task.topicIds) {
+            await nextQuestion(current, context.caller?.capabilities, id);
+          }
+          const first = task.deliveries[0];
+          if (!first) {
+            throw new RepaFault("insufficient_items", "测验没有可用题目");
+          }
+          task.phase = { stage: "awaiting_answer", deliveryId: first.deliveryId };
+        } else {
+          await nextQuestion(current, context.caller?.capabilities);
+        }
+      },
       clock,
+      isQuiz(task) ? 900_000 : 600_000,
     );
+    if (task.kind === "quiz" && current.xp) {
+      delete current.xp.pending;
+    }
   }
   method("task.resume", async (input, context) => {
     const current = state();
@@ -575,7 +653,6 @@ export async function connectLearning(
     return save(current);
   });
   method("task.advance", async (input, context) => {
-    await refresh();
     const current = state();
     const task = requireTask(current);
     if (
@@ -602,7 +679,6 @@ export async function connectLearning(
     return save(current);
   });
   method("task.abort", async (input) => {
-    await refresh();
     const current = state();
     const task = requireTask(current);
     if (
@@ -616,7 +692,51 @@ export async function connectLearning(
     if (finished(task)) {
       return current.state;
     }
-    task.phase = { stage: "aborted", reason: "学习者中止" };
+    if (isQuiz(task) && task.phase.stage !== "preparing") {
+      completeQuiz(task, taskEvidence(records.records), false);
+    } else {
+      if (task.kind === "quiz" && current.xp) {
+        // 旧版本的 preparing 已删掉 pending；沿原选择记录恢复，不重置延后窗口。
+        if (!current.xp.pending) {
+          const history = records.records;
+          const selected = history.filter((record) => record.type === "checkpoint")
+            .findLast((record) => record.projection.state.task?.taskId === task.taskId && record.decision.selected)
+            ?.decision.selected;
+          current.xp.pending = history.filter((record) => "projection" in record)
+            .findLast((record) => record.projection.xp?.pending?.id === selected)?.projection.xp?.pending;
+        }
+        current.xp.consumed--;
+      }
+      if (current.xp) {
+        delete current.xp.origins[task.taskId];
+      }
+      task.phase = { stage: "aborted", reason: "学习者中止" };
+    }
+    return save(current);
+  });
+  method("quiz.finish", async (input) => {
+    const current = state();
+    const task = requireTask(current);
+    if (!isQuiz(task) || task.taskId !== input.taskId) {
+      throw new RepaFault("stale_state", "当前测验已改变");
+    }
+    if (finished(task)) {
+      return current.state;
+    }
+    if (input.expectedRevision !== records.revision || input.expectedStage !== task.phase.stage
+      || task.phase.stage === "preparing" || task.submissions.some((entry) => entry.processing.status !== "completed")) {
+      throw new RepaFault("stale_state", "测验仍在准备或判分，请恢复后交卷");
+    }
+    completeQuiz(task, taskEvidence(records.records), false);
+    return save(current);
+  });
+  method("progress.get", async () => {
+    const current = await refresh();
+    return { serverNow: current.serverNow, progress: current.progress };
+  });
+  method("progress.setGoal", async (input) => {
+    const current = state();
+    current.state.progress.dailyGoalXp = input.dailyGoalXp;
     return save(current);
   });
   method("submission.submit", async (input) => {

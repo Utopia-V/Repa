@@ -1,6 +1,6 @@
 # 学习插件的前端契约
 
-`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约；[学习记录层](learning-records.md)已实现状态与提交查询、接受和持久恢复入口，[教学流程](learning-flow.md)已接入上课、复习、判分和申诉，[辅导与内容读取](learning-tutor.md)已接入，测验由后续任务接续。
+`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约；[学习记录层](learning-records.md)已实现状态与提交查询、接受和持久恢复入口，[教学流程](learning-flow.md)已接入上课、复习、判分和申诉，[辅导与内容读取](learning-tutor.md)已接入，[测验、XP 与进度](learning-quiz-xp.md)也已接入。
 
 ## 设计思路
 
@@ -57,6 +57,8 @@ if (state.ok) renderLearning(state.value);
 | `progress.setGoal` | 正整数 `dailyGoalXp`，返回更新后的状态 |
 
 `LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
+
+反馈字段的可见性还取决于当前任务。review、quiz、retake 的准备、作答和恢复阶段，所有公开提交返回都会隐藏 `feedback` 与 `explanation`，历史提交也一样；身份、原答、处理状态与判分版本仍可恢复。受限任务结束后，可以重新查询已释放的历史反馈，详见[辅导与禁助](learning-tutor.md)。
 
 任务守卫同时检查阶段和 revision。阶段会反复出现，因而只比较阶段名不足以挡住旧画面的重传。重复交卷沿已结束任务身份返回既有状态；其他陈旧操作返回刷新所需的当前状态。测验交付按 `deliveries` 的顺序显示，`submissions` 表示已锁定的原答，尚未接受的交付仍可作答。开始时间和整场截止时间都由后端保留，断线或关闭不暂停；按服务端接受时刻 `< deadlineAt` 判断及时，及时接受的待判提交在交卷后仍可继续处理。
 

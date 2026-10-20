@@ -7,6 +7,7 @@ import { taskEvidence } from "./flow-state.js";
 import type { ContentPage, ContentRef, LearningTask } from "./protocol.js";
 import type { Projection } from "./records-schema.js";
 import type { LearningRecords } from "./records.js";
+import { referenceAllowed } from "./submission-visibility.js";
 
 export interface ReferenceContent {
   ref: ContentRef;
@@ -61,8 +62,7 @@ export function requireReferenceAccess(current: Projection | undefined): Project
     throw new RepaFault("service_failed", "学习状态尚未初始化");
   }
   const task = current.state.task;
-  const restricted = task && task.kind !== "lesson" && !["completed", "aborted"].includes(task.phase.stage);
-  if (restricted || !current.state.restrictions.referenceContentAllowed) {
+  if (!referenceAllowed(current)) {
     throw new RepaFault("restricted", "受限任务期间暂时不能求助或查看参考内容", {
       reason: "restricted",
       taskId: task?.taskId,
