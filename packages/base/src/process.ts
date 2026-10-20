@@ -4,7 +4,7 @@ import type { ClientConnection } from "./client.js";
 
 export interface RepaProcessOptions {
   home?: string;
-  /** 本机可信插件模块的路径，按顺序传给 --plugin。 */
+  /** 本机可信插件构建目录，按顺序传给 --plugin。 */
   plugins?: string[];
   /** 为 false 时关掉通用 Agent（--no-general-agent），学习者版本使用。 */
   generalAgent?: boolean;

@@ -745,3 +745,41 @@ test("重复提示来源在进入模型前拒绝，不因排序或覆盖而静�
     assert.equal(f.faux.state.callCount, 0);
   }
 });
+
+test("工具截断进入真实模型请求且不复制正文到其他字段，缩小分页后能读到目标", async t => {
+  const source = Array.from({ length: 3000 }, (_, index) => `第 ${index} 行中文`).join("\n");
+  const f = await fixture(t, {
+    tools: () => [{
+      name: "page", description: "分页读取", parameters: Type.Object({ offset: Type.Number(), limit: Type.Number() }),
+      async execute(input) {
+        const { offset, limit } = input as { offset: number; limit: number };
+        return { text: source.split("\n").slice(offset, offset + limit).join("\n"), data: { total: 3000, offset } };
+      },
+    }],
+  });
+  const captures: TranscriptContext[] = [];
+  const capture = (context: TranscriptContext) => {
+    captures.push(structuredClone(context));
+    return fauxAssistantMessage("已读");
+  };
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("page", { offset: 0, limit: 3000 })), capture,
+    fauxAssistantMessage(fauxToolCall("page", { offset: 2999, limit: 1 })), capture,
+  ]);
+  await f.session.send("读取全部");
+  const first = captures[0]?.messages.filter(message => message.role === "toolResult").at(-1);
+  assert.ok(first);
+  const visible = JSON.stringify(first);
+  assert.ok(!visible.includes("第 2999 行中文"));
+  assert.ok(!visible.includes(source));
+  assert.ok(visible.includes("已省略"));
+  const text = first.content.filter(part => part.type === "text").map(part => part.text).join("\n");
+  assert.ok(Buffer.byteLength(text) <= 50 * 1024);
+  assert.ok(text.split("\n").length <= 2000);
+  const tool = f.session.history().find(entry => entry.type === "tool");
+  assert.ok(tool && JSON.stringify(tool.data).includes("\"total\":3000"));
+  await f.session.send("只读最后一行");
+  const last = captures[1]?.messages.filter(message => message.role === "toolResult").at(-1);
+  assert.ok(last);
+  assert.deepEqual(last.content, [{ type: "text", text: "第 2999 行中文" }]);
+});
