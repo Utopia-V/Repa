@@ -498,6 +498,16 @@ class Space implements AgentSpace {
     return this.load(SessionManager.open(file, this.options.sessionsDir, this.options.root));
   }
 
+  async abortAgent(agent: string): Promise<void> {
+    this.assertOpen();
+    await Promise.all([...this.sessions.values()].map(async (pending) => {
+      const session = await pending;
+      if (session.info().agent === agent) {
+        await session.abort();
+      }
+    }));
+  }
+
   async list(): Promise<SessionInfo[]> {
     this.assertOpen();
     const infos = new Map<string, SessionInfo>();

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
-import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { RepaClient, RpcError } from "../src/client.js";
@@ -102,7 +102,7 @@ async function fixture(t: TestContext) {
   await client.call("space.open", { root });
   const session = await client.call("session.create", { agent: "tutor" });
   const users = async (sessionId = session.id) => (await client.call("session.history", { sessionId })).filter(entry => entry.type === "user").map(entry => entry.text);
-  return { client, faux, state, session, users };
+  return { root, client, faux, state, session, users };
 }
 
 function rejection(details: unknown) {
@@ -270,4 +270,27 @@ test("插件只能中止自己的 Agent，等待回复终态并清掉已排队�
   f.faux.setResponses([fauxAssistantMessage("恢复聊天")]);
   await f.client.call("session.send", { sessionId: f.session.id, text: "新消息" });
   assert.deepEqual(await f.users(), ["开始", "新消息"]);
+});
+
+
+test("中止辅导 Agent 不枚举或加载磁盘上的未加载旧会话", async (t) => {
+  const f = await fixture(t);
+  f.faux.setResponses([fauxAssistantMessage("旧辅导回复")]);
+  await f.client.call("session.send", { sessionId: f.session.id, text: "旧辅导提问" });
+  await f.client.call("space.close", {});
+  await f.client.call("space.open", { root: f.root });
+  const listed = t.mock.method(SessionManager, "list");
+  const found = t.mock.method(SessionManager, "findById");
+  const opened = t.mock.method(SessionManager, "open");
+  await f.client.call("plugin.call", {
+    pluginId: "learning",
+    method: "abort",
+    input: { agent: "tutor" },
+  });
+  assert.equal(listed.mock.callCount(), 0);
+  assert.equal(found.mock.callCount(), 0);
+  assert.equal(opened.mock.callCount(), 0);
+  assert.deepEqual(await f.users(), ["旧辅导提问"]);
+  assert.equal(found.mock.callCount(), 1);
+  assert.equal(opened.mock.callCount(), 1);
 });

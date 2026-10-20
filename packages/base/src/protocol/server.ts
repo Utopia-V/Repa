@@ -369,12 +369,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           if (!agent) {
             throw new RepaFault("space_not_ready", "空间尚未完成打开");
           }
-          const currentAgent = agent;
-          const sessions = (await currentAgent.list()).filter((session) => session.agent === id);
-          await Promise.all(sessions.map(async (info) => {
-            const session = await currentAgent.get(info.id);
-            await session.abort();
-          }));
+          await agent.abortAgent(id);
         },
         emit: (pluginId, event) => emit("plugin.event", { pluginId, event }),
         onError: () => emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } }),
