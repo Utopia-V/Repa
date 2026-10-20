@@ -20,17 +20,17 @@ npm run start --workspace=@repa/base -- serve --home /path/to/repa-home
 ```sh
 npm run start --workspace=@repa/base -- serve \
   --home /path/to/repa-home \
-  --plugin "$PWD/packages/base/examples/notes-plugin.ts"
+  --plugin "$PWD/packages/base/dist/examples"
 ```
 
-`--plugin` 可重复，模块导出 `default` 或 `plugin`。这些模块是本机可信代码；这里提供显式加载入口，安装、发现和版本管理不属于本次骨架。
+`--plugin` 可重复，每次传入一个构建目录，不接受源码文件路径。插件随产品构建和安装依赖；宿主先读取目录中的 `repa-plugin.json`，通过静态检查后才导入入口模块。入口导出 `default` 或 `plugin`，其中 `id` 必须与清单一致。这些产物仍是本机可信代码，清单检查不提供隔离。
 
 装配可以关掉通用 Agent，并指定用户能直接对话的 Agent：
 
 ```sh
 npm run start --workspace=@repa/base -- serve \
   --home /path/to/repa-home \
-  --plugin "$PWD/packages/base/examples/notes-plugin.ts" \
+  --plugin "$PWD/packages/base/dist/examples" \
   --no-general-agent --direct-agent notes-organizer
 ```
 
@@ -75,7 +75,7 @@ await client.close();
 await backend.close();
 ```
 
-共享入口启动构建后的 `repa-base serve`，读取 stdout 的连接信息，不写连接文件。`plugins` 传入插件模块路径，`generalAgent: false` 关掉通用 Agent，分别对应 CLI 的 `--plugin` 和 `--no-general-agent`；插件模块由构建后的 CLI 直接导入，不经过 tsx。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；客户端断开本身不关闭服务。Electron 使用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`closed` 可用于观察进程退出，`close()` 可以重复调用并等待正常收尾；异常退出会返回错误。只有启动失败的进程回收设置 5 秒强制终止期限。这个 Node 入口不从浏览器客户端导出。
+共享入口启动构建后的 `repa-base serve`，读取 stdout 的连接信息，不写连接文件。`plugins` 传入插件构建目录，`generalAgent: false` 关掉通用 Agent，分别对应 CLI 的 `--plugin` 和 `--no-general-agent`；插件由构建后的 CLI 检查清单后直接导入，不经过 tsx。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；客户端断开本身不关闭服务。Electron 使用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`closed` 可用于观察进程退出，`close()` 可以重复调用并等待正常收尾；异常退出会返回错误。只有启动失败的进程回收设置 5 秒强制终止期限。这个 Node 入口不从浏览器客户端导出。
 
 ## 结构与责任
 
@@ -87,6 +87,8 @@ await backend.close();
 <home>/agent/                 模型凭据、自定义模型、Agent 设置和 skills
 <home>/settings.json          命令策略、最近 20 个空间、应用提示覆盖
 <space>/.repa/lock/           带心跳的跨进程排他锁
+<space>/.repa/format.json     底座数据格式版本，当前为 { "version": 1 }
+<space>/.repa/plugin-versions/<id>.json  宿主管理的插件数据格式版本
 <space>/.repa/sessions/       会话记录
 <space>/.repa/history.git/    影子 Git
 <space>/.repa/plugins/<id>/   插件自有数据
@@ -109,6 +111,34 @@ await backend.close();
 [`notes-plugin.ts`](examples/notes-plugin.ts) 演示完整插件接口：说明、工具、Agent 定义、少量 view、变化追赶、前端方法与关闭；还通过 `rewrite`、`summarize`、`organize` 演示三种模型入口，其中 `organize` 在后台运行插件声明的只读 Agent `notes-organizer`。内部 notebook 子插件由父插件构造 Host，只能通过文件接口访问 `notes/`，数据目录也落在父目录下。后台 Agent 工作的 id 就是会话 id，前端用会话事件查看进度，用 `session.abort` 取消。排队任务收到取消后不会调用模型；如果空间正被前一活动占用，取消的完成响应会等待它取得队列并收尾。队列与任务句柄都只在内存中存在。
 
 ## 编写和离线检查插件
+
+### 构建清单与数据版本
+
+构建目录需要同时包含 JavaScript 入口、静态清单及入口依赖的产物。下面是[笔记示例的清单](examples/repa-plugin.json)；运行 `npm run build --workspace=@repa/base` 后，示例产物位于 `packages/base/dist/examples/`。
+
+```json
+{
+  "id": "notes",
+  "version": "0.1.0",
+  "baseVersion": "^0.1.0",
+  "dataVersion": 1,
+  "entry": "notes-plugin.js"
+}
+```
+
+`id` 只含小写字母、数字和连字符，且以字母开头。`version` 是插件代码的 SemVer 版本，`baseVersion` 是可接受的底座 SemVer 范围；宿主以自身 `package.json` 中的版本核对。`dataVersion` 是正的安全整数，表示插件持久数据的格式。`entry` 必须是目录内的相对 `.js` 或 `.mjs` 文件，解析符号链接后也不能离开目录。缺字段、多字段、无效版本或不兼容的底座范围都会在执行入口前被拒绝。
+
+代码版本与数据版本各自变化：只修改讲解文字可以保留数据版本，改变持久格式则需要改变数据版本。宿主打开空间时，先在独占锁内核对 `.repa/format.json`；调用 `plugin.open` 前，再核对 `.repa/plugin-versions/<id>.json` 与清单中的 `dataVersion` 是否相等。标记损坏时返回 `invalid_data_version`，版本不同则返回 `incompatible_data_version`，保留原标记和插件文件，由维护者选择兼容代码打开。具体数据内容仍由插件读取和校验。
+
+当前重做期尚无真实用户，因此缺少标记的已有空间和插件数据会补上当前版本，不转换或改写原内容。直接向 `startServer`、`openPluginHost` 或离线测试宿主传入 `Plugin` 对象时，通过 `dataVersion` 声明版本，省略时使用初始版本 `1`；离线测试与正式宿主共用检查。父插件手动打开子插件时，由父插件管理这部分持久格式。
+
+### 工具输出
+
+模型需要一段工具结果时，宿主在 Pi 1.1.0 的 `tool_result` 钩子中合并检查文本，复用 Pi 的 `truncateHead`，保证最终文本连同提示不超过默认的 50 KiB、2,000 行。短结果原样保留；超限时为提示预留 512 字节与两行，并说明省略的字节数和行数，请模型缩小查询或使用原工具的分页参数。Pi 按完整行截断，首行本身过长时会整行省略。
+
+因此，可能返回大结果的插件工具应提供自己的分页或范围参数。`data` 会作为 `details` 保持结构，供界面恢复必要元数据，不应复制正文。适配只把 `text` 放进模型可见的 `content`，截断时也不把完整结果复制到其他字段；Pi 替换 `content` 时会清掉未同步替换的 `structuredContent`。升级 SDK 时需复核 `extensions/runner`、`agent-loop` 和模型 transcript 的这条路径。相关实现见[输出限制](src/agent/output.ts)和[Agent 接入](src/agent/runtime.ts)。
+
+### 插件接口与测试宿主
 
 先从 `@repa/base/plugin` 导入 `Plugin`，用 `satisfies Plugin` 或类型注解约束插件入口，再运行 TypeScript 的严格检查。包内的声明由当前实现构建生成，因此类型错误直接对应当前版本的接口。参数使用 TypeBox schema；宿主在调用方法和工具前做实际校验，重复插件 id、重复工具名和覆盖内置工具也会在打开时被拒绝。
 
@@ -330,6 +360,8 @@ Agent 相关的约定：
 - 外部编辑器不受内部队列协调。按路径记账时，只有同一路径上恰好与写入同时发生的外部修改会算作这次写入；不透明运行期间的外部修改仍会归入该运行。空间写锁和同一文件的写入队列只在这个进程内有效。进程突然退出时，未提交内容在下次打开归为外部变化。空间历史永久保留，维护只整理对象布局。
 
 ## 验证入口与交付统计
+
+构建目录与静态清单的检查见[产物测试](test/plugin-artifacts.test.ts)，CLI 与进程启动分别见 [CLI 测试](test/cli.test.ts)和[进程测试](test/process.test.ts)。数据版本测试覆盖无版本空间补标记、关闭重开、异版拒绝及原字节保留；[输出测试](test/tool-output.test.ts)覆盖临界值、多行、单行和中文，[Agent 测试](test/agent.test.ts)通过真实 Pi 与本地模型替身检查实际模型请求及分页续取。
 
 ```sh
 npm run check --workspace=@repa/base

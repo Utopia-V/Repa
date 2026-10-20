@@ -10,6 +10,7 @@ import lockfile from "proper-lockfile";
 import { currentRun } from "../run-context.js";
 import type { Space, SpaceOptions } from "../space.js";
 import { RepaFault } from "../schema.js";
+import { checkFormat } from "./format.js";
 import { WriteGate } from "./gate.js";
 import { directory, existingPath, ignoreDataDir, within } from "./paths.js";
 
@@ -65,6 +66,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     throw error;
   }
   try {
+    await checkFormat(path.join(dataDir, "format.json"), 1);
     const sessionsDir = path.join(dataDir, "sessions");
     await directory(sessionsDir);
     await directory(path.join(dataDir, "plugins"));
