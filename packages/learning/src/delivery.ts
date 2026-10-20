@@ -1,15 +1,20 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type { Answer, Item } from "@repa/base/protocol";
 import { publicItem, slotTests } from "./check/items.js";
 import type { Question, Topic } from "./format/schema.js";
 import type { Delivery } from "./protocol.js";
 
 export const opaqueId = () => randomUUID();
-export function shuffled<T>(items: readonly T[], seed: number): T[] {
+export function shuffled<T>(items: readonly T[], seed?: number): T[] {
   const result = [...items];
   for (let index = result.length - 1; index > 0; index--) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    const other = seed % (index + 1);
+    let other: number;
+    if (seed === undefined) {
+      other = randomInt(index + 1);
+    } else {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      other = seed % (index + 1);
+    }
     [result[index], result[other]] = [result[other] as T, result[index] as T];
   }
   return result;
@@ -20,7 +25,6 @@ export async function deliver(
   kpId: string,
   mode: Delivery["mode"],
   repeated: boolean,
-  seed: number,
 ) {
   const item = await publicItem(question, topic);
   const idMap: Record<string, string> = {};
@@ -32,25 +36,16 @@ export async function deliver(
   item.id = rename(item.id);
   for (const slot of item.slots) {
     if (slot.type === "choice") {
-      slot.options = shuffled(
-        slot.options.map((option) => ({ ...option, id: rename(option.id) })),
-        seed++,
-      );
+      slot.options = shuffled(slot.options.map((option) => ({ ...option, id: rename(option.id) })));
     }
     if (slot.type === "order") {
-      slot.items = shuffled(
-        slot.items.map((block) => ({ ...block, id: rename(block.id) })),
-        seed++,
-      );
+      slot.items = shuffled(slot.items.map((block) => ({ ...block, id: rename(block.id) })));
     }
     if (slot.type === "table") {
       for (const row of slot.rows) {
         for (const cell of Object.values(row.cells)) {
           if ("input" in cell && cell.input.type === "choice") {
-            cell.input.options = shuffled(
-              cell.input.options.map((option) => ({ ...option, id: rename(option.id) })),
-              seed++,
-            );
+            cell.input.options = shuffled(cell.input.options.map((option) => ({ ...option, id: rename(option.id) })));
           }
         }
       }

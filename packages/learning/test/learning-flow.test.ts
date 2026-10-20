@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { syncBuiltinESMExports } from "node:module";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,6 +25,7 @@ import { mapAnswer } from "../src/delivery.js";
 import { connectLearning } from "../src/flow.js";
 import { graphFor, replayLearning, taskEvidence } from "../src/flow-state.js";
 import { learningMenu } from "../src/flow-menu.js";
+import { updateStudent } from "../src/student-model.js";
 import { LearningRecords } from "../src/records.js";
 import type { Course, Question, Topic } from "../src/format/schema.js";
 import type { ResolvedCourse } from "../src/course-sources.js";
@@ -926,4 +929,297 @@ test("渲染能力不足时保留例题和当前任务，返回具体缺项而�
   );
   assert.deepEqual(await f.state(), before);
   assert.equal(f.log().current()?.state.task?.deliveries.length, 0);
+});
+
+test("到期后直接中止复习先记录 timeout，旧守卫不能跳过模型更新", async (t) => {
+  const f = await fixture(t);
+  await f.select();
+  await f.finishLesson();
+  f.time(start + 86_400_000);
+  await f.select("t01", "review");
+  const current = await f.state();
+  const task = current.task;
+  assert.ok(task?.deadlineAt);
+  const student = f.log().current()?.student;
+  assert.ok(student);
+  const expected = updateStudent(
+    graphFor(f.resolved),
+    student,
+    {
+      topicId: "t01",
+      outcome: "fail",
+      quality: 1,
+    },
+    task.deadlineAt,
+  );
+  f.time(task.deadlineAt + 1);
+  await assert.rejects(
+    f.call("task.abort", {
+      taskId: task.taskId,
+      expectedRevision: current.revision,
+      expectedStage: task.phase.stage,
+    }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "stale_state",
+  );
+  assert.deepEqual(f.log().current()?.state.task?.phase, { stage: "completed", outcome: "timeout" });
+  assert.deepEqual(f.log().current()?.student, expected);
+  const revision = f.log().revision;
+  await f.reopen();
+  assert.deepEqual(f.log().current()?.student, expected);
+  assert.equal(f.log().revision, revision);
+});
+
+test("后续 KP 反馈页申诉前一 KP 后拒绝倒带，保留原交付和反馈位置", async (t) => {
+  const definition = topic("t01", 2);
+  const question = definition.kps[0]?.practice?.[0];
+  assert.ok(question);
+  question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加含义" }] }];
+  const f = await fixture(t, [definition]);
+  await f.select();
+  await f.advance();
+  await f.advance();
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
+  await f.submit();
+  await f.advance();
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
+  await f.submit();
+  const original = (await f.state()).task?.submissions[0];
+  assert.ok(original);
+  await f.advance();
+  assert.equal((await f.state()).task?.phase.stage, "explanation");
+  await f.advance();
+  await f.advance();
+  await f.submit(false);
+  const before = (await f.state()).task;
+  assert.equal(before?.deliveries.at(-1)?.kpId, "t01.k2");
+  assert.equal(before?.phase.stage, "feedback");
+  f.models.expectStructured().succeed({ verdict: "incorrect", reason: "复核不符合" });
+  await f.call("submission.appeal", {
+    submissionId: original.submissionId,
+    expectedGradeRevision: 1,
+    reason: "复核第一份原答",
+  });
+  assert.equal((await f.state()).task?.kps[0]?.completed, false);
+  await assert.rejects(
+    f.advance(),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "stale_state",
+  );
+  assert.deepEqual((await f.state()).task?.deliveries, before?.deliveries);
+  assert.deepEqual((await f.state()).task?.phase, before?.phase);
+  await f.reopen();
+  await assert.rejects(
+    f.advance(),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "stale_state",
+  );
+});
+
+test("强制重教首次清除旧轮进度，失败重试保留本轮已过 KP 并从未过处计数", async (t) => {
+  const later = topic("t02", 1, ["t01"]);
+  const kp = later.kps[0];
+  assert.ok(kp);
+  kp.keyPrerequisites = ["t01"];
+  const f = await fixture(t, [topic("t01", 2), later]);
+  async function review(pattern: boolean[]) {
+    for (const [index, correct] of pattern.entries()) {
+      await f.submit(correct);
+      if (index < pattern.length - 1) {
+        await f.advance();
+      }
+    }
+  }
+  await f.select("t01");
+  await f.finishLesson();
+  await f.select("t02");
+  await f.finishLesson([false]);
+  f.time(start + 48 * 3_600_000);
+  for (let index = 0; index < 3; index++) {
+    if ((await f.state()).menu?.candidates.some((entry) => entry.kind === "lesson")) {
+      break;
+    }
+    await f.select("t01", "review");
+    await review([true, true, true]);
+  }
+  await f.select("t02", "lesson");
+  await f.finishLesson([false]);
+  await f.select("t01", "review");
+  await review([false, false, false, false, false]);
+  await f.select("t01", "lesson");
+  assert.deepEqual(
+    (await f.state()).task?.kps.map((entry) => entry.completed),
+    [false, false],
+  );
+  await f.advance();
+  await f.advance();
+  await f.submit();
+  await f.advance();
+  await f.submit();
+  await f.advance();
+  await f.advance();
+  await f.advance();
+  await review([false, false, false, false, false]);
+  assert.deepEqual(
+    (await f.state()).task?.kps.map((entry) => entry.completed),
+    [true, false],
+  );
+  await f.reopen();
+  f.time(start + 96 * 3_600_000);
+  const retried = await f.select("t01", "lesson");
+  assert.deepEqual(
+    retried.task?.kps.map((entry) => entry.completed),
+    [true, false],
+  );
+  assert.deepEqual(
+    retried.task?.kps.map((entry) => entry.attempts),
+    [0, 0],
+  );
+  assert.equal(retried.task?.phase.stage, "explanation");
+  if (retried.task?.phase.stage === "explanation") {
+    assert.equal(retried.task.phase.page.ref.kpId, "t01.k2");
+  }
+  await f.finishLesson();
+  assert.ok((await f.state()).task?.deliveries.every((entry) => entry.kpId === "t01.k2"));
+  assert.equal(replayLearning(taskEvidence(f.log().records), f.resolved).forced.has("t01"), false);
+});
+
+test("冷却在当天到期后读取状态恢复菜单，重复读取和重开不重抽候选", async (t) => {
+  const f = await fixture(t);
+  const failedAt = start + 12 * 3_600_000;
+  const availableAt = failedAt + 48 * 3_600_000;
+  f.time(failedAt);
+  await f.select();
+  await f.finishLesson([false]);
+  assert.equal((await f.state()).menu?.availableAt, availableAt);
+  f.time(availableAt - 3_600_000);
+  const morning = await f.state();
+  assert.deepEqual(morning.menu?.candidates, []);
+  const unchangedRevision = f.log().revision;
+  assert.deepEqual((await f.state()).menu, morning.menu);
+  assert.equal(f.log().revision, unchangedRevision);
+  f.time(availableAt);
+  const ready = await f.state();
+  assert.deepEqual(
+    ready.menu?.candidates.map((entry) => entry.topicIds[0]),
+    ["t01"],
+  );
+  assert.equal(ready.menu?.availableAt, undefined);
+  assert.equal(ready.menu?.menuId, morning.menu?.menuId);
+  assert.ok(ready.revision > morning.revision);
+  assert.deepEqual((await f.state()).menu, ready.menu);
+  assert.equal(f.log().revision, ready.revision);
+  await f.reopen();
+  assert.deepEqual((await f.state()).menu, ready.menu);
+  assert.equal(f.log().revision, ready.revision);
+});
+
+for (const delay of [0, 600_000]) {
+  test(`第五份及时原答判分延迟 ${delay} 毫秒仍按五次失败和接受时间更新`, async (t) => {
+    const definition = topic();
+    const question = definition.kps[0]?.review?.[0];
+    assert.ok(question);
+    question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加含义" }] }];
+    const f = await fixture(t, [definition]);
+    await f.select();
+    await f.finishLesson();
+    const reviewStart = start + 86_400_000;
+    f.time(reviewStart);
+    await f.select("t01", "review");
+    const student = f.log().current()?.student;
+    assert.ok(student);
+    for (let index = 0; index < 4; index++) {
+      await f.submit(false);
+      await f.advance();
+    }
+    const acceptedAt = reviewStart + 60_000;
+    f.time(acceptedAt);
+    const pending = f.models.expectStructured();
+    const work = f.submit();
+    await pending.requested;
+    f.time(acceptedAt + delay);
+    pending.succeed({ verdict: "incorrect", reason: "不符合" });
+    const receipt = await work;
+    assert.equal(receipt.status, "recorded");
+    assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
+    const expected = updateStudent(
+      graphFor(f.resolved),
+      student,
+      {
+        topicId: "t01",
+        outcome: "fail",
+        quality: 1,
+      },
+      acceptedAt,
+    );
+    assert.deepEqual(f.log().current()?.student, expected);
+    await f.reopen();
+    assert.deepEqual(f.log().current()?.student, expected);
+  });
+}
+
+test("交付选择、排列和选择格使用私有随机源，重开沿日志排列与映射而不重新洗牌", async (t) => {
+  const definition = topic();
+  const question = definition.kps[0]?.practice?.[0];
+  assert.ok(question);
+  const ids = ["index", "sample_id", "signal"];
+  question.slots = [
+    {
+      id: "choice",
+      type: "choice",
+      key: "index",
+      options: ids.map((id) => ({ id, content: id })),
+    },
+    {
+      id: "order",
+      type: "order",
+      key: ids,
+      items: ids.map((id) => ({ id, content: id })),
+    },
+    {
+      id: "table",
+      type: "table",
+      columns: [
+        {
+          id: "v",
+          header: "列",
+          input: {
+            type: "choice",
+            options: ids.map((id) => ({ id, label: id })),
+          },
+        },
+      ],
+      rows: [{ id: "row", cells: { v: "index" } }],
+    },
+  ];
+  const draws: number[] = [];
+  const random = t.mock.method(crypto, "randomInt", (max: number) => {
+    draws.push(max);
+    return 0;
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    random.mock.restore();
+    syncBuiltinESMExports();
+  });
+  const f = await fixture(t, [definition]);
+  await f.select();
+  await f.advance();
+  await f.advance();
+  assert.deepEqual(draws, [3, 2, 3, 2, 3, 2]);
+  const frozen = (await f.state()).task?.deliveries;
+  const snapshot = f.log().snapshot(Object.values(f.log().current()?.deliveries ?? {})[0] ?? "");
+  assert.ok(snapshot);
+  const publicOrder = frozen?.[0]?.item.slots.find((slot) => slot.type === "order");
+  assert.ok(publicOrder?.type === "order");
+  assert.deepEqual(
+    publicOrder.items.map((item) => snapshot.idMap[item.id]),
+    ["sample_id", "signal", "index"],
+  );
+  await f.reopen();
+  assert.deepEqual((await f.state()).task?.deliveries, frozen);
+  assert.deepEqual(f.log().snapshot(Object.values(f.log().current()?.deliveries ?? {})[0] ?? ""), snapshot);
+  assert.deepEqual(draws, [3, 2, 3, 2, 3, 2]);
+  const receipt = await f.submit();
+  assert.equal(receipt.status, "recorded");
+  if (receipt.status === "recorded") {
+    assert.equal(receipt.submission.feedback?.verdict, "correct");
+  }
 });

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
 import { isDue } from "@repa/learning-model";
 import type { Host, MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
@@ -67,7 +68,7 @@ export async function connectLearning(
     if (kind !== "lesson") {
       return available.length > 0;
     }
-    const inherited = model.forced.get(id) === "lesson" ? [] : model.lessons.get(id) ?? [];
+    const inherited = model.lessons.get(id) ?? [];
     const topic = course.topics.find((entry) => entry.id === id);
     return (
       topic?.kps.every((kp) => {
@@ -206,7 +207,15 @@ export async function connectLearning(
         ? task.deliveries.find((entry) => entry.deliveryId === phase.deliveryId)?.kpId
         : undefined;
     const shownKp = phase.stage === "explanation" || phase.stage === "example" ? phase.page.ref.kpId : deliveredKp;
-    if (task.kind === "lesson" && shownKp && shownKp !== task.kps.find((kp) => !kp.completed)?.kpId) {
+    const feedbackSubmission =
+      phase.stage === "feedback"
+        ? task.submissions.find((entry) => entry.submissionId === phase.submissionId)
+        : undefined;
+    const feedbackKp = task.deliveries.find((entry) => entry.deliveryId === feedbackSubmission?.deliveryId)?.kpId;
+    const feedbackIndex = task.kps.findIndex((kp) => kp.kpId === feedbackKp);
+    const rewoundFeedback = feedbackIndex >= 0 && task.kps.slice(0, feedbackIndex).some((kp) => !kp.completed);
+    const invalidShownKp = shownKp && shownKp !== task.kps.find((kp) => !kp.completed)?.kpId;
+    if (task.kind === "lesson" && (invalidShownKp || rewoundFeedback)) {
       throw new RepaFault("stale_state", "当前交付已失去课内资格，请中止后重新选择", {
         reason: "stale",
         state: current.state,
@@ -256,7 +265,6 @@ export async function connectLearning(
       entry.kp.id,
       task.kind === "lesson" ? "practice" : "review",
       seen.has(entry.question.id),
-      records.revision,
     );
     const missing = missingDeliveryCapabilities(capabilities, delivery);
     if (missing.length) {
@@ -303,10 +311,7 @@ export async function connectLearning(
         evidence.filter((item) => item !== entry),
         course,
       );
-      task.kps = kpProgress(
-        entry,
-        before.forced.get(task.topicIds[0] ?? "") === "lesson" ? [] : before.lessons.get(task.topicIds[0] ?? ""),
-      );
+      task.kps = kpProgress(entry, before.lessons.get(task.topicIds[0] ?? ""));
       if (task.kps.every((kp) => kp.completed)) {
         outcome = "passed";
       } else if (task.kps.some((kp) => !kp.completed && kp.attempts >= 5)) {
@@ -318,10 +323,10 @@ export async function connectLearning(
       const result = reviewResult(entry);
       if (result.passed) {
         outcome = "passed";
-      } else if (task.deadlineAt !== null && now >= task.deadlineAt) {
-        outcome = "timeout";
       } else if (result.count >= 5) {
         outcome = "failed";
+      } else if (task.deadlineAt !== null && now >= task.deadlineAt) {
+        outcome = "timeout";
       }
     }
     task.phase = outcome ? { stage: "completed", outcome } : { stage: "feedback", submissionId };
@@ -426,16 +431,21 @@ export async function connectLearning(
       task.phase = { stage: "completed", outcome: "timeout" };
       release(task, taskEvidence(records.records));
       await save(current);
-    } else if (
-      current.state.progress.day !==
-      new Intl.DateTimeFormat("en-CA", {
+    } else {
+      const day = new Intl.DateTimeFormat("en-CA", {
         timeZone: current.state.progress.timeZone,
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
-      }).format(clock())
-    ) {
-      await save(current);
+      }).format(clock());
+      const menu =
+        !task || finished(task)
+          ? learningMenu(course, taskEvidence(records.records), clock(), current.state.menu, supply).menu
+          : current.state.menu;
+      const menuChanged = !isDeepStrictEqual(menu, current.state.menu);
+      if (current.state.progress.day !== day || menuChanged) {
+        await save(current);
+      }
     }
     const result = { ...state().state, serverNow: clock() };
     if (result.task) {
@@ -499,7 +509,6 @@ export async function connectLearning(
       consecutiveCorrect: 0,
       completed:
         candidate.kind === "lesson" &&
-        model.forced.get(topic.id) !== "lesson" &&
         (model.lessons.get(topic.id)?.find((entry) => entry.kpId === kp.id)?.completed ?? false),
     }));
     current.state.task = {
@@ -572,6 +581,7 @@ export async function connectLearning(
     return save(current);
   });
   method("task.abort", async (input) => {
+    await refresh();
     const current = state();
     const task = requireTask(current);
     if (

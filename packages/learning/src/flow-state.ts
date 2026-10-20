@@ -116,6 +116,14 @@ export function replayLearning(
   const failures = new Map<string, { at: number; kpId: string; stuck: boolean }>();
   const forced = new Map<string, "review" | "lesson">();
   let consecutiveReviews = 0;
+  const force = (id: string, kind: "review" | "lesson") => {
+    if (kind === "lesson" && forced.get(id) !== "lesson") {
+      // 只在进入新一轮重教时清除旧轮进度，失败重试继续继承本轮已过 KP。
+      lessons.delete(id);
+      failures.delete(id);
+    }
+    forced.set(id, kind);
+  };
   for (const entry of evidence) {
     const topicId = entry.task.topicIds[0];
     if (!topicId || !finished(entry.task)) {
@@ -130,7 +138,7 @@ export function replayLearning(
     }
     if (entry.task.kind === "lesson") {
       consecutiveReviews = 0;
-      const progress = kpProgress(entry, forced.get(topicId) === "lesson" ? [] : lessons.get(topicId));
+      const progress = kpProgress(entry, lessons.get(topicId));
       lessons.set(topicId, progress);
       if (progress.every((kp) => kp.completed)) {
         if (!student[topicId] || forced.has(topicId)) {
@@ -149,7 +157,7 @@ export function replayLearning(
           if (stuck) {
             const weakness = (id: string) => (student[id] ? memoryAt(student[id], entry.at / 86_400_000) : 0);
             for (const id of [...prerequisites].sort((a, b) => weakness(a) - weakness(b))) {
-              forced.set(id, student[id] ? "review" : "lesson");
+              force(id, student[id] ? "review" : "lesson");
             }
           }
         }
@@ -166,7 +174,7 @@ export function replayLearning(
         if (result.passed) {
           forced.delete(topicId);
         } else {
-          forced.set(topicId, "lesson");
+          force(topicId, "lesson");
         }
       }
       consecutiveReviews++;
