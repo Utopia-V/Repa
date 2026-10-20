@@ -135,7 +135,7 @@ test("两个 CLI 进程争用同一空间，持锁进程退出后另一个进程
 
 test("CLI 通过模块路径加载笔记插件，界面调用完成真实保存和历史记录", async (t) => {
   const f = await fixture(t);
-  const { cli, client } = await f.start("plugin-home", ["--plugin", "examples/notes-plugin.ts"]);
+  const { cli, client } = await f.start("plugin-home", ["--plugin", "dist/examples"]);
   const space = path.join(f.root, "notes-space");
   await client.call("space.create", { root: space });
   const plugins = await client.call("plugin.list", {});
@@ -157,7 +157,7 @@ test("CLI 通过模块路径加载笔记插件，界面调用完成真实保存�
 test("CLI 关掉通用 Agent 并指定直接对话的插件 Agent，前端只能与它建会话", async (t) => {
   const f = await fixture(t);
   const { cli, client } = await f.start("agents-home", [
-    "--plugin", "examples/notes-plugin.ts", "--no-general-agent", "--direct-agent", "notes-organizer",
+    "--plugin", "dist/examples", "--no-general-agent", "--direct-agent", "notes-organizer",
   ]);
   await client.call("space.create", { root: path.join(f.root, "agents-space") });
   assert.deepEqual(await client.call("agent.list", {}), [

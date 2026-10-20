@@ -3,15 +3,10 @@ title: 长表和宽表只是同一批观测的不同排法
 status: complete
 minutes: 20
 summary: 认出标识列、变量列和值列；读懂 melt 把几列测量拆成多行，pivot 把长表变回宽表，并知道键组合重复时怎样处理是一项要写明的决定。
-prerequisites:
-  - topic: py25
-    key: true
-    weight: 0.50
-    covers: [py25.k1, py25.k2]
-  - topic: py27
-    key: false
-    weight: 1.00
-    covers: [py27.k1]
+prerequisites: [py25, py27]
+encompassings:
+  - {topic: py25, weight: 0.5}
+  - {topic: py27, weight: 0}
 sources:
   - source: pydata-book
     where: 第 8 章 §8.3（长宽格式的变形）
@@ -205,6 +200,7 @@ data:
       colonies: [10, 12, 30, 26, 34]
 kps:
   - id: py31.k1
+    keyPrerequisites: [py25]
     title: 辨认标识列、变量列和值列
     card:
       name: 长表与宽表
@@ -536,6 +532,7 @@ kps:
         manual: [role_line, role_month, role_n_birds]
 
   - id: py31.k2
+    keyPrerequisites: [py14]
     title: melt 从多列变多行
     card:
       name: melt
@@ -915,6 +912,7 @@ kps:
           value_vars 只写两个季节，note 就不会被拆进来，也不会留在结果里；var_name、value_name 定下新列的名字。先选出 site、spring、autumn 三列再 melt 也对。
 
   - id: py31.k3
+    keyPrerequisites: [py25]
     title: pivot 要求键组合唯一，聚合是另一项决定
     card:
       name: pivot 与聚合

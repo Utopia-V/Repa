@@ -3,15 +3,10 @@ title: 清理一段文字
 status: complete
 minutes: 20
 summary: 读懂 strip、lower、replace 这类点号方法：它们得到新文字、不改原来的名字；调用链从左往右，每一步接着上一步的结果。
-prerequisites:
-  - topic: py04
-    key: true
-    weight: 0.67
-    covers: [py04.k1, py04.k3]
-  - topic: py03
-    key: true
-    weight: 0.33
-    covers: [py03.k1]
+prerequisites: [py04, py03]
+encompassings:
+  - {topic: py04, weight: 0.5}
+  - {topic: py03, weight: 0.5}
 sources:
   - source: think-python
     where: 第 8 章
@@ -45,6 +40,7 @@ wrapup: |
   读 AI 写的清理代码时，可以把一长串调用拆开，逐步写下得到的文字，再和你想要的结果对一对。
 kps:
   - id: py05.k1
+    keyPrerequisites: [py04, py01]
     title: 字符串不可原位改写
     card:
       name: 方法得到新文字
@@ -440,6 +436,7 @@ kps:
           answers = {"lines": fits}
 
   - id: py05.k2
+    keyPrerequisites: [py03, py04]
     title: strip/lower/replace 的结果
     card:
       name: strip/lower/replace
@@ -776,6 +773,7 @@ kps:
           answers = {"method": fits[0] if len(fits) == 1 else fits}
 
   - id: py05.k3
+    keyPrerequisites: [py04]
     title: 点号方法调用与调用链从左到右
     card:
       name: 调用链

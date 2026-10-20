@@ -25,6 +25,7 @@ import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Co
 import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
+import { limitToolText } from "./output.js";
 import { readParent, saveParent } from "./parent.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
@@ -598,6 +599,13 @@ class Session implements AgentSession {
       names.add(tool.name);
     }
     const factory: ExtensionFactory = pi => {
+      pi.on("tool_result", event => {
+        const original = event.content.filter(part => part.type === "text").map(part => part.text).join("\n");
+        const text = limitToolText(original);
+        // Pi 1.1.0 替换 content 会清除旧 structuredContent；details 留给界面，不能复制完整正文。
+        // 升级时复核 extensions/runner 与 agent-loop 到模型 transcript 的这条路径。
+        if (text !== original) return { content: [{ type: "text", text }, ...event.content.filter(part => part.type !== "text")] };
+      });
       pi.on("before_agent_start", async event => {
         applyPromptSections(event.systemPromptOptions, this.currentSections);
         const notice = runtime.options.promptChangeNotice === false ? undefined : promptChangeNotice(this.session.messages, this.currentSections);

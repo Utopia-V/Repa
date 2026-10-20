@@ -44,6 +44,7 @@ export interface Tool {
   name: string;
   description: string;
   parameters: TSchema;
+  /** text 受宿主输出上限约束；大结果应分页。data 只放界面元数据，不复制正文。 */
   execute(input: unknown, context: ToolContext): Promise<{ text: string; data?: unknown }>;
 }
 
@@ -179,6 +180,8 @@ export interface Host {
 
 export interface Plugin {
   id: string;
+  /** 构建加载时来自静态清单；直接装配和测试宿主省略时使用当前初始版本 1。 */
+  dataVersion?: number;
   // open 尚未返回实例时，插件负责清理自己已经打开的子实例与其他局部资源。
   open(host: Host): Promise<PluginInstance>;
 }

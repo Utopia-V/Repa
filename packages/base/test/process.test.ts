@@ -39,7 +39,7 @@ test("Node 宿主传入插件并关掉通用 Agent，前端只能与插件 Agent
   });
   backend = await startRepaProcess({
     home: path.join(directory, "home"),
-    plugins: [fileURLToPath(new URL("fixtures/process-plugin.mjs", import.meta.url))],
+    plugins: [fileURLToPath(new URL("fixtures/process-plugin", import.meta.url))],
     generalAgent: false,
   });
   client = await RepaClient.connect(backend.connection);
@@ -97,4 +97,12 @@ test("已启动服务的非零退出通过 closed 与 close 报告失败", async
   const backend = await startRepaProcess({ nodeExecutable: executable });
   await assert.rejects(backend.closed, /异常退出（7）/);
   await assert.rejects(backend.close(), /异常退出（7）/);
+});
+
+test("进程入口拒绝源码文件路径并交回构建目录诊断", async (t) => {
+  const home = await fixture(t);
+  await assert.rejects(startRepaProcess({
+    home,
+    plugins: [fileURLToPath(new URL("../examples/notes-plugin.ts", import.meta.url))],
+  }), /插件路径必须是构建目录/);
 });

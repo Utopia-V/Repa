@@ -3,19 +3,12 @@ title: 兴趣支线：小说里的名字出现了几次
 status: complete
 minutes: 20
 summary: 用 count、in、split 和短循环按字面数名字，再把“提到这个人”写成别名、排除词和计数单位都清楚的规则。
-prerequisites:
-  - topic: py05
-    key: true
-    weight: 0.67
-    covers: [py05.k2, py05.k3]
-  - topic: py36
-    key: true
-    weight: 0.50
-    covers: [py36.k1]
-  - topic: py37
-    key: false
-    weight: 0.33
-    covers: [py37.k1]
+prerequisites: [py05, py36, py37]
+encompassings:
+  - {topic: py05, weight: 0.5}
+  - {topic: py36, weight: 0}
+  - {topic: py37, weight: 0.5}
+  - {topic: py12, weight: 0.5}
 sources:
   - source: think-python
     where: 第 8 章
@@ -106,6 +99,7 @@ data:
       ```
 kps:
   - id: py47.k1
+    keyPrerequisites: [py35, py10]
     title: 用 split/count 或短循环追踪明确的字面匹配
     card:
       name: 字面匹配
@@ -141,7 +135,7 @@ kps:
     example:
       id: py47.k1.e0
       kind: [predict, explain]
-      uses: [py36.k1, py35.k3]
+      uses: [py35.k3, py10.k1]
       data: [story]
       body: |
         我们想知道沈青在这段文字里被提到了几次。先看程序按字面能数出什么。
@@ -227,7 +221,7 @@ kps:
           answers = {"shown": {f"r{i}": {"shown": value} for i, value in enumerate(shown, 1)}}
       - id: py47.k1.q2
         kind: [trace]
-        uses: [py36.k1, py35.k2]
+        uses: [py35.k2, py10.k1]
         data: [story]
         body: |
           `text.split("。")` 切出 5 段。按循环的顺序，填写每一轮 `"沈青" in s` 的结果，以及这一轮结束后 `n` 的值，再写出最后显示什么。
@@ -277,7 +271,7 @@ kps:
           answers = {"rounds": rows, "output": int(run().out)}
       - id: py47.k1.q3
         kind: [modify]
-        uses: [py36.k1, py35.k3]
+        uses: [py35.k3]
         data: [story]
         body: |
           需求是：
@@ -395,7 +389,7 @@ kps:
           answers = {"c1": shown[0], "c3": shown[2], "c4": shown[3], "why": true[0] if len(true) == 1 else true}
       - id: py47.k1.r2
         kind: [modify]
-        uses: [py36.k1, py35.k1, py35.k3]
+        uses: [py35.k1, py35.k3, py10.k1]
         body: |
           日记 `lines` 是一个列表，每个元素是一行字。把下面的代码块排成程序：数出有几行提到了 `name`（同一行提到两次也只算 1 行），最后显示这个数。拖动时也要排好缩进。不是每一块都要用。
         slots:
@@ -444,7 +438,7 @@ kps:
     quiz:
       - id: py47.k1.x1
         kind: [predict]
-        uses: [py36.k1, py35.k3]
+        uses: [py35.k3]
         data: [story_lin]
         body: |
           要数出“舟儿”在 `text` 里一共出现几次，同一句里出现两次算两次。哪一段代码把正确的次数放进了 `n`？
@@ -538,6 +532,7 @@ kps:
           }
 
   - id: py47.k2
+    keyPrerequisites: [py05, py37]
     title: 区分字符串出现与人物身份，规定别名和误匹配范围
     card:
       name: 别名与误匹配
@@ -573,7 +568,7 @@ kps:
     example:
       id: py47.k2.e0
       kind: [predict, explain]
-      uses: [py37.k1, py37.k2]
+      uses: [py37.k1]
       data: [story]
       body: |
         规则：沈青的叫法有“沈青”“青儿”两种；“沈青山”是她叔叔，不算沈青；一句里出现两次算两次。先把三个字面次数并排放进字典里看，再按规则算。
@@ -660,7 +655,7 @@ kps:
           }}
       - id: py47.k2.q2
         kind: [debug, modify]
-        uses: [py05.k2, py05.k3]
+        uses: [py05.k2]
         data: [story]
         body: |
           规则：沈青的叫法是“沈青”“青儿”；“沈青山”是她叔叔，不算；按出现次数数。
@@ -711,6 +706,7 @@ kps:
 
           写成 `total = text.count("沈青") - text.count("沈青山") + text.count("青儿")` 也对。本例 total 是 3；判分时还会换一段“沈青山”出现次数不同的文字。
       - id: py47.k2.q3
+        uses: [py12.k1]
         kind: [specify]
         data: [story_mu]
         body: |

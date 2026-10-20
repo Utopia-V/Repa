@@ -215,7 +215,7 @@ export function demoCourse(): DemoCourse {
     title: "骨架示例",
     status: "outline",
     minutes: 20,
-    prerequisites: [{ topic: "t01", key: true, weight: 0.5, covers: ["t01.k1"] }],
+    prerequisites: ["t01"],
     sources: [{ source: "closed", where: "第 2 章", use: "reference" }],
     kps: [{ id: "t02.k1", title: "第一个知识点" }, { id: "t02.k2", title: "第二个知识点" }],
   };

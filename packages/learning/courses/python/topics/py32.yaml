@@ -3,15 +3,11 @@ title: 日期是一种有单位的值
 status: complete
 minutes: 20
 summary: 按约定的格式把文字读成日期并数清读不了的值；两个日期相减得到时间差，取出整数天数；按日期区间筛选时写明两端算不算。
-prerequisites:
-  - topic: py20
-    key: true
-    weight: 1.00
-    covers: [py20.k1, py20.k2]
-  - topic: py18
-    key: true
-    weight: 1.00
-    covers: [py18.k1, py18.k2]
+prerequisites: [py20, py18]
+encompassings:
+  - {topic: py20, weight: 0}
+  - {topic: py18, weight: 0.5}
+  - {topic: py19, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 11 章 §11.1–11.3
@@ -204,6 +200,7 @@ data:
       day: ["2026-03-08", "2026-03-09", "2026-03-12", "2026-03-16", "2026-03-15", "2026-03-17"]
 kps:
   - id: py32.k1
+    keyPrerequisites: [py19, py03]
     title: 按固定格式读懂 to_datetime 与转换失败
     card:
       name: 按格式读日期
@@ -238,7 +235,7 @@ kps:
     example:
       id: py32.k1.e0
       kind: [predict]
-      uses: [py20.k1, py19.k1]
+      uses: [py19.k1]
       data: [raw]
       body: |
         登记表约定采样日期写成“年-月-日”。阅读代码，回答下面几问。
@@ -292,7 +289,7 @@ kps:
     practice:
       - id: py32.k1.q1
         kind: [predict]
-        uses: [py20.k1, py19.k1]
+        uses: [py19.k1]
         data: [raw2]
         body: |
           日期约定写成“年-月-日”。阅读代码。
@@ -327,7 +324,6 @@ kps:
           answers = {"bad": list(raw["sample_id"][dates.isna()]), "size": len(dates)}
       - id: py32.k1.q2
         kind: [debug]
-        uses: [py20.k1]
         data: [raw3]
         body: |
           下面的程序想数出读不了的日期有几个。
@@ -425,7 +421,7 @@ kps:
     review:
       - id: py32.k1.r1
         kind: [predict]
-        uses: [py20.k1, py19.k1, py17.k2]
+        uses: [py19.k1, py17.k2]
         data: [soil]
         body: |
           采样日期约定写成“年-月-日”。阅读代码，回答下面两问。
@@ -485,7 +481,7 @@ kps:
     quiz:
       - id: py32.k1.x1
         kind: [modify]
-        uses: [py20.k1, py20.k2, py19.k1]
+        uses: [py19.k1]
         data: [plots]
         body: |
           需求是：
@@ -554,7 +550,7 @@ kps:
           加上 `errors="coerce"`，`"2026/04/10"` 和 `"unknown"` 变成 NaT，程序不再报错；`n_bad` 由 `dates` 数出来，是 2。format 要留着：换一张第一个值写成 `"04/05/2026"` 的表，不写 format 时 pandas 会照这个值猜成“月/日/年”，后面按“年-月-日”写的值反而全读不了。
       - id: py32.k1.x2
         kind: [explain]
-        uses: [py20.k1, py20.k2, py19.k1]
+        uses: [py19.k1]
         data: [assay]
         body: |
           同事运行了下面这行，没有报错，于是说：“加了 `errors="coerce"` 以后不报错了，说明 tested 列的日期全都读对了。”
@@ -589,6 +585,7 @@ kps:
           answers = {"count": n, "claim": "right" if n == 0 else ("hidden" if kept_all else "dropped")}
 
   - id: py32.k2
+    keyPrerequisites: [py02]
     title: 同一时区的简单时间差和天数单位
     card:
       name: 时间差与天数
@@ -973,6 +970,7 @@ kps:
           answers = {"f1": stored.iloc[0], "f3": stored.iloc[2]}
 
   - id: py32.k3
+    keyPrerequisites: [py18, py08]
     title: 按日期区间筛选，明确左右边界
     card:
       name: 日期区间

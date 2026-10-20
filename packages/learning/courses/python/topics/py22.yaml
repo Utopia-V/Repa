@@ -3,19 +3,11 @@ title: 明确改的是原表还是新结果
 status: complete
 minutes: 20
 summary: 用一次 df.loc[行, 列] = 值 改原表里选中的格；分清别名、派生结果和 copy：在 pandas 3 里，改派生结果不会改到原表。
-prerequisites:
-  - topic: py21
-    key: true
-    weight: 0.33
-    covers: [py21.k1]
-  - topic: py17
-    key: true
-    weight: 0.50
-    covers: [py17.k1, py17.k2]
-  - topic: py01
-    key: true
-    weight: 0.50
-    covers: [py01.k1]
+prerequisites: [py21, py17, py01]
+encompassings:
+  - {topic: py21, weight: 0.5}
+  - {topic: py17, weight: 0.5}
+  - {topic: py01, weight: 0.5}
 sources:
   - source: pandas-docs
     where: 用户指南：Copy-on-Write
@@ -106,6 +98,7 @@ data:
       temp: float
 kps:
   - id: py22.k1
+    keyPrerequisites: [py17, py21]
     title: 单次 loc 赋值表达修改目标
     card:
       name: loc 赋值
@@ -481,6 +474,7 @@ kps:
           answers = {"first": lines[0], "second": lines[1]}
 
   - id: py22.k2
+    keyPrerequisites: [py01, py17]
     title: 区分别名、派生结果与显式 copy，按 pandas 3 CoW 理解
     card:
       name: 别名与副本

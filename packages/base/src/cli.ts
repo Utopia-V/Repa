@@ -1,14 +1,12 @@
 #!/usr/bin/env node
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import type { Plugin } from "./plugin.js";
 import { startServer } from "./protocol/server.js";
-import { record } from "./protocol/json-rpc.js";
+import { loadPlugin } from "./plugins/manifest.js";
 
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   if (args[0] === "--help" || args[0] === "-h") {
-    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 模块路径] [--no-general-agent] [--direct-agent Agent]\n");
+    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 构建目录] [--no-general-agent] [--direct-agent Agent]\n");
     return;
   }
   if (args.shift() !== "serve") throw new Error("请使用 repa-base serve 启动本机服务");
@@ -36,14 +34,7 @@ async function run(): Promise<void> {
         port = Number(value);
         break;
       case "--plugin": {
-        // 本机插件是用户指定的可信可执行代码，不是网络传来的插件声明。
-        const module: unknown = await import(pathToFileURL(path.resolve(value)).href);
-        const exported = record(module);
-        const plugin = record(exported?.default ?? exported?.plugin);
-        if (!plugin || typeof plugin.id !== "string" || !plugin.id || typeof plugin.open !== "function") {
-          throw new Error("插件模块必须导出 default 或 plugin，包含 id 和 open(host)");
-        }
-        plugins.push(plugin as unknown as Plugin);
+        plugins.push(await loadPlugin(value));
         break;
       }
       case "--direct-agent":

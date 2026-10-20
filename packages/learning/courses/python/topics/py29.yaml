@@ -3,19 +3,11 @@ title: 拼两张表之前先检查键
 status: complete
 minutes: 20
 summary: 用 pd.merge 按键把另一张表的列补上：分清 left 与 inner 留下哪些行，看出右表键重复造成的行数增长，用 validate 和 indicator 让关系错误和没配上的行显出来。
-prerequisites:
-  - topic: py25
-    key: true
-    weight: 0.50
-    covers: [py25.k1, py25.k2]
-  - topic: py19
-    key: true
-    weight: 0.33
-    covers: [py19.k1]
-  - topic: py12
-    key: true
-    weight: 1.00
-    covers: [py12.k1]
+prerequisites: [py25, py19, py12]
+encompassings:
+  - {topic: py25, weight: 0.5}
+  - {topic: py19, weight: 0.5}
+  - {topic: py12, weight: 0}
 sources:
   - source: pydata-book
     where: 第 8 章 §8.2
@@ -192,6 +184,7 @@ data:
       lab: [甲, 乙, 乙, 丙, 甲, 丙]
 kps:
   - id: py29.k1
+    keyPrerequisites: [py25, py19]
     title: left/inner join 怎样保留记录
     card:
       name: 按键拼表
@@ -368,7 +361,6 @@ kps:
           }}
       - id: py29.k1.q3
         kind: [debug]
-        uses: [py12.k1]
         data: [samples, sites]
         body: |
           需求是：“给每个样本补上采样点；samples 里的样本一个都不能少，查不到采样点的留空。”同事写的是：
@@ -589,6 +581,7 @@ kps:
           answers = {"claims": [claim for claim, ok in holds.items() if ok]}
 
   - id: py29.k2
+    keyPrerequisites: [py25]
     title: 一对多造成行数增长
     card:
       name: 一对多行数增长
@@ -970,6 +963,7 @@ kps:
           answers = {"first": int(lines[0]), "second": int(lines[1]), "why": true[0] if len(true) == 1 else true}
 
   - id: py29.k3
+    keyPrerequisites: [py25, py19]
     title: validate 与 indicator 暴露关系错误和未匹配项
     card:
       name: validate 与 indicator
@@ -1137,7 +1131,7 @@ kps:
           }
       - id: py29.k3.q3
         kind: [specify]
-        uses: [py12.k1, py25.k1]
+        uses: [py25.k1]
         body: |
           负责人的要求是：“给每个样本补上采样点：samples 里的样本一个不能少，也不能因为 sites 记重了而多出行——sites 里同一个样本出现两次就立刻报错；配不上的样本要能单独列出来。”
 
@@ -1286,7 +1280,7 @@ kps:
           answers = {"outcome": outcome, "culprits": sorted(dups)}
       - id: py29.k3.x2
         kind: [specify]
-        uses: [py12.k1, py29.k1, py29.k2]
+        uses: [py29.k1, py29.k2]
         data: [survey, regions]
         body: |
           需求是：“给每份问卷补上地区：survey 里的问卷一份不能少，也不能因为 regions 登记重复而多出行——regions 里同一份问卷出现两次就报错；还要能数出有几份问卷没查到地区。”哪一种写法符合这条需求？

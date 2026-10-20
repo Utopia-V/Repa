@@ -99,6 +99,8 @@ export const CourseSchema = object({
   sources: Type.Record(NameSchema, SourceSchema),
   /** topic 的稳定 id；顺序只是浏览顺序，学习安排由先修图和学习状态决定。 */
   topics: Type.Array(TopicIdSchema, { minItems: 1, maxItems: 500 }),
+  /** 发布后退役的 topic、KP 和题目 id，不得再次使用。尚未发布时从空列表开始。 */
+  retiredIds: Type.Optional(Type.Array(Type.Union([TopicIdSchema, KpIdSchema, QuestionIdSchema]))),
 });
 export type Course = Static<typeof CourseSchema>;
 
@@ -106,14 +108,12 @@ export type Course = Static<typeof CourseSchema>;
 // topic 的元数据
 // ---------------------------------------------------------------------------
 
-/** 一条直接先修边。key 为关键先修；weight 为 encompassing 权重；covers 为本 topic 实际会重新用到的对方知识点。 */
-export const PrerequisiteSchema = object({
+/** 覆盖关系独立于先修图；缺失或零权重不传信用。权重是 Repa 的待校准假设。 */
+export const EncompassingSchema = object({
   topic: TopicIdSchema,
-  key: Type.Boolean(),
-  weight: Type.Number({ exclusiveMinimum: 0, maximum: 1 }),
-  covers: Type.Array(KpIdSchema, { minItems: 1, maxItems: 8 }),
+  weight: Type.Number({ minimum: 0, maximum: 1 }),
 });
-export type Prerequisite = Static<typeof PrerequisiteSchema>;
+export type Encompassing = Static<typeof EncompassingSchema>;
 
 /** topic 对某份课程来源的具体使用：哪一章哪一节、怎样用。 */
 export const SourceUseSchema = object({
@@ -353,12 +353,12 @@ export const QuestionSchema = object({
    * 用一次隔离的模型调用独立再解，一致后在 topic 的 verified 段留下记录。
    */
   manual: Type.Optional(Type.Array(IdSchema, { maxItems: 24 })),
-  // 以下为解释性元数据，不进内容哈希。
+  // kind 是解释性元数据；有效 measures/uses 参与题目版本。
   /** 题型：预测输出、追踪变量、找错、解释代码、小改代码、写清需求。 */
   kind: Type.Optional(Type.Array(Type.Enum(QuestionKinds), { minItems: 1, maxItems: 3 })),
   /** 这道题直接测量的知识点；省略时为所在知识点。 */
   measures: Type.Optional(Type.Array(KpIdSchema, { minItems: 1, maxItems: 4 })),
-  /** 题目会用到的先修知识点。 */
+  /** 本题实际执行的其他子技能；可以指向非祖先 topic，缺省为空。 */
   uses: Type.Optional(Type.Array(KpIdSchema, { maxItems: 12 })),
 });
 export type Question = Static<typeof QuestionSchema>;
@@ -384,6 +384,8 @@ export type Card = Static<typeof CardSchema>;
 export const KpSchema = object({
   id: KpIdSchema,
   title: text(80),
+  /** 定位补救的关键先修 topic，可指向跳层祖先；按本 KP 内容填写。 */
+  keyPrerequisites: Type.Optional(Type.Array(TopicIdSchema, { maxItems: 12 })),
   card: Type.Optional(CardSchema),
   /** 讲解。 */
   lesson: Type.Optional(ContentInputSchema),
@@ -400,11 +402,13 @@ export type Kp = Static<typeof KpSchema>;
 /**
  * 一条模型核对记录：只把题目的公开部分交给模型独立作答，按作答位自己的判分规则与标准答案比对，
  * slots 里的 manual 作答位全部一致时才记下。记录放在 topic 文件里、不在题目里，所以不进题目版本；
- * 题目改动后版本变了，旧记录就不再算数。
+ * 题面、判分定义、数据或运行依赖改变后失效，信用归属单独换版不使证明失效。
  */
 export const ConfirmationSchema = object({
   question: QuestionIdSchema,
-  version: Type.String({ pattern: "^sha256:[0-9a-f]{64}$", description: "题目版本写成 sha256:<64 位十六进制>" }),
+  version: Type.String({ pattern: "^sha256:[0-9a-f]{64}$", description: "核对哈希写成 sha256:<64 位十六进制>" }),
+  /** 缺省是旧题目哈希；新范围同时绑定题面、判分定义、数据和运行依赖。 */
+  scope: Type.Optional(Type.Literal("question-runtime-v1")),
   slots: Type.Array(IdSchema, { minItems: 1, maxItems: 24 }),
   /** provider/id，例如 deepseek/deepseek-flash。 */
   model: text(100),
@@ -420,7 +424,9 @@ export const TopicSchema = object({
   /** 预计用时，分钟。 */
   minutes: Type.Integer({ minimum: 5, maximum: 60 }),
   summary: Type.Optional(text(300)),
-  prerequisites: Type.Array(PrerequisiteSchema, { maxItems: 12 }),
+  /** 直接先修，仅决定学习资格。 */
+  prerequisites: Type.Array(TopicIdSchema, { maxItems: 12 }),
+  encompassings: Type.Optional(Type.Array(EncompassingSchema, { maxItems: 500 })),
   sources: Type.Array(SourceUseSchema, { maxItems: 20 }),
   /** 写课备注：范围约束、题型安排等，不给学习者看，也不进内容哈希。 */
   notes: Type.Optional(text(5_000)),

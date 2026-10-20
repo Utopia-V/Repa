@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import path from "node:path";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
 import type { AgentTool } from "../agent.js";
@@ -17,6 +18,7 @@ import {
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { currentRun } from "../run-context.js";
 import { object, parse, RepaFault } from "../schema.js";
+import { checkFormat } from "../space/format.js";
 import { createModelScope } from "./models.js";
 
 const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
@@ -203,6 +205,9 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         throw new RepaFault("invalid_plugin_id", "插件 id 必须唯一，且仅含小写字母、数字和连字符", { id: plugin.id });
       }
       ids.add(plugin.id);
+    }
+    for (const plugin of options.plugins) {
+      await checkFormat(path.join(space.dataDir, "plugin-versions", `${plugin.id}.json`), plugin.dataVersion ?? 1);
     }
     const names = new Set<string>();
     const reservedNames = new Set(RESERVED_TOOL_NAMES);

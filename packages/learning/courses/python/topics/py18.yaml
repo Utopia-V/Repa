@@ -3,15 +3,10 @@ title: 筛选多个条件
 status: complete
 minutes: 20
 summary: 用 &、|、~ 把两列布尔掩码逐行组合；每个比较各加括号，用 isin 表示“属于这几个值之一”。
-prerequisites:
-  - topic: py17
-    key: true
-    weight: 1.00
-    covers: [py17.k1, py17.k2]
-  - topic: py09
-    key: true
-    weight: 1.00
-    covers: [py09.k1, py09.k2]
+prerequisites: [py17, py09]
+encompassings:
+  - {topic: py17, weight: 0.5}
+  - {topic: py09, weight: 0}
 sources:
   - source: pydata-book
     where: 第 5 章 §5.2
@@ -111,6 +106,7 @@ data:
       c: [false, true, false, false]
 kps:
   - id: py18.k1
+    keyPrerequisites: [py17, py09]
     title: 逐元素 &、|、~ 与单值 and/or 的区别
     card:
       name: 组合掩码
@@ -197,7 +193,7 @@ kps:
     practice:
       - id: py18.k1.q1
         kind: [predict]
-        uses: [py17.k1, py09.k1]
+        uses: [py17.k1]
         data: [T]
         body: |
           我们要标记“测量值偏低，或者属于高剂量组”的样本。阅读代码，按原行索引填写 `mask` 的值。
@@ -228,7 +224,7 @@ kps:
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
       - id: py18.k1.q2
         kind: [predict]
-        uses: [py17.k1, py17.k2, py09.k1]
+        uses: [py17.k1, py17.k2]
         data: [T]
         body: |
           阅读代码，说出 `result` 的样子。
@@ -342,7 +338,7 @@ kps:
     review:
       - id: py18.k1.r1
         kind: [modify]
-        uses: [py17.k1, py17.k2, py09.k1]
+        uses: [py17.k1, py17.k2]
         data: [wells]
         body: |
           要找出“计数低于 100，或者在 p3 板上”的孔。哪一行代码能得到这些孔？
@@ -390,7 +386,7 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits, "nrows": len(wanted)}
       - id: py18.k1.r2
         kind: [trace]
-        uses: [py17.k1, py09.k1]
+        uses: [py17.k1]
         data: [soil]
         body: |
           阅读代码，按原行索引填写 `flag` 的值。
@@ -424,7 +420,6 @@ kps:
     quiz:
       - id: py18.k1.x1
         kind: [explain]
-        uses: [py09.k1, py09.k2]
         data: [masks]
         body: |
           表里每一行是 `a`、`b` 两列掩码在同一行上的值，`c` 是用其中一种写法由 `a`、`b` 逐行算出的。
@@ -497,6 +492,7 @@ kps:
           answers = {"errors": [option for option, line in lines.items() if run(prelude + line).error is not None]}
 
   - id: py18.k2
+    keyPrerequisites: [py17]
     title: 每个比较加括号，isin 表示属于一个集合
     card:
       name: 括号与 isin
@@ -597,7 +593,7 @@ kps:
     practice:
       - id: py18.k2.q1
         kind: [debug]
-        uses: [py17.k1, py09.k2]
+        uses: [py17.k1]
         data: [T]
         body: |
           同事想标记“signal 至少为 10 的低剂量组样本”，写了这一行，运行时报错了。
@@ -659,7 +655,7 @@ kps:
           }
       - id: py18.k2.q2
         kind: [predict]
-        uses: [py17.k1, py09.k1]
+        uses: [py17.k1]
         data: [T]
         body: |
           阅读代码，按原行索引填写 `mask` 的值。
@@ -690,7 +686,7 @@ kps:
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
       - id: py18.k2.q3
         kind: [modify]
-        uses: [py17.k2, py09.k2]
+        uses: [py17.k2]
         data: [T]
         body: |
           需求是：
@@ -778,7 +774,7 @@ kps:
     review:
       - id: py18.k2.r1
         kind: [explain]
-        uses: [py17.k1, py09.k1]
+        uses: [py17.k1]
         data: [soil]
         body: |
           下面哪些写法与 `soil["site"].isin(["北坡", "南坡"])` 在这张表上得到同一列 True/False？选出所有相同的；会报错的不算相同。
@@ -866,7 +862,7 @@ kps:
     quiz:
       - id: py18.k2.x1
         kind: [modify]
-        uses: [py17.k2, py09.k2]
+        uses: [py17.k2]
         data: [wells]
         body: |
           需求是：
@@ -934,7 +930,7 @@ kps:
           “p1 或 p3 板”用 `isin(["p1", "p3"])`，“计数低于 limit”加括号，两者用 `&` 连接。本例只留下 A2：A1 在 p1 板但计数 120 不低于 100，C1 在 p3 板但计数 110 也不低于 100。判分时还会换一张有 p4 板的记录、换阈值运行。
       - id: py18.k2.x2
         kind: [specify, explain]
-        uses: [py17.k1, py09.k2]
+        uses: [py17.k1]
         data: [soil]
         body: |
           需求是：“site 为北坡或南坡，并且 pH 低于 6.0”。

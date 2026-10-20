@@ -1,0 +1,7 @@
+{
+  "id": "notes",
+  "version": "0.1.0",
+  "baseVersion": "^0.1.0",
+  "dataVersion": 1,
+  "entry": "notes-plugin.js"
+}

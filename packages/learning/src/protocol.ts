@@ -1,13 +1,13 @@
 /**
- * 学习插件的公开约定：判对错、提交结果和“不会”。插件方法照着它返回，前端的学习组件照着它渲染。
+ * 学习插件的公开约定：任务画面、判分、提交恢复、内容读取与“不会”。
  *
  * 底座的交互词汇只管向用户要结构化的输入：内容块、作答位、Item、作答、只查结构的 checkResponse 和
  * contentVersion。这里在它上面加学习要用的部分；通用的部分直接用底座的，不另行定义。
- * 定义照 2026-10-12 从底座移走的原文（dev 50d458b6c 的 interaction.ts），只留学习用得上的。
+ * 判分与原答形状延续 2026-10-12 从底座移走的词汇；任务契约供后续插件实现与前端共用。
  *
  * 本文件经 @repa/learning/protocol 导出，只依赖 typebox 和 @repa/base/protocol，浏览器里也能用。
- * 规则与底座的词汇相同：只增不改，发送方按当前版本严格校验，多余字段直接拒绝；前端用 readFeedback、
- * readSubmitResult 宽松读取，插件比前端新时也能显示。
+ * 规则与底座的词汇相同：只增不改，发送方按当前版本严格校验，多余字段直接拒绝；前端通过
+ * readLearningResult 等入口宽松读取，插件比前端新时也能显示。
  */
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
@@ -15,12 +15,17 @@ import { Value } from "typebox/value";
 import {
   AnswerSchema,
   AskSubmitResultSchema,
+  canRender,
   checkResponse,
   ContentSchema,
+  identifier,
+  ItemSchema,
   ItemResponseSchema,
   object,
+  readItem,
   readLenient,
   type CheckResult,
+  type ClientCapabilities,
   type Item,
   type ReadFallback,
   type ReadResult,
@@ -49,7 +54,7 @@ export type Score = Static<typeof ScoreSchema>;
 
 /**
  * 判分方式：rule 按标准答案和比较规则，tests 运行测试，model 由模型评，person 由人评。
- * model 判的反馈，界面标明仅供参考；它不更新学习状态，由插件保证。
+ * 来源与证据资格分开：确定的隔离模型判分可以参与课内推进，资格由后端给出。
  */
 export const JudgeSchema = Type.Union([Type.Literal("rule"), Type.Literal("tests"), Type.Literal("model"), Type.Literal("person")]);
 export type Judge = Static<typeof JudgeSchema>;
@@ -94,6 +99,10 @@ export const FeedbackSchema = object({
   item: reference,
   verdict: VerdictSchema,
   judge: Type.Optional(JudgeSchema),
+  evidence: Type.Optional(object({
+    status: Type.Enum(["eligible", "ineligible", "unresolved"]),
+    reason: Type.Optional(Type.String({ maxLength: 500 })),
+  })),
   score: Type.Optional(ScoreSchema),
   message: Type.Optional(ContentSchema),
   slots: Type.Optional(Type.Record(Type.String(), SlotFeedbackSchema)),
@@ -210,3 +219,219 @@ export function readFeedback(value: unknown): ReadResult<Feedback> {
 export function readSubmitResult(value: unknown): ReadResult<SubmitResult> {
   return readLenient<SubmitResult>(SubmitResultSchema, value, fallback);
 }
+
+// ---------------------------------------------------------------------------
+// 当前任务、提交恢复与内容读取；传输信封沿用 plugin.call / plugin.event。
+// ---------------------------------------------------------------------------
+
+const count = Type.Integer({ minimum: 0 });
+/** 时间为服务端 Unix 毫秒；revision 是空间内学习状态的单调序号。 */
+const timestamp = Type.Integer({ minimum: 0 });
+const nullableTime = Type.Union([timestamp, Type.Null()]);
+const kind = Type.Enum(["lesson", "review", "quiz", "retake"]);
+export const TaskStageSchema = Type.Enum([
+  "preparing", "explanation", "example", "awaiting_answer", "judging", "recovery", "feedback", "completed", "aborted",
+]);
+export type TaskStage = Static<typeof TaskStageSchema>;
+
+/** id 是公开内容身份，version 是该内容的摘要，不是内部题号映射。 */
+export const ContentRefSchema = object({
+  courseId: identifier, topicId: identifier, kpId: Type.Optional(identifier),
+  id: identifier, version: reference.properties.version,
+  kind: Type.Enum(["topic", "kp", "lesson", "example", "card", "explanation"]),
+});
+export type ContentRef = Static<typeof ContentRefSchema>;
+const origin = object({ taskId: identifier, deliveryId: Type.Optional(identifier), content: ContentRefSchema });
+const range = { offset: count, limit: Type.Integer({ minimum: 1, maximum: 64 }) };
+export const ContentPageSchema = object({
+  ref: ContentRefSchema, origin, offset: count, total: count, blocks: ContentSchema,
+});
+export type ContentPage = Static<typeof ContentPageSchema>;
+
+/** submissionId 在交付时预留；一次交付只收一份原答，重试沿用它。 */
+export const DeliverySchema = object({
+  deliveryId: identifier, submissionId: identifier, item: ItemSchema,
+  topicId: identifier, kpId: identifier,
+  mode: Type.Enum(["practice", "review", "quiz"]), repeated: Type.Boolean(),
+  requiresServices: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 64 }),
+});
+export type Delivery = Static<typeof DeliverySchema>;
+export const ProcessingSchema = Type.Union([
+  object({ status: Type.Literal("accepted") }),
+  object({ status: Type.Literal("pending") }),
+  object({ status: Type.Literal("interrupted"), reason: Type.Enum(["restart", "service_failure", "uncertain_grade", "cancelled"]) }),
+  object({ status: Type.Literal("completed") }),
+]);
+export type Processing = Static<typeof ProcessingSchema>;
+export const SubmissionSchema = object({
+  taskId: identifier, deliveryId: identifier, submissionId: identifier,
+  response: LearnerResponseSchema, acceptedAt: timestamp, processing: ProcessingSchema,
+  gradeRevision: count,
+  /** practice 判分后、review 结束后、quiz/retake 交卷或超时后才释放。 */
+  feedback: Type.Optional(FeedbackSchema), explanation: Type.Optional(ContentSchema),
+});
+export type Submission = Static<typeof SubmissionSchema>;
+export const SubmissionReceiptSchema = Type.Union([
+  object({
+    ...SubmitResultSchema.anyOf[0].properties, submissionId: identifier,
+    processing: object({ status: Type.Literal("not_accepted") }),
+  }),
+  object({ status: Type.Literal("recorded"), submission: SubmissionSchema }),
+]);
+export type SubmissionReceipt = Static<typeof SubmissionReceiptSchema>;
+
+const phase = Type.Union([
+  object({ stage: Type.Literal("preparing") }),
+  object({ stage: Type.Literal("explanation"), page: ContentPageSchema }),
+  object({ stage: Type.Literal("example"), page: ContentPageSchema }),
+  object({ stage: Type.Literal("awaiting_answer"), deliveryId: identifier }),
+  object({ stage: Type.Literal("judging"), submissionId: identifier }),
+  object({ stage: Type.Literal("recovery"), submissionId: identifier }),
+  object({ stage: Type.Literal("feedback"), submissionId: identifier }),
+  object({ stage: Type.Literal("completed"), outcome: Type.Enum(["passed", "failed", "timeout"]) }),
+  object({ stage: Type.Literal("aborted"), reason: Type.String({ maxLength: 500 }) }),
+]);
+export const LearningTaskSchema = object({
+  taskId: identifier, kind, topicIds: Type.Array(identifier), phase,
+  startedAt: nullableTime, deadlineAt: nullableTime,
+  kps: Type.Array(object({ kpId: identifier, attempts: count, consecutiveCorrect: count, completed: Type.Boolean() })),
+  deliveries: Type.Array(DeliverySchema), submissions: Type.Array(SubmissionSchema),
+});
+export type LearningTask = Static<typeof LearningTaskSchema>;
+export const LearningMenuSchema = object({
+  menuId: identifier,
+  candidates: Type.Array(object({
+    id: identifier, kind, title: Type.String({ maxLength: 200 }), topicIds: Type.Array(identifier),
+    originalTaskId: Type.Optional(identifier),
+  }), { maxItems: 3 }),
+  unavailableReason: Type.Optional(Type.String({ maxLength: 500 })), availableAt: Type.Optional(timestamp),
+});
+export type LearningMenu = Static<typeof LearningMenuSchema>;
+export const LearningProgressSchema = object({
+  day: Type.String({ pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }), timeZone: identifier,
+  dailyGoalXp: Type.Integer({ minimum: 1 }), todayXp: count, totalXp: count,
+  completedTopics: count, totalTopics: count,
+  completionRate: Type.Number({ minimum: 0, maximum: 1 }),
+  etaDays: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
+});
+export type LearningProgress = Static<typeof LearningProgressSchema>;
+export const LearningStateSchema = object({
+  revision: count, serverNow: timestamp,
+  course: Type.Union([object({ id: identifier, title: Type.String({ maxLength: 200 }), version: Type.String() }), Type.Null()]),
+  task: Type.Union([LearningTaskSchema, Type.Null()]), menu: Type.Union([LearningMenuSchema, Type.Null()]),
+  restrictions: object({
+    kind: Type.Enum(["none", "review", "quiz"]), tutorAllowed: Type.Boolean(), referenceContentAllowed: Type.Boolean(),
+  }),
+  progress: LearningProgressSchema,
+});
+export type LearningState = Static<typeof LearningStateSchema>;
+
+/** 事件只使缓存失效，不交付题面、原答或反馈。 */
+export const LearningEventSchema = object({
+  type: Type.Literal("learning.changed"), revision: count,
+  taskId: Type.Union([identifier, Type.Null()]), menuId: Type.Union([identifier, Type.Null()]),
+  submissionId: Type.Optional(identifier),
+});
+export type LearningEvent = Static<typeof LearningEventSchema>;
+export const LearningErrorDetailsSchema = Type.Union([
+  object({ reason: Type.Literal("invalid_structure"), problems }),
+  object({ reason: Type.Literal("stale"), state: LearningStateSchema }),
+  object({ reason: Type.Literal("payload_conflict"), submissionId: identifier }),
+  object({ reason: Type.Literal("missing_capability"), missing: Type.Array(identifier), taskId: identifier }),
+  object({ reason: Type.Literal("restricted"), taskId: identifier, stage: TaskStageSchema }),
+  object({ reason: Type.Literal("service_failure"), service: identifier, retryable: Type.Boolean() }),
+]);
+export type LearningErrorDetails = Static<typeof LearningErrorDetailsSchema>;
+
+const guard = { taskId: identifier, expectedStage: TaskStageSchema, expectedRevision: count };
+const selection = object({ menuId: identifier, candidateId: identifier });
+const submission = object({ submissionId: identifier });
+/** 本表是 learning 插件方法的 input/result；不另造 RPC 信封。 */
+export const learningMethods = {
+  "state.get": { input: object({}), result: LearningStateSchema },
+  "menu.select": { input: selection, result: LearningStateSchema },
+  "task.advance": { input: object(guard), result: LearningStateSchema },
+  "task.resume": { input: object(guard), result: LearningStateSchema },
+  "task.abort": { input: object(guard), result: LearningStateSchema },
+  "submission.get": {
+    input: submission,
+    result: Type.Union([
+      object({ status: Type.Literal("absent"), submissionId: identifier, revision: count }),
+      object({ status: Type.Literal("found"), submission: SubmissionSchema, revision: count }),
+    ]),
+  },
+  "submission.submit": {
+    input: object({ taskId: identifier, deliveryId: identifier, submissionId: identifier, response: LearnerResponseSchema }),
+    result: SubmissionReceiptSchema,
+  },
+  "submission.resume": { input: submission, result: SubmissionReceiptSchema },
+  "submission.appeal": { input: object({ submissionId: identifier, expectedGradeRevision: count, reason: Type.String({ minLength: 1, maxLength: 2_000 }) }), result: SubmissionReceiptSchema },
+  "content.search": {
+    input: object({ query: Type.String({ maxLength: 200 }), offset: count, limit: Type.Integer({ minimum: 1, maximum: 20 }) }),
+    result: object({ hits: Type.Array(object({ ref: ContentRefSchema, title: Type.String(), snippet: Type.String(), origin })), nextOffset: Type.Union([count, Type.Null()]) }),
+  },
+  "content.read": { input: object({ refs: Type.Array(ContentRefSchema, { minItems: 1, maxItems: 8 }), ...range }), result: Type.Array(ContentPageSchema) },
+  "content.open": { input: object({ ref: ContentRefSchema }), result: object({ openedAt: timestamp }) },
+  "quiz.start": { input: selection, result: LearningStateSchema },
+  "quiz.finish": { input: object(guard), result: LearningStateSchema },
+  "quiz.retake": { input: object({ ...selection.properties, originalTaskId: identifier }), result: LearningStateSchema },
+  "progress.get": { input: object({}), result: object({ serverNow: timestamp, progress: LearningProgressSchema }) },
+  "progress.setGoal": { input: object({ dailyGoalXp: Type.Integer({ minimum: 1 }) }), result: LearningStateSchema },
+} as const;
+export type LearningMethod = keyof typeof learningMethods;
+export type LearningInput<M extends LearningMethod> = Static<(typeof learningMethods)[M]["input"]>;
+export type LearningResult<M extends LearningMethod> = Static<(typeof learningMethods)[M]["result"]>;
+
+/** 保留原任务；缺少运行服务与缺少渲染能力都返回具体缺项。 */
+export function missingDeliveryCapabilities(capabilities: ClientCapabilities | undefined, delivery: Delivery): string[] {
+  const missing = canRender(capabilities?.interaction, delivery.item)
+    ? [] : delivery.item.requires.filter((name) => !capabilities?.interaction?.supports.includes(name));
+  const services = new Set(delivery.requiresServices);
+  if (delivery.item.slots.some((slot) => slot.type === "code")) services.add("python.run");
+  return [...new Set([...missing, ...[...services].filter((name) => !capabilities?.services?.includes(name))])].sort();
+}
+
+/** 宽松读取时仍用 readItem 补齐未知作答位的 requires，不能把它读成可提交的残缺题目。 */
+function readLearning<T>(schema: TSchema, value: unknown): ReadResult<T> {
+  const result = readLenient<T>(schema, value, fallback);
+  if (!result.ok) return result;
+  function restore(raw: unknown, clean: unknown, path: string): string | undefined {
+    if (raw === null || clean === null || typeof raw !== "object" || typeof clean !== "object") return;
+    if (Array.isArray(raw) && Array.isArray(clean)) {
+      for (const [index, member] of clean.entries()) {
+        // 新增 mode 可能让整份交付被丢掉，不能把其后的题面错配给前一份交付。
+        const source = member !== null && typeof member === "object" && "deliveryId" in member
+          ? raw.find((entry: unknown) => entry !== null && typeof entry === "object" && "deliveryId" in entry && entry.deliveryId === member.deliveryId)
+          : raw[index];
+        const error = restore(source, member, `${path}/${index}`);
+        if (error !== undefined) return error;
+      }
+      return;
+    }
+    const source = raw as Record<string, unknown>;
+    for (const [key, member] of Object.entries(clean)) {
+      if (key === "item" && typeof member === "object" && member !== null && "slots" in member) {
+        const item = readItem(source[key]);
+        if (!item.ok) return `${path}/${key}${item.path}`;
+        Object.assign(member, item.value);
+      } else {
+        const error = restore(source[key], member, `${path}/${key}`);
+        if (error !== undefined) return error;
+      }
+    }
+    return;
+  }
+  const error = restore(value, result.value, "");
+  return error === undefined ? result : { ok: false, path: error };
+}
+
+export function readLearningResult<M extends LearningMethod>(method: M, value: unknown): ReadResult<LearningResult<M>> {
+  return readLearning<LearningResult<M>>(learningMethods[method].result, value);
+}
+export function readLearningEvent(value: unknown): ReadResult<LearningEvent> {
+  return readLearning<LearningEvent>(LearningEventSchema, value);
+}
+export function readLearningError(value: unknown): ReadResult<LearningErrorDetails> {
+  return readLearning<LearningErrorDetails>(LearningErrorDetailsSchema, value);
+}
+

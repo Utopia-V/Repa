@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import { openSpace } from "@repa/base";
+
 import { confirmCourse, type ConfirmOutcome } from "./check/confirm.js";
 import { checkCourse, type CheckResult } from "./check/course.js";
 import { parseModel, withModel } from "./check/model.js";
@@ -12,6 +14,8 @@ import { COURSE_FILE, loadCourse } from "./format/load.js";
 import { describeRuntime, PACKAGE_ROOT, preparePackages } from "./sandbox/runtime.js";
 
 const USAGE = `用法：
+  repa-course recover-log <已关闭的空间目录> <新日志文件>
+      保留原日志，将验证过的完整前缀写入新的文件。
   repa-course check [课程目录…] [--no-run] [--topic id …] [--packages 目录] [--json]
       检查课程文件；缺省检查 courses/ 下全部课程。--no-run 只做结构检查，不运行代码；
       --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。
@@ -192,7 +196,16 @@ async function confirm(args: string[]): Promise<number> {
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
-  if (command === "check") {
+  if (command === "recover-log") {
+    if (args.length !== 2 || !args[0] || !args[1]) throw new Error("需要空间目录和新日志文件");
+    const { recoverLearningLog } = await import("./records.js");
+    const space = await openSpace(path.resolve(args[0]), { watch: false });
+    try {
+      await recoverLearningLog(path.join(space.dataDir, "plugins", "learning", "records.jsonl"), path.resolve(args[1]));
+    } finally {
+      await space.close();
+    }
+  } else if (command === "check") {
     process.exitCode = await check(args);
   } else if (command === "runtime") {
     process.exitCode = await runtime(args);

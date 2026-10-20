@@ -3,15 +3,10 @@ title: 有条件地做一件事
 status: complete
 minutes: 20
 summary: 读懂 if/elif/else：一组分支只走一条路径；缩进划出哪些行受条件控制；按实际走过的路径追踪变量的值。
-prerequisites:
-  - topic: py09
-    key: true
-    weight: 0.50
-    covers: [py09.k1]
-  - topic: py01
-    key: true
-    weight: 0.50
-    covers: [py01.k2]
+prerequisites: [py09, py01]
+encompassings:
+  - {topic: py09, weight: 0.5}
+  - {topic: py01, weight: 0.5}
 sources:
   - source: think-python
     where: 第 5 章 （跳过递归）
@@ -39,6 +34,7 @@ wrapup: |
   向 AI 描述分类规则时，也按这个顺序说：每一档的条件（含不含等号）、档与档的先后、都不满足时怎么办。
 kps:
   - id: py10.k1
+    keyPrerequisites: [py08]
     title: if/elif/else 的互斥路径
     card:
       name: if/elif/else
@@ -445,6 +441,7 @@ kps:
           answers = {"wrong": [f"s{s}" for s in (5, 12, 20, 25) if run(signal=s)["level"] != wanted(s)]}
 
   - id: py10.k2
+    keyPrerequisites: []
     title: 缩进划定执行范围
     card:
       name: 缩进
@@ -845,6 +842,7 @@ kps:
           }}
 
   - id: py10.k3
+    keyPrerequisites: [py01, py08]
     title: 每条路径后的变量值
     card:
       name: 分支后的变量
@@ -885,6 +883,7 @@ kps:
       有几个分开的 if 时，每个 if 都可能改同一个名字。逐个看条件，成立一次就执行一次那里的赋值，例如成立两次就加了两次。
     example:
       id: py10.k3.e0
+      uses: [py01.k2]
       kind: [trace]
       body: |
         宿主事先给 `signal` 赋了值，代码里没有这一行。

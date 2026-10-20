@@ -3,19 +3,11 @@ title: 把分组统计口径写明确
 status: complete
 minutes: 20
 summary: 用 .agg(输出列名=("源列", "操作")) 把分组汇总的每一列写明白；分组列有缺失时用 dropna 说清要不要留下这些行，并用 size 与 count 核对行数。
-prerequisites:
-  - topic: py27
-    key: true
-    weight: 1.00
-    covers: [py27.k1, py27.k2]
-  - topic: py19
-    key: true
-    weight: 0.67
-    covers: [py19.k1, py19.k3]
-  - topic: py12
-    key: true
-    weight: 0.50
-    covers: [py12.k1]
+prerequisites: [py27, py19, py12]
+encompassings:
+  - {topic: py27, weight: 0.5}
+  - {topic: py19, weight: 0.5}
+  - {topic: py12, weight: 0.5}
 sources:
   - source: pydata-book
     where: 第 10 章 §10.2（数据聚合、命名聚合）
@@ -143,6 +135,7 @@ data:
       wait_min: float
 kps:
   - id: py28.k1
+    keyPrerequisites: [py27]
     title: named aggregation 的固定（源列, 操作）配置指明输出
     card:
       name: 命名聚合
@@ -321,7 +314,6 @@ kps:
           }
       - id: py28.k1.q3
         kind: [specify]
-        uses: [py12.k1]
         data: [B]
         body: |
           要求是：“按 group 分组，输出两列：peak 是每组 signal 的最大值；n 是每组有 signal 的样本数。”
@@ -444,7 +436,7 @@ kps:
     quiz:
       - id: py28.k1.x1
         kind: [specify]
-        uses: [py12.k1, py27.k1]
+        uses: [py27.k1]
         data: [farm]
         body: |
           要求是：“按作物 crop 分组，依次输出两列：total_kg 是总产量，n_plots 是种这种作物的地块数。”哪一段代码符合要求？
@@ -539,6 +531,7 @@ kps:
           answers = {"got": got, "right": right, "fix": "op" if fixed == right else "other"}
 
   - id: py28.k2
+    keyPrerequisites: [py19, py26]
     title: 分组键缺失用 dropna 明确是否保留，并核对 count/size
     card:
       name: 分组键缺失
@@ -805,7 +798,7 @@ kps:
     quiz:
       - id: py28.k2.x1
         kind: [specify]
-        uses: [py12.k1, py26.k1]
+        uses: [py26.k1]
         data: [visits]
         body: |
           要求是：“按诊室 clinic 分组，依次输出两列：visits 是就诊人次（每行一次），timed 是记下了候诊时间的人次。没记诊室的就诊单独作为一组，不要丢掉。”哪一段代码符合要求？
