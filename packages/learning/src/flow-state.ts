@@ -1,5 +1,5 @@
 import { RepaFault } from "@repa/base";
-import { memoryAt, type KnowledgeGraph } from "@repa/learning-model";
+import { isDue, memoryAt, type KnowledgeGraph } from "@repa/learning-model";
 import type { ResolvedCourse } from "./course-sources.js";
 import type { Grade, LearningRecord, Projection } from "./records-schema.js";
 import type { LearningTask, Submission } from "./protocol.js";
@@ -128,7 +128,17 @@ export function replayLearning(
   const failures = new Map<string, { at: number; kpId: string; stuck: boolean }>();
   const forced = new Map<string, "review" | "lesson">();
   let consecutiveReviews = 0;
-  const force = (id: string, kind: "review" | "lesson") => {
+  const force = (id: string, kind: "review" | "lesson"): void => {
+    if (!student[id]) {
+      kind = "lesson";
+    }
+    if (kind === "lesson") {
+      for (const prerequisite of course.topics.find((topic) => topic.id === id)?.prerequisites ?? []) {
+        if (!student[prerequisite]) {
+          force(prerequisite, "lesson");
+        }
+      }
+    }
     if (kind === "lesson" && forced.get(id) !== "lesson") {
       // 只在进入新一轮重教时清除旧轮进度，失败重试继续继承本轮已过 KP。
       lessons.delete(id);
@@ -206,6 +216,27 @@ export function replayLearning(
     }
   }
   return { student, lessons, failures, forced, consecutiveReviews };
+}
+/** 菜单和已选任务共用资格判断；冷却、题量与当前 KP 位置由各入口检查。 */
+export function topicEligible(
+  course: ResolvedCourse,
+  model: ReturnType<typeof replayLearning>,
+  topicId: string,
+  kind: LearningTask["kind"],
+  now: number,
+): boolean {
+  const topic = course.topics.find((entry) => entry.id === topicId);
+  if (!topic) {
+    return false;
+  }
+  if (kind === "review") {
+    const remembered = model.student[topicId];
+    return Boolean(remembered && (model.forced.get(topicId) === "review" || isDue(remembered, now / 86_400_000)));
+  }
+  return kind !== "lesson" || (
+    topic.prerequisites.every((id) => model.student[id]) &&
+    (!model.forced.size || model.forced.get(topicId) === "lesson")
+  );
 }
 export function requireTask(projection: Projection): LearningTask {
   if (!projection.state.task) {

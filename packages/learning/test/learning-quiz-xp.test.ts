@@ -17,14 +17,21 @@ import { learningMethods, type LearningInput, type LearningMethod, type Learning
 import { updateProgress } from "../src/progress.js";
 import type { Projection } from "../src/records-schema.js";
 import type { LearningRecords } from "../src/records.js";
+import type { Topic } from "../src/format/schema.js";
 import type { ResolvedCourse } from "../src/course-sources.js";
 
 const start = Date.UTC(2026, 9, 12, 12);
-async function fixture(t: TestContext, openAnswer = false, count = 2, minutes = [60, 60, 25, 5, 31, 5]) {
+async function fixture(
+  t: TestContext,
+  openAnswer = false,
+  count = 2,
+  minutes = [60, 60, 25, 5, 31, 5],
+  configure?: (topics: Topic[]) => void,
+) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-quiz-xp-"));
   const directory = path.join(root, "course");
   await mkdir(path.join(directory, "topics"), { recursive: true });
-  const topics = minutes.map((minutes, index) => {
+  const topics: Topic[] = minutes.map((minutes, index) => {
     const id = `t${index}`;
     const question = (suffix: string) => ({
       id: `${id}.k1.${suffix}`,
@@ -44,6 +51,7 @@ async function fixture(t: TestContext, openAnswer = false, count = 2, minutes = 
       }],
     };
   });
+  configure?.(topics);
   const course = {
     id: "test", title: "测试", version: "1.0.0", language: "zh-CN", license: "Apache-2.0",
     runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }, sources: {}, topics: topics.map((topic) => topic.id),
@@ -430,5 +438,220 @@ test("两份及时原答并发判分，交卷等待全部采用；申诉只追�
   } finally {
     left.fail(new Error("测试结束"));
     right.fail(new Error("测试结束"));
+  }
+});
+
+
+for (const missingPrerequisite of [false, true]) {
+  test(`历史 lesson 重判失去已学状态后，测验补救转为可开始的 lesson${missingPrerequisite ? "并先补缺失先修" : ""}`, async (t) => {
+    const f = await fixture(t, false, 2, undefined, (topics) => {
+      for (const topic of topics.slice(0, missingPrerequisite ? 2 : 1)) {
+        const question = topic.kps[0]?.practice?.[0];
+        assert.ok(question);
+        question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "含义正确" }] }];
+      }
+      if (missingPrerequisite) {
+        const dependent = topics[1];
+        assert.ok(dependent);
+        dependent.prerequisites = ["t0"];
+        const prerequisite = topics[0]?.kps[0];
+        assert.ok(prerequisite);
+        prerequisite.quiz = [];
+      }
+    });
+    const correctLesson = () => {
+      f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
+      f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
+    };
+    correctLesson();
+    if (missingPrerequisite) {
+      correctLesson();
+    }
+    await f.qualify();
+    const originals = taskEvidence(f.log().records).filter((entry) =>
+      entry.task.kind === "lesson" && ["t0", "t1"].includes(entry.task.topicIds[0] ?? ""),
+    );
+    const target = missingPrerequisite ? "t1" : "t0";
+    const running = await f.select("quiz");
+    for (const [index, delivery] of (running.task?.deliveries ?? []).entries()) {
+      await f.submit(index, delivery.topicId !== target);
+    }
+    await f.call("quiz.finish", await f.guard());
+    assert.equal(replayLearning(taskEvidence(f.log().records), f.course()).forced.get(target), "review");
+    for (const id of missingPrerequisite ? ["t1", "t0"] : ["t0"]) {
+      const submission = originals.find((entry) => entry.task.topicIds[0] === id)?.attempts[0]?.submission;
+      assert.ok(submission);
+      f.models.expectStructured().succeed({ verdict: "incorrect", reason: "重判错误" });
+      await f.call("submission.appeal", {
+        submissionId: submission.submissionId,
+        expectedGradeRevision: 1,
+        reason: "复核历史课内关键答案",
+      });
+    }
+    const model = replayLearning(taskEvidence(f.log().records), f.course());
+    assert.equal(model.student[target], undefined);
+    assert.equal(model.forced.get(target), "lesson");
+    assert.deepEqual((await f.state()).menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["lesson", "t0"]]);
+    await f.reopen();
+    await f.select("lesson", "t0");
+    correctLesson();
+    await f.finishTask();
+    if (missingPrerequisite) {
+      await f.select("lesson", "t1");
+      correctLesson();
+      await f.finishTask();
+    }
+    assert.equal(replayLearning(taskEvidence(f.log().records), f.course()).forced.size, 0);
+    assert.ok(f.log().current()?.student[target]);
+  });
+}
+
+for (const kind of ["review", "quiz", "retake"] as const) {
+  for (const preparing of [true, false]) {
+    test(`${kind} ${preparing ? "准备中" : "作答中"}，历史提交的查询、重试、恢复和申诉均隐藏反馈与题解`, async (t) => {
+      const f = await fixture(t);
+      await f.qualify();
+      if (kind === "retake") {
+        const quiz = await f.select("quiz");
+        const wrong = quiz.task?.deliveries[0]?.topicId;
+        assert.ok(wrong);
+        await f.submit(0, false);
+        await f.answerRest();
+        await f.call("quiz.finish", await f.guard());
+        await f.select("review", wrong);
+        await f.finishTask();
+      } else if (kind === "review") {
+        f.time(start + 86_400_000);
+      }
+      const history = taskEvidence(f.log().records).map((entry) => entry.task.submissions[0]).filter(
+        (entry) => entry !== undefined,
+      );
+      assert.ok(history.length);
+      for (const submission of history) {
+        const result = await f.call("submission.get", { submissionId: submission.submissionId });
+        assert.equal(result.status, "found");
+        if (result.status === "found") {
+          assert.ok(result.submission.feedback);
+          assert.ok(result.submission.explanation);
+        }
+      }
+      f.failStart(preparing);
+      if (preparing) {
+        await assert.rejects(f.select(kind));
+      } else {
+        await f.select(kind);
+      }
+      assert.equal((await f.state()).restrictions.referenceContentAllowed, false);
+      for (const original of history) {
+        const queried = await f.call("submission.get", { submissionId: original.submissionId });
+        assert.equal(queried.status, "found");
+        if (queried.status !== "found") {
+          assert.fail("历史提交必须仍可恢复身份和原答");
+        }
+        const retried = await f.call("submission.submit", {
+          taskId: original.taskId,
+          deliveryId: original.deliveryId,
+          submissionId: original.submissionId,
+          response: original.response,
+        });
+        const resumed = await f.call("submission.resume", { submissionId: original.submissionId });
+        const appealed = await f.call("submission.appeal", {
+          submissionId: original.submissionId,
+          expectedGradeRevision: original.gradeRevision,
+          reason: "受限任务中重判历史原答",
+        });
+        for (const receipt of [queried, retried, resumed, appealed]) {
+          assert.ok(receipt.status === "found" || receipt.status === "recorded");
+          assert.equal(receipt.submission.feedback, undefined);
+          assert.equal(receipt.submission.explanation, undefined);
+          assert.equal(receipt.submission.submissionId, original.submissionId);
+          assert.deepEqual(receipt.submission.response, original.response);
+          assert.equal(receipt.submission.processing.status, "completed");
+        }
+        assert.ok(f.log().submission(original.submissionId)?.feedback);
+        assert.ok(f.log().submission(original.submissionId)?.explanation);
+      }
+      await f.reopen();
+      const stillRestricted = await f.call("submission.get", { submissionId: history[0]?.submissionId ?? "" });
+      assert.ok(stillRestricted.status === "found" && stillRestricted.submission.feedback === undefined);
+      await f.call("task.abort", await f.guard());
+      for (const original of history) {
+        const visible = await f.call("submission.get", { submissionId: original.submissionId });
+        assert.ok(visible.status === "found" && visible.submission.feedback && visible.submission.explanation);
+      }
+    });
+  }
+}
+
+for (const legacyPreparation of [false, true]) {
+  test(`测验准备失败并中止后保留耗尽的延后窗口与原候选${legacyPreparation ? "，兼容旧准备记录" : ""}`, async (t) => {
+    const f = await fixture(t);
+    await f.qualify();
+    const pending = structuredClone(f.log().current()?.xp?.pending);
+    assert.ok(pending);
+    await f.select("lesson", "t4");
+    await f.finishTask();
+    assert.equal(f.log().current()?.xp?.highWater, 181);
+    assert.deepEqual((await f.state()).menu?.candidates.map((entry) => entry.kind), ["quiz"]);
+    f.failStart(true);
+    await assert.rejects(f.select("quiz"));
+    if (legacyPreparation) {
+      await f.log().checkpoint(f.log().revision, (current, now) => {
+        assert.ok(current?.xp);
+        delete current.xp.pending;
+        return {
+          projection: current,
+          decision: {
+            policyVersion: "repa-flow-v2", now, seed: pending.seed,
+            candidates: [], selected: pending.id, scores: {},
+          },
+        };
+      });
+    }
+    await f.reopen();
+    await f.call("task.abort", await f.guard());
+    assert.deepEqual(f.log().current()?.xp?.pending, pending);
+    assert.equal(f.log().current()?.xp?.consumed, 0);
+    assert.deepEqual((await f.state()).menu?.candidates.map((entry) => entry.kind), ["quiz"]);
+    await assert.rejects(f.select("quiz"));
+    await f.call("task.abort", await f.guard());
+    assert.deepEqual(f.log().current()?.xp?.pending, pending);
+    f.failStart(false);
+    const running = await f.select("quiz");
+    assert.deepEqual(running.task?.topicIds, pending.topicIds);
+    assert.equal(f.log().current()?.xp?.pending, undefined);
+    assert.equal(f.log().current()?.xp?.consumed, 1);
+  });
+}
+
+test("历史申诉判分在测验开始后返回，响应按返回时的受限任务隐藏参考内容", async (t) => {
+  const f = await fixture(t, false, 2, undefined, (topics) => {
+    const question = topics[0]?.kps[0]?.practice?.[0];
+    assert.ok(question);
+    question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "含义正确" }] }];
+  });
+  for (let index = 0; index < 2; index++) {
+    f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
+  }
+  await f.qualify();
+  const original = taskEvidence(f.log().records)[0]?.task.submissions[0];
+  assert.ok(original);
+  const pending = f.models.expectStructured();
+  try {
+    const work = f.call("submission.appeal", {
+      submissionId: original.submissionId,
+      expectedGradeRevision: 1,
+      reason: "判分返回前切换任务",
+    });
+    await pending.requested;
+    await f.select("quiz");
+    pending.succeed({ verdict: "correct", reason: "正确" });
+    const receipt = await work;
+    assert.ok(receipt.status === "recorded");
+    assert.equal(receipt.submission.feedback, undefined);
+    assert.equal(receipt.submission.explanation, undefined);
+    assert.ok(f.log().submission(original.submissionId)?.feedback);
+  } finally {
+    pending.fail(new Error("测试结束"));
   }
 });

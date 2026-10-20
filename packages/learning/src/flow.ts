@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
-import { isDue } from "@repa/learning-model";
 import type { Host, MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
 import { contentVersion, parse, type ClientCapabilities } from "@repa/base/protocol";
 import type { ResolvedCourse } from "./course-sources.js";
@@ -18,6 +17,7 @@ import {
   requireTask,
   reviewResult,
   taskEvidence,
+  topicEligible,
   type TaskEvidence,
 } from "./flow-state.js";
 import { judgeSubmission } from "./judge.js";
@@ -223,7 +223,6 @@ export async function connectLearning(
       taskEvidence(records.records).filter((entry) => entry.task.taskId !== task.taskId),
       course,
     );
-    const topic = course.topics.find((entry) => entry.id === task.topicIds[0]);
     const phase = task.phase;
     const deliveredKp =
       phase.stage === "awaiting_answer"
@@ -244,15 +243,7 @@ export async function connectLearning(
         state: current.state,
       });
     }
-    const remembered = model.student[task.topicIds[0] ?? ""];
-    const forcedReview = model.forced.get(task.topicIds[0] ?? "") === "review";
-    const ineligibleReview =
-      task.kind === "review" && (!remembered || (!forcedReview && !isDue(remembered, clock() / 86_400_000)));
-    const ineligibleLesson =
-      task.kind === "lesson" &&
-      (!topic?.prerequisites.every((id) => model.student[id]) ||
-        (model.forced.size && model.forced.get(topic.id) !== "lesson"));
-    if (ineligibleReview || ineligibleLesson) {
+    if (!topicEligible(course, model, task.topicIds[0] ?? "", task.kind, clock())) {
       throw new RepaFault("stale_state", "任务已失去学习资格，请中止当前任务后重新选择", {
         reason: "stale",
         state: current.state,
@@ -602,7 +593,6 @@ export async function connectLearning(
     const xp = current.xp;
     if (xp && candidate.kind === "quiz") {
       xp.consumed++;
-      delete xp.pending;
     }
     if (xp && candidate.originalTaskId) {
       xp.origins[current.state.task.taskId] = candidate.originalTaskId;
@@ -644,6 +634,9 @@ export async function connectLearning(
       clock,
       isQuiz(task) ? 900_000 : 600_000,
     );
+    if (task.kind === "quiz" && current.xp) {
+      delete current.xp.pending;
+    }
   }
   method("task.resume", async (input, context) => {
     const current = state();
@@ -703,6 +696,15 @@ export async function connectLearning(
       completeQuiz(task, taskEvidence(records.records), false);
     } else {
       if (task.kind === "quiz" && current.xp) {
+        // 旧版本的 preparing 已删掉 pending；沿原选择记录恢复，不重置延后窗口。
+        if (!current.xp.pending) {
+          const history = records.records;
+          const selected = history.filter((record) => record.type === "checkpoint")
+            .findLast((record) => record.projection.state.task?.taskId === task.taskId && record.decision.selected)
+            ?.decision.selected;
+          current.xp.pending = history.filter((record) => "projection" in record)
+            .findLast((record) => record.projection.xp?.pending?.id === selected)?.projection.xp?.pending;
+        }
         current.xp.consumed--;
       }
       if (current.xp) {
