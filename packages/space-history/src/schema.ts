@@ -5,6 +5,8 @@ const object = <T extends Record<string, TSchema>>(properties: T) =>
 const identifier = Type.String({ minLength: 1 });
 
 export const HistoryOptionsSchema = object({
+  // 调用方已持有空间锁，允许打开前清理上次进程退出后遗留的 Git 锁。
+  exclusive: Type.Optional(Type.Boolean()),
   gitPath: Type.Optional(identifier),
   maxFileBytes: Type.Optional(Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })),
 });

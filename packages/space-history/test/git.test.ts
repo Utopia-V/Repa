@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -103,16 +103,14 @@ test("继承的 Git 环境与默认全局忽略不改变 shadow 索引或空间�
 test("输入生成器失败后终止并等待子进程，保留生成器原因", { timeout: 5_000 }, async (t) => {
   const f = await fixture(t);
   const pidFile = join(f.space, "child.pid");
-  const binary = join(f.space, "input-reader");
+  const binary = join(f.space, "input-reader.cjs");
   await writeFile(binary, [
-    `#!${process.execPath}`,
     'const fs = require("node:fs");',
     `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
     'process.stdin.on("data", () => {});',
     'setInterval(() => {}, 1000);',
     "",
   ].join("\n"));
-  await chmod(binary, 0o755);
   const failure = new Error("输入读取失败");
   let finalized = false;
   let pid: number | undefined;
@@ -134,7 +132,7 @@ test("输入生成器失败后终止并等待子进程，保留生成器原因",
       finalized = true;
     }
   }
-  await assert.rejects(new Git(f.space, f.gitDir, binary).run(["read"], input()), (error: unknown) => {
+  await assert.rejects(new Git(f.space, f.gitDir, process.execPath, [binary]).run(["read"], input()), (error: unknown) => {
     assert.ok(error instanceof GitError);
     assert.equal(error.cause, failure);
     return true;

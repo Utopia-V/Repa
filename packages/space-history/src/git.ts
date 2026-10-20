@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { devNull } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -22,6 +21,7 @@ export class Git {
     private readonly space: string,
     private readonly gitDir: string,
     private readonly binary = "git",
+    private readonly binaryArgs: string[] = [],
   ) {}
 
   async run(
@@ -36,7 +36,8 @@ export class Git {
       }
     }
     env.GIT_CONFIG_NOSYSTEM = "1";
-    env.GIT_CONFIG_GLOBAL = devNull;
+    // Git for Windows 使用 MSYS 路径，不接受 Node 的 Windows 空设备路径。
+    env.GIT_CONFIG_GLOBAL = "/dev/null";
     env.GIT_ATTR_NOSYSTEM = "1";
     // empty-index 从不创建，Git 把缺失的索引当作空索引；只读命令借此不受共享索引内容影响。
     env.GIT_INDEX_FILE = join(this.gitDir, options.emptyIndex ? "empty-index" : "index");
@@ -54,11 +55,12 @@ export class Git {
     const workTreeArgs = args[0] === "init" ? [] : [`--work-tree=${this.space}`];
     const commandArgs = args[0] === "init" ? ["init", "--template=", ...args.slice(1)] : args;
     const child = spawn(this.binary, [
+      ...this.binaryArgs,
       `--git-dir=${this.gitDir}`,
       ...workTreeArgs,
-      "-c", `core.excludesFile=${devNull}`,
-      "-c", `core.attributesFile=${devNull}`,
-      "-c", `core.hooksPath=${devNull}`,
+      "-c", "core.excludesFile=/dev/null",
+      "-c", "core.attributesFile=/dev/null",
+      "-c", "core.hooksPath=/dev/null",
       "-c", "gc.auto=0",
       "-c", "maintenance.auto=false",
       "-c", "core.fsmonitor=false",
@@ -103,6 +105,11 @@ export class Git {
     });
     await Promise.race([completion, writing]);
     const code = await completion;
+    if (!inputFinished && inputError === undefined && code === 0 && processError === undefined) {
+      // Windows 上子进程的 close 可能先于 stdin 的 finish 到达，负载高时很常见。Git 正常退出说明输入已经读完，
+      // 给写入一点时间收尾；但不无限等。
+      await Promise.race([writing, new Promise((resolve) => { setTimeout(resolve, 1000).unref(); })]);
+    }
     if (!inputFinished && inputError === undefined) {
       // 任意 AsyncIterable 的 next() 可能无法取消，进程结束后不能继续等它。
       const error = new Error("Git 在输入流结束前退出");

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -7,24 +7,20 @@ import test, { type TestContext } from "node:test";
 import { Git, GitError } from "../src/git.js";
 import { openHistory } from "../src/index.js";
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-async function fixture(t: TestContext, wrapperBody?: (root: string) => string) {
+async function fixture(t: TestContext, intercept?: (root: string, args: string[], run: () => Promise<Buffer>) => Promise<Buffer>) {
   const root = await mkdtemp(join(tmpdir(), "repa-history-maintenance-"));
   t.after(async () => {
     await rm(root, { recursive: true, force: true });
   });
   const space = join(root, "space");
   await mkdir(space);
-  let gitPath: string | undefined;
-  if (wrapperBody) {
-    gitPath = join(root, "git-wrapper");
-    await writeFile(gitPath, `#!/bin/sh\n${wrapperBody(root)}\nexec git "$@"\n`);
-    await chmod(gitPath, 0o700);
+  if (intercept) {
+    const run = Git.prototype.run;
+    t.mock.method(Git.prototype, "run", function (this: Git, ...args: Parameters<typeof run>) {
+      return intercept(root, args[0], () => run.apply(this, args));
+    });
   }
-  const history = await openHistory(space, gitPath ? { gitPath } : {});
+  const history = await openHistory(space);
   const gitDir = join(space, ".repa", "history.git");
   const git = new Git(space, gitDir);
   return { root, space, history, gitDir, git };
@@ -147,14 +143,11 @@ test("维护永久保留旧提交、不可达对象和过期 reflog，旧版本�
 });
 
 test("维护排在活动保存之后并在后续活动之前完成，不后台脱离队列", async (t) => {
-  const f = await fixture(t, (root) => `
-for argument in "$@"; do
-  if [ "$argument" = gc ]; then
-    git "$@" || exit $?
-    printf 'finished\\n' >> ${shellQuote(join(root, "maintenance"))}
-    exit 0
-  fi
-done`);
+  const f = await fixture(t, async (root, args, run) => {
+    const result = await run();
+    if (args.includes("gc")) await writeFile(join(root, "maintenance"), "finished\n");
+    return result;
+  });
   let enter = () => {};
   let release = () => {};
   const entered = new Promise<void>((resolve) => { enter = resolve; });
@@ -180,15 +173,18 @@ done`);
 });
 
 test("维护失败保留重试机会，force 不绕过 Git 自身维护锁", async (t) => {
-  const f = await fixture(t, (root) => `
-for argument in "$@"; do
-  if [ "$argument" = --force ]; then exit 2; fi
-  if [ "$argument" = gc ] && [ -f ${shellQuote(join(root, "fail-once"))} ]; then
-    rm ${shellQuote(join(root, "fail-once"))}
-    printf 'injected maintenance failure\\n' >&2
-    exit 1
-  fi
-done`);
+  const f = await fixture(t, async (root, args, run) => {
+    if (args.includes("--force")) throw new GitError("维护不应强行绕过锁", 2);
+    const flag = join(root, "fail-once");
+    if (args.includes("gc") && await stat(flag).then(() => true, (error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+      throw error;
+    })) {
+      await rm(flag);
+      throw new GitError("注入维护失败", 1);
+    }
+    return run();
+  });
   await importBlobs(f.git, 0, 1023, 2048);
   const before = await objects(f.git);
   await writeFile(join(f.root, "fail-once"), "");

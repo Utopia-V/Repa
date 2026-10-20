@@ -416,3 +416,24 @@ test("闲置维护已排队但尚未开始时丢失空间锁，不再打包对�
   await active;
   assert.ok(await looseObjects(space.root) >= 1_100);
 });
+
+test("空间独占打开时清理残留历史锁，正文与已有记录保留", async (t) => {
+  const { space } = await fixture(t);
+  const text = "作者原稿\r\n第二行\n";
+  await space.filesFor({ kind: "plugin", pluginId: "writer" }).write("正文.md", text);
+  const revisions = await space.history.list();
+  await space.close();
+  for (const file of ["index.lock", "config.lock", "refs/heads/history.lock"]) {
+    await writeFile(path.join(space.dataDir, "history.git", file), "");
+  }
+  const reopened = await openSpace(space.root, { watch: false });
+  try {
+    assert.equal(await readFile(path.join(space.root, "正文.md"), "utf8"), text);
+    assert.deepEqual(await reopened.history.list(), revisions);
+    for (const file of ["index.lock", "config.lock", "refs/heads/history.lock"]) {
+      await assert.rejects(access(path.join(space.dataDir, "history.git", file)), { code: "ENOENT" });
+    }
+  } finally {
+    await reopened.close();
+  }
+});

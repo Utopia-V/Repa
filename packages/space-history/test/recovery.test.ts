@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 
-import { GitError } from "../src/git.js";
+import { Git, GitError } from "../src/git.js";
 import { openHistory, type ActivitySource } from "../src/index.js";
 
 function deferred() {
@@ -13,10 +13,6 @@ function deferred() {
     resolve = done;
   });
   return { promise, resolve };
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 // command 是要注入失败的 Git 子命令：整空间快照用 update-ref 更新引用，按路径提交由 fast-import 更新引用。
@@ -28,20 +24,20 @@ async function fixture(t: TestContext, failure: "before" | "after", command = "u
   const space = join(root, "space");
   await mkdir(space);
   const flag = join(root, "fail-once");
-  const wrapper = join(root, "git-wrapper");
-  // 只在显式设置标记后注入一次错误，其余命令与恢复均使用真实 Git。
-  await writeFile(wrapper, `#!/bin/sh
-for argument in "$@"; do
-  if [ "$argument" = ${command} ] && [ -f ${shellQuote(flag)} ]; then
-    mv ${shellQuote(flag)} ${shellQuote(`${flag}.consumed`)} || exit 2
-    ${failure === "after" ? 'git "$@" || exit $?\n    ' : ""}printf 'injected update-ref failure\\n' >&2
-    exit 1
-  fi
-done
-exec git "$@"
-`);
-  await chmod(wrapper, 0o700);
-  const history = await openHistory(space, { gitPath: wrapper });
+  const run = Git.prototype.run;
+  // 在真实 Git 命令的前后注入一次失败，不依赖 shell 或可执行脚本权限。
+  t.mock.method(Git.prototype, "run", async function (this: Git, ...args: Parameters<typeof run>) {
+    if (args[0].includes(command) && await stat(flag).then(() => true, (error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+      throw error;
+    })) {
+      await rename(flag, `${flag}.consumed`);
+      if (failure === "after") await run.apply(this, args);
+      throw new GitError("注入保存失败", 1);
+    }
+    return run.apply(this, args);
+  });
+  const history = await openHistory(space);
   const [baseline] = await history.list();
   assert.ok(baseline);
   return { space, flag, history, baseline };
