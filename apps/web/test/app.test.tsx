@@ -60,7 +60,7 @@ describe("Web App bootstrap", () => {
     expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
     expect(loadConnection).toHaveBeenCalledOnce();
     // 连接时声明对话里的询问卡片能显示的作答位。
-    expect(RepaClient.connect).toHaveBeenCalledWith(connection, { capabilities: { interaction: interactionCapabilities } });
+    expect(RepaClient.connect).toHaveBeenCalledWith(connection, { capabilities: { interaction: interactionCapabilities, services: ["python.run"] } });
   });
 
   it("启动失败时显示原因并允许重试", async () => {

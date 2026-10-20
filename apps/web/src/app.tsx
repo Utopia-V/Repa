@@ -8,6 +8,8 @@ import { routes } from "./routes";
 import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
 import { StoreProvider } from "@/hooks/use-app-store";
 import { interactionCapabilities } from "@/lib/ask";
+import { createPythonRunner } from "@/lib/python/runner";
+import { PYTHON_RUN, servePythonRun } from "@/lib/python/service";
 import type { AppStore } from "@/lib/store";
 
 type BootstrapState =
@@ -63,6 +65,7 @@ export function App({
   loadConnection?: LoadConnection;
 }) {
   const router = useMemo(() => createBrowserRouter(routes), []);
+  const pythonRunner = useMemo(() => createPythonRunner(), []);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<BootstrapState>({ status: "starting" });
   const connected = useStore(store, (current) => current.connected);
@@ -71,6 +74,7 @@ export function App({
     let active = true;
     let client: RepaClient | undefined;
     let removeListener: (() => void) | undefined;
+    let stopPython: (() => void) | undefined;
     setState({ status: "starting" });
 
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -79,12 +83,16 @@ export function App({
       try {
         const connection = await loadConnection();
         if (!active) return;
-        const next = await RepaClient.connect(connection, { capabilities: { interaction: interactionCapabilities } });
+        const next = await RepaClient.connect(connection, {
+          capabilities: { interaction: interactionCapabilities, services: [PYTHON_RUN] },
+        });
         if (!active) {
           await next.close();
           return;
         }
         client = next;
+        stopPython?.();
+        stopPython = servePythonRun(next, pythonRunner);
         removeListener = next.onConnectionChange((connected) => {
           if (!active) return;
           store.getState().setConnected(connected);
@@ -112,9 +120,12 @@ export function App({
       active = false;
       clearTimeout(reconnectTimer);
       removeListener?.();
+      stopPython?.();
       void client?.close();
     };
-  }, [attempt, loadConnection, store]);
+  }, [attempt, loadConnection, pythonRunner, store]);
+
+  useEffect(() => () => pythonRunner.close(), [pythonRunner]);
 
   if (state.status !== "ready") {
     return (
