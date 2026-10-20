@@ -240,6 +240,20 @@ it("账号登录显示后端给的链接和选项，关闭对话框取消等待�
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
+it("登录链接不是网页地址时只显示原文，不做成可点的链接", async () => {
+  const fake = backend();
+  await renderSettings(fake);
+  fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
+  fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Anthropic" }));
+  fireEvent.click(within(await screen.findByRole("dialog", { name: "连接 Anthropic" })).getByRole("button", { name: /用账号登录/ }));
+
+  await vi.waitFor(() => expect(fake.logins).toHaveLength(1));
+  act(() => fake.emit("confirm.request", { id: "d1", request: { kind: "display", title: "打开链接完成登录", url: "javascript:alert(1)" } }));
+  const dialog = await screen.findByRole("dialog", { name: "登录 Anthropic" });
+  expect(await within(dialog).findByText("javascript:alert(1)")).toBeTruthy();
+  expect(within(dialog).queryByRole("link")).toBeNull();
+});
+
 it("登录失败显示原因，可以重试", async () => {
   const fake = backend();
   await renderSettings(fake);
