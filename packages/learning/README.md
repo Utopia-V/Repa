@@ -1,12 +1,12 @@
 # 学习插件：课程文件与检查
 
-`@repa/learning` 目前提供学习插件的第一块：课程文件的格式、读取和检查，判分结果与提交的公开约定（`@repa/learning/protocol`），以及第一门课“Python：读懂代码，说清需求”的课程文件。课程有 48 个 topic，内容都已写完整并通过检查。插件接口、学生模型、作答记录和调度还没有实现。
+`@repa/learning` 目前提供学习插件的第一块：课程文件的格式、读取和检查，任务画面、提交恢复与判分的公开契约（`@repa/learning/protocol`），以及第一门课“Python：读懂代码，说清需求”的课程文件。课程有 48 个 topic，内容都已写完整并通过检查。插件接口、学生模型、作答记录和调度还没有实现。
 
 在仓库根目录运行 `npm run course:check` 检查全部课程；写课的要求和写法见[写课说明](courses/README.md)。
 
 ## 设计思路
 
-课程内容和学习状态分开存放。课程是每个 topic 一个结构化文件，可以用编辑器改、用 git 管理、打包分享；作答证据和学生状态以后放进插件的 SQLite，按“题目 id 加版本”引用课程里的题。
+课程内容和学习状态分开存放。课程是每个 topic 一个结构化文件，可以用编辑器改、用 git 管理、打包分享；作答证据和学生状态由后续记录任务保存到插件自己的只追加日志，按“题目 id 加版本”引用课程里的题。
 
 格式选 YAML，一个 topic 一个文件。讲解、题目和答案在同一个文件里，讲解是块文字里的 Markdown，题目是结构化数据；作者只学一种语法，Agent 也容易写对，git diff 按行就能看清。YAML 读出来之后先按 TypeBox schema 严格校验，不认识的字段直接报错，问题定位到文件的行和列。题目的写法贴近交互词汇的 `Item`：题面、五种作答位、选项和单元格的字段名都一样，只在作答位上多出答案、比较方式、核对程序和测试这些私有字段；投影成学生可见的题目时按白名单取字段，私有部分不会带出去。
 
@@ -22,19 +22,21 @@
 
 ### 公开约定
 
-[`src/protocol.ts`](src/protocol.ts) 经 `@repa/learning/protocol` 导出，插件方法照着它返回，前端的学习组件照着它渲染。它只依赖 `typebox` 和 `@repa/base/protocol`，浏览器里也能用。定义照 2026-10-12 从底座移走的原文，只留学习用得上的；作答的题目引用和结构问题列表直接取底座的 schema，不另行定义。
+[`src/protocol.ts`](src/protocol.ts) 经 `@repa/learning/protocol` 导出，插件方法照着它返回，前端的学习组件照着它渲染。它只依赖 `typebox` 和 `@repa/base/protocol`，浏览器里也能用。作答的题目引用和结构问题列表直接取底座的 schema，不另行定义。当前任务、提交恢复、内容、测验与 `python.run` 的方法及审阅边界见[前端契约](../../docs/development/learning-protocol.md)；方法处理器由后续任务接入。
 
 | 名称 | 含义 |
 | --- | --- |
 | `Verdict` | `correct`、`partial`、`incorrect`；`ungraded` 是本来就不判，`pending` 是已保存、判分还没完成 |
 | `Score` | `{ earned, max }` |
-| `Judge` | 判分方式：`rule`、`tests`、`model`、`person`；`model` 判的反馈界面标明仅供参考，不更新学习状态 |
+| `Judge` | 判分方式：`rule`、`tests`、`model`、`person`；来源与证据资格分开；确定的隔离模型判分可以参与课内推进，资格由后端的 `evidence` 给出 |
 | `Mark` | 选项、单元格（`行 id/列 id`）或排列位置上的标记：`correct`、`incorrect`、`missed` |
 | `TestResult`、`CriterionResult` | 代码题测试用例的结果（`hidden` 的只报结果）；按评分要点的反馈（`unsure` 表示判分方没有把握） |
 | `SlotFeedback`、`Feedback` | 作答位一级和整题一级的反馈；`expected` 是参考答案，只在插件决定释放时出现；`Feedback.item` 指向作答时的题目和版本 |
 | `LearnerResponse`、`checkSubmission` | 底座的作答加上 `dontKnow`。学习者说“不会”时不带作答，只查题目和版本；平常的作答交给底座的 `checkResponse` |
 | `SubmitResult` | `rejected`：格式不对，没有记为作答，只交回问题列表；`recorded`：已记为一次作答，练习时通常带反馈，测验交卷前不带 |
 | `readFeedback`、`readSubmitResult` | 前端宽松读取，用底座的 `readLenient`：不认识的字段丢掉，认识的字段类型不对时读取失败；不认识的 verdict 读作 `ungraded`，不认识的 judge 丢掉，标记、测试结果和评分要点里不认识的条目逐条丢掉 |
+
+`learningMethods`、`LearningState`、`SubmissionReceipt`、`ContentRef` 及 Python 服务 schema 的用法见[前端契约](../../docs/development/learning-protocol.md#实现细节)。`build` 同时把公开入口独立打包为浏览器 ESM，`build:protocol` 可以单独执行。
 
 课程检查里的规则判分（[`src/check/grade.ts`](src/check/grade.ts)）用的就是这里的 `Verdict`。
 
