@@ -1,6 +1,6 @@
 # 学习插件的前端契约
 
-`@repa/learning/protocol` 提供任务画面、提交恢复、内容读取和 `python.run` 的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约，方法处理器由学习记录、教学、辅导和测验任务接续实现。
+`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约，方法处理器由学习记录、教学、辅导和测验任务接续实现。
 
 ## 设计思路
 
@@ -28,7 +28,7 @@ const state = readLearningResult("state.get", raw);
 if (state.ok) renderLearning(state.value);
 ```
 
-`learningMethods` 登记每个方法的 `input` 和 `result` schema，`LearningInput<M>`、`LearningResult<M>` 从中推导。发送端用底座 `parse` 或 `Value.Check` 严格校验；读取端用 `readLearningResult`、`readLearningEvent`、`readLearningError`。Python 服务另有 `readPythonRunRequest` 和 `readPythonRunResult`。
+`learningMethods` 登记每个方法的 `input` 和 `result` schema，`LearningInput<M>`、`LearningResult<M>` 从中推导。发送端用底座 `parse` 或 `Value.Check` 严格校验；读取端用 `readLearningResult`、`readLearningEvent`、`readLearningError`。
 
 宽松读取会去掉新增字段，保留认识的字段并检查类型；错误类型导致读取失败。不认识的 verdict 读成 `ungraded`，不认识的来源不显示。未知任务阶段使状态读取失败，界面应要求更新客户端，不猜测可执行操作。嵌套 `Item` 仍经 `readItem` 补齐能力要求，未知作答位不会被误读为可以提交的残缺题目。底座的宽松读取也支持可空对象和数值，例如空任务、未开始的计时与尚不可估算的 ETA；TypeBox 的枚举沿用字面量联合的类型检查和未知值处理规则。
 
@@ -101,22 +101,14 @@ if (state.ok) renderLearning(state.value);
 
 ### python.run
 
-后端经 `host.services.call("python.run", request)` 发 `PythonRunRequest`，前端在 Web Worker 中运行课程锁定的 Pyodide **314.0.7**，回 `PythonRunResult`。领域请求的 `executionId` 用于识别实际执行尝试；delivery、submission、Item、slot 和目标 grade revision 都随请求与结果携带。后端接收时核对全部关联字段、运行时版本，以及每个请求测试 index 恰好返回一次，拒绝迟到或串题的结果。
+代码题在前端运行。服务的输入输出由 #49 定义，Web 与 Desktop 的实现见 #51、#52：前端在隔离的 Worker 里执行 `runner.py` 的 program 任务并返回结果，测试编排、期望值和判分都在后端。后端接入时按以下要求使用它：
 
-请求的 `runtime` 包含 Python、包版本及 prelude；`fixtures` 和 `tests` 复用课程格式，`data` 给出测试未指定时的夹具。`program` 标明普通代码或后端按原答组装的 Parsons 代码，不含参考解。每个测试遵循现有检查器的次序：
-
-1. 初始化规定运行时，核对实际版本，并加载所需包。准备好后才开始单次求值计时。
-2. 在新命名空间执行 prelude、所选夹具和测试 setup，独立求值 expect 右侧表达式，序列化成 expected。
-3. 在另一个新命名空间重做相同准备，运行学习者程序，再求值 expect 左侧表达式，收集 actual captures、stdout 和 doctest 的交互输出。doctest 输入的解析沿现有 `parseDoctest`，返回项与解析后的输入顺序相同。
-4. 后端用现有 `sameValue`、`sameDoctestOutput` 比较值与输出，形成判分。前端不返回“正确”或自行决定证据资格。
-
-`expected` 和 `actual.captures` 按表达式索引，每项为 `{ value }` 或 `{ error: { type, message } }`。value 是 `runner.py` 的 `canon()` 带标签记录，作为不透明数据传输，例如 `{ t: "int", v: "3" }`；整数、浮点、NaN、容器和表格都不转换为 JS 数值或显示字符串后再比较。
-
-`PYTHON_RUN_LIMITS` 固定 Repa 工程参数：每次期望求值或原答运行最多 10 秒，包含其命名空间准备；值最多 10,000 个元素、深度 30、字符串或 repr 最长 20,000，单次输出最多 65,536 字符。超过值限制返回现有 `too_large` 标签，不截断后比较。它表示当前测试无法形成可靠比较，应待恢复／修正测试，不据此把学习者判错。
-
-原答的异常放在 `actual.error`，原答超时为 `student_timeout`，二者可以形成学生代码失败。运行时初始化、版本不符、夹具/setup 或期望求值失败属于环境问题：分别返回整体 `unavailable` 或该测试的 `environment_failure`，后端保留待恢复。期望 captures 的 error 同样按环境问题处理。Worker 意外结束不能自动归为学生超时，只有明确在原答运行期限耗尽时才使用 `student_timeout`。
-
-底座通知 `service.closed` 时，前端结束对应执行并销毁 Worker，不再提交结果；调用方取消、断线和初始化失败也不能形成学习失败证据。每次重试生成新的 execution id，但沿原 submission 和目标判分版本继续。前端沙箱执行、取消以及后端形成判分仍待双方接入。
+- 期望值在课程核对时预先算好，随课程发布，绑定题目内容版本、测试、夹具、prelude、运行环境和 runner 版本。运行时后端只比较；缺少有效的预计算结果时，这道题不用于正式判分。参考解、`verify`、期望值和 doctest 的期望输出不发给前端；测试的输入、setup、调用语句和 doctest 输入会发给前端，`hidden` 只控制展示。
+- 一次正式提交的全部测试，作为一次服务调用，在一个全新的 Worker 里按顺序执行。辅导、示例和学习者自己运行的代码不与正式判分共用 Worker。
+- 结果带实际加载的运行环境版本。后端核对版本，并核对每个 capture 和 doctest 都有对应结果。
+- 超时按阶段归因：学习者程序及其被检查调用时超时，才形成作答结果；准备、收尾阶段的超时和 Worker 意外退出属于执行失败，保留待恢复。某个测试超时后整批终止，未执行的测试不算失败。
+- `too_large` 表示这次无法可靠比较，不判学习者错。
+- 结果落盘前，后端核对提交和目标判分版本仍然有效。
 
 ## 未完成项与待验证项
 

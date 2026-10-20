@@ -387,4 +387,3 @@ export function readLearningError(value: unknown): ReadResult<LearningErrorDetai
   return readLearning<LearningErrorDetails>(LearningErrorDetailsSchema, value);
 }
 
-export * from "./python-protocol.js";

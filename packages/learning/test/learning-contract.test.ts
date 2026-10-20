@@ -6,11 +6,11 @@ import { Value } from "typebox/value";
 import { canRender, parse } from "@repa/base/protocol";
 import {
   ContentPageSchema, LearningEventSchema, LearningStateSchema, SubmissionReceiptSchema,
-  PythonRunRequestSchema, PythonRunResultSchema, learningMethods, missingDeliveryCapabilities,
-  readLearningError, readLearningEvent, readLearningResult, readPythonRunRequest, readPythonRunResult,
+  learningMethods, missingDeliveryCapabilities,
+  readLearningError, readLearningEvent, readLearningResult,
 } from "../src/protocol.js";
 import { sameValue } from "../src/check/values.js";
-import { accepted, delivery, lesson, now, page, pythonRequest, pythonResult, recoveryTrace } from "./fixtures/learning-contract.js";
+import { accepted, delivery, lesson, now, page, recoveryTrace } from "./fixtures/learning-contract.js";
 
 const capabilities = { interaction: { vocabulary: 1, supports: ["block.markdown", "slot.code"] }, services: ["python.run"] };
 
@@ -130,34 +130,6 @@ test("讲解、例题、中止和 review 使用同一任务画面，隔离模型
   assert.deepEqual(readLearningResult("submission.submit", receipt), { ok: true, value: receipt });
   const review = { ...state, task: { ...state.task, kind: "review", deliveries: [{ ...delivery, mode: "review" }] } };
   assert.ok(Value.Check(LearningStateSchema, review));
-});
-
-test("python.run 分开返回期望值与原答运行结果，值可直接交给现有比较器", () => {
-  assert.ok(Value.Check(PythonRunRequestSchema, pythonRequest));
-  assert.ok(Value.Check(PythonRunResultSchema, pythonResult));
-  assert.deepEqual(readPythonRunRequest({ ...pythonRequest, future: true }), { ok: true, value: pythonRequest });
-  assert.deepEqual(readPythonRunResult({ ...pythonResult, future: true }), { ok: true, value: pythonResult });
-  assert.equal(pythonResult.status, "completed");
-  if (pythonResult.status !== "completed") return;
-  const outcome = pythonResult.tests[0]?.outcome;
-  assert.ok(outcome?.status === "done");
-  const expected = outcome.expected.result;
-  const actual = outcome.actual.captures.result;
-  assert.ok(expected && actual && "value" in expected && "value" in actual);
-  assert.ok(sameValue(expected.value, actual.value));
-  assert.equal(Value.Check(PythonRunRequestSchema, { ...pythonRequest, runtime: { ...pythonRequest.runtime, pyodide: "other" } }), false);
-  assert.equal(Value.Check(PythonRunRequestSchema, { ...pythonRequest, solution: "参考解" }), false);
-  assert.equal(readPythonRunResult({ ...pythonResult, gradeRevision: "1" }).ok, false);
-  assert.ok(Value.Check(PythonRunRequestSchema, { ...pythonRequest, program: { ...pythonRequest.program, source: "parsons" } }));
-  const tableRequest = { ...pythonRequest, fixtures: { prices: { kind: "dataframe", name: "prices", columns: { price: [2, 4] } } } };
-  assert.ok(Value.Check(PythonRunRequestSchema, tableRequest));
-  for (const outcome of [
-    { status: "student_timeout" }, { status: "environment_failure", message: "夹具初始化失败" },
-    { status: "done", expected: {}, actual: { stdout: "", error: { type: "NameError", message: "未定义" }, captures: {}, doctest: [] } },
-  ]) assert.ok(Value.Check(PythonRunResultSchema, { ...pythonResult, tests: [{ index: 0, outcome }] }));
-  const unavailable = { ...pythonResult, status: "unavailable", tests: undefined, runtime: undefined, reason: "worker_failed", message: "worker 已结束" };
-  const { tests: _tests, runtime: _runtime, ...failure } = unavailable;
-  assert.ok(Value.Check(PythonRunResultSchema, failure));
 });
 
 test("公开协议独立构建成浏览器 ESM，只加载 TypeBox 与底座协议且不带 Node 内建模块", async () => {

@@ -1,9 +1,6 @@
 /** Aqua 审阅用的连续轨迹；仅表达协议画面，不模拟 c1 的持久化或教学转换。 */
 import type { Content, Item } from "@repa/base/protocol";
-import {
-  PYTHON_RUN_LIMITS,
-  type ContentPage, type Delivery, type LearningState, type PythonRunRequest, type PythonRunResult, type Submission,
-} from "../../src/protocol.js";
+import type { ContentPage, Delivery, LearningState, Submission } from "../../src/protocol.js";
 
 const markdown = (text: string): Content => [{ type: "markdown", text }];
 export const version = `sha256:${"a".repeat(64)}`;
@@ -126,22 +123,3 @@ export function recoveryTrace(): LearningState[] {
   }
   return [answering, pending, reconnect, feedback, menu, preparing, quiz, ended];
 }
-export const pythonRequest: PythonRunRequest = {
-  executionId: "execution-1", taskId: accepted.taskId, deliveryId: delivery.deliveryId, submissionId: accepted.submissionId,
-  gradeRevision: 1, item: accepted.response.item, slotId: "s1",
-  runtime: {
-    pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" },
-    prelude: "import pandas as pd\nimport numpy as np",
-  },
-  fixtures: { prices: { kind: "python", code: "prices = [2, 4]" } }, data: ["prices"],
-  program: { source: "code", code: "result = [p + 1 for p in prices]" },
-  tests: [{ name: "加一", expect: { result: "[3, 5]" }, stdout: "" }], limits: PYTHON_RUN_LIMITS,
-};
-export const pythonResult: PythonRunResult = {
-  executionId: pythonRequest.executionId, taskId: accepted.taskId, deliveryId: delivery.deliveryId, submissionId: accepted.submissionId,
-  gradeRevision: 1, item: accepted.response.item, slotId: "s1", status: "completed", runtime: pythonRequest.runtime,
-  tests: [{ index: 0, outcome: {
-    status: "done", expected: { result: { value: { t: "list", v: [{ t: "int", v: "3" }, { t: "int", v: "5" }] } } },
-    actual: { stdout: "", error: null, captures: { result: { value: { t: "list", v: [{ t: "int", v: "3" }, { t: "int", v: "5" }] } } }, doctest: [] },
-  } }],
-};

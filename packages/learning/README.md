@@ -24,7 +24,7 @@
 
 ### 公开约定
 
-[`src/protocol.ts`](src/protocol.ts) 经 `@repa/learning/protocol` 导出，插件方法照着它返回，前端的学习组件照着它渲染。它只依赖 `typebox` 和 `@repa/base/protocol`，浏览器里也能用。作答的题目引用和结构问题列表直接取底座的 schema，不另行定义。当前任务、提交恢复、内容、测验与 `python.run` 的方法及审阅边界见[前端契约](../../docs/development/learning-protocol.md)；方法处理器由后续任务接入。
+[`src/protocol.ts`](src/protocol.ts) 经 `@repa/learning/protocol` 导出，插件方法照着它返回，前端的学习组件照着它渲染。它只依赖 `typebox` 和 `@repa/base/protocol`，浏览器里也能用。作答的题目引用和结构问题列表直接取底座的 schema，不另行定义。当前任务、提交恢复、内容与测验的方法及审阅边界见[前端契约](../../docs/development/learning-protocol.md)；方法处理器由后续任务接入。
 
 | 名称 | 含义 |
 | --- | --- |
