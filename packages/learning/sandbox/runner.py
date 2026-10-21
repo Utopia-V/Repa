@@ -146,21 +146,11 @@ def run_quietly(code, namespace, filename):
 
 def build_namespace(data, prelude=""):
     """全新的命名空间：先运行课程清单的运行前导，再准备题目的数据。"""
-    namespace = new_namespace(prelude)
-    load_data(namespace, data)
-    return namespace
-
-
-def new_namespace(prelude=""):
     namespace = {"__name__": "__main__", "__builtins__": builtins}
     if prelude:
         output, error = run_quietly(prelude, namespace, "<prelude>")
         if error:
             raise RuntimeError(f"课程清单的运行前导出错：{error['type']}: {error['message']}")
-    return namespace
-
-
-def load_data(namespace, data):
     for fixture in data:
         if fixture["kind"] == "dataframe":
             frame = pd.DataFrame(fixture["columns"], index=fixture.get("index"))
@@ -171,6 +161,7 @@ def load_data(namespace, data):
             output, error = run_quietly(fixture["code"], namespace, f"<data {fixture['label']}>")
             if error:
                 raise RuntimeError(f"数据 {fixture['label']} 的准备代码出错：{error['type']}: {error['message']}")
+    return namespace
 
 
 # ---------------------------------------------------------------------------
@@ -503,15 +494,11 @@ def job_verify(job):
 
 def prepared(job):
     namespace = build_namespace(job["data"], job.get("prelude", ""))
-    run_setup(namespace, job.get("setup"))
-    return namespace
-
-
-def run_setup(namespace, setup):
-    if setup:
-        out, error = run_quietly(setup, namespace, "<setup>")
+    if job.get("setup"):
+        out, error = run_quietly(job["setup"], namespace, "<setup>")
         if error:
             raise RuntimeError(f"测试的 setup 出错：{error['type']}: {error['message']}")
+    return namespace
 
 
 def job_expect(job):
@@ -550,64 +537,6 @@ def job_program(job):
 
 
 JOBS = {"verify": job_verify, "expect": job_expect, "program": job_program}
-
-
-def frontend_test(line):
-    """前端 python.run 的一个测试，结果与 program 任务相同，但一步一步执行。
-
-    每个阶段开始前先产出 (阶段, 序号)，Worker 转告页面；超时时页面结束整个 Worker，
-    按最后收到的阶段判断停在哪里。capture 的求值算学习者的，序列化算运行器的，所以拆成两步。
-    生成器的返回值是 JSON：{"status": "done", ...program 任务的结果} 或 {"status": "failed", "phase", "error"}。
-    """
-    job = json.loads(line)
-    phase = "prelude"
-    try:
-        yield phase, None
-        namespace = new_namespace(job.get("prelude", ""))
-        phase = "data"
-        yield phase, None
-        load_data(namespace, job["data"])
-        phase = "setup"
-        yield phase, None
-        run_setup(namespace, job.get("setup"))
-        phase = "program"
-        yield phase, None
-        stdout, error = run_quietly(job["program"], namespace, "<作答>")
-        captures = {}
-        for index, expression in enumerate(job["captures"]):
-            phase = "captures"
-            yield phase, index
-            try:
-                with contextlib.redirect_stdout(LimitedOutput()):
-                    value = eval(compile(expression, "<检查>", "eval"), namespace)
-            except BaseException as failure:  # noqa: BLE001  被检查的调用是学习者的代码，可能 exit()
-                captures[expression] = {"error": describe_error(failure)}
-                continue
-            phase = "serialize"
-            yield phase, index
-            try:
-                with contextlib.redirect_stdout(LimitedOutput()):
-                    captures[expression] = {"value": canon(value)}
-            except Exception as failure:  # noqa: BLE001  与 program 任务相同，记在这个 capture 上
-                captures[expression] = {"error": describe_error(failure)}
-        examples = []
-        for index, source in enumerate(job["doctest"]):
-            phase = "doctest"
-            yield phase, index
-            output = LimitedOutput()
-            exception = None
-            with contextlib.redirect_stdout(output):
-                try:
-                    exec(compile(source + "\n", "<doctest>", "single"), namespace)
-                except BaseException as failure:  # noqa: BLE001
-                    exception = "".join(traceback.format_exception_only(type(failure), failure)).strip()
-            examples.append({"out": output.getvalue(), "exception": exception})
-        result = {"status": "done", "stdout": stdout, "error": error, "captures": captures, "doctest": examples}
-    except Exception as failure:  # noqa: BLE001  学习者代码的异常已在各阶段记下；到这里的是前导、数据或 setup 出错
-        result = {"status": "failed", "phase": phase, "error": describe_error(failure)}
-    yield "teardown", None
-    reset_state()
-    return json.dumps(result, ensure_ascii=False)
 
 
 def handle_job(line):

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
-import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { RepaClient, RpcError } from "../src/client.js";
@@ -50,6 +50,15 @@ function learningPlugin(state: LearningState): Plugin {
           },
         }],
         methods: {
+          abort: {
+            parameters: Type.Object({ agent: Type.String() }, { additionalProperties: false }),
+            async invoke(input) {
+              const { agent } = record(input) ?? {};
+              assert.equal(typeof agent, "string");
+              await host.abortAgent(String(agent));
+              return {};
+            },
+          },
           prepare: {
             parameters: Type.Object({}, { additionalProperties: false }),
             async invoke() {
@@ -80,7 +89,10 @@ async function fixture(t: TestContext) {
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
   });
   const state: LearningState = { quiz: false, practice: false, failing: false, asked: [] };
-  const server = await startServer({ home, plugins: [learningPlugin(state)], runtime, generalAgent: false });
+  const server = await startServer({ home, plugins: [learningPlugin(state), {
+    id: "other",
+    open: async () => ({ agents: () => [{ id: "other-agent", tools: [], instructions: () => "另一个插件" }] }),
+  }], runtime, generalAgent: false });
   const client = await RepaClient.connect(server.connection);
   t.after(async () => {
     await client.close();
@@ -90,7 +102,7 @@ async function fixture(t: TestContext) {
   await client.call("space.open", { root });
   const session = await client.call("session.create", { agent: "tutor" });
   const users = async (sessionId = session.id) => (await client.call("session.history", { sessionId })).filter(entry => entry.type === "user").map(entry => entry.text);
-  return { client, faux, state, session, users };
+  return { root, client, faux, state, session, users };
 }
 
 function rejection(details: unknown) {
@@ -212,4 +224,71 @@ test("插件判断期间用户取消运行，这条插话不在取消之后补�
   assert.equal(f.faux.state.callCount, 1);
   assert.deepEqual(await f.users(), ["开始"]);
   assert.deepEqual(f.state.asked.map(message => message.text), ["开始", "判断中的插话"]);
+});
+
+
+test("插件只能中止自己的 Agent，等待回复终态并清掉已排队的追加消息", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  const abort = (agent = "tutor") => f.client.call("plugin.call", {
+    pluginId: "learning",
+    method: "abort",
+    input: { agent },
+  });
+  await assert.rejects(abort("other-agent"), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "agent_not_owned");
+    return true;
+  });
+  await assert.rejects(abort("general"), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "agent_not_owned");
+    return true;
+  });
+  const started = deferred();
+  const cancelled = deferred();
+  const release = deferred();
+  t.after(() => release.resolve());
+  f.faux.setResponses([async (_context, options) => {
+    started.resolve();
+    await new Promise<void>(resolve => options?.signal?.addEventListener("abort", () => resolve(), { once: true }));
+    cancelled.resolve();
+    await release.promise;
+    return fauxAssistantMessage("不应完成");
+  }]);
+  const running = f.client.call("session.send", { sessionId: f.session.id, text: "开始" });
+  await started.promise;
+  await f.client.call("session.followUp", { sessionId: f.session.id, text: "排队消息" });
+  let stopped = false;
+  const stopping = abort().then(() => { stopped = true; });
+  await cancelled.promise;
+  assert.equal(stopped, false);
+  release.resolve();
+  await stopping;
+  await running.catch(() => undefined);
+  assert.equal(f.faux.state.callCount, 1);
+  assert.deepEqual(await f.users(), ["开始"]);
+  f.faux.setResponses([fauxAssistantMessage("恢复聊天")]);
+  await f.client.call("session.send", { sessionId: f.session.id, text: "新消息" });
+  assert.deepEqual(await f.users(), ["开始", "新消息"]);
+});
+
+
+test("中止辅导 Agent 不枚举或加载磁盘上的未加载旧会话", async (t) => {
+  const f = await fixture(t);
+  f.faux.setResponses([fauxAssistantMessage("旧辅导回复")]);
+  await f.client.call("session.send", { sessionId: f.session.id, text: "旧辅导提问" });
+  await f.client.call("space.close", {});
+  await f.client.call("space.open", { root: f.root });
+  const listed = t.mock.method(SessionManager, "listAll");
+  const opened = t.mock.method(SessionManager, "open");
+  await f.client.call("plugin.call", {
+    pluginId: "learning",
+    method: "abort",
+    input: { agent: "tutor" },
+  });
+  assert.equal(listed.mock.callCount(), 0);
+  assert.equal(opened.mock.callCount(), 0);
+  assert.deepEqual(await f.users(), ["旧辅导提问"]);
+  assert.equal(listed.mock.callCount(), 0);
+  assert.equal(opened.mock.callCount(), 1);
 });

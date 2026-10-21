@@ -6,10 +6,14 @@ import { parse } from "@repa/base/protocol";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
 import { learningMethods, type LearningInput, type LearningState } from "./protocol.js";
 import { LearningRecords } from "./records.js";
+import { connectLearning } from "./flow.js";
+import { visibleLearningResponse } from "./submission-visibility.js";
+import { connectTutor, TUTOR_AGENT } from "./tutor.js";
 
 export interface LearningPluginOptions {
   sources?: CourseSource[];
-  /** c2 在同一持久入口上装配教学方法和判分；此层不选择教学转换。 */
+  now?: () => number;
+  /** 默认装配教学流程；自定义接入复用同一持久入口。 */
   connect?: (records: LearningRecords, course: ResolvedCourse, host: Host) => Promise<Pick<PluginInstance, "methods" | "close">>;
 }
 export function createLearningPlugin(options: LearningPluginOptions = {}): Plugin {
@@ -18,9 +22,14 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
     async open(host) {
       const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
       const course = await loadCourseSources(sources, host.files);
-      const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"));
+      const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"), options.now);
       try {
-        const connected = await options.connect?.(records, course, host);
+        const connected = await (options.connect
+          ? options.connect(records, course, host)
+          : connectLearning(records, course, host, options.now, {
+            beforeRestricted: () => host.abortAgent(TUTOR_AGENT),
+          }));
+        const tutor = await connectTutor(records, course, host, options.now);
         function state(): LearningState {
           const stored = records.current()?.state;
           if (stored) return { ...stored, serverNow: Date.now() };
@@ -61,8 +70,27 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
             },
           },
           ...connected?.methods,
+          ...tutor.methods,
         };
+        for (const [name, method] of Object.entries(methods)) {
+          methods[name] = {
+            ...method,
+            async invoke(input, context) {
+              try {
+                const result = await method.invoke(input, context);
+                return visibleLearningResponse(result, records.current());
+              } catch (error) {
+                if (error instanceof RepaFault) {
+                  const details = visibleLearningResponse(error.details, records.current());
+                  throw new RepaFault(error.code, error.message, details);
+                }
+                throw error;
+              }
+            },
+          };
+        }
         return {
+          ...tutor,
           methods,
           async close() {
             try {

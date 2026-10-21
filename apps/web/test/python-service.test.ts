@@ -1,20 +1,35 @@
-import type { PythonRunInput, PythonRunResult } from "@repa/learning/protocol";
+import { PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult } from "@repa/learning/protocol";
 import { describe, expect, it, vi } from "vitest";
 
-import { PythonRunError } from "@/lib/python/runner";
+import { PythonRunError, type PythonCapabilities } from "@/lib/python/runner";
 import { servePythonRun } from "@/lib/python/service";
 import { fakeClient } from "./fake-client";
 
-const input: PythonRunInput = { program: "total = 1 + 1", tests: [{ id: "total", data: [], captures: ["total"], doctest: [] }] };
-const result: PythonRunResult = {
-  runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {}, runner: "a".repeat(64) },
-  tests: [{ id: "total", status: "done", stdout: "", error: null, captures: { total: { value: 2 } }, doctest: [] }],
+const runtime = { pyodide: "314.0.7", python: "3.14.2", packages: { pandas: "3.0.2" } };
+const input: PythonBatchInput = {
+  protocol: PYTHON_BATCH,
+  kind: "execute",
+  submissionId: "sub-1",
+  gradeRevision: 1,
+  runtime,
+  runner: "sha256:runner",
+  tests: [{ id: "total", program: "total = 1 + 1", prelude: "", setup: "", data: [], captures: ["total"], doctest: [] }],
 };
+const result: PythonBatchResult = {
+  protocol: PYTHON_BATCH,
+  submissionId: "sub-1",
+  gradeRevision: 1,
+  runtime,
+  runner: "sha256:runner",
+  freshInterpreter: true,
+  tests: [{ id: "total", status: "completed", result: { stdout: "", error: null, captures: { total: { value: 2 } }, doctest: [] } }],
+};
+const capabilities: PythonCapabilities = { protocol: PYTHON_BATCH, runtime, runner: "sha256:runner", freshInterpreter: true };
 
-function setup(run: (input: PythonRunInput, signal?: AbortSignal) => Promise<PythonRunResult>) {
+function setup(run: (input: PythonBatchInput, signal?: AbortSignal) => Promise<PythonBatchResult>) {
   const call = vi.fn((_method: string, _params: never) => Promise.resolve(null));
   const { client, emit } = fakeClient(call);
-  const runner = { run: vi.fn(run) };
+  const runner = { run: vi.fn(run), capabilities: vi.fn((_signal?: AbortSignal) => Promise.resolve(capabilities)) };
   const stop = servePythonRun(client, runner);
   return { call, emit, runner, stop };
 }
@@ -28,9 +43,17 @@ describe("servePythonRun", () => {
     expect(runner.run).toHaveBeenCalledWith(input, expect.any(AbortSignal));
   });
 
+  it("探测交给运行器的 capabilities，不运行代码", async () => {
+    const { call, emit, runner } = setup(() => Promise.resolve(result));
+    emit("service.request", { id: "req-1", service: "python.run", input: { protocol: PYTHON_BATCH, kind: "capabilities" } });
+
+    await vi.waitFor(() => expect(call).toHaveBeenCalledWith("service.reply", { id: "req-1", result: capabilities }));
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
   it("输入不符合约定、测试 id 重复或请求了别的服务时直接以错误回复，不运行代码", async () => {
     const { call, emit, runner } = setup(() => Promise.resolve(result));
-    emit("service.request", { id: "req-1", service: "python.run", input: { ...input, verify: "assert total == 2" } });
+    emit("service.request", { id: "req-1", service: "python.run", input: { ...input, protocol: "repa-python-batch-v0" } });
     emit("service.request", { id: "req-2", service: "r.run", input: {} });
     emit("service.request", { id: "req-3", service: "python.run", input: { ...input, tests: [...input.tests, ...input.tests] } });
 

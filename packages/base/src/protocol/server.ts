@@ -365,6 +365,12 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             return agent.runAgent(task);
           },
         },
+        async abortAgent(id) {
+          if (!agent) {
+            throw new RepaFault("space_not_ready", "空间尚未完成打开");
+          }
+          await agent.abortAgent(id);
+        },
         emit: (pluginId, event) => emit("plugin.event", { pluginId, event }),
         onError: () => emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } }),
       });

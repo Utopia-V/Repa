@@ -173,6 +173,63 @@ kps:
           fits = [option for option, code in OPTIONS["line"].items()
                   if all(run(code, raw=raw)["clean"] == raw - 2 for raw in (8, 10))]
           answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py01.k1.q4
+        kind: [debug]
+        body: |
+          只读下面两行。这段程序能得到 available 的值吗？
+
+          ```python
+          available = incoming - held
+          incoming = 8
+          ```
+        slots:
+          - id: result
+            type: choice
+            options:
+              - {id: later, content: 能，Python 会先到下面找 incoming 的值}
+              - {id: missing, content: 不能，右边用到的名字还没有赋值}
+              - {id: zero, content: 能，没有赋值的名字默认是 0}
+            key: missing
+        explanation: "读第一行时就要计算右边；incoming 和 held 都没有值，程序会在这里停止，不会先去执行第二行。名字不会自动获得 0。"
+        verify: |
+          answers = {"result": "missing" if run().error == "NameError" else "later"}
+      - id: py01.k1.q5
+        kind: [modify]
+        body: |
+          三张指令卡要组成一段显示可用座位数的程序。每张卡都用一次，先准备数据，再计算，最后显示。
+        slots:
+          - id: lines
+            type: order
+            items:
+              - {id: show, code: print(free)}
+              - {id: seats, code: seats = 12}
+              - {id: free, code: free = seats - 3}
+            key: [seats, free, show]
+        explanation: "计算 free 前必须先给 seats 赋值；print 也只能放在 free 得到值之后。因此顺序是准备 12 个座位、扣除 3 个、显示 9。"
+        verify: |
+          import itertools
+          blocks = {"show": "print(free)", "seats": "seats = 12", "free": "free = seats - 3"}
+          fits = [list(order) for order in itertools.permutations(blocks)
+                  if run("\n".join(blocks[key] for key in order)).out == "9\n"]
+          assert len(fits) == 1
+          answers = {"lines": fits[0]}
+      - id: py01.k1.q6
+        kind: [trace]
+        body: |
+          这段脚本完成后，填写两个名字的值和屏幕显示的行数。不要把赋值当成显示。
+
+          ```python
+          received = 11
+          packed = received - 4
+          ```
+        slots:
+          - {id: received, type: text, format: integer, prompt: received 的值, key: 11}
+          - {id: packed, type: text, format: integer, prompt: packed 的值, key: 7}
+          - {id: lines, type: text, format: integer, prompt: 屏幕显示几行？, key: 0}
+        explanation: "received 得到 11，packed 得到 11 - 4 的结果 7。两行都是赋值，没有 print，所以显示 0 行。"
+        verify: |
+          r = run()
+          answers = {"received": r["received"], "packed": r["packed"], "lines": len(r.lines())}
     review:
       - id: py01.k1.r1
         kind: [modify]
@@ -226,6 +283,156 @@ kps:
         verify: |
           r = run()
           answers = {"output": int(r.out), "claim": "unchanged" if r["x"] == 3 else "changed"}
+      - id: py01.k1.r3
+        kind:
+          - trace
+        body: |
+          会议室已到 7 人，又到 2 人；计算赋值后并不自动显示。分别读出两次 print。
+
+          ```python
+          arrived = 7
+          late = 2
+          total = arrived + late
+          print(arrived)
+          print(total)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '7'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '9'
+        explanation: total 保存加法结果 9，原来的 arrived 仍是 7；只有两条 print 会显示内容。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k1.r4
+        kind:
+          - trace
+        body: |
+          一批包裹要扣除破损件。按依赖顺序阅读，填写扣除量与可用量。
+
+          ```python
+          all_items = 15
+          broken = 3
+          usable = all_items - broken
+          print(broken)
+          print(usable)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '3'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '12'
+        explanation: 先准备总量与破损量，再计算 15 - 3；计算结果交给 usable，不会反过来改变 broken。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k1.r5
+        kind:
+          - trace
+        body: |
+          最后一行试图读取另一个名字。填写停止前显示的行数。
+
+          ```python
+          first = 4
+          second = first + 1
+          print(unassigned)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '0'
+        explanation: 名字 unassigned 没有赋值，程序会在 print 求值时停止，之前两次赋值也没有显示。
+        verify: |
+          r = run()
+          values = [as_shown(str(len(r.lines())))]
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k1.r6
+        kind:
+          - trace
+        body: |
+          右边必须先求值。第一条 print 位于成功赋值之后，第二条位于失败赋值之后；实际显示哪些内容？只填写已经显示的一行。
+
+          ```python
+          total = 12
+          ready = total - 4
+          print(ready)
+          unknown = missing + 1
+          print(unknown)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '8'
+        explanation: ready 成功得到 8 并显示；下一次赋值要先读 missing，却找不到这个名字，因此不会再显示 unknown。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k1.r7
+        kind: [modify]
+        body: |
+          这段程序显示剩余份数。现在把名字 incoming 改成 received，其他含义保持不变。哪一段改名后的代码仍能正常显示相同的结果？
+
+          ```python
+          incoming = 9
+          spare = incoming - 4
+          print(spare)
+          ```
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: all
+                content: |
+                  ```python
+                  received = 9
+                  spare = received - 4
+                  print(spare)
+                  ```
+              - id: left_only
+                content: |
+                  ```python
+                  received = 9
+                  spare = incoming - 4
+                  print(spare)
+                  ```
+              - id: too_late
+                content: |
+                  ```python
+                  spare = received - 4
+                  received = 9
+                  print(spare)
+                  ```
+            key: all
+        explanation: |
+          赋值左边改成 received 后，后面读取同一个数的地方也要使用 received。只改第一行会留下未赋值的 incoming；先算 spare 再赋 received，则读取 received 时还没有值。完整改名的那一段仍显示 5。
+        verify: |
+          expected = run().out
+          fits = []
+          for option, code in OPTIONS["program"].items():
+              result = run(code)
+              if result.error is None and result.out == expected:
+                  fits.append(option)
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
     quiz:
       - id: py01.k1.x1
         kind: [predict]
@@ -293,6 +500,56 @@ kps:
           fits = [option for option, line in OPTIONS["line"].items() if run(prelude + line).vars.get("left") == 6]
           answers = {"line": fits[0] if len(fits) == 1 else fits}
 
+      - id: py01.k1.x3
+        kind:
+          - trace
+        body: |
+          一次交接只准备值但不显示它。填写屏幕显示的行数，不填写内存中的数值。
+
+          ```python
+          supplied = 8
+          held = 1
+          available = supplied - held
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '0'
+        explanation: 三行都是赋值，没有 print，因此显示零行。名字已有值不等于屏幕上已有内容。
+        verify: |
+          r = run()
+          values = [as_shown(str(len(r.lines())))]
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k1.x4
+        kind:
+          - trace
+        body: |
+          右边引用的名字与接收结果的名字不是同一个动作。对照原份数与分配后的份数。
+
+          ```python
+          original = 14
+          allocated = original - 6
+          print(original)
+          print(allocated)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '14'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '8'
+        explanation: 赋值先计算 14 - 6，再把 8 交给 allocated；original 的值仍是 14。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py01.k2
     keyPrerequisites: []
     title: 逐行追踪重新赋值，读出 print 的结果
@@ -497,6 +754,55 @@ kps:
         verify: |
           lines = run().lines()
           answers = {"line1": int(lines[0]), "line2": int(lines[1])}
+      - id: py01.k2.q4
+        kind: [trace]
+        body: |
+          交接时先记下旧库存，再登记新库存。两个 print 分别显示什么？
+
+          ```python
+          stock = 9
+          saved = stock
+          stock = 4
+          print(saved)
+          print(stock)
+          ```
+        slots:
+          - {id: saved, type: text, format: integer, prompt: 第一行显示, key: 9}
+          - {id: stock, type: text, format: integer, prompt: 第二行显示, key: 4}
+        explanation: "saved 在第二行得到当时的值 9。后来 stock 改成 4，并不会倒回去重做 saved = stock，所以依次显示 9、4。"
+        verify: |
+          lines = run().lines()
+          answers = {"saved": int(lines[0]), "stock": int(lines[1])}
+      - id: py01.k2.q5
+        kind: [debug]
+        body: |
+          希望最后显示刚更新后的差额 5。保持其他行不变，只能移动 print，应当放在哪里？
+
+          ```python startLine=1
+          total = 10
+          used = 2
+          left = total - used
+          print(left)
+          used = 5
+          left = total - used
+          ```
+        slots:
+          - id: position
+            type: choice
+            options:
+              - {id: before, content: 第 3 行之前}
+              - {id: middle, content: 第 5 行之后、第 6 行之前}
+              - {id: after, content: 第 6 行之后}
+            key: after
+        explanation: "used 变成 5 时，left 仍是原来算出的 8；第 6 行重新计算后 left 才成为 5。只移动显示而不重新计算，不能更新旧结果。"
+        verify: |
+          lines = CODE.splitlines()
+          base = [line for line in lines if not line.startswith("print")]
+          positions = {"before": 2, "middle": 4, "after": 5}
+          fits = [key for key, position in positions.items()
+                  if run("\n".join(base[:position] + ["print(left)"] + base[position:])).out == "5\n"]
+          assert len(fits) == 1
+          answers = {"position": fits[0]}
     review:
       - id: py01.k2.r1
         kind: [trace]
@@ -572,6 +878,333 @@ kps:
               "second": int(lines[1]),
               "swapped": "yes" if (r["a"], r["b"]) == (2, 1) else "no",
           }
+      - id: py01.k2.r3
+        kind:
+          - trace
+        body: |
+          先计算差额，再改变原始总量。填写两个显示结果，判断旧差额是否自动重算。
+
+          ```python
+          total = 20
+          left = total - 3
+          total = 9
+          print(left)
+          print(total)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '17'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '9'
+        explanation: left 在第二行已经得到 17；total 后来变成 9，只影响这个名字，不会自动重做之前的计算。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r4
+        kind:
+          - trace
+        body: |
+          重复两次“用自己当前值加一”，不是两次从初值重新算。
+
+          ```python
+          count = 4
+          count = count + 1
+          count = count + 1
+          print(count)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '6'
+        explanation: 第一次重新赋值后 count 是 5，第二次右边读到的是 5，因此最后得到 6。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r5
+        kind: [trace]
+        body: |
+          同一个名字先后指向不同的数。按指定时刻填写追踪表，不要把最终值填进所有位置。
+
+          ```python startLine=1
+          reading = 5
+          print(reading)
+          reading = 8
+          print(reading)
+          ```
+        slots:
+          - id: states
+            type: table
+            columns:
+              - {id: after, header: 时刻}
+              - {id: value, header: reading 的值, input: integer}
+            rows:
+              - {id: first, cells: {after: 第 1 行执行后, value: 5}}
+              - {id: changed, cells: {after: 第 3 行执行后, value: 8}}
+        explanation: 第一行执行后 reading 是 5；第三行重新赋值后才变成 8。后来的赋值不会改写早先时刻的状态。
+        verify: |
+          lines = CODE.splitlines()
+          answers = {"states": {row: {"value": run("\n".join(lines[:end]))["reading"]}
+                                for row, end in [("first", 1), ("changed", 3)]}}
+      - id: py01.k2.r6
+        kind:
+          - trace
+        body: |
+          临时名字用于保存交换前的值。逐行追踪一次真正的交换。
+
+          ```python
+          left = 3
+          right = 8
+          saved = left
+          left = right
+          right = saved
+          print(left)
+          print(right)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '8'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '3'
+        explanation: saved 保住旧 left 的 3；随后 left 取 8，right 再取 saved 的 3，因此交换成功。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r7
+        kind:
+          - trace
+        body: |
+          没有临时保存的反向覆盖会丢失旧值。填写最后的两个值。
+
+          ```python
+          left = 3
+          right = 8
+          right = left
+          left = right
+          print(left)
+          print(right)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '3'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '3'
+        explanation: right 先被覆盖成 3；下一行 left 读到的 right 已是 3，原来的 8 已经没有保留。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r8
+        kind:
+          - trace
+        body: |
+          合计变量也可以重新计算。区分它第一次与第二次显示的值。
+
+          ```python
+          today = 4
+          total = today + 6
+          print(total)
+          today = 9
+          total = today + 6
+          print(total)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '10'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '15'
+        explanation: 第一次按 today=4 算出 10；第二次显式重新计算时 today 已是 9，所以得到 15。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r9
+        kind:
+          - trace
+        body: |
+          名字的复制方向影响哪个旧值被保留。填写最终的两个数。
+
+          ```python
+          original = 6
+          copy = original
+          original = copy + 2
+          copy = original - 1
+          print(original)
+          print(copy)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '8'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '7'
+        explanation: copy 先是 6，original 由它加 2 变成 8；最后 copy 重新取 8 - 1 得到 7。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r10
+        kind:
+          - trace
+        body: |
+          更新动作按书写顺序发生。先更新 a，再用更新后的 a 计算 b。
+
+          ```python
+          a = 2
+          b = 5
+          a = a + b
+          b = a - b
+          print(a)
+          print(b)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '7'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '2'
+        explanation: 第三行把 a 更新为 7；第四行的 a 已不是初值 2，因此 b 得到 7 - 5 = 2。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r11
+        kind:
+          - trace
+        body: |
+          已保存的快照与当前值各走各的更新。填写三个最终值。
+
+          ```python
+          base = 10
+          snapshot = base
+          base = base - 4
+          delta = snapshot - base
+          print(snapshot)
+          print(base)
+          print(delta)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '10'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '6'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '4'
+        explanation: snapshot 保留 10，base 重新赋值为 6，两者相减得到变化量 4。保存的数不会随另一个名字自动更新。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r12
+        kind: [trace, modify]
+        body: |
+          第 2、3、4 行中，哪一行可以单独删去，而不改变程序显示的两行结果？只删所选的一行，其他行保持原顺序。
+
+          ```python startLine=1
+          left = 5
+          saved = left
+          left = left + 2
+          left = left
+          print(saved)
+          print(left)
+          ```
+        slots:
+          - id: line
+            type: choice
+            options:
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+            key: l4
+        explanation: |
+          第 4 行把 left 的当前值 7 再赋给 left，值没有改变，因此可以删去。第 2 行保存的是更新前的 5，删掉后无法显示 saved；第 3 行把 left 更新成 7，删掉后最后一行会显示 5。
+        verify: |
+          expected = run().out
+          lines = CODE.splitlines()
+          fits = []
+          for line in [2, 3, 4]:
+              result = run("\n".join(lines[:line - 1] + lines[line:]))
+              if result.error is None and result.out == expected:
+                  fits.append(f"l{line}")
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py01.k2.r13
+        kind: [trace]
+        body: |
+          每次更新都读取当时的值。按表格中的执行时刻填写 a、b，不要把最终结果提前填进前面的行。
+
+          ```python startLine=1
+          a = 2
+          b = a
+          a = a + 3
+          b = b + a
+          a = b - a
+          ```
+        slots:
+          - id: states
+            type: table
+            columns:
+              - { id: after, header: 时刻 }
+              - { id: a, header: a, input: integer }
+              - { id: b, header: b, input: integer }
+            rows:
+              - { id: l3, cells: { after: 第 3 行执行后, a: 5, b: 2 } }
+              - { id: l4, cells: { after: 第 4 行执行后, a: 5, b: 7 } }
+              - { id: l5, cells: { after: 第 5 行执行后, a: 2, b: 7 } }
+        explanation: |
+          b 先保存 2，a 加 3 变成 5 时，b 仍是 2。下一行 b 读取当前的 a，得到 2 + 5 = 7；最后 a 读取当前的 b 和 a，得到 7 - 5 = 2。赋值只更新左边的名字。
+        verify: |
+          lines = CODE.splitlines()
+          answers = {"states": {}}
+          for end in [3, 4, 5]:
+              state = run("\n".join(lines[:end]))
+              answers["states"][f"l{end}"] = {"a": state["a"], "b": state["b"]}
     quiz:
       - id: py01.k2.x1
         kind: [trace]
@@ -654,3 +1287,68 @@ kps:
               "output": int(r.out),
               "why": "fixed" if r["week"] == 12 + 5 and r["week"] != 12 + r["today"] else "follows",
           }
+      - id: py01.k2.x3
+        kind:
+          - trace
+        body: |
+          显示记录不会被后面的赋值追溯改写，保存下来的旧值也不会自动更新。
+
+          ```python
+          value = 3
+          previous = value
+          print(value)
+          value = 9
+          print(previous)
+          print(value)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '3'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '3'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '9'
+        explanation: 第一行显示当时的 3；previous 也保留 3；最后 value 已经改为 9。这三处分别对应不同名字和时刻。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.x4
+        kind:
+          - trace
+        body: |
+          一个计算结果成为下一次重新赋值的输入。逐行追踪，不把最后一行误读成旧初值的差。
+
+          ```python
+          a = 4
+          b = a + 3
+          a = b - 2
+          b = a + b
+          print(a)
+          print(b)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '5'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '12'
+        explanation: b 先得到 7，a 再得到 5，最后 b 用新的 a 与旧的 b 相加，成为 12。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}

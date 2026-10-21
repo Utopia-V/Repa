@@ -266,6 +266,40 @@ kps:
           三种报错分别指向三个问题：名字不存在、模块找不到、模块里没有这一项。
         verify: |
           answers = {"errors": {f"c{i}": {"error": run(code).error} for i, code in enumerate(BLOCKS, 1)}}
+      - id: py13.k1.q4
+        kind: [trace]
+        body: |
+          as 决定导入后使用哪个名字。填写这个实际调用的结果。
+
+          ```python
+          import math as m
+          print(m.sqrt(81))
+          ```
+        slots:
+          - {id: output, type: text, match: output, prompt: 最后显示, key: "9.0"}
+        explanation: "模块被绑定到别名 m，因此通过 m.sqrt 找到平方根函数。sqrt 返回浮点数 9.0；别名不会改变函数的计算含义。"
+        verify: |
+          answers = {"output": run().lines()[0]}
+      - id: py13.k1.q5
+        kind: [debug]
+        body: |
+          这是全新脚本，之前没有导入 math。只执行下面两行，会怎样？
+
+          ```python
+          import math as m
+          print(math.sqrt(81))
+          ```
+        slots:
+          - id: name
+            type: choice
+            options:
+              - {id: alias, content: NameError；这次导入绑定的是 m，不是 math}
+              - {id: both, content: 显示 9.0；两个名字总会一起绑定}
+              - {id: syntax, content: SyntaxError；as 不能用在导入里}
+            key: alias
+        explanation: "import math as m 只在当前脚本中建立 m 这个名字。要使用这个导入，应调用 m.sqrt；模块原名不会自动成为另一个局部名字。"
+        verify: |
+          answers = {"name": "alias" if run().error == "NameError" else "both"}
     review:
       - id: py13.k1.r1
         kind: [modify]
@@ -469,6 +503,48 @@ kps:
                   if run("\n".join([lines[0], line, lines[2]])).out.strip() == "0"]
           answers = {"cause": cause, "fix": fits[0] if len(fits) == 1 else fits}
 
+      - id: py13.k1.x3
+        kind:
+          - trace
+        body: |
+          from 导入只把指定对象放入当前名字空间；名字的拼写由 as 决定。填写成功调用的结果。
+
+          ```python
+          from math import sqrt as root
+          print(root(49))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '7.0'
+        explanation: root 绑定到导入的 sqrt 函数，调用返回平方根 7.0。原函数的功能没有因为别名改变。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py13.k1.x4
+        kind:
+          - trace
+        body: |
+          在全新脚本中导入函数并起别名后，旧函数名不会自动额外绑定。填写实际异常类型。
+
+          ```python
+          from math import sqrt as root
+          print(sqrt(49))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: NameError
+        explanation: 当前只建立了 root，未建立 sqrt。要调用这次导入的函数，应该用 root 这个名字。
+        verify: |
+          r = run()
+          values = [as_shown(r.error)]
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py13.k2
     keyPrerequisites: [py04]
     title: 从签名和示例找参数、返回值与副作用
@@ -705,6 +781,42 @@ kps:
           ```
 
           round 的返回值要赋给 result 才能继续用。`print(round(mean, 2))` 只是显示，result 没有得到任何值；`result = print(...)` 得到的是 print 的返回值 None。第二个参数按位置给 ndigits，写成 `ndigits=2` 也可以；写成 `round(2, mean)` 就把顺序弄反了。
+      - id: py13.k2.q4
+        uses: [py04.k2]
+        kind: [specify]
+        body: |
+          一段文档写着：`sorted(iterable, *, key=None, reverse=False)`，返回一个新列表，不改变原输入；`reverse=True` 表示降序。
+          想保留原输入并得到降序的新列表，应该选哪个调用？
+        slots:
+          - id: call
+            type: choice
+            options:
+              - {id: positional, content: '`sorted(values, True)`'}
+              - {id: keyword, content: '`sorted(values, reverse=True)`'}
+              - {id: ascending, content: '`sorted(values)`'}
+            key: keyword
+        explanation: "签名中的 * 表示其后的参数只能按关键字传入，因此 reverse=True 要带上参数名。文档同时说明 sorted 返回新列表，不在原输入上排序。"
+        verify: |
+          programs = {"positional": "result = sorted(values, True)", "keyword": "result = sorted(values, reverse=True)", "ascending": "result = sorted(values)"}
+          fits = [key for key, code in programs.items() if run(code, values=[3, 1, 2]).error is None and run(code, values=[3, 1, 2])["result"] == [3, 2, 1]]
+          assert len(fits) == 1
+          answers = {"call": fits[0]}
+      - id: py13.k2.q5
+        uses: [py04.k3]
+        kind: [explain]
+        body: |
+          文档注明：“`sorted(values)` 返回新列表，不修改 values。”程序作者看到返回值已经排好序，就断言 values 也变了。
+          根据这条约定，哪个判断成立？
+        slots:
+          - id: effect
+            type: choice
+            options:
+              - {id: original, content: 返回值和原输入要分别看；values 保持原顺序}
+              - {id: changed, content: 返回值排好序就证明原输入也已修改}
+              - {id: none, content: 所有排序函数都返回 None}
+            key: original
+        explanation: "返回值与副作用是文档中的两项独立信息。这里已经明确“不修改 values”，不能从返回值有序反推原输入也被修改。"
+        manual: [effect]
     review:
       - id: py13.k2.r1
         kind: [predict]
@@ -785,6 +897,62 @@ kps:
           ```
 
           sep 有默认值一个空格，所以原来显示 `2026 10 12`；用参数名把它改成 `"-"`。把 `"-"` 写成普通的值，它只会被当成又一个要显示的值，两边还会各插一个空格。
+      - id: py13.k2.r3
+        uses: [py04.k2]
+        kind:
+          - trace
+        body: |
+          文档给定 round(number, ndigits=None)，ndigits 是保留的小数位数，省略时返回整数。依约读出两种调用的显示结果。
+
+          ```python
+          print(round(3.25))
+          print(round(3.25, ndigits=1))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '3'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '3.2'
+        explanation: 省略 ndigits 返回整数 3；指定一位小数返回浮点 3.2。这里的文档同时给出了可选参数与返回类型的线索。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py13.k2.r4
+        uses: [py04.k3]
+        kind:
+          - trace
+        body: |
+          文档注明 list.sort() 原位排序并返回 None。把返回值接到 result 不会得到排序后的列表。
+
+          ```python
+          values = [3, 1, 2]
+          result = values.sort()
+          print(values)
+          print(result)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[1, 2, 3]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: None
+        explanation: 原位副作用发生在 values 上；result 接收的是文档声明的返回值 None，不能把两者混为一谈。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py13.k2.x1
         kind: [explain]
@@ -863,3 +1031,53 @@ kps:
         verify: |
           lines = run().lines()
           answers = {"lines": {f"l{i}": {"shown": text} for i, text in enumerate(lines, 1)}}
+      - id: py13.k2.x3
+        uses: [py04.k3]
+        kind:
+          - trace
+        body: |
+          文档说明 sorted 返回新列表、不修改原输入；reverse=True 令新列表降序。根据这条约定对照两个对象。
+
+          ```python
+          values = [2, 5, 1]
+          result = sorted(values, reverse=True)
+          print(result)
+          print(values)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[5, 2, 1]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[2, 5, 1]'
+        explanation: 返回值 result 按要求降序，原 values 则保持原顺序；返回结果与副作用必须分别从文档核对。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py13.k2.x4
+        uses: [py04.k2]
+        kind:
+          - trace
+        body: |
+          文档给出 len(obj, /)，斜线表示 obj 只能用位置参数传入。错误地写成关键字会怎样？填写异常类型。
+
+          ```python
+          print(len(obj=[1, 2]))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: TypeError
+        explanation: obj 在斜线之前，必须按位置传入；len(obj=...) 不符合调用签名，抛出 TypeError。
+        verify: |
+          r = run()
+          values = [as_shown(r.error)]
+          answers = {f"v{i}": value for i, value in enumerate(values)}

@@ -9,8 +9,8 @@ import { Value } from "typebox/value";
 import { checkResponse } from "@repa/base/protocol";
 import { publicItem, referenceResponse } from "../src/check/items.js";
 import {
-  checkSubmission, FeedbackSchema, PythonRunInputSchema, PythonRunResultSchema, readFeedback, readSubmitResult, SubmitResultSchema,
-  type Feedback, type PythonRunInput, type PythonRunResult,
+  checkSubmission, FeedbackSchema, PYTHON_BATCH, PythonBatchResultSchema, PythonCapabilitiesSchema, PythonRunInputSchema, readFeedback,
+  readSubmitResult, SubmitResultSchema, type Feedback, type PythonBatchInput, type PythonBatchResult,
 } from "../src/protocol.js";
 import { demoCourse } from "./demo-course.js";
 
@@ -98,52 +98,63 @@ test("前端宽松读取反馈：不认识的 verdict 读作 ungraded，不认�
   assert.deepEqual(readSubmitResult({ status: "queued" }), { ok: false, path: "" });
 });
 
-test("python.run 的输入是一批测试，每个与 runner.py 的 program 任务一致，带答案的字段和多余字段被拒", () => {
-  const input: PythonRunInput = {
-    prelude: "import pandas as pd",
-    program: "total = sales['amount'].sum()\nprint(total)",
+test("python.run 的输入是探测或一批测试，测试里没有期望值；结果带提交身份、实际环境和每个测试的状态", () => {
+  const runtime = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } };
+  const input: PythonBatchInput = {
+    protocol: PYTHON_BATCH,
+    kind: "execute",
+    submissionId: "sub-1",
+    gradeRevision: 1,
+    runtime: { ...runtime, prelude: "import pandas as pd" },
+    runner: "sha256:runner",
     tests: [{
-      id: "sum",
-      data: [
-        { kind: "dataframe", label: "sales", name: "sales", columns: { city: ["北京", "上海"], amount: [1.5, null] }, dtypes: { amount: "float" } },
-        { kind: "python", label: "limit", code: "limit = 10" },
-      ],
+      id: "answer:0",
+      program: "total = sales['amount'].sum()\nprint(total)",
+      prelude: "import pandas as pd",
       setup: "",
+      data: [
+        { label: "sales", fixture: { kind: "dataframe", name: "sales", columns: { city: ["北京", "上海"], amount: [1.5, null] }, dtypes: { amount: "float" } } },
+        { label: "limit", fixture: { kind: "python", code: "limit = 10" } },
+      ],
       captures: ["total"],
       doctest: ["total > limit"],
     }],
   };
   const [test] = input.tests;
   assert.ok(Value.Check(PythonRunInputSchema, input));
-  assert.ok(Value.Check(PythonRunInputSchema, { program: "print(1)", tests: [{ id: "t", data: [], captures: [], doctest: [] }] }));
-  assert.equal(Value.Check(PythonRunInputSchema, { ...input, tests: [] }), false);
-  assert.equal(Value.Check(PythonRunInputSchema, { ...input, op: "program" }), false);
+  assert.ok(Value.Check(PythonRunInputSchema, { protocol: PYTHON_BATCH, kind: "capabilities" }));
+  assert.equal(Value.Check(PythonRunInputSchema, { ...input, protocol: "repa-python-batch-v0" }), false);
   assert.equal(Value.Check(PythonRunInputSchema, { ...input, tests: [{ ...test, verify: "assert total == 1.5" }] }), false);
   assert.equal(Value.Check(PythonRunInputSchema, { ...input, tests: [{ ...test, expect: { total: "1.5" } }] }), false);
-  assert.equal(Value.Check(PythonRunInputSchema, { ...input, tests: [{ ...test, data: [{ kind: "python", label: "limit", code: "limit = 10", display: "上限" }] }] }), false);
 
-  const result: PythonRunResult = {
-    runtime: { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" }, runner: "a".repeat(64) },
+  assert.ok(Value.Check(PythonCapabilitiesSchema, { protocol: PYTHON_BATCH, runtime, runner: "sha256:runner", freshInterpreter: true }));
+  const result: PythonBatchResult = {
+    protocol: PYTHON_BATCH,
+    submissionId: "sub-1",
+    gradeRevision: 1,
+    runtime,
+    runner: "sha256:runner",
+    freshInterpreter: true,
     tests: [
       {
-        id: "sum",
-        status: "done",
-        stdout: "1.5\n",
-        error: { type: "NameError", message: "name 'x' is not defined", line: 2 },
-        captures: { total: { value: 1.5 }, missing: { error: { type: "NameError", message: "name 'missing' is not defined" } } },
-        doctest: [{ out: "False\n", exception: null }],
+        id: "answer:0",
+        status: "completed",
+        result: {
+          stdout: "1.5\n",
+          error: { type: "NameError", message: "name 'x' is not defined", line: 2 },
+          captures: { total: { value: 1.5 }, missing: { error: { type: "NameError", message: "name 'missing' is not defined" } } },
+          doctest: [{ out: "False\n", exception: null }],
+        },
       },
-      { id: "loop", status: "timeout", phase: "doctest", index: 0 },
-      { id: "late", status: "not_run" },
+      { id: "answer:1", status: "timeout", phase: "doctest" },
+      { id: "answer:2", status: "failed", phase: "capture", error: { type: "TimeoutError", message: "序列化超时" } },
+      { id: "answer:3", status: "not_run" },
     ],
   };
-  assert.ok(Value.Check(PythonRunResultSchema, result));
-  assert.ok(Value.Check(PythonRunResultSchema, {
-    ...result, tests: [{ id: "sum", status: "failed", phase: "setup", error: { type: "RuntimeError", message: "测试的 setup 出错" } }],
-  }));
-  assert.equal(Value.Check(PythonRunResultSchema, { ...result, runtime: { ...result.runtime, runner: undefined } }), false);
-  assert.equal(Value.Check(PythonRunResultSchema, { ...result, tests: [{ id: "sum", status: "timeout", phase: "compile" }] }), false);
-  assert.equal(Value.Check(PythonRunResultSchema, { ...result, tests: [{ ...result.tests[0], trace: "Traceback" }] }), false);
+  assert.ok(Value.Check(PythonBatchResultSchema, result));
+  assert.equal(Value.Check(PythonBatchResultSchema, { ...result, tests: [{ id: "answer:1", status: "timeout", phase: "setup" }] }), false);
+  assert.equal(Value.Check(PythonBatchResultSchema, { ...result, tests: [{ id: "answer:1", status: "timeout", phase: "doctest", index: 0 }] }), false);
+  assert.equal(Value.Check(PythonBatchResultSchema, { ...result, freshInterpreter: false }), false);
 });
 
 /** 收集一个模块在运行时会加载的说明符；只有 import type 的语句在编译后消失，不算。 */

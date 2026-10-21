@@ -20,7 +20,7 @@
 
 Web 和 Desktop 分别由 Vite 与 Electron Node 宿主启动后端。`@repa/base/process` 提供进程生命周期，宿主取得连接后通过开发 HTTP 端点或隔离 preload 交给 renderer；宿主关闭时等待后端收尾。连接断开后重新读取历史与插件状态，再判断原操作的结果，客户端不会自动重放请求。
 
-Web 在连接时声明前端服务 `python.run`，在 Worker 里用 Pyodide 运行学习者的代码；输入输出见 `@repa/learning/protocol`。每次调用用一个全新的 Worker，用完销毁，后台预热下一个。Vite 开发服务器在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel，并给 Worker 脚本加 CSP 响应头；wheel 先用 `npm run course:runtime` 准备，与课程核对共用一个目录。Worker 启动时确认 CSP 生效，没有就拒绝运行，所以别的宿主提供 Web 时也要给 Worker 脚本加同样的响应头。
+Web 在连接时声明前端服务 `python.run`，在 Worker 里用 Pyodide 运行学习者的代码；输入输出见 `@repa/learning/protocol`。后端先用 `kind: capabilities` 探测，前端报告预热 Worker 实际加载的环境；每次执行用一个全新的 Worker，用完销毁，后台预热下一个。Vite 开发服务器在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel，并给 Worker 脚本加 CSP 响应头；wheel 先用 `npm run course:runtime` 准备，与课程核对共用一个目录。Worker 启动时确认 CSP 生效，没有就拒绝运行，所以别的宿主提供 Web 时也要给 Worker 脚本加同样的响应头。
 
 Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa://app/` 加载，而不是 `file://`，因为 `file://` 没有响应头，Worker 的 CSP 设不上；协议由[主进程](../../apps/desktop/src/main/app-protocol.ts)处理，给 `workers/` 下的脚本加 CSP，并在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel。开发时这些由 electron-vite 的开发服务器提供，两边的放行规则共用 [python-runtime.ts](../../apps/desktop/src/main/python-runtime.ts)。Linux 安装包把 Pyodide 文件和 wheel 复制到应用目录的 `pyodide/`，打包前要先运行 `npm run course:runtime`。
 
@@ -44,6 +44,9 @@ Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa:
 | 插件接口与宿主 | [plugin.ts](../../packages/base/src/plugin.ts)、[插件宿主](../../packages/base/src/plugins/host.ts)、[示例插件](../../packages/base/examples/notes-plugin.ts) |
 | 空间文件历史与变更流 | [空间历史包](../../packages/space-history/README.md) |
 | 课程文件格式、课程检查与课程内容 | [学习包说明](../../packages/learning/README.md)、[写课说明](../../packages/learning/courses/README.md) |
+| 辅导、即时回顾与受限开始 | [辅导说明](learning-tutor.md)、[Agent 与工具](../../packages/learning/src/tutor.ts) |
+| 上课、复习、菜单与判分 | [教学流程说明](learning-flow.md)、[转换入口](../../packages/learning/src/flow.ts) |
+| 测验、换题重考、XP、日目标与完课估算 | [测验与进度说明](learning-quiz-xp.md)、[奖励计算](../../packages/learning/src/progress.ts) |
 | 学习日志、快照、恢复命令与模型接入 | [学习记录说明](learning-records.md)、[插件入口](../../packages/learning/src/plugin.ts) |
 | 学习任务画面、提交恢复与 Python 服务契约 | [学习前端契约](learning-protocol.md)、[公开 schema](../../packages/learning/src/protocol.ts) |
 | Web 宿主与页面 | [Vite 配置](../../apps/web/vite.config.ts)、[Web 源码](../../apps/web/src/) |

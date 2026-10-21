@@ -9,7 +9,7 @@
  */
 import type { loadPyodide as LoadPyodide } from "pyodide";
 
-import type { PythonRunInput } from "@repa/learning/protocol";
+import type { PythonTest } from "@repa/learning/protocol";
 
 import type { WorkerMessage, WorkerRequest } from "./messages";
 
@@ -66,11 +66,12 @@ async function start(request: StartRequest): Promise<object> {
     });
     await pyodide.loadPackage(request.packages, { messageCallback: () => {} });
     pyodide.runPython(request.runner, { filename: "runner.py" });
+    pyodide.runPython(request.frontend, { filename: "frontend.py" });
     const { PyCallable, PyIterator, PyProxy } = pyodide.ffi;
     const frontendTest: unknown = pyodide.globals.get("frontend_test");
     const versions: unknown = pyodide.globals.get("runtime_versions");
     if (!(frontendTest instanceof PyCallable) || !(versions instanceof PyCallable)) {
-      throw new Error("runner.py 没有定义 frontend_test 或 runtime_versions");
+      throw new Error("frontend.py 或 runner.py 没有定义 frontend_test、runtime_versions");
     }
     runTest = (line, onPhase) => {
       const generator: unknown = frontendTest(line);
@@ -98,14 +99,14 @@ async function start(request: StartRequest): Promise<object> {
 }
 
 /** 依次运行一批测试，每个阶段开始前告诉页面；某个测试没有正常结束就停下，剩下的由页面记为未执行。 */
-function run(input: PythonRunInput, test: NonNullable<typeof runTest>): void {
-  for (const [index, job] of input.tests.entries()) {
-    const response = test(JSON.stringify({ prelude: input.prelude ?? "", program: input.program, ...job }), (phase) => {
+function run(tests: PythonTest[], test: NonNullable<typeof runTest>): void {
+  for (const [index, job] of tests.entries()) {
+    const response = test(JSON.stringify(job), (phase) => {
       const [name, at]: unknown[] = Array.isArray(phase) ? phase : [];
       send({ type: "phase", test: index, phase: String(name), index: typeof at === "number" ? at : null });
     });
     send({ type: "tested", test: index, response });
-    if (typeof response !== "object" || response === null || !("status" in response) || response.status !== "done") return;
+    if (typeof response !== "object" || response === null || !("status" in response) || response.status !== "completed") return;
   }
 }
 
@@ -123,7 +124,7 @@ addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
     return;
   }
   try {
-    run(request.input, runTest);
+    run(request.tests, runTest);
   } catch (error) {
     // frontend_test 自己接住测试里的异常；漏到这里说明解释器状态没能恢复，页面把它记为 Worker 失败。
     send({ type: "failed", message: error instanceof Error ? error.message : String(error) });

@@ -175,6 +175,8 @@ export interface Host {
   history: History;
   models: Models;
   services: Services;
+  /** 中止本插件声明的 Agent 的现有会话运行；等待 Pi 停稳并沿用原取消队列语义。 */
+  abortAgent(agent: string): Promise<void>;
   emit(event: unknown): void;
 }
 

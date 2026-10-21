@@ -31,7 +31,7 @@ import {
   type ReadResult,
 } from "@repa/base/protocol";
 
-import { DataFrameFixtureSchema, PythonFixtureSchema } from "./format/schema.js";
+import { FixtureSchema, RuntimeSchema } from "./format/schema.js";
 
 /** 指向一道题的某个版本：{ id, version }，与作答里的 item 相同。 */
 const reference = ItemResponseSchema.properties.item;
@@ -150,96 +150,100 @@ export type SubmitResult = Static<typeof SubmitResultSchema>;
 // python.run：在前端的隔离环境里运行学习者的代码
 // ---------------------------------------------------------------------------
 
-/**
- * 前端服务 python.run 的输入：一次正式提交的全部测试，前端在一个全新的 Worker 里按顺序执行。
- * 每个测试与课程核对交给 sandbox/runner.py 的 program 任务相同（不带 op）：在全新的命名空间里依次运行 prelude、
- * 准备 data、运行 setup 和 program，再对 captures 逐个求值、逐条运行 doctest。期望值、参考解和核对程序不放进来。
- */
-const label = Type.String({ minLength: 1, maxLength: 40 });
 /** 一个测试的 doctest 最多几个例子、每个例子最长多少字符；课程核对按同样的上限检查。 */
 export const DOCTEST_LIMITS = { examples: 50, source: 2_000 } as const;
-export const PythonRunTestSchema = object({
-  /** 后端给的测试身份，结果里原样带回。 */
-  id: Type.String({ minLength: 1, maxLength: 100 }),
-  data: Type.Array(Type.Union([
-    object({
-      kind: Type.Literal("dataframe"),
-      label,
-      name: DataFrameFixtureSchema.properties.name,
-      columns: DataFrameFixtureSchema.properties.columns,
-      index: DataFrameFixtureSchema.properties.index,
-      dtypes: DataFrameFixtureSchema.properties.dtypes,
-    }),
-    object({ kind: Type.Literal("python"), label, code: PythonFixtureSchema.properties.code }),
-  ]), { maxItems: 20 }),
-  setup: Type.Optional(Type.String({ maxLength: 10_000 })),
-  captures: Type.Array(Type.String({ minLength: 1, maxLength: 1_000 }), { maxItems: 50 }),
-  doctest: Type.Array(Type.String({ minLength: 1, maxLength: DOCTEST_LIMITS.source }), { maxItems: DOCTEST_LIMITS.examples }),
-});
-export type PythonRunTest = Static<typeof PythonRunTestSchema>;
 
-export const PythonRunInputSchema = object({
-  prelude: Type.Optional(Type.String({ maxLength: 10_000 })),
-  /** 学习者的代码，每个测试各运行一遍。 */
-  program: Type.String({ maxLength: 50_000 }),
-  /** 上限与课程格式里一道题的 tests 相同；id 不能重复。 */
-  tests: Type.Array(PythonRunTestSchema, { minItems: 1, maxItems: 20 }),
+/** 请求与结果都带这个协议名；前端认不出就拒绝，不按旧格式猜。 */
+export const PYTHON_BATCH = "repa-python-batch-v1";
+const pythonError = object({ type: Type.String(), message: Type.String() });
+
+/**
+ * 一个测试运行完的结果，即 sandbox/runner.py 的 program 任务的结果：error 是 program 抛出的异常，line 是它停在第几行；
+ * captures 的 value 是 runner.py 序列化后的值（无法可靠比较时含 too_large 标记）；doctest 按输入顺序给出每条的输出或异常。
+ */
+export const PythonProgramResultSchema = object({
+  stdout: Type.String(),
+  error: Type.Union([
+    object({ ...pythonError.properties, line: Type.Optional(Type.Union([Type.Integer(), Type.Null()])) }),
+    Type.Null(),
+  ]),
+  captures: Type.Record(Type.String(), Type.Union([object({ value: Type.Unknown() }), object({ error: pythonError })])),
+  doctest: Type.Array(object({ out: Type.String(), exception: Type.Union([Type.String(), Type.Null()]) })),
 });
+export type PythonProgramResult = Static<typeof PythonProgramResultSchema>;
+
+/** 探测：前端回答它实际能提供的运行环境，不运行代码。 */
+export const PythonCapabilitiesRequestSchema = object({
+  protocol: Type.Literal(PYTHON_BATCH),
+  kind: Type.Literal("capabilities"),
+});
+/** runtime 只含 pyodide、python 和课程会用到的包的实际版本；prelude 是输入，不是环境。runner 是 runner.py 的 contentVersion。 */
+export const PythonCapabilitiesSchema = object({
+  protocol: Type.Literal(PYTHON_BATCH),
+  runtime: RuntimeSchema,
+  runner: Type.String(),
+  freshInterpreter: Type.Literal(true),
+});
+
+/**
+ * 一个测试，与课程核对交给 runner.py 的 program 任务相同：在全新的命名空间里依次运行 prelude、准备 data、运行 setup 和 program，
+ * 再对 captures 逐个求值、逐条运行 doctest。期望值、参考解和核对程序不放进来。
+ */
+export const PythonTestSchema = object({
+  id: Type.String(),
+  program: Type.String(),
+  prelude: Type.String(),
+  setup: Type.String(),
+  data: Type.Array(object({ label: Type.String(), fixture: FixtureSchema })),
+  captures: Type.Array(Type.String()),
+  doctest: Type.Array(Type.String()),
+});
+export type PythonTest = Static<typeof PythonTestSchema>;
+
+/**
+ * 一次正式提交的全部测试，前端在一个全新的 Worker 里按顺序执行。submissionId、gradeRevision 原样带回；
+ * runtime 和 runner 是后端期望的环境，前端在结果里报告实际的，由后端核对。
+ */
+export const PythonBatchInputSchema = object({
+  protocol: Type.Literal(PYTHON_BATCH),
+  kind: Type.Literal("execute"),
+  submissionId: Type.String(),
+  gradeRevision: Type.Integer({ minimum: 1 }),
+  runtime: RuntimeSchema,
+  runner: Type.String(),
+  tests: Type.Array(PythonTestSchema),
+});
+export type PythonBatchInput = Static<typeof PythonBatchInputSchema>;
+
+/**
+ * 测试停在哪个阶段。program、capture、doctest 运行的是学习者的代码，这些阶段的超时属于作答结果；
+ * prepare（前导、夹具、setup）和 cleanup 的超时，以及任何阶段的 failed，都属于执行失败。
+ */
+export const PythonPhaseSchema = Type.Enum(["prepare", "program", "capture", "doctest", "cleanup"]);
+export type PythonPhase = Static<typeof PythonPhaseSchema>;
+
+/** tests 与输入一一对应、顺序相同。某个测试超时或失败后整批停止，之后的测试是 not_run。 */
+export const PythonBatchResultSchema = object({
+  protocol: Type.Literal(PYTHON_BATCH),
+  submissionId: Type.String(),
+  gradeRevision: Type.Integer({ minimum: 1 }),
+  runtime: RuntimeSchema,
+  runner: Type.String(),
+  freshInterpreter: Type.Literal(true),
+  tests: Type.Array(
+    Type.Union([
+      object({ id: Type.String(), status: Type.Literal("completed"), result: PythonProgramResultSchema }),
+      object({ id: Type.String(), status: Type.Enum(["timeout", "failed"]), phase: PythonPhaseSchema, error: Type.Optional(pythonError) }),
+      object({ id: Type.String(), status: Type.Literal("not_run") }),
+    ]),
+  ),
+});
+export type PythonBatchResult = Static<typeof PythonBatchResultSchema>;
+export type PythonTestResult = PythonBatchResult["tests"][number];
+
+/** 前端服务 python.run 收到的输入：探测或执行一批测试。服务只在什么都没有运行时以错误回复。 */
+export const PythonRunInputSchema = Type.Union([PythonCapabilitiesRequestSchema, PythonBatchInputSchema]);
 export type PythonRunInput = Static<typeof PythonRunInputSchema>;
-
-const pythonError = { type: Type.String(), message: Type.String() };
-
-/**
- * 一个测试停在哪个阶段。program、captures、doctest 运行的是学习者的代码，这些阶段的超时属于作答结果；
- * 其余阶段的超时或失败属于执行失败。worker 表示 Worker 意外退出或回复无法识别。
- */
-export const PythonRunPhaseSchema = Type.Union([
-  Type.Literal("prelude"), Type.Literal("data"), Type.Literal("setup"),
-  Type.Literal("program"), Type.Literal("captures"), Type.Literal("serialize"), Type.Literal("doctest"),
-  Type.Literal("teardown"), Type.Literal("worker"),
-]);
-export type PythonRunPhase = Static<typeof PythonRunPhaseSchema>;
-
-const testId = PythonRunTestSchema.properties.id;
-
-/**
- * 一个测试的结果。done 即 runner.py 的 program 任务的结果：error 是 program 抛出的异常，line 是它停在 program 的第几行；
- * captures 的 value 是 runner.py 序列化后的值（无法可靠比较时是 too_large 标记）；doctest 按输入顺序给出每条的输出或异常。
- * timeout 的 index 是超时的 capture 或 doctest 的序号。某个测试超时或失败后整批停止，之后的测试是 not_run。
- */
-export const PythonRunTestResultSchema = Type.Union([
-  object({
-    id: testId,
-    status: Type.Literal("done"),
-    stdout: Type.String(),
-    error: Type.Union([object({ ...pythonError, line: Type.Union([Type.Integer(), Type.Null()]) }), Type.Null()]),
-    captures: Type.Record(Type.String(), Type.Union([object({ value: Type.Unknown() }), object({ error: object(pythonError) })])),
-    doctest: Type.Array(object({ out: Type.String(), exception: Type.Union([Type.String(), Type.Null()]) })),
-  }),
-  object({ id: testId, status: Type.Literal("timeout"), phase: PythonRunPhaseSchema, index: Type.Optional(Type.Integer({ minimum: 0 })) }),
-  object({ id: testId, status: Type.Literal("failed"), phase: PythonRunPhaseSchema, error: object(pythonError) }),
-  object({ id: testId, status: Type.Literal("not_run") }),
-]);
-export type PythonRunTestResult = Static<typeof PythonRunTestResultSchema>;
-
-/** 实际加载的运行环境；runner 是 runner.py 源码的 SHA-256。 */
-export const PythonRuntimeSchema = object({
-  pyodide: Type.String(),
-  python: Type.String(),
-  packages: Type.Record(Type.String(), Type.String()),
-  runner: Type.String({ pattern: "^[0-9a-f]{64}$" }),
-});
-export type PythonRuntime = Static<typeof PythonRuntimeSchema>;
-
-/**
- * python.run 的结果，tests 与输入一一对应、顺序相同。Pyodide 启动之后的超时和失败也在这里，
- * 服务只在什么都没有运行时以错误回复（invalid_input、runtime_unavailable、cancelled）。
- */
-export const PythonRunResultSchema = object({
-  runtime: PythonRuntimeSchema,
-  tests: Type.Array(PythonRunTestResultSchema, { maxItems: 20 }),
-});
-export type PythonRunResult = Static<typeof PythonRunResultSchema>;
 
 // ---------------------------------------------------------------------------
 // 前端的宽松读取
@@ -316,7 +320,7 @@ export const SubmissionSchema = object({
   taskId: identifier, deliveryId: identifier, submissionId: identifier,
   response: LearnerResponseSchema, acceptedAt: timestamp, processing: ProcessingSchema,
   gradeRevision: count,
-  /** practice 判分后、review 结束后、quiz/retake 交卷或超时后才释放。 */
+  /** practice 判分后、review 结束后、quiz/retake 交卷或超时后才释放；受限任务中历史结果同样隐藏。 */
   feedback: Type.Optional(FeedbackSchema), explanation: Type.Optional(ContentSchema),
 });
 export type Submission = Static<typeof SubmissionSchema>;

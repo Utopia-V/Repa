@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { createAssistantMessageEventStream, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getInitialSystemMessage, resolveTranscriptTools, type TranscriptContext } from "@earendil-works/pi-ai";
-import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { RepaClient, RpcError } from "../src/client.js";
@@ -165,6 +165,53 @@ test("通过浏览器客户端打开空间、调用插件工具、记录整次�
   await f.client.call("space.close", {});
   await f.client.call("space.open", { root: f.root });
   assert((await f.history()).some(entry => entry.type === "run" && entry.data !== null && typeof entry.data === "object" && "runId" in entry.data && entry.data.runId === recordedRunId));
+});
+
+test("复制空间后旧会话可列出、读取和接续，工具使用新目录且原空间不变", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  f.respond("原空间的回答");
+  await f.send();
+  const listed = await f.client.call("session.list", {});
+  const history = await f.history();
+  const [source] = await SessionManager.listAll(path.join(f.root, ".repa", "sessions"));
+  assert(source);
+  const original = await readFile(source.path, "utf8");
+  await f.client.call("space.close", {});
+  const root = path.join(path.dirname(f.root), "restored");
+  await cp(f.root, root, { recursive: true });
+  const sessionsDir = path.join(root, ".repa", "sessions");
+  const file = path.join(sessionsDir, path.basename(source.path));
+  await f.client.call("space.open", { root });
+  await t.test("列出复制前的会话摘要", async () => {
+    assert.deepEqual(await f.client.call("session.list", {}), listed);
+  });
+  await t.test("读取旧历史并追加到复制来的会话文件", async () => {
+    assert.deepEqual(await f.history(), history);
+    assert.equal(await readFile(file, "utf8"), original);
+    const manager = SessionManager.open(file, sessionsDir, root);
+    assert.equal(manager.getCwd(), root);
+    assert.equal(manager.getHeader()?.cwd, f.root);
+    await f.client.call("settings.set", { commandPolicy: "fullAccess" });
+    f.faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("bash", { command: "pwd > tool-cwd.txt" })),
+      fauxAssistantMessage("备份恢复后继续回答"),
+    ]);
+    await f.client.call("session.send", { sessionId: f.session.id, text: "恢复后继续对话" });
+    assert.equal(await readFile(path.join(root, "tool-cwd.txt"), "utf8"), `${root}\n`);
+    const appended = await readFile(file, "utf8");
+    assert(appended.startsWith(original));
+    assert.match(appended.slice(original.length), /恢复后继续对话/u);
+    assert.match(appended.slice(original.length), /备份恢复后继续回答/u);
+    assert.equal((await SessionManager.listAll(sessionsDir)).length, 1);
+    await f.client.call("space.close", {});
+    await f.client.call("space.open", { root });
+    assert.equal((await f.history()).findLast(entry => entry.type === "assistant")?.text, "备份恢复后继续回答");
+  });
+  await f.client.call("space.close", {});
+  await f.client.call("space.open", { root: f.root });
+  assert.deepEqual(await f.client.call("session.list", {}), listed);
+  assert.deepEqual(await f.history(), history);
+  assert.equal(await readFile(source.path, "utf8"), original);
 });
 
 test("撤回不存在的修订、初始快照或没有写过文件的运行时，前端拿到可处理的错误码", { timeout: 30000 }, async (t) => {

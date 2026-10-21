@@ -1,6 +1,6 @@
 # 学习记录与恢复
 
-学习插件把交付、原答和采用的判分保存在空间的 `.repa/plugins/learning/records.jsonl` 中。重新打开空间时，它从日志恢复当前任务和学生状态；查询不会启动判分。当前已提供持久入口、课程来源加载和直接复习模型接入，教学方法由 c2 接续装配。
+学习插件把交付、原答和采用的判分保存在空间的 `.repa/plugins/learning/records.jsonl` 中。重新打开空间时，它从日志恢复当前任务和学生状态；查询不会启动判分。当前已提供持久入口、课程来源加载和直接复习模型接入，[教学流程](learning-flow.md)在同一入口上完成上课、复习与申诉。
 
 ## 设计思路
 
@@ -16,7 +16,7 @@
 
 包根目录的 `repa-plugin.json` 声明 `learning`、`dataVersion: 1` 和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, connect })` 默认读取随包的 Python 课程，打开时一次加载全部 48 个 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录。
 
-`connect(records, course, host)` 在日志恢复后装配教学处理器，可以调用已有的模型、前端服务和事件入口，并返回 `methods` 与可选的 `close`。返回的方法覆盖本层的同名方法。当前默认入口提供 `state.get`、`submission.get`、只接受原答的 `submission.submit` 和已完成结果的 `submission.resume`；待判提交的 resume 在教学判分接入前报告 `service_failed`。空空间由教学层先保存初始投影；在此之前，`state.get` 报告 `service_failed`。日目标和本地日边界由教学／进度任务确定。
+`connect(records, course, host)` 在日志恢复后装配教学处理器，可以调用已有的模型、前端服务和事件入口，并返回 `methods` 与可选的 `close`。返回的方法覆盖本层的同名方法。默认接入教学流程，提供初始菜单、任务推进、正式判分、恢复和申诉。自定义 `connect` 仍可以替换这份装配；查询方法继续由记录入口提供。日目标、XP 与 ETA 见[测验与进度说明](learning-quiz-xp.md)，时区取后端本地时区。
 
 | 持久入口 | 行为 |
 | --- | --- |
@@ -25,7 +25,8 @@
 | `checkpoint(expectedRevision, build)` | 串行检查版本，把当前投影和服务端 now 传给纯转换函数，保存任务、菜单与决策来源 |
 | `submit(input)` | 结构检查、交付身份与截止检查、同 id 去重、同步保存唯一原答；返回契约中的 receipt |
 | `grade(id, judge, advance)` | 合并同一提交的在途处理；在队列外判分，再在队列内把结果与纯转换后的投影一起保存 |
-| `viewed(input)` | 记录展示讲解、打开卡片、取回 KP 及事前／事后帮助，保留版本引用和原任务位置 |
+| `appeal(input)` | 串行登记目标判分版本与原因；同一目标在途申诉合并，已变化的版本拒绝 |
+| `viewed(input)` | 直接记录，或在串行回调内检查当前投影后记录展示讲解、打开卡片、取回 KP 及事前／事后帮助，保留版本引用和原任务位置 |
 | `current()`、`submission(id)`、`snapshot(digest)`、`records` | 返回可独立使用的副本；`records` 保留原始记录，不把恢复显示覆盖回原始证据 |
 | `close()` | 等待在途判分和排队保存完成 |
 
@@ -41,6 +42,8 @@
 | `checkpoint` | 公开状态、学生投影、交付引用，以及候选顺序、选择、策略版本、决策 now、seed 和小型分数 |
 | `accepted` | 唯一原答、接受时间、开始与提交时间及偏移、事前帮助引用、事前 HSRS 状态、计算 now 与配置版本／值 |
 | `graded` | 原 submission id、采用的判分与规则版本、可追溯的来源，以及推进后的完整投影 |
+| `appeal` | 原 submission id、目标 gradeRevision 和原因；重启后可显式恢复 |
+| `regraded` | 同一原答的新采用判分、完整 submission 与重算后的当前投影；历史任务和旧结果保留 |
 | `viewed` | task、可选 delivery、行为与版本化内容引用；后续帮助沿这些记录关联原答 |
 
 生产入口使用服务端 `Date.now`；纯计算与转换函数显式接收 now，决策还保存显式 seed。开始时刻取交付首次写入的时间，提交时刻取接受时的服务端时间。接受记录中的事前状态是模型原始锚点状态，与计算 now 一起保留，之后可以重算当时的 memory。事后帮助以发生时追加的查看记录为准。
@@ -69,9 +72,9 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 ## 未完成项与待验证项
 
-- c2 接入教学转换、正式菜单、独立作答资格、判分及反馈释放；c3 接入辅导和查看行为；测验与 XP 任务复用同一结果提交边界。本层测试使用可控判分替身，尚未形成可供学习者使用的教学闭环。
+- 教学转换、菜单、独立资格、判分与申诉见[教学流程](learning-flow.md)；[辅导与查看行为](learning-tutor.md)共用串行入口，测验与 XP 任务复用同一结果提交边界。
 - e 的前端契约仍待 Aqua 审定。本次沿当前 schema 实现，没有发现需要修改公开字段的阻断；后续小改动需同步本层的投影 schema 与读取方法。
-- 申诉重判的请求转换、正式日目标和时区设置由后续任务实现；日志保留旧判分和来源，为重判留下依据。磁盘满、同步失败等专项注入按共同约定留待实际存储风险出现时补充。
+- 日目标设置、XP 差额与日汇总已接入；当前时区取后端本地时区。申诉已经通过新增记录保留旧判分、原答和历史任务。磁盘满、同步失败等专项注入按共同约定留待实际存储风险出现时补充。
 
 ## 验证入口
 
@@ -82,7 +85,7 @@ npm run check --workspace=@repa/learning-model
 npm test --workspace=@repa/learning-model
 npm run build --workspace=@repa/learning-model
 npm run check --workspace=@repa/learning
-npm test --workspace=@repa/learning -- --test-concurrency=1
+(cd packages/learning && node --import tsx --test --test-concurrency=1 test/*.test.ts)
 npm run build --workspace=@repa/learning
 ```
 

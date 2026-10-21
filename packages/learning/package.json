@@ -23,7 +23,8 @@
       "types": "./dist/sandbox/runtime.d.ts",
       "import": "./dist/sandbox/runtime.js"
     },
-    "./sandbox/runner.py": "./sandbox/runner.py"
+    "./sandbox/runner.py": "./sandbox/runner.py",
+    "./sandbox/frontend.py": "./sandbox/frontend.py"
   },
   "bin": {
     "repa-course": "dist/cli.js"
