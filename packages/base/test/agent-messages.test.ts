@@ -289,6 +289,6 @@ test("中止辅导 Agent 不枚举或加载磁盘上的未加载旧会话", asyn
   assert.equal(listed.mock.callCount(), 0);
   assert.equal(opened.mock.callCount(), 0);
   assert.deepEqual(await f.users(), ["旧辅导提问"]);
-  assert.equal(listed.mock.callCount(), 1);
+  assert.equal(listed.mock.callCount(), 0);
   assert.equal(opened.mock.callCount(), 1);
 });
