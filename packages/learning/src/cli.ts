@@ -182,7 +182,7 @@ async function confirm(args: string[]): Promise<number> {
       if (result.diagnostics.length > 0) failed = true;
       for (const item of result.outcomes) {
         process.stdout.write(`${describeOutcome(item)}\n`);
-        if (item.status === "disagreed" || item.status === "unusable" || (item.status === "skipped" && !dryRun && item.detail !== "已有当前版本的核对记录")) failed = true;
+        if (item.status === "disagreed" || item.status === "unusable" || (item.status === "skipped" && !dryRun && item.detail !== "已有当前核对范围的证明")) failed = true;
       }
     }
     if (dryRun) for (const request of requestsSent) process.stdout.write(`\n----- ${request.question}\n${request.system}\n\n${request.prompt}\n`);

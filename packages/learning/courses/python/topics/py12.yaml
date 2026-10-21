@@ -407,7 +407,7 @@ kps:
               - id: implementation
                 content: 让 AI 随便选一个 Python 库
             key: concrete
-        explanation: 第一项写清了筛选列、包含等号的阈值、输出列与文件形式，能让执行者独立得到可核对的结果。
+        explanation: “保留 age 至少为 18 的行，只输出 name 和 email 两列为名单 CSV”写清了筛选列、包含等号的阈值、输出列与文件形式，能让执行者独立得到可核对的结果。
         manual:
           - contract
       - id: py12.k1.x4
@@ -808,6 +808,7 @@ kps:
         explanation: 两侧的正常例子不能决定等号归属，验收还应包含 100 并明确此时免运。算出一个平均值也不能代替写清该例子的期望。
         manual:
           - gap
+
 verified:
   - question: py12.k1.r1
     version: sha256:043b7526fd9cd60eb5016c76003f139a6c378cb2c2ef02575292c1b6bbbcd57b
@@ -829,3 +830,33 @@ verified:
     slots: [next]
     model: deepseek/deepseek-flash
     date: 2026-10-13
+  - question: py12.k1.x3
+    version: sha256:2dfa094a2aa3f7a0de9cb2c8f1ee8cc9f4746e3fb0fee0942d2e5c54f56bd9bf
+    scope: question-runtime-v1
+    slots: [contract]
+    model: deepseek/deepseek-flash
+    date: 2026-10-21
+  - question: py12.k1.x4
+    version: sha256:00b16d19b324e91c358f53190d3ad14a673f17190890f77cb19abd7907a5c861
+    scope: question-runtime-v1
+    slots: [clarification]
+    model: deepseek/deepseek-flash
+    date: 2026-10-21
+  - question: py12.k2.r4
+    version: sha256:2d9ace1f5991290555c4ada96d31b7b6e7766bc4ee13e0ef08fb6f088a06d678
+    scope: question-runtime-v1
+    slots: [empty]
+    model: deepseek/deepseek-flash
+    date: 2026-10-21
+  - question: py12.k2.x3
+    version: sha256:5dfebed07cfd981be19d69161a72caf5998086e70e76ba63253c5d259d8c6871
+    scope: question-runtime-v1
+    slots: [boundary]
+    model: deepseek/deepseek-flash
+    date: 2026-10-21
+  - question: py12.k2.x4
+    version: sha256:e120df12c9228fea6a9aa3ec545dcc8dc2bcf60a578081eae1ced6472ea08b55
+    scope: question-runtime-v1
+    slots: [gap]
+    model: deepseek/deepseek-flash
+    date: 2026-10-21
