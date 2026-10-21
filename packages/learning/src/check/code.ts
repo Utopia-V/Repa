@@ -17,7 +17,8 @@ import {
   acceptedValues, content, inputCells, itemIndent, orderItemCode, scalarText, tableCell, textMatch, topicQuestions, type QuestionEntry,
 } from "./items.js";
 import { slotNeedsVerification } from "./rules.js";
-import { programProblem, ProgramResultSchema, type Expected } from "../python-execution.js";
+import { programProblem, type Expected } from "../python-execution.js";
+import { PythonProgramResultSchema } from "../protocol.js";
 import type { JobOutcome, SandboxRunner } from "../sandbox/session.js";
 
 export interface CodeStats {
@@ -303,7 +304,7 @@ async function runTest(program: string, prepared: PreparedTest, context: Context
   const problem = failure(outcome);
   if (problem || outcome.status !== "done" || !outcome.ok) return problem ?? "运行失败";
   try {
-    return programProblem(test, prepared.expected, parse(ProgramResultSchema, outcome.result));
+    return programProblem(test, prepared.expected, parse(PythonProgramResultSchema, outcome.result));
   } catch (error) {
     return error instanceof Error ? error.message : "测试结果不可用";
   }

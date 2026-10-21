@@ -12,13 +12,11 @@ import {
   executePython,
   expectedBinding,
   runnerVersion,
-  PYTHON_BATCH,
-  type BatchInput,
 } from "./python-execution.js";
 import { parseDoctest } from "./check/doctest.js";
 import { FLOW_VERSION } from "./flow-state.js";
 import type { Grade, Snapshot } from "./records-schema.js";
-import type { Feedback, SlotFeedback, Submission } from "./protocol.js";
+import { PYTHON_BATCH, type Feedback, type PythonBatchInput, type SlotFeedback, type Submission } from "./protocol.js";
 
 const ModelGradeSchema = object({
   verdict: Type.Enum(["correct", "partial", "incorrect", "unsure"]),
@@ -33,7 +31,7 @@ export async function judgeSubmission(host: Host, submission: Submission, snapsh
   const sources: unknown[] = [];
   let judge: Feedback["judge"] = "rule";
   const runner = await runnerVersion();
-  const batch: BatchInput = {
+  const batch: PythonBatchInput = {
     protocol: PYTHON_BATCH,
     kind: "execute",
     submissionId: submission.submissionId,

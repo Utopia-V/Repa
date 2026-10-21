@@ -3,9 +3,10 @@ import test from "node:test";
 import { RepaFault } from "@repa/base";
 import { createPluginTestHost } from "@repa/base/testing";
 import type { Host } from "@repa/base/plugin";
-import { compareProgram, executePython, PYTHON_BATCH, type BatchInput } from "../src/python-execution.js";
+import { compareProgram, executePython, pythonAvailable } from "../src/python-execution.js";
+import { PYTHON_BATCH, type PythonBatchInput } from "../src/protocol.js";
 
-const input: BatchInput = {
+const input: PythonBatchInput = {
   protocol: PYTHON_BATCH,
   kind: "execute",
   submissionId: "original",

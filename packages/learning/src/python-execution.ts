@@ -3,71 +3,23 @@ import { Type, type Static } from "typebox";
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { contentVersion, object, parse } from "@repa/base/protocol";
+import type { Question, Topic, Runtime, CodeTest } from "./format/schema.js";
 import {
-  FixtureSchema,
-  RuntimeSchema,
-  type Question,
-  type Topic,
-  type Runtime,
-  type CodeTest,
-} from "./format/schema.js";
+  PYTHON_BATCH,
+  PythonBatchResultSchema,
+  PythonCapabilitiesSchema,
+  type PythonBatchInput,
+  type PythonProgramResult,
+} from "./protocol.js";
 import { versionInput } from "./check/items.js";
 import { sameValue, showValue } from "./check/values.js";
 import { parseDoctest, sameDoctestOutput } from "./check/doctest.js";
 
-// #51 补齐有序批次、实际版本及阶段归因后，在此薄适配层改用协议导出；公开 protocol.ts 不重复定义。
-export const PYTHON_BATCH = "repa-python-batch-v1";
-const error = object({ type: Type.String(), message: Type.String() });
-export const ProgramResultSchema = object({
-  stdout: Type.String(),
-  error: Type.Union([
-    object({ ...error.properties, line: Type.Optional(Type.Union([Type.Integer(), Type.Null()])) }),
-    Type.Null(),
-  ]),
-  captures: Type.Record(Type.String(), Type.Union([object({ value: Type.Unknown() }), object({ error })])),
-  doctest: Type.Array(object({ out: Type.String(), exception: Type.Union([Type.String(), Type.Null()]) })),
-});
-const execution = object({
-  id: Type.String(),
-  program: Type.String(),
-  prelude: Type.String(),
-  setup: Type.String(),
-  data: Type.Array(object({ label: Type.String(), fixture: FixtureSchema })),
-  captures: Type.Array(Type.String()),
-  doctest: Type.Array(Type.String()),
-});
-export const BatchInputSchema = object({
-  protocol: Type.Literal(PYTHON_BATCH),
-  kind: Type.Literal("execute"),
-  submissionId: Type.String(),
-  gradeRevision: Type.Integer({ minimum: 1 }),
-  runtime: RuntimeSchema,
-  runner: Type.String(),
-  tests: Type.Array(execution),
-});
-const phase = Type.Enum(["prepare", "program", "capture", "doctest", "cleanup"]);
-export const BatchResultSchema = object({
-  protocol: Type.Literal(PYTHON_BATCH),
-  submissionId: Type.String(),
-  gradeRevision: Type.Integer({ minimum: 1 }),
-  runtime: RuntimeSchema,
-  runner: Type.String(),
-  freshInterpreter: Type.Literal(true),
-  tests: Type.Array(
-    Type.Union([
-      object({ id: Type.String(), status: Type.Literal("completed"), result: ProgramResultSchema }),
-      object({ id: Type.String(), status: Type.Enum(["timeout", "failed"]), phase, error: Type.Optional(error) }),
-      object({ id: Type.String(), status: Type.Literal("not_run") }),
-    ]),
-  ),
-});
 export const ExpectedSchema = object({
   binding: Type.String(),
   values: Type.Record(Type.String(), Type.Array(Type.Record(Type.String(), Type.Unknown()))),
 });
 export type Expected = Static<typeof ExpectedSchema>;
-export type BatchInput = Static<typeof BatchInputSchema>;
-export type ProgramResult = Static<typeof ProgramResultSchema>;
 export const runnerVersion = () =>
   readFile(new URL("../sandbox/runner.py", import.meta.url), "utf8").then(contentVersion);
 export async function expectedBinding(
@@ -81,15 +33,7 @@ export async function expectedBinding(
 export async function pythonAvailable(host: Host, runtime: Runtime, runner: string): Promise<boolean> {
   try {
     const result = await host.services.call("python.run", { protocol: PYTHON_BATCH, kind: "capabilities" });
-    const capability = parse(
-      object({
-        protocol: Type.Literal(PYTHON_BATCH),
-        runtime: RuntimeSchema,
-        runner: Type.String(),
-        freshInterpreter: Type.Literal(true),
-      }),
-      result,
-    );
+    const capability = parse(PythonCapabilitiesSchema, result);
     return (
       (await contentVersion(capability.runtime)) === (await contentVersion(runtime)) && capability.runner === runner
     );
@@ -100,7 +44,7 @@ export async function pythonAvailable(host: Host, runtime: Runtime, runner: stri
 export function programProblem(
   test: CodeTest,
   expected: Record<string, unknown>,
-  result: ProgramResult,
+  result: PythonProgramResult,
 ): string | undefined {
   const examples = parseDoctest(test.doctest ?? "").examples;
   const missingResults =
@@ -151,10 +95,10 @@ export function programProblem(
   }
   return undefined;
 }
-export const compareProgram = (test: CodeTest, expected: Record<string, unknown>, result: ProgramResult) =>
+export const compareProgram = (test: CodeTest, expected: Record<string, unknown>, result: PythonProgramResult) =>
   programProblem(test, expected, result) === undefined;
-export async function executePython(host: Host, input: BatchInput) {
-  const result = parse(BatchResultSchema, await host.services.call("python.run", input));
+export async function executePython(host: Host, input: PythonBatchInput) {
+  const result = parse(PythonBatchResultSchema, await host.services.call("python.run", input));
   const mismatchedExecution =
     result.submissionId !== input.submissionId ||
     result.gradeRevision !== input.gradeRevision ||

@@ -19,7 +19,8 @@
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
     },
-    "./sandbox/runner.py": "./sandbox/runner.py"
+    "./sandbox/runner.py": "./sandbox/runner.py",
+    "./sandbox/frontend.py": "./sandbox/frontend.py"
   },
   "bin": {
     "repa-course": "dist/cli.js"
