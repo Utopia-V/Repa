@@ -24,6 +24,7 @@ import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
+import { credentialValues } from "../feedback/redact.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { limitToolText } from "./output.js";
 import { readParent, saveParent } from "./parent.js";
@@ -288,6 +289,19 @@ class Runtime implements AgentRuntime {
     await this.options.modelRuntime.logout(provider);
   }
 
+  /** 凭据由 Pi 的 ModelRuntime 保存在 agentDir/auth.json（见 createAgentRuntime）；这里只读出值，不经过 Pi 的接口，它不公开密钥。 */
+  async credentials(): Promise<string[]> {
+    this.assertOpen();
+    let text: string;
+    try {
+      text = await readFile(path.join(this.options.agentDir, "auth.json"), "utf8");
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+      throw error;
+    }
+    return credentialValues(JSON.parse(text));
+  }
+
   async complete(request: CompletionRequest): Promise<string> {
     this.assertOpen();
     const model = this.model(request.model);
@@ -487,6 +501,11 @@ class Space implements AgentSpace {
       if (this.sessions.get(id) === loading) this.sessions.delete(id);
     });
     return loading;
+  }
+
+  sessionFile(id: string): string | undefined {
+    this.assertOpen();
+    return SessionManager.findById(this.options.root, id, this.options.sessionsDir);
   }
 
   async get(id: string): Promise<Session> {

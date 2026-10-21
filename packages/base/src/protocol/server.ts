@@ -7,6 +7,8 @@ import { Check } from "typebox/value";
 import { WebSocket, WebSocketServer } from "ws";
 import { createAgentRuntime, withFileMutationQueue, type AgentRuntime, type AgentSpace } from "../agent.js";
 import type { AskRoute } from "../ask.js";
+import { createFeedbackBundle } from "../feedback/bundle.js";
+import { RecentErrors } from "../feedback/errors.js";
 import {
   canRender,
   checkResponse,
@@ -128,6 +130,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     perMessageDeflate: false,
   });
 
+  // 发给前端的错误事件同时记一份，反馈包从这里取；后端没有日志文件。
+  const recordError = (method: Notification, params: unknown) => {
+    if (method === "session.event" && Check(notifications["session.event"], params) && params.type === "error") {
+      const data = params.data;
+      const code = data !== null && typeof data === "object" && "code" in data && typeof data.code === "string" ? data.code : undefined;
+      errors.add({ source: `session:${params.sessionId}`, message: params.text ?? "", ...(code === undefined ? {} : { code }) });
+    }
+  };
   const send = (peer: Peer, value: unknown) => {
     if (!peer.alive || peer.socket.readyState !== WebSocket.OPEN) return;
     if (peer.socket.bufferedAmount > 8 * 1024 * 1024) {
@@ -136,8 +146,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
     peer.socket.send(JSON.stringify(value));
   };
+  const errors = new RecentErrors();
   const emit = <N extends Notification>(method: N, params: NotificationParams<N>) => {
     if (!Check(notifications[method], params)) throw new RepaFault("invalid_event", "模块发出了无效事件");
+    recordError(method, params);
     for (const peer of peers) {
       if (peer.authenticated) send(peer, { jsonrpc: "2.0", method, params });
     }
@@ -366,7 +378,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           },
         },
         emit: (pluginId, event) => emit("plugin.event", { pluginId, event }),
-        onError: () => emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } }),
+        onError: (error) => {
+          errors.add({ source: "plugin-host", message: error instanceof Error ? error.message : String(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
+          emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } });
+        },
       });
       const host = plugins;
       agent = await runtime.openSpace({
@@ -592,6 +607,21 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           throw new RepaFault("auth_failed", "删除模型凭据失败");
         }
         return null;
+      case "feedback.create": {
+        const input = p<"feedback.create">();
+        const current = requireActive();
+        return createFeedbackBundle({
+          home,
+          root: current.space.root,
+          agent: current.agent,
+          history: current.space.history,
+          complete: (request) => runtime.complete(request),
+          credentials: () => runtime.credentials(),
+          errors,
+          commandPolicy: settings.get().commandPolicy,
+          plugins: current.plugins.list(),
+        }, input);
+      }
       case "settings.get":
         return settings.get();
       case "settings.set":
@@ -619,6 +649,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       return { jsonrpc: "2.0", id, result };
     } catch (error) {
       if (notification) return undefined;
+      // 内部错误不把细节交给前端，记进最近错误，反馈包里能看到原因。
+      if (!(error instanceof RpcFault) && !(error instanceof RepaFault)) {
+        errors.add({ source: "rpc", message: error instanceof Error ? error.message : String(error), ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
+      }
       const fault = error instanceof RpcFault ? error : error instanceof RepaFault
         ? new RpcFault(-32000, error.message, { code: error.code, ...(error.details === undefined ? {} : { details: error.details }) })
         : new RpcFault(-32603, "Internal error");

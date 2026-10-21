@@ -314,6 +314,7 @@ async execute(input, context) {
 | 提示 | `prompt.list/set/reset/preview` |
 | 模型 | `model.list/providers/getDefault/setDefault`、`auth.login/setKey/logout` |
 | 设置 | `settings.get/set` |
+| 反馈 | `feedback.create` |
 
 `space.browse` 为不能取得本地路径的 Web 前端列出某个文件夹下的子文件夹，不传路径时从用户目录开始，并标出含 `.repa/` 的已有空间；它只返回名称与路径，不读取文件。Node 读不到 Windows 的隐藏属性，因此除点开头的名称外，按名称跳过 `$` 开头的目录、`ProgramData`、`AppData` 等资源管理器默认不显示的系统目录，以及用户目录中拒绝读取的兼容链接；用户自行设为隐藏的文件夹仍会显示。单次最多返回 1000 个子文件夹并以 `truncated` 标记截断，不提供翻页游标。路径错误分别返回 `invalid_path`、`not_found`、`not_directory`、`permission_denied`（`EACCES` 与 `EPERM`）和 `unavailable`。`space.roots` 给出浏览起点：Windows 通过 PowerShell 读取盘符名称，失败时退回用户目录所在的盘；其他平台只有 `/`。
 
@@ -333,6 +334,10 @@ Agent 相关的约定：
 - `history.undoRun` 接受 `{ runId }`，runId 来自 `runStart` 事件或会话中的 `run` 条目；撤回这个运行及其全部子孙运行的写入，返回与 `history.undo` 相同的 `{ revision, restored, conflicts }`，冲突按文件判断。这个运行及其子孙运行没有写过文件时返回 `nothing_to_undo`；带命令行的运行总有一条整体快照的提交，撤回它不会得到这个错误码。`history.undo` 的修订不存在时返回 `revision_not_found`，`history.changes` 的 `since` 不存在时也是。
 - 关掉的 Agent 和已卸载插件的 Agent，其旧会话仍在 `session.list` 中，`session.history` 照常可读，`session.abort` 没有可取消的工作；发消息、分支、压缩和换模型返回 `agent_not_found`。
 
+`feedback.create` 为一个会话生成问题反馈包，返回 zip 的路径和包内文件名。包里有 `description.md`（用户的说明和可选的 Agent 自述）、`sessions/` 下这个会话及其子 Agent 会话的原始记录、最近 50 条空间历史、`errors.json`（后端内存里最近 100 条错误，加上前端带来的 `clientErrors`）、`environment.json`（Repa、Node、系统版本，空间路径，命令策略和插件）和 `manifest.json`（每个文件替换了几处）。`describe` 为 `true` 时用会话的模型做一次不带工具的 `complete`，失败也照样出包，在 `description.md` 写明原因。`directory` 省略时写到 Repa home 的 `feedback/`，文件名按本地时间，不含冒号，重名时加序号。
+
+生成前先读 `auth.json` 里保存的凭据，连同名称像凭据的环境变量的值一起逐字替换为 `[已脱敏:credential]`，再按格式替换私钥、`sk-`、GitHub 令牌、AWS key 和 Bearer 令牌。会话记录逐行解析后替换，转义过的密钥也能匹配。凭据读不到时整次失败，返回 `feedback_redaction_failed`，不写任何文件；全部内容在内存里脱敏、打包，磁盘上只出现最后的 zip。路径和系统用户名保持原样。
+
 | 错误码 | 含义与 `details` |
 | --- | --- |
 | `agent_not_found` | Agent 不存在或已关掉，`{ agent }`；也用于向这类 Agent 的旧会话发消息、分支、压缩或换模型 |
@@ -341,6 +346,8 @@ Agent 相关的约定：
 | `message_rejected` | 插件拒收用户消息；`message` 是插件给用户的说明，`details` 为 `{ agent, reason, data? }`，按 `reason` 分支处理 |
 | `message_check_failed` | 插件判断消息时出错，消息没有发送，`{ agent }` |
 | `revision_not_found` | 修订不存在：格式不对，或不在这个空间的历史里；用于 `history.undo` 和 `history.changes`，`{ revision }` |
+| `feedback_redaction_failed` | 读不到保存的凭据，无法脱敏，反馈包没有生成，`{ reason }` |
+| `feedback_write_failed` | 反馈包的文件名都被占用了，`{ directory }` |
 | `nothing_to_undo` | 没有可撤回的改动：`history.undoRun` 的运行及其子孙运行没有写过文件（`{ runId }`），或 `history.undo` 指向空间的初始快照（`{ revision }`） |
 
 ## 本次实现的决定与核实

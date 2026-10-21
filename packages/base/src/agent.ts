@@ -31,6 +31,8 @@ export interface AgentSpace {
   create(options?: { agent?: string; model?: ModelRef }): Promise<AgentSession>;
   get(id: string): Promise<AgentSession>;
   list(): Promise<SessionInfo[]>;
+  /** 会话记录文件的路径，只读取文件、不打开会话；没有这个会话时为 undefined。 */
+  sessionFile(id: string): string | undefined;
   preview(agent?: string): Promise<{ sections: PromptSection[]; views: { id: string; text: string }[] }>;
   runAgent(task: AgentTask): Promise<AgentWork>;
   close(): Promise<void>;
@@ -71,6 +73,8 @@ export interface AgentRuntime {
   login(provider: string, type: string, confirm: Confirm, signal?: AbortSignal): Promise<void>;
   setKey(provider: string, key: string): Promise<void>;
   logout(provider: string): Promise<void>;
+  /** 保存的凭据里的全部字符串值，供反馈包脱敏；没有凭据文件时为空，文件读不了或损坏时抛错。 */
+  credentials(): Promise<string[]>;
   complete(request: CompletionRequest): Promise<string>;
   completeStructured<S extends TSchema>(request: CompletionRequest, schema: S): Promise<Static<S>>;
   close(): Promise<void>;
