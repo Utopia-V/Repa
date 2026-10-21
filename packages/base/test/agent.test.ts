@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import fs from "node:fs";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, getInitialSystemMessage, resolveTranscriptTools, type TranscriptContext } from "@earendil-works/pi-ai";
-import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { cacheStatusForTest, createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/runtime.js";
 import type { AgentSpaceOptions } from "../src/agent.js";
@@ -186,6 +188,56 @@ test("首个 assistant 前用户消息已经持久化，重开空间沿用真实
   const reopened = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => true });
   const session = await reopened.get(f.session.info().id);
   assert.deepEqual(session.history().filter(entry => entry.type === "user").map(entry => entry.text), ["需要保存的原始用户消息"]);
+});
+
+test("多个会话按标准文件名打开时只读取目标文件", async t => {
+  const f = await fixture(t);
+  const id = f.session.info().id;
+  const source = SessionManager.findById(f.root, id, f.sessionsDir);
+  assert(source);
+  await f.space.close();
+  const target = path.join(f.sessionsDir, `2026-10-21T00-00-00-000Z_${id}.jsonl`);
+  await rename(source, target);
+  await writeFile(path.join(f.sessionsDir, `2026-10-20T00-00-00-000Z_${randomUUID()}.jsonl`), "损坏的其他会话\n");
+  const reads: string[] = [];
+  const createReadStream = fs.createReadStream;
+  const openSync = fs.openSync;
+  t.mock.method(fs, "createReadStream", (...args: Parameters<typeof createReadStream>) => {
+    reads.push(String(args[0]));
+    return createReadStream(...args);
+  });
+  t.mock.method(fs, "openSync", (...args: Parameters<typeof openSync>) => {
+    reads.push(String(args[0]));
+    return openSync(...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  const reopened = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => true });
+  assert.equal((await reopened.get(id)).info().id, id);
+  const sessionReads = reads.filter(file => path.dirname(file) === f.sessionsDir && file.endsWith(".jsonl"));
+  assert(sessionReads.length > 0);
+  assert.deepEqual([...new Set(sessionReads)], [target]);
+});
+
+test("标准文件名的会话头不匹配时扫描退路找到非规范文件名的会话", async t => {
+  const f = await fixture(t);
+  const id = f.session.info().id;
+  const source = SessionManager.findById(f.root, id, f.sessionsDir);
+  assert(source);
+  await f.space.close();
+  const original = await readFile(source, "utf8");
+  await rename(source, path.join(f.sessionsDir, "legacy.jsonl"));
+  const lines = original.split("\n");
+  const header = SessionManager.open(path.join(f.sessionsDir, "legacy.jsonl"), f.sessionsDir, f.root).getHeader();
+  assert(header);
+  lines[0] = JSON.stringify({ ...header, id: randomUUID() });
+  await writeFile(path.join(f.sessionsDir, `2026-10-21T00-00-00-000Z_${id}.jsonl`), lines.join("\n"));
+  await writeFile(path.join(f.sessionsDir, "000-broken.jsonl"), "损坏的会话头\n");
+  const reopened = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => true });
+  assert.equal((await reopened.get(id)).info().id, id);
 });
 
 test("会话列表按最后消息排序，给出第一条用户消息和会话自己的模型，重开后不变", async t => {
