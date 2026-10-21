@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, openSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { closeSync, createReadStream, openSync } from "node:fs";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { type AuthEvent, type AuthPrompt, type Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
@@ -109,6 +110,25 @@ function sessionAgent(manager: SessionManager): string {
   if (data !== null && typeof data === "object" && "agent" in data && typeof data.agent === "string" && data.agent.length > 0) return data.agent;
   // 记录损坏时不回退为通用 Agent，避免把受限的会话按完整权限打开。
   throw new RepaFault("invalid_session_agent", "会话的 Agent 记录无法读取", { id: manager.getSessionId() });
+}
+
+async function hasSessionId(file: string, id: string): Promise<boolean> {
+  const input = createReadStream(file, { encoding: "utf8" });
+  const lines = createInterface({ input, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      const header: unknown = JSON.parse(line);
+      return header !== null && typeof header === "object" && "type" in header
+        && header.type === "session" && "id" in header && header.id === id;
+    }
+    return false;
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  } finally {
+    lines.close();
+    input.destroy();
+  }
 }
 
 function toolDefinition(tool: AgentTool): ToolDefinition {
@@ -493,15 +513,35 @@ class Space implements AgentSpace {
     this.assertOpen();
     const existing = this.sessions.get(id);
     if (existing) return existing;
-    const file = SessionManager.findById(this.options.root, id, this.options.sessionsDir);
-    if (!file) throw new RepaFault("session_not_found", "会话不存在", { id });
-    return this.load(SessionManager.open(file, this.options.sessionsDir, this.options.root));
+    const files = (await readdir(this.options.sessionsDir)).filter(file => file.endsWith(".jsonl"));
+    // Pi 1.1.0 的 create/fork 使用 <时间戳>_<id>.jsonl；文件名只加速定位，正确性靠会话头核验。
+    const matchesName = (file: string) => file.endsWith(`_${id}.jsonl`);
+    const ordered = [...files.filter(matchesName), ...files.filter(file => !matchesName(file))];
+    for (const file of ordered) {
+      const sessionPath = path.join(this.options.sessionsDir, file);
+      // 目录归当前空间所有；仅核对头部的 type/id，不按旧 cwd 过滤。
+      if (await hasSessionId(sessionPath, id)) {
+        return this.load(SessionManager.open(sessionPath, this.options.sessionsDir, this.options.root));
+      }
+    }
+    throw new RepaFault("session_not_found", "会话不存在", { id });
+  }
+
+  async abortAgent(agent: string): Promise<void> {
+    this.assertOpen();
+    await Promise.all([...this.sessions.values()].map(async (pending) => {
+      const session = await pending;
+      if (session.info().agent === agent) {
+        await session.abort();
+      }
+    }));
   }
 
   async list(): Promise<SessionInfo[]> {
     this.assertOpen();
     const infos = new Map<string, SessionInfo>();
-    for (const entry of await SessionManager.list(this.options.root, this.options.sessionsDir)) {
+    // 会话目录归当前空间所有；复制或移动空间后，header.cwd 仍是旧路径，不用于筛选。
+    for (const entry of await SessionManager.listAll(this.options.sessionsDir)) {
       const manager = SessionManager.open(entry.path, this.options.sessionsDir, this.options.root);
       const model = manager.buildSessionProjection().model;
       const parent = await readParent(this.options.sessionsDir, entry.id);

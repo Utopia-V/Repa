@@ -316,7 +316,7 @@ export const SubmissionSchema = object({
   taskId: identifier, deliveryId: identifier, submissionId: identifier,
   response: LearnerResponseSchema, acceptedAt: timestamp, processing: ProcessingSchema,
   gradeRevision: count,
-  /** practice 判分后、review 结束后、quiz/retake 交卷或超时后才释放。 */
+  /** practice 判分后、review 结束后、quiz/retake 交卷或超时后才释放；受限任务中历史结果同样隐藏。 */
   feedback: Type.Optional(FeedbackSchema), explanation: Type.Optional(ContentSchema),
 });
 export type Submission = Static<typeof SubmissionSchema>;

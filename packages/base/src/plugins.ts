@@ -22,6 +22,8 @@ export interface PluginHostOptions {
   space: Space;
   plugins: Plugin[];
   models: Models;
+  /** 装配到当前空间的会话取消路径。 */
+  abortAgent?(agent: string): Promise<void>;
   /** 对话里的询问，绑定发起运行的连接。省略时 ToolContext.ask 以 ask_unavailable 拒绝。 */
   ask?: AskRoute;
   /** 前端声明的服务。省略时调用以 service_unavailable 拒绝。 */

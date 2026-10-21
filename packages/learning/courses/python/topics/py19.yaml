@@ -377,6 +377,41 @@ kps:
               if r.error is None and r.out.strip() == str(wanted):
                   fits.append(option)
           answers = {"fix": fits[0] if len(fits) == 1 else fits, "count": wanted}
+      - id: py19.k1.q4
+        uses: [py17.k1]
+        kind: [debug]
+        body: |
+          零是一个有效测量，不是缺失。对照等于 NaN 与 isna 的结果。
+
+          ```python
+          values = pd.Series([0.0, np.nan, 2.0])
+          print((values == np.nan).tolist())
+          print(values.isna().tolist())
+          ```
+        slots:
+          - {id: compare, type: text, match: output, prompt: 等于 NaN, key: "[False, False, False]"}
+          - {id: missing, type: text, match: output, prompt: isna, key: "[False, True, False]"}
+        explanation: "NaN 与自身也不相等，所以 == 找不到缺失。isna 专门识别缺失，只有中间一项为 True，零仍是非缺失值。"
+        verify: |
+          lines = run().lines()
+          answers = {"compare": lines[0], "missing": lines[1]}
+      - id: py19.k1.q5
+        kind: [trace]
+        body: |
+          isna 和 notna 互相补足。分别数出缺失与有值的数量。
+
+          ```python
+          values = pd.Series([np.nan, 0, 5, np.nan])
+          print(int(values.isna().sum()))
+          print(int(values.notna().sum()))
+          ```
+        slots:
+          - {id: missing, type: text, format: integer, prompt: 缺失个数, key: 2}
+          - {id: present, type: text, format: integer, prompt: 非缺失个数, key: 2}
+        explanation: "两个 NaN 是缺失，0 和 5 都有有效数值。把两类计数加起来，正好是原来的四个位置。"
+        verify: |
+          lines = run().lines()
+          answers = {"missing": int(lines[0]), "present": int(lines[1])}
     review:
       - id: py19.k1.r1
         kind: [predict]
@@ -531,6 +566,33 @@ kps:
 
           `== np.nan` 每一行都是 False，所以原来的代码一行也留不下。改用 `isna()` 标出缺失的行，留下 T2。和 None 比较一样找不出缺失；`== 0` 会把真的读到 0 ℃ 的 T3 当成缺失。判分时还会换一份有两个缺失的记录运行。
 
+      - id: py19.k1.x3
+        kind:
+          - trace
+        body: |
+          isna 不把零当作缺失，notna 对每一项给出相反的判断。
+
+          ```python
+          values = pd.Series([np.nan, 0.0, np.nan])
+          print(values.isna().tolist())
+          print(values.notna().tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[True, False, True]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[False, True, False]'
+        explanation: 两端是缺失，中间的零是有效数；两种掩码逐项互补。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py19.k2
     keyPrerequisites: [py14, py03]
     title: 不同 dtype 下缺失表示可能不同
@@ -700,6 +762,38 @@ kps:
           result = run()["result"]
           rows = [str(label) for label in result.index]
           answers = {"rows": rows, "s_c": "yes" if "S_C" in list(result["sample_id"]) else "no"}
+      - id: py19.k2.q4
+        kind: [trace]
+        body: |
+          下列文字是在内存里直接构造的，不经过 CSV 的缺失推断。哪些被 isna 识别为缺失？
+
+          ```python
+          values = pd.Series(["", " ", "NA", None], dtype="str")
+          print(values.isna().tolist())
+          ```
+        slots:
+          - {id: missing, type: text, match: output, prompt: 掩码列表, key: "[False, False, False, True]"}
+        explanation: "空串、空格和文字 'NA' 都是实际字符串；这里只有 None 被转换成缺失。看起来像缺失的标记不会在内存构造时自动按业务含义解释。"
+        verify: |
+          answers = {"missing": run().lines()[0]}
+      - id: py19.k2.q5
+        kind: [debug]
+        body: |
+          记录中插入一个缺失值后，普通整数列的 dtype 会怎样变化？
+
+          ```python
+          complete = pd.Series([1, 0, 2])
+          absent = pd.Series([1, 0, None])
+          print(str(complete.dtype))
+          print(str(absent.dtype))
+          ```
+        slots:
+          - {id: complete, type: text, match: text, prompt: 完整列 dtype, key: int64}
+          - {id: absent, type: text, match: text, prompt: 含缺失列 dtype, key: float64}
+        explanation: "普通 int64 无法直接容纳缺失，因此含 None 的这一列被推断为 float64。零本身不会触发这种变化，缺失与零仍应分别看待。"
+        verify: |
+          lines = run().lines()
+          answers = {"complete": str(lines[0]), "absent": str(lines[1])}
     review:
       - id: py19.k2.r1
         kind: [predict]
@@ -812,6 +906,40 @@ kps:
               "without": {"i": "int", "f": "float"}[complete],
           }
 
+      - id: py19.k2.x3
+        kind:
+          - trace
+        body: |
+          相同的“无值”在 object 列与普通浮点列里显示不同，但都可以被 isna 识别。
+
+          ```python
+          objects = pd.Series([None], dtype="object")
+          numbers = pd.Series([np.nan], dtype="float64")
+          print(repr(objects.iloc[0]))
+          print(bool(objects.isna().iloc[0]))
+          print(bool(numbers.isna().iloc[0]))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: None
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: 'True'
+        explanation: object 列保留 None 的表示；浮点列使用 NaN。isna 的用途就是统一识别这些不同表示的缺失。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py19.k3
     keyPrerequisites: [py12, py17]
     title: 删除、保留或填补需要业务规则
@@ -991,6 +1119,41 @@ kps:
           一种回答：**是哪几列的空格要处理？表里的 0 或“NA”算不算缺失？这些格为什么空着——没测、测不出来，还是不适用？空着的行要删掉、填成某个值，还是保留并在结果里注明缺了几个？**
 
           其他同样会影响结果的具体追问也算，例如“删掉以后要不要告诉你每组少了几个”。只说“缺失怎么处理？”而不给出可选的做法，对方仍难回答。
+      - id: py19.k3.q4
+        kind: [debug]
+        body: |
+          规则只要求删除 score 缺失的行，note 缺失应保留。对照带 subset 与不带 subset 的结果行数。
+
+          ```python
+          table = pd.DataFrame({"score": [8, None, 9], "note": [None, "ok", "ok"]})
+          print(table.dropna(subset=["score"]).shape[0])
+          print(table.dropna().shape[0])
+          ```
+        slots:
+          - {id: subset, type: text, format: integer, prompt: 只检查 score, key: 2}
+          - {id: all, type: text, format: integer, prompt: 检查全部列, key: 1}
+        explanation: "只检查 score 时保留第一、第三行；检查全部列还会删掉 note 缺失的第一行。规则限定哪一列，就要在 subset 中写清楚。"
+        verify: |
+          lines = run().lines()
+          answers = {"subset": int(lines[0]), "all": int(lines[1])}
+      - id: py19.k3.q5
+        uses: [py17.k1]
+        kind: [trace]
+        body: |
+          把缺失填成零会改变后续筛选的人群。分别数出原值和填零后“小于 5”的个数。
+
+          ```python
+          values = pd.Series([2.0, np.nan, 8.0])
+          print(int((values < 5).sum()))
+          print(int((values.fillna(0) < 5).sum()))
+          ```
+        slots:
+          - {id: original, type: text, format: integer, prompt: 原值满足个数, key: 1}
+          - {id: filled, type: text, format: integer, prompt: 填零后满足个数, key: 2}
+        explanation: "原缺失不满足数值比较，只有 2 小于 5；填零后，缺失被当成了零，也进入筛选结果。是否这样处理必须由业务规则决定。"
+        verify: |
+          lines = run().lines()
+          answers = {"original": int(lines[0]), "filled": int(lines[1])}
     review:
       - id: py19.k3.r1
         kind: [predict]

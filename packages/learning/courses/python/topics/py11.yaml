@@ -301,6 +301,40 @@ kps:
                   return [frame.lineno for frame in traceback.extract_tb(error.__traceback__) if frame.filename == "<q>"][-1]
               return None
           answers = {"count": len(run().lines()), "stop": stop_line()}
+      - id: py11.k1.q4
+        kind: [debug]
+        body: |
+          这是一整段脚本，不是逐行输入的交互命令。语法错误出现在后面时，前面的 print 会先执行吗？
+
+          ```python
+          print("start")
+          if True
+              print("inside")
+          ```
+        slots:
+          - {id: lines, type: text, format: integer, prompt: 出错前显示几行？, key: 0}
+          - {id: error, type: text, match: text, prompt: 异常类型, key: SyntaxError}
+        explanation: "整段脚本必须先通过语法分析。if 行缺少冒号使编译失败，所以连第一行 print 也没有开始执行。"
+        verify: |
+          r = run()
+          answers = {"lines": len(r.lines()), "error": r.error}
+      - id: py11.k1.q5
+        kind: [trace]
+        body: |
+          这一段语法正确，但运行时会停止。填写已经显示的内容以及异常类型。
+
+          ```python
+          print("start")
+          value = 1 / 0
+          print("end")
+          ```
+        slots:
+          - {id: printed, type: text, match: text, prompt: 停止前显示的内容, key: start}
+          - {id: error, type: text, match: text, prompt: 异常类型, key: ZeroDivisionError}
+        explanation: "脚本能开始运行，先显示 start；第二行除零时才抛出 ZeroDivisionError，因此 end 没有显示。这与编译阶段的 SyntaxError 不同。"
+        verify: |
+          r = run()
+          answers = {"printed": str(r.lines()[0]), "error": r.error}
     review:
       - id: py11.k1.r1
         kind: [predict]
@@ -557,6 +591,49 @@ kps:
           lines = run().lines()
           answers = {"count": len(lines), "last": lines[-1], "stop": stop_line()}
 
+      - id: py11.k1.x3
+        kind:
+          - trace
+        body: |
+          这是一份完整脚本。语法分析失败时，前面的显示也不会开始。填写屏幕显示的行数。
+
+          ```python
+          print("before")
+          print("unclosed"
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '0'
+        explanation: 第二行缺少右括号，整段脚本在编译阶段就发生 SyntaxError，没有任何一行开始运行。
+        verify: |
+          r = run()
+          values = [as_shown(str(len(r.lines())))]
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py11.k1.x4
+        kind:
+          - trace
+        body: |
+          语法正确而运行时停止的脚本，可以保留停止前的显示。只填实际已经显示的一行。
+
+          ```python
+          print("ready")
+          print(unknown_value)
+          print("finished")
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: ready
+        explanation: 第一行已执行，第二行读取未定义名字时发生 NameError；finished 所在行不会执行。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py11.k2
     keyPrerequisites: [py03, py06]
     title: 从异常类型和指向的行缩小原因
@@ -831,6 +908,47 @@ kps:
           ```
 
           写成 `count + "3"` 不会报错，但得到的是两段文字接起来的“123”。判分时还会换一个 count 运行你的代码。
+      - id: py11.k2.q4
+        kind: [debug]
+        uses: [py06.k2]
+        body: |
+          只根据异常类型和停止行定位问题。哪一项是对原因的准确判断？
+
+          ```python startLine=1
+          names = ["Li", "Wu"]
+          selected = names[2]
+          print(selected)
+          ```
+        slots:
+          - id: cause
+            type: choice
+            options:
+              - {id: index, content: 第 2 行 IndexError，列表没有下标 2}
+              - {id: print, content: 第 3 行 NameError，因为 print 不认识 selected}
+              - {id: syntax, content: 第 1 行 SyntaxError，因为列表不能存文字}
+            key: index
+        explanation: "列表只有下标 0、1，第 2 行取下标 2 时就停止了。第 3 行没有执行，不能把后续可能遇到的问题当成这次的原因。"
+        verify: |
+          r = run()
+          answers = {"cause": "index" if r.error == "IndexError" and r.error_line == 2 else "print"}
+      - id: py11.k2.q5
+        kind: [debug]
+        uses: [py03.k1]
+        body: |
+          同一个 + 号，输入类型不同时可能报错。填写出错行号和异常类型。
+
+          ```python startLine=1
+          count = "3"
+          next_count = count + 1
+          print(next_count)
+          ```
+        slots:
+          - {id: line, type: text, format: integer, prompt: 出错行号, key: 2}
+          - {id: error, type: text, match: text, prompt: 异常类型, key: TypeError}
+        explanation: "count 已经定义，但它指向文字 '3'。第 2 行试图把 str 与 int 相加，因此是 TypeError，而不是未定义名字的 NameError。"
+        verify: |
+          r = run()
+          answers = {"line": r.error_line, "error": r.error}
     review:
       - id: py11.k2.r1
         kind: [debug, trace]
@@ -964,6 +1082,51 @@ kps:
               row: {"cause": [cause for cause, text in produced.items() if text.startswith(expected)][0]}
               for row, expected in shown.items()
           }}
+      - id: py11.k2.r3
+        uses: [py03.k1]
+        kind:
+          - trace
+        body: |
+          错误行中出现的名字，不一定就是未定义的名字。这里读到了已定义的整数，但不支持所用操作；填写异常类型。
+
+          ```python
+          count = 3
+          print(count[0])
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: TypeError
+        explanation: count 已经定义，问题在于整数不能按下标取元素，实际异常是 TypeError，而不是 NameError。
+        verify: |
+          r = run()
+          values = [as_shown(r.error)]
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py11.k2.r4
+        kind:
+          - trace
+        body: |
+          程序在访问列表越界位置时停止，后面的显示没有执行。只填写停止前已经显示的一行。
+
+          ```python
+          print("before")
+          values = [1, 2]
+          print(values[4])
+          print("after")
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: before
+        explanation: 第二次 print 求值时出现 IndexError，after 不会执行；应定位越界访问而不是修改后面的输出语句。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py11.k2.x1
         kind: [debug, trace]
@@ -1064,3 +1227,49 @@ kps:
         verify: |
           prelude = CODE.splitlines()[0] + "\n"
           answers = {"fixes": [option for option, line in OPTIONS["fixes"].items() if run(prelude + line).out.strip() == "13"]}
+      - id: py11.k2.x3
+        kind:
+          - trace
+        body: |
+          名字确实存在，但对象类型不支持这项运算。填写实际异常类型，而不是笼统写“名字有问题”。
+
+          ```python
+          text = "4"
+          print(text - 1)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: TypeError
+        explanation: text 已经定义为 str，问题是字符串不能与整数做减法，因此是 TypeError，而不是 NameError。
+        verify: |
+          r = run()
+          values = [as_shown(r.error)]
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+        uses:
+          - py03.k1
+      - id: py11.k2.x4
+        kind:
+          - trace
+        body: |
+          先看异常发生的位置，区分“变量不存在”和“列表位置不存在”。填写实际异常类型。
+
+          ```python
+          values = [8]
+          print(values[1])
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: IndexError
+        explanation: values 这个名字存在，但只有位置 0；访问不存在的位置 1 导致 IndexError。
+        verify: |
+          r = run()
+          values = [as_shown(r.error)]
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+        uses:
+          - py06.k2

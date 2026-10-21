@@ -267,6 +267,47 @@ kps:
           ```
 
           `label.strip()` 单独一行时，算出的新文字没有留下。写成赋值，先算右边，再让 `label` 改为指向新文字。存进 `clean` 这样的新名字，`label` 本身仍然不变，后面用 `label` 的代码拿到的还是带空格的标签。
+      - id: py05.k1.q4
+        kind: [debug]
+        body: |
+          门牌号只需改第一个字母。下面程序会改变原字符串吗？
+
+          ```python
+          room = "a12"
+          room[0] = "A"
+          print(room)
+          ```
+        slots:
+          - id: effect
+            type: choice
+            options:
+              - {id: changed, content: 原字符串变成 A12}
+              - {id: ignored, content: 修改被忽略，显示 a12}
+              - {id: immutable, content: 字符串不能这样原位修改，执行会报错}
+            key: immutable
+        explanation: "str 的单个位置不能通过下标赋值改写，这一行会抛出 TypeError。需要构造新字符串并重新赋值，而不是修改旧字符串内部。"
+        verify: |
+          answers = {"effect": "immutable" if run().error == "TypeError" else "changed"}
+      - id: py05.k1.q5
+        kind: [trace]
+        uses: [py01.k2]
+        body: |
+          这里重新给 room 起名，而不是在旧字符串内部改字母。两个名字最后各是什么？
+
+          ```python
+          room = "a12"
+          original = room
+          room = "A12"
+          print(original)
+          print(room)
+          ```
+        slots:
+          - {id: original, type: text, match: text, prompt: 第一行显示, key: a12}
+          - {id: room, type: text, match: text, prompt: 第二行显示, key: A12}
+        explanation: "original 保留原来的 'a12'；最后一次赋值只让 room 指向新的 'A12'。重新绑定名字与修改字符串本身是两件不同的事。"
+        verify: |
+          lines = run().lines()
+          answers = {"original": str(lines[0]), "room": str(lines[1])}
     review:
       - id: py05.k1.r1
         kind: [trace]
@@ -368,6 +409,29 @@ kps:
               return result.error is None and result.out.strip() == "[S-12]"
           fits = [option for option, code in OPTIONS["fix"].items() if shows(code)]
           answers = {"output": run().lines()[0], "fix": fits[0] if len(fits) == 1 else fits}
+      - id: py05.k1.r3
+        uses: [py04.k3]
+        kind:
+          - trace
+        body: |
+          调用字符串方法返回新值，但不接收这个返回值时，原名字保持原样。
+
+          ```python
+          label = "small"
+          label.replace("s", "S")
+          print(repr(label))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '''small'''
+        explanation: replace 产生了新字符串，但这里没有保存它。原 label 仍是 'small'；方法并没有原位改写字符串。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py05.k1.x1
         kind: [predict]
@@ -435,6 +499,34 @@ kps:
           fits = [option for option, code in OPTIONS["lines"].items() if run(code, label="Ctrl 01")["label"] != "Ctrl 01"]
           answers = {"lines": fits}
 
+      - id: py05.k1.x3
+        kind:
+          - trace
+        body: |
+          即使方法成功返回了新字符串，也只有明确赋值的名字会接收它。
+
+          ```python
+          label = "fixed"
+          changed = label.replace("f", "F")
+          print(label)
+          print(changed)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: fixed
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: Fixed
+        explanation: label 仍指向旧字符串，changed 接收新字符串。replace 不会在原字符串内部修改首字母。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py05.k2
     keyPrerequisites: [py03, py04]
     title: strip/lower/replace 的结果
@@ -611,6 +703,42 @@ kps:
           fits = [option for option, code in OPTIONS["method"].items()
                   if all(run(code, sample=s)["fixed"] == "".join(s.split()) for s in samples)]
           answers = {"method": fits[0] if len(fits) == 1 else fits}
+      - id: py05.k2.q4
+        kind: [trace]
+        body: |
+          对同一份标签分别做三种清理。写出 Python 显示的字符串，保留结果中的空格。
+
+          ```python
+          print(repr(" A-B ".strip()))
+          print(repr(" A-B ".lower()))
+          print(repr(" A-B ".replace("-", "_")))
+          ```
+        slots:
+          - {id: strip, type: text, match: output, prompt: 第一行, key: "'A-B'"}
+          - {id: lower, type: text, match: output, prompt: 第二行, key: "' a-b '"}
+          - {id: replace, type: text, match: output, prompt: 第三行, key: "' A_B '"}
+        explanation: "strip 只去两端空白；lower 只改变字母大小写；replace 只替换指定片段。三次操作分别从原文字开始，互不接续。"
+        verify: |
+          lines = run().lines()
+          answers = {"strip": lines[0], "lower": lines[1], "replace": lines[2]}
+      - id: py05.k2.q5
+        kind: [debug]
+        body: |
+          要去掉编号两端的空格，但保留编号中间的空格。哪段程序符合要求？
+        slots:
+          - id: clean
+            type: choice
+            options:
+              - {id: replace, content: '`result = text.replace(" ", "")`'}
+              - {id: strip, content: '`result = text.strip()`'}
+              - {id: lower, content: '`result = text.lower()`'}
+            key: strip
+        explanation: "strip 只处理两端，能够保留编号中间作为分隔的空格；replace 会删掉所有匹配的空格，lower 则不处理空白。"
+        verify: |
+          programs = {"replace": 'result = text.replace(" ", "")', "strip": 'result = text.strip()', "lower": 'result = text.lower()'}
+          fits = [key for key, code in programs.items() if run(code, text="  AB 12  ")["result"] == "AB 12"]
+          assert len(fits) == 1
+          answers = {"clean": fits[0]}
     review:
       - id: py05.k2.r1
         kind: [explain]
@@ -688,6 +816,32 @@ kps:
         verify: |
           lines = run().lines()
           answers = {"first": int(lines[0]), "second": int(lines[1])}
+      - id: py05.k2.r3
+        kind:
+          - trace
+        body: |
+          strip 不会删除词中间的空格；replace 可以处理所有匹配片段。分别读出结果。
+
+          ```python
+          print(repr(" A A ".strip()))
+          print(repr(" A A ".replace(" ", "_")))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '''A A'''
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '''_A_A_'''
+        explanation: strip 只处理两端，因此中间空格保留；replace 匹配所有空格，包括两端与中间。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py05.k2.x1
         kind: [predict]
@@ -772,6 +926,32 @@ kps:
           fits = [option for option, code in OPTIONS["method"].items() if result(code, "drug ") == result(code, "drug")]
           answers = {"method": fits[0] if len(fits) == 1 else fits}
 
+      - id: py05.k2.x3
+        kind:
+          - trace
+        body: |
+          替换匹配的是完整指定片段，不是把目标片段里的字符分别去掉。
+
+          ```python
+          print("a-b-a".replace("a-", "X"))
+          print("a-b-a".lower())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: Xb-a
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: a-b-a
+        explanation: replace 只匹配开头的 'a-'，末尾单独的 a 不匹配；文字原本已是小写，lower 不再改变它。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py05.k3
     keyPrerequisites: [py04]
     title: 点号方法调用与调用链从左到右
@@ -991,6 +1171,35 @@ kps:
           ```
 
           原来的代码先做 `replace`，两端的空格先变成了连字符，得到 `'-high-dose-'`，后面的 `strip()` 已经去不掉。把 `strip()` 挪到 `replace` 前面就对了；`lower()` 放在哪一步都可以。判分时还会换两个组名运行。
+      - id: py05.k3.q4
+        kind: [trace]
+        body: |
+          两条链只有调用次序不同。填写各自最后的 Python 显示内容。
+
+          ```python
+          print(repr(" X ".replace("X", " ").strip()))
+          print(repr(" X ".strip().replace("X", " ")))
+          ```
+        slots:
+          - {id: first, type: text, match: output, prompt: 第一行, key: "''"}
+          - {id: second, type: text, match: output, prompt: 第二行, key: "' '"}
+        explanation: "第一条链先把 X 换成空格，再把得到的三个空格全部去掉，结果为空串。第二条链先得到 'X'，最后换成一个空格，此后没有再次 strip。"
+        verify: |
+          lines = run().lines()
+          answers = {"first": lines[0], "second": lines[1]}
+      - id: py05.k3.q5
+        kind: [debug]
+        body: |
+          链式调用不会把后面的规则提前应用。下面的结果是什么？
+
+          ```python
+          print("AB".replace("A", "b").lower().replace("bb", "done"))
+          ```
+        slots:
+          - {id: result, type: text, match: text, prompt: 最后一行显示, key: done}
+        explanation: "从左到右先得到 'bB'，lower 把它变成 'bb'，最后 replace 才能匹配 'bb' 并得到 'done'。后一次调用接收的是前一次的返回字符串。"
+        verify: |
+          answers = {"result": str(run().lines()[0])}
     review:
       - id: py05.k3.r1
         kind: [explain]
@@ -1064,6 +1273,32 @@ kps:
         verify: |
           lines = run().lines()
           answers = {"line1": lines[0], "line2": lines[1]}
+      - id: py05.k3.r3
+        kind:
+          - trace
+        body: |
+          一次替换的结果交给下一次调用。同样的初值，交换两次调用的顺序会怎样？
+
+          ```python
+          print("ab".replace("a", "b").replace("bb", "x"))
+          print("ab".replace("bb", "x").replace("a", "b"))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: x
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: bb
+        explanation: 第一条链先得到 bb，因此后一步能匹配并变为 x；第二条链起初没有 bb，第一次替换无效，最后才得到 bb。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py05.k3.x1
         kind: [trace]

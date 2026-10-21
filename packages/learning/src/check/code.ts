@@ -7,18 +7,17 @@
  * 运行在沙箱里进行，结果的比较在沙箱外。
  */
 
-import type { Answer } from "@repa/base/protocol";
+import { parse, type Answer } from "@repa/base/protocol";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedTopic } from "../format/load.js";
 import type { CodeTest, Question, SlotDef, Topic } from "../format/schema.js";
-import { parseDoctest, sameDoctestOutput } from "./doctest.js";
+import { parseDoctest } from "./doctest.js";
 import { gradeSlot, matchesCell, matchesText } from "./grade.js";
 import {
   acceptedValues, content, inputCells, itemIndent, orderItemCode, scalarText, tableCell, textMatch, topicQuestions, type QuestionEntry,
 } from "./items.js";
 import { slotNeedsVerification } from "./rules.js";
-import { sameValue, showValue } from "./values.js";
-import type { PythonRunTest } from "../protocol.js";
+import { programProblem, ProgramResultSchema, type Expected } from "../python-execution.js";
 import type { JobOutcome, SandboxRunner } from "../sandbox/session.js";
 
 export interface CodeStats {
@@ -33,10 +32,10 @@ interface Context {
   loaded: LoadedTopic;
   stats: CodeStats;
   timeoutMs?: number;
+  expected?: Record<string, Expected>;
 }
 
-// 与前端服务 python.run 的 data 是同一个格式。
-type RunnerData = PythonRunTest["data"];
+type RunnerData = Record<string, unknown>[];
 
 /** 题目或测试用到的数据夹具，转成运行器的格式；有夹具没定义时返回 undefined（规则检查已报告）。 */
 function runnerData(names: readonly string[], topic: Topic): RunnerData | undefined {
@@ -271,6 +270,7 @@ async function prepareTests(question: Question, tests: CodeTest[], at: ValuePath
     if (!data) return undefined;
     const expected: Record<string, unknown> = {};
     if (test.expect) {
+      await context.runner.close();
       const outcome = await context.runner.run({ op: "expect", data, setup: test.setup ?? "", exprs: test.expect }, context.timeoutMs);
       const problem = failure(outcome);
       if (problem || outcome.status !== "done" || !outcome.ok) {
@@ -302,41 +302,22 @@ async function runTest(program: string, prepared: PreparedTest, context: Context
   }, context.timeoutMs);
   const problem = failure(outcome);
   if (problem || outcome.status !== "done" || !outcome.ok) return problem ?? "运行失败";
-  const result = outcome.result as {
-    stdout: string;
-    error: { type: string; message: string } | null;
-    captures: Record<string, { value?: unknown; error?: { type: string; message: string } }>;
-    doctest: { out: string; exception: string | null }[];
-  };
-  if (result.error) return `运行出错：${result.error.type}: ${result.error.message}`;
-  for (const [expression, expected] of Object.entries(prepared.expected)) {
-    const got = result.captures[expression];
-    if (got?.error) return `${expression} 求值出错：${got.error.type}: ${got.error.message}`;
-    if (!sameValue(got?.value, expected)) return `${expression} 应为 ${showValue(expected)}，实际是 ${showValue(got?.value)}`;
+  try {
+    return programProblem(test, prepared.expected, parse(ProgramResultSchema, outcome.result));
+  } catch (error) {
+    return error instanceof Error ? error.message : "测试结果不可用";
   }
-  if (test.stdout !== undefined && !sameDoctestOutput(test.stdout, result.stdout)) {
-    return `打印内容应为 ${JSON.stringify(test.stdout)}，实际是 ${JSON.stringify(result.stdout)}`;
-  }
-  for (const [index, example] of examples.entries()) {
-    const got = result.doctest[index];
-    if (!got) return "doctest 没有全部运行";
-    if (example.want.startsWith("Traceback (most recent call last):")) {
-      const expectedException = example.want.trim().split("\n").at(-1) ?? "";
-      if (got.exception?.trim() !== expectedException.trim()) return `>>> ${example.source} 应抛出 ${expectedException}，实际是 ${got.exception ?? got.out.trim()}`;
-    } else if (got.exception) {
-      return `>>> ${example.source} 出错：${got.exception}`;
-    } else if (!sameDoctestOutput(example.want, got.out)) {
-      return `>>> ${example.source} 应显示 ${JSON.stringify(example.want)}，实际是 ${JSON.stringify(got.out.replace(/\n$/, ""))}`;
-    }
-  }
-  return undefined;
 }
 
 async function failingTests(program: string, tests: PreparedTest[], context: Context): Promise<string[]> {
+  await context.runner.close();
   const failed: string[] = [];
   for (const prepared of tests) {
     const reason = await runTest(program, prepared, context);
     if (reason) failed.push(`“${prepared.test.name}”：${reason}`);
+    if (reason === "运行超时" || reason?.startsWith("运行器异常结束")) {
+      break;
+    }
   }
   return failed;
 }
@@ -356,6 +337,10 @@ async function runSlotTests(question: Question, slot: SlotDef, at: ValuePath, co
   const tests = slot.type === "code" ? slot.tests : slot.tests ?? [];
   const prepared = await prepareTests(question, tests, at, context);
   if (!prepared) return;
+  const expected = context.expected?.[question.id];
+  if (expected) {
+    expected.values[slot.id] = prepared.map((entry) => entry.expected);
+  }
   const reference = slot.type === "code" ? slot.solution : assembleParsons(slot, slot.key);
   const referenceFailures = await failingTests(reference, prepared, context);
   if (referenceFailures.length > 0) {
@@ -383,12 +368,29 @@ async function runSlotTests(question: Question, slot: SlotDef, at: ValuePath, co
 
 // ---------------------------------------------------------------------------
 
-export async function checkTopicCode(loaded: LoadedTopic, runner: SandboxRunner, report: Report, stats: CodeStats, timeoutMs?: number): Promise<void> {
-  const context: Context = { runner, report, loaded, stats, ...(timeoutMs ? { timeoutMs } : {}) };
+export async function checkTopicCode(
+  loaded: LoadedTopic,
+  runner: SandboxRunner,
+  report: Report,
+  stats: CodeStats,
+  timeoutMs?: number,
+  expected?: Record<string, Expected>,
+): Promise<void> {
+  const context: Context = {
+    runner,
+    report,
+    loaded,
+    stats,
+    ...(expected ? { expected } : {}),
+    ...(timeoutMs ? { timeoutMs } : {}),
+  };
   for (const entry of topicQuestions(loaded.topic)) {
     await runVerify(entry, entry.at, context);
     for (const [index, slot] of entry.question.slots.entries()) {
       await runSlotTests(entry.question, slot, [...entry.at, "slots", index], context);
+      if (slot.type === "code" || (slot.type === "order" && slot.tests)) {
+        await runner.close();
+      }
     }
   }
 }

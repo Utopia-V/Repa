@@ -1,6 +1,6 @@
 # 学习插件的前端契约
 
-`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约；[学习记录层](learning-records.md)已实现状态与提交查询、接受和持久恢复入口，教学、辅导和测验方法由后续任务接续。
+`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约；[学习记录层](learning-records.md)已实现状态与提交查询、接受和持久恢复入口，[教学流程](learning-flow.md)已接入上课、复习、判分和申诉，[辅导与内容读取](learning-tutor.md)已接入，[测验、XP 与进度](learning-quiz-xp.md)也已接入。
 
 ## 设计思路
 
@@ -58,6 +58,8 @@ if (state.ok) renderLearning(state.value);
 
 `LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
 
+反馈字段的可见性还取决于当前任务。review、quiz、retake 的准备、作答和恢复阶段，所有公开提交返回都会隐藏 `feedback` 与 `explanation`，历史提交也一样；身份、原答、处理状态与判分版本仍可恢复。受限任务结束后，可以重新查询已释放的历史反馈，详见[辅导与禁助](learning-tutor.md)。
+
 任务守卫同时检查阶段和 revision。阶段会反复出现，因而只比较阶段名不足以挡住旧画面的重传。重复交卷沿已结束任务身份返回既有状态；其他陈旧操作返回刷新所需的当前状态。测验交付按 `deliveries` 的顺序显示，`submissions` 表示已锁定的原答，尚未接受的交付仍可作答。开始时间和整场截止时间都由后端保留，断线或关闭不暂停；按服务端接受时刻 `< deadlineAt` 判断及时，及时接受的待判提交在交卷后仍可继续处理。
 
 ### 提交身份与反馈资格
@@ -76,7 +78,7 @@ if (state.ok) renderLearning(state.value);
 
 ### 公开内容与能力
 
-交付中的 `item` 只允许底座公开字段。后端沿现有 `publicItem` 的白名单投影，并在交付时换成不透明的题目、选项、排列块和表格选择格 id，私有映射只保存在后端快照。前端不重新打乱顺序。当前协议与夹具表达最终公开形状，实际换号与持久化由教学和记录实现承担。
+交付中的 `item` 只允许底座公开字段。后端沿现有 `publicItem` 的白名单投影，并在交付时换成不透明的题目、选项、排列块和表格选择格 id，私有映射只保存在后端快照。前端不重新打乱顺序。当前协议与夹具表达最终公开形状，实际换号、反馈释放与持久化已由教学和记录实现承担。
 
 答案、解析和私有 rubric 不出现在作答前的 Item。practice 的反馈及解析在判分完成后释放，review 在任务结束后释放，quiz 与 retake 在整场交卷或超时后释放。查询、事件、前端内容读取和 Agent 工具共用这项授权检查。`processing: completed` 可以先于反馈释放，因此前端不能把“已判”当成“可看答案”。测试计划中的检查代码对前端可见，完整参考解仍按反馈时机释放。
 
@@ -101,7 +103,7 @@ if (state.ok) renderLearning(state.value);
 
 ### python.run
 
-代码题在前端运行。服务的输入输出见 `@repa/learning/protocol` 的 `PythonRunInputSchema` 与 `PythonRunResultSchema`，Web 与 Desktop 的实现见 #51、#52：一次调用带一批测试，前端在一个全新的 Worker 里按顺序执行，每个测试与 `runner.py` 的 program 任务相同；结果带实际加载的运行环境，每个测试是 `done`、`timeout`、`failed` 或 `not_run`，超时和失败写明停在哪个阶段。测试编排、期望值和判分都在后端。后端接入时按以下要求使用它：
+代码题在前端运行。Web 与 Desktop 的实现见 #51、#52。当前前端的单 program 接口还需补齐下述批次语义；后端先通过[内部执行边界](learning-flow.md#python-内部执行边界)接入：前端在隔离的 Worker 里执行 `runner.py` 的 program 任务并返回结果，测试编排、期望值和判分都在后端。后端接入时按以下要求使用它：
 
 - 期望值在课程核对时预先算好，随课程发布，绑定题目内容版本、测试、夹具、prelude、运行环境和 runner 版本。运行时后端只比较；缺少有效的预计算结果时，这道题不用于正式判分。参考解、`verify`、期望值和 doctest 的期望输出不发给前端；测试的输入、setup、调用语句和 doctest 输入会发给前端，`hidden` 只控制展示。
 - 一次正式提交的全部测试，作为一次服务调用，在一个全新的 Worker 里按顺序执行。辅导、示例和学习者自己运行的代码不与正式判分共用 Worker。
@@ -115,7 +117,7 @@ if (state.ok) renderLearning(state.value);
 | 项目 | 当前范围与接续 |
 | --- | --- |
 | Aqua 审阅 | 待核对各阶段画面、操作、原学习位置及 Python 请求／结果夹具；审定后的字段供前后端共用 |
-| 方法与授权检查 | 记录层已实现接受、去重、日志与恢复；教学任务实现推进、换号、反馈释放和判分；辅导与测验任务接入限制、内容和进度 |
+| 方法与授权检查 | 记录与教学已实现接受、去重、恢复、推进、换号、反馈释放和判分；辅导与内容读取已接入逐次授权检查；测验任务接续测验和进度 |
 | Python Worker | 当前提供载荷和比较兼容夹具；Aqua 接入 Pyodide Worker，并与后端核对隔离求值、失败分类、上限和取消 |
 | 故障与学习效果 | 记录层已通过真实杀进程恢复验证；完整学习体验、实际作答改变帮助及学习外负担由后续组合试用检验 |
 

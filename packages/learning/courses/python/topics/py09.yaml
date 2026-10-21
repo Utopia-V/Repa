@@ -252,6 +252,42 @@ kps:
               "table": {f"s{value}": {"keep": with_and[value]} for value in values},
               "changed": [f"s{value}" for value in values if with_and[value] != with_or[value]],
           }
+      - id: py09.k1.q4
+        kind: [trace]
+        body: |
+          同时检查两个布尔开关。三个表达式的结果分别是什么？
+
+          ```python
+          print(True and False)
+          print(True or False)
+          print(not False)
+          ```
+        slots:
+          - {id: both, type: text, match: output, prompt: 第一行, key: "False"}
+          - {id: either, type: text, match: output, prompt: 第二行, key: "True"}
+          - {id: inverted, type: text, match: output, prompt: 第三行, key: "True"}
+        explanation: "and 要求两边都为 True；or 只要求至少一边为 True；not 把单个布尔值反转。"
+        verify: |
+          lines = run().lines()
+          answers = {"both": lines[0], "either": lines[1], "inverted": lines[2]}
+      - id: py09.k1.q5
+        kind: [debug]
+        body: |
+          “两个开关不同时开启”与“两个开关都关闭”并不是同一句话。a 为 True、b 为 False 时，哪一个表达式为 True？
+        slots:
+          - id: logic
+            type: choice
+            options:
+              - {id: neither, content: '`(not a) and (not b)`'}
+              - {id: not_both, content: '`not (a and b)`'}
+              - {id: both, content: '`a and b`'}
+            key: not_both
+        explanation: "a 与 b 并没有同时开启，所以 not (a and b) 为 True；但 a 已开启，因此“都关闭”的条件为 False。"
+        verify: |
+          expressions = {"neither": "(not a) and (not b)", "not_both": "not (a and b)", "both": "a and b"}
+          fits = [key for key, expression in expressions.items() if eval(expression, {"a": True, "b": False})]
+          assert len(fits) == 1
+          answers = {"logic": fits[0]}
     review:
       - id: py09.k1.r1
         kind: [debug]
@@ -402,6 +438,58 @@ kps:
                   if all(run(code, signal=value)["recheck"] is (value < 5 or value > 50) for value in values)]
           answers = {"line": fits[0] if len(fits) == 1 else fits}
 
+      - id: py09.k1.x3
+        kind:
+          - trace
+        body: |
+          一对布尔输入都为 False，分别求 or 和 not 的结果。
+
+          ```python
+          print(False or False)
+          print(not False)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'False'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+        explanation: or 两边都不成立时返回 False；not 只把给定的单个布尔值反转为 True。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py09.k1.x4
+        kind:
+          - trace
+        body: |
+          not 不会同时反转后面的两个实参；这里只让它作用在括号给出的单个布尔表达式上。
+
+          ```python
+          print(not (False or True))
+          print(not (False and True))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'False'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+        explanation: 第一组 or 得到 True，取反为 False；第二组 and 得到 False，取反为 True。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py09.k2
     keyPrerequisites: [py08]
     title: 括号确定条件组合并用小真值表验证
@@ -675,6 +763,41 @@ kps:
           ```
 
           括号把“低于阈值或被标记”先接成一个条件，再要求它和“在 control 组”同时成立。不加括号时先算 `and`，末尾的 `or flagged` 单独成了一条路，drug 组里被标记的样本也会得 True。判分时会换几组输入运行你的代码，包括 drug 组被标记、恰好等于阈值和换一个阈值的情况。
+      - id: py09.k2.q4
+        kind: [trace]
+        body: |
+          括号让 not 作用的范围不同。写出两次显示的布尔值。
+
+          ```python
+          print(not (True or True))
+          print((not True) or True)
+          ```
+        slots:
+          - {id: group, type: text, match: output, prompt: 第一行, key: "False"}
+          - {id: part, type: text, match: output, prompt: 第二行, key: "True"}
+        explanation: "第一行先得到 True，再整体取反为 False；第二行只把前面的 True 取反，后面仍有一个 True，使 or 的结果为 True。"
+        verify: |
+          lines = run().lines()
+          answers = {"group": lines[0], "part": lines[1]}
+      - id: py09.k2.q5
+        kind: [debug]
+        body: |
+          希望只有 a 为 True 且 b、c 至少一个为 True 时才通过。选择符合全部八种布尔输入的表达式。
+        slots:
+          - id: formula
+            type: choice
+            options:
+              - {id: escaped, content: '`(a and b) or c`'}
+              - {id: all, content: '`a and (b and c)`'}
+              - {id: grouped, content: '`a and (b or c)`'}
+            key: grouped
+        explanation: "必须把 b or c 放在同一组，再与 a 做 and。第一项允许 c 单独绕过 a，第二项又把“至少一个”收窄成了“两者都要”。"
+        verify: |
+          import itertools
+          expressions = {"escaped": "(a and b) or c", "all": "a and (b and c)", "grouped": "a and (b or c)"}
+          fits = [key for key, expr in expressions.items() if all(eval(expr, {"a": a, "b": b, "c": c}) == (a and (b or c)) for a, b, c in itertools.product([False, True], repeat=3))]
+          assert len(fits) == 1
+          answers = {"formula": fits[0]}
     review:
       - id: py09.k2.r1
         kind: [explain]
@@ -747,6 +870,56 @@ kps:
         verify: |
           lines = run().lines()
           answers = {"first": lines[0], "second": lines[1], "third": lines[2]}
+      - id: py09.k2.r3
+        kind:
+          - trace
+        body: |
+          验证两个逻辑表达式是否会在同一个输入下给出不同判断，不能只看括号外观。
+
+          ```python
+          a = False
+          b = True
+          c = True
+          print(a and (b or c))
+          print((a and b) or c)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'False'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+        explanation: 第一式必须满足 a，所以失败；第二式允许 c 单独通过。这个输入正好揭示了分组含义的差异。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py09.k2.r4
+        kind: [debug]
+        body: |
+          目标规则是 `not (a and b)`。下面哪一项在 a、b 的四种布尔输入上都与目标规则相同？只挑一项。
+        slots:
+          - id: equivalent
+            type: choice
+            options:
+              - {id: neither, content: '`(not a) and (not b)`'}
+              - {id: de_morgan, content: '`(not a) or (not b)`'}
+              - {id: partial, content: '`(not a) or b`'}
+            key: de_morgan
+        explanation: 两项不同时成立，等价于至少一项不成立，因此用 or 连接两个取反。and 要求两项都不成立，第三项则没有对 b 取反，都会在某些输入上与目标规则不同。
+        verify: |
+          import itertools
+          expressions = {"neither": "(not a) and (not b)", "de_morgan": "(not a) or (not b)", "partial": "(not a) or b"}
+          fits = [key for key, expression in expressions.items()
+                  if all(eval(expression, {"a": a, "b": b}) == (not (a and b))
+                         for a, b in itertools.product([False, True], repeat=2))]
+          assert len(fits) == 1
+          answers = {"equivalent": fits[0]}
     quiz:
       - id: py09.k2.x1
         kind: [predict, debug]
@@ -827,6 +1000,63 @@ kps:
           “还没复查过并且偏低，再加上所有偏高的”是 `(not checked and low) or high`，也就是去掉括号后的写法；“偏低或偏高，再加上所有没复查过的”用的是 or；“已经复查过的样本里”漏看了 `not`。
         manual: [meaning]
 
+      - id: py09.k2.x3
+        kind:
+          - trace
+        body: |
+          一个反例就能推翻两个规则等价的断言。对同一输入比较两个分组。
+
+          ```python
+          a = True
+          b = False
+          c = False
+          print(a or (b and c))
+          print((a or b) and c)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'True'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'False'
+        explanation: 第一式中 a 单独使 or 成立；第二式必须最终与 c 合取，c 为 False，所以失败。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py09.k2.x4
+        kind:
+          - trace
+        body: |
+          三个布尔条件已经固定，分别核对“整体不全成立”和“每项都不成立”。
+
+          ```python
+          a = True
+          b = False
+          print(not (a and b))
+          print((not a) and (not b))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'True'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'False'
+        explanation: 两项没有同时成立，所以整体取反为 True；但 a 的确成立，因此“每项都不成立”为 False。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
 verified:
   - question: py09.k2.x2
     version: sha256:1d47217189fbc6b7075bf2d4d8fe46bf86d6c1087d33aab4cdff4843aac4b399

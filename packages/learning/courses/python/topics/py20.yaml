@@ -392,6 +392,35 @@ kps:
           ```
 
           `errors="ignore"` 是旧版 pandas 的写法，pandas 3 已经去掉了它，传进去就报 ValueError。按需求“转不了的当作缺失”，应改成 `errors="coerce"`。求和时缺失不计入，本例总重量是 12.5 + 8 + 9.5 = 30.0。判分时还会换两份记录运行。
+      - id: py20.k1.q4
+        uses: [py19.k1]
+        kind: [trace]
+        body: |
+          coerce 保留能转换的数，把坏值变成缺失。填写转换后的缺失掩码。
+
+          ```python
+          values = pd.Series([" 3.5 ", "bad", "0", None])
+          numeric = pd.to_numeric(values, errors="coerce")
+          print(numeric.isna().tolist())
+          ```
+        slots:
+          - {id: mask, type: text, match: output, prompt: 缺失掩码, key: "[False, True, False, True]"}
+        explanation: "前后空格不妨碍 3.5 转换，'0' 也能转成数；bad 转不了，None 原本就是缺失。coerce 不会把坏值变成零。"
+        verify: |
+          answers = {"mask": run().lines()[0]}
+      - id: py20.k1.q5
+        kind: [debug]
+        body: |
+          默认遇到坏值会报错，而不是静默跳过。填写下面这段转换的异常类型。
+
+          ```python
+          numeric = pd.to_numeric(pd.Series(["1", "oops", "2"]))
+          ```
+        slots:
+          - {id: error, type: text, match: text, prompt: 异常类型, key: ValueError}
+        explanation: "默认 errors='raise'，第一个无法解析的文字 oops 会让整次转换失败。只有明确使用 coerce，才会把坏值转换成缺失并继续。"
+        verify: |
+          answers = {"error": run().error}
     review:
       - id: py20.k1.r1
         kind: [trace]
@@ -544,6 +573,57 @@ kps:
               "original": str([label for label, value in lab["od"].items() if pd.isna(value)][0]),
           }
 
+      - id: py20.k1.x3
+        uses: [py19.k1]
+        kind:
+          - trace
+        body: |
+          同一个坏值，在默认策略与 coerce 中会走不同路径。这里明确使用 coerce，填写能否转换的掩码。
+
+          ```python
+          original = pd.Series(["5", "5x", " 6 "])
+          numeric = pd.to_numeric(original, errors="coerce")
+          print(numeric.notna().tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[True, False, True]'
+        explanation: 纯数字文字和两端带空格的数字都能转，带单位样式的 5x 不能，因而变成缺失。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py20.k1.x4
+        kind:
+          - trace
+        body: |
+          数字转换只返回新列；不赋回原列时，原文字中的前导零仍保留。
+
+          ```python
+          original = pd.Series(["003", "004"])
+          numeric = pd.to_numeric(original)
+          print(original.tolist())
+          print(numeric.tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[''003'', ''004'']'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[3, 4]'
+        explanation: numeric 接到转换后的数值，original 没有被改写，仍是原文字。转换结果本身不再具有前导零信息。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py20.k2
     keyPrerequisites: [py19, py12]
     title: 保留坏值计数并把处理规则写进需求
@@ -728,6 +808,46 @@ kps:
           一种写法：**把 count 转成数，转不了的记为缺失，不参加求和；在结果里报告转换失败的个数和每个原值；其中能修正的（例如带千分位逗号的数）先列给负责人确认，确认后再按规则修正。**
 
           三点各算一项。只写“把 count 转成数再求和”的需求，和直接用 coerce 一样，会把坏值悄悄丢掉。
+      - id: py20.k2.q4
+        kind: [trace]
+        uses: [py19.k1]
+        body: |
+          转换后缺失总量包含“原本就空着”和“新转换失败”两部分。分别数出来。
+
+          ```python
+          original = pd.Series([None, "bad", "2", "oops"])
+          numeric = pd.to_numeric(original, errors="coerce")
+          before = int(original.isna().sum())
+          after = int(numeric.isna().sum())
+          print(before)
+          print(after)
+          print(after - before)
+          ```
+        slots:
+          - {id: before, type: text, format: integer, prompt: 原本缺失, key: 1}
+          - {id: after, type: text, format: integer, prompt: 转换后缺失, key: 3}
+          - {id: added, type: text, format: integer, prompt: 新转换失败, key: 2}
+        explanation: "原本只有 None 缺失；转换又让 bad、oops 成为缺失，因此转换后有 3 个，新增失败数是 3 - 1 = 2，而不是 3。"
+        verify: |
+          lines = run().lines()
+          answers = {"before": int(lines[0]), "after": int(lines[1]), "added": int(lines[2])}
+      - id: py20.k2.q5
+        kind: [debug]
+        uses: [py19.k1]
+        body: |
+          审计需要列出转换失败的原文字，但不把原本缺失的记录也算进去。填写坏值清单。
+
+          ```python
+          original = pd.Series(["3", None, "3kg", "?", "4"])
+          numeric = pd.to_numeric(original, errors="coerce")
+          bad = original.loc[numeric.isna()].dropna()
+          print(bad.tolist())
+          ```
+        slots:
+          - {id: bad, type: text, match: output, prompt: 坏值清单, key: "['3kg', '?']"}
+        explanation: "numeric.isna 先找到 None、3kg、? 的位置；再对原值 dropna，去掉原本就空着的 None，留下需要审查的两个坏字符串。"
+        verify: |
+          answers = {"bad": run().lines()[0]}
     review:
       - id: py20.k2.r1
         kind: [trace]
@@ -863,6 +983,65 @@ kps:
           ids = {"34": "a", "二十八": "b", "41": "c", "29岁": "d", "57": "e"}
           answers = {"count": len(bad), "values": [ids[value] for value in bad]}
 
+      - id: py20.k2.x3
+        uses: [py19.k1]
+        kind:
+          - trace
+        body: |
+          没有原始缺失时，转换后缺失总量才恰好等于失败数；不能把这种巧合推广到所有输入。
+
+          ```python
+          original = pd.Series(["1", "bad", "2"])
+          numeric = pd.to_numeric(original, errors="coerce")
+          print(int(original.isna().sum()))
+          print(int(numeric.isna().sum()))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '0'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '1'
+        explanation: 这份输入原来零个缺失，只有 bad 转换失败，因此新增失败一项；遇到原始缺失时应再减去原来的数量。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py20.k2.x4
+        uses: [py19.k1]
+        kind:
+          - trace
+        body: |
+          数量相同不代表原值相同，审计需要保留坏值本身供后续决定如何修复。
+
+          ```python
+          original = pd.Series([None, "2kg", "?", "3"])
+          numeric = pd.to_numeric(original, errors="coerce")
+          bad = original.loc[numeric.isna()].dropna()
+          print(bad.tolist())
+          print(len(bad))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[''2kg'', ''?'']'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '2'
+        explanation: 先取转换后缺失位置的原值，再去掉原本的 None，得到两个不同坏值及计数；保留它们才能决定后续修复规则。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
 verified:
   - question: py20.k2.r2
     version: sha256:ef22db805c02e48e969dd10040c7bcdfb933b434da25e354bffaee60c5d49ed7

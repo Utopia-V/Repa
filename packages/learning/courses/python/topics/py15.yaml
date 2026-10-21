@@ -566,6 +566,46 @@ kps:
           ```
 
           sep 和 encoding 都是关键字参数，谁先谁后都可以。只改一两处，要么还是报错，要么不报错却读成一列。
+      - id: py15.k1.q4
+        kind: [debug]
+        data: [semi]
+        body: |
+          samples.csv 使用分号分隔。两种读法都不报错，但各读出几列？
+
+          ```python
+          print(pd.read_csv("samples.csv").shape[1])
+          print(pd.read_csv("samples.csv", sep=";").shape[1])
+          ```
+        slots:
+          - {id: default, type: text, format: integer, prompt: 默认读法列数, key: 1}
+          - {id: explicit, type: text, format: integer, prompt: 指定分号后的列数, key: 3}
+        explanation: "默认 sep 是逗号，所以第一种读法把整行当成一列。指定分号后才把 sample_id、signal、group 拆成三列；“没报错”不保证读对了。"
+        verify: |
+          lines = run().lines()
+          answers = {"default": int(lines[0]), "explicit": int(lines[1])}
+      - id: py15.k1.q5
+        kind: [debug]
+        data: [assays]
+        body: |
+          当前工作目录下只有 data 文件夹，assays.csv 在 data 里面。为什么下面的相对路径失败？选择正确的修订。
+
+          ```python
+          df = pd.read_csv("assays.csv")
+          ```
+        slots:
+          - id: path
+            type: choice
+            options:
+              - {id: nested, content: '`pd.read_csv("data/assays.csv")`'}
+              - {id: parent, content: '`pd.read_csv("../assays.csv")`'}
+              - {id: format, content: '`pd.read_csv("assays.csv", sep=";")`'}
+            key: nested
+        explanation: "相对路径从当前工作目录出发，必须进入 data 才能找到文件。改分隔符不能修正文件位置，../ 则走向上一级目录。"
+        verify: |
+          paths = {"nested": "data/assays.csv", "parent": "../assays.csv", "format": "assays.csv"}
+          fits = [key for key, path in paths.items() if run("df = pd.read_csv(path)", path=path).error is None]
+          assert len(fits) == 1
+          answers = {"path": fits[0]}
     review:
       - id: py15.k1.r1
         kind: [predict]
@@ -733,6 +773,34 @@ kps:
           fits = [option for option, line in OPTIONS["line"].items() if run(line).error is None]
           answers = {"line": fits[0] if len(fits) == 1 else fits}
 
+      - id: py15.k1.x3
+        kind:
+          - trace
+        body: |
+          文件中使用分号，不能仅凭没有异常就宣告读取成功。对照默认读取和指定分隔符后的列名。
+
+          ```python
+          print(pd.read_csv("samples.csv").columns.tolist())
+          print(pd.read_csv("samples.csv", sep=";").columns.tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[''sample_id;signal;group'']'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[''sample_id'', ''signal'', ''group'']'
+        explanation: 默认读取把整条标题当成一个列名，显式 sep=';' 才按文件实际分隔方式拆列。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+        data:
+          - semi
   - id: py15.k2
     keyPrerequisites: [py03, py14]
     title: "读懂 dtype={\"id\": \"str\"} 的列名到类型配置，保留前导零"
@@ -929,6 +997,44 @@ kps:
           ```
 
           两项的先后不要紧。只写 sample_id，batch 会读成 7、7、12；`dtype="str"` 会把 signal 也读成文字。
+      - id: py15.k2.q4
+        uses: [py14.k3]
+        kind: [trace]
+        data: [batches]
+        body: |
+          只指定 batch 按文字读，不会让其他所有列都变成文字。写出两个 dtype。
+
+          ```python
+          table = pd.read_csv("batches.csv", dtype={"batch": "str"})
+          print(str(table["batch"].dtype))
+          print(str(table["count"].dtype))
+          ```
+        slots:
+          - {id: batch, type: text, match: text, prompt: batch 的 dtype, key: str}
+          - {id: count, type: text, match: text, prompt: count 的 dtype, key: int64}
+        explanation: "对照表只约束指定的 batch 列，因此批号保留为 str，count 仍由 pandas 按内容推断为整数。它与 dtype=\"str\" 作用到所有列不同。"
+        verify: |
+          lines = run().lines()
+          answers = {"batch": str(lines[0]), "count": str(lines[1])}
+      - id: py15.k2.q5
+        kind: [debug]
+        data: [ids]
+        body: |
+          先猜成数字再转文字，能把丢失的前导零补回来吗？对照下面两种结果。
+
+          ```python
+          late = pd.read_csv("ids.csv")["sample_id"].astype("str")
+          early = pd.read_csv("ids.csv", dtype={"sample_id": "str"})["sample_id"]
+          print(late.tolist())
+          print(early.tolist())
+          ```
+        slots:
+          - {id: late, type: text, match: output, prompt: 第一行, key: "['1', '2', '10']"}
+          - {id: early, type: text, match: output, prompt: 第二行, key: "['001', '002', '010']"}
+        explanation: "第一种读法已经把编号当作数值，前导零的信息随之丢失；事后转 str 只能得到没有前导零的文字。在读入时指定 dtype 才能保留原编号。"
+        verify: |
+          lines = run().lines()
+          answers = {"late": lines[0], "early": lines[1]}
     review:
       - id: py15.k2.r1
         kind: [predict]
@@ -1098,6 +1204,41 @@ kps:
           good = [option for option, code in OPTIONS["fix"].items() if fits(code)]
           answers = {"batch": repl('list(df["batch"])', df=df)[0], "fix": good[0] if len(good) == 1 else good}
 
+      - id: py15.k2.x3
+        kind:
+          - trace
+        body: |
+          同时设置两列为文字时，每一项分别说明列名与类型，其他列仍按内容推断。
+
+          ```python
+          table = pd.read_csv("records.csv", dtype={"sample_id": "str", "batch": "str"})
+          print(table["sample_id"].tolist())
+          print(table["batch"].tolist())
+          print(str(table["signal"].dtype))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[''001'', ''002'', ''010'']'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[''07'', ''07'', ''12'']'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: int64
+        explanation: 两项配置分别保留 sample_id、batch 的前导零；未指定的 signal 仍是整数，字典不是把整张表一律变成文字。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+        data:
+          - records
   - id: py15.k3
     keyPrerequisites: [py14]
     title: 核对列名、行数与样例
@@ -1278,6 +1419,36 @@ kps:
               "c4": lambda s: s != "UnicodeDecodeError" and s[0] == 5 and s[1] == (4, 2) and s[2] == ["id", "value"],
           }
           answers = {"causes": {row: {"cause": [cause for cause, s in seen.items() if test(s)][0]} for row, test in described.items()}}
+      - id: py15.k3.q4
+        kind: [debug]
+        data: [noheader]
+        body: |
+          文件有四条记录，没有标题行。直接使用默认参数读入以后还有几条数据行？这次核对只问行数。
+
+          ```python
+          table = pd.read_csv("batch2.csv")
+          print(table.shape[0])
+          ```
+        slots:
+          - {id: rows, type: text, format: integer, prompt: 数据行数, key: 3}
+        explanation: "默认把第一行当成列名，因此四条原始记录只剩三条数据行。核对输入行数能暴露这种静默丢掉首条记录的问题。"
+        verify: |
+          answers = {"rows": int(run().out)}
+      - id: py15.k3.q5
+        kind: [trace]
+        data: [spaced]
+        body: |
+          读完后直接核对列名，不凭屏幕上差不多的外观猜。填写 Python 显示的列名列表。
+
+          ```python
+          table = pd.read_csv("spaced.csv")
+          print(table.columns.tolist())
+          ```
+        slots:
+          - {id: names, type: text, match: output, prompt: 列名列表, key: "['sample_id', ' signal', ' group']"}
+        explanation: "默认读取保留逗号后的空格，后两个列名分别以一个空格开头。程序里的 'signal' 和文件里的 ' signal' 是不同名字，核对列名能看出差异。"
+        verify: |
+          answers = {"names": run().lines()[0]}
     review:
       - id: py15.k3.r1
         kind: [predict, debug]

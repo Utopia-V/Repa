@@ -214,6 +214,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     const declaredAgents: AgentDefinition[] = [];
     for (const plugin of options.plugins) {
       const dataDir = await space.pluginDataDir(plugin.id);
+      const ownedAgents = new Set<string>();
       const host: Host = {
         space: { root: space.root, dataDir },
         files: space.filesFor({ kind: "plugin", pluginId: plugin.id }),
@@ -228,6 +229,16 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           },
         },
         models: ownedModels.models,
+        abortAgent(agent) {
+          checkOpen();
+          if (!ownedAgents.has(agent)) {
+            return Promise.reject(new RepaFault("agent_not_owned", "插件只能中止自己声明的 Agent", { agent }));
+          }
+          if (!options.abortAgent) {
+            return Promise.reject(new RepaFault("space_not_ready", "空间尚未接入 Agent 中止入口"));
+          }
+          return track(Promise.resolve().then(() => options.abortAgent?.(agent)));
+        },
         services: {
           call(service, input, callOptions) {
             checkOpen();
@@ -262,7 +273,11 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         };
       });
       pluginTools.set(plugin.id, tools);
-      declaredAgents.push(...(instance.agents?.() ?? []));
+      const definitions = instance.agents?.() ?? [];
+      for (const definition of definitions) {
+        ownedAgents.add(definition.id);
+      }
+      declaredAgents.push(...definitions);
     }
     checkAgents(declaredAgents, names);
     agentDefinitions = declaredAgents.map(wrapAgent).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
