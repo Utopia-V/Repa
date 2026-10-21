@@ -322,6 +322,8 @@ async execute(input, context) {
 
 `session.list` 按最后一条消息的时间（`updatedAt`）从新到旧排列，`preview` 是第一条用户消息的开头，取法与 Pi 的 `SessionManager.list` 相同，供前端列出会话。`model` 是会话自己保存的模型：会话建立后沿用它，`model.setDefault` 只影响之后新建的会话，换模型用 `session.setModel`。
 
+空间的 `.repa/sessions/` 只存放本空间的会话，因此列举和按 id 查找都使用 Pi 的 `SessionManager.listAll(sessionDir)`，不再按会话头的 cwd 筛选。复制或移动空间后，旧会话仍可读取和接续；打开时通过 `cwdOverride` 使用当前空间根目录，会话头保留原值，新消息追加到当前空间里的原会话文件。
+
 运行增量、工具调用、usage 和起止通过 `session.event` 通知。工具结果的 `details` 同时保留在 `toolEnd.data.details` 与 `session.history` 的工具条目 `data.details` 中；结果没有 `details` 时省略该字段。`session.send` 等待整次运行；运行中的 `steer/followUp` 使用内嵌运行时的队列。无发起连接的后台命令在询问策略下无法取得授权，会被阻止；Full Access 是显式设置，不由插件自行提升。
 
 Agent 相关的约定：

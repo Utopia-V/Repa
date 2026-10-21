@@ -279,8 +279,7 @@ test("中止辅导 Agent 不枚举或加载磁盘上的未加载旧会话", asyn
   await f.client.call("session.send", { sessionId: f.session.id, text: "旧辅导提问" });
   await f.client.call("space.close", {});
   await f.client.call("space.open", { root: f.root });
-  const listed = t.mock.method(SessionManager, "list");
-  const found = t.mock.method(SessionManager, "findById");
+  const listed = t.mock.method(SessionManager, "listAll");
   const opened = t.mock.method(SessionManager, "open");
   await f.client.call("plugin.call", {
     pluginId: "learning",
@@ -288,9 +287,8 @@ test("中止辅导 Agent 不枚举或加载磁盘上的未加载旧会话", asyn
     input: { agent: "tutor" },
   });
   assert.equal(listed.mock.callCount(), 0);
-  assert.equal(found.mock.callCount(), 0);
   assert.equal(opened.mock.callCount(), 0);
   assert.deepEqual(await f.users(), ["旧辅导提问"]);
-  assert.equal(found.mock.callCount(), 1);
+  assert.equal(listed.mock.callCount(), 1);
   assert.equal(opened.mock.callCount(), 1);
 });

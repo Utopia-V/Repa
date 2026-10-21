@@ -493,9 +493,9 @@ class Space implements AgentSpace {
     this.assertOpen();
     const existing = this.sessions.get(id);
     if (existing) return existing;
-    const file = SessionManager.findById(this.options.root, id, this.options.sessionsDir);
-    if (!file) throw new RepaFault("session_not_found", "会话不存在", { id });
-    return this.load(SessionManager.open(file, this.options.sessionsDir, this.options.root));
+    const entry = (await SessionManager.listAll(this.options.sessionsDir)).find(session => session.id === id);
+    if (!entry) throw new RepaFault("session_not_found", "会话不存在", { id });
+    return this.load(SessionManager.open(entry.path, this.options.sessionsDir, this.options.root));
   }
 
   async abortAgent(agent: string): Promise<void> {
@@ -511,7 +511,8 @@ class Space implements AgentSpace {
   async list(): Promise<SessionInfo[]> {
     this.assertOpen();
     const infos = new Map<string, SessionInfo>();
-    for (const entry of await SessionManager.list(this.options.root, this.options.sessionsDir)) {
+    // 会话目录归当前空间所有；复制或移动空间后，header.cwd 仍是旧路径，不用于筛选。
+    for (const entry of await SessionManager.listAll(this.options.sessionsDir)) {
       const manager = SessionManager.open(entry.path, this.options.sessionsDir, this.options.root);
       const model = manager.buildSessionProjection().model;
       const parent = await readParent(this.options.sessionsDir, entry.id);
