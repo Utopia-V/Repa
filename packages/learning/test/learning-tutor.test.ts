@@ -196,6 +196,7 @@ async function fixture(t: TestContext, topics?: Topic[]) {
     async copyAndReopen() {
       const before = await state();
       const student = (await log()).current()?.student;
+      const history = await client.call("session.history", { sessionId: session.id });
       await client.call("space.close", {});
       const bytes = await readFile(logFile());
       const destination = path.join(directory, "restored");
@@ -211,8 +212,7 @@ async function fixture(t: TestContext, topics?: Topic[]) {
       assert.deepEqual(await readFile(logFile()), bytes);
       assert.deepEqual(await state(), before);
       assert.deepEqual((await log()).current()?.student, student);
-      // Pi 1.1.0 按原 cwd 过滤会话；学习日志已恢复，聊天入口的迁址缺口留给底座处理。
-      await assert.rejects(client.call("session.history", { sessionId: session.id }), fault("session_not_found"));
+      assert.deepEqual(await client.call("session.history", { sessionId: session.id }), history);
     },
   };
 }
