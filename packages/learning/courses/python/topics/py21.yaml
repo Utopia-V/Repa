@@ -309,6 +309,71 @@ kps:
           ```
 
           1 小时 = 60 分钟，分钟换成小时要除以 60。乘以 60 是反方向；整除 `//` 会把 90 分钟算成 1 小时；直接给 duration_min 赋值会把原始记录换掉。本例 hours 依次为 1.5、0.75、2.5。判分时还会换一份记录运行，检查新列和原有的列。
+      - id: py21.k1.q4
+        kind: [debug]
+        uses: [py02.k1, py02.k3]
+        data: [runs]
+        body: |
+          想按培养时长折算每小时的细胞数，需要在 runs 表里新增 `cells_per_hour`：每行的细胞数除以该行的培养小时数。哪一行满足这个要求？
+        slots:
+          - id: line
+            type: choice
+            options:
+              - id: rate
+                content: |
+                  ```python
+                  runs["cells_per_hour"] = runs["cells"] / (runs["duration_min"] / 60)
+                  ```
+              - id: chain
+                content: |
+                  ```python
+                  runs["cells_per_hour"] = runs["cells"] / runs["duration_min"] / 60
+                  ```
+              - id: minutes
+                content: |
+                  ```python
+                  runs["cells_per_hour"] = runs["cells"] / runs["duration_min"]
+                  ```
+            key: rate
+        explanation: |
+          先把每行的分钟数除以 60 换成小时，再用该行的细胞数除以小时数。因此选择先把分钟换成小时、再整列相除的写法。三行记录分别得到 1200、1800、2400 个细胞／小时；连续除以 60 会把每分钟的速率继续缩小，而不是换算成每小时的速率。
+        verify: |
+          wanted = [cells * 60 / minutes for cells, minutes in zip(runs["cells"], runs["duration_min"])]
+          fits = []
+          for option, code in OPTIONS["line"].items():
+              result = run(code)["runs"]["cells_per_hour"]
+              if all(abs(actual - expected) < 1e-9 for actual, expected in zip(result, wanted)):
+                  fits.append(option)
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py21.k1.q5
+        kind: [predict]
+        uses: [py02.k1, py02.k3]
+        data: [field]
+        body: |
+          华氏度换算成摄氏度，要先减去 32，再除以 1.8。运行下面的整列计算，按样点填写结果。
+
+          ```python
+          field["temp_c"] = (field["temp_f"] - 32) / 1.8
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: site, header: 样点 }
+              - { id: original, header: temp_f, input: integer }
+              - { id: converted, header: temp_c, input: { type: text, format: number } }
+            rows:
+              - { id: r1, cells: { site: 河滩, original: 50, converted: 10 } }
+              - { id: r2, cells: { site: 林缘, original: 68, converted: 20 } }
+              - { id: r3, cells: { site: 山脊, original: 86, converted: 30 } }
+        explanation: |
+          新列依次是 10、20、30 摄氏度。括号里的减法和后面的除法都会对整列逐行执行；赋值左边是 temp_c，所以 temp_f 仍然保留 50、68、86。
+        verify: |
+          after = run()["field"]
+          answers = {"values": {
+              f"r{label}": {"original": after.loc[label, "temp_f"], "converted": after.loc[label, "temp_c"]}
+              for label in after.index
+          }}
     review:
       - id: py21.k1.r1
         kind: [trace]
@@ -691,6 +756,76 @@ kps:
           ```
 
           把扣除后的结果存进新列 net_mg，原始的 mass_mg 就留下了；再从 net_mg 换算成克。也可以一行写成 `(df["mass_mg"] - 100) / 1000`，括号保证先扣除再换算。本例 net_g 依次为 1.4、0.72、2.3、0.86。判分时还会换一张表运行，并检查 mass_mg 没有被改。
+      - id: py21.k2.q4
+        kind: [trace]
+        uses: [py21.k1]
+        data: [W]
+        body: |
+          每个样本的称量读数包含 100 mg 的瓶重。下面三张指令卡要先扣瓶重，再换成克，最后算每升的净克数。把卡片排成可以直接执行的顺序；每张卡恰好用一次。
+        slots:
+          - id: program
+            type: order
+            items:
+              - id: ratio
+                code: df["conc_g_per_l"] = df["net_g"] / (df["volume_ml"] / 1000)
+              - id: net
+                code: df["net_mg"] = df["mass_mg"] - 100
+              - id: grams
+                code: df["net_g"] = df["net_mg"] / 1000
+            key: [net, grams, ratio]
+        explanation: |
+          先用原读数建立 net_mg，再从 net_mg 算 net_g，最后用 net_g 除以体积的升数。后一步总要用到前一步刚建立的中间列，所以不能交换顺序。
+        verify: |
+          import itertools
+          blocks = {
+              "ratio": 'df["conc_g_per_l"] = df["net_g"] / (df["volume_ml"] / 1000)',
+              "net": 'df["net_mg"] = df["mass_mg"] - 100',
+              "grams": 'df["net_g"] = df["net_mg"] / 1000',
+          }
+          wanted = [(mass - 100) / volume for mass, volume in zip(df["mass_mg"], df["volume_ml"])]
+          fits = []
+          for order in itertools.permutations(blocks):
+              result = run("\n".join(blocks[key] for key in order))
+              if result.error is None and all(abs(x - y) < 1e-9 for x, y in zip(result["df"]["conc_g_per_l"], wanted)):
+                  fits.append(list(order))
+          assert len(fits) == 1
+          answers = {"program": fits[0]}
+      - id: py21.k2.q5
+        kind: [trace]
+        uses: [py21.k1]
+        data: [W]
+        body: |
+          从原表 W 开始运行。表格中的三个值都填写整段代码执行完以后的结果。
+
+          ```python
+          df["mass_g"] = df["mass_mg"] / 1000
+          df["mass_mg"] = df["mass_mg"] + 100
+          df["conc"] = df["mass_g"] / (df["volume_ml"] / 1000)
+          df["mass_g"] = 0
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: label, header: 原行索引 }
+              - { id: source, header: mass_mg, input: integer }
+              - { id: intermediate, header: mass_g, input: integer }
+              - { id: final, header: conc, input: { type: text, format: number } }
+            rows:
+              - { id: r31, cells: { label: "31", source: 1600, intermediate: 0, final: 30 } }
+              - { id: r7, cells: { label: "7", source: 920, intermediate: 0, final: 41 } }
+        explanation: |
+          第 1 行已经把原读数换成克，所以第 2 行增加 mass_mg 后，mass_g 仍是原来的值。第 3 行据此算出浓度 30 和 41；第 4 行再把 mass_g 清零，也不会让已经存好的 conc 重新计算。每次赋值都保存当时算出的整列结果。
+        verify: |
+          after = run()["df"]
+          answers = {"values": {
+              f"r{label}": {
+                  "source": after.loc[label, "mass_mg"],
+                  "intermediate": after.loc[label, "mass_g"],
+                  "final": after.loc[label, "conc"],
+              }
+              for label in [31, 7]
+          }}
     review:
       - id: py21.k2.r1
         kind: [trace, explain]
@@ -1002,6 +1137,72 @@ kps:
           answers = {
               "values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in ratio.items()},
               "missing": int(ratio.isna().sum()),
+          }
+      - id: py21.k3.q4
+        kind: [predict]
+        body: |
+          两列的标签顺序不同，但每个标签都能找到对应项。写出两行输出。
+
+          ```python
+          amount = pd.Series([12, 20], index=["a", "b"])
+          volume = pd.Series([5, 3], index=["b", "a"])
+          ratio = amount / volume
+          print(ratio["a"])
+          print(ratio["b"])
+          ```
+        slots:
+          - id: a
+            type: text
+            match: output
+            prompt: 第一行输出
+            key: "4.0"
+          - id: b
+            type: text
+            match: output
+            prompt: 第二行输出
+            key: "4.0"
+        explanation: |
+          两行都显示 4.0。a 的分母是标签 a 对应的 3，b 的分母是标签 b 对应的 5。标签顺序不同不会造成缺失；也不会把位置上的 12 和 5、20 和 3 配成对。
+        verify: |
+          lines = run().lines()
+          answers = {"a": lines[0], "b": lines[1]}
+      - id: py21.k3.q5
+        kind: [predict]
+        uses: [py14.k1]
+        data: [W]
+        body: |
+          ref 里有表 W 没有的标签 99。把它赋成新列后，按原行索引填写 offset，并填写结果表的行数。没有对应值的填 `NaN`。
+
+          ```python
+          ref = pd.Series([7, 9], index=[7, 99])
+          df["offset"] = ref
+          ```
+        slots:
+          - id: values
+            type: table
+            columns:
+              - { id: label, header: 原行索引 }
+              - { id: value, header: offset, input: { type: text, format: number, quick: [NaN] } }
+            rows:
+              - { id: r31, cells: { label: "31", value: NaN } }
+              - { id: r7, cells: { label: "7", value: 7 } }
+              - { id: r22, cells: { label: "22", value: NaN } }
+              - { id: r4, cells: { label: "4", value: NaN } }
+          - id: rows
+            type: text
+            format: integer
+            prompt: 运行后 df 有几行？
+            key: 4
+        explanation: |
+          只有原行索引 7 能在 ref 中找到同名标签，因此 offset 是 7；另外三行都是 NaN。赋成新列时按 df 已有的行索引寻找值，ref 多出来的标签 99 不会给 df 增加一行，所以 df 仍有四行。
+        verify: |
+          after = run()["df"]
+          answers = {
+              "values": {
+                  f"r{label}": {"value": "NaN" if pd.isna(value) else value}
+                  for label, value in after["offset"].items()
+              },
+              "rows": after.shape[0],
           }
     review:
       - id: py21.k3.r1

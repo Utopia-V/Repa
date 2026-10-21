@@ -335,6 +335,42 @@ kps:
               "outcome": "error" if outcome.error == "ValueError" else "other",
               "fix": fits[0] if len(fits) == 1 else fits,
           }
+      - id: py18.k1.q4
+        kind: [trace]
+        body: |
+          两个掩码逐元素组合，不是把整列当成一个布尔值。填写 &、|、~ 的结果列表。
+
+          ```python
+          a = pd.Series([True, False, True])
+          b = pd.Series([False, False, True])
+          print((a & b).tolist())
+          print((a | b).tolist())
+          print((~a).tolist())
+          ```
+        slots:
+          - {id: both, type: text, match: output, prompt: a & b, key: "[False, False, True]"}
+          - {id: either, type: text, match: output, prompt: a | b, key: "[True, False, True]"}
+          - {id: invert, type: text, match: output, prompt: ~a, key: "[False, True, False]"}
+        explanation: "&、| 分别在同一位置上做“都成立”和“至少一个成立”的判断；~ 逐个反转 a 的值，结果仍是一列掩码。"
+        verify: |
+          lines = run().lines()
+          answers = {"both": lines[0], "either": lines[1], "invert": lines[2]}
+      - id: py18.k1.q5
+        kind: [debug]
+        uses: [py09.k1]
+        body: |
+          把逐元素 & 错写成 and 时，Python 无法从整列提取单一真假。填写实际异常类型。
+
+          ```python
+          a = pd.Series([True, False])
+          b = pd.Series([False, True])
+          result = a and b
+          ```
+        slots:
+          - {id: error, type: text, match: text, prompt: 异常类型, key: ValueError}
+        explanation: "and 需要先判断整个 a 的真假，但 Series 包含多个布尔值，没有唯一真假，因此抛出 ValueError。应使用逐元素的 &。"
+        verify: |
+          answers = {"error": run().error}
     review:
       - id: py18.k1.r1
         kind: [modify]
@@ -491,6 +527,50 @@ kps:
           }
           answers = {"errors": [option for option, line in lines.items() if run(prelude + line).error is not None]}
 
+      - id: py18.k1.x3
+        kind:
+          - trace
+        body: |
+          先逐元素组合，再取反。取反的对象是整个括号中的布尔掩码。
+
+          ```python
+          a = pd.Series([True, True, False])
+          b = pd.Series([True, False, False])
+          print((~(a & b)).tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[False, True, True]'
+        explanation: a & b 是 [True, False, False]，对整列取反得到 [False, True, True]。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py18.k1.x4
+        kind:
+          - trace
+        body: |
+          全 False 的掩码与另一列用 | 组合时，逐行结果仍来自另一列，而不是把整列压成单个真假。
+
+          ```python
+          a = pd.Series([False, False, False])
+          b = pd.Series([True, False, True])
+          print((a | b).tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[True, False, True]'
+        explanation: 每一行 False or b 都等于该行的 b，因此结果保持 b 的三个布尔值。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py18.k2
     keyPrerequisites: [py17]
     title: 每个比较加括号，isin 表示属于一个集合
@@ -771,6 +851,42 @@ kps:
           原代码缺括号，先算了 `"low" | df["group"]` 这类没有意义的组合，所以报错。用 `isin` 写“属于 low 或 high”，再给阈值比较加括号，用 `&` 连起来。也可以写成 `((df["group"] == "low") | (df["group"] == "high")) & (df["signal"] >= limit)`：外面那层括号让 `|` 先算，不能省。
 
           本例留下索引 22、4。判分时还会换阈值、换一张含 vehicle 组的表运行，检查结果的行列、值和 `df` 没有被改变。
+      - id: py18.k2.q4
+        uses: [py17.k1]
+        kind: [trace]
+        body: |
+          括号分别包住比较条件；isin 把“属于任一允许组”写成一个掩码。读出组合结果。
+
+          ```python
+          table = pd.DataFrame({"group": ["A", "B", "C", "A"], "score": [9, 7, 10, 6]})
+          mask = table["group"].isin(["A", "B"]) & (table["score"] >= 8)
+          print(mask.tolist())
+          ```
+        slots:
+          - {id: mask, type: text, match: output, prompt: 掩码列表, key: "[True, False, False, False]"}
+        explanation: "第 1 行同时在允许组中且达到阈值；B 组的分数不足，C 组不在允许名单，最后一行 A 组的分数也不足。"
+        verify: |
+          answers = {"mask": run().lines()[0]}
+      - id: py18.k2.q5
+        uses: [py17.k1]
+        kind: [debug]
+        body: |
+          已给定 `values = pd.Series([1, 5, 9])`。两个比较都要加括号，再用 | 组合，选择唯一能得到 [True, False, True] 的表达式。
+        slots:
+          - id: expression
+            type: choice
+            options:
+              - {id: both, content: '`(values < 3) & (values > 7)`'}
+              - {id: either, content: '`(values < 3) | (values > 7)`'}
+              - {id: middle, content: '`(values >= 3) & (values <= 7)`'}
+            key: either
+        explanation: "目标保留两端、排除中间值 5，因此用 | 连接“小于 3”与“大于 7”。& 要求两边同时成立，不能表示保留两端。"
+        verify: |
+          values = pd.Series([1, 5, 9])
+          expressions = {"both": "(values < 3) & (values > 7)", "either": "(values < 3) | (values > 7)", "middle": "(values >= 3) & (values <= 7)"}
+          fits = [key for key, expression in expressions.items() if eval(expression).tolist() == [True, False, True]]
+          assert len(fits) == 1
+          answers = {"expression": fits[0]}
     review:
       - id: py18.k2.r1
         kind: [explain]
@@ -977,3 +1093,47 @@ kps:
               if r.error is None and list(r["mask"][r["mask"]].index) == wanted:
                   fits.append(option)
           answers = {"line": fits[0] if len(fits) == 1 else fits, "count": len(wanted)}
+      - id: py18.k2.x3
+        kind:
+          - trace
+        body: |
+          isin 的列表表示任一允许值，再通过 ~ 排除这整组值。
+
+          ```python
+          groups = pd.Series(["A", "B", "C", "A"])
+          print((~groups.isin(["A", "C"])).tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[False, True, False, False]'
+        explanation: isin 先标出 A 或 C，再逐行取反，所以只有 B 为 True。~ 作用的是比较后的布尔列。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py18.k2.x4
+        uses: [py17.k1]
+        kind:
+          - trace
+        body: |
+          两个带括号的比较使用 | 表示落在范围外，边界本身不在“严格超出”的范围里。
+
+          ```python
+          values = pd.Series([0, 1, 2, 3])
+          mask = (values < 1) | (values > 2)
+          print(mask.tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[True, False, False, True]'
+        explanation: 0 低于下界，3 高于上界；恰好为 1、2 的两个边界都不满足严格比较。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}

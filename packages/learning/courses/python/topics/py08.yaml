@@ -266,6 +266,43 @@ kps:
               "line3": lines[2],
               "extra": "error" if extra.error else extra.lines()[-1].lower(),
           }
+      - id: py08.k1.q4
+        kind: [debug]
+        body: |
+          标签看起来都像数字，但比较时仍须区分数值和文字。分别填写 True 或 False。
+
+          ```python
+          print(7 == 7.0)
+          print(7 == "7")
+          print("7" != "07")
+          ```
+        uses: [py03.k1]
+        slots:
+          - {id: numeric, type: text, match: output, prompt: 第一行, key: "True"}
+          - {id: mixed, type: text, match: output, prompt: 第二行, key: "False"}
+          - {id: labels, type: text, match: output, prompt: 第三行, key: "True"}
+        explanation: "整数 7 与浮点数 7.0 数值相等；数值不会自动与文字 '7' 相等；两个文字标签 '7' 与 '07' 也不相同。"
+        verify: |
+          lines = run().lines()
+          answers = {"numeric": lines[0], "mixed": lines[1], "labels": lines[2]}
+      - id: py08.k1.q5
+        uses: [py01.k1]
+        kind: [trace]
+        body: |
+          比较产生布尔值，不是给名字赋值。读出比较结果和比较之后的原值。
+
+          ```python
+          count = 4
+          print(count == 5)
+          print(count)
+          ```
+        slots:
+          - {id: compare, type: text, match: output, prompt: 第一行, key: "False"}
+          - {id: count, type: text, format: integer, prompt: 第二行, key: 4}
+        explanation: "count == 5 只检查相等关系并得到 False，没有把 5 赋给 count。count 仍是 4；赋值动作只用单个等号。"
+        verify: |
+          lines = run().lines()
+          answers = {"compare": lines[0], "count": int(lines[1])}
     review:
       - id: py08.k1.r1
         kind: [debug]
@@ -348,6 +385,38 @@ kps:
         verify: |
           shown = repl()
           answers = {"first": shown[2], "second": shown[3], "third": shown[4]}
+      - id: py08.k1.r3
+        kind:
+          - trace
+        body: |
+          比较产生布尔结果；相等时，严格大于与大于等于的结论不同。
+
+          ```python
+          print(5 > 5)
+          print(5 >= 5)
+          print(5 != 5)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'False'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: 'False'
+        explanation: 相等不满足严格大于，但满足大于等于；!= 检查不相等，因此为 False。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py08.k1.x1
         kind: [trace]
@@ -442,6 +511,73 @@ kps:
                   fits.append(option)
           answers = {"what": what, "fix": fits[0] if len(fits) == 1 else fits}
 
+      - id: py08.k1.x3
+        kind:
+          - trace
+        body: |
+          比较左右对调时，关系也需要相应反转。检查三条实际表达式。
+
+          ```python
+          print(3 < 8)
+          print(8 > 3)
+          print(8 < 3)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'True'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: 'False'
+        explanation: 前两条都表达 3 比 8 小，第三条表达相反关系，因此为 False。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py08.k1.x4
+        uses: [py01.k1]
+        kind:
+          - trace
+        body: |
+          != 与 == 是互补的相等关系判断，不会修改作为输入的两个值。
+
+          ```python
+          a = 6
+          b = 9
+          print(a != b)
+          print(a == b)
+          print(a)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'True'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'False'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '6'
+        explanation: 两个数不相等，所以 != 为 True、== 为 False；比较不是赋值，a 仍为 6。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py08.k2
     keyPrerequisites: []
     title: 阈值含不含等号与边界例子
@@ -653,6 +789,42 @@ kps:
           ```
 
           “至少达到”包含恰好等于 limit 的情况，要用 `>=`。写成 `limit <= signal` 意思相同，也对。判分时会换几组 signal 和 limit 运行你的代码，其中一定有恰好等于阈值的一组。
+      - id: py08.k2.q4
+        kind: [debug]
+        body: |
+          年龄至少为 18（包括 18）才可报名。三个候选条件中，哪个同时满足 17、18、19 这三个边界检查？
+        slots:
+          - id: condition
+            type: choice
+            options:
+              - {id: strict, content: '`age > 18`'}
+              - {id: inclusive, content: '`age >= 18`'}
+              - {id: equality, content: '`age == 18`'}
+            key: inclusive
+        explanation: "> 会漏掉刚好 18 的人；== 又漏掉 19 及更大年龄。>= 同时包含边界与边界以上的值。"
+        verify: |
+          expressions = {"strict": "age > 18", "inclusive": "age >= 18", "equality": "age == 18"}
+          fits = [key for key, expr in expressions.items() if [eval(expr, {"age": age}) for age in [17, 18, 19]] == [False, True, True]]
+          assert len(fits) == 1
+          answers = {"condition": fits[0]}
+      - id: py08.k2.q5
+        kind: [predict]
+        body: |
+          页面规定金额低于 100 才显示补差提示。把三个临界附近的金额代入实际条件，填写 True 或 False。
+
+          ```python
+          print(99 < 100)
+          print(100 < 100)
+          print(101 < 100)
+          ```
+        slots:
+          - {id: below, type: text, match: output, prompt: 金额 99, key: "True"}
+          - {id: at, type: text, match: output, prompt: 金额 100, key: "False"}
+          - {id: above, type: text, match: output, prompt: 金额 101, key: "False"}
+        explanation: "“低于”不包含恰好等于阈值的金额。99 满足条件；100 已到阈值，101 超过阈值，都不显示补差提示。"
+        verify: |
+          lines = run().lines()
+          answers = {"below": lines[0], "at": lines[1], "above": lines[2]}
     review:
       - id: py08.k2.r1
         kind: [predict, debug]
@@ -735,6 +907,122 @@ kps:
         explanation: |
           **`ok = temperature <= 8`**，温度恰好为 8 的**算合格**。“不高于 8”就是小于或等于 8，包含 8 本身；`< 8` 漏掉了 8，`>= 8` 和 `> 8` 方向反了。
         manual: [line, at8]
+      - id: py08.k2.r3
+        kind:
+          - trace
+        body: |
+          整数数量“至少为 1”和“大于 0”在此范围等价。观察零与边界值 1。
+
+          ```python
+          print(0 >= 1)
+          print(1 >= 1)
+          print(1 > 0)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'False'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: 'True'
+        explanation: 0 低于“至少 1”的门槛，1 正好达到门槛；对整数数量而言，大于 0 也包括 1。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py08.k2.r4
+        kind:
+          - trace
+        body: |
+          库存不多于 5 包括恰好 5；把阈值上下各一个整数都代进去检查。
+
+          ```python
+          print(4 <= 5)
+          print(5 <= 5)
+          print(6 <= 5)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'True'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: 'False'
+        explanation: <= 包括相等边界，所以 4、5 都符合，6 超过上限。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py08.k2.r5
+        kind:
+          - trace
+        body: |
+          温度低于零与不高于零的区别只在边界。填写两个条件在零度时的结果。
+
+          ```python
+          print(0 < 0)
+          print(0 <= 0)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'False'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+        explanation: 严格的“低于”排除零度，“不高于”包含零度。边界例子能直接检出这项差异。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py08.k2.r6
+        kind:
+          - trace
+        body: |
+          免运条件为金额达到 200。恰好缺一元与恰好达到门槛应得到不同结论。
+
+          ```python
+          print(199 >= 200)
+          print(200 >= 200)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'False'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'True'
+        explanation: 达到门槛使用 >=，199 还没达到，200 已经满足；若写 >，会错误排除正好达到门槛的订单。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py08.k2.x1
         kind: [specify]
@@ -825,6 +1113,58 @@ kps:
           answers = {"first": lines[0], "second": lines[1]}
         manual: [alarm]
 
+      - id: py08.k2.x3
+        kind:
+          - trace
+        body: |
+          票价折扣只适用于小于 12 岁的人，恰好 12 岁不适用。把两个临界输入代入。
+
+          ```python
+          print(11 < 12)
+          print(12 < 12)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'True'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'False'
+        explanation: “小于”排除等号边界，因此 11 符合、12 不符合。>= 或 <= 会表达别的范围。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py08.k2.x4
+        kind:
+          - trace
+        body: |
+          风速上限是 6，允许恰好等于 6。核对边界与超过边界的输入。
+
+          ```python
+          print(6 <= 6)
+          print(7 <= 6)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: 'True'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: 'False'
+        explanation: <= 同时包含低于和等于上限，6 已被允许，7 超出范围。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
 verified:
   - question: py08.k2.r2
     version: sha256:398fcd1b885dc55f986ab13be4b178b43f4a069c90dec3f8aad62cc95f2733e9

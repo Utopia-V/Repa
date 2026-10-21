@@ -214,6 +214,44 @@ kps:
               "returned": run("v = " + ast.unparse(call))["v"],
               "reading": run()["reading"],
           }
+      - id: py04.k1.q4
+        kind: [trace]
+        body: |
+          这里只调用 Python 自带的函数：len 求文字长度，abs 求绝对值。填写两次调用的返回结果，不要把函数名本身当作结果。
+
+          ```python
+          print(len("ABCD"))
+          print(abs(-7))
+          ```
+        slots:
+          - {id: length, type: text, format: integer, prompt: 第一行显示, key: 4}
+          - {id: absolute, type: text, format: integer, prompt: 第二行显示, key: 7}
+        explanation: "len 收到文字 'ABCD'，返回长度 4；abs 收到 -7，返回绝对值 7。括号里的内容是实参，调用后得到的值才交给 print。"
+        verify: |
+          lines = run().lines()
+          answers = {"length": int(lines[0]), "absolute": int(lines[1])}
+      - id: py04.k1.q5
+        uses: [py01.k2]
+        kind: [debug]
+        body: |
+          程序已经运行了前两行，最后一行还能调用 len 吗？
+
+          ```python
+          size = len("cat")
+          len = 3
+          print(len("dog"))
+          ```
+        slots:
+          - id: result
+            type: choice
+            options:
+              - {id: callable, content: 能，函数名永远指向原来的函数}
+              - {id: rebound, content: 不能，名字 len 现在指向整数 3}
+              - {id: size, content: 能，调用会自动改用 size}
+            key: rebound
+        explanation: "第一行正常得到 3，但第二行把名字 len 重新绑定到整数。第三行试图调用整数，因而抛出 TypeError；Python 不会自动替换成另一个名字。"
+        verify: |
+          answers = {"result": "rebound" if run().error == "TypeError" else "callable"}
     review:
       - id: py04.k1.r1
         kind: [explain]
@@ -297,6 +335,28 @@ kps:
               "trace": {f"l{i}": {name: state.get(name, "尚未定义") for name in names} for i, state in enumerate(states, 1)},
               "output": int(run().out),
           }
+      - id: py04.k1.r3
+        kind:
+          - trace
+        body: |
+          一次函数调用的结果又成为外层调用的实参。题目给定 len 求长度、str 把值转成文字。
+
+          ```python
+          print(len(str(1200)))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '4'
+        explanation: 内层 str 先把 1200 变成四个字符的文字 '1200'，外层 len 再收到这段文字并返回 4。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+        uses:
+          - py03.k2
     quiz:
       - id: py04.k1.x1
         kind: [trace, predict]
@@ -372,6 +432,26 @@ kps:
           true = [claim for claim, ok in holds.items() if ok]
           answers = {"claim": true[0] if len(true) == 1 else true}
 
+      - id: py04.k1.x3
+        kind:
+          - trace
+        body: |
+          已知 len 返回文字长度、abs 返回绝对值。内层调用的返回值继续交给外层调用。
+
+          ```python
+          print(abs(-len("alpha")))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '5'
+        explanation: len 先返回 5，负号得到 -5，abs 再接收 -5 并返回 5，最后由 print 显示。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py04.k2
     keyPrerequisites: [py03]
     title: 位置参数与关键字参数
@@ -561,6 +641,41 @@ kps:
           ```
 
           加上关键字参数 `sep=","`，两个值之间就放逗号而不是空格。写成 `print(first + "," + second)` 先把三段文字接成一段再显示，也对。
+      - id: py04.k2.q4
+        kind: [trace]
+        body: |
+          sep 决定各实参之间插入什么，end 决定本次显示怎样收尾。写出屏幕上的两行内容。
+
+          ```python
+          print("A", "B", sep=":", end="!")
+          print("C")
+          print("D", "E", sep="-")
+          ```
+        slots:
+          - {id: first, type: text, match: text, prompt: 第一行（不要写换行符）, key: 'A:B!C'}
+          - {id: second, type: text, match: text, prompt: 第二行, key: D-E}
+        explanation: "第一次显示用冒号分隔 A、B，以感叹号而非换行结束，所以 C 紧接在后面；下一次才显示独立一行 D-E。"
+        verify: |
+          lines = run().lines()
+          answers = {"first": str(lines[0]), "second": str(lines[1])}
+      - id: py04.k2.q5
+        kind: [debug]
+        body: |
+          哪个调用把“先按位置给出的 a、b”用斜线分隔，并在末尾追加句号？
+        slots:
+          - id: call
+            type: choice
+            options:
+              - {id: reversed, content: '`print("a", "b", sep=".", end="/")`'}
+              - {id: literal, content: '`print("a", "b", "/", ".")`'}
+              - {id: keywords, content: '`print("a", "b", sep="/", end=".")`'}
+            key: keywords
+        explanation: "sep 和 end 是不同的关键字参数；把标点写成另外两个位置实参，只会显示更多项目，不会改变分隔和收尾规则。"
+        verify: |
+          programs = {"reversed": 'print("a", "b", sep=".", end="/")', "literal": 'print("a", "b", "/", ".")', "keywords": 'print("a", "b", sep="/", end=".")'}
+          fits = [key for key, code in programs.items() if run(code).out == "a/b."]
+          assert len(fits) == 1
+          answers = {"call": fits[0]}
     review:
       - id: py04.k2.r1
         kind: [predict]
@@ -627,6 +742,27 @@ kps:
         verify: |
           fits = [option for option, code in OPTIONS["line"].items() if run(code).out.strip() == "12-15-9"]
           answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py04.k2.r3
+        kind:
+          - trace
+        body: |
+          sep 与 end 都不会额外成为一个显示项目。填写这一整行，保留标点。
+
+          ```python
+          print("red", "blue", sep="/", end=";")
+          print("done")
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: red/blue;done
+        explanation: 第一条 print 用 / 分隔两个位置实参，并以分号收尾而不换行；done 紧接在同一行。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py04.k2.x1
         kind: [modify]
@@ -712,6 +848,27 @@ kps:
               "keywords": [option for option, source in sources.items() if source in keywords],
           }
 
+      - id: py04.k2.x3
+        kind:
+          - trace
+        body: |
+          只有一个位置实参时，sep 没有插入位置，但 end 仍起作用。填写最终整行。
+
+          ```python
+          print("one", sep="/", end=":")
+          print("two", "three", sep="+")
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: one:two+three
+        explanation: 第一条只有一个项目，所以不会插入 /；它以冒号收尾，后面的 two+three 接在同一行。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py04.k3
     keyPrerequisites: [py01, py03]
     title: 把返回结果交给下一步而不是只显示
@@ -951,6 +1108,42 @@ kps:
           ```
 
           先把返回值存进 `hours`，再把 `hours` 交给 `print`。原来的写法里，`round` 的结果交给了 `print`，`hours` 得到的是 `print` 交回的 None。只在 `print` 里保留两位也不够：显示的是两位小数，`hours` 本身仍是 0.8333… 这样的长小数，后面的步骤拿到的不是要求的值。
+      - id: py04.k3.q4
+        kind: [trace]
+        uses: [py03.k3]
+        body: |
+          print 自己也有返回值。两次显示分别是什么？
+
+          ```python
+          saved = print("ready")
+          print(saved)
+          ```
+        slots:
+          - {id: message, type: text, match: text, prompt: 第一行, key: ready}
+          - {id: returned, type: text, match: output, prompt: 第二行, key: "None"}
+        explanation: "内层 print 先显示 ready，但它返回 None，因此 saved 保存的是 None，不是刚显示的文字。第二行把这个返回值显示出来。"
+        verify: |
+          lines = run().lines()
+          answers = {"message": str(lines[0]), "returned": lines[1]}
+      - id: py04.k3.q5
+        kind: [debug]
+        uses: [py03.k2]
+        body: |
+          下一步需要用整数做加法。哪种写法把转换的返回值保存下来，而不是只显示一下就丢掉？
+        slots:
+          - id: pipeline
+            type: choice
+            options:
+              - {id: display, content: '先 `print(int("12"))`，再 `result = "12" + 1`'}
+              - {id: save, content: '先 `number = int("12")`，再 `result = number + 1`'}
+              - {id: returned, content: '先 `number = print(int("12"))`，再 `result = number + 1`'}
+            key: save
+        explanation: "int 的返回值要交给 number，后面的加法才能使用它。仅显示转换结果不会改变原文字；把 print 的返回值交给 number 则得到 None。"
+        verify: |
+          programs = {"display": 'print(int("12"))\nresult = "12" + 1', "save": 'number = int("12")\nresult = number + 1', "returned": 'number = print(int("12"))\nresult = number + 1'}
+          fits = [key for key, code in programs.items() if run(code).error is None and run(code)["result"] == 13]
+          assert len(fits) == 1
+          answers = {"pipeline": fits[0]}
     review:
       - id: py04.k3.r1
         kind: [debug, predict]
@@ -1018,6 +1211,36 @@ kps:
         verify: |
           lines = run().lines()
           answers = {"first": lines[0], "second": lines[1]}
+      - id: py04.k3.r3
+        kind:
+          - trace
+        body: |
+          显示返回值不会改变原文字。这里计算后还要真正把返回值交给下一步。
+
+          ```python
+          text = "8"
+          number = int(text)
+          print(number + 2)
+          print(repr(text))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '10'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '''8'''
+        explanation: int 的结果保存在 number，后续加法用的是它；原来的 text 仍指向文字 '8'。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+        uses:
+          - py03.k2
     quiz:
       - id: py04.k3.x1
         kind: [trace]

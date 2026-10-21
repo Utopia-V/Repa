@@ -192,6 +192,42 @@ kps:
         verify: |
           r = run()
           answers = {"sizes": {name: {"size": len(r[name])} for name in ["a", "b", "c", "d"]}}
+      - id: py06.k1.q4
+        uses: [py04.k1]
+        kind: [debug]
+        body: |
+          列表里可以存重复的值。下面两行分别显示多少？len 数的是位置数，不是不同值的种类数。
+
+          ```python
+          print(len(["A", "A", "B"]))
+          print(len([]))
+          ```
+        slots:
+          - {id: repeated, type: text, format: integer, prompt: 第一行, key: 3}
+          - {id: empty, type: text, format: integer, prompt: 第二行, key: 0}
+        explanation: "第一个列表有三个位置，两个 A 仍分别占一个位置；空列表没有位置，所以长度是 0。"
+        verify: |
+          lines = run().lines()
+          answers = {"repeated": int(lines[0]), "empty": int(lines[1])}
+      - id: py06.k1.q5
+        uses: [py04.k1, py03.k1]
+        kind: [trace]
+        body: |
+          下面分别是一个含逗号的字符串、一个含该字符串的列表和三个元素的列表。写出三次 len 的结果。
+
+          ```python
+          print(len("A,B"))
+          print(len(["A,B"]))
+          print(len(["A", ",", "B"]))
+          ```
+        slots:
+          - {id: string, type: text, format: integer, prompt: 第一行, key: 3}
+          - {id: one, type: text, format: integer, prompt: 第二行, key: 1}
+          - {id: three, type: text, format: integer, prompt: 第三行, key: 3}
+        explanation: "文字里的逗号是一个字符；放在引号里面时，它不是列表的分隔符。因此 [\"A,B\"] 只有一个列表元素，第三行的列表才有三个元素。"
+        verify: |
+          lines = run().lines()
+          answers = {"string": int(lines[0]), "one": int(lines[1]), "three": int(lines[2])}
     review:
       - id: py06.k1.r1
         kind: [predict]
@@ -264,6 +300,39 @@ kps:
         verify: |
           lines = run().lines()
           answers = {"line1": int(lines[0]), "line2": lines[1], "line3": int(lines[2])}
+      - id: py06.k1.r3
+        uses: [py04.k1]
+        kind:
+          - trace
+        body: |
+          空列表与包含一个空字符串的列表，长度并不相同。
+
+          ```python
+          print(len([]))
+          print(len([""]))
+          print(len(["", ""]))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '0'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '1'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '2'
+        explanation: len 数列表的元素个数，不数元素内部的字符。即使元素是空字符串，它仍占一个位置。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py06.k1.x1
         kind: [explain]
@@ -349,6 +418,33 @@ kps:
           ```
 
           原来的列表只有一个元素：一整段文字 `"12, 15, 9, 20"`。把四个读数分别写成元素、不加引号，它们才是四个整数，len 才数到 4。
+      - id: py06.k1.x3
+        uses: [py04.k1]
+        kind:
+          - trace
+        body: |
+          列表中的文字长度不同，列表自身仍按元素个数计长。
+
+          ```python
+          print(len(["long-name", "x"]))
+          print(len(["long-name"]))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '2'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '1'
+        explanation: 第一份列表有两个元素，第二份有一个。元素包含多少字符不会改变它各占一个列表位置的事实。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py06.k2
     keyPrerequisites: [py03]
     title: 从 0 开始的索引和 -1
@@ -540,6 +636,45 @@ kps:
         verify: |
           shown = repl()
           answers = {"line3": int(shown[2]), "line4": int(shown[3]), "line5": shown[4]}
+      - id: py06.k2.q4
+        kind: [debug]
+        body: |
+          只有三项的队列，想取第三项却写成了下面这样。程序会显示哪个值，还是报错？
+
+          ```python
+          queue = ["first", "second", "third"]
+          print(queue[3])
+          ```
+        slots:
+          - id: effect
+            type: choice
+            options:
+              - {id: third, content: third}
+              - {id: first, content: first}
+              - {id: error, content: IndexError，因为下标 3 已越过末尾}
+            key: error
+        explanation: "三个位置的非负下标是 0、1、2。下标 3 不会绕回开头，而是越界；要取第三项应使用 2 或 -1。"
+        verify: |
+          answers = {"effect": "error" if run().error == "IndexError" else "third"}
+      - id: py06.k2.q5
+        kind: [trace]
+        body: |
+          负下标从末尾开始数。请把两个方向的下标映射到同一份名单。
+
+          ```python
+          names = ["Li", "Wu", "He", "Sun"]
+          print(names[0])
+          print(names[-1])
+          print(names[-4])
+          ```
+        slots:
+          - {id: first, type: text, match: text, prompt: 第一行, key: Li}
+          - {id: last, type: text, match: text, prompt: 第二行, key: Sun}
+          - {id: back, type: text, match: text, prompt: 第三行, key: Li}
+        explanation: "0 是第一个位置；-1 是最后一个位置；长度为 4 的列表中，-4 又回到第一个位置，但继续用 -5 就会越界。"
+        verify: |
+          lines = run().lines()
+          answers = {"first": str(lines[0]), "last": str(lines[1]), "back": str(lines[2])}
     review:
       - id: py06.k2.r1
         kind: [explain]
@@ -629,6 +764,33 @@ kps:
               "first_neg": [i for i in valid if i < 0 and ids[i] == "第1个"][0],
               "biggest": max(valid),
           }
+      - id: py06.k2.r3
+        kind:
+          - trace
+        body: |
+          一个元素的列表中，下标 0 与 -1 指向同一个位置。
+
+          ```python
+          names = ["only"]
+          print(names[0])
+          print(names[-1])
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: only
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: only
+        explanation: 正向第一个和反向最后一个都是这份列表唯一的位置，因此两次都取到 only。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py06.k2.x1
         kind: [modify]
@@ -705,6 +867,33 @@ kps:
           candidates = {"p4": 4, "m2": -2, "p3": 3, "m4": -4, "m1": -1}
           ok = [option for option, k in candidates.items() if run(CODE, k=k).out.strip() == "S04"]
           answers = {"values": ok}
+      - id: py06.k2.x3
+        kind:
+          - trace
+        body: |
+          从列表的两端取元素，保留各自原有的数据类型。
+
+          ```python
+          mixed = ["007", 8, "end"]
+          print(repr(mixed[0]))
+          print(repr(mixed[-1]))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '''007'''
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '''end'''
+        explanation: 下标取出对应元素，不会自动把看似数字的 '007' 转成整数；-1 取最后的字符串 'end'。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py06.k3
     keyPrerequisites: []
     title: 切片左闭右开
@@ -896,6 +1085,42 @@ kps:
           ```
 
           前 3 个是位置 0、1、2。切片不包含终点，所以终点要写 3；起点从头开始，可以省略，写成 `[0:3]` 也一样。原来的 `[1:3]` 从位置 1 开始，漏了第一个，而且只取到 2 个。
+      - id: py06.k3.q4
+        kind: [debug]
+        body: |
+          单个下标越界会报错；切片的上界超过长度时会怎样？填写两个切片的 Python 显示内容。
+
+          ```python
+          items = [10, 20, 30]
+          print(items[1:99])
+          print(items[3:99])
+          ```
+        slots:
+          - {id: tail, type: text, match: output, prompt: 第一行, key: "[20, 30]"}
+          - {id: empty, type: text, match: output, prompt: 第二行, key: "[]"}
+        explanation: "切片会截到实际末尾，不要求上界对应一个有效元素。起点已经在末尾时，范围里没有位置，得到空列表。"
+        verify: |
+          lines = run().lines()
+          answers = {"tail": lines[0], "empty": lines[1]}
+      - id: py06.k3.q5
+        kind: [trace]
+        body: |
+          在三个时间窗口里分别有哪些预约？切片保留原顺序，并且不包括右端位置。
+
+          ```python
+          slots = ["08:00", "09:00", "10:00", "11:00"]
+          print(slots[:2])
+          print(slots[2:])
+          print(slots[2:2])
+          ```
+        slots:
+          - {id: early, type: text, match: output, prompt: 第一行, key: "['08:00', '09:00']"}
+          - {id: late, type: text, match: output, prompt: 第二行, key: "['10:00', '11:00']"}
+          - {id: empty, type: text, match: output, prompt: 第三行, key: "[]"}
+        explanation: "[:2] 包含位置 0、1；[2:] 从位置 2 到末尾；[2:2] 的起止相同，区间为空，而不是取位置 2 的一个元素。"
+        verify: |
+          lines = run().lines()
+          answers = {"early": lines[0], "late": lines[1], "empty": lines[2]}
     review:
       - id: py06.k3.r1
         kind: [explain]
@@ -959,6 +1184,33 @@ kps:
                   last_two: "[20, 31]"
         explanation: |
           先写出 `readings`，再用 `readings[-2:]` 取最后两个，最后 `print`。`[-2:-1]` 不包含终点 -1，只取到 [20]；`[3:4]` 也只取到位置 3 一个元素。终点省略，才会一直取到末尾。
+      - id: py06.k3.r3
+        kind:
+          - trace
+        body: |
+          负数端点也遵守左闭右开。填写去掉末项和只取末项的两个切片。
+
+          ```python
+          values = [1, 3, 5, 7]
+          print(values[:-1])
+          print(values[-1:])
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[1, 3, 5]'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[7]'
+        explanation: '[:-1] 在最后一个位置之前结束，不包含末项；[-1:] 从末项开始到结尾，仍返回列表而不是单个数。'
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py06.k3.x1
         kind: [predict]

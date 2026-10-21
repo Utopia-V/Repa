@@ -223,6 +223,42 @@ kps:
               "trace": {f"l{i}": {"n": state["n"]} for i, state in enumerate(states, 1)},
               "output": int(run().out),
           }
+      - id: py02.k1.q4
+        kind: [debug]
+        uses: [py01.k1]
+        body: |
+          要先合并两批数量，再按每批 3 份包装。哪段代码对所有非负整数 a、b 都得到三倍的合计？
+        slots:
+          - id: formula
+            type: choice
+            options:
+              - {id: first, content: "`result = a + b * 3`"}
+              - {id: grouped, content: "`result = (a + b) * 3`"}
+              - {id: reduced, content: "`result = a + (b - 3)`"}
+            key: grouped
+        explanation: "括号让 a + b 先计算，再把整个合计乘 3。没有括号时，只有 b 被乘了 3。"
+        verify: |
+          programs = {"first": "result = a + b * 3", "grouped": "result = (a + b) * 3", "reduced": "result = a + (b - 3)"}
+          fits = [key for key, code in programs.items()
+                  if all(run(code, a=a, b=b)["result"] == 3 * (a + b) for a, b in [(0, 0), (1, 0), (0, 2), (4, 7)])]
+          assert len(fits) == 1
+          answers = {"formula": fits[0]}
+      - id: py02.k1.q5
+        kind: [trace]
+        body: |
+          两个算式用了同样的数字和符号。分别计算结果，观察括号改变了哪一步。
+
+          ```python
+          print(30 - 12 - 4)
+          print(30 - (12 - 4))
+          ```
+        slots:
+          - {id: plain, type: text, format: integer, prompt: 第一行显示, key: 14}
+          - {id: grouped, type: text, format: integer, prompt: 第二行显示, key: 22}
+        explanation: "连续减法从左往右，先得到 18 再减 4，结果是 14。第二行先算括号中的 8，再算 30 - 8，结果是 22。"
+        verify: |
+          lines = run().lines()
+          answers = {"plain": int(lines[0]), "grouped": int(lines[1])}
     review:
       - id: py02.k1.r1
         kind: [trace]
@@ -319,6 +355,32 @@ kps:
           ```
 
           每块板能放样本的孔是 96 - 6 = 90 个，要先在括号里算出来，再乘板数。原来的 `plates * 96 - 6` 先算乘法，只扣了一次 6 个孔，所以只有一块板时才对。写成 `plates * 96 - plates * 6` 也对。
+      - id: py02.k1.r3
+        kind:
+          - trace
+        body: |
+          先抵扣优惠再按份数计费，与只给最后一项乘份数不同。读出两个算式的结果。
+
+          ```python
+          print((18 - 3) * 2)
+          print(18 - 3 * 2)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '30'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '12'
+        explanation: 第一行先做括号内减法得到 15，再乘 2；第二行先乘得 6，再从 18 中减去它。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py02.k1.x1
         kind: [predict]
@@ -408,6 +470,32 @@ kps:
           r = run()
           answers = {"shown": int(r.out), "needed": needed(r["n"]), "coincide": same[0] if len(same) == 1 else same}
 
+      - id: py02.k1.x3
+        kind:
+          - trace
+        body: |
+          同一级除法与乘法从左到右；括号改变被除数。读出两个结果。
+
+          ```python
+          print(24 / 3 * 2)
+          print(24 / (3 * 2))
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '16.0'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '4.0'
+        explanation: 第一行先 24 / 3 得 8.0，再乘 2；第二行先算括号中的 6，再用 24 除它。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py02.k2
     keyPrerequisites: [py01]
     title: 除法 /、整除 // 与余数 %
@@ -593,6 +681,52 @@ kps:
           fits = [option for option, code in OPTIONS["line"].items()
                   if all(run(code, samples=s, people=p)["back"] == left_over(s, p) for s, p in cases)]
           answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py02.k2.q4
+        kind: [debug]
+        body: |
+          要得到整盒数 4，下面三个表达式中哪一个的结果不仅数值为 4，而且是整数？
+
+          ```python
+          print(28 / 7)
+          print(28 // 7)
+          print(28 % 7)
+          ```
+        slots:
+          - id: operator
+            type: choice
+            options:
+              - {id: division, content: "`/`"}
+              - {id: floor, content: "`//`"}
+              - {id: remainder, content: "`%`"}
+            key: floor
+        explanation: "/ 得到带小数点的 4.0，// 得到整数 4，% 得到余数 0。能整除也不会让 / 变成整除运算。"
+        verify: |
+          lines = run().lines()
+          fits = [key for key, line in zip(["division", "floor", "remainder"], lines) if line == "4"]
+          assert len(fits) == 1
+          answers = {"operator": fits[0]}
+      - id: py02.k2.q5
+        kind: [predict]
+        uses: [py01.k1]
+        body: |
+          先装满 6 个一组的盒子，再数散件。填写整盒数与散件数，并检查它们能否还原总数。
+
+          ```python
+          pieces = 41
+          boxes = pieces // 6
+          loose = pieces % 6
+          print(boxes)
+          print(loose)
+          print(boxes * 6 + loose)
+          ```
+        slots:
+          - {id: boxes, type: text, format: integer, prompt: 整盒数, key: 6}
+          - {id: loose, type: text, format: integer, prompt: 散件数, key: 5}
+          - {id: total, type: text, format: integer, prompt: 还原的总数, key: 41}
+        explanation: "41 中有 6 个完整的 6，余下 5；6 × 6 + 5 又得到 41。// 与 % 分别保留完整组数和剩余量。"
+        verify: |
+          r = run()
+          answers = {"boxes": r["boxes"], "loose": r["loose"], "total": int(r.lines()[2])}
     review:
       - id: py02.k2.r1
         kind: [trace]
@@ -664,6 +798,38 @@ kps:
         verify: |
           fits = [option for option, code in OPTIONS["program"].items() if run(code).out.strip() == "4"]
           answers = {"program": fits[0] if len(fits) == 1 else fits}
+      - id: py02.k2.r3
+        kind:
+          - trace
+        body: |
+          运输箱恰好装满时，余数应为零，而普通除法仍返回浮点结果。
+
+          ```python
+          print(36 // 6)
+          print(36 % 6)
+          print(36 / 6)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '6'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '0'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '6.0'
+        explanation: 36 包含六个完整的 6，没有剩余；/ 仍使用普通除法，不会因为整除就去掉小数点。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
     quiz:
       - id: py02.k2.x1
         kind: [specify]
@@ -783,6 +949,38 @@ kps:
 
           `/` 比 `+` 先算，原来的代码只把 `c` 除以了 3。要先用括号把三个读数加起来，再除以 3。不能用 `//`：读数 1、2、4 的平均是 2.33…，整除会只留下 2。
 
+      - id: py02.k2.x3
+        kind:
+          - trace
+        body: |
+          不足一整盒时，整盒数与余数分别是什么？普通除法能保留不足整盒的比例。
+
+          ```python
+          print(3 // 6)
+          print(3 % 6)
+          print(3 / 6)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '0'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '3'
+          - id: v2
+            type: text
+            match: output
+            prompt: 第 3 项
+            key: '0.5'
+        explanation: 三个物件装不满六个一盒，因此整盒零盒、散件三个；普通除法得到半盒的数值比例 0.5。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py02.k3
     keyPrerequisites: [py01]
     title: 单位随计算一起核对
@@ -985,6 +1183,50 @@ kps:
           ```
 
           分钟是小单位、小时是大单位，换算用除，90 分钟得 1.5 小时。原来的 `minutes * 60` 得 5400，按小时算超过 200 天，一看量级就不对。`// 60` 会把 45 分钟算成 0 小时。
+      - id: py02.k3.q4
+        kind: [debug]
+        uses: [py01.k1]
+        body: |
+          一条记录用秒，另一条用分钟。程序能运行，但要把总时长换成秒，下面三个修订哪个正确？
+
+          ```python
+          seconds = 45
+          minutes = 2
+          total_seconds = seconds + minutes
+          ```
+        slots:
+          - id: fix
+            type: choice
+            options:
+              - {id: both, content: "`total_seconds = (seconds + minutes) * 60`"}
+              - {id: minutes, content: "`total_seconds = seconds + minutes * 60`"}
+              - {id: seconds, content: "`total_seconds = seconds * 60 + minutes`"}
+            key: minutes
+        explanation: "只有 minutes 需要从分钟换成秒。seconds 已经是秒，再乘 60 就重复换算了；正确总量是 45 + 120 = 165 秒。"
+        verify: |
+          programs = {"both": "total_seconds = (seconds + minutes) * 60", "minutes": "total_seconds = seconds + minutes * 60", "seconds": "total_seconds = seconds * 60 + minutes"}
+          fits = [key for key, code in programs.items() if run(code, seconds=45, minutes=2)["total_seconds"] == 165]
+          assert len(fits) == 1
+          answers = {"fix": fits[0]}
+      - id: py02.k3.q5
+        kind: [predict]
+        uses: [py01.k1]
+        body: |
+          设备报告 1500 毫秒；界面要显示秒。读程序，填写换算后的秒数与原始毫秒数。
+
+          ```python
+          delay_ms = 1500
+          delay_s = delay_ms / 1000
+          print(delay_s)
+          print(delay_ms)
+          ```
+        slots:
+          - {id: seconds, type: text, format: number, prompt: delay_s, key: 1.5, suffix: 秒}
+          - {id: milliseconds, type: text, format: integer, prompt: delay_ms, key: 1500, suffix: 毫秒}
+        explanation: "1000 毫秒等于 1 秒，所以除以 1000 得到 1.5 秒。换算结果交给了新名字 delay_s，原来的 delay_ms 仍是 1500。"
+        verify: |
+          r = run()
+          answers = {"seconds": r["delay_s"], "milliseconds": r["delay_ms"]}
     review:
       - id: py02.k3.r1
         kind: [debug, predict]
@@ -1088,6 +1330,35 @@ kps:
                 if label(unit_of(ast.parse(cells["expr"].strip("`"), mode="eval").body)) == "ml"]
           volume = eval(ml[0], {"mass_mg": 10, "conc_mg_per_ml": 4})
           answers = {"units": units, "volume": volume}
+      - id: py02.k3.r3
+        kind:
+          - trace
+        body: |
+          一次活动包括 2 小时和额外 15 分钟。统一换成分钟，再换回小时。
+
+          ```python
+          total_minutes = 2 * 60 + 15
+          print(total_minutes)
+          print(total_minutes / 60)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '135'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '2.25'
+        explanation: 小时先乘 60 变成分钟，与额外的分钟相加得 135；整个合计除以 60，才得到 2.25 小时。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
+        uses:
+          - py01.k1
     quiz:
       - id: py02.k3.x1
         kind: [predict]

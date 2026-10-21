@@ -155,3 +155,5 @@ YAML 的几个坑：
 - 选项、块、行列的 id 写成 `null`、`true`、`false` 或数字时，YAML 会读成空值、布尔值或数，要加引号（`"null"`）；id 必须以字母或数字开头，`_merge` 这样以下划线开头的不合格式；
 - flow 映射 `{ id: x, content: … }` 里的内容含英文逗号时要加引号（中文逗号不用）；代码题 `accepts`、`rejects` 里单行的代码含字典时同样整段加引号；
 - 不用锚点和别名，需要共用的数据写成 `data`。
+
+Python 开头两周的实际路线、逐 KP 库存与新增题对应见[开头路径题量核对](python/opening-item-supply.md)。lesson/review 与 quiz/retake 均按真实策略核对，题目核对记录与供给结论一并列出。
