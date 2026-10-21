@@ -1,7 +1,9 @@
+import { contentVersion } from "@repa/base/protocol";
+import frontendSource from "@repa/learning/sandbox/frontend.py?raw";
 import runnerSource from "@repa/learning/sandbox/runner.py?raw";
 import {
-  PythonRunPhaseSchema, PythonRunTestResultSchema, PythonRuntimeSchema,
-  type PythonRunInput, type PythonRunPhase, type PythonRunResult, type PythonRunTestResult, type PythonRuntime,
+  PYTHON_BATCH, PythonBatchResultSchema, PythonPhaseSchema,
+  type PythonBatchInput, type PythonBatchResult, type PythonPhase, type PythonTestResult,
 } from "@repa/learning/protocol";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
@@ -13,7 +15,7 @@ import type { WorkerMessage, WorkerRequest } from "./messages";
  */
 const TEST_TIMEOUT_MS = 10_000;
 const START_TIMEOUT_MS = 60_000;
-/** runner.py 在模块顶层导入它们；依赖由 pyodide-lock.json 补全。 */
+/** runner.py 在模块顶层导入它们，探测时报告的也是它们；依赖由 pyodide-lock.json 补全。 */
 const RUNNER_PACKAGES = ["numpy", "pandas"];
 const CORE_FILES = ["pyodide.asm.wasm", "python_stdlib.zip"];
 
@@ -112,19 +114,32 @@ export async function loadRuntimeFiles(assetsUrl: string): Promise<RuntimeFiles>
   return { lock, packages: [...packages.keys()], files: Object.fromEntries(entries) };
 }
 
-let runnerHash: Promise<string> | undefined;
+/** 后端用同一个算法给 runner.py 记版本，课程核对算出的期望值绑定在这个版本上。 */
+const runnerVersion = contentVersion(runnerSource);
 
-/** 结果里的 runner 版本：runner.py 源码的 SHA-256。 */
-function hashRunner(): Promise<string> {
-  runnerHash ??= sha256(new TextEncoder().encode(runnerSource).buffer);
-  return runnerHash;
-}
-
-const ReadyRuntimeSchema = Type.Object({
+/** Worker 实际加载的 Pyodide、Python 和全部包的版本。 */
+const LoadedSchema = Type.Object({
   pyodide: Type.String(),
   python: Type.String(),
   packages: Type.Record(Type.String(), Type.String()),
 });
+type Loaded = Static<typeof LoadedSchema>;
+
+/** 只报告问到的包；没有加载的包不出现，后端比较时就知道环境不符。 */
+function environment(loaded: Loaded, packages: readonly string[]) {
+  const versions = packages.flatMap((name) => {
+    const version = loaded.packages[name];
+    return version === undefined ? [] : [[name, version] as const];
+  });
+  return { pyodide: loaded.pyodide, python: loaded.python, packages: Object.fromEntries(versions) };
+}
+
+export interface PythonCapabilities {
+  protocol: typeof PYTHON_BATCH;
+  runtime: ReturnType<typeof environment>;
+  runner: string;
+  freshInterpreter: true;
+}
 
 function readMessage(value: unknown): WorkerMessage | undefined {
   if (typeof value !== "object" || value === null || !("type" in value)) return undefined;
@@ -140,18 +155,32 @@ function readMessage(value: unknown): WorkerMessage | undefined {
   return undefined;
 }
 
-function workerFailure(id: string, message: string): PythonRunTestResult {
-  return { id, status: "failed", phase: "worker", error: { type: "WorkerError", message } };
+/** Worker 报告的阶段。serialize 是运行器序列化 capture 的值，不运行学习者的代码；对外归在 capture 下，但超时算执行失败。 */
+type Step = PythonPhase | "serialize";
+const TestResultSchema = PythonBatchResultSchema.properties.tests.items;
+
+function workerFailure(id: string, step: Step, message: string): PythonTestResult {
+  return { id, status: "failed", phase: step === "serialize" ? "capture" : step, error: { type: "WorkerError", message } };
 }
 
-/** frontend_test 的返回值：done 是 program 任务的结果，failed 是前导、数据或 setup 出错。其他的都当作 Worker 出了问题。 */
-function readTested(id: string, response: unknown): PythonRunTestResult {
+function timedOut(id: string, step: Step, seconds: number): PythonTestResult {
+  // 序列化慢不是学习者的错，记为执行失败，后端保留待恢复。
+  if (step === "serialize") return { id, status: "failed", phase: "capture", error: { type: "TimeoutError", message: `序列化 capture 的值超过 ${seconds} 秒` } };
+  return { id, status: "timeout", phase: step };
+}
+
+/** frontend_test 的返回值：completed 是 program 任务的结果，failed 是前导、夹具或 setup 出错。其他的都当作 Worker 出了问题。 */
+function readTested(id: string, step: Step, response: unknown): PythonTestResult {
   if (typeof response === "object" && response !== null && "status" in response
-    && (response.status === "done" || response.status === "failed")) {
+    && (response.status === "completed" || response.status === "failed")) {
     const result = { ...response, id };
-    if (Value.Check(PythonRunTestResultSchema, result)) return result;
+    if (Value.Check(TestResultSchema, result)) return result;
   }
-  return workerFailure(id, "运行器返回了无法识别的结果");
+  return workerFailure(id, step, "运行器返回了无法识别的结果");
+}
+
+function readStep(phase: string): Step | undefined {
+  return phase === "serialize" ? phase : Value.Check(PythonPhaseSchema, phase) ? phase : undefined;
 }
 
 /** 一个 Worker：启动一次、运行一批测试，之后销毁。出错时通知正在听的一方并结束。 */
@@ -203,7 +232,7 @@ class RunnerInstance {
 
 interface Started {
   instance: RunnerInstance;
-  runtime: PythonRuntime;
+  loaded: Loaded;
 }
 
 function cancelled(signal: AbortSignal | undefined): void {
@@ -212,7 +241,7 @@ function cancelled(signal: AbortSignal | undefined): void {
 
 /**
  * 在 Worker 里用 Pyodide 运行 python.run 的测试。每次调用用一个全新、没有运行过学习者代码的 Worker，用完就销毁；
- * 调用之后在后台预热下一个。调用逐个执行。取好的文件留在页面里，启动新 Worker 时不再下载。
+ * 探测和每次调用之后在后台预热下一个。调用逐个执行。取好的文件留在页面里，启动新 Worker 时不再下载。
  */
 export class PythonRunner {
   readonly #options: PythonRunnerOptions;
@@ -228,7 +257,17 @@ export class PythonRunner {
     this.#options = options;
   }
 
-  run(input: PythonRunInput, signal?: AbortSignal): Promise<PythonRunResult> {
+  /** 探测：启动（或复用）预热的 Worker，报告它实际加载的环境。不运行代码，也不占用那个 Worker。 */
+  async capabilities(signal?: AbortSignal): Promise<PythonCapabilities> {
+    cancelled(signal);
+    if (!this.#standby) this.#prepare();
+    const standby = this.#standby;
+    if (!standby) throw new PythonRunError("runtime_unavailable", "Python 运行器已经关闭");
+    const [{ loaded }, runner] = await abortable(Promise.all([standby, runnerVersion]), signal);
+    return { protocol: PYTHON_BATCH, runtime: environment(loaded, RUNNER_PACKAGES), runner, freshInterpreter: true };
+  }
+
+  run(input: PythonBatchInput, signal?: AbortSignal): Promise<PythonBatchResult> {
     const turn = this.#queue.then(() => this.#run(input, signal));
     // 队列只管先后；每个调用的失败已经交给它自己的调用方。
     this.#queue = turn.catch(() => undefined);
@@ -246,7 +285,7 @@ export class PythonRunner {
     });
   }
 
-  async #run(input: PythonRunInput, external: AbortSignal | undefined): Promise<PythonRunResult> {
+  async #run(input: PythonBatchInput, external: AbortSignal | undefined): Promise<PythonBatchResult> {
     cancelled(external);
     const generation = this.#generation;
     const controller = new AbortController();
@@ -326,7 +365,7 @@ export class PythonRunner {
       this.#files = undefined;
       throw error instanceof PythonRunError ? error : new PythonRunError("runtime_unavailable", "无法读取 Pyodide 文件");
     });
-    const [{ lock, packages, files }, runner] = await Promise.all([this.#files, hashRunner()]);
+    const { lock, packages, files } = await this.#files;
     // 文件留在页面里给下一个 Worker 用，交给 Worker 的是副本。
     const copies = Object.fromEntries(Object.entries(files).map(([name, buffer]) => [name, buffer.slice(0)]));
     const instance = new RunnerInstance(this.#options.createWorker());
@@ -338,23 +377,24 @@ export class PythonRunner {
       }, (message) => reject(new PythonRunError("runtime_unavailable", message)));
       const indexURL = new URL(this.#options.assetsUrl, location.href).href;
       instance.post({
-        type: "start", indexURL, packageBaseUrl: new URL("packages/", indexURL).href, lock, packages, runner: runnerSource, files: copies,
+        type: "start", indexURL, packageBaseUrl: new URL("packages/", indexURL).href, lock, packages,
+        runner: runnerSource, frontend: frontendSource, files: copies,
       }, Object.values(copies));
     });
-    const runtime = Value.Check(ReadyRuntimeSchema, ready) ? { ...ready, runner } : undefined;
-    if (!runtime || !Value.Check(PythonRuntimeSchema, runtime)) {
+    if (!Value.Check(LoadedSchema, ready)) {
       instance.end();
       throw new PythonRunError("runtime_unavailable", "Python 运行器报告的运行环境无法识别");
     }
-    return { instance, runtime };
+    return { instance, loaded: ready };
   }
 
   /** 按顺序运行全部测试。每个测试单独计时；超时或失败就结束 Worker，停在的阶段写进结果，之后的测试记为未执行。 */
-  #execute({ instance, runtime }: Started, input: PythonRunInput, signal: AbortSignal | undefined): Promise<PythonRunResult> {
+  async #execute({ instance, loaded }: Started, input: PythonBatchInput, signal: AbortSignal | undefined): Promise<PythonBatchResult> {
     const timeoutMs = this.#options.testTimeoutMs ?? TEST_TIMEOUT_MS;
-    return new Promise<PythonRunResult>((resolve, reject) => {
-      const tests: PythonRunTestResult[] = [];
-      let at: { phase: PythonRunPhase; index: number | null } = { phase: "prelude", index: null };
+    const runner = await runnerVersion;
+    return new Promise<PythonBatchResult>((resolve, reject) => {
+      const tests: PythonTestResult[] = [];
+      let step: Step = "prepare";
       let timer: ReturnType<typeof setTimeout> | undefined;
       const current = () => input.tests[tests.length];
       const settle = () => {
@@ -362,17 +402,25 @@ export class PythonRunner {
         signal?.removeEventListener("abort", onAbort);
         instance.end();
       };
-      const finish = (last?: PythonRunTestResult) => {
+      const finish = (last?: PythonTestResult) => {
         settle();
         if (last) tests.push(last);
         for (const test of input.tests.slice(tests.length)) tests.push({ id: test.id, status: "not_run" });
-        resolve({ runtime, tests });
+        resolve({
+          protocol: PYTHON_BATCH,
+          submissionId: input.submissionId,
+          gradeRevision: input.gradeRevision,
+          runtime: environment(loaded, Object.keys(input.runtime.packages)),
+          runner,
+          freshInterpreter: true,
+          tests,
+        });
       };
       const arm = () => {
         clearTimeout(timer);
         timer = setTimeout(() => {
           const test = current();
-          if (test) finish({ id: test.id, status: "timeout", phase: at.phase, ...(at.index === null ? {} : { index: at.index }) });
+          if (test) finish(timedOut(test.id, step, timeoutMs / 1000));
         }, timeoutMs);
       };
       const onAbort = () => {
@@ -383,31 +431,46 @@ export class PythonRunner {
         reject(new PythonRunError("runtime_unavailable", "Python 运行器已经结束"));
         return;
       }
+      if (input.tests.length === 0) {
+        finish();
+        return;
+      }
       signal?.addEventListener("abort", onAbort, { once: true });
       instance.listen((message) => {
         const test = current();
         if (!test || (message.type !== "phase" && message.type !== "tested") || message.test !== tests.length) return;
         if (message.type === "phase") {
-          if (Value.Check(PythonRunPhaseSchema, message.phase)) at = { phase: message.phase, index: message.index };
+          step = readStep(message.phase) ?? step;
           return;
         }
-        const result = readTested(test.id, message.response);
-        if (result.status !== "done") {
+        const result = readTested(test.id, step, message.response);
+        if (result.status !== "completed") {
           finish(result);
           return;
         }
         tests.push(result);
-        at = { phase: "prelude", index: null };
+        step = "prepare";
         if (tests.length === input.tests.length) finish();
         else arm();
       }, (message) => {
         const test = current();
-        if (test) finish(workerFailure(test.id, message));
+        if (test) finish(workerFailure(test.id, step, message));
       });
       arm();
-      instance.post({ type: "run", input });
+      instance.post({ type: "run", tests: input.tests });
     });
   }
+}
+
+/** 等 promise，signal 中止时以 cancelled 结束；promise 本身不受影响。 */
+function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new PythonRunError("cancelled", "探测已取消"));
+    if (signal.aborted) onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 const ASSETS_URL = "/__repa/pyodide/";

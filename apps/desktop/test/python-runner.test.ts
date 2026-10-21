@@ -1,13 +1,25 @@
-import type { PythonRunInput, PythonRunResult } from "@repa/learning/protocol";
+import { contentVersion } from "@repa/base/protocol";
+import { PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult } from "@repa/learning/protocol";
+import runnerSource from "@repa/learning/sandbox/runner.py?raw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkerRequest } from "@/lib/python/messages";
 import { loadRuntimeFiles, PythonRunner, type RunnerWorker, type RuntimeFiles } from "@/lib/python/runner";
 
-const job = { data: [], captures: [], doctest: [] };
-const input: PythonRunInput = { program: "print(1)", tests: [{ id: "a", ...job }, { id: "b", ...job }, { id: "c", ...job }] };
-const versions = { pyodide: "314.0.7", python: "3.14.2", packages: { pandas: "3.0.2" } };
-const done = { status: "done" as const, stdout: "1\n", error: null, captures: {}, doctest: [] };
+const job = { program: "print(1)", prelude: "", setup: "", data: [], captures: [], doctest: [] };
+const input: PythonBatchInput = {
+  protocol: PYTHON_BATCH,
+  kind: "execute",
+  submissionId: "sub-1",
+  gradeRevision: 2,
+  runtime: { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" }, prelude: "import pandas as pd" },
+  runner: "sha256:expected",
+  tests: [{ id: "a", ...job }, { id: "b", ...job }, { id: "c", ...job }],
+};
+/** Worker 报告的是全部加载的包，包括依赖。 */
+const loaded = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2", six: "1.17.0" } };
+const program = { stdout: "1\n", error: null, captures: {}, doctest: [] };
+const completed = { status: "completed" as const, result: program };
 const files: RuntimeFiles = { lock: "{}", packages: ["pandas"], files: { "pyodide.asm.wasm": new Uint8Array([1, 2]).buffer } };
 
 type RunRequest = Extract<WorkerRequest, { type: "run" }>;
@@ -39,18 +51,18 @@ class FakeWorker {
 }
 
 /** 正常启动的 Worker，测试按 script 运行，和真正的 Worker 一样在测试没有正常结束时停下。 */
-function healthy(script: Script = () => ({ phases: [["program", null]], response: done })): Respond {
+function healthy(script: Script = () => ({ phases: [["prepare", null], ["program", null]], response: completed })): Respond {
   return (request, worker) => {
     if (request.type === "start") {
-      worker.send({ type: "ready", runtime: versions });
+      worker.send({ type: "ready", runtime: loaded });
       return;
     }
-    for (const [test] of request.input.tests.entries()) {
+    for (const [test] of request.tests.entries()) {
       const { phases, response } = script(test, request);
       for (const [phase, index] of phases) worker.send({ type: "phase", test, phase, index });
       if (response === undefined) return;
       worker.send({ type: "tested", test, response });
-      if ((response as { status?: unknown }).status !== "done") return;
+      if ((response as { status?: unknown }).status !== "completed") return;
     }
   };
 }
@@ -72,31 +84,61 @@ function setup(respond: Respond | Respond[], options: { testTimeoutMs?: number; 
   return { runner, workers, loadFiles };
 }
 
-async function runnerHash(): Promise<string> {
-  const { default: source } = await import("@repa/learning/sandbox/runner.py?raw");
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)));
-  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 describe("PythonRunner", () => {
-  it("一批测试在一个新 Worker 里按顺序运行，结果带运行环境和 runner.py 的哈希，用完就销毁", async () => {
+  it("一批测试在一个新 Worker 里按顺序运行；结果带回提交身份，报告问到的包的实际版本和 runner.py 的 contentVersion", async () => {
     const { runner, workers } = setup(healthy());
     const result = await runner.run(input);
 
     expect(result).toEqual({
-      runtime: { ...versions, runner: await runnerHash() },
-      tests: input.tests.map(({ id }) => ({ id, ...done })),
-    } satisfies PythonRunResult);
+      protocol: PYTHON_BATCH,
+      submissionId: "sub-1",
+      gradeRevision: 2,
+      runtime: { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } },
+      runner: await contentVersion(runnerSource),
+      freshInterpreter: true,
+      tests: input.tests.map(({ id }) => ({ id, ...completed })),
+    } satisfies PythonBatchResult);
     const [start, run] = workers[0]!.requests;
     expect(start?.type).toBe("start");
     if (start?.type !== "start") return;
     expect(start.indexURL).toBe(new URL("/__repa/pyodide/", location.href).href);
     expect(start.packageBaseUrl).toBe(new URL("/__repa/pyodide/packages/", location.href).href);
     expect(start.packages).toEqual(["pandas"]);
-    expect(start.runner).toContain("def frontend_test(line):");
+    expect(start.runner).toBe(runnerSource);
+    expect(start.frontend).toContain("def frontend_test(line):");
     expect(start.files["pyodide.asm.wasm"]).not.toBe(files.files["pyodide.asm.wasm"]);
-    expect(run).toEqual({ type: "run", input });
+    expect(run).toEqual({ type: "run", tests: input.tests });
     expect(workers[0]?.terminated).toBe(true);
+  });
+
+  it("课程要求的包没有加载时不出现在结果里，由后端判断环境不符", async () => {
+    const { runner } = setup(healthy());
+    const result = await runner.run({ ...input, runtime: { ...input.runtime, packages: { pandas: "3.0.2", scipy: "1.16.0" } } });
+    expect(result.runtime.packages).toEqual({ pandas: "3.0.2" });
+  });
+
+  it("探测报告预热 Worker 的环境，不运行代码；之后的调用用的就是这个 Worker", async () => {
+    const { runner, workers } = setup(healthy());
+    await expect(runner.capabilities()).resolves.toEqual({
+      protocol: PYTHON_BATCH,
+      runtime: { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } },
+      runner: await contentVersion(runnerSource),
+      freshInterpreter: true,
+    });
+    await runner.capabilities();
+    expect(workers).toHaveLength(1);
+    expect(workers[0]?.requests.map((request) => request.type)).toEqual(["start"]);
+
+    await runner.run(input);
+    expect(workers[0]?.requests.map((request) => request.type)).toEqual(["start", "run"]);
+  });
+
+  it("探测时 Pyodide 起不来就以 runtime_unavailable 结束", async () => {
+    const notIsolated: Respond = (request, worker) => {
+      if (request.type === "start") worker.send({ type: "failed", message: "Python 运行环境没有隔离" });
+    };
+    const { runner } = setup(notIsolated);
+    await expect(runner.capabilities()).rejects.toMatchObject({ code: "runtime_unavailable", message: "Python 运行环境没有隔离" });
   });
 
   it("每次调用都用另一个 Worker：上一次结束后预热下一个，文件只下载一次", async () => {
@@ -105,65 +147,79 @@ describe("PythonRunner", () => {
     await vi.waitFor(() => expect(workers).toHaveLength(2));
     expect(workers[1]?.requests.map((request) => request.type)).toEqual(["start"]);
 
-    await runner.run({ ...input, program: "print(2)" });
+    await runner.run({ ...input, submissionId: "sub-2" });
     expect(workers[1]?.requests.map((request) => request.type)).toEqual(["start", "run"]);
     expect(workers[1]?.terminated).toBe(true);
     expect(loadFiles).toHaveBeenCalledOnce();
   });
 
-  it("测试超时就结束 Worker，结果写明停在哪个阶段和第几项，之后的测试未执行", async () => {
+  it("测试超时就结束 Worker，结果写明停在哪个阶段，之后的测试未执行", async () => {
     const stuck = healthy((test) => test === 0
-      ? { phases: [["program", null]], response: done }
-      : { phases: [["program", null], ["captures", 0], ["serialize", 0], ["doctest", 1]] });
+      ? { phases: [["program", null]], response: completed }
+      : { phases: [["program", null], ["capture", 0], ["serialize", 0], ["doctest", 1]] });
     const { runner, workers } = setup(stuck, { testTimeoutMs: 20 });
 
     await expect(runner.run(input)).resolves.toMatchObject({
-      tests: [{ id: "a", status: "done" }, { id: "b", status: "timeout", phase: "doctest", index: 1 }, { id: "c", status: "not_run" }],
+      tests: [{ id: "a", status: "completed" }, { id: "b", status: "timeout", phase: "doctest" }, { id: "c", status: "not_run" }],
     });
     expect(workers[0]?.terminated).toBe(true);
   });
 
-  it("卡在学习者代码之外的阶段时，超时的阶段照实写出，由后端判断不算作答", async () => {
-    const { runner } = setup(healthy(() => ({ phases: [["prelude", null], ["data", null], ["setup", null]] })), { testTimeoutMs: 20 });
-    await expect(runner.run(input)).resolves.toMatchObject({
-      tests: [{ id: "a", status: "timeout", phase: "setup" }, { id: "b", status: "not_run" }, { id: "c", status: "not_run" }],
+  it("卡在学习者代码之外时阶段照实写出：准备和收尾是 timeout，序列化 capture 的值卡住是 capture 阶段的 failed", async () => {
+    const preparing = setup(healthy(() => ({ phases: [["prepare", null]] })), { testTimeoutMs: 20 });
+    await expect(preparing.runner.run(input)).resolves.toMatchObject({
+      tests: [{ id: "a", status: "timeout", phase: "prepare" }, { status: "not_run" }, { status: "not_run" }],
+    });
+    const cleaning = setup(healthy(() => ({ phases: [["program", null], ["cleanup", null]] })), { testTimeoutMs: 20 });
+    await expect(cleaning.runner.run(input)).resolves.toMatchObject({ tests: [{ id: "a", status: "timeout", phase: "cleanup" }, {}, {}] });
+
+    const serializing = setup(healthy(() => ({ phases: [["capture", 0], ["serialize", 0]] })), { testTimeoutMs: 20 });
+    await expect(serializing.runner.run(input)).resolves.toMatchObject({
+      tests: [{ id: "a", status: "failed", phase: "capture", error: { type: "TimeoutError", message: "序列化 capture 的值超过 0.02 秒" } }, {}, {}],
     });
   });
 
   it("每个测试单独计时：各自没超时的测试加起来超过期限也照常完成", async () => {
     const slow: Respond = (request, worker) => {
-      if (request.type === "start") return worker.send({ type: "ready", runtime: versions });
+      if (request.type === "start") return worker.send({ type: "ready", runtime: loaded });
       void (async () => {
-        for (const [test] of request.input.tests.entries()) {
+        for (const [test] of request.tests.entries()) {
           await new Promise((resolve) => setTimeout(resolve, 15));
-          worker.send({ type: "tested", test, response: done });
+          worker.send({ type: "tested", test, response: completed });
         }
       })();
     };
     const { runner } = setup(slow, { testTimeoutMs: 30 });
     const result = await runner.run(input);
-    expect(result.tests.map((test) => test.status)).toEqual(["done", "done", "done"]);
+    expect(result.tests.map((test) => test.status)).toEqual(["completed", "completed", "completed"]);
   });
 
-  it("前导、数据或 setup 出错时整批停下；Worker 出错或回复无法识别时记为 worker 阶段的失败", async () => {
-    const setupFailed = { status: "failed", phase: "setup", error: { type: "RuntimeError", message: "测试的 setup 出错" } };
-    const failing = setup(healthy((test) => ({ phases: [], response: test === 1 ? setupFailed : done })));
+  it("没有测试时不运行，直接交回空结果", async () => {
+    const { runner, workers } = setup(healthy());
+    await expect(runner.run({ ...input, tests: [] })).resolves.toMatchObject({ submissionId: "sub-1", tests: [] });
+    expect(workers[0]?.requests.map((request) => request.type)).toEqual(["start"]);
+  });
+
+  it("前导、夹具或 setup 出错时整批停下；Worker 出错或回复无法识别时记为当前阶段的失败", async () => {
+    const setupFailed = { status: "failed", phase: "prepare", error: { type: "RuntimeError", message: "测试的 setup 出错" } };
+    const failing = setup(healthy((test) => ({ phases: [], response: test === 1 ? setupFailed : completed })));
     await expect(failing.runner.run(input)).resolves.toMatchObject({
-      tests: [{ id: "a", status: "done" }, { id: "b", ...setupFailed }, { id: "c", status: "not_run" }],
+      tests: [{ id: "a", status: "completed" }, { id: "b", ...setupFailed }, { id: "c", status: "not_run" }],
     });
 
-    const garbled = setup(healthy(() => ({ phases: [], response: { status: "done", stdout: 1 } })));
+    const garbled = setup(healthy(() => ({ phases: [["program", null]], response: { status: "completed", result: { stdout: 1 } } })));
     await expect(garbled.runner.run(input)).resolves.toMatchObject({
-      tests: [{ id: "a", status: "failed", phase: "worker", error: { message: "运行器返回了无法识别的结果" } }, { status: "not_run" }, { status: "not_run" }],
+      tests: [{ id: "a", status: "failed", phase: "program", error: { message: "运行器返回了无法识别的结果" } }, { status: "not_run" }, { status: "not_run" }],
     });
 
     const crashing: Respond = (request, worker) => {
-      if (request.type === "start") worker.send({ type: "ready", runtime: versions });
-      else worker.onerror?.({ message: "out of memory", preventDefault: () => {} });
+      if (request.type === "start") return worker.send({ type: "ready", runtime: loaded });
+      worker.send({ type: "phase", test: 0, phase: "serialize", index: 0 });
+      worker.onerror?.({ message: "out of memory", preventDefault: () => {} });
     };
     const crashed = setup(crashing);
     await expect(crashed.runner.run(input)).resolves.toMatchObject({
-      tests: [{ id: "a", status: "failed", phase: "worker", error: { type: "WorkerError", message: "Python 运行器出错：out of memory" } }, { status: "not_run" }, { status: "not_run" }],
+      tests: [{ id: "a", status: "failed", phase: "capture", error: { type: "WorkerError", message: "Python 运行器出错：out of memory" } }, { status: "not_run" }, { status: "not_run" }],
     });
     expect(crashed.workers[0]?.terminated).toBe(true);
   });
@@ -181,7 +237,7 @@ describe("PythonRunner", () => {
     await expect(runner.run(input)).rejects.toMatchObject({ code: "runtime_unavailable", message: "Pyodide 在 0.02 秒内没有就绪" });
     await expect(runner.run(input)).rejects.toMatchObject({ code: "runtime_unavailable", message: "Python 运行环境没有隔离" });
     await expect(runner.run(input)).rejects.toMatchObject({ code: "runtime_unavailable", message: "Python 运行器报告的运行环境无法识别" });
-    await expect(runner.run(input)).resolves.toMatchObject({ tests: [{ status: "done" }, { status: "done" }, { status: "done" }] });
+    await expect(runner.run(input)).resolves.toMatchObject({ tests: [{ status: "completed" }, { status: "completed" }, { status: "completed" }] });
     expect(workers.slice(0, 3).map((worker) => worker.terminated)).toEqual([true, true, true]);
   });
 
@@ -221,7 +277,6 @@ describe("PythonRunner", () => {
     await vi.waitFor(() => expect(workers).toHaveLength(2));
     runner.close();
     await vi.waitFor(() => expect(workers[1]?.terminated).toBe(true));
-
 
     const stuck = setup(healthy(() => ({ phases: [["program", null]] })));
     const running = stuck.runner.run(input);
