@@ -103,13 +103,16 @@ if (state.ok) renderLearning(state.value);
 
 ### python.run
 
-代码题在前端运行。Web 与 Desktop 的实现见 #51、#52。当前前端的单 program 接口还需补齐下述批次语义；后端先通过[内部执行边界](learning-flow.md#python-内部执行边界)接入：前端在隔离的 Worker 里执行 `runner.py` 的 program 任务并返回结果，测试编排、期望值和判分都在后端。后端接入时按以下要求使用它：
+代码题在前端运行。输入输出见 `protocol.ts` 的 `PythonRunInputSchema`、`PythonCapabilitiesSchema` 与 `PythonBatchResultSchema`，后端怎样使用见[执行边界](learning-flow.md#python-内部执行边界)，Web 与 Desktop 的实现见 #51、#52。前端在隔离的 Worker 里逐个执行测试，每个测试与 `runner.py` 的 program 任务相同；测试编排、期望值和判分都在后端。约定如下：
 
 - 期望值在课程核对时预先算好，随课程发布，绑定题目内容版本、测试、夹具、prelude、运行环境和 runner 版本。运行时后端只比较；缺少有效的预计算结果时，这道题不用于正式判分。参考解、`verify`、期望值和 doctest 的期望输出不发给前端；测试的输入、setup、调用语句和 doctest 输入会发给前端，`hidden` 只控制展示。
 - 一次正式提交的全部测试，作为一次服务调用，在一个全新的 Worker 里按顺序执行。辅导、示例和学习者自己运行的代码不与正式判分共用 Worker。
 - 结果带实际加载的运行环境版本。后端核对版本，并核对每个 capture 和 doctest 都有对应结果。
 - 超时按阶段归因：学习者程序及其被检查调用时超时，才形成作答结果；准备、收尾阶段的超时和 Worker 意外退出属于执行失败，保留待恢复。某个测试超时后整批终止，未执行的测试不算失败。
 - `too_large` 表示这次无法可靠比较，不判学习者错。
+- 前端把序列化 capture 的值和求值分开计时：序列化卡住不是学习者的代码，报告为 `capture` 阶段的 `failed`。Worker 崩溃或回复无法识别，报告为当时所在阶段的 `failed`。
+- 结果的 `runtime` 只列请求里 `runtime.packages` 的包，版本取实际加载的；没有加载的包不出现，后端比较时就知道环境不符。
+- 前端逐步执行测试的代码在 `sandbox/frontend.py`，不放进 `runner.py`：`runner.py` 的摘要绑定着课程核对算出的期望值，前端调度的改动不应让它们失效。两者结果一致由 `frontend-runner.test.ts` 检查。
 - 结果落盘前，后端核对提交和目标判分版本仍然有效。
 
 ## 未完成项与待验证项
@@ -118,7 +121,7 @@ if (state.ok) renderLearning(state.value);
 | --- | --- |
 | Aqua 审阅 | 待核对各阶段画面、操作、原学习位置及 Python 请求／结果夹具；审定后的字段供前后端共用 |
 | 方法与授权检查 | 记录与教学已实现接受、去重、恢复、推进、换号、反馈释放和判分；辅导与内容读取已接入逐次授权检查；测验任务接续测验和进度 |
-| Python Worker | 当前提供载荷和比较兼容夹具；Aqua 接入 Pyodide Worker，并与后端核对隔离求值、失败分类、上限和取消 |
+| Python Worker | Web 已按批次接口接入 Pyodide Worker（#51），Desktop 同步见 #52 |
 | 故障与学习效果 | 记录层已通过真实杀进程恢复验证；完整学习体验、实际作答改变帮助及学习外负担由后续组合试用检验 |
 
 ## 验证入口

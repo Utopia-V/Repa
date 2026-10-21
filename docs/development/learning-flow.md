@@ -32,9 +32,9 @@
 
 ### Python 内部执行边界
 
-`python-execution.ts` 暂持有 `repa-python-batch-v1` 内部 schema，薄适配层只调用 `host.services.call("python.run", …)`。公开 `protocol.ts` 不定义第二份 Python schema。#51 补齐这些语义以后，再统一其协议导出：
+`repa-python-batch-v1` 的 schema 定义在公开的 `protocol.ts`（`PythonCapabilitiesSchema`、`PythonBatchInputSchema`、`PythonBatchResultSchema`），Web 与 Desktop 按它提供 `python.run`（#51、#52）。`python-execution.ts` 是薄适配层，只调用 `host.services.call("python.run", …)` 并核对结果：
 
-- `kind: capabilities` 返回 `protocol`、实际 `runtime`、`runner` 摘要和 `freshInterpreter: true`。
+- `kind: capabilities` 返回 `protocol`、实际 `runtime`、`runner` 摘要和 `freshInterpreter: true`。`runtime` 只比较 Pyodide、Python 和包版本：`prelude` 是课程给的输入，前端探测时并不知道它。
 - `kind: execute` 携带原 `submissionId`、将采用的 `gradeRevision` 与有序 `tests`；每项包含唯一 id、program、prelude、setup、夹具、captures 和 doctest 输入，不包含期望表达式、期望值、参考解或 rubric。
 - 返回同一提交身份与目标判分版本、实际 `runtime`、`runner`、新解释器保证和同序结果。每项状态为 `completed`、`timeout`、`failed` 或 `not_run`；超时和失败携带 `prepare`、`program`、`capture`、`doctest` 或 `cleanup` 阶段。
 - 整批终止以后只允许剩余项为 `not_run`。学习者代码和被检查调用的超时形成判分，代码自身抛出的异常放在 `completed.result.error`。`failed` 表示执行环境失败，任何阶段都留待恢复；准备与收尾超时、版本不符、缺项及 `too_large` 同样留待恢复。
@@ -45,7 +45,7 @@
 
 ## 未完成项与待验证项
 
-- Aqua 在 #51/#52 接入内部批次语义后，还需用真实前端服务核对 Worker 隔离、实际版本、超时阶段和未执行项。当前代码执行边界使用服务替身验证，旧版服务不会用于正式代码题交付。
+- #51 已用真实 Web Worker 走通探测和批次执行，课程题的参考解与 `expected.json` 比较一致，见 #51 的验证记录。Desktop（#52）同步同一份实现后需要在 Electron 里再走一遍。
 - 辅导、内容授权读取和受限开始中止已接入，见[辅导说明](learning-tutor.md)；quiz、retake、XP、日目标与 ETA 已接入，见[测验与进度说明](learning-quiz-xp.md)。
 - 真实学习体验及算法对后续表现的解释，仍需后续组合试用和实际作答资料。
 
