@@ -30,13 +30,17 @@ export async function expectedBinding(
 ): Promise<string> {
   return contentVersion({ question: versionInput(question, topic), runtime, runner });
 }
+/** 前端报告的是实际加载的 Pyodide、Python 和包；prelude 是课程给的输入，不在比较之内。 */
+async function sameEnvironment(actual: Runtime, expected: Runtime): Promise<boolean> {
+  const environment = ({ pyodide, python, packages }: Runtime) => contentVersion({ pyodide, python, packages });
+  return (await environment(actual)) === (await environment(expected));
+}
+
 export async function pythonAvailable(host: Host, runtime: Runtime, runner: string): Promise<boolean> {
   try {
     const result = await host.services.call("python.run", { protocol: PYTHON_BATCH, kind: "capabilities" });
     const capability = parse(PythonCapabilitiesSchema, result);
-    return (
-      (await contentVersion(capability.runtime)) === (await contentVersion(runtime)) && capability.runner === runner
-    );
+    return (await sameEnvironment(capability.runtime, runtime)) && capability.runner === runner;
   } catch {
     return false;
   }
@@ -103,7 +107,7 @@ export async function executePython(host: Host, input: PythonBatchInput) {
     result.submissionId !== input.submissionId ||
     result.gradeRevision !== input.gradeRevision ||
     result.runner !== input.runner ||
-    (await contentVersion(result.runtime)) !== (await contentVersion(input.runtime)) ||
+    !(await sameEnvironment(result.runtime, input.runtime)) ||
     result.tests.length !== input.tests.length ||
     result.tests.some((test, index) => test.id !== input.tests[index]?.id);
   if (mismatchedExecution) {
