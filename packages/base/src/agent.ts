@@ -31,6 +31,8 @@ export interface AgentSpace {
   create(options?: { agent?: string; model?: ModelRef }): Promise<AgentSession>;
   get(id: string): Promise<AgentSession>;
   list(): Promise<SessionInfo[]>;
+  /** 只中止内存中属于该 Agent 的会话，不发现或加载磁盘上的旧会话。 */
+  abortAgent(agent: string): Promise<void>;
   preview(agent?: string): Promise<{ sections: PromptSection[]; views: { id: string; text: string }[] }>;
   runAgent(task: AgentTask): Promise<AgentWork>;
   close(): Promise<void>;

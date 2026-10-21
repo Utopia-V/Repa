@@ -40,7 +40,9 @@ Web 和 Desktop 分别由 Vite 与 Electron Node 宿主启动后端。`@repa/bas
 | 插件接口与宿主 | [plugin.ts](../../packages/base/src/plugin.ts)、[插件宿主](../../packages/base/src/plugins/host.ts)、[示例插件](../../packages/base/examples/notes-plugin.ts) |
 | 空间文件历史与变更流 | [空间历史包](../../packages/space-history/README.md) |
 | 课程文件格式、课程检查与课程内容 | [学习包说明](../../packages/learning/README.md)、[写课说明](../../packages/learning/courses/README.md) |
+| 辅导、即时回顾与受限开始 | [辅导说明](learning-tutor.md)、[Agent 与工具](../../packages/learning/src/tutor.ts) |
 | 上课、复习、菜单与判分 | [教学流程说明](learning-flow.md)、[转换入口](../../packages/learning/src/flow.ts) |
+| 测验、换题重考、XP、日目标与完课估算 | [测验与进度说明](learning-quiz-xp.md)、[奖励计算](../../packages/learning/src/progress.ts) |
 | 学习日志、快照、恢复命令与模型接入 | [学习记录说明](learning-records.md)、[插件入口](../../packages/learning/src/plugin.ts) |
 | 学习任务画面、提交恢复与 Python 服务契约 | [学习前端契约](learning-protocol.md)、[公开 schema](../../packages/learning/src/protocol.ts) |
 | Web 宿主与页面 | [Vite 配置](../../apps/web/vite.config.ts)、[Web 源码](../../apps/web/src/) |

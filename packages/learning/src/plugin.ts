@@ -7,6 +7,8 @@ import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./cou
 import { learningMethods, type LearningInput, type LearningState } from "./protocol.js";
 import { LearningRecords } from "./records.js";
 import { connectLearning } from "./flow.js";
+import { visibleLearningResponse } from "./submission-visibility.js";
+import { connectTutor, TUTOR_AGENT } from "./tutor.js";
 
 export interface LearningPluginOptions {
   sources?: CourseSource[];
@@ -24,7 +26,10 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
       try {
         const connected = await (options.connect
           ? options.connect(records, course, host)
-          : connectLearning(records, course, host, options.now));
+          : connectLearning(records, course, host, options.now, {
+            beforeRestricted: () => host.abortAgent(TUTOR_AGENT),
+          }));
+        const tutor = await connectTutor(records, course, host, options.now);
         function state(): LearningState {
           const stored = records.current()?.state;
           if (stored) return { ...stored, serverNow: Date.now() };
@@ -65,8 +70,27 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
             },
           },
           ...connected?.methods,
+          ...tutor.methods,
         };
+        for (const [name, method] of Object.entries(methods)) {
+          methods[name] = {
+            ...method,
+            async invoke(input, context) {
+              try {
+                const result = await method.invoke(input, context);
+                return visibleLearningResponse(result, records.current());
+              } catch (error) {
+                if (error instanceof RepaFault) {
+                  const details = visibleLearningResponse(error.details, records.current());
+                  throw new RepaFault(error.code, error.message, details);
+                }
+                throw error;
+              }
+            },
+          };
+        }
         return {
+          ...tutor,
           methods,
           async close() {
             try {

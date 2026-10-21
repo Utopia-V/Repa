@@ -2,7 +2,7 @@ import { chooseTasks } from "./student-model.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import type { LearningMenu } from "./protocol.js";
 import { opaqueId } from "./delivery.js";
-import { graphFor, replayLearning, type TaskEvidence } from "./flow-state.js";
+import { graphFor, replayLearning, topicEligible, type TaskEvidence } from "./flow-state.js";
 
 type Candidate = LearningMenu["candidates"][number];
 export function learningMenu(
@@ -20,13 +20,10 @@ export function learningMenu(
     if (!topic || topic.status !== "complete" || !supply(topicId, kind, model)) {
       return;
     }
+    if (!topicEligible(course, model, topicId, kind, now)) {
+      return;
+    }
     if (kind === "lesson") {
-      if (!topic.prerequisites.every((id) => model.student[id])) {
-        return;
-      }
-      if (model.forced.size && model.forced.get(topicId) !== "lesson") {
-        return;
-      }
       const failure = model.failures.get(topicId);
       if (failure && now < failure.at + 48 * 3_600_000) {
         availableAt = Math.min(availableAt ?? Infinity, failure.at + 48 * 3_600_000);

@@ -1,6 +1,6 @@
 # 学习插件：课程与持久记录
 
-`@repa/learning` 提供课程格式、读取和检查、任务与提交的公开契约（`@repa/learning/protocol`），以及学习记录、快照、恢复命令和学生模型接入。第一门课“Python：读懂代码，说清需求”有 48 个完整 topic。当前默认接入上课、规则／开放题判分、复习、补救、菜单与申诉；[教学流程说明](../../docs/development/learning-flow.md)列出规则和 Python 服务接入边界。持久入口与接入方式见[学习记录说明](../../docs/development/learning-records.md)。
+`@repa/learning` 提供课程格式、读取和检查、任务与提交的公开契约（`@repa/learning/protocol`），以及学习记录、快照、恢复命令和学生模型接入。第一门课“Python：读懂代码，说清需求”有 48 个完整 topic。当前默认接入上课、规则／开放题判分、复习、补救、菜单、申诉及[辅导与即时回顾](../../docs/development/learning-tutor.md)；[教学流程说明](../../docs/development/learning-flow.md)列出规则和 Python 服务接入边界。持久入口与接入方式见[学习记录说明](../../docs/development/learning-records.md)。
 
 在仓库根目录运行 `npm run course:check` 检查全部课程；写课的要求和写法见[写课说明](courses/README.md)。
 
@@ -24,7 +24,7 @@
 
 ### 公开约定
 
-[`src/protocol.ts`](src/protocol.ts) 经 `@repa/learning/protocol` 导出，插件方法照着它返回，前端的学习组件照着它渲染。它只依赖 `typebox` 和 `@repa/base/protocol`，浏览器里也能用。作答的题目引用和结构问题列表直接取底座的 schema，不另行定义。当前任务、提交恢复、内容与测验的方法及审阅边界见[前端契约](../../docs/development/learning-protocol.md)；方法处理器由后续任务接入。
+[`src/protocol.ts`](src/protocol.ts) 经 `@repa/learning/protocol` 导出，插件方法照着它返回，前端的学习组件照着它渲染。它只依赖 `typebox` 和 `@repa/base/protocol`，浏览器里也能用。作答的题目引用和结构问题列表直接取底座的 schema，不另行定义。当前任务、提交恢复、内容与测验的方法及审阅边界见[前端契约](../../docs/development/learning-protocol.md)；教学与内容方法已接入；测验、XP、日目标与 ETA 见[测验与进度说明](../../docs/development/learning-quiz-xp.md)。
 
 | 名称 | 含义 |
 | --- | --- |

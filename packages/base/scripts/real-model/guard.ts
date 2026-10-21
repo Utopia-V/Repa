@@ -42,6 +42,7 @@ export function guardProbeRuntime(runtime: AgentRuntime): AgentRuntime {
         create: async options => remember(await space.create(options)),
         get: async id => remember(await space.get(id)),
         list: () => space.list(),
+        abortAgent: agent => space.abortAgent(agent),
         preview: agent => space.preview(agent),
         async runAgent() { throw new Error("probe_background_agent_blocked"); },
         async close() {
