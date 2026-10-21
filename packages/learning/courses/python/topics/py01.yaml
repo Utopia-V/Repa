@@ -387,6 +387,52 @@ kps:
           r = run()
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k1.r7
+        kind: [modify]
+        body: |
+          这段程序显示剩余份数。现在把名字 incoming 改成 received，其他含义保持不变。哪一段改名后的代码仍能正常显示相同的结果？
+
+          ```python
+          incoming = 9
+          spare = incoming - 4
+          print(spare)
+          ```
+        slots:
+          - id: program
+            type: choice
+            options:
+              - id: all
+                content: |
+                  ```python
+                  received = 9
+                  spare = received - 4
+                  print(spare)
+                  ```
+              - id: left_only
+                content: |
+                  ```python
+                  received = 9
+                  spare = incoming - 4
+                  print(spare)
+                  ```
+              - id: too_late
+                content: |
+                  ```python
+                  spare = received - 4
+                  received = 9
+                  print(spare)
+                  ```
+            key: all
+        explanation: |
+          赋值左边改成 received 后，后面读取同一个数的地方也要使用 received。只改第一行会留下未赋值的 incoming；先算 spare 再赋 received，则读取 received 时还没有值。完整改名的那一段仍显示 5。
+        verify: |
+          expected = run().out
+          fits = []
+          for option, code in OPTIONS["program"].items():
+              result = run(code)
+              if result.error is None and result.out == expected:
+                  fits.append(option)
+          answers = {"program": fits[0] if len(fits) == 1 else fits}
     quiz:
       - id: py01.k1.x1
         kind: [predict]
@@ -1096,6 +1142,69 @@ kps:
           r = run()
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
+      - id: py01.k2.r12
+        kind: [trace, modify]
+        body: |
+          第 2、3、4 行中，哪一行可以单独删去，而不改变程序显示的两行结果？只删所选的一行，其他行保持原顺序。
+
+          ```python startLine=1
+          left = 5
+          saved = left
+          left = left + 2
+          left = left
+          print(saved)
+          print(left)
+          ```
+        slots:
+          - id: line
+            type: choice
+            options:
+              - { id: l2, content: 第 2 行 }
+              - { id: l3, content: 第 3 行 }
+              - { id: l4, content: 第 4 行 }
+            key: l4
+        explanation: |
+          第 4 行把 left 的当前值 7 再赋给 left，值没有改变，因此可以删去。第 2 行保存的是更新前的 5，删掉后无法显示 saved；第 3 行把 left 更新成 7，删掉后最后一行会显示 5。
+        verify: |
+          expected = run().out
+          lines = CODE.splitlines()
+          fits = []
+          for line in [2, 3, 4]:
+              result = run("\n".join(lines[:line - 1] + lines[line:]))
+              if result.error is None and result.out == expected:
+                  fits.append(f"l{line}")
+          answers = {"line": fits[0] if len(fits) == 1 else fits}
+      - id: py01.k2.r13
+        kind: [trace]
+        body: |
+          每次更新都读取当时的值。按表格中的执行时刻填写 a、b，不要把最终结果提前填进前面的行。
+
+          ```python startLine=1
+          a = 2
+          b = a
+          a = a + 3
+          b = b + a
+          a = b - a
+          ```
+        slots:
+          - id: states
+            type: table
+            columns:
+              - { id: after, header: 时刻 }
+              - { id: a, header: a, input: integer }
+              - { id: b, header: b, input: integer }
+            rows:
+              - { id: l3, cells: { after: 第 3 行执行后, a: 5, b: 2 } }
+              - { id: l4, cells: { after: 第 4 行执行后, a: 5, b: 7 } }
+              - { id: l5, cells: { after: 第 5 行执行后, a: 2, b: 7 } }
+        explanation: |
+          b 先保存 2，a 加 3 变成 5 时，b 仍是 2。下一行 b 读取当前的 a，得到 2 + 5 = 7；最后 a 读取当前的 b 和 a，得到 7 - 5 = 2。赋值只更新左边的名字。
+        verify: |
+          lines = CODE.splitlines()
+          answers = {"states": {}}
+          for end in [3, 4, 5]:
+              state = run("\n".join(lines[:end]))
+              answers["states"][f"l{end}"] = {"a": state["a"], "b": state["b"]}
     quiz:
       - id: py01.k2.x1
         kind: [trace]

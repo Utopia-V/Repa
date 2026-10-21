@@ -156,4 +156,4 @@ YAML 的几个坑：
 - flow 映射 `{ id: x, content: … }` 里的内容含英文逗号时要加引号（中文逗号不用）；代码题 `accepts`、`rejects` 里单行的代码含字典时同样整段加引号；
 - 不用锚点和别名，需要共用的数据写成 `data`。
 
-Python 开头两周的实际路线、逐 KP 库存与新增题对应见[开头路径题量核对](python/opening-item-supply.md)。lesson/review 已按 c2 核对；quiz 的库存使用场次上界，d 整合后再按真实策略复核。
+Python 开头两周的实际路线、逐 KP 库存与新增题对应见[开头路径题量核对](python/opening-item-supply.md)。lesson/review 与 quiz/retake 均按真实策略核对，候选库存与已完成核对的供给分别列出。
