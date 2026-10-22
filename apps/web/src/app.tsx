@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { RepaClient, type ClientConnection } from "@repa/base/client";
+import { PYTHON_RUN, servePythonRun } from "@repa/learning/python-runner/service";
 import { useStore } from "zustand";
 
 import { routes } from "./routes";
@@ -9,7 +10,6 @@ import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection
 import { StoreProvider } from "@/hooks/use-app-store";
 import { interactionCapabilities } from "@/lib/ask";
 import { createPythonRunner } from "@/lib/python/runner";
-import { PYTHON_RUN, servePythonRun } from "@/lib/python/service";
 import type { AppStore } from "@/lib/store";
 
 type BootstrapState =
@@ -99,6 +99,10 @@ export function App({
           if (!connected) {
             removeListener?.();
             removeListener = undefined;
+            // 后端的调用随断线结束：停掉服务、关闭运行器，正在跑和排队的代码不再执行。重连后重新提供服务。
+            stopPython?.();
+            stopPython = undefined;
+            pythonRunner.close();
             void next.close();
             reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
           }

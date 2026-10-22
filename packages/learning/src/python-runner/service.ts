@@ -1,8 +1,8 @@
 import type { RepaClient } from "@repa/base/client";
-import { PythonRunInputSchema } from "@repa/learning/protocol";
 import { Value } from "typebox/value";
 
-import { PythonRunError, type PythonRunner } from "./runner";
+import { PythonRunInputSchema } from "../protocol.js";
+import { PythonRunError, type PythonRunner } from "./runner.js";
 
 export const PYTHON_RUN = "python.run";
 

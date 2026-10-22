@@ -14,7 +14,7 @@ interface Generator {
   next(): { done: boolean; value: unknown };
 }
 
-/** 前端 Worker 调用 frontend_test 的方式：这里直接在测试进程里加载 Pyodide，测试代码是可信的。 */
+/** 前端 Worker 调用 program_test 的方式：这里直接在测试进程里加载 Pyodide，测试代码是可信的。 */
 const frontend = (async () => {
   let assets;
   try {
@@ -27,7 +27,7 @@ const frontend = (async () => {
     loadPyodide(options: object): Promise<{
       loadPackage(names: string[], options: object): Promise<void>;
       runPython(code: string, options: object): unknown;
-      globals: { get(name: "frontend_test"): (line: string) => Generator; get(name: "handle_job"): (line: string) => string };
+      globals: { get(name: "program_test"): (line: string) => Generator; get(name: "handle_job"): (line: string) => string };
     }>;
   };
   const pyodide = await loadPyodide({
@@ -35,9 +35,8 @@ const frontend = (async () => {
   });
   await pyodide.loadPackage(assets.load, { messageCallback: () => {} });
   pyodide.runPython(await readFile(path.join(SANDBOX, "runner.py"), "utf8"), { filename: "runner.py" });
-  pyodide.runPython(await readFile(path.join(SANDBOX, "frontend.py"), "utf8"), { filename: "frontend.py" });
   return {
-    test: pyodide.globals.get("frontend_test"),
+    test: pyodide.globals.get("program_test"),
     handleJob: pyodide.globals.get("handle_job"),
   };
 })();
@@ -54,7 +53,7 @@ function run(start: (line: string) => Generator, job: Partial<PythonTest> & { pr
   }
 }
 
-test("frontend_test 逐个阶段报告，结果与 program 任务相同；capture 的求值和序列化分成两步", async (t) => {
+test("program_test 逐个阶段报告，结果与 program 任务相同；capture 的求值和序列化分成两步", async (t) => {
   const pyodide = await frontend;
   if (typeof pyodide === "string") return t.skip(pyodide);
   const job = {
@@ -113,4 +112,33 @@ test("每个测试结束时恢复解释器状态，下一个测试看不到上�
   run(pyodide.test, { program: "import pandas as pd\npd.set_option('display.max_rows', 3)" });
   const { result } = run(pyodide.test, { program: "import pandas as pd\nrows = pd.get_option('display.max_rows')", captures: ["rows"] });
   assert.deepEqual(result, { status: "completed", result: { stdout: "", error: null, captures: { rows: { value: { t: "int", v: "60" } } }, doctest: [] } });
+});
+
+/** 课程核对执行 program 任务的结果。 */
+function program(handleJob: (line: string) => string, job: Partial<PythonTest> & { program: string }) {
+  return JSON.parse(handleJob(JSON.stringify({ op: "program", prelude: "", setup: "", data: [], captures: [], doctest: [], ...job }))) as {
+    ok: boolean; result?: { captures: Record<string, unknown>; doctest: unknown[] };
+  };
+}
+
+test("课程核对与前端结果相同：capture 的值序列化后即释放，求值和序列化共用输出上限，被检查的调用 exit() 记在这一项上", async (t) => {
+  const pyodide = await frontend;
+  if (typeof pyodide === "string") return t.skip(pyodide);
+  const released = {
+    program: "x = 0\nclass V:\n    def __repr__(self):\n        return 'V'\n    def __del__(self):\n        global x\n        x = 5",
+    captures: ["V()", "x"],
+  };
+  const noisy = {
+    program: "class Loud:\n    def __repr__(self):\n        print('r' * 40000)\n        return 'Loud'\ndef make():\n    print('e' * 40000)\n    return Loud()",
+    captures: ["make()"],
+  };
+  const exiting = { program: "def stop():\n    exit(3)", captures: ["stop()"], doctest: ["stop()"] };
+  for (const job of [released, noisy, exiting]) {
+    const checked = program(pyodide.handleJob, job);
+    assert.equal(checked.ok, true);
+    assert.deepEqual(run(pyodide.test, job).result, { status: "completed", result: checked.result });
+  }
+  assert.deepEqual(program(pyodide.handleJob, released).result?.captures.x, { value: { t: "int", v: "5" } });
+  assert.deepEqual(program(pyodide.handleJob, noisy).result?.captures["make()"], { error: { type: "OutputTooLong", message: "输出超过 64 KiB" } });
+  assert.deepEqual(program(pyodide.handleJob, exiting).result?.captures["stop()"], { error: { type: "SystemExit", message: "3" } });
 });
