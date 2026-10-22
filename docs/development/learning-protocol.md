@@ -112,7 +112,7 @@ if (state.ok) renderLearning(state.value);
 - `too_large` 表示这次无法可靠比较，不判学习者错。
 - 前端把序列化 capture 的值和求值分开计时：序列化卡住不是学习者的代码，报告为 `capture` 阶段的 `failed`。Worker 崩溃或回复无法识别，报告为当时所在阶段的 `failed`。
 - 结果的 `runtime` 只列请求里 `runtime.packages` 的包，版本取实际加载的；没有加载的包不出现，后端比较时就知道环境不符。
-- 前端逐步执行测试的代码在 `sandbox/frontend.py`，不放进 `runner.py`：`runner.py` 的摘要绑定着课程核对算出的期望值，前端调度的改动不应让它们失效。两者结果一致由 `frontend-runner.test.ts` 检查。
+- 课程核对和前端执行同一段代码：`runner.py` 的 `program_steps` 按阶段产出，课程核对的 `job_program` 一口气跑完，前端的 `program_test` 在每步之间报告阶段。改动它会改变 runner 版本，期望值要用 `npm run course:check` 重新生成。
 - 结果落盘前，后端核对提交和目标判分版本仍然有效。
 
 ## 未完成项与待验证项

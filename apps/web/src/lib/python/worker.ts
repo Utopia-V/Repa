@@ -66,16 +66,15 @@ async function start(request: StartRequest): Promise<object> {
     });
     await pyodide.loadPackage(request.packages, { messageCallback: () => {} });
     pyodide.runPython(request.runner, { filename: "runner.py" });
-    pyodide.runPython(request.frontend, { filename: "frontend.py" });
     const { PyCallable, PyIterator, PyProxy } = pyodide.ffi;
-    const frontendTest: unknown = pyodide.globals.get("frontend_test");
+    const programTest: unknown = pyodide.globals.get("program_test");
     const versions: unknown = pyodide.globals.get("runtime_versions");
-    if (!(frontendTest instanceof PyCallable) || !(versions instanceof PyCallable)) {
-      throw new Error("frontend.py 或 runner.py 没有定义 frontend_test、runtime_versions");
+    if (!(programTest instanceof PyCallable) || !(versions instanceof PyCallable)) {
+      throw new Error("runner.py 没有定义 program_test、runtime_versions");
     }
     runTest = (line, onPhase) => {
-      const generator: unknown = frontendTest(line);
-      if (!(generator instanceof PyIterator)) throw new Error("frontend_test 没有返回生成器");
+      const generator: unknown = programTest(line);
+      if (!(generator instanceof PyIterator)) throw new Error("program_test 没有返回生成器");
       try {
         for (;;) {
           const step = generator.next();
@@ -126,7 +125,7 @@ addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   try {
     run(request.tests, runTest);
   } catch (error) {
-    // frontend_test 自己接住测试里的异常；漏到这里说明解释器状态没能恢复，页面把它记为 Worker 失败。
+    // program_test 自己接住测试里的异常；漏到这里说明解释器状态没能恢复，页面把它记为 Worker 失败。
     send({ type: "failed", message: error instanceof Error ? error.message : String(error) });
   }
 });

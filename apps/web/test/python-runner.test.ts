@@ -105,7 +105,7 @@ describe("PythonRunner", () => {
     expect(start.packageBaseUrl).toBe(new URL("/__repa/pyodide/packages/", location.href).href);
     expect(start.packages).toEqual(["pandas"]);
     expect(start.runner).toBe(runnerSource);
-    expect(start.frontend).toContain("def frontend_test(line):");
+    expect(start.runner).toContain("def program_test(line):");
     expect(start.files["pyodide.asm.wasm"]).not.toBe(files.files["pyodide.asm.wasm"]);
     expect(run).toEqual({ type: "run", tests: input.tests });
     expect(workers[0]?.terminated).toBe(true);

@@ -8,10 +8,8 @@ export type WorkerRequest =
     packageBaseUrl: string;
     lock: string;
     packages: string[];
-    /** packages/learning/sandbox/runner.py 的源码，与课程核对用的是同一份。 */
+    /** packages/learning/sandbox/runner.py 的源码，与课程核对用的是同一份；Worker 用其中的 program_test 运行测试。 */
     runner: string;
-    /** packages/learning/sandbox/frontend.py 的源码，在 runner.py 之后加载，定义 frontend_test。 */
-    frontend: string;
     /** 文件名到内容；Pyodide 启动时按文件名取。 */
     files: Record<string, ArrayBuffer>;
   }
@@ -19,7 +17,7 @@ export type WorkerRequest =
 
 /**
  * Worker 发回页面的消息。ready 带上实际加载的 Pyodide、Python 和包版本。
- * phase 在每个阶段开始前发出，test 是测试的序号；tested 是一个测试的结果，即 frontend.py 的 frontend_test 的返回值。
+ * phase 在每个阶段开始前发出，test 是测试的序号；tested 是一个测试的结果，即 runner.py 的 program_test 的返回值。
  * failed 之后这个 Worker 不再可用。
  */
 export type WorkerMessage =

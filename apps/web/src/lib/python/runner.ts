@@ -1,5 +1,4 @@
 import { contentVersion } from "@repa/base/protocol";
-import frontendSource from "@repa/learning/sandbox/frontend.py?raw";
 import runnerSource from "@repa/learning/sandbox/runner.py?raw";
 import {
   PYTHON_BATCH, PythonBatchResultSchema, PythonPhaseSchema,
@@ -169,7 +168,7 @@ function timedOut(id: string, step: Step, seconds: number): PythonTestResult {
   return { id, status: "timeout", phase: step };
 }
 
-/** frontend_test 的返回值：completed 是 program 任务的结果，failed 是前导、夹具或 setup 出错。其他的都当作 Worker 出了问题。 */
+/** runner.py 的 program_test 的返回值：completed 是 program 任务的结果，failed 是前导、夹具或 setup 出错。其他的都当作 Worker 出了问题。 */
 function readTested(id: string, step: Step, response: unknown): PythonTestResult {
   if (typeof response === "object" && response !== null && "status" in response
     && (response.status === "completed" || response.status === "failed")) {
@@ -378,7 +377,7 @@ export class PythonRunner {
       const indexURL = new URL(this.#options.assetsUrl, location.href).href;
       instance.post({
         type: "start", indexURL, packageBaseUrl: new URL("packages/", indexURL).href, lock, packages,
-        runner: runnerSource, frontend: frontendSource, files: copies,
+        runner: runnerSource, files: copies,
       }, Object.values(copies));
     });
     if (!Value.Check(LoadedSchema, ready)) {
