@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate } from "react-router";
-import { ChevronDown, Clock, MessageSquarePlus, RefreshCw, Split } from "lucide-react";
+import { ChevronDown, Clock, MessageSquarePlus, MessageSquareWarning, RefreshCw, Split } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Markdown } from "@/components/ui/markdown";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { AskCard } from "@/components/domain/ask-card";
@@ -10,6 +11,7 @@ import { ConversationMessage } from "@/components/domain/conversation-message";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { MessageComposer } from "@/components/domain/message-composer";
 import { ToolActivity } from "@/components/domain/tool-activity";
+import { FeedbackDialog } from "@/features/feedback-dialog";
 import { ConversationModelDialog } from "@/features/model-picker";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { ConversationItem } from "@/lib/conversation";
@@ -44,6 +46,8 @@ function Conversation({ space }: { space: string }) {
   const [picking, setPicking] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [forking, setForking] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
   // 分叉失败只在原会话里提示，切到别的会话后不再显示。
   const [forkError, setForkError] = useState<{ sessionId: string | undefined; error: unknown }>();
   const record = useRef<HTMLElement>(null);
@@ -138,10 +142,19 @@ function Conversation({ space }: { space: string }) {
       scrolled ? "border-border" : "border-transparent",
     )}>
       <h2 className="min-w-0 truncate text-base font-semibold" title={space}>{folderName(space)}</h2>
-      <Button variant="ghost" disabled={running || status !== "ready" || items.length === 0} onClick={newConversation}>
-        <MessageSquarePlus aria-hidden="true" />新会话
-      </Button>
+      <div className="flex shrink-0 items-center gap-1">
+        {/* 运行中会话记录还在追加，等这一轮结束再打包；还没发过消息时没有会话可反馈。 */}
+        <Button variant="ghost" disabled={running || !connected || status !== "ready" || conversation.sessionId === undefined} onClick={() => setReporting(true)}>
+          <MessageSquareWarning aria-hidden="true" />反馈问题
+        </Button>
+        <Button variant="ghost" disabled={running || status !== "ready" || items.length === 0} onClick={newConversation}>
+          <MessageSquarePlus aria-hidden="true" />新会话
+        </Button>
+      </div>
     </header>
+    <Dialog open={reporting} onOpenChange={(open) => { if (!open && !reportBusy) setReporting(false); }}>
+      {reporting && <FeedbackDialog onBusyChange={setReportBusy} onClose={() => setReporting(false)} />}
+    </Dialog>
 
     <section
       ref={record}

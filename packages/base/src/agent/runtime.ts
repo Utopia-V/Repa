@@ -25,6 +25,7 @@ import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
+import { credentialValues } from "../feedback/redact.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { limitToolText } from "./output.js";
 import { readParent, saveParent } from "./parent.js";
@@ -308,6 +309,29 @@ class Runtime implements AgentRuntime {
     await this.options.modelRuntime.logout(provider);
   }
 
+  /**
+   * 反馈包脱敏用的凭据值。auth.json 里写的原值（含 OAuth 的 refresh token）直接读文件；
+   * 原值可以是 `${VAR}` 或 `!命令`，真正发出去的密钥只有 Pi 解析后才知道，所以 api_key 再经 getAuth 取一遍。
+   */
+  async credentials(): Promise<string[]> {
+    this.assertOpen();
+    let stored: string[] = [];
+    try {
+      stored = credentialValues(JSON.parse(await readFile(path.join(this.options.agentDir, "auth.json"), "utf8")));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+    // OAuth 的令牌原值已经在文件里；跳过它们，免得为脱敏去刷新令牌。
+    const keys = (await this.options.modelRuntime.listCredentials()).filter(entry => entry.type === "api_key");
+    const resolved = await Promise.all(keys.map(async ({ providerId }) => {
+      const result = await this.options.modelRuntime.getAuth(providerId);
+      if (result === undefined) return [];
+      return [result.auth.apiKey, ...Object.values(result.auth.headers ?? {}), ...Object.values(result.env ?? {})]
+        .filter((value): value is string => typeof value === "string");
+    }));
+    return [...stored, ...resolved.flat()];
+  }
+
   async complete(request: CompletionRequest): Promise<string> {
     this.assertOpen();
     const model = this.model(request.model);
@@ -509,10 +533,7 @@ class Space implements AgentSpace {
     return loading;
   }
 
-  async get(id: string): Promise<Session> {
-    this.assertOpen();
-    const existing = this.sessions.get(id);
-    if (existing) return existing;
+  private async findSessionPath(id: string): Promise<string | undefined> {
     const files = (await readdir(this.options.sessionsDir)).filter(file => file.endsWith(".jsonl"));
     // Pi 1.1.0 的 create/fork 使用 <时间戳>_<id>.jsonl；文件名只加速定位，正确性靠会话头核验。
     const matchesName = (file: string) => file.endsWith(`_${id}.jsonl`);
@@ -520,11 +541,23 @@ class Space implements AgentSpace {
     for (const file of ordered) {
       const sessionPath = path.join(this.options.sessionsDir, file);
       // 目录归当前空间所有；仅核对头部的 type/id，不按旧 cwd 过滤。
-      if (await hasSessionId(sessionPath, id)) {
-        return this.load(SessionManager.open(sessionPath, this.options.sessionsDir, this.options.root));
-      }
+      if (await hasSessionId(sessionPath, id)) return sessionPath;
     }
-    throw new RepaFault("session_not_found", "会话不存在", { id });
+    return undefined;
+  }
+
+  async sessionFile(id: string): Promise<string | undefined> {
+    this.assertOpen();
+    return this.findSessionPath(id);
+  }
+
+  async get(id: string): Promise<Session> {
+    this.assertOpen();
+    const existing = this.sessions.get(id);
+    if (existing) return existing;
+    const sessionPath = await this.findSessionPath(id);
+    if (sessionPath === undefined) throw new RepaFault("session_not_found", "会话不存在", { id });
+    return this.load(SessionManager.open(sessionPath, this.options.sessionsDir, this.options.root));
   }
 
   async abortAgent(agent: string): Promise<void> {

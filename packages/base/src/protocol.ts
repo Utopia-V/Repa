@@ -68,6 +68,8 @@ const historyList = Type.Unsafe<Revision[]>(Type.Array(Type.Unknown()));
 const historyChanges = Type.Unsafe<ChangeFeed>(Type.Object({}));
 const historyUndo = Type.Unsafe<UndoResult>(Type.Object({}));
 const confirmationReply = Type.Union([Type.String(), Type.Boolean(), Type.Null()]);
+// 前端内存里的最近错误，随反馈请求带给后端打包；条数和长度设上限，挡住意外的大请求。
+const feedbackError = object({ time: Type.String({ maxLength: 64 }), message: Type.String({ maxLength: 4000 }), source: Type.Optional(Type.String({ maxLength: 200 })) });
 
 export const methods = {
   initialize: {
@@ -112,6 +114,17 @@ export const methods = {
   "auth.login": { params: object({ provider: identifier, type: identifier }), result: nothing },
   "auth.setKey": { params: object({ provider: identifier, key: identifier }), result: nothing },
   "auth.logout": { params: object({ provider: identifier }), result: nothing },
+  // 生成问题反馈包：会话记录、空间历史、最近错误和运行环境，凭据脱敏后打成 zip；describe 为 true 时附上 Agent 自述。
+  "feedback.create": {
+    params: object({
+      sessionId: identifier,
+      describe: Type.Boolean(),
+      note: Type.Optional(Type.String({ maxLength: 4000 })),
+      clientErrors: Type.Optional(Type.Array(feedbackError, { maxItems: 100 })),
+      directory: Type.Optional(identifier),
+    }),
+    result: object({ path: identifier, files: Type.Array(identifier) }),
+  },
   "settings.get": { params: empty, result: SettingsSchema },
   "settings.set": {
     params: object({ commandPolicy: Type.Optional(SettingsSchema.properties.commandPolicy) }),

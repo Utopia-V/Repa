@@ -50,6 +50,8 @@ function backend(
         return new Promise((resolve, reject) => {
           sends.push({ text: String(params.text), finish: (error) => error ? reject(error) : resolve(null) });
         });
+      case "feedback.create":
+        return Promise.resolve({ path: "/Users/learner/.repa/feedback/repa-feedback-20261021-212553.zip", files: ["description.md"] });
       case "session.abort":
       case "session.steer":
       case "session.setModel":
@@ -303,4 +305,55 @@ it("运行中可以继续发送，排队的消息显示为等待送达；停止�
   await act(async () => fake.sends[0]?.finish(new RpcError(-32000, "会话运行已取消", { code: "cancelled" })));
   await vi.waitFor(() => expect((input as HTMLTextAreaElement).value).toBe("再举个例子\n\n还有"));
   expect(within(record).queryByText("排队中，Agent 做完当前这一步后会看到")).toBeNull();
+});
+
+it("反馈问题带上说明和对话里的错误生成反馈包，然后在文件夹里选中它", async () => {
+  const fetch = vi.fn((_url: string, _init: RequestInit) => Promise.resolve(new Response(null, { status: 204 })));
+  vi.stubGlobal("fetch", fetch);
+  try {
+    const fake = backend([
+      { id: "u1", type: "user", timestamp: at, text: "保存到导出文件夹" },
+      { id: "a1", type: "assistant", timestamp: at, text: "", data: { stopReason: "error", errorMessage: "模型暂时不可用" } },
+    ]);
+    await renderConversation(fake);
+    await screen.findByText("模型暂时不可用");
+
+    fireEvent.click(screen.getByRole("button", { name: "反馈问题" }));
+    const dialog = await screen.findByRole("dialog", { name: "反馈问题" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "哪里不对？（可选）" }), { target: { value: "文件夹是空的" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "生成反馈包" }));
+
+    const path = "/Users/learner/.repa/feedback/repa-feedback-20261021-212553.zip";
+    expect(await screen.findByText(path)).toBeTruthy();
+    expect(fake.call).toHaveBeenCalledWith("feedback.create", {
+      sessionId: "s1",
+      describe: true,
+      note: "文件夹是空的",
+      clientErrors: [{ time: expect.any(String), message: "模型暂时不可用", source: "对话记录" }],
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/__repa/reveal", expect.objectContaining({ method: "POST", body: JSON.stringify({ path }) })));
+    expect(screen.queryByText("没能打开所在文件夹")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it("打不开文件夹时留下路径并提示，可以再试", async () => {
+  const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 404 })));
+  vi.stubGlobal("fetch", fetch);
+  try {
+    await renderConversation(backend([{ id: "u1", type: "user", timestamp: at, text: "你好" }]));
+    await screen.findByText("你好");
+    fireEvent.click(screen.getByRole("button", { name: "反馈问题" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "让 Agent 描述这次的问题" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "生成反馈包" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("找不到这个文件");
+    expect(screen.getByLabelText("反馈包路径").textContent).toMatch(/repa-feedback-.+\.zip$/u);
+    fireEvent.click(screen.getByRole("button", { name: "打开所在文件夹" }));
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
