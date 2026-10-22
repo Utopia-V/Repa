@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { link, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Revision } from "@repa/space-history";
@@ -14,6 +15,10 @@ import { createZip, type ZipEntry } from "./zip.js";
 
 // 反馈包里的空间历史条数。这是 Repa 的假设：够核对最近几次运行写了什么，按实际反馈调整。
 const HISTORY_LIMIT = 50;
+// 自述是一次不带工具的单轮调用，超过这个时间就不再等，照样出包。这是 Repa 的假设，按实际反馈调整。
+const DESCRIBE_TIMEOUT = 120_000;
+// 会话 id 进入包内路径，只允许这些字符，挡住会话头被改成 ../ 的情况。
+const SAFE_ID = /^[A-Za-z0-9_-]+$/u;
 
 export interface FeedbackRequest {
   sessionId: string;
@@ -85,18 +90,48 @@ function failure(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function writeUnique(directory: string, base: string, data: Buffer): Promise<string> {
-  for (let attempt = 1; attempt <= 100; attempt++) {
-    const file = path.join(directory, attempt === 1 ? `${base}.zip` : `${base}-${attempt}.zip`);
-    try {
-      await writeFile(file, data, { flag: "wx" });
-      return file;
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "EEXIST") continue;
-      throw error;
-    }
+function throwIfCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new RepaFault("feedback_cancelled", "反馈包的生成已取消，没有写出文件");
+}
+
+function isCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+/** 把写完的临时文件放到最终文件名；最终文件名已存在时返回 false，不覆盖。 */
+async function place(temporary: string, file: string): Promise<boolean> {
+  try {
+    // 硬链接不会覆盖已有文件，两次反馈同一秒生成时也不会互相顶掉。
+    await link(temporary, file);
+    return true;
+  } catch (error) {
+    if (isCode(error, "EEXIST")) return false;
+    // exFAT 等文件系统不支持硬链接，退回先查再改名。
+    if (!isCode(error, "EPERM") && !isCode(error, "ENOTSUP") && !isCode(error, "EOPNOTSUPP")) throw error;
   }
-  throw new RepaFault("feedback_write_failed", "反馈包的文件名都被占用了", { directory });
+  try {
+    await stat(file);
+    return false;
+  } catch (error) {
+    if (!isCode(error, "ENOENT")) throw error;
+  }
+  await rename(temporary, file);
+  return true;
+}
+
+/** 先写同目录的临时文件，写完再放到最终文件名；写到一半失败（例如磁盘满）时不会留下残缺的 zip。 */
+async function writeUnique(directory: string, base: string, data: Buffer): Promise<string> {
+  const temporary = path.join(directory, `.${base}-${randomUUID()}.tmp`);
+  await writeFile(temporary, data, { flag: "wx" });
+  try {
+    for (let attempt = 1; attempt <= 100; attempt++) {
+      const file = path.join(directory, attempt === 1 ? `${base}.zip` : `${base}-${attempt}.zip`);
+      if (await place(temporary, file)) return file;
+    }
+    throw new RepaFault("feedback_write_failed", "反馈包的文件名都被占用了", { directory });
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 /**
@@ -113,8 +148,10 @@ export async function createFeedbackBundle(sources: FeedbackSources, request: Fe
   } catch (error) {
     throw new RepaFault("feedback_redaction_failed", "读不到保存的凭据，无法脱敏，没有生成反馈包", { reason: failure(error) });
   }
-  const redactor = new Redactor([...credentials, ...environmentSecrets(process.env)]);
+  const secrets = [...credentials, ...environmentSecrets(process.env)];
+  const redactor = new Redactor(secrets);
   const created = new Date();
+  throwIfCancelled(signal);
   const session = await sources.agent.get(request.sessionId);
   const info = session.info();
   const files: ManifestFile[] = [];
@@ -130,16 +167,29 @@ export async function createFeedbackBundle(sources: FeedbackSources, request: Fe
   if (!request.describe) {
     description = "用户没有让 Agent 描述这次的问题。";
   } else {
+    // 自述请求本身也会离开用户电脑，交给模型之前先脱敏，再由 describe 截断，半个密钥就不会漏过匹配。
+    // 用单独的 Redactor，manifest 里的替换处数只算包里的文件。
+    const scrub = new Redactor(secrets);
+    const history = session.history().map(entry => ({
+      ...entry,
+      ...(entry.text === undefined ? {} : { text: scrub.text(entry.text) }),
+      ...(entry.data === undefined ? {} : { data: scrub.value(entry.data) }),
+    }));
+    const timeout = AbortSignal.timeout(DESCRIBE_TIMEOUT);
     try {
-      description = await describe(sources.complete, session.history(), {
+      description = await describe(sources.complete, history, {
         ...(info.model === undefined ? {} : { model: info.model }),
-        ...(request.note === undefined ? {} : { note: request.note }),
-        ...(signal === undefined ? {} : { signal }),
+        ...(request.note === undefined ? {} : { note: scrub.text(request.note) }),
+        signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
       });
     } catch (error) {
-      description = `Agent 自述没有生成：${failure(error)}`;
+      throwIfCancelled(signal);
+      description = timeout.aborted
+        ? `Agent 自述没有生成：超过 ${DESCRIBE_TIMEOUT / 1000} 秒没有返回`
+        : `Agent 自述没有生成：${failure(error)}`;
     }
   }
+  throwIfCancelled(signal);
   const note = request.note === undefined || request.note.trim().length === 0 ? "（没有填写）" : request.note;
   add("description.md", "用户填写的说明与 Agent 自述", () => redactor.text([
     "# 问题反馈",
@@ -157,6 +207,7 @@ export async function createFeedbackBundle(sources: FeedbackSources, request: Fe
   ].join("\n")));
 
   for (const id of withDescendants(await sources.agent.list(), info.id)) {
+    if (!SAFE_ID.test(id)) throw new RepaFault("invalid_session_id", "会话 id 含有不能用作文件名的字符", { id });
     const record = await sessionRecord(sources.agent, id);
     add(`sessions/${id}.jsonl`, id === info.id ? "当前会话" : "子 Agent 会话", () => redactor.jsonl(record));
   }
@@ -187,6 +238,7 @@ export async function createFeedbackBundle(sources: FeedbackSources, request: Fe
   entries.push({ name: "manifest.json", data: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8") });
 
   const directory = request.directory ?? path.join(sources.home, "feedback");
+  throwIfCancelled(signal);
   await mkdir(directory, { recursive: true });
   const file = await writeUnique(directory, `repa-feedback-${stamp(created)}`, createZip(entries, created));
   return { path: file, files: entries.map(entry => entry.name) };

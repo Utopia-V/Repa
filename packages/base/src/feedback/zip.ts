@@ -30,7 +30,9 @@ export function createZip(entries: readonly ZipEntry[], modified = new Date()): 
   const centrals: Buffer[] = [];
   let offset = 0;
   for (const entry of entries) {
-    if (entry.name.length === 0 || entry.name.startsWith("/") || entry.name.includes("\\")) {
+    // 解压时 .. 段会写到目标目录之外，空段和 . 段也不是正常的包内路径。
+    const segments = entry.name.split("/");
+    if (entry.name.includes("\\") || segments.some(segment => segment === "" || segment === "." || segment === "..")) {
       throw new RangeError(`zip 条目名称无效：${entry.name}`);
     }
     const name = Buffer.from(entry.name, "utf8");

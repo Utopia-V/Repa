@@ -66,6 +66,8 @@ interface Peer {
   asks: Set<string>;
   services: Set<string>;
   logins: Set<AbortController>;
+  /** 正在生成的反馈包；断线或关闭后端时取消，自述的模型调用不会一直挂着。 */
+  feedbacks: Set<AbortController>;
 }
 
 interface PendingConfirmation {
@@ -157,6 +159,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const cancelPeer = (peer: Peer) => {
     peer.alive = false;
     for (const controller of peer.logins) controller.abort();
+    for (const controller of peer.feedbacks) controller.abort();
     for (const id of peer.confirmations) {
       confirmations.get(id)?.finish(
         undefined,
@@ -370,7 +373,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
         services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
         models: {
-          complete: (request) => runtime.complete(request),
+            complete: (request) => runtime.complete(request),
           completeStructured: (request, schema) => runtime.completeStructured(request, schema),
           runAgent: (task) => {
             if (!agent) return Promise.reject(new RepaFault("space_not_ready", "空间尚未完成打开"));
@@ -616,17 +619,23 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       case "feedback.create": {
         const input = p<"feedback.create">();
         const current = requireActive();
-        return createFeedbackBundle({
-          home,
-          root: current.space.root,
-          agent: current.agent,
-          history: current.space.history,
-          complete: (request) => runtime.complete(request),
-          credentials: () => runtime.credentials(),
-          errors,
-          commandPolicy: settings.get().commandPolicy,
-          plugins: current.plugins.list(),
-        }, input);
+        const controller = new AbortController();
+        peer.feedbacks.add(controller);
+        try {
+          return await createFeedbackBundle({
+            home,
+            root: current.space.root,
+            agent: current.agent,
+            history: current.space.history,
+            complete: (request) => runtime.complete(request),
+            credentials: () => runtime.credentials(),
+            errors,
+            commandPolicy: settings.get().commandPolicy,
+            plugins: current.plugins.list(),
+          }, input, controller.signal);
+        } finally {
+          peer.feedbacks.delete(controller);
+        }
       }
       case "settings.get":
         return settings.get();
@@ -683,6 +692,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       asks: new Set(),
       services: new Set(),
       logins: new Set(),
+      feedbacks: new Set(),
     };
     peers.add(peer);
     const timer = setTimeout(() => {

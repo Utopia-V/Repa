@@ -9,6 +9,7 @@ const PATTERNS: { kind: string; pattern: RegExp; keep?: string }[] = [
   { kind: "private-key", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gu },
   { kind: "api-key", pattern: /\bsk-[A-Za-z0-9_-]{16,}/gu },
   { kind: "github-token", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/gu },
+  { kind: "github-token", pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/gu },
   { kind: "aws-key", pattern: /\bAKIA[0-9A-Z]{16}\b/gu },
   { kind: "bearer-token", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gu, keep: "Bearer " },
 ];

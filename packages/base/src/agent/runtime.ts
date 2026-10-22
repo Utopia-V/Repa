@@ -309,17 +309,27 @@ class Runtime implements AgentRuntime {
     await this.options.modelRuntime.logout(provider);
   }
 
-  /** 凭据由 Pi 的 ModelRuntime 保存在 agentDir/auth.json（见 createAgentRuntime）；这里只读出值，不经过 Pi 的接口，它不公开密钥。 */
+  /**
+   * 反馈包脱敏用的凭据值。auth.json 里写的原值（含 OAuth 的 refresh token）直接读文件；
+   * 原值可以是 `${VAR}` 或 `!命令`，真正发出去的密钥只有 Pi 解析后才知道，所以 api_key 再经 getAuth 取一遍。
+   */
   async credentials(): Promise<string[]> {
     this.assertOpen();
-    let text: string;
+    let stored: string[] = [];
     try {
-      text = await readFile(path.join(this.options.agentDir, "auth.json"), "utf8");
+      stored = credentialValues(JSON.parse(await readFile(path.join(this.options.agentDir, "auth.json"), "utf8")));
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
-      throw error;
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
-    return credentialValues(JSON.parse(text));
+    // OAuth 的令牌原值已经在文件里；跳过它们，免得为脱敏去刷新令牌。
+    const keys = (await this.options.modelRuntime.listCredentials()).filter(entry => entry.type === "api_key");
+    const resolved = await Promise.all(keys.map(async ({ providerId }) => {
+      const result = await this.options.modelRuntime.getAuth(providerId);
+      if (result === undefined) return [];
+      return [result.auth.apiKey, ...Object.values(result.auth.headers ?? {}), ...Object.values(result.env ?? {})]
+        .filter((value): value is string => typeof value === "string");
+    }));
+    return [...stored, ...resolved.flat()];
   }
 
   async complete(request: CompletionRequest): Promise<string> {

@@ -23,13 +23,17 @@ function reveal(file: string): Promise<void> {
   });
 }
 
+// 收齐再解码：一个中文字符可能被切在两个 chunk 之间，逐块解码会把路径改坏。
 async function readBody(request: import("node:http").IncomingMessage): Promise<string> {
-  let body = "";
+  const chunks: Buffer[] = [];
+  let size = 0;
   for await (const chunk of request) {
-    body += String(chunk);
-    if (body.length > 10_000) throw new Error("请求太大。");
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    size += buffer.length;
+    if (size > 30_000) throw new Error("请求太大。");
+    chunks.push(buffer);
   }
-  return body;
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function repaDevelopmentBackend() {

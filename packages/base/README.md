@@ -337,9 +337,9 @@ Agent 相关的约定：
 - `history.undoRun` 接受 `{ runId }`，runId 来自 `runStart` 事件或会话中的 `run` 条目；撤回这个运行及其全部子孙运行的写入，返回与 `history.undo` 相同的 `{ revision, restored, conflicts }`，冲突按文件判断。这个运行及其子孙运行没有写过文件时返回 `nothing_to_undo`；带命令行的运行总有一条整体快照的提交，撤回它不会得到这个错误码。`history.undo` 的修订不存在时返回 `revision_not_found`，`history.changes` 的 `since` 不存在时也是。
 - 关掉的 Agent 和已卸载插件的 Agent，其旧会话仍在 `session.list` 中，`session.history` 照常可读，`session.abort` 没有可取消的工作；发消息、分支、压缩和换模型返回 `agent_not_found`。
 
-`feedback.create` 为一个会话生成问题反馈包，返回 zip 的路径和包内文件名。包里有 `description.md`（用户的说明和可选的 Agent 自述）、`sessions/` 下这个会话及其子 Agent 会话的原始记录、最近 50 条空间历史、`errors.json`（后端内存里最近 100 条错误，加上前端带来的 `clientErrors`）、`environment.json`（Repa、Node、系统版本，空间路径，命令策略和插件）和 `manifest.json`（每个文件替换了几处）。`describe` 为 `true` 时用会话的模型做一次不带工具的 `complete`，失败也照样出包，在 `description.md` 写明原因。`directory` 省略时写到 Repa home 的 `feedback/`，文件名按本地时间，不含冒号，重名时加序号。
+`feedback.create` 为一个会话生成问题反馈包，返回 zip 的路径和包内文件名。包里有 `description.md`（用户的说明和可选的 Agent 自述）、`sessions/` 下这个会话及其子 Agent 会话的原始记录、最近 50 条空间历史、`errors.json`（后端内存里最近 100 条错误，加上前端带来的 `clientErrors`）、`environment.json`（Repa、Node、系统版本，空间路径，命令策略和插件）和 `manifest.json`（每个文件替换了几处）。`describe` 为 `true` 时用会话的模型做一次不带工具的 `complete`，交给模型的对话记录和说明先脱敏再截断；失败或超过 120 秒没有返回也照样出包，在 `description.md` 写明原因。请求随连接断开或后端关闭取消，取消后不写任何文件。`directory` 省略时写到 Repa home 的 `feedback/`，文件名按本地时间，不含冒号，重名时加序号；先写同目录的临时文件，写完再放到最终文件名，不覆盖已有的包。
 
-生成前先读 `auth.json` 里保存的凭据，连同名称像凭据的环境变量的值一起逐字替换为 `[已脱敏:credential]`，再按格式替换私钥、`sk-`、GitHub 令牌、AWS key 和 Bearer 令牌。会话记录逐行解析后替换，转义过的密钥也能匹配。凭据读不到时整次失败，返回 `feedback_redaction_failed`，不写任何文件；全部内容在内存里脱敏、打包，磁盘上只出现最后的 zip。路径和系统用户名保持原样。
+生成前先读 `auth.json` 里保存的凭据原值；`api_key` 的原值可以是 `${VAR}` 或 `!命令`，再经 Pi 的 `getAuth` 取得实际发出的密钥（只有已注册提供方的凭据会被 Pi 解析和使用）。这些值连同名称像凭据的环境变量的值一起逐字替换为 `[已脱敏:credential]`，再按格式替换私钥、`sk-`、GitHub 令牌（含 `github_pat_`）、AWS key 和 Bearer 令牌。会话记录逐行解析后替换，转义过的密钥也能匹配。凭据读不到时整次失败，返回 `feedback_redaction_failed`，不写任何文件；全部内容在内存里脱敏、打包，磁盘上只出现最后的 zip。路径和系统用户名保持原样。
 
 | 错误码 | 含义与 `details` |
 | --- | --- |
@@ -351,6 +351,8 @@ Agent 相关的约定：
 | `revision_not_found` | 修订不存在：格式不对，或不在这个空间的历史里；用于 `history.undo` 和 `history.changes`，`{ revision }` |
 | `feedback_redaction_failed` | 读不到保存的凭据，无法脱敏，反馈包没有生成，`{ reason }` |
 | `feedback_write_failed` | 反馈包的文件名都被占用了，`{ directory }` |
+| `feedback_cancelled` | 生成反馈包期间连接断开或后端关闭，没有写出文件 |
+| `invalid_session_id` | 会话 id 含有不能用作包内文件名的字符，反馈包没有生成，`{ id }` |
 | `nothing_to_undo` | 没有可撤回的改动：`history.undoRun` 的运行及其子孙运行没有写过文件（`{ runId }`），或 `history.undo` 指向空间的初始快照（`{ revision }`） |
 
 ## 本次实现的决定与核实
