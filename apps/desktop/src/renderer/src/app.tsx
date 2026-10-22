@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { RepaClient, type ClientConnection } from "@repa/base/client";
+import { PYTHON_RUN, servePythonRun } from "@repa/learning/python-runner/service";
 
 import { routes } from "./routes";
 import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
 import { createPythonRunner } from "@/lib/python/runner";
-import { PYTHON_RUN, servePythonRun } from "@/lib/python/service";
 
 type BootstrapState =
   | { status: "starting" }
