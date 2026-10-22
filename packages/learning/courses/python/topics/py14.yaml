@@ -355,6 +355,40 @@ kps:
           depths = run()["depths"]
           left = "index" if list(depths.index) == list(soil.index) else "other"
           answers = {"count": len(depths), "left": left, "at3": depths[3]}
+      - id: py14.k1.q4
+        kind: [trace]
+        body: |
+          表的行标签不是行号。直接读下面的数据，填写行标签与列标签的 Python 显示内容。
+
+          ```python
+          table = pd.DataFrame({"name": ["Li", "Wu"], "score": [8, 9]}, index=[20, 10])
+          print(table.index.tolist())
+          print(table.columns.tolist())
+          ```
+        slots:
+          - {id: rows, type: text, match: output, prompt: 行标签, key: "[20, 10]"}
+          - {id: columns, type: text, match: output, prompt: 列标签, key: "['name', 'score']"}
+        explanation: "index 明确给出了按顺序排列的行标签 20、10；name、score 是列标签。行标签不要求从 0 开始，也不要求按数值排序。"
+        verify: |
+          lines = run().lines()
+          answers = {"rows": lines[0], "columns": lines[1]}
+      - id: py14.k1.q5
+        kind: [debug]
+        body: |
+          同样读取 score 列，一层方括号与两层方括号得到的对象不同。填写类名。
+
+          ```python
+          table = pd.DataFrame({"score": [8, 9]})
+          print(type(table["score"]).__name__)
+          print(type(table[["score"]]).__name__)
+          ```
+        slots:
+          - {id: series, type: text, match: text, prompt: 第一行, key: Series}
+          - {id: frame, type: text, match: text, prompt: 第二行, key: DataFrame}
+        explanation: "单个列名取出一维 Series；列名列表即使只有一项，也保留二维 DataFrame。这一题辨认对象的形状，后面的选列课还会继续使用它。"
+        verify: |
+          lines = run().lines()
+          answers = {"series": str(lines[0]), "frame": str(lines[1])}
     review:
       - id: py14.k1.r1
         kind: [predict, explain]
@@ -511,6 +545,33 @@ kps:
           exprs = {"whole": "field", "column": 'field["crop"]', "size": "len(field)", "names": "list(field.columns)", "missing": 'field["产量"]'}
           answers = {"kinds": {row: {"kind": kind(expr)} for row, expr in exprs.items()}}
 
+      - id: py14.k1.x3
+        kind:
+          - trace
+        body: |
+          DataFrame 的行标签可以是文字；它们不是列名，也不是被选中后才临时出现的编号。
+
+          ```python
+          table = pd.DataFrame({"amount": [3, 4]}, index=["north", "south"])
+          print(table.index.tolist())
+          print(table.columns.tolist())
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[''north'', ''south'']'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '[''amount'']'
+        explanation: north、south 属于 index，是两条记录的行标签；amount 是唯一的列标签。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py14.k2
     keyPrerequisites: [py04, py06]
     title: shape 与 head 分别告诉你什么
@@ -682,6 +743,41 @@ kps:
         verify: |
           r = run()
           answers = {"output": int(r.out), "claim": "wrong" if len(r["df"]) == len(df) else "right"}
+      - id: py14.k2.q4
+        kind: [trace]
+        body: |
+          head 只返回开头部分，原表的行数不会因此减少。填写两个形状。
+
+          ```python
+          table = pd.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
+          print(table.head(1).shape)
+          print(table.shape)
+          ```
+        slots:
+          - {id: preview, type: text, match: output, prompt: head(1) 的形状, key: "(1, 2)"}
+          - {id: original, type: text, match: output, prompt: 原表形状, key: "(3, 2)"}
+        explanation: "shape 按“行数、列数”排列。head(1) 返回 1 行 2 列的预览；table 仍是 3 行 2 列。"
+        verify: |
+          lines = run().lines()
+          answers = {"preview": lines[0], "original": lines[1]}
+      - id: py14.k2.q5
+        kind: [predict]
+        body: |
+          表只有两行时，要求 head(5) 会补足到五行吗？填写返回的行数与列数。
+
+          ```python
+          table = pd.DataFrame({"id": ["A", "B"], "value": [3, 4], "unit": ["kg", "kg"]})
+          preview = table.head(5)
+          print(preview.shape[0])
+          print(preview.shape[1])
+          ```
+        slots:
+          - {id: rows, type: text, format: integer, prompt: 行数, key: 2}
+          - {id: columns, type: text, format: integer, prompt: 列数, key: 3}
+        explanation: "head(5) 最多返回前五行，不会凭空补行，因此仍是 2 行；列也没有筛掉，仍是 3 列。"
+        verify: |
+          lines = run().lines()
+          answers = {"rows": int(lines[0]), "columns": int(lines[1])}
     review:
       - id: py14.k2.r1
         kind: [predict]
@@ -825,6 +921,33 @@ kps:
               "ncols": runs.shape[1],
           }
 
+      - id: py14.k2.x3
+        kind:
+          - trace
+        body: |
+          head(0) 返回零行预览，仍保留列结构，不会清空原表。
+
+          ```python
+          table = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+          print(table.head(0).shape)
+          print(table.shape)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: (0, 2)
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: (2, 2)
+        explanation: 预览要求零行，但两列仍在。head 返回新结果，原 table 仍是两行两列。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py14.k3
     keyPrerequisites: [py03]
     title: 每列 dtype 与样本单位
@@ -1025,6 +1148,42 @@ kps:
           original = ["001", "002", "010"]
           keeps = [name for name, table in (("a", a), ("b", b)) if list(table["sample_id"]) == original]
           answers = {"keeps": keeps[0] if len(keeps) == 1 else keeps, "a_dtype": str(a["sample_id"].dtype)}
+      - id: py14.k3.q4
+        kind: [trace]
+        body: |
+          编号应保留前导零，数量用于计算。只根据这两个独立 Series 的实际 dtype，填写 dtype 的文字形式。
+
+          ```python
+          codes = pd.Series(["001", "002"])
+          counts = pd.Series([1, 2])
+          print(str(codes.dtype))
+          print(str(counts.dtype))
+          ```
+        slots:
+          - {id: codes, type: text, match: text, prompt: 编号列 dtype, key: str}
+          - {id: counts, type: text, match: text, prompt: 数量列 dtype, key: int64}
+        explanation: "锁定的 pandas 3 中，文字列默认 dtype 为 str；整数数量列是 int64。长得像数字的编号仍可保留为文字，避免丢失前导零。"
+        verify: |
+          lines = run().lines()
+          answers = {"codes": str(lines[0]), "counts": str(lines[1])}
+      - id: py14.k3.q5
+        kind: [debug]
+        body: |
+          只看前两行，两列似乎都像整数。实际 dtype 是否也相同？填写显示结果。
+
+          ```python
+          whole = pd.Series([1, 2, 3])
+          mixed = pd.Series([1, 2, 3.5])
+          print(str(whole.dtype))
+          print(str(mixed.dtype))
+          ```
+        slots:
+          - {id: whole, type: text, match: text, prompt: 第一列 dtype, key: int64}
+          - {id: mixed, type: text, match: text, prompt: 第二列 dtype, key: float64}
+        explanation: "dtype 描述整列，不只描述预览的头两项。mixed 含有 3.5，因此整列使用 float64，不能凭前两项推断它是整数列。"
+        verify: |
+          lines = run().lines()
+          answers = {"whole": str(lines[0]), "mixed": str(lines[1])}
     review:
       - id: py14.k3.r1
         kind: [explain]

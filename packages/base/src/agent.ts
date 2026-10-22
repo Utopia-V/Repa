@@ -32,7 +32,9 @@ export interface AgentSpace {
   get(id: string): Promise<AgentSession>;
   list(): Promise<SessionInfo[]>;
   /** 会话记录文件的路径，只读取文件、不打开会话；没有这个会话时为 undefined。 */
-  sessionFile(id: string): string | undefined;
+  sessionFile(id: string): Promise<string | undefined>;
+  /** 只中止内存中属于该 Agent 的会话，不发现或加载磁盘上的旧会话。 */
+  abortAgent(agent: string): Promise<void>;
   preview(agent?: string): Promise<{ sections: PromptSection[]; views: { id: string; text: string }[] }>;
   runAgent(task: AgentTask): Promise<AgentWork>;
   close(): Promise<void>;

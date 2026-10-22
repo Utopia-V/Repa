@@ -211,6 +211,7 @@ agents: () => [{
 - **文件范围**：插件 Agent 的 read、write、edit、ls、find 只在空间内且不进 `.repa/`（不分大小写），字面路径和解析符号链接后的路径都要在范围内。find 用 Pi 的工具定义，查找本身注入 Node 内置的 `fs.glob`，不需要 fd：不读 `.gitignore`，不进入 `.repa`、`.git`、`node_modules`，不列出符号链接，以点开头的名字只有 pattern 写出这个点时才匹配，pattern 不能用 `..` 或绝对路径离开搜索目录。插件 Agent 不提供 grep：Pi 的 grep 把模型给的 `glob` 原样交给 ripgrep 的 `--glob`，会越过 `.repa/.ignore`；需要搜索内容时由插件提供自己的工具。bash 不限路径，仍按命令策略确认。
 - **子 Agent**：列了 `subagents` 的会话多一个 `subagent` 工具，参数为 `agent` 和 `task`；插件工具不能使用这个名字（保留名见 `RESERVED_TOOL_NAMES`）。通用 Agent 能起自己（`general`，工具与它相同，包括 bash）和空间里定义的任何插件 Agent。一条回复里起的几个子 Agent 同时运行；子 Agent 运行命令和写空间外文件的确认，照旧发给发起这次运行的连接。子 Agent 在新会话中运行，看不到父对话，最后一条回复作为工具结果交回；父运行取消时子运行一起取消，空间关闭等待子运行结束。嵌套层数默认最多 3 层，可用 `createAgentRuntime({ agentDir, maxSubagentDepth })` 调整；这个上限是 Repa 的假设，用来挡住循环和重入失控，以后按使用调整。超过上限的启动请求作为工具错误交回父 Agent。
 - **后台任务**：`host.models.runAgent({ agent, text })` 运行指定 Agent，省略 `agent` 时为通用 Agent；后台 Agent 不必能直接对话。
+- **插件中止**：`await host.abortAgent(id)` 只允许中止本插件声明的 Agent。Agent 运行时只遍历内存中已加载、属于它的会话，沿 `session.abort()` 等待 Pi 停稳，不枚举或加载磁盘上的旧会话；已有排队消息按原取消语义清除。它不阻止新的消息，受限任务仍须先保存限制并由 `beforeMessage` 拒收。
 - **消息判断**：`beforeMessage` 收到 `{ sessionId, agent, mode, text, runId? }`，`mode` 为 `send`、`steer` 或 `followUp`，会话正在运行时带 `runId`。返回 `{ status: "rejected", reason, message, data? }` 时消息不进入会话；不返回或返回 `{ status: "accepted" }` 时照常处理。判断抛错同样不放行。后台任务和子 Agent 收到的任务不经过判断；判断期间用户取消了运行，这条消息不再投递。
 - **运行上下文**：运行内的工具、view 和插件写入可以调用 `currentRun()`，取得 `{ runId, ancestorRunIds, sessionId, agent }`；运行之外返回 `undefined`。`ancestorRunIds` 由近到远：子运行的是父运行的 runId 加上父运行自己的链，根运行的为空数组。
 
@@ -321,6 +322,8 @@ async execute(input, context) {
 `model.providers` 按 Pi 的提供方目录列出名称、登录方式（`api_key`／`oauth`，`login` 为 false 的只能在 Repa 之外配置）、当前生效的凭据类型（`configured`，包括环境变量）和是否有可由 `auth.logout` 删除的保存凭据（`stored`）；凭据状态用 `checkAuth` 当场解析，登录后立即反映。`model.getDefault` 返回新会话不指定模型时使用的模型：Pi 设置中的默认模型，未设置时为第一个可用模型，都没有时为 `null`。`model.setDefault` 写入 Pi 自己的 `defaultProvider/defaultModel`，与 Pi 会话保存默认模型是同一项，不在 Repa 设置中另存。`auth.setKey` 失败时保留 `requires_interactive_login` 等底座错误码，前端据此改走 `auth.login`；上游错误仍统一为 `auth_failed`，不返回凭据或细节。
 
 `session.list` 按最后一条消息的时间（`updatedAt`）从新到旧排列，`preview` 是第一条用户消息的开头，取法与 Pi 的 `SessionManager.list` 相同，供前端列出会话。`model` 是会话自己保存的模型：会话建立后沿用它，`model.setDefault` 只影响之后新建的会话，换模型用 `session.setModel`。
+
+空间的 `.repa/sessions/` 只存放本空间的会话，因此列举和按 id 查找都使用 Pi 的 `SessionManager.listAll(sessionDir)`，不再按会话头的 cwd 筛选。复制或移动空间后，旧会话仍可读取和接续；打开时通过 `cwdOverride` 使用当前空间根目录，会话头保留原值，新消息追加到当前空间里的原会话文件。
 
 运行增量、工具调用、usage 和起止通过 `session.event` 通知。工具结果的 `details` 同时保留在 `toolEnd.data.details` 与 `session.history` 的工具条目 `data.details` 中；结果没有 `details` 时省略该字段。`session.send` 等待整次运行；运行中的 `steer/followUp` 使用内嵌运行时的队列。无发起连接的后台命令在询问策略下无法取得授权，会被阻止；Full Access 是显式设置，不由插件自行提升。
 

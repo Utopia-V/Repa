@@ -272,3 +272,22 @@ test("--log 指定的文件已经存在时，发请求之前就报错，文件�
   assert.deepEqual(lines.map((line) => [line.question, line.status]), [["t01.k1.x1", "skipped"], ["t01.k2.r1", "skipped"]]);
   assert.match(lines[0]?.request ?? "", /## 作答位/);
 });
+
+
+test("已有当前核对范围的证明时，CLI 跳过请求并成功退出", async (t) => {
+  const root = await writeCourse(t, manualDemo());
+  const model = fakeModel({ "t01.k1.x1": [RIGHT["t01.k1.x1"]], "t01.k2.r1": [RIGHT["t01.k2.r1"]] });
+  const confirmed = await confirmCourse(root, {
+    complete: model.complete,
+    model: "deepseek/deepseek-flash",
+    maxRequests: 2,
+    base: root,
+  });
+  assert.deepEqual(confirmed.outcomes.map((outcome) => outcome.status), ["confirmed", "confirmed"]);
+  const before = (await topicFile(root)).text;
+  const result = await runCli(["confirm", root, "--agent-dir", path.join(root, "agent"), "--max-requests", "1"]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /已有当前核对范围的证明/);
+  assert.match(result.stdout, /共发请求 0 次/);
+  assert.equal((await topicFile(root)).text, before);
+});

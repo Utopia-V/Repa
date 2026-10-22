@@ -75,7 +75,7 @@ function withDescendants(sessions: readonly SessionInfo[], id: string): string[]
 }
 
 async function sessionRecord(agent: AgentSpace, id: string): Promise<string> {
-  const file = agent.sessionFile(id);
+  const file = await agent.sessionFile(id);
   if (file === undefined) throw new RepaFault("session_not_found", "会话记录不存在", { id });
   return readFile(file, "utf8");
 }

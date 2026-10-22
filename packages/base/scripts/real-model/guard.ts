@@ -10,6 +10,7 @@ export function guardProbeRuntime(runtime: AgentRuntime): AgentRuntime {
     login: (...args) => runtime.login(...args),
     setKey: (...args) => runtime.setKey(...args),
     logout: (...args) => runtime.logout(...args),
+    credentials: () => runtime.credentials(),
     complete: (...args) => runtime.complete(...args),
     completeStructured: (...args) => runtime.completeStructured(...args),
     close: () => runtime.close(),
@@ -42,6 +43,8 @@ export function guardProbeRuntime(runtime: AgentRuntime): AgentRuntime {
         create: async options => remember(await space.create(options)),
         get: async id => remember(await space.get(id)),
         list: () => space.list(),
+        sessionFile: id => space.sessionFile(id),
+        abortAgent: agent => space.abortAgent(agent),
         preview: agent => space.preview(agent),
         async runAgent() { throw new Error("probe_background_agent_blocked"); },
         async close() {

@@ -1,15 +1,24 @@
 import { Type, type Static } from "typebox";
 import { identifier, ItemSchema, object } from "@repa/base/protocol";
 import { KnowledgeGraphSchema, ModelConfigSchema, StudentSchema } from "@repa/learning-model";
+import { ExpectedSchema } from "./python-execution.js";
 import { CourseSchema, TopicSchema } from "./format/schema.js";
 import { ContentRefSchema, FeedbackSchema, LearningStateSchema, SubmissionSchema } from "./protocol.js";
 
 const time = Type.Integer({ minimum: 0 });
 const nullableId = Type.Union([identifier, Type.Null()]);
 export const SnapshotSchema = object({
-  course: CourseSchema, topic: TopicSchema, kpId: identifier, questionId: identifier,
-  topicVersion: identifier, kpVersion: identifier, questionVersion: identifier,
-  item: ItemSchema, idMap: Type.Record(identifier, identifier), graph: KnowledgeGraphSchema,
+  course: CourseSchema,
+  topic: TopicSchema,
+  kpId: identifier,
+  questionId: identifier,
+  topicVersion: identifier,
+  kpVersion: identifier,
+  questionVersion: identifier,
+  expected: Type.Optional(ExpectedSchema),
+  item: ItemSchema,
+  idMap: Type.Record(identifier, identifier),
+  graph: KnowledgeGraphSchema,
 });
 export type Snapshot = Static<typeof SnapshotSchema>;
 export const DecisionSchema = object({
@@ -20,6 +29,23 @@ export type Decision = Static<typeof DecisionSchema>;
 export const ProjectionSchema = object({
   state: LearningStateSchema, student: StudentSchema,
   deliveries: Type.Record(identifier, identifier),
+  xp: Type.Optional(object({
+    rewards: Type.Array(object({
+      taskId: identifier,
+      xp: Type.Integer(),
+      at: time,
+      ruleVersion: identifier,
+    })),
+    highWater: time,
+    consumed: time,
+    origins: Type.Record(identifier, identifier),
+    pending: Type.Optional(object({
+      id: identifier,
+      atXp: time,
+      seed: Type.Integer(),
+      topicIds: Type.Array(identifier),
+    })),
+  })),
 });
 export type Projection = Static<typeof ProjectionSchema>;
 export const AttemptContextSchema = object({
@@ -37,6 +63,20 @@ export const RecordSchema = Type.Union([
   object({ ...envelope, type: Type.Literal("snapshot"), digest: identifier, snapshot: SnapshotSchema }),
   object({ ...envelope, type: Type.Literal("checkpoint"), projection: ProjectionSchema, decision: DecisionSchema }),
   object({ ...envelope, type: Type.Literal("accepted"), submission: SubmissionSchema, context: AttemptContextSchema }),
+  object({
+    ...envelope,
+    type: Type.Literal("appeal"),
+    submissionId: identifier,
+    expectedGradeRevision: Type.Integer({ minimum: 1 }),
+    reason: Type.String({ minLength: 1, maxLength: 2_000 }),
+  }),
+  object({
+    ...envelope,
+    type: Type.Literal("regraded"),
+    submission: SubmissionSchema,
+    grade: GradeSchema,
+    projection: ProjectionSchema,
+  }),
   object({ ...envelope, type: Type.Literal("graded"), submissionId: identifier, grade: GradeSchema, projection: ProjectionSchema }),
   object({
     ...envelope, type: Type.Literal("viewed"), taskId: identifier, deliveryId: Type.Optional(identifier),

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -129,6 +129,19 @@ test("反馈包收齐会话、历史、错误和环境，保存的凭据、环�
   const manifest: unknown = JSON.parse(files.get("manifest.json")?.text ?? "");
   assert.ok(manifest !== null && typeof manifest === "object" && "redactions" in manifest && typeof manifest.redactions === "number");
   assert.ok(manifest.redactions >= 5);
+});
+
+test("换过目录的空间里，旧会话照样能生成反馈包", { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  f.faux.setResponses([fauxAssistantMessage("原空间的回答")]);
+  await f.client.call("session.send", { sessionId: f.session.id, text: "你好" });
+  await f.client.call("space.close", {});
+  const moved = path.join(path.dirname(f.root), "moved");
+  await cp(f.root, moved, { recursive: true });
+  await f.client.call("space.open", { root: moved });
+  const result = await f.client.call("feedback.create", { sessionId: f.session.id, describe: false, directory: f.output });
+  const record = unzip(await readFile(result.path)).get(`sessions/${f.session.id}.jsonl`)?.text ?? "";
+  assert.ok(record.includes("原空间的回答"));
 });
 
 test("凭据文件读不了时不生成反馈包，也不写出任何文件", { timeout: 30000 }, async t => {

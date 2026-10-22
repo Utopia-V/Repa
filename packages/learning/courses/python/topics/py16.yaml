@@ -312,6 +312,43 @@ kps:
               return attempt.error is None and isinstance(attempt["result"], pd.DataFrame) and list(attempt["result"].columns) == ["signal", "group"]
           good = [option for option, code in OPTIONS["fix"].items() if fits(code)]
           answers = {"cause": cause, "fix": good[0] if len(good) == 1 else good}
+      - id: py16.k1.q4
+        uses: [py14.k1, py14.k2]
+        kind: [trace]
+        body: |
+          按列名列表选择时，输出列按列表给出的顺序排列。
+
+          ```python
+          table = pd.DataFrame({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
+          selected = table[["c", "a"]]
+          print(selected.columns.tolist())
+          print(selected.shape)
+          ```
+        slots:
+          - {id: columns, type: text, match: output, prompt: 列名顺序, key: "['c', 'a']"}
+          - {id: shape, type: text, match: output, prompt: 形状, key: "(2, 2)"}
+        explanation: "选择列表明确要求先 c 后 a，不必沿用原表的 a、b、c 顺序。选择了两列，保留原来的两行。"
+        verify: |
+          lines = run().lines()
+          answers = {"columns": lines[0], "shape": lines[1]}
+      - id: py16.k1.q5
+        uses: [py14.k1]
+        kind: [debug]
+        body: |
+          即使只有一行，单列与单列列表仍有不同维数。填写 ndim（维数）的结果。
+
+          ```python
+          table = pd.DataFrame({"score": [8]})
+          print(table["score"].ndim)
+          print(table[["score"]].ndim)
+          ```
+        slots:
+          - {id: one, type: text, format: integer, prompt: 单个列名, key: 1}
+          - {id: two, type: text, format: integer, prompt: 列名列表, key: 2}
+        explanation: "table['score'] 是一维 Series，table[['score']] 是二维 DataFrame。行数只有一行也不会改变这项区别。"
+        verify: |
+          lines = run().lines()
+          answers = {"one": int(lines[0]), "two": int(lines[1])}
     review:
       - id: py16.k1.r1
         kind: [predict]
@@ -445,6 +482,35 @@ kps:
               "shapes": {"double": {"shape": repl("x.shape", x=double)[0]}, "single": {"shape": repl("x.shape", x=single)[0]}},
           }
 
+      - id: py16.k1.x3
+        uses: [py14.k1, py14.k2]
+        kind:
+          - trace
+        body: |
+          列名列表不仅决定保留哪些列，还决定输出列顺序。只有一列时仍保留二维形状。
+
+          ```python
+          table = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+          result = table[["b"]]
+          print(result.columns.tolist())
+          print(result.shape)
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '[''b'']'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: (2, 1)
+        explanation: 选择列表只含 b，输出两行一列的 DataFrame，不是二维结构消失后的一维对象。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py16.k2
     keyPrerequisites: [py14, py06]
     title: loc 用标签，iloc 用位置
@@ -633,6 +699,42 @@ kps:
           codes = {"loc7": "row = df.loc[7]", "loc3": "row = df.loc[3]", "iloc3": "row = df.iloc[3]", "iloc7": "row = df.iloc[7]"}
           names = {None: "row", "KeyError": "keyerror", "IndexError": "indexerror"}
           answers = {"outcomes": {row: {"outcome": names.get(run(code).error, "other")} for row, code in codes.items()}}
+      - id: py16.k2.q4
+        kind: [trace]
+        body: |
+          行标签不按位置排序时，loc 和 iloc 会取到不同的行。
+
+          ```python
+          table = pd.DataFrame({"name": ["first", "second", "third"]}, index=[2, 0, 1])
+          print(table.loc[0, "name"])
+          print(table.iloc[0, 0])
+          ```
+        slots:
+          - {id: label, type: text, match: text, prompt: loc 的结果, key: second}
+          - {id: position, type: text, match: text, prompt: iloc 的结果, key: first}
+        explanation: "loc 的 0 是行标签，位于第二行；iloc 的 0 是第一个位置，所以得到 first。标签中的数字不是隐含的位置编号。"
+        verify: |
+          lines = run().lines()
+          answers = {"label": str(lines[0]), "position": str(lines[1])}
+      - id: py16.k2.q5
+        kind: [debug]
+        body: |
+          表里没有行标签 1，但确实有第二行。哪一段能取到第二行的 value？
+        slots:
+          - id: access
+            type: choice
+            options:
+              - {id: label, content: '`result = table.loc[1, "value"]`'}
+              - {id: position, content: '`result = table.iloc[1, 0]`'}
+              - {id: first, content: '`result = table.iloc[0, 0]`'}
+            key: position
+        explanation: "第二行对应位置 1，所以要用 iloc；loc 查找的是标签，表中没有标签 1 时会报 KeyError。"
+        verify: |
+          table = pd.DataFrame({"value": [8, 9]}, index=[10, 20])
+          programs = {"label": 'result = table.loc[1, "value"]', "position": 'result = table.iloc[1, 0]', "first": 'result = table.iloc[0, 0]'}
+          fits = [key for key, code in programs.items() if run(code, table=table).error is None and run(code, table=table)["result"] == 9]
+          assert len(fits) == 1
+          answers = {"access": fits[0]}
     review:
       - id: py16.k2.r1
         kind: [predict, explain]
@@ -807,6 +909,33 @@ kps:
               values[row] = {"value": "报错" if r.error else r["x"]}
           answers = {"values": values}
 
+      - id: py16.k2.x3
+        kind:
+          - trace
+        body: |
+          行标签是文字时，位置 1 仍表示第二行；loc 则按给出的标签找行。
+
+          ```python
+          table = pd.DataFrame({"v": [4, 8]}, index=["second", "first"])
+          print(table.loc["first", "v"])
+          print(table.iloc[0, 0])
+          ```
+        slots:
+          - id: v0
+            type: text
+            match: output
+            prompt: 第 1 项
+            key: '8'
+          - id: v1
+            type: text
+            match: output
+            prompt: 第 2 项
+            key: '4'
+        explanation: 标签 first 恰好在第二行，loc 取到 8；iloc 的第一个位置取到 4，标签文字不决定位置。
+        verify: |
+          r = run()
+          values = r.lines()
+          answers = {f"v{i}": value for i, value in enumerate(values)}
   - id: py16.k3
     keyPrerequisites: [py06]
     title: 标签切片与位置切片的右端差异
@@ -998,6 +1127,40 @@ kps:
           ```
 
           改成 `daily.iloc[1:5]` 在这张表上也能得到第 2–5 天，但那是照着“标签比位置大 1”凑出来的；记录从第 3 天开始时，位置 1 到 4 就成了第 4–7 天。判分时会换一段这样的记录运行你的代码。
+      - id: py16.k3.q4
+        kind: [trace]
+        body: |
+          标签切片与位置切片的右端规则不同。下面用相应的两个范围对照右端是否包含。
+
+          ```python
+          table = pd.DataFrame({"v": [1, 2, 3]}, index=[10, 20, 30])
+          print(table.loc[10:20].index.tolist())
+          print(table.iloc[0:1].index.tolist())
+          ```
+        slots:
+          - {id: loc, type: text, match: output, prompt: 第一行, key: "[10, 20]"}
+          - {id: iloc, type: text, match: output, prompt: 第二行, key: "[10]"}
+        explanation: "有序标签索引中，loc 的终点标签 20 也保留；iloc 的位置右端 1 不保留，所以只得到位置 0 的标签 10。"
+        verify: |
+          lines = run().lines()
+          answers = {"loc": lines[0], "iloc": lines[1]}
+      - id: py16.k3.q5
+        kind: [debug]
+        body: |
+          起点与终点相同的范围在两个接口里也不相同。填写各自保留几行。
+
+          ```python
+          table = pd.DataFrame({"v": [1, 2, 3]}, index=[10, 20, 30])
+          print(table.loc[20:20].shape[0])
+          print(table.iloc[1:1].shape[0])
+          ```
+        slots:
+          - {id: loc, type: text, format: integer, prompt: loc 行数, key: 1}
+          - {id: iloc, type: text, format: integer, prompt: iloc 行数, key: 0}
+        explanation: "loc 包含两端，20:20 保留标签 20 的一行；iloc 左闭右开，1:1 是空范围，保留零行。"
+        verify: |
+          lines = run().lines()
+          answers = {"loc": int(lines[0]), "iloc": int(lines[1])}
     review:
       - id: py16.k3.r1
         kind: [predict]
