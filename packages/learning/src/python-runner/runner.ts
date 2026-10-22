@@ -248,7 +248,7 @@ export class PythonRunner {
   #standby: Promise<Started> | undefined;
   /** 正在进行的调用；close 用它取消。 */
   #running: AbortController | undefined;
-  /** close 之后加一；关闭前开始的调用结束时不再预热。 */
+  /** close 之后加一；关闭前排上的调用不再运行，关闭前开始的调用结束时不再预热。 */
   #generation = 0;
   #queue: Promise<unknown> = Promise.resolve();
 
@@ -263,18 +263,20 @@ export class PythonRunner {
     if (!this.#standby) this.#prepare();
     const standby = this.#standby;
     if (!standby) throw new PythonRunError("runtime_unavailable", "Python 运行器已经关闭");
-    const [{ loaded }, runner] = await abortable(Promise.all([standby, this.#runnerVersion]), signal);
+    const [{ loaded }, runner] = await abortable(Promise.all([standby, this.#runnerVersion]), signal, "探测已取消");
     return { protocol: PYTHON_BATCH, runtime: environment(loaded, RUNNER_PACKAGES), runner, freshInterpreter: true };
   }
 
   run(input: PythonBatchInput, signal?: AbortSignal): Promise<PythonBatchResult> {
-    const turn = this.#queue.then(() => this.#run(input, signal));
+    // 排队时就记下属于哪一代：close 之后，之前排上的调用轮到时直接作废，不再新建 Worker 运行代码。
+    const generation = this.#generation;
+    const turn = this.#queue.then(() => this.#run(input, signal, generation));
     // 队列只管先后；每个调用的失败已经交给它自己的调用方。
     this.#queue = turn.catch(() => undefined);
     return turn;
   }
 
-  /** 取消正在进行的调用，结束预热的 Worker；之后的调用会启动新的。 */
+  /** 取消正在进行和已经排队的调用，结束预热的 Worker；之后的调用会启动新的。 */
   close(): void {
     this.#generation += 1;
     this.#running?.abort();
@@ -285,9 +287,9 @@ export class PythonRunner {
     });
   }
 
-  async #run(input: PythonBatchInput, external: AbortSignal | undefined): Promise<PythonBatchResult> {
+  async #run(input: PythonBatchInput, external: AbortSignal | undefined, generation: number): Promise<PythonBatchResult> {
     cancelled(external);
-    const generation = this.#generation;
+    if (generation !== this.#generation) throw new PythonRunError("cancelled", "Python 运行器已经关闭");
     const controller = new AbortController();
     const forward = () => controller.abort();
     external?.addEventListener("abort", forward, { once: true });
@@ -309,7 +311,9 @@ export class PythonRunner {
   #prepare(): void {
     const standby = this.#start(undefined);
     standby.catch(() => {
-      // 预热失败不在这里报告：下一次调用取用时会重新启动，失败在那里交给调用方。
+      // 预热失败不在这里报告，失败交给正在等它的探测或调用。清掉它，下一次探测或调用重新启动，
+      // 否则资源修好之后探测还一直拿到这次的失败。先核对还是同一个：close 之后可能已经换了新的。
+      if (this.#standby === standby) this.#standby = undefined;
     });
     this.#standby = standby;
   }
@@ -319,11 +323,16 @@ export class PythonRunner {
     this.#standby = undefined;
     if (standby) {
       try {
-        const started = await standby;
-        cancelled(signal);
+        const started = await abortable(standby, signal, "运行已取消");
         if (started.instance.usable) return started;
       } catch (error) {
-        if (error instanceof PythonRunError && error.code === "cancelled") throw error;
+        if (signal?.aborted) {
+          // 预热的 Worker 已经从 #standby 取出，归这次调用；领取途中取消，就由这里结束它，否则没人能找到它。
+          void standby.then((started) => started.instance.end(), () => {
+            // 预热失败，没有 Worker 要结束。
+          });
+          throw error;
+        }
         // 预热的 Worker 没能启动，下面重新启动一次。
       }
     }
@@ -463,10 +472,10 @@ export class PythonRunner {
 }
 
 /** 等 promise，signal 中止时以 cancelled 结束；promise 本身不受影响。 */
-function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined, message: string): Promise<T> {
   if (!signal) return promise;
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(new PythonRunError("cancelled", "探测已取消"));
+    const onAbort = () => reject(new PythonRunError("cancelled", message));
     if (signal.aborted) onAbort();
     signal.addEventListener("abort", onAbort, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));

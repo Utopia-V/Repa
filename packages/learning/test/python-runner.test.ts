@@ -314,6 +314,49 @@ test("close 结束预热的 Worker，取消正在进行的调用，之后不再�
   assert.equal(stuck.workers.length, 1);
 });
 
+test("领取还在启动的预热 Worker 时被取消，这个 Worker 启动完也会被结束", async () => {
+  let booting: FakeWorker | undefined;
+  const delayed: Respond = (request, worker) => {
+    if (request.type === "start") booting = worker;
+  };
+  const { runner, workers } = fixture(delayed);
+  const probe = runner.capabilities();
+  const controller = new AbortController();
+  const running = runner.run(input, controller.signal);
+  await until(() => booting !== undefined);
+  controller.abort();
+  await rejectsWith(running, "cancelled");
+
+  booting?.send({ type: "ready", runtime: loaded });
+  await probe;
+  await until(() => workers[0]?.terminated === true, () => types(workers[0]));
+  assert.equal(workers.length, 1);
+});
+
+test("close 之后，之前排队的调用轮到时直接作废，不再新建 Worker 运行代码", async () => {
+  const stuck = healthy(() => ({ phases: [["program", null]] }));
+  const { runner, workers } = fixture([stuck, healthy()]);
+  const first = runner.run(input);
+  const queued = runner.run({ ...input, submissionId: "sub-2" });
+  await until(() => workers[0]?.requests.length === 2, () => types(workers[0]));
+  runner.close();
+
+  await rejectsWith(first, "cancelled");
+  await rejectsWith(queued, "cancelled");
+  assert.equal(workers.length, 1);
+  assert.deepEqual(statuses(await runner.run(input)), ["completed", "completed", "completed"]);
+});
+
+test("预热失败后，下一次探测重新启动 Worker，不一直拿到这次的失败", async () => {
+  const notIsolated: Respond = (request, worker) => {
+    if (request.type === "start") worker.send({ type: "failed", message: "缺少 Pyodide" });
+  };
+  const { runner, workers } = fixture([notIsolated, healthy()]);
+  await rejectsWith(runner.capabilities(), "runtime_unavailable", "缺少 Pyodide");
+  assert.equal((await runner.capabilities()).runtime.pyodide, "314.0.7");
+  assert.equal(workers.length, 2);
+});
+
 const wheel = new TextEncoder().encode("wheel");
 
 async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {

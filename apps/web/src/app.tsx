@@ -99,6 +99,10 @@ export function App({
           if (!connected) {
             removeListener?.();
             removeListener = undefined;
+            // 后端的调用随断线结束：停掉服务、关闭运行器，正在跑和排队的代码不再执行。重连后重新提供服务。
+            stopPython?.();
+            stopPython = undefined;
+            pythonRunner.close();
             void next.close();
             reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
           }

@@ -15,6 +15,22 @@ vi.mock("@repa/base/client", async (importOriginal) => ({
   RepaClient: { connect: vi.fn() },
 }));
 
+/** 页面里的 Python 运行器换成替身：run 一直不结束，记下收到的取消信号。 */
+const python = vi.hoisted(() => ({ signals: [] as AbortSignal[], close: undefined as unknown as ReturnType<typeof vi.fn> }));
+vi.mock("../src/lib/python/runner", () => ({
+  createPythonRunner: () => {
+    python.close = vi.fn();
+    return {
+      capabilities: vi.fn(() => new Promise(() => {})),
+      run: vi.fn((_input: unknown, signal: AbortSignal) => {
+        python.signals.push(signal);
+        return new Promise(() => {});
+      }),
+      close: python.close,
+    };
+  },
+}));
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -135,4 +151,49 @@ it("断线后重新连接新底座，卸载时停止后续重试", async () => {
   expect(second.close).toHaveBeenCalledOnce();
   await vi.advanceTimersByTimeAsync(5000);
   expect(RepaClient.connect).toHaveBeenCalledTimes(3);
+});
+
+it("断线时停掉 python.run：进行中的运行被取消、运行器关闭；重连后在新连接上重新提供", async () => {
+  type Listener = (params: unknown) => void;
+  const client = () => {
+    const listeners = new Map<string, Listener>();
+    let change: ((connected: boolean) => void) | undefined;
+    return {
+      listeners,
+      disconnect: () => change?.(false),
+      close: vi.fn(() => Promise.resolve()),
+      call: vi.fn(() => Promise.resolve(null)),
+      on: vi.fn((method: string, listener: Listener) => {
+        listeners.set(method, listener);
+        return () => listeners.delete(method);
+      }),
+      onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
+        change = value;
+        return vi.fn();
+      }),
+    };
+  };
+  const first = client();
+  const second = client();
+  vi.mocked(RepaClient.connect)
+    .mockResolvedValueOnce(first as unknown as RepaClient)
+    .mockResolvedValueOnce(second as unknown as RepaClient);
+  render(<App store={createAppStore()} loadConnection={() => Promise.resolve(connection)} />);
+  await screen.findByRole("link", { name: "Learning Space" });
+  const input = {
+    protocol: "repa-python-batch-v1", kind: "execute", submissionId: "sub-1", gradeRevision: 1,
+    runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }, runner: "sha256:runner",
+    tests: [{ id: "t", program: "x = 1", prelude: "", setup: "", data: [], captures: [], doctest: [] }],
+  };
+  first.listeners.get("service.request")?.({ id: "req-1", service: "python.run", input });
+  expect(python.signals).toHaveLength(1);
+
+  vi.useFakeTimers();
+  act(() => first.disconnect());
+  expect(python.signals[0]?.aborted).toBe(true);
+  expect(python.close).toHaveBeenCalledOnce();
+  expect(first.listeners.has("service.request")).toBe(false);
+
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(second.listeners.has("service.request")).toBe(true);
 });
