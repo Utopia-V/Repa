@@ -14,5 +14,7 @@
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"],
+  // 浏览器里运行的 python.run 运行器另用 tsconfig.browser.json 检查，那里加上 DOM 的类型。
+  "exclude": ["src/python-runner", "test/python-runner.test.ts", "test/python-service.test.ts"]
 }

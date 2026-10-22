@@ -1,4 +1,4 @@
-import type { PythonTest } from "@repa/learning/protocol";
+import type { PythonTest } from "../protocol.js";
 
 /** 页面发给 Python Worker 的消息。start 带上页面取好、核对过的 Pyodide 文件；Worker 自己不联网。一个 Worker 只收一次 run。 */
 export type WorkerRequest =
