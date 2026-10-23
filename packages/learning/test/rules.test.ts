@@ -261,6 +261,18 @@ test("要排缩进的排列题没有测试、doctest 的 >>> 后缺空格时报�
   assert.deepEqual(codes(result.diagnostics), ["doctest_parse", "indent_needs_tests", "unverified_slot"]);
 });
 
+test("doctest 超过 python.run 的上限时报出：例子太多或单个例子太长", async (t) => {
+  const demo = demoCourse();
+  const code = kp(demo, 1).practice?.[0]?.slots[0];
+  assert.ok(code?.type === "code");
+  const doctest = code.tests[0];
+  assert.ok(doctest);
+  doctest.doctest = Array.from({ length: 51 }, () => ">>> 1\n1").join("\n");
+  assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), ["doctest_too_large"]);
+  doctest.doctest = `>>> ${"x".repeat(2_001)}\n1`;
+  assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), ["doctest_too_large"]);
+});
+
 test("单元格 input 写错字段名时只报那一处", async (t) => {
   const demo = demoCourse();
   const root = await writeCourse(t, demo);

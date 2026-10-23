@@ -3,9 +3,10 @@ import test from "node:test";
 import { RepaFault } from "@repa/base";
 import { createPluginTestHost } from "@repa/base/testing";
 import type { Host } from "@repa/base/plugin";
-import { compareProgram, executePython, PYTHON_BATCH, type BatchInput } from "../src/python-execution.js";
+import { compareProgram, executePython, pythonAvailable } from "../src/python-execution.js";
+import { PYTHON_BATCH, type PythonBatchInput } from "../src/protocol.js";
 
-const input: BatchInput = {
+const input: PythonBatchInput = {
   protocol: PYTHON_BATCH,
   kind: "execute",
   submissionId: "original",
@@ -89,6 +90,28 @@ test("整批终止区分学习者超时和未执行，环境阶段超时、版�
     response = invalid;
     await assert.rejects(executePython(captured, input), failure);
   }
+});
+
+test("前端报告的环境不含 prelude：探测和执行只比较 Pyodide、Python 与包版本", async (t) => {
+  const course = { pyodide: "314.0.7", python: "3.14.2", packages: { pandas: "3.0.2" }, prelude: "import pandas as pd" };
+  const actual = { pyodide: "314.0.7", python: "3.14.2", packages: { pandas: "3.0.2" } };
+  let response: unknown;
+  let captured: Host | undefined;
+  const fixture = await createPluginTestHost({
+    plugins: [{ id: "python-test", async open(host) { captured = host; return {}; } }],
+    services: { call: async () => response },
+  });
+  t.after(() => fixture.close());
+  assert.ok(captured);
+
+  response = { protocol: PYTHON_BATCH, runtime: actual, runner: "sha256:runner", freshInterpreter: true };
+  assert.equal(await pythonAvailable(captured, course, "sha256:runner"), true);
+  assert.equal(await pythonAvailable(captured, course, "sha256:other"), false);
+  response = { protocol: PYTHON_BATCH, runtime: { ...actual, packages: { pandas: "2.0.0" } }, runner: "sha256:runner", freshInterpreter: true };
+  assert.equal(await pythonAvailable(captured, course, "sha256:runner"), false);
+
+  response = result();
+  assert.equal((await executePython(captured, { ...input, runtime: { ...input.runtime, prelude: "import pandas as pd" } })).tests.length, 3);
 });
 
 test("比较在后端完成：缺 capture/doctest 和 too_large 不是学习失败，学习者异常与错误输出才判错", () => {
