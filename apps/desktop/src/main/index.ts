@@ -71,6 +71,22 @@ ipcMain.handle("repa:get-connection", async (event) => {
   }
 });
 
+/**
+ * Electron 收到第一个 SIGTERM／SIGINT 时安排退出，同时恢复默认处理，紧接着的第二个信号会直接结束进程；
+ * 两个信号挨得近时 before-quit 还没运行，后端没有收到关闭请求，就留了下来。npm exec 和 electron 启动器
+ * 都会把收到的信号转给 Electron，两者同时被结束时，Electron 就会连着收到两次。
+ * 改由 Node 处理这两个信号：正在关闭时再收到的信号不重复请求退出，关闭照常等后端收尾。
+ * Electron 在主脚本加载之后才装自己的处理，在这之前注册的会被覆盖，所以等 ready 之后再注册；
+ * scripts/verify-quit-signals.mjs 在真实 Electron 里检查这一点。
+ */
+function quitOnShutdownSignals() {
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, () => {
+      if (!quitting) app.quit();
+    });
+  }
+}
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1120,
@@ -107,6 +123,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
+    quitOnShutdownSignals();
     createWindow();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
