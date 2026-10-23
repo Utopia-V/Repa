@@ -1,4 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap");
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "@fontsource-variable/jetbrains-mono";
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
@@ -68,9 +70,9 @@
 /* 排版、圆角与留白与主题映射共同由本文件持有。 */
 :root {
   --font-heading:
-    "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-body: Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-code: "JetBrains Mono", monospace;
+    "Plus Jakarta Sans Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: "Manrope Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-code: "JetBrains Mono Variable", monospace;
   --type-display-size: 48px;
   --type-display-line: 56px;
   --type-display-mobile-size: 36px;

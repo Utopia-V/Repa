@@ -123,4 +123,8 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
   },
+  build: {
+    // 页面 CSP 没有放行 data: 字体（font-src 回落到 default-src 'self'），字体文件不内联。
+    assetsInlineLimit: (file) => (/\.(woff2?|ttf)$/.test(file) ? false : undefined),
+  },
 });

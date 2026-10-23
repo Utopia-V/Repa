@@ -26,6 +26,9 @@
     "@repa/base": "0.1.0"
   },
   "devDependencies": {
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@fontsource-variable/manrope": "5.3.0",
+    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
     "@swc/core": "1.16.2",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/dom": "10.4.2",
