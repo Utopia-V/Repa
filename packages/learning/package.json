@@ -19,6 +19,10 @@
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
     },
+    "./sandbox/runtime": {
+      "types": "./dist/sandbox/runtime.d.ts",
+      "import": "./dist/sandbox/runtime.js"
+    },
     "./python-runner": {
       "types": "./dist/python-runner/runner.d.ts",
       "import": "./dist/python-runner/runner.js"

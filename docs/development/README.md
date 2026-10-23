@@ -22,6 +22,8 @@ Web 和 Desktop 分别由 Vite 与 Electron Node 宿主启动后端。`@repa/bas
 
 Web 在连接时声明前端服务 `python.run`，在 Worker 里用 Pyodide 运行学习者的代码；输入输出见 `@repa/learning/protocol`。后端先用 `kind: capabilities` 探测，前端报告预热 Worker 实际加载的环境；每次执行用一个全新的 Worker，用完销毁，后台预热下一个。Vite 开发服务器在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel，并给 Worker 脚本加 CSP 响应头；wheel 先用 `npm run course:runtime` 准备，与课程核对共用一个目录。Worker 启动时确认 CSP 生效，没有就拒绝运行，所以别的宿主提供 Web 时也要给 Worker 脚本加同样的响应头。
 
+Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa://app/` 加载，而不是 `file://`，因为 `file://` 没有响应头，Worker 的 CSP 设不上；协议由[主进程](../../apps/desktop/src/main/app-protocol.ts)处理，给 `workers/` 下的脚本加 CSP，并在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel。开发时这些由 electron-vite 的开发服务器提供，两边的放行规则共用 [python-runtime.ts](../../apps/desktop/src/main/python-runtime.ts)。Linux 安装包把 Pyodide 文件和 wheel 复制到应用目录的 `pyodide/`，打包前要先运行 `npm run course:runtime`。
+
 前端实现遵循 [Web 协作规则](../../apps/web/AGENTS.md)、[设计系统](../design-system.md)与[设计系统实现](../design-system-implementation.md)。前端工作由相应负责人推进。
 
 ## 工程边界
