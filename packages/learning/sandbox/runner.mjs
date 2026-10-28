@@ -24,6 +24,8 @@ try {
   const { loadPyodide } = await import(pathToFileURL(path.join(config.pyodide, "pyodide.mjs")).href);
   pyodide = await loadPyodide({
     indexURL: `${config.pyodide}/`,
+    // 标准库和包都用带 .pyc 的预编译版本，省去每次启动编译源码。
+    stdLibURL: config.stdlib,
     // 包从准备好的目录读取；文件缺失时 Pyodide 会尝试下载，在沙箱里网络不可用，于是直接失败。
     packageCacheDir: `${config.packages}/`,
     // Python 的 js 模块只看得到这个空对象，碰不到 process、require、fetch 和计时器；

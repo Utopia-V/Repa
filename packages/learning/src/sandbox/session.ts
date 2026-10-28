@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
-import { PACKAGE_ROOT, type RuntimeAssets } from "./runtime.js";
+import { PACKAGE_ROOT, precompiledFiles, STDLIB_FILE, type RuntimeAssets } from "./runtime.js";
 
 export const DEFAULT_MEMORY_BYTES = 2 * 1024 ** 3;
 export const DEFAULT_JOB_TIMEOUT_MS = 10_000;
@@ -86,16 +86,17 @@ export class PythonSandbox {
     const node = await realpath(process.execPath);
     const runnerConfig = {
       pyodide: assets.pyodideDirectory,
-      packages: assets.packagesDirectory,
+      packages: assets.precompiledDirectory,
+      stdlib: path.join(assets.precompiledDirectory, STDLIB_FILE),
       runner: path.join(SANDBOX_DIRECTORY, "runner.py"),
       load: assets.load,
     };
     const launchConfig = {
       // /usr 只读放行系统库；/etc/ld.so.cache 供动态链接器查找库；其余只有运行时文件。
-      // wheel 逐个文件放行，不放行它们所在的目录：目录可以由使用者指定，不能借此读到旁边的文件。
+      // 预编译的标准库和 wheel 逐个文件放行，不放行它们所在的目录：目录可以由使用者指定，不能借此读到旁边的文件。
       read: [
         "/usr", "/etc/ld.so.cache", "/dev/urandom", assets.pyodideDirectory, assets.wsDirectory, SANDBOX_DIRECTORY,
-        ...assets.wheels.map((wheel) => path.join(assets.packagesDirectory, wheel.file)),
+        ...precompiledFiles(assets).map((file) => path.join(assets.precompiledDirectory, file)),
       ],
       write: ["/dev/null"],
       memory: options.memoryBytes ?? DEFAULT_MEMORY_BYTES,

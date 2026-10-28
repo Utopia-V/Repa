@@ -85,6 +85,8 @@
 
 pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们准备到 `packages/learning/.cache/pyodide/<版本>/`（`REPA_PYODIDE_PACKAGES` 可改位置）：`--from` 从已有目录复制，不给时从 jsDelivr 下载；两种方式都按 Pyodide 发行 lockfile 的 SHA-256 核对，检查前也会再核对一次。解释器和标准库来自 npm 包本身，由 npm 按 `package-lock.json` 里的摘要核对，这里不另外核对。
 
+上游的标准库和 wheel 只带 `.py`，每次启动沙箱都要把用到的源码重新编译一遍，约占启动时间的三分之二。所以 `course:runtime` 接着在宿主上的 Pyodide 里运行 [`sandbox/precompile.py`](sandbox/precompile.py)，给标准库 zip 和每个 wheel 加上 `.pyc`，放进离线包目录的 `precompiled/`，文件名与原件相同。沙箱只加载这一份，原件留给 Web 和 Desktop。`.py` 保留，编译时写入运行时的绝对路径，库内报错的路径、源码行和 `__file__` 与不预编译时相同。产物逐字节可复现，摘要按 Pyodide 版本记在 [`sandbox/precompiled.json`](sandbox/precompiled.json)：生成后摘要不符就不放进目录，检查前也再核对一次。升级 Pyodide 或改动 `precompile.py` 后，`course:runtime` 会列出新的摘要，确认后提交到这个文件。
+
 ### 新增依赖
 
 | 依赖 | 用途 |

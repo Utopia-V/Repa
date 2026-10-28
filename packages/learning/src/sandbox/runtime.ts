@@ -1,6 +1,7 @@
 /**
  * 课程检查用的 Pyodide 运行时：npm 包 pyodide 提供解释器和标准库，pandas、NumPy 等 wheel
  * 另行准备到本包的 .cache 目录（或 REPA_PYODIDE_PACKAGES 指定的目录），每次使用前按发行 lockfile 的 SHA-256 核对。
+ * 沙箱加载的是 precompiled/ 下加了 .pyc 的标准库和 wheel，它们按 sandbox/precompiled.json 记下的 SHA-256 核对。
  */
 
 import { createHash } from "node:crypto";
@@ -12,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import type { Runtime } from "../format/schema.js";
 
 export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+export const STDLIB_FILE = "python_stdlib.zip";
+const PRECOMPILED_HASHES = path.join(PACKAGE_ROOT, "sandbox", "precompiled.json");
 
 interface LockPackage {
   name: string;
@@ -43,6 +46,10 @@ export interface RuntimeAssets {
   load: string[];
   /** 课程清单声明的运行前导，每个任务在自己的命名空间里先运行它；没有声明为空串。 */
   prelude: string;
+  /** 沙箱加载的预编译标准库和 wheel 所在目录，文件名与原件相同。 */
+  precompiledDirectory: string;
+  /** 仓库为这个 Pyodide 版本记下的预编译产物摘要，按文件名；没有记录时为空对象。 */
+  precompiled: Record<string, string>;
 }
 
 export class RuntimeProblem extends Error {
@@ -89,31 +96,53 @@ export async function describeRuntime(runtime: Runtime, packagesDirectory?: stri
     }
     add(name);
   }
+  const pinned = JSON.parse(await readFile(PRECOMPILED_HASHES, "utf8")) as Record<string, Record<string, string>>;
+  const directory = packagesDirectory ?? defaultPackagesDirectory(manifest.version);
   return {
     pyodideVersion: manifest.version,
     pyodideDirectory,
     wsDirectory,
-    packagesDirectory: packagesDirectory ?? defaultPackagesDirectory(manifest.version),
+    packagesDirectory: directory,
     wheels: [...wheels.values()].sort((left, right) => left.name.localeCompare(right.name)),
     load: Object.keys(runtime.packages),
     prelude: runtime.prelude ?? "",
+    precompiledDirectory: path.join(directory, "precompiled"),
+    precompiled: pinned[manifest.version] ?? {},
   };
 }
 
-/** 核对准备好的 wheel；缺失或摘要不符时说明怎样准备。 */
+/** 沙箱实际加载的文件：标准库加课程要求的 wheel。 */
+export function precompiledFiles(assets: RuntimeAssets): string[] {
+  return [STDLIB_FILE, ...assets.wheels.map((wheel) => wheel.file)];
+}
+
+/** 文件的 SHA-256；文件不存在时为 undefined。 */
+export async function digestOf(file: string): Promise<string | undefined> {
+  try {
+    return await sha256(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return undefined;
+  }
+}
+
+/** 核对准备好的 wheel 和预编译产物；缺失或摘要不符时说明怎样准备。 */
 export async function verifyPackages(assets: RuntimeAssets): Promise<void> {
   const problems: string[] = [];
   for (const wheel of assets.wheels) {
-    const file = path.join(assets.packagesDirectory, wheel.file);
-    let digest: string;
-    try {
-      digest = await sha256(file);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      problems.push(`缺少 ${wheel.file}`);
+    const digest = await digestOf(path.join(assets.packagesDirectory, wheel.file));
+    if (digest === undefined) problems.push(`缺少 ${wheel.file}`);
+    else if (digest !== wheel.sha256) problems.push(`${wheel.file} 的 SHA-256 与 Pyodide ${assets.pyodideVersion} 的 lockfile 不符`);
+  }
+  for (const file of precompiledFiles(assets)) {
+    const expected = assets.precompiled[file];
+    if (expected === undefined) {
+      problems.push(`sandbox/precompiled.json 没有记录 Pyodide ${assets.pyodideVersion} 的 ${file}`);
       continue;
     }
-    if (digest !== wheel.sha256) problems.push(`${wheel.file} 的 SHA-256 与 Pyodide ${assets.pyodideVersion} 的 lockfile 不符`);
+    const digest = await digestOf(path.join(assets.precompiledDirectory, file));
+    if (digest === undefined) problems.push(`缺少预编译的 ${file}`);
+    else if (digest !== expected) problems.push(`预编译的 ${file} 与 sandbox/precompiled.json 记下的 SHA-256 不符`);
   }
   if (problems.length > 0) {
     throw new RuntimeProblem(

@@ -11,6 +11,7 @@ import { checkCourse, type CheckResult } from "./check/course.js";
 import { parseModel, withModel } from "./check/model.js";
 import { formatDiagnostic, Report } from "./format/diagnostics.js";
 import { COURSE_FILE, loadCourse } from "./format/load.js";
+import { precompilePackages } from "./sandbox/precompile.js";
 import { describeRuntime, PACKAGE_ROOT, preparePackages } from "./sandbox/runtime.js";
 
 const USAGE = `用法：
@@ -111,6 +112,7 @@ async function runtime(args: string[]): Promise<number> {
       ...(values.from ? { from: path.resolve(values.from) } : {}),
       log: (message) => process.stdout.write(`  ${message}\n`),
     });
+    await precompilePackages(assets, { log: (message) => process.stdout.write(`  ${message}\n`) });
   }
   return 0;
 }

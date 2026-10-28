@@ -244,3 +244,31 @@ test("超时的任务结束整个进程，下一个任务换一个新的沙箱",
   assert.ok(next.status === "done" && next.ok);
   assert.deepEqual((next.result as { captures: unknown }).captures, { value: { value: { t: "int", v: "42" } } });
 });
+
+test("沙箱加载预编译的标准库和 wheel，库内报错的路径、源码行和 __file__ 与原件相同", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return t.skip(reason);
+  const sandbox = await runner(t);
+  const program = [
+    "import importlib.util, os, sys, traceback, zipfile, pandas",
+    "try:",
+    "    pandas.DataFrame({'a': [1]}).iloc[5]",
+    "except IndexError as error:",
+    "    frame = traceback.extract_tb(error.__traceback__)[-1]",
+    "where = frame.filename.startswith('/lib/python3.14/site-packages/pandas/') and frame.filename.endswith('.py')",
+    "line = bool(frame.line)",
+    "module = pandas.__file__",
+    // Pyodide 不写字节码，__pycache__ 里有文件就只能来自预编译的 wheel；标准库的 .pyc 和 .py 同在 zip 里。
+    "cached = os.path.exists(importlib.util.cache_from_source(pandas.core.frame.__file__))",
+    "zipped = 'json/__init__.pyc' in zipfile.ZipFile(next(p for p in sys.path if p.endswith('.zip'))).namelist()",
+  ].join("\n");
+  const outcome = await sandbox.run({ op: "program", data: [], program, captures: ["where", "line", "module", "cached", "zipped"], doctest: [] });
+  assert.ok(outcome.status === "done" && outcome.ok, JSON.stringify(outcome));
+  assert.deepEqual((outcome.result as { captures: unknown }).captures, {
+    where: { value: { t: "bool", v: true } },
+    line: { value: { t: "bool", v: true } },
+    module: { value: { t: "str", v: "/lib/python3.14/site-packages/pandas/__init__.py" } },
+    cached: { value: { t: "bool", v: true } },
+    zipped: { value: { t: "bool", v: true } },
+  });
+});
