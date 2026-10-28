@@ -9,7 +9,7 @@ import { ExpectedSchema, expectedBinding } from "../src/python-execution.js";
 
 import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
-import type { CodeSlot, OrderSlot, TableSlot, TextSlot } from "../src/format/schema.js";
+import { TopicSchema, type CodeSlot, type OrderSlot, type TableSlot, type TextSlot } from "../src/format/schema.js";
 import { demoCourse, runtimeUnavailable, writeCourse, type DemoCourse } from "./demo-course.js";
 
 const PYTHON_COURSE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "courses", "python");
@@ -191,4 +191,45 @@ test("每份候选程序从干净解释器开始，发布的期望值绑定题�
     await expectedBinding(entry, topic, { ...demo.course.runtime, prelude: "different" }),
     binding,
   );
+});
+
+test("几个沙箱同时核对时，问题的顺序、计数和发布的期望值与逐个核对相同", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return t.skip(reason);
+  const build = (broken: boolean): DemoCourse => {
+    const demo = demoCourse();
+    const t01 = demo.topics.t01;
+    assert.ok(t01);
+    const t03 = parse(TopicSchema, JSON.parse(JSON.stringify(t01).replaceAll("t01", "t03")));
+    t03.title = "另一个完整的示例";
+    demo.topics.t03 = t03;
+    demo.course.topics.push("t03");
+    // t01 第一题故意慢，同时核对时 t03 先做完；合并结果仍要按课程顺序。
+    const first = t01.kps[0]?.example;
+    assert.ok(first?.verify);
+    first.verify = `import time\ntime.sleep(2)\n${first.verify}`;
+    if (broken) {
+      practiceSlot<TextSlot>(demo, 0, 0).key = 4;
+      const slot = t03.kps[0]?.practice?.[0]?.slots[0];
+      assert.ok(slot?.type === "text");
+      slot.key = 5;
+    }
+    return demo;
+  };
+  const run = async (demo: DemoCourse) => {
+    const one = await writeCourse(t, demo);
+    const many = await writeCourse(t, demo);
+    return [await checkCourse(one, { base: one, jobs: 1 }), await checkCourse(many, { base: many, jobs: 3 }), one, many] as const;
+  };
+
+  const [serial, parallel] = await run(build(true));
+  assert.deepEqual(errors(serial.diagnostics), ["answer_mismatch", "answer_mismatch"]);
+  assert.match(serial.diagnostics[0]?.file ?? "", /t01/);
+  assert.deepEqual(parallel.diagnostics, serial.diagnostics);
+  assert.deepEqual(parallel.summary.code, serial.summary.code);
+
+  const [cleanSerial, cleanParallel, one, many] = await run(build(false));
+  assert.deepEqual(cleanParallel.diagnostics, []);
+  assert.deepEqual(cleanParallel.summary.code, cleanSerial.summary.code);
+  assert.equal(await readFile(path.join(many, "expected.json"), "utf8"), await readFile(path.join(one, "expected.json"), "utf8"));
 });

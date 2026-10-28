@@ -17,9 +17,10 @@ import { describeRuntime, PACKAGE_ROOT, preparePackages } from "./sandbox/runtim
 const USAGE = `用法：
   repa-course recover-log <已关闭的空间目录> <新日志文件>
       保留原日志，将验证过的完整前缀写入新的文件。
-  repa-course check [课程目录…] [--no-run] [--topic id …] [--packages 目录] [--json]
+  repa-course check [课程目录…] [--no-run] [--topic id …] [--packages 目录] [--jobs N] [--json]
       检查课程文件；缺省检查 courses/ 下全部课程。--no-run 只做结构检查，不运行代码；
       --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。完整核对成功后发布 expected.json。
+      --jobs 是同时核对的 topic 数，缺省每个硬件线程一个，并按每个沙箱 1 GiB 内存限制。
   repa-course runtime [课程目录…] [--from 目录] [--packages 目录]
       准备离线 Pyodide 包；--from 从已有目录复制，不给时从 jsDelivr 下载。都会按 lockfile 核对 SHA-256。
   repa-course confirm [课程目录…] [--topic id …] [--max-requests 50] [--model deepseek/deepseek-flash]
@@ -70,8 +71,16 @@ function printResult(result: CheckResult): void {
 async function check(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args, allowPositionals: true,
-    options: { "no-run": { type: "boolean" }, topic: { type: "string", multiple: true }, packages: { type: "string" }, json: { type: "boolean" } },
+    options: {
+      "no-run": { type: "boolean" }, topic: { type: "string", multiple: true }, packages: { type: "string" }, jobs: { type: "string" },
+      json: { type: "boolean" },
+    },
   });
+  const jobs = values.jobs === undefined ? undefined : Number(values.jobs);
+  if (jobs !== undefined && !(Number.isInteger(jobs) && jobs >= 1)) {
+    process.stderr.write(`--jobs 要写正整数，收到的是 ${values.jobs}\n`);
+    return 1;
+  }
   const courses = positionals.length > 0 ? positionals.map((item) => path.resolve(item)) : await defaultCourses();
   if (courses.length === 0) {
     process.stdout.write("没有找到课程：课程目录里要有 course.yaml。\n");
@@ -84,6 +93,7 @@ async function check(args: string[]): Promise<number> {
       run: !values["no-run"],
       ...(values.topic ? { topics: values.topic } : {}),
       ...(values.packages ? { packagesDirectory: path.resolve(values.packages) } : {}),
+      ...(jobs ? { jobs } : {}),
     });
     results.push(result);
     if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) failed = true;

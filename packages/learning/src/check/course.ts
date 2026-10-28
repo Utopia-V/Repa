@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { writeFile, rename } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { expectedBinding, type Expected } from "../python-execution.js";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
-import { describeRuntime, RuntimeProblem, verifyPackages } from "../sandbox/runtime.js";
+import { describeRuntime, RuntimeProblem, verifyPackages, type RuntimeAssets } from "../sandbox/runtime.js";
 import { SandboxRunner, SandboxUnavailable, type RuntimeVersions } from "../sandbox/session.js";
 import { checkTopicCode, type CodeStats } from "./code.js";
 import { checkReferences } from "./questions.js";
@@ -21,6 +22,16 @@ export interface CheckOptions {
   timeoutMs?: number;
   /** 只对这些 topic 运行代码核对；结构和交叉规则仍检查整门课。缺省核对全部 topic。 */
   topics?: string[];
+  /** 同时运行的沙箱数，缺省见 defaultJobs。 */
+  jobs?: number;
+}
+
+// 实测 12 个沙箱并行核对全部 topic 时常驻内存合计峰值约 10 GiB，每个不到 1 GiB；按 1 GiB 留量。
+const MEMORY_PER_SANDBOX = 1024 ** 3;
+
+/** 缺省的并行沙箱数：每个硬件线程一个，再按内存限制。 */
+export function defaultJobs(): number {
+  return Math.max(1, Math.min(os.availableParallelism(), Math.floor(os.totalmem() / MEMORY_PER_SANDBOX)));
 }
 
 export interface CheckSummary {
@@ -60,9 +71,10 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
   await checkReferences(loaded, report);
   if (options.run === false) return { diagnostics: report.diagnostics, summary };
 
+  let assets: RuntimeAssets;
   let runner: SandboxRunner;
   try {
-    const assets = await describeRuntime(loaded.course.runtime, options.packagesDirectory);
+    assets = await describeRuntime(loaded.course.runtime, options.packagesDirectory);
     await verifyPackages(assets);
     runner = new SandboxRunner({ assets });
     summary.runtime = await runner.start();
@@ -76,6 +88,7 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     }
     return { diagnostics: report.diagnostics, summary };
   }
+  const runners = [runner];
   try {
     const expected = loaded.course.runtime;
     const actual = summary.runtime;
@@ -98,11 +111,35 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
         };
       }
     }
-    // 核对器在每份候选程序前关闭旧解释器，随后按正式测试顺序逐项执行。
-    for (const topic of loaded.topics) {
-      if (options.topics && !options.topics.includes(topic.topic.id)) continue;
-      await checkTopicCode(topic, runner, report, code, options.timeoutMs, published);
-      await runner.close();
+    // 每个 topic 在一个沙箱里按正式测试顺序逐项执行，核对器在每份候选程序前关闭旧解释器；
+    // 不同 topic 由几个沙箱同时核对。问题和计数先各记各的，再按课程顺序合并，结果与逐个核对相同。
+    const selected = loaded.topics.filter((topic) => !options.topics || options.topics.includes(topic.topic.id));
+    const results = selected.map(() => ({ report: new Report(), stats: { verifyJobs: 0, verifiedSlots: 0, testRuns: 0 } }));
+    const jobs = Math.max(1, Math.min(options.jobs ?? defaultJobs(), selected.length));
+    while (runners.length < jobs) runners.push(new SandboxRunner({ assets }));
+    let next = 0;
+    let failure: { error: unknown } | undefined;
+    await Promise.all(runners.map(async (worker) => {
+      for (let index = next++; index < selected.length && !failure; index = next++) {
+        const topic = selected[index];
+        const result = results[index];
+        if (!topic || !result) break;
+        try {
+          await checkTopicCode(topic, worker, result.report, result.stats, options.timeoutMs, published);
+        } catch (error) {
+          // 和逐个核对一样，出现意外错误就不再开始新的 topic；正在跑的做完后把错误抛出去。
+          failure ??= { error };
+        } finally {
+          await worker.close();
+        }
+      }
+    }));
+    if (failure) throw failure.error;
+    for (const result of results) {
+      report.diagnostics.push(...result.report.diagnostics);
+      code.verifyJobs += result.stats.verifyJobs;
+      code.verifiedSlots += result.stats.verifiedSlots;
+      code.testRuns += result.stats.testRuns;
     }
     if (!options.topics && report.errorCount === 0) {
       const target = path.join(root, "expected.json");
@@ -111,7 +148,7 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
       await rename(temporary, target);
     }
   } finally {
-    await runner.close();
+    await Promise.all(runners.map((worker) => worker.close()));
   }
   return { diagnostics: report.diagnostics, summary };
 }

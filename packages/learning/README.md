@@ -81,7 +81,7 @@
 
 限制建立不了时以退出码 70 结束，检查报 `sandbox_unavailable`，不会改用不受限的运行。另外，[`sandbox/runner.mjs`](sandbox/runner.mjs) 让 Python 的 `js` 模块只看到一个空对象，Node 也以 `--disallow-code-generation-from-strings` 启动，所以 Python 代码拿不到 `process`、`require`、`fetch` 和 `Function` 构造器；这一层减少意外和干扰，安全边界仍是上面的内核限制。
 
-[`src/sandbox/session.ts`](src/sandbox/session.ts) 启动沙箱、逐个发送任务（每行一个 JSON），单个任务默认 10 秒超时，超时就结束整个进程，下一个任务换一个新沙箱。每个 topic 用一个新沙箱；同一 topic 的任务共享解释器（每题重启太慢），但每个任务从全新的命名空间开始，先运行课程清单 `runtime.prelude` 声明的运行前导，工作目录是空的。任务后恢复 pandas 与 NumPy 的选项、builtins、输出流、`sys.path`、环境变量、warnings 过滤器，取消挂起的 asyncio 任务，并删掉任务在工作目录、`/tmp` 和根目录下新建的文件。任务留下的异步错误记在这个任务上，并换新沙箱。[`sandbox/runner.py`](sandbox/runner.py) 负责执行和把 Python 值序列化，判断对错在沙箱外。
+[`src/sandbox/session.ts`](src/sandbox/session.ts) 启动沙箱、逐个发送任务（每行一个 JSON），单个任务默认 10 秒超时，超时就结束整个进程，下一个任务换一个新沙箱。每个 topic 用一个新沙箱，不同 topic 由几个沙箱同时核对，结果按课程顺序合并；同一 topic 的任务共享解释器（每题重启太慢），但每个任务从全新的命名空间开始，先运行课程清单 `runtime.prelude` 声明的运行前导，工作目录是空的。任务后恢复 pandas 与 NumPy 的选项、builtins、输出流、`sys.path`、环境变量、warnings 过滤器，取消挂起的 asyncio 任务，并删掉任务在工作目录、`/tmp` 和根目录下新建的文件。任务留下的异步错误记在这个任务上，并换新沙箱。[`sandbox/runner.py`](sandbox/runner.py) 负责执行和把 Python 值序列化，判断对错在沙箱外。
 
 pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们准备到 `packages/learning/.cache/pyodide/<版本>/`（`REPA_PYODIDE_PACKAGES` 可改位置）：`--from` 从已有目录复制，不给时从 jsDelivr 下载；两种方式都按 Pyodide 发行 lockfile 的 SHA-256 核对，检查前也会再核对一次。解释器和标准库来自 npm 包本身，由 npm 按 `package-lock.json` 里的摘要核对，这里不另外核对。
 
@@ -118,6 +118,7 @@ pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们�
 npm run course:runtime -- --from <离线包目录>   # 第一次准备 Pyodide 包
 npm run course:check                           # 检查全部课程
 npm run course:check -- --topic py17           # 只对 py17 运行代码核对
+npm run course:check -- --jobs 4               # 最多 4 个沙箱同时核对；缺省每个硬件线程一个，按每个 1 GiB 内存限制
 npm run course:confirm -- --dry-run            # 看要发给模型的核对请求；去掉 --dry-run 才真正调用
 npm test --workspace=@repa/learning
 ```
