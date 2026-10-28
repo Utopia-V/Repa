@@ -1,4 +1,4 @@
-"""课程检查在 Pyodide 里执行的部分，由 runner.mjs 加载。
+"""课程检查在 Pyodide 里执行的部分，由 runner.mjs 加载；前端的 python.run 也加载它，用 program_test 执行测试。
 
 每个任务用全新的命名空间（先运行课程清单声明的运行前导），全新的工作目录，
 任务后把解释器里常被改动的全局状态（pandas 与 NumPy 的选项、builtins、sys 的输出与显示钩子和 path、
@@ -513,27 +513,73 @@ def job_expect(job):
     return results
 
 
-def job_program(job):
+def program_steps(job):
+    """program 任务的生成器：每个阶段开始前产出 (阶段, 序号)，返回值是任务结果。
+
+    课程核对用 job_program 一口气跑完；前端用 program_test 在每步之间告诉页面，超时时页面按最后收到的阶段判断停在哪里。
+    capture 的求值是学习者的代码，序列化是运行器的，所以分成 capture 和 serialize 两步，但共用一个输出上限。
+    """
+    yield "prepare", None
     namespace = prepared(job)
+    yield "program", None
     stdout, error = run_quietly(job["program"], namespace, "<作答>")
     captures = {}
-    for expression in job["captures"]:
+    for index, expression in enumerate(job["captures"]):
+        yield "capture", index
+        output = LimitedOutput()
         try:
-            with contextlib.redirect_stdout(LimitedOutput()):
-                captures[expression] = {"value": canon(eval(compile(expression, "<检查>", "eval"), namespace))}
+            with contextlib.redirect_stdout(output):
+                value = eval(compile(expression, "<检查>", "eval"), namespace)
+        except BaseException as failure:  # noqa: BLE001  被检查的调用是学习者的代码，可能 exit()
+            captures[expression] = {"error": describe_error(failure)}
+            continue
+        yield "serialize", index
+        try:
+            with contextlib.redirect_stdout(output):
+                captures[expression] = {"value": canon(value)}
         except Exception as failure:  # noqa: BLE001
             captures[expression] = {"error": describe_error(failure)}
+        finally:
+            # 序列化完就释放：值的 __del__ 可能改动命名空间，要在下一项 capture 求值之前发生。
+            del value
     examples = []
-    for source in job["doctest"]:
+    for index, source in enumerate(job["doctest"]):
+        yield "doctest", index
         output = LimitedOutput()
         exception = None
         with contextlib.redirect_stdout(output):
             try:
                 exec(compile(source + "\n", "<doctest>", "single"), namespace)
-            except Exception as failure:  # noqa: BLE001
+            except BaseException as failure:  # noqa: BLE001  同 capture
                 exception = "".join(traceback.format_exception_only(type(failure), failure)).strip()
         examples.append({"out": output.getvalue(), "exception": exception})
     return {"stdout": stdout, "error": error, "captures": captures, "doctest": examples}
+
+
+def job_program(job):
+    steps = program_steps(job)
+    try:
+        while True:
+            next(steps)
+    except StopIteration as done:
+        return done.value
+
+
+def program_test(line):
+    """前端 python.run 的一个测试：产出 program_steps 的各个阶段，最后产出 cleanup 并恢复解释器状态。
+
+    line 是 @repa/learning/protocol 的 PythonTest。返回 JSON：{"status": "completed", "result": program 任务的结果}，
+    或前导、夹具、setup 出错时的 {"status": "failed", "phase": "prepare", "error"}。
+    """
+    test = json.loads(line)
+    job = {**test, "data": [{**item["fixture"], "label": item["label"]} for item in test["data"]]}
+    try:
+        result = {"status": "completed", "result": (yield from program_steps(job))}
+    except Exception as failure:  # noqa: BLE001  学习者代码的异常已在各阶段记下；到这里的是前导、夹具或 setup 出错
+        result = {"status": "failed", "phase": "prepare", "error": describe_error(failure)}
+    yield "cleanup", None
+    reset_state()
+    return json.dumps(result, ensure_ascii=False)
 
 
 JOBS = {"verify": job_verify, "expect": job_expect, "program": job_program}

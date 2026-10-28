@@ -11,7 +11,10 @@
     "verify:linux": "node scripts/verify-linux-package.mjs",
     "check": "tsc --noEmit",
     "dev": "electron-vite dev",
-    "predev": "npm run build:backend --prefix ../..",
+    "prebuild": "npm run build --workspace=@repa/learning --prefix ../..",
+    "precheck": "npm run build --workspace=@repa/learning --prefix ../..",
+    "predev": "npm run build --workspace=@repa/learning --prefix ../..",
+    "pretest": "npm run build --workspace=@repa/learning --prefix ../..",
     "test": "vitest run"
   },
   "dependencies": {
@@ -23,7 +26,9 @@
     "react-dom": "19.3.0",
     "react-router": "8.3.1",
     "tailwind-merge": "3.7.0",
-    "@repa/base": "0.1.0"
+    "@repa/base": "0.1.0",
+    "@repa/learning": "0.1.0",
+    "pyodide": "314.0.7"
   },
   "devDependencies": {
     "@swc/core": "1.16.2",

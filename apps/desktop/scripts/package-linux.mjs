@@ -39,6 +39,44 @@ async function npmRun(args, cwd = root) {
   }
 }
 
+// 主进程的 repa 协议从 app/pyodide/ 提供这些文件，见 src/main/python-runtime.ts。
+const PYODIDE_FILES = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
+// renderer 的 runner.py 在模块顶层导入它们，见 src/renderer/src/lib/python/runner.ts。
+const RUNNER_PACKAGES = ["numpy", "pandas"];
+
+/** 把 Pyodide 文件和 runner.py 要的 wheel 放进安装包；wheel 按 pyodide-lock.json 核对 SHA-256，缺失或不符就停止打包。 */
+async function copyPythonRuntime() {
+  const pyodideDirectory = path.dirname(createRequire(import.meta.url).resolve("pyodide/package.json"));
+  const { version } = JSON.parse(await readFile(path.join(pyodideDirectory, "package.json"), "utf8"));
+  const { defaultPackagesDirectory } = await import("@repa/learning");
+  const source = defaultPackagesDirectory(version);
+  const target = path.join(application, "pyodide");
+  await mkdir(path.join(target, "packages"), { recursive: true });
+  for (const name of PYODIDE_FILES) await copyFile(path.join(pyodideDirectory, name), path.join(target, name));
+  const lock = JSON.parse(await readFile(path.join(pyodideDirectory, "pyodide-lock.json"), "utf8"));
+  const wheels = new Map();
+  const visit = (name) => {
+    if (wheels.has(name)) return;
+    const entry = lock.packages[name];
+    if (!entry) throw new Error(`Pyodide ${version} 的 lockfile 里没有 ${name}`);
+    wheels.set(name, entry);
+    for (const dependency of entry.depends) visit(dependency);
+  };
+  for (const name of RUNNER_PACKAGES) visit(name);
+  for (const { file_name: file, sha256 } of wheels.values()) {
+    let content;
+    try {
+      content = await readFile(path.join(source, file));
+    } catch (error) {
+      if (error.code === "ENOENT") throw new Error(`${source} 里缺少 ${file}，先运行 npm run course:runtime 准备离线包`);
+      throw error;
+    }
+    if (createHash("sha256").update(content).digest("hex") !== sha256) throw new Error(`${file} 的 SHA-256 与 pyodide-lock.json 不符`);
+    await writeFile(path.join(target, "packages", file), content);
+  }
+  return { pyodide: version, wheels: [...wheels.values()].map((entry) => entry.file_name).sort() };
+}
+
 async function copyLicenses() {
   const inventory = [];
   const notices = path.join(application, "third-party-licenses");
@@ -124,6 +162,7 @@ const manifest = {
 };
 await writeFile(path.join(application, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 await cp(path.join(desktop, "out"), path.join(application, "out"), { recursive: true });
+const python = await copyPythonRuntime();
 await copyFile(path.join(root, "package-lock.json"), path.join(application, "package-lock.json"));
 await npmRun(["install", "--package-lock-only", "--ignore-scripts", "--prefer-offline", "--no-audit", "--no-fund"], application);
 await npmRun(["ci", "--omit=dev", "--ignore-scripts", "--prefer-offline", "--no-audit", "--no-fund"], application);
@@ -149,7 +188,7 @@ await build({
     // Node 宿主通过 CLI 的物理路径启动底座，保留物理安装布局。
     asar: false,
     npmRebuild: false,
-    files: ["out/**/*", "node_modules/**/*", "third-party-licenses/**/*", "package.json"],
+    files: ["out/**/*", "pyodide/**/*", "node_modules/**/*", "third-party-licenses/**/*", "package.json"],
     linux: { category: "Education", executableName: "repa", target: "deb", syncDesktopName: true },
     deb: {
       maintainer: "Utopia-V",
@@ -162,5 +201,5 @@ const { stdout: verification } = await exec(process.execPath, [path.join(desktop
   cwd: root,
   maxBuffer: 4 * 1024 * 1024,
 });
-console.log(JSON.stringify({ output, packages: packed.map(({ name, version }) => ({ name, version })), licenses: inventory.length,
+console.log(JSON.stringify({ output, packages: packed.map(({ name, version }) => ({ name, version })), python, licenses: inventory.length,
   verification: JSON.parse(verification) }, null, 2));

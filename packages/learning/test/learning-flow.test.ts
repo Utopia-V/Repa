@@ -11,15 +11,16 @@ import { createSpace, openPluginHost, openSpace } from "@repa/base";
 import { ModelTestDriver } from "@repa/base/testing";
 import { INTERACTION_CAPABILITIES, parse, type ClientCapabilities } from "@repa/base/protocol";
 import { stringify } from "yaml";
-import {
-  BatchInputSchema,
-  expectedBinding,
-  runnerVersion,
-  PYTHON_BATCH,
-  type Expected,
-} from "../src/python-execution.js";
+import { expectedBinding, runnerVersion, type Expected } from "../src/python-execution.js";
 import { createLearningPlugin } from "../src/plugin.js";
-import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
+import {
+  learningMethods,
+  PYTHON_BATCH,
+  PythonBatchInputSchema,
+  type LearningInput,
+  type LearningMethod,
+  type LearningResult,
+} from "../src/protocol.js";
 import { referenceResponse, topicQuestions } from "../src/check/items.js";
 import { mapAnswer } from "../src/delivery.js";
 import { connectLearning } from "../src/flow.js";
@@ -648,7 +649,7 @@ test("代码题整批只调用一次服务，缺旧版服务时跳过；环境�
           freshInterpreter: true,
         };
       }
-      const batch = parse(BatchInputSchema, input);
+      const batch = parse(PythonBatchInputSchema, input);
       calls.push(batch);
       if (fail) {
         throw new Error("执行环境不可用");

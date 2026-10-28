@@ -9,6 +9,7 @@ import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedCourse, LoadedTopic } from "../format/load.js";
 import { markdownLinks, markdownTexts, toContent } from "../format/markdown.js";
 import type { ContentInput, Kp, Question, SlotDef, Topic } from "../format/schema.js";
+import { DOCTEST_LIMITS } from "../protocol.js";
 import { parseDoctest } from "./doctest.js";
 import { acceptedValues, inputCells, slotTests, tableCell, textMatch, topicQuestions, questionCredit, type QuestionEntry } from "./items.js";
 
@@ -403,6 +404,13 @@ class TopicChecker {
         const parsed = parseDoctest(test.doctest);
         for (const problem of parsed.problems) this.error("doctest_parse", problem, [...where, "doctest"]);
         if (parsed.examples.length === 0 && parsed.problems.length === 0) this.error("doctest_parse", "doctest 里没有找到 >>> 开头的例子", [...where, "doctest"]);
+        // 代码题在前端经 python.run 运行，超过它的输入上限的 doctest 要到作答时才被拒，所以在这里先报出。
+        if (parsed.examples.length > DOCTEST_LIMITS.examples) {
+          this.error("doctest_too_large", `doctest 最多 ${DOCTEST_LIMITS.examples} 个例子，这里有 ${parsed.examples.length} 个`, [...where, "doctest"]);
+        }
+        if (parsed.examples.some((example) => example.source.length > DOCTEST_LIMITS.source)) {
+          this.error("doctest_too_large", `doctest 的每个例子最长 ${DOCTEST_LIMITS.source} 个字符`, [...where, "doctest"]);
+        }
       }
       for (const [dataIndex, name] of (test.data ?? []).entries()) {
         if (!this.topic.data?.[name]) this.error("data_unknown", `测试用到的数据 ${name} 没有在 topic 的 data 里定义`, [...where, "data", dataIndex]);

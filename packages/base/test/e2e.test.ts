@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -21,7 +21,8 @@ function viewTexts(context: TranscriptContext): string[] {
 }
 
 async function fixture(t: TestContext) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-base-e2e-"));
+  // 底座打开空间时解析真实路径，会话里记的 cwd 也是它；macOS 的临时目录在 /var 下，实际位于 /private/var。
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-base-e2e-")));
   const root = path.join(directory, "space");
   const home = path.join(directory, "home");
   const agentDir = path.join(home, "agent");

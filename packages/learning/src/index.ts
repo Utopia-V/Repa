@@ -5,7 +5,7 @@ export { toContent } from "./format/markdown.js";
 export { checkCourse, type CheckOptions, type CheckResult, type CheckSummary } from "./check/course.js";
 export { gradeSlot, type SlotGrade } from "./check/grade.js";
 export { publicItem, questionCredit, questionVersion, referenceResponse, topicQuestions, versionInput } from "./check/items.js";
-export { describeRuntime, preparePackages, verifyPackages } from "./sandbox/runtime.js";
+export { defaultPackagesDirectory, describeRuntime, preparePackages, verifyPackages } from "./sandbox/runtime.js";
 export { createLearningPlugin, type LearningPluginOptions } from "./plugin.js";
 export { LearningRecords, recoverLearningLog } from "./records.js";
 export * from "./records-schema.js";

@@ -7,6 +7,20 @@ import { App, type LoadConnection } from "../src/renderer/src/app";
 import { mockMatchMedia } from "./match-media";
 
 vi.mock("@repa/base/client", () => ({ RepaClient: { connect: vi.fn() } }));
+const python = vi.hoisted(() => ({ signals: [] as AbortSignal[], close: undefined as unknown as ReturnType<typeof vi.fn> }));
+vi.mock("../src/renderer/src/lib/python/runner", () => ({
+  createPythonRunner: () => {
+    python.close = vi.fn();
+    return {
+      capabilities: vi.fn(() => new Promise(() => {})),
+      run: vi.fn((_input: unknown, signal: AbortSignal) => {
+        python.signals.push(signal);
+        return new Promise(() => {});
+      }),
+      close: python.close,
+    };
+  },
+}));
 
 beforeEach(() => { mockMatchMedia(); });
 afterEach(() => {
@@ -22,6 +36,7 @@ describe("Desktop App bootstrap", () => {
   it("开发态重复挂载不会建立即刻废弃的连接", async () => {
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
     const loadConnection = vi.fn(() => Promise.resolve(connection));
@@ -40,6 +55,7 @@ describe("Desktop App bootstrap", () => {
   it("自动获取连接并呈现工作台", async () => {
     const client = {
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     };
     vi.mocked(RepaClient.connect).mockResolvedValue(client as unknown as RepaClient);
@@ -52,7 +68,8 @@ describe("Desktop App bootstrap", () => {
     await waitFor(() => expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page"));
     expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space", "Settings"]);
     expect(loadConnection).toHaveBeenCalledOnce();
-    expect(RepaClient.connect).toHaveBeenCalledWith(connection);
+    // 连接时声明能在 Worker 里运行学习者的 Python 代码。
+    expect(RepaClient.connect).toHaveBeenCalledWith(connection, { capabilities: { services: ["python.run"] } });
   });
 
   it("启动失败时显示原因并允许重试", async () => {
@@ -62,6 +79,7 @@ describe("Desktop App bootstrap", () => {
       .mockResolvedValueOnce(connection);
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
 
@@ -77,6 +95,7 @@ describe("Desktop App bootstrap", () => {
     const loadConnection = () => Promise.resolve(connection);
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
         listener = value;
         return vi.fn();
@@ -93,6 +112,7 @@ describe("Desktop App bootstrap", () => {
   it("使用桌面 Memory Router 导航并保留折叠侧栏", async () => {
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
     render(<App loadConnection={() => Promise.resolve(connection)} />);
@@ -108,6 +128,7 @@ describe("Desktop App bootstrap", () => {
     mockMatchMedia(true);
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
       onConnectionChange: vi.fn(() => vi.fn()),
     } as unknown as RepaClient);
     render(<App loadConnection={() => Promise.resolve(connection)} />);
@@ -126,12 +147,13 @@ it("断线后重新连接新底座，卸载时停止后续重试", async () => {
   let listener: ((connected: boolean) => void) | undefined;
   const first = {
     close: vi.fn(() => Promise.resolve()),
+    on: vi.fn(() => vi.fn()),
     onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
       listener = value;
       return vi.fn();
     }),
   };
-  const second = { close: vi.fn(() => Promise.resolve()), onConnectionChange: vi.fn(() => vi.fn()) };
+  const second = { close: vi.fn(() => Promise.resolve()), on: vi.fn(() => vi.fn()), onConnectionChange: vi.fn(() => vi.fn()) };
   vi.mocked(RepaClient.connect)
     .mockResolvedValueOnce(first as unknown as RepaClient)
     .mockRejectedValueOnce(new Error("尚未恢复"))
@@ -152,4 +174,49 @@ it("断线后重新连接新底座，卸载时停止后续重试", async () => {
   expect(second.close).toHaveBeenCalledOnce();
   await vi.advanceTimersByTimeAsync(5000);
   expect(RepaClient.connect).toHaveBeenCalledTimes(3);
+});
+
+it("断线时停掉 python.run：进行中的运行被取消、运行器关闭；重连后在新连接上重新提供", async () => {
+  type Listener = (params: unknown) => void;
+  const client = () => {
+    const listeners = new Map<string, Listener>();
+    let change: ((connected: boolean) => void) | undefined;
+    return {
+      listeners,
+      disconnect: () => change?.(false),
+      close: vi.fn(() => Promise.resolve()),
+      call: vi.fn(() => Promise.resolve(null)),
+      on: vi.fn((method: string, listener: Listener) => {
+        listeners.set(method, listener);
+        return () => listeners.delete(method);
+      }),
+      onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
+        change = value;
+        return vi.fn();
+      }),
+    };
+  };
+  const first = client();
+  const second = client();
+  vi.mocked(RepaClient.connect)
+    .mockResolvedValueOnce(first as unknown as RepaClient)
+    .mockResolvedValueOnce(second as unknown as RepaClient);
+  render(<App loadConnection={() => Promise.resolve(connection)} />);
+  await screen.findByRole("link", { name: "Learning Space" });
+  const input = {
+    protocol: "repa-python-batch-v1", kind: "execute", submissionId: "sub-1", gradeRevision: 1,
+    runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }, runner: "sha256:runner",
+    tests: [{ id: "t", program: "x = 1", prelude: "", setup: "", data: [], captures: [], doctest: [] }],
+  };
+  first.listeners.get("service.request")?.({ id: "req-1", service: "python.run", input });
+  expect(python.signals).toHaveLength(1);
+
+  vi.useFakeTimers();
+  act(() => first.disconnect());
+  expect(python.signals[0]?.aborted).toBe(true);
+  expect(python.close).toHaveBeenCalledOnce();
+  expect(first.listeners.has("service.request")).toBe(false);
+
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(second.listeners.has("service.request")).toBe(true);
 });
