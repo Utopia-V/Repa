@@ -2,7 +2,6 @@ import { Type } from "typebox";
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { object, parse } from "@repa/base/protocol";
-import { FixtureSchema } from "./format/schema.js";
 import { gradeSlot } from "./check/grade.js";
 import { referenceAnswer, topicQuestions, slotTests } from "./check/items.js";
 import { mapAnswer } from "./delivery.js";
@@ -12,8 +11,8 @@ import {
   executePython,
   expectedBinding,
   runnerVersion,
+  slotPythonTests,
 } from "./python-execution.js";
-import { parseDoctest } from "./check/doctest.js";
 import { FLOW_VERSION } from "./flow-state.js";
 import type { Grade, Snapshot } from "./records-schema.js";
 import { PYTHON_BATCH, type Feedback, type PythonBatchInput, type SlotFeedback, type Submission } from "./protocol.js";
@@ -47,30 +46,17 @@ export async function judgeSubmission(host: Host, submission: Submission, snapsh
       continue;
     }
     const original = mapAnswer(answer, publicSlot, snapshot.idMap);
-    for (const [index, test] of slotTests(slot).entries()) {
-      let program = "";
-      if (original.type === "code") {
-        program = original.code;
-      }
-      if (slot.type === "order" && original.type === "order") {
-        const indents = Object.fromEntries(
-          original.items.map((id, position) => [id, original.indents?.[position] ?? 0]),
-        );
-        program = assembleParsons({ ...slot, indents }, original.items);
-      }
-      batch.tests.push({
-        id: `${slot.id}:${index}`,
-        program,
-        prelude: snapshot.course.runtime.prelude ?? "",
-        setup: test.setup ?? "",
-        data: (test.data ?? question.data ?? []).map((label) => ({
-          label,
-          fixture: parse(FixtureSchema, snapshot.topic.data?.[label]),
-        })),
-        captures: Object.keys(test.expect ?? {}),
-        doctest: parseDoctest(test.doctest ?? "").examples.map((example) => example.source),
-      });
+    let program = "";
+    if (original.type === "code") {
+      program = original.code;
     }
+    if (slot.type === "order" && original.type === "order") {
+      const indents = Object.fromEntries(
+        original.items.map((id, position) => [id, original.indents?.[position] ?? 0]),
+      );
+      program = assembleParsons({ ...slot, indents }, original.items);
+    }
+    batch.tests.push(...slotPythonTests(slot, question, snapshot.topic, snapshot.course.runtime, program));
   }
   if (
     batch.tests.length &&

@@ -3,15 +3,16 @@ import { Type, type Static } from "typebox";
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { contentVersion, object, parse } from "@repa/base/protocol";
-import type { Question, Topic, Runtime, CodeTest } from "./format/schema.js";
+import { FixtureSchema, type Question, type Topic, type Runtime, type CodeTest, type SlotDef } from "./format/schema.js";
 import {
   PYTHON_BATCH,
   PythonBatchResultSchema,
   PythonCapabilitiesSchema,
   type PythonBatchInput,
   type PythonProgramResult,
+  type PythonTest,
 } from "./protocol.js";
-import { versionInput } from "./check/items.js";
+import { slotTests, versionInput } from "./check/items.js";
 import { sameValue, showValue } from "./check/values.js";
 import { parseDoctest, sameDoctestOutput } from "./check/doctest.js";
 
@@ -44,6 +45,27 @@ export async function pythonAvailable(host: Host, runtime: Runtime, runner: stri
   } catch {
     return false;
   }
+}
+/** 一个作答位的全部测试输入，不含期望值。判分和 expected.json 的全量核对都从这里取，两边运行的输入因此相同。 */
+export function slotPythonTests(
+  slot: SlotDef,
+  question: Question,
+  topic: Topic,
+  runtime: Runtime,
+  program: string,
+): PythonTest[] {
+  return slotTests(slot).map((test, index) => ({
+    id: `${slot.id}:${index}`,
+    program,
+    prelude: runtime.prelude ?? "",
+    setup: test.setup ?? "",
+    data: (test.data ?? question.data ?? []).map((label) => ({
+      label,
+      fixture: parse(FixtureSchema, topic.data?.[label]),
+    })),
+    captures: Object.keys(test.expect ?? {}),
+    doctest: parseDoctest(test.doctest ?? "").examples.map((example) => example.source),
+  }));
 }
 export function programProblem(
   test: CodeTest,
