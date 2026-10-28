@@ -23,13 +23,12 @@ export const ExpectedSchema = object({
 export type Expected = Static<typeof ExpectedSchema>;
 export const runnerVersion = () =>
   readFile(new URL("../sandbox/runner.py", import.meta.url), "utf8").then(contentVersion);
-export async function expectedBinding(
-  question: Question,
-  topic: Topic,
-  runtime: Runtime,
-  runner: string,
-): Promise<string> {
-  return contentVersion({ question: versionInput(question, topic), runtime, runner });
+/**
+ * expected.json 里一道题的期望值对应的版本：题目定义和运行环境。runner.py 不在其中，
+ * 它改变答案时由 test/expected.test.ts 的全量核对发现，与答案无关的改动不让期望值失效。
+ */
+export async function expectedBinding(question: Question, topic: Topic, runtime: Runtime): Promise<string> {
+  return contentVersion({ question: versionInput(question, topic), runtime });
 }
 /** 前端报告的是实际加载的 Pyodide、Python 和包；prelude 是课程给的输入，不在比较之内。 */
 async function sameEnvironment(actual: Runtime, expected: Runtime): Promise<boolean> {

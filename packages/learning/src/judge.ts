@@ -60,7 +60,7 @@ export async function judgeSubmission(host: Host, submission: Submission, snapsh
   }
   if (
     batch.tests.length &&
-    snapshot.expected?.binding !== (await expectedBinding(question, snapshot.topic, snapshot.course.runtime, runner))
+    snapshot.expected?.binding !== (await expectedBinding(question, snapshot.topic, snapshot.course.runtime))
   ) {
     throw new RepaFault("service_failed", "缺少匹配版本的预计算期望值");
   }

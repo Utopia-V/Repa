@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { writeFile, rename } from "node:fs/promises";
 import path from "node:path";
-import { expectedBinding, runnerVersion, type Expected } from "../python-execution.js";
+import { expectedBinding, type Expected } from "../python-execution.js";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { describeRuntime, RuntimeProblem, verifyPackages } from "../sandbox/runtime.js";
@@ -90,11 +90,10 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     }
     summary.ran = true;
     const published: Record<string, Expected> = {};
-    const runnerHash = await runnerVersion();
     for (const { topic } of loaded.topics) {
       for (const { question } of topicQuestions(topic)) {
         published[question.id] = {
-          binding: await expectedBinding(question, topic, loaded.course.runtime, runnerHash),
+          binding: await expectedBinding(question, topic, loaded.course.runtime),
           values: {},
         };
       }

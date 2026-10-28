@@ -95,7 +95,7 @@ async function fixture(
   for (const definition of topics) {
     for (const { question } of topicQuestions(definition)) {
       expected[question.id] = {
-        binding: await expectedBinding(question, definition, manifest.runtime, await runnerVersion()),
+        binding: await expectedBinding(question, definition, manifest.runtime),
         values: Object.fromEntries(
           question.slots
             .filter((slot) => slot.type === "code")

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import { Type } from "typebox";
 import { parse } from "@repa/base/protocol";
-import { ExpectedSchema, expectedBinding, runnerVersion } from "../src/python-execution.js";
+import { ExpectedSchema, expectedBinding } from "../src/python-execution.js";
 
 import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
@@ -160,7 +160,7 @@ test("代码题的初始代码已经能通过测试、verify 遇到有多种正�
 });
 
 
-test("每份候选程序从干净解释器开始，发布期望值绑定内容、运行前导和 runner", async (t) => {
+test("每份候选程序从干净解释器开始，发布的期望值绑定题目内容和运行前导", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) {
     return t.skip(reason);
@@ -185,12 +185,10 @@ test("每份候选程序从干净解释器开始，发布期望值绑定内容�
   assert.equal(expected[entry.id]?.values[slot.id]?.length, slot.tests.length);
   const topic = Object.values(demo.topics).find((topic) => topic.kps.some((kp) => kp.practice?.includes(entry)));
   assert.ok(topic);
-  const runner = await runnerVersion();
-  const binding = await expectedBinding(entry, topic, demo.course.runtime, runner);
+  const binding = await expectedBinding(entry, topic, demo.course.runtime);
   assert.equal(expected[entry.id]?.binding, binding);
   assert.notEqual(
-    await expectedBinding(entry, topic, { ...demo.course.runtime, prelude: "different" }, runner),
+    await expectedBinding(entry, topic, { ...demo.course.runtime, prelude: "different" }),
     binding,
   );
-  assert.notEqual(await expectedBinding(entry, topic, demo.course.runtime, "different-runner"), binding);
 });

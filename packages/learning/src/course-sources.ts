@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { identifier, object, parse } from "@repa/base/protocol";
-import { ExpectedSchema, expectedBinding, runnerVersion, type Expected } from "./python-execution.js";
+import { ExpectedSchema, expectedBinding, type Expected } from "./python-execution.js";
 import { slotTests, topicQuestions } from "./check/items.js";
 import { loadCourse } from "./format/load.js";
 import { Report } from "./format/diagnostics.js";
@@ -59,7 +59,6 @@ export async function loadCourseSources(sources: CourseSource[], files: Host["fi
     }
   }
   if (!resolved) throw new RepaFault("invalid_course", "缺少随包课程来源");
-  const runner = await runnerVersion();
   for (const topic of resolved.topics) {
     for (const { question } of topicQuestions(topic)) {
       const expected = resolved.expected?.[question.id];
@@ -71,7 +70,7 @@ export async function loadCourseSources(sources: CourseSource[], files: Host["fi
       );
       if (
         !complete ||
-        expected?.binding !== (await expectedBinding(question, topic, resolved.course.runtime, runner))
+        expected?.binding !== (await expectedBinding(question, topic, resolved.course.runtime))
       ) {
         delete resolved.expected?.[question.id];
       }
