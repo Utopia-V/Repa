@@ -19,7 +19,7 @@ import {
 
 import { interactionCapabilities } from "@/lib/ask";
 import { applyEvent, emptyConversation, historyItems, type Conversation } from "@/lib/conversation";
-import { errorCode } from "@/lib/errors";
+import { describeError, errorCode } from "@/lib/errors";
 
 /** 一份从后端读取的数据；重新读取期间保留上一次的 data，界面不回到空白。 */
 export type Resource<T> = {
@@ -165,6 +165,11 @@ export type AppState = {
   previewPrompts(): Promise<Result<"prompt.preview">>;
   /** 撤回一次提交改动的文件；冲突的文件保持现状，列在结果里。完成或失败后都重新读取历史。 */
   undoRevision(revision: string): Promise<Result<"history.undo">>;
+  /**
+   * 为当前会话生成反馈包，带上对话页显示过的错误；没有会话时不调用。
+   * describe 为 true 时后端会多做一次模型调用，让 Agent 描述这次的问题。失败抛给调用方。
+   */
+  createFeedback(options: { describe: boolean; note?: string }): Promise<Result<"feedback.create">>;
   /** 运行中不切换：运行状态只属于当前会话，切走后无法再查询。 */
   openSession(session: SessionInfo): Promise<void>;
   newConversation(): void;
@@ -577,6 +582,24 @@ export function createAppStore() {
           // 失败时也可能已经恢复了一部分文件并记成一次撤回。
           await reloadSpaceHistory();
         }
+      },
+      createFeedback({ describe, note }) {
+        const { sessionId, items, sendError } = get().conversation;
+        if (!sessionId) return Promise.reject(new Error("还没有会话，无法生成反馈包。"));
+        // 对话项没有时间戳，time 记的是收集的时刻；后端的错误另有准确时间。
+        const time = new Date().toISOString();
+        const shown = items.flatMap((item) => item.kind === "error" ? [{ time, message: item.text.slice(0, 4000), source: "对话记录" }] : []);
+        const send = sendError === undefined ? [] : [(() => {
+          const { message, code } = describeError(sendError);
+          return { time, message: (code === undefined ? message : `${message}（${code}）`).slice(0, 4000), source: "发送或停止" };
+        })()];
+        return call("feedback.create", {
+          sessionId,
+          describe,
+          ...(note === undefined || note.trim().length === 0 ? {} : { note }),
+          // 协议限制 100 条，保留最近的。
+          clientErrors: [...shown, ...send].slice(-100),
+        });
       },
       async openSession(session) {
         const current = get().conversation;
