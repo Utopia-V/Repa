@@ -1,20 +1,15 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import type { PythonTest } from "../src/protocol.js";
 import { describeRuntime } from "../src/sandbox/runtime.js";
 import { RUNTIME } from "./demo-course.js";
+import { loadRunner, runTest, type LoadedRunner } from "./pyodide.js";
 
 const SANDBOX = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sandbox");
 
-interface Generator {
-  next(): { done: boolean; value: unknown };
-}
-
-/** 前端 Worker 调用 program_test 的方式：这里直接在测试进程里加载 Pyodide，测试代码是可信的。 */
 const frontend = (async () => {
   let assets;
   try {
@@ -23,34 +18,11 @@ const frontend = (async () => {
     if (error instanceof Error && error.name === "RuntimeProblem") return error.message;
     throw error;
   }
-  const { loadPyodide } = (await import(pathToFileURL(path.join(assets.pyodideDirectory, "pyodide.mjs")).href)) as {
-    loadPyodide(options: object): Promise<{
-      loadPackage(names: string[], options: object): Promise<void>;
-      runPython(code: string, options: object): unknown;
-      globals: { get(name: "program_test"): (line: string) => Generator; get(name: "handle_job"): (line: string) => string };
-    }>;
-  };
-  const pyodide = await loadPyodide({
-    indexURL: `${assets.pyodideDirectory}/`, packageCacheDir: `${assets.packagesDirectory}/`, stdout: () => {}, stderr: () => {},
-  });
-  await pyodide.loadPackage(assets.load, { messageCallback: () => {} });
-  pyodide.runPython(await readFile(path.join(SANDBOX, "runner.py"), "utf8"), { filename: "runner.py" });
-  return {
-    test: pyodide.globals.get("program_test"),
-    handleJob: pyodide.globals.get("handle_job"),
-  };
+  return loadRunner(assets, path.join(SANDBOX, "runner.py"));
 })();
 
-/** 跑完一个测试，返回依次报告的阶段和最终结果。 */
-function run(start: (line: string) => Generator, job: Partial<PythonTest> & { program: string }) {
-  const generator = start(JSON.stringify({ id: "t", prelude: "", setup: "", data: [], captures: [], doctest: [], ...job }));
-  const phases: string[] = [];
-  for (;;) {
-    const step = generator.next();
-    if (step.done) return { phases, result: JSON.parse(String(step.value)) as Record<string, unknown> };
-    const [phase, index] = (step.value as { toJs(): [string, number | undefined] }).toJs();
-    phases.push(index === undefined ? phase : `${phase}#${index}`);
-  }
+function run(start: LoadedRunner["test"], job: Partial<PythonTest> & { program: string }) {
+  return runTest(start, { id: "t", prelude: "", setup: "", data: [], captures: [], doctest: [], ...job });
 }
 
 test("program_test 逐个阶段报告，结果与 program 任务相同；capture 的求值和序列化分成两步", async (t) => {
