@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -13,8 +13,8 @@ import { createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/r
 import type { AgentSpaceOptions } from "../src/agent.js";
 import { currentRun, type RunContext } from "../src/plugin.js";
 
-async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, options: Pick<AgentTestOptions, "extensionFactories" | "promptChangeNotice"> = {}) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "repa-agent-"));
+async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, options: Pick<AgentTestOptions, "extensionFactories" | "promptChangeNotice" | "now"> = {}) {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-agent-")));
   const agentDir = path.join(root, "app", "agent");
   const sessionsDir = path.join(root, ".repa", "sessions");
   await mkdir(agentDir, { recursive: true });
@@ -37,6 +37,34 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, o
   });
   return { root, agentDir, sessionsDir, faux, models, runtime, settings, space, session, events };
 }
+
+test("未收消息的会话只在内存登记，按编号可用且列出，关闭后不留 jsonl", async t => {
+  const f = await fixture(t);
+  const id = f.session.info().id;
+  assert.equal(await f.space.get(id), f.session);
+  assert.deepEqual((await f.space.list()).map(info => info.id), [id]);
+  assert.equal(await f.space.sessionFile(id), undefined);
+  assert.deepEqual(await readdir(f.sessionsDir), []);
+  await f.space.close();
+  assert.deepEqual(await readdir(f.sessionsDir), []);
+  const reopened = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => true });
+  assert.deepEqual(await reopened.list(), []);
+  await assert.rejects(reopened.get(id), (error: unknown) => error instanceof Error && "code" in error && error.code === "session_not_found");
+});
+
+test("完成请求使用运行时可拨动的时钟标记消息时间", async t => {
+  let now = 1_800_000_000_000;
+  const f = await fixture(t, {}, { now: () => now });
+  for (const advance of [0, 60_000]) {
+    now += advance;
+    assert.equal(f.runtime.now(), now);
+    f.faux.setResponses([context => {
+      assert.deepEqual(context.messages.map(message => message.timestamp), [now, now]);
+      return fauxAssistantMessage("完成");
+    }]);
+    assert.equal(await f.runtime.complete({ system: "说明", prompt: "任务" }), "完成");
+  }
+});
 
 test("多份 view 首轮在 system 之后进入请求，默认批清后保留原始提示和初始工具声明", async t => {
   let version = 1;
@@ -180,6 +208,8 @@ test("首个 assistant 前用户消息已经持久化，重开空间沿用真实
   const managerFile = (await import("@earendil-works/pi-coding-agent")).SessionManager.findById(f.root, f.session.info().id, f.sessionsDir);
   assert(managerFile);
   const raw = await readFile(managerFile, "utf8");
+  assert.match(path.basename(managerFile), new RegExp(`_${f.session.info().id}\\.jsonl$`, "u"));
+  assert.match(raw, /"customType":"repa-agent"/u);
   assert.match(raw, /需要保存的原始用户消息/u);
   assert(!raw.includes('"role":"assistant"'));
   release.resolve();
@@ -193,6 +223,8 @@ test("首个 assistant 前用户消息已经持久化，重开空间沿用真实
 test("多个会话按标准文件名打开时只读取目标文件", async t => {
   const f = await fixture(t);
   const id = f.session.info().id;
+  f.faux.setResponses([fauxAssistantMessage("已保存")]);
+  await f.session.send("持久会话");
   const source = SessionManager.findById(f.root, id, f.sessionsDir);
   assert(source);
   await f.space.close();
@@ -218,26 +250,52 @@ test("多个会话按标准文件名打开时只读取目标文件", async t => 
   const reopened = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => true });
   assert.equal((await reopened.get(id)).info().id, id);
   const sessionReads = reads.filter(file => path.dirname(file) === f.sessionsDir && file.endsWith(".jsonl"));
-  assert(sessionReads.length > 0);
-  assert.deepEqual([...new Set(sessionReads)], [target]);
+  assert.equal(await reopened.sessionFile(randomUUID()), undefined);
+  await assert.rejects(reopened.get(randomUUID()), (error: unknown) => error instanceof Error && "code" in error && error.code === "session_not_found");
+  const allReads = reads.filter(file => path.dirname(file) === f.sessionsDir && file.endsWith(".jsonl"));
+  assert.deepEqual(sessionReads, [target]);
+  assert.deepEqual(allReads, [target]);
 });
 
-test("标准文件名的会话头不匹配时扫描退路找到非规范文件名的会话", async t => {
-  const f = await fixture(t);
-  const id = f.session.info().id;
-  const source = SessionManager.findById(f.root, id, f.sessionsDir);
+test("旧 uuid 文件按头部改名，原始内容与父关联保留，重开后继续使用标准文件名", async t => {
+  const f = await fixture(t, { agents: () => [{ id: "tutor", instructions: () => "辅导", tools: [], direct: true }] });
+  const session = await f.space.create({ agent: "tutor" });
+  const id = session.info().id;
+  f.faux.setResponses([fauxAssistantMessage("已有回答")]);
+  await session.send("旧会话内容");
+  const source = await f.space.sessionFile(id);
   assert(source);
-  await f.space.close();
   const original = await readFile(source, "utf8");
-  await rename(source, path.join(f.sessionsDir, "legacy.jsonl"));
-  const lines = original.split("\n");
-  const header = SessionManager.open(path.join(f.sessionsDir, "legacy.jsonl"), f.sessionsDir, f.root).getHeader();
-  assert(header);
-  lines[0] = JSON.stringify({ ...header, id: randomUUID() });
-  await writeFile(path.join(f.sessionsDir, `2026-10-21T00-00-00-000Z_${id}.jsonl`), lines.join("\n"));
-  await writeFile(path.join(f.sessionsDir, "000-broken.jsonl"), "损坏的会话头\n");
-  const reopened = await f.runtime.openSpace({ root: f.root, sessionsDir: f.sessionsDir, instructions: () => [], tools: () => [], views: async () => [], overrides: async () => ({ app: {}, space: {} }), commandPolicy: () => "fullAccess", record: async (_id, action) => action(), onEvent: () => undefined, confirm: async () => true });
-  assert.equal((await reopened.get(id)).info().id, id);
+  const parent = { sessionId: "parent", runId: "run", callId: "call" };
+  await writeFile(path.join(f.sessionsDir, `${id}.parent.json`), JSON.stringify(parent));
+  await f.space.close();
+  const legacy = path.join(f.sessionsDir, `${randomUUID()}.jsonl`);
+  await rename(source, legacy);
+  const options: AgentSpaceOptions = {
+    root: f.root,
+    sessionsDir: f.sessionsDir,
+    instructions: () => [],
+    tools: () => [],
+    views: async () => [],
+    overrides: async () => ({ app: {}, space: {} }),
+    commandPolicy: () => "fullAccess",
+    record: async (_id, action) => action(),
+    onEvent: () => undefined,
+    confirm: async () => true,
+    agents: () => [{ id: "tutor", instructions: () => "辅导", tools: [], direct: true }],
+  };
+  const reopened = await f.runtime.openSpace(options);
+  assert.equal(await reopened.sessionFile(id), source);
+  assert.equal(await readFile(source, "utf8"), original);
+  await assert.rejects(readFile(legacy), { code: "ENOENT" });
+  const same = await reopened.get(id);
+  assert.equal(same.info().agent, "tutor");
+  assert.deepEqual(same.info().parent, parent);
+  assert.equal(same.history().find(entry => entry.type === "user")?.text, "旧会话内容");
+  await reopened.close();
+  const again = await f.runtime.openSpace(options);
+  assert.equal(await again.sessionFile(id), source);
+  assert.deepEqual((await again.list()).map(info => info.id), [id]);
 });
 
 test("会话列表按最后消息排序，给出第一条用户消息和会话自己的模型，重开后不变", async t => {

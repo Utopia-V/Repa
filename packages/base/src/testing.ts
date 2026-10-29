@@ -153,6 +153,8 @@ export interface PluginTestHost {
 }
 
 export interface PluginTestHostOptions {
+  /** 当前时间，Unix 毫秒；省略时使用系统时钟。 */
+  now?: () => number;
   plugins: Plugin[];
   models?: ModelTestDriver;
   /**
@@ -202,6 +204,7 @@ export async function createPluginTestHost(options: PluginTestHostOptions): Prom
       space,
       plugins: options.plugins,
       models,
+      now: options.now,
       ...(options.ask === undefined ? {} : { ask: options.ask }),
       ...(options.services === undefined ? {} : { services: options.services }),
       emit: (pluginId, event) => { events.push({ pluginId, event }); },

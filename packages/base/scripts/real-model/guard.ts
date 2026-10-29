@@ -3,6 +3,7 @@ import type { AgentRuntime, AgentSession } from "@repa/base";
 // 在宿主同步收到助手终态时取消工具续轮；经 RPC 通知再取消会晚于工具执行。
 export function guardProbeRuntime(runtime: AgentRuntime): AgentRuntime {
   return {
+    now: () => runtime.now(),
     listModels: () => runtime.listModels(),
     listProviders: () => runtime.listProviders(),
     defaultModel: () => runtime.defaultModel(),

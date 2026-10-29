@@ -148,7 +148,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
     peer.socket.send(JSON.stringify(value));
   };
-  const errors = new RecentErrors();
+  const errors = new RecentErrors(() => runtime.now());
   const emit = <N extends Notification>(method: N, params: NotificationParams<N>) => {
     if (!Check(notifications[method], params)) throw new RepaFault("invalid_event", "模块发出了无效事件");
     recordError(method, params);
@@ -370,6 +370,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       plugins = await openPluginHost({
         space,
         plugins: options.plugins ?? [],
+        now: () => runtime.now(),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
         services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
         models: {
@@ -623,6 +624,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         peer.feedbacks.add(controller);
         try {
           return await createFeedbackBundle({
+            now: () => runtime.now(),
             home,
             root: current.space.root,
             agent: current.agent,

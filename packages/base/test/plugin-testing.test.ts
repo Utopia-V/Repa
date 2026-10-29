@@ -133,3 +133,27 @@ test("离线宿主没有提供询问和服务时，插件得到明确的错误�
   await assert.rejects(tool.execute({}, { signal: new AbortController().signal, callId: "call-1" }), fault("ask_unavailable"));
   await assert.rejects(testing.host.call("lonely", "run", {}), fault("service_unavailable"));
 });
+
+test("离线插件宿主可设定和拨动当前时间", async (t) => {
+  let now = 1_800_000_000_000;
+  const testing = await createPluginTestHost({
+    now: () => now,
+    plugins: [{
+      id: "clock",
+      async open(host) {
+        return {
+          methods: {
+            now: {
+              parameters: Type.Object({}, { additionalProperties: false }),
+              async invoke() { return host.now(); },
+            },
+          },
+        };
+      },
+    }],
+  });
+  t.after(() => testing.close());
+  assert.equal(await testing.host.call("clock", "now", {}), now);
+  now += 60_000;
+  assert.equal(await testing.host.call("clock", "now", {}), now);
+});

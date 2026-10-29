@@ -9,6 +9,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { RepaClient, RpcError } from "../src/client.js";
+import { RecentErrors } from "../src/feedback/errors.js";
 import { Redactor } from "../src/feedback/redact.js";
 import { createZip } from "../src/feedback/zip.js";
 import { startServer } from "../src/protocol/server.js";
@@ -39,7 +40,7 @@ function unzip(buffer: Buffer): Map<string, { text: string; utf8: boolean }> {
   return files;
 }
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, now?: () => number) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-feedback-"));
   const root = path.join(directory, "space");
   const home = path.join(directory, "home");
@@ -51,6 +52,7 @@ async function fixture(t: TestContext) {
   modelRuntime.registerNativeProvider(faux.provider);
   const runtime = await createAgentRuntimeForTest({
     agentDir: path.join(home, "agent"),
+    now,
     modelRuntime,
     defaultModel: { provider: faux.getModel().provider, id: "scripted" },
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
@@ -201,14 +203,22 @@ test("断线时取消正在进行的自述，不写出反馈包，后端也能�
 });
 
 test("同一秒生成两个反馈包时各占一个文件名，不留下临时文件", { timeout: 30000 }, async t => {
-  const f = await fixture(t);
+  const now = Date.parse("2026-10-29T01:02:03.000Z");
+  const f = await fixture(t, () => now);
+  f.faux.setResponses([fauxAssistantMessage("好的")]);
+  await f.client.call("session.send", { sessionId: f.session.id, text: "反馈所需的会话记录" });
   const results = await Promise.all([1, 2].map(() => f.client.call("feedback.create", { sessionId: f.session.id, describe: false, directory: f.output })));
   assert.notEqual(results[0]?.path, results[1]?.path);
+  for (const result of results) {
+    const manifest: unknown = JSON.parse(unzip(await readFile(result.path)).get("manifest.json")?.text ?? "");
+    assert.ok(manifest !== null && typeof manifest === "object" && "createdAt" in manifest);
+    assert.equal(manifest.createdAt, new Date(now).toISOString());
+  }
   const names = (await readdir(f.output)).sort();
   assert.deepEqual(names, results.map(result => path.basename(result.path)).sort());
 });
 
-test("会话 id 不能用作文件名时拒绝生成", { timeout: 30000 }, async t => {
+test("会话 id 不能用作文件名时找不到会话且不生成反馈包", { timeout: 30000 }, async t => {
   const f = await fixture(t);
   f.faux.setResponses([fauxAssistantMessage("好的")]);
   await f.client.call("session.send", { sessionId: f.session.id, text: "你好" });
@@ -220,7 +230,7 @@ test("会话 id 不能用作文件名时拒绝生成", { timeout: 30000 }, async
   assert.ok(header !== null && typeof header === "object");
   const escaped = "../../escaped";
   await writeFile(path.join(sessionsDir, "tampered.jsonl"), [JSON.stringify({ ...header, id: escaped }), ...lines.slice(1)].join("\n"));
-  await assert.rejects(f.client.call("feedback.create", { sessionId: escaped, describe: false, directory: f.output }), rejectsWith("invalid_session_id"));
+  await assert.rejects(f.client.call("feedback.create", { sessionId: escaped, describe: false, directory: f.output }), rejectsWith("session_not_found"));
   await assert.rejects(readdir(f.output), { code: "ENOENT" });
 });
 
@@ -260,4 +270,13 @@ test("zip 拒绝会解压到目标目录之外的条目名", () => {
   for (const name of ["sessions/../../escaped.jsonl", "../x", "a//b", "./a", "/abs", "a\\b"]) {
     assert.throws(() => createZip([{ name, data: Buffer.from("x") }]), RangeError, name);
   }
+});
+
+test("最近错误的时间跟随可拨动的底座时钟", () => {
+  let now = Date.parse("2026-10-29T01:02:03.000Z");
+  const errors = new RecentErrors(() => now);
+  errors.add({ source: "test", message: "第一次" });
+  now += 60_000;
+  errors.add({ source: "test", message: "第二次" });
+  assert.deepEqual(errors.list().map(error => error.time), ["2026-10-29T01:02:03.000Z", "2026-10-29T01:03:03.000Z"]);
 });
