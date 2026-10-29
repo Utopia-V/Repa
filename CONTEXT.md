@@ -2,7 +2,7 @@
 
 Repa 是独立、本地优先的通用 Agent 底座。模型的上下文有限且不持有跨会话状态，人的长期工作却需要持续使用和修订已有成果。Repa 将这些状态保存在模型之外，在运行时提供相关视图，并通过模型行动和程序计算更新它们。
 
-领域由插件承担。官方学习产品是底座上的一个应用，其领域含义见[学习能力 context](packages/learning/CONTEXT.md)。项目目标和方向澄清由 [AGENTS.md](AGENTS.md) 持有，当前接入与持久格式见[开发指南](docs/development/README.md)；这里不规定模块布局、消息注入算法或数据库 schema。
+领域由插件承担。官方学习产品是底座上的一个应用，其领域含义见[学习插件说明](packages/learning/README.md)。项目目标和方向澄清由 [AGENTS.md](AGENTS.md) 持有，当前接入与持久格式见[开发指南](docs/development/README.md)；这里不规定模块布局、消息注入算法或数据库 schema。
 
 ## 概念
 

@@ -58,7 +58,7 @@
 
 `loadCourseSources` 接收有序来源列表：先列唯一的 `{ kind: "bundled", directory }`，再列 `{ kind: "overlay", file }`。覆盖文件通过 `host.files` 读取，使用 JSON 形状 `{ courseId, basedOn, topic }`；`basedOn` 必须等于上游课程版本，`topic` 按当前 schema 完整替换同 id topic。使用 `host.files.write` 保存覆盖文件就会进入空间历史。来源重复、未知 topic 或版本不符都会报错，读取随包课程不会修改其文件。
 
-`@repa/learning-model` 的来源是 `learning-model-research` 提交 `c2fe7125cef22eb33b5228e8c19fc51f06dcc9db`。本次迁入运行库、三份直接回归、它们依赖的合成比较夹具和构建配置，实验运行入口仍留在研究分支。库的默认数值与更新次序保持不变：旧 memory 先加信用，再整体按旧 interval 衰减；未公开的数值和时间协议属于 Repa 假设。
+`@repa/learning-model` 的来源是 `learning-model-research` 分支完成盲图与难度评估时的研究版本。本次迁入运行库、三份直接回归、它们依赖的合成比较夹具和构建配置，实验运行入口仍留在研究分支。库的默认数值与更新次序保持不变：旧 memory 先加信用，再整体按旧 interval 衰减；未公开的数值和时间协议属于 Repa 假设。
 
 插件通过 `updateStudent` 和 `chooseTasks` 接入库，两者都把 encompassing 图置空，所以正负隐式传播均关闭，直接复习保留。时间按 Unix 毫秒除以 86,400,000 转为连续天数，更新拒绝早于已有锚点的时间。`memory` 是调度量，不是答对概率；更新粒度、独立作答资格和正式菜单由 c2 持有。
 

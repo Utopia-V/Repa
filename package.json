@@ -23,12 +23,20 @@
     "precheck": "npm run build:packages",
     "pretest": "npm run build:packages",
     "start": "npm --workspace=@repa/base run start -- serve",
-    "test": "npm run test --workspaces --if-present --ignore-scripts",
+    "test": "npm run docs:check && npm run test:docs-scripts && npm run test --workspaces --if-present --ignore-scripts",
     "course:check": "npm run course:check --workspace=@repa/learning --",
     "course:runtime": "npm run course:runtime --workspace=@repa/learning --",
     "course:confirm": "npm run course:confirm --workspace=@repa/learning --",
     "predev:learning": "npm run build:packages",
     "dev:learning": "npm --workspace=@repa/base run start -- serve --plugin ../learning --no-general-agent --direct-agent learning-tutor",
-    "build:packages": "tsc -b tsconfig.build.json && npm run build:assets --workspaces --if-present"
+    "build:packages": "tsc -b tsconfig.build.json && npm run build:assets --workspaces --if-present",
+    "docs:check": "tsx scripts/docs/check.ts",
+    "test:docs-scripts": "node --import tsx --test scripts/docs/*.test.ts"
+  },
+  "devDependencies": {
+    "github-slugger": "^2.0.0",
+    "mdast-util-from-markdown": "^2.0.2",
+    "mdast-util-gfm": "^3.0.0",
+    "micromark-extension-gfm": "^3.0.0"
   }
 }

@@ -1,0 +1,32 @@
+[
+  {
+    "path": "AGENTS.md",
+    "maxChars": 4700,
+    "reason": "以引入文档检查时的长度为基准，预留 10%"
+  },
+  {
+    "path": "apps/web/AGENTS.md",
+    "maxChars": 2500,
+    "reason": "以引入文档检查时的长度为基准，预留 10%"
+  },
+  {
+    "path": "packages/base/AGENTS.md",
+    "maxChars": 1000,
+    "reason": "以引入文档检查时的长度为基准，预留 10%"
+  },
+  {
+    "path": "packages/learning/AGENTS.md",
+    "maxChars": 500,
+    "reason": "以引入文档检查时的长度为基准，预留 10%"
+  },
+  {
+    "path": "docs/AGENTS.md",
+    "maxChars": 2100,
+    "reason": "以引入文档检查时的长度为基准，预留 10%"
+  },
+  {
+    "path": "packages/AGENTS.md",
+    "maxChars": 400,
+    "reason": "以引入文档检查时的长度为基准，预留 10%"
+  }
+]
