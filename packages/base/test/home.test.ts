@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { once } from "node:events";
+import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -101,3 +103,32 @@ test("默认启动在注入的用户目录里搬配置，后续启动继续使�
   assert.equal(await readFile(path.join(home, "agent", "auth.json"), "utf8"), "本地测试凭据\n");
   assert.equal(await prepareAppHome({ userHome: directory, env: {}, platform: "linux" }), home);
 });
+
+for (const emptyTarget of [false, true]) {
+  test(`目标${emptyTarget ? "为空目录" : "不存在"}时复制中途失败不发布半份配置，清理后下次可重试`, { skip: process.platform === "win32" }, async (t) => {
+    const { source, target } = await fixture(t);
+    await mkdir(path.dirname(target), { recursive: true });
+    if (emptyTarget) await mkdir(target);
+    // 按名称最后复制这个 socket，前面的 agent/ 和 settings.json 已经实际复制到临时目录。
+    const socket = createServer();
+    const listening = once(socket, "listening");
+    socket.listen(path.join(source, "zz-copy-failure"));
+    await listening;
+    try {
+      await assert.rejects(migrateAppHome(source, target, () => {}), { code: "home_migration_failed" });
+      await assert.rejects(lstat(target), { code: "ENOENT" });
+      assert.deepEqual(await readdir(path.dirname(target)), []);
+      assert.equal(await readFile(path.join(source, "settings.json"), "utf8"), "{\n  \"prompts\": {}\n}\n");
+      assert.equal(await readFile(path.join(source, "agent", "auth.json"), "utf8"), "本地测试凭据\n");
+      assert.equal(await readFile(path.join(source, "agent", "skills", "example", "SKILL.md"), "utf8"), "# 本地技能\n");
+    } finally {
+      await new Promise<void>((resolve, reject) => socket.close(error => error ? reject(error) : resolve()));
+    }
+
+    await migrateAppHome(source, target, () => {});
+    assert.equal(await readFile(path.join(target, "agent", "auth.json"), "utf8"), "本地测试凭据\n");
+    if (process.platform !== "win32") assert.equal((await stat(path.join(target, "agent", "auth.json"))).mode & 0o777, 0o600);
+    assert.deepEqual(await readdir(path.dirname(target)), [path.basename(target)]);
+    await assert.rejects(lstat(source), { code: "ENOENT" });
+  });
+}

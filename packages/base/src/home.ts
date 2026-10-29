@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { cp, lstat, mkdir, readdir, rm, rmdir } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readdir, rename, rm, rmdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RepaFault } from "./schema.js";
@@ -61,11 +61,14 @@ export async function migrateAppHome(
     warn(`应用配置使用 ${target}；旧配置仍保留在 ${source}，请按需手动整理。`);
     return;
   }
-  await mkdir(target, { recursive: true, mode: 0o700 });
+  // 只移除空目标；复制期间目标保持不存在，启动方不会读到半份配置。
+  if (await exists(target)) await rmdir(target);
+  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  const temporary = await mkdtemp(path.join(path.dirname(target), `.${path.basename(target)}-migration-`));
   try {
-    // 全部复制成功后才移除源；跨文件系统也保持原凭据权限，且不覆盖目标文件。
-    for (const name of names) {
-      await cp(path.join(source, name), path.join(target, name), {
+    // 临时目录与目标在同一文件系统，完整复制后一次改名发布；文件权限沿用源文件。
+    for (const name of names.sort()) {
+      await cp(path.join(source, name), path.join(temporary, name), {
         recursive: true,
         mode: constants.COPYFILE_EXCL,
         force: false,
@@ -73,12 +76,16 @@ export async function migrateAppHome(
         verbatimSymlinks: true,
       });
     }
+    // 新出现的非空目标会让改名失败，保留它和源配置，不覆盖已经存在的配置。
+    await rename(temporary, target);
   } catch (error) {
-    throw new RepaFault("home_migration_failed", `应用配置搬移失败，原配置保留在 ${source}；请检查 ${target} 后重试。`, {
+    throw new RepaFault("home_migration_failed", `应用配置搬移失败，原配置保留在 ${source}；下次启动会重试。`, {
       source,
       target,
       reason: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
   }
   for (const name of names) await rm(path.join(source, name), { recursive: true });
   // 旧目录也可能容纳主目录空间的数据，只删除已经搬空的目录。

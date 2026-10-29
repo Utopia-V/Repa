@@ -1,4 +1,4 @@
-import { readdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RepaFault } from "@repa/base";
@@ -21,10 +21,12 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
   return {
     id: "learning",
     async open(host) {
-      // 只有空目录是新数据；已有记录缺标记时交给显式导入处理，不擅自认领。
+      // 此目录由学习插件独占；无标记的数据来自旧版格式 1，只补标记，不改写已有记录。
       const format = path.join(host.space.dataDir, "format.json");
-      if ((await readdir(host.space.dataDir)).length === 0) {
-        await writeFile(format, `${JSON.stringify({ version: 1 })}\n`, { flag: "wx" });
+      try {
+        await writeFile(format, `${JSON.stringify({ version: 1 })}\n`, { flag: "wx", mode: 0o600 });
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
       }
       await checkFormat(format, 1);
       const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
