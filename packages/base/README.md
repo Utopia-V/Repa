@@ -355,7 +355,7 @@ async execute(input, context) {
 
 ## 协议入口
 
-协议版本为 `3`，采用带令牌的 JSON-RPC 2.0 WebSocket。参数、响应与通知类型见 [`protocol.ts`](src/protocol.ts)。`3` 在 `space.open/create` 的响应中增加 `disabledPlugins`，并提供 `plugin.disabled` 查询。客户端严格校验消息的信封，所以给信封加字段要升版本；信封里的 `Item` 和内容块按词汇规则宽松读取，词汇加字段不用升协议版本。后端发来无效数据时，客户端以 4002 主动断开。
+协议版本为 `3`，采用带令牌的 JSON-RPC 2.0 WebSocket。参数、响应与通知类型见 [`protocol.ts`](src/protocol.ts)。`3` 在 `space.open/create` 的响应中增加 `disabledPlugins`，并提供 `plugin.disabled` 查询。客户端读取响应和通知时，先用 TypeBox 的 `Value.Clean` 清理副本里的未知字段，再校验已声明字段；字段类型不对仍会断开连接。发给后端的请求照旧严格校验。增加一个旧前端可以忽略的字段不升版本，只有旧版本会读错的语义变化才升版本。`Item` 和内容块继续按词汇规则宽松读取。后端发来无效数据时，客户端以 4002 主动断开。
 
 | 组 | 方法 |
 | --- | --- |
@@ -372,6 +372,10 @@ async execute(input, context) {
 | 模型 | `model.list/providers/getDefault/setDefault`、`auth.login/setKey/logout` |
 | 设置 | `settings.get/set` |
 | 反馈 | `feedback.create` |
+
+连接在 `initialize` 中开始接收广播，同时得到 `baseline`。后端在同一段同步代码里启用广播并读取内存状态，随后立即从这条 WebSocket 写出响应；基线之后发生的事件都排在这个响应之后，批量请求也遵循这个顺序。前端收到 `initialize` 的结果以后再显示运行状态，之后按事件更新。前端接入基线由 Aqua 跟进。
+
+`baseline.space` 给出当前空间的根目录，没有打开空间时为 `null`；空间由根目录标识，没有另外的编号。`disabledPlugins` 与 `space.open` 返回的停用清单相同。`sessions` 只列正在运行或有消息排队的会话，每项包含 `sessionId`、`agent`、运行时才有的 `runId`，以及按处理顺序排列的 `queued: [{ text, mode }]`。`mode` 为 `send`、`steer` 或 `followUp`。队列先列当前 Pi 循环将消费的引导和追问消息，再列 Repa 的后续运行；有关卡的 Agent 三种消息都留在 Repa 队列中。基线不加载磁盘上的会话。
 
 ### 插件停用状态
 

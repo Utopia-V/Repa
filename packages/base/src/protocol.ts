@@ -29,8 +29,7 @@ import {
 
 export * from "./schema.js";
 export * from "./interaction.js";
-// 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。客户端严格校验已有消息的信封，加字段必须升版本；
-// 信封里的 Item 和内容块按词汇的规则宽松读取，见 lenientNotifications。
+// 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。读取时忽略未知字段；只有旧版会读错的语义变化才升版本。
 export const PROTOCOL_VERSION = "3";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
@@ -63,10 +62,11 @@ const preview = object({
 const space = object({ root: identifier });
 // 省略 agent 时指通用 Agent。
 const agent = object({ agent: Type.Optional(identifier) });
-// 历史记录由所属模块校验；这里只描述传输容器，类型导入不会把 Node 实现带到浏览器。
+// 历史记录由所属模块校验；这里显式保留开放容器的内容，Value.Clean 不清除所属模块的数据。
+// 类型导入不会把 Node 实现带到浏览器。
 const historyList = Type.Unsafe<Revision[]>(Type.Array(Type.Unknown()));
-const historyChanges = Type.Unsafe<ChangeFeed>(Type.Object({}));
-const historyUndo = Type.Unsafe<UndoResult>(Type.Object({}));
+const historyChanges = Type.Unsafe<ChangeFeed>(Type.Object({}, { additionalProperties: true }));
+const historyUndo = Type.Unsafe<UndoResult>(Type.Object({}, { additionalProperties: true }));
 const confirmationReply = Type.Union([Type.String(), Type.Boolean(), Type.Null()]);
 // 前端内存里的最近错误，随反馈请求带给后端打包；条数和长度设上限，挡住意外的大请求。
 const feedbackError = object({ time: Type.String({ maxLength: 64 }), message: Type.String({ maxLength: 4000 }), source: Type.Optional(Type.String({ maxLength: 200 })) });
@@ -79,10 +79,27 @@ export const DisabledPluginSchema = object({
 export type DisabledPlugin = Static<typeof DisabledPluginSchema>;
 const openedSpace = object({ root: identifier, disabledPlugins: Type.Array(DisabledPluginSchema) });
 
+export const SessionBaselineSchema = object({
+  sessionId: identifier,
+  agent: identifier,
+  runId: Type.Optional(identifier),
+  queued: Type.Array(object({
+    text: Type.String(),
+    mode: Type.Union([Type.Literal("send"), Type.Literal("steer"), Type.Literal("followUp")]),
+  })),
+});
+export type SessionBaseline = Static<typeof SessionBaselineSchema>;
+export const BaselineSchema = object({
+  space: Type.Union([object({ root: identifier }), Type.Null()]),
+  sessions: Type.Array(SessionBaselineSchema),
+  disabledPlugins: Type.Array(DisabledPluginSchema),
+});
+export type Baseline = Static<typeof BaselineSchema>;
+
 export const methods = {
   initialize: {
     params: object({ token: identifier, version: Type.String(), capabilities: Type.Optional(ClientCapabilitiesSchema) }),
-    result: object({ version: Type.Literal(PROTOCOL_VERSION), serverId: identifier }),
+    result: object({ version: Type.Literal(PROTOCOL_VERSION), serverId: identifier, baseline: BaselineSchema }),
   },
   "space.list": { params: empty, result: Type.Array(identifier) },
   "space.open": { params: space, result: openedSpace },
@@ -152,8 +169,8 @@ export const notifications = {
 } as const;
 
 /**
- * 接收方读取带 Item 或内容块的消息时，不整体严格校验：信封仍按 schema 严格校验，里面的 Item 和内容块按词汇的规则宽松读取。
- * 这样词汇加了可选字段，旧前端照常显示；加了必须理解的特性，按 requires 判为不能作答。没有登记的消息照旧严格校验。
+ * 接收方读取带 Item 或内容块的消息时，不整体严格校验：信封去掉未知字段后校验，里面的 Item 和内容块按词汇的规则宽松读取。
+ * 这样词汇加了可选字段，旧前端照常显示；加了必须理解的特性，按 requires 判为不能作答。没有登记的消息去掉未知字段后按 schema 校验。
  */
 export const lenientNotifications: Partial<Record<Notification, (params: unknown) => ReadResult<unknown>>> = {
   "ask.request": readAskRequest,

@@ -1,4 +1,5 @@
 import type { Static, TSchema } from "typebox";
+import type { SessionBaseline } from "./protocol.js";
 import type { AskRoute } from "./ask.js";
 import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest } from "./plugin.js";
 import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, ProviderInfo, SessionEntry, SessionInfo } from "./schema.js";
@@ -31,6 +32,8 @@ export interface AgentSpace {
   create(options?: { agent?: string; model?: ModelRef }): Promise<AgentSession>;
   get(id: string): Promise<AgentSession>;
   list(): Promise<SessionInfo[]>;
+  /** 只投影内存中正在运行或排队的会话，不加载磁盘会话。 */
+  baseline(): SessionBaseline[];
   /** 会话记录文件的路径，只读取文件、不打开会话；没有这个会话时为 undefined。 */
   sessionFile(id: string): Promise<string | undefined>;
   /** 只中止内存中属于该 Agent 的会话，不发现或加载磁盘上的旧会话。 */

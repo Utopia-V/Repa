@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
+import type { SessionBaseline } from "../protocol.js";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool, ModelCallScope } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
@@ -341,7 +342,7 @@ class Runtime implements AgentRuntime {
 }
 
 class Space implements AgentSpace {
-  private sessions = new Map<string, Promise<Session>>();
+  private sessions = new Map<string, { session: Session; ready: Promise<Session> }>();
   private closing?: Promise<void>;
   private scope?: Promise<FileScope>;
 
@@ -483,12 +484,12 @@ class Space implements AgentSpace {
     this.assertOpen();
     const id = manager.getSessionId();
     const existing = this.sessions.get(id);
-    if (existing) return existing;
+    if (existing) return existing.ready;
     const session = new Session(this, manager);
     const loading = session.initialize(reference).then(() => session);
-    this.sessions.set(id, loading);
+    this.sessions.set(id, { session, ready: loading });
     loading.catch(() => {
-      if (this.sessions.get(id) === loading) this.sessions.delete(id);
+      if (this.sessions.get(id)?.ready === loading) this.sessions.delete(id);
     });
     return loading;
   }
@@ -501,7 +502,7 @@ class Space implements AgentSpace {
   async get(id: string): Promise<Session> {
     this.assertOpen();
     const existing = this.sessions.get(id);
-    if (existing) return existing;
+    if (existing) return existing.ready;
     const sessionPath = await findSessionPath(this.options.sessionsDir, id);
     if (sessionPath === undefined) throw new RepaFault("session_not_found", "会话不存在", { id });
     const manager = SessionManager.open(sessionPath, this.options.sessionsDir, this.options.root);
@@ -514,7 +515,7 @@ class Space implements AgentSpace {
   async abortAgent(agent: string): Promise<void> {
     this.assertOpen();
     await Promise.all([...this.sessions.values()].map(async (pending) => {
-      const session = await pending;
+      const session = await pending.ready;
       if (session.info().agent === agent) {
         await session.abort();
       }
@@ -532,10 +533,17 @@ class Space implements AgentSpace {
       const parent = await readParent(this.options.sessionsDir, entry.id);
       infos.set(entry.id, describeSession(manager, model ? { provider: model.provider, id: model.modelId } : undefined, sessionAgent(manager), parent));
     }
-    for (const session of await Promise.all(this.sessions.values())) {
+    for (const session of await Promise.all([...this.sessions.values()].map((entry) => entry.ready))) {
       if (!session.modelCall) infos.set(session.info().id, session.info());
     }
     return [...infos.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  baseline(): SessionBaseline[] {
+    return [...this.sessions.values()].flatMap(({ session }) => {
+      const state = session.baseline();
+      return state === undefined ? [] : [state];
+    });
   }
 
   /** 子 Agent 的会话用完即释放 Pi 会话；之后查看历史时再从文件打开。 */
@@ -556,7 +564,7 @@ class Space implements AgentSpace {
     // 会话的创建和登记是同步的，关闭开始后不会再有新会话加入。
     this.closing ??= (async () => {
       await Promise.all([...this.sessions.values()].map(async pending => {
-        const session = await pending.catch(() => undefined);
+        const session = await pending.ready.catch(() => undefined);
         await session?.close();
       }));
       this.sessions.clear();
@@ -584,7 +592,7 @@ class Session implements AgentSession {
   private currentSections: PromptSection[] = [];
   private lastRequestAt?: number;
   private closed = false;
-  private pending = new Map<AbortController, Promise<void>>();
+  private pending = new Map<AbortController, { settled: Promise<void>; message: SessionBaseline["queued"][number] }>();
   private enqueuing = new Set<Promise<unknown>>();
   private cancelling?: Promise<void>;
   // 每次开始取消加一，插件判断期间发生过取消的消息不再投递。
@@ -776,6 +784,17 @@ class Session implements AgentSession {
     });
   }
 
+  baseline(): SessionBaseline | undefined {
+    // Pi 先消费 steer，再消费 followUp；Repa 的下一次运行要等当前 Pi 循环结束。
+    const queued: SessionBaseline["queued"] = [
+      ...(this.pi?.getSteeringMessages() ?? []).map((text) => ({ text, mode: "steer" as const })),
+      ...(this.pi?.getFollowUpMessages() ?? []).map((text) => ({ text, mode: "followUp" as const })),
+      ...[...this.pending].flatMap(([controller, entry]) => controller === this.abortController && this.runId !== undefined ? [] : [{ ...entry.message }]),
+    ];
+    if (this.runId === undefined && queued.length === 0) return undefined;
+    return { sessionId: this.manager.getSessionId(), agent: this.agent, ...(this.runId === undefined ? {} : { runId: this.runId }), queued };
+  }
+
   async send(text: string): Promise<void> {
     this.assertRunnable();
     // 没有判断的 Agent 不经过 admit，同步进入 run：多一次 await 会让紧随其后的取消拿不到这次运行。
@@ -837,13 +856,13 @@ class Session implements AgentSession {
     return { runId: outcome.runId, text: outcome.text };
   }
 
-  private async run(text: string, parent?: ParentRun): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
+  private async run(text: string, parent?: ParentRun, mode: "send" | "steer" | "followUp" = "send"): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
     this.assertAccepting();
     const runId = randomUUID();
     const controller = new AbortController();
     let finish: () => void = () => undefined;
     const settled = new Promise<void>(resolve => { finish = resolve; });
-    this.pending.set(controller, settled);
+    this.pending.set(controller, { settled, message: { text, mode } });
     const previous = this.turn;
     this.turn = settled;
     // 状态在 execute 闭包内更新；断言避免 TypeScript 按初值收窄。
@@ -855,7 +874,6 @@ class Session implements AgentSession {
     const execute = async () => {
       if (controller.signal.aborted) throw new RepaFault("cancelled", "排队中的会话运行已取消");
       if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
-      this.runId = runId;
       this.runAncestors = ancestorRunIds;
       this.abortController = controller;
       try {
@@ -864,6 +882,7 @@ class Session implements AgentSession {
           // 关卡在 Repa 队列真正轮到本条消息后执行；拒收不产生运行标记和起止事件。
           this.checkDecision(await this.profile.beforeRun?.());
           controller.signal.throwIfAborted();
+          this.runId = runId;
           started = true;
           this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart", ...(this.parent === undefined ? {} : { parent: this.parent }), ...(link === undefined ? {} : { data: link }) });
           // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
@@ -881,9 +900,7 @@ class Session implements AgentSession {
         if (controller.signal.aborted) throw new RepaFault("cancelled", "会话运行已取消");
         throw error;
       } finally {
-        this.runId = undefined;
         this.runAncestors = undefined;
-        this.abortController = undefined;
       }
     };
     try {
@@ -898,6 +915,10 @@ class Session implements AgentSession {
       throw error;
     } finally {
       // 不透明运行的结束包含空间快照提交；不能把 Pi 的模型循环结束当作整个运行结束。
+      if (this.abortController === controller) {
+        this.runId = undefined;
+        this.abortController = undefined;
+      }
       this.pending.delete(controller);
       finish();
       if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
@@ -988,7 +1009,7 @@ class Session implements AgentSession {
     if (this.profile.beforeRun !== undefined) {
       // 有运行关卡的消息必须留在 Repa 队列；Pi 内部队列没有可以拒绝消费的入口。
       const queued = this.pending.size > 0;
-      const operation = this.run(text);
+      const operation = this.run(text, undefined, mode);
       if (queued) {
         // 发送请求已经返回，失败通过 run 的会话 error 事件交给前端。
         operation.catch(() => undefined);
@@ -998,7 +1019,7 @@ class Session implements AgentSession {
       return;
     }
     if (!this.session.isStreaming) {
-      await this.run(text);
+      await this.run(text, undefined, mode);
       return;
     }
     // Pi 的输入钩子在入队前可以 await；取消必须拥有这段尚未入队的操作。
@@ -1033,7 +1054,7 @@ class Session implements AgentSession {
         const settled = await Promise.allSettled([
           this.session.abort(),
           ...enqueuing,
-          ...pending.map(([, completed]) => completed),
+          ...pending.map(([, entry]) => entry.settled),
         ]);
         const aborted = settled[0];
         if (aborted?.status === "rejected") throw aborted.reason;
