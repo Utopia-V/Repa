@@ -170,6 +170,8 @@ export interface History {
 }
 
 export interface Host {
+  /** 底座与插件共用的当前时间，Unix 毫秒。 */
+  now(): number;
   space: { root: string; dataDir: string };
   files: Files;
   history: History;

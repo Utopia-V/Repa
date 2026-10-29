@@ -19,6 +19,8 @@ export interface PluginHost {
 }
 
 export interface PluginHostOptions {
+  /** 当前时间，Unix 毫秒；省略时使用系统时钟。 */
+  now?: () => number;
   space: Space;
   plugins: Plugin[];
   models: Models;

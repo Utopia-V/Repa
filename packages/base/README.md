@@ -142,6 +142,8 @@ await backend.close();
 
 先从 `@repa/base/plugin` 导入 `Plugin`，用 `satisfies Plugin` 或类型注解约束插件入口，再运行 TypeScript 的严格检查。包内的声明由当前实现构建生成，因此类型错误直接对应当前版本的接口。参数使用 TypeBox schema；宿主在调用方法和工具前做实际校验，重复插件 id、重复工具名和覆盖内置工具也会在打开时被拒绝。
 
+插件通过 `host.now()` 取得当前时间，单位为 Unix 毫秒。后端把 Agent 运行时的时钟交给每个插件，缓存过期判断、底座发起的完成请求时间和反馈记录也使用这一时钟。默认使用系统时间；嵌入时可向 `createAgentRuntime({ agentDir, now })` 传入取时函数，测试通过闭包改变返回值，就能拨动时间。Pi 自己生成的会话头、条目时间戳仍由 Pi 管理。
+
 测试从 `@repa/base/testing` 创建临时宿主。它使用真实的空间文件、Git 历史、参数校验、变化订阅和插件关闭流程，只有 `Models` 被可控制的替身替换，因此普通测试不需要服务、模型凭据或网络。下面以包内的笔记插件为例：
 
 ```ts
@@ -166,6 +168,8 @@ test("笔记插件使用模型改写文字", async (t) => {
   assert.deepEqual(testing.errors, []);
 });
 ```
+
+测试插件的到期或限时行为时，传入 `createPluginTestHost({ plugins, now: () => now })`，再修改闭包中的 `now`。插件下一次调用 `host.now()` 就会读到新时间，不必等待真实时间经过。
 
 `host.start()` 开始追赶变化；`writeFile()` 保存文件并等待历史与插件处理完成，不靠 watcher 的触发速度判断测试结束。你也可以从 `space.files` 和 `space.history` 核对文件及修订，从 `events` 和 `errors` 断言插件发出的事件与后台错误。
 
@@ -323,7 +327,13 @@ async execute(input, context) {
 
 `session.list` 按最后一条消息的时间（`updatedAt`）从新到旧排列，`preview` 是第一条用户消息的开头，取法与 Pi 的 `SessionManager.list` 相同，供前端列出会话。`model` 是会话自己保存的模型：会话建立后沿用它，`model.setDefault` 只影响之后新建的会话，换模型用 `session.setModel`。
 
-空间的 `.repa/sessions/` 只存放本空间的会话，因此列举和按 id 查找都使用 Pi 的 `SessionManager.listAll(sessionDir)`，不再按会话头的 cwd 筛选。复制或移动空间后，旧会话仍可读取和接续；打开时通过 `cwdOverride` 使用当前空间根目录，会话头保留原值，新消息追加到当前空间里的原会话文件。
+新会话通过 Pi 1.1.0 的 `SessionManager.create(cwd, sessionDir, { id })` 建立，编号由底座传入，文件名为 `<时间戳>_<id>.jsonl`，其中时间戳的冒号和小数点替换为连字符。Pi 在第一条用户或助手消息出现时创建文件，并一起写入此前缓冲的所属 Agent、模型等条目。在此之前，会话已在内存登记，可以按编号使用和列出；关闭后不留下 jsonl 文件。
+
+打开空间的会话目录时，底座会把旧代码创建的 `<uuid>.jsonl` 按会话头里的编号和时间改为 Pi 的文件名，文件内容与父关联文件保持原样。改名先创建不覆盖目标的硬链接，再移除旧名字。目标已经存在时，内容相同（比如上次改名在建链之后中断）就补完改名；内容不同则两份都保留，按编号打开的是新名字那份。头部读不出的旧文件原样保留，和以前一样不出现在查找结果里；一份坏文件不会让整个空间打不开。文件系统不支持硬链接时保留旧文件并报告 I/O 错误。
+
+完成改名以后，按编号打开只列目录、匹配 `_<id>.jsonl`，然后由 Pi 读取这一个会话文件；找不到就返回 `session_not_found`。底座不再逐个读会话头寻找编号。列举全部会话仍使用 Pi 的 `SessionManager.listAll(sessionDir)`，并合入内存中的会话。
+
+空间的 `.repa/sessions/` 只存放本空间的会话，因此列举和打开都不按会话头的 cwd 筛选。复制或移动空间后，旧会话仍可读取和接续；打开时通过 `cwdOverride` 使用当前空间根目录，会话头保留原值，新消息追加到当前空间里的原会话文件。
 
 运行增量、工具调用、usage 和起止通过 `session.event` 通知。工具结果的 `details` 同时保留在 `toolEnd.data.details` 与 `session.history` 的工具条目 `data.details` 中；结果没有 `details` 时省略该字段。`session.send` 等待整次运行；运行中的 `steer/followUp` 使用内嵌运行时的队列。无发起连接的后台命令在询问策略下无法取得授权，会被阻止；Full Access 是显式设置，不由插件自行提升。
 
@@ -484,7 +494,7 @@ npm run real-model-check --workspace=@repa/base -- \
 
 已核对 0.87.1 之后的全部发布段落：0.99.0、0.99.1、0.99.2、1.0.0、1.0.1、1.0.2、1.0.3、1.0.4 和 1.1.0；同时核对 pi-ai 与 pi-agent-core 对应 changelog。[coding-agent changelog](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/CHANGELOG.md#110---2026-10-07)、[pi-ai changelog](https://github.com/earendil-works/pi/blob/v1.1.0/packages/ai/CHANGELOG.md#110---2026-10-07)、[agent-core changelog](https://github.com/earendil-works/pi/blob/v1.1.0/packages/agent/CHANGELOG.md#110---2026-10-07)。
 
-- 0.99.x 新增 MCP/codemode、工具 exposure/loadout、分类与图像模型、虚拟模型、ChatGPT OAuth，并改变工具选择与内置扩展加载。当前底座的 chat-only 模型读取保持原意，新增能力各自等待产品需求；首个 user 消息即落盘的修复则使上游新会话默认行为达到底座已有的首轮恢复要求。底座当前先创建空文件、再用 `SessionManager.open`，还承担创建时立即登记的生命周期责任，不能仅凭这项修复删除它。
+- 0.99.x 新增 MCP/codemode、工具 exposure/loadout、分类与图像模型、虚拟模型、ChatGPT OAuth，并改变工具选择与内置扩展加载。当前底座的 chat-only 模型读取保持原意，新增能力各自等待产品需求；首个 user 消息即落盘的修复则使上游新会话默认行为达到底座已有的首轮恢复要求。底座现已使用 `SessionManager.create` 并在内存登记新会话，首条用户消息及此前条目的落盘交给 Pi；未对话的会话关闭后不留 jsonl 文件。
 - 1.0.0 从 agent-core 移除实验 harness 和 durable 子路径。底座使用 coding-agent 的 `AgentSession` 与 `SessionManager`，这些入口保留，无需因此改用 pi-durable。TUI 全屏、主题与 MCP OAuth 变化不进入当前底座 SDK 链。
 - 1.0.1 删除发布包 `npm-shrinkwrap.json`，传递依赖改由消费者的锁文件约束；同时修复 `brace-expansion`，并为 Anthropic 提供保持缓存的原生 inline tool 重定义。1.0.2 增加按 thinking level 的采样配置，ModelRuntime 可以原生采用。
 - 1.0.3 将 Azure provider 从 `azure-openai-responses` 改为 `azure`。使用旧 provider 的凭据、模型配置、默认模型／enabledModels／thinking-level 键和 Repa 保存的 ModelRef 要迁移；旧会话恢复需要单独核对。`azure-openai-responses` API id 与 `AZURE_OPENAI_*` 环境变量保持。OAuth 刷新在请求取消后完成并保存旋转 token 的修复也会进入 ModelRuntime。

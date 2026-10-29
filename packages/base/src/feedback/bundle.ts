@@ -30,6 +30,7 @@ export interface FeedbackRequest {
 }
 
 export interface FeedbackSources {
+  now?: () => number;
   home: string;
   root: string;
   agent: AgentSpace;
@@ -150,7 +151,7 @@ export async function createFeedbackBundle(sources: FeedbackSources, request: Fe
   }
   const secrets = [...credentials, ...environmentSecrets(process.env)];
   const redactor = new Redactor(secrets);
-  const created = new Date();
+  const created = new Date(sources.now?.() ?? Date.now());
   throwIfCancelled(signal);
   const session = await sources.agent.get(request.sessionId);
   const info = session.info();

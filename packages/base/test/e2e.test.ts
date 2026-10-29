@@ -107,6 +107,10 @@ async function fixture(t: TestContext) {
           cursor = feed.revision;
         },
         methods: {
+          now: {
+            parameters: object({}),
+            async invoke() { return host.now(); },
+          },
           setView: {
             parameters: SetViewSchema,
             async invoke(input) {
@@ -135,8 +139,28 @@ async function fixture(t: TestContext) {
   };
   const send = () => client.call("session.send", { sessionId: session.id, text: "继续" });
   const history = () => client.call("session.history", { sessionId: session.id });
-  return { root, home, client, session, faux, captures, feeds, loginAnswers, respond, send, history, advance: () => { now += 2000; } };
+  return { root, home, client, session, faux, captures, feeds, loginAnswers, respond, send, history, now: () => now, advance: () => { now += 2000; } };
 }
+
+test("协议宿主把运行时的同一时钟交给插件，拨动后缓存按新时间过期", async (t) => {
+  const f = await fixture(t);
+  const pluginNow = () => f.client.call("plugin.call", { pluginId: "probe", method: "now", input: {} });
+  assert.equal(await pluginNow(), f.now());
+  f.respond();
+  await f.send();
+  await f.client.call("plugin.call", { pluginId: "probe", method: "setView", input: { text: "拨动时间后的状态" } });
+  f.respond();
+  await f.send();
+  assert.equal(viewTexts(f.captures.at(-1) as TranscriptContext).length, 2);
+  const before = f.now();
+  f.advance();
+  assert.equal(await pluginNow(), before + 2000);
+  f.respond();
+  await f.send();
+  const views = viewTexts(f.captures.at(-1) as TranscriptContext);
+  assert.equal(views.length, 1);
+  assert.match(views[0] ?? "", /拨动时间后的状态/u);
+});
 
 test("通过浏览器客户端打开空间、调用插件工具、记录整次运行并撤回", { timeout: 30000 }, async (t) => {
   const f = await fixture(t);

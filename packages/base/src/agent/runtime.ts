@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, createReadStream, openSync } from "node:fs";
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { createInterface } from "node:readline";
 import { type AuthEvent, type AuthPrompt, type Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
@@ -29,6 +27,7 @@ import { credentialValues } from "../feedback/redact.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { limitToolText } from "./output.js";
 import { readParent, saveParent } from "./parent.js";
+import { findSessionPath, migrateSessionFiles } from "./session-files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
 
@@ -36,7 +35,6 @@ export interface AgentTestOptions extends AgentRuntimeOptions {
   modelRuntime: ModelRuntime;
   defaultModel?: ModelRef;
   settingsManager?: SettingsManager;
-  now?: () => number;
   viewBatchSize?: number;
   cacheTtlMs?: number;
   extensionFactories?: ExtensionFactory[];
@@ -113,25 +111,6 @@ function sessionAgent(manager: SessionManager): string {
   throw new RepaFault("invalid_session_agent", "会话的 Agent 记录无法读取", { id: manager.getSessionId() });
 }
 
-async function hasSessionId(file: string, id: string): Promise<boolean> {
-  const input = createReadStream(file, { encoding: "utf8" });
-  const lines = createInterface({ input, crlfDelay: Infinity });
-  try {
-    for await (const line of lines) {
-      const header: unknown = JSON.parse(line);
-      return header !== null && typeof header === "object" && "type" in header
-        && header.type === "session" && "id" in header && header.id === id;
-    }
-    return false;
-  } catch (error) {
-    if (error instanceof SyntaxError) return false;
-    throw error;
-  } finally {
-    lines.close();
-    input.destroy();
-  }
-}
-
 function toolDefinition(tool: AgentTool): ToolDefinition {
   return defineTool({
     name: tool.name,
@@ -156,6 +135,10 @@ class Runtime implements AgentRuntime {
     // 项目设置只由 Repa 持有；Pi 不读取空间中的 .pi/settings.json。
     this.settings = options.settingsManager ?? SettingsManager.create(options.agentDir, options.agentDir, { projectTrusted: false });
     this.checkSettings();
+  }
+
+  now(): number {
+    return this.options.now?.() ?? Date.now();
   }
 
   checkSettings(): void {
@@ -192,6 +175,7 @@ class Runtime implements AgentRuntime {
       if (!known.has(agent)) throw new RepaFault("unknown_agent", "装配指定的直接对话 Agent 不存在或未启用", { agent });
     }
     await mkdir(options.sessionsDir, { recursive: true });
+    await migrateSessionFiles(options.sessionsDir);
     const space = new Space(this, options, () => this.spaces.delete(space));
     this.spaces.add(space);
     return space;
@@ -335,7 +319,7 @@ class Runtime implements AgentRuntime {
     this.assertOpen();
     const model = this.model(request.model);
     if (!model) throw new RepaFault("model_required", "请选择可用模型");
-    const timestamp = Date.now();
+    const timestamp = this.now();
     const message = await this.options.modelRuntime.completeSimple(model, {
       messages: [
         ...(request.system ? [{ role: "system" as const, content: request.system, timestamp }] : []),
@@ -505,12 +489,7 @@ class Space implements AgentSpace {
     const agent = options.agent ?? GENERAL_AGENT;
     // 先确认 Agent 可用，不留下打不开的会话文件。
     this.profile(agent);
-    const file = path.join(this.options.sessionsDir, `${randomUUID()}.jsonl`);
-    // Pi 的会话入口同步建立 header；同步创建这个空文件使初始化立即登记，close 能拥有整个生命周期。
-    const descriptor = openSync(file, "wx");
-    closeSync(descriptor);
-    // 已打开的文件会逐条保存，首个 assistant 前也不丢消息。
-    const manager = SessionManager.open(file, this.options.sessionsDir, this.options.root);
+    const manager = SessionManager.create(this.options.root, this.options.sessionsDir, { id: randomUUID() });
     // 装配和运行之前保存父关联，runStart 只能看到已落盘的关联。
     if (options.parent !== undefined) await saveParent(this.options.sessionsDir, manager.getSessionId(), options.parent);
     // 所属 Agent 写在会话开头，不进入模型上下文；分支复制全部条目，也就沿用同一个 Agent。
@@ -532,31 +511,22 @@ class Space implements AgentSpace {
     return loading;
   }
 
-  private async findSessionPath(id: string): Promise<string | undefined> {
-    const files = (await readdir(this.options.sessionsDir)).filter(file => file.endsWith(".jsonl"));
-    // Pi 1.1.0 的 create/fork 使用 <时间戳>_<id>.jsonl；文件名只加速定位，正确性靠会话头核验。
-    const matchesName = (file: string) => file.endsWith(`_${id}.jsonl`);
-    const ordered = [...files.filter(matchesName), ...files.filter(file => !matchesName(file))];
-    for (const file of ordered) {
-      const sessionPath = path.join(this.options.sessionsDir, file);
-      // 目录归当前空间所有；仅核对头部的 type/id，不按旧 cwd 过滤。
-      if (await hasSessionId(sessionPath, id)) return sessionPath;
-    }
-    return undefined;
-  }
-
   async sessionFile(id: string): Promise<string | undefined> {
     this.assertOpen();
-    return this.findSessionPath(id);
+    return findSessionPath(this.options.sessionsDir, id);
   }
 
   async get(id: string): Promise<Session> {
     this.assertOpen();
     const existing = this.sessions.get(id);
     if (existing) return existing;
-    const sessionPath = await this.findSessionPath(id);
+    const sessionPath = await findSessionPath(this.options.sessionsDir, id);
     if (sessionPath === undefined) throw new RepaFault("session_not_found", "会话不存在", { id });
-    return this.load(SessionManager.open(sessionPath, this.options.sessionsDir, this.options.root));
+    const manager = SessionManager.open(sessionPath, this.options.sessionsDir, this.options.root);
+    if (manager.getSessionId() !== id) {
+      throw new RepaFault("invalid_session_header", "会话编号与文件名不一致", { id, path: sessionPath });
+    }
+    return this.load(manager);
   }
 
   async abortAgent(agent: string): Promise<void> {
@@ -652,7 +622,7 @@ class Session implements AgentSession {
   }
 
   now(): number {
-    return this.space.runtime.options.now?.() ?? Date.now();
+    return this.space.runtime.now();
   }
 
   async initialize(reference?: ModelRef): Promise<void> {
@@ -1089,7 +1059,7 @@ class Session implements AgentSession {
     this.space.assertOpen();
     await this.session.waitForIdle();
     if (!this.manager.getBranch().some(entry => entry.id === entryId)) throw new RepaFault("entry_not_found", "会话条目不存在");
-    const source = this.manager.getSessionFile();
+    const source = await this.space.sessionFile(this.manager.getSessionId());
     if (!source) throw new RepaFault("session_not_persisted", "会话尚未保存");
     const manager = SessionManager.forkFrom(source, this.space.options.root, this.space.options.sessionsDir);
     manager.branch(entryId);
@@ -1110,7 +1080,9 @@ class Session implements AgentSession {
 
 /** 列表用的会话摘要。时间和第一条用户消息与 Pi 的 SessionManager.list 取法一致，已打开的会话也能即时算出。 */
 function describeSession(manager: SessionManager, model: ModelRef | undefined, agent: string, parent: SessionParent | undefined): SessionInfo {
-  const createdAt = manager.getHeader()?.timestamp ?? new Date().toISOString();
+  const header = manager.getHeader();
+  if (!header) throw new RepaFault("invalid_session_header", "会话缺少头部", { id: manager.getSessionId() });
+  const createdAt = header.timestamp;
   let updatedAt = createdAt;
   let preview: string | undefined;
   for (const entry of manager.getEntries()) {

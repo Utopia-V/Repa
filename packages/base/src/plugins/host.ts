@@ -216,6 +216,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       const dataDir = await space.pluginDataDir(plugin.id);
       const ownedAgents = new Set<string>();
       const host: Host = {
+        now: options.now ?? Date.now,
         space: { root: space.root, dataDir },
         files: space.filesFor({ kind: "plugin", pluginId: plugin.id }),
         history: {

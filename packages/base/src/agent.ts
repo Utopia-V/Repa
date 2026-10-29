@@ -66,6 +66,8 @@ export interface AgentSpaceOptions {
 }
 
 export interface AgentRuntime {
+  /** 底座与插件共用的当前时间，Unix 毫秒。 */
+  now(): number;
   openSpace(options: AgentSpaceOptions): Promise<AgentSpace>;
   listModels(): Promise<{ provider: string; id: string; name: string; available: boolean }[]>;
   listProviders(): Promise<ProviderInfo[]>;
@@ -83,6 +85,8 @@ export interface AgentRuntime {
 }
 
 export interface AgentRuntimeOptions {
+  /** 当前时间，Unix 毫秒；省略时使用系统时钟。测试可通过闭包设定和拨动时间。 */
+  now?: () => number;
   agentDir: string;
   /** 默认在提示段变化后的下一轮附上一次说明；关闭仅影响说明，不影响 Pi 的提示更新。 */
   promptChangeNotice?: boolean;

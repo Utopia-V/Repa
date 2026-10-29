@@ -12,8 +12,10 @@ export interface RecordedError {
 export class RecentErrors {
   private readonly entries: RecordedError[] = [];
 
+  constructor(private readonly now: () => number = Date.now) {}
+
   add(entry: Omit<RecordedError, "time">): void {
-    this.entries.push({ time: new Date().toISOString(), ...entry });
+    this.entries.push({ time: new Date(this.now()).toISOString(), ...entry });
     if (this.entries.length > LIMIT) this.entries.shift();
   }
 

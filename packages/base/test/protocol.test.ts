@@ -22,6 +22,7 @@ async function fixture(
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-protocol-"));
   const runtime: AgentRuntime = {
+    now: Date.now,
     async openSpace() { throw new Error("该协议边界测试不打开 Agent 空间"); },
     async listModels() { return []; },
     async listProviders() { return []; },

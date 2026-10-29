@@ -428,6 +428,8 @@ test("中止失败保留 preparing，整空间重开后显式继续同一个受�
   const f = await fixture(t);
   await f.select();
   await f.finish();
+  f.faux.setResponses([fauxAssistantMessage("已完成本轮学习")]);
+  await f.client.call("session.send", { sessionId: f.session.id, text: "回顾本轮学习" });
   f.time(f.now() + 10 * 86_400_000);
   f.failNextAbort();
   await assert.rejects(f.select("review"), fault("abort_failed"));
