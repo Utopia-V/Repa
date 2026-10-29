@@ -1,6 +1,7 @@
 import type { SpaceHistory } from "./history.js";
 
 // notify(path) 报告变化的路径，相对空间根目录、用 / 分隔；不知道具体路径时调用 notify()。
+/** 将调用方提供的文件监听接到历史快照；关闭时停止监听并等待待处理变化落入历史。 */
 export function watchHistory(
   history: Pick<SpaceHistory, "snapshot" | "snapshotPaths">,
   watch: (notify: (path?: string) => void) => () => void,

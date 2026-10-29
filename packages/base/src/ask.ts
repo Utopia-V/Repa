@@ -16,6 +16,7 @@ import { object, RepaFault } from "./schema.js";
 /** 一次询问，由路由分配 id 并决定发给哪个连接。 */
 export type AskInput = Omit<AskRequest, "id">;
 
+/** 询问路由的取消与提交处理选项，用于将插件语义校验接入卡片提交。 */
 export interface AskRouteOptions {
   signal?: AbortSignal;
   /** 作答通过结构检查后交给调用方：invalid 时卡片保持打开，accepted 时关闭。省略时通过结构检查就接受。 */

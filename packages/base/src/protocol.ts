@@ -30,6 +30,7 @@ import {
 export * from "./schema.js";
 export * from "./interaction.js";
 // 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。读取时忽略未知字段；只有旧版会读错的语义变化才升版本。
+/** 当前前后端协议版本；连接初始化时用于拒绝无法正确理解的协议。 */
 export const PROTOCOL_VERSION = "3";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
@@ -41,6 +42,7 @@ export const ClientCapabilitiesSchema = object({
   interaction: Type.Optional(InteractionCapabilitiesSchema),
   services: Type.Optional(Type.Array(serviceName, { maxItems: 64 })),
 });
+/** 客户端能渲染的交互词汇与可提供的服务，用于筛选询问和路由服务请求。 */
 export type ClientCapabilities = Static<typeof ClientCapabilitiesSchema>;
 // 服务的输入和结果由提供方与调用方约定，底座只转交。
 const serviceRequest = object({ id: identifier, service: serviceName, input: Type.Unknown() });
@@ -76,9 +78,11 @@ export const DisabledPluginSchema = object({
   id: identifier,
   reason: object({ code: identifier, message: Type.String() }),
 });
+/** 打开空间时被停用插件的说明，前端用 code 分支并显示 reason.message。 */
 export type DisabledPlugin = Static<typeof DisabledPluginSchema>;
 const openedSpace = object({ root: identifier, disabledPlugins: Type.Array(DisabledPluginSchema) });
 
+/** 重接时投影会话当前运行和排队消息的 schema，不加载盘上空闲会话。 */
 export const SessionBaselineSchema = object({
   sessionId: identifier,
   agent: identifier,
@@ -88,14 +92,18 @@ export const SessionBaselineSchema = object({
     mode: Type.Union([Type.Literal("send"), Type.Literal("steer"), Type.Literal("followUp")]),
   })),
 });
+/** 单个内存会话的重接基线，前端据此恢复运行与排队状态。 */
 export type SessionBaseline = Static<typeof SessionBaselineSchema>;
+/** 连接初始化时返回的空间、会话和停用插件基线，用于恢复前端状态。 */
 export const BaselineSchema = object({
   space: Type.Union([object({ root: identifier }), Type.Null()]),
   sessions: Type.Array(SessionBaselineSchema),
   disabledPlugins: Type.Array(DisabledPluginSchema),
 });
+/** 初始化连接的状态基线，与后续通知衔接以重建前端当前画面。 */
 export type Baseline = Static<typeof BaselineSchema>;
 
+/** 底座全部 JSON-RPC 方法的参数与结果 schema，服务端和客户端共用此登记。 */
 export const methods = {
   initialize: {
     params: object({ token: identifier, version: Type.String(), capabilities: Type.Optional(ClientCapabilitiesSchema) }),
@@ -158,6 +166,7 @@ export const methods = {
   },
 } as const;
 
+/** 底座发给客户端的全部通知 schema，供两端校验通知参数。 */
 export const notifications = {
   "session.event": AgentEventSchema,
   "confirm.request": object({ id: identifier, request: ConfirmationSchema }),
@@ -175,12 +184,18 @@ export const notifications = {
 export const lenientNotifications: Partial<Record<Notification, (params: unknown) => ReadResult<unknown>>> = {
   "ask.request": readAskRequest,
 };
+/** 含可扩展交互词汇的方法结果读取器，供客户端保留词汇的宽松读取语义。 */
 export const lenientResults: Partial<Record<Method, (result: unknown) => ReadResult<unknown>>> = {
   "ask.reply": readAskReplyResult,
 };
 
+/** 底座协议方法名，用于限定客户端调用和服务端分派。 */
 export type Method = keyof typeof methods;
+/** 指定协议方法的参数类型，从方法登记的 schema 推导。 */
 export type Params<M extends Method> = Static<(typeof methods)[M]["params"]>;
+/** 指定协议方法的结果类型，从方法登记的 schema 推导。 */
 export type Result<M extends Method> = Static<(typeof methods)[M]["result"]>;
+/** 底座通知名，用于限定订阅与服务端推送。 */
 export type Notification = keyof typeof notifications;
+/** 指定通知的参数类型，从通知登记的 schema 推导。 */
 export type NotificationParams<N extends Notification> = Static<(typeof notifications)[N]>;

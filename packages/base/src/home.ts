@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { RepaFault } from "./schema.js";
 
+/** 应用配置目录的解析选项；测试和嵌入方可显式指定目录、平台与环境。 */
 export interface AppHomeOptions {
   home?: string;
   platform?: NodeJS.Platform;

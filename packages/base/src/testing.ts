@@ -24,12 +24,14 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+/** 离线单次生成的控制句柄，测试可观察请求后安排成功或失败。 */
 export interface TestCompletion<T> {
   requested: Promise<CompletionRequest>;
   succeed(value: T): void;
   fail(error: unknown): void;
 }
 
+/** 离线 Agent 工作的控制句柄，测试可观察任务、取消请求并决定终态。 */
 export interface TestAgent {
   id: string;
   requested: Promise<AgentTask>;
@@ -45,12 +47,14 @@ type CompletionPlan = {
 };
 type AgentPlan = { requested: ReturnType<typeof deferred<AgentTask>>; work: AgentWork };
 
+/** 离线驱动捕获的模型调用，用于断言文本、结构化生成与 Agent 任务请求。 */
 export type TestModelCall =
   | { kind: "complete"; request: CompletionRequest }
   | { kind: "structured"; request: CompletionRequest; schema: TSchema }
   | { kind: "agent"; task: AgentTask };
 
 // 替身只放在 Models 边界；输入 schema 仍走真实校验。
+/** Models 边界的离线测试驱动，按预先安排的结果响应并保留调用记录。 */
 export class ModelTestDriver implements Models {
   readonly calls: TestModelCall[] = [];
   private readonly completions: CompletionPlan[] = [];
@@ -141,6 +145,7 @@ export class ModelTestDriver implements Models {
   }
 }
 
+/** 临时空间及其插件宿主的测试夹具，关闭时等待资源收尾并删除目录。 */
 export interface PluginTestHost {
   directory: string;
   space: Space;
@@ -152,6 +157,7 @@ export interface PluginTestHost {
   close(): Promise<void>;
 }
 
+/** 离线插件宿主的装配选项，用于提供插件、时钟、模型驱动及模拟用户服务。 */
 export interface PluginTestHostOptions {
   /** 当前时间，Unix 毫秒；省略时使用系统时钟。 */
   now?: () => number;
@@ -166,6 +172,7 @@ export interface PluginTestHostOptions {
   services?: Services;
 }
 
+/** 在临时空间中打开真实插件宿主并注入离线模型驱动，供插件集成测试使用。 */
 export async function createPluginTestHost(options: PluginTestHostOptions): Promise<PluginTestHost> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-plugin-test-"));
   const errors: unknown[] = [];

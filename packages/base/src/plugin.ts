@@ -29,6 +29,7 @@ export type AskOutcome =
   | { action: "cancel" }
   | { action: "unsupported" };
 
+/** 插件工具一次调用的上下文，提供取消信号、调用 id 和用户询问入口。 */
 export interface ToolContext {
   signal: AbortSignal;
   callId: string;
@@ -40,6 +41,7 @@ export interface ToolContext {
   ask(options: AskOptions): Promise<AskOutcome>;
 }
 
+/** 插件向 Agent 声明的工具；宿主校验参数后调用 execute。 */
 export interface Tool {
   name: string;
   description: string;
@@ -48,11 +50,13 @@ export interface Tool {
   execute(input: unknown, context: ToolContext): Promise<{ text: string; data?: unknown }>;
 }
 
+/** 插件协议方法的调用上下文，用于读取发起连接的渲染能力。 */
 export interface MethodContext {
   /** 经协议调用时是发起调用的连接；capabilities 是它在 initialize 里的声明，挑选交给前端的内容时用 canRender 过滤。 */
   caller?: { capabilities: ClientCapabilities };
 }
 
+/** 插件向协议客户端公开的方法，参数与可选结果 schema 由宿主校验。 */
 export interface PluginMethod {
   parameters: TSchema;
   /** 返回值的 schema。宿主交回前按它校验，不符合时以 invalid_plugin_result 拒绝；严格对象能拦住多带的字段。 */
@@ -72,6 +76,7 @@ export interface Services {
   call(service: string, input: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
 }
 
+/** 插件发起单次模型生成的请求，可指定系统提示、模型和取消信号。 */
 export interface CompletionRequest {
   prompt: string;
   system?: string;
@@ -79,6 +84,7 @@ export interface CompletionRequest {
   signal?: AbortSignal;
 }
 
+/** 插件交给 Agent 的任务，供后台运行及指定角色执行。 */
 export interface AgentTask {
   text: string;
   model?: ModelRef;
@@ -88,6 +94,7 @@ export interface AgentTask {
 
 /** 底座提供的 Pi 内置工具。通用 Agent 全部都有；插件 Agent 不能选 grep，见 AgentDefinition.tools。 */
 export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
+/** Pi 内置工具的名称联合，供插件声明 Agent 工具范围。 */
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 /** 底座的询问工具：通用 Agent 默认带上，插件 Agent 在 tools 里列出才有。 */
 export const ASK_USER_TOOL = "ask_user";
@@ -135,6 +142,7 @@ export interface AgentDefinition {
 }
 
 // Host.models 返回的句柄由宿主持有并在关闭时取消、等待 result；插件可提前取消，重复调用共享同一次取消。
+/** 宿主持有的 Agent 任务句柄，插件用它等待终态或提前取消。 */
 export interface AgentWork {
   id: string;
   result: Promise<void>;
@@ -142,12 +150,14 @@ export interface AgentWork {
 }
 
 // Host.models 的工作由宿主拥有；关闭会取消请求并等待终态，再调用插件 close。
+/** 插件可用的模型能力，统一提供文本生成、结构化生成和 Agent 任务。 */
 export interface Models {
   complete(request: CompletionRequest): Promise<string>;
   completeStructured<S extends TSchema>(request: CompletionRequest, schema: S): Promise<Static<S>>;
   runAgent(task: AgentTask): Promise<AgentWork>;
 }
 
+/** 可提前关闭的一组模型工作，供父插件管理子插件的取消与等待。 */
 export interface ModelScope {
   models: Models;
   close(): Promise<void>;
@@ -159,47 +169,63 @@ export { createModelScope } from "./plugins/models.js";
 // 工具在 Agent 运行内执行时，可读到本次运行与父运行的 id。
 export { currentRun, type RunContext } from "./run-context.js";
 
+/** 空间内的文本文件入口，写入接入空间历史，供插件读写领域资料。 */
 export interface Files {
   read(file: string): Promise<string>;
   write(file: string, text: string): Promise<void>;
   list(directory?: string): Promise<string[]>;
 }
 
+/** 插件可用的空间历史入口，用于读取变化或记录带来源的一组操作。 */
 export interface History {
   changes(since?: string): Promise<ChangeFeed>;
   list(limit?: number): Promise<Revision[]>;
   record<T>(source: ActivitySource, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }>;
 }
 
+/** 底座交给插件的空间能力，插件通过它访问文件、历史、模型和前端服务。 */
 export interface Host {
   /** 底座与插件共用的当前时间，Unix 毫秒。 */
   now(): number;
+  /** 空间根目录与本插件独占的数据目录；持久状态写入 dataDir。 */
   space: { root: string; dataDir: string };
+  /** 读写空间内的文本文件，写入归属当前运行或插件。 */
   files: Files;
+  /** 查询文件变化，或以指定来源记录一组空间操作。 */
   history: History;
+  /** 发起由宿主持有生命周期的模型请求与 Agent 工作。 */
   models: Models;
+  /** 调用前端声明的服务；输入与结果由插件和服务提供方约定。 */
   services: Services;
   /** 中止本插件声明的 Agent 的现有会话运行；等待 Pi 停稳并沿用原取消队列语义。 */
   abortAgent(agent: string): Promise<void>;
+  /** 向订阅空间的连接发布本插件的事件，宿主补上插件 id。 */
   emit(event: unknown): void;
 }
 
+/** 可由底座加载的插件定义；open 为一个空间创建独立实例。 */
 export interface Plugin {
+  /** 插件唯一标识，用作协议命名空间与独占数据目录名。 */
   id: string;
-  // open 尚未返回实例时，插件负责清理自己已经打开的子实例与其他局部资源。
+  /** 为一个空间打开实例；返回前失败时，插件负责清理已打开的子实例与局部资源。 */
   open(host: Host): Promise<PluginInstance>;
 }
 
+/** 插件在一个空间中的实例，向宿主声明能力并持有相应的关闭责任。 */
 export interface PluginInstance {
+  /** 交给通用 Agent 的常驻说明，作为插件命名提示段。 */
   instructions?(): string;
+  /** 本插件提供的 Agent 工具，打开时读取并校验名称与参数声明。 */
   tools?(): Tool[];
   /** 本领域的 Agent；打开插件时读取一次。 */
   agents?(): AgentDefinition[];
+  /** 通用 Agent 当前需要的领域状态；undefined 表示本轮无可投影内容。 */
   view?(): Promise<string | undefined>;
+  /** 按修订追赶空间文件变化；宿主串行调度并在关闭前等待。 */
   onChange?(revision: string): Promise<void>;
+  /** 公开给协议客户端的方法，以本插件 id 作为命名空间。 */
   methods?: Record<string, PluginMethod>;
-  // 宿主先取消模型、等在途调用，再关闭直接加载的实例；父插件另行关闭子实例时也负责停止它的工作。
-  // close 必须等待插件自有的通知与非模型后台工作完成。
+  /** 宿主取消模型并等待在途调用后关闭实例；此处还须等待插件自有通知与非模型后台工作。父插件自行关闭子实例时也负责先停止其工作。 */
   close?(): Promise<void>;
 }
 

@@ -13,6 +13,7 @@ export interface AgentTool {
   execute(input: unknown, context: { signal: AbortSignal; callId: string }): Promise<{ text: string; data?: unknown }>;
 }
 
+/** 一个固定归属 Agent 的会话；用于发送消息、排队、切换模型及读取公开历史。 */
 export interface AgentSession {
   info(): SessionInfo;
   history(): SessionEntry[];
@@ -25,6 +26,7 @@ export interface AgentSession {
   fork(entryId: string): Promise<AgentSession>;
 }
 
+/** 一个空间中的 Agent 会话集合；用于创建、恢复、运行及关闭会话。 */
 export interface AgentSpace {
   /** 当前可用的 Agent；关掉的通用 Agent 不在其中。 */
   agents(): AgentInfo[];
@@ -75,6 +77,7 @@ export interface ModelCallScope {
   sessionsDir: string;
 }
 
+/** 应用持有的 Agent 运行时，统一管理模型、凭据、空间会话和插件模型调用。 */
 export interface AgentRuntime {
   /** 底座与插件共用的当前时间，Unix 毫秒。 */
   now(): number;

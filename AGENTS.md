@@ -66,6 +66,8 @@ Repa 正在重做。旧实现已从工作树删除，保留在标签 `pre-rebuil
 
 ## 工作入口
 
+- 加一个机制之前，先查 [packages/README.md](packages/README.md) 和 [docs/generated/](docs/generated/) 里的目录，看已有的做法。
+
 - 文档放在哪、怎么写，见 [docs/AGENTS.md](docs/AGENTS.md)。
 - 写包的约定，见 [packages/AGENTS.md](packages/AGENTS.md)。
 - 改了代码，同一个提交里更新受影响的文档，`npm test` 会跑文档检查。

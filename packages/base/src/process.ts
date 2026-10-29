@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { ClientConnection } from "./client.js";
 
+/** Node 宿主启动后端子进程的选项，指定应用配置、插件、环境和启动等待时限。 */
 export interface RepaProcessOptions {
   home?: string;
   /** 本机可信插件构建目录，按顺序传给 --plugin。 */
@@ -13,6 +14,7 @@ export interface RepaProcessOptions {
   startupTimeoutMs?: number;
 }
 
+/** Node 宿主持有的后端进程句柄，用于取得连接并等待关闭后的持久化完成。 */
 export interface RepaProcess {
   readonly connection: ClientConnection;
   readonly closed: Promise<void>;

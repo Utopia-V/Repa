@@ -33,6 +33,7 @@ export type HistoryErrorCode =
   // 没有可撤回的改动：运行及其子孙运行没有提交，或目标是空间的初始快照。
   | "nothing_to_undo";
 
+/** 空间历史可由调用方处理的错误，code 区分不存在的修订与不可撤回的操作。 */
 export class HistoryError extends Error {
   constructor(readonly code: HistoryErrorCode, message: string) {
     super(message);
@@ -154,6 +155,7 @@ function quoted(file: string): string {
   return `"${file.replace(/[\\"\n]/g, (character) => (character === "\n" ? "\\n" : `\\${character}`))}"`;
 }
 
+/** 基于 Git 保存文件快照的历史库，提供变化查询、来源记录与选择性撤回。 */
 export class SpaceHistory {
   private readonly git: Git;
   private readonly maxFileBytes: number;
@@ -800,4 +802,5 @@ export class SpaceHistory {
   }
 }
 
+/** 打开指定目录的空间历史并建立当前基线，供空间模块管理快照与撤回。 */
 export const openHistory = (space: string, options?: HistoryOptions): Promise<SpaceHistory> => SpaceHistory.open(space, options);

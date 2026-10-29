@@ -30,8 +30,9 @@
     "predev:learning": "npm run build:packages",
     "dev:learning": "npm --workspace=@repa/base run start -- serve --plugin ../learning --no-general-agent --direct-agent learning-tutor",
     "build:packages": "tsc -b tsconfig.build.json && npm run build:assets --workspaces --if-present",
-    "docs:check": "tsx scripts/docs/check.ts",
-    "test:docs-scripts": "node --import tsx --test scripts/docs/*.test.ts"
+    "docs:check": "tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/check.ts",
+    "test:docs-scripts": "tsx --tsconfig scripts/docs/tsconfig.json --test scripts/docs/*.test.ts",
+    "docs:gen": "tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-packages.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-protocol.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-tools.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-host-api.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-persistence.ts"
   },
   "devDependencies": {
     "github-slugger": "^2.0.0",
