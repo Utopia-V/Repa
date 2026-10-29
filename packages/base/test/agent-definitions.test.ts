@@ -437,3 +437,25 @@ test("插件第一次处理变化就失败时，只停它和依赖它的插件�
   const history = await f.client.call("session.history", { sessionId: session.id });
   assert.equal(history.find((entry) => entry.type === "tool")?.text, "课程：for 循环");
 });
+
+
+test("视图与运行关卡抛出的普通错误保留原对象，不被转换成拒收", async t => {
+  const viewError = new Error("视图渲染的原始错误");
+  const gateError = new Error("关卡的原始错误");
+  let failGate = false;
+  const f = await runtimeFixture(t, {
+    agents: () => [{
+      ...tutor,
+      async beforeRun() {
+        if (failGate) throw gateError;
+      },
+      async view() { throw viewError; },
+    }],
+  });
+  const session = await f.space.create({ agent: "tutor" });
+  await assert.rejects(session.send("读取视图"), error => error === viewError);
+  failGate = true;
+  await assert.rejects(session.send("先检查关卡"), error => error === gateError);
+  assert.equal(f.faux.state.callCount, 0);
+  assert.deepEqual(session.history().filter(entry => entry.type === "user" || entry.type === "run"), []);
+});

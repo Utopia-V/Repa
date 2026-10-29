@@ -253,9 +253,24 @@ export async function connectTutor(
           throw error;
         }
       },
+      async beforeRun() {
+        try {
+          requireReferenceAccess(records.current());
+        } catch (error) {
+          if (error instanceof RepaFault && error.code === "restricted") {
+            return {
+              status: "rejected",
+              reason: "restricted",
+              message: error.message,
+              ...(error.details === undefined ? {} : { data: error.details }),
+            };
+          }
+          throw error;
+        }
+      },
       async view() {
-        // 取消之前已经放行、但尚未启动的消息，也必须在模型请求前检查当前任务。
-        const current = requireReferenceAccess(records.current());
+        const current = records.current();
+        if (!current) throw new RepaFault("service_failed", "学习状态尚未初始化");
         const task = current.state.task;
         const delivery = currentDelivery(task ?? null);
         const topic = course.topics.find((entry) => entry.id === task?.topicIds[0]);

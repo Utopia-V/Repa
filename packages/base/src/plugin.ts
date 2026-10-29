@@ -115,7 +115,7 @@ export interface AgentDefinition {
   instructions(): string;
   /**
    * 可用工具的名称：BUILTIN_TOOLS 中除 grep 外的内置工具、ask_user 与任一插件的工具。
-   * 内置文件工具限在空间内且不进 .repa/；bash 仍按命令策略确认。列了 grep 时插件打开失败，
+   * 内置文件工具限在空间内，仅 read 可以读取 .repa/tool-output/；bash 仍按命令策略确认。列了 grep 时插件打开失败，
    * 需要搜索内容的插件提供自己的工具。
    */
   tools: string[];
@@ -123,13 +123,15 @@ export interface AgentDefinition {
   subagents?: string[];
   /** 用户能否直接与它建会话；装配可以另行指定。默认否。 */
   direct?: boolean;
-  /** 本 Agent 的运行时状态，作为 view agent:<id>。 */
+  /** 只渲染本 Agent 的运行时状态，作为 view agent:<id>；运行限制放在 beforeRun。 */
   view?(): Promise<string | undefined>;
   /**
    * 用户消息进入会话前的判断。返回拒收时消息不写入会话，前端收到 message_rejected；
    * 不返回或返回 accepted 时照常处理，插件可以在这里只记下这次提问。抛错同样拒收。
    */
   beforeMessage?(message: UserMessage): Promise<MessageDecision | void>;
+  /** 每条消息真正运行前判断，包括排队后的消息；拒收时不写会话、不启动模型。 */
+  beforeRun?(): Promise<MessageDecision | void>;
 }
 
 // Host.models 返回的句柄由宿主持有并在关闭时取消、等待 result；插件可提前取消，重复调用共享同一次取消。

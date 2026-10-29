@@ -316,7 +316,10 @@ test("复习 preparing 先拒收消息和内容，回复取消停稳后才计时
   const calls = f.faux.state.callCount;
   await assert.rejects(f.client.call("plugin.call", {
     pluginId: "learning", method: "probe.tutor", input: {},
-  }), fault("restricted"));
+  }), fault("message_rejected"));
+  const preview = await f.client.call("prompt.preview", { agent: TUTOR_AGENT });
+  assert.equal(preview.views.length, 1);
+  assert.match(preview.views[0]?.text ?? "", /awaiting_answer/u);
   assert.equal(f.faux.state.callCount, calls);
   await f.finish();
   await f.call("content.read", { refs: [ref], offset: 0, limit: 8 });

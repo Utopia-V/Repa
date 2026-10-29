@@ -373,14 +373,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         now: () => runtime.now(),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
         services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
-        models: {
-            complete: (request) => runtime.complete(request),
-          completeStructured: (request, schema) => runtime.completeStructured(request, schema),
+        models: (pluginId) => ({
+          complete: (request) => runtime.complete(request, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
+          completeStructured: (request, schema) => runtime.completeStructured(request, schema, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
           runAgent: (task) => {
             if (!agent) return Promise.reject(new RepaFault("space_not_ready", "空间尚未完成打开"));
             return agent.runAgent(task);
           },
-        },
+        }),
         async abortAgent(id) {
           if (!agent) {
             throw new RepaFault("space_not_ready", "空间尚未完成打开");
