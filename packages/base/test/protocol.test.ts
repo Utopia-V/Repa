@@ -443,21 +443,28 @@ test("旧客户端读较新后端的询问：不认识的可选字段丢掉照�
   assert.equal(client.connected, true);
 });
 
-test("询问的信封多了字段，或 Item 里认识的字段类型不对时，客户端仍按无效协议数据断开", async (t) => {
+test("询问的信封多了不认识的字段时，客户端丢掉它照常收下；Item 里认识的字段类型不对时，仍按无效协议数据断开", async (t) => {
   const item = { id: "q", version: `sha256:${"a".repeat(64)}`, requires: ["slot.text"], body: [], slots: [{ id: "a", type: "text" }] };
   const envelope = { id: "ask-1", origin: { kind: "agent" } };
   const backend = await scriptedBackend(t, {});
-  for (const params of [{ ...envelope, item, priority: 1 }, { ...envelope, item: { ...item, slots: [{ id: "a", type: "text", lines: "多行" }] } }]) {
-    const client = await RepaClient.connect(backend.connection);
-    t.after(() => client.close());
-    const received: unknown[] = [];
-    client.on("ask.request", (request) => received.push(request));
-    const disconnected = new Promise<void>((resolve) => client.onConnectionChange((connected) => { if (!connected) resolve(); }));
-    backend.push("ask.request", params);
-    await disconnected;
-    assert.equal(client.connected, false);
-    assert.deepEqual(received, []);
-  }
+
+  const lenient = await RepaClient.connect(backend.connection);
+  t.after(() => lenient.close());
+  const accepted = new Promise<unknown>((resolve) => lenient.on("ask.request", resolve));
+  backend.push("ask.request", { ...envelope, item, priority: 1 });
+  const request = await accepted;
+  assert.equal(lenient.connected, true);
+  assert(request !== null && typeof request === "object" && !("priority" in request));
+
+  const strict = await RepaClient.connect(backend.connection);
+  t.after(() => strict.close());
+  const received: unknown[] = [];
+  strict.on("ask.request", (value) => received.push(value));
+  const disconnected = new Promise<void>((resolve) => strict.onConnectionChange((connected) => { if (!connected) resolve(); }));
+  backend.push("ask.request", { ...envelope, item: { ...item, slots: [{ id: "a", type: "text", lines: "多行" }] } });
+  await disconnected;
+  assert.equal(strict.connected, false);
+  assert.deepEqual(received, []);
 });
 
 test("同一连接同时等待确认、提问和服务，断线后三者以各自的原错误结束", { timeout: 10000 }, async (t) => {

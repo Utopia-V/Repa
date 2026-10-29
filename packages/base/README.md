@@ -375,7 +375,7 @@ async execute(input, context) {
 
 连接在 `initialize` 中开始接收广播，同时得到 `baseline`。后端在同一段同步代码里启用广播并读取内存状态，随后立即从这条 WebSocket 写出响应；基线之后发生的事件都排在这个响应之后，批量请求也遵循这个顺序。前端收到 `initialize` 的结果以后再显示运行状态，之后按事件更新。前端接入基线由 Aqua 跟进。
 
-`baseline.space` 当前给出空间根目录，没有打开空间时为 `null`。现有 `Space` 与持久格式均没有空间编号，编号来源仍待确认；`disabledPlugins` 与 `space.open` 返回的停用清单相同。`sessions` 只列正在运行或有消息排队的会话，每项包含 `sessionId`、`agent`、运行时才有的 `runId`，以及按处理顺序排列的 `queued: [{ text, mode }]`。`mode` 为 `send`、`steer` 或 `followUp`。队列先列当前 Pi 循环将消费的引导和追问消息，再列 Repa 的后续运行；有关卡的 Agent 三种消息都留在 Repa 队列中。基线不加载磁盘上的会话。
+`baseline.space` 给出当前空间的根目录，没有打开空间时为 `null`；空间由根目录标识，没有另外的编号。`disabledPlugins` 与 `space.open` 返回的停用清单相同。`sessions` 只列正在运行或有消息排队的会话，每项包含 `sessionId`、`agent`、运行时才有的 `runId`，以及按处理顺序排列的 `queued: [{ text, mode }]`。`mode` 为 `send`、`steer` 或 `followUp`。队列先列当前 Pi 循环将消费的引导和追问消息，再列 Repa 的后续运行；有关卡的 Agent 三种消息都留在 Repa 队列中。基线不加载磁盘上的会话。
 
 ### 插件停用状态
 
