@@ -39,7 +39,10 @@ async function sameFile(a: string, b: string): Promise<boolean> {
   return left.size === right.size && (await readFile(a)).equals(await readFile(b));
 }
 
-export async function migrateSessionFiles(directory: string): Promise<void> {
+export async function migrateSessionFiles(
+  directory: string,
+  warn: (message: string) => void = message => process.stderr.write(`${message}\n`),
+): Promise<void> {
   for (const file of await readdir(directory)) {
     if (!LEGACY_FILE.test(file)) continue;
     const source = path.join(directory, file);
@@ -52,8 +55,11 @@ export async function migrateSessionFiles(directory: string): Promise<void> {
       await link(source, target);
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-      // 目标已存在：是同一份内容，就补完上次中断的改名；内容不同，两份都留着，按编号打开的是新名字那份。
-      if (!await sameFile(source, target)) continue;
+      // 目标已存在：是同一份内容，就补完上次中断的改名；内容不同，两份都留着，按编号打开的是新名字那份，并提示用户核对。
+      if (!await sameFile(source, target)) {
+        warn(`旧会话 ${source} 改名时，目标 ${target} 已存在且内容不同；两份都已保留，按编号打开的是 ${target}，请核对后删掉多余的一份。`);
+        continue;
+      }
     }
     await unlink(source);
   }

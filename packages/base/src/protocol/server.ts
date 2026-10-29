@@ -394,6 +394,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         },
       });
       const host = plugins;
+      // 停用的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
+      // 没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
+      let directAgents = options.directAgents;
+      if (directAgents !== undefined && host.disabled().length > 0) {
+        const available = new Set([...(options.generalAgent === false ? [] : ["general"]), ...host.agents().map((definition) => definition.id)]);
+        directAgents = directAgents.filter((id) => available.has(id));
+      }
       agent = await runtime.openSpace({
         root: space.root,
         sessionsDir: space.sessionsDir,
@@ -402,7 +409,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         views: () => host.views(),
         agents: () => host.agents(),
         generalAgent: options.generalAgent,
-        directAgents: options.directAgents,
+        directAgents,
         overrides: () => settings.overrides(space.root),
         commandPolicy: () => settings.get().commandPolicy,
         record: async (runId, action) => (await space.record({ kind: "agent", runId }, action)).value,

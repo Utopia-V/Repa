@@ -127,6 +127,8 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   const calls = new Set<Promise<unknown>>();
   let started = false;
   let starting: Promise<void> | undefined;
+  // start() 的追赶完成以后为 true；此后发起的变化处理出错照常报告，不再停用插件。
+  let caughtUp = false;
   const waiting = new Set<string>();
   let closing: Promise<void> | undefined;
 
@@ -148,7 +150,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   }
 
   async function disable(id: string, error: unknown): Promise<void> {
-    // 失败插件的模型先停稳，再释放实例；它的声明尚未交给 Agent 运行时。
+    // 失败插件的模型先停稳，再释放实例。Agent 运行时每次用到时才向宿主取工具和 Agent，移除以后，列出的 Agent 和新建的会话里都不再有它的声明。
     const failures: unknown[] = [];
     try {
       await modelScopes.get(id)?.close();
@@ -212,22 +214,61 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     return [...instances].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   }
 
+  /** 插件可以引用别的插件的工具和 Agent。移除失败方以后重新核对，依赖缺失只停受影响的插件。 */
+  async function checkDeclarations(): Promise<void> {
+    for (;;) {
+      const declaredAgents = [...definitionsByPlugin.values()].flat();
+      const availableTools = new Set([...pluginTools.values()].flat().map((tool) => tool.name));
+      try {
+        checkAgents(declaredAgents, availableTools);
+      } catch (error) {
+        if (!(error instanceof AgentDefinitionFailure)) throw error;
+        const owner = [...definitionsByPlugin].find(([, definitions]) => definitions.includes(error.definition));
+        if (!owner) throw error;
+        await disable(owner[0], error.failure);
+        continue;
+      }
+      // Agent 定义有效后才按装配顺序分配工具名，避免坏插件先占名而拖停无关插件。
+      const names = new Set<string>();
+      let conflict: { id: string; name: string } | undefined;
+      for (const [id, tools] of pluginTools) {
+        const duplicate = tools.find((tool) => names.has(tool.name));
+        if (duplicate) {
+          conflict = { id, name: duplicate.name };
+          break;
+        }
+        for (const tool of tools) names.add(tool.name);
+      }
+      if (conflict) {
+        await disable(conflict.id, new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: conflict.name }));
+        continue;
+      }
+      agentDefinitions = declaredAgents.map(wrapAgent).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+      return;
+    }
+  }
+
   function wake(revision: string): void {
     if (stopping || closed) return;
     if (!started) {
       waiting.add(revision);
       return;
     }
+    const opening = !caughtUp;
     pending = pending.then(async () => {
-      const failures: unknown[] = [];
-      for (const instance of instances.values()) {
+      const failures: [string, unknown][] = [];
+      for (const [id, instance] of instances) {
         try {
           await instance.onChange?.(revision);
         } catch (error) {
-          failures.push(error);
+          failures.push([id, error]);
         }
       }
-      if (failures.length > 0) throw new AggregateError(failures, "插件变化处理失败");
+      if (failures.length === 0) return;
+      if (!opening) throw new AggregateError(failures.map(([, error]) => error), "插件变化处理失败");
+      // start() 追赶完成之前，变化处理也是打开空间的一部分：出错和 open 失败一样，只停这个插件，再核对依赖它的插件。
+      for (const [id, error] of failures) await disable(id, error);
+      await checkDeclarations();
     }).catch((error: unknown) => {
       pendingError = error;
       options.onError(error);
@@ -334,37 +375,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         await disable(plugin.id, error);
       }
     }
-    // 插件可以引用别的插件的工具和 Agent。移除失败方以后重新核对，依赖缺失只停受影响的插件。
-    while (definitionsByPlugin.size > 0) {
-      const declaredAgents = [...definitionsByPlugin.values()].flat();
-      const availableTools = new Set([...pluginTools.values()].flat().map((tool) => tool.name));
-      try {
-        checkAgents(declaredAgents, availableTools);
-      } catch (error) {
-        if (!(error instanceof AgentDefinitionFailure)) throw error;
-        const owner = [...definitionsByPlugin].find(([, definitions]) => definitions.includes(error.definition));
-        if (!owner) throw error;
-        await disable(owner[0], error.failure);
-        continue;
-      }
-      // Agent 定义有效后才按装配顺序分配工具名，避免坏插件先占名而拖停无关插件。
-      const names = new Set<string>();
-      let conflict: { id: string; name: string } | undefined;
-      for (const [id, tools] of pluginTools) {
-        const duplicate = tools.find((tool) => names.has(tool.name));
-        if (duplicate) {
-          conflict = { id, name: duplicate.name };
-          break;
-        }
-        for (const tool of tools) names.add(tool.name);
-      }
-      if (conflict) {
-        await disable(conflict.id, new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: conflict.name }));
-        continue;
-      }
-      agentDefinitions = declaredAgents.map(wrapAgent).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
-      break;
-    }
+    await checkDeclarations();
   } catch (error) {
     stopping = true;
     unsubscribe();
@@ -396,6 +407,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           for (const revision of waiting) wake(revision);
           waiting.clear();
           await flush();
+          caughtUp = true;
         })());
       }
       return starting;

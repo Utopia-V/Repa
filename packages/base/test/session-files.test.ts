@@ -27,29 +27,37 @@ test("旧文件改名取会话头里的编号和时间，文件内容逐字保�
   assert.equal(await readFile(f.target, "utf8"), f.text);
 });
 
-test("上次改名在建链之后中断，再打开时补完", async (t) => {
+test("上次改名在建链之后中断，再打开时补完，不提示", async (t) => {
   const f = await fixture(t);
   await link(f.source, f.target);
-  await migrateSessionFiles(f.directory);
+  const warnings: string[] = [];
+  await migrateSessionFiles(f.directory, message => warnings.push(message));
   assert.deepEqual(await readdir(f.directory), [path.basename(f.target)]);
   assert.equal(await readFile(f.target, "utf8"), f.text);
+  assert.deepEqual(warnings, []);
 });
 
-test("改名的目标已存在且内容不同时，两份文件都保留，不覆盖", async (t) => {
+test("改名的目标已存在且内容不同时，两份文件都保留，不覆盖，并提示两处路径", async (t) => {
   const f = await fixture(t);
   const other = "已有文件，不能覆盖\r\n";
   await writeFile(f.target, other);
-  await migrateSessionFiles(f.directory);
+  const warnings: string[] = [];
+  await migrateSessionFiles(f.directory, message => warnings.push(message));
   assert.equal(await readFile(f.source, "utf8"), f.text);
   assert.equal(await readFile(f.target, "utf8"), other);
+  assert.deepEqual(warnings, [
+    `旧会话 ${f.source} 改名时，目标 ${f.target} 已存在且内容不同；两份都已保留，按编号打开的是 ${f.target}，请核对后删掉多余的一份。`,
+  ]);
 });
 
-test("旧文件为空、头部损坏或含路径字符时原样保留，不妨碍打开空间", async (t) => {
+test("旧文件为空、头部损坏或含路径字符时原样保留，不妨碍打开空间，也不提示", async (t) => {
   const f = await fixture(t);
+  const warnings: string[] = [];
   for (const text of ["", "{坏的 JSON\n", JSON.stringify({ type: "session", id: "../escape", timestamp: "2026-10-29T01:02:03.456Z" }), JSON.stringify({ type: "session", id: "valid", timestamp: "../escape" })]) {
     await writeFile(f.source, text);
-    await migrateSessionFiles(f.directory);
+    await migrateSessionFiles(f.directory, message => warnings.push(message));
     assert.deepEqual(await readdir(f.directory), [path.basename(f.source)]);
     assert.equal(await readFile(f.source, "utf8"), text);
   }
+  assert.deepEqual(warnings, []);
 });

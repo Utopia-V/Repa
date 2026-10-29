@@ -5,6 +5,7 @@ import type { DisabledPlugin } from "./protocol.js";
 import type { Space } from "./space.js";
 
 export interface PluginHost {
+  /** 让插件追赶已有的变化；追赶完成之前 onChange 出错的插件按打开失败停用，列进 disabled()。 */
   start(): Promise<void>;
   disabled(): DisabledPlugin[];
   list(): { id: string; methods: string[]; tools: string[] }[];
