@@ -17,12 +17,14 @@
     "node": ">=22.22.2"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -b tsconfig.build.json",
     "check": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
     "benchmark": "node --import tsx test/benchmark.ts",
     "benchmark:maintenance": "node --import tsx test/maintenance-benchmark.ts",
-    "benchmark:paths": "node --import tsx test/record-paths-benchmark.ts"
+    "benchmark:paths": "node --import tsx test/record-paths-benchmark.ts",
+    "precheck": "npm run build",
+    "pretest": "npm run build"
   },
   "dependencies": {
     "typebox": "1.3.27"

@@ -8,7 +8,6 @@
 
 ```sh
 npm ci
-npm run build --workspace=@repa/space-history
 npm run build --workspace=@repa/base
 npm run start --workspace=@repa/base -- serve --home /path/to/repa-home
 ```
@@ -386,7 +385,6 @@ Agent 相关的约定：
 
 ```sh
 npm run check --workspace=@repa/base
-npm run build --workspace=@repa/space-history
 npm run build --workspace=@repa/base
 npm test --workspace=@repa/base
 npm test --workspace=@repa/space-history
