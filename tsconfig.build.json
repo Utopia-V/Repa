@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/space-history/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/base/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/base/tsconfig.examples.json"
+    },
+    {
+      "path": "./packages/learning-model/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/learning/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/learning/tsconfig.browser.build.json"
+    }
+  ]
+}

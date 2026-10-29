@@ -4,7 +4,14 @@
     "declaration": true,
     "outDir": "dist",
     "rootDir": "src",
-    "sourceMap": true
+    "sourceMap": true,
+    "composite": true,
+    "tsBuildInfoFile": "./dist/tsconfig.browser.build.tsbuildinfo"
   },
-  "include": ["src/python-runner/**/*.ts"]
+  "include": ["src/python-runner/**/*.ts"],
+  "references": [
+    {
+      "path": "./tsconfig.build.json"
+    }
+  ]
 }

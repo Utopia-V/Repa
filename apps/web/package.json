@@ -5,14 +5,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "npm run build:app",
     "check": "tsc --noEmit",
     "dev": "vite",
-    "prebuild": "npm run build --workspace=@repa/learning --prefix ../..",
-    "precheck": "npm run build --workspace=@repa/learning --prefix ../..",
-    "predev": "npm run build --workspace=@repa/learning --prefix ../..",
-    "pretest": "npm run build --workspace=@repa/learning --prefix ../..",
-    "test": "vitest run"
+    "prebuild": "npm run build:packages --prefix ../..",
+    "precheck": "npm run build:packages --prefix ../..",
+    "predev": "npm run build:packages --prefix ../..",
+    "pretest": "npm run build:packages --prefix ../..",
+    "test": "vitest run",
+    "build:app": "vite build"
   },
   "dependencies": {
     "@repa/base": "0.1.0",
