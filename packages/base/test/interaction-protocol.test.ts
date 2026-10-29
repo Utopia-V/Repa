@@ -54,7 +54,7 @@ function toolResults(context: TranscriptContext): { tool: string; isError: boole
 }
 
 /** 官方前端会声明第一版的全部能力；测试里的假前端按需声明一部分。 */
-const FULL: ClientCapabilities = { interaction: { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] } };
+const FULL: ClientCapabilities = { interaction: { supports: [...INTERACTION_CAPABILITIES] } };
 
 // 健康插件的每日打卡：心情选一项，睡眠时长填数字。
 const checkinItem: ItemDraft = {
@@ -230,7 +230,7 @@ test("询问只发给发起运行的连接，其他连接不能代答；结构�
 test("前端没有声明 Item 需要的能力时不发送询问，插件工具直接得到 unsupported", { timeout: 30000 }, async t => {
   const f = await fixture(t);
   // 打卡里有选择作答位，只声明 Markdown 和文本作答位的前端显示不了。
-  const textOnly = await f.connect({ interaction: { vocabulary: 1, supports: ["block.markdown", "slot.text"] } });
+  const textOnly = await f.connect({ interaction: { supports: ["block.markdown", "slot.text"] } });
   await textOnly.call("space.open", { root: f.root });
   const received: unknown[] = [];
   textOnly.on("ask.request", request => received.push(request));
@@ -388,7 +388,7 @@ test("插件方法收到调用方的能力声明，声明的结果 schema 拦下
 
 test("initialize 严格校验能力声明，旧版本客户端不能连接", { timeout: 30000 }, async t => {
   const f = await fixture(t);
-  const invalid = { interaction: { vocabulary: 1, supports: ["slot.choice"], extra: true } } as unknown as ClientCapabilities;
+  const invalid = { interaction: { supports: ["slot.choice"], extra: true } } as unknown as ClientCapabilities;
   await assert.rejects(RepaClient.connect(f.server.connection, { capabilities: invalid }), (error: unknown) => error instanceof RpcError && error.code === -32602);
   const socket = new WebSocket(f.server.connection.url);
   t.after(() => socket.close());
@@ -403,7 +403,7 @@ test("initialize 严格校验能力声明，旧版本客户端不能连接", { t
 
 test("前端没有声明 Item 需要的能力时不发送询问，Agent 得知卡片无法显示", { timeout: 30000 }, async t => {
   const f = await fixture(t);
-  const textOnly = await f.connect({ interaction: { vocabulary: 1, supports: ["block.markdown", "slot.text"] } });
+  const textOnly = await f.connect({ interaction: { supports: ["block.markdown", "slot.text"] } });
   const undeclared = await f.connect();
   await textOnly.call("space.open", { root: f.root });
   const received: unknown[] = [];
@@ -545,7 +545,7 @@ test("关闭空间时在途询问以 closed 结束，前端收起卡片，工具
 
 test("ask_user 只给含 $ 的提示和选项标记公式，缺少公式能力的界面仍能接收普通卡片", { timeout: 30000 }, async t => {
   const f = await fixture(t);
-  const noMath = await f.connect({ interaction: { vocabulary: 1, supports: INTERACTION_CAPABILITIES.filter(capability => capability !== "markdown.math") } });
+  const noMath = await f.connect({ interaction: { supports: INTERACTION_CAPABILITIES.filter(capability => capability !== "markdown.math") } });
   const full = await f.connect(FULL);
   await full.call("space.open", { root: f.root });
   const cases: JsonObject[] = [

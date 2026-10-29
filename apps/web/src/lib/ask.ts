@@ -1,5 +1,4 @@
 import {
-  INTERACTION_VOCABULARY,
   type Answer,
   type Block,
   type ClientCapabilities,
@@ -13,7 +12,6 @@ type Slot = Item["slots"][number];
 
 /** 对话里的询问卡片能显示的作答位和内容块；连接时在 initialize 里声明，后端只发这些能显示的题。 */
 export const interactionCapabilities = {
-  vocabulary: INTERACTION_VOCABULARY,
   supports: ["slot.choice", "slot.text", "block.markdown", "block.code", "markdown.math"],
 } satisfies NonNullable<ClientCapabilities["interaction"]>;
 

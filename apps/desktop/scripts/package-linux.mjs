@@ -169,10 +169,6 @@ await npmRun(["ci", "--omit=dev", "--ignore-scripts", "--prefer-offline", "--no-
 manifest.dependencies = Object.fromEntries(archivesByPackage.map(({ name, version }) => [name, version]));
 await writeFile(path.join(application, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 await rm(path.join(application, "package-lock.json"));
-// 打包副本与 workspace 使用相同的 Pi 上游修补，不依赖安装脚本。
-await cp(path.join(root, "patches"), path.join(application, "patches"), { recursive: true });
-await exec(process.execPath, [path.join(root, "node_modules/patch-package/index.js"), "--error-on-fail"], { cwd: application });
-await rm(path.join(application, "patches"), { recursive: true });
 const inventory = await copyLicenses();
 
 await build({

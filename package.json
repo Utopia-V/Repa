@@ -26,14 +26,10 @@
     "predev:backend": "npm run build:backend",
     "start": "npm --workspace=@repa/base run start -- serve",
     "test": "npm run test --workspaces --if-present",
-    "postinstall": "patch-package",
     "course:check": "npm run course:check --workspace=@repa/learning --",
     "course:runtime": "npm run course:runtime --workspace=@repa/learning --",
     "course:confirm": "npm run course:confirm --workspace=@repa/learning --",
     "predev:learning": "npm run build --workspace=@repa/learning",
     "dev:learning": "npm --workspace=@repa/base run start -- serve --plugin ../learning --no-general-agent --direct-agent learning-tutor"
-  },
-  "devDependencies": {
-    "patch-package": "^8.0.1"
   }
 }

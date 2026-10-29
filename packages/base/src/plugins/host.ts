@@ -360,11 +360,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         const method = Object.hasOwn(instance.methods ?? {}, methodName) ? instance.methods?.[methodName] : undefined;
         if (!method) throw new RepaFault("plugin_method_not_found", "插件方法不存在", { pluginId, methodName });
         const result = await method.invoke(parse(method.parameters, input), caller === undefined ? {} : { caller });
-        // 插件自有目录不在影子历史中，但界面方法仍然是一次状态唤醒。
-        const [latest] = await space.history.list(1);
-        if (latest) wake(latest.id);
-        await flush();
-        // 方法已经执行，状态照常唤醒；只是不把不符合声明的值交给调用方，多带的字段在这里被拦下。
+        // 返回前按声明校验结果，多带的字段也在这里拦下。
         if (method.result !== undefined && !Check(method.result, result)) {
           throw new RepaFault("invalid_plugin_result", "插件方法的返回值不符合它声明的 schema", { pluginId, methodName });
         }

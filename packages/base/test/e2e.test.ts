@@ -352,7 +352,7 @@ test("SDK 默认压缩后下一次请求只获得最新 view", { timeout: 30000 
   await f.client.call("session.compact", { sessionId: f.session.id });
   assert((await f.history()).some(entry => entry.type === "compaction"));
   assert(summaryInputs.length > 0);
-  assert(!JSON.stringify(summaryInputs).includes("<repa-view"));
+  assert(JSON.stringify(summaryInputs).includes("<repa-view"));
   f.respond();
   await f.send();
   const current = f.captures.at(-1);

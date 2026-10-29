@@ -409,7 +409,7 @@ test("后端发来无效 JSON 或不合 schema 的已知通知时，客户端主
 });
 
 test("旧客户端读较新后端的询问：不认识的可选字段丢掉照常显示，必须理解的特性按 requires 判为不能作答", async (t) => {
-  const capabilities = { interaction: { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] } };
+  const capabilities = { interaction: { supports: [...INTERACTION_CAPABILITIES] } };
   const item = {
     id: "health.sleep",
     version: `sha256:${"a".repeat(64)}`,

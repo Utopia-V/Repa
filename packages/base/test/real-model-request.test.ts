@@ -77,7 +77,7 @@ async function fixture(t: TestContext, options: { model?: Model<string>; request
     allowModelNetwork: false, refreshOnCreate: false });
   if (model.provider !== "openai-codex") await models.setRuntimeApiKey(model.provider, "mock-only");
   const settings = SettingsManager.inMemory({ transport: "sse", defaultThinkingLevel: "off", retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 0 } },
-    compaction: { enabled: false, keepRecentTokens: 128, reserveTokens: 2048 }, cacheWarming: "idle" });
+    compaction: { enabled: false, keepRecentTokens: 128, reserveTokens: 2048 } });
   const loader = new DefaultResourceLoader({ cwd: root, agentDir, settingsManager: settings,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     systemPrompt: "核实回复后缀为 A。私密基座",
