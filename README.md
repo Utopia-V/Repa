@@ -36,7 +36,7 @@ repa/
 └── package-lock.json
 ```
 
-浏览器使用 `@repa/base/client` 与 `@repa/base/protocol`；Node 宿主通过 `@repa/base/process` 启动和关闭服务。插件作者通过 `@repa/base/plugin` 引用接口类型。具体边界与调用示例见[底座说明](packages/base/README.md#结构与责任)。
+浏览器使用 `@repa/base/client` 与 `@repa/base/protocol`；Node 宿主通过 `@repa/base/process` 启动和关闭服务。插件作者通过 `@repa/base/plugin` 引用接口类型。具体边界与调用示例见[底座说明](packages/base/README.md#接入客户端与进程宿主)。
 
 ## 运行与开发
 
@@ -67,7 +67,7 @@ npm start -- --home /path/to/repa-home
 npm run dev:backend -- --home /path/to/repa-home
 ```
 
-这两个根入口都会先构建 `@repa/base`，再运行 `serve`。服务只监听本机地址，stdout 输出包含地址与令牌的私密连接信息。`--home`、`--port`、`--plugin`、模型登录与客户端用法见[底座使用说明](packages/base/README.md#使用)。
+这两个根入口都会先构建 `@repa/base`，再运行 `serve`。服务只监听本机地址，stdout 输出包含地址与令牌的私密连接信息。`--home`、`--port`、`--plugin`、模型登录与客户端用法见[底座使用说明](packages/base/README.md#怎么用)。
 
 日常开发以 `dev` 为基线，任务在各自分支上完成，由维护者审阅合并。验证与阶段交付见[整合规范](docs/development/integration.md)，具体任务由 [GitHub Issues](https://github.com/Utopia-V/repa/issues) 跟踪。
 

@@ -59,7 +59,7 @@ agent 来源可以带 `ancestorRunIds`，由近到远列出发起这个运行的
 
 上表中的 `revision_not_found` 和 `nothing_to_undo` 以 `HistoryError` 抛出，调用方按 `error.code` 分支处理；其余错误是普通 `Error` 或 Git 故障。
 
-`record` 的 agent 空运行和空的 undo 操作也保留提交，`recordPaths` 及其他无变化的快照不产生提交。来源直接保存在提交消息的 JSON 中，`list`、`changesSince` 原样返回，由此可以看出每个提交属于哪个运行及其各级祖先，例如 `{"kind":"agent","runId":"run-456","ancestorRunIds":["run-123"]}`；按修订撤销使用 `{"kind":"undo","revision":"…"}`，按运行撤销使用 `{"kind":"undo","runId":"…"}`。旧历史中的来源没有 `ancestorRunIds`，照常读取和撤销。读取提交来源时忽略未知的可选字段，已知字段仍校验；调用保存接口时严格校验来源，不允许写入未声明的字段。更早的严格读取版本无法读取新字段，格式兼容性由所属空间的[版本约定](../base/README.md#空间格式与版本-1)管理。本包导出这些公开数据的 TypeBox schema 和对应类型。
+`record` 的 agent 空运行和空的 undo 操作也保留提交，`recordPaths` 及其他无变化的快照不产生提交。来源直接保存在提交消息的 JSON 中，`list`、`changesSince` 原样返回，由此可以看出每个提交属于哪个运行及其各级祖先，例如 `{"kind":"agent","runId":"run-456","ancestorRunIds":["run-123"]}`；按修订撤销使用 `{"kind":"undo","revision":"…"}`，按运行撤销使用 `{"kind":"undo","runId":"…"}`。旧历史中的来源没有 `ancestorRunIds`，照常读取和撤销。读取提交来源时忽略未知的可选字段，已知字段仍校验；调用保存接口时严格校验来源，不允许写入未声明的字段。更早的严格读取版本无法读取新字段，格式兼容性由所属空间的[版本约定](../base/README.md#格式与版本-1)管理。本包导出这些公开数据的 TypeBox schema 和对应类型。
 
 ## 插件追赶与外部监听
 
