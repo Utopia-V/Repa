@@ -2,6 +2,7 @@ import type { AgentWork, CompletionRequest, Models, ModelScope } from "../plugin
 import { RepaFault } from "../schema.js";
 
 // 宿主持有模型工作，不要求每个插件再实现一份取消与等待链。
+/** 为模型调用建立独立生命周期；关闭时取消并等待其中全部请求和 Agent 工作。 */
 export function createModelScope(models: Models, onError?: (error: unknown) => void): ModelScope {
   const requests = new Set<Promise<unknown>>();
   const controllers = new Set<AbortController>();

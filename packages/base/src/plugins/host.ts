@@ -113,6 +113,7 @@ function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): 
   }
 }
 
+/** 在指定空间中打开插件并核对声明，返回统一的工具、协议调用与生命周期入口。 */
 export async function openPluginHost(options: PluginHostOptions): Promise<PluginHost> {
   const { space } = options;
   const instances = new Map<string, PluginInstance>();

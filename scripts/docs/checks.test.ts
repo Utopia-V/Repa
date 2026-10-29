@@ -243,7 +243,7 @@ test("入口只查 git 跟踪文件，失败非零并输出文件行号，修复
   const success = invoke();
   assert.equal(success.status, 0, success.stderr);
   assert.match(success.stdout, /文档检查全部通过/);
-  assert.equal(CHECK_NAMES.length, 8);
+  assert.equal(CHECK_NAMES.length, 11);
 });
 
 test("HTML 的 data-id 不冒充 id，目录锚点作为链接问题报告", async (t) => {
@@ -265,4 +265,9 @@ test("被删除但尚未暂存的文件不读取，引用它的文档仍指出�
   const tracked = Repository.tracked(repo.root);
   assert.deepEqual(tracked.files, ["README.md"]);
   assert.ok((await check(tracked, "链接")).some((issue) => issue.message.includes("target.md")));
+});
+
+test("持久格式记录的前两行是元数据，其余正文仍按一段一行检查", async (t) => {
+  const repo = await fixture(t, { "docs/persistence/changes/2026-10-30-fields.md": "paragraphs/persistence.md" });
+  assert.deepEqual((await check(repo, "一段一行")).map((issue) => issue.line), [4]);
 });

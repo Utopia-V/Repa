@@ -1,0 +1,17 @@
+{
+  "extends": "../../packages/base/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": "../..",
+    // 目录读取 workspace 源码，避免 schema 和插件声明受陈旧 dist 影响。
+    "paths": {
+      "@repa/base": ["packages/base/src/index.ts"],
+      "@repa/base/*": ["packages/base/src/*"],
+      "@repa/space-history": ["packages/space-history/src/index.ts"],
+      "@repa/learning": ["packages/learning/src/index.ts"],
+      "@repa/learning/*": ["packages/learning/src/*"],
+      "@repa/learning-model": ["packages/learning-model/src/index.ts"]
+    }
+  },
+  "include": ["*.ts"]
+}

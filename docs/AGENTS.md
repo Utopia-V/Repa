@@ -10,6 +10,7 @@
 | 包的用法和约定 | 包的 README |
 | 当前怎样接入 | `docs/development/` |
 | 要做的事 | GitHub Issue |
+| 代码目录 | `packages/README.md` 与 `docs/generated/`，脚本生成，不要手改 |
 | 常设规则 | 对应层级的 AGENTS.md，每条一到三行，链接到讲理由的地方 |
 
 - 一件事只有一个家，别处链过去；不要抄写同一份状态或约定。
@@ -51,10 +52,15 @@
 | 篇幅上限 | 各层 AGENTS.md 按非空白字符计数，上限和理由写在 `scripts/docs/budgets.json` |
 | 停用词 | 按 `scripts/docs/banned-terms.json` 的词、替换词和理由检查，不区分大小写；初始清单为空 |
 | 包 README 骨架 | 检查上面的章节顺序、概述长度、模型影响和限制说明 |
+| 代码线索 | 目录逐字节核对；原导出须有说明，转导出语句不查；schema 变化须记录版本判断 |
 | 设计记录格式 | 按[设计记录格式](../.agents/notes/README.md#格式)检查路径、首行标题、状态和小节，不允许索引文件 |
 
 - 检查范围为 git 跟踪的 Markdown；`scripts/docs/config.json` 记录带理由的排除项，冻结证据、旧 ADR、第三方材料和检查夹具按该清单排除，Repa 自有 Skill 仍检查。
 - 路径检查还覆盖 `packages/*/src/**/*.ts` 和 `apps/*/src/**/*.ts` 注释中的 `docs/<名称>.md`、`.agents/<名称>.md`；停用词检查还覆盖这些 src 目录里的 `.ts` 和 `.svelte` 文件。
 - 篇幅超限时，先把内容挪到它该在的地方，再压缩，最后才提上限并写明理由；规则的背景和取舍放进设计记录。
-- 例外只写在 `scripts/docs/exceptions.json`，结构为 `{ "<检查名>": { "<文件路径>": "<理由>" } }`；只豁免该文件的该项检查，理由不能为空。
+- 例外只写在 `scripts/docs/exceptions.json`，结构为 `{ "<检查名>": { "<文件路径>": "<理由>" } }`；只豁免该文件的该项检查，理由不能为空；导出说明注释可按 src 目录豁免。
 - 文件已经通过被豁免的检查时，会报“例外已过时，请删掉这条”；文件删除或检查名失效的条目同样要删掉。
+
+## 持久格式与版本
+
+`scripts/docs/persistence.json` 声明持久格式。schema 摘要变了，先在 `docs/persistence/changes/` 记录版本判断及理由，再运行 `npm run docs:gen` 更新认可摘要；首次建立基线。摘要提醒审阅：旧版本会读错才升版本，迁移与标记由所属包负责。

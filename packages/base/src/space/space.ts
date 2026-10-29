@@ -35,11 +35,13 @@ function historyFault(error: unknown, details: unknown): unknown {
 // 没有装配同一文件的写入队列时直接执行；提交仍由历史队列串行。
 const unqueued = <T>(_file: string, action: () => Promise<T>): Promise<T> => action();
 
+/** 创建空间目录并按打开空间的同一路径初始化持久数据，供新建空间时使用。 */
 export async function createSpace(root: string, options: SpaceOptions = {}): Promise<Space> {
   await mkdir(root, { recursive: true });
   return openSpace(root, options);
 }
 
+/** 打开并锁定空间，核对持久格式后接入文件、历史和插件数据目录。 */
 export async function openSpace(input: string, options: SpaceOptions = {}): Promise<Space> {
   const root = await realpath(input);
   const dataDir = path.join(root, ".repa");

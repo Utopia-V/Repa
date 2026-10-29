@@ -4,13 +4,17 @@ import GithubSlugger from "github-slugger";
 import ts from "typescript";
 import type { Nodes, Root } from "mdast";
 
+import { catalogs } from "./catalog-checks.js";
+import { exportComments } from "./compiler.js";
+import { changeRecord, checkPersistence } from "./gen-persistence.js";
+
 import {
   charCount, inScope, plainText, walk,
   type Issue, type Repository, type Settings,
 } from "./context.js";
 
 export const CHECK_NAMES = [
-  "链接", "路径", "不写提交哈希", "一段一行", "篇幅上限", "停用词", "包 README 骨架", "设计记录格式",
+  "链接", "路径", "不写提交哈希", "一段一行", "篇幅上限", "停用词", "包 README 骨架", "设计记录格式", "生成目录", "导出说明注释", "持久格式",
 ] as const;
 export type CheckName = typeof CHECK_NAMES[number];
 
@@ -143,10 +147,13 @@ async function hashes({ repo, markdown }: CheckContext): Promise<Issue[]> {
 async function paragraphs({ repo, markdown }: CheckContext): Promise<Issue[]> {
   const issues: Issue[] = [];
   for (const file of markdown) {
+    const record = /^docs\/persistence\/changes\/\d{4}-\d{2}-\d{2}-.+\.md$/.test(file)
+      && changeRecord(await repo.text(file));
     walk(await repo.tree(file), (node) => {
-      if (node.type === "paragraph" && node.position && node.position.start.line !== node.position.end.line) {
-        issues.push(issue(file, "一段一行", "段落不能跨行", node));
-      }
+      if (node.type !== "paragraph" || !node.position || node.position.start.line === node.position.end.line) return;
+      // 变更记录的前两行是固定元数据；其余正文仍服从段落规则。
+      if (record && node.position.start.line === 1 && node.position.end.line === 2) return;
+      issues.push(issue(file, "一段一行", "段落不能跨行", node));
     });
   }
   return issues;
@@ -264,6 +271,9 @@ const CHECKS: Record<CheckName, (context: CheckContext) => Promise<Issue[]>> = {
   停用词: bannedTerms,
   "包 README 骨架": readmes,
   设计记录格式: notes,
+  生成目录: ({ repo }) => catalogs(repo),
+  导出说明注释: ({ repo }) => exportComments(repo),
+  持久格式: ({ repo }) => repo.files.includes("scripts/docs/persistence.json") ? checkPersistence(repo.root) : Promise.resolve([]),
 };
 
 export async function runChecks(repo: Repository, settings: Settings): Promise<Issue[]> {
@@ -276,12 +286,16 @@ export async function runChecks(repo: Repository, settings: Settings): Promise<I
   return issues;
 }
 
+function exceptionMatches(check: string, file: string, target: string): boolean {
+  return file === target || (check === "导出说明注释" && file.startsWith(`${target}/`));
+}
+
 export function applyExceptions(issues: Issue[], settings: Settings, files: string[]): Issue[] {
-  const result = issues.filter((entry) => !settings.exceptions[entry.check]?.[entry.file]);
+  const result = issues.filter((entry) => !Object.keys(settings.exceptions[entry.check] ?? {}).some((file) => exceptionMatches(entry.check, entry.file, file)));
   for (const [check, entries] of Object.entries(settings.exceptions)) {
     for (const file of Object.keys(entries)) {
-      if (!CHECK_NAMES.includes(check as CheckName) || !files.includes(file)
-        || !issues.some((entry) => entry.check === check && entry.file === file)) {
+      if (!CHECK_NAMES.includes(check as CheckName) || !files.some((target) => exceptionMatches(check, target, file))
+        || !issues.some((entry) => entry.check === check && exceptionMatches(check, entry.file, file))) {
         result.push({ file, line: 1, check, message: "例外已过时，请删掉这条" });
       }
     }

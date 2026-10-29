@@ -15,11 +15,13 @@ import {
 } from "./protocol.js";
 import { record } from "./protocol/json-rpc.js";
 
+/** 连接本机后端所需的 WebSocket 地址和私密令牌，由启动入口交给客户端。 */
 export interface ClientConnection {
   url: string;
   token: string;
 }
 
+/** 客户端的请求等待与能力声明选项，连接初始化时使用。 */
 export interface ClientOptions {
   requestTimeoutMs?: number;
   /**
@@ -29,6 +31,7 @@ export interface ClientOptions {
   capabilities?: ClientCapabilities;
 }
 
+/** 后端返回的 JSON-RPC 错误，调用方用 code 和 data 判断失败原因。 */
 export class RpcError extends Error {
   constructor(
     readonly code: number,
@@ -39,6 +42,7 @@ export class RpcError extends Error {
   }
 }
 
+/** 连接中断导致结果未知的错误；调用方应重新读取状态确认操作结果。 */
 export class ConnectionError extends Error {
   readonly outcome = "unknown";
   constructor(message = "连接中断，请重新读取会话历史确认原操作的执行结果。") {
@@ -74,6 +78,7 @@ function readResult(method: Method, result: unknown): ReadResult<unknown> {
   return Check(methods[method].result, result) ? { ok: true, value: result } : { ok: false, path: "" };
 }
 
+/** 浏览器可用的 Repa 协议客户端，负责认证、请求与结果校验、通知订阅和连接状态报告。 */
 export class RepaClient {
   readonly #pending = new Map<string, Pending>();
   readonly #listeners = new Map<Notification, Set<Listener>>();

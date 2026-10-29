@@ -4,6 +4,7 @@ import type { AgentDefinition, MethodContext, Models, Plugin, Services } from ".
 import type { DisabledPlugin } from "./protocol.js";
 import type { Space } from "./space.js";
 
+/** 空间中的插件宿主；装配层从这里取得插件声明、调用方法并等待变化处理。 */
 export interface PluginHost {
   /** 让插件追赶已有的变化；追赶完成之前 onChange 出错的插件按打开失败停用，列进 disabled()。 */
   start(): Promise<void>;

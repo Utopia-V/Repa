@@ -35,6 +35,7 @@ import { browseDirectory, listRoots } from "../space/browse.js";
 import { ReverseRequests } from "./reverse.js";
 import { errorResponse, parseRequest, RpcFault, type RpcId } from "./json-rpc.js";
 
+/** 协议后端的装配选项，用于指定应用配置、插件和 Agent 运行时。 */
 export interface ServerOptions {
   home?: string;
   port?: number;
@@ -47,6 +48,7 @@ export interface ServerOptions {
   directAgents?: string[];
 }
 
+/** 运行中的协议后端；嵌入宿主用它交付连接并等待保存、收尾完成。 */
 export interface RepaServer {
   connection: { url: string; token: string };
   closed: Promise<void>;
@@ -84,6 +86,7 @@ interface ActiveSpace {
   agent: AgentSpace;
 }
 
+/** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
 export async function startServer(options: ServerOptions = {}): Promise<RepaServer> {
   const token = options.token ?? randomBytes(32).toString("hex");
   if (token.length < 32) throw new RepaFault("invalid_token", "连接令牌至少需要 32 个字符");

@@ -24,6 +24,7 @@ export const INTERACTION_CAPABILITIES = [
   "block.markdown", "block.code", "block.image",
   "markdown.math",
 ] as const;
+/** 交互词汇中的单项能力名，用于比较 Item 所需能力与客户端声明。 */
 export type InteractionCapability = (typeof INTERACTION_CAPABILITIES)[number];
 
 /** Item、小问、选项、单元格等的标识，在所属的 Item 内唯一即可。 */
@@ -34,6 +35,7 @@ const reference = object({ id, version: Type.String({ pattern: "^sha256:[0-9a-f]
 export const InteractionCapabilitiesSchema = object({
   supports: Type.Array(Type.String({ maxLength: 64 }), { maxItems: 200 }),
 });
+/** 前端支持的作答位、内容块及特性集合，连接初始化时声明。 */
 export type InteractionCapabilities = Static<typeof InteractionCapabilitiesSchema>;
 
 // ---------------------------------------------------------------------------
@@ -71,9 +73,13 @@ export const ImageBlockSchema = object({
   decorative: Type.Optional(Type.Boolean()),
 });
 
+/** 显示内容块的联合 schema，用于校验 Markdown、公式、代码等呈现内容。 */
 export const BlockSchema = Type.Union([MarkdownBlockSchema, CodeBlockSchema, ImageBlockSchema]);
+/** 可显示的单个内容块，用于 Item 正文、提示和反馈。 */
 export type Block = Static<typeof BlockSchema>;
+/** 内容块数组的 schema，用于校验正文、提示与反馈。 */
 export const ContentSchema = Type.Array(BlockSchema, { maxItems: 64 });
+/** 按显示顺序排列的内容块集合，用于正文和反馈消息。 */
 export type Content = Static<typeof ContentSchema>;
 
 // ---------------------------------------------------------------------------
@@ -175,7 +181,9 @@ export const CodeSlotSchema = object({
   maxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 2_000 })),
 });
 
+/** 作答位的联合 schema，用于校验选择、文本、排序、表格与代码输入定义。 */
 export const SlotSchema = Type.Union([ChoiceSlotSchema, TextSlotSchema, OrderSlotSchema, TableSlotSchema, CodeSlotSchema]);
+/** Item 中的单个作答位，描述输入形式而不携带答案或判分规则。 */
 export type Slot = Static<typeof SlotSchema>;
 
 // ---------------------------------------------------------------------------
@@ -197,6 +205,7 @@ export const ItemSchema = object({
   body: ContentSchema,
   slots: Type.Array(SlotSchema, { maxItems: 24 }),
 });
+/** 可显示、可作答的交互内容，带版本和所需能力以防止旧题作答或无法渲染。 */
 export type Item = Static<typeof ItemSchema>;
 /** 交给底座的 Item 可以不带 version 和 requires，由底座补上。 */
 export type ItemDraft = Omit<Item, "version" | "requires">;
@@ -205,11 +214,13 @@ export type ItemDraft = Omit<Item, "version" | "requires">;
 // 作答：前端提交原样输入，不去空白、不改大小写，也不做别的处理
 // ---------------------------------------------------------------------------
 
+/** 选择作答的 schema，保存选项 id 及可选的其他填写内容。 */
 export const ChoiceAnswerSchema = object({
   type: Type.Literal("choice"),
   selected: Type.Array(id, { maxItems: 26 }),
   other: Type.Optional(Type.String({ maxLength: 2_000 })),
 });
+/** 文本作答的 schema，原样保存输入供所属领域解释。 */
 export const TextAnswerSchema = object({
   type: Type.Literal("text"),
   text: Type.String({ maxLength: 20_000 }),
@@ -225,11 +236,14 @@ export const TableAnswerSchema = object({
   type: Type.Literal("table"),
   cells: Type.Record(Type.String(), Type.Record(Type.String(), Type.Union([TextAnswerSchema, ChoiceAnswerSchema]))),
 });
+/** 代码作答的 schema，原样保存代码供执行服务或判分方使用。 */
 export const CodeAnswerSchema = object({
   type: Type.Literal("code"),
   code: Type.String({ maxLength: 50_000 }),
 });
+/** 原始作答的联合 schema，用于校验输入结构后交给所属领域解释。 */
 export const AnswerSchema = Type.Union([ChoiceAnswerSchema, TextAnswerSchema, OrderAnswerSchema, TableAnswerSchema, CodeAnswerSchema]);
+/** 单个作答位的原始输入，按 type 区分选择、文本、排序、表格和代码。 */
 export type Answer = Static<typeof AnswerSchema>;
 
 /** 一次作答。answers 以作答位 id 为键，缺键表示这一小问没答。 */
@@ -237,10 +251,12 @@ export const ItemResponseSchema = object({
   item: reference,
   answers: Type.Record(Type.String(), AnswerSchema),
 });
+/** 对指定 Item 版本的作答，按作答位 id 保存输入供提交校验。 */
 export type ItemResponse = Static<typeof ItemResponseSchema>;
 
 /** 作答的结构或格式问题；slot 指向出问题的小问。 */
 const ProblemSchema = object({ slot: Type.Optional(id), message: Type.String({ maxLength: 500 }) });
+/** 提交校验发现的问题，可指向一个作答位供前端显示。 */
 export type Problem = Static<typeof ProblemSchema>;
 
 // ---------------------------------------------------------------------------
@@ -263,6 +279,7 @@ export const AskRequestSchema = object({
   }),
   item: ItemSchema,
 });
+/** 一次发给运行发起连接的询问，携带 Item 和会话、工具调用来源。 */
 export type AskRequest = Static<typeof AskRequestSchema>;
 // ask.request 的信封：除 Item 外都严格校验，Item 交给 readItem。
 const AskEnvelopeSchema = object({ ...AskRequestSchema.properties, item: Type.Unknown() });
@@ -275,6 +292,7 @@ export const AskClosedSchema = object({
   id,
   reason: Type.Union([Type.Literal("answered"), Type.Literal("cancelled"), Type.Literal("aborted"), Type.Literal("closed")]),
 });
+/** 询问结束的通知参数，前端据此关闭卡片并区分结束原因。 */
 export type AskClosed = Static<typeof AskClosedSchema>;
 
 /**
@@ -288,6 +306,7 @@ export const AskReplyParamsSchema = object({
   response: Type.Optional(ItemResponseSchema),
   message: Type.Optional(Type.String({ maxLength: 4_000 })),
 });
+/** 前端处理询问的参数，区分提交、留言拒答、关闭及无法渲染。 */
 export type AskReplyParams = Static<typeof AskReplyParamsSchema>;
 
 /**
@@ -305,8 +324,11 @@ export const AskSubmitResultSchema = Type.Union([
     message: Type.Optional(ContentSchema),
   }),
 ]);
+/** 调用方接受作答或要求修改的结果，决定询问卡片是否继续打开。 */
 export type AskSubmitResult = Static<typeof AskSubmitResultSchema>;
+/** 询问回复的结果 schema；提交返回处理结果，其他动作返回 null。 */
 export const AskReplyResultSchema = Type.Union([AskSubmitResultSchema, Type.Null()]);
+/** 询问回复的公开结果，供前端更新卡片或显示问题。 */
 export type AskReplyResult = Static<typeof AskReplyResultSchema>;
 
 // ---------------------------------------------------------------------------
@@ -401,6 +423,7 @@ export function canRender(capabilities: InteractionCapabilities | undefined, ite
   return item.requires.every((name) => supports.has(name));
 }
 
+/** 交互内容结构检查的结果，失败时携带可定位的问题说明。 */
 export type CheckResult = { ok: true } | { ok: false; problems: Problem[] };
 
 // ask.reply 的 invalid 结果最多带 24 条问题。

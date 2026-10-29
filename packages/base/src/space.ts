@@ -12,6 +12,7 @@ export interface SpaceWrites {
   commit<T>(file: string, action: () => Promise<T>): Promise<T>;
 }
 
+/** 已打开且持锁的空间，提供带历史归属的文件操作、插件数据目录及可等待的收尾。 */
 export interface Space {
   root: string;
   dataDir: string;

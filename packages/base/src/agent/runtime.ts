@@ -43,6 +43,7 @@ export interface AgentTestOptions extends AgentRuntimeOptions {
   toolNames?: string[];
 }
 
+/** 创建使用应用专属凭据目录的 Pi 运行时，供协议后端或 Node 宿主装配。 */
 export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<AgentRuntime> {
   await mkdir(options.agentDir, { recursive: true });
   const modelRuntime = await ModelRuntime.create({

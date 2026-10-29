@@ -4,7 +4,8 @@ import { Check } from "typebox/value";
 import { RepaFault } from "../schema.js";
 
 // 标记读取允许新增可选字段；写标记时只生成当前版本约定的字段。
-const FormatSchema = Type.Object({ version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) });
+/** format.json 版本标记的格式，空间和插件数据目录共用。 */
+export const FormatSchema = Type.Object({ version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) });
 
 /**
  * 只读检查格式，返回盘上的版本。调用方负责读懂所有旧版本；需要改写时先备份，
