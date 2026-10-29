@@ -36,13 +36,32 @@ test("设置保存后重新打开，最近空间去重截断，应用与空间�
   assert.match(await readFile(path.join(home, "settings.json"), "utf8"), /应用说明/u);
 });
 
-test("损坏或未知设置字段不能退回默认值掩盖数据错误", async (t) => {
+test("损坏设置和已知字段的无效值不能退回默认值掩盖数据错误", async (t) => {
   const { home } = await fixture();
   t.after(() => rm(home, { recursive: true, force: true }));
   await writeFile(path.join(home, "settings.json"), "{");
   await assert.rejects(SettingsStore.open(home));
   await writeFile(path.join(home, "settings.json"), JSON.stringify({
-    commandPolicy: "ask", prompts: {}, recentSpaces: [], typo: true,
+    commandPolicy: "typo", prompts: {}, recentSpaces: [],
   }));
   await assert.rejects(SettingsStore.open(home), { code: "invalid_input" });
+});
+
+
+test("设置读取忽略新增字段，写入仍拒绝未知字段", async (t) => {
+  const { home } = await fixture();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const original = JSON.stringify({
+    commandPolicy: "ask", recentSpaces: [], futureSetting: true,
+    prompts: { base: { text: "保留的说明", futureOption: 1 } },
+  });
+  await writeFile(path.join(home, "settings.json"), original);
+  const store = await SettingsStore.open(home);
+  assert.deepEqual(store.get(), {
+    commandPolicy: "ask", recentSpaces: [], prompts: { base: { text: "保留的说明" } },
+  });
+  assert.equal(await readFile(path.join(home, "settings.json"), "utf8"), original);
+  await assert.rejects(store.set(JSON.parse('{"unknown":true}')), { code: "invalid_input" });
+  await store.set({ commandPolicy: "fullAccess" });
+  assert.equal((await SettingsStore.open(home)).get().commandPolicy, "fullAccess");
 });

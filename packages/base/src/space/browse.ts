@@ -1,9 +1,12 @@
 import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { opendir, realpath, stat } from "node:fs/promises";
+import { opendir, readFile, realpath, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+
+import { Type } from "typebox";
+import { Check } from "typebox/value";
 
 import { RepaFault, type DirectoryListing, type DirectoryRoot } from "../schema.js";
 
@@ -53,10 +56,11 @@ function browseFault(error: unknown, directory: string): unknown {
   }
 }
 
-/** 已有空间只作浏览标记；读不到 `.repa/` 时按普通文件夹显示，打开时再报告真实错误。 */
+/** 浏览只识别有效的格式标记，包括当前程序尚不能打开的更新版本。 */
 async function isSpace(directory: string): Promise<boolean> {
   try {
-    return (await stat(path.join(directory, ".repa"))).isDirectory();
+    const value: unknown = JSON.parse(await readFile(path.join(directory, ".repa", "format.json"), "utf8"));
+    return Check(Type.Object({ version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) }), value);
   } catch {
     return false;
   }
@@ -73,7 +77,7 @@ async function isChildDirectory(directory: string, entry: Dirent): Promise<boole
   }
 }
 
-/** 只返回子文件夹的名称与空间标记，不读取文件内容。 */
+/** 只返回子文件夹的名称与空间标记，只读取空间格式标记。 */
 export async function browseDirectory(requested = os.homedir(), limit = LIMIT): Promise<DirectoryListing> {
   if (!path.isAbsolute(requested) || requested.includes("\0")) {
     throw new RepaFault("invalid_path", "请提供文件夹的绝对路径。", { path: requested });

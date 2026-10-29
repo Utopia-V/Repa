@@ -10,13 +10,24 @@
 
 | 操作 | 根目录命令 |
 | --- | --- |
+| 增量构建全部库包及配套产物 | `npm run build:packages` |
 | 构建后端及空间历史 | `npm run build:backend` |
 | 启动本机服务 | `npm run dev:backend -- --home /absolute/path/repa-home` |
 | Web 开发 | `npm run dev:web` |
 | Desktop 开发 | `npm run dev:desktop` |
 | 全仓类型检查、测试与构建 | `npm run check`、`npm test`、`npm run build` |
 
-根 `start` 和 `dev:backend` 都运行底座的 `serve`。`@repa/base` 的 `prebuild` 先构建空间历史，因而根 `build:backend` 只需构建底座。检查、测试与前端开发准备复用这个入口。需要指定端口或加载本机可信插件时，继续传入底座 CLI 的选项，具体见[使用说明](../../packages/base/README.md#使用)。
+根 `start` 和 `dev:backend` 都运行底座的 `serve`，由底座的 `prestart` 准备构建产物。需要指定端口或加载本机可信插件时，继续传入底座 CLI 的选项，具体见[使用说明](../../packages/base/README.md#使用)。
+
+### 增量构建
+
+根目录的 [`tsconfig.build.json`](../../tsconfig.build.json) 汇集库包工程，各工程通过 project references 声明依赖。`build:packages` 先运行 `tsc -b`，再复制底座示例的 `repa-plugin.json`、用 esbuild 生成学习插件的 `protocol.browser.js`。TypeScript 负责按依赖顺序编译并跳过最新工程；编译状态随产物保存在各包的 `dist/` 下，删除整个 `dist/` 就能重新构建该包。
+
+根 `check` 和 `test` 先统一运行 `build:packages`，然后以 `--ignore-scripts` 运行各 workspace 的检查或测试，避免再次触发各包的准备脚本。根 `build` 在库包准备完成后调用各前端的 `build:app`，分别执行 Vite 和 electron-vite。示例清单复制与 esbuild 步骤每次准备时都会执行，以保证非 TypeScript 产物也与源码一致。
+
+单独运行包的 `build`、`check`、`test` 时，包内入口也会通过 `tsc -b` 更新自身及引用的依赖；课程命令只准备 Node 工程。Web 和 Desktop 的构建、检查、测试、开发入口统一调用根 `build:packages`，因此从根目录运行 `npm run dev:web` 或直接进入 workspace 启动都能更新库包。`build:app` 和 `build:assets` 是组合构建内部使用的步骤，日常开发使用表中的入口或包的 `build`。
+
+同一 worktree 中会写入构建产物的命令应串行运行；需要同时修改源码并运行多套任务时，使用独立 worktree。
 
 Web 和 Desktop 分别由 Vite 与 Electron Node 宿主启动后端。`@repa/base/process` 提供进程生命周期，宿主取得连接后通过开发 HTTP 端点或隔离 preload 交给 renderer；宿主关闭时等待后端收尾。连接断开后重新读取历史与插件状态，再判断原操作的结果，客户端不会自动重放请求。
 
@@ -26,11 +37,36 @@ Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa:
 
 前端实现遵循 [Web 协作规则](../../apps/web/AGENTS.md)、[设计系统](../design-system.md)与[设计系统实现](../design-system-implementation.md)。前端工作由相应负责人推进。
 
+## CI
+
+[GitHub Actions 工作流](../../.github/workflows/ci.yml)在推送到 `dev`、指向 `dev` 的 PR、手动触发时运行，也在每天 UTC 18:00（北京时间次日凌晨 2:00）定时运行。两个任务都使用 Node 24 和 npm 12.0.2，从 `npm ci` 开始准备依赖，并运行 `npm run course:runtime` 准备或核对 Pyodide 离线包。
+
+- `linux` 在 `ubuntu-24.04` 上安装 `libseccomp2` 和系统 `python3`，然后运行根目录的 `npm test`，统一构建并测试全部 workspace。任务失败会使 CI 失败。
+- `windows` 在 `windows-latest` 上按默认设置检出，保留 Windows 的 CRLF 换行情形；构建库包后，依次测试空间历史、底座和学习插件。团队缺少 Windows 本机验证环境，这个任务暂用 `continue-on-error: true` 收集兼容性问题，先不拦合并，等它稳定变绿以后去掉。
+
+`REPA_TEST_REQUIRE_ENV=1` 让缺少 Pyodide 离线包、Landlock、libseccomp 或系统 Python 等环境的测试按原跳过原因失败。Linux 任务设置它，以保证沙箱测试实际运行；Windows 不设置，Linux 沙箱测试在那里按环境原因跳过。平台或权限语义差异造成的其他跳过保持原样。
+
+`REPA_SKIP_FULL_COURSE_CHECK=1` 只跳过随包 Python 整门课的 Pyodide 核对。Linux 的推送和 PR 测试、所有 Windows 测试设置它；Linux 的定时和手动测试不设置，因此会运行整门课核对。
+
+在具备 Landlock ABI 4 以上（Linux 6.7 以上）的 Linux 上，使用 Node 24 和 npm 12.0.2，在仓库根目录复现 Linux 的推送和 PR 任务：
+
+```sh
+sudo apt-get update
+sudo apt-get install -y libseccomp2 python3
+npm ci
+npm run course:runtime
+REPA_TEST_REQUIRE_ENV=1 REPA_SKIP_FULL_COURSE_CHECK=1 npm test
+```
+
+复现定时或手动任务时，去掉最后一行的 `REPA_SKIP_FULL_COURSE_CHECK=1`。
+
 ## 工程边界
 
 根目录持有 workspace 命令与单一锁文件，各包声明自己的依赖。浏览器只使用 `@repa/base/client` 和 `@repa/base/protocol`，Node 宿主通过 `@repa/base/process` 管理后端；插件通过 `@repa/base/plugin` 引用类型。Pi 的实现依赖留在底座的 `src/agent/` 内。
 
-每个服务持有一个活动空间。Agent 运行和独立插件文件写入经过空间历史队列，插件状态与变化游标由插件维护。影子 Git 撤销空间文件，不回滚插件数据、会话与设置；数据保护范围和外部写入限制见[空间历史说明](../../packages/space-history/README.md#保存与撤销的取舍)。
+应用配置使用系统配置目录，支持 `REPA_HOME` 和显式 `home` 覆盖；默认启动的一次搬迁、空间格式版本 1 的覆盖范围和空间 Skill 位置见[底座格式与配置](../../packages/base/README.md#应用配置目录)。目录浏览只把具有有效格式标记的目录识别为空间。测试和试运行必须显式使用临时 `home`／`REPA_HOME` 及临时空间，避免触发个人配置搬迁。
+
+每个服务持有一个活动空间。Agent 运行和独立插件文件写入经过空间历史队列，插件状态、数据版本与变化游标由插件维护。一个插件打开失败时只停用这个插件及无法成立的依赖方，原因通过 `space.open/create` 的 `disabledPlugins` 和 `plugin.disabled` 提供；前端显示由 Aqua 接续。影子 Git 撤销空间文件，不回滚插件数据、会话与设置；数据保护范围和外部写入限制见[空间历史说明](../../packages/space-history/README.md#保存与撤销的取舍)。
 
 ## 从哪里开始
 

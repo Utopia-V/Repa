@@ -18,7 +18,7 @@
 
 程序算不出答案的作答位（例如把一句要求填成字段）列进 `manual`。复习和测验题里的这些作答位由 `npm run course:confirm` 用一次隔离的模型调用独立再解：只给学习者看得到的题面，不给答案和解析，模型按作答位的格式作答，再用作答位自己的判分规则比对。一致时在 topic 文件末尾的 `verified` 段记下题目 id、核对范围版本、核对哈希、模型和日期；不一致的只列出来交给人看。记录不在题目里，所以几个人同时写不同的题不会互相冲突；记录绑定题面与判分定义，答案或运行依赖改变就要重新核对，单改信用归属仍可复用，`course:check` 对缺记录的题报 `manual_unconfirmed`。例题和练习不强制。
 
-底座的交互词汇只管向用户要结构化的输入：题面、作答位、作答、只查结构的 `checkResponse` 和版本 `contentVersion` 都从 `@repa/base/protocol` 导入，与前端和对话询问用的是同一份。判对错、提交结果和“不会”归学习插件，是本包自己的公开约定，见下面的[公开约定](#公开约定)。模型调用也经底座的 Agent 运行时（`createAgentRuntime` 的单轮 `complete`，其中是 Pi 的模型接口）。本包因此依赖 `@repa/base`，`check`、`test`、`build` 和课程命令运行前会先构建底座。
+底座的交互词汇只管向用户要结构化的输入：题面、作答位、作答、只查结构的 `checkResponse` 和版本 `contentVersion` 都从 `@repa/base/protocol` 导入，与前端和对话询问用的是同一份。判对错、提交结果和“不会”归学习插件，是本包自己的公开约定，见下面的[公开约定](#公开约定)。模型调用也经底座的 Agent 运行时（`createAgentRuntime` 的单轮 `complete`，其中是 Pi 的模型接口）。本包因此依赖 `@repa/base`，`check`、`test`、`build` 和课程命令通过 TypeScript project references 更新底座及模型库，已是最新的工程直接跳过。
 
 ## 实现细节
 
@@ -68,7 +68,7 @@
 
 发给模型的是换过 id 的题目：单选多选的选项、排列块和表格选择格的 id 按出现顺序换成 a、b、c……（课程里的 id 可以带含义，例如 `faithful`，原样发出去等于告诉模型答案），模型的回答再换回课程里的 id 去判，报告和日志里的差异也写课程里的 id。多行代码选项原样缩进排在编号下面，选择格显示标签，带 `startLine` 的代码块每行前写行号。只有一列要填的表格，模型答 `{行 id: 值}` 也接受。
 
-[`src/check/model.ts`](src/check/model.ts) 用 `--agent-dir`（默认 `~/.repa/agent`）创建底座的 Agent 运行时，凭据由 Pi 从其中的 `auth.json` 读取。`--log` 的文件在发请求之前独占创建，已存在就报错，之后每道题有结果就写一行。写 topic 文件末尾的 `verified` 段时，并入的是写入那一刻磁盘上的记录，先写临时文件再改名，同一个 topic 上同时进行的核对不会丢掉对方的记录。
+[`src/check/model.ts`](src/check/model.ts) 用 `--agent-dir`（默认系统配置目录下的 `agent/`，遵循 `REPA_HOME`）创建底座的 Agent 运行时，凭据由 Pi 从其中的 `auth.json` 读取。`--log` 的文件在发请求之前独占创建，已存在就报错，之后每道题有结果就写一行。写 topic 文件末尾的 `verified` 段时，并入的是写入那一刻磁盘上的记录，先写临时文件再改名，同一个 topic 上同时进行的核对不会丢掉对方的记录。
 
 ### 沙箱
 
@@ -108,7 +108,7 @@ pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们�
 
 ## 验证入口
 
-`course:check`、`course:runtime`、`course:confirm` 运行前由 [`scripts/ensure-base.ts`](scripts/ensure-base.ts) 确认 `@repa/base` 的构建产物是新的：只在产物缺失或比源码旧时构建，同一时间只有一个进程在构建，其余的等它做完。所以同一个 worktree 里可以同时运行几个检查和核对。
+`course:check`、`course:runtime`、`course:confirm` 运行前执行 `tsc -b tsconfig.build.json`，由 TypeScript 更新本包的 Node 产物和依赖。构建入口与同一 worktree 中并行任务的用法见[增量构建说明](../../docs/development/README.md#增量构建)。
 
 在仓库根目录：
 

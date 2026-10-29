@@ -14,22 +14,21 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:packages && npm run build:app --workspaces --if-present",
     "build:backend": "npm run build --workspace=@repa/base",
-    "check": "npm run check --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present --ignore-scripts",
     "dev:backend": "npm --workspace=@repa/base run start -- serve",
     "dev:desktop": "npm run dev --workspace=@repa/desktop",
     "dev:web": "npm run dev --workspace=@repa/web",
-    "precheck": "npm run build:backend",
-    "pretest": "npm run build:backend",
-    "prestart": "npm run build:backend",
-    "predev:backend": "npm run build:backend",
+    "precheck": "npm run build:packages",
+    "pretest": "npm run build:packages",
     "start": "npm --workspace=@repa/base run start -- serve",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present --ignore-scripts",
     "course:check": "npm run course:check --workspace=@repa/learning --",
     "course:runtime": "npm run course:runtime --workspace=@repa/learning --",
     "course:confirm": "npm run course:confirm --workspace=@repa/learning --",
-    "predev:learning": "npm run build --workspace=@repa/learning",
-    "dev:learning": "npm --workspace=@repa/base run start -- serve --plugin ../learning --no-general-agent --direct-agent learning-tutor"
+    "predev:learning": "npm run build:packages",
+    "dev:learning": "npm --workspace=@repa/base run start -- serve --plugin ../learning --no-general-agent --direct-agent learning-tutor",
+    "build:packages": "tsc -b tsconfig.build.json && npm run build:assets --workspaces --if-present"
   }
 }

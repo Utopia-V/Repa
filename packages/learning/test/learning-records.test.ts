@@ -377,3 +377,23 @@ test("采用判分可先私有保存，再由任务保存释放同一反馈，�
   assert.equal(original.projection.state.task?.submissions[0]?.feedback, undefined);
   assert.equal(original.grade.feedback.verdict, "correct");
 });
+
+
+test("学习记录读取忽略新增可选字段，保留盘上原字节且写入仍拒绝未知字段", async (t) => {
+  const { log, file, input } = await fixture(t);
+  await log.submit(input);
+  await log.close();
+  const original = await readFile(file, "utf8");
+  const extended = original.split("\n").filter(Boolean).map((line) => {
+    const record: unknown = JSON.parse(line);
+    assert.ok(record !== null && typeof record === "object");
+    return JSON.stringify({ ...record, futureOptional: { note: "旧版本可忽略" } });
+  }).join("\n") + "\n";
+  await writeFile(file, extended);
+  const reopened = await LearningRecords.open(file, clock);
+  t.after(() => reopened.close());
+  assert.deepEqual(reopened.submission(input.submissionId)?.response, input.response);
+  assert.equal(reopened.records.some((record) => "futureOptional" in record), false);
+  assert.equal(await readFile(file, "utf8"), extended);
+  await assert.rejects(reopened.viewed({ taskId: input.taskId, action: "kp", ref: page.ref, futureOptional: true } as Parameters<LearningRecords["viewed"]>[0]), fault("invalid_input"));
+});

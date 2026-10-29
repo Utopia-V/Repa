@@ -274,7 +274,7 @@ test("插件 id 重复在任何 open 之前拒绝", async (t) => {
   assert.equal(opened, 0);
 });
 
-test("插件工具同名或覆盖内置工具会拒绝，并逆序清理已打开实例", async (t) => {
+test("插件工具同名或覆盖内置工具只停失败方，并清理它已打开的实例", async (t) => {
   const space = await failureSpace(t);
   const closed: string[] = [];
   const plugin = (id: string, name: string): Plugin => ({
@@ -286,31 +286,36 @@ test("插件工具同名或覆盖内置工具会拒绝，并逆序清理已打�
       };
     },
   });
-  await assert.rejects(openPluginHost({ space, plugins: [plugin("first", "same"), plugin("second", "same")], models: noModels, emit() {}, onError() {} }), fault("tool_name_conflict"));
-  assert.deepEqual(closed, ["second", "first"]);
-  await assert.rejects(openPluginHost({ space, plugins: [plugin("builtin", "read")], models: noModels, emit() {}, onError() {} }), fault("tool_name_conflict"));
-  assert.deepEqual(closed, ["second", "first", "builtin"]);
+  const host = await openPluginHost({ space, plugins: [plugin("first", "same"), plugin("second", "same"), plugin("builtin", "read")], models: noModels, emit() {}, onError() {} });
+  assert.deepEqual(host.list().map((plugin) => plugin.id), ["first"]);
+  assert.deepEqual(host.disabled().map(({ id, reason }) => [id, reason.code]), [["builtin", "tool_name_conflict"], ["second", "tool_name_conflict"]]);
+  assert.deepEqual(closed, ["builtin", "second"]);
+  await host.close();
+  assert.deepEqual(closed, ["builtin", "second", "first"]);
 });
 
-test("插件 open 中途失败，宿主先取消后台工作再逆序关闭已打开实例", async (t) => {
+test("插件 open 中途失败只取消自己的后台工作，其余插件继续可用", async (t) => {
   const space = await failureSpace(t);
   const order: string[] = [];
   const finished = deferred<void>();
-  const failure = new Error("打开失败");
   const models: Models = {
     ...noModels,
     async runAgent() {
       return { id: "opening-work", result: finished.promise, async cancel() { order.push("cancel"); finished.resolve(); } };
     },
   };
-  await assert.rejects(openPluginHost({
+  const host = await openPluginHost({
     space, models, emit() {}, onError() {},
     plugins: [
       { id: "first", open: async () => ({ close: async () => { order.push("first"); } }) },
       { id: "second", open: async () => ({ close: async () => { order.push("second"); } }) },
-      { id: "failing", async open(host) { await host.models.runAgent({ text: "工作" }); throw failure; } },
+      { id: "failing", async open(host) { await host.models.runAgent({ text: "工作" }); throw new Error("打开失败"); } },
     ],
-  }), (error) => error === failure);
+  });
+  assert.deepEqual(order, ["cancel"]);
+  assert.deepEqual(host.list().map((plugin) => plugin.id), ["first", "second"]);
+  assert.equal(host.disabled()[0]?.reason.code, "plugin_open_failed");
+  await host.close();
   assert.deepEqual(order, ["cancel", "second", "first"]);
 });
 
@@ -551,62 +556,47 @@ test("插件声明的 Agent 按 id 排序交给宿主，view 在宿主关闭后�
   await assert.rejects(async () => checker?.view?.(), fault("plugins_closed"));
 });
 
-test("Agent 定义引用不存在的工具或子 Agent、列了 grep、子 Agent 工具超过父 Agent、重名或使用 general 时打开失败，并清理已打开实例", async (t) => {
+test("Agent 定义无效只停声明它的插件，并清理实例而不暴露其工具和 Agent", async (t) => {
   const space = await failureSpace(t);
   const cases: [string, Plugin["open"]][] = [
     ["unknown_agent_tool", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: ["read", "missing_tool"] }] })],
     ["agent_tool_unavailable", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: ["read", "grep"] }] })],
     ["unknown_subagent", async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [], subagents: ["missing"] }] })],
-    ["subagent_exceeds_parent", async () => ({
-      agents: () => [
-        { id: "tutor", instructions: () => "", tools: ["read"], subagents: ["writer"] },
-        { id: "writer", instructions: () => "", tools: ["read", "write"] },
-      ],
-    })],
+    ["subagent_exceeds_parent", async () => ({ agents: () => [
+      { id: "tutor", instructions: () => "", tools: ["read"], subagents: ["writer"] },
+      { id: "writer", instructions: () => "", tools: ["read", "write"] },
+    ] })],
     ["invalid_agent_id", async () => ({ agents: () => [{ id: "general", instructions: () => "", tools: [] }] })],
     ["invalid_agent", async () => ({ agents: () => [{ id: "Tutor", instructions: () => "", tools: [] }] })],
   ];
   for (const [code, open] of cases) {
     const closed: string[] = [];
-    await assert.rejects(openPluginHost({
+    const host = await openPluginHost({
       space, models: noModels, emit() {}, onError() {},
       plugins: [
         { id: "first", open: async () => ({ close: async () => { closed.push("first"); } }) },
-        { id: "declaring", async open(host) { const instance = await open(host); return { ...instance, close: async () => { closed.push("declaring"); } }; } },
+        { id: "declaring", async open(context) {
+          const instance = await open(context);
+          return { ...instance, tools: () => [{ name: "failed_tool", description: "失败插件的工具", parameters: empty, execute: async () => ({ text: "不可用" }) }], close: async () => { closed.push("declaring"); } };
+        } },
       ],
-    }), fault(code));
+    });
+    assert.deepEqual(host.disabled().map(({ id, reason }) => [id, reason.code]), [["declaring", code]]);
+    assert.deepEqual(host.list().map((plugin) => plugin.id), ["first"]);
+    assert.deepEqual(host.tools(), []);
+    assert.deepEqual(host.agents(), []);
+    assert.deepEqual(closed, ["declaring"]);
+    await host.close();
     assert.deepEqual(closed, ["declaring", "first"]);
   }
-  await assert.rejects(openPluginHost({
-    space, models: noModels, emit() {}, onError() {},
-    plugins: [{
-      id: "declaring",
-      open: async () => ({
-        agents: () => [
-          { id: "tutor", instructions: () => "", tools: ["read"], subagents: ["writer"] },
-          { id: "writer", instructions: () => "", tools: ["read", "write"] },
-        ],
-      }),
-    }],
-  }), (error: unknown) => {
-    assert.ok(error instanceof Error && "details" in error);
-    assert.deepEqual(error.details, { agent: "tutor", subagent: "writer", tools: ["write"] });
-    return true;
-  });
-  await assert.rejects(openPluginHost({
-    space, models: noModels, emit() {}, onError() {},
-    plugins: [{ id: "declaring", open: async () => ({ agents: () => [{ id: "searcher", instructions: () => "", tools: ["read", "grep"] }] }) }],
-  }), (error: unknown) => {
-    assert.ok(error instanceof Error && "details" in error);
-    assert.deepEqual(error.details, { agent: "searcher", tool: "grep" });
-    assert.match(error.message, /插件 Agent 不提供 grep/u);
-    return true;
-  });
   const duplicate: Plugin = { id: "copy", open: async () => ({ agents: () => [{ id: "tutor", instructions: () => "", tools: [] }] }) };
-  await assert.rejects(openPluginHost({
+  const host = await openPluginHost({
     space, models: noModels, emit() {}, onError() {},
     plugins: [{ ...duplicate, id: "one" }, { ...duplicate, id: "two" }],
-  }), fault("invalid_agent_id"));
+  });
+  assert.deepEqual(host.list().map((plugin) => plugin.id), ["one"]);
+  assert.equal(host.disabled()[0]?.reason.code, "invalid_agent_id");
+  await host.close();
 });
 
 test("Agent 定义可以互相列为子 Agent，也可以列自己，打开时不拒绝", async (t) => {
@@ -620,4 +610,78 @@ test("Agent 定义可以互相列为子 Agent，也可以列自己，打开时�
     }),
   }]);
   assert.deepEqual(host.agents().map((agent) => [agent.id, agent.subagents]), [["planner", ["planner", "worker"]], ["worker", ["planner"]]]);
+});
+
+test("失败声明不占用工具名，依赖失败插件的 Agent 也只停在所属插件", async (t) => {
+  const { host } = await fixture(t, [
+    {
+      id: "broken",
+      async open() {
+        return {
+          tools: () => ["reused", "read"].map((name) => ({ name, description: name, parameters: empty, execute: async () => ({ text: name }) })),
+        };
+      },
+    },
+    {
+      id: "dependent",
+      async open() {
+        return { agents: () => [{ id: "dependent", instructions: () => "", tools: ["missing"] }] };
+      },
+    },
+    {
+      id: "good",
+      async open() {
+        return { tools: () => [{ name: "reused", description: "继续使用", parameters: empty, execute: async () => ({ text: "可用" }) }] };
+      },
+    },
+  ]);
+  assert.deepEqual(host.list().map((plugin) => plugin.id), ["good"]);
+  assert.deepEqual(host.tools().map((tool) => tool.name), ["reused"]);
+  assert.deepEqual(host.disabled().map(({ id, reason }) => [id, reason.code]), [["broken", "tool_name_conflict"], ["dependent", "unknown_agent_tool"]]);
+});
+
+test("插件打开后的声明读取失败时清理实例，清理再失败也不阻止其他插件", async (t) => {
+  let closed = false;
+  const { host, errors } = await fixture(t, [
+    {
+      id: "broken",
+      async open() {
+        return {
+          agents() { throw new Error("声明损坏"); },
+          async close() { closed = true; throw new Error("清理失败"); },
+        };
+      },
+    },
+    { id: "good", open: async () => ({}) },
+  ]);
+  assert.equal(closed, true);
+  assert.equal(host.disabled()[0]?.reason.message, "声明损坏");
+  assert.deepEqual(host.list().map((plugin) => plugin.id), ["good"]);
+  assert.deepEqual(errors.map((error) => error instanceof Error ? error.message : ""), ["声明损坏", "清理失败"]);
+});
+
+
+test("Agent 定义后置校验失败的插件不占工具名，后登记的正常插件继续可用", async (t) => {
+  const closed: string[] = [];
+  const tool = { name: "shared", description: "同名工具", parameters: empty, execute: async () => ({ text: "继续工作" }) };
+  const { host } = await fixture(t, [
+    {
+      id: "broken",
+      async open() {
+        return {
+          tools: () => [tool, { ...tool, name: "broken_only" }],
+          agents: () => [{ id: "broken", instructions: () => "", tools: ["missing"] }],
+          close: async () => { closed.push("broken"); },
+        };
+      },
+    },
+    { id: "dependent", open: async () => ({ agents: () => [{ id: "dependent", instructions: () => "", tools: ["broken_only"] }] }) },
+    { id: "good", open: async () => ({ tools: () => [tool] }) },
+  ]);
+  assert.deepEqual(host.list().map((plugin) => plugin.id), ["good"]);
+  assert.deepEqual(host.disabled().map(({ id, reason }) => [id, reason.code]), [["broken", "unknown_agent_tool"], ["dependent", "unknown_agent_tool"]]);
+  assert.deepEqual(closed, ["broken"]);
+  const [available] = host.tools();
+  assert.ok(available);
+  assert.deepEqual(await available.execute({}, { callId: "shared-test", signal: new AbortController().signal }), { text: "继续工作" });
 });

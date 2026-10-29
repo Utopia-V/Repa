@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 import { open, readdir, stat, type FileHandle } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
-import { openSpace } from "@repa/base";
+import { openSpace, resolveAppHome } from "@repa/base";
 
 import { confirmCourse, type ConfirmOutcome } from "./check/confirm.js";
 import { checkCourse, type CheckResult } from "./check/course.js";
@@ -22,7 +21,7 @@ const USAGE = `用法：
   repa-course runtime [课程目录…] [--from 目录] [--packages 目录]
       准备离线 Pyodide 包；--from 从已有目录复制，不给时从 jsDelivr 下载。都会按 lockfile 核对 SHA-256。
   repa-course confirm [课程目录…] [--topic id …] [--max-requests 50] [--model deepseek/deepseek-flash]
-                      [--agent-dir ~/.repa/agent] [--force] [--dry-run] [--log 文件]
+                      [--agent-dir 应用配置目录/agent] [--force] [--dry-run] [--log 文件]
       复习和测验题里的 manual 作答位，用一次隔离的模型调用独立再解，与标准答案一致时写进 topic 的 verified 段。
       会产生真实的模型费用；--dry-run 只打印要发的请求。
 `;
@@ -141,7 +140,7 @@ async function confirm(args: string[]): Promise<number> {
       topic: { type: "string", multiple: true },
       "max-requests": { type: "string", default: "50" },
       model: { type: "string", default: "deepseek/deepseek-flash" },
-      "agent-dir": { type: "string", default: path.join(os.homedir(), ".repa", "agent") },
+      "agent-dir": { type: "string", default: path.join(resolveAppHome(), "agent") },
       force: { type: "boolean" },
       "dry-run": { type: "boolean" },
       log: { type: "string" },

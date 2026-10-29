@@ -22,7 +22,7 @@ it("Web 开发宿主交付新底座连接，关闭宿主后连接中断", async 
     client = await RepaClient.connect(await response.json());
     expect(client.connected).toBe(true);
     expect(await client.call("space.list", {})).toEqual([]);
-    expect(await client.call("space.create", { root: path.join(directory, "space") })).toEqual({ root: path.join(directory, "space") });
+    expect(await client.call("space.create", { root: path.join(directory, "space") })).toEqual({ root: path.join(directory, "space"), disabledPlugins: [] });
     await server.close();
     await expect.poll(() => client?.connected, { timeout: 8000 }).toBe(false);
   } finally {

@@ -11,6 +11,7 @@ import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
 import type { CodeSlot, OrderSlot, TableSlot, TextSlot } from "../src/format/schema.js";
 import { demoCourse, runtimeUnavailable, writeCourse, type DemoCourse } from "./demo-course.js";
+import { skipUnavailableEnvironment } from "./environment.js";
 
 const PYTHON_COURSE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "courses", "python");
 
@@ -26,7 +27,7 @@ function practiceSlot<T>(demo: DemoCourse, kpIndex: number, questionIndex: numbe
 
 test("示例课程在 Pyodide 里全部核对通过", async (t) => {
   const reason = await runtimeUnavailable();
-  if (reason) return t.skip(reason);
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const root = await writeCourse(t, demoCourse());
   const result = await checkCourse(root, { base: root });
   assert.deepEqual(result.diagnostics, []);
@@ -39,7 +40,7 @@ test("示例课程在 Pyodide 里全部核对通过", async (t) => {
 
 test("标准答案与程序独立算出的不一致、或有作答位没被核对时报出", async (t) => {
   const reason = await runtimeUnavailable();
-  if (reason) return t.skip(reason);
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const demo = demoCourse();
   practiceSlot<TextSlot>(demo, 0, 0).key = 4;
   const question = demo.topics.t01?.kps[0]?.practice?.[1];
@@ -59,7 +60,7 @@ test("标准答案与程序独立算出的不一致、或有作答位没被核�
 
 test("代码题：参考答案不过测试、错误写法反而通过、等价写法没通过都会报出", async (t) => {
   const reason = await runtimeUnavailable();
-  if (reason) return t.skip(reason);
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const demo = demoCourse();
   const code = practiceSlot<CodeSlot>(demo, 1, 0);
   code.solution = "def double(x):\n    return x * 3\n";
@@ -74,7 +75,7 @@ test("代码题：参考答案不过测试、错误写法反而通过、等价�
 
 test("Parsons 题按测试判：标准排列的缩进错了会报出，期望值算不出的测试也会报出", async (t) => {
   const reason = await runtimeUnavailable();
-  if (reason) return t.skip(reason);
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const wrongIndent = demoCourse();
   const parsons = practiceSlot<OrderSlot>(wrongIndent, 1, 1);
   parsons.indents = { ...parsons.indents, b5: 2 };
@@ -91,7 +92,7 @@ test("Parsons 题按测试判：标准排列的缩进错了会报出，期望值
 
 test("核对程序超时时报出，其余题目照常核对", async (t) => {
   const reason = await runtimeUnavailable();
-  if (reason) return t.skip(reason);
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const demo = demoCourse();
   const question = demo.topics.t01?.kps[0]?.practice?.[0];
   assert.ok(question);
@@ -112,9 +113,12 @@ test("课程清单要求的运行时与安装的不一致时报出，不运行�
   assert.equal(result.summary.ran, false);
 });
 
-test("随包的 Python 课程在 Pyodide 里全部核对通过", async (t) => {
+// 学习插件让核对器复用解释器以后，删掉这个开关和 CI 定时任务。
+test("随包的 Python 课程在 Pyodide 里全部核对通过", {
+  skip: process.env.REPA_SKIP_FULL_COURSE_CHECK === "1" ? "整门课核对要几十分钟，CI 只在定时任务里跑" : false,
+}, async (t) => {
   const reason = await runtimeUnavailable();
-  if (reason) return t.skip(reason);
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const result = await checkCourse(PYTHON_COURSE);
   assert.deepEqual(result.diagnostics, []);
   assert.equal(result.summary.ran, true);
@@ -125,7 +129,7 @@ test("随包的 Python 课程在 Pyodide 里全部核对通过", async (t) => {
 
 test("verify 核对更严：多写的可接受值、忘了写 input 的答案列、按 repr 显示的字符串都会报出", async (t) => {
   const reason = await runtimeUnavailable();
-  if (reason) return t.skip(reason);
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const demo = demoCourse();
   practiceSlot<TextSlot>(demo, 0, 0).key = [3, 4];
   const wwpd = practiceSlot<TableSlot>(demo, 1, 2);
@@ -147,7 +151,7 @@ test("verify 核对更严：多写的可接受值、忘了写 input 的答案列
 
 test("代码题的初始代码已经能通过测试、verify 遇到有多种正确排列的题时报出", async (t) => {
   const reason = await runtimeUnavailable();
-  if (reason) return t.skip(reason);
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const demo = demoCourse();
   const code = practiceSlot<CodeSlot>(demo, 1, 0);
   code.starter = code.solution;
@@ -163,7 +167,7 @@ test("代码题的初始代码已经能通过测试、verify 遇到有多种正�
 test("每份候选程序从干净解释器开始，发布期望值绑定内容、运行前导和 runner", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) {
-    return t.skip(reason);
+    return skipUnavailableEnvironment(t, reason);
   }
   const demo = demoCourse();
   const entry = Object.values(demo.topics)

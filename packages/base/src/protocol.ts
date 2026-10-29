@@ -29,9 +29,9 @@ import {
 
 export * from "./schema.js";
 export * from "./interaction.js";
-// 2：initialize 增加 capabilities，新增 ask.* 与 service.*。客户端严格校验已有消息的信封，加字段必须升版本；
+// 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。客户端严格校验已有消息的信封，加字段必须升版本；
 // 信封里的 Item 和内容块按词汇的规则宽松读取，见 lenientNotifications。
-export const PROTOCOL_VERSION = "2";
+export const PROTOCOL_VERSION = "3";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
 /**
@@ -71,14 +71,22 @@ const confirmationReply = Type.Union([Type.String(), Type.Boolean(), Type.Null()
 // 前端内存里的最近错误，随反馈请求带给后端打包；条数和长度设上限，挡住意外的大请求。
 const feedbackError = object({ time: Type.String({ maxLength: 64 }), message: Type.String({ maxLength: 4000 }), source: Type.Optional(Type.String({ maxLength: 200 })) });
 
+/** 打开空间时停用的插件；reason 供前端直接说明，code 供程序判断。 */
+export const DisabledPluginSchema = object({
+  id: identifier,
+  reason: object({ code: identifier, message: Type.String() }),
+});
+export type DisabledPlugin = Static<typeof DisabledPluginSchema>;
+const openedSpace = object({ root: identifier, disabledPlugins: Type.Array(DisabledPluginSchema) });
+
 export const methods = {
   initialize: {
     params: object({ token: identifier, version: Type.String(), capabilities: Type.Optional(ClientCapabilitiesSchema) }),
     result: object({ version: Type.Literal(PROTOCOL_VERSION), serverId: identifier }),
   },
   "space.list": { params: empty, result: Type.Array(identifier) },
-  "space.open": { params: space, result: space },
-  "space.create": { params: space, result: space },
+  "space.open": { params: space, result: openedSpace },
+  "space.create": { params: space, result: openedSpace },
   "space.close": { params: empty, result: nothing },
   "space.roots": { params: empty, result: Type.Array(DirectoryRootSchema) },
   "space.browse": { params: object({ path: Type.Optional(identifier) }), result: DirectoryListingSchema },
@@ -102,6 +110,7 @@ export const methods = {
   // 撤回一个运行及其全部子孙运行；runId 来自 runStart 事件或会话里的 run 条目。
   "history.undoRun": { params: object({ runId: identifier }), result: historyUndo },
   "plugin.list": { params: empty, result: Type.Array(object({ id: identifier, methods: Type.Array(identifier), tools: Type.Array(identifier) })) },
+  "plugin.disabled": { params: empty, result: Type.Array(DisabledPluginSchema) },
   "plugin.call": { params: object({ pluginId: identifier, method: identifier, input: Type.Unknown() }), result: Type.Unknown() },
   "prompt.list": { params: agent, result: Type.Array(PromptSectionSchema) },
   "prompt.set": { params: object({ scope, id: identifier, override: PromptOverrideSchema }), result: nothing },

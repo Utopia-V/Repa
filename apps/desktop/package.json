@@ -6,16 +6,17 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "build": "electron-vite build",
+    "build": "npm run build:app",
     "package:linux": "node scripts/package-linux.mjs",
     "verify:linux": "node scripts/verify-linux-package.mjs",
     "check": "tsc --noEmit",
     "dev": "electron-vite dev",
-    "prebuild": "npm run build --workspace=@repa/learning --prefix ../..",
-    "precheck": "npm run build --workspace=@repa/learning --prefix ../..",
-    "predev": "npm run build --workspace=@repa/learning --prefix ../..",
-    "pretest": "npm run build --workspace=@repa/learning --prefix ../..",
-    "test": "vitest run"
+    "prebuild": "npm run build:packages --prefix ../..",
+    "precheck": "npm run build:packages --prefix ../..",
+    "predev": "npm run build:packages --prefix ../..",
+    "pretest": "npm run build:packages --prefix ../..",
+    "test": "vitest run",
+    "build:app": "electron-vite build"
   },
   "dependencies": {
     "class-variance-authority": "0.7.1",

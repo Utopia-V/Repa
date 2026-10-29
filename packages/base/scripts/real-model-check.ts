@@ -6,7 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 
 import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
-import { startServer, type AgentRuntime, type RepaServer } from "@repa/base";
+import { resolveAppHome, startServer, type AgentRuntime, type RepaServer } from "@repa/base";
 import { RepaClient } from "@repa/base/client";
 import type { Plugin } from "@repa/base/plugin";
 import type { Result } from "@repa/base/protocol";
@@ -25,7 +25,7 @@ import { assertModelBudget, summarizeUsage } from "./real-model/usage.js";
 const { values } = parseArgs({
   options: {
     output: { type: "string" },
-    "agent-dir": { type: "string", default: path.join(os.homedir(), ".repa", "agent") },
+    "agent-dir": { type: "string", default: path.join(resolveAppHome(), "agent") },
     provider: { type: "string", default: "openai-codex" },
     model: { type: "string" },
     limit: { type: "string", default: "30" },

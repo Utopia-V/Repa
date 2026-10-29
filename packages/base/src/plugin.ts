@@ -184,8 +184,6 @@ export interface Host {
 
 export interface Plugin {
   id: string;
-  /** 构建加载时来自静态清单；直接装配和测试宿主省略时使用当前初始版本 1。 */
-  dataVersion?: number;
   // open 尚未返回实例时，插件负责清理自己已经打开的子实例与其他局部资源。
   open(host: Host): Promise<PluginInstance>;
 }
@@ -202,3 +200,5 @@ export interface PluginInstance {
   // close 必须等待插件自有的通知与非模型后台工作完成。
   close?(): Promise<void>;
 }
+
+export { checkFormat } from "./space/format.js";

@@ -5,8 +5,9 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { PythonTest } from "../src/protocol.js";
-import { describeRuntime } from "../src/sandbox/runtime.js";
+import { describeRuntime, verifyPackages } from "../src/sandbox/runtime.js";
 import { RUNTIME } from "./demo-course.js";
+import { skipUnavailableEnvironment } from "./environment.js";
 
 const SANDBOX = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sandbox");
 
@@ -19,6 +20,7 @@ const frontend = (async () => {
   let assets;
   try {
     assets = await describeRuntime(RUNTIME);
+    await verifyPackages(assets);
   } catch (error) {
     if (error instanceof Error && error.name === "RuntimeProblem") return error.message;
     throw error;
@@ -55,7 +57,7 @@ function run(start: (line: string) => Generator, job: Partial<PythonTest> & { pr
 
 test("program_test 逐个阶段报告，结果与 program 任务相同；capture 的求值和序列化分成两步", async (t) => {
   const pyodide = await frontend;
-  if (typeof pyodide === "string") return t.skip(pyodide);
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
   const job = {
     prelude: "LIMIT = 3",
     data: [
@@ -89,7 +91,7 @@ test("program_test 逐个阶段报告，结果与 program 任务相同；capture
 
 test("前导、夹具或 setup 出错时以 failed 结束，阶段是 prepare；学习者代码里的异常和 exit() 记在结果里", async (t) => {
   const pyodide = await frontend;
-  if (typeof pyodide === "string") return t.skip(pyodide);
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
   assert.deepEqual(run(pyodide.test, { setup: "1 / 0", program: "x = 1" }).result, {
     status: "failed", phase: "prepare", error: { type: "RuntimeError", message: "测试的 setup 出错：ZeroDivisionError: division by zero" },
   });
@@ -108,7 +110,7 @@ test("前导、夹具或 setup 出错时以 failed 结束，阶段是 prepare；
 
 test("每个测试结束时恢复解释器状态，下一个测试看不到上一个改动的选项", async (t) => {
   const pyodide = await frontend;
-  if (typeof pyodide === "string") return t.skip(pyodide);
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
   run(pyodide.test, { program: "import pandas as pd\npd.set_option('display.max_rows', 3)" });
   const { result } = run(pyodide.test, { program: "import pandas as pd\nrows = pd.get_option('display.max_rows')", captures: ["rows"] });
   assert.deepEqual(result, { status: "completed", result: { stdout: "", error: null, captures: { rows: { value: { t: "int", v: "60" } } }, doctest: [] } });
@@ -123,7 +125,7 @@ function program(handleJob: (line: string) => string, job: Partial<PythonTest> &
 
 test("课程核对与前端结果相同：capture 的值序列化后即释放，求值和序列化共用输出上限，被检查的调用 exit() 记在这一项上", async (t) => {
   const pyodide = await frontend;
-  if (typeof pyodide === "string") return t.skip(pyodide);
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
   const released = {
     program: "x = 0\nclass V:\n    def __repr__(self):\n        return 'V'\n    def __del__(self):\n        global x\n        x = 5",
     captures: ["V()", "x"],

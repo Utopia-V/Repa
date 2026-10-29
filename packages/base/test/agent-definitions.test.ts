@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -180,8 +180,8 @@ test("插件 Agent 的会话在重开和分支后仍属于原 Agent，没有记�
   assert.equal((await reopened.get(legacy.getSessionId())).info().agent, "general");
 });
 
-async function protocolFixture(t: TestContext, plugin: Plugin, options: Pick<ServerOptions, "generalAgent" | "directAgents"> = {}) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-defs-protocol-"));
+async function protocolFixture(t: TestContext, plugin: Plugin, options: Pick<ServerOptions, "generalAgent" | "directAgents" | "plugins"> = {}) {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-agent-defs-protocol-")));
   const root = path.join(directory, "space");
   const home = path.join(directory, "home");
   await mkdir(root);
@@ -202,8 +202,8 @@ async function protocolFixture(t: TestContext, plugin: Plugin, options: Pick<Ser
     await server.close();
     await rm(directory, { recursive: true, force: true });
   });
-  await client.call("space.open", { root });
-  return { root, client, faux };
+  const opened = await client.call("space.open", { root });
+  return { root, client, faux, opened };
 }
 
 const rejectsWith = (code: string) => (error: unknown): boolean => {
@@ -287,7 +287,17 @@ test("装配指定的直接对话 Agent 覆盖定义：通用 Agent 不在其中
   assert.equal((await f.client.call("session.create", { agent: "writer" })).agent, "writer");
 });
 
-test("装配指定的直接对话 Agent 写错 id 时打开空间失败，而不是让所有 Agent 都不能对话", { timeout: 30000 }, async t => {
+test("插件停用带走了装配点名的直接对话 Agent 时，只去掉这个 Agent，空间照常打开", { timeout: 30000 }, async t => {
+  // 学习插件平时声明 tutor；它的数据打不开时，tutor 也就不在了。
+  const broken: Plugin = { id: "learning", async open() { throw new Error("学习数据损坏，请检查数据文件"); } };
+  const f = await protocolFixture(t, broken, { directAgents: ["tutor"] });
+  assert.deepEqual(f.opened.disabledPlugins, [{ id: "learning", reason: { code: "plugin_open_failed", message: "学习数据损坏，请检查数据文件" } }]);
+  // 装配只让 tutor 直接对话；tutor 不在了，通用 Agent 也不因此变成可以直接对话。
+  assert.deepEqual(await f.client.call("agent.list", {}), [{ id: "general", direct: false }]);
+  await assert.rejects(f.client.call("session.create", { agent: "tutor" }), rejectsWith("agent_not_found"));
+});
+
+test("没有插件停用时，装配指定的直接对话 Agent 写错 id 仍让打开空间失败，而不是让所有 Agent 都不能对话", { timeout: 30000 }, async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-defs-typo-"));
   const root = path.join(directory, "space");
   await mkdir(root);
@@ -352,4 +362,78 @@ test("关掉通用 Agent 以后，它的旧会话照样能列出、能读历史�
   await assert.rejects(after.client.call("session.compact", { sessionId: session.id }), rejectsWith("agent_not_found"));
   await after.client.call("session.abort", { sessionId: session.id });
   assert.equal(faux.state.callCount, 1);
+});
+
+
+test("插件数据打开失败经协议报告，其他插件、通用对话和历史照常使用", { timeout: 30000 }, async (t) => {
+  const good = learningPlugin();
+  const f = await protocolFixture(t, good, {
+    plugins: [
+      { id: "broken", async open() { throw new Error("插件数据损坏，请检查自己的数据文件"); } },
+      good,
+    ],
+  });
+  const disabled = [{ id: "broken", reason: { code: "plugin_open_failed", message: "插件数据损坏，请检查自己的数据文件" } }];
+  assert.deepEqual(f.opened.disabledPlugins, disabled);
+  assert.deepEqual(await f.client.call("plugin.disabled", {}), disabled);
+  assert.deepEqual((await f.client.call("space.open", { root: f.root })).disabledPlugins, disabled);
+  assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning"]);
+  assert.ok((await f.client.call("agent.list", {})).some((agent) => agent.id === "tutor"));
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "broken", method: "save", input: {} }), rejectsWith("plugin_not_found"));
+  const session = await f.client.call("session.create", {});
+  f.faux.setResponses([fauxAssistantMessage("继续工作。")]);
+  await f.client.call("session.send", { sessionId: session.id, text: "一个插件坏了，也继续对话" });
+  const history = await f.client.call("session.history", { sessionId: session.id });
+  assert.equal(history.findLast((entry) => entry.type === "assistant")?.text, "继续工作。");
+  assert.ok((await f.client.call("history.list", {})).length > 0);
+});
+
+test("插件第一次处理变化就失败时，只停它和依赖它的插件，空间照常打开，其他插件继续工作", { timeout: 30000 }, async (t) => {
+  const empty = Type.Object({}, { additionalProperties: false });
+  const failing: Plugin = {
+    id: "derive",
+    async open() {
+      return {
+        instructions: () => "派生插件说明",
+        view: async () => "派生插件视图",
+        tools: () => [{ name: "derive_lookup", description: "查询派生结果", parameters: empty, execute: async () => ({ text: "派生结果" }) }],
+        agents: () => [{ id: "deriver", instructions: () => "整理派生结果", tools: ["derive_lookup"], direct: true }],
+        methods: { inspect: { parameters: empty, invoke: async () => "派生状态" } },
+        async onChange() { throw new Error("派生数据读不出来"); },
+      };
+    },
+  };
+  const dependent: Plugin = { id: "dependent", open: async () => ({ agents: () => [{ id: "helper", instructions: () => "", tools: ["derive_lookup"] }] }) };
+  const good = learningPlugin();
+  const f = await protocolFixture(t, good, { plugins: [failing, dependent, good] });
+  assert.deepEqual(f.opened.disabledPlugins.map(({ id, reason }) => [id, reason.code]), [["dependent", "unknown_agent_tool"], ["derive", "plugin_open_failed"]]);
+  assert.equal(f.opened.disabledPlugins.find((plugin) => plugin.id === "derive")?.reason.message, "派生数据读不出来");
+  assert.deepEqual(await f.client.call("plugin.disabled", {}), f.opened.disabledPlugins);
+  assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning"]);
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "derive", method: "inspect", input: {} }), rejectsWith("plugin_not_found"));
+  assert.deepEqual((await f.client.call("agent.list", {})).map((agent) => agent.id), ["general", "tutor", "writer"]);
+  await assert.rejects(f.client.call("session.create", { agent: "deriver" }), rejectsWith("agent_not_found"));
+  const preview = await f.client.call("prompt.preview", {});
+  assert.ok(!preview.sections.some((section) => section.id === "plugin:derive"));
+  assert.deepEqual(preview.views, []);
+  // 模型实际收到的请求里没有停用插件的工具和说明；其他插件的工具照常可用。
+  const session = await f.client.call("session.create", {});
+  const requests: TranscriptContext[] = [];
+  f.faux.setResponses([
+    (context: TranscriptContext) => {
+      requests.push(structuredClone(context));
+      return fauxAssistantMessage(fauxToolCall("course_lookup", { topic: "循环" }));
+    },
+    fauxAssistantMessage("查到了"),
+  ]);
+  await f.client.call("session.send", { sessionId: session.id, text: "查一下循环" });
+  const request = requests[0];
+  assert(request);
+  const tools = getCurrentTools(request.messages).map((tool) => tool.name);
+  assert.ok(tools.includes("course_lookup"));
+  assert.ok(!tools.includes("derive_lookup"));
+  assert.doesNotMatch(getCurrentSystemPrompt(request.messages), /派生插件说明/u);
+  assert.deepEqual(viewTexts(request), []);
+  const history = await f.client.call("session.history", { sessionId: session.id });
+  assert.equal(history.find((entry) => entry.type === "tool")?.text, "课程：for 循环");
 });

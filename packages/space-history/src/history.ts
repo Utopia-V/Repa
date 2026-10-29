@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, symlink, unlink, writeFile, chmod } from "node:fs/promises";
 import path from "node:path";
 
-import { Check } from "typebox/value";
+import { Check, Clean } from "typebox/value";
 
 import { Git, GitError, nul } from "./git.js";
 import {
@@ -339,7 +339,7 @@ export class SpaceHistory {
     for (let i = 0; i < fields.length; i += 4) {
       const [id, parent, time, message] = fields.slice(i, i + 4);
       if (!id || parent === undefined || !time || !message) throw new Error("历史提交格式损坏");
-      const source: unknown = JSON.parse(message);
+      const source: unknown = Clean(SourceSchema, JSON.parse(message));
       if (!Check(SourceSchema, source)) throw new Error(`历史来源格式损坏：${id}`);
       result.push({ id, parent: parent || null, timestamp: new Date(Number(time) * 1000).toISOString(), source });
     }
