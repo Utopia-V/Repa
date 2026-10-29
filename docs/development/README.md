@@ -10,13 +10,24 @@
 
 | 操作 | 根目录命令 |
 | --- | --- |
+| 增量构建全部库包及配套产物 | `npm run build:packages` |
 | 构建后端及空间历史 | `npm run build:backend` |
 | 启动本机服务 | `npm run dev:backend -- --home /absolute/path/repa-home` |
 | Web 开发 | `npm run dev:web` |
 | Desktop 开发 | `npm run dev:desktop` |
 | 全仓类型检查、测试与构建 | `npm run check`、`npm test`、`npm run build` |
 
-根 `start` 和 `dev:backend` 都运行底座的 `serve`。`@repa/base` 的 `prebuild` 先构建空间历史，因而根 `build:backend` 只需构建底座。检查、测试与前端开发准备复用这个入口。需要指定端口或加载本机可信插件时，继续传入底座 CLI 的选项，具体见[使用说明](../../packages/base/README.md#使用)。
+根 `start` 和 `dev:backend` 都运行底座的 `serve`，由底座的 `prestart` 准备构建产物。需要指定端口或加载本机可信插件时，继续传入底座 CLI 的选项，具体见[使用说明](../../packages/base/README.md#使用)。
+
+### 增量构建
+
+根目录的 [`tsconfig.build.json`](../../tsconfig.build.json) 汇集库包工程，各工程通过 project references 声明依赖。`build:packages` 先运行 `tsc -b`，再复制底座示例的 `repa-plugin.json`、用 esbuild 生成学习插件的 `protocol.browser.js`。TypeScript 负责按依赖顺序编译并跳过最新工程；编译状态随产物保存在各包的 `dist/` 下，删除整个 `dist/` 就能重新构建该包。
+
+根 `check` 和 `test` 先统一运行 `build:packages`，然后以 `--ignore-scripts` 运行各 workspace 的检查或测试，避免再次触发各包的准备脚本。根 `build` 在库包准备完成后调用各前端的 `build:app`，分别执行 Vite 和 electron-vite。示例清单复制与 esbuild 步骤每次准备时都会执行，以保证非 TypeScript 产物也与源码一致。
+
+单独运行包的 `build`、`check`、`test` 时，包内入口也会通过 `tsc -b` 更新自身及引用的依赖；课程命令只准备 Node 工程。Web 和 Desktop 的构建、检查、测试、开发入口统一调用根 `build:packages`，因此从根目录运行 `npm run dev:web` 或直接进入 workspace 启动都能更新库包。`build:app` 和 `build:assets` 是组合构建内部使用的步骤，日常开发使用表中的入口或包的 `build`。
+
+同一 worktree 中会写入构建产物的命令应串行运行；需要同时修改源码并运行多套任务时，使用独立 worktree。
 
 Web 和 Desktop 分别由 Vite 与 Electron Node 宿主启动后端。`@repa/base/process` 提供进程生命周期，宿主取得连接后通过开发 HTTP 端点或隔离 preload 交给 renderer；宿主关闭时等待后端收尾。连接断开后重新读取历史与插件状态，再判断原操作的结果，客户端不会自动重放请求。
 

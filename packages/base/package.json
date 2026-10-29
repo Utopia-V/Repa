@@ -38,15 +38,16 @@
     "repa-base": "dist/cli.js"
   },
   "scripts": {
-    "prebuild": "npm run build --workspace=@repa/space-history",
-    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.examples.json && node -e \"require('node:fs').copyFileSync('examples/repa-plugin.json', 'dist/examples/repa-plugin.json')\"",
+    "build": "tsc -b tsconfig.examples.json && npm run build:assets",
     "precheck": "npm run build",
     "check": "tsc --noEmit",
     "pretest": "npm run build",
     "test": "node --import tsx --test test/*.test.ts",
     "start": "tsx src/cli.ts",
     "prereal-model-check": "npm run build",
-    "real-model-check": "tsx scripts/real-model-check.ts"
+    "real-model-check": "tsx scripts/real-model-check.ts",
+    "build:assets": "node -e \"require('node:fs').copyFileSync('examples/repa-plugin.json', 'dist/examples/repa-plugin.json')\"",
+    "prestart": "npm run build"
   },
   "engines": {
     "node": ">=22.22.2"

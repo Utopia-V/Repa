@@ -132,7 +132,6 @@ await rm(work, { recursive: true, force: true });
 await mkdir(archives, { recursive: true });
 await mkdir(application);
 
-await npmRun(["run", "build:backend"]);
 await npmRun(["run", "build", "--workspace=@repa/desktop"]);
 const packed = Object.values(JSON.parse(await npmRun([
   "pack", "--ignore-scripts", "--json", "--pack-destination", archives,
