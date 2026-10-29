@@ -126,8 +126,9 @@ await backend.close();
 | 路径或记录 | 版本 1 的约定 |
 | --- | --- |
 | `.repa/format.json` | 对象，`version` 为正的安全整数；额外可选字段可忽略。 |
-| `.repa/sessions/*.jsonl` | Pi 1.1.0 的会话记录格式；底座通过 Pi 的公开入口读取和追加。包括 `repa-agent` 的 `{ agent }`、`repa-run` 的 `{ runId, parentRunId?, parentSessionId? }`、`repa-fork` 的 `{ entryId }`，以及 `repa-view`、`repa-prompt-change` 自定义消息和提示分段、上下文编辑。各条记录的含义见本说明的[会话协议](#协议入口)。 |
+| `.repa/sessions/*.jsonl` | Pi 1.1.0 的会话记录格式；底座通过 Pi 的公开入口读取和追加。包括 `repa-agent` 的 `{ agent }`、`repa-model-call` 的 `{ pluginId }`、`repa-run` 的 `{ runId, parentRunId?, parentSessionId? }`、`repa-fork` 的 `{ entryId }`，以及 `repa-view`、`repa-prompt-change` 自定义消息和提示分段、上下文编辑。各条记录的含义见本说明的[会话协议](#协议入口)。 |
 | `.repa/sessions/<id>.parent.json` | `{ sessionId, runId, callId }`，表示子会话与父调用的关联；不占用 Pi 的分支来源。 |
+| `.repa/tool-output/<sessionId>/<callId>.txt` | 超出模型展示上限的插件工具文本原文；模型通过只读文件工具续取，不进入空间历史。 |
 | `.repa/history.git/` | 影子 Git 的内容、引用与提交来源 JSON；来源为 agent（可带祖先链）、plugin、external、按 revision 或 runId 的 undo。读取来源忽略未知可选字段；具体格式与撤销语义见[空间历史](../space-history/README.md)。 |
 | `.repa/prompts.json` | 当前空间提示覆盖：来源 id 映射到 `{ text?, enabled? }`；第 7 步重做此功能前沿用当前格式。 |
 | `.repa/plugins/<id>/` | 插件数据目录的归属和位置；里面的数据格式及版本由插件负责，不属于底座版本 1。 |
@@ -174,17 +175,25 @@ await backend.close();
 
 一个插件打开失败时，宿主先停稳它发起的模型工作，关闭已经返回的实例，再移除它的工具、方法、Agent、说明和 view；依赖它且已经无法成立的插件也会停用。打开空间时，Agent 运行时接好以后，宿主在 `start()` 里调用各插件的 `onChange`，追赶空间里已有的变化。追赶完成之前 `onChange` 出错，同样算这个插件打开失败，按上面的方式停用；追赶完成以后再出错，插件不停用，错误照旧交给 `onError`，下一次 `flush()` 也会抛出它。`open` 抛错前取得的插件自有资源由插件负责释放。空间文件、历史、通用对话和其余可用插件照常工作。前端通过[停用插件协议](#插件停用状态)取得原因。
 
+### 插件调模型
+
+在打开的空间里调用 `host.models.complete(request)`，底座会为这次调用建立一个短的 Pi 会话。系统提示使用 `request.system`，唯一的用户消息是 `request.prompt`，模型按请求的 `model` 选择；省略时沿用运行时默认模型。Pi 按自己的命名规则把会话保存到空间的 `.repa/sessions/`，提示、回答和助手消息上的用量因此留在同一份 jsonl 中。会话开头的 `repa-model-call` 自定义条目记录 `{ pluginId }`，运行内发起的调用另存父运行关联；从插件工具里发起时，关联也带上该工具的调用编号。这些短会话不进入 `session.list`，但仍可按编号查看历史，打开后只读。
+
+`complete()` 返回最后一条助手消息的文本。`completeStructured(request, schema)` 则只声明一个参数为原 schema 的 `submit_result` 工具，并请求 `{ type: "json_schema", strict: "prefer" }` 约束采样。系统提示末尾追加“用 submit_result 工具提交结果，只调用一次。”，工具执行时用 `Value.Check` 校验参数，通过后返回“已收到”并以 `terminate: true` 结束这一批工具调用，调用方拿到参数本身。模型给出的原始参数不合格时，底座在 Pi 转换和校验参数之前就中止短会话，这次调用在第一次请求后结束，调用方收到 `invalid_model_output`，说明里写出第一个出错字段的路径。模型直接回答而不调用工具时，调用方同样收到 `invalid_model_output`；模型失败和取消分别保留 `model_error`、`cancelled`。短会话关闭模型错误的自动重试与压缩。
+
+没有空间归属的 `runtime.complete()` 与 `completeStructured()` 也运行同样的 Pi 短会话，但会话只保存在内存中。学习插件的课程核对使用这一路径，由课程核对自己的 `--log` 保存日志。
+
 ### 工具输出
 
-模型需要一段工具结果时，宿主在 Pi 1.1.0 的 `tool_result` 钩子中合并检查文本，复用 Pi 的 `truncateHead`，保证最终文本连同提示不超过默认的 50 KiB、2,000 行。短结果原样保留；超限时为提示预留 512 字节与两行，并说明省略的字节数和行数，请模型缩小查询或使用原工具的分页参数。Pi 按完整行截断，首行本身过长时会整行省略。
+插件工具的文本超过 Pi 默认的 50 KiB 或 2,000 行时，宿主把原文保存到空间的 `.repa/tool-output/<会话编号>/<工具调用编号>.txt`，并给模型保留开头和结尾。开头最多使用字节上限的 60%，结尾最多使用 20%；两部分尽量按完整行切分，单行本身超长时则在 UTF-8 字符边界切分。中间的提示说明省略了多少字节、多少行，以及全文的空间相对路径。模型可以用 `read` 按行继续读取；插件 Agent 的文件工具只允许读取 `.repa/tool-output/`，仍不能写入或编辑它，`.repa/` 的其余位置也保持原有边界。这些文件位于 `.repa/`，不进入空间历史。
 
-因此，可能返回大结果的插件工具应提供自己的分页或范围参数。`data` 会作为 `details` 保持结构，供界面恢复必要元数据，不应复制正文。适配只把 `text` 放进模型可见的 `content`，截断时也不把完整结果复制到其他字段；Pi 替换 `content` 时会清掉未同步替换的 `structuredContent`。升级 SDK 时需复核 `extensions/runner`、`agent-loop` 和模型 transcript 的这条路径。相关实现见[输出限制](src/agent/output.ts)和[Agent 接入](src/agent/runtime.ts)。
+`data` 会作为 `details` 保持结构，供界面恢复必要元数据，不应复制正文。适配只把 `text` 放进模型可见的 `content`，省略时也不把完整结果复制到其他字段；Pi 替换 `content` 时会清掉未同步替换的 `structuredContent`。升级 SDK 时需复核 `extensions/runner`、`agent-loop` 和模型 transcript 的这条路径。相关实现见[输出限制](src/agent/output.ts)和[Agent 接入](src/agent/runtime.ts)。
 
 ### 插件接口与测试宿主
 
 先从 `@repa/base/plugin` 导入 `Plugin`，用 `satisfies Plugin` 或类型注解约束插件入口，再运行 TypeScript 的严格检查。包内的声明由当前实现构建生成，因此类型错误直接对应当前版本的接口。参数使用 TypeBox schema；宿主在调用方法和工具前做实际校验。重复插件 id 会拒绝装配；插件打开、工具或 Agent 声明失败，或者打开空间时追赶变化出错，宿主清理并停用该插件，其他可用插件继续运行。
 
-插件通过 `host.now()` 取得当前时间，单位为 Unix 毫秒。后端把 Agent 运行时的时钟交给每个插件，缓存过期判断、底座发起的完成请求时间和反馈记录也使用这一时钟。默认使用系统时间；嵌入时可向 `createAgentRuntime({ agentDir, now })` 传入取时函数，测试通过闭包改变返回值，就能拨动时间。Pi 自己生成的会话头、条目时间戳仍由 Pi 管理。
+插件通过 `host.now()` 取得当前时间，单位为 Unix 毫秒。后端把 Agent 运行时的时钟交给每个插件，缓存过期判断和反馈记录也使用这一时钟。默认使用系统时间；嵌入时可向 `createAgentRuntime({ agentDir, now })` 传入取时函数，测试通过闭包改变返回值，就能拨动时间。Pi 自己生成的会话头、条目时间戳仍由 Pi 管理。
 
 测试从 `@repa/base/testing` 创建临时宿主。它使用真实的空间文件、Git 历史、参数校验、变化订阅和插件关闭流程，只有 `Models` 被可控制的替身替换，因此普通测试不需要服务、模型凭据或网络。下面以包内的笔记插件为例：
 
@@ -254,12 +263,13 @@ agents: () => [{
 
 - **会话**：建会话或后台任务时选定 Agent，之后不能更换；Pi 只声明这个 Agent 的工具。插件 Agent 的提示只有空间段（空间路径与根目录 `AGENTS.md`）和 `agent:<id>`，view 只有 `agent:<id>`。基础说明、Skill 目录、工具清单段和各插件的说明只属于通用 Agent。
 - **通用 Agent**：底座自带，id 为 `general`，带全部内置工具、`ask_user`、`subagent` 和全部插件的说明、工具与 view。它和 Claude Code 这类通用 Agent 一样调用工具，学习类的限制只加在插件定义的 Agent 上。读取和搜索沿用 Pi 的工具。写入和精确编辑在空间内照常记进历史；写空间外的文件（包括经符号链接写出去的）和命令一样，先问发起这次运行的连接，确认里写明实际写到的路径，并说明这次写入不进历史、不能撤回；Full Access 时不问。用户同意后直接写，工具结果里注明这次改动不能撤回。空间的 `.repa/` 一律不写，也不问。插件 Agent 在 `tools` 里列出 `ask_user` 才有这个工具，文件范围不变。
-- **文件范围**：插件 Agent 的 read、write、edit、ls、find 只在空间内且不进 `.repa/`（不分大小写），字面路径和解析符号链接后的路径都要在范围内。find 用 Pi 的工具定义，查找本身注入 Node 内置的 `fs.glob`，不需要 fd：不读 `.gitignore`，不进入 `.repa`、`.git`、`node_modules`，不列出符号链接，以点开头的名字只有 pattern 写出这个点时才匹配，pattern 不能用 `..` 或绝对路径离开搜索目录。插件 Agent 不提供 grep：Pi 的 grep 把模型给的 `glob` 原样交给 ripgrep 的 `--glob`，会越过 `.repa/.ignore`；需要搜索内容时由插件提供自己的工具。bash 不限路径，仍按命令策略确认。
+- **文件范围**：插件 Agent 的 read、write、edit、ls、find 只在空间内，`.repa/`（不分大小写）仅对 read 放开 `tool-output/` 下的文件；字面路径和解析符号链接后的路径都要在范围内。find 用 Pi 的工具定义，查找本身注入 Node 内置的 `fs.glob`，不需要 fd：不读 `.gitignore`，不进入 `.repa`、`.git`、`node_modules`，不列出符号链接，以点开头的名字只有 pattern 写出这个点时才匹配，pattern 不能用 `..` 或绝对路径离开搜索目录。插件 Agent 不提供 grep：Pi 的 grep 把模型给的 `glob` 原样交给 ripgrep 的 `--glob`，会越过 `.repa/.ignore`；需要搜索内容时由插件提供自己的工具。bash 不限路径，仍按命令策略确认。
 - **子 Agent**：列了 `subagents` 的会话多一个 `subagent` 工具，参数为 `agent` 和 `task`；插件工具不能使用这个名字（保留名见 `RESERVED_TOOL_NAMES`）。通用 Agent 能起自己（`general`，工具与它相同，包括 bash）和空间里定义的任何插件 Agent。一条回复里起的几个子 Agent 同时运行；子 Agent 运行命令和写空间外文件的确认，照旧发给发起这次运行的连接。子 Agent 在新会话中运行，看不到父对话，最后一条回复作为工具结果交回；父运行取消时子运行一起取消，空间关闭等待子运行结束。嵌套层数默认最多 3 层，可用 `createAgentRuntime({ agentDir, maxSubagentDepth })` 调整；这个上限是 Repa 的假设，用来挡住循环和重入失控，以后按使用调整。超过上限的启动请求作为工具错误交回父 Agent。
 - **后台任务**：`host.models.runAgent({ agent, text })` 运行指定 Agent，省略 `agent` 时为通用 Agent；后台 Agent 不必能直接对话。
-- **插件中止**：`await host.abortAgent(id)` 只允许中止本插件声明的 Agent。Agent 运行时只遍历内存中已加载、属于它的会话，沿 `session.abort()` 等待 Pi 停稳，不枚举或加载磁盘上的旧会话；已有排队消息按原取消语义清除。它不阻止新的消息，受限任务仍须先保存限制并由 `beforeMessage` 拒收。
+- **插件中止**：`await host.abortAgent(id)` 只允许中止本插件声明的 Agent。Agent 运行时只遍历内存中已加载、属于它的会话，沿 `session.abort()` 等待 Pi 停稳，不枚举或加载磁盘上的旧会话；已有排队消息按原取消语义清除。它不阻止新的消息，受限任务仍须先保存限制，并由 `beforeRun` 拒绝后续运行。
 - **消息判断**：`beforeMessage` 收到 `{ sessionId, agent, mode, text, runId? }`，`mode` 为 `send`、`steer` 或 `followUp`，会话正在运行时带 `runId`。返回 `{ status: "rejected", reason, message, data? }` 时消息不进入会话；不返回或返回 `{ status: "accepted" }` 时照常处理。判断抛错同样不放行。后台任务和子 Agent 收到的任务不经过判断；判断期间用户取消了运行，这条消息不再投递。
-- **运行上下文**：运行内的工具、view 和插件写入可以调用 `currentRun()`，取得 `{ runId, ancestorRunIds, sessionId, agent }`；运行之外返回 `undefined`。`ancestorRunIds` 由近到远：子运行的是父运行的 runId 加上父运行自己的链，根运行的为空数组。
+- **运行关卡与视图**：`beforeRun()` 在每条消息真正运行时先于提示段和 view 执行，新消息、排队消息、后台任务和子 Agent 都经过它。返回值与 `beforeMessage` 相同；拒收以 `message_rejected` 结束，不写入消息和运行标记，也不发送 `runStart`／`runEnd`。发送请求仍在等待时收到错误返回，已返回的排队请求通过会话的 `error` 事件收到 `data.code` 和判断依据。后续消息继续逐条检查。声明了关卡的 Agent 将运行中的 `steer`／`followUp` 留在 Repa 队列，当前运行结束后分别开始；其余 Agent 沿用 Pi 的插话和追加队列。关卡抛错与 view 渲染失败都按该错误报告。运行中途不重复检查；插件进入受限状态时应调用 `abortAgent` 中止已有运行，再由关卡拦住后续运行。view 只负责渲染当前状态。
+- **运行上下文**：运行内的工具、view 和插件写入可以调用 `currentRun()`，取得 `{ runId, ancestorRunIds, sessionId, agent, callId? }`，其中 `callId` 只在插件工具执行期间提供；运行之外返回 `undefined`。`ancestorRunIds` 由近到远：子运行的是父运行的 runId 加上父运行自己的链，根运行的为空数组。
 
 ## 交互词汇、询问与前端服务
 
@@ -295,7 +305,7 @@ async execute(input, context) {
 
 `ask.reply` 的结果因此只有两种：`{ status: "invalid", problems }` 时卡片保持打开，`{ status: "accepted", message? }` 时卡片显示附带的内容块后关闭；`decline`、`cancel`、`unsupported` 的结果为 `null`。
 
-某段时间里不允许提问这类限制，由插件通过 `beforeMessage`、自己的触发时机和 Agent 定义来保证，底座不另设询问的判断入口：被 `beforeMessage` 拒收的消息不会启动运行；后台 Agent 什么时候启动、带不带 `ask_user` 由插件决定；插件可以先中止进行中的运行，在途的询问随运行一起取消。
+某段时间里不允许提问这类限制，由插件通过 `beforeMessage`、`beforeRun`、自己的触发时机和 Agent 定义来保证，底座不另设询问的判断入口：被消息判断或运行关卡拒收的消息不会启动运行；后台 Agent 什么时候启动、带不带 `ask_user` 由插件决定；插件可以先中止进行中的运行，在途的询问随运行一起取消。
 
 底座内置的 `ask_user` 在结果 `details` 中保存完整的 `{ item, outcome }`，刷新后可以原样恢复卡片。问题与选项中的 Markdown 只有含 `$` 时才设置 `math: true`，要求界面支持 `markdown.math`。这个工具让 Agent 直接提问：参数是 1–4 个问题，每个问题有选项（选择）或输入方式（`text`、`longText`、`number`），多带字段由 Pi 的参数校验拒绝。回答原样交回模型，写成“问题 → 选择或填写的内容”；用户不按卡片作答时附的一句话原样交回，关闭询问、界面无法显示和断线也都写成工具结果，模型据此改用文字交流。
 
@@ -339,7 +349,7 @@ async execute(input, context) {
 
 插件按登记顺序打开、逆序关闭，但交给模型的插件提示和 view 按 id 排序，工具按名称排序。这样同一组插件改变登记顺序或打开耗时，也不会改变这些声明的顺序。插件 id、提示来源和工具名重复都被拒绝；工具也不能覆盖底座内置名称。
 
-运行开始时读取一次 view，与最近的有效版本比较，变化才通过 Pi 的 `nextTurn` 队列追加。这样首轮也是先放系统提示与工具声明，再放用户消息和 view；以后删除旧 view 就不会改变稳定前缀的位置。默认每个来源累积 3 份旧版本后，在回合结束时批量清理，下一次请求使用清理后的上下文；缓存已过期时提前清理，寿命采用模型公开的 short 缓存寿命作保守判断。压缩交给 Pi 处理，完成后补回最新一份 view，模型以后面的当前状态为准。清理使用追加的上下文编辑记录，原始会话证据仍保留。
+运行关卡放行后，运行开始时读取一次 view，与最近的有效版本比较，变化才通过 Pi 的 `nextTurn` 队列追加。这样首轮也是先放系统提示与工具声明，再放用户消息和 view；以后删除旧 view 就不会改变稳定前缀的位置。默认每个来源累积 3 份旧版本后，在回合结束时批量清理，下一次请求使用清理后的上下文；缓存已过期时提前清理，寿命采用模型公开的 short 缓存寿命作保守判断。压缩交给 Pi 处理，完成后补回最新一份 view，模型以后面的当前状态为准。清理使用追加的上下文编辑记录，原始会话证据仍保留。
 
 缓存行为沿用 Pi 默认设置。每个 Agent 模型回复及压缩的 usage 都可从会话记录或事件中核对 `input`、`output`、`cacheRead`、`cacheWrite`。`input` 是非缓存输入，完整输入为 `input + cacheRead + cacheWrite`；一次压缩可能包含两个模型请求，会话条目保存其合计。Pi 把服务未提供的缓存计数映射为 0，因此判断字段是否真的被报告还需检查原始响应。真实 Codex 的用量与清理代价见[核实报告](../../docs/research/base-real-model-check.md)。
 
@@ -427,6 +437,8 @@ Agent 相关的约定：
 
 ## 已知限制
 
+- `.repa/tool-output/` 中保存的工具输出不会自动删除。
+- `read` 按行读取，超长单行在全文文件里也只能整行读。因此插件工具应当输出分行的文字，让模型能按行继续读取。
 - 0.87.1 的冻结核实已使用已有 Codex OAuth 验证真实请求、锁内刷新、轮换结果持久化和刷新后接续。1.1.0 本轮覆盖脚本化登录映射和持久化，真实 OAuth 刷新及首次交互登录仍待单独核实。
 - 影子 Git 按所属包的规则排除 `.repa/`、用户 Git、嵌套仓库、忽略项和大文件。因此 `history.undo` 撤回空间文件，不回滚插件数据库、会话或设置。插件根据变化流更新自己的状态。
 - 插件是可信本机代码，文件接口和 Agent 文件工具的路径检查不是进程沙箱。bash 不限路径，在询问模式下须确认；经 bash 写到空间外的文件不属于影子 Git 的撤回范围。
@@ -434,7 +446,7 @@ Agent 相关的约定：
 
 ## 验证入口与交付统计
 
-构建目录与静态清单的检查见[产物测试](test/plugin-artifacts.test.ts)，CLI 与进程启动分别见 [CLI 测试](test/cli.test.ts)和[进程测试](test/process.test.ts)。数据版本测试覆盖无版本空间补标记、关闭重开、异版拒绝及原字节保留；[输出测试](test/tool-output.test.ts)覆盖临界值、多行、单行和中文，[Agent 测试](test/agent.test.ts)通过真实 Pi 与本地模型替身检查实际模型请求及分页续取。
+构建目录与静态清单的检查见[产物测试](test/plugin-artifacts.test.ts)，CLI 与进程启动分别见 [CLI 测试](test/cli.test.ts)和[进程测试](test/process.test.ts)。数据版本测试覆盖无版本空间补标记、关闭重开、异版拒绝及原字节保留；[输出测试](test/tool-output.test.ts)覆盖临界值、多行、单行和中文，[Agent 测试](test/agent.test.ts)通过真实 Pi 与本地模型替身检查实际模型请求及全文文件的只读访问。
 
 ```sh
 npm run check --workspace=@repa/base

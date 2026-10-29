@@ -52,14 +52,19 @@ test("未收消息的会话只在内存登记，按编号可用且列出，关�
   await assert.rejects(reopened.get(id), (error: unknown) => error instanceof Error && "code" in error && error.code === "session_not_found");
 });
 
-test("完成请求使用运行时可拨动的时钟标记消息时间", async t => {
+test("底座时钟可以拨动，短模型会话的消息时间由 Pi 标记", async t => {
   let now = 1_800_000_000_000;
   const f = await fixture(t, {}, { now: () => now });
   for (const advance of [0, 60_000]) {
     now += advance;
     assert.equal(f.runtime.now(), now);
+    const before = Date.now();
     f.faux.setResponses([context => {
-      assert.deepEqual(context.messages.map(message => message.timestamp), [now, now]);
+      assert.equal(context.messages.length, 2);
+      for (const message of context.messages) {
+        assert.ok(message.timestamp >= before);
+        assert.ok(message.timestamp <= Date.now());
+      }
       return fauxAssistantMessage("完成");
     }]);
     assert.equal(await f.runtime.complete({ system: "说明", prompt: "任务" }), "完成");
@@ -175,15 +180,15 @@ test("精确 edit 同名覆盖保留中文全角标点与混合换行，拒绝�
   assert(f.session.history().some(entry => entry.type === "tool" && entry.data !== null && typeof entry.data === "object" && "isError" in entry.data && entry.data.isError === true));
 });
 
-test("模型完成与结构化输出使用共享 SDK 并对错误 JSON 重试", async t => {
+test("模型完成与结构化输出使用 Pi 短会话，结构化结果一次提交", async t => {
   const f = await fixture(t);
   f.faux.setResponses([context => {
     assert.equal(getCurrentSystemPrompt(context.messages), "系统说明");
     return fauxAssistantMessage("文本结果");
-  }, fauxAssistantMessage("不是 JSON"), fauxAssistantMessage('{"result": 4}')]);
+  }, fauxAssistantMessage(fauxToolCall("submit_result", { result: 4 }))]);
   assert.equal(await f.runtime.complete({ prompt: "请求", system: "系统说明" }), "文本结果");
   assert.deepEqual(await f.runtime.completeStructured({ prompt: "计算" }, Type.Object({ result: Type.Number() })), { result: 4 });
-  assert.equal(f.faux.state.callCount, 3);
+  assert.equal(f.faux.state.callCount, 2);
 });
 
 function deferred<T>() {
@@ -807,7 +812,7 @@ test("重复提示来源在进入模型前拒绝，不因排序或覆盖而静�
   }
 });
 
-test("工具截断进入真实模型请求且不复制正文到其他字段，缩小分页后能读到目标", async t => {
+test("工具首尾和全文路径进入真实模型请求且不复制正文到其他字段，分页仍可读取", async t => {
   const source = Array.from({ length: 3000 }, (_, index) => `第 ${index} 行中文`).join("\n");
   const f = await fixture(t, {
     tools: () => [{
@@ -831,9 +836,10 @@ test("工具截断进入真实模型请求且不复制正文到其他字段，�
   const first = captures[0]?.messages.filter(message => message.role === "toolResult").at(-1);
   assert.ok(first);
   const visible = JSON.stringify(first);
-  assert.ok(!visible.includes("第 2999 行中文"));
+  assert.ok(visible.includes("第 2999 行中文"));
   assert.ok(!visible.includes(source));
-  assert.ok(visible.includes("已省略"));
+  assert.ok(visible.includes("中间省略"));
+  assert.ok(visible.includes(`.repa/tool-output/${f.session.info().id}/`));
   const text = first.content.filter(part => part.type === "text").map(part => part.text).join("\n");
   assert.ok(Buffer.byteLength(text) <= 50 * 1024);
   assert.ok(text.split("\n").length <= 2000);
