@@ -449,7 +449,7 @@ npm test --workspace=@repa/space-history
 npm run real-model-check --workspace=@repa/base -- --output /tmp/repa-real-check.jsonl --limit 30
 ```
 
-**升级前的检查记录（`47d4d2f8b`）：** 2026-10-10 的收尾检查使用本 worktree 自有依赖、Node.js 24.20.0 和 Git 2.43.0：两个包的类型检查和构建通过，`space-history` 的 53 项测试全部通过；`base` 的 62 项测试中 61 项通过，唯一失败为原有含 view 保温回归，原因见[当时的缓存补丁基线缺口](https://github.com/Utopia-V/repa/blob/47d4d2f8b/packages/base/README.md#缓存补丁为什么仍然需要)。新增维护、宿主、用量和工具取消回归均通过，脚本 `--help` 入口通过。真实服务证据沿用冻结报告，本轮验证用真实 SDK 与离线提供方完成。
+**Pi 1.1.0 升级前的检查记录：** 2026-10-10 的收尾检查使用本 worktree 自有依赖、Node.js 24.20.0 和 Git 2.43.0：两个包的类型检查和构建通过，`space-history` 的 53 项测试全部通过；`base` 的 62 项测试中 61 项通过，唯一失败为原有含 view 保温回归，原因见[当时的缓存补丁基线缺口](https://github.com/Utopia-V/repa/blob/47d4d2f8b/packages/base/README.md#缓存补丁为什么仍然需要)。新增维护、宿主、用量和工具取消回归均通过，脚本 `--help` 入口通过。真实服务证据沿用冻结报告，本轮验证用真实 SDK 与离线提供方完成。
 
 脚本先构建当前公开入口，使用临时空间和笔记插件，结果文件必须不存在。默认读取系统配置目录下的 `agent/`（遵循 `REPA_HOME`），也可用 `--agent-dir` 指定。运行前关闭使用同一 Agent 目录的 Repa 进程；脚本临时调整 Agent 设置，正常收尾按原字节恢复，刷新后的凭据由 Pi 保留在原文件。恢复发生冲突时保留设置副本并报告其本机位置。`--skip-refresh` 跳过显式 OAuth 刷新检查；真实调用会使用订阅额度。
 
@@ -461,7 +461,7 @@ npm run real-model-check --workspace=@repa/base -- --output /tmp/repa-real-check
 
 OAuth 刷新不计入模型操作数。对话设置仍使用 SSE，压缩则交给 Pi 自己选择传输。锁定 Codex 目录没有缓存寿命声明，因此当前组合不会产生自动保温；idle 观察字段改为 `modelOperationsDuringIdle`，明确只统计 Pi 历史中出现的操作。
 
-HTTP 拦截层和其测试分别删除 **425 行、435 行，共 860 行**。连同用量汇总替换、工具续轮守门和离线测试，本项新增 228 行、删除 925 行，净减少 **697 行**（相对 `d6bf108e9`，只统计核实脚本及其测试）。保留 token 用量原义所需的数据都有 Pi 记录，因此不再保留 HTTP 拦截办法。原记录中下列诊断无法从 Pi 恢复，已从新输出中移除：
+HTTP 拦截层和其测试分别删除 **425 行、435 行，共 860 行**。连同用量汇总替换、工具续轮守门和离线测试，本项新增 228 行、删除 925 行，净减少 **697 行**（相对真实 Codex 缓存与首轮 view 顺序核实完成时，只统计核实脚本及其测试）。保留 token 用量原义所需的数据都有 Pi 记录，因此不再保留 HTTP 拦截办法。原记录中下列诊断无法从 Pi 恢复，已从新输出中移除：
 
 - HTTP/OAuth 尝试次数、状态、耗时和被阻止的 WebSocket 次数。
 - 每个压缩子请求的分项用量，以及服务端缓存字段是缺失还是明确返回 0。
@@ -523,7 +523,7 @@ npm run real-model-check --workspace=@repa/base -- \
 
 ## Pi 1.1.0 升级评估（升级前记录）
 
-以下保留升级前调查；实际适配和验证结果见[升级结果](#pi-110-升级结果)。评估时底座锁定 `@earendil-works/pi-ai` 和 `@earendil-works/pi-coding-agent` 0.87.1。2026-10-10 核验时，npm `latest` 为 1.1.0；npm 在 2026-10-07 22:16:26 UTC 发布，GitHub release 在当天 22:26:31 UTC 发布。调查固定使用 `v0.87.1`（`f07218c4d4bbc12bef056a7058c3dd49dfe41abe`）、`v1.1.0`（`abe508e1b89912adde45528136c3221eb69acdd7`）以及对应 npm 发布包。升级依据采用固定 tag 和发布包。[官方发布](https://github.com/earendil-works/pi/releases/tag/v1.1.0)、[npm 包](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.1.0)。
+以下保留升级前调查；实际适配和验证结果见[升级结果](#pi-110-升级结果)。评估时底座锁定 `@earendil-works/pi-ai` 和 `@earendil-works/pi-coding-agent` 0.87.1。2026-10-10 核验时，npm `latest` 为 1.1.0；npm 在 2026-10-07 22:16:26 UTC 发布，GitHub release 在当天 22:26:31 UTC 发布。调查固定使用 `v0.87.1`、`v1.1.0`以及对应 npm 发布包。升级依据采用固定 tag 和发布包。[官方发布](https://github.com/earendil-works/pi/releases/tag/v1.1.0)、[npm 包](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.1.0)。
 
 1.1.0 值得作为下一次小范围升级的目标。底座目前使用的原生会话、命名系统提示、队列和上下文编辑入口仍然存在，因而不需要重写 Agent 接入。新增的图像、分类、虚拟模型和 MCP/codemode 也不要求一起接入。新 `openai` OAuth 还需要宿主提供安装标识，因此升级不是只改两个版本号。[SDK](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/sdk.ts)、[登录实现](https://github.com/earendil-works/pi/blob/v1.1.0/packages/ai/src/auth/oauth/openai-chatgpt.ts#L225-L238)。
 
@@ -556,7 +556,7 @@ npm run real-model-check --workspace=@repa/base -- \
 
 建议把升级作为独立任务完成，按下面的次序收敛：
 
-1. 明确只升级 `@repa/base`，还是同时迁移仍锁 0.87.1 的 `packages/repa` 和 `packages/organization`。只迁 base 时会有两代 Pi 副本，需要核对 npm hoist 与导入解析；同时迁移则需要另核两个模块的使用入口。
+1. 明确只升级 `@repa/base`，还是同时迁移当时仍锁 0.87.1 的旧后端包和学习组织包（现已删除）。只迁 base 时会有两代 Pi 副本，需要核对 npm hoist 与导入解析；同时迁移则需要另核两个模块的使用入口。
 2. 更新目标范围内的 Pi 版本与锁文件，核对新增 `pi-codemode`／`pi-mcp` 等传递依赖；Pi 1.1.0 发布目标为 ES2024，Node 要求为 `>=22.19.0`，底座当前 `>=22.22.2` 满足。不要为了上游从源码运行方式而更换 Repa 的构建器。
 3. 补上 LoginOptions 安装标识与应用名；如实际使用 Azure，再安排凭据、配置和已保存引用的迁移。
 4. 在目标发布包上完成类型检查、底座与 space-history 测试、WebSocket 端到端回归；重点覆盖首轮顺序、单段更新、批清 view、默认 overflow 压缩与第一份重试、取消／队列终态、精确 edit、命令确认、登录持久化。
@@ -566,7 +566,7 @@ npm run real-model-check --workspace=@repa/base -- \
 
 ## Pi 1.1.0 升级结果
 
-`pi-1-upgrade` 从删除旧后端的 `remove-old-backend` 提交 `6664e3a65` 开出。`@repa/base` 的两个直接 Pi 依赖现在都锁定 1.1.0；锁文件中的 `pi-agent-core`、`pi-codemode` 和 `pi-mcp` 也为 1.1.0，`npm ls` 确认没有第二代 Pi 副本。新增传递依赖保留在原生 SDK 依赖链中，底座的 loader 没有启用 MCP 或 codemode。
+`pi-1-upgrade` 从删除旧后端的 `remove-old-backend` 分支开出。`@repa/base` 的两个直接 Pi 依赖现在都锁定 1.1.0；锁文件中的 `pi-agent-core`、`pi-codemode` 和 `pi-mcp` 也为 1.1.0，`npm ls` 确认没有第二代 Pi 副本。新增传递依赖保留在原生 SDK 依赖链中，底座的 loader 没有启用 MCP 或 codemode。
 
 安装标识交给 Pi 的 `SettingsManager.getOrCreateDeviceId()`；`ModelRuntime.login` 接收这个回调和 `agentName: "Repa"`，返回成功前等待设置保存。
 

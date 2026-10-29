@@ -1,0 +1,31 @@
+{
+  "exclusions": [
+    {
+      "pattern": "docs/research/**",
+      "reason": "冻结的研究证据，保持原貌"
+    },
+    {
+      "pattern": "docs/adr/**",
+      "reason": "旧材料，文档重构时删除"
+    },
+    {
+      "pattern": ".agents/skills/**",
+      "include": [
+        ".agents/skills/repa-*/**"
+      ],
+      "reason": "第三方 Skill，保持原貌；Repa 自有 Skill 仍检查"
+    },
+    {
+      "pattern": "**/references/ruanyifeng/**",
+      "reason": "第三方材料"
+    },
+    {
+      "pattern": "apps/*/src/components/ui/**",
+      "reason": "随 UI 组件带来的第三方文档"
+    },
+    {
+      "pattern": "scripts/docs/fixtures/**",
+      "reason": "检查脚本的通过和失败夹具，保留待测问题"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "包 README 骨架": {
+    "packages/base/README.md": "底座重构完成后整篇按骨架重写",
+    "packages/learning/README.md": "学习插件重做时按骨架重写"
+  }
+}
