@@ -107,7 +107,7 @@ async function fixture(t: TestContext, topics?: Topic[]) {
     }],
   });
   const client = await RepaClient.connect(server.connection, {
-    capabilities: { interaction: { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] } },
+    capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] } },
   });
   const changes: LearningEvent[] = [];
   client.on("plugin.event", ({ pluginId, event }) => {

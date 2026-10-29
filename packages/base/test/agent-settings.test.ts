@@ -62,28 +62,14 @@ function fault(code: string) {
   return (error: unknown) => error !== null && typeof error === "object" && "code" in error && error.code === code;
 }
 
-test("首次启动持久化 idle 默认值，重建运行时沿用该设置", async (t) => {
+test("首次启动沿用 Pi 的缓存默认值，不写入 Repa 保温设置", async (t) => {
   const f = await fixture(t);
   const runtime = await f.createRuntime();
   await runtime.close();
-  const saved: unknown = JSON.parse(await readFile(path.join(f.agentDir, "settings.json"), "utf8"));
-  assert(saved !== null && typeof saved === "object" && "cacheWarming" in saved);
-  assert.equal(saved.cacheWarming, "idle");
   const settings = SettingsManager.create(f.agentDir, f.agentDir, { projectTrusted: false });
-  assert.equal(settings.getCacheWarmingMode(), "idle");
+  assert.equal(settings.getGlobalSettings().cacheWarming, undefined);
   await f.createRuntime({ settingsManager: settings });
 });
-
-for (const mode of ["off", "streaming", "idle"] as const) {
-  test(`已有 ${mode} 保温设置不被 Repa 默认值覆盖`, async (t) => {
-    const f = await fixture(t);
-    await writeFile(path.join(f.agentDir, "settings.json"), JSON.stringify({ cacheWarming: mode }));
-    const runtime = await f.createRuntime();
-    await runtime.close();
-    const settings = SettingsManager.create(f.agentDir, f.agentDir, { projectTrusted: false });
-    assert.equal(settings.getCacheWarmingMode(), mode);
-  });
-}
 
 test("底座不信任项目 Pi 设置，登录只使用全局安装标识", async (t) => {
   const f = await fixture(t);
@@ -91,7 +77,7 @@ test("底座不信任项目 Pi 设置，登录只使用全局安装标识", asyn
   const globalId = randomUUID();
   await mkdir(path.join(f.agentDir, ".pi"));
   await writeFile(path.join(f.agentDir, ".pi", "settings.json"), JSON.stringify({ deviceId: projectId, defaultProvider: "project-provider" }));
-  await writeFile(path.join(f.agentDir, "settings.json"), JSON.stringify({ cacheWarming: "idle", deviceId: globalId }));
+  await writeFile(path.join(f.agentDir, "settings.json"), JSON.stringify({ deviceId: globalId }));
   const provider = registerOAuth(f, async (_interaction, options) => {
     assert.equal(options?.getDeviceId?.(), globalId);
     return credential();

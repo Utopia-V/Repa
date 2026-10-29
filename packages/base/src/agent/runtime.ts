@@ -155,7 +155,6 @@ class Runtime implements AgentRuntime {
   constructor(readonly options: AgentTestOptions) {
     // 项目设置只由 Repa 持有；Pi 不读取空间中的 .pi/settings.json。
     this.settings = options.settingsManager ?? SettingsManager.create(options.agentDir, options.agentDir, { projectTrusted: false });
-    if (options.settingsManager === undefined && this.settings.getGlobalSettings().cacheWarming === undefined) this.settings.setCacheWarmingMode("idle");
     this.checkSettings();
   }
 
@@ -703,13 +702,6 @@ class Session implements AgentSession {
         }
       });
       pi.on("agent_before_settle", () => ({ entries: staleViewEdits(this.manager, new Set(this.currentViews.map(view => view.id)), runtime.options.viewBatchSize ?? 3) }));
-      pi.on("session_before_compact", event => {
-        // 视图是当前状态而非对话事实；默认压缩不将旧状态写进摘要。
-        const isView = (message: { role: string; customType?: string }) => message.role === "custom" && message.customType === "repa-view";
-        event.preparation.messagesToSummarize = event.preparation.messagesToSummarize.filter(message => !isView(message));
-        event.preparation.turnPrefixMessages = event.preparation.turnPrefixMessages.filter(message => !isView(message));
-        this.cleanViews(true);
-      });
       pi.on("session_compact", () => {
         // Pi 在保存压缩条目后 await 本钩子，再发出压缩完成并执行 overflow retry。
         // 这里用公开 append/refresh 补回当前状态，自动重试的第一份请求也能读到。
@@ -779,7 +771,7 @@ class Session implements AgentSession {
       if (entry.type === "message" && entry.message.role === "assistant") {
         return entry.message.stopReason !== "error" && entry.message.stopReason !== "aborted";
       }
-      return entry.type === "usage" && entry.kind === "cache_warm";
+      return false;
     });
     if (lastUsage) this.lastRequestAt = Date.parse(lastUsage.timestamp);
     await this.pi.bindExtensions({
@@ -791,7 +783,6 @@ class Session implements AgentSession {
       if (event.type === "agent_start" && this.abortController?.signal.aborted) {
         this.session.abort().catch(() => options.onEvent({ sessionId: this.manager.getSessionId(), type: "error", text: "会话取消失败" }));
       }
-      if (event.type === "entry_appended" && event.entry.type === "usage" && event.entry.kind === "cache_warm") this.lastRequestAt = this.now();
       for (const converted of convertEvent(this.manager.getSessionId(), event, this.runId)) options.onEvent(converted);
     });
   }
@@ -1115,11 +1106,6 @@ class Session implements AgentSession {
     })();
     return this.closing;
   }
-}
-
-export function cacheStatusForTest(session: AgentSession) {
-  if (!(session instanceof Session)) throw new Error("不是当前运行时的会话");
-  return session.session.cacheWarmingStatus;
 }
 
 /** 列表用的会话摘要。时间和第一条用户消息与 Pi 的 SessionManager.list 取法一致，已打开的会话也能即时算出。 */

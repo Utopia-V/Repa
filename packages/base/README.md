@@ -224,7 +224,7 @@ agents: () => [{
 - `canRender(capabilities, item)`：前端声明的 `supports` 是否覆盖 `item.requires`。
 - `checkResponse(item, response)`：作答的结构检查，不解释含义。版本、作答类型、选项与行列 id、个数、长度、缩进和代码行数不合要求，或必答位空着，都返回 `problems`。`format` 的含义由调用方判断。
 
-前端在 `initialize` 的 `capabilities` 里声明 `interaction: { vocabulary, supports }` 和 `services`，服务端按连接保存。后端据此不把前端不认识的 `Item` 交给它：`ask` 直接比对声明，插件方法从调用上下文读取。
+前端在 `initialize` 的 `capabilities` 里声明 `interaction: { supports }` 和 `services`，服务端按连接保存。后端据此不把前端不认识的 `Item` 交给它：`ask` 直接比对声明，插件方法从调用上下文读取。
 
 发送方按当前词汇严格校验，前端读取时则要宽松：词汇只增不改，新版本加了字段，旧前端不能因此读不了。前端用 `readItem` 读取 `Item`，例如解析 `plugin.call` 返回的内容。认识的字段照常检查类型，类型不对时读取失败；不认识的字段丢掉；读不懂的作答位和内容块连同所在的一项丢掉，并把 `slot.<type>`、`block.<type>` 补进 `requires`。长度和个数的上限读取时不查，放宽上限的 `Item` 同样经 `requires` 拦下。这样词汇加了可以忽略的字段，旧前端照常显示；加了必须理解的特性，`canRender` 判为不能作答。`RepaClient` 收到 `ask.request` 时信封仍严格校验，`Item` 按 `readItem` 读取；`ask.reply` 的结果按同样的规则宽松读取。插件给自己的公开约定写读取函数时用 `readLenient(schema, value, fallback)`，规则相同：联合里认不出的值交给 `fallback`，例如健康插件把不认识的心情读作“未记录”；没有退路或退路返回 `undefined` 时，连同所在的一项丢掉；退路给的值必须是那个联合的成员。可空对象及数值按实际类型读取，TypeBox 枚举沿用字面量联合的读取规则。
 
@@ -253,7 +253,7 @@ async execute(input, context) {
 
 底座内置的 `ask_user` 在结果 `details` 中保存完整的 `{ item, outcome }`，刷新后可以原样恢复卡片。问题与选项中的 Markdown 只有含 `$` 时才设置 `math: true`，要求界面支持 `markdown.math`。这个工具让 Agent 直接提问：参数是 1–4 个问题，每个问题有选项（选择）或输入方式（`text`、`longText`、`number`），多带字段由 Pi 的参数校验拒绝。回答原样交回模型，写成“问题 → 选择或填写的内容”；用户不按卡片作答时附的一句话原样交回，关闭询问、界面无法显示和断线也都写成工具结果，模型据此改用文字交流。
 
-**插件方法。** `invoke(input, context)` 的 `context.caller.capabilities` 是发起调用的连接的声明，挑选交给前端的内容时用 `canRender` 过滤；离线测试宿主直接调用时没有 `caller`。方法可以声明 `result` schema，宿主在交回前校验，不符合时以 `invalid_plugin_result` 拒绝，方法已有的副作用和状态唤醒照常保留。
+**插件方法。** `invoke(input, context)` 的 `context.caller.capabilities` 是发起调用的连接的声明，挑选交给前端的内容时用 `canRender` 过滤；离线测试宿主直接调用时没有 `caller`。方法可以声明 `result` schema，宿主在交回前校验，不符合时以 `invalid_plugin_result` 拒绝，方法已有的副作用照常保留。文件变化由 `space.onRevision` 通知插件，插件自有状态的变化由插件事件通知前端。
 
 **前端服务。** `host.services.call(service, input, { signal })` 把请求交给声明了这项服务的连接：发起当前操作的连接自己声明时交给它，否则交给最近初始化、声明了这项服务的连接。输入必须是 JSON 数据，结果由调用方自己校验。工具里调用时传入 `context.signal`，运行取消时请求一起结束。失败不自动换连接重试。
 
@@ -293,9 +293,9 @@ async execute(input, context) {
 
 插件按登记顺序打开、逆序关闭，但交给模型的插件提示和 view 按 id 排序，工具按名称排序。这样同一组插件改变登记顺序或打开耗时，也不会改变这些声明的顺序。插件 id、提示来源和工具名重复都被拒绝；工具也不能覆盖底座内置名称。
 
-运行开始时读取一次 view，与最近的有效版本比较，变化才通过 Pi 的 `nextTurn` 队列追加。这样首轮也是先放系统提示与工具声明，再放用户消息和 view；以后删除旧 view 就不会改变稳定前缀的位置。默认每个来源累积 3 份旧版本后，在回合结束时批量清理，下一次请求使用清理后的上下文；缓存已过期时提前清理，寿命采用模型公开的 short 缓存寿命作保守判断。压缩不把旧 view 当成会话事实写入摘要，完成后补回最新一份。清理使用追加的上下文编辑记录，原始会话证据仍保留。
+运行开始时读取一次 view，与最近的有效版本比较，变化才通过 Pi 的 `nextTurn` 队列追加。这样首轮也是先放系统提示与工具声明，再放用户消息和 view；以后删除旧 view 就不会改变稳定前缀的位置。默认每个来源累积 3 份旧版本后，在回合结束时批量清理，下一次请求使用清理后的上下文；缓存已过期时提前清理，寿命采用模型公开的 short 缓存寿命作保守判断。压缩交给 Pi 处理，完成后补回最新一份 view，模型以后面的当前状态为准。清理使用追加的上下文编辑记录，原始会话证据仍保留。
 
-缓存保温使用内嵌运行时的 idle 策略，在模型声明缓存寿命、估算收益达到内置门槛时请求。每个 Agent 模型回复以及保温、压缩的 usage 都可从会话记录或事件中核对 `input`、`output`、`cacheRead`、`cacheWrite`。`input` 是非缓存输入，完整输入为 `input + cacheRead + cacheWrite`；一次压缩可能包含两个模型请求，会话条目保存其合计。Pi 把服务未提供的缓存计数映射为 0，因此判断字段是否真的被报告还需检查原始响应。真实 Codex 的用量、清理代价和保温限制见[核实报告](../../docs/research/base-real-model-check.md)。
+缓存行为沿用 Pi 默认设置。每个 Agent 模型回复及压缩的 usage 都可从会话记录或事件中核对 `input`、`output`、`cacheRead`、`cacheWrite`。`input` 是非缓存输入，完整输入为 `input + cacheRead + cacheWrite`；一次压缩可能包含两个模型请求，会话条目保存其合计。Pi 把服务未提供的缓存计数映射为 0，因此判断字段是否真的被报告还需检查原始响应。真实 Codex 的用量与清理代价见[核实报告](../../docs/research/base-real-model-check.md)。
 
 ## 协议入口
 
@@ -365,7 +365,6 @@ Agent 相关的约定：
 
 ## 已知限制
 
-- **Pi 1.1.0 的 view 身份检查使用[本地补丁](../../patches/@earendil-works+pi-coding-agent+1.1.0.patch)。** SDK 重建 custom message 对象后，补丁按内容判断请求前缀是否仍然有效，并忽略顶层 `timestamp`。含 view 的实际保温以及内容变化失效均有离线 SDK 回归，见下方[升级结果](#pi-110-升级结果)。0.87.1 的[冻结核实](../../docs/research/base-real-model-check.md)中，Codex 模型目录没有缓存寿命，适配器也未传递保温所需的 1 token 输出上限，因此该次真实服务没有启动保温。1.1.0 的真实服务续期效果仍待单独核实。
 - 0.87.1 的冻结核实已使用已有 Codex OAuth 验证真实请求、锁内刷新、轮换结果持久化和刷新后接续。1.1.0 本轮覆盖脚本化登录映射和持久化，真实 OAuth 刷新及首次交互登录仍待单独核实。
 - 影子 Git 按所属包的规则排除 `.repa/`、用户 Git、嵌套仓库、忽略项和大文件。因此 `history.undo` 撤回空间文件，不回滚插件数据库、会话或设置。插件根据变化流更新自己的状态。
 - 插件是可信本机代码，文件接口和 Agent 文件工具的路径检查不是进程沙箱。bash 不限路径，在询问模式下须确认；经 bash 写到空间外的文件不属于影子 Git 的撤回范围。
@@ -389,7 +388,7 @@ npm test --workspace=@repa/space-history
 npm run real-model-check --workspace=@repa/base -- --output /tmp/repa-real-check.jsonl --limit 30
 ```
 
-**升级前的检查记录（`47d4d2f8b`）：** 2026-10-10 的收尾检查使用本 worktree 自有依赖、Node.js 24.20.0 和 Git 2.43.0：两个包的类型检查和构建通过，`space-history` 的 53 项测试全部通过；`base` 的 62 项测试中 61 项通过，唯一失败为原有含 view 保温回归，原因见下方[缓存补丁的基线缺口](#缓存补丁为什么仍然需要)。新增维护、宿主、用量和工具取消回归均通过，脚本 `--help` 入口通过。真实服务证据沿用冻结报告，本轮验证用真实 SDK 与离线提供方完成。
+**升级前的检查记录（`47d4d2f8b`）：** 2026-10-10 的收尾检查使用本 worktree 自有依赖、Node.js 24.20.0 和 Git 2.43.0：两个包的类型检查和构建通过，`space-history` 的 53 项测试全部通过；`base` 的 62 项测试中 61 项通过，唯一失败为原有含 view 保温回归，原因见[当时的缓存补丁基线缺口](https://github.com/Utopia-V/repa/blob/47d4d2f8b/packages/base/README.md#缓存补丁为什么仍然需要)。新增维护、宿主、用量和工具取消回归均通过，脚本 `--help` 入口通过。真实服务证据沿用冻结报告，本轮验证用真实 SDK 与离线提供方完成。
 
 脚本先构建当前公开入口，使用临时空间和笔记插件，结果文件必须不存在。默认读取 `~/.repa/agent`，也可用 `--agent-dir` 指定。运行前关闭使用同一 Agent 目录的 Repa 进程；脚本临时调整 Agent 设置，正常收尾按原字节恢复，刷新后的凭据由 Pi 保留在原文件。恢复发生冲突时保留设置副本并报告其本机位置。`--skip-refresh` 跳过显式 OAuth 刷新检查；真实调用会使用订阅额度。
 
@@ -465,7 +464,7 @@ npm run real-model-check --workspace=@repa/base -- \
 
 以下保留升级前调查；实际适配和验证结果见[升级结果](#pi-110-升级结果)。评估时底座锁定 `@earendil-works/pi-ai` 和 `@earendil-works/pi-coding-agent` 0.87.1。2026-10-10 核验时，npm `latest` 为 1.1.0；npm 在 2026-10-07 22:16:26 UTC 发布，GitHub release 在当天 22:26:31 UTC 发布。调查固定使用 `v0.87.1`（`f07218c4d4bbc12bef056a7058c3dd49dfe41abe`）、`v1.1.0`（`abe508e1b89912adde45528136c3221eb69acdd7`）以及对应 npm 发布包。升级依据采用固定 tag 和发布包。[官方发布](https://github.com/earendil-works/pi/releases/tag/v1.1.0)、[npm 包](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.1.0)。
 
-1.1.0 值得作为下一次小范围升级的目标。底座目前使用的原生会话、命名系统提示、队列和上下文编辑入口仍然存在，因而不需要重写 Agent 接入。新增的图像、分类、虚拟模型和 MCP/codemode 也不要求一起接入。不过，含 view 的缓存保温补丁仍有必要，新 `openai` OAuth 还需要宿主提供安装标识，因此升级不是只改两个版本号。[SDK](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/sdk.ts)、[登录实现](https://github.com/earendil-works/pi/blob/v1.1.0/packages/ai/src/auth/oauth/openai-chatgpt.ts#L225-L238)。
+1.1.0 值得作为下一次小范围升级的目标。底座目前使用的原生会话、命名系统提示、队列和上下文编辑入口仍然存在，因而不需要重写 Agent 接入。新增的图像、分类、虚拟模型和 MCP/codemode 也不要求一起接入。新 `openai` OAuth 还需要宿主提供安装标识，因此升级不是只改两个版本号。[SDK](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/sdk.ts)、[登录实现](https://github.com/earendil-works/pi/blob/v1.1.0/packages/ai/src/auth/oauth/openai-chatgpt.ts#L225-L238)。
 
 ### 已使用入口的兼容性
 
@@ -476,19 +475,10 @@ npm run real-model-check --workspace=@repa/base -- \
 | `systemPromptOptions` 命名段落 | `customPrompt`、`sections`、`contextFiles`、`skills`、`appendSystemPrompt` 保留。新增 `hiddenTools` 用于 `prepareLoadout` 隐藏声明；命名段落仍按 transcript 当前状态生成变化条目。[提示构建](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/system-prompt.ts#L1-L74)、[段落差异](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/system-prompt.ts#L210-L251) | 沿用 `applyPromptSections`；回归修改一个来源只追加该来源，首项系统提示和工具声明保持。 |
 | custom message 与 `nextTurn` | `sendCustomMessage` 签名和 `nextTurn` 队列保留。`before_agent_start` 之后构造 user 与 pending custom 消息，再把系统／工具更新放到最前面。[首轮顺序](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/agent-session.ts#L2060-L2113)、[队列入口](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/agent-session.ts#L2283-L2335) | 首轮和后续 view 的稳定前缀策略可沿用。`steer`／`followUp` 返回值由 `Promise<void>` 改为 `Promise<QueuedInputDisposition>`；底座当前只等待完成，可继续使用。 |
 | `context_edit`、`turn_end`、`agent_before_settle` | 上下文编辑条目、boundary draft 联合以及可返回 `entries`／`continue` 的形状保留。边界仍先保存草稿，再刷新 canonical projection；`agent_before_settle` 位于重试、压缩和排队续轮之后。[边界类型](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/extensions/types.ts#L935-L1052)、[收尾](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/agent-session.ts#L1894-L1920) | 批清旧 view 与保留原始证据的实现可沿用。`agent_settled` 新增 `aborted`，当前非穷尽事件映射不受类型破坏；需要向客户端公开该信息时再扩充协议。 |
-| 缓存保温 | `CacheWarmer` 的发布 JS 在两版之间相同；`cacheContextIsCurrent` 仍逐项比较消息对象身份。[身份判断](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/sdk.ts#L369-L380) | 迁移补丁并修复下述时间戳缺口，重新生成 1.1.0 patch，不能直接删除。保留含 view 与不含 view 的保温、上下文真实变化停止保温、用量落盘回归。 |
 | `ModelRuntime` 登录 | 原有三参数调用仍合法，`AuthPrompt`／`AuthEvent` 联合保持；新增可选第四参数 `LoginOptions`。新 `openai` ChatGPT OAuth 实际要求 `getDeviceId()` 返回 UUID，缺失会立即抛错。[登录委托](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/model-runtime.ts#L819-L833)、[安装标识要求](https://github.com/earendil-works/pi/blob/v1.1.0/packages/ai/src/auth/oauth/openai-chatgpt.ts#L225-L238) | `Runtime.login` 传入 `getDeviceId: () => settings.getOrCreateDeviceId()`，可以同时使用 `agentName: "Repa"`。选择、密文、授权码、链接和取消映射沿用。 |
-| `SettingsManager` | `create(..., { projectTrusted: false })`、`inMemory`、错误读取、`flush`、缓存模式读写保留；新增 `getSettings`、`getOrCreateDeviceId`、codemode 等设置。缓存模式仍只读全局设置，Pi 默认仍为 `streaming`。[缓存设置](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/settings-manager.ts#L1045-L1055)、[安装标识](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/settings-manager.ts#L1193-L1206) | 保留 Repa 当前默认 `idle` 与不读取空间 `.pi/settings.json` 的做法；复用原生全局安装标识，登录后核对保存与重建。 |
+| `SettingsManager` | `create(..., { projectTrusted: false })`、`inMemory`、错误读取、`flush`、缓存模式读写保留；新增 `getSettings`、`getOrCreateDeviceId`、codemode 等设置。缓存模式仍只读全局设置，Pi 默认仍为 `streaming`。[缓存设置](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/settings-manager.ts#L1045-L1055)、[安装标识](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/settings-manager.ts#L1193-L1206) | 不读取空间 `.pi/settings.json`；复用原生全局安装标识，登录后核对保存与重建。 |
 | `edit` 同名覆盖 | 内置定义先进入注册表，customTools 随后按名字覆盖定义和执行器；新的工具 exposure/loadout 层仍保留这一路径。[注册表](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/agent-session.ts#L3495-L3566) | 精确 edit 无需换入口；回归全角标点、混合换行与拒绝规范化匹配。Anthropic 1.0.1 新 inline tools 改善的是会话中途重定义的缓存行为，不替代初始注册表覆盖。 |
 | `tool_call` 钩子 | 返回 block 和抛错阻止执行的路径保留；新增 `parentToolCallId`，`ctx.executeTool` 嵌套调用也走同一钩子。[工具钩子](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/agent-session.ts#L657-L690)、[嵌套执行](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/agent-session.ts#L742-L794) | 当前 bash 确认可沿用；普通与嵌套调用都应遵守同一权限判断。当前 loader 未启用 codemode，升级不会自动增加嵌套执行路径。 |
-
-### 缓存补丁为什么仍然需要
-
-现有补丁只放宽 `sdk.js` 的消息前缀检查：对象身份相同，或者序列化内容相同，才视为同一份上下文。1.1.0 的 `sdk.ts:378` 和发布包 `dist/core/sdk.js:222` 仍只有前一种判断。与此同时，`SessionManager` 将 `custom_message` 投影为上下文时仍重新创建消息对象，AgentSession 在边界完成后又把投影消息装回 Agent state。因此，即使 view 的内容没有变化，保温器保存的消息对象也可能与当前对象不同，这条失效路径仍在。[custom 消息投影](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/session-manager.ts#L439-L460)、[边界刷新](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/agent-session.ts#L938-L944)。
-
-本轮还复现了 **0.87.1 基线补丁的时序缺口**：`sendCustomMessage` 给 view 设置 `Date.now()`，保存 custom 条目时又生成持久时间戳；两者相差 1 ms 时，内容相同的 view 在投影前后也无法通过当前 `JSON.stringify` 整对象比较。原有“含视图的会话在补丁后仍能原生缓存保温”测试因此报 `conversation context changed`，实际调用数为 1 而非 2；两次取时相同的运行则能保温。Node 22.19.0 和 24.20.0 都已复现失败，相关 runtime、view 实现和测试与任务基线 `d6bf108e9` 逐字相同。补丁仍保持当前版本，后续修复需要区分实际模型上下文与重建时产生的时间元数据，并验证真实内容变化仍会停止保温。
-
-这说明补丁的责任仍在，而不是说明旧版本的 patch 文件可以原样套到新版本。升级时应针对新发布包重新生成补丁，并用真实 SDK 回归确认：内容相同的重建对象仍允许保温，view 被删除、替换或真实上下文前缀变化则停止保温。
 
 ### 两版之间需要关注的其他变化
 
@@ -505,10 +495,10 @@ npm run real-model-check --workspace=@repa/base -- \
 
 建议把升级作为独立任务完成，按下面的次序收敛：
 
-1. 明确只升级 `@repa/base`，还是同时迁移仍锁 0.87.1 的 `packages/repa` 和 `packages/organization`。只迁 base 时会有两代 Pi 副本，需要核对 npm hoist、导入解析和 patch-package 实际覆盖的包；同时迁移则需要另核两个模块的使用入口。
+1. 明确只升级 `@repa/base`，还是同时迁移仍锁 0.87.1 的 `packages/repa` 和 `packages/organization`。只迁 base 时会有两代 Pi 副本，需要核对 npm hoist 与导入解析；同时迁移则需要另核两个模块的使用入口。
 2. 更新目标范围内的 Pi 版本与锁文件，核对新增 `pi-codemode`／`pi-mcp` 等传递依赖；Pi 1.1.0 发布目标为 ES2024，Node 要求为 `>=22.19.0`，底座当前 `>=22.22.2` 满足。不要为了上游从源码运行方式而更换 Repa 的构建器。
-3. 迁移缓存补丁并处理已复现的时间戳缺口，补上 LoginOptions 安装标识与应用名；如实际使用 Azure，再安排凭据、配置和已保存引用的迁移。
-4. 在目标发布包上完成类型检查、底座与 space-history 测试、WebSocket 端到端回归；重点覆盖首轮顺序、单段更新、批清 view、默认 overflow 压缩与第一份重试、取消／队列终态、精确 edit、命令确认、登录持久化和含 view 缓存保温。
+3. 补上 LoginOptions 安装标识与应用名；如实际使用 Azure，再安排凭据、配置和已保存引用的迁移。
+4. 在目标发布包上完成类型检查、底座与 space-history 测试、WebSocket 端到端回归；重点覆盖首轮顺序、单段更新、批清 view、默认 overflow 压缩与第一份重试、取消／队列终态、精确 edit、命令确认、登录持久化。
 
 这份评估完成了发布包类型与固定源码调查，其实现和运行基准为 0.87.1。下面记录在新版本上的实际验证。
 
@@ -517,7 +507,7 @@ npm run real-model-check --workspace=@repa/base -- \
 
 `pi-1-upgrade` 从删除旧后端的 `remove-old-backend` 提交 `6664e3a65` 开出。`@repa/base` 的两个直接 Pi 依赖现在都锁定 1.1.0；锁文件中的 `pi-agent-core`、`pi-codemode` 和 `pi-mcp` 也为 1.1.0，`npm ls` 确认没有第二代 Pi 副本。新增传递依赖保留在原生 SDK 依赖链中，底座的 loader 没有启用 MCP 或 codemode。
 
-缓存补丁由 `patch-package` 对 1.1.0 的干净 npm 发布包重新生成，安装时只应用这一份补丁。消息比较继续忽略顶层 `timestamp`，不忽略内容、details、系统段或工具定义。安装标识则交给 Pi 的 `SettingsManager.getOrCreateDeviceId()`；`ModelRuntime.login` 接收这个回调和 `agentName: "Repa"`，返回成功前等待设置保存。
+安装标识交给 Pi 的 `SettingsManager.getOrCreateDeviceId()`；`ModelRuntime.login` 接收这个回调和 `agentName: "Repa"`，返回成功前等待设置保存。
 
 ### 已使用入口的实际结果
 
@@ -529,25 +519,20 @@ npm run real-model-check --workspace=@repa/base -- \
 | `DefaultResourceLoader` | 禁止路径发现仍保留自有 inline factory；临时扩展哨兵没有执行，项目 Pi Skill 没有进入提示，默认声明只含七个底座工具，未自动出现 MCP/codemode。[资源发现回归](test/agent.test.ts)。 |
 | `systemPromptOptions` 命名段落 | 更改、停用和恢复一个来源都只追加该来源的变化；每份实际模型输入的初始 system 和工具声明保持不变。[提示与 view 端到端回归](test/e2e.test.ts)。 |
 | custom message 与 `nextTurn` | 首轮顺序、多 view 的稳定前缀以及正常插话／追加顺序通过；`QueuedInputDisposition` 仍由底座等待后忽略。取消需要额外管理异步入队，修复及复现见下一节。[队列与首轮回归](test/agent.test.ts)。 |
-| `context_edit`、`turn_end`、`agent_before_settle` | 批清、过期清理及移除来源后，下一份实际请求只包含仍有效的 view，原始历史保持；自动 overflow 的两份摘要不含 view，第一份 retry 已取得唯一的最新 view。[Agent 回归](test/agent.test.ts)、[端到端回归](test/e2e.test.ts)。 |
-| 缓存保温 | 新版发布包仍只有对象身份比较，因此补丁继续保留。强制把重建消息的 timestamp 增加 60 秒仍可保温；实际内容、details、view 来源、系统段、工具或模型变化使缓存失效。含／不含 view 的真实定时保温和 usage 落盘也通过。[上下文比较回归](test/pi-cache-context.test.ts)、[实际保温回归](test/agent.test.ts)。 |
+| `context_edit`、`turn_end`、`agent_before_settle` | 批清、过期清理及移除来源后，下一份实际请求只包含仍有效的 view，原始历史保持；自动 overflow 的第一份 retry 已取得唯一的最新 view。[Agent 回归](test/agent.test.ts)、[端到端回归](test/e2e.test.ts)。 |
 | `ModelRuntime` 登录 | 原生委托收到稳定 UUID 与 `agentName: "Repa"`；登录返回时 ID 已落盘，重建后 ID 和凭据保持。授权码、选择、密文、链接、取消及保存错误映射通过。[登录与持久设置](test/agent-settings.test.ts)、[OAuth 协议交互](test/e2e.test.ts)。 |
-| `SettingsManager` | 默认 `idle` 能持久化，已有 `off`／`streaming`／`idle` 不被覆盖；底座只使用全局安装标识，项目设置不能覆盖它。损坏文件保持原字节，读写错误通过 `agent_settings` 返回。[设置回归](test/agent-settings.test.ts)。 |
+| `SettingsManager` | 底座只使用全局安装标识，项目设置不能覆盖它。损坏文件保持原字节，读写错误通过 `agent_settings` 返回。[设置回归](test/agent-settings.test.ts)。 |
 | `edit` 同名覆盖 | 原生注册表仍允许底座的精确 edit 覆盖内置 edit；实际执行保留全角标点与混合换行，并拒绝规范化匹配。[精确编辑回归](test/agent.test.ts)。 |
 | `tool_call` 钩子 | 普通与嵌套 bash 的允许、拒绝、确认抛错、Full Access 和确认中取消均通过，文件副作用与嵌套父调用关系一致。嵌套入口只由内部测试工厂提供，生产插件 API 没有扩展。[权限回归](test/pi-tool-permissions.test.ts)。 |
 
 ### 与原评估不同及补充核实的地方
 
-升级评估记录的 timestamp 失败发生在 `47d4d2f8b`；后续 `fe1d7bca3` 已修正，因此本任务开始时的 0.87.1 基线已忽略 timestamp。此次迁移保留该修复，并增加确定性时间差与真实内容变化的负例，没有把旧失败记录改成成功结果。
-
 队列返回类型虽然兼容，但原评估没有指出取消与清队列是两个动作。实际回归发现：只调用 `abort()` 后，下一次发送会消费已取消的 follow-up；只在取消开始时 `clearQueue()` 也不够，因为 Pi 在入队前会等待 input 钩子。独立复现中，两次应有的模型请求变成三次，第三次消费了旧 follow-up。底座现在持有进行中的入队操作，取消时立即阻止新输入并中止运行，等这些入队操作和空间记录收尾完成后再清队列。取消返回后才允许下一轮开始；回归分别覆盖已入队、正在入队和 input 钩子延迟三个窗口。[上游排队和取消实现](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/agent-session.ts)、[复现与回归](test/agent.test.ts)。
-
-缓存测试还核对到 `Agent.replaceMessages` 已不在 1.1.0 的公共接口中，因此使用 SDK 文档化的 `agent.state.messages` 赋值入口重建测试上下文。生产运行仍使用既有 `SessionManager` 与 `refreshContext`，Agent 接入没有重写。
 
 ### 验证与尚待完成的工作
 
-Node.js 24.20.0、npm 12.0.2 下，干净 `npm ci`、根构建和类型检查全部通过；测试为 `space-history` 53 项、`base` 108 项、Desktop 9 项、Web 34 项，合计 204 项，全部通过。检查使用本 worktree 自有依赖，新安装已重新应用 1.1.0 补丁。测试 home、auth 和 settings 都在临时目录，不读取个人 Agent 目录。
+Node.js 24.20.0、npm 12.0.2 下，干净 `npm ci`、根构建和类型检查全部通过；测试为 `space-history` 53 项、`base` 108 项、Desktop 9 项、Web 34 项，合计 204 项，全部通过。检查使用本 worktree 自有依赖。测试 home、auth 和 settings 都在临时目录，不读取个人 Agent 目录。
 
 - 真实模型调用、ChatGPT 首次交互登录和真实服务缓存收益，等待两个分支审阅后单独核实。
 - 旧 `azure-openai-responses` provider 的凭据、模型配置和已保存 ModelRef／会话尚需迁移到 `azure`；本次没有加入用户数据迁移。其他 provider 仍使用原生读取路径。
-- 桌面配置已经随第一分支改为打包新底座并应用补丁，安装包及安装验证尚待执行；新底座的进程沙箱和学习插件由后续任务接续。
+- 桌面配置已经随第一分支改为打包新底座，安装包及安装验证尚待执行；新底座的进程沙箱和学习插件由后续任务接续。

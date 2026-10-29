@@ -9,7 +9,7 @@ import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, getInitialSystemMessage, resolveTranscriptTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { cacheStatusForTest, createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/runtime.js";
+import { createAgentRuntimeForTest, type AgentTestOptions } from "../src/agent/runtime.js";
 import type { AgentSpaceOptions } from "../src/agent.js";
 import { currentRun, type RunContext } from "../src/plugin.js";
 
@@ -574,31 +574,6 @@ test("运行结束事件等待空间记录收尾，排队续轮不重复报告�
   assert.deepEqual(observed.filter(event => event.type === "runStart" || event.type === "runEnd"), [{ type: "runStart", committed: false }, { type: "runEnd", committed: true }]);
 });
 
-test("SDK 在经济收益成立时自动保温，并在真实会话记录缓存用量", { timeout: 10000 }, async t => {
-  const warmed = deferred<void>();
-  const f = await fixture(t, { views: async () => [], onEvent(event) {
-    if (event.type === "usage" && event.data !== null && typeof event.data === "object" && "kind" in event.data && event.data.kind === "cache_warm") warmed.resolve();
-  } });
-  const model = f.faux.getModel();
-  model.promptCache = { short: 12 };
-  model.cost = { input: 100000, output: 1, cacheRead: 1, cacheWrite: 100000 };
-  f.models.registerNativeProvider(f.faux.provider);
-  const session = await f.space.create();
-  f.settings.setCacheWarmingMode("idle");
-  f.faux.setResponses([fauxAssistantMessage("正常请求"), fauxAssistantMessage("保温")]);
-  await session.send("开始");
-  const timeout = setTimeout(() => warmed.resolve(), 5000);
-  try {
-    await warmed.promise;
-  } finally {
-    clearTimeout(timeout);
-  }
-  assert.equal(f.faux.state.callCount, 2, JSON.stringify(cacheStatusForTest(session)));
-  const usage = session.history().find(entry => entry.type === "usage");
-  assert(usage?.usage);
-  assert(usage.usage.cacheRead > 0);
-});
-
 test("空间写入队列中的后台工作取消后不写用户消息也不调用模型", async t => {
   let tail: Promise<unknown> = Promise.resolve();
   const f = await fixture(t, { record(_id, action) {
@@ -648,29 +623,6 @@ test("并发打开同一持久会话只有一个 SDK owner，后续问题沿用�
   assert.deepEqual(b.history().filter(entry => entry.type === "user").map(entry => entry.text), ["初始问题", "问题 A", "问题 B"]);
 });
 
-// 依赖 patches/ 中对 Pi 1.1.0 的补丁：视图投影会重建消息对象，补丁按内容判断并忽略顶层时间戳。
-test("含视图的会话在补丁后仍能原生缓存保温", { timeout: 10000 }, async t => {
-  const warmed = deferred<void>();
-  const f = await fixture(t, { onEvent(event) {
-    if (event.type === "usage" && event.data !== null && typeof event.data === "object" && "kind" in event.data && event.data.kind === "cache_warm") warmed.resolve();
-  } });
-  const model = f.faux.getModel();
-  model.promptCache = { short: 12 };
-  model.cost = { input: 100000, output: 1, cacheRead: 1, cacheWrite: 100000 };
-  f.models.registerNativeProvider(f.faux.provider);
-  const session = await f.space.create();
-  f.settings.setCacheWarmingMode("idle");
-  f.faux.setResponses([fauxAssistantMessage("回答"), fauxAssistantMessage("保温")]);
-  await session.send("含当前视图的请求");
-  const timeout = setTimeout(() => warmed.resolve(), 5000);
-  try {
-    await warmed.promise;
-  } finally {
-    clearTimeout(timeout);
-  }
-  assert.equal(f.faux.state.callCount, 2, JSON.stringify(cacheStatusForTest(session)));
-});
-
 test("默认自动 overflow 压缩在重试第一份请求前补回最新视图", async t => {
   let view = "压缩前旧视图";
   const f = await fixture(t, { views: async () => [{ id: "plugin:test", text: view }] });
@@ -690,7 +642,6 @@ test("默认自动 overflow 压缩在重试第一份请求前补回最新视图"
   await f.session.send("触发上下文溢出");
   assert(capture);
   assert.equal(summaries.length, 2);
-  for (const summary of summaries) assert.doesNotMatch(JSON.stringify(summary.messages), /<repa-view|压缩前旧视图|本轮最新视图/u);
   assert.equal(JSON.stringify(capture.messages).split("<repa-view source=").length - 1, 1);
   assert.match(JSON.stringify(capture.messages), /本轮最新视图/u);
   assert.doesNotMatch(JSON.stringify(capture.messages), /压缩前旧视图/u);

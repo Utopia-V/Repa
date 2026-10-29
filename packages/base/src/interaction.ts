@@ -6,18 +6,14 @@
  * 插件自己的界面把 Item 等嵌进自己的契约，对话里的询问走底座的 ask.*。
  *
  * 版本规则：词汇只增不改。已有类型名、字段含义、默认值和作答格式不改；新增作答位、影响含义的内容块
- * 和忽略后会改变含义的特性进 Item.requires；可以忽略的呈现提示直接加。每次新增把
- * INTERACTION_VOCABULARY 加一。发送方按当前版本严格校验，多余字段直接拒绝；前端用 readItem
- * 宽松读取，丢掉不认识的字段，再按 requires 决定能不能作答。
+ * 和忽略后会改变含义的特性进 Item.requires；可以忽略的呈现提示直接加。发送方严格校验，多余字段直接拒绝；
+ * 前端用 readItem 宽松读取，丢掉不认识的字段，再按 requires 决定能不能作答。
  *
  * 本文件经 @repa/base/protocol 与 @repa/base/plugin 导出，保持浏览器可用。
  */
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { object, RepaFault } from "./schema.js";
-
-/** 词汇版本。判断能否渲染不比版本号，比 Item.requires。 */
-export const INTERACTION_VOCABULARY = 1;
 
 /**
  * 第一版的能力名。以后新增的必须理解的特性按 "<所属>.<特性>" 命名，例如 "table.dynamicRows"。
@@ -36,8 +32,6 @@ const reference = object({ id, version: Type.String({ pattern: "^sha256:[0-9a-f]
 
 /** 前端在 initialize 里声明能显示的作答位、内容块和特性。服务端按连接保存。 */
 export const InteractionCapabilitiesSchema = object({
-  // 只供诊断；能否渲染看 supports。
-  vocabulary: Type.Integer({ minimum: 1 }),
   supports: Type.Array(Type.String({ maxLength: 64 }), { maxItems: 200 }),
 });
 export type InteractionCapabilities = Static<typeof InteractionCapabilitiesSchema>;

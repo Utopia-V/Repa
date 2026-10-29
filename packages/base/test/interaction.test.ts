@@ -9,7 +9,6 @@ import {
   ContentSchema,
   contentVersion,
   INTERACTION_CAPABILITIES,
-  INTERACTION_VOCABULARY,
   ItemSchema,
   readAskReplyResult,
   readItem,
@@ -140,7 +139,6 @@ test("contentVersion 与 RFC 8785 第 3.2.3 节的例子逐字一致，拒绝不
 });
 
 test("requiredCapabilities 列出用到的作答位、内容块和公式，装饰图与可以忽略的提示不进 requires", async () => {
-  assert.equal(INTERACTION_VOCABULARY, 1);
   assert.deepEqual(requiredCapabilities(checkinDraft), ["block.code", "block.markdown", "slot.table"]);
   assert.deepEqual(requiredCapabilities(planDraft), ["block.markdown", "slot.choice", "slot.code", "slot.order", "slot.text"]);
   const pictured: ItemDraft = {
@@ -159,8 +157,8 @@ test("requiredCapabilities 列出用到的作答位、内容块和公式，装�
 
 test("canRender 只在声明覆盖全部 requires 时成立", async () => {
   const checkin = await item(checkinDraft);
-  assert.equal(canRender({ vocabulary: 1, supports: ["block.markdown", "block.code", "slot.table"] }, checkin), true);
-  assert.equal(canRender({ vocabulary: 1, supports: ["block.markdown", "slot.table"] }, checkin), false);
+  assert.equal(canRender({ supports: ["block.markdown", "block.code", "slot.table"] }, checkin), true);
+  assert.equal(canRender({ supports: ["block.markdown", "slot.table"] }, checkin), false);
   assert.equal(canRender(undefined, checkin), false);
   assert.equal(canRender(undefined, { requires: [] }), true);
 });
@@ -242,7 +240,7 @@ test("表格：不存在的行、固定文字格、错的格类型、不存在�
 });
 
 // 第一版前端声明全部能力。
-const V1 = { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] };
+const V1 = { supports: [...INTERACTION_CAPABILITIES] };
 
 test("前端宽松读取 Item：多出不认识的可选字段时丢掉，旧前端照常显示", async () => {
   const checkin = await item(checkinDraft);

@@ -1,9 +1,6 @@
 /**
  * 课程核对用的模型调用：经底座的 Agent 运行时（其中是 Pi 的模型接口）发单轮请求，凭据由 Pi 从
  * agentDir/auth.json 读取，这里不读也不复制凭据。每次请求只有一条系统说明和一条用户消息，没有工具和历史。
- *
- * 底座的运行时只在内存里用 cacheWarming 的缺省值，不写 agentDir/settings.json，所以核对不会改动用户的设置，
- * 几个核对同时运行也不会互相覆盖设置文件。
  */
 
 import type { ModelRequest } from "./confirm.js";

@@ -17,8 +17,13 @@ export interface EditFiles {
 const UNSEEN_CHANGES = "注意：这个文件自上次读取后还有其他改动。编辑已按原文应用，但文件里有你没看过的内容；要做依赖上下文的修改，先重新读取。";
 
 /**
- * 保留 Pi 的参数与展示，只替换会规范化全文的编辑步骤。和 Pi 的 edit 一样在同一文件的写入队列里读出、替换、写回，
- * 所以这个进程里的其他写入者改过的内容都会先被读到；锚文本还在就照常应用。
+ * 保留 Pi 的参数与展示，只替换编辑步骤。Pi 1.1.0 的 core/tools/edit-diff.js 在精确匹配失败时，
+ * 通过 normalizeForFuzzyMatch 和 applyEditsToNormalizedContent 做模糊匹配，并从规范化后的文本重写命中的整行。
+ * 中文段落常常就是一整行，NFKC 会把全角的，：；（）！？变成半角，弯引号替换会把“”变成英文引号；
+ * 同一行的破折号、特殊空格和行尾空白也会改变。此外，Pi 的 edit 会统一全文换行，混合换行无法原样保留。
+ * 因此这里仅按原文精确替换，升级 Pi 时核对上述步骤；上游能保留这些原文后，再判断是否复用。
+ * 和 Pi 的 edit 一样在同一文件的写入队列里读出、替换、写回，所以这个进程里的其他写入者改过的内容
+ * 都会先被读到；锚文本还在就照常应用。
  */
 export function exactEditTool(cwd: string, files: EditFiles): ToolDefinition {
   const builtin = createEditToolDefinition(cwd);

@@ -12,7 +12,7 @@ import {
 import { sameValue } from "../src/check/values.js";
 import { accepted, delivery, lesson, now, page, recoveryTrace } from "./fixtures/learning-contract.js";
 
-const capabilities = { interaction: { vocabulary: 1, supports: ["block.markdown", "slot.code"] }, services: ["python.run"] };
+const capabilities = { interaction: { supports: ["block.markdown", "slot.code"] }, services: ["python.run"] };
 
 test("同一提交的待判与重连夹具保留身份和原答，画面可以独立读取", () => {
   const trace = recoveryTrace();

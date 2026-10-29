@@ -196,9 +196,6 @@ export function createRequestProbe(options: Options) {
     pi.on("message_end", event => {
       if (event.message.role === "assistant" && ["error", "aborted"].includes(event.message.stopReason)) uncertain = true;
     });
-    pi.on("cache_warming_decision", event => {
-      log({ type: "cache-warming-decision", phase: options.phase(), requestedWarm: event.action === "warm" });
-    });
   };
 
   return {

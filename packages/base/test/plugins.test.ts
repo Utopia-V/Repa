@@ -69,30 +69,22 @@ test("插件初始化等运行时 start 后才唤醒，并提供说明、工具�
   await assert.rejects(host.call("demo", "constructor", {}), fault("plugin_method_not_found"));
 });
 
-test("界面方法保存插件私有状态仍触发可等待的变化处理", async (t) => {
-  let cursor: string | undefined;
-  let observed = "";
+test("界面方法保存私有状态并发出插件事件，不读取历史或唤醒变化处理", async (t) => {
   let changes = 0;
+  let stateFile = "";
   const plugin: Plugin = {
     id: "state",
     async open(host) {
-      const stateFile = path.join(host.space.dataDir, "state.txt");
+      stateFile = path.join(host.space.dataDir, "state.txt");
       return {
-        async onChange() {
-          await host.history.changes(cursor).then((feed) => { cursor = feed.revision; });
-          try {
-            observed = await readFile(stateFile, "utf8");
-          } catch (error) {
-            if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
-          }
-          changes++;
-        },
+        async onChange() { changes++; },
         methods: {
           save: {
             parameters: object({ value: Type.String() }),
             async invoke(input) {
               const { value } = parse(object({ value: Type.String() }), input);
               await writeFile(stateFile, value);
+              host.emit({ value });
               return value;
             },
           },
@@ -100,12 +92,21 @@ test("界面方法保存插件私有状态仍触发可等待的变化处理", as
       };
     },
   };
-  const { host, space } = await fixture(t, [plugin]);
+  const { host, space, events } = await fixture(t, [plugin]);
   await host.start();
   const before = await space.history.list();
+  const list = space.history.list;
+  let historyReads = 0;
+  space.history.list = async limit => {
+    historyReads++;
+    return list(limit);
+  };
   assert.equal(await host.call("state", "save", { value: "新状态" }), "新状态");
-  assert.equal(observed, "新状态");
-  assert.equal(changes, 2);
+  await host.flush();
+  assert.equal(historyReads, 0);
+  assert.equal(await readFile(stateFile, "utf8"), "新状态");
+  assert.deepEqual(events, [{ pluginId: "state", event: { value: "新状态" } }]);
+  assert.equal(changes, 1);
   assert.deepEqual(await space.history.list(), before);
 });
 
@@ -146,14 +147,15 @@ test("一个插件变化处理失败仍唤醒其他插件，并由 flush 交付�
   let woke = 0;
   const { host, errors } = await fixture(t, [
     { id: "bad", open: async () => ({ onChange: async () => { if (bad) throw new Error("处理失败"); } }) },
-    { id: "good", open: async () => ({
+    { id: "good", open: async pluginHost => ({
       onChange: async () => { woke++; },
-      methods: { trigger: { parameters: empty, invoke: async () => {} } },
+      methods: { trigger: { parameters: empty, invoke: async () => pluginHost.files.write("trigger.txt", "文件变化") } },
     }) },
   ]);
   await host.start();
   bad = true;
-  await assert.rejects(host.call("good", "trigger", {}), AggregateError);
+  await host.call("good", "trigger", {});
+  await assert.rejects(host.flush(), AggregateError);
   bad = false;
   assert.equal(woke, 2);
   assert.equal(errors.length, 1);

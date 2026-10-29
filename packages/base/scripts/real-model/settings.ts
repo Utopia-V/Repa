@@ -8,7 +8,6 @@ export const PROBE_SETTINGS = {
   transport: "sse",
   defaultThinkingLevel: "off",
   modelThinkingLevels: {},
-  cacheWarming: "idle",
   retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 0 } },
   compaction: { enabled: false, reserveTokens: 2048, keepRecentTokens: 128 },
 };

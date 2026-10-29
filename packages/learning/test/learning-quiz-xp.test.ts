@@ -90,7 +90,7 @@ async function fixture(
   const runtime = await createAgentRuntimeForTest({ agentDir, modelRuntime });
   const server = await startServer({ home: path.join(root, "home"), runtime, plugins: [plugin], generalAgent: false });
   const connect = () => RepaClient.connect(server.connection, {
-    capabilities: { interaction: { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] }, services: [] },
+    capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] }, services: [] },
   });
   let client = await connect();
   t.after(async () => {

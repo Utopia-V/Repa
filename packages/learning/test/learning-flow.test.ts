@@ -33,7 +33,7 @@ import type { ResolvedCourse } from "../src/course-sources.js";
 
 const start = 1_792_454_400_000;
 const clientCapabilities: ClientCapabilities = {
-  interaction: { vocabulary: 1, supports: [...INTERACTION_CAPABILITIES] },
+  interaction: { supports: [...INTERACTION_CAPABILITIES] },
   services: ["python.run"],
 };
 const course: Course = {
@@ -921,7 +921,7 @@ test("渲染能力不足时保留例题和当前任务，返回具体缺项而�
     f.call(
       "task.advance",
       { taskId: before.task.taskId, expectedRevision: before.revision, expectedStage: "example" },
-      { interaction: { vocabulary: 1, supports: [] }, services: [] },
+      { interaction: { supports: [] }, services: [] },
     ),
     (error: unknown) => {
       assert.ok(error instanceof Error && "code" in error && error.code === "missing_capability");
