@@ -17,7 +17,16 @@ export function cell(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/\|/g, "&#124;").replace(/\r?\n/g, "<br>");
 }
+// 目录要能被编码 Agent 整篇读完，按 UTF-8 字节计上限。
+const MAX_BYTES = 40 * 1024;
+function oversize(output: GeneratedFile): string | undefined {
+  const bytes = Buffer.byteLength(output.text);
+  if (bytes <= MAX_BYTES) return undefined;
+  return `生成后 ${Math.ceil(bytes / 1024)} KB，超过 ${MAX_BYTES / 1024} KB 上限：目录要能被整篇读完，改为更紧凑的写法`;
+}
 export async function writeGenerated(root: string, output: GeneratedFile): Promise<void> {
+  const problem = oversize(output);
+  if (problem) throw new Error(`${output.file} ${problem}`);
   await mkdir(path.dirname(path.join(root, output.file)), { recursive: true });
   await writeFile(path.join(root, output.file), output.text);
   console.log(`${output.file}：${output.count} 条目`);
@@ -25,6 +34,11 @@ export async function writeGenerated(root: string, output: GeneratedFile): Promi
 export async function checkGenerated(root: string, outputs: GeneratedFile[]): Promise<Issue[]> {
   const issues: Issue[] = [];
   for (const output of outputs) {
+    const problem = oversize(output);
+    if (problem) {
+      issues.push({ file: output.file, line: 1, check: "生成目录", message: problem });
+      continue;
+    }
     let actual: Buffer | undefined;
     try {
       actual = await readFile(path.join(root, output.file));

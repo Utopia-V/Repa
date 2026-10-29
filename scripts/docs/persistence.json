@@ -1,5 +1,12 @@
 [
   {
+    "id": "space-format",
+    "files": ["<空间>/.repa/format.json"],
+    "owner": "@repa/base",
+    "schema": "packages/base/src/space/format.ts#FormatSchema",
+    "versionedBy": "<空间>/.repa/format.json"
+  },
+  {
     "id": "session-parent",
     "files": ["<空间>/.repa/sessions/<会话 id>.parent.json"],
     "owner": "@repa/base",
@@ -19,6 +26,13 @@
     "owner": "@repa/base",
     "schema": "packages/base/src/schema.ts#SettingsSchema",
     "versionedBy": "无独立版本标记"
+  },
+  {
+    "id": "learning-format",
+    "files": ["<空间>/.repa/plugins/learning/format.json"],
+    "owner": "@repa/learning",
+    "schema": "packages/base/src/space/format.ts#FormatSchema",
+    "versionedBy": "<空间>/.repa/plugins/learning/format.json"
   },
   {
     "id": "learning-records",

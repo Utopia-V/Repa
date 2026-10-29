@@ -10,21 +10,13 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
-| questions | Array&lt;object&gt; | 否 |  |
 | questions[] | object | 否 |  |
 | questions[].allowOther | boolean | 是 | 有选项时允许用户自填，默认允许 |
 | questions[].header | string | 是 | 很短的标签 |
 | questions[].id | string | 是 | 可选的问题标识 |
 | questions[].input | "text" &#124; "longText" &#124; "number" | 是 | 没有选项时的输入方式，默认 text |
-| questions[].input（变体 1） | "text" | 否 |  |
-| questions[].input（变体 2） | "longText" | 否 |  |
-| questions[].input（变体 3） | "number" | 否 |  |
 | questions[].multiple | boolean | 是 | 有选项时允许多选 |
-| questions[].options | Array&lt;object&gt; | 是 |  |
-| questions[].options[] | object | 否 |  |
-| questions[].options[].description | string | 是 | 选项说明，Markdown |
-| questions[].options[].label | string | 否 | 选项，Markdown |
+| questions[].options[] | object | 是 | 嵌套对象，字段见源码 |
 | questions[].question | string | 否 | 问题，Markdown |
 
 ## bash
@@ -35,7 +27,6 @@ Execute a bash command in the current working directory. Returns stdout and stde
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | command | string | 否 | Shell command to execute |
 | timeout | number | 是 | Timeout in seconds (optional, no default timeout) |
 
@@ -47,9 +38,7 @@ Edit a single file using exact text replacement. Every edits[].oldText must matc
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
-| edits | Array&lt;object&gt; | 否 | One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead. |
-| edits[] | object | 否 |  |
+| edits[] | object | 否 | One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead. |
 | edits[].newText | string | 否 | Replacement text for this targeted edit. |
 | edits[].oldText | string | 否 | Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call. |
 | path | string | 否 | Path to the file to edit (relative or absolute) |
@@ -62,7 +51,6 @@ Search for files by glob pattern. Returns matching file paths relative to the se
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | limit | number | 是 | Maximum number of results (default: 1000) |
 | path | string | 是 | Directory to search in (default: current directory) |
 | pattern | string | 否 | Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts' |
@@ -75,7 +63,6 @@ Search file contents for a pattern. Returns matching lines with file paths and l
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | context | number | 是 | Number of lines to show before and after each match (default: 0) |
 | glob | string | 是 | Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts' |
 | ignoreCase | boolean | 是 | Case-insensitive search (default: false) |
@@ -92,10 +79,8 @@ Search file contents for a pattern. Returns matching lines with file paths and l
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | limit | integer | 是 |  |
 | offset | integer | 是 |  |
-| refs | Array&lt;object&gt; | 否 |  |
 | refs[] | object | 否 |  |
 | refs[].courseId | string | 否 |  |
 | refs[].id | string | 否 |  |
@@ -112,7 +97,6 @@ Search file contents for a pattern. Returns matching lines with file paths and l
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | limit | integer | 是 |  |
 | offset | integer | 是 |  |
 | query | string | 否 |  |
@@ -125,7 +109,6 @@ Search file contents for a pattern. Returns matching lines with file paths and l
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | limit | integer | 是 |  |
 | offset | integer | 是 |  |
 
@@ -137,7 +120,6 @@ List directory contents. Returns entries sorted alphabetically, with '/' suffix 
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | limit | number | 是 | Maximum number of entries to return (default: 500) |
 | path | string | 是 | Directory to list (default: current directory) |
 
@@ -149,7 +131,6 @@ Read the contents of a file. Supports text files and images (jpg, png, gif, webp
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | limit | number | 是 | Maximum number of lines to read |
 | offset | number | 是 | Line number to start reading from (1-indexed) |
 | path | string | 否 | Path to the file to read (relative or absolute) |
@@ -162,7 +143,6 @@ Read the contents of a file. Supports text files and images (jpg, png, gif, webp
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | name | string | 否 |  |
 | text | string | 否 |  |
 
@@ -174,9 +154,7 @@ Read the contents of a file. Supports text files and images (jpg, png, gif, webp
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | agent | "general" | 否 |  |
-| agent（变体 1） | "general" | 否 |  |
 | task | string | 否 | 交给子 Agent 的完整任务 |
 
 ## write
@@ -187,6 +165,5 @@ Write content to a file. Creates the file if it doesn't exist, overwrites if it 
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object | 否 |  |
 | content | string | 否 | Content to write to the file |
 | path | string | 否 | Path to the file to write (relative or absolute) |

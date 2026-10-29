@@ -84,11 +84,52 @@ test("学习包的目录级注释例外带理由生效，补齐后例外过时",
   assert.equal(applyExceptions([], settings, [issue.file])[0]?.message, "例外已过时，请删掉这条");
 });
 
-test("schema 字段表保留嵌套参数、结果类型、可选性和 description", () => {
-  const table = schemaTable({ type: "object", properties: { items: { type: "array", items: { type: "object", properties: { text: { type: "string", description: "原样保留 | 内容" } } } }, count: { type: "integer" } }, required: ["count"] });
-  assert.match(table, /\| count \| integer \| 否 \|/);
-  assert.match(table, /\| items \| Array&lt;object&gt; \| 是 \|/);
-  assert.match(table, /\| items\[\].text \| string \| 是 \| 原样保留 &#124; 内容 \|/);
+test("schema 字段表只展开两层，更深的对象指向 schema 名或源码，联合只占一行，根对象不单列", () => {
+  const deep = { deep: { type: "string" } };
+  const table = schemaTable({
+    type: "object",
+    required: ["count", "kind"],
+    properties: {
+      count: { type: "integer" },
+      kind: { anyOf: [{ const: "a" }, { const: "b" }], description: "类别" },
+      items: {
+        type: "array",
+        description: "条目",
+        items: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "原样保留 | 内容" },
+            meta: { type: "object", properties: deep },
+            named: { type: "object", $id: "Named", properties: deep },
+            titled: { type: "object", title: "Titled", properties: deep },
+          },
+        },
+      },
+      value: { anyOf: [{ type: "object", properties: deep }, { type: "null" }] },
+    },
+  });
+  assert.deepEqual(table.split("\n").slice(2), [
+    "| count | integer | 否 |  |",
+    "| items[] | object | 是 | 条目 |",
+    "| items[].meta | object | 是 | 嵌套对象，字段见源码 |",
+    "| items[].named | object | 是 | 字段见 Named |",
+    "| items[].text | string | 是 | 原样保留 &#124; 内容 |",
+    "| items[].titled | object | 是 | 字段见 Titled |",
+    "| kind | \"a\" &#124; \"b\" | 否 | 类别 |",
+    "| value | object &#124; null | 是 | 嵌套对象，字段见源码 |",
+  ]);
+});
+
+test("根是对象数组时字段写成 $[].a，根是联合、null 或标量数组时用一行写出类型", () => {
+  const rows = (schema: object) => schemaTable(schema).split("\n").slice(2);
+  assert.deepEqual(rows({ type: "array", items: { type: "object", properties: { id: { type: "string" }, tags: { type: "array", items: { type: "string" } } }, required: ["id"] } }), [
+    "| $[].id | string | 否 |  |",
+    "| $[].tags[] | string | 是 |  |",
+  ]);
+  assert.deepEqual(rows({ anyOf: [{ type: "object", properties: { id: { type: "string" } } }, { type: "null" }] }), ["| $ | object &#124; null | 否 | 嵌套对象，字段见源码 |"]);
+  assert.deepEqual(rows({ type: "null" }), ["| $ | null | 否 |  |"]);
+  assert.deepEqual(rows({ type: "array", items: { type: "string" } }), ["| $[] | string | 否 |  |"]);
+  assert.deepEqual(rows({ type: "object", properties: {} }), []);
 });
 
 test("摘要递归排序对象键但保留数组顺序", () => {
@@ -144,6 +185,24 @@ test("协议目录按名称排序并列出方法参数、结果及通知，参�
   const changed = await fixture(t);
   await changed.write("packages/base/src/protocol.ts", (await readFile(path.join(f.root, "packages/base/src/protocol.ts"), "utf8")).replace("title:", "heading:"));
   assert.equal((await checkGenerated(f.root, [await generateProtocol(changed.root)])).length, 1);
+});
+
+test("目录超过 40 KB 时生成失败且不写文件，检查报同样的篇幅问题；按 UTF-8 字节计，正好 40 KB 通过", async (t) => {
+  const f = await fixture(t);
+  await f.copy("packages/base/src/protocol.ts", "generated/large-protocol.ts");
+  const output = await generateProtocol(f.root);
+  const size = Math.ceil(Buffer.byteLength(output.text) / 1024);
+  assert(size > 40);
+  const message = `生成后 ${size} KB，超过 40 KB 上限：目录要能被整篇读完，改为更紧凑的写法`;
+  await assert.rejects(writeGenerated(f.root, output), { message: `docs/generated/protocol.md ${message}` });
+  await assert.rejects(readFile(path.join(f.root, output.file)), { code: "ENOENT" });
+  assert.deepEqual(await checkGenerated(f.root, [output]), [{ file: "docs/generated/protocol.md", line: 1, check: "生成目录", message }]);
+  const exact = { file: "docs/generated/exact.md", text: "a".repeat(40 * 1024), count: 1 };
+  await writeGenerated(f.root, exact);
+  assert.deepEqual(await checkGenerated(f.root, [exact]), []);
+  // 13654 个汉字不到 1.4 万字符，UTF-8 编码后是 40962 字节。
+  const wide = { file: "docs/generated/wide.md", text: "目".repeat(13_654), count: 1 };
+  assert.equal((await checkGenerated(f.root, [wide]))[0]?.message, "生成后 41 KB，超过 40 KB 上限：目录要能被整篇读完，改为更紧凑的写法");
 });
 
 test("工具目录在离线临时宿主打开学习和示例插件，包含底座实际声明且多次生成一致", async (t) => {
