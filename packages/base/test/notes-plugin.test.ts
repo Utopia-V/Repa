@@ -113,8 +113,8 @@ test("子插件拒绝通过空间内部链接写到自己的目录之外", async
   assert.equal(await space.files.read("outside.txt"), "保留");
 });
 
-test("示例父插件拒绝已有 notes 目录是外部符号链接，离线宿主清理失败初始化", async () => {
-  await assert.rejects(createPluginTestHost({
+test("示例父插件拒绝已有 notes 目录是外部符号链接，离线宿主报告停用原因", async () => {
+  const testing = await createPluginTestHost({
     plugins: [{
       id: "notes",
       async open(host) {
@@ -122,7 +122,10 @@ test("示例父插件拒绝已有 notes 目录是外部符号链接，离线宿�
         return notesPlugin.open(host);
       },
     }],
-  }), fault("file_outside_space"));
+  });
+  assert.equal(testing.host.disabled()[0]?.reason.code, "plugin_open_failed");
+  assert.ok(fault("file_outside_space")(testing.errors[0]));
+  await testing.close();
 });
 
 
@@ -141,7 +144,7 @@ test("父插件初始化失败清理已打开子插件，同时保留清理失�
         };
       },
     });
-    await assert.rejects(createPluginTestHost({
+    const testing = await createPluginTestHost({
       plugins: [{
         ...plugin,
         async open(host) {
@@ -149,13 +152,17 @@ test("父插件初始化失败清理已打开子插件，同时保留清理失�
           return plugin.open(host);
         },
       }],
-    }), (error) => {
-      if (!closeFails) return error instanceof SyntaxError;
-      return error instanceof AggregateError
-        && error.errors[0] instanceof SyntaxError
-        && error.errors[1] === cleanupFailure;
     });
+    const error = testing.errors[0];
+    if (!closeFails) assert.ok(error instanceof SyntaxError);
+    else {
+      assert.ok(error instanceof AggregateError);
+      assert.ok(error.errors[0] instanceof SyntaxError);
+      assert.equal(error.errors[1], cleanupFailure);
+    }
+    assert.equal(testing.host.disabled()[0]?.id, "notes");
     assert.equal(closed, true);
+    await testing.close();
   }
 });
 

@@ -136,7 +136,7 @@ npm run course:confirm -- --topic py12               # 模型核对复习和测�
 
 完整 `course:check` 成功后，会在课程根目录生成随课程发布的 `expected.json`。它保存代码题测试的预计算期望值；改动题目、夹具、运行前导或运行环境后，需要重新运行完整核对。只检查结构或限定 topic 时不发布产物，也不手工修改其中的期望值。绑定与使用方式见[Python 执行边界](../../../docs/development/learning-flow.md#python-内部执行边界)。
 
-`course:confirm` 经 Repa 底座的 Agent 运行时调用模型，凭据用 `~/.repa/agent/` 里已经登录的（`--agent-dir` 可改），不写进任何文件，也不改动那里的 `settings.json`。已有当前核对范围证明的题不再发请求；`--max-requests` 限制这次的请求数（默认 50，输出不合格式时重试一次也算在内），`--log` 把请求和模型的作答另存一份 JSONL（文件已存在时在发请求之前就报错，每道题有结果就写一行）。几个 `course:check`、`course:confirm` 可以在同一个 worktree 里同时运行。
+`course:confirm` 经 Repa 底座的 Agent 运行时调用模型，凭据用[应用配置目录](../../../packages/base/README.md#应用配置目录)下 `agent/` 里已经登录的（遵循 `REPA_HOME`，`--agent-dir` 可改），不写进任何文件，也不改动那里的 `settings.json`。已有当前核对范围证明的题不再发请求；`--max-requests` 限制这次的请求数（默认 50，输出不合格式时重试一次也算在内），`--log` 把请求和模型的作答另存一份 JSONL（文件已存在时在发请求之前就报错，每道题有结果就写一行）。几个 `course:check`、`course:confirm` 可以在同一个 worktree 里同时运行。
 
 发给模型的请求里，选项、排列块和表格选择格的 id 已经换成 a、b、c……，所以 id 可以带含义（例如 `faithful`）；选择格显示标签，多行代码选项原样保留，带 `startLine` 的代码块每行前有行号。只有一列要填的表格，模型可以答 `{行 id: 值}`。
 

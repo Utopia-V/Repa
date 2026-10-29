@@ -12,7 +12,6 @@ export const PluginManifestSchema = object({
   id: Type.String({ pattern: "^[a-z][a-z0-9-]*$" }),
   version: Type.String({ minLength: 1 }),
   baseVersion: Type.String({ minLength: 1 }),
-  dataVersion: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
   entry: Type.String({ minLength: 1 }),
 });
 export type PluginManifest = Static<typeof PluginManifestSchema>;
@@ -56,5 +55,5 @@ export async function loadPlugin(directory: string): Promise<Plugin> {
     throw new RepaFault("invalid_plugin_export", "插件必须导出 default 或 plugin，且 id 与清单一致并包含 open(host)");
   }
   const definition = plugin as Plugin;
-  return { id: manifest.id, dataVersion: manifest.dataVersion, open: (host) => definition.open(host) };
+  return { id: manifest.id, open: (host) => definition.open(host) };
 }

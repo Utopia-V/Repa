@@ -1,12 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import os from "node:os";
 import path from "node:path";
 import { Check } from "typebox/value";
 import { WebSocket, WebSocketServer } from "ws";
 import { createAgentRuntime, withFileMutationQueue, type AgentRuntime, type AgentSpace } from "../agent.js";
 import type { AskRoute } from "../ask.js";
+import { prepareAppHome } from "../home.js";
 import { createFeedbackBundle } from "../feedback/bundle.js";
 import { RecentErrors } from "../feedback/errors.js";
 import {
@@ -106,7 +106,7 @@ interface ActiveSpace {
 export async function startServer(options: ServerOptions = {}): Promise<RepaServer> {
   const token = options.token ?? randomBytes(32).toString("hex");
   if (token.length < 32) throw new RepaFault("invalid_token", "连接令牌至少需要 32 个字符");
-  const home = path.resolve(options.home ?? process.env.REPA_HOME ?? path.join(os.homedir(), ".repa"));
+  const home = await prepareAppHome({ home: options.home });
   const settings = await SettingsStore.open(home);
   const runtime: AgentRuntime = options.runtime ?? await createAgentRuntime({ agentDir: path.join(home, "agent") });
   const serverId = randomUUID();
@@ -360,7 +360,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
     if (stopping) throw new RepaFault("closed", "服务正在关闭");
     const resolved = path.resolve(root);
-    if (active?.space.root === resolved && !create) return { root: resolved };
+    if (active?.space.root === resolved && !create) return { root: resolved, disabledPlugins: active.plugins.disabled() };
     await closeActive();
     // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
     const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue });
@@ -414,7 +414,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       await host.start();
       await settings.remember(space.root);
       active = { space, plugins, agent };
-      return { root: space.root };
+      return { root: space.root, disabledPlugins: plugins.disabled() };
     } catch (error) {
       await agent?.close().catch(() => undefined);
       await plugins?.close().catch(() => undefined);
@@ -542,6 +542,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return requireActive().space.history.undo(p<"history.undo">().revision);
       case "history.undoRun":
         return requireActive().space.history.undoRun(p<"history.undoRun">().runId);
+      case "plugin.disabled":
+        return requireActive().plugins.disabled();
       case "plugin.list":
         return requireActive().plugins.list();
       case "plugin.call": {

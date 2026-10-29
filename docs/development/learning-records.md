@@ -14,7 +14,7 @@
 
 ### 插件与教学接入
 
-包根目录的 `repa-plugin.json` 声明 `learning`、`dataVersion: 1` 和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, connect })` 默认读取随包的 Python 课程，打开时一次加载全部 48 个 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录。
+包根目录的 `repa-plugin.json` 声明 `learning`、代码及底座兼容版本和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, connect })` 默认读取随包的 Python 课程，打开时一次加载全部 48 个 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录。插件自行在其中管理 `format.json`（当前为 `{ "version": 1 }`），空目录初始化标记，已有数据缺标记、标记损坏或版本过新时只停用学习插件；版本检查复用[底座辅助函数](../../packages/base/README.md#构建清单与数据版本)。本轮不迁移旧的无标记学习数据。日志信封读取时忽略不认识的可选字段，写入仍严格校验；快照内容参与摘要和身份核对，新增会改变这部分语义的字段需要按数据格式变更处理。
 
 `connect(records, course, host)` 在日志恢复后装配教学处理器，可以调用已有的模型、前端服务和事件入口，并返回 `methods` 与可选的 `close`。返回的方法覆盖本层的同名方法。默认接入教学流程，提供初始菜单、任务推进、正式判分、恢复和申诉。自定义 `connect` 仍可以替换这份装配；查询方法继续由记录入口提供。日目标、XP 与 ETA 见[测验与进度说明](learning-quiz-xp.md)，时区取后端本地时区。
 

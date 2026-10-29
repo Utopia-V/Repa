@@ -38,10 +38,10 @@ test("离线宿主关闭失败仍释放空间并移除临时目录，重复关�
   await assert.rejects(stat(testing.directory), fault("ENOENT"));
 });
 
-test("离线宿主初始化失败关闭已打开实例并释放临时目录", async () => {
+test("离线宿主隔离打开失败插件，关闭时释放其余实例和临时目录", async () => {
   let directory = "";
   let closed = false;
-  await assert.rejects(createPluginTestHost({
+  const testing = await createPluginTestHost({
     plugins: [
       { id: "first", open: async (host) => {
         directory = host.space.root;
@@ -49,7 +49,10 @@ test("离线宿主初始化失败关闭已打开实例并释放临时目录", as
       } },
       { id: "second", open: async () => { throw new Error("打开失败"); } },
     ],
-  }), /打开失败/);
+  });
+  assert.equal(closed, false);
+  assert.equal(testing.host.disabled()[0]?.id, "second");
+  await testing.close();
   assert.equal(closed, true);
   await assert.rejects(stat(directory), fault("ENOENT"));
 });

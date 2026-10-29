@@ -42,7 +42,7 @@ export type DirectoryRoot = Static<typeof DirectoryRootSchema>;
 export const DirectoryListingSchema = object({
   path: identifier,
   parent: Type.Union([identifier, Type.Null()]),
-  /** 文件夹内含 `.repa/` 时为已有空间。 */
+  /** 文件夹内含有效 `.repa/format.json` 时为已有空间。 */
   space: Type.Boolean(),
   entries: Type.Array(object({ name: identifier, path: identifier, space: Type.Boolean() })),
   truncated: Type.Boolean(),

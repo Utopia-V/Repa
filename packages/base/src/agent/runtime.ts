@@ -461,7 +461,7 @@ class Space implements AgentSpace {
     if (!profile.general) return promptSections(this.options, [space, ...profile.sections()]);
     const skills = [
       ...loadSkillsFromDir({ dir: path.join(this.runtime.options.agentDir, "skills"), source: "repa" }).skills,
-      ...loadSkillsFromDir({ dir: path.join(this.options.root, ".repa", "skills"), source: "repa-space" }).skills,
+      ...loadSkillsFromDir({ dir: path.join(this.options.root, ".agents", "skills"), source: "repa-space" }).skills,
     ];
     const tools = [
       ...profile.builtins,

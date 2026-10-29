@@ -46,7 +46,15 @@ export class LearningRecords {
     for (const line of new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end)).split("\n").slice(0, -1)) {
       let record: LearningRecord;
       try {
-        record = parse(RecordSchema, JSON.parse(line));
+        const value: unknown = JSON.parse(line);
+        // 只忽略记录信封的可选扩展；快照参与摘要计算，保持其原有语义格式。
+        const schema = value !== null && typeof value === "object" && "type" in value
+          ? RecordSchema.anyOf.find((candidate) => candidate.properties.type.const === value.type)
+          : undefined;
+        const known = schema && value !== null && typeof value === "object"
+          ? Object.fromEntries(Object.entries(value).filter(([key]) => Object.hasOwn(schema.properties, key)))
+          : value;
+        record = parse(RecordSchema, known);
       } catch {
         invalid(`第 ${log.revision + 1} 行不是有效记录`);
       }

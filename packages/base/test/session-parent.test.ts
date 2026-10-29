@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -7,7 +7,7 @@ import { readParent, saveParent } from "../src/agent/parent.js";
 import { RepaFault } from "../src/schema.js";
 
 async function fixture(t: TestContext) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-session-parent-"));
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-session-parent-")));
   t.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -31,4 +31,17 @@ test("父关联损坏或读取失败时报告错误，不把子会话伪装成�
   await rm(file);
   await mkdir(file);
   await assert.rejects(readParent(directory, "child"), { code: "EISDIR" });
+});
+
+test("父关联读取忽略新可选字段并保留原文件，写入仍拒绝未知字段", async t => {
+  const directory = await fixture(t);
+  const parent = { sessionId: "parent", runId: "run", callId: "call" };
+  const extended = { ...parent, displayName: "新版本的可选说明" };
+  const file = path.join(directory, "child.parent.json");
+  const original = JSON.stringify(extended) + "\n";
+  await writeFile(file, original);
+  assert.deepEqual(await readParent(directory, "child"), parent);
+  assert.equal(await readFile(file, "utf8"), original);
+  await assert.rejects(saveParent(directory, "new-child", extended), (error: unknown) => error instanceof RepaFault && error.code === "invalid_input");
+  await assert.rejects(readFile(path.join(directory, "new-child.parent.json")), { code: "ENOENT" });
 });

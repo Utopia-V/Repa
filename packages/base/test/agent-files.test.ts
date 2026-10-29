@@ -7,7 +7,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
@@ -182,6 +182,42 @@ test("通用 Agent 在空间内照常写入，写不进 .repa/，读取空间外
   assert.match(results[3]?.text ?? "", /空间外的参考资料/u);
   // .repa/ 一律不写，也不问用户。
   assert.deepEqual(f.confirmations, []);
+});
+
+test("通用 Agent 加载 .agents/skills 和应用 skill，不加载旧空间位置；修改 skill 记入空间历史", async t => {
+  const f = await fixture(t);
+  const skillFile = ".agents/skills/space-demo/SKILL.md";
+  const original = "---\nname: space-demo\ndescription: 空间里的通用位置技能\n---\n保持中文标点，（：\r\n";
+  await f.host.files.write(skillFile, original);
+  const appFile = path.join(f.root, ".repa", "test-agent", "skills", "app-demo", "SKILL.md");
+  const legacyFile = path.join(f.root, ".repa", "skills", "legacy-demo", "SKILL.md");
+  await mkdir(path.dirname(appFile), { recursive: true });
+  await mkdir(path.dirname(legacyFile), { recursive: true });
+  await writeFile(appFile, "---\nname: app-demo\ndescription: 应用级技能\n---\n应用说明\n");
+  await writeFile(legacyFile, "---\nname: legacy-demo\ndescription: 旧空间位置技能\n---\n不应加载\n");
+  const baseline = (await f.host.history.list())[0];
+  assert(baseline);
+  const session = await f.space.create();
+  let system = "";
+  f.faux.setResponses([
+    context => {
+      system = getCurrentSystemPrompt(context.messages);
+      return fauxAssistantMessage(fauxToolCall("read", { path: skillFile }));
+    },
+    fauxAssistantMessage(fauxToolCall("edit", { path: skillFile, edits: [{ oldText: "保持中文标点", newText: "完整保留中文标点" }] })),
+    fauxAssistantMessage("技能已更新"),
+  ]);
+  await session.send("修改空间技能的说明");
+  assert.match(system, /空间里的通用位置技能/u);
+  assert.match(system, /应用级技能/u);
+  assert.doesNotMatch(system, /旧空间位置技能|legacy-demo/u);
+  assert.deepEqual(toolResults(session).map(result => [result.tool, result.isError]), [["read", false], ["edit", false]]);
+  assert.equal(await readFile(path.join(f.root, skillFile), "utf8"), original.replace("保持中文标点", "完整保留中文标点"));
+  assert.deepEqual(f.confirmations, []);
+  const feed = await f.host.history.changes(baseline.id);
+  assert.equal(feed.revisions.length, 1);
+  assert.equal(feed.revisions[0]?.source.kind, "agent");
+  assert.deepEqual(feed.revisions[0]?.changes, [{ kind: "modified", path: skillFile }]);
 });
 
 const writer = {

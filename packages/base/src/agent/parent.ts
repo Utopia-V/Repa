@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Value } from "typebox/value";
-import { RepaFault, SessionParentSchema, type SessionParent } from "../schema.js";
+import { parse, RepaFault, SessionParentSchema, type SessionParent } from "../schema.js";
 import { writeJson } from "../storage.js";
 
 // 父关联属于 Repa，不占用 Pi 的 parentSession（分支来源）。小文件以子会话 id 命名，
@@ -11,7 +11,7 @@ function parentFile(sessionsDir: string, sessionId: string): string {
 }
 
 export async function saveParent(sessionsDir: string, sessionId: string, parent: SessionParent): Promise<void> {
-  await writeJson(parentFile(sessionsDir, sessionId), parent);
+  await writeJson(parentFile(sessionsDir, sessionId), parse(SessionParentSchema, parent));
 }
 
 export async function readParent(sessionsDir: string, sessionId: string): Promise<SessionParent | undefined> {
@@ -24,7 +24,7 @@ export async function readParent(sessionsDir: string, sessionId: string): Promis
   }
   let data: unknown;
   try {
-    data = JSON.parse(text);
+    data = Value.Clean(SessionParentSchema, JSON.parse(text));
   } catch {
     throw new RepaFault("invalid_session_parent", "会话的父关联无法读取", { sessionId });
   }

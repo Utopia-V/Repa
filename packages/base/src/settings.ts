@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { TSchema, Static } from "typebox";
+import { Value } from "typebox/value";
 import {
   parse, PromptOverridesSchema, RepaFault, SettingsSchema,
   type PromptOverride, type PromptOverrides, type Settings,
@@ -9,7 +10,7 @@ import { SerialQueue, writeJson } from "./storage.js";
 
 async function readJson<S extends TSchema>(file: string, schema: S, fallback: Static<S>): Promise<Static<S>> {
   try {
-    return parse(schema, JSON.parse(await readFile(file, "utf8")) as unknown);
+    return parse(schema, Value.Clean(schema, JSON.parse(await readFile(file, "utf8")) as unknown));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return fallback;
     throw error;
@@ -71,7 +72,7 @@ export class SettingsStore {
   }
 
   async #save(next: Settings): Promise<void> {
-    await writeJson(path.join(this.home, "settings.json"), next);
+    await writeJson(path.join(this.home, "settings.json"), parse(SettingsSchema, next));
     this.#value = next;
   }
 }

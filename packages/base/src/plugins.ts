@@ -1,10 +1,12 @@
 import type { AgentTool } from "./agent.js";
 import type { AskRoute } from "./ask.js";
 import type { AgentDefinition, MethodContext, Models, Plugin, Services } from "./plugin.js";
+import type { DisabledPlugin } from "./protocol.js";
 import type { Space } from "./space.js";
 
 export interface PluginHost {
   start(): Promise<void>;
+  disabled(): DisabledPlugin[];
   list(): { id: string; methods: string[]; tools: string[] }[];
   instructions(): { id: string; text: string }[];
   /** 包装后的插件工具：宿主校验参数，并给上下文补上 ask。 */

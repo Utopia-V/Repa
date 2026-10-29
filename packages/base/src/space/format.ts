@@ -1,21 +1,23 @@
 import { readFile } from "node:fs/promises";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
-import { object, RepaFault } from "../schema.js";
-import { writeJson } from "../storage.js";
+import { RepaFault } from "../schema.js";
 
-const FormatSchema = object({ version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) });
+// 标记读取允许新增可选字段；写标记时只生成当前版本约定的字段。
+const FormatSchema = Type.Object({ version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) });
 
-/** 空间持有独占锁后使用；无标记的重做期数据补当前版本，已有标记绝不覆盖。 */
-export async function checkFormat(file: string, version: number): Promise<void> {
+/**
+ * 只读检查格式，返回盘上的版本。调用方负责读懂所有旧版本；需要改写时先备份，
+ * 数据改写成功后才更新标记。新数据由所属模块显式初始化，不给未知数据补标记。
+ */
+export async function checkFormat(file: string, version: number): Promise<number> {
   if (!Number.isSafeInteger(version) || version < 1) throw new RepaFault("invalid_data_version", "数据版本必须是正整数");
   let text: string;
   try {
     text = await readFile(file, "utf8");
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
-    await writeJson(file, { version });
-    return;
+    throw new RepaFault("unknown_data_format", "数据缺少格式标记，无法识别；请使用原应用或专用导入工具处理", { file });
   }
   let value: unknown;
   try {
@@ -24,7 +26,8 @@ export async function checkFormat(file: string, version: number): Promise<void> 
     throw new RepaFault("invalid_data_version", "数据版本标记损坏", { file });
   }
   if (!Check(FormatSchema, value)) throw new RepaFault("invalid_data_version", "数据版本标记损坏", { file });
-  if (value.version !== version) {
-    throw new RepaFault("incompatible_data_version", "数据格式与当前代码不兼容，请使用兼容版本打开", { file, actual: value.version, required: version });
+  if (value.version > version) {
+    throw new RepaFault("incompatible_data_version", "数据由更新版本写入，请升级 Repa 或插件后再打开", { file, actual: value.version, required: version });
   }
+  return value.version;
 }

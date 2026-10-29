@@ -29,10 +29,11 @@ test("只列出子文件夹并按自然顺序排列，隐藏点开头的文件�
   assert.equal(listing.truncated, false);
 });
 
-test("含 .repa 文件夹的子文件夹和当前文件夹标为已有空间", async (t) => {
+test("只有有效格式标记的子文件夹和当前文件夹标为已有空间", async (t) => {
   const directory = await fixture(t, ["physics/.repa", "history"]);
   await writeFile(path.join(directory, "history", ".repa"), "不是文件夹");
 
+  await writeFile(path.join(directory, "physics", ".repa", "format.json"), '{"version":1,"future":true}');
   const listing = await browseDirectory(directory);
   assert.deepEqual(listing.entries.map((entry) => [entry.name, entry.space]), [["history", false], ["physics", true]]);
   assert.equal(listing.space, false);
@@ -104,4 +105,17 @@ test("解析 PowerShell 输出的盘符，忽略其他行", () => {
 
 test("非 Windows 平台只有根目录一个起点", { skip: process.platform === "win32" }, async () => {
   assert.deepEqual(await listRoots(), [{ path: "/", label: "/" }]);
+});
+
+
+test("只有旧应用配置或无效标记的主目录不标为空间，更新格式仍标为空间", async (t) => {
+  const directory = await fixture(t, [".repa/agent"]);
+  await writeFile(path.join(directory, ".repa", "settings.json"), "{}");
+  assert.equal((await browseDirectory(directory)).space, false);
+  for (const marker of ["{", '{"version":0}', '{"version":1.5}']) {
+    await writeFile(path.join(directory, ".repa", "format.json"), marker);
+    assert.equal((await browseDirectory(directory)).space, false);
+  }
+  await writeFile(path.join(directory, ".repa", "format.json"), '{"version":2}');
+  assert.equal((await browseDirectory(directory)).space, true);
 });
