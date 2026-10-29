@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -12,6 +12,7 @@ import { RepaClient, RpcError } from "../src/client.js";
 import type { Plugin, UserMessage } from "../src/plugin.js";
 import { record } from "../src/protocol/json-rpc.js";
 import { startServer } from "../src/protocol/server.js";
+import type { AgentEvent, MessageDecision } from "../src/schema.js";
 
 function deferred<T = void>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
@@ -27,6 +28,8 @@ interface LearningState {
   // 设置后，判断要等它完成，用来构造判断期间发生取消的时序。
   hold?: Promise<void>;
   judging?: () => void;
+  beforeRun?: () => Promise<MessageDecision | void>;
+  viewError?: Error;
 }
 
 // 学习插件的判断只依赖它自己的状态：测验中拒收求助，练习中把提问记为求助后放行。
@@ -40,6 +43,11 @@ function learningPlugin(state: LearningState): Plugin {
           instructions: () => "你陪学习者练习 Python。",
           tools: [],
           direct: true,
+          ...(state.beforeRun === undefined ? {} : { beforeRun: () => state.beforeRun?.() ?? Promise.resolve() }),
+          async view() {
+            if (state.viewError) throw state.viewError;
+            return "当前课题";
+          },
           async beforeMessage(message) {
             state.judging?.();
             await state.hold;
@@ -73,8 +81,8 @@ function learningPlugin(state: LearningState): Plugin {
   };
 }
 
-async function fixture(t: TestContext) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-messages-"));
+async function fixture(t: TestContext, beforeRun?: LearningState["beforeRun"]) {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-agent-messages-")));
   const root = path.join(directory, "space");
   const home = path.join(directory, "home");
   await mkdir(root);
@@ -88,7 +96,7 @@ async function fixture(t: TestContext) {
     defaultModel: { provider: faux.getModel().provider, id: "scripted" },
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
   });
-  const state: LearningState = { quiz: false, practice: false, failing: false, asked: [] };
+  const state: LearningState = { quiz: false, practice: false, failing: false, asked: [], ...(beforeRun === undefined ? {} : { beforeRun }) };
   const server = await startServer({ home, plugins: [learningPlugin(state), {
     id: "other",
     open: async () => ({ agents: () => [{ id: "other-agent", tools: [], instructions: () => "另一个插件" }] }),
@@ -291,4 +299,78 @@ test("中止辅导 Agent 不枚举或加载磁盘上的未加载旧会话", asyn
   assert.deepEqual(await f.users(), ["旧辅导提问"]);
   assert.equal(listed.mock.callCount(), 0);
   assert.equal(opened.mock.callCount(), 1);
+});
+
+
+test("排队消息在真正运行前被拒收，不写消息和运行标记，后续消息照常运行", { timeout: 30000 }, async t => {
+  let restricted = false;
+  let checks = 0;
+  const f = await fixture(t, async () => {
+    checks++;
+    if (restricted) {
+      restricted = false;
+      return { status: "rejected", reason: "restricted", message: "复习期间不能求助", data: { taskId: "review" } };
+    }
+  });
+  const events: AgentEvent[] = [];
+  const completed = deferred();
+  t.after(f.client.on("session.event", event => {
+    events.push(event);
+    if (events.filter(item => item.type === "runEnd").length === 2) completed.resolve();
+  }));
+  const entered = deferred();
+  const release = deferred();
+  t.after(() => release.resolve());
+  f.faux.setResponses([
+    async () => {
+      entered.resolve();
+      await release.promise;
+      return fauxAssistantMessage("第一条完成");
+    },
+    fauxAssistantMessage("后续消息完成"),
+  ]);
+  const first = f.client.call("session.send", { sessionId: f.session.id, text: "第一条" });
+  await entered.promise;
+  await f.client.call("session.followUp", { sessionId: f.session.id, text: "排队时放行，运行时拒绝" });
+  await f.client.call("session.steer", { sessionId: f.session.id, text: "后续消息" });
+  restricted = true;
+  release.resolve();
+  await first;
+  await completed.promise;
+  assert.equal(checks, 3);
+  assert.equal(f.faux.state.callCount, 2);
+  assert.deepEqual(await f.users(), ["第一条", "后续消息"]);
+  const rejected = events.find(event => event.type === "error");
+  assert.ok(rejected);
+  assert.equal(rejected.text, "复习期间不能求助");
+  assert.deepEqual(rejected.data, { code: "message_rejected", details: { agent: "tutor", reason: "restricted", data: { taskId: "review" } } });
+  assert.ok(!events.some(event => event.runId === rejected.runId && (event.type === "runStart" || event.type === "runEnd")));
+  const runs = (await f.client.call("session.history", { sessionId: f.session.id })).filter(entry => entry.type === "run");
+  assert.equal(runs.length, 2);
+});
+
+test("新消息的运行关卡拒绝时请求返回 message_rejected，视图尚未读取", async t => {
+  const f = await fixture(t, async () => ({ status: "rejected", reason: "restricted", message: "当前不能求助" }));
+  f.state.viewError = new Error("不应该读取视图");
+  await assert.rejects(f.client.call("session.send", { sessionId: f.session.id, text: "提问" }), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(record(error.data)?.code, "message_rejected");
+    return true;
+  });
+  assert.deepEqual(await f.users(), []);
+  assert.equal(f.faux.state.callCount, 0);
+});
+
+test("视图普通错误按原错误报告，运行关卡抛错也保留自身错误", async t => {
+  const f = await fixture(t, async () => undefined);
+  const events: AgentEvent[] = [];
+  t.after(f.client.on("session.event", event => events.push(event)));
+  f.state.viewError = new Error("渲染视图失败的原始原因");
+  await assert.rejects(f.client.call("session.send", { sessionId: f.session.id, text: "触发视图" }));
+  assert.equal(events.findLast(event => event.type === "error")?.text, f.state.viewError.message);
+  f.state.beforeRun = async () => { throw new Error("运行关卡失败的原始原因"); };
+  await assert.rejects(f.client.call("session.send", { sessionId: f.session.id, text: "触发关卡" }));
+  assert.equal(events.findLast(event => event.type === "error")?.text, "运行关卡失败的原始原因");
+  assert.deepEqual(await f.users(), []);
+  assert.equal(f.faux.state.callCount, 0);
 });

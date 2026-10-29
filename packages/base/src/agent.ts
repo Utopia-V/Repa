@@ -65,6 +65,13 @@ export interface AgentSpaceOptions {
   ask?: AskRoute;
 }
 
+/** 插件在空间内发起模型调用时的持久归属；不传时会话仅存在内存中。 */
+export interface ModelCallScope {
+  pluginId: string;
+  root: string;
+  sessionsDir: string;
+}
+
 export interface AgentRuntime {
   /** 底座与插件共用的当前时间，Unix 毫秒。 */
   now(): number;
@@ -79,8 +86,8 @@ export interface AgentRuntime {
   logout(provider: string): Promise<void>;
   /** 保存的凭据里的全部字符串值，供反馈包脱敏；没有凭据文件时为空，文件读不了或损坏时抛错。 */
   credentials(): Promise<string[]>;
-  complete(request: CompletionRequest): Promise<string>;
-  completeStructured<S extends TSchema>(request: CompletionRequest, schema: S): Promise<Static<S>>;
+  complete(request: CompletionRequest, scope?: ModelCallScope): Promise<string>;
+  completeStructured<S extends TSchema>(request: CompletionRequest, schema: S, scope?: ModelCallScope): Promise<Static<S>>;
   close(): Promise<void>;
 }
 

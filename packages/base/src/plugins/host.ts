@@ -16,7 +16,7 @@ import {
   type Services,
 } from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
-import { currentRun } from "../run-context.js";
+import { currentRun, withToolCall } from "../run-context.js";
 import { object, parse, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
 
@@ -73,7 +73,7 @@ function checkAgents(definitions: AgentDefinition[], pluginTools: Set<string>): 
         ...(subagents === undefined ? {} : { subagents }),
         ...(direct === undefined ? {} : { direct }),
       };
-      const functions = [definition.view, definition.beforeMessage];
+      const functions = [definition.view, definition.beforeMessage, definition.beforeRun];
       if (!Check(AgentFieldsSchema, fields) || typeof definition.instructions !== "function" || functions.some(item => item !== undefined && typeof item !== "function")) {
         throw new RepaFault("invalid_agent", "Agent 定义不符合接口要求", { id });
       }
@@ -184,7 +184,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   }
 
   function wrapAgent(definition: AgentDefinition): AgentDefinition {
-    const { view, beforeMessage } = definition;
+    const { view, beforeMessage, beforeRun } = definition;
     return {
       id: definition.id,
       ...(definition.description === undefined ? {} : { description: definition.description }),
@@ -199,6 +199,12 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         view() {
           checkOpen();
           return track(Promise.resolve().then(() => view.call(definition)));
+        },
+      }),
+      ...(beforeRun === undefined ? {} : {
+        beforeRun() {
+          checkOpen();
+          return track(Promise.resolve().then(() => beforeRun.call(definition)));
         },
       }),
       ...(beforeMessage === undefined ? {} : {
@@ -301,7 +307,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     }
     const reservedNames = new Set(RESERVED_TOOL_NAMES);
     for (const plugin of options.plugins) {
-      const ownedModels = createModelScope(options.models, options.onError);
+      const ownedModels = createModelScope(typeof options.models === "function" ? options.models(plugin.id) : options.models, options.onError);
       modelScopes.set(plugin.id, ownedModels);
       try {
         const dataDir = await space.pluginDataDir(plugin.id);
@@ -361,7 +367,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
                 checkOpen();
                 return askAs(askRoute, plugin.id, context, askOptions);
               };
-              return track(Promise.resolve().then(() => tool.execute(checked, { ...context, ask })));
+              return track(Promise.resolve().then(() => withToolCall(context.callId, () => tool.execute(checked, { ...context, ask }))));
             },
           };
         });

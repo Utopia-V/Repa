@@ -10,6 +10,8 @@ export interface RunContext {
   ancestorRunIds: readonly string[];
   sessionId: string;
   agent: string;
+  /** 插件工具内发起子调用时，用于关联父工具。 */
+  callId?: string;
 }
 
 // 插件可能经由另一份模块副本导入本文件；共用全局登记的存储，运行内的工具才能读到底座设置的上下文。
@@ -25,4 +27,10 @@ export function currentRun(): RunContext | undefined {
 /** 底座在一次运行的完成链内设置上下文，其中的模型回合、工具调用和文件写入都会继承。 */
 export function withRun<T>(context: RunContext, action: () => Promise<T>): Promise<T> {
   return storage.run(context, action);
+}
+
+/** 插件宿主在工具执行期间补上调用编号，普通运行的上下文保持不变。 */
+export function withToolCall<T>(callId: string, action: () => Promise<T>): Promise<T> {
+  const run = currentRun();
+  return run === undefined ? action() : withRun({ ...run, callId }, action);
 }

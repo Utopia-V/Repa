@@ -7,8 +7,9 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
 import type { Confirmation } from "../src/schema.js";
@@ -257,6 +258,44 @@ test("插件 Agent 的读写和编辑只在空间内且不进 .repa/，也不能
   await assert.rejects(readFile(path.join(f.root, ".repa", "injected.txt")), { code: "ENOENT" });
   await assert.rejects(readFile(path.join(f.outside, "created.txt")), { code: "ENOENT" });
   for (const result of toolResults(session).filter(item => item.isError)) assert.match(result.text, /只能访问当前空间内的文件，不含 \.repa\//u);
+});
+
+test("约 200 KB 的单行 JSON 工具结果保留首尾和全文路径，插件 Agent 可读但不能写或编辑", async t => {
+  const source = JSON.stringify({ 开始: "开头标记", 正文: "中文🙂".repeat(20_000), 结束: "结尾标记" });
+  let outputPath = "";
+  const f = await fixture(t, {
+    agents: () => [{ ...writer, tools: [...writer.tools, "large_json"] }],
+    tools: () => [{ name: "large_json", description: "大结果", parameters: Type.Object({}), execute: async () => ({ text: source }) }],
+  });
+  const session = await f.space.create({ agent: "writer" });
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("large_json", {})),
+    (context: TranscriptContext) => {
+      const result = context.messages.filter(message => message.role === "toolResult").at(-1);
+      assert.ok(result);
+      const text = result.content.filter(part => part.type === "text").map(part => part.text).join("\n");
+      assert.ok(text.startsWith('{"开始":"开头标记"'));
+      assert.ok(text.endsWith('"结束":"结尾标记"}'));
+      assert.equal(text.includes("�"), false);
+      const match = /全文在 ([^，]+)，可用 read/u.exec(text);
+      assert.ok(match?.[1]);
+      outputPath = match[1];
+      assert.ok(outputPath.startsWith(`.repa/tool-output/${session.info().id}/`));
+      return fauxAssistantMessage([
+        fauxToolCall("read", { path: outputPath, offset: 1, limit: 1 }),
+        fauxToolCall("write", { path: outputPath, content: "不应写入" }),
+        fauxToolCall("edit", { path: outputPath, edits: [{ oldText: "开头标记", newText: "已改写" }] }),
+      ]);
+    },
+    fauxAssistantMessage("已核对"),
+  ]);
+  await session.send("读取大结果并核对全文路径");
+  assert.deepEqual(await readFile(path.join(f.root, outputPath)), Buffer.from(source, "utf8"));
+  const results = toolResults(session);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["large_json", false], ["read", false], ["write", true], ["edit", true]]);
+  // Pi 按行读取：单行本身超限时，读到文件后报告该行大小，不返回半行。
+  assert.match(results[1]?.text ?? "", /Line 1 is .* exceeds/u);
+  assert.deepEqual(f.confirmations, []);
 });
 
 test("插件 Agent 列目录和查找都看不到 .repa/ 与空间外的内容，查找不沿符号链接离开空间", async t => {

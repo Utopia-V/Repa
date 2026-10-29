@@ -30,7 +30,7 @@ function inDataDir(root: string, file: string): boolean {
 }
 
 /**
- * 文件工具的路径边界：空间根目录内，不含 .repa/。那里是历史库、会话和插件数据，
+ * 文件工具的路径边界：空间根目录内；读取另允许 .repa/tool-output/。其余 .repa/ 是历史库、会话和插件数据，
  * 写进去也记不进历史，所以所有 Agent 的写入和编辑、插件 Agent 的全部文件工具都经过它。
  */
 export class FileScope {
@@ -40,16 +40,19 @@ export class FileScope {
     return new FileScope(root, await realpath(root));
   }
 
-  private allowed(root: string, file: string): boolean {
-    return within(root, file) && !inDataDir(root, file);
+  private allowed(root: string, file: string, read: boolean): boolean {
+    if (!within(root, file)) return false;
+    if (!inDataDir(root, file)) return true;
+    const [data, directory, ...rest] = path.relative(root, file).split(path.sep);
+    return read && data?.toLowerCase() === ".repa" && directory === "tool-output" && rest.length > 0;
   }
 
   /** 字面路径和解析符号链接后的路径都要在范围内，链接不能把工具带出空间。 */
-  async resolve(file: string): Promise<string> {
+  async resolve(file: string, read = false): Promise<string> {
     const lexical = path.resolve(this.root, file);
-    if (this.allowed(this.root, lexical)) {
+    if (this.allowed(this.root, lexical, read)) {
       const canonical = await existingPath(lexical);
-      if (this.allowed(this.realRoot, canonical)) return canonical;
+      if (this.allowed(this.realRoot, canonical, read)) return canonical;
     }
     throw new RepaFault("file_outside_space", `只能访问当前空间内的文件，不含 .repa/：${file}`, { path: file });
   }
@@ -328,14 +331,14 @@ function readTool(tools: FileTools): ToolDefinition {
   const { scope, reads } = tools;
   return defineTool(createReadToolDefinition(scope.root, {
     operations: {
-      access: async file => access(await scope.resolve(file), constants.R_OK),
+      access: async file => access(await scope.resolve(file, true), constants.R_OK),
       async readFile(file) {
-        const target = await scope.resolve(file);
+        const target = await scope.resolve(file, true);
         const content = await readFile(target);
         reads.remember(target, content);
         return content;
       },
-      detectImageMimeType: async file => detectSupportedImageMimeTypeFromFile(await scope.resolve(file)),
+      detectImageMimeType: async file => detectSupportedImageMimeTypeFromFile(await scope.resolve(file, true)),
     },
   }));
 }

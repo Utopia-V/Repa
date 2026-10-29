@@ -17,7 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
-import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool } from "../agent.js";
+import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool, ModelCallScope } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
@@ -26,6 +26,7 @@ import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { credentialValues } from "../feedback/redact.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { limitToolText } from "./output.js";
+import { isModelCall, modelCall } from "./model-call.js";
 import { readParent, saveParent } from "./parent.js";
 import { findSessionPath, migrateSessionFiles } from "./session-files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
@@ -95,6 +96,7 @@ interface AgentProfile {
   sections(): { id: string; text: string }[];
   views(): Promise<{ id: string; text: string }[]>;
   beforeMessage?: AgentDefinition["beforeMessage"];
+  beforeRun?: AgentDefinition["beforeRun"];
 }
 
 function byId<T extends { id: string }>(left: T, right: T): number {
@@ -315,39 +317,18 @@ class Runtime implements AgentRuntime {
     return [...stored, ...resolved.flat()];
   }
 
-  async complete(request: CompletionRequest): Promise<string> {
+  async complete(request: CompletionRequest, scope?: ModelCallScope): Promise<string> {
     this.assertOpen();
     const model = this.model(request.model);
     if (!model) throw new RepaFault("model_required", "请选择可用模型");
-    const timestamp = this.now();
-    const message = await this.options.modelRuntime.completeSimple(model, {
-      messages: [
-        ...(request.system ? [{ role: "system" as const, content: request.system, timestamp }] : []),
-        { role: "user", content: request.prompt, timestamp },
-      ],
-    }, { signal: request.signal });
-    if (message.stopReason === "error") throw new RepaFault("model_error", message.errorMessage ?? "模型请求失败");
-    if (message.stopReason === "aborted") throw new RepaFault("cancelled", "模型请求已取消");
-    return textContent(message.content);
+    return modelCall(request, undefined, { agentDir: this.options.agentDir, modelRuntime: this.options.modelRuntime, model, settings: this.settings, scope });
   }
 
-  async completeStructured<S extends TSchema>(request: CompletionRequest, schema: S): Promise<Static<S>> {
-    const instruction = `请只返回符合此 JSON Schema 的 JSON：\n${JSON.stringify(schema)}`;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const text = await this.complete({
-        ...request,
-        system: [request.system, instruction].filter(Boolean).join("\n\n"),
-        prompt: attempt === 0 ? request.prompt : `${request.prompt}\n\n上次输出不符合 JSON Schema，请修正。`,
-      });
-      let value: unknown;
-      try {
-        value = JSON.parse(text.replace(/^\s*```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, ""));
-      } catch {
-        continue;
-      }
-      if (Value.Check(schema, value)) return value as Static<S>;
-    }
-    throw new RepaFault("invalid_model_output", "模型连续三次返回了不符合 schema 的内容");
+  async completeStructured<S extends TSchema>(request: CompletionRequest, schema: S, scope?: ModelCallScope): Promise<Static<S>> {
+    this.assertOpen();
+    const model = this.model(request.model);
+    if (!model) throw new RepaFault("model_required", "请选择可用模型");
+    return modelCall(request, schema, { agentDir: this.options.agentDir, modelRuntime: this.options.modelRuntime, model, settings: this.settings, scope });
   }
 
   async close(): Promise<void> {
@@ -371,7 +352,7 @@ class Space implements AgentSpace {
     if (this.closing !== undefined) throw new RepaFault("space_closed", "Agent 空间已经关闭");
   }
 
-  /** 所有 Agent 的写入和编辑、插件 Agent 的全部文件工具共用一个范围：空间内，不含 .repa/。 */
+  /** 所有 Agent 的写入和编辑、插件 Agent 的文件工具共用空间范围；读取另允许 .repa/tool-output/。 */
   fileScope(): Promise<FileScope> {
     if (this.scope === undefined) {
       const created = FileScope.create(this.options.root);
@@ -438,6 +419,7 @@ class Space implements AgentSpace {
         const text = await definition.view?.();
         return text === undefined ? [] : [{ id: `agent:${id}`, text }];
       },
+      ...(definition.beforeRun === undefined ? {} : { beforeRun: () => definition.beforeRun?.() ?? Promise.resolve() }),
       ...(definition.beforeMessage === undefined ? {} : { beforeMessage: message => definition.beforeMessage?.(message) ?? Promise.resolve() }),
     };
   }
@@ -545,11 +527,14 @@ class Space implements AgentSpace {
     // 会话目录归当前空间所有；复制或移动空间后，header.cwd 仍是旧路径，不用于筛选。
     for (const entry of await SessionManager.listAll(this.options.sessionsDir)) {
       const manager = SessionManager.open(entry.path, this.options.sessionsDir, this.options.root);
+      if (isModelCall(manager)) continue;
       const model = manager.buildSessionProjection().model;
       const parent = await readParent(this.options.sessionsDir, entry.id);
       infos.set(entry.id, describeSession(manager, model ? { provider: model.provider, id: model.modelId } : undefined, sessionAgent(manager), parent));
     }
-    for (const session of await Promise.all(this.sessions.values())) infos.set(session.info().id, session.info());
+    for (const session of await Promise.all(this.sessions.values())) {
+      if (!session.modelCall) infos.set(session.info().id, session.info());
+    }
     return [...infos.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
@@ -583,6 +568,7 @@ class Space implements AgentSpace {
 
 class Session implements AgentSession {
   readonly agent: string;
+  readonly modelCall: boolean;
   private pi?: PiSession;
   private assembled?: AgentProfile;
   // 工具集里有命令行：整次运行持空间写锁独占，前后整体快照。由工具集推出，不由 Agent 自己声明。
@@ -609,6 +595,7 @@ class Session implements AgentSession {
 
   constructor(private space: Space, private manager: SessionManager) {
     this.agent = sessionAgent(manager);
+    this.modelCall = isModelCall(manager);
   }
 
   get session(): PiSession {
@@ -628,7 +615,7 @@ class Session implements AgentSession {
   async initialize(reference?: ModelRef): Promise<void> {
     this.parent = await readParent(this.space.options.sessionsDir, this.manager.getSessionId());
     // Agent 已关掉或不存在时只读打开：能列出和查看历史，不建 Pi 会话，也不能运行。
-    if (!this.space.available(this.agent)) return;
+    if (this.modelCall || !this.space.available(this.agent)) return;
     const { runtime, options } = this.space;
     const profile = this.space.profile(this.agent);
     this.assembled = profile;
@@ -641,9 +628,10 @@ class Session implements AgentSession {
       names.add(tool.name);
     }
     const factory: ExtensionFactory = pi => {
-      pi.on("tool_result", event => {
+      pi.on("tool_result", async event => {
+        if (!names.has(event.toolName)) return;
         const original = event.content.filter(part => part.type === "text").map(part => part.text).join("\n");
-        const text = limitToolText(original);
+        const text = await limitToolText(original, { root: options.root, sessionId: this.manager.getSessionId(), toolCallId: event.toolCallId });
         // Pi 1.1.0 替换 content 会清除旧 structuredContent；details 留给界面，不能复制完整正文。
         // 升级时复核 extensions/runner 与 agent-loop 到模型 transcript 的这条路径。
         if (text !== original) return { content: [{ type: "text", text }, ...event.content.filter(part => part.type !== "text")] };
@@ -705,7 +693,7 @@ class Session implements AgentSession {
     await loader.reload();
     const saved = this.manager.buildSessionProjection().model;
     const model = runtime.model(reference ?? (saved ? { provider: saved.provider, id: saved.modelId } : undefined));
-    // 工具清单在创建时固定；插件 Agent 的内置文件工具换成限在空间内、不进 .repa/ 的实现。
+    // 工具清单在创建时固定；插件 Agent 的内置文件工具换成空间内实现，仅 read 允许 .repa/tool-output/。
     // 所有 Agent 的写入和编辑都经过空间的写入路径，只记这次碰到的文件。
     const scope = await this.space.fileScope();
     const files = { scope, writes: options.writes ?? DIRECT_WRITES, reads: this.reads };
@@ -823,6 +811,13 @@ class Session implements AgentSession {
       // 判断失败也不放行，前端得到可处理的错误码，不暴露插件内部的错误细节。
       throw new RepaFault("message_check_failed", "插件未能判断这条消息，消息没有发送", { agent: this.agent });
     }
+    this.checkDecision(decision);
+    // 判断期间用户取消过运行：这条消息发生在取消之前，不在取消之后补投。
+    if (this.cancellations !== cancellations) throw new RepaFault("cancelled", "会话运行已取消");
+    this.assertAccepting();
+  }
+
+  private checkDecision(decision: unknown): void {
     if (decision !== undefined && !Value.Check(MessageDecisionSchema, decision)) {
       throw new RepaFault("invalid_message_decision", "插件对消息的判断不符合接口要求", { agent: this.agent });
     }
@@ -833,9 +828,6 @@ class Session implements AgentSession {
         ...(decision.data === undefined ? {} : { data: decision.data }),
       });
     }
-    // 判断期间用户取消过运行：这条消息发生在取消之前，不在取消之后补投。
-    if (this.cancellations !== cancellations) throw new RepaFault("cancelled", "会话运行已取消");
-    this.assertAccepting();
   }
 
   /** 子 Agent 的一次运行；取消或失败都抛错，交给父 Agent 作为工具结果。 */
@@ -866,11 +858,14 @@ class Session implements AgentSession {
       this.runId = runId;
       this.runAncestors = ancestorRunIds;
       this.abortController = controller;
-      started = true;
-      this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart", ...(this.parent === undefined ? {} : { parent: this.parent }), ...(link === undefined ? {} : { data: link }) });
       try {
         // view、工具和文件写入都在运行上下文内执行，能读到本次 runId 与祖先链。
         await withRun({ runId, ancestorRunIds, sessionId: this.manager.getSessionId(), agent: this.agent }, async () => {
+          // 关卡在 Repa 队列真正轮到本条消息后执行；拒收不产生运行标记和起止事件。
+          this.checkDecision(await this.profile.beforeRun?.());
+          controller.signal.throwIfAborted();
+          started = true;
+          this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart", ...(this.parent === undefined ? {} : { parent: this.parent }), ...(link === undefined ? {} : { data: link }) });
           // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
           this.currentSections = await this.space.promptSections(this.profile);
           this.currentViews = await this.profile.views();
@@ -899,7 +894,7 @@ class Session implements AgentSession {
       else await execute();
     } catch (error) {
       status = error instanceof RepaFault && error.code === "cancelled" ? "aborted" : "failed";
-      this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "error", text: error instanceof RepaFault ? error.message : "Agent 运行失败", data: { code: error instanceof RepaFault ? error.code : "agent_error" } });
+      this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "error", text: error instanceof Error ? error.message : String(error), data: { code: error instanceof RepaFault ? error.code : "agent_error", ...(error instanceof RepaFault && error.details !== undefined ? { details: error.details } : {}) } });
       throw error;
     } finally {
       // 不透明运行的结束包含空间快照提交；不能把 Pi 的模型循环结束当作整个运行结束。
@@ -990,6 +985,18 @@ class Session implements AgentSession {
   private async queueMessage(text: string, mode: "steer" | "followUp"): Promise<void> {
     this.assertAccepting();
     if (this.profile.beforeMessage !== undefined) await this.admit(mode, text);
+    if (this.profile.beforeRun !== undefined) {
+      // 有运行关卡的消息必须留在 Repa 队列；Pi 内部队列没有可以拒绝消费的入口。
+      const queued = this.pending.size > 0;
+      const operation = this.run(text);
+      if (queued) {
+        // 发送请求已经返回，失败通过 run 的会话 error 事件交给前端。
+        operation.catch(() => undefined);
+      } else {
+        await operation;
+      }
+      return;
+    }
     if (!this.session.isStreaming) {
       await this.run(text);
       return;
