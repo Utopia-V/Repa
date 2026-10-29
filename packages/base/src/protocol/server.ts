@@ -13,8 +13,6 @@ import {
   canRender,
   checkResponse,
   AskSubmitResultSchema,
-  type AskClosed,
-  type AskRequest,
   type AskSubmitResult,
   type ItemResponse,
 } from "../interaction.js";
@@ -34,6 +32,7 @@ import { RepaFault, type Confirmation, type Confirm } from "../schema.js";
 import { SettingsStore } from "../settings.js";
 import { createSpace, openSpace, type Space } from "../space.js";
 import { browseDirectory, listRoots } from "../space/browse.js";
+import { ReverseRequests } from "./reverse.js";
 import { errorResponse, parseRequest, RpcFault, type RpcId } from "./json-rpc.js";
 
 export interface ServerOptions {
@@ -57,45 +56,27 @@ export interface RepaServer {
 interface Peer {
   socket: WebSocket;
   authenticated: boolean;
+  subscribed: boolean;
   alive: boolean;
   /** initialize 里的声明；没有声明时为空对象。 */
   capabilities: ClientCapabilities;
   /** 初始化的先后，同一服务有多个提供方时交给最近初始化的连接。 */
   serial: number;
-  confirmations: Set<string>;
-  asks: Set<string>;
-  services: Set<string>;
   logins: Set<AbortController>;
   /** 正在生成的反馈包；断线或关闭后端时取消，自述的模型调用不会一直挂着。 */
   feedbacks: Set<AbortController>;
 }
 
-interface PendingConfirmation {
-  peer: Peer;
-  request: Confirmation;
-  finish(value?: string | boolean | null, error?: Error): void;
-}
-
-type AskEnd = { outcome: AskOutcome } | { error: RepaFault };
-
-interface PendingAsk {
-  peer: Peer;
-  request: AskRequest;
-  onSubmit?: (response: ItemResponse) => Promise<AskSubmitResult>;
-  /** 调用方正在处理上一次提交，同一询问的下一次提交要等它结束。 */
-  busy: boolean;
-  /** reason 有值时通知前端收起卡片；断线时连接已经不在，不通知。 */
-  end(result: AskEnd, reason?: AskClosed["reason"]): void;
-}
-
-type ServiceEnd = { value: unknown } | { error: RepaFault };
-
-interface PendingService {
-  peer: Peer;
-  service: string;
-  /** reason 有值时通知前端停止这次请求。 */
-  end(result: ServiceEnd, reason?: "aborted" | "closed"): void;
-}
+type PendingData =
+  | { kind: "confirm"; request: Confirmation }
+  | {
+    kind: "ask";
+    request: NotificationParams<"ask.request">;
+    onSubmit?: (response: ItemResponse) => Promise<AskSubmitResult>;
+    /** 上一次提交处理完之前，不接受下一次提交。 */
+    busy: boolean;
+  }
+  | { kind: "service"; service: string };
 
 interface ActiveSpace {
   space: Space;
@@ -111,9 +92,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const runtime: AgentRuntime = options.runtime ?? await createAgentRuntime({ agentDir: path.join(home, "agent") });
   const serverId = randomUUID();
   const peers = new Set<Peer>();
-  const confirmations = new Map<string, PendingConfirmation>();
-  const asks = new Map<string, PendingAsk>();
-  const services = new Map<string, PendingService>();
+  const reverse = new ReverseRequests<Peer, PendingData>();
   let initialized = 0;
   const owner = new AsyncLocalStorage<Peer>();
   const operations = new Set<Promise<unknown>>();
@@ -153,26 +132,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     if (!Check(notifications[method], params)) throw new RepaFault("invalid_event", "模块发出了无效事件");
     recordError(method, params);
     for (const peer of peers) {
-      if (peer.authenticated) send(peer, { jsonrpc: "2.0", method, params });
+      if (peer.subscribed) send(peer, { jsonrpc: "2.0", method, params });
     }
   };
   const cancelPeer = (peer: Peer) => {
     peer.alive = false;
     for (const controller of peer.logins) controller.abort();
     for (const controller of peer.feedbacks) controller.abort();
-    for (const id of peer.confirmations) {
-      confirmations.get(id)?.finish(
-        undefined,
-        new RepaFault("confirmation_cancelled", "确认连接已断开"),
-      );
-    }
-    for (const id of [...peer.asks]) {
-      asks.get(id)?.end({ error: new RepaFault("ask_cancelled", "用户没有作答：连接已断开", { reason: "disconnected" }) });
-    }
-    for (const id of [...peer.services]) {
-      const pending = services.get(id);
-      pending?.end({ error: new RepaFault("service_cancelled", "提供服务的连接已断开", { service: pending.service, reason: "disconnected" }) });
-    }
+    reverse.endPeer(peer);
     peers.delete(peer);
   };
   const confirmFor = (peer: Peer | undefined): Confirm => (request, signal) => {
@@ -182,28 +149,17 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     if (!Check(notifications["confirm.request"].properties.request, request)) {
       return Promise.reject(new RepaFault("invalid_confirmation", "确认请求不符合接口要求"));
     }
-    const id = randomUUID();
-    return new Promise((resolve, reject) => {
-      const abort = () => pending.finish(undefined, new RepaFault("confirmation_cancelled", "确认已取消"));
-      const pending: PendingConfirmation = {
-        peer,
-        request,
-        finish(value, error) {
-          if (!confirmations.delete(id)) return;
-          peer.confirmations.delete(id);
-          signal?.removeEventListener("abort", abort);
-          if (error) reject(error);
-          else resolve(value ?? null);
-        },
-      };
-      confirmations.set(id, pending);
-      peer.confirmations.add(id);
-      signal?.addEventListener("abort", abort, { once: true });
-      send(peer, { jsonrpc: "2.0", method: "confirm.request", params: { id, request } });
+    const pending = reverse.create<string | boolean | null>(peer, { kind: "confirm", request }, {
+      signal,
+      aborted: () => new RepaFault("confirmation_cancelled", "确认已取消"),
+      disconnected: () => new RepaFault("confirmation_cancelled", "确认连接已断开"),
+      closed: () => new RepaFault("confirmation_cancelled", "空间正在关闭"),
     });
+    send(peer, { jsonrpc: "2.0", method: "confirm.request", params: { id: pending.id, request } });
+    return pending.result;
   };
   /**
-   * 对话里的询问只发给发起这次运行的连接，沿用确认通道的待答表、连接绑定和取消：断线、运行中止和关空间都结束询问。
+   * 对话里的询问只发给发起这次运行的连接：断线、运行中止和关空间都结束询问。
    * 连接没有声明 Item 需要的能力时不发送，直接得到 unsupported。
    */
   const askFor = (peer: Peer | undefined): AskRoute => (input, options) => {
@@ -213,69 +169,59 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
     if (signal?.aborted) return Promise.reject(new RepaFault("ask_cancelled", "询问已取消：运行已中止", { reason: "aborted" }));
     if (!canRender(peer.capabilities.interaction, input.item)) return Promise.resolve({ action: "unsupported" });
-    const id = randomUUID();
-    const request: AskRequest = { id, ...input };
-    if (!Check(notifications["ask.request"], request)) return Promise.reject(new RepaFault("invalid_ask", "询问不符合交互词汇"));
-    return new Promise<AskOutcome>((resolve, reject) => {
-      const abort = () => pending.end({ error: new RepaFault("ask_cancelled", "询问已取消：运行已中止", { reason: "aborted" }) }, "aborted");
-      const pending: PendingAsk = {
-        peer,
-        request,
-        ...(options.onSubmit === undefined ? {} : { onSubmit: options.onSubmit }),
-        busy: false,
-        end(result, reason) {
-          if (asks.get(id) !== pending) return;
-          asks.delete(id);
-          peer.asks.delete(id);
-          signal?.removeEventListener("abort", abort);
-          if (reason !== undefined) send(peer, { jsonrpc: "2.0", method: "ask.closed", params: { id, reason } });
-          if ("error" in result) reject(result.error);
-          else resolve(result.outcome);
-        },
-      };
-      asks.set(id, pending);
-      peer.asks.add(id);
-      signal?.addEventListener("abort", abort, { once: true });
-      send(peer, { jsonrpc: "2.0", method: "ask.request", params: request });
+    // 编号由待答表生成；校验时用合法占位值，避免无效请求进入表。
+    if (!Check(notifications["ask.request"], { id: "pending", ...input })) return Promise.reject(new RepaFault("invalid_ask", "询问不符合交互词汇"));
+    const data: Extract<PendingData, { kind: "ask" }> = { kind: "ask", request: { id: "pending", ...input }, onSubmit: options.onSubmit, busy: false };
+    const pending = reverse.create<AskOutcome>(peer, data, {
+      signal,
+      aborted: () => new RepaFault("ask_cancelled", "询问已取消：运行已中止", { reason: "aborted" }),
+      disconnected: () => new RepaFault("ask_cancelled", "用户没有作答：连接已断开", { reason: "disconnected" }),
+      closed: () => new RepaFault("ask_cancelled", "询问已取消：空间正在关闭", { reason: "closed" }),
+      notifyClosed: (id, reason) => send(peer, { jsonrpc: "2.0", method: "ask.closed", params: { id, reason } }),
     });
+    data.request.id = pending.id;
+    send(peer, { jsonrpc: "2.0", method: "ask.request", params: data.request });
+    return pending.result;
   };
+
   const replyAsk = async (peer: Peer, input: Params<"ask.reply">): Promise<AskSubmitResult | null> => {
-    const pending = asks.get(input.id);
-    if (!pending || pending.peer !== peer) throw new RepaFault("ask_not_found", "询问不存在、已经结束或不属于当前连接");
+    const pending = reverse.get(input.id);
+    if (!pending || pending.peer !== peer || pending.data.kind !== "ask") throw new RepaFault("ask_not_found", "询问不存在、已经结束或不属于当前连接");
+    const data = pending.data;
     const response = input.response;
     if ((response !== undefined) !== (input.action === "submit") || (input.message !== undefined && input.action !== "decline")) {
       throw new RepaFault("invalid_ask_reply", "response 只随 submit，message 只随 decline");
     }
     if (input.action === "decline") {
-      pending.end({ outcome: { action: "decline", ...(input.message === undefined ? {} : { message: input.message }) } }, "answered");
+      pending.end({ value: { action: "decline", ...(input.message === undefined ? {} : { message: input.message }) } }, "answered");
       return null;
     }
     if (input.action === "cancel" || input.action === "unsupported") {
-      pending.end({ outcome: { action: input.action } }, "cancelled");
+      pending.end({ value: { action: input.action } }, "cancelled");
       return null;
     }
     // 前面已确认 submit 带了作答；这里再查一次，类型上也就收窄了。
     if (response === undefined) throw new RepaFault("invalid_ask_reply", "提交需要带上作答");
-    if (pending.busy) throw new RepaFault("ask_busy", "上一次提交还在处理，请稍后再交");
-    const checked = checkResponse(pending.request.item, response);
+    if (data.busy) throw new RepaFault("ask_busy", "上一次提交还在处理，请稍后再交");
+    const checked = checkResponse(data.request.item, response);
     if (!checked.ok) return { status: "invalid", problems: checked.problems };
     let result: AskSubmitResult = { status: "accepted" };
-    if (pending.onSubmit !== undefined) {
-      pending.busy = true;
+    if (data.onSubmit !== undefined) {
+      data.busy = true;
       try {
-        result = await pending.onSubmit(response);
+        result = await data.onSubmit(response);
       } catch {
         // 调用方处理失败时询问保持打开，用户可以再交或不按卡片作答；不把插件内部错误交给前端。
         throw new RepaFault("ask_submit_failed", "这次作答没能处理，请再交一次或换一种方式回答");
       } finally {
-        pending.busy = false;
+        data.busy = false;
       }
       if (!Check(AskSubmitResultSchema, result)) throw new RepaFault("ask_submit_failed", "调用方对这次作答的处理结果不符合交互词汇");
     }
     // 处理期间询问可能已经因为中止、断线或关空间结束；结果不再交回。
-    if (asks.get(input.id) !== pending) throw new RepaFault("ask_not_found", "询问已经结束");
+    if (reverse.get(input.id) !== pending) throw new RepaFault("ask_not_found", "询问已经结束");
     if (result.status === "invalid") return result;
-    pending.end({ outcome: { action: "submit", response } }, "answered");
+    pending.end({ value: { action: "submit", response } }, "answered");
     return result;
   };
   /**
@@ -298,29 +244,17 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       encoded = undefined;
     }
     if (encoded === undefined) return Promise.reject(new RepaFault("invalid_service_input", "服务输入必须是 JSON 数据", { service }));
-    const params = { id: randomUUID(), service, input: JSON.parse(encoded) as unknown };
-    const { id } = params;
-    return new Promise<unknown>((resolve, reject) => {
-      const abort = () => pending.end({ error: new RepaFault("service_cancelled", "服务请求已取消", { service, reason: "aborted" }) }, "aborted");
-      const pending: PendingService = {
-        peer: target,
-        service,
-        end(result, reason) {
-          if (services.get(id) !== pending) return;
-          services.delete(id);
-          target.services.delete(id);
-          signal?.removeEventListener("abort", abort);
-          if (reason !== undefined) send(target, { jsonrpc: "2.0", method: "service.closed", params: { id, reason } });
-          if ("error" in result) reject(result.error);
-          else resolve(result.value);
-        },
-      };
-      services.set(id, pending);
-      target.services.add(id);
-      signal?.addEventListener("abort", abort, { once: true });
-      send(target, { jsonrpc: "2.0", method: "service.request", params });
+    const pending = reverse.create<unknown>(target, { kind: "service", service }, {
+      signal,
+      aborted: () => new RepaFault("service_cancelled", "服务请求已取消", { service, reason: "aborted" }),
+      disconnected: () => new RepaFault("service_cancelled", "提供服务的连接已断开", { service, reason: "disconnected" }),
+      closed: () => new RepaFault("service_cancelled", "服务请求已取消：空间正在关闭", { service, reason: "closed" }),
+      notifyClosed: (id, reason) => send(target, { jsonrpc: "2.0", method: "service.closed", params: { id, reason } }),
     });
+    send(target, { jsonrpc: "2.0", method: "service.request", params: { id: pending.id, service, input: JSON.parse(encoded) as unknown } });
+    return pending.result;
   };
+
   const requireActive = (): ActiveSpace => {
     if (!active) throw new RepaFault("space_not_open", "请先打开空间");
     return active;
@@ -329,18 +263,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     const current = active;
     active = undefined;
     if (!current) return;
-    for (const pending of confirmations.values()) {
-      if (pending.request.kind === "command") {
-        pending.finish(undefined, new RepaFault("confirmation_cancelled", "空间正在关闭"));
-      }
-    }
-    // 询问和服务请求都出自这个空间的运行和插件；先结束它们，插件宿主关闭时才不会一直等前端。
-    for (const pending of [...asks.values()]) {
-      pending.end({ error: new RepaFault("ask_cancelled", "询问已取消：空间正在关闭", { reason: "closed" }) }, "closed");
-    }
-    for (const pending of [...services.values()]) {
-      pending.end({ error: new RepaFault("service_cancelled", "服务请求已取消：空间正在关闭", { service: pending.service, reason: "closed" }) }, "closed");
-    }
+    // 登录确认不属于空间；只结束命令确认，以及空间里的询问和服务。
+    reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command");
     const failures: unknown[] = [];
     // 先停止 Agent，再关插件；最后空间落盘并释放锁。每个 owner 都取得收尾机会。
     for (const close of [() => current.agent.close(), () => current.plugins.close(), () => current.space.close()]) {
@@ -515,27 +439,27 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       }
       case "confirm.reply": {
         const input = p<"confirm.reply">();
-        const pending = confirmations.get(input.id);
-        if (!pending || pending.peer !== peer) throw new RepaFault("confirmation_not_found", "确认不存在或不属于当前连接");
-        const kind = pending.request.kind;
+        const pending = reverse.get(input.id);
+        if (!pending || pending.peer !== peer || pending.data.kind !== "confirm") throw new RepaFault("confirmation_not_found", "确认不存在或不属于当前连接");
+        const kind = pending.data.request.kind;
         if (
           (kind === "command" && typeof input.value !== "boolean" && input.value !== null) ||
           ((kind === "input" || kind === "select") && typeof input.value !== "string" && input.value !== null) ||
-          (kind === "select" && typeof input.value === "string" && !pending.request.options?.includes(input.value))
+          (kind === "select" && typeof input.value === "string" && !pending.data.request.options?.includes(input.value))
         ) {
           throw new RepaFault("invalid_confirmation_reply", "确认回答不符合请求要求");
         }
-        pending.finish(input.value);
+        pending.end({ value: input.value });
         return null;
       }
       case "ask.reply":
         return replyAsk(peer, p<"ask.reply">());
       case "service.reply": {
         const input = p<"service.reply">();
-        const pending = services.get(input.id);
-        if (!pending || pending.peer !== peer) throw new RepaFault("service_request_not_found", "服务请求不存在、已经结束或不属于当前连接");
+        const pending = reverse.get(input.id);
+        if (!pending || pending.peer !== peer || pending.data.kind !== "service") throw new RepaFault("service_request_not_found", "服务请求不存在、已经结束或不属于当前连接");
         if ("error" in input) {
-          pending.end({ error: new RepaFault("service_failed", input.error.message, { service: pending.service, code: input.error.code }) });
+          pending.end({ error: new RepaFault("service_failed", input.error.message, { service: pending.data.service, code: input.error.code }) });
         } else {
           pending.end({ value: input.result });
         }
@@ -655,7 +579,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
   };
 
-  const handle = async (peer: Peer, value: unknown): Promise<unknown | undefined> => {
+  const handle = async (peer: Peer, value: unknown): Promise<(() => unknown) | undefined> => {
     let id: RpcId = null;
     let notification = false;
     try {
@@ -671,8 +595,25 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       const params = request.params === undefined ? {} : request.params;
       if (!Check(methods[method].params, params)) throw new RpcFault(-32602, "Invalid params");
       const result = await owner.run(peer, () => dispatch(peer, method, params));
-      if (!Check(methods[method].result, result)) throw new RpcFault(-32603, "Internal error");
-      return { jsonrpc: "2.0", id, result };
+      // 响应即将写入时才订阅并取基线；批量请求也等全部完成后同步生成响应。
+      // 从订阅、内存投影到 socket.send 之间没有 await，之后的广播只能排在响应后面。
+      return () => {
+        let output = result;
+        if (method === "initialize") {
+          peer.subscribed = true;
+          output = {
+            version: PROTOCOL_VERSION,
+            serverId,
+            baseline: {
+              space: active === undefined ? null : { root: active.space.root },
+              sessions: active?.agent.baseline() ?? [],
+              disabledPlugins: active?.plugins.disabled() ?? [],
+            },
+          };
+        }
+        if (!Check(methods[method].result, output)) return errorResponse(id, new RpcFault(-32603, "Internal error"));
+        return { jsonrpc: "2.0", id, result: output };
+      };
     } catch (error) {
       if (notification) return undefined;
       // 内部错误不把细节交给前端，记进最近错误，反馈包里能看到原因。
@@ -682,7 +623,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       const fault = error instanceof RpcFault ? error : error instanceof RepaFault
         ? new RpcFault(-32000, error.message, { code: error.code, ...(error.details === undefined ? {} : { details: error.details }) })
         : new RpcFault(-32603, "Internal error");
-      return errorResponse(id, fault);
+      return () => errorResponse(id, fault);
     }
   };
   http.on("upgrade", (request, socket, head) => {
@@ -696,12 +637,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     const peer: Peer = {
       socket,
       authenticated: false,
+      subscribed: false,
       alive: true,
       capabilities: {},
       serial: 0,
-      confirmations: new Set(),
-      asks: new Set(),
-      services: new Set(),
       logins: new Set(),
       feedbacks: new Set(),
     };
@@ -737,10 +676,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             return;
           }
           const replies = (await Promise.all(value.map((item) => handle(peer, item)))).filter((item) => item !== undefined);
-          if (replies.length) send(peer, replies);
+          if (replies.length) send(peer, replies.map((reply) => reply()));
         } else {
           const reply = await handle(peer, value);
-          if (reply !== undefined) send(peer, reply);
+          if (reply !== undefined) send(peer, reply());
         }
       })();
       operations.add(operation);

@@ -44,6 +44,7 @@ export function guardProbeRuntime(runtime: AgentRuntime): AgentRuntime {
         create: async options => remember(await space.create(options)),
         get: async id => remember(await space.get(id)),
         list: () => space.list(),
+        baseline: () => space.baseline(),
         sessionFile: id => space.sessionFile(id),
         abortAgent: agent => space.abortAgent(agent),
         preview: agent => space.preview(agent),

@@ -312,6 +312,7 @@ test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释�
     async create() { throw new Error("未使用"); },
     async get() { throw new Error("未使用"); },
     async list() { return []; },
+    baseline() { return []; },
     async sessionFile() { return undefined; },
     async abortAgent() { throw new Error("未使用"); },
     async preview() { return { sections: [], views: [] }; },
@@ -372,7 +373,7 @@ async function scriptedBackend(t: TestContext, results: Record<string, unknown>)
       const method = String(request?.method);
       // 脚本里没有的方法不回答，调用一直等着。
       if (method !== "initialize" && !Object.hasOwn(results, method)) return;
-      const result = method === "initialize" ? { version: PROTOCOL_VERSION, serverId: "scripted" } : results[method];
+      const result = method === "initialize" ? { version: PROTOCOL_VERSION, serverId: "scripted", baseline: { space: null, sessions: [], disabledPlugins: [] } } : results[method];
       socket.send(JSON.stringify({ jsonrpc: "2.0", id: request?.id, result }));
     });
   });
@@ -457,4 +458,120 @@ test("询问的信封多了字段，或 Item 里认识的字段类型不对时�
     assert.equal(client.connected, false);
     assert.deepEqual(received, []);
   }
+});
+
+test("同一连接同时等待确认、提问和服务，断线后三者以各自的原错误结束", { timeout: 10000 }, async (t) => {
+  const failures: unknown[] = [];
+  let finished: () => void = () => undefined;
+  const settled = new Promise<void>((resolve) => { finished = resolve; });
+  const capture = async (operation: Promise<unknown>) => {
+    try { await operation; }
+    catch (error) { failures.push(error); }
+    if (failures.length === 3) finished();
+  };
+  const f = await fixture(t, undefined, {
+    plugins: [{
+      id: "probe",
+      async open(host) {
+        return { methods: { run: {
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+          async invoke() { await capture(host.services.call("probe.run", {})); return null; },
+        } } };
+      },
+    }],
+    runtime: { async openSpace(options) {
+      return {
+        agents: () => [{ id: "general", direct: true }],
+        baseline: () => [],
+        async create() { throw new Error("未使用"); },
+        async get() {
+          return {
+            info: () => ({ id: "s", agent: "general", title: "测试", createdAt: "2026-10-30", updatedAt: "2026-10-30" }),
+            history: () => [],
+            async send() {
+              await Promise.all([
+                capture(options.confirm({ kind: "command", title: "运行命令" })),
+                capture(options.ask?.({ item: { id: "q", version: `sha256:${"a".repeat(64)}`, requires: [], body: [], slots: [] }, origin: { kind: "agent", sessionId: "s" } }, {}) ?? Promise.reject(new Error("缺少提问路由"))),
+              ]);
+            },
+            async steer() {}, async followUp() {}, async abort() {}, async setModel() {}, async compact() {},
+            async fork() { throw new Error("未使用"); },
+          };
+        },
+        async list() { return []; }, async sessionFile() { return undefined; }, async abortAgent() {},
+        async preview() { return { sections: [], views: [] }; },
+        async runAgent() { throw new Error("未使用"); }, async close() {},
+      };
+    } },
+  });
+  const root = path.join(f.root, "space");
+  await mkdir(root);
+  const client = await RepaClient.connect(f.server.connection, { capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] }, services: ["probe.run"] } });
+  t.after(() => client.close());
+  await client.call("space.open", { root });
+  const requested = Promise.all(["confirm.request", "ask.request", "service.request"].map((method) => new Promise<void>((resolve) => client.on(method as "confirm.request" | "ask.request" | "service.request", () => resolve()))));
+  const running = client.call("session.send", { sessionId: "s", text: "开始" }).catch(() => undefined);
+  const serving = client.call("plugin.call", { pluginId: "probe", method: "run", input: {} }).catch(() => undefined);
+  await requested;
+  await client.close();
+  await settled;
+  assert.deepEqual(failures.map((error) => {
+    assert.ok(error instanceof RepaFault);
+    return { code: error.code, message: error.message, details: error.details };
+  }).sort((a, b) => a.code.localeCompare(b.code)), [
+    { code: "ask_cancelled", message: "用户没有作答：连接已断开", details: { reason: "disconnected" } },
+    { code: "confirmation_cancelled", message: "确认连接已断开", details: undefined },
+    { code: "service_cancelled", message: "提供服务的连接已断开", details: { service: "probe.run", reason: "disconnected" } },
+  ]);
+  await Promise.all([running, serving]);
+});
+
+test("基线投影后立即发生 runEnd，单个及批量 initialize 响应都先于事件到达", { timeout: 10000 }, async (t) => {
+  const f = await fixture(t, undefined, { runtime: { async openSpace(options) {
+    return {
+      agents: () => [],
+      baseline: () => {
+        queueMicrotask(() => options.onEvent({ sessionId: "s", runId: "r", type: "runEnd" }));
+        return [{ sessionId: "s", agent: "general", runId: "r", queued: [] }];
+      },
+      async create() { throw new Error("未使用"); }, async get() { throw new Error("未使用"); },
+      async list() { return []; }, async sessionFile() { return undefined; }, async abortAgent() {},
+      async preview() { return { sections: [], views: [] }; },
+      async runAgent() { throw new Error("未使用"); }, async close() {},
+    };
+  } } });
+  const client = await f.client();
+  const root = path.join(f.root, "space");
+  await mkdir(root);
+  await client.call("space.open", { root });
+  for (const batch of [false, true]) {
+    const socket = await f.socket();
+    const messages: unknown[] = [];
+    const received = new Promise<void>((resolve) => socket.on("message", (data) => {
+      messages.push(JSON.parse(String(data)));
+      if (messages.length === 2) resolve();
+    }));
+    const request = { jsonrpc: "2.0", id: "init", method: "initialize", params: { token: f.server.connection.token, version: PROTOCOL_VERSION } };
+    socket.send(JSON.stringify(batch ? [request] : request));
+    await received;
+    const response = record(batch ? (messages[0] as unknown[])[0] : messages[0]);
+    assert.equal(response?.id, "init");
+    assert.deepEqual(record(record(response?.result)?.baseline)?.sessions, [{ sessionId: "s", agent: "general", runId: "r", queued: [] }]);
+    assert.deepEqual(messages[1], { jsonrpc: "2.0", method: "session.event", params: { sessionId: "s", runId: "r", type: "runEnd" } });
+    socket.terminate();
+  }
+});
+
+test("客户端忽略响应和通知的未知字段，已知字段仍按类型校验，请求继续严格校验", { timeout: 10000 }, async (t) => {
+  const result = { path: "/tmp/feedback.zip", files: ["manifest.json"], extra: true };
+  const backend = await scriptedBackend(t, { "feedback.create": result, "model.list": [{ provider: "test", id: "m", name: 42, available: true }] });
+  const client = await RepaClient.connect(backend.connection);
+  t.after(() => client.close());
+  assert.deepEqual(await client.call("feedback.create", { sessionId: "s", describe: false }), { path: result.path, files: result.files });
+  assert.equal(result.extra, true);
+  const event = new Promise<unknown>((resolve) => client.on("session.event", resolve));
+  backend.push("session.event", { sessionId: "s", type: "runEnd", extra: "ignored" });
+  assert.deepEqual(await event, { sessionId: "s", type: "runEnd" });
+  await assert.rejects(client.call("settings.get", { extra: true } as unknown as Record<string, never>), (error: unknown) => error instanceof RpcError && error.code === -32602);
+  await assert.rejects(client.call("model.list", {}), ConnectionError);
 });

@@ -1,4 +1,4 @@
-import { Check } from "typebox/value";
+import { Check, Clean } from "typebox/value";
 import {
   lenientNotifications,
   lenientResults,
@@ -59,14 +59,16 @@ type Listener = (params: unknown) => void;
 // 用 1002 会抛 InvalidAccessError，连接反而留着；所以用应用自定的 4002，与服务端的 4001 相邻。
 const INVALID_DATA = 4002;
 
-// 带 Item 或内容块的消息按协议登记的宽松规则读取，其余消息严格校验。
+// 清理副本里的未知字段，再校验已声明字段；Item 和内容块保留词汇自身的宽松读取规则。
 function readNotification(method: Notification, params: unknown): ReadResult<unknown> {
+  params = Clean(notifications[method], structuredClone(params));
   const read = lenientNotifications[method];
   if (read !== undefined) return read(params);
   return Check(notifications[method], params) ? { ok: true, value: params } : { ok: false, path: "" };
 }
 
 function readResult(method: Method, result: unknown): ReadResult<unknown> {
+  result = Clean(methods[method].result, structuredClone(result));
   const read = lenientResults[method];
   if (read !== undefined) return read(result);
   return Check(methods[method].result, result) ? { ok: true, value: result } : { ok: false, path: "" };
