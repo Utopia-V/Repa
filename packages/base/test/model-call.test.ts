@@ -217,21 +217,44 @@ test("空系统提示原样进入实际请求和持久会话，不回退到 Pi �
 });
 
 
-test("结构化完成的参数不合格时只请求一次，并以 invalid_model_output 说明首个字段", async t => {
+test("结构化完成的参数不合格时只有一次请求送达模型并指出字段，之后的合法提交和调用方取消照常", async t => {
   const f = await fixture(t);
   const schema = Type.Object({ answer: Type.String() }, { additionalProperties: false });
-  f.faux.setResponses([
-    fauxAssistantMessage(fauxToolCall("submit_result", {})),
-    fauxAssistantMessage("没有提交有效参数"),
-  ]);
-  let failure: unknown;
-  try {
-    await f.runtime.completeStructured({ prompt: "提交结果" }, schema, f.scope);
-  } catch (error) {
-    failure = error;
+  // 缺少字段会被 Pi 的校验拒绝；数字会被 Pi 转成字符串后通过校验，同样要按原始参数拒绝。
+  for (const call of [fauxToolCall("submit_result", {}), fauxToolCall("submit_result", { answer: 42 })]) {
+    const before = f.faux.state.callCount;
+    let requestsAtAbort: number | undefined;
+    let secondAborted: boolean | undefined;
+    f.faux.setResponses([
+      (_context, options, state) => {
+        options?.signal?.addEventListener("abort", () => { requestsAtAbort = state.callCount - before; }, { once: true });
+        return fauxAssistantMessage(call);
+      },
+      (_context, options) => {
+        secondAborted = options?.signal?.aborted;
+        return fauxAssistantMessage("不应送达的回答");
+      },
+    ]);
+    await assert.rejects(f.runtime.completeStructured({ prompt: "提交结果" }, schema, f.scope), (error: unknown) => {
+      assert.ok(error instanceof RepaFault);
+      assert.equal(error.code, "invalid_model_output");
+      assert.match(error.message, /^\/answer：/u);
+      return true;
+    });
+    // 中止早于第二次请求开始：Pi 若再发起请求，带的是已中止的信号，真实服务的 fetch 不会发出。
+    const requests = f.faux.state.callCount - before;
+    assert.equal(requestsAtAbort, 1);
+    assert.ok(requests <= 2);
+    if (requests === 2) assert.equal(secondAborted, true);
   }
-  assert.equal(f.faux.state.callCount, 1);
-  assert.ok(failure instanceof RepaFault);
-  assert.equal(failure.code, "invalid_model_output");
-  assert.match(failure.message, /\/answer[：:]\s*.+/u);
+  const validStart = f.faux.state.callCount;
+  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("submit_result", { answer: "结果" }))]);
+  assert.deepEqual(await f.runtime.completeStructured({ prompt: "提交结果" }, schema, f.scope), { answer: "结果" });
+  assert.equal(f.faux.state.callCount - validStart, 1);
+  const controller = new AbortController();
+  f.faux.setResponses([() => {
+    controller.abort();
+    return fauxAssistantMessage(fauxToolCall("submit_result", { answer: "结果" }));
+  }]);
+  await assert.rejects(f.runtime.completeStructured({ prompt: "提交结果", signal: controller.signal }, schema, f.scope), fault("cancelled"));
 });

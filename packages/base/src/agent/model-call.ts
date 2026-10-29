@@ -6,6 +6,7 @@ import {
   defineTool,
   SessionManager,
   SettingsManager,
+  type AgentSession,
   type ModelRuntime,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -68,12 +69,25 @@ export async function modelCall(request: CompletionRequest, schema: TSchema | un
   let submitted = false;
   let output: unknown;
   let invalid: RepaFault | undefined;
+  // 工具先于短会话建立，会话建好后再填入。
+  let shortSession: AgentSession | undefined;
   const tools: ToolDefinition[] = schema === undefined ? [] : [defineTool({
     name: "submit_result",
     label: "提交结果",
     description: "提交符合指定 schema 的结果",
     parameters: schema,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
+    // Pi 1.1.0 先调用 prepareArguments，再转换类型、校验参数。校验失败时 Pi 自己生成工具错误，
+    // 不经过 execute，也就没有 terminate，工具循环会再请求一次模型；类型不对的值还可能转换后通过校验。
+    // 因此在这里检查原始参数，不合格就记下诊断并中止短会话：下一次请求以已中止的信号开始，不会发出。
+    // 升级时核对 agent-loop 的 prepareToolCall 和中止后的下一次请求。
+    prepareArguments(raw) {
+      if (!Value.Check(schema, raw)) {
+        invalid = invalidOutput(schema, raw);
+        shortSession?.agent.abort();
+      }
+      return raw;
+    },
     async execute(_callId, input) {
       submitted = true;
       if (!Value.Check(schema, input)) {
@@ -124,16 +138,18 @@ export async function modelCall(request: CompletionRequest, schema: TSchema | un
     tools: tools.map(tool => tool.name),
     customTools: tools,
   });
+  shortSession = session;
   const abort = () => { session.agent.abort(); };
   request.signal?.addEventListener("abort", abort, { once: true });
   try {
     if (request.signal?.aborted) throw new RepaFault("cancelled", "模型请求已取消");
     await session.prompt(request.prompt, { expandPromptTemplates: false });
     const last = session.messages.findLast(message => message.role === "assistant");
+    // 参数不合格时是 submit_result 中止了会话，交回诊断，不算取消。
+    if (invalid !== undefined) throw invalid;
     if (request.signal?.aborted || last?.stopReason === "aborted") throw new RepaFault("cancelled", "模型请求已取消");
     if (last?.stopReason === "error") throw new RepaFault("model_error", last.errorMessage ?? "模型请求失败");
     if (schema !== undefined) {
-      if (invalid !== undefined) throw invalid;
       if (!submitted) throw new RepaFault("invalid_model_output", "模型没有调用 submit_result");
       return output;
     }

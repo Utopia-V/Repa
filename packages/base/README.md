@@ -179,7 +179,7 @@ await backend.close();
 
 在打开的空间里调用 `host.models.complete(request)`，底座会为这次调用建立一个短的 Pi 会话。系统提示使用 `request.system`，唯一的用户消息是 `request.prompt`，模型按请求的 `model` 选择；省略时沿用运行时默认模型。Pi 按自己的命名规则把会话保存到空间的 `.repa/sessions/`，提示、回答和助手消息上的用量因此留在同一份 jsonl 中。会话开头的 `repa-model-call` 自定义条目记录 `{ pluginId }`，运行内发起的调用另存父运行关联；从插件工具里发起时，关联也带上该工具的调用编号。这些短会话不进入 `session.list`，但仍可按编号查看历史，打开后只读。
 
-`complete()` 返回最后一条助手消息的文本。`completeStructured(request, schema)` 则只声明一个参数为原 schema 的 `submit_result` 工具，并请求 `{ type: "json_schema", strict: "prefer" }` 约束采样。系统提示末尾追加“用 submit_result 工具提交结果，只调用一次。”，工具执行时用 `Value.Check` 校验参数，通过后返回“已收到”并以 `terminate: true` 结束这一批工具调用，调用方拿到参数本身。模型直接回答而不调用工具时，调用方收到 `invalid_model_output`；模型失败和取消分别保留 `model_error`、`cancelled`。短会话关闭模型错误的自动重试与压缩；不合法工具参数仍受下述 [SDK 限制](#已知限制)影响。
+`complete()` 返回最后一条助手消息的文本。`completeStructured(request, schema)` 则只声明一个参数为原 schema 的 `submit_result` 工具，并请求 `{ type: "json_schema", strict: "prefer" }` 约束采样。系统提示末尾追加“用 submit_result 工具提交结果，只调用一次。”，工具执行时用 `Value.Check` 校验参数，通过后返回“已收到”并以 `terminate: true` 结束这一批工具调用，调用方拿到参数本身。模型给出的原始参数不合格时，底座在 Pi 转换和校验参数之前就中止短会话，这次调用在第一次请求后结束，调用方收到 `invalid_model_output`，说明里写出第一个出错字段的路径。模型直接回答而不调用工具时，调用方同样收到 `invalid_model_output`；模型失败和取消分别保留 `model_error`、`cancelled`。短会话关闭模型错误的自动重试与压缩。
 
 没有空间归属的 `runtime.complete()` 与 `completeStructured()` 也运行同样的 Pi 短会话，但会话只保存在内存中。学习插件的课程核对使用这一路径，由课程核对自己的 `--log` 保存日志。
 
@@ -436,8 +436,6 @@ Agent 相关的约定：
 - **登录映射**：真实 `ModelRuntime.login` 配合本地脚本化 OAuth 提供方，经 WebSocket 完成链接展示、选择、授权码、密文输入、持久化和登出。`auth.setKey` 使用原生 API-key 登录保存凭据；需要多步环境配置的提供方使用 `auth.login`。
 
 ## 已知限制
-
-- **结构化调用的不合法参数处理尚未完成。** Pi 1.1.0 在 `submit_result.execute` 之前执行 `validateToolArguments`：参数不合格时，Pi 自行生成工具错误并继续工具循环，因而可能再次请求模型；这条路径不进入工具执行器，也不能通过公开 `tool_result` 返回 `terminate`。此外，Pi 会先用 `Value.Convert` 转换参数，原始类型不合格的值可能转换后通过，所以执行器内的 `Value.Check` 不能保证拒绝原始坏值。当前可以取得合法提交，也可以报告直接结束而未调用工具的情况；对原始不合法参数返回字段诊断、严格只请求一次的要求仍未实现。替代收尾方式待维护者批准后接续，相关验收见[模型调用测试](test/model-call.test.ts)。
 
 - `.repa/tool-output/` 中保存的工具输出不会自动删除。
 - `read` 按行读取，超长单行在全文文件里也只能整行读。因此插件工具应当输出分行的文字，让模型能按行继续读取。
