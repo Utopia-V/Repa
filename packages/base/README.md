@@ -12,7 +12,7 @@ npm run build --workspace=@repa/base
 npm run start --workspace=@repa/base -- serve --home /path/to/repa-home
 ```
 
-服务只监听 `127.0.0.1`，stdout 输出一行 `{ "url": "ws://…/rpc", "token": "…" }`。启动方应把这行内容当作私密连接信息交给客户端，不放进公开日志。省略 `--home` 时使用 `REPA_HOME`，再回退到 `~/.repa`；`REPA_TOKEN` 可提供已有令牌，否则随机生成。`--port` 默认自动分配，SIGINT、SIGTERM 会等待资源关闭。
+服务只监听 `127.0.0.1`，stdout 输出一行 `{ "url": "ws://…/rpc", "token": "…" }`。启动方应把这行内容当作私密连接信息交给客户端，不放进公开日志。省略 `--home` 时使用 `REPA_HOME`，再回退到[系统配置目录](#应用配置目录)；`REPA_TOKEN` 可提供已有令牌，否则随机生成。`--port` 默认自动分配，SIGINT、SIGTERM 会等待资源关闭。
 
 加载示例插件：
 
@@ -33,7 +33,7 @@ npm run start --workspace=@repa/base -- serve \
   --no-general-agent --direct-agent notes-organizer
 ```
 
-`--direct-agent` 可重复；给出后只有这些 Agent 能直接对话，覆盖定义中的 `direct`，其中有不存在或已关掉的 Agent 时打开空间返回 `unknown_agent`。嵌入时对应 `startServer` 的 `generalAgent: false` 和 `directAgents`。
+`--direct-agent` 可重复；给出后只有这些 Agent 能直接对话，覆盖定义中的 `direct`。列表里有不存在或已关掉的 Agent 时，打开空间返回 `unknown_agent`，写错的 id 由此报出。打开时有插件停用的话，它声明的 Agent 也跟着不在，这时只从列表里去掉不在的几个，空间照常打开，停用原因见[插件停用状态](#插件停用状态)；其他 Agent 能否直接对话仍按这份列表。嵌入时对应 `startServer` 的 `generalAgent: false` 和 `directAgents`。
 
 浏览器从独立子路径引用客户端：
 
@@ -87,13 +87,55 @@ await backend.close();
 <home>/settings.json          命令策略、最近 20 个空间、应用提示覆盖
 <space>/.repa/lock/           带心跳的跨进程排他锁
 <space>/.repa/format.json     底座数据格式版本，当前为 { "version": 1 }
-<space>/.repa/plugin-versions/<id>.json  宿主管理的插件数据格式版本
 <space>/.repa/sessions/       会话记录
 <space>/.repa/history.git/    影子 Git
 <space>/.repa/plugins/<id>/   插件自有数据
 <space>/.repa/prompts.json    空间提示覆盖
 <space>/.repa/.ignore         内容为 *，ripgrep 和 fd 从空间根目录搜索时不进 .repa/
+<space>/.agents/skills/       空间的用户 Skill，作为普通文件进入历史
 ```
+
+### 应用配置目录
+
+应用配置独立于空间，由 `--home`／`ServerOptions.home`、`REPA_HOME`、系统默认目录依次确定。默认目录为：
+
+| 系统 | 目录 |
+| --- | --- |
+| Linux | `$XDG_CONFIG_HOME/repa`；未设置或不是绝对路径时使用 `~/.config/repa` |
+| Windows | `%APPDATA%\Repa`；缺少 `APPDATA` 时使用用户目录下的 `AppData\Roaming\Repa` |
+| macOS | `~/Library/Application Support/Repa` |
+
+默认启动时，新位置不存在或为空，就把旧 `~/.repa` 的配置搬过去一次。先在目标旁的临时目录完整复制，再通过同一文件系统内的改名一次发布，成功后才删除源文件；原文件字节和凭据权限保留。复制失败会以 `home_migration_failed` 停止启动，清理临时目录并保留源配置，目标保持不存在，下次启动可以重试。新位置已有任何内容时使用新位置，旧目录原样留下，并通过 stderr 提示两处路径。
+
+旧 `~/.repa` 若含 `format.json`，说明应用配置与主目录空间的数据混在了一起。这时只搬 `settings.json` 和 `agent/`，空间的标记、会话、历史、插件数据和空间提示覆盖留在原处。显式指定 `--home` 或 `REPA_HOME` 时直接使用指定位置，不扫描或搬动旧目录。`resolveAppHome()` 只计算路径，供核对脚本复用，不触发搬迁。
+
+`settings.json` 及当前提示覆盖文件读取时忽略未知的可选字段，已知字段仍按类型校验；接口输入和写入保持严格校验。应用 Skill 位于 `<home>/agent/skills/`，随应用配置一起搬迁。空间 Skill 位于 `<space>/.agents/skills/`，Agent 可以读写，历史按普通文件记录；旧 `.repa/skills/` 不加载也不迁移。
+
+### 空间格式与版本 1
+
+`.repa/format.json` 当前写作 `{ "version": 1 }`。只有空间还没有 `.repa/` 时，打开才创建这个目录和初始标记。已有 `.repa/` 缺标记时返回 `unknown_data_format`，标记损坏时返回 `invalid_data_version`，高于当前版本时返回 `incompatible_data_version` 并提示升级。检查发生在锁、会话目录、忽略文件和历史库的创建之前，因此这几类拒绝不会写入目标空间。
+
+版本约定遵循三条规则：
+
+1. 新版本负责读取所有旧格式。确需改写盘上数据时先备份，全部成功后才更新标记。当前只有版本 1，没有数据迁移。
+2. 遇到更新版本的数据，拒绝打开，保持盘上内容不变。
+3. 只有旧版本会读错的改动才升版本。新增旧版本可以忽略的可选字段不升版本；持久数据读取忽略这些字段，已知字段仍校验，写入严格按当前格式生成。
+
+版本 1 覆盖底座负责的以下布局和语义。以后修改其中任何一项，都要判断旧程序是否还能正确读取和操作：
+
+| 路径或记录 | 版本 1 的约定 |
+| --- | --- |
+| `.repa/format.json` | 对象，`version` 为正的安全整数；额外可选字段可忽略。 |
+| `.repa/sessions/*.jsonl` | Pi 1.1.0 的会话记录格式；底座通过 Pi 的公开入口读取和追加。包括 `repa-agent` 的 `{ agent }`、`repa-run` 的 `{ runId, parentRunId?, parentSessionId? }`、`repa-fork` 的 `{ entryId }`，以及 `repa-view`、`repa-prompt-change` 自定义消息和提示分段、上下文编辑。各条记录的含义见本说明的[会话协议](#协议入口)。 |
+| `.repa/sessions/<id>.parent.json` | `{ sessionId, runId, callId }`，表示子会话与父调用的关联；不占用 Pi 的分支来源。 |
+| `.repa/history.git/` | 影子 Git 的内容、引用与提交来源 JSON；来源为 agent（可带祖先链）、plugin、external、按 revision 或 runId 的 undo。读取来源忽略未知可选字段；具体格式与撤销语义见[空间历史](../space-history/README.md)。 |
+| `.repa/prompts.json` | 当前空间提示覆盖：来源 id 映射到 `{ text?, enabled? }`；第 7 步重做此功能前沿用当前格式。 |
+| `.repa/plugins/<id>/` | 插件数据目录的归属和位置；里面的数据格式及版本由插件负责，不属于底座版本 1。 |
+| `.repa/lock/`、`.repa/.ignore` | 运行锁与搜索排除辅助文件，可以按当前实现重建；不承载领域状态。 |
+
+普通空间文件（包括 `.agents/skills/`）由用户拥有，底座不定义内容格式。应用配置不属于空间版本；HTTP／WebSocket 协议有独立版本。Pi 升级若改变会话的可读性或写入语义，也必须按上述规则判断空间版本，不能仅因依赖升级而改变标记。
+
+### 空间生命周期与写入
 
 每个服务当前持有一个活动空间，多个授权连接共享它。切换空间会关闭原空间的会话与插件，再释放锁。锁使用 `proper-lockfile`；进程异常退出后的陈旧锁在 30 秒后可回收，正常关闭立即释放。
 
@@ -105,7 +147,7 @@ await backend.close();
 
 空间宿主在打开及每次历史提交后安排一次维护检查，等待 30 秒没有新提交后调用 `history.maintain()`。松散对象达到 1,024 个或 pack 达到 32 个才打包；失败交给 `onError` 并重新等待，关闭空间时则等待最后一次检查和维护完成后释放锁。维护与活动共用历史队列，永久保留历史，不裁剪提交或不可达对象。测量、成本和调用约定见[空间历史维护](../space-history/README.md#历史维护)。
 
-`record` 动作持有空间写锁和历史队列，因此应先读取历史，再进入动作。动作内的 `files.write` 自动加入当前活动；显式嵌套 `history.record`，或在动作内调用 `history.list/changes`，会返回明确错误而不是死锁。插件界面方法即使只更新自己的数据目录，也会触发一次状态唤醒。
+`record` 动作持有空间写锁和历史队列，因此应先读取历史，再进入动作。动作内的 `files.write` 自动加入当前活动；显式嵌套 `history.record`，或在动作内调用 `history.list/changes`，会返回明确错误而不是死锁。插件自己的数据变化通过插件事件告诉前端。
 
 [`notes-plugin.ts`](examples/notes-plugin.ts) 演示完整插件接口：说明、工具、Agent 定义、少量 view、变化追赶、前端方法与关闭；还通过 `rewrite`、`summarize`、`organize` 演示三种模型入口，其中 `organize` 在后台运行插件声明的只读 Agent `notes-organizer`。内部 notebook 子插件由父插件构造 Host，只能通过文件接口访问 `notes/`，数据目录也落在父目录下。后台 Agent 工作的 id 就是会话 id，前端用会话事件查看进度，用 `session.abort` 取消。排队任务收到取消后不会调用模型；如果空间正被前一活动占用，取消的完成响应会等待它取得队列并收尾。队列与任务句柄都只在内存中存在。
 
@@ -120,16 +162,17 @@ await backend.close();
   "id": "notes",
   "version": "0.1.0",
   "baseVersion": "^0.1.0",
-  "dataVersion": 1,
   "entry": "notes-plugin.js"
 }
 ```
 
-`id` 只含小写字母、数字和连字符，且以字母开头。`version` 是插件代码的 SemVer 版本，`baseVersion` 是可接受的底座 SemVer 范围；宿主以自身 `package.json` 中的版本核对。`dataVersion` 是正的安全整数，表示插件持久数据的格式。`entry` 必须是目录内的相对 `.js` 或 `.mjs` 文件，解析符号链接后也不能离开目录。缺字段、多字段、无效版本或不兼容的底座范围都会在执行入口前被拒绝。
+`id` 只含小写字母、数字和连字符，且以字母开头。`version` 是插件代码的 SemVer 版本，`baseVersion` 是可接受的底座 SemVer 范围；宿主以自身 `package.json` 中的版本核对。`entry` 必须是目录内的相对 `.js` 或 `.mjs` 文件，解析符号链接后也不能离开目录。缺字段、多字段、无效版本或不兼容的底座范围都会在执行入口前被拒绝。
 
-代码版本与数据版本各自变化：只修改讲解文字可以保留数据版本，改变持久格式则需要改变数据版本。宿主打开空间时，先在独占锁内核对 `.repa/format.json`；调用 `plugin.open` 前，再核对 `.repa/plugin-versions/<id>.json` 与清单中的 `dataVersion` 是否相等。标记损坏时返回 `invalid_data_version`，版本不同则返回 `incompatible_data_version`，保留原标记和插件文件，由维护者选择兼容代码打开。具体数据内容仍由插件读取和校验。
+代码版本与数据版本各自变化：只修改讲解文字可以保留数据版本，只有旧版本会读错的改动才需要升数据版本。插件在自己的 `open` 中识别和校验数据，底座不再维护 `plugin-versions/`，`Plugin` 接口和清单也不声明 `dataVersion`。已有的 `plugin-versions/` 原样保留，不再读取或更新。
 
-当前重做期尚无真实用户，因此缺少标记的已有空间和插件数据会补上当前版本，不转换或改写原内容。直接向 `startServer`、`openPluginHost` 或离线测试宿主传入 `Plugin` 对象时，通过 `dataVersion` 声明版本，省略时使用初始版本 `1`；离线测试与正式宿主共用检查。父插件手动打开子插件时，由父插件管理这部分持久格式。
+插件可以从 `@repa/base/plugin` 导入 `checkFormat(file, currentVersion)`。它只读版本标记，允许未知的可选字段，接受不高于当前版本的正整数，并返回盘上的版本。缺标记报 `unknown_data_format`，损坏报 `invalid_data_version`，更新版本报 `incompatible_data_version`。插件负责读懂旧版本，并明确初始化新数据。对于已经认得的无标记旧数据，插件可以补上对应版本标记而不改写数据。学习插件独占自己的数据目录，旧版无标记数据认作版本 1；空间根目录的 `.repa/` 可能属于其他应用，仍须拒绝无标记数据。需要改写旧数据时，先备份，数据改写成功后才更新版本标记。这三条约定与[空间格式](#空间格式与版本-1)相同。
+
+一个插件打开失败时，宿主先停稳它发起的模型工作，关闭已经返回的实例，再移除它的工具、方法、Agent、说明和 view；依赖它且已经无法成立的插件也会停用。打开空间时，Agent 运行时接好以后，宿主在 `start()` 里调用各插件的 `onChange`，追赶空间里已有的变化。追赶完成之前 `onChange` 出错，同样算这个插件打开失败，按上面的方式停用；追赶完成以后再出错，插件不停用，错误照旧交给 `onError`，下一次 `flush()` 也会抛出它。`open` 抛错前取得的插件自有资源由插件负责释放。空间文件、历史、通用对话和其余可用插件照常工作。前端通过[停用插件协议](#插件停用状态)取得原因。
 
 ### 工具输出
 
@@ -139,7 +182,7 @@ await backend.close();
 
 ### 插件接口与测试宿主
 
-先从 `@repa/base/plugin` 导入 `Plugin`，用 `satisfies Plugin` 或类型注解约束插件入口，再运行 TypeScript 的严格检查。包内的声明由当前实现构建生成，因此类型错误直接对应当前版本的接口。参数使用 TypeBox schema；宿主在调用方法和工具前做实际校验，重复插件 id、重复工具名和覆盖内置工具也会在打开时被拒绝。
+先从 `@repa/base/plugin` 导入 `Plugin`，用 `satisfies Plugin` 或类型注解约束插件入口，再运行 TypeScript 的严格检查。包内的声明由当前实现构建生成，因此类型错误直接对应当前版本的接口。参数使用 TypeBox schema；宿主在调用方法和工具前做实际校验。重复插件 id 会拒绝装配；插件打开、工具或 Agent 声明失败，或者打开空间时追赶变化出错，宿主清理并停用该插件，其他可用插件继续运行。
 
 插件通过 `host.now()` 取得当前时间，单位为 Unix 毫秒。后端把 Agent 运行时的时钟交给每个插件，缓存过期判断、底座发起的完成请求时间和反馈记录也使用这一时钟。默认使用系统时间；嵌入时可向 `createAgentRuntime({ agentDir, now })` 传入取时函数，测试通过闭包改变返回值，就能拨动时间。Pi 自己生成的会话头、条目时间戳仍由 Pi 管理。
 
@@ -170,7 +213,7 @@ test("笔记插件使用模型改写文字", async (t) => {
 
 测试插件的到期或限时行为时，传入 `createPluginTestHost({ plugins, now: () => now })`，再修改闭包中的 `now`。插件下一次调用 `host.now()` 就会读到新时间，不必等待真实时间经过。
 
-`host.start()` 开始追赶变化；`writeFile()` 保存文件并等待历史与插件处理完成，不靠 watcher 的触发速度判断测试结束。你也可以从 `space.files` 和 `space.history` 核对文件及修订，从 `events` 和 `errors` 断言插件发出的事件与后台错误。
+`host.start()` 开始追赶变化，追赶中出错的插件会被停用，原因见 `host.disabled()`；`writeFile()` 保存文件并等待历史与插件处理完成，不靠 watcher 的触发速度判断测试结束。你也可以从 `space.files` 和 `space.history` 核对文件及修订，从 `events` 和 `errors` 断言插件发出的事件与后台错误。
 
 工具里的 `context.ask` 和 `host.services` 需要有人回答。`createPluginTestHost({ plugins, ask, services })` 的 `ask` 模拟用户：它收到已经补上 `version` 与 `requires` 的 `Item`，返回询问的结局，要模拟提交时调用其中的 `onSubmit` 取得插件的处理结果；`services` 模拟前端的服务。省略时两者分别以 `ask_unavailable`、`service_unavailable` 失败。直接调用 `host.tools()` 返回的工具时传入 `{ signal, callId }` 即可，`ask` 由宿主补上。
 
@@ -207,7 +250,7 @@ agents: () => [{
 }],
 ```
 
-`currentLesson`、`quizRunning` 等由插件自己实现。宿主打开时核对定义：id 不合格或重复、引用不存在的工具或子 Agent、列了 grep、子 Agent 的工具超过父 Agent，分别以 `invalid_agent`、`invalid_agent_id`、`unknown_agent_tool`、`unknown_subagent`、`agent_tool_unavailable`、`subagent_exceeds_parent` 拒绝打开，并逆序关闭已打开的实例，空间因此打开失败。定义可以互相列为子 Agent，也可以列自己。
+`currentLesson`、`quizRunning` 等由插件自己实现。宿主打开时核对定义：id 不合格或重复、引用不存在的工具或子 Agent、列了 grep、子 Agent 的工具超过父 Agent，分别以 `invalid_agent`、`invalid_agent_id`、`unknown_agent_tool`、`unknown_subagent`、`agent_tool_unavailable`、`subagent_exceeds_parent` 为原因停用声明它的插件，并关闭这个插件的实例；依赖它的插件随之停用，空间和其他插件照常打开。定义可以互相列为子 Agent，也可以列自己。
 
 - **会话**：建会话或后台任务时选定 Agent，之后不能更换；Pi 只声明这个 Agent 的工具。插件 Agent 的提示只有空间段（空间路径与根目录 `AGENTS.md`）和 `agent:<id>`，view 只有 `agent:<id>`。基础说明、Skill 目录、工具清单段和各插件的说明只属于通用 Agent。
 - **通用 Agent**：底座自带，id 为 `general`，带全部内置工具、`ask_user`、`subagent` 和全部插件的说明、工具与 view。它和 Claude Code 这类通用 Agent 一样调用工具，学习类的限制只加在插件定义的 Agent 上。读取和搜索沿用 Pi 的工具。写入和精确编辑在空间内照常记进历史；写空间外的文件（包括经符号链接写出去的）和命令一样，先问发起这次运行的连接，确认里写明实际写到的路径，并说明这次写入不进历史、不能撤回；Full Access 时不问。用户同意后直接写，工具结果里注明这次改动不能撤回。空间的 `.repa/` 一律不写，也不问。插件 Agent 在 `tools` 里列出 `ask_user` 才有这个工具，文件范围不变。
@@ -288,7 +331,7 @@ async execute(input, context) {
 
 ## 提示、状态与缓存
 
-通用 Agent 的基础说明、空间根目录的 `AGENTS.md`、Skill 目录、工具说明和每个插件的说明各占一段；插件 Agent 的分段见[声明 Agent](#声明-agent)。Skill 来源限于 `<home>/agent/skills/` 和 `<space>/.repa/skills/`。有效配置按默认、应用覆盖、空间覆盖依次合成，覆盖按来源 id 对所有 Agent 生效；编辑文本、停用和恢复默认分别通过 `prompt.set/reset` 完成，插件 Agent 的职责段 id 为 `agent:<id>`。`prompt.preview` 返回指定 Agent 的有效分段和单列的 view，与运行采用同一分段装配代码。
+通用 Agent 的基础说明、空间根目录的 `AGENTS.md`、Skill 目录、工具说明和每个插件的说明各占一段；插件 Agent 的分段见[声明 Agent](#声明-agent)。Skill 来源限于 `<home>/agent/skills/` 和 `<space>/.agents/skills/`。有效配置按默认、应用覆盖、空间覆盖依次合成，覆盖按来源 id 对所有 Agent 生效；编辑文本、停用和恢复默认分别通过 `prompt.set/reset` 完成，插件 Agent 的职责段 id 为 `agent:<id>`。`prompt.preview` 返回指定 Agent 的有效分段和单列的 view，与运行采用同一分段装配代码。
 
 会话已经使用过某段提示后，覆盖、恢复默认、停用、重新启用或插件说明变化，都会在下一轮附上一条变更说明，默认开启。说明标出来源和旧、新文本，按完整行省略两边完全相同的首尾部分，并明确旧规则不再适用于后续回答。它通过 Pi 的 `nextTurn` 自定义消息紧跟本轮用户消息进入上下文，系统提示本身仍走 Pi 的命名段落；用户输入原文保持不变。说明只追加一次，之后作为会话历史保留，不在每轮重复，也不为了清掉它改写稳定前缀。
 
@@ -302,7 +345,7 @@ async execute(input, context) {
 
 ## 协议入口
 
-协议版本为 `2`，采用带令牌的 JSON-RPC 2.0 WebSocket。参数、响应与通知类型见 [`protocol.ts`](src/protocol.ts)。`2` 在 `initialize` 里增加可选的 `capabilities`，新增询问和服务两组消息。客户端严格校验消息的信封，所以给信封加字段要升版本；信封里的 `Item` 和内容块按词汇规则宽松读取，词汇加字段不用升协议版本。后端发来无效数据时，客户端以 4002 主动断开。
+协议版本为 `3`，采用带令牌的 JSON-RPC 2.0 WebSocket。参数、响应与通知类型见 [`protocol.ts`](src/protocol.ts)。`3` 在 `space.open/create` 的响应中增加 `disabledPlugins`，并提供 `plugin.disabled` 查询。客户端严格校验消息的信封，所以给信封加字段要升版本；信封里的 `Item` 和内容块按词汇规则宽松读取，词汇加字段不用升协议版本。后端发来无效数据时，客户端以 4002 主动断开。
 
 | 组 | 方法 |
 | --- | --- |
@@ -314,13 +357,23 @@ async execute(input, context) {
 | 询问 | `ask.reply`，通知 `ask.request/closed` |
 | 服务 | `service.reply`，通知 `service.request/closed` |
 | 历史 | `history.list/changes/undo/undoRun` |
-| 插件 | `plugin.list/call`，通知 `plugin.event` |
+| 插件 | `plugin.list/disabled/call`，通知 `plugin.event` |
 | 提示 | `prompt.list/set/reset/preview` |
 | 模型 | `model.list/providers/getDefault/setDefault`、`auth.login/setKey/logout` |
 | 设置 | `settings.get/set` |
 | 反馈 | `feedback.create` |
 
-`space.browse` 为不能取得本地路径的 Web 前端列出某个文件夹下的子文件夹，不传路径时从用户目录开始，并标出含 `.repa/` 的已有空间；它只返回名称与路径，不读取文件。Node 读不到 Windows 的隐藏属性，因此除点开头的名称外，按名称跳过 `$` 开头的目录、`ProgramData`、`AppData` 等资源管理器默认不显示的系统目录，以及用户目录中拒绝读取的兼容链接；用户自行设为隐藏的文件夹仍会显示。单次最多返回 1000 个子文件夹并以 `truncated` 标记截断，不提供翻页游标。路径错误分别返回 `invalid_path`、`not_found`、`not_directory`、`permission_denied`（`EACCES` 与 `EPERM`）和 `unavailable`。`space.roots` 给出浏览起点：Windows 通过 PowerShell 读取盘符名称，失败时退回用户目录所在的盘；其他平台只有 `/`。
+### 插件停用状态
+
+`space.open` 和 `space.create` 成功时返回 `{ root, disabledPlugins }`，即使列表中有插件，空间也已经打开。`disabledPlugins` 的每项为 `{ id, reason: { code, message } }`：`code` 保留插件抛出的 `RepaFault.code`，其他异常为 `plugin_open_failed`；`message` 是供用户查看的原因。重复打开同一活动空间也会返回这份列表。
+
+`plugin.list` 仍只列可用插件及其方法、工具；`plugin.disabled` 返回当前空间的停用插件列表，重连后可以再次查询。停用插件的工具和 Agent 不会出现在运行时清单中，调用它的方法返回 `plugin_not_found`。这份状态在打开空间时确定，不增加插件自动重启或在线启停机制。前端的提示呈现由 Aqua 接续。
+
+### 目录浏览
+
+`space.browse` 为不能取得本地路径的 Web 前端列出某个文件夹下的子文件夹，不传路径时从用户目录开始，并以有效的 `.repa/format.json` 标出已有空间，包括当前程序尚不能打开的更新版本；它只读取格式标记，不读取空间内容。Node 读不到 Windows 的隐藏属性，因此除点开头的名称外，按名称跳过 `$` 开头的目录、`ProgramData`、`AppData` 等资源管理器默认不显示的系统目录，以及用户目录中拒绝读取的兼容链接；用户自行设为隐藏的文件夹仍会显示。单次最多返回 1000 个子文件夹并以 `truncated` 标记截断，不提供翻页游标。路径错误分别返回 `invalid_path`、`not_found`、`not_directory`、`permission_denied`（`EACCES` 与 `EPERM`）和 `unavailable`。`space.roots` 给出浏览起点：Windows 通过 PowerShell 读取盘符名称，失败时退回用户目录所在的盘；其他平台只有 `/`。
+
+### 模型与会话
 
 `model.providers` 按 Pi 的提供方目录列出名称、登录方式（`api_key`／`oauth`，`login` 为 false 的只能在 Repa 之外配置）、当前生效的凭据类型（`configured`，包括环境变量）和是否有可由 `auth.logout` 删除的保存凭据（`stored`）；凭据状态用 `checkAuth` 当场解析，登录后立即反映。`model.getDefault` 返回新会话不指定模型时使用的模型：Pi 设置中的默认模型，未设置时为第一个可用模型，都没有时为 `null`。`model.setDefault` 写入 Pi 自己的 `defaultProvider/defaultModel`，与 Pi 会话保存默认模型是同一项，不在 Repa 设置中另存。`auth.setKey` 失败时保留 `requires_interactive_login` 等底座错误码，前端据此改走 `auth.login`；上游错误仍统一为 `auth_failed`，不返回凭据或细节。
 
@@ -328,7 +381,7 @@ async execute(input, context) {
 
 新会话通过 Pi 1.1.0 的 `SessionManager.create(cwd, sessionDir, { id })` 建立，编号由底座传入，文件名为 `<时间戳>_<id>.jsonl`，其中时间戳的冒号和小数点替换为连字符。Pi 在第一条用户或助手消息出现时创建文件，并一起写入此前缓冲的所属 Agent、模型等条目。在此之前，会话已在内存登记，可以按编号使用和列出；关闭后不留下 jsonl 文件。
 
-打开空间的会话目录时，底座会把旧代码创建的 `<uuid>.jsonl` 按会话头里的编号和时间改为 Pi 的文件名，文件内容与父关联文件保持原样。改名先创建不覆盖目标的硬链接，再移除旧名字。目标已经存在时，内容相同（比如上次改名在建链之后中断）就补完改名；内容不同则两份都保留，按编号打开的是新名字那份。头部读不出的旧文件原样保留，和以前一样不出现在查找结果里；一份坏文件不会让整个空间打不开。文件系统不支持硬链接时保留旧文件并报告 I/O 错误。
+打开空间的会话目录时，底座会把旧代码创建的 `<uuid>.jsonl` 按会话头里的编号和时间改为 Pi 的文件名，文件内容与父关联文件保持原样。改名先创建不覆盖目标的硬链接，再移除旧名字。目标已经存在时，内容相同（比如上次改名在建链之后中断）就补完改名；内容不同则两份都保留，按编号打开的是新名字那份，并在 stderr 写一行提示，列出两份文件的路径，请用户核对后删掉多余的一份。两份都还在时，每次打开空间都会再提示。头部读不出的旧文件原样保留，和以前一样不出现在查找结果里；一份坏文件不会让整个空间打不开。文件系统不支持硬链接时保留旧文件并报告 I/O 错误。
 
 完成改名以后，按编号打开只列目录、匹配 `_<id>.jsonl`，然后由 Pi 读取这一个会话文件；找不到就返回 `session_not_found`。底座不再逐个读会话头寻找编号。列举全部会话仍使用 Pi 的 `SessionManager.listAll(sessionDir)`，并合入内存中的会话。
 
@@ -354,7 +407,7 @@ Agent 相关的约定：
 | --- | --- |
 | `agent_not_found` | Agent 不存在或已关掉，`{ agent }`；也用于向这类 Agent 的旧会话发消息、分支、压缩或换模型 |
 | `agent_not_direct` | Agent 不能直接对话，`{ agent }` |
-| `unknown_agent` | 打开空间时，装配指定的直接对话 Agent 不存在或已关掉，`{ agent }` |
+| `unknown_agent` | 打开空间时，装配指定的直接对话 Agent 不存在或已关掉，`{ agent }`；有插件停用时不报，只去掉不在的 Agent |
 | `message_rejected` | 插件拒收用户消息；`message` 是插件给用户的说明，`details` 为 `{ agent, reason, data? }`，按 `reason` 分支处理 |
 | `message_check_failed` | 插件判断消息时出错，消息没有发送，`{ agent }` |
 | `revision_not_found` | 修订不存在：格式不对，或不在这个空间的历史里；用于 `history.undo` 和 `history.changes`，`{ revision }` |
@@ -398,7 +451,7 @@ npm run real-model-check --workspace=@repa/base -- --output /tmp/repa-real-check
 
 **升级前的检查记录（`47d4d2f8b`）：** 2026-10-10 的收尾检查使用本 worktree 自有依赖、Node.js 24.20.0 和 Git 2.43.0：两个包的类型检查和构建通过，`space-history` 的 53 项测试全部通过；`base` 的 62 项测试中 61 项通过，唯一失败为原有含 view 保温回归，原因见[当时的缓存补丁基线缺口](https://github.com/Utopia-V/repa/blob/47d4d2f8b/packages/base/README.md#缓存补丁为什么仍然需要)。新增维护、宿主、用量和工具取消回归均通过，脚本 `--help` 入口通过。真实服务证据沿用冻结报告，本轮验证用真实 SDK 与离线提供方完成。
 
-脚本先构建当前公开入口，使用临时空间和笔记插件，结果文件必须不存在。默认读取 `~/.repa/agent`，也可用 `--agent-dir` 指定。运行前关闭使用同一 Agent 目录的 Repa 进程；脚本临时调整 Agent 设置，正常收尾按原字节恢复，刷新后的凭据由 Pi 保留在原文件。恢复发生冲突时保留设置副本并报告其本机位置。`--skip-refresh` 跳过显式 OAuth 刷新检查；真实调用会使用订阅额度。
+脚本先构建当前公开入口，使用临时空间和笔记插件，结果文件必须不存在。默认读取系统配置目录下的 `agent/`（遵循 `REPA_HOME`），也可用 `--agent-dir` 指定。运行前关闭使用同一 Agent 目录的 Repa 进程；脚本临时调整 Agent 设置，正常收尾按原字节恢复，刷新后的凭据由 Pi 保留在原文件。恢复发生冲突时保留设置副本并报告其本机位置。`--skip-refresh` 跳过显式 OAuth 刷新检查；真实调用会使用订阅额度。
 
 ### 例行核实改用 Pi 用量记录
 

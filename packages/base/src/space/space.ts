@@ -43,7 +43,21 @@ export async function createSpace(root: string, options: SpaceOptions = {}): Pro
 export async function openSpace(input: string, options: SpaceOptions = {}): Promise<Space> {
   const root = await realpath(input);
   const dataDir = path.join(root, ".repa");
-  await directory(dataDir);
+  // 先识别已有数据，再创建锁或任何辅助文件；未知和更新格式连锁目录也不写。
+  try {
+    await mkdir(dataDir);
+    const marker = await open(path.join(dataDir, "format.json"), "wx", 0o600);
+    try {
+      await marker.writeFile(`${JSON.stringify({ version: 1 })}\n`);
+      await marker.sync();
+    } finally {
+      await marker.close();
+    }
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
+    await directory(dataDir);
+  }
+  await checkFormat(path.join(dataDir, "format.json"), 1);
   const onError = options.onError ?? ((error: unknown) => { process.emitWarning(String(error)); });
   let compromised: unknown;
   let release: () => Promise<void>;

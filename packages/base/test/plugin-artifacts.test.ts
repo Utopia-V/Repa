@@ -1,6 +1,6 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadPlugin } from "../src/plugins/manifest.js";
@@ -9,11 +9,11 @@ import { createSpace, openSpace } from "../src/space.js";
 import { createPluginTestHost, ModelTestDriver } from "../src/testing.js";
 import { RepaFault } from "../src/schema.js";
 
-const manifest = { id: "fixture", version: "0.1.0", baseVersion: "^0.1.0", dataVersion: 1, entry: "index.mjs" };
+const manifest = { id: "fixture", version: "0.1.0", baseVersion: "^0.1.0", entry: "index.mjs" };
 const fault = (code: string) => (error: unknown) => error instanceof RepaFault && error.code === code;
 
 async function fixture(t: TestContext) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "repa-artifacts-"));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-artifacts-")));
   const cleanups: (() => Promise<void>)[] = [];
   t.after(async () => {
     for (const cleanup of cleanups.reverse()) await cleanup();
@@ -30,7 +30,7 @@ async function fixture(t: TestContext) {
 test("清单及底座版本错误在执行顶层代码前拒绝，合法构建才执行模块", async (t) => {
   const f = await fixture(t);
   for (const change of [
-    { id: "Bad" }, { version: "bad" }, { baseVersion: "bad" }, { dataVersion: 0 }, { dataVersion: 1e20 }, { baseVersion: "" },
+    { id: "Bad" }, { version: "bad" }, { baseVersion: "bad" }, { baseVersion: "" },
     { entry: "index.ts" }, { entry: "missing.mjs" }, { entry: "../outside.mjs" }, { entry: "/tmp/outside.mjs" }, { extra: true },
   ]) {
     await f.save({ ...manifest, ...change });
@@ -40,7 +40,7 @@ test("清单及底座版本错误在执行顶层代码前拒绝，合法构建�
   await assert.rejects(loadPlugin(f.directory), fault("incompatible_base_version"));
   await assert.rejects(readFile(f.sentinel), { code: "ENOENT" });
   await f.save(manifest);
-  assert.equal((await loadPlugin(f.directory)).dataVersion, 1);
+  assert.equal((await loadPlugin(f.directory)).id, "fixture");
   assert.equal(await readFile(f.sentinel, "utf8"), "executed");
 });
 
@@ -62,50 +62,28 @@ test("损坏清单、源码文件、目录外链接及不一致的导出 id 均�
   await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_export"));
 });
 
-test("无版本空间补标记并保留文件，插件关闭重开能读取原数据，异版拒绝且原字节不变", async (t) => {
+test("插件自行检查数据版本，失败只停对应插件，旧底座的 plugin-versions 不再读取", async (t) => {
   const f = await fixture(t);
-  const root = path.join(f.root, "space");
-  await mkdir(path.join(root, ".repa", "plugins", "fixture"), { recursive: true });
-  const original = "旧数据，中文。\r\n";
-  const file = path.join(root, ".repa", "plugins", "fixture", "answers.txt");
-  await writeFile(file, original);
-  await writeFile(path.join(root, "note.txt"), original);
-  let space = await openSpace(root, { watch: false });
-  let opened = 0;
-  const reads: string[] = [];
-  const plugin = {
-    id: "fixture", dataVersion: 1,
-    async open() {
-      opened++;
-      reads.push(await readFile(file, "utf8"));
-      return {};
-    },
-  };
-  const open = (plugins = [plugin]) => openPluginHost({ space, plugins, models: new ModelTestDriver(), emit() {}, onError() {} });
-  let host: Awaited<ReturnType<typeof open>> | undefined;
-  f.cleanups.push(async () => {
-    await host?.close();
-    await space.close();
+  const space = await createSpace(path.join(f.root, "space"), { watch: false });
+  const legacy = path.join(space.dataDir, "plugin-versions");
+  await mkdir(legacy);
+  await writeFile(path.join(legacy, "good.json"), "{损坏但不再读取");
+  const host = await openPluginHost({
+    space, models: new ModelTestDriver(), emit() {}, onError() {},
+    plugins: [
+      { id: "newer", async open() { throw new RepaFault("incompatible_data_version", "需要更新插件"); } },
+      { id: "broken", async open() { throw new SyntaxError("数据损坏"); } },
+      { id: "good", async open() { return { instructions: () => "可用插件" }; } },
+    ],
   });
-  host = await open();
-  await host.close();
-  await space.close();
-  space = await openSpace(root, { watch: false });
-  host = await open();
-  assert.deepEqual(reads, [original, original]);
-  await host.close();
-  const marker = path.join(root, ".repa", "plugin-versions", "fixture.json");
-  const before = await readFile(marker);
-  await assert.rejects(open([{ ...plugin, id: "earlier" }, { ...plugin, dataVersion: 2 }]), fault("incompatible_data_version"));
-  await writeFile(marker, "{");
-  await assert.rejects(open(), fault("invalid_data_version"));
-  assert.equal(await readFile(marker, "utf8"), "{");
-  await writeFile(marker, before);
-  assert.equal(opened, 2);
-  assert.deepEqual(await readFile(marker), before);
-  assert.equal(await readFile(file, "utf8"), original);
-  assert.equal(await readFile(path.join(root, "note.txt"), "utf8"), original);
-  assert.deepEqual(JSON.parse(await readFile(path.join(root, ".repa", "format.json"), "utf8")), { version: 1 });
+  f.cleanups.push(async () => { await host.close(); await space.close(); });
+  assert.deepEqual(host.list().map((plugin) => plugin.id), ["good"]);
+  assert.deepEqual(host.disabled().map(({ id, reason }) => [id, reason.code]), [["broken", "plugin_open_failed"], ["newer", "incompatible_data_version"]]);
+  assert.deepEqual(host.instructions(), [{ id: "plugin:good", text: "可用插件" }]);
+  assert.deepEqual(await readdir(legacy), ["good.json"]);
+  assert.equal(await readFile(path.join(legacy, "good.json"), "utf8"), "{损坏但不再读取");
+  await space.files.write("note.txt", "继续写文件");
+  assert.ok((await space.history.list()).length > 0);
 });
 
 test("空间版本损坏或不兼容时拒绝打开并保留原标记，失败后释放锁", async (t) => {
@@ -127,6 +105,9 @@ test("空间版本损坏或不兼容时拒绝打开并保留原标记，失败�
   await (await openSpace(root, { watch: false })).close();
 });
 
-test("离线测试宿主复用插件数据版本检查", async () => {
-  await assert.rejects(createPluginTestHost({ plugins: [{ id: "invalid", dataVersion: 0, async open() { assert.fail("不能打开"); } }] }), fault("invalid_data_version"));
+test("离线测试宿主打开失败插件后仍可关闭，错误保留供检查", async () => {
+  const testing = await createPluginTestHost({ plugins: [{ id: "invalid", async open() { throw new RepaFault("invalid_data_version", "插件数据损坏"); } }] });
+  assert.equal(testing.host.disabled()[0]?.reason.code, "invalid_data_version");
+  assert.equal(testing.errors.length, 1);
+  await testing.close();
 });

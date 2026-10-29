@@ -117,6 +117,7 @@ test("未打开空间时也能浏览文件夹，错误码随 RPC 错误返回", 
   const f = await fixture(t);
   const folder = path.join(f.root, "browse");
   await mkdir(path.join(folder, "physics", ".repa"), { recursive: true });
+  await writeFile(path.join(folder, "physics", ".repa", "format.json"), '{"version":1}');
   const client = await f.client();
 
   assert.ok((await client.call("space.roots", {})).length > 0);

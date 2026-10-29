@@ -1,7 +1,8 @@
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RepaFault } from "@repa/base";
-import type { Host, Plugin, PluginInstance, PluginMethod } from "@repa/base/plugin";
+import { checkFormat, type Host, type Plugin, type PluginInstance, type PluginMethod } from "@repa/base/plugin";
 import { parse } from "@repa/base/protocol";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
 import { learningMethods, type LearningInput, type LearningState } from "./protocol.js";
@@ -18,8 +19,16 @@ export interface LearningPluginOptions {
 }
 export function createLearningPlugin(options: LearningPluginOptions = {}): Plugin {
   return {
-    id: "learning", dataVersion: 1,
+    id: "learning",
     async open(host) {
+      // 此目录由学习插件独占；无标记的数据来自旧版格式 1，只补标记，不改写已有记录。
+      const format = path.join(host.space.dataDir, "format.json");
+      try {
+        await writeFile(format, `${JSON.stringify({ version: 1 })}\n`, { flag: "wx", mode: 0o600 });
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
+      }
+      await checkFormat(format, 1);
       const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
       const course = await loadCourseSources(sources, host.files);
       const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"), options.now);
