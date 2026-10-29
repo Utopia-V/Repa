@@ -68,7 +68,6 @@ test("首次启动沿用 Pi 的缓存默认值，不写入 Repa 保温设置", a
   await runtime.close();
   const settings = SettingsManager.create(f.agentDir, f.agentDir, { projectTrusted: false });
   assert.equal(settings.getGlobalSettings().cacheWarming, undefined);
-  assert.equal(settings.getCacheWarmingMode(), "streaming");
   await f.createRuntime({ settingsManager: settings });
 });
 

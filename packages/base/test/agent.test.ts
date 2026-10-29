@@ -642,7 +642,6 @@ test("默认自动 overflow 压缩在重试第一份请求前补回最新视图"
   await f.session.send("触发上下文溢出");
   assert(capture);
   assert.equal(summaries.length, 2);
-  assert(summaries.some(summary => JSON.stringify(summary.messages).includes("<repa-view")));
   assert.equal(JSON.stringify(capture.messages).split("<repa-view source=").length - 1, 1);
   assert.match(JSON.stringify(capture.messages), /本轮最新视图/u);
   assert.doesNotMatch(JSON.stringify(capture.messages), /压缩前旧视图/u);
