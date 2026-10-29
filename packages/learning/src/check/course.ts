@@ -24,14 +24,27 @@ export interface CheckOptions {
   topics?: string[];
   /** 同时运行的沙箱数，缺省见 defaultJobs。 */
   jobs?: number;
+  /** 每核对完一个 topic 调用一次，按完成先后，供显示进度；问题仍在全部做完后按课程顺序返回。 */
+  onTopic?: (topic: string, done: number, total: number) => void;
 }
 
 // 实测 12 个沙箱并行核对全部 topic 时常驻内存合计峰值约 10 GiB，每个不到 1 GiB；按 1 GiB 留量。
 const MEMORY_PER_SANDBOX = 1024 ** 3;
 
+export interface Machine {
+  parallelism: number;
+  totalMemory: number;
+  /** 进程所在 cgroup 的内存限额；0 表示不知道，没有限额时是一个极大的数。 */
+  constrainedMemory: number;
+}
+
 /** 缺省的并行沙箱数：每个硬件线程一个，再按内存限制。 */
-export function defaultJobs(): number {
-  return Math.max(1, Math.min(os.availableParallelism(), Math.floor(os.totalmem() / MEMORY_PER_SANDBOX)));
+export function defaultJobs(
+  machine: Machine = { parallelism: os.availableParallelism(), totalMemory: os.totalmem(), constrainedMemory: process.constrainedMemory() },
+): number {
+  // 容器限了内存时 os.totalmem() 仍报宿主的内存，要以 cgroup 的限额为准；CPU 配额 availableParallelism 已经算进去了。
+  const memory = machine.constrainedMemory > 0 ? Math.min(machine.totalMemory, machine.constrainedMemory) : machine.totalMemory;
+  return Math.max(1, Math.min(machine.parallelism, Math.floor(memory / MEMORY_PER_SANDBOX)));
 }
 
 export interface CheckSummary {
@@ -118,6 +131,7 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     const jobs = Math.max(1, Math.min(options.jobs ?? defaultJobs(), selected.length));
     while (runners.length < jobs) runners.push(new SandboxRunner({ assets }));
     let next = 0;
+    let done = 0;
     let failure: { error: unknown } | undefined;
     await Promise.all(runners.map(async (worker) => {
       for (let index = next++; index < selected.length && !failure; index = next++) {
@@ -126,6 +140,8 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
         if (!topic || !result) break;
         try {
           await checkTopicCode(topic, worker, result.report, result.stats, options.timeoutMs, published);
+          done += 1;
+          options.onTopic?.(topic.topic.id, done, selected.length);
         } catch (error) {
           // 和逐个核对一样，出现意外错误就不再开始新的 topic；正在跑的做完后把错误抛出去。
           failure ??= { error };

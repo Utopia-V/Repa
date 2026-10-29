@@ -7,7 +7,7 @@ import { Type } from "typebox";
 import { parse } from "@repa/base/protocol";
 import { ExpectedSchema, expectedBinding } from "../src/python-execution.js";
 
-import { checkCourse } from "../src/check/course.js";
+import { checkCourse, defaultJobs } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
 import { TopicSchema, type CodeSlot, type OrderSlot, type TableSlot, type TextSlot } from "../src/format/schema.js";
 import { demoCourse, runtimeUnavailable, writeCourse, type DemoCourse } from "./demo-course.js";
@@ -219,7 +219,11 @@ test("几个沙箱同时核对时，问题的顺序、计数和发布的期望�
   const run = async (demo: DemoCourse) => {
     const one = await writeCourse(t, demo);
     const many = await writeCourse(t, demo);
-    return [await checkCourse(one, { base: one, jobs: 1 }), await checkCourse(many, { base: many, jobs: 3 }), one, many] as const;
+    const progress: string[] = [];
+    const parallel = await checkCourse(many, { base: many, jobs: 3, onTopic: (topic, done, total) => progress.push(`${topic} ${done}/${total}`) });
+    // 进度按完成先后：骨架 t02 没有代码，最先结束；t01 故意慢，最后结束。
+    assert.deepEqual(progress, ["t02 1/3", "t03 2/3", "t01 3/3"]);
+    return [await checkCourse(one, { base: one, jobs: 1 }), parallel, one, many] as const;
   };
 
   const [serial, parallel] = await run(build(true));
@@ -232,4 +236,12 @@ test("几个沙箱同时核对时，问题的顺序、计数和发布的期望�
   assert.deepEqual(cleanParallel.diagnostics, []);
   assert.deepEqual(cleanParallel.summary.code, cleanSerial.summary.code);
   assert.equal(await readFile(path.join(many, "expected.json"), "utf8"), await readFile(path.join(one, "expected.json"), "utf8"));
+});
+
+test("缺省并行数取硬件线程数，并按每个沙箱 1 GiB 限制；容器的内存限额比机器内存小时以限额为准", () => {
+  const GiB = 1024 ** 3;
+  assert.equal(defaultJobs({ parallelism: 12, totalMemory: 16 * GiB, constrainedMemory: 2 ** 64 }), 12);
+  assert.equal(defaultJobs({ parallelism: 12, totalMemory: 16 * GiB, constrainedMemory: 4 * GiB }), 4);
+  assert.equal(defaultJobs({ parallelism: 12, totalMemory: 6.5 * GiB, constrainedMemory: 0 }), 6);
+  assert.equal(defaultJobs({ parallelism: 4, totalMemory: 0.5 * GiB, constrainedMemory: 0 }), 1);
 });

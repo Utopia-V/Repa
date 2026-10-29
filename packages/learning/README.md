@@ -118,7 +118,7 @@ pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们�
 npm run course:runtime -- --from <离线包目录>   # 第一次准备 Pyodide 包
 npm run course:check                           # 检查全部课程
 npm run course:check -- --topic py17           # 只对 py17 运行代码核对
-npm run course:check -- --jobs 4               # 最多 4 个沙箱同时核对；缺省每个硬件线程一个，按每个 1 GiB 内存限制
+npm run course:check -- --jobs 4               # 最多 4 个沙箱同时核对；缺省每个硬件线程一个，按每个 1 GiB 内存限制（容器里按 cgroup 的内存限额）
 npm run course:confirm -- --dry-run            # 看要发给模型的核对请求；去掉 --dry-run 才真正调用
 npm test --workspace=@repa/learning
 ```
