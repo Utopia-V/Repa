@@ -37,6 +37,29 @@ Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa:
 
 前端实现遵循 [Web 协作规则](../../apps/web/AGENTS.md)、[设计系统](../design-system.md)与[设计系统实现](../design-system-implementation.md)。前端工作由相应负责人推进。
 
+## CI
+
+[GitHub Actions 工作流](../../.github/workflows/ci.yml)在推送到 `dev`、指向 `dev` 的 PR、手动触发时运行，也在每天 UTC 18:00（北京时间次日凌晨 2:00）定时运行。两个任务都使用 Node 24 和 npm 12.0.2，从 `npm ci` 开始准备依赖，并运行 `npm run course:runtime` 准备或核对 Pyodide 离线包。
+
+- `linux` 在 `ubuntu-24.04` 上安装 `libseccomp2` 和系统 `python3`，然后运行根目录的 `npm test`，统一构建并测试全部 workspace。任务失败会使 CI 失败。
+- `windows` 在 `windows-latest` 上按默认设置检出，保留 Windows 的 CRLF 换行情形；构建库包后，依次测试空间历史、底座和学习插件。团队缺少 Windows 本机验证环境，这个任务暂用 `continue-on-error: true` 收集兼容性问题，先不拦合并，等它稳定变绿以后去掉。
+
+`REPA_TEST_REQUIRE_ENV=1` 让缺少 Pyodide 离线包、Landlock、libseccomp 或系统 Python 等环境的测试按原跳过原因失败。Linux 任务设置它，以保证沙箱测试实际运行；Windows 不设置，Linux 沙箱测试在那里按环境原因跳过。平台或权限语义差异造成的其他跳过保持原样。
+
+`REPA_SKIP_FULL_COURSE_CHECK=1` 只跳过随包 Python 整门课的 Pyodide 核对。Linux 的推送和 PR 测试、所有 Windows 测试设置它；Linux 的定时和手动测试不设置，因此会运行整门课核对。
+
+在具备 Landlock ABI 4 以上（Linux 6.7 以上）的 Linux 上，使用 Node 24 和 npm 12.0.2，在仓库根目录复现 Linux 的推送和 PR 任务：
+
+```sh
+sudo apt-get update
+sudo apt-get install -y libseccomp2 python3
+npm ci
+npm run course:runtime
+REPA_TEST_REQUIRE_ENV=1 REPA_SKIP_FULL_COURSE_CHECK=1 npm test
+```
+
+复现定时或手动任务时，去掉最后一行的 `REPA_SKIP_FULL_COURSE_CHECK=1`。
+
 ## 工程边界
 
 根目录持有 workspace 命令与单一锁文件，各包声明自己的依赖。浏览器只使用 `@repa/base/client` 和 `@repa/base/protocol`，Node 宿主通过 `@repa/base/process` 管理后端；插件通过 `@repa/base/plugin` 引用类型。Pi 的实现依赖留在底座的 `src/agent/` 内。

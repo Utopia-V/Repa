@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 18 * * *"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    env:
+      REPA_TEST_REQUIRE_ENV: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@12.0.2
+      - uses: actions/cache@v4
+        with:
+          path: packages/learning/.cache/pyodide
+          # npm 锁定 Pyodide 及其 pyodide-lock.json；课程清单决定 wheel 及其依赖。
+          key: ${{ runner.os }}-pyodide-${{ hashFiles('package-lock.json', 'packages/learning/package.json', 'packages/learning/courses/*/course.yaml') }}
+      - run: sudo apt-get update && sudo apt-get install -y libseccomp2 python3
+      - run: npm ci
+      - run: npm run course:runtime
+      - name: 推送和 PR 跳过整门课核对
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: echo "REPA_SKIP_FULL_COURSE_CHECK=1" >> "$GITHUB_ENV"
+      - run: npm test
+
+  windows:
+    runs-on: windows-latest
+    # 等 Windows 任务稳定变绿以后去掉 continue-on-error。
+    continue-on-error: true
+    env:
+      REPA_SKIP_FULL_COURSE_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@12.0.2
+      - uses: actions/cache@v4
+        with:
+          path: packages/learning/.cache/pyodide
+          key: ${{ runner.os }}-pyodide-${{ hashFiles('package-lock.json', 'packages/learning/package.json', 'packages/learning/courses/*/course.yaml') }}
+      - run: npm ci
+      - run: npm run course:runtime
+      - run: npm run build:packages
+      - run: npm test -w @repa/space-history
+      - run: npm test -w @repa/base
+      - run: npm test -w @repa/learning
