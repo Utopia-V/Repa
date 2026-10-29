@@ -17,7 +17,7 @@
 | Desktop 开发 | `npm run dev:desktop` |
 | 全仓类型检查、测试与构建 | `npm run check`、`npm test`、`npm run build` |
 
-根 `start` 和 `dev:backend` 都运行底座的 `serve`，由底座的 `prestart` 准备构建产物。需要指定端口或加载本机可信插件时，继续传入底座 CLI 的选项，具体见[使用说明](../../packages/base/README.md#使用)。
+根 `start` 和 `dev:backend` 都运行底座的 `serve`，由底座的 `prestart` 准备构建产物。需要指定端口或加载本机可信插件时，继续传入底座 CLI 的选项，具体见[使用说明](../../packages/base/README.md#怎么用)。
 
 ### 增量构建
 
@@ -98,6 +98,6 @@ npm test
 npm run build
 ```
 
-只验证底座或历史包时，使用所属说明中的[底座验证入口](../../packages/base/README.md#验证入口与交付统计)与[空间历史验证入口](../../packages/space-history/README.md#验证入口)。普通测试使用临时目录、真实 Git、WebSocket、SDK 与脚本化模型提供方，真实模型核实使用单独入口并遵循已授权的资源范围。
+只验证底座或历史包时，使用所属说明中的[底座验证入口](../../packages/base/README.md#运行检查)与[空间历史验证入口](../../packages/space-history/README.md#验证入口)。普通测试使用临时目录、真实 Git、WebSocket、SDK 与脚本化模型提供方，真实模型核实使用单独入口并遵循已授权的资源范围。
 
 宿主进程、协议或关闭机制变化后，需要在组合后的版本验证前端与真实后端的连接和退出。Electron 图形窗口、安装包与其他平台按实际交付范围另行验证，开发构建的结果不扩展为发行支持。
