@@ -20,7 +20,7 @@
       "reason": "第三方材料"
     },
     {
-      "pattern": "apps/*/src/components/ui/**",
+      "pattern": "apps/**/components/ui/**",
       "reason": "随 UI 组件带来的第三方文档"
     },
     {
