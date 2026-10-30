@@ -75,42 +75,32 @@ Search file contents for a pattern. Returns matching lines with file paths and l
 
 来源：learning。
 
-按版本引用批取讲解、例题、KP、概念卡或已开放题解。最多 8 个引用；offset/limit 指定内容块范围，实际返回可能受 16 KiB 预算缩短。
+按 learning_search 给出的内容编号读取全文，一次最多 8 个。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| limit | integer | 是 |  |
-| offset | integer | 是 |  |
-| refs[] | object | 否 |  |
-| refs[].courseId | string | 否 |  |
-| refs[].id | string | 否 |  |
-| refs[].kind | "topic" &#124; "kp" &#124; "lesson" &#124; "example" &#124; "card" &#124; "explanation" | 否 |  |
-| refs[].kpId | string | 是 |  |
-| refs[].topicId | string | 否 |  |
-| refs[].version | string | 否 |  |
+| ids[] | string | 否 | learning_search 结果里的内容编号 |
 
 ## learning_search
 
 来源：learning。
 
-搜索当前任务与已学内容，返回可用于即时回顾的版本引用和原学习位置；默认 10 项，最多 20 项。
+在当前任务和学过的内容里搜索讲解、例题、知识点、概念卡和已开放的题解。每条结果给出内容编号、名称和一段摘录，用 learning_read 按编号读取全文。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| limit | integer | 是 |  |
-| offset | integer | 是 |  |
-| query | string | 否 |  |
+| limit | integer | 是 | 最多返回几条，默认 10 |
+| offset | integer | 是 | 从第几条结果开始，默认 0 |
+| query | string | 否 | 要找的词：概念名、代码片段或知识点编号；空字符串列出全部可读的内容 |
 
 ## learning_task
 
 来源：learning。
 
-读取当前任务画面、练习的公开题面、已接受原答及已释放反馈。text 是 JSON 的片段，offset/limit 按 Unicode 字符计数；默认 2000、最多 3000 字符，按 total 继续读取，version 变化后重新从 0 开始。
+读取学习者当前的任务：正在读的讲解或例题，或者正在做的题，连同学习者的作答、判分结果和题解。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| limit | integer | 是 |  |
-| offset | integer | 是 |  |
 
 ## ls
 

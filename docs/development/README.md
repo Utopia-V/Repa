@@ -77,7 +77,7 @@ REPA_TEST_REQUIRE_ENV=1 npm test
 | 空间文件历史与变更流 | [空间历史包](../../packages/space-history/README.md) |
 | 课程文件格式、课程检查与课程内容 | [学习包说明](../../packages/learning/README.md)、[写课说明](../../packages/learning/courses/README.md) |
 | 在 Pyodide 里运行 Python：页面 Worker、Linux 沙箱与离线包 | [Python 运行器说明](../../packages/python-runner/README.md) |
-| 辅导、即时回顾与受限开始 | [辅导说明](learning-tutor.md)、[Agent 与工具](../../packages/learning/src/tutor.ts) |
+| 辅导、即时回顾与受限开始 | [辅导说明](learning-tutor.md)、[Agent 与工具](../../packages/learning/src/tutor.ts)、[给模型的文字](../../packages/learning/src/tutor-text.ts) |
 | 上课、复习、菜单与判分 | [教学流程说明](learning-flow.md)、[转换入口](../../packages/learning/src/flow.ts) |
 | 测验、换题重考、XP、日目标与完课估算 | [测验与进度说明](learning-quiz-xp.md)、[奖励计算](../../packages/learning/src/progress.ts) |
 | 学习流程的数值、学生模型常数与尚待查证的假设 | [流程数值](../../packages/learning/src/parameters.ts)、[学生模型常数](../../packages/learning-model/src/model.ts)、[假设清单](../../packages/learning/README.md#尚待查证的假设) |

@@ -1,8 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
 import type { PluginInstance, PluginMethod, Tool } from "@repa/base/plugin";
-import { contentVersion, object, parse } from "@repa/base/protocol";
-import { memoryAt } from "@repa/learning-model";
+import { object, parse } from "@repa/base/protocol";
 import { Type } from "typebox";
 import {
   learningMethods,
@@ -14,19 +13,23 @@ import {
 } from "./protocol.js";
 import type { FactBody } from "./records-schema.js";
 import type { LearningSession, LearningView } from "./session.js";
+import { topicMemory } from "./student-model.js";
 import { currentDelivery, referenceContent, requireReferenceAccess, visibleContent } from "./tutor-content.js";
+import { pagesText, searchText, taskText, viewText } from "./tutor-text.js";
 
 export const TUTOR_AGENT = "learning-tutor";
+/** 前端的 content.search 与 content.read 一次返回的上限；给模型的工具输出由底座的上限约束，不用它。 */
 const TEXT_BYTES = 16 * 1024;
+const TaskParametersSchema = object({});
 const SearchParametersSchema = object({
-  query: Type.String({ maxLength: 200 }),
-  offset: Type.Optional(Type.Integer({ minimum: 0 })),
-  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+  query: Type.String({ maxLength: 200, description: "要找的词：概念名、代码片段或知识点编号；空字符串列出全部可读的内容" }),
+  offset: Type.Optional(Type.Integer({ minimum: 0, description: "从第几条结果开始，默认 0" })),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "最多返回几条，默认 10" })),
 });
 const ReadParametersSchema = object({
-  refs: learningMethods["content.read"].input.properties.refs,
-  offset: Type.Optional(Type.Integer({ minimum: 0 })),
-  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 64 })),
+  ids: Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
+    minItems: 1, maxItems: 8, description: "learning_search 结果里的内容编号",
+  }),
 });
 
 export async function connectTutor(
@@ -77,14 +80,13 @@ export async function connectTutor(
     name: M,
     invoke: (input: LearningInput<M>) => Promise<LearningResult<M> | undefined>,
   ) {
-    const method: PluginMethod = {
+    methods[name] = {
       parameters: learningMethods[name].input,
       result: learningMethods[name].result,
       // schema 索引联合在这里丢失 M，parse 已按本方法校验。
       invoke: async (raw) => invoke(parse(learningMethods[name].input, raw) as LearningInput<M>),
     };
-    methods[name] = method;
-    return method;
+    return invoke;
   }
   const search = register("content.search", async ({ query, offset, limit }) => access((pages) => {
     const needle = query.toLocaleLowerCase("zh-CN");
@@ -113,7 +115,7 @@ export async function connectTutor(
       read: selected.length > 0,
     };
   }));
-  const read = register("content.read", async ({ refs, offset, limit }) => access((pages) => {
+  register("content.read", async ({ refs, offset, limit }) => access((pages) => {
     const selected: ContentPage[] = [];
     for (const ref of refs) {
       const source = find(pages, ref);
@@ -135,37 +137,19 @@ export async function connectTutor(
     find(pages, ref);
     return { result: { openedAt: session.clock() }, read: true };
   }));
-  const TaskParametersSchema = object({
-    offset: Type.Optional(Type.Integer({ minimum: 0 })),
-    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 3000 })),
-  });
+  // 工具与前端方法共用授权和求助记录（access、observe），只是给模型写成分行文字：不带前端的字段与编号，也不分页，
+  // 过长时由底座省略中间、保存全文，模型用 read 按行续取。
   const tools: Tool[] = [
     {
       name: "learning_task",
-      description: "读取当前任务画面、练习的公开题面、已接受原答及已释放反馈。text 是 JSON 的片段，offset/limit 按 Unicode 字符计数；默认 2000、最多 3000 字符，按 total 继续读取，version 变化后重新从 0 开始。",
+      description: "读取学习者当前的任务：正在读的讲解或例题，或者正在做的题，连同学习者的作答、判分结果和题解。",
       parameters: TaskParametersSchema,
       async execute(raw) {
-        const { offset = 0, limit = 2000 } = parse(TaskParametersSchema, raw);
+        parse(TaskParametersSchema, raw);
         let text = "";
-        await observe(async (view) => {
+        await observe((view) => {
           requireReferenceAccess(view);
-          const task = view.state.task;
-          const delivery = currentDelivery(task);
-          const submission = task?.submissions.find((entry) => entry.deliveryId === delivery?.deliveryId);
-          const focus = {
-            taskId: task?.taskId ?? null,
-            kind: task?.kind ?? null,
-            phase: task?.phase ?? null,
-            delivery: delivery ?? null,
-            submission: submission ?? null,
-          };
-          const serialized = Array.from(JSON.stringify(focus));
-          text = JSON.stringify({
-            version: await contentVersion(focus),
-            offset,
-            total: serialized.length,
-            text: serialized.slice(offset, offset + limit).join(""),
-          });
+          text = taskText(view.state.task, session.course);
           return true;
         });
         return { text };
@@ -173,22 +157,28 @@ export async function connectTutor(
     },
     {
       name: "learning_search",
-      description: "搜索当前任务与已学内容，返回可用于即时回顾的版本引用和原学习位置；默认 10 项，最多 20 项。",
+      description: "在当前任务和学过的内容里搜索讲解、例题、知识点、概念卡和已开放的题解。每条结果给出内容编号、名称和一段摘录，用 learning_read 按编号读取全文。",
       parameters: SearchParametersSchema,
       async execute(raw) {
-        const input = parse(SearchParametersSchema, raw);
-        const result = await search.invoke({ offset: 0, limit: 10, ...input }, {});
-        return { text: JSON.stringify(result) };
+        const input = { offset: 0, limit: 10, ...parse(SearchParametersSchema, raw) };
+        const result = await search(input);
+        return { text: searchText(input.query, input.offset, result ?? { hits: [], nextOffset: null }, titles, session.course) };
       },
     },
     {
       name: "learning_read",
-      description: "按版本引用批取讲解、例题、KP、概念卡或已开放题解。最多 8 个引用；offset/limit 指定内容块范围，实际返回可能受 16 KiB 预算缩短。",
+      description: "按 learning_search 给出的内容编号读取全文，一次最多 8 个。",
       parameters: ReadParametersSchema,
       async execute(raw) {
-        const input = parse(ReadParametersSchema, raw);
-        const result = await read.invoke({ offset: 0, limit: 8, ...input }, {});
-        return { text: JSON.stringify(result) };
+        const ids = [...new Set(parse(ReadParametersSchema, raw).ids)];
+        const pages = await access((visible) => {
+          const missing = ids.filter((id) => !visible.some((page) => page.ref.id === id));
+          if (missing.length) {
+            throw new RepaFault("invalid_input", `没有编号为 ${missing.join("、")} 的内容，或者还没学到；用 learning_search 查找能读的内容`);
+          }
+          return { result: ids.flatMap((id) => visible.filter((page) => page.ref.id === id)), read: true };
+        });
+        return { text: pagesText(pages ?? [], titles, session.course) };
       },
     },
   ];
@@ -210,8 +200,13 @@ export async function connectTutor(
       id: TUTOR_AGENT,
       direct: true,
       description: "围绕当前学习任务讲解，并即时回顾已学知识",
-      tools: tools.map((tool) => tool.name),
-      instructions: () => "你是学习辅导老师。围绕当前任务帮助学习者理解知识，使用学习读取工具核对细节。提到概念时附上工具返回的 ref 与 origin，便于即时回顾；教学推进和正式判分由程序负责。",
+      // read 只为续取被底座省略的长输出：工具结果超过上限时，全文存在 .repa/tool-output/，模型按提示用 read 按行读取。
+      tools: [...tools.map((tool) => tool.name), "read"],
+      instructions: () => [
+        "你是学习辅导老师，在学习者卡住时帮助其弄懂当前的题目和相关知识。",
+        "先用 learning_task 看当前的题目、学习者的作答和判分结果；需要讲解、例题或概念卡时，用 learning_search 查找，再用 learning_read 按编号读取。",
+        "提到学过的知识点时写成 [名称](repa:concept/知识点编号) 链接，便于学习者即时回顾；教学推进和正式判分由程序负责。",
+      ].join(""),
       async beforeMessage() {
         try {
           await observe((view) => {
@@ -239,20 +234,16 @@ export async function connectTutor(
         const phase = task?.phase;
         const shownKp = phase?.stage === "explanation" || phase?.stage === "example" ? phase.page.ref.kpId : undefined;
         const kpId = shownKp ?? delivery?.kpId ?? task?.kps.find((entry) => !entry.completed)?.kpId;
-        // 先修排序用最后一条事实的时间，状态不变时视图文本不变，不打乱提示缓存。
-        const day = (session.records.facts.at(-1)?.at ?? view.state.serverNow) / 86_400_000;
-        const weak = (topic?.prerequisites ?? []).flatMap((id) => {
-          const state = view.student[id];
-          return state ? [{ id, memory: memoryAt(state, day) }] : [];
-        }).sort((left, right) => left.memory - right.memory || left.id.localeCompare(right.id)).slice(0, 3);
-        const submission = task?.submissions.at(-1);
-        return JSON.stringify({
-          task: task ? { id: task.taskId, kind: task.kind, topics: task.topicIds } : null,
-          kp: task?.kps.find((entry) => entry.kpId === kpId) ?? null,
-          stage: task?.phase.stage ?? null,
-          submission: submission ? { id: submission.submissionId, status: submission.processing.status } : null,
-          weakPrerequisites: weak.map((entry) => entry.id),
-        });
+        // 只有课按知识点记进度；复习和测验的知识点计数恒为零，写出来反而误导。
+        const kp = task?.kind === "lesson" ? task.kps.find((entry) => entry.kpId === kpId) : undefined;
+        // 先修排序用最后一条事实的时间，状态不变时视图文本不变，不打乱提示缓存；时钟回拨时与学生模型一样不让时间倒退。
+        const time = session.records.facts.at(-1)?.at ?? view.state.serverNow;
+        const weak = (topic?.prerequisites ?? [])
+          .filter((id) => view.student[id] !== undefined)
+          .map((id) => ({ id, memory: topicMemory(view.student, id, time) }))
+          .sort((left, right) => left.memory - right.memory || left.id.localeCompare(right.id))
+          .slice(0, 3);
+        return viewText(task ?? null, session.course, kp, weak.map((entry) => entry.id));
       },
     }],
   };
