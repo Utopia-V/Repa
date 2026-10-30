@@ -173,6 +173,13 @@ async function fixture(
     },
     time: (value: number) => { now = value; },
     failStart: (value: boolean) => { failStart = value; },
+    /** 改写课程里的 topic；重开空间后生效。 */
+    writeTopics: async (change: (topics: Topic[]) => void) => {
+      change(topics);
+      for (const topic of topics) {
+        await writeFile(path.join(directory, "topics", `${topic.id}.yaml`), stringify(topic, { aliasDuplicateObjects: false }));
+      }
+    },
     session: learningSession,
     replay: () => learningSession().replay,
     fold: async () => {
@@ -358,27 +365,20 @@ test("重判使课失去已学状态时 XP 不收回、已出现的测验门槛�
 });
 
 for (const failingReview of [false, true]) {
-  test(`测验只答错一题就停机过期：答错的 topic 补救${failingReview ? "失败转重教" : "成功但单题库存不能原题重考"}，没答的不算错也不补救，过期查询只结算一次`, async (t) => {
+  test(`单题库存补救${failingReview ? "失败转重教" : "成功但不能原题重考"}，停机过期查询只结算一次`, async (t) => {
     const f = await fixture(t, false, 1);
     await f.qualify();
-    const learned = (await f.fold()).student;
     const running = await f.select("quiz");
     assert.ok(running.task?.deadlineAt);
-    await f.submit(0, false);
     f.time(running.task.deadlineAt + 1);
     await f.reopen();
     assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "timeout" });
     assert.equal((await f.state()).progress.totalXp, 150);
-    const [wrong, ...untested] = running.task.deliveries.map((delivery) => delivery.topicId);
-    assert.ok(wrong && untested.length === 3);
-    const fold = await f.fold();
-    assert.deepEqual([...fold.forced], [[wrong, "review"]]);
-    assert.notDeepEqual(fold.student[wrong], learned[wrong]);
-    for (const id of untested) {
-      assert.deepEqual(fold.student[id], learned[id]);
-    }
+    const student = (await f.fold()).student;
     await f.reopen();
-    assert.deepEqual((await f.fold()).student, fold.student);
+    assert.deepEqual((await f.fold()).student, student);
+    const wrong = running.task.topicIds[0];
+    assert.ok(wrong);
     await f.select("review", wrong);
     if (failingReview) {
       for (let index = 0; index < 5; index++) {
@@ -391,7 +391,10 @@ for (const failingReview of [false, true]) {
       return;
     }
     await f.finishTask();
-    assert.equal((await f.fold()).forced.size, 0);
+    for (let index = 1; index < running.task.topicIds.length; index++) {
+      await f.select("review", running.task.topicIds[index]);
+      await f.finishTask();
+    }
     await assert.rejects(f.select("retake"), (error: unknown) =>
       error instanceof RpcError && error.data !== null && typeof error.data === "object"
         && "code" in error.data && error.data.code === "insufficient_items",
@@ -403,38 +406,104 @@ for (const failingReview of [false, true]) {
   });
 }
 
-test("测验中途关闭应用：重开时这场测验已按超时结束，不会停滞；答了的照常算，没答的 topic 不算错、不补救，下一场测验先考它们", async (t) => {
-  const f = await fixture(t);
+test("测验中途关闭应用：重开时这场测验已按超时结束，不会停滞；没答的题算错并转入复习，已作答而未判出结果的题不算错，判出以后再算", async (t) => {
+  const f = await fixture(t, true);
   await f.qualify();
   const learned = (await f.fold()).student;
   const running = await f.select("quiz");
   assert.ok(running.task?.deadlineAt);
-  const [right, wrong, ...untested] = running.task.deliveries.map((delivery) => delivery.topicId);
-  assert.ok(right && wrong && untested.length === 2);
-  await f.submit(0, true);
-  await f.submit(1, false);
-  // 关掉应用，过了截止时间才再打开：计时不暂停，这场测验就此结束。
+  const [right, waiting, ...unanswered] = running.task.deliveries.map((delivery) => delivery.topicId);
+  assert.ok(right && waiting && unanswered[0] && unanswered.length === 2);
+  const forced = (ids: string[]) => ids.map((id) => [id, "review"]).sort();
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
+  await f.submit(0);
+  f.models.expectStructured().fail(new Error("断网"));
+  const pending = await f.submit(1);
+  assert.ok(pending.status === "recorded");
+  assert.equal(pending.submission.processing.status, "interrupted");
+  // 关掉应用，过了截止时间才再打开：计时不暂停，这场测验就此结束。重开后的自动补判这次也没判出结果。
+  f.models.expectStructured().fail(new Error("还是断网"));
   f.time(running.task.deadlineAt + 3_600_000);
   await f.reopen();
   const ended = await f.state();
+  await f.session().idle();
   assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "timeout" });
   assert.equal(ended.restrictions.kind, "none");
-  assert.deepEqual(ended.menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["review", wrong]]);
-  // 答对的记一次通过，答错的记一次失败并强制复习；没答的两个 topic 学生模型不变，也不补救。
+  // 菜单照常提供强制复习，学习不会停住；强制补救一次给一项。
+  assert.deepEqual(ended.menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["review", unanswered[0]]]);
+  // 答对的记一次通过；没答的两题算错，记一次失败并强制复习；判分中断的那题还没有证据，学生模型不变，也不补救。
   const fold = await f.fold();
   assert.ok((fold.student[right]?.repNum ?? 0) > (learned[right]?.repNum ?? 0));
-  assert.ok((fold.student[wrong]?.repNum ?? 0) < (learned[wrong]?.repNum ?? 0));
-  assert.deepEqual([...fold.forced], [[wrong, "review"]]);
-  for (const id of untested) {
-    assert.deepEqual(fold.student[id], learned[id]);
+  for (const id of unanswered) {
+    assert.ok((fold.student[id]?.repNum ?? 0) < (learned[id]?.repNum ?? 0));
   }
-  // 测验 XP 按全部交付算：一题对，四题里得 floor(15 / 4)。
+  assert.deepEqual(fold.student[waiting], learned[waiting]);
+  assert.deepEqual([...fold.forced].sort(), forced(unanswered));
+  // 测验 XP 按全部交付算：四题里对一题，得 floor(15 / 4)。
   assert.equal(ended.progress.totalXp, 153);
-  // 下一场测验先考这场没测到的 topic。
-  assert.deepEqual(sampleTopics(f.replay().tasks, fold, f.session().course, 2).slice(0, 2).sort(), [...untested].sort());
+  // 那题判出来是错的：这时才算错，也转入复习。
+  f.models.expectStructured().succeed({ verdict: "incorrect", reason: "错误" });
+  await f.call("submission.resume", { submissionId: pending.submission.submissionId });
+  assert.deepEqual([...(await f.fold()).forced].sort(), forced([...unanswered, waiting]));
 });
 
-test("两题还在判分、两题没答时交卷：没答的和待判的都不算对错、不补救，这场不能通过；判分回来后结论与 XP 随之更新，申诉只追加奖励差额", async (t) => {
+test("测验里题目已从课程删除的 topic 不是学习者的原因：没答也不算错，不更新、不补救；其余都答对时这场测验通过", async (t) => {
+  const f = await fixture(t);
+  await f.qualify();
+  const learned = (await f.fold()).student;
+  const running = await f.select("quiz");
+  const deliveries = running.task?.deliveries ?? [];
+  const last = deliveries[3];
+  assert.ok(deliveries.length === 4 && last);
+  for (let index = 0; index < 3; index++) {
+    await f.submit(index);
+  }
+  // 作者把第四个 topic 刚出的那道测验题从课程里删掉了。
+  const removed = f.replay().delivery(Number(last.deliveryId.slice(1)))?.questionId;
+  assert.ok(removed);
+  await f.writeTopics((topics) => {
+    const kp = topics.find((topic) => topic.id === last.topicId)?.kps[0];
+    assert.ok(kp?.quiz);
+    kp.quiz = kp.quiz.filter((question) => question.id !== removed);
+  });
+  await f.reopen();
+  await f.call("quiz.finish", await f.guard());
+  const ended = await f.state();
+  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "passed" });
+  const fold = await f.fold();
+  assert.deepEqual(fold.student[last.topicId], learned[last.topicId]);
+  assert.equal(fold.forced.size, 0);
+  assert.equal(ended.menu?.candidates.some((entry) => entry.kind === "retake"), false);
+});
+
+test("下一场测验避开上一场答过的 topic，不足时从答过的里补足，补足的 topic 出学习者没见过的题", async (t) => {
+  const f = await fixture(t, false, 2, [60, 60, 25, 5, 60, 60, 30]);
+  await f.qualify();
+  const first = await f.select("quiz");
+  await f.submit(0);
+  await f.answerRest();
+  await f.call("quiz.finish", await f.guard());
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  const question = (deliveryId: string) => f.replay().delivery(Number(deliveryId.slice(1)))?.questionId;
+  const earlier = new Map(first.task?.deliveries.map((delivery) => [delivery.topicId, question(delivery.deliveryId)]));
+  assert.deepEqual([...earlier.keys()].sort(), ["t0", "t1", "t2", "t3"]);
+  for (const id of ["t4", "t5", "t6"]) {
+    await f.select("lesson", id);
+    await f.finishTask();
+  }
+  // 课的累计 XP 到了第二个门槛：上一场答过 t0 到 t3，这场先选没答过的 t4、t5、t6，再从答过的里补足两个。
+  const second = await f.select("quiz");
+  const deliveries = second.task?.deliveries ?? [];
+  assert.equal(deliveries.length, 5);
+  assert.deepEqual(deliveries.map((delivery) => delivery.topicId).filter((id) => !earlier.has(id)).sort(), ["t4", "t5", "t6"]);
+  // 补足的两个 topic 出的是学习者没见过的题，不重复上一场的题。
+  for (const delivery of deliveries) {
+    assert.notEqual(question(delivery.deliveryId), earlier.get(delivery.topicId));
+    assert.equal(delivery.repeated, false);
+  }
+});
+
+test("两题还在判分、两题没答时交卷：没答的算失败并强制复习，待判的不算对错；判分回来后结论与 XP 随之更新，申诉只追加奖励差额", async (t) => {
   const f = await fixture(t, true);
   await f.qualify();
   const learned = (await f.fold()).student;
@@ -454,26 +523,24 @@ test("两题还在判分、两题没答时交卷：没答的和待判的都不�
     assert.ok(accepted?.[0] && accepted[1]);
     assert.ok(accepted.every((entry) => entry.processing.status === "pending"));
     await f.disconnect();
-    // 交卷不等判分。没答的两题没有证据，不算对也不算错，但这场测验已经不能通过，按交卷记为失败；
-    // 还在判分的两题同样尚无证据。四个 topic 的学生模型都不变，也都不强制复习。
+    // 交卷不等判分。没答的两题是失败的证据：测验失败，这两个 topic 强制复习。
+    // 还在判分的两题尚无证据，不算对也不算错：学生模型里这两个 topic 不变，也不强制复习。
     await f.call("quiz.finish", await f.guard());
     assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
     assert.equal((await f.state()).progress.totalXp, 150);
     const ended = await f.fold();
-    assert.deepEqual([...ended.forced], []);
-    assert.deepEqual(ended.student, learned);
+    assert.deepEqual([...ended.forced].sort(), forced(unanswered));
+    assert.deepEqual(ended.student[leftTopic], learned[leftTopic]);
+    assert.deepEqual(ended.student[rightTopic], learned[rightTopic]);
     left.succeed({ verdict: "correct", reason: "正确" });
     right.succeed({ verdict: "incorrect", reason: "错误" });
     await first;
     await second;
     await f.session().idle();
-    // 判分回来：答对的记一次通过，答错的强制复习；没答的照旧不动。
+    // 判分回来：答对的记一次通过，答错的也强制复习。
     const graded = await f.fold();
-    assert.deepEqual([...graded.forced].sort(), forced([rightTopic]));
+    assert.deepEqual([...graded.forced].sort(), forced([...unanswered, rightTopic]));
     assert.notDeepEqual(graded.student[leftTopic], learned[leftTopic]);
-    for (const id of unanswered) {
-      assert.deepEqual(graded.student[id], learned[id]);
-    }
     assert.equal((await f.state()).progress.totalXp, 153);
     const receipt = await f.call("submission.get", { submissionId: accepted[1].submissionId });
     assert.ok(receipt.status === "found");
@@ -482,7 +549,7 @@ test("两题还在判分、两题没答时交卷：没答的和待判的都不�
       submissionId: receipt.submission.submissionId, expectedGradeRevision: 1, reason: "复核",
     });
     assert.equal((await f.state()).progress.totalXp, 157);
-    assert.deepEqual([...(await f.fold()).forced], []);
+    assert.deepEqual([...(await f.fold()).forced].sort(), forced(unanswered));
     const quiz = Number(receipt.submission.taskId.slice(1));
     assert.deepEqual(f.replay().awards.filter((award) => award.task === quiz).map((award) => award.xp), [3, 4]);
   } finally {

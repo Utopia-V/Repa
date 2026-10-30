@@ -58,10 +58,10 @@ function addDays(day: string, days: number): string {
 }
 
 /**
- * 为第 n 场测验选 topic：从学过、有测验题的 topic 里随机选，先选上一场测验（或换题重考）没有考到的，不够再从考到过的里补；
- * 每个 topic 一题，最多 QUIZ_TOPICS 个。上一场没答的 topic 不算考到过，这时重新排进来。随机由第 n 场的 seed 决定，
- * 所以重放得到同样的选择。只在测验出现时调用一次，从后往前找上一场测验，不重算各任务的结论。Repa 假设：MA 公开从学过的
- * topic 里随机选一组多样的，考过的降低权重，具体的权重没有公开。
+ * 为第 n 场测验选 topic：从学过、有测验题的 topic 里随机选，避开上一场测验（或换题重考）答过的 topic，不足时从答过的里补足；
+ * 每个 topic 一题，最多 QUIZ_TOPICS 个。补足的 topic 出题时照常优先出学习者没见过的题（见 flow.ts 的选题）。随机由第 n 场的
+ * seed 决定，所以重放得到同样的选择。只在测验出现时调用一次，从后往前找上一场测验，不重算各任务的结论。Repa 假设：MA 公开
+ * 从学过的 topic 里随机选一组多样的，考过的降低权重，具体的权重没有公开。
  */
 export function sampleTopics(tasks: TaskRecord[], fold: Fold, course: CourseIndex, n: number): string[] {
   const candidates = course.course.topics.filter((topic) => fold.student[topic.id] && course.quizTopics.has(topic.id)).map((topic) => topic.id);
@@ -141,8 +141,8 @@ export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, cou
     const retaken = new Set(replay.tasks
       .filter((task) => task.kind === "retake" && !(task.endedAt !== undefined && task.deliveries.length === 0))
       .map((task) => task.retakes));
-    // 只有确实答错的 topic 才要换题重考；还没判出结果的、没测到的都不算。
-    if (original && original.task.topicIds.some((id) => quizResult(original.attempts, id) === "fail") && !retaken.has(original.task.seq)) {
+    // 有 topic 答错或没答才要换题重考；还没判出结果的、题目已从课程删除的都不算。
+    if (original && original.task.topicIds.some((id) => quizResult(original.task, original.attempts, course, id) === "fail") && !retaken.has(original.task.seq)) {
       menu.candidates = [{
         id: `retake-${original.task.seq}`,
         kind: "retake" as const,

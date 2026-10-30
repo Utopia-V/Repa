@@ -21,7 +21,7 @@ export type KpProgress = LearningTask["kps"][number];
 /**
  * 任务的结论：通过、失败、超时、主动结束，或没有结论就被后来的任务取代。unresolved 是任务已经结束（测验交卷或到了截止时间、
  * 复习到了截止时间），但还有没判出结果的作答，判出来就可能改变结论：结论等它们判出来再定。
- * 超时只说明时间到了：复习超时时还没出的题、测验超时时没答的 topic 都不算错，有没有失败的证据要看已有的作答。
+ * 复习超时只说明时间到了，还没出的题不算错，有没有失败的证据要看已有的作答；测验没答的题算错。
  */
 export type Outcome = "passed" | "failed" | "timeout" | "unresolved" | "aborted" | "ended";
 
@@ -115,16 +115,17 @@ export const isCompleted = (outcome: Outcome | undefined) =>
   outcome === "passed" || outcome === "failed" || outcome === "timeout" || outcome === "unresolved";
 
 /**
- * 测验结束时一个 topic 的结果：pass 是独立答对；fail 是判过而不对；pending 是作答还没判出结果；untested 是没有作答
- * （没答完就交卷或到了截止时间，或者题目已从课程删除）。pending 和 untested 都尚无证据，不算对也不算错：
- * pending 判出来以后再算，untested 的 topic 这场就没测到，留给之后的测验。
+ * 测验结束时一个 topic 的结果：pass 是独立答对；fail 是判过而不对，或者题出了却没有作答（交卷或到截止时间时还没答）；
+ * pending 是作答还没判出结果，尚无证据，判出来以后再算；untested 是这个 topic 出的题已从课程删除，不是学习者的原因，
+ * 不算对也不算错。时间到了题还没做完，本身说明掌握有问题；只让交卷时的空题算错，等时间耗尽就能避开失败，所以两种结束一样算。
  */
 export type TopicResult = "pass" | "fail" | "pending" | "untested";
 
-export function quizResult(attempts: Attempt[], topicId: string): TopicResult {
+export function quizResult(task: TaskRecord, attempts: Attempt[], course: CourseIndex, topicId: string): TopicResult {
   const own = attempts.filter((attempt) => attempt.topicId === topicId);
   if (own.length === 0) {
-    return "untested";
+    const delivered = task.deliveries.some((delivery) => course.questions.get(delivery.questionId)?.topic.id === topicId);
+    return delivered ? "fail" : "untested";
   }
   if (own.some(independentCorrect)) {
     return "pass";
@@ -223,7 +224,7 @@ function reviewVerdict(entry: TaskEvidence): "pass" | "fail" | undefined {
  * 从一项任务的事实得出证据与结论。inherited 是此前同一 topic 的课留下的知识点进度。
  * 先看作答本身能否得出结论（课的连对通过与练满失败、复习的通过与失败），再看主动结束、截止和被后来的任务取代。
  * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。
- * 中途离开同样不算错：复习到截止时间还没出的题、测验没答的 topic 都没有证据，学生模型只按已有的作答更新。
+ * 复习中途离开同样不算错：到截止时间还没出的题没有证据，学生模型只按已有的作答更新。测验没答的题算错。
  */
 export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: KpProgress[] | undefined): TaskEvidence {
   const attempts: Attempt[] = [];
@@ -271,15 +272,15 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
       outcome = "unresolved";
     }
   } else if (task.deliveries.length > 0 && (task.endedAt !== undefined || task.timedOut)) {
-    // 测验交卷或到了截止时间：每个 topic 都答对才通过。有 topic 答错或没测到，这场就不能通过了，按交卷或截止记为失败或超时，
-    // 学生模型只按答了的 topic 更新；否则只差没判出结果的作答，结论等它们判出来。
-    const results = task.topicIds.map((id) => quizResult(attempts, id));
-    if (results.every((result) => result === "pass")) {
-      outcome = "passed";
-    } else if (results.some((result) => result === "fail" || result === "untested")) {
+    // 测验交卷或到了截止时间：有 topic 答错或没答，就失败（到截止时间结束的为超时）；否则还有作答没判出结果时，
+    // 结论等它们判出来；其余都答对就通过，题目已从课程删除的 topic 不影响结论。
+    const results = task.topicIds.map((id) => quizResult(task, attempts, course, id));
+    if (results.includes("fail")) {
       outcome = task.endedAt !== undefined ? "failed" : "timeout";
-    } else {
+    } else if (results.includes("pending")) {
       outcome = "unresolved";
+    } else {
+      outcome = "passed";
     }
   }
   if (!outcome && task.endedAt !== undefined) {
@@ -344,10 +345,10 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
   };
   if (isQuiz(entry.task.kind)) {
     if (isCompleted(entry.outcome)) {
-      // 测验按 topic 更新：有证据的 topic 照常更新，答错的强制复习。没判出结果的 topic 判出来以后重算时再更新；
-      // 没测到的 topic 不更新也不补救，留给之后的测验。
+      // 测验按 topic 更新：答对的记一次通过；答错或没答的记一次失败并强制复习。没判出结果的 topic 判出来以后重算时再更新；
+      // 题目已从课程删除的 topic 不更新也不补救。
       for (const id of entry.task.topicIds) {
-        const result = quizResult(entry.attempts, id);
+        const result = quizResult(entry.task, entry.attempts, course, id);
         if (result !== "pass" && result !== "fail") {
           continue;
         }
