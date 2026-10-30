@@ -1,6 +1,6 @@
 # 学习插件的前端契约
 
-`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约；[学习记录层](learning-records.md)已实现状态与提交查询、接受和持久恢复入口，[教学流程](learning-flow.md)已接入上课、复习、判分和申诉，[辅导与内容读取](learning-tutor.md)已接入，[测验、XP 与进度](learning-quiz-xp.md)也已接入。
+`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约；状态由后端从[学习记录](learning-records.md)里的事实算出，[教学流程](learning-flow.md)已接入上课、复习、判分和申诉，[辅导与内容读取](learning-tutor.md)已接入，[测验、XP 与进度](learning-quiz-xp.md)也已接入。
 
 ## 设计思路
 
@@ -34,29 +34,29 @@ if (state.ok) renderLearning(state.value);
 
 ### 状态与方法
 
-所有时间都是服务端 Unix 毫秒。`revision` 是当前空间内学习状态的单调递增序号；可观察状态变化后递增，单纯刷新页面不重抽菜单。日进度另带本地自然日及 `timeZone`，完成率在 0 到 1 之间，`etaDays: null` 表示当前没有足够依据显示估算。
+所有时间都是服务端 Unix 毫秒。`revision` 是学习记录里事实的条数，学习者的操作和判分写入事实后递增；到时自然发生的变化（截止、冷却结束、复习到期）不写事实，`revision` 不变，重新查询即可看到。单纯刷新页面不重抽菜单。日进度另带本地自然日及 `timeZone`，完成率在 0 到 1 之间，`etaDays: null` 表示当前没有足够依据显示估算。
 
 | 方法 | 输入与结果 |
 | --- | --- |
 | `state.get` | 空输入，返回 `LearningState`，包括课程、任务、菜单、限制和进度 |
 | `menu.select` | `menuId`、`candidateId`，选择 lesson 或 review 并返回当前状态 |
-| `task.advance` | `taskId`、`expectedStage`、`expectedRevision`，从讲解到例题、练习或后续阶段，返回状态 |
+| `task.advance` | `taskId`、`expectedStage`、`expectedRevision`，从讲解到例题、练习或后续阶段；判不出结果的作答停在 `recovery` 时也可以继续下一题，返回状态 |
 | `task.resume` | 同一组任务守卫，继续 `preparing` 的受限开始步骤，返回状态 |
-| `task.abort` | 同一组任务守卫，中止当前任务，返回状态 |
+| `task.abort` | 同一组任务守卫，中止当前任务，不等待判分，返回状态 |
 | `submission.get` | `submissionId`，返回 `absent` 或 `found`、当前 revision；后者包含完整 `Submission` |
 | `submission.submit` | `taskId`、`deliveryId`、预留的 `submissionId` 和 `response`，返回 `SubmissionReceipt` |
 | `submission.resume` | 原 `submissionId`，继续待恢复判分，返回同一提交的 receipt |
 | `submission.appeal` | 原 `submissionId`、`expectedGradeRevision` 和申诉原因，重判原答，返回 receipt |
 | `content.search` | `query`、`offset`、`limit`（最多 20），搜索当前任务和已学内容，query 也可填 topic/KP id 以解析概念链接；返回短命中、版本引用、原学习位置及可空 `nextOffset` |
 | `content.read` | `refs`（最多 8）、块 `offset`、`limit`（最多 64），按版本批取讲解、例题、卡片、KP 或已释放解析 |
-| `content.open` | `ref`，记录实际打开，返回服务端 `openedAt`；重复打开保留为查看行为，不改变掌握证据 |
+| `content.open` | `ref`，核对授权并返回服务端 `openedAt`；只有课内作答之前打开才记为一次求助 |
 | `quiz.start` | `menuId`、`candidateId`，经受限开始路径进入测验，返回状态 |
-| `quiz.finish` | 任务守卫，整场交卷并返回状态；重试先查询，已结束场次沿原身份返回既有结果 |
+| `quiz.finish` | 任务守卫，整场交卷并返回状态，不等待判分；重试先查询，已结束场次沿原身份返回既有结果 |
 | `quiz.retake` | `menuId`、`candidateId`、`originalTaskId`，开始菜单提供的重考，返回状态 |
 | `progress.get` | 空输入，返回 `serverNow` 和日目标、XP、完成率、可空 ETA |
 | `progress.setGoal` | 正整数 `dailyGoalXp`，返回更新后的状态 |
 
-`LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
+`LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。`completed` 带结论 `outcome`：`passed`、`failed`、`timeout` 或 `unresolved`。`unresolved` 表示任务已经结束（测验交卷或到了截止时间、复习到了截止时间），但还有作答没判出结果，判出来可能改变结论；它与其他结论一样解除限制、释放反馈，判出以后后端发出 `learning.changed`，结论改为前三种之一。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
 
 反馈字段的可见性还取决于当前任务。review、quiz、retake 的准备、作答和恢复阶段，所有公开提交返回都会隐藏 `feedback` 与 `explanation`，历史提交也一样；身份、原答、处理状态与判分版本仍可恢复。受限任务结束后，可以重新查询已释放的历史反馈，详见[辅导与禁助](learning-tutor.md)。
 
@@ -64,25 +64,25 @@ if (state.ok) renderLearning(state.value);
 
 ### 提交身份与反馈资格
 
-插件签发 `taskId`、`menuId`、`deliveryId`，并在每次交付时预留一个 `submissionId`。前端沿用这些身份，不自行给重试生成新 id。一次交付只接受一份原答；同 submission id、同载荷返回已有状态，不同载荷报冲突。判分等待期间释放串行入口，重复调用合并到已有处理，不重复推进或奖励。
+插件签发 `taskId`、`menuId`、`deliveryId`，并在每次交付时预留一个 `submissionId`。任务、交付和提交的编号由学习记录里对应事实的序号得出（如 `t3`、`d12`、`s12`），菜单候选的编号由类型和 topic 得出（如 `lesson-t01`）；前端只把它们当作不透明字符串，沿用这些身份，不自行给重试生成新 id。一次交付只接受一份原答；同 submission id、同载荷返回已有状态，不同载荷报冲突。判分等待期间释放串行入口，重复调用合并到已有处理，不重复推进或奖励。
 
 `SubmissionReceipt` 延续原来的两个结果：`rejected` 表示结构不合格、没有接受，附 `processing.status: not_accepted` 和问题列表；`recorded` 表示原答已接受，附完整 `submission`。旧的 `SubmitResult` 与读取入口继续可用，新方法使用 `SubmissionReceipt`，通过 `readLearningResult` 读取。
 
-接受后的处理状态依次可以是 `accepted`、`pending`、`interrupted`、`completed`。中断原因区分重启、服务失败、判分不确定和取消。它们不是新的学习失败证据。断线造成 outcome unknown 时先调用 `submission.get`：查到提交就沿它恢复；`absent` 才允许携原答、原 id 再交，后端仍重新检查交付和截止时间。查询与日志重放本身不重启判分。
+接受后的处理状态依次可以是 `accepted`、`pending`、`interrupted`、`completed`。中断原因区分重启、服务失败、判分不确定和取消。它们表示这份作答尚无证据：不算错，也不阻塞任务；后端在条件具备时自动补判，前端也可以调用 `submission.resume` 再判一次。断线造成 outcome unknown 时先调用 `submission.get`：查到提交就沿它恢复；`absent` 才允许携原答、原 id 再交，后端仍重新检查交付和截止时间。查询与日志重放本身不重启判分。
 
-`gradeRevision` 关联同一原答的采用判分版本。申诉检查 `expectedGradeRevision`，串行登记本次重判后再执行；重复请求等待已有重判，已采用新版本后再收到旧请求则刷新当前状态。旧判分、旧奖励和已经展示或选定的任务由后端记录保留，不因申诉覆盖。Python 请求里的 grade revision 指向这次将要形成的判分版本。
+`gradeRevision` 关联同一原答的采用判分版本。申诉检查 `expectedGradeRevision`，串行登记本次重判后再执行；重复请求等待已有重判，已采用新版本后再收到旧请求则刷新当前状态。旧判分、已经给出的 XP 和已经展示或选定的任务由后端保留，不因申诉覆盖。题目的答案改正以后，后端也会按新答案重判过去的作答，`gradeRevision` 同样递增。
 
-`Judge` 只说明来源。反馈中的 `evidence.status` 由后端给出：`eligible` 可以作为推进证据，`ineligible` 不具资格并可说明原因，`unresolved` 尚待处理。确定的隔离模型判分可以具备资格；前端不根据 `judge: model` 自行降级，也不把缺失的 evidence 推断为合格。独立正确还受提交前帮助等教学条件约束，由后端统一判断。
+`Judge` 只说明来源。反馈中的 `evidence.status` 由后端给出：`eligible` 可以作为推进证据，`ineligible` 不具资格并可说明原因（目前是作答前求助过）；`unresolved` 留在契约里，当前不产生。确定的隔离模型判分可以具备资格；前端不根据 `judge: model` 自行降级，也不把缺失的 evidence 推断为合格。独立正确还受提交前帮助等教学条件约束，由后端统一判断。
 
 `dontKnow: true` 仍使用原 Item 引用和空 `answers`；practice 和 review 可用。后端依据交付模式拒绝 quiz 的 `dontKnow`，前端在 quiz 不显示该按钮；测验未答由整场交卷或超时表示。
 
 ### 公开内容与能力
 
-交付中的 `item` 只允许底座公开字段。后端沿现有 `publicItem` 的白名单投影，并在交付时换成不透明的题目、选项、排列块和表格选择格 id，私有映射只保存在后端快照。前端不重新打乱顺序。当前协议与夹具表达最终公开形状，实际换号、反馈释放与持久化已由教学和记录实现承担。
+交付中的 `item` 只允许底座公开字段。后端沿现有 `publicItem` 的白名单投影，并按交付事实里的 seed 换成不透明的题目、选项、排列块和表格选择格 id 并打乱顺序；seed 只在后端，同一次交付每次重建的画面相同。前端不重新打乱顺序。`item.version` 是作答前公开题面的版本：只改答案或解析时不变，进行中的题不受影响。
 
 答案、解析和私有 rubric 不出现在作答前的 Item。practice 的反馈及解析在判分完成后释放，review 在任务结束后释放，quiz 与 retake 在整场交卷或超时后释放。查询、事件、前端内容读取和 Agent 工具共用这项授权检查。`processing: completed` 可以先于反馈释放，因此前端不能把“已判”当成“可看答案”。测试计划中的检查代码对前端可见，完整参考解仍按反馈时机释放；代码题的期望表达式在作答被接受以后随判分请求进入前端的 Worker，与释放规则的关系见 [python.run](#pythonrun)。
 
-`restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。review、quiz 的 preparing 和进行阶段均关闭辅导与参考读取，结束后重新开放。`ContentRef` 带课程、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取旧内容使用指定版本，后端从交付快照或保留的学习内容提供它；不存在的版本明确报输入错误，不悄悄换成最新版本。
+`restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。review、quiz 的 preparing 和进行阶段均关闭辅导与参考读取，结束后重新开放。`ContentRef` 带课程、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取只提供当前课程里的内容：课程换版以后，旧版本的引用按不存在处理，明确报输入错误，不悄悄换成最新版本。
 
 后端在交付前调用 `missingDeliveryCapabilities(context.caller?.capabilities, delivery)`。它复用 `canRender`，并为代码题补查 `python.run`；带测试的 Parsons 在 `requiresServices` 声明该服务。缺任何能力都返回缺项并保留原任务，等待可用连接，不换一道题来掩盖前端缺口。
 
@@ -112,7 +112,7 @@ if (state.ok) renderLearning(state.value);
 - 结果带实际加载的运行环境版本，只随判分来源记下。后端核对结果与请求一一对应，并核对每个 capture 和 doctest 都有对应结果。
 - 超时按阶段归因，准备、被测代码和收尾各自计时：学习者程序、capture 求值和 doctest 时超时，才形成作答结果；序列化 capture 的值会调用值自己的 `__repr__` 等方法，卡住时同样算 capture 阶段的超时。准备、收尾阶段的超时和 Worker 意外退出属于执行失败，保留待恢复。某个测试超时或失败后整批终止，未执行的测试不算失败。
 - 测试后恢复解释器状态失败时，这个测试的结果照样交回、带 `restoreError`，前端换一个新的 Worker 运行余下的测试。
-- `too_large` 表示这次无法可靠比较，不判学习者错。
+- `too_large` 表示这次无法可靠比较，不判学习者错，这份作答尚无证据。
 - 课程核对和前端执行同一段代码：Node 沙箱和页面 Worker 都用 `runner.py` 的 `program_test` 逐个阶段运行测试。改动它不需要重新生成任何产物。
 - 结果落盘前，后端核对提交和目标判分版本仍然有效。
 
@@ -140,5 +140,3 @@ npm run build:protocol --workspace=@repa/learning
 ```
 
 [`learning-contract.test.ts`](../../packages/learning/test/learning-contract.test.ts) 检查严格发送、宽松读取、能力缺项、错误细节、恢复和 Python 比较形状，并用 esbuild 的 browser 平台独立打包公开入口。[连续夹具](../../packages/learning/test/fixtures/learning-contract.ts) 覆盖 lesson 原答、待判、重连待恢复、完成、菜单、受限测验、已答与截止时间，以及结束后可打开的概念卡。夹具用于审阅协议，各任务的方法处理器和实际故障另按所属任务验收。
-
-2026-10-20 在 Ubuntu 24.04、Node.js 22.22.2 下验证：底座 283 个测试、学习包 73 个测试全部通过，无跳过；两个包的 check、build 及协议的独立浏览器构建通过。学习包全套测试以 `--test-concurrency=1` 串行运行，使用已有的离线 Pyodide wheel 缓存。

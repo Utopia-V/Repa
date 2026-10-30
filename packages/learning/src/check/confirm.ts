@@ -14,7 +14,7 @@ import { checkSchema, parseYamlFile, Report, SourceFile, type Diagnostic } from 
 import { loadCourse } from "../format/load.js";
 import { TopicSchema, type Confirmation, type Question, type Runtime, type SlotDef, type Topic } from "../format/schema.js";
 import { gradeSlot } from "./grade.js";
-import { acceptedValues, inputCells, legacyVersionInput, publicItem, referenceAnswer, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
+import { acceptedValues, inputCells, versionInput, publicItem, referenceAnswer, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
 
 /** 复习和测验题池里列了 manual 的题必须有模型核对记录；例题和练习不强制。 */
 export function needsConfirmation(entry: QuestionEntry): boolean {
@@ -31,12 +31,12 @@ const LEGACY_RUNTIME: Runtime = {
 
 /** 核对题面与判分定义，不把信用归属混入独立解题证明；请求或判分语义改变时升级 scope。 */
 export async function confirmationVersion(question: Question, topic: Topic, runtime: Runtime): Promise<string> {
-  return contentVersion({ definition: legacyVersionInput(question, topic), runtime: { ...runtime, prelude: runtime.prelude ?? "" } });
+  return contentVersion({ definition: versionInput(question, topic), runtime: { ...runtime, prelude: runtime.prelude ?? "" } });
 }
 
 export async function currentConfirmation(topic: Topic, question: Question, runtime: Runtime): Promise<Confirmation | undefined> {
   const version = await confirmationVersion(question, topic, runtime);
-  const legacy = await contentVersion(legacyVersionInput(question, topic));
+  const legacy = await contentVersion(versionInput(question, topic));
   const baseline = await contentVersion(runtime) === await contentVersion(LEGACY_RUNTIME);
   const manual = question.manual ?? [];
   return (topic.verified ?? []).find((record) =>
