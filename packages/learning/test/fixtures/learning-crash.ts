@@ -29,7 +29,8 @@ if (stage === "returned") {
     const bodies = await build();
     if (bodies.some((body) => body.type === "graded")) {
       process.send?.("returned");
-      process.kill(process.pid, "SIGSTOP");
+      // 同步阻塞主线程直到父进程 SIGKILL：消息已交给系统写出，不靠事件循环；Windows 没有 SIGSTOP，向自己发它只会抛错，进程照样往下走。
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
     }
     return bodies;
   });

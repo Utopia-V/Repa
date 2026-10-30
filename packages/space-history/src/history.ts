@@ -685,8 +685,11 @@ export class SpaceHistory {
       yield "get-mark :1\ndone\n";
     }
     // fast-import 在 head 之上生成树和提交并更新引用；引用若已被移到不是新提交祖先的位置，它拒绝更新并报错。
+    // 大小写不敏感的文件系统上建库时 Git 写入 core.ignorecase=true，fast-import 便按大小写不敏感匹配树中的名字：
+    // 只改大小写的重命名先删 a.txt 再写 A.txt，写入会落到刚删除的 a.txt 条目上，历史里留下旧名字。
+    // 这里给出的名字都来自磁盘，按原样比较。
     const revision = checkedRevision((await this.git.run(
-      ["fast-import", "--quiet", "--done", "--date-format=raw"], commands(),
+      ["-c", "core.ignorecase=false", "fast-import", "--quiet", "--done", "--date-format=raw"], commands(),
     )).toString().trim());
     // previous 是缓存的 head 树，提交成功后才就地更新。
     for (const file of removed) previous.delete(file);

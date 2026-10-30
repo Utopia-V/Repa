@@ -70,7 +70,7 @@ Repa 正在重做。旧实现已从工作树删除，保留在标签 `pre-rebuil
 - 文档的存放位置与写法见 [docs/AGENTS.md](docs/AGENTS.md)。
 - 编写包的约定见 [packages/AGENTS.md](packages/AGENTS.md)。
 - 修改代码时，在同一提交中更新受影响的文档；`npm test` 会运行文档检查。
-- 日常开发以 `dev` 为基线，任务在各自分支上完成，由维护者审阅合并；阶段交付见[整合规范](docs/development/integration.md)。
+- 日常开发以 `dev` 为基线，任务在各自分支上完成，由维护者审阅合并；阶段交付、出口清单和新发现问题的处置见[整合规范](docs/development/integration.md)。
 - 当前模块与运行入口见[开发指南](docs/development/README.md)，底座结构与 Pi 接入见 [`@repa/base` 说明](packages/base/README.md)。这些材料中的实现描述需结合当前代码核对。
 - MA 的一手入口见[官方机制说明](https://www.mathacademy.com/how-our-ai-works)和 [The Math Academy Way 作者页面](https://www.justinmath.com/books/#the-math-academy-way)。公开描述没有给出的算法需要独立研究，推测不当作 MA 已公开的实现。
 - 跨任务协作使用 [GitHub Issues](https://github.com/Utopia-V/repa/issues)，通过已认证的 `gh` CLI 操作。已有 Issue 的实现方案也按当前目标判断。

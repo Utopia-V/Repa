@@ -111,7 +111,12 @@ test("通用 Agent 的首个请求与固定样本逐字相同，插件声明的 
   assert.equal(session.info().agent, "general");
   f.respond("回答");
   await session.send("你好");
-  const actual: unknown = JSON.parse(JSON.stringify(f.captures[0]?.messages, (key, value: unknown) => key === "timestamp" ? undefined : value).replaceAll(f.root, "<root>"));
+  // 系统段写本机路径，Pi 的 cwd 段把反斜杠换成 /；Windows 上两种写法不同，都换成 <root>。
+  const roots = [f.root, f.root.replaceAll("\\", "/")];
+  const actual: unknown = JSON.parse(JSON.stringify(f.captures[0]?.messages), (key, value: unknown) => {
+    if (key === "timestamp") return undefined;
+    return typeof value === "string" ? roots.reduce((text, root) => text.replaceAll(root, "<root>"), value) : value;
+  });
   const expected: unknown = JSON.parse(await readFile(new URL("fixtures/general-agent-request.json", import.meta.url), "utf8"));
   assert.deepEqual(actual, expected);
 });

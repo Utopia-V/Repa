@@ -6,19 +6,24 @@ import { loadPlugin } from "./plugins/manifest.js";
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   if (args[0] === "--help" || args[0] === "-h") {
-    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 构建目录] [--no-general-agent] [--direct-agent Agent]\n");
+    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 构建目录] [--no-general-agent] [--direct-agent Agent] [--close-on-stdin-end]\n");
     return;
   }
   if (args.shift() !== "serve") throw new Error("请使用 repa-base serve 启动本机服务");
   let home: string | undefined;
   let port: number | undefined;
   let generalAgent = true;
+  let closeOnStdinEnd = false;
   let directAgents: string[] | undefined;
   const plugins: Plugin[] = [];
   while (args.length) {
     const option = args.shift();
     if (option === "--no-general-agent") {
       generalAgent = false;
+      continue;
+    }
+    if (option === "--close-on-stdin-end") {
+      closeOnStdinEnd = true;
       continue;
     }
     const value = args.shift();
@@ -54,11 +59,27 @@ async function run(): Promise<void> {
   };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  if (closeOnStdinEnd) {
+    // 拉起服务的进程不往 stdin 写内容，只用它表示自己还在：它结束 stdin 或自身退出时，这里读到结尾或管道错误。
+    // Windows 没有能投递给子进程的 SIGTERM，这是两个平台共用的关闭请求。
+    process.stdin.once("end", stop);
+    process.stdin.on("error", stop);
+    process.stdin.resume();
+    // 拉起服务的进程退出后，stdout 和 stderr 不再有人读，写入会报管道断开；这不能打断收尾。
+    process.stdout.on("error", () => {});
+    process.stderr.on("error", () => {});
+  }
   // stdout 是拉起进程与可信前端之间的私密连接交接通道。
   process.stdout.write(`${JSON.stringify(server.connection)}\n`);
   await server.closed;
   process.removeListener("SIGINT", stop);
   process.removeListener("SIGTERM", stop);
+  if (closeOnStdinEnd) {
+    process.stdin.removeListener("end", stop);
+    process.stdin.removeListener("error", stop);
+    // 由信号关闭时 stdin 可能还开着，不再读取它，进程才能退出。
+    process.stdin.destroy();
+  }
 }
 
 try {

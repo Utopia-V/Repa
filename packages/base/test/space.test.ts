@@ -171,6 +171,9 @@ async function executable(name: string): Promise<string> {
   throw new Error(`PATH 中没有 ${name}`);
 }
 
+// Windows 上 spawn 只按 .exe 和 .com 在 PATH 里找 git，不会执行这样的 sh 脚本。
+const GIT_WRAPPER_SKIP = process.platform === "win32" ? "记录 Git 命令的 sh 包装脚本在 Windows 上不能代替 git.exe" : false;
+
 // 把 PATH 里的 git 换成先记下参数的包装脚本；整空间快照的 ls-files 不带路径，按路径的快照在 -- 之后给出路径。
 async function recordGitCommands(t: TestContext): Promise<() => Promise<string[]>> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-git-commands-"));
@@ -185,7 +188,7 @@ async function recordGitCommands(t: TestContext): Promise<() => Promise<string[]
   return async () => (await readFile(log, "utf8")).split("\n").filter((line) => line.length > 0);
 }
 
-test("提交通知直接传递完整修订记录，不额外读取历史列表", { skip: process.platform === "win32" }, async (t) => {
+test("提交通知直接传递完整修订记录，不额外读取历史列表", { skip: GIT_WRAPPER_SKIP }, async (t) => {
   const commands = await recordGitCommands(t);
   const { space } = await fixture(t);
   const notifications: Revision[] = [];
@@ -201,7 +204,7 @@ test("提交通知直接传递完整修订记录，不额外读取历史列表",
   assert.deepEqual(notifications, await space.history.list(1));
 });
 
-test("watcher 只按变了的路径快照，整空间扫描只在打开空间和撤回之前", { skip: process.platform === "win32" }, async (t) => {
+test("watcher 只按变了的路径快照，整空间扫描只在打开空间和撤回之前", { skip: GIT_WRAPPER_SKIP }, async (t) => {
   const commands = await recordGitCommands(t);
   const wholeScans = async () => (await commands()).filter((line) => line.includes(" ls-files ") && !line.includes(" -- ")).length;
   const { space } = await fixture(t, true);
