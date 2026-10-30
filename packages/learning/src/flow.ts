@@ -1,518 +1,38 @@
 import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
-import type { Host, MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
-import { contentVersion, parse, type ClientCapabilities } from "@repa/base/protocol";
-import { PYTHON_RUN } from "@repa/python-runner/protocol";
-import type { ResolvedCourse } from "./course-sources.js";
-import { content, slotTests, topicQuestions } from "./check/items.js";
-import { deliver, opaqueId, shuffled } from "./delivery.js";
-import { learningMenu } from "./flow-menu.js";
+import type { MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
+import { parse, type ClientCapabilities } from "@repa/base/protocol";
+import { deliverySeed, mapAnswer, renderDelivery } from "./delivery.js";
+import { isQuiz, sequenceOf, taskId, topicEligible, type DeliveryRecord, type TaskEvidence } from "./flow-state.js";
 import {
-  finished,
-  FLOW_VERSION,
-  graphFor,
-  isQuiz,
-  quizCorrect,
-  kpProgress,
-  replayLearning,
-  requireTask,
-  reviewResult,
-  taskEvidence,
-  topicEligible,
-  type TaskEvidence,
-} from "./flow-state.js";
-import { judgeSubmission } from "./judge.js";
-import {
+  checkSubmission,
   learningMethods,
   missingDeliveryCapabilities,
-  type ContentPage,
   type LearningInput,
   type LearningMethod,
-  type LearningTask,
+  type SubmissionReceipt,
 } from "./protocol.js";
-import type { Grade, Projection } from "./records-schema.js";
-import type { LearningRecords } from "./records.js";
-import { progressMenu, updateProgress } from "./progress.js";
-import { createSnapshot } from "./snapshot.js";
+import type { FactBody } from "./records-schema.js";
+import type { LearningSession } from "./session.js";
 
-const POOLS = {
-  lesson: "practice",
-  review: "review",
-  quiz: "quiz",
-  retake: "quiz",
-} as const;
-
-/** 发起调用的前端能否运行 Python：它连接时在 capabilities.services 里声明了 python.run。不另外探测。 */
-const runsPython = (capabilities?: ClientCapabilities) => capabilities?.services?.includes(PYTHON_RUN) ?? false;
-
-/** 调用方先持久保存 preparing；复习与测验共用取消停稳后的计时、交付步骤。 */
-export async function beginRestricted(
-  task: LearningTask,
-  stop: () => Promise<void>,
-  deliver: () => Promise<void>,
-  clock = Date.now,
-  durationMs = 600_000,
-): Promise<void> {
-  if (task.phase.stage !== "preparing") {
-    throw new RepaFault("stale_state", "受限任务尚未进入准备阶段");
-  }
-  await stop();
-  task.startedAt = clock();
-  task.deadlineAt = task.startedAt + durationMs;
-  await deliver();
-}
-
+/**
+ * 教学方法：读当前状态、核对守卫，再追加学习者行为的事实。状态全部从事实重放得出，方法本身不保存画面。
+ * beforeRestricted 在复习和测验开始计时之前调用，默认中止辅导 Agent。
+ */
 export async function connectLearning(
-  records: LearningRecords,
-  course: ResolvedCourse,
-  host: Host,
-  clock = Date.now,
-  hooks: { beforeRestricted?: (task: LearningTask) => Promise<void> } = {},
+  session: LearningSession,
+  hooks: { beforeRestricted?: () => Promise<void> } = {},
 ): Promise<Pick<PluginInstance, "methods" | "close">> {
-  const graph = graphFor(course);
-  /** 最近一次调用的前端能否运行 Python；不能时不出要运行代码的题。 */
-  let pythonReady = false;
-  const state = () => {
-    const current = records.current();
-    if (!current) {
-      throw new RepaFault("service_failed", "学习状态尚未初始化");
-    }
-    return current;
-  };
-  const questions = (id: string, kind: LearningTask["kind"]) => {
-    const topic = course.topics.find((entry) => entry.id === id);
-    if (!topic) {
-      return [];
-    }
-    return topicQuestions(topic).filter((entry) => {
-      const matchesPool = entry.pool === POOLS[kind];
-      if (!matchesPool) {
-        return false;
-      }
-      return pythonReady || !entry.question.slots.some((slot) => slotTests(slot).length);
-    });
-  };
-  const supply = (id: string, kind: LearningTask["kind"], model: ReturnType<typeof replayLearning>) => {
-    const available = questions(id, kind);
-    if (kind !== "lesson") {
-      return available.length > 0;
-    }
-    const inherited = model.lessons.get(id) ?? [];
-    const topic = course.topics.find((entry) => entry.id === id);
-    return (
-      topic?.kps.every((kp) => {
-        const completed = inherited.some((entry) => entry.kpId === kp.id && entry.completed);
-        return completed || available.some((entry) => entry.kp.id === kp.id);
-      }) ?? false
-    );
-  };
-  function reconcile(current: Projection, evidence: TaskEvidence[], now: number): Projection {
-    const task = current.state.task;
-    const entry = evidence.find((entry) => entry.task.taskId === task?.taskId);
-    if (entry && task) {
-      if (!finished(entry.task)) {
-        entry.at = now;
-      }
-      if (task.phase.stage === "completed" && task.phase.outcome === "timeout" && task.deadlineAt !== null) {
-        entry.at = task.deadlineAt;
-      }
-      entry.task = task;
-    }
-    const model = replayLearning(evidence, course);
-    current.student = model.student;
-    current.state.serverNow = now;
-    updateProgress(current, evidence, course, now, (id) => questions(id, "quiz").length > 0);
-    const restricted = task && task.kind !== "lesson" && !finished(task);
-    let restriction: Projection["state"]["restrictions"]["kind"] = "none";
-    if (restricted) {
-      restriction = isQuiz(task) ? "quiz" : "review";
-    }
-    current.state.restrictions = {
-      kind: restriction,
-      tutorAllowed: !restricted,
-      referenceContentAllowed: !restricted,
-    };
-    if (!task || finished(task)) {
-      const history = records.records;
-      const previous =
-        current.state.menu ??
-        history.filter((record) => "projection" in record).findLast((record) => record.projection.state.menu)
-          ?.projection.state.menu ??
-        null;
-      const selected = history
-        .filter((record) => record.type === "checkpoint")
-        .findLast((record) => record.decision.selected !== null)?.decision.selected;
-      const retained = previous && {
-        ...previous,
-        candidates: previous.candidates.filter((candidate) => candidate.id !== selected),
-      };
-      const menu = learningMenu(course, evidence, now, retained ?? null, supply).menu;
-      if (!current.state.menu && previous) {
-        menu.menuId = opaqueId();
-      }
-      current.state.menu = progressMenu(current, evidence, course, menu);
-    }
-    return current;
-  }
-  async function save(
-    current: Projection,
-    evidence = taskEvidence(records.records),
-    selected: string | null = null,
-    seed = 0,
-  ) {
-    const changed = records.records.some((record) => record.seq > current.state.revision && record.type !== "snapshot");
-    if (changed) {
-      throw new RepaFault("stale_state", "学习状态已改变", { reason: "stale", state: state().state });
-    }
-    await records.checkpoint(records.revision, (_previous, now) => ({
-      projection: reconcile(current, evidence, now),
-      decision: {
-        policyVersion: FLOW_VERSION,
-        now,
-        seed,
-        selected,
-        candidates: current.state.menu?.candidates.map((entry) => entry.id) ?? [],
-        scores: {},
-      },
-    }));
-    const saved = state().state;
-    if (saved.task?.phase.stage === "explanation" || saved.task?.phase.stage === "example") {
-      const phase = saved.task.phase;
-      await records.viewed({
-        taskId: saved.task.taskId,
-        action: phase.stage === "explanation" ? "explanation" : "kp",
-        ref: phase.page.ref,
-      });
-      saved.revision = records.revision;
-    }
-    current.state.revision = records.revision;
-    host.emit({
-      type: "learning.changed",
-      revision: records.revision,
-      taskId: saved.task?.taskId ?? null,
-      menuId: saved.menu?.menuId ?? null,
-    });
-    return saved;
-  }
-  async function page(task: LearningTask, stage: "explanation" | "example") {
-    const topic = course.topics.find((entry) => entry.id === task.topicIds[0]);
-    const kp = topic?.kps.find((kp) => !task.kps.find((entry) => entry.kpId === kp.id)?.completed);
-    if (!topic || !kp) {
-      throw new RepaFault("invalid_input", "当前知识点不存在");
-    }
-    const ref = {
-      courseId: course.course.id,
-      topicId: topic.id,
-      kpId: kp.id,
-      id: `${kp.id}.${stage}`,
-      version: await contentVersion(kp),
-      kind: stage === "example" ? ("example" as const) : ("lesson" as const),
-    };
-    const blocks =
-      stage === "example" ? [...content(kp.example?.body), ...content(kp.example?.explanation)] : content(kp.lesson);
-    const result: ContentPage = {
-      ref,
-      origin: { taskId: task.taskId, content: ref },
-      offset: 0,
-      total: blocks.length,
-      blocks,
-    };
-    task.phase = { stage, page: result };
-  }
-  function eligible(current: Projection) {
-    const task = requireTask(current);
-    const model = replayLearning(
-      taskEvidence(records.records).filter((entry) => entry.task.taskId !== task.taskId),
-      course,
-    );
-    const phase = task.phase;
-    const deliveredKp =
-      phase.stage === "awaiting_answer"
-        ? task.deliveries.find((entry) => entry.deliveryId === phase.deliveryId)?.kpId
-        : undefined;
-    const shownKp = phase.stage === "explanation" || phase.stage === "example" ? phase.page.ref.kpId : deliveredKp;
-    const feedbackSubmission =
-      phase.stage === "feedback"
-        ? task.submissions.find((entry) => entry.submissionId === phase.submissionId)
-        : undefined;
-    const feedbackKp = task.deliveries.find((entry) => entry.deliveryId === feedbackSubmission?.deliveryId)?.kpId;
-    const feedbackIndex = task.kps.findIndex((kp) => kp.kpId === feedbackKp);
-    const rewoundFeedback = feedbackIndex >= 0 && task.kps.slice(0, feedbackIndex).some((kp) => !kp.completed);
-    const invalidShownKp = shownKp && shownKp !== task.kps.find((kp) => !kp.completed)?.kpId;
-    if (task.kind === "lesson" && (invalidShownKp || rewoundFeedback)) {
-      throw new RepaFault("stale_state", "当前交付已失去课内资格，请中止后重新选择", {
-        reason: "stale",
-        state: current.state,
-      });
-    }
-    if (!topicEligible(course, model, task.topicIds[0] ?? "", task.kind, clock())) {
-      throw new RepaFault("stale_state", "任务已失去学习资格，请中止当前任务后重新选择", {
-        reason: "stale",
-        state: current.state,
-      });
-    }
-  }
-  async function nextQuestion(current: Projection, capabilities?: ClientCapabilities, topicId?: string) {
-    pythonReady = runsPython(capabilities);
-    const task = requireTask(current);
-    const seen = new Set(Object.values(current.deliveries).map((digest) => records.snapshot(digest)?.questionId));
-    const id = topicId ?? task.topicIds[0] ?? "";
-    let pool = questions(id, task.kind);
-    const originalId = current.xp?.origins[task.taskId];
-    if (originalId) {
-      const original = taskEvidence(records.records).find((entry) => entry.task.taskId === originalId);
-      const excluded = new Set(original?.task.deliveries.map((delivery) =>
-        records.snapshot(current.deliveries[delivery.deliveryId] ?? "")?.questionId,
-      ));
-      pool = pool.filter((entry) => !excluded.has(entry.question.id));
-    }
-    if (task.kind === "lesson") {
-      pool = pool.filter((entry) => entry.kp.id === task.kps.find((kp) => !kp.completed)?.kpId);
-    } else if (!isQuiz(task)) {
-      const rotation = task.kps.filter((kp) => pool.some((entry) => entry.kp.id === kp.kpId));
-      const nextKp = rotation[task.deliveries.length % rotation.length]?.kpId;
-      const rotated = pool.filter((entry) => entry.kp.id === nextKp);
-      if (rotated.length) {
-        pool = rotated;
-      }
-    }
-    const entry = pool.find((entry) => !seen.has(entry.question.id)) ?? pool[0];
-    if (!entry) {
-      throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
-    }
-    const topic = course.topics.find((topic) => topic.id === id);
-    if (!topic) {
-      throw new RepaFault("invalid_input", "课程不存在");
-    }
-    const { delivery, idMap } = await deliver(
-      entry.question,
-      topic,
-      entry.kp.id,
-      POOLS[task.kind],
-      seen.has(entry.question.id),
-    );
-    const missing = missingDeliveryCapabilities(capabilities, delivery);
-    if (missing.length) {
-      throw new RepaFault("missing_capability", "前端不支持当前题目", {
-        reason: "missing_capability",
-        missing,
-        taskId: task.taskId,
-      });
-    }
-    const digest = await records.saveSnapshot(
-      await createSnapshot({
-        course: course.course,
-        topic,
-        kpId: entry.kp.id,
-        questionId: entry.question.id,
-        item: delivery.item,
-        idMap,
-        graph,
-      }),
-    );
-    current.deliveries[delivery.deliveryId] = digest;
-    task.deliveries.push(delivery);
-    task.phase = { stage: "awaiting_answer", deliveryId: delivery.deliveryId };
-  }
-  function advanceGrade(current: Projection, submissionId: string, grade: Grade, now: number) {
-    const task = requireTask(current);
-    const submission = task.submissions.find((entry) => entry.submissionId === submissionId);
-    if (!submission) {
-      throw new RepaFault("invalid_input", "找不到原答");
-    }
-    submission.processing = { status: "completed" };
-    submission.gradeRevision++;
-    const evidence = taskEvidence(records.records, { id: submissionId, grade });
-    const entry = evidence.find((entry) => entry.task.taskId === task.taskId);
-    if (!entry) {
-      throw new RepaFault("invalid_input", "找不到任务证据");
-    }
-    entry.task = task;
-    entry.at = now;
-    let outcome: "passed" | "failed" | "timeout" | undefined;
-    if (task.kind === "lesson") {
-      const before = replayLearning(
-        evidence.filter((item) => item !== entry),
-        course,
-      );
-      task.kps = kpProgress(entry, before.lessons.get(task.topicIds[0] ?? ""));
-      if (task.kps.every((kp) => kp.completed)) {
-        outcome = "passed";
-      } else if (task.kps.some((kp) => !kp.completed && kp.attempts >= 5)) {
-        outcome = "failed";
-      }
-      submission.feedback = grade.feedback;
-      release(task, evidence);
-    } else if (isQuiz(task)) {
-      const pending = task.submissions.find((entry) => entry.processing.status !== "completed");
-      if (pending) {
-        task.phase = { stage: "judging", submissionId: pending.submissionId };
-      } else {
-        const next = task.deliveries.find((delivery) => !task.submissions.some((entry) => entry.deliveryId === delivery.deliveryId));
-        task.phase = { stage: "awaiting_answer", deliveryId: next?.deliveryId ?? submission.deliveryId };
-        if (task.deadlineAt !== null && now >= task.deadlineAt) {
-          completeQuiz(task, evidence, true);
-        }
-      }
-      return reconcile(current, evidence, now);
-    } else {
-      const result = reviewResult(entry);
-      if (result.passed) {
-        outcome = "passed";
-      } else if (result.count >= 5) {
-        outcome = "failed";
-      } else if (task.deadlineAt !== null && now >= task.deadlineAt) {
-        outcome = "timeout";
-      }
-    }
-    task.phase = outcome ? { stage: "completed", outcome } : { stage: "feedback", submissionId };
-    if (outcome) {
-      release(task, evidence);
-    }
-    return reconcile(current, evidence, now);
-  }
-  function completeQuiz(task: LearningTask, evidence: TaskEvidence[], expired: boolean) {
-    const entry = evidence.find((entry) => entry.task.taskId === task.taskId);
-    const passed = entry && task.topicIds.every((id) => quizCorrect(entry, id));
-    let outcome: "passed" | "failed" | "timeout" = "failed";
-    if (passed) {
-      outcome = "passed";
-    } else if (expired) {
-      outcome = "timeout";
-    }
-    task.phase = { stage: "completed", outcome };
-    release(task, evidence);
-  }
-  function release(task: LearningTask, evidence: TaskEvidence[]) {
-    for (const submission of task.submissions) {
-      const grade = evidence
-        .find((entry) => entry.task.taskId === task.taskId)
-        ?.attempts.find((attempt) => attempt.submission.submissionId === submission.submissionId)?.grade;
-      if (!grade) {
-        continue;
-      }
-      submission.feedback = grade.feedback;
-      const snapshot = records.snapshot(state().deliveries[submission.deliveryId] ?? "");
-      const question =
-        snapshot && topicQuestions(snapshot.topic).find((entry) => entry.question.id === snapshot.questionId)?.question;
-      if (question) {
-        submission.explanation = content(question.explanation);
-      }
-    }
-  }
-  async function resume(id: string) {
-    try {
-      const receipt = await records.grade(
-        id,
-        async (submission, snapshot) => {
-          const grade = await judgeSubmission(host, submission, snapshot);
-          const accepted = records.records.find(
-            (record) => record.type === "accepted" && record.submission.submissionId === id,
-          );
-          if (accepted?.type === "accepted" && accepted.context.helpBefore.length) {
-            grade.feedback.evidence = { status: "ineligible", reason: "作答前已获取帮助" };
-          }
-          return grade;
-        },
-        (current, submission, grade, now) => {
-          if (!records.records.some((record) => record.type === "appeal" && record.submissionId === id)) {
-            return advanceGrade(current, submission.submissionId, grade, now);
-          }
-          const evidence = taskEvidence(records.records, { id, grade });
-          const task = current.state.task;
-          if (task?.taskId === submission.taskId) {
-            const previousPhase = task.phase;
-            if (isQuiz(task)) {
-              const answer = task.submissions.find((entry) => entry.submissionId === id);
-              if (answer) {
-                answer.processing = { status: "completed" };
-                answer.gradeRevision++;
-              }
-              if (previousPhase.stage === "completed") {
-                completeQuiz(task, evidence, previousPhase.outcome === "timeout");
-              }
-            } else {
-              advanceGrade(current, id, grade, now);
-              if (!finished(task)) {
-                task.phase = previousPhase.stage === "completed"
-                  ? { stage: "completed", outcome: "failed" }
-                  : previousPhase;
-              }
-            }
-            if (finished(task)) {
-              release(task, evidence);
-            }
-          }
-          return reconcile(current, evidence, now);
-        },
-      );
-      const saved = state().state;
-      host.emit({
-        type: "learning.changed",
-        revision: records.revision,
-        taskId: saved.task?.taskId ?? null,
-        menuId: saved.menu?.menuId ?? null,
-        submissionId: id,
-      });
-      return receipt;
-    } catch (error) {
-      const current = state();
-      const task = current.state.task;
-      const submission = task?.submissions.find((entry) => entry.submissionId === id);
-      if (submission && submission.processing.status !== "completed") {
-        submission.processing = {
-          status: "interrupted",
-          reason:
-            error instanceof RepaFault && error.code === "uncertain_grade" ? "uncertain_grade" : "service_failure",
-        };
-        if (task) {
-          task.phase = { stage: "recovery", submissionId: id };
-        }
-        await save(current);
-        return { status: "recorded" as const, submission: records.submission(id) ?? submission };
-      }
-      const pending = records.submission(id);
-      if (pending?.processing.status === "interrupted") {
-        return { status: "recorded" as const, submission: pending };
-      }
-      throw error;
-    }
-  }
-  async function refresh() {
-    const current = state();
-    const task = current.state.task;
-    const expired =
-      task && task.kind !== "lesson" &&
-      !finished(task) &&
-      task.deadlineAt !== null &&
-      clock() >= task.deadlineAt &&
-      task.submissions.every((entry) => entry.processing.status === "completed");
-    if (expired) {
-      if (isQuiz(task)) {
-        completeQuiz(task, taskEvidence(records.records), true);
-      } else {
-        task.phase = { stage: "completed", outcome: "timeout" };
-        release(task, taskEvidence(records.records));
-      }
-      await save(current);
-    } else {
-      const preview = reconcile(structuredClone(current), taskEvidence(records.records), clock());
-      const changed = !isDeepStrictEqual(preview.state.menu, current.state.menu)
-        || !isDeepStrictEqual(preview.state.progress, current.state.progress)
-        || !isDeepStrictEqual(preview.xp, current.xp);
-      if (changed) {
-        await save(preview);
-      }
-    }
-    const result = { ...state().state, serverNow: clock() };
-    if (result.task) {
-      result.task.submissions = result.task.submissions.map(
-        (submission) => records.submission(submission.submissionId) ?? submission,
-      );
-    }
-    return result;
-  }
   const methods: Record<string, PluginMethod> = {};
+  const stale = (message: string) => new RepaFault("stale_state", message);
+  const current = () => session.replay.currentEvidence();
+  const kpOf = (delivery: DeliveryRecord) => session.course.questions.get(delivery.questionId)?.kp.id;
+  const lookup = (id: string) => {
+    const seq = sequenceOf(id, "s");
+    const delivery = seq === undefined ? undefined : session.replay.delivery(seq);
+    return delivery?.answer ? delivery : undefined;
+  };
+
   function method<M extends LearningMethod>(
     name: M,
     action: (input: LearningInput<M>, context: MethodContext) => Promise<unknown>,
@@ -521,269 +41,314 @@ export async function connectLearning(
       parameters: learningMethods[name].input,
       result: learningMethods[name].result,
       invoke: async (raw, context) => {
-        if (["state.get", "menu.select", "task.advance"].includes(name)) {
-          // 菜单随之变化时由下面的 refresh 保存；菜单不变就不写记录。
-          pythonReady = runsPython(context.caller?.capabilities);
-        }
         // 泛型索引的 schema 联合无法保留 M；parse 已校验所属方法的输入。
+        const input = parse(learningMethods[name].input, raw) as LearningInput<M>;
+        session.autoGrade(context.caller?.capabilities);
         try {
-          const input = parse(learningMethods[name].input, raw) as LearningInput<M>;
-          await refresh();
           return await action(input, context);
         } catch (error) {
           if (error instanceof RepaFault && error.code === "stale_state") {
-            throw new RepaFault("stale_state", error.message, { reason: "stale", state: state().state });
+            throw new RepaFault("stale_state", error.message, { reason: "stale", state: await session.state(context.caller?.capabilities) });
           }
           throw error;
         }
       },
     };
   }
-  method("state.get", async () => refresh());
-  method("submission.get", async (input) => {
-    const submission = records.submission(input.submissionId);
-    return submission
-      ? { status: "found", submission, revision: records.revision }
-      : { status: "absent", submissionId: input.submissionId, revision: records.revision };
-  });
-  async function select(input: LearningInput<"menu.select">, context: MethodContext, originalTaskId?: string, quizOnly = false) {
-    const current = state();
-    const menu = current.state.menu;
-    const candidate = menu?.candidates.find((entry) => entry.id === input.candidateId);
-    const evidence = taskEvidence(records.records);
-    const normal = learningMenu(course, evidence, clock(), menu, supply).menu;
-    const valid = progressMenu(current, evidence, course, normal).candidates;
-    const invalidSelection =
-      !candidate ||
-      (originalTaskId !== undefined && candidate.originalTaskId !== originalTaskId) ||
-      (quizOnly && candidate.kind !== (originalTaskId ? "retake" : "quiz")) ||
-      menu?.menuId !== input.menuId ||
-      !valid.some((entry) => entry.id === candidate.id) ||
-      (current.state.task && !finished(current.state.task));
-    if (invalidSelection) {
-      throw new RepaFault("stale_state", "菜单已失效");
+
+  /** 课内交付和已选任务仍须有资格：课内只交付第一个未过的知识点，重判使已过的知识点退回时不能继续往下。 */
+  function eligible(evidence: TaskEvidence) {
+    const task = evidence.task;
+    const position = session.position(evidence);
+    let shownKp: string | undefined;
+    if (position.stage === "explanation" || position.stage === "example") {
+      shownKp = position.kp;
+    } else if (position.stage === "awaiting_answer") {
+      shownKp = kpOf(position.delivery);
     }
-    const topic = course.topics.find((topic) => topic.id === candidate.topicIds[0]);
-    if (!topic) {
-      throw new RepaFault("invalid_input", "课程不存在");
+    const feedbackKp = position.stage === "feedback" ? kpOf(position.delivery) : undefined;
+    const feedbackIndex = evidence.kps.findIndex((kp) => kp.kpId === feedbackKp);
+    const rewound = feedbackIndex >= 0 && evidence.kps.slice(0, feedbackIndex).some((kp) => !kp.completed);
+    const invalidShownKp = shownKp && shownKp !== evidence.kps.find((kp) => !kp.completed)?.kpId;
+    if (task.kind === "lesson" && (invalidShownKp || rewound)) {
+      throw stale("当前交付已失去课内资格，请中止后重新选择");
     }
-    const model = replayLearning(taskEvidence(records.records), course);
-    const seed = current.xp?.pending?.seed ?? Math.floor(Math.random() * 0x7fffffff);
-    const kps = topic.kps.map((kp) => ({
-      kpId: kp.id,
-      attempts: 0,
-      consecutiveCorrect: 0,
-      completed:
-        candidate.kind === "lesson" &&
-        (model.lessons.get(topic.id)?.find((entry) => entry.kpId === kp.id)?.completed ?? false),
-    }));
-    current.state.task = {
-      taskId: opaqueId(),
-      kind: candidate.kind,
-      topicIds: candidate.topicIds,
-      phase: { stage: "preparing" },
-      startedAt: candidate.kind === "lesson" ? clock() : null,
-      deadlineAt: null,
-      kps: candidate.kind === "review" ? shuffled(kps, seed) : kps,
-      deliveries: [],
-      submissions: [],
-    };
-    const xp = current.xp;
-    if (xp && candidate.kind === "quiz") {
-      xp.consumed++;
+    if (!topicEligible(session.course, session.before(), task.topicIds[0] ?? "", task.kind, session.clock())) {
+      throw stale("任务已失去学习资格，请中止当前任务后重新选择");
     }
-    if (xp && candidate.originalTaskId) {
-      xp.origins[current.state.task.taskId] = candidate.originalTaskId;
-    }
-    current.state.menu = null;
-    if (candidate.kind === "lesson") {
-      await page(current.state.task, "explanation");
-    } else {
-      await save(current, undefined, candidate.id, seed);
-      await startRestricted(current, context);
-    }
-    return save(current, undefined, candidate.id, seed);
   }
+
+  /** 选下一道题：课按第一个未过的知识点，复习轮流覆盖知识点，测验每个 topic 一题；优先没出过的题。 */
+  async function nextQuestion(evidence: TaskEvidence, capabilities: ClientCapabilities | undefined, topicId?: string): Promise<FactBody> {
+    const task = evidence.task;
+    const id = topicId ?? task.topicIds[0] ?? "";
+    let pool = session.questions(id, task.kind, capabilities);
+    if (task.retakes !== undefined) {
+      const excluded = new Set(session.replay.task(task.retakes)?.deliveries.map((delivery) => delivery.questionId));
+      pool = pool.filter((entry) => !excluded.has(entry.question.id));
+    }
+    if (task.kind === "lesson") {
+      pool = pool.filter((entry) => entry.kp.id === evidence.kps.find((kp) => !kp.completed)?.kpId);
+    } else if (!isQuiz(task.kind)) {
+      const rotation = evidence.kps.filter((kp) => pool.some((entry) => entry.kp.id === kp.kpId));
+      const nextKp = rotation[task.deliveries.length % rotation.length]?.kpId;
+      const rotated = pool.filter((entry) => entry.kp.id === nextKp);
+      if (rotated.length) {
+        pool = rotated;
+      }
+    }
+    const entry = pool.find((candidate) => session.replay.firstDelivered(candidate.question.id) === undefined) ?? pool[0];
+    const topic = session.course.topics.get(id);
+    if (!entry || !topic) {
+      throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
+    }
+    const seed = deliverySeed();
+    const mode = task.kind === "lesson" ? "practice" : task.kind === "review" ? "review" : "quiz";
+    const { delivery } = await renderDelivery(entry.question, topic, entry.kp.id, mode, { deliveryId: "d0", submissionId: "s0", repeated: false }, seed);
+    const missing = missingDeliveryCapabilities(capabilities, delivery);
+    if (missing.length) {
+      throw new RepaFault("missing_capability", "前端不支持当前题目", { reason: "missing_capability", missing, taskId: taskId(task) });
+    }
+    return { type: "delivered", task: task.seq, question: entry.question.id, seed };
+  }
+
+  /** 复习与测验先写下任务（准备阶段），等辅导停稳后才交付题目，第一道题出现时开始计时。 */
+  async function startRestricted(capabilities: ClientCapabilities | undefined) {
+    const evidence = current();
+    if (!evidence || session.stage(evidence) !== "preparing") {
+      throw stale("受限任务尚未进入准备阶段");
+    }
+    eligible(evidence);
+    await hooks.beforeRestricted?.();
+    await session.write(async () => {
+      const latest = current();
+      if (!latest || latest.task !== evidence.task || session.stage(latest) !== "preparing") {
+        throw stale("任务状态已改变");
+      }
+      if (!isQuiz(latest.task.kind)) {
+        return [await nextQuestion(latest, capabilities)];
+      }
+      const bodies: FactBody[] = [];
+      for (const id of latest.task.topicIds) {
+        bodies.push(await nextQuestion(latest, capabilities, id));
+      }
+      if (!bodies.length) {
+        throw new RepaFault("insufficient_items", "测验没有可用题目");
+      }
+      return bodies;
+    });
+  }
+
+  async function select(input: LearningInput<"menu.select">, context: MethodContext, originalTaskId?: string, quizOnly = false) {
+    const capabilities = context.caller?.capabilities;
+    let restricted = false;
+    await session.write(async () => {
+      const state = await session.state(capabilities);
+      const candidate = state.menu?.candidates.find((entry) => entry.id === input.candidateId);
+      if (
+        !candidate ||
+        state.menu?.menuId !== input.menuId ||
+        (originalTaskId !== undefined && candidate.originalTaskId !== originalTaskId) ||
+        (quizOnly && candidate.kind !== (originalTaskId ? "retake" : "quiz"))
+      ) {
+        throw stale("菜单已失效");
+      }
+      restricted = candidate.kind !== "lesson";
+      const original = candidate.originalTaskId === undefined ? undefined : sequenceOf(candidate.originalTaskId, "t");
+      return [{ type: "task", kind: candidate.kind, topics: candidate.topicIds, ...(original === undefined ? {} : { retakes: original }) }];
+    });
+    if (restricted) {
+      await startRestricted(capabilities);
+    }
+    return session.state(capabilities);
+  }
+
+  method("state.get", async (_input, context) => session.state(context.caller?.capabilities));
   method("menu.select", (input, context) => select(input, context));
   method("quiz.start", (input, context) => select(input, context, undefined, true));
   method("quiz.retake", (input, context) => select(input, context, input.originalTaskId, true));
-  async function startRestricted(current: Projection, context: MethodContext) {
-    eligible(current);
-    const task = requireTask(current);
-    await beginRestricted(
-      task,
-      async () => {
-        await hooks.beforeRestricted?.(task);
-      },
-      async () => {
-        if (isQuiz(task)) {
-          for (const id of task.topicIds) {
-            await nextQuestion(current, context.caller?.capabilities, id);
-          }
-          const first = task.deliveries[0];
-          if (!first) {
-            throw new RepaFault("insufficient_items", "测验没有可用题目");
-          }
-          task.phase = { stage: "awaiting_answer", deliveryId: first.deliveryId };
-        } else {
-          await nextQuestion(current, context.caller?.capabilities);
-        }
-      },
-      clock,
-      isQuiz(task) ? 900_000 : 600_000,
-    );
-    if (task.kind === "quiz" && current.xp) {
-      delete current.xp.pending;
-    }
-  }
   method("task.resume", async (input, context) => {
-    const current = state();
-    const task = requireTask(current);
+    const evidence = current();
     if (
-      task.taskId !== input.taskId ||
-      task.phase.stage !== "preparing" ||
+      !evidence ||
+      input.taskId !== taskId(evidence.task) ||
+      session.stage(evidence) !== "preparing" ||
       input.expectedStage !== "preparing" ||
-      input.expectedRevision !== records.revision
+      input.expectedRevision !== session.records.revision
     ) {
-      throw new RepaFault("stale_state", "任务状态已改变");
+      throw stale("任务状态已改变");
     }
-    await startRestricted(current, context);
-    return save(current);
+    await startRestricted(context.caller?.capabilities);
+    return session.state(context.caller?.capabilities);
   });
   method("task.advance", async (input, context) => {
-    const current = state();
-    const task = requireTask(current);
-    if (
-      input.taskId !== task.taskId ||
-      input.expectedRevision !== records.revision ||
-      input.expectedStage !== task.phase.stage
-    ) {
-      throw new RepaFault("stale_state", "任务状态已改变", { reason: "stale", state: current.state });
-    }
-    eligible(current);
-    if (task.phase.stage === "explanation") {
-      await page(task, "example");
-    } else if (task.phase.stage === "example") {
-      await nextQuestion(current, context.caller?.capabilities);
-    } else if (task.phase.stage === "feedback") {
-      if (task.kind === "lesson" && task.kps.find((entry) => entry.kpId === task.deliveries.at(-1)?.kpId)?.completed) {
-        await page(task, "explanation");
-      } else {
-        await nextQuestion(current, context.caller?.capabilities);
+    const capabilities = context.caller?.capabilities;
+    await session.write(async () => {
+      const evidence = current();
+      if (
+        !evidence ||
+        input.taskId !== taskId(evidence.task) ||
+        input.expectedRevision !== session.records.revision ||
+        input.expectedStage !== session.stage(evidence)
+      ) {
+        throw stale("任务状态已改变");
       }
-    } else {
-      throw new RepaFault("stale_state", "当前阶段不能推进");
-    }
-    return save(current);
-  });
-  method("task.abort", async (input) => {
-    const current = state();
-    const task = requireTask(current);
-    if (
-      input.taskId !== task.taskId ||
-      input.expectedRevision !== records.revision ||
-      input.expectedStage !== task.phase.stage ||
-      task.submissions.some((entry) => entry.processing.status !== "completed")
-    ) {
-      throw new RepaFault("stale_state", "任务状态已改变或仍在判分");
-    }
-    if (finished(task)) {
-      return current.state;
-    }
-    if (isQuiz(task) && task.phase.stage !== "preparing") {
-      completeQuiz(task, taskEvidence(records.records), false);
-    } else {
-      if (task.kind === "quiz" && current.xp) {
-        // 旧版本的 preparing 已删掉 pending；沿原选择记录恢复，不重置延后窗口。
-        if (!current.xp.pending) {
-          const history = records.records;
-          const selected = history.filter((record) => record.type === "checkpoint")
-            .findLast((record) => record.projection.state.task?.taskId === task.taskId && record.decision.selected)
-            ?.decision.selected;
-          current.xp.pending = history.filter((record) => "projection" in record)
-            .findLast((record) => record.projection.xp?.pending?.id === selected)?.projection.xp?.pending;
+      eligible(evidence);
+      const task = evidence.task;
+      const position = session.position(evidence);
+      if (task.kind === "lesson" && position.stage === "explanation") {
+        return [{ type: "viewed", task: task.seq, kp: position.kp, page: "example" }];
+      }
+      if (task.kind === "lesson" && position.stage === "example") {
+        return [await nextQuestion(evidence, capabilities)];
+      }
+      // 判不出结果的作答不阻塞任务：从恢复阶段也可以继续下一题，这份作答等条件具备时再补判。
+      if ((task.kind === "lesson" || task.kind === "review") && (position.stage === "feedback" || position.stage === "recovery")) {
+        const kp = kpOf(position.delivery);
+        const next = evidence.kps.find((entry) => !entry.completed)?.kpId;
+        if (task.kind === "lesson" && evidence.kps.find((entry) => entry.kpId === kp)?.completed && next) {
+          return [{ type: "viewed", task: task.seq, kp: next, page: "lesson" }];
         }
-        current.xp.consumed--;
+        return [await nextQuestion(evidence, capabilities)];
       }
-      if (current.xp) {
-        delete current.xp.origins[task.taskId];
+      throw stale("当前阶段不能推进");
+    });
+    return session.state(capabilities);
+  });
+  method("task.abort", async (input, context) => {
+    await session.write(async () => {
+      const evidence = current();
+      if (
+        !evidence ||
+        input.taskId !== taskId(evidence.task) ||
+        input.expectedRevision !== session.records.revision ||
+        input.expectedStage !== session.stage(evidence)
+      ) {
+        throw stale("任务状态已改变");
       }
-      task.phase = { stage: "aborted", reason: "学习者中止" };
-    }
-    return save(current);
+      return evidence.outcome ? [] : [{ type: "ended", task: evidence.task.seq }];
+    });
+    return session.state(context.caller?.capabilities);
   });
-  method("quiz.finish", async (input) => {
-    const current = state();
-    const task = requireTask(current);
-    if (!isQuiz(task) || task.taskId !== input.taskId) {
-      throw new RepaFault("stale_state", "当前测验已改变");
-    }
-    if (finished(task)) {
-      return current.state;
-    }
-    if (input.expectedRevision !== records.revision || input.expectedStage !== task.phase.stage
-      || task.phase.stage === "preparing" || task.submissions.some((entry) => entry.processing.status !== "completed")) {
-      throw new RepaFault("stale_state", "测验仍在准备或判分，请恢复后交卷");
-    }
-    completeQuiz(task, taskEvidence(records.records), false);
-    return save(current);
+  method("quiz.finish", async (input, context) => {
+    await session.write(async () => {
+      const evidence = current();
+      if (!evidence || !isQuiz(evidence.task.kind) || input.taskId !== taskId(evidence.task)) {
+        throw stale("当前测验已改变");
+      }
+      if (evidence.outcome) {
+        return [];
+      }
+      const stage = session.stage(evidence);
+      if (input.expectedRevision !== session.records.revision || input.expectedStage !== stage || stage === "preparing") {
+        throw stale("测验仍在准备或状态已改变，请刷新后交卷");
+      }
+      return [{ type: "ended", task: evidence.task.seq }];
+    });
+    return session.state(context.caller?.capabilities);
   });
-  method("progress.get", async () => {
-    const current = await refresh();
-    return { serverNow: current.serverNow, progress: current.progress };
+  method("progress.get", async (_input, context) => {
+    const state = await session.state(context.caller?.capabilities);
+    return { serverNow: state.serverNow, progress: state.progress };
   });
-  method("progress.setGoal", async (input) => {
-    const current = state();
-    current.state.progress.dailyGoalXp = input.dailyGoalXp;
-    return save(current);
+  method("progress.setGoal", async (input, context) => {
+    await session.write(() => [{ type: "goal", xp: input.dailyGoalXp }]);
+    return session.state(context.caller?.capabilities);
+  });
+  method("submission.get", async (input) => {
+    const delivery = lookup(input.submissionId);
+    return delivery
+      ? { status: "found", submission: await session.submission(delivery), revision: session.records.revision }
+      : { status: "absent", submissionId: input.submissionId, revision: session.records.revision };
   });
   method("submission.submit", async (input) => {
-    if (!records.submission(input.submissionId)) {
-      eligible(state());
+    const seq = sequenceOf(input.deliveryId, "d");
+    let receipt: SubmissionReceipt | undefined;
+    await session.write(async () => {
+      const delivery = seq === undefined ? undefined : session.replay.delivery(seq);
+      if (delivery?.answer) {
+        // 同一提交身份的重交：载荷相同就返回已有状态，不同就报冲突。
+        const existing = await session.submission(delivery);
+        if (existing.taskId !== input.taskId || existing.submissionId !== input.submissionId || !isDeepStrictEqual(existing.response, input.response)) {
+          throw new RepaFault("submission_conflict", "同一提交身份不能替换原答", { reason: "payload_conflict", submissionId: input.submissionId });
+        }
+        receipt = { status: "recorded", submission: existing };
+        return [];
+      }
+      const evidence = current();
+      const shown = delivery && (await session.render(delivery)).delivery;
+      const stage = evidence && session.stage(evidence);
+      const position = evidence && session.position(evidence);
+      if (
+        !evidence || !delivery || !shown || delivery.task !== evidence.task ||
+        input.taskId !== taskId(evidence.task) || input.submissionId !== shown.submissionId ||
+        !["awaiting_answer", "judging", "recovery"].includes(stage ?? "") ||
+        (!isQuiz(evidence.task.kind) && (position?.stage !== "awaiting_answer" || position.delivery !== delivery)) ||
+        (evidence.deadlineAt !== null && session.clock() >= evidence.deadlineAt)
+      ) {
+        throw stale("交付已失效或已截止");
+      }
+      const checked = checkSubmission(shown.item, input.response);
+      if (!checked.ok || (isQuiz(evidence.task.kind) && input.response.dontKnow)) {
+        receipt = {
+          status: "rejected",
+          submissionId: input.submissionId,
+          processing: { status: "not_accepted" },
+          problems: checked.ok ? [{ message: "测验不接受不会作答" }] : checked.problems,
+        };
+        return [];
+      }
+      eligible(evidence);
+      const { idMap } = await session.render(delivery);
+      const answers = Object.fromEntries(Object.entries(input.response.answers).map(([slotId, answer]) => {
+        const slot = shown.item.slots.find((entry) => entry.id === slotId);
+        return [slotId, slot ? mapAnswer(answer, slot, idMap) : answer];
+      }));
+      return [{
+        type: "answered",
+        delivery: delivery.seq,
+        seen: input.response.item.version,
+        answers,
+        ...(input.response.dontKnow ? { dontKnow: true as const } : {}),
+      }];
+    });
+    if (receipt?.status === "rejected") {
+      return receipt;
     }
-    const receipt = await records.submit(input);
-    if (receipt.status === "recorded") {
-      host.emit({
-        type: "learning.changed",
-        revision: records.revision,
-        taskId: input.taskId,
-        menuId: null,
-        submissionId: input.submissionId,
-      });
+    // 新收下的作答当场判分；同载荷的重交也沿原提交继续判分，与恢复相同。
+    const delivery = seq === undefined ? undefined : session.replay.delivery(seq);
+    if (!delivery) {
+      throw new RepaFault("invalid_input", "找不到提交");
     }
-    return receipt.status === "recorded" ? resume(input.submissionId) : receipt;
+    await session.grade(delivery.seq);
+    return { status: "recorded", submission: await session.submission(delivery) };
+  });
+  method("submission.resume", async (input) => {
+    const delivery = lookup(input.submissionId);
+    if (!delivery) {
+      throw new RepaFault("invalid_input", "找不到提交");
+    }
+    await session.grade(delivery.seq);
+    return { status: "recorded", submission: await session.submission(delivery) };
   });
   method("submission.appeal", async (input) => {
-    await records.appeal(input);
-    return resume(input.submissionId);
-  });
-  method("submission.resume", async (input) => resume(input.submissionId));
-  if (!records.current()) {
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    await save({
-      state: {
-        revision: 0,
-        serverNow: clock(),
-        task: null,
-        menu: null,
-        course: { id: course.course.id, title: course.course.title, version: course.course.version },
-        restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
-        progress: {
-          day: "1970-01-01",
-          timeZone,
-          dailyGoalXp: 20,
-          todayXp: 0,
-          totalXp: 0,
-          completedTopics: 0,
-          totalTopics: course.topics.length,
-          completionRate: 0,
-          etaDays: null,
-        },
-      },
-      student: {},
-      deliveries: {},
+    const delivery = lookup(input.submissionId);
+    await session.write(() => {
+      if (!delivery || delivery.grades.length === 0 || delivery.grades.length !== input.expectedGradeRevision) {
+        throw stale("目标判分版本已改变");
+      }
+      const latest = delivery.grades.at(-1);
+      // 同一目标的申诉还没判出结果：合并到已有的申诉。
+      if (delivery.appeal && latest && delivery.appeal.seq > latest.seq) {
+        return [];
+      }
+      return [{ type: "appealed", delivery: delivery.seq, reason: input.reason }];
     });
-  }
-  await refresh();
+    if (!delivery) {
+      throw new RepaFault("invalid_input", "找不到提交");
+    }
+    await session.grade(delivery.seq);
+    return { status: "recorded", submission: await session.submission(delivery) };
+  });
   return { methods };
 }

@@ -1,10 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
-import type { Host, PluginInstance, PluginMethod, Tool } from "@repa/base/plugin";
+import type { PluginInstance, PluginMethod, Tool } from "@repa/base/plugin";
 import { contentVersion, object, parse } from "@repa/base/protocol";
 import { memoryAt } from "@repa/learning-model";
 import { Type } from "typebox";
-import type { ResolvedCourse } from "./course-sources.js";
 import {
   learningMethods,
   type ContentPage,
@@ -13,8 +12,8 @@ import {
   type LearningMethod,
   type LearningResult,
 } from "./protocol.js";
-import type { LearningRecords } from "./records.js";
-import type { Projection, RecordBody } from "./records-schema.js";
+import type { FactBody } from "./records-schema.js";
+import type { LearningSession, LearningView } from "./session.js";
 import { currentDelivery, referenceContent, requireReferenceAccess, visibleContent } from "./tutor-content.js";
 
 export const TUTOR_AGENT = "learning-tutor";
@@ -29,54 +28,38 @@ const ReadParametersSchema = object({
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 64 })),
 });
-type Viewed = Omit<Extract<RecordBody, { type: "viewed" }>, "type">;
 
 export async function connectTutor(
-  records: LearningRecords,
-  course: ResolvedCourse,
-  host: Host,
-  clock = Date.now,
+  session: LearningSession,
 ): Promise<Pick<PluginInstance, "methods" | "tools" | "agents">> {
-  const index = await referenceContent(course);
+  const index = await referenceContent(session.course.course);
   const titles = new Map(index.map((entry) => [entry.ref.id, entry.title]));
   const methods: Record<string, PluginMethod> = {};
-  async function observe(input: Parameters<LearningRecords["viewed"]>[0]) {
-    const revision = records.revision;
-    await records.viewed(input);
-    if (records.revision !== revision) {
-      const state = records.current()?.state;
-      host.emit({
-        type: "learning.changed",
-        revision: records.revision,
-        taskId: state?.task?.taskId ?? null,
-        menuId: state?.menu?.menuId ?? null,
-      });
-    }
+  /**
+   * 在串行入口里读当前状态，再决定是否记下求助：action 返回 true 表示学习者确实得到了帮助（提问、读到了内容）。
+   * 求助只在课内、题目还没作答时记，每道题记一次。
+   */
+  async function observe(action: (view: LearningView) => Promise<boolean> | boolean) {
+    await session.write(async () => (await action(await session.view()) ? help() : []));
   }
-  function help(current: Projection, ref: ContentRef): Viewed[] {
-    const task = current.state.task;
-    const delivery = currentDelivery(task);
-    if (!task || !delivery || task.kind !== "lesson") {
+  function help(): FactBody[] {
+    const evidence = session.replay.currentEvidence();
+    if (!evidence || evidence.task.kind !== "lesson") {
       return [];
     }
-    const accepted = task.submissions.some((entry) => entry.deliveryId === delivery.deliveryId);
-    return [{
-      taskId: task.taskId,
-      deliveryId: delivery.deliveryId,
-      action: accepted ? "help_after" : "help_before",
-      ref,
-    }];
+    const position = session.position(evidence);
+    if (position.stage !== "awaiting_answer" || position.delivery.help || position.delivery.answer) {
+      return [];
+    }
+    return [{ type: "help", delivery: position.delivery.seq }];
   }
-  async function access<T>(
-    action: (current: Projection, pages: ContentPage[]) => { result: T; viewed: Viewed[] },
-    requested: ContentRef[] = [],
-  ) {
+  async function access<T>(action: (pages: ContentPage[]) => { result: T; read: boolean }) {
     let result: T | undefined;
-    await observe(async (stored) => {
-      const current = requireReferenceAccess(stored);
-      const value = action(current, await visibleContent(records, current, index, requested));
+    await observe(async (view) => {
+      requireReferenceAccess(view);
+      const value = action(await visibleContent(session, view, index));
       result = value.result;
-      return value.viewed;
+      return value.read;
     });
     return result;
   }
@@ -89,15 +72,6 @@ export async function connectTutor(
       });
     }
     return page;
-  }
-  function viewed(current: Projection, page: ContentPage): Viewed[] {
-    const action = page.ref.kind === "card" ? "card" : "kp";
-    return [{
-      taskId: page.origin.taskId,
-      ...(page.origin.deliveryId ? { deliveryId: page.origin.deliveryId } : {}),
-      action,
-      ref: page.ref,
-    }, ...help(current, page.ref)];
   }
   function register<M extends LearningMethod>(
     name: M,
@@ -112,7 +86,7 @@ export async function connectTutor(
     methods[name] = method;
     return method;
   }
-  const search = register("content.search", async ({ query, offset, limit }) => access((current, pages) => {
+  const search = register("content.search", async ({ query, offset, limit }) => access((pages) => {
     const needle = query.toLocaleLowerCase("zh-CN");
     const hits = pages.flatMap((page) => {
       const title = titles.get(page.ref.id) ?? "已释放题解";
@@ -136,12 +110,11 @@ export async function connectTutor(
     }
     return {
       result: { hits: selected, nextOffset: offset + selected.length < hits.length ? offset + selected.length : null },
-      viewed: selected.flatMap((hit) => viewed(current, find(pages, hit.ref))),
+      read: selected.length > 0,
     };
   }));
-  const read = register("content.read", async ({ refs, offset, limit }) => access((current, pages) => {
+  const read = register("content.read", async ({ refs, offset, limit }) => access((pages) => {
     const selected: ContentPage[] = [];
-    const events: Viewed[] = [];
     for (const ref of refs) {
       const source = find(pages, ref);
       const page = { ...source, offset, blocks: source.blocks.slice(offset, offset + limit) };
@@ -155,14 +128,13 @@ export async function connectTutor(
         throw new RepaFault("content_block_too_large", "单块内容超过读取预算，请缩短课程内容块");
       }
       selected.push(page);
-      events.push(...viewed(current, source));
     }
-    return { result: selected, viewed: events };
-  }, refs));
-  register("content.open", async ({ ref }) => access((current, pages) => ({
-    result: { openedAt: clock() },
-    viewed: viewed(current, find(pages, ref)),
-  }), [ref]));
+    return { result: selected, read: true };
+  }));
+  register("content.open", async ({ ref }) => access((pages) => {
+    find(pages, ref);
+    return { result: { openedAt: session.clock() }, read: true };
+  }));
   const TaskParametersSchema = object({
     offset: Type.Optional(Type.Integer({ minimum: 0 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 3000 })),
@@ -175,9 +147,9 @@ export async function connectTutor(
       async execute(raw) {
         const { offset = 0, limit = 2000 } = parse(TaskParametersSchema, raw);
         let text = "";
-        await observe(async (stored) => {
-          const current = requireReferenceAccess(stored);
-          const task = current.state.task;
+        await observe(async (view) => {
+          requireReferenceAccess(view);
+          const task = view.state.task;
           const delivery = currentDelivery(task);
           const submission = task?.submissions.find((entry) => entry.deliveryId === delivery?.deliveryId);
           const focus = {
@@ -194,8 +166,7 @@ export async function connectTutor(
             total: serialized.length,
             text: serialized.slice(offset, offset + limit).join(""),
           });
-          const ref = index.find((entry) => entry.ref.kind === "kp" && entry.ref.kpId === delivery?.kpId)?.ref;
-          return ref ? help(current, ref) : [];
+          return true;
         });
         return { text };
       },
@@ -221,6 +192,17 @@ export async function connectTutor(
       },
     },
   ];
+  const rejected = (error: unknown) => {
+    if (error instanceof RepaFault && error.code === "restricted") {
+      return {
+        status: "rejected" as const,
+        reason: "restricted",
+        message: error.message,
+        ...(error.details === undefined ? {} : { data: error.details }),
+      };
+    }
+    throw error;
+  };
   return {
     methods,
     tools: () => tools,
@@ -232,54 +214,36 @@ export async function connectTutor(
       instructions: () => "你是学习辅导老师。围绕当前任务帮助学习者理解知识，使用学习读取工具核对细节。提到概念时附上工具返回的 ref 与 origin，便于即时回顾；教学推进和正式判分由程序负责。",
       async beforeMessage() {
         try {
-          await observe(async (stored) => {
-            const current = requireReferenceAccess(stored);
-            if (!current.state.restrictions.tutorAllowed) {
+          await observe((view) => {
+            if (!view.state.restrictions.tutorAllowed) {
               throw new RepaFault("restricted", "当前任务暂时不能求助");
             }
-            const delivery = currentDelivery(current.state.task);
-            const ref = index.find((entry) => entry.ref.kpId === delivery?.kpId && entry.ref.kind === "kp")?.ref;
-            return ref ? help(current, ref) : [];
+            return true;
           });
         } catch (error) {
-          if (error instanceof RepaFault && error.code === "restricted") {
-            return {
-              status: "rejected",
-              reason: "restricted",
-              message: error.message,
-              ...(error.details === undefined ? {} : { data: error.details }),
-            };
-          }
-          throw error;
+          return rejected(error);
         }
       },
       async beforeRun() {
         try {
-          requireReferenceAccess(records.current());
+          requireReferenceAccess(await session.view());
         } catch (error) {
-          if (error instanceof RepaFault && error.code === "restricted") {
-            return {
-              status: "rejected",
-              reason: "restricted",
-              message: error.message,
-              ...(error.details === undefined ? {} : { data: error.details }),
-            };
-          }
-          throw error;
+          return rejected(error);
         }
       },
       async view() {
-        const current = records.current();
-        if (!current) throw new RepaFault("service_failed", "学习状态尚未初始化");
-        const task = current.state.task;
+        const view = await session.view();
+        const task = view.state.task;
         const delivery = currentDelivery(task ?? null);
-        const topic = course.topics.find((entry) => entry.id === task?.topicIds[0]);
+        const topic = session.course.topics.get(task?.topicIds[0] ?? "");
         const phase = task?.phase;
         const shownKp = phase?.stage === "explanation" || phase?.stage === "example" ? phase.page.ref.kpId : undefined;
         const kpId = shownKp ?? delivery?.kpId ?? task?.kps.find((entry) => !entry.completed)?.kpId;
+        // 先修排序用最后一条事实的时间，状态不变时视图文本不变，不打乱提示缓存。
+        const day = (session.records.facts.at(-1)?.at ?? view.state.serverNow) / 86_400_000;
         const weak = (topic?.prerequisites ?? []).flatMap((id) => {
-          const state = current.student[id];
-          return state ? [{ id, memory: memoryAt(state, current.state.serverNow / 86_400_000) }] : [];
+          const state = view.student[id];
+          return state ? [{ id, memory: memoryAt(state, day) }] : [];
         }).sort((left, right) => left.memory - right.memory || left.id.localeCompare(right.id)).slice(0, 3);
         const submission = task?.submissions.at(-1);
         return JSON.stringify({

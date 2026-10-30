@@ -5,7 +5,7 @@ import { contentVersion } from "@repa/base/protocol";
 
 import { confirmationVersion, currentConfirmation, confirmCourse } from "../src/check/confirm.js";
 import { checkCourse } from "../src/check/course.js";
-import { legacyVersionInput, questionCredit, questionVersion } from "../src/check/items.js";
+import { versionInput, questionCredit, questionVersion } from "../src/check/items.js";
 import { Report } from "../src/format/diagnostics.js";
 import { loadCourse } from "../src/format/load.js";
 import type { Confirmation, Question, Topic } from "../src/format/schema.js";
@@ -127,16 +127,14 @@ test("当前 topic、KP、题目均不能复用退役 id，未使用的退役 id
   assert.ok((await errors(t, demo)).includes("kp_id_prefix"));
 });
 
-test("信用归属改变题目版本，集合顺序与显式缺省不改变版本", async () => {
+test("知识点归属不进题目版本：改 measures 或 uses 后版本不变，过去的作答照样对得上", async () => {
   const owner = topic(relations(), "t01");
   const q = question(owner);
-  const original = await questionVersion(q, owner);
-  assert.equal(await questionVersion({ ...q, measures: ["t01.k1"], uses: [] }, owner), original);
-  const changed = { ...q, measures: ["t01.k1", "t01.k2"], uses: ["t04.k1", "t04.k2"] };
-  assert.notEqual(await questionVersion(changed, owner), original);
-  assert.equal(await questionVersion({ ...changed, measures: ["t01.k2", "t01.k1"], uses: ["t04.k2", "t04.k1"] }, owner), await questionVersion(changed, owner));
-  assert.notEqual(await questionVersion({ ...q, uses: ["t04.k1"] }, owner), original);
-  assert.notEqual(await questionVersion({ ...q, measures: ["t01.k2"] }, owner), original);
+  const original = await questionVersion(q, owner, "");
+  assert.equal(await questionVersion({ ...q, measures: ["t01.k1"], uses: [] }, owner, ""), original);
+  assert.equal(await questionVersion({ ...q, measures: ["t01.k1", "t01.k2"], uses: ["t04.k1", "t04.k2"] }, owner, ""), original);
+  assert.equal(await questionVersion({ ...q, uses: ["t04.k1"] }, owner, ""), original);
+  assert.equal(await questionVersion({ ...q, measures: ["t01.k2"] }, owner, ""), original);
   assert.deepEqual(questionCredit(q), { measures: ["t01.k1"], uses: [] });
 });
 
@@ -173,7 +171,7 @@ test("旧证明只有原算法重算相同且运行环境等于冻结基线时�
   q.manual = ["output"];
   const runtime = { ...demo.course.runtime, prelude: "import pandas as pd\nimport numpy as np\n" };
   const record: Confirmation = {
-    question: q.id, version: await contentVersion(legacyVersionInput(q, owner)), slots: ["output"], model: "legacy/test", date: "2026-10-12",
+    question: q.id, version: await contentVersion(versionInput(q, owner)), slots: ["output"], model: "legacy/test", date: "2026-10-12",
   };
   owner.verified = [record];
   assert.equal(await currentConfirmation(owner, q, runtime), record);
@@ -196,12 +194,12 @@ test("课程检查与核对入口复用原证明，单改信用不发请求，�
   quiz.manual = ["output"];
   owner.verified = [{
     question: quiz.id,
-    version: await contentVersion(legacyVersionInput(quiz, owner)),
+    version: await contentVersion(versionInput(quiz, owner)),
     slots: ["output"], model: "legacy/test", date: "2026-10-12",
   }];
-  const original = await questionVersion(quiz, owner);
+  const original = await questionVersion(quiz, owner, "");
   quiz.uses = ["t04.k1"];
-  assert.notEqual(await questionVersion(quiz, owner), original);
+  assert.equal(await questionVersion(quiz, owner, ""), original);
   assert.deepEqual(await errors(t, demo), []);
   const root = await writeCourse(t, demo);
   const confirmed = await confirmCourse(root, {

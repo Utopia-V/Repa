@@ -250,7 +250,8 @@ const phase = Type.Union([
   object({ stage: Type.Literal("judging"), submissionId: identifier }),
   object({ stage: Type.Literal("recovery"), submissionId: identifier }),
   object({ stage: Type.Literal("feedback"), submissionId: identifier }),
-  object({ stage: Type.Literal("completed"), outcome: Type.Enum(["passed", "failed", "timeout"]) }),
+  // unresolved：任务已经结束，但还有作答没判出结果，判出来可能改变结论；判出以后改为其他三种之一。
+  object({ stage: Type.Literal("completed"), outcome: Type.Enum(["passed", "failed", "timeout", "unresolved"]) }),
   object({ stage: Type.Literal("aborted"), reason: Type.String({ maxLength: 500 }) }),
 ]);
 export const LearningTaskSchema = object({

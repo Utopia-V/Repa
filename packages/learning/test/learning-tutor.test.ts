@@ -14,14 +14,14 @@ import { RepaClient, RpcError } from "@repa/base/client";
 import { INTERACTION_CAPABILITIES, parse } from "@repa/base/protocol";
 import { stringify } from "yaml";
 import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
-import { referenceResponse, topicQuestions } from "../src/check/items.js";
-import { mapAnswer } from "../src/delivery.js";
+import { connectLearning } from "../src/flow.js";
 import { createLearningPlugin } from "../src/plugin.js";
 import { LearningEventSchema, learningMethods, type LearningEvent, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
-import { LearningRecords } from "../src/records.js";
+import type { LearningSession } from "../src/session.js";
 import { TUTOR_AGENT } from "../src/tutor.js";
 import { requireReferenceAccess } from "../src/tutor-content.js";
 import { recoveryTrace } from "./fixtures/learning-contract.js";
+import { referenceAnswer } from "./fixtures/learning-session.js";
 import type { Course, Topic } from "../src/format/schema.js";
 
 function deferred() {
@@ -70,9 +70,14 @@ async function fixture(t: TestContext, topics?: Topic[]) {
   });
   let now = 1_792_454_400_000;
   let failAbort = false;
+  let current: LearningSession | undefined;
   const learning = createLearningPlugin({
     now: () => now,
     ...(topics ? { sources: [{ kind: "bundled", directory: bundled }] } : {}),
+    async connect(opened, host) {
+      current = opened;
+      return connectLearning(opened, { beforeRestricted: () => host.abortAgent(TUTOR_AGENT) });
+    },
   });
   const server = await startServer({
     home, runtime, generalAgent: false, directAgents: [TUTOR_AGENT],
@@ -121,7 +126,7 @@ async function fixture(t: TestContext, topics?: Topic[]) {
     await rm(directory, { recursive: true, force: true });
   });
   await client.call("space.open", { root });
-  const session = await client.call("session.create", { agent: TUTOR_AGENT });
+  const chat = await client.call("session.create", { agent: TUTOR_AGENT });
   async function call<M extends LearningMethod>(method: M, input: LearningInput<M>): Promise<LearningResult<M>> {
     return parse(learningMethods[method].result, await client.call("plugin.call", {
       pluginId: "learning", method, input,
@@ -129,11 +134,10 @@ async function fixture(t: TestContext, topics?: Topic[]) {
   }
   const state = () => call("state.get", {});
   const logFile = () => path.join(root, ".repa/plugins/learning/records.jsonl");
-  async function log() {
-    const records = await LearningRecords.open(logFile(), () => now);
-    await records.close();
-    return records;
-  }
+  const session = () => {
+    assert.ok(current);
+    return current;
+  };
   async function select(kind: "lesson" | "review" = "lesson", topicId = topics?.[0]?.id ?? "py01") {
     const current = await state();
     const candidate = current.menu?.candidates.find((entry) => entry.kind === kind && entry.topicIds.includes(topicId));
@@ -153,18 +157,7 @@ async function fixture(t: TestContext, topics?: Topic[]) {
     const task = current.task;
     const delivery = task?.deliveries.at(-1);
     assert.ok(task && delivery);
-    const records = await log();
-    const snapshot = records.snapshot(records.current()?.deliveries[delivery.deliveryId] ?? "");
-    assert.ok(snapshot);
-    const question = topicQuestions(snapshot.topic).find((entry) => entry.question.id === snapshot.questionId)?.question;
-    assert.ok(question);
-    const response = referenceResponse(question, delivery.item);
-    for (const slot of delivery.item.slots) {
-      const answer = response.answers[slot.id];
-      if (answer) {
-        response.answers[slot.id] = mapAnswer(answer, slot, snapshot.idMap, true);
-      }
-    }
+    const response = await referenceAnswer(session(), delivery);
     return call("submission.submit", {
       taskId: task.taskId, deliveryId: delivery.deliveryId, submissionId: delivery.submissionId, response,
     });
@@ -184,7 +177,7 @@ async function fixture(t: TestContext, topics?: Topic[]) {
     throw new Error("学习任务未在 50 步内完成");
   }
   return {
-    client, session, faux, call, state, select, advance, submit, finish, log, changes,
+    client, chat, faux, call, state, select, advance, submit, finish, session, changes,
     time: (value: number) => { now = value; },
     now: () => now,
     failNextAbort: () => { failAbort = true; },
@@ -195,8 +188,8 @@ async function fixture(t: TestContext, topics?: Topic[]) {
     },
     async copyAndReopen() {
       const before = await state();
-      const student = (await log()).current()?.student;
-      const history = await client.call("session.history", { sessionId: session.id });
+      const student = (await session().view()).student;
+      const history = await client.call("session.history", { sessionId: chat.id });
       await client.call("space.close", {});
       const bytes = await readFile(logFile());
       const destination = path.join(directory, "restored");
@@ -211,8 +204,8 @@ async function fixture(t: TestContext, topics?: Topic[]) {
       await client.call("space.open", { root });
       assert.deepEqual(await readFile(logFile()), bytes);
       assert.deepEqual(await state(), before);
-      assert.deepEqual((await log()).current()?.student, student);
-      assert.deepEqual(await client.call("session.history", { sessionId: session.id }), history);
+      assert.deepEqual((await session().view()).student, student);
+      assert.deepEqual(await client.call("session.history", { sessionId: chat.id }), history);
     },
   };
 }
@@ -232,12 +225,12 @@ test("真实辅导请求只有学习工具，求助影响判分与下一轮 view
       fauxToolCall("learning_search", { query: "赋值" }),
     ]);
   }, fauxAssistantMessage("先看右边的值")]);
-  await f.client.call("session.send", { sessionId: f.session.id, text: "赋值是什么意思？" });
+  await f.client.call("session.send", { sessionId: f.chat.id, text: "赋值是什么意思？" });
   const first = captures[0];
   assert.ok(first);
   assert.deepEqual(getCurrentTools(first.messages).map((tool) => tool.name), ["learning_read", "learning_search", "learning_task"]);
   assert.match(getCurrentSystemPrompt(first.messages), /学习辅导老师/u);
-  const history = await f.client.call("session.history", { sessionId: f.session.id });
+  const history = await f.client.call("session.history", { sessionId: f.chat.id });
   const taskRead = history.find((entry) => entry.type === "tool" && entry.text?.includes('"total"'));
   assert.ok(taskRead?.text);
   const result: unknown = JSON.parse(taskRead.text);
@@ -248,13 +241,18 @@ test("真实辅导请求只有学习工具，求助影响判分与下一轮 view
   await f.submit();
   const after = await f.state();
   assert.equal(after.task?.kps[0]?.consecutiveCorrect, 0);
-  const accepted = (await f.log()).records.find((entry) => entry.type === "accepted");
-  assert.ok(accepted?.type === "accepted" && accepted.context.helpBefore.length >= 1);
+  // 作答之前的提问记成一条求助事实，排在作答之前；同一道题只记一次。
+  const facts = f.session().records.facts;
+  const answered = facts.find((entry) => entry.type === "answered");
+  assert.ok(answered?.type === "answered");
+  const help = facts.filter((entry) => entry.type === "help" && entry.delivery === answered.delivery);
+  assert.equal(help.length, 1);
+  assert.ok((help[0]?.seq ?? Infinity) < answered.seq);
   f.faux.setResponses([(context) => {
     captures.push(structuredClone(context));
     return fauxAssistantMessage("已经接受这份原答");
   }]);
-  await f.client.call("session.send", { sessionId: f.session.id, text: "现在进度怎样？" });
+  await f.client.call("session.send", { sessionId: f.chat.id, text: "现在进度怎样？" });
   assert.match(JSON.stringify(captures.at(-1)?.messages), /feedback/u);
   const completed = await f.finish();
   assert.equal(completed.task?.phase.stage, "completed");
@@ -267,14 +265,16 @@ test("真实辅导请求只有学习工具，求助影响判分与下一轮 view
   assert.ok(pages[0]);
   const original = await f.call("content.read", { refs: [pages[0].origin.content], offset: 0, limit: 8 });
   assert.equal(original[0]?.ref.kind, "example");
+  // 题目之外打开卡片不是作答前的求助，不写事实。
+  const revision = f.session().records.revision;
   await f.call("content.open", { ref: card.ref });
+  assert.equal(f.session().records.revision, revision);
   assert.equal(f.changes.at(-1)?.revision, (await f.state()).revision);
-  assert.ok((await f.log()).records.some((entry) => entry.type === "viewed" && entry.action === "card"));
   f.time(f.now() + 10 * 86_400_000);
   await f.select("review");
   await assert.rejects(f.call("content.read", { refs: [card.ref], offset: 0, limit: 8 }), fault("restricted"));
   await assert.rejects(f.call("content.open", { ref: card.ref }), fault("restricted"));
-  await assert.rejects(f.client.call("session.send", { sessionId: f.session.id, text: "提示" }), fault("message_rejected"));
+  await assert.rejects(f.client.call("session.send", { sessionId: f.chat.id, text: "提示" }), fault("message_rejected"));
   await f.finish();
   await f.call("content.read", { refs: [card.ref], offset: 0, limit: 8 });
   await f.copyAndReopen();
@@ -299,14 +299,14 @@ test("复习 preparing 先拒收消息和内容，回复取消停稳后才计时
     await release.promise;
     return fauxAssistantMessage("不应继续辅导");
   }]);
-  const running = f.client.call("session.send", { sessionId: f.session.id, text: "复习前再讲讲" });
+  const running = f.client.call("session.send", { sessionId: f.chat.id, text: "复习前再讲讲" });
   await started.promise;
   const selecting = f.select("review");
   await Promise.race([cancelled.promise, selecting.then(() => { throw new Error("取消前已经交付"); })]);
   const preparing = await f.state();
   assert.equal(preparing.task?.phase.stage, "preparing");
   assert.equal(preparing.task?.startedAt, null);
-  await assert.rejects(f.client.call("session.followUp", { sessionId: f.session.id, text: "继续提示" }), fault("cancelled"));
+  await assert.rejects(f.client.call("session.followUp", { sessionId: f.chat.id, text: "继续提示" }), fault("cancelled"));
   await assert.rejects(f.call("content.search", { query: "", offset: 0, limit: 10 }), fault("restricted"));
   f.time(f.now() + 5000);
   release.resolve();
@@ -324,7 +324,7 @@ test("复习 preparing 先拒收消息和内容，回复取消停稳后才计时
   await f.finish();
   await f.call("content.read", { refs: [ref], offset: 0, limit: 8 });
   f.faux.setResponses([fauxAssistantMessage("可以回顾了")]);
-  await f.client.call("session.send", { sessionId: f.session.id, text: "回顾" });
+  await f.client.call("session.send", { sessionId: f.chat.id, text: "回顾" });
 });
 
 function topic(id: string): Topic {
@@ -395,8 +395,8 @@ test("检索稳定分页、批取和长块续取均可定位，卡片关联交�
     ]),
     fauxAssistantMessage("已经读到当前题面"),
   ]);
-  await f.client.call("session.send", { sessionId: f.session.id, text: "帮我看看当前题目" });
-  const history = await f.client.call("session.history", { sessionId: f.session.id });
+  await f.client.call("session.send", { sessionId: f.chat.id, text: "帮我看看当前题目" });
+  const history = await f.client.call("session.history", { sessionId: f.chat.id });
   const chunks = history.filter((entry) => entry.type === "tool").map((entry) => {
     const value: unknown = JSON.parse(entry.text ?? "null");
     assert.ok(value && typeof value === "object" && "text" in value && typeof value.text === "string");
@@ -421,8 +421,8 @@ test("检索稳定分页、批取和长块续取均可定位，卡片关联交�
   assert.ok(kp);
   kp.lesson = "修改后的讲解";
   await f.replaceTopic(changed);
-  const retained = await f.call("content.read", { refs: [lesson.ref], offset: 0, limit: 1 });
-  assert.match(JSON.stringify(retained), /长内容/u);
+  // 只提供当前课程里的内容：课程换版以后，旧版本的引用按不存在处理。
+  await assert.rejects(f.call("content.read", { refs: [lesson.ref], offset: 0, limit: 1 }), fault("invalid_input"));
   const fresh = await f.call("content.search", { query: "修改后的讲解", offset: 0, limit: 10 });
   assert.ok(fresh.hits.some((entry) => entry.ref.version !== lesson.ref.version));
 });
@@ -432,7 +432,7 @@ test("中止失败保留 preparing，整空间重开后显式继续同一个受�
   await f.select();
   await f.finish();
   f.faux.setResponses([fauxAssistantMessage("已完成本轮学习")]);
-  await f.client.call("session.send", { sessionId: f.session.id, text: "回顾本轮学习" });
+  await f.client.call("session.send", { sessionId: f.chat.id, text: "回顾本轮学习" });
   f.time(f.now() + 10 * 86_400_000);
   f.failNextAbort();
   await assert.rejects(f.select("review"), fault("abort_failed"));
@@ -457,7 +457,7 @@ test("沿公开测验轨迹，quiz 与 retake 的准备和进行阶段均关闭�
         continue;
       }
       state.task.kind = kind;
-      const current = { state, student: {}, deliveries: {} };
+      const current = { state, student: {} };
       if (["completed", "aborted"].includes(state.task.phase.stage)) {
         assert.equal(requireReferenceAccess(current), current);
       } else {
