@@ -50,12 +50,12 @@
 | 不写提交哈希 | 行内代码不使用同时含字母和数字的 7 至 40 位小写十六进制哈希；引用历史用 PR、tag 或文字说明 |
 | 一段一行 | 段落不跨行，包括列表项和引用块中的段落；表格、代码块和 HTML 不查 |
 | 篇幅上限 | 各层 AGENTS.md 按非空白字符计数，上限和理由写在 `scripts/docs/budgets.json` |
-| 停用词 | 按 `scripts/docs/banned-terms.json` 的词、替换词和理由检查，不区分大小写；初始清单为空 |
+| 停用词 | 按 `scripts/docs/banned-terms.json` 的词、替换词和理由检查，不区分大小写 |
 | 包 README 骨架 | 检查上述章节顺序、概述长度、模型影响和限制说明 |
 | 代码线索 | 目录逐字节核对；原导出须有说明，转导出语句不查；schema 变化须记录版本判断 |
 | 设计记录格式 | 按[设计记录格式](../.agents/notes/README.md#格式)检查路径、首行标题、状态和小节，不允许索引文件 |
 
-- 检查范围为 git 跟踪的 Markdown；`scripts/docs/config.json` 记录带理由的排除项，冻结证据、旧 ADR、第三方材料和检查 fixture 按该清单排除，Repa 自有 Skill 仍检查。
+- 检查范围为 git 跟踪的 Markdown；`scripts/docs/config.json` 记录带理由的排除项，冻结证据、第三方材料和检查 fixture 按该清单排除，Repa 自有 Skill 仍检查。
 - 路径检查还覆盖 `packages/*/src/**/*.ts` 和 `apps/*/src/**/*.ts` 注释中的 `docs/<名称>.md`、`.agents/<名称>.md`；停用词检查还覆盖这些 src 目录中的 `.ts` 和 `.svelte` 文件。
 - 篇幅超限时，先将内容移到所属位置，再压缩，最后才提高上限并写明理由；规则的背景和取舍写入设计记录。
 - 例外只写在 `scripts/docs/exceptions.json`，结构为 `{ "<检查名>": { "<文件路径>": "<理由>" } }`；只豁免该文件的该项检查，理由不得为空；导出说明注释可按 src 目录豁免。

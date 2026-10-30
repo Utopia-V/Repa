@@ -5,10 +5,6 @@
       "reason": "冻结的研究证据，保持原貌"
     },
     {
-      "pattern": "docs/adr/**",
-      "reason": "旧材料，文档重构时删除"
-    },
-    {
       "pattern": ".agents/skills/**",
       "include": [
         ".agents/skills/repa-*/**"

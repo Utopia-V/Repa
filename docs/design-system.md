@@ -182,4 +182,4 @@ Standard Card 默认内距为 `--space-20`。紧凑型 Card 必须由基础组�
 
 本文长期保留稳定约束：移动端触控目标至少 44 px、控件允许随内容增长、Dialog 不得溢出 viewport。后续新增的具体 CSS、变量接线和实现方式记录到实现文档，不继续扩写本文；现有尺寸与触控规则保留。
 
-设计系统的架构取舍见 [ADR 0006](adr/0006-govern-frontend-visuals-through-a-semantic-design-system.md)；实现位置、接入范围和验证入口见[设计系统实现说明](design-system-implementation.md)。
+实现位置、接入范围和验证入口见[设计系统实现说明](design-system-implementation.md)。
