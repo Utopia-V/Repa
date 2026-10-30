@@ -5,6 +5,8 @@ import path from "node:path";
 import { type Static, type TSchema } from "typebox";
 import { Check } from "typebox/value";
 
+import { syncDirectory } from "@repa/base";
+
 export function failure(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code });
 }
@@ -53,12 +55,7 @@ export async function writeJson(file: string, value: unknown): Promise<void> {
       await handle.close();
     }
     await rename(temporary, file);
-    const parent = await open(path.dirname(file), "r");
-    try {
-      await parent.sync();
-    } finally {
-      await parent.close();
-    }
+    await syncDirectory(path.dirname(file));
   } finally {
     await rm(temporary, { force: true });
   }
