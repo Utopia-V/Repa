@@ -178,8 +178,9 @@ export const notifications = {
 } as const;
 
 /**
- * 接收方读取带 Item 或内容块的消息时，不整体严格校验：信封去掉未知字段后校验，里面的 Item 和内容块按词汇的规则宽松读取。
- * 这样词汇加了可选字段，旧前端照常显示；加了必须理解的特性，按 requires 判为不能作答。没有登记的消息去掉未知字段后按 schema 校验。
+ * 接收方读取带 Item 或内容块的消息时，不整体严格校验，也不整体清理：登记的读取函数拿到原始数据，信封去掉未知字段后校验，
+ * 里面的 Item 和内容块按词汇的规则宽松读取。这样词汇加了可选字段，旧前端照常显示；加了必须理解的特性，按 requires 判为不能作答。
+ * 没有登记的消息去掉未知字段后按 schema 校验。
  */
 export const lenientNotifications: Partial<Record<Notification, (params: unknown) => ReadResult<unknown>>> = {
   "ask.request": readAskRequest,

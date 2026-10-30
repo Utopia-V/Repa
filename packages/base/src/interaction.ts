@@ -281,8 +281,8 @@ export const AskRequestSchema = object({
 });
 /** 一次发给运行发起连接的询问，携带 Item 和会话、工具调用来源。 */
 export type AskRequest = Static<typeof AskRequestSchema>;
-// ask.request 的信封：除 Item 外都严格校验，Item 交给 readItem。
-const AskEnvelopeSchema = object({ ...AskRequestSchema.properties, item: Type.Unknown() });
+// ask.request 的信封，即 Item 以外的部分：读取时去掉未知字段再按 schema 校验，Item 交给 readItem。
+const AskEnvelopeSchema = object({ id: AskRequestSchema.properties.id, origin: AskRequestSchema.properties.origin });
 
 /**
  * 通知 ask.closed：询问已经结束，前端收起卡片。answered 为提交或拒绝作答，cancelled 为前端关闭或无法显示，
@@ -776,10 +776,15 @@ export function readAskReplyResult(value: unknown): ReadResult<AskReplyResult> {
   return read<AskSubmitResult>(AskSubmitResultSchema, value);
 }
 
-/** 读取 ask.request：信封仍严格校验，里面的 Item 按 readItem 读取。 */
+/** 读取 ask.request：信封去掉未知字段后按 schema 校验，里面的 Item 原样交给 readItem。 */
 export function readAskRequest(value: unknown): ReadResult<AskRequest> {
-  if (!Value.Check(AskEnvelopeSchema, value)) return { ok: false, path: "" };
-  const item = readItem(value.item);
-  if (!item.ok) return { ok: false, path: `/item${item.path}` };
-  return { ok: true, value: { ...value, item: item.value } };
+  if (!plain(value)) return { ok: false, path: "" };
+  const { item, ...fields } = value;
+  // Clean 会改写传入的对象，只在信封的副本上清理。Item 不经 Clean：它遇到联合会换一个能通过校验的分支，
+  // 删掉类型不对的已知字段；也不经 Value.Clone，它会丢掉 constructor 这类合法的 id 键。
+  const envelope = Value.Clean(AskEnvelopeSchema, Value.Clone(fields));
+  if (!Value.Check(AskEnvelopeSchema, envelope)) return { ok: false, path: "" };
+  const read = readItem(item);
+  if (!read.ok) return { ok: false, path: `/item${read.path}` };
+  return { ok: true, value: { ...envelope, item: read.value } };
 }

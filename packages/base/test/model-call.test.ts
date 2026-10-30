@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type FauxResponseFactory, type ToolCall } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
@@ -29,7 +30,7 @@ async function fixture(t: TestContext) {
     await runtime.close();
     await rm(root, { recursive: true, force: true });
   });
-  return { root, sessionsDir, runtime, space, faux, scope: { root, sessionsDir, pluginId: "test-plugin" } };
+  return { root, sessionsDir, models, runtime, space, faux, scope: { root, sessionsDir, pluginId: "test-plugin" } };
 }
 
 const fault = (code: string) => (error: unknown) => error instanceof RepaFault && error.code === code;
@@ -126,6 +127,50 @@ test("短会话模型错误和取消保留约定错误码", async t => {
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(f.runtime.complete({ prompt: "取消请求", signal: controller.signal }, f.scope), fault("cancelled"));
+  // 结构化调用在请求进行中被取消，即使模型交回了合格的提交，也按取消结束。
+  const running = new AbortController();
+  f.faux.setResponses([() => {
+    running.abort();
+    return fauxAssistantMessage(fauxToolCall("submit_result", { answer: "结果" }));
+  }]);
+  await assert.rejects(f.runtime.completeStructured({ prompt: "提交结果", signal: running.signal }, Type.Object({ answer: Type.String() }), f.scope), fault("cancelled"));
+});
+
+test("取消落在 Pi 开始运行之前时，短会话在运行开始时中止，请求不会带着未中止的信号送达模型", async t => {
+  const f = await fixture(t);
+  const controller = new AbortController();
+  const call = new AsyncLocalStorage<true>();
+  // 凭据要当场核对的服务：prompt 先等这次核对，这时还没有进行中的运行，测试就在这段等待里取消。
+  // 只有这次调用里的核对报告已配置，登记后台刷新时报告未配置，所以 prompt 一定会等这次核对。
+  const faux = fauxProvider({ api: `repa-api-${randomUUID()}`, provider: `repa-auth-${randomUUID()}`, models: [{ id: "test" }], tokensPerSecond: 0 });
+  f.models.registerNativeProvider({
+    ...faux.provider,
+    auth: {
+      apiKey: {
+        name: "Faux",
+        resolve: async () => ({ auth: {} }),
+        async check() {
+          if (call.getStore() === undefined) return undefined;
+          controller.abort();
+          return { type: "api_key" };
+        },
+      },
+    },
+  });
+  const signals: (boolean | undefined)[] = [];
+  faux.setResponses([(_context, options) => {
+    signals.push(options?.signal?.aborted);
+    return fauxAssistantMessage("不应送达的回答");
+  }]);
+  const model = { provider: faux.getModel().provider, id: "test" };
+  await call.run(true, () => assert.rejects(f.runtime.complete({ prompt: "核对凭据时取消", model, signal: controller.signal }, f.scope), fault("cancelled")));
+  assert.equal(controller.signal.aborted, true);
+  assert.deepEqual(signals.filter(aborted => aborted !== true), []);
+  // 会话里记下了这次的任务：取消落在 prompt 之内，运行已经开始，而不是在建立会话之前就结束了。
+  const [info] = await SessionManager.listAll(f.sessionsDir);
+  assert.ok(info);
+  const messages = SessionManager.open(info.path).getEntries().flatMap(entry => entry.type === "message" ? [entry.message] : []);
+  assert.ok(messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("核对凭据时取消")));
 });
 
 
@@ -217,44 +262,54 @@ test("空系统提示原样进入实际请求和持久会话，不回退到 Pi �
 });
 
 
-test("结构化完成的参数不合格时只有一次请求送达模型并指出字段，之后的合法提交和调用方取消照常", async t => {
+test("结构化完成第一次参数不合格或工具名写错时，Pi 把错误交回模型，改正后成功，共请求两次", async t => {
   const f = await fixture(t);
   const schema = Type.Object({ answer: Type.String() }, { additionalProperties: false });
-  // 缺少字段会被 Pi 的校验拒绝；数字会被 Pi 转成字符串后通过校验，同样要按原始参数拒绝。
-  for (const call of [fauxToolCall("submit_result", {}), fauxToolCall("submit_result", { answer: 42 })]) {
+  for (const first of [fauxToolCall("submit_result", {}), fauxToolCall("submit_results", { answer: "结果" })]) {
     const before = f.faux.state.callCount;
-    let requestsAtAbort: number | undefined;
-    let secondAborted: boolean | undefined;
+    let feedback: boolean | undefined;
     f.faux.setResponses([
-      (_context, options, state) => {
-        options?.signal?.addEventListener("abort", () => { requestsAtAbort = state.callCount - before; }, { once: true });
-        return fauxAssistantMessage(call);
+      fauxAssistantMessage(first),
+      context => {
+        // 第二次请求带着 Pi 交回的工具错误，模型据此改正。
+        feedback = context.messages.some(message => message.role === "toolResult" && message.isError);
+        return fauxAssistantMessage(fauxToolCall("submit_result", { answer: "改正后的结果" }));
       },
-      (_context, options) => {
-        secondAborted = options?.signal?.aborted;
-        return fauxAssistantMessage("不应送达的回答");
-      },
+      fauxAssistantMessage("不应送达的回答"),
     ]);
+    assert.deepEqual(await f.runtime.completeStructured({ prompt: "提交结果" }, schema, f.scope), { answer: "改正后的结果" });
+    assert.equal(f.faux.state.callCount - before, 2);
+    assert.equal(feedback, true);
+  }
+});
+
+test("结构化完成连续两次没有合格提交时，第二次请求后中止，返回 invalid_model_output 和最后一次的原因", async t => {
+  const f = await fixture(t);
+  const schema = Type.Object({ answer: Type.String() }, { additionalProperties: false });
+  const cases = [
+    { turns: [fauxToolCall("submit_results", { answer: "结果" }), fauxToolCall("submit_result", {})], reason: /^\/answer：/u },
+    { turns: [fauxToolCall("submit_result", {}), fauxToolCall("submit_results", { answer: "结果" })], reason: /submit_results/u },
+  ];
+  for (const { turns, reason } of cases) {
+    const before = f.faux.state.callCount;
+    const signals: (boolean | undefined)[] = [];
+    let requestsAtAbort: number | undefined;
+    const respond = (call: ToolCall): FauxResponseFactory => (_context, options, state) => {
+      signals.push(options?.signal?.aborted);
+      options?.signal?.addEventListener("abort", () => { requestsAtAbort ??= state.callCount - before; }, { once: true });
+      return fauxAssistantMessage(call);
+    };
+    // 第三次若真的送达，模型会交出合格结果，掩盖前两次的失败。
+    f.faux.setResponses([...turns.map(respond), respond(fauxToolCall("submit_result", { answer: "第三次的结果" }))]);
     await assert.rejects(f.runtime.completeStructured({ prompt: "提交结果" }, schema, f.scope), (error: unknown) => {
       assert.ok(error instanceof RepaFault);
       assert.equal(error.code, "invalid_model_output");
-      assert.match(error.message, /^\/answer：/u);
+      assert.match(error.message, reason);
       return true;
     });
-    // 中止早于第二次请求开始：Pi 若再发起请求，带的是已中止的信号，真实服务的 fetch 不会发出。
-    const requests = f.faux.state.callCount - before;
-    assert.equal(requestsAtAbort, 1);
-    assert.ok(requests <= 2);
-    if (requests === 2) assert.equal(secondAborted, true);
+    // 中止早于第三次请求开始：Pi 若再发起请求，带的是已中止的信号，真实服务的 fetch 不会发出。
+    assert.equal(requestsAtAbort, 2);
+    assert.deepEqual(signals.slice(0, 2), [false, false]);
+    assert.deepEqual(signals.slice(2).filter(aborted => aborted !== true), []);
   }
-  const validStart = f.faux.state.callCount;
-  f.faux.setResponses([fauxAssistantMessage(fauxToolCall("submit_result", { answer: "结果" }))]);
-  assert.deepEqual(await f.runtime.completeStructured({ prompt: "提交结果" }, schema, f.scope), { answer: "结果" });
-  assert.equal(f.faux.state.callCount - validStart, 1);
-  const controller = new AbortController();
-  f.faux.setResponses([() => {
-    controller.abort();
-    return fauxAssistantMessage(fauxToolCall("submit_result", { answer: "结果" }));
-  }]);
-  await assert.rejects(f.runtime.completeStructured({ prompt: "提交结果", signal: controller.signal }, schema, f.scope), fault("cancelled"));
 });

@@ -63,19 +63,21 @@ type Listener = (params: unknown) => void;
 // 用 1002 会抛 InvalidAccessError，连接反而留着；所以用应用自定的 4002，与服务端的 4001 相邻。
 const INVALID_DATA = 4002;
 
-// 清理副本里的未知字段，再校验已声明字段；Item 和内容块保留词汇自身的宽松读取规则。
+// 带 Item 或内容块的消息原样交给协议登记的读取函数，由它去掉信封里的未知字段，Item 和内容块按词汇的规则读取。
+// 不先整体清理：Clean 遇到联合会换一个能通过校验的分支，删掉类型不对的已知字段，词汇本该拒绝的数据就混了过去。
+// 其余消息在副本上去掉未知字段，再校验已声明字段。
 function readNotification(method: Notification, params: unknown): ReadResult<unknown> {
-  params = Clean(notifications[method], structuredClone(params));
   const read = lenientNotifications[method];
   if (read !== undefined) return read(params);
-  return Check(notifications[method], params) ? { ok: true, value: params } : { ok: false, path: "" };
+  const cleaned = Clean(notifications[method], structuredClone(params));
+  return Check(notifications[method], cleaned) ? { ok: true, value: cleaned } : { ok: false, path: "" };
 }
 
 function readResult(method: Method, result: unknown): ReadResult<unknown> {
-  result = Clean(methods[method].result, structuredClone(result));
   const read = lenientResults[method];
   if (read !== undefined) return read(result);
-  return Check(methods[method].result, result) ? { ok: true, value: result } : { ok: false, path: "" };
+  const cleaned = Clean(methods[method].result, structuredClone(result));
+  return Check(methods[method].result, cleaned) ? { ok: true, value: cleaned } : { ok: false, path: "" };
 }
 
 /** 浏览器可用的 Repa 协议客户端，负责认证、请求与结果校验、通知订阅和连接状态报告。 */
@@ -89,6 +91,8 @@ export class RepaClient {
   #ready = false;
   #closed = false;
   #closing: Promise<void> | undefined;
+  // connect 是唯一的创建入口，返回实例前已经填好。
+  #handshake!: Result<"initialize">;
 
   private constructor(connection: ClientConnection, options: ClientOptions) {
     this.#timeoutMs = options.requestTimeoutMs;
@@ -124,7 +128,7 @@ export class RepaClient {
     const client = new RepaClient(connection, options);
     try {
       await client.#open();
-      await client.#send("initialize", {
+      client.#handshake = await client.#send("initialize", {
         token: connection.token,
         version: PROTOCOL_VERSION,
         ...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
@@ -135,6 +139,11 @@ export class RepaClient {
       await client.close();
       throw error;
     }
+  }
+
+  /** 连接时 initialize 的结果，其中的基线是开始接收通知那一刻的状态，之后的变化由通知送达。 */
+  get handshake(): Result<"initialize"> {
+    return this.#handshake;
   }
 
   get connected(): boolean {

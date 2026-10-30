@@ -6,12 +6,11 @@ import path from "node:path";
 import test from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { WebSocket } from "ws";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { RepaClient } from "../src/client.js";
-import { methods, PROTOCOL_VERSION, type SessionBaseline } from "../src/protocol.js";
+import type { SessionBaseline } from "../src/protocol.js";
 import { startServer } from "../src/protocol/server.js";
-import { object, parse } from "../src/schema.js";
+import { object } from "../src/schema.js";
 
 function deferred() {
   let resolve: () => void = () => undefined;
@@ -56,14 +55,10 @@ for (const gated of [false, true]) {
       },
     }] });
     const client = await RepaClient.connect(server.connection);
-    const socket = new WebSocket(server.connection.url);
-    const opened = new Promise<void>((resolve, reject) => {
-      socket.once("open", resolve);
-      socket.once("error", reject);
-    });
+    let reconnected: RepaClient | undefined;
     t.after(async () => {
       release.resolve();
-      socket.terminate();
+      await reconnected?.close();
       await client.close();
       await server.close();
       await rm(directory, { recursive: true, force: true });
@@ -82,12 +77,9 @@ for (const gated of [false, true]) {
     await client.call("session.steer", { sessionId: session.id, text: "引导消息" });
     await client.call("session.followUp", { sessionId: session.id, text: "追问消息" });
     await client.close();
-    await opened;
-    const response = new Promise<unknown>((resolve) => socket.once("message", (data) => resolve(JSON.parse(String(data)))));
-    socket.send(JSON.stringify({ jsonrpc: "2.0", id: "reconnect", method: "initialize", params: { token: server.connection.token, version: PROTOCOL_VERSION } }));
-    const reply = await response;
-    assert.ok(reply !== null && typeof reply === "object" && "result" in reply);
-    const baseline = parse(methods.initialize.result, reply.result).baseline;
+    // 运行还在进行：前端用标准客户端重新连接，从客户端读到这次连接的基线。
+    reconnected = await RepaClient.connect(server.connection);
+    const { baseline } = reconnected.handshake;
     const queued: SessionBaseline["queued"] = gated ? [
       { text: "下一次发送", mode: "send" },
       { text: "引导消息", mode: "steer" },
