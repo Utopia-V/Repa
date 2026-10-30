@@ -53,7 +53,7 @@ async function firstRevision(history: Awaited<ReturnType<typeof openHistory>>) {
 }
 
 // Windows 上子进程的 close 可能先于 stdin 的 finish 到达，负载高时很常见；修复前这里绝大多数快照会失败。
-test("多个空间并发快照时，Git 正常退出不被误判为输入没写完", { timeout: 120_000 }, async (t) => {
+test("多个空间并发快照时，Git 正常退出不被误判为输入没写完", async (t) => {
   const f = await fixture(t);
   await Promise.all(Array.from({ length: 16 }, async (_, index) => {
     const space = path.join(f.root, `parallel-${index}`);

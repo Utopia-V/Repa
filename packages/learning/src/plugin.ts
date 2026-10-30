@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RepaFault } from "@repa/base";
@@ -21,12 +21,12 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
   return {
     id: "learning",
     async open(host) {
-      // 此目录由学习插件独占；无标记的数据来自旧版格式 1，只补标记，不改写已有记录。
       const format = path.join(host.space.dataDir, "format.json");
-      try {
+      const entries = await readdir(host.space.dataDir);
+      if (entries.length === 0) {
         await writeFile(format, `${JSON.stringify({ version: 1 })}\n`, { flag: "wx", mode: 0o600 });
-      } catch (error) {
-        if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
+      } else if (!entries.includes("format.json")) {
+        throw new RepaFault("unknown_data_format", "学习插件的数据没有格式标记，可能是旧的开发数据；删除 .repa/plugins/learning/ 后重新打开空间");
       }
       await checkFormat(format, 1);
       const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];

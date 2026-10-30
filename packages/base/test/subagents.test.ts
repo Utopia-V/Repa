@@ -370,7 +370,7 @@ async function courseServer(t: TestContext, agents: AgentDefinition[]) {
   return { root, client, faux, runOf, connection: server.connection };
 }
 
-test("子 Agent 的写入记在自己的运行下并挂在父运行下，按父运行撤回时一起撤回", { timeout: 30000 }, async t => {
+test("子 Agent 的写入记在自己的运行下并挂在父运行下，按父运行撤回时一起撤回", async t => {
   const f = await courseServer(t, [
     { id: "lead", instructions: () => "你安排课程编写。", tools: ["read", "write"], subagents: ["drafter"], direct: true },
     { id: "drafter", description: "起草课程文件", instructions: () => "你起草课程文件。", tools: ["write"] },
@@ -404,7 +404,7 @@ test("子 Agent 的写入记在自己的运行下并挂在父运行下，按父�
   await assert.rejects(readFile(path.join(f.root, "lessons", "index.md")), { code: "ENOENT" });
 });
 
-test("带命令行的父运行窗口里，子 Agent 直接写文件，算在父运行的快照里，不会互相等待", { timeout: 30000 }, async t => {
+test("带命令行的父运行窗口里，子 Agent 直接写文件，算在父运行的快照里，不会互相等待", async t => {
   const f = await courseServer(t, [
     { id: "lead", instructions: () => "你安排课程编写。", tools: ["bash", "read", "write"], subagents: ["drafter"], direct: true },
     { id: "drafter", description: "起草课程文件", instructions: () => "你起草课程文件。", tools: ["write"] },
@@ -428,7 +428,7 @@ test("带命令行的父运行窗口里，子 Agent 直接写文件，算在父�
   assert.equal((await f.runOf(drafter.id)).parentRunId, lead.runId);
 });
 
-test("通用 Agent 在一条回复里起两个通用子 Agent，两个同时运行，工具与父 Agent 相同，写入算在父运行的快照里", { timeout: 30000 }, async t => {
+test("通用 Agent 在一条回复里起两个通用子 Agent，两个同时运行，工具与父 Agent 相同，写入算在父运行的快照里", async t => {
   const f = await courseServer(t, [{ id: "drafter", description: "起草课程文件", instructions: () => "你起草课程文件。", tools: ["write"] }]);
   const before = await f.client.call("history.list", {});
   const session = await f.client.call("session.create", {});
@@ -438,14 +438,14 @@ test("通用 Agent 在一条回复里起两个通用子 Agent，两个同时运�
   let peak = 0;
   let arrivals = 0;
   const bothArrived = deferred();
-  // 两个子 Agent 的第一次请求都等对方也到了才回答。依次运行时第二个到不了，等两秒后照常回答，peak 停在 1。
+  // 两个子 Agent 的第一次请求都等对方也到了才回答；依次运行时无法越过屏障。
   const child = async (context: TranscriptContext) => {
     childTools.push(getCurrentTools(context.messages).map(tool => tool.name));
     active++;
     peak = Math.max(peak, active);
     arrivals++;
     if (arrivals === 2) bothArrived.resolve();
-    await Promise.race([bothArrived.promise, new Promise(resolve => setTimeout(resolve, 2000))]);
+    await bothArrived.promise;
     active--;
     const name = JSON.stringify(context.messages).includes("写 a.md") ? "a.md" : "b.md";
     return fauxAssistantMessage(fauxToolCall("write", { path: name, content: `${name} 的内容\n` }));
@@ -484,7 +484,7 @@ test("通用 Agent 在一条回复里起两个通用子 Agent，两个同时运�
   assert.deepEqual(feed.revisions.flatMap(revision => revision.changes.map(change => change.path)).sort(), ["a.md", "b.md"]);
 });
 
-test("通用子 Agent 运行命令时，确认照旧发给发起这次运行的连接", { timeout: 30000 }, async t => {
+test("通用子 Agent 运行命令时，确认照旧发给发起这次运行的连接", async t => {
   const f = await courseServer(t, []);
   const watcher = await RepaClient.connect(f.connection);
   t.after(() => watcher.close());

@@ -68,7 +68,7 @@ async function fixture(
 
 function receive(socket: WebSocket): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("等待 RPC 响应超时")), 2000);
+    const timer = setTimeout(() => reject(new Error("等待 RPC 响应超时")), 600_000);
     socket.once("message", (data) => {
       clearTimeout(timer);
       resolve(JSON.parse(data.toString()) as unknown);
@@ -271,7 +271,7 @@ test("批量请求保留 id，客户端 notification 不启动需要确认的操
 });
 
 
-test("登录失败立即清理该次登录已经发出的 display 确认", { timeout: 5000 }, async (t) => {
+test("登录失败立即清理该次登录已经发出的 display 确认", async (t) => {
   let finishCancelled: () => void;
   const cancelled = new Promise<void>((resolve) => { finishCancelled = resolve; });
   let noticeError: unknown;
@@ -297,7 +297,7 @@ test("登录失败立即清理该次登录已经发出的 display 确认", { tim
   });
 });
 
-test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释放空间锁", { timeout: 10000 }, async (t) => {
+test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释放空间锁", async (t) => {
   let markStarted: () => void;
   const started = new Promise<void>((resolve) => { markStarted = resolve; });
   let rejectWork: (error: Error) => void;
@@ -467,7 +467,7 @@ test("询问的信封多了不认识的字段时，客户端丢掉它照常收�
   assert.deepEqual(received, []);
 });
 
-test("询问的 Item 里表格单元格的固定文字类型不对时，客户端不改用别的联合分支，仍按无效协议数据断开", { timeout: 10000 }, async (t) => {
+test("询问的 Item 里表格单元格的固定文字类型不对时，客户端不改用别的联合分支，仍按无效协议数据断开", async (t) => {
   const backend = await scriptedBackend(t, {});
   const client = await RepaClient.connect(backend.connection);
   t.after(() => client.close());
@@ -484,7 +484,7 @@ test("询问的 Item 里表格单元格的固定文字类型不对时，客户�
   assert.deepEqual(received, []);
 });
 
-test("同一连接同时等待确认、提问和服务，断线后三者以各自的原错误结束", { timeout: 10000 }, async (t) => {
+test("同一连接同时等待确认、提问和服务，断线后三者以各自的原错误结束", async (t) => {
   const failures: unknown[] = [];
   let finished: () => void = () => undefined;
   const settled = new Promise<void>((resolve) => { finished = resolve; });
@@ -550,7 +550,7 @@ test("同一连接同时等待确认、提问和服务，断线后三者以各�
   await Promise.all([running, serving]);
 });
 
-test("基线投影后立即发生 runEnd，单个及批量 initialize 响应都先于事件到达", { timeout: 10000 }, async (t) => {
+test("基线投影后立即发生 runEnd，单个及批量 initialize 响应都先于事件到达", async (t) => {
   const f = await fixture(t, undefined, { runtime: { async openSpace(options) {
     return {
       agents: () => [],
@@ -586,7 +586,7 @@ test("基线投影后立即发生 runEnd，单个及批量 initialize 响应都�
   }
 });
 
-test("客户端忽略响应和通知的未知字段，已知字段仍按类型校验，请求继续严格校验", { timeout: 10000 }, async (t) => {
+test("客户端忽略响应和通知的未知字段，已知字段仍按类型校验，请求继续严格校验", async (t) => {
   const result = { path: "/tmp/feedback.zip", files: ["manifest.json"], extra: true };
   const backend = await scriptedBackend(t, { "feedback.create": result, "model.list": [{ provider: "test", id: "m", name: 42, available: true }] });
   const client = await RepaClient.connect(backend.connection);

@@ -262,47 +262,6 @@ test("多个会话按标准文件名打开时只读取目标文件", async t => 
   assert.deepEqual(allReads, [target]);
 });
 
-test("旧 uuid 文件按头部改名，原始内容与父关联保留，重开后继续使用标准文件名", async t => {
-  const f = await fixture(t, { agents: () => [{ id: "tutor", instructions: () => "辅导", tools: [], direct: true }] });
-  const session = await f.space.create({ agent: "tutor" });
-  const id = session.info().id;
-  f.faux.setResponses([fauxAssistantMessage("已有回答")]);
-  await session.send("旧会话内容");
-  const source = await f.space.sessionFile(id);
-  assert(source);
-  const original = await readFile(source, "utf8");
-  const parent = { sessionId: "parent", runId: "run", callId: "call" };
-  await writeFile(path.join(f.sessionsDir, `${id}.parent.json`), JSON.stringify(parent));
-  await f.space.close();
-  const legacy = path.join(f.sessionsDir, `${randomUUID()}.jsonl`);
-  await rename(source, legacy);
-  const options: AgentSpaceOptions = {
-    root: f.root,
-    sessionsDir: f.sessionsDir,
-    instructions: () => [],
-    tools: () => [],
-    views: async () => [],
-    overrides: async () => ({ app: {}, space: {} }),
-    commandPolicy: () => "fullAccess",
-    record: async (_id, action) => action(),
-    onEvent: () => undefined,
-    confirm: async () => true,
-    agents: () => [{ id: "tutor", instructions: () => "辅导", tools: [], direct: true }],
-  };
-  const reopened = await f.runtime.openSpace(options);
-  assert.equal(await reopened.sessionFile(id), source);
-  assert.equal(await readFile(source, "utf8"), original);
-  await assert.rejects(readFile(legacy), { code: "ENOENT" });
-  const same = await reopened.get(id);
-  assert.equal(same.info().agent, "tutor");
-  assert.deepEqual(same.info().parent, parent);
-  assert.equal(same.history().find(entry => entry.type === "user")?.text, "旧会话内容");
-  await reopened.close();
-  const again = await f.runtime.openSpace(options);
-  assert.equal(await again.sessionFile(id), source);
-  assert.deepEqual((await again.list()).map(info => info.id), [id]);
-});
-
 test("会话列表按最后消息排序，给出第一条用户消息和会话自己的模型，重开后不变", async t => {
   const f = await fixture(t);
   const later = await f.space.create();

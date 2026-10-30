@@ -64,7 +64,7 @@ REPA_TEST_REQUIRE_ENV=1 REPA_SKIP_FULL_COURSE_CHECK=1 npm test
 
 根目录持有 workspace 命令与单一锁文件，各包声明自己的依赖。浏览器只使用 `@repa/base/client` 和 `@repa/base/protocol`，Node 宿主通过 `@repa/base/process` 管理后端；插件通过 `@repa/base/plugin` 引用类型。Pi 的实现依赖留在底座的 `src/agent/` 内。
 
-应用配置使用系统配置目录，支持 `REPA_HOME` 和显式 `home` 覆盖；默认启动的一次搬迁、空间格式版本 1 的覆盖范围和空间 Skill 位置见[底座格式与配置](../../packages/base/README.md#应用配置目录)。目录浏览只把具有有效格式标记的目录识别为空间。测试和试运行必须显式使用临时 `home`／`REPA_HOME` 及临时空间，避免触发个人配置搬迁。
+应用配置使用系统配置目录，支持 `REPA_HOME` 和显式 `home` 覆盖；空间格式版本 1 的覆盖范围和空间 Skill 位置见[底座格式与配置](../../packages/base/README.md#应用配置目录)。目录浏览只把具有有效格式标记的目录识别为空间。测试和试运行必须显式使用临时 `home`／`REPA_HOME` 及临时空间，隔离个人数据。
 
 每个服务持有一个活动空间。Agent 运行和独立插件文件写入经过空间历史队列，插件状态、数据版本与变化游标由插件维护。一个插件打开失败时只停用这个插件及无法成立的依赖方，原因通过 `space.open/create` 的 `disabledPlugins` 和 `plugin.disabled` 提供；前端显示由 Aqua 接续。影子 Git 撤销空间文件，不回滚插件数据、会话与设置；数据保护范围和外部写入限制见[空间历史说明](../../packages/space-history/README.md#保存与撤销的取舍)。
 

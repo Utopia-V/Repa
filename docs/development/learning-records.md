@@ -16,7 +16,7 @@
 
 包根目录的 `repa-plugin.json` 声明 `learning`、代码及底座兼容版本和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, connect })` 默认读取随包的 Python 课程，打开时一次加载全部 48 个 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录。
 
-插件自行在其中管理 `format.json`（当前为 `{ "version": 1 }`）。这个目录由学习插件独占，因此没有标记的已有数据属于旧版格式 1：打开时只补上版本标记，原有记录保持原样，不需要备份。旧底座留下的 `plugin-versions/learning.json` 不再读取或更新。版本检查复用[底座辅助函数](../../packages/base/README.md#构建清单与数据版本)，标记损坏、版本过新或记录损坏时只停用学习插件。
+插件自行在其中管理 `format.json`（当前为 `{ "version": 1 }`）。目录为空时写入版本 1 的标记；非空目录缺少标记时，按无法识别的数据停用学习插件，提示删除 `.repa/plugins/learning/` 后重新打开空间。开发阶段的旧数据直接丢弃，不补标记。旧底座留下的 `plugin-versions/learning.json` 不再读取或更新。版本检查复用[底座辅助函数](../../packages/base/README.md#构建清单与数据版本)，标记损坏、版本过新或记录损坏时只停用学习插件。
 
 日志信封读取时忽略不认识的可选字段，写入仍严格校验；快照内容参与摘要和身份核对，新增会改变这部分语义的字段需要按数据格式变更处理。
 

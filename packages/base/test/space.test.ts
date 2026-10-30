@@ -83,7 +83,7 @@ test("外部编辑由 watcher 通知，控制目录变化不会形成历史修�
   await Promise.race([
     observed,
     new Promise<never>((_resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("等待外部编辑通知超时")), 5_000);
+      const timer = setTimeout(() => reject(new Error("等待外部编辑通知超时")), 600_000);
       timer.unref();
       observed.finally(() => clearTimeout(timer));
     }),

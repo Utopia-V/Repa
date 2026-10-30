@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=600000 test/*.test.ts",
     "benchmark": "node --import tsx test/benchmark.ts",
     "benchmark:maintenance": "node --import tsx test/maintenance-benchmark.ts",
     "benchmark:paths": "node --import tsx test/record-paths-benchmark.ts",

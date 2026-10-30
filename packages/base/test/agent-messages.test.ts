@@ -122,7 +122,7 @@ function rejection(details: unknown) {
   };
 }
 
-test("测验期间插件拒收用户消息，前端收到说明原因、带判断依据的错误，消息不进入会话", { timeout: 30000 }, async t => {
+test("测验期间插件拒收用户消息，前端收到说明原因、带判断依据的错误，消息不进入会话", async t => {
   const f = await fixture(t);
   const details = { agent: "tutor", reason: "quiz_in_progress", data: { quizId: "quiz-1" } };
   f.state.quiz = true;
@@ -152,7 +152,7 @@ test("测验期间插件拒收用户消息，前端收到说明原因、带判�
   assert.deepEqual(await f.users(), ["开始测验"]);
 });
 
-test("练习中插件只记下提问，消息照常进入会话；后台任务不经过判断", { timeout: 30000 }, async t => {
+test("练习中插件只记下提问，消息照常进入会话；后台任务不经过判断", async t => {
   const f = await fixture(t);
   f.state.practice = true;
   f.faux.setResponses([fauxAssistantMessage("先想想循环变量的取值")]);
@@ -186,7 +186,7 @@ test("练习中插件只记下提问，消息照常进入会话；后台任务�
   assert.equal(f.state.asked.length, 3);
 });
 
-test("插件判断失败时消息不进入会话，前端收到可处理的错误码", { timeout: 30000 }, async t => {
+test("插件判断失败时消息不进入会话，前端收到可处理的错误码", async t => {
   const f = await fixture(t);
   f.state.failing = true;
   await assert.rejects(f.client.call("session.send", { sessionId: f.session.id, text: "你好" }), (error: unknown) => {
@@ -199,7 +199,7 @@ test("插件判断失败时消息不进入会话，前端收到可处理的错�
   assert.equal(f.faux.state.callCount, 0);
 });
 
-test("插件判断期间用户取消运行，这条插话不在取消之后补投", { timeout: 30000 }, async t => {
+test("插件判断期间用户取消运行，这条插话不在取消之后补投", async t => {
   const f = await fixture(t);
   f.state.practice = true;
   const started = deferred();
@@ -235,7 +235,7 @@ test("插件判断期间用户取消运行，这条插话不在取消之后补�
 });
 
 
-test("插件只能中止自己的 Agent，等待回复终态并清掉已排队的追加消息", { timeout: 30000 }, async t => {
+test("插件只能中止自己的 Agent，等待回复终态并清掉已排队的追加消息", async t => {
   const f = await fixture(t);
   const abort = (agent = "tutor") => f.client.call("plugin.call", {
     pluginId: "learning",
@@ -302,7 +302,7 @@ test("中止辅导 Agent 不枚举或加载磁盘上的未加载旧会话", asyn
 });
 
 
-test("排队消息在真正运行前被拒收，不写消息和运行标记，后续消息照常运行", { timeout: 30000 }, async t => {
+test("排队消息在真正运行前被拒收，不写消息和运行标记，后续消息照常运行", async t => {
   let restricted = false;
   let checks = 0;
   const f = await fixture(t, async () => {

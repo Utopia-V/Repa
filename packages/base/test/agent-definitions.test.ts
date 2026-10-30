@@ -239,7 +239,7 @@ function learningPlugin(): Plugin {
   };
 }
 
-test("关掉通用 Agent 后前端建不了通用会话，只能与可直接对话的插件 Agent 建会话", { timeout: 30000 }, async t => {
+test("关掉通用 Agent 后前端建不了通用会话，只能与可直接对话的插件 Agent 建会话", async t => {
   const f = await protocolFixture(t, learningPlugin(), { generalAgent: false });
   assert.deepEqual(await f.client.call("agent.list", {}), [
     { id: "tutor", description: "陪学习者练习 Python", direct: true },
@@ -260,7 +260,7 @@ test("关掉通用 Agent 后前端建不了通用会话，只能与可直接对�
   assert.equal((await f.client.call("session.history", { sessionId: session.id })).findLast(entry => entry.type === "assistant")?.text, "你好，我们从循环开始。");
 });
 
-test("插件在后台运行不可直接对话的 Agent，前端能查看会话但不能向它发消息", { timeout: 30000 }, async t => {
+test("插件在后台运行不可直接对话的 Agent，前端能查看会话但不能向它发消息", async t => {
   const f = await protocolFixture(t, learningPlugin());
   f.faux.setResponses([
     fauxAssistantMessage(fauxToolCall("write", { path: "lessons/second.md", content: "第二课" })),
@@ -279,7 +279,7 @@ test("插件在后台运行不可直接对话的 Agent，前端能查看会话�
   assert.equal(general.agent, "general");
 });
 
-test("装配指定的直接对话 Agent 覆盖定义：通用 Agent 不在其中时也不能直接建会话", { timeout: 30000 }, async t => {
+test("装配指定的直接对话 Agent 覆盖定义：通用 Agent 不在其中时也不能直接建会话", async t => {
   const f = await protocolFixture(t, learningPlugin(), { directAgents: ["writer"] });
   assert.deepEqual((await f.client.call("agent.list", {})).map(agent => [agent.id, agent.direct]), [["general", false], ["tutor", false], ["writer", true]]);
   await assert.rejects(f.client.call("session.create", {}), rejectsWith("agent_not_direct"));
@@ -287,7 +287,7 @@ test("装配指定的直接对话 Agent 覆盖定义：通用 Agent 不在其中
   assert.equal((await f.client.call("session.create", { agent: "writer" })).agent, "writer");
 });
 
-test("插件停用带走了装配点名的直接对话 Agent 时，只去掉这个 Agent，空间照常打开", { timeout: 30000 }, async t => {
+test("插件停用带走了装配点名的直接对话 Agent 时，只去掉这个 Agent，空间照常打开", async t => {
   // 学习插件平时声明 tutor；它的数据打不开时，tutor 也就不在了。
   const broken: Plugin = { id: "learning", async open() { throw new Error("学习数据损坏，请检查数据文件"); } };
   const f = await protocolFixture(t, broken, { directAgents: ["tutor"] });
@@ -297,7 +297,7 @@ test("插件停用带走了装配点名的直接对话 Agent 时，只去掉这�
   await assert.rejects(f.client.call("session.create", { agent: "tutor" }), rejectsWith("agent_not_found"));
 });
 
-test("没有插件停用时，装配指定的直接对话 Agent 写错 id 仍让打开空间失败，而不是让所有 Agent 都不能对话", { timeout: 30000 }, async t => {
+test("没有插件停用时，装配指定的直接对话 Agent 写错 id 仍让打开空间失败，而不是让所有 Agent 都不能对话", async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-defs-typo-"));
   const root = path.join(directory, "space");
   await mkdir(root);
@@ -315,7 +315,7 @@ test("没有插件停用时，装配指定的直接对话 Agent 写错 id 仍让
   });
 });
 
-test("关掉通用 Agent 以后，它的旧会话照样能列出、能读历史，只是不能再运行", { timeout: 30000 }, async t => {
+test("关掉通用 Agent 以后，它的旧会话照样能列出、能读历史，只是不能再运行", async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-defs-dormant-"));
   const opened: { client: RepaClient; server: Awaited<ReturnType<typeof startServer>> }[] = [];
   // 先关闭服务，空间收尾时还要在目录里运行 git，之后才删除目录。
@@ -365,7 +365,7 @@ test("关掉通用 Agent 以后，它的旧会话照样能列出、能读历史�
 });
 
 
-test("插件数据打开失败经协议报告，其他插件、通用对话和历史照常使用", { timeout: 30000 }, async (t) => {
+test("插件数据打开失败经协议报告，其他插件、通用对话和历史照常使用", async (t) => {
   const good = learningPlugin();
   const f = await protocolFixture(t, good, {
     plugins: [
@@ -388,7 +388,7 @@ test("插件数据打开失败经协议报告，其他插件、通用对话和�
   assert.ok((await f.client.call("history.list", {})).length > 0);
 });
 
-test("插件第一次处理变化就失败时，只停它和依赖它的插件，空间照常打开，其他插件继续工作", { timeout: 30000 }, async (t) => {
+test("插件第一次处理变化就失败时，只停它和依赖它的插件，空间照常打开，其他插件继续工作", async (t) => {
   const empty = Type.Object({}, { additionalProperties: false });
   const failing: Plugin = {
     id: "derive",

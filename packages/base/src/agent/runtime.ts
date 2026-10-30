@@ -29,7 +29,7 @@ import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.
 import { limitToolText } from "./output.js";
 import { isModelCall, modelCall } from "./model-call.js";
 import { readParent, saveParent } from "./parent.js";
-import { findSessionPath, migrateSessionFiles } from "./session-files.js";
+import { findSessionPath } from "./session-files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
 
@@ -179,7 +179,6 @@ class Runtime implements AgentRuntime {
       if (!known.has(agent)) throw new RepaFault("unknown_agent", "装配指定的直接对话 Agent 不存在或未启用", { agent });
     }
     await mkdir(options.sessionsDir, { recursive: true });
-    await migrateSessionFiles(options.sessionsDir);
     const space = new Space(this, options, () => this.spaces.delete(space));
     this.spaces.add(space);
     return space;
