@@ -313,7 +313,15 @@ export class SandboxRunner {
         results.push({ id: test.id, status: "not_run" });
         continue;
       }
-      await this.start();
+      try {
+        await this.start();
+      } catch (error) {
+        // 恢复失败后换沙箱时起不来：已经得到的结果留下，这个测试记为准备阶段的执行失败，其余未执行，与页面相同。
+        if (results.length === 0) throw error;
+        results.push(failedAt(test.id, "prepare", error instanceof Error ? error.message : "Python 沙箱启动失败"));
+        stopped = true;
+        continue;
+      }
       if (!this.current) throw new SandboxUnavailable("沙箱没有启动");
       const result = await this.current.runTest(test, timeoutMs);
       results.push(result);

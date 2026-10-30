@@ -218,6 +218,13 @@ function compare(test: CodeTest, expected: Record<string, unknown>, result: Pyth
 
 function judgeTest(test: CodeTest, index: number, expectations: Expectations, result: PythonTestResult | undefined): TestOutcome {
   if (!result || result.status === "not_run") return { status: "not_run" };
+  // 期望值算不出来是课程的问题，先于程序的结果判断：这个测试没有结论，不能因程序超时或失败算学习者答错。
+  let expected: Record<string, unknown> = {};
+  if (test.expect) {
+    const computed = expectations.get(index);
+    if (!computed || "problem" in computed) return { status: "unavailable", reason: "期望值算不出来" };
+    expected = Object.fromEntries(Object.entries(test.expect).map(([capture, expression]) => [capture, computed.values[expression]]));
+  }
   if (result.status !== "completed") {
     // 被测的代码在运行、求值或 doctest 时超时，是程序的问题；准备和收尾超时、任何阶段的失败是执行环境的问题。
     if (result.status === "timeout") {
@@ -226,12 +233,6 @@ function judgeTest(test: CodeTest, index: number, expectations: Expectations, re
         : { status: "unavailable", reason: `${result.phase} 阶段超时` };
     }
     return { status: "unavailable", reason: `${result.error?.type ?? "Error"}: ${result.error?.message ?? `${result.phase} 阶段失败`}` };
-  }
-  let expected: Record<string, unknown> = {};
-  if (test.expect) {
-    const computed = expectations.get(index);
-    if (!computed || "problem" in computed) return { status: "unavailable", reason: "期望值算不出来" };
-    expected = Object.fromEntries(Object.entries(test.expect).map(([capture, expression]) => [capture, computed.values[expression]]));
   }
   try {
     return compare(test, expected, result.result);

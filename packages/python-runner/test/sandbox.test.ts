@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import type { PythonTest, PythonTestResult } from "../src/protocol.js";
 import { describeRuntime } from "../src/runtime.js";
-import { SandboxRunner } from "../src/sandbox.js";
+import { PythonSandbox, SandboxRunner } from "../src/sandbox.js";
 import { RUNTIME, sandboxUnavailable, skipUnavailableEnvironment } from "./environment.js";
 
 const LAUNCHER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sandbox", "launch.py");
@@ -289,4 +289,27 @@ test("测试后恢复不了解释器状态时，这个测试的结果照样交�
   assert.ok(next?.status === "completed" && next.restoreError === undefined, JSON.stringify(next));
   assert.deepEqual(next.result.captures, { cwd: { value: { t: "str", v: "/home/pyodide" } } });
   assert.equal(sandbox.starts, 2);
+});
+
+test("恢复失败后换沙箱时起不来，已经得到的结果照样交回，下一个测试记为准备阶段的执行失败，其余未运行", async (t) => {
+  const reason = await sandboxUnavailable();
+  if (reason) return skipUnavailableEnvironment(t, reason);
+  const sandbox = await runner(t);
+  const sandboxes = PythonSandbox as unknown as { start: typeof PythonSandbox.start };
+  const start = sandboxes.start;
+  let starts = 0;
+  sandboxes.start = (...args) => {
+    starts += 1;
+    return starts > 1 ? Promise.reject(new Error("模拟沙箱起不来")) : start.apply(PythonSandbox, args);
+  };
+  t.after(() => { sandboxes.start = start; });
+  const program = "import os, shutil\nos.chdir('/')\nshutil.rmtree(os.path.expanduser('~'))\nanswer = 42";
+  const [broken, next, last] = await sandbox.runTests([
+    test_({ program, captures: ["answer"] }, "a"),
+    test_({ program: "x = 1" }, "b"),
+    test_({ program: "y = 2" }, "c"),
+  ]);
+  assert.ok(broken?.status === "completed" && broken.restoreError !== undefined, JSON.stringify(broken));
+  assert.deepEqual(next, { id: "b", status: "failed", phase: "prepare", error: { type: "WorkerError", message: "模拟沙箱起不来" } });
+  assert.deepEqual(last, { id: "c", status: "not_run" });
 });

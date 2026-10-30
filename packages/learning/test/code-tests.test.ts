@@ -149,6 +149,18 @@ test("期望值算不出来是课程的问题：表达式出错、值太大（�
   assert.deepEqual(timedOut.programs[0], { verdict: "unresolved", tests: [{ status: "not_run" }, { status: "not_run" }] });
 });
 
+test("期望值算不出来时，这个测试没有结论；学习者的程序在这个测试上超时也不算答错", async () => {
+  const answer = (item: PythonTest): PythonTestResult => {
+    if (item.id === "expected:1") {
+      return { id: item.id, status: "completed", result: { stdout: "", error: null, doctest: [], captures: { "2": { error: { type: "ZeroDivisionError", message: "division by zero" } } } } };
+    }
+    if (item.id === "test:1") return { id: item.id, status: "timeout", phase: "program" };
+    return honest(2)(item);
+  };
+  const run = await runCodeTests(executor(answer).run, plan(), ["x = 2"]);
+  assert.deepEqual(run.programs[0], { verdict: "unresolved", tests: [{ status: "passed" }, { status: "unavailable", reason: "期望值算不出来" }] });
+});
+
 test("学习者的值太大、结果缺项或序列化的值不合约定时没有结论，学习者的程序抛异常时判错", async () => {
   const learner = (result: (item: PythonTest) => PythonProgramResult) => (item: PythonTest): PythonTestResult =>
     item.id.startsWith("expected:") ? honest(2)(item) : { id: item.id, status: "completed", result: result(item) };
