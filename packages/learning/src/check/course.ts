@@ -1,10 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { writeFile, rename } from "node:fs/promises";
-import path from "node:path";
 import {
   describeRuntime, RuntimeProblem, SandboxRunner, SandboxUnavailable, verifyPackages, type RuntimeVersions,
 } from "@repa/python-runner";
-import { expectedBinding, runnerVersion, type Expected } from "../python-execution.js";
+import type { RunTests } from "../code-tests.js";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { checkTopicCode, type CodeStats } from "./code.js";
@@ -90,28 +87,14 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
       return { diagnostics: report.diagnostics, summary };
     }
     summary.ran = true;
-    const published: Record<string, Expected> = {};
-    const runnerHash = await runnerVersion();
-    for (const { topic } of loaded.topics) {
-      for (const { question } of topicQuestions(topic)) {
-        published[question.id] = {
-          binding: await expectedBinding(question, topic, loaded.course.runtime, runnerHash),
-          values: {},
-        };
-      }
-    }
-    // 整门课共用一个解释器，按正式测试顺序逐项执行；任务之间由 runner.py 恢复状态，恢复失败或超时才换新的。
+    // 整门课共用一个解释器；测试按判分的约定成批运行，任务之间由 runner.py 恢复状态，恢复失败或超时才换新的。
+    const runtime = summary.runtime;
+    const run: RunTests = async (tests) => ({ runtime, tests: await runner.runTests(tests, options.timeoutMs) });
     for (const topic of loaded.topics) {
       if (options.topics && !options.topics.includes(topic.topic.id)) continue;
-      await checkTopicCode(topic, runner, report, code, options.timeoutMs, published);
+      await checkTopicCode(topic, runner, run, report, code, loaded.course.runtime.prelude ?? "", options.timeoutMs);
     }
     code.interpreterStarts = runner.starts;
-    if (!options.topics && report.errorCount === 0) {
-      const target = path.join(root, "expected.json");
-      const temporary = `${target}.${randomUUID()}.tmp`;
-      await writeFile(temporary, `${JSON.stringify(published)}\n`);
-      await rename(temporary, target);
-    }
   } finally {
     await runner.close();
   }

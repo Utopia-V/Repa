@@ -2,6 +2,7 @@
 // Worker 脚本本身经 @repa/python-runner/worker 单独导入，runner.py 的源码经 @repa/python-runner/runner.py 导入。
 export {
   loadRuntimeFiles, PythonRunError, PythonRunner,
-  type PythonCapabilities, type PythonRunErrorCode, type PythonRunnerOptions, type RunnerWorker, type RuntimeFiles,
+  type PythonRunErrorCode, type PythonRunnerOptions, type RunnerWorker, type RuntimeFiles,
 } from "./runner.js";
-export { PYTHON_RUN, servePythonRun } from "./service.js";
+export { servePythonRun } from "./service.js";
+export { PYTHON_RUN } from "../protocol.js";

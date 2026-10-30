@@ -7,7 +7,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
+import { endsBatch, type PythonTest, type PythonTestResult } from "./protocol.js";
 import { PACKAGE_ROOT, RUNNER_FILE, type RuntimeAssets } from "./runtime.js";
+import { failedAt, readStep, readTested, restartsTimer, timedOut, type Step } from "./test-results.js";
 
 /** 沙箱的私有内存上限，2 GiB。 */
 export const DEFAULT_MEMORY_BYTES = 2 * 1024 ** 3;
@@ -53,7 +55,14 @@ interface RunnerMessage {
   id?: number;
   versions?: RuntimeVersions;
   message?: string;
-  response?: { ok: boolean; result?: unknown; error?: { type: string; message: string }; trace?: string };
+  phase?: unknown;
+  response?: unknown;
+}
+
+interface JobResponse { ok: boolean; result?: unknown; error?: { type: string; message: string }; trace?: string }
+
+function isJobResponse(value: unknown): value is JobResponse {
+  return typeof value === "object" && value !== null && "ok" in value && typeof value.ok === "boolean";
 }
 
 /** 一个沙箱进程：启动时加载 Pyodide，之后逐个运行任务；超时或崩溃后不再可用。 */
@@ -64,7 +73,9 @@ export class PythonSandbox {
   /** 已结束或已下令结束的进程不再接任务。 */
   private alive = true;
   private readonly exited: Promise<void>;
-  /** 启动阶段等待 ready；之后等待当前任务的结果。两者都只会有一个在等。 */
+  /** 收到还没人取走的消息；一个测试会先后发来几条阶段消息和结果。 */
+  private readonly queue: RunnerMessage[] = [];
+  /** 启动阶段等待 ready；之后等待当前任务的消息。两者都只会有一个在等。 */
   private waiting: ((message: RunnerMessage | undefined) => void) | undefined;
 
   private constructor(private readonly child: ChildProcess) {
@@ -131,7 +142,10 @@ export class PythonSandbox {
     throw new SandboxUnavailable(reason);
   }
 
+  /** 取下一条消息；进程已经结束、没有剩下的消息时得到 undefined。 */
   private next(timeoutMs: number): Promise<RunnerMessage | undefined | "timeout"> {
+    const queued = this.queue.shift();
+    if (queued) return Promise.resolve(queued);
     if (!this.alive) return Promise.resolve(undefined);
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -145,10 +159,15 @@ export class PythonSandbox {
     });
   }
 
+  /** 交给正在等的一方；没有人在等就排进队列。undefined 表示进程已经结束。 */
   private deliver(message: RunnerMessage | undefined): void {
     const waiting = this.waiting;
+    if (!waiting) {
+      if (message) this.queue.push(message);
+      return;
+    }
     this.waiting = undefined;
-    waiting?.(message);
+    waiting(message);
   }
 
   private receive(chunk: string): void {
@@ -174,7 +193,7 @@ export class PythonSandbox {
     return this.alive;
   }
 
-  /** 发送一个任务并等待结果。同一时间只运行一个任务；超时会结束整个子进程。 */
+  /** 发送一个任务（目前只有 verify）并等待结果。同一时间只运行一个任务；超时会结束整个子进程。测试用 runTest。 */
   async run(job: Record<string, unknown>, timeoutMs = DEFAULT_JOB_TIMEOUT_MS): Promise<JobOutcome> {
     if (this.waiting) throw new Error("上一个任务还没有结束");
     const id = this.nextId++;
@@ -185,10 +204,9 @@ export class PythonSandbox {
       this.kill();
       return { status: "timeout" };
     }
-    if (message?.type !== "result" || message.id !== id || !message.response) {
+    if (message?.type !== "result" || message.id !== id || !isJobResponse(message.response)) {
       this.kill();
-      const detail = message?.type === "fatal" ? message.message : undefined;
-      return { status: "crashed", detail: detail || this.stderr.trim() || "运行器提前退出或发来意外的消息" };
+      return { status: "crashed", detail: this.crashDetail(message) };
     }
     const { response } = message;
     if (response.ok) return { status: "done", ok: true, result: response.result };
@@ -197,6 +215,39 @@ export class PythonSandbox {
       error: response.error ?? { type: "Error", message: "未知错误" },
       ...(response.trace ? { trace: response.trace } : {}),
     };
+  }
+
+  /**
+   * 运行一个 python.run 的测试，与页面的 Worker 相同：runner.py 的 program_test 每个阶段开始前报告阶段，
+   * 准备、被测代码和收尾各自计时，超时就结束整个子进程，按最后报告的阶段写进结果。计时与归类见 test-results.ts。
+   */
+  async runTest(test: PythonTest, timeoutMs = DEFAULT_JOB_TIMEOUT_MS): Promise<PythonTestResult> {
+    if (this.waiting) throw new Error("上一个任务还没有结束");
+    const id = this.nextId++;
+    let deadline = performance.now() + timeoutMs;
+    let step: Step = "prepare";
+    this.child.stdin?.write(`${JSON.stringify({ op: "test", id, test })}\n`);
+    for (;;) {
+      const message = await this.next(Math.max(0, deadline - performance.now()));
+      if (message === "timeout") {
+        this.kill();
+        return timedOut(test.id, step);
+      }
+      if (message?.type === "phase" && message.id === id) {
+        const entered: Step = readStep(message.phase) ?? step;
+        if (entered !== step && restartsTimer(entered)) deadline = performance.now() + timeoutMs;
+        step = entered;
+        continue;
+      }
+      if (message?.type === "result" && message.id === id) return readTested(test.id, step, message.response);
+      this.kill();
+      return failedAt(test.id, step, this.crashDetail(message));
+    }
+  }
+
+  private crashDetail(message: RunnerMessage | undefined): string {
+    const detail = message?.type === "fatal" ? message.message : undefined;
+    return detail || this.stderr.trim() || "运行器提前退出或发来意外的消息";
   }
 
   kill(): void {
@@ -218,7 +269,7 @@ export class PythonSandbox {
   }
 }
 
-/** 按需启动沙箱，之后的任务都在同一个解释器里运行；某个任务超时或运行器崩溃（包括恢复解释器状态失败）后，下一个任务换一个新的沙箱。 */
+/** 按需启动沙箱，之后的任务都在同一个解释器里运行；某个任务超时、运行器崩溃或恢复解释器状态失败后，下一个任务换一个新的沙箱。 */
 export class SandboxRunner {
   #starts = 0;
   private current: PythonSandbox | undefined;
@@ -226,7 +277,7 @@ export class SandboxRunner {
 
   constructor(private readonly options: SandboxOptions) {}
 
-  /** 到目前为止启动过几个沙箱：第一个，加上每次超时或崩溃之后各一个。代价关卡按它核对。 */
+  /** 到目前为止启动过几个沙箱：第一个，加上每次超时、崩溃或恢复失败之后各一个。代价关卡按它核对。 */
   get starts(): number {
     return this.#starts;
   }
@@ -242,11 +293,34 @@ export class SandboxRunner {
     return versions;
   }
 
-  /** 运行一个任务。每个任务都带上运行环境声明的前导，运行器在任务的命名空间里先运行它。 */
+  /** 运行一个任务（目前只有 verify）。每个任务都带上运行环境声明的前导，运行器在任务的命名空间里先运行它。 */
   async run(job: Record<string, unknown>, timeoutMs?: number): Promise<JobOutcome> {
     await this.start();
     if (!this.current) throw new SandboxUnavailable("沙箱没有启动");
     return this.current.run({ prelude: this.options.assets.prelude, ...job }, timeoutMs);
+  }
+
+  /**
+   * 按 python.run 的约定运行一批测试（见 @repa/python-runner/protocol）：在当前的沙箱里依次运行，测试之间由 runner.py 恢复状态，
+   * 恢复失败就换一个新的沙箱运行余下的测试；某个测试超时或失败后整批停下，余下的记为 not_run，并结束这个沙箱。
+   * 与页面不同的是，没有出问题的沙箱留给下一次调用接着用。测试自带前导，不另加运行环境的前导。
+   */
+  async runTests(tests: readonly PythonTest[], timeoutMs?: number): Promise<PythonTestResult[]> {
+    const results: PythonTestResult[] = [];
+    let stopped = false;
+    for (const test of tests) {
+      if (stopped) {
+        results.push({ id: test.id, status: "not_run" });
+        continue;
+      }
+      await this.start();
+      if (!this.current) throw new SandboxUnavailable("沙箱没有启动");
+      const result = await this.current.runTest(test, timeoutMs);
+      results.push(result);
+      stopped = endsBatch(result);
+      if (stopped || (result.status === "completed" && result.restoreError !== undefined)) await this.close();
+    }
+    return results;
   }
 
   /** 关闭当前的沙箱；之后再运行任务会启动新的。 */

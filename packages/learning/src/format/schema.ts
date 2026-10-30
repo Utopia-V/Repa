@@ -230,7 +230,8 @@ export const TestSchema = object({
   setup: Type.Optional(text(10_000)),
   /**
    * 键是作答代码运行后求值的 Python 表达式，值是期望结果的 Python 表达式。
-   * 期望表达式在只有 data 和 setup 的全新命名空间里求值（可用 pd、np），两边结果序列化后在沙箱外比较。
+   * 判分时期望表达式在运行作答的同一个环境里、作答之前当场求值：同一个测试的表达式在只有 data 和 setup 的
+   * 同一个全新命名空间里依次求值（可用 pd、np），相同的只算一次，所以只读取、不改动变量；两边结果序列化后在运行环境之外比较。
    */
   expect: Type.Optional(Type.Record(Type.String({ minLength: 1, maxLength: 500 }), text(10_000))),
   /** doctest 写法：>>> 后是在作答命名空间里执行的语句，下面是交互解释器应显示的内容。 */

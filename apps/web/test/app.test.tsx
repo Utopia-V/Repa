@@ -21,7 +21,7 @@ vi.mock("../src/lib/python/runner", () => ({
   createPythonRunner: () => {
     python.close = vi.fn();
     return {
-      capabilities: vi.fn(() => new Promise(() => {})),
+      warm: vi.fn(),
       run: vi.fn((_input: unknown, signal: AbortSignal) => {
         python.signals.push(signal);
         return new Promise(() => {});
@@ -181,8 +181,7 @@ it("断线时停掉 python.run：进行中的运行被取消、运行器关闭�
   render(<App store={createAppStore()} loadConnection={() => Promise.resolve(connection)} />);
   await screen.findByRole("link", { name: "Learning Space" });
   const input = {
-    protocol: "repa-python-batch-v1", kind: "execute", submissionId: "sub-1", gradeRevision: 1,
-    runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }, runner: "sha256:runner",
+    protocol: "repa-python-batch-v2",
     tests: [{ id: "t", program: "x = 1", prelude: "", setup: "", data: [], captures: [], doctest: [] }],
   };
   first.listeners.get("service.request")?.({ id: "req-1", service: "python.run", input });

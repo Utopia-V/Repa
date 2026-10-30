@@ -80,7 +80,7 @@ if (state.ok) renderLearning(state.value);
 
 交付中的 `item` 只允许底座公开字段。后端沿现有 `publicItem` 的白名单投影，并在交付时换成不透明的题目、选项、排列块和表格选择格 id，私有映射只保存在后端快照。前端不重新打乱顺序。当前协议与夹具表达最终公开形状，实际换号、反馈释放与持久化已由教学和记录实现承担。
 
-答案、解析和私有 rubric 不出现在作答前的 Item。practice 的反馈及解析在判分完成后释放，review 在任务结束后释放，quiz 与 retake 在整场交卷或超时后释放。查询、事件、前端内容读取和 Agent 工具共用这项授权检查。`processing: completed` 可以先于反馈释放，因此前端不能把“已判”当成“可看答案”。测试计划中的检查代码对前端可见，完整参考解仍按反馈时机释放。
+答案、解析和私有 rubric 不出现在作答前的 Item。practice 的反馈及解析在判分完成后释放，review 在任务结束后释放，quiz 与 retake 在整场交卷或超时后释放。查询、事件、前端内容读取和 Agent 工具共用这项授权检查。`processing: completed` 可以先于反馈释放，因此前端不能把“已判”当成“可看答案”。测试计划中的检查代码对前端可见，完整参考解仍按反馈时机释放；代码题的期望表达式在作答被接受以后随判分请求进入前端的 Worker，与释放规则的关系见 [python.run](#pythonrun)。
 
 `restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。review、quiz 的 preparing 和进行阶段均关闭辅导与参考读取，结束后重新开放。`ContentRef` 带课程、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取旧内容使用指定版本，后端从交付快照或保留的学习内容提供它；不存在的版本明确报输入错误，不悄悄换成最新版本。
 
@@ -103,16 +103,17 @@ if (state.ok) renderLearning(state.value);
 
 ### python.run
 
-代码题在前端运行。输入输出见 `@repa/python-runner/protocol`（[protocol.ts](../../packages/python-runner/src/protocol.ts)）的 `PythonRunInputSchema`、`PythonCapabilitiesSchema` 与 `PythonBatchResultSchema`，后端怎样使用见[执行边界](learning-flow.md#python-内部执行边界)，Web 与 Desktop 的实现见 #51、#52。前端在隔离的 Worker 里逐个执行测试，每个测试与 `runner.py` 的 program 任务相同；测试编排、期望值和判分都在后端。约定如下：
+代码题在前端运行。输入输出见 `@repa/python-runner/protocol`（[protocol.ts](../../packages/python-runner/src/protocol.ts)）的 `PythonBatchInputSchema` 与 `PythonBatchResultSchema`，后端怎样使用见[执行边界](learning-flow.md#python-内部执行边界)，前端服务由运行器包的 `servePythonRun` 提供。约定如下：
 
-- 期望值在课程核对时预先算好，随课程发布，绑定题目内容版本、测试、夹具、prelude、运行环境和 runner 版本。运行时后端只比较；缺少有效的预计算结果时，这道题不用于正式判分。参考解、`verify`、期望值和 doctest 的期望输出不发给前端；测试的输入（夹具只带运行要用的字段，不带题面上的说明）、setup、调用语句和 doctest 输入会发给前端，`hidden` 只控制展示。
-- 一次正式提交的全部测试，作为一次服务调用，在一个全新的 Worker 里按顺序执行。辅导、示例和学习者自己运行的代码不与正式判分共用 Worker。
-- 结果带实际加载的运行环境版本。后端核对版本，并核对每个 capture 和 doctest 都有对应结果。
-- 超时按阶段归因：学习者程序及其被检查调用时超时，才形成作答结果；准备、收尾阶段的超时和 Worker 意外退出属于执行失败，保留待恢复。某个测试超时后整批终止，未执行的测试不算失败。
+- 前端连接时在 `capabilities.services` 里声明 `python.run`，就表示能运行 Python。后端不另外探测，也不比对前端的运行环境和 runner 摘要。
+- 一次正式提交的全部测试作为一次服务调用，在一个全新的 Worker 里按顺序执行。请求只有协议名和测试，不带学习插件的提交编号和判分版本；辅导、示例和学习者自己运行的代码不与正式判分共用 Worker。
+- 期望值在判分时当场算：请求最前面是期望任务，程序为空串，captures 是测试的期望表达式，在学习者的程序之前、同一个 Worker 里求值。期望表达式因此会发给前端；参考解、`verify`、doctest 和 `stdout` 的期望输出不发给前端，比较在后端。测试的输入（夹具只带运行要用的字段，不带题面上的说明）、setup、capture 表达式和 doctest 输入也会发给前端，`hidden` 只控制展示。
+- 期望表达式在作答被接受之后才发出，这道题此时已经锁定，不能再改答。practice 的反馈和解析本来就在判分后释放。review 和 quiz 进行中，懂开发者工具的学习者能在释放前看到刚交那道题的期望表达式；只有复习题池用尽、同一场里重复出这道题时它才有用。参考解随课程文件装在学习者的电脑上，这本来就挡不住；界面不显示这些内容。
+- 结果带实际加载的运行环境版本，只随判分来源记下。后端核对结果与请求一一对应，并核对每个 capture 和 doctest 都有对应结果。
+- 超时按阶段归因，准备、被测代码和收尾各自计时：学习者程序、capture 求值和 doctest 时超时，才形成作答结果；序列化 capture 的值会调用值自己的 `__repr__` 等方法，卡住时同样算 capture 阶段的超时。准备、收尾阶段的超时和 Worker 意外退出属于执行失败，保留待恢复。某个测试超时或失败后整批终止，未执行的测试不算失败。
+- 测试后恢复解释器状态失败时，这个测试的结果照样交回、带 `restoreError`，前端换一个新的 Worker 运行余下的测试。
 - `too_large` 表示这次无法可靠比较，不判学习者错。
-- 前端把序列化 capture 的值和求值分开计时：序列化卡住不是学习者的代码，报告为 `capture` 阶段的 `failed`。Worker 崩溃或回复无法识别，报告为当时所在阶段的 `failed`。
-- 结果的 `runtime` 只列请求里 `runtime.packages` 的包，版本取实际加载的；没有加载的包不出现，后端比较时就知道环境不符。
-- 课程核对和前端执行同一段代码：`runner.py` 的 `program_steps` 按阶段产出，课程核对的 `job_program` 一口气跑完，前端的 `program_test` 在每步之间报告阶段。改动它会改变 runner 版本，期望值要用 `npm run course:check` 重新生成。
+- 课程核对和前端执行同一段代码：Node 沙箱和页面 Worker 都用 `runner.py` 的 `program_test` 逐个阶段运行测试。改动它不需要重新生成任何产物。
 - 结果落盘前，后端核对提交和目标判分版本仍然有效。
 
 ## 未完成项与待验证项
@@ -121,7 +122,7 @@ if (state.ok) renderLearning(state.value);
 | --- | --- |
 | Aqua 审阅 | 待核对各阶段画面、操作、原学习位置及 Python 请求／结果夹具；审定后的字段供前后端共用 |
 | 方法与授权检查 | 记录与教学已实现接受、去重、恢复、推进、换号、反馈释放和判分；辅导与内容读取已接入逐次授权检查；测验任务接续测验和进度 |
-| Python Worker | Web 已按批次接口接入 Pyodide Worker（#51），Desktop 同步见 #52 |
+| Python Worker | Web 与 Desktop 用运行器包提供 `python.run`；协议改为 `repa-python-batch-v2` 后，还要在真实的 Worker 和 Electron 里走一遍代码题判分 |
 | 故障与学习效果 | 记录层已通过真实杀进程恢复验证；完整学习体验、实际作答改变帮助及学习外负担由后续组合试用检验 |
 
 ## 验证入口

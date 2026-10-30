@@ -24,7 +24,7 @@ const frontend = (async () => {
     loadPyodide(options: object): Promise<{
       loadPackage(names: string[], options: object): Promise<void>;
       runPython(code: string, options: object): unknown;
-      globals: { get(name: "program_test"): (line: string) => Generator; get(name: "handle_job"): (line: string) => string };
+      globals: { get(name: "program_test"): (line: string) => Generator };
     }>;
   };
   const pyodide = await loadPyodide({
@@ -33,10 +33,7 @@ const frontend = (async () => {
   });
   await pyodide.loadPackage(assets.load, { messageCallback: () => {} });
   pyodide.runPython(await readFile(RUNNER_FILE, "utf8"), { filename: "runner.py" });
-  return {
-    test: pyodide.globals.get("program_test"),
-    handleJob: pyodide.globals.get("handle_job"),
-  };
+  return { test: pyodide.globals.get("program_test") };
 })();
 
 /** 跑完一个测试，返回依次报告的阶段和最终结果。 */
@@ -51,7 +48,7 @@ function run(start: (line: string) => Generator, job: Partial<PythonTest> & { pr
   }
 }
 
-test("program_test 逐个阶段报告，结果与 program 任务相同；capture 的求值和序列化分成两步", async (t) => {
+test("program_test 逐个阶段报告；capture 的求值和序列化分成两步", async (t) => {
   const pyodide = await frontend;
   if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
   const job = {
@@ -69,11 +66,8 @@ test("program_test 逐个阶段报告，结果与 program 任务相同；capture
   assert.deepEqual(phases, [
     "prepare", "program", "capture#0", "serialize#0", "capture#1", "capture#2", "serialize#2", "doctest#0", "cleanup",
   ]);
-  const program = JSON.parse(pyodide.handleJob(JSON.stringify({
-    op: "program", ...job, data: job.data.map(({ label, fixture }) => ({ ...fixture, label })),
-  }))) as { ok: boolean; result: unknown };
-  assert.deepEqual(result, { status: "completed", result: program.result });
-  assert.deepEqual(program.result, {
+  assert.equal(result.status, "completed");
+  assert.deepEqual(result.result, {
     stdout: "7\n",
     error: null,
     captures: {
@@ -112,14 +106,14 @@ test("每个测试结束时恢复解释器状态，下一个测试看不到上�
   assert.deepEqual(result, { status: "completed", result: { stdout: "", error: null, captures: { rows: { value: { t: "int", v: "60" } } }, doctest: [] } });
 });
 
-/** Node 宿主经 handle_job 执行 program 任务的结果。 */
-function program(handleJob: (line: string) => string, job: Partial<PythonTest> & { program: string }) {
-  return JSON.parse(handleJob(JSON.stringify({ op: "program", prelude: "", setup: "", data: [], captures: [], doctest: [], ...job }))) as {
-    ok: boolean; result?: { captures: Record<string, unknown>; doctest: unknown[] };
-  };
+/** 只看运行结果：completed 的 result。 */
+function outcome(start: (line: string) => Generator, job: Partial<PythonTest> & { program: string }) {
+  const { result } = run(start, job);
+  assert.equal(result.status, "completed");
+  return result.result as { captures: Record<string, unknown>; doctest: unknown[] };
 }
 
-test("handle_job 与 program_test 结果相同：capture 的值序列化后即释放，求值和序列化共用输出上限，被检查的调用 exit() 记在这一项上", async (t) => {
+test("capture 的值序列化后即释放，求值和序列化共用输出上限，被检查的调用 exit() 记在这一项上", async (t) => {
   const pyodide = await frontend;
   if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
   const released = {
@@ -131,14 +125,9 @@ test("handle_job 与 program_test 结果相同：capture 的值序列化后即�
     captures: ["make()"],
   };
   const exiting = { program: "def stop():\n    exit(3)", captures: ["stop()"], doctest: ["stop()"] };
-  for (const job of [released, noisy, exiting]) {
-    const checked = program(pyodide.handleJob, job);
-    assert.equal(checked.ok, true);
-    assert.deepEqual(run(pyodide.test, job).result, { status: "completed", result: checked.result });
-  }
-  assert.deepEqual(program(pyodide.handleJob, released).result?.captures.x, { value: { t: "int", v: "5" } });
-  assert.deepEqual(program(pyodide.handleJob, noisy).result?.captures["make()"], { error: { type: "OutputTooLong", message: "输出超过 64 KiB" } });
-  assert.deepEqual(program(pyodide.handleJob, exiting).result?.captures["stop()"], { error: { type: "SystemExit", message: "3" } });
+  assert.deepEqual(outcome(pyodide.test, released).captures.x, { value: { t: "int", v: "5" } });
+  assert.deepEqual(outcome(pyodide.test, noisy).captures["make()"], { error: { type: "OutputTooLong", message: "输出超过 64 KiB" } });
+  assert.deepEqual(outcome(pyodide.test, exiting).captures["stop()"], { error: { type: "SystemExit", message: "3" } });
 });
 
 test("capture 的值在释放时打印的内容也收进这一项的输出、算进上限，不漏到任务之外", async (t) => {
@@ -149,9 +138,35 @@ test("capture 的值在释放时打印的内容也收进这一项的输出、算
     captures: ["Noisy()"],
   };
   escaped.length = 0;
-  const checked = program(pyodide.handleJob, job);
-  const tested = run(pyodide.test, job);
+  const captures = outcome(pyodide.test, job).captures;
   assert.deepEqual(escaped.map((text) => text.length), []);
-  assert.deepEqual(checked.result?.captures, { "Noisy()": { value: { t: "repr", type: "Noisy", v: "Noisy" } } });
-  assert.deepEqual(tested.result, { status: "completed", result: checked.result });
+  assert.deepEqual(captures, { "Noisy()": { value: { t: "repr", type: "Noisy", v: "Noisy" } } });
+});
+
+test("program 为空串时只在准备好的命名空间里对 captures 求值：期望表达式就这样算", async (t) => {
+  const pyodide = await frontend;
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
+  const job = {
+    prelude: "import pandas as pd",
+    data: [{ label: "T", fixture: { kind: "dataframe" as const, name: "df", columns: { n: [3, 1] } } }],
+    setup: "limit = 2",
+    program: "",
+    captures: ["df.loc[df['n'] > limit, ['n']]", "limit"],
+  };
+  const { phases, result } = run(pyodide.test, job);
+  assert.deepEqual(phases, ["prepare", "program", "capture#0", "serialize#0", "capture#1", "serialize#1", "cleanup"]);
+  assert.deepEqual(result, {
+    status: "completed",
+    result: {
+      stdout: "",
+      error: null,
+      captures: {
+        "df.loc[df['n'] > limit, ['n']]": {
+          value: { t: "DataFrame", index: [{ t: "int", v: "0" }], columns: [{ t: "str", v: "n" }], kinds: ["i"], values: [[{ t: "int", v: "3" }]] },
+        },
+        limit: { value: { t: "int", v: "2" } },
+      },
+      doctest: [],
+    },
+  });
 });

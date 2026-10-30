@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 
-import { contentVersion } from "@repa/base/protocol";
-
 import type { WorkerRequest } from "../src/browser/messages.js";
 import { loadRuntimeFiles, PythonRunner, type RunnerWorker, type RuntimeFiles } from "../src/browser/runner.js";
 import { PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult } from "../src/protocol.js";
@@ -13,11 +11,6 @@ const ASSETS_URL = "http://127.0.0.1:5173/__repa/pyodide/";
 const job = { program: "print(1)", prelude: "", setup: "", data: [], captures: [], doctest: [] };
 const input: PythonBatchInput = {
   protocol: PYTHON_BATCH,
-  kind: "execute",
-  submissionId: "sub-1",
-  gradeRevision: 2,
-  runtime: { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" }, prelude: "import pandas as pd" },
-  runner: "sha256:expected",
   tests: [{ id: "a", ...job }, { id: "b", ...job }, { id: "c", ...job }],
 };
 /** Worker 报告的是全部加载的包，包括依赖。 */
@@ -108,6 +101,14 @@ async function until(check: () => boolean, state: () => unknown = () => undefine
 }
 
 const types = (worker: FakeWorker | undefined) => worker?.requests.map((request) => request.type);
+
+/** 预热一个 Worker 并等它就绪。 */
+async function warmed(runner: PythonRunner, workers: FakeWorker[]): Promise<void> {
+  runner.warm();
+  await until(() => types(workers.at(-1))?.[0] === "start", () => workers.length);
+  // 替身在微任务里回复 ready；等一轮宏任务，预热的 Promise 就已兑现。
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 const statuses = (result: PythonBatchResult) => result.tests.map((entry) => entry.status);
 
 async function rejectsWith(promise: Promise<unknown>, code: string, message?: string): Promise<void> {
@@ -118,17 +119,13 @@ async function rejectsWith(promise: Promise<unknown>, code: string, message?: st
   });
 }
 
-test("一批测试在一个新 Worker 里按顺序运行；结果带回提交身份，报告问到的包的实际版本和 runner.py 的 contentVersion", async () => {
+test("一批测试在一个新 Worker 里按顺序运行；结果报告 runner.py 导入的包的实际版本，不列出依赖", async () => {
   const { runner, workers } = fixture(healthy());
   const result = await runner.run(input);
 
   assert.deepEqual(result, {
     protocol: PYTHON_BATCH,
-    submissionId: "sub-1",
-    gradeRevision: 2,
     runtime: { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } },
-    runner: await contentVersion(runnerSource),
-    freshInterpreter: true,
     tests: input.tests.map(({ id }) => ({ id, ...completed })),
   } satisfies PythonBatchResult);
   const [start, run] = workers[0]!.requests;
@@ -143,21 +140,11 @@ test("一批测试在一个新 Worker 里按顺序运行；结果带回提交身
   assert.equal(workers[0]?.terminated, true);
 });
 
-test("请求的包没有加载时不出现在结果里，由调用方判断环境不符", async () => {
-  const { runner } = fixture(healthy());
-  const result = await runner.run({ ...input, runtime: { ...input.runtime, packages: { pandas: "3.0.2", scipy: "1.16.0" } } });
-  assert.deepEqual(result.runtime.packages, { pandas: "3.0.2" });
-});
-
-test("探测报告预热 Worker 的环境，不运行代码；之后的调用用的就是这个 Worker", async () => {
+test("warm 在后台预热一个 Worker，不运行代码，重复调用不多开；之后的调用用的就是这个 Worker", async () => {
   const { runner, workers } = fixture(healthy());
-  assert.deepEqual(await runner.capabilities(), {
-    protocol: PYTHON_BATCH,
-    runtime: { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } },
-    runner: await contentVersion(runnerSource),
-    freshInterpreter: true,
-  });
-  await runner.capabilities();
+  runner.warm();
+  runner.warm();
+  await until(() => types(workers[0])?.length === 1, () => workers.length);
   assert.equal(workers.length, 1);
   assert.deepEqual(types(workers[0]), ["start"]);
 
@@ -165,12 +152,63 @@ test("探测报告预热 Worker 的环境，不运行代码；之后的调用用
   assert.deepEqual(types(workers[0]), ["start", "run"]);
 });
 
-test("探测时 Pyodide 起不来就以 runtime_unavailable 结束", async () => {
+const restoreError = { type: "FileNotFoundError", message: "[Errno 44] No such file or directory: '/home/pyodide'" };
+/** 第一个 Worker 在测试 b 之后恢复不了解释器状态。 */
+const brokenAfterB = healthy((test, request) => ({
+  phases: [["program", null], ["cleanup", null]],
+  response: request.tests[test]?.id === "b" ? { ...completed, restoreError } : completed,
+}));
+
+test("运行中调用 warm 预热的 Worker，调用结束后照样用它，不再多开一个", async () => {
+  let finish: (() => void) | undefined;
+  const slow: Respond = (request, worker) => {
+    if (request.type === "start") return worker.send({ type: "ready", runtime: loaded });
+    finish = () => request.tests.forEach((_test, index) => worker.send({ type: "tested", test: index, response: completed }));
+  };
+  const { runner, workers } = fixture(slow);
+  const running = runner.run(input);
+  await until(() => finish !== undefined);
+  runner.warm();
+  await until(() => workers.length === 2, () => workers.length);
+  finish?.();
+  await running;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(workers.length, 2);
+  await runner.run(input);
+  assert.deepEqual(types(workers[1]), ["start", "run"]);
+});
+
+test("恢复解释器状态失败时，这个测试的结果照样交回，余下的测试换一个新的 Worker 接着运行；Worker 数是 1 加上恢复失败的次数", async () => {
+  const { runner, workers } = fixture([brokenAfterB, healthy()]);
+  const result = await runner.run(input);
+  assert.deepEqual(result.tests, [{ id: "a", ...completed }, { id: "b", ...completed, restoreError }, { id: "c", ...completed }]);
+  assert.deepEqual(workers.slice(0, 2).map(types), [["start", "run"], ["start", "run"]]);
+  const [, second] = workers[1]!.requests;
+  assert.deepEqual(second, { type: "run", tests: [input.tests[2]] });
+  assert.deepEqual(workers.slice(0, 2).map((worker) => worker.terminated), [true, true]);
+  // 没有恢复失败时一次调用只用一个 Worker；第三个是后台预热的下一个。
+  await runner.run(input);
+  assert.equal(workers.filter((worker) => types(worker)?.includes("run")).length, 3);
+});
+
+test("最后一个测试恢复失败时不再启动新的 Worker；换 Worker 时起不来，已经得到的结果照样交回", async () => {
+  const lastBroken = healthy((test, request) => ({
+    phases: [["program", null], ["cleanup", null]],
+    response: test === request.tests.length - 1 ? { ...completed, restoreError } : completed,
+  }));
+  const last = fixture(lastBroken);
+  assert.deepEqual(statuses(await last.runner.run(input)), ["completed", "completed", "completed"]);
+  assert.equal(last.workers.filter((worker) => types(worker)?.includes("run")).length, 1);
+
   const notIsolated: Respond = (request, worker) => {
     if (request.type === "start") worker.send({ type: "failed", message: "Python 运行环境没有隔离" });
   };
-  const { runner } = fixture(notIsolated);
-  await rejectsWith(runner.capabilities(), "runtime_unavailable", "Python 运行环境没有隔离");
+  const { runner } = fixture([brokenAfterB, notIsolated]);
+  assert.deepEqual((await runner.run(input)).tests, [
+    { id: "a", ...completed },
+    { id: "b", ...completed, restoreError },
+    { id: "c", status: "failed", phase: "prepare", error: { type: "WorkerError", message: "Python 运行环境没有隔离" } },
+  ]);
 });
 
 test("每次调用都用另一个 Worker：上一次结束后预热下一个，文件只下载一次", async () => {
@@ -179,7 +217,7 @@ test("每次调用都用另一个 Worker：上一次结束后预热下一个，�
   await until(() => workers.length === 2, () => workers.length);
   assert.deepEqual(types(workers[1]), ["start"]);
 
-  await runner.run({ ...input, submissionId: "sub-2" });
+  await runner.run(input);
   assert.deepEqual(types(workers[1]), ["start", "run"]);
   assert.equal(workers[1]?.terminated, true);
   assert.equal(downloads(), 1);
@@ -197,7 +235,7 @@ test("测试超时就结束 Worker，结果写明停在哪个阶段，之后的�
   assert.equal(workers[0]?.terminated, true);
 });
 
-test("卡在学习者代码之外时阶段照实写出：准备和收尾是 timeout，序列化 capture 的值卡住是 capture 阶段的 failed", async () => {
+test("卡在学习者代码之外时阶段照实写出：准备和收尾是 timeout；序列化会调用值自己的方法，卡住时与求值一样算 capture 阶段的 timeout", async () => {
   const preparing = fixture(healthy(() => ({ phases: [["prepare", null]] })), { testTimeoutMs: 20 });
   assert.deepEqual((await preparing.runner.run(input)).tests, [
     { id: "a", status: "timeout", phase: "prepare" },
@@ -209,9 +247,7 @@ test("卡在学习者代码之外时阶段照实写出：准备和收尾是 time
   assert.deepEqual((await cleaning.runner.run(input)).tests[0], { id: "a", status: "timeout", phase: "cleanup" });
 
   const serializing = fixture(healthy(() => ({ phases: [["capture", 0], ["serialize", 0]] })), { testTimeoutMs: 20 });
-  assert.deepEqual((await serializing.runner.run(input)).tests[0], {
-    id: "a", status: "failed", phase: "capture", error: { type: "TimeoutError", message: "序列化 capture 的值超过 0.02 秒" },
-  });
+  assert.deepEqual((await serializing.runner.run(input)).tests[0], { id: "a", status: "timeout", phase: "capture" });
 });
 
 test("每个测试单独计时：各自没超时的测试加起来超过期限也照常完成", async () => {
@@ -229,10 +265,30 @@ test("每个测试单独计时：各自没超时的测试加起来超过期限�
   assert.deepEqual(statuses(await runner.run(input)), ["completed", "completed", "completed"]);
 });
 
+test("准备、被测代码和收尾各自计时：被测代码用掉大半期限后进入收尾，不会被算成收尾超时", async () => {
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const segments: Respond = (request, worker) => {
+    if (request.type === "start") return worker.send({ type: "ready", runtime: loaded });
+    void (async () => {
+      for (const [test] of request.tests.entries()) {
+        worker.send({ type: "phase", test, phase: "prepare", index: null });
+        await pause(200);
+        worker.send({ type: "phase", test, phase: "program", index: null });
+        await pause(200);
+        worker.send({ type: "phase", test, phase: "cleanup", index: null });
+        await pause(200);
+        worker.send({ type: "tested", test, response: completed });
+      }
+    })();
+  };
+  // 每段 200 毫秒，离 500 毫秒的期限留足余量；三段加起来超过期限。
+  const { runner } = fixture(segments, { testTimeoutMs: 500 });
+  assert.deepEqual(statuses(await runner.run({ ...input, tests: input.tests.slice(0, 1) })), ["completed"]);
+});
+
 test("没有测试时不运行，直接交回空结果", async () => {
   const { runner, workers } = fixture(healthy());
   const result = await runner.run({ ...input, tests: [] });
-  assert.equal(result.submissionId, "sub-1");
   assert.deepEqual(result.tests, []);
   assert.deepEqual(types(workers[0]), ["start"]);
 });
@@ -311,7 +367,7 @@ test("领取预热的 Worker 之后、发出 run 之前取消，调用照样以 
   // 依次在调用后的第 0 到 39 个微任务时取消，覆盖从领取预热 Worker 到发出 run 之间的每一步。
   for (let delay = 0; delay < 40; delay += 1) {
     const { runner, workers } = fixture(healthy(() => ({ phases: [["program", null]] })), { testTimeoutMs: 50 });
-    await runner.capabilities();
+    await warmed(runner, workers);
     const controller = new AbortController();
     const running = runner.run(input, controller.signal);
     afterMicrotasks(delay, () => controller.abort());
@@ -345,7 +401,7 @@ test("领取还在启动的预热 Worker 时被取消，这个 Worker 启动完�
     if (request.type === "start") booting = worker;
   };
   const { runner, workers } = fixture(delayed);
-  const probe = runner.capabilities();
+  runner.warm();
   const controller = new AbortController();
   const running = runner.run(input, controller.signal);
   await until(() => booting !== undefined);
@@ -353,7 +409,6 @@ test("领取还在启动的预热 Worker 时被取消，这个 Worker 启动完�
   await rejectsWith(running, "cancelled");
 
   booting?.send({ type: "ready", runtime: loaded });
-  await probe;
   await until(() => workers[0]?.terminated === true, () => types(workers[0]));
   assert.equal(workers.length, 1);
 });
@@ -362,7 +417,7 @@ test("close 之后，之前排队的调用轮到时直接作废，不再新建 W
   const stuck = healthy(() => ({ phases: [["program", null]] }));
   const { runner, workers } = fixture([stuck, healthy()]);
   const first = runner.run(input);
-  const queued = runner.run({ ...input, submissionId: "sub-2" });
+  const queued = runner.run(input);
   await until(() => workers[0]?.requests.length === 2, () => types(workers[0]));
   runner.close();
 
@@ -372,14 +427,15 @@ test("close 之后，之前排队的调用轮到时直接作废，不再新建 W
   assert.deepEqual(statuses(await runner.run(input)), ["completed", "completed", "completed"]);
 });
 
-test("预热失败后，下一次探测重新启动 Worker，不一直拿到这次的失败", async () => {
+test("预热失败不报错，下一次调用重新启动 Worker，不一直拿到这次的失败", async () => {
   const notIsolated: Respond = (request, worker) => {
     if (request.type === "start") worker.send({ type: "failed", message: "缺少 Pyodide" });
   };
   const { runner, workers } = fixture([notIsolated, healthy()]);
-  await rejectsWith(runner.capabilities(), "runtime_unavailable", "缺少 Pyodide");
-  assert.equal((await runner.capabilities()).runtime.pyodide, "314.0.7");
-  assert.equal(workers.length, 2);
+  runner.warm();
+  await until(() => workers[0]?.terminated === true, () => types(workers[0]));
+  assert.deepEqual(statuses(await runner.run(input)), ["completed", "completed", "completed"]);
+  assert.deepEqual(types(workers[1]), ["start", "run"]);
 });
 
 const wheel = new TextEncoder().encode("wheel");

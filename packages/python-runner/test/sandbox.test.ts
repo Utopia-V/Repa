@@ -7,6 +7,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import type { PythonTest, PythonTestResult } from "../src/protocol.js";
 import { describeRuntime } from "../src/runtime.js";
 import { SandboxRunner } from "../src/sandbox.js";
 import { RUNTIME, sandboxUnavailable, skipUnavailableEnvironment } from "./environment.js";
@@ -23,6 +24,23 @@ async function runner(t: TestContext): Promise<SandboxRunner> {
   const sandbox = new SandboxRunner({ assets: await describeRuntime(RUNTIME) });
   t.after(() => sandbox.close());
   return sandbox;
+}
+
+type Job = Partial<PythonTest> & { program: string };
+const test_ = (job: Job, id = "t"): PythonTest => ({ id, prelude: "", setup: "", data: [], captures: [], doctest: [], ...job });
+
+/** 单独运行一个测试，返回它的结果。 */
+async function runOne(sandbox: SandboxRunner, job: Job, timeoutMs?: number): Promise<PythonTestResult> {
+  const [result] = await sandbox.runTests([test_(job)], timeoutMs);
+  assert.ok(result);
+  return result;
+}
+
+/** 正常完成的测试的 captures。 */
+async function captures(sandbox: SandboxRunner, job: Job): Promise<unknown> {
+  const result = await runOne(sandbox, job);
+  assert.ok(result.status === "completed" && result.restoreError === undefined, JSON.stringify(result));
+  return result.result.captures;
 }
 
 /** 直接用 launch.py 的限制运行一段 Node 脚本，返回它打印的 JSON。 */
@@ -90,9 +108,7 @@ test("Pyodide 里的 Python 拿不到 Node 的 process、require 和 Function �
     "import js",
     "reachable = [name for name in ('process', 'require', 'fetch', 'setTimeout', 'globalThis', 'constructor') if hasattr(js, name)]",
   ].join("\n");
-  const outcome = await sandbox.run({ op: "program", data: [], program, captures: ["reachable"], doctest: [] });
-  assert.ok(outcome.status === "done" && outcome.ok);
-  assert.deepEqual((outcome.result as { captures: unknown }).captures, { reachable: { value: { t: "list", v: [] } } });
+  assert.deepEqual(await captures(sandbox, { program, captures: ["reachable"] }), { reachable: { value: { t: "list", v: [] } } });
 });
 
 test("一个任务改动的 pandas 选项、NumPy 显示设置和 builtins，在下一个任务前恢复原样", async (t) => {
@@ -105,11 +121,9 @@ test("一个任务改动的 pandas 选项、NumPy 显示设置和 builtins，在
     "numpy.set_printoptions(precision=1)",
     "builtins.len = lambda value: 99",
   ].join("\n");
-  assert.ok((await sandbox.run({ op: "program", data: [], program: change, captures: [], doctest: [] })).status === "done");
+  await captures(sandbox, { program: change });
   const read = "import numpy, pandas\nprecision = pandas.get_option('display.precision')\nshown = repr(numpy.array([0.123456]))\nsize = len([1, 2])";
-  const outcome = await sandbox.run({ op: "program", data: [], program: read, captures: ["precision", "shown", "size"], doctest: [] });
-  assert.ok(outcome.status === "done" && outcome.ok);
-  assert.deepEqual((outcome.result as { captures: unknown }).captures, {
+  assert.deepEqual(await captures(sandbox, { program: read, captures: ["precision", "shown", "size"] }), {
     precision: { value: { t: "int", v: "6" } },
     shown: { value: { t: "str", v: "array([0.123456])" } },
     size: { value: { t: "int", v: "2" } },
@@ -121,16 +135,13 @@ test("任务之间给随机数重新播种，沿用同一个解释器", async (t
   if (reason) return skipUnavailableEnvironment(t, reason);
   const sandbox = await runner(t);
   const seed = "import random, numpy\nrandom.seed(0)\nnumpy.random.seed(0)";
-  const seeded = await sandbox.run({ op: "program", data: [], program: seed, captures: [], doctest: [] });
-  assert.ok(seeded.status === "done" && seeded.ok);
+  await captures(sandbox, { program: seed });
   const read = "import random, numpy\npython_value = random.random()\nnumpy_value = numpy.random.random()";
-  const outcome = await sandbox.run({ op: "program", data: [], program: read, captures: ["python_value", "numpy_value"], doctest: [] });
-  assert.ok(outcome.status === "done" && outcome.ok);
-  const { captures } = outcome.result as { captures: Record<string, { value: { t: string; v: string } }> };
-  assert.equal(captures.python_value?.value.t, "float");
-  assert.equal(captures.numpy_value?.value.t, "float");
-  assert.notEqual(Number(captures.python_value.value.v), 0.8444218515250481);
-  assert.notEqual(Number(captures.numpy_value.value.v), 0.5488135039273248);
+  const values = await captures(sandbox, { program: read, captures: ["python_value", "numpy_value"] }) as Record<string, { value: { t: string; v: string } }>;
+  assert.equal(values.python_value?.value.t, "float");
+  assert.equal(values.numpy_value?.value.t, "float");
+  assert.notEqual(Number(values.python_value.value.v), 0.8444218515250481);
+  assert.notEqual(Number(values.numpy_value.value.v), 0.5488135039273248);
   assert.equal(sandbox.starts, 1);
 });
 
@@ -149,7 +160,7 @@ test("每个任务从空的工作目录开始：留下的文件、改过的目�
     "sys.path.append('/nowhere')",
     "pandas.set_option('display.max_rows', 3)",
   ].join("\n");
-  assert.ok((await sandbox.run({ op: "program", data: [], program: change, captures: [], doctest: [] })).status === "done");
+  await captures(sandbox, { program: change });
   const read = [
     "import os, sys, pandas",
     "cwd = os.getcwd()",
@@ -160,9 +171,7 @@ test("每个任务从空的工作目录开始：留下的文件、改过的目�
     "path = '/nowhere' in sys.path",
     "rows = pandas.get_option('display.max_rows')",
   ].join("\n");
-  const outcome = await sandbox.run({ op: "program", data: [], program: read, captures: ["cwd", "here", "tmp", "top", "leftover", "path", "rows"], doctest: [] });
-  assert.ok(outcome.status === "done" && outcome.ok);
-  assert.deepEqual((outcome.result as { captures: unknown }).captures, {
+  assert.deepEqual(await captures(sandbox, { program: read, captures: ["cwd", "here", "tmp", "top", "leftover", "path", "rows"] }), {
     cwd: { value: { t: "str", v: "/home/pyodide" } },
     here: { value: { t: "list", v: [] } },
     tmp: { value: { t: "list", v: [] } },
@@ -173,18 +182,17 @@ test("每个任务从空的工作目录开始：留下的文件、改过的目�
   });
 });
 
-test("运行前导在每个任务的命名空间里先运行：数据夹具、setup、作答代码、期望表达式和核对程序都看得到它的名字；前导出错时报告", async (t) => {
+test("运行前导在每个任务的命名空间里先运行：数据夹具、setup、作答代码、capture 和核对程序都看得到它的名字；前导出错时报告", async (t) => {
   const reason = await sandboxUnavailable();
   if (reason) return skipUnavailableEnvironment(t, reason);
   const sandbox = await runner(t);
   const prelude = "import numpy as np\nbase = 40";
   const data = [{ kind: "python", label: "fixture", code: "total = base + 1" }];
-  const program = await sandbox.run({ op: "program", prelude, data, setup: "total = total + 1", program: "answer = total + int(np.float64(1))", captures: ["answer"], doctest: [] });
-  assert.ok(program.status === "done" && program.ok);
-  assert.deepEqual((program.result as { captures: unknown }).captures, { answer: { value: { t: "int", v: "43" } } });
-  const expect = await sandbox.run({ op: "expect", prelude, data: [], setup: "", exprs: { total: "base + np.int64(2)" } });
-  assert.ok(expect.status === "done" && expect.ok);
-  assert.deepEqual(expect.result, { total: { value: { t: "int", v: "42" } } });
+  const fixture = [{ label: "fixture", fixture: { kind: "python" as const, code: "total = base + 1" } }];
+  assert.deepEqual(
+    await captures(sandbox, { prelude, data: fixture, setup: "total = total + 1", program: "answer = total + int(np.float64(1))", captures: ["answer", "base + np.int64(2)"] }),
+    { answer: { value: { t: "int", v: "43" } }, "base + np.int64(2)": { value: { t: "int", v: "42" } } },
+  );
   const verify = await sandbox.run({
     op: "verify", prelude, data, code: "", blocks: [], options: {}, cells: {}, shape: { value: "text" },
     script: "answers = {'value': base + run('out = total * 2')['out']}",
@@ -192,9 +200,9 @@ test("运行前导在每个任务的命名空间里先运行：数据夹具、se
   assert.ok(verify.status === "done" && verify.ok);
   assert.deepEqual(verify.result, { answers: { value: "122" }, unknown: [] });
 
-  const broken = await sandbox.run({ op: "program", prelude: "import no_such_module", data: [], program: "x = 1", captures: [], doctest: [] });
-  assert.ok(broken.status === "done" && !broken.ok);
-  assert.match(broken.error.message, /运行前导出错：ModuleNotFoundError/);
+  const broken = await runOne(sandbox, { prelude: "import no_such_module", program: "x = 1" });
+  assert.ok(broken.status === "failed" && broken.phase === "prepare");
+  assert.match(broken.error?.message ?? "", /运行前导出错：ModuleNotFoundError/);
 });
 
 test("核对程序的辅助函数：出错行号、实际执行的行、函数收到的参数、显示内容的标记和固定格", async (t) => {
@@ -243,35 +251,42 @@ test("分配超过内存上限时 Python 得到 MemoryError，沙箱仍可继续
   const sandbox = await runner(t);
   // Pyodide 是 32 位，单个对象不能超过 2 GiB；分块申请才会碰到 RLIMIT_DATA 的上限。
   const program = "chunks = []\nfor _ in range(16):\n    chunks.append(bytearray(256 * 1024 ** 2))";
-  const outcome = await sandbox.run({ op: "program", data: [], program, captures: [], doctest: [] });
-  assert.ok(outcome.status === "done" && outcome.ok);
-  assert.equal((outcome.result as { error: { type: string } | null }).error?.type, "MemoryError");
-  const next = await sandbox.run({ op: "program", data: [], program: "x = 1", captures: ["x"], doctest: [] });
-  assert.ok(next.status === "done" && next.ok);
+  const outcome = await runOne(sandbox, { program });
+  assert.ok(outcome.status === "completed");
+  assert.equal(outcome.result.error?.type, "MemoryError");
+  assert.deepEqual(await captures(sandbox, { program: "x = 1", captures: ["x"] }), { x: { value: { t: "int", v: "1" } } });
+  assert.equal(sandbox.starts, 1);
 });
 
-test("超时的任务结束整个进程，下一个任务换一个新的沙箱", async (t) => {
+test("测试超时就结束整个进程，结果按最后报告的阶段写明停在哪里，余下的未执行；下一次调用换一个新的沙箱", async (t) => {
   const reason = await sandboxUnavailable();
   if (reason) return skipUnavailableEnvironment(t, reason);
   const sandbox = await runner(t);
   // 死循环自己不会结束，得到 timeout 就说明是时限结束了它；整个过程不另计墙钟时间，CI 机器慢时重启沙箱也要几秒。
-  const outcome = await sandbox.run({ op: "program", data: [], program: "while True:\n    pass", captures: [], doctest: [] }, 1_500);
-  assert.deepEqual(outcome, { status: "timeout" });
-  const next = await sandbox.run({ op: "program", data: [], program: "value = 6 * 7", captures: ["value"], doctest: [] });
-  assert.ok(next.status === "done" && next.ok);
-  assert.deepEqual((next.result as { captures: unknown }).captures, { value: { value: { t: "int", v: "42" } } });
-  assert.equal(sandbox.starts, 2);
+  const loop = "while True:\n    pass";
+  assert.deepEqual(await sandbox.runTests([test_({ program: loop }, "a"), test_({ program: "x = 1" }, "b")], 1_500), [
+    { id: "a", status: "timeout", phase: "program" },
+    { id: "b", status: "not_run" },
+  ]);
+  assert.deepEqual(await sandbox.runTests([test_({ setup: loop, program: "x = 1" }, "c")], 1_500), [{ id: "c", status: "timeout", phase: "prepare" }]);
+  assert.deepEqual(await captures(sandbox, { program: "value = 6 * 7", captures: ["value"] }), { value: { value: { t: "int", v: "42" } } });
+  assert.equal(sandbox.starts, 3);
 });
 
-test("任务后恢复不了解释器状态时，这个任务记为运行器崩溃，下一个任务换一个新的沙箱", async (t) => {
+test("测试后恢复不了解释器状态时，这个测试的结果照样交回并带上 restoreError，余下的测试换一个新的沙箱接着运行", async (t) => {
   const reason = await sandboxUnavailable();
   if (reason) return skipUnavailableEnvironment(t, reason);
   const sandbox = await runner(t);
-  // 删掉工作目录，任务后回不到它，恢复就失败。
-  const broken = await sandbox.run({ op: "program", data: [], program: "import os, shutil\nos.chdir('/')\nshutil.rmtree(os.path.expanduser('~'))", captures: [], doctest: [] });
-  assert.equal(broken.status, "crashed");
-  assert.match(broken.status === "crashed" ? broken.detail : "", /无法恢复解释器状态/);
-  const next = await sandbox.run({ op: "program", data: [], program: "import os\ncwd = os.getcwd()", captures: ["cwd"], doctest: [] });
-  assert.ok(next.status === "done" && next.ok);
-  assert.deepEqual((next.result as { captures: unknown }).captures, { cwd: { value: { t: "str", v: "/home/pyodide" } } });
+  // 删掉工作目录，测试后回不到它，恢复就失败。
+  const program = "import os, shutil\nos.chdir('/')\nshutil.rmtree(os.path.expanduser('~'))\nanswer = 42";
+  const [broken, next] = await sandbox.runTests([
+    test_({ program, captures: ["answer"] }, "a"),
+    test_({ program: "import os\ncwd = os.getcwd()", captures: ["cwd"] }, "b"),
+  ]);
+  assert.ok(broken?.status === "completed" && broken.restoreError !== undefined, JSON.stringify(broken));
+  assert.deepEqual(broken.result.captures, { answer: { value: { t: "int", v: "42" } } });
+  assert.match(broken.restoreError.message, /No such file or directory/);
+  assert.ok(next?.status === "completed" && next.restoreError === undefined, JSON.stringify(next));
+  assert.deepEqual(next.result.captures, { cwd: { value: { t: "str", v: "/home/pyodide" } } });
+  assert.equal(sandbox.starts, 2);
 });

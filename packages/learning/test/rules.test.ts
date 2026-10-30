@@ -129,6 +129,17 @@ test("复习和测验题池不收要由人或模型评的开放作答", async (t
   assert.deepEqual(codes(result.diagnostics), ["pool_open_question"]);
 });
 
+test("一道题有两个按测试判的作答位时报出：多步代码题还不支持", async (t) => {
+  const demo = demoCourse();
+  const [code, parsons] = kp(demo, 1).practice ?? [];
+  assert.ok(code && parsons);
+  const second = parsons.slots[0];
+  assert.ok(second);
+  code.slots.push(structuredClone(second));
+  const result = await structuralCheck(t, demo);
+  assert.deepEqual(codes(result.diagnostics), ["multiple_code_slots"]);
+});
+
 test("标准答案不在选项里、单元格答案不是可选项时报出", async (t) => {
   const demo = demoCourse();
   const choice = kp(demo, 0).practice?.[2]?.slots[0] as ChoiceSlot;

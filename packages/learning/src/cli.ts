@@ -21,7 +21,7 @@ const USAGE = `用法：
       保留原日志，将验证过的完整前缀写入新的文件。
   repa-course check [课程目录…] [--no-run] [--topic id …] [--packages 目录] [--json]
       检查课程文件；缺省检查 courses/ 下全部课程。--no-run 只做结构检查，不运行代码；
-      --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。完整核对成功后发布 expected.json。
+      --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。
   repa-course runtime [课程目录…] [--from 目录] [--packages 目录]
       按课程清单的运行时准备离线 Pyodide 包，放进 @repa/python-runner 的缓存目录；--from 从已有目录复制，
       不给时从 jsDelivr 下载。都会按 lockfile 核对 SHA-256。
@@ -60,7 +60,7 @@ function printResult(result: CheckResult): void {
   if (summary.ran && summary.runtime) {
     const packages = Object.entries(summary.runtime.packages).map(([name, version]) => `${name} ${version}`).join("、");
     process.stdout.write(`代码核对：Pyodide ${summary.runtime.pyodide}（Python ${summary.runtime.python}、${packages}），`
-      + `verify ${summary.code.verifyJobs} 道、核对作答位 ${summary.code.verifiedSlots} 个、测试运行 ${summary.code.testRuns} 次，启动解释器 ${summary.code.interpreterStarts} 次。\n`);
+      + `verify ${summary.code.verifyJobs} 道、核对作答位 ${summary.code.verifiedSlots} 个、测试运行 ${summary.code.testRuns} 次（含算期望值），启动解释器 ${summary.code.interpreterStarts} 次。\n`);
   } else {
     process.stdout.write("代码核对：没有运行。\n");
   }
