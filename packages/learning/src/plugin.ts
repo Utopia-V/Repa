@@ -13,9 +13,9 @@ import { connectTutor, TUTOR_AGENT } from "./tutor.js";
 /** 学习记录的格式版本：2 起只记事实。版本 1 的开发数据不转换，提示删除后重新打开。 */
 export const LEARNING_FORMAT_VERSION = 2;
 
+/** 时间一律取自底座的 host.now()，插件不另设时钟；测试通过宿主的 now 拨动时间。 */
 export interface LearningPluginOptions {
   sources?: CourseSource[];
-  now?: () => number;
   /** 默认装配教学流程；测试等自定义接入复用同一个学习会话。 */
   connect?: (session: LearningSession, host: Host) => Promise<Pick<PluginInstance, "methods" | "close">>;
 }
@@ -36,10 +36,10 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
       }
       const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
       const course = await loadCourseSources(sources, host.files);
-      const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"), options.now);
+      const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"), () => host.now());
       let session: LearningSession | undefined;
       try {
-        session = await LearningSession.open(records, course, host, options.now);
+        session = await LearningSession.open(records, course, host);
         const opened = session;
         const connected = await (options.connect
           ? options.connect(opened, host)

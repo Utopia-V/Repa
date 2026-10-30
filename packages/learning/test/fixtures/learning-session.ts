@@ -117,15 +117,16 @@ export async function learningFixture(t: TestContext, topics = [topic()], option
   const events: unknown[] = [];
   const plugin = createLearningPlugin({
     sources: [{ kind: "bundled", directory: options.bundled ? fileURLToPath(new URL("../../courses/python", import.meta.url)) : directory }],
-    now: () => now,
     connect: async (opened) => {
       session = opened;
       return connectLearning(opened, options.beforeRestricted ? { beforeRestricted: options.beforeRestricted } : {});
     },
   });
+  // 插件的时间取自宿主的 now，测试在这里拨动时间。
   const open = async (space: Awaited<ReturnType<typeof createSpace>>) => openPluginHost({
     space,
     plugins: [plugin],
+    now: () => now,
     models,
     ...(options.services ? { services: options.services } : {}),
     emit: (_id, event) => events.push(event),

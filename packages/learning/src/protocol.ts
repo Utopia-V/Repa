@@ -270,12 +270,14 @@ export const LearningMenuSchema = object({
   unavailableReason: Type.Optional(Type.String({ maxLength: 500 })), availableAt: Type.Optional(timestamp),
 });
 export type LearningMenu = Static<typeof LearningMenuSchema>;
+const localDate = Type.String({ pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" });
 export const LearningProgressSchema = object({
-  day: Type.String({ pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }), timeZone: identifier,
+  day: localDate, timeZone: identifier,
   dailyGoalXp: Type.Integer({ minimum: 1 }), todayXp: count, totalXp: count,
   completedTopics: count, totalTopics: count,
   completionRate: Type.Number({ minimum: 0, maximum: 1 }),
-  etaDays: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
+  /** 估计完课的本地日期（与 day 同一时区）；最近学得太少、没有依据时为 null。 */
+  etaDate: Type.Union([localDate, Type.Null()]),
 });
 export type LearningProgress = Static<typeof LearningProgressSchema>;
 export const LearningStateSchema = object({

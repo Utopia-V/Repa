@@ -7,12 +7,14 @@ import { stat } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 import type { Services } from "@repa/base/plugin";
 import { parse } from "@repa/base/protocol";
+import { DEFAULT_MODEL_CONFIG, isDue, type ModelConfig } from "@repa/learning-model";
 import { describeRuntime, SandboxRunner } from "@repa/python-runner";
 import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { Value } from "typebox/value";
 import { CodeSlotSchema, IdSchema, KpIdSchema, QuestionIdSchema, TopicIdSchema, type Topic } from "../src/format/schema.js";
 import { FactSchema, GradedSlotSchema, type Fact } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
+import { DAY_MS } from "../src/student-model.js";
 import { RUNTIME, runtimeUnavailable } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
 import { course, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
@@ -388,7 +390,7 @@ test("判分失败或模型没有把握时任务照样往下走、不计失败�
   assert.ok((await f.student()).t01);
 });
 
-test("复习到截止时间时，没判出结果的作答就算判对也不能让复习通过：已有失败的证据，按超时结束并记一次失败", async (t) => {
+test("复习到截止时间时，没判出结果的作答和没出的题都判对也不能让复习通过：已有失败的证据，按超时结束并记一次失败", async (t) => {
   const definition = topic("t01");
   const review = definition.kps[0]?.review?.[0];
   assert.ok(review);
@@ -400,8 +402,8 @@ test("复习到截止时间时，没判出结果的作答就算判对也不能�
   const learned = (await f.student()).t01;
   assert.ok(learned);
   await f.select("t01", "review");
-  // 前两题说不会，当场判错；第三题的判分中断。三题里最多一题对，到截止时间就不可能通过了。
-  for (let index = 0; index < 2; index++) {
+  // 前三题说不会，当场判错；第四题的判分中断。就算它和还没出的第五题都对，也只有两题对，到截止时间就不可能通过了。
+  for (let index = 0; index < 3; index++) {
     await f.submit(false);
     await f.advance();
   }
@@ -414,6 +416,7 @@ test("复习到截止时间时，没判出结果的作答就算判对也不能�
   f.time(deadline);
   assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "timeout" });
   assert.notDeepEqual((await f.student()).t01, learned);
+  assert.ok(((await f.student()).t01?.repNum ?? 0) < learned.repNum);
 });
 
 test("只把事实文件和格式标记搬到新空间，打开后从事实重算出相同的状态", async (t) => {
@@ -442,6 +445,35 @@ test("只把事实文件和格式标记搬到新空间，打开后从事实重�
   replay.settle(start + 86_400_000);
   assert.deepEqual(replay.fold(), fold);
   assert.deepEqual(replay.awards, awards);
+});
+
+test("换一组学生模型参数重放同一份事实，得出不同的预测；插件使用的那一组与打开空间时的结果相同", async (t) => {
+  const f = await fixture(t, [topic("t01"), topic("t02")]);
+  await f.select("t01");
+  await f.finishLesson();
+  f.time(start + DAY_MS);
+  await f.select("t01", "review");
+  for (let index = 0; index < 3; index++) {
+    await f.submit();
+    if (index < 2) await f.advance();
+  }
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  const facts: readonly Fact[] = [...f.session().records.facts];
+  const replay = (model?: ModelConfig) => {
+    const result = new Replay(f.session().course, model);
+    for (const fact of facts) result.apply(fact);
+    return result.fold().student;
+  };
+  assert.deepEqual(replay(), await f.student());
+  // 间隔增长更快的一组参数：同样的作答，复习以后的理想间隔更长，第三天按它不到期，按默认参数已经到期。
+  const slower: ModelConfig = { ...DEFAULT_MODEL_CONFIG, intervalBase: 3 };
+  const base = replay().t01;
+  const other = replay(slower).t01;
+  assert.ok(base && other);
+  assert.ok(other.interval > base.interval);
+  const later = (start + 3 * DAY_MS) / DAY_MS;
+  assert.equal(isDue(base, later), true);
+  assert.equal(isDue(other, later, slower), false);
 });
 
 test("题目的知识点归属改变时题目版本不变，过去的作答照样对得上，不重判，状态不变", async (t) => {

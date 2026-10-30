@@ -34,7 +34,7 @@ if (state.ok) renderLearning(state.value);
 
 ### 状态与方法
 
-所有时间都是服务端 Unix 毫秒。`revision` 是学习记录里事实的条数，学习者的操作和判分写入事实后递增；到时自然发生的变化（截止、冷却结束、复习到期）不写事实，`revision` 不变，重新查询即可看到。单纯刷新页面不重抽菜单。日进度另带本地自然日及 `timeZone`，完成率在 0 到 1 之间，`etaDays: null` 表示当前没有足够依据显示估算。
+所有时间都是服务端 Unix 毫秒。`revision` 是学习记录里事实的条数，学习者的操作和判分写入事实后递增；到时自然发生的变化（截止、冷却结束、复习到期）不写事实，`revision` 不变，重新查询即可看到。单纯刷新页面不重抽菜单。日进度另带本地自然日及 `timeZone`，完成率在 0 到 1 之间；`etaDate` 是估计完课的本地日期，与 `day` 同一时区，`null` 表示当前没有足够依据显示估算。
 
 | 方法 | 输入与结果 |
 | --- | --- |
@@ -53,7 +53,7 @@ if (state.ok) renderLearning(state.value);
 | `quiz.start` | `menuId`、`candidateId`，经受限开始路径进入测验，返回状态 |
 | `quiz.finish` | 任务守卫，整场交卷并返回状态，不等待判分；重试先查询，已结束场次沿原身份返回既有结果 |
 | `quiz.retake` | `menuId`、`candidateId`、`originalTaskId`，开始菜单提供的重考，返回状态 |
-| `progress.get` | 空输入，返回 `serverNow` 和日目标、XP、完成率、可空 ETA |
+| `progress.get` | 空输入，返回 `serverNow` 和日目标、XP、完成率、可空的完课日期 |
 | `progress.setGoal` | 正整数 `dailyGoalXp`，返回更新后的状态 |
 
 `LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。`completed` 带结论 `outcome`：`passed`、`failed`、`timeout` 或 `unresolved`。`unresolved` 表示任务已经结束（测验交卷或到了截止时间、复习到了截止时间），但还有作答没判出结果，判出来可能改变结论；它与其他结论一样解除限制、释放反馈，判出以后后端发出 `learning.changed`，结论改为前三种之一。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
@@ -84,7 +84,7 @@ if (state.ok) renderLearning(state.value);
 
 `restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。review、quiz 的 preparing 和进行阶段均关闭辅导与参考读取，结束后重新开放。`ContentRef` 带课程、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取只提供当前课程里的内容：课程换版以后，旧版本的引用按不存在处理，明确报输入错误，不悄悄换成最新版本。
 
-后端在交付前调用 `missingDeliveryCapabilities(context.caller?.capabilities, delivery)`。它复用 `canRender`，并为代码题补查 `python.run`；带测试的 Parsons 在 `requiresServices` 声明该服务。缺任何能力都返回缺项并保留原任务，等待可用连接，不换一道题来掩盖前端缺口。
+后端先筛掉调用方用不了的题再选题：显示不了的（按 `canRender` 核对 `requires`）、要运行 Python 而调用方没有声明 `python.run` 的，以及没有可用模型时要由模型判分的开放题。菜单只提供每个没过的知识点都有能用的题的课，交付也只在能用的题里选。题池里有题却一道也用不了时，返回缺项（`missing_capability`）并保留原任务，等待可用连接；只缺可用模型时返回 `model_required`。交付前仍调用 `missingDeliveryCapabilities(context.caller?.capabilities, delivery)` 再核对一次：它复用 `canRender`，并为代码题补查 `python.run`；带测试的 Parsons 在 `requiresServices` 声明该服务。
 
 ### 事件与错误
 
@@ -98,6 +98,7 @@ if (state.ok) renderLearning(state.value);
 | `stale_state` | `stale`，附当前完整 state，替换旧画面后再决定操作 |
 | `submission_conflict` | `payload_conflict`，附 submission id，查询原答而不是覆盖 |
 | `missing_capability` | `missing_capability`，附 missing 列表及 task id，保留任务等待可用前端 |
+| `model_required` | 无 details；这一步只剩要由模型判分的题而当前没有可用模型，任务保留，配好模型后继续，也可以中止 |
 | `restricted` | `restricted`，附 task id 和 stage，按当前限制恢复界面 |
 | `service_failed` | `service_failure`，附 service 和 retryable；先查询提交的持久状态，再决定恢复 |
 

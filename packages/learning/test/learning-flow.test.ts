@@ -10,6 +10,7 @@ import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protoc
 import { learningMenu } from "../src/flow-menu.js";
 import type { Fact } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
+import type { Question } from "../src/format/schema.js";
 import { updateStudent } from "../src/student-model.js";
 import { clientCapabilities, deliverySeq, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
 
@@ -131,23 +132,34 @@ for (const [pattern, outcome] of [
   });
 }
 
-test("复习关闭重开不暂停，超时无作答只更新一次", async (t) => {
-  const f = await fixture(t);
-  await f.select();
-  await f.finishLesson();
-  f.time(start + 86_400_000);
-  await f.select("t01", "review");
-  const started = await f.state();
-  await f.reopen();
-  assert.equal((await f.state()).task?.deadlineAt, started.task?.deadlineAt);
-  f.time(start + 3 * 86_400_000);
-  const timedOut = await f.state();
-  assert.deepEqual(timedOut.task?.phase, { stage: "completed", outcome: "timeout" });
-  const student = await f.student();
-  assert.equal(student.t01?.lastRepetitionDay, (start + 86_400_000 + 600_000) / 86_400_000);
-  await f.reopen();
-  assert.deepEqual(await f.student(), student);
-});
+for (const answers of [[], [true, false]]) {
+  test(`复习中途关闭应用（${answers.length ? "答了一对一错" : "一题没答"}）：重开时不暂停，到截止时间按超时结束；没出的题不算错，学生模型不变，菜单照常提供这次复习`, async (t) => {
+    const f = await fixture(t, [topic("t01", 2)]);
+    await f.select();
+    await f.finishLesson();
+    f.time(start + 86_400_000);
+    const learned = await f.student();
+    await f.select("t01", "review");
+    for (const correct of answers) {
+      await f.submit(correct);
+      await f.advance();
+    }
+    const started = await f.state();
+    await f.reopen();
+    assert.equal((await f.state()).task?.deadlineAt, started.task?.deadlineAt);
+    // 关闭期间计时照走：过了截止时间再打开，复习已经结束，不会停在那里。
+    f.time(start + 3 * 86_400_000);
+    await f.reopen();
+    const timedOut = await f.state();
+    assert.deepEqual(timedOut.task?.phase, { stage: "completed", outcome: "timeout" });
+    // 已答的两题不足以判定失败，余下的题没有证据：不更新学生模型，topic 照旧到期，重新安排复习。
+    assert.deepEqual(await f.student(), learned);
+    assert.deepEqual(timedOut.menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["review", "t01"]]);
+    assert.equal(f.session().replay.fold().consecutiveReviews, 0);
+    await f.reopen();
+    assert.deepEqual(await f.student(), learned);
+  });
+}
 
 test("从事实里去掉一份关键作答，同一时刻的新课资格随之改变，原始日志字节不变", async (t) => {
   const f = await fixture(t, [topic(), topic("t02", 1, ["t01"])]);
@@ -619,7 +631,7 @@ test("两个菜单选择并发时只保留一个任务，迟到的选择不能�
   assert.equal((await f.state()).task?.taskId, selected.value.task?.taskId);
 });
 
-test("渲染能力不足时保留例题和当前任务，返回具体缺项而不换另一道题", async (t) => {
+test("前端一道题也显示不了时保留例题和当前任务，返回具体缺项", async (t) => {
   const f = await fixture(t);
   await f.select();
   await f.advance();
@@ -640,17 +652,18 @@ test("渲染能力不足时保留例题和当前任务，返回具体缺项而�
   assert.equal((await f.state()).task?.deliveries.length, 0);
 });
 
-test("到期后直接中止复习先按超时结算，旧守卫不能跳过模型更新，也不写事实", async (t) => {
+test("到期后直接中止复习先按超时结算，旧守卫被拒绝，不写事实；超时时只有一道答错的题，不足以判定失败，不更新学生模型", async (t) => {
   const f = await fixture(t);
   await f.select();
   await f.finishLesson();
   f.time(start + 86_400_000);
   await f.select("t01", "review");
+  await f.submit(false);
+  await f.advance();
   const current = await f.state();
   const task = current.task;
   assert.ok(task?.deadlineAt);
-  const student = await f.student();
-  const expected = updateStudent(f.session().course.graph, student, { topicId: "t01", outcome: "fail", quality: 1 }, task.deadlineAt);
+  const expected = await f.student();
   f.time(task.deadlineAt + 1);
   await assert.rejects(
     f.call("task.abort", { taskId: task.taskId, expectedRevision: current.revision, expectedStage: task.phase.stage }),
@@ -863,4 +876,193 @@ test("交付的选项顺序与编号来自记在事实里的 seed，重开按 se
   if (receipt.status === "recorded") {
     assert.equal(receipt.submission.feedback?.verdict, "correct");
   }
+});
+
+/** 一道排序题：要前端能显示排序作答位。 */
+function orderQuestion(id: string): Question {
+  return {
+    id,
+    body: "把两步排好。",
+    explanation: "先算右边，再起名。",
+    slots: [{ id: "answer", type: "order", items: [{ id: "right", content: "算出右边" }, { id: "name", content: "起名" }], key: ["right", "name"] }],
+  };
+}
+
+/** 一道开放题：要由模型按 rubric 判分。 */
+function openQuestion(id: string): Question {
+  return {
+    id,
+    body: "说说 1 + 1 为什么等于 2。",
+    explanation: "两个一。",
+    slots: [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }],
+  };
+}
+
+const failed = (code: string) => (error: unknown) => error instanceof Error && "code" in error && error.code === code;
+
+test("先筛掉前端显示不了的题再选题：课只出这个前端能显示的题；一道也显示不了的知识点所在的课不进这个前端的菜单", async (t) => {
+  const first = topic("t01");
+  const kp = first.kps[0];
+  assert.ok(kp);
+  kp.practice = [orderQuestion("t01.k1.q0"), ...(kp.practice ?? [])];
+  const second = topic("t02");
+  const only = second.kps[0];
+  assert.ok(only);
+  only.practice = [orderQuestion("t02.k1.q1")];
+  const f = await fixture(t, [first, second]);
+  const limited = { interaction: { supports: ["slot.text", "block.markdown"] }, services: [] };
+  assert.deepEqual((await f.state()).menu?.candidates.map((entry) => entry.topicIds[0]).sort(), ["t01", "t02"]);
+  const menu = (await f.call("state.get", {}, limited)).menu;
+  assert.ok(menu?.candidates[0]);
+  assert.deepEqual(menu.candidates.map((entry) => entry.topicIds[0]), ["t01"]);
+  await f.call("menu.select", { menuId: menu.menuId, candidateId: menu.candidates[0].id }, limited);
+  for (let step = 0; step < 2; step++) {
+    const current = await f.call("state.get", {}, limited);
+    assert.ok(current.task);
+    await f.call("task.advance", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage }, limited);
+  }
+  // 排序题排在前面，也还没出过，但这个前端显示不了：出的是同一知识点的文字题，任务照常往下走。
+  const task = (await f.call("state.get", {}, limited)).task;
+  assert.equal(task?.phase.stage, "awaiting_answer");
+  const delivery = task?.deliveries[0];
+  assert.ok(delivery);
+  assert.equal(f.session().replay.delivery(deliverySeq(delivery))?.questionId, "t01.k1.q1");
+  assert.deepEqual(delivery.item.requires, ["block.markdown", "slot.text"]);
+});
+
+test("没有可用模型时不出开放题：课从同一知识点的其他题里选，只有开放题的知识点所在的课不进菜单；配好模型以后照常出", async (t) => {
+  const first = topic("t01");
+  const kp = first.kps[0];
+  assert.ok(kp);
+  kp.practice = [openQuestion("t01.k1.q0"), ...(kp.practice ?? [])];
+  const second = topic("t02");
+  const only = second.kps[0];
+  assert.ok(only);
+  only.practice = [openQuestion("t02.k1.q1")];
+  const f = await fixture(t, [first, second]);
+  f.models.setDefaultModel(undefined);
+  assert.deepEqual((await f.state()).menu?.candidates.map((entry) => entry.topicIds[0]), ["t01"]);
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  const delivery = (await f.state()).task?.deliveries[0];
+  assert.ok(delivery);
+  assert.equal(f.session().replay.delivery(deliverySeq(delivery))?.questionId, "t01.k1.q1");
+  await f.finishLesson();
+  assert.equal(f.models.calls.length, 0);
+  assert.equal((await f.state()).menu?.candidates.length, 0);
+  // 配好模型：只有开放题的课回到菜单，开放题照常交付。
+  f.models.setDefaultModel({ provider: "test", id: "test" });
+  await f.select("t02");
+  await f.advance();
+  await f.advance();
+  const open = (await f.state()).task?.deliveries[0];
+  assert.ok(open);
+  assert.equal(f.session().replay.delivery(deliverySeq(open))?.questionId, "t02.k1.q1");
+});
+
+test("没有可用模型时不自动补判开放题，课里只剩开放题时报告 model_required 并保留任务；配好模型后的第一次调用才补判", async (t) => {
+  const definition = topic("t01");
+  const kp = definition.kps[0];
+  assert.ok(kp);
+  kp.practice = [openQuestion("t01.k1.q1")];
+  const f = await fixture(t, [definition]);
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  f.models.expectStructured().fail(new Error("断网"));
+  const pending = await f.submit();
+  assert.ok(pending.status === "recorded");
+  assert.equal(f.models.calls.length, 1);
+  // 模型没了（例如退出登录）再打开：开放题的作答等着，不去调用模型。
+  f.models.setDefaultModel(undefined);
+  await f.reopen();
+  await f.state();
+  await f.settled();
+  assert.equal(f.models.calls.length, 1);
+  const waiting = await f.call("submission.get", { submissionId: pending.submission.submissionId });
+  assert.ok(waiting.status === "found");
+  assert.deepEqual(waiting.submission.processing, { status: "interrupted", reason: "restart" });
+  // 这个知识点只剩开放题：不出题，报告缺模型，任务原样保留，学习者可以中止。
+  const before = await f.state();
+  assert.equal(before.task?.phase.stage, "recovery");
+  await assert.rejects(f.advance(), failed("model_required"));
+  assert.deepEqual(await f.state(), before);
+  // 配好模型：下一次调用在后台补判一次。
+  f.models.setDefaultModel({ provider: "test", id: "test" });
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
+  await f.state();
+  await f.settled();
+  assert.equal(f.models.calls.length, 2);
+  const graded = await f.call("submission.get", { submissionId: pending.submission.submissionId });
+  assert.ok(graded.status === "found");
+  assert.deepEqual(graded.submission.processing, { status: "completed" });
+});
+
+for (const weight of [0.5, 0]) {
+  test(`FIRe 按课程里的权重生效（权重 ${weight}）：学会覆盖它的 topic 时，到期的 topic ${weight ? "得到隐式复习，菜单不再出它的复习" : "不受影响，复习照旧"}`, async (t) => {
+    const advanced = topic("t02");
+    advanced.encompassings = [{ topic: "t01", weight }];
+    const f = await fixture(t, [topic("t01"), advanced]);
+    await f.select("t01");
+    await f.finishLesson();
+    const learned = (await f.student()).t01;
+    assert.ok(learned);
+    f.time(start + 86_400_000);
+    const review = (entry: { kind: string; topicIds: string[] }) => entry.kind === "review" && entry.topicIds[0] === "t01";
+    assert.ok((await f.state()).menu?.candidates.some(review));
+    await f.select("t02");
+    await f.finishLesson();
+    const after = (await f.student()).t01;
+    assert.ok(after);
+    const menu = (await f.state()).menu;
+    if (weight > 0) {
+      // 一天后 t01 到期，信用按权重传过来：repNum 加上权重，memory 回到到期线以上。
+      assert.equal(after.repNum, learned.repNum + weight);
+      assert.equal(menu?.candidates.some(review), false);
+    } else {
+      assert.deepEqual(after, learned);
+      assert.ok(menu?.candidates.some(review));
+    }
+    const student = await f.student();
+    await f.reopen();
+    assert.deepEqual(await f.student(), student);
+  });
+}
+
+test("时钟回拨到上次学习之前时按零间隔继续：菜单照常给出，学完的课照常记入学生模型，重开以后状态相同", async (t) => {
+  const f = await fixture(t, [topic("t01"), topic("t02")]);
+  f.time(start + 86_400_000);
+  await f.select("t01");
+  await f.finishLesson();
+  const learned = (await f.student()).t01;
+  assert.ok(learned);
+  // 时钟回拨一小时，早于 t01 上次更新的时刻：以前在这里报 model_time_conflict，学习就停住了。
+  f.time(start + 86_400_000 - 3_600_000);
+  assert.ok((await f.state()).menu?.candidates.some((entry) => entry.topicIds[0] === "t02"));
+  await f.select("t02");
+  await f.finishLesson();
+  const student = await f.student();
+  // 模型的时间不倒退：t02 记在最近一次更新的时刻，t01 不受影响。
+  assert.equal(student.t02?.lastRepetitionDay, learned.lastRepetitionDay);
+  assert.deepEqual(student.t01, learned);
+  await f.reopen();
+  assert.deepEqual(await f.student(), student);
+});
+
+test("课交给学生模型的质量按独立答对的比例计：一错两对通过的课比全对的课早到期", async (t) => {
+  const f = await fixture(t, [topic("t01"), topic("t02")]);
+  await f.select("t01");
+  await f.finishLesson([false, true, true]);
+  await f.select("t02");
+  await f.finishLesson();
+  const student = await f.student();
+  assert.equal(student.t01?.repNum, 2 / 3);
+  assert.equal(student.t01?.memory, 2 / 3);
+  assert.equal(student.t02?.repNum, 1);
+  assert.equal(student.t02?.memory, 1);
+  f.time(start + 12 * 3_600_000);
+  const menu = (await f.state()).menu;
+  assert.ok(menu?.candidates.some((entry) => entry.kind === "review" && entry.topicIds[0] === "t01"));
+  assert.equal(menu?.candidates.some((entry) => entry.kind === "review" && entry.topicIds[0] === "t02"), false);
 });
