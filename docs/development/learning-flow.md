@@ -6,7 +6,7 @@
 
 一道练习答对以后，程序需要知道它是否独立完成，以及它改变了哪个 KP 的进度。因此，判分先回答作答是否正确，教学流程再看作答之前有没有求助的事实，判断它能否作为独立完成的证据。求助后的正确答案仍保留正确反馈，但不会计入连对；聊天、讲解和例题也不建立已学状态。
 
-每个 KP 先展示讲解和例题，再进行练习。连续独立答对 `KP_PASS_STREAK` 题后进入下一 KP，每个 KP 最多尝试 `KP_MAX_ATTEMPTS` 次；最后一次先检查连对，全部 KP 通过才完成 lesson。这部分沿 MA 公开的课内规则，见[官网课内流程](https://www.mathacademy.com/how-it-works)和 [The Math Academy Way，第 397 页](https://www.justinmath.com/files/the-math-academy-way.pdf#page=397)。MA 还公开答错太多就中止整节课，阈值没有公开。Repa 定为同一个 KP 答错 `KP_WRONG_LIMIT` 题即中止，这节课失败，之后照常冷却和补救；按 KP 计，是因为每个 KP 各错一题、随即连对，说明学习正在发生，错误集中在同一个 KP 才说明没学会（维护者 2026-10-31 决定）。例如错、错、错、对、对不再通过，第三次答错时这节课就结束了。重试没有进一步推进时才补关键先修，也沿[公开的补救方向](https://www.mathacademy.com/how-our-ai-works)。
+每个 KP 先展示讲解和例题，再进行练习。连续独立答对 `KP_PASS_STREAK` 题后进入下一 KP，每个 KP 最多尝试 `KP_MAX_ATTEMPTS` 次；最后一次先检查连对，全部 KP 通过才完成 lesson。这部分沿 MA 公开的课内规则，见[官网课内流程](https://www.mathacademy.com/how-it-works)和 [The Math Academy Way，第 397 页](https://www.justinmath.com/files/the-math-academy-way.pdf#page=397)。MA 还公开答错太多就中止整节课，阈值没有公开。Repa 定为同一个 KP 答错 `KP_WRONG_LIMIT` 题即中止，这节课失败，之后照常冷却和补救；按 KP 计，是因为每个 KP 各错一题、随即连对，说明学习正在发生，错误集中在同一个 KP 才说明没学会（维护者 2026-10-31 决定）。三条规则按作答先后对每个 KP 一起判定，连对通过、答错太多和练满失败以先发生的为准，之后的作答不再改变这个 KP 的结果。例如错、错、错、对、对不再通过，第三次答错时这节课就结束了；错、错、待判、对、对先按通过算，第三题后来补判为错，就在第三题失败，这节课改为失败，已经给出的 XP 不收回。重试没有进一步推进时才补关键先修，也沿[公开的补救方向](https://www.mathacademy.com/how-our-ai-works)。
 
 以下规则属于 Repa 假设，数值集中在 [`parameters.ts`](../../packages/learning/src/parameters.ts)，出处和什么证据会改变它们见[尚待查证的假设](../../packages/learning/README.md#尚待查证的假设)：失败后冷却 `LESSON_COOLDOWN_MS`，重试保留已过 KP；复习最多 `REVIEW_MAX_QUESTIONS` 题，至少 `REVIEW_PASS_CORRECT` 题独立答对、最后 `REVIEW_FINAL_STREAK` 题连续答对才通过；菜单最多 `MENU_SIZE` 项，避免相近项，并在连续 `REVIEWS_BEFORE_LESSON` 个复习后提供合法新课。复习期间关闭辅导和参考读取是维护者决定，与 MA 可查 lesson 的做法不同。
 
@@ -82,6 +82,6 @@
 
 在仓库根目录运行学习包的 `check`、`test`、`build` 和完整 `npm run course:check`。课程核对及依赖 Python 的测试可通过 `REPA_PYODIDE_PACKAGES` 指向已有离线 wheel 目录。
 
-`learning-flow.test.ts` 通过真实空间宿主和日志验证 py01、隔天复习、冷却、补救、菜单、独立资格、申诉、判不出结果时不阻塞、复习中途离开后重开接着做与自动补判，以及代码题只在前端声明 `python.run` 时出现、一次提交只调用一次服务；还验证先筛掉前端显示不了的题再选题、没有可用模型时不出开放题也不自动补判、同一个 KP 答错太多课即失败、复习不限时而中止复习按已有作答判定、FIRe 按课程权重生效、菜单不接受的覆盖者（没到期，或这个前端显示不了它的复习题）不会压掉它覆盖的到期复习、时钟回拨时按零间隔继续，以及课的质量按答对比例计。`learning-facts.test.ts` 验证答案或运行前导改正后的重判与 XP、更早一轮课的重判反映到正在进行的重试、中止复习时已有失败证据记为失败、归属改变不换版本、只搬事实文件后重算出相同状态、换一组学生模型参数重放得出不同的预测。`code-tests.test.ts` 验证共用入口的调用顺序、超时归因、没有结论的情形和执行方守约检查；`grading.test.ts` 比对检查与判分对同一份作答的结论。真实杀进程与残缺日志恢复由 `learning-records.test.ts` 覆盖。
+`learning-flow.test.ts` 通过真实空间宿主和日志验证 py01、隔天复习、冷却、补救、菜单、独立资格、申诉、判不出结果时不阻塞、复习中途离开后重开接着做与自动补判，以及代码题只在前端声明 `python.run` 时出现、一次提交只调用一次服务；还验证先筛掉前端显示不了的题再选题、没有可用模型时不出开放题也不自动补判、同一个 KP 答错太多课即失败、复习不限时而中止复习按已有作答判定、FIRe 按课程权重生效、菜单不接受的覆盖者（没到期，或这个前端显示不了它的复习题）不会压掉它覆盖的到期复习、时钟回拨时按零间隔继续，以及课的质量按答对比例计。`learning-facts.test.ts` 验证答案或运行前导改正后的重判与 XP、判分中断的第三题补判为错时课改为失败、更早一轮课的重判反映到正在进行的重试、中止复习时已有失败证据记为失败、归属改变不换版本、只搬事实文件后重算出相同状态、换一组学生模型参数重放得出不同的预测。`code-tests.test.ts` 验证共用入口的调用顺序、超时归因、没有结论的情形和执行方守约检查；`grading.test.ts` 比对检查与判分对同一份作答的结论。真实杀进程与残缺日志恢复由 `learning-records.test.ts` 覆盖。
 
 运行测试时设置 `REPA_LEARNING_EVIDENCE=/absolute/directory`，会在新的 `counterfactual-*` 子目录保留反事实用例的原始 JSONL、去掉关键作答的事实副本和同一决策时刻的菜单对照，供抽样复核。

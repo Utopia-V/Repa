@@ -808,7 +808,7 @@ test("历史申诉判分在测验开始后返回，响应按返回时的受限�
   }
 });
 
-test("测验先选以往测验（含换题重考）测过次数最少的 topic，次数相同时随机；出过的题已从课程删除的不算测过", () => {
+test("测验先选以往测验（含换题重考）测过次数最少的 topic，出过题没作答也算测过；次数相同时按 seed 随机，同一 seed 结果相同；出过的题已从课程删除的不算测过", () => {
   const ids = ["a", "b", "c", "d", "e", "f", "g"];
   const topics: Topic[] = ids.map((id) => ({
     id, title: id, status: "complete", minutes: 5, prerequisites: [], sources: [],
@@ -818,22 +818,32 @@ test("测验先选以往测验（含换题重考）测过次数最少的 topic�
   const fold = emptyFold();
   fold.student = Object.fromEntries(ids.map((id) => [id, { repNum: 1, memory: 1, speed: 1, lastRepetitionDay: 0, interval: 1 }]));
   let seq = 0;
-  const quiz = (kind: "quiz" | "retake", questions: string[]): TaskRecord => {
+  /** 一场测验：answered 里的题作答了，unanswered 里的题只出了、没有作答。 */
+  const quiz = (kind: "quiz" | "retake", answered: string[], unanswered: string[]): TaskRecord => {
     const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], deliveries: [], answered: [], timedOut: false };
-    for (const questionId of questions) {
+    for (const questionId of [...answered, ...unanswered]) {
       const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, help: false, grades: [] };
       task.deliveries.push(delivery);
-      task.answered.push(delivery);
+      if (answered.includes(questionId)) task.answered.push(delivery);
     }
     return task;
   };
-  // a 到 e 测过两次（一场测验和它的换题重考），f 在最近一场里测过一次；g 出过的那道题后来从课程删除了，不算测过。
-  const twice = ["a", "b", "c", "d", "e"].map((id) => `${id}.k1.x1`);
-  const tasks = [quiz("quiz", twice), quiz("retake", twice), quiz("quiz", ["f.k1.x1"]), quiz("quiz", ["g.k1.x0"])];
-  for (const n of [5, 6, 7]) {
+  // a 到 e 各测过一次；f 出过两次题，一次也没作答，也算测过两次；g 出过的那道题后来从课程删除了，不算测过。
+  const tasks = [
+    quiz("quiz", ["a.k1.x1", "b.k1.x1", "c.k1.x1", "d.k1.x1"], ["f.k1.x1"]),
+    quiz("retake", ["e.k1.x1"], ["f.k1.x1", "g.k1.x0"]),
+  ];
+  const once = ["a", "b", "c", "d", "e"];
+  const orders = new Set<string>();
+  for (let n = 1; n <= 10; n++) {
     const selected = sampleTopics(tasks, fold, index, n);
-    assert.deepEqual(selected.slice(0, 2), ["g", "f"]);
     assert.equal(selected.length, 5);
-    assert.ok(selected.slice(2).every((id) => twice.includes(`${id}.k1.x1`)));
+    assert.equal(selected[0], "g");
+    assert.equal(selected.includes("f"), false);
+    assert.ok(selected.slice(1).every((id) => once.includes(id)));
+    assert.deepEqual(sampleTopics(tasks, fold, index, n), selected);
+    orders.add(selected.join(","));
   }
+  // 测过次数相同的 a 到 e 由各场的 seed 决定次序：不同的场次排出不同的结果。
+  assert.ok(orders.size > 1, [...orders].join(" | "));
 });

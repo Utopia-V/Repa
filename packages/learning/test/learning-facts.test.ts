@@ -391,6 +391,54 @@ test("判分失败或模型没有把握时任务照样往下走、不计失败�
   assert.ok((await f.student()).t01);
 });
 
+test("“错、错、待判、对、对”的课先按通过算；第三题后来补判为错，这节课改为失败，第三次答错即停、后两题不再算；XP 不收回，重开空间结果相同", async (t) => {
+  const definition = topic("t01");
+  const kp = definition.kps[0];
+  assert.ok(kp);
+  kp.practice = [{
+    id: "t01.k1.q1", body: "说说 1 + 1 为什么等于 2。", explanation: "两个一。",
+    slots: [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }],
+  }];
+  const f = await fixture(t, [definition]);
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  let waiting: string | undefined;
+  for (const verdict of ["incorrect", "incorrect", undefined, "correct", "correct"] as const) {
+    if (verdict) {
+      f.models.expectStructured().succeed({ verdict, reason: "按 rubric" });
+    } else {
+      f.models.expectStructured().fail(new Error("断网"));
+    }
+    const receipt = await f.submit();
+    assert.ok(receipt.status === "recorded");
+    if (!verdict) waiting = receipt.submission.submissionId;
+    if ((await f.state()).task?.phase.stage !== "completed") await f.advance();
+  }
+  assert.ok(waiting);
+  // 第三题还没判出结果：有证据的是错、错、对、对，连对两题，这节课通过，独立答对两题占四题，得 floor(5 × 2/4) XP。
+  const passed = await f.state();
+  assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.ok((await f.student()).t01);
+  assert.equal(passed.progress.totalXp, 2);
+  // 第三题补判为错：按作答先后，第三次答错时这个知识点就失败了，后面两题不再改变它。
+  f.models.expectStructured().succeed({ verdict: "incorrect", reason: "没有说明含义" });
+  await f.call("submission.resume", { submissionId: waiting });
+  const failed = await f.state();
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.deepEqual(failed.task?.kps, [{ kpId: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false }]);
+  assert.equal((await f.student()).t01, undefined);
+  assert.equal(failed.progress.totalXp, 2);
+  const awards = structuredClone(f.session().replay.awards);
+  await f.reopen();
+  const reopened = await f.state();
+  assert.deepEqual(reopened.task?.phase, failed.task?.phase);
+  assert.deepEqual(reopened.task?.kps, failed.task?.kps);
+  assert.equal((await f.student()).t01, undefined);
+  assert.equal(reopened.progress.totalXp, 2);
+  assert.deepEqual(f.session().replay.awards, awards);
+});
+
 test("中止复习时，没判出结果的作答和没出的题都判对也不能让复习通过：已有失败的证据，记为失败并做失败更新", async (t) => {
   const definition = topic("t01");
   const review = definition.kps[0]?.review?.[0];

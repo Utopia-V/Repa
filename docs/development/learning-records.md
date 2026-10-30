@@ -122,4 +122,4 @@ npm run check --workspace=@repa/learning
 (cd packages/learning && node --import tsx --test test/learning-records.test.ts test/learning-facts.test.ts)
 ```
 
-[`learning-records.test.ts`](../../packages/learning/test/learning-records.test.ts) 用三个子进程分别在作答写入后、模型返回而判分未写入时、判分写入后 SIGKILL，再重开核对作答保留、任务不阻塞、补判只调用一次模型；另覆盖同载荷并发提交、写入失败、引用错误、残缺尾部的恢复命令、可忽略的新增字段和经真实宿主重开。[`learning-facts.test.ts`](../../packages/learning/test/learning-facts.test.ts) 覆盖答案或运行前导改正后的重判、更早一轮课的重判反映到正在进行的重试、更早一轮课的补判使正在进行的课通过时照常结算 XP、没有证据时不阻塞、中止复习时已有失败证据记为失败、只搬事实文件后重算出相同状态、换一组学生模型参数重放得出不同的预测、归属改变不换版本，以及每次作答的字节上限（含最长的代码题）和重算次数（对错没变的重判不重算）。
+[`learning-records.test.ts`](../../packages/learning/test/learning-records.test.ts) 用三个子进程分别在作答写入后、模型返回而判分未写入时、判分写入后 SIGKILL，再重开核对作答保留、任务不阻塞、补判只调用一次模型；另覆盖同载荷并发提交、写入失败、引用错误、残缺尾部的恢复命令、可忽略的新增字段和经真实宿主重开。[`learning-facts.test.ts`](../../packages/learning/test/learning-facts.test.ts) 覆盖答案或运行前导改正后的重判、判分中断的作答补判以后课按作答先后重新判定（第三题补判为错即失败，XP 不收回）、更早一轮课的重判反映到正在进行的重试、更早一轮课的补判使正在进行的课通过时照常结算 XP、没有证据时不阻塞、中止复习时已有失败证据记为失败、只搬事实文件后重算出相同状态、换一组学生模型参数重放得出不同的预测、归属改变不换版本，以及每次作答的字节上限（含最长的代码题）和重算次数（对错没变的重判不重算）。

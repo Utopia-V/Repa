@@ -167,20 +167,41 @@ export function taskKps(task: TaskRecord, course: CourseIndex): string[] {
   return task.kind === "review" ? shuffled(kps, Math.imul(task.seq, 0x9e3779b1) >>> 0) : kps;
 }
 
-export function kpProgress(kpIds: string[], attempts: Attempt[], inherited: KpProgress[] | undefined): KpProgress[] {
-  return kpIds.map((kpId) => {
+/**
+ * 按作答先后归约课里的每个知识点：连续独立答对 KP_PASS_STREAK 题通过；没通过而答错第 KP_WRONG_LIMIT 题、或做满 KP_MAX_ATTEMPTS 题，
+ * 这个知识点失败，这节课也就失败。通过或失败即停止，之后的作答不再改变这个知识点的结果。判错、部分对和说不会都算答错；
+ * 求助以后答对的不算独立完成，但也不算答错。没判出结果的作答不计入：它后来判出结果，就按它原来的位置重新归约，
+ * 例如“错、错、待判、对、对”在第三题判错以后就是第三题失败，后面两题不再算。此前的课继承为通过的知识点不再计数。
+ */
+export function lessonProgress(
+  kpIds: string[], attempts: Attempt[], inherited: KpProgress[] | undefined,
+): { kps: KpProgress[]; failed: boolean } {
+  let failed = false;
+  const kps = kpIds.map((kpId) => {
     const previous = inherited?.find((entry) => entry.kpId === kpId);
     const result = { kpId, attempts: 0, consecutiveCorrect: 0, completed: previous?.completed ?? false };
+    let wrong = 0;
     for (const attempt of attempts) {
-      if (attempt.kpId !== kpId || attempt.verdict === undefined || result.completed) {
+      if (result.completed) {
+        break;
+      }
+      if (attempt.kpId !== kpId || attempt.verdict === undefined) {
         continue;
       }
       result.attempts++;
+      if (attempt.verdict !== "correct") {
+        wrong++;
+      }
       result.consecutiveCorrect = independentCorrect(attempt) ? result.consecutiveCorrect + 1 : 0;
       result.completed = result.consecutiveCorrect >= KP_PASS_STREAK;
+      if (!result.completed && (wrong >= KP_WRONG_LIMIT || result.attempts >= KP_MAX_ATTEMPTS)) {
+        failed = true;
+        break;
+      }
     }
     return result;
   });
+  return { kps, failed };
 }
 
 /** 复习的判定（Repa 假设，见 parameters.ts）：按作答先后，独立答对至少 REVIEW_PASS_CORRECT 题，且最后 REVIEW_FINAL_STREAK 题都独立答对。 */
@@ -240,20 +261,16 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
     });
   }
   const kpIds = taskKps(task, course);
-  const kps = task.kind === "lesson"
-    ? kpProgress(kpIds, attempts, inherited)
-    : kpIds.map((kpId) => ({ kpId, attempts: 0, consecutiveCorrect: 0, completed: false }));
+  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited) : undefined;
+  const kps = lesson?.kps ?? kpIds.map((kpId) => ({ kpId, attempts: 0, consecutiveCorrect: 0, completed: false }));
   const started = startedAt(task);
   const deadline = deadlineAt(task);
   let outcome: Outcome | undefined;
-  if (task.kind === "lesson") {
-    // 一个知识点在这节课里答错了几题：判错、部分对和说不会都算答错；求助以后答对的不算独立完成，但也不算答错。
-    const wrong = (kpId: string) =>
-      attempts.filter((attempt) => attempt.kpId === kpId && attempt.verdict !== undefined && attempt.verdict !== "correct").length;
-    if (kps.length > 0 && kps.every((kp) => kp.completed)) {
-      outcome = "passed";
-    } else if (kps.some((kp) => !kp.completed && (kp.attempts >= KP_MAX_ATTEMPTS || wrong(kp.kpId) >= KP_WRONG_LIMIT))) {
+  if (lesson) {
+    if (lesson.failed) {
       outcome = "failed";
+    } else if (kps.length > 0 && kps.every((kp) => kp.completed)) {
+      outcome = "passed";
     }
   } else if (task.kind === "review") {
     const result = reviewResult(attempts);
