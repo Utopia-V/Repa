@@ -411,7 +411,8 @@ test("闲置维护已排队但尚未开始时丢失空间锁，不再打包对�
         await space.close();
       }
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      // Windows 上刚结束的 Git 子进程可能还短暂占用空间目录，删除时报 EBUSY；稍候重试。
+      await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
   assert.ok(await seedLooseObjects(space.root) >= 1_100);
