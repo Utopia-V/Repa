@@ -31,6 +31,7 @@ repa/
 │   ├── base/             # 空间、Agent、插件宿主、CLI 与公开客户端
 │   ├── learning/         # 课程、公开契约、持久记录与恢复
 │   ├── learning-model/   # HSRS 学生模型与候选选择纯计算库
+│   ├── python-runner/    # 在 Pyodide 里运行 Python：页面 Worker、Linux 沙箱与离线包
 │   └── space-history/    # 影子 Git 历史、变更流与局部撤销
 ├── package.json
 └── package-lock.json

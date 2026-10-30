@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@repa/base": "0.1.0",
-    "@repa/learning": "0.1.0",
+    "@repa/python-runner": "0.1.0",
     "@shikijs/langs": "4.4.3",
     "@shikijs/rehype": "4.4.3",
     "@shikijs/themes": "4.4.3",

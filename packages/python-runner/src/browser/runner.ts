@@ -9,7 +9,7 @@ import {
 import type { WorkerMessage, WorkerRequest } from "./messages.js";
 
 /**
- * 与课程核对相同：每个测试 10 秒。启动 60 秒，从下载 Pyodide 文件算起；Pyodide 加载失败时会一直卡住、不报错，所以启动也要限时。
+ * 与 Node 宿主相同：每个测试 10 秒。启动 60 秒，从下载 Pyodide 文件算起；Pyodide 加载失败时会一直卡住、不报错，所以启动也要限时。
  */
 const TEST_TIMEOUT_MS = 10_000;
 const START_TIMEOUT_MS = 60_000;
@@ -17,6 +17,7 @@ const START_TIMEOUT_MS = 60_000;
 const RUNNER_PACKAGES = ["numpy", "pandas"];
 const CORE_FILES = ["pyodide.asm.wasm", "python_stdlib.zip"];
 
+/** 什么都没有运行时的错误码：runtime_unavailable 是 Pyodide 起不来，cancelled 是调用方取消或运行器已关闭。 */
 export type PythonRunErrorCode = "runtime_unavailable" | "cancelled";
 
 /** 什么都没有运行时的错误；code 原样作为 service.reply 的错误码交给调用方。Pyodide 启动之后的超时和失败写在结果里。 */
@@ -27,6 +28,7 @@ export class PythonRunError extends Error {
   }
 }
 
+/** 页面取好、核对过的 Pyodide 文件：lockfile 原文、要加载的包和文件名到内容。 */
 export interface RuntimeFiles {
   lock: string;
   packages: string[];
@@ -36,10 +38,11 @@ export interface RuntimeFiles {
 /** Worker 里用到的部分，测试用替身代替真正的 Worker。 */
 export type RunnerWorker = Pick<Worker, "postMessage" | "terminate" | "onmessage" | "onerror">;
 
+/** 创建 PythonRunner 的选项。 */
 export interface PythonRunnerOptions {
   /** Pyodide 文件所在目录的绝对地址，wheel 在其下的 packages/。 */
   assetsUrl: string;
-  /** sandbox/runner.py 的源码。怎样把文本打进页面由宿主的打包工具决定，例如 Vite 用 ?raw 导入。 */
+  /** runner.py 的源码，即 @repa/python-runner/runner.py。怎样把文本打进页面由宿主的打包工具决定，例如 Vite 用 ?raw 导入。 */
   runnerSource: string;
   createWorker: () => RunnerWorker;
   loadFiles: () => Promise<RuntimeFiles>;
@@ -131,6 +134,7 @@ function environment(loaded: Loaded, packages: readonly string[]) {
   return { pyodide: loaded.pyodide, python: loaded.python, packages: Object.fromEntries(versions) };
 }
 
+/** 探测的回答，见 @repa/python-runner/protocol 的 PythonCapabilitiesSchema。 */
 export interface PythonCapabilities {
   protocol: typeof PYTHON_BATCH;
   runtime: ReturnType<typeof environment>;
@@ -242,7 +246,7 @@ function cancelled(signal: AbortSignal | undefined): void {
  */
 export class PythonRunner {
   readonly #options: PythonRunnerOptions;
-  /** 后端用同一个算法给 runner.py 记版本，课程核对算出的期望值绑定在这个版本上。 */
+  /** runner.py 的 contentVersion；调用方用同一个算法算出自己那份的版本，据此确认两边运行的是同一份 runner.py。 */
   readonly #runnerVersion: Promise<string>;
   #files: Promise<RuntimeFiles> | undefined;
   #standby: Promise<Started> | undefined;

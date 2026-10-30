@@ -41,14 +41,14 @@ async function npmRun(args, cwd = root) {
 
 // 主进程的 repa 协议从 app/pyodide/ 提供这些文件，见 src/main/python-runtime.ts。
 const PYODIDE_FILES = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
-// renderer 的 runner.py 在模块顶层导入它们，见 src/renderer/src/lib/python/runner.ts。
+// @repa/python-runner 的 runner.py 在模块顶层导入它们，页面里的运行器加载的也是它们及其依赖。
 const RUNNER_PACKAGES = ["numpy", "pandas"];
 
 /** 把 Pyodide 文件和 runner.py 要的 wheel 放进安装包；wheel 按 pyodide-lock.json 核对 SHA-256，缺失或不符就停止打包。 */
 async function copyPythonRuntime() {
   const pyodideDirectory = path.dirname(createRequire(import.meta.url).resolve("pyodide/package.json"));
   const { version } = JSON.parse(await readFile(path.join(pyodideDirectory, "package.json"), "utf8"));
-  const { defaultPackagesDirectory } = await import("@repa/learning");
+  const { defaultPackagesDirectory } = await import("@repa/python-runner");
   const source = defaultPackagesDirectory(version);
   const target = path.join(application, "pyodide");
   await mkdir(path.join(target, "packages"), { recursive: true });

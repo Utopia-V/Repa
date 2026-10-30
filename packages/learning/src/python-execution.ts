@@ -3,14 +3,16 @@ import { Type, type Static } from "typebox";
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { contentVersion, object, parse } from "@repa/base/protocol";
-import type { Question, Topic, Runtime, CodeTest } from "./format/schema.js";
+import { RUNNER_FILE } from "@repa/python-runner";
 import {
   PYTHON_BATCH,
   PythonBatchResultSchema,
   PythonCapabilitiesSchema,
+  type Fixture as RunnerFixture,
   type PythonBatchInput,
   type PythonProgramResult,
-} from "./protocol.js";
+} from "@repa/python-runner/protocol";
+import type { Question, Topic, Runtime, CodeTest, Fixture } from "./format/schema.js";
 import { versionInput } from "./check/items.js";
 import { sameValue, showValue } from "./check/values.js";
 import { parseDoctest, sameDoctestOutput } from "./check/doctest.js";
@@ -21,7 +23,20 @@ export const ExpectedSchema = object({
 });
 export type Expected = Static<typeof ExpectedSchema>;
 export const runnerVersion = () =>
-  readFile(new URL("../sandbox/runner.py", import.meta.url), "utf8").then(contentVersion);
+  readFile(RUNNER_FILE, "utf8").then(contentVersion);
+/** 课程里的数据夹具去掉只用于题面显示的字段，就是运行器要的夹具。 */
+export function runnerFixture(fixture: Fixture): RunnerFixture {
+  if (fixture.kind === "python") {
+    return { kind: "python", code: fixture.code };
+  }
+  return {
+    kind: "dataframe",
+    name: fixture.name,
+    columns: fixture.columns,
+    ...(fixture.index ? { index: fixture.index } : {}),
+    ...(fixture.dtypes ? { dtypes: fixture.dtypes } : {}),
+  };
+}
 export async function expectedBinding(
   question: Question,
   topic: Topic,

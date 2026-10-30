@@ -1,5 +1,5 @@
-import runnerSource from "@repa/learning/sandbox/runner.py?raw";
-import { loadRuntimeFiles, PythonRunner } from "@repa/learning/python-runner";
+import runnerSource from "@repa/python-runner/runner.py?raw";
+import { loadRuntimeFiles, PythonRunner } from "@repa/python-runner/browser";
 
 /** 开发时由开发服务器、生产时由主进程的 repa 协议在这里提供 Pyodide 文件和 wheel。 */
 const ASSETS_URL = new URL("/__repa/pyodide/", location.href).href;

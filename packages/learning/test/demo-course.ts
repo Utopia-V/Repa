@@ -8,11 +8,10 @@ import os from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
 
+import { describeRuntime, PythonSandbox, SandboxUnavailable, verifyPackages } from "@repa/python-runner";
 import { stringify } from "yaml";
 
 import type { Course, Question, Topic } from "../src/format/schema.js";
-import { describeRuntime, verifyPackages } from "../src/sandbox/runtime.js";
-import { PythonSandbox, SandboxUnavailable } from "../src/sandbox/session.js";
 
 export const RUNTIME = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } };
 

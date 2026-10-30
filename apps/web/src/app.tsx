@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { RepaClient, type ClientConnection } from "@repa/base/client";
-import { PYTHON_RUN, servePythonRun } from "@repa/learning/python-runner/service";
+import { PYTHON_RUN, servePythonRun } from "@repa/python-runner/browser";
 import { useStore } from "zustand";
 
 import { routes } from "./routes";

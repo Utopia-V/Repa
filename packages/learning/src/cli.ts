@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { openSpace, resolveAppHome } from "@repa/base";
+import { describeRuntime, preparePackages } from "@repa/python-runner";
 
 import { confirmCourse, type ConfirmOutcome } from "./check/confirm.js";
 import { checkCourse, type CheckResult } from "./check/course.js";
 import { parseModel, withModel } from "./check/model.js";
 import { formatDiagnostic, Report } from "./format/diagnostics.js";
 import { COURSE_FILE, loadCourse } from "./format/load.js";
-import { describeRuntime, PACKAGE_ROOT, preparePackages } from "./sandbox/runtime.js";
+
+/** 本包的根目录，随包的课程在其下的 courses/。 */
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const USAGE = `用法：
   repa-course recover-log <已关闭的空间目录> <新日志文件>
@@ -19,7 +23,8 @@ const USAGE = `用法：
       检查课程文件；缺省检查 courses/ 下全部课程。--no-run 只做结构检查，不运行代码；
       --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。完整核对成功后发布 expected.json。
   repa-course runtime [课程目录…] [--from 目录] [--packages 目录]
-      准备离线 Pyodide 包；--from 从已有目录复制，不给时从 jsDelivr 下载。都会按 lockfile 核对 SHA-256。
+      按课程清单的运行时准备离线 Pyodide 包，放进 @repa/python-runner 的缓存目录；--from 从已有目录复制，
+      不给时从 jsDelivr 下载。都会按 lockfile 核对 SHA-256。
   repa-course confirm [课程目录…] [--topic id …] [--max-requests 50] [--model deepseek/deepseek-flash]
                       [--agent-dir 应用配置目录/agent] [--force] [--dry-run] [--log 文件]
       复习和测验题里的 manual 作答位，用一次隔离的模型调用独立再解，与标准答案一致时写进 topic 的 verified 段。

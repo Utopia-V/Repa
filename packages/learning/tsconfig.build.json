@@ -9,13 +9,16 @@
     "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["test", "src/python-runner"],
+  "exclude": ["test"],
   "references": [
     {
       "path": "../base/tsconfig.build.json"
     },
     {
       "path": "../learning-model/tsconfig.build.json"
+    },
+    {
+      "path": "../python-runner/tsconfig.build.json"
     }
   ]
 }

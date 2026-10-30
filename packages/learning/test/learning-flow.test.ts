@@ -10,13 +10,12 @@ import type { Services } from "@repa/base/plugin";
 import { createSpace, openPluginHost, openSpace } from "@repa/base";
 import { ModelTestDriver } from "@repa/base/testing";
 import { INTERACTION_CAPABILITIES, parse, type ClientCapabilities } from "@repa/base/protocol";
+import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { stringify } from "yaml";
 import { expectedBinding, runnerVersion, type Expected } from "../src/python-execution.js";
 import { createLearningPlugin } from "../src/plugin.js";
 import {
   learningMethods,
-  PYTHON_BATCH,
-  PythonBatchInputSchema,
   type LearningInput,
   type LearningMethod,
   type LearningResult,

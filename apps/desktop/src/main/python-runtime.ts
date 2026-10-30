@@ -23,7 +23,7 @@ const WHEEL_NAME = /^[A-Za-z0-9_.+-]+\.whl$/;
 export interface PythonRuntimeDirectories {
   /** npm 包 pyodide 的目录，或安装包里复制出的同样文件。 */
   pyodide: string;
-  /** npm run course:runtime 准备的 wheel 目录。 */
+  /** npm run course:runtime 准备的 wheel 目录，见 @repa/python-runner 的 defaultPackagesDirectory。 */
   packages: string;
 }
 
@@ -66,8 +66,8 @@ export async function workspacePythonDirectories(): Promise<PythonRuntimeDirecto
   const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
   const version = typeof manifest === "object" && manifest !== null && "version" in manifest ? manifest.version : undefined;
   if (typeof version !== "string") throw new Error(`${manifestPath} 里没有版本号`);
-  // 安装包里没有 @repa/learning，只在工作区里按需加载。只取这个子路径：包入口经底座带进 signal-exit，
-  // 它在进程里没有别的信号监听时会移除自己并重发信号，绕过 Electron 的退出流程，后端就收不到关闭请求。
-  const { defaultPackagesDirectory } = await import("@repa/learning/sandbox/runtime");
+  // 安装包里没有 @repa/python-runner，只在工作区里按需加载。它的 Node 入口不经底座带进 signal-exit：
+  // signal-exit 在进程里没有别的信号监听时会移除自己并重发信号，绕过 Electron 的退出流程，后端就收不到关闭请求。
+  const { defaultPackagesDirectory } = await import("@repa/python-runner");
   return { pyodide: path.dirname(manifestPath), packages: defaultPackagesDirectory(version) };
 }

@@ -2,14 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 import type { PythonTest } from "../src/protocol.js";
-import { describeRuntime, verifyPackages } from "../src/sandbox/runtime.js";
-import { RUNTIME } from "./demo-course.js";
-import { skipUnavailableEnvironment } from "./environment.js";
-
-const SANDBOX = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sandbox");
+import { describeRuntime, RUNNER_FILE } from "../src/runtime.js";
+import { packagesUnavailable, RUNTIME, skipUnavailableEnvironment } from "./environment.js";
 
 interface Generator {
   next(): { done: boolean; value: unknown };
@@ -17,14 +14,9 @@ interface Generator {
 
 /** 前端 Worker 调用 program_test 的方式：这里直接在测试进程里加载 Pyodide，测试代码是可信的。 */
 const frontend = (async () => {
-  let assets;
-  try {
-    assets = await describeRuntime(RUNTIME);
-    await verifyPackages(assets);
-  } catch (error) {
-    if (error instanceof Error && error.name === "RuntimeProblem") return error.message;
-    throw error;
-  }
+  const reason = await packagesUnavailable();
+  if (reason) return reason;
+  const assets = await describeRuntime(RUNTIME);
   const { loadPyodide } = (await import(pathToFileURL(path.join(assets.pyodideDirectory, "pyodide.mjs")).href)) as {
     loadPyodide(options: object): Promise<{
       loadPackage(names: string[], options: object): Promise<void>;
@@ -36,7 +28,7 @@ const frontend = (async () => {
     indexURL: `${assets.pyodideDirectory}/`, packageCacheDir: `${assets.packagesDirectory}/`, stdout: () => {}, stderr: () => {},
   });
   await pyodide.loadPackage(assets.load, { messageCallback: () => {} });
-  pyodide.runPython(await readFile(path.join(SANDBOX, "runner.py"), "utf8"), { filename: "runner.py" });
+  pyodide.runPython(await readFile(RUNNER_FILE, "utf8"), { filename: "runner.py" });
   return {
     test: pyodide.globals.get("program_test"),
     handleJob: pyodide.globals.get("handle_job"),
@@ -116,14 +108,14 @@ test("每个测试结束时恢复解释器状态，下一个测试看不到上�
   assert.deepEqual(result, { status: "completed", result: { stdout: "", error: null, captures: { rows: { value: { t: "int", v: "60" } } }, doctest: [] } });
 });
 
-/** 课程核对执行 program 任务的结果。 */
+/** Node 宿主经 handle_job 执行 program 任务的结果。 */
 function program(handleJob: (line: string) => string, job: Partial<PythonTest> & { program: string }) {
   return JSON.parse(handleJob(JSON.stringify({ op: "program", prelude: "", setup: "", data: [], captures: [], doctest: [], ...job }))) as {
     ok: boolean; result?: { captures: Record<string, unknown>; doctest: unknown[] };
   };
 }
 
-test("课程核对与前端结果相同：capture 的值序列化后即释放，求值和序列化共用输出上限，被检查的调用 exit() 记在这一项上", async (t) => {
+test("handle_job 与 program_test 结果相同：capture 的值序列化后即释放，求值和序列化共用输出上限，被检查的调用 exit() 记在这一项上", async (t) => {
   const pyodide = await frontend;
   if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
   const released = {

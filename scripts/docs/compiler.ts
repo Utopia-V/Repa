@@ -47,7 +47,7 @@ export async function exportedDeclarations(repo: Repository, directory: string):
 
 export async function exportComments(repo: Repository): Promise<Issue[]> {
   const issues: Issue[] = [];
-  for (const directory of ["packages/base", "packages/space-history", "packages/learning", "packages/learning-model"]) {
+  for (const directory of ["packages/base", "packages/space-history", "packages/learning", "packages/learning-model", "packages/python-runner"]) {
     if (!repo.files.includes(`${directory}/package.json`)) continue;
     for (const node of await exportedDeclarations(repo, directory)) {
       if (documentation(node)) continue;

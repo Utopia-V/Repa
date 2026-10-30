@@ -4,6 +4,7 @@ import { Value } from "typebox/value";
 import { PythonRunInputSchema } from "../protocol.js";
 import { PythonRunError, type PythonRunner } from "./runner.js";
 
+/** 前端服务的名字，前端连接时声明它。 */
 export const PYTHON_RUN = "python.run";
 
 /**
@@ -24,7 +25,7 @@ export function servePythonRun(client: Pick<RepaClient, "on" | "call">, runner: 
       return;
     }
     if (!Value.Check(PythonRunInputSchema, input)) {
-      reply({ id, error: { code: "invalid_input", message: "python.run 的输入不符合 @repa/learning/protocol 的约定" } });
+      reply({ id, error: { code: "invalid_input", message: "python.run 的输入不符合 @repa/python-runner/protocol 的约定" } });
       return;
     }
     if (input.kind === "execute" && new Set(input.tests.map((test) => test.id)).size !== input.tests.length) {

@@ -6,7 +6,6 @@
   "type": "module",
   "files": [
     "dist",
-    "sandbox",
     "courses",
     "repa-plugin.json"
   ],
@@ -18,24 +17,7 @@
     "./protocol": {
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
-    },
-    "./sandbox/runtime": {
-      "types": "./dist/sandbox/runtime.d.ts",
-      "import": "./dist/sandbox/runtime.js"
-    },
-    "./python-runner": {
-      "types": "./dist/python-runner/runner.d.ts",
-      "import": "./dist/python-runner/runner.js"
-    },
-    "./python-runner/service": {
-      "types": "./dist/python-runner/service.d.ts",
-      "import": "./dist/python-runner/service.js"
-    },
-    "./python-runner/worker": {
-      "types": "./dist/python-runner/worker.d.ts",
-      "import": "./dist/python-runner/worker.js"
-    },
-    "./sandbox/runner.py": "./sandbox/runner.py"
+    }
   },
   "bin": {
     "repa-course": "dist/cli.js"
@@ -44,10 +26,10 @@
     "node": ">=22.22.2"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.browser.build.json && npm run build:assets",
+    "build": "tsc -b tsconfig.build.json && npm run build:assets",
     "build:protocol": "esbuild src/protocol.ts --bundle --platform=browser --format=esm --outfile=dist/protocol.browser.js",
     "precheck": "npm run build",
-    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.browser.json",
+    "check": "tsc --noEmit",
     "pretest": "npm run build",
     "test": "node --import tsx --test test/*.test.ts",
     "precourse:check": "tsc -b tsconfig.build.json",
@@ -60,10 +42,10 @@
   },
   "dependencies": {
     "@repa/base": "0.1.0",
-    "pyodide": "314.0.7",
+    "@repa/learning-model": "0.1.0",
+    "@repa/python-runner": "0.1.0",
     "typebox": "1.3.27",
-    "yaml": "2.9.1",
-    "@repa/learning-model": "0.1.0"
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/node": "22.19.21",

@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { object, parse } from "@repa/base/protocol";
+import { PYTHON_BATCH, type PythonBatchInput } from "@repa/python-runner/protocol";
 import { FixtureSchema } from "./format/schema.js";
 import { gradeSlot } from "./check/grade.js";
 import { referenceAnswer, topicQuestions, slotTests } from "./check/items.js";
@@ -11,12 +12,13 @@ import {
   compareProgram,
   executePython,
   expectedBinding,
+  runnerFixture,
   runnerVersion,
 } from "./python-execution.js";
 import { parseDoctest } from "./check/doctest.js";
 import { FLOW_VERSION } from "./flow-state.js";
 import type { Grade, Snapshot } from "./records-schema.js";
-import { PYTHON_BATCH, type Feedback, type PythonBatchInput, type SlotFeedback, type Submission } from "./protocol.js";
+import type { Feedback, SlotFeedback, Submission } from "./protocol.js";
 
 const ModelGradeSchema = object({
   verdict: Type.Enum(["correct", "partial", "incorrect", "unsure"]),
@@ -65,7 +67,7 @@ export async function judgeSubmission(host: Host, submission: Submission, snapsh
         setup: test.setup ?? "",
         data: (test.data ?? question.data ?? []).map((label) => ({
           label,
-          fixture: parse(FixtureSchema, snapshot.topic.data?.[label]),
+          fixture: runnerFixture(parse(FixtureSchema, snapshot.topic.data?.[label])),
         })),
         captures: Object.keys(test.expect ?? {}),
         doctest: parseDoctest(test.doctest ?? "").examples.map((example) => example.source),

@@ -4,11 +4,11 @@ import test, { type TestContext } from "node:test";
 
 import { contentVersion } from "@repa/base/protocol";
 
+import type { WorkerRequest } from "../src/browser/messages.js";
+import { loadRuntimeFiles, PythonRunner, type RunnerWorker, type RuntimeFiles } from "../src/browser/runner.js";
 import { PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult } from "../src/protocol.js";
-import type { WorkerRequest } from "../src/python-runner/messages.js";
-import { loadRuntimeFiles, PythonRunner, type RunnerWorker, type RuntimeFiles } from "../src/python-runner/runner.js";
 
-const runnerSource = await readFile(new URL("../sandbox/runner.py", import.meta.url), "utf8");
+const runnerSource = await readFile(new URL("../runner.py", import.meta.url), "utf8");
 const ASSETS_URL = "http://127.0.0.1:5173/__repa/pyodide/";
 const job = { program: "print(1)", prelude: "", setup: "", data: [], captures: [], doctest: [] };
 const input: PythonBatchInput = {
@@ -143,7 +143,7 @@ test("一批测试在一个新 Worker 里按顺序运行；结果带回提交身
   assert.equal(workers[0]?.terminated, true);
 });
 
-test("课程要求的包没有加载时不出现在结果里，由后端判断环境不符", async () => {
+test("请求的包没有加载时不出现在结果里，由调用方判断环境不符", async () => {
   const { runner } = fixture(healthy());
   const result = await runner.run({ ...input, runtime: { ...input.runtime, packages: { pandas: "3.0.2", scipy: "1.16.0" } } });
   assert.deepEqual(result.runtime.packages, { pandas: "3.0.2" });

@@ -8,7 +8,7 @@ export type WorkerRequest =
     packageBaseUrl: string;
     lock: string;
     packages: string[];
-    /** packages/learning/sandbox/runner.py 的源码，与课程核对用的是同一份；Worker 用其中的 program_test 运行测试。 */
+    /** runner.py 的源码，与 Node 宿主用的是同一份；Worker 用其中的 program_test 运行测试。 */
     runner: string;
     /** 文件名到内容；Pyodide 启动时按文件名取。 */
     files: Record<string, ArrayBuffer>;
