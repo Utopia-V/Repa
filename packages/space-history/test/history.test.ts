@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
-import { HistoryError, openHistory, type ActivitySource } from "../src/index.js";
+import { HistoryError, openHistory, type ActivitySource, type Revision } from "../src/index.js";
 
 const execute = promisify(execFile);
 const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
@@ -343,13 +343,41 @@ test("撤销重命名时两端作为一组，任一端后来被修改就保持�
   await assert.rejects(readFile(f.file("before.txt")), { code: "ENOENT" });
 });
 
-test("通知只唤醒订阅者，取消后错过的版本仍可用持久游标完整追上", async (t) => {
+test("按路径保存、整空间快照和撤回的通知记录与历史列表完全一致", async (t) => {
+  const f = await fixture(t);
+  const history = await openHistory(f.space);
+  const notifications: Revision[] = [];
+  const unsubscribe = history.onRevision((revision) => { notifications.push(revision); });
+  t.after(unsubscribe);
+
+  const saved = await history.recordPaths(
+    { kind: "agent", runId: "writer", ancestorRunIds: ["parent"] },
+    ["notes.md"],
+    () => f.write("notes.md", "按路径保存\n"),
+  );
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0]?.id, saved.snapshot.revision);
+  assert.deepEqual(notifications[0], (await history.list(1))[0]);
+
+  await f.write("other.md", "整空间快照\n");
+  const snapshot = await history.snapshot({ kind: "plugin", pluginId: "learning" });
+  assert.equal(notifications.length, 2);
+  assert.equal(notifications[1]?.id, snapshot.revision);
+  assert.deepEqual(notifications[1], (await history.list(1))[0]);
+
+  const undone = await history.undo(saved.snapshot.revision);
+  assert.equal(notifications.length, 3);
+  assert.equal(notifications[2]?.id, undone.revision);
+  assert.deepEqual(notifications[2], (await history.list(1))[0]);
+});
+
+test("通知唤醒订阅者，取消后错过的版本仍可用持久游标完整追上", async (t) => {
   const f = await fixture(t);
   const history = await openHistory(f.space);
   const baseline = await firstRevision(history);
   const notifications: string[] = [];
   const unsubscribe = history.onRevision((revision) => {
-    notifications.push(revision);
+    notifications.push(revision.id);
   });
   assert.deepEqual(notifications, []);
   const removeThrowingListener = history.onRevision(() => {

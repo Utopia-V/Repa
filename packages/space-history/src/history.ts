@@ -168,7 +168,7 @@ export class SpaceHistory {
   private pending: { source: Source; scope: string[] | null } | null = null;
   // 按路径列出时 Git 对单个文件（不是目录）是否忽略的判断，连同当时决定它的忽略规则状态；见 ignoreRules。
   private readonly visibility = new Map<string, { rules: string; listed: boolean }>();
-  private readonly listeners = new Set<(revision: string) => void | Promise<void>>();
+  private readonly listeners = new Set<(revision: Revision) => void | Promise<void>>();
 
   private constructor(readonly space: string, options: HistoryOptions) {
     if (!Check(HistoryOptionsSchema, options)) throw new Error("无效的历史配置");
@@ -207,12 +207,12 @@ export class SpaceHistory {
         const { source, scope } = this.pending;
         const actual = (await this.git.run(["rev-parse", "--verify", REF])).toString().trim();
         if (actual !== this.head) {
-          const [saved] = await this.readLog(["-1", REF]);
-          if (saved?.parent !== this.head || JSON.stringify(saved.source) !== JSON.stringify(source)) {
+          const [saved] = await this.readLog(["-1", actual]);
+          if (!saved || saved.parent !== this.head || JSON.stringify(saved.source) !== JSON.stringify(source)) {
             throw new Error("历史引用在保存失败后被其他写入者修改");
           }
           // 引用可能已经更新成功，随后才报告 I/O 错误。
-          this.advance(actual, source, null);
+          this.advance(saved, source, null);
         } else if (scope) {
           await this.captureScoped(source, scope);
         } else {
@@ -225,7 +225,7 @@ export class SpaceHistory {
     return result;
   }
 
-  onRevision(listener: (revision: string) => void | Promise<void>): () => void {
+  onRevision(listener: (revision: Revision) => void | Promise<void>): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   }
@@ -660,6 +660,7 @@ export class SpaceHistory {
       this.pending = null;
       return { revision: head, committed: false, skipped };
     }
+    const seconds = Math.floor(Date.now() / 1000);
     const message = JSON.stringify(source) + "\n";
     let removed: string[] = [];
     async function* commands(): AsyncGenerator<Buffer | string> {
@@ -673,7 +674,7 @@ export class SpaceHistory {
         }
       }
       removed = vanished();
-      yield `commit ${REF}\nmark :1\ncommitter ${NAME} <${EMAIL}> now\ndata ${Buffer.byteLength(message)}\n${message}`;
+      yield `commit ${REF}\nmark :1\ncommitter ${NAME} <${EMAIL}> ${seconds} +0000\ndata ${Buffer.byteLength(message)}\n${message}`;
       if (head) yield `from ${head}\n`;
       // 先删后写：文件与目录互换时，树中不会同时出现同名文件和目录。
       for (const file of removed) yield `D ${quoted(file)}\n`;
@@ -685,17 +686,24 @@ export class SpaceHistory {
     }
     // fast-import 在 head 之上生成树和提交并更新引用；引用若已被移到不是新提交祖先的位置，它拒绝更新并报错。
     const revision = checkedRevision((await this.git.run(
-      ["fast-import", "--quiet", "--done", "--date-format=now"], commands(),
+      ["fast-import", "--quiet", "--done", "--date-format=raw"], commands(),
     )).toString().trim());
     // previous 是缓存的 head 树，提交成功后才就地更新。
     for (const file of removed) previous.delete(file);
     for (const [file, entry] of found) previous.set(file, entry);
-    this.advance(revision, source, previous);
+    const savedSource: unknown = Clean(SourceSchema, JSON.parse(message));
+    if (!Check(SourceSchema, savedSource)) throw new Error(`历史来源格式损坏：${revision}`);
+    this.advance({
+      id: revision,
+      parent: head,
+      source: savedSource,
+      timestamp: new Date(seconds * 1000).toISOString(),
+    }, source, previous);
     return { revision, committed: true, skipped };
   }
 
-  private advance(revision: string, source: Source, tree: Map<string, Entry> | null): void {
-    this.head = revision;
+  private advance(revision: Revision, source: Source, tree: Map<string, Entry> | null): void {
+    this.head = revision.id;
     this.headTree = tree;
     this.pending = null;
     if (this.runs) remember(this.runs, source);

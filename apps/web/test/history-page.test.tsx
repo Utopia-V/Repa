@@ -164,7 +164,7 @@ it("撤回进行中不能关闭对话框；失败时对话框保留并显示原�
   fireEvent.keyDown(dialog, { key: "Escape" });
   expect(screen.getByRole("dialog")).toBe(dialog);
 
-  await act(async () => fail?.(new RpcError(-32000, "历史修订不存在", { code: "history_revision_missing" })));
+  await act(async () => fail?.(new RpcError(-32000, "历史修订不存在", { code: "revision_not_found" })));
   expect(within(dialog).getByRole("alert").textContent).toContain("历史修订不存在");
 
   backend.state.undo = succeed;
