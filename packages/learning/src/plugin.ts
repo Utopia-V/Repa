@@ -4,8 +4,9 @@ import { fileURLToPath } from "node:url";
 import { RepaFault } from "@repa/base";
 import { checkFormat, type Host, type Plugin, type PluginInstance, type PluginMethod } from "@repa/base/plugin";
 import { loadCourseSources, type CourseSource } from "./course-sources.js";
+import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
-import { LearningRecords } from "./records.js";
+import { LearningRecords, RECORDS_FILE } from "./records.js";
 import { LearningSession } from "./session.js";
 import { visibleLearningResponse } from "./submission-visibility.js";
 import { connectTutor, TUTOR_AGENT } from "./tutor.js";
@@ -36,7 +37,7 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
       }
       const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
       const course = await loadCourseSources(sources, host.files);
-      const records = await LearningRecords.open(path.join(host.space.dataDir, "records.jsonl"), () => host.now());
+      const records = await LearningRecords.open(path.join(host.space.dataDir, RECORDS_FILE), () => host.now());
       let session: LearningSession | undefined;
       try {
         session = await LearningSession.open(records, course, host);
@@ -45,7 +46,11 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
           ? options.connect(opened, host)
           : connectLearning(opened, { beforeRestricted: () => host.abortAgent(TUTOR_AGENT) }));
         const tutor = await connectTutor(opened);
-        const methods: Record<string, PluginMethod> = { ...connected.methods, ...tutor.methods };
+        const exported = connectExport(host, {
+          recordsFormat: LEARNING_FORMAT_VERSION,
+          course: { id: course.course.id, version: course.course.version },
+        });
+        const methods: Record<string, PluginMethod> = { ...connected.methods, ...tutor.methods, ...exported.methods };
         for (const [name, method] of Object.entries(methods)) {
           methods[name] = {
             ...method,

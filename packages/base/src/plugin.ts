@@ -2,9 +2,9 @@ import type { Static, TSchema } from "typebox";
 import type { ActivitySource, ChangeFeed, Revision, Snapshot } from "@repa/space-history";
 import type { AskSubmitResult, Item, ItemDraft, ItemResponse } from "./interaction.js";
 import type { ClientCapabilities } from "./protocol.js";
-import type { MessageDecision, ModelRef } from "./schema.js";
+import type { ExportedFile, MessageDecision, ModelRef } from "./schema.js";
 
-export type { MessageDecision, ModelRef } from "./schema.js";
+export type { ExportedFile, MessageDecision, ModelRef } from "./schema.js";
 export type { ActivitySource, ChangeFeed, Revision } from "@repa/space-history";
 export type { ClientCapabilities } from "./protocol.js";
 // 交互词汇：Item 和作答的 schema 与类型，以及 contentVersion 等纯函数。
@@ -188,6 +188,30 @@ export interface History {
   record<T>(source: ActivitySource, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }>;
 }
 
+/**
+ * 导出的一项内容，name 是包内路径，用 / 分隔。text 是插件生成的文字，例如版本信息；
+ * file 是本插件数据目录中的文件，路径相对于数据目录，由底座读取：不跟随链接，按读取开始时的大小读，
+ * .jsonl 只取到最后一个换行符，文件还没建立时按空文件收入。
+ */
+export type ExportFile = { name: string; text: string } | { name: string; file: string };
+
+/** 一次导出要收入的内容：插件按白名单列出的 files；sessions 为真时底座再收入空间的全部会话记录。 */
+export interface ExportRequest {
+  files: ExportFile[];
+  sessions: boolean;
+}
+
+/** 冻结在内存中的一份导出。清单与 zip 出自同一份已脱敏的内容，之后新增的记录不进入这份导出。 */
+export interface PreparedExport {
+  /** 包内的全部文件，含会话记录与底座加上的 manifest.json，按包内顺序排列。 */
+  files: ExportedFile[];
+  /**
+   * 写出这份 zip，返回文件路径。directory 须是绝对路径，省略时放在应用配置目录的 exports/；
+   * 先写同一目录中的临时文件再发布，不覆盖已有文件。
+   */
+  write(directory?: string): Promise<string>;
+}
+
 /** 底座交给插件的空间能力，插件通过它访问文件、历史、模型和前端服务。 */
 export interface Host {
   /** 底座与插件共用的当前时间，Unix 毫秒。 */
@@ -206,6 +230,11 @@ export interface Host {
   abortAgent(agent: string): Promise<void>;
   /** 向订阅空间的连接发布本插件的事件，宿主补上插件 id。 */
   emit(event: unknown): void;
+  /**
+   * 准备一份交给维护者的导出：读取插件列出的内容，按需收入会话记录，加上记有时间与 Repa 版本的 manifest.json，
+   * 全部按反馈包的规则替换凭据与密钥，在内存中打成 zip。读不到保存的凭据时以 export_redaction_failed 拒绝。
+   */
+  prepareExport(request: ExportRequest): Promise<PreparedExport>;
 }
 
 /** 可由底座加载的插件定义；open 为一个空间创建独立实例。 */

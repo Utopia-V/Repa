@@ -84,6 +84,7 @@ REPA_TEST_REQUIRE_ENV=1 npm test
 | 学习流程的数值、学生模型常数与尚待查证的假设 | [流程数值](../../packages/learning/src/parameters.ts)、[学生模型常数](../../packages/learning-model/src/model.ts)、[假设清单](../../packages/learning/README.md#尚待查证的假设) |
 | 学习记录（只记事实）、重放、补判与恢复命令 | [学习记录说明](learning-records.md)、[插件入口](../../packages/learning/src/plugin.ts) |
 | 学习任务画面、提交恢复与 Python 服务契约 | [学习前端契约](learning-protocol.md)、[公开 schema](../../packages/learning/src/protocol.ts)、[python.run 的 schema](../../packages/python-runner/src/protocol.ts) |
+| 导出学习数据：白名单、冻结的预览与脱敏 | [导出说明](learning-records.md#导出学习数据)、[学习插件的方法](../../packages/learning/src/export.ts)、[底座的读取与打包](../../packages/base/src/feedback/export.ts) |
 | Web 宿主与页面 | [Vite 配置](../../apps/web/vite.config.ts)、[Web 源码](../../apps/web/src/) |
 | Desktop 宿主与页面 | [主进程](../../apps/desktop/src/main/index.ts)、[preload](../../apps/desktop/src/preload/)、[renderer](../../apps/desktop/src/renderer/) |
 

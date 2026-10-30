@@ -1,15 +1,13 @@
-import { randomUUID } from "node:crypto";
-import { link, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Revision } from "@repa/space-history";
-import { Type } from "typebox";
-import { Value } from "typebox/value";
 import type { AgentSpace } from "../agent.js";
 import type { CompletionRequest } from "../plugin.js";
 import { RepaFault, type SessionInfo } from "../schema.js";
 import { describe } from "./describe.js";
 import type { RecentErrors } from "./errors.js";
+import { repaVersion, stamp, writeUnique } from "./publish.js";
 import { environmentSecrets, Redactor } from "./redact.js";
 import { createZip, type ZipEntry } from "./zip.js";
 
@@ -49,25 +47,6 @@ interface ManifestFile {
   redactions: number;
 }
 
-const PackageSchema = Type.Object({ version: Type.String() });
-
-async function repaVersion(): Promise<string> {
-  // src/feedback 与构建后的 dist/feedback 到包根目录的距离相同。
-  const text = await readFile(new URL("../../package.json", import.meta.url), "utf8");
-  const parsed: unknown = JSON.parse(text);
-  if (!Value.Check(PackageSchema, parsed)) throw new Error("package.json 没有 version");
-  return parsed.version;
-}
-
-function pad(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-/** 本地时间，不带冒号：Windows 的文件名不能含冒号。 */
-function stamp(date: Date): string {
-  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-}
-
 /** 会话及其派生的子 Agent 会话，按父关联逐层找下去。 */
 function withDescendants(sessions: readonly SessionInfo[], id: string): string[] {
   const found = [id];
@@ -93,46 +72,6 @@ function failure(error: unknown): string {
 
 function throwIfCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new RepaFault("feedback_cancelled", "反馈包的生成已取消，没有写出文件");
-}
-
-function isCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
-
-/** 把写完的临时文件放到最终文件名；最终文件名已存在时返回 false，不覆盖。 */
-async function place(temporary: string, file: string): Promise<boolean> {
-  try {
-    // 硬链接不会覆盖已有文件，两次反馈同一秒生成时也不会互相顶掉。
-    await link(temporary, file);
-    return true;
-  } catch (error) {
-    if (isCode(error, "EEXIST")) return false;
-    // exFAT 等文件系统不支持硬链接，退回先查再改名。
-    if (!isCode(error, "EPERM") && !isCode(error, "ENOTSUP") && !isCode(error, "EOPNOTSUPP")) throw error;
-  }
-  try {
-    await stat(file);
-    return false;
-  } catch (error) {
-    if (!isCode(error, "ENOENT")) throw error;
-  }
-  await rename(temporary, file);
-  return true;
-}
-
-/** 先写同目录的临时文件，写完再放到最终文件名；写到一半失败（例如磁盘满）时不会留下残缺的 zip。 */
-async function writeUnique(directory: string, base: string, data: Buffer): Promise<string> {
-  const temporary = path.join(directory, `.${base}-${randomUUID()}.tmp`);
-  await writeFile(temporary, data, { flag: "wx" });
-  try {
-    for (let attempt = 1; attempt <= 100; attempt++) {
-      const file = path.join(directory, attempt === 1 ? `${base}.zip` : `${base}-${attempt}.zip`);
-      if (await place(temporary, file)) return file;
-    }
-    throw new RepaFault("feedback_write_failed", "反馈包的文件名都被占用了", { directory });
-  } finally {
-    await rm(temporary, { force: true });
-  }
 }
 
 /**
@@ -242,5 +181,6 @@ export async function createFeedbackBundle(sources: FeedbackSources, request: Fe
   throwIfCancelled(signal);
   await mkdir(directory, { recursive: true });
   const file = await writeUnique(directory, `repa-feedback-${stamp(created)}`, createZip(entries, created));
+  if (file === undefined) throw new RepaFault("feedback_write_failed", "反馈包的文件名都被占用了", { directory });
   return { path: file, files: entries.map(entry => entry.name) };
 }

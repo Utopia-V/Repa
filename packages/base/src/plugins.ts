@@ -1,5 +1,6 @@
 import type { AgentTool } from "./agent.js";
 import type { AskRoute } from "./ask.js";
+import type { ExportSources } from "./feedback/export.js";
 import type { AgentDefinition, MethodContext, Models, Plugin, Services } from "./plugin.js";
 import type { DisabledPlugin } from "./protocol.js";
 import type { Space } from "./space.js";
@@ -34,6 +35,8 @@ export interface PluginHostOptions {
   ask?: AskRoute;
   /** 前端声明的服务。省略时调用以 service_unavailable 拒绝。 */
   services?: Services;
+  /** 导出用到的应用配置目录与保存的凭据。省略时 Host.prepareExport 以 export_unavailable 拒绝。 */
+  exports?: ExportSources;
   emit(pluginId: string, event: unknown): void;
   onError(error: unknown): void;
 }

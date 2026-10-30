@@ -55,6 +55,10 @@ if (state.ok) renderLearning(state.value);
 | `quiz.retake` | `menuId`、`candidateId`、`originalTaskId`，开始菜单提供的重考，返回状态 |
 | `progress.get` | 空输入，返回 `serverNow` 和日目标、XP、完成率、可空的完课日期 |
 | `progress.setGoal` | 正整数 `dailyGoalXp`，返回更新后的状态 |
+| `export.prepare` | `sessions` 表示是否包含会话记录；冻结一份已脱敏的学习数据导出，返回 `exportId` 和清单 `files`，每项是包内路径 `name`、字节数 `bytes`、`.jsonl` 的记录条数 `records` 与替换掉的凭据和密钥处数 `redactions`。包内容见[导出学习数据](learning-records.md#导出学习数据) |
+| `export.create` | `exportId` 和可选的绝对路径 `directory`，把这份预览写成 zip，返回文件路径 `path`；省略 `directory` 时放在应用配置目录的 `exports/`，桌面端可以传入“下载”文件夹 |
+
+导出学习数据时，界面先说明会话可能含有私人内容、默认不包含，再用 `export.prepare` 的清单让学习者确认要发出的文件；学习者切换“包含会话”时重新调用 `export.prepare`。确认以后用同一个 `exportId` 调用 `export.create`，写出的 zip 与清单一致。只有最近一次预览有效，写出成功以后它也失效。
 
 `LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。`completed` 带结论 `outcome`：`passed`、`failed`、`timeout` 或 `unresolved`。`unresolved` 表示测验已经结束（交卷或到了截止时间），但还有作答没判出结果，判出来可能改变结论；它与其他结论一样解除限制、释放反馈，判出以后后端发出 `learning.changed`，结论改为前三种之一。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
 
@@ -101,6 +105,8 @@ if (state.ok) renderLearning(state.value);
 | `model_required` | 无 details；这一步只剩要由模型判分的题而当前没有可用模型，任务保留，配好模型后继续，也可以中止 |
 | `restricted` | `restricted`，附 task id 和 stage，按当前限制恢复界面 |
 | `service_failed` | `service_failure`，附 service 和 retryable；先查询提交的持久状态，再决定恢复 |
+
+导出的错误来自底座，details 不属于上表，显示 message 即可：`export_expired` 表示预览已经写出或被新的预览取代，重新调用 `export.prepare`；`export_redaction_failed` 表示读不到保存的凭据，无法脱敏，没有生成导出；`invalid_path` 表示 `directory` 不是绝对路径，这份预览仍然有效。
 
 ### python.run
 

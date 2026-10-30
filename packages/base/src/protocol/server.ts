@@ -305,6 +305,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         now: () => runtime.now(),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
         services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
+        // 插件导出数据与反馈包用同一套脱敏：保存的凭据由运行时读出，读不到时导出失败。
+        exports: { home, credentials: () => runtime.credentials() },
         models: (pluginId) => ({
           complete: (request) => runtime.complete(request, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
           completeStructured: (request, schema) => runtime.completeStructured(request, schema, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),

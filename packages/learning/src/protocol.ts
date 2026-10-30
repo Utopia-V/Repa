@@ -18,6 +18,7 @@ import {
   canRender,
   checkResponse,
   ContentSchema,
+  ExportedFileSchema,
   identifier,
   ItemSchema,
   ItemResponseSchema,
@@ -342,6 +343,9 @@ export const learningMethods = {
   "quiz.retake": { input: object({ ...selection.properties, originalTaskId: identifier }), result: LearningStateSchema },
   "progress.get": { input: object({}), result: object({ serverNow: timestamp, progress: LearningProgressSchema }) },
   "progress.setGoal": { input: object({ dailyGoalXp: Type.Integer({ minimum: 1 }) }), result: LearningStateSchema },
+  // 导出学习数据：prepare 冻结一份已脱敏的内容并返回清单，create 把同一份内容写成 zip；directory 是绝对路径。
+  "export.prepare": { input: object({ sessions: Type.Boolean() }), result: object({ exportId: identifier, files: Type.Array(ExportedFileSchema) }) },
+  "export.create": { input: object({ exportId: identifier, directory: Type.Optional(identifier) }), result: object({ path: identifier }) },
 } as const;
 export type LearningMethod = keyof typeof learningMethods;
 export type LearningInput<M extends LearningMethod> = Static<(typeof learningMethods)[M]["input"]>;

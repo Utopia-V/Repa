@@ -224,6 +224,8 @@ export async function createPluginTestHost(options: PluginTestHostOptions): Prom
       now: options.now,
       ...(options.ask === undefined ? {} : { ask: options.ask }),
       ...(options.services === undefined ? {} : { services: options.services }),
+      // 导出写到临时目录的 home/exports/；没有保存的凭据，只按环境变量和格式替换。
+      exports: { home: path.join(directory, "home"), credentials: async () => [] },
       emit: (pluginId, event) => { events.push({ pluginId, event }); },
       onError: (error) => { errors.push(error); },
     });
