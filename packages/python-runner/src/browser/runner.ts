@@ -444,6 +444,12 @@ export class PythonRunner {
         reject(new PythonRunError("runtime_unavailable", "Python 运行器已经结束"));
         return;
       }
+      // 领取 Worker 之后到这里隔着几次 await，期间的取消不会再触发 abort 事件，只能在这里查一次。
+      // 查和登记监听之间没有 await，之后的取消都由 onAbort 接住。
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
       if (input.tests.length === 0) {
         finish();
         return;

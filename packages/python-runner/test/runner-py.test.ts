@@ -12,6 +12,9 @@ interface Generator {
   next(): { done: boolean; value: unknown };
 }
 
+/** 任务之外 Python 打印到解释器标准输出的内容；runner.py 自己收集的输出不会出现在这里。 */
+const escaped: string[] = [];
+
 /** 前端 Worker 调用 program_test 的方式：这里直接在测试进程里加载 Pyodide，测试代码是可信的。 */
 const frontend = (async () => {
   const reason = await packagesUnavailable();
@@ -25,7 +28,8 @@ const frontend = (async () => {
     }>;
   };
   const pyodide = await loadPyodide({
-    indexURL: `${assets.pyodideDirectory}/`, packageCacheDir: `${assets.packagesDirectory}/`, stdout: () => {}, stderr: () => {},
+    indexURL: `${assets.pyodideDirectory}/`, packageCacheDir: `${assets.packagesDirectory}/`,
+    stdout: (text: string) => escaped.push(text), stderr: () => {},
   });
   await pyodide.loadPackage(assets.load, { messageCallback: () => {} });
   pyodide.runPython(await readFile(RUNNER_FILE, "utf8"), { filename: "runner.py" });
@@ -135,4 +139,19 @@ test("handle_job 与 program_test 结果相同：capture 的值序列化后即�
   assert.deepEqual(program(pyodide.handleJob, released).result?.captures.x, { value: { t: "int", v: "5" } });
   assert.deepEqual(program(pyodide.handleJob, noisy).result?.captures["make()"], { error: { type: "OutputTooLong", message: "输出超过 64 KiB" } });
   assert.deepEqual(program(pyodide.handleJob, exiting).result?.captures["stop()"], { error: { type: "SystemExit", message: "3" } });
+});
+
+test("capture 的值在释放时打印的内容也收进这一项的输出、算进上限，不漏到任务之外", async (t) => {
+  const pyodide = await frontend;
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
+  const job = {
+    program: "class Noisy:\n    def __repr__(self):\n        return 'Noisy'\n    def __del__(self):\n        print('d' * 70000)",
+    captures: ["Noisy()"],
+  };
+  escaped.length = 0;
+  const checked = program(pyodide.handleJob, job);
+  const tested = run(pyodide.test, job);
+  assert.deepEqual(escaped.map((text) => text.length), []);
+  assert.deepEqual(checked.result?.captures, { "Noisy()": { value: { t: "repr", type: "Noisy", v: "Noisy" } } });
+  assert.deepEqual(tested.result, { status: "completed", result: checked.result });
 });

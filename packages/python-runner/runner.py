@@ -539,12 +539,14 @@ def program_steps(job):
         yield "serialize", index
         try:
             with contextlib.redirect_stdout(output):
-                captures[expression] = {"value": canon(value)}
+                try:
+                    captures[expression] = {"value": canon(value)}
+                finally:
+                    # 序列化完就释放：值的 __del__ 可能改动命名空间，要在下一项 capture 求值之前发生；
+                    # 它打印的内容也收进这一项的输出，算进同一个上限。
+                    del value
         except Exception as failure:  # noqa: BLE001
             captures[expression] = {"error": describe_error(failure)}
-        finally:
-            # 序列化完就释放：值的 __del__ 可能改动命名空间，要在下一项 capture 求值之前发生。
-            del value
     examples = []
     for index, source in enumerate(job["doctest"]):
         yield "doctest", index

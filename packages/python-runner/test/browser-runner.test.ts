@@ -297,6 +297,30 @@ test("取消正在进行的调用会结束 Worker，不交回结果；已取消�
   assert.equal(workers.length, count);
 });
 
+/** 再过 count 个微任务执行 action；0 表示立即执行。 */
+function afterMicrotasks(count: number, action: () => void): void {
+  if (count === 0) {
+    action();
+    return;
+  }
+  queueMicrotask(() => afterMicrotasks(count - 1, action));
+}
+
+test("领取预热的 Worker 之后、发出 run 之前取消，调用照样以 cancelled 结束，不留下运行着的 Worker", async () => {
+  // 依次在调用后的第 0 到 39 个微任务时取消，覆盖从领取预热 Worker 到发出 run 之间的每一步。
+  for (let delay = 0; delay < 40; delay += 1) {
+    const { runner, workers } = fixture(healthy(() => ({ phases: [["program", null]] })), { testTimeoutMs: 50 });
+    await runner.capabilities();
+    const controller = new AbortController();
+    const running = runner.run(input, controller.signal);
+    afterMicrotasks(delay, () => controller.abort());
+    await rejectsWith(running, "cancelled");
+    const ran = workers.filter((worker) => types(worker)?.includes("run"));
+    assert.deepEqual(ran.map((worker) => worker.terminated), ran.map(() => true), `第 ${delay} 个微任务时取消`);
+    runner.close();
+  }
+});
+
 test("close 结束预热的 Worker，取消正在进行的调用，之后不再预热", async () => {
   const { runner, workers } = fixture(healthy());
   await runner.run(input);
