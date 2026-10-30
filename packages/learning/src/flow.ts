@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
 import type { Host, MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
 import { contentVersion, parse, type ClientCapabilities } from "@repa/base/protocol";
+import { PYTHON_RUN } from "@repa/python-runner/protocol";
 import type { ResolvedCourse } from "./course-sources.js";
 import { content, slotTests, topicQuestions } from "./check/items.js";
 import { deliver, opaqueId, shuffled } from "./delivery.js";
@@ -32,7 +33,6 @@ import {
 import type { Grade, Projection } from "./records-schema.js";
 import type { LearningRecords } from "./records.js";
 import { progressMenu, updateProgress } from "./progress.js";
-import { pythonAvailable, runnerVersion } from "./python-execution.js";
 import { createSnapshot } from "./snapshot.js";
 
 const POOLS = {
@@ -41,6 +41,9 @@ const POOLS = {
   quiz: "quiz",
   retake: "quiz",
 } as const;
+
+/** 发起调用的前端能否运行 Python：它连接时在 capabilities.services 里声明了 python.run。不另外探测。 */
+const runsPython = (capabilities?: ClientCapabilities) => capabilities?.services?.includes(PYTHON_RUN) ?? false;
 
 /** 调用方先持久保存 preparing；复习与测验共用取消停稳后的计时、交付步骤。 */
 export async function beginRestricted(
@@ -67,8 +70,8 @@ export async function connectLearning(
   hooks: { beforeRestricted?: (task: LearningTask) => Promise<void> } = {},
 ): Promise<Pick<PluginInstance, "methods" | "close">> {
   const graph = graphFor(course);
+  /** 最近一次调用的前端能否运行 Python；不能时不出要运行代码的题。 */
   let pythonReady = false;
-  const runner = await runnerVersion();
   const state = () => {
     const current = records.current();
     if (!current) {
@@ -86,8 +89,7 @@ export async function connectLearning(
       if (!matchesPool) {
         return false;
       }
-      const requiresPython = entry.question.slots.some((slot) => slotTests(slot).length);
-      return !requiresPython || (pythonReady && course.expected?.[entry.question.id] !== undefined);
+      return pythonReady || !entry.question.slots.some((slot) => slotTests(slot).length);
     });
   };
   const supply = (id: string, kind: LearningTask["kind"], model: ReturnType<typeof replayLearning>) => {
@@ -251,7 +253,7 @@ export async function connectLearning(
     }
   }
   async function nextQuestion(current: Projection, capabilities?: ClientCapabilities, topicId?: string) {
-    pythonReady = await pythonAvailable(host, course.course.runtime, runner);
+    pythonReady = runsPython(capabilities);
     const task = requireTask(current);
     const seen = new Set(Object.values(current.deliveries).map((digest) => records.snapshot(digest)?.questionId));
     const id = topicId ?? task.topicIds[0] ?? "";
@@ -306,7 +308,6 @@ export async function connectLearning(
         item: delivery.item,
         idMap,
         graph,
-        ...(course.expected?.[entry.question.id] ? { expected: course.expected[entry.question.id] } : {}),
       }),
     );
     current.deliveries[delivery.deliveryId] = digest;
@@ -521,11 +522,8 @@ export async function connectLearning(
       result: learningMethods[name].result,
       invoke: async (raw, context) => {
         if (["state.get", "menu.select", "task.advance"].includes(name)) {
-          const available = await pythonAvailable(host, course.course.runtime, runner);
-          if (available !== pythonReady) {
-            pythonReady = available;
-            await save(state());
-          }
+          // 菜单随之变化时由下面的 refresh 保存；菜单不变就不写记录。
+          pythonReady = runsPython(context.caller?.capabilities);
         }
         // 泛型索引的 schema 联合无法保留 M；parse 已校验所属方法的输入。
         try {

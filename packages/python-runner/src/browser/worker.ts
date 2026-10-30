@@ -5,7 +5,7 @@
  *   有了它，Worker 发不出任何网络请求，也不能字符串求值，只能编译 WebAssembly。启动前先确认它生效，否则拒绝运行。
  * - Python 的 js 模块只看得到一个空对象，与 Node 宿主的 sandbox/runner.mjs 相同。
  * Pyodide 和 wheel 由页面取好、核对 SHA-256 后交进来；启动期间 fetch 用这些文件应答，启动后换回原来的 fetch。
- * 一个 Worker 只运行一批测试，用完由页面销毁，前一次提交的代码碰不到下一次。
+ * 一个 Worker 只运行一批测试，用完由页面销毁，前一次调用的代码碰不到下一次。
  */
 import type { loadPyodide as LoadPyodide } from "pyodide";
 
@@ -96,7 +96,13 @@ async function start(request: StartRequest): Promise<object> {
   }
 }
 
-/** 依次运行一批测试，每个阶段开始前告诉页面；某个测试没有正常结束就停下，剩下的由页面记为未执行。 */
+/** 这个测试之后能否接着用这个解释器：正常完成、并且恢复了解释器状态。与 @repa/python-runner/protocol 的 endsBatch 相同。 */
+function continues(response: unknown): boolean {
+  return typeof response === "object" && response !== null && "status" in response && response.status === "completed"
+    && !("restoreError" in response);
+}
+
+/** 依次运行一批测试，每个阶段开始前告诉页面；某个测试没有正常结束或恢复不了解释器状态就停下，剩下的由页面记为未执行。 */
 function run(tests: PythonTest[], test: NonNullable<typeof runTest>): void {
   for (const [index, job] of tests.entries()) {
     const response = test(JSON.stringify(job), (phase) => {
@@ -104,7 +110,7 @@ function run(tests: PythonTest[], test: NonNullable<typeof runTest>): void {
       send({ type: "phase", test: index, phase: String(name), index: typeof at === "number" ? at : null });
     });
     send({ type: "tested", test: index, response });
-    if (typeof response !== "object" || response === null || !("status" in response) || response.status !== "completed") return;
+    if (!continues(response)) return;
   }
 }
 
@@ -124,7 +130,7 @@ addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   try {
     run(request.tests, runTest);
   } catch (error) {
-    // program_test 自己接住测试里的异常；漏到这里说明解释器状态没能恢复，页面把它记为 Worker 失败。
+    // program_test 自己接住测试里的异常和恢复失败；漏到这里说明运行器本身出了问题，页面把它记为 Worker 失败。
     send({ type: "failed", message: error instanceof Error ? error.message : String(error) });
   }
 });

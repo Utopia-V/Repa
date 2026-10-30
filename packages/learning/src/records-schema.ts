@@ -1,7 +1,6 @@
 import { Type, type Static } from "typebox";
 import { identifier, ItemSchema, object } from "@repa/base/protocol";
 import { KnowledgeGraphSchema, ModelConfigSchema, StudentSchema } from "@repa/learning-model";
-import { ExpectedSchema } from "./python-execution.js";
 import { CourseSchema, TopicSchema } from "./format/schema.js";
 import { ContentRefSchema, FeedbackSchema, LearningStateSchema, SubmissionSchema } from "./protocol.js";
 
@@ -15,7 +14,6 @@ export const SnapshotSchema = object({
   topicVersion: identifier,
   kpVersion: identifier,
   questionVersion: identifier,
-  expected: Type.Optional(ExpectedSchema),
   item: ItemSchema,
   idMap: Type.Record(identifier, identifier),
   graph: KnowledgeGraphSchema,

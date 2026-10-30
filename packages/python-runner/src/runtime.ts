@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 /** 本包的根目录：dist/ 和 src/ 下的模块都在它下面一层。 */
 export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-/** runner.py 的绝对路径。Node 宿主从这里加载它；调用方也可以读它，确认与前端运行的是同一份。 */
+/** runner.py 的绝对路径，Node 宿主从这里加载它。 */
 export const RUNNER_FILE = path.join(PACKAGE_ROOT, "runner.py");
 
 /**

@@ -6,7 +6,7 @@
 
 ## 怎么用
 
-两边加载的是同一份 [`runner.py`](runner.py)。它给每个任务全新的命名空间和空的工作目录，任务后恢复解释器里常被改动的全局状态，再把结果序列化成可以在 Pyodide 之外比较的结构。判断对错由调用方负责：页面只交回运行结果，期望值和比较留在后端。
+两边加载的是同一份 [`runner.py`](runner.py)，用同一个 `program_test` 逐个阶段运行测试。它给每个测试全新的命名空间和空的工作目录，测试后恢复解释器里常被改动的全局状态，再把结果序列化成可以在 Pyodide 之外比较的结构。两边按同一份约定（[`src/protocol.ts`](src/protocol.ts)）成批运行测试、计时、归类结果，调用方换执行方时不用改判断。判断对错由调用方负责：本包只运行代码、交回结果。
 
 ### 在页面里运行
 
@@ -27,13 +27,15 @@ const runner = new PythonRunner({
 const stop = servePythonRun(client, runner); // client 是已经连接的 RepaClient
 ```
 
-`python.run` 的输入输出定义在 [`src/protocol.ts`](src/protocol.ts)，经 `@repa/python-runner/protocol` 导出，浏览器里也能用。后端先用 `kind: capabilities` 探测前端实际加载的 Pyodide、Python 和包版本，再把一次提交的全部测试作为一批交过来。每批测试在一个全新的 Worker 里依次运行，用完就销毁，后台随即预热下一个；每个测试单独计时 10 秒，某个测试超时或失败后整批停下，剩下的记为 `not_run`，结果写明停在哪个阶段。调用方取消（`service.closed`）或页面调用 `close()` 时，正在运行的 Worker 随即结束。
+`python.run` 的输入输出定义在 [`src/protocol.ts`](src/protocol.ts)，经 `@repa/python-runner/protocol` 导出，浏览器里也能用。前端连接时在 `capabilities.services` 里声明 `python.run`，就表示能运行 Python，后端不另外探测；`servePythonRun` 开始服务时就在后台预热一个 Worker。请求只有协议名和一批测试，不带调用方的标识；结果按顺序给出每个测试的状态，并记下实际加载的 Pyodide、Python 和 numpy、pandas 版本，调用方不拿它比较。
+
+每次调用在一个全新的 Worker 里依次运行这批测试，用完就销毁，后台随即预热下一个。准备（前导、夹具、setup）、被测代码（program、capture、doctest）和收尾各计时 10 秒；某个测试超时或失败后整批停下，剩下的记为 `not_run`，结果写明停在哪个阶段。测试后恢复解释器状态失败时，这个测试的结果在收尾之前已经算出，照样交回并带上 `restoreError`，余下的测试换一个新的 Worker 接着运行，所以一次调用用的 Worker 数是 1 加上恢复失败的次数；换 Worker 时起不来，已经得到的结果照样交回，下一个测试记为执行失败。调用方取消（`service.closed`）或页面调用 `close()` 时，正在运行的 Worker 随即结束。
 
 提供页面的宿主要做两件事。第一，在 `assetsUrl` 提供 `pyodide.mjs`、`pyodide.asm.mjs`、`pyodide.asm.wasm`、`python_stdlib.zip` 和 `pyodide-lock.json`，wheel 放在其下的 `packages/`；页面按 lockfile 核对 wheel 的 SHA-256 后才交给 Worker。第二，给 Worker 脚本的响应头加 CSP `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'`。Worker 不继承页面 meta 里的 CSP，没有这个响应头时，Python 一句 `pyfetch` 就能读到后端连接的 token；Worker 启动时会确认 CSP 生效，否则拒绝运行。Web 与 Desktop 的做法见[开发指南](../../docs/development/README.md)。
 
 ### 在 Linux 沙箱里运行
 
-Node 这边从包入口 `@repa/python-runner` 取用。`describeRuntime` 按要求的版本找到安装的 pyodide 和需要的 wheel，`verifyPackages` 核对离线包，`SandboxRunner` 按需启动沙箱并逐个运行任务：
+Node 这边从包入口 `@repa/python-runner` 取用。`describeRuntime` 按要求的版本找到安装的 pyodide 和需要的 wheel，`verifyPackages` 核对离线包，`SandboxRunner` 按需启动沙箱，`runTests` 按 `python.run` 的约定运行一批测试：
 
 ```ts
 import { describeRuntime, SandboxRunner, verifyPackages } from "@repa/python-runner";
@@ -43,11 +45,13 @@ const assets = await describeRuntime({
 });
 await verifyPackages(assets);
 const runner = new SandboxRunner({ assets });
-const outcome = await runner.run({ op: "program", data: [], setup: "", program: "total = 1 + 1", captures: ["total"], doctest: [] });
+const [result] = await runner.runTests([
+  { id: "a", prelude: "import pandas as pd", data: [], setup: "", program: "total = 1 + 1", captures: ["total"], doctest: [] },
+]);
 await runner.close();
 ```
 
-任务是交给 `runner.py` 的 `handle_job` 的一个 JSON 对象，`op` 为 `program`、`expect` 或 `verify`，每个任务都会带上 `prelude`。结果见 `JobOutcome`：`done` 是 `runner.py` 交回了结果，`timeout` 和 `crashed` 时沙箱已经结束。所有任务在同一个解释器里依次运行；任务超时（默认 10 秒）就结束整个沙箱，任务后恢复状态失败也会让运行器退出，下一个任务换一个新的沙箱。`starts` 是启动过的沙箱数，应等于 1 加上超时和崩溃的次数，调用方据此核对代价。沙箱建立不了时抛 `SandboxUnavailable`，调用方应当报错，不改用不受限的运行。
+`runTests` 与页面的不同只在于解释器的去留：所有测试在同一个解释器里依次运行，没有出问题的解释器留给下一次调用接着用；测试超时、失败或恢复解释器状态失败后结束这个沙箱，之后的测试换一个新的。计时和结果的归类与页面共用 [`src/test-results.ts`](src/test-results.ts)，超时按沙箱转发的阶段写明停在哪里。`run` 运行课程核对专用的 `verify` 任务（交给 `runner.py` 的 `handle_job` 的 JSON 对象），结果见 `JobOutcome`。`starts` 是启动过的沙箱数，应等于 1 加上超时、崩溃和恢复失败的次数，调用方据此核对代价。沙箱建立不了时抛 `SandboxUnavailable`，调用方应当报错，不改用不受限的运行。
 
 ### 离线包
 
@@ -70,7 +74,11 @@ pandas、NumPy 等 wheel 不在 npm 包 pyodide 里。课程清单决定要哪�
 
 每个任务从全新的命名空间开始，先运行 `prelude`，再准备数据夹具，工作目录是空的。任务后，`runner.py` 恢复 pandas 与 NumPy 的选项、builtins、输出流与显示钩子、`sys.path`、环境变量、warnings 过滤器，取消挂起的 asyncio 任务，删掉任务在工作目录、`/tmp` 和根目录下新建的文件，并用系统熵给 `random` 与 `numpy.random` 重新播种，与新的解释器一样，各任务抽到的数互不相关。程序在 capture 求值和序列化时打印的内容，包括值被释放时 `__del__` 打印的，都收进这一项的输出，共用 64 KiB 的上限。
 
-两个宿主都复用解释器，只为省去重新加载 Pyodide、NumPy 和 pandas 的时间：Node 宿主一直沿用同一个，页面在一批测试之内沿用、每批换一个新的 Worker；恢复失败或任务超时后，两边都换新的解释器。已导入的模块不在恢复之列，任务对它们的改动会带到同一个解释器里的后续任务。
+两个宿主都复用解释器，只为省去重新加载 Pyodide、NumPy 和 pandas 的时间：Node 宿主一直沿用同一个，页面在一次调用之内沿用、每次调用换一个新的 Worker；恢复失败或任务超时后，两边都换新的解释器。已导入的模块不在恢复之列，任务对它们的改动会带到同一个解释器里的后续任务。
+
+### 超时算谁的
+
+程序、capture 求值和 doctest 运行的是被测的代码，在这些阶段超时是测试的结果。序列化 capture 的值会调用值自己的 `__repr__`、`__len__` 和迭代，也可能是被测的代码，所以归在 capture 下，同样算测试的结果。准备阶段运行的是课程给的前导、夹具和 setup，收尾运行的是 `runner.py` 自己，这两段超时和任何阶段的崩溃都算执行失败。三段各自计时：如果共用一份时限，被测代码用掉大半之后在收尾时到点，就会被错算成执行失败。
 
 ## 对模型的影响
 
@@ -79,6 +87,7 @@ pandas、NumPy 等 wheel 不在 npm 包 pyodide 里。课程清单决定要哪�
 ## 已知限制与暂缓
 
 - 已导入模块的改动会带到同一个解释器里的后续任务。课程核对整门课共用一个解释器，一份候选程序给 pandas 打的补丁会影响之后的候选；判分时每次提交用新的 Worker，不受别的提交影响。随包课程没有这类改动：2026-10-30 记录了全部任务结束时留下的改动，只有新建的文件、`builtins._` 和库按需导入的模块。课程以后要教这类写法时，再为相关的候选换新的解释器；比较全部模块与类的属性也能拦下，但整门课核对会慢到约三倍，见[学习插件重做](../../.agents/notes/proposed/architecture/2026-10-30-learning-plugin-refactor.md)。
-- `runner.py` 还带着课程核对专用的 `verify`、`expect` 任务（作答位的形状、WWPD 的显示约定、期望表达式），`python.run` 的输入输出也还带着 `submissionId`、`gradeRevision` 和 runner 摘要。[学习插件重做](../../.agents/notes/proposed/architecture/2026-10-30-learning-plugin-refactor.md)的第 2 步让检查与判分共用同一入口，届时一并移出。
+- `runner.py` 还带着课程核对专用的 `verify` 任务（作答位的形状、WWPD 的显示约定），页面的 Worker 也加载这部分代码。它不在判分路径上；移出要让学习插件自带一份 Python 辅助代码，并决定怎样交给两个宿主，留到以后单独做。
+- 收尾时恢复状态抛出异常，结果照样交回；收尾卡住或解释器崩溃时，结果还在解释器里没有交出，这个测试记为执行失败。恢复运行的几乎都是 `runner.py` 自己的代码，又有单独的时限，这种情况基本只在运行器出错时出现，所以没有改成先交出结果再收尾。
 - Node 宿主只能在 Linux 上运行，依赖 Landlock（ABI 4 以上，Linux 6.7 起）、libseccomp 和 `/usr/bin/python3`；Windows、macOS 上的课程核对只能 `--no-run`。
 - `RLIMIT_DATA` 只管进程私有的可写内存，没有 cgroup 级的整树限制，线程数只受内存间接限制。运行比课程核对更不可信的内容之前需要再评估。

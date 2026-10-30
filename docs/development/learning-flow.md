@@ -32,20 +32,20 @@
 
 ### Python 内部执行边界
 
-`repa-python-batch-v1` 的 schema 定义在 `@repa/python-runner/protocol`（[protocol.ts](../../packages/python-runner/src/protocol.ts) 的 `PythonCapabilitiesSchema`、`PythonBatchInputSchema`、`PythonBatchResultSchema`），Web 与 Desktop 用运行器包提供 `python.run`（#51、#52）。`python-execution.ts` 是薄适配层，只调用 `host.services.call("python.run", …)` 并核对结果：
+代码题和带测试的 Parsons 题经前端服务 `python.run` 判分，协议是 `@repa/python-runner/protocol` 的 `repa-python-batch-v2`（[protocol.ts](../../packages/python-runner/src/protocol.ts)），Web 与 Desktop 用运行器包提供这项服务。能否运行 Python 只看前端连接时是否在 `capabilities.services` 里声明了 `python.run`：`state.get`、`menu.select`、`task.advance` 和出题时读调用方的声明，不调用服务探测；没有声明时，选题跳过代码题与带测试的 Parsons，某个 lesson 的未过 KP 没有可用题时不提供该 lesson。
 
-- `kind: capabilities` 返回 `protocol`、实际 `runtime`、`runner` 摘要和 `freshInterpreter: true`。`runtime` 只比较 Pyodide、Python 和包版本：`prelude` 是课程给的输入，前端探测时并不知道它。
-- `kind: execute` 携带原 `submissionId`、将采用的 `gradeRevision` 与有序 `tests`；每项包含唯一 id、program、prelude、setup、夹具、captures 和 doctest 输入，不包含期望表达式、期望值、参考解或 rubric。
-- 返回同一提交身份与目标判分版本、实际 `runtime`、`runner`、新解释器保证和同序结果。每项状态为 `completed`、`timeout`、`failed` 或 `not_run`；超时和失败携带 `prepare`、`program`、`capture`、`doctest` 或 `cleanup` 阶段。
-- 整批终止以后只允许剩余项为 `not_run`。学习者代码和被检查调用的超时形成判分，代码自身抛出的异常放在 `completed.result.error`。`failed` 表示执行环境失败，任何阶段都留待恢复；准备与收尾超时、版本不符、缺项及 `too_large` 同样留待恢复。
+判分（`judge.ts`）调用检查工具也用的入口 `runCodeTests`（[code-tests.ts](../../packages/learning/src/code-tests.ts)），用法见[学习插件说明](../../packages/learning/README.md#代码题的测试)。一次提交只调用一次 `python.run`：
 
-课程核对整门课共用一个解释器，依序运行每份候选程序的全部测试；任务之间由 `runner.py` 恢复状态，恢复失败或超时才换新的解释器，与判分在一批测试之内的做法相同。比较函数与正式判分共用。完整核对成功后原子生成课程根目录的 `expected.json`；只检查结构或限定 topic 时不发布产物。每道题的 binding 同时绑定题目与信用版本、测试、夹具、课程运行环境（包括 prelude）和 `runner.py` 内容摘要。加载课程时剔除缺项或版本失效的预计算结果；交付快照保存本题产物。
+- 请求只有协议名和有序的 `tests`，不带提交编号、判分版本、运行环境或 runner 摘要；后端在等这次调用的结果时就知道它属于哪份提交。前面是每个带 `expect` 的测试的期望任务（程序为空串，对期望表达式求值），后面是学习者程序的各个测试（program、prelude、setup、夹具、captures 和 doctest 输入）。参考解、`verify` 和 doctest、`stdout` 的期望输出不发给前端。
+- 结果按同样顺序给出每项的 `completed`、`timeout`、`failed` 或 `not_run`，并记下实际加载的版本，后端不拿它比较。超时和失败带 `prepare`、`program`、`capture`、`doctest` 或 `cleanup` 阶段；某项超时或失败后整批停下，余下的只能是 `not_run`。`completed` 带 `restoreError` 时结果照样有效，前端已经换了新的 Worker 运行余下的测试。
+- 后端核对结果与请求一一对应、顺序相同、停下前后的状态合乎约定，不合时按服务失败留待恢复。比较在后端完成：学习者的程序、capture 求值或 doctest 超时，以及比较不符，形成判分；准备与收尾超时、`failed`、期望值算不出来、学习者的值太大或结果缺项都没有结论，提交留待恢复，不记为学习失败。已有测试判错时整题照样判错。
+- 原始结果记进判分的 `source`。
 
-生产交付先探测服务语义。服务不满足内部批次接口，或者缺少有效期望值时，选题跳过代码题与带测试的 Parsons；某个 lesson 的未过 KP 无可用题时，不提供该 lesson。已交付后发生的服务故障则沿原 submission 恢复，不替换原答。
+课程核对用同一个入口，执行方换成 Node 沙箱，整门课一个解释器；核对不生成任何产物。已交付后发生的服务故障沿原 submission 恢复，不替换原答。
 
 ## 未完成项与待验证项
 
-- #51 已用真实 Web Worker 走通探测和批次执行，课程题的参考解与 `expected.json` 比较一致，见 #51 的验证记录。Desktop（#52）同步同一份实现后需要在 Electron 里再走一遍。
+- 协议改为 `repa-python-batch-v2`、期望值改为当场计算以后，代码题判分只在 Node 里用沙箱代替页面 Worker 验证过（`grading.test.ts`），还要在真实的 Web Worker 和 Electron 里各走一遍。
 - 辅导、内容授权读取和受限开始中止已接入，见[辅导说明](learning-tutor.md)；quiz、retake、XP、日目标与 ETA 已接入，见[测验与进度说明](learning-quiz-xp.md)。
 - 真实学习体验及算法对后续表现的解释，仍需后续组合试用和实际作答资料。
 
@@ -53,8 +53,8 @@
 
 在仓库根目录运行学习包的 `check`、`test`、`build` 和完整 `npm run course:check`。课程核对及依赖 Python 的测试可通过 `REPA_PYODIDE_PACKAGES` 指向已有离线 wheel 目录。
 
-`learning-flow.test.ts` 通过真实空间宿主和日志验证 py01、隔天复习、冷却、补救、菜单、独立资格、重判及关闭重开。`python-execution.test.ts` 验证批次顺序、版本、超时阶段、未执行项和比较失败分类。三处真实杀进程与残缺日志恢复继续由 `learning-records.test.ts` 覆盖。
+`learning-flow.test.ts` 通过真实空间宿主和日志验证 py01、隔天复习、冷却、补救、菜单、独立资格、重判及关闭重开，以及代码题只在前端声明 `python.run` 时出现、一次提交只调用一次服务。`code-tests.test.ts` 验证共用入口的调用顺序、超时归因、没有结论的情形和执行方守约检查；`grading.test.ts` 比对检查与判分对同一份作答的结论。三处真实杀进程与残缺日志恢复继续由 `learning-records.test.ts` 覆盖。
 
 运行测试时设置 `REPA_LEARNING_EVIDENCE=/absolute/directory`，会在新的 `counterfactual-*` 子目录保留反事实用例的原始 JSONL、删去关键作答的证据副本和同一决策时刻的菜单对照，供抽样复核。证据副本保留原 seq，仅供分析，不作为可直接追加的恢复日志。
 
-2026-10-21 在 Ubuntu 24.04、Node.js 22.22.2、npm 12.0.2 下完成类型检查、构建和协议浏览器构建。学习包 125 项用例全部通过，包含全量课程核对；模型库 28 项通过。本轮新增 7 项回归用例，覆盖超时中止、反馈页申诉、重教重试、同日冷却到期、及时提交的即时／延迟判分以及私有随机排列恢复。课程 CLI 全量核对通过，覆盖 48 个 topic、962 道题、811 份 verify 和 1,479 次测试执行，两轮生成的期望值产物字节一致。打包预览确认包含 `expected.json` 和教学流程产物。
+2026-10-21 在 Ubuntu 24.04、Node.js 22.22.2、npm 12.0.2 下完成类型检查、构建和协议浏览器构建。学习包 125 项用例全部通过，包含全量课程核对；模型库 28 项通过。本轮新增 7 项回归用例，覆盖超时中止、反馈页申诉、重教重试、同日冷却到期、及时提交的即时／延迟判分以及私有随机排列恢复。

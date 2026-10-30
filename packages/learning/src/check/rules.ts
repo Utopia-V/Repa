@@ -212,6 +212,10 @@ class TopicChecker {
       this.checkSlot(question, slot, [...at, "slots", slotIndex]);
     });
     this.checkVerification(question, at);
+    // 多步代码题（后一步继承前一步的解释器）还没有实现；在那之前一道题只能有一个要运行测试的作答位。
+    if (question.slots.filter((slot) => slotTests(slot).length > 0).length > 1) {
+      this.error("multiple_code_slots", "一道题最多一个按测试判的作答位（代码题或带测试的 Parsons 题）：多步代码题还不支持，互不相干的代码出成两道题", [...at, "slots"]);
+    }
     if ((entry.pool === "review" || entry.pool === "quiz") && question.slots.some((slot) => slot.type === "text" && slot.rubric)) {
       this.error("pool_open_question", "复习和测验题要由程序判分；含开放作答（rubric）的题只能放在例题或练习里", at);
     }

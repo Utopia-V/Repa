@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
-import os from "node:os";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
-import { Type } from "typebox";
-import { parse } from "@repa/base/protocol";
-import { ExpectedSchema, expectedBinding, runnerVersion } from "../src/python-execution.js";
 
 import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
@@ -116,20 +112,18 @@ test("课程清单要求的运行时与安装的不一致时报出，不运行�
   assert.equal(result.summary.ran, false);
 });
 
-test("随包的 Python 课程在 Pyodide 里全部核对通过", async (t) => {
+test("随包的 Python 课程在 Pyodide 里全部核对通过，只启动一个解释器，不在课程目录里留下产物", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) return skipUnavailableEnvironment(t, reason);
-  // 在副本上核对：完整核对通过后会重写 expected.json，测试不改仓库里的课程。
-  const root = await mkdtemp(path.join(os.tmpdir(), "repa-learning-course-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  await cp(PYTHON_COURSE, root, { recursive: true });
-  const result = await checkCourse(root, { base: root });
+  const before = await readdir(PYTHON_COURSE);
+  const result = await checkCourse(PYTHON_COURSE, { base: PYTHON_COURSE });
   assert.deepEqual(result.diagnostics, []);
   assert.equal(result.summary.ran, true);
   assert.equal(result.summary.topics.complete + result.summary.topics.outline, 48);
   assert.ok(result.summary.code.verifiedSlots > 0);
   assert.ok(result.summary.code.testRuns > 0);
   assert.equal(result.summary.code.interpreterStarts, 1);
+  assert.deepEqual(await readdir(PYTHON_COURSE), before);
 });
 
 test("verify 核对更严：多写的可接受值、忘了写 input 的答案列、按 repr 显示的字符串都会报出", async (t) => {
@@ -168,18 +162,13 @@ test("代码题的初始代码已经能通过测试、verify 遇到有多种正�
   assert.deepEqual(errors(result.diagnostics), ["starter_passes", "verify_alternatives"]);
 });
 
-test("后一份候选程序看不到前一份留下的变量、文件和环境变量，发布期望值绑定内容、运行前导和 runner", async (t) => {
+test("后一份候选程序看不到前一份留下的变量、文件和环境变量；核对不写任何产物", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) {
     return skipUnavailableEnvironment(t, reason);
   }
   const demo = demoCourse();
-  const entry = Object.values(demo.topics)
-    .flatMap((topic) => topic.kps.flatMap((kp) => kp.practice ?? []))
-    .find((question) => question.slots.some((slot) => slot.type === "code"));
-  assert.ok(entry);
-  const slot = entry.slots.find((slot): slot is CodeSlot => slot.type === "code");
-  assert.ok(slot);
+  const slot = practiceSlot<CodeSlot>(demo, 1, 0);
   const original = slot.solution;
   slot.solution = `import os\nos.environ["C2_LEAK"] = "1"\nopen("c2_leak.txt", "w").write("x")\nc2_leak = True\n${original}`;
   slot.accepts = [
@@ -188,19 +177,5 @@ test("后一份候选程序看不到前一份留下的变量、文件和环境�
   const root = await writeCourse(t, demo);
   const result = await checkCourse(root);
   assert.deepEqual(errors(result.diagnostics), []);
-  const expected = parse(
-    Type.Record(Type.String(), ExpectedSchema),
-    JSON.parse(await readFile(path.join(root, "expected.json"), "utf8")),
-  );
-  assert.equal(expected[entry.id]?.values[slot.id]?.length, slot.tests.length);
-  const topic = Object.values(demo.topics).find((topic) => topic.kps.some((kp) => kp.practice?.includes(entry)));
-  assert.ok(topic);
-  const runner = await runnerVersion();
-  const binding = await expectedBinding(entry, topic, demo.course.runtime, runner);
-  assert.equal(expected[entry.id]?.binding, binding);
-  assert.notEqual(
-    await expectedBinding(entry, topic, { ...demo.course.runtime, prelude: "different" }, runner),
-    binding,
-  );
-  assert.notEqual(await expectedBinding(entry, topic, demo.course.runtime, "different-runner"), binding);
+  assert.deepEqual((await readdir(root)).sort(), ["course.yaml", "topics"]);
 });

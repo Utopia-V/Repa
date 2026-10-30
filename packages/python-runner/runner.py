@@ -1,9 +1,9 @@
-"""在 Pyodide 里执行任务的 Python 部分。Linux 沙箱里由 sandbox/runner.mjs 加载，用 handle_job 执行任务；
-浏览器的 Worker 也加载它，用 program_test 逐个阶段执行测试。
+"""在 Pyodide 里执行任务的 Python 部分。浏览器的 Worker 和 Linux 沙箱里的 sandbox/runner.mjs 都加载它，
+用同一个 program_test 逐个阶段运行测试；沙箱另用 handle_job 运行课程核对专用的 verify 任务。
 
 每个任务用全新的命名空间（先运行调用方给的运行前导）和空的工作目录，
 任务后把解释器里常被改动的全局状态（pandas 与 NumPy 的选项、builtins、sys 的输出与显示钩子和 path、
-环境变量、warnings 过滤器、挂起的 asyncio 任务、工作目录与临时目录里新建的文件）恢复原样，并给 random 与 numpy.random 重新播种，恢复不了就以 SystemExit 结束。
+环境变量、warnings 过滤器、挂起的 asyncio 任务、工作目录与临时目录里新建的文件）恢复原样，并给 random 与 numpy.random 重新播种。
 已导入的模块不在恢复之列，任务对它们的改动会带到同一个解释器里的后续任务。
 宿主复用解释器：Node 宿主的 SandboxRunner 一直沿用同一个，浏览器宿主在一批测试之内沿用、每批换一个新的 Worker；
 恢复失败或任务超时后，两边都换新的解释器。复用只为省去启动时间，不是安全边界
@@ -76,9 +76,10 @@ def clear_scratch():
 
 
 def reset_state():
+    """verify 任务后恢复状态；恢复不了就以 SystemExit 结束运行器，下一个任务换新的。"""
     try:
         restore_state()
-    except Exception as error:  # noqa: BLE001  恢复失败时由外层结束运行器，下一个任务换新的
+    except Exception as error:  # noqa: BLE001
         raise SystemExit(f"无法恢复解释器状态：{error}") from error
 
 
@@ -509,23 +510,11 @@ def prepared(job):
     return namespace
 
 
-def job_expect(job):
-    results = {}
-    for expression, source in job["exprs"].items():
-        namespace = prepared(job)
-        try:
-            with contextlib.redirect_stdout(LimitedOutput()):
-                results[expression] = {"value": canon(eval(compile(source, "<expect>", "eval"), namespace))}
-        except Exception as error:  # noqa: BLE001
-            results[expression] = {"error": describe_error(error)}
-    return results
-
-
 def program_steps(job):
-    """program 任务的生成器：每个阶段开始前产出 (阶段, 序号)，返回值是任务结果。
+    """一个测试的生成器：每个阶段开始前产出 (阶段, 序号)，返回值是测试结果。
 
-    Node 宿主经 handle_job 用 job_program 一口气跑完；浏览器 Worker 用 program_test 在每步之间告诉页面，超时时页面按最后收到的阶段判断停在哪里。
-    capture 的求值是学习者的代码，序列化是运行器的，所以分成 capture 和 serialize 两步，但共用一个输出上限。
+    宿主在每步之间把阶段告诉调用方，超时时调用方按最后收到的阶段判断停在哪里。
+    capture 的求值是被测的代码，序列化是运行器的，所以分成 capture 和 serialize 两步，但共用一个输出上限。
     """
     yield "prepare", None
     namespace = prepared(job)
@@ -566,36 +555,34 @@ def program_steps(job):
     return {"stdout": stdout, "error": error, "captures": captures, "doctest": examples}
 
 
-def job_program(job):
-    steps = program_steps(job)
-    try:
-        while True:
-            next(steps)
-    except StopIteration as done:
-        return done.value
-
-
 def program_test(line):
-    """前端 python.run 的一个测试：产出 program_steps 的各个阶段，最后产出 cleanup 并恢复解释器状态。
+    """python.run 的一个测试：产出 program_steps 的各个阶段，最后产出 cleanup 并恢复解释器状态。
 
-    line 是 @repa/python-runner/protocol 的 PythonTest。返回 JSON：{"status": "completed", "result": program 任务的结果}，
+    line 是 @repa/python-runner/protocol 的 PythonTest。返回 JSON：{"status": "completed", "result": 测试结果}，
     或前导、夹具、setup 出错时的 {"status": "failed", "phase": "prepare", "error"}。
+    结果在收尾之前已经算出，所以恢复失败时 completed 的结果照样交回，另带 restoreError；
+    宿主见到它就不再用这个解释器运行别的测试。
     """
     test = json.loads(line)
     job = {**test, "data": [{**item["fixture"], "label": item["label"]} for item in test["data"]]}
     try:
         result = {"status": "completed", "result": (yield from program_steps(job))}
-    except Exception as failure:  # noqa: BLE001  学习者代码的异常已在各阶段记下；到这里的是前导、夹具或 setup 出错
+    except Exception as failure:  # noqa: BLE001  被测代码的异常已在各阶段记下；到这里的是前导、夹具或 setup 出错
         result = {"status": "failed", "phase": "prepare", "error": describe_error(failure)}
     yield "cleanup", None
-    reset_state()
+    try:
+        restore_state()
+    except BaseException as error:  # noqa: BLE001  failed 之后宿主本来就会停下，只有 completed 需要标出
+        if result["status"] == "completed":
+            result["restoreError"] = describe_error(error)
     return json.dumps(result, ensure_ascii=False)
 
 
-JOBS = {"verify": job_verify, "expect": job_expect, "program": job_program}
+JOBS = {"verify": job_verify}
 
 
 def handle_job(line):
+    """Node 宿主运行课程核对专用任务（目前只有 verify）的入口；测试都经 program_test 运行。"""
     job = json.loads(line)
     try:
         reply = json.dumps({"ok": True, "result": JOBS[job["op"]](job)}, ensure_ascii=False)

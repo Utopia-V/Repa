@@ -1,11 +1,8 @@
-import { contentVersion } from "@repa/base/protocol";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 
-import {
-  PYTHON_BATCH, PythonBatchResultSchema, PythonPhaseSchema,
-  type PythonBatchInput, type PythonBatchResult, type PythonPhase, type PythonTestResult,
-} from "../protocol.js";
+import { endsBatch, PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult, type PythonTestResult } from "../protocol.js";
+import { failedAt, readStep, readTested, restartsTimer, timedOut, type Step } from "../test-results.js";
 import type { WorkerMessage, WorkerRequest } from "./messages.js";
 
 /**
@@ -13,7 +10,7 @@ import type { WorkerMessage, WorkerRequest } from "./messages.js";
  */
 const TEST_TIMEOUT_MS = 10_000;
 const START_TIMEOUT_MS = 60_000;
-/** runner.py 在模块顶层导入它们，探测时报告的也是它们；依赖由 pyodide-lock.json 补全。 */
+/** runner.py 在模块顶层导入它们，结果里报告的也是它们；依赖由 pyodide-lock.json 补全。 */
 const RUNNER_PACKAGES = ["numpy", "pandas"];
 const CORE_FILES = ["pyodide.asm.wasm", "python_stdlib.zip"];
 
@@ -125,21 +122,13 @@ const LoadedSchema = Type.Object({
 });
 type Loaded = Static<typeof LoadedSchema>;
 
-/** 只报告问到的包；没有加载的包不出现，后端比较时就知道环境不符。 */
-function environment(loaded: Loaded, packages: readonly string[]) {
-  const versions = packages.flatMap((name) => {
+/** 结果里记下的运行环境：Pyodide、Python 和 runner.py 导入的包的实际版本。 */
+function environment(loaded: Loaded): PythonBatchResult["runtime"] {
+  const versions = RUNNER_PACKAGES.flatMap((name) => {
     const version = loaded.packages[name];
     return version === undefined ? [] : [[name, version] as const];
   });
   return { pyodide: loaded.pyodide, python: loaded.python, packages: Object.fromEntries(versions) };
-}
-
-/** 探测的回答，见 @repa/python-runner/protocol 的 PythonCapabilitiesSchema。 */
-export interface PythonCapabilities {
-  protocol: typeof PYTHON_BATCH;
-  runtime: ReturnType<typeof environment>;
-  runner: string;
-  freshInterpreter: true;
 }
 
 function readMessage(value: unknown): WorkerMessage | undefined {
@@ -154,34 +143,6 @@ function readMessage(value: unknown): WorkerMessage | undefined {
     return { type: "tested", test: value.test, response: value.response };
   }
   return undefined;
-}
-
-/** Worker 报告的阶段。serialize 是运行器序列化 capture 的值，不运行学习者的代码；对外归在 capture 下，但超时算执行失败。 */
-type Step = PythonPhase | "serialize";
-const TestResultSchema = PythonBatchResultSchema.properties.tests.items;
-
-function workerFailure(id: string, step: Step, message: string): PythonTestResult {
-  return { id, status: "failed", phase: step === "serialize" ? "capture" : step, error: { type: "WorkerError", message } };
-}
-
-function timedOut(id: string, step: Step, seconds: number): PythonTestResult {
-  // 序列化慢不是学习者的错，记为执行失败，后端保留待恢复。
-  if (step === "serialize") return { id, status: "failed", phase: "capture", error: { type: "TimeoutError", message: `序列化 capture 的值超过 ${seconds} 秒` } };
-  return { id, status: "timeout", phase: step };
-}
-
-/** runner.py 的 program_test 的返回值：completed 是 program 任务的结果，failed 是前导、夹具或 setup 出错。其他的都当作 Worker 出了问题。 */
-function readTested(id: string, step: Step, response: unknown): PythonTestResult {
-  if (typeof response === "object" && response !== null && "status" in response
-    && (response.status === "completed" || response.status === "failed")) {
-    const result = { ...response, id };
-    if (Value.Check(TestResultSchema, result)) return result;
-  }
-  return workerFailure(id, step, "运行器返回了无法识别的结果");
-}
-
-function readStep(phase: string): Step | undefined {
-  return phase === "serialize" ? phase : Value.Check(PythonPhaseSchema, phase) ? phase : undefined;
 }
 
 /** 一个 Worker：启动一次、运行一批测试，之后销毁。出错时通知正在听的一方并结束。 */
@@ -241,13 +202,11 @@ function cancelled(signal: AbortSignal | undefined): void {
 }
 
 /**
- * 在 Worker 里用 Pyodide 运行 python.run 的测试。每次调用用一个全新、没有运行过学习者代码的 Worker，用完就销毁；
- * 探测和每次调用之后在后台预热下一个。调用逐个执行。取好的文件留在页面里，启动新 Worker 时不再下载。
+ * 在 Worker 里用 Pyodide 运行 python.run 的测试。每次调用用一个全新、没有运行过别的代码的 Worker，用完就销毁；
+ * warm 和每次调用之后在后台预热下一个。调用逐个执行。取好的文件留在页面里，启动新 Worker 时不再下载。
  */
 export class PythonRunner {
   readonly #options: PythonRunnerOptions;
-  /** runner.py 的 contentVersion；调用方用同一个算法算出自己那份的版本，据此确认两边运行的是同一份 runner.py。 */
-  readonly #runnerVersion: Promise<string>;
   #files: Promise<RuntimeFiles> | undefined;
   #standby: Promise<Started> | undefined;
   /** 正在进行的调用；close 用它取消。 */
@@ -258,17 +217,11 @@ export class PythonRunner {
 
   constructor(options: PythonRunnerOptions) {
     this.#options = options;
-    this.#runnerVersion = contentVersion(options.runnerSource);
   }
 
-  /** 探测：启动（或复用）预热的 Worker，报告它实际加载的环境。不运行代码，也不占用那个 Worker。 */
-  async capabilities(signal?: AbortSignal): Promise<PythonCapabilities> {
-    cancelled(signal);
-    if (!this.#standby) this.#prepare();
-    const standby = this.#standby;
-    if (!standby) throw new PythonRunError("runtime_unavailable", "Python 运行器已经关闭");
-    const [{ loaded }, runner] = await abortable(Promise.all([standby, this.#runnerVersion]), signal, "探测已取消");
-    return { protocol: PYTHON_BATCH, runtime: environment(loaded, RUNNER_PACKAGES), runner, freshInterpreter: true };
+  /** 在后台预热一个 Worker，第一次运行就不必等 Pyodide 启动；已经有预热的就什么也不做。启动失败留给之后的调用报告。 */
+  warm(): void {
+    this.#prepare();
   }
 
   run(input: PythonBatchInput, signal?: AbortSignal): Promise<PythonBatchResult> {
@@ -299,20 +252,55 @@ export class PythonRunner {
     external?.addEventListener("abort", forward, { once: true });
     this.#running = controller;
     try {
-      const started = await this.#take(controller.signal);
-      try {
-        return await this.#execute(started, input, controller.signal);
-      } finally {
-        started.instance.end();
-        if (generation === this.#generation) this.#prepare();
+      // 第一个 Worker 起不来时什么都没有运行，照常以错误结束。
+      let batch = await this.#once(input.tests, controller.signal, generation);
+      const { runtime } = batch;
+      const tests: PythonTestResult[] = [];
+      // 恢复解释器状态失败时，那个测试的结果照样收下，余下的测试换一个新的 Worker 接着运行；每轮至少有一个测试得到结果。
+      for (;;) {
+        const stop = batch.tests.findIndex((test) => test.status === "not_run");
+        const finished = stop < 0 ? batch.tests : batch.tests.slice(0, stop);
+        tests.push(...finished);
+        const last = finished.at(-1);
+        if (stop < 0 || last?.status !== "completed" || last.restoreError === undefined) {
+          tests.push(...batch.tests.slice(finished.length));
+          break;
+        }
+        const rest = input.tests.slice(tests.length);
+        try {
+          batch = await this.#once(rest, controller.signal, generation);
+        } catch (error) {
+          // 换 Worker 时失败：已经得到的结果留下，下一个测试记为执行失败，其余未执行。
+          const [next, ...others] = rest;
+          if (next === undefined || (error instanceof PythonRunError && error.code === "cancelled")) throw error;
+          tests.push(failedAt(next.id, "prepare", error instanceof Error ? error.message : "Python 运行器出错"));
+          tests.push(...others.map(({ id }) => ({ id, status: "not_run" as const })));
+          break;
+        }
       }
+      return { protocol: PYTHON_BATCH, runtime, tests };
     } finally {
       external?.removeEventListener("abort", forward);
       this.#running = undefined;
     }
   }
 
+  /** 领取一个 Worker 运行这些测试，用完就结束它，并在后台预热下一个。 */
+  async #once(tests: PythonBatchInput["tests"], signal: AbortSignal, generation: number): Promise<PythonBatchResult> {
+    cancelled(signal);
+    if (generation !== this.#generation) throw new PythonRunError("cancelled", "Python 运行器已经关闭");
+    const started = await this.#take(signal);
+    try {
+      return await this.#execute(started, { protocol: PYTHON_BATCH, tests }, signal);
+    } finally {
+      started.instance.end();
+      if (generation === this.#generation) this.#prepare();
+    }
+  }
+
+  /** 预热一个 Worker；已经有预热的就不再开，否则旧的那个没人能结束。 */
   #prepare(): void {
+    if (this.#standby) return;
     const standby = this.#start(undefined);
     standby.catch(() => {
       // 预热失败不在这里报告，失败交给正在等它的探测或调用。清掉它，下一次探测或调用重新启动，
@@ -401,10 +389,12 @@ export class PythonRunner {
     return { instance, loaded: ready };
   }
 
-  /** 按顺序运行全部测试。每个测试单独计时；超时或失败就结束 Worker，停在的阶段写进结果，之后的测试记为未执行。 */
-  async #execute({ instance, loaded }: Started, input: PythonBatchInput, signal: AbortSignal | undefined): Promise<PythonBatchResult> {
+  /**
+   * 在这个 Worker 里按顺序运行测试。准备、被测代码和收尾各自计时；超时或失败就结束 Worker，停在的阶段写进结果，
+   * 之后的测试记为未执行。恢复解释器状态失败时这个测试的结果已经算出，照样交回，余下的测试也记为未执行，由 #run 换 Worker 接着运行。
+   */
+  #execute({ instance, loaded }: Started, input: PythonBatchInput, signal: AbortSignal | undefined): Promise<PythonBatchResult> {
     const timeoutMs = this.#options.testTimeoutMs ?? TEST_TIMEOUT_MS;
-    const runner = await this.#runnerVersion;
     return new Promise<PythonBatchResult>((resolve, reject) => {
       const tests: PythonTestResult[] = [];
       let step: Step = "prepare";
@@ -419,21 +409,13 @@ export class PythonRunner {
         settle();
         if (last) tests.push(last);
         for (const test of input.tests.slice(tests.length)) tests.push({ id: test.id, status: "not_run" });
-        resolve({
-          protocol: PYTHON_BATCH,
-          submissionId: input.submissionId,
-          gradeRevision: input.gradeRevision,
-          runtime: environment(loaded, Object.keys(input.runtime.packages)),
-          runner,
-          freshInterpreter: true,
-          tests,
-        });
+        resolve({ protocol: PYTHON_BATCH, runtime: environment(loaded), tests });
       };
       const arm = () => {
         clearTimeout(timer);
         timer = setTimeout(() => {
           const test = current();
-          if (test) finish(timedOut(test.id, step, timeoutMs / 1000));
+          if (test) finish(timedOut(test.id, step));
         }, timeoutMs);
       };
       const onAbort = () => {
@@ -459,11 +441,14 @@ export class PythonRunner {
         const test = current();
         if (!test || (message.type !== "phase" && message.type !== "tested") || message.test !== tests.length) return;
         if (message.type === "phase") {
-          step = readStep(message.phase) ?? step;
+          const entered: Step = readStep(message.phase) ?? step;
+          if (entered !== step && restartsTimer(entered)) arm();
+          step = entered;
           return;
         }
         const result = readTested(test.id, step, message.response);
-        if (result.status !== "completed") {
+        // 失败、超时之后整批停下；恢复失败之后这个 Worker 也不再运行余下的测试，由 #run 换一个接着运行。
+        if (endsBatch(result) || (result.status === "completed" && result.restoreError !== undefined)) {
           finish(result);
           return;
         }
@@ -473,7 +458,7 @@ export class PythonRunner {
         else arm();
       }, (message) => {
         const test = current();
-        if (test) finish(workerFailure(test.id, step, message));
+        if (test) finish(failedAt(test.id, step, message));
       });
       arm();
       instance.post({ type: "run", tests: input.tests });

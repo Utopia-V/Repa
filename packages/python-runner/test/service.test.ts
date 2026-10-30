@@ -3,30 +3,20 @@ import test from "node:test";
 
 import type { RepaClient } from "@repa/base/client";
 
-import { PythonRunError, type PythonCapabilities } from "../src/browser/runner.js";
+import { PythonRunError } from "../src/browser/runner.js";
 import { servePythonRun } from "../src/browser/service.js";
 import { PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult } from "../src/protocol.js";
 
 const runtime = { pyodide: "314.0.7", python: "3.14.2", packages: { pandas: "3.0.2" } };
 const input: PythonBatchInput = {
   protocol: PYTHON_BATCH,
-  kind: "execute",
-  submissionId: "sub-1",
-  gradeRevision: 1,
-  runtime,
-  runner: "sha256:runner",
   tests: [{ id: "total", program: "total = 1 + 1", prelude: "", setup: "", data: [], captures: ["total"], doctest: [] }],
 };
 const result: PythonBatchResult = {
   protocol: PYTHON_BATCH,
-  submissionId: "sub-1",
-  gradeRevision: 1,
   runtime,
-  runner: "sha256:runner",
-  freshInterpreter: true,
   tests: [{ id: "total", status: "completed", result: { stdout: "", error: null, captures: { total: { value: 2 } }, doctest: [] } }],
 };
-const capabilities: PythonCapabilities = { protocol: PYTHON_BATCH, runtime, runner: "sha256:runner", freshInterpreter: true };
 
 type Run = (input: PythonBatchInput, signal?: AbortSignal) => Promise<PythonBatchResult>;
 
@@ -51,19 +41,18 @@ function fixture(run: Run) {
     for (const listener of listeners.get(method) ?? []) listener(params);
   };
   const runs: [PythonBatchInput, AbortSignal | undefined][] = [];
-  let probes = 0;
+  let warmed = 0;
   const runner = {
     run: (received: PythonBatchInput, signal?: AbortSignal) => {
       runs.push([received, signal]);
       return run(received, signal);
     },
-    capabilities: () => {
-      probes += 1;
-      return Promise.resolve(capabilities);
+    warm: () => {
+      warmed += 1;
     },
   };
   const stop = servePythonRun(client, runner);
-  return { emit, replies, runs, probes: () => probes, stop };
+  return { emit, replies, runs, warmed: () => warmed, stop };
 }
 
 /** 等所有已排队的回调跑完。 */
@@ -79,19 +68,15 @@ test("把 python.run 交给运行器，结果用 service.reply 交回", async ()
   assert.ok(runs[0]?.[1] instanceof AbortSignal);
 });
 
-test("探测交给运行器的 capabilities，不运行代码", async () => {
-  const { emit, replies, runs, probes } = fixture(() => Promise.resolve(result));
-  emit("service.request", { id: "req-1", service: "python.run", input: { protocol: PYTHON_BATCH, kind: "capabilities" } });
-  await settled();
-
-  assert.deepEqual(replies, [{ id: "req-1", result: capabilities }]);
-  assert.equal(probes(), 1);
+test("开始服务时预热一次运行器，不等第一次调用", () => {
+  const { warmed, runs } = fixture(() => Promise.resolve(result));
+  assert.equal(warmed(), 1);
   assert.equal(runs.length, 0);
 });
 
 test("输入不符合约定、测试 id 重复或请求了别的服务时直接以错误回复，不运行代码", async () => {
   const { emit, replies, runs } = fixture(() => Promise.resolve(result));
-  emit("service.request", { id: "req-1", service: "python.run", input: { ...input, protocol: "repa-python-batch-v0" } });
+  emit("service.request", { id: "req-1", service: "python.run", input: { ...input, protocol: "repa-python-batch-v1" } });
   emit("service.request", { id: "req-2", service: "r.run", input: {} });
   emit("service.request", { id: "req-3", service: "python.run", input: { ...input, tests: [...input.tests, ...input.tests] } });
   await settled();

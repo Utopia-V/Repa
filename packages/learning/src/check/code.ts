@@ -2,41 +2,42 @@
  * 在与学习者相同版本的 Pyodide 里核对题目：
  * - verify：运行作者写的核对程序，独立算出各作答位的答案，按作答位的判分规则必须判对，
  *   而且标准答案里写的每个可接受值都要与算出的答案一致；
- * - 代码题与按测试判的 Parsons 题：参考答案和 accepts 必须通过全部测试；rejects 和作答框里的初始代码
- *   必须至少错一个，否则测试还分不出这些错误。
- * 运行在沙箱里进行，结果的比较在沙箱外。候选程序依次在同一个解释器里运行，与判分在一批测试之内的做法相同：
- * 每个任务从全新的命名空间开始，任务后由 runner.py 恢复常被改动的全局状态，只有恢复失败或超时才换新的解释器。
+ * - 代码题与按测试判的 Parsons 题：用判分的入口（code-tests.ts 的 runCodeTests）判参考答案和 accepts，必须全部通过；
+ *   rejects 和作答框里的初始代码必须至少错一个测试，否则测试还分不出这些错误。
+ * 运行在沙箱里进行，结果的比较在沙箱外。整门课共用一个解释器：每个任务从全新的命名空间开始，
+ * 任务后由 runner.py 恢复常被改动的全局状态，恢复失败或超时才换新的解释器。
  */
 
-import { parse, type Answer } from "@repa/base/protocol";
+import type { Answer } from "@repa/base/protocol";
 import type { JobOutcome, SandboxRunner } from "@repa/python-runner";
-import { PythonProgramResultSchema } from "@repa/python-runner/protocol";
+import { answerProgram, runCodeTests, runnerFixture, slotTestPlan, type ProgramOutcome, type RunTests } from "../code-tests.js";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedTopic } from "../format/load.js";
-import type { CodeTest, Question, SlotDef, Topic } from "../format/schema.js";
-import { parseDoctest } from "./doctest.js";
+import type { Question, SlotDef, Topic } from "../format/schema.js";
 import { gradeSlot, matchesCell, matchesText } from "./grade.js";
 import {
-  acceptedValues, content, inputCells, itemIndent, orderItemCode, scalarText, tableCell, textMatch, topicQuestions, type QuestionEntry,
+  acceptedValues, content, inputCells, itemIndent, referenceAnswer, scalarText, slotTests, tableCell, textMatch, topicQuestions, type QuestionEntry,
 } from "./items.js";
 import { slotNeedsVerification } from "./rules.js";
-import { programProblem, runnerFixture, type Expected } from "../python-execution.js";
 
 export interface CodeStats {
   verifyJobs: number;
   verifiedSlots: number;
+  /** 运行过的测试数，包括算期望值的任务。 */
   testRuns: number;
-  /** 启动过的解释器数：应是 1，加上每次超时和崩溃之后换的新解释器。 */
+  /** 启动过的解释器数：应是 1，加上每次超时、崩溃或恢复失败之后换的新解释器。 */
   interpreterStarts: number;
 }
 
 interface Context {
   runner: SandboxRunner;
+  /** 测试的执行方：同一个沙箱，按 python.run 的约定运行。 */
+  run: RunTests;
   report: Report;
   loaded: LoadedTopic;
   stats: CodeStats;
+  prelude: string;
   timeoutMs?: number;
-  expected?: Record<string, Expected>;
 }
 
 type RunnerData = Record<string, unknown>[];
@@ -253,135 +254,94 @@ async function runVerify(entry: QuestionEntry, at: ValuePath, context: Context):
 // 测试
 // ---------------------------------------------------------------------------
 
-interface PreparedTest {
-  test: CodeTest;
-  data: RunnerData;
-  /** expect 的期望值，由期望表达式算出。 */
-  expected: Record<string, unknown>;
+/** 一份要核对的候选程序：作答、在课程文件里的位置，以及判分应得的结论。 */
+interface Candidate {
+  answer: Answer;
+  where: ValuePath;
+  /** pass：须全部通过；fail：须至少错一个测试。 */
+  expect: "pass" | "fail";
+  /** 报告里怎样称呼它。 */
+  label: string;
 }
 
-/** 先算出每个测试的期望值；期望表达式本身出错的测试不能用，返回 undefined。 */
-async function prepareTests(question: Question, tests: CodeTest[], at: ValuePath, context: Context): Promise<PreparedTest[] | undefined> {
-  const prepared: PreparedTest[] = [];
-  let usable = true;
-  for (const [index, test] of tests.entries()) {
-    const data = runnerData(test.data ?? question.data ?? [], context.loaded.topic);
-    if (!data) return undefined;
-    const expected: Record<string, unknown> = {};
-    if (test.expect) {
-      const outcome = await context.runner.run({ op: "expect", data, setup: test.setup ?? "", exprs: test.expect }, context.timeoutMs);
-      const problem = failure(outcome);
-      if (problem || outcome.status !== "done" || !outcome.ok) {
-        context.report.error("test_expect_failed", `测试“${test.name}”的期望值算不出来：${problem ?? ""}`, context.loaded.file, [...at, "tests", index]);
-        usable = false;
-        continue;
-      }
-      for (const [expression, value] of Object.entries(outcome.result as Record<string, { value?: unknown; error?: { type: string; message: string } }>)) {
-        if (value.error) {
-          context.report.error("test_expect_failed", `测试“${test.name}”的期望表达式 ${expression} 出错：${value.error.type}: ${value.error.message}`, context.loaded.file, [...at, "tests", index, "expect"]);
-          usable = false;
-        }
-        expected[expression] = value.value;
-      }
-    }
-    prepared.push({ test, data, expected });
+function candidates(slot: SlotDef): Candidate[] {
+  if (slot.type === "code") {
+    return [
+      { answer: referenceAnswer(slot), where: ["solution"], expect: "pass", label: "参考答案" },
+      ...(slot.accepts ?? []).map((code, index): Candidate => ({ answer: { type: "code", code }, where: ["accepts", index], expect: "pass", label: "应当通过的写法" })),
+      // 作答框里的初始代码是要学生改的；它若已经通过全部测试，测试就分不出学生有没有改对。
+      { answer: { type: "code", code: slot.starter }, where: ["starter"], expect: "fail", label: "作答框里的初始代码" },
+      ...(slot.rejects ?? []).map((rejected, index): Candidate => ({
+        answer: { type: "code", code: rejected.code }, where: ["rejects", index], expect: "fail", label: `错误写法（${rejected.why}）`,
+      })),
+    ];
   }
-  return usable ? prepared : undefined;
+  if (slot.type !== "order") return [];
+  const arrangement = (items: string[]): Answer => ({
+    type: "order", items, ...(slot.indent === undefined ? {} : { indents: items.map((id) => itemIndent(slot, id)) }),
+  });
+  return [
+    { answer: referenceAnswer(slot), where: ["key"], expect: "pass", label: "标准排列" },
+    ...(slot.alternatives ?? []).map((items, index): Candidate => ({ answer: arrangement(items), where: ["alternatives", index], expect: "pass", label: "其他正确排列" })),
+  ];
 }
 
-/** 在一个测试上运行一段作答代码；通过返回 undefined，否则返回原因。 */
-async function runTest(program: string, prepared: PreparedTest, context: Context): Promise<string | undefined> {
-  const { test } = prepared;
-  const examples = test.doctest === undefined ? [] : parseDoctest(test.doctest).examples;
-  context.stats.testRuns += 1;
-  const outcome = await context.runner.run({
-    op: "program", data: prepared.data, setup: test.setup ?? "", program,
-    captures: Object.keys(test.expect ?? {}), doctest: examples.map((example) => example.source),
-  }, context.timeoutMs);
-  const problem = failure(outcome);
-  if (problem || outcome.status !== "done" || !outcome.ok) return problem ?? "运行失败";
-  try {
-    return programProblem(test, prepared.expected, parse(PythonProgramResultSchema, outcome.result));
-  } catch (error) {
-    return error instanceof Error ? error.message : "测试结果不可用";
-  }
+function reasons(slot: SlotDef, outcome: ProgramOutcome, statuses: string[]): string {
+  return slotTests(slot).flatMap((test, index) => {
+    const result = outcome.tests[index];
+    return result && statuses.includes(result.status) && "reason" in result ? [`“${test.name}”：${result.reason}`] : [];
+  }).join("；");
 }
 
-/** 依次运行一份候选程序的全部测试，与判分一样在运行器超时或崩溃后停下，其余测试不再运行。 */
-async function failingTests(program: string, tests: PreparedTest[], context: Context): Promise<string[]> {
-  const failed: string[] = [];
-  for (const prepared of tests) {
-    const reason = await runTest(program, prepared, context);
-    if (reason) failed.push(`“${prepared.test.name}”：${reason}`);
-    if (reason === "运行超时" || reason?.startsWith("运行器异常结束")) {
-      break;
-    }
-  }
-  return failed;
-}
-
-/** 把排好的块按各自的缩进拼成程序，每层四个空格。 */
-export function assembleParsons(slot: Extract<SlotDef, { type: "order" }>, items: readonly string[]): string {
-  return items.map((id) => {
-    const block = slot.items.find((item) => item.id === id);
-    const code = block ? orderItemCode(block) ?? "" : "";
-    return `${"    ".repeat(itemIndent(slot, id))}${code}`;
-  }).join("\n");
-}
-
+/** 核对一个按测试判的作答位：用判分的入口判每份候选程序，结论必须与候选程序该得的一致。 */
 async function runSlotTests(question: Question, slot: SlotDef, at: ValuePath, context: Context): Promise<void> {
   const { report, loaded } = context;
-  if (slot.type !== "code" && !(slot.type === "order" && slot.tests)) return;
-  const tests = slot.type === "code" ? slot.tests : slot.tests ?? [];
-  const prepared = await prepareTests(question, tests, at, context);
-  if (!prepared) return;
-  const expected = context.expected?.[question.id];
-  if (expected) {
-    expected.values[slot.id] = prepared.map((entry) => entry.expected);
+  const plan = slotTestPlan(question, slot, loaded.topic, context.prelude);
+  if (!plan) return;
+  const list = candidates(slot);
+  const programs = list.map((candidate) => answerProgram(slot, candidate.answer) ?? "");
+  const run = await runCodeTests(context.run, plan, programs);
+  for (const batch of run.batches) context.stats.testRuns += batch.tests.filter((test) => test.status !== "not_run").length;
+  if (run.expectationProblems.length > 0) {
+    for (const problem of run.expectationProblems) {
+      const test = plan.tests[problem.test];
+      const message = problem.expression === undefined
+        ? `测试“${test?.name ?? ""}”的期望值算不出来：${problem.reason}`
+        : `测试“${test?.name ?? ""}”的期望表达式 ${problem.expression} 出错：${problem.reason}`;
+      report.error("test_expect_failed", message, loaded.file, [...at, "tests", problem.test, ...(problem.expression === undefined ? [] : ["expect"])]);
+    }
+    return;
   }
-  const reference = slot.type === "code" ? slot.solution : assembleParsons(slot, slot.key);
-  const referenceFailures = await failingTests(reference, prepared, context);
-  if (referenceFailures.length > 0) {
-    report.error("solution_failed", `参考答案没有通过测试：${referenceFailures.join("；")}`, loaded.file, [...at, slot.type === "code" ? "solution" : "key"]);
-  }
-  const accepts = slot.type === "code"
-    ? (slot.accepts ?? []).map((code, index) => ({ code, where: ["accepts", index] }))
-    : (slot.alternatives ?? []).map((items, index) => ({ code: assembleParsons(slot, items), where: ["alternatives", index] }));
-  for (const accepted of accepts) {
-    const failed = await failingTests(accepted.code, prepared, context);
-    if (failed.length > 0) report.error("accept_failed", `应当通过的写法没有通过：${failed.join("；")}`, loaded.file, [...at, ...accepted.where]);
-  }
-  if (slot.type !== "code") return;
-  // 作答框里的初始代码是要学生改的；它若已经通过全部测试，测试就分不出学生有没有改对。
-  if ((await failingTests(slot.starter, prepared, context)).length === 0) {
-    report.error("starter_passes", "作答框里的初始代码已经通过了全部测试", loaded.file, [...at, "starter"]);
-  }
-  for (const [index, rejected] of (slot.rejects ?? []).entries()) {
-    const failed = await failingTests(rejected.code, prepared, context);
-    if (failed.length === 0) {
-      report.error("reject_passed", `错误写法（${rejected.why}）通过了全部测试，测试还不能区分这个错误`, loaded.file, [...at, "rejects", index]);
+  for (const [index, candidate] of list.entries()) {
+    const outcome = run.programs[index];
+    if (!outcome) continue;
+    const where = [...at, ...candidate.where];
+    if (outcome.verdict === "unresolved") {
+      report.error("test_unavailable", `${candidate.label}有测试无法运行：${reasons(slot, outcome, ["unavailable"])}`, loaded.file, where);
+    } else if (candidate.expect === "pass" && outcome.verdict === "incorrect") {
+      const failed = reasons(slot, outcome, ["failed", "timeout"]);
+      if (candidate.where[0] === "accepts" || candidate.where[0] === "alternatives") report.error("accept_failed", `应当通过的写法没有通过：${failed}`, loaded.file, where);
+      else report.error("solution_failed", `参考答案没有通过测试：${failed}`, loaded.file, where);
+    } else if (candidate.expect === "fail" && outcome.verdict === "correct") {
+      if (candidate.where[0] === "starter") report.error("starter_passes", "作答框里的初始代码已经通过了全部测试", loaded.file, where);
+      else report.error("reject_passed", `${candidate.label}通过了全部测试，测试还不能区分这个错误`, loaded.file, where);
     }
   }
 }
 
 // ---------------------------------------------------------------------------
 
+/** 核对一个 topic 的全部题目：先 verify，再逐个作答位运行测试。run 是测试的执行方，与 runner 是同一个沙箱。 */
 export async function checkTopicCode(
   loaded: LoadedTopic,
   runner: SandboxRunner,
+  run: RunTests,
   report: Report,
   stats: CodeStats,
+  prelude: string,
   timeoutMs?: number,
-  expected?: Record<string, Expected>,
 ): Promise<void> {
-  const context: Context = {
-    runner,
-    report,
-    loaded,
-    stats,
-    ...(expected ? { expected } : {}),
-    ...(timeoutMs ? { timeoutMs } : {}),
-  };
+  const context: Context = { runner, run, report, loaded, stats, prelude, ...(timeoutMs ? { timeoutMs } : {}) };
   for (const entry of topicQuestions(loaded.topic)) {
     await runVerify(entry, entry.at, context);
     for (const [index, slot] of entry.question.slots.entries()) {

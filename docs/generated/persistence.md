@@ -85,7 +85,7 @@ schema：packages/base/src/space/format.ts#FormatSchema；SHA-256 前 16 位：5
 
 版本标记：<空间>/.repa/plugins/learning/format.json。
 
-schema：packages/learning/src/records-schema.ts#RecordSchema；SHA-256 前 16 位：59e4f9eda6457388。
+schema：packages/learning/src/records-schema.ts#RecordSchema；SHA-256 前 16 位：a05ec038ddd1a8de。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |

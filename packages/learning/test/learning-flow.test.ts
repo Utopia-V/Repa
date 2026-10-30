@@ -12,7 +12,6 @@ import { ModelTestDriver } from "@repa/base/testing";
 import { INTERACTION_CAPABILITIES, parse, type ClientCapabilities } from "@repa/base/protocol";
 import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { stringify } from "yaml";
-import { expectedBinding, runnerVersion, type Expected } from "../src/python-execution.js";
 import { createLearningPlugin } from "../src/plugin.js";
 import {
   learningMethods,
@@ -90,20 +89,6 @@ async function fixture(
       stringify(entry, { aliasDuplicateObjects: false }),
     );
   }
-  const expected: Record<string, Expected> = {};
-  for (const definition of topics) {
-    for (const { question } of topicQuestions(definition)) {
-      expected[question.id] = {
-        binding: await expectedBinding(question, definition, manifest.runtime, await runnerVersion()),
-        values: Object.fromEntries(
-          question.slots
-            .filter((slot) => slot.type === "code")
-            .map((slot) => [slot.id, slot.type === "code" ? slot.tests.map(() => ({ x: { t: "int", v: "2" } })) : []]),
-        ),
-      };
-    }
-  }
-  await writeFile(path.join(directory, "expected.json"), JSON.stringify(expected));
   let now = start;
   let log: LearningRecords | undefined;
   const resolved: ResolvedCourse = { course: manifest, topics, origins: {} };
@@ -137,10 +122,12 @@ async function fixture(
     await space.close();
     await rm(root, { recursive: true, force: true });
   });
+  // 与生产一致：声明 python.run 的前端也提供这项服务；测试没有给 Python 服务时，前端不声明它。
+  const declared: ClientCapabilities = services ? clientCapabilities : { ...clientCapabilities, services: [] };
   const call = async <M extends LearningMethod>(
     method: M,
     input: LearningInput<M>,
-    capabilities = clientCapabilities,
+    capabilities = declared,
   ): Promise<LearningResult<M>> => {
     // 与生产处理器一致先检查返回值，再在测试边界恢复方法泛型。
     return parse(
@@ -614,7 +601,7 @@ test("历史申诉追加采用判分、保留原答和已选任务，恢复后�
   );
 });
 
-test("代码题整批只调用一次服务，缺旧版服务时跳过；环境失败可恢复，代码测试失败才计尝试", async (t) => {
+test("代码题：前端声明 python.run 才出题；一次提交只调用一次服务，期望值在同一次调用里先算；环境失败可恢复，代码测试失败才计尝试", async (t) => {
   const definition = topic();
   const question = definition.kps[0]?.practice?.[0];
   assert.ok(question);
@@ -626,56 +613,45 @@ test("代码题整批只调用一次服务，缺旧版服务时跳过；环境�
       starter: "x=0",
       solution: "x=2",
       tests: [
-        { name: "a", expect: { x: "2" } },
+        { name: "a", expect: { x: "1 + 1" } },
         { name: "b", expect: { x: "2" } },
       ],
     },
   ];
   const calls: unknown[] = [];
-  let ready = false;
   let fail = true;
   const services: Services = {
     async call(name, input) {
       assert.equal(name, "python.run");
-      if (!ready) {
-        return { stdout: "", error: null, captures: {}, doctest: [] };
-      }
-      if (typeof input === "object" && input !== null && "kind" in input && input.kind === "capabilities") {
-        return {
-          protocol: PYTHON_BATCH,
-          runtime: course.runtime,
-          runner: await runnerVersion(),
-          freshInterpreter: true,
-        };
-      }
       const batch = parse(PythonBatchInputSchema, input);
       calls.push(batch);
       if (fail) {
         throw new Error("执行环境不可用");
       }
-      assert.equal(JSON.stringify(batch).includes('"expect"'), false);
-      assert.equal(JSON.stringify(batch).includes('"solution"'), false);
+      // 请求里有期望表达式（在学习者的程序之前求值），但没有参考解，也没有提交的编号。
+      assert.deepEqual(batch.tests.map((test) => [test.id, test.program, test.captures]), [
+        ["expected:0", "", ["1 + 1"]], ["expected:1", "", ["2"]], ["test:0", "x=2", ["x"]], ["test:1", "x=2", ["x"]],
+      ]);
       return {
         protocol: PYTHON_BATCH,
-        submissionId: batch.submissionId,
-        gradeRevision: batch.gradeRevision,
-        runtime: batch.runtime,
-        runner: batch.runner,
-        freshInterpreter: true,
+        runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} },
         tests: batch.tests.map((entry) => ({
           id: entry.id,
           status: "completed",
-          result: { stdout: "", error: null, captures: { x: { value: { t: "int", v: "0" } } }, doctest: [] },
+          // 期望值是 2，学习者的程序算出 0。
+          result: { stdout: "", error: null, captures: Object.fromEntries(entry.captures.map((capture) => [capture, { value: { t: "int", v: entry.program ? "0" : "2" } }])), doctest: [] },
         })),
       };
     },
   };
   const f = await fixture(t, [definition], false, services);
-  assert.equal((await f.state()).menu?.candidates.length, 0);
-  ready = true;
+  // 没有声明 python.run 的前端拿不到只有代码题的课；能否运行 Python 只看连接时的声明，不调用服务探测。
+  assert.equal((await f.call("state.get", {}, { ...clientCapabilities, services: [] })).menu?.candidates.length, 0);
+  assert.equal(calls.length, 0);
   await f.select();
   await f.advance();
   await f.advance();
+  assert.equal(calls.length, 0);
   const input = await f.input();
   const failed = await f.call("submission.submit", input);
   assert.equal(failed.status, "recorded");
