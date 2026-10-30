@@ -136,9 +136,10 @@ test("课程文件换成 CRLF 换行后，检查照样通过，题目版本不�
   const topic = (loaded: typeof fromLf) => loaded?.topics.find((entry) => entry.topic.id === "t01")?.topic;
   const lfTopic = topic(fromLf);
   const crlfTopic = topic(fromCrlf);
-  assert.ok(lfTopic && crlfTopic && fromCrlf);
-  const versions = async (source: Topic) => Promise.all(topicQuestions(source).map((entry) => questionVersion(entry.question, source)));
-  assert.deepEqual(await versions(crlfTopic), await versions(lfTopic));
+  assert.ok(lfTopic && crlfTopic && fromLf && fromCrlf);
+  const versions = async (source: Topic, prelude = "") =>
+    Promise.all(topicQuestions(source).map((entry) => questionVersion(entry.question, source, prelude)));
+  assert.deepEqual(await versions(crlfTopic, fromCrlf.course.runtime.prelude), await versions(lfTopic, fromLf.course.runtime.prelude));
 
   const { grade } = await frontend(t, fromCrlf.course);
   const code = question(demo, "t01.k2.q1").slots[0] as CodeSlot;

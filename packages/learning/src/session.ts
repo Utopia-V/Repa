@@ -316,7 +316,7 @@ export class LearningSession {
 
   /** 当前任务停在哪一步：讲解或例题页、哪一道题、判分到哪一步。 */
   position(evidence: TaskEvidence):
-    | { stage: "completed"; outcome: "passed" | "failed" | "timeout" }
+    | { stage: "completed"; outcome: "passed" | "failed" | "timeout" | "unresolved" }
     | { stage: "aborted" }
     | { stage: "preparing" }
     | { stage: "explanation" | "example"; kp: string }

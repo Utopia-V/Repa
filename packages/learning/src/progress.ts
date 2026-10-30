@@ -3,8 +3,9 @@ import type { CourseIndex } from "./course-index.js";
 import { shuffled } from "./delivery.js";
 import {
   independentCorrect,
+  isCompleted,
   isQuiz,
-  quizCorrect,
+  quizResult,
   taskEvidence,
   taskId,
   type Fold,
@@ -23,10 +24,10 @@ export const DEFAULT_DAILY_GOAL_XP = 20;
 
 /**
  * 一项已结束任务的奖励（repa-xp-v1，Repa 假设）。没有证据的作答不进分母：课与复习按已判的作答算独立正确比例，
- * 测验按全部交付算。主动结束和被取代的任务没有奖励。
+ * 测验按全部交付算，结论待定时先按已判对的题算。主动结束和被取代的任务没有奖励。
  */
 export function reward(entry: TaskEvidence, course: CourseIndex): number {
-  if (!entry.outcome || !["passed", "failed", "timeout"].includes(entry.outcome)) {
+  if (!isCompleted(entry.outcome)) {
     return 0;
   }
   const correct = entry.attempts.filter(independentCorrect).length;
@@ -59,11 +60,8 @@ export function sampleTopics(tasks: TaskRecord[], fold: Fold, course: CourseInde
   const tested = new Map<string, number>();
   const last = new Map<string, number>();
   for (const task of tasks) {
-    if (isQuiz(task.kind)) {
-      const entry = taskEvidence(task, course, task.inherited);
-      if (entry.outcome && ["passed", "failed", "timeout"].includes(entry.outcome)) {
-        for (const id of task.topicIds) tested.set(id, (tested.get(id) ?? 0) + 1);
-      }
+    if (isQuiz(task.kind) && isCompleted(taskEvidence(task, course, task.inherited).outcome)) {
+      for (const id of task.topicIds) tested.set(id, (tested.get(id) ?? 0) + 1);
     }
     for (const delivery of task.answered) {
       const topicId = course.questions.get(delivery.questionId)?.topic.id;
@@ -150,12 +148,12 @@ export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, cou
     delete menu.availableAt;
   } else {
     const quizzes = replay.tasks.filter((task) => isQuiz(task.kind));
-    const original = quizzes.map((task) => taskEvidence(task, course, task.inherited))
-      .findLast((entry) => entry.outcome && ["passed", "failed", "timeout"].includes(entry.outcome));
+    const original = quizzes.map((task) => taskEvidence(task, course, task.inherited)).findLast((entry) => isCompleted(entry.outcome));
     const retaken = new Set(replay.tasks
       .filter((task) => task.kind === "retake" && !(task.endedAt !== undefined && task.deliveries.length === 0))
       .map((task) => task.retakes));
-    if (original && original.task.topicIds.some((id) => !quizCorrect(original.attempts, id)) && !retaken.has(original.task.seq)) {
+    // 只有确实答错或没答的 topic 才要换题重考；还没判出结果的不算。
+    if (original && original.task.topicIds.some((id) => quizResult(original.attempts, id) === "fail") && !retaken.has(original.task.seq)) {
       menu.candidates = [{
         id: `retake-${original.task.seq}`,
         kind: "retake" as const,

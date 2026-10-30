@@ -117,24 +117,26 @@ test("标准答案拼出的作答能通过题目自己的结构检查，缺答�
   assert.equal(checkResponse(item, { ...reference, answers: { line: { type: "choice", selected: ["minus", "plus"] } } }).ok, false);
 });
 
-test("内容版本不受题型和核对程序影响，题面、答案、解析和用到的数据一改就变", async () => {
+test("内容版本不受题型、核对程序和判分用不到的运行前导影响，题面、答案、解析和用到的数据一改就变", async () => {
   const topic = t01();
   const question = topic.kps[1]?.example;
   assert.ok(question);
-  const original = await questionVersion(question, topic);
+  const original = await questionVersion(question, topic, "");
   assert.match(original, /^sha256:[0-9a-f]{64}$/);
-  assert.equal(await questionVersion({ ...question, kind: ["trace"] }, topic), original);
-  assert.equal(await questionVersion({ ...question, verify: "answers = {}", manual: ["mask"] }, topic), original);
-  assert.notEqual(await questionVersion({ ...question, explanation: "False、True、True！" }, topic), original);
+  assert.equal(await questionVersion({ ...question, kind: ["trace"] }, topic, ""), original);
+  assert.equal(await questionVersion({ ...question, verify: "answers = {}", manual: ["mask"] }, topic, ""), original);
+  // 这道题按规则判，判分不运行前导。
+  assert.equal(await questionVersion(question, topic, "import math\n"), original);
+  assert.notEqual(await questionVersion({ ...question, explanation: "False、True、True！" }, topic, ""), original);
   const table = question.slots[0];
   assert.ok(table?.type === "table");
   const rows = table.rows.map((row) => (row.id === "rc" ? { ...row, cells: { ...row.cells, mask: false } } : row));
-  assert.notEqual(await questionVersion({ ...question, slots: [{ ...table, rows }] }, topic), original);
+  assert.notEqual(await questionVersion({ ...question, slots: [{ ...table, rows }] }, topic, ""), original);
   const changedData = structuredClone(topic);
   const nums = changedData.data?.nums;
   assert.ok(nums?.kind === "dataframe");
   nums.columns.value = [3, 8, 6];
-  assert.notEqual(await questionVersion(question, changedData), original);
+  assert.notEqual(await questionVersion(question, changedData, ""), original);
   // 版本输入只有题目定义和用到的数据，知识点归属不在其中。
   assert.deepEqual(Object.keys(versionInput(question, topic) as object), ["question", "data"]);
 });
@@ -150,7 +152,7 @@ test("题面版本只随学习者看到的题面变化：改答案或解析不�
   assert.ok(table?.type === "table");
   const rows = table.rows.map((row) => (row.id === "rc" ? { ...row, cells: { ...row.cells, mask: false } } : row));
   assert.equal(await itemVersion({ ...question, slots: [{ ...table, rows }] }, topic), original);
-  assert.notEqual(await questionVersion({ ...question, slots: [{ ...table, rows }] }, topic), await questionVersion(question, topic));
+  assert.notEqual(await questionVersion({ ...question, slots: [{ ...table, rows }] }, topic, ""), await questionVersion(question, topic, ""));
   assert.notEqual(await itemVersion({ ...question, body: "另一道题" }, topic), original);
   const changedData = structuredClone(topic);
   const nums = changedData.data?.nums;
@@ -159,16 +161,18 @@ test("题面版本只随学习者看到的题面变化：改答案或解析不�
   assert.notEqual(await itemVersion(question, changedData), original);
 });
 
-test("代码题的等价写法和错误写法只为检查而写，不影响版本；参考答案和测试会影响", async () => {
+test("代码题的等价写法和错误写法只为检查而写，不影响版本；参考答案、测试和判分用的运行前导会影响", async () => {
   const topic = t01();
   const question = topic.kps[1]?.practice?.[0];
   const slot = question?.slots[0];
   assert.ok(question && slot?.type === "code");
-  const original = await questionVersion(question, topic);
+  const original = await questionVersion(question, topic, "");
   const withSlot = (changes: Partial<typeof slot>) => ({ ...question, slots: [{ ...slot, ...changes }] });
-  assert.equal(await questionVersion(withSlot({ accepts: [], rejects: [] }), topic), original);
-  assert.notEqual(await questionVersion(withSlot({ solution: "def double(x):\n    return 2 * x\n" }), topic), original);
-  assert.notEqual(await questionVersion(withSlot({ tests: slot.tests.slice(0, 1) }), topic), original);
+  assert.equal(await questionVersion(withSlot({ accepts: [], rejects: [] }), topic, ""), original);
+  assert.notEqual(await questionVersion(withSlot({ solution: "def double(x):\n    return 2 * x\n" }), topic, ""), original);
+  assert.notEqual(await questionVersion(withSlot({ tests: slot.tests.slice(0, 1) }), topic, ""), original);
+  // 期望表达式和学习者的程序都在前导之后运行。
+  assert.notEqual(await questionVersion(question, topic, "import math\n"), original);
 });
 
 test("内容版本是 JCS 规范化后的 SHA-256，与对象成员的书写顺序无关", async () => {

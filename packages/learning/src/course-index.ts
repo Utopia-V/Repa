@@ -42,7 +42,7 @@ export class CourseIndex {
     };
   }
 
-  /** 题面版本（学习者看到的）与题目版本（含判分方式）；题目不在当前课程里时返回 undefined。 */
+  /** 题面版本（学习者看到的）与题目版本（含判分方式，代码题还含判分用的运行前导）；题目不在当前课程里时返回 undefined。 */
   async versionsOf(questionId: string): Promise<{ item: string; question: string } | undefined> {
     const entry = this.questions.get(questionId);
     if (!entry) return undefined;
@@ -50,7 +50,8 @@ export class CourseIndex {
     if (!cached) {
       cached = (async () => ({
         item: await itemVersion(entry.question, entry.topic),
-        question: await questionVersion(entry.question, entry.topic),
+        // 与 judge.ts 判分时用的前导相同：缺省按空串。
+        question: await questionVersion(entry.question, entry.topic, this.course.course.runtime.prelude ?? ""),
       }))();
       this.versions.set(questionId, cached);
     }

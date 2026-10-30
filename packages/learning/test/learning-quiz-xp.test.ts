@@ -394,10 +394,15 @@ for (const failingReview of [false, true]) {
   });
 }
 
-test("两份作答还在判分时可以交卷，判分回来后测验结果与 XP 随之更新；申诉只追加奖励差额", async (t) => {
+test("两题还在判分、两题没答时交卷：没答的算失败并强制复习，待判的不算对错；判分回来后结论与 XP 随之更新，申诉只追加奖励差额", async (t) => {
   const f = await fixture(t, true);
   await f.qualify();
+  const learned = (await f.fold()).student;
   await f.select("quiz");
+  const topics = (await f.state()).task?.deliveries.map((delivery) => delivery.topicId) ?? [];
+  const [leftTopic, rightTopic, ...unanswered] = topics;
+  assert.ok(leftTopic && rightTopic && unanswered.length === 2);
+  const forced = (ids: string[]) => ids.map((id) => [id, "review"]).sort();
   const left = f.models.expectStructured();
   const right = f.models.expectStructured();
   try {
@@ -409,15 +414,24 @@ test("两份作答还在判分时可以交卷，判分回来后测验结果与 X
     assert.ok(accepted?.[0] && accepted[1]);
     assert.ok(accepted.every((entry) => entry.processing.status === "pending"));
     await f.disconnect();
-    // 判分不阻塞任务：交卷后没判出结果的作答暂时不算对也不算错。
+    // 交卷不等判分。没答的两题是失败的证据：测验失败，这两个 topic 强制复习。
+    // 还在判分的两题尚无证据，不算对也不算错：学生模型里这两个 topic 不变，也不强制复习。
     await f.call("quiz.finish", await f.guard());
     assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
     assert.equal((await f.state()).progress.totalXp, 150);
+    const ended = await f.fold();
+    assert.deepEqual([...ended.forced].sort(), forced(unanswered));
+    assert.deepEqual(ended.student[leftTopic], learned[leftTopic]);
+    assert.deepEqual(ended.student[rightTopic], learned[rightTopic]);
     left.succeed({ verdict: "correct", reason: "正确" });
     right.succeed({ verdict: "incorrect", reason: "错误" });
     await first;
     await second;
     await f.session().idle();
+    // 判分回来：答对的记一次通过，答错的也强制复习。
+    const graded = await f.fold();
+    assert.deepEqual([...graded.forced].sort(), forced([...unanswered, rightTopic]));
+    assert.notDeepEqual(graded.student[leftTopic], learned[leftTopic]);
     assert.equal((await f.state()).progress.totalXp, 153);
     const receipt = await f.call("submission.get", { submissionId: accepted[1].submissionId });
     assert.ok(receipt.status === "found");
@@ -426,12 +440,51 @@ test("两份作答还在判分时可以交卷，判分回来后测验结果与 X
       submissionId: receipt.submission.submissionId, expectedGradeRevision: 1, reason: "复核",
     });
     assert.equal((await f.state()).progress.totalXp, 157);
+    assert.deepEqual([...(await f.fold()).forced].sort(), forced(unanswered));
     const quiz = Number(receipt.submission.taskId.slice(1));
     assert.deepEqual(f.replay().awards.filter((award) => award.task === quiz).map((award) => award.xp), [3, 4]);
   } finally {
     left.fail(new Error("测试结束"));
     right.fail(new Error("测试结束"));
   }
+});
+
+test("各题都答了而判分全部中断时交卷：测验结束但不下结论，学生模型不变、不强制补救、菜单照常提供；补判以后才得出结论", async (t) => {
+  const f = await fixture(t, true);
+  await f.qualify();
+  const learned = (await f.fold()).student;
+  const running = await f.select("quiz");
+  const topics = running.task?.deliveries.map((delivery) => delivery.topicId) ?? [];
+  assert.equal(topics.length, 4);
+  for (const index of topics.keys()) {
+    f.models.expectStructured().fail(new Error("断网"));
+    const receipt = await f.submit(index);
+    assert.ok(receipt.status === "recorded");
+    assert.deepEqual(receipt.submission.processing, { status: "interrupted", reason: "service_failure" });
+  }
+  await f.call("quiz.finish", await f.guard());
+  const ended = await f.state();
+  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "unresolved" });
+  assert.equal(ended.restrictions.kind, "none");
+  assert.ok(ended.menu?.candidates.length);
+  assert.equal(ended.progress.totalXp, 150);
+  assert.deepEqual((await f.fold()).student, learned);
+  assert.equal((await f.fold()).forced.size, 0);
+  // 重开后第一次调用自动补判。四题都对，测验通过，每个 topic 记一次通过，XP 补发 15。
+  for (let index = 0; index < topics.length; index++) {
+    f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
+  }
+  await f.reopen();
+  await f.state();
+  await f.session().idle();
+  const graded = await f.state();
+  assert.deepEqual(graded.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.equal(graded.progress.totalXp, 165);
+  const student = (await f.fold()).student;
+  for (const id of topics) {
+    assert.notDeepEqual(student[id], learned[id]);
+  }
+  assert.equal((await f.fold()).forced.size, 0);
 });
 
 for (const missingPrerequisite of [false, true]) {

@@ -215,7 +215,7 @@ function without(value: object, fields: readonly string[]): Record<string, unkno
  * 再加上题目和测试用到的数据夹具。去掉题型标签、知识点归属和只为检查而写的部分，免得改一个标签或核对程序
  * 就把同一道题拆成新版本。输入是作者写下的定义，YAML 的排版不影响哈希。
  */
-export function versionInput(question: Question, topic: Topic): unknown {
+export function versionInput(question: Question, topic: Topic): { question: Record<string, unknown>; data: Record<string, unknown> } {
   const definition = without(question, [...METADATA_FIELDS, ...CHECK_ONLY_FIELDS]);
   definition.slots = question.slots.map((slot) => (slot.type === "code" ? without(slot, CHECK_ONLY_CODE_FIELDS) : slot));
   const data = Object.fromEntries(questionFixtures(question).map((name) => [name, topic.data?.[name] ?? null]));
@@ -231,9 +231,14 @@ export function questionCredit(question: Question): Pick<Required<Question>, "me
   };
 }
 
-/** 题目版本：学生看到的内容（含作答后的解析）与判分方式。答案改正后版本改变，过去的作答据此重判。 */
-export async function questionVersion(question: Question, topic: Topic): Promise<string> {
-  return contentVersion(versionInput(question, topic));
+/**
+ * 题目版本：学生看到的内容（含作答后的解析）与判分方式。答案改正后版本改变，过去的作答据此重判。
+ * 按测试判的题，期望表达式和学习者的程序都在课程清单的运行前导 prelude 之后运行，前导改了判分依据也就变了，
+ * 所以前导也进版本；其他题判分用不到前导，版本与它无关。
+ */
+export async function questionVersion(question: Question, topic: Topic, prelude: string): Promise<string> {
+  const input = versionInput(question, topic);
+  return contentVersion(question.slots.some((slot) => slotTests(slot).length > 0) ? { ...input, prelude } : input);
 }
 
 /** 题面版本：作答前学生看到的公开题面，也是 Item.version。只改答案或解析时不变，过去的作答仍能按新答案重判。 */

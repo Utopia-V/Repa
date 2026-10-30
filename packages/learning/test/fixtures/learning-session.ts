@@ -89,9 +89,9 @@ export async function referenceAnswer(session: LearningSession, delivery: Delive
   return response;
 }
 
-async function writeCourse(directory: string, topics: Topic[]) {
+async function writeCourse(directory: string, topics: Topic[], runtime: Course["runtime"]) {
   await mkdir(path.join(directory, "topics"), { recursive: true });
-  await writeFile(path.join(directory, "course.yaml"), stringify({ ...course, topics: topics.map((entry) => entry.id) }));
+  await writeFile(path.join(directory, "course.yaml"), stringify({ ...course, runtime, topics: topics.map((entry) => entry.id) }));
   for (const entry of topics) {
     await writeFile(path.join(directory, "topics", `${entry.id}.yaml`), stringify(entry, { aliasDuplicateObjects: false }));
   }
@@ -101,12 +101,16 @@ export interface FixtureOptions {
   bundled?: boolean;
   services?: Services;
   beforeRestricted?: () => Promise<void>;
+  /** 课程清单的判分运行时（含运行前导）；缺省为不带包和前导的 course.runtime。 */
+  runtime?: Course["runtime"];
 }
 
 export async function learningFixture(t: TestContext, topics = [topic()], options: FixtureOptions = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-learning-flow-")));
   const directory = path.join(root, "course");
-  await writeCourse(directory, topics);
+  let written = topics;
+  let runtime = options.runtime ?? course.runtime;
+  await writeCourse(directory, written, runtime);
   let now = start;
   let session: LearningSession | undefined;
   const models = new ModelTestDriver();
@@ -218,7 +222,15 @@ export async function learningFixture(t: TestContext, topics = [topic()], option
       now = value;
     },
     /** 改写课程里的 topic；重开空间后生效。 */
-    writeTopics: (changed: Topic[]) => writeCourse(directory, changed),
+    writeTopics: (changed: Topic[]) => {
+      written = changed;
+      return writeCourse(directory, written, runtime);
+    },
+    /** 只改课程清单的运行前导；重开空间后生效。 */
+    writePrelude: (prelude: string) => {
+      runtime = { ...runtime, prelude };
+      return writeCourse(directory, written, runtime);
+    },
     async reopen() {
       await host.close();
       await space.close();

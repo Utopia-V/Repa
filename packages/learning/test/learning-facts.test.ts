@@ -1,13 +1,21 @@
 /**
- * 学习记录只记事实：答案改正后的重判、没有证据时不阻塞、从事实重算状态、归属改变不换版本，
+ * 学习记录只记事实：答案或运行前导改正后的重判、没有证据时不阻塞也不下结论、从事实重算状态、归属改变不换版本，
  * 以及每次作答写入的字节数和重算次数这两道代价关卡。
  */
 import assert from "node:assert/strict";
 import { stat } from "node:fs/promises";
-import test from "node:test";
-import type { Fact } from "../src/records-schema.js";
+import test, { type TestContext } from "node:test";
+import type { Services } from "@repa/base/plugin";
+import { parse } from "@repa/base/protocol";
+import { describeRuntime, SandboxRunner } from "@repa/python-runner";
+import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
+import { Value } from "typebox/value";
+import { CodeSlotSchema, IdSchema, KpIdSchema, QuestionIdSchema, TopicIdSchema, type Topic } from "../src/format/schema.js";
+import { FactSchema, GradedSlotSchema, type Fact } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
-import { learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
+import { RUNTIME, runtimeUnavailable } from "./demo-course.js";
+import { skipUnavailableEnvironment } from "./environment.js";
+import { course, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -25,6 +33,134 @@ function verdicts(f: Fixture, taskId: string) {
 }
 
 const graded = (f: Fixture) => f.session().records.facts.filter((fact) => fact.type === "graded");
+
+/** 课程格式允许的最长 id：topic id 32 字符，它下面的知识点 id 可到 40 字符、题目 id 可到 48 字符；作答位 id 120 字符。 */
+const LONG_TOPIC = "long".padEnd(32, "0");
+const LONG_QUESTION = `${LONG_TOPIC}.k100000.q100000`;
+const LONG_SLOT = "a".repeat(120);
+/** 按测试判的作答位最多有多少个测试。 */
+const MAX_TESTS = 20;
+
+/**
+ * 一次作答写下的三条事实里，除作答和模型理由以外的字节数，含每行的换行。作答和理由本身有长度上限，另计。
+ * 序号、时间和引用的位数随历史变长，seed 的位数随机：这些数都按最长的写法计，结果只取决于事实的构成。
+ */
+function fixedBytes(facts: readonly Fact[]): number {
+  let bytes = 0;
+  for (const fact of facts) {
+    const widest: Record<string, unknown> = { ...fact, seq: Number.MAX_SAFE_INTEGER, at: Number.MAX_SAFE_INTEGER };
+    for (const key of ["task", "delivery"]) {
+      if (key in widest) widest[key] = Number.MAX_SAFE_INTEGER;
+    }
+    if ("seed" in widest) widest.seed = 0xffff_ffff;
+    bytes += Buffer.byteLength(`${JSON.stringify(widest)}\n`);
+    if (fact.type === "answered") {
+      bytes -= Buffer.byteLength(JSON.stringify(fact.answers));
+    }
+    if (fact.type === "graded") {
+      for (const slot of Object.values(fact.slots)) {
+        // 只减去理由的内容，键名和引号仍算固定部分。
+        if (slot.reason !== undefined) bytes -= Buffer.byteLength(JSON.stringify(slot.reason)) - 2;
+      }
+    }
+  }
+  return bytes;
+}
+
+/**
+ * 单作答位的题一次作答，固定部分最多有多少字节：各字段取格式允许的最长值，拼出交付、作答、判分三条事实，再按 fixedBytes 计。
+ * 题目 id 与作答位 id 取课程格式的长度上限，对错取最长的写法；按测试判的作答位有 MAX_TESTS 个测试，判分事实里每个测试记一个
+ * 最长的结论。说「不会」的作答不运行测试，dontKnow 标记与测试结果不会同时出现，取更长的测试一边。
+ */
+function fixedLimit(): number {
+  // TypeBox 的静态类型里没有长度和数量上限，从 schema 对象上读。
+  const bound = (schema: object, key: "maxLength" | "maxItems"): unknown => Reflect.get(schema, key);
+  assert.equal(LONG_TOPIC.length, bound(TopicIdSchema, "maxLength"));
+  assert.equal(`${LONG_TOPIC}.k100000`.length, bound(KpIdSchema, "maxLength"));
+  assert.equal(LONG_QUESTION.length, bound(QuestionIdSchema, "maxLength"));
+  assert.equal(LONG_SLOT.length, bound(IdSchema, "maxLength"));
+  assert.equal(MAX_TESTS, bound(CodeSlotSchema.properties.tests, "maxItems"));
+  assert.ok(Value.Check(QuestionIdSchema, LONG_QUESTION) && Value.Check(IdSchema, LONG_SLOT));
+  const longest = <T extends string>(values: readonly T[]) => values.reduce((a, b) => (b.length > a.length ? b : a));
+  const verdict = longest(GradedSlotSchema.properties.verdict.enum);
+  const status = longest(GradedSlotSchema.properties.tests.items.enum);
+  const version = `sha256:${"0".repeat(64)}`;
+  const facts: Fact[] = [
+    { seq: 1, at: 0, type: "delivered", task: 1, question: LONG_QUESTION, seed: 0 },
+    { seq: 2, at: 0, type: "answered", delivery: 1, seen: version, answers: {} },
+    {
+      seq: 3, at: 0, type: "graded", delivery: 1, version, verdict,
+      slots: { [LONG_SLOT]: { verdict, tests: Array.from({ length: MAX_TESTS }, () => status) } },
+    },
+  ];
+  assert.ok(facts.every((fact) => Value.Check(FactSchema, fact)));
+  return fixedBytes(facts);
+}
+
+/** 一个知识点、练习是一道代码题的 topic；number 决定知识点和题目 id 的长度。每个测试都要求 x 等于 2。 */
+function codeTopic(id: string, number: string, slot: string, tests: number, solution: string): Topic {
+  const kpId = `${id}.k${number}`;
+  return {
+    id,
+    title: id,
+    status: "complete",
+    minutes: 5,
+    prerequisites: [],
+    sources: [],
+    kps: [{
+      id: kpId,
+      title: kpId,
+      lesson: "讲解",
+      example: { id: `${kpId}.e${number}`, body: "一加一？", explanation: "二。", slots: [{ id: "answer", type: "text", key: "2" }] },
+      practice: [{
+        id: `${kpId}.q${number}`,
+        body: "让 `x` 等于 2。",
+        explanation: "`x = 2`",
+        slots: [{
+          id: slot, type: "code", language: "python", starter: "x = 0", solution,
+          tests: Array.from({ length: tests }, (_, index) => ({ name: `第 ${index + 1} 个测试`, expect: { x: "2" } })),
+        }],
+      }],
+    }],
+  };
+}
+
+/** 代码题的执行方替身：期望值和程序算出的值都是 2；程序永不结束时第一个测试超时，整批就此停下，余下的都不运行。 */
+const fakePython: Services = {
+  async call(name, input) {
+    assert.equal(name, "python.run");
+    const { tests } = parse(PythonBatchInputSchema, input);
+    let stopped = false;
+    return {
+      protocol: PYTHON_BATCH,
+      runtime: { pyodide: course.runtime.pyodide, python: course.runtime.python, packages: {} },
+      tests: tests.map((entry) => {
+        if (stopped) {
+          return { id: entry.id, status: "not_run" };
+        }
+        if (entry.program.includes("while True")) {
+          stopped = true;
+          return { id: entry.id, status: "timeout", phase: "program" };
+        }
+        const captures = Object.fromEntries(entry.captures.map((capture) => [capture, { value: { t: "int", v: "2" } }]));
+        return { id: entry.id, status: "completed", result: { stdout: "", error: null, doctest: [], captures } };
+      }),
+    };
+  },
+};
+
+/** 判分用的前端替身：python.run 交给一个 Node 沙箱，按同一约定运行，代替页面的 Worker。 */
+async function sandboxPython(t: TestContext): Promise<Services> {
+  const runner = new SandboxRunner({ assets: await describeRuntime(RUNTIME) });
+  t.after(() => runner.close());
+  return {
+    async call(name, input) {
+      assert.equal(name, "python.run");
+      const { tests } = parse(PythonBatchInputSchema, input);
+      return { protocol: PYTHON_BATCH, runtime: await runner.start(), tests: await runner.runTests(tests) };
+    },
+  };
+}
 
 test("改正一道题的答案后，过去的作答自动按新答案重判，对错两个方向都生效，学习状态随之变化，XP 不减少", async (t) => {
   const f = await fixture(t, [topic("t01"), topic("t02")]);
@@ -82,6 +218,78 @@ test("改正一道题的答案后，过去的作答自动按新答案重判，�
   assert.equal(graded(f).length, count);
 });
 
+test("只改课程的运行前导时题面版本不变、题目版本改变，过去的代码题作答按新的前导自动重判", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return skipUnavailableEnvironment(t, reason);
+  // 测试的期望表达式用到前导里的常量：作者改正这个常量以后，题面没变，判分依据变了。
+  const definition = topic("t01");
+  const question = definition.kps[0]?.practice?.[0];
+  assert.ok(question);
+  question.slots = [{
+    id: "answer", type: "code", language: "python", starter: "x = 0", solution: "x = ANSWER",
+    tests: [{ name: "x 等于答案", expect: { x: "ANSWER" } }],
+  }];
+  const f = await fixture(t, [definition], { services: await sandboxPython(t), runtime: { ...RUNTIME, prelude: "ANSWER = 3\n" } });
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  const input = await f.input();
+  const receipt = await f.call("submission.submit", {
+    ...input,
+    response: { item: input.response.item, answers: { answer: { type: "code", code: "x = 3" } } },
+  });
+  assert.ok(receipt.status === "recorded");
+  assert.equal(receipt.submission.feedback?.verdict, "correct");
+  const before = await f.session().course.versionsOf(question.id);
+  assert.ok(before);
+
+  await f.writePrelude("ANSWER = 4\n");
+  await f.reopen();
+  await f.state();
+  await f.settled();
+  const after = await f.session().course.versionsOf(question.id);
+  assert.ok(after);
+  assert.equal(after.item, before.item);
+  assert.notEqual(after.question, before.question);
+  assert.deepEqual(graded(f).map((fact) => [fact.verdict, fact.version]), [["correct", before.question], ["incorrect", after.question]]);
+  assert.equal((await f.state()).task?.submissions[0]?.feedback?.verdict, "incorrect");
+});
+
+test("申诉使更早一轮课的知识点改判为错时，正在进行的重试按重算后的继承进度计算，与学生模型和菜单一致；XP 不收回", async (t) => {
+  const definition = topic("t01", 2);
+  const first = definition.kps[0]?.practice?.[0];
+  assert.ok(first);
+  first.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
+  const f = await fixture(t, [definition]);
+  // 第一轮：KP1 两连对通过，KP2 五次都说不会，课失败。
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
+  await f.select("t01");
+  const failed = await f.finishLesson([true, true, false, false, false, false, false]);
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  const key = f.session().replay.current?.answered[1];
+  assert.ok(key);
+  // 冷却以后重试：继承已过的 KP1，只练 KP2，两连对通过。
+  f.time(start + 49 * 3_600_000);
+  await f.select("t01");
+  const passed = await f.finishLesson();
+  assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.ok((await f.student()).t01);
+  const xp = passed.progress.totalXp;
+
+  // 申诉把第一轮使 KP1 两连对的那份作答改判为错：第一轮的 KP1 不再通过，重试的课也就继承不到它。
+  // 重试的课回到进行中，学生模型里没有这节课的已学状态，菜单不出现；已经给出的 XP 不收回。
+  f.models.expectStructured().succeed({ verdict: "incorrect", reason: "复核不符" });
+  await f.call("submission.appeal", { submissionId: `s${key.seq}`, expectedGradeRevision: 1, reason: "复核" });
+  const after = await f.state();
+  assert.deepEqual(after.task?.kps.map((kp) => kp.completed), [false, true]);
+  assert.equal(after.task?.phase.stage, "feedback");
+  assert.equal(after.menu, null);
+  assert.equal((await f.student()).t01, undefined);
+  assert.deepEqual((await f.fold()).lessons.get("t01")?.map((kp) => kp.completed), [false, false]);
+  assert.equal(after.progress.totalXp, xp);
+});
+
 test("判分失败或模型没有把握时任务照样往下走、不计失败，可以中止；下次打开自动补判，学习状态随之重算", async (t) => {
   const definition = topic("t01");
   const question = definition.kps[0]?.practice?.[0];
@@ -121,6 +329,34 @@ test("判分失败或模型没有把握时任务照样往下走、不计失败�
   assert.equal(f.models.calls.length, 5);
   assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
   assert.ok((await f.student()).t01);
+});
+
+test("复习到截止时间时，没判出结果的作答就算判对也不能让复习通过：已有失败的证据，按超时结束并记一次失败", async (t) => {
+  const definition = topic("t01");
+  const review = definition.kps[0]?.review?.[0];
+  assert.ok(review);
+  review.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
+  const f = await fixture(t, [definition]);
+  await f.select("t01");
+  await f.finishLesson();
+  f.time(start + 86_400_000);
+  const learned = (await f.student()).t01;
+  assert.ok(learned);
+  await f.select("t01", "review");
+  // 前两题说不会，当场判错；第三题的判分中断。三题里最多一题对，到截止时间就不可能通过了。
+  for (let index = 0; index < 2; index++) {
+    await f.submit(false);
+    await f.advance();
+  }
+  f.models.expectStructured().fail(new Error("断网"));
+  const receipt = await f.submit();
+  assert.ok(receipt.status === "recorded");
+  assert.equal(receipt.submission.processing.status, "interrupted");
+  const deadline = (await f.state()).task?.deadlineAt;
+  assert.ok(deadline);
+  f.time(deadline);
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "timeout" });
+  assert.notDeepEqual((await f.student()).t01, learned);
 });
 
 test("只把事实文件和格式标记搬到新空间，打开后从事实重算出相同的状态", async (t) => {
@@ -171,18 +407,19 @@ test("题目的知识点归属改变时题目版本不变，过去的作答照�
   assert.ok(graded(f).every((fact) => fact.version === versions.question));
 });
 
-test("代价关卡：每次作答只写交付、作答、判分三条事实，字节数有上限且不随历史增长", async (t) => {
-  // 上限由事实的构成推出：三条事实的序号、时间与引用，题目 id（最多 120 字符），两个 sha256 版本，
-  // 一个作答位的判分结论。学习者的作答和模型给的理由另计，它们本身有长度上限。
-  const fixedLimit = 640;
+test("代价关卡：每次作答只写交付、作答、判分三条事实；固定部分不超过按事实构成算出的上限，也不随历史增长", async (t) => {
+  const limit = fixedLimit();
+  // 样本有文字题、开放题（t01 第三个知识点）和两道代码题：t04 的只有一个测试；最长的那道题目 id 和作答位 id 都取格式上限，
+  // 有 MAX_TESTS 个测试，参考答案永不结束，替身执行方让第一个测试超时、余下的不运行，判分事实里每个测试的结论都是最长的写法。
   const definition = topic("t01", 3);
   const open = definition.kps[2]?.practice?.[0];
   assert.ok(open);
   open.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
-  const f = await fixture(t, [definition, topic("t02", 3, ["t01"]), topic("t03", 3, ["t02"])]);
+  const code = [codeTopic("t04", "1", "answer", 1, "x = 2"), codeTopic(LONG_TOPIC, "100000", LONG_SLOT, MAX_TESTS, "while True:\n    pass")];
+  const f = await fixture(t, [definition, topic("t02", 3, ["t01"]), topic("t03", 3, ["t02"]), ...code], { services: fakePython });
   const size = async () => (await stat(f.session().records.file)).size;
-  const sizes: number[] = [];
-  for (const id of ["t01", "t02", "t03"]) {
+  const samples: { question: string; bytes: number }[] = [];
+  for (const id of ["t01", "t02", "t03", "t04", LONG_TOPIC]) {
     await f.select(id);
     for (let step = 0; step < 60; step++) {
       const current = await f.state();
@@ -197,22 +434,28 @@ test("代价关卡：每次作答只写交付、作答、判分三条事实，�
         assert.ok(receipt.status === "recorded");
         const written = f.session().records.facts.slice(facts);
         assert.deepEqual(written.map((fact) => fact.type), ["delivered", "answered", "graded"]);
-        const payload = written.reduce((sum, fact) => {
-          if (fact.type === "answered") return sum + Buffer.byteLength(JSON.stringify(fact.answers));
-          if (fact.type === "graded") return sum + Object.values(fact.slots).reduce((total, slot) => total + Buffer.byteLength(slot.reason ?? ""), 0);
-          return sum;
-        }, 0);
-        const bytes = (await size()) - before;
-        assert.ok(bytes - payload <= fixedLimit, `一次作答写入 ${bytes} 字节，作答与理由 ${payload} 字节`);
-        sizes.push(bytes - payload);
+        // 计算的就是写进日志的这三行。
+        assert.equal((await size()) - before, written.reduce((sum, fact) => sum + Buffer.byteLength(`${JSON.stringify(fact)}\n`), 0));
+        const delivered = written[0];
+        assert.ok(delivered?.type === "delivered");
+        samples.push({ question: delivered.question, bytes: fixedBytes(written) });
       } else {
         await f.advance();
       }
     }
   }
-  assert.equal(sizes.length, 18);
-  // 第一份和最后一份作答的固定部分只差序号多出来的几位数。
-  assert.ok(Math.abs((sizes.at(-1) ?? 0) - (sizes[0] ?? 0)) <= 12, JSON.stringify(sizes));
+  for (const sample of samples) {
+    assert.ok(sample.bytes <= limit, `${sample.question} 一次作答的固定部分 ${sample.bytes} 字节，上限 ${limit} 字节`);
+  }
+  // 上限就是这样一次作答实际写下的构成：最长的那道代码题每次作答都正好达到它。
+  const longest = samples.filter((sample) => sample.question === LONG_QUESTION);
+  assert.equal(longest.length, 5);
+  assert.ok(longest.every((sample) => sample.bytes === limit), JSON.stringify(longest));
+  // 构成相同的作答写在历史的哪个位置都一样：t01 开头的文字题和 t03 末尾的文字题，固定部分相同。
+  const text = samples.filter((sample) => /^t0[123]\.k[123]\.q1$/.test(sample.question) && sample.question !== "t01.k3.q1");
+  assert.equal(text.length, 16);
+  assert.equal(new Set(text.map((sample) => sample.bytes)).size, 1);
+  assert.equal(samples.length, 25);
 });
 
 test("代价关卡：作答和任务结束都增量更新，重判更早任务的作答才整段重算一次；打开空间时每条事实只重放一次", async (t) => {

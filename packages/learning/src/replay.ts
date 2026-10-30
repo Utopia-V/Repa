@@ -86,10 +86,15 @@ export class Replay {
     return this.firstDeliveries.get(questionId);
   }
 
-  /** 当前任务的证据，用它开始时继承的进度计算。 */
+  /**
+   * 当前任务的证据。课的进度从重算后的学习状态继承：更早任务的重判改变了继承的进度时，当前的课随之改变，
+   * 与学生模型和菜单一致。开始时冻结的 inherited 只用于 XP 的结算。
+   */
   currentEvidence(): TaskEvidence | undefined {
     const task = this.current;
-    return task && taskEvidence(task, this.course, task.inherited);
+    if (!task) return undefined;
+    const inherited = task.kind === "lesson" ? this.before().lessons.get(task.topicIds[0] ?? "") : undefined;
+    return taskEvidence(task, this.course, inherited);
   }
 
   /** 当前任务之前的学习状态，用于判断当前任务是否仍有资格。 */
@@ -110,10 +115,8 @@ export class Replay {
   /** 包括已结束的当前任务在内的学习状态。 */
   fold(): Fold {
     const prefix = this.before();
-    const task = this.current;
-    if (!task) return prefix;
-    const entry = taskEvidence(task, this.course, prefix.lessons.get(task.topicIds[0] ?? ""));
-    return entry.outcome ? foldTask(prefix, entry, this.course) : prefix;
+    const entry = this.currentEvidence();
+    return entry?.outcome ? foldTask(prefix, entry, this.course) : prefix;
   }
 
   /** 截止时间已过的复习或测验在截止时刻结束；时间只会向前，所以在读取时就地结算与重放结果一致。 */
@@ -231,7 +234,10 @@ export class Replay {
     return delivery;
   }
 
-  /** 按这项任务自己的事实结算 XP：只在奖励变高时补发差额。 */
+  /**
+   * 按这项任务自己的事实和它开始时继承的进度结算 XP：只在奖励变高时补发差额。继承的进度用开始时冻结的那份，
+   * 更早任务的重判不改动已经结算的 XP，打开空间重放也与现场相同。
+   */
   private observe(task: TaskRecord, at: number): void {
     const value = reward(taskEvidence(task, this.course, task.inherited), this.course);
     const best = this.best.get(task.seq) ?? 0;
@@ -245,16 +251,19 @@ export class Replay {
 
   /** 没有进行中的任务时，累计 XP 每到一个门槛就出现一场测验；题目所属的 topic 在出现时选定。 */
   private checkQuiz(): void {
-    const task = this.current;
-    const outcome = task && taskEvidence(task, this.course, task.inherited).outcome;
-    if (task && !outcome) return;
+    const due = !this.pending && this.trigger >= (this.consumed + 1) * QUIZ_EVERY_XP;
+    const empty = this.pending !== undefined && !this.pending.topicIds.length;
+    if (!due && !empty) return;
+    // 当前任务的结论与界面一致，用重算后的学习状态；只在要出测验或重选时才算。
+    const evidence = this.currentEvidence();
+    if (evidence && !evidence.outcome) return;
     // 学习状态由更早任务的叠加和当前任务的结论决定；它没变，重选也选不出别的 topic。
-    const state = `${this.changes}:${task?.seq ?? 0}:${outcome ?? ""}`;
-    if (!this.pending && this.trigger >= (this.consumed + 1) * QUIZ_EVERY_XP) {
+    const state = `${this.changes}:${evidence?.task.seq ?? 0}:${evidence?.outcome ?? ""}`;
+    if (due) {
       const n = this.consumed + 1;
       this.sampled = state;
       this.pending = { n, atXp: this.trigger, topicIds: this.pick(n) };
-    } else if (this.pending && !this.pending.topicIds.length && this.sampled !== state) {
+    } else if (this.pending && this.sampled !== state) {
       this.sampled = state;
       this.pending.topicIds = this.pick(this.pending.n);
     }

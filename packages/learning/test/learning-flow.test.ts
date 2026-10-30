@@ -275,7 +275,7 @@ test("开放题只送本题与原答；服务失败和 unsure 不算错，重开
   assert.equal(f.session().records.facts.filter((entry) => entry.type === "answered").length, 1);
 });
 
-test("复习截止前收下的开放题作答没判出结果时按超时结束，补判后改为通过并以作答时间更新", async (t) => {
+test("复习截止前收下的开放题作答没判出结果、而它判对就能通过时，截止后复习结束但不下结论、不记失败；补判后改为通过并以作答时间更新", async (t) => {
   const definition = topic();
   const review = definition.kps[0]?.review?.[0];
   assert.ok(review);
@@ -284,6 +284,8 @@ test("复习截止前收下的开放题作答没判出结果时按超时结束�
   await f.select();
   await f.finishLesson();
   f.time(start + 86_400_000);
+  const learned = (await f.student()).t01;
+  assert.ok(learned);
   await f.select("t01", "review");
   for (let index = 0; index < 2; index++) {
     f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
@@ -297,7 +299,10 @@ test("复习截止前收下的开放题作答没判出结果时按超时结束�
     return;
   }
   f.time(start + 86_400_000 + 600_000);
-  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "timeout" });
+  const ended = await f.state();
+  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "unresolved" });
+  assert.ok(ended.menu);
+  assert.deepEqual((await f.student()).t01, learned);
   f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
   await f.reopen();
   await f.state();

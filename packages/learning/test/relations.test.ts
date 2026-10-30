@@ -130,11 +130,11 @@ test("当前 topic、KP、题目均不能复用退役 id，未使用的退役 id
 test("知识点归属不进题目版本：改 measures 或 uses 后版本不变，过去的作答照样对得上", async () => {
   const owner = topic(relations(), "t01");
   const q = question(owner);
-  const original = await questionVersion(q, owner);
-  assert.equal(await questionVersion({ ...q, measures: ["t01.k1"], uses: [] }, owner), original);
-  assert.equal(await questionVersion({ ...q, measures: ["t01.k1", "t01.k2"], uses: ["t04.k1", "t04.k2"] }, owner), original);
-  assert.equal(await questionVersion({ ...q, uses: ["t04.k1"] }, owner), original);
-  assert.equal(await questionVersion({ ...q, measures: ["t01.k2"] }, owner), original);
+  const original = await questionVersion(q, owner, "");
+  assert.equal(await questionVersion({ ...q, measures: ["t01.k1"], uses: [] }, owner, ""), original);
+  assert.equal(await questionVersion({ ...q, measures: ["t01.k1", "t01.k2"], uses: ["t04.k1", "t04.k2"] }, owner, ""), original);
+  assert.equal(await questionVersion({ ...q, uses: ["t04.k1"] }, owner, ""), original);
+  assert.equal(await questionVersion({ ...q, measures: ["t01.k2"] }, owner, ""), original);
   assert.deepEqual(questionCredit(q), { measures: ["t01.k1"], uses: [] });
 });
 
@@ -197,9 +197,9 @@ test("课程检查与核对入口复用原证明，单改信用不发请求，�
     version: await contentVersion(versionInput(quiz, owner)),
     slots: ["output"], model: "legacy/test", date: "2026-10-12",
   }];
-  const original = await questionVersion(quiz, owner);
+  const original = await questionVersion(quiz, owner, "");
   quiz.uses = ["t04.k1"];
-  assert.equal(await questionVersion(quiz, owner), original);
+  assert.equal(await questionVersion(quiz, owner, ""), original);
   assert.deepEqual(await errors(t, demo), []);
   const root = await writeCourse(t, demo);
   const confirmed = await confirmCourse(root, {
