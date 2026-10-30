@@ -166,6 +166,8 @@ export class SpaceHistory {
   private runs: Map<string, string[]> | null = null;
   // scope 为 null 表示整个空间；保存失败后按同一来源和范围补完。
   private pending: { source: Source; scope: string[] | null } | null = null;
+  // 按路径列出时 Git 对单个文件（不是目录）是否忽略的判断，连同当时决定它的 .gitignore 状态；见 ignoreRules。
+  private readonly visibility = new Map<string, { rules: string; listed: boolean }>();
   private readonly listeners = new Set<(revision: string) => void | Promise<void>>();
 
   private constructor(readonly space: string, options: HistoryOptions) {
@@ -525,14 +527,14 @@ export class SpaceHistory {
     const above = new Set(scope.flatMap(parents));
     const boundaries = new Map<string, boolean>();
     const skipped: Snapshot["skipped"] = [];
-    const specs = new Set<string>();
+    // 要列出的路径及其是否为目录。磁盘上没有的路径列不出任何文件，不必交给 Git；它在历史中的条目照样按范围删除。
+    const specs = new Map<string, boolean>();
     for (const file of scope) {
-      const exists = Boolean(await stat(path.join(this.space, file)));
+      const info = await stat(path.join(this.space, file));
       if (await this.boundary(file, boundaries)) {
-        if (exists) skipped.push({ path: file, reason: "repository" });
-      } else if (exists) {
-        // 磁盘上没有的路径列不出任何文件，不必交给 Git；它在历史中的条目照样按范围删除。
-        specs.add(file);
+        if (info) skipped.push({ path: file, reason: "repository" });
+      } else if (info) {
+        specs.set(file, info.isDirectory());
       }
     }
     for (const directory of above) {
@@ -540,19 +542,75 @@ export class SpaceHistory {
       if (!info || info.isDirectory()) continue;
       // 上级在磁盘上已不是目录，下面不可能还有内容；这一层以下的历史条目都按范围处理。
       roots.add(directory);
-      if (!(await this.boundary(directory, boundaries))) specs.add(directory);
+      if (!(await this.boundary(directory, boundaries))) specs.set(directory, false);
     }
+    const files = this.candidates([...await this.listScope(specs)], skipped, boundaries);
+    return this.save(source, files, skipped, (file) => covered(file, roots, above), source.kind === "undo");
+  }
+
+  // 列出给定路径中没有被忽略的文件。单个文件沿用 visibility 中仍然有效的判断，其余路径交给 ls-files，
+  // 同一文件反复写入、写入后监听又报告它时都不必再启动 Git。
+  private async listScope(specs: Map<string, boolean>): Promise<Set<string>> {
     const listed = new Set<string>();
-    const batches = [...specs];
+    const rules = new Map<string, string | null>();
+    // 交给 Git 的路径；单个文件附上列出之前的规则状态，目录和规则读不了的文件为 null。
+    const asked = new Map<string, string | null>();
+    for (const [file, directory] of specs) {
+      const state = directory ? null : await this.ignoreRules(file, rules);
+      const known = this.visibility.get(file);
+      if (state !== null && known?.rules === state) {
+        if (known.listed) listed.add(file);
+      } else {
+        asked.set(file, state);
+      }
+    }
+    const output = new Set<string>();
+    const batches = [...asked.keys()];
     for (let index = 0; index < batches.length; index += PATHSPEC_BATCH) {
-      const output = await this.git.run([
+      const result = await this.git.run([
         "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--exclude=/.repa/", "--exclude=.git",
         "--", ...batches.slice(index, index + PATHSPEC_BATCH),
       ]);
-      for (const file of nul(output)) listed.add(file);
+      for (const file of nul(result)) output.add(file);
     }
-    const files = this.candidates([...listed], skipped, boundaries);
-    return this.save(source, files, skipped, (file) => covered(file, roots, above), source.kind === "undo");
+    for (const file of output) listed.add(file);
+    // Git 列出的每个名字都对得上给定的文件或目录时才记下判断；大小写不敏感的文件系统上，名字可能与给定路径大小写不同。
+    const directories = [...asked.keys()].filter((file) => specs.get(file));
+    const matched = (name: string) => (asked.has(name) && !specs.get(name))
+      || directories.some((directory) => name.startsWith(`${directory}/`));
+    if (![...output].every(matched)) return listed;
+    // 列出之后文件仍在、规则状态也没变，才说明判断出自这份规则。
+    const after = new Map<string, string | null>();
+    for (const [file, state] of asked) {
+      if (state === null) continue;
+      const info = await stat(path.join(this.space, file));
+      if (info && !info.isDirectory() && await this.ignoreRules(file, after) === state) {
+        this.visibility.set(file, { rules: state, listed: output.has(file) });
+      }
+    }
+    return listed;
+  }
+
+  // 一个文件（不是目录）是否被忽略，只取决于空间根目录和它各级上级目录中的 .gitignore：排除选项与 Git 配置固定，
+  // 全局忽略文件已关闭。返回这些 .gitignore 的类型与对象 ID，缺失记为 -；有一个读不了时返回 null，由 Git 判断。
+  private async ignoreRules(file: string, memo: Map<string, string | null>): Promise<string | null> {
+    const states: string[] = [];
+    for (const directory of ["", ...parents(file)]) {
+      let state = memo.get(directory);
+      if (state === undefined) {
+        try {
+          const content = await this.read(directory ? `${directory}/.gitignore` : ".gitignore");
+          state = content ? `${content.mode}:${content.oid}` : "-";
+        } catch {
+          // 读取失败不当作没有规则；不缓存这次判断，Git 自己读取时照常处理或报错。
+          state = null;
+        }
+        memo.set(directory, state);
+      }
+      if (state === null) return null;
+      states.push(state);
+    }
+    return states.join(" ");
   }
 
   // 让历史中 inScope 的条目与 files 一致，用一个 fast-import 写入变了的内容、树和提交。内容随读随写，不在内存中积攒；
