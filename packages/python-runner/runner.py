@@ -3,7 +3,7 @@
 
 每个任务用全新的命名空间（先运行调用方给的运行前导）和空的工作目录，
 任务后把解释器里常被改动的全局状态（pandas 与 NumPy 的选项、builtins、sys 的输出与显示钩子和 path、
-环境变量、warnings 过滤器、挂起的 asyncio 任务、工作目录与临时目录里新建的文件）恢复原样，恢复不了就以 SystemExit 结束。
+环境变量、warnings 过滤器、挂起的 asyncio 任务、工作目录与临时目录里新建的文件）恢复原样，并给 random 与 numpy.random 重新播种，恢复不了就以 SystemExit 结束。
 已导入的模块不在恢复之列，任务对它们的改动会带到同一个解释器里的后续任务。
 宿主复用解释器：Node 宿主的 SandboxRunner 一直沿用同一个，浏览器宿主在一批测试之内沿用、每批换一个新的 Worker；
 恢复失败或任务超时后，两边都换新的解释器。复用只为省去启动时间，不是安全边界
@@ -20,6 +20,7 @@ import inspect
 import io
 import json
 import os
+import random
 import shutil
 import sys
 import traceback
@@ -105,6 +106,10 @@ def restore_state():
     with contextlib.suppress(RuntimeError):
         for task in asyncio.all_tasks(asyncio.get_event_loop()):
             task.cancel()
+    # 用系统熵重新播种，与新的解释器一样，各任务抽到的数互不相关；若恢复成固定状态，
+    # 各任务会抽到同样的数，依赖未设种子随机数的题在核对时能通过，判分时却会失败。
+    random.seed()
+    np.random.seed()
 
 
 class OutputTooLong(Exception):

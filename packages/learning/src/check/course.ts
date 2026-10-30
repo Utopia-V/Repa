@@ -44,7 +44,7 @@ export interface CheckResult {
 /** 检查一门课程：读取与 schema、交叉规则、标准答案自洽，最后在沙箱里运行核对与测试。 */
 export async function checkCourse(root: string, options: CheckOptions = {}): Promise<CheckResult> {
   const report = new Report();
-  const code: CodeStats = { verifyJobs: 0, verifiedSlots: 0, testRuns: 0 };
+  const code: CodeStats = { verifyJobs: 0, verifiedSlots: 0, testRuns: 0, interpreterStarts: 0 };
   const summary: CheckSummary = { topics: { complete: 0, outline: 0 }, questions: 0, confirmationSlots: [], ran: false, code };
   const loaded = await loadCourse(root, report, options.base);
   if (!loaded) return { diagnostics: report.diagnostics, summary };
@@ -105,6 +105,7 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
       if (options.topics && !options.topics.includes(topic.topic.id)) continue;
       await checkTopicCode(topic, runner, report, code, options.timeoutMs, published);
     }
+    code.interpreterStarts = runner.starts;
     if (!options.topics && report.errorCount === 0) {
       const target = path.join(root, "expected.json");
       const temporary = `${target}.${randomUUID()}.tmp`;

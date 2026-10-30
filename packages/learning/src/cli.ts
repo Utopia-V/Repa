@@ -60,7 +60,7 @@ function printResult(result: CheckResult): void {
   if (summary.ran && summary.runtime) {
     const packages = Object.entries(summary.runtime.packages).map(([name, version]) => `${name} ${version}`).join("、");
     process.stdout.write(`代码核对：Pyodide ${summary.runtime.pyodide}（Python ${summary.runtime.python}、${packages}），`
-      + `verify ${summary.code.verifyJobs} 道、核对作答位 ${summary.code.verifiedSlots} 个、测试运行 ${summary.code.testRuns} 次。\n`);
+      + `verify ${summary.code.verifyJobs} 道、核对作答位 ${summary.code.verifiedSlots} 个、测试运行 ${summary.code.testRuns} 次，启动解释器 ${summary.code.interpreterStarts} 次。\n`);
   } else {
     process.stdout.write("代码核对：没有运行。\n");
   }

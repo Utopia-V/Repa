@@ -37,6 +37,7 @@ test("示例课程在 Pyodide 里全部核对通过", async (t) => {
   // 12 道题里，代码题和 Parsons 题由测试负责，其余 10 道都有 verify。
   assert.equal(result.summary.code.verifyJobs, 10);
   assert.ok(result.summary.code.testRuns > 0);
+  assert.equal(result.summary.code.interpreterStarts, 1);
 });
 
 test("标准答案与程序独立算出的不一致、或有作答位没被核对时报出", async (t) => {
@@ -103,6 +104,7 @@ test("核对程序超时时报出，其余题目照常核对", async (t) => {
   assert.deepEqual(errors(result.diagnostics), ["verify_failed"]);
   assert.match(result.diagnostics[0]?.message ?? "", /运行超时/);
   assert.equal(result.summary.code.verifyJobs, 10);
+  assert.equal(result.summary.code.interpreterStarts, 2);
 });
 
 test("课程清单要求的运行时与安装的不一致时报出，不运行核对", async (t) => {
@@ -127,6 +129,7 @@ test("随包的 Python 课程在 Pyodide 里全部核对通过", async (t) => {
   assert.equal(result.summary.topics.complete + result.summary.topics.outline, 48);
   assert.ok(result.summary.code.verifiedSlots > 0);
   assert.ok(result.summary.code.testRuns > 0);
+  assert.equal(result.summary.code.interpreterStarts, 1);
 });
 
 test("verify 核对更严：多写的可接受值、忘了写 input 的答案列、按 repr 显示的字符串都会报出", async (t) => {

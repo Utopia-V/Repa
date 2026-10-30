@@ -116,6 +116,24 @@ test("一个任务改动的 pandas 选项、NumPy 显示设置和 builtins，在
   });
 });
 
+test("任务之间给随机数重新播种，沿用同一个解释器", async (t) => {
+  const reason = await sandboxUnavailable();
+  if (reason) return skipUnavailableEnvironment(t, reason);
+  const sandbox = await runner(t);
+  const seed = "import random, numpy\nrandom.seed(0)\nnumpy.random.seed(0)";
+  const seeded = await sandbox.run({ op: "program", data: [], program: seed, captures: [], doctest: [] });
+  assert.ok(seeded.status === "done" && seeded.ok);
+  const read = "import random, numpy\npython_value = random.random()\nnumpy_value = numpy.random.random()";
+  const outcome = await sandbox.run({ op: "program", data: [], program: read, captures: ["python_value", "numpy_value"], doctest: [] });
+  assert.ok(outcome.status === "done" && outcome.ok);
+  const { captures } = outcome.result as { captures: Record<string, { value: { t: string; v: string } }> };
+  assert.equal(captures.python_value?.value.t, "float");
+  assert.equal(captures.numpy_value?.value.t, "float");
+  assert.notEqual(Number(captures.python_value.value.v), 0.8444218515250481);
+  assert.notEqual(Number(captures.numpy_value.value.v), 0.5488135039273248);
+  assert.equal(sandbox.starts, 1);
+});
+
 test("每个任务从空的工作目录开始：留下的文件、改过的目录、环境变量、sys.path 和 pandas 选项都不带到下一个任务", async (t) => {
   const reason = await sandboxUnavailable();
   if (reason) return skipUnavailableEnvironment(t, reason);
@@ -242,6 +260,7 @@ test("超时的任务结束整个进程，下一个任务换一个新的沙箱",
   const next = await sandbox.run({ op: "program", data: [], program: "value = 6 * 7", captures: ["value"], doctest: [] });
   assert.ok(next.status === "done" && next.ok);
   assert.deepEqual((next.result as { captures: unknown }).captures, { value: { value: { t: "int", v: "42" } } });
+  assert.equal(sandbox.starts, 2);
 });
 
 test("任务后恢复不了解释器状态时，这个任务记为运行器崩溃，下一个任务换一个新的沙箱", async (t) => {
