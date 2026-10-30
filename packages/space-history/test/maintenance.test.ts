@@ -53,23 +53,25 @@ async function importBlobs(git: Git, start: number, count: number, unpackLimit: 
   await git.run(["-c", `fastimport.unpackLimit=${unpackLimit}`, "fast-import", "--quiet", "--done"], stream);
 }
 
+// 每次保存的 blob、树和提交出自同一个 fast-import，Git 默认把少于 100 个对象的导入解包为松散对象。
 test("小批量快照留下松散对象，超过导入阈值的批量快照留下 pack", async (t) => {
   const f = await fixture(t);
-  assert.deepEqual(await counts(f.git), { loose: 1, packs: 0 });
+  // 空空间的基线：空树与提交。
+  assert.deepEqual(await counts(f.git), { loose: 2, packs: 0 });
   await writeFile(join(f.space, "one.txt"), "小批量内容\n");
   await f.history.snapshot();
-  assert.deepEqual(await counts(f.git), { loose: 4, packs: 0 });
+  assert.deepEqual(await counts(f.git), { loose: 5, packs: 0 });
   for (let index = 0; index < 128; index++) {
     await writeFile(join(f.space, `batch-${index}.txt`), `独特的批量内容 ${index}\n`);
   }
   await f.history.snapshot();
-  assert.deepEqual(await counts(f.git), { loose: 6, packs: 1 });
+  assert.deepEqual(await counts(f.git), { loose: 5, packs: 1 });
 });
 
 test("松散对象达到门槛后重开仍维护，打包后再次检查跳过", async (t) => {
   const f = await fixture(t);
   assert.equal(await f.history.maintain(), false);
-  await importBlobs(f.git, 0, 1023, 2048);
+  await importBlobs(f.git, 0, 1024 - (await counts(f.git)).loose, 2048);
   assert.deepEqual(await counts(f.git), { loose: 1024, packs: 0 });
   const before = await objects(f.git);
   const reopened = await openHistory(f.space);
@@ -84,10 +86,10 @@ test("小 pack 达到门槛时合并，不依赖松散对象达到门槛", async
   for (let index = 0; index < 31; index++) {
     await importBlobs(f.git, index, 1, 0);
   }
-  assert.deepEqual(await counts(f.git), { loose: 1, packs: 31 });
+  assert.deepEqual(await counts(f.git), { loose: 2, packs: 31 });
   assert.equal(await f.history.maintain(), false);
   await importBlobs(f.git, 31, 1, 0);
-  assert.deepEqual(await counts(f.git), { loose: 1, packs: 32 });
+  assert.deepEqual(await counts(f.git), { loose: 2, packs: 32 });
   const before = await objects(f.git);
   assert.equal(await f.history.maintain(), true);
   assert.equal((await counts(f.git)).packs, 2);
