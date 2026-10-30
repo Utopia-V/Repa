@@ -31,8 +31,6 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    # 等 Windows 任务稳定变绿以后去掉 continue-on-error。
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
