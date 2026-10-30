@@ -4,13 +4,18 @@ import type { TSchema, Static } from "typebox";
 import { Value } from "typebox/value";
 import {
   parse, PromptOverridesSchema, RepaFault, SettingsSchema,
-  type PromptOverride, type PromptOverrides, type Settings,
+  type BackupSettings, type PromptOverride, type PromptOverrides, type Settings,
 } from "./schema.js";
 import { SerialQueue, writeJson } from "./storage.js";
 
-async function readJson<S extends TSchema>(file: string, schema: S, fallback: Static<S>): Promise<Static<S>> {
+// 备份默认每 30 分钟检查一次、每个空间保留 5 份；30 分钟与 Anki 的默认间隔相同。
+const DEFAULT_BACKUP: BackupSettings = { intervalMinutes: 30, keep: 5 };
+
+// defaults 补上旧文件里还没有的字段，例如加入备份设置之前保存的 settings.json；文件里已有的字段照常校验。
+async function readJson<S extends TSchema>(file: string, schema: S, fallback: Static<S>, defaults: object = {}): Promise<Static<S>> {
   try {
-    return parse(schema, Value.Clean(schema, JSON.parse(await readFile(file, "utf8")) as unknown));
+    const value = Value.Clean(schema, JSON.parse(await readFile(file, "utf8")) as unknown);
+    return parse(schema, value !== null && typeof value === "object" && !Array.isArray(value) ? { ...defaults, ...value } : value);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return fallback;
     throw error;
@@ -27,8 +32,8 @@ export class SettingsStore {
 
   static async open(home: string): Promise<SettingsStore> {
     const settings = await readJson(path.join(home, "settings.json"), SettingsSchema, {
-      commandPolicy: "ask", recentSpaces: [], prompts: {},
-    });
+      commandPolicy: "ask", recentSpaces: [], prompts: {}, backup: DEFAULT_BACKUP,
+    }, { backup: DEFAULT_BACKUP });
     return new SettingsStore(home, settings);
   }
 
@@ -36,7 +41,7 @@ export class SettingsStore {
     return structuredClone(this.#value);
   }
 
-  set(update: Partial<Pick<Settings, "commandPolicy">>): Promise<Settings> {
+  set(update: Partial<Pick<Settings, "commandPolicy" | "backup">>): Promise<Settings> {
     return this.#queue.run(async () => {
       const next = parse(SettingsSchema, { ...this.#value, ...update });
       await this.#save(next);

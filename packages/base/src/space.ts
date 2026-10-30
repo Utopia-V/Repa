@@ -29,6 +29,11 @@ export interface Space {
   record<T>(source: ActivitySource, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }>;
   writes: SpaceWrites;
   onRevision(listener: (revision: Revision) => void): () => void;
+  /**
+   * 在历史队列中执行 action，期间没有提交、撤销或维护写入历史库，备份在这里复制它；空间文件的写入随之排队。
+   * action 拿到历史库目录，不能等待同一空间的历史方法，也不能在 record 动作里调用。
+   */
+  withHistory<T>(action: (gitDir: string) => Promise<T>): Promise<T>;
   flush(): Promise<void>;
   close(): Promise<void>;
 }

@@ -62,7 +62,7 @@ REPA_TEST_REQUIRE_ENV=1 npm test
 
 应用配置使用系统配置目录，支持 `REPA_HOME` 和显式 `home` 覆盖；空间格式版本 1 的覆盖范围和空间 Skill 位置见[底座格式与配置](../../packages/base/README.md#应用配置目录)。目录浏览只把具有有效格式标记的目录识别为空间。测试和试运行必须显式使用临时 `home`／`REPA_HOME` 及临时空间，隔离个人数据。
 
-每个服务持有一个活动空间。Agent 运行和独立插件文件写入经过空间历史队列，插件状态、数据版本与变化游标由插件维护。一个插件打开失败时只停用这个插件及无法成立的依赖方，原因通过 `space.open/create` 的 `disabledPlugins` 和 `plugin.disabled` 提供；前端显示由 Aqua 接续。影子 Git 撤销空间文件，不回滚插件数据、会话与设置；数据保护范围和外部写入限制见[空间历史说明](../../packages/space-history/README.md#保存与撤销的取舍)。
+每个服务持有一个活动空间。Agent 运行和独立插件文件写入经过空间历史队列，插件状态、数据版本与变化游标由插件维护。一个插件打开失败时只停用这个插件及无法成立的依赖方，原因通过 `space.open/create` 的 `disabledPlugins` 和 `plugin.disabled` 提供；前端显示由 Aqua 接续。影子 Git 撤销空间文件，不回滚插件数据、会话与设置；插件数据与会话由[空间备份](../../packages/base/README.md#备份与恢复)保护，数据保护范围和外部写入限制见[空间历史说明](../../packages/space-history/README.md#保存与撤销的取舍)。
 
 ## 从哪里开始
 
@@ -75,6 +75,7 @@ REPA_TEST_REQUIRE_ENV=1 npm test
 | Agent 会话、提示和视图 | [Agent 运行时](../../packages/base/src/agent/runtime.ts)、[提示](../../packages/base/src/agent/prompts.ts)、[视图](../../packages/base/src/agent/views.ts) |
 | 插件接口与宿主 | [plugin.ts](../../packages/base/src/plugin.ts)、[插件宿主](../../packages/base/src/plugins/host.ts)、[示例插件](../../packages/base/examples/notes-plugin.ts) |
 | 空间文件历史与变更流 | [空间历史包](../../packages/space-history/README.md) |
+| 空间备份与恢复：定期检查、复制、轮换与两种恢复 | [备份说明](../../packages/base/README.md#备份与恢复)、[定期检查](../../packages/base/src/backup/schedule.ts)、[复制与轮换](../../packages/base/src/backup/store.ts)、[恢复](../../packages/base/src/backup/restore.ts) |
 | 课程文件格式、课程检查与课程内容 | [学习包说明](../../packages/learning/README.md)、[写课说明](../../packages/learning/courses/README.md) |
 | 在 Pyodide 里运行 Python：页面 Worker、Linux 沙箱与离线包 | [Python 运行器说明](../../packages/python-runner/README.md) |
 | 辅导、即时回顾与受限开始 | [辅导说明](learning-tutor.md)、[Agent 与工具](../../packages/learning/src/tutor.ts) |

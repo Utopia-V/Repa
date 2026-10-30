@@ -105,6 +105,113 @@
 | --- | --- | --- | --- |
 | $ | null | 否 |  |
 
+## 方法：backup.create
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| backup | object | 否 |  |
+| backup.bytes | integer | 否 |  |
+| backup.createdAt | string | 否 |  |
+| backup.id | string | 否 |  |
+| backup.kind | "regular" &#124; "beforeRestore" | 否 |  |
+| created | boolean | 否 |  |
+
+## 方法：backup.delete
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| id | string | 否 |  |
+| root | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $ | null | 否 |  |
+
+## 方法：backup.list
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $[].backups[] | object | 否 |  |
+| $[].backups[].bytes | integer | 否 |  |
+| $[].backups[].createdAt | string | 否 |  |
+| $[].backups[].id | string | 否 |  |
+| $[].backups[].kind | "regular" &#124; "beforeRestore" | 否 |  |
+| $[].exists | boolean | 否 |  |
+| $[].root | string | 否 |  |
+
+## 方法：backup.restore
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| id | string | 否 |  |
+| root | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| bytes | integer | 否 |  |
+| createdAt | string | 否 |  |
+| id | string | 否 |  |
+| kind | "regular" &#124; "beforeRestore" | 否 |  |
+
+## 方法：backup.restoreTo
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| id | string | 否 |  |
+| root | string | 否 |  |
+| target | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| root | string | 否 |  |
+
+## 方法：backup.status
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $ | object &#124; null | 否 | 嵌套对象，字段见源码 |
+
+## 通知：backup.updated
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| failure | object &#124; null | 否 | 嵌套对象，字段见源码 |
+| lastSuccess | string &#124; null | 否 |  |
+| root | string | 否 |  |
+
 ## 方法：confirm.reply
 
 ### 参数
@@ -675,6 +782,9 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| backup | object | 否 |  |
+| backup.intervalMinutes | integer | 否 |  |
+| backup.keep | integer | 否 |  |
 | commandPolicy | "ask" &#124; "fullAccess" | 否 |  |
 | prompts | object | 否 |  |
 | prompts[^.*$] | object | 是 | 嵌套对象，字段见源码 |
@@ -686,12 +796,18 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| backup | object | 是 |  |
+| backup.intervalMinutes | integer | 否 |  |
+| backup.keep | integer | 否 |  |
 | commandPolicy | "ask" &#124; "fullAccess" | 是 |  |
 
 ### 结果
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| backup | object | 否 |  |
+| backup.intervalMinutes | integer | 否 |  |
+| backup.keep | integer | 否 |  |
 | commandPolicy | "ask" &#124; "fullAccess" | 否 |  |
 | prompts | object | 否 |  |
 | prompts[^.*$] | object | 是 | 嵌套对象，字段见源码 |

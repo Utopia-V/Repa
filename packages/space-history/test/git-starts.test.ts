@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { Git, gitStarts } from "../src/git.js";
-import { openHistory, type ActivitySource } from "../src/index.js";
+import { checkoutLatest, openHistory, type ActivitySource } from "../src/index.js";
 
 // Windows 上每启动一个 Git 进程要数十毫秒，历史操作的耗时主要由启动次数决定，因此这里断言次数，不断言耗时。
 // 上限写成"推算出的最少次数 + 余量"；频繁的操作连做多次再统计，每次多启动一个进程就会超出余量。超出时列出各子命令的次数。
@@ -164,4 +164,19 @@ test("插件追赶：已追到当前版本时不启动 Git，落后时读一次�
   // 确认游标对象存在，读游标之后的提交与差异。
   atMost(behind, 3 + 1, "落后一个版本的追赶");
   assert.equal(behind.commands["merge-base"] ?? 0, 0);
+});
+
+test("从备份恢复：在队列中复制历史库不启动 Git；按最近修订写出空间文件只列一次树、读一次内容", async (t) => {
+  const f = await fixture(t, notes);
+  const history = await openHistory(f.space);
+  // 备份按文件复制历史库，不需要 Git；验收要求一次备份不启动 Git，这里不留余量。
+  const copy = await started(() => history.withRepository(async () => undefined));
+  atMost(copy, 0, "在历史队列中复制历史库");
+  const restored = path.join(path.dirname(f.space), "restored");
+  await mkdir(restored);
+  await cp(path.join(f.space, ".repa"), path.join(restored, ".repa"), { recursive: true });
+  const checkout = await started(() => checkoutLatest(restored));
+  assert.equal(checkout.value.files, 20);
+  // 列出最近修订的树，一次读出全部内容；不扫描空间、不提交。
+  atMost(checkout, 2 + 1, "写出二十个文件的最近修订");
 });

@@ -19,6 +19,8 @@ const MAINTENANCE_LOOSE_OBJECTS = 1024;
 const MAINTENANCE_PACKS = 32;
 // 每次 ls-files 最多带这么多路径，避免大范围撤回超出命令行长度上限。
 const PATHSPEC_BATCH = 256;
+// 写出整个修订时，一次 cat-file 读出的内容上限；单个文件超过它时独占一批。内存占用因此不随空间大小增长。
+const CHECKOUT_BATCH_BYTES = 32 * 1024 * 1024;
 type Entry = { mode: string; oid: string };
 type File = Entry & { data: Buffer };
 // previous 是各路径在这次提交之前的条目；按运行撤回由此得到第一次修改前的内容。
@@ -174,6 +176,14 @@ export class SpaceHistory {
     if (!Check(HistoryOptionsSchema, options)) throw new Error("无效的历史配置");
     this.git = new Git(space, path.join(space, ".repa", "history.git"), options.gitPath);
     this.maxFileBytes = options.maxFileBytes ?? 10 * 1024 * 1024;
+  }
+
+  /**
+   * 在历史队列中执行 action：期间没有提交、撤销或维护写入历史库，action 可以逐个读取库中的文件，例如复制一份备份。
+   * 排在后面的写入等 action 结束；action 持有队列，不能等待同一实例的历史方法。
+   */
+  withRepository<T>(action: (gitDir: string) => Promise<T>): Promise<T> {
+    return this.serial(() => action(path.join(this.space, ".repa", "history.git")));
   }
 
   static async open(space: string, options: HistoryOptions = {}): Promise<SpaceHistory> {
@@ -815,7 +825,7 @@ export class SpaceHistory {
       }
     }
     const restored = files.filter((file) => !conflicts.has(file));
-    const blobs = await this.contents(restored.flatMap((file) => {
+    const blobs = await readBlobs(this.git, restored.flatMap((file) => {
       const entry = before.get(file);
       return entry ? [entry.oid] : [];
     }));
@@ -892,23 +902,68 @@ export class SpaceHistory {
       throw error;
     }
   }
+}
 
-  private async contents(oids: string[]): Promise<Map<string, Buffer>> {
-    const result = new Map<string, Buffer>();
-    if (oids.length === 0) return result;
-    const output = await this.git.run(["cat-file", "--batch"], [...new Set(oids)].join("\n") + "\n");
-    let offset = 0;
-    while (offset < output.length) {
-      const end = output.indexOf(10, offset);
-      const [oid, type, size] = output.subarray(offset, end).toString().split(" ");
-      if (!oid || type !== "blob" || !size) throw new Error("历史 blob 格式损坏");
-      const length = Number(size);
-      result.set(oid, output.subarray(end + 1, end + 1 + length));
-      offset = end + length + 2;
-    }
-    return result;
+// 一次 cat-file 读出这些对象的原始字节；撤回和写出修订都不经过 Git 的换行转换与过滤器。
+async function readBlobs(git: Git, oids: string[]): Promise<Map<string, Buffer>> {
+  const result = new Map<string, Buffer>();
+  if (oids.length === 0) return result;
+  const output = await git.run(["cat-file", "--batch"], [...new Set(oids)].join("\n") + "\n");
+  let offset = 0;
+  while (offset < output.length) {
+    const end = output.indexOf(10, offset);
+    const [oid, type, size] = output.subarray(offset, end).toString().split(" ");
+    if (!oid || type !== "blob" || !size) throw new Error("历史 blob 格式损坏");
+    const length = Number(size);
+    result.set(oid, output.subarray(end + 1, end + 1 + length));
+    offset = end + length + 2;
   }
+  return result;
 }
 
 /** 打开指定目录的空间历史并建立当前基线，供空间模块管理快照与撤回。 */
 export const openHistory = (space: string, options?: HistoryOptions): Promise<SpaceHistory> => SpaceHistory.open(space, options);
+
+/**
+ * 把历史最近一次修订中的文件写到空间目录，供从备份恢复到新文件夹时使用。它不打开历史，也不扫描或提交，
+ * 尚未写出的文件因此不会被记成删除。已有同名路径时报错，不覆盖；权限按撤回的规矩，普通文件 0600，可执行文件 0700。
+ */
+export async function checkoutLatest(space: string, options: { gitPath?: string } = {}): Promise<{ files: number }> {
+  const root = await realpath(space);
+  const git = new Git(root, path.join(root, ".repa", "history.git"), options.gitPath);
+  const entries: (Entry & { file: string; size: number })[] = [];
+  for (const record of nul(await git.run(["ls-tree", "-r", "-z", "-l", REF]))) {
+    const separator = record.indexOf("\t");
+    const [mode, type, oid, size] = record.slice(0, separator).split(/ +/);
+    const file = record.slice(separator + 1);
+    if (!mode || type !== "blob" || !oid || !size || !/^\d+$/.test(size) || protectedPath(file)) throw new Error("历史树包含无效条目");
+    entries.push({ mode, oid, file, size: Number(size) });
+  }
+  // 符号链接最后建：文件和目录都已写好，之后的写入不会经过刚建的链接写到空间之外。
+  entries.sort((a, b) => Number(a.mode === "120000") - Number(b.mode === "120000"));
+  for (let start = 0; start < entries.length;) {
+    let end = start;
+    let bytes = 0;
+    for (let next = entries[end]; next !== undefined && (end === start || bytes + next.size <= CHECKOUT_BATCH_BYTES); next = entries[end]) {
+      bytes += next.size;
+      end++;
+    }
+    const batch = entries.slice(start, end);
+    const blobs = await readBlobs(git, batch.map(({ oid }) => oid));
+    for (const entry of batch) {
+      const data = blobs.get(entry.oid);
+      if (!data) throw new Error("历史 blob 缺失");
+      const absolute = path.join(root, entry.file);
+      await mkdir(path.dirname(absolute), { recursive: true });
+      if (entry.mode === "120000") {
+        await symlink(data, absolute);
+      } else {
+        const mode = entry.mode === "100755" ? 0o700 : 0o600;
+        await writeFile(absolute, data, { mode, flag: "wx" });
+        await chmod(absolute, mode);
+      }
+    }
+    start = end;
+  }
+  return { files: entries.length };
+}
