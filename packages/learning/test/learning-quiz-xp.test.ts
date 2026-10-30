@@ -11,7 +11,9 @@ import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
 import { ModelTestDriver } from "@repa/base/testing";
 import { INTERACTION_CAPABILITIES, parse } from "@repa/base/protocol";
 import { stringify } from "yaml";
+import { CourseIndex } from "../src/course-index.js";
 import { connectLearning } from "../src/flow.js";
+import { emptyFold, type DeliveryRecord, type TaskRecord } from "../src/flow-state.js";
 import { createLearningPlugin } from "../src/plugin.js";
 import { progressView, sampleTopics } from "../src/progress.js";
 import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
@@ -19,6 +21,7 @@ import type { Replay } from "../src/replay.js";
 import type { LearningSession } from "../src/session.js";
 import { updateStudent } from "../src/student-model.js";
 import type { Topic } from "../src/format/schema.js";
+import { course as baseCourse } from "./fixtures/learning-session.js";
 
 const start = Date.UTC(2026, 9, 12, 12);
 async function fixture(
@@ -65,7 +68,7 @@ async function fixture(
   let failStart = false;
   const models = new ModelTestDriver();
   const learning = createLearningPlugin({
-    sources: [{ kind: "bundled", directory }], now: () => now,
+    sources: [{ kind: "bundled", directory }],
     connect: async (opened, host) => {
       session = opened;
       return connectLearning(opened, {
@@ -87,7 +90,8 @@ async function fixture(
     authPath: path.join(agentDir, "auth.json"), modelsPath: null,
     allowModelNetwork: false, refreshOnCreate: false,
   });
-  const runtime = await createAgentRuntimeForTest({ agentDir, modelRuntime });
+  // 插件的时间取自底座：运行时的 now 经协议宿主交给插件，测试在这里拨动时间。
+  const runtime = await createAgentRuntimeForTest({ agentDir, modelRuntime, now: () => now });
   const server = await startServer({ home: path.join(root, "home"), runtime, plugins: [plugin], generalAgent: false });
   const connect = () => RepaClient.connect(server.connection, {
     capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] }, services: [] },
@@ -172,6 +176,13 @@ async function fixture(
     },
     time: (value: number) => { now = value; },
     failStart: (value: boolean) => { failStart = value; },
+    /** 改写课程里的 topic；重开空间后生效。 */
+    writeTopics: async (change: (topics: Topic[]) => void) => {
+      change(topics);
+      for (const topic of topics) {
+        await writeFile(path.join(directory, "topics", `${topic.id}.yaml`), stringify(topic, { aliasDuplicateObjects: false }));
+      }
+    },
     session: learningSession,
     replay: () => learningSession().replay,
     fold: async () => {
@@ -320,7 +331,7 @@ test("准备失败沿受限入口重开；截止前收下的开放题作答没�
   assert.equal((await f.state()).progress.totalXp, 153);
 });
 
-test("重判使课失去已学状态时 XP 不收回、已出现的测验门槛保留；日目标持久化，ETA 含零学习日", async (t) => {
+test("重判使课失去已学状态时 XP 不收回、已出现的测验门槛保留；日目标持久化，完课估算是一个日期、含零学习日", async (t) => {
   const f = await fixture(t, false, 2, undefined, (topics) => {
     const question = topics[0]?.kps[0]?.practice?.[0];
     assert.ok(question);
@@ -345,12 +356,15 @@ test("重判使课失去已学状态时 XP 不收回、已出现的测验门槛�
   assert.equal((await f.call("progress.get", {})).progress.dailyGoalXp, 35);
   assert.equal((await f.state()).progress.totalXp, 150);
   assert.ok((await readFile(path.join(f.session().records.file), "utf8")).includes('"type":"goal","xp":35'));
-  // 近七个自然日里三天各得 7 XP：平均 3 XP，剩余 t0、t4、t5 三节课。
+  // 近七个自然日里三天各得 7 XP，平均每天 3 XP。剩余 t0、t4、t5 三节课共 96 分钟，还要 32 天，完课估算是 32 天以后的日期；
+  // 剩余时长按 XP 计的学习量算，复习不另加。只有两天学过时不给估算。
   const awards = [1, 2, 3].map((days) => ({ task: 1, xp: 7, at: start - days * 86_400_000, quiz: false }));
   const replay = { awards, total: 21, goal: undefined } as unknown as Replay;
   const progress = progressView(replay, await f.fold(), f.session().course, start, "UTC");
-  assert.equal(progress.etaDays, (60 + 31 + 5) * 1.5 / 3);
-  assert.equal(progressView({ awards: awards.slice(0, 2), total: 14, goal: undefined } as unknown as Replay, await f.fold(), f.session().course, start, "UTC").etaDays, null);
+  assert.equal(progress.day, "2026-10-12");
+  assert.equal(progress.etaDate, "2026-11-13");
+  assert.equal(progressView({ awards: awards.slice(0, 2), total: 14, goal: undefined } as unknown as Replay, await f.fold(), f.session().course, start, "UTC").etaDate, null);
+  assert.equal((await f.state()).progress.etaDate, null);
 });
 
 for (const failingReview of [false, true]) {
@@ -394,6 +408,103 @@ for (const failingReview of [false, true]) {
     assert.ok((await f.state()).menu?.candidates.some((entry) => entry.kind === "retake"));
   });
 }
+
+test("测验中途关闭应用：重开时这场测验已按超时结束，不会停滞；没答的题算错并转入复习，已作答而未判出结果的题不算错，判出以后再算", async (t) => {
+  const f = await fixture(t, true);
+  await f.qualify();
+  const learned = (await f.fold()).student;
+  const running = await f.select("quiz");
+  assert.ok(running.task?.deadlineAt);
+  const [right, waiting, ...unanswered] = running.task.deliveries.map((delivery) => delivery.topicId);
+  assert.ok(right && waiting && unanswered[0] && unanswered.length === 2);
+  const forced = (ids: string[]) => ids.map((id) => [id, "review"]).sort();
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
+  await f.submit(0);
+  f.models.expectStructured().fail(new Error("断网"));
+  const pending = await f.submit(1);
+  assert.ok(pending.status === "recorded");
+  assert.equal(pending.submission.processing.status, "interrupted");
+  // 关掉应用，过了截止时间才再打开：计时不暂停，这场测验就此结束。重开后的自动补判这次也没判出结果。
+  f.models.expectStructured().fail(new Error("还是断网"));
+  f.time(running.task.deadlineAt + 3_600_000);
+  await f.reopen();
+  const ended = await f.state();
+  await f.session().idle();
+  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "timeout" });
+  assert.equal(ended.restrictions.kind, "none");
+  // 菜单照常提供强制复习，学习不会停住；强制补救一次给一项。
+  assert.deepEqual(ended.menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["review", unanswered[0]]]);
+  // 答对的记一次通过；没答的两题算错，记一次失败并强制复习；判分中断的那题还没有证据，学生模型不变，也不补救。
+  const fold = await f.fold();
+  assert.ok((fold.student[right]?.repNum ?? 0) > (learned[right]?.repNum ?? 0));
+  for (const id of unanswered) {
+    assert.ok((fold.student[id]?.repNum ?? 0) < (learned[id]?.repNum ?? 0));
+  }
+  assert.deepEqual(fold.student[waiting], learned[waiting]);
+  assert.deepEqual([...fold.forced].sort(), forced(unanswered));
+  // 测验 XP 按全部交付算：四题里对一题，得 floor(15 / 4)。
+  assert.equal(ended.progress.totalXp, 153);
+  // 那题判出来是错的：这时才算错，也转入复习。
+  f.models.expectStructured().succeed({ verdict: "incorrect", reason: "错误" });
+  await f.call("submission.resume", { submissionId: pending.submission.submissionId });
+  assert.deepEqual([...(await f.fold()).forced].sort(), forced([...unanswered, waiting]));
+});
+
+test("测验里题目已从课程删除的 topic 不是学习者的原因：没答也不算错，不更新、不补救；其余都答对时这场测验通过", async (t) => {
+  const f = await fixture(t);
+  await f.qualify();
+  const learned = (await f.fold()).student;
+  const running = await f.select("quiz");
+  const deliveries = running.task?.deliveries ?? [];
+  const last = deliveries[3];
+  assert.ok(deliveries.length === 4 && last);
+  for (let index = 0; index < 3; index++) {
+    await f.submit(index);
+  }
+  // 作者把第四个 topic 刚出的那道测验题从课程里删掉了。
+  const removed = f.replay().delivery(Number(last.deliveryId.slice(1)))?.questionId;
+  assert.ok(removed);
+  await f.writeTopics((topics) => {
+    const kp = topics.find((topic) => topic.id === last.topicId)?.kps[0];
+    assert.ok(kp?.quiz);
+    kp.quiz = kp.quiz.filter((question) => question.id !== removed);
+  });
+  await f.reopen();
+  await f.call("quiz.finish", await f.guard());
+  const ended = await f.state();
+  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "passed" });
+  const fold = await f.fold();
+  assert.deepEqual(fold.student[last.topicId], learned[last.topicId]);
+  assert.equal(fold.forced.size, 0);
+  assert.equal(ended.menu?.candidates.some((entry) => entry.kind === "retake"), false);
+});
+
+test("第二场测验先考以往没测过的 topic，再从测过的里补足，补足的 topic 出学习者没见过的题", async (t) => {
+  const f = await fixture(t, false, 2, [60, 60, 25, 5, 60, 60, 30]);
+  await f.qualify();
+  const first = await f.select("quiz");
+  await f.submit(0);
+  await f.answerRest();
+  await f.call("quiz.finish", await f.guard());
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  const question = (deliveryId: string) => f.replay().delivery(Number(deliveryId.slice(1)))?.questionId;
+  const earlier = new Map(first.task?.deliveries.map((delivery) => [delivery.topicId, question(delivery.deliveryId)]));
+  assert.deepEqual([...earlier.keys()].sort(), ["t0", "t1", "t2", "t3"]);
+  for (const id of ["t4", "t5", "t6"]) {
+    await f.select("lesson", id);
+    await f.finishTask();
+  }
+  // 课的累计 XP 到了第二个门槛：t0 到 t3 测过一次，这场先选没测过的 t4、t5、t6，再从测过的里补足两个。
+  const second = await f.select("quiz");
+  const deliveries = second.task?.deliveries ?? [];
+  assert.equal(deliveries.length, 5);
+  assert.deepEqual(deliveries.map((delivery) => delivery.topicId).filter((id) => !earlier.has(id)).sort(), ["t4", "t5", "t6"]);
+  // 补足的两个 topic 出的是学习者没见过的题，不重复上一场的题。
+  for (const delivery of deliveries) {
+    assert.notEqual(question(delivery.deliveryId), earlier.get(delivery.topicId));
+    assert.equal(delivery.repeated, false);
+  }
+});
 
 test("两题还在判分、两题没答时交卷：没答的算失败并强制复习，待判的不算对错；判分回来后结论与 XP 随之更新，申诉只追加奖励差额", async (t) => {
   const f = await fixture(t, true);
@@ -695,4 +806,44 @@ test("历史申诉判分在测验开始后返回，响应按返回时的受限�
   } finally {
     pending.fail(new Error("测试结束"));
   }
+});
+
+test("测验先选以往测验（含换题重考）测过次数最少的 topic，出过题没作答也算测过；次数相同时按 seed 随机，同一 seed 结果相同；出过的题已从课程删除的不算测过", () => {
+  const ids = ["a", "b", "c", "d", "e", "f", "g"];
+  const topics: Topic[] = ids.map((id) => ({
+    id, title: id, status: "complete", minutes: 5, prerequisites: [], sources: [],
+    kps: [{ id: `${id}.k1`, title: id, quiz: [{ id: `${id}.k1.x1`, body: "1 + 1？", explanation: "二。", slots: [{ id: "answer", type: "text", key: "2" }] }] }],
+  }));
+  const index = new CourseIndex({ course: { ...baseCourse, topics: ids }, topics, origins: {} });
+  const fold = emptyFold();
+  fold.student = Object.fromEntries(ids.map((id) => [id, { repNum: 1, memory: 1, speed: 1, lastRepetitionDay: 0, interval: 1 }]));
+  let seq = 0;
+  /** 一场测验：answered 里的题作答了，unanswered 里的题只出了、没有作答。 */
+  const quiz = (kind: "quiz" | "retake", answered: string[], unanswered: string[]): TaskRecord => {
+    const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], deliveries: [], answered: [], timedOut: false };
+    for (const questionId of [...answered, ...unanswered]) {
+      const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, help: false, grades: [] };
+      task.deliveries.push(delivery);
+      if (answered.includes(questionId)) task.answered.push(delivery);
+    }
+    return task;
+  };
+  // a 到 e 各测过一次；f 出过两次题，一次也没作答，也算测过两次；g 出过的那道题后来从课程删除了，不算测过。
+  const tasks = [
+    quiz("quiz", ["a.k1.x1", "b.k1.x1", "c.k1.x1", "d.k1.x1"], ["f.k1.x1"]),
+    quiz("retake", ["e.k1.x1"], ["f.k1.x1", "g.k1.x0"]),
+  ];
+  const once = ["a", "b", "c", "d", "e"];
+  const orders = new Set<string>();
+  for (let n = 1; n <= 10; n++) {
+    const selected = sampleTopics(tasks, fold, index, n);
+    assert.equal(selected.length, 5);
+    assert.equal(selected[0], "g");
+    assert.equal(selected.includes("f"), false);
+    assert.ok(selected.slice(1).every((id) => once.includes(id)));
+    assert.deepEqual(sampleTopics(tasks, fold, index, n), selected);
+    orders.add(selected.join(","));
+  }
+  // 测过次数相同的 a 到 e 由各场的 seed 决定次序：不同的场次排出不同的结果。
+  assert.ok(orders.size > 1, [...orders].join(" | "));
 });

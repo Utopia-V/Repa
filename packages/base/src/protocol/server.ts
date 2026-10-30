@@ -312,6 +312,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             if (!agent) return Promise.reject(new RepaFault("space_not_ready", "空间尚未完成打开"));
             return agent.runAgent(task);
           },
+          defaultModel: () => runtime.defaultModel(),
         }),
         async abortAgent(id) {
           if (!agent) {

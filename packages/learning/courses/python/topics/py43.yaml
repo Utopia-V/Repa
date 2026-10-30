@@ -329,7 +329,6 @@ kps:
     example:
       id: py43.k1.e0
       kind: [predict]
-      uses: [py13.k1]
       data: [plates]
       body: |
         阅读程序，写出第 3–6 行各显示什么。
@@ -373,7 +372,6 @@ kps:
     practice:
       - id: py43.k1.q1
         kind: [predict]
-        uses: [py13.k1]
         body: |
           林老师在 Windows 上打开 `C:\Users\lin\project\analysis.ipynb`，这个 notebook 的工作目录是 `C:\Users\lin\project`。下面这行代码指向哪个文件？
 
@@ -410,7 +408,6 @@ kps:
           answers = {"file": fits[0] if len(fits) == 1 else fits}
       - id: py43.k1.q2
         kind: [debug]
-        uses: [py13.k1, py11.k2]
         body: |
           林老师把 notebook 挪进了 `C:\Users\lin\project\notebooks\` 文件夹，工作目录也随之变成这个文件夹。数据没有动，仍在 `C:\Users\lin\project\data\plate1.csv`。原来能运行的代码现在出了问题：
 
@@ -476,7 +473,6 @@ kps:
           answers = {"looked": fits[0] if len(fits) == 1 else fits, "exists": looked.exists(), "error": error}
       - id: py43.k1.q3
         kind: [explain]
-        uses: [py13.k1]
         data: [pathlib_ready]
         body: |
           要指向 `results` 文件夹里 `week2` 子文件夹中的 `depth.csv`。下面哪几行写对了？选出所有写对的。
@@ -522,7 +518,6 @@ kps:
     review:
       - id: py43.k1.r1
         kind: [predict]
-        uses: [py13.k1]
         body: |
           野外数据整理脚本放在 `D:\fieldwork\scripts\depth.py`，里面有这样一行：
 
@@ -567,7 +562,6 @@ kps:
           answers = {"files": files}
       - id: py43.k1.r2
         kind: [predict]
-        uses: [py13.k1]
         data: [raw_sites]
         body: |
           阅读程序，写出第 2–4 行各显示 True 还是 False。
@@ -596,7 +590,6 @@ kps:
     quiz:
       - id: py43.k1.x1
         kind: [predict]
-        uses: [py13.k1, py05.k3]
         data: [pathlib_ready]
         body: |
           阅读程序，写出四行显示的内容。
@@ -626,7 +619,6 @@ kps:
           answers = {"output": {f"l{number}": {"shown": text} for number, text in zip(range(2, 6), lines)}}
       - id: py43.k1.x2
         kind: [debug]
-        uses: [py13.k1]
         body: |
           林老师电脑上有两份同名文件：
 
@@ -720,7 +712,6 @@ kps:
     example:
       id: py43.k2.e0
       kind: [predict]
-      uses: [py05.k2]
       data: [note_plate1]
       body: |
         阅读程序，写出它显示的内容。
@@ -760,7 +751,6 @@ kps:
     practice:
       - id: py43.k2.q1
         kind: [predict]
-        uses: [py05.k2, py05.k3]
         data: [log_run2]
         body: |
           阅读程序，写出它显示的内容。
@@ -784,7 +774,6 @@ kps:
           answers = {"output": run().lines()[0]}
       - id: py43.k2.q2
         kind: [debug]
-        uses: [py11.k2]
         data: [log_run2]
         body: |
           ```python startLine=1
@@ -821,7 +810,6 @@ kps:
           answers = {"line": f"l{stopped}", "error": run().error}
       - id: py43.k2.q3
         kind: [debug]
-        uses: [py11.k2, py04.k2]
         data: [export_gbk]
         body: |
           ```python
@@ -857,7 +845,6 @@ kps:
     review:
       - id: py43.k2.r1
         kind: [modify]
-        uses: [py05.k2, py05.k3]
         data: [log_run5]
         body: |
           把下面三行排成一段程序：读出 `logs/run5.txt` 的内容，去掉两边空白、换成大写后显示。每一行都要用上，并设好缩进。
@@ -888,7 +875,6 @@ kps:
           `text = f.read()` 要缩进在 with 下面，趁文件开着读出来；`print` 放在缩进外面或里面都可以，因为它用的是已经读出的 `text`。如果把读的那一行放到缩进外面，会报 ValueError。
       - id: py43.k2.r2
         kind: [predict]
-        uses: [py04.k2]
         data: [field_gbk]
         body: |
           分别用三种编码读这个文件，只改下面代码里 `encoding` 的值：
@@ -932,7 +918,6 @@ kps:
     quiz:
       - id: py43.k2.x1
         kind: [predict]
-        uses: [py06.k1]
         data: [log_run7]
         body: |
           `text.splitlines()` 把一段文字按行切开，得到一个列表。
@@ -963,7 +948,6 @@ kps:
           answers = {"safe": "fine" if r.error is None else "error", "output": int(r.out)}
       - id: py43.k2.x2
         kind: [modify]
-        uses: [py04.k2, py11.k2]
         data: [survey_a]
         body: |
           作答框里的代码一运行就报 UnicodeDecodeError。请改动它，让 `text` 得到文件里的原文。
@@ -1091,7 +1075,6 @@ kps:
     practice:
       - id: py43.k3.q1
         kind: [debug]
-        uses: [py11.k2]
         data: [raw_plate1]
         body: |
           有人想给原始数据加一行表头说明，写了下面的代码，但忘了先定义 `header`。

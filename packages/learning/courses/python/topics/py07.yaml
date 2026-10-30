@@ -73,7 +73,6 @@ kps:
     example:
       id: py07.k1.e0
       kind: [predict]
-      uses: [py06.k1]
       body: |
         同一批样本上午、下午各测了两次。阅读下面的程序。
 
@@ -258,7 +257,6 @@ kps:
     review:
       - id: py07.k1.r1
         kind: [trace, predict]
-        uses: [py01.k2]
         body: |
           两批样本编号先合在一起，后来第一批又补了一个。
 
@@ -387,7 +385,6 @@ kps:
           前两行谁先都可以。`[0] * 3` 得到三个 0；`[0 * 3]` 先算 0 * 3，只得到 `[0]`。拼接时谁在前，结果里谁就在前，`ones + zeros` 会得到 `[1, 0, 0, 0]`。
       - id: py07.k1.x2
         kind: [predict]
-        uses: [py02.k1, py06.k1]
         body: |
           宿主已经给 `a`、`b` 赋好了值：`a` 是有 3 个元素的列表，`b` 是有 5 个元素的列表，里面具体是什么不影响答案。写出每一行显示的整数。
 
@@ -513,7 +510,6 @@ kps:
     example:
       id: py07.k2.e0
       kind: [trace, predict]
-      uses: [py04.k1, py04.k3, py06.k1, py02.k2]
       body: |
         一份样本测了四次。阅读下面的程序。
 
@@ -560,7 +556,6 @@ kps:
     practice:
       - id: py07.k2.q1
         kind: [predict]
-        uses: [py02.k1, py02.k2]
         body: |
           写出三行各显示什么。
 
@@ -641,7 +636,6 @@ kps:
           }
       - id: py07.k2.q3
         kind: [modify]
-        uses: [py06.k1]
         body: |
           需求是：
 
@@ -746,7 +740,6 @@ kps:
           print(len(doubled))
           print(max(doubled))
           ```
-        uses: [py07.k1]
         slots:
           - {id: total, type: text, format: integer, prompt: 总和, key: 16}
           - {id: count, type: text, format: integer, prompt: 个数, key: 4}
@@ -758,7 +751,6 @@ kps:
     review:
       - id: py07.k2.r1
         kind: [trace]
-        uses: [py04.k3]
         body: |
           冷库一天记了四次温度。填写程序运行完以后各个名字的值。
 
@@ -787,7 +779,6 @@ kps:
           answers = {"values": {name: {"value": r[name]} for name in ["high", "low", "gap", "avg"]}}
       - id: py07.k2.r2
         kind: [debug]
-        uses: [py02.k1]
         body: |
           仪器读数整体偏低 1，同事想算出“读数的平均值再加 1”。`r` 是读数列表。哪一行算对了？
         slots:
@@ -871,7 +862,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py07.k2.r4
-        uses: [py02.k2]
         kind:
           - trace
         body: |
@@ -960,7 +950,6 @@ kps:
     quiz:
       - id: py07.k2.x1
         kind: [debug]
-        uses: [py01.k1]
         body: |
           下面这段代码用 `signal = [10, 30, 20]` 运行时，四个名字都算对了：合计、个数、平均值、最大值。
 
@@ -1067,7 +1056,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py07.k2.x4
-        uses: [py02.k2]
         kind:
           - trace
         body: |

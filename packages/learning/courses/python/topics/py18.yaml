@@ -193,7 +193,6 @@ kps:
     practice:
       - id: py18.k1.q1
         kind: [predict]
-        uses: [py17.k1]
         data: [T]
         body: |
           我们要标记“测量值偏低，或者属于高剂量组”的样本。阅读代码，按原行索引填写 `mask` 的值。
@@ -224,7 +223,6 @@ kps:
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
       - id: py18.k1.q2
         kind: [predict]
-        uses: [py17.k1, py17.k2]
         data: [T]
         body: |
           阅读代码，说出 `result` 的样子。
@@ -275,7 +273,6 @@ kps:
           }
       - id: py18.k1.q3
         kind: [debug]
-        uses: [py17.k2, py09.k1]
         data: [T]
         body: |
           同事想留下“signal 至少为 10，并且不是对照组”的样本，写了下面的代码。
@@ -357,7 +354,6 @@ kps:
           answers = {"both": lines[0], "either": lines[1], "invert": lines[2]}
       - id: py18.k1.q5
         kind: [debug]
-        uses: [py09.k1]
         body: |
           把逐元素 & 错写成 and 时，Python 无法从整列提取单一真假。填写实际异常类型。
 
@@ -374,7 +370,6 @@ kps:
     review:
       - id: py18.k1.r1
         kind: [modify]
-        uses: [py17.k1, py17.k2]
         data: [wells]
         body: |
           要找出“计数低于 100，或者在 p3 板上”的孔。哪一行代码能得到这些孔？
@@ -422,7 +417,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits, "nrows": len(wanted)}
       - id: py18.k1.r2
         kind: [trace]
-        uses: [py17.k1]
         data: [soil]
         body: |
           阅读代码，按原行索引填写 `flag` 的值。
@@ -490,7 +484,6 @@ kps:
           answers = {"op": fits[0] if len(fits) == 1 else fits, "meaning": meaning}
       - id: py18.k1.x2
         kind: [predict]
-        uses: [py09.k1]
         data: [soil]
         body: |
           宿主已经算好两列掩码：
@@ -673,7 +666,6 @@ kps:
     practice:
       - id: py18.k2.q1
         kind: [debug]
-        uses: [py17.k1]
         data: [T]
         body: |
           同事想标记“signal 至少为 10 的低剂量组样本”，写了这一行，运行时报错了。
@@ -735,7 +727,6 @@ kps:
           }
       - id: py18.k2.q2
         kind: [predict]
-        uses: [py17.k1]
         data: [T]
         body: |
           阅读代码，按原行索引填写 `mask` 的值。
@@ -766,7 +757,6 @@ kps:
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
       - id: py18.k2.q3
         kind: [modify]
-        uses: [py17.k2]
         data: [T]
         body: |
           需求是：
@@ -852,7 +842,6 @@ kps:
 
           本例留下索引 22、4。判分时还会换阈值、换一张含 vehicle 组的表运行，检查结果的行列、值和 `df` 没有被改变。
       - id: py18.k2.q4
-        uses: [py17.k1]
         kind: [trace]
         body: |
           括号分别包住比较条件；isin 把“属于任一允许组”写成一个掩码。读出组合结果。
@@ -868,7 +857,6 @@ kps:
         verify: |
           answers = {"mask": run().lines()[0]}
       - id: py18.k2.q5
-        uses: [py17.k1]
         kind: [debug]
         body: |
           已给定 `values = pd.Series([1, 5, 9])`。两个比较都要加括号，再用 | 组合，选择唯一能得到 [True, False, True] 的表达式。
@@ -890,7 +878,6 @@ kps:
     review:
       - id: py18.k2.r1
         kind: [explain]
-        uses: [py17.k1]
         data: [soil]
         body: |
           下面哪些写法与 `soil["site"].isin(["北坡", "南坡"])` 在这张表上得到同一列 True/False？选出所有相同的；会报错的不算相同。
@@ -928,7 +915,6 @@ kps:
           answers = {"same": same}
       - id: py18.k2.r2
         kind: [debug]
-        uses: [py17.k1, py17.k2]
         data: [soil]
         body: |
           要留下“深度不到 30 厘米”的样地。下面的代码运行时没有报错。
@@ -978,7 +964,6 @@ kps:
     quiz:
       - id: py18.k2.x1
         kind: [modify]
-        uses: [py17.k2]
         data: [wells]
         body: |
           需求是：
@@ -1046,7 +1031,6 @@ kps:
           “p1 或 p3 板”用 `isin(["p1", "p3"])`，“计数低于 limit”加括号，两者用 `&` 连接。本例只留下 A2：A1 在 p1 板但计数 120 不低于 100，C1 在 p3 板但计数 110 也不低于 100。判分时还会换一张有 p4 板的记录、换阈值运行。
       - id: py18.k2.x2
         kind: [specify, explain]
-        uses: [py17.k1]
         data: [soil]
         body: |
           需求是：“site 为北坡或南坡，并且 pH 低于 6.0”。
@@ -1115,7 +1099,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py18.k2.x4
-        uses: [py17.k1]
         kind:
           - trace
         body: |

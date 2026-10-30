@@ -7,12 +7,15 @@ import { stat } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 import type { Services } from "@repa/base/plugin";
 import { parse } from "@repa/base/protocol";
+import { DEFAULT_MODEL_CONFIG, isDue, type ModelConfig } from "@repa/learning-model";
 import { describeRuntime, SandboxRunner } from "@repa/python-runner";
 import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { Value } from "typebox/value";
 import { CodeSlotSchema, IdSchema, KpIdSchema, QuestionIdSchema, TopicIdSchema, type Topic } from "../src/format/schema.js";
 import { FactSchema, GradedSlotSchema, type Fact } from "../src/records-schema.js";
+import { KP_WRONG_LIMIT } from "../src/parameters.js";
 import { Replay } from "../src/replay.js";
+import { DAY_MS } from "../src/student-model.js";
 import { RUNTIME, runtimeUnavailable } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
 import { course, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
@@ -261,7 +264,7 @@ test("申诉使更早一轮课的知识点改判为错时，正在进行的重�
   assert.ok(first);
   first.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
   const f = await fixture(t, [definition]);
-  // 第一轮：KP1 两连对通过，KP2 五次都说不会，课失败。
+  // 第一轮：KP1 两连对通过，KP2 连说三次不会，答错太多，课失败。
   f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
   f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
   await f.select("t01");
@@ -388,7 +391,55 @@ test("判分失败或模型没有把握时任务照样往下走、不计失败�
   assert.ok((await f.student()).t01);
 });
 
-test("复习到截止时间时，没判出结果的作答就算判对也不能让复习通过：已有失败的证据，按超时结束并记一次失败", async (t) => {
+test("“错、错、待判、对、对”的课先按通过算；第三题后来补判为错，这节课改为失败，第三次答错即停、后两题不再算；XP 不收回，重开空间结果相同", async (t) => {
+  const definition = topic("t01");
+  const kp = definition.kps[0];
+  assert.ok(kp);
+  kp.practice = [{
+    id: "t01.k1.q1", body: "说说 1 + 1 为什么等于 2。", explanation: "两个一。",
+    slots: [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }],
+  }];
+  const f = await fixture(t, [definition]);
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  let waiting: string | undefined;
+  for (const verdict of ["incorrect", "incorrect", undefined, "correct", "correct"] as const) {
+    if (verdict) {
+      f.models.expectStructured().succeed({ verdict, reason: "按 rubric" });
+    } else {
+      f.models.expectStructured().fail(new Error("断网"));
+    }
+    const receipt = await f.submit();
+    assert.ok(receipt.status === "recorded");
+    if (!verdict) waiting = receipt.submission.submissionId;
+    if ((await f.state()).task?.phase.stage !== "completed") await f.advance();
+  }
+  assert.ok(waiting);
+  // 第三题还没判出结果：有证据的是错、错、对、对，连对两题，这节课通过，独立答对两题占四题，得 floor(5 × 2/4) XP。
+  const passed = await f.state();
+  assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.ok((await f.student()).t01);
+  assert.equal(passed.progress.totalXp, 2);
+  // 第三题补判为错：按作答先后，第三次答错时这个知识点就失败了，后面两题不再改变它。
+  f.models.expectStructured().succeed({ verdict: "incorrect", reason: "没有说明含义" });
+  await f.call("submission.resume", { submissionId: waiting });
+  const failed = await f.state();
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.deepEqual(failed.task?.kps, [{ kpId: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false }]);
+  assert.equal((await f.student()).t01, undefined);
+  assert.equal(failed.progress.totalXp, 2);
+  const awards = structuredClone(f.session().replay.awards);
+  await f.reopen();
+  const reopened = await f.state();
+  assert.deepEqual(reopened.task?.phase, failed.task?.phase);
+  assert.deepEqual(reopened.task?.kps, failed.task?.kps);
+  assert.equal((await f.student()).t01, undefined);
+  assert.equal(reopened.progress.totalXp, 2);
+  assert.deepEqual(f.session().replay.awards, awards);
+});
+
+test("中止复习时，没判出结果的作答和没出的题都判对也不能让复习通过：已有失败的证据，记为失败并做失败更新", async (t) => {
   const definition = topic("t01");
   const review = definition.kps[0]?.review?.[0];
   assert.ok(review);
@@ -400,8 +451,8 @@ test("复习到截止时间时，没判出结果的作答就算判对也不能�
   const learned = (await f.student()).t01;
   assert.ok(learned);
   await f.select("t01", "review");
-  // 前两题说不会，当场判错；第三题的判分中断。三题里最多一题对，到截止时间就不可能通过了。
-  for (let index = 0; index < 2; index++) {
+  // 前三题说不会，当场判错；第四题的判分中断。就算它和还没出的第五题都对，也只有两题对，已经不可能通过了。
+  for (let index = 0; index < 3; index++) {
     await f.submit(false);
     await f.advance();
   }
@@ -409,11 +460,12 @@ test("复习到截止时间时，没判出结果的作答就算判对也不能�
   const receipt = await f.submit();
   assert.ok(receipt.status === "recorded");
   assert.equal(receipt.submission.processing.status, "interrupted");
-  const deadline = (await f.state()).task?.deadlineAt;
-  assert.ok(deadline);
-  f.time(deadline);
-  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "timeout" });
+  const current = await f.state();
+  assert.ok(current.task);
+  const ended = await f.call("task.abort", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage });
+  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "failed" });
   assert.notDeepEqual((await f.student()).t01, learned);
+  assert.ok(((await f.student()).t01?.repNum ?? 0) < learned.repNum);
 });
 
 test("只把事实文件和格式标记搬到新空间，打开后从事实重算出相同的状态", async (t) => {
@@ -444,24 +496,54 @@ test("只把事实文件和格式标记搬到新空间，打开后从事实重�
   assert.deepEqual(replay.awards, awards);
 });
 
-test("题目的知识点归属改变时题目版本不变，过去的作答照样对得上，不重判，状态不变", async (t) => {
+test("换一组学生模型参数重放同一份事实，得出不同的预测；插件使用的那一组与打开空间时的结果相同", async (t) => {
   const f = await fixture(t, [topic("t01"), topic("t02")]);
+  await f.select("t01");
+  await f.finishLesson();
+  f.time(start + DAY_MS);
+  await f.select("t01", "review");
+  for (let index = 0; index < 3; index++) {
+    await f.submit();
+    if (index < 2) await f.advance();
+  }
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  const facts: readonly Fact[] = [...f.session().records.facts];
+  const replay = (model?: ModelConfig) => {
+    const result = new Replay(f.session().course, model);
+    for (const fact of facts) result.apply(fact);
+    return result.fold().student;
+  };
+  assert.deepEqual(replay(), await f.student());
+  // 间隔增长更快的一组参数：同样的作答，复习以后的理想间隔更长，第三天按它不到期，按默认参数已经到期。
+  const slower: ModelConfig = { ...DEFAULT_MODEL_CONFIG, intervalBase: 3 };
+  const base = replay().t01;
+  const other = replay(slower).t01;
+  assert.ok(base && other);
+  assert.ok(other.interval > base.interval);
+  const later = (start + 3 * DAY_MS) / DAY_MS;
+  assert.equal(isDue(base, later), true);
+  assert.equal(isDue(other, later, slower), false);
+});
+
+test("题目的知识点归属改变时题目版本不变，过去的作答照样对得上，不重判，状态不变", async (t) => {
+  const f = await fixture(t, [topic("t01", 2), topic("t02")]);
   await f.select("t01");
   await f.finishLesson();
   const before = await f.state();
   const count = graded(f).length;
-  const changed = topic("t01");
+  const changed = topic("t01", 2);
   const question = changed.kps[0]?.practice?.[0];
   assert.ok(question);
-  question.measures = ["t01.k1"];
-  question.uses = ["t02.k1"];
+  question.measures = ["t01.k1", "t01.k2"];
   await f.writeTopics([changed, topic("t02")]);
   await f.reopen();
   assert.deepEqual(await f.state(), before);
   assert.equal(graded(f).length, count);
-  const versions = await f.session().course.versionsOf("t01.k1.q1");
-  assert.ok(versions);
-  assert.ok(graded(f).every((fact) => fact.version === versions.question));
+  for (const fact of graded(f)) {
+    const delivery = f.session().replay.delivery(fact.delivery);
+    assert.ok(delivery);
+    assert.equal(fact.version, (await f.session().course.versionsOf(delivery.questionId))?.question);
+  }
 });
 
 test("代价关卡：每次作答只写交付、作答、判分三条事实；固定部分不超过按事实构成算出的上限，也不随历史增长", async (t) => {
@@ -506,13 +588,14 @@ test("代价关卡：每次作答只写交付、作答、判分三条事实；�
   }
   // 上限就是这样一次作答实际写下的构成：最长的那道代码题每次作答都正好达到它。
   const longest = samples.filter((sample) => sample.question === LONG_QUESTION);
-  assert.equal(longest.length, 5);
+  // 每次都超时判错：同一个知识点答错 KP_WRONG_LIMIT 题，这节课就中止。
+  assert.equal(longest.length, KP_WRONG_LIMIT);
   assert.ok(longest.every((sample) => sample.bytes === limit), JSON.stringify(longest));
   // 构成相同的作答写在历史的哪个位置都一样：t01 开头的文字题和 t03 末尾的文字题，固定部分相同。
   const text = samples.filter((sample) => /^t0[123]\.k[123]\.q1$/.test(sample.question) && sample.question !== "t01.k3.q1");
   assert.equal(text.length, 16);
   assert.equal(new Set(text.map((sample) => sample.bytes)).size, 1);
-  assert.equal(samples.length, 25);
+  assert.equal(samples.length, 20 + KP_WRONG_LIMIT);
 });
 
 test("代价关卡：作答和任务结束都增量更新，重判改了更早任务作答的对错才整段重算一次；打开空间时每条事实只重放一次", async (t) => {

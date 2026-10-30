@@ -77,7 +77,6 @@ kps:
     example:
       id: py08.k1.e0
       kind: [predict]
-      uses: [py01.k1]
       body: |
         阅读程序，写出两行输出，再说说 `passed` 指向的是什么。
 
@@ -119,7 +118,6 @@ kps:
     practice:
       - id: py08.k1.q1
         kind: [predict]
-        uses: [py02.k1, py03.k1]
         body: |
           下面每一行都是一个比较。逐行写出它的结果是 True 还是 False。
 
@@ -155,7 +153,6 @@ kps:
           answers = {"results": {f"l{i}": {"value": shown[text]} for i, text in enumerate(repl(), 1)}}
       - id: py08.k1.q2
         kind: [debug, predict]
-        uses: [py01.k1]
         body: |
           下面的程序想显示“signal 是否等于 limit”，应当显示 True 或 False。
 
@@ -212,7 +209,6 @@ kps:
           answers = {"output": int(r.out), "fix": fits[0] if len(fits) == 1 else fits}
       - id: py08.k1.q3
         kind: [predict]
-        uses: [py03.k1, py03.k2]
         body: |
           `count` 是数，`label` 是从表单里读进来的文字。
 
@@ -276,7 +272,6 @@ kps:
           print(7 == "7")
           print("7" != "07")
           ```
-        uses: [py03.k1]
         slots:
           - {id: numeric, type: text, match: output, prompt: 第一行, key: "True"}
           - {id: mixed, type: text, match: output, prompt: 第二行, key: "False"}
@@ -286,7 +281,6 @@ kps:
           lines = run().lines()
           answers = {"numeric": lines[0], "mixed": lines[1], "labels": lines[2]}
       - id: py08.k1.q5
-        uses: [py01.k1]
         kind: [trace]
         body: |
           比较产生布尔值，不是给名字赋值。读出比较结果和比较之后的原值。
@@ -306,7 +300,6 @@ kps:
     review:
       - id: py08.k1.r1
         kind: [debug]
-        uses: [py01.k1]
         body: |
           `signal` 和 `limit` 已经有值。要让 `same` 存下“signal 是否恰好等于 limit”的结果（True 或 False），并且不改变 `signal` 和 `limit`，应当写哪一行？
         slots:
@@ -351,7 +344,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py08.k1.r2
         kind: [predict]
-        uses: [py03.k1]
         body: |
           写出三个 `print` 各显示什么。如果某一行会报错，那一格填 ERROR。
 
@@ -420,7 +412,6 @@ kps:
     quiz:
       - id: py08.k1.x1
         kind: [trace]
-        uses: [py01.k2]
         body: |
           填写第 2–4 行各自执行后 `dose_mg` 与 `ok` 的值。
 
@@ -454,7 +445,6 @@ kps:
           answers = {"trace": {f"l{i}": {"dose_mg": state["dose_mg"], "ok": state["ok"]} for i, state in enumerate(states, 1) if i >= 2}}
       - id: py08.k1.x2
         kind: [debug, predict]
-        uses: [py03.k1, py03.k2]
         body: |
           `reading` 是从仪器导出的文字。
 
@@ -544,7 +534,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py08.k1.x4
-        uses: [py01.k1]
         kind:
           - trace
         body: |
@@ -721,7 +710,6 @@ kps:
           answers = {"values": wrong}
       - id: py08.k2.q3
         kind: [modify]
-        uses: [py01.k1]
         body: |
           需求是：
 

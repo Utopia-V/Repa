@@ -176,7 +176,6 @@ kps:
     example:
       id: py28.k1.e0
       kind: [predict, explain]
-      uses: [py27.k1, py27.k2]
       data: [B]
       body: |
         阅读代码，说出 `summary` 的样子。
@@ -230,7 +229,6 @@ kps:
     practice:
       - id: py28.k1.q1
         kind: [predict]
-        uses: [py27.k1, py27.k2]
         data: [B]
         body: |
           阅读代码，说出 `summary` 的样子。
@@ -270,7 +268,6 @@ kps:
           }
       - id: py28.k1.q2
         kind: [debug]
-        uses: [py27.k1]
         data: [B]
         body: |
           要求是：“按 group 分组，mean_signal 是 signal 的平均，n_valid 是有 signal 的样本数。”同事写了：
@@ -368,7 +365,6 @@ kps:
     review:
       - id: py28.k1.r1
         kind: [modify]
-        uses: [py27.k1]
         data: [soil]
         body: |
           要求是：“按地块 plot 分组，依次输出两列：deepest 是测到的最大深度；n_sites 是测到深度的采样点个数。”
@@ -406,7 +402,6 @@ kps:
           deepest 要的是最大值，用 `"max"` 而不是 `"mean"`；n_sites 要数的是测到深度的采样点，源列应是 depth：地块 C 的东坡没测到深度，`("site", "count")` 会把它也数进去，得到 2 而不是 1。两列的先后也要照要求排。
       - id: py28.k1.r2
         kind: [predict]
-        uses: [py27.k1, py27.k2]
         data: [water]
         body: |
           阅读代码，填写 `summary` 里每个站点的值。
@@ -436,7 +431,6 @@ kps:
     quiz:
       - id: py28.k1.x1
         kind: [specify]
-        uses: [py27.k1]
         data: [farm]
         body: |
           要求是：“按作物 crop 分组，依次输出两列：total_kg 是总产量，n_plots 是种这种作物的地块数。”哪一段代码符合要求？
@@ -492,7 +486,6 @@ kps:
           answers = {"code": ok[0] if len(ok) == 1 else ok}
       - id: py28.k1.x2
         kind: [debug, predict]
-        uses: [py27.k1]
         data: [plants]
         body: |
           要求是：“按地块 plot 分组，avg_height 是量到的幼苗的平均高度。”同事写了：
@@ -565,7 +558,6 @@ kps:
     example:
       id: py28.k2.e0
       kind: [predict]
-      uses: [py19.k1, py26.k1]
       data: [A]
       body: |
         两段代码分别得到 `s1` 和 `s2`。
@@ -614,7 +606,6 @@ kps:
     practice:
       - id: py28.k2.q1
         kind: [predict]
-        uses: [py26.k1]
         data: [A]
         body: |
           阅读代码，填写 `summary` 每一行的值。组名为 NaN 的那一行也要填。
@@ -654,7 +645,6 @@ kps:
           answers["values"]["missing"] = {"rows": nan_rows["rows"].iloc[0], "n_valid": nan_rows["n_valid"].iloc[0]}
       - id: py28.k2.q2
         kind: [debug]
-        uses: [py19.k1, py26.k1]
         data: [A]
         body: |
           同事交来的汇总表是这样算的：
@@ -700,7 +690,6 @@ kps:
           answers = {"why": why, "fix": fixes[0] if len(fixes) == 1 else fixes}
       - id: py28.k2.q3
         kind: [specify]
-        uses: [py12.k1, py19.k3]
         body: |
           表里有些样本没有标组（group 是缺失），有些样本没测到 signal。同事只说：“按组算一下 signal 的平均值。”
 
@@ -723,7 +712,6 @@ kps:
     review:
       - id: py28.k2.r1
         kind: [predict]
-        uses: [py19.k1]
         data: [traps]
         body: |
           有一晚的记录忘了写灯号。
@@ -763,7 +751,6 @@ kps:
           }
       - id: py28.k2.r2
         kind: [explain]
-        uses: [py19.k1, py26.k1]
         data: [survey]
         body: |
           运行下面的代码之后，判断每句话对不对。
@@ -798,7 +785,6 @@ kps:
     quiz:
       - id: py28.k2.x1
         kind: [specify]
-        uses: [py26.k1]
         data: [visits]
         body: |
           要求是：“按诊室 clinic 分组，依次输出两列：visits 是就诊人次（每行一次），timed 是记下了候诊时间的人次。没记诊室的就诊单独作为一组，不要丢掉。”哪一段代码符合要求？
@@ -858,7 +844,6 @@ kps:
           answers = {"code": ok[0] if len(ok) == 1 else ok}
       - id: py28.k2.x2
         kind: [predict]
-        uses: [py19.k1, py26.k1]
         data: [visits]
         body: |
           屏幕上依次显示什么？

@@ -556,7 +556,6 @@ kps:
     example:
       id: py34.k2.e0
       kind: [predict]
-      uses: [py15.k2, py15.k3]
       data: [per_sample]
       body: |
         需求是“每个样本一行，共 3 个样本，编号保留前导零”。阅读导出和核对的代码。
@@ -602,7 +601,6 @@ kps:
     practice:
       - id: py34.k2.q1
         kind: [predict]
-        uses: [py15.k2]
         data: [plots]
         body: |
           阅读代码。
@@ -636,7 +634,6 @@ kps:
           answers = {"output": r.lines()[0], "file": "zeros" if second_line.split(",")[0] == "007" else "seven"}
       - id: py34.k2.q2
         kind: [predict, debug]
-        uses: [py25.k1, py15.k3]
         data: [merged]
         body: |
           需求是“每个样本一行，共 3 个样本（S_A、S_B、S_C）”。拼表以后导出，再读回来核对。
@@ -683,7 +680,6 @@ kps:
           answers = {"n_rows": r["n_rows"], "unique": str(bool(r["unique"])), "dup": dups[0] if len(dups) == 1 else dups, "ok": "yes" if ok else "no"}
       - id: py34.k2.q3
         kind: [modify]
-        uses: [py15.k2, py15.k3]
         data: [checked]
         body: |
           文件 `export.csv` 已经导出好了，内容就是上面这张表。核对的代码只写了第一行，请补全另外两行：
@@ -757,7 +753,6 @@ kps:
     review:
       - id: py34.k2.r1
         kind: [debug]
-        uses: [py25.k1, py15.k3]
         data: [site_means]
         body: |
           需求是：“导出 site_means.csv，列为 site、mean_depth；每个采样点一行，共 4 个采样点（北坡、南坡、东坡、西坡），site 不重复。”导出以后读回来：
@@ -790,7 +785,6 @@ kps:
           answers = {"failed": [name for name, passed in results.items() if not passed]}
       - id: py34.k2.r2
         kind: [explain]
-        uses: [py15.k2]
         data: [tubes]
         body: |
           同事导出后读回来，发现编号变成了 7、8、12，于是说：“导出把编号前面的 0 弄丢了，文件坏了。”
@@ -828,7 +822,6 @@ kps:
     quiz:
       - id: py34.k2.x1
         kind: [specify, debug]
-        uses: [py25.k1, py15.k3]
         data: [final]
         body: |
           需求是“每个样本一行，共 4 个样本（S01、S02、S03、S04），列为 sample_id、signal”。导出后读回来：
@@ -890,7 +883,6 @@ kps:
           answers = {"checks": fits}
       - id: py34.k2.x2
         kind: [modify]
-        uses: [py15.k2]
         data: [batch]
         body: |
           文件 `batch.csv` 已经导出好了，内容就是上面这张表。需求是：编号保留前导零，signal 照常是整数。

@@ -89,7 +89,6 @@ kps:
     example:
       id: py10.k1.e0
       kind: [predict, trace]
-      uses: [py08.k1, py08.k2]
       body: |
         把测量值分成高、中、低三档。阅读代码。
 
@@ -134,7 +133,6 @@ kps:
     practice:
       - id: py10.k1.q1
         kind: [predict]
-        uses: [py08.k2]
         body: |
           还是分三档的代码，这次测量值恰好是 15。
 
@@ -265,7 +263,6 @@ kps:
           answers = {"a_lines": len(run(BLOCKS[0]).lines()), "b_lines": len(run(BLOCKS[1]).lines())}
       - id: py10.k1.q4
         kind: [trace]
-        uses: [py08.k1]
         body: |
           两个条件本来都成立，但它们在同一条 if/elif 链里。最终显示哪一行？
 
@@ -285,7 +282,6 @@ kps:
           answers = {"output": str(run().lines()[0])}
       - id: py10.k1.q5
         kind: [debug]
-        uses: [py08.k1]
         body: |
           改为两个独立的 if 以后，屏幕会显示几行？填写行数。
 
@@ -304,7 +300,6 @@ kps:
     review:
       - id: py10.k1.r1
         kind: [trace]
-        uses: [py08.k1, py08.k2]
         body: |
           冷藏样本要求温度在 2 到 8 度之间（含 2 和 8）。宿主事先给 `temp` 赋了值，代码里没有这一行。
 
@@ -342,7 +337,6 @@ kps:
           answers = {"status": {f"t{t}": {"status": run(temp=t)["status"]} for t in (1, 2, 8, 9)}}
       - id: py10.k1.r2
         kind: [explain]
-        uses: [py08.k2]
         body: |
           要求：pH 低于 6 记为“酸”，高于 8 记为“碱”，其余（包括恰好为 6 和 8）记为“中性”。宿主事先给 `ph` 赋了值。
 
@@ -397,7 +391,6 @@ kps:
     quiz:
       - id: py10.k1.x1
         kind: [predict, trace]
-        uses: [py09.k1, py08.k1]
         body: |
           ```python startLine=1
           signal = 12
@@ -444,7 +437,6 @@ kps:
           answers = {"line": hit[0] if len(hit) == 1 else hit, "output": run().out.strip()}
       - id: py10.k1.x2
         kind: [debug]
-        uses: [py08.k2]
         body: |
           要求：signal 至少 20 记为“很高”，至少 10（但不到 20）记为“高”，其余记为“低”。有人写成了下面的代码，宿主事先给 `signal` 赋了值。
 
@@ -504,8 +496,6 @@ kps:
           r = run()
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
-        uses:
-          - py08.k1
   - id: py10.k2
     keyPrerequisites: []
     title: 缩进划定执行范围
@@ -861,7 +851,6 @@ kps:
     quiz:
       - id: py10.k2.x1
         kind: [modify]
-        uses: [py08.k1]
         body: |
           要求：`group` 是 "drug" 时，显示“用药组”，并把 `n_drug` 加 1；否则显示“对照组”。最后不管哪一组，都显示 `n_drug`。宿主事先给 `group` 和 `n_drug` 赋了值。
 
@@ -1013,7 +1002,6 @@ kps:
       有几个分开的 if 时，每个 if 都可能改同一个名字。逐个看条件，成立一次就执行一次那里的赋值，例如成立两次就加了两次。
     example:
       id: py10.k3.e0
-      uses: [py01.k2]
       kind: [trace]
       body: |
         宿主事先给 `signal` 赋了值，代码里没有这一行。
@@ -1090,7 +1078,6 @@ kps:
           answers = {"result": "error" if r.error == "NameError" else "nothing" if r.out == "" else "high"}
       - id: py10.k3.q2
         kind: [trace]
-        uses: [py08.k1]
         body: |
           宿主事先给 `a` 和 `b` 赋了值。
 
@@ -1163,7 +1150,6 @@ kps:
           answers = {"state": {f"s{s}": {"score": run(signal=s)["score"], "note": run(signal=s)["note"]} for s in (16, 12, 5)}}
       - id: py10.k3.q4
         kind: [trace]
-        uses: [py01.k2, py08.k1]
         body: |
           阅读完整路径，填写最后的余额，而不是只看初值。
 
@@ -1182,7 +1168,6 @@ kps:
           answers = {"balance": int(run().out)}
       - id: py10.k3.q5
         kind: [debug]
-        uses: [py01.k2]
         body: |
           这里不是每条路径都会重新赋值。条件为 False 时，最后保留什么值？
 
@@ -1267,7 +1252,6 @@ kps:
     quiz:
       - id: py10.k3.x1
         kind: [trace]
-        uses: [py09.k1]
         body: |
           按实验第几天 `day` 决定组别和剂量。宿主事先给 `day` 赋了值。
 
@@ -1304,7 +1288,6 @@ kps:
           answers = {"state": {f"d{d}": {"group": run(day=d)["group"], "dose": run(day=d)["dose"]} for d in (2, 3, 6)}}
       - id: py10.k3.x2
         kind: [explain]
-        uses: [py08.k1]
         body: |
           要求：`count` 小于 0 时 `label` 为“无效”，否则为“有效”。宿主事先给 `count` 赋了值，每段代码之后都会执行 `print(label)`。
 

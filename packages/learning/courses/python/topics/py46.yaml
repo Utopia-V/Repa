@@ -245,7 +245,6 @@ kps:
     example:
       id: py46.k1.e0
       kind: [explain, trace]
-      uses: [py15.k1, py15.k2, py19.k3, py25.k2, py28.k1, py34.k1, py42.k2]
       data: [plate_file]
       body: |
         需求是：每个样本只留第一次测量；signal 缺失的样本不参加统计；按组数出样本数 n，并求平均 signal；结果写进 summary.csv。
@@ -320,7 +319,6 @@ kps:
     practice:
       - id: py46.k1.q1
         kind: [explain, trace]
-        uses: [py19.k3, py25.k2, py40.k2]
         data: [R]
         body: |
           同事把变换这一步写成了函数：
@@ -387,7 +385,6 @@ kps:
           }
       - id: py46.k1.q2
         kind: [predict, debug]
-        uses: [py11.k2, py26.k1, py42.k2]
         data: [M]
         body: |
           读入的表里有一行没有编号。阅读代码。
@@ -427,7 +424,6 @@ kps:
           answers = {"stops": stopped or "none", "error": error}
       - id: py46.k1.q3
         kind: [modify]
-        uses: [py19.k3, py25.k2, py40.k2]
         data: [R]
         body: |
           需求是：
@@ -502,7 +498,6 @@ kps:
     review:
       - id: py46.k1.r1
         kind: [modify]
-        uses: [py15.k1, py19.k3, py28.k1, py34.k1, py42.k2]
         data: [plots_file]
         body: |
           需求是：读入 plots.csv；检查 plot_id 没有缺失；去掉 depth 缺失的样点；按 site 数出样点个数 n、求平均深度 mean_depth；把汇总表写进 depth_summary.csv。
@@ -541,7 +536,6 @@ kps:
           每一行都要用到上一行交出的名字：去掉缺失要用读入的 `plots`，分组要用 `measured`，写文件要用 `summary`。校验不改表，放在读入之后、汇总之前的哪个位置都能运行，按需求放在读入后最先检查。P3 的 depth 缺失被去掉，汇总表 3 行，南坡有 2 个样点。
       - id: py46.k1.r2
         kind: [predict, explain]
-        uses: [py19.k3, py26.k1, py28.k2, py42.k2]
         data: [S]
         body: |
           阅读代码。
@@ -592,7 +586,6 @@ kps:
     quiz:
       - id: py46.k1.x1
         kind: [trace, explain]
-        uses: [py15.k1, py19.k3, py28.k1, py40.k2]
         data: [dishes_file]
         body: |
           这段代码把流程写成了三个函数，最后一行把它们接起来。
@@ -665,7 +658,6 @@ kps:
           }
       - id: py46.k1.x2
         kind: [modify]
-        uses: [py28.k1, py40.k2]
         data: [G]
         body: |
           需求是：
@@ -770,7 +762,6 @@ kps:
     example:
       id: py46.k2.e0
       kind: [trace, debug]
-      uses: [py19.k3, py25.k1, py25.k2, py28.k1]
       data: [R]
       body: |
         需求是：每个 sample_id 只留第一次测量；去掉 signal 缺失的样本；按 group 数出样本数 n。
@@ -827,7 +818,6 @@ kps:
     practice:
       - id: py46.k2.q1
         kind: [predict, debug]
-        uses: [py08.k2, py17.k2, py28.k1]
         data: [T1]
         body: |
           需求是：去掉 signal 缺失的样本；signal 至少为 10 的样本算达标；按 group 数出达标样本数 n。
@@ -893,7 +883,6 @@ kps:
           }
       - id: py46.k2.q2
         kind: [predict, debug]
-        uses: [py19.k1, py28.k2]
         data: [T2]
         body: |
           需求是：按 group 数出每组的样本数 n；组别缺失的样本单独算一组，不能丢掉。
@@ -952,7 +941,6 @@ kps:
           }
       - id: py46.k2.q3
         kind: [modify]
-        uses: [py26.k1, py28.k1, py28.k2]
         data: [T3]
         body: |
           需求是：
@@ -1003,7 +991,6 @@ kps:
     review:
       - id: py46.k2.r1
         kind: [trace, debug]
-        uses: [py17.k2, py19.k3, py28.k1]
         data: [P]
         body: |
           需求是：去掉 depth 缺失的样点；depth 至少为 30 的算深层；按 site 数出深层样点的个数。
@@ -1073,7 +1060,6 @@ kps:
           }
       - id: py46.k2.r2
         kind: [predict, debug]
-        uses: [py25.k2, py28.k1]
         data: [K]
         body: |
           需求是：同一个 sample_id 测了两次时，用最后一次（复测）的结果；按 group 求平均 signal。
@@ -1131,7 +1117,6 @@ kps:
     quiz:
       - id: py46.k2.x1
         kind: [modify]
-        uses: [py08.k2, py17.k2, py28.k1]
         data: [S3]
         body: |
           需求是：
@@ -1190,7 +1175,6 @@ kps:
           改后 deep 有 P1、P2、P4、P5 四行，南坡 2 个，东坡、北坡各 1 个。第 2 行不用动：南坡原来不在汇总表里，是因为它的两个样点都在第 1 行被丢掉了。判分时还会换一张深度带小数的表，“大于 29”这样碰巧对整数成立的写法会被查出来。
       - id: py46.k2.x2
         kind: [trace, debug]
-        uses: [py25.k1, py25.k2, py28.k1]
         data: [C]
         body: |
           需求是：去掉 cells 缺失的计数；每个 dish_id 只留第一次计数；按 treatment 数出培养皿的个数 n。

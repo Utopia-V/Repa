@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyRepetition, selectTasks, type KnowledgeGraph, type Student } from "../src/index.js";
+import { applyRepetition, DEFAULT_MODEL_CONFIG, selectTasks, type KnowledgeGraph, type Student } from "../src/index.js";
 
 const graph: KnowledgeGraph = {
   topics: ["a", "b", "c", "d", "e"],
@@ -76,4 +76,17 @@ test("菜单截断不修改到期集合，完成一项后重新选择会给出�
   assert.deepEqual(first.map((task) => task.topicId), ["a", "b", "c"]);
   student = applyRepetition(independent, student, { topicId: "a", day: 1, outcome: "pass" });
   assert.deepEqual(selectTasks(independent, student, 1).map((task) => task.topicId), ["b", "c", "d"]);
+});
+
+test("调用方不接受的候选不参加覆盖，被它覆盖的到期复习照样选出", () => {
+  const covering: KnowledgeGraph = {
+    topics: ["a", "b", "c"], prerequisites: [],
+    encompassings: [{ advanced: "c", simple: "a", weight: 0.5 }, { advanced: "c", simple: "b", weight: 0.5 }],
+  };
+  // 第 1 天 a、b 到期；c 刚复习过、没到期，但通过 c 能以一半的权重把 a、b 都带出到期线。
+  const student: Student = { a: { ...learnedState }, b: { ...learnedState }, c: { ...learnedState, lastRepetitionDay: 0.9 } };
+  assert.deepEqual(selectTasks(covering, student, 1).map((task) => task.topicId), ["c"]);
+  // 调用方不提供 c 的复习时，c 不能压掉 a、b。
+  const accepted = selectTasks(covering, student, 1, 3, true, DEFAULT_MODEL_CONFIG, (candidate) => candidate.topicId !== "c");
+  assert.deepEqual(accepted.map((task) => task.topicId), ["a", "b"]);
 });

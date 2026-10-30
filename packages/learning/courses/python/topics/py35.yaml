@@ -125,7 +125,6 @@ kps:
     practice:
       - id: py35.k1.q1
         kind: [predict]
-        uses: [py06.k1]
         body: |
           四个采样点的土层深度（厘米）放在列表里，每个都要减去 5 厘米的表层。阅读程序，按先后顺序写出全部输出。
 
@@ -152,7 +151,6 @@ kps:
           answers = {"lines": {f"l{i}": {"value": int(line)} for i, line in enumerate(lines, 1)}}
       - id: py35.k1.q2
         kind: [trace]
-        uses: [py06.k1]
         body: |
           ```python
           labels = ["S_A", "S_B", "S_C", "S_D", "S_E"]
@@ -455,7 +453,6 @@ kps:
         answers = {"first": len(first), "second": len(second), "shown": int(second[0])}
     practice:
       - id: py35.k2.q1
-        uses: [py02.k3]
         kind: [predict]
         body: |
           三批样本的重量（千克），在循环里换算成克。
@@ -528,7 +525,6 @@ kps:
           answers = {"fix": fits[0] if len(fits) == 1 else fits}
       - id: py35.k2.q3
         kind: [predict]
-        uses: [py03.k1]
         body: |
           两段文字用 `+` 连起来，就是把它们拼成一段。
 
@@ -623,7 +619,6 @@ kps:
     quiz:
       - id: py35.k2.x1
         kind: [predict]
-        uses: [py01.k2]
         body: |
           列表里的样本编号没有按顺序排列。
 
@@ -652,7 +647,6 @@ kps:
           lines = run().lines()
           answers = {"first": lines[0], "second": lines[1]}
       - id: py35.k2.x2
-        uses: [py02.k3]
         kind: [debug]
         body: |
           下面的程序想把每个深度从厘米换算成毫米，**每个都显示出来**。它却只显示了一行。
@@ -840,7 +834,6 @@ kps:
           answers = {"output": int(run().out), "fix": fits[0] if len(fits) == 1 else fits}
       - id: py35.k3.q2
         kind: [trace, predict]
-        uses: [py01.k2]
         body: |
           同一个循环里同时数个数、算总和。
 
@@ -1069,7 +1062,6 @@ kps:
           answers = {"program": fits[0] if len(fits) == 1 else fits}
       - id: py35.k3.x2
         kind: [predict, debug]
-        uses: [py06.k2]
         body: |
           AI 写了一段程序，说是算出三个读数的总和。
 

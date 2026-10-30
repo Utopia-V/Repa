@@ -67,7 +67,6 @@ kps:
     example:
       id: py02.k1.e0
       kind: [predict, explain]
-      uses: [py01.k1]
       body: |
         每盒装 8 管样本，一共 4 盒，另外还有 3 管散装。阅读下面的程序。
 
@@ -140,7 +139,6 @@ kps:
           answers = {"line1": int(lines[0]), "line2": int(lines[1])}
       - id: py02.k1.q2
         kind: [specify]
-        uses: [py01.k1]
         body: |
           一份试剂单价 `price` 元，每买一份另收运费 `fee` 元，一共买 `count` 份。哪一行能算出要付的总钱数 `cost`？
         slots:
@@ -182,7 +180,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py02.k1.q3
         kind: [trace]
-        uses: [py01.k1, py01.k2]
         body: |
           ```python startLine=1
           n = 2
@@ -225,7 +222,6 @@ kps:
           }
       - id: py02.k1.q4
         kind: [debug]
-        uses: [py01.k1]
         body: |
           要先合并两批数量，再按每批 3 份包装。哪段代码对所有非负整数 a、b 都得到三倍的合计？
         slots:
@@ -262,7 +258,6 @@ kps:
     review:
       - id: py02.k1.r1
         kind: [trace]
-        uses: [py01.k1]
         body: |
           库存原有 20 份样本，用掉 2 批、每批 3 份，又收到 4 份。同事写下了这一行：
 
@@ -307,7 +302,6 @@ kps:
           answers = {"steps": [blocks[step] for step in steps], "result": run()["stock"]}
       - id: py02.k1.r2
         kind: [modify]
-        uses: [py01.k1]
         body: |
           每块板有 96 个孔，每块板都要留出 6 个孔放对照，其余的孔放样本。`plates` 是板数。
 
@@ -425,7 +419,6 @@ kps:
           answers = {"outputs": {f"l{i}": {"shown": int(line)} for i, line in enumerate(lines, 1)}}
       - id: py02.k1.x2
         kind: [debug, predict]
-        uses: [py01.k1]
         body: |
           需求是：每个样本先离心 5 分钟，再静置 10 分钟；`n` 个样本一个接一个处理，算出一共要多少分钟。同事写的程序是：
 
@@ -530,7 +523,6 @@ kps:
     example:
       id: py02.k2.e0
       kind: [predict]
-      uses: [py01.k1]
       body: |
         50 管样本，每盒装 8 管。阅读下面的程序。
 
@@ -608,7 +600,6 @@ kps:
           answers = {"outputs": {f"l{i}": {"shown": line} for i, line in enumerate(lines, 1)}}
       - id: py02.k2.q2
         kind: [predict]
-        uses: [py01.k1]
         body: |
           两次测量的读数分别是 12 和 15，想求平均值。
 
@@ -639,7 +630,6 @@ kps:
           answers = {"line1": lines[0], "line2": lines[1]}
       - id: py02.k2.q3
         kind: [specify]
-        uses: [py01.k1]
         body: |
           `samples` 份样本平均分给 `people` 位同学，每人只拿整份，分不完的交回冰箱。例如 30 份分给 4 人，每人 7 份，交回 2 份。哪一行算的是交回冰箱的份数 `back`？
         slots:
@@ -707,7 +697,6 @@ kps:
           answers = {"operator": fits[0]}
       - id: py02.k2.q5
         kind: [predict]
-        uses: [py01.k1]
         body: |
           先装满 6 个一组的盒子，再数散件。填写整盒数与散件数，并检查它们能否还原总数。
 
@@ -730,7 +719,6 @@ kps:
     review:
       - id: py02.k2.r1
         kind: [trace]
-        uses: [py01.k1]
         body: |
           每块板有 96 个孔，一共 250 个样本，先把板一块块放满。
 
@@ -833,7 +821,6 @@ kps:
     quiz:
       - id: py02.k2.x1
         kind: [specify]
-        uses: [py01.k1]
         body: |
           一共 75 管样本。前两个空：离心机每次最多放 12 管，要算能满载离心几次、满载之后还剩几管。第三个空：把 75 管平均分成 12 份，每份平均几管（可以带小数）。
 
@@ -1018,7 +1005,6 @@ kps:
     example:
       id: py02.k3.e0
       kind: [predict, explain]
-      uses: [py01.k1]
       body: |
         一次实验用了 135 分钟。阅读下面的程序。
 
@@ -1063,7 +1049,6 @@ kps:
     practice:
       - id: py02.k3.q1
         kind: [specify]
-        uses: [py01.k1]
         body: |
           `volume_ul` 是以微升（µL）为单位的体积，例如 250。要得到以毫升（mL）为单位的体积 `volume_ml`，哪一行对？
         slots:
@@ -1103,7 +1088,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py02.k3.q2
         kind: [predict, explain]
-        uses: [py01.k1]
         body: |
           溶液浓度是 2 mg/mL，取 500 µL。
 
@@ -1140,7 +1124,6 @@ kps:
         manual: [unit]
       - id: py02.k3.q3
         kind: [modify]
-        uses: [py01.k1]
         body: |
           需求：把用时 `minutes`（分钟）换算成小时，存进 `hours`，保留小数。
 
@@ -1185,7 +1168,6 @@ kps:
           分钟是小单位、小时是大单位，换算用除，90 分钟得 1.5 小时。原来的 `minutes * 60` 得 5400，按小时算超过 200 天，一看量级就不对。`// 60` 会把 45 分钟算成 0 小时。
       - id: py02.k3.q4
         kind: [debug]
-        uses: [py01.k1]
         body: |
           一条记录用秒，另一条用分钟。程序能运行，但要把总时长换成秒，下面三个修订哪个正确？
 
@@ -1210,7 +1192,6 @@ kps:
           answers = {"fix": fits[0]}
       - id: py02.k3.q5
         kind: [predict]
-        uses: [py01.k1]
         body: |
           设备报告 1500 毫秒；界面要显示秒。读程序，填写换算后的秒数与原始毫秒数。
 
@@ -1230,7 +1211,6 @@ kps:
     review:
       - id: py02.k3.r1
         kind: [debug, predict]
-        uses: [py01.k1]
         body: |
           一共 40 个样本，每个样本取 250 µL。同事想算出一共要多少 mL，写了：
 
@@ -1261,7 +1241,6 @@ kps:
           answers = {"shown": shown, "correct": total_ul / 1000}
       - id: py02.k3.r2
         kind: [explain]
-        uses: [py01.k1]
         body: |
           三个名字都带着单位：`mass_mg` 是质量（mg），`volume_ml` 是体积（mL），`conc_mg_per_ml` 是浓度（mg/mL）。
 
@@ -1357,12 +1336,9 @@ kps:
           r = run()
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
-        uses:
-          - py01.k1
     quiz:
       - id: py02.k3.x1
         kind: [predict]
-        uses: [py01.k1]
         body: |
           一次测量用时 `seconds` 秒，下面的代码把它写成“几分几秒”：
 
@@ -1407,7 +1383,6 @@ kps:
           answers = {"values": rows}
       - id: py02.k3.x2
         kind: [modify]
-        uses: [py01.k1]
         body: |
           一共 6 个样本，每个样本处理 15 分钟。用下面的代码行拼出一段程序，显示总共要几小时（保留小数）。不需要的行不要放进来。
         slots:

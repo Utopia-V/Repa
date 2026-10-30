@@ -333,7 +333,6 @@ kps:
           answers = {"rows": [str(label) for label in result.index], "third": result.iloc[2]["plot"]}
       - id: py23.k1.r2
         kind: [specify]
-        uses: [py12.k1]
         body: |
           负责人说：“把孔按细胞数从多到少排；细胞数一样的，按孔号（well）从小到大。”把这条要求填成下面四个字段。
         slots:
@@ -415,7 +414,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits, "second": wells.loc[wanted[1], "well"]}
       - id: py23.k1.x2
         kind: [specify]
-        uses: [py12.k1, py12.k2]
         body: |
           同事说：“把样本按 signal 从高到低排一下发我。”你看了数据，有几个样本的 signal 一样。他没有说这些样本谁先谁后。下一步最合适的是哪一句？
         slots:
@@ -475,7 +473,6 @@ kps:
     example:
       id: py23.k2.e0
       kind: [predict]
-      uses: [py16.k2]
       data: [R]
       body: |
         阅读代码，写出 a、b、c 三个名字的值。
@@ -509,7 +506,6 @@ kps:
     practice:
       - id: py23.k2.q1
         kind: [debug]
-        uses: [py16.k2]
         data: [R]
         body: |
           同事想取出 signal 最高的样本，写了：
@@ -607,7 +603,6 @@ kps:
           answers = {"a_columns": list(r["a"].columns), "b_columns": list(r["b"].columns), "a_first": int(r["a"].loc[0, "index"])}
       - id: py23.k2.q3
         kind: [modify]
-        uses: [py16.k1, py16.k2]
         data: [R]
         body: |
           需求是：
@@ -658,7 +653,6 @@ kps:
     review:
       - id: py23.k2.r1
         kind: [predict, explain]
-        uses: [py16.k2]
         data: [plates]
         body: |
           表 plates 按 od 从小到大排好以后，存成 `r`，打印出来是：
@@ -702,7 +696,6 @@ kps:
           }
       - id: py23.k2.r2
         kind: [explain]
-        uses: [py16.k2]
         data: [plates]
         body: |
           宿主已经运行了 `r = plates.sort_values("od")`。排序结果要交给同事，他会拿着原行索引回到原始表核对每个孔。下面哪些做法交出的 `out` 能让他找回原行索引？选出所有能的。
@@ -740,7 +733,6 @@ kps:
     quiz:
       - id: py23.k2.x1
         kind: [trace]
-        uses: [py16.k2]
         data: [R2]
         body: |
           阅读代码，写出几个值。

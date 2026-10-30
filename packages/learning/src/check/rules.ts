@@ -11,7 +11,7 @@ import { markdownLinks, markdownTexts, toContent } from "../format/markdown.js";
 import type { ContentInput, Kp, Question, SlotDef, Topic } from "../format/schema.js";
 import { DOCTEST_LIMITS } from "../protocol.js";
 import { parseDoctest } from "./doctest.js";
-import { acceptedValues, inputCells, slotTests, tableCell, textMatch, topicQuestions, questionCredit, type QuestionEntry } from "./items.js";
+import { acceptedValues, inputCells, slotTests, tableCell, textMatch, topicQuestions, type QuestionEntry } from "./items.js";
 
 export interface CourseIndex {
   topics: Map<string, LoadedTopic>;
@@ -246,25 +246,18 @@ class TopicChecker {
   }
 
   private checkKpReferences(question: Question, at: ValuePath): void {
-    const measured = new Set(questionCredit(question).measures);
-    for (const field of ["measures", "uses"] as const) {
-      const ids = question[field] ?? [];
-      if (new Set(ids).size !== ids.length) this.error("kp_reference_duplicate", `${field} 里有重复知识点`, [...at, field]);
-      ids.forEach((kpId, index) => {
-        const target = this.index.kps.get(kpId);
-        if (!target) {
-          this.error("kp_unknown", `${field} 里的 ${kpId} 不是课程里的知识点`, [...at, field, index]);
-          return;
-        }
-        const owner = target.loaded.topic.id;
-        if (field === "measures" && owner !== this.topic.id) {
-          this.error("measures_other_topic", `measures 只写本 topic 的知识点；实际执行的其他子技能写进 uses`, [...at, field, index]);
-        }
-        if (field === "uses" && measured.has(kpId)) {
-          this.error("uses_measured", `${kpId} 已由 measures 直接考查，不重复列进 uses`, [...at, field, index]);
-        }
-      });
-    }
+    const ids = question.measures ?? [];
+    if (new Set(ids).size !== ids.length) this.error("kp_reference_duplicate", "measures 里有重复知识点", [...at, "measures"]);
+    ids.forEach((kpId, index) => {
+      const target = this.index.kps.get(kpId);
+      if (!target) {
+        this.error("kp_unknown", `measures 里的 ${kpId} 不是课程里的知识点`, [...at, "measures", index]);
+        return;
+      }
+      if (target.loaded.topic.id !== this.topic.id) {
+        this.error("measures_other_topic", "measures 只写本 topic 的知识点", [...at, "measures", index]);
+      }
+    });
   }
 
   private checkSlot(question: Question, slot: SlotDef, at: ValuePath): void {

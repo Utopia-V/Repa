@@ -186,7 +186,6 @@ kps:
     example:
       id: py30.k1.e0
       kind: [predict]
-      uses: [py06.k1, py14.k1, py14.k2]
       data: [A, B]
       body: |
         两批测量要放进一张表。阅读代码，说出 `result` 的样子。
@@ -227,7 +226,6 @@ kps:
     practice:
       - id: py30.k1.q1
         kind: [predict]
-        uses: [py06.k1, py14.k2]
         data: [A, B]
         body: |
           这次把 b 写在列表的前面。
@@ -258,7 +256,6 @@ kps:
           answers = {"rows": list(result["sample_id"]), "nrows": len(result)}
       - id: py30.k1.q2
         kind: [predict, explain]
-        uses: [py14.k1, py16.k1]
         data: [A, C]
         body: |
           表 c 的两列先后与 a 不同。阅读代码，说出 `result` 的样子。
@@ -304,7 +301,6 @@ kps:
           }
       - id: py30.k1.q3
         kind: [predict, debug]
-        uses: [py14.k2, py19.k1]
         data: [A, D]
         body: |
           表 d 把测量值的列名写成了 `Signal`。屏幕上依次显示什么？
@@ -356,7 +352,6 @@ kps:
     review:
       - id: py30.k1.r1
         kind: [predict, explain]
-        uses: [py14.k1, py14.k2, py19.k1]
         data: [spring, autumn]
         body: |
           春季和秋季的记录要放进一张表。判断下面每句关于 `both` 的话对不对。
@@ -387,7 +382,6 @@ kps:
           }}
       - id: py30.k1.r2
         kind: [predict, debug]
-        uses: [py19.k1]
         data: [north, south_typo]
         body: |
           南站的问卷把年龄一列写成了 `Age`。叠起来以后，每一列各有几个缺失值？
@@ -413,7 +407,6 @@ kps:
     quiz:
       - id: py30.k1.x1
         kind: [predict]
-        uses: [py06.k1, py14.k2]
         data: [jan, feb]
         body: |
           要把二月的浊度记录接在一月的下面，得到一张 6 行 2 列的表。哪一行代码做到了？
@@ -457,7 +450,6 @@ kps:
           answers = {"code": good[0] if len(good) == 1 else good}
       - id: py30.k1.x2
         kind: [predict]
-        uses: [py14.k1, py19.k1]
         data: [plot_a, plot_b]
         body: |
           乙地块的表多记了一列备注 `note`。阅读代码，说出 `result` 的样子。没有值的格子填 NaN。
@@ -528,7 +520,6 @@ kps:
     example:
       id: py30.k2.e0
       kind: [predict]
-      uses: [py14.k1, py16.k2]
       data: [A, B]
       body: |
         阅读代码，按从上到下的顺序填写 `result` 各行的行索引，再回答两个问题。
@@ -571,7 +562,6 @@ kps:
     practice:
       - id: py30.k2.q1
         kind: [predict]
-        uses: [py16.k2]
         data: [A, B]
         body: |
           屏幕上依次显示什么？
@@ -601,7 +591,6 @@ kps:
           answers = {"line1": str(lines[0]), "line2": str(lines[1])}
       - id: py30.k2.q2
         kind: [modify]
-        uses: [py06.k1, py14.k1]
         data: [A, B]
         body: |
           需求是：
@@ -685,7 +674,6 @@ kps:
     review:
       - id: py30.k2.r1
         kind: [predict, explain]
-        uses: [py16.k2]
         data: [spring, autumn]
         body: |
           同事想看秋季的第 2 个采样点（秋季表里行索引为 1 的那一行），写了：
@@ -723,7 +711,6 @@ kps:
           }
       - id: py30.k2.r2
         kind: [modify]
-        uses: [py06.k1]
         data: [spring, autumn]
         body: |
           把下面的代码行排成一段程序：叠起春秋两季的记录，加一列 season（春季写 "spring"，秋季写 "autumn"），行索引从 0 重新编号，春季的行在上面。有的行用不上。
@@ -751,7 +738,6 @@ kps:
     quiz:
       - id: py30.k2.x1
         kind: [predict]
-        uses: [py14.k2, py16.k2]
         data: [north, south]
         body: |
           阅读代码，回答问题。
@@ -797,7 +783,6 @@ kps:
           }
       - id: py30.k2.x2
         kind: [explain, predict]
-        uses: [py06.k1, py14.k1]
         data: [jan, feb]
         body: |
           同事发来一张叠好的表，是把一月的表 jan 和二月的表 feb 上下叠起来的结果，多了一列 month 记录来源，行索引从 0 重新编号：

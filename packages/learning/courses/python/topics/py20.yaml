@@ -259,7 +259,6 @@ kps:
     practice:
       - id: py20.k1.q1
         kind: [debug]
-        uses: [py11.k2, py16.k2]
         data: [D]
         body: |
           阅读代码。
@@ -306,7 +305,6 @@ kps:
           }
       - id: py20.k1.q2
         kind: [predict]
-        uses: [py03.k2]
         body: |
           下面每个文字单独放进一列，再用 `pd.to_numeric(..., errors="coerce")` 转换。哪些能转成数（不是 NaN）？选出所有能转的。
         slots:
@@ -333,7 +331,6 @@ kps:
                             if pd.to_numeric(pd.Series([text]), errors="coerce").notna().iloc[0]]}
       - id: py20.k1.q3
         kind: [modify, debug]
-        uses: [py11.k2]
         data: [D]
         body: |
           需求是：
@@ -393,7 +390,6 @@ kps:
 
           `errors="ignore"` 是旧版 pandas 的写法，pandas 3 已经去掉了它，传进去就报 ValueError。按需求“转不了的当作缺失”，应改成 `errors="coerce"`。求和时缺失不计入，本例总重量是 12.5 + 8 + 9.5 = 30.0。判分时还会换两份记录运行。
       - id: py20.k1.q4
-        uses: [py19.k1]
         kind: [trace]
         body: |
           coerce 保留能转换的数，把坏值变成缺失。填写转换后的缺失掩码。
@@ -424,7 +420,6 @@ kps:
     review:
       - id: py20.k1.r1
         kind: [trace]
-        uses: [py19.k1]
         data: [readings]
         body: |
           阅读代码，按原行索引填写 `t` 的值。转成缺失的格填 `NaN`。
@@ -460,7 +455,6 @@ kps:
           }
       - id: py20.k1.r2
         kind: [debug]
-        uses: [py11.k2, py03.k2]
         body: |
           宿主先运行了这一行：
 
@@ -495,7 +489,6 @@ kps:
     quiz:
       - id: py20.k1.x1
         kind: [predict]
-        uses: [py03.k1, py03.k2]
         body: |
           阅读代码，写出三行输出。
 
@@ -533,7 +526,6 @@ kps:
           answers = {"first": lines[0], "second": lines[1], "third": str(lines[2])}
       - id: py20.k1.x2
         kind: [trace]
-        uses: [py19.k1]
         data: [lab]
         body: |
           阅读代码。
@@ -574,7 +566,6 @@ kps:
           }
 
       - id: py20.k1.x3
-        uses: [py19.k1]
         kind:
           - trace
         body: |
@@ -718,7 +709,6 @@ kps:
     practice:
       - id: py20.k2.q1
         kind: [predict]
-        uses: [py19.k1, py19.k3]
         data: [D2]
         body: |
           阅读代码，写出两行输出。
@@ -748,7 +738,6 @@ kps:
           answers = {"first": int(lines[0]), "second": lines[1]}
       - id: py20.k2.q2
         kind: [specify]
-        uses: [py12.k1]
         body: |
           转换 dose 列时，坏值清单是：`"1,5"`、`"未测"`、`"约2"`。负责人看了清单后说：
 
@@ -785,7 +774,6 @@ kps:
         manual: [rules, report]
       - id: py20.k2.q3
         kind: [specify]
-        uses: [py12.k1]
         body: |
           同事给你一张表，说：“count 列有些格写得乱七八糟，你把它转成数再求和。”
 
@@ -810,7 +798,6 @@ kps:
           三点各算一项。只写“把 count 转成数再求和”的需求，和直接用 coerce 一样，会把坏值悄悄丢掉。
       - id: py20.k2.q4
         kind: [trace]
-        uses: [py19.k1]
         body: |
           转换后缺失总量包含“原本就空着”和“新转换失败”两部分。分别数出来。
 
@@ -833,7 +820,6 @@ kps:
           answers = {"before": int(lines[0]), "after": int(lines[1]), "added": int(lines[2])}
       - id: py20.k2.q5
         kind: [debug]
-        uses: [py19.k1]
         body: |
           审计需要列出转换失败的原文字，但不把原本缺失的记录也算进去。填写坏值清单。
 
@@ -851,7 +837,6 @@ kps:
     review:
       - id: py20.k2.r1
         kind: [trace]
-        uses: [py19.k1]
         data: [plates]
         body: |
           阅读代码，回答下面的问题。
@@ -919,7 +904,6 @@ kps:
     quiz:
       - id: py20.k2.x1
         kind: [specify, debug]
-        uses: [py12.k1]
         body: |
           你请 AI 算一列剂量的平均值，它交来的代码是：
 
@@ -948,7 +932,6 @@ kps:
         manual: [add]
       - id: py20.k2.x2
         kind: [trace]
-        uses: [py19.k1, py19.k3]
         data: [survey]
         body: |
           阅读代码，回答下面的问题。
@@ -984,7 +967,6 @@ kps:
           answers = {"count": len(bad), "values": [ids[value] for value in bad]}
 
       - id: py20.k2.x3
-        uses: [py19.k1]
         kind:
           - trace
         body: |
@@ -1013,7 +995,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py20.k2.x4
-        uses: [py19.k1]
         kind:
           - trace
         body: |

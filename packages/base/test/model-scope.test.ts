@@ -18,6 +18,7 @@ const unusedModels: Models = {
   async complete() { throw new Error("不应请求模型"); },
   async completeStructured() { throw new Error("不应请求模型"); },
   async runAgent() { throw new Error("不应请求模型"); },
+  defaultModel: () => undefined,
 };
 const closed = (error: unknown): boolean => error instanceof Error && "code" in error && error.code === "models_closed";
 

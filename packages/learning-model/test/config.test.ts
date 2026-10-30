@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  ASSUMPTIONS, DEFAULT_MODEL_CONFIG, applyRepetition, intervalFor, isDue, repetitionWeights, selectTasks,
+  DEFAULT_MODEL_CONFIG, applyRepetition, intervalFor, isDue, repetitionWeights, selectTasks,
   type KnowledgeGraph, type ModelConfig, type Repetition, type Student, type TopicState,
 } from "../src/index.js";
 import { compare } from "../simulation/compare.js";
@@ -16,16 +16,10 @@ function state(student: Student, id = "a"): TopicState {
   return value;
 }
 
-test("完整默认配置保留 v0 常数，省略配置和显式传默认配置产生完全相同的状态与候选", () => {
-  assert.deepEqual(ASSUMPTIONS, {
-    dueMemory: 0.5, initialSpeed: 1, minimumSpeed: 0.5, maximumSpeed: 1.5,
-    passSpeedStep: 0.1, failSpeedStep: 0.2, maximumInterval: 365,
-  });
+test("默认参数逐项命名，保留 v0 的数值；省略参数和显式传默认参数产生完全相同的状态与候选", () => {
   assert.deepEqual(DEFAULT_MODEL_CONFIG, {
-    ...ASSUMPTIONS,
-    passScale: 1, failScale: 1, qualityExponent: 1,
-    intervalScale: 1, intervalBase: 2, earlyExponent: 1,
-    decaySlope: 1, decayExponent: 1, pathCombination: "max", updateSpeed: true,
+    dueMemory: 0.5, fullCreditMemory: 0.5, initialSpeed: 1, minimumSpeed: 0.5, maximumSpeed: 1.5,
+    passSpeedStep: 0.1, failSpeedStep: 0.2, intervalBase: 2, maximumInterval: 365, decaySlope: 1,
   });
   const graph: KnowledgeGraph = {
     topics: ["a", "b"], prerequisites: [{ topic: "b", prerequisite: "a" }],
@@ -45,8 +39,6 @@ test("完整默认配置保留 v0 常数，省略配置和显式传默认配置�
     assert.deepEqual(implicit, explicit);
     assert.deepEqual(selectTasks(graph, implicit, repetition.day),
       selectTasks(graph, explicit, repetition.day, 3, true, DEFAULT_MODEL_CONFIG));
-    assert.deepEqual(repetitionWeights(graph, repetition.topicId, repetition.outcome),
-      repetitionWeights(graph, repetition.topicId, repetition.outcome, DEFAULT_MODEL_CONFIG));
   }
   for (const repNum of [0, 0.5, 1, 1.25, 2, 5, 20]) {
     assert.equal(intervalFor(repNum), Math.min(365, 2 ** Math.max(0, repNum - 1)));
@@ -79,154 +71,94 @@ test("参数化后既有 simulate 的四项默认结果与冻结的 v0 数值精
   ]);
 });
 
-test("成功和失败使用各自尺度及 quality 指数，memory 保留先加信用再衰减的顺序", () => {
-  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, passScale: 0.5, failScale: 2, qualityExponent: 2 };
-  const student: Student = { a: { ...learnedState } };
-  const pass = state(applyRepetition(independent, student, { topicId: "a", day: 1, outcome: "pass", quality: 0.5 }, config));
-  assert.equal(pass.repNum, 4.125);
-  assert.equal(pass.memory, 1.125 * 0.5);
-  const fail = state(applyRepetition(independent, student, { topicId: "a", day: 1, outcome: "fail", quality: 0.5 }, config));
-  assert.equal(fail.repNum, 3.5);
-  assert.equal(fail.memory, 0.5 * 0.5);
-  assert.deepEqual(student.a, learnedState);
-});
-
-test("间隔尺度、底数和上限同时应用于初学及更新后的间隔", () => {
-  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, intervalScale: 2, intervalBase: 3, maximumInterval: 10 };
-  assert.equal(intervalFor(0, config), 2);
-  assert.equal(intervalFor(1.5, config), 2 * Math.sqrt(3));
-  assert.equal(intervalFor(2, config), 6);
-  assert.equal(intervalFor(3, config), 10);
+test("间隔的底数和上限同时应用于初学及更新后的间隔", () => {
+  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, intervalBase: 3, maximumInterval: 10 };
+  assert.equal(intervalFor(0, config), 1);
+  assert.equal(intervalFor(1.5, config), Math.sqrt(3));
+  assert.equal(intervalFor(2, config), 3);
+  assert.equal(intervalFor(4, config), 10);
   const first = applyRepetition(independent, {}, { topicId: "a", day: 0, outcome: "pass" }, config);
-  assert.equal(state(first).interval, 2);
-  const second = applyRepetition(independent, first, { topicId: "a", day: 2, outcome: "pass" }, config);
-  assert.equal(state(second).interval, 6);
+  assert.equal(state(first).interval, 1);
+  const second = applyRepetition(independent, first, { topicId: "a", day: 1, outcome: "pass" }, config);
+  assert.equal(state(second).repNum, 2);
+  assert.equal(state(second).interval, 3);
 });
 
-test("提前折扣应用配置指数，零折扣在指数为零时仍不产生信用", () => {
-  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, earlyExponent: 2 };
+test("提前复习的折扣在 memory 降到满额线时拿满额，之前线性打折，刚复习过时没有信用", () => {
+  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, fullCreditMemory: 0.25 };
   const student: Student = { a: { ...learnedState } };
+  // 半天以后 memory 为 √0.5：默认满额线下折扣是 2(1 − √0.5)，满额线降到 0.25 时是 (1 − √0.5)／0.75。
   const factor = Math.sqrt(0.5);
-  const delta = (2 * (1 - factor)) ** 2;
-  const pass = state(applyRepetition(independent, student, { topicId: "a", day: 0.5, outcome: "pass" }, config));
-  assert.equal(pass.repNum, 4 + delta);
-  assert.equal(pass.memory, (1 + delta) * factor);
-  const fail = state(applyRepetition(independent, student, { topicId: "a", day: 0.5, outcome: "fail" }, config));
-  assert.equal(fail.repNum, 4 - delta);
-  const zeroExponent = { ...DEFAULT_MODEL_CONFIG, earlyExponent: 0 };
+  const pass = state(applyRepetition(independent, student, { topicId: "a", day: 0.5, outcome: "pass" }));
+  assert.equal(pass.repNum, 4 + 2 * (1 - factor));
+  const later = state(applyRepetition(independent, student, { topicId: "a", day: 0.5, outcome: "pass" }, config));
+  assert.equal(later.repNum, 4 + (1 - factor) / 0.75);
+  assert.equal(later.memory, (1 + (1 - factor) / 0.75) * factor);
   for (const outcome of ["pass", "fail"] as const) {
-    const next = state(applyRepetition(independent, student, { topicId: "a", day: 0, outcome }, zeroExponent));
-    assert.equal(next.repNum, 4);
-    assert.equal(next.memory, 1);
+    const fresh = state(applyRepetition(independent, student, { topicId: "a", day: 0, outcome }, config));
+    assert.equal(fresh.repNum, 4);
+    assert.equal(fresh.memory, 1);
   }
 });
 
-test("逾期惩罚使用配置斜率和指数，只影响失败的 repNum 而不改变 memory 公式", () => {
-  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, decaySlope: 0.5, decayExponent: 2 };
+test("逾期倒退的斜率只放大失败的 repNum，不改变 memory 公式", () => {
+  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, decaySlope: 0.5 };
   const student: Student = { a: { ...learnedState } };
+  // 逾期两个理想间隔：decay 为 1 + 0.5 × 2。
   const fail = state(applyRepetition(independent, student, { topicId: "a", day: 3, outcome: "fail", quality: 0.25 }, config));
-  assert.equal(fail.repNum, 3.25);
+  assert.equal(fail.repNum, 3.5);
   assert.equal(fail.memory, 0.75 * 0.125);
   const pass = state(applyRepetition(independent, student, { topicId: "a", day: 3, outcome: "pass", quality: 0.25 }, config));
   assert.equal(pass.repNum, 4.25);
   assert.equal(pass.memory, 1.25 * 0.125);
 });
 
-test("speed 更新遵守配置步长和上下界，关闭更新后使用外部 speed 且初学使用配置初值", () => {
+test("speed 按参数的步长和上下界调整，初学使用参数里的初值，只有显式复习调整", () => {
   const config: ModelConfig = {
-    ...DEFAULT_MODEL_CONFIG, passSpeedStep: 0.3, failSpeedStep: 0.4, minimumSpeed: 0.8, maximumSpeed: 1.2,
+    ...DEFAULT_MODEL_CONFIG, passSpeedStep: 0.3, failSpeedStep: 0.4, minimumSpeed: 0.8, maximumSpeed: 1.2, initialSpeed: 1.1,
   };
   const student: Student = { a: { ...learnedState } };
   const pass = state(applyRepetition(independent, student, { topicId: "a", day: 1, outcome: "pass" }, config));
   const fail = state(applyRepetition(independent, student, { topicId: "a", day: 1, outcome: "fail" }, config));
   assert.equal(pass.speed, 1.2);
   assert.equal(fail.speed, 0.8);
-  const external: Student = { a: { ...learnedState, speed: 2.5 } };
-  const frozen: ModelConfig = { ...config, initialSpeed: 0.7, updateSpeed: false };
-  const externalPass = state(applyRepetition(independent, external, { topicId: "a", day: 1, outcome: "pass" }, frozen));
-  const externalFail = state(applyRepetition(independent, external, { topicId: "a", day: 1, outcome: "fail" }, frozen));
-  assert.equal(externalPass.speed, 2.5);
-  assert.equal(externalPass.repNum, 6.5);
-  assert.equal(externalFail.speed, 2.5);
-  assert.equal(externalFail.repNum, 1.5);
-  const first = state(applyRepetition(independent, {}, { topicId: "a", day: 0, outcome: "pass" }, frozen));
-  assert.equal(first.speed, 0.7);
-  assert.equal(first.repNum, 0.7);
+  const first = state(applyRepetition(independent, {}, { topicId: "a", day: 0, outcome: "pass" }, config));
+  assert.equal(first.speed, 1.1);
+  assert.equal(first.repNum, 1.1);
+  const graph: KnowledgeGraph = { topics: ["a", "b"], prerequisites: [], encompassings: [{ advanced: "b", simple: "a", weight: 1 }] };
+  const both: Student = { a: { ...learnedState }, b: { ...learnedState } };
+  const implicit = applyRepetition(graph, both, { topicId: "b", day: 1, outcome: "pass" }, config);
+  assert.equal(state(implicit, "a").speed, 1);
+  assert.equal(state(implicit, "b").speed, 1.2);
 });
 
-test("capped-sum 在菱形合流节点先截断再向外传播，反向失败也按拓扑汇总", () => {
-  const graph: KnowledgeGraph = {
-    topics: ["d", "b", "c", "a", "z"], prerequisites: [],
-    encompassings: [
-      { advanced: "d", simple: "b", weight: 0.8 },
-      { advanced: "d", simple: "c", weight: 0.8 },
-      { advanced: "b", simple: "a", weight: 0.8 },
-      { advanced: "c", simple: "a", weight: 0.8 },
-      { advanced: "a", simple: "z", weight: 0.5 },
-      { advanced: "d", simple: "z", weight: 0.1 },
-    ],
-  };
-  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, pathCombination: "capped-sum" };
-  const weights = repetitionWeights(graph, "d", "pass", config);
-  assert.equal(weights.get("a"), 1);
-  assert.equal(weights.get("z"), 0.6);
-  assert.notEqual(weights.get("z"), 2 * 0.8 * 0.8 * 0.5 + 0.1);
-  assert.equal(repetitionWeights(graph, "d", "pass").get("a"), 0.8 * 0.8);
-  const reverse = { ...graph, encompassings: [...graph.encompassings].reverse() };
-  assert.deepEqual(repetitionWeights(reverse, "d", "pass", config), weights);
-  assert.equal(repetitionWeights(graph, "z", "fail", config).get("d"), 0.1 + 2 * 0.5 * 0.8 * 0.8);
-  const student: Student = Object.fromEntries(graph.topics.map((id) => [id, { ...learnedState }]));
-  const next = applyRepetition(graph, student, { topicId: "d", day: 1, outcome: "pass" }, config);
-  assert.equal(state(next, "a").repNum, 5);
-  assert.equal(state(next, "z").repNum, 4.6);
-});
-
-test("capped-sum 的有效边循环报错，零权重不传信用也不制造循环", () => {
-  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, pathCombination: "capped-sum" };
-  const graph: KnowledgeGraph = {
-    topics: ["a", "b"], prerequisites: [],
-    encompassings: [
-      { advanced: "a", simple: "b", weight: 1 },
-      { advanced: "b", simple: "a", weight: 1 },
-    ],
-  };
-  assert.throws(() => repetitionWeights(graph, "a", "pass", config), /DAG/);
-  assert.throws(() => repetitionWeights(graph, "a", "fail", config), /DAG/);
-  assert.deepEqual(repetitionWeights({ ...graph, encompassings: [] }, "a", "pass", config), new Map([["a", 1]]));
-  const zeroEdges = { ...graph, encompassings: graph.encompassings.map((edge) => ({ ...edge, weight: 0 })) };
-  assert.deepEqual(repetitionWeights(zeroEdges, "a", "pass", config), new Map([["a", 1]]));
-});
-
-test("capped-sum 处理指数路径数的多层 DAG，不枚举完整路径", () => {
-  const graph: KnowledgeGraph = { topics: ["source"], prerequisites: [], encompassings: [] };
-  let previous = ["source"];
-  for (let layer = 0; layer < 60; layer += 1) {
-    const current = [`a-${layer}`, `b-${layer}`];
-    graph.topics.push(...current);
-    for (const advanced of previous) {
-      for (const simple of current) graph.encompassings.push({ advanced, simple, weight: layer === 0 ? 1 : 0.5 });
-    }
-    previous = current;
-  }
-  const weights = repetitionWeights(graph, "source", "pass", { ...DEFAULT_MODEL_CONFIG, pathCombination: "capped-sum" });
-  assert.equal(weights.size, 121);
-  assert.equal(weights.get("a-59"), 1);
-  assert.equal(weights.get("b-59"), 1);
-});
-
-test("选择器的到期判断及预演都沿用同一配置，不虚报零成功信用的覆盖", () => {
+test("选择器的到期判断及预演都沿用同一组参数", () => {
   const graph: KnowledgeGraph = {
     topics: ["a", "b"], prerequisites: [],
     encompassings: [{ advanced: "b", simple: "a", weight: 1 }],
   };
   const student: Student = { a: { ...learnedState }, b: { ...learnedState } };
   assert.equal(selectTasks(graph, student, 1, 3, false).length, 1);
-  const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, passScale: 0, updateSpeed: false };
-  const tasks = selectTasks(graph, student, 1, 3, false, config);
-  assert.deepEqual(tasks.map((task) => task.topicId), ["a", "b"]);
-  for (const task of tasks) assert.deepEqual(task.reason.clearsOnPass, []);
   const laterDue = { ...DEFAULT_MODEL_CONFIG, dueMemory: 0.25 };
   assert.equal(isDue(learnedState, 1, laterDue), false);
   assert.deepEqual(selectTasks(graph, student, 1, 3, false, laterDue), []);
   assert.equal(isDue(learnedState, 2, laterDue), true);
+  assert.deepEqual(repetitionWeights(graph, "b", "pass"), new Map([["b", 1], ["a", 1]]));
+});
+
+test("换一组参数重放同一串复习，得出不同的到期预测", () => {
+  const repetitions: Repetition[] = [
+    { topicId: "a", day: 0, outcome: "pass" },
+    { topicId: "a", day: 1, outcome: "pass" },
+    { topicId: "a", day: 3, outcome: "pass", quality: 0.5 },
+  ];
+  const replay = (config: ModelConfig) =>
+    repetitions.reduce<Student>((student, repetition) => applyRepetition(independent, student, repetition, config), {});
+  const slower: ModelConfig = { ...DEFAULT_MODEL_CONFIG, intervalBase: 3 };
+  const base = state(replay(DEFAULT_MODEL_CONFIG));
+  const other = state(replay(slower));
+  assert.notEqual(base.interval, other.interval);
+  // 第 5 天：默认参数下已经到期，间隔长的一组还没有。
+  assert.equal(isDue(base, 5), true);
+  assert.equal(isDue(other, 5, slower), false);
 });

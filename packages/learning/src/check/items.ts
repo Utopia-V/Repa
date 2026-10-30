@@ -199,7 +199,7 @@ export function questionFixtures(question: Question): string[] {
 }
 
 /** 题型标签与知识点归属不进题目版本：归属改了，重算学习状态时按新归属算，过去的作答照样对得上。 */
-const METADATA_FIELDS = ["kind", "measures", "uses"] as const;
+const METADATA_FIELDS = ["kind", "measures"] as const;
 /** 只为检查课程而写的部分：改它们不改变学生看到什么、怎样判，不进内容哈希。 */
 const CHECK_ONLY_FIELDS = ["verify", "manual"] as const;
 const CHECK_ONLY_CODE_FIELDS = ["accepts", "rejects"] as const;
@@ -220,15 +220,6 @@ export function versionInput(question: Question, topic: Topic): { question: Reco
   definition.slots = question.slots.map((slot) => (slot.type === "code" ? without(slot, CHECK_ONLY_CODE_FIELDS) : slot));
   const data = Object.fromEntries(questionFixtures(question).map((name) => [name, topic.data?.[name] ?? null]));
   return { question: definition, data };
-}
-
-/** 有效信用归属是集合；缺省与显式等价写法相同。只供格式检查，不进题目版本。 */
-export function questionCredit(question: Question): Pick<Required<Question>, "measures" | "uses"> {
-  const owner = question.id.slice(0, question.id.lastIndexOf("."));
-  return {
-    measures: [...new Set(question.measures ?? [owner])].sort(),
-    uses: [...new Set(question.uses ?? [])].sort(),
-  };
 }
 
 /**

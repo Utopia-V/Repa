@@ -87,7 +87,6 @@ kps:
     example:
       id: py38.k1.e0
       kind: [predict, explain]
-      uses: [py06.k2, py01.k1]
       body: |
         阅读下面的程序。
 
@@ -299,7 +298,6 @@ kps:
     review:
       - id: py38.k1.r1
         kind: [explain]
-        uses: [py01.k2]
         body: |
           开始时 `first` 是 3，`second` 是 5。下面哪几段程序运行后，`first` 变成 5、`second` 变成 3？选出所有符合的。
         slots:
@@ -390,7 +388,6 @@ kps:
     quiz:
       - id: py38.k1.x1
         kind: [predict, trace]
-        uses: [py01.k2]
         body: |
           一次野外采样记下了日期、采样点和深度（厘米）。
 
@@ -427,7 +424,6 @@ kps:
           answers = {"first": lines[0], "second": int(lines[1]), "third": int(lines[2])}
       - id: py38.k1.x2
         kind: [trace]
-        uses: [py01.k2]
         body: |
           ```python startLine=1
           a = 1
@@ -514,7 +510,6 @@ kps:
     example:
       id: py38.k2.e0
       kind: [predict, modify]
-      uses: [py35.k1]
       body: |
         ```python
         ids = ["S_A", "S_B", "S_C"]
@@ -625,7 +620,6 @@ kps:
           answers = {"shown": shown, "count": len(lines)}
       - id: py38.k2.q2
         kind: [debug]
-        uses: [py06.k2]
         body: |
           有人想逐个显示 `signals` 里的值，写了下面的程序。
 
@@ -666,7 +660,6 @@ kps:
           }
       - id: py38.k2.q3
         kind: [trace]
-        uses: [py35.k1, py35.k2]
         body: |
           ```python startLine=1
           depths = [30, 25, 35, 40]
@@ -774,7 +767,6 @@ kps:
     quiz:
       - id: py38.k2.x1
         kind: [predict]
-        uses: [py06.k3]
         body: |
           ```python
           sites = ["东坡", "西坡", "北坡"]
@@ -928,7 +920,6 @@ kps:
     practice:
       - id: py38.k3.q1
         kind: [predict]
-        uses: [py35.k1]
         body: |
           ```python
           sites = ["北坡", "南坡", "东坡"]
@@ -1086,7 +1077,6 @@ kps:
     quiz:
       - id: py38.k3.x1
         kind: [predict]
-        uses: [py35.k1]
         body: |
           ```python
           ids = ["S_A", "S_B", "S_C", "S_D"]

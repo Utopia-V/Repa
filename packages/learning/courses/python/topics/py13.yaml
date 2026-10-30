@@ -156,7 +156,6 @@ kps:
           }}
       - id: py13.k1.q2
         kind: [debug]
-        uses: [py11.k1]
         body: |
           `math.floor(x)` 去掉 x 的小数部分，向下取整。运行 clean.py，出现了报错。
 
@@ -207,7 +206,6 @@ kps:
           answers = {"error": error, "fix": fits[0] if len(fits) == 1 else fits}
       - id: py13.k1.q3
         kind: [debug]
-        uses: [py11.k1]
         body: |
           下面四段代码各自单独运行，都会报错。
 
@@ -348,7 +346,6 @@ kps:
           也可以写 `import math`，再把调用改成 `math.sqrt(30.25)`。只加 `import math` 而不改调用不行，那样只有 math，没有 sqrt；导入写在后面也不行，用到时名字还不存在。
       - id: py13.k1.r2
         kind: [predict]
-        uses: [py11.k1]
         body: |
           ```python startLine=1
           print("开始")
@@ -444,7 +441,6 @@ kps:
                                   if run(code).error is None and run(code).out.strip() == "3.0"]}
       - id: py13.k1.x2
         kind: [debug]
-        uses: [py11.k1]
         body: |
           `pd.DataFrame()` 建一张空表，`len(表)` 是它的行数。运行 clean.py，出现了下面的报错。
 
@@ -597,7 +593,6 @@ kps:
     example:
       id: py13.k2.e0
       kind: [predict, explain]
-      uses: [py04.k1, py04.k2]
       body: |
         round 的文档摘要：
 
@@ -648,7 +643,6 @@ kps:
     practice:
       - id: py13.k2.q1
         kind: [predict]
-        uses: [py04.k1]
         body: |
           math.log 的文档摘要：
 
@@ -695,7 +689,6 @@ kps:
           }
       - id: py13.k2.q2
         kind: [predict, explain]
-        uses: [py04.k3]
         body: |
           在交互窗口里依次输入下面几行。print 把内容显示在屏幕上，它交回的是 None；交互窗口不显示 None 这个值本身。
         slots:
@@ -737,7 +730,6 @@ kps:
           answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}, "side": side}
       - id: py13.k2.q3
         kind: [modify]
-        uses: [py04.k2, py04.k3]
         body: |
           宿主事先给 `mean` 赋了一个平均值，例如 3.14159。要求：把它舍入到小数点后 2 位，**存进 `result`**，后面的代码还要用 result 继续计算。
 
@@ -782,7 +774,6 @@ kps:
 
           round 的返回值要赋给 result 才能继续用。`print(round(mean, 2))` 只是显示，result 没有得到任何值；`result = print(...)` 得到的是 print 的返回值 None。第二个参数按位置给 ndigits，写成 `ndigits=2` 也可以；写成 `round(2, mean)` 就把顺序弄反了。
       - id: py13.k2.q4
-        uses: [py04.k2]
         kind: [specify]
         body: |
           一段文档写着：`sorted(iterable, *, key=None, reverse=False)`，返回一个新列表，不改变原输入；`reverse=True` 表示降序。
@@ -802,7 +793,6 @@ kps:
           assert len(fits) == 1
           answers = {"call": fits[0]}
       - id: py13.k2.q5
-        uses: [py04.k3]
         kind: [explain]
         body: |
           文档注明：“`sorted(values)` 返回新列表，不修改 values。”程序作者看到返回值已经排好序，就断言 values 也变了。
@@ -820,7 +810,6 @@ kps:
     review:
       - id: py13.k2.r1
         kind: [predict]
-        uses: [py04.k2]
         body: |
           print 的文档摘要：
 
@@ -854,7 +843,6 @@ kps:
           answers = {"wwpd": {f"r{i}": {"shown": text} for i, text in enumerate(shown, 1)}}
       - id: py13.k2.r2
         kind: [modify]
-        uses: [py04.k2]
         body: |
           宿主事先给 `year`、`month`、`day` 赋了文字，例如 `"2026"`、`"10"`、`"12"`。要求：显示成一行 `2026-10-12` 这样的日期。
 
@@ -898,7 +886,6 @@ kps:
 
           sep 有默认值一个空格，所以原来显示 `2026 10 12`；用参数名把它改成 `"-"`。把 `"-"` 写成普通的值，它只会被当成又一个要显示的值，两边还会各插一个空格。
       - id: py13.k2.r3
-        uses: [py04.k2]
         kind:
           - trace
         body: |
@@ -925,7 +912,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py13.k2.r4
-        uses: [py04.k3]
         kind:
           - trace
         body: |
@@ -956,7 +942,6 @@ kps:
     quiz:
       - id: py13.k2.x1
         kind: [explain]
-        uses: [py04.k1]
         body: |
           math 模块的文档摘要：
 
@@ -1001,7 +986,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py13.k2.x2
         kind: [predict]
-        uses: [py04.k3]
         body: |
           `math.ceil` 交回向上取整的结果；print 显示内容，交回 None。这段代码当作脚本运行。
 
@@ -1032,7 +1016,6 @@ kps:
           lines = run().lines()
           answers = {"lines": {f"l{i}": {"shown": text} for i, text in enumerate(lines, 1)}}
       - id: py13.k2.x3
-        uses: [py04.k3]
         kind:
           - trace
         body: |
@@ -1061,7 +1044,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py13.k2.x4
-        uses: [py04.k2]
         kind:
           - trace
         body: |

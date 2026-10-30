@@ -136,7 +136,7 @@ test("同载荷并发提交只收一次，判分期间不占串行入口，失�
   assert.deepEqual(await f.state(), completed);
 });
 
-test("结构拒绝、错身份与截止后新答不落盘，已收下的重交仍可查询", async (t) => {
+test("结构拒绝、错身份与任务结束后的新答不落盘，没收下的提交查询为不存在", async (t) => {
   const f = await learningFixture(t);
   await f.select();
   await f.finishLesson();
@@ -149,14 +149,17 @@ test("结构拒绝、错身份与截止后新答不落盘，已收下的重交�
   assert.equal(f.session().records.revision, revision);
   await assert.rejects(f.call("submission.submit", { ...input, submissionId: "s999" }), (error: unknown) =>
     error instanceof Error && "code" in error && error.code === "stale_state");
-  const deadline = (await f.state()).task?.deadlineAt;
-  assert.ok(deadline);
-  f.time(deadline);
+  // 复习不限时；学习者中止以后，这份交付不再收作答。
+  const current = await f.state();
+  assert.ok(current.task);
+  await f.call("task.abort", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage });
+  const ended = f.session().records.revision;
+  assert.equal(ended, revision + 1);
   await assert.rejects(f.call("submission.submit", input), (error: unknown) =>
     error instanceof Error && "code" in error && error.code === "stale_state");
-  assert.equal(f.session().records.revision, revision);
+  assert.equal(f.session().records.revision, ended);
   assert.deepEqual(await f.call("submission.get", { submissionId: input.submissionId }), {
-    status: "absent", submissionId: input.submissionId, revision,
+    status: "absent", submissionId: input.submissionId, revision: ended,
   });
 });
 
@@ -267,12 +270,12 @@ test("插件经真实宿主重开：课程覆盖进历史，撤回文件不撤�
   const sources = [{ kind: "bundled" as const, directory: bundled }, { kind: "overlay" as const, file: overlay }];
   await space.files.write(overlay, JSON.stringify({ courseId: "test", basedOn: course.version, topic: { ...original, title: "空间覆盖标题" } }));
   await space.flush();
-  const plugin = createLearningPlugin({ sources, now: () => start, async connect(opened) {
+  const plugin = createLearningPlugin({ sources, async connect(opened) {
     session = opened;
     return connectLearning(opened);
   } });
   const caller = { capabilities: { interaction: { supports: ["slot.text", "block.markdown"] }, services: [] } };
-  let host = await openPluginHost({ space, plugins: [plugin], models, emit: (_id, event) => events.push(event), onError: (error) => { throw error; } });
+  let host = await openPluginHost({ space, plugins: [plugin], now: () => start, models, emit: (_id, event) => events.push(event), onError: (error) => { throw error; } });
   t.after(async () => {
     try {
       await host.close();
@@ -313,7 +316,7 @@ test("插件经真实宿主重开：课程覆盖进历史，撤回文件不撤�
   await host.close();
   await space.close();
   space = await openSpace(path.join(root, "space"), { watch: false });
-  host = await openPluginHost({ space, plugins: [plugin], models, emit: () => {}, onError: (error) => { throw error; } });
+  host = await openPluginHost({ space, plugins: [plugin], now: () => start, models, emit: () => {}, onError: (error) => { throw error; } });
   assert.equal(session?.course.topics.get("t01")?.title, "修订后的覆盖标题");
   assert.deepEqual((await session?.view())?.student, student);
   const reopened = await call("submission.get", { submissionId: input.submissionId });
@@ -327,18 +330,22 @@ test("插件经真实宿主重开：课程覆盖进历史，撤回文件不撤�
   assert.deepEqual(await call("submission.get", { submissionId: input.submissionId }), reopened);
 });
 
-test("覆盖层拒绝版本不符和多重来源，更新与选择只保留直接复习", async () => {
+test("覆盖层拒绝版本不符和多重来源；学生模型沿包含关系传递信用，时钟回拨时按零间隔继续", async () => {
   const bundled = { kind: "bundled" as const, directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) };
   const files = { read: async () => JSON.stringify({ courseId: "python", basedOn: "999.0.0", topic }), write: async () => {}, list: async () => [] };
   await assert.rejects(loadCourseSources([bundled, { kind: "overlay", file: "topic.json" }], files), fault("course_version_conflict"));
   await assert.rejects(loadCourseSources([bundled, bundled], files), fault("ambiguous_course_source"));
+  assert.equal(await contentVersion({ b: 2, a: 1 }), await contentVersion({ a: 1, b: 2 }));
+  // py02 覆盖 py01：一天后 py01 到期，学会 py02 的信用也传给 py01；py01 失败时，负信用传给覆盖它的 py02。
   const initial = updateStudent(graph, {}, { topicId: "py01", outcome: "pass" }, now);
   const advanced = updateStudent(graph, initial, { topicId: "py02", outcome: "pass" }, now + 86_400_000);
-  assert.deepEqual(advanced.py01, initial.py01);
-  const failed = updateStudent(graph, advanced, { topicId: "py01", outcome: "fail" }, now + 2 * 86_400_000);
-  assert.deepEqual(failed.py02, advanced.py02);
-  assert.ok(chooseTasks(graph, advanced, now + 2 * 86_400_000).some((entry) => entry.topicId === "py01"));
-  assert.throws(() => updateStudent(graph, advanced, { topicId: "py01", outcome: "pass" }, now - 1), fault("model_time_conflict"));
-  assert.equal(await contentVersion({ b: 2, a: 1 }), await contentVersion({ a: 1, b: 2 }));
-  assert.throws(() => chooseTasks(graph, advanced, now - 1), fault("model_time_conflict"));
+  assert.ok((advanced.py01?.repNum ?? 0) > (initial.py01?.repNum ?? 0));
+  assert.equal(chooseTasks(graph, advanced, now + 86_400_000).some((entry) => entry.topicId === "py01"), false);
+  const failed = updateStudent(graph, advanced, { topicId: "py01", outcome: "fail" }, now + 3 * 86_400_000);
+  assert.ok((failed.py02?.repNum ?? 0) < (advanced.py02?.repNum ?? 0));
+  // 时钟回拨到最近一次更新之前：不报错，按最近一次更新的时刻算，相当于零间隔。
+  const rolledBack = updateStudent(graph, advanced, { topicId: "py01", outcome: "pass" }, now - 1);
+  assert.equal(rolledBack.py01?.lastRepetitionDay, advanced.py01?.lastRepetitionDay);
+  assert.equal(rolledBack.py01?.repNum, advanced.py01?.repNum);
+  assert.deepEqual(chooseTasks(graph, advanced, now - 1), chooseTasks(graph, advanced, now + 86_400_000));
 });

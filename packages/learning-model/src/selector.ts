@@ -1,6 +1,10 @@
 import { DEFAULT_MODEL_CONFIG, applyRepetition, isDue, memoryAt, type ModelConfig } from "./model.js";
 import type { Candidate, KnowledgeGraph, Student } from "./schema.js";
 
+/**
+ * accept 是调用方会提供的候选：调用方不接受的候选在贪心覆盖之前就排除。它若参加覆盖，被选中后却提供不了，
+ * 被它覆盖而略去的到期复习就一项也剩不下。
+ */
 export function selectTasks(
   graph: KnowledgeGraph,
   student: Student,
@@ -8,6 +12,7 @@ export function selectTasks(
   limit = 3,
   includeNew = true,
   config: ModelConfig = DEFAULT_MODEL_CONFIG,
+  accept: (candidate: Candidate) => boolean = () => true,
 ): Candidate[] {
   const states = new Map(Object.entries(student));
   const due = graph.topics.filter((id) => {
@@ -33,7 +38,7 @@ export function selectTasks(
     if (state) {
       reasonKind = clearsOnPass.some((id) => id !== topicId) ? "compression" : "due";
     }
-    available.push({
+    const candidate: Candidate = {
       topicId,
       kind: state ? "review" : "learn",
       reason: {
@@ -42,7 +47,8 @@ export function selectTasks(
         prerequisites,
         explicitOnly: state !== undefined && state.speed < 1,
       },
-    });
+    };
+    if (accept(candidate)) available.push(candidate);
   }
 
   // Repa 假设：贪心覆盖，不保证最小集合。相同覆盖量先做更逾期的显式复习，

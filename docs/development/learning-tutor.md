@@ -6,7 +6,7 @@
 
 你在练习中提问以后，正确答案仍然可以帮助程序判断理解情况，但它不再是独立完成的证据。因此，`beforeMessage` 先经学习记录的串行入口记下一条求助事实，再让消息进入 Pi。参考内容的读取也在同一个入口检查当前任务，读到内容就同样记下。这样，作答被收下时，就能从事实的先后确定求助是否发生在它之前，而不必根据模型事后描述来判断。
 
-复习则需要一段真正没有辅导的作答时间。教学流程先写下任务事实，任务停在 `preparing` 并生效限制，再等待 `host.abortAgent("learning-tutor")` 完成；Pi 停稳后才交付第一道题，从这一刻开始计时。准备失败时，任务仍是 `preparing`，重新打开以后可以沿 `task.resume` 继续。取消期间到来的消息沿底座原有行为报告 `cancelled`；取消完成后的受限消息由 `beforeMessage` 拒收。
+复习则需要一段真正没有辅导的作答时间。教学流程先写下任务事实，任务停在 `preparing` 并生效限制，再等待 `host.abortAgent("learning-tutor")` 完成；Pi 停稳后才交付第一道题。复习不限时，作答期间一直关闭辅导，做完或中止以后恢复；测验从第一道题出现时开始计时。准备失败时，任务仍是 `preparing`，重新打开以后可以沿 `task.resume` 继续。取消期间到来的消息沿底座原有行为报告 `cancelled`；取消完成后的受限消息由 `beforeMessage` 拒收。
 
 模型不需要在每轮对话里接收整门课。Agent 的命名提示段只说明辅导职责，视图只投影当前任务、KP 进度、阶段、最新提交状态及最多三个相关先修。需要讲解细节时，再通过工具读取。工具每次执行都重新检查当前状态，视图也在模型请求前检查限制。因此，旧视图或已放行但尚未启动的消息都不能绕过后来生效的限制。
 
@@ -50,7 +50,7 @@ npm run dev:learning -- --home /absolute/repa-home
 
 视图的先修排序使用最后一条事实的时间，不使用每次查询时的相对时间。因此，状态相同时，视图文本保持稳定；下一轮运行通过 Pi 现有命名段和视图更新看到新状态。
 
-复习的完整开始路径位于 `flow.ts` 的 `menu.select` / `task.resume`：先写下任务事实，再等待取消完成，然后交付第一道题，开始时间与截止时间由它算出。quiz/retake 走同一条路径，一次交付整场题目；恢复时沿同一步骤继续，见[测验与进度说明](learning-quiz-xp.md)。内容与消息限制已经按所有非 lesson 的未结束任务检查，覆盖 preparing、作答和恢复阶段。
+复习的完整开始路径位于 `flow.ts` 的 `menu.select` / `task.resume`：先写下任务事实，再等待取消完成，然后交付第一道题，开始时间由它算出，测验的截止时间也由它算出。quiz/retake 走同一条路径，一次交付整场题目；恢复时沿同一步骤继续，见[测验与进度说明](learning-quiz-xp.md)。内容与消息限制已经按所有非 lesson 的未结束任务检查，覆盖 preparing、作答和恢复阶段。
 
 ## 未完成项与待验证项
 
@@ -70,4 +70,4 @@ npm test --workspace=@repa/learning
 npm run build --workspace=@repa/learning
 ```
 
-`learning-tutor.test.ts` 使用真实 SDK、真实 HTTP/WebSocket 客户端及本地假 provider，组合验证 py01 上课、求助、判分、菜单、跨天复习、即时回顾和关闭后复制到新目录恢复。另验证稳定分页、8 引用批取、长文本续取、私有题解释放边界、取消停稳后才计时，以及准备失败后重开继续。设置 `REPA_LEARNING_EVIDENCE=/absolute/directory` 后，复制恢复用例会把关闭时的完整空间副本保存在新的 `tutor-restored-*` 子目录中。底座 `agent-messages.test.ts` 验证所有权拒绝、取消终态、排队清理与恢复聊天。
+`learning-tutor.test.ts` 使用真实 SDK、真实 HTTP/WebSocket 客户端及本地假 provider，组合验证 py01 上课、求助、判分、菜单、跨天复习、即时回顾和关闭后复制到新目录恢复。另验证稳定分页、8 引用批取、长文本续取、私有题解释放边界、取消停稳后才交付第一道题，以及准备失败后重开继续。设置 `REPA_LEARNING_EVIDENCE=/absolute/directory` 后，复制恢复用例会把关闭时的完整空间副本保存在新的 `tutor-restored-*` 子目录中。底座 `agent-messages.test.ts` 验证所有权拒绝、取消终态、排队清理与恢复聊天。

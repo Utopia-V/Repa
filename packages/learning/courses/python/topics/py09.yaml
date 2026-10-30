@@ -85,7 +85,6 @@ kps:
     example:
       id: py09.k1.e0
       kind: [predict]
-      uses: [py08.k1, py08.k2]
       body: |
         先填出第 4、5 行里左右两个比较各自的结果，再填组合后的结果；最后写出第 6 行显示什么。
 
@@ -167,7 +166,6 @@ kps:
           answers = {"results": {f"l{i}": {"value": shown[text]} for i, text in enumerate(lines, 3)}}
       - id: py09.k1.q2
         kind: [specify]
-        uses: [py08.k1]
         body: |
           需求是：留下 control 组和 drug 组的样本，属于这两组中任一组的都要，别的组（例如 blank）不要。`keep` 应存下 True 或 False。哪一行写对了？
         slots:
@@ -209,7 +207,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py09.k1.q3
         kind: [predict]
-        uses: [py08.k2]
         body: |
           需求是：signal 在 10 到 20 之间（含 10 和 20）的样本留下。代码是：
 
@@ -291,7 +288,6 @@ kps:
     review:
       - id: py09.k1.r1
         kind: [debug]
-        uses: [py08.k2]
         body: |
           冷藏温度要求在 2 到 8 之间（含 2 和 8）。有人写了：
 
@@ -400,7 +396,6 @@ kps:
           }}
       - id: py09.k1.x2
         kind: [specify]
-        uses: [py08.k2]
         body: |
           需要复查的样本：signal 低于 5 的，或者高于 50 的（恰好为 5 或 50 的都不用复查）。`recheck` 应存下 True 或 False。哪一行写对了？
         slots:
@@ -535,7 +530,6 @@ kps:
     example:
       id: py09.k2.e0
       kind: [predict, explain]
-      uses: [py08.k1, py08.k2]
       body: |
         需求是“drug 组里，signal 至少 10 或者被标记了的样本留下”。两位同事各写了一行，拿同一个样本运行：
 
@@ -638,7 +632,6 @@ kps:
           answers = {"table": rows, "differ": sum(row["first"] != row["second"] for row in rows.values())}
       - id: py09.k2.q2
         kind: [explain]
-        uses: [py08.k1]
         body: |
           下面哪一种写法和 `not flagged and signal >= 10` 意思相同？
         slots:
@@ -673,7 +666,6 @@ kps:
           answers = {"same": fits[0] if len(fits) == 1 else fits}
       - id: py09.k2.q3
         kind: [modify]
-        uses: [py08.k1, py08.k2]
         body: |
           需求是：
 
@@ -923,7 +915,6 @@ kps:
     quiz:
       - id: py09.k2.x1
         kind: [predict, debug]
-        uses: [py08.k1, py08.k2]
         data: [batch]
         body: |
           需求是“drug 组里，signal 至少 10 或者被标记了的样本留下”。代码写成：

@@ -84,7 +84,6 @@ kps:
     example:
       id: py03.k1.e0
       kind: [predict]
-      uses: [py01.k1]
       body: |
         样本的份数本该写成整数，有一处却写成了文字。阅读程序。
 
@@ -207,7 +206,6 @@ kps:
           answers = {f"p{i}": repl(block)[-1] for i, block in enumerate(BLOCKS, 1)}
       - id: py03.k1.q2
         kind: [trace]
-        uses: [py01.k1]
         body: |
           ```python
           count = 12
@@ -243,7 +241,6 @@ kps:
           answers = {"kinds": {f"r{i}": {"kind": type(r[name]).__name__} for i, name in enumerate(names, 1)}}
       - id: py03.k1.q3
         kind: [debug]
-        uses: [py01.k1]
         body: |
           同事从表单里读到两次计数，想算出总数：
 
@@ -369,7 +366,6 @@ kps:
           }
       - id: py03.k1.r2
         kind: [trace, debug]
-        uses: [py01.k1]
         body: |
           一段给采样点写备注的程序：
 
@@ -572,7 +568,6 @@ kps:
     example:
       id: py03.k2.e0
       kind: [predict]
-      uses: [py01.k1]
       body: |
         体积从表单里读进来，是文字 "2.5"。阅读程序。
 
@@ -686,7 +681,6 @@ kps:
           answers = {f"p{i}": repl(block)[-1] for i, block in enumerate(BLOCKS, 1)}
       - id: py03.k2.q2
         kind: [trace]
-        uses: [py01.k1]
         body: |
           菌落数从表格里读进来，是文字 "38"。
 
@@ -866,7 +860,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py03.k2.r2
         kind: [predict]
-        uses: [py01.k1]
         body: |
           一次实验用了多少分钟，从记录表里读进来是文字 "95.8"。
 
@@ -1104,7 +1097,6 @@ kps:
     example:
       id: py03.k3.e0
       kind: [predict]
-      uses: [py01.k1]
       body: |
         两块平板：`plate_a` 数过了，一个菌落也没长；`plate_b` 被污染了，没有数。
 
@@ -1255,7 +1247,6 @@ kps:
         manual: [s1, s2, s3]
       - id: py03.k3.q3
         kind: [debug]
-        uses: [py01.k1]
         body: |
           三块平板，第二块没有数。
 
@@ -1385,7 +1376,6 @@ kps:
           }
       - id: py03.k3.r2
         kind: [predict]
-        uses: [py01.k1]
         body: |
           一段写温度记录的程序，第二次没有读到温度。
 

@@ -354,13 +354,12 @@ export const QuestionSchema = object({
    * 用一次隔离的模型调用独立再解，一致后在 topic 的 verified 段留下记录。
    */
   manual: Type.Optional(Type.Array(IdSchema, { maxItems: 24 })),
-  // kind 是解释性元数据；有效 measures/uses 参与题目版本。
+  // kind 与 measures 是解释性元数据，不进题目版本。学生模型按 topic 传递信用（FIRe 走 topic 的 encompassings），
+  // 不按题记录用到的其他子技能；那份标注（uses）已删除，研究需要时从 git 历史取回。
   /** 题型：预测输出、追踪变量、找错、解释代码、小改代码、写清需求。 */
   kind: Type.Optional(Type.Array(Type.Enum(QuestionKinds), { minItems: 1, maxItems: 3 })),
   /** 这道题直接测量的知识点；省略时为所在知识点。 */
   measures: Type.Optional(Type.Array(KpIdSchema, { minItems: 1, maxItems: 4 })),
-  /** 本题实际执行的其他子技能；可以指向非祖先 topic，缺省为空。 */
-  uses: Type.Optional(Type.Array(KpIdSchema, { maxItems: 12 })),
 });
 export type Question = Static<typeof QuestionSchema>;
 

@@ -16,7 +16,7 @@
 
 ### 插件与接入
 
-包根目录的 `repa-plugin.json` 声明 `learning`、代码及底座兼容版本和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, now, connect })` 默认读取随包的 Python 课程，打开时一次加载全部 48 个 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录。
+包根目录的 `repa-plugin.json` 声明 `learning`、代码及底座兼容版本和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, connect })` 默认读取随包的 Python 课程，打开时一次加载全部 48 个 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录；时间一律取自底座的 `host.now()`，插件不另设时钟，测试通过宿主的 `now` 拨动时间。
 
 插件自行在其中管理 `format.json`，当前为 `{ "version": 2 }`。目录为空时写入版本 2 的标记；非空目录缺少标记，或标记是只记投影时期的版本 1，都按无法识别的开发数据停用学习插件，提示删除 `.repa/plugins/learning/` 后重新打开空间，不做转换。版本检查复用[底座辅助函数](../../packages/base/README.md#构建清单与数据版本)，标记损坏、版本过新或记录损坏时只停用学习插件。
 
@@ -26,10 +26,10 @@
 | --- | --- |
 | `LearningRecords.open(file, clock)` | 读入以换行结束的完整行，逐条核对格式、序号和引用；末尾的残缺片段只读不写 |
 | `records.write(build)` | 在串行入口里调用 `build` 决定要追加的事实，一次写入、一次同步文件和目录，再按顺序通知监听方 |
-| `LearningSession.open(records, course, host, clock)` | 重放全部事实；找出没判、要按改正后的答案重判和申诉后待重判的作答，规则题当场判完 |
+| `LearningSession.open(records, course, host)` | 重放全部事实；找出没判、要按改正后的答案重判和申诉后待重判的作答，规则题当场判完 |
 | `session.view(capabilities)`、`session.state(capabilities)` | 按当前时间和调用方能力算出的状态；菜单按调用方能否运行 Python 当场算 |
 | `session.grade(seq)` | 判一份作答并追加判分；同一份作答的并发调用合并为一次，判不了时只在内存里记下原因 |
-| `session.autoGrade(capabilities)` | 在后台补判本次会话还没试过的作答，教学方法每次调用时触发 |
+| `session.autoGrade(capabilities)` | 在后台补判本次会话还没试过的作答，教学方法每次调用时触发；代码题要调用方声明 `python.run`，开放题要有可用模型 |
 | `session.idle()` | 等待在途判分和后台补判结束；插件关闭前调用 |
 
 ### 事实
@@ -60,7 +60,7 @@
 
 ### 题目版本
 
-题目版本（`questionVersion`）只由学习者看到的内容（题面、作答位和作答后的解析）与判分方式（答案、比较方式、测试和用到的数据）决定。按测试判的题，期望表达式和学习者的程序都在课程清单的运行前导 `runtime.prelude` 之后运行，所以这类题的题目版本还包括前导：例如测试的期望表达式用到前导里的一个答案常量，作者改正这个常量以后，题面不变而判分依据变了，过去的作答就按新的前导重判。其他题判分用不到前导，版本与它无关。知识点归属 `measures`、`uses`，题型标签和只为检查而写的部分都不进版本：归属改了，题目版本不变，过去的作答照样对得上，重算学习状态时按新归属算。
+题目版本（`questionVersion`）只由学习者看到的内容（题面、作答位和作答后的解析）与判分方式（答案、比较方式、测试和用到的数据）决定。按测试判的题，期望表达式和学习者的程序都在课程清单的运行前导 `runtime.prelude` 之后运行，所以这类题的题目版本还包括前导：例如测试的期望表达式用到前导里的一个答案常量，作者改正这个常量以后，题面不变而判分依据变了，过去的作答就按新的前导重判。其他题判分用不到前导，版本与它无关。知识点归属 `measures`、题型标签和只为检查而写的部分都不进版本：归属改了，题目版本不变，过去的作答照样对得上。
 
 题面版本（`itemVersion`）只覆盖作答前的公开题面，也是公开 `Item.version`。只改答案或解析时它不变，所以进行中的题不必重新交付，过去的作答也能按新答案重判。
 
@@ -86,7 +86,7 @@ XP 按任务的实际结论结算：是否通过看实际结论，奖励的多�
 
 写入先在内存里核对引用：判分必须针对已收下的作答，一次交付只收一份作答，申诉必须针对已判的作答，引用必须指向此前正确类型的事实。核对通过后追加 JSONL、同步文件和目录，再交给重放。任一步写入失败都使请求失败，并停止当前实例继续追加；重新打开后以实际日志为准。底座持有空间锁，学习记录只在该宿主生命周期内使用，不额外建立第二套锁。
 
-生产入口使用服务端 `Date.now`。复习与测验从第一道题出现时开始计时，截止时间由开始时间加时限算出；截止时间过后读取状态，就按截止时刻结束任务，时间只会向前，所以读取时就地结算与重放结果一致。到时自然发生的变化（截止、冷却结束、复习到期）不写事实，公开的 `revision` 只随事实条数增加。
+时间取自底座的 `host.now()`，生产中是服务端时钟，事实的 `at` 也用它。测验从第一道题出现时开始计时，截止时间由开始时间加时限算出；截止时间过后读取状态，就按截止时刻结束测验，时间只会向前，所以读取时就地结算与重放结果一致。课和复习不限时。时钟回拨时，事实的 `at` 可能比前一条早；学生模型按最近一次更新的时刻算，不会因此停住，见[教学流程](learning-flow.md#任务菜单与重算)。到时自然发生的变化（截止、冷却结束、复习到期）不写事实，公开的 `revision` 只随事实条数增加。
 
 ### 残缺尾部恢复
 
@@ -104,7 +104,7 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 `loadCourseSources` 接收有序来源列表：先列唯一的 `{ kind: "bundled", directory }`，再列 `{ kind: "overlay", file }`。覆盖文件通过 `host.files` 读取，使用 JSON 形状 `{ courseId, basedOn, topic }`；`basedOn` 必须等于上游课程版本，`topic` 按当前 schema 完整替换同 id topic。来源重复、未知 topic 或版本不符都会报错，读取随包课程不会修改其文件。
 
-插件通过 `updateStudent` 和 `chooseTasks` 接入 `@repa/learning-model`，两者都把 encompassing 图置空，所以正负隐式传播均关闭，直接复习保留。时间按 Unix 毫秒除以 86,400,000 转为连续天数，更新拒绝早于已有锚点的时间。`memory` 是调度量，不是答对概率。
+插件通过 `student-model.ts` 的 `updateStudent` 和 `chooseTasks` 接入 `@repa/learning-model`。图里有课程的先修关系和各 topic 的 `encompassings`（只取正权重），通过与失败沿它按权重隐式传播（FIRe）。时间按 Unix 毫秒除以 `DAY_MS` 转为连续天数；当前时间早于已有的更新锚点（时钟回拨）时，按最近一次更新的时刻算，相当于零间隔，不报错。参数取 `parameters.ts` 的 `STUDENT_MODEL`；`new Replay(course, model)` 按另一组参数重放同一份事实，可以比较两组参数的预测。`memory` 是调度量，不是答对概率。
 
 ## 未完成项与待验证项
 
@@ -122,4 +122,4 @@ npm run check --workspace=@repa/learning
 (cd packages/learning && node --import tsx --test test/learning-records.test.ts test/learning-facts.test.ts)
 ```
 
-[`learning-records.test.ts`](../../packages/learning/test/learning-records.test.ts) 用三个子进程分别在作答写入后、模型返回而判分未写入时、判分写入后 SIGKILL，再重开核对作答保留、任务不阻塞、补判只调用一次模型；另覆盖同载荷并发提交、写入失败、引用错误、残缺尾部的恢复命令、可忽略的新增字段和经真实宿主重开。[`learning-facts.test.ts`](../../packages/learning/test/learning-facts.test.ts) 覆盖答案或运行前导改正后的重判、更早一轮课的重判反映到正在进行的重试、更早一轮课的补判使正在进行的课通过时照常结算 XP、没有证据时不阻塞、复习到截止时间已有失败证据时照常超时、只搬事实文件后重算出相同状态、归属改变不换版本，以及每次作答的字节上限（含最长的代码题）和重算次数（对错没变的重判不重算）。
+[`learning-records.test.ts`](../../packages/learning/test/learning-records.test.ts) 用三个子进程分别在作答写入后、模型返回而判分未写入时、判分写入后 SIGKILL，再重开核对作答保留、任务不阻塞、补判只调用一次模型；另覆盖同载荷并发提交、写入失败、引用错误、残缺尾部的恢复命令、可忽略的新增字段和经真实宿主重开。[`learning-facts.test.ts`](../../packages/learning/test/learning-facts.test.ts) 覆盖答案或运行前导改正后的重判、判分中断的作答补判以后课按作答先后重新判定（第三题补判为错即失败，XP 不收回）、更早一轮课的重判反映到正在进行的重试、更早一轮课的补判使正在进行的课通过时照常结算 XP、没有证据时不阻塞、中止复习时已有失败证据记为失败、只搬事实文件后重算出相同状态、换一组学生模型参数重放得出不同的预测、归属改变不换版本，以及每次作答的字节上限（含最长的代码题）和重算次数（对错没变的重判不重算）。

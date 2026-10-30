@@ -75,7 +75,6 @@ kps:
     example:
       id: py42.k1.e0
       kind: [specify]
-      uses: [py12.k2, py40.k2]
       body: |
         两条要求：
 
@@ -124,7 +123,6 @@ kps:
     practice:
       - id: py42.k1.q1
         kind: [debug]
-        uses: [py12.k2, py08.k2]
         body: |
           要求：signal 大于或等于 limit 时交回 "达标"，否则交回 "未达标"。有人写成了：
 
@@ -162,7 +160,6 @@ kps:
           answers = {"failing": failing}
       - id: py42.k1.q2
         kind: [specify]
-        uses: [py12.k1, py12.k2]
         body: |
           同事给你的要求只有一句：“`mean_signal(total, n)` 交回 n 份样本的平均信号 total / n。”你在写测试。
         slots:
@@ -195,7 +192,6 @@ kps:
         manual: [empty]
       - id: py42.k1.q3
         kind: [specify]
-        uses: [py12.k2, py08.k2]
         body: |
           `label(signal, limit)` 的要求不变：signal 大于或等于 limit 时交回 "达标"。现在阈值 limit 取 15。
 
@@ -222,7 +218,6 @@ kps:
     review:
       - id: py42.k1.r1
         kind: [specify, debug]
-        uses: [py12.k2]
         body: |
           要求：`is_deep(depth)` 在深度**超过** 30 厘米时交回 True，恰好 30 不算，交回 False。
 
@@ -255,7 +250,6 @@ kps:
           answers = {"tests": fits[0] if len(fits) == 1 else fits}
       - id: py42.k1.r2
         kind: [specify]
-        uses: [py12.k2, py03.k3]
         body: |
           要求：`rate(count, minutes)` 交回每分钟的次数 count / minutes；没有观察时间（minutes 为 0）时交回 None。
 
@@ -289,7 +283,6 @@ kps:
     quiz:
       - id: py42.k1.x1
         kind: [debug, specify]
-        uses: [py12.k2, py09.k1]
         body: |
           要求：`in_range(value, low, high)` 在 value 介于 low 和 high 之间时交回 True，**两端都算**；否则交回 False。
 
@@ -355,7 +348,6 @@ kps:
           }
       - id: py42.k1.x2
         kind: [debug]
-        uses: [py12.k2, py40.k2]
         body: |
           要求：`mean_signal(total, n)` 交回 n 份样本的平均信号 total / n；没有样本（n 为 0）时交回 None。两个人分别写了：
 
@@ -444,7 +436,6 @@ kps:
     example:
       id: py42.k2.e0
       kind: [debug, predict]
-      uses: [py11.k2, py40.k2]
       body: |
         要求：signal 大于或等于 limit 时交回 "达标"，否则交回 "未达标"。
 
@@ -521,7 +512,6 @@ kps:
     practice:
       - id: py42.k2.q1
         kind: [debug]
-        uses: [py11.k2, py12.k2]
         body: |
           `net(raw, blank)` 应当交回 raw 减去 blank，有人把减号写成了加号。
 
@@ -580,7 +570,6 @@ kps:
                      "blind": blind[0] if len(blind) == 1 else blind}
       - id: py42.k2.q2
         kind: [debug, specify]
-        uses: [py12.k2]
         body: |
           要求：signal 大于或等于 limit 时交回 "达标"。现有的测试只有：
 
@@ -620,7 +609,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py42.k2.q3
         kind: [modify]
-        uses: [py40.k2, py10.k1, py03.k3]
         body: |
           要求：`mean_signal(total, n)` 交回 n 份样本的平均信号 total / n；没有样本（n 为 0）时交回 None。
 
@@ -704,7 +692,6 @@ kps:
     review:
       - id: py42.k2.r1
         kind: [debug, predict]
-        uses: [py11.k2, py12.k2]
         body: |
           要求：深度**超过** 30 厘米才算深，恰好 30 不算。
 
@@ -753,7 +740,6 @@ kps:
                      "who": "function" if spec(30) == False and got != spec(30) else "test"}
       - id: py42.k2.r2
         kind: [explain]
-        uses: [py11.k1]
         body: |
           关于 `assert`，下面哪些说法正确？选出所有正确的。
         slots:
@@ -793,7 +779,6 @@ kps:
     quiz:
       - id: py42.k2.x1
         kind: [debug, trace]
-        uses: [py11.k2, py10.k1]
         body: |
           要求：`to_mm(value, unit)` 把长度换算成毫米：unit 为 "cm" 时乘 10，为 "m" 时乘 1000，其他单位原样交回。
 
@@ -851,7 +836,6 @@ kps:
           answers = {"line": failing[0], "actual": actual, "fix": fixes[0] if len(fixes) == 1 else fixes}
       - id: py42.k2.x2
         kind: [modify]
-        uses: [py10.k1, py08.k2, py12.k2]
         body: |
           要求：深度小于 10 厘米是“表层”；10 厘米及以上、小于 30 厘米是“中层”；30 厘米及以上是“深层”。
 

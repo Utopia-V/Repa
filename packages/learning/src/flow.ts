@@ -17,7 +17,7 @@ import type { LearningSession } from "./session.js";
 
 /**
  * 教学方法：读当前状态、核对守卫，再追加学习者行为的事实。状态全部从事实重放得出，方法本身不保存画面。
- * beforeRestricted 在复习和测验开始计时之前调用，默认中止辅导 Agent。
+ * beforeRestricted 在复习和测验交付第一道题之前调用，默认中止辅导 Agent。
  */
 export async function connectLearning(
   session: LearningSession,
@@ -78,29 +78,43 @@ export async function connectLearning(
     }
   }
 
-  /** 选下一道题：课按第一个未过的知识点，复习轮流覆盖知识点，测验每个 topic 一题；优先没出过的题。 */
+  /**
+   * 选下一道题：课按第一个未过的知识点，复习轮流覆盖知识点，测验每个 topic 一题；先筛掉发起调用的前端用不了的题，
+   * 再在余下的题里优先没出过的。有题却一道也用不了时报告缺什么并保留任务，等能用的前端或可用的模型。
+   */
   async function nextQuestion(evidence: TaskEvidence, capabilities: ClientCapabilities | undefined, topicId?: string): Promise<FactBody> {
     const task = evidence.task;
     const id = topicId ?? task.topicIds[0] ?? "";
-    let pool = session.questions(id, task.kind, capabilities);
+    const topic = session.course.topics.get(id);
+    let pool = session.pool(id, task.kind);
     if (task.retakes !== undefined) {
       const excluded = new Set(session.replay.task(task.retakes)?.deliveries.map((delivery) => delivery.questionId));
       pool = pool.filter((entry) => !excluded.has(entry.question.id));
     }
     if (task.kind === "lesson") {
       pool = pool.filter((entry) => entry.kp.id === evidence.kps.find((kp) => !kp.completed)?.kpId);
-    } else if (!isQuiz(task.kind)) {
-      const rotation = evidence.kps.filter((kp) => pool.some((entry) => entry.kp.id === kp.kpId));
+    }
+    if (!topic || !pool.length) {
+      throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
+    }
+    const usable = session.usable(capabilities);
+    let candidates = pool.filter((entry) => usable(entry.question, topic));
+    if (task.kind === "review") {
+      const rotation = evidence.kps.filter((kp) => candidates.some((entry) => entry.kp.id === kp.kpId));
       const nextKp = rotation[task.deliveries.length % rotation.length]?.kpId;
-      const rotated = pool.filter((entry) => entry.kp.id === nextKp);
+      const rotated = candidates.filter((entry) => entry.kp.id === nextKp);
       if (rotated.length) {
-        pool = rotated;
+        candidates = rotated;
       }
     }
-    const entry = pool.find((candidate) => session.replay.firstDelivered(candidate.question.id) === undefined) ?? pool[0];
-    const topic = session.course.topics.get(id);
-    if (!entry || !topic) {
-      throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
+    const entry = candidates.find((candidate) => session.replay.firstDelivered(candidate.question.id) === undefined) ?? candidates[0];
+    if (!entry) {
+      const first = pool[0];
+      const missing = first ? session.missing(first.question, topic, capabilities) : [];
+      if (missing.length) {
+        throw new RepaFault("missing_capability", "前端不支持当前题目", { reason: "missing_capability", missing, taskId: taskId(task) });
+      }
+      throw new RepaFault("model_required", "这一步只剩要由模型判分的题，当前没有可用模型；可以中止任务，配置模型以后再继续");
     }
     const seed = deliverySeed();
     const mode = task.kind === "lesson" ? "practice" : task.kind === "review" ? "review" : "quiz";
@@ -112,7 +126,7 @@ export async function connectLearning(
     return { type: "delivered", task: task.seq, question: entry.question.id, seed };
   }
 
-  /** 复习与测验先写下任务（准备阶段），等辅导停稳后才交付题目，第一道题出现时开始计时。 */
+  /** 复习与测验先写下任务（准备阶段），等辅导停稳后才交付题目；测验从第一道题出现时开始计时。 */
   async function startRestricted(capabilities: ClientCapabilities | undefined) {
     const evidence = current();
     if (!evidence || session.stage(evidence) !== "preparing") {
