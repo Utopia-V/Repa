@@ -29,7 +29,7 @@ memory 更新先加信用，再把整体按更新前的 interval 衰减。查询
 
 ### 候选与配置
 
-`selectTasks(graph, student, day, limit, includeNew, config)` 最多返回 limit 项。它预演每项通过后的到期变化，贪心处理尚未覆盖的到期项；同覆盖量先选更逾期的直接复习，再选新主题，最后保持输入图顺序。返回的 reason 相对于调用时状态，选项不构成已经执行的批次。
+`selectTasks(graph, student, day, limit, includeNew, config, accept)` 最多返回 limit 项。它预演每项通过后的到期变化，贪心处理尚未覆盖的到期项；同覆盖量先选更逾期的直接复习，再选新主题，最后保持输入图顺序。返回的 reason 相对于调用时状态，选项不构成已经执行的批次。`accept` 是调用方会提供的候选，缺省全部接受；调用方不接受的候选在贪心覆盖之前就排除，否则它被选中却提供不了，被它覆盖而略去的到期复习就一项也剩不下。
 
 输入应当通过导出的 TypeBox schema；调用方还负责主题引用、DAG、数值有限性、配置与时间顺序等跨字段条件。`ModelConfig` 从 schema 推导，只含公式里的常数，默认值保持原 v0 结果；调参就是换这组常数，用另一组参数重放同一串复习，可以比较两组参数的预测。研究专用的缩放、指数、capped-sum 路径合并和关闭 speed 更新的开关已删除，研究重新开始时从 git 历史取回。
 
@@ -43,7 +43,7 @@ npm test --workspace=@repa/learning-model
 npm run build --workspace=@repa/learning-model
 ```
 
-`test/model.test.ts`、`test/selector.test.ts` 和 `test/config.test.ts` 覆盖默认数值、旧间隔衰减顺序、分图、直接／隐式信用、路径汇合、各项参数的作用、换一组参数得出不同的预测和选择器回归。
+`test/model.test.ts`、`test/selector.test.ts` 和 `test/config.test.ts` 覆盖默认数值、旧间隔衰减顺序、分图、直接／隐式信用、路径汇合、各项参数的作用、换一组参数得出不同的预测、调用方不接受的候选不压掉到期复习和选择器回归。
 
 ## 对模型的影响
 

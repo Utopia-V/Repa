@@ -1066,3 +1066,36 @@ test("课交给学生模型的质量按独立答对的比例计：一错两对�
   assert.ok(menu?.candidates.some((entry) => entry.kind === "review" && entry.topicIds[0] === "t01"));
   assert.equal(menu?.candidates.some((entry) => entry.kind === "review" && entry.topicIds[0] === "t02"), false);
 });
+
+for (const hidden of [false, true]) {
+  test(hidden
+    ? "到期的 topic 覆盖另外两个到期复习、而这个前端显示不了它的复习题时，菜单照样给出那两个复习，不被它压掉而空着"
+    : "还没到期的 topic 以权重覆盖两个到期复习时，菜单照样给出这两个复习，不被它压掉而空着", async (t) => {
+    const covering = topic("t03");
+    covering.encompassings = [{ topic: "t01", weight: 0.5 }, { topic: "t02", weight: 0.5 }];
+    if (hidden) {
+      const kp = covering.kps[0];
+      assert.ok(kp);
+      kp.review = [orderQuestion("t03.k1.r1")];
+    }
+    const f = await fixture(t, [topic("t01"), topic("t02"), covering]);
+    for (const id of ["t01", "t02"]) {
+      await f.select(id);
+      await f.finishLesson();
+    }
+    // 一天后 t01、t02 到期，学会覆盖它们的 t03，它们得到隐式复习。
+    f.time(start + 86_400_000);
+    await f.select("t03");
+    await f.finishLesson();
+    // 再过不到一天，t01、t02 又到期而 t03 还没有；再过一天半，三个都到期，t03 的复习题这个前端却显示不了。
+    f.time(start + (hidden ? 2.5 : 1.9) * 86_400_000);
+    const limited = { interaction: { supports: ["slot.text", "block.markdown"] }, services: [] };
+    const reviews = (state: { menu: { candidates: { kind: string; topicIds: string[] }[] } | null }) =>
+      state.menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]).sort();
+    assert.deepEqual(reviews(await f.call("state.get", {}, hidden ? limited : clientCapabilities)), [["review", "t01"], ["review", "t02"]]);
+    if (hidden) {
+      // 显示得了的前端照样只给 t03 的复习：做它就同时复习了另外两个。
+      assert.deepEqual(reviews(await f.state()), [["review", "t03"]]);
+    }
+  });
+}

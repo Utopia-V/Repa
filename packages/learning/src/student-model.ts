@@ -31,11 +31,12 @@ export function updateStudent(
   return applyRepetition(graph, student, { ...repetition, day: modelDay(student, now) }, config);
 }
 
+/** 选任务候选；accept 是菜单会接受的候选，不接受的不参加覆盖，免得压掉别的到期复习。 */
 export function chooseTasks(
   graph: KnowledgeGraph, student: Student, now: number, limit = 3,
-  config: ModelConfig = STUDENT_MODEL,
+  config: ModelConfig = STUDENT_MODEL, accept?: (candidate: Candidate) => boolean,
 ): Candidate[] {
-  return selectTasks(graph, student, modelDay(student, now), limit, true, config);
+  return selectTasks(graph, student, modelDay(student, now), limit, true, config, accept);
 }
 
 /** 这个已学的 topic 此刻是否到期；没学过的不算到期。 */
