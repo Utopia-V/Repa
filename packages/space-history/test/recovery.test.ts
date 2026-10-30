@@ -15,8 +15,8 @@ function deferred() {
   return { promise, resolve };
 }
 
-// command 是要注入失败的 Git 子命令：整空间快照用 update-ref 更新引用，按路径提交由 fast-import 更新引用。
-async function fixture(t: TestContext, failure: "before" | "after", command = "update-ref") {
+// 整空间快照和按路径提交都由 fast-import 写入提交并更新引用，失败注入在它前后。
+async function fixture(t: TestContext, failure: "before" | "after") {
   const root = await mkdtemp(join(tmpdir(), "repa-history-recovery-"));
   t.after(async () => {
     await rm(root, { recursive: true, force: true });
@@ -27,7 +27,7 @@ async function fixture(t: TestContext, failure: "before" | "after", command = "u
   const run = Git.prototype.run;
   // 在真实 Git 命令的前后注入一次失败，不依赖 shell 或可执行脚本权限。
   t.mock.method(Git.prototype, "run", async function (this: Git, ...args: Parameters<typeof run>) {
-    if (args[0].includes(command) && await stat(flag).then(() => true, (error: unknown) => {
+    if (args[0].includes("fast-import") && await stat(flag).then(() => true, (error: unknown) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
       throw error;
     })) {
@@ -106,7 +106,7 @@ test("引用实际更新后报告失败，后续操作认领原提交而不重�
 test("按路径提交失败后，后续操作先按原范围补完原来源，范围外的同期改动仍记为外部", async (t) => {
   for (const failure of ["before", "after"] as const) {
     await t.test(failure === "before" ? "引用更新前失败" : "引用更新后才报告失败", async (context) => {
-      const f = await fixture(context, failure, "fast-import");
+      const f = await fixture(context, failure);
       let actions = 0;
       const source: ActivitySource = { kind: "agent", runId: `scoped-${failure}`, ancestorRunIds: ["lead"] };
       await assert.rejects(f.history.recordPaths(source, ["agent.txt"], async () => {

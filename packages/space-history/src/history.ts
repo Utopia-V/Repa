@@ -12,7 +12,6 @@ import {
 } from "./schema.js";
 
 const REF = "refs/heads/history";
-const ZERO = "0".repeat(40);
 const NAME = "Repa";
 const EMAIL = "history@repa.local";
 // 只在宿主调用维护时检查对象布局，不让快照遍历全部历史。
@@ -167,6 +166,8 @@ export class SpaceHistory {
   private runs: Map<string, string[]> | null = null;
   // scope 为 null 表示整个空间；保存失败后按同一来源和范围补完。
   private pending: { source: Source; scope: string[] | null } | null = null;
+  // 按路径列出时 Git 对单个文件（不是目录）是否忽略的判断，连同当时决定它的忽略规则状态；见 ignoreRules。
+  private readonly visibility = new Map<string, { rules: string; listed: boolean }>();
   private readonly listeners = new Set<(revision: string) => void | Promise<void>>();
 
   private constructor(readonly space: string, options: HistoryOptions) {
@@ -186,9 +187,10 @@ export class SpaceHistory {
     if (options.exclusive) await clearStaleLocks(gitDir);
     if (!(await stat(path.join(gitDir, "config")))) {
       await history.git.run(["init", "--bare", "--object-format=sha1", "--initial-branch=history", gitDir]);
+      // 提交由 fast-import 写明提交者，不读这份身份；写入它是为了在影子仓库里手动执行的 Git 命令也有身份可用，只在建库时写一次。
+      await history.git.run(["config", "--local", "user.name", NAME]);
+      await history.git.run(["config", "--local", "user.email", EMAIL]);
     }
-    await history.git.run(["config", "--local", "user.name", NAME]);
-    await history.git.run(["config", "--local", "user.email", EMAIL]);
     try {
       history.head = (await history.git.run(["rev-parse", "--verify", "--quiet", REF])).toString().trim();
     } catch (error) {
@@ -317,15 +319,24 @@ export class SpaceHistory {
 
   changesSince(cursor: string | null): Promise<ChangeFeed> {
     return this.serial(async () => {
-      if (cursor !== null) await this.checkRevision(cursor);
-      return this.feed(cursor);
+      // 插件已经追到当前版本时，没有新的提交，不必启动 Git。
+      if (cursor !== null && cursor === this.head) return this.feed([]);
+      if (cursor === null) return this.feed(await this.readLog(["--reverse", REF]));
+      await this.checkRevision(cursor, false);
+      const revisions = await this.readLog(["--reverse", `${cursor}..${REF}`]);
+      // 游标不是当前版本时，它在历史线上当且仅当之后的某个提交以它为父提交，不必另用 merge-base 检查。
+      if (!revisions.some(({ parent }) => parent?.split(" ").includes(cursor))) throw missingRevision(cursor);
+      return this.feed(revisions);
     });
   }
 
   // 调用方给的修订必须是历史线上的提交；格式不对、对象不存在或不在历史线上都报 revision_not_found，其余 Git 故障照常抛出。
-  private async checkRevision(revision: string): Promise<void> {
+  // ancestry 为假时只检查前两项，由调用方自己确认修订在历史线上。
+  private async checkRevision(revision: string, ancestry = true): Promise<void> {
     if (!REVISION.test(revision)) throw missingRevision(revision);
-    for (const args of [["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], ["merge-base", "--is-ancestor", revision, REF]]) {
+    const checks = [["rev-parse", "--verify", "--quiet", `${revision}^{commit}`]];
+    if (ancestry) checks.push(["merge-base", "--is-ancestor", revision, REF]);
+    for (const args of checks) {
       try {
         await this.git.run(args);
       } catch (error) {
@@ -348,8 +359,7 @@ export class SpaceHistory {
     return result;
   }
 
-  private async feed(cursor: string | null): Promise<ChangeFeed> {
-    const revisions = await this.readLog(["--reverse", cursor ? `${cursor}..${REF}` : REF]);
+  private async feed(revisions: Revision[]): Promise<ChangeFeed> {
     const diffs = await this.diffs(revisions);
     if (!this.head) throw new Error("历史尚未初始化");
     return {
@@ -500,58 +510,31 @@ export class SpaceHistory {
 
   private async capture(source: Source): Promise<Snapshot> {
     this.pending = { source, scope: null };
-    const previous = await this.headEntries();
-    await this.git.run(["read-tree", "--empty"]);
     const listed = nul(await this.git.run([
       "ls-files", "--others", "--exclude-standard", "-z", "--exclude=/.repa/", "--exclude=.git",
     ]));
-    const entries = new Map<string, Entry>();
     const skipped: Snapshot["skipped"] = [];
-    const files = this.candidates(listed, skipped, new Map());
-    async function* blobs(): AsyncGenerator<Buffer | string> {
-      for await (const [file, content] of files) {
-        entries.set(file, { mode: content.mode, oid: content.oid });
-        if (!same(content, previous.get(file))) {
-          yield `blob\ndata ${content.data.length}\n`;
-          yield content.data;
-          yield "\n";
-        }
-      }
-      yield "done\n";
-    }
-    await this.git.run(["fast-import", "--quiet", "--done"], blobs());
-    await this.git.run(["update-index", "-z", "--index-info"],
-      [...entries].map(([file, entry]) => `${entry.mode} ${entry.oid}\t${file}\0`).join(""));
-    const tree = (await this.git.run(["write-tree"])).toString().trim();
-    const unchanged = entries.size === previous.size && [...entries].every(([file, entry]) => same(entry, previous.get(file)));
-    if (this.head && unchanged && source.kind !== "agent" && source.kind !== "undo") {
-      this.pending = null;
-      return { revision: this.head, committed: false, skipped };
-    }
-    const args = ["commit-tree", tree];
-    if (this.head) args.push("-p", this.head);
-    const revision = (await this.git.run(args, JSON.stringify(source) + "\n")).toString().trim();
-    await this.git.run(["update-ref", REF, revision, this.head ?? ZERO]);
-    this.advance(revision, source, entries);
-    return { revision, committed: true, skipped };
+    // 整个空间的扫描给 agent 和 undo 留下提交，空运行也有记录；第一次扫描建立基线。
+    const always = !this.head || source.kind === "agent" || source.kind === "undo";
+    return this.save(source, this.candidates(listed, skipped, new Map()), skipped, () => true, always);
   }
 
   // 只让给定范围与磁盘一致：路径本身、其下全部内容，以及历史中作为文件出现的上级。范围外的条目保持原样。
   private async captureScoped(source: Source, scope: string[]): Promise<Snapshot> {
     this.pending = { source, scope };
-    const head = this.head;
-    if (!head) throw new Error("历史尚未初始化");
-    const previous = await this.headEntries();
+    if (!this.head) throw new Error("历史尚未初始化");
     const roots = new Set(scope);
     const above = new Set(scope.flatMap(parents));
     const boundaries = new Map<string, boolean>();
     const skipped: Snapshot["skipped"] = [];
-    const specs = new Set<string>();
+    // 要列出的路径及其是否为目录。磁盘上没有的路径列不出任何文件，不必交给 Git；它在历史中的条目照样按范围删除。
+    const specs = new Map<string, boolean>();
     for (const file of scope) {
-      if (!(await this.boundary(file, boundaries))) {
-        specs.add(file);
-      } else if (await stat(path.join(this.space, file))) {
-        skipped.push({ path: file, reason: "repository" });
+      const info = await stat(path.join(this.space, file));
+      if (await this.boundary(file, boundaries)) {
+        if (info) skipped.push({ path: file, reason: "repository" });
+      } else if (info) {
+        specs.set(file, info.isDirectory());
       }
     }
     for (const directory of above) {
@@ -559,43 +542,154 @@ export class SpaceHistory {
       if (!info || info.isDirectory()) continue;
       // 上级在磁盘上已不是目录，下面不可能还有内容；这一层以下的历史条目都按范围处理。
       roots.add(directory);
-      if (!(await this.boundary(directory, boundaries))) specs.add(directory);
+      if (!(await this.boundary(directory, boundaries))) specs.set(directory, false);
     }
+    const files = this.candidates([...await this.listScope(specs)], skipped, boundaries);
+    return this.save(source, files, skipped, (file) => covered(file, roots, above), source.kind === "undo");
+  }
+
+  // 列出给定路径中没有被忽略的文件。单个文件沿用 visibility 中仍然有效的判断，其余路径交给 ls-files，
+  // 同一文件反复写入、写入后监听又报告它时都不必再启动 Git。
+  private async listScope(specs: Map<string, boolean>): Promise<Set<string>> {
     const listed = new Set<string>();
-    const batches = [...specs];
+    const rules = new Map<string, string | null>();
+    const entries = new Map<string, Set<string> | null>();
+    // 同一次列出只读取一次影子仓库的排除规则；读取失败时交给 Git 判断。
+    let exclude: string | null;
+    try {
+      const content = await readFile(path.join(this.space, ".repa", "history.git", "info", "exclude"));
+      exclude = createHash("sha1").update(content).digest("hex");
+    } catch (error) {
+      exclude = error instanceof Error && "code" in error && error.code === "ENOENT" ? "-" : null;
+    }
+    // 交给 Git 的路径；单个文件附上列出之前的规则状态，目录和规则读不了的文件为 null。
+    const asked = new Map<string, string | null>();
+    for (const [file, directory] of specs) {
+      const state = directory ? null : await this.ignoreRules(file, rules, exclude);
+      const known = this.visibility.get(file);
+      if (state !== null && known?.rules === state) {
+        const parent = path.dirname(file);
+        let names = entries.get(parent);
+        if (names === undefined) {
+          try {
+            names = new Set(await readdir(path.join(this.space, parent)));
+          } catch {
+            // 目录读不了时不沿用判断，由 Git 列出实际名称。
+            names = null;
+          }
+          entries.set(parent, names);
+        }
+        // 大小写不敏感的文件系统上，旧名字仍能通过 lstat，须核对目录中的实际名称。
+        if (names?.has(path.basename(file))) {
+          if (known.listed) listed.add(file);
+          continue;
+        }
+      }
+      asked.set(file, state);
+    }
+    const output = new Set<string>();
+    const batches = [...asked.keys()];
     for (let index = 0; index < batches.length; index += PATHSPEC_BATCH) {
-      const output = await this.git.run([
+      const result = await this.git.run([
         "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--exclude=/.repa/", "--exclude=.git",
         "--", ...batches.slice(index, index + PATHSPEC_BATCH),
-      ], undefined, { emptyIndex: true });
-      for (const file of nul(output)) listed.add(file);
+      ]);
+      for (const file of nul(result)) output.add(file);
     }
-    const found = new Map<string, File>();
-    for await (const [file, content] of this.candidates([...listed], skipped, boundaries)) found.set(file, content);
-    const removed = [...previous.keys()].filter((file) => !found.has(file) && covered(file, roots, above));
-    const changed = [...found].filter(([file, content]) => !same(content, previous.get(file)));
-    if (removed.length === 0 && changed.length === 0 && source.kind !== "undo") {
+    for (const file of output) listed.add(file);
+    // Git 列出的每个名字都对得上给定的文件或目录时才记下判断；大小写不敏感的文件系统上，名字可能与给定路径大小写不同。
+    const directories = [...asked.keys()].filter((file) => specs.get(file));
+    const matched = (name: string) => (asked.has(name) && !specs.get(name))
+      || directories.some((directory) => name.startsWith(`${directory}/`));
+    if (![...output].every(matched)) return listed;
+    // 列出之后文件仍在、规则状态也没变，才说明判断出自这份规则。
+    const after = new Map<string, string | null>();
+    for (const [file, state] of asked) {
+      if (state === null) continue;
+      const info = await stat(path.join(this.space, file));
+      if (info && !info.isDirectory() && await this.ignoreRules(file, after, exclude) === state) {
+        this.visibility.set(file, { rules: state, listed: output.has(file) });
+      }
+    }
+    return listed;
+  }
+
+  // 一个文件（不是目录）是否被忽略，只取决于影子仓库的 info/exclude、空间根目录和它各级上级目录中的 .gitignore：
+  // 排除选项与 Git 配置固定，全局忽略文件已关闭。返回 info/exclude 的内容 SHA-1 和各 .gitignore 的类型与对象 ID，
+  // 缺失记为 -；有一个读不了时返回 null，由 Git 判断。
+  private async ignoreRules(file: string, memo: Map<string, string | null>, exclude: string | null): Promise<string | null> {
+    if (exclude === null) return null;
+    const states: string[] = [exclude];
+    for (const directory of ["", ...parents(file)]) {
+      let state = memo.get(directory);
+      if (state === undefined) {
+        try {
+          const content = await this.read(directory ? `${directory}/.gitignore` : ".gitignore");
+          state = content ? `${content.mode}:${content.oid}` : "-";
+        } catch {
+          // 读取失败不当作没有规则；不缓存这次判断，Git 自己读取时照常处理或报错。
+          state = null;
+        }
+        memo.set(directory, state);
+      }
+      if (state === null) return null;
+      states.push(state);
+    }
+    return states.join(" ");
+  }
+
+  // 让历史中 inScope 的条目与 files 一致，用一个 fast-import 写入变了的内容、树和提交。内容随读随写，不在内存中积攒；
+  // 哪些条目消失要读完才知道，所以提交命令写在最后。没有变化且 always 为假时不提交，也不启动 fast-import。
+  private async save(
+    source: Source,
+    files: AsyncGenerator<[string, File]>,
+    skipped: Snapshot["skipped"],
+    inScope: (file: string) => boolean,
+    always: boolean,
+  ): Promise<Snapshot> {
+    const head = this.head;
+    const previous = await this.headEntries();
+    const found = new Map<string, Entry>();
+    let next = await files.next();
+    while (!next.done && same(next.value[1], previous.get(next.value[0]))) {
+      found.set(next.value[0], { mode: next.value[1].mode, oid: next.value[1].oid });
+      next = await files.next();
+    }
+    const vanished = () => [...previous.keys()].filter((file) => inScope(file) && !found.has(file));
+    if (head && next.done && !always && vanished().length === 0) {
       this.pending = null;
       return { revision: head, committed: false, skipped };
     }
     const message = JSON.stringify(source) + "\n";
+    let removed: string[] = [];
     async function* commands(): AsyncGenerator<Buffer | string> {
-      yield `commit ${REF}\nmark :1\ncommitter ${NAME} <${EMAIL}> now\ndata ${Buffer.byteLength(message)}\n${message}from ${head}\n`;
+      for (; !next.done; next = await files.next()) {
+        const [file, content] = next.value;
+        found.set(file, { mode: content.mode, oid: content.oid });
+        if (!same(content, previous.get(file))) {
+          yield `blob\ndata ${content.data.length}\n`;
+          yield content.data;
+          yield "\n";
+        }
+      }
+      removed = vanished();
+      yield `commit ${REF}\nmark :1\ncommitter ${NAME} <${EMAIL}> now\ndata ${Buffer.byteLength(message)}\n${message}`;
+      if (head) yield `from ${head}\n`;
       // 先删后写：文件与目录互换时，树中不会同时出现同名文件和目录。
       for (const file of removed) yield `D ${quoted(file)}\n`;
-      for (const [file, content] of changed) {
-        yield `M ${content.mode} inline ${quoted(file)}\ndata ${content.data.length}\n`;
-        yield content.data;
-        yield "\n";
+      for (const [file, entry] of found) {
+        // 内容已在上面以 blob 写入，这里按对象 ID 引用。
+        if (!same(entry, previous.get(file))) yield `M ${entry.mode} ${entry.oid} ${quoted(file)}\n`;
       }
       yield "get-mark :1\ndone\n";
     }
-    // fast-import 在 head 之上直接生成树和提交；引用若已被移到不是新提交祖先的位置，它拒绝更新并报错。
+    // fast-import 在 head 之上生成树和提交并更新引用；引用若已被移到不是新提交祖先的位置，它拒绝更新并报错。
     const revision = checkedRevision((await this.git.run(
       ["fast-import", "--quiet", "--done", "--date-format=now"], commands(),
     )).toString().trim());
+    // previous 是缓存的 head 树，提交成功后才就地更新。
     for (const file of removed) previous.delete(file);
-    for (const [file, content] of changed) previous.set(file, { mode: content.mode, oid: content.oid });
+    for (const [file, entry] of found) previous.set(file, entry);
     this.advance(revision, source, previous);
     return { revision, committed: true, skipped };
   }
@@ -619,9 +713,11 @@ export class SpaceHistory {
     return this.serial(async () => {
       await this.checkRevision(revision);
       await this.capture({ kind: "external" });
-      const [target] = await this.readLog(["-1", revision]);
-      if (!target?.parent) throw new HistoryError("nothing_to_undo", "初始快照是空间原有的内容，没有可撤回的改动");
-      const revisions = await this.readLog(["--reverse", `${target.parent}..${REF}`]);
+      // 目标及其后的全部提交；目标是初始快照时没有父提交，--not 不排除任何提交，列表照样从目标开始。
+      const revisions = await this.readLog(["--reverse", REF, "--not", `${revision}^@`]);
+      const [target] = revisions;
+      if (target?.id !== revision) throw new Error("历史线与修订检查的结果不一致");
+      if (!target.parent) throw new HistoryError("nothing_to_undo", "初始快照是空间原有的内容，没有可撤回的改动");
       return this.revert({ kind: "undo", revision }, revisions, new Set([revision]));
     });
   }
@@ -680,7 +776,8 @@ export class SpaceHistory {
         conflicts.add(file);
       }
     }
-    const ignored = await this.ignored(files.filter((file) => !conflicts.has(file)));
+    // 撤回前的整空间扫描刚列出 after 中的路径，它们没有被忽略，只需检查其余路径。
+    const ignored = await this.ignored(files.filter((file) => !conflicts.has(file) && !after.has(file)));
     const directories = new Set<string>();
     for (const file of files) {
       if (ignored.has(file)) conflicts.add(file);

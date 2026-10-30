@@ -171,7 +171,7 @@ async function executable(name: string): Promise<string> {
   throw new Error(`PATH 中没有 ${name}`);
 }
 
-// 把 PATH 里的 git 换成先记下参数的包装脚本；整空间快照每次都以 read-tree --empty 开始，按路径的快照不用它。
+// 把 PATH 里的 git 换成先记下参数的包装脚本；整空间快照的 ls-files 不带路径，按路径的快照在 -- 之后给出路径。
 async function recordGitCommands(t: TestContext): Promise<() => Promise<string[]>> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-git-commands-"));
   const log = path.join(directory, "commands.log");
@@ -187,7 +187,7 @@ async function recordGitCommands(t: TestContext): Promise<() => Promise<string[]
 
 test("watcher 只按变了的路径快照，整空间扫描只在打开空间和撤回之前", { skip: process.platform === "win32" }, async (t) => {
   const commands = await recordGitCommands(t);
-  const wholeScans = async () => (await commands()).filter((line) => line.endsWith(" read-tree --empty")).length;
+  const wholeScans = async () => (await commands()).filter((line) => line.includes(" ls-files ") && !line.includes(" -- ")).length;
   const { space } = await fixture(t, true);
   assert.equal(await wholeScans(), 1);
   const observed = new Promise<Revision>((resolve) => {

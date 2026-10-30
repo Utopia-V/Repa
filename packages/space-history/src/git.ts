@@ -6,6 +6,14 @@ import { TextDecoder } from "node:util";
 
 const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
+// Windows 上每启动一个 Git 进程要数十毫秒，历史操作的耗时主要由启动次数决定，因此在唯一的启动处计数。
+const starts = new Map<string, number>();
+
+/** 本进程至今启动 Git 的次数，按子命令分计；测试据此给各项历史操作的启动次数设上限。 */
+export function gitStarts(): Map<string, number> {
+  return new Map(starts);
+}
+
 export class GitError extends Error {
   readonly exitCode: number | null;
 
@@ -24,11 +32,7 @@ export class Git {
     private readonly binaryArgs: string[] = [],
   ) {}
 
-  async run(
-    args: string[],
-    input?: string | Buffer | AsyncIterable<Buffer | string>,
-    options: { emptyIndex?: boolean } = {},
-  ): Promise<Buffer> {
+  async run(args: string[], input?: string | Buffer | AsyncIterable<Buffer | string>): Promise<Buffer> {
     const env: NodeJS.ProcessEnv = {};
     for (const [key, value] of Object.entries(process.env)) {
       if (!key.toUpperCase().startsWith("GIT_")) {
@@ -39,8 +43,9 @@ export class Git {
     // Git for Windows 使用 MSYS 路径，不接受 Node 的 Windows 空设备路径。
     env.GIT_CONFIG_GLOBAL = "/dev/null";
     env.GIT_ATTR_NOSYSTEM = "1";
-    // empty-index 从不创建，Git 把缺失的索引当作空索引；只读命令借此不受共享索引内容影响。
-    env.GIT_INDEX_FILE = join(this.gitDir, options.emptyIndex ? "empty-index" : "index");
+    // 历史不用索引：树和提交由 fast-import 直接生成。empty-index 从不创建，Git 把缺失的索引当作空索引，
+    // ls-files 因此把空间里的文件都当作未跟踪的候选列出。
+    env.GIT_INDEX_FILE = join(this.gitDir, "empty-index");
 
     let source: Readable;
     if (input === undefined) {
@@ -54,6 +59,9 @@ export class Git {
     // init --bare 自己设置 GIT_DIR，Git 2.43 不接受同时提供 --work-tree。
     const workTreeArgs = args[0] === "init" ? [] : [`--work-tree=${this.space}`];
     const commandArgs = args[0] === "init" ? ["init", "--template=", ...args.slice(1)] : args;
+    // 子命令是第一个不属于全局选项的参数；-c 后面跟的是配置项。
+    const command = args.find((arg, index) => !arg.startsWith("-") && args[index - 1] !== "-c") ?? "";
+    starts.set(command, (starts.get(command) ?? 0) + 1);
     const child = spawn(this.binary, [
       ...this.binaryArgs,
       `--git-dir=${this.gitDir}`,
