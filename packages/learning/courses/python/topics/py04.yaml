@@ -164,7 +164,6 @@ kps:
           }}
       - id: py04.k1.q3
         kind: [explain]
-        uses: [py03.k2]
         body: |
           ```python
           reading = int("15") + 5
@@ -231,7 +230,6 @@ kps:
           lines = run().lines()
           answers = {"length": int(lines[0]), "absolute": int(lines[1])}
       - id: py04.k1.q5
-        uses: [py01.k2]
         kind: [debug]
         body: |
           程序已经运行了前两行，最后一行还能调用 len 吗？
@@ -255,7 +253,6 @@ kps:
     review:
       - id: py04.k1.r1
         kind: [explain]
-        uses: [py03.k1, py03.k2]
         body: |
           样本编号是 `S_017`。哪一行让 `n` 指向这个编号有几个字符？
         slots:
@@ -355,8 +352,6 @@ kps:
           r = run()
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
-        uses:
-          - py03.k2
     quiz:
       - id: py04.k1.x1
         kind: [trace, predict]
@@ -598,7 +593,6 @@ kps:
           answers = {"forms": fits}
       - id: py04.k2.q3
         kind: [modify]
-        uses: [py03.k1]
         body: |
           宿主准备了两个样本编号 `first` 和 `second`，都是文字。要把它们显示在一行里，中间只放一个逗号、没有空格，例如编号是 S_01 和 S_02 时显示 `S_01,S_02`。
 
@@ -997,7 +991,6 @@ kps:
           answers = {"shown": shown}
       - id: py04.k3.q2
         kind: [explain]
-        uses: [py03.k3]
         body: |
           `signal` 是 12.34。下一步要用它保留一位小数以后的值，再乘 2。下面四段代码之后都接着一行 `print(doubled)`。哪一段会显示 24.6？
         slots:
@@ -1039,7 +1032,6 @@ kps:
           answers = {"program": shows[0] if len(shows) == 1 else shows}
       - id: py04.k3.q3
         kind: [modify]
-        uses: [py02.k2, py02.k3]
         body: |
           宿主准备了 `minutes`，是一次实验用的分钟数。后面的步骤要用换算成小时、保留两位小数的值，所以要求：
 
@@ -1110,7 +1102,6 @@ kps:
           先把返回值存进 `hours`，再把 `hours` 交给 `print`。原来的写法里，`round` 的结果交给了 `print`，`hours` 得到的是 `print` 交回的 None。只在 `print` 里保留两位也不够：显示的是两位小数，`hours` 本身仍是 0.8333… 这样的长小数，后面的步骤拿到的不是要求的值。
       - id: py04.k3.q4
         kind: [trace]
-        uses: [py03.k3]
         body: |
           print 自己也有返回值。两次显示分别是什么？
 
@@ -1127,7 +1118,6 @@ kps:
           answers = {"message": str(lines[0]), "returned": lines[1]}
       - id: py04.k3.q5
         kind: [debug]
-        uses: [py03.k2]
         body: |
           下一步需要用整数做加法。哪种写法把转换的返回值保存下来，而不是只显示一下就丢掉？
         slots:
@@ -1185,7 +1175,6 @@ kps:
           answers = {"line": f"l{number}" if len(lost) == 1 else lost, "fixed": run("\n".join(lines)).lines()[0]}
       - id: py04.k3.r2
         kind: [predict, trace]
-        uses: [py03.k3]
         body: |
           ```python startLine=1
           total = 4 + 5
@@ -1239,12 +1228,9 @@ kps:
           r = run()
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
-        uses:
-          - py03.k2
     quiz:
       - id: py04.k3.x1
         kind: [trace]
-        uses: [py01.k2, py03.k3]
         body: |
           按运行顺序填写每行执行后 `value` 与 `result` 的值。还没有赋值的填“尚未定义”，没有值的写 None。
 
@@ -1286,7 +1272,6 @@ kps:
           answers = {"trace": {f"l{i}": {name: state[name] if name in state else "尚未定义" for name in names} for i, state in enumerate(states, 1)}}
       - id: py04.k3.x2
         kind: [debug]
-        uses: [py03.k3]
         body: |
           下面这段 AI 写的代码运行到某一行报错停下了。
 

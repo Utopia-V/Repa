@@ -186,7 +186,6 @@ kps:
     practice:
       - id: py21.k1.q1
         kind: [debug]
-        uses: [py02.k3]
         data: [W]
         body: |
           同事想把质量换成克，写了下面这行。
@@ -237,7 +236,6 @@ kps:
           answers = {"value": int(r["df"].loc[31, "mass_g"]), "fix": fits[0] if len(fits) == 1 else fits}
       - id: py21.k1.q2
         kind: [predict]
-        uses: [py07.k1, py16.k1]
         data: [W]
         body: |
           阅读代码，写出两行输出。
@@ -270,7 +268,6 @@ kps:
           answers = {"first": lines[0], "second": lines[1]}
       - id: py21.k1.q3
         kind: [modify]
-        uses: [py02.k3]
         data: [runs]
         body: |
           需求是：
@@ -311,7 +308,6 @@ kps:
           1 小时 = 60 分钟，分钟换成小时要除以 60。乘以 60 是反方向；整除 `//` 会把 90 分钟算成 1 小时；直接给 duration_min 赋值会把原始记录换掉。本例 hours 依次为 1.5、0.75、2.5。判分时还会换一份记录运行，检查新列和原有的列。
       - id: py21.k1.q4
         kind: [debug]
-        uses: [py02.k1, py02.k3]
         data: [runs]
         body: |
           想按培养时长折算每小时的细胞数，需要在 runs 表里新增 `cells_per_hour`：每行的细胞数除以该行的培养小时数。哪一行满足这个要求？
@@ -347,7 +343,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py21.k1.q5
         kind: [predict]
-        uses: [py02.k1, py02.k3]
         data: [field]
         body: |
           华氏度换算成摄氏度，要先减去 32，再除以 1.8。运行下面的整列计算，按样点填写结果。
@@ -377,7 +372,6 @@ kps:
     review:
       - id: py21.k1.r1
         kind: [trace]
-        uses: [py02.k1]
         data: [field]
         body: |
           阅读代码，按原行索引填写 `temp_c` 的值。
@@ -403,7 +397,6 @@ kps:
           answers = {"temp_c": {f"r{label}": {"temp_c": value} for label, value in temp_c.items()}}
       - id: py21.k1.r2
         kind: [explain]
-        uses: [py02.k3]
         data: [soil]
         body: |
           要新增一列 `depth_m`，把 depth（厘米）换算成米。哪一行正确？
@@ -453,7 +446,6 @@ kps:
     quiz:
       - id: py21.k1.x1
         kind: [predict]
-        uses: [py16.k2, py14.k2]
         data: [W]
         body: |
           阅读代码，写出两行输出。
@@ -482,7 +474,6 @@ kps:
           answers = {"shape": lines[0], "value": lines[1]}
       - id: py21.k1.x2
         kind: [modify]
-        uses: [py02.k3]
         data: [W]
         body: |
           需求是：
@@ -614,7 +605,6 @@ kps:
     practice:
       - id: py21.k2.q1
         kind: [predict, explain]
-        uses: [py01.k2, py16.k2]
         data: [W]
         body: |
           阅读代码，写出两行输出。
@@ -657,7 +647,6 @@ kps:
           answers = {"first": lines[0], "second": lines[1], "why": "recompute" if recomputed else "fixed"}
       - id: py21.k2.q2
         kind: [explain]
-        uses: [py02.k1]
         data: [W]
         body: |
           下面三行算出每升溶液里有多少克溶质。
@@ -708,7 +697,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits, "value": target[7]}
       - id: py21.k2.q3
         kind: [modify]
-        uses: [py02.k3]
         data: [W]
         body: |
           需求是：
@@ -758,7 +746,6 @@ kps:
           把扣除后的结果存进新列 net_mg，原始的 mass_mg 就留下了；再从 net_mg 换算成克。也可以一行写成 `(df["mass_mg"] - 100) / 1000`，括号保证先扣除再换算。本例 net_g 依次为 1.4、0.72、2.3、0.86。判分时还会换一张表运行，并检查 mass_mg 没有被改。
       - id: py21.k2.q4
         kind: [trace]
-        uses: [py21.k1]
         data: [W]
         body: |
           每个样本的称量读数包含 100 mg 的瓶重。下面三张指令卡要先扣瓶重，再换成克，最后算每升的净克数。把卡片排成可以直接执行的顺序；每张卡恰好用一次。
@@ -792,7 +779,6 @@ kps:
           answers = {"program": fits[0]}
       - id: py21.k2.q5
         kind: [trace]
-        uses: [py21.k1]
         data: [W]
         body: |
           从原表 W 开始运行。表格中的三个值都填写整段代码执行完以后的结果。
@@ -829,7 +815,6 @@ kps:
     review:
       - id: py21.k2.r1
         kind: [trace, explain]
-        uses: [py01.k2]
         data: [runs]
         body: |
           阅读代码。第 2 行是发现计时器每次都少记了 10 分钟，补上。
@@ -871,7 +856,6 @@ kps:
           answers = {"minutes": int(after.loc[3, "duration_min"]), "hours": after.loc[3, "hours"], "fix": "swap" if swap_ok else "other"}
       - id: py21.k2.r2
         kind: [modify]
-        uses: [py02.k3]
         data: [runs]
         body: |
           要在 runs 表里新增两列：`hours` 是培养时长（小时），`rate` 是每小时增加的细胞数（cells 除以 hours）。把需要的代码行排成正确的顺序；有一行用不到。
@@ -894,7 +878,6 @@ kps:
     quiz:
       - id: py21.k2.x1
         kind: [trace]
-        uses: [py01.k2, py16.k2]
         data: [field]
         body: |
           阅读代码。第 2 行是发现温度计读数整体偏低 9 °F，补上。
@@ -924,7 +907,6 @@ kps:
           answers = {"values": {column: {"value": after.loc[2, column]} for column in ["temp_f", "temp_c", "temp_c2"]}}
       - id: py21.k2.x2
         kind: [debug]
-        uses: [py02.k3]
         data: [W]
         body: |
           需求是：先扣掉 100 mg 的瓶重，再换算成克，最后算出每升溶液里有多少克（`conc_g_per_l`）。同事写了下面四行，结果偏大。
@@ -1076,7 +1058,6 @@ kps:
           answers = {"result": {label: {"value": "NaN" if pd.isna(value) else value} for label, value in result.items()}}
       - id: py21.k3.q2
         kind: [predict]
-        uses: [py14.k1]
         data: [W]
         body: |
           另一张表给出了两个样本的参考质量，存成 `ref`，标签是样本在表 W 里的原行索引。阅读代码，按原行索引填写新列 `ref` 的值。没有值的填 `NaN`。
@@ -1103,7 +1084,6 @@ kps:
           answers = {"values": {f"r{label}": {"value": "NaN" if pd.isna(value) else value} for label, value in after["ref"].items()}}
       - id: py21.k3.q3
         kind: [predict, explain]
-        uses: [py16.k2]
         data: [W]
         body: |
           阅读代码，按原行索引填写 `ratio` 的值，没有值的填 `NaN`。
@@ -1168,7 +1148,6 @@ kps:
           answers = {"a": lines[0], "b": lines[1]}
       - id: py21.k3.q5
         kind: [predict]
-        uses: [py14.k1]
         data: [W]
         body: |
           ref 里有表 W 没有的标签 99。把它赋成新列后，按原行索引填写 offset，并填写结果表的行数。没有对应值的填 `NaN`。
@@ -1230,7 +1209,6 @@ kps:
           answers = {"output": run().lines()[0]}
       - id: py21.k3.r2
         kind: [predict]
-        uses: [py14.k1]
         data: [soil]
         body: |
           复测了两个样地的深度，存成 `recheck`，标签是样地在表 soil 里的原行索引。阅读代码，按原行索引填写 `diff` 的值，没有值的填 `NaN`。
@@ -1258,7 +1236,6 @@ kps:
     quiz:
       - id: py21.k3.x1
         kind: [debug, predict]
-        uses: [py14.k1]
         data: [runs]
         body: |
           表 runs 里 R1、R2、R3 三次培养的接种量依次是 500、300、450。同事想算每次培养的细胞计数除以接种量，把接种量存成 `seed`，并给它配了标签 0、1、2：

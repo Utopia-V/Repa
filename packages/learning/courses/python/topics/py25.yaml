@@ -257,7 +257,6 @@ kps:
     practice:
       - id: py25.k1.q1
         kind: [predict, explain]
-        uses: [py14.k1, py06.k1]
         data: [M]
         body: |
           有人只按样本编号去找重复。阅读代码，按原行索引填写 `marks` 的值，再判断这样做是否合适。
@@ -305,7 +304,6 @@ kps:
           }
       - id: py25.k1.q2
         kind: [predict]
-        uses: [py14.k1]
         data: [M2]
         body: |
           这份记录也约定每个样本每天只测一次，行的先后就是录入的先后。从上往下看，按 sample_id 和 day 判断，给每一行选一种情况。
@@ -397,7 +395,6 @@ kps:
     review:
       - id: py25.k1.r1
         kind: [predict]
-        uses: [py14.k1, py06.k1]
         data: [plots]
         body: |
           表 plots 的一行代表“一个采样点在某一年的一次株高测量”，约定每个采样点每年只测一次。
@@ -459,7 +456,6 @@ kps:
           }
       - id: py25.k1.r2
         kind: [explain]
-        uses: [py14.k1]
         data: [water]
         body: |
           表 water 的一行代表“一个采样点在某一天的一次浊度测量”，约定每个采样点每天只测一次。同事检查之后说：
@@ -514,7 +510,6 @@ kps:
     quiz:
       - id: py25.k1.x1
         kind: [predict]
-        uses: [py14.k1, py06.k1]
         data: [survey]
         body: |
           表 survey 的一行代表“一位受访者在某一轮问卷里的一次作答”，约定每人每轮只答一次。阅读代码。
@@ -582,7 +577,6 @@ kps:
           }
       - id: py25.k1.x2
         kind: [specify, predict]
-        uses: [py14.k1]
         data: [temps]
         body: |
           表 temps 的一行代表“一个采样点在某一天的一次水温记录”，约定每个采样点每天只记一次。这张表里 temp 一列碰巧各不相同。
@@ -729,7 +723,6 @@ kps:
     practice:
       - id: py25.k2.q1
         kind: [predict]
-        uses: [py14.k1, py06.k1]
         data: [M2]
         body: |
           阅读代码，分别说出 `a` 和 `b` 留下了哪些行。
@@ -775,7 +768,6 @@ kps:
           }
       - id: py25.k2.q2
         kind: [modify]
-        uses: [py04.k2, py06.k1]
         data: [M]
         body: |
           需求是：
@@ -898,7 +890,6 @@ kps:
     review:
       - id: py25.k2.r1
         kind: [specify, predict]
-        uses: [py14.k1, py06.k1]
         data: [plots]
         body: |
           表 plots 约定每个采样点每年只测一次，行的先后就是录入的先后。要求是：同一个采样点同一年出现不止一次时，留最后录入的那一条。
@@ -947,7 +938,6 @@ kps:
           answers = {"code": fits[0] if len(fits) == 1 else fits, "nrows": len(target)}
       - id: py25.k2.r2
         kind: [predict]
-        uses: [py14.k1, py06.k1]
         data: [traps]
         body: |
           表 traps 的一行代表“一盏诱虫灯某一晚的一次计数”，约定每盏灯每晚只数一次。阅读代码。
@@ -999,7 +989,6 @@ kps:
     quiz:
       - id: py25.k2.x1
         kind: [predict]
-        uses: [py14.k1, py14.k2, py06.k1]
         data: [plates]
         body: |
           表 plates 的一行代表“一块培养板上一个孔的一次计数”，约定每个孔只数一次。程序依次显示哪三个数？
@@ -1036,7 +1025,6 @@ kps:
           answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
       - id: py25.k2.x2
         kind: [modify]
-        uses: [py04.k2, py06.k1]
         data: [plates]
         body: |
           需求是：

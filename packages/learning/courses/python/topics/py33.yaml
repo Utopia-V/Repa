@@ -164,7 +164,6 @@ kps:
     example:
       id: py33.k1.e0
       kind: [explain]
-      uses: [py27.k1, py27.k2]
       data: [trial]
       body: |
         要回答的问题：control 组和 drug 组的平均 signal 谁高？同事已经按组算好了平均值：
@@ -200,7 +199,6 @@ kps:
     practice:
       - id: py33.k1.q1
         kind: [explain]
-        uses: [py27.k2]
         data: [soil]
         body: |
           要回答的问题：北坡、南坡、东坡三个采样点，平均采样深度谁深谁浅？`summary` 已经算好：
@@ -446,7 +444,6 @@ kps:
     example:
       id: py33.k2.e0
       kind: [predict]
-      uses: [py27.k1, py27.k2]
       data: [trial]
       body: |
         需求：比较 control 和 drug 两组的平均 signal。同事写了两种画法。
@@ -491,7 +488,6 @@ kps:
     practice:
       - id: py33.k2.q1
         kind: [predict]
-        uses: [py23.k1]
         data: [daily]
         body: |
           需求：画出每天收到的样本数怎样变化。同事写了：
@@ -528,7 +524,6 @@ kps:
           answers = {"path": [f"d{day}" for day in days], "shape": "forward" if days == sorted(days) else "zigzag"}
       - id: py33.k2.q2
         kind: [debug]
-        uses: [py27.k2]
         data: [soil]
         body: |
           需求：比较三个采样点的平均采样深度，纵轴用厘米。同事写了：
@@ -567,7 +562,6 @@ kps:
         manual: [fix]
       - id: py33.k2.q3
         kind: [modify]
-        uses: [py27.k1, py27.k2, py23.k1]
         data: [trial]
         body: |
           需求：
@@ -626,7 +620,6 @@ kps:
     review:
       - id: py33.k2.r1
         kind: [predict]
-        uses: [py27.k2]
         data: [soil]
         body: |
           下面三行画图代码分别会画出几根柱或几个点？每根柱或每个点代表什么？
@@ -674,7 +667,6 @@ kps:
           answers = {"read": read}
       - id: py33.k2.r2
         kind: [debug]
-        uses: [py23.k1]
         data: [temps]
         body: |
           需求：画出温度随天数的变化，折线从第 1 天依次连到第 4 天。哪一行能做到？
@@ -718,7 +710,6 @@ kps:
     quiz:
       - id: py33.k2.x1
         kind: [modify]
-        uses: [py27.k1, py27.k2, py23.k1]
         data: [growth]
         body: |
           需求：
@@ -774,7 +765,6 @@ kps:
           再按平均值排序会把第 3 天排到第 2 天前面，折线就乱了；求总和或取最大值都不是需求里的平均。判分时还会换一批读数运行你的代码。
       - id: py33.k2.x2
         kind: [debug]
-        uses: [py27.k2]
         data: [roots]
         body: |
           需求：比较两种处理的平均根长，纵轴用厘米。同事写了：

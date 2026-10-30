@@ -77,7 +77,6 @@ kps:
     example:
       id: py11.k1.e0
       kind: [debug, predict]
-      uses: [py03.k1]
       body: |
         运行 clean.py，最后出现了下面的报错。
 
@@ -201,7 +200,6 @@ kps:
           }
       - id: py11.k1.q2
         kind: [debug]
-        uses: [py03.k1, py03.k2]
         body: |
           下面四段代码各自单独保存成一个文件运行，都会报错。
 
@@ -265,7 +263,6 @@ kps:
           answers = {"kinds": {f"c{i}": {"kind": kind(code)} for i, code in enumerate(BLOCKS, 1)}}
       - id: py11.k1.q3
         kind: [predict]
-        uses: [py03.k2]
         body: |
           ```python startLine=1
           print("第一步：读入")
@@ -395,7 +392,6 @@ kps:
           answers = {"shown": {f"l{n}": {"shown": n in executed and n != stop} for n in (3, 5, 6)}, "stop": stop}
       - id: py11.k1.r2
         kind: [explain]
-        uses: [py03.k2]
         body: |
           运行 clean.py，出现了下面的报错。
 
@@ -464,7 +460,6 @@ kps:
     quiz:
       - id: py11.k1.x1
         kind: [debug, predict]
-        uses: [py03.k1, py03.k2]
         body: |
           下面五段代码各自单独保存成一个文件运行，第 1 行都是 `print("开始")`，第 2 行都有问题。
 
@@ -548,7 +543,6 @@ kps:
           answers = {"shown": shown, "common": "syntax" if syntax_only else "other"}
       - id: py11.k1.x2
         kind: [predict]
-        uses: [py06.k2]
         body: |
           列表 `signals` 里有三个测量值，位置从 0 开始数。
 
@@ -686,7 +680,6 @@ kps:
     example:
       id: py11.k2.e0
       kind: [debug, explain]
-      uses: [py03.k1, py03.k2]
       body: |
         运行 clean.py，出现了下面的报错。
 
@@ -800,7 +793,6 @@ kps:
           answers = {"cause": cause, "fix": fits[0] if len(fits) == 1 else fits}
       - id: py11.k2.q2
         kind: [debug, explain]
-        uses: [py03.k2]
         body: |
           从一份表格里抄来的读数是 `"12,5"`。运行 clean.py，出现了下面的报错。
 
@@ -846,7 +838,6 @@ kps:
           answers = {"cause": cause, "fixed": run(CODE.replace('"12,5"', '"12.5"')).lines()[-1]}
       - id: py11.k2.q3
         kind: [modify]
-        uses: [py03.k2]
         body: |
           宿主事先给 `count` 赋了一个文字形式的整数，例如 `"12"`，它是从文件里读来的。要求：显示加上 3 份以后的总数，例如 count 为 `"12"` 时显示 15。
 
@@ -910,7 +901,6 @@ kps:
           写成 `count + "3"` 不会报错，但得到的是两段文字接起来的“123”。判分时还会换一个 count 运行你的代码。
       - id: py11.k2.q4
         kind: [debug]
-        uses: [py06.k2]
         body: |
           只根据异常类型和停止行定位问题。哪一项是对原因的准确判断？
 
@@ -933,7 +923,6 @@ kps:
           answers = {"cause": "index" if r.error == "IndexError" and r.error_line == 2 else "print"}
       - id: py11.k2.q5
         kind: [debug]
-        uses: [py03.k1]
         body: |
           同一个 + 号，输入类型不同时可能报错。填写出错行号和异常类型。
 
@@ -952,7 +941,6 @@ kps:
     review:
       - id: py11.k2.r1
         kind: [debug, trace]
-        uses: [py03.k2]
         body: |
           运行 clean.py，出现了下面的报错。
 
@@ -1009,7 +997,6 @@ kps:
           answers = {"which": zero[0] if len(zero) == 1 else zero, "set_at": first[0], "why": why}
       - id: py11.k2.r2
         kind: [explain]
-        uses: [py03.k1, py03.k2]
         body: |
           下面是四段报错的最后一行。为每一段选出最可能的原因，每个原因只对应一段。
 
@@ -1083,7 +1070,6 @@ kps:
               for row, expected in shown.items()
           }}
       - id: py11.k2.r3
-        uses: [py03.k1]
         kind:
           - trace
         body: |
@@ -1130,7 +1116,6 @@ kps:
     quiz:
       - id: py11.k2.x1
         kind: [debug, trace]
-        uses: [py03.k1]
         body: |
           基线读数是从表格里抄来的。运行 clean.py，出现了下面的报错。
 
@@ -1176,7 +1161,6 @@ kps:
           answers = {"which": bad[0] if len(bad) == 1 else bad, "set_at": first[0]}
       - id: py11.k2.x2
         kind: [debug]
-        uses: [py06.k2]
         body: |
           想显示列表里最后一个测量值 13。运行 clean.py，出现了下面的报错。
 
@@ -1248,8 +1232,6 @@ kps:
           r = run()
           values = [as_shown(r.error)]
           answers = {f"v{i}": value for i, value in enumerate(values)}
-        uses:
-          - py03.k1
       - id: py11.k2.x4
         kind:
           - trace
@@ -1271,5 +1253,3 @@ kps:
           r = run()
           values = [as_shown(r.error)]
           answers = {f"v{i}": value for i, value in enumerate(values)}
-        uses:
-          - py06.k2

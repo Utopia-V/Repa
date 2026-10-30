@@ -249,7 +249,6 @@ kps:
     practice:
       - id: py19.k1.q1
         kind: [predict]
-        uses: [py17.k2]
         data: [M]
         body: |
           阅读代码，说出 `result` 的样子。
@@ -281,7 +280,6 @@ kps:
           answers = {"rows": [str(label) for label in result.index], "nrows": len(result)}
       - id: py19.k1.q2
         kind: [predict, explain]
-        uses: [py17.k1]
         data: [M]
         body: |
           阅读代码，按原行索引填写 `high` 和 `low` 的值。
@@ -328,7 +326,6 @@ kps:
           }
       - id: py19.k1.q3
         kind: [debug]
-        uses: [py17.k1]
         data: [M]
         body: |
           同事想数出 signal 缺了几个，写了下面这行，结果显示 0。
@@ -378,7 +375,6 @@ kps:
                   fits.append(option)
           answers = {"fix": fits[0] if len(fits) == 1 else fits, "count": wanted}
       - id: py19.k1.q4
-        uses: [py17.k1]
         kind: [debug]
         body: |
           零是一个有效测量，不是缺失。对照等于 NaN 与 isna 的结果。
@@ -415,7 +411,6 @@ kps:
     review:
       - id: py19.k1.r1
         kind: [predict]
-        uses: [py17.k1]
         data: [birds]
         body: |
           阅读代码，写出两行输出。
@@ -442,7 +437,6 @@ kps:
           answers = {"first": int(lines[0]), "second": int(lines[1])}
       - id: py19.k1.r2
         kind: [predict, explain]
-        uses: [py17.k1, py17.k2]
         data: [soil]
         body: |
           有人想把样地分成“偏酸”和“不偏酸”两组。
@@ -483,7 +477,6 @@ kps:
     quiz:
       - id: py19.k1.x1
         kind: [explain]
-        uses: [py17.k1, py17.k2]
         data: [temps]
         body: |
           要只留下记录到了气温的气象站，气温缺失的站不要。下面哪些写法能做到？选出所有能做到的。
@@ -520,7 +513,6 @@ kps:
           answers = {"ways": ways}
       - id: py19.k1.x2
         kind: [modify]
-        uses: [py17.k1, py17.k2]
         data: [temps]
         body: |
           需求是：
@@ -677,7 +669,6 @@ kps:
     practice:
       - id: py19.k2.q1
         kind: [predict]
-        uses: [py14.k3, py16.k2]
         data: [birds]
         body: |
           表 birds 的原始调查表里，count 记的是整数 3、（空）、0、5、（空）。阅读代码，写出两行输出。
@@ -706,7 +697,6 @@ kps:
           answers = {"first": lines[0], "second": str(lines[1])}
       - id: py19.k2.q2
         kind: [explain]
-        uses: [py03.k3]
         body: |
           下面每个值单独放进一列，再对这一列用 `isna()`。哪些值会被判为缺失（True）？选出所有会的。
         slots:
@@ -730,7 +720,6 @@ kps:
           answers = {"missing": [option for option, value in values.items() if pd.Series([value], dtype=object).isna().iloc[0]]}
       - id: py19.k2.q3
         kind: [predict, explain]
-        uses: [py17.k2]
         data: [log]
         body: |
           有人想找出“note 没有写内容”的样本，写了下面的代码。
@@ -797,7 +786,6 @@ kps:
     review:
       - id: py19.k2.r1
         kind: [predict]
-        uses: [py14.k3]
         data: [plants]
         body: |
           阅读代码，写出两行输出。
@@ -826,7 +814,6 @@ kps:
           answers = {"first": str(lines[0]), "second": lines[1]}
       - id: py19.k2.r2
         kind: [predict]
-        uses: [py17.k2]
         data: [visits]
         body: |
           阅读代码，说出 `result` 留下了哪些行。
@@ -854,7 +841,6 @@ kps:
     quiz:
       - id: py19.k2.x1
         kind: [predict]
-        uses: [py17.k2]
         data: [runs]
         body: |
           阅读代码，写出输出。
@@ -874,7 +860,6 @@ kps:
           answers = {"output": int(run().out)}
       - id: py19.k2.x2
         kind: [explain]
-        uses: [py14.k3]
         body: |
           一列批次号的原始记录是整数 1、2、（空）。读成表以后，这一列显示为 1.0、2.0、NaN。
         slots:
@@ -1024,7 +1009,6 @@ kps:
     practice:
       - id: py19.k3.q1
         kind: [predict, explain]
-        uses: [py14.k3]
         data: [M]
         body: |
           阅读代码，写出两行输出。
@@ -1064,7 +1048,6 @@ kps:
           answers = {"first": int(lines[0]), "second": int(lines[1]), "why": reason}
       - id: py19.k3.q2
         kind: [specify]
-        uses: [py12.k1]
         data: [M]
         body: |
           负责人看了表 M 以后说：“仪器故障和漏测的样本没有读数，不能当成 0，也不参加后面的筛选；S_C 的 0.0 是真实读数，要保留。备注空着不影响什么。最后告诉我去掉了几个样本。”把这条规则填成下面三个字段。
@@ -1099,7 +1082,6 @@ kps:
         manual: [column, action, report]
       - id: py19.k3.q3
         kind: [specify]
-        uses: [py12.k1]
         body: |
           同事发来一张表，说：“有些格空着，你先处理一下缺失，再算各组的平均值。”
 
@@ -1137,7 +1119,6 @@ kps:
           lines = run().lines()
           answers = {"subset": int(lines[0]), "all": int(lines[1])}
       - id: py19.k3.q5
-        uses: [py17.k1]
         kind: [trace]
         body: |
           把缺失填成零会改变后续筛选的人群。分别数出原值和填零后“小于 5”的个数。
@@ -1157,7 +1138,6 @@ kps:
     review:
       - id: py19.k3.r1
         kind: [predict]
-        uses: [py17.k1, py17.k2]
         data: [birds]
         body: |
           有人要找出“鸟巢少于 3 个”的样地，比较两种处理缺失的方式。
@@ -1211,7 +1191,6 @@ kps:
     quiz:
       - id: py19.k3.x1
         kind: [specify]
-        uses: [py12.k1]
         body: |
           负责人说：“count 空着的孔是漏数了，不是没有细胞，不能当成 0。这些孔先留在表里，但不参加平均；结果里写明漏数了几个孔。备注列空着没关系。”把这条规则填成下面三个字段。
         slots:

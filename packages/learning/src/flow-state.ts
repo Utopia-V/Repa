@@ -1,21 +1,28 @@
-import { isDue, memoryAt, type Student } from "@repa/learning-model";
+import type { ModelConfig, Student } from "@repa/learning-model";
 import type { CourseIndex } from "./course-index.js";
 import { shuffled } from "./delivery.js";
+import {
+  FAIL_QUALITY_FLOOR,
+  KP_MAX_ATTEMPTS,
+  KP_PASS_STREAK,
+  KP_WRONG_LIMIT,
+  QUIZ_DURATION_MS,
+  REVIEW_FINAL_STREAK,
+  REVIEW_MAX_QUESTIONS,
+  REVIEW_PASS_CORRECT,
+  STUDENT_MODEL,
+} from "./parameters.js";
 import type { LearningTask } from "./protocol.js";
 import type { FactOf, TaskKind } from "./records-schema.js";
-import { updateStudent } from "./student-model.js";
+import { topicDue, topicMemory, updateStudent } from "./student-model.js";
 
 /** 一个知识点在本次课里的进度。 */
 export type KpProgress = LearningTask["kps"][number];
 /**
- * 任务的结论：通过、失败、超时、主动结束，或没有结论就被后来的任务取代。unresolved 是任务已经结束（测验交卷或到了截止时间、
- * 复习到了截止时间），但还有没判出结果的作答，判出来就可能改变结论：结论等它们判出来再定。
+ * 任务的结论：通过、失败、超时、主动结束，或没有结论就被后来的任务取代。只有测验限时，超时只出现在测验上。
+ * unresolved 是测验已经结束（交卷或到了截止时间），但还有没判出结果的作答，判出来就可能改变结论：结论等它们判出来再定。
  */
 export type Outcome = "passed" | "failed" | "timeout" | "unresolved" | "aborted" | "ended";
-
-/** Repa 假设：复习限时 10 分钟，测验与换题重考 15 分钟。 */
-export const REVIEW_DURATION_MS = 600_000;
-export const QUIZ_DURATION_MS = 900_000;
 
 /** 从事实重放出的一次交付：出了哪道题、作答前是否求助、作答和历次判分。 */
 export interface DeliveryRecord {
@@ -107,30 +114,51 @@ export const isCompleted = (outcome: Outcome | undefined) =>
   outcome === "passed" || outcome === "failed" || outcome === "timeout" || outcome === "unresolved";
 
 /**
- * 测验结束时一个 topic 的证据：有独立答对的作答为 pass；作答还没判出结果为 undefined，尚无证据，不算对也不算错；
- * 其余为 fail，即判过而不对，或交卷、截止时这道题没有作答。
+ * 测验结束时一个 topic 的结果：pass 是独立答对；fail 是判过而不对，或者题出了却没有作答（交卷或到截止时间时还没答）；
+ * pending 是作答还没判出结果，尚无证据，判出来以后再算；untested 是这个 topic 出的题已从课程删除，不是学习者的原因，
+ * 不算对也不算错。时间到了题还没做完，本身说明掌握有问题；只让交卷时的空题算错，等时间耗尽就能避开失败，所以两种结束一样算。
  */
-export function quizResult(attempts: Attempt[], topicId: string): "pass" | "fail" | undefined {
+export type TopicResult = "pass" | "fail" | "pending" | "untested";
+
+export function quizResult(task: TaskRecord, attempts: Attempt[], course: CourseIndex, topicId: string): TopicResult {
   const own = attempts.filter((attempt) => attempt.topicId === topicId);
+  if (own.length === 0) {
+    const delivered = task.deliveries.some((delivery) => course.questions.get(delivery.questionId)?.topic.id === topicId);
+    return delivered ? "fail" : "untested";
+  }
   if (own.some(independentCorrect)) {
     return "pass";
   }
-  return own.length > 0 && own.every((attempt) => attempt.verdict === undefined) ? undefined : "fail";
+  return own.every((attempt) => attempt.verdict === undefined) ? "pending" : "fail";
+}
+
+/**
+ * 一项任务交给学生模型的质量，课、复习、测验同一条规则：通过时取独立答对的题数占有证据的题数的比例，失败时取 1 减去这个比例，
+ * 不低于 FAIL_QUALITY_FLOOR。这项任务里没有判出结果的作答时取 1，例如课全靠继承的进度通过。Repa 假设，见 parameters.ts。
+ */
+function quality(attempts: Attempt[], passed: boolean): number {
+  const graded = attempts.filter((attempt) => attempt.verdict !== undefined);
+  if (graded.length === 0) {
+    return 1;
+  }
+  const ratio = graded.filter(independentCorrect).length / graded.length;
+  return passed ? ratio : Math.max(FAIL_QUALITY_FLOOR, 1 - ratio);
 }
 
 export function emptyFold(): Fold {
   return { student: {}, lessons: new Map(), failures: new Map(), forced: new Map(), consecutiveReviews: 0 };
 }
 
-/** 课的开始时间是选定的时间；复习与测验从第一道题出现时开始计时。 */
+/** 课的开始时间是选定的时间；复习与测验从第一道题出现时开始。 */
 export function startedAt(task: TaskRecord): number | null {
   return task.kind === "lesson" ? task.at : task.deliveries[0]?.at ?? null;
 }
 
+/** 只有测验限时，从第一道题出现时算起；课和复习不限时，与 MA 公开的一致。 */
 export function deadlineAt(task: TaskRecord): number | null {
   const started = startedAt(task);
-  if (task.kind === "lesson" || started === null) return null;
-  return started + (isQuiz(task.kind) ? QUIZ_DURATION_MS : REVIEW_DURATION_MS);
+  if (!isQuiz(task.kind) || started === null) return null;
+  return started + QUIZ_DURATION_MS;
 }
 
 /** 复习按 seed 打散知识点顺序；seed 由任务序号得出，重放时顺序不变。 */
@@ -139,42 +167,79 @@ export function taskKps(task: TaskRecord, course: CourseIndex): string[] {
   return task.kind === "review" ? shuffled(kps, Math.imul(task.seq, 0x9e3779b1) >>> 0) : kps;
 }
 
-export function kpProgress(kpIds: string[], attempts: Attempt[], inherited: KpProgress[] | undefined): KpProgress[] {
-  return kpIds.map((kpId) => {
+/**
+ * 按作答先后归约课里的每个知识点：连续独立答对 KP_PASS_STREAK 题通过；没通过而答错第 KP_WRONG_LIMIT 题、或做满 KP_MAX_ATTEMPTS 题，
+ * 这个知识点失败，这节课也就失败。通过或失败即停止，之后的作答不再改变这个知识点的结果。判错、部分对和说不会都算答错；
+ * 求助以后答对的不算独立完成，但也不算答错。没判出结果的作答不计入：它后来判出结果，就按它原来的位置重新归约，
+ * 例如“错、错、待判、对、对”在第三题判错以后就是第三题失败，后面两题不再算。此前的课继承为通过的知识点不再计数。
+ */
+export function lessonProgress(
+  kpIds: string[], attempts: Attempt[], inherited: KpProgress[] | undefined,
+): { kps: KpProgress[]; failed: boolean } {
+  let failed = false;
+  const kps = kpIds.map((kpId) => {
     const previous = inherited?.find((entry) => entry.kpId === kpId);
     const result = { kpId, attempts: 0, consecutiveCorrect: 0, completed: previous?.completed ?? false };
+    let wrong = 0;
     for (const attempt of attempts) {
-      if (attempt.kpId !== kpId || attempt.verdict === undefined || result.completed) {
+      if (result.completed) {
+        break;
+      }
+      if (attempt.kpId !== kpId || attempt.verdict === undefined) {
         continue;
       }
       result.attempts++;
+      if (attempt.verdict !== "correct") {
+        wrong++;
+      }
       result.consecutiveCorrect = independentCorrect(attempt) ? result.consecutiveCorrect + 1 : 0;
-      result.completed = result.consecutiveCorrect >= 2;
+      result.completed = result.consecutiveCorrect >= KP_PASS_STREAK;
+      if (!result.completed && (wrong >= KP_WRONG_LIMIT || result.attempts >= KP_MAX_ATTEMPTS)) {
+        failed = true;
+        break;
+      }
     }
     return result;
   });
+  return { kps, failed };
 }
 
-/** 没判出结果的作答都判对时的样子，用来看它们判出来以后能否改变结论。 */
-const allCorrect = (attempts: Attempt[]): Attempt[] =>
-  attempts.map((attempt) => (attempt.verdict === undefined ? { ...attempt, verdict: "correct" } : attempt));
+/** 复习的判定（Repa 假设，见 parameters.ts）：按作答先后，独立答对至少 REVIEW_PASS_CORRECT 题，且最后 REVIEW_FINAL_STREAK 题都独立答对。 */
+function reviewPasses(correct: boolean[]): boolean {
+  return correct.filter(Boolean).length >= REVIEW_PASS_CORRECT
+    && correct.length >= REVIEW_FINAL_STREAK
+    && correct.slice(-REVIEW_FINAL_STREAK).every(Boolean);
+}
 
-/** 只看有证据的作答；Repa 假设：至少三题、三题独立答对且最后两题连对才通过，五题仍不通过算失败。 */
-export function reviewResult(attempts: Attempt[]) {
+/** 只看有证据的作答：通过即结束；出满 REVIEW_MAX_QUESTIONS 题仍不通过算失败。 */
+function reviewResult(attempts: Attempt[]) {
   const graded = attempts.filter((entry) => entry.verdict !== undefined);
-  const correct = graded.filter(independentCorrect).length;
-  const passed = graded.length >= 3 && correct >= 3 && graded.slice(-2).every(independentCorrect);
-  return {
-    passed,
-    count: graded.length,
-    quality: passed ? correct / graded.length : Math.max(0.2, 1 - correct / (graded.length || 1)),
-  };
+  return { passed: reviewPasses(graded.map(independentCorrect)), count: graded.length };
+}
+
+/**
+ * 学习者中止复习时能否说已经失败：把没判出结果的作答和还没出的题都当作答对，仍不能通过，才有失败的证据。
+ * 否则缺的只是没有的证据，既不算对也不算错。
+ */
+function reviewCouldPass(attempts: Attempt[]): boolean {
+  const assumed = attempts.map((attempt) => attempt.verdict === undefined || independentCorrect(attempt));
+  const remaining = Math.max(0, REVIEW_MAX_QUESTIONS - assumed.length);
+  return reviewPasses([...assumed, ...Array.from({ length: remaining }, () => true)]);
+}
+
+/** 一次已结束的复习给学生模型的证据：通过或失败；中止而还可能通过的、被后来的任务取代的，尚无证据。 */
+function reviewVerdict(entry: TaskEvidence): "pass" | "fail" | undefined {
+  if (entry.outcome === "passed") {
+    return "pass";
+  }
+  return entry.outcome === "failed" ? "fail" : undefined;
 }
 
 /**
  * 从一项任务的事实得出证据与结论。inherited 是此前同一 topic 的课留下的知识点进度。
- * 先看作答本身能否得出结论（课的两连对与五次失败、复习的通过与失败），再看主动结束、截止和被后来的任务取代。
+ * 先看作答本身能否得出结论（课的连对通过、答错太多或练满失败，复习的通过与失败），再看主动结束、截止和被后来的任务取代。
  * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。
+ * 复习不限时，中途离开下次接着做；学习者中止复习时，已经不可能通过的记失败，其他情形尚无证据。测验没答的题算错。
  */
 export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: KpProgress[] | undefined): TaskEvidence {
   const attempts: Attempt[] = [];
@@ -196,38 +261,35 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
     });
   }
   const kpIds = taskKps(task, course);
-  const kps = task.kind === "lesson"
-    ? kpProgress(kpIds, attempts, inherited)
-    : kpIds.map((kpId) => ({ kpId, attempts: 0, consecutiveCorrect: 0, completed: false }));
+  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited) : undefined;
+  const kps = lesson?.kps ?? kpIds.map((kpId) => ({ kpId, attempts: 0, consecutiveCorrect: 0, completed: false }));
   const started = startedAt(task);
   const deadline = deadlineAt(task);
   let outcome: Outcome | undefined;
-  if (task.kind === "lesson") {
-    if (kps.length > 0 && kps.every((kp) => kp.completed)) {
-      outcome = "passed";
-    } else if (kps.some((kp) => !kp.completed && kp.attempts >= 5)) {
+  if (lesson) {
+    if (lesson.failed) {
       outcome = "failed";
+    } else if (kps.length > 0 && kps.every((kp) => kp.completed)) {
+      outcome = "passed";
     }
   } else if (task.kind === "review") {
     const result = reviewResult(attempts);
     if (result.passed) {
       outcome = "passed";
-    } else if (result.count >= 5) {
+    } else if (result.count >= REVIEW_MAX_QUESTIONS || (task.endedAt !== undefined && !reviewCouldPass(attempts))) {
+      // 出满题数仍不通过，或者学习者中止时已经不可能通过：失败，照常做失败更新。中止而还可能通过的，下面记为中止。
       outcome = "failed";
-    } else if (task.timedOut && task.endedAt === undefined && reviewResult(allCorrect(attempts)).passed) {
-      // 到了截止时间仍有作答没判出结果，而它们都判对就能通过：不按超时算失败，等它们判出来。
-      outcome = "unresolved";
     }
   } else if (task.deliveries.length > 0 && (task.endedAt !== undefined || task.timedOut)) {
-    // 测验交卷或到了截止时间：每个 topic 都答对才通过；有 topic 已有失败的证据，就失败或超时；
-    // 否则只差没判出结果的作答，结论等它们判出来。
-    const results = task.topicIds.map((id) => quizResult(attempts, id));
-    if (results.every((result) => result === "pass")) {
-      outcome = "passed";
-    } else if (results.includes("fail")) {
+    // 测验交卷或到了截止时间：有 topic 答错或没答，就失败（到截止时间结束的为超时）；否则还有作答没判出结果时，
+    // 结论等它们判出来；其余都答对就通过，题目已从课程删除的 topic 不影响结论。
+    const results = task.topicIds.map((id) => quizResult(task, attempts, course, id));
+    if (results.includes("fail")) {
       outcome = task.endedAt !== undefined ? "failed" : "timeout";
-    } else {
+    } else if (results.includes("pending")) {
       outcome = "unresolved";
+    } else {
+      outcome = "passed";
     }
   }
   if (!outcome && task.endedAt !== undefined) {
@@ -251,8 +313,8 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
   return { task, attempts, kps, ...(outcome ? { outcome } : {}), at, startedAt: started, deadlineAt: deadline };
 }
 
-/** 在已有学习状态上叠加一项已结束的任务；不修改传入的状态。 */
-export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseIndex): Fold {
+/** 在已有学习状态上叠加一项已结束的任务；不修改传入的状态。model 是学生模型的参数。 */
+export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseIndex, model: ModelConfig = STUDENT_MODEL): Fold {
   const fold: Fold = {
     student: previous.student,
     lessons: new Map(previous.lessons),
@@ -282,22 +344,24 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
     }
     fold.forced.set(id, kind);
   };
-  // 复习有了结论才更新；结论待定时，等没判出结果的作答判出来、重算时再更新。
-  const concluded = entry.outcome !== "unresolved" && isCompleted(entry.outcome);
   // 正式作答的更新以最后一份有证据的作答为锚点；判分延迟不把旧表现当成新的表现。超时取截止时间。
   const repetitionAt = entry.outcome === "timeout" ? entry.at : Math.max(
     entry.startedAt ?? entry.at,
     ...entry.attempts.filter((attempt) => attempt.verdict !== undefined).map((attempt) => attempt.acceptedAt),
   );
+  const update = (id: string, outcome: "pass" | "fail", attempts: Attempt[]) => {
+    fold.student = updateStudent(course.graph, fold.student, { topicId: id, outcome, quality: quality(attempts, outcome === "pass") }, repetitionAt, model);
+  };
   if (isQuiz(entry.task.kind)) {
     if (isCompleted(entry.outcome)) {
-      // 测验按 topic 更新：有证据的 topic 照常更新，没判出结果的 topic 不更新也不补救，判出来以后重算时再更新。
+      // 测验按 topic 更新：答对的记一次通过；答错或没答的记一次失败并强制复习。没判出结果的 topic 判出来以后重算时再更新；
+      // 题目已从课程删除的 topic 不更新也不补救。
       for (const id of entry.task.topicIds) {
-        const result = quizResult(entry.attempts, id);
-        if (!result) {
+        const result = quizResult(entry.task, entry.attempts, course, id);
+        if (result !== "pass" && result !== "fail") {
           continue;
         }
-        fold.student = updateStudent(course.graph, fold.student, { topicId: id, outcome: result, quality: 1 }, repetitionAt);
+        update(id, result, entry.attempts.filter((attempt) => attempt.topicId === id));
         if (result === "fail") {
           force(id, "review");
         }
@@ -308,7 +372,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
     fold.lessons.set(topicId, entry.kps);
     if (entry.outcome === "passed") {
       if (!fold.student[topicId] || fold.forced.has(topicId)) {
-        fold.student = updateStudent(course.graph, fold.student, { topicId, outcome: "pass", quality: 1 }, repetitionAt);
+        update(topicId, "pass", entry.attempts);
       }
       fold.failures.delete(topicId);
       fold.forced.delete(topicId);
@@ -319,32 +383,27 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
         fold.failures.set(topicId, { at: entry.at, kpId, stuck });
         const prerequisites = course.topics.get(topicId)?.kps.find((kp) => kp.id === kpId)?.keyPrerequisites ?? [];
         if (stuck) {
-          const weakness = (id: string) => {
-            const state = fold.student[id];
-            return state ? memoryAt(state, entry.at / 86_400_000) : 0;
-          };
+          const weakness = (id: string) => topicMemory(fold.student, id, entry.at);
           for (const id of [...prerequisites].sort((a, b) => weakness(a) - weakness(b))) {
             force(id, fold.student[id] ? "review" : "lesson");
           }
         }
       }
     }
-  } else if (concluded && fold.student[topicId]) {
-    const result = reviewResult(entry.attempts);
-    fold.student = updateStudent(
-      course.graph,
-      fold.student,
-      { topicId, outcome: result.passed ? "pass" : "fail", quality: result.quality },
-      repetitionAt,
-    );
-    if (fold.forced.has(topicId)) {
-      if (result.passed) {
-        fold.forced.delete(topicId);
-      } else {
-        force(topicId, "lesson");
+  } else if (fold.student[topicId]) {
+    // 复习有了证据才更新：中止而还可能通过的、被后来的任务取代的不更新，topic 照旧到期（强制复习照旧强制）。
+    const verdict = reviewVerdict(entry);
+    if (verdict) {
+      update(topicId, verdict, entry.attempts);
+      if (fold.forced.has(topicId)) {
+        if (verdict === "pass") {
+          fold.forced.delete(topicId);
+        } else {
+          force(topicId, "lesson");
+        }
       }
+      fold.consecutiveReviews++;
     }
-    fold.consecutiveReviews++;
   }
   return fold;
 }
@@ -356,8 +415,7 @@ export function topicEligible(course: CourseIndex, fold: Fold, topicId: string, 
     return false;
   }
   if (kind === "review") {
-    const remembered = fold.student[topicId];
-    return Boolean(remembered && (fold.forced.get(topicId) === "review" || isDue(remembered, now / 86_400_000)));
+    return Boolean(fold.student[topicId] && (fold.forced.get(topicId) === "review" || topicDue(fold.student, topicId, now)));
   }
   return kind !== "lesson" || (
     topic.prerequisites.every((id) => fold.student[id]) &&

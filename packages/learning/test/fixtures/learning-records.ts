@@ -40,7 +40,7 @@ export async function openSession(file: string, directory: string, models: Model
     services: { call: async () => { throw new Error("没有前端服务"); } },
     emit: () => {},
   } as unknown as Host;
-  const session = await LearningSession.open(records, resolved, host, clock);
+  const session = await LearningSession.open(records, resolved, host);
   const { methods } = await connectLearning(session);
   const caller = { capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] }, services: [] } };
   async function call<M extends LearningMethod>(name: M, input: LearningInput<M>): Promise<unknown> {

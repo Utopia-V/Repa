@@ -145,7 +145,6 @@ kps:
     practice:
       - id: py17.k1.q1
         kind: [predict]
-        uses: [py08.k1, py08.k2, py16.k1]
         data: [T]
         body: |
           阅读代码，按原行索引填写 `mask` 的值。不要填写筛选后的样本编号。
@@ -172,7 +171,6 @@ kps:
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
       - id: py17.k1.q2
         kind: [predict]
-        uses: [py08.k1, py16.k1]
         data: [T]
         body: |
           这次要标记的是测量值恰好为 10 的行。阅读代码，按原行索引填写 `mask` 的值。
@@ -199,7 +197,6 @@ kps:
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
       - id: py17.k1.q3
         kind: [explain]
-        uses: [py08.k1, py16.k1]
         data: [T]
         body: |
           有人把下面这行代码解释为“得到 signal 小于 10 的样本表”。请用五个字段给出准确的解释。
@@ -263,7 +260,6 @@ kps:
         manual: [column, meaning]
       - id: py17.k1.q4
         kind: [trace]
-        uses: [py08.k1]
         body: |
           掩码逐行比较，保留原来的行标签。写出比较产生的列表以及掩码的索引。
 
@@ -281,7 +277,6 @@ kps:
           lines = run().lines()
           answers = {"values": lines[0], "labels": lines[1]}
       - id: py17.k1.q5
-        uses: [py08.k1, py16.k1]
         kind: [debug]
         body: |
           比较只生成掩码，并没有把原数值列改成布尔列。读出原列与比较结果。
@@ -302,7 +297,6 @@ kps:
     review:
       - id: py17.k1.r1
         kind: [predict]
-        uses: [py08.k1, py08.k2, py16.k1]
         data: [soil]
         body: |
           阅读代码，按原行索引填写 `mask` 的值。
@@ -329,7 +323,6 @@ kps:
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in r["mask"].items()}}
       - id: py17.k1.r2
         kind: [predict, explain]
-        uses: [py08.k1, py08.k2, py16.k1]
         data: [T2]
         body: |
           同事对题面里这张表（变量名 `df`）的 signal 列做了一次比较，把结果存进 `mask`，打印出来是：
@@ -399,7 +392,6 @@ kps:
     quiz:
       - id: py17.k1.x1
         kind: [predict]
-        uses: [py08.k1, py08.k2, py16.k1]
         data: [T3]
         body: |
           阅读代码。
@@ -443,7 +435,6 @@ kps:
           }
       - id: py17.k1.x2
         kind: [explain]
-        uses: [py08.k1, py16.k1]
         data: [T]
         body: |
           运行下面这行代码之后，哪一句说法正确？
@@ -483,7 +474,6 @@ kps:
           answers = {"claim": true[0] if len(true) == 1 else true}
 
       - id: py17.k1.x3
-        uses: [py08.k1]
         kind:
           - trace
         body: |
@@ -512,7 +502,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py17.k1.x4
-        uses: [py08.k1, py08.k2]
         kind:
           - trace
         body: |
@@ -632,7 +621,6 @@ kps:
     practice:
       - id: py17.k2.q1
         kind: [predict]
-        uses: [py16.k1, py16.k2]
         data: [T]
         body: |
           阅读代码，说出 `result` 的样子。
@@ -691,7 +679,6 @@ kps:
           }
       - id: py17.k2.q2
         kind: [predict]
-        uses: [py16.k1, py16.k2]
         data: [T]
         body: |
           我们要复核测量值恰好为 10 的样本，并把 signal 放在 sample_id 前面。阅读代码，说出 `result` 的样子。
@@ -748,7 +735,6 @@ kps:
           }
       - id: py17.k2.q3
         kind: [modify]
-        uses: [py08.k1, py16.k1, py16.k2]
         data: [T]
         body: |
           需求是：
@@ -834,7 +820,6 @@ kps:
           直接写成 `result = df.loc[df["signal"] >= limit, ["sample_id"]]` 也对。本例结果的索引是 7、22、4，shape 为 (3, 1)。判分时还会换阈值、换一张表运行你的代码，检查结果的类型、形状、行列顺序、全部值，以及 `df` 没有被改变。
       - id: py17.k2.q4
         kind: [trace]
-        uses: [py08.k1, py16.k1, py16.k2]
         body: |
           先按行筛选，再按明确的顺序选择列。填写输出的行标签和列名。
 
@@ -852,7 +837,6 @@ kps:
           lines = run().lines()
           answers = {"rows": lines[0], "columns": lines[1]}
       - id: py17.k2.q5
-        uses: [py08.k1, py16.k1, py16.k2]
         kind: [debug]
         body: |
           没有任何行满足条件时，结果仍保留所选列。填写结果形状。
@@ -870,7 +854,6 @@ kps:
     review:
       - id: py17.k2.r1
         kind: [predict]
-        uses: [py08.k1, py16.k1, py16.k2]
         data: [soil]
         body: |
           阅读代码，说出 `result` 的样子。
@@ -919,7 +902,6 @@ kps:
           }
       - id: py17.k2.r2
         kind: [predict, specify]
-        uses: [py08.k1, py16.k1, py16.k2]
         data: [T]
         body: |
           同事在表 T 上筛了一次，把结果存进 `result`，打印出来是：
@@ -975,7 +957,6 @@ kps:
                   fits.append(option)
           answers = {"code": fits[0] if len(fits) == 1 else fits, "cell": df.loc[22, "sample_id"]}
       - id: py17.k2.r3
-        uses: [py08.k1, py16.k1, py16.k2]
         kind:
           - trace
         body: |
@@ -1005,7 +986,6 @@ kps:
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py17.k2.r4
         kind: [modify]
-        uses: [py08.k1, py16.k1, py16.k2]
         body: |
           已有下面的表。要求保留 score 大于 0 的行，并且输出中只保留 id 一列，仍返回 DataFrame。哪条语句符合全部要求？
 
@@ -1032,7 +1012,6 @@ kps:
     quiz:
       - id: py17.k2.x1
         kind: [predict, explain]
-        uses: [py08.k1, py16.k1, py16.k2]
         data: [T2]
         body: |
           阅读代码，判断每句话对不对。
@@ -1072,7 +1051,6 @@ kps:
           answers = {"claims": {row: {"ok": value} for row, value in claims.items()}}
       - id: py17.k2.x2
         kind: [modify]
-        uses: [py08.k1, py16.k1, py16.k2]
         data: [T]
         body: |
           需求是：
@@ -1130,7 +1108,6 @@ kps:
 
           逗号前的条件改成 `== "drug"`，逗号后的列名列表按需求的顺序写成 `["sample_id", "signal"]`。结果留下索引 7、22 两行。
       - id: py17.k2.x3
-        uses: [py08.k1, py16.k1, py16.k2]
         kind:
           - trace
         body: |
@@ -1159,7 +1136,6 @@ kps:
           values = r.lines()
           answers = {f"v{i}": value for i, value in enumerate(values)}
       - id: py17.k2.x4
-        uses: [py08.k1, py16.k1, py16.k2]
         kind:
           - trace
         body: |

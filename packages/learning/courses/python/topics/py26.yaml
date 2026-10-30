@@ -156,7 +156,6 @@ kps:
     example:
       id: py26.k1.e0
       kind: [predict]
-      uses: [py19.k1, py14.k2]
       data: [N]
       body: |
         阅读表 N，写出每个表达式的值。
@@ -183,7 +182,6 @@ kps:
     practice:
       - id: py26.k1.q1
         kind: [predict]
-        uses: [py19.k1]
         data: [N]
         body: |
           屏幕上依次显示什么？
@@ -219,7 +217,6 @@ kps:
           answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
       - id: py26.k1.q2
         kind: [predict]
-        uses: [py17.k1, py17.k2, py19.k1]
         data: [N]
         body: |
           先筛出 drug 组的 signal，再数一数。逗号后面只写一个列名时，得到的是一列（Series）。
@@ -260,7 +257,6 @@ kps:
           answers = {"rows": n_rows, "count": n_count, "claim": true[0] if len(true) == 1 else true}
       - id: py26.k1.q3
         kind: [predict]
-        uses: [py19.k1]
         data: [N2]
         body: |
           `df.count()` 对每一列分别数有值的格子。写出这张表每一列的结果。
@@ -282,7 +278,6 @@ kps:
     review:
       - id: py26.k1.r1
         kind: [predict, explain]
-        uses: [py19.k1, py14.k2]
         data: [soil]
         body: |
           项目负责人想知道：一共有几个采样点，测到深度的有几个，没测到的有几个。
@@ -330,7 +325,6 @@ kps:
           answers = {"total": soil.shape[0], "measured": measured, "code": fits[0] if len(fits) == 1 else fits}
       - id: py26.k1.r2
         kind: [explain]
-        uses: [py19.k1]
         data: [survey]
         body: |
           判断下面每句话对不对。
@@ -358,7 +352,6 @@ kps:
     quiz:
       - id: py26.k1.x1
         kind: [predict]
-        uses: [py19.k1, py14.k2]
         data: [farm]
         body: |
           屏幕上依次显示什么？
@@ -391,7 +384,6 @@ kps:
           answers = {"line1": int(lines[0]), "line2": int(lines[1]), "line3": int(lines[2])}
       - id: py26.k1.x2
         kind: [explain]
-        uses: [py19.k1]
         data: [plants]
         body: |
           报告里要写“有高度测量值的幼苗数”。哪个表达式算出的是这个数？
@@ -453,7 +445,6 @@ kps:
     example:
       id: py26.k2.e0
       kind: [predict]
-      uses: [py19.k1, py07.k2]
       data: [N]
       body: |
         阅读代码，写出三个名字的值。
@@ -501,7 +492,6 @@ kps:
     practice:
       - id: py26.k2.q1
         kind: [predict]
-        uses: [py17.k1, py17.k2, py19.k1]
         data: [N2]
         body: |
           这批记录里，drug 组的 signal 全都没测到。屏幕上依次显示什么？没有数字时 Python 显示 `nan`。
@@ -538,7 +528,6 @@ kps:
           answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
       - id: py26.k2.q2
         kind: [debug]
-        uses: [py07.k2, py14.k2]
         data: [N]
         body: |
           同事想算“测到的 signal 的平均值”，写了下面的代码。
@@ -578,7 +567,6 @@ kps:
           answers = {"got": r["avg"], "line": wrong_line, "right": df["signal"].mean()}
       - id: py26.k2.q3
         kind: [predict, explain]
-        uses: [py19.k3]
         data: [N]
         body: |
           `fillna(0)` 把缺失的格子填成 0，返回一列新的值。
@@ -619,7 +607,6 @@ kps:
     review:
       - id: py26.k2.r1
         kind: [explain]
-        uses: [py19.k3]
         data: [water]
         body: |
           要算的是“测到浓度的站点的平均浓度”。下面哪些写法得到这个数？选出所有正确的。
@@ -658,7 +645,6 @@ kps:
           answers = {"ways": [option for option, code in OPTIONS["ways"].items() if abs(run(code)["avg"] - target) < 1e-9]}
       - id: py26.k2.r2
         kind: [predict, explain]
-        uses: [py17.k1, py17.k2]
         data: [water2]
         body: |
           同事运行了下面两行，屏幕上显示 `0.0`，于是在报告里写：“B 站的硝酸盐浓度总和为 0。”
@@ -694,7 +680,6 @@ kps:
     quiz:
       - id: py26.k2.x1
         kind: [predict]
-        uses: [py07.k2, py14.k2]
         data: [plants]
         body: |
           屏幕上依次显示什么？
@@ -731,7 +716,6 @@ kps:
           answers = {"line1": lines[0], "line2": lines[1], "line3": lines[2]}
       - id: py26.k2.x2
         kind: [predict]
-        uses: [py17.k1, py17.k2]
         data: [lab]
         body: |
           分两批取出测量值，再分别汇总。没有数字时，平均值填 NaN。
@@ -804,7 +788,6 @@ kps:
     example:
       id: py26.k3.e0
       kind: [explain]
-      uses: [py19.k1]
       data: [N]
       body: |
         要在报告里写表 N 的 signal 均值。下面哪句话写得正确、完整？
@@ -838,7 +821,6 @@ kps:
     practice:
       - id: py26.k3.q1
         kind: [debug, predict]
-        uses: [py08.k1, py19.k1]
         data: [N]
         body: |
           要求是：“在测到 signal 的样本中，signal 至少为 10 的占多少？”同事写了：
@@ -878,7 +860,6 @@ kps:
           }
       - id: py26.k3.q2
         kind: [explain]
-        uses: [py14.k3]
         data: [soil]
         body: |
           表 soil 的 depth 单位是厘米。
@@ -941,7 +922,6 @@ kps:
     review:
       - id: py26.k3.r1
         kind: [debug]
-        uses: [py19.k1]
         data: [survey]
         body: |
           有人根据表 survey 写了一句报告：“受访者平均年龄 21.0 岁（n = 5）。”把它改对。
@@ -968,7 +948,6 @@ kps:
           answers = {"mean": age.mean(), "n": age.count(), "missing": age.isna().sum()}
       - id: py26.k3.r2
         kind: [predict, explain]
-        uses: [py08.k1, py19.k1]
         data: [water]
         body: |
           负责人想知道浓度至少 5 mg/L 的站点占多少。
@@ -1010,7 +989,6 @@ kps:
     quiz:
       - id: py26.k3.x1
         kind: [explain]
-        uses: [py19.k1]
         data: [plants]
         body: |
           要在报告里写表 plants 的平均高度。哪一句正确、完整？
@@ -1039,7 +1017,6 @@ kps:
           answers = {"report": fits[0] if len(fits) == 1 else fits}
       - id: py26.k3.x2
         kind: [explain]
-        uses: [py08.k1, py19.k1]
         data: [plants]
         body: |
           要求是：“在量到高度的幼苗中，高度至少 25 厘米的占多少？”哪一段代码符合要求？

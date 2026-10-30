@@ -199,6 +199,8 @@ npm run real-model-check --workspace=@repa/base -- \
 
 `complete()` 返回最后一条助手消息的文本。`completeStructured(request, schema)` 则声明带原 schema 的 `submit_result` 工具，请求原生 JSON Schema 约束；参数经 Pi 转换和校验合格后，返回参数本身并立即结束工具批次。工具名写错或参数不合格时，Pi 在同一会话里把错误交给模型，允许改正一次：整个调用最多请求两次，第二次仍没有合格的提交就中止，返回 `invalid_model_output` 和最后一次的原因，例如首个错误字段的路径或写错的工具名。第一次就直接回答、不调用工具时，Pi 不再请求，同样返回 `invalid_model_output`。模型错误和取消保留各自错误码，在 Pi 开始运行之前取消也不会发出请求；短会话关闭自动重试与压缩，不整段重发。
 
+`host.models.defaultModel()` 返回不指定模型的请求会用的模型，与运行时的 `defaultModel()` 相同；还没有可用模型时为 `undefined`，这时不指定模型的请求以 `model_required` 拒绝。它每次按当前登录与设置读取，不发起请求，插件可以据此避开离不开模型的工作，例如学习插件在没有可用模型时不出要由模型判分的题。离线测试宿主的 `ModelTestDriver` 默认有一个测试模型，`setDefaultModel(undefined)` 模拟没有可用模型。
+
 `host.models.runAgent({ agent, text })` 启动后台任务，省略 agent 时为通用 Agent，不要求能直接对话。句柄 id 就是会话 id，前端可观察会话事件或中止；排队任务取消后不调用模型，但若正在等空间写锁，完成响应会等取得队列并收尾。任务队列与句柄仅存于内存。
 
 Agent 定义列出子 Agent 后，模型可以用子任务工具启动它们；子 Agent 的工具不能超过父 Agent，定义允许循环与重入。子 Agent 在新会话中运行，看不到父对话，最后回复交回父 Agent，同一回复中的多个子任务并行；父运行取消时一起取消，空间关闭等它们结束，权限确认仍交给父运行的发起连接。嵌套层数默认最多 3 层，可用 `maxSubagentDepth` 调整，这是 Repa 为限制失控递归采用的假设，超限作为工具错误返回。

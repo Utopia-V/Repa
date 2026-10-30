@@ -62,6 +62,8 @@ export function createModelScope(models: Models, onError?: (error: unknown) => v
           return owned;
         }));
       },
+      // 只读当前设置，不发起工作，关闭以后也照常回答。
+      defaultModel: () => models.defaultModel(),
     },
     close() {
       if (closing === undefined) {

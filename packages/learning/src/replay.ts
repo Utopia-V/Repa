@@ -1,3 +1,4 @@
+import type { ModelConfig } from "@repa/learning-model";
 import type { CourseIndex } from "./course-index.js";
 import {
   deadlineAt,
@@ -10,7 +11,8 @@ import {
   type TaskEvidence,
   type TaskRecord,
 } from "./flow-state.js";
-import { QUIZ_EVERY_XP, QUIZ_WINDOW_XP, reward, sampleTopics } from "./progress.js";
+import { QUIZ_EVERY_XP, QUIZ_WINDOW_XP, STUDENT_MODEL } from "./parameters.js";
+import { reward, sampleTopics } from "./progress.js";
 import type { Fact } from "./records-schema.js";
 
 /** 一笔 XP：某项任务的奖励比此前结算的最高值多出的部分，记在使它变高的事实发生的时刻。 */
@@ -36,6 +38,8 @@ export interface PendingQuiz {
  *
  * XP 按任务的实际结论、在事实发生时结算：奖励变高时补发差额，变低时不收回。是否通过看实际结论，奖励的多少只看
  * 这项任务自己的作答。结算的时刻都是事实的边界，用到的状态也只取决于此前的事实，所以重放与现场得到同样的 XP。
+ *
+ * model 是学生模型的参数，缺省为插件实际使用的一组。换一组参数重放同一份事实，可以比较两组参数的预测。
  */
 export class Replay {
   readonly tasks: TaskRecord[] = [];
@@ -63,7 +67,7 @@ export class Replay {
   private changes = 0;
   private sampled = "";
 
-  constructor(private readonly course: CourseIndex) {}
+  constructor(private readonly course: CourseIndex, private readonly model: ModelConfig = STUDENT_MODEL) {}
 
   get current(): TaskRecord | undefined {
     return this.tasks.at(-1);
@@ -102,7 +106,7 @@ export class Replay {
     if (this.stale) {
       let fold = emptyFold();
       for (const task of this.tasks.slice(0, -1)) {
-        fold = foldTask(fold, taskEvidence(task, this.course, fold.lessons.get(task.topicIds[0] ?? "")), this.course);
+        fold = foldTask(fold, taskEvidence(task, this.course, fold.lessons.get(task.topicIds[0] ?? "")), this.course, this.model);
       }
       this.prefix = fold;
       this.stale = false;
@@ -116,10 +120,10 @@ export class Replay {
   fold(): Fold {
     const prefix = this.before();
     const entry = this.currentEvidence();
-    return entry?.outcome ? foldTask(prefix, entry, this.course) : prefix;
+    return entry?.outcome ? foldTask(prefix, entry, this.course, this.model) : prefix;
   }
 
-  /** 截止时间已过的复习或测验在截止时刻结束；时间只会向前，所以在读取时就地结算与重放结果一致。 */
+  /** 截止时间已过的测验在截止时刻结束（课和复习不限时）；时间只会向前，所以在读取时就地结算与重放结果一致。 */
   settle(now: number): void {
     const task = this.current;
     const deadline = task && deadlineAt(task);
@@ -144,7 +148,7 @@ export class Replay {
           if (previous.kind === "lesson" && inherited) previous.inherited = inherited;
           const entry = taskEvidence(previous, this.course, previous.inherited);
           this.observe(previous, fact.at, entry);
-          this.prefix = foldTask(prefix, entry, this.course);
+          this.prefix = foldTask(prefix, entry, this.course, this.model);
           this.changes++;
         }
         const task: TaskRecord = {

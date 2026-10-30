@@ -35,7 +35,7 @@ export function lesson(): LearningState {
     restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
     progress: {
       day: "2026-10-20", timeZone: "Asia/Taipei", dailyGoalXp: 20, todayXp: 0, totalXp: 0,
-      completedTopics: 0, totalTopics: 48, completionRate: 0, etaDays: null,
+      completedTopics: 0, totalTopics: 48, completionRate: 0, etaDate: null,
     },
     task: {
       taskId: "lesson-1", kind: "lesson", topicIds: ["py01"], startedAt: now, deadlineAt: null,

@@ -14,24 +14,18 @@ export const KnowledgeGraphSchema = Type.Object({
 }, { additionalProperties: false });
 export type KnowledgeGraph = Static<typeof KnowledgeGraphSchema>;
 
+/** HSRS 公式里的常数，各项的含义与出处见 DEFAULT_MODEL_CONFIG。 */
 export const ModelConfigSchema = Type.Object({
   dueMemory: Type.Number({ minimum: 0 }),
+  fullCreditMemory: Type.Number({ minimum: 0, exclusiveMaximum: 1 }),
   initialSpeed: Type.Number({ exclusiveMinimum: 0 }),
   minimumSpeed: Type.Number({ exclusiveMinimum: 0 }),
   maximumSpeed: Type.Number({ exclusiveMinimum: 0 }),
   passSpeedStep: Type.Number({ minimum: 0 }),
   failSpeedStep: Type.Number({ minimum: 0 }),
-  maximumInterval: Type.Number({ exclusiveMinimum: 0 }),
-  passScale: Type.Number({ minimum: 0 }),
-  failScale: Type.Number({ minimum: 0 }),
-  qualityExponent: Type.Number({ minimum: 0 }),
-  intervalScale: Type.Number({ exclusiveMinimum: 0 }),
   intervalBase: Type.Number({ minimum: 1 }),
-  earlyExponent: Type.Number({ minimum: 0 }),
+  maximumInterval: Type.Number({ exclusiveMinimum: 0 }),
   decaySlope: Type.Number({ minimum: 0 }),
-  decayExponent: Type.Number({ minimum: 0 }),
-  pathCombination: Type.Union([Type.Literal("max"), Type.Literal("capped-sum")]),
-  updateSpeed: Type.Boolean(),
 }, { additionalProperties: false });
 export type ModelConfig = Readonly<Static<typeof ModelConfigSchema>>;
 

@@ -66,7 +66,6 @@ kps:
     example:
       id: py06.k1.e0
       kind: [predict]
-      uses: [py04.k1, py03.k1]
       body: |
         一次实验记下了四次读数和三个样本编号。阅读下面的程序。
 
@@ -97,7 +96,6 @@ kps:
     practice:
       - id: py06.k1.q1
         kind: [predict]
-        uses: [py04.k1, py03.k1]
         body: |
           ```python
           groups = ["control", "drug"]
@@ -125,7 +123,6 @@ kps:
           answers = {"first": int(lines[0]), "second": int(lines[1])}
       - id: py06.k1.q2
         kind: [predict]
-        uses: [py04.k1, py03.k1]
         body: |
           ```python
           groups = ["drug", "control", "drug"]
@@ -158,7 +155,6 @@ kps:
           answers = {"shown": lines[0], "count": int(lines[1])}
       - id: py06.k1.q3
         kind: [predict]
-        uses: [py04.k1, py03.k1]
         body: |
           ```python
           a = []
@@ -193,7 +189,6 @@ kps:
           r = run()
           answers = {"sizes": {name: {"size": len(r[name])} for name in ["a", "b", "c", "d"]}}
       - id: py06.k1.q4
-        uses: [py04.k1]
         kind: [debug]
         body: |
           列表里可以存重复的值。下面两行分别显示多少？len 数的是位置数，不是不同值的种类数。
@@ -210,7 +205,6 @@ kps:
           lines = run().lines()
           answers = {"repeated": int(lines[0]), "empty": int(lines[1])}
       - id: py06.k1.q5
-        uses: [py04.k1, py03.k1]
         kind: [trace]
         body: |
           下面分别是一个含逗号的字符串、一个含该字符串的列表和三个元素的列表。写出三次 len 的结果。
@@ -231,7 +225,6 @@ kps:
     review:
       - id: py06.k1.r1
         kind: [predict]
-        uses: [py04.k1, py03.k1]
         body: |
           三个采样点分别是北坡、南坡、东坡。下面哪一段程序会显示 3？
         slots:
@@ -270,7 +263,6 @@ kps:
           answers = {"program": shows_three[0] if len(shows_three) == 1 else shows_three}
       - id: py06.k1.r2
         kind: [trace, predict]
-        uses: [py01.k2, py04.k1, py03.k1]
         body: |
           ```python startLine=1
           labels = []
@@ -301,7 +293,6 @@ kps:
           lines = run().lines()
           answers = {"line1": int(lines[0]), "line2": lines[1], "line3": int(lines[2])}
       - id: py06.k1.r3
-        uses: [py04.k1]
         kind:
           - trace
         body: |
@@ -336,7 +327,6 @@ kps:
     quiz:
       - id: py06.k1.x1
         kind: [explain]
-        uses: [py03.k1, py04.k1]
         body: |
           要把三个样本编号 S01、S02、S03 存成一个列表 `ids`，让 `len(ids)` 是 3。哪一行写对了？
         slots:
@@ -377,7 +367,6 @@ kps:
           answers = {"line": ok[0] if len(ok) == 1 else ok}
       - id: py06.k1.x2
         kind: [debug, modify]
-        uses: [py04.k1, py03.k1]
         body: |
           同事想把四次读数 12、15、9、20 存成列表，再数出有几个。可是运行后 `count` 是 1。
 
@@ -419,7 +408,6 @@ kps:
 
           原来的列表只有一个元素：一整段文字 `"12, 15, 9, 20"`。把四个读数分别写成元素、不加引号，它们才是四个整数，len 才数到 4。
       - id: py06.k1.x3
-        uses: [py04.k1]
         kind:
           - trace
         body: |
@@ -548,7 +536,6 @@ kps:
           answers = {"shown": {row: {"value": repl(CODE + "\n" + line)[-1]} for row, line in rows.items()}}
       - id: py06.k2.q2
         kind: [debug]
-        uses: [py03.k1]
         body: |
           同事想显示**第 3 个**样本编号 S03，写了：
 
@@ -601,7 +588,6 @@ kps:
           answers = {"output": r.out, "fix": fits[0] if len(fits) == 1 else fits}
       - id: py06.k2.q3
         kind: [trace, predict]
-        uses: [py04.k1, py01.k1]
         body: |
           如果某一行报错，填 ERROR。
 
@@ -678,7 +664,6 @@ kps:
     review:
       - id: py06.k2.r1
         kind: [explain]
-        uses: [py04.k1]
         body: |
           `depths` 是按采样先后记下的土层深度（厘米）。以后还会加入新的采样点，列表会变长。要始终取出**最后一个**深度，下面哪些写法可以？选出所有可以的。
 
@@ -794,7 +779,6 @@ kps:
     quiz:
       - id: py06.k2.x1
         kind: [modify]
-        uses: [py04.k1]
         body: |
           `readings` 是一次实验按时间先后记下的读数，每次实验的读数个数不一样，但至少有一个。作答框里的代码想显示**最后一个**读数，却只在恰好有 4 个读数时才对。
 
@@ -842,7 +826,6 @@ kps:
           `[-1]` 从末尾数，不管列表多长都是最后一个；写成 `readings[len(readings) - 1]` 也对。固定写 `[3]` 只在恰好 4 个时才是最后一个，读数更多时取错，更少时报错。
       - id: py06.k2.x2
         kind: [predict]
-        uses: [py03.k1]
         body: |
           ```python
           ids = ["S01", "S02", "S03", "S04", "S05"]
@@ -999,7 +982,6 @@ kps:
           answers = {"first": lines[0], "second": lines[1], "third": lines[2]}
       - id: py06.k3.q2
         kind: [predict]
-        uses: [py04.k1]
         body: |
           ```python
           ids = ["S01", "S02", "S03", "S04", "S05", "S06"]
@@ -1214,7 +1196,6 @@ kps:
     quiz:
       - id: py06.k3.x1
         kind: [predict]
-        uses: [py03.k1]
         body: |
           如果某一行报错，填 ERROR。
 

@@ -1,11 +1,12 @@
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
-import { contentVersion, type ClientCapabilities, type Content, type Item } from "@repa/base/protocol";
+import { canRender, contentVersion, type ClientCapabilities, type Content, type Item } from "@repa/base/protocol";
 import type { Student } from "@repa/learning-model";
 import { PYTHON_RUN } from "@repa/python-runner/protocol";
-import { content, slotTests, topicQuestions } from "./check/items.js";
-import { CourseIndex, gradingNeed } from "./course-index.js";
+import { content, topicQuestions, type QuestionEntry } from "./check/items.js";
+import { CourseIndex, gradingNeed, needsModel, needsPython } from "./course-index.js";
 import type { ResolvedCourse } from "./course-sources.js";
+import type { Question, Topic } from "./format/schema.js";
 import { mapAnswer, renderDelivery } from "./delivery.js";
 import { learningMenu } from "./flow-menu.js";
 import {
@@ -45,7 +46,9 @@ type Failure = "service_failure" | "uncertain_grade";
  *
  * 判分没有结果（服务失败、模型没有把握、中途关闭）时什么也不写，这份作答尚无证据，不阻塞任务，也不算错。
  * 条件具备时自动补判：打开空间时，规则题当场补判或按改正后的答案重判；代码题等到声明 python.run 的前端来调用，
- * 开放题在本次会话的第一次调用时调用模型。每份作答每次会话最多自动尝试一次，学习者也可以显式恢复。
+ * 开放题等到有可用模型的第一次调用。每份作答每次会话最多自动尝试一次，学习者也可以显式恢复。
+ *
+ * 时间一律取自底座的 host.now()。
  */
 export class LearningSession {
   readonly replay: Replay;
@@ -64,15 +67,14 @@ export class LearningSession {
     readonly records: LearningRecords,
     resolved: ResolvedCourse,
     readonly host: Host,
-    readonly clock: () => number,
   ) {
     this.course = new CourseIndex(resolved);
     this.replay = new Replay(this.course);
   }
 
   /** 从头重放全部事实一次，再找出要补判和重判的作答；规则题当场判完。 */
-  static async open(records: LearningRecords, resolved: ResolvedCourse, host: Host, clock: () => number = Date.now): Promise<LearningSession> {
-    const session = new LearningSession(records, resolved, host, clock);
+  static async open(records: LearningRecords, resolved: ResolvedCourse, host: Host): Promise<LearningSession> {
+    const session = new LearningSession(records, resolved, host);
     for (const fact of records.facts) {
       session.observe(fact);
     }
@@ -176,13 +178,17 @@ export class LearningSession {
     return work;
   }
 
-  /** 在后台补判本次会话还没试过的作答；代码题只在调用方声明 python.run 时试。 */
+  /** 在后台补判本次会话还没试过的作答；代码题只在调用方声明 python.run 时试，开放题只在有可用模型时试。 */
   autoGrade(capabilities?: ClientCapabilities): void {
     const python = runsPython(capabilities);
+    let model: boolean | undefined;
     for (const seq of this.ungraded) {
       const delivery = this.replay.delivery(seq);
       const entry = delivery && this.course.questions.get(delivery.questionId);
-      if (!entry || this.attempted.has(seq) || this.inflight.has(seq) || (gradingNeed(entry.question) === "tests" && !python)) {
+      if (!entry || this.attempted.has(seq) || this.inflight.has(seq) || (needsPython(entry.question) && !python)) {
+        continue;
+      }
+      if (needsModel(entry.question) && !(model ??= this.modelAvailable())) {
         continue;
       }
       const work = this.grade(seq).catch(() => {});
@@ -233,13 +239,53 @@ export class LearningSession {
     return Boolean(evidence && evidence.task.kind !== "lesson" && evidence.outcome === undefined);
   }
 
-  /** 某个 topic 当前调用方能拿到的题：按任务类型选题池，不能运行 Python 时去掉要运行代码的题。 */
-  questions(topicId: string, kind: TaskRecord["kind"], capabilities?: ClientCapabilities) {
+  /** 当前时间，取自底座的 host.now()。 */
+  clock(): number {
+    return this.host.now();
+  }
+
+  /** 现在有没有可用的模型。没有时不出、也不自动补判要由模型判分的开放题。 */
+  modelAvailable(): boolean {
+    return this.host.models.defaultModel() !== undefined;
+  }
+
+  /** 某个 topic 某类任务的题池：课用练习题，复习用复习题，测验与换题重考用测验题。 */
+  pool(topicId: string, kind: TaskRecord["kind"]): QuestionEntry[] {
     const topic = this.course.topics.get(topicId);
+    return topic ? topicQuestions(topic).filter((entry) => entry.pool === POOLS[kind]) : [];
+  }
+
+  /**
+   * 判断发起调用的前端能不能用一道题：显示得了题面和作答位，要运行代码的题要声明了 python.run，要模型判分的题要有可用模型。
+   * 选题先按它筛，再从余下的题里选；能力只看调用方连接时的声明，模型只在遇到开放题时查一次。
+   */
+  usable(capabilities?: ClientCapabilities): (question: Question, topic: Topic) => boolean {
     const python = runsPython(capabilities);
-    return topic
-      ? topicQuestions(topic).filter((entry) => entry.pool === POOLS[kind] && (python || !entry.question.slots.some((slot) => slotTests(slot).length)))
-      : [];
+    let model: boolean | undefined;
+    return (question, topic) =>
+      canRender(capabilities?.interaction, { requires: this.course.requires(question, topic) })
+      && (python || !needsPython(question))
+      && (!needsModel(question) || (model ??= this.modelAvailable()));
+  }
+
+  /** 调用方用不了一道题时缺的能力：显示需要的交互能力和 python.run。只缺可用模型时为空。 */
+  missing(question: Question, topic: Topic, capabilities?: ClientCapabilities): string[] {
+    const supports = new Set(capabilities?.interaction?.supports ?? []);
+    const missing = this.course.requires(question, topic).filter((name) => !supports.has(name));
+    if (needsPython(question) && !runsPython(capabilities)) {
+      missing.push(PYTHON_RUN);
+    }
+    return missing.sort();
+  }
+
+  /** 某个 topic 当前调用方能用的题，用于菜单判断题够不够；没有一道能用的知识点，它所在的课不进菜单。 */
+  questions(topicId: string, kind: TaskRecord["kind"], capabilities?: ClientCapabilities): QuestionEntry[] {
+    const topic = this.course.topics.get(topicId);
+    if (!topic) {
+      return [];
+    }
+    const usable = this.usable(capabilities);
+    return this.pool(topicId, kind).filter((entry) => usable(entry.question, topic));
   }
 
   /** 当前调用方看到的完整学习状态。 */

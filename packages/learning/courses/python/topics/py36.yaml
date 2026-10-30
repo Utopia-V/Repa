@@ -109,7 +109,6 @@ kps:
       结果 `[12, 10, 15]` 按原列表的顺序排列，不会自动排序。这里有两层缩进：循环体缩进一层，`if` 下面的那一行再缩进一层。只有比 `if` 多缩进一层的行才归 `if` 管；和 `if` 对齐的行不论条件成不成立，每轮都执行，`append` 写在那里就会把每个读数都收进来。`kept = []` 如果写进循环体，每一轮都会被清空。
     example:
       id: py36.k1.e0
-      uses: [py06.k1]
       kind: [trace]
       body: |
         按轮次填写：这一轮的条件是否成立，以及这一轮结束后 `kept` 的样子。再写出最后显示的内容。
@@ -167,7 +166,6 @@ kps:
     practice:
       - id: py36.k1.q1
         kind: [predict]
-        uses: [py35.k1]
         body: |
           要挑出深度小于 30 厘米的采样点读数。
 
@@ -213,7 +211,6 @@ kps:
           answers = {"rounds": len(r["_rounds"]), "appends": len(r["_appends"]), "output": run().lines()[0]}
       - id: py36.k1.q2
         kind: [debug, predict]
-        uses: [py35.k3]
         body: |
           下面的程序想收集至少为 10 的读数，结果不对。
 
@@ -404,7 +401,6 @@ kps:
           空列表在循环前；`if` 缩进一层，是循环体；`append` 再缩进一层，归 `if` 管；`print` 不缩进，循环后显示一次。`if t > 0:` 会把 -3 这样正常的低温读数也去掉，不符合要求。
       - id: py36.k1.r2
         kind: [predict]
-        uses: [py10.k1]
         body: |
           一次循环同时分成两组。
 
@@ -713,7 +709,6 @@ kps:
           answers = {"output": r.lines()[0], "why": "same" if r["backup"] is r["raw"] else "other"}
       - id: py36.k2.q2
         kind: [predict]
-        uses: [py01.k1]
         body: |
           ```python
           a = [1, 2]
@@ -794,7 +789,6 @@ kps:
     review:
       - id: py36.k2.r1
         kind: [predict]
-        uses: [py36.k1]
         body: |
           ```python
           kept = []

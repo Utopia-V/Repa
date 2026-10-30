@@ -235,7 +235,6 @@ kps:
     example:
       id: py32.k1.e0
       kind: [predict]
-      uses: [py19.k1]
       data: [raw]
       body: |
         登记表约定采样日期写成“年-月-日”。阅读代码，回答下面几问。
@@ -289,7 +288,6 @@ kps:
     practice:
       - id: py32.k1.q1
         kind: [predict]
-        uses: [py19.k1]
         data: [raw2]
         body: |
           日期约定写成“年-月-日”。阅读代码。
@@ -421,7 +419,6 @@ kps:
     review:
       - id: py32.k1.r1
         kind: [predict]
-        uses: [py19.k1, py17.k2]
         data: [soil]
         body: |
           采样日期约定写成“年-月-日”。阅读代码，回答下面两问。
@@ -481,7 +478,6 @@ kps:
     quiz:
       - id: py32.k1.x1
         kind: [modify]
-        uses: [py19.k1]
         data: [plots]
         body: |
           需求是：
@@ -550,7 +546,6 @@ kps:
           加上 `errors="coerce"`，`"2026/04/10"` 和 `"unknown"` 变成 NaT，程序不再报错；`n_bad` 由 `dates` 数出来，是 2。format 要留着：换一张第一个值写成 `"04/05/2026"` 的表，不写 format 时 pandas 会照这个值猜成“月/日/年”，后面按“年-月-日”写的值反而全读不了。
       - id: py32.k1.x2
         kind: [explain]
-        uses: [py19.k1]
         data: [assay]
         body: |
           同事运行了下面这行，没有报错，于是说：“加了 `errors="coerce"` 以后不报错了，说明 tested 列的日期全都读对了。”
@@ -769,7 +764,6 @@ kps:
         manual: [which]
       - id: py32.k2.q3
         kind: [predict]
-        uses: [py17.k2]
         data: [log2]
         body: |
           阅读代码，说出 `slow` 留下了哪些样本。
@@ -1003,7 +997,6 @@ kps:
     example:
       id: py32.k3.e0
       kind: [predict]
-      uses: [py18.k1, py18.k2, py17.k2]
       data: [log]
       body: |
         只要 3 月采的样本。阅读代码。
@@ -1043,7 +1036,6 @@ kps:
     practice:
       - id: py32.k3.q1
         kind: [predict]
-        uses: [py18.k1, py18.k2]
         data: [visits]
         body: |
           要标出 3 月 15 日到 3 月 31 日（两天都算）之间的采样。阅读代码，填写 `in_window` 的值。
@@ -1072,7 +1064,6 @@ kps:
           answers = {"mask": {f"r{label}": {"in_window": bool(value)} for label, value in mask.items()}}
       - id: py32.k3.q2
         kind: [debug]
-        uses: [py18.k2]
         data: [log]
         body: |
           下面的代码想标出 3 月采的样本。
@@ -1133,7 +1124,6 @@ kps:
           answers = {"outcome": "error" if r.error == "TypeError" else "other", "fix": fits[0] if len(fits) == 1 else fits}
       - id: py32.k3.q3
         kind: [predict, explain]
-        uses: [py18.k1, py18.k2, py17.k2]
         data: [readings]
         body: |
           这张表的时间带时刻，格式是“年-月-日 时:分”，所以 format 多了 `%H:%M`（时和分）。两种写法都想留下 3 月的读数。
@@ -1174,7 +1164,6 @@ kps:
     review:
       - id: py32.k3.r1
         kind: [specify]
-        uses: [py18.k1, py18.k2]
         data: [quarter]
         body: |
           需求是：只要第二季度的采样，也就是 4 月 1 日到 6 月 30 日，**两天都算**。日期已经读好了：
@@ -1224,7 +1213,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py32.k3.r2
         kind: [predict]
-        uses: [py18.k1, py18.k2, py17.k2]
         data: [weekly]
         body: |
           要找出**不在** 5 月第一周（5 月 1 日（含）到 5 月 8 日（不含））采样的点。阅读代码。
@@ -1253,7 +1241,6 @@ kps:
     quiz:
       - id: py32.k3.x1
         kind: [modify]
-        uses: [py18.k1, py18.k2, py17.k2]
         data: [log]
         body: |
           需求是：
@@ -1321,7 +1308,6 @@ kps:
           左端“含”写 `>=`，右端“不含”写 `<`。本例 start 是 3 月 15 日、end 是 4 月 1 日，留下 S_B（3 月 15 日，正好在左端）和 S_C（3 月 31 日）；S_D 是 4 月 1 日，正好在右端，不留下。
       - id: py32.k3.x2
         kind: [predict]
-        uses: [py18.k1, py18.k2]
         data: [week]
         body: |
           要数出 3 月 9 日（含）到 3 月 16 日（不含）这一周的观测有几次。阅读代码。

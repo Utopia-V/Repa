@@ -77,7 +77,6 @@ kps:
     example:
       id: py40.k1.e0
       kind: [predict, trace]
-      uses: [py01.k2, py04.k1]
       body: |
         阅读下面的程序。
 
@@ -140,7 +139,6 @@ kps:
     practice:
       - id: py40.k1.q1
         kind: [predict]
-        uses: [py04.k1]
         body: |
           ```python startLine=1
           def warn():
@@ -178,7 +176,6 @@ kps:
           answers = {"count": len(r.lines()), "runs": len(calls)}
       - id: py40.k1.q2
         kind: [debug, predict]
-        uses: [py04.k1]
         body: |
           同事想先显示“开始”，再显示“报告已生成”。
 
@@ -237,7 +234,6 @@ kps:
           answers = {"outcome": true[0] if len(true) == 1 else true, "fix": fixes[0] if len(fixes) == 1 else fixes}
       - id: py40.k1.q3
         kind: [trace, predict]
-        uses: [py01.k2, py04.k1]
         body: |
           一个函数里也可以调用另一个函数。
 
@@ -295,7 +291,6 @@ kps:
     review:
       - id: py40.k1.r1
         kind: [modify]
-        uses: [py04.k1]
         body: |
           把下面的代码块排成一段程序：先显示“开始”，再把 measure 的做法运行两遍，每遍显示一次“测量”。每一块都要用上，并排好缩进。
         slots:
@@ -331,7 +326,6 @@ kps:
           ```
       - id: py40.k1.r2
         kind: [trace]
-        uses: [py01.k2, py04.k1]
         body: |
           ```python startLine=1
           def done():
@@ -367,7 +361,6 @@ kps:
     quiz:
       - id: py40.k1.x1
         kind: [predict, debug]
-        uses: [py04.k1]
         body: |
           哪一段程序会依次显示“开始”“测量”“结束”三行？
         slots:
@@ -420,7 +413,6 @@ kps:
           answers = {"program": fits[0] if len(fits) == 1 else fits}
       - id: py40.k1.x2
         kind: [trace]
-        uses: [py01.k2, py04.k1]
         body: |
           填写运行到每一处时，屏幕上**一共**已经显示了几行。
 
@@ -498,7 +490,6 @@ kps:
     example:
       id: py40.k2.e0
       kind: [trace, predict]
-      uses: [py04.k1, py04.k2]
       body: |
         ```python startLine=1
         def net_signal(raw, blank):
@@ -549,7 +540,6 @@ kps:
     practice:
       - id: py40.k2.q1
         kind: [predict]
-        uses: [py04.k1]
         body: |
           ```python startLine=1
           def double(n):
@@ -577,7 +567,6 @@ kps:
           answers = {"shown": shown[tuple(lines)]}
       - id: py40.k2.q2
         kind: [predict]
-        uses: [py04.k2, py08.k2, py10.k1]
         body: |
           ```python
           def label(signal, limit):
@@ -614,7 +603,6 @@ kps:
           answers = {"results": {f"c{i}": {"result": ids[value]} for i, value in enumerate(r["results"], 1)}}
       - id: py40.k2.q3
         kind: [predict, debug]
-        uses: [py03.k3, py04.k3]
         body: |
           ```python startLine=1
           def ratio(part, total):
@@ -674,7 +662,6 @@ kps:
     review:
       - id: py40.k2.r1
         kind: [modify]
-        uses: [py08.k1, py10.k1, py10.k2]
         body: |
           需求：`classify(depth)` 在深度小于 20 时交回 `"浅"`，否则交回 `"深"`。把代码块排成这个函数，并排好缩进。有一块用不上。
         slots:
@@ -719,7 +706,6 @@ kps:
           `if` 和 `else` 缩进一层，属于函数体；两个 return 再缩进一层，分别属于各自的路径。`print("浅")` 用不上：它只显示，不交回，调用处拿到的是 None，`classify(3) + "层"` 就会出错。
       - id: py40.k2.r2
         kind: [trace, predict]
-        uses: [py10.k1, py10.k3]
         body: |
           ```python startLine=1
           def grade(depth):
@@ -761,7 +747,6 @@ kps:
     quiz:
       - id: py40.k2.x1
         kind: [trace, predict]
-        uses: [py04.k2]
         body: |
           `change(before, after)` 算一个采样点前后两次测得的深度变化。
 
@@ -808,7 +793,6 @@ kps:
           answers = {"before": seen[0]["before"], "first": int(lines[0]), "second": int(lines[1])}
       - id: py40.k2.x2
         kind: [debug, predict]
-        uses: [py03.k3, py04.k3]
         body: |
           ```python startLine=1
           def total(a, b):
@@ -902,7 +886,6 @@ kps:
     example:
       id: py40.k3.e0
       kind: [trace]
-      uses: [py01.k2, py04.k1]
       body: |
         填写调用 `corrected(14, 2, 3)` 时，函数体第 2、3 行运行完后 `net` 和 `scaled` 的值，还没有赋值的填“尚未定义”。
 
@@ -949,7 +932,6 @@ kps:
     practice:
       - id: py40.k3.q1
         kind: [debug, trace]
-        uses: [py02.k1]
         body: |
           需求：`mean_of_two(a, b)` 交回两次读数的平均值。
 
@@ -993,7 +975,6 @@ kps:
           answers = {"value": r["value"], "fix": fixes[0] if len(fixes) == 1 else fixes}
       - id: py40.k3.q2
         kind: [trace, explain]
-        uses: [py01.k2, py02.k1]
         body: |
           配 50 毫升稀释液，原液占总体积的五分之一：`split_volume` 算出要取多少原液，以及要加多少水。
 
@@ -1052,7 +1033,6 @@ kps:
           }
       - id: py40.k3.q3
         kind: [modify]
-        uses: [py02.k1]
         body: |
           需求：`net_ratio(raw, blank, ref)` 先从读数 raw 减去本底 blank，再除以参照值 ref，交回这个比值。
 
@@ -1132,7 +1112,6 @@ kps:
     review:
       - id: py40.k3.r1
         kind: [modify]
-        uses: [py02.k1]
         body: |
           需求：`change_pct(before, after)` 先算差值 after - before，再除以 before、乘 100，交回变化的百分比。把代码块排成这个函数，并排好缩进。有一块用不上。
         slots:
@@ -1171,7 +1150,6 @@ kps:
           pct 要用到 diff，所以先算 diff；最后交回 pct。`return diff` 交回的是差值，不是百分比；而且放在 `return pct` 前面的话，后面那行就不会运行。
       - id: py40.k3.r2
         kind: [trace]
-        uses: [py03.k1, py03.k2]
         body: |
           `tag` 给采样点生成一个标签。填写调用 `tag("北坡", 30)` 时函数里各中间量的值（文字直接写，不用加引号），再写出 result。
 
@@ -1217,7 +1195,6 @@ kps:
     quiz:
       - id: py40.k3.x1
         kind: [debug, explain]
-        uses: [py02.k1]
         body: |
           需求：先把读数 count 乘以稀释倍数 dilution，再减去背景值 background，交回结果。哪一个函数符合需求？
         slots:
@@ -1273,7 +1250,6 @@ kps:
           answers = {"function": fits[0] if len(fits) == 1 else fits}
       - id: py40.k3.x2
         kind: [trace, debug]
-        uses: [py02.k2]
         body: |
           `boxes_needed` 想算出：一共有 samples 份样本，每盒装 per_box 份，需要几个盒子。
 
