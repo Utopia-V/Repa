@@ -190,7 +190,7 @@ export interface History {
 
 /**
  * 导出的一项内容，name 是包内路径，用 / 分隔。text 是插件生成的文字，例如版本信息；
- * file 是本插件数据目录中的文件，路径相对于数据目录，由底座读取：不跟随链接，按读取开始时的大小读，
+ * file 是本插件数据目录下顶层文件的文件名，不接受多级路径，由底座读取：不跟随链接，按读取开始时的大小读，
  * .jsonl 只取到最后一个换行符，文件还没建立时按空文件收入。
  */
 export type ExportFile = { name: string; text: string } | { name: string; file: string };

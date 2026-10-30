@@ -8,7 +8,7 @@ import { createPluginTestHost } from "@repa/base/testing";
 
 const fault = (code: string) => (error: unknown): boolean => error instanceof Error && "code" in error && error.code === code;
 
-test("插件只能导出自己数据目录中的普通文件：越出数据目录或是符号链接时拒绝，还没建立的文件按空文件收入；离线宿主写到临时的 home/exports/", async (t) => {
+test("插件只能导出自己数据目录下的顶层普通文件：多级路径、越出数据目录的路径和符号链接都拒绝，还没建立的文件按空文件收入；离线宿主写到临时的 home/exports/", async (t) => {
   let host: Host | undefined;
   const plugin: Plugin = {
     id: "notes",
@@ -20,17 +20,25 @@ test("插件只能导出自己数据目录中的普通文件：越出数据目�
   const testing = await createPluginTestHost({ plugins: [plugin] });
   t.after(() => testing.close());
   assert.ok(host);
-  const dataDir = host.space.dataDir;
+  const opened = host;
+  const dataDir = opened.space.dataDir;
   await writeFile(path.join(dataDir, "log.jsonl"), '{"n":1}\n{"n":');
-  await mkdir(path.join(host.space.root, "notes"), { recursive: true });
-  await writeFile(path.join(host.space.root, "notes", "a.md"), "空间里的笔记\n");
-  await assert.rejects(host.prepareExport({ files: [{ name: "a.md", file: "../../../notes/a.md" }], sessions: false }), fault("invalid_path"));
+  await mkdir(path.join(dataDir, "sub"));
+  await writeFile(path.join(dataDir, "sub", "inner.jsonl"), '{"n":2}\n');
+  await mkdir(path.join(opened.space.root, "notes"), { recursive: true });
+  await writeFile(path.join(opened.space.root, "notes", "a.md"), "空间里的笔记\n");
+  const rejected = async (file: string) => {
+    await assert.rejects(opened.prepareExport({ files: [{ name: "x.txt", file }], sessions: false }), fault("invalid_path"), file);
+  };
+  // 数据目录里的子目录同样不收：中间一级可能是指向别处的链接，只查最后一级挡不住它。
+  for (const file of ["sub/inner.jsonl", "../../../notes/a.md", "..", ""]) await rejected(file);
   if (process.platform !== "win32") {
-    await symlink(path.join(host.space.root, "notes", "a.md"), path.join(dataDir, "link.md"));
-    await assert.rejects(host.prepareExport({ files: [{ name: "link.md", file: "link.md" }], sessions: false }), fault("invalid_path"));
+    await symlink(path.join(opened.space.root, "notes"), path.join(dataDir, "linked"));
+    await symlink(path.join(opened.space.root, "notes", "a.md"), path.join(dataDir, "link.md"));
+    for (const file of ["linked/a.md", "link.md"]) await rejected(file);
   }
 
-  const prepared = await host.prepareExport({
+  const prepared = await opened.prepareExport({
     files: [
       { name: "log.jsonl", file: "log.jsonl" },
       { name: "later.jsonl", file: "later.jsonl" },

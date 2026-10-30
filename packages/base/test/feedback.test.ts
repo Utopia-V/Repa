@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { promisify } from "node:util";
 import { crc32, inflateRawSync } from "node:zlib";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
@@ -216,6 +218,26 @@ test("同一秒生成两个反馈包时各占一个文件名，不留下临时�
   }
   const names = (await readdir(f.output)).sort();
   assert.deepEqual(names, results.map(result => path.basename(result.path)).sort());
+});
+
+// 子进程限制单个文件的大小：Node 把超限的写入报为 EFBIG，已写的部分留在文件里，与磁盘写满时一样写到一半失败。
+test("写临时文件到一半失败时删除这个临时文件，不留下半个包；目录中已有的包不动", { skip: process.platform === "win32" ? "Windows 没有 ulimit，不能限制单个文件的大小" : false }, async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-publish-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(path.join(directory, "repa-feedback-test.zip"), "已有的包");
+  const script = `
+    import { writeUnique } from ${JSON.stringify(new URL("../src/feedback/publish.ts", import.meta.url).href)};
+    try {
+      console.log(await writeUnique(process.argv[1], "repa-feedback-test", Buffer.alloc(4 * 1024 * 1024, 1)));
+    } catch (error) {
+      console.log(error.code);
+    }
+  `;
+  // bash 的 ulimit -f 以 1024 字节计：单个文件不超过 256 KiB，要写的包有 4 MiB。
+  const { stdout } = await promisify(execFile)("bash", ["-c", 'ulimit -f 256 && exec "$0" "$@"', process.execPath, "--import", "tsx", "--input-type=module", "-e", script, directory]);
+  assert.equal(stdout.trim(), "EFBIG");
+  assert.deepEqual(await readdir(directory), ["repa-feedback-test.zip"]);
+  assert.equal(await readFile(path.join(directory, "repa-feedback-test.zip"), "utf8"), "已有的包");
 });
 
 test("会话 id 不能用作文件名时找不到会话且不生成反馈包", async t => {

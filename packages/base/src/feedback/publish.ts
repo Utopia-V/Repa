@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { link, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { link, open, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -53,12 +53,18 @@ async function place(temporary: string, file: string): Promise<boolean> {
 
 /**
  * 先写同目录的临时文件，写完再放到最终文件名 base.zip，重名时依次试 base-2.zip 到 base-100.zip；
- * 写到一半失败（例如磁盘满）时不会留下残缺的 zip。一百个文件名都被占用时返回 undefined，由调用方报错。
+ * 写到一半失败（例如磁盘满）时删除临时文件，不留下残缺的包。一百个文件名都被占用时返回 undefined，由调用方报错。
  */
 export async function writeUnique(directory: string, base: string, data: Buffer): Promise<string | undefined> {
   const temporary = path.join(directory, `.${base}-${randomUUID()}.tmp`);
-  await writeFile(temporary, data, { flag: "wx" });
+  // wx 保证临时文件是这一次新建的；建成以后，写入、发布无论哪一步失败，都只删除它。
+  const handle = await open(temporary, "wx");
   try {
+    try {
+      await handle.writeFile(data);
+    } finally {
+      await handle.close();
+    }
     for (let attempt = 1; attempt <= 100; attempt++) {
       const file = path.join(directory, attempt === 1 ? `${base}.zip` : `${base}-${attempt}.zip`);
       if (await place(temporary, file)) return file;

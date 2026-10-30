@@ -5,7 +5,6 @@ import path from "node:path";
 import { isCode } from "../backup/copy.js";
 import type { ExportRequest, PreparedExport } from "../plugin.js";
 import { RepaFault, type ExportedFile } from "../schema.js";
-import { within } from "../space/paths.js";
 import { repaVersion, stamp, writeUnique } from "./publish.js";
 import { environmentSecrets, Redactor } from "./redact.js";
 import { createZip, type ZipEntry } from "./zip.js";
@@ -46,14 +45,16 @@ function completeLines(data: Buffer): Buffer {
 }
 
 /**
- * 读取插件数据目录中的一个文件：不跟随链接，按读取开始时的大小读，之后追加的内容不收；.jsonl 只取到最后一个换行符。
- * 插件的数据文件在第一次写入时才建立，不存在时按空文件收入。
+ * 读取插件数据目录下的一个顶层文件：不跟随链接，按读取开始时的大小读，之后追加的内容不收；.jsonl 只取到最后一个换行符。
+ * 插件的数据文件在第一次写入时才建立，不存在时按空文件收入。只接受文件名、不接受多级路径：中间一级若是指向别处的链接，
+ * lstat 与 O_NOFOLLOW 只管最后一级，挡不住它；学习插件只导出顶层文件，会话由底座另行读取，多级路径没有使用方。
  */
-async function readDataFile(dataDir: string, relative: string): Promise<Buffer> {
-  const file = path.resolve(dataDir, ...relative.split("/"));
-  if (file === dataDir || !within(dataDir, file)) {
-    throw new RepaFault("invalid_path", "导出只能收入本插件数据目录中的文件", { file: relative });
+async function readDataFile(dataDir: string, name: string): Promise<Buffer> {
+  // path.basename 还去掉 Windows 的盘符前缀，例如 C:records.jsonl。
+  if (name === "" || name === "." || name === ".." || /[\\/]/u.test(name) || path.basename(name) !== name) {
+    throw new RepaFault("invalid_path", "导出只收本插件数据目录下的顶层文件", { file: name });
   }
+  const file = path.join(dataDir, name);
   counted(file);
   let info: Stats;
   try {
@@ -62,7 +63,7 @@ async function readDataFile(dataDir: string, relative: string): Promise<Buffer> 
     if (isCode(error, "ENOENT")) return Buffer.alloc(0);
     throw error;
   }
-  if (!info.isFile()) throw new RepaFault("invalid_path", "导出只收普通文件，不跟随链接", { file: relative });
+  if (!info.isFile()) throw new RepaFault("invalid_path", "导出只收普通文件，不跟随链接", { file: name });
   const handle = await open(file, constants.O_RDONLY | NOFOLLOW);
   try {
     const size = (await handle.stat()).size;
@@ -74,7 +75,7 @@ async function readDataFile(dataDir: string, relative: string): Promise<Buffer> 
       length += bytesRead;
     }
     const content = data.subarray(0, length);
-    return relative.endsWith(".jsonl") ? completeLines(content) : content;
+    return name.endsWith(".jsonl") ? completeLines(content) : content;
   } finally {
     await handle.close();
   }
