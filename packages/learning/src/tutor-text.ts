@@ -134,8 +134,10 @@ function slotTask(slot: Slot): string[] {
         ...slot.options.map((option, index) => entryText(`${index + 1}. ${option.label ? `（${option.label}）` : ""}`, optionText(option.content))),
       ];
     case "text": {
-      const kind = TEXT_FORMATS[slot.format ?? ""] ?? "填写文字";
-      return [slot.quick?.length ? `${kind}，也可以直接填：${slot.quick.join("、")}。` : `${kind}。`];
+      // 后缀常是单位（秒、mL），作者可能只在这里写明；学习者在输入框后面看得到，模型也要看到。
+      const suffix = slot.suffix ? `，输入框后面写着「${slot.suffix}」` : "";
+      const quick = slot.quick?.length ? `，也可以直接填：${slot.quick.join("、")}` : "";
+      return [`${TEXT_FORMATS[slot.format ?? ""] ?? "填写文字"}${suffix}${quick}。`];
     }
     case "order":
       return [
@@ -187,7 +189,8 @@ function feedbackLines(slot: Slot, feedback: SlotFeedback): string[] {
 }
 
 function slotText(slot: Slot, number: number, single: boolean, submission: Submission | undefined): string {
-  const lines = single ? [] : [`### 第 ${number} 问${slot.label ? `（${slot.label}）` : ""}`];
+  // 只有一问时不必编号；有标签时照常写出，标签可能是这一问所求对象的唯一说明（例如没有小问说明的表格）。
+  const lines = single && !slot.label ? [] : [`### 第 ${number} 问${slot.label ? `（${slot.label}）` : ""}`];
   const prompt = contentText(slot.prompt);
   if (prompt) lines.push(prompt);
   lines.push(...slotTask(slot));

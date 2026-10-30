@@ -541,7 +541,7 @@ function lessonWith(id: string, question: Omit<Question, "id">): Topic {
 const CHOICE: Omit<Question, "id"> = {
   body: "阅读下面的程序。\n\n```python startLine=1\nsamples = 6\nreserve = 2\nusable = samples - reserve\n```",
   slots: [
-    { id: "output", type: "text", format: "integer", prompt: "`usable` 是多少？", key: 4 },
+    { id: "output", type: "text", format: "integer", prompt: "`usable` 是多少？", suffix: "份", key: 4 },
     {
       id: "source", type: "choice", prompt: "`usable` 的值是怎样来的？", key: "computed",
       options: [
@@ -567,7 +567,7 @@ const CODE: Omit<Question, "id"> = {
 const OPEN: Omit<Question, "id"> = {
   body: "下面的程序显示什么？\n\n```python\nx = 1\nx = x + 1\nprint(x)\n```",
   slots: [{
-    id: "why", type: "text", lines: 4, prompt: "说出显示的值，并说明原因。",
+    id: "why", type: "text", lines: 4, label: "显示的值与原因", prompt: "说出显示的值，并说明原因。",
     rubric: [{ id: "value", label: "说出显示 2" }, { id: "reason", label: "说明先算右边再赋值" }],
   }],
   explanation: "显示 2：第二行先算右边的 x + 1 得到 2，再让 x 指向 2。",
@@ -583,7 +583,7 @@ function option(delivery: Delivery, slotId: string, text: string): { number: num
   return { number: index + 1, id: found.id };
 }
 
-test("模型读到的当前题目是分行文字：选择题、代码题和开放题判分前后各读一次", { timeout: 30000 }, async (t) => {
+test("模型读到的当前题目是分行文字：选择题、代码题和开放题判分前后各读一次，输入框后缀与单个小问的标签照样写出", { timeout: 30000 }, async (t) => {
   // python.run 的替身不运行 Python：学习者的 print(len(nums) * 3) 在第一个测试里打印 9，在第二个测试里打印 3。
   const f = await fixture(t, [lessonWith("c01", CHOICE), lessonWith("c02", CODE), lessonWith("c03", OPEN)], {
     python: (job) => (job.setup === "nums = [1, 2, 3]" ? "9\n" : "3\n"),
@@ -621,7 +621,7 @@ test("模型读到的当前题目是分行文字：选择题、代码题和开�
     "",
     "### 第 1 问",
     "`usable` 是多少？",
-    "填一个整数。",
+    "填一个整数，输入框后面写着「份」。",
     "",
     "### 第 2 问",
     "`usable` 的值是怎样来的？",
@@ -639,7 +639,7 @@ test("模型读到的当前题目是分行文字：选择题、代码题和开�
     "",
     "## 题目",
   ].join("\n")), choiceAfter);
-  assert.ok(choiceAfter.includes("`usable` 是多少？\n填一个整数。\n学习者的作答：4\n判分：正确\n\n### 第 2 问"), choiceAfter);
+  assert.ok(choiceAfter.includes("`usable` 是多少？\n填一个整数，输入框后面写着「份」。\n学习者的作答：4\n判分：正确\n\n### 第 2 问"), choiceAfter);
   assert.ok(choiceAfter.endsWith([
     `学习者的作答：选 ${wrong.number}`,
     "判分：错误",
@@ -708,6 +708,7 @@ test("模型读到的当前题目是分行文字：选择题、代码题和开�
     "print(x)",
     "```",
     "",
+    "### 第 1 问（显示的值与原因）",
     "说出显示的值，并说明原因。",
     "填写文字。",
   ];
