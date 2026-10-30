@@ -16,7 +16,7 @@ npm run build --workspace=@repa/base
 npm run start --workspace=@repa/base -- serve --home /path/to/repa-home
 ```
 
-服务只监听 `127.0.0.1`，stdout 输出一行 `{ "url": "ws://…/rpc", "token": "…" }`。启动方把它作为私密连接信息交给客户端，不放进公开日志。省略 `--home` 时使用 `REPA_HOME`，再回退到[系统配置目录](#应用配置目录)；`REPA_TOKEN` 可提供已有令牌，否则随机生成。`--port` 默认自动分配，SIGINT、SIGTERM 会等待资源关闭。
+服务只监听 `127.0.0.1`，stdout 输出一行 `{ "url": "ws://…/rpc", "token": "…" }`。启动方把它作为私密连接信息交给客户端，不放进公开日志。省略 `--home` 时使用 `REPA_HOME`，再回退到[系统配置目录](#应用配置目录)；`REPA_TOKEN` 可提供已有令牌，否则随机生成。`--port` 默认自动分配。收到 SIGINT、SIGTERM 时，服务等资源关闭后再退出；给出 `--close-on-stdin-end` 时，stdin 读到结尾也照此关闭。拉起服务的程序用后者请求关闭，原因有二：Windows 没有能投递给子进程的 SIGTERM，`kill` 会直接结束进程，收尾来不及进行；拉起它的程序意外退出时，stdin 也随之结束，服务同样会收尾。
 
 要加载插件，给出构建目录；例如加载包内的笔记插件，并只开放它的 Agent 供用户直接对话：
 
@@ -64,7 +64,7 @@ await backend.close();
 
 进程入口从 stdout 读取连接信息，不写连接文件。`plugins` 接受插件构建目录，`generalAgent: false` 和 `directAgents` 对应 CLI 的装配选项；插件由构建后的 CLI 导入，不经过 tsx。嵌入同一进程时使用 `startServer`，模块边界见[包地图](../README.md)及 [`protocol.ts`](src/protocol.ts)。
 
-客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出，`close()` 可重复调用并等待正常收尾，异常退出返回错误；启动失败的进程回收有 5 秒强制终止期限。进程入口依赖 Node，不从浏览器客户端导出。
+客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出。`close()` 结束后端的 stdin，请求它正常关闭，可重复调用并等待收尾完成，异常退出返回错误；宿主进程没有调用 `close()` 就退出时，后端的 stdin 同样结束，服务照样收尾。启动失败的进程回收有 5 秒强制终止期限。进程入口依赖 Node，不从浏览器客户端导出。
 
 ### 运行检查
 

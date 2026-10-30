@@ -37,11 +37,13 @@ function deadline<T>(promise: Promise<T>, ms: number, message: () => string): Pr
 }
 
 function launch(home: string, options: string[] = []): RunningCli {
-  const args = ["--import", "tsx", "src/cli.ts", "serve", "--home", home, ...options];
+  const args = ["--import", "tsx", "src/cli.ts", "serve", "--home", home, "--close-on-stdin-end", ...options];
   const env = { ...process.env };
   delete env.REPA_TOKEN;
   delete env.REPA_HOME;
   const child = spawn(process.execPath, args, { cwd: packageRoot, env, stdio: "pipe" });
+  // CLI 已经退出时结束 stdin 会遇到管道断开；退出状态由 exited 报告。
+  child.stdin.on("error", () => {});
   let stderr = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => { stderr = `${stderr}${chunk}`.slice(-8192); });
@@ -78,10 +80,11 @@ function launch(home: string, options: string[] = []): RunningCli {
   return { child, exited, connection, stderr: () => stderr };
 }
 
+// 与 Node 宿主的 close() 一样结束 stdin 请求正常关闭；Windows 上 kill 会直接结束进程。
 async function stop(cli: RunningCli): Promise<Exit> {
-  if (cli.child.exitCode === null && cli.child.signalCode === null) cli.child.kill("SIGTERM");
+  cli.child.stdin.end();
   try {
-    return await deadline(cli.exited, 600_000, () => `CLI 收到 SIGTERM 后没有退出\n${cli.stderr()}`);
+    return await deadline(cli.exited, 600_000, () => `CLI 的 stdin 结束后没有退出\n${cli.stderr()}`);
   } catch (error) {
     cli.child.kill("SIGKILL");
     await deadline(cli.exited, 600_000, () => `CLI 无法终止\n${cli.stderr()}`);
@@ -170,4 +173,17 @@ test("CLI 关掉通用 Agent 并指定直接对话的插件 Agent，前端只能
   });
   assert.equal((await client.call("session.create", { agent: "notes-organizer" })).agent, "notes-organizer");
   assert.deepEqual(await stop(cli), { code: 0, signal: null });
+});
+
+test("命令行进程收到 SIGINT 或 SIGTERM 时同样正常关闭", {
+  skip: process.platform === "win32" ? "Windows 没有 POSIX 信号，kill 会直接结束进程" : false,
+}, async (t) => {
+  const f = await fixture(t);
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    const { cli, client } = await f.start(`${signal}-home`);
+    await client.call("space.create", { root: path.join(f.root, `${signal}-space`) });
+    cli.child.kill(signal);
+    const exit = await deadline(cli.exited, 600_000, () => `CLI 收到 ${signal} 后没有退出\n${cli.stderr()}`);
+    assert.deepEqual(exit, { code: 0, signal: null });
+  }
 });

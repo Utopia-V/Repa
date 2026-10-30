@@ -27,14 +27,19 @@ export async function startRepaProcess(options: RepaProcessOptions = {}): Promis
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError("startupTimeoutMs 必须是正数");
   }
-  const args = [fileURLToPath(new URL("./cli.js", import.meta.url)), "serve"];
+  const args = [fileURLToPath(new URL("./cli.js", import.meta.url)), "serve", "--close-on-stdin-end"];
   if (options.home !== undefined) args.push("--home", options.home);
   for (const plugin of options.plugins ?? []) args.push("--plugin", plugin);
   if (options.generalAgent === false) args.push("--no-general-agent");
+  // 宿主不往后端的 stdin 写内容，只用它表示自己还在：close() 结束 stdin 即请求正常关闭，宿主进程退出时它同样结束。
+  // Windows 没有能投递给子进程的 SIGTERM，kill 会直接结束进程，后端的收尾代码来不及运行。
+  // 不用 IPC 通道的 disconnect()：宿主一断开通道，Node 就不再发出子进程的 close 事件。
   const child = spawn(options.nodeExecutable ?? process.execPath, args, {
     env: options.environment ?? process.env,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  // 后端已经退出时结束 stdin 会遇到管道断开；退出状态由 closed 报告。
+  child.stdin.on("error", () => {});
   let diagnostics = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
@@ -47,7 +52,6 @@ export async function startRepaProcess(options: RepaProcessOptions = {}): Promis
   const closed = new Promise<void>((resolve, reject) => {
     child.once("close", (code, signal) => {
       exited = true;
-      process.removeListener("exit", stopAtExit);
       resolveExited();
       if (code === 0) resolve();
       else reject(new Error(`Repa 后端异常退出（${signal ?? code}）。${diagnostics ? `\n${diagnostics}` : ""}`));
@@ -55,11 +59,9 @@ export async function startRepaProcess(options: RepaProcessOptions = {}): Promis
   });
   // 启动失败由下方入口返回；宿主取得 handle 后仍可通过 closed 观察退出错误。
   void closed.catch(() => {});
-  const stopAtExit = () => { child.kill("SIGTERM"); };
-  process.once("exit", stopAtExit);
   const close = (): Promise<void> => {
     closing ??= (async () => {
-      if (!exited) child.kill("SIGTERM");
+      if (!exited) child.stdin.end();
       // 正常关闭必须等待持久化完成，不能用固定时限截断 Git 或插件收尾。
       await closed;
     })();
