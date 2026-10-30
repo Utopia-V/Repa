@@ -31,7 +31,7 @@
 
 Web 和 Desktop 分别由 Vite 与 Electron Node 宿主启动后端。`@repa/base/process` 提供进程生命周期，宿主取得连接后通过开发 HTTP 端点或隔离 preload 交给 renderer；宿主关闭时等待后端收尾。连接断开后重新读取历史与插件状态，再判断原操作的结果，客户端不会自动重放请求。
 
-Web 在连接时声明前端服务 `python.run`，在 Worker 里用 Pyodide 运行学习者的代码；输入输出见 `@repa/learning/protocol`。后端先用 `kind: capabilities` 探测，前端报告预热 Worker 实际加载的环境；每次执行用一个全新的 Worker，用完销毁，后台预热下一个。Vite 开发服务器在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel，并给 Worker 脚本加 CSP 响应头；wheel 先用 `npm run course:runtime` 准备，与课程核对共用一个目录。Worker 启动时确认 CSP 生效，没有就拒绝运行，所以别的宿主提供 Web 时也要给 Worker 脚本加同样的响应头。
+Web 在连接时声明前端服务 `python.run`，用 [`@repa/python-runner`](../../packages/python-runner/README.md) 在 Worker 里以 Pyodide 运行学习者的代码；输入输出见 `@repa/python-runner/protocol`。后端先用 `kind: capabilities` 探测，前端报告预热 Worker 实际加载的环境；每次执行用一个全新的 Worker，用完销毁，后台预热下一个。Vite 开发服务器在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel，并给 Worker 脚本加 CSP 响应头；wheel 先用 `npm run course:runtime` 准备，与课程核对共用一个目录。Worker 启动时确认 CSP 生效，没有就拒绝运行，所以别的宿主提供 Web 时也要给 Worker 脚本加同样的响应头。
 
 Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa://app/` 加载，而不是 `file://`，因为 `file://` 没有响应头，Worker 的 CSP 设不上；协议由[主进程](../../apps/desktop/src/main/app-protocol.ts)处理，给 `workers/` 下的脚本加 CSP，并在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel。开发时这些由 electron-vite 的开发服务器提供，两边的放行规则共用 [python-runtime.ts](../../apps/desktop/src/main/python-runtime.ts)。Linux 安装包把 Pyodide 文件和 wheel 复制到应用目录的 `pyodide/`，打包前要先运行 `npm run course:runtime`。
 
@@ -39,26 +39,22 @@ Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa:
 
 ## CI
 
-[GitHub Actions 工作流](../../.github/workflows/ci.yml)在推送到 `dev`、指向 `dev` 的 PR、手动触发时运行，也在每天 UTC 18:00（北京时间次日凌晨 2:00）定时运行。两个任务都使用 Node 24 和 npm 12.0.2，从 `npm ci` 开始准备依赖，并运行 `npm run course:runtime` 准备或核对 Pyodide 离线包。
+[GitHub Actions 工作流](../../.github/workflows/ci.yml)在推送到 `dev`、指向 `dev` 的 PR 和手动触发时运行。两个任务都使用 Node 24 和 npm 12.0.2，从 `npm ci` 开始准备依赖，并运行 `npm run course:runtime` 准备或核对 Pyodide 离线包；离线包按版本缓存在 `packages/python-runner/.cache/pyodide/<版本>/`。
 
 - `linux` 在 `ubuntu-24.04` 上安装 `libseccomp2` 和系统 `python3`，然后运行根目录的 `npm test`，统一构建并测试全部 workspace。任务失败会使 CI 失败。
-- `windows` 在 `windows-latest` 上按默认设置检出，保留 Windows 的 CRLF 换行情形；构建库包后，依次测试空间历史、底座和学习插件。团队缺少 Windows 本机验证环境，这个任务暂用 `continue-on-error: true` 收集兼容性问题，先不拦合并，等它稳定变绿以后去掉。
+- `windows` 在 `windows-latest` 上按默认设置检出，保留 Windows 的 CRLF 换行情形；构建库包后，分别测试空间历史、底座、Python 运行器和学习插件，前一个包的测试失败时后面的照常运行。团队缺少 Windows 本机验证环境，这个任务暂用 `continue-on-error: true` 收集兼容性问题，先不拦合并，等它稳定变绿以后去掉。
 
 `REPA_TEST_REQUIRE_ENV=1` 让缺少 Pyodide 离线包、Landlock、libseccomp 或系统 Python 等环境的测试按原跳过原因失败。Linux 任务设置它，以保证沙箱测试实际运行；Windows 不设置，Linux 沙箱测试在那里按环境原因跳过。平台或权限语义差异造成的其他跳过保持原样。
 
-`REPA_SKIP_FULL_COURSE_CHECK=1` 只跳过随包 Python 整门课的 Pyodide 核对。Linux 的推送和 PR 测试、所有 Windows 测试设置它；Linux 的定时和手动测试不设置，因此会运行整门课核对。
-
-在具备 Landlock ABI 4 以上（Linux 6.7 以上）的 Linux 上，使用 Node 24 和 npm 12.0.2，在仓库根目录复现 Linux 的推送和 PR 任务：
+在具备 Landlock ABI 4 以上（Linux 6.7 以上）的 Linux 上，使用 Node 24 和 npm 12.0.2，在仓库根目录复现 Linux 任务：
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y libseccomp2 python3
 npm ci
 npm run course:runtime
-REPA_TEST_REQUIRE_ENV=1 REPA_SKIP_FULL_COURSE_CHECK=1 npm test
+REPA_TEST_REQUIRE_ENV=1 npm test
 ```
-
-复现定时或手动任务时，去掉最后一行的 `REPA_SKIP_FULL_COURSE_CHECK=1`。
 
 ## 工程边界
 
@@ -80,11 +76,12 @@ REPA_TEST_REQUIRE_ENV=1 REPA_SKIP_FULL_COURSE_CHECK=1 npm test
 | 插件接口与宿主 | [plugin.ts](../../packages/base/src/plugin.ts)、[插件宿主](../../packages/base/src/plugins/host.ts)、[示例插件](../../packages/base/examples/notes-plugin.ts) |
 | 空间文件历史与变更流 | [空间历史包](../../packages/space-history/README.md) |
 | 课程文件格式、课程检查与课程内容 | [学习包说明](../../packages/learning/README.md)、[写课说明](../../packages/learning/courses/README.md) |
+| 在 Pyodide 里运行 Python：页面 Worker、Linux 沙箱与离线包 | [Python 运行器说明](../../packages/python-runner/README.md) |
 | 辅导、即时回顾与受限开始 | [辅导说明](learning-tutor.md)、[Agent 与工具](../../packages/learning/src/tutor.ts) |
 | 上课、复习、菜单与判分 | [教学流程说明](learning-flow.md)、[转换入口](../../packages/learning/src/flow.ts) |
 | 测验、换题重考、XP、日目标与完课估算 | [测验与进度说明](learning-quiz-xp.md)、[奖励计算](../../packages/learning/src/progress.ts) |
 | 学习日志、快照、恢复命令与模型接入 | [学习记录说明](learning-records.md)、[插件入口](../../packages/learning/src/plugin.ts) |
-| 学习任务画面、提交恢复与 Python 服务契约 | [学习前端契约](learning-protocol.md)、[公开 schema](../../packages/learning/src/protocol.ts) |
+| 学习任务画面、提交恢复与 Python 服务契约 | [学习前端契约](learning-protocol.md)、[公开 schema](../../packages/learning/src/protocol.ts)、[python.run 的 schema](../../packages/python-runner/src/protocol.ts) |
 | Web 宿主与页面 | [Vite 配置](../../apps/web/vite.config.ts)、[Web 源码](../../apps/web/src/) |
 | Desktop 宿主与页面 | [主进程](../../apps/desktop/src/main/index.ts)、[preload](../../apps/desktop/src/preload/)、[renderer](../../apps/desktop/src/renderer/) |
 

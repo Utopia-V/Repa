@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { RepaClient, type ClientConnection } from "@repa/base/client";
-import { PYTHON_RUN, servePythonRun } from "@repa/learning/python-runner/service";
+import { PYTHON_RUN, servePythonRun } from "@repa/python-runner/browser";
 
 import { routes } from "./routes";
 import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";

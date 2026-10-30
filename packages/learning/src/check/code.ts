@@ -4,10 +4,13 @@
  *   而且标准答案里写的每个可接受值都要与算出的答案一致；
  * - 代码题与按测试判的 Parsons 题：参考答案和 accepts 必须通过全部测试；rejects 和作答框里的初始代码
  *   必须至少错一个，否则测试还分不出这些错误。
- * 运行在沙箱里进行，结果的比较在沙箱外。
+ * 运行在沙箱里进行，结果的比较在沙箱外。候选程序依次在同一个解释器里运行，与判分在一批测试之内的做法相同：
+ * 每个任务从全新的命名空间开始，任务后由 runner.py 恢复常被改动的全局状态，只有恢复失败或超时才换新的解释器。
  */
 
 import { parse, type Answer } from "@repa/base/protocol";
+import type { JobOutcome, SandboxRunner } from "@repa/python-runner";
+import { PythonProgramResultSchema } from "@repa/python-runner/protocol";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedTopic } from "../format/load.js";
 import type { CodeTest, Question, SlotDef, Topic } from "../format/schema.js";
@@ -17,9 +20,7 @@ import {
   acceptedValues, content, inputCells, itemIndent, orderItemCode, scalarText, tableCell, textMatch, topicQuestions, type QuestionEntry,
 } from "./items.js";
 import { slotNeedsVerification } from "./rules.js";
-import { programProblem, type Expected } from "../python-execution.js";
-import { PythonProgramResultSchema } from "../protocol.js";
-import type { JobOutcome, SandboxRunner } from "../sandbox/session.js";
+import { programProblem, runnerFixture, type Expected } from "../python-execution.js";
 
 export interface CodeStats {
   verifyJobs: number;
@@ -44,12 +45,7 @@ function runnerData(names: readonly string[], topic: Topic): RunnerData | undefi
   for (const name of names) {
     const fixture = topic.data?.[name];
     if (!fixture) return undefined;
-    data.push(fixture.kind === "dataframe"
-      ? {
-        kind: "dataframe", label: name, name: fixture.name, columns: fixture.columns,
-        ...(fixture.index ? { index: fixture.index } : {}), ...(fixture.dtypes ? { dtypes: fixture.dtypes } : {}),
-      }
-      : { kind: "python", label: name, code: fixture.code });
+    data.push({ ...runnerFixture(fixture), label: name });
   }
   return data;
 }
@@ -271,7 +267,6 @@ async function prepareTests(question: Question, tests: CodeTest[], at: ValuePath
     if (!data) return undefined;
     const expected: Record<string, unknown> = {};
     if (test.expect) {
-      await context.runner.close();
       const outcome = await context.runner.run({ op: "expect", data, setup: test.setup ?? "", exprs: test.expect }, context.timeoutMs);
       const problem = failure(outcome);
       if (problem || outcome.status !== "done" || !outcome.ok) {
@@ -310,8 +305,8 @@ async function runTest(program: string, prepared: PreparedTest, context: Context
   }
 }
 
+/** 依次运行一份候选程序的全部测试，与判分一样在运行器超时或崩溃后停下，其余测试不再运行。 */
 async function failingTests(program: string, tests: PreparedTest[], context: Context): Promise<string[]> {
-  await context.runner.close();
   const failed: string[] = [];
   for (const prepared of tests) {
     const reason = await runTest(program, prepared, context);
@@ -389,9 +384,6 @@ export async function checkTopicCode(
     await runVerify(entry, entry.at, context);
     for (const [index, slot] of entry.question.slots.entries()) {
       await runSlotTests(entry.question, slot, [...entry.at, "slots", index], context);
-      if (slot.type === "code" || (slot.type === "order" && slot.tests)) {
-        await runner.close();
-      }
     }
   }
 }

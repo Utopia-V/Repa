@@ -14,10 +14,13 @@
       "path": "./packages/learning-model/tsconfig.build.json"
     },
     {
-      "path": "./packages/learning/tsconfig.build.json"
+      "path": "./packages/python-runner/tsconfig.build.json"
     },
     {
-      "path": "./packages/learning/tsconfig.browser.build.json"
+      "path": "./packages/python-runner/tsconfig.browser.build.json"
+    },
+    {
+      "path": "./packages/learning/tsconfig.build.json"
     }
   ]
 }

@@ -1,4 +1,4 @@
-// 在 launch.py 建立的限制里运行：加载 Pyodide 和课程要求的包，然后逐行读取任务、返回结果。
+// 在 launch.py 建立的限制里运行：加载 Pyodide、要求的包和 runner.py，然后逐行读取任务、返回结果。
 // 标准输出只写协议消息（每行一个 JSON）；Python 在任务之外打印的内容转到标准错误。
 import { readFile } from "node:fs/promises";
 import path from "node:path";

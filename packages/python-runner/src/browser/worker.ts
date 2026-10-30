@@ -3,7 +3,7 @@
  * - 宿主在这个脚本的响应头里给 CSP：default-src 'none'; script-src 'self' 'wasm-unsafe-eval'。
  *   Worker 不继承页面 meta 里的 CSP，没有这个响应头时，Python 一句 pyfetch 就能读到后端连接的 token。
  *   有了它，Worker 发不出任何网络请求，也不能字符串求值，只能编译 WebAssembly。启动前先确认它生效，否则拒绝运行。
- * - Python 的 js 模块只看得到一个空对象，与课程核对的 runner.mjs 相同。
+ * - Python 的 js 模块只看得到一个空对象，与 Node 宿主的 sandbox/runner.mjs 相同。
  * Pyodide 和 wheel 由页面取好、核对 SHA-256 后交进来；启动期间 fetch 用这些文件应答，启动后换回原来的 fetch。
  * 一个 Worker 只运行一批测试，用完由页面销毁，前一次提交的代码碰不到下一次。
  */

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { readFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { Type } from "typebox";
 import { parse } from "@repa/base/protocol";
 import { ExpectedSchema, expectedBinding, runnerVersion } from "../src/python-execution.js";
@@ -113,13 +114,14 @@ test("课程清单要求的运行时与安装的不一致时报出，不运行�
   assert.equal(result.summary.ran, false);
 });
 
-// 学习插件让核对器复用解释器以后，删掉这个开关和 CI 定时任务。
-test("随包的 Python 课程在 Pyodide 里全部核对通过", {
-  skip: process.env.REPA_SKIP_FULL_COURSE_CHECK === "1" ? "整门课核对要几十分钟，CI 只在定时任务里跑" : false,
-}, async (t) => {
+test("随包的 Python 课程在 Pyodide 里全部核对通过", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) return skipUnavailableEnvironment(t, reason);
-  const result = await checkCourse(PYTHON_COURSE);
+  // 在副本上核对：完整核对通过后会重写 expected.json，测试不改仓库里的课程。
+  const root = await mkdtemp(path.join(os.tmpdir(), "repa-learning-course-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await cp(PYTHON_COURSE, root, { recursive: true });
+  const result = await checkCourse(root, { base: root });
   assert.deepEqual(result.diagnostics, []);
   assert.equal(result.summary.ran, true);
   assert.equal(result.summary.topics.complete + result.summary.topics.outline, 48);
@@ -163,8 +165,7 @@ test("代码题的初始代码已经能通过测试、verify 遇到有多种正�
   assert.deepEqual(errors(result.diagnostics), ["starter_passes", "verify_alternatives"]);
 });
 
-
-test("每份候选程序从干净解释器开始，发布期望值绑定内容、运行前导和 runner", async (t) => {
+test("后一份候选程序看不到前一份留下的变量、文件和环境变量，发布期望值绑定内容、运行前导和 runner", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) {
     return skipUnavailableEnvironment(t, reason);
@@ -177,8 +178,10 @@ test("每份候选程序从干净解释器开始，发布期望值绑定内容�
   const slot = entry.slots.find((slot): slot is CodeSlot => slot.type === "code");
   assert.ok(slot);
   const original = slot.solution;
-  slot.solution = `import math\nmath.c2_leak = True\n${original}`;
-  slot.accepts = [`import math\nassert not hasattr(math, "c2_leak")\n${original}`];
+  slot.solution = `import os\nos.environ["C2_LEAK"] = "1"\nopen("c2_leak.txt", "w").write("x")\nc2_leak = True\n${original}`;
+  slot.accepts = [
+    `import os\nassert "C2_LEAK" not in os.environ and not os.path.exists("c2_leak.txt") and "c2_leak" not in globals()\n${original}`,
+  ];
   const root = await writeCourse(t, demo);
   const result = await checkCourse(root);
   assert.deepEqual(errors(result.diagnostics), []);

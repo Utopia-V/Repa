@@ -32,14 +32,14 @@
 
 ### Python 内部执行边界
 
-`repa-python-batch-v1` 的 schema 定义在公开的 `protocol.ts`（`PythonCapabilitiesSchema`、`PythonBatchInputSchema`、`PythonBatchResultSchema`），Web 与 Desktop 按它提供 `python.run`（#51、#52）。`python-execution.ts` 是薄适配层，只调用 `host.services.call("python.run", …)` 并核对结果：
+`repa-python-batch-v1` 的 schema 定义在 `@repa/python-runner/protocol`（[protocol.ts](../../packages/python-runner/src/protocol.ts) 的 `PythonCapabilitiesSchema`、`PythonBatchInputSchema`、`PythonBatchResultSchema`），Web 与 Desktop 用运行器包提供 `python.run`（#51、#52）。`python-execution.ts` 是薄适配层，只调用 `host.services.call("python.run", …)` 并核对结果：
 
 - `kind: capabilities` 返回 `protocol`、实际 `runtime`、`runner` 摘要和 `freshInterpreter: true`。`runtime` 只比较 Pyodide、Python 和包版本：`prelude` 是课程给的输入，前端探测时并不知道它。
 - `kind: execute` 携带原 `submissionId`、将采用的 `gradeRevision` 与有序 `tests`；每项包含唯一 id、program、prelude、setup、夹具、captures 和 doctest 输入，不包含期望表达式、期望值、参考解或 rubric。
 - 返回同一提交身份与目标判分版本、实际 `runtime`、`runner`、新解释器保证和同序结果。每项状态为 `completed`、`timeout`、`failed` 或 `not_run`；超时和失败携带 `prepare`、`program`、`capture`、`doctest` 或 `cleanup` 阶段。
 - 整批终止以后只允许剩余项为 `not_run`。学习者代码和被检查调用的超时形成判分，代码自身抛出的异常放在 `completed.result.error`。`failed` 表示执行环境失败，任何阶段都留待恢复；准备与收尾超时、版本不符、缺项及 `too_large` 同样留待恢复。
 
-课程核对在每份候选程序前关闭解释器，依序运行它的全部测试，比较函数与正式判分共用。完整核对成功后原子生成课程根目录的 `expected.json`；只检查结构或限定 topic 时不发布产物。每道题的 binding 同时绑定题目与信用版本、测试、夹具、课程运行环境（包括 prelude）和 `runner.py` 内容摘要。加载课程时剔除缺项或版本失效的预计算结果；交付快照保存本题产物。
+课程核对整门课共用一个解释器，依序运行每份候选程序的全部测试；任务之间由 `runner.py` 恢复状态，恢复失败或超时才换新的解释器，与判分在一批测试之内的做法相同。比较函数与正式判分共用。完整核对成功后原子生成课程根目录的 `expected.json`；只检查结构或限定 topic 时不发布产物。每道题的 binding 同时绑定题目与信用版本、测试、夹具、课程运行环境（包括 prelude）和 `runner.py` 内容摘要。加载课程时剔除缺项或版本失效的预计算结果；交付快照保存本题产物。
 
 生产交付先探测服务语义。服务不满足内部批次接口，或者缺少有效期望值时，选题跳过代码题与带测试的 Parsons；某个 lesson 的未过 KP 无可用题时，不提供该 lesson。已交付后发生的服务故障则沿原 submission 恢复，不替换原答。
 

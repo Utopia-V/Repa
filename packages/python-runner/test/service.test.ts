@@ -3,9 +3,9 @@ import test from "node:test";
 
 import type { RepaClient } from "@repa/base/client";
 
+import { PythonRunError, type PythonCapabilities } from "../src/browser/runner.js";
+import { servePythonRun } from "../src/browser/service.js";
 import { PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult } from "../src/protocol.js";
-import { PythonRunError, type PythonCapabilities } from "../src/python-runner/runner.js";
-import { servePythonRun } from "../src/python-runner/service.js";
 
 const runtime = { pyodide: "314.0.7", python: "3.14.2", packages: { pandas: "3.0.2" } };
 const input: PythonBatchInput = {
@@ -97,7 +97,7 @@ test("输入不符合约定、测试 id 重复或请求了别的服务时直接�
   await settled();
 
   assert.deepEqual(replies, [
-    { id: "req-1", error: { code: "invalid_input", message: "python.run 的输入不符合 @repa/learning/protocol 的约定" } },
+    { id: "req-1", error: { code: "invalid_input", message: "python.run 的输入不符合 @repa/python-runner/protocol 的约定" } },
     { id: "req-2", error: { code: "service_unknown", message: "这个前端不提供 r.run" } },
     { id: "req-3", error: { code: "invalid_input", message: "python.run 的测试 id 有重复" } },
   ]);

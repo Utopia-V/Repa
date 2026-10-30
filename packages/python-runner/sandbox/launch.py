@@ -1,6 +1,6 @@
-"""在 Landlock 与 seccomp 限制下启动课程检查用的 Node 进程。
+"""在 Landlock 与 seccomp 限制下启动运行 Pyodide 的 Node 进程。
 
-由 src/sandbox/session.ts 以 `python3 -I -S launch.py <配置 JSON>` 调用。本程序只做限制，然后 execve 成 Node，
+由 src/sandbox.ts 以 `python3 -I -S launch.py <配置 JSON>` 调用。本程序只做限制，然后 execve 成 Node，
 自身不再运行；限制随 execve 一直保留到进程结束，也无法再放宽。
 
 为什么不用 bwrap：Ubuntu 23.10 起默认开启 kernel.apparmor_restrict_unprivileged_userns，

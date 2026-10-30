@@ -1,15 +1,17 @@
 /**
- * 课程检查的隔离运行：用系统 python3 运行 sandbox/launch.py，加上 Landlock 与 seccomp 限制后 exec 成 Node，
- * 再由 sandbox/runner.mjs 加载 Pyodide。父进程逐个发送任务、等待结果，超时就整个结束子进程。
+ * Linux 上的隔离运行：用系统 python3 运行 sandbox/launch.py，加上 Landlock 与 seccomp 限制后 exec 成 Node，
+ * 再由 sandbox/runner.mjs 加载 Pyodide 和 runner.py。父进程逐个发送任务、等待结果，超时就整个结束子进程。
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
-import { PACKAGE_ROOT, type RuntimeAssets } from "./runtime.js";
+import { PACKAGE_ROOT, RUNNER_FILE, type RuntimeAssets } from "./runtime.js";
 
+/** 沙箱的私有内存上限，2 GiB。 */
 export const DEFAULT_MEMORY_BYTES = 2 * 1024 ** 3;
+/** 单个任务默认的时限，10 秒；超时就结束整个沙箱。 */
 export const DEFAULT_JOB_TIMEOUT_MS = 10_000;
 const STARTUP_TIMEOUT_MS = 60_000;
 const CPU_SECONDS = 600;
@@ -17,13 +19,14 @@ const MAX_LINE_BYTES = 16 * 1024 * 1024;
 const STDERR_TAIL = 8 * 1024;
 const SANDBOX_DIRECTORY = path.join(PACKAGE_ROOT, "sandbox");
 
+/** 沙箱里实际加载的 Pyodide、Python 和包的版本。 */
 export interface RuntimeVersions {
   pyodide: string;
   python: string;
   packages: Record<string, string>;
 }
 
-/** 沙箱建立不了：缺少 Landlock、libseccomp 或 python3 等。课程检查以错误结束，不会改用不受限的运行。 */
+/** 沙箱建立不了：缺少 Landlock、libseccomp 或 python3 等。调用方应当报错，不改用不受限的运行。 */
 export class SandboxUnavailable extends Error {
   constructor(message: string) {
     super(message);
@@ -31,12 +34,14 @@ export class SandboxUnavailable extends Error {
   }
 }
 
+/** 一个任务的结局：done 是 runner.py 交回了结果（ok 为 false 时是任务本身出错），timeout 和 crashed 时沙箱已经结束。 */
 export type JobOutcome =
   | { status: "done"; ok: true; result: unknown }
   | { status: "done"; ok: false; error: { type: string; message: string }; trace?: string }
   | { status: "timeout" }
   | { status: "crashed"; detail: string };
 
+/** 启动沙箱的选项：要加载的运行时文件、内存上限和启动沙箱用的系统 python3。 */
 export interface SandboxOptions {
   assets: RuntimeAssets;
   memoryBytes?: number;
@@ -51,6 +56,7 @@ interface RunnerMessage {
   response?: { ok: boolean; result?: unknown; error?: { type: string; message: string }; trace?: string };
 }
 
+/** 一个沙箱进程：启动时加载 Pyodide，之后逐个运行任务；超时或崩溃后不再可用。 */
 export class PythonSandbox {
   private buffer = "";
   private stderr = "";
@@ -81,20 +87,21 @@ export class PythonSandbox {
     });
   }
 
+  /** 启动一个沙箱，等它加载好 Pyodide、要求的包和 runner.py；建立不了时抛 SandboxUnavailable。 */
   static async start(options: SandboxOptions): Promise<{ sandbox: PythonSandbox; versions: RuntimeVersions }> {
     const { assets } = options;
     const node = await realpath(process.execPath);
     const runnerConfig = {
       pyodide: assets.pyodideDirectory,
       packages: assets.packagesDirectory,
-      runner: path.join(SANDBOX_DIRECTORY, "runner.py"),
+      runner: RUNNER_FILE,
       load: assets.load,
     };
     const launchConfig = {
       // /usr 只读放行系统库；/etc/ld.so.cache 供动态链接器查找库；其余只有运行时文件。
-      // wheel 逐个文件放行，不放行它们所在的目录：目录可以由使用者指定，不能借此读到旁边的文件。
+      // runner.py 和 wheel 逐个文件放行，不放行它们所在的目录：wheel 的目录可以由使用者指定，不能借此读到旁边的文件。
       read: [
-        "/usr", "/etc/ld.so.cache", "/dev/urandom", assets.pyodideDirectory, assets.wsDirectory, SANDBOX_DIRECTORY,
+        "/usr", "/etc/ld.so.cache", "/dev/urandom", assets.pyodideDirectory, assets.wsDirectory, SANDBOX_DIRECTORY, RUNNER_FILE,
         ...assets.wheels.map((wheel) => path.join(assets.packagesDirectory, wheel.file)),
       ],
       write: ["/dev/null"],
@@ -211,7 +218,7 @@ export class PythonSandbox {
   }
 }
 
-/** 按需启动沙箱；某个任务超时或运行器崩溃后，下一个任务换一个新的沙箱。 */
+/** 按需启动沙箱，之后的任务都在同一个解释器里运行；某个任务超时或运行器崩溃（包括恢复解释器状态失败）后，下一个任务换一个新的沙箱。 */
 export class SandboxRunner {
   private current: PythonSandbox | undefined;
   private started: RuntimeVersions | undefined;
@@ -228,13 +235,14 @@ export class SandboxRunner {
     return versions;
   }
 
-  /** 每个任务都带上课程清单声明的运行前导，运行器在任务的命名空间里先运行它。 */
+  /** 运行一个任务。每个任务都带上运行环境声明的前导，运行器在任务的命名空间里先运行它。 */
   async run(job: Record<string, unknown>, timeoutMs?: number): Promise<JobOutcome> {
     await this.start();
     if (!this.current) throw new SandboxUnavailable("沙箱没有启动");
     return this.current.run({ prelude: this.options.assets.prelude, ...job }, timeoutMs);
   }
 
+  /** 关闭当前的沙箱；之后再运行任务会启动新的。 */
   async close(): Promise<void> {
     await this.current?.close();
     this.current = undefined;

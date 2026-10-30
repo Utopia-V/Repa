@@ -4,11 +4,11 @@ import test, { type TestContext } from "node:test";
 
 import { contentVersion } from "@repa/base/protocol";
 
+import type { WorkerRequest } from "../src/browser/messages.js";
+import { loadRuntimeFiles, PythonRunner, type RunnerWorker, type RuntimeFiles } from "../src/browser/runner.js";
 import { PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult } from "../src/protocol.js";
-import type { WorkerRequest } from "../src/python-runner/messages.js";
-import { loadRuntimeFiles, PythonRunner, type RunnerWorker, type RuntimeFiles } from "../src/python-runner/runner.js";
 
-const runnerSource = await readFile(new URL("../sandbox/runner.py", import.meta.url), "utf8");
+const runnerSource = await readFile(new URL("../runner.py", import.meta.url), "utf8");
 const ASSETS_URL = "http://127.0.0.1:5173/__repa/pyodide/";
 const job = { program: "print(1)", prelude: "", setup: "", data: [], captures: [], doctest: [] };
 const input: PythonBatchInput = {
@@ -98,9 +98,9 @@ function fixture(respond: Respond | Respond[], options: FixtureOptions = {}) {
   return { runner, workers, downloads: () => downloads };
 }
 
-/** 等到 check 成立；一秒内不成立就失败，并带上 state 给出的状态。 */
+/** 等到 check 成立；十秒内不成立就失败，并带上 state 给出的状态。期限只防卡死，宽一些，机器忙时也不误报。 */
 async function until(check: () => boolean, state: () => unknown = () => undefined): Promise<void> {
-  const deadline = Date.now() + 1000;
+  const deadline = Date.now() + 10_000;
   while (!check()) {
     if (Date.now() > deadline) assert.fail(`等待超时：${JSON.stringify(state())}`);
     await new Promise((resolve) => setTimeout(resolve, 1));
@@ -143,7 +143,7 @@ test("一批测试在一个新 Worker 里按顺序运行；结果带回提交身
   assert.equal(workers[0]?.terminated, true);
 });
 
-test("课程要求的包没有加载时不出现在结果里，由后端判断环境不符", async () => {
+test("请求的包没有加载时不出现在结果里，由调用方判断环境不符", async () => {
   const { runner } = fixture(healthy());
   const result = await runner.run({ ...input, runtime: { ...input.runtime, packages: { pandas: "3.0.2", scipy: "1.16.0" } } });
   assert.deepEqual(result.runtime.packages, { pandas: "3.0.2" });
@@ -219,12 +219,13 @@ test("每个测试单独计时：各自没超时的测试加起来超过期限�
     if (request.type === "start") return worker.send({ type: "ready", runtime: loaded });
     void (async () => {
       for (const [test] of request.tests.entries()) {
-        await new Promise((resolve) => setTimeout(resolve, 15));
+        await new Promise((resolve) => setTimeout(resolve, 200));
         worker.send({ type: "tested", test, response: completed });
       }
     })();
   };
-  const { runner } = fixture(slow, { testTimeoutMs: 30 });
+  // 每个测试 200 毫秒，三个加起来超过 500 毫秒的期限；单个测试离期限留足余量，机器忙时计时器晚一些也不误报。
+  const { runner } = fixture(slow, { testTimeoutMs: 500 });
   assert.deepEqual(statuses(await runner.run(input)), ["completed", "completed", "completed"]);
 });
 
@@ -295,6 +296,30 @@ test("取消正在进行的调用会结束 Worker，不交回结果；已取消�
   const count = workers.length;
   await rejectsWith(runner.run(input, AbortSignal.abort()), "cancelled");
   assert.equal(workers.length, count);
+});
+
+/** 再过 count 个微任务执行 action；0 表示立即执行。 */
+function afterMicrotasks(count: number, action: () => void): void {
+  if (count === 0) {
+    action();
+    return;
+  }
+  queueMicrotask(() => afterMicrotasks(count - 1, action));
+}
+
+test("领取预热的 Worker 之后、发出 run 之前取消，调用照样以 cancelled 结束，不留下运行着的 Worker", async () => {
+  // 依次在调用后的第 0 到 39 个微任务时取消，覆盖从领取预热 Worker 到发出 run 之间的每一步。
+  for (let delay = 0; delay < 40; delay += 1) {
+    const { runner, workers } = fixture(healthy(() => ({ phases: [["program", null]] })), { testTimeoutMs: 50 });
+    await runner.capabilities();
+    const controller = new AbortController();
+    const running = runner.run(input, controller.signal);
+    afterMicrotasks(delay, () => controller.abort());
+    await rejectsWith(running, "cancelled");
+    const ran = workers.filter((worker) => types(worker)?.includes("run"));
+    assert.deepEqual(ran.map((worker) => worker.terminated), ran.map(() => true), `第 ${delay} 个微任务时取消`);
+    runner.close();
+  }
 });
 
 test("close 结束预热的 Worker，取消正在进行的调用，之后不再预热", async () => {

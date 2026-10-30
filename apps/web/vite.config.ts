@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startRepaProcess, type RepaProcess } from "@repa/base/process";
-import { defaultPackagesDirectory } from "@repa/learning";
+import { defaultPackagesDirectory } from "@repa/python-runner";
 
 // 只打开反馈包：这个端点替页面调用系统的文件管理器，不接受任意路径。
 const FEEDBACK_FILE = /^repa-feedback-[\d-]+\.zip$/u;

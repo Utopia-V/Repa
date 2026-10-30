@@ -8,10 +8,13 @@
     "composite": true,
     "tsBuildInfoFile": "./dist/tsconfig.browser.build.tsbuildinfo"
   },
-  "include": ["src/python-runner/**/*.ts"],
+  "include": ["src/browser/**/*.ts"],
   "references": [
     {
       "path": "./tsconfig.build.json"
+    },
+    {
+      "path": "../base/tsconfig.build.json"
     }
   ]
 }

@@ -1,5 +1,5 @@
 /**
- * 课程检查用的 Pyodide 运行时：npm 包 pyodide 提供解释器和标准库，pandas、NumPy 等 wheel
+ * Pyodide 运行时与离线包：npm 包 pyodide 提供解释器和标准库，pandas、NumPy 等 wheel
  * 另行准备到本包的 .cache 目录（或 REPA_PYODIDE_PACKAGES 指定的目录），每次使用前按发行 lockfile 的 SHA-256 核对。
  */
 
@@ -9,9 +9,21 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Runtime } from "../format/schema.js";
+/** 本包的根目录：dist/ 和 src/ 下的模块都在它下面一层。 */
+export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+/** runner.py 的绝对路径。Node 宿主从这里加载它；调用方也可以读它，确认与前端运行的是同一份。 */
+export const RUNNER_FILE = path.join(PACKAGE_ROOT, "runner.py");
 
-export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+/**
+ * 调用方要求的运行环境：Pyodide、Python 和要加载的包（包名到版本）。
+ * prelude 是每个任务在自己的命名空间里先运行的代码，例如 import pandas as pd。
+ */
+export interface PythonEnvironment {
+  pyodide: string;
+  python: string;
+  packages: Record<string, string>;
+  prelude?: string;
+}
 
 interface LockPackage {
   name: string;
@@ -26,25 +38,28 @@ interface Lockfile {
   packages: Record<string, LockPackage>;
 }
 
+/** 一个离线 wheel：包名、文件名和 lockfile 里的 SHA-256。 */
 export interface Wheel {
   name: string;
   file: string;
   sha256: string;
 }
 
+/** 运行一个环境要用的全部文件：Pyodide 的目录、离线 wheel 的目录和要加载的包。 */
 export interface RuntimeAssets {
   pyodideVersion: string;
   pyodideDirectory: string;
   /** pyodide 在 Node 里加载时 import 的 ws 包所在目录。 */
   wsDirectory: string;
   packagesDirectory: string;
-  /** 课程要求的包及其依赖。 */
+  /** 要求的包及其依赖。 */
   wheels: Wheel[];
   load: string[];
-  /** 课程清单声明的运行前导，每个任务在自己的命名空间里先运行它；没有声明为空串。 */
+  /** 运行环境声明的前导，每个任务在自己的命名空间里先运行它；没有声明为空串。 */
   prelude: string;
 }
 
+/** 运行时用不了：安装的版本与要求不符、缺少离线包或下载失败。code 说明是哪一种。 */
 export class RuntimeProblem extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
@@ -52,6 +67,7 @@ export class RuntimeProblem extends Error {
   }
 }
 
+/** 离线 wheel 的默认目录：本包的 .cache/pyodide/<版本>/，可用 REPA_PYODIDE_PACKAGES 改到别处。 */
 export function defaultPackagesDirectory(version: string): string {
   return process.env.REPA_PYODIDE_PACKAGES ?? path.join(PACKAGE_ROOT, ".cache", "pyodide", version);
 }
@@ -60,19 +76,19 @@ async function sha256(file: string): Promise<string> {
   return createHash("sha256").update(await readFile(file)).digest("hex");
 }
 
-/** 找到安装的 pyodide，核对它与课程清单要求的 Pyodide、Python 和包版本一致，算出需要的 wheel。 */
-export async function describeRuntime(runtime: Runtime, packagesDirectory?: string): Promise<RuntimeAssets> {
+/** 找到安装的 pyodide，核对它与要求的 Pyodide、Python 和包版本一致，算出需要的 wheel。 */
+export async function describeRuntime(runtime: PythonEnvironment, packagesDirectory?: string): Promise<RuntimeAssets> {
   const require = createRequire(import.meta.url);
   const manifestPath = require.resolve("pyodide/package.json");
   const pyodideDirectory = path.dirname(manifestPath);
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { version: string };
   if (manifest.version !== runtime.pyodide) {
-    throw new RuntimeProblem("runtime_mismatch", `课程要求 Pyodide ${runtime.pyodide}，安装的是 ${manifest.version}`);
+    throw new RuntimeProblem("runtime_mismatch", `要求 Pyodide ${runtime.pyodide}，安装的是 ${manifest.version}`);
   }
   const wsDirectory = path.dirname(createRequire(manifestPath).resolve("ws/package.json"));
   const lock = JSON.parse(await readFile(path.join(pyodideDirectory, "pyodide-lock.json"), "utf8")) as Lockfile;
   if (lock.info.python !== runtime.python) {
-    throw new RuntimeProblem("runtime_mismatch", `课程要求 Python ${runtime.python}，Pyodide ${manifest.version} 带的是 ${lock.info.python}`);
+    throw new RuntimeProblem("runtime_mismatch", `要求 Python ${runtime.python}，Pyodide ${manifest.version} 带的是 ${lock.info.python}`);
   }
   const wheels = new Map<string, Wheel>();
   const add = (name: string): void => {
@@ -85,7 +101,7 @@ export async function describeRuntime(runtime: Runtime, packagesDirectory?: stri
   for (const [name, version] of Object.entries(runtime.packages)) {
     const entry = lock.packages[name];
     if (entry && entry.version !== version) {
-      throw new RuntimeProblem("runtime_mismatch", `课程要求 ${name} ${version}，Pyodide ${manifest.version} 带的是 ${entry.version}`);
+      throw new RuntimeProblem("runtime_mismatch", `要求 ${name} ${version}，Pyodide ${manifest.version} 带的是 ${entry.version}`);
     }
     add(name);
   }
@@ -123,6 +139,7 @@ export async function verifyPackages(assets: RuntimeAssets): Promise<void> {
   }
 }
 
+/** 准备离线 wheel 的选项。 */
 export interface PrepareOptions {
   /** 从已有目录复制，例如另一份离线资源；不给时从 jsDelivr 下载。 */
   from?: string;

@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  // 浏览器里运行的部分另用 tsconfig.browser.json 检查，那里加上 DOM 的类型。
+  "exclude": ["src/browser", "test/browser-runner.test.ts", "test/service.test.ts"]
+}

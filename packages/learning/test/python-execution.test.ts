@@ -4,7 +4,7 @@ import { RepaFault } from "@repa/base";
 import { createPluginTestHost } from "@repa/base/testing";
 import type { Host } from "@repa/base/plugin";
 import { compareProgram, executePython, pythonAvailable } from "../src/python-execution.js";
-import { PYTHON_BATCH, type PythonBatchInput } from "../src/protocol.js";
+import { PYTHON_BATCH, type PythonBatchInput } from "@repa/python-runner/protocol";
 
 const input: PythonBatchInput = {
   protocol: PYTHON_BATCH,

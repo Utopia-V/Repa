@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { writeFile, rename } from "node:fs/promises";
 import path from "node:path";
+import {
+  describeRuntime, RuntimeProblem, SandboxRunner, SandboxUnavailable, verifyPackages, type RuntimeVersions,
+} from "@repa/python-runner";
 import { expectedBinding, runnerVersion, type Expected } from "../python-execution.js";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
-import { describeRuntime, RuntimeProblem, verifyPackages } from "../sandbox/runtime.js";
-import { SandboxRunner, SandboxUnavailable, type RuntimeVersions } from "../sandbox/session.js";
 import { checkTopicCode, type CodeStats } from "./code.js";
 import { checkReferences } from "./questions.js";
 import { checkRules } from "./rules.js";
@@ -14,7 +15,7 @@ import { topicQuestions } from "./items.js";
 export interface CheckOptions {
   /** 是否在 Pyodide 里运行核对与测试，缺省为 true。 */
   run?: boolean;
-  /** 离线 Pyodide 包所在目录，缺省见 defaultPackagesDirectory。 */
+  /** 离线 Pyodide 包所在目录，缺省见 @repa/python-runner 的 defaultPackagesDirectory。 */
   packagesDirectory?: string;
   /** 问题里文件路径的显示基准，缺省为当前目录。 */
   base?: string;
@@ -99,11 +100,10 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
         };
       }
     }
-    // 核对器在每份候选程序前关闭旧解释器，随后按正式测试顺序逐项执行。
+    // 整门课共用一个解释器，按正式测试顺序逐项执行；任务之间由 runner.py 恢复状态，恢复失败或超时才换新的。
     for (const topic of loaded.topics) {
       if (options.topics && !options.topics.includes(topic.topic.id)) continue;
       await checkTopicCode(topic, runner, report, code, options.timeoutMs, published);
-      await runner.close();
     }
     if (!options.topics && report.errorCount === 0) {
       const target = path.join(root, "expected.json");
