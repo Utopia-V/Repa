@@ -5,7 +5,7 @@ import { contentVersion } from "@repa/base/protocol";
 
 import { confirmationVersion, currentConfirmation, confirmCourse } from "../src/check/confirm.js";
 import { checkCourse } from "../src/check/course.js";
-import { versionInput, questionCredit, questionVersion } from "../src/check/items.js";
+import { versionInput, questionVersion } from "../src/check/items.js";
 import { Report } from "../src/format/diagnostics.js";
 import { loadCourse } from "../src/format/load.js";
 import type { Confirmation, Question, Topic } from "../src/format/schema.js";
@@ -37,7 +37,7 @@ function relations(): DemoCourse {
   const kp = third.kps[0];
   assert.ok(kp);
   kp.keyPrerequisites = ["t01"];
-  kp.practice = [{ ...structuredClone(question(topic(demo, "t01"))), id: "t03.k1.q1", uses: ["t04.k1"] }];
+  kp.practice = [{ ...structuredClone(question(topic(demo, "t01"))), id: "t03.k1.q1" }];
   third.encompassings = [{ topic: "t04", weight: 0.5 }];
   demo.course.retiredIds = [];
   return demo;
@@ -49,7 +49,7 @@ async function errors(t: Parameters<typeof writeCourse>[0], demo: DemoCourse): P
   return result.diagnostics.map((entry) => entry.code).sort();
 }
 
-test("纯先修不带信用，KP 可指定跳层补救，覆盖和 uses 可指向非祖先", async (t) => {
+test("纯先修不带信用，KP 可指定跳层补救，覆盖可指向非祖先", async (t) => {
   const demo = relations();
   assert.deepEqual(topic(demo, "t02").prerequisites, ["t01"]);
   assert.equal(topic(demo, "t02").encompassings, undefined);
@@ -105,14 +105,11 @@ test("关键先修必须存在于先修祖先且不能重复，不把独立覆�
   ]);
 });
 
-test("直接考查只归本 topic，uses 引用其他子技能，二者分别去重并拒绝重叠", async (t) => {
+test("直接考查只归本 topic，引用存在的知识点，不重复", async (t) => {
   const demo = relations();
   const q = question(topic(demo, "t01"));
-  q.measures = ["t04.k1", "t01.k1", "t01.k1"];
-  q.uses = ["t01.k1", "t04.k9", "t04.k9"];
-  assert.deepEqual(await errors(t, demo), [
-    "kp_reference_duplicate", "kp_reference_duplicate", "kp_unknown", "kp_unknown", "measures_other_topic", "uses_measured",
-  ]);
+  q.measures = ["t04.k1", "t01.k1", "t01.k1", "t04.k9"];
+  assert.deepEqual(await errors(t, demo), ["kp_reference_duplicate", "kp_unknown", "measures_other_topic"]);
 });
 
 test("当前 topic、KP、题目均不能复用退役 id，未使用的退役 id 不阻断", async (t) => {
@@ -127,15 +124,13 @@ test("当前 topic、KP、题目均不能复用退役 id，未使用的退役 id
   assert.ok((await errors(t, demo)).includes("kp_id_prefix"));
 });
 
-test("知识点归属不进题目版本：改 measures 或 uses 后版本不变，过去的作答照样对得上", async () => {
+test("知识点归属不进题目版本：改 measures 后版本不变，过去的作答照样对得上", async () => {
   const owner = topic(relations(), "t01");
   const q = question(owner);
   const original = await questionVersion(q, owner, "");
-  assert.equal(await questionVersion({ ...q, measures: ["t01.k1"], uses: [] }, owner, ""), original);
-  assert.equal(await questionVersion({ ...q, measures: ["t01.k1", "t01.k2"], uses: ["t04.k1", "t04.k2"] }, owner, ""), original);
-  assert.equal(await questionVersion({ ...q, uses: ["t04.k1"] }, owner, ""), original);
+  assert.equal(await questionVersion({ ...q, measures: ["t01.k1"] }, owner, ""), original);
+  assert.equal(await questionVersion({ ...q, measures: ["t01.k1", "t01.k2"] }, owner, ""), original);
   assert.equal(await questionVersion({ ...q, measures: ["t01.k2"] }, owner, ""), original);
-  assert.deepEqual(questionCredit(q), { measures: ["t01.k1"], uses: [] });
 });
 
 test("核对范围绑定答案、题面、数据和运行依赖；信用、题型及检查元数据不使证明失效", async () => {
@@ -148,7 +143,7 @@ test("核对范围绑定答案、题面、数据和运行依赖；信用、题�
     question: q.id, version, scope: "question-runtime-v1", slots: ["output"], model: "local/test", date: "2026-10-20",
   };
   owner.verified = [record];
-  const changed: Question = { ...q, uses: ["t04.k1"], kind: ["debug"], verify: "answers = {}" };
+  const changed: Question = { ...q, measures: ["t01.k2"], kind: ["debug"], verify: "answers = {}" };
   assert.equal(await currentConfirmation(owner, changed, demo.course.runtime), record);
   assert.equal(await currentConfirmation(owner, { ...q, body: "新题面" }, demo.course.runtime), undefined);
   assert.equal(await currentConfirmation(owner, { ...q, slots: [{ id: "output", type: "text", key: 99 }] }, demo.course.runtime), undefined);
@@ -175,7 +170,7 @@ test("旧证明只有原算法重算相同且运行环境等于冻结基线时�
   };
   owner.verified = [record];
   assert.equal(await currentConfirmation(owner, q, runtime), record);
-  assert.equal(await currentConfirmation(owner, { ...q, uses: ["t04.k1"] }, runtime), record);
+  assert.equal(await currentConfirmation(owner, { ...q, measures: ["t01.k2"] }, runtime), record);
   assert.equal(await currentConfirmation(owner, { ...q, body: "新题面" }, runtime), undefined);
   assert.equal(await currentConfirmation(owner, { ...q, slots: [{ id: "output", type: "text", key: 99 }] }, runtime), undefined);
   assert.equal(await currentConfirmation(owner, q, demo.course.runtime), undefined);
@@ -198,7 +193,7 @@ test("课程检查与核对入口复用原证明，单改信用不发请求，�
     slots: ["output"], model: "legacy/test", date: "2026-10-12",
   }];
   const original = await questionVersion(quiz, owner, "");
-  quiz.uses = ["t04.k1"];
+  quiz.measures = ["t01.k2"];
   assert.equal(await questionVersion(quiz, owner, ""), original);
   assert.deepEqual(await errors(t, demo), []);
   const root = await writeCourse(t, demo);

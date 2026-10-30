@@ -4,7 +4,7 @@ export { loadCourse, type LoadedCourse, type LoadedTopic } from "./format/load.j
 export { toContent } from "./format/markdown.js";
 export { checkCourse, type CheckOptions, type CheckResult, type CheckSummary } from "./check/course.js";
 export { gradeSlot, type SlotGrade } from "./check/grade.js";
-export { itemVersion, publicItem, questionCredit, questionVersion, referenceResponse, topicQuestions, versionInput } from "./check/items.js";
+export { itemVersion, publicItem, questionVersion, referenceResponse, topicQuestions, versionInput } from "./check/items.js";
 export { createLearningPlugin, LEARNING_FORMAT_VERSION, type LearningPluginOptions } from "./plugin.js";
 export { LearningRecords, recoverLearningLog } from "./records.js";
 export * from "./records-schema.js";

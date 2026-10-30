@@ -130,7 +130,6 @@ kps:
           answers = {"first": int(lines[0]), "second": str(lines[1]), "third": int(lines[2])}
       - id: py37.k1.q2
         kind: [debug]
-        uses: [py06.k2]
         body: |
           同事想显示这条记录的第一项，写了下面的程序，以为第 2 行会像列表那样取出第一个值。
 
@@ -231,7 +230,6 @@ kps:
     review:
       - id: py37.k1.r1
         kind: [predict]
-        uses: [py06.k2]
         body: |
           一个采样点的信息写成了字典：
 
@@ -314,7 +312,6 @@ kps:
     quiz:
       - id: py37.k1.x1
         kind: [explain]
-        uses: [py06.k2]
         body: |
           前一行是：
 
@@ -448,7 +445,6 @@ kps:
     example:
       id: py37.k2.e0
       kind: [predict]
-      uses: [py03.k3]
       body: |
         ```python
         record = {"sample_id": "S_A", "signal": 8}
@@ -576,7 +572,6 @@ kps:
           answers = {"what": what, "fix": fits[0] if len(fits) == 1 else fits}
       - id: py37.k2.q3
         kind: [explain]
-        uses: [py03.k3]
         body: |
           有的样本记录里有 depth，有的没有。需求是：
 
@@ -754,7 +749,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py37.k2.x2
         kind: [predict]
-        uses: [py03.k3]
         body: |
           `latest` 记录每个样本最近一次的读数；S_B 这次没读到，记成了 None。
 
@@ -1027,7 +1021,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py37.k3.r2
         kind: [predict]
-        uses: [py06.k1]
         body: |
           `ids` 是一个列表，`signals` 是一个字典：
 
@@ -1120,7 +1113,6 @@ kps:
           answers = {"exprs": true}
       - id: py37.k3.x2
         kind: [predict]
-        uses: [py37.k2, py03.k3]
         body: |
           ```python
           record = {"sample_id": "S_C", "depth": None}

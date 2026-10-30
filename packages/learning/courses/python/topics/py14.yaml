@@ -285,7 +285,6 @@ kps:
           answers = {"parts": {row: {"part": part(item)} for row, item in items.items()}}
       - id: py14.k1.q2
         kind: [predict]
-        uses: [py06.k1]
         data: [T]
         body: |
           在交互窗口里依次输入下面几行。`df` 是表 T。
@@ -494,7 +493,6 @@ kps:
           answers = {"claim": "wrong" if "P1" in list(field.index) and "P1" not in columns else "right", "first": columns[0]}
       - id: py14.k1.x2
         kind: [predict]
-        uses: [py06.k1]
         data: [field]
         body: |
           表 field 已经准备好。下面每个表达式单独求值，得到的是什么东西？会报错的选“报错”。
@@ -1044,7 +1042,6 @@ kps:
     practice:
       - id: py14.k3.q1
         kind: [predict]
-        uses: [py03.k1]
         data: [lab]
         body: |
           表 lab 里，count 和 note 两列看起来一样。

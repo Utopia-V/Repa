@@ -181,7 +181,6 @@ kps:
     practice:
       - id: py22.k1.q1
         kind: [debug]
-        uses: [py17.k1, py17.k2]
         data: [T]
         body: |
           同事想把负的读数改成 0，写了下面这行。运行时只出现一条警告，没有报错。
@@ -241,7 +240,6 @@ kps:
           answers = {"after": {f"r{label}": {"signal": value} for label, value in after["signal"].items()}, "fix": fits[0] if len(fits) == 1 else fits}
       - id: py22.k1.q2
         kind: [trace]
-        uses: [py17.k1, py21.k1]
         data: [T]
         body: |
           阅读代码，按原行索引填写运行后新列 `flag` 的值。没有值的填 `NaN`。
@@ -276,7 +274,6 @@ kps:
           }
       - id: py22.k1.q3
         kind: [modify]
-        uses: [py17.k1, py17.k2]
         data: [T]
         body: |
           需求是：
@@ -327,7 +324,6 @@ kps:
     review:
       - id: py22.k1.r1
         kind: [trace]
-        uses: [py17.k1]
         data: [soil]
         body: |
           复测发现东坡的深度记错了。阅读代码，按原行索引填写运行后的 depth。
@@ -354,7 +350,6 @@ kps:
           answers = {"depth": {f"r{label}": {"depth": value} for label, value in after["depth"].items()}}
       - id: py22.k1.r2
         kind: [debug]
-        uses: [py17.k1, py17.k2]
         data: [wells]
         body: |
           要把 wells 里计数低于 100 的孔改成 100。下面每一行单独运行，哪几行会真的改到 wells？选出所有会改到的。
@@ -393,7 +388,6 @@ kps:
     quiz:
       - id: py22.k1.x1
         kind: [modify]
-        uses: [py17.k1, py17.k2]
         data: [wells]
         body: |
           需求是：
@@ -439,7 +433,6 @@ kps:
           原来的代码先筛出 p2 板的孔，存成新表 `p2`，再改 `p2`；wells 不变。要改 wells，就在 wells 上写一次 `.loc` 赋值，逗号前选 p2 板的行，逗号后是 status 列。判分时还会换一块板的记录运行，检查整张表。
       - id: py22.k1.x2
         kind: [predict]
-        uses: [py17.k1]
         data: [temps]
         body: |
           阅读代码，写出两行输出。
@@ -565,7 +558,6 @@ kps:
     practice:
       - id: py22.k2.q1
         kind: [predict]
-        uses: [py01.k1, py17.k1]
         data: [T]
         body: |
           阅读代码，写出两行输出。
@@ -599,7 +591,6 @@ kps:
           answers = {"first": int(lines[0]), "second": int(lines[1])}
       - id: py22.k2.q2
         kind: [debug]
-        uses: [py01.k1]
         data: [T]
         body: |
           需求是：先留一份原始表 `raw`，再直接把 df 里的负数改成 0；raw 要保持原始读数。同事写了下面的代码，结果 raw 里也没有负数了。
@@ -649,7 +640,6 @@ kps:
           answers = {"fix": fits[0] if len(fits) == 1 else fits, "raw_min": int(chosen["raw"]["signal"].min())}
       - id: py22.k2.q3
         kind: [trace]
-        uses: [py01.k1, py17.k1]
         data: [T]
         body: |
           阅读代码，写出两行输出。
@@ -683,7 +673,6 @@ kps:
     review:
       - id: py22.k2.r1
         kind: [explain]
-        uses: [py01.k1, py17.k1]
         data: [wells]
         body: |
           宿主依次运行了下面四行。
@@ -721,7 +710,6 @@ kps:
           answers = {"names": names}
       - id: py22.k2.r2
         kind: [predict]
-        uses: [py16.k1, py16.k2]
         data: [T]
         body: |
           阅读代码，写出两行输出。
@@ -755,7 +743,6 @@ kps:
     quiz:
       - id: py22.k2.x1
         kind: [trace]
-        uses: [py01.k1, py17.k1]
         data: [wells]
         body: |
           阅读代码，写出全部运行后的几个值。
@@ -793,7 +780,6 @@ kps:
           }}
       - id: py22.k2.x2
         kind: [modify]
-        uses: [py01.k1, py17.k1, py17.k2]
         data: [wells]
         body: |
           需求是：

@@ -152,7 +152,6 @@ kps:
     example:
       id: py27.k1.e0
       kind: [predict]
-      uses: [py26.k1, py26.k2, py16.k1]
       data: [G]
       body: |
         阅读代码，写出每个组的结果。
@@ -187,7 +186,6 @@ kps:
     practice:
       - id: py27.k1.q1
         kind: [predict]
-        uses: [py26.k1, py26.k2]
         data: [G]
         body: |
           阅读代码，填写 `total` 和 `n` 里每个组的值。
@@ -213,7 +211,6 @@ kps:
           answers = {"values": {label: {"total": r["total"][label], "n": r["n"][label]} for label in r["total"].index}}
       - id: py27.k1.q2
         kind: [explain, predict]
-        uses: [py16.k1]
         data: [soil]
         body: |
           阅读代码，说出它在做什么。
@@ -259,7 +256,6 @@ kps:
         manual: [key, value, how]
       - id: py27.k1.q3
         kind: [debug]
-        uses: [py16.k1]
         data: [G]
         body: |
           要求是“每个组 signal 的最大值”。同事写了：
@@ -303,7 +299,6 @@ kps:
     review:
       - id: py27.k1.r1
         kind: [modify]
-        uses: [py16.k1]
         data: [plants]
         body: |
           把下面四块拼成一行代码，算出每个地块幼苗的平均高度，存进 `result`。每块都要用上。
@@ -341,7 +336,6 @@ kps:
           answers = {"chunks": fits[0] if len(fits) == 1 else fits, "plot_b": expected["B"]}
       - id: py27.k1.r2
         kind: [predict]
-        uses: [py26.k2]
         data: [water]
         body: |
           阅读代码，填写每个站点的结果。
@@ -367,7 +361,6 @@ kps:
     quiz:
       - id: py27.k1.x1
         kind: [predict]
-        uses: [py16.k2]
         data: [survey]
         body: |
           屏幕上显示什么？`.loc["上海"]` 按行标签取出上海那一组的值。
@@ -387,7 +380,6 @@ kps:
           answers = {"output": run().lines()[0]}
       - id: py27.k1.x2
         kind: [explain]
-        uses: [py16.k1]
         data: [farm]
         body: |
           要求是“每种作物的总产量”。哪一行代码符合要求？
@@ -460,7 +452,6 @@ kps:
     example:
       id: py27.k2.e0
       kind: [predict]
-      uses: [py14.k1, py16.k1]
       data: [G]
       body: |
         阅读代码，说出 `result` 的样子。
@@ -499,7 +490,6 @@ kps:
     practice:
       - id: py27.k2.q1
         kind: [predict]
-        uses: [py14.k1]
         data: [soil]
         body: |
           阅读代码，说出 `result` 的样子。
@@ -535,7 +525,6 @@ kps:
           answers = {"labels": [str(label) for label in result.index], "nrows": len(result), "plot_a": result["A"]}
       - id: py27.k2.q2
         kind: [predict]
-        uses: [py16.k1]
         data: [G]
         body: |
           阅读代码，说出 `result` 的样子。
@@ -575,7 +564,6 @@ kps:
           answers = {"columns": list(result.columns), "index": index[0] if len(index) == 1 else index, "cell": result.loc[1, "group"]}
       - id: py27.k2.q3
         kind: [modify]
-        uses: [py16.k1]
         data: [G]
         body: |
           需求是：
@@ -634,7 +622,6 @@ kps:
     review:
       - id: py27.k2.r1
         kind: [explain]
-        uses: [py14.k1]
         data: [farm]
         body: |
           运行 `by_crop = farm.groupby("crop")["yield_kg"].sum()` 之后，判断每句话对不对。
@@ -662,7 +649,6 @@ kps:
           }}
       - id: py27.k2.r2
         kind: [predict]
-        uses: [py16.k2]
         data: [survey]
         body: |
           屏幕上依次显示什么？
@@ -697,7 +683,6 @@ kps:
     quiz:
       - id: py27.k2.x1
         kind: [explain, predict]
-        uses: [py16.k1, py26.k1]
         data: [water]
         body: |
           同事发来分组统计的结果，要的是每个站点测到浓度的次数（没测到的不算）：一张表，第一列 station，第二列 conc 存次数，行标签从 0 开始，站点按字母顺序：
@@ -764,7 +749,6 @@ kps:
           answers = {"code": fits}
       - id: py27.k2.x2
         kind: [predict]
-        uses: [py14.k2, py16.k1]
         data: [plants]
         body: |
           写出每个表达式的结果里有几个值。一个单独的数算 1 个。

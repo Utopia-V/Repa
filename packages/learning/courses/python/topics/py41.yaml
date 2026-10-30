@@ -78,7 +78,6 @@ kps:
     example:
       id: py41.k1.e0
       kind: [trace, predict]
-      uses: [py40.k2, py04.k2]
       body: |
         ```python startLine=1
         def label(signal, limit=10):
@@ -129,7 +128,6 @@ kps:
     practice:
       - id: py41.k1.q1
         kind: [predict]
-        uses: [py40.k2, py04.k2]
         body: |
           `to_mm` 把长度换算成毫米，unit 省略时按厘米算。
 
@@ -160,7 +158,6 @@ kps:
           answers = {"results": {f"c{i}": {"result": value} for i, value in enumerate(r["results"], 1)}}
       - id: py41.k1.q2
         kind: [debug]
-        uses: [py04.k2]
         body: |
           ```python
           def label(signal, limit=10):
@@ -212,7 +209,6 @@ kps:
           answers = {"result": "pass" if r["result"] == "达标" else "fail", "calls": right}
       - id: py41.k1.q3
         kind: [modify]
-        uses: [py40.k2]
         body: |
           需求：大多数样本的本底是 0。希望调用 `net_signal` 时可以省略 blank，省略就按 0 算；给了 blank 就照常减去。
 
@@ -274,7 +270,6 @@ kps:
     review:
       - id: py41.k1.r1
         kind: [explain]
-        uses: [py04.k2, py02.k2]
         body: |
           `per_hour` 把一段时间里的计数换算成每小时的次数，minutes 省略时按 60 分钟算。
 
@@ -320,7 +315,6 @@ kps:
           answers = {"same": [option for option, call in calls.items() if inputs(call) == base]}
       - id: py41.k1.r2
         kind: [trace, predict]
-        uses: [py10.k1, py04.k2]
         body: |
           ```python
           def mark(value, low=5, high=10):
@@ -371,7 +365,6 @@ kps:
     quiz:
       - id: py41.k1.x1
         kind: [trace, predict]
-        uses: [py08.k2, py10.k1, py04.k2]
         body: |
           `deep` 判断一个采样点算不算深层：strict 为 True 时要求严格超过 limit，否则达到 limit 就算。
 
@@ -416,7 +409,6 @@ kps:
           answers = {"calls": rows}
       - id: py41.k1.x2
         kind: [debug]
-        uses: [py04.k2]
         body: |
           函数体是 `return count / minutes`，要让下面三次调用都按注释工作：
 
@@ -505,7 +497,6 @@ kps:
     example:
       id: py41.k2.e0
       kind: [trace, predict]
-      uses: [py40.k2, py10.k1]
       body: |
         ```python startLine=1
         limit = 10
@@ -563,7 +554,6 @@ kps:
     practice:
       - id: py41.k2.q1
         kind: [predict, explain]
-        uses: [py01.k2, py40.k2]
         body: |
           ```python startLine=1
           blank = 2
@@ -610,7 +600,6 @@ kps:
                      "when": "call" if r["b"] == 9 - r["blank"] and r["a"] != r["b"] else "define"}
       - id: py41.k2.q2
         kind: [predict, debug]
-        uses: [py40.k3]
         body: |
           ```python startLine=1
           def net(raw, blank):
@@ -645,7 +634,6 @@ kps:
           answers = {"outcome": true[0] if len(true) == 1 else true}
       - id: py41.k2.q3
         kind: [debug]
-        uses: [py40.k2]
         body: |
           同事想每处理一份样本，就让外面的 count 加 1。
 
@@ -717,7 +705,6 @@ kps:
     review:
       - id: py41.k2.r1
         kind: [trace]
-        uses: [py40.k2, py01.k2]
         body: |
           ```python startLine=1
           x = 5
@@ -747,7 +734,6 @@ kps:
           answers = {"values": {name: {"value": r[name]} for name in ("x", "y", "z")}}
       - id: py41.k2.r2
         kind: [predict, debug]
-        uses: [py02.k2, py40.k3]
         body: |
           ```python startLine=1
           total = 100
@@ -795,7 +781,6 @@ kps:
     quiz:
       - id: py41.k2.x1
         kind: [predict, trace]
-        uses: [py40.k2, py01.k2]
         body: |
           ```python startLine=1
           n = 1
@@ -828,7 +813,6 @@ kps:
           answers = {"lines": {f"l{i}": {"shown": int(line)} for i, line in enumerate(run().lines(), 1)}}
       - id: py41.k2.x2
         kind: [predict, debug]
-        uses: [py40.k2]
         body: |
           有人以为调用 `reset()` 能把外面的 level 清零。
 
@@ -928,7 +912,6 @@ kps:
     example:
       id: py41.k3.e0
       kind: [predict, debug]
-      uses: [py03.k3, py40.k2]
       body: |
         ```python startLine=1
         def net(raw, blank):
@@ -969,7 +952,6 @@ kps:
     practice:
       - id: py41.k3.q1
         kind: [predict, trace]
-        uses: [py10.k1, py03.k3]
         body: |
           ```python
           def label(signal, limit):
@@ -1003,7 +985,6 @@ kps:
           answers = {"results": {f"c{i}": {"result": ids[value]} for i, value in enumerate(r["results"], 1)}}
       - id: py41.k3.q2
         kind: [debug]
-        uses: [py03.k3, py40.k2]
         body: |
           ```python startLine=1
           def double(x):
@@ -1051,7 +1032,6 @@ kps:
                      "a": r["a"]}
       - id: py41.k3.q3
         kind: [modify]
-        uses: [py40.k2, py41.k1]
         body: |
           `to_mm` 想把长度换算成毫米，可现在每次都交回 None。请改动作答框里的函数，让每条路径都交回换算结果。
 
@@ -1143,7 +1123,6 @@ kps:
     review:
       - id: py41.k3.r1
         kind: [explain]
-        uses: [py40.k2, py40.k3]
         body: |
           下面哪些函数的调用 `f(3)` 会交回 6？选出所有的。
         slots:
@@ -1195,7 +1174,6 @@ kps:
                                  if run(code + "\nresult = f(3)")["result"] == 6]}
       - id: py41.k3.r2
         kind: [debug, trace]
-        uses: [py10.k1, py03.k3]
         body: |
           ```python
           def depth_class(depth):
@@ -1229,7 +1207,6 @@ kps:
     quiz:
       - id: py41.k3.x1
         kind: [predict, explain]
-        uses: [py40.k2, py03.k3]
         body: |
           ```python
           def a(n):
@@ -1270,7 +1247,6 @@ kps:
           answers = {"calls": rows}
       - id: py41.k3.x2
         kind: [modify]
-        uses: [py41.k1, py40.k3]
         body: |
           需求：`net_signal(raw, blank=0)` 交回减去本底后的值，不在屏幕上显示任何东西。
 

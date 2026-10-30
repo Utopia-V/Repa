@@ -10,9 +10,9 @@
 
 格式选 YAML，一个 topic 一个文件。讲解、题目和答案在同一个文件里，讲解是块文字里的 Markdown，题目是结构化数据；作者只学一种语法，Agent 也容易写对，git diff 按行就能看清。YAML 读出来之后先按 TypeBox schema 严格校验，不认识的字段直接报错，问题定位到文件的行和列。题目的写法贴近交互词汇的 `Item`：题面、五种作答位、选项和单元格的字段名都一样，只在作答位上多出答案、比较方式、核对程序和测试这些私有字段；投影成学生可见的题目时按白名单取字段，私有部分不会带出去。
 
-题目版本（`questionVersion`）复用底座的 `contentVersion`（RFC 8785 规范化后的 SHA-256，写成 `sha256:<hex>`），只由学生看到的内容与判分方式决定：输入包括题面、作答位（含答案和判分规则）、解析、测试和用到的数据；按测试判的题还包括课程清单的运行前导 `runtime.prelude`，因为期望表达式和学习者的程序都在它之后运行。知识点归属 `measures/uses`、`kind` 与检查专用的 `verify`、`manual`、代码题 `accepts/rejects` 都不进哈希，topic 末尾的 `verified` 也不进。改答案或代码题判分用到的前导会换题目版本，过去的作答据此重判；改归属不换版本，重算学习状态时直接按新归属算。公开 `Item` 的 `version` 是另一个哈希（`itemVersion`），只覆盖作答前的公开题面，只改答案或解析时不变。
+题目版本（`questionVersion`）复用底座的 `contentVersion`（RFC 8785 规范化后的 SHA-256，写成 `sha256:<hex>`），只由学生看到的内容与判分方式决定：输入包括题面、作答位（含答案和判分规则）、解析、测试和用到的数据；按测试判的题还包括课程清单的运行前导 `runtime.prelude`，因为期望表达式和学习者的程序都在它之后运行。知识点归属 `measures`、`kind` 与检查专用的 `verify`、`manual`、代码题 `accepts/rejects` 都不进哈希，topic 末尾的 `verified` 也不进。改答案或代码题判分用到的前导会换题目版本，过去的作答据此重判；改归属不换版本。公开 `Item` 的 `version` 是另一个哈希（`itemVersion`），只覆盖作答前的公开题面，只改答案或解析时不变。
 
-学习资格、补救和信用有不同的依据，因此格式分开保存它们：topic 的 `prerequisites` 只列直接先修，KP 的 `keyPrerequisites` 定位补救，topic 的 `encompassings` 独立声明带权覆盖，题目 `measures/uses` 记录实际考查与执行的子技能。写法见[写课说明](courses/README.md#资格补救与信用分开写)，Python 课的 107 条原先修边与剩余疑点见[逐边核对](../../docs/research/python-course/relations-review.md)。
+学习资格、补救和信用有不同的依据，因此格式分开保存它们：topic 的 `prerequisites` 只列直接先修，KP 的 `keyPrerequisites` 定位补救，topic 的 `encompassings` 独立声明带权覆盖，题目的 `measures` 记录直接考查的知识点。写法见[写课说明](courses/README.md#资格补救与信用分开写)，Python 课的 107 条原先修边与剩余疑点见[逐边核对](../../docs/research/python-course/relations-review.md)。
 
 能用程序核对的答案，由作者写的 `verify` 程序独立算一遍，再按作答位自己的判分规则去判；代码题用判分的同一个入口去判参考答案、等价写法、常见错误写法和作答框里的初始代码。这些都在 Pyodide 314.0.7 里运行，与学习者运行代码的版本相同，不用本机的 CPython 和 pandas 代替。运行放在 [`@repa/python-runner`](../python-runner/README.md) 的 Linux 沙箱里，学习者在页面里运行代码用的也是这个包。
 
@@ -58,7 +58,7 @@
 `checkCourse()` 依次做四件事，所有问题都带英文错误码和中文说明：
 
 1. 读取与 schema 校验。
-2. 交叉规则（[`src/check/rules.ts`](src/check/rules.ts)）：id 唯一、前缀正确且不在 `retiredIds` 中；先修与覆盖图分别检查引用、重复、自指和环；KP 关键先修属于先修祖先；题目归属引用存在、直接考查只在本 topic 内且两份集合不重叠；完整 topic 的每个知识点有概念卡、讲解、例题、至少 3 道练习、复习和测验题池；复习和测验题至少有一个由程序判分的作答位，不含开放作答；一道题最多一个按测试判的作答位（多步代码题还不支持）；来源登记在清单里，用法在许可范围内；链接只用 `https:` 和 `repa:concept/`，概念引用指向存在的知识点；每个作答位要么有 `verify`、要么列进 `manual`、要么由测试负责；标准答案引用的选项、块和单元格存在；要按写法显示或比较的文字写成字符串，小表里的数保留写法（`001`、`1e3`、未声明 `float` 的小数都会报出）。
+2. 交叉规则（[`src/check/rules.ts`](src/check/rules.ts)）：id 唯一、前缀正确且不在 `retiredIds` 中；先修与覆盖图分别检查引用、重复、自指和环；KP 关键先修属于先修祖先；题目直接考查的知识点存在、只在本 topic 内且不重复；完整 topic 的每个知识点有概念卡、讲解、例题、至少 3 道练习、复习和测验题池；复习和测验题至少有一个由程序判分的作答位，不含开放作答；一道题最多一个按测试判的作答位（多步代码题还不支持）；来源登记在清单里，用法在许可范围内；链接只用 `https:` 和 `repa:concept/`，概念引用指向存在的知识点；每个作答位要么有 `verify`、要么列进 `manual`、要么由测试负责；标准答案引用的选项、块和单元格存在；要按写法显示或比较的文字写成字符串，小表里的数保留写法（`001`、`1e3`、未声明 `float` 的小数都会报出）。
 3. 标准答案自洽（[`src/check/questions.ts`](src/check/questions.ts)）：投影出的 `Item` 符合交互词汇；用标准答案拼出的作答能通过 `checkResponse`，并按判分规则（[`src/check/grade.ts`](src/check/grade.ts)）得满分；登记的错误答案确实判错；复习和测验题的 `manual` 作答位有当前题面、判分定义和运行依赖的核对记录，`verified` 里的记录指向本 topic 存在的题和作答位。
 4. 运行核对（[`src/check/code.ts`](src/check/code.ts)）：核对实际加载的 Pyodide、Python 和包版本与清单一致；每个任务先运行清单 `runtime.prelude` 里的前导（本课是导入 `pd`、`np`），学习者在 Repa 里运行代码时用同一份；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致；代码题和 Parsons 题用判分的入口（见下面的[代码题的测试](#代码题的测试)）去判参考答案和 `accepts`，必须全部通过；`rejects` 和作答框里的初始代码必须至少错一个测试；期望值算不出来时报 `test_expect_failed`，执行环境出问题、得不出结论时报 `test_unavailable`。比较在沙箱外进行，超过一万个元素的值不截断比较，直接报“太大，无法比较”。核对不生成任何产物。
 

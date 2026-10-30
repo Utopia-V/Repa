@@ -241,7 +241,6 @@ kps:
     example:
       id: py48.k1.e0
       kind: [explain, trace]
-      uses: [py15.k2, py25.k2, py29.k1, py28.k1, py34.k1, py46.k1]
       data: [files]
       body: |
         你向 AI 提的需求是：
@@ -310,7 +309,6 @@ kps:
     practice:
       - id: py48.k1.q1
         kind: [explain, trace]
-        uses: [py25.k2, py29.k1]
         data: [SA, ST]
         body: |
           只看脚本里去重和合并这两行：
@@ -375,7 +373,6 @@ kps:
           }
       - id: py48.k1.q2
         kind: [explain, debug]
-        uses: [py25.k2, py29.k1, py17.k2, py28.k1]
         data: [SA, ST]
         body: |
           这次的需求是：
@@ -435,7 +432,6 @@ kps:
           }
       - id: py48.k1.q3
         kind: [predict, explain]
-        uses: [py28.k1, py34.k1]
         data: [files]
         body: |
           还是例题里那份脚本。运行之后，打开它写出的 site_summary.csv。
@@ -501,7 +497,6 @@ kps:
     review:
       - id: py48.k1.r1
         kind: [explain, trace]
-        uses: [py25.k2, py29.k1, py28.k1]
         data: [RD, PL]
         body: |
           AI 写的土层深度分析：
@@ -560,7 +555,6 @@ kps:
           }
       - id: py48.k1.r2
         kind: [modify]
-        uses: [py25.k2, py29.k1, py17.k2, py28.k1]
         data: [CT, DS]
         body: |
           需求是：
@@ -609,7 +603,6 @@ kps:
     quiz:
       - id: py48.k1.x1
         kind: [explain, trace]
-        uses: [py25.k2, py29.k1]
         data: [SC, PPM]
         body: |
           AI 写的成绩分析里有这样两行：
@@ -666,7 +659,6 @@ kps:
           }
       - id: py48.k1.x2
         kind: [explain, trace]
-        uses: [py15.k2, py25.k2, py29.k1, py28.k1, py34.k1]
         data: [cells_files]
         body: |
           你的需求（按你想到的先后写的）：
@@ -760,7 +752,6 @@ kps:
     example:
       id: py48.k2.e0
       kind: [predict, debug]
-      uses: [py25.k2, py29.k2, py28.k1]
       data: [SA, STD]
       body: |
         需求是：每个样本只用第一次测量；补上采样点 site；signal 至少为 10 的算达标；按 site 数出达标样本数。每个样本只能算一次。
@@ -823,7 +814,6 @@ kps:
     practice:
       - id: py48.k2.q1
         kind: [specify, predict]
-        uses: [py08.k2, py17.k2, py42.k1]
         body: |
           需求是：signal **超过** 10 的样本算达标，恰好为 10 的不算。AI 的脚本里筛选这一行是：
 
@@ -868,7 +858,6 @@ kps:
           }
       - id: py48.k2.q2
         kind: [predict, debug]
-        uses: [py19.k1, py29.k1, py28.k2]
         data: [SA, STM]
         body: |
           需求是：每个样本只用第一次测量；补上采样点 site；signal 至少为 10 的算达标；按 site 数出达标样本数。没有采样点信息的样本单独算一组，不能丢。
@@ -928,7 +917,6 @@ kps:
           }
       - id: py48.k2.q3
         kind: [trace, debug]
-        uses: [py45.k1, py45.k2]
         data: [files]
         body: |
           AI 发来一份 notebook，说“运行过，结果没问题”。屏幕上从上到下是下面四个单元格，标出了编号。它之前运行过一个 `limit = 10` 的单元格（编号 `[3]`），后来把那个单元格删掉了。
@@ -994,7 +982,6 @@ kps:
     review:
       - id: py48.k2.r1
         kind: [predict, debug]
-        uses: [py25.k2, py29.k1]
         data: [RD, PLM]
         body: |
           需求是：每个样点只用第一次测量；按 plots 补上 site，样点一个不少，没登记的 site 记为缺失。
@@ -1038,7 +1025,6 @@ kps:
           }
       - id: py48.k2.r2
         kind: [specify, predict]
-        uses: [py29.k2, py42.k1]
         data: [CT]
         body: |
           需求是：按 dishes 表给每个培养皿补上 treatment，合并后每个培养皿仍只有一行。AI 的脚本：
@@ -1101,7 +1087,6 @@ kps:
     quiz:
       - id: py48.k2.x1
         kind: [predict, debug]
-        uses: [py25.k2, py29.k2, py28.k1]
         data: [SC, PPD]
         body: |
           需求是：每个受试者只用第一次成绩；按 people 补上 cohort；按 cohort 数人数 n、求平均成绩。每个受试者只能算一次。
@@ -1147,7 +1132,6 @@ kps:
           }
       - id: py48.k2.x2
         kind: [trace, debug]
-        uses: [py45.k1, py45.k2]
         data: [cells_files]
         body: |
           同事的 notebook 屏幕上从上到下是五个单元格，标出了编号。单元格 C 原来写的是 `limit = 45`，运行过（编号 `[3]`）；后来同事把它改成了 `limit = 50` 又运行了一次（编号 `[6]`），接着只重新运行了单元格 E。
@@ -1255,7 +1239,6 @@ kps:
     example:
       id: py48.k3.e0
       kind: [modify, specify]
-      uses: [py28.k2, py29.k1, py42.k2]
       data: [SA, STM]
       body: |
         需求是：每个样本只用第一次测量；补上采样点 site；signal 至少为 10 的算达标；按 site 数出达标样本数 n。没有采样点信息的样本单独算一组，不能丢。
@@ -1353,7 +1336,6 @@ kps:
     practice:
       - id: py48.k3.q1
         kind: [modify]
-        uses: [py08.k2, py17.k2, py29.k1, py28.k1]
         data: [SA, ST]
         body: |
           需求是：
@@ -1411,7 +1393,6 @@ kps:
           其余三行不动。改后北坡是 001 和 003，n 为 2、平均 11.0；南坡是 004，n 为 1、平均 15.0。判分时还会换一组带小数的测量：“大于 9”会把 9.5 也算进去。删掉去重那一行虽然也“改了一处”，却把 002 的复测 11 带了进来，结果跟着变了。
       - id: py48.k3.q2
         kind: [modify]
-        uses: [py29.k2, py40.k2, py42.k1]
         body: |
           合并之后，同事想加一个验收条件。AI 建议的是“合并后的表不是空的”，可这查不出右表编号重复让行数变多。
 
@@ -1469,7 +1450,6 @@ kps:
           “不是空的”在行数变多时照样成立，查不出编号重复。要比的是合并前后的行数：变多（右表编号重复）、变少（how="inner" 去掉了没登记的样本）都返回 False。写成 `>=` 或 `<=` 只能拦下其中一种。
       - id: py48.k3.q3
         kind: [specify]
-        uses: [py42.k1]
         body: |
           你改好了脚本的合并那一行，准备回复 AI：“这样算改好了”。下面哪些能当验收条件？选出全部。
         slots:
@@ -1493,7 +1473,6 @@ kps:
     review:
       - id: py48.k3.r1
         kind: [modify]
-        uses: [py25.k2, py29.k1, py28.k2]
         data: [RD, PLM]
         body: |
           需求是：
@@ -1547,7 +1526,6 @@ kps:
           分组那一行已经写了 `dropna=False`，它没错，只是 inner 在它之前就把 P4 去掉了，缺失的组无从出现。改后 merged 是 4 行，汇总表是北坡 2、南坡 1、缺失 1。
       - id: py48.k3.r2
         kind: [specify, debug]
-        uses: [py17.k2, py28.k1, py42.k2]
         data: [CT, DS]
         body: |
           需求是：每个培养皿只用第一次计数；按 dishes 补上 treatment；cells **至少为 45** 的算长得好；按 treatment 数出个数 n。AI 的脚本：
@@ -1612,7 +1590,6 @@ kps:
     quiz:
       - id: py48.k3.x1
         kind: [modify]
-        uses: [py25.k2, py29.k1, py28.k1]
         data: [SC, PP]
         body: |
           需求是：
@@ -1667,7 +1644,6 @@ kps:
           变量名叫 latest，代码却留的是第一次，名字不能代替核对。改后第二批是 A2 的 70 和 A4 的 57，平均 63.5；第一批是 83.0。只写 `keep="last"` 不写 subset，A2 两行不完全相同，都会留下；`keep=False` 会把 A2 整个去掉。
       - id: py48.k3.x2
         kind: [specify, predict]
-        uses: [py25.k2, py29.k1, py28.k2, py42.k1]
         data: [CT, DSM]
         body: |
           需求是：每个培养皿只用第一次计数；按 dishes 补上 treatment，没登记的单独算一组（组名为缺失）；cells 至少为 45 的算长得好；按 treatment 数出长得好的培养皿个数 n。

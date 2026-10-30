@@ -227,7 +227,6 @@ kps:
     example:
       id: py29.k1.e0
       kind: [predict]
-      uses: [py14.k1, py19.k1]
       data: [samples, sites]
       body: |
         要给每个样本补上采样点，同事写了下面这行。阅读代码，说出 `result` 的样子。
@@ -281,7 +280,6 @@ kps:
     practice:
       - id: py29.k1.q1
         kind: [predict]
-        uses: [py14.k2]
         data: [samples, sites]
         body: |
           这次同事只想要两张表都有记录的样本。阅读代码，说出 `result` 的样子。
@@ -322,7 +320,6 @@ kps:
           }
       - id: py29.k1.q2
         kind: [predict]
-        uses: [py14.k1]
         data: [samples, sites]
         body: |
           同一对表，分别用两种写法拼接：
@@ -407,7 +404,6 @@ kps:
     review:
       - id: py29.k1.r1
         kind: [predict, explain]
-        uses: [py14.k1]
         data: [plants, plots, shown]
         body: |
           同事用下面某一行代码，从 plants 和 plots 得到了上面第三张表 result。
@@ -452,7 +448,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits, "other": len(left)}
       - id: py29.k1.r2
         kind: [predict]
-        uses: [py14.k1, py19.k1]
         data: [survey, regions]
         body: |
           阅读代码，按 `result` 的行顺序，写出每一行的 resp_id 和 region；没有值的写 NaN。
@@ -500,7 +495,6 @@ kps:
     quiz:
       - id: py29.k1.x1
         kind: [predict]
-        uses: [py14.k2]
         data: [bottles, labs]
         body: |
           ```python
@@ -542,7 +536,6 @@ kps:
           }
       - id: py29.k1.x2
         kind: [explain]
-        uses: [py14.k1, py19.k1]
         data: [bottles, labs]
         body: |
           ```python
@@ -617,7 +610,6 @@ kps:
     example:
       id: py29.k2.e0
       kind: [predict]
-      uses: [py29.k1, py25.k1]
       data: [samples, sites_dup]
       body: |
         这次的 sites 里，S_A 被记了两次。阅读代码，回答下面的问题。
@@ -654,7 +646,6 @@ kps:
     practice:
       - id: py29.k2.q1
         kind: [predict]
-        uses: [py29.k1]
         data: [samples, sites_dup3]
         body: |
           这份 sites 里，S_B 被记了三次。
@@ -689,7 +680,6 @@ kps:
           answers = {"nleft": len(r["by_left"]), "ninner": len(r["by_inner"])}
       - id: py29.k2.q2
         kind: [debug]
-        uses: [py29.k1, py25.k2]
         data: [samples, sites_dup]
         body: |
           同事拼完表后，用下面的代码数样本数，屏幕显示 5，可是 samples 里只有 4 个样本。
@@ -733,7 +723,6 @@ kps:
           answers = {"key": dups[0] if len(dups) == 1 else dups, "reason": true[0] if len(true) == 1 else true}
       - id: py29.k2.q3
         kind: [predict]
-        uses: [py25.k2]
         data: [samples, sites_dup]
         body: |
           拼表之前，先查 sites 的键有没有重复：
@@ -773,7 +762,6 @@ kps:
     review:
       - id: py29.k2.r1
         kind: [predict, explain]
-        uses: [py29.k1]
         data: [survey, regions_dup]
         body: |
           ```python
@@ -810,7 +798,6 @@ kps:
           answers = {"claims": [claim for claim, ok in holds.items() if ok]}
       - id: py29.k2.r2
         kind: [specify, debug]
-        uses: [py29.k1, py25.k2]
         data: [plants, plots_dup]
         body: |
           表 plants 每株植物一行。表 plots 登记每株所在的地块，P2 被登记了两次（甲和丁），负责人说以最后登记的为准。
@@ -874,7 +861,6 @@ kps:
     quiz:
       - id: py29.k2.x1
         kind: [predict]
-        uses: [py29.k1]
         data: [bottles, labs_dup]
         body: |
           ```python
@@ -913,7 +899,6 @@ kps:
           }}
       - id: py29.k2.x2
         kind: [predict, explain]
-        uses: [py29.k1, py25.k1]
         data: [bottles_rep, labs_full]
         body: |
           这次 bottles 里 B1 测了两次 pH，labs 里每瓶水样只登记一次。
@@ -999,7 +984,6 @@ kps:
     example:
       id: py29.k3.e0
       kind: [predict]
-      uses: [py29.k1, py29.k2]
       data: [samples, sites]
       body: |
         阅读代码，说出运行的结果。
@@ -1054,7 +1038,6 @@ kps:
     practice:
       - id: py29.k3.q1
         kind: [predict]
-        uses: [py29.k2]
         data: [samples, sites_dup]
         body: |
           这次的 sites 里，S_A 被记了两次。
@@ -1089,7 +1072,6 @@ kps:
           answers = {"outcome": outcome, "without": len(plain["result"])}
       - id: py29.k3.q2
         kind: [predict]
-        uses: [py17.k1, py17.k2, py29.k1]
         data: [samples, sites]
         body: |
           阅读代码，说出 `unmatched` 的样子。
@@ -1131,7 +1113,6 @@ kps:
           }
       - id: py29.k3.q3
         kind: [specify]
-        uses: [py25.k1]
         body: |
           负责人的要求是：“给每个样本补上采样点：samples 里的样本一个不能少，也不能因为 sites 记重了而多出行——sites 里同一个样本出现两次就立刻报错；配不上的样本要能单独列出来。”
 
@@ -1167,7 +1148,6 @@ kps:
     review:
       - id: py29.k3.r1
         kind: [explain]
-        uses: [py29.k2, py25.k1]
         data: [plants_rep, plots]
         body: |
           plants 里同一株可以量好几次（P1 就有两行），plots 里每株只能登记一个地块。要让拼表在 plots 的 plant_id 有重复时报错、没有重复时照常运行，应该用哪一行？
@@ -1211,7 +1191,6 @@ kps:
           answers = {"line": fits[0] if len(fits) == 1 else fits}
       - id: py29.k3.r2
         kind: [predict, explain]
-        uses: [py29.k1, py19.k1]
         data: [plants, plots]
         body: |
           ```python
@@ -1246,7 +1225,6 @@ kps:
     quiz:
       - id: py29.k3.x1
         kind: [predict]
-        uses: [py29.k2, py25.k2]
         data: [bottles, labs_dup]
         body: |
           ```python
@@ -1280,7 +1258,6 @@ kps:
           answers = {"outcome": outcome, "culprits": sorted(dups)}
       - id: py29.k3.x2
         kind: [specify]
-        uses: [py29.k1, py29.k2]
         data: [survey, regions]
         body: |
           需求是：“给每份问卷补上地区：survey 里的问卷一份不能少，也不能因为 regions 登记重复而多出行——regions 里同一份问卷出现两次就报错；还要能数出有几份问卷没查到地区。”哪一种写法符合这条需求？

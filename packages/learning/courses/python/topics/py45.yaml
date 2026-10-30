@@ -67,7 +67,6 @@ kps:
     example:
       id: py45.k1.e0
       kind: [trace]
-      uses: [py01.k2]
       body: |
         屏幕上从上到下有三个单元格：
 
@@ -126,7 +125,6 @@ kps:
     practice:
       - id: py45.k1.q1
         kind: [trace]
-        uses: [py01.k2]
         body: |
           屏幕上从上到下有三个单元格，每个都只运行过一次：
 
@@ -171,7 +169,6 @@ kps:
           answers = {"order": order, "output": int(run(program).out)}
       - id: py45.k1.q2
         kind: [predict, explain]
-        uses: [py01.k2]
         body: |
           屏幕上现在有两个单元格：
 
@@ -265,7 +262,6 @@ kps:
     review:
       - id: py45.k1.r1
         kind: [trace]
-        uses: [py01.k2]
         body: |
           屏幕上从上到下有三个单元格：
 
@@ -367,7 +363,6 @@ kps:
     quiz:
       - id: py45.k1.x1
         kind: [predict]
-        uses: [py01.k2]
         body: |
           屏幕上从上到下有三个单元格：
 
@@ -405,7 +400,6 @@ kps:
           answers = {"output": run(program).lines()[-1]}
       - id: py45.k1.x2
         kind: [trace]
-        uses: [py01.k2]
         body: |
           屏幕上从上到下有四个单元格，每个都只运行过一次，编号如下：
 
@@ -547,7 +541,6 @@ kps:
     practice:
       - id: py45.k2.q1
         kind: [debug]
-        uses: [py13.k1]
         body: |
           屏幕上现在有两个单元格：
 
@@ -610,7 +603,6 @@ kps:
           }
       - id: py45.k2.q2
         kind: [predict]
-        uses: [py01.k2]
         body: |
           屏幕上从上到下有三个单元格：
 
@@ -674,7 +666,6 @@ kps:
     review:
       - id: py45.k2.r1
         kind: [modify]
-        uses: [py01.k1]
         body: |
           一本 notebook 的四个单元格各只有一行，屏幕顺序乱了，重启并全部运行会报错。把它们在屏幕上重新排好，让重启并全部运行能跑通、最后显示平均值。从上到下排出四个单元格。
         slots:
@@ -764,7 +755,6 @@ kps:
     quiz:
       - id: py45.k2.x1
         kind: [explain]
-        uses: [py01.k2]
         body: |
           屏幕上从上到下有三个单元格：
 

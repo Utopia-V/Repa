@@ -365,7 +365,6 @@ kps:
     practice:
       - id: py24.k1.q1
         kind: [debug]
-        uses: [py05.k3]
         data: [G]
         body: |
           需求是把 group 去掉首尾空白并统一成小写。同事写了下面这行。
@@ -424,7 +423,6 @@ kps:
           answers = {"outcome": "attr" if r.error == "AttributeError" else "other", "fix": fits[0] if len(fits) == 1 else fits}
       - id: py24.k1.q2
         kind: [predict]
-        uses: [py17.k1, py19.k1]
         data: [G]
         body: |
           阅读代码，写出两行输出。
@@ -454,7 +452,6 @@ kps:
           answers = {"before": int(lines[0]), "after": int(lines[1])}
       - id: py24.k1.q3
         kind: [modify]
-        uses: [py05.k2, py05.k3]
         data: [G]
         body: |
           需求是：
@@ -524,7 +521,6 @@ kps:
           answers = {"site": {f"r{label}": {"clean": "NaN" if pd.isna(value) else value} for label, value in site.items()}}
       - id: py24.k1.r2
         kind: [debug]
-        uses: [py05.k3]
         data: [G]
         body: |
           宿主先运行了 `s = df["group"]`。下面每一行单独接在它后面运行。哪几行不报错，并且把每格清理成去掉首尾空白的小写文字？选出所有符合的。
@@ -561,7 +557,6 @@ kps:
     quiz:
       - id: py24.k1.x1
         kind: [predict]
-        uses: [py17.k1]
         data: [lab]
         body: |
           阅读代码，按原行索引填写 `mask` 的值。
@@ -589,7 +584,6 @@ kps:
           answers = {"mask": {f"r{label}": {"mask": value} for label, value in mask.items()}}
       - id: py24.k1.x2
         kind: [modify]
-        uses: [py05.k2, py05.k3]
         data: [lab]
         body: |
           需求是：
@@ -699,7 +693,6 @@ kps:
     practice:
       - id: py24.k2.q1
         kind: [predict, explain]
-        uses: [py19.k1]
         data: [G]
         body: |
           阅读代码，写出两行输出。
@@ -741,7 +734,6 @@ kps:
           answers = {"wrong": int(lines[0]), "right": int(lines[1]), "why": order}
       - id: py24.k2.q2
         kind: [specify]
-        uses: [py19.k3, py12.k1]
         body: |
           清理 group 列之前，负责人说：
 
@@ -776,7 +768,6 @@ kps:
         manual: [blank, na_text, report]
       - id: py24.k2.q3
         kind: [modify]
-        uses: [py19.k3]
         data: [N]
         body: |
           需求是：
@@ -822,7 +813,6 @@ kps:
     review:
       - id: py24.k2.r1
         kind: [predict]
-        uses: [py19.k1, py19.k2]
         data: [visits]
         body: |
           阅读代码，回答下面的问题。
@@ -857,7 +847,6 @@ kps:
           }
       - id: py24.k2.r2
         kind: [specify]
-        uses: [py19.k3]
         body: |
           负责人确认的规则是：“备注去掉首尾的空白；清理后为空的当作缺失；手写的‘无’保留原样。”下面哪一种做法与它完全一致？
         slots:
@@ -881,7 +870,6 @@ kps:
     quiz:
       - id: py24.k2.x1
         kind: [specify, debug]
-        uses: [py19.k2, py19.k3]
         body: |
           需求是“备注清理后为空的格当作缺失”。AI 交来的代码是：
 
@@ -910,7 +898,6 @@ kps:
         manual: [problem]
       - id: py24.k2.x2
         kind: [predict]
-        uses: [py19.k1]
         data: [comments]
         body: |
           阅读代码。
@@ -983,7 +970,6 @@ kps:
       - 从文件读入时，用 [dtype={"sample_id": "str"}](repa:concept/py15.k2) 让编号保持文字，前导零就不会丢。
     example:
       id: py24.k3.e0
-      uses: [py20.k1]
       kind: [predict]
       data: [ids]
       body: |
@@ -1073,7 +1059,6 @@ kps:
           answers = {"first": int(after[0]), "count": int(after.nunique()), "better": better[0] if len(better) == 1 else better}
       - id: py24.k3.q2
         kind: [predict, explain]
-        uses: [py05.k3]
         data: [mice]
         body: |
           阅读代码，写出 a、b、c 的值。
@@ -1118,7 +1103,6 @@ kps:
           answers = {"a": a, "b": b, "c": c, "step": step}
       - id: py24.k3.q3
         kind: [specify]
-        uses: [py12.k1]
         body: |
           你要请 AI 清理一张样本表。表里的 sample_id 有“007”“S-12 ”这样的写法，有的带首尾空格。
 
@@ -1178,7 +1162,6 @@ kps:
           answers = {"merged": merged}
       - id: py24.k3.r2
         kind: [predict]
-        uses: [py15.k2]
         data: [csv]
         body: |
           阅读代码，写出两行输出。
@@ -1246,7 +1229,6 @@ kps:
           原来的代码多做了一步 `.str.upper()`，把“S-01”和“s-01”变成同一个编号。需求只允许去首尾空白，就只写 strip。本例结果是 007、S-01、s-01、012，四个编号仍然各不相同。判分时还会换一张编号表运行。
       - id: py24.k3.x2
         kind: [specify]
-        uses: [py12.k1]
         body: |
           一张样地表的 plot_id 有“P01”“p01”“ P02”这样的写法。负责人确认：“P01 和 p01 是同一个样地，只是录入时大小写不统一；编号里的 0 都要保留。”把 plot_id 的清理规则填成下面三个字段。
         slots:

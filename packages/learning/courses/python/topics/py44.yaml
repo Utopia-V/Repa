@@ -424,7 +424,6 @@ kps:
     example:
       id: py44.k1.e0
       kind: [predict]
-      uses: [py43.k2, py37.k1]
       data: [p1_file]
       body: |
         读入文件：
@@ -473,7 +472,6 @@ kps:
     practice:
       - id: py44.k1.q1
         kind: [predict]
-        uses: [py15.k1, py15.k2, py14.k2]
         data: [p2_csv]
         body: |
           ```python
@@ -520,7 +518,6 @@ kps:
           }
       - id: py44.k1.q2
         kind: [predict]
-        uses: [py37.k2]
         body: |
           阅读程序，写出第 3–5 行各显示什么。
 
@@ -548,7 +545,6 @@ kps:
           answers = {"output": {f"l{number}": {"shown": text} for number, text in zip(range(3, 6), lines)}}
       - id: py44.k1.q3
         kind: [predict, explain]
-        uses: [py06.k1, py37.k1]
         data: [p1_data]
         body: |
           ```python startLine=1
@@ -585,7 +581,6 @@ kps:
     review:
       - id: py44.k1.r1
         kind: [explain]
-        uses: [py37.k1, py06.k1]
         data: [sites_data]
         body: |
           根据原文，说出 `sites` 的结构。
@@ -621,7 +616,6 @@ kps:
           }
       - id: py44.k1.r2
         kind: [predict, debug]
-        uses: [py15.k1, py14.k1]
         data: [noheader_csv]
         body: |
           ```python
@@ -651,7 +645,6 @@ kps:
     quiz:
       - id: py44.k1.x1
         kind: [predict, debug]
-        uses: [py15.k1, py14.k2]
         data: [semicolon_csv]
         body: |
           ```python
@@ -692,7 +685,6 @@ kps:
           answers = {"cols": df.shape[1], "fix": fits[0] if len(fits) == 1 else fits}
       - id: py44.k1.x2
         kind: [predict]
-        uses: [py37.k1]
         data: [config_data]
         body: |
           写出下面每个表达式得到的是哪种东西。
@@ -768,7 +760,6 @@ kps:
     example:
       id: py44.k2.e0
       kind: [trace]
-      uses: [py37.k2, py06.k2]
       data: [p1_data]
       body: |
         按顺序看 `data["samples"][1]["signal"]` 每走一步拿到了什么。
@@ -810,7 +801,6 @@ kps:
     practice:
       - id: py44.k2.q1
         kind: [modify]
-        uses: [py37.k2, py06.k2]
         data: [p1_data]
         body: |
           要取出 S03 的 group。用下面的块拼出这个表达式，从左往右排；用不到的块不要放进来。
@@ -836,7 +826,6 @@ kps:
           answers = {"path": ["data", "samples", f"i{position}", "group"]}
       - id: py44.k2.q2
         kind: [predict, debug]
-        uses: [py11.k2, py37.k2, py06.k2]
         data: [p1_data]
         body: |
           写出每个表达式的结果：能取到值的写出值，报错的写出异常类型的名字。
@@ -872,7 +861,6 @@ kps:
           answers = {"results": results}
       - id: py44.k2.q3
         kind: [modify]
-        uses: [py37.k2, py06.k2]
         data: [runs_a]
         body: |
           需求是：取出**第二块板**上**第一个样本**的 signal，存进 `signal`。换一份同样结构的文件，代码也要取对。
@@ -916,7 +904,6 @@ kps:
     review:
       - id: py44.k2.r1
         kind: [predict]
-        uses: [py06.k2, py37.k2]
         data: [sites_data]
         body: |
           阅读程序，写出三行各显示什么。
@@ -943,7 +930,6 @@ kps:
           answers = {"output": {f"l{number}": {"shown": text} for number, text in enumerate(lines, 1)}}
       - id: py44.k2.r2
         kind: [debug]
-        uses: [py11.k2, py37.k2]
         data: [p1_data]
         body: |
           想显示 S02 的 signal，写成了 `print(data["samples"]["signal"])`，报了 TypeError。改成哪一行才对？
@@ -984,7 +970,6 @@ kps:
     quiz:
       - id: py44.k2.x1
         kind: [explain, debug]
-        uses: [py37.k2, py06.k2]
         data: [responses_a]
         body: |
           需求是：取出列表里**第二位**受访者对问题 q2 的回答，存进 `value`。换一份同样结构的文件，代码也要取对，别的文件里的受访者人数不一定是 3。
@@ -1051,7 +1036,6 @@ kps:
           answers = {"code": fits}
       - id: py44.k2.x2
         kind: [debug]
-        uses: [py11.k2, py37.k2, py06.k2]
         data: [config_data]
         body: |
           想显示第一块板（P1）的孔位列表，写成了下面这行，一运行就报错。
@@ -1136,7 +1120,6 @@ kps:
     example:
       id: py44.k3.e0
       kind: [predict]
-      uses: [py37.k2, py37.k3]
       data: [recs_a]
       body: |
         对每条记录 `rec`，分别求出：`"signal" in rec`、`rec.get("signal")` 显示什么，以及 `type(rec.get("signal"))` 是哪种类型。
@@ -1178,7 +1161,6 @@ kps:
     practice:
       - id: py44.k3.q1
         kind: [predict]
-        uses: [py37.k2, py37.k3]
         body: |
           在交互解释器里依次输入下面几行。每一行显示什么？什么都不显示的写 NOTHING，报错的写 ERROR。
 
@@ -1210,7 +1192,6 @@ kps:
           answers = {"shown": {f"l{number}": {"shown": text} for number, text in zip(range(2, 6), shown[1:])}}
       - id: py44.k3.q2
         kind: [predict]
-        uses: [py15.k1, py15.k2, py14.k3]
         data: [signal_csvs]
         body: |
           ```python startLine=1
@@ -1257,7 +1238,6 @@ kps:
           }
       - id: py44.k3.q3
         kind: [explain]
-        uses: [py37.k3, py03.k1]
         data: [recs_b]
         body: |
           把每条记录的 signal 归到一类。
@@ -1324,7 +1304,6 @@ kps:
     review:
       - id: py44.k3.r1
         kind: [modify]
-        uses: [py37.k2]
         body: |
           每个采样点的记录 `rec` 是一个字典，可能没有 `"depth"` 这一项。需求是：
 
@@ -1374,7 +1353,6 @@ kps:
           get 在缺这一项时得到 None，不报错。写成 `rec.get("depth", 0)` 会把缺测补成 0，和真的测出 0 分不开，不符合需求。
       - id: py44.k3.r2
         kind: [explain]
-        uses: [py37.k2, py37.k3]
         body: |
           两条记录：
 
@@ -1417,7 +1395,6 @@ kps:
     quiz:
       - id: py44.k3.x1
         kind: [explain, predict]
-        uses: [py15.k1, py14.k3]
         data: [depth_mixed]
         body: |
           用 `df = pd.read_csv("field/day4.csv")` 读进文件。读完发现 depth 一列不能直接求平均。
@@ -1476,7 +1453,6 @@ kps:
           }
       - id: py44.k3.x2
         kind: [explain]
-        uses: [py37.k2]
         body: |
           需求写着：“signal 缺失的样本记为缺失，不当作 0。”AI 给的代码对每条记录 `rec` 这样取值：
 

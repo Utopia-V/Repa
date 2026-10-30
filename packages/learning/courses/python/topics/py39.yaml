@@ -93,7 +93,6 @@ kps:
     example:
       id: py39.k1.e0
       kind: [explain, predict]
-      uses: [py35.k1]
       body: |
         ```python
         signals = [8, 12, 10, 7, 15]
@@ -207,7 +206,6 @@ kps:
           answers = {"output": run().lines()[0]}
       - id: py39.k1.q2
         kind: [predict]
-        uses: [py06.k1]
         body: |
           ```python
           signals = [8, 10, 13, 10]
@@ -535,7 +533,6 @@ kps:
     example:
       id: py39.k2.e0
       kind: [modify]
-      uses: [py36.k1, py10.k2]
       body: |
         把下面这行推导式展开成循环：把需要的代码块排好，并设好缩进。有的块用不上。宿主已经准备好列表 `signals`。
 
@@ -579,7 +576,6 @@ kps:
     practice:
       - id: py39.k2.q1
         kind: [explain]
-        uses: [py36.k1, py35.k3]
         body: |
           ```python
           big = [d * 2 for d in depths if d > 28]
@@ -637,7 +633,6 @@ kps:
           answers = {"loop": fits[0] if len(fits) == 1 else fits}
       - id: py39.k2.q2
         kind: [modify]
-        uses: [py36.k1]
         body: |
           下面的循环从 `readings` 里挑出高于本底 5 的读数，减去 5 后收集起来：
 
@@ -718,7 +713,6 @@ kps:
     review:
       - id: py39.k2.r1
         kind: [explain]
-        uses: [py36.k1]
         body: |
           下面每组有一行推导式（甲）和一段循环（乙），`nums` 是一个整数列表，可能有正数、0 和负数。
 
@@ -806,7 +800,6 @@ kps:
           answers = {"same": same}
       - id: py39.k2.r2
         kind: [modify]
-        uses: [py36.k1, py10.k2]
         body: |
           把下面这行推导式改写成 for 循环，结果仍叫 `selected`。作答框里的 `___` 是要你补写的地方，可以写成几行。宿主已经准备好 `groups`。
 
@@ -876,7 +869,6 @@ kps:
     quiz:
       - id: py39.k2.x1
         kind: [modify]
-        uses: [py36.k1, py10.k2]
         body: |
           把下面这行推导式展开成循环：把需要的代码块排好，并设好缩进。有的块用不上。宿主已经准备好 `temps`。
 
@@ -919,7 +911,6 @@ kps:
           条件照抄 `t > 20`，不要把最前面的表达式也算进条件；放进结果的是 `t - 20`，写进 append 的括号。
       - id: py39.k2.x2
         kind: [trace]
-        uses: [py36.k1, py35.k2]
         body: |
           ```python
           values = [5, 12, 9, 15]

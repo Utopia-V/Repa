@@ -152,7 +152,6 @@ kps:
     example:
       id: py16.k1.e0
       kind: [predict]
-      uses: [py14.k1, py14.k2]
       data: [T]
       body: |
         ```python
@@ -313,7 +312,6 @@ kps:
           good = [option for option, code in OPTIONS["fix"].items() if fits(code)]
           answers = {"cause": cause, "fix": good[0] if len(good) == 1 else good}
       - id: py16.k1.q4
-        uses: [py14.k1, py14.k2]
         kind: [trace]
         body: |
           按列名列表选择时，输出列按列表给出的顺序排列。
@@ -332,7 +330,6 @@ kps:
           lines = run().lines()
           answers = {"columns": lines[0], "shape": lines[1]}
       - id: py16.k1.q5
-        uses: [py14.k1]
         kind: [debug]
         body: |
           即使只有一行，单列与单列列表仍有不同维数。填写 ndim（维数）的结果。
@@ -483,7 +480,6 @@ kps:
           }
 
       - id: py16.k1.x3
-        uses: [py14.k1, py14.k2]
         kind:
           - trace
         body: |
@@ -975,7 +971,6 @@ kps:
     example:
       id: py16.k3.e0
       kind: [predict]
-      uses: [py06.k3]
       data: [daily]
       body: |
         ```python

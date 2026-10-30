@@ -445,23 +445,24 @@ test("只把事实文件和格式标记搬到新空间，打开后从事实重�
 });
 
 test("题目的知识点归属改变时题目版本不变，过去的作答照样对得上，不重判，状态不变", async (t) => {
-  const f = await fixture(t, [topic("t01"), topic("t02")]);
+  const f = await fixture(t, [topic("t01", 2), topic("t02")]);
   await f.select("t01");
   await f.finishLesson();
   const before = await f.state();
   const count = graded(f).length;
-  const changed = topic("t01");
+  const changed = topic("t01", 2);
   const question = changed.kps[0]?.practice?.[0];
   assert.ok(question);
-  question.measures = ["t01.k1"];
-  question.uses = ["t02.k1"];
+  question.measures = ["t01.k1", "t01.k2"];
   await f.writeTopics([changed, topic("t02")]);
   await f.reopen();
   assert.deepEqual(await f.state(), before);
   assert.equal(graded(f).length, count);
-  const versions = await f.session().course.versionsOf("t01.k1.q1");
-  assert.ok(versions);
-  assert.ok(graded(f).every((fact) => fact.version === versions.question));
+  for (const fact of graded(f)) {
+    const delivery = f.session().replay.delivery(fact.delivery);
+    assert.ok(delivery);
+    assert.equal(fact.version, (await f.session().course.versionsOf(delivery.questionId))?.question);
+  }
 });
 
 test("代价关卡：每次作答只写交付、作答、判分三条事实；固定部分不超过按事实构成算出的上限，也不随历史增长", async (t) => {
