@@ -467,6 +467,23 @@ test("询问的信封多了不认识的字段时，客户端丢掉它照常收�
   assert.deepEqual(received, []);
 });
 
+test("询问的 Item 里表格单元格的固定文字类型不对时，客户端不改用别的联合分支，仍按无效协议数据断开", { timeout: 10000 }, async (t) => {
+  const backend = await scriptedBackend(t, {});
+  const client = await RepaClient.connect(backend.connection);
+  t.after(() => client.close());
+  const received: unknown[] = [];
+  client.on("ask.request", (value) => received.push(value));
+  const disconnected = new Promise<void>((resolve) => client.onConnectionChange((connected) => { if (!connected) resolve(); }));
+  // 单元格同时带着数字 value 和输入格：先整体清理会改选输入格分支、删掉 value，词汇读取本该拒绝的数字就混了过去。
+  const cells = { c: { value: 42, input: { type: "text" } } };
+  const slot = { id: "t", type: "table", columns: [{ id: "c", header: "列" }], rows: [{ id: "r", cells }] };
+  const item = { id: "q", version: `sha256:${"a".repeat(64)}`, requires: ["slot.table"], body: [], slots: [slot] };
+  backend.push("ask.request", { id: "ask-1", origin: { kind: "agent" }, item });
+  await disconnected;
+  assert.equal(client.connected, false);
+  assert.deepEqual(received, []);
+});
+
 test("同一连接同时等待确认、提问和服务，断线后三者以各自的原错误结束", { timeout: 10000 }, async (t) => {
   const failures: unknown[] = [];
   let finished: () => void = () => undefined;
