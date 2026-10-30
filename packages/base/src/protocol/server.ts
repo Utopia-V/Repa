@@ -6,7 +6,7 @@ import { Check } from "typebox/value";
 import { WebSocket, WebSocketServer } from "ws";
 import { createAgentRuntime, withFileMutationQueue, type AgentRuntime, type AgentSpace } from "../agent.js";
 import type { AskRoute } from "../ask.js";
-import { prepareAppHome } from "../home.js";
+import { resolveAppHome } from "../home.js";
 import { createFeedbackBundle } from "../feedback/bundle.js";
 import { RecentErrors } from "../feedback/errors.js";
 import {
@@ -90,7 +90,7 @@ interface ActiveSpace {
 export async function startServer(options: ServerOptions = {}): Promise<RepaServer> {
   const token = options.token ?? randomBytes(32).toString("hex");
   if (token.length < 32) throw new RepaFault("invalid_token", "连接令牌至少需要 32 个字符");
-  const home = await prepareAppHome({ home: options.home });
+  const home = resolveAppHome({ home: options.home });
   const settings = await SettingsStore.open(home);
   const runtime: AgentRuntime = options.runtime ?? await createAgentRuntime({ agentDir: path.join(home, "agent") });
   const serverId = randomUUID();

@@ -38,6 +38,7 @@ async function persistenceFixture(t: TestContext) {
   assert(schema);
   const basis = "2026-10-29-initial.md";
   await f.write(`docs/persistence/changes/${basis}`, `fixture ${schema.digest}\n不升版本：测试格式的初始记录。\n`);
+  await f.write("docs/persistence/baseline.json", "{}\n");
   await f.write("docs/persistence/digests.json", `${JSON.stringify({ fixture: { digest: schema.digest, basis } }, null, 2)}\n`);
   return { ...f, schema, basis, digestsFile: path.join(f.root, "docs/persistence/digests.json") };
 }
@@ -151,6 +152,73 @@ test("摘要递归排序对象键但保留数组顺序", () => {
   assert.notEqual(digest({ enum: [1, 2] }), digest({ enum: [2, 1] }));
 });
 
+test("开发阶段直接更新摘要且不要求变更记录，检查只核对生成目录", async (t) => {
+  const f = await persistenceFixture(t);
+  const manifest = await readFile(path.join(f.root, "scripts/docs/persistence.json"), "utf8");
+  await f.write("scripts/docs/persistence.json", manifest.replace('"stage": "test"', '"stage": "development"'));
+  await rm(path.join(f.root, "docs/persistence/changes", f.basis));
+  let output = await generatePersistence(f.root, true);
+  await writeGenerated(f.root, output);
+  assert.deepEqual(await checkPersistence(f.root), []);
+  assert.deepEqual(JSON.parse(await readFile(f.digestsFile, "utf8")), {
+    fixture: { digest: f.schema.digest, basis: "development" },
+  });
+  await f.write("scripts/docs/persistence.json", manifest.replace('"stage": "test"', '"stage": "development"').replace("schema.ts#", "changed.ts#"));
+  output = await generatePersistence(f.root);
+  assert.deepEqual(await checkPersistence(f.root), []);
+  assert.equal((await checkGenerated(f.root, [output])).length, 1);
+  await generatePersistence(f.root, true);
+  await writeGenerated(f.root, output);
+  const changed = (await persistentSchemas(f.root))[0];
+  assert(changed);
+  assert.deepEqual(JSON.parse(await readFile(f.digestsFile, "utf8")), {
+    fixture: { digest: changed.digest, basis: "development" },
+  });
+  assert.deepEqual(await checkGenerated(f.root, [output]), []);
+  // 开发阶段不依赖旧摘要，删除后也能直接生成。
+  await rm(f.digestsFile);
+  assert.deepEqual(await checkPersistence(f.root), []);
+  await generatePersistence(f.root, true);
+});
+
+test("开发阶段切换到测试阶段时以当前 schema 建立基线，后续变化须有记录", async (t) => {
+  const f = await persistenceFixture(t);
+  const manifest = await readFile(path.join(f.root, "scripts/docs/persistence.json"), "utf8");
+  await f.write("scripts/docs/persistence.json", manifest.replace('"stage": "test"', '"stage": "development"'));
+  await rm(path.join(f.root, "docs/persistence/baseline.json"));
+  await generatePersistence(f.root, true);
+  const developmentDigests = await readFile(f.digestsFile, "utf8");
+  // 切换阶段时即使当前代码已改变，也以切换时的摘要为准。
+  await f.write("scripts/docs/persistence.json", manifest.replace("schema.ts#", "changed.ts#"));
+  assert.match((await checkPersistence(f.root))[0]?.message ?? "", /建立基线/);
+  await generatePersistence(f.root, true);
+  const changed = (await persistentSchemas(f.root))[0];
+  assert(changed);
+  const baselineFile = path.join(f.root, "docs/persistence/baseline.json");
+  const baseline = await readFile(baselineFile, "utf8");
+  assert.deepEqual(JSON.parse(baseline), { fixture: changed.digest });
+  assert.deepEqual(JSON.parse(await readFile(f.digestsFile, "utf8")), {
+    fixture: { digest: changed.digest, basis: "baseline" },
+  });
+  assert.deepEqual(await checkPersistence(f.root), []);
+  // 模拟基线写成、摘要尚未写成时中断；重试保留已建立的基线。
+  await f.write("docs/persistence/digests.json", developmentDigests);
+  await generatePersistence(f.root, true);
+  assert.deepEqual(await checkPersistence(f.root), []);
+  assert.equal(await readFile(baselineFile, "utf8"), baseline);
+  await f.write("scripts/docs/persistence.json", manifest);
+  assert.equal((await checkPersistence(f.root)).length, 1);
+  await rm(path.join(f.root, "docs/persistence/changes", f.basis));
+  await assert.rejects(generatePersistence(f.root, true), /schema 变了/);
+  await f.write(`docs/persistence/changes/${f.basis}`, `fixture ${f.schema.digest}\n不升版本：测试恢复原字段。\n`);
+  await generatePersistence(f.root, true);
+  assert.deepEqual(await checkPersistence(f.root), []);
+  assert.equal(await readFile(baselineFile, "utf8"), baseline);
+  // 测试阶段不能在基线遗失后重新建立它。
+  await rm(baselineFile);
+  await assert.rejects(generatePersistence(f.root, true), /从 git 恢复.*baseline/);
+});
+
 test("schema 变化须匹配 id、摘要及版本理由后才能认可，并保存记录文件名", async (t) => {
   const f = await persistenceFixture(t);
   const accepted = await readFile(f.digestsFile, "utf8");
@@ -214,15 +282,15 @@ test("手改摘要使其匹配新 schema 仍不能绕过原记录", async (t) =>
   await assert.rejects(generatePersistence(f.root, true), /依据.*不存在或无效/);
 });
 
-test("baseline 只认可现有初始格式的原摘要，手改摘要或新增 id 不能冒充基线", async (t) => {
+test("测试阶段的 baseline 固定为切换阶段时的摘要，手改摘要或新增 id 不能冒充基线", async (t) => {
   const f = await fixture(t);
-  await f.copy("schema.ts", "persistence/baseline.ts");
+  await f.copy("schema.ts", "persistence/schema.ts");
   await f.copy("scripts/docs/persistence.json", "persistence/persistence.json");
   const manifest = await readFile(path.join(f.root, "scripts/docs/persistence.json"), "utf8");
   await f.write("scripts/docs/persistence.json", manifest.replace('"fixture"', '"space-format"'));
   const initial = (await persistentSchemas(f.root))[0];
   assert(initial);
-  assert.equal(initial.digest, "557283bfb3e5b4a7");
+  await f.write("docs/persistence/baseline.json", JSON.stringify({ "space-format": initial.digest }));
   await f.write("docs/persistence/digests.json", JSON.stringify({ "space-format": { digest: initial.digest, basis: "baseline" } }));
   assert.deepEqual(await checkPersistence(f.root), []);
   await generatePersistence(f.root, true);
@@ -234,7 +302,7 @@ test("baseline 只认可现有初始格式的原摘要，手改摘要或新增 i
   const changed = (await persistentSchemas(f.root))[0];
   assert(changed);
   await f.write("docs/persistence/digests.json", JSON.stringify({ "space-format": { digest: changed.digest, basis: "baseline" } }));
-  assert.match((await checkPersistence(f.root))[0]?.message ?? "", /baseline 须与该格式首次入库的摘要相同/);
+  assert.match((await checkPersistence(f.root))[0]?.message ?? "", /baseline 须与切换到测试阶段时的摘要相同/);
   await assert.rejects(generatePersistence(f.root, true), /baseline/);
   await f.write("scripts/docs/persistence.json", manifest);
   await f.write("docs/persistence/digests.json", JSON.stringify({ fixture: { digest: initial.digest, basis: "baseline" } }));

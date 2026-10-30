@@ -52,7 +52,7 @@
 | 篇幅上限 | 各层 AGENTS.md 按非空白字符计数，上限和理由写在 `scripts/docs/budgets.json` |
 | 停用词 | 按 `scripts/docs/banned-terms.json` 的词、替换词和理由检查，不区分大小写 |
 | 包 README 骨架 | 检查上述章节顺序、概述长度、模型影响和限制说明 |
-| 代码线索 | 目录逐字节核对；原导出须有说明，转导出语句不查；schema 变化须记录版本判断 |
+| 代码线索 | 目录逐字节核对；原导出须有说明，转导出语句不查；schema 变化自首个测试版起须记录版本判断 |
 | 设计记录格式 | 按[设计记录格式](../.agents/notes/README.md#格式)检查路径、首行标题、状态和小节，不允许索引文件 |
 
 - 检查范围为 git 跟踪的 Markdown；`scripts/docs/config.json` 记录带理由的排除项，冻结证据、第三方材料和检查 fixture 按该清单排除，Repa 自有 Skill 仍检查。
@@ -63,4 +63,4 @@
 
 ## 持久格式与版本
 
-`scripts/docs/persistence.json` 声明持久格式。schema 摘要变化时，先在 `docs/persistence/changes/` 记录版本判断及理由，再运行 `npm run docs:gen` 保存摘要及记录文件名；`baseline` 仅适用于初始摘要。旧版本会读错时才升版本，迁移与标记由所属包负责。
+`scripts/docs/persistence.json` 声明格式和阶段。开发阶段不要求变更记录；首个测试版改为 `test` 并运行 `docs:gen` 建立基线，此后摘要变化须先在 `docs/persistence/changes/` 记录版本判断及理由，再生成摘要。旧版本会读错时才升版本，迁移与标记由所属包负责。
