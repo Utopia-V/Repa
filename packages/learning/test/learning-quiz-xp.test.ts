@@ -17,6 +17,7 @@ import { progressView, sampleTopics } from "../src/progress.js";
 import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
 import type { Replay } from "../src/replay.js";
 import type { LearningSession } from "../src/session.js";
+import { updateStudent } from "../src/student-model.js";
 import type { Topic } from "../src/format/schema.js";
 
 const start = Date.UTC(2026, 9, 12, 12);
@@ -480,11 +481,23 @@ test("各题都答了而判分全部中断时交卷：测验结束但不下结�
   const graded = await f.state();
   assert.deepEqual(graded.task?.phase, { stage: "completed", outcome: "passed" });
   assert.equal(graded.progress.totalXp, 165);
-  const student = (await f.fold()).student;
-  for (const id of topics) {
-    assert.notDeepEqual(student[id], learned[id]);
-  }
+  // 学生模型正好是交卷前的状态加上每个 topic 各一次通过，锚点是最后一份作答被收下的时间。
+  assert.ok(graded.task?.startedAt);
+  const at = Math.max(graded.task.startedAt, ...graded.task.submissions.map((submission) => submission.acceptedAt));
+  const graph = f.session().course.graph;
+  const expected = topics.reduce((student, id) => updateStudent(graph, student, { topicId: id, outcome: "pass", quality: 1 }, at), learned);
+  assert.deepEqual((await f.fold()).student, expected);
   assert.equal((await f.fold()).forced.size, 0);
+  // 重复读取、重开空间，学生模型、XP 和每笔奖励都不变。
+  const awards = structuredClone(f.replay().awards);
+  await f.state();
+  await f.state();
+  assert.deepEqual((await f.fold()).student, expected);
+  assert.deepEqual(f.replay().awards, awards);
+  await f.reopen();
+  assert.equal((await f.state()).progress.totalXp, 165);
+  assert.deepEqual((await f.fold()).student, expected);
+  assert.deepEqual(f.replay().awards, awards);
 });
 
 for (const missingPrerequisite of [false, true]) {

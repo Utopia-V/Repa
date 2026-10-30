@@ -52,8 +52,8 @@ export interface TaskRecord {
   /** 下一个任务开始的时间；有了下一个任务，这个任务一定已经结束。 */
   nextAt?: number;
   /**
-   * 开始时从此前同一 topic 的课继承的知识点进度，只用于这项任务的 XP 结算，使 XP 按事实先后结算、只增不减。
-   * 任务的进度和结论用重算后的学习状态里的继承进度，见 Replay.currentEvidence。
+   * 课结束时实际继承的知识点进度，在下一项任务开始时记下。之后这节课自己的判分改变时，按它得出结论、补发 XP 差额。
+   * 进行中的课从重算后的学习状态继承，见 Replay.currentEvidence。
    */
   inherited?: KpProgress[];
 }

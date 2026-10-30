@@ -290,6 +290,63 @@ test("申诉使更早一轮课的知识点改判为错时，正在进行的重�
   assert.equal(after.progress.totalXp, xp);
 });
 
+for (const count of [2, 1]) {
+  const title = count === 2
+    ? "上一轮课的待判作答补判为对，使正在进行的课继承到已完成的知识点：这节课随后通过时照常结算 XP，重开空间结果相同"
+    : "上一轮课的待判作答补判为对，使正在进行的课当场通过：此刻就结算 XP，只重算一次，重开空间结果相同";
+  test(title, async (t) => {
+    const definition = topic("t01", count);
+    const question = definition.kps[0]?.practice?.[0];
+    assert.ok(question);
+    question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
+    const f = await fixture(t, [definition]);
+    // 上一轮：KP1 答对一题，第二题判分中断，随后中止；这时 KP1 还没有两连对。
+    await f.select("t01");
+    await f.advance();
+    await f.advance();
+    f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
+    await f.submit();
+    await f.advance();
+    f.models.expectStructured().fail(new Error("断网"));
+    const pending = await f.submit();
+    assert.ok(pending.status === "recorded");
+    const aborted = await f.state();
+    assert.ok(aborted.task);
+    await f.call("task.abort", { taskId: aborted.task.taskId, expectedRevision: aborted.revision, expectedStage: aborted.task.phase.stage });
+    // 新一轮：继承的 KP1 尚未完成，先答对 KP1 一题。
+    await f.select("t01");
+    const lesson = Number((await f.state()).task?.taskId.slice(1));
+    await f.advance();
+    await f.advance();
+    f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
+    await f.submit();
+    // 上一轮的待判作答补判为对：上一轮的 KP1 两连对，新一轮继承到已完成的 KP1。
+    f.time(start + 60_000);
+    const recomputations = f.session().replay.recomputations;
+    f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
+    await f.call("submission.resume", { submissionId: pending.submission.submissionId });
+    const awards = (task: number) => f.session().replay.awards.filter((award) => award.task === task).map((award) => [award.xp, award.at]);
+    if (count === 2) {
+      assert.equal((await f.state()).task?.kps[0]?.completed, true);
+      assert.deepEqual(awards(lesson), []);
+      await f.finishLesson();
+    } else {
+      // 只有一个知识点：补判当场完成了这节课，此刻结算，不等下一项任务。这一步只重算一次。
+      assert.equal(f.session().replay.recomputations - recomputations, 1);
+    }
+    const passed = await f.state();
+    assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
+    assert.deepEqual(awards(lesson), [[5, start + 60_000]]);
+    const total = passed.progress.totalXp;
+    assert.equal(total, count === 2 ? 5 : 10);
+    const all = structuredClone(f.session().replay.awards);
+    await f.reopen();
+    assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+    assert.equal((await f.state()).progress.totalXp, total);
+    assert.deepEqual(f.session().replay.awards, all);
+  });
+}
+
 test("判分失败或模型没有把握时任务照样往下走、不计失败，可以中止；下次打开自动补判，学习状态随之重算", async (t) => {
   const definition = topic("t01");
   const question = definition.kps[0]?.practice?.[0];
@@ -458,7 +515,7 @@ test("代价关卡：每次作答只写交付、作答、判分三条事实；�
   assert.equal(samples.length, 25);
 });
 
-test("代价关卡：作答和任务结束都增量更新，重判更早任务的作答才整段重算一次；打开空间时每条事实只重放一次", async (t) => {
+test("代价关卡：作答和任务结束都增量更新，重判改了更早任务作答的对错才整段重算一次；打开空间时每条事实只重放一次", async (t) => {
   const definition = topic("t01");
   const question = definition.kps[0]?.practice?.[0];
   assert.ok(question);
@@ -473,9 +530,14 @@ test("代价关卡：作答和任务结束都增量更新，重判更早任务�
   await f.select("t02");
   await f.finishLesson();
   assert.equal(f.session().replay.recomputations, 0);
-  // 申诉重判 t01 的作答：它属于更早的任务，之后的学习状态整段重算一次，重复读取不再重算。
+  // 申诉重判 t01 的作答，结论没变：证据不变，学习状态不过期，不重算。
   f.models.expectStructured().succeed({ verdict: "correct", reason: "复核仍然符合" });
   await f.call("submission.appeal", { submissionId: original.submissionId, expectedGradeRevision: 1, reason: "复核" });
+  await f.state();
+  assert.equal(f.session().replay.recomputations, 0);
+  // 再申诉，改判为错：它属于更早的任务，之后的学习状态整段重算一次，重复读取不再重算。
+  f.models.expectStructured().succeed({ verdict: "incorrect", reason: "复核不符" });
+  await f.call("submission.appeal", { submissionId: original.submissionId, expectedGradeRevision: 2, reason: "再复核" });
   await f.state();
   await f.state();
   assert.equal(f.session().replay.recomputations, 1);

@@ -31,11 +31,11 @@ export interface PendingQuiz {
 /**
  * 按事实的先后重放学习状态。打开空间时从第一条事实重放一次；之后每追加一条事实增量更新。
  *
- * 学生模型等学习状态是已结束任务依次叠加的结果。只有改变更早任务证据的事实（补判、重判）
+ * 学生模型等学习状态是已结束任务依次叠加的结果。只有改变更早任务证据的事实（补判、改了结论的重判）
  * 让叠加结果过期，过期以后在下一次用到时整段重算一次，recomputations 记录重算的次数。
  *
- * XP 按事实发生的先后结算：任务结束时结算一次，之后这项任务的判分改变使奖励变高时补发差额，变低时不收回。
- * 结算只用这项任务自己的事实和它开始时继承的课内进度，所以重放与现场得到同样的 XP。
+ * XP 按任务的实际结论、在事实发生时结算：奖励变高时补发差额，变低时不收回。是否通过看实际结论，奖励的多少只看
+ * 这项任务自己的作答。结算的时刻都是事实的边界，用到的状态也只取决于此前的事实，所以重放与现场得到同样的 XP。
  */
 export class Replay {
   readonly tasks: TaskRecord[] = [];
@@ -88,7 +88,7 @@ export class Replay {
 
   /**
    * 当前任务的证据。课的进度从重算后的学习状态继承：更早任务的重判改变了继承的进度时，当前的课随之改变，
-   * 与学生模型和菜单一致。开始时冻结的 inherited 只用于 XP 的结算。
+   * 与学生模型和菜单一致，XP 也按这个结论结算。
    */
   currentEvidence(): TaskEvidence | undefined {
     const task = this.current;
@@ -138,9 +138,13 @@ export class Replay {
         const previous = this.current;
         if (previous) {
           previous.nextAt = fact.at;
-          this.observe(previous, fact.at);
+          // 结束的课记下此刻实际继承的进度：按它得出结论、结算 XP，再叠加进学习状态；之后它自己的判分改变时也按它结算。
           const prefix = this.before();
-          this.prefix = foldTask(prefix, taskEvidence(previous, this.course, prefix.lessons.get(previous.topicIds[0] ?? "")), this.course);
+          const inherited = prefix.lessons.get(previous.topicIds[0] ?? "");
+          if (previous.kind === "lesson" && inherited) previous.inherited = inherited;
+          const entry = taskEvidence(previous, this.course, previous.inherited);
+          this.observe(previous, fact.at, entry);
+          this.prefix = foldTask(prefix, entry, this.course);
           this.changes++;
         }
         const task: TaskRecord = {
@@ -153,8 +157,6 @@ export class Replay {
           answered: [],
           timedOut: false,
         };
-        const inherited = this.prefix.lessons.get(task.topicIds[0] ?? "");
-        if (task.kind === "lesson" && inherited) task.inherited = inherited;
         this.tasks.push(task);
         this.taskIndex.set(task.seq, task);
         if (task.kind === "quiz") this.consumed++;
@@ -193,8 +195,10 @@ export class Replay {
       }
       case "graded": {
         const delivery = this.deliveryOf(fact.delivery);
+        const last = delivery.grades.at(-1)?.verdict;
         delivery.grades.push(fact);
-        changed = delivery.task;
+        // 证据只看最新判分的对错：重判的结论没变（例如按改正后的答案重判仍然判对），学习状态和 XP 都不变。
+        if (last !== fact.verdict) changed = delivery.task;
         break;
       }
       case "appealed":
@@ -212,14 +216,31 @@ export class Replay {
         break;
     }
     if (changed) {
+      const earlier = changed !== this.current;
       // 更早任务的证据变了：之后的学习状态过期，用到时整段重算。
-      if (changed !== this.current) {
+      if (earlier) {
         this.stale = true;
         this.changes++;
       }
       this.observe(changed, fact.at);
+      if (earlier) {
+        this.reconsiderCurrent(fact.at);
+      }
     }
     this.checkQuiz();
+  }
+
+  /**
+   * 更早任务的证据变了，当前的课继承的进度可能随之完成，这节课就此通过，此刻也要结算。只有通过时的奖励高于已经结算的值，
+   * 才按实际结论再算一次：这需要整段重算，而奖励的多少只看这节课自己的作答，不用重算就能判断有没有补发的可能。
+   */
+  private reconsiderCurrent(at: number): void {
+    const task = this.current;
+    if (task?.kind !== "lesson") return;
+    const own = taskEvidence(task, this.course, undefined);
+    if (reward({ ...own, outcome: "passed" }, this.course) > (this.best.get(task.seq) ?? 0)) {
+      this.observe(task, at);
+    }
   }
 
   private taskOf(seq: number): TaskRecord {
@@ -235,11 +256,13 @@ export class Replay {
   }
 
   /**
-   * 按这项任务自己的事实和它开始时继承的进度结算 XP：只在奖励变高时补发差额。继承的进度用开始时冻结的那份，
-   * 更早任务的重判不改动已经结算的 XP，打开空间重放也与现场相同。
+   * 按一项任务的实际结论结算 XP：只在奖励变高时补发差额，变低时不收回。当前任务从重算后的学习状态继承进度；
+   * 已结束的任务用它结束时实际继承的那份（task.inherited）。
    */
-  private observe(task: TaskRecord, at: number): void {
-    const value = reward(taskEvidence(task, this.course, task.inherited), this.course);
+  private observe(task: TaskRecord, at: number, entry?: TaskEvidence): void {
+    const evidence = entry ?? (task === this.current ? this.currentEvidence() : taskEvidence(task, this.course, task.inherited));
+    if (!evidence) return;
+    const value = reward(evidence, this.course);
     const best = this.best.get(task.seq) ?? 0;
     if (value <= best) return;
     this.best.set(task.seq, value);
