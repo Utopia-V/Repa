@@ -26,6 +26,8 @@ export interface CodeStats {
   verifyJobs: number;
   verifiedSlots: number;
   testRuns: number;
+  /** 启动过的解释器数：应是 1，加上每次超时和崩溃之后换的新解释器。 */
+  interpreterStarts: number;
 }
 
 interface Context {

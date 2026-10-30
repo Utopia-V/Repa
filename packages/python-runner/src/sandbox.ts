@@ -220,16 +220,23 @@ export class PythonSandbox {
 
 /** 按需启动沙箱，之后的任务都在同一个解释器里运行；某个任务超时或运行器崩溃（包括恢复解释器状态失败）后，下一个任务换一个新的沙箱。 */
 export class SandboxRunner {
+  #starts = 0;
   private current: PythonSandbox | undefined;
   private started: RuntimeVersions | undefined;
 
   constructor(private readonly options: SandboxOptions) {}
+
+  /** 到目前为止启动过几个沙箱：第一个，加上每次超时或崩溃之后各一个。代价关卡按它核对。 */
+  get starts(): number {
+    return this.#starts;
+  }
 
   /** 启动（或沿用）沙箱，返回实际加载的版本。 */
   async start(): Promise<RuntimeVersions> {
     if (this.current?.running && this.started) return this.started;
     await this.current?.close();
     const { sandbox, versions } = await PythonSandbox.start(this.options);
+    this.#starts += 1;
     this.current = sandbox;
     this.started = versions;
     return versions;

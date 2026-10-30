@@ -47,7 +47,7 @@ const outcome = await runner.run({ op: "program", data: [], setup: "", program: 
 await runner.close();
 ```
 
-任务是交给 `runner.py` 的 `handle_job` 的一个 JSON 对象，`op` 为 `program`、`expect` 或 `verify`，每个任务都会带上 `prelude`。结果见 `JobOutcome`：`done` 是 `runner.py` 交回了结果，`timeout` 和 `crashed` 时沙箱已经结束。所有任务在同一个解释器里依次运行；任务超时（默认 10 秒）就结束整个沙箱，任务后恢复状态失败也会让运行器退出，下一个任务换一个新的沙箱。沙箱建立不了时抛 `SandboxUnavailable`，调用方应当报错，不改用不受限的运行。
+任务是交给 `runner.py` 的 `handle_job` 的一个 JSON 对象，`op` 为 `program`、`expect` 或 `verify`，每个任务都会带上 `prelude`。结果见 `JobOutcome`：`done` 是 `runner.py` 交回了结果，`timeout` 和 `crashed` 时沙箱已经结束。所有任务在同一个解释器里依次运行；任务超时（默认 10 秒）就结束整个沙箱，任务后恢复状态失败也会让运行器退出，下一个任务换一个新的沙箱。`starts` 是启动过的沙箱数，应等于 1 加上超时和崩溃的次数，调用方据此核对代价。沙箱建立不了时抛 `SandboxUnavailable`，调用方应当报错，不改用不受限的运行。
 
 ### 离线包
 
@@ -68,7 +68,7 @@ pandas、NumPy 等 wheel 不在 npm 包 pyodide 里。课程清单决定要哪�
 
 ### 任务之间恢复什么
 
-每个任务从全新的命名空间开始，先运行 `prelude`，再准备数据夹具，工作目录是空的。任务后，`runner.py` 恢复 pandas 与 NumPy 的选项、builtins、输出流与显示钩子、`sys.path`、环境变量、warnings 过滤器，取消挂起的 asyncio 任务，并删掉任务在工作目录、`/tmp` 和根目录下新建的文件。程序在 capture 求值和序列化时打印的内容，包括值被释放时 `__del__` 打印的，都收进这一项的输出，共用 64 KiB 的上限。
+每个任务从全新的命名空间开始，先运行 `prelude`，再准备数据夹具，工作目录是空的。任务后，`runner.py` 恢复 pandas 与 NumPy 的选项、builtins、输出流与显示钩子、`sys.path`、环境变量、warnings 过滤器，取消挂起的 asyncio 任务，删掉任务在工作目录、`/tmp` 和根目录下新建的文件，并用系统熵给 `random` 与 `numpy.random` 重新播种，与新的解释器一样，各任务抽到的数互不相关。程序在 capture 求值和序列化时打印的内容，包括值被释放时 `__del__` 打印的，都收进这一项的输出，共用 64 KiB 的上限。
 
 两个宿主都复用解释器，只为省去重新加载 Pyodide、NumPy 和 pandas 的时间：Node 宿主一直沿用同一个，页面在一批测试之内沿用、每批换一个新的 Worker；恢复失败或任务超时后，两边都换新的解释器。已导入的模块不在恢复之列，任务对它们的改动会带到同一个解释器里的后续任务。
 
@@ -78,7 +78,7 @@ pandas、NumPy 等 wheel 不在 npm 包 pyodide 里。课程清单决定要哪�
 
 ## 已知限制与暂缓
 
-- 已导入模块的改动会带到同一个解释器里的后续任务。课程核对整门课共用一个解释器，一份候选程序给 pandas 打的补丁会影响之后的候选；判分时每次提交用新的 Worker，不受别的提交影响。需要更强的隔离时，可以恢复更多状态，或为每份候选换新的解释器，代价是每次都要重新启动。
+- 已导入模块的改动会带到同一个解释器里的后续任务。课程核对整门课共用一个解释器，一份候选程序给 pandas 打的补丁会影响之后的候选；判分时每次提交用新的 Worker，不受别的提交影响。随包课程没有这类改动：2026-10-30 记录了全部任务结束时留下的改动，只有新建的文件、`builtins._` 和库按需导入的模块。课程以后要教这类写法时，再为相关的候选换新的解释器；比较全部模块与类的属性也能拦下，但整门课核对会慢到约三倍，见[学习插件重做](../../.agents/notes/proposed/architecture/2026-10-30-learning-plugin-refactor.md)。
 - `runner.py` 还带着课程核对专用的 `verify`、`expect` 任务（作答位的形状、WWPD 的显示约定、期望表达式），`python.run` 的输入输出也还带着 `submissionId`、`gradeRevision` 和 runner 摘要。[学习插件重做](../../.agents/notes/proposed/architecture/2026-10-30-learning-plugin-refactor.md)的第 2 步让检查与判分共用同一入口，届时一并移出。
 - Node 宿主只能在 Linux 上运行，依赖 Landlock（ABI 4 以上，Linux 6.7 起）、libseccomp 和 `/usr/bin/python3`；Windows、macOS 上的课程核对只能 `--no-run`。
 - `RLIMIT_DATA` 只管进程私有的可写内存，没有 cgroup 级的整树限制，线程数只受内存间接限制。运行比课程核对更不可信的内容之前需要再评估。
