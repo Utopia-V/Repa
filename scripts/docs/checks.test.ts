@@ -80,6 +80,42 @@ test("设计记录中的旧路径跳过，源码正文不会被当作路径注�
   assert.deepEqual(await check(repo, "路径"), []);
 });
 
+test("注释中的外部 URL 和带前缀片段跳过，同一注释的独立仓库路径仍检查", async (t) => {
+  const repo = await fixture(t, {});
+  const file = "packages/demo/src/index.ts";
+  await mkdir(path.dirname(path.join(repo.root, file)), { recursive: true });
+  const comment = "// https://github.com/example/project/blob/main/docs/usage.md https://example.com/?docs/query.md#x=.agents/fragment.md https://example.com/(item)?docs/parentheses.md //example.com/docs/remote.md /docs/slash.md :docs/colon.md adocs/letter.md 1docs/digit.md a.agents/prefix.md，docs/missing.md 和 `.agents/missing.md`\n";
+  await writeFile(path.join(repo.root, file), comment);
+  const issues = await check(new Repository(repo.root, [file]), "路径");
+  assert.deepEqual(issues.map((issue) => [issue.line, issue.message]), [
+    [1, "注释路径不存在：docs/missing.md"],
+    [1, "注释路径不存在：.agents/missing.md"],
+  ]);
+  for (const target of ["docs/missing.md", ".agents/missing.md"]) {
+    await mkdir(path.dirname(path.join(repo.root, target)), { recursive: true });
+    await writeFile(path.join(repo.root, target), "# 文档\n");
+  }
+  assert.deepEqual(await check(new Repository(repo.root, [file]), "路径"), []);
+});
+
+for (const [name, content, lines] of [
+  ["空块", "function empty() {\n  // docs/missing.md\n  /* .agents/missing.md */\n}\n", [2, 3]],
+  ["块尾", "function tail() {\n  const text = `// docs/string.md`;\n  /docs\\/regex.md/.test(text);\n  // docs/missing.md\n  /* .agents/missing.md */\n}\n", [4, 5]],
+] as const) {
+  test(`${name}的独立注释报告缺失路径及行号，路径存在时通过`, async (t) => {
+    const repo = await fixture(t, {});
+    const file = "apps/demo/src/index.ts";
+    await mkdir(path.dirname(path.join(repo.root, file)), { recursive: true });
+    await writeFile(path.join(repo.root, file), content);
+    assert.deepEqual((await check(new Repository(repo.root, [file]), "路径")).map((issue) => issue.line), lines);
+    for (const target of ["docs/missing.md", ".agents/missing.md"]) {
+      await mkdir(path.dirname(path.join(repo.root, target)), { recursive: true });
+      await writeFile(path.join(repo.root, target), "# 文档\n");
+    }
+    assert.deepEqual(await check(new Repository(repo.root, [file]), "路径"), []);
+  });
+}
+
 for (const [name, directory, failureCount] of [
   ["不写提交哈希", "hashes", 2],
   ["一段一行", "paragraphs", 3],

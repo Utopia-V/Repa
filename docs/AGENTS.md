@@ -63,4 +63,4 @@
 
 ## 持久格式与版本
 
-`scripts/docs/persistence.json` 声明持久格式。schema 摘要变化时，先在 `docs/persistence/changes/` 记录版本判断及理由，再运行 `npm run docs:gen` 更新认可摘要；首次运行即建立基线。摘要用于提醒审阅：旧版本会读错时才升版本，迁移与标记由所属包负责。
+`scripts/docs/persistence.json` 声明持久格式。schema 摘要变化时，先在 `docs/persistence/changes/` 记录版本判断及理由，再运行 `npm run docs:gen` 保存摘要及记录文件名；`baseline` 仅适用于初始摘要。旧版本会读错时才升版本，迁移与标记由所属包负责。
