@@ -104,6 +104,18 @@ export const BackupManifestSchema = object({
 export type BackupManifest = Static<typeof BackupManifestSchema>;
 /** 恢复标记的 schema：恢复到原位置期间存为 .repa/restore.json，记下选中的备份；标记存在时空间不打开，等待重新恢复。 */
 export const RestoreMarkerSchema = object({ backup: identifier });
+/**
+ * 导出包中一个文件的 schema：包内路径、字节数、替换掉的凭据与密钥处数；.jsonl 另有记录条数，即行数。
+ * 插件导出前把这份清单交给界面，学习者据此确认发出什么。
+ */
+export const ExportedFileSchema = object({
+  name: identifier,
+  bytes: Type.Integer({ minimum: 0 }),
+  records: Type.Optional(Type.Integer({ minimum: 0 })),
+  redactions: Type.Integer({ minimum: 0 }),
+});
+/** 导出包中一个文件的路径、字节数、记录条数与替换处数，供导出前的清单显示。 */
+export type ExportedFile = Static<typeof ExportedFileSchema>;
 /** 目录浏览起点的 schema，保存路径与显示名称，供空间选择界面使用。 */
 export const DirectoryRootSchema = object({ path: identifier, label: identifier });
 /** 目录浏览的起点路径与显示名称，供空间选择界面使用。 */

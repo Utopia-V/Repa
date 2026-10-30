@@ -1,6 +1,6 @@
 # 学习插件：课程与持久记录
 
-`@repa/learning` 提供课程格式、读取和检查、任务与提交的公开契约（`@repa/learning/protocol`），以及只记事实的学习记录、恢复命令和学生模型接入。第一门课“Python：读懂代码，说清需求”有 48 个完整 topic。当前默认接入上课、规则／开放题判分、复习、补救、菜单、申诉及[辅导与即时回顾](../../docs/development/learning-tutor.md)；[教学流程说明](../../docs/development/learning-flow.md)列出规则和 Python 服务接入边界。持久入口与接入方式见[学习记录说明](../../docs/development/learning-records.md)。
+`@repa/learning` 提供课程格式、读取和检查、任务与提交的公开契约（`@repa/learning/protocol`），以及只记事实的学习记录、恢复命令和学生模型接入。第一门课“Python：读懂代码，说清需求”有 48 个完整 topic。当前默认接入上课、规则／开放题判分、复习、补救、菜单、申诉及[辅导与即时回顾](../../docs/development/learning-tutor.md)；[教学流程说明](../../docs/development/learning-flow.md)列出规则和 Python 服务接入边界。持久入口、接入方式与学习数据的导出见[学习记录说明](../../docs/development/learning-records.md)。
 
 在仓库根目录运行 `npm run course:check` 检查全部课程；写课的要求和写法见[写课说明](courses/README.md)。
 

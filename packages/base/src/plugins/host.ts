@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { Check } from "typebox/value";
 import type { AgentTool } from "../agent.js";
 import { prepareItem, type AskRoute } from "../ask.js";
+import { prepareExport } from "../feedback/export.js";
 import {
   ASK_USER_TOOL,
   BUILTIN_TOOLS,
@@ -345,6 +346,18 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
             },
           },
           emit: (event) => { options.emit(plugin.id, event); },
+          prepareExport(request) {
+            checkOpen();
+            const sources = options.exports;
+            if (sources === undefined) return Promise.reject(new RepaFault("export_unavailable", "当前宿主不提供导出"));
+            return track(prepareExport({
+              ...sources,
+              pluginId: plugin.id,
+              dataDir,
+              sessionsDir: space.sessionsDir,
+              now: options.now ?? Date.now,
+            }, request));
+          },
         };
         const instance = await plugin.open(host);
         instances.set(plugin.id, instance);

@@ -100,6 +100,23 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 命令通过现有空间锁确认空间已关闭，核对完整前缀，再独占创建目标文件，按原始字节写出前缀并同步。原日志保持原样，目标文件已存在也会拒绝。核对新文件后，在空间保持关闭时，将原日志改名保留，再把新文件移到 `.repa/plugins/learning/records.jsonl`，即可正常打开；没判出结果的作答会自动补判。中部或完整行损坏需要维护者调查，不自动截断。
 
+日志写坏或空间文件夹被误删时，也可以用[空间备份](../../packages/base/README.md#备份与恢复)恢复：备份只收到最后一个换行符，从备份恢复以后学习插件照常打开，可以接着作答。
+
+### 导出学习数据
+
+维护者校准学生模型，要用真实学习者的作答。学习者同意时，界面先调用 `export.prepare` 预览，再调用 `export.create` 生成一个 zip，由学习者自行发送；输入与结果见[前端契约](learning-protocol.md#状态与方法)。zip 只收以下内容，空间中的其他文件一律不收：
+
+| 包内文件 | 内容 |
+| --- | --- |
+| `records.jsonl` | 学习记录，截取到预览开始时的最后一个完整行 |
+| `learning.json` | 插件的代码版本 `pluginVersion`、学习记录的格式版本 `recordsFormat`、课程的标识与版本 `course` |
+| `sessions/*.jsonl` | 学习者选择包含会话时才收入：空间 `.repa/sessions/` 中的全部会话记录，即辅导对话、判分等模型调用，以及通用 Agent 开着时与它的对话 |
+| `manifest.json` | 底座写的清单：生成时间、Repa 版本、插件 id、是否收入会话，以及各文件的字节数、记录条数与替换处数 |
+
+会话可能含有私人内容，所以默认不收入；界面在导出前说明这一点，并列出 `export.prepare` 返回的清单，即每个文件的字节数、记录条数和替换掉的凭据与密钥处数。全部内容按反馈包的规则替换凭据与密钥，学习者写进作答的密钥也一样。读取、脱敏与写出由底座的 [`host.prepareExport`](../../packages/base/README.md#导出插件数据) 完成，插件只列出白名单。
+
+预览时，插件把已脱敏的 zip 冻结在内存中，`export.create` 写出的就是这一份，所以清单与 zip 一致，预览以后新增的记录不进入这次导出。插件只保留最近一次预览：写出成功、再次预览或关闭空间以后，旧的 `exportId` 以 `export_expired` 拒绝，需要重新预览；存放目录无效等写出失败时，这份预览仍然有效。zip 默认放在应用配置目录的 `exports/`，桌面端可以把 `directory` 指定为“下载”文件夹。
+
 ### 课程来源与模型
 
 `loadCourseSources` 接收有序来源列表：先列唯一的 `{ kind: "bundled", directory }`，再列 `{ kind: "overlay", file }`。覆盖文件通过 `host.files` 读取，使用 JSON 形状 `{ courseId, basedOn, topic }`；`basedOn` 必须等于上游课程版本，`topic` 按当前 schema 完整替换同 id topic。来源重复、未知 topic 或版本不符都会报错，读取随包课程不会修改其文件。
@@ -119,7 +136,7 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 ```sh
 npm run check --workspace=@repa/learning
-(cd packages/learning && node --import tsx --test test/learning-records.test.ts test/learning-facts.test.ts)
+(cd packages/learning && node --import tsx --test test/learning-records.test.ts test/learning-facts.test.ts test/backup-export.test.ts)
 ```
 
-[`learning-records.test.ts`](../../packages/learning/test/learning-records.test.ts) 用三个子进程分别在作答写入后、模型返回而判分未写入时、判分写入后 SIGKILL，再重开核对作答保留、任务不阻塞、补判只调用一次模型；另覆盖同载荷并发提交、写入失败、引用错误、残缺尾部的恢复命令、可忽略的新增字段和经真实宿主重开。[`learning-facts.test.ts`](../../packages/learning/test/learning-facts.test.ts) 覆盖答案或运行前导改正后的重判、判分中断的作答补判以后课按作答先后重新判定（第三题补判为错即失败，XP 不收回）、更早一轮课的重判反映到正在进行的重试、更早一轮课的补判使正在进行的课通过时照常结算 XP、没有证据时不阻塞、中止复习时已有失败证据记为失败、只搬事实文件后重算出相同状态、换一组学生模型参数重放得出不同的预测、归属改变不换版本，以及每次作答的字节上限（含最长的代码题）和重算次数（对错没变的重判不重算）。
+[`learning-records.test.ts`](../../packages/learning/test/learning-records.test.ts) 用三个子进程分别在作答写入后、模型返回而判分未写入时、判分写入后 SIGKILL，再重开核对作答保留、任务不阻塞、补判只调用一次模型；另覆盖同载荷并发提交、写入失败、引用错误、残缺尾部的恢复命令、可忽略的新增字段和经真实宿主重开。[`learning-facts.test.ts`](../../packages/learning/test/learning-facts.test.ts) 覆盖答案或运行前导改正后的重判、判分中断的作答补判以后课按作答先后重新判定（第三题补判为错即失败，XP 不收回）、更早一轮课的重判反映到正在进行的重试、更早一轮课的补判使正在进行的课通过时照常结算 XP、没有证据时不阻塞、中止复习时已有失败证据记为失败、只搬事实文件后重算出相同状态、换一组学生模型参数重放得出不同的预测、归属改变不换版本，以及每次作答的字节上限（含最长的代码题）和重算次数（对错没变的重判不重算）。[`backup-export.test.ts`](../../packages/learning/test/backup-export.test.ts) 经真实后端和学习插件核对：导出的 zip 只含白名单中的文件，没有选择包含会话时没有会话记录；作答里写有已保存的密钥时导出内容中的密钥已被替换；清单与 zip 一致，预览以后新增的记录和日志末尾的半行都不进入导出；导出只读取学习记录，选择包含会话时再读会话记录，每个文件只读一次；学习进行中备份，日志末尾有半行，接着学，恢复到原位置以后学习插件照常打开、可以继续作答。

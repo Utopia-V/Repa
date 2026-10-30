@@ -4,6 +4,9 @@ import { RepaFault, syncDirectory } from "@repa/base";
 import { parse } from "@repa/base/protocol";
 import { FactSchema, type Fact, type FactBody } from "./records-schema.js";
 
+/** 学习记录在插件数据目录中的文件名；打开与导出都用它。 */
+export const RECORDS_FILE = "records.jsonl";
+
 function invalid(message: string): never {
   throw new RepaFault("invalid_learning_log", message);
 }
