@@ -7,12 +7,13 @@
 
 import { readFile, rename, writeFile } from "node:fs/promises";
 
-import { checkResponse, contentVersion, type Answer, type Block, type Content, type Item, type Slot } from "@repa/base/protocol";
+import { checkResponse, contentVersion, type Answer, type Content, type Item, type Slot } from "@repa/base/protocol";
 import { Document, isMap, isSeq } from "yaml";
 
 import { checkSchema, parseYamlFile, Report, SourceFile, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { TopicSchema, type Confirmation, type Question, type Runtime, type SlotDef, type Topic } from "../format/schema.js";
+import { contentText, entryText } from "../model-text.js";
 import { gradeSlot } from "./grade.js";
 import { acceptedValues, inputCells, versionInput, publicItem, referenceAnswer, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
 
@@ -156,33 +157,12 @@ function original(aliases: Aliases, key: string, value: unknown): unknown {
 }
 
 // ---------------------------------------------------------------------------
-// 把公开题面写成给模型的文字
+// 把公开题面写成给模型的文字（内容块的写法与辅导共用，见 model-text.ts）
 // ---------------------------------------------------------------------------
-
-/** 代码块带 startLine 时，每行前面写上行号，题面里说“第 3 行”才对得上。 */
-function numberedCode(block: Extract<Block, { type: "code" }>): string {
-  const text = block.text.replace(/\n$/, "");
-  if (block.startLine === undefined) return text;
-  const lines = text.split("\n");
-  const start = block.startLine;
-  const width = String(start + lines.length - 1).length;
-  return lines.map((line, index) => `${String(start + index).padStart(width)} | ${line}`).join("\n");
-}
-
-function renderContent(content: Content | undefined): string {
-  return (content ?? []).map((block) => {
-    if (block.type === "markdown") return block.text;
-    if (block.type === "code") return `\`\`\`${block.language}\n${numberedCode(block)}\n\`\`\``;
-    return `[图：${block.alt}]`;
-  }).join("\n\n");
-}
 
 /** 选项或排列块：一行文字写在编号后面；多行内容（例如多行代码）原样缩进排在编号下面。 */
 function renderEntry(entry: { id: string; content: Content; label?: string }): string {
-  const head = `- \`${entry.id}\`${entry.label ? `（${entry.label}）` : ""}：`;
-  const text = renderContent(entry.content);
-  if (!text.includes("\n")) return `${head}${text}`;
-  return `${head}\n${text.split("\n").map((line) => (line === "" ? "" : `  ${line}`)).join("\n")}`;
+  return entryText(`- \`${entry.id}\`${entry.label ? `（${entry.label}）` : ""}：`, contentText(entry.content));
 }
 
 /** 表格里有输入格的列；只有一列要填时，作答可以写得短一些：{行 id: 值}。 */
@@ -194,7 +174,7 @@ function inputColumns(slot: Extract<Slot, { type: "table" }>): string[] {
 
 function renderSlot(slot: Slot): string {
   const lines = [`### 作答位 ${slot.id}${slot.label ? `（${slot.label}）` : ""}`];
-  const prompt = renderContent(slot.prompt);
+  const prompt = contentText(slot.prompt);
   if (prompt) lines.push(prompt);
   switch (slot.type) {
     case "choice":
@@ -247,7 +227,7 @@ const SYSTEM = [
 
 /** 给模型的请求：题面和全部作答位作为上下文，只要求回答需要核对的作答位。item 里的 id 要已经换成不透明的编号。 */
 export function confirmationRequest(item: Item, slots: string[]): ModelRequest {
-  const body = renderContent(item.body);
+  const body = contentText(item.body);
   const prompt = [
     "## 题目",
     item.title ? `**${item.title}**\n\n${body}` : body,
