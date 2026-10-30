@@ -17,7 +17,7 @@ import type { LearningSession } from "./session.js";
 
 /**
  * 教学方法：读当前状态、核对守卫，再追加学习者行为的事实。状态全部从事实重放得出，方法本身不保存画面。
- * beforeRestricted 在复习和测验开始计时之前调用，默认中止辅导 Agent。
+ * beforeRestricted 在复习和测验交付第一道题之前调用，默认中止辅导 Agent。
  */
 export async function connectLearning(
   session: LearningSession,
@@ -126,7 +126,7 @@ export async function connectLearning(
     return { type: "delivered", task: task.seq, question: entry.question.id, seed };
   }
 
-  /** 复习与测验先写下任务（准备阶段），等辅导停稳后才交付题目，第一道题出现时开始计时。 */
+  /** 复习与测验先写下任务（准备阶段），等辅导停稳后才交付题目；测验从第一道题出现时开始计时。 */
   async function startRestricted(capabilities: ClientCapabilities | undefined) {
     const evidence = current();
     if (!evidence || session.stage(evidence) !== "preparing") {

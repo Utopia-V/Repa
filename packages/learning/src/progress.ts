@@ -58,26 +58,27 @@ function addDays(day: string, days: number): string {
 }
 
 /**
- * 为第 n 场测验选 topic：从学过、有测验题的 topic 里随机选，避开上一场测验（或换题重考）答过的 topic，不足时从答过的里补足；
- * 每个 topic 一题，最多 QUIZ_TOPICS 个。补足的 topic 出题时照常优先出学习者没见过的题（见 flow.ts 的选题）。随机由第 n 场的
- * seed 决定，所以重放得到同样的选择。只在测验出现时调用一次，从后往前找上一场测验，不重算各任务的结论。Repa 假设：MA 公开
- * 从学过的 topic 里随机选一组多样的，考过的降低权重，具体的权重没有公开。
+ * 为第 n 场测验选 topic：在学过、有测验题的 topic 里，先选以往测验（含换题重考）测过次数最少的，次数相同时按第 n 场的 seed 随机；
+ * 每个 topic 一题，最多 QUIZ_TOPICS 个。测过一次指出过它的一道题，而这道题还在课程里；题目已从课程删除的不算。补足的 topic
+ * 出题时照常优先出学习者没见过的题（见 flow.ts 的选题）。随机由 seed 决定，所以重放得到同样的选择。只在测验出现时调用一次，
+ * 扫描一遍以往测验的交付，不重算各任务的结论。MA 公开：随机选一组多样的已学 topic，降低以往测过的 topic 的优先级；怎样降低
+ * 没有公开，按测过次数排序是 Repa 的细化。
  */
 export function sampleTopics(tasks: TaskRecord[], fold: Fold, course: CourseIndex, n: number): string[] {
   const candidates = course.course.topics.filter((topic) => fold.student[topic.id] && course.quizTopics.has(topic.id)).map((topic) => topic.id);
-  const recent = new Set<string>();
-  for (let index = tasks.length - 1; index >= 0 && recent.size === 0; index--) {
-    const task = tasks[index];
-    if (!task || !isQuiz(task.kind)) {
+  const tested = new Map<string, number>();
+  for (const task of tasks) {
+    if (!isQuiz(task.kind)) {
       continue;
     }
-    for (const delivery of task.answered) {
+    for (const delivery of task.deliveries) {
       const topicId = course.questions.get(delivery.questionId)?.topic.id;
-      if (topicId) recent.add(topicId);
+      if (topicId) tested.set(topicId, (tested.get(topicId) ?? 0) + 1);
     }
   }
+  // 先按 seed 打乱，再按测过次数稳定排序：次数相同的保持打乱后的随机次序。
   const pool = shuffled(candidates, Math.imul(n, 0x9e3779b1) >>> 0);
-  return [...pool.filter((id) => !recent.has(id)), ...pool.filter((id) => recent.has(id))].slice(0, QUIZ_TOPICS);
+  return pool.sort((a, b) => (tested.get(a) ?? 0) - (tested.get(b) ?? 0)).slice(0, QUIZ_TOPICS);
 }
 
 /**

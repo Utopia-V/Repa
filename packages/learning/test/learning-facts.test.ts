@@ -13,6 +13,7 @@ import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protoc
 import { Value } from "typebox/value";
 import { CodeSlotSchema, IdSchema, KpIdSchema, QuestionIdSchema, TopicIdSchema, type Topic } from "../src/format/schema.js";
 import { FactSchema, GradedSlotSchema, type Fact } from "../src/records-schema.js";
+import { KP_WRONG_LIMIT } from "../src/parameters.js";
 import { Replay } from "../src/replay.js";
 import { DAY_MS } from "../src/student-model.js";
 import { RUNTIME, runtimeUnavailable } from "./demo-course.js";
@@ -263,7 +264,7 @@ test("申诉使更早一轮课的知识点改判为错时，正在进行的重�
   assert.ok(first);
   first.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
   const f = await fixture(t, [definition]);
-  // 第一轮：KP1 两连对通过，KP2 五次都说不会，课失败。
+  // 第一轮：KP1 两连对通过，KP2 连说三次不会，答错太多，课失败。
   f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
   f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
   await f.select("t01");
@@ -390,7 +391,7 @@ test("判分失败或模型没有把握时任务照样往下走、不计失败�
   assert.ok((await f.student()).t01);
 });
 
-test("复习到截止时间时，没判出结果的作答和没出的题都判对也不能让复习通过：已有失败的证据，按超时结束并记一次失败", async (t) => {
+test("中止复习时，没判出结果的作答和没出的题都判对也不能让复习通过：已有失败的证据，记为失败并做失败更新", async (t) => {
   const definition = topic("t01");
   const review = definition.kps[0]?.review?.[0];
   assert.ok(review);
@@ -402,7 +403,7 @@ test("复习到截止时间时，没判出结果的作答和没出的题都判�
   const learned = (await f.student()).t01;
   assert.ok(learned);
   await f.select("t01", "review");
-  // 前三题说不会，当场判错；第四题的判分中断。就算它和还没出的第五题都对，也只有两题对，到截止时间就不可能通过了。
+  // 前三题说不会，当场判错；第四题的判分中断。就算它和还没出的第五题都对，也只有两题对，已经不可能通过了。
   for (let index = 0; index < 3; index++) {
     await f.submit(false);
     await f.advance();
@@ -411,10 +412,10 @@ test("复习到截止时间时，没判出结果的作答和没出的题都判�
   const receipt = await f.submit();
   assert.ok(receipt.status === "recorded");
   assert.equal(receipt.submission.processing.status, "interrupted");
-  const deadline = (await f.state()).task?.deadlineAt;
-  assert.ok(deadline);
-  f.time(deadline);
-  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "timeout" });
+  const current = await f.state();
+  assert.ok(current.task);
+  const ended = await f.call("task.abort", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage });
+  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "failed" });
   assert.notDeepEqual((await f.student()).t01, learned);
   assert.ok(((await f.student()).t01?.repNum ?? 0) < learned.repNum);
 });
@@ -539,13 +540,14 @@ test("代价关卡：每次作答只写交付、作答、判分三条事实；�
   }
   // 上限就是这样一次作答实际写下的构成：最长的那道代码题每次作答都正好达到它。
   const longest = samples.filter((sample) => sample.question === LONG_QUESTION);
-  assert.equal(longest.length, 5);
+  // 每次都超时判错：同一个知识点答错 KP_WRONG_LIMIT 题，这节课就中止。
+  assert.equal(longest.length, KP_WRONG_LIMIT);
   assert.ok(longest.every((sample) => sample.bytes === limit), JSON.stringify(longest));
   // 构成相同的作答写在历史的哪个位置都一样：t01 开头的文字题和 t03 末尾的文字题，固定部分相同。
   const text = samples.filter((sample) => /^t0[123]\.k[123]\.q1$/.test(sample.question) && sample.question !== "t01.k3.q1");
   assert.equal(text.length, 16);
   assert.equal(new Set(text.map((sample) => sample.bytes)).size, 1);
-  assert.equal(samples.length, 25);
+  assert.equal(samples.length, 20 + KP_WRONG_LIMIT);
 });
 
 test("代价关卡：作答和任务结束都增量更新，重判改了更早任务作答的对错才整段重算一次；打开空间时每条事实只重放一次", async (t) => {

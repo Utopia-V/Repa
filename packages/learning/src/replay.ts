@@ -123,7 +123,7 @@ export class Replay {
     return entry?.outcome ? foldTask(prefix, entry, this.course, this.model) : prefix;
   }
 
-  /** 截止时间已过的复习或测验在截止时刻结束；时间只会向前，所以在读取时就地结算与重放结果一致。 */
+  /** 截止时间已过的测验在截止时刻结束（课和复习不限时）；时间只会向前，所以在读取时就地结算与重放结果一致。 */
   settle(now: number): void {
     const task = this.current;
     const deadline = task && deadlineAt(task);

@@ -136,7 +136,7 @@ test("同载荷并发提交只收一次，判分期间不占串行入口，失�
   assert.deepEqual(await f.state(), completed);
 });
 
-test("结构拒绝、错身份与截止后新答不落盘，已收下的重交仍可查询", async (t) => {
+test("结构拒绝、错身份与任务结束后的新答不落盘，没收下的提交查询为不存在", async (t) => {
   const f = await learningFixture(t);
   await f.select();
   await f.finishLesson();
@@ -149,14 +149,17 @@ test("结构拒绝、错身份与截止后新答不落盘，已收下的重交�
   assert.equal(f.session().records.revision, revision);
   await assert.rejects(f.call("submission.submit", { ...input, submissionId: "s999" }), (error: unknown) =>
     error instanceof Error && "code" in error && error.code === "stale_state");
-  const deadline = (await f.state()).task?.deadlineAt;
-  assert.ok(deadline);
-  f.time(deadline);
+  // 复习不限时；学习者中止以后，这份交付不再收作答。
+  const current = await f.state();
+  assert.ok(current.task);
+  await f.call("task.abort", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage });
+  const ended = f.session().records.revision;
+  assert.equal(ended, revision + 1);
   await assert.rejects(f.call("submission.submit", input), (error: unknown) =>
     error instanceof Error && "code" in error && error.code === "stale_state");
-  assert.equal(f.session().records.revision, revision);
+  assert.equal(f.session().records.revision, ended);
   assert.deepEqual(await f.call("submission.get", { submissionId: input.submissionId }), {
-    status: "absent", submissionId: input.submissionId, revision,
+    status: "absent", submissionId: input.submissionId, revision: ended,
   });
 });
 

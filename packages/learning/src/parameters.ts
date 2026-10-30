@@ -14,6 +14,12 @@ export const STUDENT_MODEL: ModelConfig = DEFAULT_MODEL_CONFIG;
 export const KP_PASS_STREAK = 2;
 /** 一个知识点最多练几题；练满仍没通过，这节课失败。MA 公开，出处同上。 */
 export const KP_MAX_ATTEMPTS = 5;
+/**
+ * 同一个知识点答错几题，这节课就中止、算失败。Repa 假设（维护者 2026-10-31 决定）：MA 公开答错太多会中止整节课，阈值没有公开，
+ * 用户报告按整节课答错 3 到 4 题即中止。Repa 按知识点计：每个知识点各错一题、随即连对，说明学习正在发生；错误集中在同一个知识点，
+ * 才说明没学会。
+ */
+export const KP_WRONG_LIMIT = 3;
 /** 课失败以后多久才能重试。Repa 假设：MA 官方 FAQ 只说过几天再试。 */
 export const LESSON_COOLDOWN_MS = 48 * 3_600_000;
 
@@ -23,10 +29,8 @@ export const LESSON_COOLDOWN_MS = 48 * 3_600_000;
 export const REVIEW_MAX_QUESTIONS = 5;
 /** 复习通过至少要独立答对几题。Repa 假设。 */
 export const REVIEW_PASS_CORRECT = 3;
-/** 复习通过时，最后几题要连续独立答对。Repa 假设：MA 公开答对答错的先后影响判定，规则没有公开。 */
+/** 复习通过时，最后几题要连续独立答对。Repa 假设：MA 公开答对答错的先后影响判定，规则没有公开。复习不限时，与 MA 公开的一致。 */
 export const REVIEW_FINAL_STREAK = 2;
-/** 复习限时，从第一道题出现时算起。Repa 假设。 */
-export const REVIEW_DURATION_MS = 10 * 60_000;
 
 // 交给学生模型的质量
 

@@ -11,7 +11,9 @@ import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
 import { ModelTestDriver } from "@repa/base/testing";
 import { INTERACTION_CAPABILITIES, parse } from "@repa/base/protocol";
 import { stringify } from "yaml";
+import { CourseIndex } from "../src/course-index.js";
 import { connectLearning } from "../src/flow.js";
+import { emptyFold, type DeliveryRecord, type TaskRecord } from "../src/flow-state.js";
 import { createLearningPlugin } from "../src/plugin.js";
 import { progressView, sampleTopics } from "../src/progress.js";
 import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
@@ -19,6 +21,7 @@ import type { Replay } from "../src/replay.js";
 import type { LearningSession } from "../src/session.js";
 import { updateStudent } from "../src/student-model.js";
 import type { Topic } from "../src/format/schema.js";
+import { course as baseCourse } from "./fixtures/learning-session.js";
 
 const start = Date.UTC(2026, 9, 12, 12);
 async function fixture(
@@ -476,7 +479,7 @@ test("测验里题目已从课程删除的 topic 不是学习者的原因：没�
   assert.equal(ended.menu?.candidates.some((entry) => entry.kind === "retake"), false);
 });
 
-test("下一场测验避开上一场答过的 topic，不足时从答过的里补足，补足的 topic 出学习者没见过的题", async (t) => {
+test("第二场测验先考以往没测过的 topic，再从测过的里补足，补足的 topic 出学习者没见过的题", async (t) => {
   const f = await fixture(t, false, 2, [60, 60, 25, 5, 60, 60, 30]);
   await f.qualify();
   const first = await f.select("quiz");
@@ -491,7 +494,7 @@ test("下一场测验避开上一场答过的 topic，不足时从答过的里�
     await f.select("lesson", id);
     await f.finishTask();
   }
-  // 课的累计 XP 到了第二个门槛：上一场答过 t0 到 t3，这场先选没答过的 t4、t5、t6，再从答过的里补足两个。
+  // 课的累计 XP 到了第二个门槛：t0 到 t3 测过一次，这场先选没测过的 t4、t5、t6，再从测过的里补足两个。
   const second = await f.select("quiz");
   const deliveries = second.task?.deliveries ?? [];
   assert.equal(deliveries.length, 5);
@@ -802,5 +805,35 @@ test("历史申诉判分在测验开始后返回，响应按返回时的受限�
     assert.ok((await f.session().submission(delivery)).feedback);
   } finally {
     pending.fail(new Error("测试结束"));
+  }
+});
+
+test("测验先选以往测验（含换题重考）测过次数最少的 topic，次数相同时随机；出过的题已从课程删除的不算测过", () => {
+  const ids = ["a", "b", "c", "d", "e", "f", "g"];
+  const topics: Topic[] = ids.map((id) => ({
+    id, title: id, status: "complete", minutes: 5, prerequisites: [], sources: [],
+    kps: [{ id: `${id}.k1`, title: id, quiz: [{ id: `${id}.k1.x1`, body: "1 + 1？", explanation: "二。", slots: [{ id: "answer", type: "text", key: "2" }] }] }],
+  }));
+  const index = new CourseIndex({ course: { ...baseCourse, topics: ids }, topics, origins: {} });
+  const fold = emptyFold();
+  fold.student = Object.fromEntries(ids.map((id) => [id, { repNum: 1, memory: 1, speed: 1, lastRepetitionDay: 0, interval: 1 }]));
+  let seq = 0;
+  const quiz = (kind: "quiz" | "retake", questions: string[]): TaskRecord => {
+    const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], deliveries: [], answered: [], timedOut: false };
+    for (const questionId of questions) {
+      const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, help: false, grades: [] };
+      task.deliveries.push(delivery);
+      task.answered.push(delivery);
+    }
+    return task;
+  };
+  // a 到 e 测过两次（一场测验和它的换题重考），f 在最近一场里测过一次；g 出过的那道题后来从课程删除了，不算测过。
+  const twice = ["a", "b", "c", "d", "e"].map((id) => `${id}.k1.x1`);
+  const tasks = [quiz("quiz", twice), quiz("retake", twice), quiz("quiz", ["f.k1.x1"]), quiz("quiz", ["g.k1.x0"])];
+  for (const n of [5, 6, 7]) {
+    const selected = sampleTopics(tasks, fold, index, n);
+    assert.deepEqual(selected.slice(0, 2), ["g", "f"]);
+    assert.equal(selected.length, 5);
+    assert.ok(selected.slice(2).every((id) => twice.includes(`${id}.k1.x1`)));
   }
 });

@@ -8,6 +8,7 @@ import type { Services } from "@repa/base/plugin";
 import { parse } from "@repa/base/protocol";
 import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { learningMenu } from "../src/flow-menu.js";
+import { KP_WRONG_LIMIT } from "../src/parameters.js";
 import type { Fact } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
 import type { Question } from "../src/format/schema.js";
@@ -85,14 +86,15 @@ test("失败保留已过 KP，冷却期间提供其他任务并报告最早恢�
   await f.advance();
   await f.advance();
   await f.advance();
-  for (let index = 0; index < 5; index++) {
+  for (let index = 0; index < KP_WRONG_LIMIT; index++) {
     await f.submit(false);
-    if (index < 4) {
+    if (index < KP_WRONG_LIMIT - 1) {
       await f.advance();
     }
   }
   const failure = await f.state();
   assert.deepEqual(failure.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.equal(failure.task?.kps[1]?.attempts, KP_WRONG_LIMIT);
   assert.equal(failure.menu?.candidates.length, 0);
   assert.equal(failure.menu?.availableAt, start + 48 * 3_600_000);
   f.time(start + 48 * 3_600_000);
@@ -132,34 +134,34 @@ for (const [pattern, outcome] of [
   });
 }
 
-for (const answers of [[], [true, false]]) {
-  test(`复习中途关闭应用（${answers.length ? "答了一对一错" : "一题没答"}）：重开时不暂停，到截止时间按超时结束；没出的题不算错，学生模型不变，菜单照常提供这次复习`, async (t) => {
-    const f = await fixture(t, [topic("t01", 2)]);
-    await f.select();
-    await f.finishLesson();
-    f.time(start + 86_400_000);
-    const learned = await f.student();
-    await f.select("t01", "review");
-    for (const correct of answers) {
-      await f.submit(correct);
-      await f.advance();
-    }
-    const started = await f.state();
-    await f.reopen();
-    assert.equal((await f.state()).task?.deadlineAt, started.task?.deadlineAt);
-    // 关闭期间计时照走：过了截止时间再打开，复习已经结束，不会停在那里。
-    f.time(start + 3 * 86_400_000);
-    await f.reopen();
-    const timedOut = await f.state();
-    assert.deepEqual(timedOut.task?.phase, { stage: "completed", outcome: "timeout" });
-    // 已答的两题不足以判定失败，余下的题没有证据：不更新学生模型，topic 照旧到期，重新安排复习。
-    assert.deepEqual(await f.student(), learned);
-    assert.deepEqual(timedOut.menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["review", "t01"]]);
-    assert.equal(f.session().replay.fold().consecutiveReviews, 0);
-    await f.reopen();
-    assert.deepEqual(await f.student(), learned);
-  });
-}
+test("复习中途关闭应用，过两天再打开时接着做：复习不限时，已答的照常计入，答完再判定", async (t) => {
+  const f = await fixture(t, [topic("t01", 2)]);
+  await f.select();
+  await f.finishLesson();
+  f.time(start + 86_400_000);
+  const learned = await f.student();
+  await f.select("t01", "review");
+  for (const correct of [true, false]) {
+    await f.submit(correct);
+    await f.advance();
+  }
+  const left = await f.state();
+  assert.equal(left.task?.deadlineAt, null);
+  f.time(start + 3 * 86_400_000);
+  await f.reopen();
+  // 不会因为时间过了就结束：还停在原来那道题上，学生模型也还没动。
+  const resumed = await f.state();
+  assert.equal(resumed.task?.taskId, left.task?.taskId);
+  assert.equal(resumed.task?.phase.stage, "awaiting_answer");
+  assert.equal(resumed.restrictions.kind, "review");
+  assert.deepEqual(await f.student(), learned);
+  // 接着答对两题：独立答对三题、最后两题连对，复习通过，更新的时刻是最后一份作答的时间。
+  await f.submit(true);
+  await f.advance();
+  await f.submit(true);
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  assert.equal((await f.student()).t01?.lastRepetitionDay, (start + 3 * 86_400_000) / 86_400_000);
+});
 
 test("从事实里去掉一份关键作答，同一时刻的新课资格随之改变，原始日志字节不变", async (t) => {
   const f = await fixture(t, [topic(), topic("t02", 1, ["t01"])]);
@@ -287,7 +289,7 @@ test("开放题只送本题与原答；服务失败和 unsure 不算错，重开
   assert.equal(f.session().records.facts.filter((entry) => entry.type === "answered").length, 1);
 });
 
-test("复习截止前收下的开放题作答没判出结果、而它判对就能通过时，截止后复习结束但不下结论、不记失败；补判后改为通过并以作答时间更新", async (t) => {
+test("复习中有作答没判出结果时照常往下做；关掉应用再打开，自动补判出结果以后按全部作答判定，并以作答时间更新", async (t) => {
   const definition = topic();
   const review = definition.kps[0]?.review?.[0];
   assert.ok(review);
@@ -310,10 +312,10 @@ test("复习截止前收下的开放题作答没判出结果、而它判对就�
   if (receipt.status !== "recorded") {
     return;
   }
-  f.time(start + 86_400_000 + 600_000);
-  const ended = await f.state();
-  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "unresolved" });
-  assert.ok(ended.menu);
+  // 没判出结果的作答不算对也不算错：复习还在进行，学生模型不动。
+  f.time(start + 2 * 86_400_000);
+  const waiting = await f.state();
+  assert.equal(waiting.task?.phase.stage, "recovery");
   assert.deepEqual((await f.student()).t01, learned);
   f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
   await f.reopen();
@@ -586,7 +588,7 @@ test("申诉后判分失败不算错，重开后自动重判一次；仍失败�
   );
 });
 
-test("受限开始先写下任务；中止路径失败后关闭重开，沿原 task.resume 开始计时", async (t) => {
+test("受限开始先写下任务；中止路径失败后关闭重开，沿原 task.resume 交付第一道题；复习不限时", async (t) => {
   let failing = true;
   const f = await fixture(t, [topic()], {
     beforeRestricted: async () => {
@@ -614,7 +616,8 @@ test("受限开始先写下任务；中止路径失败后关闭重开，沿原 t
     expectedStage: "preparing",
   });
   assert.equal(running.task?.phase.stage, "awaiting_answer");
-  assert.equal(running.task?.deadlineAt, start + 86_400_000 + 600_000);
+  assert.equal(running.task?.startedAt, start + 86_400_000);
+  assert.equal(running.task?.deadlineAt, null);
 });
 
 test("两个菜单选择并发时只保留一个任务，迟到的选择不能覆盖已选择任务", async (t) => {
@@ -652,30 +655,37 @@ test("前端一道题也显示不了时保留例题和当前任务，返回具�
   assert.equal((await f.state()).task?.deliveries.length, 0);
 });
 
-test("到期后直接中止复习先按超时结算，旧守卫被拒绝，不写事实；超时时只有一道答错的题，不足以判定失败，不更新学生模型", async (t) => {
-  const f = await fixture(t);
-  await f.select();
-  await f.finishLesson();
-  f.time(start + 86_400_000);
-  await f.select("t01", "review");
-  await f.submit(false);
-  await f.advance();
-  const current = await f.state();
-  const task = current.task;
-  assert.ok(task?.deadlineAt);
-  const expected = await f.student();
-  f.time(task.deadlineAt + 1);
-  await assert.rejects(
-    f.call("task.abort", { taskId: task.taskId, expectedRevision: current.revision, expectedStage: task.phase.stage }),
-    stale,
-  );
-  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "timeout" });
-  assert.deepEqual(await f.student(), expected);
-  const revision = f.session().records.revision;
-  await f.reopen();
-  assert.deepEqual(await f.student(), expected);
-  assert.equal(f.session().records.revision, revision);
-});
+for (const wrong of [3, 1]) {
+  test(wrong === 3
+    ? "中止复习时已答错三题、不可能通过了：记为失败，照常做失败更新"
+    : "中止复习时只答错一题、还可能通过：记为中止，不更新学生模型", async (t) => {
+    const f = await fixture(t);
+    await f.select();
+    await f.finishLesson();
+    f.time(start + 86_400_000);
+    await f.select("t01", "review");
+    for (let index = 0; index < wrong; index++) {
+      await f.submit(false);
+      await f.advance();
+    }
+    const learned = await f.student();
+    const current = await f.state();
+    assert.ok(current.task);
+    const ended = await f.call("task.abort", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage });
+    if (wrong === 3) {
+      // 就算余下两题都答对，也只有两题对，到不了通过线：这份失败的证据照常计入。
+      assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "failed" });
+      const expected = updateStudent(f.session().course.graph, learned, { topicId: "t01", outcome: "fail", quality: 1 }, start + 86_400_000);
+      assert.deepEqual(await f.student(), expected);
+    } else {
+      assert.equal(ended.task?.phase.stage, "aborted");
+      assert.deepEqual(await f.student(), learned);
+    }
+    const student = await f.student();
+    await f.reopen();
+    assert.deepEqual(await f.student(), student);
+  });
+}
 
 test("后续 KP 反馈页申诉前一 KP 后拒绝倒带，保留原交付和反馈位置", async (t) => {
   const definition = topic("t01", 2);
@@ -751,7 +761,7 @@ test("强制重教首次清除旧轮进度，失败重试保留本轮已过 KP �
   await f.advance();
   await f.advance();
   await f.advance();
-  await review([false, false, false, false, false]);
+  await review([false, false, false]);
   assert.deepEqual((await f.state()).task?.kps.map((entry) => entry.completed), [true, false]);
   await f.reopen();
   f.time(start + 96 * 3_600_000);
@@ -1099,3 +1109,18 @@ for (const hidden of [false, true]) {
     }
   });
 }
+
+test("同一个知识点答错第三题，这节课就失败，“错错错对对”不再通过；各知识点各错一题、随即连对，照常通过", async (t) => {
+  const f = await fixture(t, [topic("t01"), topic("t02", 2)]);
+  await f.select("t01");
+  const failed = await f.finishLesson([false, false, false, true, true]);
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.deepEqual(failed.task?.kps[0], { kpId: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false });
+  assert.equal((await f.student()).t01, undefined);
+  // 课失败照常冷却：菜单不给 t01，另一节课照常可选。
+  assert.deepEqual(failed.menu?.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
+  await f.select("t02");
+  const passed = await f.finishLesson([false, true, true]);
+  assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.deepEqual(passed.task?.kps.map((kp) => kp.attempts), [3, 3]);
+});

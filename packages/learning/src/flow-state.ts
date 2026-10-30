@@ -5,8 +5,8 @@ import {
   FAIL_QUALITY_FLOOR,
   KP_MAX_ATTEMPTS,
   KP_PASS_STREAK,
+  KP_WRONG_LIMIT,
   QUIZ_DURATION_MS,
-  REVIEW_DURATION_MS,
   REVIEW_FINAL_STREAK,
   REVIEW_MAX_QUESTIONS,
   REVIEW_PASS_CORRECT,
@@ -19,9 +19,8 @@ import { topicDue, topicMemory, updateStudent } from "./student-model.js";
 /** 一个知识点在本次课里的进度。 */
 export type KpProgress = LearningTask["kps"][number];
 /**
- * 任务的结论：通过、失败、超时、主动结束，或没有结论就被后来的任务取代。unresolved 是任务已经结束（测验交卷或到了截止时间、
- * 复习到了截止时间），但还有没判出结果的作答，判出来就可能改变结论：结论等它们判出来再定。
- * 复习超时只说明时间到了，还没出的题不算错，有没有失败的证据要看已有的作答；测验没答的题算错。
+ * 任务的结论：通过、失败、超时、主动结束，或没有结论就被后来的任务取代。只有测验限时，超时只出现在测验上。
+ * unresolved 是测验已经结束（交卷或到了截止时间），但还有没判出结果的作答，判出来就可能改变结论：结论等它们判出来再定。
  */
 export type Outcome = "passed" | "failed" | "timeout" | "unresolved" | "aborted" | "ended";
 
@@ -150,15 +149,16 @@ export function emptyFold(): Fold {
   return { student: {}, lessons: new Map(), failures: new Map(), forced: new Map(), consecutiveReviews: 0 };
 }
 
-/** 课的开始时间是选定的时间；复习与测验从第一道题出现时开始计时。 */
+/** 课的开始时间是选定的时间；复习与测验从第一道题出现时开始。 */
 export function startedAt(task: TaskRecord): number | null {
   return task.kind === "lesson" ? task.at : task.deliveries[0]?.at ?? null;
 }
 
+/** 只有测验限时，从第一道题出现时算起；课和复习不限时，与 MA 公开的一致。 */
 export function deadlineAt(task: TaskRecord): number | null {
   const started = startedAt(task);
-  if (task.kind === "lesson" || started === null) return null;
-  return started + (isQuiz(task.kind) ? QUIZ_DURATION_MS : REVIEW_DURATION_MS);
+  if (!isQuiz(task.kind) || started === null) return null;
+  return started + QUIZ_DURATION_MS;
 }
 
 /** 复习按 seed 打散知识点顺序；seed 由任务序号得出，重放时顺序不变。 */
@@ -197,7 +197,7 @@ function reviewResult(attempts: Attempt[]) {
 }
 
 /**
- * 复习停下时（到了截止时间）能否说已经失败：把没判出结果的作答和还没来得及出的题都当作答对，仍不能通过，才有失败的证据。
+ * 学习者中止复习时能否说已经失败：把没判出结果的作答和还没出的题都当作答对，仍不能通过，才有失败的证据。
  * 否则缺的只是没有的证据，既不算对也不算错。
  */
 function reviewCouldPass(attempts: Attempt[]): boolean {
@@ -206,25 +206,19 @@ function reviewCouldPass(attempts: Attempt[]): boolean {
   return reviewPasses([...assumed, ...Array.from({ length: remaining }, () => true)]);
 }
 
-/**
- * 一次已结束的复习给学生模型的证据：通过、失败，或尚无证据。到截止时间而结论是超时的，只有已有的作答已经不可能通过才算失败；
- * 只是时间到了、余下的题没出，这次复习不更新学生模型，topic 照旧到期，之后重新安排。
- */
+/** 一次已结束的复习给学生模型的证据：通过或失败；中止而还可能通过的、被后来的任务取代的，尚无证据。 */
 function reviewVerdict(entry: TaskEvidence): "pass" | "fail" | undefined {
   if (entry.outcome === "passed") {
     return "pass";
   }
-  if (entry.outcome === "failed" || (entry.outcome === "timeout" && !reviewCouldPass(entry.attempts))) {
-    return "fail";
-  }
-  return undefined;
+  return entry.outcome === "failed" ? "fail" : undefined;
 }
 
 /**
  * 从一项任务的事实得出证据与结论。inherited 是此前同一 topic 的课留下的知识点进度。
- * 先看作答本身能否得出结论（课的连对通过与练满失败、复习的通过与失败），再看主动结束、截止和被后来的任务取代。
+ * 先看作答本身能否得出结论（课的连对通过、答错太多或练满失败，复习的通过与失败），再看主动结束、截止和被后来的任务取代。
  * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。
- * 复习中途离开同样不算错：到截止时间还没出的题没有证据，学生模型只按已有的作答更新。测验没答的题算错。
+ * 复习不限时，中途离开下次接着做；学习者中止复习时，已经不可能通过的记失败，其他情形尚无证据。测验没答的题算错。
  */
 export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: KpProgress[] | undefined): TaskEvidence {
   const attempts: Attempt[] = [];
@@ -253,23 +247,21 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
   const deadline = deadlineAt(task);
   let outcome: Outcome | undefined;
   if (task.kind === "lesson") {
+    // 一个知识点在这节课里答错了几题：判错、部分对和说不会都算答错；求助以后答对的不算独立完成，但也不算答错。
+    const wrong = (kpId: string) =>
+      attempts.filter((attempt) => attempt.kpId === kpId && attempt.verdict !== undefined && attempt.verdict !== "correct").length;
     if (kps.length > 0 && kps.every((kp) => kp.completed)) {
       outcome = "passed";
-    } else if (kps.some((kp) => !kp.completed && kp.attempts >= KP_MAX_ATTEMPTS)) {
+    } else if (kps.some((kp) => !kp.completed && (kp.attempts >= KP_MAX_ATTEMPTS || wrong(kp.kpId) >= KP_WRONG_LIMIT))) {
       outcome = "failed";
     }
   } else if (task.kind === "review") {
     const result = reviewResult(attempts);
     if (result.passed) {
       outcome = "passed";
-    } else if (result.count >= REVIEW_MAX_QUESTIONS) {
+    } else if (result.count >= REVIEW_MAX_QUESTIONS || (task.endedAt !== undefined && !reviewCouldPass(attempts))) {
+      // 出满题数仍不通过，或者学习者中止时已经不可能通过：失败，照常做失败更新。中止而还可能通过的，下面记为中止。
       outcome = "failed";
-    } else if (
-      task.timedOut && task.endedAt === undefined
-      && attempts.some((attempt) => attempt.verdict === undefined) && reviewCouldPass(attempts)
-    ) {
-      // 到了截止时间仍有作答没判出结果，而它们和没来得及出的题都判对就能通过：等它们判出来再定。
-      outcome = "unresolved";
     }
   } else if (task.deliveries.length > 0 && (task.endedAt !== undefined || task.timedOut)) {
     // 测验交卷或到了截止时间：有 topic 答错或没答，就失败（到截止时间结束的为超时）；否则还有作答没判出结果时，
@@ -382,8 +374,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
       }
     }
   } else if (fold.student[topicId]) {
-    // 复习有了证据才更新：结论待定时等没判出结果的作答判出来、重算时再更新；只是时间到了而没有失败的证据，不更新，
-    // topic 照旧到期（强制复习照旧强制），之后重新安排。
+    // 复习有了证据才更新：中止而还可能通过的、被后来的任务取代的不更新，topic 照旧到期（强制复习照旧强制）。
     const verdict = reviewVerdict(entry);
     if (verdict) {
       update(topicId, verdict, entry.attempts);
