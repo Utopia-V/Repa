@@ -334,12 +334,14 @@ test("同一文件反复按路径记账，上级目录的忽略规则改变后�
 test("文件仅改变名称大小写后，同时按新旧路径保存，历史树只保留实际名称", async (t) => {
   const f = await fixture(t);
   const history = await openHistory(f.space);
+  const git = new Git(f.space, f.file(".repa/history.git"));
+  // Git 在大小写不敏感的文件系统上建库时写入这一设置；Linux 上手动打开，同样覆盖 fast-import 据此比较树中名字的情形。
+  await git.run(["config", "core.ignorecase", "true"]);
   await f.write("a.txt", "文件内容\n");
   await history.snapshotPaths(["a.txt"]);
   // Linux 上旧路径已不存在；Windows CI 的大小写不敏感文件系统才真正覆盖旧名称仍可读取时的缓存问题。
   await rename(f.file("a.txt"), f.file("A.txt"));
   const saved = await history.snapshotPaths(["a.txt", "A.txt"]);
-  const git = new Git(f.space, f.file(".repa/history.git"));
   const names = await git.run(["ls-tree", "-r", "--name-only", "-z", saved.revision]);
   assert.deepEqual(names.toString().split("\0").filter(Boolean), ["A.txt"]);
 });
