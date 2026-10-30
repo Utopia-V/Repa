@@ -182,7 +182,8 @@ test("宿主进程被强行结束后，后端不会留下来", async (t) => {
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => { reported += chunk; });
   socket.on("error", () => {});
-  const disconnected = once(socket, "close");
+  // 后端被结束时 Windows 上连接以 ECONNRESET 断开；events.once 遇到 error 会拒绝，所以只等 close。
+  const disconnected = new Promise<void>((resolve) => { socket.once("close", () => { resolve(); }); });
   host.kill("SIGKILL");
   await step(exited, "被强行结束的宿主退出", detail);
   await step(disconnected, "后端退出、探针连接关闭", detail);
