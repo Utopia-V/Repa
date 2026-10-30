@@ -42,7 +42,7 @@ Repa 是独立软件，Pi 是它内嵌的 Agent 运行时。设计前核对锁�
 
 ## 当前阶段
 
-Repa 正在重做。旧实现已从工作树删除，保留在标签 `pre-rebuild`，是零件库：可以从中取用核对过的实现，但它的结构、接口和测试不是要保持的基线。新底座在 `packages/base` 和 `packages/space-history`。新设计由维护者逐项确认；还没确认的设计不实现，也不从 CONTEXT、ADR 等旧材料里推断。每项工作用到的设计决定和理由，写进 [设计记录](.agents/notes/README.md)：提案在动手前由维护者审设计意图，落地后随代码保持一致；Issue 只放要做的事。
+Repa 正在重做。旧实现已从工作树删除，保留在标签 `pre-rebuild`，是零件库：可以从中取用核对过的实现，但它的结构、接口和测试不是要保持的基线。新底座在 `packages/base` 和 `packages/space-history`。新设计由维护者逐项确认；还没确认的设计不实现，也不从 CONTEXT、ADR 等旧材料里推断。每项工作所用的设计决定及理由记入[设计记录](.agents/notes/README.md)：提案在实施前由维护者审阅设计意图，落地后随代码保持一致；Issue 只记录待办事项。
 
 ## 怎样判断工作是否有用
 
@@ -66,11 +66,10 @@ Repa 正在重做。旧实现已从工作树删除，保留在标签 `pre-rebuil
 
 ## 工作入口
 
-- 加一个机制之前，先查 [packages/README.md](packages/README.md) 和 [docs/generated/](docs/generated/) 里的目录，看已有的做法。
-
-- 文档放在哪、怎么写，见 [docs/AGENTS.md](docs/AGENTS.md)。
-- 写包的约定，见 [packages/AGENTS.md](packages/AGENTS.md)。
-- 改了代码，同一个提交里更新受影响的文档，`npm test` 会跑文档检查。
+- 新增机制前，先查阅 [packages/README.md](packages/README.md) 和 [docs/generated/](docs/generated/) 中的目录，了解已有做法。
+- 文档的存放位置与写法见 [docs/AGENTS.md](docs/AGENTS.md)。
+- 编写包的约定见 [packages/AGENTS.md](packages/AGENTS.md)。
+- 修改代码时，在同一提交中更新受影响的文档；`npm test` 会运行文档检查。
 - 日常开发以 `dev` 为基线，任务在各自分支上完成，由维护者审阅合并；阶段交付见[整合规范](docs/development/integration.md)。
 - 当前模块与运行入口见[开发指南](docs/development/README.md)，底座结构与 Pi 接入见 [`@repa/base` 说明](packages/base/README.md)。这些材料中的实现描述需结合当前代码核对。
 - MA 的一手入口见[官方机制说明](https://www.mathacademy.com/how-our-ai-works)和 [The Math Academy Way 作者页面](https://www.justinmath.com/books/#the-math-academy-way)。公开描述没有给出的算法需要独立研究，推测不当作 MA 已公开的实现。
