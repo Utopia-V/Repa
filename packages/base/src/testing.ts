@@ -5,7 +5,7 @@ import path from "node:path";
 import type { Static, TSchema } from "typebox";
 
 import type { AskRoute } from "./ask.js";
-import type { AgentTask, AgentWork, CompletionRequest, Models, Plugin, Services } from "./plugin.js";
+import type { AgentTask, AgentWork, CompletionRequest, ModelRef, Models, Plugin, Services } from "./plugin.js";
 import { openPluginHost, type PluginHost } from "./plugins.js";
 import { parse } from "./schema.js";
 import { createSpace, type Space } from "./space.js";
@@ -61,6 +61,16 @@ export class ModelTestDriver implements Models {
   private readonly structured: CompletionPlan[] = [];
   private readonly agents: AgentPlan[] = [];
   private nextAgent = 1;
+  private model: ModelRef | undefined = { provider: "test", id: "test" };
+
+  /** 设定 defaultModel() 的回答；传 undefined 模拟没有可用模型。默认有一个测试模型。 */
+  setDefaultModel(model: ModelRef | undefined): void {
+    this.model = model;
+  }
+
+  defaultModel(): ModelRef | undefined {
+    return this.model;
+  }
 
   expectComplete(): TestCompletion<string> {
     return this.planCompletion<string>(this.completions);

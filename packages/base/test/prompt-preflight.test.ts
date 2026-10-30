@@ -129,6 +129,7 @@ test("同组插件反转登记次序时实际 provider 的初始提示与工具�
     async complete() { throw new Error("插件不应调用模型"); },
     async completeStructured() { throw new Error("插件不应调用模型"); },
     async runAgent() { throw new Error("插件不应运行后台 Agent"); },
+    defaultModel: () => undefined,
   };
   const plugin = (id: string, names: string[]): Plugin => ({
     id,

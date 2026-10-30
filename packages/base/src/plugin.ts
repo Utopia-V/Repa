@@ -155,6 +155,11 @@ export interface Models {
   complete(request: CompletionRequest): Promise<string>;
   completeStructured<S extends TSchema>(request: CompletionRequest, schema: S): Promise<Static<S>>;
   runAgent(task: AgentTask): Promise<AgentWork>;
+  /**
+   * 请求不指定模型时会用哪个模型；没有可用模型时为 undefined，这时不指定模型的请求以 model_required 拒绝。
+   * 插件据此避开离不开模型的工作，例如不出要由模型判分的题。每次调用都按当前登录与设置读取。
+   */
+  defaultModel(): ModelRef | undefined;
 }
 
 /** 可提前关闭的一组模型工作，供父插件管理子插件的取消与等待。 */

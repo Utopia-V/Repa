@@ -242,6 +242,47 @@ test("协议宿主给插件调用补上空间和插件归属，工具调用关�
   }
 });
 
+test("插件经协议宿主读到运行时的默认模型；没有可用模型时为 undefined，不指定模型的请求以 model_required 拒绝", async t => {
+  const f = await fixture(t);
+  const empty = await ModelRuntime.create({
+    authPath: path.join(f.root, "empty-agent", "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false,
+  });
+  const bare = await createAgentRuntimeForTest({ agentDir: path.join(f.root, "empty-agent"), modelRuntime: empty, settingsManager: SettingsManager.inMemory() });
+  t.after(() => bare.close());
+  const plugin: Plugin = {
+    id: "model-probe",
+    async open(host) {
+      return {
+        methods: {
+          probe: {
+            parameters: Type.Object({}),
+            async invoke() {
+              const model = host.models.defaultModel();
+              if (model) return { model };
+              const failure = await host.models.complete({ prompt: "没有模型" }).then(() => "", (error: unknown) => (error instanceof RepaFault ? error.code : "other"));
+              return { failure };
+            },
+          },
+        },
+      };
+    },
+  };
+  for (const [runtime, expected] of [
+    [f.runtime, { model: { provider: f.faux.getModel().provider, id: "test" } }],
+    [bare, { failure: "model_required" }],
+  ] as const) {
+    const root = await mkdtemp(path.join(f.root, "probe-space-"));
+    const server = await startServer({ home: await mkdtemp(path.join(f.root, "probe-home-")), runtime, plugins: [plugin] });
+    const client = await RepaClient.connect(server.connection);
+    try {
+      await client.call("space.open", { root });
+      assert.deepEqual(await client.call("plugin.call", { pluginId: plugin.id, method: "probe", input: {} }), expected);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  }
+});
 
 test("空系统提示原样进入实际请求和持久会话，不回退到 Pi 的默认提示", async t => {
   const f = await fixture(t);
