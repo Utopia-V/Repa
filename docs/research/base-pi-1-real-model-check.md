@@ -195,7 +195,7 @@ Codex 原场景使用原有 OAuth 完成对话，再通过公开 `ModelRuntime.g
 
 1.1.0 的修复改变了取消语义：caller signal 只取消等待凭据锁；刷新一旦开始，就与 caller 取消脱钩，使用独立的 15 秒网络超时，并在释放锁前保存返回的旋转凭据。0.87.1 把 caller signal 同时传给刷新和保存，因此取消可能丢掉服务已经返回的新 token。[1.1.0 修复源码](https://github.com/earendil-works/pi/blob/abe508e1b89912adde45528136c3221eb69acdd7/packages/ai/src/auth/resolve.ts)、[0.87.1 原实现](https://github.com/earendil-works/pi/blob/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/packages/ai/src/auth/resolve.ts)。
 
-[本地确定性测试](../../packages/base/test/real-model-oauth.test.ts)分别在刷新已开始但服务尚未返回、以及刷新已返回但尚未落盘时取消 caller。两种情况下 caller 都立即结束等待，而 Pi 继续把新凭据写入临时文件；下一次认证使用新 token，不再刷新。这里使用真实 Pi `ModelRuntime`、本地 OAuth handler 和带保存屏障的文件 `CredentialStore`，覆盖的是取消与保存机制。真实服务测试覆盖正常刷新及刷新后的使用，两种证据分别承担各自的结论。
+[本地确定性测试](../../packages/base/test/check-script-oauth.test.ts)分别在刷新已开始但服务尚未返回、以及刷新已返回但尚未落盘时取消 caller。两种情况下 caller 都立即结束等待，而 Pi 继续把新凭据写入临时文件；下一次认证使用新 token，不再刷新。这里使用真实 Pi `ModelRuntime`、本地 OAuth handler 和带保存屏障的文件 `CredentialStore`，覆盖的是取消与保存机制。真实服务测试覆盖正常刷新及刷新后的使用，两种证据分别承担各自的结论。
 
 核实脚本也把强制刷新作为必须等候保存的短关键操作：开始后即使收到 SIGINT，也等 `getAuth()` 收尾，再阻止后续模型调用。Pi 的 15 秒限制适用于刷新网络，不包含等待文件锁的时间。
 
@@ -251,6 +251,6 @@ Pro 将模型替换为 `deepseek-v4-pro`。本轮四次 DeepSeek 运行各分配
 - `npm run check --workspace=@repa/base`。
 - `npm test --workspace=@repa/base`：128 项。
 - `npm test --workspace=@repa/space-history`：53 项。
-- [请求事件测试](../../packages/base/test/real-model-request.test.ts)覆盖真实 Pi 下的结构观察、Flash/Pro 两条 system 路径、Codex 原负载透传、发送前预算取消、压缩子请求预留与失败收尾；[OAuth 测试](../../packages/base/test/real-model-oauth.test.ts)覆盖取消后的凭据保存。
+- [请求事件测试](../../packages/base/test/check-script-request.test.ts)覆盖真实 Pi 下的结构观察、Flash/Pro 两条 system 路径、Codex 原负载透传、发送前预算取消、压缩子请求预留与失败收尾；[OAuth 测试](../../packages/base/test/check-script-oauth.test.ts)覆盖取消后的凭据保存。
 
 独立只读审阅覆盖实验对照、事件边界、预算预留、OAuth 保存和敏感信息保护。本轮可交付的是 Pi 1.1.0 的实测对照与一次性通知的实验结果；保温续期和更一般的规则变更仍需要相应条件下的证据。底座是否采用通知机制，由维护者审阅本报告后决定。
