@@ -222,7 +222,9 @@ test("复制空间后旧会话可列出、读取和接续，工具使用新目�
       fauxAssistantMessage("备份恢复后继续回答"),
     ]);
     await f.client.call("session.send", { sessionId: f.session.id, text: "恢复后继续对话" });
-    assert.equal(await readFile(path.join(root, "tool-cwd.txt"), "utf8"), `${root}\n`);
+    // 相对路径的输出落在命令的工作目录里。Windows 的 Git Bash 把 pwd 打印成 /c/... 的形式，所以看文件落在哪里，不比较打印的文字。
+    await readFile(path.join(root, "tool-cwd.txt"));
+    await assert.rejects(readFile(path.join(f.root, "tool-cwd.txt")), { code: "ENOENT" });
     const appended = await readFile(file, "utf8");
     assert(appended.startsWith(original));
     assert.match(appended.slice(original.length), /恢复后继续对话/u);
