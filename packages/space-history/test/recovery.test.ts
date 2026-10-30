@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { Git, GitError } from "../src/git.js";
-import { openHistory, type ActivitySource } from "../src/index.js";
+import { openHistory, type ActivitySource, type Revision } from "../src/index.js";
 
 function deferred() {
   let resolve = () => {};
@@ -80,7 +80,7 @@ test("运行保存失败后排队快照先恢复原来源，不重跑活动或�
 
 test("引用实际更新后报告失败，后续操作认领原提交而不重复保存运行", async (t) => {
   const f = await fixture(t, "after");
-  const notifications: string[] = [];
+  const notifications: Revision[] = [];
   f.history.onRevision((revision) => { notifications.push(revision); });
   let actions = 0;
   const source = { kind: "agent", runId: "recover-after-update" } as const;
@@ -98,7 +98,8 @@ test("引用实际更新后报告失败，后续操作认领原提交而不重�
   assert.equal(snapshot.revision, feed.revision);
   assert.equal(snapshot.committed, false);
   assert.equal((await f.history.list()).length, 2);
-  assert.deepEqual(notifications, [feed.revision]);
+  assert.deepEqual(notifications, await f.history.list(1));
+  assert.equal(notifications[0]?.id, feed.revision);
   const reopened = await openHistory(f.space);
   assert.deepEqual(await reopened.changesSince(f.baseline.id), feed);
 });

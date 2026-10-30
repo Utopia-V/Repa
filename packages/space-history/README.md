@@ -55,7 +55,7 @@ agent 来源可以带 `ancestorRunIds`，由近到远列出发起这个运行的
 | `undo(revision)` | 撤销一个非基线提交，包括先前的 undo；返回新 revision、已恢复路径和冲突路径。全部冲突或目标为空时，也保存一个空的 undo 提交。undo 提交只包含这次恢复的路径。修订格式不对或不在这份历史里报 `revision_not_found`，目标是初始快照报 `nothing_to_undo`。 |
 | `undoRun(runId)` | 撤销这个运行及其全部子孙运行的提交，两个入口留下的提交都包括在内。子孙按提交来源中的祖先链查找，中间某个运行自己没有提交也能找到。某个路径在这些运行第一次修改它之后，又被其他来源改过，包括夹在它们两次修改之间的改动，就列入冲突并保持原样；其余路径恢复到这些运行第一次修改之前的内容。冲突的其他判断与 `undo` 相同。保存一个 `{"kind":"undo","runId":"…"}` 提交，只包含恢复的路径，全部冲突时也保存。历史中没有这个运行或其子孙的提交时报 `nothing_to_undo`，不产生提交。 |
 | `maintain(options?)` | 检查实际对象布局，到达门槛时前台打包；返回 `true` 表示已完成，`false` 表示未达门槛或宿主暂不允许维护。`{ force: true }` 跳过门槛，但仍遵守 Git 的维护锁。 |
-| `onRevision(listener)` | 提交完成后唤醒订阅者，返回取消订阅函数。订阅者异常作为进程 warning 报告，不改变已成功的提交。 |
+| `onRevision(listener)` | 提交完成后把这次修订的记录（与 `list()` 返回的相同）交给订阅者，返回取消订阅函数；订阅者异常作为进程 warning 报告，不改变已成功的提交。 |
 
 上表中的 `revision_not_found` 和 `nothing_to_undo` 以 `HistoryError` 抛出，调用方按 `error.code` 分支处理；其余错误是普通 `Error` 或 Git 故障。
 

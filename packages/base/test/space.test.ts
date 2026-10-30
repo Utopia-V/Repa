@@ -185,6 +185,22 @@ async function recordGitCommands(t: TestContext): Promise<() => Promise<string[]
   return async () => (await readFile(log, "utf8")).split("\n").filter((line) => line.length > 0);
 }
 
+test("提交通知直接传递完整修订记录，不额外读取历史列表", { skip: process.platform === "win32" }, async (t) => {
+  const commands = await recordGitCommands(t);
+  const { space } = await fixture(t);
+  const notifications: Revision[] = [];
+  const remove = space.onRevision((revision) => { notifications.push(revision); });
+  t.after(remove);
+  const before = (await commands()).length;
+
+  await space.filesFor({ kind: "plugin", pluginId: "learning" }).write("notes.md", "插件写的\n");
+  await space.flush();
+  const started = (await commands()).slice(before);
+  assert.equal(started.filter((line) => line.includes(" log ")).length, 0);
+  assert.equal(notifications.length, 1);
+  assert.deepEqual(notifications, await space.history.list(1));
+});
+
 test("watcher 只按变了的路径快照，整空间扫描只在打开空间和撤回之前", { skip: process.platform === "win32" }, async (t) => {
   const commands = await recordGitCommands(t);
   const wholeScans = async () => (await commands()).filter((line) => line.includes(" ls-files ") && !line.includes(" -- ")).length;

@@ -148,13 +148,9 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
       if (inWindow()) throw new RepaFault("history_during_activity", "历史读取必须在 record 动作之前完成");
     }
 
-    const unsubscribe = raw.onRevision((id) => detached(() => {
+    const unsubscribe = raw.onRevision((revision) => detached(() => {
       scheduleMaintenance();
-      // 在 capture 内只登记后续读取；等当前历史操作结束后再通知使用者。
-      const revisions = raw.list();
-      notifications = notifications.then(async () => {
-        const revision = (await revisions).find((item) => item.id === id);
-        if (!revision) throw new RepaFault("history_revision_missing", "历史修订不存在", { id });
+      notifications = notifications.then(() => {
         for (const listener of listeners) listener(revision);
       }).catch((error: unknown) => {
         notificationError = error;
