@@ -31,9 +31,11 @@ export async function startRepaProcess(options: RepaProcessOptions = {}): Promis
   if (options.home !== undefined) args.push("--home", options.home);
   for (const plugin of options.plugins ?? []) args.push("--plugin", plugin);
   if (options.generalAgent === false) args.push("--no-general-agent");
-  // 宿主不往后端的 stdin 写内容，只用它表示自己还在：close() 结束 stdin 即请求正常关闭，宿主进程退出时它同样结束。
+  // 宿主不往后端的 stdin 写内容，只用它表示自己还在：close() 结束 stdin 即请求正常关闭。
   // Windows 没有能投递给子进程的 SIGTERM，kill 会直接结束进程，后端的收尾代码来不及运行。
   // 不用 IPC 通道的 disconnect()：宿主一断开通道，Node 就不再发出子进程的 close 事件。
+  // 宿主意外退出时，Linux 和 macOS 上 stdin 随之结束，后端照常收尾；Windows 上 libuv 把子进程放进随父进程关闭而
+  // 结束的作业对象，后端随宿主一起被结束。两种情况下后端都不会留下来占着空间锁。
   const child = spawn(options.nodeExecutable ?? process.execPath, args, {
     env: options.environment ?? process.env,
     stdio: ["pipe", "pipe", "pipe"],

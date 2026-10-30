@@ -16,7 +16,7 @@ npm run build --workspace=@repa/base
 npm run start --workspace=@repa/base -- serve --home /path/to/repa-home
 ```
 
-服务只监听 `127.0.0.1`，stdout 输出一行 `{ "url": "ws://…/rpc", "token": "…" }`。启动方把它作为私密连接信息交给客户端，不放进公开日志。省略 `--home` 时使用 `REPA_HOME`，再回退到[系统配置目录](#应用配置目录)；`REPA_TOKEN` 可提供已有令牌，否则随机生成。`--port` 默认自动分配。收到 SIGINT、SIGTERM 时，服务等资源关闭后再退出；给出 `--close-on-stdin-end` 时，stdin 读到结尾也照此关闭。拉起服务的程序用后者请求关闭，原因有二：Windows 没有能投递给子进程的 SIGTERM，`kill` 会直接结束进程，收尾来不及进行；拉起它的程序意外退出时，stdin 也随之结束，服务同样会收尾。
+服务只监听 `127.0.0.1`，stdout 输出一行 `{ "url": "ws://…/rpc", "token": "…" }`。启动方把它作为私密连接信息交给客户端，不放进公开日志。省略 `--home` 时使用 `REPA_HOME`，再回退到[系统配置目录](#应用配置目录)；`REPA_TOKEN` 可提供已有令牌，否则随机生成。`--port` 默认自动分配。收到 SIGINT、SIGTERM 时，服务等资源关闭后再退出；给出 `--close-on-stdin-end` 时，stdin 读到结尾也照此关闭。拉起服务的程序用后者请求关闭，原因有二：Windows 没有能投递给子进程的 SIGTERM，`kill` 会直接结束进程，收尾来不及进行；拉起它的程序意外退出时，stdin 也随之结束，服务同样会收尾；Windows 上由 Node 拉起的服务例外，见[接入客户端与进程宿主](#接入客户端与进程宿主)。
 
 要加载插件，给出构建目录；例如加载包内的笔记插件，并只开放它的 Agent 供用户直接对话：
 
@@ -64,7 +64,7 @@ await backend.close();
 
 进程入口从 stdout 读取连接信息，不写连接文件。`plugins` 接受插件构建目录，`generalAgent: false` 和 `directAgents` 对应 CLI 的装配选项；插件由构建后的 CLI 导入，不经过 tsx。嵌入同一进程时使用 `startServer`，模块边界见[包地图](../README.md)及 [`protocol.ts`](src/protocol.ts)。
 
-客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出。`close()` 结束后端的 stdin，请求它正常关闭，可重复调用并等待收尾完成，异常退出返回错误；宿主进程没有调用 `close()` 就退出时，后端的 stdin 同样结束，服务照样收尾。启动失败的进程回收有 5 秒强制终止期限。进程入口依赖 Node，不从浏览器客户端导出。
+客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出。`close()` 结束后端的 stdin，请求它正常关闭，可重复调用并等待收尾完成，异常退出返回错误；宿主进程没有调用 `close()` 就退出时，结果因平台而异。Linux 和 macOS 上，后端读到 stdin 结尾，照常收尾后退出。Windows 上，Node 的 libuv 把不是 detached 的子进程放进随父进程关闭而结束的作业对象（见 libuv 1.51 的 [`uv_spawn`](https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c#L1082)），后端随宿主一起被结束，来不及收尾，但也不会留下来；它持有的空间锁最多 30 秒后视为过期，尚未提交的文件改动在下次打开空间时记为外部改动。启动失败的进程回收有 5 秒强制终止期限。进程入口依赖 Node，不从浏览器客户端导出。
 
 ### 运行检查
 
@@ -367,7 +367,7 @@ Web 前端用 `space.browse` 浏览子目录，省略路径从用户目录开始
 
 ## 已知限制与暂缓
 
-- 提示词画板尚未实现，当前仍按来源整段覆盖；插件默认文字更新后，已覆盖的来源不会收到新文字，来源 id 改变也会使覆盖失效。画板由[重构提案第 7 步](../../.agents/notes/proposed/architecture/2026-10-29-base-refactor.md#提示词画板)与 [#41](https://github.com/Utopia-V/repa/issues/41) 接续。
+- 提示词画板尚未实现，当前仍按来源整段覆盖；插件默认文字更新后，已覆盖的来源不会收到新文字，来源 id 改变也会使覆盖失效。画板由[底座重构记录的暂缓事项](../../.agents/notes/implemented/architecture/2026-10-29-base-refactor.md#暂缓)与 [#41](https://github.com/Utopia-V/repa/issues/41) 接续。
 - `.repa/tool-output/` 中的全文文件不会自动删除；read 按行读取，超长单行只能整行读，插件应输出分行文字，让模型可以分段续取。
 - 运行关卡只在消息真正开始运行时检查，运行进行中不逐次检查；插件进入受限状态时须保存限制并中止已有工作。
 - 启动追赶期间，别的插件通过 runAgent 建立的会话，工具清单不会随随后发生的插件停用而更新。
