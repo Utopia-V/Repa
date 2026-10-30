@@ -39,12 +39,12 @@ description: 编写、修改或审阅 Repa 测试时使用，规定后端与前�
 
 ## 运行入口
 
-以下命令在当前后端包根目录运行；workspace 调整后以所属 `package.json` 为准。
+以下命令在 `packages/base` 下运行；workspace 调整后以所属 `package.json` 为准。
 
 ```sh
 npm test
-node --import tsx --test test/pi-context-integration.test.ts
-node --import tsx --test --test-name-pattern='旧历史' test/pi-context-integration.test.ts
+node --import tsx --test test/e2e.test.ts
+node --import tsx --test --test-name-pattern='旧历史' test/e2e.test.ts
 npm run check
 ```
 

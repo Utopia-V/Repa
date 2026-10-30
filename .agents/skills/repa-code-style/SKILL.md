@@ -25,7 +25,7 @@ description: 编写、修改或审阅 Repa 代码时使用，规定 TypeScript �
 
 - 公开数据在所属 TypeBox schema 中定义，静态类型从 `Static<typeof Schema>` 推导；不手写第二套相同接口。协议入口在 `protocol.ts` 及所属模块的协议定义中登记。
 - 固定对象复用 `schema.ts` 的 `object()`，明确可选字段，默认拒绝未知字段。状态与输入变体使用 `kind`、`type` 或 `status` 等明确判别字段，避免用数个布尔值表示互斥状态。
-- RPC 方法沿用带命名空间的动作名，例如 `content.applyPatch`；需要程序处理的错误抛 `RepaFault(code, message, details)`，错误码使用英文小写下划线，面向用户的说明使用简体中文。
+- RPC 方法沿用带命名空间的动作名，例如 `space.open`；需要程序处理的错误抛 `RepaFault(code, message, details)`，错误码使用英文小写下划线，面向用户的说明使用简体中文。
 - 只在明确允许缺失的位置把 `ENOENT` 解释为不存在。权限错误、损坏文件和解析失败保留为可处理错误；不将读取失败返回成空列表或默认配置。
 - 公开协议保持可序列化。Pi 运行对象、文件句柄和可执行函数不进入响应、事件或持久记录；原始上游错误只公开调用方有权获得的信息。
 
