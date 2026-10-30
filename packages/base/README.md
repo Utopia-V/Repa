@@ -367,7 +367,7 @@ Web 前端用 `space.browse` 浏览子目录，省略路径从用户目录开始
 
 ## 已知限制与暂缓
 
-- 提示词画板尚未实现，当前仍按来源整段覆盖；插件默认文字更新后，已覆盖的来源不会收到新文字，来源 id 改变也会使覆盖失效。画板由[重构提案第 7 步](../../.agents/notes/proposed/architecture/2026-10-29-base-refactor.md#提示词画板)与 [#41](https://github.com/Utopia-V/repa/issues/41) 接续。
+- 提示词画板尚未实现，当前仍按来源整段覆盖；插件默认文字更新后，已覆盖的来源不会收到新文字，来源 id 改变也会使覆盖失效。画板由[底座重构记录的暂缓事项](../../.agents/notes/implemented/architecture/2026-10-29-base-refactor.md#暂缓)与 [#41](https://github.com/Utopia-V/repa/issues/41) 接续。
 - `.repa/tool-output/` 中的全文文件不会自动删除；read 按行读取，超长单行只能整行读，插件应输出分行文字，让模型可以分段续取。
 - 运行关卡只在消息真正开始运行时检查，运行进行中不逐次检查；插件进入受限状态时须保存限制并中止已有工作。
 - 启动追赶期间，别的插件通过 runAgent 建立的会话，工具清单不会随随后发生的插件停用而更新。
