@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, readlink, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, readlink, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -329,6 +329,35 @@ test("同一文件反复按路径记账，上级目录的忽略规则改变后�
     [{ kind: "deleted", path: "notes/a.md" }],
     [{ kind: "added", path: "notes/a.md" }],
   ]);
+});
+
+test("文件仅改变名称大小写后，同时按新旧路径保存，历史树只保留实际名称", async (t) => {
+  const f = await fixture(t);
+  const history = await openHistory(f.space);
+  await f.write("a.txt", "文件内容\n");
+  await history.snapshotPaths(["a.txt"]);
+  // Linux 上旧路径已不存在；Windows CI 的大小写不敏感文件系统才真正覆盖旧名称仍可读取时的缓存问题。
+  await rename(f.file("a.txt"), f.file("A.txt"));
+  const saved = await history.snapshotPaths(["a.txt", "A.txt"]);
+  const git = new Git(f.space, f.file(".repa/history.git"));
+  const names = await git.run(["ls-tree", "-r", "--name-only", "-z", saved.revision]);
+  assert.deepEqual(names.toString().split("\0").filter(Boolean), ["A.txt"]);
+});
+
+test("影子仓库的 info/exclude 改变后，按路径保存与整空间扫描都从历史删除被忽略的文件", async (t) => {
+  const f = await fixture(t);
+  const history = await openHistory(f.space);
+  await f.write("keep.txt", "第一版\n");
+  await history.snapshotPaths(["keep.txt"]);
+  await f.write(".repa/history.git/info/exclude", "keep.txt\n");
+  await f.write("keep.txt", "第二版\n");
+  const saved = await history.snapshotPaths(["keep.txt"]);
+  const git = new Git(f.space, f.file(".repa/history.git"));
+  const names = await git.run(["ls-tree", "-r", "--name-only", "-z", saved.revision]);
+  assert.deepEqual(names.toString().split("\0").filter(Boolean), []);
+  const scanned = await history.snapshot();
+  assert.equal(scanned.committed, false);
+  assert.equal(scanned.revision, saved.revision);
 });
 
 test("动作失败时仍保存给定路径已落盘的内容并传播原异常", async (t) => {

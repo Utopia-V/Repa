@@ -125,6 +125,8 @@ test("按运行撤回与按修订撤回启动 Git 的次数有上限", async (t)
   const redo = await started(() => history.undo(byRun.value.revision));
   assert.deepEqual(redo.value.restored, ["created.md", "notes/0.md"]);
   atMost(redo, 8 + 1, "按修订撤回");
+  // 优化前多一次 log，总次数上限的余量不足以防止这项回退。
+  assert.equal(redo.commands.log ?? 0, 1);
 });
 
 test("维护：无需维护时只检查对象布局，需要维护时再运行一次 gc", async (t) => {
@@ -161,4 +163,5 @@ test("插件追赶：已追到当前版本时不启动 Git，落后时读一次�
   assert.equal(behind.value.revisions.length, 1);
   // 确认游标对象存在，读游标之后的提交与差异。
   atMost(behind, 3 + 1, "落后一个版本的追赶");
+  assert.equal(behind.commands["merge-base"] ?? 0, 0);
 });

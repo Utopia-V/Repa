@@ -166,7 +166,7 @@ export class SpaceHistory {
   private runs: Map<string, string[]> | null = null;
   // scope 为 null 表示整个空间；保存失败后按同一来源和范围补完。
   private pending: { source: Source; scope: string[] | null } | null = null;
-  // 按路径列出时 Git 对单个文件（不是目录）是否忽略的判断，连同当时决定它的 .gitignore 状态；见 ignoreRules。
+  // 按路径列出时 Git 对单个文件（不是目录）是否忽略的判断，连同当时决定它的忽略规则状态；见 ignoreRules。
   private readonly visibility = new Map<string, { rules: string; listed: boolean }>();
   private readonly listeners = new Set<(revision: string) => void | Promise<void>>();
 
@@ -553,16 +553,39 @@ export class SpaceHistory {
   private async listScope(specs: Map<string, boolean>): Promise<Set<string>> {
     const listed = new Set<string>();
     const rules = new Map<string, string | null>();
+    const entries = new Map<string, Set<string> | null>();
+    // 同一次列出只读取一次影子仓库的排除规则；读取失败时交给 Git 判断。
+    let exclude: string | null;
+    try {
+      const content = await readFile(path.join(this.space, ".repa", "history.git", "info", "exclude"));
+      exclude = createHash("sha1").update(content).digest("hex");
+    } catch (error) {
+      exclude = error instanceof Error && "code" in error && error.code === "ENOENT" ? "-" : null;
+    }
     // 交给 Git 的路径；单个文件附上列出之前的规则状态，目录和规则读不了的文件为 null。
     const asked = new Map<string, string | null>();
     for (const [file, directory] of specs) {
-      const state = directory ? null : await this.ignoreRules(file, rules);
+      const state = directory ? null : await this.ignoreRules(file, rules, exclude);
       const known = this.visibility.get(file);
       if (state !== null && known?.rules === state) {
-        if (known.listed) listed.add(file);
-      } else {
-        asked.set(file, state);
+        const parent = path.dirname(file);
+        let names = entries.get(parent);
+        if (names === undefined) {
+          try {
+            names = new Set(await readdir(path.join(this.space, parent)));
+          } catch {
+            // 目录读不了时不沿用判断，由 Git 列出实际名称。
+            names = null;
+          }
+          entries.set(parent, names);
+        }
+        // 大小写不敏感的文件系统上，旧名字仍能通过 lstat，须核对目录中的实际名称。
+        if (names?.has(path.basename(file))) {
+          if (known.listed) listed.add(file);
+          continue;
+        }
       }
+      asked.set(file, state);
     }
     const output = new Set<string>();
     const batches = [...asked.keys()];
@@ -584,17 +607,19 @@ export class SpaceHistory {
     for (const [file, state] of asked) {
       if (state === null) continue;
       const info = await stat(path.join(this.space, file));
-      if (info && !info.isDirectory() && await this.ignoreRules(file, after) === state) {
+      if (info && !info.isDirectory() && await this.ignoreRules(file, after, exclude) === state) {
         this.visibility.set(file, { rules: state, listed: output.has(file) });
       }
     }
     return listed;
   }
 
-  // 一个文件（不是目录）是否被忽略，只取决于空间根目录和它各级上级目录中的 .gitignore：排除选项与 Git 配置固定，
-  // 全局忽略文件已关闭。返回这些 .gitignore 的类型与对象 ID，缺失记为 -；有一个读不了时返回 null，由 Git 判断。
-  private async ignoreRules(file: string, memo: Map<string, string | null>): Promise<string | null> {
-    const states: string[] = [];
+  // 一个文件（不是目录）是否被忽略，只取决于影子仓库的 info/exclude、空间根目录和它各级上级目录中的 .gitignore：
+  // 排除选项与 Git 配置固定，全局忽略文件已关闭。返回 info/exclude 的内容 SHA-1 和各 .gitignore 的类型与对象 ID，
+  // 缺失记为 -；有一个读不了时返回 null，由 Git 判断。
+  private async ignoreRules(file: string, memo: Map<string, string | null>, exclude: string | null): Promise<string | null> {
+    if (exclude === null) return null;
+    const states: string[] = [exclude];
     for (const directory of ["", ...parents(file)]) {
       let state = memo.get(directory);
       if (state === undefined) {
