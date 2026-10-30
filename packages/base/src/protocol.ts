@@ -13,6 +13,10 @@ import {
 import {
   AgentEventSchema,
   AgentInfoSchema,
+  BackupInfoSchema,
+  BackupSettingsSchema,
+  BackupSpaceSchema,
+  BackupStatusSchema,
   ConfirmationSchema,
   DirectoryListingSchema,
   DirectoryRootSchema,
@@ -161,13 +165,29 @@ export const methods = {
   },
   "settings.get": { params: empty, result: SettingsSchema },
   "settings.set": {
-    params: object({ commandPolicy: Type.Optional(SettingsSchema.properties.commandPolicy) }),
+    params: object({
+      commandPolicy: Type.Optional(SettingsSchema.properties.commandPolicy),
+      backup: Type.Optional(BackupSettingsSchema),
+    }),
     result: SettingsSchema,
   },
+  // 活动空间的备份状态：最近一次成功的时间与上一次失败的原因；没有打开空间时为 null。
+  "backup.status": { params: empty, result: Type.Union([BackupStatusSchema, nothing]) },
+  // 立即备份：与定期检查相同，没有变化时不复制，created 为 false，backup 是已有的最近一份。
+  "backup.create": { params: empty, result: object({ created: Type.Boolean(), backup: BackupInfoSchema }) },
+  // 全部空间的备份，包括文件夹已不存在的空间；不需要打开空间。
+  "backup.list": { params: empty, result: Type.Array(BackupSpaceSchema) },
+  // 恢复到原位置，空间须已关闭；返回这次自动保存的"恢复前"备份，用它可以撤回。
+  "backup.restore": { params: object({ root: identifier, id: identifier }), result: BackupInfoSchema },
+  // 恢复到新文件夹：target 是新空间的绝对路径，须尚不存在；返回新空间的根目录。
+  "backup.restoreTo": { params: object({ root: identifier, id: identifier, target: identifier }), result: object({ root: identifier }) },
+  "backup.delete": { params: object({ root: identifier, id: identifier }), result: nothing },
 } as const;
 
 /** 底座发给客户端的全部通知 schema，供两端校验通知参数。 */
 export const notifications = {
+  // 一个空间的备份有了变化：新建、失败、删除或恢复；前端据此刷新设置页与空间列表。
+  "backup.updated": BackupStatusSchema,
   "session.event": AgentEventSchema,
   "confirm.request": object({ id: identifier, request: ConfirmationSchema }),
   "ask.request": AskRequestSchema,

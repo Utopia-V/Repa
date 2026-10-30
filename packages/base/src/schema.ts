@@ -45,14 +45,65 @@ export const PromptSectionSchema = object({
 });
 /** 一个提示段的默认内容、实际文本与启用状态，供预览和设置界面使用。 */
 export type PromptSection = Static<typeof PromptSectionSchema>;
-/** 应用设置的 schema，限定命令策略、最近空间与提示覆盖，供持久化和协议校验使用。 */
+/** 备份设置的 schema：检查间隔（分钟）与每个空间保留的定期备份份数，学习者在设置页调整。 */
+export const BackupSettingsSchema = object({
+  // 下限 5 分钟是 Repa 的假设：间隔太短时，保留的几份只覆盖最近几分钟，较早的状态很快被挤掉。上限一天，定时器不会溢出。
+  intervalMinutes: Type.Integer({ minimum: 5, maximum: 1440 }),
+  keep: Type.Integer({ minimum: 1, maximum: 100 }),
+});
+/** 备份的检查间隔与保留份数，默认 30 分钟、5 份。 */
+export type BackupSettings = Static<typeof BackupSettingsSchema>;
+/** 应用设置的 schema，限定命令策略、最近空间、提示覆盖与备份设置，供持久化和协议校验使用。 */
 export const SettingsSchema = object({
   commandPolicy: Type.Union([Type.Literal("ask"), Type.Literal("fullAccess")]),
   recentSpaces: Type.Array(identifier, { maxItems: 20 }),
   prompts: PromptOverridesSchema,
+  backup: BackupSettingsSchema,
 });
-/** 应用保存的命令策略、最近空间和提示覆盖，供设置存取与协议交互使用。 */
+/** 应用保存的命令策略、最近空间、提示覆盖和备份设置，供设置存取与协议交互使用。 */
 export type Settings = Static<typeof SettingsSchema>;
+/**
+ * 一份备份的 schema：id 在所属空间的备份中唯一，bytes 是所收文件的大小之和。
+ * kind 为 beforeRestore 的是恢复到原位置之前自动保存的备份，不参与轮换，学习者删除前一直保留。
+ */
+export const BackupInfoSchema = object({
+  id: identifier,
+  createdAt: Type.String(),
+  bytes: Type.Integer({ minimum: 0 }),
+  kind: Type.Union([Type.Literal("regular"), Type.Literal("beforeRestore")]),
+});
+/** 一份备份的时间、大小与种类，供空间列表显示和选择恢复。 */
+export type BackupInfo = Static<typeof BackupInfoSchema>;
+/** 一个空间全部备份的 schema：root 是备份时空间根目录的真实路径；exists 为假时这个文件夹已不存在，只能恢复到新文件夹。 */
+export const BackupSpaceSchema = object({
+  root: identifier,
+  exists: Type.Boolean(),
+  backups: Type.Array(BackupInfoSchema),
+});
+/** 一个空间的备份，从新到旧排列，供空间列表显示。 */
+export type BackupSpace = Static<typeof BackupSpaceSchema>;
+/** 备份状态的 schema：最近一次成功的时间，以及上一次检查失败的原因；之后成功或确认没有变化时 failure 清空。 */
+export const BackupStatusSchema = object({
+  root: identifier,
+  lastSuccess: Type.Union([Type.String(), Type.Null()]),
+  failure: Type.Union([object({ code: identifier, message: Type.String(), at: Type.String() }), Type.Null()]),
+});
+/** 一个空间的备份状态，供设置页显示最近一次成功的时间与失败原因。 */
+export type BackupStatus = Static<typeof BackupStatusSchema>;
+/**
+ * 备份清单的 schema，存为每份备份目录中的 manifest.json。files 列出所收的文件，路径相对于 .repa/、用 / 分隔，
+ * 大小与修改时间取复制时的来源文件；下一次检查与它比较，没有变化就不复制。
+ */
+export const BackupManifestSchema = object({
+  root: identifier,
+  createdAt: Type.String(),
+  kind: BackupInfoSchema.properties.kind,
+  files: Type.Array(object({ path: identifier, size: Type.Integer({ minimum: 0 }), mtimeMs: Type.Number() })),
+});
+/** 一份备份的清单：所属空间、时间、种类与所收文件。 */
+export type BackupManifest = Static<typeof BackupManifestSchema>;
+/** 恢复标记的 schema：恢复到原位置期间存为 .repa/restore.json，记下选中的备份；标记存在时空间不打开，等待重新恢复。 */
+export const RestoreMarkerSchema = object({ backup: identifier });
 /** 目录浏览起点的 schema，保存路径与显示名称，供空间选择界面使用。 */
 export const DirectoryRootSchema = object({ path: identifier, label: identifier });
 /** 目录浏览的起点路径与显示名称，供空间选择界面使用。 */

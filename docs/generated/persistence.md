@@ -54,14 +54,51 @@ schema：packages/space-history/src/schema.ts#SourceSchema；SHA-256 前 16 位�
 
 版本标记：无独立版本标记。
 
-schema：packages/base/src/schema.ts#SettingsSchema；SHA-256 前 16 位：c3263cf294fcf89f。
+schema：packages/base/src/schema.ts#SettingsSchema；SHA-256 前 16 位：105f22723284d875。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| backup | object | 否 |  |
+| backup.intervalMinutes | integer | 否 |  |
+| backup.keep | integer | 否 |  |
 | commandPolicy | "ask" &#124; "fullAccess" | 否 |  |
 | prompts | object | 否 |  |
 | prompts[^.*$] | object | 是 | 嵌套对象，字段见源码 |
 | recentSpaces[] | string | 否 |  |
+
+## restore-marker
+
+文件：<空间>/.repa/restore.json。
+
+负责的包：@repa/base。
+
+版本标记：<空间>/.repa/format.json。
+
+schema：packages/base/src/schema.ts#RestoreMarkerSchema；SHA-256 前 16 位：d2f76b8ec7ac81a2。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| backup | string | 否 |  |
+
+## backup-manifest
+
+文件：<应用配置目录>/backups/<空间分组>/<备份 id>/manifest.json。
+
+负责的包：@repa/base。
+
+版本标记：无独立版本标记；备份中的 data/ 是 .repa/ 的副本，由其中的 format.json 标记。
+
+schema：packages/base/src/schema.ts#BackupManifestSchema；SHA-256 前 16 位：f4c0a408f52ae11d。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| createdAt | string | 否 |  |
+| files[] | object | 否 |  |
+| files[].mtimeMs | number | 否 |  |
+| files[].path | string | 否 |  |
+| files[].size | integer | 否 |  |
+| kind | "regular" &#124; "beforeRestore" | 否 |  |
+| root | string | 否 |  |
 
 ## learning-format
 

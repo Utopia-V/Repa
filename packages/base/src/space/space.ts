@@ -1,11 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { watch } from "node:fs";
-import { mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { HistoryError, openHistory, watchHistory, type ActivitySource, type Revision, type Snapshot } from "@repa/space-history";
-import lockfile from "proper-lockfile";
 
 import { currentRun } from "../run-context.js";
 import type { Space, SpaceOptions } from "../space.js";
@@ -13,7 +12,8 @@ import { RepaFault } from "../schema.js";
 import { syncDirectory } from "../storage.js";
 import { checkFormat } from "./format.js";
 import { WriteGate } from "./gate.js";
-import { directory, existingPath, ignoreDataDir, within } from "./paths.js";
+import { lockSpace } from "./lock.js";
+import { directory, existingPath, ignoreDataDir, RESTORE_NAMES, within } from "./paths.js";
 
 // 历史变化的通知在模块加载时的空上下文里分发：插件的变化处理不属于触发这次提交的运行，
 // 也不在不透明写入者的窗口里，它的写入记在插件名下。
@@ -46,6 +46,15 @@ export async function createSpace(root: string, options: SpaceOptions = {}): Pro
 export async function openSpace(input: string, options: SpaceOptions = {}): Promise<Space> {
   const root = await realpath(input);
   const dataDir = path.join(root, ".repa");
+  // 从备份恢复中断后，.repa/ 可能只换了一半，格式标记也可能已经移走；见到恢复标记就不打开，等学习者重新恢复。
+  let interrupted = true;
+  try {
+    await lstat(path.join(dataDir, RESTORE_NAMES.marker));
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR")) throw error;
+    interrupted = false;
+  }
+  if (interrupted) throw new RepaFault("restore_incomplete", "上次从备份恢复没有完成，请重新恢复", { root });
   // 先识别已有数据，再创建锁或任何辅助文件；未知和更新格式连锁目录也不写。
   try {
     await mkdir(dataDir);
@@ -63,25 +72,10 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
   await checkFormat(path.join(dataDir, "format.json"), 1);
   const onError = options.onError ?? ((error: unknown) => { process.emitWarning(String(error)); });
   let compromised: unknown;
-  let release: () => Promise<void>;
-  try {
-    release = await lockfile.lock(root, {
-      lockfilePath: path.join(dataDir, "lock"),
-      realpath: true,
-      retries: 0,
-      stale: 30_000,
-      update: 10_000,
-      onCompromised(error) {
-        compromised = error;
-        onError(error);
-      },
-    });
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ELOCKED") {
-      throw new RepaFault("space_locked", "空间已经由另一个后端打开", { root });
-    }
-    throw error;
-  }
+  const release = await lockSpace(root, (error) => {
+    compromised = error;
+    onError(error);
+  });
   try {
     await checkFormat(path.join(dataDir, "format.json"), 1);
     const sessionsDir = path.join(dataDir, "sessions");
@@ -389,6 +383,10 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
         checkOpen();
         listeners.add(listener);
         return () => { listeners.delete(listener); };
+      },
+      async withHistory(action) {
+        checkHistoryRead();
+        return track(() => raw.withRepository(action));
       },
       async flush() {
         checkHistoryRead();

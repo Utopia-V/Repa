@@ -6,6 +6,9 @@ import { Check } from "typebox/value";
 import { WebSocket, WebSocketServer } from "ws";
 import { createAgentRuntime, withFileMutationQueue, type AgentRuntime, type AgentSpace } from "../agent.js";
 import type { AskRoute } from "../ask.js";
+import { restoreInPlace, restoreToNew } from "../backup/restore.js";
+import { SpaceBackups } from "../backup/schedule.js";
+import { deleteBackup, groupStatus, listBackups } from "../backup/store.js";
 import { resolveAppHome } from "../home.js";
 import { createFeedbackBundle } from "../feedback/bundle.js";
 import { RecentErrors } from "../feedback/errors.js";
@@ -84,6 +87,7 @@ interface ActiveSpace {
   space: Space;
   plugins: PluginHost;
   agent: AgentSpace;
+  backups: SpaceBackups;
 }
 
 /** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
@@ -269,8 +273,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     // 登录确认不属于空间；只结束命令确认，以及空间里的询问和服务。
     reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command");
     const failures: unknown[] = [];
-    // 先停止 Agent，再关插件；最后空间落盘并释放锁。每个 owner 都取得收尾机会。
-    for (const close of [() => current.agent.close(), () => current.plugins.close(), () => current.space.close()]) {
+    // 先停止 Agent，再关插件，写入者都停下以后备份最后一次；最后空间落盘并释放锁。每个 owner 都取得收尾机会。
+    // 关闭时的备份在释放空间锁之前完成，上一次使用的改动不必等到下次打开才进入备份。
+    for (const close of [() => current.agent.close(), () => current.plugins.close(), () => current.backups.close(), () => current.space.close()]) {
       try {
         await close();
       } catch (error) {
@@ -347,7 +352,22 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       });
       await host.start();
       await settings.remember(space.root);
-      active = { space, plugins, agent };
+      const backups = new SpaceBackups({
+        home,
+        space,
+        now: () => runtime.now(),
+        settings: () => settings.get().backup,
+        onUpdate: (status) => emit("backup.updated", status),
+        onError: (error) => {
+          errors.add({
+            source: "backup",
+            message: error instanceof Error ? error.message : String(error),
+            ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
+          });
+        },
+      });
+      active = { space, plugins, agent, backups };
+      backups.start();
       return { root: space.root, disabledPlugins: plugins.disabled() };
     } catch (error) {
       await agent?.close().catch(() => undefined);
@@ -577,8 +597,44 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       }
       case "settings.get":
         return settings.get();
-      case "settings.set":
-        return settings.set(p<"settings.set">());
+      case "settings.set": {
+        const result = await settings.set(p<"settings.set">());
+        active?.backups.reschedule();
+        return result;
+      }
+      case "backup.status":
+        return active === undefined ? null : active.backups.status();
+      case "backup.create": {
+        const { backups } = requireActive();
+        try {
+          return await backups.check();
+        } catch (error) {
+          // 原因已记进备份状态，设置页从那里显示；这里给调用方可以分支的错误码。
+          if (error instanceof RepaFault) throw error;
+          throw new RepaFault("backup_failed", `备份没有完成：${error instanceof Error ? error.message : String(error)}`, {
+            ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
+          });
+        }
+      }
+      case "backup.list":
+        return listBackups(home);
+      case "backup.restore": {
+        const input = p<"backup.restore">();
+        if (active?.space.root === input.root) throw new RepaFault("space_locked", "空间正在使用，关闭空间以后再恢复", { root: input.root });
+        const before = await restoreInPlace({ home, root: input.root, id: input.id, now: runtime.now() });
+        emit("backup.updated", await groupStatus(home, input.root));
+        return before;
+      }
+      case "backup.restoreTo": {
+        const input = p<"backup.restoreTo">();
+        return { root: await restoreToNew({ home, root: input.root, id: input.id, target: input.target }) };
+      }
+      case "backup.delete": {
+        const input = p<"backup.delete">();
+        await deleteBackup(home, input.root, input.id);
+        emit("backup.updated", active?.space.root === input.root ? await active.backups.status() : await groupStatus(home, input.root));
+        return null;
+      }
     }
   };
 

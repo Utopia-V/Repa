@@ -6,6 +6,12 @@ import { writeText } from "../storage.js";
 
 const IGNORE_ALL = "*\n";
 
+/** 空间锁在 .repa/ 中的目录名：备份不收它，恢复时它留在原处。 */
+export const LOCK_NAME = "lock";
+
+/** 从备份恢复时 .repa/ 中的保留名：恢复标记、暂存的备份内容和换出的原内容。都不收进备份。 */
+export const RESTORE_NAMES = { marker: "restore.json", staging: "restore-staging", replaced: "restore-replaced" } as const;
+
 // 同时检查输入路径与解析后的路径，符号链接不能把文件接口带出空间。
 export function within(root: string, file: string): boolean {
   const relative = path.relative(root, file);
