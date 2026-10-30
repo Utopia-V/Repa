@@ -117,14 +117,17 @@ async function paths({ repo, markdown }: CheckContext): Promise<Issue[]> {
         ...ts.getLeadingCommentRanges(text, node.getFullStart()) ?? [],
         ...ts.getTrailingCommentRanges(text, node.getEnd()) ?? [],
       ]) comments.set(range.pos, range);
-      ts.forEachChild(node, collect);
+      // 包含右大括号等 token，才能收集空块和块尾独立注释。
+      for (const child of node.getChildren(source)) collect(child);
     };
     collect(source);
     for (const range of comments.values()) {
-      for (const match of text.slice(range.pos, range.end).matchAll(/(?:docs|\.agents)\/[^\s`"'<>()[\]{}，。；：]+?\.md\b/g)) {
-        if (await repo.exists(match[0])) continue;
+      // 先跳过整个 URL（含查询和片段），再匹配独立的仓库路径词元。
+      for (const match of text.slice(range.pos, range.end).matchAll(/(?:[a-zA-Z][a-zA-Z\d+.-]*:)?\/\/[^\s`"'<>，。；：]+|(?<![/:\p{L}\p{N}])((?:docs|\.agents)\/[^\s`"'<>()[\]{}，。；：]+?\.md\b)/gu)) {
+        const target = match[1];
+        if (!target || await repo.exists(target)) continue;
         const line = source.getLineAndCharacterOfPosition(range.pos + (match.index ?? 0)).line + 1;
-        issues.push({ file, line, check: "路径", message: `注释路径不存在：${match[0]}` });
+        issues.push({ file, line, check: "路径", message: `注释路径不存在：${target}` });
       }
     }
   }

@@ -29,6 +29,19 @@ async function fixture(t: TestContext) {
   return { root, write, copy };
 }
 
+async function persistenceFixture(t: TestContext) {
+  const f = await fixture(t);
+  await f.copy("scripts/docs/persistence.json", "persistence/persistence.json");
+  await f.copy("schema.ts", "persistence/schema.ts");
+  await f.copy("changed.ts", "persistence/changed.ts");
+  const schema = (await persistentSchemas(f.root))[0];
+  assert(schema);
+  const basis = "2026-10-29-initial.md";
+  await f.write(`docs/persistence/changes/${basis}`, `fixture ${schema.digest}\n不升版本：测试格式的初始记录。\n`);
+  await f.write("docs/persistence/digests.json", `${JSON.stringify({ fixture: { digest: schema.digest, basis } }, null, 2)}\n`);
+  return { ...f, schema, basis, digestsFile: path.join(f.root, "docs/persistence/digests.json") };
+}
+
 test("包地图按例外选择首段，目录逐字节一致时通过，缺失、代码变化或文件多一个字节时报错", async (t) => {
   const f = await fixture(t);
   await f.write("packages/demo/package.json", '{"name":"@repa/demo"}');
@@ -138,15 +151,9 @@ test("摘要递归排序对象键但保留数组顺序", () => {
   assert.notEqual(digest({ enum: [1, 2] }), digest({ enum: [2, 1] }));
 });
 
-test("首次生成建立摘要，schema 变化须匹配 id、摘要及版本理由后才能认可", async (t) => {
-  const f = await fixture(t);
-  await f.copy("scripts/docs/persistence.json", "persistence/persistence.json");
-  await f.copy("schema.ts", "persistence/schema.ts");
-  await f.copy("changed.ts", "persistence/changed.ts");
-  const baseline = await generatePersistence(f.root, true);
-  await writeGenerated(f.root, baseline);
-  const digestsFile = path.join(f.root, "docs/persistence/digests.json");
-  const accepted = await readFile(digestsFile, "utf8");
+test("schema 变化须匹配 id、摘要及版本理由后才能认可，并保存记录文件名", async (t) => {
+  const f = await persistenceFixture(t);
+  const accepted = await readFile(f.digestsFile, "utf8");
   assert.deepEqual(await checkPersistence(f.root), []);
   const manifest = (await readFile(path.join(f.root, "scripts/docs/persistence.json"), "utf8")).replace("schema.ts#", "changed.ts#");
   await f.write("scripts/docs/persistence.json", manifest);
@@ -155,7 +162,7 @@ test("首次生成建立摘要，schema 变化须匹配 id、摘要及版本理�
   assert.equal((await checkPersistence(f.root)).length, 1);
   assert.match((await checkPersistence(f.root))[0]?.message ?? "", /fixture 的 schema 变了/);
   await assert.rejects(generatePersistence(f.root, true), /schema 变了/);
-  assert.equal(await readFile(digestsFile, "utf8"), accepted);
+  assert.equal(await readFile(f.digestsFile, "utf8"), accepted);
   for (const record of [`other ${changed.digest}\n不升版本：可选字段。\n`, "fixture 0000000000000000\n不升版本：可选字段。\n", `fixture ${changed.digest}\n不升版本\n`]) {
     await f.write("docs/persistence/changes/2026-10-30-note.md", record);
     await assert.rejects(generatePersistence(f.root, true), /schema 变了/);
@@ -163,9 +170,102 @@ test("首次生成建立摘要，schema 变化须匹配 id、摘要及版本理�
   await f.write("docs/persistence/changes/2026-10-30-note.md", `fixture ${changed.digest}\n不升版本：新增可选字段，旧版本仍可正确读取。\n`);
   const output = await generatePersistence(f.root, true);
   await writeGenerated(f.root, output);
-  assert.equal((JSON.parse(await readFile(digestsFile, "utf8")) as Record<string, string>).fixture, changed.digest);
+  assert.deepEqual(JSON.parse(await readFile(f.digestsFile, "utf8")), {
+    fixture: { digest: changed.digest, basis: "2026-10-30-note.md" },
+  });
   assert.deepEqual(await checkPersistence(f.root), []);
   assert.deepEqual(await checkGenerated(f.root, [output]), []);
+  await generatePersistence(f.root, true);
+  assert.deepEqual(await checkPersistence(f.root), []);
+});
+
+test("摘要认可的记录缺失、首行不匹配或理由缺失时报错，恢复原记录后通过", async (t) => {
+  const f = await persistenceFixture(t);
+  const recordFile = path.join(f.root, "docs/persistence/changes", f.basis);
+  const original = await readFile(recordFile, "utf8");
+  const accepted = await readFile(f.digestsFile, "utf8");
+  assert.deepEqual(await checkPersistence(f.root), []);
+  await rm(recordFile);
+  assert.match((await checkPersistence(f.root))[0]?.message ?? "", /依据.*不存在或无效/);
+  await assert.rejects(generatePersistence(f.root, true), /依据.*不存在或无效/);
+  for (const record of [
+    `other ${f.schema.digest}\n不升版本：测试。\n`,
+    "fixture 0000000000000000\n不升版本：测试。\n",
+    `fixture ${f.schema.digest} \n不升版本：测试。\n`,
+    `fixture ${f.schema.digest}\n不升版本\n`,
+  ]) {
+    await writeFile(recordFile, record);
+    assert.equal((await checkPersistence(f.root)).length, 1);
+    await assert.rejects(generatePersistence(f.root, true), /依据.*不存在或无效/);
+  }
+  assert.equal(await readFile(f.digestsFile, "utf8"), accepted);
+  await writeFile(recordFile, original);
+  assert.deepEqual(await checkPersistence(f.root), []);
+});
+
+test("手改摘要使其匹配新 schema 仍不能绕过原记录", async (t) => {
+  const f = await persistenceFixture(t);
+  const manifest = await readFile(path.join(f.root, "scripts/docs/persistence.json"), "utf8");
+  await f.write("scripts/docs/persistence.json", manifest.replace("schema.ts#", "changed.ts#"));
+  const changed = (await persistentSchemas(f.root))[0];
+  assert(changed);
+  await f.write("docs/persistence/digests.json", JSON.stringify({ fixture: { digest: changed.digest, basis: f.basis } }));
+  assert.match((await checkPersistence(f.root))[0]?.message ?? "", /依据.*不存在或无效/);
+  await assert.rejects(generatePersistence(f.root, true), /依据.*不存在或无效/);
+});
+
+test("baseline 只认可现有初始格式的原摘要，手改摘要或新增 id 不能冒充基线", async (t) => {
+  const f = await fixture(t);
+  await f.copy("schema.ts", "persistence/baseline.ts");
+  await f.copy("scripts/docs/persistence.json", "persistence/persistence.json");
+  const manifest = await readFile(path.join(f.root, "scripts/docs/persistence.json"), "utf8");
+  await f.write("scripts/docs/persistence.json", manifest.replace('"fixture"', '"space-format"'));
+  const initial = (await persistentSchemas(f.root))[0];
+  assert(initial);
+  assert.equal(initial.digest, "557283bfb3e5b4a7");
+  await f.write("docs/persistence/digests.json", JSON.stringify({ "space-format": { digest: initial.digest, basis: "baseline" } }));
+  assert.deepEqual(await checkPersistence(f.root), []);
+  await generatePersistence(f.root, true);
+  assert.deepEqual(JSON.parse(await readFile(path.join(f.root, "docs/persistence/digests.json"), "utf8")), {
+    "space-format": { digest: initial.digest, basis: "baseline" },
+  });
+  await f.copy("changed.ts", "persistence/changed.ts");
+  await f.write("scripts/docs/persistence.json", manifest.replace('"fixture"', '"space-format"').replace("schema.ts#", "changed.ts#"));
+  const changed = (await persistentSchemas(f.root))[0];
+  assert(changed);
+  await f.write("docs/persistence/digests.json", JSON.stringify({ "space-format": { digest: changed.digest, basis: "baseline" } }));
+  assert.match((await checkPersistence(f.root))[0]?.message ?? "", /baseline 须与该格式首次入库的摘要相同/);
+  await assert.rejects(generatePersistence(f.root, true), /baseline/);
+  await f.write("scripts/docs/persistence.json", manifest);
+  await f.write("docs/persistence/digests.json", JSON.stringify({ fixture: { digest: initial.digest, basis: "baseline" } }));
+  assert.match((await checkPersistence(f.root))[0]?.message ?? "", /baseline/);
+  await assert.rejects(generatePersistence(f.root, true), /baseline/);
+});
+
+test("摘要文件缺失时检查和生成均提示从 git 恢复，恢复后正常运行", async (t) => {
+  const f = await persistenceFixture(t);
+  const accepted = await readFile(f.digestsFile, "utf8");
+  await rm(f.digestsFile);
+  await assert.rejects(checkPersistence(f.root), /从 git 恢复 docs\/persistence\/digests.json/);
+  await assert.rejects(generatePersistence(f.root, true), /从 git 恢复 docs\/persistence\/digests.json/);
+  await assert.rejects(generatePersistence(f.root), /从 git 恢复 docs\/persistence\/digests.json/);
+  await assert.rejects(readFile(f.digestsFile), { code: "ENOENT" });
+  await writeFile(f.digestsFile, accepted);
+  await generatePersistence(f.root, true);
+  assert.deepEqual(await checkPersistence(f.root), []);
+  assert.equal(await readFile(f.digestsFile, "utf8"), accepted);
+});
+
+test("新增持久格式必须用记录认可，不能从空摘要清单自动建立基线", async (t) => {
+  const f = await persistenceFixture(t);
+  await f.write("docs/persistence/digests.json", "{}\n");
+  await rm(path.join(f.root, "docs/persistence/changes", f.basis));
+  assert.equal((await checkPersistence(f.root)).length, 1);
+  await assert.rejects(generatePersistence(f.root, true), /schema 变了/);
+  assert.equal(await readFile(f.digestsFile, "utf8"), "{}\n");
+  await f.write(`docs/persistence/changes/${f.basis}`, `fixture ${f.schema.digest}\n升版本：引入独立的版本标记。\n`);
+  await generatePersistence(f.root, true);
+  assert.deepEqual(await checkPersistence(f.root), []);
 });
 
 test("协议目录按名称排序并列出方法参数、结果及通知，参数变化使目录过时", async (t) => {

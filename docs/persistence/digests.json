@@ -1,8 +1,26 @@
 {
-  "space-format": "557283bfb3e5b4a7",
-  "session-parent": "3d399c4db9c7ad1a",
-  "history-source": "4fd83ee1e6b7ba61",
-  "app-settings": "c3263cf294fcf89f",
-  "learning-format": "557283bfb3e5b4a7",
-  "learning-records": "59e4f9eda6457388"
+  "space-format": {
+    "digest": "557283bfb3e5b4a7",
+    "basis": "baseline"
+  },
+  "session-parent": {
+    "digest": "3d399c4db9c7ad1a",
+    "basis": "baseline"
+  },
+  "history-source": {
+    "digest": "4fd83ee1e6b7ba61",
+    "basis": "baseline"
+  },
+  "app-settings": {
+    "digest": "c3263cf294fcf89f",
+    "basis": "baseline"
+  },
+  "learning-format": {
+    "digest": "557283bfb3e5b4a7",
+    "basis": "baseline"
+  },
+  "learning-records": {
+    "digest": "59e4f9eda6457388",
+    "basis": "baseline"
+  }
 }
