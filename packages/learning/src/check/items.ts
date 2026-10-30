@@ -237,6 +237,7 @@ export async function itemVersion(question: Question, topic: Topic): Promise<str
   return contentVersion(draftItem(question, topic));
 }
 
+/** 投影出学习者看到的 Item：只取公开字段，答案、比较方式、核对程序和测试都不带出去；version 是题面版本，requires 是显示它要的交互能力。 */
 export async function publicItem(question: Question, topic: Topic): Promise<Item> {
   const draft = draftItem(question, topic);
   return { ...draft, version: await contentVersion(draft), requires: requiredCapabilities(draft) };
@@ -268,6 +269,7 @@ export function referenceAnswer(slot: SlotDef): Answer {
   }
 }
 
+/** 用标准答案拼出整题作答，指向给定 Item 的题目和版本；课程检查用它确认标准答案通过结构检查并得满分。 */
 export function referenceResponse(question: Question, item: Item): ItemResponse {
   const answers = Object.fromEntries(question.slots.map((slot) => [slot.id, referenceAnswer(slot)]));
   return { item: { id: item.id, version: item.version }, answers };
@@ -284,6 +286,7 @@ export interface QuestionEntry {
   at: (string | number)[];
 }
 
+/** 按 topic 文件里的顺序列出全部题目，连同所在知识点、题池和在文件里的位置。 */
 export function topicQuestions(topic: Topic): QuestionEntry[] {
   const entries: QuestionEntry[] = [];
   topic.kps.forEach((kp, kpIndex) => {

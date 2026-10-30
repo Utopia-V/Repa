@@ -18,14 +18,17 @@ const text = (maxLength: number) => Type.String({ minLength: 1, maxLength });
 /** 题内的作答位、选项、块、行列标识，与交互词汇的 id 相同。 */
 export const IdSchema = Type.String({ minLength: 1, maxLength: 120, pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]*$" });
 
+/** topic id：小写字母开头的短名，例如 py17，同时是 topic 文件名。 */
 export const TopicIdSchema = Type.String({
   pattern: "^[a-z][a-z0-9]*$", maxLength: 32,
   description: "topic id 只用小写字母和数字，以字母开头，例如 py17",
 });
+/** 知识点 id：以所在 topic 的 id 为前缀，例如 py17.k1。 */
 export const KpIdSchema = Type.String({
   pattern: "^[a-z][a-z0-9]*\\.k[0-9]+$", maxLength: 40,
   description: "知识点 id 写成 <topic id>.k<数字>，例如 py17.k1",
 });
+/** 题目 id：以所在知识点的 id 为前缀，学习记录按它和题目版本引用题目，所以发布后不改、不复用。 */
 export const QuestionIdSchema = Type.String({
   pattern: "^[a-z][a-z0-9]*\\.k[0-9]+\\.[a-z][0-9]+$", maxLength: 48,
   description: "题目 id 写成 <知识点 id>.<小写字母><数字>，例如 py17.k1.q1",
@@ -43,6 +46,7 @@ const HttpsUrlSchema = Type.String({ pattern: "^https://", maxLength: 500, descr
 
 /** Markdown 字符串，或显式的内容块列表。 */
 export const ContentInputSchema = Type.Union([Type.String({ maxLength: 20_000 }), Type.Array(BlockSchema, { maxItems: 64 })]);
+/** 课程里写内容的地方：Markdown 字符串或内容块列表，加载时统一转成内容块。 */
 export type ContentInput = Static<typeof ContentInputSchema>;
 
 const ScalarSchema = Type.Union([Type.String({ maxLength: 500 }), Type.Number(), Type.Boolean()]);
@@ -52,6 +56,7 @@ const CellValueSchema = Type.Union([Type.String({ maxLength: 500 }), Type.Number
 // 课程清单
 // ---------------------------------------------------------------------------
 
+/** 外部材料的用法：reference 只作取材参照，adapt 改编文字，code 复用代码，quote 短引用。 */
 export const SourceUseKinds = ["reference", "adapt", "code", "quote"] as const;
 const SourceUseKindSchema = Type.Enum(SourceUseKinds);
 
@@ -71,8 +76,10 @@ export const SourceSchema = object({
   permits: Type.Array(SourceUseKindSchema, { minItems: 1, maxItems: 4 }),
   note: Type.Optional(text(1_000)),
 });
+/** 课程用到的一份外部材料，以及它的许可允许的用法。 */
 export type Source = Static<typeof SourceSchema>;
 
+/** 判分与核对的运行时：Pyodide、Python 和包的版本，以及运行前导。学习者在 Repa 里运行代码用的是同一套，所以写在课程清单里。 */
 export const RuntimeSchema = object({
   /** 判分和核对用的 Pyodide 发行版本，与学习者运行代码的版本一致。 */
   pyodide: text(32),
@@ -85,8 +92,10 @@ export const RuntimeSchema = object({
    */
   prelude: Type.Optional(text(2_000)),
 });
+/** 课程清单声明的判分运行时，课程检查核对实际加载的版本与它一致。 */
 export type Runtime = Static<typeof RuntimeSchema>;
 
+/** 课程清单 course.yaml：课程身份与版本、许可、判分运行时、来源登记和 topic 列表。 */
 export const CourseSchema = object({
   id: NameSchema,
   version: Type.String({ pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$", description: "课程版本写成 x.y.z" }),
@@ -102,6 +111,7 @@ export const CourseSchema = object({
   /** 发布后退役的 topic、KP 和题目 id，不得再次使用。尚未发布时从空列表开始。 */
   retiredIds: Type.Optional(Type.Array(Type.Union([TopicIdSchema, KpIdSchema, QuestionIdSchema]))),
 });
+/** 一份课程清单。 */
 export type Course = Static<typeof CourseSchema>;
 
 // ---------------------------------------------------------------------------
@@ -113,6 +123,7 @@ export const EncompassingSchema = object({
   topic: TopicIdSchema,
   weight: Type.Number({ minimum: 0, maximum: 1 }),
 });
+/** topic 之间的一条覆盖关系，学生模型按它的权重传递信用（FIRe）。 */
 export type Encompassing = Static<typeof EncompassingSchema>;
 
 /** topic 对某份课程来源的具体使用：哪一章哪一节、怎样用。 */
@@ -124,6 +135,7 @@ export const SourceUseSchema = object({
   /** 改编、复用代码或引用时必须写的署名与修改说明。 */
   notice: Type.Optional(text(1_000)),
 });
+/** topic 对一份课程来源的具体使用。 */
 export type SourceUse = Static<typeof SourceUseSchema>;
 
 /** 小表数据：加载时生成 pandas.DataFrame，题面里显示成表格。 */
@@ -150,7 +162,9 @@ export const PythonFixtureSchema = object({
   display: Type.Optional(ContentInputSchema),
 });
 
+/** 数据夹具：小表或一段准备代码。题面显示它们，核对和测试运行前也先准备好。 */
 export const FixtureSchema = Type.Union([DataFrameFixtureSchema, PythonFixtureSchema]);
+/** 一个数据夹具。 */
 export type Fixture = Static<typeof FixtureSchema>;
 
 // ---------------------------------------------------------------------------
@@ -172,6 +186,7 @@ const OptionSchema = object({
   feedback: Type.Optional(ContentInputSchema),
 });
 
+/** 选择作答位：字段与交互词汇相同，另加只留在插件里的标准答案和多选计分方式。 */
 export const ChoiceSlotSchema = object({
   ...slotBase,
   type: Type.Literal("choice"),
@@ -185,10 +200,13 @@ export const ChoiceSlotSchema = object({
   /** 多选的计分：all 整体一致才得分（缺省）；options 每个选项的勾选状态各 1 分。 */
   scoring: Type.Optional(Type.Enum(["all", "options"])),
 });
+/** 课程里的选择作答位。 */
 export type ChoiceSlot = Static<typeof ChoiceSlotSchema>;
 
+/** 文字作答的比较方式，各自的含义见 TextSlotSchema 的 match。 */
 export const TextMatchKinds = ["integer", "number", "text", "output", "nonempty"] as const;
 const TextMatchSchema = Type.Enum(TextMatchKinds);
+/** 一种文字比较方式。 */
 export type TextMatch = (typeof TextMatchKinds)[number];
 
 const CriterionSchema = object({
@@ -197,6 +215,7 @@ const CriterionSchema = object({
   guide: Type.Optional(text(2_000)),
 });
 
+/** 文字作答位：数值、短答、Python 显示内容或开放作答。标准答案、比较方式和已知错误答案的反馈只留在插件里。 */
 export const TextSlotSchema = object({
   ...slotBase,
   type: Type.Literal("text"),
@@ -220,6 +239,7 @@ export const TextSlotSchema = object({
   /** 开放作答的评分要点。有 rubric 的小问由人或模型评，不进入复习和测验题池。 */
   rubric: Type.Optional(Type.Array(CriterionSchema, { minItems: 1, maxItems: 10 })),
 });
+/** 课程里的文字作答位。 */
 export type TextSlot = Static<typeof TextSlotSchema>;
 
 /** 代码测试：data 与 setup 准备输入，运行作答代码，再逐项比较 expect、stdout 或 doctest。 */
@@ -240,6 +260,7 @@ export const TestSchema = object({
   stdout: Type.Optional(Type.String({ maxLength: 10_000 })),
   hidden: Type.Optional(Type.Boolean()),
 });
+/** 代码题或带测试的 Parsons 题的一个测试。 */
 export type CodeTest = Static<typeof TestSchema>;
 
 const OrderItemSchema = object({
@@ -250,6 +271,7 @@ const OrderItemSchema = object({
   label: Type.Optional(Type.String({ maxLength: 80 })),
 });
 
+/** 排列作答位：排序、选出并排序和 Parsons。Parsons 题带测试时按测试判，等价的顺序都能通过。 */
 export const OrderSlotSchema = object({
   ...slotBase,
   type: Type.Literal("order"),
@@ -265,10 +287,12 @@ export const OrderSlotSchema = object({
   /** Parsons 题按测试判：把排好的块按缩进拼成程序后运行这些测试，接受等价的顺序。 */
   tests: Type.Optional(Type.Array(TestSchema, { minItems: 1, maxItems: 20 })),
 });
+/** 课程里的排列作答位。 */
 export type OrderSlot = Static<typeof OrderSlotSchema>;
 
 /** 表格输入格：bool（True/False 选择）、integer、text 三种简写，或完整写法。 */
 export const CellInputPresets = ["bool", "integer", "text"] as const;
+/** 表格输入格的写法：三种简写或完整写法，投影时还原成交互词汇的输入格，比较方式留在插件里。 */
 export const CellInputDefSchema = Type.Union([
   Type.Enum(CellInputPresets),
   object({
@@ -284,6 +308,7 @@ export const CellInputDefSchema = Type.Union([
     options: Type.Array(object({ id: IdSchema, label: Type.String({ maxLength: 80 }) }), { minItems: 2, maxItems: 12 }),
   }),
 ]);
+/** 一个表格输入格的写法。 */
 export type CellInputDef = Static<typeof CellInputDefSchema>;
 
 /**
@@ -295,8 +320,10 @@ export const CellSchema = Type.Union([
   object({ value: Type.String({ maxLength: 500 }) }),
   object({ input: CellInputDefSchema, key: ScalarSchema }),
 ]);
+/** 表格里的一格：固定显示的文字、这一格的标准答案，或单独设定的输入格。 */
 export type Cell = Static<typeof CellSchema>;
 
+/** 表格作答位：追踪表、逐行掩码和 WWPD。作答列里直接写的值就是这一格的标准答案。 */
 export const TableSlotSchema = object({
   ...slotBase,
   type: Type.Literal("table"),
@@ -311,8 +338,10 @@ export const TableSlotSchema = object({
     cells: Type.Record(Type.String(), CellSchema),
   }), { minItems: 1, maxItems: 60 }),
 });
+/** 课程里的表格作答位。 */
 export type TableSlot = Static<typeof TableSlotSchema>;
 
+/** 代码作答位：作答框的初始代码、参考答案和测试。等价写法和常见错误写法只供课程检查，不进题目版本。 */
 export const CodeSlotSchema = object({
   ...slotBase,
   type: Type.Literal("code"),
@@ -327,13 +356,18 @@ export const CodeSlotSchema = object({
   rejects: Type.Optional(Type.Array(object({ code: text(50_000), why: text(300) }), { maxItems: 10 })),
   tests: Type.Array(TestSchema, { minItems: 1, maxItems: 20 }),
 });
+/** 课程里的代码作答位。 */
 export type CodeSlot = Static<typeof CodeSlotSchema>;
 
+/** 课程里的五种作答位，与交互词汇的五种作答位一一对应，另带只留在插件里的答案与判分规则。 */
 export const SlotDefSchema = Type.Union([ChoiceSlotSchema, TextSlotSchema, OrderSlotSchema, TableSlotSchema, CodeSlotSchema]);
+/** 课程里的一个作答位。 */
 export type SlotDef = Static<typeof SlotDefSchema>;
 
+/** 题型标签：预测输出、追踪变量、找错、解释代码、小改代码、写清需求。只作说明，不进题目版本。 */
 export const QuestionKinds = ["predict", "trace", "debug", "explain", "modify", "specify"] as const;
 
+/** 一道题：题面、作答位和解析，加上只为检查而写的核对程序与模型核对的作答位，以及题型和直接考查的知识点。 */
 export const QuestionSchema = object({
   id: QuestionIdSchema,
   title: Type.Optional(text(200)),
@@ -361,6 +395,7 @@ export const QuestionSchema = object({
   /** 这道题直接测量的知识点；省略时为所在知识点。 */
   measures: Type.Optional(Type.Array(KpIdSchema, { minItems: 1, maxItems: 4 })),
 });
+/** 课程里的一道题；检查、判分和辅导都按当前课程里的这份定义处理。 */
 export type Question = Static<typeof QuestionSchema>;
 
 // ---------------------------------------------------------------------------
@@ -379,8 +414,10 @@ export const CardSchema = object({
   /** 一个学过的例子；from 指向本知识点里的题目，也就是原学习位置。 */
   example: object({ from: QuestionIdSchema, text: ContentInputSchema }),
 });
+/** 一张概念卡。 */
 export type Card = Static<typeof CardSchema>;
 
+/** 知识点：概念卡、讲解、例题，练习、复习、测验三个题池，以及定位补救的关键先修。 */
 export const KpSchema = object({
   id: KpIdSchema,
   title: text(80),
@@ -397,6 +434,7 @@ export const KpSchema = object({
   /** 测验题池。 */
   quiz: Type.Optional(Type.Array(QuestionSchema, { maxItems: 20 })),
 });
+/** 课程里的一个知识点。 */
 export type Kp = Static<typeof KpSchema>;
 
 /**
@@ -414,8 +452,10 @@ export const ConfirmationSchema = object({
   model: text(100),
   date: Type.String({ pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "日期写成 YYYY-MM-DD" }),
 });
+/** topic 文件末尾 verified 段里的一条模型核对记录。 */
 export type Confirmation = Static<typeof ConfirmationSchema>;
 
+/** 一个 topic 文件：元数据、直接先修、覆盖关系、来源、数据夹具、知识点和模型核对记录。 */
 export const TopicSchema = object({
   id: TopicIdSchema,
   title: text(80),
@@ -437,4 +477,5 @@ export const TopicSchema = object({
   /** manual 作答位的模型核对记录，由 course:confirm 写入，每道题一条。 */
   verified: Type.Optional(Type.Array(ConfirmationSchema, { maxItems: 500 })),
 });
+/** 课程里的一个 topic。 */
 export type Topic = Static<typeof TopicSchema>;

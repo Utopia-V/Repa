@@ -9,6 +9,7 @@ import { checkReferences } from "./questions.js";
 import { checkRules } from "./rules.js";
 import { topicQuestions } from "./items.js";
 
+/** checkCourse 的选项：是否运行代码核对、离线包位置、问题里路径的显示基准，以及只核对哪些 topic 的代码。 */
 export interface CheckOptions {
   /** 是否在 Pyodide 里运行核对与测试，缺省为 true。 */
   run?: boolean;
@@ -21,6 +22,7 @@ export interface CheckOptions {
   topics?: string[];
 }
 
+/** 一次课程检查的统计：topic 与题目数、要模型核对的作答位、代码核对是否运行，以及启动解释器等代价计数。 */
 export interface CheckSummary {
   course?: { id: string; version: string };
   topics: { complete: number; outline: number };
@@ -33,6 +35,7 @@ export interface CheckSummary {
   code: CodeStats;
 }
 
+/** 课程检查的结果：发现的全部问题和统计。 */
 export interface CheckResult {
   diagnostics: Diagnostic[];
   summary: CheckSummary;

@@ -24,26 +24,26 @@
 npm run dev:learning -- --home /absolute/repa-home
 ```
 
-这个入口先构建学习包，再加载其静态插件清单，以 `--no-general-agent --direct-agent learning-tutor` 启动底座。Desktop 的启动与页面接线由 f/h 接续；使用 `startServer` 装配时，同样设置 `generalAgent: false` 和 `directAgents: ["learning-tutor"]`。
+这个入口先构建学习包，再加载其静态插件清单，以 `--no-general-agent --direct-agent learning-tutor` 启动底座。Desktop 的启动与页面接线由 [#60](https://github.com/Utopia-V/repa/issues/60) 与 [#62](https://github.com/Utopia-V/repa/issues/62) 接续；使用 `startServer` 装配时，同样设置 `generalAgent: false` 和 `directAgents: ["learning-tutor"]`。
 
 ### 内容、版本与原学习位置
 
-`tutor-content.ts` 从已经全量加载的课程建立只读索引，包含 topic 正文、KP 讲解、例题正文与解说、概念卡。正式练习、复习和测验题的私有定义不进入索引；题解只从已经释放的公开 submission 投影取得。可见范围是当前任务的 topic 与学生模型中已经学过的 topic。界面的 `content.*` 请求必须携带完整版本引用；辅导工具按内容编号读取，读到的总是当前课程里的版本。读取只提供当前课程里的内容，课程换版以后旧版本的引用按不存在处理；猜题号、使用不存在的版本或读取尚未学过的 topic 都会失败。
+`tutor-content.ts` 从已经全量加载的课程建立只读索引，包含 topic 正文、KP 讲解、例题正文与解说、概念卡。正式练习、复习和测验题的私有定义不进入索引；题解只从已经释放的公开 submission 投影取得。可见范围是当前任务的 topic 与学生模型中已经学过的 topic。界面的 `content.*` 请求必须携带完整版本引用；辅导工具按内容编号读取，读到的总是当前课程里的版本。读取只提供当前课程里的内容，课程换版以后旧版本的引用按不存在处理；猜题号、使用不存在的版本或读取尚未学过的 topic 都会失败。下表中界面方法的参数上限见[前端契约](learning-protocol.md#状态与方法)，工具参数的默认值与上限见[工具目录](../generated/tools.md)。
 
 | 入口 | 参数与结果 |
 | --- | --- |
 | `learning_task` | 没有参数；写出学习者正在读的讲解或例题，或者正在做的题，连同学习者的作答、判分结果和已释放的题解 |
-| `content.search` | 显式传 `query`、`offset`、`limit`，最多 20 项；按内容 id 稳定排序，返回 `ref`、标题、短命中、`origin` 和 `nextOffset` |
-| `learning_search` | 同一处理器；省略时使用 `offset: 0`、`limit: 10`；每条结果一行内容编号与名称，下一行是摘录，还有更多时末行写出下一次的 `offset` |
-| `content.read` | 最多 8 个 `refs`，以 `offset`、`limit` 选择内容块，单次最多请求 64 块 |
-| `learning_read` | 最多 8 个 `ids`，即 `learning_search` 结果里的内容编号；写出每项内容的全文，编号不存在或还没学到时报错并提示先搜索 |
+| `content.search` | 显式传 `query`、`offset`、`limit`；按内容 id 稳定排序，返回 `ref`、标题、短命中、`origin` 和 `nextOffset` |
+| `learning_search` | 同一处理器；省略 `offset`、`limit` 时用工具声明里的默认值；每条结果一行内容编号与名称，下一行是摘录，还有更多时末行写出下一次的 `offset` |
+| `content.read` | 按 `refs` 批取，以 `offset`、`limit` 选择内容块 |
+| `learning_read` | `ids` 是 `learning_search` 结果里的内容编号；写出每项内容的全文，编号不存在或还没学到时报错并提示先搜索 |
 | `content.open` | 界面打开卡片或参考内容时核对授权，返回服务端 `openedAt`；课内作答之前打开记为一次求助 |
 
 `learning_task` 只从公开状态取值，不读取课程里私有的答案或 rubric。它也逐次检查限制、记录帮助，因而模型可以直接看见正在讨论的题目，而不必要求学习者重新转述。文字由 `tutor-text.ts` 写出，内容块的写法与模型核对共用 `model-text.ts`：代码块用围栏，带 `startLine` 的每行前写行号。开头几行写任务与 topic、知识点及其编号，以及这道题提交到了哪一步（还没提交、正在判分、判分没有完成，或判分结果与是否独立完成）。接着是题面和各小问：选项与排列块按学习者看到的顺序从 1 编号，表格写成 Markdown 表，小问的标签和文本输入框后面的文字（常是单位）照样写出，只有一问时也不省；学习者的作答、各小问的判分、代码题各测试的结果和模型判分的理由写在对应的小问下面，没答对的小问另写正确答案。题解释放以后附在最后。学习者在读讲解或例题时，写出这一页的全文；任务结束以后，写出最后一道题。
 
-界面的搜索与批取有 16 KiB 的正常响应预算；搜索可能提前返回 `nextOffset`，批取可能缩短最后一页或只返回前几个引用。每页的 `offset`、实际 `blocks.length` 和 `total` 用于继续读取，尚未返回的引用继续单独请求。分页保持课程原生内容块，不截断 Markdown 或代码块；某个单块已超过预算时报告 `content_block_too_large`，由内容作者拆分该块。预算和分页数量都是 Repa 的工程假设。辅导工具则不分页，只有 `learning_search` 按条数翻页：文字超过底座的上限（50 KiB 或 2,000 行）时，底座把全文存进 `.repa/tool-output/`，只把开头、结尾和全文路径交给模型，模型用 `read` 按行续取，见[处理工具输出](../../packages/base/README.md#处理工具输出)。所以题面、代码和作答都照原来的行写出，不拼成一行。
+界面的搜索与批取有正常响应预算（[`tutor.ts`](../../packages/learning/src/tutor.ts) 的 `TEXT_BYTES`）；搜索可能提前返回 `nextOffset`，批取可能缩短最后一页或只返回前几个引用。每页的 `offset`、实际 `blocks.length` 和 `total` 用于继续读取，尚未返回的引用继续单独请求。分页保持课程原生内容块，不截断 Markdown 或代码块；某个单块已超过预算时报告 `content_block_too_large`，由内容作者拆分该块。预算和分页数量都是 Repa 的工程假设。辅导工具则不分页，只有 `learning_search` 按条数翻页：文字超过底座的上限时，底座把全文存进 `.repa/tool-output/`，只把开头、结尾和全文路径交给模型，模型用 `read` 按行续取，见[处理工具输出](../../packages/base/README.md#处理工具输出)。所以题面、代码和作答都照原来的行写出，不拼成一行。
 
-`ref` 是概念与内容的版本引用，`origin` 定位原任务及可用的原交付。概念卡的例子来自例题时，`origin.content` 指向该例题；来自已经交付的正式题时，`origin.deliveryId` 指向那份交付。界面可以用同一 `content.read` 入口取得原例题，或者回到原交付画面。前端渲染和对话内链接的实际交互由 f 接续。模型看不到 `ref` 和 `origin`：搜索结果只给内容编号（即 `ref.id`）和名称。模型提到学过的知识点时写 `[名称](repa:concept/<知识点编号>)` 链接，与课程正文里概念链接的写法相同；界面可以按知识点编号用 `content.search` 找到概念卡及其 `origin`。
+`ref` 是概念与内容的版本引用，`origin` 定位原任务及可用的原交付。概念卡的例子来自例题时，`origin.content` 指向该例题；来自已经交付的正式题时，`origin.deliveryId` 指向那份交付。界面可以用同一 `content.read` 入口取得原例题，或者回到原交付画面。前端渲染和对话内链接的实际交互由 [#60](https://github.com/Utopia-V/repa/issues/60) 接续。模型看不到 `ref` 和 `origin`：搜索结果只给内容编号（即 `ref.id`）和名称。模型提到学过的知识点时写 `[名称](repa:concept/<知识点编号>)` 链接，与课程正文里概念链接的写法相同；界面可以按知识点编号用 `content.search` 找到概念卡及其 `origin`。
 
 ### 帮助记录与受限开始
 
@@ -57,7 +57,7 @@ npm run dev:learning -- --home /absolute/repa-home
 
 ## 未完成项与待验证项
 
-- f/h 接续 Desktop 装配、概念链接、卡片和原位置跳转的界面交互。当前已验证真实客户端读取引用及原例题，没有声明界面验收完成。
+- Desktop 装配、概念链接、卡片和原位置跳转的界面交互由 [#60](https://github.com/Utopia-V/repa/issues/60) 与 [#62](https://github.com/Utopia-V/repa/issues/62) 接续。当前已验证真实客户端读取引用及原例题，界面尚未验收。
 - 真实辅导效果及学习外负担的变化，需要真实学习者使用。当前模型边界采用本地假 provider。
 - `learning_task` 只写当前这一道题，测验和复习结束以后写的是最后一道。学习者问到同一场测验里的其他题时，模型读不到那道题的题面和作答，只能搜到它已释放的题解。
 
@@ -74,4 +74,4 @@ npm test --workspace=@repa/learning
 npm run build --workspace=@repa/learning
 ```
 
-`learning-tutor.test.ts` 使用真实 SDK、真实 HTTP/WebSocket 客户端及本地假 provider，组合验证 py01 上课、求助、判分、菜单、跨天复习、即时回顾和关闭后复制到新目录恢复。模型收到的文字从 provider 实际收到的请求里取：选择题、代码题和开放题在判分前后的当前任务，搜索结果与按编号读取的全文，超过底座上限的当前任务经 `read` 按行续取，以及时钟回拨后视图里先修的顺序。另验证界面的稳定分页、8 引用批取、长块续取、私有题解释放边界、取消停稳后才交付第一道题，以及准备失败后重开继续。设置 `REPA_LEARNING_EVIDENCE=/absolute/directory` 后，复制恢复用例会把关闭时的完整空间副本保存在新的 `tutor-restored-*` 子目录中。底座 `agent-messages.test.ts` 验证所有权拒绝、取消终态、排队清理与恢复聊天。
+`learning-tutor.test.ts` 使用真实 SDK、真实 HTTP/WebSocket 客户端及本地假 provider，组合验证 py01 上课、求助、判分、菜单、跨天复习、即时回顾和关闭后复制到新目录恢复。模型收到的文字从 provider 实际收到的请求里取：选择题、代码题和开放题在判分前后的当前任务，搜索结果与按编号读取的全文，超过底座上限的当前任务经 `read` 按行续取，以及时钟回拨后视图里先修的顺序。另验证界面的稳定分页、按引用上限批取、长块续取、私有题解释放边界、取消停稳后才交付第一道题，以及准备失败后重开继续。设置 `REPA_LEARNING_EVIDENCE=/absolute/directory` 后，复制恢复用例会把关闭时的完整空间副本保存在新的 `tutor-restored-*` 子目录中。底座 `agent-messages.test.ts` 验证所有权拒绝、取消终态、排队清理与恢复聊天。

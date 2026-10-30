@@ -4,11 +4,13 @@ import path from "node:path";
 import { checkSchema, displayPath, parseYamlFile, Report, SourceFile } from "./diagnostics.js";
 import { CourseSchema, TopicSchema, type Course, type Topic } from "./schema.js";
 
+/** 一个通过 schema 的 topic 及其源文件；源文件保留语法树，问题可以定位到行列。 */
 export interface LoadedTopic {
   topic: Topic;
   file: SourceFile;
 }
 
+/** loadCourse 读出的课程：清单、清单的源文件，以及读出的 topic。 */
 export interface LoadedCourse {
   root: string;
   course: Course;

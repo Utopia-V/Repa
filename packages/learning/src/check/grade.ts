@@ -1,6 +1,7 @@
 /**
- * 规则判分：按作答位上的标准答案和比较方式判断作答，供课程检查确认标准答案、程序算出的答案和已知错误答案。
- * 代码题和按测试判的 Parsons 题要在沙箱里运行，这里返回 ungraded；开放作答由人或模型评，同样返回 ungraded。
+ * 规则判分：按作答位上的标准答案和比较方式判断作答。课程检查用它确认标准答案、程序算出的答案和已知错误答案，
+ * 学习者的作答也按它判。代码题和按测试判的 Parsons 题要运行代码（见 code-tests.ts），这里返回 ungraded；
+ * 开放作答由人或模型评，同样返回 ungraded。
  */
 
 import type { Answer } from "@repa/base/protocol";
@@ -76,6 +77,7 @@ function sameSequence(left: readonly string[], right: readonly string[]): boolea
   return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
+/** 按作答位自己的判分规则判一个作答位。按测试判的作答位和开放作答不在这里判，返回 ungraded；课程检查和学习者的判分都用它，同一份作答得出同样的结论。 */
 export function gradeSlot(slot: SlotDef, answer: Answer | undefined): SlotGrade {
   switch (slot.type) {
     case "text": {
