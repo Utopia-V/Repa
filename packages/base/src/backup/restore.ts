@@ -7,7 +7,7 @@ import { RepaFault, type BackupInfo } from "../schema.js";
 import { lockSpace } from "../space/lock.js";
 import { directory, LOCK_NAME, RESTORE_NAMES } from "../space/paths.js";
 import { syncDirectory, writeJson } from "../storage.js";
-import { copying, copyTree, isCode, move, remove, syncCopies } from "./copy.js";
+import { copying, copyTree, isCode, move, remove, syncCopies, walk, type CopyMode, type WalkOptions } from "./copy.js";
 import { backupInfo, createBackup, findBackup } from "./store.js";
 
 /** 选中的备份；root 与 id 取自备份列表。 */
@@ -19,6 +19,10 @@ export interface RestoreOptions {
   /** 只供测试：每一步之前调用，抛错即模拟进程在这一步之前结束。 */
   step?(name: string): void | Promise<void>;
 }
+
+// 从备份原样复制。来源中的目录或文件在复制中途消失即报错：消失说明这份备份正被删除，例如原空间仍在使用，
+// 定期备份恰好把它轮换掉了；复制出的内容缺了学习记录等数据，不能发布。
+const FROM_BACKUP: WalkOptions & { mode(relative: string): CopyMode } = { skip: () => false, mode: () => "plain", vanished: "fail" };
 
 /**
  * 恢复到原位置：用选中的备份替换空间的 .repa/，全程持有空间锁，锁目录留在原处；空间文件保持原样，下次打开时记为外部改动。
@@ -65,7 +69,7 @@ export async function restoreInPlace(options: RestoreOptions & {
     try {
       await mkdir(staging);
       const staged = copying(staging);
-      await copyTree(path.join(backup.directory, "data"), staging, () => false, () => "plain", staged);
+      await copyTree(path.join(backup.directory, "data"), staging, FROM_BACKUP, staged);
       await syncCopies(staged);
     } catch (error) {
       // 还没写下标记，空间仍是原样；删掉暂存的部分，磁盘已满时不再占着空间。
@@ -136,10 +140,19 @@ export async function restoreToNew(options: RestoreOptions & { target: string })
     await mkdir(dataDir);
     await options.step?.("copy");
     const copied = copying(dataDir);
-    await copyTree(path.join(backup.directory, "data"), dataDir, () => false, () => "plain", copied);
+    await copyTree(path.join(backup.directory, "data"), dataDir, FROM_BACKUP, copied);
     await syncCopies(copied);
     await options.step?.("checkout");
     await checkoutLatest(temporary);
+    // 检出的空间文件与新建的目录也在发布之前落盘，自底向上直到临时文件夹本身，与 .repa/ 的做法一致；
+    // 否则断电以后，选定的名称处可能已有内容不完整的空间，再次恢复又会因为目标已存在而被拒绝。
+    const checkedOut = copying(temporary);
+    for await (const item of walk(temporary, { skip: (relative) => relative === ".repa", vanished: "fail" })) {
+      const written = path.join(temporary, ...item.relative.split("/"));
+      if (item.directory) checkedOut.written.directories.add(written);
+      else checkedOut.written.files.push(written);
+    }
+    await syncCopies(checkedOut);
     await options.step?.("publish");
     await absent(target);
     await move(temporary, target);

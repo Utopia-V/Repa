@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import fs from "node:fs";
+import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -406,4 +408,90 @@ test("恢复到新文件夹的任一步中断，选定的名称处不出现不�
   await assert.rejects(lstat(path.join(target, "残留.txt")), { code: "ENOENT" });
   const restored = await openSpace(target, { watch: false });
   await restored.close();
+});
+
+// 复制读到 directory 之前，把整份备份改名移走，与轮换删除备份的第一步相同。复制按名称顺序进行，读 plugins/ 时历史库已经复制完。
+// fs/promises 的具名导出是活绑定，改写 readdir 以后用 syncBuiltinESMExports 同步到已加载的模块；测试结束时还原。
+function discardWhenReading(t: TestContext, directory: string, selected: string): void {
+  const original = fs.promises.readdir;
+  let discarded = false;
+  const intercepted = async (...args: unknown[]): Promise<unknown> => {
+    if (!discarded && args[0] === directory) {
+      discarded = true;
+      await rename(selected, `${selected}-discarded`);
+    }
+    return Reflect.apply(original, fs.promises, args) as unknown;
+  };
+  Object.assign(fs.promises, { readdir: intercepted });
+  syncBuiltinESMExports();
+  t.after(() => {
+    Object.assign(fs.promises, { readdir: original });
+    syncBuiltinESMExports();
+  });
+}
+
+test("恢复到新文件夹时所选备份在复制中途被轮换删除：报错，不发布，消失的目录不当作空目录", async (t) => {
+  const f = await restoreFixture(t);
+  const selected = path.join(groupDirectory(f.home, f.root), f.backup.id);
+  discardWhenReading(t, path.join(selected, "data", "plugins"), selected);
+  const target = path.join(f.directory, "新空间");
+  await assert.rejects(restoreToNew({ ...f.options, target }), { code: "ENOENT" });
+  await assert.rejects(lstat(target), { code: "ENOENT" });
+  await assert.rejects(lstat(path.join(f.directory, ".新空间.restoring")), { code: "ENOENT" });
+});
+
+test("恢复到原位置时所选备份在复制中途被删除：报错，空间保持原样，学习记录还在", async (t) => {
+  const f = await restoreFixture(t);
+  const selected = path.join(groupDirectory(f.home, f.root), f.backup.id);
+  discardWhenReading(t, path.join(selected, "data", "plugins"), selected);
+  await assert.rejects(restoreInPlace({ ...f.options, now: f.clock() }), { code: "ENOENT" });
+  for (const name of ["restore.json", "restore-staging", "restore-replaced"]) {
+    await assert.rejects(lstat(path.join(f.root, ".repa", name)), { code: "ENOENT" });
+  }
+  assert.equal(await readFile(f.records, "utf8"), f.before);
+  const reopened = await openSpace(f.root, { watch: false });
+  await reopened.close();
+});
+
+test("恢复到新文件夹时，检出的空间文件与新建的目录在发布之前同步落盘，自底向上直到临时文件夹本身", async (t) => {
+  const f = await restoreFixture(t);
+  const target = path.join(f.directory, "新空间");
+  const temporary = path.join(f.directory, ".新空间.restoring");
+  const before = copyStats().synced;
+  await restoreToNew({ ...f.options, target });
+  // 这次恢复中第一次同步的路径，按同步的先后排列；发布以前它们都在临时文件夹里。
+  const order = [...copyStats().synced.keys()].filter((file) => !before.has(file));
+  const expected = [temporary];
+  const visit = async (relative: string) => {
+    for (const entry of await readdir(path.join(target, relative), { withFileTypes: true })) {
+      const name = path.join(relative, entry.name);
+      expected.push(path.join(temporary, name));
+      if (entry.isDirectory()) await visit(name);
+    }
+  };
+  await visit("");
+  assert.deepEqual(expected.filter((file) => !order.includes(file)), [], "这些路径发布前没有同步");
+  // 目录在其中的内容都同步以后才同步，临时文件夹本身最后同步。
+  for (const directory of expected) {
+    const inside = order.filter((file) => file.startsWith(`${directory}${path.sep}`));
+    assert.ok(inside.every((file) => order.indexOf(file) < order.indexOf(directory)), `${directory} 早于其中的内容同步`);
+  }
+  assert.equal(order.at(-1), temporary);
+});
+
+test("“恢复前”的备份按原始字节保存：日志与会话的最后一条只缺换行时也不截掉，撤回后逐字节还原", async (t) => {
+  const f = await restoreFixture(t);
+  // 空间已经关闭，没有写入者：最后一条是完整的 JSON，只是没有换行。
+  await append(f.records, JSON.stringify({ seq: 3, text: "只缺换行" }));
+  const original = await readFile(f.records, "utf8");
+  const session = path.join(f.root, ".repa", "sessions", "2026-10-31T08-00-00-000Z_s1.jsonl");
+  await append(session, JSON.stringify({ type: "message", id: "只缺换行" }));
+  const sessionBytes = await readFile(session, "utf8");
+  const before = await restoreInPlace({ ...f.options, now: f.clock() });
+  const saved = await backupFiles(latestDirectory(f.home, f.root, before.id));
+  assert.equal(saved["plugins/learning/records.jsonl"], original);
+  assert.equal(saved["sessions/2026-10-31T08-00-00-000Z_s1.jsonl"], sessionBytes);
+  await restoreInPlace({ ...f.options, id: before.id, now: f.clock() });
+  assert.equal(await readFile(f.records, "utf8"), original);
+  assert.equal(await readFile(session, "utf8"), sessionBytes);
 });

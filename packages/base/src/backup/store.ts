@@ -141,7 +141,7 @@ export async function listBackups(home: string): Promise<BackupSpace[]> {
 // 中途消失的临时文件不算；这次只用来判断有没有变化，复制时在队列中重新列出。
 async function scan(dataDir: string): Promise<BackupManifest["files"]> {
   const files: BackupManifest["files"] = [];
-  for await (const item of walk(dataDir, excluded)) {
+  for await (const item of walk(dataDir, { skip: excluded, vanished: "skip" })) {
     if (item.directory) continue;
     try {
       const info = await lstat(path.join(dataDir, ...item.relative.split("/")));
@@ -183,6 +183,7 @@ export async function deleteBackup(home: string, root: string, id: string): Prom
  * 复制一份备份：先写到组内的临时目录，全部复制并同步以后才改为正式名称。失败时删除临时目录，已有的备份不动。
  * 复制顺序依各文件的写法而定：先在同步代码里逐个复制会话，再复制其余文件，最后在历史队列中复制历史库；
  * 会话引用的工具输出全文和父关联都在会话之前写完，所以备份中的会话所引用的文件都齐全。
+ * "恢复前"的备份在空间关闭、由恢复持锁时复制，没有写入者，所有文件按原始字节复制，原样保留当前状态，以便撤回或排查。
  */
 export async function createBackup(home: string, source: BackupSource, kind: BackupManifest["kind"], createdAt: number): Promise<StoredBackup> {
   const group = groupDirectory(home, source.root);
@@ -197,9 +198,23 @@ export async function createBackup(home: string, source: BackupSource, kind: Bac
     await mkdir(data, { recursive: true });
     const result = copying(data);
     result.written.directories.add(temporary);
-    await copyTree(source.dataDir, data, (relative) => excluded(relative) || !(relative === "sessions" || isSession(relative)), () => "session", result);
-    await copyTree(source.dataDir, data, (relative) => excluded(relative) || inHistory(relative) || isSession(relative), (relative) => (relative.endsWith(".jsonl") ? "lines" : "plain"), result);
-    await source.withHistory(() => copyTree(source.dataDir, data, (relative) => excluded(relative) || !inHistory(relative), () => "plain", result));
+    // 定期备份时有写入者在追加：日志只取到最后一个换行符，会话在一段同步代码里复制。
+    const live = kind === "regular";
+    await copyTree(source.dataDir, data, {
+      skip: (relative) => excluded(relative) || !(relative === "sessions" || isSession(relative)),
+      mode: () => (live ? "session" : "plain"),
+      vanished: "skip",
+    }, result);
+    await copyTree(source.dataDir, data, {
+      skip: (relative) => excluded(relative) || inHistory(relative) || isSession(relative),
+      mode: (relative) => (live && relative.endsWith(".jsonl") ? "lines" : "plain"),
+      vanished: "skip",
+    }, result);
+    await source.withHistory(() => copyTree(source.dataDir, data, {
+      skip: (relative) => excluded(relative) || !inHistory(relative),
+      mode: () => "plain",
+      vanished: "skip",
+    }, result));
     await syncCopies(result);
     const manifest: BackupManifest = { root: source.root, createdAt: new Date(createdAt).toISOString(), kind, files: result.files };
     const handle = await open(path.join(temporary, "manifest.json"), "wx", 0o600);

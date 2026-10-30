@@ -22,14 +22,15 @@ const TAIL = 4 * 1024;
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
 // 复制是备份与恢复的昂贵边界：在唯一的复制处计数，测试据此断言每个文件只复制一次、复制的字节数等于所收文件大小之和，
-// 每次读写不超过一块。
+// 每次读写不超过一块。落盘同样在唯一的同步处记下路径，测试据此核对发布之前写出的内容都已同步。
 const copies = new Map<string, number>();
+const synced = new Map<string, number>();
 let copiedBytes = 0;
 let largestRead = 0;
 
-/** 本进程至今复制的文件（按来源路径计次）、写出的字节数和单次读取的最大字节数。 */
-export function copyStats(): { files: Map<string, number>; bytes: number; largestRead: number } {
-  return { files: new Map(copies), bytes: copiedBytes, largestRead };
+/** 本进程至今复制的文件（按来源路径计次）、写出的字节数、单次读取的最大字节数，以及同步过的文件与目录（按路径计次）。 */
+export function copyStats(): { files: Map<string, number>; bytes: number; largestRead: number; synced: Map<string, number> } {
+  return { files: new Map(copies), bytes: copiedBytes, largestRead, synced: new Map(synced) };
 }
 
 function counted(source: string, bytes: number): void {
@@ -137,25 +138,35 @@ function copySession(source: string, target: string): { size: number; mtimeMs: n
   }
 }
 
+/** 遍历的范围：skip 为真的条目连同其下内容都不进入，路径相对于起点、用 / 分隔；vanished 决定中途消失的子目录怎么处理。 */
+export interface WalkOptions {
+  skip(relative: string): boolean;
+  /**
+   * 活动空间备份时取 skip，按空目录处理：历史库在队列之外列出时，Git 维护可能正在删除对象目录。
+   * 从备份恢复时取 fail，报错：来源消失说明这份备份正被删除，复制出的内容不完整，不能发布。
+   */
+  vanished: "skip" | "fail";
+}
+
 /**
  * 遍历目录树，只进入真实目录、只交出普通文件；符号链接、目录联接和特殊文件不跟随也不收，空间外的文件不会被带进来。
- * 路径相对于起点，用 / 分隔；skip 为真的条目连同其下内容都不进入。遍历中途消失的目录按空目录处理。
+ * 起点本身不存在时总是报错。
  */
-export async function* walk(directory: string, skip: (relative: string) => boolean, relative = ""): AsyncGenerator<{ relative: string; directory: boolean }> {
+export async function* walk(directory: string, options: WalkOptions, relative = ""): AsyncGenerator<{ relative: string; directory: boolean }> {
   let entries: Dirent[];
   try {
     entries = await readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if (relative !== "" && isCode(error, "ENOENT")) return;
+    if (relative !== "" && options.vanished === "skip" && isCode(error, "ENOENT")) return;
     throw error;
   }
   entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   for (const entry of entries) {
     const child = relative === "" ? entry.name : `${relative}/${entry.name}`;
-    if (skip(child)) continue;
+    if (options.skip(child)) continue;
     if (entry.isDirectory()) {
       yield { relative: child, directory: true };
-      yield* walk(path.join(directory, entry.name), skip, child);
+      yield* walk(path.join(directory, entry.name), options, child);
     } else if (entry.isFile()) {
       yield { relative: child, directory: false };
     }
@@ -163,17 +174,16 @@ export async function* walk(directory: string, skip: (relative: string) => boole
 }
 
 /**
- * 把 source 下 skip 之外的目录与文件复制到 target 下（target 已存在），按 mode 取每个文件。
- * 收下的文件记入 copying.files，路径相对于 source；写出的文件和目录记入 copying.written，复制完成后由 syncCopies 落盘。
+ * 把 source 下的目录与文件复制到 target 下（target 已存在），范围见 WalkOptions，按 mode 取每个文件；来源中的文件消失时报错。
+ * 收下的文件记入 result.files，路径相对于 source；写出的文件和目录记入 result.written，复制完成后由 syncCopies 落盘。
  */
 export async function copyTree(
   source: string,
   target: string,
-  skip: (relative: string) => boolean,
-  mode: (relative: string) => CopyMode,
+  options: WalkOptions & { mode(relative: string): CopyMode },
   result: Copying,
 ): Promise<void> {
-  for await (const item of walk(source, skip)) {
+  for await (const item of walk(source, options)) {
     const parts = item.relative.split("/");
     const destination = path.join(target, ...parts);
     if (item.directory) {
@@ -182,7 +192,7 @@ export async function copyTree(
       continue;
     }
     const from = path.join(source, ...parts);
-    const how = mode(item.relative);
+    const how = options.mode(item.relative);
     const copied = how === "session" ? copySession(from, destination) : await copyFile(from, destination, how === "lines");
     result.written.files.push(destination);
     result.files.push({ path: item.relative, ...copied });
@@ -202,8 +212,12 @@ export async function syncCopies(result: Copying): Promise<void> {
     } finally {
       await handle.close();
     }
+    synced.set(file, (synced.get(file) ?? 0) + 1);
   }
-  for (const directory of [...result.written.directories].reverse()) await syncDirectory(directory);
+  for (const directory of [...result.written.directories].reverse()) {
+    await syncDirectory(directory);
+    synced.set(directory, (synced.get(directory) ?? 0) + 1);
+  }
 }
 
 /**
