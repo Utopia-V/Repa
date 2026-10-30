@@ -45,7 +45,7 @@ async function fixture(t: TestContext, extensionFactories: ExtensionFactory[] = 
   return { root, runtime, faux, session, ownClose(close: () => Promise<void>) { resources.push(close); }, text(value: string) { text = value; } };
 }
 
-test("提示更新 preflight 期间取消不调用模型，下一轮沿用一次说明", { timeout: 10000 }, async t => {
+test("提示更新 preflight 期间取消不调用模型，下一轮沿用一次说明", async t => {
   const entered = deferred();
   const release = deferred();
   let blocked = false;

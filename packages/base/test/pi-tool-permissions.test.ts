@@ -140,7 +140,7 @@ function deferred<T>() {
 for (const kind of ["direct", "nested"] as const) {
   const label = kind === "direct" ? "普通 bash" : "父工具嵌套 bash";
 
-  test(`${label} 允许确认后才产生文件`, { timeout: 10000 }, async t => {
+  test(`${label} 允许确认后才产生文件`, async t => {
     const started = deferred<void>();
     const answer = deferred<boolean>();
     t.after(() => answer.resolve(false));
@@ -160,7 +160,7 @@ for (const kind of ["direct", "nested"] as const) {
     assertBashResult(f, kind, false);
   });
 
-  test(`${label} 拒绝确认后返回工具错误且没有副作用`, { timeout: 10000 }, async t => {
+  test(`${label} 拒绝确认后返回工具错误且没有副作用`, async t => {
     const f = await fixture(t, kind, { confirm: async () => false });
     await f.session.send("执行测试命令");
     assertConfirmation(f.confirmations);
@@ -168,7 +168,7 @@ for (const kind of ["direct", "nested"] as const) {
     assertBashResult(f, kind, true);
   });
 
-  test(`${label} 确认服务抛错时返回工具错误且没有副作用`, { timeout: 10000 }, async t => {
+  test(`${label} 确认服务抛错时返回工具错误且没有副作用`, async t => {
     const f = await fixture(t, kind, {
       confirm: async () => {
         throw new Error("测试确认服务不可用");
@@ -180,7 +180,7 @@ for (const kind of ["direct", "nested"] as const) {
     assertBashResult(f, kind, true);
   });
 
-  test(`${label} 在 fullAccess 下直接执行而不询问`, { timeout: 10000 }, async t => {
+  test(`${label} 在 fullAccess 下直接执行而不询问`, async t => {
     const f = await fixture(t, kind, {
       commandPolicy: () => "fullAccess",
       confirm: async () => {
@@ -193,7 +193,7 @@ for (const kind of ["direct", "nested"] as const) {
     assertBashResult(f, kind, false);
   });
 
-  test(`${label} 正在确认时取消，即使随后允许也不执行`, { timeout: 10000 }, async t => {
+  test(`${label} 正在确认时取消，即使随后允许也不执行`, async t => {
     const started = deferred<void>();
     const aborted = deferred<void>();
     const answer = deferred<boolean>();

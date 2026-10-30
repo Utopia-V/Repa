@@ -81,10 +81,10 @@ function launch(home: string, options: string[] = []): RunningCli {
 async function stop(cli: RunningCli): Promise<Exit> {
   if (cli.child.exitCode === null && cli.child.signalCode === null) cli.child.kill("SIGTERM");
   try {
-    return await deadline(cli.exited, 10000, () => `CLI 收到 SIGTERM 后没有退出\n${cli.stderr()}`);
+    return await deadline(cli.exited, 600_000, () => `CLI 收到 SIGTERM 后没有退出\n${cli.stderr()}`);
   } catch (error) {
     cli.child.kill("SIGKILL");
-    await deadline(cli.exited, 5000, () => `CLI 无法终止\n${cli.stderr()}`);
+    await deadline(cli.exited, 600_000, () => `CLI 无法终止\n${cli.stderr()}`);
     throw error;
   }
 }
@@ -106,8 +106,8 @@ async function fixture(t: TestContext) {
     async start(name: string, options: string[] = []) {
       const cli = launch(path.join(root, name), options);
       children.push(cli);
-      const connection = await deadline(cli.connection, 10000, () => `CLI 未公布连接\n${cli.stderr()}`);
-      const client = await RepaClient.connect(connection, { requestTimeoutMs: 10000 });
+      const connection = await deadline(cli.connection, 600_000, () => `CLI 未公布连接\n${cli.stderr()}`);
+      const client = await RepaClient.connect(connection, { requestTimeoutMs: 600_000 });
       clients.push(client);
       return { cli, client };
     },

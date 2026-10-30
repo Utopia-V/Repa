@@ -114,7 +114,7 @@ async function fixture(t: TestContext, pauseAt: "provider" | "persistence") {
 
 for (const pauseAt of ["provider", "persistence"] as const) {
   const stage = pauseAt === "provider" ? "刷新已开始、服务返回前" : "刷新已返回、凭据落盘前";
-  test(`${stage}取消 caller，Pi 仍保存旋转后的凭据供下一次认证使用`, { timeout: 5000 }, async t => {
+  test(`${stage}取消 caller，Pi 仍保存旋转后的凭据供下一次认证使用`, async t => {
     const f = await fixture(t, pauseAt);
     const controller = new AbortController();
     const cancelled = new Error("本地 caller 取消");

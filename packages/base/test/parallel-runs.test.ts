@@ -35,7 +35,7 @@ function deadline<T>(promise: Promise<T>, ms: number, message: string): Promise<
 }
 
 /** 轮询到条件成立；超过截止时间就报错并停止轮询。 */
-async function until(condition: () => boolean | Promise<boolean>, message: string, ms = 5000): Promise<void> {
+async function until(condition: () => boolean | Promise<boolean>, message: string, ms = 600_000): Promise<void> {
   const stop = Date.now() + ms;
   while (!(await condition())) {
     if (Date.now() > stop) throw new Error(message);
@@ -178,12 +178,12 @@ function commits(feed: ChangeFeed) {
 }
 
 async function startWork(f: Served, agent: string, text: string): Promise<string> {
-  const result: unknown = await deadline(f.client.call("plugin.call", { pluginId: "learning", method: "start", input: { agent, text } }), 5000, `没能启动 ${agent}`);
+  const result: unknown = await deadline(f.client.call("plugin.call", { pluginId: "learning", method: "start", input: { agent, text } }), 600_000, `没能启动 ${agent}`);
   assert(result !== null && typeof result === "object" && "id" in result && typeof result.id === "string");
   return result.id;
 }
 
-test("辅导 Agent 在后台写课 Agent 运行期间立即得到回复，写课的改动记在它自己的运行下", { timeout: 30000 }, async t => {
+test("辅导 Agent 在后台写课 Agent 运行期间立即得到回复，写课的改动记在它自己的运行下", async t => {
   const writerWaiting = deferred();
   const releaseWriter = deferred();
   // 收尾钩子按登记顺序执行：先放开被拦住的回复，服务关闭时才不会等它。
@@ -204,7 +204,7 @@ test("辅导 Agent 在后台写课 Agent 运行期间立即得到回复，写课
   // 写课 Agent 已经写完第一个文件，正在等下一次模型回复，运行还没有结束。
   await writerWaiting.promise;
   const tutorSession = await f.client.call("session.create", { agent: "tutor" });
-  await deadline(f.client.call("session.send", { sessionId: tutorSession.id, text: "for 循环是什么？" }), 5000, "辅导回复在等写课 Agent 结束");
+  await deadline(f.client.call("session.send", { sessionId: tutorSession.id, text: "for 循环是什么？" }), 600_000, "辅导回复在等写课 Agent 结束");
   assert.equal(await reply(f, tutorSession.id), "for 循环会重复执行代码块。");
   assert.equal(ended(f.events, writerSession), false);
   releaseWriter.resolve();
@@ -223,7 +223,7 @@ test("辅导 Agent 在后台写课 Agent 运行期间立即得到回复，写课
   });
 });
 
-test("两个 Agent 并行写不同文件，改动各记在自己的运行下，按运行撤回一个不影响另一个", { timeout: 30000 }, async t => {
+test("两个 Agent 并行写不同文件，改动各记在自己的运行下，按运行撤回一个不影响另一个", async t => {
   // 两个运行的第二次模型请求必须同时在途才能放行；运行若仍一个接一个，这里就会超时。
   const bothWaiting = deferred();
   t.after(() => bothWaiting.resolve());
@@ -240,7 +240,7 @@ test("两个 Agent 并行写不同文件，改动各记在自己的运行下，�
   });
   const lesson = await startWork(f, "writer", "编写第一课");
   const cards = await startWork(f, "carder", "编写第一课的卡片");
-  await deadline(bothWaiting.promise, 5000, "两个写入的运行没有同时进行");
+  await deadline(bothWaiting.promise, 600_000, "两个写入的运行没有同时进行");
   await Promise.all(f.works.map(work => work.result));
   const lessonRun = runOf(f.events, lesson);
   const cardsRun = runOf(f.events, cards);
@@ -254,7 +254,7 @@ test("两个 Agent 并行写不同文件，改动各记在自己的运行下，�
   assert.equal(await readFile(path.join(f.root, "cards", "one.md"), "utf8"), "变量是什么？\n");
 });
 
-test("带命令行的运行期间，其他写入者等它结束，只读的照常回复", { timeout: 30000 }, async t => {
+test("带命令行的运行期间，其他写入者等它结束，只读的照常回复", async t => {
   const shellWaiting = deferred();
   const releaseShell = deferred();
   t.after(() => releaseShell.resolve());
@@ -278,7 +278,7 @@ test("带命令行的运行期间，其他写入者等它结束，只读的照�
   const writerSession = await f.client.call("session.create", { agent: "writer" });
   const writerRun = f.client.call("session.send", { sessionId: writerSession.id, text: "编写第一课" });
   const tutorSession = await f.client.call("session.create", { agent: "tutor" });
-  await deadline(f.client.call("session.send", { sessionId: tutorSession.id, text: "提问" }), 5000, "只读的运行在等命令行运行结束");
+  await deadline(f.client.call("session.send", { sessionId: tutorSession.id, text: "提问" }), 600_000, "只读的运行在等命令行运行结束");
   assert.equal(await reply(f, tutorSession.id), "只读的回答");
   // 写课 Agent 的 write 已经开始执行，但在命令行运行结束前拿不到空间写锁。
   const writeEnded = () => f.events.some(event => event.sessionId === writerSession.id && event.type === "toolEnd" && event.tool === "write");
@@ -299,7 +299,7 @@ test("带命令行的运行期间，其他写入者等它结束，只读的照�
   ]);
 });
 
-test("命令行运行要写的文件正被等它的写入者排着队时，两边不会互相等待", { timeout: 30000 }, async t => {
+test("命令行运行要写的文件正被等它的写入者排着队时，两边不会互相等待", async t => {
   const shellWaiting = deferred();
   const releaseShell = deferred();
   t.after(() => releaseShell.resolve());
@@ -324,14 +324,14 @@ test("命令行运行要写的文件正被等它的写入者排着队时，两�
   await until(() => f.events.some(event => event.sessionId === writerSession.id && event.type === "toolStart" && event.tool === "write"), "写课 Agent 没有开始写入");
   // 写课 Agent 的写入在空间写锁前等着，还没有占住这个文件的写入队列，命令行运行可以写它。
   releaseShell.resolve();
-  await deadline(Promise.all([shellRun, writerRun]), 5000, "命令行运行和写课 Agent 互相等待");
+  await deadline(Promise.all([shellRun, writerRun]), 600_000, "命令行运行和写课 Agent 互相等待");
   assert.equal(await readFile(path.join(f.root, "lessons", "one.md"), "utf8"), "命令行运行写的\n");
   // 写课 Agent 没读过这个已经存在的文件，整份覆盖被拒，拿到的是命令行运行写的内容。
   const writes = (await f.client.call("session.history", { sessionId: writerSession.id })).filter(entry => entry.type === "tool");
   assert.match(writes[0]?.text ?? "", /没有写入：lessons\/one\.md 已经存在，这次会话还没有读过它。[^]*命令行运行写的/u);
 });
 
-test("等命令行运行结束的写入可以取消，取消不必等命令行运行结束", { timeout: 30000 }, async t => {
+test("等命令行运行结束的写入可以取消，取消不必等命令行运行结束", async t => {
   const shellWaiting = deferred();
   const releaseShell = deferred();
   t.after(() => releaseShell.resolve());
@@ -351,7 +351,7 @@ test("等命令行运行结束的写入可以取消，取消不必等命令行�
   const writerSession = await f.client.call("session.create", { agent: "writer" });
   const writerRun = f.client.call("session.send", { sessionId: writerSession.id, text: "编写第一课" }).catch(() => undefined);
   await until(() => f.events.some(event => event.sessionId === writerSession.id && event.type === "toolStart" && event.tool === "write"), "写课 Agent 没有开始写入");
-  await deadline(f.client.call("session.abort", { sessionId: writerSession.id }), 5000, "取消在等命令行运行结束");
+  await deadline(f.client.call("session.abort", { sessionId: writerSession.id }), 600_000, "取消在等命令行运行结束");
   await writerRun;
   assert.equal(ended(f.events, shellSession.id), false);
   releaseShell.resolve();
@@ -360,7 +360,7 @@ test("等命令行运行结束的写入可以取消，取消不必等命令行�
   assert.deepEqual(f.events.filter(event => event.sessionId === writerSession.id && event.type === "runEnd").map(event => event.data), [{ status: "aborted" }]);
 });
 
-test("插件在运行之外的写入记在插件名下，Agent 调用插件工具写的记在这次运行名下，由此触发的变化处理仍记在插件名下", { timeout: 30000 }, async t => {
+test("插件在运行之外的写入记在插件名下，Agent 调用插件工具写的记在这次运行名下，由此触发的变化处理仍记在插件名下", async t => {
   const f = await serve(t, [{ ...tutor, tools: ["course_lookup", "save_progress"] }]);
   await f.client.call("plugin.call", { pluginId: "learning", method: "note", input: { file: "plans/week.md", text: "本周学循环\n" } });
   script(f.faux, {

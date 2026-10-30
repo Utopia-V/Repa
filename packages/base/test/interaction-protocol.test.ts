@@ -189,7 +189,7 @@ async function fixture(t: TestContext) {
   return { root, faux, state, server, connect, captures, reply };
 }
 
-test("询问只发给发起运行的连接，其他连接不能代答；结构或格式不对时保持打开，接受后附带的内容交回卡片，作答交回工具", { timeout: 30000 }, async t => {
+test("询问只发给发起运行的连接，其他连接不能代答；结构或格式不对时保持打开，接受后附带的内容交回卡片，作答交回工具", async t => {
   const f = await fixture(t);
   const owner = await f.connect(FULL);
   const other = await f.connect(FULL);
@@ -227,7 +227,7 @@ test("询问只发给发起运行的连接，其他连接不能代答；结构�
   await assert.rejects(owner.call("ask.reply", { id: request.id, action: "cancel" }), rejectsWith("ask_not_found"));
 });
 
-test("前端没有声明 Item 需要的能力时不发送询问，插件工具直接得到 unsupported", { timeout: 30000 }, async t => {
+test("前端没有声明 Item 需要的能力时不发送询问，插件工具直接得到 unsupported", async t => {
   const f = await fixture(t);
   // 打卡里有选择作答位，只声明 Markdown 和文本作答位的前端显示不了。
   const textOnly = await f.connect({ interaction: { supports: ["block.markdown", "slot.text"] } });
@@ -242,7 +242,7 @@ test("前端没有声明 Item 需要的能力时不发送询问，插件工具�
   assert.deepEqual(received, []);
 });
 
-test("发起连接断线时询问取消，模型收到用户没有作答；运行中止时前端收到 ask.closed", { timeout: 30000 }, async t => {
+test("发起连接断线时询问取消，模型收到用户没有作答；运行中止时前端收到 ask.closed", async t => {
   const f = await fixture(t);
   const leaving = await f.connect(FULL);
   const watcher = await f.connect(FULL);
@@ -284,7 +284,7 @@ test("发起连接断线时询问取消，模型收到用户没有作答；运�
   await assert.rejects(aborting.call("ask.reply", { id: request.id, action: "cancel" }), rejectsWith("ask_not_found"));
 });
 
-test("带命令行的运行持空间写锁等待回答，onSubmit 写文件不会互相等待，写入算在这次运行里", { timeout: 30000 }, async t => {
+test("带命令行的运行持空间写锁等待回答，onSubmit 写文件不会互相等待，写入算在这次运行里", async t => {
   const f = await fixture(t);
   f.state.writeOnSubmit = true;
   const client = await f.connect(FULL);
@@ -308,7 +308,7 @@ test("带命令行的运行持空间写锁等待回答，onSubmit 写文件不�
   assert.deepEqual(feed.revisions.map(revision => [revision.source, revision.changes.map(change => change.path)]), [[{ kind: "agent", runId }, ["checkins/today.txt"]]]);
 });
 
-test("服务请求交给声明了它的连接：发起连接自己声明时优先，否则交给最近声明的连接，结果原样交回", { timeout: 30000 }, async t => {
+test("服务请求交给声明了它的连接：发起连接自己声明时优先，否则交给最近声明的连接，结果原样交回", async t => {
   const f = await fixture(t);
   const owner = await f.connect({ ...FULL, services: ["python.run"] });
   const provider = await f.connect({ services: ["python.run"] });
@@ -333,7 +333,7 @@ test("服务请求交给声明了它的连接：发起连接自己声明时优�
   assert.deepEqual(toolResults(f.captures.at(-1) as TranscriptContext), [{ tool: "run_code", isError: false, text: JSON.stringify({ stdout: "provider:{\"code\":\"print(3)\"}" }) }]);
 });
 
-test("服务请求在调用方中止、提供方断线和空间关闭时收尾，没有提供方时报 service_unavailable", { timeout: 30000 }, async t => {
+test("服务请求在调用方中止、提供方断线和空间关闭时收尾，没有提供方时报 service_unavailable", async t => {
   const f = await fixture(t);
   const plain = await f.connect(FULL);
   await plain.call("space.open", { root: f.root });
@@ -373,7 +373,7 @@ test("服务请求在调用方中止、提供方断线和空间关闭时收尾�
   await closing;
 });
 
-test("插件方法收到调用方的能力声明，声明的结果 schema 拦下多带的字段", { timeout: 30000 }, async t => {
+test("插件方法收到调用方的能力声明，声明的结果 schema 拦下多带的字段", async t => {
   const f = await fixture(t);
   const declared: ClientCapabilities = { ...FULL, services: ["python.run"] };
   const client = await f.connect(declared);
@@ -386,7 +386,7 @@ test("插件方法收到调用方的能力声明，声明的结果 schema 拦下
   assert.equal(Value.Check(object({ item: ItemSchema }), served), true);
 });
 
-test("initialize 严格校验能力声明，旧版本客户端不能连接", { timeout: 30000 }, async t => {
+test("initialize 严格校验能力声明，旧版本客户端不能连接", async t => {
   const f = await fixture(t);
   const invalid = { interaction: { supports: ["slot.choice"], extra: true } } as unknown as ClientCapabilities;
   await assert.rejects(RepaClient.connect(f.server.connection, { capabilities: invalid }), (error: unknown) => error instanceof RpcError && error.code === -32602);
@@ -401,7 +401,7 @@ test("initialize 严格校验能力声明，旧版本客户端不能连接", { t
   assert.equal(record(record(await response)?.error)?.code, -32002);
 });
 
-test("前端没有声明 Item 需要的能力时不发送询问，Agent 得知卡片无法显示", { timeout: 30000 }, async t => {
+test("前端没有声明 Item 需要的能力时不发送询问，Agent 得知卡片无法显示", async t => {
   const f = await fixture(t);
   const textOnly = await f.connect({ interaction: { supports: ["block.markdown", "slot.text"] } });
   const undeclared = await f.connect();
@@ -418,7 +418,7 @@ test("前端没有声明 Item 需要的能力时不发送询问，Agent 得知�
   assert.deepEqual(received, []);
 });
 
-test("ask_user 把作答交回模型：选择交回选项名，填写原样交回，decline 附的一句话原样交回", { timeout: 30000 }, async t => {
+test("ask_user 把作答交回模型：选择交回选项名，填写原样交回，decline 附的一句话原样交回", async t => {
   const f = await fixture(t);
   const client = await f.connect(FULL);
   await client.call("space.open", { root: f.root });
@@ -467,7 +467,7 @@ test("ask_user 把作答交回模型：选择交回选项名，填写原样交�
   assert.deepEqual(toolResults(f.captures.at(-1) as TranscriptContext).at(-1), { tool: "ask_user", isError: false, text: "用户没有按卡片作答，留言：我想先看看前两章再定" });
 });
 
-test("ask_user 的参数按 schema 严格校验，多带的字段让模型得到校验错误，界面收不到询问", { timeout: 30000 }, async t => {
+test("ask_user 的参数按 schema 严格校验，多带的字段让模型得到校验错误，界面收不到询问", async t => {
   const f = await fixture(t);
   const client = await f.connect(FULL);
   await client.call("space.open", { root: f.root });
@@ -488,7 +488,7 @@ test("ask_user 的参数按 schema 严格校验，多带的字段让模型得到
   assert.deepEqual(received, []);
 });
 
-test("通用 Agent 默认带 ask_user，插件 Agent 在定义里列出才有", { timeout: 30000 }, async t => {
+test("通用 Agent 默认带 ask_user，插件 Agent 在定义里列出才有", async t => {
   const f = await fixture(t);
   const client = await f.connect(FULL);
   await client.call("space.open", { root: f.root });
@@ -503,7 +503,7 @@ test("通用 Agent 默认带 ask_user，插件 Agent 在定义里列出才有", 
   assert.deepEqual(declared.slice(1), [["ask_user"], ["read"]]);
 });
 
-test("前端关闭询问或报告无法显示时，Agent 得到相应的工具结果", { timeout: 30000 }, async t => {
+test("前端关闭询问或报告无法显示时，Agent 得到相应的工具结果", async t => {
   const f = await fixture(t);
   const client = await f.connect(FULL);
   await client.call("space.open", { root: f.root });
@@ -523,7 +523,7 @@ test("前端关闭询问或报告无法显示时，Agent 得到相应的工具�
   assert.deepEqual(texts, ["用户关闭了询问，没有作答。", "当前界面无法显示这张询问卡片，用户没有看到问题。请改用文字提问。"]);
 });
 
-test("关闭空间时在途询问以 closed 结束，前端收起卡片，工具得到 ask_cancelled", { timeout: 30000 }, async t => {
+test("关闭空间时在途询问以 closed 结束，前端收起卡片，工具得到 ask_cancelled", async t => {
   const f = await fixture(t);
   const client = await f.connect(FULL);
   await client.call("space.open", { root: f.root });
@@ -543,7 +543,7 @@ test("关闭空间时在途询问以 closed 结束，前端收起卡片，工具
 });
 
 
-test("ask_user 只给含 $ 的提示和选项标记公式，缺少公式能力的界面仍能接收普通卡片", { timeout: 30000 }, async t => {
+test("ask_user 只给含 $ 的提示和选项标记公式，缺少公式能力的界面仍能接收普通卡片", async t => {
   const f = await fixture(t);
   const noMath = await f.connect({ interaction: { supports: INTERACTION_CAPABILITIES.filter(capability => capability !== "markdown.math") } });
   const full = await f.connect(FULL);

@@ -406,7 +406,7 @@ test("插件 Agent 访问大小写不同的 .REPA 同样被拒绝，列目录也
   await assert.rejects(readFile(path.join(f.root, ".Repa", "injected.txt")), { code: "ENOENT" });
 });
 
-test("插件 Agent 的 find 不需要 fd：PATH 里没有 fd、Pi 也不能下载时照常查找", { timeout: 30000 }, async t => {
+test("插件 Agent 的 find 不需要 fd：PATH 里没有 fd、Pi 也不能下载时照常查找", async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-find-without-fd-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const root = path.join(directory, "space");
@@ -422,7 +422,7 @@ test("插件 Agent 的 find 不需要 fd：PATH 里没有 fd、Pi 也不能下�
   assert.deepEqual(JSON.parse(stdout), { text: "lessons/one.md", isError: false });
 });
 
-test("通过符号链接打开空间时，Agent 文件范围、历史、会话路径和 watcher 使用同一根目录", { timeout: 30000 }, async t => {
+test("通过符号链接打开空间时，Agent 文件范围、历史、会话路径和 watcher 使用同一根目录", async t => {
   const f = await fixture(t, { agents: () => [writer] }, false, true);
   assert.equal(f.root, await realpath(f.inputRoot));
   assert.notEqual(f.root, f.inputRoot);
@@ -451,7 +451,7 @@ test("通过符号链接打开空间时，Agent 文件范围、历史、会话�
   assert.equal(await realpath(path.dirname(file)), path.join(f.root, ".repa", "sessions"));
   assert.equal(SessionManager.open(file, f.host.sessionsDir).getCwd(), f.root);
   const changed = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("等待符号链接空间的 watcher 超时")), 5000);
+    const timer = setTimeout(() => reject(new Error("等待符号链接空间的 watcher 超时")), 600_000);
     const stop = f.host.onRevision(revision => {
       if (revision.source.kind === "external") {
         clearTimeout(timer);

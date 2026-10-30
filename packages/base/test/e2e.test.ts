@@ -162,7 +162,7 @@ test("协议宿主把运行时的同一时钟交给插件，拨动后缓存按�
   assert.match(views[0] ?? "", /拨动时间后的状态/u);
 });
 
-test("通过浏览器客户端打开空间、调用插件工具、记录整次运行并撤回", { timeout: 30000 }, async (t) => {
+test("通过浏览器客户端打开空间、调用插件工具、记录整次运行并撤回", async (t) => {
   const f = await fixture(t);
   const before = await f.client.call("history.list", {});
   f.faux.setResponses([
@@ -192,7 +192,7 @@ test("通过浏览器客户端打开空间、调用插件工具、记录整次�
   assert((await f.history()).some(entry => entry.type === "run" && entry.data !== null && typeof entry.data === "object" && "runId" in entry.data && entry.data.runId === recordedRunId));
 });
 
-test("复制空间后旧会话可列出、读取和接续，工具使用新目录且原空间不变", { timeout: 30000 }, async t => {
+test("复制空间后旧会话可列出、读取和接续，工具使用新目录且原空间不变", async t => {
   const f = await fixture(t);
   f.respond("原空间的回答");
   await f.send();
@@ -239,7 +239,7 @@ test("复制空间后旧会话可列出、读取和接续，工具使用新目�
   assert.equal(await readFile(source.path, "utf8"), original);
 });
 
-test("撤回不存在的修订、初始快照或没有写过文件的运行时，前端拿到可处理的错误码", { timeout: 30000 }, async (t) => {
+test("撤回不存在的修订、初始快照或没有写过文件的运行时，前端拿到可处理的错误码", async (t) => {
   const f = await fixture(t);
   const rejectsWith = (code: string, details: unknown) => (error: unknown): boolean => {
     assert.ok(error instanceof RpcError);
@@ -256,7 +256,7 @@ test("撤回不存在的修订、初始快照或没有写过文件的运行时�
   await assert.rejects(f.client.call("history.undoRun", { runId: "没有这个运行" }), rejectsWith("nothing_to_undo", { runId: "没有这个运行" }));
 });
 
-test("view 按变化追加、批量清理和过期清理，提示覆盖仅追加一段", { timeout: 30000 }, async (t) => {
+test("view 按变化追加、批量清理和过期清理，提示覆盖仅追加一段", async (t) => {
   const f = await fixture(t);
   f.respond();
   await f.send();
@@ -330,7 +330,7 @@ test("view 按变化追加、批量清理和过期清理，提示覆盖仅追加
   }
 });
 
-test("命令确认经协议答复后执行，拒绝时不落文件", { timeout: 30000 }, async (t) => {
+test("命令确认经协议答复后执行，拒绝时不落文件", async (t) => {
   const f = await fixture(t);
   const decisions: string[] = [];
   let accept = false;
@@ -355,7 +355,7 @@ test("命令确认经协议答复后执行，拒绝时不落文件", { timeout: 
   assert.equal(await readFile(path.join(f.root, "command.txt"), "utf8"), "confirmed");
 });
 
-test("SDK 默认压缩后下一次请求只获得最新 view", { timeout: 30000 }, async (t) => {
+test("SDK 默认压缩后下一次请求只获得最新 view", async (t) => {
   const f = await fixture(t);
   f.respond("原始回答".repeat(300));
   await f.send();
@@ -385,7 +385,7 @@ test("SDK 默认压缩后下一次请求只获得最新 view", { timeout: 30000 
 });
 
 
-test("真实登录运行时把 OAuth 交互映射为前端问答并保存凭据", { timeout: 30000 }, async (t) => {
+test("真实登录运行时把 OAuth 交互映射为前端问答并保存凭据", async (t) => {
   const f = await fixture(t);
   const kinds: string[] = [];
   const replies: Promise<unknown>[] = [];

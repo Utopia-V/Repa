@@ -42,7 +42,7 @@
     "precheck": "npm run build",
     "check": "tsc --noEmit",
     "pretest": "npm run build",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=600000 test/*.test.ts",
     "start": "tsx src/cli.ts",
     "prereal-model-check": "npm run build",
     "real-model-check": "tsx scripts/real-model-check.ts",

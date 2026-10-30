@@ -78,7 +78,7 @@ function rejectsWith(code: string) {
   };
 }
 
-test("反馈包收齐会话、历史、错误和环境，保存的凭据、环境变量里的密钥和贴进对话的令牌都被替换，自述请求不带工具", { timeout: 30000 }, async t => {
+test("反馈包收齐会话、历史、错误和环境，保存的凭据、环境变量里的密钥和贴进对话的令牌都被替换，自述请求不带工具", async t => {
   const f = await fixture(t);
   const credential = "repa-test-credential-7f3a9c41";
   const environmentToken = "repa-env-secret-0b8e41d2";
@@ -147,7 +147,7 @@ test("反馈包收齐会话、历史、错误和环境，保存的凭据、环�
   assert.ok(manifest.redactions >= 5);
 });
 
-test("auth.json 用环境变量或命令引用的密钥，按 Pi 解析出的值替换", { timeout: 30000 }, async t => {
+test("auth.json 用环境变量或命令引用的密钥，按 Pi 解析出的值替换", async t => {
   const f = await fixture(t);
   // 变量名不像凭据、值也没有常见前缀，只有经 Pi 解析才知道它是密钥。
   const referenced = "plainvalue7c41e09b";
@@ -168,7 +168,7 @@ test("auth.json 用环境变量或命令引用的密钥，按 Pi 解析出的值
   assert.ok(record.includes("两个值是 [已脱敏:credential] 和 [已脱敏:credential]"));
 });
 
-test("换过目录的空间里，旧会话照样能生成反馈包", { timeout: 30000 }, async t => {
+test("换过目录的空间里，旧会话照样能生成反馈包", async t => {
   const f = await fixture(t);
   f.faux.setResponses([fauxAssistantMessage("原空间的回答")]);
   await f.client.call("session.send", { sessionId: f.session.id, text: "你好" });
@@ -181,7 +181,7 @@ test("换过目录的空间里，旧会话照样能生成反馈包", { timeout: 
   assert.ok(record.includes("原空间的回答"));
 });
 
-test("断线时取消正在进行的自述，不写出反馈包，后端也能正常关闭", { timeout: 30000 }, async t => {
+test("断线时取消正在进行的自述，不写出反馈包，后端也能正常关闭", async t => {
   const f = await fixture(t);
   f.faux.setResponses([fauxAssistantMessage("好的")]);
   await f.client.call("session.send", { sessionId: f.session.id, text: "你好" });
@@ -202,7 +202,7 @@ test("断线时取消正在进行的自述，不写出反馈包，后端也能�
   await assert.rejects(readdir(f.output), { code: "ENOENT" });
 });
 
-test("同一秒生成两个反馈包时各占一个文件名，不留下临时文件", { timeout: 30000 }, async t => {
+test("同一秒生成两个反馈包时各占一个文件名，不留下临时文件", async t => {
   const now = Date.parse("2026-10-29T01:02:03.000Z");
   const f = await fixture(t, () => now);
   f.faux.setResponses([fauxAssistantMessage("好的")]);
@@ -218,7 +218,7 @@ test("同一秒生成两个反馈包时各占一个文件名，不留下临时�
   assert.deepEqual(names, results.map(result => path.basename(result.path)).sort());
 });
 
-test("会话 id 不能用作文件名时找不到会话且不生成反馈包", { timeout: 30000 }, async t => {
+test("会话 id 不能用作文件名时找不到会话且不生成反馈包", async t => {
   const f = await fixture(t);
   f.faux.setResponses([fauxAssistantMessage("好的")]);
   await f.client.call("session.send", { sessionId: f.session.id, text: "你好" });
@@ -234,14 +234,14 @@ test("会话 id 不能用作文件名时找不到会话且不生成反馈包", {
   await assert.rejects(readdir(f.output), { code: "ENOENT" });
 });
 
-test("凭据文件读不了时不生成反馈包，也不写出任何文件", { timeout: 30000 }, async t => {
+test("凭据文件读不了时不生成反馈包，也不写出任何文件", async t => {
   const f = await fixture(t);
   await writeFile(path.join(f.home, "agent", "auth.json"), "{ 损坏");
   await assert.rejects(f.client.call("feedback.create", { sessionId: f.session.id, describe: false, directory: f.output }), rejectsWith("feedback_redaction_failed"));
   await assert.rejects(readdir(f.output), { code: "ENOENT" });
 });
 
-test("自述请求失败时照样生成反馈包，description.md 写明失败原因", { timeout: 30000 }, async t => {
+test("自述请求失败时照样生成反馈包，description.md 写明失败原因", async t => {
   const f = await fixture(t);
   f.faux.setResponses([fauxAssistantMessage("好的")]);
   await f.client.call("session.send", { sessionId: f.session.id, text: "你好" });

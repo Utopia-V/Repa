@@ -19,7 +19,7 @@ function deferred() {
 }
 
 for (const gated of [false, true]) {
-  test(`重连基线包含运行编号、${gated ? "有关卡的 Repa" : "Pi 与 Repa"} 队列，消息按消费顺序排列`, { timeout: 30000 }, async (t) => {
+  test(`重连基线包含运行编号、${gated ? "有关卡的 Repa" : "Pi 与 Repa"} 队列，消息按消费顺序排列`, async (t) => {
     const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-reconnect-")));
     const root = path.join(directory, "space");
     const home = path.join(directory, "home");

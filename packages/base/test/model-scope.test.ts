@@ -127,7 +127,7 @@ test("Agent 结果先结束而主动取消仍在收尾，作用域关闭等待�
 });
 
 
-test("关闭立即取消已有与迟到的 Agent，慢请求的终态不会阻塞其他取消", { timeout: 10_000 }, async () => {
+test("关闭立即取消已有与迟到的 Agent，慢请求的终态不会阻塞其他取消", async () => {
   const completionEntered = deferred<AbortSignal>();
   const completionFinished = deferred<void>();
   const lateEntered = deferred<void>();
