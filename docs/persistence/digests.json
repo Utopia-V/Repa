@@ -12,7 +12,15 @@
     "basis": "development"
   },
   "app-settings": {
-    "digest": "c3263cf294fcf89f",
+    "digest": "105f22723284d875",
+    "basis": "development"
+  },
+  "restore-marker": {
+    "digest": "d2f76b8ec7ac81a2",
+    "basis": "development"
+  },
+  "backup-manifest": {
+    "digest": "f4c0a408f52ae11d",
     "basis": "development"
   },
   "learning-format": {

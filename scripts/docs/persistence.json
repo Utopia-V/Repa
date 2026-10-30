@@ -31,6 +31,20 @@
       "versionedBy": "无独立版本标记"
     },
     {
+      "id": "restore-marker",
+      "files": ["<空间>/.repa/restore.json"],
+      "owner": "@repa/base",
+      "schema": "packages/base/src/schema.ts#RestoreMarkerSchema",
+      "versionedBy": "<空间>/.repa/format.json"
+    },
+    {
+      "id": "backup-manifest",
+      "files": ["<应用配置目录>/backups/<空间分组>/<备份 id>/manifest.json"],
+      "owner": "@repa/base",
+      "schema": "packages/base/src/schema.ts#BackupManifestSchema",
+      "versionedBy": "无独立版本标记；备份中的 data/ 是 .repa/ 的副本，由其中的 format.json 标记"
+    },
+    {
       "id": "learning-format",
       "files": ["<空间>/.repa/plugins/learning/format.json"],
       "owner": "@repa/learning",
