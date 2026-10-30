@@ -46,9 +46,12 @@ export const VerdictSchema = Type.Union([
   Type.Literal("correct"), Type.Literal("partial"), Type.Literal("incorrect"),
   Type.Literal("ungraded"), Type.Literal("pending"),
 ]);
+/** 判分结果。前端读到不认识的值时按 ungraded 处理。 */
 export type Verdict = Static<typeof VerdictSchema>;
 
+/** 得分：得到的分数与满分，用于显示整题或一个作答位的部分得分。 */
 export const ScoreSchema = object({ earned: Type.Number({ minimum: 0 }), max: Type.Number({ minimum: 0 }) });
+/** 整题或一个作答位的得分。 */
 export type Score = Static<typeof ScoreSchema>;
 
 /**
@@ -56,10 +59,12 @@ export type Score = Static<typeof ScoreSchema>;
  * 来源与证据资格分开：确定的隔离模型判分可以参与课内推进，资格由后端给出。
  */
 export const JudgeSchema = Type.Union([Type.Literal("rule"), Type.Literal("tests"), Type.Literal("model"), Type.Literal("person")]);
+/** 判分来源。它不决定作答能否作为推进证据，资格看反馈里的 evidence。 */
 export type Judge = Static<typeof JudgeSchema>;
 
 /** 选项、单元格或排列位置上的标记；missed 是该选而没选。 */
 export const MarkSchema = Type.Union([Type.Literal("correct"), Type.Literal("incorrect"), Type.Literal("missed")]);
+/** 一个选项、单元格或排列位置上的标记。 */
 export type Mark = Static<typeof MarkSchema>;
 
 /** 代码题的一个测试用例的结果；hidden 的用例只报告结果，不给输入和期望。 */
@@ -69,6 +74,7 @@ export const TestResultSchema = object({
   hidden: Type.Optional(Type.Boolean()),
   detail: Type.Optional(ContentSchema),
 });
+/** 代码题一个测试用例的结果。 */
 export type TestResult = Static<typeof TestResultSchema>;
 
 /** 按一条评分要点给的反馈。unsure 表示判分方没有把握，不等于学习者错。 */
@@ -77,6 +83,7 @@ export const CriterionResultSchema = object({
   met: Type.Union([Type.Literal("yes"), Type.Literal("no"), Type.Literal("unsure")]),
   comment: Type.Optional(Type.String({ maxLength: 2_000 })),
 });
+/** 按一条评分要点给的反馈。 */
 export type CriterionResult = Static<typeof CriterionResultSchema>;
 
 /** 一个作答位的反馈。 */
@@ -91,6 +98,7 @@ export const SlotFeedbackSchema = object({
   tests: Type.Optional(Type.Array(TestResultSchema, { maxItems: 100 })),
   criteria: Type.Optional(Type.Array(CriterionResultSchema, { maxItems: 20 })),
 });
+/** 一个作答位的反馈。 */
 export type SlotFeedback = Static<typeof SlotFeedbackSchema>;
 
 /** 一次作答的反馈：整题一级加上各作答位，item 指向作答时的题目和版本。 */
@@ -106,6 +114,7 @@ export const FeedbackSchema = object({
   message: Type.Optional(ContentSchema),
   slots: Type.Optional(Type.Record(Type.String(), SlotFeedbackSchema)),
 });
+/** 一次作答的反馈；前端用 readFeedback 宽松读取。 */
 export type Feedback = Static<typeof FeedbackSchema>;
 
 // ---------------------------------------------------------------------------
@@ -120,6 +129,7 @@ export const LearnerResponseSchema = object({
   ...ItemResponseSchema.properties,
   dontKnow: Type.Optional(Type.Literal(true)),
 });
+/** 学习者的一次作答，可以是“不会”。 */
 export type LearnerResponse = Static<typeof LearnerResponseSchema>;
 
 /**
@@ -143,6 +153,7 @@ export const SubmitResultSchema = Type.Union([
   object({ status: Type.Literal("rejected"), problems }),
   object({ status: Type.Literal("recorded"), feedback: Type.Optional(FeedbackSchema) }),
 ]);
+/** 一次提交的结果。 */
 export type SubmitResult = Static<typeof SubmitResultSchema>;
 
 // ---------------------------------------------------------------------------
@@ -192,9 +203,11 @@ const count = Type.Integer({ minimum: 0 });
 const timestamp = Type.Integer({ minimum: 0 });
 const nullableTime = Type.Union([timestamp, Type.Null()]);
 const kind = Type.Enum(["lesson", "review", "quiz", "retake"]);
+/** 任务阶段。前端按阶段决定显示什么、能做什么；读到不认识的阶段时状态读取失败，不猜测可执行的操作。 */
 export const TaskStageSchema = Type.Enum([
   "preparing", "explanation", "example", "awaiting_answer", "judging", "recovery", "feedback", "completed", "aborted",
 ]);
+/** 任务的一个阶段，也用作任务守卫里的 expectedStage。 */
 export type TaskStage = Static<typeof TaskStageSchema>;
 
 /** id 是公开内容身份，version 是该内容的摘要，不是内部题号映射。 */
@@ -203,12 +216,15 @@ export const ContentRefSchema = object({
   id: identifier, version: reference.properties.version,
   kind: Type.Enum(["topic", "kp", "lesson", "example", "card", "explanation"]),
 });
+/** 一项课程内容的版本引用；界面用它固定指向当时读到的内容，课程换版以后旧引用按不存在处理。 */
 export type ContentRef = Static<typeof ContentRefSchema>;
 const origin = object({ taskId: identifier, deliveryId: Type.Optional(identifier), content: ContentRefSchema });
 const range = { offset: count, limit: Type.Integer({ minimum: 1, maximum: 64 }) };
+/** 一页内容：引用、原学习位置、本页的块和总块数，界面按 offset 与 total 继续读取。 */
 export const ContentPageSchema = object({
   ref: ContentRefSchema, origin, offset: count, total: count, blocks: ContentSchema,
 });
+/** content.read 返回的一页内容。 */
 export type ContentPage = Static<typeof ContentPageSchema>;
 
 /** submissionId 在交付时预留；一次交付只收一份原答，重试沿用它。 */
@@ -218,14 +234,18 @@ export const DeliverySchema = object({
   mode: Type.Enum(["practice", "review", "quiz"]), repeated: Type.Boolean(),
   requiresServices: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 64 }),
 });
+/** 一次交付：出给学习者的一道题，带预留的提交编号、所属知识点和需要前端提供的服务。 */
 export type Delivery = Static<typeof DeliverySchema>;
+/** 提交被接受以后的处理状态。interrupted 表示判分没有完成，这份作答尚无证据，不算错，条件具备时再判。 */
 export const ProcessingSchema = Type.Union([
   object({ status: Type.Literal("accepted") }),
   object({ status: Type.Literal("pending") }),
   object({ status: Type.Literal("interrupted"), reason: Type.Enum(["restart", "service_failure", "uncertain_grade", "cancelled"]) }),
   object({ status: Type.Literal("completed") }),
 ]);
+/** 一份提交的处理状态。 */
 export type Processing = Static<typeof ProcessingSchema>;
+/** 一份已接受的提交：身份、原答、接受时间、处理状态和判分版本；反馈与解析到任务允许时才出现。 */
 export const SubmissionSchema = object({
   taskId: identifier, deliveryId: identifier, submissionId: identifier,
   response: LearnerResponseSchema, acceptedAt: timestamp, processing: ProcessingSchema,
@@ -233,7 +253,9 @@ export const SubmissionSchema = object({
   /** practice 判分后、review 结束后、quiz/retake 交卷或超时后才释放；受限任务中历史结果同样隐藏。 */
   feedback: Type.Optional(FeedbackSchema), explanation: Type.Optional(ContentSchema),
 });
+/** 一份已接受的提交。 */
 export type Submission = Static<typeof SubmissionSchema>;
+/** 提交类方法的回执：结构不合格时不接受、只交回问题列表，否则带完整的提交。 */
 export const SubmissionReceiptSchema = Type.Union([
   object({
     ...SubmitResultSchema.anyOf[0].properties, submissionId: identifier,
@@ -241,6 +263,7 @@ export const SubmissionReceiptSchema = Type.Union([
   }),
   object({ status: Type.Literal("recorded"), submission: SubmissionSchema }),
 ]);
+/** 提交类方法的回执。 */
 export type SubmissionReceipt = Static<typeof SubmissionReceiptSchema>;
 
 const phase = Type.Union([
@@ -255,13 +278,16 @@ const phase = Type.Union([
   object({ stage: Type.Literal("completed"), outcome: Type.Enum(["passed", "failed", "timeout", "unresolved"]) }),
   object({ stage: Type.Literal("aborted"), reason: Type.String({ maxLength: 500 }) }),
 ]);
+/** 当前任务：类型、topic、阶段、开始与截止时间、各知识点的进度，以及交付和已接受的提交，界面据此独立恢复画面。 */
 export const LearningTaskSchema = object({
   taskId: identifier, kind, topicIds: Type.Array(identifier), phase,
   startedAt: nullableTime, deadlineAt: nullableTime,
   kps: Type.Array(object({ kpId: identifier, attempts: count, consecutiveCorrect: count, completed: Type.Boolean() })),
   deliveries: Type.Array(DeliverySchema), submissions: Type.Array(SubmissionSchema),
 });
+/** 学习者当前的任务。 */
 export type LearningTask = Static<typeof LearningTaskSchema>;
+/** 菜单：读取时按学习状态当场算出的候选；没有候选时说明原因和最早恢复时间。 */
 export const LearningMenuSchema = object({
   menuId: identifier,
   candidates: Type.Array(object({
@@ -270,8 +296,10 @@ export const LearningMenuSchema = object({
   }), { maxItems: 3 }),
   unavailableReason: Type.Optional(Type.String({ maxLength: 500 })), availableAt: Type.Optional(timestamp),
 });
+/** 学习菜单。 */
 export type LearningMenu = Static<typeof LearningMenuSchema>;
 const localDate = Type.String({ pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" });
+/** 进度：本地日期与时区、每日目标、今天和累计的 XP、完成率，以及估计完课的日期。 */
 export const LearningProgressSchema = object({
   day: localDate, timeZone: identifier,
   dailyGoalXp: Type.Integer({ minimum: 1 }), todayXp: count, totalXp: count,
@@ -280,7 +308,9 @@ export const LearningProgressSchema = object({
   /** 估计完课的本地日期（与 day 同一时区）；最近学得太少、没有依据时为 null。 */
   etaDate: Type.Union([localDate, Type.Null()]),
 });
+/** 学习进度。 */
 export type LearningProgress = Static<typeof LearningProgressSchema>;
+/** state.get 返回的完整学习状态：课程、任务、菜单、限制和进度，带服务端时间和 revision。界面重开时读这一份恢复画面，不从聊天推断进度。 */
 export const LearningStateSchema = object({
   revision: count, serverNow: timestamp,
   course: Type.Union([object({ id: identifier, title: Type.String({ maxLength: 200 }), version: Type.String() }), Type.Null()]),
@@ -290,6 +320,7 @@ export const LearningStateSchema = object({
   }),
   progress: LearningProgressSchema,
 });
+/** 完整的学习状态。 */
 export type LearningState = Static<typeof LearningStateSchema>;
 
 /** 事件只使缓存失效，不交付题面、原答或反馈。 */
@@ -298,7 +329,9 @@ export const LearningEventSchema = object({
   taskId: Type.Union([identifier, Type.Null()]), menuId: Type.Union([identifier, Type.Null()]),
   submissionId: Type.Optional(identifier),
 });
+/** learning.changed 事件；前端收到后重新查询状态。 */
 export type LearningEvent = Static<typeof LearningEventSchema>;
+/** 学习方法报错时 RepaFault 的 details，按 reason 区分，带上恢复所需的内容，例如 stale 时的当前状态。 */
 export const LearningErrorDetailsSchema = Type.Union([
   object({ reason: Type.Literal("invalid_structure"), problems }),
   object({ reason: Type.Literal("stale"), state: LearningStateSchema }),
@@ -307,6 +340,7 @@ export const LearningErrorDetailsSchema = Type.Union([
   object({ reason: Type.Literal("restricted"), taskId: identifier, stage: TaskStageSchema }),
   object({ reason: Type.Literal("service_failure"), service: identifier, retryable: Type.Boolean() }),
 ]);
+/** 学习方法错误的 details。 */
 export type LearningErrorDetails = Static<typeof LearningErrorDetailsSchema>;
 
 const guard = { taskId: identifier, expectedStage: TaskStageSchema, expectedRevision: count };
@@ -347,8 +381,11 @@ export const learningMethods = {
   "export.prepare": { input: object({ sessions: Type.Boolean() }), result: object({ exportId: identifier, files: Type.Array(ExportedFileSchema) }) },
   "export.create": { input: object({ exportId: identifier, directory: Type.Optional(identifier) }), result: object({ path: identifier }) },
 } as const;
+/** 学习插件的方法名。 */
 export type LearningMethod = keyof typeof learningMethods;
+/** 一个学习插件方法的输入，由 learningMethods 推导。 */
 export type LearningInput<M extends LearningMethod> = Static<(typeof learningMethods)[M]["input"]>;
+/** 一个学习插件方法的结果，由 learningMethods 推导。 */
 export type LearningResult<M extends LearningMethod> = Static<(typeof learningMethods)[M]["result"]>;
 
 /** 保留原任务；缺少运行服务与缺少渲染能力都返回具体缺项。 */
@@ -394,12 +431,15 @@ function readLearning<T>(schema: TSchema, value: unknown): ReadResult<T> {
   return error === undefined ? result : { ok: false, path: error };
 }
 
+/** 前端宽松读取一个方法的结果：规则同 readFeedback，嵌套的 Item 再经 readItem 补齐能力要求，未知作答位不会被读成可以提交的残缺题目。 */
 export function readLearningResult<M extends LearningMethod>(method: M, value: unknown): ReadResult<LearningResult<M>> {
   return readLearning<LearningResult<M>>(learningMethods[method].result, value);
 }
+/** 前端宽松读取 learning.changed 事件。 */
 export function readLearningEvent(value: unknown): ReadResult<LearningEvent> {
   return readLearning<LearningEvent>(LearningEventSchema, value);
 }
+/** 前端宽松读取学习方法错误的 details。 */
 export function readLearningError(value: unknown): ReadResult<LearningErrorDetails> {
   return readLearning<LearningErrorDetails>(LearningErrorDetailsSchema, value);
 }

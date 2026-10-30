@@ -1,6 +1,6 @@
 # 学习插件的前端契约
 
-`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口。当前交付的是供后端与 Aqua 审阅、共用的契约；状态由后端从[学习记录](learning-records.md)里的事实算出，[教学流程](learning-flow.md)已接入上课、复习、判分和申诉，[辅导与内容读取](learning-tutor.md)已接入，[测验、XP 与进度](learning-quiz-xp.md)也已接入。
+`@repa/learning/protocol` 提供任务画面、提交恢复和内容读取的 TypeBox schema、静态类型及宽松读取入口，由后端与前端共用。状态由后端从[学习记录](learning-records.md)里的事实算出；各方法背后的行为见[教学流程](learning-flow.md)、[辅导与内容读取](learning-tutor.md)和[测验、XP 与进度](learning-quiz-xp.md)。
 
 ## 设计思路
 
@@ -127,9 +127,8 @@ if (state.ok) renderLearning(state.value);
 
 | 项目 | 当前范围与接续 |
 | --- | --- |
-| Aqua 审阅 | 待核对各阶段画面、操作、原学习位置及 Python 请求／结果夹具；审定后的字段供前后端共用 |
-| 方法与授权检查 | 记录与教学已实现接受、去重、恢复、推进、换号、反馈释放和判分；辅导与内容读取已接入逐次授权检查；测验任务接续测验和进度 |
-| Python Worker | Web 与 Desktop 用运行器包提供 `python.run`；协议改为 `repa-python-batch-v2` 后，还要在真实的 Worker 和 Electron 里走一遍代码题判分 |
+| Aqua 审阅 | 待核对各阶段画面、操作、原学习位置及 Python 请求／结果夹具；审定后的字段供前后端共用，由 [#59](https://github.com/Utopia-V/repa/issues/59) 接续 |
+| Python Worker | Web 与 Desktop 用运行器包提供 `python.run`；代码题判分还要在真实的 Worker 和 Electron 里走一遍，见[教学流程的未完成项](learning-flow.md#未完成项与待验证项) |
 | 故障与学习效果 | 记录层已通过真实杀进程恢复验证；完整学习体验、实际作答改变帮助及学习外负担由后续组合试用检验 |
 
 ## 验证入口

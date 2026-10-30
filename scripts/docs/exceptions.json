@@ -1,9 +1,5 @@
 {
-  "包 README 骨架": {
-    "packages/learning/README.md": "学习插件重做时按骨架重写"
-  },
   "导出说明注释": {
-    "packages/learning/src": "学习插件重做时补",
     "packages/learning-model/src": "学习插件重做时补"
   }
 }

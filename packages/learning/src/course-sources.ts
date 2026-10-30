@@ -6,12 +6,15 @@ import { Report } from "./format/diagnostics.js";
 import { TopicSchema, type Topic } from "./format/schema.js";
 
 const OverlaySchema = object({ courseId: identifier, basedOn: identifier, topic: TopicSchema });
+/** 课程来源：随包课程的目录，或替换单个 topic 的覆盖文件（经 host.files 读取）。 */
 export type CourseSource = { kind: "bundled"; directory: string } | { kind: "overlay"; file: string };
+/** 合并来源以后的课程：清单、各 topic，以及每个 topic 取自哪个来源、基于哪个课程版本。 */
 export interface ResolvedCourse {
   course: NonNullable<Awaited<ReturnType<typeof loadCourse>>>["course"];
   topics: Topic[];
   origins: Record<string, { source: string; basedOn: string }>;
 }
+/** 按顺序合并课程来源：先读唯一的随包课程，再用覆盖文件逐个替换同 id 的 topic。覆盖文件必须指明相同的课程 id 和上游版本，否则报错。 */
 export async function loadCourseSources(sources: CourseSource[], files: Host["files"]): Promise<ResolvedCourse> {
   let resolved: ResolvedCourse | undefined;
   const replaced = new Set<string>();

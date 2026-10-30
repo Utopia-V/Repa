@@ -88,6 +88,7 @@ export class Report {
   }
 }
 
+/** 把一个问题写成一行：位置、级别、错误码和说明，供命令行输出。 */
 export function formatDiagnostic(diagnostic: Diagnostic): string {
   const where = diagnostic.file
     ? `${diagnostic.file}${diagnostic.line ? `:${diagnostic.line}:${diagnostic.column ?? 1}` : ""}: `

@@ -21,6 +21,7 @@ export interface LearningPluginOptions {
   connect?: (session: LearningSession, host: Host) => Promise<Pick<PluginInstance, "methods" | "close">>;
 }
 
+/** 创建学习插件。打开时核对数据目录的格式标记，加载课程，读入学习记录并重放，再装配教学方法、辅导和导出；方法的返回值和错误都经同一处按当前限制隐藏反馈。 */
 export function createLearningPlugin(options: LearningPluginOptions = {}): Plugin {
   return {
     id: "learning",
