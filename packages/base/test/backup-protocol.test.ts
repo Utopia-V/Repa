@@ -134,25 +134,31 @@ test("打开空间以后备份一次，没有变化时立即备份也不复制�
 test("学习进行中备份，恢复到原位置以后学习记录没有半行，可以继续作答；恢复前的备份可以删除", async (t) => {
   const f = await fixture(t);
   const { root } = await f.client.call("space.open", { root: f.root });
+  // 打开时的检查在后台进行，机器慢时可能晚于下面的作答；立即备份排在它后面，等它做完，学习进行中的那份备份才一定会新建。
+  await f.client.call("backup.create", {});
   await f.answer("第一题");
   await f.answer("第二题");
-  // 学习插件正在追加第三条时备份。
+  // 学习插件正在追加第三条时备份。恢复之前关闭这个句柄：实际恢复时空间已关闭，学习插件不持有日志的句柄，
+  // 而 Windows 上目录里有打开的文件时不能移动。
   const file = path.join(root, ".repa", "plugins", "records", "records.jsonl");
   const third = fact(3, "第三题");
   const handle = await open(file, "a");
-  try {
-    await handle.writeFile(third.slice(0, 12));
-    const during = await f.client.call("backup.create", {});
-    assert.equal(during.created, true);
-    await handle.writeFile(third.slice(12));
-    await f.answer("第四题");
-    await assert.rejects(f.client.call("backup.restore", { root, id: during.backup.id }), rejectsWith("space_locked"));
-    await f.client.call("space.close", {});
-    const before = await f.client.call("backup.restore", { root, id: during.backup.id });
-    assert.equal(before.kind, "beforeRestore");
-  } finally {
-    await handle.close();
-  }
+  const during = await (async () => {
+    try {
+      await handle.writeFile(third.slice(0, 12));
+      const created = await f.client.call("backup.create", {});
+      await handle.writeFile(third.slice(12));
+      return created;
+    } finally {
+      await handle.close();
+    }
+  })();
+  assert.equal(during.created, true);
+  await f.answer("第四题");
+  await assert.rejects(f.client.call("backup.restore", { root, id: during.backup.id }), rejectsWith("space_locked"));
+  await f.client.call("space.close", {});
+  const saved = await f.client.call("backup.restore", { root, id: during.backup.id });
+  assert.equal(saved.kind, "beforeRestore");
   assert.equal(await f.records(), fact(1, "第一题") + fact(2, "第二题"));
   await f.client.call("space.open", { root });
   assert.equal(await f.answer("恢复后作答"), 3);
