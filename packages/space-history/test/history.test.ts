@@ -343,6 +343,21 @@ test("撤销重命名时两端作为一组，任一端后来被修改就保持�
   await assert.rejects(readFile(f.file("before.txt")), { code: "ENOENT" });
 });
 
+test("文件只改名称大小写后，整空间扫描记下实际名称，重开不再生成提交", async (t) => {
+  const f = await fixture(t);
+  await f.write("a.txt", "内容\n");
+  const history = await openHistory(f.space);
+  const baseline = await firstRevision(history);
+  // Git 在大小写不敏感的文件系统上建库时写入这一设置；Linux 上手动打开，同样覆盖 fast-import 据此比较树中名字的情形。
+  await git(f.space, "--git-dir=.repa/history.git", "config", "core.ignorecase", "true");
+  await rename(f.file("a.txt"), f.file("A.txt"));
+  const renamed = await history.snapshot();
+  assert.deepEqual((await history.changesSince(baseline.id)).revisions.map(({ changes }) => changes), [
+    [{ kind: "renamed", path: "A.txt", previousPath: "a.txt" }],
+  ]);
+  assert.equal((await firstRevision(await openHistory(f.space))).id, renamed.revision);
+});
+
 test("按路径保存、整空间快照和撤回的通知记录与历史列表完全一致", async (t) => {
   const f = await fixture(t);
   const history = await openHistory(f.space);

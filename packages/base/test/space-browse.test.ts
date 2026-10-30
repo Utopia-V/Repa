@@ -70,7 +70,9 @@ test("相对路径、不存在的路径和文件分别返回可处理的错误�
   await assert.rejects(browseDirectory(path.join(directory, "file.txt")), fault("not_directory"));
 });
 
-test("没有读取权限的文件夹返回 permission_denied", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async (t) => {
+test("没有读取权限的文件夹返回 permission_denied", {
+  skip: process.platform === "win32" ? "Windows 上 chmod 只改只读属性，去不掉读取权限" : process.getuid?.() === 0 ? "root 不受权限位限制" : false,
+}, async (t) => {
   const directory = await fixture(t, ["locked/inner"]);
   const locked = path.join(directory, "locked");
   await chmod(locked, 0o000);
@@ -103,7 +105,7 @@ test("解析 PowerShell 输出的盘符，忽略其他行", () => {
   ]);
 });
 
-test("非 Windows 平台只有根目录一个起点", { skip: process.platform === "win32" }, async () => {
+test("非 Windows 平台只有根目录一个起点", { skip: process.platform === "win32" ? "Windows 的起点是各个盘符" : false }, async () => {
   assert.deepEqual(await listRoots(), [{ path: "/", label: "/" }]);
 });
 

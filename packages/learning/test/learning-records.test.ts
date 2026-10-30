@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test, { type TestContext } from "node:test";
 import { createSpace, openPluginHost, openSpace, RepaFault } from "@repa/base";
@@ -161,10 +162,10 @@ test("恢复命令保留残缺原文件并写出逐字节前缀，完整坏行�
   const input = answer(log);
   await log.submit(input);
   await log.close();
-  const cli = new URL("../src/cli.ts", import.meta.url);
+  const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
   const destination = path.join(root, "recovered.jsonl");
   t.after(() => space.close());
-  await assert.rejects(exec(process.execPath, ["--import", "tsx", cli.pathname, "recover-log", space.root, destination]));
+  await assert.rejects(exec(process.execPath, ["--import", "tsx", cli, "recover-log", space.root, destination]));
   await space.close();
   const prefix = await readFile(file);
   await appendFile(file, Buffer.from('{"v":1,"残缺":"中文').subarray(0, -1));
@@ -174,7 +175,7 @@ test("恢复命令保留残缺原文件并写出逐字节前缀，完整坏行�
   assert.ok(partial.submission(input.submissionId));
   await assert.rejects(partial.viewed({ taskId: input.taskId, action: "kp", ref: page.ref }), fault("learning_log_blocked"));
   await partial.close();
-  await exec(process.execPath, ["--import", "tsx", cli.pathname, "recover-log", space.root, destination]);
+  await exec(process.execPath, ["--import", "tsx", cli, "recover-log", space.root, destination]);
   assert.deepEqual(await readFile(file), original);
   assert.deepEqual(await readFile(destination), prefix);
   const recovered = await LearningRecords.open(destination, clock);
@@ -183,7 +184,7 @@ test("恢复命令保留残缺原文件并写出逐字节前缀，完整坏行�
   await recovered.close();
   await writeFile(file, Buffer.concat([prefix, Buffer.from("{}\n")]));
   await assert.rejects(LearningRecords.open(file), fault("invalid_learning_log"));
-  await assert.rejects(exec(process.execPath, ["--import", "tsx", cli.pathname, "recover-log", space.root, path.join(root, "bad.jsonl")]));
+  await assert.rejects(exec(process.execPath, ["--import", "tsx", cli, "recover-log", space.root, path.join(root, "bad.jsonl")]));
 });
 
 test("快照按摘要只存一次，旧题与服务端时间、帮助和模型事前状态一同保留", async (t) => {
@@ -220,7 +221,7 @@ test("插件经真实宿主重开，课程覆盖进历史、撤回不撤作答�
   const events: unknown[] = [];
   let records: LearningRecords | undefined;
   const sources = [
-    { kind: "bundled" as const, directory: new URL("../courses/python/", import.meta.url).pathname },
+    { kind: "bundled" as const, directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) },
     { kind: "overlay" as const, file: "courses/py01.json" },
   ] as const;
   const bundled = await loadCourseSources([sources[0]], space.files);
@@ -284,7 +285,7 @@ test("插件经真实宿主重开，课程覆盖进历史、撤回不撤作答�
 });
 
 test("覆盖层拒绝版本不符和多重来源，更新与选择只保留直接复习", async () => {
-  const bundled = { kind: "bundled" as const, directory: new URL("../courses/python/", import.meta.url).pathname };
+  const bundled = { kind: "bundled" as const, directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) };
   const files = { read: async () => JSON.stringify({ courseId: "python", basedOn: "999.0.0", topic }), write: async () => {}, list: async () => [] };
   await assert.rejects(loadCourseSources([bundled, { kind: "overlay", file: "topic.json" }], files), fault("course_version_conflict"));
   await assert.rejects(loadCourseSources([bundled, bundled], files), fault("ambiguous_course_source"));
