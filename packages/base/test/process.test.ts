@@ -2,7 +2,8 @@ import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -26,13 +27,21 @@ async function fakeBackend(directory: string, source: string): Promise<string> {
 
 const ANNOUNCE = `console.log(JSON.stringify({ url: "ws://127.0.0.1:1", token: "test" }));`;
 
-/** 轮询到条件成立；超过截止时间就报错并停止轮询。 */
-async function until(condition: () => Promise<boolean>, message: string, ms = 600_000): Promise<void> {
-  const stop = Date.now() + ms;
-  while (!(await condition())) {
-    if (Date.now() > stop) throw new Error(message);
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
+// 每一步的上限远超正常所需，只为卡住时报出停在哪一步，而不是等满整个测试的时限。
+const STEP_MS = 120_000;
+
+/** 等一个步骤完成；超过上限时报出步骤和当时收集到的情况。 */
+function step<T>(promise: Promise<T>, name: string, detail: () => string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${STEP_MS / 1000} 秒内没有等到${name}\n${detail()}`)), STEP_MS);
+    promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    }, (error: unknown) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 test("Node 宿主从 stdout 取得连接并可重复关闭服务", async (t) => {
@@ -121,15 +130,29 @@ test("已启动服务的非零退出通过 closed 与 close 报告失败", async
   await assert.rejects(backend.close(), /异常退出（7）/);
 });
 
-test("宿主进程被强行结束时后端的 stdin 随之结束，后端照样收到关闭请求", async (t) => {
+// 宿主被强行结束后，后端不能留下来继续占着空间锁。Linux 和 macOS 上，后端读到 stdin 结尾后自己收尾退出；
+// Windows 上，Node 的 libuv 把非 detached 的子进程放进随父进程关闭而结束的作业对象，后端随宿主一起被结束。
+test("宿主进程被强行结束后，后端不会留下来", async (t) => {
   const directory = await fixture(t);
-  const marker = path.join(directory, "stdin-ended.txt");
+  // 后端连到这个探针，读到 stdin 结尾时报告一声；后端退出时，不论是自己退出还是被结束，连接都随之关闭。
+  const probe = createServer();
+  const sockets = new Set<Socket>();
+  probe.on("connection", (socket) => { sockets.add(socket); });
+  t.after(async () => {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve) => { probe.close(() => { resolve(); }); });
+  });
+  const connected = new Promise<Socket>((resolve) => { probe.once("connection", resolve); });
+  await new Promise<void>((resolve) => { probe.listen(0, "127.0.0.1", resolve); });
+  const address = probe.address();
+  assert.ok(address !== null && typeof address === "object");
+  const { port } = address;
   const options = await fakeBackend(directory, `
-    import { writeFileSync } from "node:fs";
-    process.stdin.once("end", () => {
-      writeFileSync(${JSON.stringify(marker)}, "收尾");
-      process.exit(0);
-    });
+    import { connect } from "node:net";
+    const probe = connect(${port}, "127.0.0.1");
+    probe.on("error", () => {});
+    probe.once("close", () => { process.exit(0); });
+    process.stdin.once("end", () => { probe.end("stdin-ended\\n"); });
     process.stdin.resume();
     ${ANNOUNCE}
   `);
@@ -145,16 +168,29 @@ test("宿主进程被强行结束时后端的 stdin 随之结束，后端照样�
     await exited;
   });
   let stderr = "";
+  let reported = "";
+  const detail = () => `宿主的 stderr：${stderr || "（空）"}\n后端经探针的报告：${reported || "（空）"}`;
   host.stderr.setEncoding("utf8");
   host.stderr.on("data", (chunk: string) => { stderr += chunk; });
   host.stdout.setEncoding("utf8");
-  await new Promise<void>((resolve, reject) => {
+  const ready = new Promise<void>((resolve, reject) => {
     host.stdout.on("data", (chunk: string) => { if (chunk.includes("ready")) resolve(); });
-    void exited.then(() => reject(new Error(`宿主在后端就绪前退出\n${stderr}`)));
+    void exited.then(() => { reject(new Error(`宿主在后端就绪前退出\n${detail()}`)); });
   });
+  await step(ready, "宿主报告后端就绪", detail);
+  const socket = await step(connected, "后端连上探针", detail);
+  socket.setEncoding("utf8");
+  socket.on("data", (chunk: string) => { reported += chunk; });
+  socket.on("error", () => {});
+  const disconnected = once(socket, "close");
   host.kill("SIGKILL");
-  await exited;
-  await until(() => access(marker).then(() => true, () => false), "宿主退出后后端没有收到关闭请求");
+  await step(exited, "被强行结束的宿主退出", detail);
+  await step(disconnected, "后端退出、探针连接关闭", detail);
+  if (process.platform === "win32") {
+    t.diagnostic(reported.includes("stdin-ended") ? "后端读到 stdin 结尾后退出" : "后端随宿主一起被结束，没有读到 stdin 结尾");
+  } else {
+    assert.match(reported, /stdin-ended/);
+  }
 });
 
 test("进程入口拒绝源码文件路径并交回构建目录诊断", async (t) => {
