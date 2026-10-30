@@ -252,9 +252,9 @@ test("删除文件、排除文件和失效检查名的例外都会过时", () =>
 test("排除清单覆盖隐藏目录，Repa Skill 重新纳入且第三方参考仍排除", async () => {
   const config = await readSettings(new Repository(projectRoot, []));
   for (const file of [
-    "docs/research/frozen.md", "docs/adr/old.md", ".agents/skills/third-party/SKILL.md",
+    "docs/research/frozen.md", ".agents/skills/third-party/SKILL.md",
     ".agents/skills/repa-docs-style/references/ruanyifeng/SOURCE.md",
-    "apps/web/src/components/ui/README.md", "scripts/docs/fixtures/links/fail.md",
+    "apps/web/src/components/ui/README.md", "apps/desktop/src/renderer/src/components/ui/LICENSE.shadcn.md", "scripts/docs/fixtures/links/fail.md",
   ]) assert.equal(inScope(file, config.exclusions), false, file);
   for (const file of [
     ".agents/skills/repa-docs-style/SKILL.md", ".agents/skills/repa-code-style/SKILL.md", "docs/development/README.md",

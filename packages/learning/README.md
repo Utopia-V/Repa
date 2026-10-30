@@ -12,7 +12,7 @@
 
 题目版本复用底座的 `contentVersion`（RFC 8785 规范化后的 SHA-256，写成 `sha256:<hex>`）。输入包括题面、作答位（含答案和判分规则）、解析、测试、用到的数据和有效 `measures/uses`。信用归属按集合排序，缺省归属与显式等价写法共用版本。`kind` 与检查专用的 `verify`、`manual`、代码题 `accepts/rejects` 维持原规则，不进哈希；topic 末尾的 `verified` 也不进。改答案或信用归属会换题目版本。
 
-学习资格、补救和信用有不同的依据，因此格式分开保存它们：topic 的 `prerequisites` 只列直接先修，KP 的 `keyPrerequisites` 定位补救，topic 的 `encompassings` 独立声明带权覆盖，题目 `measures/uses` 记录实际考查与执行的子技能。写法见[写课说明](courses/README.md#资格补救与信用分开写)，Python 课的 107 条原先修边与剩余疑点见[逐边核对](courses/python/relations-review.md)。
+学习资格、补救和信用有不同的依据，因此格式分开保存它们：topic 的 `prerequisites` 只列直接先修，KP 的 `keyPrerequisites` 定位补救，topic 的 `encompassings` 独立声明带权覆盖，题目 `measures/uses` 记录实际考查与执行的子技能。写法见[写课说明](courses/README.md#资格补救与信用分开写)，Python 课的 107 条原先修边与剩余疑点见[逐边核对](../../docs/research/python-course/relations-review.md)。
 
 能用程序核对的答案，由作者写的 `verify` 程序独立算一遍，再按作答位自己的判分规则去判；代码题由参考答案、等价写法、常见错误写法和作答框里的初始代码各跑一遍测试。这些都在 Pyodide 314.0.7 里运行，与学习者运行代码的版本相同，不用本机的 CPython 和 pandas 代替。运行放在沙箱里：系统 python3 运行的 `sandbox/launch.py` 先用 Landlock 和 seccomp 限制自己，再 exec 成 Node 加载 Pyodide。Ubuntu 默认限制非特权进程使用 user namespace，没有专用 AppArmor 配置时 bwrap 建不了 namespace，而 Landlock 和 seccomp 普通用户就能用，所以这里不用 bwrap。
 
@@ -103,7 +103,7 @@ pandas、NumPy 等 wheel 不在 npm 包里，`npm run course:runtime` 把它们�
 | 同一 topic 内的模块状态 | 任务后恢复命名空间、工作目录、临时文件、pandas 与 NumPy 选项等常见状态，但代码改动已导入模块（例如给 pandas 打补丁）、在 `/lib` 下写文件时，影响会延续到同一 topic 的后续任务 | 换 topic 时换新沙箱；需要更强的隔离时改为每题一个沙箱，代价是每题约 2.5 秒 |
 | 课程内容许可 | 清单写 `NOASSERTION`，本课程自写内容的对外许可尚未决定 | 维护者决定后改清单 |
 | 模型核对的强度 | 每道题只请模型解一次。选择题有猜中的可能，模型和作者也可能有同样的误读；一致只说明题面能读出这个答案 | 需要更强的核对时，可以换模型或多次采样，或在试用中看学习者的作答 |
-| 关系权重与资格疑点 | 正权重 0.5 是 Repa 的待校准假设；9 条覆盖置零，107 条资格边暂保留 | 维护者审阅[逐边核对](courses/python/relations-review.md)，后续研究校准权重 |
+| 关系权重与资格疑点 | 正权重 0.5 是 Repa 的待校准假设；9 条覆盖置零，107 条资格边暂保留 | 维护者审阅[逐边核对](../../docs/research/python-course/relations-review.md)，后续研究校准权重 |
 | 学习效果 | 题目和讲解只经过程序核对、模型核对和作者自查，没有学习者试做 | 试用后调整节奏、题量和难度 |
 
 ## 验证入口

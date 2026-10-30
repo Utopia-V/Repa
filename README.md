@@ -73,6 +73,6 @@ npm run dev:backend -- --home /path/to/repa-home
 
 ## 设计与研究材料
 
-[CONTEXT.md](CONTEXT.md) 和 [ADR](docs/adr/) 保留概念与历史取舍，其中旧后端的接口和实现描述按当前代码核对。当前目标与方向以 [AGENTS.md](AGENTS.md) 为准，模块使用方法由所属包 README 持有。
+当前目标与方向以 [AGENTS.md](AGENTS.md) 为准，设计决定及理由见[设计记录](.agents/notes/README.md)，模块使用方法由所属包 README 持有。
 
 学习研究见[学习闭环与研究问题](docs/research/learning-loop.md)和 [MA 参考](docs/research/math-academy.md)。测试检验实现行为；算法对实际作答的解释和预测，以及学习者是否得到更合适的帮助，需要相应数据与使用证据。

@@ -2,7 +2,7 @@
 
 本目录提供仓库开发、代码定位与整合入口。当前底座由 `@repa/base` 与 `@repa/space-history` 组成，接口、持久格式和生命周期分别由[底座说明](../../packages/base/README.md)与[空间历史说明](../../packages/space-history/README.md)维护。
 
-项目目标与方向澄清见 [AGENTS.md](../../AGENTS.md)。[CONTEXT.md](../../CONTEXT.md)、[ADR](../adr/) 和研究材料保留概念及历史取舍；其中旧后端的接口和实现描述按当前代码核对。
+项目目标与方向澄清见 [AGENTS.md](../../AGENTS.md)，设计决定及理由见[设计记录](../../.agents/notes/README.md)。研究材料保留当时的问题、证据与结论；接口和实现描述按当前代码核对。
 
 ## 参与开发
 
@@ -76,7 +76,7 @@ REPA_TEST_REQUIRE_ENV=1 REPA_SKIP_FULL_COURSE_CHECK=1 npm test
 | 公开方法、输入输出与事件 | [protocol.ts](../../packages/base/src/protocol.ts)、[协议服务](../../packages/base/src/protocol/server.ts) |
 | 独立服务启动 | [cli.ts](../../packages/base/src/cli.ts) |
 | 空间锁、监听、文件与历史协调 | [空间宿主](../../packages/base/src/space/space.ts) |
-| Agent 会话、提示和 view | [Agent 运行时](../../packages/base/src/agent/runtime.ts)、[提示](../../packages/base/src/agent/prompts.ts)、[view](../../packages/base/src/agent/views.ts) |
+| Agent 会话、提示和视图 | [Agent 运行时](../../packages/base/src/agent/runtime.ts)、[提示](../../packages/base/src/agent/prompts.ts)、[视图](../../packages/base/src/agent/views.ts) |
 | 插件接口与宿主 | [plugin.ts](../../packages/base/src/plugin.ts)、[插件宿主](../../packages/base/src/plugins/host.ts)、[示例插件](../../packages/base/examples/notes-plugin.ts) |
 | 空间文件历史与变更流 | [空间历史包](../../packages/space-history/README.md) |
 | 课程文件格式、课程检查与课程内容 | [学习包说明](../../packages/learning/README.md)、[写课说明](../../packages/learning/courses/README.md) |
