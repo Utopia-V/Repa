@@ -45,12 +45,14 @@ async function assertObjectsRetained(git: Git, before: string[]) {
   assert.deepEqual(before.filter((object) => !after.has(object)), []);
 }
 
-async function importBlobs(git: Git, start: number, count: number, unpackLimit: number) {
+// 用一次 fast-import 写入 count 个 blob。packs 为真时每个 blob 后跟 checkpoint，各自结束成一个 pack；
+// 否则全部解包为松散对象。Windows 上每启动一个 Git 进程要数十毫秒，夹具不逐个对象启动 Git。
+async function importBlobs(git: Git, start: number, count: number, packs = false) {
   const stream = Array.from({ length: count }, (_, offset) => {
     const data = `独特的历史资产 ${start + offset}\n`;
-    return `blob\ndata ${Buffer.byteLength(data)}\n${data}\n`;
+    return `blob\ndata ${Buffer.byteLength(data)}\n${data}\n${packs ? "checkpoint\n" : ""}`;
   }).join("") + "done\n";
-  await git.run(["-c", `fastimport.unpackLimit=${unpackLimit}`, "fast-import", "--quiet", "--done"], stream);
+  await git.run(["-c", `fastimport.unpackLimit=${packs ? 0 : count + 1}`, "fast-import", "--quiet", "--done"], stream);
 }
 
 // 每次保存的 blob、树和提交出自同一个 fast-import，Git 默认把少于 100 个对象的导入解包为松散对象。
@@ -71,7 +73,7 @@ test("小批量快照留下松散对象，超过导入阈值的批量快照留�
 test("松散对象达到门槛后重开仍维护，打包后再次检查跳过", async (t) => {
   const f = await fixture(t);
   assert.equal(await f.history.maintain(), false);
-  await importBlobs(f.git, 0, 1024 - (await counts(f.git)).loose, 2048);
+  await importBlobs(f.git, 0, 1024 - (await counts(f.git)).loose);
   assert.deepEqual(await counts(f.git), { loose: 1024, packs: 0 });
   const before = await objects(f.git);
   const reopened = await openHistory(f.space);
@@ -83,12 +85,10 @@ test("松散对象达到门槛后重开仍维护，打包后再次检查跳过",
 
 test("小 pack 达到门槛时合并，不依赖松散对象达到门槛", async (t) => {
   const f = await fixture(t);
-  for (let index = 0; index < 31; index++) {
-    await importBlobs(f.git, index, 1, 0);
-  }
+  await importBlobs(f.git, 0, 31, true);
   assert.deepEqual(await counts(f.git), { loose: 2, packs: 31 });
   assert.equal(await f.history.maintain(), false);
-  await importBlobs(f.git, 31, 1, 0);
+  await importBlobs(f.git, 31, 1, true);
   assert.deepEqual(await counts(f.git), { loose: 2, packs: 32 });
   const before = await objects(f.git);
   assert.equal(await f.history.maintain(), true);
@@ -187,7 +187,8 @@ test("维护失败保留重试机会，force 不绕过 Git 自身维护锁", asy
     }
     return run();
   });
-  await importBlobs(f.git, 0, 1023, 2048);
+  // 门槛只是让维护有事可做；32 个小 pack 与 1,024 个松散对象同样达到门槛，在 Windows 上建起来快得多。
+  await importBlobs(f.git, 0, 32, true);
   const before = await objects(f.git);
   await writeFile(join(f.root, "fail-once"), "");
   await assert.rejects(f.history.maintain(), (error: unknown) => {
