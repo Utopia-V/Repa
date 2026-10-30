@@ -237,6 +237,8 @@ let readiness: Promise<string | undefined> | undefined;
 
 /** 运行时没有准备好或这台机器建不了沙箱时返回原因，需要 Pyodide 的测试据此跳过。 */
 export function runtimeUnavailable(): Promise<string | undefined> {
+  // 课程核对用的 Node 沙箱依赖 Landlock 与 seccomp，只在 Linux 上可用。
+  if (process.platform !== "linux") return Promise.resolve("Linux 沙箱只在 Linux 上可用");
   readiness ??= (async () => {
     try {
       const assets = await describeRuntime(RUNTIME);

@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { mkdir, open, readFile } from "node:fs/promises";
 import path from "node:path";
-import { RepaFault } from "@repa/base";
+import { RepaFault, syncDirectory } from "@repa/base";
 import { contentVersion, parse } from "@repa/base/protocol";
 import { DEFAULT_MODEL_CONFIG } from "@repa/learning-model";
 import { topicQuestions, versionInput } from "./check/items.js";
@@ -221,12 +221,7 @@ export class LearningRecords {
       } finally {
         await handle.close();
       }
-      const directory = await open(path.dirname(this.file), "r");
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
-      }
+      await syncDirectory(path.dirname(this.file));
     } catch (error) {
       this.blocked = true;
       throw error;
@@ -408,10 +403,5 @@ export async function recoverLearningLog(source: string, destination: string): P
   } finally {
     await handle.close();
   }
-  const directory = await open(path.dirname(destination), "r");
-  try {
-    await directory.sync();
-  } finally {
-    await directory.close();
-  }
+  await syncDirectory(path.dirname(destination));
 }
