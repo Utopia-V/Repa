@@ -41,7 +41,7 @@
       "id": "learning-records",
       "files": ["<空间>/.repa/plugins/learning/records.jsonl"],
       "owner": "@repa/learning",
-      "schema": "packages/learning/src/records-schema.ts#RecordSchema",
+      "schema": "packages/learning/src/records-schema.ts#FactSchema",
       "versionedBy": "<空间>/.repa/plugins/learning/format.json"
     }
   ]

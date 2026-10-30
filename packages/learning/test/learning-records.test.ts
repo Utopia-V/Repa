@@ -1,43 +1,51 @@
 import assert from "node:assert/strict";
-import { fork, execFile } from "node:child_process";
+import { execFile, fork } from "node:child_process";
 import { once } from "node:events";
-import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test, { type TestContext } from "node:test";
 import { createSpace, openPluginHost, openSpace, RepaFault } from "@repa/base";
 import { ModelTestDriver } from "@repa/base/testing";
-import { DEFAULT_MODEL_CONFIG } from "@repa/learning-model";
 import { contentVersion } from "@repa/base/protocol";
-import { LearningRecords } from "../src/records.js";
-import { createLearningPlugin } from "../src/plugin.js";
+import { stringify } from "yaml";
 import { loadCourseSources } from "../src/course-sources.js";
+import { connectLearning } from "../src/flow.js";
+import { createLearningPlugin } from "../src/plugin.js";
+import type { LearningState, Submission } from "../src/protocol.js";
+import { LearningRecords } from "../src/records.js";
+import type { LearningSession } from "../src/session.js";
 import { chooseTasks, updateStudent } from "../src/student-model.js";
-import { advance, answer, clock, graph, judged, setup, topic } from "./fixtures/learning-records.js";
-import { now, page } from "./fixtures/learning-contract.js";
+import { now } from "./fixtures/learning-contract.js";
+import { clock, course, graph, openSession, topic } from "./fixtures/learning-records.js";
+import { learningFixture, start, topic as testTopic } from "./fixtures/learning-session.js";
 
 const exec = promisify(execFile);
+const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const fault = (code: string) => (error: unknown) => error instanceof RepaFault && error.code === code;
+
 async function directory(t: TestContext): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "repa-learning-records-"));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-learning-records-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
-async function fixture(t: TestContext) {
-  const root = await directory(t);
-  const file = path.join(root, "records.jsonl");
-  const log = await LearningRecords.open(file, clock);
-  t.after(() => log.close());
-  await setup(log);
-  return { root, file, log, input: answer(log) };
+
+async function writeCourse(root: string): Promise<string> {
+  const target = path.join(root, "course");
+  await mkdir(path.join(target, "topics"), { recursive: true });
+  await writeFile(path.join(target, "course.yaml"), stringify(course));
+  await writeFile(path.join(target, "topics", "py01.yaml"), stringify(topic));
+  return target;
 }
 
 for (const stage of ["accepted", "returned", "persisted"]) {
-  test(`在 ${stage} 边界杀进程，重放和显式恢复保留唯一原答与唯一推进`, { timeout: 30_000 }, async (t) => {
+  test(`在 ${stage} 边界杀进程：作答保留且不阻塞，补判只调用一次模型、只追加一次判分`, { timeout: 30_000 }, async (t) => {
     const root = await directory(t);
+    const courseDirectory = await writeCourse(root);
     const file = path.join(root, "records.jsonl");
-    const child = fork(new URL("./fixtures/learning-crash.ts", import.meta.url), [file, stage], {
+    const child = fork(new URL("./fixtures/learning-crash.ts", import.meta.url), [file, courseDirectory, stage], {
       execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
     let errors = "";
@@ -56,100 +64,120 @@ for (const stage of ["accepted", "returned", "persisted"]) {
     const [, signal] = await exited;
     assert.equal(signal, "SIGKILL");
     const before = await readFile(file);
-    const records = await LearningRecords.open(file, clock);
+    const models = new ModelTestDriver();
+    const { records, session, call } = await openSession(file, courseDirectory, models);
     t.after(() => records.close());
-    const input = answer(records);
-    const submission = records.submission(input.submissionId);
-    assert.ok(submission);
-    assert.deepEqual(submission.response, input.response);
-    assert.equal(records.records.filter((record) => record.type === "accepted").length, 1);
-    assert.equal(submission.processing.status, stage === "persisted" ? "completed" : "interrupted");
-    if (stage !== "persisted") {
-      assert.deepEqual(submission.processing, { status: "interrupted", reason: "restart" });
-      assert.equal(records.current()?.state.task?.phase.stage, "recovery");
-    }
     assert.deepEqual(await readFile(file), before);
-    assert.deepEqual(await records.submit(input), { status: "recorded", submission });
-    await assert.rejects(records.submit(answer(records, "3")), fault("submission_conflict"));
-    let calls = 0;
-    const judge = async (entry: typeof submission) => {
-      calls++;
-      return judged(entry);
-    };
+    const answered = records.facts.filter((fact) => fact.type === "answered");
+    assert.equal(answered.length, 1);
+    assert.deepEqual(answered[0]?.type === "answered" && answered[0].answers, { s1: { type: "text", text: "两个一合起来" } });
+    // 先不经方法读取：方法调用会自动补判。
+    const state = await session.state();
+    const submission = state.task?.submissions[0];
+    assert.ok(submission);
+    if (stage === "persisted") {
+      assert.equal(submission.processing.status, "completed");
+    } else {
+      // 没判出结果的作答是尚无证据：任务停在恢复阶段，可以继续下一题，也不计尝试。
+      assert.deepEqual(submission.processing, { status: "interrupted", reason: "restart" });
+      assert.equal(state.task?.phase.stage, "recovery");
+      assert.equal(state.task?.kps[0]?.attempts, 0);
+    }
+    // 打开后的第一次方法调用自动补判一次（替身没有安排结果，判分失败）；显式恢复再判一次。
+    await call("state.get", {});
+    await session.idle();
+    const automatic = models.calls.length;
+    assert.equal(automatic, stage === "persisted" ? 0 : 1);
+    if (stage !== "persisted") {
+      models.expectStructured().succeed({ verdict: "correct", reason: "说明了相加的含义" });
+    }
     const results = await Promise.all([
-      records.grade(input.submissionId, judge, advance),
-      records.grade(input.submissionId, judge, advance),
+      call("submission.resume", { submissionId: submission.submissionId }),
+      call("submission.resume", { submissionId: submission.submissionId }),
     ]);
     assert.deepEqual(results[0], results[1]);
-    assert.equal(calls, stage === "persisted" ? 0 : 1);
-    assert.equal(records.current()?.state.task?.kps[0]?.attempts, 1);
-    assert.equal(records.records.filter((record) => record.type === "graded").length, 1);
-    assert.equal(records.records.filter((record) => record.type === "accepted").length, 1);
-    assert.equal(records.submission(input.submissionId)?.gradeRevision, 1);
+    assert.equal(models.calls.length, automatic + (stage === "persisted" ? 0 : 1));
+    assert.equal(records.facts.filter((fact) => fact.type === "graded").length, 1);
+    assert.equal(records.facts.filter((fact) => fact.type === "answered").length, 1);
+    const resumed = (await call("submission.get", { submissionId: submission.submissionId })) as { submission: Submission };
+    assert.equal(resumed.submission.gradeRevision, 1);
+    assert.equal(((await call("state.get", {})) as LearningState).task?.kps[0]?.attempts, 1);
   });
 }
 
-test("同载荷并发提交只接受一次，判分等待释放入口，失败后沿原身份继续", async (t) => {
-  const { log, input, file } = await fixture(t);
-  const receipts = await Promise.all([log.submit(input), log.submit(input)]);
-  assert.deepEqual(receipts[0], receipts[1]);
-  assert.equal(log.records.filter((record) => record.type === "accepted").length, 1);
-  let release: (() => void) | undefined;
-  const barrier = new Promise<void>((resolve) => { release = resolve; });
-  let started: (() => void) | undefined;
-  const requested = new Promise<void>((resolve) => { started = resolve; });
-  const work = log.grade(input.submissionId, async () => {
-    started?.();
-    await barrier;
-    throw new Error("服务断线");
-  }, advance);
-  const failed = assert.rejects(work, /服务断线/);
-  await requested;
-  await log.viewed({ taskId: input.taskId, deliveryId: input.deliveryId, action: "help_after", ref: page.ref });
-  assert.equal(log.submission(input.submissionId)?.processing.status, "accepted");
-  release?.();
-  await failed;
-  assert.equal(log.records.some((record) => record.type === "graded"), false);
-  await log.grade(input.submissionId, async (entry) => judged(entry), advance);
-  const completed = log.current();
-  await log.close();
-  const reopened = await LearningRecords.open(file, clock);
-  t.after(() => reopened.close());
-  assert.deepEqual(reopened.current(), completed);
-  assert.deepEqual(reopened.records.find((record) => record.type === "accepted")?.type, "accepted");
+test("同载荷并发提交只收一次，判分期间不占串行入口，失败后沿原身份继续", async (t) => {
+  const definition = testTopic();
+  const question = definition.kps[0]?.practice?.[0];
+  assert.ok(question);
+  question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加含义。" }] }];
+  const f = await learningFixture(t, [definition]);
+  await f.select();
+  await f.advance();
+  await f.advance();
+  const input = await f.input();
+  const pending = f.models.expectStructured();
+  const receipts = Promise.all([f.call("submission.submit", input), f.call("submission.submit", input)]);
+  await pending.requested;
+  // 判分在等模型时，其他写入照常进行。
+  await f.call("progress.setGoal", { dailyGoalXp: 30 });
+  assert.equal(f.session().records.facts.filter((fact) => fact.type === "answered").length, 1);
+  pending.fail(new Error("服务断线"));
+  const [first, second] = await receipts;
+  assert.deepEqual(second, first);
+  assert.ok(first.status === "recorded");
+  assert.deepEqual(first.submission.processing, { status: "interrupted", reason: "service_failure" });
+  assert.equal(f.models.calls.length, 1);
+  assert.equal(f.session().records.facts.some((fact) => fact.type === "graded"), false);
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
+  await f.call("submission.resume", { submissionId: input.submissionId });
+  const completed = await f.state();
+  assert.equal(completed.task?.submissions[0]?.processing.status, "completed");
+  await f.reopen();
+  assert.deepEqual(await f.state(), completed);
 });
 
-test("结构拒绝、错身份与截止后新答不落盘，已接受的重交仍可查询", async (t) => {
-  const { log, input } = await fixture(t);
-  const revision = log.revision;
-  const bad = await log.submit({ ...input, response: { ...input.response, answers: {} } });
+test("结构拒绝、错身份与截止后新答不落盘，已收下的重交仍可查询", async (t) => {
+  const f = await learningFixture(t);
+  await f.select();
+  await f.finishLesson();
+  f.time(start + 86_400_000);
+  await f.select("t01", "review");
+  const input = await f.input();
+  const revision = f.session().records.revision;
+  const bad = await f.call("submission.submit", { ...input, response: { ...input.response, answers: {} } });
   assert.equal(bad.status, "rejected");
-  assert.equal(log.revision, revision);
-  await assert.rejects(log.submit({ ...input, submissionId: "another" }), fault("stale_state"));
-  await log.checkpoint(log.revision, (current, decisionNow) => {
-    assert.ok(current?.state.task);
-    current.state.task.deadlineAt = clock();
-    return { projection: current, decision: { policyVersion: "deadline", now: decisionNow, seed: 1, candidates: [], selected: null, scores: {} } };
+  assert.equal(f.session().records.revision, revision);
+  await assert.rejects(f.call("submission.submit", { ...input, submissionId: "s999" }), (error: unknown) =>
+    error instanceof Error && "code" in error && error.code === "stale_state");
+  const deadline = (await f.state()).task?.deadlineAt;
+  assert.ok(deadline);
+  f.time(deadline);
+  await assert.rejects(f.call("submission.submit", input), (error: unknown) =>
+    error instanceof Error && "code" in error && error.code === "stale_state");
+  assert.equal(f.session().records.revision, revision);
+  assert.deepEqual(await f.call("submission.get", { submissionId: input.submissionId }), {
+    status: "absent", submissionId: input.submissionId, revision,
   });
-  await assert.rejects(log.submit(input), fault("stale_state"));
-  assert.equal(log.submission(input.submissionId), undefined);
 });
 
-test("写入失败使请求失败并阻止继续追加，重开按真实文件确定是否接受", async (t) => {
-  const { log, input, file } = await fixture(t);
+test("写入失败使请求失败并阻止继续追加，重开按真实文件确定写进了什么", async (t) => {
+  const root = await directory(t);
+  const file = path.join(root, "records.jsonl");
+  const log = await LearningRecords.open(file, clock);
+  await log.write(() => [{ type: "goal", xp: 30 }]);
   const backup = `${file}.saved`;
   await rename(file, backup);
   await mkdir(file);
-  await assert.rejects(log.submit(input), { code: "EISDIR" });
-  assert.equal(log.submission(input.submissionId), undefined);
-  await assert.rejects(log.submit(input), fault("learning_log_blocked"));
+  await assert.rejects(log.write(() => [{ type: "goal", xp: 40 }]), { code: "EISDIR" });
+  assert.equal(log.revision, 1);
+  await assert.rejects(log.write(() => [{ type: "goal", xp: 50 }]), fault("learning_log_blocked"));
   await log.close();
   await rm(file, { recursive: true });
   await rename(backup, file);
   const reopened = await LearningRecords.open(file, clock);
   t.after(() => reopened.close());
-  assert.equal(reopened.submission(input.submissionId), undefined);
-  assert.equal((await reopened.submit(input)).status, "recorded");
+  assert.deepEqual(reopened.facts.map((fact) => fact.type === "goal" && fact.xp), [30]);
+  assert.equal((await reopened.write(() => [{ type: "goal", xp: 60 }]))[0]?.seq, 2);
 });
 
 test("恢复命令保留残缺原文件并写出逐字节前缀，完整坏行和活动空间均拒绝", { timeout: 30_000 }, async (t) => {
@@ -157,86 +185,93 @@ test("恢复命令保留残缺原文件并写出逐字节前缀，完整坏行�
   const space = await createSpace(path.join(root, "space"), { watch: false });
   const file = path.join(await space.pluginDataDir("learning"), "records.jsonl");
   const log = await LearningRecords.open(file, clock);
-  await setup(log);
-  const input = answer(log);
-  await log.submit(input);
+  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"] }, { type: "delivered", task: 1, question: "py01.k1.q1", seed: 1 }]);
   await log.close();
-  const cli = new URL("../src/cli.ts", import.meta.url);
   const destination = path.join(root, "recovered.jsonl");
   t.after(() => space.close());
-  await assert.rejects(exec(process.execPath, ["--import", "tsx", cli.pathname, "recover-log", space.root, destination]));
+  await assert.rejects(exec(process.execPath, ["--import", "tsx", cli, "recover-log", space.root, destination]));
   await space.close();
   const prefix = await readFile(file);
-  await appendFile(file, Buffer.from('{"v":1,"残缺":"中文').subarray(0, -1));
+  await appendFile(file, Buffer.from('{"seq":3,"残缺":"中文').subarray(0, -1));
   const original = await readFile(file);
   const partial = await LearningRecords.open(file, clock);
   assert.equal(partial.incompleteTail, true);
-  assert.ok(partial.submission(input.submissionId));
-  await assert.rejects(partial.viewed({ taskId: input.taskId, action: "kp", ref: page.ref }), fault("learning_log_blocked"));
+  assert.equal(partial.revision, 2);
+  await assert.rejects(partial.write(() => [{ type: "goal", xp: 20 }]), fault("learning_log_blocked"));
   await partial.close();
-  await exec(process.execPath, ["--import", "tsx", cli.pathname, "recover-log", space.root, destination]);
+  await exec(process.execPath, ["--import", "tsx", cli, "recover-log", space.root, destination]);
   assert.deepEqual(await readFile(file), original);
   assert.deepEqual(await readFile(destination), prefix);
   const recovered = await LearningRecords.open(destination, clock);
-  await recovered.grade(input.submissionId, async (entry) => judged(entry), advance);
-  assert.equal(recovered.submission(input.submissionId)?.processing.status, "completed");
+  assert.equal((await recovered.write(() => [{ type: "goal", xp: 20 }]))[0]?.seq, 3);
   await recovered.close();
   await writeFile(file, Buffer.concat([prefix, Buffer.from("{}\n")]));
   await assert.rejects(LearningRecords.open(file), fault("invalid_learning_log"));
-  await assert.rejects(exec(process.execPath, ["--import", "tsx", cli.pathname, "recover-log", space.root, path.join(root, "bad.jsonl")]));
+  await assert.rejects(exec(process.execPath, ["--import", "tsx", cli, "recover-log", space.root, path.join(root, "bad.jsonl")]));
 });
 
-test("快照按摘要只存一次，旧题与服务端时间、帮助和模型事前状态一同保留", async (t) => {
-  const { log, file, input } = await fixture(t);
-  const snapshotRecord = log.records.find((record) => record.type === "snapshot");
-  assert.ok(snapshotRecord?.type === "snapshot");
-  assert.equal(await log.saveSnapshot(snapshotRecord.snapshot), snapshotRecord.digest);
-  assert.equal(log.records.filter((record) => record.type === "snapshot").length, 1);
-  const copy = log.snapshot(snapshotRecord.digest);
-  assert.ok(copy);
-  copy.topic.title = "以后修改的课程";
-  assert.notEqual(log.snapshot(snapshotRecord.digest)?.topic.title, copy.topic.title);
-  await log.viewed({ taskId: input.taskId, deliveryId: input.deliveryId, action: "help_before", ref: page.ref });
-  await log.submit(input);
-  const accepted = log.records.find((record) => record.type === "accepted");
-  assert.ok(accepted?.type === "accepted");
-  assert.equal(accepted.submission.processing.status, "accepted");
-  assert.equal(accepted.context.submittedAt, clock());
-  assert.deepEqual(accepted.context.model.before, log.current()?.student);
-  assert.deepEqual(accepted.context.model.config, DEFAULT_MODEL_CONFIG);
-  assert.equal(accepted.context.helpBefore.length, 1);
-  assert.equal(accepted.context.submitOffsetMs, 0);
+test("引用错误和一题两答在写入前拒绝、不落盘；完整行引用损坏时停止重放", async (t) => {
+  const root = await directory(t);
+  const file = path.join(root, "records.jsonl");
+  const log = await LearningRecords.open(file, clock);
+  t.after(() => log.close());
+  const seen = `sha256:${"0".repeat(64)}`;
+  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"] }, { type: "delivered", task: 1, question: "py01.k1.q1", seed: 1 }]);
+  const bytes = await readFile(file);
+  await assert.rejects(log.write(() => [{ type: "graded", delivery: 2, version: seen, verdict: "correct", slots: {} }]), fault("invalid_learning_log"));
+  await assert.rejects(log.write(() => [
+    { type: "answered", delivery: 2, seen, answers: {} },
+    { type: "answered", delivery: 2, seen, answers: {} },
+  ]), fault("invalid_learning_log"));
+  await assert.rejects(log.write(() => [{ type: "delivered", task: 2, question: "py01.k1.q1", seed: 1 }]), fault("invalid_learning_log"));
+  assert.deepEqual(await readFile(file), bytes);
+  assert.equal(log.revision, 2);
+  const damaged = path.join(root, "damaged.jsonl");
+  await writeFile(damaged, `${bytes.toString("utf8")}${JSON.stringify({ seq: 3, at: now, type: "help", delivery: 1 })}\n`);
+  await assert.rejects(LearningRecords.open(damaged), fault("invalid_learning_log"));
+});
+
+test("读取忽略事实顶层新增的可选字段，保留盘上原字节，写入仍拒绝未知字段", async (t) => {
+  const root = await directory(t);
+  const file = path.join(root, "records.jsonl");
+  const log = await LearningRecords.open(file, clock);
+  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"] }, { type: "goal", xp: 25 }]);
   await log.close();
+  const original = await readFile(file, "utf8");
+  const extended = original.split("\n").filter(Boolean).map((line) => {
+    const record: unknown = JSON.parse(line);
+    assert.ok(record !== null && typeof record === "object");
+    return JSON.stringify({ ...record, futureOptional: { note: "旧版本可忽略" } });
+  }).join("\n") + "\n";
+  await writeFile(file, extended);
   const reopened = await LearningRecords.open(file, clock);
   t.after(() => reopened.close());
-  assert.deepEqual(reopened.snapshot(snapshotRecord.digest), snapshotRecord.snapshot);
-  assert.deepEqual(reopened.records.find((record) => record.type === "accepted"), accepted);
+  assert.equal(reopened.facts.some((fact) => "futureOptional" in fact), false);
+  assert.deepEqual(reopened.facts.map((fact) => fact.type), ["task", "goal"]);
+  assert.equal(await readFile(file, "utf8"), extended);
+  await assert.rejects(reopened.write(() => [{ type: "goal", xp: 30, futureOptional: true } as never]), fault("invalid_input"));
 });
 
-test("插件经真实宿主重开，课程覆盖进历史、撤回不撤作答且查询不启动模型", { timeout: 30_000 }, async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "repa-learning-host-"));
+test("插件经真实宿主重开：课程覆盖进历史，撤回文件不撤作答，查询不启动模型", { timeout: 30_000 }, async (t) => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-learning-host-")));
+  const bundled = path.join(root, "course");
+  await mkdir(path.join(bundled, "topics"), { recursive: true });
+  const original = testTopic("t01");
+  await writeFile(path.join(bundled, "course.yaml"), stringify({ ...course, id: "test", topics: ["t01"] }));
+  await writeFile(path.join(bundled, "topics", "t01.yaml"), stringify(original, { aliasDuplicateObjects: false }));
   let space = await createSpace(path.join(root, "space"), { watch: false });
   const models = new ModelTestDriver();
   const events: unknown[] = [];
-  let records: LearningRecords | undefined;
-  const sources = [
-    { kind: "bundled" as const, directory: new URL("../courses/python/", import.meta.url).pathname },
-    { kind: "overlay" as const, file: "courses/py01.json" },
-  ] as const;
-  const bundled = await loadCourseSources([sources[0]], space.files);
-  assert.equal(bundled.topics.length, 48);
-  const originalTopic = bundled.topics[0];
-  assert.ok(originalTopic);
-  const modified = { ...originalTopic, title: "空间覆盖标题" };
-  await space.files.write(sources[1].file, JSON.stringify({ courseId: bundled.course.id, basedOn: bundled.course.version, topic: modified }));
+  let session: LearningSession | undefined;
+  const overlay = "courses/t01.json";
+  const sources = [{ kind: "bundled" as const, directory: bundled }, { kind: "overlay" as const, file: overlay }];
+  await space.files.write(overlay, JSON.stringify({ courseId: "test", basedOn: course.version, topic: { ...original, title: "空间覆盖标题" } }));
   await space.flush();
-  const loadedVersions: unknown[] = [];
-  const plugin = createLearningPlugin({ sources: [...sources], async connect(log, resolved) {
-    records = log;
-    loadedVersions.push({ topic: resolved.topics[0], origin: resolved.origins[modified.id] });
-    if (!log.current()) await setup(log, resolved);
-    return {};
+  const plugin = createLearningPlugin({ sources, now: () => start, async connect(opened) {
+    session = opened;
+    return connectLearning(opened);
   } });
+  const caller = { capabilities: { interaction: { supports: ["slot.text", "block.markdown"] }, services: [] } };
   let host = await openPluginHost({ space, plugins: [plugin], models, emit: (_id, event) => events.push(event), onError: (error) => { throw error; } });
   t.after(async () => {
     try {
@@ -246,45 +281,54 @@ test("插件经真实宿主重开，课程覆盖进历史、撤回不撤作答�
       await rm(root, { recursive: true, force: true });
     }
   });
-  assert.ok(records);
-  const input = answer(records);
+  const call = (method: string, input: unknown) => host.call("learning", method, input, caller);
+  const state = async () => (await call("state.get", {})) as LearningState;
+  const menu = (await state()).menu;
+  assert.ok(menu?.candidates[0]);
+  assert.equal(menu.candidates[0].title, "空间覆盖标题");
+  await call("menu.select", { menuId: menu.menuId, candidateId: menu.candidates[0].id });
+  for (let step = 0; step < 2; step++) {
+    const current = await state();
+    assert.ok(current.task);
+    await call("task.advance", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage });
+  }
+  const task = (await state()).task;
+  const delivery = task?.deliveries[0];
+  assert.ok(task && delivery);
+  const input = {
+    taskId: task.taskId, deliveryId: delivery.deliveryId, submissionId: delivery.submissionId,
+    response: { item: { id: delivery.item.id, version: delivery.item.version }, answers: { answer: { type: "text", text: "2" } } },
+  };
   const beforeAnswer = await space.history.list();
-  await host.call("learning", "submission.submit", input);
+  const eventsBefore = events.length;
+  await call("submission.submit", input);
   assert.deepEqual(await space.history.list(), beforeAnswer);
-  const result = await host.call("learning", "submission.get", { submissionId: input.submissionId });
-  assert.ok(JSON.stringify(result).includes('"accepted"'));
+  assert.equal(events.length, eventsBefore + 2);
+  const result = await call("submission.get", { submissionId: input.submissionId });
+  assert.ok(JSON.stringify(result).includes('"completed"'));
   assert.equal(models.calls.length, 0);
-  assert.equal(events.length, 1);
-  const projection = records.current();
-  const snapshotId = projection?.deliveries[input.deliveryId];
-  assert.ok(snapshotId);
-  const frozen = records.snapshot(snapshotId);
-  await space.files.write(sources[1].file, JSON.stringify({ courseId: bundled.course.id, basedOn: bundled.course.version, topic: { ...modified, title: "修订后的覆盖标题" } }));
+  const student = (await session?.view())?.student;
+  await space.files.write(overlay, JSON.stringify({ courseId: "test", basedOn: course.version, topic: { ...original, title: "修订后的覆盖标题" } }));
   await space.flush();
   await host.close();
   await space.close();
   space = await openSpace(path.join(root, "space"), { watch: false });
   host = await openPluginHost({ space, plugins: [plugin], models, emit: () => {}, onError: (error) => { throw error; } });
-  assert.equal(loadedVersions.length, 2);
-  assert.deepEqual(records.snapshot(snapshotId), frozen);
-  const after = await loadCourseSources([...sources], space.files);
-  assert.equal(after.topics[0]?.title, "修订后的覆盖标题");
-  assert.deepEqual(after.origins[modified.id], { source: sources[1].file, basedOn: bundled.course.version });
-  assert.deepEqual(records.current()?.student, projection?.student);
-  assert.equal(records.current()?.state.task?.phase.stage, "recovery");
-  const reopenedResult = await host.call("learning", "submission.get", { submissionId: input.submissionId });
-  assert.ok(JSON.stringify(reopenedResult).includes('"restart"'));
+  assert.equal(session?.course.topics.get("t01")?.title, "修订后的覆盖标题");
+  assert.deepEqual((await session?.view())?.student, student);
+  const reopened = await call("submission.get", { submissionId: input.submissionId });
+  assert.deepEqual(reopened, result);
   assert.equal(models.calls.length, 0);
   await space.files.write("note.md", "撤回这次文件改动");
   await space.flush();
   const revision = (await space.history.list()).find((entry) => entry.parent !== null);
   assert.ok(revision);
   await space.history.undo(revision.id);
-  assert.ok(records.submission(input.submissionId));
+  assert.deepEqual(await call("submission.get", { submissionId: input.submissionId }), reopened);
 });
 
 test("覆盖层拒绝版本不符和多重来源，更新与选择只保留直接复习", async () => {
-  const bundled = { kind: "bundled" as const, directory: new URL("../courses/python/", import.meta.url).pathname };
+  const bundled = { kind: "bundled" as const, directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) };
   const files = { read: async () => JSON.stringify({ courseId: "python", basedOn: "999.0.0", topic }), write: async () => {}, list: async () => [] };
   await assert.rejects(loadCourseSources([bundled, { kind: "overlay", file: "topic.json" }], files), fault("course_version_conflict"));
   await assert.rejects(loadCourseSources([bundled, bundled], files), fault("ambiguous_course_source"));
@@ -297,103 +341,4 @@ test("覆盖层拒绝版本不符和多重来源，更新与选择只保留直�
   assert.throws(() => updateStudent(graph, advanced, { topicId: "py01", outcome: "pass" }, now - 1), fault("model_time_conflict"));
   assert.equal(await contentVersion({ b: 2, a: 1 }), await contentVersion({ a: 1, b: 2 }));
   assert.throws(() => chooseTasks(graph, advanced, now - 1), fault("model_time_conflict"));
-});
-
-test("待判时保存任务并重开，原始接受记录不被恢复显示覆盖", async (t) => {
-  const { log, file, input } = await fixture(t);
-  await log.submit(input);
-  const save = async (records: LearningRecords) => records.checkpoint(records.revision, (current, decisionNow) => {
-    assert.ok(current);
-    return { projection: current, decision: { policyVersion: "saved", now: decisionNow, seed: 1, candidates: [], selected: null, scores: {} } };
-  });
-  await save(log);
-  await log.close();
-  const reopened = await LearningRecords.open(file, clock);
-  assert.equal(reopened.submission(input.submissionId)?.processing.status, "interrupted");
-  await save(reopened);
-  await reopened.close();
-  const second = await LearningRecords.open(file, clock);
-  t.after(() => second.close());
-  assert.equal(second.current()?.state.task?.phase.stage, "recovery");
-  await second.grade(input.submissionId, async (entry) => judged(entry), advance);
-  const accepted = second.records.find((record) => record.type === "accepted");
-  assert.ok(accepted?.type === "accepted");
-  assert.equal(accepted.submission.processing.status, "accepted");
-});
-
-test("替换已交付题面、伪造原答和未完成判分均不能推进，完整行语义损坏停止重放", async (t) => {
-  const { log, file, input, root } = await fixture(t);
-  const save = (change: (projection: NonNullable<ReturnType<LearningRecords["current"]>>) => void) => log.checkpoint(log.revision, (current, decisionNow) => {
-    assert.ok(current);
-    change(current);
-    return { projection: current, decision: { policyVersion: "bad", now: decisionNow, seed: 1, candidates: [], selected: null, scores: {} } };
-  });
-  const original = await readFile(file);
-  await assert.rejects(save((projection) => {
-    const delivery = projection.state.task?.deliveries[0];
-    assert.ok(delivery);
-    delivery.item.body = [{ type: "markdown", text: "换掉原题" }];
-  }), fault("invalid_learning_log"));
-  await log.submit(input);
-  await assert.rejects(save((projection) => {
-    assert.ok(projection.state.task);
-    projection.state.task.submissions = [];
-  }), fault("invalid_learning_log"));
-  await assert.rejects(log.grade(input.submissionId, async (entry) => ({ ...judged(entry), feedback: { item: entry.response.item, verdict: "pending" } }), advance), fault("invalid_grade"));
-  assert.equal(log.current()?.state.task?.kps[0]?.attempts, 0);
-  const first = log.records[0];
-  assert.ok(first?.type === "snapshot");
-  first.snapshot.topic.title = "损坏但仍是完整 JSON";
-  const damaged = path.join(root, "damaged.jsonl");
-  await writeFile(damaged, `${JSON.stringify(first)}\n${original.toString("utf8")}`);
-  await assert.rejects(LearningRecords.open(damaged), fault("invalid_learning_log"));
-});
-
-test("采用判分可先私有保存，再由任务保存释放同一反馈，重开保持释放结果", async (t) => {
-  const { log, file, input } = await fixture(t);
-  await log.submit(input);
-  await log.grade(input.submissionId, async (entry) => judged(entry), (current, submission, grade) => {
-    const next = advance(current, submission, grade);
-    const result = next.state.task?.submissions[0];
-    assert.ok(result);
-    delete result.feedback;
-    return next;
-  });
-  assert.equal(log.submission(input.submissionId)?.feedback, undefined);
-  await log.checkpoint(log.revision, (current, decisionNow) => {
-    const result = current?.state.task?.submissions[0];
-    assert.ok(current && result);
-    result.feedback = judged(result).feedback;
-    result.explanation = [{ type: "markdown", text: "现在释放解析。" }];
-    return { projection: current, decision: { policyVersion: "release", now: decisionNow, seed: 1, candidates: [], selected: null, scores: {} } };
-  });
-  const released = log.submission(input.submissionId);
-  await log.close();
-  const reopened = await LearningRecords.open(file, clock);
-  t.after(() => reopened.close());
-  assert.deepEqual(reopened.submission(input.submissionId), released);
-  const original = reopened.records.find((record) => record.type === "graded");
-  assert.ok(original?.type === "graded");
-  assert.equal(original.projection.state.task?.submissions[0]?.feedback, undefined);
-  assert.equal(original.grade.feedback.verdict, "correct");
-});
-
-
-test("学习记录读取忽略新增可选字段，保留盘上原字节且写入仍拒绝未知字段", async (t) => {
-  const { log, file, input } = await fixture(t);
-  await log.submit(input);
-  await log.close();
-  const original = await readFile(file, "utf8");
-  const extended = original.split("\n").filter(Boolean).map((line) => {
-    const record: unknown = JSON.parse(line);
-    assert.ok(record !== null && typeof record === "object");
-    return JSON.stringify({ ...record, futureOptional: { note: "旧版本可忽略" } });
-  }).join("\n") + "\n";
-  await writeFile(file, extended);
-  const reopened = await LearningRecords.open(file, clock);
-  t.after(() => reopened.close());
-  assert.deepEqual(reopened.submission(input.submissionId)?.response, input.response);
-  assert.equal(reopened.records.some((record) => "futureOptional" in record), false);
-  assert.equal(await readFile(file, "utf8"), extended);
-  await assert.rejects(reopened.viewed({ taskId: input.taskId, action: "kp", ref: page.ref, futureOptional: true } as Parameters<LearningRecords["viewed"]>[0]), fault("invalid_input"));
 });

@@ -5,7 +5,7 @@ import test from "node:test";
 import { Value } from "typebox/value";
 
 import { gradeSlot, matchesText } from "../src/check/grade.js";
-import { publicItem, questionVersion, referenceResponse, versionInput } from "../src/check/items.js";
+import { itemVersion, publicItem, questionVersion, referenceResponse, versionInput } from "../src/check/items.js";
 import { sameDisplay } from "../src/check/literal.js";
 import { sameValue } from "../src/check/values.js";
 import { toContent } from "../src/format/markdown.js";
@@ -135,8 +135,28 @@ test("内容版本不受题型和核对程序影响，题面、答案、解析�
   assert.ok(nums?.kind === "dataframe");
   nums.columns.value = [3, 8, 6];
   assert.notEqual(await questionVersion(question, changedData), original);
-  // 版本输入分开保存题面／判分定义（含数据）和有效信用归属。
-  assert.deepEqual(Object.keys(versionInput(question, topic) as object), ["definition", "credit"]);
+  // 版本输入只有题目定义和用到的数据，知识点归属不在其中。
+  assert.deepEqual(Object.keys(versionInput(question, topic) as object), ["question", "data"]);
+});
+
+test("题面版本只随学习者看到的题面变化：改答案或解析不变，改题面和用到的数据才变；它就是公开 Item 的版本", async () => {
+  const topic = t01();
+  const question = topic.kps[1]?.example;
+  assert.ok(question);
+  const original = await itemVersion(question, topic);
+  assert.equal((await publicItem(question, topic)).version, original);
+  assert.equal(await itemVersion({ ...question, explanation: "另一种解析" }, topic), original);
+  const table = question.slots[0];
+  assert.ok(table?.type === "table");
+  const rows = table.rows.map((row) => (row.id === "rc" ? { ...row, cells: { ...row.cells, mask: false } } : row));
+  assert.equal(await itemVersion({ ...question, slots: [{ ...table, rows }] }, topic), original);
+  assert.notEqual(await questionVersion({ ...question, slots: [{ ...table, rows }] }, topic), await questionVersion(question, topic));
+  assert.notEqual(await itemVersion({ ...question, body: "另一道题" }, topic), original);
+  const changedData = structuredClone(topic);
+  const nums = changedData.data?.nums;
+  assert.ok(nums?.kind === "dataframe");
+  nums.columns.value = [3, 8, 6];
+  assert.notEqual(await itemVersion(question, changedData), original);
 });
 
 test("代码题的等价写法和错误写法只为检查而写，不影响版本；参考答案和测试会影响", async () => {

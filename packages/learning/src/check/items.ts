@@ -198,7 +198,7 @@ export function questionFixtures(question: Question): string[] {
   return [...names].sort();
 }
 
-/** 信用与解释性元数据在定义投影中忽略，保持原算法以复算旧核对哈希。 */
+/** 题型标签与知识点归属不进题目版本：归属改了，重算学习状态时按新归属算，过去的作答照样对得上。 */
 const METADATA_FIELDS = ["kind", "measures", "uses"] as const;
 /** 只为检查课程而写的部分：改它们不改变学生看到什么、怎样判，不进内容哈希。 */
 const CHECK_ONLY_FIELDS = ["verify", "manual"] as const;
@@ -211,18 +211,18 @@ function without(value: object, fields: readonly string[]): Record<string, unkno
 }
 
 /**
- * 旧核对哈希的输入：学生看到什么、怎样判，也就是题面、作答位（含答案与判分规则）、解析和测试，
- * 再加上题目和测试用到的数据夹具。去掉解释性元数据和只为检查而写的部分，免得改一个标签或核对程序
+ * 题目版本的输入：学生看到什么、怎样判，也就是题面、作答位（含答案与判分规则）、解析和测试，
+ * 再加上题目和测试用到的数据夹具。去掉题型标签、知识点归属和只为检查而写的部分，免得改一个标签或核对程序
  * 就把同一道题拆成新版本。输入是作者写下的定义，YAML 的排版不影响哈希。
  */
-export function legacyVersionInput(question: Question, topic: Topic): unknown {
+export function versionInput(question: Question, topic: Topic): unknown {
   const definition = without(question, [...METADATA_FIELDS, ...CHECK_ONLY_FIELDS]);
   definition.slots = question.slots.map((slot) => (slot.type === "code" ? without(slot, CHECK_ONLY_CODE_FIELDS) : slot));
   const data = Object.fromEntries(questionFixtures(question).map((name) => [name, topic.data?.[name] ?? null]));
   return { question: definition, data };
 }
 
-/** 有效信用归属是集合；缺省与显式等价写法共用版本。 */
+/** 有效信用归属是集合；缺省与显式等价写法相同。只供格式检查，不进题目版本。 */
 export function questionCredit(question: Question): Pick<Required<Question>, "measures" | "uses"> {
   const owner = question.id.slice(0, question.id.lastIndexOf("."));
   return {
@@ -231,17 +231,19 @@ export function questionCredit(question: Question): Pick<Required<Question>, "me
   };
 }
 
-export function versionInput(question: Question, topic: Topic): unknown {
-  return { definition: legacyVersionInput(question, topic), credit: questionCredit(question) };
-}
-
+/** 题目版本：学生看到的内容（含作答后的解析）与判分方式。答案改正后版本改变，过去的作答据此重判。 */
 export async function questionVersion(question: Question, topic: Topic): Promise<string> {
   return contentVersion(versionInput(question, topic));
 }
 
+/** 题面版本：作答前学生看到的公开题面，也是 Item.version。只改答案或解析时不变，过去的作答仍能按新答案重判。 */
+export async function itemVersion(question: Question, topic: Topic): Promise<string> {
+  return contentVersion(draftItem(question, topic));
+}
+
 export async function publicItem(question: Question, topic: Topic): Promise<Item> {
   const draft = draftItem(question, topic);
-  return { ...draft, version: await questionVersion(question, topic), requires: requiredCapabilities(draft) };
+  return { ...draft, version: await contentVersion(draft), requires: requiredCapabilities(draft) };
 }
 
 /** 由标准答案拼出的作答。开放作答和只要求非空的小问没有标准答案，用一段示例文字代替，只供结构检查。 */

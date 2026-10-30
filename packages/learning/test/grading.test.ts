@@ -1,5 +1,5 @@
 /**
- * 检查与判分走同一个入口：同一道题、同一份作答，课程核对（Node 沙箱，整门课一个解释器）和判分（judgeSubmission 经 python.run）
+ * 检查与判分走同一个入口：同一道题、同一份作答，课程核对（Node 沙箱，整门课一个解释器）和判分（judgeAnswer 经 python.run）
  * 给出相同的结论。判分这边的 python.run 由另一个 Node 沙箱按同一约定提供，代替页面的 Worker；Worker 本身的批次处理由运行器包的测试检查。
  */
 import assert from "node:assert/strict";
@@ -15,12 +15,11 @@ import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protoc
 
 import { checkCourse } from "../src/check/course.js";
 import { questionVersion, referenceAnswer, topicQuestions } from "../src/check/items.js";
-import { createSnapshot } from "../src/snapshot.js";
-import { deliver, mapAnswer } from "../src/delivery.js";
+import { mapAnswer, renderDelivery } from "../src/delivery.js";
 import { Report, type Diagnostic } from "../src/format/diagnostics.js";
 import { loadCourse } from "../src/format/load.js";
 import type { CodeSlot, Course, OrderSlot, Question, Topic } from "../src/format/schema.js";
-import { judgeSubmission } from "../src/judge.js";
+import { judgeAnswer } from "../src/judge.js";
 import type { Feedback } from "../src/protocol.js";
 import { demoCourse, runtimeUnavailable, writeCourse, type DemoCourse } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
@@ -47,24 +46,17 @@ async function frontend(t: TestContext, course: Course) {
     },
   } as unknown as Host;
 
-  /** 像学习者那样交一份作答，走完整的判分：交付换号、快照、judgeSubmission。 */
+  /** 像学习者那样交一份作答，走完整的判分：交付换号，收下时换回课程里的编号，再经 judgeAnswer 判分。 */
   async function grade(topic: Topic, questionId: string, answer: Answer): Promise<Feedback["verdict"]> {
     const entry = topicQuestions(topic).find((candidate) => candidate.question.id === questionId);
     assert.ok(entry, questionId);
-    const { delivery, idMap } = await deliver(entry.question, topic, entry.kp.id, "practice", false);
-    const snapshot = await createSnapshot({
-      course: { ...course, topics: [topic.id] }, topic, kpId: entry.kp.id, questionId, item: delivery.item, idMap,
-      graph: { topics: [topic.id], encompassings: [], prerequisites: [] },
-    });
+    const identity = { deliveryId: "d1", submissionId: "s1", repeated: false };
+    const { delivery, idMap } = await renderDelivery(entry.question, topic, entry.kp.id, "practice", identity, 1);
     const slot = entry.question.slots[0];
     const shown = delivery.item.slots.find((candidate) => candidate.id === slot?.id);
     assert.ok(slot && shown);
-    const response = { item: { id: delivery.item.id, version: delivery.item.version }, answers: { [slot.id]: mapAnswer(answer, shown, idMap, true) } };
-    const submission = {
-      taskId: "task", deliveryId: delivery.deliveryId, submissionId: delivery.submissionId, response,
-      acceptedAt: 0, processing: { status: "accepted" as const }, gradeRevision: 0,
-    };
-    return (await judgeSubmission(host, submission, snapshot)).feedback.verdict;
+    const recorded = mapAnswer(mapAnswer(answer, shown, idMap, true), shown, idMap);
+    return (await judgeAnswer(host, { ...course, topics: [topic.id] }, entry.question, topic, { answers: { [slot.id]: recorded } })).verdict;
   }
   return { grade, calls: () => calls };
 }

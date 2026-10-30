@@ -1,29 +1,49 @@
-// 真实子进程夹具：只控制判分替身，在三个持久化边界等待父进程 SIGKILL。
-import { LearningRecords } from "../../src/records.js";
-import { advance, answer, clock, judged, setup } from "./learning-records.js";
+// 真实子进程夹具：上一节课，交一道开放题，在三个持久化边界等待父进程 SIGKILL。
+import { ModelTestDriver } from "@repa/base/testing";
+import type { LearningState } from "../../src/protocol.js";
+import { openSession } from "./learning-records.js";
 
 process.on("message", () => {});
-const [file, stage] = process.argv.slice(2);
-if (!file) throw new Error("缺日志路径");
-const records = await LearningRecords.open(file, clock);
-await setup(records);
-const input = answer(records);
-await records.submit(input);
-await records.grade(input.submissionId, async (submission) => {
-  if (stage === "accepted") {
-    process.send?.("accepted");
-    await new Promise(() => {});
-  }
-  const result = judged(submission);
-  if (stage === "returned") {
-    // judge 已返回；持久层读取结构化结果时停住，尚未进入结果追加。
-    Object.defineProperty(result, "source", { enumerable: true, get() {
+const [file, directory, stage] = process.argv.slice(2);
+if (!file || !directory) throw new Error("缺日志路径或课程目录");
+const models = new ModelTestDriver();
+const { records, call } = await openSession(file, directory, models);
+const state = async () => (await call("state.get", {})) as LearningState;
+const menu = (await state()).menu;
+const candidate = menu?.candidates[0];
+if (!menu || !candidate) throw new Error("夹具缺菜单");
+await call("menu.select", { menuId: menu.menuId, candidateId: candidate.id });
+for (let step = 0; step < 2; step++) {
+  const current = await state();
+  if (!current.task) throw new Error("夹具缺任务");
+  await call("task.advance", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage });
+}
+const task = (await state()).task;
+const delivery = task?.deliveries[0];
+if (!task || !delivery) throw new Error("夹具缺交付");
+const plan = models.expectStructured();
+if (stage === "returned") {
+  // 模型已经返回、判分还没写进日志时停住：拦在写入判分的串行回调里。
+  const write = records.write.bind(records);
+  records.write = (build) => write(async () => {
+    const bodies = await build();
+    if (bodies.some((body) => body.type === "graded")) {
       process.send?.("returned");
       process.kill(process.pid, "SIGSTOP");
-      return { key: "2" };
-    } });
-  }
-  return result;
-}, advance);
+    }
+    return bodies;
+  });
+}
+const submitted = call("submission.submit", {
+  taskId: task.taskId, deliveryId: delivery.deliveryId, submissionId: delivery.submissionId,
+  response: { item: { id: delivery.item.id, version: delivery.item.version }, answers: { s1: { type: "text", text: "两个一合起来" } } },
+});
+await plan.requested;
+if (stage === "accepted") {
+  process.send?.("accepted");
+  await new Promise(() => {});
+}
+plan.succeed({ verdict: "correct", reason: "说明了相加的含义" });
+await submitted;
 process.send?.("persisted");
 await new Promise(() => {});
