@@ -78,8 +78,6 @@ export class Git {
       env,
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
-      // 桌面端的后端没有控制台；Windows 上不加这一项，每启动一次 Git 都会弹出一个控制台窗口。其他平台忽略它。
-      windowsHide: true,
     });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
