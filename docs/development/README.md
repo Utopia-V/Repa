@@ -42,7 +42,7 @@ Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa:
 [GitHub Actions 工作流](../../.github/workflows/ci.yml)在推送到 `dev`、指向 `dev` 的 PR 和手动触发时运行。两个任务都使用 Node 24 和 npm 12.0.2，从 `npm ci` 开始准备依赖，并运行 `npm run course:runtime` 准备或核对 Pyodide 离线包；离线包按版本缓存在 `packages/python-runner/.cache/pyodide/<版本>/`。
 
 - `linux` 在 `ubuntu-24.04` 上安装 `libseccomp2` 和系统 `python3`，然后运行根目录的 `npm test`，统一构建并测试全部 workspace。任务失败会使 CI 失败。
-- `windows` 在 `windows-latest` 上按默认设置检出，保留 Windows 的 CRLF 换行情形；构建库包后，依次测试空间历史、底座、Python 运行器和学习插件。团队缺少 Windows 本机验证环境，这个任务暂用 `continue-on-error: true` 收集兼容性问题，先不拦合并，等它稳定变绿以后去掉。
+- `windows` 在 `windows-latest` 上按默认设置检出，保留 Windows 的 CRLF 换行情形；构建库包后，分别测试空间历史、底座、Python 运行器和学习插件，前一个包的测试失败时后面的照常运行。团队缺少 Windows 本机验证环境，这个任务暂用 `continue-on-error: true` 收集兼容性问题，先不拦合并，等它稳定变绿以后去掉。
 
 `REPA_TEST_REQUIRE_ENV=1` 让缺少 Pyodide 离线包、Landlock、libseccomp 或系统 Python 等环境的测试按原跳过原因失败。Linux 任务设置它，以保证沙箱测试实际运行；Windows 不设置，Linux 沙箱测试在那里按环境原因跳过。平台或权限语义差异造成的其他跳过保持原样。
 

@@ -46,8 +46,14 @@ jobs:
           key: ${{ runner.os }}-pyodide-${{ hashFiles('package-lock.json', 'packages/python-runner/package.json', 'packages/learning/courses/*/course.yaml') }}
       - run: npm ci
       - run: npm run course:runtime
-      - run: npm run build:packages
-      - run: npm test -w @repa/space-history
-      - run: npm test -w @repa/base
-      - run: npm test -w @repa/python-runner
-      - run: npm test -w @repa/learning
+      - id: build
+        run: npm run build:packages
+      # 构建成功后，每个包的测试都跑一遍，前一个包失败不挡住后面的，一次运行就能看到全部结果。
+      - if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm test -w @repa/space-history
+      - if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm test -w @repa/base
+      - if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm test -w @repa/python-runner
+      - if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm test -w @repa/learning

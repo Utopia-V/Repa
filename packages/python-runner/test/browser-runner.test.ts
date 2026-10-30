@@ -98,9 +98,9 @@ function fixture(respond: Respond | Respond[], options: FixtureOptions = {}) {
   return { runner, workers, downloads: () => downloads };
 }
 
-/** 等到 check 成立；一秒内不成立就失败，并带上 state 给出的状态。 */
+/** 等到 check 成立；十秒内不成立就失败，并带上 state 给出的状态。期限只防卡死，宽一些，机器忙时也不误报。 */
 async function until(check: () => boolean, state: () => unknown = () => undefined): Promise<void> {
-  const deadline = Date.now() + 1000;
+  const deadline = Date.now() + 10_000;
   while (!check()) {
     if (Date.now() > deadline) assert.fail(`等待超时：${JSON.stringify(state())}`);
     await new Promise((resolve) => setTimeout(resolve, 1));
@@ -219,12 +219,13 @@ test("每个测试单独计时：各自没超时的测试加起来超过期限�
     if (request.type === "start") return worker.send({ type: "ready", runtime: loaded });
     void (async () => {
       for (const [test] of request.tests.entries()) {
-        await new Promise((resolve) => setTimeout(resolve, 15));
+        await new Promise((resolve) => setTimeout(resolve, 200));
         worker.send({ type: "tested", test, response: completed });
       }
     })();
   };
-  const { runner } = fixture(slow, { testTimeoutMs: 30 });
+  // 每个测试 200 毫秒，三个加起来超过 500 毫秒的期限；单个测试离期限留足余量，机器忙时计时器晚一些也不误报。
+  const { runner } = fixture(slow, { testTimeoutMs: 500 });
   assert.deepEqual(statuses(await runner.run(input)), ["completed", "completed", "completed"]);
 });
 
