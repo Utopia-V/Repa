@@ -10,6 +10,7 @@ import lockfile from "proper-lockfile";
 import { currentRun } from "../run-context.js";
 import type { Space, SpaceOptions } from "../space.js";
 import { RepaFault } from "../schema.js";
+import { syncDirectory } from "../storage.js";
 import { checkFormat } from "./format.js";
 import { WriteGate } from "./gate.js";
 import { directory, existingPath, ignoreDataDir, within } from "./paths.js";
@@ -274,12 +275,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
                   await handle.close();
                 }
                 await rename(temporary, checked);
-                const parent = await open(path.dirname(checked), "r");
-                try {
-                  await parent.sync();
-                } finally {
-                  await parent.close();
-                }
+                await syncDirectory(path.dirname(checked));
               } finally {
                 await rm(temporary, { force: true });
               }

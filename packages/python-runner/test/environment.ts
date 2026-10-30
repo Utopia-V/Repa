@@ -33,6 +33,7 @@ export function packagesUnavailable(): Promise<string | undefined> {
 
 /** 离线包没有准备好或这台机器建不了沙箱时返回原因，需要沙箱的测试据此跳过。 */
 export function sandboxUnavailable(): Promise<string | undefined> {
+  if (process.platform !== "linux") return Promise.resolve("Linux 沙箱只在 Linux 上可用");
   sandbox ??= (async () => {
     const missing = await packagesUnavailable();
     if (missing) return missing;
