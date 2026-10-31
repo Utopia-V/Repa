@@ -1,12 +1,71 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { access, mkdtemp, realpath, rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 向系统要一个空闲端口给应用的远程调试用。 */
+async function freePort() {
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+/** 在页面里求值，经 Chrome 调试协议。 */
+async function evaluate(target, expression) {
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+  socket.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression, returnByValue: true } }));
+  const reply = await new Promise((resolve) => { socket.onmessage = (event) => resolve(JSON.parse(event.data)); });
+  socket.close();
+  return reply.result?.result?.value;
+}
+
+/**
+ * 像学习者那样打开应用：主进程启动后端、repa 协议提供 Web 界面、页面经 preload 连上后端，
+ * 首次打开没有学习空间，应停在选空间页。之后按正常退出关闭，主进程会等后端收尾。
+ */
+async function checkLaunch(executable, home, userData) {
+  const port = await freePort();
+  const environment = { ...process.env, REPA_HOME: home };
+  delete environment.ELECTRON_RUN_AS_NODE;
+  // 浏览器数据（localStorage 里记着上次的空间）也放进临时目录，本机验证不受之前用过的影响。
+  const app = spawn(executable, [`--remote-debugging-port=${port}`, `--user-data-dir=${userData}`], { env: environment, stdio: "ignore" });
+  const exited = new Promise((resolve) => app.once("exit", resolve));
+  let last = "（没有找到 repa://app/ 的页面）";
+  try {
+    for (let attempt = 0; attempt < 120; attempt++) {
+      await wait(500);
+      let targets;
+      try {
+        targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+      } catch {
+        continue;
+      }
+      const page = targets.find((target) => target.type === "page" && target.url.startsWith("repa://app/"));
+      if (!page) continue;
+      const text = await evaluate(page, "document.body.innerText");
+      last = `${page.url}：${String(text).slice(0, 200)}`;
+      if (typeof text === "string" && text.includes("开始第一个学习空间")) return { url: page.url };
+    }
+    throw new Error(`60 秒内应用没有显示选空间页，最后看到 ${last}`);
+  } finally {
+    app.kill("SIGTERM");
+    const code = await Promise.race([exited, wait(20_000).then(() => "timeout")]);
+    if (code === "timeout") {
+      app.kill("SIGKILL");
+      throw new Error("应用 20 秒内没有退出");
+    }
+  }
+}
 const dmg = path.resolve(process.argv[2] ?? "");
 if (!process.argv[2]) throw new Error("用法：node verify-mac-package.mjs <Repa.dmg>");
 
@@ -50,7 +109,8 @@ try {
   assert.deepEqual((await client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning"]);
   await client.close();
   await backend.close();
-  console.log(JSON.stringify({ dmg, runtime: runtimeInfo, base: true, learning: true, connection: true, signature: "ad-hoc" }, null, 2));
+  const launch = await checkLaunch(executable, path.join(temporary, "app-home"), path.join(temporary, "app-data"));
+  console.log(JSON.stringify({ dmg, runtime: runtimeInfo, base: true, learning: true, connection: true, signature: "ad-hoc", launch }, null, 2));
 } finally {
   await client?.close();
   await backend?.close();
