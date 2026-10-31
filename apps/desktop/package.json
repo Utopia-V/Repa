@@ -9,6 +9,8 @@
     "build": "npm run build:app",
     "package:linux": "node scripts/package-linux.mjs",
     "verify:linux": "node scripts/verify-linux-package.mjs",
+    "package:mac": "node scripts/package-mac.mjs",
+    "verify:mac": "node scripts/verify-mac-package.mjs",
     "check": "tsc --noEmit",
     "dev": "electron-vite dev",
     "prebuild": "npm run build:packages --prefix ../..",
