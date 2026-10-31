@@ -1,0 +1,207 @@
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { createMemoryRouter } from "react-router";
+import { RouterProvider } from "react-router/dom";
+import { ConnectionError, RpcError } from "@repa/base/client";
+import type { Item } from "@repa/base/protocol";
+import type { Delivery, LearningState, LearningTask } from "@repa/learning/protocol";
+
+import { StoreProvider } from "../src/hooks/use-app-store";
+import { createAppStore } from "../src/lib/store";
+import { routes } from "../src/routes";
+import { fakeClient } from "./fake-client";
+import { mockMatchMedia } from "./match-media";
+
+afterEach(() => { cleanup(); localStorage.clear(); });
+
+const version = `sha256:${"1".repeat(64)}`;
+const ref = (id: string, kind: "lesson" | "example" | "card" | "kp", kpId = "py01.k1") => ({ courseId: "python", topicId: "py01", kpId, id, version, kind });
+const progress = { day: "2026-10-31", timeZone: "Pacific/Auckland", dailyGoalXp: 20, todayXp: 0, totalXp: 0, completedTopics: 0, totalTopics: 48, completionRate: 0, etaDate: null };
+const open = { kind: "none" as const, tutorAllowed: true, referenceContentAllowed: true };
+
+const item: Item = {
+  id: "o1", version, requires: ["block.markdown", "slot.text"],
+  body: [{ type: "markdown", text: "`n = 4` 以后 `print(n)` 显示什么？" }],
+  slots: [{ id: "output", type: "text", prompt: [{ type: "markdown", text: "显示的整数" }] }],
+};
+const delivery: Delivery = { deliveryId: "d3", submissionId: "s3", item, topicId: "py01", kpId: "py01.k1", mode: "practice", repeated: false, requiresServices: [] };
+
+function task(phase: LearningTask["phase"], extra: Partial<LearningTask> = {}): LearningTask {
+  return {
+    taskId: "t1", kind: "lesson", topicIds: ["py01"], phase, startedAt: 1, deadlineAt: null,
+    kps: [{ kpId: "py01.k1", attempts: 0, consecutiveCorrect: 0, completed: false }],
+    deliveries: [], submissions: [], ...extra,
+  };
+}
+
+function state(revision: number, current: LearningTask | null): LearningState {
+  return { revision, serverNow: 1_000 + revision, course: { id: "python", title: "Python：读懂代码，说清需求", version: "0.2.0" }, task: current, menu: null, restrictions: open, progress };
+}
+
+const explanation = task({
+  stage: "explanation",
+  page: {
+    ref: ref("py01.k1.explanation", "lesson"), origin: { taskId: "t1", content: ref("py01.k1.explanation", "lesson") },
+    offset: 0, total: 1,
+    blocks: [{ type: "markdown", text: "读到一行[赋值](repa:concept/py01.k1)，先算右边。" }],
+  },
+});
+const answering = task({ stage: "awaiting_answer", deliveryId: "d3" }, { deliveries: [delivery] });
+
+type Learning = (method: string, input: Record<string, unknown>) => Promise<unknown>;
+
+/** 只模拟学习页用到的底座方法；学习插件的方法交给每个测试的 learning。 */
+function backend(learning: Learning) {
+  const call = vi.fn((method: string, params: Record<string, unknown>): Promise<unknown> => {
+    switch (method) {
+      case "space.open":
+        return Promise.resolve({ root: "/notes/python" });
+      case "space.list":
+      case "session.list":
+      case "model.list":
+      case "model.providers":
+        return Promise.resolve([]);
+      case "model.getDefault":
+        return Promise.resolve(null);
+      case "plugin.list":
+        return Promise.resolve([{ id: "learning", methods: [], tools: [] }]);
+      case "plugin.call":
+        return learning(params.method as string, params.input as Record<string, unknown>);
+      default:
+        return Promise.reject(new Error(`未模拟的方法 ${method}`));
+    }
+  });
+  return { call, ...fakeClient(call) };
+}
+
+function learningCalls(call: ReturnType<typeof backend>["call"]) {
+  return call.mock.calls.filter(([method]) => method === "plugin.call").map(([, params]) => params as { method: string; input: unknown });
+}
+
+function start(client: ReturnType<typeof backend>["client"]) {
+  mockMatchMedia();
+  localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { space: "/notes/python" }, version: 0 }));
+  const store = createAppStore();
+  store.getState().setClient(client);
+  const router = createMemoryRouter(routes, { initialEntries: ["/learn"] });
+  render(<StoreProvider store={store}><RouterProvider router={router} /></StoreProvider>);
+  return store;
+}
+
+it("讲解阶段显示课程内容，点“看例题”带着阶段和 revision 推进", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(1, explanation));
+    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
+    if (method === "task.advance") return Promise.resolve(state(2, answering));
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  start(fake.client);
+
+  expect(await screen.findByText("先算右边。", { exact: false })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "看例题" }));
+
+  expect(await screen.findByText("显示的整数")).toBeTruthy();
+  expect(learningCalls(fake.call).find((call) => call.method === "task.advance")?.input).toEqual({ taskId: "t1", expectedStage: "explanation", expectedRevision: 1 });
+});
+
+it("操作时画面已经过时，换成后端给的当前状态并提示，不再执行原操作", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(1, explanation));
+    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
+    if (method === "task.advance") return Promise.reject(new RpcError(-32000, "任务状态已改变", { code: "stale_state", details: { reason: "stale", state: state(3, answering) } }));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+
+  fireEvent.click(await screen.findByRole("button", { name: "看例题" }));
+
+  expect(await screen.findByText("画面已经更新")).toBeTruthy();
+  expect(screen.getByText("显示的整数")).toBeTruthy();
+});
+
+it("断线时提交的作答，重连后先查询；后端没收到才用原编号和原答案补交", async () => {
+  let submits = 0;
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(2, answering));
+    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
+    if (method === "submission.submit") {
+      submits++;
+      if (submits === 1) return Promise.reject(new ConnectionError());
+      return Promise.resolve({ status: "recorded", submission: { taskId: "t1", deliveryId: "d3", submissionId: "s3", response: { item: { id: "o1", version }, answers: {} }, acceptedAt: 5, processing: { status: "completed" }, gradeRevision: 1 } });
+    }
+    if (method === "submission.get") return Promise.resolve({ status: "absent", submissionId: "s3", revision: 2 });
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  const store = start(fake.client);
+
+  fireEvent.change(await screen.findByRole("textbox", { name: "显示的整数" }), { target: { value: "4" } });
+  // 提交时连接已经断了：结果不明，不能再改答案。
+  act(() => store.getState().setConnected(false));
+  fireEvent.click(screen.getByRole("button", { name: "提交" }));
+  expect(await screen.findByText("连接断了，正在确认这份作答有没有交上，确认后会自动处理。")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "提交" }).hasAttribute("disabled")).toBe(true);
+
+  act(() => store.getState().setClient(fake.client));
+  await vi.waitFor(() => expect(submits).toBe(2));
+
+  const calls = learningCalls(fake.call).filter((call) => call.method.startsWith("submission."));
+  expect(calls.map((call) => call.method)).toEqual(["submission.submit", "submission.get", "submission.submit"]);
+  expect(calls[2]?.input).toEqual(calls[0]?.input);
+  expect(calls[2]?.input).toEqual({ taskId: "t1", deliveryId: "d3", submissionId: "s3", response: { item: { id: "o1", version }, answers: { output: { type: "text", text: "4" } } } });
+  await vi.waitFor(() => expect(store.getState().learning.outbox).toEqual({}));
+});
+
+it("重连后查到后端已经收下这份作答，就不再重交", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(2, answering));
+    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
+    if (method === "submission.submit") return Promise.reject(new ConnectionError());
+    if (method === "submission.get") return Promise.resolve({ status: "found", revision: 3, submission: { taskId: "t1", deliveryId: "d3", submissionId: "s3", response: { item: { id: "o1", version }, answers: {} }, acceptedAt: 5, processing: { status: "pending" }, gradeRevision: 0 } });
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  const store = start(fake.client);
+
+  const dontKnow = await screen.findByRole("button", { name: "不会" });
+  act(() => store.getState().setConnected(false));
+  fireEvent.click(dontKnow);
+  await vi.waitFor(() => expect(store.getState().learning.outbox.s3?.status).toBe("unknown"));
+  act(() => store.getState().setClient(fake.client));
+
+  await vi.waitFor(() => expect(store.getState().learning.outbox).toEqual({}));
+  expect(learningCalls(fake.call).filter((call) => call.method === "submission.submit")).toHaveLength(1);
+});
+
+it("讲解里的概念链接打开概念卡：先记一次打开，再读卡片内容", async () => {
+  const card = ref("py01.k1.card", "card");
+  const learning = vi.fn<Learning>((method, input) => {
+    if (method === "state.get") return Promise.resolve(state(1, explanation));
+    if (method === "content.search") {
+      if (input.query !== "py01.k1") return Promise.resolve({ hits: [], nextOffset: null });
+      return Promise.resolve({
+        hits: [
+          { ref: ref("py01.k1", "kp"), title: "名字指向当前的值", snippet: "", origin: { taskId: "t1", content: ref("py01.k1", "kp") } },
+          { ref: card, title: "赋值 / 变量", snippet: "", origin: { taskId: "t1", content: ref("py01.k1.example", "example") } },
+        ],
+        nextOffset: null,
+      });
+    }
+    if (method === "content.open") return Promise.resolve({ openedAt: 9 });
+    if (method === "content.read") {
+      return Promise.resolve([{ ref: card, origin: { taskId: "t1", content: ref("py01.k1.example", "example") }, offset: 0, total: 1, blocks: [{ type: "markdown", text: "`=` 先算右边。" }] }]);
+    }
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  start(fake.client);
+
+  fireEvent.click(await screen.findByRole("button", { name: "赋值" }));
+
+  const dialog = await screen.findByRole("dialog", { name: "赋值 / 变量" });
+  expect(await within(dialog).findByText("先算右边。", { exact: false })).toBeTruthy();
+  const order = learningCalls(fake.call).map((call) => call.method).filter((method) => method === "content.open" || method === "content.read");
+  expect(order).toEqual(["content.open", "content.read"]);
+  expect(learningCalls(fake.call).find((call) => call.method === "content.open")?.input).toEqual({ ref: card });
+});

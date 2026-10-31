@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { SelectionButton } from "@/components/ui/selection-button";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { FolderPickerDialog } from "@/features/folder-picker";
-import { useAppStore } from "@/hooks/use-app-store";
+import { useAppStore, useAppStoreApi } from "@/hooks/use-app-store";
+import { homePath } from "@/lib/learning";
 import type { Resources } from "@/lib/store";
 import { folderName } from "@/lib/paths";
 
@@ -24,6 +25,8 @@ export function LearningSpacePage() {
   const [closing, setClosing] = useState(false);
   const [closeFailure, setCloseFailure] = useState<{ root: string; error: unknown }>();
   const navigate = useNavigate();
+  const store = useAppStoreApi();
+  const goHome = () => { void navigate(homePath(store.getState().learning)); };
 
   useEffect(() => {
     void loadSpaces();
@@ -34,7 +37,7 @@ export function LearningSpacePage() {
     setFailure(undefined);
     try {
       await openSpace(root);
-      void navigate("/conversation");
+      goHome();
     } catch (error) {
       setFailure({ root, error });
     } finally {
@@ -75,7 +78,7 @@ export function LearningSpacePage() {
         onOpen={(root) => { void open(root); }}
         onRetry={() => { void loadSpaces(); }}
       />}
-    <FolderPickerDialog open={picking} onOpenChange={setPicking} onOpened={() => { void navigate("/conversation"); }} />
+    <FolderPickerDialog open={picking} onOpenChange={setPicking} onOpened={goHome} />
   </>;
 }
 

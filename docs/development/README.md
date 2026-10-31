@@ -14,6 +14,7 @@
 | 构建后端及空间历史 | `npm run build:backend` |
 | 启动本机服务 | `npm run dev:backend -- --home /absolute/path/repa-home` |
 | Web 开发 | `npm run dev:web` |
+| Web 开发（学习者版本的后端：加载学习插件、关闭通用 Agent） | `npm run dev:web:learning` |
 | Desktop 开发 | `npm run dev:desktop` |
 | 全仓类型检查、测试与构建 | `npm run check`、`npm test`、`npm run build` |
 

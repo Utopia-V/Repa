@@ -8,15 +8,18 @@
     "build": "npm run build:app",
     "check": "tsc --noEmit",
     "dev": "vite",
+    "dev:learning": "vite --mode learning",
     "prebuild": "npm run build:packages --prefix ../..",
     "precheck": "npm run build:packages --prefix ../..",
     "predev": "npm run build:packages --prefix ../..",
+    "predev:learning": "npm run build:packages --prefix ../..",
     "pretest": "npm run build:packages --prefix ../..",
     "test": "vitest run",
     "build:app": "vite build"
   },
   "dependencies": {
     "@repa/base": "0.1.0",
+    "@repa/learning": "0.1.0",
     "@repa/python-runner": "0.1.0",
     "@shikijs/langs": "4.4.3",
     "@shikijs/rehype": "4.4.3",
