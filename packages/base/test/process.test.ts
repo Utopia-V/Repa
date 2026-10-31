@@ -57,9 +57,10 @@ test("Node 宿主从 stdout 取得连接并可重复关闭服务", async (t) => 
   assert.equal(client.connected, false);
 });
 
-test("Git 程序的路径不是绝对路径时，后端启动即失败，不等到打开空间", async (t) => {
+test("Git 程序的路径不是绝对路径或找不到时，后端启动即失败，不等到打开空间", async (t) => {
   const home = await fixture(t);
   await assert.rejects(startRepaProcess({ home, gitPath: "git" }), /绝对路径/);
+  await assert.rejects(startRepaProcess({ home, gitPath: path.join(home, "没有这个", "git") }), /找不到 Git 程序/);
 });
 
 // 安装包带的 git 经 --git 传入。这里放一个名为 git 的脚本记下每次调用的参数再转给系统的 git，
@@ -74,7 +75,7 @@ test("Node 宿主传入 Git 程序，打开空间和恢复到新文件夹都用�
     await rm(directory, { recursive: true, force: true });
   });
   const real = path.join(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "git");
-  const bin = path.join(directory, "bin");
+  const bin = path.join(directory, "Git 程序");
   const log = path.join(directory, "git.log");
   await mkdir(bin);
   const git = path.join(bin, "git");

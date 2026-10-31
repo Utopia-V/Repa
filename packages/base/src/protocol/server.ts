@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { constants } from "node:fs";
+import { access } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { Check } from "typebox/value";
@@ -98,7 +100,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   if (token.length < 32) throw new RepaFault("invalid_token", "连接令牌至少需要 32 个字符");
   // 启动时就拒绝，不等到打开空间才失败；为什么必须是绝对路径见 space-history 的 createGit。
   const gitPath = options.gitPath;
-  if (gitPath !== undefined && !path.isAbsolute(gitPath)) throw new RepaFault("invalid_git_path", "Git 程序的路径必须是绝对路径");
+  if (gitPath !== undefined) {
+    if (!path.isAbsolute(gitPath)) throw new RepaFault("invalid_git_path", "Git 程序的路径必须是绝对路径");
+    // Windows 上 X_OK 只检查存在；文件缺失或不能执行时，否则要等打开空间才报出意义不明的 ENOENT、EACCES。
+    await access(gitPath, constants.X_OK).catch(() => {
+      throw new RepaFault("invalid_git_path", `找不到 Git 程序或不能执行：${gitPath}`);
+    });
+  }
   const git = gitPath === undefined ? {} : { gitPath };
   const home = resolveAppHome({ home: options.home });
   const settings = await SettingsStore.open(home);
