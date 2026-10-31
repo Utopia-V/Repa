@@ -1,34 +1,34 @@
 {
   "space-format": {
     "digest": "557283bfb3e5b4a7",
-    "basis": "development"
+    "basis": "baseline"
   },
   "session-parent": {
     "digest": "3d399c4db9c7ad1a",
-    "basis": "development"
+    "basis": "baseline"
   },
   "history-source": {
     "digest": "4fd83ee1e6b7ba61",
-    "basis": "development"
+    "basis": "baseline"
   },
   "app-settings": {
     "digest": "105f22723284d875",
-    "basis": "development"
+    "basis": "baseline"
   },
   "restore-marker": {
     "digest": "d2f76b8ec7ac81a2",
-    "basis": "development"
+    "basis": "baseline"
   },
   "backup-manifest": {
     "digest": "f4c0a408f52ae11d",
-    "basis": "development"
+    "basis": "baseline"
   },
   "learning-format": {
     "digest": "557283bfb3e5b4a7",
-    "basis": "development"
+    "basis": "baseline"
   },
   "learning-records": {
     "digest": "fae2451b91d71afb",
-    "basis": "development"
+    "basis": "baseline"
   }
 }
