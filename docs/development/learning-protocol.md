@@ -4,11 +4,11 @@
 
 ## 设计思路
 
-重新打开学习页面时，你需要知道正在做什么、答案是否收下，以及还能执行哪个操作。因此，界面查询一份完整的 `LearningState`，而不是从聊天消息推断进度。这份状态包含当前课程、任务、菜单、限制、服务端时间和进度；其中任务携带公开交付及已接受的原答，可以独立恢复测验画面。
+重新打开学习页面时，你需要知道正在做什么、答案是否收下，以及还能执行哪个操作。因此，界面查询一份完整的 `LearningState`，而不是从聊天消息推断进度。这份状态包含当前课程、任务、菜单、限制、服务端时间和进度；其中任务携带所涉 topic 与知识点的标题、公开交付及已接受的原答，可以独立恢复测验画面。
 
 答案被接受和判分完成是两个时刻。`Submission.processing` 把它们分开，`submissionId` 则把第一次提交、断线查询、继续判分和申诉关联起来。界面即使没有收到响应，也可以先确认这份提交的实际状态，再决定是否重交。后端负责把接受记录写好后才返回 `recorded`，把判分结果写好后才推进任务。
 
-这些形状复用底座的内容块、`Item`、原答、结构检查及错误信封。学习协议只补充领域状态，不另建客户端、事件通道或运行时。公开入口的运行时依赖只有 TypeBox 和浏览器可用的底座协议；课程运行时、夹具和测试计划复用课程 schema，不复制第二套定义。
+这些形状复用底座的内容块、`Item`、原答、结构检查及错误信封。学习协议只补充领域状态，不另建客户端、事件通道或运行时。公开入口的运行时依赖只有 TypeBox，以及浏览器可用的底座协议和运行器协议；课程运行时、夹具和测试计划复用课程 schema，不复制第二套定义。
 
 ## 实现细节
 
@@ -39,7 +39,7 @@ if (state.ok) renderLearning(state.value);
 | 方法 | 输入与结果 |
 | --- | --- |
 | `state.get` | 空输入，返回 `LearningState`，包括课程、任务、菜单、限制和进度 |
-| `menu.select` | `menuId`、`candidateId`，选择 lesson 或 review 并返回当前状态 |
+| `menu.select` | `menuId`、`candidateId`，开始菜单里的任一候选（lesson、review、quiz 或 retake）并返回当前状态；类型和重考的原场次都取自候选，前端不按类型分发，复习、测验与重考由后端经受限开始路径进入 |
 | `task.advance` | `taskId`、`expectedStage`、`expectedRevision`，从讲解到例题、练习或后续阶段；判不出结果的作答停在 `recovery` 时也可以继续下一题，返回状态 |
 | `task.resume` | 同一组任务守卫，继续 `preparing` 的受限开始步骤，返回状态 |
 | `task.abort` | 同一组任务守卫，中止当前任务，不等待判分，返回状态；中止复习时已经不可能通过的，结论记为 `failed` |
@@ -50,15 +50,16 @@ if (state.ok) renderLearning(state.value);
 | `content.search` | `query`、`offset`、`limit`（最多 20），搜索当前任务和已学内容，query 也可填 topic/KP id 以解析概念链接；返回短命中、版本引用、原学习位置及可空 `nextOffset` |
 | `content.read` | `refs`（最多 8）、块 `offset`、`limit`（最多 64），按版本批取讲解、例题、卡片、KP 或已释放解析 |
 | `content.open` | `ref`，核对授权并返回服务端 `openedAt`；只有课内作答之前打开才记为一次求助 |
-| `quiz.start` | `menuId`、`candidateId`，经受限开始路径进入测验，返回状态 |
+| `run.prepare` | 当前任务里一份交付的 `deliveryId`、代码作答位的 `slotId` 和学习者的 `code`，返回交给前端 Python 运行器的批次，见[试运行](#试运行) |
 | `quiz.finish` | 任务守卫，整场交卷并返回状态，不等待判分；重试先查询，已结束场次沿原身份返回既有结果 |
-| `quiz.retake` | `menuId`、`candidateId`、`originalTaskId`，开始菜单提供的重考，返回状态 |
 | `progress.get` | 空输入，返回 `serverNow` 和日目标、XP、完成率、可空的完课日期 |
 | `progress.setGoal` | 正整数 `dailyGoalXp`，返回更新后的状态 |
 | `export.prepare` | `sessions` 表示是否包含会话记录；冻结一份已脱敏的学习数据导出，返回 `exportId` 和清单 `files`，每项是包内路径 `name`、字节数 `bytes`、`.jsonl` 的记录条数 `records` 与替换掉的凭据和密钥处数 `redactions`。包内容见[导出学习数据](learning-records.md#导出学习数据) |
 | `export.create` | `exportId` 和可选的绝对路径 `directory`，把这份预览写成 zip，返回文件路径 `path`；省略 `directory` 时放在应用配置目录的 `exports/`，桌面端可以传入“下载”文件夹 |
 
 导出学习数据时，界面先说明会话可能含有私人内容、默认不包含，再用 `export.prepare` 的清单让学习者确认要发出的文件；学习者切换“包含会话”时重新调用 `export.prepare`。确认以后用同一个 `exportId` 调用 `export.create`，写出的 zip 与清单一致。只有最近一次预览有效，写出成功以后它也失效。
+
+任务的 `topics` 列出任务所涉 topic 的 `id` 与 `title`，`kps` 每项带知识点的 `title` 与进度，标题都取自当前课程。界面显示正在学的 topic 和知识点时直接用这些标题，不另查内容：复习和测验期间不能搜索内容，菜单只在没有进行中的任务时出现，课内作答之前的搜索还会记一次求助。交付的 `topicId` 对应 `topics` 中的一项。
 
 `LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。`completed` 带结论 `outcome`：`passed`、`failed`、`timeout` 或 `unresolved`。`unresolved` 表示测验已经结束（交卷或到了截止时间），但还有作答没判出结果，判出来可能改变结论；它与其他结论一样解除限制、释放反馈，判出以后后端发出 `learning.changed`，结论改为前三种之一。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
 
@@ -89,6 +90,14 @@ if (state.ok) renderLearning(state.value);
 `restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。review、quiz 的 preparing 和进行阶段均关闭辅导与参考读取，结束后重新开放。`ContentRef` 带课程、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取只提供当前课程里的内容：课程换版以后，旧版本的引用按不存在处理，明确报输入错误，不悄悄换成最新版本。
 
 后端先筛掉调用方用不了的题再选题：显示不了的（按 `canRender` 核对 `requires`）、要运行 Python 而调用方没有声明 `python.run` 的，以及没有可用模型时要由模型判分的开放题。菜单只提供每个没过的知识点都有能用的题的课，交付也只在能用的题里选。题池里有题却一道也用不了时，返回缺项（`missing_capability`）并保留原任务，等待可用连接；只缺可用模型时返回 `model_required`。交付前仍调用 `missingDeliveryCapabilities(context.caller?.capabilities, delivery)` 再核对一次：它复用 `canRender`，并为代码题补查 `python.run`；带测试的 Parsons 在 `requiresServices` 声明该服务。
+
+### 辅导会话
+
+辅导对话像 Claude Code 那样，是一段连续的对话，不按任务拆开。前端为一个学习空间保持一段 `learning-tutor` 会话：第一次用 `session.create` 建立，`agent` 填 `learning-tutor`；重开时取 `session.list` 里最近的一段 `learning-tutor` 会话接着用（列表按最后消息时间倒序），并用 `session.history` 恢复显示。学习者可以主动开始新对话，前端为此新建一段会话，旧会话仍留在列表里可查。
+
+换任务时不必新开会话。辅导的视图写出当前任务与阶段，内容一变，底座就在下一条消息之后把新视图交给模型，模型由此得知学习者换到了哪项任务；对话过长时由 Pi 压缩，见[辅导说明](learning-tutor.md#设计思路)。
+
+`restrictions.tutorAllowed` 为 false 时，界面收起或禁用输入框。这时后端也拒收消息：`session.send` 报 `message_rejected`，details 的 `reason` 为 `restricted`。
 
 ### 事件与错误
 
@@ -123,6 +132,16 @@ if (state.ok) renderLearning(state.value);
 - 课程核对和前端执行同一段代码：Node 沙箱和页面 Worker 都用 `runner.py` 的 `program_test` 逐个阶段运行测试。改动它不需要重新生成任何产物。
 - 结果落盘前，后端核对提交和目标判分版本仍然有效。
 
+### 试运行
+
+学习者提交之前可以点“运行”，看看自己的代码输出什么。前端只有学习者写的代码，拼不出能运行的程序：例如题目让学习者筛选成绩表 `df`，`df` 由课程的运行前导、题目的数据夹具和测试的准备代码建立，这些都在后端，单独运行学习者的代码会报 `df` 未定义。所以前端先调用 `run.prepare`，传入当前任务里一份交付的 `deliveryId`、代码作答位的 `slotId` 和学习者的 `code`；后端返回一份 `repa-python-batch-v2` 批次，即运行器协议的 `PythonBatchInput`，前端在本机运行它。
+
+这份批次只有一个测试：按这一问第一个公开测试准备前导、数据夹具和 setup，再运行学习者的代码。准备的方式与判分相同，都由 [`code-tests.ts`](../../packages/learning/src/code-tests.ts) 给出，所以试运行与判分里的这个测试在同样的环境里执行。批次不带 captures 和 doctest，期望表达式、隐藏测试的输入和参考解都不在里面；测试全部隐藏时，只准备前导和题面上的数据。
+
+前端另建一个 `PythonRunner` 运行这份批次，不与 `servePythonRun` 判分用的那个共用 Worker，再显示 `tests[0]` 的结果：`completed` 时显示 `result.stdout`，`result.error` 不为空时另外显示异常的类型、消息和行号；`timeout` 或 `failed` 时说明停在哪个阶段。结果只给学习者看，不交回后端。
+
+试运行不写学习记录，不算作答，也不算求助。运行自己的代码看不到答案，所以课、复习和测验期间都可以用。交付不在当前任务里时返回 `stale_state`，这一问不是代码作答位时返回 `invalid_input`。
+
 ## 未完成项与待验证项
 
 | 项目 | 当前范围与接续 |
@@ -146,3 +165,5 @@ npm run build:protocol --workspace=@repa/learning
 ```
 
 [`learning-contract.test.ts`](../../packages/learning/test/learning-contract.test.ts) 检查严格发送、宽松读取、能力缺项、错误细节、恢复和 Python 比较形状，并用 esbuild 的 browser 平台独立打包公开入口。[连续夹具](../../packages/learning/test/fixtures/learning-contract.ts) 覆盖 lesson 原答、待判、重连待恢复、完成、菜单、受限测验、已答与截止时间，以及结束后可打开的概念卡。夹具用于审阅协议，各任务的方法处理器和实际故障另按所属任务验收。
+
+任务标题、菜单选择和试运行经真实的插件方法检查。`learning-quiz-xp.test.ts` 在课里、受限的测验与复习进行中以及重开以后读取标题，测验和换题重考都用 `menu.select` 开始。`learning-facts.test.ts` 在课和复习中试运行：批次里没有期望值、隐藏测试和参考解，准备的环境与判分相同，学习者的代码用得到前导、数据夹具和 setup 定义的名称，学习记录逐字节不变，之后的作答仍是独立完成的证据。

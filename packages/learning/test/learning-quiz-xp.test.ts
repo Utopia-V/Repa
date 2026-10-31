@@ -116,16 +116,13 @@ async function fixture(
     return parse(learningMethods[method].result, result) as LearningResult<M>;
   }
   const state = () => call("state.get", {});
+  /** 像前端那样选菜单里的候选：四种类型都用 menu.select，不按类型分发。 */
   async function select(kind: "lesson" | "review" | "quiz" | "retake", id?: string) {
     const current = await state();
     const candidate = current.menu?.candidates.find((entry) => entry.kind === kind && (!id || entry.topicIds.includes(id)));
     assert.ok(candidate, JSON.stringify(current.menu));
     assert.ok(current.menu);
-    const input = { menuId: current.menu.menuId, candidateId: candidate.id };
-    if (candidate.originalTaskId) {
-      return call("quiz.retake", { ...input, originalTaskId: candidate.originalTaskId });
-    }
-    return call(kind === "quiz" ? "quiz.start" : "menu.select", input);
+    return call("menu.select", { menuId: current.menu.menuId, candidateId: candidate.id });
   }
   async function guard() {
     const current = await state();
@@ -278,7 +275,7 @@ test("错题立即强制直接复习，成功后同 topics 换题重考；复制
   await f.finishTask();
   assert.equal((await f.fold()).forced.size, 0);
   const retake = await f.select("retake");
-  assert.deepEqual(retake.task?.topicIds, failed?.topicIds);
+  assert.deepEqual(retake.task?.topics, failed?.topics);
   const question = (id: string) => f.replay().delivery(Number(id.slice(1)))?.questionId;
   for (const delivery of retake.task?.deliveries ?? []) {
     const original = failed?.deliveries.find((entry) => entry.topicId === delivery.topicId);
@@ -293,6 +290,44 @@ test("错题立即强制直接复习，成功后同 topics 换题重考；复制
   const restored = await f.state();
   await f.reopen();
   assert.deepEqual(await f.state(), restored);
+});
+
+test("任务带 topic 与知识点的标题：课里、受限的测验与复习进行中、重开以后，界面都不必搜索内容就能显示名称", async (t) => {
+  const topicTitle = (id: string) => `主题 ${id}`;
+  const kpTitle = (id: string) => `要点 ${id}`;
+  const f = await fixture(t, false, 2, undefined, (topics) => {
+    for (const topic of topics) {
+      topic.title = topicTitle(topic.id);
+      for (const kp of topic.kps) {
+        kp.title = kpTitle(kp.id);
+      }
+    }
+  });
+  for (const id of ["t0", "t1", "t2", "t3"]) {
+    const lesson = await f.select("lesson", id);
+    assert.deepEqual(lesson.task?.topics, [{ id, title: topicTitle(id) }]);
+    assert.deepEqual(lesson.task?.kps.map((kp) => [kp.kpId, kp.title]), [[`${id}.k1`, kpTitle(`${id}.k1`)]]);
+    await f.finishTask();
+  }
+  // 测验进行中菜单已经收起，也不能搜索内容；标题只能从任务本身读到，重开以后照样在。
+  const quiz = await f.select("quiz");
+  assert.ok(quiz.task);
+  assert.equal(quiz.menu, null);
+  await assert.rejects(f.call("content.search", { query: "t1", offset: 0, limit: 10 }));
+  const byId = (left: { id: string }, right: { id: string }) => left.id.localeCompare(right.id);
+  assert.deepEqual([...quiz.task.topics].sort(byId), ["t0", "t1", "t2", "t3"].map((id) => ({ id, title: topicTitle(id) })));
+  await f.reopen();
+  assert.deepEqual((await f.state()).task?.topics, quiz.task.topics);
+  // 答错第一题后交卷，这个 topic 进入强制复习；复习同样受限，标题照样在任务里。
+  await f.submit(0, false);
+  await f.answerRest();
+  await f.call("quiz.finish", await f.guard());
+  const wrong = quiz.task.deliveries[0]?.topicId;
+  assert.ok(wrong);
+  const review = await f.select("review", wrong);
+  assert.equal(review.restrictions.referenceContentAllowed, false);
+  assert.deepEqual(review.task?.topics, [{ id: wrong, title: topicTitle(wrong) }]);
+  assert.deepEqual(review.task?.kps.map((kp) => kp.title), [kpTitle(`${wrong}.k1`)]);
 });
 
 test("准备失败沿受限入口重开；截止前收下的开放题作答没判出结果时测验照样按时结束，重开补判后结果与 XP 随之更新", async (t) => {
@@ -380,7 +415,8 @@ for (const failingReview of [false, true]) {
     const student = (await f.fold()).student;
     await f.reopen();
     assert.deepEqual((await f.fold()).student, student);
-    const wrong = running.task.topicIds[0];
+    const topicIds = running.task.topics.map((topic) => topic.id);
+    const wrong = topicIds[0];
     assert.ok(wrong);
     await f.select("review", wrong);
     if (failingReview) {
@@ -394,8 +430,8 @@ for (const failingReview of [false, true]) {
       return;
     }
     await f.finishTask();
-    for (let index = 1; index < running.task.topicIds.length; index++) {
-      await f.select("review", running.task.topicIds[index]);
+    for (const id of topicIds.slice(1)) {
+      await f.select("review", id);
       await f.finishTask();
     }
     await assert.rejects(f.select("retake"), (error: unknown) =>
@@ -771,7 +807,7 @@ test("测验准备失败并中止后保留耗尽的延后窗口与原候选", as
   assert.deepEqual(f.replay().pending, pending);
   f.failStart(false);
   const running = await f.select("quiz");
-  assert.deepEqual(running.task?.topicIds, pending.topicIds);
+  assert.deepEqual(running.task?.topics.map((topic) => topic.id), pending.topicIds);
   assert.equal(f.replay().pending, undefined);
   assert.equal(f.replay().consumed, 1);
 });

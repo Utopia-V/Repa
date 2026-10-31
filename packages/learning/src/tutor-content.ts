@@ -86,7 +86,7 @@ export async function visibleContent(session: LearningSession, view: LearningVie
   const pages: ContentPage[] = [];
   for (const entry of index) {
     const learned = view.student[entry.ref.topicId];
-    const active = currentTask?.topicIds.includes(entry.ref.topicId);
+    const active = currentTask?.topics.some((topic) => topic.id === entry.ref.topicId);
     if (!learned && !active) {
       continue;
     }

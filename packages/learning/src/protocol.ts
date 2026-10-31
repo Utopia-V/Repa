@@ -5,7 +5,7 @@
  * contentVersion。这里在它上面加学习要用的部分；通用的部分直接用底座的，不另行定义。
  * 判分与原答形状延续 2026-10-12 从底座移走的词汇；任务契约供后续插件实现与前端共用。
  *
- * 本文件经 @repa/learning/protocol 导出，只依赖 typebox 和 @repa/base/protocol，浏览器里也能用。
+ * 本文件经 @repa/learning/protocol 导出，只依赖 typebox、@repa/base/protocol 和 @repa/python-runner/protocol，浏览器里也能用。
  * 规则与底座的词汇相同：只增不改，发送方按当前版本严格校验，多余字段直接拒绝；前端通过
  * readLearningResult 等入口宽松读取，插件比前端新时也能显示。
  */
@@ -17,6 +17,7 @@ import {
   AskSubmitResultSchema,
   canRender,
   checkResponse,
+  CodeAnswerSchema,
   ContentSchema,
   ExportedFileSchema,
   identifier,
@@ -31,6 +32,7 @@ import {
   type ReadFallback,
   type ReadResult,
 } from "@repa/base/protocol";
+import { PythonBatchInputSchema } from "@repa/python-runner/protocol";
 
 /** 指向一道题的某个版本：{ id, version }，与作答里的 item 相同。 */
 const reference = ItemResponseSchema.properties.item;
@@ -278,11 +280,18 @@ const phase = Type.Union([
   object({ stage: Type.Literal("completed"), outcome: Type.Enum(["passed", "failed", "timeout", "unresolved"]) }),
   object({ stage: Type.Literal("aborted"), reason: Type.String({ maxLength: 500 }) }),
 ]);
-/** 当前任务：类型、topic、阶段、开始与截止时间、各知识点的进度，以及交付和已接受的提交，界面据此独立恢复画面。 */
+/**
+ * 当前任务：类型、topic 及其标题、阶段、开始与截止时间、各知识点的标题与进度，以及交付和已接受的提交，界面据此独立恢复画面。
+ * 标题取自当前课程：复习、测验期间不能搜索内容，菜单也只在没有进行中的任务时出现，界面只能从任务本身取得这些名称。
+ */
 export const LearningTaskSchema = object({
-  taskId: identifier, kind, topicIds: Type.Array(identifier), phase,
+  taskId: identifier, kind,
+  topics: Type.Array(object({ id: identifier, title: Type.String({ maxLength: 200 }) })),
+  phase,
   startedAt: nullableTime, deadlineAt: nullableTime,
-  kps: Type.Array(object({ kpId: identifier, attempts: count, consecutiveCorrect: count, completed: Type.Boolean() })),
+  kps: Type.Array(object({
+    kpId: identifier, title: Type.String({ maxLength: 200 }), attempts: count, consecutiveCorrect: count, completed: Type.Boolean(),
+  })),
   deliveries: Type.Array(DeliverySchema), submissions: Type.Array(SubmissionSchema),
 });
 /** 学习者当前的任务。 */
@@ -344,12 +353,12 @@ export const LearningErrorDetailsSchema = Type.Union([
 export type LearningErrorDetails = Static<typeof LearningErrorDetailsSchema>;
 
 const guard = { taskId: identifier, expectedStage: TaskStageSchema, expectedRevision: count };
-const selection = object({ menuId: identifier, candidateId: identifier });
 const submission = object({ submissionId: identifier });
 /** 本表是 learning 插件方法的 input/result；不另造 RPC 信封。 */
 export const learningMethods = {
   "state.get": { input: object({}), result: LearningStateSchema },
-  "menu.select": { input: selection, result: LearningStateSchema },
+  // 菜单的各类候选都用它开始，类型由后端按候选判断，前端不按类型分发。
+  "menu.select": { input: object({ menuId: identifier, candidateId: identifier }), result: LearningStateSchema },
   "task.advance": { input: object(guard), result: LearningStateSchema },
   "task.resume": { input: object(guard), result: LearningStateSchema },
   "task.abort": { input: object(guard), result: LearningStateSchema },
@@ -372,9 +381,12 @@ export const learningMethods = {
   },
   "content.read": { input: object({ refs: Type.Array(ContentRefSchema, { minItems: 1, maxItems: 8 }), ...range }), result: Type.Array(ContentPageSchema) },
   "content.open": { input: object({ ref: ContentRefSchema }), result: object({ openedAt: timestamp }) },
-  "quiz.start": { input: selection, result: LearningStateSchema },
+  // 学习者提交之前自己运行代码：返回交给前端 Python 运行器的批次，不带期望值；不写学习记录，不算作答，也不算求助。
+  "run.prepare": {
+    input: object({ deliveryId: identifier, slotId: identifier, code: CodeAnswerSchema.properties.code }),
+    result: PythonBatchInputSchema,
+  },
   "quiz.finish": { input: object(guard), result: LearningStateSchema },
-  "quiz.retake": { input: object({ ...selection.properties, originalTaskId: identifier }), result: LearningStateSchema },
   "progress.get": { input: object({}), result: object({ serverNow: timestamp, progress: LearningProgressSchema }) },
   "progress.setGoal": { input: object({ dailyGoalXp: Type.Integer({ minimum: 1 }) }), result: LearningStateSchema },
   // 导出学习数据：prepare 冻结一份已脱敏的内容并返回清单，create 把同一份内容写成 zip；directory 是绝对路径。

@@ -4,6 +4,10 @@ import type { ContentPage, Delivery, LearningState, Submission } from "../../src
 
 const markdown = (text: string): Content => [{ type: "markdown", text }];
 export const version = `sha256:${"a".repeat(64)}`;
+/** 任务画面里的 topic 与知识点标题取自随包 Python 课。 */
+const py01 = { id: "py01", title: "给数据起名，再按顺序读" };
+const py02 = { id: "py02", title: "把计算写成表达式" };
+const kp = { kpId: "py01.k1", title: "名字指向当前的值，赋值先算右边" };
 export const now = 1_792_454_400_000;
 export const item: Item = {
   id: "delivery.q1", version, requires: ["block.markdown", "slot.code"],
@@ -38,9 +42,9 @@ export function lesson(): LearningState {
       completedTopics: 0, totalTopics: 48, completionRate: 0, etaDate: null,
     },
     task: {
-      taskId: "lesson-1", kind: "lesson", topicIds: ["py01"], startedAt: now, deadlineAt: null,
+      taskId: "lesson-1", kind: "lesson", topics: [py01], startedAt: now, deadlineAt: null,
       phase: { stage: "awaiting_answer", deliveryId: delivery.deliveryId },
-      kps: [{ kpId: "py01.k1", attempts: 1, consecutiveCorrect: 1, completed: false }],
+      kps: [{ ...kp, attempts: 1, consecutiveCorrect: 1, completed: false }],
       deliveries: [structuredClone(delivery)], submissions: [],
     },
   };
@@ -66,7 +70,7 @@ export function recoveryTrace(): LearningState[] {
   feedback.serverNow = now + 8_000;
   if (feedback.task) {
     feedback.task.phase = { stage: "feedback", submissionId: accepted.submissionId };
-    feedback.task.kps = [{ kpId: "py01.k1", attempts: 2, consecutiveCorrect: 2, completed: true }];
+    feedback.task.kps = [{ ...kp, attempts: 2, consecutiveCorrect: 2, completed: true }];
     feedback.task.submissions = [{
       ...structuredClone(accepted), processing: { status: "completed" }, gradeRevision: 1,
       feedback: { item: accepted.response.item, verdict: "correct", judge: "tests", evidence: { status: "eligible" } },
@@ -95,7 +99,7 @@ export function recoveryTrace(): LearningState[] {
   quiz.serverNow = now + 20_000;
   if (quiz.task) {
     quiz.task.startedAt = now + 10_000;
-    quiz.task.topicIds = ["py01", "py02"];
+    quiz.task.topics = [py01, py02];
     quiz.task.deadlineAt = now + 910_000;
     quiz.task.phase = { stage: "awaiting_answer", deliveryId: "quiz-delivery-2" };
     quiz.task.deliveries = [1, 2].map((index) => ({

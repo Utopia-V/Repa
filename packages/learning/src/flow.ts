@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
 import type { MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
 import { parse, type ClientCapabilities } from "@repa/base/protocol";
+import { trialBatch } from "./code-tests.js";
 import { deliverySeed, mapAnswer, renderDelivery } from "./delivery.js";
 import { isQuiz, sequenceOf, taskId, topicEligible, type DeliveryRecord, type TaskEvidence } from "./flow-state.js";
 import {
@@ -153,18 +154,15 @@ export async function connectLearning(
     });
   }
 
-  async function select(input: LearningInput<"menu.select">, context: MethodContext, originalTaskId?: string, quizOnly = false) {
+  method("state.get", async (_input, context) => session.state(context.caller?.capabilities));
+  // 开始菜单里的任一候选：类型和重考的原场次都取自候选本身。课当场开始，复习、测验与重考经受限开始路径进入。
+  method("menu.select", async (input, context) => {
     const capabilities = context.caller?.capabilities;
     let restricted = false;
     await session.write(async () => {
       const state = await session.state(capabilities);
       const candidate = state.menu?.candidates.find((entry) => entry.id === input.candidateId);
-      if (
-        !candidate ||
-        state.menu?.menuId !== input.menuId ||
-        (originalTaskId !== undefined && candidate.originalTaskId !== originalTaskId) ||
-        (quizOnly && candidate.kind !== (originalTaskId ? "retake" : "quiz"))
-      ) {
+      if (!candidate || state.menu?.menuId !== input.menuId) {
         throw stale("菜单已失效");
       }
       restricted = candidate.kind !== "lesson";
@@ -175,12 +173,7 @@ export async function connectLearning(
       await startRestricted(capabilities);
     }
     return session.state(capabilities);
-  }
-
-  method("state.get", async (_input, context) => session.state(context.caller?.capabilities));
-  method("menu.select", (input, context) => select(input, context));
-  method("quiz.start", (input, context) => select(input, context, undefined, true));
-  method("quiz.retake", (input, context) => select(input, context, input.originalTaskId, true));
+  });
   method("task.resume", async (input, context) => {
     const evidence = current();
     if (
@@ -363,6 +356,24 @@ export async function connectLearning(
     }
     await session.grade(delivery.seq);
     return { status: "recorded", submission: await session.submission(delivery) };
+  });
+  // 试运行：只读当前状态，不写事实，所以不算作答，也不算求助；运行自己的代码看不到答案，复习和测验期间同样可用。
+  method("run.prepare", async (input) => {
+    const seq = sequenceOf(input.deliveryId, "d");
+    const delivery = seq === undefined ? undefined : session.replay.delivery(seq);
+    if (!delivery || delivery.task !== current()?.task) {
+      throw stale("这份交付不在当前任务里");
+    }
+    const entry = session.course.questions.get(delivery.questionId);
+    const slot = entry?.question.slots.find((candidate) => candidate.id === input.slotId);
+    if (!entry || slot?.type !== "code") {
+      throw new RepaFault("invalid_input", "只有代码作答位可以试运行");
+    }
+    const batch = trialBatch(entry.question, slot, entry.topic, session.course.course.course.runtime.prelude ?? "", input.code);
+    if (!batch) {
+      throw new RepaFault("service_failed", "题目的测试用到的数据夹具缺失");
+    }
+    return batch;
   });
   return { methods };
 }
