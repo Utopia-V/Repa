@@ -1,6 +1,6 @@
 # 包的约定
 
-以下约定用于保持包的边界清晰，背景见[文档纪律提案](../.agents/notes/proposed/process/2026-10-29-docs-discipline.md#仓库结构的约定)。
+以下约定用于保持包的边界清晰，背景见[文档纪律记录](../.agents/notes/implemented/process/2026-10-29-docs-discipline.md#仓库结构的约定)。
 
 - 每个包均包含 `package.json`、`README.md`、`src/` 和 `test/`。
 - README 按[文档规则中的骨架](../docs/AGENTS.md#包-readme-骨架)编写，用法和约定由所属包持有。
