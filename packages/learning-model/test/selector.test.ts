@@ -59,11 +59,11 @@ test("部分包含不足以清除到期时，选择器保留显式复习且不�
   assert.deepEqual(tasks.find((task) => task.topicId === "b")?.reason.clearsOnPass, ["b"]);
 });
 
-test("不能等待尚不可学的覆盖主题，严重逾期一次通过仍到期也会提供显式复习", () => {
+test("不能等待尚不可学的覆盖主题，严重逾期的主题直接给显式复习，满额通过即解除到期", () => {
   const student: Student = { a: { ...learnedState } };
   const tasks = selectTasks(graph, student, 30);
   assert.equal(tasks[0]?.topicId, "a");
-  assert.deepEqual(tasks[0]?.reason.clearsOnPass, []);
+  assert.deepEqual(tasks[0]?.reason.clearsOnPass, ["a"]);
   assert.equal(tasks[0]?.reason.kind, "due");
   assert.equal(tasks.some((task) => task.topicId === "c"), false);
 });

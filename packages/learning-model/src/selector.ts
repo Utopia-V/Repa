@@ -57,7 +57,7 @@ export function selectTasks(
   while (selected.length < limit && available.length > 0) {
     const score = (candidate: Candidate): number => {
       const covered = new Set(candidate.reason.clearsOnPass.filter((id) => remaining.has(id)));
-      // 严重逾期时，一次成功也可能仍到期；仍要给它直接复习的机会。
+      // 到期线高于满额线时，到期的复习仍打提前折扣，一次通过未必能把它带出到期线；仍要给它直接复习的机会。
       if (remaining.has(candidate.topicId)) covered.add(candidate.topicId);
       return covered.size;
     };

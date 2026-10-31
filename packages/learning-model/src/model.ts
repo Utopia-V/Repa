@@ -4,7 +4,8 @@ export type { ModelConfig } from "./schema.js";
 
 /**
  * HSRS 公式里的常数。Justin Skycak 公开了公式的结构（HSRS／FIRe 文章与 The Math Academy Way）：repNum 与 memory 的两条更新式、
- * memory 每过一个理想间隔减半、通过的信用沿包含关系向下传而失败向上传、speed 低于 1 的 topic 不收隐式的正信用。
+ * memory 每过一个理想间隔减半、通过的信用沿包含关系向下传而失败向上传、speed 低于 1 的 topic 不收隐式的正信用。memory 式没有标出
+ * 各项属于哪个时刻，Repa 的取法见 applyRepetition。
  * 下面的常数是公开资料没有给出的部分，全部是 Repa 的假设，等真实作答校准；它们控制什么、什么证据会改变它们，
  * 见学习插件说明里的“尚待查证的假设”。调参就是换这组常数：用另一组参数重放同一份历史作答，可以比较两组参数的预测。
  */
@@ -92,15 +93,16 @@ export function applyRepetition(
     // 公开规则只拒收正向隐式信用；向上的失败惩罚仍然生效。
     if (!explicit && passed && previous.speed < 1) continue;
     const days = day - previous.lastRepetitionDay;
-    const factor = 0.5 ** (days / previous.interval);
     const memory = memoryAt(previous, day);
     const discount = Math.max(0, Math.min(1, (1 - memory) / (1 - config.fullCreditMemory)));
     const rawDelta = (passed ? 1 : -1) * quality * weight * discount;
     // 每逾期一个理想间隔，失败多退 decaySlope 倍；成功不受此项放大。
     const decay = 1 + config.decaySlope * Math.max(0, days / previous.interval - 1);
     const repNum = Math.max(0, previous.repNum + previous.speed * (passed ? 1 : decay) * rawDelta);
-    // 沿用公开公式的加法结构；以更新前 interval 对整体衰减是 Repa 的时间协议假设。
-    const updatedMemory = Math.max(0, previous.memory + rawDelta) * factor;
+    // 差额更新（Repa 假设，公开式没有标出各项属于哪个时刻）：旧 memory 先按旧间隔衰减到这一天，这次的信用再补上它与 1 之间差额的
+    // rawDelta 倍，从这一天起按新间隔衰减。这一天的信用不再乘以此前的衰减，迟到的满额通过同样回到 1，不会马上又到期；
+    // 失败按同样的比例往下扣。信用为零时只把锚点移到这一天，遗忘的轨迹不变。
+    const updatedMemory = Math.max(0, memory + (1 - memory) * rawDelta);
     // 只有显式复习调整 speed；本次仍用旧 speed，下一次才用新值。
     let speed = previous.speed;
     if (explicit && !firstLearning) {

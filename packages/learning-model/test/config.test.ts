@@ -16,7 +16,7 @@ function state(student: Student, id = "a"): TopicState {
   return value;
 }
 
-test("默认参数逐项命名，保留 v0 的数值；省略参数和显式传默认参数产生完全相同的状态与候选", () => {
+test("默认参数逐项命名，常数保留 v0 的取值；省略参数和显式传默认参数产生完全相同的状态与候选", () => {
   assert.deepEqual(DEFAULT_MODEL_CONFIG, {
     dueMemory: 0.5, fullCreditMemory: 0.5, initialSpeed: 1, minimumSpeed: 0.5, maximumSpeed: 1.5,
     passSpeedStep: 0.1, failSpeedStep: 0.2, intervalBase: 2, maximumInterval: 365, decaySlope: 1,
@@ -45,8 +45,9 @@ test("默认参数逐项命名，保留 v0 的数值；省略参数和显式传�
   }
 });
 
-test("参数化后既有 simulate 的四项默认结果与冻结的 v0 数值精确一致", () => {
-  // v0 默认 compare() 的冻结回归值；精确比较计数及浮点预测。
+test("差额更新的基线：simulate 的四项默认结果与冻结的数值精确一致", () => {
+  // memory 改为差额更新以后，默认 compare() 的冻结基线；v0 的数值（memory 先加信用再整体衰减）见 git 历史。
+  // 精确比较计数及浮点预测。
   assert.deepEqual(compare(), [
     {
       scenario: "always-pass", policy: "independent", explicitReviews: 216, failures: 0,
@@ -54,19 +55,19 @@ test("参数化后既有 simulate 的四项默认结果与冻结的 v0 数值精
       budgetExhaustedDays: 0, meanRecallAfterSevenDays: null,
     },
     {
-      scenario: "always-pass", policy: "fire-compression", explicitReviews: 128, failures: 0,
+      scenario: "always-pass", policy: "fire-compression", explicitReviews: 122, failures: 0,
       learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 0, dueTopicDays: 0,
       budgetExhaustedDays: 0, meanRecallAfterSevenDays: null,
     },
     {
-      scenario: "forgetting", policy: "independent", explicitReviews: 308, failures: 45,
-      learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 3, dueTopicDays: 15,
-      budgetExhaustedDays: 9, meanRecallAfterSevenDays: 0.8322899234301621,
+      scenario: "forgetting", policy: "independent", explicitReviews: 289, failures: 35,
+      learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 2, dueTopicDays: 6,
+      budgetExhaustedDays: 5, meanRecallAfterSevenDays: 0.7822859464587009,
     },
     {
-      scenario: "forgetting", policy: "fire-compression", explicitReviews: 195, failures: 36,
-      learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 0, dueTopicDays: 0,
-      budgetExhaustedDays: 0, meanRecallAfterSevenDays: 0.6807622933344775,
+      scenario: "forgetting", policy: "fire-compression", explicitReviews: 183, failures: 31,
+      learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 1, dueTopicDays: 1,
+      budgetExhaustedDays: 1, meanRecallAfterSevenDays: 0.6042004527893007,
     },
   ]);
 });
@@ -87,13 +88,14 @@ test("间隔的底数和上限同时应用于初学及更新后的间隔", () =>
 test("提前复习的折扣在 memory 降到满额线时拿满额，之前线性打折，刚复习过时没有信用", () => {
   const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, fullCreditMemory: 0.25 };
   const student: Student = { a: { ...learnedState } };
-  // 半天以后 memory 为 √0.5：默认满额线下折扣是 2(1 − √0.5)，满额线降到 0.25 时是 (1 − √0.5)／0.75。
+  // 半天以后 memory 为 √0.5：默认满额线下折扣是 2(1 − √0.5)，满额线降到 0.25 时是 (1 − √0.5)／0.75；
+  // memory 再补上与 1 之间差额的这么多倍。
   const factor = Math.sqrt(0.5);
   const pass = state(applyRepetition(independent, student, { topicId: "a", day: 0.5, outcome: "pass" }));
   assert.equal(pass.repNum, 4 + 2 * (1 - factor));
   const later = state(applyRepetition(independent, student, { topicId: "a", day: 0.5, outcome: "pass" }, config));
   assert.equal(later.repNum, 4 + (1 - factor) / 0.75);
-  assert.equal(later.memory, (1 + (1 - factor) / 0.75) * factor);
+  assert.equal(later.memory, factor + (1 - factor) * ((1 - factor) / 0.75));
   for (const outcome of ["pass", "fail"] as const) {
     const fresh = state(applyRepetition(independent, student, { topicId: "a", day: 0, outcome }, config));
     assert.equal(fresh.repNum, 4);
@@ -104,13 +106,13 @@ test("提前复习的折扣在 memory 降到满额线时拿满额，之前线性
 test("逾期倒退的斜率只放大失败的 repNum，不改变 memory 公式", () => {
   const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, decaySlope: 0.5 };
   const student: Student = { a: { ...learnedState } };
-  // 逾期两个理想间隔：decay 为 1 + 0.5 × 2。
+  // 逾期两个理想间隔：decay 为 1 + 0.5 × 2。memory 衰减到 0.125，失败扣掉差额 0.875 的四分之一以后低于零，取零。
   const fail = state(applyRepetition(independent, student, { topicId: "a", day: 3, outcome: "fail", quality: 0.25 }, config));
   assert.equal(fail.repNum, 3.5);
-  assert.equal(fail.memory, 0.75 * 0.125);
+  assert.equal(fail.memory, 0);
   const pass = state(applyRepetition(independent, student, { topicId: "a", day: 3, outcome: "pass", quality: 0.25 }, config));
   assert.equal(pass.repNum, 4.25);
-  assert.equal(pass.memory, 1.25 * 0.125);
+  assert.equal(pass.memory, 0.125 + 0.875 * 0.25);
 });
 
 test("speed 按参数的步长和上下界调整，初学使用参数里的初值，只有显式复习调整", () => {
