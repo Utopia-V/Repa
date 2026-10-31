@@ -188,8 +188,14 @@ const LEARNER_BACKEND: RepaProcessOptions = {
 };
 
 // `vite --mode learning` 按学习者版本启动后端；页面本身不分版本，按后端提供的插件和 Agent 决定入口。
+// 桌面端用 desktop 模式加载这份配置（见 apps/desktop/electron.vite.config.ts）：后端由 Electron 主进程启动，这里不另起一个。
 export default defineConfig(({ mode }) => ({
-  plugins: [repaDevelopmentBackend(mode === "learning" ? LEARNER_BACKEND : {}), repaPythonRuntime(), react(), tailwindcss()],
+  plugins: [
+    ...(mode === "desktop" ? [] : [repaDevelopmentBackend(mode === "learning" ? LEARNER_BACKEND : {})]),
+    repaPythonRuntime(),
+    react(),
+    tailwindcss(),
+  ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: {
     host: "127.0.0.1",

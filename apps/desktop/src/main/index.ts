@@ -1,8 +1,9 @@
-import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, protocol } from "electron";
+import { stat } from "node:fs/promises";
+import { basename, isAbsolute, join } from "node:path";
+import { app, BrowserWindow, ipcMain, protocol, shell, type IpcMainInvokeEvent } from "electron";
 
 import { startRepaProcess, type RepaProcess } from "@repa/base/process";
-import { APP_PAGE_URL, APP_SCHEME, createAppHandler } from "./app-protocol";
+import { APP_PAGE_URL, APP_SCHEME, createAppHandler, isAppUrl } from "./app-protocol";
 import { learnerBackend } from "./learner";
 import { pythonAssets, workspacePythonDirectories, type PythonAssetLookup, type PythonRuntimeDirectories } from "./python-runtime";
 
@@ -53,21 +54,20 @@ function isTrustedRenderer(url: string): boolean {
         new URL(process.env.ELECTRON_RENDERER_URL).origin
       );
     }
-    return new URL(url).href === APP_PAGE_URL;
+    return isAppUrl(url);
   } catch {
     return false;
   }
 }
 
-ipcMain.handle("repa:get-connection", async (event) => {
+/** 请求是否来自应用窗口的主页面，而不是页面里嵌入的其他内容。 */
+function fromMainPage(event: IpcMainInvokeEvent): boolean {
   const owner = BrowserWindow.fromWebContents(event.sender);
-  if (
-    !owner ||
-    event.senderFrame !== owner.webContents.mainFrame ||
-    !isTrustedRenderer(event.senderFrame.url)
-  ) {
-    throw new Error("拒绝非主页面读取 Repa 连接。");
-  }
+  return owner !== null && event.senderFrame === owner.webContents.mainFrame && isTrustedRenderer(event.senderFrame.url);
+}
+
+ipcMain.handle("repa:get-connection", async (event) => {
+  if (!fromMainPage(event)) throw new Error("拒绝非主页面读取 Repa 连接。");
   try {
     return (await getBackend()).connection;
   } catch (error) {
@@ -75,6 +75,20 @@ ipcMain.handle("repa:get-connection", async (event) => {
       error instanceof Error ? error.message : "Repa 后端启动失败。",
     );
   }
+});
+
+// 只打开反馈包，与 Web 开发服务器的同名端点一致：页面不能借它在文件管理器里打开任意路径。
+const FEEDBACK_FILE = /^repa-feedback-[\d-]+\.zip$/u;
+
+ipcMain.handle("repa:reveal-file", async (event, file: unknown) => {
+  if (!fromMainPage(event)) throw new Error("拒绝非主页面打开文件夹。");
+  if (typeof file !== "string" || !isAbsolute(file) || !FEEDBACK_FILE.test(basename(file))) {
+    throw new Error("只能打开反馈包所在的文件夹。");
+  }
+  // 文件不在（例如已被用户移走）是预期情况，页面据此提示用户手动打开。
+  const info = await stat(file).catch(() => undefined);
+  if (!info?.isFile()) throw new Error("找不到这个文件，可能已经被移动或删除。");
+  shell.showItemInFolder(file);
 });
 
 function pythonDirectories(): Promise<PythonRuntimeDirectories> {

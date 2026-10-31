@@ -55,9 +55,9 @@ docs/design-system.md
 
 `SelectionButton` 统一持续选择的背景、可见标记与键盘焦点，用于目录、筛选和拓扑节点；`SearchInput` 组合 Input 和 Button，页面不再通过子元素选择器改写输入框圆角。`ConversationMessage` 将 sender 映射到 `MessageBubble` 的 variant；通用气泡视觉由 ui 持有。没有真实调用方的业务组件不预建。
 
-Desktop renderer 在 `apps/desktop/src/renderer/src/` 持有自己的 `globals.css`、基础组件源码和业务组合，当前只引入主应用与侧栏实际使用的组件。主题语义和侧栏交互以 Web 当前实现为基准；连接继续通过 preload 的 `getConnection` 获取，路由继续使用 Memory Router，窗口保留原生标题栏。Desktop 的 Tailwind 插件与路径别名由 `electron.vite.config.ts` 提供，`src/renderer/src/main.tsx` 加载主题和宿主样式。两端没有共享组件包，后续改动共同规则时需核对对应实现。
+Desktop 没有自己的界面：renderer 就是 `apps/web`，由 `apps/desktop/electron.vite.config.ts` 按 Web 自己的 Vite 配置以 desktop 模式构建和开发，所以组件、主题和路由只有 Web 一份。页面运行在桌面端时，preload 在 `window.repaHost` 上提供连接和“在文件夹中显示”，见 `apps/web/src/lib/host.ts`；窗口保留原生标题栏。
 
-Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run test --workspace=@repa/desktop` 和 `npm run build --workspace=@repa/desktop`；`apps/desktop/test/app.test.tsx` 覆盖启动与重连、Memory Router 导航、折叠栏和窄窗口抽屉。
+Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run test --workspace=@repa/desktop` 和 `npm run build --workspace=@repa/desktop`；界面本身的测试在 Web。
 
 ## 参考方式
 
@@ -93,7 +93,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 - `SidebarRail` 是侧栏边缘的 16 px 手势条，点击切换展开/收起，悬停显示 2 px 中性 `border` 竖线；支持拖动调整宽度、双击重置，键盘方向键调整、Home 重置、Enter/空格切换；上游的 offcanvas 类保留但当前未被使用。
 - `layouts/workspace-layout.tsx` 通过 SidebarProvider 组合应用侧栏、打开入口和空白路由出口。桌面展开宽度 280 px，收起为 56 px 常驻图标栏（`collapsible="icon"`）；移动端由官方 `useIsMobile` 与 Sheet 切换为侧边面板。桌面折叠栏自带展开入口，工作区只在移动端渲染浮动打开按钮。桌面可拖动至 200 px—480 px，最大不超过视口的 40%；拖至最小宽度以下收起，折叠时向外拖至 200 px 展开阈值才展开，小幅拖动保持折叠；展开使用完整过渡并结束本次拖动。桌面的展开状态和宽度由 Zustand store 的 `persist` 写入 `localStorage`（键 `repa.web.preferences`，和打开的空间、当前会话 id 存在一起），刷新后保留；存储不可用时退回默认展开、默认宽度，格式不对的项逐项回到默认值；移动端抽屉每次从关闭开始，不保存。拖动期间用 80 ms 短过渡平滑调整宽度，跨过收起阈值时恢复完整折叠动画，取消、失去指针捕获或卸载时清理拖动状态。
 - 折叠栏沿用 SidebarMenuButton 的 token 与交互状态，通过 `sr-only` 保留标签的可访问名称，并用 `title` 提供图标提示。侧栏支持拖动调宽、收起与展开；移动端复用 Sheet 的关闭、Escape 和焦点恢复行为。
-- Web 的 `components/domain/app-sidebar.tsx` 顶部是 Learning Space，底部的 `SidebarFooter` 固定放 History 和 Settings；内容区随会话增多滚动，底部两项不动。打开的空间就是一个 Learning Space，所以两者是同一项，只有一个点击目标，都进入选空间页：没有打开空间时显示 Learning Space，打开后显示这个空间的文件夹名（悬停显示完整路径）。后端一次只持有一个空间，所以只显示当前打开的这一个；换空间和关闭空间都在选空间页完成，侧栏不放这两个按钮。刷新或重启后 store 读回保存的空间，这一项仍显示空间名。空间下面的二级列表由 `components/domain/session-list.tsx` 渲染：第一项“新会话”从任意页面开始一个还没建立的空会话并进入对话页，空间还没有会话时也靠它回到对话页；其后是这个空间的会话，最近有消息的在前，名称取会话名，没有时取第一条消息的开头，悬停显示全文，点击打开该会话并进入对话页。在对话页时，当前项标在二级列表上：正在查看的会话，或还没建立的新会话时的“新会话”；在选空间页时，空间这一行是当前项。运行中其他会话和“新会话”不能点，因为运行状态只属于当前会话，切走后无法再查询。会话还没有分页。收起为图标栏时只剩各项图标，空间名和二级列表隐藏。History 只在打开空间后出现，进入这个空间的修改历史页，见下方“修改历史页”；Desktop 没有这一栏。Settings 目前有模型设置、命令授权和提示，见下方“设置页”。Desktop 的 Settings 仍是空页面。两端都不再显示 Chat、示例会话、Goals、Wiki、Sources 或本地空间提示卡，布局不再保存会话展开状态。
+- Web 的 `components/domain/app-sidebar.tsx` 顶部是 Learning Space，底部的 `SidebarFooter` 固定放 History 和 Settings；内容区随会话增多滚动，底部两项不动。打开的空间就是一个 Learning Space，所以两者是同一项，只有一个点击目标，都进入选空间页：没有打开空间时显示 Learning Space，打开后显示这个空间的文件夹名（悬停显示完整路径）。后端一次只持有一个空间，所以只显示当前打开的这一个；换空间和关闭空间都在选空间页完成，侧栏不放这两个按钮。刷新或重启后 store 读回保存的空间，这一项仍显示空间名。空间下面的二级列表由 `components/domain/session-list.tsx` 渲染：第一项“新会话”从任意页面开始一个还没建立的空会话并进入对话页，空间还没有会话时也靠它回到对话页；其后是这个空间的会话，最近有消息的在前，名称取会话名，没有时取第一条消息的开头，悬停显示全文，点击打开该会话并进入对话页。在对话页时，当前项标在二级列表上：正在查看的会话，或还没建立的新会话时的“新会话”；在选空间页时，空间这一行是当前项。运行中其他会话和“新会话”不能点，因为运行状态只属于当前会话，切走后无法再查询。会话还没有分页。收起为图标栏时只剩各项图标，空间名和二级列表隐藏。History 只在打开空间后出现，进入这个空间的修改历史页，见下方“修改历史页”。Settings 目前有模型设置、命令授权和提示，见下方“设置页”。侧栏不再显示 Chat、示例会话、Goals、Wiki、Sources 或本地空间提示卡，布局不再保存会话展开状态。
 - `/` 重定向到 `/learning-space`，未知地址显示未找到页面，两者共用工作台布局。Desktop 另有内容为空的 `/settings`。
 - Web 的 `test/sidebar.test.tsx` 验证栏目及底部 History 与 Settings 的顺序、默认页、打开空间后 Learning Space 换成空间名并进入选空间页、空间下会话列表的顺序、切换、从其他页面开始新会话、当前项与运行中禁用、在选空间页关闭当前空间（运行中禁用、失败后再关、侧栏回到 Learning Space）、移动抽屉的导航与焦点恢复、图标栏、拖动调宽和刷新后保留侧栏状态；`test/learning-space.test.tsx` 验证启动时回到上次的空间的对话、没有时去选空间、打不开时回到选空间页并说明原因；`test/conversation-store.test.ts` 验证新建的 store 读回空间和会话、先重新打开空间再读会话、上次的会话不在时退回最近的会话、关闭后不再恢复和连接中断时保留空间；`test/app.test.tsx` 验证连接生命周期及 Desktop 导航；`test/store.test.ts` 验证读取去重、重连后重新读取、旧结果丢弃，以及侧栏偏好的保存、格式校验和存储不可用时的退路。
 
