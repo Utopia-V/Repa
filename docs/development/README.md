@@ -30,11 +30,11 @@
 
 同一 worktree 中会写入构建产物的命令应串行运行；需要同时修改源码并运行多套任务时，使用独立 worktree。
 
-Web 和 Desktop 分别由 Vite 与 Electron Node 宿主启动后端。`@repa/base/process` 提供进程生命周期，宿主取得连接后通过开发 HTTP 端点或隔离 preload 交给 renderer；宿主关闭时等待后端收尾。连接断开后重新读取历史与插件状态，再判断原操作的结果，客户端不会自动重放请求。
+Web 和 Desktop 分别由 Vite 与 Electron Node 宿主启动后端。`@repa/base/process` 提供进程生命周期，宿主取得连接后通过开发 HTTP 端点或隔离 preload 交给 renderer；宿主关闭时等待后端收尾。连接断开后重新读取历史与插件状态，再判断原操作的结果，客户端不会自动重放请求。Desktop 按学习者版本启动后端：加载学习插件、关掉通用 Agent，见 [learner.ts](../../apps/desktop/src/main/learner.ts)。Desktop 的 renderer 就是 `apps/web`，以 desktop 模式构建和开发，不另起后端；页面经 preload 的 `window.repaHost` 取得连接。
 
 Web 在连接时声明前端服务 `python.run`，用 [`@repa/python-runner`](../../packages/python-runner/README.md) 在 Worker 里以 Pyodide 运行学习者的代码；输入输出见 `@repa/python-runner/protocol`。声明了这项服务就表示能运行 Python，后端不另外探测；开始服务时就在后台预热一个 Worker，每次执行用一个全新的 Worker，用完销毁，后台预热下一个。Vite 开发服务器在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel，并给 Worker 脚本加 CSP 响应头；wheel 先用 `npm run course:runtime` 准备，与课程核对共用一个目录。Worker 启动时确认 CSP 生效，没有就拒绝运行，所以别的宿主提供 Web 时也要给 Worker 脚本加同样的响应头。
 
-Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa://app/` 加载，而不是 `file://`，因为 `file://` 没有响应头，Worker 的 CSP 设不上；协议由[主进程](../../apps/desktop/src/main/app-protocol.ts)处理，给 `workers/` 下的脚本加 CSP，并在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel。开发时这些由 electron-vite 的开发服务器提供，两边的放行规则共用 [python-runtime.ts](../../apps/desktop/src/main/python-runtime.ts)。Linux 安装包把 Pyodide 文件和 wheel 复制到应用目录的 `pyodide/`，打包前要先运行 `npm run course:runtime`。
+Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa://app/` 加载，而不是 `file://`，因为 `file://` 没有响应头，Worker 的 CSP 设不上；协议由[主进程](../../apps/desktop/src/main/app-protocol.ts)处理，给 `workers/` 下的脚本加 CSP，并在 `/__repa/pyodide/` 提供 Pyodide 文件和 wheel。协议的放行规则在 [python-runtime.ts](../../apps/desktop/src/main/python-runtime.ts)；开发时 renderer 来自 Web 的开发服务器，这些由 Web 的 Vite 配置提供。安装包把 Pyodide 文件和 wheel 复制到应用目录的 `pyodide/`，打包前要先运行 `npm run course:runtime`。Linux 在 x64 上用 `npm run package:linux --workspace=@repa/desktop` 打 deb；macOS 在 Apple Silicon 上用 `npm run package:mac --workspace=@repa/desktop` 打 arm64 的 dmg；Windows 在 x64 上用 `npm run package:win --workspace=@repa/desktop` 打按用户安装、不需要管理员权限的 NSIS 安装程序。三者共用 [package-application.mjs](../../apps/desktop/scripts/package-application.mjs) 的准备步骤，Mac 与 Windows 的核对共用 [verify-application.mjs](../../apps/desktop/scripts/verify-application.mjs)。CI 的 `desktop-package` 工作流打 Mac 与 Windows 两种安装包并上传为构建产物。dmg 只做 ad-hoc 签名、没有公证，下载后首次打开要在“隐私与安全性”里放行；Windows 安装程序没有代码签名，SmartScreen 会提示未知发布者；空间历史调用系统的 `git`，Mac 上需要已装 Xcode 命令行工具。
 
 前端实现遵循 [Web 协作规则](../../apps/web/AGENTS.md)、[设计系统](../design-system.md)与[设计系统实现](../design-system-implementation.md)。前端工作由相应负责人推进。
 
@@ -87,7 +87,7 @@ REPA_TEST_REQUIRE_ENV=1 npm test
 | 学习任务画面、提交恢复与 Python 服务契约 | [学习前端契约](learning-protocol.md)、[公开 schema](../../packages/learning/src/protocol.ts)、[python.run 的 schema](../../packages/python-runner/src/protocol.ts) |
 | 导出学习数据：白名单、冻结的预览与脱敏 | [导出说明](learning-records.md#导出学习数据)、[学习插件的方法](../../packages/learning/src/export.ts)、[底座的读取与打包](../../packages/base/src/feedback/export.ts) |
 | Web 宿主与页面 | [Vite 配置](../../apps/web/vite.config.ts)、[Web 源码](../../apps/web/src/) |
-| Desktop 宿主与页面 | [主进程](../../apps/desktop/src/main/index.ts)、[preload](../../apps/desktop/src/preload/)、[renderer](../../apps/desktop/src/renderer/) |
+| Desktop 宿主与页面 | [主进程](../../apps/desktop/src/main/index.ts)、[preload](../../apps/desktop/src/preload/)、[界面（apps/web）](../../apps/web/) |
 
 ## 运行与验证
 
