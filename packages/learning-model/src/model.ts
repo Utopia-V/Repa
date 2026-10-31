@@ -29,21 +29,29 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   decaySlope: 1,
 };
 
+/** repNum 对应的理想间隔（天），memory 每过一个理想间隔减半。repNum 可以是小数，所以部分信用也让间隔连续地变化。 */
 export function intervalFor(repNum: number, config: ModelConfig = DEFAULT_MODEL_CONFIG): number {
   return Math.min(config.maximumInterval, config.intervalBase ** Math.max(0, repNum - 1));
 }
 
-// memory 存在 lastRepetitionDay；只投影，不改写状态或重复累计衰减。每过一个理想间隔减半是公开式。
+/**
+ * 某一天的 memory：状态里存的是 lastRepetitionDay 那天的值，从那天起每过一个理想间隔减半（公开式）。
+ * 只做投影、不改写状态，所以查询多少次都不会重复累计衰减。
+ */
 export function memoryAt(state: TopicState, day: number): number {
   return state.memory * 0.5 ** ((day - state.lastRepetitionDay) / state.interval);
 }
 
+/** 这一天是否该显式复习：memory 降到到期线（含）以下即到期。 */
 export function isDue(state: TopicState, day: number, config: ModelConfig = DEFAULT_MODEL_CONFIG): boolean {
   return memoryAt(state, day) <= config.dueMemory;
 }
 
-// Repa 假设：沿路径相乘，多路径取最大值，避免菱形图重复计分；公开资料没有给出多条路径怎样合并。
-// 接收者的 speed 和提前折扣不改变图上的流量，也不阻断后续节点。
+/**
+ * 一次学习或复习的信用传给哪些 topic、各按多大权重（FIRe）：通过沿包含关系向下传给被覆盖的 topic，失败向上传给覆盖它的 topic，
+ * 方向是公开规则。多条路径怎样合并没有公开，Repa 假设沿路径相乘、多路径取最大值，免得菱形图重复计分。
+ * 接收者的 speed 和提前折扣不改变图上的流量，也不阻断更远的 topic。
+ */
 export function repetitionWeights(
   graph: KnowledgeGraph,
   topicId: string,
@@ -66,6 +74,11 @@ export function repetitionWeights(
   return weights;
 }
 
+/**
+ * 把一次已确认的学习或复习结论记进学生状态，返回新状态，不修改输入；同一串结论换一组参数重放，就得到那组参数下的状态。
+ * 信用按 repetitionWeights 传给相关 topic，每个 topic 再按自己此刻的 memory 打提前折扣，走同一套更新：repNum 用公开式，
+ * memory 用差额更新（见函数内的说明）。
+ */
 export function applyRepetition(
   graph: KnowledgeGraph,
   student: Student,
