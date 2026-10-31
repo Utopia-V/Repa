@@ -7,6 +7,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Markdown } from "@/components/ui/markdown";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { AskCard } from "@/components/domain/ask-card";
+import { ConversationItemView } from "@/components/domain/conversation-item";
 import { ConversationMessage } from "@/components/domain/conversation-message";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { MessageComposer } from "@/components/domain/message-composer";
@@ -147,7 +148,7 @@ function Conversation({ space }: { space: string }) {
         <Button variant="ghost" disabled={running || !connected || status !== "ready" || conversation.sessionId === undefined} onClick={() => setReporting(true)}>
           <MessageSquareWarning aria-hidden="true" />反馈问题
         </Button>
-        <Button variant="ghost" disabled={running || status !== "ready" || items.length === 0} onClick={newConversation}>
+        <Button variant="ghost" disabled={running || status !== "ready" || items.length === 0} onClick={() => newConversation()}>
           <MessageSquarePlus aria-hidden="true" />新会话
         </Button>
       </div>
@@ -179,7 +180,7 @@ function Conversation({ space }: { space: string }) {
           这是一个新会话。说说你想学什么，或者直接提问。
         </p>}
         {items.map((item) => <Fragment key={item.id}>
-          <Item
+          <ConversationItemView
             item={item}
             streaming={item.id === conversation.streaming}
             onFork={item.kind === "assistant" && item.forkable ? () => { void fork(item.id); } : undefined}
@@ -252,41 +253,4 @@ function Conversation({ space }: { space: string }) {
       started={conversation.sessionId !== undefined}
     />
   </div>;
-}
-
-function Item({ item, streaming, onFork, forkDisabled }: {
-  item: ConversationItem;
-  streaming: boolean;
-  /** 只有能作为分叉点的消息才有。 */
-  onFork?: (() => void) | undefined;
-  forkDisabled: boolean;
-}) {
-  switch (item.kind) {
-    case "user":
-      return <ConversationMessage sender="user">{item.text}</ConversationMessage>;
-    case "assistant": {
-      // 分叉保留这条回答和它之前的全部内容，在新会话里换个方向接着问；原会话不变。
-      const actions = onFork && <Button
-        variant="ghost"
-        size="icon"
-        aria-label="从这里分叉"
-        title="从这里分叉：保留到这条回答，在新会话里继续"
-        disabled={forkDisabled}
-        onClick={onFork}
-      >
-        <Split aria-hidden="true" />
-      </Button>;
-      return <ConversationMessage sender="assistant" actions={actions}>
-        <Markdown text={item.text} streaming={streaming} />
-      </ConversationMessage>;
-    }
-    case "tool":
-      return <ToolActivity tool={item.tool} status={item.status} />;
-    case "error":
-      return <div className="mb-4"><StatusNotice status="error" title="运行出错"><p>{item.text}</p></StatusNotice></div>;
-    case "stopped":
-      return <p className="mb-4 text-sm text-muted-foreground">已停止</p>;
-    case "compaction":
-      return <p className="mb-4 text-sm text-muted-foreground">已压缩上下文，较早的对话已整理成摘要</p>;
-  }
 }

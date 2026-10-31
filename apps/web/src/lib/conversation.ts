@@ -42,6 +42,8 @@ export type Conversation = {
   sessionId?: string | undefined;
   /** 会话保存的模型；还没建立的会话里是用户选的模型，没选时为空，建立时用默认模型。 */
   model?: ModelRef | undefined;
+  /** 会话所属的 Agent；还没建立的会话里是要用的 Agent，为空时用后端默认的通用 Agent。 */
+  agent?: string | undefined;
   items: ConversationItem[];
   /** 正在接收文字的助手消息；工具调用或消息结束后关闭。 */
   streaming?: string | undefined;

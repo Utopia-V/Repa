@@ -20,6 +20,7 @@ import {
 import { interactionCapabilities } from "@/lib/ask";
 import { applyEvent, emptyConversation, historyItems, type Conversation } from "@/lib/conversation";
 import { describeError, errorCode } from "@/lib/errors";
+import { createLearningActions, emptyLearning, type LearningActions, type LearningView } from "@/lib/learning";
 
 /** 一份从后端读取的数据；重新读取期间保留上一次的 data，界面不回到空白。 */
 export type Resource<T> = {
@@ -117,7 +118,7 @@ export type Ask = {
 /** 侧栏偏好；宽度未拖动过时为空，由侧栏组件使用默认值。 */
 export type SidebarPreference = { open: boolean; width?: number | undefined };
 
-export type AppState = {
+export type AppState = LearningActions & {
   /** 当前连接；重连后换成新实例，读取函数执行时才取用。 */
   client?: RepaClient;
   connected: boolean;
@@ -136,12 +137,17 @@ export type AppState = {
   asks: Ask[];
   /** 正在进行的模型登录。 */
   activeLogin?: LoginState | undefined;
+  /** 当前空间的学习状态；换空间时清空。 */
+  learning: LearningView;
   setClient(client: RepaClient): void;
   setConnected(connected: boolean): void;
   loadSpaces(): Promise<void>;
   /** 重新读取已经读过的数据，用于重连和窗口切回。 */
   reloadLoaded(): Promise<void>;
-  /** 运行中只能回到当前空间：后端打开另一个空间前会关闭当前空间，中止正在进行的运行。 */
+  /**
+   * 运行中只能回到当前空间：后端打开另一个空间前会关闭当前空间，中止正在进行的运行。
+   * 打开后查一次学习插件，调用方据此决定去学习页还是对话页。
+   */
   openSpace(root: string): Promise<void>;
   /**
    * 运行中不关闭：后端关闭空间会中止正在进行的运行。失败时抛给调用方并保留空间；
@@ -172,7 +178,8 @@ export type AppState = {
   createFeedback(options: { describe: boolean; note?: string }): Promise<Result<"feedback.create">>;
   /** 运行中不切换：运行状态只属于当前会话，切走后无法再查询。 */
   openSession(session: SessionInfo): Promise<void>;
-  newConversation(): void;
+  /** agent 只用于学习页的辅导：第一次发送时建立该 Agent 的会话。 */
+  newConversation(options?: { agent: string }): void;
   /** 从当前会话的一条记录分叉出新会话并打开它；运行中不分叉，失败抛给调用页面。 */
   forkSession(entryId: string): Promise<void>;
   /** 已建立的会话调用 session.setModel；还没建立的记下来，建立时使用。 */
@@ -243,7 +250,7 @@ export function createAppStore() {
     let resuming: Promise<void> | undefined;
 
     async function call<M extends Method>(method: M, params: Params<M>): Promise<Result<M>> {
-      if (resuming && (method.startsWith("session.") || method.startsWith("history.") || method.startsWith("prompt."))) await resuming;
+      if (resuming && (method.startsWith("session.") || method.startsWith("history.") || method.startsWith("prompt.") || method.startsWith("plugin."))) await resuming;
       const client = get().client;
       if (!client) throw new ConnectionError("尚未连接后端。");
       return await client.call(method, params);
@@ -296,14 +303,21 @@ export function createAppStore() {
       return { revisions: [...feed.revisions].reverse(), complete: recent.length < HISTORY_LIMIT };
     }
 
-    /** 换空间后丢弃旧空间的会话列表和修改历史，进行中的读取结果也作废。 */
+    /** 换空间后丢弃旧空间的会话列表、修改历史和学习状态，进行中的读取结果也作废。 */
     function resetSpaceData(): void {
       for (const name of ["sessions", "history", "prompts"] as const) {
         pending.delete(name);
         sequence.set(name, (sequence.get(name) ?? 0) + 1);
         update(name, { status: "idle" });
       }
+      set({ learning: emptyLearning });
     }
+
+    const learning = createLearningActions({
+      call,
+      get,
+      set: (change) => set((state) => ({ learning: change(state.learning) })),
+    });
 
     /** 发送后会话的排序、预览可能变了；没读过时不读。 */
     async function reloadSessions(): Promise<void> {
@@ -389,7 +403,14 @@ export function createAppStore() {
       // 会话列表、修改历史和提示依赖打开的空间，不随 reloadLoaded 在打开前读取。
       // 正在读取的会话由那次读取完成，这里只重读已经显示过的。
       const { status } = get().conversation;
-      await Promise.all([reloadSessions(), reloadSpaceHistory(), reloadPrompts(), status === "ready" || status === "error" ? reloadHistory() : undefined]);
+      await Promise.all([
+        reloadSessions(),
+        reloadSpaceHistory(),
+        reloadPrompts(),
+        status === "ready" || status === "error" ? reloadHistory() : undefined,
+        // 学习状态读过才重读；重读时一并确认断线前结果不明的作答。
+        get().learning.available === undefined ? undefined : learning.loadLearning(),
+      ]);
     }
 
     let unsubscribe: (() => void) | undefined;
@@ -432,11 +453,15 @@ export function createAppStore() {
       const offAskClosed = client.on("ask.closed", ({ id, reason }) => {
         updateAsk(id, { closed: reason });
       });
+      const offPlugin = client.on("plugin.event", ({ pluginId, event }) => {
+        learning.learningEvent(pluginId, event);
+      });
       unsubscribe = () => {
         offEvent();
         offConfirm();
         offAsk();
         offAskClosed();
+        offPlugin();
       };
     }
 
@@ -468,6 +493,8 @@ export function createAppStore() {
     }
 
     return {
+      ...learning,
+      learning: emptyLearning,
       connected: false,
       resources: {
         spaces: { status: "idle" },
@@ -522,7 +549,7 @@ export function createAppStore() {
         set({ resumeFailure: undefined });
         // 打开前发出的读取可能不含这次打开，重新读取。
         pending.delete("spaces");
-        await loaders.spaces();
+        await Promise.all([loaders.spaces(), get().learning.available === undefined ? learning.loadLearning() : undefined]);
       },
       async closeSpace() {
         if (!get().space || get().conversation.run !== "idle") return;
@@ -555,7 +582,7 @@ export function createAppStore() {
           );
           const entries = target ? await call("session.history", { sessionId: target.id }) : [];
           if (id !== conversationRequest) return;
-          set({ conversation: { ...emptyConversation, status: "ready", sessionId: target?.id, model: target?.model, items: historyItems(entries) } });
+          set({ conversation: { ...emptyConversation, status: "ready", sessionId: target?.id, model: target?.model, agent: target?.agent, items: historyItems(entries) } });
         } catch (error) {
           if (id === conversationRequest) updateConversation({ status: "error", error });
         }
@@ -605,7 +632,7 @@ export function createAppStore() {
         const current = get().conversation;
         if (current.run !== "idle" || (current.sessionId === session.id && current.status === "ready")) return;
         const id = ++conversationRequest;
-        set({ confirmations: [], asks: [], conversation: { ...emptyConversation, status: "loading", sessionId: session.id, model: session.model } });
+        set({ confirmations: [], asks: [], conversation: { ...emptyConversation, status: "loading", sessionId: session.id, model: session.model, agent: session.agent } });
         try {
           const entries = await call("session.history", { sessionId: session.id });
           if (id === conversationRequest) updateConversation({ status: "ready", items: historyItems(entries) });
@@ -613,10 +640,10 @@ export function createAppStore() {
           if (id === conversationRequest) updateConversation({ status: "error", error });
         }
       },
-      newConversation() {
+      newConversation(options) {
         if (get().conversation.run !== "idle") return;
         conversationRequest++;
-        set({ conversation: { ...emptyConversation, status: "ready" }, asks: [] });
+        set({ conversation: { ...emptyConversation, status: "ready", ...options }, asks: [] });
       },
       async forkSession(entryId) {
         const { sessionId, run } = get().conversation;
@@ -656,7 +683,10 @@ export function createAppStore() {
         let sessionId = conversation.sessionId;
         try {
           if (!sessionId) {
-            const created = await call("session.create", conversation.model ? { model: conversation.model } : {});
+            const created = await call("session.create", {
+              ...(conversation.model ? { model: conversation.model } : {}),
+              ...(conversation.agent ? { agent: conversation.agent } : {}),
+            });
             sessionId = created.id;
             updateConversation({ sessionId, model: created.model });
           }
