@@ -31,14 +31,19 @@ it("标题、列表、表格、代码按 Markdown 显示，标题层级低于页
 });
 
 it("代码块按标注的语言高亮，没注册或没标语言的按纯文本显示", () => {
-  const { container } = render(<Markdown text={[
+  const text = [
     "```py\ndef f(x):\n    return 'ok'  # 注释\n```",
     "```ts\nconst n: number = 1;\n```",
     "```json\n{\"a\": true}\n```",
     "```bash\necho $HOME\n```",
     "```rust\nfn main() {}\n```",
     "```\nplain text\n```",
-  ].join("\n\n")} />);
+  ].join("\n\n");
+  // Shiki 每行分词限时 500ms，第一次用到一种语法时要先编译它的正则；机器忙时这一步就会超时，
+  // 剩下的半行不再分词（CI 上见过 `1;` 连成一个记号）。先渲染一遍编好语法，结果就不随机器快慢变化。
+  render(<Markdown text={text} />);
+  cleanup();
+  const { container } = render(<Markdown text={text} />);
 
   const blocks = [...container.querySelectorAll("pre code")];
   // 颜色来自 Catppuccin Mocha：mauve 关键字、blue 函数和键名、green 字符串、peach 常量、overlay2 注释、red 内置命令。
