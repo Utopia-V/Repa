@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CircleCheck, Circle, LoaderCircle, RefreshCw } from "lucide-react";
-import type { Delivery, LearningState, LearningTask, Submission } from "@repa/learning/protocol";
+import type { Delivery, LearningTask, Submission } from "@repa/learning/protocol";
 
 import { Button } from "@/components/ui/button";
 import { StatusNotice } from "@/components/ui/status-notice";
@@ -107,14 +107,14 @@ function AnswerForm({ task, delivery, outgoing, busy }: {
   </div>;
 }
 
-function KpProgress({ task, titles }: { task: LearningTask; titles: Record<string, string> }) {
+function KpProgress({ task }: { task: LearningTask }) {
   if (task.kps.length === 0) return null;
   return <ol aria-label="知识点" className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-sm">
     {task.kps.map((kp) => <li key={kp.kpId} className="flex items-center gap-1.5">
       {kp.completed
         ? <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-status-complete" />
         : <Circle aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />}
-      <span>{titles[kp.kpId] ?? kp.kpId}</span>
+      <span>{kp.title}</span>
       <span className="sr-only">{kp.completed ? "，已掌握" : "，还没掌握"}</span>
     </li>)}
   </ol>;
@@ -206,21 +206,14 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
 }
 
 /** 当前任务：类型、topic 名称、知识点进度和当前阶段的画面。 */
-export function LearningTaskView({ state, task, renderLink }: { state: LearningState; task: LearningTask; renderLink: RenderLink }) {
-  const titles = useAppStore((store) => store.learning.titles);
-  const resolveTitles = useAppStore((store) => store.resolveTitles);
-  const topics = task.topicIds.map((id) => titles[id] ?? id).join("、");
-
-  useEffect(() => {
-    // 受限任务进行中不能读内容，名称等结束后再补。
-    if (state.restrictions.referenceContentAllowed) void resolveTitles([...task.topicIds, ...task.kps.map((kp) => kp.kpId)]);
-  }, [task.topicIds, task.kps, state.restrictions.referenceContentAllowed, resolveTitles]);
+export function LearningTaskView({ task, renderLink }: { task: LearningTask; renderLink: RenderLink }) {
+  const topics = task.topics.map((topic) => topic.title).join("、");
 
   return <section aria-labelledby="learning-task-title" className="grid gap-5">
     <div className="grid gap-2">
       <p className="m-0 text-sm text-muted-foreground">{kindText[task.kind]}</p>
       <h3 id="learning-task-title" className="m-0 text-lg font-semibold">{topics}</h3>
-      <KpProgress task={task} titles={titles} />
+      <KpProgress task={task} />
     </div>
     <Stage task={task} renderLink={renderLink} />
   </section>;

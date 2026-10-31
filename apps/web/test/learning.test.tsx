@@ -28,8 +28,8 @@ const delivery: Delivery = { deliveryId: "d3", submissionId: "s3", item, topicId
 
 function task(phase: LearningTask["phase"], extra: Partial<LearningTask> = {}): LearningTask {
   return {
-    taskId: "t1", kind: "lesson", topicIds: ["py01"], phase, startedAt: 1, deadlineAt: null,
-    kps: [{ kpId: "py01.k1", attempts: 0, consecutiveCorrect: 0, completed: false }],
+    taskId: "t1", kind: "lesson", topics: [{ id: "py01", title: "数字、文字和缺省值不是一回事" }], phase, startedAt: 1, deadlineAt: null,
+    kps: [{ kpId: "py01.k1", title: "int、float、str 的行为差别", attempts: 0, consecutiveCorrect: 0, completed: false }],
     deliveries: [], submissions: [], ...extra,
   };
 }
@@ -92,10 +92,9 @@ function start(client: ReturnType<typeof backend>["client"], wide = false) {
   return store;
 }
 
-it("讲解阶段显示课程内容，点“看例题”带着阶段和 revision 推进", async () => {
+it("讲解阶段显示课程内容和任务自带的标题，点“看例题”带着阶段和 revision 推进", async () => {
   const learning = vi.fn<Learning>((method) => {
     if (method === "state.get") return Promise.resolve(state(1, explanation));
-    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
     if (method === "task.advance") return Promise.resolve(state(2, answering));
     return Promise.reject(new Error(method));
   });
@@ -103,6 +102,10 @@ it("讲解阶段显示课程内容，点“看例题”带着阶段和 revision 
   start(fake.client);
 
   expect(await screen.findByText("先算右边。", { exact: false })).toBeTruthy();
+  // 标题直接取自任务：课内作答之前搜索内容会记一次求助，复习和测验期间也不能搜索。
+  expect(screen.getByRole("heading", { name: "数字、文字和缺省值不是一回事" })).toBeTruthy();
+  expect(screen.getByText("int、float、str 的行为差别")).toBeTruthy();
+  expect(learningCalls(fake.call).some((call) => call.method === "content.search")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "看例题" }));
 
   expect(await screen.findByText("显示的整数")).toBeTruthy();
@@ -112,7 +115,6 @@ it("讲解阶段显示课程内容，点“看例题”带着阶段和 revision 
 it("操作时画面已经过时，换成后端给的当前状态并提示，不再执行原操作", async () => {
   const learning = vi.fn<Learning>((method) => {
     if (method === "state.get") return Promise.resolve(state(1, explanation));
-    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
     if (method === "task.advance") return Promise.reject(new RpcError(-32000, "任务状态已改变", { code: "stale_state", details: { reason: "stale", state: state(3, answering) } }));
     return Promise.reject(new Error(method));
   });
@@ -128,7 +130,6 @@ it("断线时提交的作答，重连后先查询；后端没收到才用原编�
   let submits = 0;
   const learning = vi.fn<Learning>((method) => {
     if (method === "state.get") return Promise.resolve(state(2, answering));
-    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
     if (method === "submission.submit") {
       submits++;
       if (submits === 1) return Promise.reject(new ConnectionError());
@@ -160,7 +161,6 @@ it("断线时提交的作答，重连后先查询；后端没收到才用原编�
 it("重连后查到后端已经收下这份作答，就不再重交", async () => {
   const learning = vi.fn<Learning>((method) => {
     if (method === "state.get") return Promise.resolve(state(2, answering));
-    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
     if (method === "submission.submit") return Promise.reject(new ConnectionError());
     if (method === "submission.get") return Promise.resolve({ status: "found", revision: 3, submission: { taskId: "t1", deliveryId: "d3", submissionId: "s3", response: { item: { id: "o1", version }, answers: {} }, acceptedAt: 5, processing: { status: "pending" }, gradeRevision: 0 } });
     return Promise.reject(new Error(method));
@@ -213,7 +213,6 @@ it("讲解里的概念链接打开概念卡：先记一次打开，再读卡片�
 it("剩下的题都要模型判分而没有可用模型时，说明任务会保留，并引导去设置模型", async () => {
   const learning = vi.fn<Learning>((method) => {
     if (method === "state.get") return Promise.resolve(state(1, explanation));
-    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
     if (method === "task.advance") return Promise.reject(new RpcError(-32000, "没有可用的模型", { code: "model_required" }));
     return Promise.reject(new Error(method));
   });
@@ -239,7 +238,6 @@ it("辅导接着这个空间最近的一段辅导会话；开始新对话后，�
   ];
   const learning = vi.fn<Learning>((method) => {
     if (method === "state.get") return Promise.resolve(state(1, answering));
-    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
     return Promise.reject(new Error(method));
   });
   const fake = backend(learning, {

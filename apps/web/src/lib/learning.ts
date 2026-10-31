@@ -54,7 +54,6 @@ export type LearningView = {
   /** 操作时后端发现画面已经过时，换成了它给的当前状态；提示学习者看一眼再操作。 */
   replaced: boolean;
   outbox: Record<string, Outgoing>;
-  titles: Record<string, string>;
 };
 
 /** 打开空间后的首页：后端装了学习插件就进学习页，否则进对话页。 */
@@ -62,7 +61,7 @@ export function homePath(learning: LearningView): "/learn" | "/conversation" {
   return learning.available === true ? "/learn" : "/conversation";
 }
 
-export const emptyLearning: LearningView = { status: "idle", replaced: false, outbox: {}, titles: {} };
+export const emptyLearning: LearningView = { status: "idle", replaced: false, outbox: {} };
 
 /** 学习插件方法错误的 details；不是学习插件的业务错误时为 undefined。 */
 function learningDetails(error: unknown) {
@@ -249,11 +248,6 @@ export function createLearningActions({ call, get, set }: Deps) {
     /** 学习者选菜单里的一项；测验和重考也走 menu.select，后端按候选的类型开始。 */
     selectCandidate(candidateId: string): Promise<void> {
       const menu = get().learning.state?.menu;
-      const candidate = menu?.candidates.find((item) => item.id === candidateId);
-      if (candidate && candidate.topicIds.length === 1 && candidate.topicIds[0]) {
-        const topic = candidate.topicIds[0];
-        set((learning) => ({ ...learning, titles: { ...learning.titles, [topic]: candidate.title } }));
-      }
       return perform("select", async () => {
         if (!menu) throw new Error("菜单已经变了，请重新选择。");
         return await learningCall("menu.select", { menuId: menu.menuId, candidateId });
@@ -278,22 +272,6 @@ export function createLearningActions({ call, get, set }: Deps) {
     /** 提交作答，沿用交付时预留的编号；重试也用同一个编号。 */
     submitAnswer(delivery: Delivery, taskId: string, response: LearnerResponse): Promise<void> {
       return submit(delivery.submissionId, { taskId, deliveryId: delivery.deliveryId, response });
-    },
-    /** 补上界面要显示的名称；名称只是为了好读，查不到时界面显示编号。 */
-    async resolveTitles(ids: string[]): Promise<void> {
-      for (const id of ids) {
-        if (get().learning.titles[id] !== undefined) continue;
-        let title: string | undefined;
-        try {
-          const { hits } = await learningCall("content.search", { query: id, offset: 0, limit: 20 });
-          const hit = hits.find((candidate) => (candidate.ref.kind === "topic" && candidate.ref.topicId === id) || (candidate.ref.kind === "kp" && candidate.ref.kpId === id));
-          title = hit?.title;
-        } catch {
-          // 复习、测验期间不能读内容，或者连接断了；名称下次需要时再查。
-          continue;
-        }
-        if (title !== undefined) set((learning) => ({ ...learning, titles: { ...learning.titles, [id]: title } }));
-      }
     },
     searchContent(query: string): Promise<LearningResult<"content.search">> {
       return learningCall("content.search", { query, offset: 0, limit: 20 });

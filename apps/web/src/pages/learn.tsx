@@ -111,7 +111,7 @@ function Learn({ space }: { space: string }) {
             <ErrorNotice title="操作没有完成" error={learning.actionError} />
             <div><Button variant="outline" onClick={() => { void refreshLearning(); }}><RefreshCw aria-hidden="true" />重新读取</Button></div>
           </div>}
-          {task && <LearningTaskView state={state} task={task} renderLink={renderLink} />}
+          {task && <LearningTaskView task={task} renderLink={renderLink} />}
           {active && <div className="flex justify-end">
             <Button variant="ghost" disabled={learning.busy !== undefined} onClick={() => setConfirmAbort(true)}>中止{kindText[task.kind]}</Button>
           </div>}
