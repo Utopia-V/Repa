@@ -3,6 +3,7 @@ import { app, BrowserWindow, ipcMain, protocol } from "electron";
 
 import { startRepaProcess, type RepaProcess } from "@repa/base/process";
 import { APP_PAGE_URL, APP_SCHEME, createAppHandler } from "./app-protocol";
+import { learnerBackend } from "./learner";
 import { pythonAssets, workspacePythonDirectories, type PythonAssetLookup, type PythonRuntimeDirectories } from "./python-runtime";
 
 // standard 让页面有自己的源，相对地址和 CSP 的 'self' 才成立；secure 让 crypto.subtle 可用，页面要用它核对 wheel。
@@ -16,6 +17,7 @@ let quitting = false;
 function getBackend(): Promise<RepaProcess> {
   if (quitting) return Promise.reject(new Error("Desktop 正在关闭。"));
   backend ??= startRepaProcess({
+    ...learnerBackend(),
     nodeExecutable: process.env.REPA_NODE_EXECUTABLE ?? process.execPath,
     environment: {
       ...process.env,

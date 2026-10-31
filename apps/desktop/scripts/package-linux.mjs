@@ -15,7 +15,8 @@ const archives = path.join(work, "archives");
 const application = path.join(work, "application");
 const output = path.join(work, "dist");
 const npm = process.env.npm_execpath;
-const packages = ["@repa/base", "@repa/space-history"];
+// 后端及其插件：学习插件由主进程按包名找到，连同它依赖的工作区包一起装进安装包。
+const packages = ["@repa/base", "@repa/space-history", "@repa/learning", "@repa/learning-model", "@repa/python-runner"];
 
 if (!npm) throw new Error("请通过 npm run package:linux --workspace=@repa/desktop 启动打包。");
 if (process.platform !== "linux" || process.arch !== "x64") throw new Error("当前交付入口仅支持 Linux x64。");

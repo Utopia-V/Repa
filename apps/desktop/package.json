@@ -28,6 +28,7 @@
     "react-router": "8.3.1",
     "tailwind-merge": "3.7.0",
     "@repa/base": "0.1.0",
+    "@repa/learning": "0.1.0",
     "@repa/python-runner": "0.1.0",
     "pyodide": "314.0.7"
   },
