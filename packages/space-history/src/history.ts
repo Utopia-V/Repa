@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { Check, Clean } from "typebox/value";
 
-import { Git, GitError, nul } from "./git.js";
+import { createGit, Git, GitError, nul } from "./git.js";
 import {
   ActivitySourceSchema, HistoryOptionsSchema, SnapshotSourceSchema, SourceSchema,
   type ActivitySource, type Change, type ChangeFeed, type HistoryOptions, type Revision,
@@ -174,7 +174,7 @@ export class SpaceHistory {
 
   private constructor(readonly space: string, options: HistoryOptions) {
     if (!Check(HistoryOptionsSchema, options)) throw new Error("无效的历史配置");
-    this.git = new Git(space, path.join(space, ".repa", "history.git"), options.gitPath);
+    this.git = createGit(space, path.join(space, ".repa", "history.git"), options.gitPath);
     this.maxFileBytes = options.maxFileBytes ?? 10 * 1024 * 1024;
   }
 
@@ -930,7 +930,7 @@ export const openHistory = (space: string, options?: HistoryOptions): Promise<Sp
  */
 export async function checkoutLatest(space: string, options: { gitPath?: string } = {}): Promise<{ files: number }> {
   const root = await realpath(space);
-  const git = new Git(root, path.join(root, ".repa", "history.git"), options.gitPath);
+  const git = createGit(root, path.join(root, ".repa", "history.git"), options.gitPath);
   const entries: (Entry & { file: string; size: number })[] = [];
   for (const record of nul(await git.run(["ls-tree", "-r", "-z", "-l", REF]))) {
     const separator = record.indexOf("\t");
