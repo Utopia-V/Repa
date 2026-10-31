@@ -38,6 +38,8 @@ await build({
       notarize: false,
     },
     dmg: { writeUpdateInfo: false },
+    // 只产出文件；发布到 GitHub Release 等由维护者决定，CI 里也不自动上传。
+    publish: null,
   },
 });
 const dmg = path.join(output, `Repa-${manifest.version}-arm64.dmg`);

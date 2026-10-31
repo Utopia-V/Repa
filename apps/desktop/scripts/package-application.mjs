@@ -22,7 +22,10 @@ const npm = process.env.npm_execpath;
 const packages = ["@repa/base", "@repa/space-history", "@repa/learning", "@repa/learning-model", "@repa/python-runner"];
 
 // Electron 的发行目录：Linux 上是可执行文件所在目录，macOS 上是放 Electron.app 的目录，两者都是包里的 dist/。
-export const electronDist = path.join(path.dirname(createRequire(import.meta.url).resolve("electron/package.json")), "dist");
+// 先经官方入口取一次可执行文件：干净的 npm ci 之后二进制是第一次取用时才下载的。
+const electronRequire = createRequire(import.meta.url);
+electronRequire("electron");
+export const electronDist = path.join(path.dirname(electronRequire.resolve("electron/package.json")), "dist");
 export { output };
 
 async function npmRun(args, cwd = root) {

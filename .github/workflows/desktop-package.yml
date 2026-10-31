@@ -1,0 +1,44 @@
+name: Desktop package
+
+# 在干净环境里打桌面端安装包，产物作为构建产物保留，便于下载试用；不发布 Release。
+# 打包脚本最后会挂载安装包、按安装布局拉起后端核对学习插件，核对不过即失败。
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+    paths:
+      - "apps/desktop/**"
+      # 桌面端的界面就是 apps/web，按 desktop 模式构建。
+      - "apps/web/**"
+      - "package-lock.json"
+      - ".github/workflows/desktop-package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    # Apple Silicon 的 runner；package:mac 只在 arm64 的 macOS 上打包。
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@12.0.2
+      - uses: actions/cache@v4
+        with:
+          path: packages/python-runner/.cache/pyodide
+          key: ${{ runner.os }}-pyodide-${{ hashFiles('package-lock.json', 'packages/python-runner/package.json', 'packages/learning/courses/*/course.yaml') }}
+      - run: npm ci
+      - run: npm run course:runtime
+      - run: npm run package:mac --workspace=@repa/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repa-mac-arm64
+          path: .scratch/desktop-delivery/dist/*.dmg
+          if-no-files-found: error
+          retention-days: 14
