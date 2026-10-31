@@ -121,7 +121,8 @@ async function copyLicenses() {
   await visit(path.join(application, "node_modules"));
   // renderer 就是按 desktop 模式构建的 apps/web，打进页面的是 Web 的运行依赖。
   const rendererDependencies = (await npmRun(["ls", "--all", "--omit=dev", "--workspace=@repa/web", "--parseable"]))
-    .split("\n").filter((directory) => directory.startsWith(`${root}/node_modules/`));
+    // npm 按平台的分隔符和换行输出路径，Windows 上是反斜杠和 \r\n。
+    .split(/\r?\n/).filter((directory) => directory.startsWith(path.join(root, "node_modules") + path.sep));
   for (const directory of rendererDependencies) await record(directory);
   for (const name of ["LICENSE", "LICENSES.chromium.html"]) {
     const source = path.join(electronDist, name);

@@ -11,6 +11,8 @@
     "verify:linux": "node scripts/verify-linux-package.mjs",
     "package:mac": "node scripts/package-mac.mjs",
     "verify:mac": "node scripts/verify-mac-package.mjs",
+    "package:win": "node scripts/package-win.mjs",
+    "verify:win": "node scripts/verify-win-package.mjs",
     "check": "tsc --noEmit",
     "dev": "electron-vite dev",
     "prebuild": "npm run build:packages --prefix ../..",
