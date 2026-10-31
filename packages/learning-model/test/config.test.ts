@@ -45,10 +45,11 @@ test("默认参数逐项命名，常数保留 v0 的取值；省略参数和显�
   }
 });
 
-test("差额更新的基线：simulate 的四项默认结果与冻结的数值精确一致", () => {
+test("差额更新的基线：simulate 的四项默认结果与冻结的数值一致", () => {
   // memory 改为差额更新以后，默认 compare() 的冻结基线；v0 的数值（memory 先加信用再整体衰减）见 git 历史。
-  // 精确比较计数及浮点预测。
-  assert.deepEqual(compare(), [
+  // 计数精确比较。回忆率是一长串浮点运算的结果，不同 Node 版本的数学函数在最后一位上可能相差，按 1e-12 比较。
+  const recall = (value: number | null) => (value === null ? null : Math.round(value * 1e12) / 1e12);
+  assert.deepEqual(compare().map((row) => ({ ...row, meanRecallAfterSevenDays: recall(row.meanRecallAfterSevenDays) })), [
     {
       scenario: "always-pass", policy: "independent", explicitReviews: 216, failures: 0,
       learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 0, dueTopicDays: 0,
@@ -62,12 +63,12 @@ test("差额更新的基线：simulate 的四项默认结果与冻结的数值�
     {
       scenario: "forgetting", policy: "independent", explicitReviews: 289, failures: 35,
       learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 2, dueTopicDays: 6,
-      budgetExhaustedDays: 5, meanRecallAfterSevenDays: 0.7822859464587009,
+      budgetExhaustedDays: 5, meanRecallAfterSevenDays: 0.782285946459,
     },
     {
       scenario: "forgetting", policy: "fire-compression", explicitReviews: 183, failures: 31,
       learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 1, dueTopicDays: 1,
-      budgetExhaustedDays: 1, meanRecallAfterSevenDays: 0.6042004527893007,
+      budgetExhaustedDays: 1, meanRecallAfterSevenDays: 0.604200452789,
     },
   ]);
 });
