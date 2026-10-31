@@ -6,8 +6,8 @@
  * 判分与原答形状延续 2026-10-12 从底座移走的词汇；任务契约供后续插件实现与前端共用。
  *
  * 本文件经 @repa/learning/protocol 导出，只依赖 typebox、@repa/base/protocol 和 @repa/python-runner/protocol，浏览器里也能用。
- * 规则与底座的词汇相同：只增不改，发送方按当前版本严格校验，多余字段直接拒绝；前端通过
- * readLearningResult 等入口宽松读取，插件比前端新时也能显示。
+ * 规则与底座的协议相同：前后端可以分别更新以后只增不改，在此之前随前后端同步修改；发送方按当前版本严格校验，
+ * 多余字段直接拒绝；前端通过 readLearningResult 等入口宽松读取，插件比前端新时也能显示。
  */
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
