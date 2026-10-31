@@ -1,6 +1,6 @@
 # 文档规则
 
-文档放置、结构和检查由本文件持有；行文方法见[文档规范 Skill](../.agents/skills/repa-docs-style/SKILL.md)，设立这些规则的理由见[文档纪律提案](../.agents/notes/proposed/process/2026-10-29-docs-discipline.md)。
+文档放置、结构和检查由本文件持有；行文方法见[文档规范 Skill](../.agents/skills/repa-docs-style/SKILL.md)，设立这些规则的理由见[文档纪律记录](../.agents/notes/implemented/process/2026-10-29-docs-discipline.md)。
 
 ## 文档归属
 
