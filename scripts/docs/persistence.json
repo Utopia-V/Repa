@@ -1,6 +1,6 @@
 {
-  "stage": "development",
-  "$comment": "首个测试版发布时将 stage 改为 \"test\"。",
+  "stage": "test",
+  "$comment": "首个测试版起为 test：schema 摘要变化须先在 docs/persistence/changes/ 记下版本判断及理由，见 docs/AGENTS.md。",
   "formats": [
     {
       "id": "space-format",
