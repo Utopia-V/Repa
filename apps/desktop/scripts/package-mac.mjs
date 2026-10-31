@@ -12,6 +12,10 @@ const root = path.resolve(desktop, "../..");
 
 if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("macOS 安装包只能在 Apple Silicon 的 macOS 上打。");
 
+// electron-builder 在 PR 构建里默认跳过签名，免得 PR 里的代码拿到证书；ad-hoc 签名不用证书，照常签。
+// 不签的话改过的 Electron.app 带着失效的签名，Apple Silicon 上打不开。
+process.env.CSC_FOR_PULL_REQUEST = "true";
+
 const { application, manifest, python, inventory, packed } = await prepareApplication();
 
 await build({
