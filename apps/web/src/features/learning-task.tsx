@@ -8,6 +8,7 @@ import { ErrorNotice } from "@/components/domain/error-notice";
 import { buildResponse, emptyDraft, ItemSlots, SlotProblems } from "@/components/domain/item-form";
 import { Content, type Draft } from "@/components/domain/item-parts";
 import { SubmissionReview } from "@/components/domain/submission-feedback";
+import { CodeTrial } from "@/features/code-trial";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { Outgoing } from "@/lib/learning";
 import type { RenderLink } from "@/components/ui/markdown";
@@ -86,7 +87,19 @@ function AnswerForm({ task, delivery, outgoing, busy }: {
 
   return <div className="grid gap-5">
     <Content blocks={item.body} />
-    <ItemSlots item={item} draft={draft} onChange={setDraft} problems={problems} disabled={pending || busy} />
+    <ItemSlots
+      item={item}
+      draft={draft}
+      onChange={setDraft}
+      problems={problems}
+      disabled={pending || busy}
+      after={(slot) => {
+        const value = draft[slot.id];
+        return value?.type === "code"
+          ? <CodeTrial deliveryId={delivery.deliveryId} slotId={slot.id} code={value.code} disabled={pending || busy} />
+          : null;
+      }}
+    />
     <SlotProblems id={`${delivery.deliveryId}-problems`} problems={general} />
     {outgoing?.status === "failed" && <ErrorNotice title="没能交上" error={outgoing.error} />}
     {outgoing?.status === "unknown" && <p role="status" className="m-0 flex items-center gap-2 text-sm text-muted-foreground">

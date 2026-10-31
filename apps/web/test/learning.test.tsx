@@ -7,6 +7,7 @@ import type { Item, SessionEntry, SessionInfo } from "@repa/base/protocol";
 import type { Delivery, LearningState, LearningTask } from "@repa/learning/protocol";
 
 import { StoreProvider } from "../src/hooks/use-app-store";
+import { TrialRunnerProvider, type TrialRunner } from "../src/hooks/use-trial-runner";
 import { createAppStore } from "../src/lib/store";
 import { routes } from "../src/routes";
 import { fakeClient } from "./fake-client";
@@ -82,13 +83,14 @@ function learningCalls(call: ReturnType<typeof backend>["call"]) {
   return call.mock.calls.filter(([method]) => method === "plugin.call").map(([, params]) => params as { method: string; input: unknown });
 }
 
-function start(client: ReturnType<typeof backend>["client"], wide = false) {
+function start(client: ReturnType<typeof backend>["client"], wide = false, runner?: TrialRunner) {
   mockMatchMedia(wide);
   localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { space: "/notes/python" }, version: 0 }));
   const store = createAppStore();
   store.getState().setClient(client);
   const router = createMemoryRouter(routes, { initialEntries: ["/learn"] });
-  render(<StoreProvider store={store}><RouterProvider router={router} /></StoreProvider>);
+  const page = <RouterProvider router={router} />;
+  render(<StoreProvider store={store}>{runner ? <TrialRunnerProvider runner={runner}>{page}</TrialRunnerProvider> : page}</StoreProvider>);
   return store;
 }
 
@@ -260,4 +262,39 @@ it("辅导接着这个空间最近的一段辅导会话；开始新对话后，�
 
   await vi.waitFor(() => expect(fake.call.mock.calls.find(([method]) => method === "session.send")?.[1]).toEqual({ sessionId: "tutor3", text: "for 循环怎么停下来" }));
   expect(fake.call.mock.calls.find(([method]) => method === "session.create")?.[1]).toEqual({ agent: "learning-tutor" });
+});
+
+it("代码题点“运行”：后端拼好不带答案的一批，交给试运行的运行器，显示输出和出错的行；结果不交回后端", async () => {
+  const code: Item = {
+    id: "c1", version, requires: ["slot.code"],
+    body: [{ type: "markdown", text: "打印 `df` 里及格的人数。" }],
+    slots: [{ id: "code", type: "code", language: "python", starter: "print(len(df))\n" }],
+  };
+  const coding: Delivery = { ...delivery, deliveryId: "d4", submissionId: "s4", item: code, requiresServices: ["python.run"] };
+  const batch = {
+    protocol: "repa-python-batch-v2" as const,
+    tests: [{ id: "trial", program: "print(len(df))\nprint(x)\n", prelude: "", setup: "", data: [], captures: [], doctest: [] }],
+  };
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(1, task({ stage: "awaiting_answer", deliveryId: "d4" }, { deliveries: [coding] })));
+    if (method === "run.prepare") return Promise.resolve(batch);
+    return Promise.reject(new Error(method));
+  });
+  const runner = { run: vi.fn<TrialRunner["run"]>(() => Promise.resolve({
+    protocol: "repa-python-batch-v2",
+    runtime: { pyodide: "0.29.0", python: "3.13.2", packages: {} },
+    tests: [{ id: "trial", status: "completed", result: { stdout: "3\n", error: { type: "NameError", message: "name 'x' is not defined", line: 2 }, captures: {}, doctest: [] } }],
+  })) };
+  const fake = backend(learning);
+  start(fake.client, false, runner);
+
+  const editor = await screen.findByRole("textbox");
+  fireEvent.change(editor, { target: { value: "print(len(df))\nprint(x)\n" } });
+  fireEvent.click(screen.getByRole("button", { name: "运行" }));
+
+  expect((await screen.findByLabelText("运行输出")).textContent).toBe("3\n");
+  expect(screen.getByText("第 2 行出错：", { exact: false })).toBeTruthy();
+  expect(learningCalls(fake.call).find((call) => call.method === "run.prepare")?.input).toEqual({ deliveryId: "d4", slotId: "code", code: "print(len(df))\nprint(x)\n" });
+  expect(runner.run).toHaveBeenCalledWith(batch, expect.any(AbortSignal));
+  expect(learningCalls(fake.call).map((call) => call.method)).toEqual(["state.get", "run.prepare"]);
 });

@@ -273,6 +273,18 @@ export function createLearningActions({ call, get, set }: Deps) {
     submitAnswer(delivery: Delivery, taskId: string, response: LearnerResponse): Promise<void> {
       return submit(delivery.submissionId, { taskId, deliveryId: delivery.deliveryId, response });
     },
+    /**
+     * 试运行：后端把课程前导、数据夹具和 setup 与学习者的代码拼成一批，不带期望值；不写学习记录，也不算作答。
+     * 交付已经不在当前任务里时报 stale_state，这时重新读取状态，画面换成当前的题。
+     */
+    async prepareRun(deliveryId: string, slotId: string, code: string): Promise<LearningResult<"run.prepare">> {
+      try {
+        return await learningCall("run.prepare", { deliveryId, slotId, code });
+      } catch (error) {
+        if (errorCode(error) === "stale_state") void refresh();
+        throw error;
+      }
+    },
     searchContent(query: string): Promise<LearningResult<"content.search">> {
       return learningCall("content.search", { query, offset: 0, limit: 20 });
     },
