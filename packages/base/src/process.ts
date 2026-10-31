@@ -9,6 +9,8 @@ export interface RepaProcessOptions {
   plugins?: string[];
   /** 为 false 时关掉通用 Agent（--no-general-agent），学习者版本使用。 */
   generalAgent?: boolean;
+  /** 空间历史用的 Git 程序的绝对路径，传给 --git；安装包带上 git 时使用。 */
+  gitPath?: string;
   nodeExecutable?: string;
   environment?: NodeJS.ProcessEnv;
   startupTimeoutMs?: number;
@@ -31,6 +33,7 @@ export async function startRepaProcess(options: RepaProcessOptions = {}): Promis
   if (options.home !== undefined) args.push("--home", options.home);
   for (const plugin of options.plugins ?? []) args.push("--plugin", plugin);
   if (options.generalAgent === false) args.push("--no-general-agent");
+  if (options.gitPath !== undefined) args.push("--git", options.gitPath);
   // 宿主不往后端的 stdin 写内容，只用它表示自己还在：close() 结束 stdin 即请求正常关闭。
   // Windows 没有能投递给子进程的 SIGTERM，kill 会直接结束进程，后端的收尾代码来不及运行。
   // 不用 IPC 通道的 disconnect()：宿主一断开通道，Node 就不再发出子进程的 close 事件。

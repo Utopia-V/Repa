@@ -16,6 +16,8 @@ export interface RestoreOptions {
   /** 备份所属空间的根目录，即清单中记下的真实路径。 */
   root: string;
   id: string;
+  /** 写出空间文件时用的 Git 程序，见 SpaceOptions.gitPath。 */
+  gitPath?: string;
   /** 只供测试：每一步之前调用，抛错即模拟进程在这一步之前结束。 */
   step?(name: string): void | Promise<void>;
 }
@@ -143,7 +145,7 @@ export async function restoreToNew(options: RestoreOptions & { target: string })
     await copyTree(path.join(backup.directory, "data"), dataDir, FROM_BACKUP, copied);
     await syncCopies(copied);
     await options.step?.("checkout");
-    await checkoutLatest(temporary);
+    await checkoutLatest(temporary, options.gitPath === undefined ? {} : { gitPath: options.gitPath });
     // 检出的空间文件与新建的目录也在发布之前落盘，自底向上直到临时文件夹本身，与 .repa/ 的做法一致；
     // 否则断电以后，选定的名称处可能已有内容不完整的空间，再次恢复又会因为目标已存在而被拒绝。
     const checkedOut = copying(temporary);

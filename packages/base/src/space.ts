@@ -46,6 +46,8 @@ export interface SpaceOptions {
    * 插件写入和 Agent 写入同一个文件时就会依次进行；省略时不另排队，提交仍由历史队列串行。
    */
   fileQueue?<T>(file: string, action: () => Promise<T>): Promise<T>;
+  /** 空间历史用的 Git 程序，必须是绝对路径；安装包带的 git 由此传入。省略时用 PATH 里的 git。 */
+  gitPath?: string;
 }
 
 export { openSpace, createSpace } from "./space/space.js";

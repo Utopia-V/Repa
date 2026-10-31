@@ -13,7 +13,7 @@ import { writeFile } from "node:fs/promises";
 import { openHistory } from "@repa/space-history";
 
 const history = await openHistory("/path/to/space", {
-  gitPath: "/usr/bin/git", // 默认使用 PATH 中的 git
+  gitPath: "/usr/bin/git", // 默认使用 PATH 中的 git；给出时必须是绝对路径
   maxFileBytes: 10 * 1024 * 1024, // 默认上限为 10 MiB，等于上限仍保留
 });
 
@@ -34,6 +34,8 @@ const undoRun = await history.undoRun("run-123"); // 连同子运行 run-456
 const undo = await history.undo(shell.snapshot.revision);
 console.log(undoRun.conflicts, undo.restored, undo.conflicts);
 ```
+
+`gitPath` 指定 Git 程序，`openHistory` 与 `checkoutLatest` 都接受。它必须是绝对路径：Windows 上按名称启动程序时先在子进程的工作目录里找，而工作目录是空间。给出时每次调用都带上 `--exec-path=<所在目录>`，所以只带 Git 主程序、不带子命令目录的安装也能用：保存时 fast-import 调起的 `unpack-objects` 和维护时 `gc` 调起的 `repack`，都按它找回这个主程序。
 
 宿主为每个空间持有一个 `history` 实例。知道写入路径的写入用 `recordPaths`：它在队列里先把这些路径上尚未记录的改动提交为 `external`，再执行回调，最后只提交这些路径，来源用调用方给的。范围外的改动不受影响，也不会被顺带提交，留给之后的快照。路径相对于空间根目录，使用 `/` 分隔，可以是文件或目录；目录包括其下全部内容，路径的某一级上级在磁盘上变成文件或符号链接时也一并记录。忽略规则、大小上限、`.repa/`、`.git` 与嵌套仓库的排除同样适用，给定路径存在却未记录时出现在 `skipped` 中。内容没有变化时不产生提交。
 

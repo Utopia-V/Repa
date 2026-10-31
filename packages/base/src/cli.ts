@@ -6,7 +6,7 @@ import { loadPlugin } from "./plugins/manifest.js";
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   if (args[0] === "--help" || args[0] === "-h") {
-    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 构建目录] [--no-general-agent] [--direct-agent Agent] [--close-on-stdin-end]\n");
+    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 构建目录] [--no-general-agent] [--direct-agent Agent] [--git Git 程序的绝对路径] [--close-on-stdin-end]\n");
     return;
   }
   if (args.shift() !== "serve") throw new Error("请使用 repa-base serve 启动本机服务");
@@ -15,6 +15,7 @@ async function run(): Promise<void> {
   let generalAgent = true;
   let closeOnStdinEnd = false;
   let directAgents: string[] | undefined;
+  let gitPath: string | undefined;
   const plugins: Plugin[] = [];
   while (args.length) {
     const option = args.shift();
@@ -42,6 +43,9 @@ async function run(): Promise<void> {
         plugins.push(await loadPlugin(value));
         break;
       }
+      case "--git":
+        gitPath = value;
+        break;
       case "--direct-agent":
         // 可以重复；给出后只有这些 Agent 能直接对话，覆盖定义中的 direct。
         directAgents = [...(directAgents ?? []), value];
@@ -50,7 +54,7 @@ async function run(): Promise<void> {
         throw new Error(`未知参数：${option ?? ""}`);
     }
   }
-  const server = await startServer({ home, port, plugins, generalAgent, directAgents, token: process.env.REPA_TOKEN });
+  const server = await startServer({ home, port, plugins, generalAgent, directAgents, gitPath, token: process.env.REPA_TOKEN });
   const stop = () => {
     server.close().catch(() => {
       process.stderr.write("关闭服务失败\n");
