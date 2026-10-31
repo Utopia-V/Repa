@@ -38,6 +38,10 @@ test("同一提交的待判与重连夹具保留身份和原答，画面可以�
   assert.deepEqual(readLearningResult("submission.submit", rejected), { ok: true, value: rejected });
 });
 
+test("测验与换题重考同课和复习一样经 menu.select 开始，没有按候选类型另设的入口", () => {
+  assert.deepEqual(["quiz.start", "quiz.retake"].filter((name) => Object.hasOwn(learningMethods, name)), []);
+});
+
 test("推进契约要求阶段与 revision，陈旧菜单和其他故障可携底座错误细节", () => {
   const state = lesson();
   const advance = { taskId: accepted.taskId, expectedStage: "feedback", expectedRevision: state.revision };
@@ -132,7 +136,7 @@ test("讲解、例题、中止和 review 使用同一任务画面，隔离模型
   assert.ok(Value.Check(LearningStateSchema, review));
 });
 
-test("公开协议独立构建成浏览器 ESM，只加载 TypeBox 与底座协议且不带 Node 内建模块", async () => {
+test("公开协议独立构建成浏览器 ESM，只加载 TypeBox、底座协议与运行器协议，不带 Node 内建模块", async () => {
   const result = await build({ entryPoints: ["src/protocol.ts"], bundle: true, platform: "browser", format: "esm", write: false, metafile: true });
   assert.ok(result.outputFiles[0]?.text.includes("readLearningResult"));
   assert.ok(Object.keys(result.metafile.inputs).every((file) => !file.includes("/pi-") && !file.endsWith("/client.ts")));

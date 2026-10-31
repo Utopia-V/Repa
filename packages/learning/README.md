@@ -14,7 +14,7 @@
 
 ### 从前端调用
 
-前端经底座的 `plugin.call` 调用学习方法，用 `@repa/learning/protocol` 的 `readLearningResult` 等入口宽松读取结果。这个入口只依赖 `typebox` 和 `@repa/base/protocol`，浏览器里也能用。方法、状态、错误和 `python.run` 的约定见[前端契约](../../docs/development/learning-protocol.md)，判分反馈的类型见下文的[公开约定](#公开约定)。
+前端经底座的 `plugin.call` 调用学习方法，用 `@repa/learning/protocol` 的 `readLearningResult` 等入口宽松读取结果。这个入口只依赖 `typebox`、`@repa/base/protocol` 和 `@repa/python-runner/protocol`，浏览器里也能用。方法、状态、错误和 `python.run` 的约定见[前端契约](../../docs/development/learning-protocol.md)，判分反馈的类型见下文的[公开约定](#公开约定)。
 
 ### 写课与检查课程
 
@@ -50,7 +50,7 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 | `relations.test.ts` | 先修、补救与覆盖分开检查，退役 id 不复用，题目版本与核对版本各自的边界 |
 | `rules.test.ts` | 用一份小课程逐项弄坏结构、先修、完整性、来源、链接、数的写法和标准答案 |
 | `items.test.ts` | 规则判分、字面量比较、投影和两种版本 |
-| `protocol.test.ts` | “不会”的结构检查，反馈与提交结果的严格校验和宽松读取，公开入口只加载 `typebox` 和底座的交互词汇 |
+| `protocol.test.ts` | “不会”的结构检查，反馈与提交结果的严格校验和宽松读取，公开入口只加载 `typebox`、底座的交互词汇和运行器协议 |
 | `confirm.test.ts` | 用假的模型输出检查模型核对：请求里不带答案和解析，选项编号换成不透明的再换回，记录的写入、并入与失效，请求数上限和 `--log` |
 | `code.test.ts` | 在 Pyodide 里核对小课程和随包课程：各类错误都能报出，候选程序之间互不影响，整门课只启动一个解释器，核对不写产物 |
 | `code-tests.test.ts` | 用替身执行方检查共用入口：调用顺序、超时归因、没有结论的情形和执行方守约 |

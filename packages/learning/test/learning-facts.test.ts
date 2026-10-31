@@ -1,17 +1,17 @@
 /**
- * 学习记录只记事实：答案或运行前导改正后的重判、没有证据时不阻塞也不下结论、从事实重算状态、归属改变不换版本，
- * 以及每次作答写入的字节数和重算次数这两道代价关卡。
+ * 学习记录只记事实：答案或运行前导改正后的重判、没有证据时不阻塞也不下结论、试运行不写记录、从事实重算状态、
+ * 归属改变不换版本，以及每次作答写入的字节数和重算次数这两道代价关卡。
  */
 import assert from "node:assert/strict";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 import type { Services } from "@repa/base/plugin";
 import { parse } from "@repa/base/protocol";
 import { DEFAULT_MODEL_CONFIG, isDue, type ModelConfig } from "@repa/learning-model";
 import { describeRuntime, SandboxRunner } from "@repa/python-runner";
-import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
+import { PYTHON_BATCH, PythonBatchInputSchema, type PythonBatchInput, type PythonTest } from "@repa/python-runner/protocol";
 import { Value } from "typebox/value";
-import { CodeSlotSchema, IdSchema, KpIdSchema, QuestionIdSchema, TopicIdSchema, type Topic } from "../src/format/schema.js";
+import { CodeSlotSchema, IdSchema, KpIdSchema, QuestionIdSchema, TopicIdSchema, type Question, type Topic } from "../src/format/schema.js";
 import { FactSchema, GradedSlotSchema, type Fact } from "../src/records-schema.js";
 import { KP_WRONG_LIMIT } from "../src/parameters.js";
 import { Replay } from "../src/replay.js";
@@ -36,6 +36,7 @@ function verdicts(f: Fixture, taskId: string) {
 }
 
 const graded = (f: Fixture) => f.session().records.facts.filter((fact) => fact.type === "graded");
+const stale = (error: unknown) => error instanceof Error && "code" in error && error.code === "stale_state";
 
 /** 课程格式允许的最长 id：topic id 32 字符，它下面的知识点 id 可到 40 字符、题目 id 可到 48 字符；作答位 id 120 字符。 */
 const LONG_TOPIC = "long".padEnd(32, "0");
@@ -258,6 +259,86 @@ test("只改课程的运行前导时题面版本不变、题目版本改变，�
   assert.equal((await f.state()).task?.submissions[0]?.feedback?.verdict, "incorrect");
 });
 
+test("试运行按判分里第一个公开测试的环境运行学习者的代码，批次里没有期望值、隐藏测试和参考解；课和复习中都能用，不写学习记录，也不算求助", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return skipUnavailableEnvironment(t, reason);
+  // 成绩表 df 来自题面上的数据，及格线 PASS 来自测试的准备代码，BONUS 来自课程的运行前导。
+  const filter = (id: string): Question => ({
+    id,
+    body: "筛出成绩不低于 `PASS` 的行，存进 `passed`。",
+    data: ["scores"],
+    explanation: "用布尔条件筛选行。",
+    slots: [{
+      id: "code", type: "code", language: "python", starter: "passed = df", solution: "passed = df[df.score >= PASS]",
+      tests: [
+        { name: "及格线 60", setup: "PASS = 60", expect: { "passed.name.tolist()": "['乙', '丙']" } },
+        { name: "及格线 80", hidden: true, setup: "PASS = 80", expect: { "passed.name.tolist()": "['乙']" } },
+      ],
+    }],
+  });
+  const definition = topic("t01");
+  definition.data = { scores: { kind: "dataframe", name: "df", columns: { name: ["甲", "乙", "丙"], score: [58, 91, 75] } } };
+  const kp = definition.kps[0];
+  assert.ok(kp);
+  kp.practice = [filter("t01.k1.q1")];
+  kp.review = [filter("t01.k1.r1")];
+  // 判分经 python.run 的替身，记下请求，用来对照试运行准备的环境。
+  const requests: PythonBatchInput[] = [];
+  const services: Services = {
+    async call(name, input) {
+      requests.push(parse(PythonBatchInputSchema, input));
+      return fakePython.call(name, input);
+    },
+  };
+  const f = await fixture(t, [definition], { services, runtime: { ...RUNTIME, prelude: "BONUS = 5\n" } });
+  // 前端用自己的运行器试运行，不与判分共用。
+  const runner = new SandboxRunner({ assets: await describeRuntime(RUNTIME) });
+  t.after(() => runner.close());
+  const code = "print(len(df), PASS, BONUS)";
+  async function trial(deliveryId: string) {
+    const log = await readFile(f.session().records.file);
+    const batch = await f.call("run.prepare", { deliveryId, slotId: "code", code });
+    const [result] = await runner.runTests(batch.tests);
+    assert.deepEqual(await readFile(f.session().records.file), log);
+    return { batch, result };
+  }
+  const environment = ({ prelude, setup, data }: PythonTest) => ({ prelude, setup, data });
+
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  const practice = await f.input();
+  const lesson = await trial(practice.deliveryId);
+  const [run] = lesson.batch.tests;
+  assert.ok(run);
+  assert.deepEqual([run.program, run.setup, run.captures, run.doctest], [code, "PASS = 60", [], []]);
+  const text = JSON.stringify(lesson.batch);
+  for (const secret of ["passed.name.tolist()", "['乙', '丙']", "['乙']", "PASS = 80", "df.score >= PASS"]) {
+    assert.equal(text.includes(secret), false, secret);
+  }
+  assert.ok(lesson.result?.status === "completed");
+  assert.equal(lesson.result.result.error, null);
+  assert.equal(lesson.result.result.stdout, "3 60 5\n");
+  // 试运行之后提交，这份作答仍是独立完成的证据；判分时第一个测试的环境与试运行相同。
+  const passed = await f.finishLesson();
+  assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.deepEqual(passed.task?.submissions[0]?.feedback?.evidence, { status: "eligible" });
+  const scored = requests[0]?.tests.find((test) => test.id === "test:0");
+  assert.ok(scored);
+  assert.deepEqual(environment(run), environment(scored));
+
+  // 复习期间不能求助，也能试运行；上一节课的交付已不在当前任务里，不能再拿来试运行。
+  f.time(start + DAY_MS);
+  const review = await f.select("t01", "review");
+  assert.equal(review.restrictions.tutorAllowed, false);
+  const delivery = review.task?.deliveries[0];
+  assert.ok(delivery);
+  const reviewed = await trial(delivery.deliveryId);
+  assert.ok(reviewed.result?.status === "completed");
+  assert.equal(reviewed.result.result.stdout, "3 60 5\n");
+  await assert.rejects(f.call("run.prepare", { deliveryId: practice.deliveryId, slotId: "code", code }), stale);
+});
+
 test("申诉使更早一轮课的知识点改判为错时，正在进行的重试按重算后的继承进度计算，与学生模型和菜单一致；XP 不收回", async (t) => {
   const definition = topic("t01", 2);
   const first = definition.kps[0]?.practice?.[0];
@@ -374,7 +455,7 @@ test("判分失败或模型没有把握时任务照样往下走、不计失败�
   f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
   await f.submit();
   // 没有证据的两份既不算对也不算错：只有第三份计一次尝试。
-  assert.deepEqual((await f.state()).task?.kps[0], { kpId: "t01.k1", attempts: 1, consecutiveCorrect: 1, completed: false });
+  assert.deepEqual((await f.state()).task?.kps[0], { kpId: "t01.k1", title: "t01.k1", attempts: 1, consecutiveCorrect: 1, completed: false });
   const current = await f.state();
   assert.ok(current.task);
   const aborted = await f.call("task.abort", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage });
@@ -426,7 +507,7 @@ test("“错、错、待判、对、对”的课先按通过算；第三题后�
   await f.call("submission.resume", { submissionId: waiting });
   const failed = await f.state();
   assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
-  assert.deepEqual(failed.task?.kps, [{ kpId: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false }]);
+  assert.deepEqual(failed.task?.kps, [{ kpId: "t01.k1", title: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false }]);
   assert.equal((await f.student()).t01, undefined);
   assert.equal(failed.progress.totalXp, 2);
   const awards = structuredClone(f.session().replay.awards);

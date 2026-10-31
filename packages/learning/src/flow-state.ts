@@ -16,8 +16,8 @@ import type { LearningTask } from "./protocol.js";
 import type { FactOf, TaskKind } from "./records-schema.js";
 import { topicDue, topicMemory, updateStudent } from "./student-model.js";
 
-/** 一个知识点在本次课里的进度。 */
-export type KpProgress = LearningTask["kps"][number];
+/** 一个知识点在本次课里的进度。标题不属于进度，公开任务画面时再按当前课程补上。 */
+export type KpProgress = Omit<LearningTask["kps"][number], "title">;
 /**
  * 任务的结论：通过、失败、超时、主动结束，或没有结论就被后来的任务取代。只有测验限时，超时只出现在测验上。
  * unresolved 是测验已经结束（交卷或到了截止时间），但还有没判出结果的作答，判出来就可能改变结论：结论等它们判出来再定。

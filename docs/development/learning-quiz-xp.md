@@ -1,6 +1,6 @@
 # 测验、XP 与进度
 
-学习插件在菜单中提供测验和换题重考，并从学习记录里的事实算出奖励、日目标和完课估算。你可以用 `progress.get` 读取进度，用 `progress.setGoal` 修改默认的每日目标 `DEFAULT_DAILY_GOAL_XP`；测验通过现有学习契约中的 `quiz.start`、`quiz.finish` 和 `quiz.retake` 操作。
+学习插件在菜单中提供测验和换题重考，并从学习记录里的事实算出奖励、日目标和完课估算。你可以用 `progress.get` 读取进度，用 `progress.setGoal` 修改默认的每日目标 `DEFAULT_DAILY_GOAL_XP`；测验和换题重考与课、复习一样，用[学习契约](learning-protocol.md)的 `menu.select` 开始，用 `quiz.finish` 交卷。
 
 ## 设计思路
 
