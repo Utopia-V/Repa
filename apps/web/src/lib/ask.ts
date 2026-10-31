@@ -10,9 +10,9 @@ import type { Ask } from "@/lib/store";
 
 type Slot = Item["slots"][number];
 
-/** 对话里的询问卡片能显示的作答位和内容块；连接时在 initialize 里声明，后端只发这些能显示的题。 */
+/** 询问卡片和学习任务区能显示的作答位和内容块；连接时在 initialize 里声明，后端只发这些能显示的题。 */
 export const interactionCapabilities = {
-  supports: ["slot.choice", "slot.text", "block.markdown", "block.code", "markdown.math"],
+  supports: ["slot.choice", "slot.text", "slot.order", "slot.table", "slot.code", "block.markdown", "block.code", "markdown.math"],
 } satisfies NonNullable<ClientCapabilities["interaction"]>;
 
 /** 内容块的纯文字，用于没有 label 的选项回显和读屏名称。 */
@@ -36,6 +36,18 @@ export function answerText(slot: Slot, answer: Answer | undefined): string {
     return chosen.length === 0 ? "没有选择" : chosen.join("、");
   }
   if (answer?.type === "text") return answer.text === "" ? "没有填写" : answer.text;
+  if (answer?.type === "order" && slot.type === "order") {
+    return answer.items.map((id, index) => {
+      const block = slot.items.find((candidate) => candidate.id === id);
+      const text = block ? block.label ?? plainText(block.content) : id;
+      return `${" ".repeat(4 * (answer.indents?.[index] ?? 0))}${text}`;
+    }).join("\n");
+  }
+  if (answer?.type === "table") {
+    const filled = Object.values(answer.cells).reduce((count, row) => count + Object.keys(row).length, 0);
+    return `填写了 ${filled} 格`;
+  }
+  if (answer?.type === "code") return answer.code;
   return "没有作答";
 }
 

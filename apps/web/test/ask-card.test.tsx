@@ -168,7 +168,7 @@ it("关闭提问告诉后端不作答；运行中止和断线时只留一行说�
 it("前端显示不了的题直接回复 unsupported，不出卡片", async () => {
   const fake = backend();
   await renderPage(fake);
-  act(() => fake.emit("ask.request", request({ item: { ...item, requires: [...item.requires, "slot.table"] } })));
+  act(() => fake.emit("ask.request", request({ item: { ...item, requires: [...item.requires, "block.image"] } })));
   await vi.waitFor(() => expect(fake.call).toHaveBeenCalledWith("ask.reply", { id: "a1", action: "unsupported" }));
   expect(screen.queryByRole("region", { name: "Agent 想问你" })).toBeNull();
 });
