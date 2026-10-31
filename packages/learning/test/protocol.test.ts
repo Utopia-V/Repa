@@ -124,12 +124,14 @@ async function externalImports(entry: string, toFile: (from: string, specifier: 
   return external;
 }
 
-test("@repa/learning/protocol 在浏览器里也能用：只依赖 typebox 和底座的交互词汇，底座那边也不加载 Node 模块", async () => {
+test("@repa/learning/protocol 在浏览器里也能用：只依赖 typebox、底座的交互词汇和运行器协议，后两者也不加载 Node 模块", async () => {
   const learning = await externalImports(path.join(SOURCE, "protocol.ts"), (from, specifier) =>
     path.resolve(path.dirname(from), specifier.replace(/\.js$/, ".ts")));
-  assert.deepEqual([...learning].sort(), ["@repa/base/protocol", "typebox", "typebox/value"]);
+  assert.deepEqual([...learning].sort(), ["@repa/base/protocol", "@repa/python-runner/protocol", "typebox", "typebox/value"]);
 
-  const base = fileURLToPath(import.meta.resolve("@repa/base/protocol"));
-  const reached = await externalImports(base, (from, specifier) => path.resolve(path.dirname(from), specifier));
-  assert.deepEqual([...reached].filter((specifier) => specifier.startsWith("node:") || !specifier.startsWith("typebox")), []);
+  for (const entry of ["@repa/base/protocol", "@repa/python-runner/protocol"]) {
+    const reached = await externalImports(fileURLToPath(import.meta.resolve(entry)), (from, specifier) => path.resolve(path.dirname(from), specifier));
+    const allowed = (specifier: string) => specifier.startsWith("typebox") || specifier === "@repa/base/protocol";
+    assert.deepEqual([...reached].filter((specifier) => specifier.startsWith("node:") || !allowed(specifier)), [], entry);
+  }
 });

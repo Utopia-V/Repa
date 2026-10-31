@@ -230,7 +230,7 @@ export async function connectTutor(
         const view = await session.view();
         const task = view.state.task;
         const delivery = currentDelivery(task ?? null);
-        const topic = session.course.topics.get(task?.topicIds[0] ?? "");
+        const topic = session.course.topics.get(task?.topics[0]?.id ?? "");
         const phase = task?.phase;
         const shownKp = phase?.stage === "explanation" || phase?.stage === "example" ? phase.page.ref.kpId : undefined;
         const kpId = shownKp ?? delivery?.kpId ?? task?.kps.find((entry) => !entry.completed)?.kpId;

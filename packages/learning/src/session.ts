@@ -331,7 +331,10 @@ export class LearningSession {
     };
   }
 
-  /** 当前任务的公开画面。 */
+  /**
+   * 当前任务的公开画面。topic 与知识点带当前课程里的标题，复习、测验期间界面也不必另查内容。
+   * topic 已从课程删除时标题退回为它的 id；知识点由 taskKps 从当前课程取出，总有标题。
+   */
   async task(evidence: TaskEvidence): Promise<LearningTask> {
     const task = evidence.task;
     const deliveries: Delivery[] = [];
@@ -342,14 +345,21 @@ export class LearningSession {
     for (const delivery of task.answered) {
       submissions.push(await this.submission(delivery));
     }
+    const topics = task.topicIds.map((id) => ({ id, title: this.course.topics.get(id)?.title ?? id }));
+    const kpTitles = new Map<string, string>();
+    for (const id of task.topicIds) {
+      for (const kp of this.course.topics.get(id)?.kps ?? []) {
+        kpTitles.set(kp.id, kp.title);
+      }
+    }
     return {
       taskId: taskId(task),
       kind: task.kind,
-      topicIds: [...task.topicIds],
+      topics,
       phase: await this.phase(evidence),
       startedAt: evidence.startedAt,
       deadlineAt: evidence.deadlineAt,
-      kps: evidence.kps,
+      kps: evidence.kps.map((kp) => ({ ...kp, title: kpTitles.get(kp.kpId) ?? kp.kpId })),
       deliveries,
       submissions,
     };

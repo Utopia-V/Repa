@@ -2,6 +2,8 @@ import { DEFAULT_MODEL_CONFIG, applyRepetition, isDue, memoryAt, type ModelConfi
 import type { Candidate, KnowledgeGraph, Student } from "./schema.js";
 
 /**
+ * 选出最多 limit 项任务候选。每项可做的任务都先预演通过以后哪些到期复习会解除，再贪心地优先挑解除得多的，
+ * 让一次作答顺带复习被它覆盖的 topic（repetition compression）。
  * accept 是调用方会提供的候选：调用方不接受的候选在贪心覆盖之前就排除。它若参加覆盖，被选中后却提供不了，
  * 被它覆盖而略去的到期复习就一项也剩不下。
  */
@@ -57,7 +59,7 @@ export function selectTasks(
   while (selected.length < limit && available.length > 0) {
     const score = (candidate: Candidate): number => {
       const covered = new Set(candidate.reason.clearsOnPass.filter((id) => remaining.has(id)));
-      // 严重逾期时，一次成功也可能仍到期；仍要给它直接复习的机会。
+      // 到期线高于满额线时，到期的复习仍打提前折扣，一次通过未必能把它带出到期线；仍要给它直接复习的机会。
       if (remaining.has(candidate.topicId)) covered.add(candidate.topicId);
       return covered.size;
     };

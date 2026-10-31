@@ -57,8 +57,8 @@ function kpTitle(course: CourseIndex, topicId: string, kpId: string): string {
   return course.topics.get(topicId)?.kps.find((kp) => kp.id === kpId)?.title ?? kpId;
 }
 
-function taskName(task: LearningTask, course: CourseIndex): string {
-  return `${KINDS[task.kind]}${task.topicIds.map((id) => `「${topicTitle(course, id)}」`).join("")}`;
+function taskName(task: LearningTask): string {
+  return `${KINDS[task.kind]}${task.topics.map((topic) => `「${topic.title}」`).join("")}`;
 }
 
 /** 学习者写的多行文字和代码放进围栏；围栏比文字里最长的一串反引号还长，不会被提前截断。 */
@@ -231,7 +231,7 @@ function questionText(delivery: Delivery, submission: Submission | undefined): s
 /** learning_task 的文字：学习者正在读的讲解或例题，或者正在做的题连同作答、判分结果和题解。 */
 export function taskText(task: LearningTask | null, course: CourseIndex): string {
   if (!task) return "学习者还没有开始任何任务。";
-  const head = [taskName(task, course)];
+  const head = [taskName(task)];
   const phase = task.phase;
   if (phase.stage === "explanation" || phase.stage === "example") {
     const ref = phase.page.ref;
@@ -289,10 +289,9 @@ export function viewText(task: LearningTask | null, course: CourseIndex, kp: KpP
   if (!task) return "学习者还没有开始任何任务。";
   const phase = task.phase;
   const stage = phase.stage === "completed" ? `已经结束：${OUTCOMES[phase.outcome]}` : STAGES[phase.stage];
-  const lines = [`当前任务：${taskName(task, course)}，${stage}`];
+  const lines = [`当前任务：${taskName(task)}，${stage}`];
   if (kp) {
-    const title = kpTitle(course, task.topicIds[0] ?? "", kp.kpId);
-    lines.push(`知识点「${title}」：已答 ${kp.attempts} 题，连续独立答对 ${kp.consecutiveCorrect} 题${kp.completed ? "，已通过" : ""}`);
+    lines.push(`知识点「${kp.title}」：已答 ${kp.attempts} 题，连续独立答对 ${kp.consecutiveCorrect} 题${kp.completed ? "，已通过" : ""}`);
   }
   if (prerequisites.length) {
     lines.push(`学过的直接先修，学生模型估计的记忆由弱到强：${prerequisites.map((id) => `「${topicTitle(course, id)}」`).join("")}`);

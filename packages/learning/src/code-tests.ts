@@ -7,13 +7,14 @@
  * 第一次调用先运行全部期望任务，再运行第一份程序：期望值与程序在同一个执行方里、并在程序之前算出，
  * 程序改不到已经算出的期望值。判分只有一份程序，所以一次提交只调用一次执行方。核对时其余的候选程序各调用一次，
  * 沿用第一次算出的期望值；这要求课程的期望表达式、夹具和 setup 结果确定、不改动运行环境（见学习插件说明）。
+ * 学习者提交之前自己运行代码（trialBatch）也在这里准备环境，与判分相同，只是不带期望值。
  */
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import type { Answer } from "@repa/base/protocol";
 import {
   endsBatch, PYTHON_BATCH, PYTHON_RUN, PythonBatchResultSchema,
-  type Fixture as RunnerFixture, type PythonProgramResult, type PythonTest, type PythonTestResult, type Runtime,
+  type Fixture as RunnerFixture, type PythonBatchInput, type PythonProgramResult, type PythonTest, type PythonTestResult, type Runtime,
 } from "@repa/python-runner/protocol";
 import { Value } from "typebox/value";
 
@@ -79,21 +80,44 @@ export function runnerFixture(fixture: Fixture): RunnerFixture {
   };
 }
 
+/** 一个测试运行前要准备的前导、夹具和 setup；判分和试运行都由这里准备。用到的夹具没有定义（课程检查会报出）时返回 undefined。 */
+function testInput(
+  question: Question, test: Pick<CodeTest, "data" | "setup">, topic: Topic, prelude: string,
+): SlotTestPlan["inputs"][number] | undefined {
+  const data: PythonTest["data"] = [];
+  for (const label of test.data ?? question.data ?? []) {
+    const fixture = topic.data?.[label];
+    if (!fixture) return undefined;
+    data.push({ label, fixture: runnerFixture(fixture) });
+  }
+  return { prelude, setup: test.setup ?? "", data };
+}
+
 /** 一个作答位的测试计划；没有测试，或者有测试用到的夹具没有定义（课程检查会报出）时返回 undefined。 */
 export function slotTestPlan(question: Question, slot: SlotDef, topic: Topic, prelude: string): SlotTestPlan | undefined {
   const tests = slotTests(slot);
   if (tests.length === 0) return undefined;
   const inputs: SlotTestPlan["inputs"] = [];
   for (const test of tests) {
-    const data: PythonTest["data"] = [];
-    for (const label of test.data ?? question.data ?? []) {
-      const fixture = topic.data?.[label];
-      if (!fixture) return undefined;
-      data.push({ label, fixture: runnerFixture(fixture) });
-    }
-    inputs.push({ prelude, setup: test.setup ?? "", data });
+    const input = testInput(question, test, topic, prelude);
+    if (!input) return undefined;
+    inputs.push(input);
   }
   return { tests, inputs };
+}
+
+/**
+ * 学习者提交之前自己运行代码的一批：只有一个测试，按第一个公开测试准备前导、夹具和 setup，再运行学习者的代码，
+ * 与判分里这个测试的环境相同。不带 captures 和 doctest，期望表达式、隐藏测试的输入和参考解都不在里面；
+ * 测试全部隐藏时只准备前导和题面上的数据。夹具没有定义时返回 undefined。
+ */
+export function trialBatch(
+  question: Question, slot: SlotDef, topic: Topic, prelude: string, program: string,
+): PythonBatchInput | undefined {
+  const visible = slotTests(slot).find((test) => !test.hidden) ?? {};
+  const input = testInput(question, visible, topic, prelude);
+  if (!input) return undefined;
+  return { protocol: PYTHON_BATCH, tests: [{ id: "run", ...input, program, captures: [], doctest: [] }] };
 }
 
 /** 作答拼成的程序：代码题就是作答的代码，Parsons 题把排好的块按作答的缩进拼起来，每层四个空格。 */

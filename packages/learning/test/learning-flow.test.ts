@@ -1115,7 +1115,7 @@ test("同一个知识点答错第三题，这节课就失败，“错错错对�
   await f.select("t01");
   const failed = await f.finishLesson([false, false, false, true, true]);
   assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
-  assert.deepEqual(failed.task?.kps[0], { kpId: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false });
+  assert.deepEqual(failed.task?.kps[0], { kpId: "t01.k1", title: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false });
   assert.equal((await f.student()).t01, undefined);
   // 课失败照常冷却：菜单不给 t01，另一节课照常可选。
   assert.deepEqual(failed.menu?.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
