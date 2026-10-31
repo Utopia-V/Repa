@@ -71,7 +71,7 @@ it("侧栏偏好保存到浏览器，新建的 store 读回它", () => {
   store.getState().setSidebarWidth(360);
 
   expect(JSON.parse(localStorage.getItem("repa.web.preferences") ?? "null")).toEqual({
-    state: { sidebar: { open: false, width: 360 }, tutorSessions: {} },
+    state: { sidebar: { open: false, width: 360 } },
     version: 0,
   });
   expect(createAppStore().getState().sidebar).toEqual({ open: false, width: 360 });

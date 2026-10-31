@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { ConnectionError, RpcError } from "@repa/base/client";
-import type { Item } from "@repa/base/protocol";
+import type { Item, SessionEntry, SessionInfo } from "@repa/base/protocol";
 import type { Delivery, LearningState, LearningTask } from "@repa/learning/protocol";
 
 import { StoreProvider } from "../src/hooks/use-app-store";
@@ -50,9 +50,13 @@ const answering = task({ stage: "awaiting_answer", deliveryId: "d3" }, { deliver
 
 type Learning = (method: string, input: Record<string, unknown>) => Promise<unknown>;
 
-/** 只模拟学习页用到的底座方法；学习插件的方法交给每个测试的 learning。 */
-function backend(learning: Learning) {
+type Base = (params: Record<string, unknown>) => Promise<unknown>;
+
+/** 只模拟学习页用到的底座方法；学习插件的方法交给每个测试的 learning，base 替换个别底座方法。 */
+function backend(learning: Learning, base: Record<string, Base> = {}) {
   const call = vi.fn((method: string, params: Record<string, unknown>): Promise<unknown> => {
+    const replaced = base[method];
+    if (replaced) return replaced(params);
     switch (method) {
       case "space.open":
         return Promise.resolve({ root: "/notes/python" });
@@ -78,8 +82,8 @@ function learningCalls(call: ReturnType<typeof backend>["call"]) {
   return call.mock.calls.filter(([method]) => method === "plugin.call").map(([, params]) => params as { method: string; input: unknown });
 }
 
-function start(client: ReturnType<typeof backend>["client"]) {
-  mockMatchMedia();
+function start(client: ReturnType<typeof backend>["client"], wide = false) {
+  mockMatchMedia(wide);
   localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { space: "/notes/python" }, version: 0 }));
   const store = createAppStore();
   store.getState().setClient(client);
@@ -204,4 +208,58 @@ it("讲解里的概念链接打开概念卡：先记一次打开，再读卡片�
   const order = learningCalls(fake.call).map((call) => call.method).filter((method) => method === "content.open" || method === "content.read");
   expect(order).toEqual(["content.open", "content.read"]);
   expect(learningCalls(fake.call).find((call) => call.method === "content.open")?.input).toEqual({ ref: card });
+});
+
+it("剩下的题都要模型判分而没有可用模型时，说明任务会保留，并引导去设置模型", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(1, explanation));
+    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
+    if (method === "task.advance") return Promise.reject(new RpcError(-32000, "没有可用的模型", { code: "model_required" }));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+
+  fireEvent.click(await screen.findByRole("button", { name: "看例题" }));
+
+  expect(await screen.findByText("还没有可用的模型")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
+});
+
+it("辅导接着这个空间最近的一段辅导会话；开始新对话后，第一条消息建立新的辅导会话", async () => {
+  const at = "2026-10-31T00:00:00.000Z";
+  // 会话列表按最后消息时间倒序：最近的是通用对话，其次才是辅导。
+  const sessions: SessionInfo[] = [
+    { id: "g1", createdAt: at, updatedAt: at, agent: "general" },
+    { id: "tutor2", createdAt: at, updatedAt: at, agent: "learning-tutor" },
+    { id: "tutor1", createdAt: at, updatedAt: at, agent: "learning-tutor" },
+  ];
+  const history: SessionEntry[] = [
+    { id: "u1", type: "user", timestamp: at, text: "赋值是什么意思" },
+    { id: "a1", type: "assistant", timestamp: at, text: "把右边算出的值交给左边的名字。", data: { stopReason: "stop" } },
+  ];
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(1, answering));
+    if (method === "content.search") return Promise.resolve({ hits: [], nextOffset: null });
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning, {
+    "session.list": () => Promise.resolve(sessions),
+    "session.history": (params) => Promise.resolve(params.sessionId === "tutor2" ? history : []),
+    "model.getDefault": () => Promise.resolve({ provider: "test", id: "m" }),
+    "session.create": () => Promise.resolve({ id: "tutor3", createdAt: at, updatedAt: at, agent: "learning-tutor" }),
+    "session.send": () => Promise.resolve(null),
+  });
+  start(fake.client, true);
+  const tutor = await screen.findByRole("region", { name: "辅导" });
+
+  expect(await within(tutor).findByText("把右边算出的值交给左边的名字。")).toBeTruthy();
+  expect(fake.call.mock.calls.filter(([method]) => method === "session.history").map(([, params]) => params)).toEqual([{ sessionId: "tutor2" }]);
+
+  fireEvent.click(within(tutor).getByRole("button", { name: "新对话" }));
+  expect(within(tutor).queryByText("把右边算出的值交给左边的名字。")).toBeNull();
+  fireEvent.change(within(tutor).getByRole("textbox", { name: "消息" }), { target: { value: "for 循环怎么停下来" } });
+  fireEvent.click(within(tutor).getByRole("button", { name: "发送" }));
+
+  await vi.waitFor(() => expect(fake.call.mock.calls.find(([method]) => method === "session.send")?.[1]).toEqual({ sessionId: "tutor3", text: "for 循环怎么停下来" }));
+  expect(fake.call.mock.calls.find(([method]) => method === "session.create")?.[1]).toEqual({ agent: "learning-tutor" });
 });

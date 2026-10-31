@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Navigate } from "react-router";
+import { Link, Navigate } from "react-router";
 import { MessageCircle, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { LearningMenuView } from "@/features/learning-menu";
 import { kindText, LearningTaskView, useConceptLinks } from "@/features/learning-task";
 import { TutorPanel } from "@/features/tutor-panel";
 import { useAppStore } from "@/hooks/use-app-store";
+import { errorCode } from "@/lib/errors";
 
 const WIDE = "(min-width: 1280px)";
 
@@ -81,7 +82,7 @@ function Learn({ space }: { space: string }) {
   const { task, menu, progress, restrictions } = state;
   const active = task !== null && task.phase.stage !== "completed" && task.phase.stage !== "aborted";
   const goal = Math.min(100, Math.round(progress.todayXp / progress.dailyGoalXp * 100));
-  const tutor = task && <TutorPanel space={space} taskId={task.taskId} allowed={restrictions.tutorAllowed} renderLink={renderLink} />;
+  const tutor = task && <TutorPanel allowed={restrictions.tutorAllowed} renderLink={renderLink} />;
 
   return <div className="flex h-dvh flex-col">
     {/* 移动端左侧让出浮动的导航按钮。 */}
@@ -102,7 +103,11 @@ function Learn({ space }: { space: string }) {
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6 md:px-8">
           {learning.replaced && <StatusNotice status="error" title="画面已经更新"><p>刚才的操作基于旧画面，没有执行。请看一下现在的内容再操作。</p></StatusNotice>}
-          {learning.actionError !== undefined && <div className="grid gap-3">
+          {/* 剩下的题都要模型判分而没有可用模型：任务保留，接上模型后再继续。 */}
+          {errorCode(learning.actionError) === "model_required" ? <div className="grid gap-3">
+            <StatusNotice status="error" title="还没有可用的模型"><p>剩下的题要由模型判分，连接一个模型提供方后才能继续，这项任务会保留。</p></StatusNotice>
+            <div><Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button></div>
+          </div> : learning.actionError !== undefined && <div className="grid gap-3">
             <ErrorNotice title="操作没有完成" error={learning.actionError} />
             <div><Button variant="outline" onClick={() => { void refreshLearning(); }}><RefreshCw aria-hidden="true" />重新读取</Button></div>
           </div>}

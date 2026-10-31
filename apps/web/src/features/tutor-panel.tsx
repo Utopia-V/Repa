@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router";
+import { SquarePen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { RenderLink } from "@/components/ui/markdown";
@@ -8,22 +9,26 @@ import { ConversationItemView } from "@/components/domain/conversation-item";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { MessageComposer } from "@/components/domain/message-composer";
 import { useAppStore } from "@/hooks/use-app-store";
-import { errorCode } from "@/lib/errors";
+import { describeError, errorCode } from "@/lib/errors";
 import { TUTOR_AGENT } from "@/lib/learning";
 
+/** `message_rejected` 的拒收原因，例如受限任务期间的 restricted。 */
+function rejectedReason(error: unknown): unknown {
+  const { details } = describeError(error);
+  return typeof details === "object" && details !== null && "reason" in details ? details.reason : undefined;
+}
+
 /**
- * 辅导对话，绑定当前任务：每个任务一个 learning-tutor 会话，换任务就换会话，旧会话仍在会话列表里。
- * 辅导看到的当前任务来自后端的 view，前端不往消息里拼题目。复习和测验期间不能辅导，输入框收起。
+ * 辅导对话：一个学习空间一段连续的 learning-tutor 会话，换任务不换会话，重开时接着最近的一段。
+ * 辅导从后端的 view 得知当前任务，前端不往消息里拼题目。学习者可以开始新对话，旧的仍在会话列表里。
+ * 复习和测验期间不能辅导，输入框收起。
  */
-export function TutorPanel({ space, taskId, allowed, renderLink }: {
-  space: string;
-  taskId: string;
+export function TutorPanel({ allowed, renderLink }: {
   allowed: boolean;
   renderLink: RenderLink;
 }) {
   const conversation = useAppStore((state) => state.conversation);
   const connected = useAppStore((state) => state.connected);
-  const sessionId = useAppStore((state) => state.tutorSessions[`${space}\n${taskId}`]);
   const sessions = useAppStore((state) => state.resources.sessions);
   const loadSessions = useAppStore((state) => state.loadSessions);
   const openSession = useAppStore((state) => state.openSession);
@@ -32,10 +37,13 @@ export function TutorPanel({ space, taskId, allowed, renderLink }: {
   const stopRun = useAppStore((state) => state.stopRun);
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
   const loadModelSettings = useAppStore((state) => state.loadModelSettings);
+  const refreshLearning = useAppStore((state) => state.refreshLearning);
   const [draft, setDraft] = useState("");
   const record = useRef<HTMLDivElement>(null);
   const following = useRef(true);
-  const bound = sessionId !== undefined ? conversation.sessionId === sessionId : conversation.learningTask === taskId;
+  const bound = conversation.agent === TUTOR_AGENT;
+  const { run, status, items } = conversation;
+  const running = run !== "idle";
 
   useEffect(() => {
     void loadModelSettings();
@@ -45,18 +53,19 @@ export function TutorPanel({ space, taskId, allowed, renderLink }: {
     if (sessions.status === "idle") void loadSessions();
   }, [sessions.status, loadSessions]);
 
-  // 把对话换成这个任务的会话；运行中不换，等这一轮结束。会话列表还没读到时先等它。
+  // 对话不是辅导会话时，接上最近的一段（列表按最后消息时间倒序），没有就开一段新的。运行中不换，等这一轮结束。
   useEffect(() => {
-    if (bound || conversation.run !== "idle") return;
-    if (sessionId === undefined) {
-      newConversation({ agent: TUTOR_AGENT, learningTask: taskId });
-      return;
-    }
-    const session = sessions.data?.find((candidate) => candidate.id === sessionId);
-    if (session) void openSession(session);
-    // 记下的会话已经不在了（例如空间换到另一台设备后被删掉），为这个任务重新开一个。
-    else if (sessions.status === "ready") newConversation({ agent: TUTOR_AGENT, learningTask: taskId });
-  }, [bound, conversation.run, sessionId, sessions.data, sessions.status, taskId, newConversation, openSession]);
+    if (bound || conversation.run !== "idle" || sessions.status !== "ready") return;
+    const latest = sessions.data?.find((session) => session.agent === TUTOR_AGENT);
+    if (latest) void openSession(latest);
+    else newConversation({ agent: TUTOR_AGENT });
+  }, [bound, conversation.run, sessions.data, sessions.status, newConversation, openSession]);
+
+  // 发出时限制刚生效（例如复习刚开始），后端以 restricted 拒收；重新读取状态，输入框随之收起。
+  const restricted = errorCode(conversation.sendError) === "message_rejected" && rejectedReason(conversation.sendError) === "restricted";
+  useEffect(() => {
+    if (restricted) void refreshLearning();
+  }, [restricted, refreshLearning]);
 
   useLayoutEffect(() => {
     const element = record.current;
@@ -76,11 +85,19 @@ export function TutorPanel({ space, taskId, allowed, renderLink }: {
     if (unsent.length > 0) setDraft((current) => [...unsent, current].filter((text) => text.trim() !== "").join("\n\n"));
   }
 
-  const { run, status, items } = conversation;
-  const running = run !== "idle";
   const needsModel = (defaultModel.status === "ready" && defaultModel.data === null) || errorCode(conversation.sendError) === "model_required";
 
   return <section aria-label="辅导" className="flex min-h-0 flex-1 flex-col">
+    <div className="flex justify-end px-4">
+      <Button
+        variant="ghost"
+        // 已经是一段空的新对话时不必再开。
+        disabled={!bound || running || conversation.sessionId === undefined}
+        onClick={() => newConversation({ agent: TUTOR_AGENT })}
+      >
+        <SquarePen aria-hidden="true" />新对话
+      </Button>
+    </div>
     <div
       ref={record}
       tabIndex={0}
@@ -114,7 +131,8 @@ export function TutorPanel({ space, taskId, allowed, renderLink }: {
         <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型提供方后才能问辅导。</p></StatusNotice>
         <div><Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button></div>
       </div>}
-      {allowed && conversation.sendError !== undefined && errorCode(conversation.sendError) !== "model_required"
+      {allowed && restricted && <p className="m-0 text-sm text-muted-foreground">现在不能问辅导，这条消息没有发出。</p>}
+      {allowed && conversation.sendError !== undefined && errorCode(conversation.sendError) !== "model_required" && !restricted
         && <ErrorNotice title="消息没有完成" error={conversation.sendError} />}
       {allowed && <MessageComposer
         value={draft}

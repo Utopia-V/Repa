@@ -139,11 +139,6 @@ export type AppState = LearningActions & {
   activeLogin?: LoginState | undefined;
   /** 当前空间的学习状态；换空间时清空。 */
   learning: LearningView;
-  /**
-   * 学习任务对应的辅导会话，键是“空间路径 + 换行 + taskId”，保存在浏览器里。
-   * 后端的会话不记录它属于哪个任务，换一台设备打开时找不回来，会为任务另开一个会话。
-   */
-  tutorSessions: Record<string, string>;
   setClient(client: RepaClient): void;
   setConnected(connected: boolean): void;
   loadSpaces(): Promise<void>;
@@ -183,8 +178,8 @@ export type AppState = LearningActions & {
   createFeedback(options: { describe: boolean; note?: string }): Promise<Result<"feedback.create">>;
   /** 运行中不切换：运行状态只属于当前会话，切走后无法再查询。 */
   openSession(session: SessionInfo): Promise<void>;
-  /** agent 和 learningTask 只用于学习页的辅导：第一次发送时建立该 Agent 的会话，并记下它属于哪个任务。 */
-  newConversation(options?: { agent: string; learningTask: string }): void;
+  /** agent 只用于学习页的辅导：第一次发送时建立该 Agent 的会话。 */
+  newConversation(options?: { agent: string }): void;
   /** 从当前会话的一条记录分叉出新会话并打开它；运行中不分叉，失败抛给调用页面。 */
   forkSession(entryId: string): Promise<void>;
   /** 已建立的会话调用 session.setModel；还没建立的记下来，建立时使用。 */
@@ -241,12 +236,6 @@ function restoreSidebar(saved: unknown, fallback: SidebarPreference): SidebarPre
     open: typeof value.open === "boolean" ? value.open : fallback.open,
     width: typeof value.width === "number" && Number.isFinite(value.width) ? value.width : fallback.width,
   };
-}
-
-/** 只保留键和值都是字符串的记录。 */
-function restoreTutorSessions(saved: unknown): Record<string, string> {
-  if (typeof saved !== "object" || saved === null) return {};
-  return Object.fromEntries(Object.entries(saved).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 export type AppStore = ReturnType<typeof createAppStore>;
@@ -506,7 +495,6 @@ export function createAppStore() {
     return {
       ...learning,
       learning: emptyLearning,
-      tutorSessions: {},
       connected: false,
       resources: {
         spaces: { status: "idle" },
@@ -594,7 +582,7 @@ export function createAppStore() {
           );
           const entries = target ? await call("session.history", { sessionId: target.id }) : [];
           if (id !== conversationRequest) return;
-          set({ conversation: { ...emptyConversation, status: "ready", sessionId: target?.id, model: target?.model, items: historyItems(entries) } });
+          set({ conversation: { ...emptyConversation, status: "ready", sessionId: target?.id, model: target?.model, agent: target?.agent, items: historyItems(entries) } });
         } catch (error) {
           if (id === conversationRequest) updateConversation({ status: "error", error });
         }
@@ -644,7 +632,7 @@ export function createAppStore() {
         const current = get().conversation;
         if (current.run !== "idle" || (current.sessionId === session.id && current.status === "ready")) return;
         const id = ++conversationRequest;
-        set({ confirmations: [], asks: [], conversation: { ...emptyConversation, status: "loading", sessionId: session.id, model: session.model } });
+        set({ confirmations: [], asks: [], conversation: { ...emptyConversation, status: "loading", sessionId: session.id, model: session.model, agent: session.agent } });
         try {
           const entries = await call("session.history", { sessionId: session.id });
           if (id === conversationRequest) updateConversation({ status: "ready", items: historyItems(entries) });
@@ -701,9 +689,6 @@ export function createAppStore() {
             });
             sessionId = created.id;
             updateConversation({ sessionId, model: created.model });
-            const { space } = get();
-            const task = conversation.learningTask;
-            if (space && task) set((state) => ({ tutorSessions: { ...state.tutorSessions, [`${space}\n${task}`]: created.id } }));
           }
           // 后端等整次运行结束才返回，期间的内容由 session.event 送来。
           await call("session.send", { sessionId, text });
@@ -829,7 +814,7 @@ export function createAppStore() {
   }, {
     name: "repa.web.preferences",
     storage: createJSONStorage(() => browserStorage),
-    partialize: (state) => ({ sidebar: state.sidebar, space: state.space, sessionId: state.conversation.sessionId, tutorSessions: state.tutorSessions }),
+    partialize: (state) => ({ sidebar: state.sidebar, space: state.space, sessionId: state.conversation.sessionId }),
     merge: (saved, current) => {
       const value = (typeof saved === "object" && saved !== null ? saved : {}) as Record<string, unknown>;
       const space = typeof value.space === "string" && value.space ? value.space : undefined;
@@ -838,7 +823,6 @@ export function createAppStore() {
         ...current,
         sidebar: restoreSidebar(value.sidebar, current.sidebar),
         space,
-        tutorSessions: restoreTutorSessions(value.tutorSessions),
         // 会话内容在空间重新打开后由对话页读取。
         conversation: { ...current.conversation, sessionId },
       };
