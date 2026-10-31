@@ -1,8 +1,8 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -55,6 +55,49 @@ test("Node 宿主从 stdout 取得连接并可重复关闭服务", async (t) => 
   await Promise.all([backend.close(), backend.close()]);
   await backend.closed;
   assert.equal(client.connected, false);
+});
+
+test("Git 程序的路径不是绝对路径时，后端启动即失败，不等到打开空间", async (t) => {
+  const home = await fixture(t);
+  await assert.rejects(startRepaProcess({ home, gitPath: "git" }), /绝对路径/);
+});
+
+// 安装包带的 git 经 --git 传入。这里放一个名为 git 的脚本记下每次调用的参数再转给系统的 git，
+// 看打开空间和恢复到新文件夹是否都用了它。Windows 上 spawn 不能直接运行脚本，只在其他平台运行。
+test("Node 宿主传入 Git 程序，打开空间和恢复到新文件夹都用它，并带上 --exec-path", { skip: process.platform === "win32" }, async (t) => {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-process-git-")));
+  let backend: Awaited<ReturnType<typeof startRepaProcess>> | undefined;
+  let client: RepaClient | undefined;
+  t.after(async () => {
+    await client?.close();
+    await backend?.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const real = path.join(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "git");
+  const bin = path.join(directory, "bin");
+  const log = path.join(directory, "git.log");
+  await mkdir(bin);
+  const git = path.join(bin, "git");
+  await writeFile(git, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${real}' "$@"\n`);
+  await chmod(git, 0o755);
+  backend = await startRepaProcess({ home: path.join(directory, "home"), gitPath: git });
+  client = await RepaClient.connect(backend.connection);
+  // 文件先放好再建空间：打开空间时的扫描把它记进历史，备份里就有它。
+  const root = path.join(directory, "space");
+  await mkdir(root);
+  await writeFile(path.join(root, "note.md"), "笔记\n");
+  await client.call("space.create", { root });
+  const { backup } = await client.call("backup.create", {});
+  const opened = (await readFile(log, "utf8")).trim().split("\n");
+  // 历史直接发起的调用都带 --git-dir，也都带着 --exec-path；Git 自己起的子进程不带这两个参数。
+  const direct = opened.filter((call) => call.includes("--git-dir="));
+  assert.ok(direct.length > 0 && direct.every((call) => call.startsWith(`--exec-path=${bin} `)), opened.join("\n"));
+  await client.call("space.close", {});
+  const target = path.join(directory, "restored");
+  await client.call("backup.restoreTo", { root, id: backup.id, target });
+  const restored = (await readFile(log, "utf8")).trim().split("\n").slice(opened.length);
+  assert.ok(restored.some((call) => call.includes(" ls-tree ")), restored.join("\n"));
+  assert.equal(await readFile(path.join(target, "note.md"), "utf8"), "笔记\n");
 });
 
 test("Node 宿主传入插件并关掉通用 Agent，前端只能与插件 Agent 建会话", async (t) => {

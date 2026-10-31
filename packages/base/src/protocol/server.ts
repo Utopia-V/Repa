@@ -49,6 +49,8 @@ export interface ServerOptions {
   generalAgent?: boolean;
   /** 用户能直接对话的 Agent；省略时按各定义的 direct，通用 Agent 默认可以。 */
   directAgents?: string[];
+  /** 空间历史用的 Git 程序的绝对路径，打开空间和恢复到新文件夹时使用；省略时用 PATH 里的 git。 */
+  gitPath?: string;
 }
 
 /** 运行中的协议后端；嵌入宿主用它交付连接并等待保存、收尾完成。 */
@@ -94,6 +96,10 @@ interface ActiveSpace {
 export async function startServer(options: ServerOptions = {}): Promise<RepaServer> {
   const token = options.token ?? randomBytes(32).toString("hex");
   if (token.length < 32) throw new RepaFault("invalid_token", "连接令牌至少需要 32 个字符");
+  // 启动时就拒绝，不等到打开空间才失败；为什么必须是绝对路径见 space-history 的 createGit。
+  const gitPath = options.gitPath;
+  if (gitPath !== undefined && !path.isAbsolute(gitPath)) throw new RepaFault("invalid_git_path", "Git 程序的路径必须是绝对路径");
+  const git = gitPath === undefined ? {} : { gitPath };
   const home = resolveAppHome({ home: options.home });
   const settings = await SettingsStore.open(home);
   const runtime: AgentRuntime = options.runtime ?? await createAgentRuntime({ agentDir: path.join(home, "agent") });
@@ -295,7 +301,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     if (active?.space.root === resolved && !create) return { root: resolved, disabledPlugins: active.plugins.disabled() };
     await closeActive();
     // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
-    const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue });
+    const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
     let plugins: PluginHost | undefined;
     let agent: AgentSpace | undefined;
     try {
@@ -630,7 +636,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       }
       case "backup.restoreTo": {
         const input = p<"backup.restoreTo">();
-        return { root: await restoreToNew({ home, root: input.root, id: input.id, target: input.target }) };
+        return { root: await restoreToNew({ home, root: input.root, id: input.id, target: input.target, ...git }) };
       }
       case "backup.delete": {
         const input = p<"backup.delete">();
