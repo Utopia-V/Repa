@@ -8,7 +8,6 @@ import type { Services } from "@repa/base/plugin";
 import { parse } from "@repa/base/protocol";
 import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { learningMenu } from "../src/flow-menu.js";
-import { KP_WRONG_LIMIT } from "../src/parameters.js";
 import type { Fact } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
 import type { Question } from "../src/format/schema.js";
@@ -48,7 +47,7 @@ test("五道练习答完才判定，错对错对对答对的多，通过；整�
 });
 
 test("结构错误不计尝试；事前求助后正确保留判分但不算独立答对，事后求助不撤回结果", async (t) => {
-  const f = await fixture(t);
+  const f = await fixture(t, [topic("t01", 1, [], 3)]);
   await f.select();
   await f.advance();
   await f.advance();
@@ -69,7 +68,9 @@ test("结构错误不计尝试；事前求助后正确保留判分但不算独�
   await f.advance();
   const duplicate = await f.call("submission.submit", input);
   assert.deepEqual(duplicate, receipt);
-  // 求助的一题不算对也不算错；第二题独立答对，答对的多于答错的，两道练习答完即通过。
+  // 求助的一题算作答过，但不算独立答对；后两题独立答对，三道里独立答对两道，超过一半，通过。
+  await f.submit();
+  await f.advance();
   await f.submit();
   assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
 });
@@ -85,15 +86,16 @@ test("失败保留已过 KP，冷却期间提供其他任务并报告最早恢�
   await f.advance();
   await f.advance();
   await f.advance();
-  for (let index = 0; index < KP_WRONG_LIMIT; index++) {
+  // KP2 有五道练习：错到第三道，余下两道全对也超不过一半，这节课失败。
+  for (let index = 0; index < 3; index++) {
     await f.submit(false);
-    if (index < KP_WRONG_LIMIT - 1) {
+    if (index < 2) {
       await f.advance();
     }
   }
   const failure = await f.state();
   assert.deepEqual(failure.task?.phase, { stage: "completed", outcome: "failed" });
-  assert.equal(failure.task?.kps[1]?.attempts, KP_WRONG_LIMIT);
+  assert.equal(failure.task?.kps[1]?.attempts, 3);
   assert.equal(failure.menu?.candidates.length, 0);
   assert.equal(failure.menu?.availableAt, start + 48 * 3_600_000);
   f.time(start + 48 * 3_600_000);
@@ -1125,18 +1127,18 @@ for (const hidden of [false, true]) {
   });
 }
 
-test("同一个知识点答错第三题，这节课就失败：七道练习“错错错”以后余下四题全对也能答对的多，仍然失败；各知识点各错一题而答对的多，照常通过", async (t) => {
-  const f = await fixture(t, [topic("t01", 1, [], 7), topic("t02", 2, [], 3)]);
+test("过关看比例而不看错题的个数：五道练习错三道，余下两道全对也超不过一半，课当场失败；七道练习错三道而答对四道，照常通过", async (t) => {
+  const f = await fixture(t, [topic("t01", 1, [], 5), topic("t02", 1, [], 7)]);
   await f.select("t01");
   const failed = await f.finishLesson([false, false, false, true, true]);
-  assert.equal(failed.task?.deliveries.length, 3);
   assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.equal(failed.task?.deliveries.length, 3);
   assert.deepEqual(failed.task?.kps[0], { kpId: "t01.k1", title: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false });
   assert.equal((await f.student()).t01, undefined);
   // 课失败照常冷却：菜单不给 t01，另一节课照常可选。
   assert.deepEqual(failed.menu?.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
   await f.select("t02");
-  const passed = await f.finishLesson([false, true, true]);
+  const passed = await f.finishLesson([false, false, false, true, true, true, true]);
   assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
-  assert.deepEqual(passed.task?.kps.map((kp) => kp.attempts), [3, 3]);
+  assert.deepEqual(passed.task?.kps.map((kp) => kp.attempts), [7]);
 });

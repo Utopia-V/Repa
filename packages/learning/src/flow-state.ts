@@ -3,7 +3,6 @@ import { needsModel, type CourseIndex } from "./course-index.js";
 import { shuffled } from "./delivery.js";
 import {
   FAIL_QUALITY_FLOOR,
-  KP_WRONG_LIMIT,
   QUIZ_DURATION_MS,
   REVIEW_FINAL_STREAK,
   REVIEW_MAX_QUESTIONS,
@@ -187,11 +186,11 @@ export function lessonPractice(course: CourseIndex, topicId: string): Map<string
 }
 
 /**
- * 归约课里的每个知识点（Repa 假设，见 parameters.ts）：必做的练习题都要作答，全部答过以后独立答对的多于答错的才通过；
- * 答错第 KP_WRONG_LIMIT 题，或者还没出的练习全答对也不可能多于答错的，这个知识点当场失败，这节课也就失败。
- * 判错、部分对和说不会都算答错；求助以后答对的不算独立完成，也不算答错。没判出结果的作答怎样判都改变不了结论时才当场得出：
+ * 归约课里的每个知识点（Repa 假设，见 parameters.ts）：必做的练习题都要作答，独立答对的超过所答题数的一半才通过，
+ * 看的是比例：五道错三道不通过，一千道错三道照样通过。还没出的题全答对也超不过一半时，当场失败。
+ * 判错、部分对和说不会都算答错；求助以后答对的算作答过，但不算独立答对。没判出结果的作答怎样判都改变不了结论时才当场得出：
  * 三道必做题“对、对、待判”已经通过，“错、错”已经失败；“对、错、待判”要等第三题判出来，判分中断时这个知识点停在这里，
- * 可以再判一次或中止。判出结果以后按事实重新归约。开放题不计入必做，出了的照常计入对错；出不出只看出题时有没有模型，
+ * 可以再判一次或中止。判出结果以后按事实重新归约。开放题不计入必做，出了的照常计入；出不出只看出题时有没有模型，
  * 出了就是事实，所以归约结果只取决于课程和学习记录。此前的课继承为通过的知识点不再计数。
  */
 export function lessonProgress(
@@ -209,8 +208,6 @@ export function lessonProgress(
     }
     const answered = new Set<string>();
     let correct = 0;
-    let wrong = 0;
-    let pending = 0;
     // 求助以后的作答判对也不算独立答对，所以只有独立作答的待判题可能增加答对的数目。
     let pendingIndependent = 0;
     for (const attempt of attempts) {
@@ -219,25 +216,23 @@ export function lessonProgress(
       }
       answered.add(attempt.delivery.questionId);
       if (attempt.verdict === undefined) {
-        pending++;
         if (attempt.independent) pendingIndependent++;
         continue;
       }
       result.attempts++;
-      if (attempt.verdict !== "correct") {
-        wrong++;
-      } else if (attempt.independent) {
+      if (independentCorrect(attempt)) {
         correct++;
       }
       result.consecutiveCorrect = independentCorrect(attempt) ? result.consecutiveCorrect + 1 : 0;
     }
     const remaining = [...needed].filter((id) => !answered.has(id)).length;
-    // 还没出的开放题有模型时才出，只用来判断还有没有可能通过；必做题答完就判定，不等它们。
-    const unasked = remaining === 0 ? 0 : remaining + (pool?.open ?? []).filter((id) => !answered.has(id)).length;
-    if (wrong >= KP_WRONG_LIMIT || correct + pendingIndependent + unasked <= wrong) {
+    // 还没出的开放题有模型时才在最后一道必做题之前出，所以只在必做题还没做完时算作可能答对的题。
+    const open = remaining === 0 ? 0 : (pool?.open ?? []).filter((id) => !answered.has(id)).length;
+    // 最好的情形：待判的独立作答都判对，还没出的题都出了也都答对。这样答对的仍超不过所答题数的一半，就不可能通过了。
+    if (2 * (correct + pendingIndependent) + remaining + open <= answered.size) {
       failed = true;
-    } else if (remaining === 0 && correct > wrong + pending && wrong + pending < KP_WRONG_LIMIT) {
-      // 待判的题全判错也照样通过，才当场通过。
+    } else if (remaining === 0 && 2 * correct > answered.size) {
+      // 待判的题全判错也照样超过一半，才当场通过。
       result.completed = true;
     }
     return result;
@@ -278,7 +273,7 @@ function reviewVerdict(entry: TaskEvidence): "pass" | "fail" | undefined {
 
 /**
  * 从一项任务的事实得出证据与结论。inherited 是此前同一 topic 的课留下的知识点进度。
- * 先看作答本身能否得出结论（课的必做题做完而通过、答错太多或已不可能通过而失败，复习的通过与失败），再看主动结束、截止和被后来的任务取代。
+ * 先看作答本身能否得出结论（课的必做题做完且独立答对超过一半而通过、已不可能超过一半而失败，复习的通过与失败），再看主动结束、截止和被后来的任务取代。
  * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。
  * 复习不限时，中途离开下次接着做；学习者中止复习时，已经不可能通过的记失败，其他情形尚无证据。测验没答的题算错。
  */
