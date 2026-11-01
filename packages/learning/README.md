@@ -215,8 +215,8 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 ## 已知限制与暂缓
 
 - 课程的代码核对只能在 Linux 上运行，沙箱的要求见[运行器包的已知限制](../python-runner/README.md#已知限制与暂缓)；Windows、macOS 上只能用 `--no-run`，社区作者可以先做结构检查。
-- 课程核对整门课共用一个解释器。候选程序改动已导入的模块（例如给 pandas 打补丁）时，影响会延续到之后的候选和题目；随包课程没有这类代码，判分时每次提交用新的 Worker，也不受影响。课程要教这类写法时，再为相关的候选换新的解释器，见[学习插件重做](../../.agents/notes/proposed/architecture/2026-10-30-learning-plugin-refactor.md)。
-- 一道题最多一个按测试判的作答位，有先后关系的多步代码题还不支持，`course:check` 以 `multiple_code_slots` 报出；等模型出题需要时再实现，见[学习插件重做](../../.agents/notes/proposed/architecture/2026-10-30-learning-plugin-refactor.md#检查工具)。
+- 课程核对整门课共用一个解释器。候选程序改动已导入的模块（例如给 pandas 打补丁）时，影响会延续到之后的候选和题目；随包课程没有这类代码，判分时每次提交用新的 Worker，也不受影响。课程要教这类写法时，再为相关的候选换新的解释器，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md)。
+- 一道题最多一个按测试判的作答位，有先后关系的多步代码题还不支持，`course:check` 以 `multiple_code_slots` 报出；等模型出题需要时再实现，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md#检查工具)。
 - 模型核对每道题只请模型解一次。选择题有猜中的可能，模型和作者也可能有同样的误读；一致只说明题面能读出这个答案。需要更强的核对时，可以换模型或多次采样，或在试用中看学习者的作答。
 - 随包课程的覆盖权重是待校准的假设，见[尚待查证的假设](#尚待查证的假设)。迁移时有几条原先修边保留了学习资格，覆盖权重却置零；这些资格是否收窄、类比性的复用能否给信用，尚待维护者审阅，逐条问题见[课程关系核对](../../docs/research/python-course/relations-review.md#未完成项与待验证项)。权重由后续研究校准。
 - 题目和讲解只经过程序核对、模型核对和作者自查，还没有学习者试做；试用以后再调整节奏、题量和难度。

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { TextDecoder } from "node:util";
@@ -12,6 +12,17 @@ const starts = new Map<string, number>();
 /** 本进程至今启动 Git 的次数，按子命令分计；测试据此给各项历史操作的启动次数设上限。 */
 export function gitStarts(): Map<string, number> {
   return new Map(starts);
+}
+
+/**
+ * 按给定的 Git 程序建一个 Git。gitPath 必须是绝对路径：Windows 上按名称启动程序时先在子进程的工作目录里找，
+ * 而工作目录是学习者的空间，可能有同名文件。安装包只带 git 主程序，它找不到编译时的子命令目录；fast-import
+ * 调起 unpack-objects、gc 调起 repack 时都要靠 --exec-path 指回主程序所在的目录。没给时用 PATH 里的 git。
+ */
+export function createGit(space: string, gitDir: string, gitPath?: string): Git {
+  if (gitPath === undefined) return new Git(space, gitDir);
+  if (!isAbsolute(gitPath)) throw new Error(`gitPath 必须是绝对路径：${gitPath}`);
+  return new Git(space, gitDir, gitPath, [`--exec-path=${dirname(gitPath)}`]);
 }
 
 export class GitError extends Error {
