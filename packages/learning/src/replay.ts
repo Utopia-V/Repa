@@ -265,7 +265,9 @@ export class Replay {
    */
   private observe(task: TaskRecord, at: number, entry?: TaskEvidence): void {
     const evidence = entry ?? (task === this.current ? this.currentEvidence() : taskEvidence(task, this.course, task.inherited));
-    if (!evidence) return;
+    // XP 发了就不收回。课和复习的奖励按判出结果的作答里答对的比例算，后判出的错题会把比例拉低，所以还有没判出结果的作答时
+    // 不结算，等它们判出来按全部证据再发；测验按全部交付算，后判出的结果只会让奖励变高，照常结算。
+    if (!evidence || (!isQuiz(task.kind) && evidence.attempts.some((attempt) => attempt.verdict === undefined))) return;
     const value = reward(evidence, this.course);
     const best = this.best.get(task.seq) ?? 0;
     if (value <= best) return;

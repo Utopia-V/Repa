@@ -189,10 +189,10 @@ export function lessonPractice(course: CourseIndex, topicId: string): Map<string
 /**
  * 归约课里的每个知识点（Repa 假设，见 parameters.ts）：必做的练习题都要作答，全部答过以后独立答对的多于答错的才通过；
  * 答错第 KP_WRONG_LIMIT 题，或者还没出的练习全答对也不可能多于答错的，这个知识点当场失败，这节课也就失败。
- * 判错、部分对和说不会都算答错；求助以后答对的不算独立完成，也不算答错。没判出结果的作答先按答对归约：只有它们怎样判都
- * 改变不了的失败才当场得出，判出结果以后按事实重新归约，例如三道必做题“对、待判、对”先按通过算，第二题后来判错仍然通过，
- * “对、待判、错”则改为失败。开放题不计入必做，出了的照常计入对错；出不出只看出题时有没有模型，出了就是事实，所以归约结果
- * 只取决于课程和学习记录。此前的课继承为通过的知识点不再计数。
+ * 判错、部分对和说不会都算答错；求助以后答对的不算独立完成，也不算答错。没判出结果的作答怎样判都改变不了结论时才当场得出：
+ * 三道必做题“对、对、待判”已经通过，“错、错”已经失败；“对、错、待判”要等第三题判出来，判分中断时这个知识点停在这里，
+ * 可以再判一次或中止。判出结果以后按事实重新归约。开放题不计入必做，出了的照常计入对错；出不出只看出题时有没有模型，
+ * 出了就是事实，所以归约结果只取决于课程和学习记录。此前的课继承为通过的知识点不再计数。
  */
 export function lessonProgress(
   kpIds: string[], attempts: Attempt[], inherited: KpProgress[] | undefined, practice: Map<string, KpPractice>,
@@ -211,6 +211,8 @@ export function lessonProgress(
     let correct = 0;
     let wrong = 0;
     let pending = 0;
+    // 求助以后的作答判对也不算独立答对，所以只有独立作答的待判题可能增加答对的数目。
+    let pendingIndependent = 0;
     for (const attempt of attempts) {
       if (attempt.kpId !== kpId) {
         continue;
@@ -218,6 +220,7 @@ export function lessonProgress(
       answered.add(attempt.delivery.questionId);
       if (attempt.verdict === undefined) {
         pending++;
+        if (attempt.independent) pendingIndependent++;
         continue;
       }
       result.attempts++;
@@ -230,10 +233,11 @@ export function lessonProgress(
     }
     const remaining = [...needed].filter((id) => !answered.has(id)).length;
     // 还没出的开放题有模型时才出，只用来判断还有没有可能通过；必做题答完就判定，不等它们。
-    const unasked = remaining + (pool?.open ?? []).filter((id) => !answered.has(id)).length;
-    if (wrong >= KP_WRONG_LIMIT || correct + pending + (remaining === 0 ? 0 : unasked) <= wrong) {
+    const unasked = remaining === 0 ? 0 : remaining + (pool?.open ?? []).filter((id) => !answered.has(id)).length;
+    if (wrong >= KP_WRONG_LIMIT || correct + pendingIndependent + unasked <= wrong) {
       failed = true;
-    } else if (remaining === 0) {
+    } else if (remaining === 0 && correct > wrong + pending && wrong + pending < KP_WRONG_LIMIT) {
+      // 待判的题全判错也照样通过，才当场通过。
       result.completed = true;
     }
     return result;

@@ -473,10 +473,10 @@ test("判分失败或模型没有把握时任务照样往下走、不计失败�
   assert.equal((await f.student()).t01, undefined);
 });
 
-test("五道开放题“错、错、待判、对、对”和一道答对的必做题先按通过算；第三题后来补判为错，答错满三题，这节课改为失败；XP 不收回，重开空间结果相同", async (t) => {
-  const definition = topic("t01", 1, [], 6);
-  // 前五道改成开放题：它们排在最后一道必做题之前先出。
-  for (const question of definition.kps[0]?.practice?.slice(0, 5) ?? []) {
+test("结论取决于待判的那题时先不判定、不发 XP：开放题“错、错、待判、对、对、对”加一道答对的必做题，待判题判为错，答错满三题，这节课失败；重开空间结果相同", async (t) => {
+  const definition = topic("t01", 1, [], 7);
+  // 前六道改成开放题：它们排在最后一道必做题之前先出。
+  for (const question of definition.kps[0]?.practice?.slice(0, 6) ?? []) {
     question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
   }
   const f = await fixture(t, [definition]);
@@ -484,7 +484,7 @@ test("五道开放题“错、错、待判、对、对”和一道答对的必�
   await f.advance();
   await f.advance();
   let waiting: string | undefined;
-  for (const verdict of ["incorrect", "incorrect", undefined, "correct", "correct"] as const) {
+  for (const verdict of ["incorrect", "incorrect", undefined, "correct", "correct", "correct"] as const) {
     if (verdict) {
       f.models.expectStructured().succeed({ verdict, reason: "按 rubric" });
     } else {
@@ -497,27 +497,27 @@ test("五道开放题“错、错、待判、对、对”和一道答对的必�
   }
   await f.submit();
   assert.ok(waiting);
-  // 第三题还没判出结果，先按答对算：有证据的是两错三对，答对的多，这节课通过；独立答对三题占五题，得 floor(5 × 3/5) XP。
-  const passed = await f.state();
-  assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
-  assert.ok((await f.student()).t01);
-  assert.equal(passed.progress.totalXp, 3);
-  // 第三题补判为错：这个知识点答错满三题，失败。
+  // 必做题都答过了：四对两错，第三题判对就通过，判错就答错满三题；结论要等它判出来，XP 也先不发。
+  const undecided = await f.state();
+  assert.equal(undecided.task?.phase.stage, "feedback");
+  assert.equal(undecided.task?.kps[0]?.completed, false);
+  assert.equal((await f.student()).t01, undefined);
+  assert.equal(undecided.progress.totalXp, 0);
+  // 第三题补判为错：答对的仍多于答错的，但答错满三题，这个知识点失败。
   f.models.expectStructured().succeed({ verdict: "incorrect", reason: "没有说明含义" });
   await f.call("submission.resume", { submissionId: waiting });
   const failed = await f.state();
   assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
-  assert.deepEqual(failed.task?.kps, [{ kpId: "t01.k1", title: "t01.k1", attempts: 6, consecutiveCorrect: 3, completed: false }]);
+  assert.deepEqual(failed.task?.kps, [{ kpId: "t01.k1", title: "t01.k1", attempts: 7, consecutiveCorrect: 4, completed: false }]);
   assert.equal((await f.student()).t01, undefined);
-  assert.equal(failed.progress.totalXp, 3);
-  const awards = structuredClone(f.session().replay.awards);
+  assert.equal(failed.progress.totalXp, 0);
   await f.reopen();
   const reopened = await f.state();
   assert.deepEqual(reopened.task?.phase, failed.task?.phase);
   assert.deepEqual(reopened.task?.kps, failed.task?.kps);
   assert.equal((await f.student()).t01, undefined);
-  assert.equal(reopened.progress.totalXp, 3);
-  assert.deepEqual(f.session().replay.awards, awards);
+  assert.equal(reopened.progress.totalXp, 0);
+  assert.deepEqual(f.session().replay.awards, []);
 });
 
 test("中止复习时，没判出结果的作答和没出的题都判对也不能让复习通过：已有失败的证据，记为失败并做失败更新", async (t) => {
@@ -547,6 +547,39 @@ test("中止复习时，没判出结果的作答和没出的题都判对也不�
   assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "failed" });
   assert.notDeepEqual((await f.student()).t01, learned);
   assert.ok(((await f.student()).t01?.repNum ?? 0) < learned.repNum);
+});
+
+test("末题照常判分时 XP 按全部作答结算：三道练习对、对、错，作答写下时不先发满分，判出来按两对一错得 floor(5 × 2/3) XP", async (t) => {
+  const f = await fixture(t, [topic("t01", 1, [], 3)]);
+  await f.select("t01");
+  const passed = await f.finishLesson([true, true, false]);
+  assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.equal(passed.progress.totalXp, 3);
+  assert.deepEqual(f.session().replay.awards.map((award) => award.xp), [3]);
+  await f.reopen();
+  assert.equal((await f.state()).progress.totalXp, 3);
+});
+
+test("求助以后的作答没判出结果也不可能算独立答对：第一题错，第二题求助后判分中断，此时已不可能答对的多，当场失败", async (t) => {
+  const definition = topic("t01", 1, [], 3);
+  const second = definition.kps[0]?.practice?.[1];
+  assert.ok(second);
+  second.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
+  const f = await fixture(t, [definition]);
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  await f.submit(false);
+  await f.advance();
+  const input = await f.input();
+  await f.session().write(() => [{ type: "help", delivery: Number(input.deliveryId.slice(1)) }]);
+  f.models.expectStructured().fail(new Error("断网"));
+  const pending = await f.call("submission.submit", input);
+  assert.ok(pending.status === "recorded");
+  assert.deepEqual(pending.submission.processing, { status: "interrupted", reason: "service_failure" });
+  const failed = await f.state();
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.equal(failed.task?.deliveries.length, 2);
 });
 
 test("只把事实文件和格式标记搬到新空间，打开后从事实重算出相同的状态", async (t) => {

@@ -98,6 +98,9 @@ export async function connectLearning(
       const asked = new Set(task.deliveries.map((delivery) => delivery.questionId));
       pool = pool.filter((entry) => entry.kp.id === evidence.kps.find((kp) => !kp.completed)?.kpId && !asked.has(entry.question.id));
     }
+    if (task.kind === "lesson" && topic && !pool.length) {
+      throw new RepaFault("insufficient_items", "这个知识点的练习都做过了，结论要等没判出结果的作答判出来；可以再判一次，也可以中止");
+    }
     if (!topic || !pool.length) {
       throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
     }

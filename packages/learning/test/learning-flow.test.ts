@@ -1006,11 +1006,12 @@ test("没有可用模型时不自动补判开放题，课照常做其余的必�
   const waiting = await f.call("submission.get", { submissionId: pending.submission.submissionId });
   assert.ok(waiting.status === "found");
   assert.deepEqual(waiting.submission.processing, { status: "interrupted", reason: "restart" });
-  // 这份作答尚无证据，不阻塞：接着做剩下的必做题，答对以后先按通过算。
+  // 这份作答尚无证据，不阻塞：接着做剩下的必做题。答完以后一对一待判，开放题判错就一对一错，结论要等它判出来。
   assert.equal((await f.state()).task?.phase.stage, "recovery");
   await f.advance();
   await f.submit();
-  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  assert.equal((await f.state()).task?.kps[0]?.completed, false);
+  await assert.rejects(f.advance(), (error: unknown) => error instanceof Error && "code" in error && error.code === "insufficient_items");
   // 配好模型：下一次调用在后台补判一次。
   f.models.setDefaultModel({ provider: "test", id: "test" });
   f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
@@ -1020,6 +1021,7 @@ test("没有可用模型时不自动补判开放题，课照常做其余的必�
   const graded = await f.call("submission.get", { submissionId: pending.submission.submissionId });
   assert.ok(graded.status === "found");
   assert.deepEqual(graded.submission.processing, { status: "completed" });
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
 });
 
 for (const weight of [0.5, 0]) {
@@ -1123,10 +1125,11 @@ for (const hidden of [false, true]) {
   });
 }
 
-test("同一个知识点答错第三题，这节课就失败，“错错错对对”不再通过；各知识点各错一题而答对的多，照常通过", async (t) => {
-  const f = await fixture(t, [topic("t01", 1, [], 5), topic("t02", 2, [], 3)]);
+test("同一个知识点答错第三题，这节课就失败：七道练习“错错错”以后余下四题全对也能答对的多，仍然失败；各知识点各错一题而答对的多，照常通过", async (t) => {
+  const f = await fixture(t, [topic("t01", 1, [], 7), topic("t02", 2, [], 3)]);
   await f.select("t01");
   const failed = await f.finishLesson([false, false, false, true, true]);
+  assert.equal(failed.task?.deliveries.length, 3);
   assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
   assert.deepEqual(failed.task?.kps[0], { kpId: "t01.k1", title: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false });
   assert.equal((await f.student()).t01, undefined);
