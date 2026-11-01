@@ -3,6 +3,7 @@ import { RepaFault } from "@repa/base";
 import type { MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
 import { parse, type ClientCapabilities } from "@repa/base/protocol";
 import { trialBatch } from "./code-tests.js";
+import { needsModel } from "./course-index.js";
 import { deliverySeed, mapAnswer, renderDelivery } from "./delivery.js";
 import { isQuiz, sequenceOf, taskId, topicEligible, type DeliveryRecord, type TaskEvidence } from "./flow-state.js";
 import {
@@ -80,8 +81,8 @@ export async function connectLearning(
   }
 
   /**
-   * 选下一道题：课按第一个未过的知识点，复习轮流覆盖知识点，测验每个 topic 一题；先筛掉发起调用的前端用不了的题，
-   * 再在余下的题里优先没出过的。有题却一道也用不了时报告缺什么并保留任务，等能用的前端或可用的模型。
+   * 选下一道题：课按第一个未过的知识点，按题池顺序出这节课还没出过的题；复习轮流覆盖知识点，测验每个 topic 一题，
+   * 都在余下的题里优先没出过的。先筛掉发起调用的前端用不了的题；有题却一道也用不了时报告缺什么并保留任务，等能用的前端或可用的模型。
    */
   async function nextQuestion(evidence: TaskEvidence, capabilities: ClientCapabilities | undefined, topicId?: string): Promise<FactBody> {
     const task = evidence.task;
@@ -93,7 +94,9 @@ export async function connectLearning(
       pool = pool.filter((entry) => !excluded.has(entry.question.id));
     }
     if (task.kind === "lesson") {
-      pool = pool.filter((entry) => entry.kp.id === evidence.kps.find((kp) => !kp.completed)?.kpId);
+      // 课内每道题只出一次：同一知识点的题各练一个方面，必做题全部答过才判定这个知识点。
+      const asked = new Set(task.deliveries.map((delivery) => delivery.questionId));
+      pool = pool.filter((entry) => entry.kp.id === evidence.kps.find((kp) => !kp.completed)?.kpId && !asked.has(entry.question.id));
     }
     if (!topic || !pool.length) {
       throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
@@ -108,7 +111,17 @@ export async function connectLearning(
         candidates = rotated;
       }
     }
-    const entry = candidates.find((candidate) => session.replay.firstDelivered(candidate.question.id) === undefined) ?? candidates[0];
+    if (task.kind === "lesson") {
+      // 开放题不计入必做，答完必做题这个知识点就判定了；所以最后一道必做题之前，先出还能出的开放题，有模型时它们才不会被跳过。
+      const required = candidates.filter((candidate) => !needsModel(candidate.question));
+      const open = candidates.filter((candidate) => needsModel(candidate.question));
+      if (required.length === 1 && open.length > 0) {
+        candidates = [...open, ...required];
+      }
+    }
+    const entry = task.kind === "lesson"
+      ? candidates[0]
+      : candidates.find((candidate) => session.replay.firstDelivered(candidate.question.id) === undefined) ?? candidates[0];
     if (!entry) {
       const first = pool[0];
       const missing = first ? session.missing(first.question, topic, capabilities) : [];

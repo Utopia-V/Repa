@@ -12,6 +12,7 @@ import { learningMenu } from "./flow-menu.js";
 import {
   deliveryId,
   isQuiz,
+  lessonPractice,
   submissionId,
   taskId,
   type DeliveryRecord,
@@ -305,10 +306,15 @@ export class LearningSession {
       const supply = (id: string, kind: TaskRecord["kind"]) => {
         const available = this.questions(id, kind, capabilities);
         if (kind !== "lesson") return available.length > 0;
+        // 课要把每个没过的知识点的必做题都做完，所以这些题都得是调用方能用的。
         const inherited = fold.lessons.get(id) ?? [];
-        return this.course.topics.get(id)?.kps.every((kp) =>
-          inherited.some((entry) => entry.kpId === kp.id && entry.completed) || available.some((entry) => entry.kp.id === kp.id),
-        ) ?? false;
+        const practice = lessonPractice(this.course, id);
+        const usable = new Set(available.map((entry) => entry.question.id));
+        return this.course.topics.get(id)?.kps.every((kp) => {
+          if (inherited.some((entry) => entry.kpId === kp.id && entry.completed)) return true;
+          const needed = practice.get(kp.id)?.required ?? [];
+          return needed.length > 0 && needed.every((question) => usable.has(question));
+        }) ?? false;
       };
       menu = progressMenu(learningMenu(this.course, fold, now, this.menuId(), supply), this.replay, fold, this.course);
     }

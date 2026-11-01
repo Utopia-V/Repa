@@ -17,8 +17,8 @@ import { clientCapabilities, deliverySeq, learningFixture as fixture, start, top
 
 const stale = (error: unknown) => error instanceof Error && "code" in error && error.code === "stale_state";
 
-test("第五题先判两连对；整节完成前不建立 topic 已学状态，多个 measures 不跨 KP", async (t) => {
-  const definition = topic("t01", 2);
+test("五道练习答完才判定，错对错对对答对的多，通过；整节完成前不建立 topic 已学状态，多个 measures 不跨 KP", async (t) => {
+  const definition = topic("t01", 2, [], 5);
   const question = definition.kps[0]?.practice?.[0];
   assert.ok(question);
   question.measures = ["t01.k1", "t01.k2"];
@@ -47,7 +47,7 @@ test("第五题先判两连对；整节完成前不建立 topic 已学状态，�
   assert.deepEqual(await f.state(), frozen);
 });
 
-test("结构错误不计尝试；事前求助后正确保留判分但中断连对，事后求助不撤回结果", async (t) => {
+test("结构错误不计尝试；事前求助后正确保留判分但不算独立答对，事后求助不撤回结果", async (t) => {
   const f = await fixture(t);
   await f.select();
   await f.advance();
@@ -69,14 +69,13 @@ test("结构错误不计尝试；事前求助后正确保留判分但中断连�
   await f.advance();
   const duplicate = await f.call("submission.submit", input);
   assert.deepEqual(duplicate, receipt);
-  await f.submit();
-  await f.advance();
+  // 求助的一题不算对也不算错；第二题独立答对，答对的多于答错的，两道练习答完即通过。
   await f.submit();
   assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
 });
 
 test("失败保留已过 KP，冷却期间提供其他任务并报告最早恢复时间", async (t) => {
-  const f = await fixture(t, [topic("t01", 2)]);
+  const f = await fixture(t, [topic("t01", 2, [], [2, 5])]);
   await f.select();
   await f.advance();
   await f.advance();
@@ -235,8 +234,9 @@ test("公开选择项、排列块与表格格内选项换号，反馈映回相�
   assert.ok(answered?.type === "answered");
   assert.deepEqual(answered.answers.choice, { type: "choice", selected: ["yes"] });
   assert.deepEqual(answered.answers.order, { type: "order", items: ["first", "second"] });
+  // 课内每道题只出一次：下一题是这个知识点的另一道练习，不是重出的旧题。
   await f.advance();
-  assert.equal((await f.state()).task?.deliveries.at(-1)?.repeated, true);
+  assert.equal((await f.state()).task?.deliveries.at(-1)?.repeated, false);
 });
 
 test("开放题只送本题与原答；服务失败和 unsure 不算错，重开后自动补判一次，显式恢复后推进一次", async (t) => {
@@ -332,7 +332,7 @@ test("历史申诉追加判分、保留原答和已选任务，失去先修的�
   question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加含义。" }] }];
   const f = await fixture(t, [definition, topic("t02", 1, ["t01"])]);
   await f.select("t01");
-  f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
+  // 开放题不计入必做，排在最后一道必做题之前出：先答开放题（模型判对），再答另一道练习。
   f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
   await f.finishLesson();
   const original = (await f.state()).task?.submissions[0];
@@ -557,7 +557,7 @@ test("申诉后判分失败不算错，重开后自动重判一次；仍失败�
   question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "解释含义" }] }];
   const f = await fixture(t, [definition, topic("t02")]);
   await f.select("t01");
-  f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
+  // 开放题排在最后一道必做题之前出，课里只调用一次模型。
   f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
   await f.finishLesson();
   const original = (await f.state()).task?.submissions[0];
@@ -570,7 +570,7 @@ test("申诉后判分失败不算错，重开后自动重判一次；仍失败�
   await f.reopen();
   await f.state();
   await f.settled();
-  assert.equal(f.models.calls.length, 4);
+  assert.equal(f.models.calls.length, 3);
   const queried = await f.call("submission.get", { submissionId: original.submissionId });
   assert.equal(queried.status, "found");
   if (queried.status === "found") {
@@ -687,8 +687,8 @@ for (const wrong of [3, 1]) {
   });
 }
 
-test("后续 KP 反馈页申诉前一 KP 后拒绝倒带，保留原交付和反馈位置", async (t) => {
-  const definition = topic("t01", 2);
+test("后续 KP 的反馈页上申诉使前一 KP 改判为错：前一 KP 答对的不再多于答错的，这节课当即失败，不能再往下推进，原交付保留", async (t) => {
+  const definition = topic("t01", 2, [], [2, 3]);
   const question = definition.kps[0]?.practice?.[0];
   assert.ok(question);
   question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加含义" }] }];
@@ -696,10 +696,10 @@ test("后续 KP 反馈页申诉前一 KP 后拒绝倒带，保留原交付和反
   await f.select();
   await f.advance();
   await f.advance();
+  // KP1 的开放题排在最后一道必做题之前：先答开放题（模型判对），再答另一道练习，两题都对，KP1 通过。
   f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
   await f.submit();
   await f.advance();
-  f.models.expectStructured().succeed({ verdict: "correct", reason: "符合" });
   await f.submit();
   const original = (await f.state()).task?.submissions[0];
   assert.ok(original);
@@ -713,11 +713,13 @@ test("后续 KP 反馈页申诉前一 KP 后拒绝倒带，保留原交付和反
   assert.equal(before?.phase.stage, "feedback");
   f.models.expectStructured().succeed({ verdict: "incorrect", reason: "复核不符合" });
   await f.call("submission.appeal", { submissionId: original.submissionId, expectedGradeRevision: 1, reason: "复核第一份原答" });
-  assert.equal((await f.state()).task?.kps[0]?.completed, false);
+  const after = (await f.state()).task;
+  assert.equal(after?.kps[0]?.completed, false);
+  assert.deepEqual(after?.phase, { stage: "completed", outcome: "failed" });
+  assert.deepEqual(after?.deliveries, before?.deliveries);
   await assert.rejects(f.advance(), stale);
-  assert.deepEqual((await f.state()).task?.deliveries, before?.deliveries);
-  assert.deepEqual((await f.state()).task?.phase, before?.phase);
   await f.reopen();
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
   await assert.rejects(f.advance(), stale);
 });
 
@@ -726,7 +728,8 @@ test("强制重教首次清除旧轮进度，失败重试保留本轮已过 KP �
   const kp = later.kps[0];
   assert.ok(kp);
   kp.keyPrerequisites = ["t01"];
-  const f = await fixture(t, [topic("t01", 2), later]);
+  // KP2 有五道练习，连错三题才在第三题失败。
+  const f = await fixture(t, [topic("t01", 2, [], [2, 5]), later]);
   async function review(pattern: boolean[]) {
     for (const [index, correct] of pattern.entries()) {
       await f.submit(correct);
@@ -908,78 +911,88 @@ function openQuestion(id: string): Question {
   };
 }
 
-const failed = (code: string) => (error: unknown) => error instanceof Error && "code" in error && error.code === code;
-
-test("先筛掉前端显示不了的题再选题：课只出这个前端能显示的题；一道也显示不了的知识点所在的课不进这个前端的菜单", async (t) => {
+test("先筛掉前端显示不了的题：课要做完全部必做题，有一道这个前端显示不了，这节课就不进它的菜单；显示得了的前端照常上课", async (t) => {
   const first = topic("t01");
   const kp = first.kps[0];
   assert.ok(kp);
   kp.practice = [orderQuestion("t01.k1.q0"), ...(kp.practice ?? [])];
-  const second = topic("t02");
-  const only = second.kps[0];
-  assert.ok(only);
-  only.practice = [orderQuestion("t02.k1.q1")];
-  const f = await fixture(t, [first, second]);
+  const f = await fixture(t, [first, topic("t02")]);
   const limited = { interaction: { supports: ["slot.text", "block.markdown"] }, services: [] };
   assert.deepEqual((await f.state()).menu?.candidates.map((entry) => entry.topicIds[0]).sort(), ["t01", "t02"]);
   const menu = (await f.call("state.get", {}, limited)).menu;
-  assert.ok(menu?.candidates[0]);
-  assert.deepEqual(menu.candidates.map((entry) => entry.topicIds[0]), ["t01"]);
-  await f.call("menu.select", { menuId: menu.menuId, candidateId: menu.candidates[0].id }, limited);
-  for (let step = 0; step < 2; step++) {
-    const current = await f.call("state.get", {}, limited);
-    assert.ok(current.task);
-    await f.call("task.advance", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: current.task.phase.stage }, limited);
-  }
-  // 排序题排在前面，也还没出过，但这个前端显示不了：出的是同一知识点的文字题，任务照常往下走。
-  const task = (await f.call("state.get", {}, limited)).task;
-  assert.equal(task?.phase.stage, "awaiting_answer");
-  const delivery = task?.deliveries[0];
+  assert.deepEqual(menu?.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
+  // 显示得了排序题的前端：排序题按题池顺序第一个出。
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  const delivery = (await f.state()).task?.deliveries[0];
   assert.ok(delivery);
-  assert.equal(f.session().replay.delivery(deliverySeq(delivery))?.questionId, "t01.k1.q1");
-  assert.deepEqual(delivery.item.requires, ["block.markdown", "slot.text"]);
+  assert.equal(f.session().replay.delivery(deliverySeq(delivery))?.questionId, "t01.k1.q0");
 });
 
-test("没有可用模型时不出开放题：课从同一知识点的其他题里选，只有开放题的知识点所在的课不进菜单；配好模型以后照常出", async (t) => {
-  const first = topic("t01");
-  const kp = first.kps[0];
-  assert.ok(kp);
-  kp.practice = [openQuestion("t01.k1.q0"), ...(kp.practice ?? [])];
-  const second = topic("t02");
-  const only = second.kps[0];
-  assert.ok(only);
-  only.practice = [openQuestion("t02.k1.q1")];
-  const f = await fixture(t, [first, second]);
+test("没有可用模型时不出开放题，课只做其余的必做题；配好模型以后开放题照常出", async (t) => {
+  const withOpen = (id: string) => {
+    const definition = topic(id);
+    const kp = definition.kps[0];
+    assert.ok(kp);
+    kp.practice = [openQuestion(`${id}.k1.q0`), ...(kp.practice ?? [])];
+    return definition;
+  };
+  const f = await fixture(t, [withOpen("t01"), withOpen("t02")]);
   f.models.setDefaultModel(undefined);
-  assert.deepEqual((await f.state()).menu?.candidates.map((entry) => entry.topicIds[0]), ["t01"]);
   await f.select("t01");
   await f.advance();
   await f.advance();
   const delivery = (await f.state()).task?.deliveries[0];
   assert.ok(delivery);
   assert.equal(f.session().replay.delivery(deliverySeq(delivery))?.questionId, "t01.k1.q1");
-  await f.finishLesson();
+  const lesson = await f.finishLesson();
+  assert.deepEqual(lesson.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.equal(lesson.task?.deliveries.length, 2);
   assert.equal(f.models.calls.length, 0);
-  assert.equal((await f.state()).menu?.candidates.length, 0);
-  // 配好模型：只有开放题的课回到菜单，开放题照常交付。
+  // 配好模型：开放题按题池顺序照常交付。
   f.models.setDefaultModel({ provider: "test", id: "test" });
   await f.select("t02");
   await f.advance();
   await f.advance();
   const open = (await f.state()).task?.deliveries[0];
   assert.ok(open);
-  assert.equal(f.session().replay.delivery(deliverySeq(open))?.questionId, "t02.k1.q1");
+  assert.equal(f.session().replay.delivery(deliverySeq(open))?.questionId, "t02.k1.q0");
 });
 
-test("没有可用模型时不自动补判开放题，课里只剩开放题时报告 model_required 并保留任务；配好模型后的第一次调用才补判", async (t) => {
+test("开放题排在题池最后时，有模型就在最后一道必做题之前出，答完必做题这个知识点就判定，开放题不被跳过", async (t) => {
   const definition = topic("t01");
   const kp = definition.kps[0];
   assert.ok(kp);
-  kp.practice = [openQuestion("t01.k1.q1")];
+  kp.practice = [...(kp.practice ?? []), openQuestion("t01.k1.q9")];
+  const f = await fixture(t, [definition]);
+  await f.select("t01");
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
+  const lesson = await f.finishLesson();
+  assert.deepEqual(lesson.task?.phase, { stage: "completed", outcome: "passed" });
+  const asked = lesson.task?.deliveries.map((delivery) => f.session().replay.delivery(deliverySeq(delivery))?.questionId);
+  assert.deepEqual(asked, ["t01.k1.q1", "t01.k1.q9", "t01.k1.q2"]);
+});
+
+test("还没出的练习全答对也不可能多于答错的，当场失败：三道练习前两题都错，第三题不再出", async (t) => {
+  const f = await fixture(t, [topic("t01", 1, [], 3)]);
+  await f.select("t01");
+  const failed = await f.finishLesson([false, false, true]);
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.equal(failed.task?.deliveries.length, 2);
+  assert.deepEqual(failed.task?.kps[0], { kpId: "t01.k1", title: "t01.k1", attempts: 2, consecutiveCorrect: 0, completed: false });
+});
+
+test("没有可用模型时不自动补判开放题，课照常做其余的必做题；配好模型后的第一次调用才补判", async (t) => {
+  const definition = topic("t01");
+  const kp = definition.kps[0];
+  assert.ok(kp);
+  kp.practice = [openQuestion("t01.k1.q1"), ...(kp.practice ?? []).slice(1)];
   const f = await fixture(t, [definition]);
   await f.select("t01");
   await f.advance();
   await f.advance();
+  // 开放题排在最后一道必做题之前先出。
   f.models.expectStructured().fail(new Error("断网"));
   const pending = await f.submit();
   assert.ok(pending.status === "recorded");
@@ -993,11 +1006,11 @@ test("没有可用模型时不自动补判开放题，课里只剩开放题时�
   const waiting = await f.call("submission.get", { submissionId: pending.submission.submissionId });
   assert.ok(waiting.status === "found");
   assert.deepEqual(waiting.submission.processing, { status: "interrupted", reason: "restart" });
-  // 这个知识点只剩开放题：不出题，报告缺模型，任务原样保留，学习者可以中止。
-  const before = await f.state();
-  assert.equal(before.task?.phase.stage, "recovery");
-  await assert.rejects(f.advance(), failed("model_required"));
-  assert.deepEqual(await f.state(), before);
+  // 这份作答尚无证据，不阻塞：接着做剩下的必做题，答对以后先按通过算。
+  assert.equal((await f.state()).task?.phase.stage, "recovery");
+  await f.advance();
+  await f.submit();
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
   // 配好模型：下一次调用在后台补判一次。
   f.models.setDefaultModel({ provider: "test", id: "test" });
   f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
@@ -1061,7 +1074,7 @@ test("时钟回拨到上次学习之前时按零间隔继续：菜单照常给�
 });
 
 test("课交给学生模型的质量按独立答对的比例计：一错两对通过的课比全对的课早到期", async (t) => {
-  const f = await fixture(t, [topic("t01"), topic("t02")]);
+  const f = await fixture(t, [topic("t01", 1, [], 3), topic("t02")]);
   await f.select("t01");
   await f.finishLesson([false, true, true]);
   await f.select("t02");
@@ -1110,8 +1123,8 @@ for (const hidden of [false, true]) {
   });
 }
 
-test("同一个知识点答错第三题，这节课就失败，“错错错对对”不再通过；各知识点各错一题、随即连对，照常通过", async (t) => {
-  const f = await fixture(t, [topic("t01"), topic("t02", 2)]);
+test("同一个知识点答错第三题，这节课就失败，“错错错对对”不再通过；各知识点各错一题而答对的多，照常通过", async (t) => {
+  const f = await fixture(t, [topic("t01", 1, [], 5), topic("t02", 2, [], 3)]);
   await f.select("t01");
   const failed = await f.finishLesson([false, false, false, true, true]);
   assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });

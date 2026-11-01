@@ -401,7 +401,10 @@ test("复习 preparing 先拒收消息和内容，回复取消停稳后才计时
   await f.client.call("session.send", { sessionId: f.chat.id, text: "回顾" });
 });
 
-/** 测试用的 topic：五个知识点，k1 的讲解有 40 块长文字，k1 的练习题面有三个各 1,000 行的代码块。 */
+/**
+ * 测试用的 topic：五个知识点，k1 的讲解有 40 块长文字，k1 的第一道练习题面有三个各 1,000 行的代码块。
+ * 每个知识点三道练习，答错一题也不当场结束。
+ */
 function topic(id: string): Topic {
   const code = (block: number) => ({
     type: "code" as const, language: "python",
@@ -425,7 +428,11 @@ function topic(id: string): Topic {
           name: kpId, definition: "概念定义", conditions: ["适用条件"],
           example: { from: question.id, text: "概念的例子" },
         },
-        practice: [{ ...question, body: index === 0 ? [{ type: "markdown" as const, text: "当前题面。" }, code(0), code(1), code(2)] : question.body }],
+        practice: [
+          { ...question, body: index === 0 ? [{ type: "markdown" as const, text: "当前题面。" }, code(0), code(1), code(2)] : question.body },
+          { ...question, id: `${kpId}.q2` },
+          { ...question, id: `${kpId}.q3` },
+        ],
         review: [{ ...question, id: `${kpId}.r1` }],
       };
     }),
@@ -526,14 +533,21 @@ test("当前题目超过底座的输出上限时，模型收到开头、结尾�
 });
 
 /** 只有一个知识点的 topic，练习就是给定的这一道题。 */
+/**
+ * 一个知识点的课，第一道练习是给定的题，再加两道练习，答错一题也不当场结束：程序判分的题再加两道同样的；
+ * 开放题不计入必做，再加两道程序判分的题。
+ */
 function lessonWith(id: string, question: Omit<Question, "id">): Topic {
   const kpId = `${id}.k1`;
+  const open = question.slots.some((slot) => slot.type === "text" && slot.rubric !== undefined);
+  const plain: Omit<Question, "id"> = { body: "1 + 1？", explanation: "二。", slots: [{ id: "answer", type: "text", key: "2" }] };
+  const practice = open ? [question, plain, plain] : [question, question, question];
   return {
     id, title: `${id} 的课`, status: "complete", minutes: 5, prerequisites: [], sources: [],
     kps: [{
       id: kpId, title: `${id} 的知识点`, lesson: "先算右边，再让左边的名字指向结果。",
       example: { id: `${kpId}.e1`, body: "例题", explanation: "例题解说", slots: [{ id: "answer", type: "text", key: "1" }] },
-      practice: [{ ...question, id: `${kpId}.q1` }],
+      practice: practice.map((entry, index) => ({ ...entry, id: `${kpId}.q${index + 1}` })),
     }],
   };
 }

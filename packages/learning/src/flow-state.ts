@@ -1,10 +1,8 @@
 import type { ModelConfig, Student } from "@repa/learning-model";
-import type { CourseIndex } from "./course-index.js";
+import { needsModel, type CourseIndex } from "./course-index.js";
 import { shuffled } from "./delivery.js";
 import {
   FAIL_QUALITY_FLOOR,
-  KP_MAX_ATTEMPTS,
-  KP_PASS_STREAK,
   KP_WRONG_LIMIT,
   QUIZ_DURATION_MS,
   REVIEW_FINAL_STREAK,
@@ -167,37 +165,76 @@ export function taskKps(task: TaskRecord, course: CourseIndex): string[] {
   return task.kind === "review" ? shuffled(kps, Math.imul(task.seq, 0x9e3779b1) >>> 0) : kps;
 }
 
+/** 一个知识点的练习：必做题是不需要模型判分的题，开放题要有可用模型才出，都按题池顺序。 */
+export interface KpPractice {
+  required: string[];
+  open: string[];
+}
+
 /**
- * 按作答先后归约课里的每个知识点：连续独立答对 KP_PASS_STREAK 题通过；没通过而答错第 KP_WRONG_LIMIT 题、或做满 KP_MAX_ATTEMPTS 题，
- * 这个知识点失败，这节课也就失败。通过或失败即停止，之后的作答不再改变这个知识点的结果。判错、部分对和说不会都算答错；
- * 求助以后答对的不算独立完成，但也不算答错。没判出结果的作答不计入：它后来判出结果，就按它原来的位置重新归约，
- * 例如“错、错、待判、对、对”在第三题判错以后就是第三题失败，后面两题不再算。此前的课继承为通过的知识点不再计数。
+ * 一节课各知识点的练习。开放题不计入必做，所以知识点是否过关只取决于课程和学习记录，
+ * 不随学习者后来有没有配模型而改变。
+ */
+export function lessonPractice(course: CourseIndex, topicId: string): Map<string, KpPractice> {
+  const topic = course.topics.get(topicId);
+  return new Map((topic?.kps ?? []).map((kp) => {
+    const practice = kp.practice ?? [];
+    return [kp.id, {
+      required: practice.filter((question) => !needsModel(question)).map((question) => question.id),
+      open: practice.filter(needsModel).map((question) => question.id),
+    }];
+  }));
+}
+
+/**
+ * 归约课里的每个知识点（Repa 假设，见 parameters.ts）：必做的练习题都要作答，全部答过以后独立答对的多于答错的才通过；
+ * 答错第 KP_WRONG_LIMIT 题，或者还没出的练习全答对也不可能多于答错的，这个知识点当场失败，这节课也就失败。
+ * 判错、部分对和说不会都算答错；求助以后答对的不算独立完成，也不算答错。没判出结果的作答先按答对归约：只有它们怎样判都
+ * 改变不了的失败才当场得出，判出结果以后按事实重新归约，例如三道必做题“对、待判、对”先按通过算，第二题后来判错仍然通过，
+ * “对、待判、错”则改为失败。开放题不计入必做，出了的照常计入对错；出不出只看出题时有没有模型，出了就是事实，所以归约结果
+ * 只取决于课程和学习记录。此前的课继承为通过的知识点不再计数。
  */
 export function lessonProgress(
-  kpIds: string[], attempts: Attempt[], inherited: KpProgress[] | undefined,
+  kpIds: string[], attempts: Attempt[], inherited: KpProgress[] | undefined, practice: Map<string, KpPractice>,
 ): { kps: KpProgress[]; failed: boolean } {
   let failed = false;
   const kps = kpIds.map((kpId) => {
     const previous = inherited?.find((entry) => entry.kpId === kpId);
     const result = { kpId, attempts: 0, consecutiveCorrect: 0, completed: previous?.completed ?? false };
+    const pool = practice.get(kpId);
+    const needed = new Set(pool?.required ?? []);
+    // 没有必做题的知识点无从取证：课程检查不允许这样的知识点，菜单也不提供含它的课。
+    if (result.completed || needed.size === 0) {
+      return result;
+    }
+    const answered = new Set<string>();
+    let correct = 0;
     let wrong = 0;
+    let pending = 0;
     for (const attempt of attempts) {
-      if (result.completed) {
-        break;
+      if (attempt.kpId !== kpId) {
+        continue;
       }
-      if (attempt.kpId !== kpId || attempt.verdict === undefined) {
+      answered.add(attempt.delivery.questionId);
+      if (attempt.verdict === undefined) {
+        pending++;
         continue;
       }
       result.attempts++;
       if (attempt.verdict !== "correct") {
         wrong++;
+      } else if (attempt.independent) {
+        correct++;
       }
       result.consecutiveCorrect = independentCorrect(attempt) ? result.consecutiveCorrect + 1 : 0;
-      result.completed = result.consecutiveCorrect >= KP_PASS_STREAK;
-      if (!result.completed && (wrong >= KP_WRONG_LIMIT || result.attempts >= KP_MAX_ATTEMPTS)) {
-        failed = true;
-        break;
-      }
+    }
+    const remaining = [...needed].filter((id) => !answered.has(id)).length;
+    // 还没出的开放题有模型时才出，只用来判断还有没有可能通过；必做题答完就判定，不等它们。
+    const unasked = remaining + (pool?.open ?? []).filter((id) => !answered.has(id)).length;
+    if (wrong >= KP_WRONG_LIMIT || correct + pending + (remaining === 0 ? 0 : unasked) <= wrong) {
+      failed = true;
+    } else if (remaining === 0) {
+      result.completed = true;
     }
     return result;
   });
@@ -237,7 +274,7 @@ function reviewVerdict(entry: TaskEvidence): "pass" | "fail" | undefined {
 
 /**
  * 从一项任务的事实得出证据与结论。inherited 是此前同一 topic 的课留下的知识点进度。
- * 先看作答本身能否得出结论（课的连对通过、答错太多或练满失败，复习的通过与失败），再看主动结束、截止和被后来的任务取代。
+ * 先看作答本身能否得出结论（课的必做题做完而通过、答错太多或已不可能通过而失败，复习的通过与失败），再看主动结束、截止和被后来的任务取代。
  * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。
  * 复习不限时，中途离开下次接着做；学习者中止复习时，已经不可能通过的记失败，其他情形尚无证据。测验没答的题算错。
  */
@@ -261,7 +298,7 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
     });
   }
   const kpIds = taskKps(task, course);
-  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited) : undefined;
+  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited, lessonPractice(course, task.topicIds[0] ?? "")) : undefined;
   const kps = lesson?.kps ?? kpIds.map((kpId) => ({ kpId, attempts: 0, consecutiveCorrect: 0, completed: false }));
   const started = startedAt(task);
   const deadline = deadlineAt(task);

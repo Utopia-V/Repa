@@ -10,14 +10,14 @@ export const STUDENT_MODEL: ModelConfig = DEFAULT_MODEL_CONFIG;
 
 // 课
 
-/** 一个知识点连续独立答对几题算通过。MA 公开：官网 How It Works 与 The Math Academy Way 第 397 页。 */
-export const KP_PASS_STREAK = 2;
-/** 一个知识点最多练几题；练满仍没通过，这节课失败。MA 公开，出处同上。 */
-export const KP_MAX_ATTEMPTS = 5;
 /**
  * 同一个知识点答错几题，这节课就中止、算失败。Repa 假设：MA 公开答错太多会中止整节课，阈值没有公开，
- * 用户报告按整节课答错 3 到 4 题即中止。Repa 按知识点计：每个知识点各错一题、随即连对，说明学习正在发生；错误集中在同一个知识点，
+ * 用户报告按整节课答错 3 到 4 题即中止。Repa 按知识点计：每个知识点各错一题，说明学习正在发生；错误集中在同一个知识点，
  * 才说明没学会。
+ *
+ * 课内的其余规则也是 Repa 假设，见 flow-state.ts 的 lessonProgress：每个知识点的必做练习题都要作答，独立答对的多于答错的才通过。
+ * MA 按“连对两题”过关，前提是同一知识点的题池都是可以互换的同类变式（每个知识点约 20 题）；现有课程的题池每题练的是不同方面、
+ * 各只有一题，按连对两题过关会让学习者只做前两题，所以改为全做。
  */
 export const KP_WRONG_LIMIT = 3;
 /** 课失败以后多久才能重试。Repa 假设：MA 官方 FAQ 只说过几天再试。 */

@@ -41,8 +41,11 @@ export const course: Course = {
   topics: [],
 };
 
-/** 每个知识点一道例题、一道练习、一道复习题，标准答案都是 2。 */
-export function topic(id = "t01", count = 1, prerequisites: string[] = []): Topic {
+/**
+ * 每个知识点一道例题、practice 道练习（默认两道；给数组时按知识点分别给）、一道复习题，标准答案都是 2。
+ * 课要把练习全部答过、答对的多于答错的才通过：默认两道时“对、对”通过；要答错 n 题还能通过，练习至少要 2n + 1 道。
+ */
+export function topic(id = "t01", count = 1, prerequisites: string[] = [], practice: number | number[] = 2): Topic {
   return {
     id,
     title: id,
@@ -63,7 +66,10 @@ export function topic(id = "t01", count = 1, prerequisites: string[] = []): Topi
         title: kpId,
         lesson: "讲解",
         example: { ...question, id: `${kpId}.e1` },
-        practice: [question],
+        practice: Array.from(
+          { length: typeof practice === "number" ? practice : practice[index] ?? 2 },
+          (_, number) => ({ ...question, id: `${kpId}.q${number + 1}` }),
+        ),
         review: [{ ...question, id: `${kpId}.r1` }],
       };
     }),
