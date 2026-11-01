@@ -9,6 +9,7 @@ import { routes } from "./routes";
 import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
 import { StoreProvider } from "@/hooks/use-app-store";
 import { interactionCapabilities } from "@/lib/ask";
+import { TrialRunnerProvider } from "@/hooks/use-trial-runner";
 import { createPythonRunner } from "@/lib/python/runner";
 import type { AppStore } from "@/lib/store";
 
@@ -66,6 +67,7 @@ export function App({
 }) {
   const router = useMemo(() => createBrowserRouter(routes), []);
   const pythonRunner = useMemo(() => createPythonRunner(), []);
+  const trialRunner = useMemo(() => createPythonRunner(), []);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<BootstrapState>({ status: "starting" });
   const connected = useStore(store, (current) => current.connected);
@@ -130,6 +132,7 @@ export function App({
   }, [attempt, loadConnection, pythonRunner, store]);
 
   useEffect(() => () => pythonRunner.close(), [pythonRunner]);
+  useEffect(() => () => trialRunner.close(), [trialRunner]);
 
   if (state.status !== "ready") {
     return (
@@ -146,14 +149,16 @@ export function App({
 
   return (
     <StoreProvider store={store}>
-      <div className="flex min-h-dvh flex-col">
-        {!connected && (
-          <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-8">
-            <ReconnectionNotice />
-          </div>
-        )}
-        <RouterProvider router={router} />
-      </div>
+      <TrialRunnerProvider runner={trialRunner}>
+        <div className="flex min-h-dvh flex-col">
+          {!connected && (
+            <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-8">
+              <ReconnectionNotice />
+            </div>
+          )}
+          <RouterProvider router={router} />
+        </div>
+      </TrialRunnerProvider>
     </StoreProvider>
   );
 }

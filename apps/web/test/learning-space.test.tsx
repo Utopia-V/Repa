@@ -156,13 +156,26 @@ it("启动时回到上次的空间的对话", async () => {
   // 对话页之外的读取不影响这里的判断，一直不返回。
   const call = vi.fn((method: string): Promise<unknown> => {
     if (method === "space.open") return Promise.resolve({ root: "/notes/calculus" });
-    if (method === "session.list" || method === "space.list") return Promise.resolve([]);
+    if (method === "session.list" || method === "space.list" || method === "plugin.list") return Promise.resolve([]);
     return new Promise(() => {});
   });
   const router = start(fakeClient(call).client, "/notes/calculus");
   await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
   expect(await screen.findByRole("heading", { name: "calculus" })).toBeTruthy();
   expect(call).toHaveBeenCalledWith("space.open", { root: "/notes/calculus" });
+});
+
+it("启动时上次的空间装了学习插件，进学习页", async () => {
+  const call = vi.fn((method: string): Promise<unknown> => {
+    if (method === "space.open") return Promise.resolve({ root: "/notes/calculus" });
+    if (method === "plugin.list") return Promise.resolve([{ id: "learning", methods: [], tools: [] }]);
+    if (method === "space.list") return Promise.resolve([]);
+    // 学习状态一直不返回：这里只看去了哪个页面。
+    return new Promise(() => {});
+  });
+  const router = start(fakeClient(call).client, "/notes/calculus");
+  await waitFor(() => expect(router.state.location.pathname).toBe("/learn"));
+  expect(await screen.findByText("正在读取学习状态…")).toBeTruthy();
 });
 
 it("上次的空间打不开时回到选空间页并说明原因", async () => {

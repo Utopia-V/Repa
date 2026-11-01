@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { FolderOpen, History, Settings } from "lucide-react";
+import { FolderOpen, GraduationCap, History, Settings } from "lucide-react";
 import { NavLink, useMatch, useNavigate } from "react-router";
 import type { SessionInfo } from "@repa/base/protocol";
 import {
@@ -22,6 +22,7 @@ export function AppSidebar() {
   const running = useAppStore((store) => store.conversation.run !== "idle");
   const conversationReady = useAppStore((store) => store.conversation.status === "ready");
   const newConversation = useAppStore((store) => store.newConversation);
+  const learnable = useAppStore((store) => store.learning.available === true);
   const inConversation = useMatch("/conversation") !== null;
   const navigate = useNavigate();
   const closeMobileSidebar = () => setOpenMobile(false);
@@ -72,6 +73,14 @@ export function AppSidebar() {
                 onOpen={open}
               />}
             </SidebarMenuItem>
+            {/* 后端装了学习插件时才有学习页；它属于当前空间。 */}
+            {space && learnable && <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <NavLink to="/learn" onClick={closeMobileSidebar} title={collapsedTitle("学习")}>
+                  <GraduationCap aria-hidden="true" /><span className={collapseLabel}>学习</span>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>

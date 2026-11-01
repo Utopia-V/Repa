@@ -15,18 +15,22 @@ vi.mock("@repa/base/client", async (importOriginal) => ({
   RepaClient: { connect: vi.fn() },
 }));
 
-/** 页面里的 Python 运行器换成替身：run 一直不结束，记下收到的取消信号。 */
+/**
+ * 页面里的 Python 运行器换成替身：run 一直不结束，记下收到的取消信号。页面另有一个试运行用的运行器，
+ * close 记的是收到过 run 的那个，也就是服务 python.run 的运行器。
+ */
 const python = vi.hoisted(() => ({ signals: [] as AbortSignal[], close: undefined as unknown as ReturnType<typeof vi.fn> }));
 vi.mock("../src/lib/python/runner", () => ({
   createPythonRunner: () => {
-    python.close = vi.fn();
+    const close = vi.fn();
     return {
       warm: vi.fn(),
       run: vi.fn((_input: unknown, signal: AbortSignal) => {
         python.signals.push(signal);
+        python.close = close;
         return new Promise(() => {});
       }),
-      close: python.close,
+      close,
     };
   },
 }));

@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { startRepaProcess, type RepaProcess } from "@repa/base/process";
+import { startRepaProcess, type RepaProcess, type RepaProcessOptions } from "@repa/base/process";
 import { defaultPackagesDirectory } from "@repa/python-runner";
 
 // 只打开反馈包：这个端点替页面调用系统的文件管理器，不接受任意路径。
@@ -40,12 +40,12 @@ async function readBody(request: import("node:http").IncomingMessage): Promise<s
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function repaDevelopmentBackend() {
+function repaDevelopmentBackend(options: RepaProcessOptions) {
   let backend: Promise<RepaProcess> | undefined;
   let closing = false;
   const getBackend = (): Promise<RepaProcess> => {
     if (closing) return Promise.reject(new Error("Web 开发服务器正在关闭。"));
-    backend ??= startRepaProcess().then((handle) => {
+    backend ??= startRepaProcess(options).then((handle) => {
       void handle.closed.then(() => { backend = undefined; }, (error: unknown) => {
         backend = undefined;
         console.error(error);
@@ -181,10 +181,17 @@ function repaPythonRuntime() {
   };
 }
 
-export default defineConfig({
-  plugins: [repaDevelopmentBackend(), repaPythonRuntime(), react(), tailwindcss()],
+/** 学习者版本的装配：加载学习插件、关掉通用 Agent，与桌面端交给学习者的后端相同。 */
+const LEARNER_BACKEND: RepaProcessOptions = {
+  plugins: [fileURLToPath(new URL("../../packages/learning", import.meta.url))],
+  generalAgent: false,
+};
+
+// `vite --mode learning` 按学习者版本启动后端；页面本身不分版本，按后端提供的插件和 Agent 决定入口。
+export default defineConfig(({ mode }) => ({
+  plugins: [repaDevelopmentBackend(mode === "learning" ? LEARNER_BACKEND : {}), repaPythonRuntime(), react(), tailwindcss()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: {
     host: "127.0.0.1",
   },
-});
+}));
