@@ -4,6 +4,7 @@ import { app, BrowserWindow, ipcMain, protocol, shell, type IpcMainInvokeEvent }
 
 import { startRepaProcess, type RepaProcess } from "@repa/base/process";
 import { APP_PAGE_URL, APP_SCHEME, createAppHandler, isAppUrl } from "./app-protocol";
+import { openInBrowser } from "./external-links";
 import { learnerBackend } from "./learner";
 import { pythonAssets, workspacePythonDirectories, type PythonAssetLookup, type PythonRuntimeDirectories } from "./python-runtime";
 
@@ -126,7 +127,7 @@ function createWindow() {
   });
 
   window.once("ready-to-show", () => window.show());
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.setWindowOpenHandler(({ url }) => openInBrowser(url, (url) => shell.openExternal(url)));
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);

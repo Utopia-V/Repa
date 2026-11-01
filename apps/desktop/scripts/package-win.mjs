@@ -34,8 +34,6 @@ await build({
       // 装到当前用户的目录，不需要管理员权限，也不改动其他用户和系统。
       oneClick: true,
       perMachine: false,
-      // 静默安装时不顺手打开应用，核对脚本要自己启动它。
-      runAfterFinish: false,
     },
     // 只产出文件；发布到 GitHub Release 等由维护者决定，CI 里也不自动上传。
     publish: null,
