@@ -14,12 +14,24 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let backend: Promise<RepaProcess> | undefined;
+
+/**
+ * 安装包带的 Git，见 scripts/bundled-git.mjs；开发时和 Linux 安装包用 PATH 里的 git。
+ * 底座要绝对路径：Windows 上按名称启动程序会先在空间目录里找同名文件。
+ */
+function bundledGit(): { gitPath?: string } {
+  if (!app.isPackaged) return {};
+  if (process.platform === "darwin") return { gitPath: join(app.getAppPath(), "git", "git") };
+  if (process.platform === "win32") return { gitPath: join(app.getAppPath(), "git", "git.exe") };
+  return {};
+}
 let quitting = false;
 
 function getBackend(): Promise<RepaProcess> {
   if (quitting) return Promise.reject(new Error("Desktop 正在关闭。"));
   backend ??= startRepaProcess({
     ...learnerBackend(),
+    ...bundledGit(),
     nodeExecutable: process.env.REPA_NODE_EXECUTABLE ?? process.execPath,
     environment: {
       ...process.env,
