@@ -10,6 +10,7 @@ import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protoc
 import { learningMenu } from "../src/flow-menu.js";
 import type { Fact } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
+import { connectTutor } from "../src/tutor.js";
 import type { Question } from "../src/format/schema.js";
 import { updateStudent } from "../src/student-model.js";
 import { clientCapabilities, deliverySeq, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
@@ -79,6 +80,44 @@ test("结构错误不计尝试；课内作答期间关闭辅导与参考内容�
   await f.advance();
   await f.submit();
   assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+});
+
+test("课内一出题就停下辅导：例题进入第一题、反馈进入下一题各停一次，翻到例题时不停；模型的三个学习工具作答期间都读不到", async (t) => {
+  let stops = 0;
+  const f = await fixture(t, [topic("t01", 1, [], 3)], { beforeRestricted: async () => { stops++; } });
+  await f.select();
+  await f.advance();
+  assert.equal(stops, 0);
+  await f.advance();
+  assert.equal(stops, 1);
+  const tools = (await connectTutor(f.session())).tools?.() ?? [];
+  const restricted = (error: unknown) => (error as { code?: string }).code === "restricted";
+  // 工具直接执行，不经辅导消息的拒收，测的是工具自己的检查；这几个工具不会向学习者提问。
+  const context = { signal: new AbortController().signal, callId: "direct", ask: () => assert.fail("不应提问") };
+  for (const [name, input] of [["learning_task", {}], ["learning_search", { query: "一加一" }], ["learning_read", { ids: ["t01.k1.card"] }]] as const) {
+    const tool = tools.find((entry) => entry.name === name);
+    assert.ok(tool, name);
+    await assert.rejects(tool.execute(input, context), restricted, name);
+  }
+  await f.submit();
+  assert.equal(stops, 1);
+  await f.advance();
+  assert.equal(stops, 2);
+});
+
+test("参考读取与出题走同一个串行入口：反馈阶段先发出推进、紧接着搜索，搜索排在出题之后，按作答期间拒绝", async (t) => {
+  const f = await fixture(t, [topic("t01", 1, [], 3)]);
+  await f.select();
+  await f.advance();
+  await f.advance();
+  await f.submit();
+  const current = await f.state();
+  assert.equal(current.task?.phase.stage, "feedback");
+  const advancing = f.call("task.advance", { taskId: current.task.taskId, expectedRevision: current.revision, expectedStage: "feedback" });
+  const searching = f.call("content.search", { query: "一加一", offset: 0, limit: 10 });
+  await advancing;
+  await assert.rejects(searching, (error: unknown) => (error as { code?: string }).code === "restricted");
+  assert.equal((await f.state()).task?.phase.stage, "awaiting_answer");
 });
 
 test("失败保留已过 KP，冷却期间提供其他任务并报告最早恢复时间", async (t) => {

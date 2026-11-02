@@ -37,10 +37,15 @@ export async function connectTutor(
   const index = await referenceContent(session.course.course);
   const titles = new Map(index.map((entry) => [entry.ref.id, entry.title]));
   const methods: Record<string, PluginMethod> = {};
-  /** 按当前状态授权以后读内容；作答期间辅导与参考内容都关闭，所以读到内容不影响作答的证据。 */
+  /**
+   * 按当前状态授权以后读内容。授权和取内容与学习记录的写入走同一个串行入口，
+   * 所以读取进行到一半时出题，读到的仍是出题之前允许看的内容，不会跨进作答期间。
+   */
   async function access<T>(action: (pages: ContentPage[]) => T): Promise<T> {
-    const view = requireReferenceAccess(await session.view());
-    return action(await visibleContent(session, view, index));
+    return session.records.serial(async () => {
+      const view = requireReferenceAccess(await session.view());
+      return action(await visibleContent(session, view, index));
+    });
   }
   function find(pages: ContentPage[], ref: ContentRef) {
     const page = pages.find((entry) => isDeepStrictEqual(entry.ref, ref));
@@ -119,8 +124,10 @@ export async function connectTutor(
       parameters: TaskParametersSchema,
       async execute(raw) {
         parse(TaskParametersSchema, raw);
-        const view = requireReferenceAccess(await session.view());
-        return { text: taskText(view.state.task, session.course) };
+        return session.records.serial(async () => {
+          const view = requireReferenceAccess(await session.view());
+          return { text: taskText(view.state.task, session.course) };
+        });
       },
     },
     {

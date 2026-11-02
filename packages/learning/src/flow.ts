@@ -19,7 +19,8 @@ import type { LearningSession } from "./session.js";
 
 /**
  * 教学方法：读当前状态、核对守卫，再追加学习者行为的事实。状态全部从事实重放得出，方法本身不保存画面。
- * beforeRestricted 在复习和测验交付第一道题之前调用，默认中止辅导 Agent。
+ * beforeRestricted 在作答期间开始时调用，默认中止辅导 Agent：复习和测验在交付第一道题之前；
+ * 课内在写下交付以后、返回之前，这时新的提问已被拒收，正在生成的回复也随之停下。
  */
 export async function connectLearning(
   session: LearningSession,
@@ -236,6 +237,12 @@ export async function connectLearning(
       }
       throw stale("当前阶段不能推进");
     });
+    // 课内出了一道题就进入作答期间：停下推进之前已经放行、还在生成的辅导回复。题已经出了，新的提问也已拒收，
+    // 停不下来时不拦住学习者，只少了对在途回复的保证；复习和测验仍在交付之前等辅导停稳。
+    const after = current();
+    if (after?.task.kind === "lesson" && session.stage(after) === "awaiting_answer") {
+      await hooks.beforeRestricted?.().catch(() => undefined);
+    }
     return session.state(capabilities);
   });
   method("task.abort", async (input, context) => {
