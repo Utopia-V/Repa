@@ -161,9 +161,13 @@ export function deadlineAt(task: TaskRecord): number | null {
   return started + QUIZ_DURATION_MS;
 }
 
-/** 复习按 seed 打散知识点顺序；seed 由任务序号得出，重放时顺序不变。 */
+/**
+ * 任务所涉的知识点。测验按 topic 顺序列出每个 topic 的知识点，界面才能在交卷以后说出每道题属于哪个知识点；
+ * 复习按 seed 打散知识点顺序，seed 由任务序号得出，重放时顺序不变。
+ */
 export function taskKps(task: TaskRecord, course: CourseIndex): string[] {
-  const kps = course.topics.get(task.topicIds[0] ?? "")?.kps.map((kp) => kp.id) ?? [];
+  const topics = isQuiz(task.kind) ? task.topicIds : task.topicIds.slice(0, 1);
+  const kps = topics.flatMap((id) => course.topics.get(id)?.kps.map((kp) => kp.id) ?? []);
   return task.kind === "review" ? shuffled(kps, Math.imul(task.seq, 0x9e3779b1) >>> 0) : kps;
 }
 
