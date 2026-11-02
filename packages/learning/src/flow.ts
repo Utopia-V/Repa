@@ -373,7 +373,7 @@ export async function connectLearning(
     await session.grade(delivery.seq);
     return { status: "recorded", submission: await session.submission(delivery) };
   });
-  // 试运行：只读当前状态，不写事实，所以不算作答，也不算求助；运行自己的代码看不到答案，复习和测验期间同样可用。
+  // 试运行：只读当前状态，不写事实，所以不算作答；运行自己的代码看不到答案，复习和测验期间同样可用。
   method("run.prepare", async (input) => {
     const seq = sequenceOf(input.deliveryId, "d");
     const delivery = seq === undefined ? undefined : session.replay.delivery(seq);

@@ -329,7 +329,7 @@ test("试运行按判分里第一个公开测试的环境运行学习者的代�
   assert.ok(scored);
   assert.deepEqual(environment(run), environment(scored));
 
-  // 复习期间不能求助，也能试运行；上一节课的交付已不在当前任务里，不能再拿来试运行。
+  // 复习期间不能提问，也能试运行；上一节课的交付已不在当前任务里，不能再拿来试运行。
   f.time(start + DAY_MS);
   const review = await f.select("t01", "review");
   assert.equal(review.restrictions.tutorAllowed, false);
@@ -556,28 +556,6 @@ test("末题照常判分时 XP 按全部作答结算：三道练习对、对、�
   assert.deepEqual(f.session().replay.awards.map((award) => award.xp), [3]);
   await f.reopen();
   assert.equal((await f.state()).progress.totalXp, 3);
-});
-
-test("求助以后的作答没判出结果也不可能算独立答对：第一题错，第二题求助后判分中断，此时已不可能答对的多，当场失败", async (t) => {
-  const definition = topic("t01", 1, [], 3);
-  const second = definition.kps[0]?.practice?.[1];
-  assert.ok(second);
-  second.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
-  const f = await fixture(t, [definition]);
-  await f.select("t01");
-  await f.advance();
-  await f.advance();
-  await f.submit(false);
-  await f.advance();
-  const input = await f.input();
-  await f.session().write(() => [{ type: "help", delivery: Number(input.deliveryId.slice(1)) }]);
-  f.models.expectStructured().fail(new Error("断网"));
-  const pending = await f.call("submission.submit", input);
-  assert.ok(pending.status === "recorded");
-  assert.deepEqual(pending.submission.processing, { status: "interrupted", reason: "service_failure" });
-  const failed = await f.state();
-  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
-  assert.equal(failed.task?.deliveries.length, 2);
 });
 
 test("只把事实文件和格式标记搬到新空间，打开后从事实重算出相同的状态", async (t) => {

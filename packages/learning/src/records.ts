@@ -139,9 +139,6 @@ export class LearningRecords {
       case "ended":
         target(fact.task, "task");
         break;
-      case "help":
-        target(fact.delivery, "delivered");
-        break;
       case "answered":
         target(fact.delivery, "delivered");
         if (answered.has(fact.delivery)) invalid("一次交付只收一份作答");

@@ -1,7 +1,7 @@
 /**
  * 学习记录的盘上格式：每行一条事实，只追加、不改写。
  *
- * 事实只记对推断学习状态有用的事情：学习者选了什么任务、看了哪一页讲解、出了哪道题、作答前是否求助、
+ * 事实只记对推断学习状态有用的事情：学习者选了什么任务、看了哪一页讲解、出了哪道题、
  * 答了什么（题目原来的选项编号）、当时判成什么，以及主动结束任务和日目标。界面、学生模型、进度和 XP
  * 都从这些事实重放出来，删掉以后可以重算。任务、交付和提交的编号由事实的序号得出，不另存。
  */
@@ -42,8 +42,6 @@ export const FactSchema = Type.Union([
     ...envelope, type: Type.Literal("delivered"), task: reference, question: identifier,
     seed: Type.Integer({ minimum: 0, maximum: 0xffff_ffff }),
   }),
-  // 这道题作答之前，学习者问了辅导或读了参考内容。
-  object({ ...envelope, type: Type.Literal("help"), delivery: reference }),
   // 学习者的作答，选项、排列块和选择格换回课程里的编号；seen 是学习者看到的题面版本。
   object({
     ...envelope, type: Type.Literal("answered"), delivery: reference, seen: version,

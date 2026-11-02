@@ -1,7 +1,7 @@
 import { parse } from "@repa/base/protocol";
 import { LearningTaskSchema, SubmissionSchema, type LearningState, type Submission } from "./protocol.js";
 
-/** 复习和测验进行中（含准备阶段）不能看参考内容和反馈；课、没有任务或任务已结束时可以。 */
+/** 作答期间（复习、测验进行中，以及课内有题等着作答时）不能看参考内容；复习、测验结束以前也不给已答题目的反馈。 */
 export function referenceAllowed(state: LearningState): boolean {
   const task = state.task;
   return Boolean(state.restrictions.referenceContentAllowed && (

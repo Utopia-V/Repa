@@ -122,8 +122,8 @@ schema：packages/base/src/space/format.ts#FormatSchema；SHA-256 前 16 位：5
 
 版本标记：<空间>/.repa/plugins/learning/format.json。
 
-schema：packages/learning/src/records-schema.ts#FactSchema；SHA-256 前 16 位：fae2451b91d71afb。
+schema：packages/learning/src/records-schema.ts#FactSchema；SHA-256 前 16 位：14b3906324e92ebb。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object | 否 | 嵌套对象，字段见源码 |
+| $ | object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object | 否 | 嵌套对象，字段见源码 |

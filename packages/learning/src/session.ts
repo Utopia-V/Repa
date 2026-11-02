@@ -233,11 +233,20 @@ export class LearningSession {
     return `menu-${this.replay.tasks.length}`;
   }
 
-  /** 复习和测验进行中（含准备阶段）关闭辅导与参考内容。 */
+  /** 复习和测验进行中（含准备阶段）不给已答题目的反馈与题解，结束以后才给。 */
   restricted(): boolean {
     this.replay.settle(this.clock());
     const evidence = this.replay.currentEvidence();
     return Boolean(evidence && evidence.task.kind !== "lesson" && evidence.outcome === undefined);
+  }
+
+  /**
+   * 作答期间不能提问：复习和测验进行中，以及课内有一道题等着作答时，关闭辅导与参考内容。
+   * 课内读讲解、看例题和看过反馈以后照常可以问，所以每份作答都是学习者独立完成的。
+   */
+  private closed(evidence: TaskEvidence | undefined): boolean {
+    if (!evidence || evidence.outcome !== undefined) return false;
+    return evidence.task.kind !== "lesson" || this.stage(evidence) === "awaiting_answer";
   }
 
   /** 当前时间，取自底座的 host.now()。 */
@@ -331,7 +340,7 @@ export class LearningSession {
         course: { id: course.id, title: course.title, version: course.version },
         task: evidence ? await this.task(evidence) : null,
         menu,
-        restrictions: { kind: restriction, tutorAllowed: !restricted, referenceContentAllowed: !restricted },
+        restrictions: { kind: restriction, tutorAllowed: !this.closed(evidence), referenceContentAllowed: !this.closed(evidence) },
         progress: progressView(this.replay, fold, this.course, now, this.timeZone),
       },
     };
@@ -522,7 +531,7 @@ export class LearningSession {
     };
     const entry = this.course.questions.get(delivery.questionId);
     if (latest && entry && this.released(delivery)) {
-      result.feedback = feedbackOf(latest, entry.question, shown.item, idMap, reference, !delivery.help);
+      result.feedback = feedbackOf(latest, entry.question, shown.item, idMap, reference);
       result.explanation = content(entry.question.explanation);
     }
     return result;

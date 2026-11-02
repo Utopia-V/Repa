@@ -1,7 +1,7 @@
 import type { CourseIndex } from "./course-index.js";
 import { shuffled } from "./delivery.js";
 import {
-  independentCorrect,
+  answeredCorrectly,
   isCompleted,
   isQuiz,
   quizResult,
@@ -25,14 +25,14 @@ import type { LearningMenu, LearningProgress } from "./protocol.js";
 import type { Replay } from "./replay.js";
 
 /**
- * 一项已结束任务的奖励（repa-xp-v1，Repa 假设，数值见 parameters.ts）。没有证据的作答不进分母：课与复习按已判的作答算独立正确比例，
+ * 一项已结束任务的奖励（repa-xp-v1，Repa 假设，数值见 parameters.ts）。没有证据的作答不进分母：课与复习按已判的作答算答对比例，
  * 测验按全部交付算，没答的题也在分母里，结论待定时先按已判对的题算。主动结束和被取代的任务没有奖励。
  */
 export function reward(entry: TaskEvidence, course: CourseIndex): number {
   if (!isCompleted(entry.outcome)) {
     return 0;
   }
-  const correct = entry.attempts.filter(independentCorrect).length;
+  const correct = entry.attempts.filter(answeredCorrectly).length;
   if (isQuiz(entry.task.kind)) {
     return Math.floor(QUIZ_XP * correct / (entry.task.deliveries.length || 1));
   }

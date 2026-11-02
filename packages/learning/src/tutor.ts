@@ -11,8 +11,7 @@ import {
   type LearningMethod,
   type LearningResult,
 } from "./protocol.js";
-import type { FactBody } from "./records-schema.js";
-import type { LearningSession, LearningView } from "./session.js";
+import type { LearningSession } from "./session.js";
 import { topicMemory } from "./student-model.js";
 import { currentDelivery, referenceContent, requireReferenceAccess, visibleContent } from "./tutor-content.js";
 import { pagesText, searchText, taskText, viewText } from "./tutor-text.js";
@@ -38,33 +37,10 @@ export async function connectTutor(
   const index = await referenceContent(session.course.course);
   const titles = new Map(index.map((entry) => [entry.ref.id, entry.title]));
   const methods: Record<string, PluginMethod> = {};
-  /**
-   * 在串行入口里读当前状态，再决定是否记下求助：action 返回 true 表示学习者确实得到了帮助（提问、读到了内容）。
-   * 求助只在课内、题目还没作答时记，每道题记一次。
-   */
-  async function observe(action: (view: LearningView) => Promise<boolean> | boolean) {
-    await session.write(async () => (await action(await session.view()) ? help() : []));
-  }
-  function help(): FactBody[] {
-    const evidence = session.replay.currentEvidence();
-    if (!evidence || evidence.task.kind !== "lesson") {
-      return [];
-    }
-    const position = session.position(evidence);
-    if (position.stage !== "awaiting_answer" || position.delivery.help || position.delivery.answer) {
-      return [];
-    }
-    return [{ type: "help", delivery: position.delivery.seq }];
-  }
-  async function access<T>(action: (pages: ContentPage[]) => { result: T; read: boolean }) {
-    let result: T | undefined;
-    await observe(async (view) => {
-      requireReferenceAccess(view);
-      const value = action(await visibleContent(session, view, index));
-      result = value.result;
-      return value.read;
-    });
-    return result;
+  /** 按当前状态授权以后读内容；作答期间辅导与参考内容都关闭，所以读到内容不影响作答的证据。 */
+  async function access<T>(action: (pages: ContentPage[]) => T): Promise<T> {
+    const view = requireReferenceAccess(await session.view());
+    return action(await visibleContent(session, view, index));
   }
   function find(pages: ContentPage[], ref: ContentRef) {
     const page = pages.find((entry) => isDeepStrictEqual(entry.ref, ref));
@@ -110,10 +86,7 @@ export async function connectTutor(
     while (Buffer.byteLength(JSON.stringify(selected)) > TEXT_BYTES - 64) {
       selected.pop();
     }
-    return {
-      result: { hits: selected, nextOffset: offset + selected.length < hits.length ? offset + selected.length : null },
-      read: selected.length > 0,
-    };
+    return { hits: selected, nextOffset: offset + selected.length < hits.length ? offset + selected.length : null };
   }));
   register("content.read", async ({ refs, offset, limit }) => access((pages) => {
     const selected: ContentPage[] = [];
@@ -131,13 +104,13 @@ export async function connectTutor(
       }
       selected.push(page);
     }
-    return { result: selected, read: true };
+    return selected;
   }));
   register("content.open", async ({ ref }) => access((pages) => {
     find(pages, ref);
-    return { result: { openedAt: session.clock() }, read: true };
+    return { openedAt: session.clock() };
   }));
-  // 工具与前端方法共用授权和求助记录（access、observe），只是给模型写成分行文字：不带前端的字段与编号，也不分页，
+  // 工具与前端方法共用授权（access），只是给模型写成分行文字：不带前端的字段与编号，也不分页，
   // 过长时由底座省略中间、保存全文，模型用 read 按行续取。
   const tools: Tool[] = [
     {
@@ -146,13 +119,8 @@ export async function connectTutor(
       parameters: TaskParametersSchema,
       async execute(raw) {
         parse(TaskParametersSchema, raw);
-        let text = "";
-        await observe((view) => {
-          requireReferenceAccess(view);
-          text = taskText(view.state.task, session.course);
-          return true;
-        });
-        return { text };
+        const view = requireReferenceAccess(await session.view());
+        return { text: taskText(view.state.task, session.course) };
       },
     },
     {
@@ -176,9 +144,9 @@ export async function connectTutor(
           if (missing.length) {
             throw new RepaFault("invalid_input", `没有编号为 ${missing.join("、")} 的内容，或者还没学到；用 learning_search 查找能读的内容`);
           }
-          return { result: ids.flatMap((id) => visible.filter((page) => page.ref.id === id)), read: true };
+          return ids.flatMap((id) => visible.filter((page) => page.ref.id === id));
         });
-        return { text: pagesText(pages ?? [], titles, session.course) };
+        return { text: pagesText(pages, titles, session.course) };
       },
     },
   ];
@@ -209,12 +177,9 @@ export async function connectTutor(
       ].join(""),
       async beforeMessage() {
         try {
-          await observe((view) => {
-            if (!view.state.restrictions.tutorAllowed) {
-              throw new RepaFault("restricted", "当前任务暂时不能求助");
-            }
-            return true;
-          });
+          if (!(await session.view()).state.restrictions.tutorAllowed) {
+            throw new RepaFault("restricted", "作答期间不能提问，答完以后再问");
+          }
         } catch (error) {
           return rejected(error);
         }

@@ -46,29 +46,35 @@ test("五道练习答完才判定，错对错对对答对的多，通过；整�
   assert.deepEqual(await f.state(), frozen);
 });
 
-test("结构错误不计尝试；事前求助后正确保留判分但不算独立答对，事后求助不撤回结果", async (t) => {
+test("结构错误不计尝试；课内作答期间关闭辅导与参考内容，答完以后打开，前一题的反馈照常可见", async (t) => {
   const f = await fixture(t, [topic("t01", 1, [], 3)]);
   await f.select();
   await f.advance();
+  // 讲解和例题阶段可以问、可以查。
+  assert.deepEqual((await f.state()).restrictions, { kind: "none", tutorAllowed: true, referenceContentAllowed: true });
   await f.advance();
   const input = await f.input();
+  const answering = await f.state();
+  assert.deepEqual(answering.restrictions, { kind: "none", tutorAllowed: false, referenceContentAllowed: false });
+  await assert.rejects(f.call("content.search", { query: "一加一", offset: 0, limit: 10 }), (error: unknown) => (error as { code?: string }).code === "restricted");
   const rejected = await f.call("submission.submit", { ...input, response: { ...input.response, answers: {} } });
   assert.equal(rejected.status, "rejected");
   assert.equal((await f.state()).task?.kps[0]?.attempts, 0);
-  const seq = Number(input.deliveryId.slice(1));
-  await f.session().write(() => [{ type: "help", delivery: seq }]);
   const receipt = await f.call("submission.submit", input);
   assert.equal(receipt.status, "recorded");
   if (receipt.status === "recorded") {
     assert.equal(receipt.submission.feedback?.verdict, "correct");
-    assert.deepEqual(receipt.submission.feedback?.evidence, { status: "ineligible", reason: "作答前已获取帮助" });
+    assert.deepEqual(receipt.submission.feedback?.evidence, { status: "eligible" });
   }
-  assert.equal((await f.state()).task?.kps[0]?.consecutiveCorrect, 0);
-  await f.session().write(() => [{ type: "help", delivery: seq }]);
+  assert.equal((await f.state()).task?.kps[0]?.consecutiveCorrect, 1);
+  assert.equal((await f.state()).restrictions.tutorAllowed, true);
   await f.advance();
   const duplicate = await f.call("submission.submit", input);
   assert.deepEqual(duplicate, receipt);
-  // 求助的一题算作答过，但不算独立答对；后两题独立答对，三道里独立答对两道，超过一半，通过。
+  // 第二题等着作答时又关闭提问，但第一题的反馈和题解仍在任务里，不因关闭提问而隐藏。
+  const next = await f.state();
+  assert.equal(next.restrictions.tutorAllowed, false);
+  assert.equal(next.task?.submissions[0]?.feedback?.verdict, "correct");
   await f.submit();
   await f.advance();
   await f.submit();
@@ -156,7 +162,7 @@ test("复习中途关闭应用，过两天再打开时接着做：复习不限�
   assert.equal(resumed.task?.phase.stage, "awaiting_answer");
   assert.equal(resumed.restrictions.kind, "review");
   assert.deepEqual(await f.student(), learned);
-  // 接着答对两题：独立答对三题、最后两题连对，复习通过，更新的时刻是最后一份作答的时间。
+  // 接着答对两题：答对三题、最后两题连对，复习通过，更新的时刻是最后一份作答的时间。
   await f.submit(true);
   await f.advance();
   await f.submit(true);
@@ -1077,7 +1083,7 @@ test("时钟回拨到上次学习之前时按零间隔继续：菜单照常给�
   assert.deepEqual(await f.student(), student);
 });
 
-test("课交给学生模型的质量按独立答对的比例计：一错两对通过的课比全对的课早到期", async (t) => {
+test("课交给学生模型的质量按答对的比例计：一错两对通过的课比全对的课早到期", async (t) => {
   const f = await fixture(t, [topic("t01", 1, [], 3), topic("t02")]);
   await f.select("t01");
   await f.finishLesson([false, true, true]);

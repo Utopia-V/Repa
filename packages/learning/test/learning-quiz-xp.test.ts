@@ -853,7 +853,7 @@ test("测验先选以往测验（含换题重考）测过次数最少的 topic�
   const quiz = (kind: "quiz" | "retake", answered: string[], unanswered: string[]): TaskRecord => {
     const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], deliveries: [], answered: [], timedOut: false };
     for (const questionId of [...answered, ...unanswered]) {
-      const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, help: false, grades: [] };
+      const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, grades: [] };
       task.deliveries.push(delivery);
       if (answered.includes(questionId)) task.answered.push(delivery);
     }

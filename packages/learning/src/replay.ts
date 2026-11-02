@@ -175,19 +175,13 @@ export class Replay {
       case "delivered": {
         const task = this.taskOf(fact.task);
         const delivery: DeliveryRecord = {
-          seq: fact.seq, at: fact.at, task, questionId: fact.question, seed: fact.seed, help: false, grades: [],
+          seq: fact.seq, at: fact.at, task, questionId: fact.question, seed: fact.seed, grades: [],
         };
         task.deliveries.push(delivery);
         this.deliveries.set(fact.seq, delivery);
         if (!this.firstDeliveries.has(fact.question)) this.firstDeliveries.set(fact.question, fact.seq);
         if (task.kind === "quiz" && task.deliveries.length === 1) this.pending = undefined;
         changed = task;
-        break;
-      }
-      case "help": {
-        const delivery = this.deliveryOf(fact.delivery);
-        // 只有作答之前的求助影响这份作答是否独立完成。
-        if (!delivery.answer) delivery.help = true;
         break;
       }
       case "answered": {
