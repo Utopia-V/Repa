@@ -663,6 +663,36 @@ test("课开始时记下必做题和分钟数：之后课程给知识点加题�
   assert.equal((await f.state()).progress.totalXp, 8);
 });
 
+test("课开始时也记下开放题：之后加的开放题不撤销已经失败的课；必做题移出练习题池时，进行中的课按剩下的题判定，不会卡住", async (t) => {
+  const f = await fixture(t, [topic("t01"), topic("t02")]);
+  // t01 两道必做题，第一题不会：剩下一题答对也超不过一半，当场失败。
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  await f.submit(false);
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
+  // t02 答对第一道必做题，停在反馈。
+  await f.select("t02");
+  await f.advance();
+  await f.advance();
+  await f.submit();
+
+  // 课程更新：t01 的知识点加一道开放题；t02 的第二道必做题移到同一知识点的复习题池。
+  const withOpen = topic("t01");
+  const first = withOpen.kps[0];
+  assert.ok(first?.practice?.[0]);
+  first.practice.push({ ...first.practice[0], id: "t01.k1.q3", slots: [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }] });
+  const moved = topic("t02");
+  const kp = moved.kps[0];
+  const second = kp?.practice?.pop();
+  assert.ok(kp && second);
+  kp.review = [...kp.review ?? [], second];
+  await f.writeTopics([withOpen, moved]);
+  await f.reopen();
+  assert.ok((await f.fold()).failures.has("t01"));
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+});
+
 test("代价关卡：每次作答只写交付、作答、判分三条事实；固定部分不超过按事实构成算出的上限，也不随历史增长", async (t) => {
   const limit = fixedLimit();
   // 样本有文字题、开放题（t01 第三个知识点）和两道代码题：t04 的只有一个测试；最长的那道题目 id 和作答位 id 都取格式上限，

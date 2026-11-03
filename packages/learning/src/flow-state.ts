@@ -42,8 +42,8 @@ export interface TaskRecord {
   kind: TaskKind;
   topicIds: string[];
   retakes?: number;
-  /** 课开始时记下的各知识点必做题，按知识点顺序；这项记录之前的课没有，按当前课程计算。 */
-  required?: NonNullable<FactOf<"task">["required"]>;
+  /** 课开始时记下的各知识点练习，按知识点顺序；这项记录之前的课没有，按当前课程计算。 */
+  practice?: NonNullable<FactOf<"task">["practice"]>;
   /** 课开始时记下的分钟数，XP 的基数。 */
   minutes?: number;
   deliveries: DeliveryRecord[];
@@ -167,9 +167,9 @@ export function deadlineAt(task: TaskRecord): number | null {
 export function taskKps(task: TaskRecord, course: CourseIndex): string[] {
   const topics = isQuiz(task.kind) ? task.topicIds : task.topicIds.slice(0, 1);
   const kps = topics.flatMap((id) => course.topics.get(id)?.kps.map((kp) => kp.id) ?? []);
-  if (task.required) {
+  if (task.practice) {
     const current = new Set(kps);
-    return task.required.map((entry) => entry.kp).filter((id) => current.has(id));
+    return task.practice.map((entry) => entry.kp).filter((id) => current.has(id));
   }
   return task.kind === "review" ? shuffled(kps, Math.imul(task.seq, 0x9e3779b1) >>> 0) : kps;
 }
@@ -195,27 +195,30 @@ export function lessonPractice(course: CourseIndex, topicId: string): Map<string
   }));
 }
 
-/** 课开始时记下的要求：当前课程里各知识点的必做题，按知识点顺序，以及课的分钟数。 */
-export function lessonRequirement(course: CourseIndex, topicId: string): { required: NonNullable<TaskRecord["required"]>; minutes: number } {
+/** 课开始时记下的要求：当前课程里各知识点的练习，按知识点顺序，以及课的分钟数。 */
+export function lessonRequirement(course: CourseIndex, topicId: string): { practice: NonNullable<TaskRecord["practice"]>; minutes: number } {
   return {
-    required: [...lessonPractice(course, topicId)].map(([kp, practice]) => ({ kp, questions: practice.required })),
+    practice: [...lessonPractice(course, topicId)].map(([kp, practice]) => ({ kp, ...practice })),
     minutes: course.topics.get(topicId)?.minutes ?? 0,
   };
 }
 
 /**
- * 一节课各知识点的练习。必做题按开始时记下的算：之后加进课程的题不是这节课的要求，已经得出的结论不因此改写。
- * 已不在这个知识点里的题出不了，从中去掉；记下的题都不在了，按当前课程。没有记下的（加这项记录之前的课）按当前课程。
- * 开放题不计入必做，总按当前课程。
+ * 一节课各知识点的练习，按开始时记下的算：之后加进课程的题不是这节课的要求，也不改变提前失败的判断，已经得出的结论不因此改写。
+ * 已不在这个知识点练习里的题出不了，从中去掉；记下的必做题都不在了，按当前课程。没有记下的（加这项记录之前的课）按当前课程。
  */
 export function taskPractice(task: TaskRecord, course: CourseIndex): Map<string, KpPractice> {
   const current = lessonPractice(course, task.topicIds[0] ?? "");
-  if (!task.required) {
+  if (!task.practice) {
     return current;
   }
-  return new Map(task.required.map(({ kp, questions }) => {
-    const kept = questions.filter((id) => course.questions.get(id)?.kp.id === kp);
-    return [kp, { required: kept.length ? kept : current.get(kp)?.required ?? [], open: current.get(kp)?.open ?? [] }];
+  return new Map(task.practice.map(({ kp, required, open }) => {
+    const present = (id: string) => {
+      const entry = course.questions.get(id);
+      return entry?.kp.id === kp && entry.pool === "practice";
+    };
+    const kept = required.filter(present);
+    return [kp, { required: kept.length ? kept : current.get(kp)?.required ?? [], open: open.filter(present) }];
   }));
 }
 
