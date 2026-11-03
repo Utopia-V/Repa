@@ -40,7 +40,7 @@ Desktop 同样声明 `python.run`。生产时 renderer 从自定义协议 `repa:
 
 ## CI
 
-[GitHub Actions 工作流](../../.github/workflows/ci.yml)在推送到 `dev`、指向 `dev` 的 PR 和手动触发时运行。两个任务都使用 Node 24 和 npm 12.0.2，从 `npm ci` 开始准备依赖，并运行 `npm run course:runtime` 准备或核对 Pyodide 离线包；离线包按版本缓存在 `packages/python-runner/.cache/pyodide/<版本>/`。
+[GitHub Actions 工作流](../../.github/workflows/ci.yml)在推送到 `dev`、指向 `dev` 的 PR 和手动触发时运行。两个任务都使用 Node 24 和 npm 12.0.2，从 `npm ci` 开始准备依赖，并运行 `npm run course:runtime` 准备或核对 Pyodide 离线包；离线包按版本缓存在 `packages/python-runner/.cache/pyodide/<版本>/`。[定时探索工作流](../../.github/workflows/property-exploration.yml)每晚换一个种子运行学习流程的随机性质测试，不是必需检查，说明见[学习记录的验证入口](learning-records.md#验证入口)。
 
 - `linux` 在 `ubuntu-24.04` 上安装 `libseccomp2` 和系统 `python3`，然后运行根目录的 `npm test`，统一构建并测试全部 workspace。任务失败会使 CI 失败。
 - `windows` 在 `windows-latest` 上按默认设置检出，保留 Windows 的 CRLF 换行情形；构建库包后，分别测试空间历史、底座、Python 运行器和学习插件，前一个包的测试失败时后面的照常运行。该任务与 `linux` 一样，失败即视为 CI 不通过；团队没有 Windows 本机验证环境，Windows 上的兼容性问题由它发现。

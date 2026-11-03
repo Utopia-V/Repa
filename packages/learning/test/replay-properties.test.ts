@@ -2,7 +2,7 @@
  * 随机操作序列：经真实的插件方法走学习流程（选任务、作答、判分失败、补判、申诉、改答案、等待、重开），每一步之后核对
  * 不依赖具体情形的性质。操作是否被接受由流程的守卫决定，所以序列都是学习者实际走得到的；失败时 fast-check 把序列缩到最短。
  *
- * 种子固定，合并门禁上的结果可以重复。要多探索时设置 REPA_PROPERTY_RUNS 和 REPA_PROPERTY_SEED。
+ * 种子固定，合并门禁上的结果可以重复。多探索时设置 REPA_PROPERTY_RUNS 和 REPA_PROPERTY_SEED；.github/workflows/property-exploration.yml 每晚换一个种子跑一次。
  */
 import assert from "node:assert/strict";
 import test from "node:test";

@@ -1,0 +1,40 @@
+name: Property exploration
+
+# 合并门禁只反复跑固定种子的序列，新的窄问题要换种子多跑才碰得到。这里每晚换一个种子探索一次；它不是必需检查，失败时只报告，不挡合并。
+# 失败日志里有种子和最短的操作序列；手动运行时填入种子可以复现。
+
+on:
+  schedule:
+    # 北京时间凌晨 2:17。
+    - cron: "17 18 * * *"
+  pull_request:
+    branches: [dev]
+    paths: [.github/workflows/property-exploration.yml]
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 种子，缺省取运行序号
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  explore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # 运行序号每次不同，重跑同一次运行时不变。
+      REPA_PROPERTY_SEED: ${{ inputs.seed || github.run_number }}
+      REPA_PROPERTY_RUNS: 1000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@12.0.2
+      - run: npm ci
+      - run: npm run build:packages
+      - run: node --import tsx --test test/replay-properties.test.ts
+        working-directory: packages/learning
