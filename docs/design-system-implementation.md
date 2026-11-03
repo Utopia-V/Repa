@@ -11,6 +11,7 @@
 - `globals.css` 内 `--theme-*` 是主题私有色值，仅用于定义语义变量；业务代码禁止引用。
 - 公共 CSS variables 按规范中的色彩语义分层。Tailwind 的 `@theme inline` 将其映射为 `bg-primary`、`text-foreground` 等工具类，普通 CSS 可直接使用同名变量。
 - 字体、行高、圆角、间距同样由此文件持有，不通过 JavaScript 注入 token，不维护第二份 JSON 色板。
+- 字体文件来自 `@fontsource-variable` 的三个包，随应用打包：页面 CSP 不放行外站样式表，桌面端离线时也要能显示。可变字体的 family 名带 `Variable` 后缀。CSP 也不放行 `data:` 字体，`apps/web/vite.config.ts` 因此让构建不内联字体文件。
 - `components/ui` 使用引入并适配的 shadcn 组件；涉及焦点管理、复合控件与键盘操作的行为复用 Radix。
 - 业务组件持有数据与业务状态，只组合语义组件。当前 `components/domain/conversation-message.tsx` 把发送方映射到 `MessageBubble` 的 variant，不另写气泡颜色。
 - 页面负责布局，不持有通用组件样式。Web 与 Desktop 主应用的启动、失败重试、断线提示和工作台侧栏已接入；其他 Desktop 组件尚未迁移。
