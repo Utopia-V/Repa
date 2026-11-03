@@ -59,7 +59,7 @@ if (state.ok) renderLearning(state.value);
 
 导出学习数据时，界面先说明会话可能含有私人内容、默认不包含，再用 `export.prepare` 的清单让学习者确认要发出的文件；学习者切换“包含会话”时重新调用 `export.prepare`。确认以后用同一个 `exportId` 调用 `export.create`，写出的 zip 与清单一致。只有最近一次预览有效，写出成功以后它也失效。
 
-任务的 `topics` 列出任务所涉 topic 的 `id` 与 `title`，`kps` 每项带知识点的 `title` 与进度，标题都取自当前课程；测验的 `kps` 包括所涉每个 topic 的知识点。界面显示正在学的 topic 和知识点时直接用这些标题，不另查内容：复习和测验期间不能搜索内容，菜单只在没有进行中的任务时出现，课内作答之前的搜索还会记一次求助。交付的 `topicId` 对应 `topics` 中的一项。只有新课计知识点进度，复习和测验的进度始终为零，所以进度只在新课显示。复习和测验里的知识点标题用于作答以后说明每道题属于哪个知识点，作答之前不显示：认出该用哪个知识点本身就是要考的内容。
+任务的 `topics` 列出任务所涉 topic 的 `id` 与 `title`，`kps` 每项带知识点的 `title` 与进度，标题都取自当前课程；测验的 `kps` 包括所涉每个 topic 的知识点。界面显示正在学的 topic 和知识点时直接用这些标题，不另查内容：作答期间不能搜索内容，菜单只在没有进行中的任务时出现。交付的 `topicId` 对应 `topics` 中的一项。只有新课计知识点进度，复习和测验的进度始终为零，所以进度只在新课显示。复习和测验里的知识点标题用于作答以后说明每道题属于哪个知识点，作答之前不显示：认出该用哪个知识点本身就是要考的内容。
 
 `LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。`completed` 带结论 `outcome`：`passed`、`failed`、`timeout` 或 `unresolved`。`unresolved` 表示测验已经结束（交卷或到了截止时间），但还有作答没判出结果，判出来可能改变结论；它与其他结论一样解除限制、释放反馈，判出以后后端发出 `learning.changed`，结论改为前三种之一。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
 
