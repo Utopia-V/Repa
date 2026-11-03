@@ -3,6 +3,7 @@ import { RepaFault } from "@repa/base";
 import type { MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
 import { parse, type ClientCapabilities } from "@repa/base/protocol";
 import { trialBatch } from "./code-tests.js";
+import { needsModel } from "./course-index.js";
 import { deliverySeed, mapAnswer, renderDelivery } from "./delivery.js";
 import { isQuiz, sequenceOf, taskId, topicEligible, type DeliveryRecord, type TaskEvidence } from "./flow-state.js";
 import {
@@ -18,7 +19,8 @@ import type { LearningSession } from "./session.js";
 
 /**
  * 教学方法：读当前状态、核对守卫，再追加学习者行为的事实。状态全部从事实重放得出，方法本身不保存画面。
- * beforeRestricted 在复习和测验交付第一道题之前调用，默认中止辅导 Agent。
+ * beforeRestricted 在作答期间开始时调用，默认中止辅导 Agent：复习和测验在交付第一道题之前；
+ * 课内在写下交付以后、返回之前，这时新的提问已被拒收，正在生成的回复也随之停下。
  */
 export async function connectLearning(
   session: LearningSession,
@@ -80,8 +82,8 @@ export async function connectLearning(
   }
 
   /**
-   * 选下一道题：课按第一个未过的知识点，复习轮流覆盖知识点，测验每个 topic 一题；先筛掉发起调用的前端用不了的题，
-   * 再在余下的题里优先没出过的。有题却一道也用不了时报告缺什么并保留任务，等能用的前端或可用的模型。
+   * 选下一道题：课按第一个未过的知识点，按题池顺序出这节课还没出过的题；复习轮流覆盖知识点，测验每个 topic 一题，
+   * 都在余下的题里优先没出过的。先筛掉发起调用的前端用不了的题；有题却一道也用不了时报告缺什么并保留任务，等能用的前端或可用的模型。
    */
   async function nextQuestion(evidence: TaskEvidence, capabilities: ClientCapabilities | undefined, topicId?: string): Promise<FactBody> {
     const task = evidence.task;
@@ -93,7 +95,12 @@ export async function connectLearning(
       pool = pool.filter((entry) => !excluded.has(entry.question.id));
     }
     if (task.kind === "lesson") {
-      pool = pool.filter((entry) => entry.kp.id === evidence.kps.find((kp) => !kp.completed)?.kpId);
+      // 课内每道题只出一次：同一知识点的题各练一个方面，必做题全部答过才判定这个知识点。
+      const asked = new Set(task.deliveries.map((delivery) => delivery.questionId));
+      pool = pool.filter((entry) => entry.kp.id === evidence.kps.find((kp) => !kp.completed)?.kpId && !asked.has(entry.question.id));
+    }
+    if (task.kind === "lesson" && topic && !pool.length) {
+      throw new RepaFault("insufficient_items", "这个知识点的练习都做过了，结论要等没判出结果的作答判出来；可以再判一次，也可以中止");
     }
     if (!topic || !pool.length) {
       throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
@@ -108,7 +115,17 @@ export async function connectLearning(
         candidates = rotated;
       }
     }
-    const entry = candidates.find((candidate) => session.replay.firstDelivered(candidate.question.id) === undefined) ?? candidates[0];
+    if (task.kind === "lesson") {
+      // 开放题不计入必做，答完必做题这个知识点就判定了；所以最后一道必做题之前，先出还能出的开放题，有模型时它们才不会被跳过。
+      const required = candidates.filter((candidate) => !needsModel(candidate.question));
+      const open = candidates.filter((candidate) => needsModel(candidate.question));
+      if (required.length === 1 && open.length > 0) {
+        candidates = [...open, ...required];
+      }
+    }
+    const entry = task.kind === "lesson"
+      ? candidates[0]
+      : candidates.find((candidate) => session.replay.firstDelivered(candidate.question.id) === undefined) ?? candidates[0];
     if (!entry) {
       const first = pool[0];
       const missing = first ? session.missing(first.question, topic, capabilities) : [];
@@ -220,6 +237,12 @@ export async function connectLearning(
       }
       throw stale("当前阶段不能推进");
     });
+    // 课内出了一道题就进入作答期间：停下推进之前已经放行、还在生成的辅导回复。题已经出了，新的提问也已拒收，
+    // 停不下来时不拦住学习者，只少了对在途回复的保证；复习和测验仍在交付之前等辅导停稳。
+    const after = current();
+    if (after?.task.kind === "lesson" && session.stage(after) === "awaiting_answer") {
+      await hooks.beforeRestricted?.().catch(() => undefined);
+    }
     return session.state(capabilities);
   });
   method("task.abort", async (input, context) => {
@@ -357,7 +380,7 @@ export async function connectLearning(
     await session.grade(delivery.seq);
     return { status: "recorded", submission: await session.submission(delivery) };
   });
-  // 试运行：只读当前状态，不写事实，所以不算作答，也不算求助；运行自己的代码看不到答案，复习和测验期间同样可用。
+  // 试运行：只读当前状态，不写事实，所以不算作答；运行自己的代码看不到答案，复习和测验期间同样可用。
   method("run.prepare", async (input) => {
     const seq = sequenceOf(input.deliveryId, "d");
     const delivery = seq === undefined ? undefined : session.replay.delivery(seq);

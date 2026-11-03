@@ -55,11 +55,11 @@ export async function referenceContent(course: ResolvedCourse): Promise<Referenc
   return entries.sort((left, right) => left.ref.id < right.ref.id ? -1 : left.ref.id > right.ref.id ? 1 : 0);
 }
 
-/** 复习和测验进行中拒绝求助和参考读取，细节里带上当前任务与阶段。 */
+/** 作答期间拒绝提问和参考读取，细节里带上当前任务与阶段。 */
 export function requireReferenceAccess(view: LearningView): LearningView {
   const task = view.state.task;
   if (!referenceAllowed(view.state)) {
-    throw new RepaFault("restricted", "受限任务期间暂时不能求助或查看参考内容", {
+    throw new RepaFault("restricted", "作答期间不能提问或查看参考内容，答完以后再看", {
       reason: "restricted",
       taskId: task?.taskId,
       stage: task?.phase.stage,

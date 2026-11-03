@@ -5,6 +5,7 @@
 import { isScalar, isSeq } from "yaml";
 
 import type { Content } from "@repa/base/protocol";
+import { needsModel } from "../course-index.js";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedCourse, LoadedTopic } from "../format/load.js";
 import { markdownLinks, markdownTexts, toContent } from "../format/markdown.js";
@@ -186,6 +187,10 @@ class TopicChecker {
     if (!kp.example) this.error("example_missing", `${kp.id} 缺少例题 example`, at);
     const practice = kp.practice?.length ?? 0;
     if (practice < MIN_PRACTICE) this.error("practice_too_few", `${kp.id} 至少要有 ${MIN_PRACTICE} 道练习，现在有 ${practice} 道`, at);
+    // 课内必做题是练习里不需要模型判分的题；一道都没有，这个知识点就无从取证。
+    if (practice > 0 && (kp.practice ?? []).every(needsModel)) {
+      this.error("practice_required_missing", `${kp.id} 的练习都要模型判分，至少要有一道程序能判分的练习`, [...at, "practice"]);
+    }
     if ((kp.review?.length ?? 0) === 0) this.error("review_missing", `${kp.id} 缺少复习题池 review`, at);
     if ((kp.quiz?.length ?? 0) === 0) this.error("quiz_missing", `${kp.id} 缺少测验题池 quiz`, at);
   }

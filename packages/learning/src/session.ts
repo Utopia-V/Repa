@@ -12,6 +12,7 @@ import { learningMenu } from "./flow-menu.js";
 import {
   deliveryId,
   isQuiz,
+  lessonPractice,
   submissionId,
   taskId,
   type DeliveryRecord,
@@ -232,11 +233,20 @@ export class LearningSession {
     return `menu-${this.replay.tasks.length}`;
   }
 
-  /** 复习和测验进行中（含准备阶段）关闭辅导与参考内容。 */
+  /** 复习和测验进行中（含准备阶段）不给已答题目的反馈与题解，结束以后才给。 */
   restricted(): boolean {
     this.replay.settle(this.clock());
     const evidence = this.replay.currentEvidence();
     return Boolean(evidence && evidence.task.kind !== "lesson" && evidence.outcome === undefined);
+  }
+
+  /**
+   * 作答期间不能提问：复习和测验进行中，以及课内有一道题等着作答时，关闭辅导与参考内容。
+   * 课内读讲解、看例题和看过反馈以后照常可以问，所以每份作答都是学习者独立完成的。
+   */
+  private closed(evidence: TaskEvidence | undefined): boolean {
+    if (!evidence || evidence.outcome !== undefined) return false;
+    return evidence.task.kind !== "lesson" || this.stage(evidence) === "awaiting_answer";
   }
 
   /** 当前时间，取自底座的 host.now()。 */
@@ -305,10 +315,15 @@ export class LearningSession {
       const supply = (id: string, kind: TaskRecord["kind"]) => {
         const available = this.questions(id, kind, capabilities);
         if (kind !== "lesson") return available.length > 0;
+        // 课要把每个没过的知识点的必做题都做完，所以这些题都得是调用方能用的。
         const inherited = fold.lessons.get(id) ?? [];
-        return this.course.topics.get(id)?.kps.every((kp) =>
-          inherited.some((entry) => entry.kpId === kp.id && entry.completed) || available.some((entry) => entry.kp.id === kp.id),
-        ) ?? false;
+        const practice = lessonPractice(this.course, id);
+        const usable = new Set(available.map((entry) => entry.question.id));
+        return this.course.topics.get(id)?.kps.every((kp) => {
+          if (inherited.some((entry) => entry.kpId === kp.id && entry.completed)) return true;
+          const needed = practice.get(kp.id)?.required ?? [];
+          return needed.length > 0 && needed.every((question) => usable.has(question));
+        }) ?? false;
       };
       menu = progressMenu(learningMenu(this.course, fold, now, this.menuId(), supply), this.replay, fold, this.course);
     }
@@ -325,7 +340,7 @@ export class LearningSession {
         course: { id: course.id, title: course.title, version: course.version },
         task: evidence ? await this.task(evidence) : null,
         menu,
-        restrictions: { kind: restriction, tutorAllowed: !restricted, referenceContentAllowed: !restricted },
+        restrictions: { kind: restriction, tutorAllowed: !this.closed(evidence), referenceContentAllowed: !this.closed(evidence) },
         progress: progressView(this.replay, fold, this.course, now, this.timeZone),
       },
     };
@@ -516,7 +531,7 @@ export class LearningSession {
     };
     const entry = this.course.questions.get(delivery.questionId);
     if (latest && entry && this.released(delivery)) {
-      result.feedback = feedbackOf(latest, entry.question, shown.item, idMap, reference, !delivery.help);
+      result.feedback = feedbackOf(latest, entry.question, shown.item, idMap, reference);
       result.explanation = content(entry.question.explanation);
     }
     return result;

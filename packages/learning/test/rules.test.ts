@@ -75,6 +75,18 @@ test("完整 topic 缺例题、练习不足三道、缺复习或测验题池时�
   assert.deepEqual(codes(result.diagnostics), ["example_missing", "practice_too_few", "quiz_missing", "review_missing"]);
 });
 
+test("练习都要模型判分的知识点报出：课要做完不靠模型判分的必做题，一道都没有就无从取证", async (t) => {
+  const demo = demoCourse();
+  const first = kp(demo, 0);
+  first.practice = (first.practice ?? []).map((question) => ({
+    ...question,
+    slots: [{ id: "answer", type: "text" as const, rubric: [{ id: "meaning", label: "说明含义" }] }],
+  }));
+  delete first.card;
+  const result = await structuralCheck(t, demo);
+  assert.ok(codes(result.diagnostics).includes("practice_required_missing"), JSON.stringify(codes(result.diagnostics)));
+});
+
 test("骨架 topic 不要求讲解和题目，完整 topic 缺概念卡和讲解时报出", async (t) => {
   const demo = demoCourse();
   const first = kp(demo, 0);

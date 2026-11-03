@@ -97,17 +97,13 @@ export async function judgeAnswer(
   return { verdict, slots };
 }
 
-/**
- * 由一次判分得出给学习者看的反馈：参考答案用这次交付的编号，测试名称取自课程。
- * 作答前求助过的作答照样给出对错，但不作为独立完成的证据。
- */
+/** 由一次判分得出给学习者看的反馈：参考答案用这次交付的编号，测试名称取自课程。 */
 export function feedbackOf(
   grade: FactOf<"graded">,
   question: Question,
   item: Item,
   idMap: Record<string, string>,
   reference: Feedback["item"],
-  independent: boolean,
 ): Feedback {
   const slots: Record<string, SlotFeedback> = {};
   let judge: NonNullable<Feedback["judge"]> = "rule";
@@ -140,6 +136,7 @@ export function feedbackOf(
     verdict: grade.verdict,
     judge,
     slots,
-    evidence: independent ? { status: "eligible" } : { status: "ineligible", reason: "作答前已获取帮助" },
+    // 作答期间不能提问，每份判出结果的作答都能作为证据。
+    evidence: { status: "eligible" },
   };
 }
