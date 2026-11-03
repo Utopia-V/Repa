@@ -65,6 +65,30 @@ describe("Web App bootstrap", () => {
     expect(RepaClient.connect).toHaveBeenCalledOnce();
   });
 
+  it("在桌面端里向 preload 的宿主要连接，不向开发服务器要；宿主给的值不合规就报错", async () => {
+    vi.mocked(RepaClient.connect).mockResolvedValue({
+      close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
+      onConnectionChange: vi.fn(() => vi.fn()),
+    } as unknown as RepaClient);
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const getConnection = vi.fn().mockResolvedValueOnce(connection).mockResolvedValueOnce({ url: 1 });
+    window.repaHost = { getConnection, revealFile: vi.fn() };
+    try {
+      const view = render(<App store={createAppStore()} />);
+      await screen.findByRole("link", { name: "Learning Space" });
+      expect(RepaClient.connect).toHaveBeenCalledWith(connection, expect.anything());
+      expect(fetch).not.toHaveBeenCalled();
+      view.unmount();
+
+      render(<App store={createAppStore()} />);
+      expect(await screen.findByText("桌面端返回了无效的后端连接。")).toBeTruthy();
+    } finally {
+      delete window.repaHost;
+    }
+  });
+
   it("自动获取连接并呈现工作台", async () => {
     const client = {
       close: vi.fn(),

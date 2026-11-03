@@ -1,14 +1,14 @@
 /**
  * renderer 运行学习者 Python 代码要的宿主部分：Pyodide 文件与 wheel 放在哪、放行哪些，以及 Worker 脚本的 CSP。
- * 生产时由主进程的 repa 协议提供，开发时由 electron-vite 的开发服务器提供，两边共用这里的规则。
+ * 构建产物由主进程的 repa 协议按这里的规则提供；开发时 renderer 来自 Web 的开发服务器，由 Web 的 Vite 配置提供同样的文件和响应头。
  */
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-/** Worker 不继承页面 meta 里的 CSP，只能由响应头给；为什么这样限制见 renderer 的 lib/python/worker.ts。 */
+/** Worker 不继承页面 meta 里的 CSP，只能由响应头给；为什么这样限制见 apps/web 的 src/lib/python/worker.ts。 */
 export const PYTHON_WORKER_CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'";
-/** 页面取 Pyodide 文件的路径，与 renderer 的 lib/python/runner.ts 一致；wheel 在其下的 packages/。 */
+/** 页面取 Pyodide 文件的路径，与 apps/web 的 src/lib/python/runner.ts 一致；wheel 在其下的 packages/。 */
 export const PYODIDE_PATH = "/__repa/pyodide/";
 
 const PYODIDE_FILES = new Map([
@@ -66,7 +66,7 @@ export async function workspacePythonDirectories(): Promise<PythonRuntimeDirecto
   const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
   const version = typeof manifest === "object" && manifest !== null && "version" in manifest ? manifest.version : undefined;
   if (typeof version !== "string") throw new Error(`${manifestPath} 里没有版本号`);
-  // 安装包里没有 @repa/python-runner，只在工作区里按需加载。它的 Node 入口不经底座带进 signal-exit：
+  // 主进程只在工作区里按需加载 @repa/python-runner。它的 Node 入口不经底座带进 signal-exit：
   // signal-exit 在进程里没有别的信号监听时会移除自己并重发信号，绕过 Electron 的退出流程，后端就收不到关闭请求。
   const { defaultPackagesDirectory } = await import("@repa/python-runner");
   return { pyodide: path.dirname(manifestPath), packages: defaultPackagesDirectory(version) };
