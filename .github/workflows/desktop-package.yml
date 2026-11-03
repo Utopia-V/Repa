@@ -1,0 +1,92 @@
+name: Desktop package
+
+# 在干净环境里打桌面端安装包，产物作为构建产物保留，便于下载试用；不发布 Release。
+# 打包脚本最后会挂载安装包、按安装布局拉起后端核对学习插件，再打开应用确认界面加载，核对不过即失败。
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+    paths:
+      - "apps/desktop/**"
+      # 桌面端的界面就是 apps/web，按 desktop 模式构建。
+      - "apps/web/**"
+      # 后端各包按 package.json 的 files 装进安装包，漏了产物只有打包后才看得出来。
+      - "packages/**"
+      - "package-lock.json"
+      - ".github/workflows/desktop-package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac:
+    # Apple Silicon 的 runner；package:mac 只在 arm64 的 macOS 上打包。
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@12.0.2
+      - uses: actions/cache@v4
+        with:
+          path: packages/python-runner/.cache/pyodide
+          key: ${{ runner.os }}-pyodide-${{ hashFiles('package-lock.json', 'packages/python-runner/package.json', 'packages/learning/courses/*/course.yaml') }}
+      # Electron 二进制和 electron-builder 的 dmg 工具在 macOS 上下载到这两个目录。
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-electron-
+      - run: npm ci
+      - run: npm run course:runtime
+      - run: npm run package:mac --workspace=@repa/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repa-mac-arm64
+          path: .scratch/desktop-delivery/dist/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    # package:win 只在 x64 的 Windows 上打包；核对时静默安装到临时目录、打开应用，再卸载。
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@12.0.2
+      - uses: actions/cache@v4
+        with:
+          path: packages/python-runner/.cache/pyodide
+          key: ${{ runner.os }}-pyodide-${{ hashFiles('package-lock.json', 'packages/python-runner/package.json', 'packages/learning/courses/*/course.yaml') }}
+      # Electron 二进制和 electron-builder 的 NSIS 工具在 Windows 上下载到这两个目录。
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-electron-
+      - run: npm ci
+      - run: npm run course:runtime
+      - run: npm run package:win --workspace=@repa/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repa-windows-x64
+          path: .scratch/desktop-delivery/dist/*.exe
+          if-no-files-found: error
+          retention-days: 14

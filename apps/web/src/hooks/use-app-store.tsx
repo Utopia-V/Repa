@@ -24,3 +24,10 @@ export function useAppStore<T>(selector: (state: AppState) => T): T {
   if (!store) throw new Error("useAppStore 需要在 StoreProvider 内使用。");
   return useStore(store, selector);
 }
+
+/** 需要在事件处理里读到最新状态时用，例如打开空间以后决定去哪个页面。 */
+export function useAppStoreApi(): AppStore {
+  const store = useContext(StoreContext);
+  if (!store) throw new Error("useAppStoreApi 需要在 StoreProvider 内使用。");
+  return store;
+}

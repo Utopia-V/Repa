@@ -27,7 +27,7 @@ npm run start --workspace=@repa/base -- serve \
   --no-general-agent --direct-agent notes-organizer
 ```
 
-`--plugin` 和 `--direct-agent` 都可重复。插件随产品构建和安装依赖，目录需要包含[构建清单](#构建清单与数据版本)，不接受源码文件路径。省略后两个选项时提供通用 Agent，插件 Agent 是否开放按定义中的 `direct`；指定 `--direct-agent` 后则只开放列表中的 Agent。写错 id 时打开空间返回 `unknown_agent`；若有插件停用，则从列表中去掉不可用的 Agent，空间照常打开，原因见[停用插件](#停用插件)。
+`--git` 指定空间历史用的 Git 程序，必须是绝对路径，打开空间和恢复到新文件夹时使用；省略时用 `PATH` 里的 `git`。桌面安装包只带 Git 主程序，据此传入，原因见 [`@repa/space-history`](../space-history/README.md#怎么用)。`--plugin` 和 `--direct-agent` 都可重复。插件随产品构建和安装依赖，目录需要包含[构建清单](#构建清单与数据版本)，不接受源码文件路径。省略后两个选项时提供通用 Agent，插件 Agent 是否开放按定义中的 `direct`；指定 `--direct-agent` 后则只开放列表中的 Agent。写错 id 时打开空间返回 `unknown_agent`；若有插件停用，则从列表中去掉不可用的 Agent，空间照常打开，原因见[停用插件](#停用插件)。
 
 ### 接入客户端与进程宿主
 

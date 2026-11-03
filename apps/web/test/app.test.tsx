@@ -15,18 +15,22 @@ vi.mock("@repa/base/client", async (importOriginal) => ({
   RepaClient: { connect: vi.fn() },
 }));
 
-/** 页面里的 Python 运行器换成替身：run 一直不结束，记下收到的取消信号。 */
+/**
+ * 页面里的 Python 运行器换成替身：run 一直不结束，记下收到的取消信号。页面另有一个试运行用的运行器，
+ * close 记的是收到过 run 的那个，也就是服务 python.run 的运行器。
+ */
 const python = vi.hoisted(() => ({ signals: [] as AbortSignal[], close: undefined as unknown as ReturnType<typeof vi.fn> }));
 vi.mock("../src/lib/python/runner", () => ({
   createPythonRunner: () => {
-    python.close = vi.fn();
+    const close = vi.fn();
     return {
       warm: vi.fn(),
       run: vi.fn((_input: unknown, signal: AbortSignal) => {
         python.signals.push(signal);
+        python.close = close;
         return new Promise(() => {});
       }),
-      close: python.close,
+      close,
     };
   },
 }));
@@ -59,6 +63,30 @@ describe("Web App bootstrap", () => {
     await screen.findByRole("link", { name: "Learning Space" });
     expect(loadConnection).toHaveBeenCalledTimes(2);
     expect(RepaClient.connect).toHaveBeenCalledOnce();
+  });
+
+  it("在桌面端里向 preload 的宿主要连接，不向开发服务器要；宿主给的值不合规就报错", async () => {
+    vi.mocked(RepaClient.connect).mockResolvedValue({
+      close: vi.fn(),
+      on: vi.fn(() => vi.fn()),
+      onConnectionChange: vi.fn(() => vi.fn()),
+    } as unknown as RepaClient);
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const getConnection = vi.fn().mockResolvedValueOnce(connection).mockResolvedValueOnce({ url: 1 });
+    window.repaHost = { getConnection, revealFile: vi.fn() };
+    try {
+      const view = render(<App store={createAppStore()} />);
+      await screen.findByRole("link", { name: "Learning Space" });
+      expect(RepaClient.connect).toHaveBeenCalledWith(connection, expect.anything());
+      expect(fetch).not.toHaveBeenCalled();
+      view.unmount();
+
+      render(<App store={createAppStore()} />);
+      expect(await screen.findByText("桌面端返回了无效的后端连接。")).toBeTruthy();
+    } finally {
+      delete window.repaHost;
+    }
   });
 
   it("自动获取连接并呈现工作台", async () => {

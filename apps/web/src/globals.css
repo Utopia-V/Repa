@@ -20,6 +20,9 @@
   --theme-brand: #5b50f0;
   --theme-brand-ink: #312e81;
   --theme-tint: #eef2ff;
+  /* 完成与错误：学习反馈里对错每题都要看，和品牌紫分开，一眼可辨；仍配图标和文字，不只靠颜色。 */
+  --theme-success: #047857;
+  --theme-danger: #b91c1c;
   --theme-inset: #f1f5f9;
   /* Catppuccin Mocha 的 base、text、subtext0，与代码高亮主题一致。 */
   --theme-code-base: #1e1e2e;
@@ -49,9 +52,9 @@
   --input-focus: var(--theme-control-line-strong);
   --ring: var(--theme-subtle);
   /* Status: mappings can change independently from actions. */
-  --status-complete: var(--primary);
+  --status-complete: var(--theme-success);
   --status-complete-foreground: var(--primary-foreground);
-  --destructive: var(--theme-brand-ink);
+  --destructive: var(--theme-danger);
   --destructive-foreground: var(--theme-sheet);
   /* Code：代码块的深色底、正文和语言标签；语法颜色由 Catppuccin Mocha 主题提供。 */
   --code-background: var(--theme-code-base);

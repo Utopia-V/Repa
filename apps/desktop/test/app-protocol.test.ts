@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { APP_PAGE_URL, createAppHandler } from "../src/main/app-protocol";
+import { APP_PAGE_URL, createAppHandler, isAppUrl } from "../src/main/app-protocol";
 import { pythonAssets } from "../src/main/python-runtime";
 
 const WORKER_CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'";
@@ -57,12 +57,23 @@ describe("repa 协议", () => {
     expect(await worker.text()).toBe("worker");
   });
 
+  it("页面路由都给 index.html，刷新或直接打开 /learn 时由页面自己定位；缺少的资源文件仍是 404", async () => {
+    for (const url of ["repa://app/learn", "repa://app/settings/models"]) {
+      const page = await get(url);
+      expect(page.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+      expect(await page.text()).toBe("<!doctype html>");
+    }
+    expect((await get("repa://app/assets/missing.js")).status).toBe(404);
+    expect(isAppUrl("repa://app/learn")).toBe(true);
+    expect(isAppUrl("repa://other/learn")).toBe(false);
+    expect(isAppUrl("https://app/learn")).toBe(false);
+  });
+
   it("不读 renderer 目录以外的文件，也不应答别的主机和方法", async () => {
     for (const url of [
       "repa://app/../secret.json",
       "repa://app/%2e%2e/secret.json",
       "repa://app/..%2fsecret.json",
-      "repa://app/",
       "repa://app/missing.js",
       "repa://other/index.html",
     ]) {

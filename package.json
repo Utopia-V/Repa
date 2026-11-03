@@ -21,6 +21,7 @@
     "dev:backend": "npm --workspace=@repa/base run start -- serve",
     "dev:desktop": "npm run dev --workspace=@repa/desktop",
     "dev:web": "npm run dev --workspace=@repa/web",
+    "dev:web:learning": "npm run dev:learning --workspace=@repa/web",
     "precheck": "npm run build:packages",
     "pretest": "npm run build:packages",
     "start": "npm --workspace=@repa/base run start -- serve",

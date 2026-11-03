@@ -1,5 +1,5 @@
-import { memo } from "react";
-import ReactMarkdown, { type Components, type Options } from "react-markdown";
+import { memo, useMemo, type ComponentProps, type ReactNode } from "react";
+import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeShikiFromHighlighter from "@shikijs/rehype/core";
 import bash from "@shikijs/langs/shellscript";
 import javascript from "@shikijs/langs/javascript";
@@ -61,7 +61,22 @@ function codeLanguage(className: unknown): string | undefined {
   return language?.slice("language-".length);
 }
 
-const components: Components = {
+/** 非外部地址的链接（例如课程里的 `repa:concept/…`）交给调用方渲染；返回 undefined 时按普通文字显示。 */
+export type RenderLink = (href: string, children: ReactNode) => ReactNode | undefined;
+
+function Anchor({ node: _node, href, children, ...props }: ComponentProps<"a"> & ExtraProps) {
+  const url = externalUrl(href);
+  if (!url) return <span>{children}</span>;
+  return <a
+    {...props}
+    href={url}
+    target="_blank"
+    rel="noopener noreferrer"
+    className={linkText}
+  >{children}</a>;
+}
+
+const baseComponents: Components = {
   // 消息位于页面标题之下，标题层级整体下移两级。
   h1: ({ node: _node, ...props }) => <h3 className={cn(headingText, "text-base")} {...props} />,
   h2: ({ node: _node, ...props }) => <h4 className={cn(headingText, "text-base")} {...props} />,
@@ -77,17 +92,7 @@ const components: Components = {
   ol: ({ node: _node, ...props }) => <ol className="m-0 flex flex-col gap-1 list-decimal pl-5" {...props} />,
   blockquote: ({ node: _node, ...props }) => <blockquote className="m-0 flex flex-col gap-3 border-l border-border pl-3 text-muted-foreground" {...props} />,
   hr: () => <hr className="m-0 h-px border-0 bg-border" />,
-  a: ({ node: _node, href, children, ...props }) => {
-    const url = externalUrl(href);
-    if (!url) return <span>{children}</span>;
-    return <a
-      {...props}
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={linkText}
-    >{children}</a>;
-  },
+  a: Anchor,
   // 外部图片会把浏览记录暴露给第三方，地址也可能是模型编的；只给出说明和链接，由用户决定是否打开。
   img: ({ src, alt }) => {
     const label = `图片：${alt || "未命名"}`;
@@ -121,12 +126,37 @@ const components: Components = {
   td: ({ node: _node, ...props }) => <td className="border border-border px-2 py-1 text-left align-top" {...props} />,
 };
 
+// react-markdown 默认清掉不安全协议的地址；课程里的 repa: 链接要原样交给 renderLink。
+// 其他地址照旧清理，Anchor 也只把 http、https、mailto 渲染成真正的链接。
+function keepRepaLinks(url: string): string {
+  return url.startsWith("repa:") ? url : defaultUrlTransform(url);
+}
+
+function withLinks(renderLink: RenderLink): Components {
+  return {
+    ...baseComponents,
+    a: (props) => {
+      const { href, children } = props;
+      const custom = href !== undefined && !externalUrl(href) ? renderLink(href, children) : undefined;
+      return custom ?? <Anchor {...props} />;
+    },
+  };
+}
+
 /**
  * 渲染模型写的 Markdown：GFM、公式（`$…$`、`$$…$$`、`\(…\)`、`\[…\]`）和代码块。
  * 原始 HTML 按文本显示。`streaming` 时先补全还没写完的语法，避免排版来回跳。
  * `math` 为 false 时不排公式，`$` 就是普通字符，用于交互词汇里没有声明公式的内容块。
+ * 外部地址在新窗口打开；其他地址交给 `renderLink`，没有处理时只显示链接文字。
  */
-export const Markdown = memo(function Markdown({ text, streaming = false, math = true, className }: { text: string; streaming?: boolean; math?: boolean; className?: string }) {
+export const Markdown = memo(function Markdown({ text, streaming = false, math = true, className, renderLink }: {
+  text: string;
+  streaming?: boolean;
+  math?: boolean;
+  className?: string;
+  renderLink?: RenderLink | undefined;
+}) {
+  const components = useMemo(() => renderLink ? withLinks(renderLink) : baseComponents, [renderLink]);
   const source = streaming ? remend(text, { inlineKatex: true, linkMode: "text-only" }) : text;
   return <div
     data-slot="markdown"
@@ -140,6 +170,7 @@ export const Markdown = memo(function Markdown({ text, streaming = false, math =
       remarkPlugins={math ? remarkPlugins : textPlugins}
       rehypePlugins={math ? rehypePlugins : plainRehypePlugins}
       components={components}
+      urlTransform={renderLink ? keepRepaLinks : defaultUrlTransform}
     >{source}</ReactMarkdown>
   </div>;
 });

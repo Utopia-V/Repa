@@ -9,6 +9,8 @@ import { routes } from "./routes";
 import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
 import { StoreProvider } from "@/hooks/use-app-store";
 import { interactionCapabilities } from "@/lib/ask";
+import { TrialRunnerProvider } from "@/hooks/use-trial-runner";
+import { repaHost, type RepaHost } from "@/lib/host";
 import { createPythonRunner } from "@/lib/python/runner";
 import type { AppStore } from "@/lib/store";
 
@@ -44,6 +46,10 @@ export async function loadWebConnection(): Promise<ClientConnection> {
         : "当前 Web 环境没有提供 Repa 后端连接。",
     );
   }
+  return readConnection(value, "Web 开发服务器");
+}
+
+function readConnection(value: unknown, source: string): ClientConnection {
   if (
     !value ||
     typeof value !== "object" ||
@@ -52,20 +58,32 @@ export async function loadWebConnection(): Promise<ClientConnection> {
     !("token" in value) ||
     typeof value.token !== "string"
   ) {
-    throw new Error("Web 开发服务器返回了无效的后端连接。");
+    throw new Error(`${source}返回了无效的后端连接。`);
   }
   return { url: value.url, token: value.token };
 }
 
+/** 桌面端的连接由主进程启动后端后经 preload 交出。 */
+export async function loadDesktopConnection(host: RepaHost): Promise<ClientConnection> {
+  return readConnection(await host.getConnection(), "桌面端");
+}
+
+/** 在桌面端里向宿主要连接，在浏览器里向 Web 开发服务器要。 */
+function loadConnectionFromHost(): Promise<ClientConnection> {
+  const host = repaHost();
+  return host ? loadDesktopConnection(host) : loadWebConnection();
+}
+
 export function App({
   store,
-  loadConnection = loadWebConnection,
+  loadConnection = loadConnectionFromHost,
 }: {
   store: AppStore;
   loadConnection?: LoadConnection;
 }) {
   const router = useMemo(() => createBrowserRouter(routes), []);
   const pythonRunner = useMemo(() => createPythonRunner(), []);
+  const trialRunner = useMemo(() => createPythonRunner(), []);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<BootstrapState>({ status: "starting" });
   const connected = useStore(store, (current) => current.connected);
@@ -130,6 +148,7 @@ export function App({
   }, [attempt, loadConnection, pythonRunner, store]);
 
   useEffect(() => () => pythonRunner.close(), [pythonRunner]);
+  useEffect(() => () => trialRunner.close(), [trialRunner]);
 
   if (state.status !== "ready") {
     return (
@@ -146,14 +165,16 @@ export function App({
 
   return (
     <StoreProvider store={store}>
-      <div className="flex min-h-dvh flex-col">
-        {!connected && (
-          <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-8">
-            <ReconnectionNotice />
-          </div>
-        )}
-        <RouterProvider router={router} />
-      </div>
+      <TrialRunnerProvider runner={trialRunner}>
+        <div className="flex min-h-dvh flex-col">
+          {!connected && (
+            <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-8">
+              <ReconnectionNotice />
+            </div>
+          )}
+          <RouterProvider router={router} />
+        </div>
+      </TrialRunnerProvider>
     </StoreProvider>
   );
 }
