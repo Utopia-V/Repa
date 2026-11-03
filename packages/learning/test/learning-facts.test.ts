@@ -547,6 +547,56 @@ test("中止复习时，没判出结果的作答和没出的题都判对也不�
   assert.ok(((await f.student()).t01?.repNum ?? 0) < learned.repNum);
 });
 
+for (const verdict of ["correct", "incorrect"] as const) {
+  test(`复习判满题数仍不通过，而待判的作答判对就能通过时结论待定、不做失败更新；待判的作答判为${verdict === "correct" ? "对，复习通过并补发 XP" : "错，复习失败并做失败更新"}`, async (t) => {
+    const definition = topic("t01");
+    const kp = definition.kps[0];
+    const rule = kp?.review?.[0];
+    assert.ok(kp && rule);
+    // 第五题是开放题；题池按顺序出没见过的题。
+    kp.review = [1, 2, 3, 4, 5, 6].map((number) => ({
+      ...rule,
+      id: `t01.k1.r${number}`,
+      ...(number === 5 ? { slots: [{ id: "answer", type: "text" as const, rubric: [{ id: "meaning", label: "说明相加的含义" }] }] } : {}),
+    }));
+    const f = await fixture(t, [definition]);
+    await f.select("t01");
+    await f.finishLesson();
+    f.time(start + DAY_MS);
+    const learned = (await f.student()).t01;
+    assert.ok(learned);
+    await f.select("t01", "review");
+    for (const correct of [false, true, true, false]) {
+      await f.submit(correct);
+      await f.advance();
+    }
+    f.models.expectStructured().fail(new Error("断网"));
+    const receipt = await f.submit();
+    assert.ok(receipt.status === "recorded");
+    await f.advance();
+    await f.submit();
+    // “错、对、对、错、待判、对”：判出的五题不通过；待判的那题判对就是最后两题连对，判错才失败。
+    const undecided = await f.state();
+    assert.deepEqual(undecided.task?.phase, { stage: "completed", outcome: "unresolved" });
+    assert.ok(undecided.menu);
+    assert.deepEqual((await f.student()).t01, learned);
+    const before = undecided.progress.totalXp;
+    f.models.expectStructured().succeed({ verdict, reason: "按 rubric" });
+    await f.call("submission.resume", { submissionId: receipt.submission.submissionId });
+    const decided = await f.state();
+    if (verdict === "correct") {
+      assert.deepEqual(decided.task?.phase, { stage: "completed", outcome: "passed" });
+      // 六题对四题：floor(5 × 4/6) = 3 XP。
+      assert.equal(decided.progress.totalXp, before + 3);
+      assert.ok(((await f.student()).t01?.repNum ?? 0) > learned.repNum);
+    } else {
+      assert.deepEqual(decided.task?.phase, { stage: "completed", outcome: "failed" });
+      assert.equal(decided.progress.totalXp, before);
+      assert.ok(((await f.student()).t01?.repNum ?? 0) < learned.repNum);
+    }
+  });
+}
+
 test("末题照常判分时 XP 按全部作答结算：三道练习对、对、错，作答写下时不先发满分，判出来按两对一错得 floor(5 × 2/3) XP", async (t) => {
   const f = await fixture(t, [topic("t01", 1, [], 3)]);
   await f.select("t01");

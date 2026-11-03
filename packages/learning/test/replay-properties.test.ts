@@ -23,7 +23,6 @@ import {
   type TaskRecord,
 } from "../src/flow-state.js";
 import type { Question, Topic } from "../src/format/schema.js";
-import { REVIEW_MAX_QUESTIONS } from "../src/parameters.js";
 import { reward } from "../src/progress.js";
 import type { LearningState } from "../src/protocol.js";
 import type { GradedSlot } from "../src/records-schema.js";
@@ -388,13 +387,15 @@ async function check(run: Run): Promise<void> {
     const { outcome, attempts } = evidenceOf(live, task, course);
     // 复习的通过只看有证据的作答，待判的不计入，判出来以后重算（见 learning-flow.md），所以是暂定的。
     const provisional = task.kind === "review" && outcome === "passed";
-    // 已知问题，已排期：复习判满题数就记失败，不看待判的作答判对以后能否通过，判出来以后重算才改正。
-    const maxed = task.kind === "review" && outcome === "failed" && attempts.filter((attempt) => attempt.verdict !== undefined).length >= REVIEW_MAX_QUESTIONS;
-    if (attempts.some((attempt) => attempt.verdict === undefined) && !provisional && !maxed && (outcome === "passed" || outcome === "failed" || outcome === "timeout")) {
+    if (attempts.some((attempt) => attempt.verdict === undefined) && !provisional && (outcome === "passed" || outcome === "failed" || outcome === "timeout")) {
       // 没有证据不下结论：已经得出的结论，待判的作答怎样判都不能推翻。
       seen.add("待判时下结论");
       assert.equal(outcomeIf(live, task, course, "correct"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判对就会改变`);
       assert.equal(outcomeIf(live, task, course, "incorrect"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判错就会改变`);
+    }
+    if (outcome === "unresolved") {
+      // 结论待定要有理由：待判的作答判对和判错，结论确实不同。
+      assert.notEqual(outcomeIf(live, task, course, "correct"), outcomeIf(live, task, course, "incorrect"), `任务 ${task.seq}（${task.kind}）结论待定，但待判的作答怎样判结论都相同`);
     }
   }
   if (live.recomputations > 0) seen.add("整段重算");

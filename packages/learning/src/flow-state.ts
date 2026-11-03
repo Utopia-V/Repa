@@ -17,7 +17,7 @@ import { topicDue, topicMemory, updateStudent } from "./student-model.js";
 export type KpProgress = Omit<LearningTask["kps"][number], "title">;
 /**
  * 任务的结论：通过、失败、超时、主动结束，或没有结论就被后来的任务取代。只有测验限时，超时只出现在测验上。
- * unresolved 是测验已经结束（交卷或到了截止时间），但还有没判出结果的作答，判出来就可能改变结论：结论等它们判出来再定。
+ * unresolved 是任务已经结束（测验交卷或到了截止时间，复习判满题数），但还有没判出结果的作答，判出来就可能改变结论：结论等它们判出来再定。
  */
 export type Outcome = "passed" | "failed" | "timeout" | "unresolved" | "aborted" | "ended";
 
@@ -283,14 +283,14 @@ function reviewPasses(correct: boolean[]): boolean {
     && correct.slice(-REVIEW_FINAL_STREAK).every(Boolean);
 }
 
-/** 只看有证据的作答：通过即结束；出满 REVIEW_MAX_QUESTIONS 题仍不通过算失败。 */
+/** 只看有证据的作答：通过即结束；判满 REVIEW_MAX_QUESTIONS 题仍不通过，复习就此结束。 */
 function reviewResult(attempts: Attempt[]) {
   const graded = attempts.filter((entry) => entry.verdict !== undefined);
   return { passed: reviewPasses(graded.map(answeredCorrectly)), count: graded.length };
 }
 
 /**
- * 学习者中止复习时能否说已经失败：把没判出结果的作答和还没出的题都当作答对，仍不能通过，才有失败的证据。
+ * 能否说复习已经失败：把没判出结果的作答和还没出的题都当作答对，仍不能通过，才有失败的证据。
  * 否则缺的只是没有的证据，既不算对也不算错。
  */
 function reviewCouldPass(attempts: Attempt[]): boolean {
@@ -310,8 +310,8 @@ function reviewVerdict(entry: TaskEvidence): "pass" | "fail" | undefined {
 /**
  * 从一项任务的事实得出证据与结论。inherited 是此前同一 topic 的课留下的知识点进度。
  * 先看作答本身能否得出结论（课的必做题做完且答对超过一半而通过、已不可能超过一半而失败，复习的通过与失败），再看主动结束、截止和被后来的任务取代。
- * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。
- * 复习不限时，中途离开下次接着做；学习者中止复习时，已经不可能通过的记失败，其他情形尚无证据。测验没答的题算错。
+ * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。复习的通过是例外：只看有证据的作答，判出来以后重算。
+ * 复习不限时，中途离开下次接着做；判满题数仍不通过而它们判对还能通过时结论待定；学习者中止复习时，已经不可能通过的记失败，其他情形尚无证据。测验没答的题算错。
  */
 export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: KpProgress[] | undefined): TaskEvidence {
   const attempts: Attempt[] = [];
@@ -347,8 +347,11 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
     const result = reviewResult(attempts);
     if (result.passed) {
       outcome = "passed";
-    } else if (result.count >= REVIEW_MAX_QUESTIONS || (task.endedAt !== undefined && !reviewCouldPass(attempts))) {
-      // 出满题数仍不通过，或者学习者中止时已经不可能通过：失败，照常做失败更新。中止而还可能通过的，下面记为中止。
+    } else if (result.count >= REVIEW_MAX_QUESTIONS) {
+      // 判满题数仍不通过：没判出结果的作答判对还能通过时结论待定，否则失败，照常做失败更新。
+      outcome = reviewCouldPass(attempts) ? "unresolved" : "failed";
+    } else if (task.endedAt !== undefined && !reviewCouldPass(attempts)) {
+      // 学习者中止时已经不可能通过：失败。中止而还可能通过的，下面记为中止。
       outcome = "failed";
     }
   } else if (task.deliveries.length > 0 && (task.endedAt !== undefined || task.timedOut)) {
