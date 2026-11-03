@@ -42,6 +42,10 @@ export interface TaskRecord {
   kind: TaskKind;
   topicIds: string[];
   retakes?: number;
+  /** 课开始时记下的各知识点必做题，按知识点顺序；这项记录之前的课没有，按当前课程计算。 */
+  required?: NonNullable<FactOf<"task">["required"]>;
+  /** 课开始时记下的分钟数，XP 的基数。 */
+  minutes?: number;
   deliveries: DeliveryRecord[];
   /** 已作答的交付，按作答先后。 */
   answered: DeliveryRecord[];
@@ -157,11 +161,16 @@ export function deadlineAt(task: TaskRecord): number | null {
 
 /**
  * 任务所涉的知识点。测验按 topic 顺序列出每个 topic 的知识点，界面才能在交卷以后说出每道题属于哪个知识点；
- * 复习按 seed 打散知识点顺序，seed 由任务序号得出，重放时顺序不变。
+ * 复习按 seed 打散知识点顺序，seed 由任务序号得出，重放时顺序不变。课按开始时记下的知识点：之后加进课程的知识点
+ * 不是这节课的要求，已从课程删除的无从显示也无从取证。
  */
 export function taskKps(task: TaskRecord, course: CourseIndex): string[] {
   const topics = isQuiz(task.kind) ? task.topicIds : task.topicIds.slice(0, 1);
   const kps = topics.flatMap((id) => course.topics.get(id)?.kps.map((kp) => kp.id) ?? []);
+  if (task.required) {
+    const current = new Set(kps);
+    return task.required.map((entry) => entry.kp).filter((id) => current.has(id));
+  }
   return task.kind === "review" ? shuffled(kps, Math.imul(task.seq, 0x9e3779b1) >>> 0) : kps;
 }
 
@@ -172,7 +181,7 @@ export interface KpPractice {
 }
 
 /**
- * 一节课各知识点的练习。开放题不计入必做，所以知识点是否过关只取决于课程和学习记录，
+ * 当前课程里一节课各知识点的练习。开放题不计入必做，所以知识点是否过关只取决于课程和学习记录，
  * 不随学习者后来有没有配模型而改变。
  */
 export function lessonPractice(course: CourseIndex, topicId: string): Map<string, KpPractice> {
@@ -183,6 +192,30 @@ export function lessonPractice(course: CourseIndex, topicId: string): Map<string
       required: practice.filter((question) => !needsModel(question)).map((question) => question.id),
       open: practice.filter(needsModel).map((question) => question.id),
     }];
+  }));
+}
+
+/** 课开始时记下的要求：当前课程里各知识点的必做题，按知识点顺序，以及课的分钟数。 */
+export function lessonRequirement(course: CourseIndex, topicId: string): { required: NonNullable<TaskRecord["required"]>; minutes: number } {
+  return {
+    required: [...lessonPractice(course, topicId)].map(([kp, practice]) => ({ kp, questions: practice.required })),
+    minutes: course.topics.get(topicId)?.minutes ?? 0,
+  };
+}
+
+/**
+ * 一节课各知识点的练习。必做题按开始时记下的算：之后加进课程的题不是这节课的要求，已经得出的结论不因此改写。
+ * 已不在这个知识点里的题出不了，从中去掉；记下的题都不在了，按当前课程。没有记下的（加这项记录之前的课）按当前课程。
+ * 开放题不计入必做，总按当前课程。
+ */
+export function taskPractice(task: TaskRecord, course: CourseIndex): Map<string, KpPractice> {
+  const current = lessonPractice(course, task.topicIds[0] ?? "");
+  if (!task.required) {
+    return current;
+  }
+  return new Map(task.required.map(({ kp, questions }) => {
+    const kept = questions.filter((id) => course.questions.get(id)?.kp.id === kp);
+    return [kp, { required: kept.length ? kept : current.get(kp)?.required ?? [], open: current.get(kp)?.open ?? [] }];
   }));
 }
 
@@ -296,7 +329,7 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
     });
   }
   const kpIds = taskKps(task, course);
-  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited, lessonPractice(course, task.topicIds[0] ?? "")) : undefined;
+  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited, taskPractice(task, course)) : undefined;
   const kps = lesson?.kps ?? kpIds.map((kpId) => ({ kpId, attempts: 0, consecutiveCorrect: 0, completed: false }));
   const started = startedAt(task);
   const deadline = deadlineAt(task);

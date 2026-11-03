@@ -39,7 +39,8 @@ export function reward(entry: TaskEvidence, course: CourseIndex): number {
   if (entry.outcome !== "passed") {
     return 0;
   }
-  const minutes = course.topics.get(entry.task.topicIds[0] ?? "")?.minutes ?? 0;
+  // 课按开始时记下的分钟数，之后改课程的分钟数不改写已结算的 XP；这项记录之前的课按当前课程。
+  const minutes = entry.task.minutes ?? course.topics.get(entry.task.topicIds[0] ?? "")?.minutes ?? 0;
   const base = entry.task.kind === "lesson" ? minutes : REVIEW_XP;
   const graded = entry.attempts.filter((attempt) => attempt.verdict !== undefined).length;
   return Math.max(MIN_PASS_XP, Math.floor(base * correct / (graded || 1)));

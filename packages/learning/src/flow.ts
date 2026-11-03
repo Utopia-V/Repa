@@ -5,7 +5,7 @@ import { parse, type ClientCapabilities } from "@repa/base/protocol";
 import { trialBatch } from "./code-tests.js";
 import { needsModel } from "./course-index.js";
 import { deliverySeed, mapAnswer, renderDelivery } from "./delivery.js";
-import { isQuiz, sequenceOf, taskId, topicEligible, type DeliveryRecord, type TaskEvidence } from "./flow-state.js";
+import { isQuiz, lessonRequirement, sequenceOf, taskId, taskPractice, topicEligible, type DeliveryRecord, type TaskEvidence } from "./flow-state.js";
 import {
   checkSubmission,
   learningMethods,
@@ -95,9 +95,13 @@ export async function connectLearning(
       pool = pool.filter((entry) => !excluded.has(entry.question.id));
     }
     if (task.kind === "lesson") {
-      // 课内每道题只出一次：同一知识点的题各练一个方面，必做题全部答过才判定这个知识点。
+      // 课内每道题只出一次：同一知识点的题各练一个方面，必做题全部答过才判定这个知识点。只出开始时记下的必做题和开放题，
+      // 之后加进课程的题不是这节课的要求。
       const asked = new Set(task.deliveries.map((delivery) => delivery.questionId));
-      pool = pool.filter((entry) => entry.kp.id === evidence.kps.find((kp) => !kp.completed)?.kpId && !asked.has(entry.question.id));
+      const kpId = evidence.kps.find((kp) => !kp.completed)?.kpId;
+      const practice = kpId === undefined ? undefined : taskPractice(task, session.course).get(kpId);
+      const allowed = new Set([...practice?.required ?? [], ...practice?.open ?? []]);
+      pool = pool.filter((entry) => entry.kp.id === kpId && allowed.has(entry.question.id) && !asked.has(entry.question.id));
     }
     if (task.kind === "lesson" && topic && !pool.length) {
       throw new RepaFault("insufficient_items", "这个知识点的练习都做过了，结论要等没判出结果的作答判出来；可以再判一次，也可以中止");
@@ -184,7 +188,11 @@ export async function connectLearning(
       }
       restricted = candidate.kind !== "lesson";
       const original = candidate.originalTaskId === undefined ? undefined : sequenceOf(candidate.originalTaskId, "t");
-      return [{ type: "task", kind: candidate.kind, topics: candidate.topicIds, ...(original === undefined ? {} : { retakes: original }) }];
+      return [{
+        type: "task", kind: candidate.kind, topics: candidate.topicIds,
+        ...(original === undefined ? {} : { retakes: original }),
+        ...(candidate.kind === "lesson" ? lessonRequirement(session.course, candidate.topicIds[0] ?? "") : {}),
+      }];
     });
     if (restricted) {
       await startRestricted(capabilities);

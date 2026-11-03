@@ -636,6 +636,33 @@ test("题目的知识点归属改变时题目版本不变，过去的作答照�
   }
 });
 
+test("课开始时记下必做题和分钟数：之后课程给知识点加题、加知识点、改分钟数，通过的课照样通过、XP 不变，进行中的课也不出新加的题", async (t) => {
+  const f = await fixture(t, [topic("t01", 1, [], 3), topic("t02")]);
+  // t01 三道练习对、对、不会：答对超过一半，通过，得 floor(5 × 2/3) = 3 XP。
+  await f.select("t01");
+  assert.deepEqual((await f.finishLesson([true, true, false])).task?.phase, { stage: "completed", outcome: "passed" });
+  assert.equal((await f.state()).progress.totalXp, 3);
+  // t02 做到一半：讲解、例题，答对第一道练习。
+  await f.select("t02");
+  const second = Number((await f.state()).task?.taskId.slice(1));
+  await f.advance();
+  await f.advance();
+  await f.submit();
+
+  // 课程更新：t01 的知识点多了第四道练习，topic 多了一个知识点；t02 多了第三道练习；两个 topic 都改为 20 分钟。
+  await f.writeTopics([{ ...topic("t01", 2, [], [4, 2]), minutes: 20 }, { ...topic("t02", 1, [], 3), minutes: 20 }]);
+  await f.reopen();
+  assert.ok((await f.student()).t01);
+  assert.equal((await f.state()).progress.totalXp, 3);
+  // t02 只按开始时的两道练习判定：答完第二道就通过，不出新加的第三道；XP 按开始时的 5 分钟算。
+  assert.deepEqual((await f.finishLesson()).task?.phase, { stage: "completed", outcome: "passed" });
+  assert.deepEqual(f.session().replay.task(second)?.deliveries.map((delivery) => delivery.questionId), ["t02.k1.q1", "t02.k1.q2"]);
+  assert.equal((await f.state()).progress.totalXp, 8);
+  await f.reopen();
+  assert.ok((await f.student()).t01 && (await f.student()).t02);
+  assert.equal((await f.state()).progress.totalXp, 8);
+});
+
 test("代价关卡：每次作答只写交付、作答、判分三条事实；固定部分不超过按事实构成算出的上限，也不随历史增长", async (t) => {
   const limit = fixedLimit();
   // 样本有文字题、开放题（t01 第三个知识点）和两道代码题：t04 的只有一个测试；最长的那道题目 id 和作答位 id 都取格式上限，

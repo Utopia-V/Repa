@@ -157,6 +157,8 @@ export class Replay {
           kind: fact.kind,
           topicIds: [...fact.topics],
           ...(fact.retakes === undefined ? {} : { retakes: fact.retakes }),
+          ...(fact.required === undefined ? {} : { required: fact.required }),
+          ...(fact.minutes === undefined ? {} : { minutes: fact.minutes }),
           deliveries: [],
           answered: [],
           timedOut: false,
