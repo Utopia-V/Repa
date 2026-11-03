@@ -4,7 +4,6 @@ import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { TestContext } from "node:test";
 import { createSpace, openPluginHost, openSpace } from "@repa/base";
 import type { Services } from "@repa/base/plugin";
 import { ModelTestDriver } from "@repa/base/testing";
@@ -109,9 +108,11 @@ export interface FixtureOptions {
   beforeRestricted?: () => Promise<void>;
   /** 课程清单的判分运行时（含运行前导）；缺省为不带包和前导的 course.runtime。 */
   runtime?: Course["runtime"];
+  /** 模型边界的替身；缺省为按预先安排的结果响应的 ModelTestDriver。 */
+  models?: ModelTestDriver;
 }
 
-export async function learningFixture(t: TestContext, topics = [topic()], options: FixtureOptions = {}) {
+export async function learningFixture(t: { after(cleanup: () => Promise<void>): void }, topics = [topic()], options: FixtureOptions = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-learning-flow-")));
   const directory = path.join(root, "course");
   let written = topics;
@@ -119,7 +120,7 @@ export async function learningFixture(t: TestContext, topics = [topic()], option
   await writeCourse(directory, written, runtime);
   let now = start;
   let session: LearningSession | undefined;
-  const models = new ModelTestDriver();
+  const models = options.models ?? new ModelTestDriver();
   const events: unknown[] = [];
   const plugin = createLearningPlugin({
     sources: [{ kind: "bundled", directory: options.bundled ? fileURLToPath(new URL("../../courses/python", import.meta.url)) : directory }],
