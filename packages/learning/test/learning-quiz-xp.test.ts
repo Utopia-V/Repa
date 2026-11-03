@@ -327,6 +327,9 @@ test("任务带 topic 与知识点的标题：课里、受限的测验与复习�
   await assert.rejects(f.call("content.search", { query: "t1", offset: 0, limit: 10 }));
   const byId = (left: { id: string }, right: { id: string }) => left.id.localeCompare(right.id);
   assert.deepEqual([...quiz.task.topics].sort(byId), ["t0", "t1", "t2", "t3"].map((id) => ({ id, title: topicTitle(id) })));
+  // 每个 topic 的知识点都在，交卷以后界面才能说出每道题属于哪个知识点。
+  assert.deepEqual(quiz.task.kps.map((kp) => kp.kpId), quiz.task.topics.map((topic) => `${topic.id}.k1`));
+  assert.deepEqual(quiz.task.kps.map((kp) => kp.title), quiz.task.topics.map((topic) => kpTitle(`${topic.id}.k1`)));
   await f.reopen();
   assert.deepEqual((await f.state()).task?.topics, quiz.task.topics);
   // 答错第一题后交卷，这个 topic 进入强制复习；复习同样受限，标题照样在任务里。
