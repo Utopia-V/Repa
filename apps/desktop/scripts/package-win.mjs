@@ -12,7 +12,7 @@ const root = path.resolve(desktop, "../..");
 
 if (process.platform !== "win32" || process.arch !== "x64") throw new Error("Windows 安装包只能在 Windows x64 上打。");
 
-const { application, manifest, python, inventory, packed } = await prepareApplication();
+const { application, manifest, python, git, inventory, packed } = await prepareApplication();
 
 await build({
   projectDir: desktop,
@@ -26,7 +26,7 @@ await build({
     // Node 宿主通过 CLI 的物理路径启动底座，保留物理安装布局。
     asar: false,
     npmRebuild: false,
-    files: ["out/**/*", "pyodide/**/*", "node_modules/**/*", "third-party-licenses/**/*", "package.json"],
+    files: ["out/**/*", "pyodide/**/*", "git/**/*", "node_modules/**/*", "third-party-licenses/**/*", "package.json"],
     // 没有代码签名证书：下载后首次运行，SmartScreen 会提示“未知发布者”，要点“仍要运行”。
     win: { target: "nsis" },
     nsis: {
@@ -44,5 +44,5 @@ const { stdout: verification } = await exec(process.execPath, [path.join(desktop
   cwd: root,
   maxBuffer: 4 * 1024 * 1024,
 });
-console.log(JSON.stringify({ output, packages: packed.map(({ name, version }) => ({ name, version })), python, licenses: inventory.length,
+console.log(JSON.stringify({ output, packages: packed.map(({ name, version }) => ({ name, version })), python, git, licenses: inventory.length,
   verification: JSON.parse(verification) }, null, 2));

@@ -1,5 +1,5 @@
 /**
- * 各平台安装包共用的准备步骤：打包后端工作区包并按锁文件装好运行依赖，带上 Pyodide 与 wheel、收集许可证。
+ * 各平台安装包共用的准备步骤：打包后端工作区包并按锁文件装好运行依赖，带上 Pyodide 与 wheel、Git，收集许可证。
  * 平台脚本（package-linux.mjs、package-mac.mjs）再交给 electron-builder 打成各自的格式。
  */
 import { execFile } from "node:child_process";
@@ -10,6 +10,8 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { copyGit } from "./bundled-git.mjs";
+
 const exec = promisify(execFile);
 const desktop = fileURLToPath(new URL("..", import.meta.url));
 const root = path.resolve(desktop, "../..");
@@ -17,6 +19,8 @@ const work = path.join(root, ".scratch/desktop-delivery");
 const archives = path.join(work, "archives");
 const application = path.join(work, "application");
 const output = path.join(work, "dist");
+// 下载的 Git 发行版留在每次打包都会清空的 work 之外，再次打包不必重下。
+const downloads = path.join(root, ".scratch/downloads");
 const npm = process.env.npm_execpath;
 // 后端及其插件：学习插件由主进程按包名找到，连同它依赖的工作区包一起装进安装包。
 const packages = ["@repa/base", "@repa/space-history", "@repa/learning", "@repa/learning-model", "@repa/python-runner"];
@@ -82,8 +86,9 @@ async function copyPythonRuntime() {
   return { pyodide: version, wheels: [...wheels.values()].map((entry) => entry.file_name).sort() };
 }
 
-async function copyLicenses() {
-  const inventory = [];
+/** extra 是不来自 npm 包、已由各自步骤复制好许可证的条目，例如安装包带的 Git。 */
+async function copyLicenses(extra) {
+  const inventory = [...extra];
   const notices = path.join(application, "third-party-licenses");
   const seen = new Set();
   const record = async (directory) => {
@@ -136,7 +141,7 @@ async function copyLicenses() {
 }
 
 
-/** 在 .scratch/desktop-delivery/application 准备好应用目录，返回清单、Python 运行时与许可证清单。 */
+/** 在 .scratch/desktop-delivery/application 准备好应用目录，返回清单、Python 运行时、Git 的相对路径与许可证清单。 */
 export async function prepareApplication() {
   if (!npm) throw new Error("请通过 npm run package:<平台> --workspace=@repa/desktop 启动打包。");
   await rm(work, { recursive: true, force: true });
@@ -179,6 +184,7 @@ export async function prepareApplication() {
   manifest.dependencies = Object.fromEntries(archivesByPackage.map(({ name, version }) => [name, version]));
   await writeFile(path.join(application, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   await rm(path.join(application, "package-lock.json"));
-  const inventory = await copyLicenses();
-  return { application, manifest, python, inventory, packed };
+  const git = await copyGit(application, downloads);
+  const inventory = await copyLicenses(git ? [git.license] : []);
+  return { application, manifest, python, git: git?.executable, inventory, packed };
 }

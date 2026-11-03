@@ -16,7 +16,7 @@ if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("
 // 不签的话改过的 Electron.app 带着失效的签名，Apple Silicon 上打不开。
 process.env.CSC_FOR_PULL_REQUEST = "true";
 
-const { application, manifest, python, inventory, packed } = await prepareApplication();
+const { application, manifest, python, git, inventory, packed } = await prepareApplication();
 
 await build({
   projectDir: desktop,
@@ -31,7 +31,7 @@ await build({
     // Node 宿主通过 CLI 的物理路径启动底座，保留物理安装布局。
     asar: false,
     npmRebuild: false,
-    files: ["out/**/*", "pyodide/**/*", "node_modules/**/*", "third-party-licenses/**/*", "package.json"],
+    files: ["out/**/*", "pyodide/**/*", "git/**/*", "node_modules/**/*", "third-party-licenses/**/*", "package.json"],
     mac: {
       category: "public.app-category.education",
       // 没有 Apple 开发者证书，只做 ad-hoc 签名：Apple Silicon 上完全不签名的程序不能运行。
@@ -51,5 +51,5 @@ const { stdout: verification } = await exec(process.execPath, [path.join(desktop
   cwd: root,
   maxBuffer: 4 * 1024 * 1024,
 });
-console.log(JSON.stringify({ output, packages: packed.map(({ name, version }) => ({ name, version })), python, licenses: inventory.length,
+console.log(JSON.stringify({ output, packages: packed.map(({ name, version }) => ({ name, version })), python, git, licenses: inventory.length,
   verification: JSON.parse(verification) }, null, 2));
