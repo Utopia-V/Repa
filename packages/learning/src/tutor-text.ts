@@ -215,8 +215,7 @@ function submissionLine(submission: Submission | undefined): string {
   const feedback = submission.feedback;
   if (!feedback) return `${done}，判分结果暂不公开。`;
   const judge = feedback.judge === "model" ? "（由模型按评分要点判）" : "";
-  const helped = feedback.evidence?.status === "ineligible" ? "作答前问过辅导或读过参考内容，这次不算独立完成。" : "";
-  return `${done}，判分结果：${VERDICTS[feedback.verdict]}${judge}。${helped}`;
+  return `${done}，判分结果：${VERDICTS[feedback.verdict]}${judge}。`;
 }
 
 function questionText(delivery: Delivery, submission: Submission | undefined): string {
@@ -291,7 +290,7 @@ export function viewText(task: LearningTask | null, course: CourseIndex, kp: KpP
   const stage = phase.stage === "completed" ? `已经结束：${OUTCOMES[phase.outcome]}` : STAGES[phase.stage];
   const lines = [`当前任务：${taskName(task)}，${stage}`];
   if (kp) {
-    lines.push(`知识点「${kp.title}」：已答 ${kp.attempts} 题，连续独立答对 ${kp.consecutiveCorrect} 题${kp.completed ? "，已通过" : ""}`);
+    lines.push(`知识点「${kp.title}」：已答 ${kp.attempts} 题，连续答对 ${kp.consecutiveCorrect} 题${kp.completed ? "，已通过" : ""}`);
   }
   if (prerequisites.length) {
     lines.push(`学过的直接先修，学生模型估计的记忆由弱到强：${prerequisites.map((id) => `「${topicTitle(course, id)}」`).join("")}`);

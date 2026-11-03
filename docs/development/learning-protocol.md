@@ -49,7 +49,7 @@ if (state.ok) renderLearning(state.value);
 | `submission.appeal` | 原 `submissionId`、`expectedGradeRevision` 和申诉原因，重判原答，返回 receipt |
 | `content.search` | `query`、`offset`、`limit`（最多 20），搜索当前任务和已学内容，query 也可填 topic/KP id 以解析概念链接；返回短命中、版本引用、原学习位置及可空 `nextOffset` |
 | `content.read` | `refs`（最多 8）、块 `offset`、`limit`（最多 64），按版本批取讲解、例题、卡片、KP 或已释放解析 |
-| `content.open` | `ref`，核对授权并返回服务端 `openedAt`；只有课内作答之前打开才记为一次求助 |
+| `content.open` | `ref`，核对授权并返回服务端 `openedAt`；作答期间拒绝 |
 | `run.prepare` | 当前任务里一份交付的 `deliveryId`、代码作答位的 `slotId` 和学习者的 `code`，返回交给前端 Python 运行器的批次，见[试运行](#试运行) |
 | `quiz.finish` | 任务守卫，整场交卷并返回状态，不等待判分；重试先查询，已结束场次沿原身份返回既有结果 |
 | `progress.get` | 空输入，返回 `serverNow` 和日目标、XP、完成率、可空的完课日期 |
@@ -77,7 +77,7 @@ if (state.ok) renderLearning(state.value);
 
 `gradeRevision` 关联同一原答的采用判分版本。申诉检查 `expectedGradeRevision`，串行登记本次重判后再执行；重复请求等待已有重判，已采用新版本后再收到旧请求则刷新当前状态。旧判分、已经给出的 XP 和已经展示或选定的任务由后端保留，不因申诉覆盖。题目的答案改正以后，后端也会按新答案重判过去的作答，`gradeRevision` 同样递增。
 
-`Judge` 只说明来源。反馈中的 `evidence.status` 由后端给出：`eligible` 可以作为推进证据，`ineligible` 不具资格并可说明原因（目前是作答前求助过）；`unresolved` 留在契约里，当前不产生。确定的隔离模型判分可以具备资格；前端不根据 `judge: model` 自行降级，也不把缺失的 evidence 推断为合格。独立正确还受提交前帮助等教学条件约束，由后端统一判断。
+`Judge` 只说明来源。反馈中的 `evidence.status` 由后端给出：`eligible` 可以作为推进证据。作答期间不能提问，每份判出结果的作答都是独立完成的，所以目前只给 `eligible`；`ineligible` 和 `unresolved` 留在契约里，当前不产生。确定的隔离模型判分同样具备资格；前端不根据 `judge: model` 自行降级，也不把缺失的 evidence 推断为合格。
 
 `dontKnow: true` 仍使用原 Item 引用和空 `answers`；practice 和 review 可用。后端依据交付模式拒绝 quiz 的 `dontKnow`，前端在 quiz 不显示该按钮；测验未答由整场交卷或超时表示。
 
@@ -87,7 +87,7 @@ if (state.ok) renderLearning(state.value);
 
 答案、解析和私有 rubric 不出现在作答前的 Item。practice 的反馈及解析在判分完成后释放，review 在任务结束后释放，quiz 与 retake 在整场交卷或超时后释放。查询、事件、前端内容读取和 Agent 工具共用这项授权检查。`processing: completed` 可以先于反馈释放，因此前端不能把“已判”当成“可看答案”。测试计划中的检查代码对前端可见，完整参考解仍按反馈时机释放；代码题的期望表达式在作答被接受以后随判分请求进入前端的 Worker，与释放规则的关系见 [python.run](#pythonrun)。
 
-`restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。review、quiz 的 preparing 和进行阶段均关闭辅导与参考读取，结束后重新开放。`ContentRef` 带课程、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取只提供当前课程里的内容：课程换版以后，旧版本的引用按不存在处理，明确报输入错误，不悄悄换成最新版本。
+`restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。作答期间两者都为 false：课内有一道题等着作答时，以及 review、quiz 的 preparing 和进行阶段；课内答完这道题、review 和 quiz 结束后重新开放。`kind` 只说明是不是复习或测验带来的限制，课内作答期间仍为 `none`。`ContentRef` 带课程、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取只提供当前课程里的内容：课程换版以后，旧版本的引用按不存在处理，明确报输入错误，不悄悄换成最新版本。
 
 后端先筛掉调用方用不了的题再选题：显示不了的（按 `canRender` 核对 `requires`）、要运行 Python 而调用方没有声明 `python.run` 的，以及没有可用模型时要由模型判分的开放题。菜单只提供每个没过的知识点都有能用的题的课，交付也只在能用的题里选。题池里有题却一道也用不了时，返回缺项（`missing_capability`）并保留原任务，等待可用连接；只缺可用模型时返回 `model_required`。交付前仍调用 `missingDeliveryCapabilities(context.caller?.capabilities, delivery)` 再核对一次：它复用 `canRender`，并为代码题补查 `python.run`；带测试的 Parsons 在 `requiresServices` 声明该服务。
 
@@ -140,7 +140,7 @@ if (state.ok) renderLearning(state.value);
 
 前端另建一个 `PythonRunner` 运行这份批次，不与 `servePythonRun` 判分用的那个共用 Worker，再显示 `tests[0]` 的结果：`completed` 时显示 `result.stdout`，`result.error` 不为空时另外显示异常的类型、消息和行号；`timeout` 或 `failed` 时说明停在哪个阶段。结果只给学习者看，不交回后端。
 
-试运行不写学习记录，不算作答，也不算求助。运行自己的代码看不到答案，所以课、复习和测验期间都可以用。交付不在当前任务里时返回 `stale_state`，这一问不是代码作答位时返回 `invalid_input`。
+试运行不写学习记录，也不算作答。运行自己的代码看不到答案，所以课、复习和测验期间都可以用。交付不在当前任务里时返回 `stale_state`，这一问不是代码作答位时返回 `invalid_input`。
 
 ## 未完成项与待验证项
 

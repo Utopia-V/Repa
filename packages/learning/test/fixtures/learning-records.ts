@@ -15,7 +15,7 @@ export const course: Course = {
   id: "python", version: "0.1.0", title: "Python", language: "zh-CN", license: "Apache-2.0",
   runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }, sources: {}, topics: ["py01"],
 };
-/** 一个知识点，练习是一道开放题，判分要调用模型。 */
+/** 一个知识点，练习是一道开放题和一道必做题；开放题判分要调用模型，排在最后一道必做题之前先出。 */
 export const topic: Topic = {
   id: "py01", title: "数字", status: "complete", minutes: 5, prerequisites: [], sources: [],
   kps: [{
@@ -23,6 +23,9 @@ export const topic: Topic = {
     practice: [{
       id: "py01.k1.q1", body: "说说 1 + 1 为什么等于 2。", explanation: "两个一。",
       slots: [{ id: "s1", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }],
+    }, {
+      id: "py01.k1.q2", body: "1 + 1 等于几？", explanation: "二。",
+      slots: [{ id: "s1", type: "text", key: "2" }],
     }],
   }],
 };

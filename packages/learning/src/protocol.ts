@@ -381,7 +381,7 @@ export const learningMethods = {
   },
   "content.read": { input: object({ refs: Type.Array(ContentRefSchema, { minItems: 1, maxItems: 8 }), ...range }), result: Type.Array(ContentPageSchema) },
   "content.open": { input: object({ ref: ContentRefSchema }), result: object({ openedAt: timestamp }) },
-  // 学习者提交之前自己运行代码：返回交给前端 Python 运行器的批次，不带期望值；不写学习记录，不算作答，也不算求助。
+  // 学习者提交之前自己运行代码：返回交给前端 Python 运行器的批次，不带期望值；不写学习记录，也不算作答。
   "run.prepare": {
     input: object({ deliveryId: identifier, slotId: identifier, code: CodeAnswerSchema.properties.code }),
     result: PythonBatchInputSchema,

@@ -24,6 +24,17 @@ import type { Topic } from "../src/format/schema.js";
 import { course as baseCourse } from "./fixtures/learning-session.js";
 
 const start = Date.UTC(2026, 9, 12, 12);
+
+/** 把一个 topic 的练习换成一道开放题加原来的必做题：开放题不计入必做，排在最后一道必做题之前先出，课里调用一次模型。 */
+function withOpenPractice(topic: Topic | undefined) {
+  const kp = topic?.kps[0];
+  const question = kp?.practice?.[0];
+  assert.ok(kp && question);
+  kp.practice = [
+    { ...question, id: question.id.replace(/\.p1$/, ".p0"), slots: [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "含义正确" }] }] },
+    question,
+  ];
+}
 async function fixture(
   t: TestContext,
   openAnswer = false,
@@ -370,12 +381,7 @@ test("准备失败沿受限入口重开；截止前收下的开放题作答没�
 });
 
 test("重判使课失去已学状态时 XP 不收回、已出现的测验门槛保留；日目标持久化，完课估算是一个日期、含零学习日", async (t) => {
-  const f = await fixture(t, false, 2, undefined, (topics) => {
-    const question = topics[0]?.kps[0]?.practice?.[0];
-    assert.ok(question);
-    question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "含义正确" }] }];
-  });
-  f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
+  const f = await fixture(t, false, 2, undefined, (topics) => withOpenPractice(topics[0]));
   f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
   await f.qualify();
   assert.equal((await f.state()).progress.totalXp, 150);
@@ -653,11 +659,7 @@ test("各题都答了而判分全部中断时交卷：测验结束但不下结�
 for (const missingPrerequisite of [false, true]) {
   test(`历史 lesson 重判失去已学状态后，测验补救转为可开始的 lesson${missingPrerequisite ? "并先补缺失先修" : ""}`, async (t) => {
     const f = await fixture(t, false, 2, undefined, (topics) => {
-      for (const topic of topics.slice(0, missingPrerequisite ? 2 : 1)) {
-        const question = topic.kps[0]?.practice?.[0];
-        assert.ok(question);
-        question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "含义正确" }] }];
-      }
+      for (const topic of topics.slice(0, missingPrerequisite ? 2 : 1)) withOpenPractice(topic);
       if (missingPrerequisite) {
         const dependent = topics[1];
         assert.ok(dependent);
@@ -668,7 +670,6 @@ for (const missingPrerequisite of [false, true]) {
       }
     });
     const correctLesson = () => {
-      f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
       f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
     };
     correctLesson();
@@ -816,14 +817,8 @@ test("测验准备失败并中止后保留耗尽的延后窗口与原候选", as
 });
 
 test("历史申诉判分在测验开始后返回，响应按返回时的受限任务隐藏参考内容", async (t) => {
-  const f = await fixture(t, false, 2, undefined, (topics) => {
-    const question = topics[0]?.kps[0]?.practice?.[0];
-    assert.ok(question);
-    question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "含义正确" }] }];
-  });
-  for (let index = 0; index < 2; index++) {
-    f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
-  }
+  const f = await fixture(t, false, 2, undefined, (topics) => withOpenPractice(topics[0]));
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "正确" });
   await f.qualify();
   const delivery = f.replay().tasks[0]?.answered[0];
   assert.ok(delivery);
@@ -861,7 +856,7 @@ test("测验先选以往测验（含换题重考）测过次数最少的 topic�
   const quiz = (kind: "quiz" | "retake", answered: string[], unanswered: string[]): TaskRecord => {
     const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], deliveries: [], answered: [], timedOut: false };
     for (const questionId of [...answered, ...unanswered]) {
-      const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, help: false, grades: [] };
+      const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, grades: [] };
       task.deliveries.push(delivery);
       if (answered.includes(questionId)) task.answered.push(delivery);
     }

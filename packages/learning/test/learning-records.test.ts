@@ -230,7 +230,7 @@ test("引用错误和一题两答在写入前拒绝、不落盘；完整行引�
   assert.deepEqual(await readFile(file), bytes);
   assert.equal(log.revision, 2);
   const damaged = path.join(root, "damaged.jsonl");
-  await writeFile(damaged, `${bytes.toString("utf8")}${JSON.stringify({ seq: 3, at: now, type: "help", delivery: 1 })}\n`);
+  await writeFile(damaged, `${bytes.toString("utf8")}${JSON.stringify({ seq: 3, at: now, type: "answered", delivery: 1, seen, answers: {} })}\n`);
   await assert.rejects(LearningRecords.open(damaged), fault("invalid_learning_log"));
 });
 

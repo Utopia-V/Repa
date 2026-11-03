@@ -282,13 +282,22 @@ async function fixture(t: TestContext, topics?: Topic[], options: FixtureOptions
   };
 }
 
-test("真实辅导请求只有学习工具和续取用的 read，求助影响判分与下一轮视图，跨天复习后整空间复制恢复一致", { timeout: 30000 }, async (t) => {
+test("真实辅导请求只有学习工具和续取用的 read，课内作答期间拒收提问，答完以后可问，跨天复习后整空间复制恢复一致", { timeout: 30000 }, async (t) => {
   const f = await fixture(t);
   const agents = await f.client.call("agent.list", {});
   assert.deepEqual(agents.map((entry) => entry.id), [TUTOR_AGENT]);
   await f.select();
   await f.advance();
   await f.advance();
+  // 课内有题等着作答时，提问和参考内容都关闭，模型一次也不调用；答完以后照常可问。
+  await assert.rejects(f.client.call("session.send", { sessionId: f.chat.id, text: "赋值是什么意思？" }), fault("message_rejected"));
+  await assert.rejects(f.call("content.search", { query: "赋值", offset: 0, limit: 10 }), fault("restricted"));
+  assert.equal((await f.state()).restrictions.tutorAllowed, false);
+  assert.equal(f.faux.state.callCount, 0);
+  await f.submit();
+  const after = await f.state();
+  assert.equal(after.restrictions.tutorAllowed, true);
+  assert.equal(after.task?.kps[0]?.consecutiveCorrect, 1);
   const captures: TranscriptContext[] = [];
   f.faux.setResponses([(context) => {
     captures.push(structuredClone(context));
@@ -305,29 +314,11 @@ test("真实辅导请求只有学习工具和续取用的 read，求助影响判
   const history = await f.client.call("session.history", { sessionId: f.chat.id });
   const taskRead = history.find((entry) => entry.type === "tool" && entry.text?.includes("## 题目"));
   assert.ok(taskRead?.text);
-  assert.match(taskRead.text, /^课「给数据起名，再按顺序读」\n知识点 py01\.k1「[^」]+」\n学习者还没有提交这道题。\n\n## 题目\n/u);
+  assert.match(taskRead.text, /^课「给数据起名，再按顺序读」\n知识点 py01\.k1「[^」]+」\n学习者已提交这道题，判分结果：正确。\n\n## 题目\n/u);
   assert.doesNotMatch(taskRead.text, /deliveryId|submissionId|"item"|\{"/u);
   const views = viewTexts(first);
   assert.equal(views.length, 1);
-  assert.match(views[0] ?? "", /^<repa-view source="agent:learning-tutor">\n当前任务：课「给数据起名，再按顺序读」，学习者正在作答一道题\n知识点「[^」]+」：已答 0 题，连续独立答对 0 题\n<\/repa-view>$/u);
-  await f.submit();
-  const after = await f.state();
-  assert.equal(after.task?.kps[0]?.consecutiveCorrect, 0);
-  // 作答之前的提问记成一条求助事实，排在作答之前；同一道题只记一次。
-  const facts = f.session().records.facts;
-  const answered = facts.find((entry) => entry.type === "answered");
-  assert.ok(answered?.type === "answered");
-  const help = facts.filter((entry) => entry.type === "help" && entry.delivery === answered.delivery);
-  assert.equal(help.length, 1);
-  assert.ok((help[0]?.seq ?? Infinity) < answered.seq);
-  f.faux.setResponses([(context) => {
-    captures.push(structuredClone(context));
-    return fauxAssistantMessage("已经接受这份原答");
-  }]);
-  await f.client.call("session.send", { sessionId: f.chat.id, text: "现在进度怎样？" });
-  const latest = captures.at(-1);
-  assert.ok(latest);
-  assert.match(viewTexts(latest).at(-1) ?? "", /学习者在看判分结果\n知识点「[^」]+」：已答 1 题，连续独立答对 0 题/u);
+  assert.match(views[0] ?? "", /^<repa-view source="agent:learning-tutor">\n当前任务：课「给数据起名，再按顺序读」，学习者在看判分结果\n知识点「[^」]+」：已答 1 题，连续答对 1 题\n<\/repa-view>$/u);
   const completed = await f.finish();
   assert.equal(completed.task?.phase.stage, "completed");
   const hits = await f.call("content.search", { query: "赋值", offset: 0, limit: 10 });
@@ -339,7 +330,7 @@ test("真实辅导请求只有学习工具和续取用的 read，求助影响判
   assert.ok(pages[0]);
   const original = await f.call("content.read", { refs: [pages[0].origin.content], offset: 0, limit: 8 });
   assert.equal(original[0]?.ref.kind, "example");
-  // 题目之外打开卡片不是作答前的求助，不写事实。
+  // 打开卡片只读内容，不写事实。
   const revision = f.session().records.revision;
   await f.call("content.open", { ref: card.ref });
   assert.equal(f.session().records.revision, revision);
@@ -401,7 +392,10 @@ test("复习 preparing 先拒收消息和内容，回复取消停稳后才计时
   await f.client.call("session.send", { sessionId: f.chat.id, text: "回顾" });
 });
 
-/** 测试用的 topic：五个知识点，k1 的讲解有 40 块长文字，k1 的练习题面有三个各 1,000 行的代码块。 */
+/**
+ * 测试用的 topic：五个知识点，k1 的讲解有 40 块长文字，k1 的第一道练习题面有三个各 1,000 行的代码块。
+ * 每个知识点三道练习，答错一题也不当场结束。
+ */
 function topic(id: string): Topic {
   const code = (block: number) => ({
     type: "code" as const, language: "python",
@@ -425,7 +419,11 @@ function topic(id: string): Topic {
           name: kpId, definition: "概念定义", conditions: ["适用条件"],
           example: { from: question.id, text: "概念的例子" },
         },
-        practice: [{ ...question, body: index === 0 ? [{ type: "markdown" as const, text: "当前题面。" }, code(0), code(1), code(2)] : question.body }],
+        practice: [
+          { ...question, body: index === 0 ? [{ type: "markdown" as const, text: "当前题面。" }, code(0), code(1), code(2)] : question.body },
+          { ...question, id: `${kpId}.q2` },
+          { ...question, id: `${kpId}.q3` },
+        ],
         review: [{ ...question, id: `${kpId}.r1` }],
       };
     }),
@@ -467,13 +465,15 @@ test("前端的检索稳定分页、批取和长块续取均可定位，卡片�
   await assert.rejects(f.call("content.read", { refs: [{ ...lesson.ref, topicId: "t02" }], offset: 0, limit: 8 }), fault("invalid_input"));
   await f.advance();
   await f.advance();
-  const current = await f.state();
   const card = hits.find((entry) => entry.ref.id === "t01.k1.card");
   assert.ok(card);
+  // 作答期间读不到卡片；答完以后读到的卡片关联到刚答的这道题。
+  await assert.rejects(f.call("content.read", { refs: [card.ref], offset: 0, limit: 8 }), fault("restricted"));
+  await f.submit();
+  const current = await f.state();
+  assert.equal(current.task?.kps[0]?.consecutiveCorrect, 1);
   const [page] = await f.call("content.read", { refs: [card.ref], offset: 0, limit: 8 });
   assert.equal(page?.origin.deliveryId, current.task?.deliveries[0]?.deliveryId);
-  await f.submit();
-  assert.equal((await f.state()).task?.kps[0]?.consecutiveCorrect, 0);
   const explanations = await f.call("content.search", { query: "未开放的私有题解", offset: 0, limit: 10 });
   assert.equal(explanations.hits.length, 1);
   const changed = topic("t01");
@@ -492,6 +492,8 @@ test("当前题目超过底座的输出上限时，模型收到开头、结尾�
   await f.select();
   await f.advance();
   await f.advance();
+  // 作答期间不能提问，答完以后再问。
+  await f.submit();
   let shown = "";
   let continued = "";
   let offset = 0;
@@ -515,8 +517,8 @@ test("当前题目超过底座的输出上限时，模型收到开头、结尾�
   assert.ok(file);
   const full = await readFile(path.join(f.root(), file), "utf8");
   // 全文是写给模型的分行文字：题面三个代码块的 3,000 行原样分行写出。
-  assert.match(full, /^课「t01」\n知识点 t01\.k1「t01\.k1」\n学习者还没有提交这道题。\n\n## 题目\n当前题面。\n\n```python\nv1 = 0\n/u);
-  assert.match(full, /\nv3000 = 999\n```\n\n填写文字。$/u);
+  assert.match(full, /^课「t01」\n知识点 t01\.k1「t01\.k1」\n学习者已提交这道题，判分结果：[^\n]+\n\n## 题目\n当前题面。\n\n```python\nv1 = 0\n/u);
+  assert.match(full, /\nv3000 = 999\n```\n\n填写文字。\n/u);
   const [head = "", rest = ""] = shown.split(/\n\[中间省略 \d+ 字节、\d+ 行；全文在 \S+，可用 read 工具按行读取\]\n/u);
   assert.ok(full.startsWith(head) && full.endsWith(rest));
   assert.ok(head.length + rest.length < full.length);
@@ -526,14 +528,21 @@ test("当前题目超过底座的输出上限时，模型收到开头、结尾�
 });
 
 /** 只有一个知识点的 topic，练习就是给定的这一道题。 */
+/**
+ * 一个知识点的课，第一道练习是给定的题，再加两道练习，答错一题也不当场结束：程序判分的题再加两道同样的；
+ * 开放题不计入必做，再加两道程序判分的题。
+ */
 function lessonWith(id: string, question: Omit<Question, "id">): Topic {
   const kpId = `${id}.k1`;
+  const open = question.slots.some((slot) => slot.type === "text" && slot.rubric !== undefined);
+  const plain: Omit<Question, "id"> = { body: "1 + 1？", explanation: "二。", slots: [{ id: "answer", type: "text", key: "2" }] };
+  const practice = open ? [question, plain, plain] : [question, question, question];
   return {
     id, title: `${id} 的课`, status: "complete", minutes: 5, prerequisites: [], sources: [],
     kps: [{
       id: kpId, title: `${id} 的知识点`, lesson: "先算右边，再让左边的名字指向结果。",
       example: { id: `${kpId}.e1`, body: "例题", explanation: "例题解说", slots: [{ id: "answer", type: "text", key: "1" }] },
-      practice: [{ ...question, id: `${kpId}.q1` }],
+      practice: practice.map((entry, index) => ({ ...entry, id: `${kpId}.q${index + 1}` })),
     }],
   };
 }
@@ -583,7 +592,7 @@ function option(delivery: Delivery, slotId: string, text: string): { number: num
   return { number: index + 1, id: found.id };
 }
 
-test("模型读到的当前题目是分行文字：选择题、代码题和开放题判分前后各读一次，输入框后缀与单个小问的标签照样写出", { timeout: 30000 }, async (t) => {
+test("模型读到的当前题目是分行文字：作答期间读不到，答完以后选择题、代码题和开放题各读一次，输入框后缀与单个小问的标签照样写出", { timeout: 30000 }, async (t) => {
   // python.run 的替身不运行 Python：学习者的 print(len(nums) * 3) 在第一个测试里打印 9，在第二个测试里打印 3。
   const f = await fixture(t, [lessonWith("c01", CHOICE), lessonWith("c02", CODE), lessonWith("c03", OPEN)], {
     python: (job) => (job.setup === "nums = [1, 2, 3]" ? "9\n" : "3\n"),
@@ -604,11 +613,14 @@ test("模型读到的当前题目是分行文字：选择题、代码题和开�
   const right = option(delivery, "source", "算出的结果");
   const wrong = option(delivery, "source", "直接写下");
   const printed = option(delivery, "source", "print(4)");
-  const choiceBefore = (await f.toolResult("learning_task", {})).text;
-  assert.ok(choiceBefore.startsWith([
+  // 作答期间模型读不到题目；答完以后读到的题目、作答和判分如下。
+  await assert.rejects(f.toolResult("learning_task", {}), fault("message_rejected"));
+  await f.submit(() => ({ output: { type: "text", text: "4" }, source: { type: "choice", selected: [wrong.id] } }));
+  const choiceAfter = (await f.toolResult("learning_task", {})).text;
+  assert.ok(choiceAfter.startsWith([
     "课「c01 的课」",
     "知识点 c01.k1「c01 的知识点」",
-    "学习者还没有提交这道题。",
+    "学习者已提交这道题，判分结果：部分正确。",
     "",
     "## 题目",
     "阅读下面的程序。",
@@ -622,23 +634,11 @@ test("模型读到的当前题目是分行文字：选择题、代码题和开�
     "### 第 1 问",
     "`usable` 是多少？",
     "填一个整数，输入框后面写着「份」。",
-    "",
-    "### 第 2 问",
-    "`usable` 的值是怎样来的？",
-    "单选，选项按学习者看到的顺序：",
-  ].join("\n")), choiceBefore);
-  assert.ok(choiceBefore.includes(`\n${right.number}. \`samples\` 减 \`reserve\` 算出的结果\n`) || choiceBefore.endsWith(`\n${right.number}. \`samples\` 减 \`reserve\` 算出的结果`));
-  assert.ok(choiceBefore.includes(`${printed.number}.\n  \`\`\`python\n  print(usable)\n  print(4)\n  \`\`\``), choiceBefore);
-  assert.doesNotMatch(choiceBefore, /学习者的作答|判分|## 题解|第三行先算|\bo[0-9a-f]{16}\b|\b[tds]\d+\b|\{"/u);
-  await f.submit(() => ({ output: { type: "text", text: "4" }, source: { type: "choice", selected: [wrong.id] } }));
-  const choiceAfter = (await f.toolResult("learning_task", {})).text;
-  assert.ok(choiceAfter.startsWith([
-    "课「c01 的课」",
-    "知识点 c01.k1「c01 的知识点」",
-    "学习者已提交这道题，判分结果：部分正确。作答前问过辅导或读过参考内容，这次不算独立完成。",
-    "",
-    "## 题目",
   ].join("\n")), choiceAfter);
+  assert.ok(choiceAfter.includes("### 第 2 问\n`usable` 的值是怎样来的？\n单选，选项按学习者看到的顺序：\n"), choiceAfter);
+  assert.ok(choiceAfter.includes(`\n${right.number}. \`samples\` 减 \`reserve\` 算出的结果\n`));
+  assert.ok(choiceAfter.includes(`${printed.number}.\n  \`\`\`python\n  print(usable)\n  print(4)\n  \`\`\``), choiceAfter);
+  assert.doesNotMatch(choiceAfter, /\bo[0-9a-f]{16}\b|\b[tds]\d+\b|\{"/u);
   assert.ok(choiceAfter.includes("`usable` 是多少？\n填一个整数，输入框后面写着「份」。\n学习者的作答：4\n判分：正确\n\n### 第 2 问"), choiceAfter);
   assert.ok(choiceAfter.endsWith([
     `学习者的作答：选 ${wrong.number}`,
@@ -662,18 +662,12 @@ test("模型读到的当前题目是分行文字：选择题、代码题和开�
     "# 在下面写代码",
     "```",
   ];
-  assert.equal((await f.toolResult("learning_task", {})).text, [
-    "课「c02 的课」",
-    "知识点 c02.k1「c02 的知识点」",
-    "学习者还没有提交这道题。",
-    "",
-    ...codeQuestion,
-  ].join("\n"));
+  await assert.rejects(f.toolResult("learning_task", {}), fault("message_rejected"));
   await f.submit(() => ({ code: { type: "code", code: "# 在下面写代码\nprint(len(nums) * 3)\n" } }));
   assert.equal((await f.toolResult("learning_task", {})).text, [
     "课「c02 的课」",
     "知识点 c02.k1「c02 的知识点」",
-    "学习者已提交这道题，判分结果：错误。作答前问过辅导或读过参考内容，这次不算独立完成。",
+    "学习者已提交这道题，判分结果：错误。",
     "",
     ...codeQuestion,
     "学习者的作答：",
@@ -712,20 +706,14 @@ test("模型读到的当前题目是分行文字：选择题、代码题和开�
     "说出显示的值，并说明原因。",
     "填写文字。",
   ];
-  assert.equal((await f.toolResult("learning_task", {})).text, [
-    "课「c03 的课」",
-    "知识点 c03.k1「c03 的知识点」",
-    "学习者还没有提交这道题。",
-    "",
-    ...openQuestion,
-  ].join("\n"));
+  await assert.rejects(f.toolResult("learning_task", {}), fault("message_rejected"));
   // 开放题由隔离的模型按评分要点判分。
   f.faux.setResponses([fauxAssistantMessage([fauxToolCall("submit_result", { verdict: "partial", reason: "说出了 2，但没有说明先算右边再赋值。" })])]);
   await f.submit(() => ({ why: { type: "text", text: "显示 2。\n因为 x 加了 1。" } }));
   assert.equal((await f.toolResult("learning_task", {})).text, [
     "课「c03 的课」",
     "知识点 c03.k1「c03 的知识点」",
-    "学习者已提交这道题，判分结果：部分正确（由模型按评分要点判）。作答前问过辅导或读过参考内容，这次不算独立完成。",
+    "学习者已提交这道题，判分结果：部分正确（由模型按评分要点判）。",
     "",
     ...openQuestion,
     "学习者的作答：",
