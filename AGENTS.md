@@ -68,6 +68,7 @@ Repa 正在重做。旧实现已从工作树删除，保留在标签 `pre-rebuil
 
 ## 工作入口
 
+- 各模块的 AGENTS.md 写明入口、注意事项和阶段性做法。阶段性做法是当前阶段的取舍，不是设计，不以它们为前提扩展。
 - 新增机制前，先查阅 [packages/README.md](packages/README.md) 和 [docs/generated/](docs/generated/) 中的目录，了解已有做法。
 - 文档的存放位置与写法见 [docs/AGENTS.md](docs/AGENTS.md)。
 - 编写包的约定见 [packages/AGENTS.md](packages/AGENTS.md)。

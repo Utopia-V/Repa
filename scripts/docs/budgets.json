@@ -16,8 +16,8 @@
   },
   {
     "path": "packages/learning/AGENTS.md",
-    "maxChars": 500,
-    "reason": "以引入文档检查时的长度为基准，预留 10%"
+    "maxChars": 800,
+    "reason": "加入入口与阶段性做法后的长度，预留 10%"
   },
   {
     "path": "docs/AGENTS.md",
@@ -28,5 +28,25 @@
     "path": "packages/AGENTS.md",
     "maxChars": 400,
     "reason": "以引入文档检查时的长度为基准，预留 10%"
+  },
+  {
+    "path": "packages/learning/courses/AGENTS.md",
+    "maxChars": 590,
+    "reason": "以建立时的长度为基准，预留 10%"
+  },
+  {
+    "path": "packages/python-runner/AGENTS.md",
+    "maxChars": 350,
+    "reason": "以建立时的长度为基准，预留 10%"
+  },
+  {
+    "path": "packages/space-history/AGENTS.md",
+    "maxChars": 220,
+    "reason": "以建立时的长度为基准，预留 10%"
+  },
+  {
+    "path": "apps/desktop/AGENTS.md",
+    "maxChars": 430,
+    "reason": "以建立时的长度为基准，预留 10%"
   }
 ]
