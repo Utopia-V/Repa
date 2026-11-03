@@ -1,0 +1,53 @@
+/* K 色场：约瑟夫·阿尔伯斯。靠相邻色的关系分层，不用线、不用灰。阶段推进时背景换一层色。 */
+@import "_base.css";
+:root { color-scheme: light; --a: #e6e2c3; --b: #d3cf9a; --c: #b4b56a; --d: #515a2c; --ink: #23280f; --soft: #434a22; --faint: #5a6030; --hair: #b4b56a; --paper: #e6e2c3; --blue: #515a2c; --sting: #a6330f; --focus: #23280f;
+  --sans: 'PingFang SC', 'Noto Sans CJK SC', sans-serif; --song: 'Noto Serif CJK SC', serif; --mono: 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; --gap: 1em; }
+body { background: var(--c); color: var(--ink); font: 400 17px/1.85 var(--sans); transition: background .5s; }
+body[data-step="example"] { background: #a6a95a; }
+body[data-step="practice"] { background: var(--d); }
+/* homage to the square: planes nested low in their frame */
+.app { display: grid; grid-template-columns: 320px minmax(0, 660px) 300px; grid-template-rows: 64px 1fr; justify-content: center; padding: 16px 40px 0; min-height: 100dvh; }
+.bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 24px; font-size: 14px; color: var(--a); }
+body[data-step="explanation"] .bar, body[data-step="example"] .bar { color: var(--ink); }
+.course { flex: 1; }
+.xp-text b { font-weight: 700; }
+.abort { color: inherit; }
+.map { grid-column: 1; grid-row: 2; background: var(--b); padding: 32px 24px 24px; display: flex; flex-direction: column; }
+.work { grid-column: 2; grid-row: 2; background: var(--a); padding: 48px 56px 96px; min-height: calc(100dvh - 80px); }
+.tutor { grid-column: 3; grid-row: 2; background: var(--b); padding: 32px 24px 24px; font-size: 15px; line-height: 1.7; }
+.topic { font: 700 32px/1.3 var(--song); text-wrap: balance; }
+.steps { display: flex; gap: 16px; margin-top: 16px; font-size: 14px; color: var(--soft); }
+.steps li[aria-current] { color: var(--a); background: var(--d); padding: 0 8px; }
+.kps { display: grid; gap: 12px; margin-top: 20px; font-size: 14px; line-height: 1.55; color: var(--soft); }
+.kp-marks { color: var(--d); margin-top: 4px; }
+.figure { flex: 1; margin-top: 16px; min-height: 0; }
+.prose code { font: 400 15px var(--mono); background: var(--b); padding: 1px 5px; }
+.prose strong { font-weight: 700; }
+.code { background: var(--d); color: var(--a); padding: 20px 8px; font: 400 15px/1.9 var(--mono); }
+.prose .code code { background: none; }
+.code .v { color: #e8d36a; }
+.answer { margin-top: 32px; }
+.answer label { font-weight: 700; }
+.answer input { height: 52px; padding: 0 14px; border: 0; border-radius: 0; background: var(--b); font: 500 22px var(--mono); }
+.answer input:read-only { background: transparent; box-shadow: inset 0 -2px 0 var(--c); }
+.verdict { margin-top: 32px; font: 700 20px var(--song); }
+.verdict[data-v="right"] { color: var(--d); }
+.verdict[data-v="wrong"] { color: var(--sting); }
+body[data-stage="wrong"] .answer input { color: var(--sting); text-decoration: line-through; }
+.reference, .analysis, .slot-feedback { margin-top: 24px; }
+.reference h3, .analysis h3 { font-size: 14px; font-weight: 600; color: var(--soft); }
+.reference-value { font: 500 22px var(--mono); }
+.actions { margin-top: 32px; }
+.actions button { height: 48px; min-width: 104px; padding: 0 22px; font-weight: 600; }
+.actions .primary { background: var(--d); color: var(--a); }
+.actions .primary:hover { background: var(--ink); }
+.actions .secondary { color: var(--soft); min-width: 0; }
+.tutor-title { font: 700 16px var(--song); }
+.tutor-input textarea { border: 0; background: var(--a); }
+.tutor-input button { background: var(--d); color: var(--a); }
+.tutor-lock { margin-top: 8px; }
+.tutor[data-closed="1"] { background: #c7c489; }
+body[data-kind="quiz"] .app, body[data-kind="review"] .app { grid-template-columns: minmax(0, 660px); }
+body[data-kind="quiz"] .work, body[data-kind="review"] .work { grid-column: 1; }
+body[data-kind="quiz"] .clock { font: 700 28px var(--mono); color: var(--a); }
+@media (max-width: 1100px) { .app { display: block; padding: 8px; } .bar { padding: 8px 12px; flex-wrap: wrap; } .figure { display: none; } .map, .tutor { padding: 20px; } .work { padding: 28px 20px 48px; min-height: 0; } }

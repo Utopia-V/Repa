@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>整页语言</title>
+<style>
+  body { margin: 0; background: #d9dee3; font: 14px/1.6 'Noto Sans CJK SC', sans-serif; color: #25272b; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; gap: 8px; align-items: center; padding: 12px 24px; background: #f7f8f9; box-shadow: 0 1px 0 #c5ccd3; }
+  header button { padding: 2px 10px; border: 0; background: none; font: inherit; cursor: pointer; color: #4c5056; }
+  header button[aria-pressed="true"] { background: #25272b; color: #fff; }
+  header a { margin-left: auto; color: #4c5056; }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 24px; padding: 24px; }
+  figure { margin: 0; display: grid; gap: 6px; }
+  .frame { position: relative; aspect-ratio: 1440 / 900; overflow: hidden; background: #fff; }
+  iframe { position: absolute; left: 0; top: 0; width: 1440px; height: 900px; border: 0; transform-origin: 0 0; pointer-events: none; }
+  figcaption a { color: inherit; }
+</style>
+</head>
+<body>
+<header id="head"></header>
+<main id="grid"></main>
+<script>
+  const THEMES = { e: "E 复", f: "F 蓝印", g: "G 1-bit", h: "H 套印", i: "I 终端", j: "J 版式", k: "K 色场", l: "L 立体", m: "M 水墨", a: "A 书房", b: "B 构成", c: "C 格律", d: "D 塔" };
+  const STAGES = { explanation: "讲解", practice: "作答", right: "答对", wrong: "答错" };
+  const params = new URLSearchParams(location.search);
+  let stage = params.get("stage") ?? "wrong", later = params.get("later") !== "0";
+  const head = document.querySelector("#head"), grid = document.querySelector("#grid");
+  const draw = () => {
+    head.replaceChildren(...Object.entries(STAGES).map(([key, label]) => {
+      const b = Object.assign(document.createElement("button"), { textContent: label, type: "button" });
+      b.setAttribute("aria-pressed", String(key === stage));
+      b.addEventListener("click", () => { stage = key; draw(); });
+      return b;
+    }), (() => { const b = Object.assign(document.createElement("button"), { textContent: "后期", type: "button" }); b.setAttribute("aria-pressed", String(later)); b.addEventListener("click", () => { later = !later; draw(); }); return b; })(), Object.assign(document.createElement("a"), { href: "explore.html", textContent: "探索墙" }));
+    grid.replaceChildren(...Object.entries(THEMES).map(([key, name]) => {
+      const url = `index.html?theme=${key}&stage=${stage}&later=${later ? 1 : 0}`;
+      const figure = document.createElement("figure");
+      const frame = Object.assign(document.createElement("div"), { className: "frame" });
+      const iframe = Object.assign(document.createElement("iframe"), { src: `${url}&chrome=0`, title: name, loading: "lazy", tabIndex: -1 });
+      frame.append(iframe);
+      new ResizeObserver(() => { iframe.style.transform = `scale(${frame.clientWidth / 1440})`; }).observe(frame);
+      const caption = document.createElement("figcaption");
+      caption.append(Object.assign(document.createElement("a"), { href: url, textContent: name }));
+      figure.append(frame, caption);
+      return figure;
+    }));
+  };
+  draw();
+</script>
+</body>
+</html>

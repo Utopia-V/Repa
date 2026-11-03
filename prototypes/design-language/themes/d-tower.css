@@ -1,0 +1,106 @@
+/* D 塔：蓝图上的第三国际纪念塔。120 个知识点沿螺旋建起一座塔，右边是一张工程图纸用来读和答。搞着玩的方向。 */
+
+/* tokens */
+:root {
+  color-scheme: light;
+  --print: #123a57;
+  --print-deep: #0d2c43;
+  --on-print: #e8f2fa;
+  --on-print-soft: #e8f2fa99;
+  --sheet: #f7f8f9;
+  --ink: #1b2730;
+  --soft: #55626d;
+  --hair: #123a5733;
+  --tint: #e7eef3;
+  --red: #b23c2a;
+  --sans: 'PingFang SC', 'Noto Sans CJK SC', system-ui, sans-serif;
+  --serif: 'Noto Serif CJK SC', 'Songti SC', serif;
+  --mono: 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace;
+  --split: 50vw;
+}
+
+/* layout */
+body { background: var(--print); color: var(--ink); font: 400 17px/1.8 var(--sans); }
+.app { display: block; }
+.figure { position: fixed; inset: 0 calc(100vw - var(--split)) 0 0; z-index: 0; pointer-events: auto; cursor: grab; touch-action: none; }
+.figure:active { cursor: grabbing; }
+.figure canvas { width: 100%; height: 100%; display: block; }
+.map { position: fixed; top: 40px; left: 40px; width: calc(var(--split) - 80px); z-index: 1; pointer-events: none; color: var(--on-print); }
+.bar, .work { position: relative; z-index: 2; margin-left: var(--split); background: var(--sheet); }
+.bar { display: flex; align-items: center; gap: 24px; padding: 36px 64px 32px; }
+.work { min-height: calc(100dvh - 90px); padding: 8px 64px 130px; }
+.tutor { position: fixed; z-index: 3; left: 40px; bottom: 32px; width: min(420px, calc(var(--split) - 80px)); }
+
+/* components */
+.topic { font: 600 32px/1.35 var(--serif); letter-spacing: .02em; max-width: 13em; }
+.steps { display: flex; gap: 18px; margin-top: 16px; font-size: 14px; line-height: 1.6; color: var(--on-print-soft); }
+.steps li[data-passed="1"] { color: var(--on-print); }
+.steps li[aria-current] { color: var(--on-print); box-shadow: 0 2px 0 var(--on-print); }
+.kps { display: grid; gap: 8px; margin-top: 20px; font-size: 14px; line-height: 1.55; max-width: 21em; }
+.kp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; color: var(--on-print-soft); }
+.kp[data-done="1"] { color: var(--on-print); }
+.kp-marks { display: flex; gap: 3px; min-height: 2px; }
+.kp-marks i { width: 12px; height: 3px; background: var(--on-print-soft); }
+.kp-marks i[data-mark="right"] { background: var(--on-print); box-shadow: 0 0 6px #e8f2fa99; }
+
+.bar { font-size: 14px; line-height: 1.6; color: var(--soft); }
+.course { flex: 1; }
+.xp { display: flex; align-items: center; gap: 10px; }
+.xp-text b { font-weight: 500; color: var(--ink); }
+.xp-ticks { display: none; }
+.abort { color: var(--soft); }
+.abort:hover { color: var(--ink); }
+
+.prose { max-width: 38rem; }
+.prose p + p, .prose p + ol, .prose ol + p, .prose .code + p, .prose p + .code { margin-top: 1em; }
+.prose li + li { margin-top: .4em; }
+.prose code { font: 400 .92em var(--mono); color: var(--print); background: var(--tint); padding: .1em .32em; }
+.prose strong { font-weight: 600; }
+.code { padding: 20px 24px; background: var(--print); color: var(--on-print); font: 400 15px/1.85 var(--mono); overflow-x: auto; }
+.prose .code code { background: none; color: inherit; padding: 0; font: inherit; }
+.code .f { color: var(--on-print-soft); }
+.code .v { color: #ffffff; font-weight: 600; }
+
+.answer { display: grid; gap: 10px; margin-top: 28px; }
+.answer label { font-weight: 500; }
+.answer input { height: 46px; padding: 0 14px; border: 0; border-radius: 0; box-shadow: inset 0 0 0 1px var(--print); background: transparent; font: 400 18px var(--mono); }
+.answer input:read-only { box-shadow: inset 0 -1px 0 var(--hair); padding-left: 0; }
+.answer input:focus-visible, button:focus-visible, textarea:focus-visible { outline: 2px solid var(--print); outline-offset: 2px; }
+.verdict { align-items: center; gap: 8px; margin-top: 28px; font-weight: 600; }
+.verdict svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.verdict[data-v="right"] { color: var(--print); }
+.verdict[data-v="wrong"] { color: var(--red); }
+.reference, .analysis { margin-top: 24px; }
+.reference h3, .analysis h3 { font-size: 13px; font-weight: 500; line-height: 1.6; color: var(--soft); }
+.reference-value { font: 400 18px/1.6 var(--mono); }
+
+.actions { display: flex; gap: 16px; align-items: center; justify-content: flex-end; margin-top: 32px; max-width: 38rem; }
+.actions button { height: 40px; padding: 0 22px; font-size: 14px; }
+.actions .primary { background: var(--print); color: var(--on-print); }
+.actions .primary:hover { background: var(--print-deep); }
+.actions .secondary { color: var(--soft); padding: 0 6px; }
+.actions .secondary:hover { color: var(--ink); }
+
+.tutor { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px; background: #0d2c43cc; backdrop-filter: blur(10px); color: var(--on-print); font-size: 14px; line-height: 1.6; box-shadow: 0 0 0 1px #e8f2fa33; }
+.tutor-title { font: inherit; white-space: nowrap; }
+.tutor-lock { width: 15px; height: 15px; fill: none; stroke: var(--on-print-soft); stroke-width: 1.6; }
+.tutor-log { display: none; }
+.tutor-input { flex: 1; display: flex; align-items: center; gap: 8px; }
+.tutor-input textarea { padding: 4px 0; border: 0; background: none; color: var(--on-print); }
+.tutor-input button { flex: none; width: 28px; height: 28px; display: grid; place-items: center; color: var(--on-print-soft); }
+.tutor-input button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.tutor[data-closed="1"] { background: transparent; box-shadow: inset 0 0 0 1px #e8f2fa33; color: var(--on-print-soft); }
+
+/* narrow */
+@media (max-width: 900px) {
+  :root { --split: 0px; }
+  .figure { position: absolute; inset: 0 0 auto 0; height: 58dvh; }
+  .map { position: relative; top: auto; left: auto; width: auto; height: 58dvh; padding: 20px; }
+  .topic { font-size: 24px; }
+  .kps { display: none; }
+  .bar { flex-wrap: wrap; gap: 8px 16px; padding: 18px 20px 8px; }
+  .course { flex-basis: 100%; }
+  .abort { margin-left: auto; }
+  .work { min-height: 0; padding: 8px 20px 90px; }
+  .tutor { left: 12px; right: 12px; bottom: 12px; width: auto; }
+}

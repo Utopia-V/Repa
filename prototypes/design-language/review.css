@@ -1,0 +1,14 @@
+/* The review bar is mine, not part of any direction. */
+.review {
+  position: fixed; right: 12px; bottom: 12px; z-index: 1000;
+  display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; max-width: calc(100vw - 24px);
+  padding: 6px 10px; border-radius: 6px;
+  background: #000000d9; color: #fff; font: 12px/1.6 system-ui, sans-serif;
+}
+.review span { display: flex; gap: 2px; }
+.review button { padding: 1px 7px; border-radius: 3px; color: #ffffffb3; font: inherit; }
+@media (hover: hover) { .review button:hover { color: #fff; } }
+.review button[aria-pressed="true"] { background: #fff; color: #000; }
+.review[hidden] { display: none; }
+.review .review-link { padding: 1px 7px; color: #ffffffb3; text-decoration: underline; text-underline-offset: 2px; }
+@media (hover: hover) { .review .review-link:hover { color: #fff; } }
