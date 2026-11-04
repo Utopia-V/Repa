@@ -22,7 +22,7 @@ import type { PendingConfirmation } from "@/lib/store";
 type Provider = Result<"model.providers">[number];
 type Method = Provider["methods"][number];
 
-/** 对话框里的步骤：选提供方、选登录方式、填 key、交互登录。 */
+/** 对话框里的步骤：选模型服务商、选登录方式、填 key、交互登录。 */
 type Step =
   | { kind: "pick" }
   | { kind: "method"; provider: Provider }
@@ -33,14 +33,14 @@ const methodLabel = { api_key: "填写 API key", oauth: "用账号登录" } as c
 
 
 /**
- * 连接模型提供方。key 由 auth.setKey 保存；账号登录和需要多项信息的 key 走 auth.login，
+ * 连接模型服务商。key 由 auth.setKey 保存；账号登录和需要多项信息的 key 走 auth.login，
  * 过程中后端发来的输入、选择和链接显示在同一个对话框里。
  */
 export function ProviderConnectDialog({ open, onOpenChange, providers, initial }: {
   open: boolean;
   onOpenChange(open: boolean): void;
   providers: Provider[];
-  /** 直接从某个提供方开始，跳过选择。 */
+  /** 直接从某个模型服务商开始，跳过选择。 */
   initial?: Provider | undefined;
 }) {
   const cancelLogin = useAppStore((state) => state.cancelLogin);
@@ -57,7 +57,7 @@ export function ProviderConnectDialog({ open, onOpenChange, providers, initial }
   }
 
   const toPick = initial ? undefined : () => setStep({ kind: "pick" });
-  // 从填 key 或登录返回：有方式可选时回到方式页，否则回到提供方列表；从某个提供方直接打开时关闭。
+  // 从填 key 或登录返回：有方式可选时回到方式页，否则回到模型服务商列表；从某个模型服务商直接打开时关闭。
   function back(provider: Provider) {
     const first = firstStep(provider);
     if (first.kind === "method") setStep(first);
@@ -173,7 +173,7 @@ function KeyForm({ provider, method, onBack, onSaved, onNeedsLogin }: {
       onSaved();
     } catch (failure) {
       setSaving(false);
-      // 只填一个 key 不够的提供方（例如还要选区域），改走后端的交互登录。
+      // 只填一个 key 不够的模型服务商（例如还要选区域），改走后端的交互登录。
       if (errorCode(failure) === "requires_interactive_login") onNeedsLogin();
       else setError(failure);
     }
@@ -250,7 +250,7 @@ function LoginFlow({ provider, type, onDone, onBack }: {
 }
 
 /** 登录过程中后端要用户回答的一项：输入（可能是密文）或从选项中选一个。 */
-/** 登录链接来自提供方，只把网页链接做成按钮，其他协议照原文显示。 */
+/** 登录链接来自模型服务商，只把网页链接做成按钮，其他协议照原文显示。 */
 function NoticeLink({ url, primary }: { url: string; primary: boolean }) {
   if (!/^https?:/i.test(url)) return <p className="break-all text-muted-foreground">{url}</p>;
   return <div>

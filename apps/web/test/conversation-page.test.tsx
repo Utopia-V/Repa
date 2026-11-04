@@ -193,7 +193,7 @@ it("关闭授权对话框按拒绝回复", async () => {
   await vi.waitFor(() => expect(fake.call).toHaveBeenCalledWith("confirm.reply", { id: "c1", value: false }));
 });
 
-it("显示会话自己的模型，换模型只改这个会话；提供方没连接时提示", async () => {
+it("显示会话自己的模型，换模型只改这个会话；模型服务商没连接时提示", async () => {
   const fake = backend([], { provider: "anthropic", id: "claude" }, {
     sessions: [{ id: "s1", createdAt: at, updatedAt: at, agent: "general", model: { provider: "fake", id: "tutor" } }],
     models: [

@@ -18,5 +18,10 @@
     "term": "Learning Space",
     "replacement": "学习空间",
     "reason": "#101 定的界面用词，侧栏和页面标题写中文"
+  },
+  {
+    "term": "模型提供方",
+    "replacement": "模型服务商",
+    "reason": "#101 定的用词；前端服务的“服务提供方”是另一个概念，不受影响"
   }
 ]

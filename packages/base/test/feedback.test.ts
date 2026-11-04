@@ -159,7 +159,7 @@ test("auth.json 用环境变量或命令引用的密钥，按 Pi 解析出的值
     delete process.env.REPA_FEEDBACK_AUDIT_LOGIN;
   });
   await writeFile(path.join(f.home, "agent", "auth.json"), JSON.stringify({
-    // Pi 只解析已注册提供方的凭据，用内置的两个。
+    // Pi 只解析已注册模型服务商的凭据，用内置的两个。
     openai: { type: "api_key", key: "${REPA_FEEDBACK_AUDIT_LOGIN}" },
     deepseek: { type: "api_key", key: `!printf %s ${commanded}` },
   }));

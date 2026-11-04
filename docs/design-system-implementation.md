@@ -76,7 +76,7 @@ docs/design-system.md
 | 选空间 | `pages/learning-space.tsx`、`features/folder-picker.tsx` | 浏览器拿不到本地文件夹的绝对路径，所以由后端 `space.browse` 和 `space.roots` 浏览文件夹，含 `.repa/` 的标“已有空间”。后端关闭空间会中止正在进行的运行，所以运行中不能关 |
 | 对话 | `pages/conversation.tsx`、`lib/conversation.ts` | 会话 id 不放进 URL：后端一次只持有一个空间，离开它所在的空间就没有意义。第一次发送才调用 `session.create`，不留空会话。运行中补充的消息只走 `session.steer`，让纠正尽早影响回复 |
 | 修改历史 | `pages/history.tsx` | `history.list` 只给来源和时间，所以先取最近 200 条，再从其中最早一条的父提交调用 `history.changes` 取文件。撤回只撤销选中的提交，之后又改过的文件保持现状 |
-| 设置 | `pages/settings.tsx`、`features/provider-connect.tsx`、`features/prompt-settings.tsx` | 提供方、凭据和默认模型都来自 Pi，前端不维护提供方表。开启完全访问前先确认，因为命令不在沙箱里。提示按默认、所有空间、本空间三级合成，本空间这一级协议读不到，由有效内容和上一级的差异推出 |
+| 设置 | `pages/settings.tsx`、`features/provider-connect.tsx`、`features/prompt-settings.tsx` | 模型服务商、凭据和默认模型都来自 Pi，前端不维护模型服务商表。开启完全访问前先确认，因为命令不在沙箱里。提示按默认、所有空间、本空间三级合成，本空间这一级协议读不到，由有效内容和上一级的差异推出 |
 
 助手消息由 `components/ui/markdown.tsx` 渲染：只有 http(s) 和 mailto 渲染成链接；图片不加载，显示为指向原地址的链接，避免向第三方暴露访问；代码块用 Shiki 高亮，目前只带 Python、JavaScript、TypeScript、Bash 和 JSON。Agent 调用 `bash` 时的授权对话框由 `features/command-confirmation.tsx` 挂在工作区布局上，离开对话页也能看到。
 

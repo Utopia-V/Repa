@@ -282,7 +282,7 @@ class Runtime implements AgentRuntime {
     let supplied = false;
     await this.options.modelRuntime.login(provider, "api_key", {
       async prompt(prompt) {
-        if (supplied || (prompt.type !== "secret" && prompt.type !== "text")) throw new RepaFault("requires_interactive_login", "此提供方需要额外登录信息，请使用交互登录");
+        if (supplied || (prompt.type !== "secret" && prompt.type !== "text")) throw new RepaFault("requires_interactive_login", "此模型服务商需要额外登录信息，请使用交互登录");
         supplied = true;
         return key;
       },

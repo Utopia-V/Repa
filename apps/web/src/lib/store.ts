@@ -35,9 +35,9 @@ export type CommandPolicy = Result<"settings.get">["commandPolicy"];
 type ResourceData = {
   /** 最近打开的空间，最新的在前。 */
   spaces: Result<"space.list">;
-  /** 模型提供方及其登录方式、凭据状态。 */
+  /** 模型服务商及其登录方式、凭据状态。 */
   providers: Result<"model.providers">;
-  /** Pi 目录里的全部模型，available 表示提供方已经配置凭据。 */
+  /** Pi 目录里的全部模型，available 表示模型服务商已经配置凭据。 */
   models: Result<"model.list">;
   /** 新会话使用的模型；没有可用模型时为 null。 */
   defaultModel: Result<"model.getDefault">;
@@ -197,10 +197,10 @@ export type AppState = LearningActions & {
   submitAsk(id: string, response: ItemResponse): Promise<void>;
   /** 不作答，直接关掉询问。 */
   cancelAsk(id: string): Promise<void>;
-  /** 读取设置页需要的提供方、模型和默认模型。 */
+  /** 读取设置页需要的模型服务商、模型和默认模型。 */
   loadModelSettings(): Promise<void>;
   setDefaultModel(model: Params<"model.setDefault">["model"]): Promise<void>;
-  /** 失败时抛给调用方；需要更多信息的提供方抛出 requires_interactive_login，调用方改走 login。 */
+  /** 失败时抛给调用方；需要更多信息的模型服务商抛出 requires_interactive_login，调用方改走 login。 */
   saveKey(provider: string, key: string): Promise<void>;
   logout(provider: string): Promise<void>;
   loadCommandPolicy(): Promise<void>;

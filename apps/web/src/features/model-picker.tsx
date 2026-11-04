@@ -24,7 +24,7 @@ type ModelDialogProps = {
   current: ModelRef | null | undefined;
 };
 
-/** 从已连接提供方的模型里选默认模型。 */
+/** 从已连接模型服务商的模型里选默认模型。 */
 export function DefaultModelDialog(props: ModelDialogProps) {
   const setDefaultModel = useAppStore((state) => state.setDefaultModel);
   return <ModelDialog {...props} title="选择默认模型" description="新会话使用这个模型。" onChoose={setDefaultModel} />;
@@ -42,7 +42,7 @@ export function ConversationModelDialog(props: ModelDialogProps & { started: boo
   />;
 }
 
-/** 一个提供方可能有几百个模型，所以用搜索加列表。 */
+/** 一个模型服务商可能有几百个模型，所以用搜索加列表。 */
 function ModelDialog({ open, onOpenChange, models, providerNames, current, title, description, onChoose }: ModelDialogProps & {
   title: string;
   description: string;

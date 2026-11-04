@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { installedPiVersion, probeAuth, selectProbeModel } from "../scripts/real-model/model.js";
 
-test("默认仍选 Codex，DeepSeek 可选两种目录模型且拒绝未知提供方和模型", () => {
+test("默认仍选 Codex，DeepSeek 可选两种目录模型且拒绝未知模型服务商和模型", () => {
   assert.equal(selectProbeModel().provider, "openai-codex");
   assert.equal(selectProbeModel().id, "gpt-6-luna");
   assert.equal(selectProbeModel("deepseek").id, "deepseek-flash");

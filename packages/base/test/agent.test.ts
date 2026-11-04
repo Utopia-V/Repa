@@ -516,11 +516,11 @@ test("单 key 登录通过 SDK 持久化，重建运行时仍可用且登出删�
   assert(!JSON.stringify(f.events).includes("test-only-secret"));
 });
 
-test("提供方列表报告登录方式与已保存凭据，默认模型写入 Pi 设置", async t => {
+test("模型服务商列表报告登录方式与已保存凭据，默认模型写入 Pi 设置", async t => {
   const f = await fixture(t);
   const provider = {
     ...f.faux.provider,
-    name: "测试提供方",
+    name: "测试模型服务商",
     auth: {
       apiKey: {
         name: "测试 key",
@@ -538,7 +538,7 @@ test("提供方列表报告登录方式与已保存凭据，默认模型写入 P
   const runtime = await createAgentRuntimeForTest({ agentDir: f.agentDir, modelRuntime: f.models, settingsManager: settings });
   t.after(() => runtime.close());
   const find = async () => (await runtime.listProviders()).find(entry => entry.id === provider.id);
-  const expected = { id: provider.id, name: "测试提供方", methods: [{ type: "api_key", name: "测试 key", login: true }] };
+  const expected = { id: provider.id, name: "测试模型服务商", methods: [{ type: "api_key", name: "测试 key", login: true }] };
   assert.deepEqual(await find(), { ...expected, stored: false });
   await runtime.setKey(provider.id, "test-only-secret");
   assert.deepEqual(await find(), { ...expected, configured: "api_key", stored: true });

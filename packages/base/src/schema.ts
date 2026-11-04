@@ -6,16 +6,16 @@ export const object = <T extends Record<string, TSchema>>(properties: T) =>
   Type.Object(properties, { additionalProperties: false });
 /** 非空字符串 schema，用于标识符和必须填写的字符串字段。 */
 export const identifier = Type.String({ minLength: 1 });
-/** 模型引用的 schema，记录提供方与模型 id，用于选择会话模型或单次调用。 */
+/** 模型引用的 schema，记录模型服务商与模型 id，用于选择会话模型或单次调用。 */
 export const ModelRefSchema = object({ provider: identifier, id: identifier });
-/** 提供方与模型 id 的引用，用于选择会话模型或单次模型调用。 */
+/** 模型服务商与模型 id 的引用，用于选择会话模型或单次模型调用。 */
 export type ModelRef = Static<typeof ModelRefSchema>;
 /** 认证方式的 schema，限定 API key 或 OAuth，供登录与凭据状态使用。 */
 export const AuthTypeSchema = Type.Union([Type.Literal("api_key"), Type.Literal("oauth")]);
-/** 模型提供方的认证方式，用于登录、凭据状态与前端选项。 */
+/** 模型服务商的认证方式，用于登录、凭据状态与前端选项。 */
 export type AuthType = Static<typeof AuthTypeSchema>;
 // login 为 false 的方式只能在 Repa 之外配置（例如环境变量）；stored 表示有可由 auth.logout 删除的保存凭据。
-/** 提供方认证信息的 schema，描述可用登录方式与配置状态，供前端认证设置使用。 */
+/** 模型服务商认证信息的 schema，描述可用登录方式与配置状态，供前端认证设置使用。 */
 export const ProviderInfoSchema = object({
   id: identifier,
   name: Type.String(),
@@ -23,7 +23,7 @@ export const ProviderInfoSchema = object({
   configured: Type.Optional(AuthTypeSchema),
   stored: Type.Boolean(),
 });
-/** 模型提供方的认证选项与配置状态，供前端显示登录和退出入口。 */
+/** 模型服务商的认证选项与配置状态，供前端显示登录和退出入口。 */
 export type ProviderInfo = Static<typeof ProviderInfoSchema>;
 /** 单个提示段覆盖的 schema，允许修改文本或启用状态，供应用和空间设置使用。 */
 export const PromptOverrideSchema = object({

@@ -14,7 +14,7 @@ afterEach(() => { cleanup(); localStorage.clear(); });
 type Provider = Result<"model.providers">[number];
 
 /**
- * 模拟后端的提供方、凭据与应用设置：OpenAI 来自环境变量，Bedrock 只填 key 不够，登录由测试控制何时结束；
+ * 模拟后端的模型服务商、凭据与应用设置：OpenAI 来自环境变量，Bedrock 只填 key 不够，登录由测试控制何时结束；
  * `settings.saveError` 有值时下一次 settings.set 以它失败。
  */
 function backend() {
@@ -75,7 +75,7 @@ function backend() {
         return Promise.resolve(null);
       case "auth.setKey":
         if (params.provider === "bedrock") {
-          return Promise.reject(new RpcError(-32000, "此提供方需要额外登录信息，请使用交互登录", { code: "requires_interactive_login" }));
+          return Promise.reject(new RpcError(-32000, "此模型服务商需要额外登录信息，请使用交互登录", { code: "requires_interactive_login" }));
         }
         connect(String(params.provider), "api_key");
         return Promise.resolve(null);
@@ -146,7 +146,7 @@ async function renderSettings(fake: ReturnType<typeof backend>, space?: string) 
 
 const section = (name: string) => screen.getByRole("heading", { name }).closest("section")!;
 
-it("列出已连接的提供方和默认模型，环境变量里的凭据不能在这里断开", async () => {
+it("列出已连接的模型服务商和默认模型，环境变量里的凭据不能在这里断开", async () => {
   await renderSettings(backend());
   const providers = within(section("模型服务商"));
   expect(providers.getByText("OpenAI")).toBeTruthy();
@@ -155,7 +155,7 @@ it("列出已连接的提供方和默认模型，环境变量里的凭据不能�
   expect(within(section("默认模型")).getByText("GPT-5")).toBeTruthy();
 });
 
-it("搜索提供方并填写 key 连接，之后可以断开", async () => {
+it("搜索模型服务商并填写 key 连接，之后可以断开", async () => {
   const fake = backend();
   await renderSettings(fake);
   fireEvent.click(screen.getByRole("button", { name: "添加模型服务商" }));
@@ -181,7 +181,7 @@ it("搜索提供方并填写 key 连接，之后可以断开", async () => {
   expect(fake.call).toHaveBeenCalledWith("auth.logout", { provider: "deepseek" });
 });
 
-it("只填 key 不够的提供方改走交互登录，按提示回答后完成", async () => {
+it("只填 key 不够的模型服务商改走交互登录，按提示回答后完成", async () => {
   const fake = backend();
   await renderSettings(fake);
   fireEvent.click(screen.getByRole("button", { name: "添加模型服务商" }));
@@ -271,7 +271,7 @@ it("登录失败显示原因，可以重试", async () => {
   await act(async () => fake.logins[1]?.finish());
 });
 
-it("从已连接提供方的模型里选择默认模型", async () => {
+it("从已连接模型服务商的模型里选择默认模型", async () => {
   const fake = backend();
   await renderSettings(fake);
   // 先连接 DeepSeek，让可选模型多于一个。
