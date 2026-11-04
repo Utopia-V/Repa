@@ -107,13 +107,13 @@ function PickProvider({ providers, onPick }: { providers: Provider[]; onPick(pro
 
   return <>
     <DialogHeader>
-      <DialogTitle>添加提供方</DialogTitle>
-      <DialogDescription>选择模型服务的提供方，之后填写 API key 或登录账号。</DialogDescription>
+      <DialogTitle>添加模型服务商</DialogTitle>
+      <DialogDescription>选择模型服务商，之后填写 API key 或登录账号。</DialogDescription>
     </DialogHeader>
-    <SearchInput label="搜索提供方" value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
+    <SearchInput label="搜索模型服务商" value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
     {matched.length === 0
-      ? <p className="text-sm text-muted-foreground">没有找到匹配的提供方。</p>
-      : <ul aria-label="提供方" className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
+      ? <p className="text-sm text-muted-foreground">没有找到匹配的模型服务商。</p>
+      : <ul aria-label="模型服务商" className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
         {matched.map((provider) => <li key={provider.id}>
           <Button variant="ghost" className="w-full justify-start" onClick={() => onPick(provider)}>
             <span className="min-w-0 text-left break-all">{provider.name}</span>
@@ -231,7 +231,7 @@ function LoginFlow({ provider, type, onDone, onBack }: {
   return <>
     <DialogHeader>
       <DialogTitle>登录 {provider.name}</DialogTitle>
-      <DialogDescription>{type === "oauth" ? "按提示在浏览器里完成登录，完成后这里会自动继续。" : "这个提供方需要几项信息，按提示填写。"}</DialogDescription>
+      <DialogDescription>{type === "oauth" ? "按提示在浏览器里完成登录，完成后这里会自动继续。" : "这个模型服务商需要几项信息，按提示填写。"}</DialogDescription>
     </DialogHeader>
     {activeLogin && activeLogin.notices.length > 0 && <ul aria-label="登录说明" className="m-0 grid list-none gap-2 p-0">
       {activeLogin.notices.map((notice, index) => <li key={index} className="grid gap-2 text-sm">

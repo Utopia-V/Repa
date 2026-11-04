@@ -82,13 +82,13 @@ export function SettingsPage() {
       <section aria-labelledby="default-model" className="grid gap-3">
         <h3 id="default-model" className="text-lg font-semibold">默认模型</h3>
         {current === null
-          ? <p className="text-sm text-muted-foreground">还没有可用的模型，先在下面连接一个提供方。</p>
+          ? <p className="text-sm text-muted-foreground">还没有可用的模型，先在下面连接一个模型服务商。</p>
           : <Card className="flex-row items-center justify-between">
             <div className="grid min-w-0 gap-1">
               <span className="font-medium break-all">{currentModel?.name ?? current?.id}</span>
               <span className="text-sm break-all text-muted-foreground">
                 {currentProvider?.name ?? current?.provider}
-                {currentProvider && !currentProvider.configured && "，提供方还没有连接，发送消息会失败"}
+                {currentProvider && !currentProvider.configured && "，模型服务商还没有连接，发送消息会失败"}
               </span>
             </div>
             <Button variant="outline" disabled={available.length === 0} onClick={() => setPicking(true)}>更换</Button>
@@ -97,15 +97,15 @@ export function SettingsPage() {
 
       <section aria-labelledby="model-providers" className="grid gap-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 id="model-providers" className="text-lg font-semibold">模型提供方</h3>
+          <h3 id="model-providers" className="text-lg font-semibold">模型服务商</h3>
           {/* 还没有连接时添加是唯一要做的事，用主按钮。 */}
           <Button variant={connected.length === 0 ? "default" : "outline"} onClick={() => setConnecting(true)}>
-            <Plus aria-hidden="true" />添加提供方
+            <Plus aria-hidden="true" />添加模型服务商
           </Button>
         </div>
         {failure && <ErrorNotice title={`无法断开 ${providerNames.get(failure.provider) ?? failure.provider}`} error={failure.error} />}
         {connected.length === 0
-          ? <p className="text-sm text-muted-foreground">还没有连接任何提供方。</p>
+          ? <p className="text-sm text-muted-foreground">还没有连接任何模型服务商。</p>
           : <ul aria-labelledby="model-providers" className="m-0 grid list-none gap-2 p-0">
             {connected.map((provider) => <li key={provider.id}>
               <Card className="flex-row items-center justify-between">

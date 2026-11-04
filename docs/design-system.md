@@ -178,6 +178,7 @@ Standard Card 默认内距为 `--space-20`。紧凑型 Card 必须由基础组�
 | 会话 | 会话 | session，`session.*` | 侧栏和对话页里和 Agent 的聊天，一条会话是一串消息 |
 | 对话 | 对话 | 学习插件的辅导会话 | 学习页里问辅导的聊天 |
 | Agent | Agent | agent | 暂不换名 |
+| 模型服务商 | 模型服务商 | provider，`model.providers`、`auth.*` | 提供模型的服务，例如 OpenAI；不写“提供方” |
 | 通过 | 通过 | 任务结果 `passed` | 只用于新课、复习、测验的结果 |
 | 掌握 | 掌握 | 学生模型的估计 | 不用于任务结果 |
 | 判分、作答 | 判分、作答 | judge、submission | |

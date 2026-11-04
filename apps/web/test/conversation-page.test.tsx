@@ -162,7 +162,7 @@ it("发送时后端报告没有可用模型，同样引导去设置，不重复�
   await vi.waitFor(() => expect(fake.sends).toHaveLength(1));
   await act(async () => fake.sends[0]?.finish(new RpcError(-32000, "请选择可用模型", { code: "model_required" })));
 
-  expect((await screen.findAllByRole("alert")).map((alert) => alert.textContent)).toEqual(["还没有可用的模型连接一个模型提供方后才能对话。"]);
+  expect((await screen.findAllByRole("alert")).map((alert) => alert.textContent)).toEqual(["还没有可用的模型连接一个模型服务商后才能对话。"]);
   expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
   expect((input as HTMLTextAreaElement).value).toBe("你好");
 });

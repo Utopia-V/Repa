@@ -148,7 +148,7 @@ const section = (name: string) => screen.getByRole("heading", { name }).closest(
 
 it("列出已连接的提供方和默认模型，环境变量里的凭据不能在这里断开", async () => {
   await renderSettings(backend());
-  const providers = within(section("模型提供方"));
+  const providers = within(section("模型服务商"));
   expect(providers.getByText("OpenAI")).toBeTruthy();
   expect(providers.getByText("API key，由环境变量或配置文件提供")).toBeTruthy();
   expect(providers.queryByRole("button", { name: "断开" })).toBeNull();
@@ -158,9 +158,9 @@ it("列出已连接的提供方和默认模型，环境变量里的凭据不能�
 it("搜索提供方并填写 key 连接，之后可以断开", async () => {
   const fake = backend();
   await renderSettings(fake);
-  fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
-  const dialog = await screen.findByRole("dialog", { name: "添加提供方" });
-  fireEvent.change(within(dialog).getByRole("textbox", { name: "搜索提供方" }), { target: { value: "deep" } });
+  fireEvent.click(screen.getByRole("button", { name: "添加模型服务商" }));
+  const dialog = await screen.findByRole("dialog", { name: "添加模型服务商" });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "搜索模型服务商" }), { target: { value: "deep" } });
   expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toContain("DeepSeek");
   expect(within(dialog).queryByRole("button", { name: "Anthropic" })).toBeNull();
   fireEvent.click(within(dialog).getByRole("button", { name: "DeepSeek" }));
@@ -174,7 +174,7 @@ it("搜索提供方并填写 key 连接，之后可以断开", async () => {
 
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(fake.call).toHaveBeenCalledWith("auth.setKey", { provider: "deepseek", key: "sk-test" });
-  const providers = within(section("模型提供方"));
+  const providers = within(section("模型服务商"));
   expect(await providers.findByText("DeepSeek")).toBeTruthy();
   fireEvent.click(providers.getByRole("button", { name: "断开" }));
   await vi.waitFor(() => expect(providers.queryByText("DeepSeek")).toBeNull());
@@ -184,7 +184,7 @@ it("搜索提供方并填写 key 连接，之后可以断开", async () => {
 it("只填 key 不够的提供方改走交互登录，按提示回答后完成", async () => {
   const fake = backend();
   await renderSettings(fake);
-  fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加模型服务商" }));
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Amazon Bedrock" }));
   const keyDialog = await screen.findByRole("dialog", { name: "连接 Amazon Bedrock" });
   fireEvent.change(within(keyDialog).getByLabelText("AWS credentials"), { target: { value: "key" } });
@@ -203,13 +203,13 @@ it("只填 key 不够的提供方改走交互登录，按提示回答后完成",
 
   await act(async () => fake.logins[0]?.finish());
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(await within(section("模型提供方")).findByText("Amazon Bedrock")).toBeTruthy();
+  expect(await within(section("模型服务商")).findByText("Amazon Bedrock")).toBeTruthy();
 });
 
 it("账号登录显示后端给的链接和选项，关闭对话框取消等待中的提问", async () => {
   const fake = backend();
   await renderSettings(fake);
-  fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加模型服务商" }));
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Anthropic" }));
   const methods = await screen.findByRole("dialog", { name: "连接 Anthropic" });
   fireEvent.click(within(methods).getByRole("button", { name: /用账号登录/ }));
@@ -243,7 +243,7 @@ it("账号登录显示后端给的链接和选项，关闭对话框取消等待�
 it("登录链接不是网页地址时只显示原文，不做成可点的链接", async () => {
   const fake = backend();
   await renderSettings(fake);
-  fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加模型服务商" }));
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Anthropic" }));
   fireEvent.click(within(await screen.findByRole("dialog", { name: "连接 Anthropic" })).getByRole("button", { name: /用账号登录/ }));
 
@@ -257,7 +257,7 @@ it("登录链接不是网页地址时只显示原文，不做成可点的链接"
 it("登录失败显示原因，可以重试", async () => {
   const fake = backend();
   await renderSettings(fake);
-  fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加模型服务商" }));
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Anthropic" }));
   fireEvent.click(within(await screen.findByRole("dialog", { name: "连接 Anthropic" })).getByRole("button", { name: /用账号登录/ }));
   await vi.waitFor(() => expect(fake.logins).toHaveLength(1));
@@ -275,7 +275,7 @@ it("从已连接提供方的模型里选择默认模型", async () => {
   const fake = backend();
   await renderSettings(fake);
   // 先连接 DeepSeek，让可选模型多于一个。
-  fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加模型服务商" }));
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "DeepSeek" }));
   fireEvent.change(within(await screen.findByRole("dialog", { name: "连接 DeepSeek" })).getByLabelText("DeepSeek API key"), { target: { value: "sk" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));

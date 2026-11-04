@@ -205,7 +205,7 @@ function Conversation({ space }: { space: string }) {
 
     <div className="mx-auto grid w-full max-w-3xl gap-3 px-4 pt-2 pb-4 md:px-8">
       {needsModel && <div className="grid gap-3">
-        <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型提供方后才能对话。</p></StatusNotice>
+        <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型服务商后才能对话。</p></StatusNotice>
         <div>
           <Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button>
         </div>
