@@ -170,7 +170,7 @@ Standard Card 默认内距为 `--space-20`。紧凑型 Card 必须由基础组�
 
 ## 界面用词
 
-同一个概念在界面上只用一个词。界面文字由人书写，见 [#101](https://github.com/Utopia-V/Repa/issues/101)；不再使用的旧词登记在 `scripts/docs/banned-terms.json`，文档检查会在 `apps/*/src` 里报出来。
+同一个概念在界面上只用一个词。能由结构、默认值或按钮名称表达的，不另写说明句。界面文字由人书写；不再使用的旧词登记在 `scripts/docs/banned-terms.json`，文档检查会在 `apps/*/src` 里报出来。
 
 | 概念 | 界面上写 | 代码与协议里的名字 | 说明 |
 | --- | --- | --- | --- |
