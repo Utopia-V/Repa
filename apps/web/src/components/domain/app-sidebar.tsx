@@ -56,12 +56,12 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            {/* 打开的空间就是一个 Learning Space，所以合成一项，都进选空间页：没打开时显示 Learning Space，打开后显示空间名。
+            {/* 打开的空间就是一个学习空间，所以合成一项，都进选空间页：没打开时显示“学习空间”，打开后显示空间名。
                 换空间和关闭空间都在选空间页。当前项在对话页时标在下面的会话上，在选空间页时标在这一行。 */}
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
-                <NavLink to="/learning-space" onClick={closeMobileSidebar} title={space ?? collapsedTitle("Learning Space")}>
-                  <FolderOpen aria-hidden="true" /><span className={collapseLabel}>{space ? folderName(space) : "Learning Space"}</span>
+                <NavLink to="/learning-space" onClick={closeMobileSidebar} title={space ?? collapsedTitle("学习空间")}>
+                  <FolderOpen aria-hidden="true" /><span className={collapseLabel}>{space ? folderName(space) : "学习空间"}</span>
                 </NavLink>
               </SidebarMenuButton>
               {/* 会话列表读取失败时不提示，对话页有自己的读取与重试。 */}
@@ -89,15 +89,15 @@ export function AppSidebar() {
           {/* 修改历史属于当前空间，打开空间后才有。 */}
           {space && <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <NavLink to="/history" onClick={closeMobileSidebar} title={collapsedTitle("History")}>
-                <History aria-hidden="true" /><span className={collapseLabel}>History</span>
+              <NavLink to="/history" onClick={closeMobileSidebar} title={collapsedTitle("历史")}>
+                <History aria-hidden="true" /><span className={collapseLabel}>历史</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>}
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle("Settings")}>
-                <Settings aria-hidden="true" /><span className={collapseLabel}>Settings</span>
+              <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle("设置")}>
+                <Settings aria-hidden="true" /><span className={collapseLabel}>设置</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>

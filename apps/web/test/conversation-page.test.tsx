@@ -94,7 +94,7 @@ it("显示最近会话的记录，Enter 发送消息并清空输入框，运行�
   ]);
   await renderConversation(fake);
 
-  const record = await screen.findByRole("region", { name: "对话记录" });
+  const record = await screen.findByRole("region", { name: "会话记录" });
   expect(await within(record).findByText("什么是极限")).toBeTruthy();
   expect(within(record).getByText("极限描述趋近的过程。")).toBeTruthy();
   expect(within(record).getByText("读取文件")).toBeTruthy();
@@ -125,7 +125,7 @@ it("助手消息按 Markdown 显示，用户消息按原文显示", async () => 
     { id: "a1", type: "assistant", timestamp: at, text: "**导数**是 $f'(x)$", data: { stopReason: "stop" } },
   ]));
 
-  const record = await screen.findByRole("region", { name: "对话记录" });
+  const record = await screen.findByRole("region", { name: "会话记录" });
   expect(await within(record).findByText("**不要**加粗")).toBeTruthy();
   expect(within(record).getByText("导数").tagName).toBe("STRONG");
   expect(record.querySelector("annotation")?.textContent).toBe("f'(x)");
@@ -234,7 +234,7 @@ it("从一条回答分叉后打开新会话，焦点回到输入框", async () =
     fork: { info: { id: "s2", createdAt: at, updatedAt: at, agent: "general" }, history: lesson.slice(0, 4) },
   });
   await renderConversation(fake);
-  const record = await screen.findByRole("region", { name: "对话记录" });
+  const record = await screen.findByRole("region", { name: "会话记录" });
   await within(record).findByText("1/n 趋近 0。");
 
   // 带工具调用的那条回答还没说完，不能分叉。
@@ -253,7 +253,7 @@ it("运行中不能分叉；分叉失败时显示原因，原会话不变", asyn
     fork: new RpcError(-32000, "会话条目不存在", { code: "entry_not_found" }),
   });
   await renderConversation(fake);
-  const record = await screen.findByRole("region", { name: "对话记录" });
+  const record = await screen.findByRole("region", { name: "会话记录" });
   await within(record).findByText("1/n 趋近 0。");
 
   const input = screen.getByRole("textbox", { name: "消息" });
@@ -276,7 +276,7 @@ it("运行中不能分叉；分叉失败时显示原因，原会话不变", asyn
 it("运行中可以继续发送，排队的消息显示为等待送达；停止后没送到的回到输入框", async () => {
   const fake = backend();
   await renderConversation(fake);
-  const record = await screen.findByRole("region", { name: "对话记录" });
+  const record = await screen.findByRole("region", { name: "会话记录" });
   const input = screen.getByRole("textbox", { name: "消息" });
   fireEvent.change(input, { target: { value: "讲讲积分" } });
   fireEvent.keyDown(input, { key: "Enter" });
@@ -329,7 +329,7 @@ it("反馈问题带上说明和对话里的错误生成反馈包，然后在文�
       sessionId: "s1",
       describe: true,
       note: "文件夹是空的",
-      clientErrors: [{ time: expect.any(String), message: "模型暂时不可用", source: "对话记录" }],
+      clientErrors: [{ time: expect.any(String), message: "模型暂时不可用", source: "会话记录" }],
     });
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/__repa/reveal", expect.objectContaining({ method: "POST", body: JSON.stringify({ path }) })));
     expect(screen.queryByText("没能打开所在文件夹")).toBeNull();

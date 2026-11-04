@@ -159,7 +159,7 @@ function Conversation({ space }: { space: string }) {
 
     <section
       ref={record}
-      aria-label="对话记录"
+      aria-label="会话记录"
       aria-busy={running}
       tabIndex={0}
       onScroll={onScroll}

@@ -18,14 +18,14 @@ function renderWorkspace(path = "/", store = createAppStore()) {
   return router;
 }
 
-it("默认进入 Learning Space，侧栏有 Learning Space 和 Settings 两个栏目", async () => {
+it("默认进入学习空间，侧栏有学习空间和设置两个栏目", async () => {
   const router = renderWorkspace();
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
-  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space", "Settings"]);
-  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
+  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["学习空间", "设置"]);
+  expect(screen.getByRole("link", { name: "学习空间" }).getAttribute("aria-current")).toBe("page");
 });
 
-it("打开空间后 Learning Space 一项换成这个空间，下面是新会话，History 和 Settings 排在最后；点击空间回到选空间页", async () => {
+it("打开空间后学习空间一项换成这个空间，下面是新会话，历史和设置排在最后；点击空间回到选空间页", async () => {
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
     switch (method) {
       case "space.open":
@@ -40,11 +40,11 @@ it("打开空间后 Learning Space 一项换成这个空间，下面是新会话
   const store = createAppStore();
   store.getState().setClient(fakeClient(call).client);
   const router = renderWorkspace("/learning-space", store);
-  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Learning Space", "Settings"]);
+  expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["学习空间", "设置"]);
 
   await act(() => store.getState().openSpace("/notes/calculus"));
   const navigation = screen.getByRole("navigation", { name: "主导航" });
-  expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual(["calculus", "History", "Settings"]);
+  expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual(["calculus", "历史", "设置"]);
   expect(within(navigation).queryByRole("button", { name: /关闭空间/ })).toBeNull();
   const space = within(navigation).getByRole("link", { name: "calculus" });
   expect(space.getAttribute("title")).toBe("/notes/calculus");
@@ -114,7 +114,7 @@ it("空间下面列出它的会话，点击打开；新会话从任意页面开�
   await act(async () => { finish?.(); });
 });
 
-it("在选空间页关闭当前空间，侧栏回到 Learning Space；运行中不能关，关闭失败时显示原因并可以再关", async () => {
+it("在选空间页关闭当前空间，侧栏回到学习空间；运行中不能关，关闭失败时显示原因并可以再关", async () => {
   let finish: (() => void) | undefined;
   let closeFails = true;
   const call = vi.fn((method: string, params: Record<string, unknown>) => {
@@ -163,7 +163,7 @@ it("在选空间页关闭当前空间，侧栏回到 Learning Space；运行中�
   expect(call.mock.calls.filter(([method]) => method === "space.close")).toHaveLength(2);
   expect(router.state.location.pathname).toBe("/learning-space");
   expect(within(navigation).queryByRole("link", { name: "calculus" })).toBeNull();
-  expect(within(navigation).getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
+  expect(within(navigation).getByRole("link", { name: "学习空间" }).getAttribute("aria-current")).toBe("page");
   expect(within(workspace).queryByRole("button", { name: /关闭空间/ })).toBeNull();
   expect(within(workspace).queryByRole("alert")).toBeNull();
 });
@@ -175,7 +175,7 @@ it("导航抽屉可关闭、恢复焦点，选择目标后关闭并保留当前�
   trigger.focus();
   fireEvent.click(trigger);
   const dialog = screen.getByRole("dialog", { name: "工作台导航" });
-  fireEvent.click(within(dialog).getByRole("link", { name: "Learning Space" }));
+  fireEvent.click(within(dialog).getByRole("link", { name: "学习空间" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(trigger));
@@ -230,11 +230,11 @@ it("折叠为图标栏后保留可访问名称与当前项", () => {
   expect(sidebar?.getAttribute("data-state")).toBe("collapsed");
   expect(sidebar?.getAttribute("data-collapsible")).toBe("icon");
   // 文字由 CSS 在视觉上隐藏，但链接名称和当前项仍可被辅助技术识别。
-  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("aria-current")).toBe("page");
+  expect(screen.getByRole("link", { name: "学习空间" }).getAttribute("aria-current")).toBe("page");
   // 折叠时用 title 为鼠标用户补回标签，展开后移除。
-  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("title")).toBe("Learning Space");
+  expect(screen.getByRole("link", { name: "学习空间" }).getAttribute("title")).toBe("学习空间");
   fireEvent.click(screen.getByRole("button", { name: "打开导航" }));
-  expect(screen.getByRole("link", { name: "Learning Space" }).getAttribute("title")).toBeNull();
+  expect(screen.getByRole("link", { name: "学习空间" }).getAttribute("title")).toBeNull();
 });
 
 

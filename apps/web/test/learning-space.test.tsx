@@ -97,7 +97,7 @@ it("对话运行中只能回到当前空间，其他空间和选择文件夹不�
   expect((within(list).getByRole("button", { name: /history/ }) as HTMLButtonElement).disabled).toBe(true);
   expect((within(list).getByRole("button", { name: /^physics/ }) as HTMLButtonElement).disabled).toBe(false);
   expect((screen.getByRole("button", { name: "选择其他文件夹" }) as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByText("对话正在运行，结束或停止后才能换到别的空间。")).toBeTruthy();
+  expect(screen.getByText("会话正在运行，结束或停止后才能换到别的空间。")).toBeTruthy();
 });
 
 it("读取最近空间失败时显示原因，重试后列出空间", async () => {

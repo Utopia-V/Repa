@@ -119,7 +119,7 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
         <p className="text-sm text-muted-foreground">
           {hasRecent ? "从最近打开的空间继续，或选择其他文件夹。" : "选择一个文件夹作为学习空间。"}
         </p>
-        {running && <p className="text-sm text-muted-foreground">对话正在运行，结束或停止后才能换到别的空间。</p>}
+        {running && <p className="text-sm text-muted-foreground">会话正在运行，结束或停止后才能换到别的空间。</p>}
       </div>
       {/* 最近列表可用时继续学习是主要操作，选择文件夹退为次要；列表读不出来时它是唯一入口。 */}
       <Button

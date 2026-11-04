@@ -60,7 +60,7 @@ describe("Web App bootstrap", () => {
       </StrictMode>,
     );
 
-    await screen.findByRole("link", { name: "Learning Space" });
+    await screen.findByRole("link", { name: "学习空间" });
     expect(loadConnection).toHaveBeenCalledTimes(2);
     expect(RepaClient.connect).toHaveBeenCalledOnce();
   });
@@ -77,7 +77,7 @@ describe("Web App bootstrap", () => {
     window.repaHost = { getConnection, revealFile: vi.fn() };
     try {
       const view = render(<App store={createAppStore()} />);
-      await screen.findByRole("link", { name: "Learning Space" });
+      await screen.findByRole("link", { name: "学习空间" });
       expect(RepaClient.connect).toHaveBeenCalledWith(connection, expect.anything());
       expect(fetch).not.toHaveBeenCalled();
       view.unmount();
@@ -101,7 +101,7 @@ describe("Web App bootstrap", () => {
     render(<App store={createAppStore()} loadConnection={loadConnection} />);
 
     expect(screen.getByRole("heading", { name: "正在准备 Repa" })).toBeTruthy();
-    expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: "学习空间" })).toBeTruthy();
     expect(loadConnection).toHaveBeenCalledOnce();
     // 连接时声明对话里的询问卡片能显示的作答位。
     expect(RepaClient.connect).toHaveBeenCalledWith(connection, { capabilities: { interaction: interactionCapabilities, services: ["python.run"] } });
@@ -121,7 +121,7 @@ describe("Web App bootstrap", () => {
     render(<App store={createAppStore()} loadConnection={loadConnection} />);
     expect((await screen.findByRole("alert")).textContent).toContain("后端不可用");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: "学习空间" })).toBeTruthy();
     expect(loadConnection).toHaveBeenCalledTimes(2);
   });
 
@@ -138,7 +138,7 @@ describe("Web App bootstrap", () => {
     } as unknown as RepaClient);
 
     render(<App store={createAppStore()} loadConnection={loadConnection} />);
-    await screen.findByRole("link", { name: "Learning Space" });
+    await screen.findByRole("link", { name: "学习空间" });
     act(() => listener?.(false));
     expect(screen.getByText("后端连接已中断，正在自动重连…")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Repa" })).toBeTruthy();
@@ -165,7 +165,7 @@ it("断线后重新连接新底座，卸载时停止后续重试", async () => {
     .mockResolvedValueOnce(second as unknown as RepaClient);
   const loadConnection = vi.fn(() => Promise.resolve(connection));
   const view = render(<App store={createAppStore()} loadConnection={loadConnection} />);
-  await screen.findByRole("link", { name: "Learning Space" });
+  await screen.findByRole("link", { name: "学习空间" });
   vi.useFakeTimers();
   act(() => listener?.(false));
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
@@ -207,7 +207,7 @@ it("断线时停掉 python.run：进行中的运行被取消、运行器关闭�
     .mockResolvedValueOnce(first as unknown as RepaClient)
     .mockResolvedValueOnce(second as unknown as RepaClient);
   render(<App store={createAppStore()} loadConnection={() => Promise.resolve(connection)} />);
-  await screen.findByRole("link", { name: "Learning Space" });
+  await screen.findByRole("link", { name: "学习空间" });
   const input = {
     protocol: "repa-python-batch-v2",
     tests: [{ id: "t", program: "x = 1", prelude: "", setup: "", data: [], captures: [], doctest: [] }],

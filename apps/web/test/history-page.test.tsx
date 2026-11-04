@@ -197,11 +197,11 @@ it("记录多于一次读取的数量时只列出最近的，并注明更早的�
   expect(screen.queryByText(/开始记录/)).toBeNull();
 });
 
-it("打开空间后侧栏出现 History，进入修改历史页；没有打开空间时回到 Learning Space", async () => {
+it("打开空间后侧栏出现历史，进入修改历史页；没有打开空间时回到学习空间", async () => {
   const { backend } = sampleHistory();
   const { router } = await renderHistory(backend, "/learning-space");
   const navigation = screen.getByRole("navigation", { name: "主导航" });
-  fireEvent.click(within(navigation).getByRole("link", { name: "History" }));
+  fireEvent.click(within(navigation).getByRole("link", { name: "历史" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/history"));
   expect(await screen.findByRole("heading", { name: "修改历史" })).toBeTruthy();
   cleanup();
@@ -210,7 +210,7 @@ it("打开空间后侧栏出现 History，进入修改历史页；没有打开�
   const empty = createMemoryRouter(routes, { initialEntries: ["/history"] });
   render(<StoreProvider store={createAppStore()}><RouterProvider router={empty} /></StoreProvider>);
   await waitFor(() => expect(empty.state.location.pathname).toBe("/learning-space"));
-  expect(screen.queryByRole("link", { name: "History" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "历史" })).toBeNull();
 });
 
 it("换空间时清空上一个空间的修改历史", async () => {

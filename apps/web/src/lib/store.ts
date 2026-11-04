@@ -615,7 +615,7 @@ export function createAppStore() {
         if (!sessionId) return Promise.reject(new Error("还没有会话，无法生成反馈包。"));
         // 对话项没有时间戳，time 记的是收集的时刻；后端的错误另有准确时间。
         const time = new Date().toISOString();
-        const shown = items.flatMap((item) => item.kind === "error" ? [{ time, message: item.text.slice(0, 4000), source: "对话记录" }] : []);
+        const shown = items.flatMap((item) => item.kind === "error" ? [{ time, message: item.text.slice(0, 4000), source: "会话记录" }] : []);
         const send = sendError === undefined ? [] : [(() => {
           const { message, code } = describeError(sendError);
           return { time, message: (code === undefined ? message : `${message}（${code}）`).slice(0, 4000), source: "发送或停止" };

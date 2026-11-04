@@ -72,7 +72,7 @@ docs/design-system.md
 
 | 页面 | 文件 | 要点 |
 | --- | --- | --- |
-| 侧栏 | `layouts/workspace-layout.tsx`、`components/domain/app-sidebar.tsx` | 打开的空间就是 Learning Space 这一项，只显示当前这一个；会话列表挂在它下面，运行中不能切换会话，因为运行状态只属于当前会话。History 只在打开空间后出现 |
+| 侧栏 | `layouts/workspace-layout.tsx`、`components/domain/app-sidebar.tsx` | 打开的空间就是“学习空间”这一项，只显示当前这一个；会话列表挂在它下面，运行中不能切换会话，因为运行状态只属于当前会话。“历史”只在打开空间后出现 |
 | 选空间 | `pages/learning-space.tsx`、`features/folder-picker.tsx` | 浏览器拿不到本地文件夹的绝对路径，所以由后端 `space.browse` 和 `space.roots` 浏览文件夹，含 `.repa/` 的标“已有空间”。后端关闭空间会中止正在进行的运行，所以运行中不能关 |
 | 对话 | `pages/conversation.tsx`、`lib/conversation.ts` | 会话 id 不放进 URL：后端一次只持有一个空间，离开它所在的空间就没有意义。第一次发送才调用 `session.create`，不留空会话。运行中补充的消息只走 `session.steer`，让纠正尽早影响回复 |
 | 修改历史 | `pages/history.tsx` | `history.list` 只给来源和时间，所以先取最近 200 条，再从其中最早一条的父提交调用 `history.changes` 取文件。撤回只撤销选中的提交，之后又改过的文件保持现状 |
