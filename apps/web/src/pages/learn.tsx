@@ -3,9 +3,9 @@ import { Link, Navigate } from "react-router";
 import { MessageCircle, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { ConceptCardDialog } from "@/features/concept-card";
@@ -102,7 +102,7 @@ function Learn({ space }: { space: string }) {
     <div className="flex min-h-0 flex-1">
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6 md:px-8">
-          {learning.replaced && <StatusNotice status="error" title="画面已经更新"><p>刚才的操作基于旧画面，没有执行。请看一下现在的内容再操作。</p></StatusNotice>}
+          {learning.replaced && <StatusNotice status="error" title="画面已经更新" />}
           {/* 剩下的题都要模型判分而没有可用模型：任务保留，接上模型后再继续。 */}
           {errorCode(learning.actionError) === "model_required" ? <div className="grid gap-3">
             <StatusNotice status="error" title="还没有可用的模型"><p>剩下的题要由模型判分，连接一个模型提供方后才能继续，这项任务会保留。</p></StatusNotice>
@@ -126,10 +126,9 @@ function Learn({ space }: { space: string }) {
     </div>
 
     {tutor && !wide && <Sheet open={tutorOpen} onOpenChange={setTutorOpen}>
-      <SheetContent className="w-full sm:max-w-md">
+      <SheetContent className="w-full sm:max-w-md" aria-describedby={undefined}>
         <SheetHeader>
           <SheetTitle>辅导</SheetTitle>
-          <SheetDescription>辅导知道你正在做的题。</SheetDescription>
         </SheetHeader>
         {tutor}
       </SheetContent>
@@ -140,10 +139,9 @@ function Learn({ space }: { space: string }) {
     </Dialog>
 
     <Dialog open={confirmAbort} onOpenChange={setConfirmAbort}>
-      {task && <DialogContent>
+      {task && <DialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>中止这次{kindText[task.kind]}？</DialogTitle>
-          <DialogDescription>已经交的作答照样算数；还没判出结果的不等结果，直接结束。</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild><Button variant="outline">不中止</Button></DialogClose>

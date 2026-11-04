@@ -193,7 +193,7 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
         {phase.stage === "judging" && <p role="status" className="m-0 flex items-center gap-2 text-sm text-muted-foreground">
           <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />正在判分…
         </p>}
-        {phase.stage === "recovery" && <p className="m-0 text-sm text-muted-foreground">这份作答没能判出结果，不算错。可以再判一次，也可以先做下一题，条件具备时会自动补判。</p>}
+        {phase.stage === "recovery" && <p className="m-0 text-sm text-muted-foreground">这份作答没能判出结果。</p>}
         <Actions>
           {phase.stage === "recovery" && <Button variant="outline" disabled={busy} onClick={() => { void retryJudging(phase.submissionId); }}>
             <RefreshCw aria-hidden="true" />再判一次

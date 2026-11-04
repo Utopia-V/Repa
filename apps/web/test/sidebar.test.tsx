@@ -100,7 +100,8 @@ it("空间下面列出它的会话，点击打开；新会话从任意页面开�
   await act(() => router.navigate("/settings"));
   fireEvent.click(within(sessions).getByRole("button", { name: "新会话" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
-  expect(await screen.findByText("这是一个新会话。说说你想学什么，或者直接提问。")).toBeTruthy();
+  expect(await screen.findByRole("textbox", { name: "消息" })).toBeTruthy();
+  expect(screen.queryByText("b 的记录")).toBeNull();
   expect(within(sessions).getByRole("button", { name: "新会话" }).getAttribute("aria-current")).toBe("true");
   expect(within(sessions).getByRole("button", { name: "极限怎么求" }).getAttribute("aria-current")).toBeNull();
 

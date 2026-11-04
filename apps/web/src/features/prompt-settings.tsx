@@ -239,10 +239,9 @@ function PromptPreviewDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 
   let position = 0;
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent>
+    <DialogContent aria-describedby={undefined}>
       <DialogHeader>
         <DialogTitle>下一条消息会带上的内容</DialogTitle>
-        <DialogDescription>Repa 装配的部分，按发给模型的顺序排列；运行时还会加上工作目录和工具声明。按现在的配置算出，不是某次调用的记录。</DialogDescription>
       </DialogHeader>
       {preview.status === "loading" && <p role="status" className="text-sm text-muted-foreground">正在计算…</p>}
       {preview.status === "error" && <div className="grid gap-3">

@@ -176,9 +176,6 @@ function Conversation({ space }: { space: string }) {
             </Button>
           </div>
         </div>}
-        {status === "ready" && items.length === 0 && !running && <p className="text-sm text-muted-foreground">
-          这是一个新会话。说说你想学什么，或者直接提问。
-        </p>}
         {items.map((item) => <Fragment key={item.id}>
           <ConversationItemView
             item={item}

@@ -91,7 +91,7 @@
 | Badge | 简短分类或状态；完成状态使用 `complete` variant |
 | StatusNotice | 已完成或错误反馈，通过 `status` 表明业务语义，内置图标和 live region |
 | Progress | 有确定进度的任务，同时向辅助技术提供数值 |
-| Dialog | 需要暂时集中处理的短任务；要求标题、描述，支持 Escape、焦点约束和关闭后恢复焦点 |
+| Dialog | 需要暂时集中处理的短任务；要求标题，支持 Escape、焦点约束和关闭后恢复焦点。描述只放学习者据以作出选择的信息，没有就不写，并以 `aria-describedby={undefined}` 表明没有描述 |
 | Sheet | 从视口边缘打开的面板；移动导航使用侧边形态，要求标题、关闭入口、Escape、焦点约束和关闭后恢复焦点 |
 | ConversationMessage | 用户与助手消息，由 `sender` 选择呈现；发送者差异不是成功/失败状态 |
 

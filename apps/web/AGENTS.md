@@ -30,6 +30,7 @@
 - 业务组件、页面和 feature 的 `className` 仅用于布局、定位、响应式及基础组件明确允许的 composition spacing；不得覆盖 variant、颜色、边框或 ring、圆角、阴影、排版和交互状态。Card 内距由基础组件 size / variant 持有；响应式和页面 CSS 不豁免限制。具体范围以 `docs/design-system.md` 为准。
 - 组件不得依赖调用页面的 CSS 才能正确显示，不维护第二套 token 展示值。
 - 新增或修改界面需处理窄屏、内容换行、文字放大和减少动态效果偏好；不得通过缩小正文或禁用缩放隐藏布局问题。
+- 界面上给人看的文字不用模型生成，也不由 Agent 改写；Agent 只列出文字、标出可删的及理由，按人写好的原话实现。能由结构、默认值或按钮名称表达的，不另写说明句。见 [#101](https://github.com/Utopia-V/Repa/issues/101)。
 
 ## 数据与接入边界
 

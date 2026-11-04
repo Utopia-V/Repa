@@ -180,7 +180,6 @@ function CommandPolicySection() {
   return <section aria-labelledby="command-policy" className="grid gap-3">
     <div className="grid gap-1">
       <h3 id="command-policy" className="text-lg font-semibold">命令授权</h3>
-      <p className="text-sm text-muted-foreground">对所有学习空间生效。改动后 Agent 的下一条命令就按新设置处理，正在运行的对话也一样。</p>
     </div>
     {policy.data === undefined && policy.status !== "error" && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
     {policy.data === undefined && policy.status === "error" && <div className="grid gap-3">
