@@ -13,5 +13,10 @@
     "term": "学习背景消息",
     "replacement": "视图",
     "reason": "同一概念曾有四个名称，统一为视图"
+  },
+  {
+    "term": "Learning Space",
+    "replacement": "学习空间",
+    "reason": "#101 定的界面用词，侧栏和页面标题写中文"
   }
 ]

@@ -182,7 +182,7 @@ async function budgets({ repo, settings, markdown }: CheckContext): Promise<Issu
 
 async function bannedTerms({ repo, settings, markdown }: CheckContext): Promise<Issue[]> {
   const issues: Issue[] = [];
-  const source = repo.files.filter((file) => /^(packages|apps)\/[^/]+\/src\/.*\.(ts|svelte)$/.test(file));
+  const source = repo.files.filter((file) => /^(packages|apps)\/[^/]+\/src\/.*\.(ts|tsx|svelte)$/.test(file));
   for (const file of [...markdown, ...source]) {
     if (!settings.bannedTerms.length) break;
     const lines = (await repo.text(file)).split(/\r?\n/);

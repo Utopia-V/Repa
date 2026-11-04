@@ -148,18 +148,20 @@ test("篇幅超限报指定处置说明，缺少预算也会报错", async (t) =
 });
 
 for (const success of [true, false]) {
-  test(`停用词在文档、包与应用的 TS 和 Svelte 中${success ? "放行新词" : "忽略大小写报错"}`, async (t) => {
+  test(`停用词在文档、包与应用的 TS、TSX 和 Svelte 中${success ? "放行新词" : "忽略大小写报错"}`, async (t) => {
     const kind = success ? "pass" : "fail";
     const repo = await fixture(t, {
       "README.md": `banned/${kind}.md`,
       "packages/demo/src/index.ts": `banned/${kind}.ts`,
       "packages/demo/src/view.svelte": `banned/${kind}.svelte`,
+      "packages/demo/src/view.tsx": `banned/${kind}.tsx`,
       "apps/demo/src/index.ts": `banned/${kind}.ts`,
       "apps/demo/src/view.svelte": `banned/${kind}.svelte`,
+      "apps/demo/src/view.tsx": `banned/${kind}.tsx`,
     });
     const config = settings();
     config.bannedTerms = [{ term: "old-name", replacement: "current-name", reason: "统一名称" }];
-    assert.equal((await check(repo, "停用词", config)).length, success ? 0 : 5);
+    assert.equal((await check(repo, "停用词", config)).length, success ? 0 : 7);
     assert.deepEqual(await check(repo, "停用词"), []);
   });
 }
