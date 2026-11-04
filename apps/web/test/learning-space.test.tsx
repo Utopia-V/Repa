@@ -97,7 +97,7 @@ it("对话运行中只能回到当前空间，其他空间和选择文件夹不�
   expect((within(list).getByRole("button", { name: /history/ }) as HTMLButtonElement).disabled).toBe(true);
   expect((within(list).getByRole("button", { name: /^physics/ }) as HTMLButtonElement).disabled).toBe(false);
   expect((screen.getByRole("button", { name: "选择其他文件夹" }) as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByText("会话正在运行，结束或停止后才能换到别的空间。")).toBeTruthy();
+  expect(screen.getByText("会话正在运行，结束或停止后才能换到别的学习空间。")).toBeTruthy();
 });
 
 it("读取最近空间失败时显示原因，重试后列出空间", async () => {
@@ -147,7 +147,7 @@ function start(client: RepaClient, space?: string) {
   return router;
 }
 
-it("启动时没有上次的空间就去选空间", async () => {
+it("启动时没有上次的学习空间就去选学习空间", async () => {
   const router = start(fakeBackend(["/notes/calculus"]).client);
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
 });
@@ -183,5 +183,5 @@ it("上次的空间打不开时回到选空间页并说明原因", async () => {
   const router = start(client, "/notes/calculus");
   await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
   const notice = await screen.findByRole("alert");
-  expect(within(notice).getByText("无法打开上次的空间 calculus")).toBeTruthy();
+  expect(within(notice).getByText("无法打开上次的学习空间 calculus")).toBeTruthy();
 });

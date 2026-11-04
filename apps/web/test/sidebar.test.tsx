@@ -146,7 +146,7 @@ it("在选空间页关闭当前空间，侧栏回到学习空间；运行中不�
   const router = renderWorkspace("/learning-space", store);
   const navigation = screen.getByRole("navigation", { name: "主导航" });
   const workspace = screen.getByRole("main");
-  const close = await within(workspace).findByRole("button", { name: "关闭空间 calculus" });
+  const close = await within(workspace).findByRole("button", { name: "关闭学习空间 calculus" });
 
   act(() => { void store.getState().sendMessage("继续"); });
   await waitFor(() => expect(finish).toBeDefined());

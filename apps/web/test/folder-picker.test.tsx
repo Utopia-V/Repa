@@ -87,13 +87,13 @@ const tree: Record<string, Folder> = {
   "D:\\": { children: ["courses"] },
 };
 
-it("从用户目录开始浏览，标出已有空间，进入后提示这是已有空间", async () => {
+it("从用户目录开始浏览，标出已有学习空间，进入后提示这是已有学习空间", async () => {
   renderPage(fakeBackend(tree).client);
   const dialog = await openPicker();
 
   expect(within(dialog).getByRole("heading", { name: "C:\\Users\\aqua" })).toBeTruthy();
   const physics = within(dialog).getByRole("button", { name: /physics/ });
-  expect(physics.textContent).toContain("已有空间");
+  expect(physics.textContent).toContain("已有学习空间");
   fireEvent.click(physics);
 
   expect(await within(dialog).findByRole("heading", { name: "C:\\Users\\aqua\\physics" })).toBeTruthy();

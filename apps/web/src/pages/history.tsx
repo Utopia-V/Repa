@@ -97,7 +97,7 @@ function SpaceHistory({ space }: { space: string }) {
 
     {history.data && <section aria-label="修改记录" className="grid gap-3">
       {changed.length === 0
-        ? <p className="text-sm text-muted-foreground">还没有文件修改。Agent、插件或其他程序改动空间里的文件后，会显示在这里。</p>
+        ? <p className="text-sm text-muted-foreground">还没有文件修改。Agent、插件或其他程序改动学习空间里的文件后，会显示在这里。</p>
         : <ol className="m-0 grid list-none gap-3 p-0">
           {changed.map((revision) => <li key={revision.id}>
             <HistoryRevisionCard

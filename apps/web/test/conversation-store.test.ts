@@ -389,7 +389,7 @@ it("关闭空间后清空会话、会话列表和授权；运行中不关闭", a
   expect(store.getState().conversation.sessionId).toBeUndefined();
 });
 
-it("运行中不换到别的空间，回到当前空间照常打开", async () => {
+it("运行中不换到别的学习空间，回到当前学习空间照常打开", async () => {
   const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
   const store = await openedStore(backend);
 

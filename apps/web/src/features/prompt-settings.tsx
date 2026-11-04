@@ -41,8 +41,8 @@ export function PromptSettingsSection() {
     {space
       ? <PromptList space={space} />
       : <Card className="flex-row items-center justify-between">
-        <p className="text-sm text-muted-foreground">提示由打开的空间和其中的插件一起决定。打开一个学习空间后，可以在这里查看和修改。</p>
-        <Button asChild variant="outline"><Link to="/learning-space">去选空间</Link></Button>
+        <p className="text-sm text-muted-foreground">提示由打开的学习空间和其中的插件一起决定。打开一个学习空间后，可以在这里查看和修改。</p>
+        <Button asChild variant="outline"><Link to="/learning-space">去选学习空间</Link></Button>
       </Card>}
     {space && <PromptPreviewDialog open={previewing} onOpenChange={setPreviewing} />}
   </section>;
@@ -94,7 +94,7 @@ function PromptList({ space }: { space: string }) {
 
   return <>
     <p className="text-sm text-muted-foreground">
-      每次发消息前，Repa 按下面的顺序把各段拼成系统提示。开关只影响本空间；修改从下一条消息起生效。
+      每次发消息前，Repa 按下面的顺序把各段拼成系统提示。开关只影响本学习空间；修改从下一条消息起生效。
     </p>
     {toggleFailure && <ErrorNotice
       title={`无法${data.sections.find((section) => section.id === toggleFailure.id)?.enabled ? "停用" : "启用"} ${promptSource(toggleFailure.id, space).name}`}
@@ -154,7 +154,7 @@ function PromptEditor({ section, app, space, onDone }: {
   // 本空间这一级的上一级是所有空间，所有空间的上一级是默认内容。
   const base = scope === "space" ? levels.inherited.text : section.defaultText;
   const current = levels[scope];
-  const resetLabel = scope === "space" && levels.app.text !== undefined ? "改回所有空间的内容" : "恢复默认";
+  const resetLabel = scope === "space" && levels.app.text !== undefined ? "改回所有学习空间的内容" : "恢复默认";
 
   async function save(text: string | undefined) {
     const override: PromptOverride = { ...current };
@@ -183,16 +183,16 @@ function PromptEditor({ section, app, space, onDone }: {
       <RadioGroup aria-labelledby="prompt-scope" value={scope} onValueChange={(value) => setScope(value as PromptScope)} disabled={saving}>
         <div className="flex items-center gap-3">
           <RadioGroupItem id="prompt-scope-space" value="space" />
-          <label htmlFor="prompt-scope-space" className="text-sm">只在本空间（{folderName(space)}）</label>
+          <label htmlFor="prompt-scope-space" className="text-sm">只在本学习空间（{folderName(space)}）</label>
         </div>
         <div className="flex items-center gap-3">
           <RadioGroupItem id="prompt-scope-app" value="app" />
-          <label htmlFor="prompt-scope-app" className="text-sm">所有空间</label>
+          <label htmlFor="prompt-scope-app" className="text-sm">所有学习空间</label>
         </div>
       </RadioGroup>
     </div>
     {scope === "app" && levels.space.text !== undefined && <p className="text-sm text-muted-foreground">
-      本空间另有修改。保存到所有空间后，这个空间仍然使用本空间的内容。
+      本学习空间另有修改。保存到所有学习空间后，这个学习空间仍然使用本学习空间的内容。
     </p>}
     <div className="grid gap-2">
       <label htmlFor="prompt-text" className="text-sm font-medium">内容</label>

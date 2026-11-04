@@ -19,14 +19,14 @@ export function promptSource(id: string, space: string): PromptSource {
       return { name: "基础说明", source: "Repa 内置" };
     case "space":
       return {
-        name: "空间说明",
-        source: `空间路径和 ${folderName(space)}/AGENTS.md`,
-        generatedNote: `这段由空间路径和 ${folderName(space)}/AGENTS.md 生成。在这里改会盖住文件内容，之后再改 AGENTS.md 也不会生效，直到改回来。`,
+        name: "学习空间说明",
+        source: `学习空间路径和 ${folderName(space)}/AGENTS.md`,
+        generatedNote: `这段由学习空间路径和 ${folderName(space)}/AGENTS.md 生成。在这里改会盖住文件内容，之后再改 AGENTS.md 也不会生效，直到改回来。`,
       };
     case "skills":
       return {
         name: "Skill 目录",
-        source: "应用和空间的 Skill 文件夹",
+        source: "应用和学习空间的 Skill 文件夹",
         generatedNote: "这段按 Skill 文件夹生成。在这里改会盖住它，之后增删 Skill 也不会反映出来，直到改回来。",
       };
     case "tools":

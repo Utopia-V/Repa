@@ -348,10 +348,10 @@ it("保存命令授权失败时显示原因，保留原来的策略", async () =
   expect(policy.getByRole("radio", { name: "每次询问" }).getAttribute("aria-checked")).toBe("true");
 });
 
-it("没有打开空间时，提示区块只给出去选空间的入口", async () => {
+it("没有打开学习空间时，提示区块只给出去选学习空间的入口", async () => {
   await renderSettings(backend());
   const prompts = within(section("提示"));
-  expect(prompts.getByRole("link", { name: "去选空间" }).getAttribute("href")).toBe("/learning-space");
+  expect(prompts.getByRole("link", { name: "去选学习空间" }).getAttribute("href")).toBe("/learning-space");
   expect(prompts.queryByRole("button", { name: "预览" })).toBeNull();
 });
 
@@ -359,8 +359,8 @@ it("按装配顺序列出各段，开关只写本空间这一级", async () => {
   const fake = backend();
   await renderSettings(fake, "/notes/calculus");
   const list = within(await within(section("提示")).findByRole("list", { name: "提示" }));
-  expect(list.getAllByRole("listitem").map((item) => item.querySelector("span")?.textContent)).toEqual(["基础说明", "空间说明", "Skill 目录", "工具说明"]);
-  expect(list.getByText("空间路径和 calculus/AGENTS.md")).toBeTruthy();
+  expect(list.getAllByRole("listitem").map((item) => item.querySelector("span")?.textContent)).toEqual(["基础说明", "学习空间说明", "Skill 目录", "工具说明"]);
+  expect(list.getByText("学习空间路径和 calculus/AGENTS.md")).toBeTruthy();
 
   fireEvent.click(list.getByRole("switch", { name: "启用 工具说明" }));
   await vi.waitFor(() => expect(list.getByText("已停用")).toBeTruthy());
@@ -372,9 +372,9 @@ it("按装配顺序列出各段，开关只写本空间这一级", async () => {
   expect(fake.call).toHaveBeenCalledWith("prompt.reset", { scope: "space", id: "tools" });
 });
 
-it("编辑时两级各有草稿；本空间的修改可以改回所有空间的内容", async () => {
+it("编辑时两级各有草稿；本学习空间的修改可以改回所有学习空间的内容", async () => {
   const fake = backend();
-  fake.prompts.app.base = { text: "所有空间的基础说明" };
+  fake.prompts.app.base = { text: "所有学习空间的基础说明" };
   fake.prompts.space.base = { text: "本空间的基础说明" };
   await renderSettings(fake, "/notes/calculus");
   const list = within(await within(section("提示")).findByRole("list", { name: "提示" }));
@@ -384,17 +384,17 @@ it("编辑时两级各有草稿；本空间的修改可以改回所有空间的�
   const dialog = within(await screen.findByRole("dialog", { name: "编辑 基础说明" }));
   const text = dialog.getByLabelText("内容") as HTMLTextAreaElement;
   expect(text.value).toBe("本空间的基础说明");
-  fireEvent.click(dialog.getByRole("radio", { name: "所有空间" }));
-  expect(text.value).toBe("所有空间的基础说明");
-  expect(dialog.getByText(/本空间另有修改/)).toBeTruthy();
+  fireEvent.click(dialog.getByRole("radio", { name: "所有学习空间" }));
+  expect(text.value).toBe("所有学习空间的基础说明");
+  expect(dialog.getByText(/本学习空间另有修改/)).toBeTruthy();
   fireEvent.change(text, { target: { value: "草稿" } });
-  fireEvent.click(dialog.getByRole("radio", { name: "只在本空间（calculus）" }));
+  fireEvent.click(dialog.getByRole("radio", { name: "只在本学习空间（calculus）" }));
   expect(text.value).toBe("本空间的基础说明");
 
-  fireEvent.click(dialog.getByRole("button", { name: "改回所有空间的内容" }));
+  fireEvent.click(dialog.getByRole("button", { name: "改回所有学习空间的内容" }));
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(fake.call).toHaveBeenCalledWith("prompt.reset", { scope: "space", id: "base" });
-  expect(fake.prompts.app.base).toEqual({ text: "所有空间的基础说明" });
+  expect(fake.prompts.app.base).toEqual({ text: "所有学习空间的基础说明" });
 });
 
 it("保存和上一级相同的内容时不留覆盖，保存失败时保留对话框和草稿", async () => {
@@ -435,7 +435,7 @@ it("预览按发送顺序编号，停用的段落标明不发送", async () => {
   const system = within(await dialog.findByRole("list"));
   expect(system.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
     "1 · 基础说明你是 Repa 的 Agent。",
-    "空间说明：已停用，不发送",
+    "学习空间说明：已停用，不发送",
     "2 · Skill 目录这一段是空的。",
     "3 · 工具说明可用工具：read",
   ]);

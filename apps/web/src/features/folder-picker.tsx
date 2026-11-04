@@ -125,7 +125,7 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
             <Button variant="ghost" className="w-full justify-start" disabled={loading || opening} onClick={() => { void browse(entry.path); }}>
               {entry.space ? <FolderCheck aria-hidden="true" /> : <Folder aria-hidden="true" />}
               <span className="min-w-0 text-left break-all">{entry.name}</span>
-              {entry.space && <Badge variant="secondary" className="ml-auto">已有空间</Badge>}
+              {entry.space && <Badge variant="secondary" className="ml-auto">已有学习空间</Badge>}
             </Button>
           </li>)}
         </ul>)}

@@ -64,7 +64,7 @@ function Learn({ space }: { space: string }) {
 
   if (learning.available === false) {
     return <div className="mx-auto grid max-w-3xl gap-3 px-4 py-16 md:px-8">
-      <StatusNotice status="error" title="这个空间没有学习内容" />
+      <StatusNotice status="error" title="这个学习空间没有学习内容" />
     </div>;
   }
   const { state } = learning;

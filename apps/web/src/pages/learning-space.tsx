@@ -117,9 +117,9 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
       <div className="grid gap-2">
         <h2 className="text-2xl font-semibold">学习空间</h2>
         <p className="text-sm text-muted-foreground">
-          {hasRecent ? "从最近打开的空间继续，或选择其他文件夹。" : "选择一个文件夹作为学习空间。"}
+          {hasRecent ? "从最近打开的学习空间继续，或选择其他文件夹。" : "选择一个文件夹作为学习空间。"}
         </p>
-        {running && <p className="text-sm text-muted-foreground">会话正在运行，结束或停止后才能换到别的空间。</p>}
+        {running && <p className="text-sm text-muted-foreground">会话正在运行，结束或停止后才能换到别的学习空间。</p>}
       </div>
       {/* 最近列表可用时继续学习是主要操作，选择文件夹退为次要；列表读不出来时它是唯一入口。 */}
       <Button
@@ -139,7 +139,7 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
       {!loadFailed && recent === undefined && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
 
       {loadFailed && <div className="grid gap-3">
-        <ErrorNotice title="无法读取最近空间" error={spaces.error} />
+        <ErrorNotice title="无法读取最近学习空间" error={spaces.error} />
         <div>
           <Button variant="outline" onClick={onRetry}>
             <RefreshCw aria-hidden="true" />重试
@@ -147,7 +147,7 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
         </div>
       </div>}
 
-      {failure && <ErrorNotice title={`无法打开${failure.previous ? "上次的空间 " : " "}${folderName(failure.root)}`} error={failure.error} />}
+      {failure && <ErrorNotice title={`无法打开${failure.previous ? "上次的学习空间 " : " "}${folderName(failure.root)}`} error={failure.error} />}
       {closeFailure && <ErrorNotice title={`关闭 ${folderName(closeFailure.root)} 时出错`} error={closeFailure.error} />}
 
       {hasRecent && <ul aria-labelledby="recent-spaces" className="m-0 grid list-none gap-2 p-0">
@@ -170,7 +170,7 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
           </SelectionButton>
           {root === active && <Button
             variant="outline"
-            aria-label={`关闭空间 ${folderName(root)}`}
+            aria-label={`关闭学习空间 ${folderName(root)}`}
             disabled={closeDisabled || opening !== undefined}
             onClick={() => onClose(root)}
           >
