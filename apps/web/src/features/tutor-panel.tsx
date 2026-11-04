@@ -111,9 +111,6 @@ export function TutorPanel({ allowed, renderLink }: {
     >
       {bound && status === "loading" && <p role="status" className="text-sm text-muted-foreground">正在读取对话…</p>}
       {bound && status === "error" && <ErrorNotice title="无法读取对话" error={conversation.error} />}
-      {bound && status === "ready" && items.length === 0 && !running && <p className="m-0 text-sm text-muted-foreground">
-        哪里看不懂，就在这里问。
-      </p>}
       {bound && items.map((item) => <ConversationItemView
         key={item.id}
         item={item}
@@ -126,9 +123,8 @@ export function TutorPanel({ allowed, renderLink }: {
       </p>}
     </div>
     <div className="grid gap-3 px-4 pt-2 pb-4">
-      {!allowed && <p className="m-0 text-sm text-muted-foreground">复习和测验期间不能问辅导，结束后再问。</p>}
       {allowed && needsModel && <div className="grid gap-3">
-        <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型提供方后才能问辅导。</p></StatusNotice>
+        <StatusNotice status="error" title="还没有可用的模型" />
         <div><Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button></div>
       </div>}
       {allowed && restricted && <p className="m-0 text-sm text-muted-foreground">现在不能问辅导，这条消息没有发出。</p>}

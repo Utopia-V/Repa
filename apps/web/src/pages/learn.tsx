@@ -64,7 +64,7 @@ function Learn({ space }: { space: string }) {
 
   if (learning.available === false) {
     return <div className="mx-auto grid max-w-3xl gap-3 px-4 py-16 md:px-8">
-      <StatusNotice status="error" title="这个空间没有学习内容"><p>后端没有加载学习插件。</p></StatusNotice>
+      <StatusNotice status="error" title="这个空间没有学习内容" />
     </div>;
   }
   const { state } = learning;
@@ -105,7 +105,7 @@ function Learn({ space }: { space: string }) {
           {learning.replaced && <StatusNotice status="error" title="画面已经更新" />}
           {/* 剩下的题都要模型判分而没有可用模型：任务保留，接上模型后再继续。 */}
           {errorCode(learning.actionError) === "model_required" ? <div className="grid gap-3">
-            <StatusNotice status="error" title="还没有可用的模型"><p>剩下的题要由模型判分，连接一个模型提供方后才能继续，这项任务会保留。</p></StatusNotice>
+            <StatusNotice status="error" title="还没有可用的模型" />
             <div><Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button></div>
           </div> : learning.actionError !== undefined && <div className="grid gap-3">
             <ErrorNotice title="操作没有完成" error={learning.actionError} />

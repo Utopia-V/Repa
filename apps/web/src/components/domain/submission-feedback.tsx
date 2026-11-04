@@ -104,9 +104,7 @@ export function SubmissionReview({ item, submission }: { item: Item; submission:
       </p>}
       <Content blocks={feedback.message} />
     </div>}
-    {submission.response.dontKnow === true
-      ? <p className="m-0 text-sm text-muted-foreground">你选了“不会”。</p>
-      : <ItemSlots
+    {submission.response.dontKnow !== true && <ItemSlots
         item={item}
         draft={draft}
         onChange={() => undefined}

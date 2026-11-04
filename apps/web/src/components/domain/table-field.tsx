@@ -45,7 +45,7 @@ export function TableField({ slot, value, onChange, labelId, invalid, describedB
                 {cell.input.type === "text"
                   ? <Input aria-label={label} aria-invalid={invalid || undefined} value={text} disabled={disabled} onChange={(event) => set(row.id, column.id, event.target.value)} />
                   : <Select value={text} disabled={disabled} onValueChange={(next) => set(row.id, column.id, next)}>
-                    <SelectTrigger aria-label={label} aria-invalid={invalid || undefined} className="w-full"><SelectValue placeholder="选择" /></SelectTrigger>
+                    <SelectTrigger aria-label={label} aria-invalid={invalid || undefined} className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {cell.input.options.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}
                     </SelectContent>

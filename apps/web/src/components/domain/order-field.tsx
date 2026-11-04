@@ -33,9 +33,6 @@ export function OrderField({ slot, value, onChange, labelId, describedBy, disabl
 
   return <div className="grid gap-3" aria-describedby={describedBy}>
     <ol aria-labelledby={labelId} className="m-0 grid list-none gap-2 p-0">
-      {value.items.length === 0 && <li className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
-        还没有排入任何块，从下面的候选里加入。
-      </li>}
       {value.items.map((id, index) => {
         const level = value.indents[index] ?? 0;
         return <li

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ContentPage, LearningResult } from "@repa/learning/protocol";
 
 import { Button } from "@/components/ui/button";
-import { DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { RenderLink } from "@/components/ui/markdown";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { Content } from "@/components/domain/item-parts";
@@ -35,7 +35,7 @@ export function ConceptCardDialog({ kpId, renderLink }: { kpId: string; renderLi
         const { hits } = await searchContent(kpId);
         const hit = hits.find((candidate) => candidate.ref.kind === "card" && candidate.ref.kpId === kpId)
           ?? hits.find((candidate) => candidate.ref.kind === "kp" && candidate.ref.kpId === kpId);
-        if (!hit) throw new Error("没有找到这个知识点，可能是课程更新后编号变了。");
+        if (!hit) throw new Error("没有找到这个知识点。");
         await openContent(hit.ref);
         const [page] = await readContent(hit.ref);
         if (!page) throw new Error("这张卡片没有内容。");
@@ -58,10 +58,9 @@ export function ConceptCardDialog({ kpId, renderLink }: { kpId: string; renderLi
   }
 
   const sameAsCard = loaded && loaded.hit.origin.content.id === loaded.hit.ref.id;
-  return <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+  return <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined}>
     <DialogHeader>
       <DialogTitle>{loaded?.hit.title ?? "概念卡"}</DialogTitle>
-      <DialogDescription>学过的内容随时可以回来查。</DialogDescription>
     </DialogHeader>
     {!loaded && error === undefined && <p role="status" className="m-0 text-sm text-muted-foreground">正在读取…</p>}
     {error !== undefined && <ErrorNotice title="没能打开这张卡片" error={error} />}

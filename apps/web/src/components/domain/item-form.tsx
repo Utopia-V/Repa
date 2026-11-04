@@ -118,7 +118,6 @@ function ChoiceField({ slot, value, onChange, labelId, invalid, describedBy, dis
   const otherLabel = slot.other?.label ?? "其他";
   const otherInput = slot.other && <Input
     aria-label={`${otherLabel}：自己填写`}
-    placeholder="自己填写"
     value={value.otherText}
     disabled={disabled}
     // 开始填写就选中“其他”；单选时同时放下已选的选项。

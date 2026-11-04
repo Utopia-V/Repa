@@ -8,7 +8,7 @@ import { useAppStore } from "@/hooks/use-app-store";
 import { useTrialRunner } from "@/hooks/use-trial-runner";
 
 const phaseText: Record<PythonPhase, string> = {
-  prepare: "准备运行环境（课程的前导代码和题目数据）",
+  prepare: "准备运行环境",
   program: "运行你的代码",
   capture: "检查结果",
   doctest: "检查结果",

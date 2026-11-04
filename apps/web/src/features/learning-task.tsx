@@ -162,7 +162,7 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
   switch (phase.stage) {
     case "preparing":
       return <div className="grid gap-4">
-        <p className="m-0 text-sm text-muted-foreground">正在准备{kindText[task.kind]}：辅导会先停下来。</p>
+        <p className="m-0 text-sm text-muted-foreground">正在准备{kindText[task.kind]}。</p>
         <Actions><Button disabled={busy} onClick={() => { void resumeTask(); }}>继续</Button></Actions>
       </div>;
     case "explanation":
