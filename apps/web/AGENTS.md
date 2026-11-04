@@ -14,20 +14,16 @@
 - 样式链路为 `docs/design-system.md` → `src/globals.css` → `src/components/ui` → `src/components/domain` → 页面或 feature；页面或 feature 位于组件的调用层，不反向定义组件视觉。
 - 优先复用 `src/components/ui` 中已有的 shadcn 组件；基础组件存在 variant 或 size 时使用 CVA 管理。
 - 颜色必须使用 semantic design tokens，不直接写品牌色或中性色 HEX/RGB，不引用主题私有变量。`src/globals.css` 是 token 的唯一真实来源，不另建 `tokens.ts` 或 JSON 色板。
-- 不新增任意圆角、字号或非 spacing scale 间距；布局尺寸、拓扑坐标和图标尺寸不冒充留白 token。
 - 通用 hover、active、focus、disabled 等视觉行为修改基础组件，不通过逐页 CSS、子元素选择器或 className 覆盖。
 - `src/components/domain` 组合基础组件和业务状态，将 selected、completed、current、error 等映射到已有语义，不重新定义基础视觉语言；不依赖页面 CSS 才能正确显示。
 - 页面级样式主要负责 layout、响应式、组合和页面间距；颜色、边框色、圆角、阴影、字号与组件状态优先由组件持有。允许使用 Tailwind，使用位置由职责决定。
-- 新增 token 前先确认现有 token 无法表达该语义，说明实际调用方与允许使用范围，并先修订规范。
 
 ## 组件实现与交互
 
 - 基础组件不持有学习业务数据；业务组件通过 props 表达业务状态；页面或 feature 负责数据接入和组合，不为每个页面复制基础组件。
 - 复用现有 shadcn/Radix 的焦点管理、键盘操作和复合控件行为。更新上游源码前核对本地适配，不直接覆盖项目 variant、尺寸和可访问性规则。
-- 同一 size 下各 Button variant 共享几何与排版；Disabled 是状态。默认 Button 不提交表单，提交入口显式使用 `type="submit"`。
-- 重要状态提供非颜色视觉提示，同时提供对应的原生或 ARIA 状态。Selected 与 Focus 独立，不以选中标记替代焦点提示。
-- 输入控件使用可见 label（对话输入框的例外见设计系统规范）；错误说明关联输入。图标按钮提供可访问名称；交互组件支持键盘操作。
-- 业务组件、页面和 feature 的 `className` 仅用于布局、定位、响应式及基础组件明确允许的 composition spacing；不得覆盖 variant、颜色、边框或 ring、圆角、阴影、排版和交互状态。Card 内距由基础组件 size / variant 持有；响应式和页面 CSS 不豁免限制。具体范围以 `docs/design-system.md` 为准。
+- 圆角、字号、留白和新增 token 的限制，Button 几何，`className` 的调用边界，选择、焦点与标签的可访问性要求，都以[设计系统规范](../../docs/design-system.md)为准，不在此复述。
+- 图标按钮提供可访问名称，交互组件支持键盘操作，错误说明关联到对应输入。
 - 组件不得依赖调用页面的 CSS 才能正确显示，不维护第二套 token 展示值。
 - 新增或修改界面需处理窄屏、内容换行、文字放大和减少动态效果偏好；不得通过缩小正文或禁用缩放隐藏布局问题。
 - 界面上给人看的文字不用模型生成，也不由 Agent 改写；Agent 只列出文字、标出可删的及理由，按人写好的原话实现。能由结构、默认值或按钮名称表达的，不另写说明句。见 [#101](https://github.com/Utopia-V/Repa/issues/101)。
@@ -43,7 +39,7 @@
 
 ## 开发与验证
 
-- 开发：运行 `npm run dev:web`，通过主应用验证界面。
+- 开发：运行 `npm run dev:web`，通过主应用验证界面；看学习界面用 `npm run dev:web:learning`，它按学习者版本启动后端。
 - 实现变更运行以下 Web 检查；仅文档修改检查链接和规则一致性，无需重复构建。
 
 ```sh

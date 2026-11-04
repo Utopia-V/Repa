@@ -6,8 +6,8 @@
   },
   {
     "path": "apps/web/AGENTS.md",
-    "maxChars": 2800,
-    "reason": "#101 要求把界面文字的规则写进本文件，加入后的长度预留 10%"
+    "maxChars": 2500,
+    "reason": "去掉与设计系统规范重复的条目后的长度，预留约 10%"
   },
   {
     "path": "packages/base/AGENTS.md",
