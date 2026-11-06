@@ -96,7 +96,7 @@ const operation: fc.Arbitrary<Operation> = fc.record({
   verdict: weighted<ModelVerdict>([["correct", 12], ["partial", 1], ["incorrect", 1], ["unsure", 1], ["fail", 2]]),
 });
 
-/** 16 分钟越过测验的截止时间，三天越过课的冷却并让复习到期。 */
+/** 16 分钟越过测验的截止时间，三天越过失败课的重试等待并让复习到期。 */
 const WAITS = [60_000, 16 * 60_000, 16 * 60_000, DAY_MS, 3 * DAY_MS];
 /** 流程的守卫拒绝一次操作时用的错误码；操作不合时宜是正常情形，其他错误都是缺陷。 */
 const REFUSALS = new Set(["stale_state", "insufficient_items"]);

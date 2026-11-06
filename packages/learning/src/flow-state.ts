@@ -90,7 +90,8 @@ export interface TaskEvidence {
 export interface Fold {
   student: Student;
   lessons: Map<string, KpProgress[]>;
-  failures: Map<string, { at: number; kpId: string; stuck: boolean }>;
+  /** 失败的课：失败时刻、停在哪个 KP、是否连续两次停在同一处；rested 表示失败以后学习者已经做完另一项任务。 */
+  failures: Map<string, { at: number; kpId: string; stuck: boolean; rested: boolean }>;
   forced: Map<string, "review" | "lesson">;
   consecutiveReviews: number;
 }
@@ -400,6 +401,14 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
   if (!topicId || !entry.outcome) {
     return fold;
   }
+  // 失败以后做完另一项任务（中止的不算）就算休息过，见 parameters.ts 的 LESSON_REST_MS。任务按先后叠加，后叠加的就是后做的。
+  if (isCompleted(entry.outcome)) {
+    for (const [id, failure] of fold.failures) {
+      if (!failure.rested && !entry.task.topicIds.includes(id)) {
+        fold.failures.set(id, { ...failure, rested: true });
+      }
+    }
+  }
   const force = (id: string, kind: "review" | "lesson"): void => {
     if (!fold.student[id]) {
       kind = "lesson";
@@ -454,7 +463,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
       const kpId = entry.kps.find((kp) => !kp.completed)?.kpId;
       if (kpId) {
         const stuck = fold.failures.get(topicId)?.kpId === kpId;
-        fold.failures.set(topicId, { at: entry.at, kpId, stuck });
+        fold.failures.set(topicId, { at: entry.at, kpId, stuck, rested: false });
         const prerequisites = course.topics.get(topicId)?.kps.find((kp) => kp.id === kpId)?.keyPrerequisites ?? [];
         if (stuck) {
           const weakness = (id: string) => topicMemory(fold.student, id, entry.at);
@@ -482,7 +491,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
   return fold;
 }
 
-/** 菜单和已选任务共用资格判断；冷却、题量与当前 KP 位置由各入口检查。 */
+/** 菜单和已选任务共用资格判断；失败后的重试时机、题量与当前 KP 位置由各入口检查。 */
 export function topicEligible(course: CourseIndex, fold: Fold, topicId: string, kind: TaskKind, now: number): boolean {
   const topic = course.topics.get(topicId);
   if (!topic) {

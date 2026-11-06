@@ -325,7 +325,7 @@ export class LearningSession {
           return needed.length > 0 && needed.every((question) => usable.has(question));
         }) ?? false;
       };
-      menu = progressMenu(learningMenu(this.course, fold, now, this.menuId(), supply), this.replay, fold, this.course);
+      menu = progressMenu(learningMenu(this.course, fold, now, this.menuId(), supply, this.timeZone), this.replay, fold, this.course);
     }
     let restriction: LearningState["restrictions"]["kind"] = "none";
     if (restricted && evidence) {

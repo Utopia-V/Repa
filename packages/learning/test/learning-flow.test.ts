@@ -8,6 +8,7 @@ import type { Services } from "@repa/base/plugin";
 import { parse } from "@repa/base/protocol";
 import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { learningMenu } from "../src/flow-menu.js";
+import { LESSON_REST_MS } from "../src/parameters.js";
 import type { Fact } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
 import { connectTutor } from "../src/tutor.js";
@@ -120,7 +121,7 @@ test("参考读取与出题走同一个串行入口：反馈阶段先发出推�
   assert.equal((await f.state()).task?.phase.stage, "awaiting_answer");
 });
 
-test("失败保留已过 KP，冷却期间提供其他任务并报告最早恢复时间", async (t) => {
+test("失败保留已过 KP；没有别的任务可做时，休息以后重新提供这节课并报告最早恢复时间", async (t) => {
   const f = await fixture(t, [topic("t01", 2, [], [2, 5])]);
   await f.select();
   await f.advance();
@@ -142,8 +143,8 @@ test("失败保留已过 KP，冷却期间提供其他任务并报告最早恢�
   assert.deepEqual(failure.task?.phase, { stage: "completed", outcome: "failed" });
   assert.equal(failure.task?.kps[1]?.attempts, 3);
   assert.equal(failure.menu?.candidates.length, 0);
-  assert.equal(failure.menu?.availableAt, start + 48 * 3_600_000);
-  f.time(start + 48 * 3_600_000);
+  assert.equal(failure.menu?.availableAt, start + LESSON_REST_MS);
+  f.time(start + LESSON_REST_MS);
   await f.select();
   assert.equal((await f.state()).task?.kps[0]?.completed, true);
   assert.equal((await f.state()).task?.kps[1]?.attempts, 0);
@@ -224,9 +225,9 @@ test("从事实里去掉一份关键作答，同一时刻的新课资格随之�
   const removed = facts.find((fact) => fact.type === "answered");
   assert.ok(removed?.type === "answered");
   const copy = facts.filter((fact) => !((fact.type === "answered" || fact.type === "graded") && fact.delivery === removed.delivery));
-  const actual = learningMenu(session.course, replay(facts).fold(), start, "menu", () => true);
+  const actual = learningMenu(session.course, replay(facts).fold(), start, "menu", () => true, "UTC");
   const counterfactual = replay(copy);
-  const alternative = learningMenu(session.course, counterfactual.fold(), start, "menu", () => true);
+  const alternative = learningMenu(session.course, counterfactual.fold(), start, "menu", () => true, "UTC");
   assert.deepEqual(actual.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
   assert.deepEqual(alternative.candidates.map((entry) => entry.topicIds[0]), ["t01"]);
   assert.equal(counterfactual.fold().student.t01, undefined);
@@ -593,7 +594,7 @@ test("菜单相近项不同列，刷新和任务前后保留候选身份；连�
   const siblings = menu.menu?.candidates.filter((entry) => ["t02", "t03"].includes(entry.topicIds[0] ?? ""));
   assert.equal(siblings?.length, 1);
   const fold = await f.fold();
-  const decision = learningMenu(f.session().course, { ...fold, consecutiveReviews: 3 }, start + 4 * 86_400_000, "menu", () => true);
+  const decision = learningMenu(f.session().course, { ...fold, consecutiveReviews: 3 }, start + 4 * 86_400_000, "menu", () => true, "UTC");
   assert.equal(decision.candidates[0]?.kind, "lesson");
 });
 
@@ -827,15 +828,15 @@ test("强制重教首次清除旧轮进度，失败重试保留本轮已过 KP �
   assert.equal((await f.fold()).forced.has("t01"), false);
 });
 
-test("冷却在当天到期后读取状态恢复菜单，不写事实；重复读取和重开不重抽候选", async (t) => {
+test("休息到时后读取状态恢复菜单，不写事实；重复读取和重开不重抽候选", async (t) => {
   const f = await fixture(t);
   const failedAt = start + 12 * 3_600_000;
-  const availableAt = failedAt + 48 * 3_600_000;
+  const availableAt = failedAt + LESSON_REST_MS;
   f.time(failedAt);
   await f.select();
   await f.finishLesson([false]);
   assert.equal((await f.state()).menu?.availableAt, availableAt);
-  f.time(availableAt - 3_600_000);
+  f.time(availableAt - 60_000);
   const morning = await f.state();
   assert.deepEqual(morning.menu?.candidates, []);
   assert.deepEqual((await f.state()).menu, morning.menu);
@@ -1180,10 +1181,32 @@ test("过关看比例而不看错题的个数：五道练习错三道，余下�
   assert.equal(failed.task?.deliveries.length, 3);
   assert.deepEqual(failed.task?.kps[0], { kpId: "t01.k1", title: "t01.k1", attempts: 3, consecutiveCorrect: 0, completed: false });
   assert.equal((await f.student()).t01, undefined);
-  // 课失败照常冷却：菜单不给 t01，另一节课照常可选。
+  // 有别的任务可做时，失败的课先放一放：菜单不给 t01，另一节课照常可选。
   assert.deepEqual(failed.menu?.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
   await f.select("t02");
   const passed = await f.finishLesson([false, false, false, true, true, true, true]);
   assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
   assert.deepEqual(passed.task?.kps.map((kp) => kp.attempts), [7]);
+  // 做完另一节课就算休息过，当天就能重学 t01。
+  assert.ok(passed.menu?.candidates.some((entry) => entry.kind === "lesson" && entry.topicIds[0] === "t01"));
+});
+
+test("失败的课有别的任务可做时先放一放，到第二个本地自然日重新提供；中止别的任务不算休息过", async (t) => {
+  const f = await fixture(t, [topic("t01", 1, [], 5), topic("t02", 1, [], 5)]);
+  await f.select("t01");
+  const failed = await f.finishLesson([false, false, false]);
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.deepEqual(failed.menu?.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
+  assert.equal(failed.menu?.availableAt, undefined);
+  // 休息时长只在别的都给不了时才起作用。
+  f.time(start + 2 * LESSON_REST_MS);
+  assert.deepEqual((await f.state()).menu?.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
+  await f.select("t02");
+  const open = await f.state();
+  assert.ok(open.task);
+  await f.call("task.abort", { taskId: open.task.taskId, expectedRevision: open.revision, expectedStage: open.task.phase.stage });
+  assert.deepEqual((await f.state()).menu?.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
+  f.time(start + 86_400_000);
+  const next = await f.state();
+  assert.ok(next.menu?.candidates.some((entry) => entry.kind === "lesson" && entry.topicIds[0] === "t01"));
 });
