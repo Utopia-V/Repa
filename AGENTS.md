@@ -77,6 +77,7 @@ Repa 正在重做。旧实现已从工作树删除，保留在标签 `pre-rebuil
 - 当前模块与运行入口见[开发指南](docs/development/README.md)，底座结构与 Pi 接入见 [`@repa/base` 说明](packages/base/README.md)。这些材料中的实现描述需结合当前代码核对。
 - MA 的一手入口见[官方机制说明](https://www.mathacademy.com/how-our-ai-works)和 [The Math Academy Way 作者页面](https://www.justinmath.com/books/#the-math-academy-way)。公开描述没有给出的算法需要独立研究，推测不当作 MA 已公开的实现。
 - 跨任务协作使用 [GitHub Issues](https://github.com/Utopia-V/repa/issues)，通过已认证的 `gh` CLI 操作。已有 Issue 的实现方案也按当前目标判断。
+- 审查依据 [REVIEW.md](REVIEW.md)；能机械判断的规则由 `npm run lint` 检查，只有检查不了的才写成文字。
 - 代码、测试和文档的具体写法分别见 [repa-code-style](.agents/skills/repa-code-style/SKILL.md)、[repa-test-style](.agents/skills/repa-test-style/SKILL.md) 和 [repa-docs-style](.agents/skills/repa-docs-style/SKILL.md)。按任务使用相应规范与方法 Skill；它们提供实现和表达帮助，不另行定义产品目标。
 - 项目自有文档使用简体中文；代码标识符、命令、协议字段、包名和上游专有名称保持原文，第三方原始材料保持原貌。
 - 前端由 Aqua 负责。涉及 Web 时读取 [apps/web/AGENTS.md](apps/web/AGENTS.md)，设计与实现入口分别见[设计系统](docs/design-system.md)和[设计系统实现](docs/design-system-implementation.md)；后端专用规则不扩展到前端。

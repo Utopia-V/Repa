@@ -19,7 +19,7 @@ description: 编写、修改或审阅 Repa 代码时使用，规定 TypeScript �
 - 后端沿用 `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals`、`noUnusedParameters` 与 `verbatimModuleSyntax`；配置由 `tsconfig.json` 持有。
 - 后端使用 ESM，Node 标准库写 `node:` 前缀，相对 TypeScript 模块导入写生成后的 `.js` 后缀。类型使用 `import type` 或命名导入中的 `type`；不引入 CommonJS 包装。
 - 导入按 Node 标准库、外部包、项目模块组织；不为排序改动整个文件。前端沿用其构建器支持的路径别名和 CSS 导入，不套用 NodeNext 后缀规则。
-- 文件、网络和插件输入先视为 `unknown`，在入口解析与校验后使用。不能通过 `any`、非空断言或 `@ts-ignore` 代替边界校验；SDK 泛型无法直接表达的适配应局限在边界，并注明原因。
+- 文件、网络和插件输入先视为 `unknown`，在入口解析与校验后使用；SDK 泛型无法直接表达的适配应局限在边界，并注明原因。`any`、源码中的非空断言和 `@ts-ignore` 由 lint 拦下。
 
 ## 契约、数据与错误
 
@@ -31,7 +31,7 @@ description: 编写、修改或审阅 Repa 代码时使用，规定 TypeScript �
 
 ## 模块与副作用
 
-- `client.ts` 及其依赖保持浏览器可用，使用标准 WebSocket／Fetch；不得经公共导出间接引入 Node、Pi 或后端存储模块。
+- `client.ts` 及其依赖保持浏览器可用，使用标准 WebSocket／Fetch；整条依赖链由 `scripts/checks/browser-boundary.ts` 检查。
 - Pi 运行与消息类型留在后端接入边界，前端和 Agent 工具共享内容的版本检查、保存与恢复语义。运行记录、配置及插件自有数据由各自模块持有写入入口；当前模块位置与调用路径见[开发指南](../../../docs/development/README.md#从哪里开始)。调整实现位置时同步调用方与说明，保留这些责任边界。
 - 通用存储辅助能力只承担文件与调度操作，数据格式、恢复判断与业务含义由所属模块持有。复用前核对原子性、持久化时机和操作顺序是否满足调用方；当前辅助能力见[开发指南](../../../docs/development/README.md#从哪里开始)。
 - 普通文件 I/O 优先异步，避免阻塞后端处理其他请求。SDK 同步回调等确需同步完成的路径可使用同步实现，注明必要时序，并控制单次阻塞的工作量。
@@ -40,4 +40,4 @@ description: 编写、修改或审阅 Repa 代码时使用，规定 TypeScript �
 
 ## 检查入口
 
-当前后端类型检查使用 `npm run check`，构建使用 `npm run build`。具体脚本、编译选项与依赖版本分别以所属 `package.json`、`tsconfig` 和锁文件为准。本规范不引入新的格式化器、linter 或全仓重排任务。
+当前后端类型检查使用 `npm run check`，构建使用 `npm run build`，lint 与依赖边界检查使用 `npm run lint`（`npm test` 会先运行它）。具体脚本、编译选项与依赖版本分别以所属 `package.json`、`tsconfig` 和锁文件为准。能机械判断的规则放进检查，只有检查不了的才留在本规范里，见[能机械判断的规则交给检查](../../notes/proposed/process/2026-11-06-mechanical-checks.md)；本规范不引入格式化器或全仓重排任务。
