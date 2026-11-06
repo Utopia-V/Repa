@@ -209,7 +209,7 @@ test("改正一道题的答案后，过去的作答自动按新答案重判，�
   assert.ok((await f.student()).t02);
   const after = await f.state();
   assert.equal(after.progress.totalXp, 10);
-  // 重判使这节课失败，照常冷却：冷却结束以后菜单重新提供它。
+  // 重判使这节课失败：到第二天菜单重新提供它。
   f.time(start + 48 * 3_600_000);
   assert.ok((await f.state()).menu?.candidates.some((entry) => entry.kind === "lesson" && entry.topicIds[0] === "t01"));
   // 新判分追加在后面，旧判分保留；同一个答案版本只判一次，再打开不重判。
@@ -354,7 +354,7 @@ test("申诉使更早一轮课的知识点改判为错时，正在进行的重�
   assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
   const key = f.session().replay.current?.answered[0];
   assert.ok(key);
-  // 冷却以后重试：继承已过的 KP1，只练 KP2，两连对通过。
+  // 之后重试：继承已过的 KP1，只练 KP2，两连对通过。
   f.time(start + 49 * 3_600_000);
   await f.select("t01");
   const passed = await f.finishLesson();
@@ -397,7 +397,7 @@ for (const count of [2, 1]) {
     await f.advance();
     await f.submit(false);
     assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
-    // 冷却以后的新一轮：KP1 没有继承，从讲解开始。
+    // 之后的新一轮：KP1 没有继承，从讲解开始。
     f.time(start + 49 * 3_600_000);
     await f.select("t01");
     const lesson = Number((await f.state()).task?.taskId.slice(1));

@@ -13,8 +13,12 @@ export const STUDENT_MODEL: ModelConfig = DEFAULT_MODEL_CONFIG;
 // 课内的过关规则是 Repa 假设，见 flow-state.ts 的 lessonProgress：每个知识点的必做练习都要作答，答对的超过所答题数的
 // 一半才通过，看比例而不看错题的个数。MA 按“连对两题”过关，前提是同一知识点的题池都是可以互换的同类变式（每个知识点约 20 题）；
 // 现有课程的题池每题练的是不同方面、各只有一题，按连对两题过关会让学习者只做前两题，所以改为全做。
-/** 课失败以后多久才能重试。Repa 假设：MA 官方 FAQ 只说过几天再试。 */
-export const LESSON_COOLDOWN_MS = 48 * 3_600_000;
+/**
+ * 课失败以后的重试：学习者做完另一项任务，或者到了第二个本地自然日，失败的课就重新提供；菜单上没有别的任务可做时，
+ * 休息 LESSON_REST_MS 后就重新提供，不让学习者干等。MA 公开：失败后先学不相关的 topic 再重试，等待期间学生可以在其他
+ * 路线上继续推进，FAQ 说几天之内再次出现（The Math Academy Way 第 398 页等）；等待多久没有公开，休息时长是 Repa 假设。
+ */
+export const LESSON_REST_MS = 30 * 60_000;
 
 // 复习
 
