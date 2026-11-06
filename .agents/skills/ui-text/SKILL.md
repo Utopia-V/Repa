@@ -56,6 +56,8 @@ The maintainer's rule (Issue #101): human-facing UI text must not be AI-generate
 
 An agent may list the strings, mark what to delete and why, and implement words a person wrote. In prototypes, keep words to existing labels and real course content, and report them as placeholders. Model output that is the feature itself, such as tutor replies, is outside this.
 
+Where the text lives (decided 2026-11-06, see the note `2026-11-06-ui-strings-and-components.md` in `.agents/notes/proposed/architecture/`): interface text sits in a strings file in `apps/web`, and components reference keys. An agent adding a UI element adds the key with a placeholder for a person to fill, never a value; the check reports placeholders, and a build with placeholders does not go to learners.
+
 Repa sentences that failed the test, with the treatment:
 
 | Sentence | Why it fails | Treatment |
