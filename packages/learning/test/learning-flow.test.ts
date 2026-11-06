@@ -1191,6 +1191,34 @@ test("过关看比例而不看错题的个数：五道练习错三道，余下�
   assert.ok(passed.menu?.candidates.some((entry) => entry.kind === "lesson" && entry.topicIds[0] === "t01"));
 });
 
+test("没通过的复习有别的任务可做时先放一放，做完另一项任务后重新提供", async (t) => {
+  const f = await fixture(t, [topic("t01", 2), topic("t02", 2)]);
+  await f.select("t01");
+  await f.finishLesson();
+  await f.select("t02");
+  await f.finishLesson();
+  f.time(start + 86_400_000);
+  const reviews = (state: Awaited<ReturnType<typeof f.state>>) =>
+    state.menu?.candidates.filter((entry) => entry.kind === "review").map((entry) => entry.topicIds[0]) ?? [];
+  assert.deepEqual(reviews(await f.state()).sort(), ["t01", "t02"]);
+  await f.select("t01", "review");
+  for (const [index, correct] of [true, true, false, true, false].entries()) {
+    await f.submit(correct);
+    if (index < 4) await f.advance();
+  }
+  const failed = await f.state();
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  assert.deepEqual(reviews(failed), ["t02"]);
+  await f.select("t02", "review");
+  for (const [index, correct] of [false, true, false, true, true].entries()) {
+    await f.submit(correct);
+    if (index < 4) await f.advance();
+  }
+  const passed = await f.state();
+  assert.deepEqual(passed.task?.phase, { stage: "completed", outcome: "passed" });
+  assert.ok(reviews(passed).includes("t01"));
+});
+
 test("失败的课有别的任务可做时先放一放，到第二个本地自然日重新提供；中止别的任务不算休息过", async (t) => {
   const f = await fixture(t, [topic("t01", 1, [], 5), topic("t02", 1, [], 5)]);
   await f.select("t01");

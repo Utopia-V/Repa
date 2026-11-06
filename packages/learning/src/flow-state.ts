@@ -92,6 +92,8 @@ export interface Fold {
   lessons: Map<string, KpProgress[]>;
   /** 失败的课：失败时刻、停在哪个 KP、是否连续两次停在同一处；rested 表示失败以后学习者已经做完另一项任务。 */
   failures: Map<string, { at: number; kpId: string; stuck: boolean; rested: boolean }>;
+  /** 没通过的复习：失败时刻，以及之后学习者是否做完了另一项任务。重试时机与课相同，见 parameters.ts 的 LESSON_REST_MS。 */
+  reviewFailures: Map<string, { at: number; rested: boolean }>;
   forced: Map<string, "review" | "lesson">;
   consecutiveReviews: number;
 }
@@ -145,7 +147,7 @@ function quality(attempts: Attempt[], passed: boolean): number {
 }
 
 export function emptyFold(): Fold {
-  return { student: {}, lessons: new Map(), failures: new Map(), forced: new Map(), consecutiveReviews: 0 };
+  return { student: {}, lessons: new Map(), failures: new Map(), reviewFailures: new Map(), forced: new Map(), consecutiveReviews: 0 };
 }
 
 /** 课的开始时间是选定的时间；复习与测验从第一道题出现时开始。 */
@@ -394,6 +396,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
     student: previous.student,
     lessons: new Map(previous.lessons),
     failures: new Map(previous.failures),
+    reviewFailures: new Map(previous.reviewFailures),
     forced: new Map(previous.forced),
     consecutiveReviews: previous.consecutiveReviews,
   };
@@ -406,6 +409,11 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
     for (const [id, failure] of fold.failures) {
       if (!failure.rested && !entry.task.topicIds.includes(id)) {
         fold.failures.set(id, { ...failure, rested: true });
+      }
+    }
+    for (const [id, failure] of fold.reviewFailures) {
+      if (!failure.rested && !entry.task.topicIds.includes(id)) {
+        fold.reviewFailures.set(id, { ...failure, rested: true });
       }
     }
   }
@@ -478,6 +486,11 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
     const verdict = reviewVerdict(entry);
     if (verdict) {
       update(topicId, verdict, entry.attempts);
+      if (verdict === "pass") {
+        fold.reviewFailures.delete(topicId);
+      } else {
+        fold.reviewFailures.set(topicId, { at: entry.at, rested: false });
+      }
       if (fold.forced.has(topicId)) {
         if (verdict === "pass") {
           fold.forced.delete(topicId);
