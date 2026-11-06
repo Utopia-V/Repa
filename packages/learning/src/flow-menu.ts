@@ -11,7 +11,7 @@ type Candidate = LearningMenu["candidates"][number];
  * 常规菜单：强制补救优先，再按学生模型的候选提供课和复习。菜单由学习状态和当前时间算出，同样的状态得到同样的菜单；
  * 候选的编号由类型和 topic 得出，刷新和重开都不变。supply 判断当前调用方能否拿到足够的题：课要每个没过的知识点都有
  * 这个前端能用的题，复习至少有一道。菜单的规则（失败后的重试、项数、相近项不同列、连续复习后给新课）都是 Repa 的假设，
- * 见 parameters.ts。失败的课当天没有休息过时，先给别的任务；别的都给不了，才在休息 LESSON_REST_MS 之后重新提供它。
+ * 见 parameters.ts。没通过的课或复习当天没有休息过时，先给别的任务；别的都给不了，才在休息 LESSON_REST_MS 之后重新提供它。
  * timeZone 用来判断失败与现在是否在同一个本地自然日。
  */
 export function learningMenu(
@@ -49,7 +49,7 @@ function buildMenu(
     if (!topic || topic.status !== "complete" || !supply(topicId, kind) || !topicEligible(course, fold, topicId, kind, now)) {
       return false;
     }
-    const failure = kind === "lesson" ? fold.failures.get(topicId) : undefined;
+    const failure = kind === "lesson" ? fold.failures.get(topicId) : fold.reviewFailures.get(topicId);
     if (failure && !retry(failure)) {
       if (rest !== undefined) {
         availableAt = Math.min(availableAt ?? Infinity, failure.at + rest);
