@@ -18,6 +18,9 @@
     "build:app": "vite build"
   },
   "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@fontsource-variable/manrope": "5.3.0",
+    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
     "@repa/base": "0.1.0",
     "@repa/learning": "0.1.0",
     "@repa/python-runner": "0.1.0",

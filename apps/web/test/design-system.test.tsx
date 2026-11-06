@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 const css = readFileSync("src/globals.css", "utf8");
 import { useState } from "react";
 import {
@@ -143,6 +144,23 @@ describe("主题可读性", () => {
   ])("%s 在 %s 上有可辨识的控件边界", (fg, bg) =>
     expect(contrast(fg, bg)).toBeGreaterThanOrEqual(3),
   );
+});
+
+// 字体失效时浏览器不报错，只是换成回退字体，界面上不容易发现。
+describe("字体随应用打包", () => {
+  it("不从外站引入样式表，页面 CSP 会拦下", () => {
+    expect(css).not.toMatch(/@import\s+url\(\s*["']?https?:/);
+  });
+
+  const packaged = new Set(
+    [...css.matchAll(/^@import "(@fontsource[^"]+)";$/gm)].flatMap(([, name]) =>
+      [...readFileSync(createRequire(import.meta.url).resolve(name!), "utf8").matchAll(/font-family:\s*['"]([^'"]+)['"]/g)].map(([, family]) => family),
+    ),
+  );
+  it.each(["font-heading", "font-body", "font-code"])("%s 的首选字体由引入的字体包提供", (token) => {
+    const first = css.match(new RegExp(`--${token}:\\s*("[^"]+"|[^,;]+)`))?.[1]?.replace(/"/g, "");
+    expect(packaged).toContain(first);
+  });
 });
 
 it("图标选择按钮复用按钮焦点，切换后保留独立选择状态", async () => {
