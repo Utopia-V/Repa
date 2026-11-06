@@ -17,6 +17,7 @@
 | Web 开发（学习者版本的后端：加载学习插件、关闭通用 Agent） | `npm run dev:web:learning` |
 | Desktop 开发 | `npm run dev:desktop` |
 | 全仓类型检查、测试与构建 | `npm run check`、`npm test`、`npm run build` |
+| lint 与依赖边界检查（`npm test` 会先运行） | `npm run lint` |
 
 根 `start` 和 `dev:backend` 都运行底座的 `serve`，由底座的 `prestart` 准备构建产物。需要指定端口或加载本机可信插件时，继续传入底座 CLI 的选项，具体见[使用说明](../../packages/base/README.md#怎么用)。
 
