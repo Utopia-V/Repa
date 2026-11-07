@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>探索墙</title>
+<link rel="stylesheet" href="structure.css">
+<link rel="stylesheet" href="themes/e-fu.css">
+<style>
+  .wall-head { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 24px; padding: 16px 32px; background: var(--paper); box-shadow: 0 1px 0 var(--hair); font-size: 14px; color: var(--soft); }
+  .wall-head input[type=range] { flex: 1; accent-color: var(--ink); }
+  .wall-head output { width: 5em; font: 500 15px var(--mono); color: var(--ink); text-align: right; }
+  .wall-head button { color: var(--soft); }
+  .wall-head button:hover, .wall-head a:hover { color: var(--ink); }
+  .wall-head a { color: var(--soft); }
+  .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 32px; padding: 32px; }
+  .wall h2 { grid-column: 1 / -1; font: 600 20px/32px var(--song); margin-top: 16px; }
+  .plate { display: grid; gap: 8px; color: inherit; text-decoration: none; }
+  .plate-figure { height: 340px; background: var(--paper); box-shadow: 0 0 0 1px var(--hair); overflow: hidden; }
+  .plate-name { font-size: 14px; line-height: 24px; color: var(--soft); }
+  .plate:hover .plate-name { color: var(--blue); }
+</style>
+</head>
+<body>
+<div class="wall-head">
+  <span>第一天</span>
+  <input id="at" type="range" min="0" max="120" value="71" aria-label="已通过的知识点数">
+  <span>学完</span>
+  <output id="at-text"></output>
+  <button type="button" id="dark">深色</button>
+  <a href="home.html">今天</a>
+  <a href="lesson-wall.html">整页语言</a>
+</div>
+<main class="wall" id="wall"></main>
+<script src="course.js"></script>
+<script src="paint/tile.js"></script>
+<script src="paint/tower.js"></script>
+<script src="figures/core.js"></script>
+<script src="figures/fractal.js"></script>
+<script src="figures/solid.js"></script>
+<script src="figures/time.js"></script>
+<script src="figures/tiles.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  const dark = params.get("dark") === "1";
+  document.documentElement.classList.toggle("dark", dark);
+  const input = document.querySelector("#at"), text = document.querySelector("#at-text"), wall = document.querySelector("#wall");
+  if (params.has("at")) input.value = params.get("at");
+  document.querySelector("#dark").addEventListener("click", () => { params.set("dark", dark ? "0" : "1"); params.set("at", input.value); location.search = params.toString(); });
+  const ORDER = ["单元", "分形", "3D", "时间"];
+  const mounted = [];
+  for (const group of ORDER) {
+    wall.append(Object.assign(document.createElement("h2"), { textContent: group }));
+    for (const [key, figure] of Object.entries(Figures)) {
+      if (figure.group !== group) continue;
+      const plate = document.createElement("a");
+      plate.className = "plate";
+      plate.href = `home.html?figure=${key}&later=1${dark ? "&dark=1" : ""}`;
+      const box = Object.assign(document.createElement("div"), { className: "plate-figure" });
+      plate.append(box, Object.assign(document.createElement("span"), { className: "plate-name", textContent: figure.name }));
+      wall.append(plate);
+      mounted.push(figure.mount(box));
+    }
+  }
+  const apply = () => {
+    const at = Number(input.value);
+    text.textContent = `${at} / 120`;
+    const entries = simulateProgress({ at: Math.min(at, 119) }).map((entry, index) => (at === 120 ? { ...entry, state: "done", retention: entry.retention ?? 0.9 } : entry));
+    mounted.forEach((m) => m.update(entries));
+  };
+  input.addEventListener("input", apply);
+  apply();
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta id="theme-color" name="theme-color" content="#f7f8f9">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<title>题型 - Repa</title>
+<link rel="stylesheet" href="reset.css">
+<link rel="stylesheet" href="ui.css">
+<link id="skin" rel="stylesheet" href="skins/fu.css">
+<link rel="stylesheet" href="review.css">
+<style>
+  .gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 640px)); gap: var(--s7) var(--s6); justify-content: center; padding: var(--s6) var(--s4) var(--s8); }
+  @media (max-width: 900px) { .gallery { grid-template-columns: minmax(0, 1fr); padding: var(--s3); } }
+</style>
+</head>
+<body>
+<h1 class="sr">题型</h1>
+<main class="gallery" id="gallery"></main>
+<nav class="review" id="review" aria-label="试稿切换"></nav>
+<script src="course.js"></script>
+<script src="core/items.js"></script>
+<script src="core/md.js"></script>
+<script src="paint/tile.js"></script>
+<script src="paint/tower.js"></script>
+<script src="figures/core.js"></script>
+<script src="figures/tiles.js"></script>
+<script src="core/app.js"></script>
+<script src="core/parts.js"></script>
+<script>
+  // Every real answer form, rendered by the real parts: unanswered on the left, answered wrongly on the right.
+  const params = new URLSearchParams(location.search);
+  const skin = params.get("skin") ?? "fu";
+  document.querySelector("#skin").href = `skins/${skin}.css`;
+  document.documentElement.classList.toggle("dark", params.get("dark") === "1");
+  const app = createApp({ stage: "answering" });
+  const p = Parts(app);
+  const v = { verdict: "wrong" };
+  const G = ITEMS.gallery, L = ITEMS.lessonQuestions;
+  const cases = [
+    [L[0], { output: "13" }], [L[1], { line: "fixed" }], [L[2], { lines: ["show", "seats", "free"] }],
+    [L[3], { trace: { l1: { n: "3" }, l2: { n: "5" }, l3: { n: "5" } }, output: "5" }],
+    [G.multiple, { lines: [G.multiple.slots[0].options[0].id] }], [G.indent, undefined], [G.code, { code: G.code.slots[0].starter }],
+  ];
+  const box = document.querySelector("#gallery");
+  for (const [q, response] of cases) {
+    box.append(p.el("div", {}, p.question(v, q)), p.el("div", {}, p.verdict("wrong"), p.question(v, q, { locked: true, reveal: true, response })));
+  }
+  const bar = document.querySelector("#review");
+  if (params.get("chrome") === "0") bar.hidden = true;
+  else for (const [href, label] of [["app.html?frame=zoom&stage=idle&later=1", "今天"], ["repa.html?later=1#/k/", "知识库"], ["specimen.html", "样张"], ["matrix.html", "矩阵"], ["explore.html", "探索墙"]]) bar.append(Object.assign(document.createElement("a"), { href, textContent: label, className: "review-link" }));
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+/* A 书房：ur4n0x 的墨与淡蓝。简洁，靠留白和一个宋体标题立住。 */
+
+/* tokens */
+:root {
+  color-scheme: light;
+  --bg: light-dark(#f7f8f9, #1e2024);
+  --fg: light-dark(#25272b, #e3e8ed);
+  --muted: light-dark(#4c5056, #acb7c4);
+  --faint: light-dark(#656b73, #8a949f);
+  --blue: light-dark(#396d92, #a8d2ef);
+  --surface: light-dark(#ebeff3, #262b31);
+  --line: color-mix(in srgb, var(--fg) 16%, transparent);
+  --right: light-dark(#2f6f52, #8fd0ae);
+  --wrong: light-dark(#a33b2e, #eba394);
+  --sans: 'PingFang SC', 'Noto Sans CJK SC', system-ui, sans-serif;
+  --serif: 'Noto Serif CJK SC', 'Songti SC', serif;
+  --mono: 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace;
+  --radius: 3px;
+  --page: min(1280px, 100vw);
+}
+:root.dark { color-scheme: dark; }
+
+/* layout */
+body { background: var(--bg); color: var(--fg); font: 400 17px/1.8 var(--sans); }
+.app { max-width: 1280px; margin: 0 auto; padding: 0 40px 140px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 24px; align-items: start; }
+.bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 32px; padding: 32px 0 72px; }
+.course { flex: 1; }
+.map { grid-column: 1 / span 4; position: sticky; top: 32px; }
+.work { grid-column: 5 / span 7; max-width: 40rem; }
+.figure { display: none; }
+.tutor {
+  position: fixed; bottom: 24px; z-index: 5;
+  left: calc((100vw - var(--page)) / 2 + 40px + (var(--page) - 56px) / 3);
+  width: min(40rem, calc(var(--page) - 80px));
+}
+
+/* components */
+.bar { font-size: 14px; color: var(--muted); line-height: 1.6; }
+.xp { display: flex; align-items: center; gap: 12px; }
+.xp-text b { font-weight: 400; color: var(--fg); }
+.xp-ticks { display: flex; gap: 2px; }
+.xp-ticks i { width: 4px; height: 12px; background: var(--line); }
+.abort { color: var(--faint); font-size: 14px; }
+.abort:hover { color: var(--fg); }
+
+.topic { font: 600 30px/1.4 var(--serif); letter-spacing: .02em; }
+.steps { display: flex; gap: 20px; margin-top: 24px; font-size: 14px; line-height: 1.6; color: var(--faint); }
+.steps li[data-passed="1"] { color: var(--muted); }
+.steps li[aria-current] { color: var(--fg); background: linear-gradient(var(--blue), var(--blue)) 0 100% / 100% 1px no-repeat; padding-bottom: 2px; }
+.kps { display: grid; gap: 14px; margin-top: 32px; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.kp { display: grid; gap: 6px; }
+.kp[data-done="1"] { color: var(--fg); }
+.kp-marks { display: flex; gap: 3px; min-height: 2px; background: linear-gradient(var(--line), var(--line)) 0 0 / 100% 1px no-repeat; padding-top: 4px; }
+.kp-marks i { width: 14px; height: 2px; background: var(--faint); }
+.kp-marks i[data-mark="right"] { background: var(--blue); }
+
+.prose p + p, .prose p + ol, .prose ol + p, .prose .code + p, .prose p + .code { margin-top: 1em; }
+.prose li + li { margin-top: .4em; }
+.prose code { font: 400 .92em var(--mono); background: var(--surface); padding: .1em .3em; border-radius: var(--radius); }
+.prose strong { font-weight: 600; }
+.code { font: 400 15px/1.8 var(--mono); background: var(--surface); padding: 16px 20px; border-radius: var(--radius); overflow-x: auto; }
+.prose .code code { background: none; padding: 0; font: inherit; }
+.code .v { color: var(--blue); }
+.code .f { color: var(--muted); }
+
+.answer { display: grid; gap: 10px; margin-top: 24px; }
+.answer label { font-weight: 500; }
+.answer input { height: 44px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--fg); border-radius: 0; background: var(--surface); font: 400 18px var(--mono); }
+.answer input:read-only { background: transparent; border-bottom-color: var(--line); padding-left: 0; }
+.answer input:focus-visible, button:focus-visible, textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.verdict { align-items: center; gap: 8px; margin-top: 24px; font-weight: 600; }
+.verdict svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.verdict[data-v="right"] { color: var(--right); }
+.verdict[data-v="wrong"] { color: var(--wrong); }
+.reference, .analysis { margin-top: 24px; }
+.reference h3, .analysis h3 { font-size: 12px; font-weight: 400; line-height: 1.6; letter-spacing: .06em; color: var(--faint); }
+.reference-value { font: 400 18px/1.6 var(--mono); }
+
+.actions { display: flex; gap: 16px; align-items: center; margin-top: 32px; }
+.actions button { height: 36px; padding: 0 18px; border-radius: var(--radius); font-size: 14px; }
+.actions .primary { background: var(--fg); color: var(--bg); }
+.actions .primary:hover { background: var(--blue); }
+.actions .secondary { color: var(--muted); padding: 0; }
+.actions .secondary:hover { color: var(--fg); }
+
+.tutor {
+  display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 84%, transparent); backdrop-filter: blur(14px);
+  box-shadow: 0 0 0 1px var(--line); font-size: 14px; line-height: 1.6;
+}
+.tutor-title { font: inherit; color: var(--muted); white-space: nowrap; }
+.tutor-lock { width: 15px; height: 15px; fill: none; stroke: var(--faint); stroke-width: 1.6; }
+.tutor-log { display: none; }
+.tutor-input { flex: 1; display: flex; align-items: center; gap: 8px; }
+.tutor-input textarea { border: 0; background: none; padding: 4px 0; outline-offset: 4px; }
+.tutor-input button { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius); color: var(--muted); }
+.tutor-input button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.tutor[data-closed="1"] { background: var(--surface); box-shadow: none; }
+.tutor[data-closed="1"] .tutor-title, .tutor[data-closed="1"] .tutor-input button { color: var(--faint); }
+
+/* narrow */
+@media (max-width: 900px) {
+  .app { display: block; padding: 0 20px 120px; }
+  .bar { flex-wrap: wrap; gap: 8px 16px; padding: 20px 0 28px; }
+  .course { flex-basis: 100%; }
+  .abort { margin-left: auto; }
+  .map { position: static; margin-bottom: 32px; }
+  .topic { font-size: 24px; }
+  .tutor { left: 12px; right: 12px; bottom: 12px; width: auto; }
+}

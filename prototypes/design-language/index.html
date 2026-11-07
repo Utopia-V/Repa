@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repa 设计语言试稿</title>
+<link rel="stylesheet" href="structure.css">
+<link id="theme" rel="stylesheet" href="themes/e-fu.css">
+<link rel="stylesheet" href="review.css">
+</head>
+<body data-stage="explanation" data-tutor="closed">
+<p class="offline" role="status">连接断开，正在重连</p>
+<div class="app">
+  <header class="bar">
+    <p class="course">Python：读懂代码，说清需求</p>
+    <p class="kind-label"></p>
+    <p class="clock" role="timer">12:04</p>
+    <div class="xp">
+      <p class="xp-text">今天 <b>0</b> / 20 XP</p>
+      <div class="xp-ticks" role="meter" aria-label="今天的 XP" aria-valuemin="0" aria-valuemax="20" aria-valuenow="0"></div>
+    </div>
+    <button type="button" class="abort">中止新课</button>
+  </header>
+
+  <aside class="map">
+    <h1 class="topic">给数据起名，再按顺序读</h1>
+    <ol class="steps">
+      <li data-step="explanation">讲解</li>
+      <li data-step="example">例题</li>
+      <li data-step="practice">练习</li>
+    </ol>
+    <ul class="kps">
+      <li class="kp" data-kp="0"><span class="kp-title">名字指向当前的值，赋值先算右边</span><span class="kp-marks"></span></li>
+      <li class="kp" data-kp="1"><span class="kp-title">逐行追踪重新赋值，读出 print 的结果</span><span class="kp-marks"></span></li>
+    </ul>
+    <div class="figure" aria-hidden="true"></div>
+  </aside>
+
+  <main class="work">
+    <article class="screen prose" data-for="explanation">
+      <p>一段程序从第一行开始往下运行。像 <code>samples = 6</code> 这样的一行叫赋值：Python 先算出等号右边的值，再让左边的名字指向这个值。之后在别处写 <code>samples</code>，读到的就是它现在指向的值。</p>
+      <p>赋值是一个动作，不是在问“两边是否相等”。读到 <code>usable = samples - reserve</code> 时，分两步读：</p>
+      <ol>
+        <li>先算右边：取 <code>samples</code> 现在的值和 <code>reserve</code> 现在的值，相减。</li>
+        <li>再起名：让 <code>usable</code> 指向算出来的结果。</li>
+      </ol>
+      <p>赋值本身不会在屏幕上显示任何东西。想看某个名字现在的值，就用 <code>print(名字)</code>。</p>
+    </article>
+
+    <article class="screen prose" data-for="example">
+      <p>一次收到 6 份样本，其中预留 2 份。阅读下面的程序。</p>
+      <pre class="code"><code><span class="n">samples</span> = <span class="v">6</span>
+<span class="n">reserve</span> = <span class="v">2</span>
+<span class="n">usable</span> = <span class="n">samples</span> - <span class="n">reserve</span>
+<span class="f">print</span>(<span class="n">usable</span>)</code></pre>
+      <p>答案是 <strong>4</strong>。第三行先取 <code>samples</code> 的 6 和 <code>reserve</code> 的 2，算出 4，再让名字 <code>usable</code> 指向 4。前两行只是赋值，没有显示任何数字；最后一行的 <code>print</code> 才把 <code>usable</code> 现在的值显示出来。</p>
+    </article>
+
+    <article class="screen prose" data-for="practice">
+      <pre class="code"><code><span class="n">total</span> = <span class="v">9</span>
+<span class="n">used</span> = <span class="v">4</span>
+<span class="n">remaining</span> = <span class="n">total</span> - <span class="n">used</span>
+<span class="f">print</span>(<span class="n">remaining</span>)</code></pre>
+      <p class="verdict" data-v="right" role="status"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16 9.5"/></svg>答对了</p>
+      <p class="verdict" data-v="wrong" role="status"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg>答错了</p>
+      <form class="answer" novalidate>
+        <label for="answer">程序最后显示哪个整数？</label>
+        <input id="answer" inputmode="numeric" autocomplete="off">
+      </form>
+      <p class="slot-feedback">第三行是 <code>total - used</code>，用的是减号。</p>
+      <section class="reference"><h3>参考答案</h3><p class="reference-value">5</p></section>
+      <section class="analysis"><h3>解析</h3><p>答案是 <strong>5</strong>。第三行先算 9 - 4 得到 5，再让 <code>remaining</code> 指向 5；<code>print</code> 显示的就是这个值。</p></section>
+    </article>
+
+    <div class="actions"></div>
+  </main>
+
+  <aside class="tutor" aria-label="辅导">
+    <h2 class="tutor-title"><button type="button" class="tutor-toggle">辅导</button></h2>
+    <svg class="tutor-lock" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="11" width="12" height="9"/><path d="M9 11V8a3 3 0 0 1 6 0v3"/></svg>
+    <div class="tutor-log"></div>
+    <form class="tutor-input">
+      <textarea rows="1" aria-label="问辅导"></textarea>
+      <button type="submit" aria-label="发送"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+    </form>
+  </aside>
+</div>
+
+<nav class="review" aria-label="试稿切换"></nav>
+
+<script>
+window.SAMPLE_CHAT = `
+  <p class="msg-me">为什么 usable 不用写等于 4？</p>
+  <div class="msg-tutor">
+    <p>写 <code>usable = samples - reserve</code> 时，你说的是“先算右边”，算出 4 这一步由 Python 完成。这就是前面讲过的
+    <span class="recall" tabindex="0">赋值<span class="recall-card" role="tooltip"><b>赋值</b>Python 先算出等号右边的值，再让左边的名字指向这个值。</span></span>。</p>
+  </div>`;
+</script>
+<script src="course.js"></script>
+<script src="paint/tile.js"></script>
+<script src="paint/lattice.js"></script>
+<script src="paint/strip.js"></script>
+<script src="figures/core.js"></script>
+<script src="figures/fractal.js"></script>
+<script src="figures/solid.js"></script>
+<script src="figures/time.js"></script>
+<script src="figures/tiles.js"></script>
+<script src="paint/tower.js"></script>
+<script src="lesson.js"></script>
+</body>
+</html>

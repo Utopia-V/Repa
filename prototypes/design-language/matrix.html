@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>框架 × 皮肤</title>
+<style>
+  body { margin: 0; background: #d9dee3; font: 13px/1.6 'Noto Sans CJK SC', sans-serif; color: #25272b; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 10px 16px; background: #f7f8f9; box-shadow: 0 1px 0 #c5ccd3; }
+  header button { padding: 1px 8px; border: 0; background: none; font: inherit; cursor: pointer; color: #4c5056; }
+  header button[aria-pressed="true"] { background: #25272b; color: #fff; }
+  table { border-collapse: separate; border-spacing: 10px; }
+  th { position: sticky; left: 0; font-weight: 500; text-align: left; z-index: 1; white-space: nowrap; }
+  thead th { top: 44px; left: auto; }
+  .cell { position: relative; width: 340px; aspect-ratio: 1440 / 900; overflow: hidden; background: #fff; }
+  iframe { position: absolute; left: 0; top: 0; width: 1440px; height: 900px; border: 0; transform-origin: 0 0; transform: scale(.2361); pointer-events: none; }
+  a.open { position: absolute; inset: 0; z-index: 1; }
+</style>
+</head>
+<body>
+<header id="head"></header>
+<table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+<script>
+  const FRAMES = { columns: "三栏", river: "长卷", focus: "一屏", zoom: "地图", spread: "对开书", chat: "一个对象", cube: "棱柱", desk: "桌面" };
+  const SKINS = { fu: "复", indigo: "蓝印", bit: "1-bit", riso: "套印", term: "终端", swiss: "版式", field: "色场", ink: "水墨", night: "夜" };
+  const STAGES = { idle: "首页", explanation: "讲解", answering: "作答", feedback: "答错", completed: "结束" };
+  const params = new URLSearchParams(location.search);
+  let stage = params.get("stage") ?? "feedback", kind = "lesson";
+  const show = (params.get("skins") ?? "fu,indigo,bit,term,swiss").split(",");
+  const draw = () => {
+    document.querySelector("#head").replaceChildren(...Object.entries(STAGES).map(([k, label]) => { const b = Object.assign(document.createElement("button"), { textContent: label, type: "button" }); b.setAttribute("aria-pressed", String(k === stage)); b.addEventListener("click", () => { stage = k; draw(); }); return b; }));
+    document.querySelector("#thead").replaceChildren(Object.assign(document.createElement("tr"), { innerHTML: `<th></th>${show.map((s) => `<th>${SKINS[s]}</th>`).join("")}` }));
+    document.querySelector("#tbody").replaceChildren(...Object.entries(FRAMES).map(([f, name]) => {
+      const row = document.createElement("tr");
+      row.append(Object.assign(document.createElement("th"), { textContent: name }));
+      for (const s of show) {
+        const td = document.createElement("td");
+        const url = `app.html?frame=${f}&skin=${s}&stage=${stage}&later=1`;
+        td.innerHTML = `<div class="cell"><a class="open" href="${url}" aria-label="${name} ${SKINS[s]}"></a><iframe loading="lazy" tabindex="-1" src="${url}&chrome=0" title="${name} ${SKINS[s]}"></iframe></div>`;
+        row.append(td);
+      }
+      return row;
+    }));
+  };
+  draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+/*
+  复：墨与淡蓝，方角，宋体只用于名字。
+  Scales are written in OKLCH so a step of L looks like a step of L. Roles follow Radix's 12 steps:
+  1 page, 2 subtle, 3-5 component, 6 hairline, 7-8 border, 9 solid, 11 low-contrast text, 12 high-contrast text.
+*/
+:root {
+  color-scheme: light;
+  --n1: light-dark(oklch(98.2% .003 245), oklch(19% .012 255));
+  --n2: light-dark(oklch(96.7% .005 245), oklch(21.5% .013 255));
+  --n3: light-dark(oklch(94.6% .007 245), oklch(24.5% .015 255));
+  --n4: light-dark(oklch(92.4% .009 245), oklch(27% .016 255));
+  --n6: light-dark(oklch(87.5% .012 245), oklch(33% .018 255));
+  --n8: light-dark(oklch(66% .02 250), oklch(52% .02 255));
+  --n9: light-dark(oklch(56% .02 250), oklch(64% .02 255));
+  --n10: light-dark(oklch(50% .018 250), oklch(74% .018 252));
+  --n11: light-dark(oklch(41% .016 255), oklch(86% .014 248));
+  --n12: light-dark(oklch(24% .012 260), oklch(93% .007 245));
+  --paper: var(--n1); --tint: var(--n3); --hair: var(--n6); --faint: var(--n10); --soft: var(--n11); --ink: var(--n12);
+  --accent: light-dark(oklch(47% .085 243), oklch(83% .065 238));
+  --blue: var(--accent);
+  --sky: oklch(88% .06 238);
+  --sting: light-dark(oklch(52% .18 32), oklch(72% .16 32));
+  --plane: light-dark(oklch(24% .012 260), oklch(93% .007 245)); --on-plane: light-dark(oklch(95% .005 245), oklch(19% .012 255)); --on-plane-soft: light-dark(oklch(72% .016 250), oklch(40% .016 255));
+  --well: light-dark(oklch(24% .012 260), oklch(14.5% .01 255)); --on-well: oklch(93% .007 245); --on-well-soft: oklch(80% .016 248);
+  --field-line: light-dark(oklch(52% .018 250), oklch(62% .018 250)); --field-fill: light-dark(oklch(99.5% .001 245), oklch(16.5% .011 255));
+  --shadow-color: 245 25% 25%;
+  --font-body: 'Repa Latin', 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-name: 'Noto Serif CJK SC', 'Noto Serif SC', 'Songti SC', serif;
+  --font-code: 'Repa Mono', 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace;
+}
+:root.dark { color-scheme: dark; --shadow-color: 250 40% 3%; }
