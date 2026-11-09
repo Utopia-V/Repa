@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./app";
+import { FluidProvider } from "./lib/fluid-provider";
 import { createAppStore } from "./lib/store";
 import "./globals.css";
 import "./styles.css";
@@ -13,6 +14,8 @@ const store = createAppStore();
 
 createRoot(root).render(
   <StrictMode>
-    <App store={store} />
+    <FluidProvider shape="rounded" size="default">
+      <App store={store} />
+    </FluidProvider>
   </StrictMode>,
 );

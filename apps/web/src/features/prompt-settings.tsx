@@ -290,7 +290,7 @@ function PromptPreviewDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 }
 
 function PreviewText({ text }: { text: string }) {
-  return <pre className="m-0 max-h-60 overflow-auto rounded-md border border-border bg-surface-inset p-3 font-mono text-[length:var(--type-code-size)] leading-[var(--type-code-line)] whitespace-pre-wrap break-all">
+  return <pre className="m-0 max-h-60 overflow-auto rounded-lg border border-border bg-surface-inset p-3 font-mono text-[length:var(--type-code-size)] leading-[var(--type-code-line)] whitespace-pre-wrap break-all">
     {text}
   </pre>;
 }

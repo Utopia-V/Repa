@@ -54,7 +54,7 @@ function SlotResult({ slot, feedback }: { slot: Slot; feedback: SlotFeedback | u
   if (!feedback) return null;
   const hasDetail = feedback.message || feedback.expected || feedback.tests?.length || feedback.criteria?.length;
   if (!hasDetail) return null;
-  return <div className="grid gap-2 rounded-md border border-border bg-card p-3 text-sm">
+  return <div className="grid gap-2 rounded-lg border border-border bg-card p-3 text-sm">
     <Content blocks={feedback.message} />
     {feedback.expected && <div className="grid gap-1">
       <p className="m-0 text-muted-foreground">参考答案</p>

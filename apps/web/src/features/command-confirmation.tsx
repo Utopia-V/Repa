@@ -23,7 +23,7 @@ export function CommandConfirmationDialog() {
         <DialogTitle>{current.request.title}</DialogTitle>
         <DialogDescription>Agent 想在学习空间里执行下面的命令，允许后才会运行。</DialogDescription>
       </DialogHeader>
-      <pre className="m-0 max-h-60 overflow-auto rounded-md border border-border bg-surface-inset p-3 font-mono text-[length:var(--type-code-size)] leading-[var(--type-code-line)] whitespace-pre-wrap break-all">
+      <pre className="m-0 max-h-60 overflow-auto rounded-lg border border-border bg-surface-inset p-3 font-mono text-[length:var(--type-code-size)] leading-[var(--type-code-line)] whitespace-pre-wrap break-all">
         {current.request.message}
       </pre>
       <DialogFooter>

@@ -65,7 +65,7 @@ export function MarkBadge({ mark }: { mark: Mark | undefined }) {
 export function OptionRow({ selected, children }: { selected: boolean; children: ReactNode }) {
   return <div
     data-selected={selected || undefined}
-    className="flex min-h-11 items-center gap-3 rounded-md border border-border px-3 py-2 text-sm data-selected:border-border-selected data-selected:bg-accent"
+    className="flex min-h-11 items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm data-selected:border-border-selected data-selected:bg-accent"
   >{children}</div>;
 }
 

@@ -35,7 +35,7 @@ export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMe
       {menu.availableAt !== undefined && ` ${localTime(menu.availableAt, serverNow, readAt)} 以后可以继续。`}
     </p>}
     <ul className="m-0 grid list-none gap-3 p-0">
-      {menu.candidates.map((candidate) => <li key={candidate.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card p-4">
+      {menu.candidates.map((candidate) => <li key={candidate.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-4">
         <div className="grid min-w-0 gap-1">
           <span className="text-sm text-muted-foreground">{kindText[candidate.kind]}</span>
           <span className="font-semibold">{candidate.title}</span>

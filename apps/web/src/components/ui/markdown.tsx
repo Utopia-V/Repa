@@ -113,7 +113,7 @@ const baseComponents: Components = {
     const first = node?.children[0];
     const language = first?.type === "element" ? codeLanguage(first.properties.className ?? first.properties.class) : undefined;
     // 代码块统一用深色底，没高亮的代码块也一样；滚动条跟着用深色。
-    return <figure className="m-0 flex min-w-0 flex-col rounded-md bg-code-background text-code-foreground [color-scheme:dark]">
+    return <figure className="m-0 flex min-w-0 flex-col rounded-lg bg-code-background text-code-foreground [color-scheme:dark]">
       {language && <figcaption className="px-3 pt-2 text-xs text-code-caption">{language}</figcaption>}
       <pre className="m-0 overflow-x-auto p-3">{children}</pre>
     </figure>;

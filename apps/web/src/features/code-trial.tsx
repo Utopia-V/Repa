@@ -26,7 +26,7 @@ function TrialOutput({ result }: { result: PythonTestResult }) {
     const { stdout, error } = result.result;
     return <div className="grid gap-2">
       {stdout === "" && error === null && <p className="m-0 text-sm text-muted-foreground">运行完了，没有输出。</p>}
-      {stdout !== "" && <pre aria-label="运行输出" className="m-0 max-h-64 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-sm whitespace-pre-wrap">{stdout}</pre>}
+      {stdout !== "" && <pre aria-label="运行输出" className="m-0 max-h-64 overflow-auto rounded-lg bg-muted px-3 py-2 font-mono text-sm whitespace-pre-wrap">{stdout}</pre>}
       {error !== null && <p className="m-0 text-sm text-destructive">
         {typeof error.line === "number" ? `第 ${error.line} 行出错：` : "出错："}
         <code className="font-mono">{error.type}: {error.message}</code>

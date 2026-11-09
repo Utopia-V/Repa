@@ -34,7 +34,7 @@ export function AskCard({ ask, onSubmit, onCancel }: {
 
   if (ask.closed !== undefined) {
     if (ask.declined !== undefined) {
-      return <section aria-labelledby={titleId} className="mb-4 grid gap-2 rounded-md border border-border bg-card p-5 text-card-foreground">
+      return <section aria-labelledby={titleId} className="mb-4 grid gap-2 rounded-lg border border-border bg-card p-5 text-card-foreground">
         <h3 id={titleId} className="m-0 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
           <MessageCircle aria-hidden="true" className="size-4 shrink-0" />你没有按卡片作答，回了一句话
         </h3>
@@ -42,7 +42,7 @@ export function AskCard({ ask, onSubmit, onCancel }: {
       </section>;
     }
     if (ask.response) {
-      return <section aria-labelledby={titleId} className="mb-4 grid gap-3 rounded-md border border-border bg-card p-5 text-card-foreground">
+      return <section aria-labelledby={titleId} className="mb-4 grid gap-3 rounded-lg border border-border bg-card p-5 text-card-foreground">
         <h3 id={titleId} className="m-0 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
           <CircleCheck aria-hidden="true" className="size-4 shrink-0" />你回答了 Agent 的提问
         </h3>
@@ -64,7 +64,7 @@ export function AskCard({ ask, onSubmit, onCancel }: {
 
   const general = ask.problems.filter((problem) => problem.slot === undefined || !item.slots.some((slot) => slot.id === problem.slot));
 
-  return <section aria-labelledby={titleId} className="mb-4 grid gap-5 rounded-md border border-border-selected bg-card p-5 text-card-foreground">
+  return <section aria-labelledby={titleId} className="mb-4 grid gap-5 rounded-lg border border-border-selected bg-card p-5 text-card-foreground">
     <div className="flex items-center justify-between gap-3">
       <h3 id={titleId} className="m-0 flex items-center gap-2 text-base font-semibold">
         <CircleHelp aria-hidden="true" className="size-5 shrink-0 text-primary" />{item.title ?? "Agent 想问你"}

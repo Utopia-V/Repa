@@ -91,8 +91,8 @@ describe("语义组件契约", () => {
 });
 
 const values = Object.fromEntries(
-  [...css.matchAll(/--([\w-]+):\s*(#[\da-f]{6}|var\(--[\w-]+\));/g)].map(
-    (m) => [m[1]!, m[2]!],
+  [...css.matchAll(/--([\w-]+):\s*(?:light-dark\((#[\da-f]{6}),[^;]*\)|(#[\da-f]{6}|var\(--[\w-]+\)));/g)].map(
+    (m) => [m[1]!, m[2] ?? m[3]!],
   ),
 );
 function resolve(name: string, seen = new Set<string>()): string {

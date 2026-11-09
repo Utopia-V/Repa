@@ -1,0 +1,331 @@
+/* 取自 Fluid Functionalism 的 typography（MIT），见 README.md。Markdown 的排版。 */
+@layer components {
+  :where(.typeset) {
+    --typeset-display: var(--fs-display, 28px);
+    --typeset-display-leading: var(--lh-display, 34px);
+    --typeset-title: var(--fs-title, 16px);
+    --typeset-title-leading: var(--lh-title, 22px);
+    --typeset-subtitle: var(--fs-subtitle, 14px);
+    --typeset-subtitle-leading: var(--lh-subtitle, 20px);
+    --typeset-body: var(--fs-body, 13px);
+    --typeset-body-leading: var(--lh-body, 20px);
+    --typeset-caption: var(--fs-caption, 12px);
+    --typeset-caption-leading: var(--lh-caption, 16px);
+    --typeset-space-block: 12px;
+    --typeset-space-heading: 8px;
+    --typeset-space-section: 24px;
+    --typeset-space-subsection: 20px;
+    --typeset-space-rule: 24px;
+    --typeset-space-item: 4px;
+    --typeset-check: 16px;
+    --typeset-check-radius: 5px;
+    --typeset-check-gap: 8px;
+    --typeset-check-press: 0.875;
+    --typeset-indent: 24px;
+    --typeset-sub-indent: 20px;
+    font-size: var(--typeset-body);
+    line-height: var(--typeset-body-leading);
+    color: var(--muted-foreground, color-mix(in oklab, currentColor 65%, transparent));
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+  :where(.typeset.typeset-compact) {
+    --typeset-display: var(--fs-display-compact, 24px);
+    --typeset-display-leading: var(--lh-display-compact, 30px);
+    --typeset-title: var(--fs-title-compact, 15px);
+    --typeset-title-leading: var(--lh-title-compact, 20px);
+    --typeset-subtitle: var(--fs-subtitle-compact, 13px);
+    --typeset-subtitle-leading: var(--lh-subtitle-compact, 18px);
+    --typeset-body: var(--fs-body-compact, 12px);
+    --typeset-body-leading: var(--lh-body-compact, 18px);
+    --typeset-caption: var(--fs-caption-compact, 11px);
+    --typeset-caption-leading: var(--lh-caption-compact, 14px);
+    --typeset-space-block: 8px;
+    --typeset-space-heading: 4px;
+    --typeset-space-section: 16px;
+    --typeset-space-subsection: 12px;
+    --typeset-space-rule: 16px;
+    --typeset-space-item: 4px;
+    --typeset-check: 14px;
+    --typeset-check-radius: 4px;
+    --typeset-check-gap: 4px;
+    --typeset-check-press: 0.8571;
+    --typeset-indent: 18px;
+    --typeset-sub-indent: 16px;
+  }
+  :where(.typeset p, .typeset ul, .typeset ol, .typeset pre, .typeset blockquote, .typeset figure, .typeset table, .typeset .typeset-scroll, .typeset .tableWrapper, .typeset img, .typeset video, .typeset h1, .typeset h2, .typeset h3, .typeset h4, .typeset h5, .typeset h6, .typeset li):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    margin: 0;
+  }
+  :where(.typeset p, .typeset li, .typeset h1, .typeset h2, .typeset h3, .typeset h4, .typeset h5, .typeset h6):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    text-wrap-style: auto;
+  }
+  :where(.typeset * + :is(p, ul, ol, pre, blockquote, figure, table, .typeset-scroll, .tableWrapper, img, video, .not-typeset)):not(:where(.typeset .not-typeset *)) {
+    margin-top: var(--typeset-space-block);
+  }
+  :where(.typeset * + :is(h1, h2)):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    margin-top: var(--typeset-space-section);
+  }
+  :where(.typeset * + :is(h3, h4, h5, h6)):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    margin-top: var(--typeset-space-subsection);
+  }
+  :where(.typeset :is(h1, h2, h3, h4, h5, h6) + *):not(:where(.typeset .not-typeset *)) {
+    margin-top: var(--typeset-space-heading);
+  }
+  :where(.typeset hr):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    border: 0;
+    border-top: 1px solid var(--border, color-mix(in oklab, currentColor 14%, transparent));
+    margin-top: var(--typeset-space-rule);
+  }
+  :where(.typeset hr + *):not(:where(.typeset .not-typeset *)) {
+    margin-top: var(--typeset-space-rule);
+  }
+  :where(.typeset h1, .typeset h2, .typeset h3, .typeset h4, .typeset h5, .typeset h6):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    color: var(--foreground, currentColor);
+    font-variation-settings: 'wght' 550, 'opsz' 18;
+  }
+  :where(.typeset h1):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    font-size: var(--typeset-display);
+    line-height: var(--typeset-display-leading);
+    font-variation-settings: 'wght' 700, 'opsz' 25;
+  }
+  :where(.typeset h2):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    font-size: var(--typeset-title);
+    line-height: var(--typeset-title-leading);
+  }
+  :where(.typeset h3, .typeset h4, .typeset h5, .typeset h6):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    font-size: var(--typeset-subtitle);
+    line-height: var(--typeset-subtitle-leading);
+  }
+  :where(.typeset strong, .typeset b):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    font-variation-settings: 'wght' 550, 'opsz' 18;
+  }
+  :where(.typeset a):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    color: var(--foreground, currentColor);
+    text-decoration-line: underline;
+    text-decoration-color: color-mix(in oklab, currentColor 35%, transparent);
+    text-underline-offset: 0.2em;
+    transition: text-decoration-color 80ms ease-out;
+  }
+  :where(.typeset a:hover):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    text-decoration-color: currentColor;
+  }
+  :where(.typeset ul, .typeset ol):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    padding-left: calc(var(--typeset-indent) - 4px);
+  }
+  :where(.typeset li ul, .typeset li ol):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    padding-left: calc(var(--typeset-sub-indent) - 4px);
+  }
+  :where(.typeset li):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    padding-left: 4px;
+  }
+  :where(.typeset ul):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: disc;
+  }
+  :where(.typeset ol):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: decimal;
+  }
+  :where(.typeset ol ol):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: lower-alpha;
+  }
+  :where(.typeset ol ol ol):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: lower-roman;
+  }
+  :where(.typeset ol ol ol ol):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: decimal;
+  }
+  :where(.typeset ol ol ol ol ol):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: lower-alpha;
+  }
+  :where(.typeset ol ol ol ol ol ol):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: lower-roman;
+  }
+  :where(.typeset ul ul):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: circle;
+  }
+  :where(.typeset li):not(:where(.typeset .not-typeset, .typeset .not-typeset *))::marker {
+    color: var(--muted-foreground, color-mix(in oklab, currentColor 65%, transparent));
+  }
+  :where(.typeset li + li, .typeset li > ul, .typeset li > ol, .typeset li > p + p, .typeset li > div > ul, .typeset li > div > ol, .typeset li > div > p + p):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    margin-top: var(--typeset-space-item);
+  }
+  :where(.typeset .contains-task-list, .typeset ul[data-type="taskList"]):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    list-style-type: none;
+    padding-left: 0;
+  }
+  :where(.typeset .contains-task-list > li, .typeset ul[data-type="taskList"] > li):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    padding-left: 0;
+  }
+  :where(.typeset .contains-task-list .contains-task-list):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    padding-left: var(--typeset-sub-indent);
+  }
+  :where(.typeset ul[data-type="taskList"] > li > div > ul[data-type="taskList"]):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    margin-left: calc(var(--typeset-sub-indent) - var(--typeset-indent));
+  }
+  :where(.typeset .task-list-item > :is(ul, ol):not(.contains-task-list)):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    padding-left: calc(var(--typeset-indent) + var(--typeset-sub-indent) - 4px);
+  }
+  :where(.typeset input[type=checkbox]):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    appearance: none;
+    position: relative;
+    margin: 0;
+    width: var(--typeset-check);
+    height: var(--typeset-check);
+    border: 1.5px solid var(--border, color-mix(in oklab, currentColor 14%, transparent));
+    border-radius: var(--typeset-check-radius);
+    background: none;
+    cursor: pointer;
+    transition: border-color 80ms ease-out, scale 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  :where(.typeset input[type=checkbox]:not(:disabled):hover):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    border-color: color-mix(in oklab, var(--foreground, currentColor) 40%, transparent);
+  }
+  :where(.typeset input[type=checkbox]:not(:disabled):active):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    scale: var(--typeset-check-press);
+    transition-duration: 80ms, 80ms;
+  }
+  :where(.typeset input[type=checkbox]:checked):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    border-color: transparent;
+  }
+  :where(.typeset input[type=checkbox]:checked:not(:disabled):hover):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    border-color: color-mix(in oklab, var(--foreground, currentColor) 40%, transparent);
+  }
+  :where(.typeset input[type=checkbox]:disabled):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    cursor: default;
+  }
+  :where(.typeset input[type=checkbox]:checked):not(:where(.typeset .not-typeset, .typeset .not-typeset *))::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: var(--foreground, currentColor);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12L10 16L18 8'/%3E%3C/svg%3E") center / calc(var(--typeset-check) + 2px) no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12L10 16L18 8'/%3E%3C/svg%3E") center / calc(var(--typeset-check) + 2px) no-repeat;
+    transition: scale 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  :where(.typeset input[type=checkbox]:checked:not(:disabled):active):not(:where(.typeset .not-typeset, .typeset .not-typeset *))::before {
+    scale: calc(1 / var(--typeset-check-press));
+    transition-duration: 80ms;
+  }
+  :where(.typeset .task-list-item input[type=checkbox]):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    vertical-align: -0.25em;
+    margin-right: calc(var(--typeset-check-gap) - 4px);
+  }
+  :where(.typeset ul[data-type="taskList"] > li):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    display: flex;
+    gap: var(--typeset-check-gap);
+    align-items: flex-start;
+  }
+  :where(.typeset ul[data-type="taskList"] > li > label):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    flex: none;
+    display: flex;
+    align-items: center;
+    height: var(--typeset-body-leading);
+    user-select: none;
+  }
+  :where(.typeset ul[data-type="taskList"] > li > div):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  :where(.typeset ul[data-type="taskList"] > li[data-checked="true"] > div > :not(ul, ol)):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    color: var(--muted-foreground, color-mix(in oklab, currentColor 65%, transparent));
+    text-decoration-line: line-through;
+    transition: color 80ms ease-out, background-size 80ms ease-out;
+  }
+  :where(.typeset ul[data-type="taskList"] > li > div > p:first-child):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    display: inline;
+    background-image: linear-gradient(currentColor, currentColor);
+    background-repeat: no-repeat;
+    background-position: 0 0.641em;
+    background-size: 0% max(1px, 0.0684em);
+  }
+  :where(.typeset ul[data-type="taskList"] > li[data-checked="true"] > div > p:first-child):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    text-decoration-line: none;
+    background-size: 100% max(1px, 0.0684em);
+  }
+  :where(.typeset blockquote):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    padding-left: 1em;
+    border-left: 2px solid var(--border, color-mix(in oklab, currentColor 14%, transparent));
+    color: var(--muted-foreground, color-mix(in oklab, currentColor 65%, transparent));
+  }
+  :where(.typeset code):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    color: var(--foreground, currentColor);
+    font-size: var(--typeset-caption);
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  }
+  :where(.typeset :not(pre) > code):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    background-color: color-mix(in oklab, currentColor 7%, transparent);
+    border-radius: 4px;
+    padding: 0.1em 0.3em;
+  }
+  :where(.typeset pre):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    font-size: var(--typeset-caption);
+    line-height: var(--typeset-caption-leading);
+    background-color: color-mix(in oklab, currentColor 7%, transparent);
+    border-radius: 8px;
+    padding: 0.75em 1em;
+    overflow-x: auto;
+  }
+  :where(.typeset pre code):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    font-size: 1em;
+    background: none;
+    padding: 0;
+  }
+  :where(.typeset kbd):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    font-family: inherit;
+    font-size: var(--typeset-caption);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    border: 1px solid var(--border, color-mix(in oklab, currentColor 14%, transparent));
+    box-shadow: 0 1px 0 var(--border, color-mix(in oklab, currentColor 14%, transparent));
+  }
+  :where(.typeset :is(h1, h2, h3, h4, h5, h6) :is(code, kbd)):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    font-size: round(nearest, 0.875em, 1px);
+  }
+  :where(.typeset table):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  :where(.typeset th, .typeset td):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.5em 0.75em;
+    border-bottom: 1px solid var(--border, color-mix(in oklab, currentColor 14%, transparent));
+  }
+  :where(.typeset th:first-child, .typeset td:first-child):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    padding-left: 0;
+  }
+  :where(.typeset th):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    color: var(--foreground, currentColor);
+    font-variation-settings: 'wght' 550, 'opsz' 18;
+  }
+  :where(.typeset .typeset-scroll, .typeset .tableWrapper):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    overflow-x: auto;
+  }
+  :where(.typeset .typeset-scroll > table, .typeset .tableWrapper > table):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    min-width: max-content;
+  }
+  :where(.typeset img, .typeset video):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+  }
+  :where(.typeset figcaption):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+    margin-top: var(--typeset-space-heading);
+    font-size: var(--typeset-caption);
+    line-height: var(--typeset-caption-leading);
+    color: var(--muted-foreground, color-mix(in oklab, currentColor 65%, transparent));
+  }
+  @media (forced-colors: active) {
+    :where(.typeset input[type=checkbox]):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+      appearance: auto;
+    }
+    :where(.typeset input[type=checkbox]:checked):not(:where(.typeset .not-typeset, .typeset .not-typeset *))::before {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :where(.typeset ul[data-type="taskList"] > li > div > :not(ul, ol)):not(:where(.typeset .not-typeset, .typeset .not-typeset *)) {
+      transition-property: color;
+    }
+  }
+}
