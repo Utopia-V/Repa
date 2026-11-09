@@ -26,8 +26,7 @@ export function MessageComposer({ inputRef, value, onChange, onSend, onStop, run
   const canSend = !disabled && value.trim() !== "";
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    // Safari 确认候选词时 isComposing 已为 false，但 keyCode 仍是 229。
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     if (canSend) onSend();
   }

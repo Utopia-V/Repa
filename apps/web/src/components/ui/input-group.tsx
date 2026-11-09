@@ -13,7 +13,7 @@ function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="input-group"
       role="group"
       className={cn(
-        "relative flex w-full min-w-0 items-center rounded-lg border border-input bg-card transition-[border-color,box-shadow] outline-none",
+        "relative flex w-full min-w-0 items-center rounded-2xl border border-input bg-card transition-[border-color,box-shadow] outline-none",
         "has-[[data-slot=input-group-control]:focus-visible]:border-input-focus has-[[data-slot=input-group-control]:focus-visible]:shadow-[0_0_12px_rgb(0_0_0/0.1)]",
         "has-[[data-slot][aria-invalid=true]]:border-border-error",
         className,
@@ -43,7 +43,7 @@ function InputGroupTextarea({ className, ...props }: React.ComponentProps<"texta
   return (
     <Textarea
       data-slot="input-group-control"
-      className={cn("my-3 min-h-0 min-w-0 flex-1 self-stretch resize-none rounded-none border-0 bg-transparent py-1 focus-visible:ring-0", className)}
+      className={cn("my-3 min-h-0 min-w-0 flex-1 self-stretch rounded-none border-0 bg-transparent py-1 hover:bg-transparent", className)}
       {...props}
     />
   );
