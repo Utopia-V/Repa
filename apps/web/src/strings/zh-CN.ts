@@ -481,11 +481,4 @@ export const strings = {
 
   // 下拉选择
   "select.placeholder": "选择",
-
-  // 输入框
-  "input.step.increase": "〔待写〕",
-  "input.step.decrease": "〔待写〕",
-
-  // 提示条
-  "banner.dismiss.label": "〔待写〕",
 } as const satisfies Record<string, string>;

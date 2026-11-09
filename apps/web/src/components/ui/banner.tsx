@@ -23,7 +23,6 @@ import {
   useTransform,
   type ValueAnimationTransition,
 } from "motion/react";
-import { t } from "@/lib/strings";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
 import { useShape } from "@/lib/shape-context";
@@ -381,7 +380,7 @@ interface BannerProps extends HTMLAttributes<HTMLDivElement> {
   dismissible?: boolean;
   /** Called when the ✕ is pressed. */
   onDismiss?: () => void;
-  /** Accessible name for the ✕. @default "Dismiss" */
+  /** Accessible name for the ✕. Required with `dismissible`: text lives in the strings file. */
   dismissLabel?: string;
   /** Controls visibility. Omitted, the banner hides itself when dismissed.
    *  Either way, closing collapses its height so the content below slides up. */
@@ -403,7 +402,7 @@ const Banner = forwardRef<HTMLDivElement, BannerProps>(
       icon: Icon,
       dismissible = false,
       onDismiss,
-      dismissLabel = t("banner.dismiss.label"),
+      dismissLabel,
       open: openProp,
       size,
       motion: motionConfig = bannerMotion,

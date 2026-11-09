@@ -17,7 +17,8 @@ Sidebar、Card 和 Sheet 的接口来自 shadcn `new-york-v4`（MIT，原文在 
 | 文件 | 改动 | 原因 |
 | --- | --- | --- |
 | `dialog`、`select`、`switch`、`banner`、`use-fluid-hover`、`fluid-provider`、`icon-context` | 补 `undefined`、加类型断言 | `apps/web` 开了 `exactOptionalPropertyTypes` 和 `noUncheckedIndexedAccess` |
-| `dialog`、`select`、`input`、`banner` | 英文文字换成字符串键 | 界面文字集中管理 |
+| `dialog`、`select` | 英文文字换成字符串键 | 界面文字集中管理 |
+| `input`、`banner` | 数字步进按钮和关闭按钮的名称由调用方传入（`stepLabels`、`dismissLabel`） | 这两处目前没有调用方，上游写死的英文不进字符串文件 |
 | `button` | 根节点加 `data-variant` | 测试按它区分按钮层级 |
 | `dialog` | 默认 `size="lg"`；内容区 `grid gap-4`，Header、Footer 不带外边距；限高滚动；Esc 只关最上层 | 保持原来的宽度和间距，长内容不超出窗口，互不嵌套的弹层也能逐层退出 |
 | `input`、`textarea`、`select`、`checkbox` | 边框用 `input`，聚焦用 `input-focus` | 控件边界对比度至少 3:1 |

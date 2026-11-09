@@ -3,7 +3,6 @@
 
 import { forwardRef, useRef, useState, type InputHTMLAttributes } from "react";
 import { guardComposition } from "@/lib/composition-guard";
-import { t } from "@/lib/strings";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
 import { useIcons } from "@/lib/icon-context";
@@ -35,10 +34,12 @@ interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size">
   /** Pins the field to one step of the size ladder (default 36px, compact
    *  28px). Omitted, it follows the surrounding SizeProvider. */
   size?: SizeVariant;
+  /** Accessible names for the +/− buttons of `type="number"`. */
+  stepLabels?: { increase: string; decrease: string };
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, size, type = "text", style, onChange, onKeyDown, ...props }, ref) => {
+  ({ className, size, type = "text", style, onChange, onKeyDown, stepLabels, ...props }, ref) => {
     const shape = useShape();
     const sizeClasses = useSize(size);
     const compact = sizeClasses.variant === "compact";
@@ -149,7 +150,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             // Arrow keys already step the focused input, so the buttons stay
             // out of the tab order and keep focus where it is.
             tabIndex={-1}
-            aria-label={t(direction === 1 ? "input.step.increase" : "input.step.decrease")}
+            aria-label={direction === 1 ? stepLabels?.increase : stepLabels?.decrease}
             disabled={props.disabled || props.readOnly}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => step(direction)}

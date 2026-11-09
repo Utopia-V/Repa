@@ -37,7 +37,8 @@ FF 建议不改已安装的组件，这里仍有必须改的地方，全部记�
 | 文件 | 改动 | 原因 |
 | --- | --- | --- |
 | `dialog` `select` `switch` `banner` `use-fluid-hover` `fluid-provider` | 修 7 处类型错误 | `apps/web` 开了 `exactOptionalPropertyTypes` 和 `noUncheckedIndexedAccess` |
-| `dialog` `select` `input` `banner` | 写死的英文（`Close`、`Select…`、`Increase`、`Decrease`、`Dismiss`）换成字符串键 | #114 |
+| `dialog` `select` | 写死的英文（`Close`、`Select…`）换成字符串键 | #114 |
+| `input` `banner` | 步进按钮和关闭按钮的名称由调用方传入 | 无调用方，不留占位 |
 | `button` | 加 `data-variant` | `learning-space.test.tsx` 按它区分首要按钮 |
 | `dialog` | 默认 `max-h-[calc(100dvh-2rem)] overflow-y-auto`；Esc 只关最上层（见 #114 一节） | FF 没有高度上限，长内容会超出窗口 |
 | `input` `textarea` | 接入组合输入保护 | #114 |
@@ -171,7 +172,7 @@ export const strings = {
 - **键名：** `区域.对象.用途`，英文小驼峰。区域按页面或功能（`settings`、`learn`、`tutor`、`conversation`、`history`、`learningSpace`、`folderPicker`、`modelPicker`、`provider`、`feedback`、`promptSettings`、`sidebar`、`item`、`error`），跨页面含义相同的放 `common`。用途用固定的词：`title`、`description`、`label`、`placeholder`、`action`、`error`、`empty`。文件按区域分组。
 - **引用：** `src/lib/strings.ts` 导出 `t(key, params?)`。键和 `{name}` 参数都由类型检查，写错过不了 `tsc`。多语言时按语言加文件，结构不变。
 - **占位：** 值写成 `〔待写〕`。Agent 新增元素只能写这个值。
-- **迁移：** 按 `origin/dev` 现有文字迁移，#101 和审阅表定为删除的句子这次也照搬，之后由人在字符串文件里改。只移动已有文字，`${x}` 改成 `{x}`，一字不改。`dev` 的停用词检查覆盖 `.ts`，`zh-CN.ts` 会进入扫描范围，现有文字没有命中。实现时用一次性脚本对比：字符串文件里每个值（去掉占位）都要能在迁移前的源码里找到原文，结果写进 PR 描述。FF 组件里没有现成中文的英文文字：`Close`、`Select…` 用现有的“关闭对话框”“选择”；`Increase`、`Decrease`、`Dismiss` 目前无调用，留占位。
+- **迁移：** 按 `origin/dev` 现有文字迁移，#101 和审阅表定为删除的句子这次也照搬，之后由人在字符串文件里改。只移动已有文字，`${x}` 改成 `{x}`，一字不改。`dev` 的停用词检查覆盖 `.ts`，`zh-CN.ts` 会进入扫描范围，现有文字没有命中。实现时用一次性脚本对比：字符串文件里每个值（去掉占位）都要能在迁移前的源码里找到原文，结果写进 PR 描述。FF 组件里没有现成中文的英文文字：`Close`、`Select…` 用现有的“关闭对话框”“选择”；`Increase`、`Decrease`、`Dismiss` 目前无调用，由调用方传入（`stepLabels`、`dismissLabel`）。
 
 规模：`src` 里 26 个文件含中文字面量，约 150 处，另有 `History`、`Settings` 等英文标签。
 
