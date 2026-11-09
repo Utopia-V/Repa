@@ -4,6 +4,9 @@
  * 键名是“区域.对象.用途”，`{name}` 由调用处传入。
  */
 export const strings = {
+  // 下拉选择
+  "select.placeholder": "选择",
+
   // 对话框
   "dialog.close.label": "关闭对话框",
 } as const satisfies Record<string, string>;

@@ -1,6 +1,6 @@
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { MarkBadge, rowName, type FieldProps, type Slot, type TableDraft } from "@/components/domain/item-parts";
 
 type TableSlot = Extract<Slot, { type: "table" }>;
@@ -45,9 +45,9 @@ export function TableField({ slot, value, onChange, labelId, invalid, describedB
                 {cell.input.type === "text"
                   ? <Input aria-label={label} aria-invalid={invalid || undefined} value={text} disabled={disabled} onChange={(event) => set(row.id, column.id, event.target.value)} />
                   : <Select value={text} disabled={disabled} onValueChange={(next) => set(row.id, column.id, next)}>
-                    <SelectTrigger aria-label={label} aria-invalid={invalid || undefined} className="w-full"><SelectValue placeholder="选择" /></SelectTrigger>
+                    <SelectTrigger aria-label={label} aria-invalid={invalid || undefined} className="w-full" />
                     <SelectContent>
-                      {cell.input.options.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}
+                      {cell.input.options.map((option, index) => <SelectItem key={option.id} index={index} value={option.id}>{option.label}</SelectItem>)}
                     </SelectContent>
                   </Select>}
                 <MarkBadge mark={mark} />

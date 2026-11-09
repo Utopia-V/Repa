@@ -112,10 +112,11 @@ function PromptList({ space }: { space: string }) {
               {source && <span className="text-sm text-muted-foreground">{source}</span>}
             </div>
             <Switch
-              aria-label={`启用 ${name}`}
+              label={`启用 ${name}`}
+              className="[&>span:last-child]:sr-only"
               checked={section.enabled}
               disabled={toggling !== undefined}
-              onCheckedChange={(checked) => { void toggle(section, checked); }}
+              onToggle={() => { void toggle(section, !section.enabled); }}
             />
             <Button variant="ghost" aria-label={`编辑 ${name}`} onClick={() => setEditing(section)}>编辑</Button>
           </Card>

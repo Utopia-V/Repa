@@ -1,19 +1,29 @@
-// Adapted from shadcn/ui new-york-v4 (MIT); see README.md.
 "use client";
 
-import * as React from "react";
+import type { ComponentProps } from "react";
+import { Radio as RadioPrimitive } from "@base-ui/react/radio";
+import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
 import { cn } from "@/lib/utils";
-import { CircleIcon } from "lucide-react";
-import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 
+/**
+ * 接口沿用 shadcn 的 RadioGroup / RadioGroupItem，圆圈和圆点照 Fluid Functionalism。
+ * 组件库的 RadioItem 只收字符串标签，放不下题目里的 Markdown 选项。
+ */
 function RadioGroup({
   className,
+  onValueChange,
   ...props
-}: React.ComponentProps<typeof RadioGroupPrimitive.Root>) {
+}: Omit<ComponentProps<typeof RadioGroupPrimitive>, "className" | "onValueChange"> & {
+  className?: string;
+  onValueChange?: (value: string) => void;
+}) {
   return (
-    <RadioGroupPrimitive.Root
+    <RadioGroupPrimitive
       data-slot="radio-group"
       className={cn("grid gap-3", className)}
+      onValueChange={(value) => {
+        if (typeof value === "string") onValueChange?.(value);
+      }}
       {...props}
     />
   );
@@ -22,23 +32,23 @@ function RadioGroup({
 function RadioGroupItem({
   className,
   ...props
-}: React.ComponentProps<typeof RadioGroupPrimitive.Item>) {
+}: Omit<ComponentProps<typeof RadioPrimitive.Root>, "className"> & { className?: string }) {
   return (
-    <RadioGroupPrimitive.Item
+    <RadioPrimitive.Root
       data-slot="radio-group-item"
       className={cn(
-        "ui-hit aspect-square size-4 shrink-0 rounded-full border border-input text-primary transition-[color,box-shadow] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-border-error dark:bg-input/30 ",
+        "relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full border-[1.5px] border-solid border-input bg-transparent outline-none transition-[border-color] duration-80",
+        "hover:not-data-checked:border-input-focus data-checked:border-transparent aria-invalid:not-data-checked:border-destructive",
+        "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)] data-disabled:pointer-events-none data-disabled:opacity-50",
         className,
       )}
       {...props}
     >
-      <RadioGroupPrimitive.Indicator
-        data-slot="radio-group-indicator"
-        className="relative flex items-center justify-center"
-      >
-        <CircleIcon className="absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 fill-primary" />
-      </RadioGroupPrimitive.Indicator>
-    </RadioGroupPrimitive.Item>
+      <RadioPrimitive.Indicator
+        keepMounted
+        className="block size-2 rounded-full bg-foreground transition-[opacity,scale] duration-80 data-unchecked:scale-30 data-unchecked:opacity-0"
+      />
+    </RadioPrimitive.Root>
   );
 }
 
