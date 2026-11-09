@@ -13,6 +13,11 @@
 @source "./app.tsx";
 @source "./routes.tsx";
 
+/* 字重走可变字体的轴，取值与 lib/font-weight.ts 相同。 */
+@utility weight-normal { font-variation-settings: 'wght' 400, 'opsz' 14; }
+@utility weight-semibold { font-variation-settings: 'wght' 550, 'opsz' 18; }
+@utility weight-bold { font-variation-settings: 'wght' 700, 'opsz' 25; }
+
 /* 暂时只有浅色：系统深色时 dark: 类不生效，light-dark() 取浅色值。 */
 @custom-variant dark (&:is(.dark *));
 

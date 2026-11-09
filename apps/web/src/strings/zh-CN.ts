@@ -7,6 +7,9 @@ export const strings = {
   // 下拉选择
   "select.placeholder": "选择",
 
+  // 抽屉
+  "sheet.close.label": "关闭导航",
+
   // 对话框
   "dialog.close.label": "关闭对话框",
 } as const satisfies Record<string, string>;
