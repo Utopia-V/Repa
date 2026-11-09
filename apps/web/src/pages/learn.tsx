@@ -73,7 +73,7 @@ function Learn({ space }: { space: string }) {
       {learning.status === "error"
         ? <>
           <ErrorNotice title="无法读取学习状态" error={learning.loadError} />
-          <div><Button variant="outline" onClick={() => { void loadLearning(); }}><RefreshCw aria-hidden="true" />重试</Button></div>
+          <div><Button variant="tertiary" onClick={() => { void loadLearning(); }} leadingIcon={RefreshCw}>重试</Button></div>
         </>
         : <p role="status" className="text-sm text-muted-foreground">正在读取学习状态…</p>}
     </div>;
@@ -93,8 +93,7 @@ function Learn({ space }: { space: string }) {
           <span className="text-xs text-muted-foreground">今天 {progress.todayXp} / {progress.dailyGoalXp} XP</span>
           <Progress value={goal} aria-label="今天的目标完成度" />
         </div>
-        {tutor && !wide && <Button variant="outline" onClick={() => setTutorOpen(true)}>
-          <MessageCircle aria-hidden="true" />问辅导
+        {tutor && !wide && <Button variant="tertiary" onClick={() => setTutorOpen(true)} leadingIcon={MessageCircle}>问辅导
         </Button>}
       </div>
     </header>
@@ -106,10 +105,10 @@ function Learn({ space }: { space: string }) {
           {/* 剩下的题都要模型判分而没有可用模型：任务保留，接上模型后再继续。 */}
           {errorCode(learning.actionError) === "model_required" ? <div className="grid gap-3">
             <StatusNotice status="error" title="还没有可用的模型"><p>剩下的题要由模型判分，连接一个模型提供方后才能继续，这项任务会保留。</p></StatusNotice>
-            <div><Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button></div>
+            <div><Button asChild variant="tertiary"><Link to="/settings">去设置模型</Link></Button></div>
           </div> : learning.actionError !== undefined && <div className="grid gap-3">
             <ErrorNotice title="操作没有完成" error={learning.actionError} />
-            <div><Button variant="outline" onClick={() => { void refreshLearning(); }}><RefreshCw aria-hidden="true" />重新读取</Button></div>
+            <div><Button variant="tertiary" onClick={() => { void refreshLearning(); }} leadingIcon={RefreshCw}>重新读取</Button></div>
           </div>}
           {task && <LearningTaskView task={task} renderLink={renderLink} />}
           {active && <div className="flex justify-end">
@@ -146,7 +145,7 @@ function Learn({ space }: { space: string }) {
           <DialogDescription>已经交的作答照样算数；还没判出结果的不等结果，直接结束。</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <DialogClose asChild><Button variant="outline">不中止</Button></DialogClose>
+          <DialogClose asChild><Button variant="tertiary">不中止</Button></DialogClose>
           <Button variant="destructive" onClick={() => { setConfirmAbort(false); void abortTask(); }}>中止</Button>
         </DialogFooter>
       </DialogContent>}

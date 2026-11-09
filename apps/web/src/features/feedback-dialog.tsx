@@ -79,7 +79,7 @@ export function FeedbackDialog({ onBusyChange, onClose }: { onBusyChange(busy: b
     </div>
     {error !== undefined && <ErrorNotice title="没有生成反馈包" error={error} />}
     <DialogFooter>
-      <Button variant="outline" disabled={creating} onClick={onClose}>取消</Button>
+      <Button variant="tertiary" disabled={creating} onClick={onClose}>取消</Button>
       <Button disabled={creating} aria-busy={creating} onClick={() => { void create(); }}>
         {creating ? "正在生成…" : "生成反馈包"}
       </Button>
@@ -112,8 +112,8 @@ function FeedbackCreated({ path, revealError, onReveal, onClose }: { path: strin
       <p>{revealError instanceof Error ? revealError.message : "无法打开所在文件夹。"}可以复制路径后手动打开。</p>
     </StatusNotice>}
     <DialogFooter>
-      <Button variant="outline" onClick={() => { void copy(); }}><Copy aria-hidden="true" />复制路径</Button>
-      <Button variant="outline" onClick={onReveal}><FolderOpen aria-hidden="true" />打开所在文件夹</Button>
+      <Button variant="tertiary" onClick={() => { void copy(); }} leadingIcon={Copy}>复制路径</Button>
+      <Button variant="tertiary" onClick={onReveal} leadingIcon={FolderOpen}>打开所在文件夹</Button>
       <Button onClick={onClose}>完成</Button>
     </DialogFooter>
   </DialogContent>;

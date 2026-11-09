@@ -88,8 +88,7 @@ function FirstSpace({ onPick }: { onPick(): void }) {
   return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center justify-items-center gap-4 px-4 pt-16 pb-24 text-center md:px-8">
       <h2 className="text-2xl font-semibold">开始第一个学习空间</h2>
       <p className="text-sm text-balance text-muted-foreground">选一个文件夹作为学习空间，Repa 会在里面保存你的学习记录和进度。</p>
-      <Button onClick={onPick}>
-        <FolderSearch aria-hidden="true" />选择文件夹
+      <Button onClick={onPick} leadingIcon={FolderSearch}>选择文件夹
       </Button>
     </div>;
 }
@@ -123,12 +122,11 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
       </div>
       {/* 最近列表可用时继续学习是主要操作，选择文件夹退为次要；列表读不出来时它是唯一入口。 */}
       <Button
-        variant={loadFailed && !hasRecent ? "default" : "outline"}
+        variant={loadFailed && !hasRecent ? "primary" : "tertiary"}
         className="w-full sm:w-auto"
         disabled={opening !== undefined || running}
         onClick={onPick}
-      >
-        <FolderSearch aria-hidden="true" />{hasRecent ? "选择其他文件夹" : "选择文件夹"}
+       leadingIcon={FolderSearch}>{hasRecent ? "选择其他文件夹" : "选择文件夹"}
       </Button>
     </header>
 
@@ -141,8 +139,7 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
       {loadFailed && <div className="grid gap-3">
         <ErrorNotice title="无法读取最近空间" error={spaces.error} />
         <div>
-          <Button variant="outline" onClick={onRetry}>
-            <RefreshCw aria-hidden="true" />重试
+          <Button variant="tertiary" onClick={onRetry} leadingIcon={RefreshCw}>重试
           </Button>
         </div>
       </div>}
@@ -169,12 +166,11 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
             </span>
           </SelectionButton>
           {root === active && <Button
-            variant="outline"
+            variant="tertiary"
             aria-label={`关闭空间 ${folderName(root)}`}
             disabled={closeDisabled || opening !== undefined}
             onClick={() => onClose(root)}
-          >
-            <X aria-hidden="true" />关闭
+           leadingIcon={X}>关闭
           </Button>}
         </li>)}
       </ul>}

@@ -59,8 +59,7 @@ export function HistoryRevisionCard({ revision, undone, onUndo }: {
             <time dateTime={revision.timestamp}>{formatRevisionTime(revision.timestamp)}</time>{undoneText}
           </p>
         </div>
-        <Button variant="outline" aria-describedby={titleId} onClick={onUndo}>
-          <Undo2 aria-hidden="true" />撤回
+        <Button variant="tertiary" aria-describedby={titleId} onClick={onUndo} leadingIcon={Undo2}>撤回
         </Button>
       </div>
       <ul aria-label="改动的文件" className="m-0 grid list-none gap-1 p-0 text-sm">

@@ -33,9 +33,7 @@ export function StartupPanel({
       </CardContent>
       {failure && (
         <CardFooter>
-          <Button onClick={onRetry}>
-            <RefreshCw aria-hidden="true" />
-            重试
+          <Button onClick={onRetry} leadingIcon={RefreshCw}>重试
           </Button>
         </CardFooter>
       )}

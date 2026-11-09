@@ -74,7 +74,7 @@ export function CodeTrial({ deliveryId, slotId, code, disabled }: { deliveryId: 
 
   return <div className="grid gap-2">
     <div>
-      <Button variant="outline" disabled={disabled || trial.status === "running"} onClick={() => { void run(); }}>
+      <Button variant="tertiary" disabled={disabled || trial.status === "running"} onClick={() => { void run(); }}>
         {trial.status === "running"
           ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
           : <Play aria-hidden="true" />}

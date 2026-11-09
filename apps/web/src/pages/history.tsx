@@ -74,12 +74,11 @@ function SpaceHistory({ space }: { space: string }) {
         </p>
       </div>
       <Button
-        variant="outline"
+        variant="tertiary"
         disabled={history.status === "loading"}
         aria-busy={history.status === "loading"}
         onClick={() => { void loadHistory(); }}
-      >
-        <RefreshCw aria-hidden="true" />刷新
+       leadingIcon={RefreshCw}>刷新
       </Button>
     </header>
 
@@ -88,8 +87,7 @@ function SpaceHistory({ space }: { space: string }) {
     {history.status === "error" && <div className="grid gap-3">
       <ErrorNotice title="无法读取修改历史" error={history.error} />
       <div>
-        <Button variant="outline" onClick={() => { void loadHistory(); }}>
-          <RefreshCw aria-hidden="true" />重试
+        <Button variant="tertiary" onClick={() => { void loadHistory(); }} leadingIcon={RefreshCw}>重试
         </Button>
       </div>
     </div>}
@@ -127,7 +125,7 @@ function SpaceHistory({ space }: { space: string }) {
         <p className="text-sm">撤回也会记成一次修改，需要时可以再撤回它。</p>
         {undoError !== undefined && <ErrorNotice title="撤回失败" error={undoError} />}
         <DialogFooter>
-          <Button variant="outline" disabled={undoing} onClick={() => setTarget(undefined)}>取消</Button>
+          <Button variant="tertiary" disabled={undoing} onClick={() => setTarget(undefined)}>取消</Button>
           <Button disabled={undoing} aria-busy={undoing} onClick={() => { void confirmUndo(); }}>
             {undoing ? "正在撤回…" : "撤回"}
           </Button>

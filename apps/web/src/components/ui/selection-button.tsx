@@ -1,54 +1,37 @@
 import type { ComponentProps } from "react";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Check } from "lucide-react";
-import { cva } from "class-variance-authority";
-import { Button } from "./button";
+import { useShape } from "@/lib/shape-context";
+import { typeClass } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
 
-const selectionVariants = cva("justify-start", {
-  variants: {
-    selected: {
-      true: "bg-accent text-accent-foreground",
-      false: "text-muted-foreground",
-    },
-    size: {
-      md: "",
-      icon: "relative w-10 justify-center border-border",
-    },
-  },
-  compoundVariants: [
-    { size: "icon", selected: false, className: "bg-card" },
-    { size: "icon", selected: true, className: "border-border-selected" },
-  ],
-});
-
-/** 持续选择独立于键盘焦点，并始终提供可见标记。 */
+/** 持续选择独立于键盘焦点，并始终提供可见标记。Button 固定高度且文字不换行，放不下两行内容，所以这里单独画成一行。 */
 export function SelectionButton({
   selected,
   children,
   className,
-  size = "md",
   ...props
-}: Omit<ComponentProps<typeof Button>, "variant" | "aria-pressed"> & {
+}: Omit<ComponentProps<"button">, "aria-pressed" | "ref"> & {
   selected: boolean;
 }) {
+  const shape = useShape();
   return (
-    <Button
+    <ButtonPrimitive
       {...props}
-      size={size}
-      variant="ghost"
+      data-slot="selection-button"
       aria-pressed={selected}
-      className={cn(selectionVariants({ selected, size }), className)}
+      className={cn(
+        "flex min-h-9 cursor-pointer items-center justify-start gap-2 px-3 py-2 text-left outline-none transition-colors duration-80",
+        "hover:bg-hover active:bg-active disabled:pointer-events-none disabled:opacity-50",
+        "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)]",
+        typeClass("body"),
+        shape.button,
+        selected ? "bg-active text-foreground" : "text-muted-foreground",
+        className,
+      )}
     >
       {children}
-      <Check
-        aria-hidden="true"
-        className={cn(
-          size === "icon"
-            ? "absolute -right-1 -top-1 size-3 rounded-full bg-card text-accent-foreground"
-            : "ml-auto",
-          !selected && "invisible",
-        )}
-      />
-    </Button>
+      <Check aria-hidden="true" className={cn("ml-auto size-4 shrink-0", !selected && "invisible")} />
+    </ButtonPrimitive>
   );
 }

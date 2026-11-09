@@ -51,7 +51,7 @@ export function MessageComposer({ inputRef, value, onChange, onSend, onStop, run
         onKeyDown={onKeyDown}
       />
       <InputGroupAddon className="self-end">
-        {running && <Button variant="outline" size="icon" aria-label={stopping ? "正在停止" : "停止"} title={stopping ? "正在停止" : "停止"} disabled={stopping} onClick={onStop}>
+        {running && <Button variant="tertiary" size="icon" aria-label={stopping ? "正在停止" : "停止"} title={stopping ? "正在停止" : "停止"} disabled={stopping} onClick={onStop}>
           <Square aria-hidden="true" />
         </Button>}
         <Button size="icon" type="submit" aria-label="发送" title={answering ? "发送，代替卡片作答" : running ? "发送，Agent 做完当前这一步后会看到" : "发送"} disabled={!canSend}>

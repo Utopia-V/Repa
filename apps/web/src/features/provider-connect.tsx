@@ -133,7 +133,7 @@ function PickMethod({ provider, onPick, onBack }: { provider: Provider; onPick(m
     </DialogHeader>
     <ul aria-label="连接方式" className="m-0 grid list-none gap-2 p-0">
       {provider.methods.filter((method) => method.login).map((method) => <li key={method.type}>
-        <Button variant="outline" className="w-full justify-start" onClick={() => onPick(method)}>
+        <Button variant="tertiary" className="w-full justify-start" onClick={() => onPick(method)}>
           {method.type === "api_key" ? <KeyRound aria-hidden="true" /> : <LogIn aria-hidden="true" />}
           <span className="grid min-w-0 text-left">
             <span>{methodLabel[method.type]}</span>
@@ -146,7 +146,7 @@ function PickMethod({ provider, onPick, onBack }: { provider: Provider; onPick(m
       {method.name} 需要在 Repa 之外配置，例如设置环境变量。
     </p>)}
     {onBack && <DialogFooter>
-      <Button variant="outline" onClick={onBack}>返回</Button>
+      <Button variant="tertiary" onClick={onBack}>返回</Button>
     </DialogFooter>}
   </>;
 }
@@ -190,7 +190,7 @@ function KeyForm({ provider, method, onBack, onSaved, onNeedsLogin }: {
     </div>
     {error !== undefined && <ErrorNotice title="没有保存" error={error} />}
     <DialogFooter>
-      <Button variant="outline" disabled={saving} onClick={onBack}>返回</Button>
+      <Button variant="tertiary" disabled={saving} onClick={onBack}>返回</Button>
       <Button type="submit" disabled={saving || key.trim() === ""}>{saving ? "正在保存…" : "保存"}</Button>
     </DialogFooter>
   </form>;
@@ -243,7 +243,7 @@ function LoginFlow({ provider, type, onDone, onBack }: {
     {running && !prompt && <p role="status" className="text-sm text-muted-foreground">正在等待登录完成…</p>}
     {error !== undefined && <ErrorNotice title="登录没有完成" error={error} />}
     {error !== undefined && <DialogFooter>
-      <Button variant="outline" onClick={onBack}>返回</Button>
+      <Button variant="tertiary" onClick={onBack}>返回</Button>
       <Button onClick={() => setAttempt((value) => value + 1)}>重试</Button>
     </DialogFooter>}
   </>;
@@ -254,7 +254,7 @@ function LoginFlow({ provider, type, onDone, onBack }: {
 function NoticeLink({ url, primary }: { url: string; primary: boolean }) {
   if (!/^https?:/i.test(url)) return <p className="break-all text-muted-foreground">{url}</p>;
   return <div>
-    <Button asChild variant={primary ? "default" : "outline"}>
+    <Button asChild variant={primary ? "primary" : "tertiary"}>
       <a href={url} target="_blank" rel="noreferrer">
         <ExternalLink aria-hidden="true" />打开链接
       </a>
@@ -280,7 +280,7 @@ function LoginPrompt({ prompt }: { prompt: PendingConfirmation }) {
       {request.message && !labelled && <p className="text-sm whitespace-pre-wrap text-muted-foreground">{request.message}</p>}
       <ul aria-label={request.title} className="m-0 grid list-none gap-2 p-0">
         {options.map((option, index) => <li key={option}>
-          <Button variant="outline" className="w-full justify-start" onClick={() => { void answer(prompt.id, option); }}>
+          <Button variant="tertiary" className="w-full justify-start" onClick={() => { void answer(prompt.id, option); }}>
             <span className="min-w-0 text-left break-words">{labels[index] ?? option}</span>
           </Button>
         </li>)}

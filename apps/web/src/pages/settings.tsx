@@ -72,8 +72,7 @@ export function SettingsPage() {
     {loadError !== undefined && <div className="grid gap-3">
       <ErrorNotice title="无法读取模型设置" error={loadError} />
       <div>
-        <Button variant="outline" onClick={() => { void loadModelSettings(); }}>
-          <RefreshCw aria-hidden="true" />重试
+        <Button variant="tertiary" onClick={() => { void loadModelSettings(); }} leadingIcon={RefreshCw}>重试
         </Button>
       </div>
     </div>}
@@ -91,7 +90,7 @@ export function SettingsPage() {
                 {currentProvider && !currentProvider.configured && "，提供方还没有连接，发送消息会失败"}
               </span>
             </div>
-            <Button variant="outline" disabled={available.length === 0} onClick={() => setPicking(true)}>更换</Button>
+            <Button variant="tertiary" disabled={available.length === 0} onClick={() => setPicking(true)}>更换</Button>
           </Card>}
       </section>
 
@@ -99,8 +98,7 @@ export function SettingsPage() {
         <div className="flex items-center justify-between gap-3">
           <h3 id="model-providers" className="text-lg font-semibold">模型提供方</h3>
           {/* 还没有连接时添加是唯一要做的事，用主按钮。 */}
-          <Button variant={connected.length === 0 ? "default" : "outline"} onClick={() => setConnecting(true)}>
-            <Plus aria-hidden="true" />添加提供方
+          <Button variant={connected.length === 0 ? "primary" : "tertiary"} onClick={() => setConnecting(true)} leadingIcon={Plus}>添加提供方
           </Button>
         </div>
         {failure && <ErrorNotice title={`无法断开 ${providerNames.get(failure.provider) ?? failure.provider}`} error={failure.error} />}
@@ -118,7 +116,7 @@ export function SettingsPage() {
                   </span>
                 </div>
                 {provider.stored && <Button
-                  variant="outline"
+                  variant="tertiary"
                   disabled={removing !== undefined}
                   aria-busy={removing === provider.id}
                   onClick={() => { void disconnect(provider.id); }}
@@ -186,8 +184,7 @@ function CommandPolicySection() {
     {policy.data === undefined && policy.status === "error" && <div className="grid gap-3">
       <ErrorNotice title="无法读取命令授权设置" error={policy.error} />
       <div>
-        <Button variant="outline" onClick={() => { void loadCommandPolicy(); }}>
-          <RefreshCw aria-hidden="true" />重试
+        <Button variant="tertiary" onClick={() => { void loadCommandPolicy(); }} leadingIcon={RefreshCw}>重试
         </Button>
       </div>
     </div>}
@@ -219,7 +216,7 @@ function CommandPolicySection() {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setConfirming(false)}>取消</Button>
+          <Button variant="tertiary" onClick={() => setConfirming(false)}>取消</Button>
           <Button onClick={() => { void save("fullAccess"); }}>开启完全访问</Button>
         </DialogFooter>
       </DialogContent>

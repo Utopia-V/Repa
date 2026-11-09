@@ -34,15 +34,14 @@ export function PromptSettingsSection() {
   return <section aria-labelledby="prompts" className="grid gap-3">
     <div className="flex items-center justify-between gap-3">
       <h3 id="prompts" className="text-lg font-semibold">提示</h3>
-      {space && <Button variant="outline" onClick={() => setPreviewing(true)}>
-        <Eye aria-hidden="true" />预览
+      {space && <Button variant="tertiary" onClick={() => setPreviewing(true)} leadingIcon={Eye}>预览
       </Button>}
     </div>
     {space
       ? <PromptList space={space} />
       : <Card className="flex-row items-center justify-between">
         <p className="text-sm text-muted-foreground">提示由打开的空间和其中的插件一起决定。打开一个学习空间后，可以在这里查看和修改。</p>
-        <Button asChild variant="outline"><Link to="/learning-space">去选空间</Link></Button>
+        <Button asChild variant="tertiary"><Link to="/learning-space">去选空间</Link></Button>
       </Card>}
     {space && <PromptPreviewDialog open={previewing} onOpenChange={setPreviewing} />}
   </section>;
@@ -84,8 +83,7 @@ function PromptList({ space }: { space: string }) {
     if (prompts.status === "error") return <div className="grid gap-3">
       <ErrorNotice title="无法读取提示" error={prompts.error} />
       <div>
-        <Button variant="outline" onClick={() => { void loadPrompts(); }}>
-          <RefreshCw aria-hidden="true" />重试
+        <Button variant="tertiary" onClick={() => { void loadPrompts(); }} leadingIcon={RefreshCw}>重试
         </Button>
       </div>
     </div>;
@@ -204,14 +202,13 @@ function PromptEditor({ section, app, space, onDone }: {
         onChange={(event) => { const text = event.target.value; setDrafts((value) => ({ ...value, [scope]: text })); }}
       />
       <div>
-        <Button variant="ghost" disabled={saving || current.text === undefined} onClick={() => { void save(undefined); }}>
-          <RefreshCw aria-hidden="true" />{resetLabel}
+        <Button variant="ghost" disabled={saving || current.text === undefined} onClick={() => { void save(undefined); }} leadingIcon={RefreshCw}>{resetLabel}
         </Button>
       </div>
     </div>
     {failure !== undefined && <ErrorNotice title="无法保存" error={failure} />}
     <DialogFooter>
-      <Button variant="outline" onClick={onDone}>取消</Button>
+      <Button variant="tertiary" onClick={onDone}>取消</Button>
       <Button disabled={saving} aria-busy={saving} onClick={() => { void save(drafts[scope]); }}>保存</Button>
     </DialogFooter>
   </DialogContent>;
@@ -248,8 +245,7 @@ function PromptPreviewDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       {preview.status === "error" && <div className="grid gap-3">
         <ErrorNotice title="无法预览" error={preview.error} />
         <div>
-          <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>
-            <RefreshCw aria-hidden="true" />重试
+          <Button variant="tertiary" onClick={() => setAttempt((value) => value + 1)} leadingIcon={RefreshCw}>重试
           </Button>
         </div>
       </div>}

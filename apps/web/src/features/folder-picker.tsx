@@ -99,8 +99,7 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
   return <>
     <div className="grid min-w-0 gap-3">
       <div className="flex min-w-0 items-center gap-2">
-        <Button variant="outline" disabled={!canGoUp || loading || opening} onClick={goUp}>
-          <ArrowUp aria-hidden="true" />上一级
+        <Button variant="tertiary" disabled={!canGoUp || loading || opening} onClick={goUp} leadingIcon={ArrowUp}>上一级
         </Button>
         <h3 ref={location} tabIndex={-1} className="min-w-0 text-sm font-semibold break-all outline-none">
           {view?.kind === "roots" ? "此电脑" : listing?.path ?? "用户目录"}
@@ -112,8 +111,7 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
 
       {view?.kind === "roots" && <ul aria-label="磁盘" className="m-0 grid list-none gap-1 p-0">
         {view.roots.map((root) => <li key={root.path}>
-          <Button variant="ghost" className="w-full justify-start" disabled={loading} onClick={() => { void browse(root.path); }}>
-            <HardDrive aria-hidden="true" />{root.label}
+          <Button variant="ghost" className="w-full justify-start" disabled={loading} onClick={() => { void browse(root.path); }} leadingIcon={HardDrive}>{root.label}
           </Button>
         </li>)}
       </ul>}
@@ -138,7 +136,7 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
 
     <DialogFooter>
       <DialogClose asChild>
-        <Button variant="outline">取消</Button>
+        <Button variant="tertiary">取消</Button>
       </DialogClose>
       <Button disabled={!listing || loading || opening} onClick={() => { void openCurrent(); }}>
         {opening ? "正在打开…" : "打开"}

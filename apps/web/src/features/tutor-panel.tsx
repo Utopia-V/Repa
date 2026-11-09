@@ -94,8 +94,7 @@ export function TutorPanel({ allowed, renderLink }: {
         // 已经是一段空的新对话时不必再开。
         disabled={!bound || running || conversation.sessionId === undefined}
         onClick={() => newConversation({ agent: TUTOR_AGENT })}
-      >
-        <SquarePen aria-hidden="true" />新对话
+       leadingIcon={SquarePen}>新对话
       </Button>
     </div>
     <div
@@ -129,7 +128,7 @@ export function TutorPanel({ allowed, renderLink }: {
       {!allowed && <p className="m-0 text-sm text-muted-foreground">复习和测验期间不能问辅导，结束后再问。</p>}
       {allowed && needsModel && <div className="grid gap-3">
         <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型提供方后才能问辅导。</p></StatusNotice>
-        <div><Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button></div>
+        <div><Button asChild variant="tertiary"><Link to="/settings">去设置模型</Link></Button></div>
       </div>}
       {allowed && restricted && <p className="m-0 text-sm text-muted-foreground">现在不能问辅导，这条消息没有发出。</p>}
       {allowed && conversation.sendError !== undefined && errorCode(conversation.sendError) !== "model_required" && !restricted

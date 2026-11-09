@@ -319,7 +319,7 @@ it("开启完全访问前先说明后果，取消后仍然每次询问，确认�
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "开启完全访问" }));
   await vi.waitFor(() => expect(full.getAttribute("aria-checked")).toBe("true"));
   expect(fake.call).toHaveBeenCalledWith("settings.set", { commandPolicy: "fullAccess" });
-  expect(screen.queryByRole("dialog")).toBeNull();
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 
 it("从完全访问改回每次询问时直接保存", async () => {

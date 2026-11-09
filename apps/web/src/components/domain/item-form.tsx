@@ -195,7 +195,7 @@ function TextField({ slot, value, onChange, labelId, invalid, describedBy, disab
       {slot.suffix && <span className="shrink-0 text-sm text-muted-foreground">{slot.suffix}</span>}
     </div>
     {slot.quick && slot.quick.length > 0 && <div className="flex flex-wrap gap-2">
-      {slot.quick.map((text) => <Button key={text} variant="outline" disabled={disabled} onClick={() => onChange(text)}>{text}</Button>)}
+      {slot.quick.map((text) => <Button key={text} variant="tertiary" disabled={disabled} onClick={() => onChange(text)}>{text}</Button>)}
     </div>}
   </div>;
 }

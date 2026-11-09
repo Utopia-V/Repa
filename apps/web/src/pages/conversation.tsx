@@ -145,11 +145,9 @@ function Conversation({ space }: { space: string }) {
       <h2 className="min-w-0 truncate text-base font-semibold" title={space}>{folderName(space)}</h2>
       <div className="flex shrink-0 items-center gap-1">
         {/* 运行中会话记录还在追加，等这一轮结束再打包；还没发过消息时没有会话可反馈。 */}
-        <Button variant="ghost" disabled={running || !connected || status !== "ready" || conversation.sessionId === undefined} onClick={() => setReporting(true)}>
-          <MessageSquareWarning aria-hidden="true" />反馈问题
+        <Button variant="ghost" disabled={running || !connected || status !== "ready" || conversation.sessionId === undefined} onClick={() => setReporting(true)} leadingIcon={MessageSquareWarning}>反馈问题
         </Button>
-        <Button variant="ghost" disabled={running || status !== "ready" || items.length === 0} onClick={() => newConversation()}>
-          <MessageSquarePlus aria-hidden="true" />新会话
+        <Button variant="ghost" disabled={running || status !== "ready" || items.length === 0} onClick={() => newConversation()} leadingIcon={MessageSquarePlus}>新会话
         </Button>
       </div>
     </header>
@@ -171,8 +169,7 @@ function Conversation({ space }: { space: string }) {
         {status === "error" && <div className="grid gap-3">
           <ErrorNotice title="无法读取会话" error={conversation.error} />
           <div>
-            <Button variant="outline" onClick={() => { void loadConversation(); }}>
-              <RefreshCw aria-hidden="true" />重试
+            <Button variant="tertiary" onClick={() => { void loadConversation(); }} leadingIcon={RefreshCw}>重试
             </Button>
           </div>
         </div>}
@@ -210,7 +207,7 @@ function Conversation({ space }: { space: string }) {
       {needsModel && <div className="grid gap-3">
         <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型提供方后才能对话。</p></StatusNotice>
         <div>
-          <Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button>
+          <Button asChild variant="tertiary"><Link to="/settings">去设置模型</Link></Button>
         </div>
       </div>}
       {conversation.sendError !== undefined && errorCode(conversation.sendError) !== "model_required"

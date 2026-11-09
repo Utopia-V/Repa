@@ -27,7 +27,7 @@ export function CommandConfirmationDialog() {
         {current.request.message}
       </pre>
       <DialogFooter>
-        <Button variant="outline" onClick={() => { void reply(current.id, false); }}>拒绝</Button>
+        <Button variant="tertiary" onClick={() => { void reply(current.id, false); }}>拒绝</Button>
         <Button onClick={() => { void reply(current.id, true); }}>允许</Button>
       </DialogFooter>
     </DialogContent>}

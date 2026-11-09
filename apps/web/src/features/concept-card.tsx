@@ -67,7 +67,7 @@ export function ConceptCardDialog({ kpId, renderLink }: { kpId: string; renderLi
     {error !== undefined && <ErrorNotice title="没能打开这张卡片" error={error} />}
     {loaded && <Content blocks={loaded.page.blocks} renderLink={renderLink} />}
     {loaded && !sameAsCard && !origin && <div>
-      <Button variant="outline" onClick={() => { void showOrigin(loaded.hit); }}>看原来的例题</Button>
+      <Button variant="tertiary" onClick={() => { void showOrigin(loaded.hit); }}>看原来的例题</Button>
     </div>}
     {originError !== undefined && <ErrorNotice title="没能读取原来的例题" error={originError} />}
     {origin && <section aria-label="原来的例题" className="grid gap-2 border-t border-border pt-4">
