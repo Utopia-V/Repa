@@ -1,6 +1,7 @@
 import type { PromptOverride, PromptSection } from "@repa/base/protocol";
 
 import { folderName } from "@/lib/paths";
+import { t } from "@/lib/strings";
 
 export type PromptSource = {
   name: string;
@@ -16,27 +17,27 @@ export type PromptSource = {
 export function promptSource(id: string, space: string): PromptSource {
   switch (id) {
     case "base":
-      return { name: "基础说明", source: "Repa 内置" };
+      return { name: t("promptSettings.source.base.title"), source: t("promptSettings.source.base.label") };
     case "space":
       return {
-        name: "空间说明",
-        source: `空间路径和 ${folderName(space)}/AGENTS.md`,
-        generatedNote: `这段由空间路径和 ${folderName(space)}/AGENTS.md 生成。在这里改会盖住文件内容，之后再改 AGENTS.md 也不会生效，直到改回来。`,
+        name: t("promptSettings.source.space.title"),
+        source: t("promptSettings.source.space.label", { space: folderName(space) }),
+        generatedNote: t("promptSettings.source.space.hint", { space: folderName(space) }),
       };
     case "skills":
       return {
-        name: "Skill 目录",
-        source: "应用和空间的 Skill 文件夹",
-        generatedNote: "这段按 Skill 文件夹生成。在这里改会盖住它，之后增删 Skill 也不会反映出来，直到改回来。",
+        name: t("promptSettings.source.skills.title"),
+        source: t("promptSettings.source.skills.label"),
+        generatedNote: t("promptSettings.source.skills.hint"),
       };
     case "tools":
       return {
-        name: "工具说明",
-        source: "Repa 内置，列出可用工具",
-        generatedNote: "这段列出当前可用的工具。在这里改会盖住它，之后工具有变化也不会反映出来，直到改回来。",
+        name: t("promptSettings.source.tools.title"),
+        source: t("promptSettings.source.tools.label"),
+        generatedNote: t("promptSettings.source.tools.hint"),
       };
   }
-  if (id.startsWith("plugin:")) return { name: `插件 ${id.slice("plugin:".length)}`, source: "插件提供" };
+  if (id.startsWith("plugin:")) return { name: t("promptSettings.source.plugin.title", { length: id.slice("plugin:".length) }), source: t("promptSettings.source.plugin.label") };
   return { name: id, source: "" };
 }
 

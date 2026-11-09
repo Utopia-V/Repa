@@ -15,6 +15,7 @@ import {
 import { OrderField } from "@/components/domain/order-field";
 import { TableField } from "@/components/domain/table-field";
 import { plainText, slotName } from "@/lib/ask";
+import { t } from "@/lib/strings";
 
 type ChoiceSlot = Extract<Slot, { type: "choice" }>;
 type TextSlot = Extract<Slot, { type: "text" }>;
@@ -115,10 +116,10 @@ export function SlotProblems({ id, problems }: { id: string; problems: Problem[]
 
 function ChoiceField({ slot, value, onChange, labelId, invalid, describedBy, disabled, marks }: FieldProps<ChoiceSlot, ChoiceDraft>) {
   const base = useId();
-  const otherLabel = slot.other?.label ?? "其他";
+  const otherLabel = slot.other?.label ?? t("item.other.label");
   const otherInput = slot.other && <Input
-    aria-label={`${otherLabel}：自己填写`}
-    placeholder="自己填写"
+    aria-label={t("item.other.action", { otherLabel })}
+    placeholder={t("item.other.placeholder")}
     value={value.otherText}
     disabled={disabled}
     // 开始填写就选中“其他”；单选时同时放下已选的选项。
@@ -238,7 +239,7 @@ export function ItemSlots({ item, draft, onChange, problems, disabled, marks, af
       if (!value) return null;
       // 模型常在题面里自己写“可多选”，已经写了就不再重复。
       const multiple = slot.type === "choice" && slot.multiple === true;
-      const hint = multiple ? plainText(slot.prompt).includes("多选") ? "" : "（可多选）" : slot.optional === true ? "（可不答）" : "";
+      const hint = multiple ? plainText(slot.prompt).includes(t("item.multiple.hint")) ? "" : t("item.multipleSuffix.hint") : slot.optional === true ? t("item.optionalSuffix.hint") : "";
       return <div key={slot.id} className="grid gap-2">
         <div id={labelId} className="flex items-start gap-1 text-body weight-semibold">
           {numbered && <span className="shrink-0">{index + 1}.</span>}

@@ -18,6 +18,7 @@ import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
 import { errorCode } from "@/lib/errors";
 import type { PendingConfirmation } from "@/lib/store";
+import { t } from "@/lib/strings";
 
 type Provider = Result<"model.providers">[number];
 type Method = Provider["methods"][number];
@@ -29,7 +30,7 @@ type Step =
   | { kind: "key"; provider: Provider; method: Method }
   | { kind: "login"; provider: Provider; type: Method["type"] };
 
-const methodLabel = { api_key: "填写 API key", oauth: "用账号登录" } as const;
+const methodLabel = { api_key: t("provider.method.apiKey.label"), oauth: t("provider.method.oauth.label") } as const;
 
 
 /**
@@ -107,17 +108,17 @@ function PickProvider({ providers, onPick }: { providers: Provider[]; onPick(pro
 
   return <>
     <DialogHeader>
-      <DialogTitle>添加提供方</DialogTitle>
-      <DialogDescription>选择模型服务的提供方，之后填写 API key 或登录账号。</DialogDescription>
+      <DialogTitle>{t("provider.pick.title")}</DialogTitle>
+      <DialogDescription>{t("provider.pick.description")}</DialogDescription>
     </DialogHeader>
-    <SearchInput label="搜索提供方" value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
+    <SearchInput label={t("provider.search.label")} value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
     {matched.length === 0
-      ? <p className="text-body text-muted-foreground">没有找到匹配的提供方。</p>
-      : <ul aria-label="提供方" className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
+      ? <p className="text-body text-muted-foreground">{t("provider.pick.empty")}</p>
+      : <ul aria-label={t("provider.list.label")} className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
         {matched.map((provider) => <li key={provider.id}>
           <Button variant="ghost" className="w-full justify-start" onClick={() => onPick(provider)}>
             <span className="min-w-0 text-left break-all">{provider.name}</span>
-            {provider.configured && <Badge variant="solid" color="gray" className="ml-auto">已连接</Badge>}
+            {provider.configured && <Badge variant="solid" color="gray" className="ml-auto">{t("provider.connected.status")}</Badge>}
           </Button>
         </li>)}
       </ul>}
@@ -128,10 +129,10 @@ function PickMethod({ provider, onPick, onBack }: { provider: Provider; onPick(m
   const outside = provider.methods.filter((method) => !method.login);
   return <>
     <DialogHeader>
-      <DialogTitle>连接 {provider.name}</DialogTitle>
-      <DialogDescription>选择连接方式。</DialogDescription>
+      <DialogTitle>{t("provider.method.title", { name: provider.name })}</DialogTitle>
+      <DialogDescription>{t("provider.method.description")}</DialogDescription>
     </DialogHeader>
-    <ul aria-label="连接方式" className="m-0 grid list-none gap-2 p-0">
+    <ul aria-label={t("provider.method.label")} className="m-0 grid list-none gap-2 p-0">
       {provider.methods.filter((method) => method.login).map((method) => <li key={method.type}>
         <Button variant="tertiary" className="w-full justify-start" onClick={() => onPick(method)}>
           {method.type === "api_key" ? <KeyRound aria-hidden="true" /> : <LogIn aria-hidden="true" />}
@@ -143,10 +144,10 @@ function PickMethod({ provider, onPick, onBack }: { provider: Provider; onPick(m
       </li>)}
     </ul>
     {outside.map((method) => <p key={method.type} className="text-body text-muted-foreground">
-      {method.name} 需要在 Repa 之外配置，例如设置环境变量。
+      {t("provider.method.external.hint", { name: method.name })}
     </p>)}
     {onBack && <DialogFooter>
-      <Button variant="tertiary" onClick={onBack}>返回</Button>
+      <Button variant="tertiary" onClick={onBack}>{t("provider.method.back.action")}</Button>
     </DialogFooter>}
   </>;
 }
@@ -181,17 +182,17 @@ function KeyForm({ provider, method, onBack, onSaved, onNeedsLogin }: {
 
   return <form className="grid gap-4" onSubmit={(event) => { void submit(event); }}>
     <DialogHeader>
-      <DialogTitle>连接 {provider.name}</DialogTitle>
-      <DialogDescription>key 保存在本机的 Repa 数据目录里，只用于向 {provider.name} 发送请求。</DialogDescription>
+      <DialogTitle>{t("provider.method.title", { name: provider.name })}</DialogTitle>
+      <DialogDescription>{t("provider.apiKey.description", { name: provider.name })}</DialogDescription>
     </DialogHeader>
     <div className="grid gap-1">
       <label htmlFor={inputId} className="text-body weight-semibold">{method.name}</label>
       <Input id={inputId} type="password" autoComplete="off" spellCheck={false} value={key} onChange={(event) => setKey(event.target.value)} autoFocus />
     </div>
-    {error !== undefined && <ErrorNotice title="没有保存" error={error} />}
+    {error !== undefined && <ErrorNotice title={t("provider.apiKey.save.error")} error={error} />}
     <DialogFooter>
-      <Button variant="tertiary" disabled={saving} onClick={onBack}>返回</Button>
-      <Button type="submit" disabled={saving || key.trim() === ""}>{saving ? "正在保存…" : "保存"}</Button>
+      <Button variant="tertiary" disabled={saving} onClick={onBack}>{t("provider.method.back.action")}</Button>
+      <Button type="submit" disabled={saving || key.trim() === ""}>{saving ? t("common.saving.status") : t("common.save.action")}</Button>
     </DialogFooter>
   </form>;
 }
@@ -230,21 +231,21 @@ function LoginFlow({ provider, type, onDone, onBack }: {
   const prompt = activeLogin?.prompts[0];
   return <>
     <DialogHeader>
-      <DialogTitle>登录 {provider.name}</DialogTitle>
-      <DialogDescription>{type === "oauth" ? "按提示在浏览器里完成登录，完成后这里会自动继续。" : "这个提供方需要几项信息，按提示填写。"}</DialogDescription>
+      <DialogTitle>{t("provider.login.title", { name: provider.name })}</DialogTitle>
+      <DialogDescription>{type === "oauth" ? t("provider.login.browser.hint") : t("provider.login.fields.hint")}</DialogDescription>
     </DialogHeader>
-    {activeLogin && activeLogin.notices.length > 0 && <ul aria-label="登录说明" className="m-0 grid list-none gap-2 p-0">
+    {activeLogin && activeLogin.notices.length > 0 && <ul aria-label={t("provider.login.instructions.label")} className="m-0 grid list-none gap-2 p-0">
       {activeLogin.notices.map((notice, index) => <li key={index} className="grid gap-2 text-body">
         <p className="break-words">{notice.title}</p>
         {notice.url && <NoticeLink url={notice.url} primary={!prompt} />}
       </li>)}
     </ul>}
     {running && prompt && <LoginPrompt key={prompt.id} prompt={prompt} />}
-    {running && !prompt && <p role="status" className="text-body text-muted-foreground">正在等待登录完成…</p>}
-    {error !== undefined && <ErrorNotice title="登录没有完成" error={error} />}
+    {running && !prompt && <p role="status" className="text-body text-muted-foreground">{t("provider.login.waiting.status")}</p>}
+    {error !== undefined && <ErrorNotice title={t("provider.login.error")} error={error} />}
     {error !== undefined && <DialogFooter>
-      <Button variant="tertiary" onClick={onBack}>返回</Button>
-      <Button onClick={() => setAttempt((value) => value + 1)}>重试</Button>
+      <Button variant="tertiary" onClick={onBack}>{t("provider.method.back.action")}</Button>
+      <Button onClick={() => setAttempt((value) => value + 1)}>{t("common.retry.action")}</Button>
     </DialogFooter>}
   </>;
 }
@@ -256,7 +257,7 @@ function NoticeLink({ url, primary }: { url: string; primary: boolean }) {
   return <div>
     <Button asChild variant={primary ? "primary" : "tertiary"}>
       <a href={url} target="_blank" rel="noreferrer">
-        <ExternalLink aria-hidden="true" />打开链接
+        <ExternalLink aria-hidden="true" />{t("provider.login.link.action")}
       </a>
     </Button>
   </div>;
@@ -307,7 +308,7 @@ function LoginPrompt({ prompt }: { prompt: PendingConfirmation }) {
       />
     </div>
     <div className="flex justify-end">
-      <Button type="submit" disabled={value.trim() === ""}>继续</Button>
+      <Button type="submit" disabled={value.trim() === ""}>{t("common.continue.action")}</Button>
     </div>
   </form>;
 }

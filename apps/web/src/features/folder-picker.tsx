@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
+import { t } from "@/lib/strings";
 
 type Listing = Result<"space.browse">;
 type Roots = Result<"space.roots">;
@@ -24,8 +25,8 @@ export function FolderPickerDialog({ open, onOpenChange, onOpened }: { open: boo
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>选择文件夹</DialogTitle>
-        <DialogDescription>选一个文件夹作为学习空间，Repa 会在里面保存学习数据。</DialogDescription>
+        <DialogTitle>{t("folderPicker.dialog.title")}</DialogTitle>
+        <DialogDescription>{t("folderPicker.dialog.description")}</DialogDescription>
       </DialogHeader>
       {/* 内容随对话框打开挂载，每次打开都从用户目录重新开始。 */}
       <FolderBrowser onOpened={() => {
@@ -59,7 +60,7 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
       // 点击的条目随列表一起消失，焦点移到新的位置标题，键盘用户从这里继续。
       requestAnimationFrame(() => location.current?.focus());
     } catch (failure) {
-      if (id === request.current) setError({ title: "无法读取文件夹", error: failure });
+      if (id === request.current) setError({ title: t("folderPicker.list.error"), error: failure });
     } finally {
       if (id === request.current) setLoading(false);
     }
@@ -91,7 +92,7 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
       await openSpace(listing.path);
       onOpened();
     } catch (failure) {
-      setError({ title: "无法打开这个文件夹", error: failure });
+      setError({ title: t("folderPicker.open.error"), error: failure });
       setOpening(false);
     }
   }
@@ -99,17 +100,17 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
   return <>
     <div className="grid min-w-0 gap-3">
       <div className="flex min-w-0 items-center gap-2">
-        <Button variant="tertiary" disabled={!canGoUp || loading || opening} onClick={goUp} leadingIcon={ArrowUp}>上一级
+        <Button variant="tertiary" disabled={!canGoUp || loading || opening} onClick={goUp} leadingIcon={ArrowUp}>{t("folderPicker.parent.action")}
         </Button>
         <h3 ref={location} tabIndex={-1} className="min-w-0 text-body weight-semibold break-all outline-none">
-          {view?.kind === "roots" ? "此电脑" : listing?.path ?? "用户目录"}
+          {view?.kind === "roots" ? t("folderPicker.computer.label") : listing?.path ?? t("folderPicker.home.label")}
         </h3>
       </div>
 
-      {loading && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
+      {loading && <p role="status" className="text-body text-muted-foreground">{t("common.loading.status")}</p>}
       {error && <ErrorNotice title={error.title} error={error.error} />}
 
-      {view?.kind === "roots" && <ul aria-label="磁盘" className="m-0 grid list-none gap-1 p-0">
+      {view?.kind === "roots" && <ul aria-label={t("folderPicker.drives.label")} className="m-0 grid list-none gap-1 p-0">
         {view.roots.map((root) => <li key={root.path}>
           <Button variant="ghost" className="w-full justify-start" disabled={loading} onClick={() => { void browse(root.path); }} leadingIcon={HardDrive}>{root.label}
           </Button>
@@ -117,29 +118,29 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
       </ul>}
 
       {listing && (listing.entries.length === 0
-        ? <p className="text-body text-muted-foreground">这里没有子文件夹。</p>
-        : <ul aria-label="子文件夹" className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
+        ? <p className="text-body text-muted-foreground">{t("folderPicker.folders.empty")}</p>
+        : <ul aria-label={t("folderPicker.folders.label")} className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
           {listing.entries.map((entry) => <li key={entry.path}>
             <Button variant="ghost" className="w-full justify-start" disabled={loading || opening} onClick={() => { void browse(entry.path); }}>
               {entry.space ? <FolderCheck aria-hidden="true" /> : <Folder aria-hidden="true" />}
               <span className="min-w-0 text-left break-all">{entry.name}</span>
-              {entry.space && <Badge variant="solid" color="gray" className="ml-auto">已有空间</Badge>}
+              {entry.space && <Badge variant="solid" color="gray" className="ml-auto">{t("folderPicker.existing.label")}</Badge>}
             </Button>
           </li>)}
         </ul>)}
 
-      {listing?.truncated && <p className="text-body text-muted-foreground">子文件夹太多，只显示了其中一部分。</p>}
+      {listing?.truncated && <p className="text-body text-muted-foreground">{t("folderPicker.truncated.hint")}</p>}
       {listing && <p className="text-body text-muted-foreground">
-        {listing.space ? "这是已有的学习空间。" : "会在这个文件夹里保存 Repa 的数据。"}
+        {listing.space ? t("folderPicker.existing.hint") : t("folderPicker.new.hint")}
       </p>}
     </div>
 
     <DialogFooter>
       <DialogClose asChild>
-        <Button variant="tertiary">取消</Button>
+        <Button variant="tertiary">{t("common.cancel.action")}</Button>
       </DialogClose>
       <Button disabled={!listing || loading || opening} onClick={() => { void openCurrent(); }}>
-        {opening ? "正在打开…" : "打开"}
+        {opening ? t("common.opening.status") : t("common.open.action")}
       </Button>
     </DialogFooter>
   </>;

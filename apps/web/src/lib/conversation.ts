@@ -1,4 +1,5 @@
 import { ItemResponseSchema, readItem, readLenient, type AgentEvent, type Item, type ItemResponse, type ModelRef, type SessionEntry } from "@repa/base/protocol";
+import { t } from "@/lib/strings";
 
 export type ToolStatus = "running" | "done" | "failed" | "incomplete";
 
@@ -115,7 +116,7 @@ export function historyItems(entries: SessionEntry[]): ConversationItem[] {
         items.push(item);
       }
       if (stopReason === "error") {
-        items.push({ kind: "error", id: `${entry.id}:error`, text: text(entry.data, "errorMessage") ?? "模型请求失败" });
+        items.push({ kind: "error", id: `${entry.id}:error`, text: text(entry.data, "errorMessage") ?? t("conversation.modelFailed.status") });
       } else if (stopReason === "aborted") {
         items.push({ kind: "stopped", id: `${entry.id}:stopped` });
       }
@@ -180,7 +181,7 @@ export function applyEvent(conversation: Conversation, event: AgentEvent): Conve
     }
     case "toolStart": {
       const id = text(event.data, "callId") ?? nextId();
-      const item: ConversationItem = { kind: "tool", id, tool: event.tool ?? "工具", status: "running" };
+      const item: ConversationItem = { kind: "tool", id, tool: event.tool ?? t("conversation.tool.label"), status: "running" };
       return { ...conversation, run: running, streaming: undefined, items: [...items, item] };
     }
     case "toolEnd": {
@@ -195,7 +196,7 @@ export function applyEvent(conversation: Conversation, event: AgentEvent): Conve
       // 带 code 的是整次运行的失败汇总：取消已有停止标记，模型错误已由消息级的 error 事件显示。
       const code = text(event.data, "code");
       if (code === "cancelled" || code === "model_error") return conversation;
-      return { ...conversation, streaming: undefined, items: [...items, { kind: "error", id: nextId(), text: event.text ?? "运行出错" }] };
+      return { ...conversation, streaming: undefined, items: [...items, { kind: "error", id: nextId(), text: event.text ?? t("common.runError.status") }] };
     }
     default:
       return conversation;

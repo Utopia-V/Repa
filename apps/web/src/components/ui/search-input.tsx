@@ -4,6 +4,7 @@ import { Button } from "./button";
 import { Input } from "./input";
 import { typeClass } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/strings";
 
 export function SearchInput({
   label,
@@ -28,7 +29,7 @@ export function SearchInput({
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
         <Input {...props} id={inputId} value={value} className="pl-9 pr-10" />
         {value && (
-          <Button variant="ghost" size="icon-compact" aria-label="清空搜索" className="absolute right-1" onClick={onClear}>
+          <Button variant="ghost" size="icon-compact" aria-label={t("sidebar.search.clear.label")} className="absolute right-1" onClick={onClear}>
             <X aria-hidden="true" />
           </Button>
         )}

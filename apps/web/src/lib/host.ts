@@ -1,3 +1,4 @@
+import { t } from "@/lib/strings";
 /** 桌面端 preload 在 window.repaHost 上提供的宿主能力；在浏览器里打开时没有。 */
 export interface RepaHost {
   /** 主进程启动的后端连接；经 IPC 传来，使用前要核对形状。 */
@@ -30,6 +31,6 @@ export async function revealFile(path: string): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path }),
   });
-  if (response.status === 404) throw new Error("找不到这个文件，可能已经被移动或删除。");
-  if (!response.ok) throw new Error("无法打开所在文件夹。");
+  if (response.status === 404) throw new Error(t("error.reveal.notFound"));
+  if (!response.ok) throw new Error(t("common.revealFolder.error"));
 }

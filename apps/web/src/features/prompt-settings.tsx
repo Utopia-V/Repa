@@ -22,6 +22,7 @@ import { useAppStore } from "@/hooks/use-app-store";
 import { folderName } from "@/lib/paths";
 import { promptLevels, promptSource } from "@/lib/prompts";
 import type { PromptScope } from "@/lib/store";
+import { t } from "@/lib/strings";
 
 /**
  * 提示装配：按装配顺序列出各段，可以启停、编辑、恢复，并预览下一条消息会带上的内容。
@@ -33,15 +34,15 @@ export function PromptSettingsSection() {
 
   return <section aria-labelledby="prompts" className="grid gap-3">
     <div className="flex items-center justify-between gap-3">
-      <h3 id="prompts" className="text-title weight-semibold">提示</h3>
-      {space && <Button variant="tertiary" onClick={() => setPreviewing(true)} leadingIcon={Eye}>预览
+      <h3 id="prompts" className="text-title weight-semibold">{t("promptSettings.section.title")}</h3>
+      {space && <Button variant="tertiary" onClick={() => setPreviewing(true)} leadingIcon={Eye}>{t("promptSettings.preview.action")}
       </Button>}
     </div>
     {space
       ? <PromptList space={space} />
       : <Card className="flex-row items-center justify-between">
-        <p className="text-body text-muted-foreground">提示由打开的空间和其中的插件一起决定。打开一个学习空间后，可以在这里查看和修改。</p>
-        <Button asChild variant="tertiary"><Link to="/learning-space">去选空间</Link></Button>
+        <p className="text-body text-muted-foreground">{t("promptSettings.noSpace.description")}</p>
+        <Button asChild variant="tertiary"><Link to="/learning-space">{t("promptSettings.chooseSpace.action")}</Link></Button>
       </Card>}
     {space && <PromptPreviewDialog open={previewing} onOpenChange={setPreviewing} />}
   </section>;
@@ -81,21 +82,21 @@ function PromptList({ space }: { space: string }) {
 
   if (!data) {
     if (prompts.status === "error") return <div className="grid gap-3">
-      <ErrorNotice title="无法读取提示" error={prompts.error} />
+      <ErrorNotice title={t("promptSettings.list.error")} error={prompts.error} />
       <div>
-        <Button variant="tertiary" onClick={() => { void loadPrompts(); }} leadingIcon={RefreshCw}>重试
+        <Button variant="tertiary" onClick={() => { void loadPrompts(); }} leadingIcon={RefreshCw}>{t("common.retry.action")}
         </Button>
       </div>
     </div>;
-    return <p role="status" className="text-body text-muted-foreground">正在读取…</p>;
+    return <p role="status" className="text-body text-muted-foreground">{t("common.loading.status")}</p>;
   }
 
   return <>
     <p className="text-body text-muted-foreground">
-      每次发消息前，Repa 按下面的顺序把各段拼成系统提示。开关只影响本空间；修改从下一条消息起生效。
+      {t("promptSettings.list.description")}
     </p>
     {toggleFailure && <ErrorNotice
-      title={`无法${data.sections.find((section) => section.id === toggleFailure.id)?.enabled ? "停用" : "启用"} ${promptSource(toggleFailure.id, space).name}`}
+      title={t("promptSettings.toggle.error", { value: data.sections.find((section) => section.id === toggleFailure.id)?.enabled ? t("promptSettings.disable.label") : t("promptSettings.enable.label"), name: promptSource(toggleFailure.id, space).name })}
       error={toggleFailure.error}
     />}
     <ol aria-labelledby="prompts" className="m-0 grid list-none gap-2 p-0">
@@ -106,19 +107,19 @@ function PromptList({ space }: { space: string }) {
             <div className="grid min-w-0 flex-1 gap-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={section.enabled ? "weight-semibold break-all" : "weight-semibold break-all text-muted-foreground"}>{name}</span>
-                {section.text !== section.defaultText && <Badge variant="solid" color="gray">已修改</Badge>}
-                {!section.enabled && <Badge variant="dot" color="gray">已停用</Badge>}
+                {section.text !== section.defaultText && <Badge variant="solid" color="gray">{t("promptSettings.modified.status")}</Badge>}
+                {!section.enabled && <Badge variant="dot" color="gray">{t("promptSettings.disabled.status")}</Badge>}
               </div>
               {source && <span className="text-body text-muted-foreground">{source}</span>}
             </div>
             <Switch
-              label={`启用 ${name}`}
+              label={t("promptSettings.enable.action", { name })}
               className="[&>span:last-child]:sr-only"
               checked={section.enabled}
               disabled={toggling !== undefined}
               onToggle={() => { void toggle(section, !section.enabled); }}
             />
-            <Button variant="ghost" aria-label={`编辑 ${name}`} onClick={() => setEditing(section)}>编辑</Button>
+            <Button variant="ghost" aria-label={t("promptSettings.edit.label", { name })} onClick={() => setEditing(section)}>{t("promptSettings.edit.action")}</Button>
           </Card>
         </li>;
       })}
@@ -153,7 +154,7 @@ function PromptEditor({ section, app, space, onDone }: {
   // 本空间这一级的上一级是所有空间，所有空间的上一级是默认内容。
   const base = scope === "space" ? levels.inherited.text : section.defaultText;
   const current = levels[scope];
-  const resetLabel = scope === "space" && levels.app.text !== undefined ? "改回所有空间的内容" : "恢复默认";
+  const resetLabel = scope === "space" && levels.app.text !== undefined ? t("promptSettings.editor.revertAll.action") : t("promptSettings.editor.restore.action");
 
   async function save(text: string | undefined) {
     const override: PromptOverride = { ...current };
@@ -173,28 +174,28 @@ function PromptEditor({ section, app, space, onDone }: {
 
   return <DialogContent>
     <DialogHeader>
-      <DialogTitle>编辑 {name}</DialogTitle>
-      <DialogDescription>保存后从下一条消息起生效。</DialogDescription>
+      <DialogTitle>{t("promptSettings.edit.label", { name })}</DialogTitle>
+      <DialogDescription>{t("promptSettings.editor.description")}</DialogDescription>
     </DialogHeader>
     {generatedNote && <p className="text-body text-muted-foreground">{generatedNote}</p>}
     <div className="grid gap-2">
-      <span id="prompt-scope" className="text-body weight-semibold">保存到</span>
+      <span id="prompt-scope" className="text-body weight-semibold">{t("promptSettings.editor.saveTo.label")}</span>
       <RadioGroup aria-labelledby="prompt-scope" value={scope} onValueChange={(value) => setScope(value as PromptScope)} disabled={saving}>
         <div className="flex items-center gap-3">
           <RadioGroupItem id="prompt-scope-space" value="space" />
-          <label htmlFor="prompt-scope-space" className="text-body">只在本空间（{folderName(space)}）</label>
+          <label htmlFor="prompt-scope-space" className="text-body">{t("promptSettings.editor.thisSpace.label", { space: folderName(space) })}</label>
         </div>
         <div className="flex items-center gap-3">
           <RadioGroupItem id="prompt-scope-app" value="app" />
-          <label htmlFor="prompt-scope-app" className="text-body">所有空间</label>
+          <label htmlFor="prompt-scope-app" className="text-body">{t("promptSettings.editor.allSpaces.label")}</label>
         </div>
       </RadioGroup>
     </div>
     {scope === "app" && levels.space.text !== undefined && <p className="text-body text-muted-foreground">
-      本空间另有修改。保存到所有空间后，这个空间仍然使用本空间的内容。
+      {t("promptSettings.editor.override.hint")}
     </p>}
     <div className="grid gap-2">
-      <label htmlFor="prompt-text" className="text-body weight-semibold">内容</label>
+      <label htmlFor="prompt-text" className="text-body weight-semibold">{t("promptSettings.editor.content.label")}</label>
       <Textarea
         id="prompt-text"
         className="max-h-80 min-h-40 font-mono"
@@ -207,10 +208,10 @@ function PromptEditor({ section, app, space, onDone }: {
         </Button>
       </div>
     </div>
-    {failure !== undefined && <ErrorNotice title="无法保存" error={failure} />}
+    {failure !== undefined && <ErrorNotice title={t("promptSettings.editor.save.error")} error={failure} />}
     <DialogFooter>
-      <Button variant="tertiary" onClick={onDone}>取消</Button>
-      <Button disabled={saving} aria-busy={saving} onClick={() => { void save(drafts[scope]); }}>保存</Button>
+      <Button variant="tertiary" onClick={onDone}>{t("common.cancel.action")}</Button>
+      <Button disabled={saving} aria-busy={saving} onClick={() => { void save(drafts[scope]); }}>{t("common.save.action")}</Button>
     </DialogFooter>
   </DialogContent>;
 }
@@ -239,41 +240,41 @@ function PromptPreviewDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>下一条消息会带上的内容</DialogTitle>
-        <DialogDescription>Repa 装配的部分，按发给模型的顺序排列；运行时还会加上工作目录和工具声明。按现在的配置算出，不是某次调用的记录。</DialogDescription>
+        <DialogTitle>{t("promptSettings.preview.title")}</DialogTitle>
+        <DialogDescription>{t("promptSettings.preview.description")}</DialogDescription>
       </DialogHeader>
-      {preview.status === "loading" && <p role="status" className="text-body text-muted-foreground">正在计算…</p>}
+      {preview.status === "loading" && <p role="status" className="text-body text-muted-foreground">{t("promptSettings.preview.loading.status")}</p>}
       {preview.status === "error" && <div className="grid gap-3">
-        <ErrorNotice title="无法预览" error={preview.error} />
+        <ErrorNotice title={t("promptSettings.preview.error")} error={preview.error} />
         <div>
-          <Button variant="tertiary" onClick={() => setAttempt((value) => value + 1)} leadingIcon={RefreshCw}>重试
+          <Button variant="tertiary" onClick={() => setAttempt((value) => value + 1)} leadingIcon={RefreshCw}>{t("common.retry.action")}
           </Button>
         </div>
       </div>}
       {preview.status === "ready" && <>
         <section aria-labelledby="preview-system" className="grid gap-2">
-          <h3 id="preview-system" className="text-title weight-semibold">系统提示</h3>
+          <h3 id="preview-system" className="text-title weight-semibold">{t("promptSettings.preview.system.title")}</h3>
           <ol className="m-0 grid list-none gap-2 p-0">
             {preview.data.sections.map((section) => {
               const name = promptSource(section.id, space ?? "").name;
-              if (!section.enabled) return <li key={section.id} className="text-body text-muted-foreground">{name}：已停用，不发送</li>;
+              if (!section.enabled) return <li key={section.id} className="text-body text-muted-foreground">{t("promptSettings.preview.disabled.status", { name })}</li>;
               position += 1;
               return <li key={section.id} className="grid gap-1">
                 <span className="text-body weight-semibold">{position} · {name}</span>
                 {section.text
                   ? <PreviewText text={section.text} />
-                  : <p className="text-body text-muted-foreground">这一段是空的。</p>}
+                  : <p className="text-body text-muted-foreground">{t("promptSettings.preview.empty")}</p>}
               </li>;
             })}
           </ol>
         </section>
         <section aria-labelledby="preview-views" className="grid gap-2">
           <div className="grid gap-1">
-            <h3 id="preview-views" className="text-title weight-semibold">运行时视图</h3>
-            <p className="text-body text-muted-foreground">插件提供的当前状态，单独放在用户消息之后，只在变化时重新发送。</p>
+            <h3 id="preview-views" className="text-title weight-semibold">{t("promptSettings.preview.runtime.title")}</h3>
+            <p className="text-body text-muted-foreground">{t("promptSettings.preview.runtime.description")}</p>
           </div>
           {preview.data.views.length === 0
-            ? <p className="text-body text-muted-foreground">没有插件提供视图。</p>
+            ? <p className="text-body text-muted-foreground">{t("promptSettings.preview.runtime.empty")}</p>
             : <ul className="m-0 grid list-none gap-2 p-0">
               {preview.data.views.map((view) => <li key={view.id} className="grid gap-1">
                 <span className="text-body weight-semibold">{view.id}</span>

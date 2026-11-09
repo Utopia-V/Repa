@@ -21,6 +21,7 @@ export function StoreProvider({ store, children }: { store: AppStore; children: 
 /** 选择器应返回 store 中已有的引用，避免每次渲染生成新对象。 */
 export function useAppStore<T>(selector: (state: AppState) => T): T {
   const store = useContext(StoreContext);
+  // ui-text: ignore 只有开发者会看到
   if (!store) throw new Error("useAppStore 需要在 StoreProvider 内使用。");
   return useStore(store, selector);
 }
@@ -28,6 +29,7 @@ export function useAppStore<T>(selector: (state: AppState) => T): T {
 /** 需要在事件处理里读到最新状态时用，例如打开空间以后决定去哪个页面。 */
 export function useAppStoreApi(): AppStore {
   const store = useContext(StoreContext);
+  // ui-text: ignore 只有开发者会看到
   if (!store) throw new Error("useAppStoreApi 需要在 StoreProvider 内使用。");
   return store;
 }

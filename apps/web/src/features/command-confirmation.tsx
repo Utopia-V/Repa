@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAppStore } from "@/hooks/use-app-store";
+import { t } from "@/lib/strings";
 
 /**
  * Agent 执行命令前的授权。挂在工作区布局上，离开对话页时运行也不会卡在没人看见的请求上。
@@ -21,14 +22,14 @@ export function CommandConfirmationDialog() {
     {current && <DialogContent>
       <DialogHeader>
         <DialogTitle>{current.request.title}</DialogTitle>
-        <DialogDescription>Agent 想在学习空间里执行下面的命令，允许后才会运行。</DialogDescription>
+        <DialogDescription>{t("settings.commandConfirmation.description")}</DialogDescription>
       </DialogHeader>
       <pre className="m-0 max-h-60 overflow-auto rounded-lg border border-border bg-surface-inset p-3 font-mono text-[length:var(--type-code-size)] leading-[var(--type-code-line)] whitespace-pre-wrap break-all">
         {current.request.message}
       </pre>
       <DialogFooter>
-        <Button variant="tertiary" onClick={() => { void reply(current.id, false); }}>拒绝</Button>
-        <Button onClick={() => { void reply(current.id, true); }}>允许</Button>
+        <Button variant="tertiary" onClick={() => { void reply(current.id, false); }}>{t("settings.commandConfirmation.deny.action")}</Button>
+        <Button onClick={() => { void reply(current.id, true); }}>{t("settings.commandConfirmation.allow.action")}</Button>
       </DialogFooter>
     </DialogContent>}
   </Dialog>;

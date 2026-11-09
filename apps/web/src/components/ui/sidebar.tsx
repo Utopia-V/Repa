@@ -1,3 +1,4 @@
+import { t } from "@/lib/strings";
 // Adapted from shadcn/ui new-york-v4 (MIT); see README.md.
 "use client"
 
@@ -240,8 +241,8 @@ function Sidebar({
           finalFocus={() => (triggerRef.current?.isConnected ? triggerRef.current : true)}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>工作台导航</SheetTitle>
-            <SheetDescription>切换功能或浏览会话。</SheetDescription>
+            <SheetTitle>{t("sidebar.drawer.title")}</SheetTitle>
+            <SheetDescription>{t("sidebar.drawer.description")}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -321,7 +322,7 @@ function SidebarTrigger({
       {...props}
     >
       <PanelLeftIcon />
-      <span className="sr-only">{(isMobile ? openMobile : open) ? "收起导航" : "打开导航"}</span>
+      <span className="sr-only">{(isMobile ? openMobile : open) ? t("sidebar.collapse.label") : t("sidebar.open.label")}</span>
     </Button>
   )
 }
@@ -437,8 +438,8 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
       type="button"
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="切换侧栏"
-      title="拖动调整宽度，点击切换，双击重置；方向键调整宽度"
+      aria-label={t("sidebar.rail.label")}
+      title={t("sidebar.rail.hint")}
       onClick={onClick}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

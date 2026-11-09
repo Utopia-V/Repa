@@ -18,6 +18,7 @@ import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import "katex/dist/katex.min.css";
 
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/strings";
 
 // 中文里 `20~25` 常表示范围，只认双波浪线为删除线。
 const textPlugins: NonNullable<Options["remarkPlugins"]> = [
@@ -84,7 +85,7 @@ const baseComponents: Components = {
   a: Anchor,
   // 外部图片会把浏览记录暴露给第三方，地址也可能是模型编的；只给出说明和链接，由用户决定是否打开。
   img: ({ src, alt }) => {
-    const label = `图片：${alt || "未命名"}`;
+    const label = t("markdown.image.label", { value: alt || t("markdown.untitled.label") });
     const url = typeof src === "string" ? externalUrl(src) : undefined;
     if (!url) return <span className="text-muted-foreground">[{label}]</span>;
     return <a

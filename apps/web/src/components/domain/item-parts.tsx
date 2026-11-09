@@ -4,6 +4,7 @@ import type { Block, Item } from "@repa/base/protocol";
 
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/strings";
 
 export type Slot = Item["slots"][number];
 
@@ -42,12 +43,12 @@ export function Content({ blocks, className, renderLink }: {
         return <Markdown key={index} text={`${fence}${block.language}\n${block.text}\n${fence}`} math={false} />;
       }
       // 没有声明图片能力，后端不会发来；保险起见只给出说明。
-      return <p key={index} className="m-0 text-muted-foreground">[图片：{block.alt}]</p>;
+      return <p key={index} className="m-0 text-muted-foreground">{t("item.image.label", { alt: block.alt })}</p>;
     })}
   </div>;
 }
 
-const markText = { correct: "正确", incorrect: "不对", missed: "应该选上" } as const;
+const markText = { correct: t("item.result.correct.label"), incorrect: t("item.result.incorrect.label"), missed: t("item.result.missed.label") } as const;
 
 /** 判分标记：图标加文字，不只靠颜色区分。 */
 export function MarkBadge({ mark }: { mark: Mark | undefined }) {
@@ -90,5 +91,5 @@ type TableRow = Extract<Slot, { type: "table" }>["rows"][number];
 export function rowName(row: TableRow, index: number): string {
   if (row.header !== undefined) return row.header;
   const first = Object.values(row.cells).find((cell) => "value" in cell);
-  return first && "value" in first ? first.value.replace(/`/gu, "") : `第 ${index + 1} 行`;
+  return first && "value" in first ? first.value.replace(/`/gu, "") : t("item.row.label", { value: index + 1 });
 }

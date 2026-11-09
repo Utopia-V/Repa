@@ -1,4 +1,5 @@
 import { ConnectionError, RpcError } from "@repa/base/client";
+import { t } from "@/lib/strings";
 
 export type ErrorDescription = {
   title: string;
@@ -12,15 +13,15 @@ export type ErrorDescription = {
 export function describeError(error: unknown): ErrorDescription {
   if (error instanceof ConnectionError) {
     return {
-      title: "连接中断",
-      message: "操作结果未确定，重新连接后会重新读取状态。",
+      title: t("error.connection.title"),
+      message: t("error.connection.message"),
     };
   }
   if (error instanceof RpcError) {
     const data = error.data;
     if (data && typeof data === "object" && "code" in data && typeof data.code === "string") {
       return {
-        title: "操作失败",
+        title: t("error.operation.title"),
         message: error.message,
         code: data.code,
         details: "details" in data ? data.details : undefined,
@@ -28,15 +29,15 @@ export function describeError(error: unknown): ErrorDescription {
     }
     // 参数校验和后端内部错误只带英文协议文案，不直接展示给用户。
     return {
-      title: "请求失败",
-      message: "后端无法完成这次请求。",
+      title: t("error.request.title"),
+      message: t("error.request.message"),
       code: String(error.code),
     };
   }
   if (error instanceof Error) {
-    return { title: "操作失败", message: error.message };
+    return { title: t("error.operation.title"), message: error.message };
   }
-  return { title: "操作失败", message: "发生未知错误。" };
+  return { title: t("error.operation.title"), message: t("error.unknown.message") };
 }
 
 /** 后端业务错误码，用于界面按错误类型给出下一步；不是业务错误时为 undefined。 */

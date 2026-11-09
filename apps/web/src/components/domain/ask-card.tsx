@@ -8,14 +8,15 @@ import { buildResponse, emptyDraft, ItemSlots, SlotProblems } from "@/components
 import { Content, type Draft } from "@/components/domain/item-parts";
 import { answerText, slotName } from "@/lib/ask";
 import type { Ask } from "@/lib/store";
+import { t } from "@/lib/strings";
 
 const endedText = {
-  cancelled: "你关闭了这次提问",
-  aborted: "提问已结束：运行停止了",
-  closed: "提问已结束：空间关闭了",
-  disconnected: "提问已结束：连接中断了",
-  unsupported: "这次提问没能在界面上显示",
-  answered: "提问已结束",
+  cancelled: t("askCard.cancelled.status"),
+  aborted: t("askCard.aborted.status"),
+  closed: t("askCard.closed.status"),
+  disconnected: t("askCard.disconnected.status"),
+  unsupported: t("askCard.unsupported.status"),
+  answered: t("askCard.answered.status"),
 } as const;
 
 /**
@@ -36,7 +37,7 @@ export function AskCard({ ask, onSubmit, onCancel }: {
     if (ask.declined !== undefined) {
       return <section aria-labelledby={titleId} className="mb-4 grid gap-2 rounded-lg border border-border bg-card p-5 text-card-foreground">
         <h3 id={titleId} className="m-0 flex items-center gap-2 text-body weight-semibold text-muted-foreground">
-          <MessageCircle aria-hidden="true" className="size-4 shrink-0" />你没有按卡片作答，回了一句话
+          <MessageCircle aria-hidden="true" className="size-4 shrink-0" />{t("askCard.freeText.title")}
         </h3>
         <p className="m-0 text-body break-words whitespace-pre-wrap">{ask.declined}</p>
       </section>;
@@ -44,7 +45,7 @@ export function AskCard({ ask, onSubmit, onCancel }: {
     if (ask.response) {
       return <section aria-labelledby={titleId} className="mb-4 grid gap-3 rounded-lg border border-border bg-card p-5 text-card-foreground">
         <h3 id={titleId} className="m-0 flex items-center gap-2 text-body weight-semibold text-muted-foreground">
-          <CircleCheck aria-hidden="true" className="size-4 shrink-0" />你回答了 Agent 的提问
+          <CircleCheck aria-hidden="true" className="size-4 shrink-0" />{t("askCard.answered.title")}
         </h3>
         <dl className="m-0 grid gap-2 text-body">
           {item.slots.map((slot, index) => <div key={slot.id} className="grid gap-0.5">
@@ -67,20 +68,20 @@ export function AskCard({ ask, onSubmit, onCancel }: {
   return <section aria-labelledby={titleId} className="mb-4 grid gap-5 rounded-lg border border-border-selected bg-card p-5 text-card-foreground">
     <div className="flex items-center justify-between gap-3">
       <h3 id={titleId} className="m-0 flex items-center gap-2 text-title weight-semibold">
-        <CircleHelp aria-hidden="true" className="size-5 shrink-0 text-primary" />{item.title ?? "Agent 想问你"}
+        <CircleHelp aria-hidden="true" className="size-5 shrink-0 text-primary" />{item.title ?? t("askCard.pending.title")}
       </h3>
-      <Button variant="ghost" size="icon" aria-label="关闭提问" title="关闭提问，不作答" onClick={onCancel}>
+      <Button variant="ghost" size="icon" aria-label={t("askCard.close.label")} title={t("askCard.close.hint")} onClick={onCancel}>
         <CircleX aria-hidden="true" />
       </Button>
     </div>
     <Content blocks={item.body} />
     <ItemSlots item={item} draft={draft} onChange={setDraft} problems={ask.problems} disabled={ask.submitting} />
     <SlotProblems id={`${base}-problems`} problems={general} />
-    {ask.error !== undefined && <ErrorNotice title="没能送出" error={ask.error} />}
-    <p className="m-0 text-body text-muted-foreground">不想按卡片答，也可以在下面的输入框里直接回一句。</p>
+    {ask.error !== undefined && <ErrorNotice title={t("askCard.submit.error")} error={ask.error} />}
+    <p className="m-0 text-body text-muted-foreground">{t("askCard.freeText.hint")}</p>
     <div className="flex flex-wrap items-center justify-end gap-3">
       <Button disabled={ask.submitting} onClick={() => onSubmit(buildResponse(item, draft))}>
-        {ask.submitting ? "正在提交…" : "提交"}
+        {ask.submitting ? t("common.submitting.status") : t("common.submit.action")}
       </Button>
     </div>
   </section>;

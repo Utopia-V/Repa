@@ -12,6 +12,7 @@ import { SearchInput } from "@/components/ui/search-input";
 import { SelectionButton } from "@/components/ui/selection-button";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
+import { t } from "@/lib/strings";
 
 type Model = Result<"model.list">[number];
 
@@ -27,7 +28,7 @@ type ModelDialogProps = {
 /** 从已连接提供方的模型里选默认模型。 */
 export function DefaultModelDialog(props: ModelDialogProps) {
   const setDefaultModel = useAppStore((state) => state.setDefaultModel);
-  return <ModelDialog {...props} title="选择默认模型" description="新会话使用这个模型。" onChoose={setDefaultModel} />;
+  return <ModelDialog {...props} title={t("modelPicker.default.title")} description={t("modelPicker.default.description")} onChoose={setDefaultModel} />;
 }
 
 /** 给当前会话换模型；不改默认模型。 */
@@ -36,8 +37,8 @@ export function ConversationModelDialog(props: ModelDialogProps & { started: boo
   const setConversationModel = useAppStore((state) => state.setConversationModel);
   return <ModelDialog
     {...rest}
-    title="选择这个会话的模型"
-    description={started ? "之后的消息用这个模型回答，不改默认模型。" : "这个新会话用它开始，不改默认模型。"}
+    title={t("modelPicker.conversation.title")}
+    description={started ? t("modelPicker.conversation.description") : t("modelPicker.newConversation.description")}
     onChoose={setConversationModel}
   />;
 }
@@ -91,11 +92,11 @@ function ModelList({ models, providerNames, current, onChoose, onChosen }: {
   }
 
   return <div className="grid min-w-0 gap-3">
-    <SearchInput label="搜索模型" value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
-    {error !== undefined && <ErrorNotice title="没有设置成功" error={error} />}
+    <SearchInput label={t("modelPicker.search.label")} value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
+    {error !== undefined && <ErrorNotice title={t("modelPicker.select.error")} error={error} />}
     {matched.length === 0
-      ? <p className="text-body text-muted-foreground">没有找到匹配的模型。</p>
-      : <ul aria-label="可用模型" className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
+      ? <p className="text-body text-muted-foreground">{t("modelPicker.list.empty")}</p>
+      : <ul aria-label={t("modelPicker.list.label")} className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
         {matched.map((model) => {
           const key = `${model.provider}/${model.id}`;
           return <li key={key}>
@@ -109,7 +110,7 @@ function ModelList({ models, providerNames, current, onChoose, onChosen }: {
               <span className="grid min-w-0 text-left">
                 <span className="break-all">{model.name}</span>
                 <span className="text-caption weight-normal break-all text-muted-foreground">
-                  {saving === key ? "正在保存…" : providerNames.get(model.provider) ?? model.provider}
+                  {saving === key ? t("common.saving.status") : providerNames.get(model.provider) ?? model.provider}
                 </span>
               </span>
             </SelectionButton>

@@ -4,8 +4,9 @@ import { Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { HistoryRevision } from "@/lib/store";
+import { t } from "@/lib/strings";
 
-const changeLabel = { added: "新增", modified: "修改", deleted: "删除", renamed: "重命名" } as const;
+const changeLabel = { added: t("history.change.added.label"), modified: t("history.change.modified.label"), deleted: t("history.change.deleted.label"), renamed: t("history.change.renamed.label") } as const;
 
 /** 默认显示的文件数，其余的点开再看，一次改了很多文件的记录不会占满整页。 */
 const PREVIEW_FILES = 8;
@@ -22,11 +23,11 @@ export function revisionSource(source: HistoryRevision["source"]): string {
     case "agent":
       return "Agent";
     case "plugin":
-      return `插件 ${source.pluginId}`;
+      return t("history.source.plugin.label", { pluginId: source.pluginId });
     case "external":
-      return "外部程序";
+      return t("history.source.external.label");
     case "undo":
-      return "撤回";
+      return t("history.undo.action");
   }
 }
 
@@ -44,10 +45,10 @@ export function HistoryRevisionCard({ revision, undone, onUndo }: {
   if (revision.source.kind === "undo") {
     // 撤回整次运行时指向运行而不是某次提交。
     undoneText = "runId" in revision.source
-      ? "，撤回一次 Agent 运行的修改"
+      ? t("history.undoAgentRun.label")
       : undone
-      ? `，撤回 ${formatRevisionTime(undone.timestamp)} 的修改（${revisionSource(undone.source)}）`
-      : "，撤回一次更早的修改";
+      ? t("history.undoAt.label", { timestamp: formatRevisionTime(undone.timestamp), source: revisionSource(undone.source) })
+      : t("history.undoEarlier.label");
   }
 
   return <article aria-labelledby={titleId}>
@@ -59,10 +60,10 @@ export function HistoryRevisionCard({ revision, undone, onUndo }: {
             <time dateTime={revision.timestamp}>{formatRevisionTime(revision.timestamp)}</time>{undoneText}
           </p>
         </div>
-        <Button variant="tertiary" aria-describedby={titleId} onClick={onUndo} leadingIcon={Undo2}>撤回
+        <Button variant="tertiary" aria-describedby={titleId} onClick={onUndo} leadingIcon={Undo2}>{t("history.undo.action")}
         </Button>
       </div>
-      <ul aria-label="改动的文件" className="m-0 grid list-none gap-1 p-0 text-body">
+      <ul aria-label={t("history.files.label")} className="m-0 grid list-none gap-1 p-0 text-body">
         {shown.map((change) => <li key={`${change.kind}:${change.path}`} className="flex min-w-0 gap-2">
           <span className="shrink-0 text-muted-foreground">{changeLabel[change.kind]}</span>
           <span className="min-w-0 break-all">
@@ -71,7 +72,7 @@ export function HistoryRevisionCard({ revision, undone, onUndo }: {
         </li>)}
       </ul>
       {hidden > 0 && <div>
-        <Button variant="ghost" onClick={() => setExpanded(true)}>显示其余 {hidden} 个文件</Button>
+        <Button variant="ghost" onClick={() => setExpanded(true)}>{t("history.moreFiles.action", { hidden })}</Button>
       </div>}
     </Card>
   </article>;

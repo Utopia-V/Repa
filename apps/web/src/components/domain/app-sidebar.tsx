@@ -9,6 +9,7 @@ import {
 import { SessionList } from "@/components/domain/session-list";
 import { useAppStore } from "@/hooks/use-app-store";
 import { folderName } from "@/lib/paths";
+import { t } from "@/lib/strings";
 
 const collapseLabel = "group-data-[collapsible=icon]:sr-only";
 
@@ -44,15 +45,15 @@ export function AppSidebar() {
   }
   const collapsedTitle = (label: string) => state === "collapsed" ? label : undefined;
 
-  return <Sidebar aria-label="应用侧栏" collapsible="icon">
+  return <Sidebar aria-label={t("sidebar.app.label")} collapsible="icon">
     <SidebarHeader>
       <div className="flex items-center justify-between gap-2 group-data-[collapsible=icon]:justify-center">
-        <h1 className={`m-0 text-display ${collapseLabel}`}>Repa</h1>
+        <h1 className={`m-0 text-display ${collapseLabel}`}>{t("sidebar.brand.title")}</h1>
         <SidebarTrigger />
       </div>
     </SidebarHeader>
     {/* 内容区随会话增多滚动，History 和 Settings 留在底部。 */}
-    <nav aria-label="主导航" className="flex min-h-0 flex-1 flex-col">
+    <nav aria-label={t("sidebar.nav.label")} className="flex min-h-0 flex-1 flex-col">
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
@@ -76,8 +77,8 @@ export function AppSidebar() {
             {/* 后端装了学习插件时才有学习页；它属于当前空间。 */}
             {space && learnable && <SidebarMenuItem>
               <SidebarMenuButton asChild>
-                <NavLink to="/learn" onClick={closeMobileSidebar} title={collapsedTitle("学习")}>
-                  <GraduationCap aria-hidden="true" /><span className={collapseLabel}>学习</span>
+                <NavLink to="/learn" onClick={closeMobileSidebar} title={collapsedTitle(t("learn.page.title"))}>
+                  <GraduationCap aria-hidden="true" /><span className={collapseLabel}>{t("learn.page.title")}</span>
                 </NavLink>
               </SidebarMenuButton>
             </SidebarMenuItem>}
@@ -90,14 +91,14 @@ export function AppSidebar() {
           {space && <SidebarMenuItem>
             <SidebarMenuButton asChild>
               <NavLink to="/history" onClick={closeMobileSidebar} title={collapsedTitle("History")}>
-                <History aria-hidden="true" /><span className={collapseLabel}>History</span>
+                <History aria-hidden="true" /><span className={collapseLabel}>{t("sidebar.history.label")}</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>}
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
               <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle("Settings")}>
-                <Settings aria-hidden="true" /><span className={collapseLabel}>Settings</span>
+                <Settings aria-hidden="true" /><span className={collapseLabel}>{t("sidebar.settings.label")}</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>

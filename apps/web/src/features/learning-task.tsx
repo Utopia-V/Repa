@@ -12,11 +12,12 @@ import { CodeTrial } from "@/features/code-trial";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { Outgoing } from "@/lib/learning";
 import type { RenderLink } from "@/components/ui/markdown";
+import { t } from "@/lib/strings";
 
 type Phase = LearningTask["phase"];
 type ContentPage = Extract<Phase, { stage: "explanation" }>["page"];
 
-export const kindText = { lesson: "新课", review: "复习", quiz: "测验", retake: "重考" } as const;
+export const kindText = { lesson: t("learn.task.lesson.label"), review: t("learn.task.review.label"), quiz: t("learn.task.quiz.label"), retake: t("learn.task.retake.label") } as const;
 
 const CONCEPT_LINK = "repa:concept/";
 
@@ -66,7 +67,7 @@ function ContentPageView({ page, renderLink }: { page: ContentPage; renderLink: 
 
   return <div className="grid gap-4">
     <Content blocks={[...page.blocks, ...rest]} renderLink={renderLink} />
-    {error !== undefined && <ErrorNotice title="这一页没有读完" error={error} />}
+    {error !== undefined && <ErrorNotice title={t("learn.task.unfinished.title")} error={error} />}
   </div>;
 }
 
@@ -101,10 +102,10 @@ function AnswerForm({ task, delivery, outgoing, busy }: {
       }}
     />
     <SlotProblems id={`${delivery.deliveryId}-problems`} problems={general} />
-    {outgoing?.status === "failed" && <ErrorNotice title="没能交上" error={outgoing.error} />}
+    {outgoing?.status === "failed" && <ErrorNotice title={t("learn.answer.submit.error")} error={outgoing.error} />}
     {outgoing?.status === "unknown" && <p role="status" className="m-0 flex items-center gap-2 text-body text-muted-foreground">
       <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />
-      连接断了，正在确认这份作答有没有交上，确认后会自动处理。
+      {t("learn.answer.confirming.status")}
     </p>}
     <div className="flex flex-wrap items-center justify-end gap-3">
       {/* 测验不能说“不会”，没答的题由交卷或超时决定。 */}
@@ -112,9 +113,9 @@ function AnswerForm({ task, delivery, outgoing, busy }: {
         variant="tertiary"
         disabled={pending || busy}
         onClick={() => { void submitAnswer(delivery, task.taskId, { item: reference, answers: {}, dontKnow: true }); }}
-      >不会</Button>}
+      >{t("learn.answer.dontKnow.action")}</Button>}
       <Button disabled={pending || busy} onClick={() => { void submitAnswer(delivery, task.taskId, buildResponse(item, draft)); }}>
-        {outgoing?.status === "sending" ? "正在提交…" : "提交"}
+        {outgoing?.status === "sending" ? t("common.submitting.status") : t("common.submit.action")}
       </Button>
     </div>
   </div>;
@@ -122,22 +123,22 @@ function AnswerForm({ task, delivery, outgoing, busy }: {
 
 function KpProgress({ task }: { task: LearningTask }) {
   if (task.kps.length === 0) return null;
-  return <ol aria-label="知识点" className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-body">
+  return <ol aria-label={t("learn.progress.label")} className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-body">
     {task.kps.map((kp) => <li key={kp.kpId} className="flex items-center gap-1.5">
       {kp.completed
         ? <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-status-complete" />
         : <Circle aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />}
       <span>{kp.title}</span>
-      <span className="sr-only">{kp.completed ? "，已掌握" : "，还没掌握"}</span>
+      <span className="sr-only">{kp.completed ? t("learn.progress.mastered.status") : t("learn.progress.notMastered.status")}</span>
     </li>)}
   </ol>;
 }
 
 const outcomeText = {
-  passed: "这一节通过了。",
-  failed: "这次没有通过，过一会儿可以再来。",
-  timeout: "时间到了。",
-  unresolved: "还有作答没判出结果，判出来以后结论会更新。",
+  passed: t("learn.result.passed.status"),
+  failed: t("learn.result.failed.status"),
+  timeout: t("learn.result.timeout.status"),
+  unresolved: t("learn.result.unresolved.status"),
 } as const;
 
 function findSubmission(task: LearningTask, submissionId: string): { submission: Submission; delivery: Delivery } | undefined {
@@ -162,20 +163,20 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
   switch (phase.stage) {
     case "preparing":
       return <div className="grid gap-4">
-        <p className="m-0 text-body text-muted-foreground">正在准备{kindText[task.kind]}：辅导会先停下来。</p>
-        <Actions><Button disabled={busy} onClick={() => { void resumeTask(); }}>继续</Button></Actions>
+        <p className="m-0 text-body text-muted-foreground">{t("learn.stage.preparing.status", { kindText: kindText[task.kind] })}</p>
+        <Actions><Button disabled={busy} onClick={() => { void resumeTask(); }}>{t("common.continue.action")}</Button></Actions>
       </div>;
     case "explanation":
     case "example":
       return <div className="grid gap-5">
         <ContentPageView page={phase.page} renderLink={renderLink} />
         <Actions>
-          <Button disabled={busy} onClick={() => { void advanceTask(); }}>{phase.stage === "explanation" ? "看例题" : "开始练习"}</Button>
+          <Button disabled={busy} onClick={() => { void advanceTask(); }}>{phase.stage === "explanation" ? t("learn.stage.example.action") : t("learn.stage.practice.action")}</Button>
         </Actions>
       </div>;
     case "awaiting_answer": {
       const delivery = task.deliveries.find((candidate) => candidate.deliveryId === phase.deliveryId);
-      if (!delivery) return <StatusNotice status="error" title="找不到这道题"><p>请刷新后再试。</p></StatusNotice>;
+      if (!delivery) return <StatusNotice status="error" title={t("learn.stage.itemMissing.title")}><p>{t("learn.stage.itemMissing.hint")}</p></StatusNotice>;
       return <AnswerForm
         key={delivery.deliveryId}
         task={task}
@@ -191,14 +192,14 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
       return <div className="grid gap-5">
         {found && <SubmissionReview item={found.delivery.item} submission={found.submission} />}
         {phase.stage === "judging" && <p role="status" className="m-0 flex items-center gap-2 text-body text-muted-foreground">
-          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />正在判分…
+          <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />{t("learn.stage.grading.status")}
         </p>}
-        {phase.stage === "recovery" && <p className="m-0 text-body text-muted-foreground">这份作答没能判出结果，不算错。可以再判一次，也可以先做下一题，条件具备时会自动补判。</p>}
+        {phase.stage === "recovery" && <p className="m-0 text-body text-muted-foreground">{t("learn.stage.ungraded.description")}</p>}
         <Actions>
-          {phase.stage === "recovery" && <Button variant="tertiary" disabled={busy} onClick={() => { void retryJudging(phase.submissionId); }} leadingIcon={RefreshCw}>再判一次
+          {phase.stage === "recovery" && <Button variant="tertiary" disabled={busy} onClick={() => { void retryJudging(phase.submissionId); }} leadingIcon={RefreshCw}>{t("learn.stage.regrade.action")}
           </Button>}
           {phase.stage !== "judging" && <Button disabled={busy} onClick={() => { void advanceTask(); }}>
-            {phase.stage === "recovery" ? "先做下一题" : "继续"}
+            {phase.stage === "recovery" ? t("learn.stage.next.action") : t("common.continue.action")}
           </Button>}
         </Actions>
       </div>;
@@ -209,11 +210,11 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
       const found = last && findSubmission(task, last.submissionId);
       return <div className="grid gap-5">
         {found && <SubmissionReview item={found.delivery.item} submission={found.submission} />}
-        <StatusNotice status="complete" title={`${kindText[task.kind]}结束`}><p>{outcomeText[phase.outcome]}</p></StatusNotice>
+        <StatusNotice status="complete" title={t("learn.stage.ended.title", { kindText: kindText[task.kind] })}><p>{outcomeText[phase.outcome]}</p></StatusNotice>
       </div>;
     }
     case "aborted":
-      return <p className="m-0 text-body text-muted-foreground">已中止。{phase.reason}</p>;
+      return <p className="m-0 text-body text-muted-foreground">{t("learn.stage.aborted.status", { reason: phase.reason })}</p>;
   }
 }
 

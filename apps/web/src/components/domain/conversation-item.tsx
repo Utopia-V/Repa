@@ -6,6 +6,7 @@ import { StatusNotice } from "@/components/ui/status-notice";
 import { ConversationMessage } from "@/components/domain/conversation-message";
 import { ToolActivity } from "@/components/domain/tool-activity";
 import type { ConversationItem } from "@/lib/conversation";
+import { t } from "@/lib/strings";
 
 /** 对话记录里的一项：用户和助手的消息、工具调用、错误和停止、压缩标记。 */
 export function ConversationItemView({ item, streaming, onFork, forkDisabled, renderLink }: {
@@ -25,8 +26,8 @@ export function ConversationItemView({ item, streaming, onFork, forkDisabled, re
       const actions = onFork && <Button
         variant="ghost"
         size="icon"
-        aria-label="从这里分叉"
-        title="从这里分叉：保留到这条回答，在新会话里继续"
+        aria-label={t("conversation.fork.label")}
+        title={t("conversation.fork.hint")}
         disabled={forkDisabled}
         onClick={onFork}
       >
@@ -39,10 +40,10 @@ export function ConversationItemView({ item, streaming, onFork, forkDisabled, re
     case "tool":
       return <ToolActivity tool={item.tool} status={item.status} />;
     case "error":
-      return <div className="mb-4"><StatusNotice status="error" title="运行出错"><p>{item.text}</p></StatusNotice></div>;
+      return <div className="mb-4"><StatusNotice status="error" title={t("common.runError.status")}><p>{item.text}</p></StatusNotice></div>;
     case "stopped":
-      return <p className="mb-4 text-body text-muted-foreground">已停止</p>;
+      return <p className="mb-4 text-body text-muted-foreground">{t("conversation.stopped.status")}</p>;
     case "compaction":
-      return <p className="mb-4 text-body text-muted-foreground">已压缩上下文，较早的对话已整理成摘要</p>;
+      return <p className="mb-4 text-body text-muted-foreground">{t("conversation.compacted.status")}</p>;
   }
 }

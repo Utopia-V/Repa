@@ -8,6 +8,7 @@ import "./globals.css";
 import "./styles.css";
 
 const root = document.getElementById("root");
+// ui-text: ignore 只有开发者会看到
 if (!root) throw new Error("缺少 Web 应用挂载节点。 ");
 
 const store = createAppStore();

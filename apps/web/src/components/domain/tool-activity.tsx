@@ -1,23 +1,24 @@
 import { CircleAlert, CircleCheck, CircleDashed, LoaderCircle } from "lucide-react";
 import type { ToolStatus } from "@/lib/conversation";
+import { t } from "@/lib/strings";
 
 // Pi 内置工具和底座的 ask_user 用动作描述；插件工具没有中文名称，显示原名。
 const toolNames: Record<string, string> = {
-  read: "读取文件",
-  write: "写入文件",
-  edit: "编辑文件",
-  bash: "执行命令",
-  grep: "搜索内容",
-  find: "查找文件",
-  ls: "列出文件",
-  ask_user: "向你提问",
+  read: t("toolActivity.read.label"),
+  write: t("toolActivity.write.label"),
+  edit: t("toolActivity.edit.label"),
+  bash: t("toolActivity.bash.label"),
+  grep: t("toolActivity.grep.label"),
+  find: t("toolActivity.find.label"),
+  ls: t("toolActivity.ls.label"),
+  ask_user: t("toolActivity.askUser.label"),
 };
 
 const statusText: Record<ToolStatus, string> = {
-  running: "进行中",
-  done: "已完成",
-  failed: "失败",
-  incomplete: "未完成",
+  running: t("toolActivity.running.status"),
+  done: t("toolActivity.done.status"),
+  failed: t("toolActivity.failed.status"),
+  incomplete: t("toolActivity.incomplete.status"),
 };
 
 const statusIcon = {

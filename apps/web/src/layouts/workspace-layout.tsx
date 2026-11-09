@@ -3,13 +3,14 @@ import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sid
 import { AppSidebar } from "@/components/domain/app-sidebar";
 import { CommandConfirmationDialog } from "@/features/command-confirmation";
 import { useAppStore } from "@/hooks/use-app-store";
+import { t } from "@/lib/strings";
 
 function WorkspaceContent() {
   const { isMobile } = useSidebar();
   return <>
     {/* 桌面折叠栏常驻 56px，自带展开入口；仅移动端需要在工作区提供打开入口。 */}
     {isMobile && <div className="fixed top-3 left-3 z-10"><SidebarTrigger /></div>}
-    <main className="min-w-0 flex-1 overflow-auto" aria-label="工作区"><Outlet /></main>
+    <main className="min-w-0 flex-1 overflow-auto" aria-label={t("app.workspace.label")}><Outlet /></main>
   </>;
 }
 

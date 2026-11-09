@@ -55,6 +55,7 @@ jobs:
           key: ${{ runner.os }}-git-${{ hashFiles('apps/desktop/scripts/bundled-git.mjs') }}
       - run: npm ci
       - run: npm run course:runtime
+      - run: npm run lint:ui-text -- --no-placeholders
       - run: npm run package:mac --workspace=@repa/desktop
       - uses: actions/upload-artifact@v4
         with:
@@ -93,6 +94,7 @@ jobs:
           key: ${{ runner.os }}-git-${{ hashFiles('apps/desktop/scripts/bundled-git.mjs') }}
       - run: npm ci
       - run: npm run course:runtime
+      - run: npm run lint:ui-text -- --no-placeholders
       - run: npm run package:win --workspace=@repa/desktop
       - uses: actions/upload-artifact@v4
         with:

@@ -8,6 +8,7 @@ import { Navigate, type RouteObject } from "react-router";
 import { WorkspaceLayout } from "@/layouts/workspace-layout";
 import { useAppStore } from "@/hooks/use-app-store";
 import { homePath } from "@/lib/learning";
+import { t } from "@/lib/strings";
 
 /**
  * 上次打开的空间还在时回到它：后端装了学习插件就进学习页，否则进对话。没有空间时去选空间。
@@ -22,7 +23,7 @@ function Start() {
     if (space && unknown && learning.status === "idle") void loadLearning();
   }, [space, unknown, learning.status, loadLearning]);
   if (!space) return <Navigate to="/learning-space" replace />;
-  if (unknown) return <p role="status" className="p-8 text-body text-muted-foreground">正在打开…</p>;
+  if (unknown) return <p role="status" className="p-8 text-body text-muted-foreground">{t("common.opening.status")}</p>;
   return <Navigate to={homePath(learning)} replace />;
 }
 
@@ -37,7 +38,7 @@ export const routes: RouteObject[] = [
       { path: "conversation", element: <ConversationPage /> },
       { path: "history", element: <HistoryPage /> },
       { path: "settings", element: <SettingsPage /> },
-      { path: "*", element: <p className="p-8">未找到页面。</p> },
+      { path: "*", element: <p className="p-8">{t("routes.notFound.title")}</p> },
     ],
   },
 ];

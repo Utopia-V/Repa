@@ -18,8 +18,9 @@ import { PromptSettingsSection } from "@/features/prompt-settings";
 import { ProviderConnectDialog } from "@/features/provider-connect";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { CommandPolicy } from "@/lib/store";
+import { t } from "@/lib/strings";
 
-const authLabel = { api_key: "API key", oauth: "账号登录" } as const;
+const authLabel = { api_key: "API key", oauth: t("settings.provider.oauth.label") } as const;
 
 export function SettingsPage() {
   const providers = useAppStore((state) => state.resources.providers);
@@ -64,46 +65,46 @@ export function SettingsPage() {
 
   return <div className="mx-auto grid w-full max-w-xl gap-8 px-4 py-16 md:px-8">
     <header className="grid gap-2">
-      <h2 className="text-display weight-semibold">设置</h2>
-      <p className="text-body text-muted-foreground">连接模型服务，选择新会话使用的模型，并决定 Agent 执行命令前是否询问你。</p>
+      <h2 className="text-display weight-semibold">{t("settings.page.title")}</h2>
+      <p className="text-body text-muted-foreground">{t("settings.page.description")}</p>
     </header>
 
-    {!loaded && loadError === undefined && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
+    {!loaded && loadError === undefined && <p role="status" className="text-body text-muted-foreground">{t("common.loading.status")}</p>}
     {loadError !== undefined && <div className="grid gap-3">
-      <ErrorNotice title="无法读取模型设置" error={loadError} />
+      <ErrorNotice title={t("settings.load.error")} error={loadError} />
       <div>
-        <Button variant="tertiary" onClick={() => { void loadModelSettings(); }} leadingIcon={RefreshCw}>重试
+        <Button variant="tertiary" onClick={() => { void loadModelSettings(); }} leadingIcon={RefreshCw}>{t("common.retry.action")}
         </Button>
       </div>
     </div>}
 
     {loaded && <>
       <section aria-labelledby="default-model" className="grid gap-3">
-        <h3 id="default-model" className="text-title weight-semibold">默认模型</h3>
+        <h3 id="default-model" className="text-title weight-semibold">{t("settings.defaultModel.title")}</h3>
         {current === null
-          ? <p className="text-body text-muted-foreground">还没有可用的模型，先在下面连接一个提供方。</p>
+          ? <p className="text-body text-muted-foreground">{t("settings.defaultModel.empty")}</p>
           : <Card className="flex-row items-center justify-between">
             <div className="grid min-w-0 gap-1">
               <span className="weight-semibold break-all">{currentModel?.name ?? current?.id}</span>
               <span className="text-body break-all text-muted-foreground">
                 {currentProvider?.name ?? current?.provider}
-                {currentProvider && !currentProvider.configured && "，提供方还没有连接，发送消息会失败"}
+                {currentProvider && !currentProvider.configured && t("settings.defaultModel.disconnected.hint")}
               </span>
             </div>
-            <Button variant="tertiary" disabled={available.length === 0} onClick={() => setPicking(true)}>更换</Button>
+            <Button variant="tertiary" disabled={available.length === 0} onClick={() => setPicking(true)}>{t("settings.defaultModel.change.action")}</Button>
           </Card>}
       </section>
 
       <section aria-labelledby="model-providers" className="grid gap-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 id="model-providers" className="text-title weight-semibold">模型提供方</h3>
+          <h3 id="model-providers" className="text-title weight-semibold">{t("settings.provider.title")}</h3>
           {/* 还没有连接时添加是唯一要做的事，用主按钮。 */}
-          <Button variant={connected.length === 0 ? "primary" : "tertiary"} onClick={() => setConnecting(true)} leadingIcon={Plus}>添加提供方
+          <Button variant={connected.length === 0 ? "primary" : "tertiary"} onClick={() => setConnecting(true)} leadingIcon={Plus}>{t("settings.provider.add.action")}
           </Button>
         </div>
-        {failure && <ErrorNotice title={`无法断开 ${providerNames.get(failure.provider) ?? failure.provider}`} error={failure.error} />}
+        {failure && <ErrorNotice title={t("settings.provider.disconnect.error", { value: providerNames.get(failure.provider) ?? failure.provider })} error={failure.error} />}
         {connected.length === 0
-          ? <p className="text-body text-muted-foreground">还没有连接任何提供方。</p>
+          ? <p className="text-body text-muted-foreground">{t("settings.provider.empty")}</p>
           : <ul aria-labelledby="model-providers" className="m-0 grid list-none gap-2 p-0">
             {connected.map((provider) => <li key={provider.id}>
               <Card className="flex-row items-center justify-between">
@@ -112,7 +113,7 @@ export function SettingsPage() {
                   <span className="text-body text-muted-foreground">
                     {provider.configured && authLabel[provider.configured]}
                     {/* 环境变量或 models.json 里的凭据不归 Repa 管，只能在外部移除。 */}
-                    {!provider.stored && "，由环境变量或配置文件提供"}
+                    {!provider.stored && t("settings.provider.external.hint")}
                   </span>
                 </div>
                 {provider.stored && <Button
@@ -121,7 +122,7 @@ export function SettingsPage() {
                   aria-busy={removing === provider.id}
                   onClick={() => { void disconnect(provider.id); }}
                 >
-                  {removing === provider.id ? "正在断开…" : "断开"}
+                  {removing === provider.id ? t("settings.provider.disconnecting.status") : t("settings.provider.disconnect.action")}
                 </Button>}
               </Card>
             </li>)}
@@ -139,8 +140,8 @@ export function SettingsPage() {
 }
 
 const policyOptions: { value: CommandPolicy; label: string; description: string }[] = [
-  { value: "ask", label: "每次询问", description: "Agent 每次执行命令前弹出确认，你允许后才运行。" },
-  { value: "fullAccess", label: "完全访问", description: "Agent 执行命令不再询问。" },
+  { value: "ask", label: t("settings.commandPolicy.ask.label"), description: t("settings.commandPolicy.ask.description") },
+  { value: "fullAccess", label: t("settings.commandPolicy.full.label"), description: t("settings.commandPolicy.full.description") },
 ];
 
 /** 命令授权策略。后端在每条命令执行前读取设置，所以保存后立即生效，正在运行的对话也一样。 */
@@ -177,18 +178,18 @@ function CommandPolicySection() {
 
   return <section aria-labelledby="command-policy" className="grid gap-3">
     <div className="grid gap-1">
-      <h3 id="command-policy" className="text-title weight-semibold">命令授权</h3>
-      <p className="text-body text-muted-foreground">对所有学习空间生效。改动后 Agent 的下一条命令就按新设置处理，正在运行的对话也一样。</p>
+      <h3 id="command-policy" className="text-title weight-semibold">{t("settings.commandPolicy.title")}</h3>
+      <p className="text-body text-muted-foreground">{t("settings.commandPolicy.description")}</p>
     </div>
-    {policy.data === undefined && policy.status !== "error" && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
+    {policy.data === undefined && policy.status !== "error" && <p role="status" className="text-body text-muted-foreground">{t("common.loading.status")}</p>}
     {policy.data === undefined && policy.status === "error" && <div className="grid gap-3">
-      <ErrorNotice title="无法读取命令授权设置" error={policy.error} />
+      <ErrorNotice title={t("settings.commandPolicy.load.error")} error={policy.error} />
       <div>
-        <Button variant="tertiary" onClick={() => { void loadCommandPolicy(); }} leadingIcon={RefreshCw}>重试
+        <Button variant="tertiary" onClick={() => { void loadCommandPolicy(); }} leadingIcon={RefreshCw}>{t("common.retry.action")}
         </Button>
       </div>
     </div>}
-    {failure !== undefined && <ErrorNotice title="无法保存命令授权设置" error={failure} />}
+    {failure !== undefined && <ErrorNotice title={t("settings.commandPolicy.save.error")} error={failure} />}
     {policy.data !== undefined && <Card>
       <RadioGroup aria-labelledby="command-policy" value={policy.data} onValueChange={choose} disabled={saving}>
         {policyOptions.map((option) => <div key={option.value} className="flex items-start gap-3">
@@ -210,14 +211,14 @@ function CommandPolicySection() {
     <Dialog open={confirming} onOpenChange={setConfirming}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>让 Agent 直接执行命令？</DialogTitle>
+          <DialogTitle>{t("settings.commandPolicy.confirm.title")}</DialogTitle>
           <DialogDescription>
-            开启后，Agent 执行命令前不再询问，插件在后台发起的命令也会直接运行。命令以你的系统账户权限在这台电脑上执行，可能修改或删除学习空间之外的文件，这些改动无法在 Repa 里撤回。
+            {t("settings.commandPolicy.confirm.description")}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="tertiary" onClick={() => setConfirming(false)}>取消</Button>
-          <Button onClick={() => { void save("fullAccess"); }}>开启完全访问</Button>
+          <Button variant="tertiary" onClick={() => setConfirming(false)}>{t("common.cancel.action")}</Button>
+          <Button onClick={() => { void save("fullAccess"); }}>{t("settings.commandPolicy.confirm.action")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

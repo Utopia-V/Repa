@@ -6,13 +6,14 @@ import { Button } from "@/components/ui/button";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
 import { useTrialRunner } from "@/hooks/use-trial-runner";
+import { t } from "@/lib/strings";
 
 const phaseText: Record<PythonPhase, string> = {
-  prepare: "准备运行环境（课程的前导代码和题目数据）",
-  program: "运行你的代码",
-  capture: "检查结果",
-  doctest: "检查结果",
-  cleanup: "收尾",
+  prepare: t("codeTrial.stage.prepare.label"),
+  program: t("codeTrial.stage.program.label"),
+  capture: t("codeTrial.stage.capture.label"),
+  doctest: t("codeTrial.stage.capture.label"),
+  cleanup: t("codeTrial.stage.cleanup.label"),
 };
 
 type Trial =
@@ -25,17 +26,17 @@ function TrialOutput({ result }: { result: PythonTestResult }) {
   if (result.status === "completed") {
     const { stdout, error } = result.result;
     return <div className="grid gap-2">
-      {stdout === "" && error === null && <p className="m-0 text-body text-muted-foreground">运行完了，没有输出。</p>}
-      {stdout !== "" && <pre aria-label="运行输出" className="m-0 max-h-64 overflow-auto rounded-lg bg-muted px-3 py-2 font-mono text-body whitespace-pre-wrap">{stdout}</pre>}
+      {stdout === "" && error === null && <p className="m-0 text-body text-muted-foreground">{t("codeTrial.output.empty")}</p>}
+      {stdout !== "" && <pre aria-label={t("codeTrial.output.label")} className="m-0 max-h-64 overflow-auto rounded-lg bg-muted px-3 py-2 font-mono text-body whitespace-pre-wrap">{stdout}</pre>}
       {error !== null && <p className="m-0 text-body text-destructive">
-        {typeof error.line === "number" ? `第 ${error.line} 行出错：` : "出错："}
+        {typeof error.line === "number" ? t("codeTrial.output.errorAtLine.label", { line: error.line }) : t("codeTrial.output.error.label")}
         <code className="font-mono">{error.type}: {error.message}</code>
       </p>}
     </div>;
   }
-  if (result.status === "not_run") return <p className="m-0 text-body text-muted-foreground">这次没有运行。</p>;
+  if (result.status === "not_run") return <p className="m-0 text-body text-muted-foreground">{t("codeTrial.output.notRun.status")}</p>;
   return <p className="m-0 text-body text-destructive">
-    {result.status === "timeout" ? "运行超时" : "没能运行完"}，停在{phaseText[result.phase]}。
+    {result.status === "timeout" ? t("codeTrial.output.timeout.status") : t("codeTrial.output.incomplete.status")}{t("codeTrial.output.stoppedAt.label")}{phaseText[result.phase]}。
     {result.error && <> <code className="font-mono">{result.error.type}: {result.error.message}</code></>}
   </p>;
 }
@@ -66,7 +67,7 @@ export function CodeTrial({ deliveryId, slotId, code, disabled }: { deliveryId: 
       const { tests } = await runner.run(batch, controller.signal);
       const result = tests[0];
       if (controller.signal.aborted) return;
-      setTrial(result ? { status: "done", result } : { status: "error", error: new Error("运行器没有返回结果。") });
+      setTrial(result ? { status: "done", result } : { status: "error", error: new Error(t("codeTrial.runner.noResult.error")) });
     } catch (error) {
       if (!controller.signal.aborted) setTrial({ status: "error", error });
     }
@@ -78,12 +79,12 @@ export function CodeTrial({ deliveryId, slotId, code, disabled }: { deliveryId: 
         {trial.status === "running"
           ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
           : <Play aria-hidden="true" />}
-        {trial.status === "running" ? "正在运行…" : "运行"}
+        {trial.status === "running" ? t("codeTrial.run.running.status") : t("codeTrial.run.action")}
       </Button>
     </div>
     <div role="status" className="grid gap-2">
       {trial.status === "done" && <TrialOutput result={trial.result} />}
     </div>
-    {trial.status === "error" && <ErrorNotice title="没能运行" error={trial.error} />}
+    {trial.status === "error" && <ErrorNotice title={t("codeTrial.run.error")} error={trial.error} />}
   </div>;
 }

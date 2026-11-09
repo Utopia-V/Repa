@@ -18,6 +18,7 @@ import { HistoryRevisionCard, formatRevisionTime, revisionSource } from "@/compo
 import { useAppStore } from "@/hooks/use-app-store";
 import { HISTORY_LIMIT, type HistoryRevision } from "@/lib/store";
 import { folderName } from "@/lib/paths";
+import { t } from "@/lib/strings";
 
 export function HistoryPage() {
   const space = useAppStore((state) => state.space);
@@ -68,9 +69,9 @@ function SpaceHistory({ space }: { space: string }) {
   return <div className="mx-auto grid w-full max-w-3xl gap-8 px-4 py-16 md:px-8">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="grid min-w-0 gap-2">
-        <h2 className="text-display weight-semibold">修改历史</h2>
+        <h2 className="text-display weight-semibold">{t("history.page.title")}</h2>
         <p className="text-body text-muted-foreground">
-          <span className="break-all" title={space}>{folderName(space)}</span> 里文件的每次修改，最新的在前；外部程序指编辑器等不经过 Repa 的改动。撤回一次修改，会把它改动的文件恢复到修改之前。
+          <span className="break-all" title={space}>{folderName(space)}</span> {t("history.page.description")}
         </p>
       </div>
       <Button
@@ -78,24 +79,24 @@ function SpaceHistory({ space }: { space: string }) {
         disabled={history.status === "loading"}
         aria-busy={history.status === "loading"}
         onClick={() => { void loadHistory(); }}
-       leadingIcon={RefreshCw}>刷新
+       leadingIcon={RefreshCw}>{t("history.refresh.action")}
       </Button>
     </header>
 
     {outcome && <UndoOutcome result={outcome} />}
 
     {history.status === "error" && <div className="grid gap-3">
-      <ErrorNotice title="无法读取修改历史" error={history.error} />
+      <ErrorNotice title={t("history.load.error")} error={history.error} />
       <div>
-        <Button variant="tertiary" onClick={() => { void loadHistory(); }} leadingIcon={RefreshCw}>重试
+        <Button variant="tertiary" onClick={() => { void loadHistory(); }} leadingIcon={RefreshCw}>{t("common.retry.action")}
         </Button>
       </div>
     </div>}
-    {history.data === undefined && history.status !== "error" && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
+    {history.data === undefined && history.status !== "error" && <p role="status" className="text-body text-muted-foreground">{t("common.loading.status")}</p>}
 
-    {history.data && <section aria-label="修改记录" className="grid gap-3">
+    {history.data && <section aria-label={t("history.list.label")} className="grid gap-3">
       {changed.length === 0
-        ? <p className="text-body text-muted-foreground">还没有文件修改。Agent、插件或其他程序改动空间里的文件后，会显示在这里。</p>
+        ? <p className="text-body text-muted-foreground">{t("history.list.empty")}</p>
         : <ol className="m-0 grid list-none gap-3 p-0">
           {changed.map((revision) => <li key={revision.id}>
             <HistoryRevisionCard
@@ -106,10 +107,10 @@ function SpaceHistory({ space }: { space: string }) {
           </li>)}
         </ol>}
       {baseline && <p className="text-body text-muted-foreground">
-        从 {formatRevisionTime(baseline.timestamp)} 开始记录，更早的修改不在历史里。
+        {t("history.since.hint", { timestamp: formatRevisionTime(baseline.timestamp) })}
       </p>}
       {!history.data.complete && <p className="text-body text-muted-foreground">
-        只列出最近 {HISTORY_LIMIT} 条记录里的修改，更早的没有显示。
+        {t("history.limit.hint", { HISTORY_LIMIT })}
       </p>}
     </section>}
 
@@ -117,17 +118,17 @@ function SpaceHistory({ space }: { space: string }) {
     <Dialog open={target !== undefined} onOpenChange={(open) => { if (!open && !undoing) setTarget(undefined); }}>
       {target && <DialogContent>
         <DialogHeader>
-          <DialogTitle>撤回这次修改？</DialogTitle>
+          <DialogTitle>{t("history.undo.title")}</DialogTitle>
           <DialogDescription>
-            这次修改（{revisionSource(target.source)}，{formatRevisionTime(target.timestamp)}）改动的 {target.changes.length} 个文件会恢复到修改之前：新增的文件被删除，修改、删除或重命名的文件恢复原样。之后又有变化的文件保持现状，不会被覆盖。
+            {t("history.undo.description", { source: revisionSource(target.source), timestamp: formatRevisionTime(target.timestamp), length: target.changes.length })}
           </DialogDescription>
         </DialogHeader>
-        <p className="text-body">撤回也会记成一次修改，需要时可以再撤回它。</p>
-        {undoError !== undefined && <ErrorNotice title="撤回失败" error={undoError} />}
+        <p className="text-body">{t("history.undo.hint")}</p>
+        {undoError !== undefined && <ErrorNotice title={t("history.undo.error")} error={undoError} />}
         <DialogFooter>
-          <Button variant="tertiary" disabled={undoing} onClick={() => setTarget(undefined)}>取消</Button>
+          <Button variant="tertiary" disabled={undoing} onClick={() => setTarget(undefined)}>{t("common.cancel.action")}</Button>
           <Button disabled={undoing} aria-busy={undoing} onClick={() => { void confirmUndo(); }}>
-            {undoing ? "正在撤回…" : "撤回"}
+            {undoing ? t("history.undo.running.status") : t("history.undo.action")}
           </Button>
         </DialogFooter>
       </DialogContent>}
@@ -139,14 +140,14 @@ function SpaceHistory({ space }: { space: string }) {
 function UndoOutcome({ result }: { result: Result<"history.undo"> }) {
   const { restored, conflicts } = result;
   if (conflicts.length === 0) {
-    return <StatusNotice status="complete" title="已撤回">
-      <p>{restored.length > 0 ? `恢复了 ${restored.length} 个文件。` : "这次修改没有需要恢复的文件。"}</p>
+    return <StatusNotice status="complete" title={t("history.undone.title")}>
+      <p>{restored.length > 0 ? t("history.undone.count.status", { length: restored.length }) : t("history.undone.nothing.status")}</p>
     </StatusNotice>;
   }
-  return <StatusNotice status="error" title={restored.length > 0 ? "部分文件没有撤回" : "没有撤回任何文件"}>
-    {restored.length > 0 && <p>恢复了 {restored.length} 个文件。</p>}
-    <p>下面的文件在这次修改之后又有变化，或者已经不在历史记录的范围内，为了不覆盖现在的内容，保持原样：</p>
-    <ul aria-label="没有撤回的文件" className="m-0 mt-2 grid list-none gap-1 p-0">
+  return <StatusNotice status="error" title={restored.length > 0 ? t("history.undone.partial.title") : t("history.undone.none.title")}>
+    {restored.length > 0 && <p>{t("history.undone.count.status", { length: restored.length })}</p>}
+    <p>{t("history.undone.skipped.description")}</p>
+    <ul aria-label={t("history.undone.skipped.label")} className="m-0 mt-2 grid list-none gap-1 p-0">
       {conflicts.map((path) => <li key={path} className="break-all">{path}</li>)}
     </ul>
   </StatusNotice>;
