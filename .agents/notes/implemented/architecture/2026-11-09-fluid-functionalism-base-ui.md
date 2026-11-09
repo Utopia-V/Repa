@@ -1,8 +1,8 @@
 # 基础组件换成 Fluid Functionalism 的 Base UI 版
 
-状态：提案
+状态：已落地
 
-本记录是新 UI 落地三个 PR 中第 1 个的规格。依据 `dev` 的提交 `4d8522d19` 和 Fluid Functionalism（下称 FF）仓库 [`mickadesign/fluid-functionalism`](https://github.com/mickadesign/fluid-functionalism) 的提交 `7e6ae29`（2026-11-06，新西兰时间）。基线是 `origin/dev`，不带 `aqua256/issue-101-ui-text` 分支的提交。
+本记录是新 UI 落地三个 PR 中第 1 个的设计。依据 `dev` 的提交 4d8522d19 和 Fluid Functionalism（下称 FF）仓库 [`mickadesign/fluid-functionalism`](https://github.com/mickadesign/fluid-functionalism) 的提交 7e6ae29（2026-11-06，新西兰时间）。基线是 `origin/dev`，不带 `aqua256/issue-101-ui-text` 分支的提交。
 
 ## 问题
 
@@ -10,7 +10,7 @@
 
 界面文字和跨页面行为也卡在这一层：文字散在 26 个文件里，#114 要求集中到字符串文件；输入法、Esc、失败保留、减少动效、焦点恢复各页做法不一。这些都要改动基础组件，放在同一次替换里只改一遍。
 
-## 做法
+## 决定
 
 ### 范围
 
@@ -20,7 +20,7 @@
 
 ### 来源与本地改动
 
-不用 shadcn CLI，也不加进依赖。按下面的清单从 `7e6ae29` 复制源码，每个文件第一行加 `// Adapted from Fluid Functionalism (MIT); see README.md.`，`@/` 别名不用改。复制手段简单，审阅者也能逐文件对照上游。
+不用 shadcn CLI，也不加进依赖。按下面的清单从 7e6ae29 复制源码，每个文件第一行加 `// Adapted from Fluid Functionalism (MIT); see README.md.`，`@/` 别名不用改。复制手段简单，审阅者也能逐文件对照上游。
 
 | 位置 | 文件 | 来源 |
 | --- | --- | --- |
@@ -30,7 +30,7 @@
 | `lib/utils.ts` | 换成 FF 的 `cn`（扩展了 tailwind-merge，能识别 `text-body` 等字号类） | `registry/default/lib/utils.ts` |
 | `hooks` | `use-fluid-hover` `use-touch-primary` `use-keyboard-nav-gate` | `registry/default/hooks` |
 
-根节点在 `main.tsx` 包一层 `FluidProvider shape="rounded" size="default"`。图标继续用 Lucide。
+根字号保持 14 px，页面的 rem 宽度不变，圆角在 `@theme` 里写成 px。根节点在 `main.tsx` 包一层 `FluidProvider shape="rounded" size="default"`。图标继续用 Lucide。
 
 FF 建议不改已安装的组件，这里仍有必须改的地方，全部记入 `components/ui/README.md`，升级时逐条核对：
 
@@ -43,6 +43,8 @@ FF 建议不改已安装的组件，这里仍有必须改的地方，全部记�
 | `input` `textarea` | 接入组合输入保护 | #114 |
 | `input` `textarea` `select` `checkbox` | 边框用 `input`，聚焦用 `input-focus` | 已定 5 |
 
+实现时比规格多出一个本地组件 `RowButton`：Button 固定高度、内容居中，放不下占满一行或多个元素的列表行。
+
 ### 组件对应
 
 “调用处”的路径相对于 `apps/web/src`。
@@ -50,7 +52,7 @@ FF 建议不改已安装的组件，这里仍有必须改的地方，全部记�
 | 组件 | 引用 | 换成 | API 差异 | 调用处 |
 | --- | --- | --- | --- | --- |
 | `button` | 24 | FF `base/button` | variant：`default`→`primary`，`outline`→`tertiary`，`ghost`、`destructive` 同名；size：`md`→默认（高度 40→36），`icon` 同名。`asChild` 保留。默认 `type="button"` 由 Base UI 提供。文字不换行 | 全部按表改 variant，38 处 `outline`。`learning-space.test.tsx` 的两个断言改成 `tertiary`/`primary` |
-| `dialog` | 11 | FF `base/dialog` | 没有 `DialogPortal`、`DialogOverlay`（无外部调用）。默认宽 400，有 `size="lg"`（540）。内容不再自带 `grid gap-4` | 12 处 `DialogContent` 加 `size="lg"`（现在是 512），多块内容的加 `className="grid gap-4"`；`concept-card` 的 `sm:max-w-2xl` 改 `size="xl"` |
+| `dialog` | 11 | FF `base/dialog` | 没有 `DialogPortal`、`DialogOverlay`（无外部调用）。默认宽 400，有 `size="lg"`（540）。内容不再自带 `grid gap-4` | `dialog` 默认 `size="lg"`，内容区 `grid gap-4`，调用处不改 |
 | `status-notice` | 8 | 保留组件和 props，内部用 FF `banner` | `complete`→`status="success"`，`error`→`status="error"`，`contrast="high"`；`title`→`BannerTitle`，`children`→`BannerDescription`。`role` 由 Banner 给，与现在一致 | 不改 |
 | `markdown` | 7 | 保留渲染逻辑，样式换 `.typeset` | 插件、`remend`、Shiki、`renderLink`、地址清理、标题降级都不动。元素上的排版 class 删除，只留代码块（`.not-typeset`）、任务列表、KaTeX。`.typeset` 再覆盖 15/27 和前景色 | 不改 |
 | `textarea` | 5 | FF `textarea` | 多 `size`；默认 3～10 行自动增高 | 不改；`code-field` 核对最小高度 |
@@ -59,7 +61,7 @@ FF 建议不改已安装的组件，这里仍有必须改的地方，全部记�
 | `input` | 3 | FF `input` | 原生 `size` 属性被占用（无调用） | 不改 |
 | `sidebar` | 3 | 保留，`Slot` 换成 Base UI `useRender`，颜色、字号换 FF 令牌 | FF sidebar 没有图标栏（`collapsible` 只有 `offcanvas`、`none`）、没有 `onWidthChange`，宽度范围 160～360（现在 200～480） | 不改；`sidebar.test.tsx` 不动。见已定 1 |
 | `radio-group` | 3 | 保留组件和 API，内部用 Base UI `RadioGroup`、`Radio`，视觉照 FF（16 px 圈、8 px 点、`spring.fast`） | FF 的 `RadioItem` 只收字符串 `label`，组上没有 `disabled`，而 `item-form` 的选项是 Markdown 加标记和“其他”输入框 | 不改。见已定 2 |
-| `sheet` | 2 | 保留 API，内部换 Base UI `Dialog`，进出场照 FF `SidebarSheet` 用 `spring.moderate` | FF 的抽屉 `mobile-drawer` 只能从底部出现，`SidebarSheet` 没有导出 | 不改 |
+| `sheet` | 2 | 保留 API，内部换 Base UI `Dialog`，进出场用 CSS 过渡，减少动效时一起停止 | FF 的抽屉 `mobile-drawer` 只能从底部出现，`SidebarSheet` 没有导出 | 不改 |
 | `selection-button` | 2 | 保留 API，内部用 Base UI `Button` 写成行 | FF `button` 固定高度、文字不换行、子元素包在居中的 span 里，放不下两行的模型名和靠右的勾 | 不改。无调用的 `size="icon"` 去掉 |
 | `search-input` | 2 | 保留，内部换 FF `input` 和 `button` | 去掉 `rounded-full`，清空按钮用 `icon-compact` | 不改 |
 | `checkbox` | 2 | FF `base/checkbox` | `onCheckedChange` 收 `boolean` | 不改；`next === true` 仍可编译 |
@@ -151,7 +153,7 @@ FF 建议不改已安装的组件，这里仍有必须改的地方，全部记�
 | `apps/web/AGENTS.md` | “优先复用 shadcn 组件”和“复用现有 shadcn/Radix 的焦点管理”改成 FF 和 Base UI；上游文件允许的例外（`bg-black/40`、回退色）写一句；“界面文字”一条指向 `src/strings/zh-CN.ts` 和下面 README 的用法。`budgets.json` 给这个文件的上限是 2500 字符，只替换不加长 |
 | `components/ui/README.md` | 重写来源与版本（FF 仓库、提交、许可）、本地改动清单、保留组件的来由；删除 Radix 依赖说明；新增“界面文字”一节，写字符串文件的位置、键名、`t()`、占位和检查 |
 
-提案记录 `2026-11-06-ui-strings-and-components.md` 按 `.agents/notes/README.md` 由本 PR 移入 `implemented/` 并改写，`apps/web/AGENTS.md` 的链接同步。
+设计记录 `2026-11-06-ui-strings-and-components.md` 由本 PR 移入 `implemented/`。
 
 ### #114：字符串文件
 
@@ -184,7 +186,7 @@ export const strings = {
 
 | 行为 | 落在哪里 | 怎么测 |
 | --- | --- | --- |
-| 输入法选字 | 新 hook `hooks/use-composition-guard.ts`，接入 `Input`、`Textarea`。`isComposing` 或 `keyCode === 229` 时，Enter 和方向键不调用外部 `onKeyDown`；229 的 Enter 另外阻止隐式提交（Safari 确认候选词时 `isComposing` 已经是 false）。`message-composer.tsx` 里的判断删除。FF 自身只有 `command-menu` 判断了 229 | `fireEvent.keyDown` 带 `isComposing: true` 和 `keyCode: 229`，外部回调和表单提交都不触发 |
+| 输入法选字 | `lib/composition-guard.ts`，接入 `Input`、`Textarea`。`isComposing` 或 `keyCode === 229` 时，Enter 和方向键不调用外部 `onKeyDown`；229 的 Enter 另外阻止隐式提交（Safari 确认候选词时 `isComposing` 已经是 false）。`message-composer.tsx` 里的判断删除。FF 自身只有 `command-menu` 判断了 229 | `fireEvent.keyDown` 带 `isComposing: true` 和 `keyCode: 229`，外部回调和表单提交都不触发 |
 | Esc 逐层退出 | `dialog`、`sheet`、`select`。Base UI 只处理 React 树内的嵌套，`CommandConfirmationDialog` 和其他弹窗是兄弟关系。先写测试，不成立则在 `dialog` 和 `sheet` 里维护模块级打开栈，非栈顶时在 `onOpenChange` 里 `details.cancel()` | 对话框里开 Select、对话框里开对话框、两个兄弟对话框，每按一次 Esc 只少一层 |
 | 失败时保留输入 | 新 hook `hooks/use-draft-send.ts`：先清空，失败时还原，除非用户已开始写下一条。`pages/conversation.tsx` 和 `features/tutor-panel.tsx` 现在各写了一份，替换掉。表单和弹窗：`Dialog` 在失败时不关闭、内容不卸载，由 Input、Select 受控值保持 | hook：发送返回失败，内容回到输入框；期间写了新内容时不覆盖。对话框表单：提交 reject 后值还在 |
 | 减少动效 | `FluidProvider` 给 `MotionConfig reducedMotion="user"`，但淡入淡出仍然保留，而 #114 要求停止动画。根节点按 `matchMedia` 设 `MotionGlobalConfig.skipAnimations`，并监听变化。CSS 动画：`styles.css` 把 `[data-slot]` 的规则扩大到 `*`、`::before`、`::after` | mock `matchMedia` 后打开 Dialog，首帧即为终态，`onAnimationComplete` 后卸载正常；读 `styles.css` 确认规则存在 |
@@ -242,6 +244,16 @@ npm test
 
 桌面端共用 `apps/web` 的 Vite 配置，额外运行一次 `npm run dev:desktop` 看启动和字体。
 
+### 已定的问题
+
+2026-11-09 由 Aqua 确定。
+
+1. **侧栏。** 保留现有 `sidebar.tsx`，只换底层和令牌。FF 的侧栏没有图标栏和宽度回调，换上去要改布局。
+2. **单选。** 按现有 API 用 Base UI 重写，视觉照 FF，3 处调用不改。
+3. **消息输入框。** 这次保留 `InputGroup` 换皮，第 2 个 PR 做底部输入框时再接 `input-message`。
+4. **`docs/ui-text.md`。** 不带进这个 PR，见“范围”和“字符串文件”。
+5. **控件边界对比度。** 保留测试。`--input` 取至少 3:1 的中性色，输入框类控件的边框改用它，组件结构不变；`docs/design-system.md` 写明这处和组件库原样不同。
+
 ## 考虑过的其他做法
 
 **FF 的 Radix 版。** 原型验证的是它，但 `input-group`、`color-picker`、`ask-user-questions` 两个版本都用 Base UI，选 Radix 版就有两套底层库，违反 `apps/web/AGENTS.md`。
@@ -254,7 +266,7 @@ npm test
 
 **强行让每个旧组件都对上一个 FF 组件。** Card、RadioGroup、SelectionButton、Progress、Sheet、MessageBubble 的现有用法 FF 对不上，硬换就要改页面结构，和“只换组件”冲突。这几个保留接口、换底层和令牌，第 2、3 个 PR 改页面时再看去留。
 
-## 验收
+## 影响
 
 - 打开应用，所有页面用的是 FF 的按钮、输入框、弹窗和动效，页面结构和现在一样；学习者版和通用版都能走完上面的路径。
 - `apps/web` 的依赖里没有 `radix-ui`，只有 Base UI 一套底层库。
@@ -263,22 +275,9 @@ npm test
 - `zh-CN.ts` 里每个非占位的值都能在迁移前的源码中找到原文。
 - 用中文输入法选字时按回车，不会发送或提交；发送失败后内容还在输入框里；Esc 每次只退一层；系统开启减少动态效果后没有动画；弹层关闭后焦点回到打开它的地方。
 
-## 风险与代价
-
 - **差异面大。** 页面代码多半不改，但基础组件、token 和全部文字都动了。按提交审，第 12、13 个提交是机械替换，可以抽查。
 - **视觉回归靠人看。** 取消 2 px 焦点环和品牌紫、正文从 14 px 改 13 px、preflight 打开，都影响现有页面，Vitest 查不出来。
-- **Base UI 版未在实际环境跑过。** 原型是 Radix 版。原型待办里要重新验证的滑块这次没有用到；嵌套确认框和菜单在 Esc 和焦点测试里覆盖。
 - **上游文件有本地改动。** 升级要对照 README 的清单逐条合并。
 - **`motion` 增加包体。** 打包后的增量在 PR 里实测报告。
 - **文字检查的盲区。** 纯英文常量查不出。
 - **待删的文字暂时还在。** 本 PR 不做 #101 的删字，这些句子会进入字符串文件，直到人改掉。#114 写的 `docs/ui-text.md` 这次也不建，用法先放在 `components/ui/README.md`。
-
-## 已定的问题
-
-2026-11-09 由 Aqua 确定。
-
-1. **侧栏。** 保留现有 `sidebar.tsx`，只换底层和令牌。FF 的侧栏没有图标栏和宽度回调，换上去要改布局。
-2. **单选。** 按现有 API 用 Base UI 重写，视觉照 FF，3 处调用不改。
-3. **消息输入框。** 这次保留 `InputGroup` 换皮，第 2 个 PR 做底部输入框时再接 `input-message`。
-4. **`docs/ui-text.md`。** 不带进这个 PR，见“范围”和“字符串文件”。
-5. **控件边界对比度。** 保留测试。`--input` 取至少 3:1 的中性色，输入框类控件的边框改用它，组件结构不变；`docs/design-system.md` 写明这处和组件库原样不同。
