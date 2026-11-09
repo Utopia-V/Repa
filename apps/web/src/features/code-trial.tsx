@@ -25,16 +25,16 @@ function TrialOutput({ result }: { result: PythonTestResult }) {
   if (result.status === "completed") {
     const { stdout, error } = result.result;
     return <div className="grid gap-2">
-      {stdout === "" && error === null && <p className="m-0 text-sm text-muted-foreground">运行完了，没有输出。</p>}
-      {stdout !== "" && <pre aria-label="运行输出" className="m-0 max-h-64 overflow-auto rounded-lg bg-muted px-3 py-2 font-mono text-sm whitespace-pre-wrap">{stdout}</pre>}
-      {error !== null && <p className="m-0 text-sm text-destructive">
+      {stdout === "" && error === null && <p className="m-0 text-body text-muted-foreground">运行完了，没有输出。</p>}
+      {stdout !== "" && <pre aria-label="运行输出" className="m-0 max-h-64 overflow-auto rounded-lg bg-muted px-3 py-2 font-mono text-body whitespace-pre-wrap">{stdout}</pre>}
+      {error !== null && <p className="m-0 text-body text-destructive">
         {typeof error.line === "number" ? `第 ${error.line} 行出错：` : "出错："}
         <code className="font-mono">{error.type}: {error.message}</code>
       </p>}
     </div>;
   }
-  if (result.status === "not_run") return <p className="m-0 text-sm text-muted-foreground">这次没有运行。</p>;
-  return <p className="m-0 text-sm text-destructive">
+  if (result.status === "not_run") return <p className="m-0 text-body text-muted-foreground">这次没有运行。</p>;
+  return <p className="m-0 text-body text-destructive">
     {result.status === "timeout" ? "运行超时" : "没能运行完"}，停在{phaseText[result.phase]}。
     {result.error && <> <code className="font-mono">{result.error.type}: {result.error.message}</code></>}
   </p>;

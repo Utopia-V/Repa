@@ -30,7 +30,7 @@ const statusIcon = {
 /** Agent 调用工具的一行记录；状态同时用图标和文字表达。 */
 export function ToolActivity({ tool, status }: { tool: string; status: ToolStatus }) {
   const Icon = statusIcon[status];
-  return <p data-status={status} className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+  return <p data-status={status} className="mb-4 flex items-center gap-2 text-body text-muted-foreground">
     <Icon aria-hidden="true" className={status === "running" ? "size-4 animate-spin motion-reduce:animate-none" : "size-4"} />
     <span>{toolNames[tool] ?? tool}</span>
     <span>· {statusText[status]}</span>

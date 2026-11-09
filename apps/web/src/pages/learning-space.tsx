@@ -86,8 +86,8 @@ export function LearningSpacePage() {
 function FirstSpace({ onPick }: { onPick(): void }) {
   // 在工作区里垂直居中；底部留白多一些，视觉重心略高于几何中心。
   return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center justify-items-center gap-4 px-4 pt-16 pb-24 text-center md:px-8">
-      <h2 className="text-2xl font-semibold">开始第一个学习空间</h2>
-      <p className="text-sm text-balance text-muted-foreground">选一个文件夹作为学习空间，Repa 会在里面保存你的学习记录和进度。</p>
+      <h2 className="text-display weight-semibold">开始第一个学习空间</h2>
+      <p className="text-body text-balance text-muted-foreground">选一个文件夹作为学习空间，Repa 会在里面保存你的学习记录和进度。</p>
       <Button onClick={onPick} leadingIcon={FolderSearch}>选择文件夹
       </Button>
     </div>;
@@ -114,11 +114,11 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
   return <div className="mx-auto grid w-full max-w-xl gap-8 px-4 py-16 md:px-8">
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="grid gap-2">
-        <h2 className="text-2xl font-semibold">学习空间</h2>
-        <p className="text-sm text-muted-foreground">
+        <h2 className="text-display weight-semibold">学习空间</h2>
+        <p className="text-body text-muted-foreground">
           {hasRecent ? "从最近打开的空间继续，或选择其他文件夹。" : "选择一个文件夹作为学习空间。"}
         </p>
-        {running && <p className="text-sm text-muted-foreground">对话正在运行，结束或停止后才能换到别的空间。</p>}
+        {running && <p className="text-body text-muted-foreground">对话正在运行，结束或停止后才能换到别的空间。</p>}
       </div>
       {/* 最近列表可用时继续学习是主要操作，选择文件夹退为次要；列表读不出来时它是唯一入口。 */}
       <Button
@@ -131,10 +131,10 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
     </header>
 
     <section aria-labelledby="recent-spaces" className="grid gap-3">
-      <h3 id="recent-spaces" className="text-lg font-semibold">最近打开</h3>
+      <h3 id="recent-spaces" className="text-title weight-semibold">最近打开</h3>
 
       {/* 读完之前不显示空状态，避免首次引导一闪而过。 */}
-      {!loadFailed && recent === undefined && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
+      {!loadFailed && recent === undefined && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
 
       {loadFailed && <div className="grid gap-3">
         <ErrorNotice title="无法读取最近空间" error={spaces.error} />
@@ -160,7 +160,7 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
             <FolderOpen aria-hidden="true" />
             <span className="grid min-w-0 text-left">
               <span>{folderName(root)}</span>
-              <span className="text-xs font-normal break-all text-muted-foreground">
+              <span className="text-caption weight-normal break-all text-muted-foreground">
                 {opening === root ? "正在打开…" : root}
               </span>
             </span>

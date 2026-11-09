@@ -112,7 +112,7 @@ function PickProvider({ providers, onPick }: { providers: Provider[]; onPick(pro
     </DialogHeader>
     <SearchInput label="搜索提供方" value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
     {matched.length === 0
-      ? <p className="text-sm text-muted-foreground">没有找到匹配的提供方。</p>
+      ? <p className="text-body text-muted-foreground">没有找到匹配的提供方。</p>
       : <ul aria-label="提供方" className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
         {matched.map((provider) => <li key={provider.id}>
           <Button variant="ghost" className="w-full justify-start" onClick={() => onPick(provider)}>
@@ -137,12 +137,12 @@ function PickMethod({ provider, onPick, onBack }: { provider: Provider; onPick(m
           {method.type === "api_key" ? <KeyRound aria-hidden="true" /> : <LogIn aria-hidden="true" />}
           <span className="grid min-w-0 text-left">
             <span>{methodLabel[method.type]}</span>
-            <span className="text-xs font-normal break-all text-muted-foreground">{method.name}</span>
+            <span className="text-caption weight-normal break-all text-muted-foreground">{method.name}</span>
           </span>
         </Button>
       </li>)}
     </ul>
-    {outside.map((method) => <p key={method.type} className="text-sm text-muted-foreground">
+    {outside.map((method) => <p key={method.type} className="text-body text-muted-foreground">
       {method.name} 需要在 Repa 之外配置，例如设置环境变量。
     </p>)}
     {onBack && <DialogFooter>
@@ -185,7 +185,7 @@ function KeyForm({ provider, method, onBack, onSaved, onNeedsLogin }: {
       <DialogDescription>key 保存在本机的 Repa 数据目录里，只用于向 {provider.name} 发送请求。</DialogDescription>
     </DialogHeader>
     <div className="grid gap-1">
-      <label htmlFor={inputId} className="text-sm font-medium">{method.name}</label>
+      <label htmlFor={inputId} className="text-body weight-semibold">{method.name}</label>
       <Input id={inputId} type="password" autoComplete="off" spellCheck={false} value={key} onChange={(event) => setKey(event.target.value)} autoFocus />
     </div>
     {error !== undefined && <ErrorNotice title="没有保存" error={error} />}
@@ -234,13 +234,13 @@ function LoginFlow({ provider, type, onDone, onBack }: {
       <DialogDescription>{type === "oauth" ? "按提示在浏览器里完成登录，完成后这里会自动继续。" : "这个提供方需要几项信息，按提示填写。"}</DialogDescription>
     </DialogHeader>
     {activeLogin && activeLogin.notices.length > 0 && <ul aria-label="登录说明" className="m-0 grid list-none gap-2 p-0">
-      {activeLogin.notices.map((notice, index) => <li key={index} className="grid gap-2 text-sm">
+      {activeLogin.notices.map((notice, index) => <li key={index} className="grid gap-2 text-body">
         <p className="break-words">{notice.title}</p>
         {notice.url && <NoticeLink url={notice.url} primary={!prompt} />}
       </li>)}
     </ul>}
     {running && prompt && <LoginPrompt key={prompt.id} prompt={prompt} />}
-    {running && !prompt && <p role="status" className="text-sm text-muted-foreground">正在等待登录完成…</p>}
+    {running && !prompt && <p role="status" className="text-body text-muted-foreground">正在等待登录完成…</p>}
     {error !== undefined && <ErrorNotice title="登录没有完成" error={error} />}
     {error !== undefined && <DialogFooter>
       <Button variant="tertiary" onClick={onBack}>返回</Button>
@@ -276,8 +276,8 @@ function LoginPrompt({ prompt }: { prompt: PendingConfirmation }) {
     const labels = options.map((option) => lines.find((line) => line.startsWith(`${option}：`))?.slice(option.length + 1));
     const labelled = labels.every((label) => label !== undefined);
     return <div className="grid gap-3">
-      <p className="text-sm font-medium">{request.title}</p>
-      {request.message && !labelled && <p className="text-sm whitespace-pre-wrap text-muted-foreground">{request.message}</p>}
+      <p className="text-body weight-semibold">{request.title}</p>
+      {request.message && !labelled && <p className="text-body whitespace-pre-wrap text-muted-foreground">{request.message}</p>}
       <ul aria-label={request.title} className="m-0 grid list-none gap-2 p-0">
         {options.map((option, index) => <li key={option}>
           <Button variant="tertiary" className="w-full justify-start" onClick={() => { void answer(prompt.id, option); }}>
@@ -293,8 +293,8 @@ function LoginPrompt({ prompt }: { prompt: PendingConfirmation }) {
     void answer(prompt.id, value);
   }}>
     <div className="grid gap-1">
-      <label htmlFor={inputId} className="text-sm font-medium break-words">{request.title}</label>
-      {request.message && <p id={messageId} className="text-sm whitespace-pre-wrap text-muted-foreground">{request.message}</p>}
+      <label htmlFor={inputId} className="text-body weight-semibold break-words">{request.title}</label>
+      {request.message && <p id={messageId} className="text-body whitespace-pre-wrap text-muted-foreground">{request.message}</p>}
       <Input
         id={inputId}
         type={request.secret ? "password" : "text"}

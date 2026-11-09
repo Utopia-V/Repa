@@ -54,15 +54,15 @@ export function HistoryRevisionCard({ revision, undone, onUndo }: {
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1">
-          <h3 id={titleId} className="text-base font-semibold break-all">{revisionSource(revision.source)}</h3>
-          <p className="text-sm text-muted-foreground">
+          <h3 id={titleId} className="text-title weight-semibold break-all">{revisionSource(revision.source)}</h3>
+          <p className="text-body text-muted-foreground">
             <time dateTime={revision.timestamp}>{formatRevisionTime(revision.timestamp)}</time>{undoneText}
           </p>
         </div>
         <Button variant="tertiary" aria-describedby={titleId} onClick={onUndo} leadingIcon={Undo2}>撤回
         </Button>
       </div>
-      <ul aria-label="改动的文件" className="m-0 grid list-none gap-1 p-0 text-sm">
+      <ul aria-label="改动的文件" className="m-0 grid list-none gap-1 p-0 text-body">
         {shown.map((change) => <li key={`${change.kind}:${change.path}`} className="flex min-w-0 gap-2">
           <span className="shrink-0 text-muted-foreground">{changeLabel[change.kind]}</span>
           <span className="min-w-0 break-all">

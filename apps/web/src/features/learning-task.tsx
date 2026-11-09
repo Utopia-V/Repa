@@ -102,7 +102,7 @@ function AnswerForm({ task, delivery, outgoing, busy }: {
     />
     <SlotProblems id={`${delivery.deliveryId}-problems`} problems={general} />
     {outgoing?.status === "failed" && <ErrorNotice title="没能交上" error={outgoing.error} />}
-    {outgoing?.status === "unknown" && <p role="status" className="m-0 flex items-center gap-2 text-sm text-muted-foreground">
+    {outgoing?.status === "unknown" && <p role="status" className="m-0 flex items-center gap-2 text-body text-muted-foreground">
       <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />
       连接断了，正在确认这份作答有没有交上，确认后会自动处理。
     </p>}
@@ -122,7 +122,7 @@ function AnswerForm({ task, delivery, outgoing, busy }: {
 
 function KpProgress({ task }: { task: LearningTask }) {
   if (task.kps.length === 0) return null;
-  return <ol aria-label="知识点" className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-sm">
+  return <ol aria-label="知识点" className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-body">
     {task.kps.map((kp) => <li key={kp.kpId} className="flex items-center gap-1.5">
       {kp.completed
         ? <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-status-complete" />
@@ -162,7 +162,7 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
   switch (phase.stage) {
     case "preparing":
       return <div className="grid gap-4">
-        <p className="m-0 text-sm text-muted-foreground">正在准备{kindText[task.kind]}：辅导会先停下来。</p>
+        <p className="m-0 text-body text-muted-foreground">正在准备{kindText[task.kind]}：辅导会先停下来。</p>
         <Actions><Button disabled={busy} onClick={() => { void resumeTask(); }}>继续</Button></Actions>
       </div>;
     case "explanation":
@@ -190,10 +190,10 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
       const found = findSubmission(task, phase.submissionId);
       return <div className="grid gap-5">
         {found && <SubmissionReview item={found.delivery.item} submission={found.submission} />}
-        {phase.stage === "judging" && <p role="status" className="m-0 flex items-center gap-2 text-sm text-muted-foreground">
+        {phase.stage === "judging" && <p role="status" className="m-0 flex items-center gap-2 text-body text-muted-foreground">
           <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />正在判分…
         </p>}
-        {phase.stage === "recovery" && <p className="m-0 text-sm text-muted-foreground">这份作答没能判出结果，不算错。可以再判一次，也可以先做下一题，条件具备时会自动补判。</p>}
+        {phase.stage === "recovery" && <p className="m-0 text-body text-muted-foreground">这份作答没能判出结果，不算错。可以再判一次，也可以先做下一题，条件具备时会自动补判。</p>}
         <Actions>
           {phase.stage === "recovery" && <Button variant="tertiary" disabled={busy} onClick={() => { void retryJudging(phase.submissionId); }} leadingIcon={RefreshCw}>再判一次
           </Button>}
@@ -213,7 +213,7 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
       </div>;
     }
     case "aborted":
-      return <p className="m-0 text-sm text-muted-foreground">已中止。{phase.reason}</p>;
+      return <p className="m-0 text-body text-muted-foreground">已中止。{phase.reason}</p>;
   }
 }
 
@@ -223,8 +223,8 @@ export function LearningTaskView({ task, renderLink }: { task: LearningTask; ren
 
   return <section aria-labelledby="learning-task-title" className="grid gap-5">
     <div className="grid gap-2">
-      <p className="m-0 text-sm text-muted-foreground">{kindText[task.kind]}</p>
-      <h3 id="learning-task-title" className="m-0 text-lg font-semibold">{topics}</h3>
+      <p className="m-0 text-body text-muted-foreground">{kindText[task.kind]}</p>
+      <h3 id="learning-task-title" className="m-0 text-title weight-semibold">{topics}</h3>
       <KpProgress task={task} />
     </div>
     <Stage task={task} renderLink={renderLink} />

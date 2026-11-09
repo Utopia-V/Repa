@@ -17,18 +17,18 @@ export function TableField({ slot, value, onChange, labelId, invalid, describedB
   }
 
   return <div className="min-w-0 overflow-x-auto" aria-describedby={describedBy}>
-    <table aria-labelledby={labelId} className="border-collapse text-sm">
+    <table aria-labelledby={labelId} className="border-collapse text-body">
       <thead>
         <tr>
           {rowHeaders && <td className="border border-border px-2 py-1" />}
-          {slot.columns.map((column) => <th key={column.id} scope="col" className="border border-border px-2 py-1 text-left align-top font-semibold">
+          {slot.columns.map((column) => <th key={column.id} scope="col" className="border border-border px-2 py-1 text-left align-top weight-semibold">
             <Markdown text={column.header} math={false} />
           </th>)}
         </tr>
       </thead>
       <tbody>
         {slot.rows.map((row, rowIndex) => <tr key={row.id}>
-          {rowHeaders && <th scope="row" className="border border-border px-2 py-1 text-left align-top font-semibold">
+          {rowHeaders && <th scope="row" className="border border-border px-2 py-1 text-left align-top weight-semibold">
             {row.header !== undefined && <Markdown text={row.header} math={false} />}
           </th>}
           {slot.columns.map((column) => {

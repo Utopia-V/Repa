@@ -101,12 +101,12 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
       <div className="flex min-w-0 items-center gap-2">
         <Button variant="tertiary" disabled={!canGoUp || loading || opening} onClick={goUp} leadingIcon={ArrowUp}>上一级
         </Button>
-        <h3 ref={location} tabIndex={-1} className="min-w-0 text-sm font-semibold break-all outline-none">
+        <h3 ref={location} tabIndex={-1} className="min-w-0 text-body weight-semibold break-all outline-none">
           {view?.kind === "roots" ? "此电脑" : listing?.path ?? "用户目录"}
         </h3>
       </div>
 
-      {loading && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
+      {loading && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
       {error && <ErrorNotice title={error.title} error={error.error} />}
 
       {view?.kind === "roots" && <ul aria-label="磁盘" className="m-0 grid list-none gap-1 p-0">
@@ -117,7 +117,7 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
       </ul>}
 
       {listing && (listing.entries.length === 0
-        ? <p className="text-sm text-muted-foreground">这里没有子文件夹。</p>
+        ? <p className="text-body text-muted-foreground">这里没有子文件夹。</p>
         : <ul aria-label="子文件夹" className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
           {listing.entries.map((entry) => <li key={entry.path}>
             <Button variant="ghost" className="w-full justify-start" disabled={loading || opening} onClick={() => { void browse(entry.path); }}>
@@ -128,8 +128,8 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
           </li>)}
         </ul>)}
 
-      {listing?.truncated && <p className="text-sm text-muted-foreground">子文件夹太多，只显示了其中一部分。</p>}
-      {listing && <p className="text-sm text-muted-foreground">
+      {listing?.truncated && <p className="text-body text-muted-foreground">子文件夹太多，只显示了其中一部分。</p>}
+      {listing && <p className="text-body text-muted-foreground">
         {listing.space ? "这是已有的学习空间。" : "会在这个文件夹里保存 Repa 的数据。"}
       </p>}
     </div>

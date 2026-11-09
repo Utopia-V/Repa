@@ -142,7 +142,7 @@ function Conversation({ space }: { space: string }) {
       "flex min-h-14 shrink-0 items-center justify-between gap-3 border-b py-2 pr-4 pl-16 transition-colors md:px-6",
       scrolled ? "border-border" : "border-transparent",
     )}>
-      <h2 className="min-w-0 truncate text-base font-semibold" title={space}>{folderName(space)}</h2>
+      <h2 className="min-w-0 truncate text-title weight-semibold" title={space}>{folderName(space)}</h2>
       <div className="flex shrink-0 items-center gap-1">
         {/* 运行中会话记录还在追加，等这一轮结束再打包；还没发过消息时没有会话可反馈。 */}
         <Button variant="ghost" disabled={running || !connected || status !== "ready" || conversation.sessionId === undefined} onClick={() => setReporting(true)} leadingIcon={MessageSquareWarning}>反馈问题
@@ -165,7 +165,7 @@ function Conversation({ space }: { space: string }) {
       className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
       <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
-        {status === "loading" && <p role="status" className="text-sm text-muted-foreground">正在读取会话…</p>}
+        {status === "loading" && <p role="status" className="text-body text-muted-foreground">正在读取会话…</p>}
         {status === "error" && <div className="grid gap-3">
           <ErrorNotice title="无法读取会话" error={conversation.error} />
           <div>
@@ -173,7 +173,7 @@ function Conversation({ space }: { space: string }) {
             </Button>
           </div>
         </div>}
-        {status === "ready" && items.length === 0 && !running && <p className="text-sm text-muted-foreground">
+        {status === "ready" && items.length === 0 && !running && <p className="text-body text-muted-foreground">
           这是一个新会话。说说你想学什么，或者直接提问。
         </p>}
         {items.map((item) => <Fragment key={item.id}>
@@ -190,13 +190,13 @@ function Conversation({ space }: { space: string }) {
         </Fragment>)}
         {unplaced.map(askCard)}
         {/* 等待作答时卡片本身就是状态，不再显示“正在处理”。 */}
-        {running && !waiting && conversation.streaming === undefined && <p role="status" className="mb-4 text-sm text-muted-foreground">
+        {running && !waiting && conversation.streaming === undefined && <p role="status" className="mb-4 text-body text-muted-foreground">
           {run === "stopping" ? "正在停止…" : "Agent 正在处理…"}
         </p>}
         {/* 排队的消息留在记录末尾，送达后换成记录里的用户消息，位置基本不动。 */}
         {conversation.queued.map((message) => <div key={message.id} className="mb-4 grid justify-items-end gap-1">
           <ConversationMessage sender="user" className="mb-0">{message.text}</ConversationMessage>
-          <p className="flex items-center gap-1 text-sm text-muted-foreground">
+          <p className="flex items-center gap-1 text-body text-muted-foreground">
             <Clock aria-hidden="true" className="size-4 shrink-0" />排队中，Agent 做完当前这一步后会看到
           </p>
         </div>)}
@@ -236,7 +236,7 @@ function Conversation({ space }: { space: string }) {
           <span className="min-w-0 break-all">{modelName}</span>
           <ChevronDown aria-hidden="true" />
         </Button>
-        {modelProvider && !modelProvider.configured && <span className="text-sm text-muted-foreground">
+        {modelProvider && !modelProvider.configured && <span className="text-body text-muted-foreground">
           {modelProvider.name} 还没有连接，发送会失败
         </span>}
       </div>}

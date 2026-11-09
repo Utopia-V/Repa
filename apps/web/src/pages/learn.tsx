@@ -75,7 +75,7 @@ function Learn({ space }: { space: string }) {
           <ErrorNotice title="无法读取学习状态" error={learning.loadError} />
           <div><Button variant="tertiary" onClick={() => { void loadLearning(); }} leadingIcon={RefreshCw}>重试</Button></div>
         </>
-        : <p role="status" className="text-sm text-muted-foreground">正在读取学习状态…</p>}
+        : <p role="status" className="text-body text-muted-foreground">正在读取学习状态…</p>}
     </div>;
   }
 
@@ -87,10 +87,10 @@ function Learn({ space }: { space: string }) {
   return <div className="flex h-dvh flex-col">
     {/* 移动端左侧让出浮动的导航按钮。 */}
     <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-2 pr-4 pl-16 md:px-6">
-      <h2 className="m-0 min-w-0 truncate text-base font-semibold">{state.course?.title ?? "学习"}</h2>
+      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{state.course?.title ?? "学习"}</h2>
       <div className="flex items-center gap-3">
         <div className="grid w-40 gap-1">
-          <span className="text-xs text-muted-foreground">今天 {progress.todayXp} / {progress.dailyGoalXp} XP</span>
+          <span className="text-caption text-muted-foreground">今天 {progress.todayXp} / {progress.dailyGoalXp} XP</span>
           <Progress value={goal} aria-label="今天的目标完成度" />
         </div>
         {tutor && !wide && <Button variant="tertiary" onClick={() => setTutorOpen(true)} leadingIcon={MessageCircle}>问辅导
@@ -115,11 +115,11 @@ function Learn({ space }: { space: string }) {
             <Button variant="ghost" disabled={learning.busy !== undefined} onClick={() => setConfirmAbort(true)}>中止{kindText[task.kind]}</Button>
           </div>}
           {menu && learning.readAt !== undefined && <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} />}
-          {!task && !menu && <p className="m-0 text-sm text-muted-foreground">现在没有任务，也没有可以开始的内容。</p>}
+          {!task && !menu && <p className="m-0 text-body text-muted-foreground">现在没有任务，也没有可以开始的内容。</p>}
         </div>
       </div>
       {tutor && wide && <aside aria-label="辅导" className="flex w-96 shrink-0 flex-col border-l border-border">
-        <h3 className="m-0 px-4 pt-4 text-base font-semibold">辅导</h3>
+        <h3 className="m-0 px-4 pt-4 text-title weight-semibold">辅导</h3>
         {tutor}
       </aside>}
     </div>

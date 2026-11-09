@@ -63,7 +63,7 @@ export function ConceptCardDialog({ kpId, renderLink }: { kpId: string; renderLi
       <DialogTitle>{loaded?.hit.title ?? "概念卡"}</DialogTitle>
       <DialogDescription>学过的内容随时可以回来查。</DialogDescription>
     </DialogHeader>
-    {!loaded && error === undefined && <p role="status" className="m-0 text-sm text-muted-foreground">正在读取…</p>}
+    {!loaded && error === undefined && <p role="status" className="m-0 text-body text-muted-foreground">正在读取…</p>}
     {error !== undefined && <ErrorNotice title="没能打开这张卡片" error={error} />}
     {loaded && <Content blocks={loaded.page.blocks} renderLink={renderLink} />}
     {loaded && !sameAsCard && !origin && <div>
@@ -71,7 +71,7 @@ export function ConceptCardDialog({ kpId, renderLink }: { kpId: string; renderLi
     </div>}
     {originError !== undefined && <ErrorNotice title="没能读取原来的例题" error={originError} />}
     {origin && <section aria-label="原来的例题" className="grid gap-2 border-t border-border pt-4">
-      <h4 className="m-0 text-sm font-semibold">原来的例题</h4>
+      <h4 className="m-0 text-body weight-semibold">原来的例题</h4>
       <Content blocks={origin.blocks} renderLink={renderLink} />
     </section>}
   </DialogContent>;

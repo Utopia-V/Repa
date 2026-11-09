@@ -22,7 +22,7 @@ function Start() {
     if (space && unknown && learning.status === "idle") void loadLearning();
   }, [space, unknown, learning.status, loadLearning]);
   if (!space) return <Navigate to="/learning-space" replace />;
-  if (unknown) return <p role="status" className="p-8 text-sm text-muted-foreground">正在打开…</p>;
+  if (unknown) return <p role="status" className="p-8 text-body text-muted-foreground">正在打开…</p>;
   return <Navigate to={homePath(learning)} replace />;
 }
 

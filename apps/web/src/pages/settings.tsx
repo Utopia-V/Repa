@@ -64,11 +64,11 @@ export function SettingsPage() {
 
   return <div className="mx-auto grid w-full max-w-xl gap-8 px-4 py-16 md:px-8">
     <header className="grid gap-2">
-      <h2 className="text-2xl font-semibold">设置</h2>
-      <p className="text-sm text-muted-foreground">连接模型服务，选择新会话使用的模型，并决定 Agent 执行命令前是否询问你。</p>
+      <h2 className="text-display weight-semibold">设置</h2>
+      <p className="text-body text-muted-foreground">连接模型服务，选择新会话使用的模型，并决定 Agent 执行命令前是否询问你。</p>
     </header>
 
-    {!loaded && loadError === undefined && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
+    {!loaded && loadError === undefined && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
     {loadError !== undefined && <div className="grid gap-3">
       <ErrorNotice title="无法读取模型设置" error={loadError} />
       <div>
@@ -79,13 +79,13 @@ export function SettingsPage() {
 
     {loaded && <>
       <section aria-labelledby="default-model" className="grid gap-3">
-        <h3 id="default-model" className="text-lg font-semibold">默认模型</h3>
+        <h3 id="default-model" className="text-title weight-semibold">默认模型</h3>
         {current === null
-          ? <p className="text-sm text-muted-foreground">还没有可用的模型，先在下面连接一个提供方。</p>
+          ? <p className="text-body text-muted-foreground">还没有可用的模型，先在下面连接一个提供方。</p>
           : <Card className="flex-row items-center justify-between">
             <div className="grid min-w-0 gap-1">
-              <span className="font-medium break-all">{currentModel?.name ?? current?.id}</span>
-              <span className="text-sm break-all text-muted-foreground">
+              <span className="weight-semibold break-all">{currentModel?.name ?? current?.id}</span>
+              <span className="text-body break-all text-muted-foreground">
                 {currentProvider?.name ?? current?.provider}
                 {currentProvider && !currentProvider.configured && "，提供方还没有连接，发送消息会失败"}
               </span>
@@ -96,20 +96,20 @@ export function SettingsPage() {
 
       <section aria-labelledby="model-providers" className="grid gap-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 id="model-providers" className="text-lg font-semibold">模型提供方</h3>
+          <h3 id="model-providers" className="text-title weight-semibold">模型提供方</h3>
           {/* 还没有连接时添加是唯一要做的事，用主按钮。 */}
           <Button variant={connected.length === 0 ? "primary" : "tertiary"} onClick={() => setConnecting(true)} leadingIcon={Plus}>添加提供方
           </Button>
         </div>
         {failure && <ErrorNotice title={`无法断开 ${providerNames.get(failure.provider) ?? failure.provider}`} error={failure.error} />}
         {connected.length === 0
-          ? <p className="text-sm text-muted-foreground">还没有连接任何提供方。</p>
+          ? <p className="text-body text-muted-foreground">还没有连接任何提供方。</p>
           : <ul aria-labelledby="model-providers" className="m-0 grid list-none gap-2 p-0">
             {connected.map((provider) => <li key={provider.id}>
               <Card className="flex-row items-center justify-between">
                 <div className="grid min-w-0 gap-1">
-                  <span className="font-medium break-all">{provider.name}</span>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="weight-semibold break-all">{provider.name}</span>
+                  <span className="text-body text-muted-foreground">
                     {provider.configured && authLabel[provider.configured]}
                     {/* 环境变量或 models.json 里的凭据不归 Repa 管，只能在外部移除。 */}
                     {!provider.stored && "，由环境变量或配置文件提供"}
@@ -177,10 +177,10 @@ function CommandPolicySection() {
 
   return <section aria-labelledby="command-policy" className="grid gap-3">
     <div className="grid gap-1">
-      <h3 id="command-policy" className="text-lg font-semibold">命令授权</h3>
-      <p className="text-sm text-muted-foreground">对所有学习空间生效。改动后 Agent 的下一条命令就按新设置处理，正在运行的对话也一样。</p>
+      <h3 id="command-policy" className="text-title weight-semibold">命令授权</h3>
+      <p className="text-body text-muted-foreground">对所有学习空间生效。改动后 Agent 的下一条命令就按新设置处理，正在运行的对话也一样。</p>
     </div>
-    {policy.data === undefined && policy.status !== "error" && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
+    {policy.data === undefined && policy.status !== "error" && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
     {policy.data === undefined && policy.status === "error" && <div className="grid gap-3">
       <ErrorNotice title="无法读取命令授权设置" error={policy.error} />
       <div>
@@ -200,8 +200,8 @@ function CommandPolicySection() {
             className="mt-1"
           />
           <div className="grid min-w-0 gap-1">
-            <label htmlFor={`command-policy-${option.value}`} className="text-sm font-medium">{option.label}</label>
-            <p id={`command-policy-${option.value}-description`} className="text-sm text-muted-foreground">{option.description}</p>
+            <label htmlFor={`command-policy-${option.value}`} className="text-body weight-semibold">{option.label}</label>
+            <p id={`command-policy-${option.value}-description`} className="text-body text-muted-foreground">{option.description}</p>
           </div>
         </div>)}
       </RadioGroup>

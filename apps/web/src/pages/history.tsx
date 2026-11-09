@@ -68,8 +68,8 @@ function SpaceHistory({ space }: { space: string }) {
   return <div className="mx-auto grid w-full max-w-3xl gap-8 px-4 py-16 md:px-8">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="grid min-w-0 gap-2">
-        <h2 className="text-2xl font-semibold">修改历史</h2>
-        <p className="text-sm text-muted-foreground">
+        <h2 className="text-display weight-semibold">修改历史</h2>
+        <p className="text-body text-muted-foreground">
           <span className="break-all" title={space}>{folderName(space)}</span> 里文件的每次修改，最新的在前；外部程序指编辑器等不经过 Repa 的改动。撤回一次修改，会把它改动的文件恢复到修改之前。
         </p>
       </div>
@@ -91,11 +91,11 @@ function SpaceHistory({ space }: { space: string }) {
         </Button>
       </div>
     </div>}
-    {history.data === undefined && history.status !== "error" && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
+    {history.data === undefined && history.status !== "error" && <p role="status" className="text-body text-muted-foreground">正在读取…</p>}
 
     {history.data && <section aria-label="修改记录" className="grid gap-3">
       {changed.length === 0
-        ? <p className="text-sm text-muted-foreground">还没有文件修改。Agent、插件或其他程序改动空间里的文件后，会显示在这里。</p>
+        ? <p className="text-body text-muted-foreground">还没有文件修改。Agent、插件或其他程序改动空间里的文件后，会显示在这里。</p>
         : <ol className="m-0 grid list-none gap-3 p-0">
           {changed.map((revision) => <li key={revision.id}>
             <HistoryRevisionCard
@@ -105,10 +105,10 @@ function SpaceHistory({ space }: { space: string }) {
             />
           </li>)}
         </ol>}
-      {baseline && <p className="text-sm text-muted-foreground">
+      {baseline && <p className="text-body text-muted-foreground">
         从 {formatRevisionTime(baseline.timestamp)} 开始记录，更早的修改不在历史里。
       </p>}
-      {!history.data.complete && <p className="text-sm text-muted-foreground">
+      {!history.data.complete && <p className="text-body text-muted-foreground">
         只列出最近 {HISTORY_LIMIT} 条记录里的修改，更早的没有显示。
       </p>}
     </section>}
@@ -122,7 +122,7 @@ function SpaceHistory({ space }: { space: string }) {
             这次修改（{revisionSource(target.source)}，{formatRevisionTime(target.timestamp)}）改动的 {target.changes.length} 个文件会恢复到修改之前：新增的文件被删除，修改、删除或重命名的文件恢复原样。之后又有变化的文件保持现状，不会被覆盖。
           </DialogDescription>
         </DialogHeader>
-        <p className="text-sm">撤回也会记成一次修改，需要时可以再撤回它。</p>
+        <p className="text-body">撤回也会记成一次修改，需要时可以再撤回它。</p>
         {undoError !== undefined && <ErrorNotice title="撤回失败" error={undoError} />}
         <DialogFooter>
           <Button variant="tertiary" disabled={undoing} onClick={() => setTarget(undefined)}>取消</Button>

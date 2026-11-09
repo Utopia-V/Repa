@@ -94,7 +94,7 @@ function ModelList({ models, providerNames, current, onChoose, onChosen }: {
     <SearchInput label="搜索模型" value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
     {error !== undefined && <ErrorNotice title="没有设置成功" error={error} />}
     {matched.length === 0
-      ? <p className="text-sm text-muted-foreground">没有找到匹配的模型。</p>
+      ? <p className="text-body text-muted-foreground">没有找到匹配的模型。</p>
       : <ul aria-label="可用模型" className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
         {matched.map((model) => {
           const key = `${model.provider}/${model.id}`;
@@ -108,7 +108,7 @@ function ModelList({ models, providerNames, current, onChoose, onChosen }: {
             >
               <span className="grid min-w-0 text-left">
                 <span className="break-all">{model.name}</span>
-                <span className="text-xs font-normal break-all text-muted-foreground">
+                <span className="text-caption weight-normal break-all text-muted-foreground">
                   {saving === key ? "正在保存…" : providerNames.get(model.provider) ?? model.provider}
                 </span>
               </span>

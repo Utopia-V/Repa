@@ -47,7 +47,7 @@ export function AppSidebar() {
   return <Sidebar aria-label="应用侧栏" collapsible="icon">
     <SidebarHeader>
       <div className="flex items-center justify-between gap-2 group-data-[collapsible=icon]:justify-center">
-        <h1 className={`m-0 text-xl ${collapseLabel}`}>Repa</h1>
+        <h1 className={`m-0 text-display ${collapseLabel}`}>Repa</h1>
         <SidebarTrigger />
       </div>
     </SidebarHeader>

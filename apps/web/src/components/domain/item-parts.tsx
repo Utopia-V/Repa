@@ -54,7 +54,7 @@ export function MarkBadge({ mark }: { mark: Mark | undefined }) {
   if (!mark) return null;
   const Icon = mark === "correct" ? CircleCheck : mark === "incorrect" ? CircleX : CircleDashed;
   return <span className={cn(
-    "flex shrink-0 items-center gap-1 text-sm",
+    "flex shrink-0 items-center gap-1 text-body",
     mark === "correct" ? "text-status-complete" : "text-destructive",
   )}>
     <Icon aria-hidden="true" className="size-4" />{markText[mark]}
@@ -65,7 +65,7 @@ export function MarkBadge({ mark }: { mark: Mark | undefined }) {
 export function OptionRow({ selected, children }: { selected: boolean; children: ReactNode }) {
   return <div
     data-selected={selected || undefined}
-    className="flex min-h-11 items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm data-selected:border-border-selected data-selected:bg-accent"
+    className="flex min-h-11 items-center gap-3 rounded-lg border border-border px-3 py-2 text-body data-selected:border-border-selected data-selected:bg-accent"
   >{children}</div>;
 }
 

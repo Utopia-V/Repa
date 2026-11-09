@@ -33,14 +33,14 @@ export function PromptSettingsSection() {
 
   return <section aria-labelledby="prompts" className="grid gap-3">
     <div className="flex items-center justify-between gap-3">
-      <h3 id="prompts" className="text-lg font-semibold">提示</h3>
+      <h3 id="prompts" className="text-title weight-semibold">提示</h3>
       {space && <Button variant="tertiary" onClick={() => setPreviewing(true)} leadingIcon={Eye}>预览
       </Button>}
     </div>
     {space
       ? <PromptList space={space} />
       : <Card className="flex-row items-center justify-between">
-        <p className="text-sm text-muted-foreground">提示由打开的空间和其中的插件一起决定。打开一个学习空间后，可以在这里查看和修改。</p>
+        <p className="text-body text-muted-foreground">提示由打开的空间和其中的插件一起决定。打开一个学习空间后，可以在这里查看和修改。</p>
         <Button asChild variant="tertiary"><Link to="/learning-space">去选空间</Link></Button>
       </Card>}
     {space && <PromptPreviewDialog open={previewing} onOpenChange={setPreviewing} />}
@@ -87,11 +87,11 @@ function PromptList({ space }: { space: string }) {
         </Button>
       </div>
     </div>;
-    return <p role="status" className="text-sm text-muted-foreground">正在读取…</p>;
+    return <p role="status" className="text-body text-muted-foreground">正在读取…</p>;
   }
 
   return <>
-    <p className="text-sm text-muted-foreground">
+    <p className="text-body text-muted-foreground">
       每次发消息前，Repa 按下面的顺序把各段拼成系统提示。开关只影响本空间；修改从下一条消息起生效。
     </p>
     {toggleFailure && <ErrorNotice
@@ -105,11 +105,11 @@ function PromptList({ space }: { space: string }) {
           <Card className="flex-row items-center gap-3">
             <div className="grid min-w-0 flex-1 gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={section.enabled ? "font-medium break-all" : "font-medium break-all text-muted-foreground"}>{name}</span>
+                <span className={section.enabled ? "weight-semibold break-all" : "weight-semibold break-all text-muted-foreground"}>{name}</span>
                 {section.text !== section.defaultText && <Badge variant="solid" color="gray">已修改</Badge>}
                 {!section.enabled && <Badge variant="dot" color="gray">已停用</Badge>}
               </div>
-              {source && <span className="text-sm text-muted-foreground">{source}</span>}
+              {source && <span className="text-body text-muted-foreground">{source}</span>}
             </div>
             <Switch
               label={`启用 ${name}`}
@@ -176,25 +176,25 @@ function PromptEditor({ section, app, space, onDone }: {
       <DialogTitle>编辑 {name}</DialogTitle>
       <DialogDescription>保存后从下一条消息起生效。</DialogDescription>
     </DialogHeader>
-    {generatedNote && <p className="text-sm text-muted-foreground">{generatedNote}</p>}
+    {generatedNote && <p className="text-body text-muted-foreground">{generatedNote}</p>}
     <div className="grid gap-2">
-      <span id="prompt-scope" className="text-sm font-medium">保存到</span>
+      <span id="prompt-scope" className="text-body weight-semibold">保存到</span>
       <RadioGroup aria-labelledby="prompt-scope" value={scope} onValueChange={(value) => setScope(value as PromptScope)} disabled={saving}>
         <div className="flex items-center gap-3">
           <RadioGroupItem id="prompt-scope-space" value="space" />
-          <label htmlFor="prompt-scope-space" className="text-sm">只在本空间（{folderName(space)}）</label>
+          <label htmlFor="prompt-scope-space" className="text-body">只在本空间（{folderName(space)}）</label>
         </div>
         <div className="flex items-center gap-3">
           <RadioGroupItem id="prompt-scope-app" value="app" />
-          <label htmlFor="prompt-scope-app" className="text-sm">所有空间</label>
+          <label htmlFor="prompt-scope-app" className="text-body">所有空间</label>
         </div>
       </RadioGroup>
     </div>
-    {scope === "app" && levels.space.text !== undefined && <p className="text-sm text-muted-foreground">
+    {scope === "app" && levels.space.text !== undefined && <p className="text-body text-muted-foreground">
       本空间另有修改。保存到所有空间后，这个空间仍然使用本空间的内容。
     </p>}
     <div className="grid gap-2">
-      <label htmlFor="prompt-text" className="text-sm font-medium">内容</label>
+      <label htmlFor="prompt-text" className="text-body weight-semibold">内容</label>
       <Textarea
         id="prompt-text"
         className="max-h-80 min-h-40 font-mono"
@@ -242,7 +242,7 @@ function PromptPreviewDialog({ open, onOpenChange }: { open: boolean; onOpenChan
         <DialogTitle>下一条消息会带上的内容</DialogTitle>
         <DialogDescription>Repa 装配的部分，按发给模型的顺序排列；运行时还会加上工作目录和工具声明。按现在的配置算出，不是某次调用的记录。</DialogDescription>
       </DialogHeader>
-      {preview.status === "loading" && <p role="status" className="text-sm text-muted-foreground">正在计算…</p>}
+      {preview.status === "loading" && <p role="status" className="text-body text-muted-foreground">正在计算…</p>}
       {preview.status === "error" && <div className="grid gap-3">
         <ErrorNotice title="无法预览" error={preview.error} />
         <div>
@@ -252,31 +252,31 @@ function PromptPreviewDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       </div>}
       {preview.status === "ready" && <>
         <section aria-labelledby="preview-system" className="grid gap-2">
-          <h3 id="preview-system" className="text-base font-semibold">系统提示</h3>
+          <h3 id="preview-system" className="text-title weight-semibold">系统提示</h3>
           <ol className="m-0 grid list-none gap-2 p-0">
             {preview.data.sections.map((section) => {
               const name = promptSource(section.id, space ?? "").name;
-              if (!section.enabled) return <li key={section.id} className="text-sm text-muted-foreground">{name}：已停用，不发送</li>;
+              if (!section.enabled) return <li key={section.id} className="text-body text-muted-foreground">{name}：已停用，不发送</li>;
               position += 1;
               return <li key={section.id} className="grid gap-1">
-                <span className="text-sm font-medium">{position} · {name}</span>
+                <span className="text-body weight-semibold">{position} · {name}</span>
                 {section.text
                   ? <PreviewText text={section.text} />
-                  : <p className="text-sm text-muted-foreground">这一段是空的。</p>}
+                  : <p className="text-body text-muted-foreground">这一段是空的。</p>}
               </li>;
             })}
           </ol>
         </section>
         <section aria-labelledby="preview-views" className="grid gap-2">
           <div className="grid gap-1">
-            <h3 id="preview-views" className="text-base font-semibold">运行时视图</h3>
-            <p className="text-sm text-muted-foreground">插件提供的当前状态，单独放在用户消息之后，只在变化时重新发送。</p>
+            <h3 id="preview-views" className="text-title weight-semibold">运行时视图</h3>
+            <p className="text-body text-muted-foreground">插件提供的当前状态，单独放在用户消息之后，只在变化时重新发送。</p>
           </div>
           {preview.data.views.length === 0
-            ? <p className="text-sm text-muted-foreground">没有插件提供视图。</p>
+            ? <p className="text-body text-muted-foreground">没有插件提供视图。</p>
             : <ul className="m-0 grid list-none gap-2 p-0">
               {preview.data.views.map((view) => <li key={view.id} className="grid gap-1">
-                <span className="text-sm font-medium">{view.id}</span>
+                <span className="text-body weight-semibold">{view.id}</span>
                 <PreviewText text={view.text} />
               </li>)}
             </ul>}

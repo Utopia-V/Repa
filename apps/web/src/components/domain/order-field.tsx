@@ -33,7 +33,7 @@ export function OrderField({ slot, value, onChange, labelId, describedBy, disabl
 
   return <div className="grid gap-3" aria-describedby={describedBy}>
     <ol aria-labelledby={labelId} className="m-0 grid list-none gap-2 p-0">
-      {value.items.length === 0 && <li className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
+      {value.items.length === 0 && <li className="rounded-lg border border-dashed border-border px-3 py-2 text-body text-muted-foreground">
         还没有排入任何块，从下面的候选里加入。
       </li>}
       {value.items.map((id, index) => {
@@ -44,8 +44,8 @@ export function OrderField({ slot, value, onChange, labelId, describedBy, disabl
           style={{ marginInlineStart: `${level * 2}rem` }}
           className="flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1"
         >
-          <span className="w-6 shrink-0 text-sm text-muted-foreground">{index + 1}</span>
-          <Content blocks={blocks.get(id)?.content} className="flex-1 text-sm" />
+          <span className="w-6 shrink-0 text-body text-muted-foreground">{index + 1}</span>
+          <Content blocks={blocks.get(id)?.content} className="flex-1 text-body" />
           <MarkBadge mark={marks?.[String(index)]} />
           {!disabled && <div className="flex shrink-0 flex-wrap justify-end">
             <Button variant="ghost" size="icon" aria-label={`上移：${name(id)}`} disabled={index === 0} onClick={() => move(index, -1)}>
@@ -75,10 +75,10 @@ export function OrderField({ slot, value, onChange, labelId, describedBy, disabl
       })}
     </ol>
     {slot.partial === true && !disabled && unused.length > 0 && <div className="grid gap-2">
-      <p className="m-0 text-sm text-muted-foreground">候选（不一定都要用上）</p>
+      <p className="m-0 text-body text-muted-foreground">候选（不一定都要用上）</p>
       <ul className="m-0 grid list-none gap-2 p-0">
         {unused.map((block) => <li key={block.id} className="flex min-h-11 items-center gap-2 rounded-lg border border-dashed border-border px-3 py-1">
-          <Content blocks={block.content} className="flex-1 text-sm" />
+          <Content blocks={block.content} className="flex-1 text-body" />
           <Button variant="ghost" size="icon" aria-label={`加入：${name(block.id)}`} onClick={() => onChange({ ...value, items: [...value.items, block.id], indents: [...value.indents, 0] })}>
             <Plus aria-hidden="true" />
           </Button>

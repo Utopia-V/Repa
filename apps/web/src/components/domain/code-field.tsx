@@ -49,6 +49,6 @@ export function CodeField({ value, onChange, labelId, invalid, describedBy, disa
       onKeyDown={onKeyDown}
       className="font-mono text-[length:var(--type-code-size)] leading-[var(--type-code-line)]"
     />
-    {!disabled && <p id={hintId} className="m-0 text-xs text-muted-foreground">Tab 缩进 4 个空格；先按 Esc 再按 Tab 可以离开编辑框。</p>}
+    {!disabled && <p id={hintId} className="m-0 text-caption text-muted-foreground">Tab 缩进 4 个空格；先按 Esc 再按 Tab 可以离开编辑框。</p>}
   </div>;
 }

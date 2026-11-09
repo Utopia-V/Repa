@@ -56,7 +56,7 @@ export function FeedbackDialog({ onBusyChange, onClose }: { onBusyChange(busy: b
       </DialogDescription>
     </DialogHeader>
     <div className="grid gap-2">
-      <label htmlFor="feedback-note" className="text-sm font-medium">哪里不对？（可选）</label>
+      <label htmlFor="feedback-note" className="text-body weight-semibold">哪里不对？（可选）</label>
       <Textarea
         id="feedback-note"
         value={note}
@@ -69,11 +69,11 @@ export function FeedbackDialog({ onBusyChange, onClose }: { onBusyChange(busy: b
     <div className="grid gap-1">
       <div className="flex items-center gap-3">
         <Checkbox id="feedback-describe" checked={describe} disabled={creating} onCheckedChange={(next) => setDescribe(next === true)} />
-        <label htmlFor="feedback-describe" className="text-sm">让 Agent 描述这次的问题</label>
+        <label htmlFor="feedback-describe" className="text-body">让 Agent 描述这次的问题</label>
       </div>
-      <p className="pl-7 text-sm text-muted-foreground">会用当前模型多调用一次，不使用任何工具。</p>
+      <p className="pl-7 text-body text-muted-foreground">会用当前模型多调用一次，不使用任何工具。</p>
     </div>
-    <div className="grid gap-1 text-sm">
+    <div className="grid gap-1 text-body">
       <p>压缩包里有：这次会话及子 Agent 的完整记录、最近的文件修改历史、最近的错误，以及系统和 Repa 的版本。</p>
       <p className="text-muted-foreground">记录里的文件路径和系统用户名会原样保留；保存的密钥和看起来像密钥的内容会被替换掉。</p>
     </div>
@@ -105,9 +105,9 @@ function FeedbackCreated({ path, revealError, onReveal, onClose }: { path: strin
       <DialogTitle>反馈包已生成</DialogTitle>
       <DialogDescription>把这个文件发给开发者就可以了。</DialogDescription>
     </DialogHeader>
-    <p className="text-sm break-all select-all" aria-label="反馈包路径">{path}</p>
-    {copied === "done" && <p role="status" className="text-sm text-muted-foreground">已复制路径。</p>}
-    {copied === "failed" && <p role="status" className="text-sm text-muted-foreground">无法写入剪贴板，请手动选中上面的路径复制。</p>}
+    <p className="text-body break-all select-all" aria-label="反馈包路径">{path}</p>
+    {copied === "done" && <p role="status" className="text-body text-muted-foreground">已复制路径。</p>}
+    {copied === "failed" && <p role="status" className="text-body text-muted-foreground">无法写入剪贴板，请手动选中上面的路径复制。</p>}
     {revealError !== undefined && <StatusNotice status="error" title="没能打开所在文件夹">
       <p>{revealError instanceof Error ? revealError.message : "无法打开所在文件夹。"}可以复制路径后手动打开。</p>
     </StatusNotice>}

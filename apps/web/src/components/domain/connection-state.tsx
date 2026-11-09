@@ -13,11 +13,11 @@ export function StartupPanel({
   return (
     <Card role="region" aria-labelledby="startup-title">
       <CardHeader>
-        <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+        <div className="flex items-center gap-2 text-body weight-semibold text-muted-foreground">
           <Network aria-hidden="true" className="size-5" />
           Repa Web
         </div>
-        <h1 id="startup-title" className="text-2xl font-semibold">
+        <h1 id="startup-title" className="text-display weight-semibold">
           {failure ? "Repa 启动失败" : "正在准备 Repa"}
         </h1>
       </CardHeader>
@@ -25,7 +25,7 @@ export function StartupPanel({
         {failure ? (
           <ErrorNotice title="暂时无法连接" error={failure.error} />
         ) : (
-          <p role="status" className="flex items-start gap-2 text-sm text-muted-foreground">
+          <p role="status" className="flex items-start gap-2 text-body text-muted-foreground">
             <LoaderCircle aria-hidden="true" className="size-5 shrink-0" />
             正在启动或连接本机学习后端…
           </p>
@@ -44,7 +44,7 @@ export function StartupPanel({
 export function ReconnectionNotice() {
   return (
     <Card role="status">
-      <p className="flex items-start gap-2 text-sm text-muted-foreground">
+      <p className="flex items-start gap-2 text-body text-muted-foreground">
         <Unplug aria-hidden="true" className="size-5 shrink-0" />
         后端连接已中断，正在自动重连…
       </p>

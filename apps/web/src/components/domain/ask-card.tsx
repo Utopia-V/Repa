@@ -35,29 +35,29 @@ export function AskCard({ ask, onSubmit, onCancel }: {
   if (ask.closed !== undefined) {
     if (ask.declined !== undefined) {
       return <section aria-labelledby={titleId} className="mb-4 grid gap-2 rounded-lg border border-border bg-card p-5 text-card-foreground">
-        <h3 id={titleId} className="m-0 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+        <h3 id={titleId} className="m-0 flex items-center gap-2 text-body weight-semibold text-muted-foreground">
           <MessageCircle aria-hidden="true" className="size-4 shrink-0" />你没有按卡片作答，回了一句话
         </h3>
-        <p className="m-0 text-sm break-words whitespace-pre-wrap">{ask.declined}</p>
+        <p className="m-0 text-body break-words whitespace-pre-wrap">{ask.declined}</p>
       </section>;
     }
     if (ask.response) {
       return <section aria-labelledby={titleId} className="mb-4 grid gap-3 rounded-lg border border-border bg-card p-5 text-card-foreground">
-        <h3 id={titleId} className="m-0 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+        <h3 id={titleId} className="m-0 flex items-center gap-2 text-body weight-semibold text-muted-foreground">
           <CircleCheck aria-hidden="true" className="size-4 shrink-0" />你回答了 Agent 的提问
         </h3>
-        <dl className="m-0 grid gap-2 text-sm">
+        <dl className="m-0 grid gap-2 text-body">
           {item.slots.map((slot, index) => <div key={slot.id} className="grid gap-0.5">
             {/* 回看时题面比短标签清楚。 */}
             <dt className="text-muted-foreground">{slot.prompt && slot.prompt.length > 0 ? <Content blocks={slot.prompt} /> : slotName(slot, index)}</dt>
             <dd className="m-0 break-words whitespace-pre-wrap">{answerText(slot, ask.response?.answers[slot.id])}</dd>
           </div>)}
         </dl>
-        <Content blocks={ask.message} className="text-sm" />
+        <Content blocks={ask.message} className="text-body" />
       </section>;
     }
     const Icon = ask.closed === "cancelled" ? CircleX : CircleAlert;
-    return <p className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+    return <p className="mb-4 flex items-center gap-2 text-body text-muted-foreground">
       <Icon aria-hidden="true" className="size-4 shrink-0" />{endedText[ask.closed]}
     </p>;
   }
@@ -66,7 +66,7 @@ export function AskCard({ ask, onSubmit, onCancel }: {
 
   return <section aria-labelledby={titleId} className="mb-4 grid gap-5 rounded-lg border border-border-selected bg-card p-5 text-card-foreground">
     <div className="flex items-center justify-between gap-3">
-      <h3 id={titleId} className="m-0 flex items-center gap-2 text-base font-semibold">
+      <h3 id={titleId} className="m-0 flex items-center gap-2 text-title weight-semibold">
         <CircleHelp aria-hidden="true" className="size-5 shrink-0 text-primary" />{item.title ?? "Agent 想问你"}
       </h3>
       <Button variant="ghost" size="icon" aria-label="关闭提问" title="关闭提问，不作答" onClick={onCancel}>
@@ -77,7 +77,7 @@ export function AskCard({ ask, onSubmit, onCancel }: {
     <ItemSlots item={item} draft={draft} onChange={setDraft} problems={ask.problems} disabled={ask.submitting} />
     <SlotProblems id={`${base}-problems`} problems={general} />
     {ask.error !== undefined && <ErrorNotice title="没能送出" error={ask.error} />}
-    <p className="m-0 text-sm text-muted-foreground">不想按卡片答，也可以在下面的输入框里直接回一句。</p>
+    <p className="m-0 text-body text-muted-foreground">不想按卡片答，也可以在下面的输入框里直接回一句。</p>
     <div className="flex flex-wrap items-center justify-end gap-3">
       <Button disabled={ask.submitting} onClick={() => onSubmit(buildResponse(item, draft))}>
         {ask.submitting ? "正在提交…" : "提交"}
