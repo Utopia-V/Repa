@@ -329,3 +329,12 @@
     }
   }
 }
+
+/* 学习内容和回答要长时间阅读，比组件库默认的 13/20 大一档，文字用前景色。 */
+@layer components {
+  [data-slot="markdown"] {
+    --typeset-body: 15px;
+    --typeset-body-leading: 27px;
+    color: var(--foreground);
+  }
+}
