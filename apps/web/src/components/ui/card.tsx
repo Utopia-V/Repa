@@ -1,13 +1,18 @@
 // Adapted from shadcn/ui new-york-v4 (MIT); see README.md.
 import * as React from "react";
+import { useShape } from "@/lib/shape-context";
+import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
 
 function Card({ className, ...props }: React.ComponentProps<"div">) {
+  const shape = useShape();
   return (
     <div
       data-slot="card"
       className={cn(
-        "flex flex-col gap-4 rounded-md border border-border bg-card p-5 text-card-foreground ",
+        "flex flex-col gap-4 p-4 text-card-foreground",
+        surfaceClasses(3),
+        shape.container,
         className,
       )}
       {...props}
@@ -32,7 +37,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-title"
-      className={cn("text-base font-semibold", className)}
+      className={cn("text-title weight-semibold", className)}
       {...props}
     />
   );
@@ -42,7 +47,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-description"
-      className={cn("text-sm text-muted-foreground", className)}
+      className={cn("text-body text-muted-foreground", className)}
       {...props}
     />
   );

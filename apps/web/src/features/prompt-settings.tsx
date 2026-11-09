@@ -106,8 +106,8 @@ function PromptList({ space }: { space: string }) {
             <div className="grid min-w-0 flex-1 gap-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={section.enabled ? "font-medium break-all" : "font-medium break-all text-muted-foreground"}>{name}</span>
-                {section.text !== section.defaultText && <Badge variant="secondary">已修改</Badge>}
-                {!section.enabled && <Badge variant="outline">已停用</Badge>}
+                {section.text !== section.defaultText && <Badge variant="solid" color="gray">已修改</Badge>}
+                {!section.enabled && <Badge variant="dot" color="gray">已停用</Badge>}
               </div>
               {source && <span className="text-sm text-muted-foreground">{source}</span>}
             </div>

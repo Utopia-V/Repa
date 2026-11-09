@@ -117,7 +117,7 @@ function PickProvider({ providers, onPick }: { providers: Provider[]; onPick(pro
         {matched.map((provider) => <li key={provider.id}>
           <Button variant="ghost" className="w-full justify-start" onClick={() => onPick(provider)}>
             <span className="min-w-0 text-left break-all">{provider.name}</span>
-            {provider.configured && <Badge variant="secondary" className="ml-auto">已连接</Badge>}
+            {provider.configured && <Badge variant="solid" color="gray" className="ml-auto">已连接</Badge>}
           </Button>
         </li>)}
       </ul>}

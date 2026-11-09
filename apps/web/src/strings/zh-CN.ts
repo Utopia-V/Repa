@@ -4,6 +4,11 @@
  * 键名是“区域.对象.用途”，`{name}` 由调用处传入。
  */
 export const strings = {
+  // 输入框和提示条里暂未用到的控件
+  "input.step.increase": "〔待写〕",
+  "input.step.decrease": "〔待写〕",
+  "banner.dismiss.label": "〔待写〕",
+
   // 下拉选择
   "select.placeholder": "选择",
 

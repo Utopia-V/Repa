@@ -3,6 +3,7 @@
 
 import { forwardRef, useRef, useState, type InputHTMLAttributes } from "react";
 import { guardComposition } from "@/lib/composition-guard";
+import { t } from "@/lib/strings";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
 import { useIcons } from "@/lib/icon-context";
@@ -148,7 +149,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             // Arrow keys already step the focused input, so the buttons stay
             // out of the tab order and keep focus where it is.
             tabIndex={-1}
-            aria-label={direction === 1 ? "Increase" : "Decrease"}
+            aria-label={t(direction === 1 ? "input.step.increase" : "input.step.decrease")}
             disabled={props.disabled || props.readOnly}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => step(direction)}
