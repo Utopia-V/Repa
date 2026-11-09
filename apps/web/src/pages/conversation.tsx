@@ -14,6 +14,7 @@ import { MessageComposer } from "@/components/domain/message-composer";
 import { ToolActivity } from "@/components/domain/tool-activity";
 import { FeedbackDialog } from "@/features/feedback-dialog";
 import { ConversationModelDialog } from "@/features/model-picker";
+import { useDraftSend } from "@/hooks/use-draft-send";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { ConversationItem } from "@/lib/conversation";
 import type { Ask } from "@/lib/store";
@@ -43,7 +44,7 @@ function Conversation({ space }: { space: string }) {
   const models = useAppStore((state) => state.resources.models);
   const providers = useAppStore((state) => state.resources.providers);
   const loadModelSettings = useAppStore((state) => state.loadModelSettings);
-  const [draft, setDraft] = useState("");
+  const { draft, setDraft, send: sendDraft } = useDraftSend(sendMessage);
   const [picking, setPicking] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [forking, setForking] = useState(false);
@@ -84,12 +85,8 @@ function Conversation({ space }: { space: string }) {
   }
 
   async function send() {
-    const text = draft;
-    setDraft("");
     following.current = true;
-    const sent = await sendMessage(text);
-    // 没发出去时把内容还回输入框，除非用户已经开始写下一条。
-    if (!sent) setDraft((current) => current === "" ? text : current);
+    await sendDraft();
   }
 
   async function fork(entryId: string) {

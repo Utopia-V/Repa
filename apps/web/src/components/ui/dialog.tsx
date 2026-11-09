@@ -19,6 +19,7 @@ import {
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { fontWeights } from "@/lib/font-weight";
 import { motion, type MotionStyle } from "motion/react";
+import { isTopLayer, pushLayer } from "@/lib/layers";
 import { t } from "@/lib/strings";
 import { cn } from "@/lib/utils";
 import { useIcons } from "@/lib/icon-context";
@@ -59,10 +60,16 @@ function usePopupExit(open: boolean, setOpen: (open: boolean) => void) {
     if (actionsRef.current) actionsRef.current.close();
     else setRootOpen(false);
   }, [open, rootOpen]);
+  const layerId = useRef(Symbol("dialog")).current;
+  useEffect(() => (open ? pushLayer(layerId) : undefined), [open, layerId]);
   const onOpenChange = (
     next: boolean,
-    details: { preventUnmountOnClose: () => void }
+    details: { preventUnmountOnClose: () => void; reason: string; cancel: () => void }
   ) => {
+    if (!next && details.reason === "escape-key" && !isTopLayer(layerId)) {
+      details.cancel();
+      return;
+    }
     if (!next) {
       details.preventUnmountOnClose();
       setRootOpen(false);

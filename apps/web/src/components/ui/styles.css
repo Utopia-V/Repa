@@ -164,12 +164,12 @@
   }
 }
 
-/* 基础控件（包括 Portal 浮层）独立响应系统偏好。 */
+/* 系统要求减少动态效果时，所有 CSS 动画和过渡都停掉（Motion 的动画由 FluidProvider 跳过）。 */
 @layer base {
   @media (prefers-reduced-motion: reduce) {
-    [data-slot],
-    [data-slot]::before,
-    [data-slot]::after {
+    *,
+    *::before,
+    *::after {
       animation: none !important;
       transition: none !important;
     }

@@ -8,6 +8,7 @@ import { StatusNotice } from "@/components/ui/status-notice";
 import { ConversationItemView } from "@/components/domain/conversation-item";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { MessageComposer } from "@/components/domain/message-composer";
+import { useDraftSend } from "@/hooks/use-draft-send";
 import { useAppStore } from "@/hooks/use-app-store";
 import { describeError, errorCode } from "@/lib/errors";
 import { TUTOR_AGENT } from "@/lib/learning";
@@ -38,7 +39,7 @@ export function TutorPanel({ allowed, renderLink }: {
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
   const loadModelSettings = useAppStore((state) => state.loadModelSettings);
   const refreshLearning = useAppStore((state) => state.refreshLearning);
-  const [draft, setDraft] = useState("");
+  const { draft, setDraft, send: sendDraft } = useDraftSend(sendMessage);
   const record = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const bound = conversation.agent === TUTOR_AGENT;
@@ -73,11 +74,8 @@ export function TutorPanel({ allowed, renderLink }: {
   }, [conversation.items]);
 
   async function send() {
-    const text = draft;
-    setDraft("");
     following.current = true;
-    const sent = await sendMessage(text);
-    if (!sent) setDraft((current) => current === "" ? text : current);
+    await sendDraft();
   }
 
   async function stop() {

@@ -19,8 +19,8 @@
 // imports the icon set itself (components/providers.tsx in the starter).
 // ---------------------------------------------------------------------------
 
-import type { ReactNode } from "react";
-import { MotionConfig } from "motion/react";
+import { useLayoutEffect, type ReactNode } from "react";
+import { MotionConfig, MotionGlobalConfig } from "motion/react";
 import { ShapeProvider, type ShapeVariant } from "@/lib/shape-context";
 import { SizeProvider, type SizeVariant } from "@/lib/size-context";
 import { IconProvider, type IconComponent, type IconName } from "@/lib/icon-context";
@@ -44,6 +44,17 @@ export function FluidProvider({
   size = "default",
   icons,
 }: FluidProviderProps) {
+  // MotionConfig 的 reducedMotion 只去掉位移，淡入淡出还在；这里按系统偏好全部跳过。
+  useLayoutEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => {
+      MotionGlobalConfig.skipAnimations = query.matches;
+    };
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+
   return (
     <MotionConfig reducedMotion="user">
       <ShapeProvider defaultShape={shape}>

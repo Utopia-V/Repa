@@ -1,8 +1,9 @@
 "use client";
 
-import type { ComponentProps } from "react";
+import { useEffect, useRef, type ComponentProps } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { X } from "lucide-react";
+import { isTopLayer, pushLayer } from "@/lib/layers";
 import { t } from "@/lib/strings";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +13,22 @@ function Sheet({ open, onOpenChange, children }: {
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
 }) {
-  return <DialogPrimitive.Root open={open} onOpenChange={(next) => onOpenChange(next)}>{children}</DialogPrimitive.Root>;
+  const layerId = useRef(Symbol("sheet")).current;
+  useEffect(() => (open ? pushLayer(layerId) : undefined), [open, layerId]);
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next, details) => {
+        if (!next && details.reason === "escape-key" && !isTopLayer(layerId)) {
+          details.cancel();
+          return;
+        }
+        onOpenChange(next);
+      }}
+    >
+      {children}
+    </DialogPrimitive.Root>
+  );
 }
 
 const sideClasses = {
