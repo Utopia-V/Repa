@@ -5,7 +5,6 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
-@import "tw-animate-css";
 @import "./components/ui/styles.css";
 @import "./components/ui/typography.css";
 @source "./components";
@@ -60,15 +59,12 @@
   --border: color-mix(in oklab, var(--foreground) 12%, transparent);
   --border-selected: var(--primary);
   --border-error: var(--destructive);
-  --border-complete: var(--status-complete);
   --input: var(--theme-control-line);
   --input-focus: var(--theme-control-line-strong);
   --ring: var(--focus-ring);
   /* Status: mappings can change independently from actions. */
   --status-complete: var(--theme-success);
-  --status-complete-foreground: var(--primary-foreground);
   --destructive: var(--theme-danger);
-  --destructive-foreground: var(--theme-sheet);
   /* Code：代码块的深色底、正文和语言标签；语法颜色由 Catppuccin Mocha 主题提供。 */
   --code-background: var(--theme-code-base);
   --code-foreground: var(--theme-code-text);
@@ -133,11 +129,6 @@
   --lh-micro: 14px;
   --fs-micro-compact: 10px;
   --lh-micro-compact: 12px;
-  /* shadcn compatibility: aliases, not extra business choices. */
-  --secondary: var(--accent);
-  --secondary-foreground: var(--accent-foreground);
-  --popover: var(--card);
-  --popover-foreground: var(--card-foreground);
 }
 /* 排版、圆角与留白与主题映射共同由本文件持有。 */
 :root {
@@ -145,36 +136,8 @@
   --font-body: "Inter Variable", "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-heading: "Inter Variable", "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-code: "JetBrains Mono Variable", monospace;
-  --type-display-size: 48px;
-  --type-display-line: 56px;
-  --type-display-mobile-size: 36px;
-  --type-display-mobile-line: 44px;
-  --type-h1-size: 32px;
-  --type-h1-line: 40px;
-  --type-h2-size: 24px;
-  --type-h2-line: 32px;
-  --type-h3-size: 20px;
-  --type-h3-line: 28px;
-  --type-h4-size: 16px;
-  --type-h4-line: 24px;
-  --type-body-large-size: 16px;
-  --type-body-large-line: 26px;
-  --type-body-size: 14px;
-  --type-body-line: 22px;
-  --type-caption-size: 12px;
-  --type-caption-line: 18px;
   --type-code-size: 13px;
   --type-code-line: 20px;
-  --space-4: 4px;
-  --space-8: 8px;
-  --space-12: 12px;
-  --space-16: 16px;
-  --space-20: 20px;
-  --space-24: 24px;
-  --space-32: 32px;
-  --space-40: 40px;
-  --space-48: 48px;
-  --space-64: 64px;
 }
 
 @theme inline {
@@ -205,14 +168,11 @@
   --color-border: var(--border);
   --color-border-selected: var(--border-selected);
   --color-border-error: var(--border-error);
-  --color-border-complete: var(--border-complete);
   --color-input: var(--input);
   --color-input-focus: var(--input-focus);
   --color-ring: var(--ring);
   --color-status-complete: var(--status-complete);
-  --color-status-complete-foreground: var(--status-complete-foreground);
   --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
   --color-hover: var(--hover);
   --color-active: var(--active);
   --color-selected: var(--selected);
@@ -220,22 +180,6 @@
   --color-code-background: var(--code-background);
   --color-code-foreground: var(--code-foreground);
   --color-code-caption: var(--code-caption);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --text-xs: var(--type-caption-size);
-  --text-xs--line-height: var(--type-caption-line);
-  --text-sm: var(--type-body-size);
-  --text-sm--line-height: var(--type-body-line);
-  --text-base: var(--type-body-large-size);
-  --text-base--line-height: var(--type-body-large-line);
-  --text-lg: var(--type-h3-size);
-  --text-lg--line-height: var(--type-h3-line);
-  --text-xl: var(--type-h2-size);
-  --text-xl--line-height: var(--type-h2-line);
-  --text-2xl: var(--type-h1-size);
-  --text-2xl--line-height: var(--type-h1-line);
   --color-surface-1: var(--surface-1);
   --shadow-surface-1: var(--shadow-1);
   --color-surface-2: var(--surface-2);
@@ -266,22 +210,4 @@
   --text-micro--line-height: var(--lh-micro);
 }
 
-/* 控件规格独立于留白尺度：视觉与命中区域可以不同。 */
-:root {
-  --control-size: 36px;
-  --hit-size: 24px;
-  --control-icon-size: 16px;
-  --dialog-max-width: 512px;
-}
-@media (max-width: 767px), (pointer: coarse) {
-  :root { --control-size: 44px; --hit-size: 44px; }
-}
 
-
-/* Button 层级只改变外观，同 size 共享几何与排版。 */
-:root {
-  --button-md-height: 40px;
-  --button-md-padding-inline: var(--space-16);
-  --button-md-radius: 8px;
-  --button-md-icon-gap: var(--space-8);
-}
