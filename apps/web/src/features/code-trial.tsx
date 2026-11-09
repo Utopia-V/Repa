@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, Play } from "lucide-react";
+import { LoaderCircle, Play, type LucideProps } from "lucide-react";
 import type { PythonPhase, PythonTestResult } from "@repa/python-runner/protocol";
 
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
 import { useTrialRunner } from "@/hooks/use-trial-runner";
 import { t } from "@/lib/strings";
+import { cn } from "@/lib/utils";
 
 const phaseText: Record<PythonPhase, string> = {
   prepare: t("codeTrial.stage.prepare.label"),
@@ -45,6 +46,10 @@ function TrialOutput({ result }: { result: PythonTestResult }) {
  * 代码题的“运行”：学习者提交前在本机跑一遍自己的代码，看输出。后端拼好课程前导与题目数据（不带答案），
  * 前端用试运行专用的运行器执行，结果只给学习者看，不交回后端，也不算作答。
  */
+function SpinningLoader({ className, ...props }: LucideProps) {
+  return <LoaderCircle {...props} className={cn("animate-spin motion-reduce:animate-none", className)} />;
+}
+
 export function CodeTrial({ deliveryId, slotId, code, disabled }: { deliveryId: string; slotId: string; code: string; disabled: boolean }) {
   const runner = useTrialRunner();
   const prepareRun = useAppStore((state) => state.prepareRun);
@@ -75,10 +80,7 @@ export function CodeTrial({ deliveryId, slotId, code, disabled }: { deliveryId: 
 
   return <div className="grid gap-2">
     <div>
-      <Button variant="tertiary" disabled={disabled || trial.status === "running"} onClick={() => { void run(); }}>
-        {trial.status === "running"
-          ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
-          : <Play aria-hidden="true" />}
+      <Button variant="tertiary" leadingIcon={trial.status === "running" ? SpinningLoader : Play} disabled={disabled || trial.status === "running"} onClick={() => { void run(); }}>
         {trial.status === "running" ? t("codeTrial.run.running.status") : t("codeTrial.run.action")}
       </Button>
     </div>

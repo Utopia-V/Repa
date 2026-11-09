@@ -230,9 +230,9 @@ function Conversation({ space }: { space: string }) {
           title={t("conversation.model.hint")}
           disabled={running || status !== "ready" || available.length === 0}
           onClick={() => setPicking(true)}
+          trailingIcon={ChevronDown}
         >
           <span className="min-w-0 break-all">{modelName}</span>
-          <ChevronDown aria-hidden="true" />
         </Button>
         {modelProvider && !modelProvider.configured && <span className="text-body text-muted-foreground">
           {t("conversation.provider.disconnected.hint", { name: modelProvider.name })}

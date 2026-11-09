@@ -1,4 +1,13 @@
 /* 通用控件规则。视觉值只引用 globals.css 的 token。 */
+/* Tailwind 默认的边框色是 currentColor，这里统一成 border，组件只需写 border。 */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+}
+
 /* 选区和键盘焦点，取自 Fluid Functionalism（MIT）。 */
 @layer base {
   ::selection {

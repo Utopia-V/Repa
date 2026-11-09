@@ -4,6 +4,7 @@ import type { Result } from "@repa/base/protocol";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
 import {
   Dialog,
   DialogClose,
@@ -112,8 +113,8 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
 
       {view?.kind === "roots" && <ul aria-label={t("folderPicker.drives.label")} className="m-0 grid list-none gap-1 p-0">
         {view.roots.map((root) => <li key={root.path}>
-          <Button variant="ghost" className="w-full justify-start" disabled={loading} onClick={() => { void browse(root.path); }} leadingIcon={HardDrive}>{root.label}
-          </Button>
+          <RowButton disabled={loading} onClick={() => { void browse(root.path); }}><HardDrive aria-hidden="true" />{root.label}
+          </RowButton>
         </li>)}
       </ul>}
 
@@ -121,11 +122,11 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
         ? <p className="text-body text-muted-foreground">{t("folderPicker.folders.empty")}</p>
         : <ul aria-label={t("folderPicker.folders.label")} className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
           {listing.entries.map((entry) => <li key={entry.path}>
-            <Button variant="ghost" className="w-full justify-start" disabled={loading || opening} onClick={() => { void browse(entry.path); }}>
+            <RowButton disabled={loading || opening} onClick={() => { void browse(entry.path); }}>
               {entry.space ? <FolderCheck aria-hidden="true" /> : <Folder aria-hidden="true" />}
               <span className="min-w-0 text-left break-all">{entry.name}</span>
               {entry.space && <Badge variant="solid" color="gray" className="ml-auto">{t("folderPicker.existing.label")}</Badge>}
-            </Button>
+            </RowButton>
           </li>)}
         </ul>)}
 

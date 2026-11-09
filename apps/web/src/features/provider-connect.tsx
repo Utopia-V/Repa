@@ -4,6 +4,7 @@ import type { Result } from "@repa/base/protocol";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
 import {
   Dialog,
   DialogContent,
@@ -116,10 +117,10 @@ function PickProvider({ providers, onPick }: { providers: Provider[]; onPick(pro
       ? <p className="text-body text-muted-foreground">{t("provider.pick.empty")}</p>
       : <ul aria-label={t("provider.list.label")} className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
         {matched.map((provider) => <li key={provider.id}>
-          <Button variant="ghost" className="w-full justify-start" onClick={() => onPick(provider)}>
+          <RowButton onClick={() => onPick(provider)}>
             <span className="min-w-0 text-left break-all">{provider.name}</span>
             {provider.configured && <Badge variant="solid" color="gray" className="ml-auto">{t("provider.connected.status")}</Badge>}
-          </Button>
+          </RowButton>
         </li>)}
       </ul>}
   </>;
@@ -134,13 +135,13 @@ function PickMethod({ provider, onPick, onBack }: { provider: Provider; onPick(m
     </DialogHeader>
     <ul aria-label={t("provider.method.label")} className="m-0 grid list-none gap-2 p-0">
       {provider.methods.filter((method) => method.login).map((method) => <li key={method.type}>
-        <Button variant="tertiary" className="w-full justify-start" onClick={() => onPick(method)}>
+        <RowButton outlined onClick={() => onPick(method)}>
           {method.type === "api_key" ? <KeyRound aria-hidden="true" /> : <LogIn aria-hidden="true" />}
           <span className="grid min-w-0 text-left">
             <span>{methodLabel[method.type]}</span>
             <span className="text-caption weight-normal break-all text-muted-foreground">{method.name}</span>
           </span>
-        </Button>
+        </RowButton>
       </li>)}
     </ul>
     {outside.map((method) => <p key={method.type} className="text-body text-muted-foreground">
@@ -281,9 +282,9 @@ function LoginPrompt({ prompt }: { prompt: PendingConfirmation }) {
       {request.message && !labelled && <p className="text-body whitespace-pre-wrap text-muted-foreground">{request.message}</p>}
       <ul aria-label={request.title} className="m-0 grid list-none gap-2 p-0">
         {options.map((option, index) => <li key={option}>
-          <Button variant="tertiary" className="w-full justify-start" onClick={() => { void answer(prompt.id, option); }}>
+          <RowButton outlined onClick={() => { void answer(prompt.id, option); }}>
             <span className="min-w-0 text-left break-words">{labels[index] ?? option}</span>
-          </Button>
+          </RowButton>
         </li>)}
       </ul>
     </div>;
