@@ -536,6 +536,28 @@ test("测验中途关闭应用：重开时这场测验已按超时结束，不�
   assert.deepEqual([...(await f.fold()).forced].sort(), forced([...unanswered, waiting]));
 });
 
+test("午夜前交卷、原定截止在次日的测验，结果是交卷那天得出的：次日打开时不再是当前画面", async (t) => {
+  const f = await fixture(t);
+  await f.qualify();
+  // 本地时间：start 之后第二天的 23:55 开始，截止在第三天 00:10；日期由插件所用的本地时区决定。
+  const evening = new Date(start);
+  evening.setDate(evening.getDate() + 1);
+  evening.setHours(23, 55, 0, 0);
+  f.time(evening.getTime());
+  const running = await f.select("quiz");
+  assert.ok(running.task?.deadlineAt);
+  const deadline = new Date(running.task.deadlineAt);
+  assert.notEqual(deadline.getDate(), evening.getDate());
+  await f.submit(0);
+  await f.answerRest();
+  await f.call("quiz.finish", await f.guard());
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  const morning = new Date(deadline);
+  morning.setHours(7, 0, 0, 0);
+  f.time(morning.getTime());
+  assert.equal((await f.state()).task, null);
+});
+
 test("测验里题目已从课程删除的 topic 不是学习者的原因：没答也不算错，不更新、不补救；其余都答对时这场测验通过", async (t) => {
   const f = await fixture(t);
   await f.qualify();

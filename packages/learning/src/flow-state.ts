@@ -62,6 +62,11 @@ export interface TaskRecord {
    * 进行中的课从重算后的学习状态继承，见 Replay.currentEvidence。
    */
   inherited?: KpProgress[];
+  /**
+   * 这节课进行期间，更早任务的证据最后一次改变（补判、申诉改判）的时间。进行中的课从重算后的学习状态继承进度，
+   * 结论可能因此改变，例如更早一轮课的改判使这节课通过；只有课继承进度，所以只记在课上。
+   */
+  inheritanceChangedAt?: number;
 }
 
 /** 一份作答作为证据的样子；verdict 缺省表示尚无证据（没判或判不了），既不算对也不算错。 */

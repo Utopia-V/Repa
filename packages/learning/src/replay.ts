@@ -221,6 +221,7 @@ export class Replay {
       if (earlier) {
         this.stale = true;
         this.changes++;
+        if (this.current?.kind === "lesson") this.current.inheritanceChangedAt = fact.at;
       }
       this.observe(changed, fact.at);
       if (earlier) {
