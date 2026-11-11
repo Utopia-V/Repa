@@ -43,8 +43,12 @@ function buildMenu(
 ): LearningMenu {
   const candidates: Candidate[] = [];
   let availableAt: number | undefined;
-  /** 菜单接受这项候选吗：topic 完整、调用方拿得到题、有学习资格，失败的课满足重试条件。 */
+  /** 菜单接受这项候选吗：有强制补救时只接受补救本身；topic 完整、调用方拿得到题、有学习资格，失败的课满足重试条件。 */
   const acceptable = (topicId: string, kind: Candidate["kind"]): boolean => {
+    // 补救的筛选放在这里而不在菜单算完以后：补救都还在休息时第一份菜单才是空的，后备菜单才会算出最早恢复的时间。
+    if (fold.forced.size && fold.forced.get(topicId) !== kind) {
+      return false;
+    }
     const topic = course.topics.get(topicId);
     if (!topic || topic.status !== "complete" || !supply(topicId, kind) || !topicEligible(course, fold, topicId, kind, now)) {
       return false;

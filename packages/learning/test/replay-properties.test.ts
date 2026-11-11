@@ -399,7 +399,19 @@ async function check(run: Run): Promise<void> {
     }
   }
   if (live.recomputations > 0) seen.add("整段重算");
-  if (live.fold().forced.size > 0) seen.add("强制补救");
+  const fold = live.fold();
+  if (fold.forced.size > 0) seen.add("强制补救");
+  const menu = state.menu;
+  if (menu && !menu.candidates.length) {
+    // 菜单空着就要说明何时恢复；没有恢复时间只能是课都学完了，或测验到了门槛却凑不出题。这门课的题对这个前端都可用。
+    if (menu.availableAt !== undefined) {
+      seen.add(fold.forced.size ? "补救休息到点再给" : "失败的课休息到点再给");
+    } else {
+      const exhausted = !fold.forced.size && course.course.topics.every((entry) => fold.student[entry.id]);
+      const shortage = live.pending !== undefined && !live.pending.topicIds.length;
+      assert.ok(exhausted || shortage, `菜单为空也没有恢复时间：强制补救 ${JSON.stringify([...fold.forced])}，已学 ${Object.keys(fold.student).join("、")}`);
+    }
+  }
 }
 
 test("随机的学习操作序列下：现场状态与从事实重放相同，增量叠加与从头叠加相同，XP 不漏不多不收回，没有证据不下结论", async () => {
@@ -432,7 +444,7 @@ test("随机的学习操作序列下：现场状态与从事实重放相同，�
   // 生成器走不到这些情形时，上面的性质就成了空话。
   for (const name of [
     "lesson", "review", "quiz", "retake", "passed", "failed", "timeout", "unresolved", "aborted",
-    "整段重算", "强制补救", "待判时下结论", "更早任务补发 XP", "改正答案后重判",
+    "整段重算", "强制补救", "补救休息到点再给", "待判时下结论", "更早任务补发 XP", "改正答案后重判",
   ]) {
     assert.ok(seen.has(name), `随机序列没有走到：${name}（走到的有 ${[...seen].join("、")}）`);
   }

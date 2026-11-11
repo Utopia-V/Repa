@@ -227,7 +227,7 @@ npm run real-model-check --workspace=@repa/base -- \
 
 `complete()` 返回最后一条助手消息的文本。`completeStructured(request, schema)` 则声明带原 schema 的 `submit_result` 工具，请求原生 JSON Schema 约束；参数经 Pi 转换和校验合格后，返回参数本身并立即结束工具批次。工具名写错或参数不合格时，Pi 在同一会话里把错误交给模型，允许改正一次：整个调用最多请求两次，第二次仍没有合格的提交就中止，返回 `invalid_model_output` 和最后一次的原因，例如首个错误字段的路径或写错的工具名。第一次就直接回答、不调用工具时，Pi 不再请求，同样返回 `invalid_model_output`。模型错误和取消保留各自错误码，在 Pi 开始运行之前取消也不会发出请求；短会话关闭自动重试与压缩，不整段重发。
 
-`host.models.defaultModel()` 返回不指定模型的请求会用的模型，与运行时的 `defaultModel()` 相同；还没有可用模型时为 `undefined`，这时不指定模型的请求以 `model_required` 拒绝。它每次按当前登录与设置读取，不发起请求，插件可以据此避开离不开模型的工作，例如学习插件在没有可用模型时不出要由模型判分的题。离线测试宿主的 `ModelTestDriver` 默认有一个测试模型，`setDefaultModel(undefined)` 模拟没有可用模型。
+`host.models.defaultModel()` 返回不指定模型的请求会用的模型，与运行时的 `defaultModel()` 相同；还没有可用模型时为 `undefined`。保存的默认模型只在其提供方有凭据时才算，与 Pi 选初始模型的规则相同，登出以后不再报告这个用不了的模型。解析不出模型时，`complete`、`completeStructured` 和 `runAgent` 都以 `model_required` 拒绝，不建会话；`runAgent` 还与 `session.create` 一样拒绝提供方没有凭据的模型，`complete` 指定了这样的模型时则由 Pi 发送前的预检拒绝，按 `model_error` 交回。它每次按当前登录与设置读取，不发起请求，插件可以据此避开离不开模型的工作，例如学习插件在没有可用模型时不出要由模型判分的题。离线测试宿主的 `ModelTestDriver` 默认有一个测试模型，`setDefaultModel(undefined)` 模拟没有可用模型。
 
 `host.models.runAgent({ agent, text })` 启动后台任务，省略 agent 时为通用 Agent，不要求能直接对话。句柄 id 就是会话 id，前端可观察会话事件或中止；排队任务取消后不调用模型，但若正在等空间写锁，完成响应会等取得队列并收尾。任务队列与句柄仅存于内存。
 
@@ -376,7 +376,7 @@ Web 前端用 `space.browse` 浏览子目录，省略路径从用户目录开始
 
 ### 模型、事件与取消
 
-新会话省略模型时使用 Pi 保存的默认模型，未设置则取首个可用模型，没有则为空；修改默认模型只影响新会话，已有会话用自己的保存值，切换需调用 `session.setModel`。提供方目录按 Pi 列出登录方式与当前凭据状态，环境变量也算已配置，登出只删除保存的凭据。
+新会话省略模型时使用 Pi 保存的默认模型，其提供方没有凭据或者未设置时取首个可用模型。解析不出模型或其提供方没有凭据时，`session.create` 以 `model_required` 拒绝，会话不登记也不留文件；已有会话在提供方登出后发送，同样在运行开始前以 `model_required` 拒绝，消息不进入会话。这与 Pi 发送前的预检条件相同，但 Pi 的预检只抛不带类型的错误，到协议上就成了内部错误，而新学习者还没配模型是预期状态，前端要据此引导去设置。修改默认模型只影响新会话，已有会话用自己的保存值，切换需调用 `session.setModel`。提供方目录按 Pi 列出登录方式与当前凭据状态，环境变量也算已配置，登出只删除保存的凭据。
 
 底座显式装配资源，不读取空间的 `.pi/settings.json`，也不自动发现项目扩展、提示模板或上下文文件；Skill 只来自应用与空间约定的位置。Pi 的 MCP/codemode 未启用，升级时应核对资源加载与精确工具白名单仍保持这些边界。
 
