@@ -14,12 +14,13 @@ import { stringify } from "yaml";
 import { CourseIndex } from "../src/course-index.js";
 import { connectLearning } from "../src/flow.js";
 import { emptyFold, type DeliveryRecord, type TaskRecord } from "../src/flow-state.js";
+import { LESSON_REST_MS } from "../src/parameters.js";
 import { createLearningPlugin } from "../src/plugin.js";
 import { progressView, sampleTopics } from "../src/progress.js";
 import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
 import type { Replay } from "../src/replay.js";
 import type { LearningSession } from "../src/session.js";
-import { updateStudent } from "../src/student-model.js";
+import { topicDue, updateStudent } from "../src/student-model.js";
 import type { Topic } from "../src/format/schema.js";
 import { course as baseCourse } from "./fixtures/learning-session.js";
 
@@ -301,6 +302,46 @@ test("错题立即强制直接复习，成功后同 topics 换题重考；复制
   const restored = await f.state();
   await f.reopen();
   assert.deepEqual(await f.state(), restored);
+});
+
+test("测验错题的强制复习和随后的强制重教都没过，另有复习到期时菜单不空等：报告休息结束的时间，到时重新提供这节课", async (t) => {
+  const f = await fixture(t);
+  await f.qualify();
+  await f.select("quiz");
+  await f.submit(0, false);
+  await f.answerRest();
+  await f.call("quiz.finish", await f.guard());
+  const wrong = (await f.state()).task?.deliveries[0]?.topicId;
+  assert.ok(wrong);
+  async function fail() {
+    for (let step = 0; step < 20; step++) {
+      const current = await f.state();
+      if (current.task?.phase.stage === "completed") {
+        return current;
+      }
+      if (current.task?.phase.stage === "awaiting_answer") {
+        await f.submit(-1, false);
+      } else {
+        await f.call("task.advance", await f.guard());
+      }
+    }
+    throw new Error("任务未结束");
+  }
+  const later = start + 60 * 86_400_000;
+  f.time(later);
+  await f.select("review", wrong);
+  assert.deepEqual((await fail()).task?.phase, { stage: "completed", outcome: "failed" });
+  assert.equal((await f.fold()).forced.get(wrong), "lesson");
+  await f.select("lesson", wrong);
+  const failed = await fail();
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  // 别的 topic 的复习到期了，但强制补救没做完之前菜单只给补救。
+  const student = (await f.fold()).student;
+  assert.ok(Object.keys(student).some((id) => id !== wrong && topicDue(student, id, later)));
+  assert.deepEqual(failed.menu?.candidates, []);
+  assert.equal(failed.menu?.availableAt, later + LESSON_REST_MS);
+  f.time(later + LESSON_REST_MS);
+  assert.deepEqual((await f.state()).menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["lesson", wrong]]);
 });
 
 test("任务带 topic 与知识点的标题：课里、受限的测验与复习进行中、重开以后，界面都不必搜索内容就能显示名称", async (t) => {
