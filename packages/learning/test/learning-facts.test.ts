@@ -431,6 +431,52 @@ for (const count of [2, 1]) {
   });
 }
 
+test("前一天开始的重试，今天因更早一轮课的申诉改判而通过：今天打开仍显示通过的课，第二天才是菜单，重开空间结果相同", async (t) => {
+  const definition = topic("t01", 1, [], 3);
+  const question = definition.kps[0]?.practice?.[0];
+  assert.ok(question);
+  question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加的含义" }] }];
+  const f = await fixture(t, [definition]);
+  // 本地时间：start 之后第 days 天的 hours 点；日期由插件所用的本地时区决定。
+  const at = (days: number, hours: number) => {
+    const date = new Date(start);
+    date.setDate(date.getDate() + days);
+    date.setHours(hours, 0, 0, 0);
+    return date.getTime();
+  };
+  // 上一轮：开放题判错，必做题一对一错，KP1 失败，这节课失败。
+  await f.select("t01");
+  await f.advance();
+  await f.advance();
+  f.models.expectStructured().succeed({ verdict: "incorrect", reason: "没有说明含义" });
+  const open = await f.submit();
+  assert.ok(open.status === "recorded");
+  await f.advance();
+  await f.submit();
+  await f.advance();
+  await f.submit(false);
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
+  // 晚上开始重试，没有作答；第二天上午申诉改判为对，重试继承到已完成的 KP1，这时才通过。
+  f.time(at(2, 23));
+  await f.select("t01");
+  const retry = (await f.state()).task?.taskId;
+  f.time(at(3, 9));
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "说明了含义" });
+  await f.call("submission.appeal", { submissionId: open.submission.submissionId, expectedGradeRevision: 1, reason: "复核" });
+  const shown = async () => {
+    const state = await f.state();
+    return state.task && { taskId: state.task.taskId, phase: state.task.phase };
+  };
+  const passed = { taskId: retry, phase: { stage: "completed", outcome: "passed" } };
+  assert.deepEqual(await shown(), passed);
+  await f.reopen();
+  assert.deepEqual(await shown(), passed);
+  f.time(at(4, 7));
+  assert.equal(await shown(), null);
+  await f.reopen();
+  assert.equal(await shown(), null);
+});
+
 test("判分失败或模型没有把握时任务照样往下走、不计失败，可以中止；下次打开自动补判，课内进度随之重算", async (t) => {
   // 两道开放题和一道必做题：开放题排在最后一道必做题之前先出。
   const definition = topic("t01", 1, [], 3);

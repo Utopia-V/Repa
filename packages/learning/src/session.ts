@@ -43,15 +43,19 @@ export interface LearningView {
 type Rendered = { delivery: Delivery; idMap: Record<string, string> };
 
 /**
- * 任务的结果在什么时刻得出：它最后一条事实（开始、出题、作答、判分、结束）的时间，超时的测验取截止时间。
+ * 任务的结果在什么时刻得出：它最后一条事实（开始、出题、作答、判分、结束）的时间；到了截止时间才结束的测验取截止时间；
+ * 课还算上进行期间更早任务的证据最后一次改变的时间，因为更早一轮课的改判可能使这节课通过。
  * 不用 TaskEvidence.at（学生模型更新的锚点，是作答时间）：昨天答完、今天打开时才补判出结果的复习，结果是今天得出的，学习者还没看过。
+ * 更早任务的改判没有改变这节课的结论时，改判那天也会再显示一次这节课；这样不必在读取时重算前后两种结论再比较。
  */
 function resultAt(evidence: TaskEvidence): number {
   const { task } = evidence;
   const times = [task.at];
   if (task.endedAt !== undefined) times.push(task.endedAt);
+  if (task.inheritanceChangedAt !== undefined) times.push(task.inheritanceChangedAt);
+  // 截止之前交卷的测验，读取时 settle 照样把 timedOut 设为真，但它的结果在交卷时就已得出。
   const deadline = deadlineAt(task);
-  if (task.timedOut && deadline !== null) times.push(deadline);
+  if (task.timedOut && task.endedAt === undefined && deadline !== null) times.push(deadline);
   for (const delivery of task.deliveries) {
     times.push(delivery.at, delivery.answer?.at ?? delivery.at, ...delivery.grades.map((grade) => grade.at));
   }
