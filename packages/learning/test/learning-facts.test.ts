@@ -3,7 +3,8 @@
  * 归属改变不换版本，以及每次作答写入的字节数和重算次数这两道代价关卡。
  */
 import assert from "node:assert/strict";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { Services } from "@repa/base/plugin";
 import { parse } from "@repa/base/protocol";
@@ -11,6 +12,7 @@ import { DEFAULT_MODEL_CONFIG, isDue, type ModelConfig } from "@repa/learning-mo
 import { describeRuntime, SandboxRunner } from "@repa/python-runner";
 import { PYTHON_BATCH, PythonBatchInputSchema, type PythonBatchInput, type PythonTest } from "@repa/python-runner/protocol";
 import { Value } from "typebox/value";
+import { parse as parseYaml, stringify } from "yaml";
 import { CodeSlotSchema, IdSchema, KpIdSchema, QuestionIdSchema, TopicIdSchema, type Question, type Topic } from "../src/format/schema.js";
 import { FactSchema, GradedSlotSchema, type Fact } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
@@ -711,6 +713,18 @@ test("课开始时记下必做题和分钟数：之后课程给知识点加题�
   await f.reopen();
   assert.ok((await f.student()).t01 && (await f.student()).t02);
   assert.equal((await f.state()).progress.totalXp, 8);
+});
+
+test("每项任务记下开始时的课程标识与版本：课程改版以后开始的任务记新版本，之前的任务仍是旧版本", async (t) => {
+  const f = await fixture(t, [topic("t01"), topic("t02")]);
+  await f.select("t01");
+  await f.finishLesson();
+  const manifest = path.join(f.directory, "course.yaml");
+  await writeFile(manifest, stringify({ ...parseYaml(await readFile(manifest, "utf8")), version: "1.1.0" }));
+  await f.reopen();
+  await f.select("t02");
+  const tasks = f.session().records.facts.flatMap((fact) => (fact.type === "task" ? [fact.course] : []));
+  assert.deepEqual(tasks, [{ id: course.id, version: "1.0.0" }, { id: course.id, version: "1.1.0" }]);
 });
 
 test("课开始时也记下开放题：之后加的开放题不撤销已经失败的课；必做题移出练习题池时，进行中的课按剩下的题判定，不会卡住", async (t) => {

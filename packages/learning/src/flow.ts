@@ -190,6 +190,7 @@ export async function connectLearning(
       const original = candidate.originalTaskId === undefined ? undefined : sequenceOf(candidate.originalTaskId, "t");
       return [{
         type: "task", kind: candidate.kind, topics: candidate.topicIds,
+        course: { id: session.course.course.course.id, version: session.course.course.course.version },
         ...(original === undefined ? {} : { retakes: original }),
         ...(candidate.kind === "lesson" ? lessonRequirement(session.course, candidate.topicIds[0] ?? "") : {}),
       }];

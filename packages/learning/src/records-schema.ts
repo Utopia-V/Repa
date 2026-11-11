@@ -30,10 +30,11 @@ export type GradedSlot = Static<typeof GradedSlotSchema>;
 
 /** 一条学习事实；seq 从 1 起连续，at 是写入时的服务端毫秒时间。 */
 export const FactSchema = Type.Union([
-  // 学习者从菜单选了一项任务；retakes 是换题重考所针对的测验任务。课还记下开始时的练习：按知识点顺序列出必做题和开放题，
+  // 学习者从菜单选了一项任务；course 是开始时加载的课程标识与版本，课程改版以后仍知道这项任务及其作答依据的是哪一版。
+  // retakes 是换题重考所针对的测验任务。课还记下开始时的练习：按知识点顺序列出必做题和开放题，
   // 以及课的分钟数（XP 的基数），之后课程改动不改写这节课的结论与 XP。
   object({
-    ...envelope, type: Type.Literal("task"), kind: TaskKindSchema,
+    ...envelope, type: Type.Literal("task"), kind: TaskKindSchema, course: object({ id: identifier, version: identifier }),
     topics: Type.Array(identifier, { minItems: 1, maxItems: 20 }), retakes: Type.Optional(reference),
     practice: Type.Optional(Type.Array(
       object({ kp: identifier, required: Type.Array(identifier, { maxItems: 20 }), open: Type.Array(identifier, { maxItems: 20 }) }),
