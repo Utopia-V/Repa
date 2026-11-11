@@ -11,8 +11,8 @@ import { LearningSession } from "./session.js";
 import { visibleLearningResponse } from "./submission-visibility.js";
 import { connectTutor, TUTOR_AGENT } from "./tutor.js";
 
-/** 学习记录的格式版本：2 起只记事实。版本 1 的开发数据不转换，提示删除后重新打开。 */
-export const LEARNING_FORMAT_VERSION = 2;
+/** 学习记录的格式版本：2 起只记事实，3 起每项任务带课程的标识与版本。此前版本的开发数据不转换，提示删除后重新打开。 */
+export const LEARNING_FORMAT_VERSION = 3;
 
 /** 时间一律取自底座的 host.now()，插件不另设时钟；测试通过宿主的 now 拨动时间。 */
 export interface LearningPluginOptions {
