@@ -34,7 +34,7 @@ if (state.ok) renderLearning(state.value);
 
 ### 状态与方法
 
-所有时间都是服务端 Unix 毫秒。`revision` 是学习记录里事实的条数，学习者的操作和判分写入事实后递增；到时自然发生的变化（截止、失败的课休息到时、复习到期）不写事实，`revision` 不变，重新查询即可看到。单纯刷新页面不重抽菜单。日进度另带本地自然日及 `timeZone`，完成率在 0 到 1 之间；`etaDate` 是估计完课的本地日期，与 `day` 同一时区，`null` 表示当前没有足够依据显示估算。
+所有时间都是服务端 Unix 毫秒。`revision` 是学习记录里事实的条数，学习者的操作和判分写入事实后递增；到时自然发生的变化（截止、失败的课休息到时、复习到期、结束的任务到第二天不再是当前画面）不写事实，`revision` 不变，重新查询即可看到。单纯刷新页面不重抽菜单。日进度另带本地自然日及 `timeZone`，完成率在 0 到 1 之间；`etaDate` 是估计完课的本地日期，与 `day` 同一时区，`null` 表示当前没有足够依据显示估算。
 
 | 方法 | 输入与结果 |
 | --- | --- |
@@ -61,7 +61,7 @@ if (state.ok) renderLearning(state.value);
 
 任务的 `topics` 列出任务所涉 topic 的 `id` 与 `title`，`kps` 每项带知识点的 `title` 与进度，标题都取自当前课程；测验的 `kps` 包括所涉每个 topic 的知识点。界面显示正在学的 topic 和知识点时直接用这些标题，不另查内容：作答期间不能搜索内容，菜单只在没有进行中的任务时出现。交付的 `topicId` 对应 `topics` 中的一项。只有新课计知识点进度，复习和测验的进度始终为零，所以进度只在新课显示。复习和测验里的知识点标题用于作答以后说明每道题属于哪个知识点，作答之前不显示：认出该用哪个知识点本身就是要考的内容。
 
-`LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。`completed` 带结论 `outcome`：`passed`、`failed`、`timeout` 或 `unresolved`。`unresolved` 表示测验已经结束（交卷或到了截止时间），但还有作答没判出结果，判出来可能改变结论；它与其他结论一样解除限制、释放反馈，判出以后后端发出 `learning.changed`，结论改为前三种之一。任务完成后可以与新菜单同屏，`task: null` 则表示当前没有任务。
+`LearningTask.phase.stage` 区分 `preparing`、`explanation`、`example`、`awaiting_answer`、`judging`、`recovery`、`feedback`、`completed` 和 `aborted`。讲解和例题直接带当前内容页；作答阶段引用 `deliveryId`；判分、恢复与反馈阶段引用 `submissionId`。交付还明确携带 topicId 与 kpId，界面不从不透明题目 id 猜所属知识点；其他细节从同一任务的交付、提交和 KP 进度取回。`completed` 带结论 `outcome`：`passed`、`failed`、`timeout` 或 `unresolved`。`unresolved` 表示测验已经结束（交卷或到了截止时间），但还有作答没判出结果，判出来可能改变结论；它与其他结论一样解除限制、释放反馈，判出以后后端发出 `learning.changed`，结论改为前三种之一。任务完成后可以与新菜单同屏，直到本地日期变了：结束的任务只在得出结果的那个本地自然日里作为 `task` 返回，第二天打开时 `task` 为 `null`，只有菜单，哪怕前一晚结束、今早打开只隔了几个小时。得出结果的时刻是任务最后一条事实（出题、作答、判分、结束）的时间，超时的测验取截止时间，所以昨天答完、今天打开时才补判出结果的复习，今天照样显示结果。没结束的任务不受日期影响，照旧返回、接着做。`task: null` 表示当前没有任务；界面照 `task` 和 `menu` 显示，不自己比较日期。
 
 反馈字段的可见性还取决于当前任务。review、quiz、retake 的准备、作答和恢复阶段，所有公开提交返回都会隐藏 `feedback` 与 `explanation`，历史提交也一样；身份、原答、处理状态与判分版本仍可恢复。受限任务结束后，可以重新查询已释放的历史反馈，详见[辅导与禁助](learning-tutor.md)。
 

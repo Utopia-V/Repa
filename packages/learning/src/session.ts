@@ -10,6 +10,7 @@ import type { Question, Topic } from "./format/schema.js";
 import { mapAnswer, renderDelivery } from "./delivery.js";
 import { learningMenu } from "./flow-menu.js";
 import {
+  deadlineAt,
   deliveryId,
   isQuiz,
   lessonPractice,
@@ -21,7 +22,7 @@ import {
   type TaskRecord,
 } from "./flow-state.js";
 import { feedbackOf, judgeAnswer } from "./judge.js";
-import { progressMenu, progressView } from "./progress.js";
+import { dayFormat, progressMenu, progressView } from "./progress.js";
 import type { ContentPage, Delivery, LearningMenu, LearningState, LearningTask, Submission } from "./protocol.js";
 import type { Fact, FactBody } from "./records-schema.js";
 import type { LearningRecords } from "./records.js";
@@ -40,6 +41,22 @@ export interface LearningView {
 }
 
 type Rendered = { delivery: Delivery; idMap: Record<string, string> };
+
+/**
+ * 任务的结果在什么时刻得出：它最后一条事实（开始、出题、作答、判分、结束）的时间，超时的测验取截止时间。
+ * 不用 TaskEvidence.at（学生模型更新的锚点，是作答时间）：昨天答完、今天打开时才补判出结果的复习，结果是今天得出的，学习者还没看过。
+ */
+function resultAt(evidence: TaskEvidence): number {
+  const { task } = evidence;
+  const times = [task.at];
+  if (task.endedAt !== undefined) times.push(task.endedAt);
+  const deadline = deadlineAt(task);
+  if (task.timedOut && deadline !== null) times.push(deadline);
+  for (const delivery of task.deliveries) {
+    times.push(delivery.at, delivery.answer?.at ?? delivery.at, ...delivery.grades.map((grade) => grade.at));
+  }
+  return Math.max(...times);
+}
 type Failure = "service_failure" | "uncertain_grade";
 
 /**
@@ -55,6 +72,7 @@ export class LearningSession {
   readonly replay: Replay;
   readonly course: CourseIndex;
   readonly timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  private readonly day = dayFormat(this.timeZone);
   /** 需要判分的作答：还没判、按改正后的答案要重判，或申诉后待重判。 */
   private readonly ungraded = new Set<number>();
   private readonly inflight = new Map<number, Promise<void>>();
@@ -310,6 +328,9 @@ export class LearningSession {
     const fold = this.replay.fold();
     const finished = !evidence || evidence.outcome !== undefined;
     const restricted = Boolean(evidence && evidence.task.kind !== "lesson" && !finished);
+    // 结束的任务只在得出结果的那个本地自然日里留作当前画面；换了一天（按日期，不按经过的小时数），打开时就是菜单。
+    // 没结束的任务不受影响，照旧接着做。
+    const shown = evidence && (evidence.outcome === undefined || this.day.format(resultAt(evidence)) === this.day.format(now)) ? evidence : undefined;
     let menu: LearningMenu | null = null;
     if (finished) {
       const supply = (id: string, kind: TaskRecord["kind"]) => {
@@ -338,7 +359,7 @@ export class LearningSession {
         revision: this.records.revision,
         serverNow: now,
         course: { id: course.id, title: course.title, version: course.version },
-        task: evidence ? await this.task(evidence) : null,
+        task: shown ? await this.task(shown) : null,
         menu,
         restrictions: { kind: restriction, tutorAllowed: !this.closed(evidence), referenceContentAllowed: !this.closed(evidence) },
         progress: progressView(this.replay, fold, this.course, now, this.timeZone),

@@ -47,7 +47,7 @@ export function reward(entry: TaskEvidence, course: CourseIndex): number {
 }
 
 /** 按时区写出本地日期（YYYY-MM-DD）的格式器；构造代价较高，一次读取只建一个。 */
-function dayFormat(timeZone: string): Intl.DateTimeFormat {
+export function dayFormat(timeZone: string): Intl.DateTimeFormat {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
