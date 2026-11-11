@@ -164,11 +164,27 @@ class Runtime implements AgentRuntime {
     if (fallback) return this.model(fallback);
     const provider = this.settings.getDefaultProvider();
     const id = this.settings.getDefaultModel();
-    if (provider && id) {
+    // 与 Pi 选初始模型一致：保存的默认模型的提供方没有凭据（例如已经登出）时不用它，否则会报告一个用不了的模型。
+    if (provider && id && this.options.modelRuntime.hasConfiguredAuth(provider)) {
       const model = this.options.modelRuntime.getModel(provider, id);
       if (model) return model;
     }
     return this.options.modelRuntime.getAvailableSnapshot()[0];
+  }
+
+  /** 解析模型并确认它能发出请求；没有可用模型时以 model_required 拒绝。 */
+  usableModel(reference?: ModelRef): Promise<Model<string>> {
+    return this.requireUsable(this.model(reference));
+  }
+
+  /**
+   * 条件与 Pi 发送前的预检相同：提供方有凭据。Pi 的预检只抛不带类型的错误，协议上成了内部错误；
+   * 新学习者还没配模型是预期状态，这里先以 model_required 拒绝，前端据此引导去设置。
+   */
+  async requireUsable(model: Model<string> | undefined): Promise<Model<string>> {
+    const models = this.options.modelRuntime;
+    if (model !== undefined && (models.hasConfiguredAuth(model.provider) || (await models.checkAuth(model.provider)) !== undefined)) return model;
+    throw new RepaFault("model_required", "请选择可用模型", model === undefined ? undefined : { provider: model.provider, id: model.id });
   }
 
   async openSpace(options: AgentSpaceOptions): Promise<AgentSpace> {
@@ -320,6 +336,7 @@ class Runtime implements AgentRuntime {
 
   async complete(request: CompletionRequest, scope?: ModelCallScope): Promise<string> {
     this.assertOpen();
+    // 只查有没有模型；凭据由 Pi 发送前的预检核对，失败按 model_error 交回，取消也落在 Pi 的运行里。
     const model = this.model(request.model);
     if (!model) throw new RepaFault("model_required", "请选择可用模型");
     return modelCall(request, undefined, { agentDir: this.options.agentDir, modelRuntime: this.options.modelRuntime, model, settings: this.settings, scope });
@@ -327,6 +344,7 @@ class Runtime implements AgentRuntime {
 
   async completeStructured<S extends TSchema>(request: CompletionRequest, schema: S, scope?: ModelCallScope): Promise<Static<S>> {
     this.assertOpen();
+    // 只查有没有模型；凭据由 Pi 发送前的预检核对，失败按 model_error 交回，取消也落在 Pi 的运行里。
     const model = this.model(request.model);
     if (!model) throw new RepaFault("model_required", "请选择可用模型");
     return modelCall(request, schema, { agentDir: this.options.agentDir, modelRuntime: this.options.modelRuntime, model, settings: this.settings, scope });
@@ -470,14 +488,15 @@ class Space implements AgentSpace {
   async create(options: { agent?: string; model?: ModelRef; parent?: SessionParent } = {}): Promise<Session> {
     this.assertOpen();
     const agent = options.agent ?? GENERAL_AGENT;
-    // 先确认 Agent 可用，不留下打不开的会话文件。
+    // 先确认 Agent 和模型可用，不留下打不开或发不出消息的会话。
     this.profile(agent);
+    const model = await this.runtime.usableModel(options.model);
     const manager = SessionManager.create(this.options.root, this.options.sessionsDir, { id: randomUUID() });
     // 装配和运行之前保存父关联，runStart 只能看到已落盘的关联。
     if (options.parent !== undefined) await saveParent(this.options.sessionsDir, manager.getSessionId(), options.parent);
     // 所属 Agent 写在会话开头，不进入模型上下文；分支复制全部条目，也就沿用同一个 Agent。
     manager.appendCustomEntry(AGENT_ENTRY, { agent });
-    return this.load(manager, options.model);
+    return this.load(manager, { provider: model.provider, id: model.id });
   }
 
   load(manager: SessionManager, reference?: ModelRef): Promise<Session> {
@@ -878,6 +897,8 @@ class Session implements AgentSession {
       this.abortController = controller;
       try {
         // view、工具和文件写入都在运行上下文内执行，能读到本次 runId 与祖先链。
+        // 会话建好以后提供方可能已经登出，同样在开始运行前拒绝。
+        await this.space.runtime.requireUsable(this.session.model);
         await withRun({ runId, ancestorRunIds, sessionId: this.manager.getSessionId(), agent: this.agent }, async () => {
           // 关卡在 Repa 队列真正轮到本条消息后执行；拒收不产生运行标记和起止事件。
           this.checkDecision(await this.profile.beforeRun?.());
