@@ -188,7 +188,7 @@ test("恢复命令保留残缺原文件并写出逐字节前缀，完整坏行�
   const space = await createSpace(path.join(root, "space"), { watch: false });
   const file = path.join(await space.pluginDataDir("learning"), "records.jsonl");
   const log = await LearningRecords.open(file, clock);
-  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"] }, { type: "delivered", task: 1, question: "py01.k1.q1", seed: 1 }]);
+  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" } }, { type: "delivered", task: 1, question: "py01.k1.q1", seed: 1 }]);
   await log.close();
   const destination = path.join(root, "recovered.jsonl");
   t.after(() => space.close());
@@ -219,7 +219,7 @@ test("引用错误和一题两答在写入前拒绝、不落盘；完整行引�
   const log = await LearningRecords.open(file, clock);
   t.after(() => log.close());
   const seen = `sha256:${"0".repeat(64)}`;
-  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"] }, { type: "delivered", task: 1, question: "py01.k1.q1", seed: 1 }]);
+  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" } }, { type: "delivered", task: 1, question: "py01.k1.q1", seed: 1 }]);
   const bytes = await readFile(file);
   await assert.rejects(log.write(() => [{ type: "graded", delivery: 2, version: seen, verdict: "correct", slots: {} }]), fault("invalid_learning_log"));
   await assert.rejects(log.write(() => [
@@ -238,7 +238,7 @@ test("读取忽略事实顶层新增的可选字段，保留盘上原字节，�
   const root = await directory(t);
   const file = path.join(root, "records.jsonl");
   const log = await LearningRecords.open(file, clock);
-  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"] }, { type: "goal", xp: 25 }]);
+  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" } }, { type: "goal", xp: 25 }]);
   await log.close();
   const original = await readFile(file, "utf8");
   const extended = original.split("\n").filter(Boolean).map((line) => {

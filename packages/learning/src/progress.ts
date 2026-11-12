@@ -47,7 +47,7 @@ export function reward(entry: TaskEvidence, course: CourseIndex): number {
 }
 
 /** 按时区写出本地日期（YYYY-MM-DD）的格式器；构造代价较高，一次读取只建一个。 */
-function dayFormat(timeZone: string): Intl.DateTimeFormat {
+export function dayFormat(timeZone: string): Intl.DateTimeFormat {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
@@ -118,13 +118,9 @@ export function progressView(replay: Replay, fold: Fold, course: CourseIndex, no
   };
 }
 
-/** 在常规菜单上加入强制补救、测验和换题重考。 */
+/** 在常规菜单上加入测验和换题重考。有强制补救时常规菜单只含补救（见 flow-menu.ts），测验和重考等补救做完再给。 */
 export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, course: CourseIndex): LearningMenu {
   if (fold.forced.size) {
-    menu.candidates = menu.candidates.filter((candidate) => fold.forced.get(candidate.topicIds[0] ?? "") === candidate.kind);
-    if (!menu.candidates.length) {
-      menu.unavailableReason = "强制补救尚未可用，请等待冷却结束或补足题量／执行服务。";
-    }
     return menu;
   }
   const pending = replay.pending;

@@ -1238,3 +1238,35 @@ test("失败的课有别的任务可做时先放一放，到第二个本地自�
   const next = await f.state();
   assert.ok(next.menu?.candidates.some((entry) => entry.kind === "lesson" && entry.topicIds[0] === "t01"));
 });
+
+test("结束的任务当天仍是当前画面；按本地日期到了第二天，打开时是菜单，哪怕只过了几个小时；没做完的任务第二天照旧接着做", async (t) => {
+  const f = await fixture(t, [topic("t01"), topic("t02")]);
+  // 本地时间：start 之后那一天的 23:00、23:50 和第二天 07:00；日期由插件所用的本地时区决定。
+  const at = (days: number, hours: number, minutes = 0) => {
+    const date = new Date(start);
+    date.setDate(date.getDate() + days);
+    date.setHours(hours, minutes, 0, 0);
+    return date.getTime();
+  };
+  f.time(at(1, 23));
+  await f.select("t01");
+  const finished = await f.finishLesson();
+  assert.deepEqual(finished.task?.phase, { stage: "completed", outcome: "passed" });
+  f.time(at(1, 23, 50));
+  assert.equal((await f.state()).task?.taskId, finished.task?.taskId);
+  f.time(at(2, 7));
+  const morning = await f.state();
+  assert.equal(morning.task, null);
+  assert.ok(morning.menu?.candidates.some((entry) => entry.topicIds[0] === "t02"));
+  // 重开以后同样。
+  await f.reopen();
+  assert.equal((await f.state()).task, null);
+  await f.select("t02");
+  await f.advance();
+  const open = await f.state();
+  f.time(at(3, 7));
+  const resumed = await f.state();
+  assert.equal(resumed.task?.taskId, open.task?.taskId);
+  assert.deepEqual(resumed.task?.phase, open.task?.phase);
+  assert.equal(resumed.menu, null);
+});

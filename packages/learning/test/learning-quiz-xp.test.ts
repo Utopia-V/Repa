@@ -14,12 +14,13 @@ import { stringify } from "yaml";
 import { CourseIndex } from "../src/course-index.js";
 import { connectLearning } from "../src/flow.js";
 import { emptyFold, type DeliveryRecord, type TaskRecord } from "../src/flow-state.js";
+import { LESSON_REST_MS } from "../src/parameters.js";
 import { createLearningPlugin } from "../src/plugin.js";
 import { progressView, sampleTopics } from "../src/progress.js";
 import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
 import type { Replay } from "../src/replay.js";
 import type { LearningSession } from "../src/session.js";
-import { updateStudent } from "../src/student-model.js";
+import { topicDue, updateStudent } from "../src/student-model.js";
 import type { Topic } from "../src/format/schema.js";
 import { course as baseCourse } from "./fixtures/learning-session.js";
 
@@ -303,6 +304,46 @@ test("错题立即强制直接复习，成功后同 topics 换题重考；复制
   assert.deepEqual(await f.state(), restored);
 });
 
+test("测验错题的强制复习和随后的强制重教都没过，另有复习到期时菜单不空等：报告休息结束的时间，到时重新提供这节课", async (t) => {
+  const f = await fixture(t);
+  await f.qualify();
+  await f.select("quiz");
+  await f.submit(0, false);
+  await f.answerRest();
+  await f.call("quiz.finish", await f.guard());
+  const wrong = (await f.state()).task?.deliveries[0]?.topicId;
+  assert.ok(wrong);
+  async function fail() {
+    for (let step = 0; step < 20; step++) {
+      const current = await f.state();
+      if (current.task?.phase.stage === "completed") {
+        return current;
+      }
+      if (current.task?.phase.stage === "awaiting_answer") {
+        await f.submit(-1, false);
+      } else {
+        await f.call("task.advance", await f.guard());
+      }
+    }
+    throw new Error("任务未结束");
+  }
+  const later = start + 60 * 86_400_000;
+  f.time(later);
+  await f.select("review", wrong);
+  assert.deepEqual((await fail()).task?.phase, { stage: "completed", outcome: "failed" });
+  assert.equal((await f.fold()).forced.get(wrong), "lesson");
+  await f.select("lesson", wrong);
+  const failed = await fail();
+  assert.deepEqual(failed.task?.phase, { stage: "completed", outcome: "failed" });
+  // 别的 topic 的复习到期了，但强制补救没做完之前菜单只给补救。
+  const student = (await f.fold()).student;
+  assert.ok(Object.keys(student).some((id) => id !== wrong && topicDue(student, id, later)));
+  assert.deepEqual(failed.menu?.candidates, []);
+  assert.equal(failed.menu?.availableAt, later + LESSON_REST_MS);
+  f.time(later + LESSON_REST_MS);
+  assert.deepEqual((await f.state()).menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["lesson", wrong]]);
+});
+
 test("任务带 topic 与知识点的标题：课里、受限的测验与复习进行中、重开以后，界面都不必搜索内容就能显示名称", async (t) => {
   const topicTitle = (id: string) => `主题 ${id}`;
   const kpTitle = (id: string) => `要点 ${id}`;
@@ -493,6 +534,28 @@ test("测验中途关闭应用：重开时这场测验已按超时结束，不�
   f.models.expectStructured().succeed({ verdict: "incorrect", reason: "错误" });
   await f.call("submission.resume", { submissionId: pending.submission.submissionId });
   assert.deepEqual([...(await f.fold()).forced].sort(), forced([...unanswered, waiting]));
+});
+
+test("午夜前交卷、原定截止在次日的测验，结果是交卷那天得出的：次日打开时不再是当前画面", async (t) => {
+  const f = await fixture(t);
+  await f.qualify();
+  // 本地时间：start 之后第二天的 23:55 开始，截止在第三天 00:10；日期由插件所用的本地时区决定。
+  const evening = new Date(start);
+  evening.setDate(evening.getDate() + 1);
+  evening.setHours(23, 55, 0, 0);
+  f.time(evening.getTime());
+  const running = await f.select("quiz");
+  assert.ok(running.task?.deadlineAt);
+  const deadline = new Date(running.task.deadlineAt);
+  assert.notEqual(deadline.getDate(), evening.getDate());
+  await f.submit(0);
+  await f.answerRest();
+  await f.call("quiz.finish", await f.guard());
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  const morning = new Date(deadline);
+  morning.setHours(7, 0, 0, 0);
+  f.time(morning.getTime());
+  assert.equal((await f.state()).task, null);
 });
 
 test("测验里题目已从课程删除的 topic 不是学习者的原因：没答也不算错，不更新、不补救；其余都答对时这场测验通过", async (t) => {
