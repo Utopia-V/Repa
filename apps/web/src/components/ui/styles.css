@@ -1,119 +1,184 @@
 /* 通用控件规则。视觉值只引用 globals.css 的 token。 */
+/* Tailwind 默认的边框色是 currentColor，这里统一成 border，组件只需写 border。 */
 @layer base {
-  [data-slot] {
-    box-sizing: border-box;
-    border-width: 0;
-    border-style: solid;
+  *,
+  ::before,
+  ::after {
     border-color: var(--border);
   }
-  button[data-slot],
-  input[data-slot],
-  select[data-slot],
-  textarea[data-slot] {
-    appearance: none;
-    background-color: transparent;
-    color: inherit;
-    font: inherit;
-  }
-  [data-slot="button"],
-  [data-slot="input"],
-  [data-slot="select-trigger"] {
-    font-family: var(--font-body);
-  }
-  [data-slot="button"] {
-    cursor: pointer;
-  }
-  /* asChild 渲染成链接时不用浏览器默认的链接颜色和下划线。 */
-  a[data-slot="button"] {
-    color: inherit;
-    text-decoration: none;
-  }
-  [data-slot="button"]:disabled {
-    cursor: not-allowed;
-  }
 }
 
-@layer components {
-  .ui-control {
-    min-height: var(--control-size);
-    height: auto;
-    min-width: 0;
-    padding-block: var(--space-4);
-    overflow-wrap: anywhere;
+/* 选区和键盘焦点，取自 Fluid Functionalism（MIT）。 */
+@layer base {
+  ::selection {
+    background-color: color-mix(in oklab, var(--fluid-accent, #6B97FF) 25%, transparent);
   }
-  .ui-control-icon {
-    min-width: var(--control-size);
-    min-height: var(--control-size);
-    padding: var(--space-4);
+  :focus-visible {
+    outline: 1px solid var(--focus-ring, #6B97FF);
+    outline-offset: 2px;
+    border-radius: var(--shape-input-radius, 8px);
   }
-  .ui-hit {
+  a:focus-visible {
+    border-radius: 2px;
+  }
+}
+/* 按钮加载动画。 */
+@keyframes spinner-move {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+@keyframes spinner-dash {
+  0%, 100% {
+    stroke-dasharray: 15 85;
+  }
+  50% {
+    stroke-dasharray: 40 60;
+  }
+}
+/* ScrollArea 的渐隐和滚动条。 */
+@property --sf-start {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --sf-end {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@keyframes sf-reveal-start {
+  from {
+    --sf-start: 1;
+  }
+  to {
+    --sf-start: 0;
+  }
+}
+@keyframes sf-reveal-end {
+  from {
+    --sf-end: 0;
+  }
+  to {
+    --sf-end: 1;
+  }
+}
+.scroll-fade, .scroll-fade-x {
+  --scroll-fade-size: 48px;
+}
+@keyframes sf-divider-start {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sf-divider-end {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@supports (timeline-scope: --sf) {
+  .scroll-divider {
     position: relative;
-    touch-action: manipulation;
+    timeline-scope: --sf-scroller;
+    --scroll-divider-size: 48px;
   }
-  .ui-hit::before {
+  .scroll-divider .scroll-fade {
+    scroll-timeline-name: --sf-scroller;
+  }
+  .scroll-divider::before, .scroll-divider::after {
     content: "";
     position: absolute;
-    left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    width: max(100%, var(--hit-size));
-    height: max(100%, var(--hit-size));
+    left: var(--scroll-divider-inset, 0px);
+    right: var(--scroll-divider-inset, 0px);
+    height: 1px;
+    background-color: var(--border);
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
   }
-  .ui-choice-label {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-8);
-    min-height: var(--hit-size);
-    padding-inline: max(0px, calc((var(--hit-size) - var(--control-icon-size)) / 2));
-    cursor: pointer;
+  .scroll-divider::before {
+    top: 0;
+    animation: sf-divider-start both linear;
+    animation-timeline: --sf-scroller;
+    animation-range: 0 var(--scroll-divider-size);
   }
-  .ui-dialog {
-    top: 50%; left: 50%; transform: translate(-50%, -50%);
-    width: min(var(--dialog-max-width), calc(100% - var(--space-32)));
-    max-height: calc(100dvh - var(--space-32));
-    overflow-y: auto;
-    overscroll-behavior: contain;
+  .scroll-divider:first-child::before {
+    content: none;
   }
-  .ui-dialog-title { padding-right: var(--hit-size); }
-  @media (max-width: 767px) {
-    [data-slot="input"] {
-      font-size: var(--type-body-large-size);
-      line-height: var(--type-body-large-line);
-    }
-    .ui-dialog {
-      top: auto; bottom: 0; left: 0;
-      width: 100%; max-width: 100%;
-      max-height: calc(100dvh - env(safe-area-inset-top) - var(--space-16));
-      transform: none;
-      translate: none;
-      border-bottom-left-radius: 0;
-      border-bottom-right-radius: 0;
-      padding-bottom: max(var(--space-24), env(safe-area-inset-bottom));
-    }
+  .scroll-divider::after {
+    bottom: 0;
+    animation: sf-divider-end both linear;
+    animation-timeline: --sf-scroller;
+    animation-range: calc(100% - var(--scroll-divider-size)) 100%;
+  }
+  .scroll-divider:last-child::after {
+    content: none;
+  }
+}
+@supports (animation-timeline: scroll()) {
+  .scroll-fade {
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, var(--sf-start)) 0, #000 var(--scroll-fade-size), #000 calc(100% - var(--scroll-fade-size)), rgba(0, 0, 0, var(--sf-end)) 100%);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, var(--sf-start)) 0, #000 var(--scroll-fade-size), #000 calc(100% - var(--scroll-fade-size)), rgba(0, 0, 0, var(--sf-end)) 100%);
+    animation: sf-reveal-start both linear, sf-reveal-end both linear;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range-start: 0, calc(100% - var(--scroll-fade-size));
+    animation-range-end: var(--scroll-fade-size), 100%;
+  }
+  .scroll-fade-x {
+    mask-image: linear-gradient(to right, rgba(0, 0, 0, var(--sf-start)) 0, #000 var(--scroll-fade-size), #000 calc(100% - var(--scroll-fade-size)), rgba(0, 0, 0, var(--sf-end)) 100%);
+    -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, var(--sf-start)) 0, #000 var(--scroll-fade-size), #000 calc(100% - var(--scroll-fade-size)), rgba(0, 0, 0, var(--sf-end)) 100%);
+    animation: sf-reveal-start both linear, sf-reveal-end both linear;
+    animation-timeline: scroll(self inline), scroll(self inline);
+    animation-range-start: 0, calc(100% - var(--scroll-fade-size));
+    animation-range-end: var(--scroll-fade-size), 100%;
+  }
+}
+@media (pointer: fine) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--overlay) / 0.08) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--overlay) / 0.08);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:vertical {
+    border-left-width: 1px;
+    border-right-width: 5px;
+  }
+  ::-webkit-scrollbar-thumb:horizontal {
+    border-top-width: 1px;
+    border-bottom-width: 5px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--overlay) / 0.12);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: rgb(var(--overlay) / 0.16);
   }
 }
 
-@layer components {
-  .ui-button-md {
-    box-sizing: border-box;
-    min-height: max(var(--button-md-height), var(--hit-size));
-    height: auto;
-    padding-block: var(--space-4);
-    padding-inline: var(--button-md-padding-inline);
-    border-radius: var(--button-md-radius);
-    gap: var(--button-md-icon-gap);
-  }
-  .ui-button-icon {
-    min-width: max(var(--button-md-height), var(--hit-size));
-    padding-inline: var(--space-4);
-  }
-}
-
-/* 基础控件（包括 Portal 浮层）独立响应系统偏好。 */
+/* 系统要求减少动态效果时，所有 CSS 动画和过渡都停掉（Motion 的动画由 FluidProvider 跳过）。 */
 @layer base {
   @media (prefers-reduced-motion: reduce) {
-    [data-slot],
-    [data-slot]::before,
-    [data-slot]::after {
+    *,
+    *::before,
+    *::after {
       animation: none !important;
       transition: none !important;
     }

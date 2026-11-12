@@ -2,10 +2,11 @@ import { Plus } from "lucide-react";
 import type { SessionInfo } from "@repa/base/protocol";
 
 import { SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar";
+import { t } from "@/lib/strings";
 
 /** 会话在列表里的名称：用户起的名字，否则是第一条消息的开头。 */
 export function sessionTitle(session: SessionInfo): string {
-  return session.name ?? session.preview ?? "还没有消息的会话";
+  return session.name ?? session.preview ?? t("history.session.empty.label");
 }
 
 /**
@@ -25,7 +26,7 @@ export function SessionList({ sessions, current, disabled, onNew, onOpen }: {
     <SidebarMenuSubItem>
       <SidebarMenuSubButton asChild isActive={newActive}>
         <button type="button" aria-current={newActive ? "true" : undefined} disabled={disabled && !newActive} onClick={onNew}>
-          <Plus aria-hidden="true" /><span>新会话</span>
+          <Plus aria-hidden="true" /><span>{t("common.newSession.action")}</span>
         </button>
       </SidebarMenuSubButton>
     </SidebarMenuSubItem>

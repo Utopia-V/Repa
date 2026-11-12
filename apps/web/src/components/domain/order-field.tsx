@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, IndentDecrease, IndentIncrease, Plus, X } from "luc
 import { Button } from "@/components/ui/button";
 import { Content, MarkBadge, type FieldProps, type OrderDraft, type Slot } from "@/components/domain/item-parts";
 import { plainText } from "@/lib/ask";
+import { t } from "@/lib/strings";
 
 type OrderSlot = Extract<Slot, { type: "order" }>;
 
@@ -33,8 +34,8 @@ export function OrderField({ slot, value, onChange, labelId, describedBy, disabl
 
   return <div className="grid gap-3" aria-describedby={describedBy}>
     <ol aria-labelledby={labelId} className="m-0 grid list-none gap-2 p-0">
-      {value.items.length === 0 && <li className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
-        还没有排入任何块，从下面的候选里加入。
+      {value.items.length === 0 && <li className="rounded-lg border border-dashed border-border px-3 py-2 text-body text-muted-foreground">
+        {t("item.order.empty")}
       </li>}
       {value.items.map((id, index) => {
         const level = value.indents[index] ?? 0;
@@ -42,30 +43,30 @@ export function OrderField({ slot, value, onChange, labelId, describedBy, disabl
           key={id}
           // 缩进表示代码的层级，按 4 个空格的宽度往右排。
           style={{ marginInlineStart: `${level * 2}rem` }}
-          className="flex min-h-11 items-center gap-2 rounded-md border border-border bg-card px-3 py-1"
+          className="flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1"
         >
-          <span className="w-6 shrink-0 text-sm text-muted-foreground">{index + 1}</span>
-          <Content blocks={blocks.get(id)?.content} className="flex-1 text-sm" />
+          <span className="w-6 shrink-0 text-body text-muted-foreground">{index + 1}</span>
+          <Content blocks={blocks.get(id)?.content} className="flex-1 text-body" />
           <MarkBadge mark={marks?.[String(index)]} />
           {!disabled && <div className="flex shrink-0 flex-wrap justify-end">
-            <Button variant="ghost" size="icon" aria-label={`上移：${name(id)}`} disabled={index === 0} onClick={() => move(index, -1)}>
+            <Button variant="ghost" size="icon" aria-label={t("item.order.moveUp.label", { id: name(id) })} disabled={index === 0} onClick={() => move(index, -1)}>
               <ArrowUp aria-hidden="true" />
             </Button>
-            <Button variant="ghost" size="icon" aria-label={`下移：${name(id)}`} disabled={index === value.items.length - 1} onClick={() => move(index, 1)}>
+            <Button variant="ghost" size="icon" aria-label={t("item.order.moveDown.label", { id: name(id) })} disabled={index === value.items.length - 1} onClick={() => move(index, 1)}>
               <ArrowDown aria-hidden="true" />
             </Button>
             {maxIndent > 0 && <>
-              <Button variant="ghost" size="icon" aria-label={`减少缩进：${name(id)}`} disabled={level === 0} onClick={() => indent(index, -1)}>
+              <Button variant="ghost" size="icon" aria-label={t("item.order.outdent.label", { id: name(id) })} disabled={level === 0} onClick={() => indent(index, -1)}>
                 <IndentDecrease aria-hidden="true" />
               </Button>
-              <Button variant="ghost" size="icon" aria-label={`增加缩进：${name(id)}`} disabled={level >= maxIndent} onClick={() => indent(index, 1)}>
+              <Button variant="ghost" size="icon" aria-label={t("item.order.indent.label", { id: name(id) })} disabled={level >= maxIndent} onClick={() => indent(index, 1)}>
                 <IndentIncrease aria-hidden="true" />
               </Button>
             </>}
             {slot.partial === true && <Button
               variant="ghost"
               size="icon"
-              aria-label={`移出：${name(id)}`}
+              aria-label={t("item.order.remove.label", { id: name(id) })}
               onClick={() => onChange({ ...value, items: value.items.filter((_, at) => at !== index), indents: value.indents.filter((_, at) => at !== index) })}
             >
               <X aria-hidden="true" />
@@ -75,11 +76,11 @@ export function OrderField({ slot, value, onChange, labelId, describedBy, disabl
       })}
     </ol>
     {slot.partial === true && !disabled && unused.length > 0 && <div className="grid gap-2">
-      <p className="m-0 text-sm text-muted-foreground">候选（不一定都要用上）</p>
+      <p className="m-0 text-body text-muted-foreground">{t("item.order.candidates.label")}</p>
       <ul className="m-0 grid list-none gap-2 p-0">
-        {unused.map((block) => <li key={block.id} className="flex min-h-11 items-center gap-2 rounded-md border border-dashed border-border px-3 py-1">
-          <Content blocks={block.content} className="flex-1 text-sm" />
-          <Button variant="ghost" size="icon" aria-label={`加入：${name(block.id)}`} onClick={() => onChange({ ...value, items: [...value.items, block.id], indents: [...value.indents, 0] })}>
+        {unused.map((block) => <li key={block.id} className="flex min-h-11 items-center gap-2 rounded-lg border border-dashed border-border px-3 py-1">
+          <Content blocks={block.content} className="flex-1 text-body" />
+          <Button variant="ghost" size="icon" aria-label={t("item.order.add.label", { id: name(block.id) })} onClick={() => onChange({ ...value, items: [...value.items, block.id], indents: [...value.indents, 0] })}>
             <Plus aria-hidden="true" />
           </Button>
         </li>)}

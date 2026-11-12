@@ -1,3 +1,4 @@
+import { t } from "@/lib/strings";
 // Adapted from shadcn/ui new-york-v4 (MIT); see README.md.
 "use client"
 
@@ -5,7 +6,7 @@ import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 import { PanelLeftIcon } from "lucide-react"
-import { Slot } from "radix-ui"
+import { useRender } from "@base-ui/react/use-render"
 
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
@@ -23,7 +24,7 @@ const SIDEBAR_WIDTH_DEFAULT = 280
 const SIDEBAR_WIDTH_MIN = 200
 const SIDEBAR_WIDTH_MAX = 480
 const SIDEBAR_WIDTH_MOBILE = "min(320px, calc(100vw - 48px))"
-const SIDEBAR_WIDTH_ICON = "calc(var(--button-md-height) + var(--space-16))"
+const SIDEBAR_WIDTH_ICON = "56px"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 // 把手拖动阈值（px）与双击窗口（ms）。
 const SIDEBAR_RESIZE_THRESHOLD = 4
@@ -35,6 +36,12 @@ const sidebarWidthMaxNow = () => Math.min(SIDEBAR_WIDTH_MAX, window.innerWidth *
 /** 收敛到允许范围内并取整，避免状态里出现小数宽度。 */
 const clampSidebarWidth = (value: number, max = SIDEBAR_WIDTH_MAX) =>
   Math.round(Math.min(max, Math.max(SIDEBAR_WIDTH_MIN, value)))
+
+/** asChild：把 props 合并到唯一的子元素上，比如 NavLink。 */
+function Slot({ children, ...props }: React.ComponentProps<"button"> | React.ComponentProps<"a">) {
+  const element = React.isValidElement(children) ? children : <span>{children}</span>
+  return useRender({ render: element as React.ReactElement<Record<string, unknown>>, props })
+}
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -231,16 +238,11 @@ function Sidebar({
           }
           side={side}
           showCloseButton={false}
-          onCloseAutoFocus={(event) => {
-            if (triggerRef.current?.isConnected) {
-              event.preventDefault()
-              triggerRef.current.focus()
-            }
-          }}
+          finalFocus={() => (triggerRef.current?.isConnected ? triggerRef.current : true)}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>工作台导航</SheetTitle>
-            <SheetDescription>切换功能或浏览会话。</SheetDescription>
+            <SheetTitle>{t("sidebar.drawer.title")}</SheetTitle>
+            <SheetDescription>{t("sidebar.drawer.description")}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -320,7 +322,7 @@ function SidebarTrigger({
       {...props}
     >
       <PanelLeftIcon />
-      <span className="sr-only">{(isMobile ? openMobile : open) ? "收起导航" : "打开导航"}</span>
+      <span className="sr-only">{(isMobile ? openMobile : open) ? t("sidebar.collapse.label") : t("sidebar.open.label")}</span>
     </Button>
   )
 }
@@ -436,8 +438,8 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
       type="button"
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="切换侧栏"
-      title="拖动调整宽度，点击切换，双击重置；方向键调整宽度"
+      aria-label={t("sidebar.rail.label")}
+      title={t("sidebar.rail.hint")}
       onClick={onClick}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -455,7 +457,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
         }
       }}
       className={cn(
-        "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-border md:flex cursor-ew-resize",
+        "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 touch-none outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)] group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-border md:flex cursor-ew-resize",
         "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-card",
         "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
         "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
@@ -549,11 +551,11 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-md px-4 py-2 text-left text-sm font-medium text-muted-foreground [font-family:var(--font-heading)] no-underline outline-none transition-[width,height,padding,color,background-color,border-color] duration-300 ease-linear hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring active:bg-accent disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-accent data-[active=true]:font-bold data-[active=true]:text-accent-foreground aria-[current=page]:bg-accent aria-[current=page]:font-bold aria-[current=page]:text-accent-foreground [&>span]:min-w-0 [&>span]:truncate [&>svg]:size-5 [&>svg]:shrink-0 group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-solid group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:data-[active=true]:border-border-selected group-data-[collapsible=icon]:aria-[current=page]:border-border-selected",
+  "peer/menu-button flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-md px-4 py-2 text-left text-body weight-semibold text-muted-foreground [font-family:var(--font-heading)] no-underline outline-none transition-[width,height,padding,color,background-color,border-color] duration-300 ease-linear hover:bg-hover hover:text-foreground focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)] active:bg-active disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-accent data-[active=true]:weight-bold data-[active=true]:text-accent-foreground aria-[current=page]:bg-accent aria-[current=page]:weight-bold aria-[current=page]:text-accent-foreground [&>span]:min-w-0 [&>span]:truncate [&>svg]:size-5 [&>svg]:shrink-0 group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-solid group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:data-[active=true]:border-border-selected group-data-[collapsible=icon]:aria-[current=page]:border-border-selected",
   {
     variants: {
       variant: { default: "" },
-      size: { default: "min-h-[max(var(--button-md-height),var(--hit-size))]" },
+      size: { default: "min-h-10" },
     },
     defaultVariants: { variant: "default", size: "default" },
   }
@@ -570,7 +572,7 @@ function SidebarMenuButton({
   asChild?: boolean
   isActive?: boolean
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
-  const Comp = asChild ? Slot.Root : "button"
+  const Comp = asChild ? Slot : "button"
 
   const button = (
     <Comp
@@ -623,7 +625,7 @@ function SidebarMenuSubButton({
   asChild?: boolean
   isActive?: boolean
 }) {
-  const Comp = asChild ? Slot.Root : "a"
+  const Comp = asChild ? Slot : "a"
 
   return (
     <Comp

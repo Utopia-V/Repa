@@ -21,6 +21,7 @@ import { interactionCapabilities } from "@/lib/ask";
 import { applyEvent, emptyConversation, historyItems, type Conversation } from "@/lib/conversation";
 import { describeError, errorCode } from "@/lib/errors";
 import { createLearningActions, emptyLearning, type LearningActions, type LearningView } from "@/lib/learning";
+import { t } from "@/lib/strings";
 
 /** 一份从后端读取的数据；重新读取期间保留上一次的 data，界面不回到空白。 */
 export type Resource<T> = {
@@ -252,7 +253,7 @@ export function createAppStore() {
     async function call<M extends Method>(method: M, params: Params<M>): Promise<Result<M>> {
       if (resuming && (method.startsWith("session.") || method.startsWith("history.") || method.startsWith("prompt.") || method.startsWith("plugin."))) await resuming;
       const client = get().client;
-      if (!client) throw new ConnectionError("尚未连接后端。");
+      if (!client) throw new ConnectionError(t("connection.notConnected.error"));
       return await client.call(method, params);
     }
 
@@ -612,13 +613,13 @@ export function createAppStore() {
       },
       createFeedback({ describe, note }) {
         const { sessionId, items, sendError } = get().conversation;
-        if (!sessionId) return Promise.reject(new Error("还没有会话，无法生成反馈包。"));
+        if (!sessionId) return Promise.reject(new Error(t("feedback.noSession.error")));
         // 对话项没有时间戳，time 记的是收集的时刻；后端的错误另有准确时间。
         const time = new Date().toISOString();
-        const shown = items.flatMap((item) => item.kind === "error" ? [{ time, message: item.text.slice(0, 4000), source: "对话记录" }] : []);
+        const shown = items.flatMap((item) => item.kind === "error" ? [{ time, message: item.text.slice(0, 4000), source: t("feedback.trigger.transcript.label") }] : []);
         const send = sendError === undefined ? [] : [(() => {
           const { message, code } = describeError(sendError);
-          return { time, message: (code === undefined ? message : `${message}（${code}）`).slice(0, 4000), source: "发送或停止" };
+          return { time, message: (code === undefined ? message : `${message}（${code}）`).slice(0, 4000), source: t("feedback.trigger.sendOrStop.label") };
         })()];
         return call("feedback.create", {
           sessionId,

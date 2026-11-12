@@ -15,6 +15,7 @@ import {
 } from "@repa/learning/protocol";
 
 import { errorCode } from "@/lib/errors";
+import { t } from "@/lib/strings";
 
 export const LEARNING_PLUGIN = "learning";
 /** 学习插件的辅导 Agent；每个任务开一个它的会话，view 投影的就是这个任务。 */
@@ -97,7 +98,7 @@ export function createLearningActions({ call, get, set }: Deps) {
   async function learningCall<M extends LearningMethod>(method: M, input: LearningInput<M>): Promise<LearningResult<M>> {
     const raw = await call("plugin.call", { pluginId: LEARNING_PLUGIN, method, input });
     const read = readLearningResult(method, raw);
-    if (!read.ok) throw new Error(`学习插件返回的内容这个版本读不懂（${method}${read.path}），请更新应用。`);
+    if (!read.ok) throw new Error(t("learn.api.unreadable.error", { method, path: read.path }));
     return read.value;
   }
 
@@ -148,7 +149,7 @@ export function createLearningActions({ call, get, set }: Deps) {
   function guard() {
     const state = get().learning.state;
     const task = state?.task;
-    if (!state || !task) throw new Error("现在没有进行中的任务。");
+    if (!state || !task) throw new Error(t("learn.task.none.error"));
     return { taskId: task.taskId, expectedStage: task.phase.stage, expectedRevision: state.revision };
   }
 
@@ -249,7 +250,7 @@ export function createLearningActions({ call, get, set }: Deps) {
     selectCandidate(candidateId: string): Promise<void> {
       const menu = get().learning.state?.menu;
       return perform("select", async () => {
-        if (!menu) throw new Error("菜单已经变了，请重新选择。");
+        if (!menu) throw new Error(t("learn.menu.changed.error"));
         return await learningCall("menu.select", { menuId: menu.menuId, candidateId });
       });
     },

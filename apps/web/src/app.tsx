@@ -13,6 +13,7 @@ import { TrialRunnerProvider } from "@/hooks/use-trial-runner";
 import { repaHost, type RepaHost } from "@/lib/host";
 import { createPythonRunner } from "@/lib/python/runner";
 import type { AppStore } from "@/lib/store";
+import { t } from "@/lib/strings";
 
 type BootstrapState =
   | { status: "starting" }
@@ -32,8 +33,8 @@ export async function loadWebConnection(): Promise<ClientConnection> {
   } catch {
     throw new Error(
       response.ok
-        ? "Web 环境返回了无效的后端连接。"
-        : "当前 Web 环境没有提供 Repa 后端连接。",
+        ? t("connection.web.invalid.error")
+        : t("connection.web.missing.error"),
     );
   }
   if (!response.ok) {
@@ -43,10 +44,10 @@ export async function loadWebConnection(): Promise<ClientConnection> {
         "error" in value &&
         typeof value.error === "string"
         ? value.error
-        : "当前 Web 环境没有提供 Repa 后端连接。",
+        : t("connection.web.missing.error"),
     );
   }
-  return readConnection(value, "Web 开发服务器");
+  return readConnection(value, t("connection.web.source.label"));
 }
 
 function readConnection(value: unknown, source: string): ClientConnection {
@@ -58,14 +59,14 @@ function readConnection(value: unknown, source: string): ClientConnection {
     !("token" in value) ||
     typeof value.token !== "string"
   ) {
-    throw new Error(`${source}返回了无效的后端连接。`);
+    throw new Error(t("connection.source.invalid.error", { source }));
   }
   return { url: value.url, token: value.token };
 }
 
 /** 桌面端的连接由主进程启动后端后经 preload 交出。 */
 export async function loadDesktopConnection(host: RepaHost): Promise<ClientConnection> {
-  return readConnection(await host.getConnection(), "桌面端");
+  return readConnection(await host.getConnection(), t("connection.desktop.source.label"));
 }
 
 /** 在桌面端里向宿主要连接，在浏览器里向 Web 开发服务器要。 */

@@ -7,6 +7,7 @@ import {
 
 import type { PastAsk } from "@/lib/conversation";
 import type { Ask } from "@/lib/store";
+import { t } from "@/lib/strings";
 
 type Slot = Item["slots"][number];
 
@@ -22,7 +23,7 @@ export function plainText(content: Block[] | undefined): string {
 
 /** 小问的简短名称：label，否则题面文字，都没有时按序号。 */
 export function slotName(slot: Slot, index: number): string {
-  return slot.label ?? (plainText(slot.prompt) || `第 ${index + 1} 问`);
+  return slot.label ?? (plainText(slot.prompt) || t("item.ask.slot.label", { value: index + 1 }));
 }
 
 /** 作答的文字回显：选项按 label 或内容，自填的加“其他”前缀。 */
@@ -32,10 +33,10 @@ export function answerText(slot: Slot, answer: Answer | undefined): string {
       const option = slot.options.find((candidate) => candidate.id === id);
       return option ? option.label ?? plainText(option.content) : id;
     });
-    if (answer.other !== undefined) chosen.push(`${slot.other?.label ?? "其他"}：${answer.other}`);
-    return chosen.length === 0 ? "没有选择" : chosen.join("、");
+    if (answer.other !== undefined) chosen.push(`${slot.other?.label ?? t("item.other.label")}：${answer.other}`);
+    return chosen.length === 0 ? t("item.ask.noChoice.status") : chosen.join("、");
   }
-  if (answer?.type === "text") return answer.text === "" ? "没有填写" : answer.text;
+  if (answer?.type === "text") return answer.text === "" ? t("item.ask.noInput.status") : answer.text;
   if (answer?.type === "order" && slot.type === "order") {
     return answer.items.map((id, index) => {
       const block = slot.items.find((candidate) => candidate.id === id);
@@ -45,10 +46,10 @@ export function answerText(slot: Slot, answer: Answer | undefined): string {
   }
   if (answer?.type === "table") {
     const filled = Object.values(answer.cells).reduce((count, row) => count + Object.keys(row).length, 0);
-    return `填写了 ${filled} 格`;
+    return t("item.ask.filled.status", { filled });
   }
   if (answer?.type === "code") return answer.code;
-  return "没有作答";
+  return t("item.ask.noAnswer.status");
 }
 
 /** 会话记录里的一次 ask_user 换成已结束的询问，卡片按结束方式显示；callId 同时作为询问的 id。 */

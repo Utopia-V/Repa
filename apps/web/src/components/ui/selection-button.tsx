@@ -1,54 +1,26 @@
 import type { ComponentProps } from "react";
 import { Check } from "lucide-react";
-import { cva } from "class-variance-authority";
-import { Button } from "./button";
+import { RowButton } from "./row-button";
 import { cn } from "@/lib/utils";
-
-const selectionVariants = cva("justify-start", {
-  variants: {
-    selected: {
-      true: "bg-accent text-accent-foreground",
-      false: "text-muted-foreground",
-    },
-    size: {
-      md: "",
-      icon: "relative w-10 justify-center border-border",
-    },
-  },
-  compoundVariants: [
-    { size: "icon", selected: false, className: "bg-card" },
-    { size: "icon", selected: true, className: "border-border-selected" },
-  ],
-});
 
 /** 持续选择独立于键盘焦点，并始终提供可见标记。 */
 export function SelectionButton({
   selected,
   children,
   className,
-  size = "md",
   ...props
-}: Omit<ComponentProps<typeof Button>, "variant" | "aria-pressed"> & {
+}: Omit<ComponentProps<typeof RowButton>, "aria-pressed" | "outlined"> & {
   selected: boolean;
 }) {
   return (
-    <Button
+    <RowButton
       {...props}
-      size={size}
-      variant="ghost"
+      data-slot="selection-button"
       aria-pressed={selected}
-      className={cn(selectionVariants({ selected, size }), className)}
+      className={cn(selected ? "bg-active text-foreground" : "text-muted-foreground", className)}
     >
       {children}
-      <Check
-        aria-hidden="true"
-        className={cn(
-          size === "icon"
-            ? "absolute -right-1 -top-1 size-3 rounded-full bg-card text-accent-foreground"
-            : "ml-auto",
-          !selected && "invisible",
-        )}
-      />
-    </Button>
+      <Check aria-hidden="true" className={cn("ml-auto", !selected && "invisible")} />
+    </RowButton>
   );
 }

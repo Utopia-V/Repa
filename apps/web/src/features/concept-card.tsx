@@ -7,6 +7,7 @@ import type { RenderLink } from "@/components/ui/markdown";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { Content } from "@/components/domain/item-parts";
 import { useAppStore } from "@/hooks/use-app-store";
+import { t } from "@/lib/strings";
 
 type Hit = LearningResult<"content.search">["hits"][number];
 type Loaded = { hit: Hit; page: ContentPage };
@@ -35,10 +36,10 @@ export function ConceptCardDialog({ kpId, renderLink }: { kpId: string; renderLi
         const { hits } = await searchContent(kpId);
         const hit = hits.find((candidate) => candidate.ref.kind === "card" && candidate.ref.kpId === kpId)
           ?? hits.find((candidate) => candidate.ref.kind === "kp" && candidate.ref.kpId === kpId);
-        if (!hit) throw new Error("没有找到这个知识点，可能是课程更新后编号变了。");
+        if (!hit) throw new Error(t("concept.card.notFound.error"));
         await openContent(hit.ref);
         const [page] = await readContent(hit.ref);
-        if (!page) throw new Error("这张卡片没有内容。");
+        if (!page) throw new Error(t("concept.card.empty.error"));
         if (active) setLoaded({ hit, page });
       } catch (failure) {
         if (active) setError(failure);
@@ -60,18 +61,18 @@ export function ConceptCardDialog({ kpId, renderLink }: { kpId: string; renderLi
   const sameAsCard = loaded && loaded.hit.origin.content.id === loaded.hit.ref.id;
   return <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
     <DialogHeader>
-      <DialogTitle>{loaded?.hit.title ?? "概念卡"}</DialogTitle>
-      <DialogDescription>学过的内容随时可以回来查。</DialogDescription>
+      <DialogTitle>{loaded?.hit.title ?? t("concept.card.title")}</DialogTitle>
+      <DialogDescription>{t("concept.card.description")}</DialogDescription>
     </DialogHeader>
-    {!loaded && error === undefined && <p role="status" className="m-0 text-sm text-muted-foreground">正在读取…</p>}
-    {error !== undefined && <ErrorNotice title="没能打开这张卡片" error={error} />}
+    {!loaded && error === undefined && <p role="status" className="m-0 text-body text-muted-foreground">{t("common.loading.status")}</p>}
+    {error !== undefined && <ErrorNotice title={t("concept.card.open.error")} error={error} />}
     {loaded && <Content blocks={loaded.page.blocks} renderLink={renderLink} />}
     {loaded && !sameAsCard && !origin && <div>
-      <Button variant="outline" onClick={() => { void showOrigin(loaded.hit); }}>看原来的例题</Button>
+      <Button variant="tertiary" onClick={() => { void showOrigin(loaded.hit); }}>{t("concept.card.example.action")}</Button>
     </div>}
-    {originError !== undefined && <ErrorNotice title="没能读取原来的例题" error={originError} />}
-    {origin && <section aria-label="原来的例题" className="grid gap-2 border-t border-border pt-4">
-      <h4 className="m-0 text-sm font-semibold">原来的例题</h4>
+    {originError !== undefined && <ErrorNotice title={t("concept.card.exampleLoad.error")} error={originError} />}
+    {origin && <section aria-label={t("concept.card.example.label")} className="grid gap-2 border-t border-border pt-4">
+      <h4 className="m-0 text-body weight-semibold">{t("concept.card.example.label")}</h4>
       <Content blocks={origin.blocks} renderLink={renderLink} />
     </section>}
   </DialogContent>;

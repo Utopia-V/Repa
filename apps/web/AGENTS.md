@@ -12,8 +12,8 @@
 ## 样式与组件归属
 
 - 样式链路为 `docs/design-system.md` → `src/globals.css` → `src/components/ui` → `src/components/domain` → 页面或 feature；页面或 feature 位于组件的调用层，不反向定义组件视觉。
-- 优先复用 `src/components/ui` 中已有的 shadcn 组件；基础组件存在 variant 或 size 时使用 CVA 管理。
-- 颜色必须使用 semantic design tokens，不直接写品牌色或中性色 HEX/RGB，不引用主题私有变量。`src/globals.css` 是 token 的唯一真实来源，不另建 `tokens.ts` 或 JSON 色板。
+- 优先复用 `src/components/ui` 中已有的 Fluid Functionalism 组件；基础组件存在 variant 或 size 时使用 CVA 管理。
+- 颜色必须使用 semantic design tokens，不直接写品牌色或中性色 HEX/RGB，不引用主题私有变量（上游组件自带的回退色除外）。`src/globals.css` 是 token 的唯一真实来源，不另建 `tokens.ts` 或 JSON 色板。
 - 不新增任意圆角、字号或非 spacing scale 间距；布局尺寸、拓扑坐标和图标尺寸不冒充留白 token。
 - 通用 hover、active、focus、disabled 等视觉行为修改基础组件，不通过逐页 CSS、子元素选择器或 className 覆盖。
 - `src/components/domain` 组合基础组件和业务状态，将 selected、completed、current、error 等映射到已有语义，不重新定义基础视觉语言；不依赖页面 CSS 才能正确显示。
@@ -23,7 +23,7 @@
 ## 组件实现与交互
 
 - 基础组件不持有学习业务数据；业务组件通过 props 表达业务状态；页面或 feature 负责数据接入和组合，不为每个页面复制基础组件。
-- 复用现有 shadcn/Radix 的焦点管理、键盘操作和复合控件行为。更新上游源码前核对本地适配，不直接覆盖项目 variant、尺寸和可访问性规则。
+- 复用现有 Base UI 的焦点管理、键盘操作和复合控件行为。更新上游源码前核对本地适配，不直接覆盖项目 variant、尺寸和可访问性规则。
 - 同一 size 下各 Button variant 共享几何与排版；Disabled 是状态。默认 Button 不提交表单，提交入口显式使用 `type="submit"`。
 - 重要状态提供非颜色视觉提示，同时提供对应的原生或 ARIA 状态。Selected 与 Focus 独立，不以选中标记替代焦点提示。
 - 输入控件使用可见 label（对话输入框的例外见设计系统规范）；错误说明关联输入。图标按钮提供可访问名称；交互组件支持键盘操作。
@@ -41,7 +41,7 @@
 
 ## 界面文字与基础组件
 
-- 界面文字放在字符串文件里，组件只引用键；新键由人书写，Agent 只留占位，见[约定](../../.agents/notes/proposed/architecture/2026-11-06-ui-strings-and-components.md)。
+- 界面文字放在字符串文件里，组件只引用键；新键由人书写，Agent 只留占位，见[用法](src/components/ui/README.md#界面文字)。
 - 输入法选字、Esc、失败时保留输入、减少动效和焦点恢复由基础组件实现，做不到时改基础组件。
 - 模型或课程生成的内容按设计 token 渲染；课程自带组件的接入同见上述约定。
 

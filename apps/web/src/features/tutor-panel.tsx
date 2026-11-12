@@ -8,9 +8,11 @@ import { StatusNotice } from "@/components/ui/status-notice";
 import { ConversationItemView } from "@/components/domain/conversation-item";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { MessageComposer } from "@/components/domain/message-composer";
+import { useDraftSend } from "@/hooks/use-draft-send";
 import { useAppStore } from "@/hooks/use-app-store";
 import { describeError, errorCode } from "@/lib/errors";
 import { TUTOR_AGENT } from "@/lib/learning";
+import { t } from "@/lib/strings";
 
 /** `message_rejected` 的拒收原因，例如受限任务期间的 restricted。 */
 function rejectedReason(error: unknown): unknown {
@@ -38,7 +40,7 @@ export function TutorPanel({ allowed, renderLink }: {
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
   const loadModelSettings = useAppStore((state) => state.loadModelSettings);
   const refreshLearning = useAppStore((state) => state.refreshLearning);
-  const [draft, setDraft] = useState("");
+  const { draft, setDraft, send: sendDraft } = useDraftSend(sendMessage);
   const record = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const bound = conversation.agent === TUTOR_AGENT;
@@ -73,11 +75,8 @@ export function TutorPanel({ allowed, renderLink }: {
   }, [conversation.items]);
 
   async function send() {
-    const text = draft;
-    setDraft("");
     following.current = true;
-    const sent = await sendMessage(text);
-    if (!sent) setDraft((current) => current === "" ? text : current);
+    await sendDraft();
   }
 
   async function stop() {
@@ -87,21 +86,20 @@ export function TutorPanel({ allowed, renderLink }: {
 
   const needsModel = (defaultModel.status === "ready" && defaultModel.data === null) || errorCode(conversation.sendError) === "model_required";
 
-  return <section aria-label="辅导" className="flex min-h-0 flex-1 flex-col">
+  return <section aria-label={t("tutor.panel.label")} className="flex min-h-0 flex-1 flex-col">
     <div className="flex justify-end px-4">
       <Button
         variant="ghost"
         // 已经是一段空的新对话时不必再开。
         disabled={!bound || running || conversation.sessionId === undefined}
         onClick={() => newConversation({ agent: TUTOR_AGENT })}
-      >
-        <SquarePen aria-hidden="true" />新对话
+       leadingIcon={SquarePen}>{t("tutor.newConversation.action")}
       </Button>
     </div>
     <div
       ref={record}
       tabIndex={0}
-      aria-label="辅导对话记录"
+      aria-label={t("tutor.transcript.label")}
       aria-busy={running}
       onScroll={() => {
         const element = record.current;
@@ -109,10 +107,10 @@ export function TutorPanel({ allowed, renderLink }: {
       }}
       className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
-      {bound && status === "loading" && <p role="status" className="text-sm text-muted-foreground">正在读取对话…</p>}
-      {bound && status === "error" && <ErrorNotice title="无法读取对话" error={conversation.error} />}
-      {bound && status === "ready" && items.length === 0 && !running && <p className="m-0 text-sm text-muted-foreground">
-        哪里看不懂，就在这里问。
+      {bound && status === "loading" && <p role="status" className="text-body text-muted-foreground">{t("tutor.loading.status")}</p>}
+      {bound && status === "error" && <ErrorNotice title={t("tutor.load.error")} error={conversation.error} />}
+      {bound && status === "ready" && items.length === 0 && !running && <p className="m-0 text-body text-muted-foreground">
+        {t("tutor.transcript.empty")}
       </p>}
       {bound && items.map((item) => <ConversationItemView
         key={item.id}
@@ -121,19 +119,19 @@ export function TutorPanel({ allowed, renderLink }: {
         forkDisabled
         renderLink={renderLink}
       />)}
-      {bound && running && conversation.streaming === undefined && <p role="status" className="mb-4 text-sm text-muted-foreground">
-        {run === "stopping" ? "正在停止…" : "辅导正在思考…"}
+      {bound && running && conversation.streaming === undefined && <p role="status" className="mb-4 text-body text-muted-foreground">
+        {run === "stopping" ? t("common.stopping.status") : t("tutor.thinking.status")}
       </p>}
     </div>
     <div className="grid gap-3 px-4 pt-2 pb-4">
-      {!allowed && <p className="m-0 text-sm text-muted-foreground">复习和测验期间不能问辅导，结束后再问。</p>}
+      {!allowed && <p className="m-0 text-body text-muted-foreground">{t("tutor.unavailable.hint")}</p>}
       {allowed && needsModel && <div className="grid gap-3">
-        <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型提供方后才能问辅导。</p></StatusNotice>
-        <div><Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button></div>
+        <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("tutor.noModel.hint")}</p></StatusNotice>
+        <div><Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button></div>
       </div>}
-      {allowed && restricted && <p className="m-0 text-sm text-muted-foreground">现在不能问辅导，这条消息没有发出。</p>}
+      {allowed && restricted && <p className="m-0 text-body text-muted-foreground">{t("tutor.sendFailed.error")}</p>}
       {allowed && conversation.sendError !== undefined && errorCode(conversation.sendError) !== "model_required" && !restricted
-        && <ErrorNotice title="消息没有完成" error={conversation.sendError} />}
+        && <ErrorNotice title={t("common.messageIncomplete.title")} error={conversation.sendError} />}
       {allowed && <MessageComposer
         value={draft}
         onChange={setDraft}

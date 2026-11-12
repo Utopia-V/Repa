@@ -8,7 +8,7 @@ export function ErrorNotice({ error, title }: { error: unknown; title?: string }
     <StatusNotice status="error" title={title ?? description.title}>
       <p>{description.message}</p>
       {showDetails && (
-        <p className="mt-2 font-mono text-xs break-all">
+        <p className="mt-2 font-mono text-caption break-all">
           {description.code}
           {description.details !== undefined && ` ${JSON.stringify(description.details)}`}
         </p>

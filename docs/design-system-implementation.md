@@ -11,28 +11,26 @@
 - `globals.css` 内 `--theme-*` 是主题私有色值，仅用于定义语义变量；业务代码禁止引用。
 - 公共 CSS variables 按规范中的色彩语义分层。Tailwind 的 `@theme inline` 将其映射为 `bg-primary`、`text-foreground` 等工具类，普通 CSS 可直接使用同名变量。
 - 字体、行高、圆角、间距同样由此文件持有，不通过 JavaScript 注入 token，不维护第二份 JSON 色板。
-- 字体文件来自 `@fontsource-variable` 的三个包，随应用打包：页面 CSP 不放行外站样式表，桌面端离线时也要能显示。可变字体的 family 名带 `Variable` 后缀。CSP 也不放行 `data:` 字体，`apps/web/vite.config.ts` 因此让构建不内联字体文件。
-- `components/ui` 使用引入并适配的 shadcn 组件；涉及焦点管理、复合控件与键盘操作的行为复用 Radix。
+- 字体文件来自 `@fontsource-variable` 的 Inter（带 `opsz` 轴）、Noto Sans SC 和 JetBrains Mono，随应用打包：页面 CSP 不放行外站样式表，桌面端离线时也要能显示。可变字体的 family 名带 `Variable` 后缀。CSP 也不放行 `data:` 字体，`apps/web/vite.config.ts` 因此让构建不内联字体文件。
+- `components/ui` 使用 Fluid Functionalism 的 Base UI 版组件；涉及焦点管理、复合控件与键盘操作的行为复用 Base UI。输入法选字、Esc 逐层退出、失败保留草稿、减少动效和焦点恢复在基础层实现，测试在 `apps/web/test/base-behaviors.test.tsx`。
 - 业务组件持有数据与业务状态，只组合语义组件。当前 `components/domain/conversation-message.tsx` 把发送方映射到 `MessageBubble` 的 variant，不另写气泡颜色。
 - 页面负责布局，不持有通用组件样式。Web 与 Desktop 主应用的启动、失败重试、断线提示和工作台侧栏已接入；其他 Desktop 组件尚未迁移。
 
 ## 当前主题与适配
 
-当前主题为 Ultramarine Workspace。`surface-inset` 映射到 `muted`。`status-complete` 映射到 `primary`；`border-selected`、`border-error`、`border-complete` 分别映射到 `primary`、`destructive`、`status-complete`；`ring` 映射到中性灰 `--theme-subtle`；`input-focus` 映射到介于 `input` 和 `ring` 之间的 `--theme-control-line-strong`。修改主题时保持语义调用不变，并重新验证背景与前景配对。
+当前主题是组件库的中性色，强调色为 Sky（`--fluid-accent`）。`surface-inset` 映射到 `muted`；`border-selected`、`border-error` 分别映射到 `primary`、`destructive`；`ring` 映射到 `focus-ring`。Tailwind 打开了 preflight，根字号为 14 px，圆角在 `@theme` 里写成 px。修改主题时保持语义调用不变，并重新验证背景与前景配对。
 
-规范中的标准名称直接对应 shadcn CSS variables。额外补充边框语义 `border-selected`、`border-error`、`border-complete`，以及 `status-complete`、`status-complete-foreground`、`surface-inset`、`overlay` 这些实际有调用方的语义。
+语义名沿用 shadcn CSS variables，并加上组件库的 `surface-*`、`hover`、`active`、`selected`、`tint`、`z-*` 和 `fs-*`、`lh-*`。`--muted-foreground`、`--destructive` 与组件库的默认值不同，是为了满足文字对比度；`--input` 不同，是为了让输入框边界达到 3:1。
 
-为兼容 shadcn 的 `secondary` variant，`secondary` / `secondary-foreground` 分别是 `accent` / `accent-foreground` 的别名；`popover` / `popover-foreground` 是 `card` / `card-foreground` 的别名。`secondary` 配对仅供基础组件实现 Secondary variant 使用，业务层不得直接作为颜色消费；`popover` 配对用于浮层适配。持续选择的 accent 背景由基础组件决定。没有新增无调用方的 sidebar、chart 或暗色主题 token。
-
-旧 `primary-hover`、`primary-active`、`surface-selected` 和多级正文灰度已取消；hover/active 的视觉变化由组件从语义 token 派生。同一个语义只保留一个选择入口，不因数值暂时相同而合并不同责任。
+没有深色主题：`:root` 固定 `color-scheme: light`，`dark:` 只在 `.dark` 下生效。
 
 ## 主应用接入范围
 
-Web 仅保留主应用入口 `apps/web/index.html`，主题由 `apps/web/src/globals.css` 唯一持有。Select 使用 Radix 弹层，当前选中标记为勾选。Button 提供规范中的五种 variant；未使用的上游 `link` variant 已移除。
+Web 仅保留主应用入口 `apps/web/index.html`，主题由 `apps/web/src/globals.css` 唯一持有。Select 使用 Base UI 弹层，当前选中标记为勾选。Button 提供规范中的五种 variant。
 
 运行 `npm run dev:web` 并访问主应用。Tailwind 构建集成在 Web Vite 宿主；主题由主应用入口引入；主应用 styles.css 仅保留基于 token 的宿主基础样式。
 
-`npm run check --workspace=@repa/web`、`npm run test --workspace=@repa/web`、`npm run build --workspace=@repa/web` 验证类型、组件与构建。`apps/web/test/design-system.test.tsx` 覆盖主题对比度、选择/焦点独立性、按钮提交语义、进度可访问值以及弹窗焦点恢复。浏览器验收还需检查移动端、键盘 ring 和更换完成色后主要行动保持原色。
+`npm run check --workspace=@repa/web`、`npm run test --workspace=@repa/web`、`npm run build --workspace=@repa/web` 验证类型、组件与构建。`apps/web/test/design-system.test.tsx` 覆盖主题对比度、选择/焦点独立性、按钮提交语义和进度可访问值。浏览器验收还需检查移动端、键盘 ring 和更换完成色后主要行动保持原色。
 
 实现来源见 [通用组件说明](../apps/web/src/components/ui/README.md)。
 
@@ -66,10 +64,10 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 
 ## 组件调用边界的落实
 
-- `SelectionButton` 的 CVA 持有持续选择外观；图标形态的表面与选中边框也在基础层定义。调用方只传递 selected、图标、标签和布局位置，不通过 className 拼接 accent 或边框状态。
-- Standard Card 的 20 px 内距由 Card 根节点统一提供；Header、Content、Footer 不再追加水平 padding，页面不得覆盖 Card 内距。
+- `SelectionButton` 持有持续选择外观。调用方只传递 selected、标签和布局位置，不通过 className 拼接 accent 或边框状态。
+- Card 的 16 px 内距由 Card 根节点统一提供；Header、Content、Footer 不再追加水平 padding，页面不得覆盖 Card 内距。
 - `SearchInput` 要求 label，并使用关联的可见标签；消息输入框按规范的例外不显示标签，以 `aria-label` 提供名称。placeholder 仅作为示例。
-- `components/ui/styles.css` 在减少动态效果偏好下关闭基础控件及 Portal 浮层的 animation 和 transition。
+- `components/ui/styles.css` 在减少动态效果偏好下关闭所有元素的 animation 和 transition，Motion 的动画由 `lib/fluid-provider.tsx` 跳过。
 
 ## 主应用入口
 
@@ -90,7 +88,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 
 ## 工作台侧栏
 
-- `components/ui/sidebar.tsx` 从 shadcn 官方 `new-york-v4/sidebar.json` 引入本次使用的 Provider、Sidebar、Trigger、Rail、Header、Content、Footer、Group、Menu 与 Submenu 组合；未引入没有调用方的 Input、Skeleton、Tooltip 和菜单附件。
+- `components/ui/sidebar.tsx` 的结构来自 shadcn 官方 `new-york-v4/sidebar.json`，底层是 Base UI，颜色和字号用组件库的 token，包含本次使用的 Provider、Sidebar、Trigger、Rail、Header、Content、Footer、Group、Menu 与 Submenu 组合；未引入没有调用方的 Input、Skeleton、Tooltip 和菜单附件。
 - `SidebarRail` 是侧栏边缘的 16 px 手势条，点击切换展开/收起，悬停显示 2 px 中性 `border` 竖线；支持拖动调整宽度、双击重置，键盘方向键调整、Home 重置、Enter/空格切换；上游的 offcanvas 类保留但当前未被使用。
 - `layouts/workspace-layout.tsx` 通过 SidebarProvider 组合应用侧栏、打开入口和空白路由出口。桌面展开宽度 280 px，收起为 56 px 常驻图标栏（`collapsible="icon"`）；移动端由官方 `useIsMobile` 与 Sheet 切换为侧边面板。桌面折叠栏自带展开入口，工作区只在移动端渲染浮动打开按钮。桌面可拖动至 200 px—480 px，最大不超过视口的 40%；拖至最小宽度以下收起，折叠时向外拖至 200 px 展开阈值才展开，小幅拖动保持折叠；展开使用完整过渡并结束本次拖动。桌面的展开状态和宽度由 Zustand store 的 `persist` 写入 `localStorage`（键 `repa.web.preferences`，和打开的空间、当前会话 id 存在一起），刷新后保留；存储不可用时退回默认展开、默认宽度，格式不对的项逐项回到默认值；移动端抽屉每次从关闭开始，不保存。拖动期间用 80 ms 短过渡平滑调整宽度，跨过收起阈值时恢复完整折叠动画，取消、失去指针捕获或卸载时清理拖动状态。
 - 折叠栏沿用 SidebarMenuButton 的 token 与交互状态，通过 `sr-only` 保留标签的可访问名称，并用 `title` 提供图标提示。侧栏支持拖动调宽、收起与展开；移动端复用 Sheet 的关闭、Escape 和焦点恢复行为。

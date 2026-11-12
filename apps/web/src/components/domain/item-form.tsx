@@ -15,6 +15,7 @@ import {
 import { OrderField } from "@/components/domain/order-field";
 import { TableField } from "@/components/domain/table-field";
 import { plainText, slotName } from "@/lib/ask";
+import { t } from "@/lib/strings";
 
 type ChoiceSlot = Extract<Slot, { type: "choice" }>;
 type TextSlot = Extract<Slot, { type: "text" }>;
@@ -107,7 +108,7 @@ export function buildResponse(item: Item, draft: Draft): ItemResponse {
 export function SlotProblems({ id, problems }: { id: string; problems: Problem[] }) {
   if (problems.length === 0) return null;
   return <div id={id} className="grid gap-1">
-    {problems.map((problem, index) => <p key={index} className="m-0 flex items-start gap-1.5 text-sm text-destructive">
+    {problems.map((problem, index) => <p key={index} className="m-0 flex items-start gap-1.5 text-body text-destructive">
       <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />{problem.message}
     </p>)}
   </div>;
@@ -115,10 +116,10 @@ export function SlotProblems({ id, problems }: { id: string; problems: Problem[]
 
 function ChoiceField({ slot, value, onChange, labelId, invalid, describedBy, disabled, marks }: FieldProps<ChoiceSlot, ChoiceDraft>) {
   const base = useId();
-  const otherLabel = slot.other?.label ?? "其他";
+  const otherLabel = slot.other?.label ?? t("item.other.label");
   const otherInput = slot.other && <Input
-    aria-label={`${otherLabel}：自己填写`}
-    placeholder="自己填写"
+    aria-label={t("item.other.action", { otherLabel })}
+    placeholder={t("item.other.placeholder")}
     value={value.otherText}
     disabled={disabled}
     // 开始填写就选中“其他”；单选时同时放下已选的选项。
@@ -192,10 +193,10 @@ function TextField({ slot, value, onChange, labelId, invalid, describedBy, disab
       {(slot.lines ?? 1) > 1
         ? <Textarea {...common} rows={slot.lines} onChange={(event) => onChange(event.target.value)} />
         : <Input {...common} inputMode={inputMode} onChange={(event) => onChange(event.target.value)} />}
-      {slot.suffix && <span className="shrink-0 text-sm text-muted-foreground">{slot.suffix}</span>}
+      {slot.suffix && <span className="shrink-0 text-body text-muted-foreground">{slot.suffix}</span>}
     </div>
     {slot.quick && slot.quick.length > 0 && <div className="flex flex-wrap gap-2">
-      {slot.quick.map((text) => <Button key={text} variant="outline" disabled={disabled} onClick={() => onChange(text)}>{text}</Button>)}
+      {slot.quick.map((text) => <Button key={text} variant="tertiary" disabled={disabled} onClick={() => onChange(text)}>{text}</Button>)}
     </div>}
   </div>;
 }
@@ -238,12 +239,12 @@ export function ItemSlots({ item, draft, onChange, problems, disabled, marks, af
       if (!value) return null;
       // 模型常在题面里自己写“可多选”，已经写了就不再重复。
       const multiple = slot.type === "choice" && slot.multiple === true;
-      const hint = multiple ? plainText(slot.prompt).includes("多选") ? "" : "（可多选）" : slot.optional === true ? "（可不答）" : "";
+      const hint = multiple ? plainText(slot.prompt).includes(t("item.multiple.hint")) ? "" : t("item.multipleSuffix.hint") : slot.optional === true ? t("item.optionalSuffix.hint") : "";
       return <div key={slot.id} className="grid gap-2">
-        <div id={labelId} className="flex items-start gap-1 text-sm font-semibold">
+        <div id={labelId} className="flex items-start gap-1 text-body weight-semibold">
           {numbered && <span className="shrink-0">{index + 1}.</span>}
           {slot.prompt && slot.prompt.length > 0 ? <Content blocks={slot.prompt} /> : <span>{slotName(slot, index)}</span>}
-          {hint && <span className="shrink-0 font-normal text-muted-foreground">{hint}</span>}
+          {hint && <span className="shrink-0 weight-normal text-muted-foreground">{hint}</span>}
         </div>
         <SlotField
           slot={slot}

@@ -125,7 +125,7 @@ it("有最近空间时选择文件夹退为次要操作", async () => {
   renderPage(client);
 
   await screen.findByRole("list", { name: "最近打开" });
-  expect(screen.getByRole("button", { name: "选择其他文件夹" }).getAttribute("data-variant")).toBe("outline");
+  expect(screen.getByRole("button", { name: "选择其他文件夹" }).getAttribute("data-variant")).toBe("tertiary");
 });
 
 it("读取失败时选择文件夹是主要入口", async () => {
@@ -133,7 +133,7 @@ it("读取失败时选择文件夹是主要入口", async () => {
   renderPage(client);
 
   await screen.findByRole("alert");
-  expect(screen.getByRole("button", { name: "选择文件夹" }).getAttribute("data-variant")).toBe("default");
+  expect(screen.getByRole("button", { name: "选择文件夹" }).getAttribute("data-variant")).toBe("primary");
 });
 
 /** 按应用的路由从首页启动，浏览器里存着上次打开的空间。 */

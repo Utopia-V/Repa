@@ -11,7 +11,6 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Button } from "../src/components/ui/button";
-import { SelectableCard } from "../src/components/ui/selectable-card";
 import { Progress } from "../src/components/ui/progress";
 import {
   Dialog,
@@ -24,26 +23,6 @@ import {
 afterEach(cleanup);
 
 describe("语义组件契约", () => {
-  it("卡片获得键盘焦点不改变选择，按下后选择仍保留", () => {
-    function Example() {
-      const [selected, setSelected] = useState(false);
-      return (
-        <SelectableCard
-          selected={selected}
-          onClick={() => setSelected(!selected)}
-        >
-          知识卡片
-        </SelectableCard>
-      );
-    }
-    render(<Example />);
-    const card = screen.getByRole("button", { name: "知识卡片" });
-    card.focus();
-    expect(card.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(card);
-    expect(card.getAttribute("aria-pressed")).toBe("true");
-    expect(document.activeElement).toBe(card);
-  });
   it("普通操作按钮不意外提交表单", () => {
     let submissions = 0;
     render(
@@ -91,8 +70,8 @@ describe("语义组件契约", () => {
 });
 
 const values = Object.fromEntries(
-  [...css.matchAll(/--([\w-]+):\s*(#[\da-f]{6}|var\(--[\w-]+\));/g)].map(
-    (m) => [m[1]!, m[2]!],
+  [...css.matchAll(/--([\w-]+):\s*(?:light-dark\((#[\da-f]{6}),[^;]*\)|(#[\da-f]{6}|var\(--[\w-]+\)));/g)].map(
+    (m) => [m[1]!, m[2] ?? m[3]!],
   ),
 );
 function resolve(name: string, seen = new Set<string>()): string {
@@ -125,8 +104,6 @@ describe("主题可读性", () => {
     ["primary-foreground", "primary"],
     ["accent-foreground", "accent"],
     ["foreground", "accent"],
-    ["status-complete-foreground", "status-complete"],
-    ["destructive-foreground", "destructive"],
     ["status-complete", "card"],
     ["status-complete", "background"],
     ["destructive", "card"],
@@ -163,11 +140,11 @@ describe("字体随应用打包", () => {
   });
 });
 
-it("图标选择按钮复用按钮焦点，切换后保留独立选择状态", async () => {
+it("选择按钮切换后保留独立选择状态", async () => {
   const { SelectionButton } = await import("../src/components/ui/selection-button");
   function Graph() {
     const [selected, setSelected] = useState("A");
-    return <>{["A", "B"].map(name => <SelectionButton key={name} size="icon" aria-label={name} selected={selected === name} onClick={() => setSelected(name)}><span aria-hidden="true">○</span></SelectionButton>)}</>;
+    return <>{["A", "B"].map(name => <SelectionButton key={name} aria-label={name} selected={selected === name} onClick={() => setSelected(name)}><span aria-hidden="true">○</span></SelectionButton>)}</>;
   }
   render(<Graph />);
   const a = screen.getByRole("button", { name: "A" });

@@ -10,6 +10,7 @@ import { useAppStore, useAppStoreApi } from "@/hooks/use-app-store";
 import { homePath } from "@/lib/learning";
 import type { Resources } from "@/lib/store";
 import { folderName } from "@/lib/paths";
+import { t } from "@/lib/strings";
 
 export function LearningSpacePage() {
   const spaces = useAppStore((state) => state.resources.spaces);
@@ -86,10 +87,9 @@ export function LearningSpacePage() {
 function FirstSpace({ onPick }: { onPick(): void }) {
   // 在工作区里垂直居中；底部留白多一些，视觉重心略高于几何中心。
   return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center justify-items-center gap-4 px-4 pt-16 pb-24 text-center md:px-8">
-      <h2 className="text-2xl font-semibold">开始第一个学习空间</h2>
-      <p className="text-sm text-balance text-muted-foreground">选一个文件夹作为学习空间，Repa 会在里面保存你的学习记录和进度。</p>
-      <Button onClick={onPick}>
-        <FolderSearch aria-hidden="true" />选择文件夹
+      <h2 className="text-display weight-semibold">{t("learningSpace.first.title")}</h2>
+      <p className="text-body text-balance text-muted-foreground">{t("learningSpace.first.description")}</p>
+      <Button onClick={onPick} leadingIcon={FolderSearch}>{t("learningSpace.chooseFolder.action")}
       </Button>
     </div>;
 }
@@ -115,40 +115,38 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
   return <div className="mx-auto grid w-full max-w-xl gap-8 px-4 py-16 md:px-8">
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="grid gap-2">
-        <h2 className="text-2xl font-semibold">学习空间</h2>
-        <p className="text-sm text-muted-foreground">
-          {hasRecent ? "从最近打开的空间继续，或选择其他文件夹。" : "选择一个文件夹作为学习空间。"}
+        <h2 className="text-display weight-semibold">{t("learningSpace.recent.title")}</h2>
+        <p className="text-body text-muted-foreground">
+          {hasRecent ? t("learningSpace.recent.description") : t("learningSpace.recent.noRecent.description")}
         </p>
-        {running && <p className="text-sm text-muted-foreground">对话正在运行，结束或停止后才能换到别的空间。</p>}
+        {running && <p className="text-body text-muted-foreground">{t("learningSpace.recent.running.hint")}</p>}
       </div>
       {/* 最近列表可用时继续学习是主要操作，选择文件夹退为次要；列表读不出来时它是唯一入口。 */}
       <Button
-        variant={loadFailed && !hasRecent ? "default" : "outline"}
+        variant={loadFailed && !hasRecent ? "primary" : "tertiary"}
         className="w-full sm:w-auto"
         disabled={opening !== undefined || running}
         onClick={onPick}
-      >
-        <FolderSearch aria-hidden="true" />{hasRecent ? "选择其他文件夹" : "选择文件夹"}
+       leadingIcon={FolderSearch}>{hasRecent ? t("learningSpace.chooseOther.action") : t("learningSpace.chooseFolder.action")}
       </Button>
     </header>
 
     <section aria-labelledby="recent-spaces" className="grid gap-3">
-      <h3 id="recent-spaces" className="text-lg font-semibold">最近打开</h3>
+      <h3 id="recent-spaces" className="text-title weight-semibold">{t("learningSpace.recent.list.title")}</h3>
 
       {/* 读完之前不显示空状态，避免首次引导一闪而过。 */}
-      {!loadFailed && recent === undefined && <p role="status" className="text-sm text-muted-foreground">正在读取…</p>}
+      {!loadFailed && recent === undefined && <p role="status" className="text-body text-muted-foreground">{t("common.loading.status")}</p>}
 
       {loadFailed && <div className="grid gap-3">
-        <ErrorNotice title="无法读取最近空间" error={spaces.error} />
+        <ErrorNotice title={t("learningSpace.recent.load.error")} error={spaces.error} />
         <div>
-          <Button variant="outline" onClick={onRetry}>
-            <RefreshCw aria-hidden="true" />重试
+          <Button variant="tertiary" onClick={onRetry} leadingIcon={RefreshCw}>{t("common.retry.action")}
           </Button>
         </div>
       </div>}
 
-      {failure && <ErrorNotice title={`无法打开${failure.previous ? "上次的空间 " : " "}${folderName(failure.root)}`} error={failure.error} />}
-      {closeFailure && <ErrorNotice title={`关闭 ${folderName(closeFailure.root)} 时出错`} error={closeFailure.error} />}
+      {failure && <ErrorNotice title={t("learningSpace.open.error", { value: failure.previous ? t("learningSpace.lastSpace.label") : " ", root: folderName(failure.root) })} error={failure.error} />}
+      {closeFailure && <ErrorNotice title={t("learningSpace.close.error", { root: folderName(closeFailure.root) })} error={closeFailure.error} />}
 
       {hasRecent && <ul aria-labelledby="recent-spaces" className="m-0 grid list-none gap-2 p-0">
         {/* 打开的空间旁边放关闭；它和其他空间一样可以点，继续回到对话。 */}
@@ -163,18 +161,17 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
             <FolderOpen aria-hidden="true" />
             <span className="grid min-w-0 text-left">
               <span>{folderName(root)}</span>
-              <span className="text-xs font-normal break-all text-muted-foreground">
-                {opening === root ? "正在打开…" : root}
+              <span className="text-caption weight-normal break-all text-muted-foreground">
+                {opening === root ? t("common.opening.status") : root}
               </span>
             </span>
           </SelectionButton>
           {root === active && <Button
-            variant="outline"
-            aria-label={`关闭空间 ${folderName(root)}`}
+            variant="tertiary"
+            aria-label={t("learningSpace.close.label", { root: folderName(root) })}
             disabled={closeDisabled || opening !== undefined}
             onClick={() => onClose(root)}
-          >
-            <X aria-hidden="true" />关闭
+           leadingIcon={X}>{t("learningSpace.close.action")}
           </Button>}
         </li>)}
       </ul>}

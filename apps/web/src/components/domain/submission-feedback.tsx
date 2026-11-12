@@ -7,27 +7,28 @@ import { draftFromResponse, ItemSlots } from "@/components/domain/item-form";
 import { Content, rowName, type Mark, type Slot, type SlotMarks } from "@/components/domain/item-parts";
 import { answerText } from "@/lib/ask";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/strings";
 
 const verdictText: Record<Verdict, string> = {
-  correct: "答对了",
-  partial: "部分正确",
-  incorrect: "不对",
-  ungraded: "这道题不判对错",
-  pending: "正在判分",
+  correct: t("item.feedback.correct.status"),
+  partial: t("item.feedback.partial.status"),
+  incorrect: t("item.result.incorrect.label"),
+  ungraded: t("item.feedback.ungraded.status"),
+  pending: t("item.feedback.pending.status"),
 };
 
 const testText: Record<TestResult["result"], string> = {
-  passed: "通过",
-  failed: "没通过",
-  error: "运行出错",
-  timeout: "超时",
+  passed: t("item.feedback.passed.status"),
+  failed: t("item.feedback.failed.status"),
+  error: t("common.runError.status"),
+  timeout: t("item.feedback.timeout.status"),
 };
 
 /** 判分结果的标题：图标加文字，对错不只靠颜色。 */
 export function VerdictHeading({ verdict }: { verdict: Verdict }) {
   const Icon = verdict === "correct" ? CircleCheck : verdict === "incorrect" ? CircleX : verdict === "partial" ? CircleDashed : Info;
   return <p className={cn(
-    "m-0 flex items-center gap-2 text-base font-semibold",
+    "m-0 flex items-center gap-2 text-title weight-semibold",
     verdict === "correct" && "text-status-complete",
     (verdict === "incorrect" || verdict === "partial") && "text-destructive",
   )}>
@@ -54,24 +55,24 @@ function SlotResult({ slot, feedback }: { slot: Slot; feedback: SlotFeedback | u
   if (!feedback) return null;
   const hasDetail = feedback.message || feedback.expected || feedback.tests?.length || feedback.criteria?.length;
   if (!hasDetail) return null;
-  return <div className="grid gap-2 rounded-md border border-border bg-card p-3 text-sm">
+  return <div className="grid gap-2 rounded-lg border border-border bg-card p-3 text-body">
     <Content blocks={feedback.message} />
     {feedback.expected && <div className="grid gap-1">
-      <p className="m-0 text-muted-foreground">参考答案</p>
+      <p className="m-0 text-muted-foreground">{t("item.feedback.reference.label")}</p>
       <p className={cn("m-0 break-words whitespace-pre-wrap", (slot.type === "code" || slot.type === "order") && "font-mono")}>{expectedText(slot, feedback.expected)}</p>
     </div>}
     {feedback.tests && feedback.tests.length > 0 && <ul className="m-0 grid list-none gap-2 p-0">
       {feedback.tests.map((test, index) => <li key={index} className="grid gap-1">
         <p className={cn("m-0 flex items-center gap-2", test.result === "passed" ? "text-status-complete" : "text-destructive")}>
           {test.result === "passed" ? <CircleCheck aria-hidden="true" className="size-4 shrink-0" /> : <CircleAlert aria-hidden="true" className="size-4 shrink-0" />}
-          <span className="text-foreground">{test.hidden ? "隐藏的测试" : test.name}</span>：{testText[test.result]}
+          <span className="text-foreground">{test.hidden ? t("item.feedback.hiddenTests.label") : test.name}</span>：{testText[test.result]}
         </p>
         <Content blocks={test.detail} />
       </li>)}
     </ul>}
     {feedback.criteria && feedback.criteria.length > 0 && <ul className="m-0 grid list-none gap-1 p-0">
       {feedback.criteria.map((criterion, index) => <li key={index}>
-        <span className="font-semibold">{criterion.label}</span>：{criterion.met === "yes" ? "做到了" : criterion.met === "no" ? "还没做到" : "判分方没有把握"}
+        <span className="weight-semibold">{criterion.label}</span>：{criterion.met === "yes" ? t("item.feedback.achieved.label") : criterion.met === "no" ? t("item.feedback.notAchieved.label") : t("item.feedback.uncertain.label")}
         {criterion.comment && <span className="text-muted-foreground">。{criterion.comment}</span>}
       </li>)}
     </ul>}
@@ -98,14 +99,14 @@ export function SubmissionReview({ item, submission }: { item: Item; submission:
     <Content blocks={item.body} />
     {feedback && <div className="grid gap-2">
       <VerdictHeading verdict={feedback.verdict} />
-      {feedback.score && <p className="m-0 text-sm text-muted-foreground">得分 {feedback.score.earned} / {feedback.score.max}</p>}
-      {feedback.evidence?.status === "ineligible" && <p className="m-0 text-sm text-muted-foreground">
-        这次不计入掌握{feedback.evidence.reason ? `：${feedback.evidence.reason}` : ""}。
+      {feedback.score && <p className="m-0 text-body text-muted-foreground">{t("item.feedback.score.label", { earned: feedback.score.earned, max: feedback.score.max })}</p>}
+      {feedback.evidence?.status === "ineligible" && <p className="m-0 text-body text-muted-foreground">
+        {t("item.feedback.notCounted.status")}{feedback.evidence.reason ? `：${feedback.evidence.reason}` : ""}。
       </p>}
       <Content blocks={feedback.message} />
     </div>}
     {submission.response.dontKnow === true
-      ? <p className="m-0 text-sm text-muted-foreground">你选了“不会”。</p>
+      ? <p className="m-0 text-body text-muted-foreground">{t("item.feedback.dontKnow.status")}</p>
       : <ItemSlots
         item={item}
         draft={draft}
@@ -115,8 +116,8 @@ export function SubmissionReview({ item, submission }: { item: Item; submission:
         marks={marksOf(feedback)}
         after={(slot) => <SlotResult slot={slot} feedback={feedback?.slots?.[slot.id]} />}
       />}
-    {submission.explanation && submission.explanation.length > 0 && <section aria-label="解析" className="grid gap-2">
-      <h4 className="m-0 text-sm font-semibold">解析</h4>
+    {submission.explanation && submission.explanation.length > 0 && <section aria-label={t("item.feedback.explanation.label")} className="grid gap-2">
+      <h4 className="m-0 text-body weight-semibold">{t("item.feedback.explanation.label")}</h4>
       <Content blocks={submission.explanation} />
     </section>}
   </div>;

@@ -18,6 +18,7 @@ import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import "katex/dist/katex.min.css";
 
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/strings";
 
 // 中文里 `20~25` 常表示范围，只认双波浪线为删除线。
 const textPlugins: NonNullable<Options["remarkPlugins"]> = [
@@ -45,9 +46,7 @@ const rehypePlugins: Options["rehypePlugins"] = [
 ];
 const plainRehypePlugins: Options["rehypePlugins"] = [highlight];
 
-const codeText = "font-mono text-[length:var(--type-code-size)] leading-[var(--type-code-line)]";
-const headingText = "m-0 font-(family-name:--font-heading) font-semibold";
-const linkText = "rounded-sm text-primary underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const blockCodeText = "in-[pre]:font-mono in-[pre]:text-[length:var(--type-code-size)] in-[pre]:leading-[var(--type-code-line)]";
 
 /** 只有浏览器能直接打开的外部地址才渲染成链接，相对路径对 Web 页面没有意义。 */
 function externalUrl(url: string | undefined): string | undefined {
@@ -72,58 +71,40 @@ function Anchor({ node: _node, href, children, ...props }: ComponentProps<"a"> &
     href={url}
     target="_blank"
     rel="noopener noreferrer"
-    className={linkText}
   >{children}</a>;
 }
 
 const baseComponents: Components = {
   // 消息位于页面标题之下，标题层级整体下移两级。
-  h1: ({ node: _node, ...props }) => <h3 className={cn(headingText, "text-base")} {...props} />,
-  h2: ({ node: _node, ...props }) => <h4 className={cn(headingText, "text-base")} {...props} />,
-  h3: ({ node: _node, ...props }) => <h5 className={cn(headingText, "text-sm")} {...props} />,
-  h4: ({ node: _node, ...props }) => <h6 className={cn(headingText, "text-sm")} {...props} />,
-  h5: ({ node: _node, ...props }) => <h6 className={cn(headingText, "text-sm")} {...props} />,
-  h6: ({ node: _node, ...props }) => <h6 className={cn(headingText, "text-sm")} {...props} />,
-  p: ({ node: _node, ...props }) => <p className="m-0" {...props} />,
-  ul: ({ node: _node, className, ...props }) => <ul
-    className={cn("m-0 flex flex-col gap-1", className?.includes("contains-task-list") ? "list-none pl-0" : "list-disc pl-5")}
-    {...props}
-  />,
-  ol: ({ node: _node, ...props }) => <ol className="m-0 flex flex-col gap-1 list-decimal pl-5" {...props} />,
-  blockquote: ({ node: _node, ...props }) => <blockquote className="m-0 flex flex-col gap-3 border-l border-border pl-3 text-muted-foreground" {...props} />,
-  hr: () => <hr className="m-0 h-px border-0 bg-border" />,
+  h1: ({ node: _node, ...props }) => <h3 {...props} />,
+  h2: ({ node: _node, ...props }) => <h4 {...props} />,
+  h3: ({ node: _node, ...props }) => <h5 {...props} />,
+  h4: ({ node: _node, ...props }) => <h6 {...props} />,
+  h5: ({ node: _node, ...props }) => <h6 {...props} />,
+  h6: ({ node: _node, ...props }) => <h6 {...props} />,
   a: Anchor,
   // 外部图片会把浏览记录暴露给第三方，地址也可能是模型编的；只给出说明和链接，由用户决定是否打开。
   img: ({ src, alt }) => {
-    const label = `图片：${alt || "未命名"}`;
+    const label = t("markdown.image.label", { value: alt || t("markdown.untitled.label") });
     const url = typeof src === "string" ? externalUrl(src) : undefined;
     if (!url) return <span className="text-muted-foreground">[{label}]</span>;
     return <a
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className={linkText}
     >[{label}]</a>;
   },
-  code: ({ node: _node, className, ...props }) => <code
-    className={cn(codeText, "rounded-sm border border-border bg-card px-1 in-[pre]:rounded-none in-[pre]:border-0 in-[pre]:bg-transparent in-[pre]:p-0", className)}
-    {...props}
-  />,
+  code: ({ node: _node, className, ...props }) => <code className={cn(blockCodeText, className)} {...props} />,
   pre: ({ node, children }) => {
     const first = node?.children[0];
     const language = first?.type === "element" ? codeLanguage(first.properties.className ?? first.properties.class) : undefined;
     // 代码块统一用深色底，没高亮的代码块也一样；滚动条跟着用深色。
-    return <figure className="m-0 flex min-w-0 flex-col rounded-md bg-code-background text-code-foreground [color-scheme:dark]">
-      {language && <figcaption className="px-3 pt-2 text-xs text-code-caption">{language}</figcaption>}
+    return <figure className="not-typeset m-0 flex min-w-0 flex-col rounded-lg bg-code-background text-code-foreground [color-scheme:dark]">
+      {language && <figcaption className="px-3 pt-2 text-caption text-code-caption">{language}</figcaption>}
       <pre className="m-0 overflow-x-auto p-3">{children}</pre>
     </figure>;
   },
-  table: ({ node: _node, ...props }) => <div className="min-w-0 overflow-x-auto">
-    <table className="border-collapse" {...props} />
-  </div>,
-  // 列对齐由 GFM 生成的行内 style 决定，覆盖默认的左对齐。
-  th: ({ node: _node, ...props }) => <th className="border border-border px-2 py-1 text-left align-top font-semibold" {...props} />,
-  td: ({ node: _node, ...props }) => <td className="border border-border px-2 py-1 text-left align-top" {...props} />,
+  table: ({ node: _node, ...props }) => <div className="typeset-scroll min-w-0 overflow-x-auto"><table {...props} /></div>,
 };
 
 // react-markdown 默认清掉不安全协议的地址；课程里的 repa: 链接要原样交给 renderLink。
@@ -161,7 +142,7 @@ export const Markdown = memo(function Markdown({ text, streaming = false, math =
   return <div
     data-slot="markdown"
     className={cn(
-      "flex min-w-0 flex-col gap-3",
+      "typeset min-w-0",
       "[&_.katex-display]:m-0 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1",
       className,
     )}

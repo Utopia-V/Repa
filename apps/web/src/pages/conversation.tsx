@@ -14,6 +14,7 @@ import { MessageComposer } from "@/components/domain/message-composer";
 import { ToolActivity } from "@/components/domain/tool-activity";
 import { FeedbackDialog } from "@/features/feedback-dialog";
 import { ConversationModelDialog } from "@/features/model-picker";
+import { useDraftSend } from "@/hooks/use-draft-send";
 import { useAppStore } from "@/hooks/use-app-store";
 import type { ConversationItem } from "@/lib/conversation";
 import type { Ask } from "@/lib/store";
@@ -21,6 +22,7 @@ import { restoredAsk } from "@/lib/ask";
 import { errorCode } from "@/lib/errors";
 import { folderName } from "@/lib/paths";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/strings";
 
 export function ConversationPage() {
   const space = useAppStore((state) => state.space);
@@ -43,7 +45,7 @@ function Conversation({ space }: { space: string }) {
   const models = useAppStore((state) => state.resources.models);
   const providers = useAppStore((state) => state.resources.providers);
   const loadModelSettings = useAppStore((state) => state.loadModelSettings);
-  const [draft, setDraft] = useState("");
+  const { draft, setDraft, send: sendDraft } = useDraftSend(sendMessage);
   const [picking, setPicking] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [forking, setForking] = useState(false);
@@ -84,12 +86,8 @@ function Conversation({ space }: { space: string }) {
   }
 
   async function send() {
-    const text = draft;
-    setDraft("");
     following.current = true;
-    const sent = await sendMessage(text);
-    // 没发出去时把内容还回输入框，除非用户已经开始写下一条。
-    if (!sent) setDraft((current) => current === "" ? text : current);
+    await sendDraft();
   }
 
   async function fork(entryId: string) {
@@ -142,14 +140,12 @@ function Conversation({ space }: { space: string }) {
       "flex min-h-14 shrink-0 items-center justify-between gap-3 border-b py-2 pr-4 pl-16 transition-colors md:px-6",
       scrolled ? "border-border" : "border-transparent",
     )}>
-      <h2 className="min-w-0 truncate text-base font-semibold" title={space}>{folderName(space)}</h2>
+      <h2 className="min-w-0 truncate text-title weight-semibold" title={space}>{folderName(space)}</h2>
       <div className="flex shrink-0 items-center gap-1">
         {/* 运行中会话记录还在追加，等这一轮结束再打包；还没发过消息时没有会话可反馈。 */}
-        <Button variant="ghost" disabled={running || !connected || status !== "ready" || conversation.sessionId === undefined} onClick={() => setReporting(true)}>
-          <MessageSquareWarning aria-hidden="true" />反馈问题
+        <Button variant="ghost" disabled={running || !connected || status !== "ready" || conversation.sessionId === undefined} onClick={() => setReporting(true)} leadingIcon={MessageSquareWarning}>{t("conversation.feedback.action")}
         </Button>
-        <Button variant="ghost" disabled={running || status !== "ready" || items.length === 0} onClick={() => newConversation()}>
-          <MessageSquarePlus aria-hidden="true" />新会话
+        <Button variant="ghost" disabled={running || status !== "ready" || items.length === 0} onClick={() => newConversation()} leadingIcon={MessageSquarePlus}>{t("common.newSession.action")}
         </Button>
       </div>
     </header>
@@ -159,7 +155,7 @@ function Conversation({ space }: { space: string }) {
 
     <section
       ref={record}
-      aria-label="对话记录"
+      aria-label={t("conversation.transcript.label")}
       aria-busy={running}
       tabIndex={0}
       onScroll={onScroll}
@@ -167,17 +163,16 @@ function Conversation({ space }: { space: string }) {
       className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
       <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
-        {status === "loading" && <p role="status" className="text-sm text-muted-foreground">正在读取会话…</p>}
+        {status === "loading" && <p role="status" className="text-body text-muted-foreground">{t("conversation.loading.status")}</p>}
         {status === "error" && <div className="grid gap-3">
-          <ErrorNotice title="无法读取会话" error={conversation.error} />
+          <ErrorNotice title={t("conversation.load.error")} error={conversation.error} />
           <div>
-            <Button variant="outline" onClick={() => { void loadConversation(); }}>
-              <RefreshCw aria-hidden="true" />重试
+            <Button variant="tertiary" onClick={() => { void loadConversation(); }} leadingIcon={RefreshCw}>{t("common.retry.action")}
             </Button>
           </div>
         </div>}
-        {status === "ready" && items.length === 0 && !running && <p className="text-sm text-muted-foreground">
-          这是一个新会话。说说你想学什么，或者直接提问。
+        {status === "ready" && items.length === 0 && !running && <p className="text-body text-muted-foreground">
+          {t("conversation.transcript.empty")}
         </p>}
         {items.map((item) => <Fragment key={item.id}>
           <ConversationItemView
@@ -193,14 +188,14 @@ function Conversation({ space }: { space: string }) {
         </Fragment>)}
         {unplaced.map(askCard)}
         {/* 等待作答时卡片本身就是状态，不再显示“正在处理”。 */}
-        {running && !waiting && conversation.streaming === undefined && <p role="status" className="mb-4 text-sm text-muted-foreground">
-          {run === "stopping" ? "正在停止…" : "Agent 正在处理…"}
+        {running && !waiting && conversation.streaming === undefined && <p role="status" className="mb-4 text-body text-muted-foreground">
+          {run === "stopping" ? t("common.stopping.status") : t("conversation.working.status")}
         </p>}
         {/* 排队的消息留在记录末尾，送达后换成记录里的用户消息，位置基本不动。 */}
         {conversation.queued.map((message) => <div key={message.id} className="mb-4 grid justify-items-end gap-1">
           <ConversationMessage sender="user" className="mb-0">{message.text}</ConversationMessage>
-          <p className="flex items-center gap-1 text-sm text-muted-foreground">
-            <Clock aria-hidden="true" className="size-4 shrink-0" />排队中，Agent 做完当前这一步后会看到
+          <p className="flex items-center gap-1 text-body text-muted-foreground">
+            <Clock aria-hidden="true" className="size-4 shrink-0" />{t("conversation.queued.status")}
           </p>
         </div>)}
       </div>
@@ -208,14 +203,14 @@ function Conversation({ space }: { space: string }) {
 
     <div className="mx-auto grid w-full max-w-3xl gap-3 px-4 pt-2 pb-4 md:px-8">
       {needsModel && <div className="grid gap-3">
-        <StatusNotice status="error" title="还没有可用的模型"><p>连接一个模型提供方后才能对话。</p></StatusNotice>
+        <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("conversation.noModel.hint")}</p></StatusNotice>
         <div>
-          <Button asChild variant="outline"><Link to="/settings">去设置模型</Link></Button>
+          <Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button>
         </div>
       </div>}
       {conversation.sendError !== undefined && errorCode(conversation.sendError) !== "model_required"
-        && <ErrorNotice title="消息没有完成" error={conversation.sendError} />}
-      {forkError && forkError.sessionId === conversation.sessionId && <ErrorNotice title="没能分叉会话" error={forkError.error} />}
+        && <ErrorNotice title={t("common.messageIncomplete.title")} error={conversation.sendError} />}
+      {forkError && forkError.sessionId === conversation.sessionId && <ErrorNotice title={t("conversation.fork.error")} error={forkError.error} />}
       <MessageComposer
         inputRef={input}
         value={draft}
@@ -231,16 +226,16 @@ function Conversation({ space }: { space: string }) {
       {model && <div className="flex min-w-0 flex-wrap items-center gap-x-2">
         <Button
           variant="ghost"
-          aria-label={`更换模型，当前是 ${modelName ?? ""}`}
-          title="更换这个会话的模型"
+          aria-label={t("conversation.model.label", { value: modelName ?? "" })}
+          title={t("conversation.model.hint")}
           disabled={running || status !== "ready" || available.length === 0}
           onClick={() => setPicking(true)}
+          trailingIcon={ChevronDown}
         >
           <span className="min-w-0 break-all">{modelName}</span>
-          <ChevronDown aria-hidden="true" />
         </Button>
-        {modelProvider && !modelProvider.configured && <span className="text-sm text-muted-foreground">
-          {modelProvider.name} 还没有连接，发送会失败
+        {modelProvider && !modelProvider.configured && <span className="text-body text-muted-foreground">
+          {t("conversation.provider.disconnected.hint", { name: modelProvider.name })}
         </span>}
       </div>}
     </div>

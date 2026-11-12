@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
 import { revealFile } from "@/lib/host";
+import { t } from "@/lib/strings";
 
 /**
  * 反馈问题：用户补一句说明，可选让 Agent 自述，生成脱敏后的反馈包并在文件管理器里选中它。
@@ -50,38 +51,38 @@ export function FeedbackDialog({ onBusyChange, onClose }: { onBusyChange(busy: b
 
   return <DialogContent>
     <DialogHeader>
-      <DialogTitle>反馈问题</DialogTitle>
+      <DialogTitle>{t("feedback.dialog.title")}</DialogTitle>
       <DialogDescription>
-        把这次会话整理成一个压缩包，生成后会打开所在的文件夹，你可以直接把它发给开发者。
+        {t("feedback.dialog.description")}
       </DialogDescription>
     </DialogHeader>
     <div className="grid gap-2">
-      <label htmlFor="feedback-note" className="text-sm font-medium">哪里不对？（可选）</label>
+      <label htmlFor="feedback-note" className="text-body weight-semibold">{t("feedback.note.label")}</label>
       <Textarea
         id="feedback-note"
         value={note}
         maxLength={4000}
         disabled={creating}
-        placeholder="例如：它说保存好了，但文件夹是空的"
+        placeholder={t("feedback.note.placeholder")}
         onChange={(event) => setNote(event.target.value)}
       />
     </div>
     <div className="grid gap-1">
       <div className="flex items-center gap-3">
         <Checkbox id="feedback-describe" checked={describe} disabled={creating} onCheckedChange={(next) => setDescribe(next === true)} />
-        <label htmlFor="feedback-describe" className="text-sm">让 Agent 描述这次的问题</label>
+        <label htmlFor="feedback-describe" className="text-body">{t("feedback.describe.label")}</label>
       </div>
-      <p className="pl-7 text-sm text-muted-foreground">会用当前模型多调用一次，不使用任何工具。</p>
+      <p className="pl-7 text-body text-muted-foreground">{t("feedback.describe.hint")}</p>
     </div>
-    <div className="grid gap-1 text-sm">
-      <p>压缩包里有：这次会话及子 Agent 的完整记录、最近的文件修改历史、最近的错误，以及系统和 Repa 的版本。</p>
-      <p className="text-muted-foreground">记录里的文件路径和系统用户名会原样保留；保存的密钥和看起来像密钥的内容会被替换掉。</p>
+    <div className="grid gap-1 text-body">
+      <p>{t("feedback.contents.hint")}</p>
+      <p className="text-muted-foreground">{t("feedback.privacy.hint")}</p>
     </div>
-    {error !== undefined && <ErrorNotice title="没有生成反馈包" error={error} />}
+    {error !== undefined && <ErrorNotice title={t("feedback.create.error")} error={error} />}
     <DialogFooter>
-      <Button variant="outline" disabled={creating} onClick={onClose}>取消</Button>
+      <Button variant="tertiary" disabled={creating} onClick={onClose}>{t("common.cancel.action")}</Button>
       <Button disabled={creating} aria-busy={creating} onClick={() => { void create(); }}>
-        {creating ? "正在生成…" : "生成反馈包"}
+        {creating ? t("feedback.create.running.status") : t("feedback.create.action")}
       </Button>
     </DialogFooter>
   </DialogContent>;
@@ -102,19 +103,19 @@ function FeedbackCreated({ path, revealError, onReveal, onClose }: { path: strin
 
   return <DialogContent>
     <DialogHeader>
-      <DialogTitle>反馈包已生成</DialogTitle>
-      <DialogDescription>把这个文件发给开发者就可以了。</DialogDescription>
+      <DialogTitle>{t("feedback.created.title")}</DialogTitle>
+      <DialogDescription>{t("feedback.created.description")}</DialogDescription>
     </DialogHeader>
-    <p className="text-sm break-all select-all" aria-label="反馈包路径">{path}</p>
-    {copied === "done" && <p role="status" className="text-sm text-muted-foreground">已复制路径。</p>}
-    {copied === "failed" && <p role="status" className="text-sm text-muted-foreground">无法写入剪贴板，请手动选中上面的路径复制。</p>}
-    {revealError !== undefined && <StatusNotice status="error" title="没能打开所在文件夹">
-      <p>{revealError instanceof Error ? revealError.message : "无法打开所在文件夹。"}可以复制路径后手动打开。</p>
+    <p className="text-body break-all select-all" aria-label={t("feedback.created.path.label")}>{path}</p>
+    {copied === "done" && <p role="status" className="text-body text-muted-foreground">{t("feedback.created.copied.status")}</p>}
+    {copied === "failed" && <p role="status" className="text-body text-muted-foreground">{t("feedback.created.copyFailed.error")}</p>}
+    {revealError !== undefined && <StatusNotice status="error" title={t("feedback.created.reveal.error")}>
+      <p>{revealError instanceof Error ? revealError.message : t("common.revealFolder.error")}{t("feedback.created.revealHint.hint")}</p>
     </StatusNotice>}
     <DialogFooter>
-      <Button variant="outline" onClick={() => { void copy(); }}><Copy aria-hidden="true" />复制路径</Button>
-      <Button variant="outline" onClick={onReveal}><FolderOpen aria-hidden="true" />打开所在文件夹</Button>
-      <Button onClick={onClose}>完成</Button>
+      <Button variant="tertiary" onClick={() => { void copy(); }} leadingIcon={Copy}>{t("feedback.created.copy.action")}</Button>
+      <Button variant="tertiary" onClick={onReveal} leadingIcon={FolderOpen}>{t("feedback.created.reveal.action")}</Button>
+      <Button onClick={onClose}>{t("common.done.action")}</Button>
     </DialogFooter>
   </DialogContent>;
 }

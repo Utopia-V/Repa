@@ -4,6 +4,7 @@ import type { LearningMenu } from "@repa/learning/protocol";
 import { Button } from "@/components/ui/button";
 import { kindText } from "@/features/learning-task";
 import { useAppStore } from "@/hooks/use-app-store";
+import { t } from "@/lib/strings";
 
 /** 后端的时间是服务端毫秒；按读取时的时差换算成本机时间显示。 */
 function localTime(serverTime: number, serverNow: number, readAt: number): string {
@@ -29,18 +30,18 @@ export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMe
   }, [menu.availableAt, serverNow, readAt, refreshLearning]);
 
   return <section aria-labelledby="learning-menu-title" className="grid gap-3">
-    <h3 id="learning-menu-title" className="m-0 text-base font-semibold">接下来</h3>
-    {menu.candidates.length === 0 && <p className="m-0 text-sm text-muted-foreground">
-      {menu.unavailableReason ?? "现在没有可以开始的内容。"}
-      {menu.availableAt !== undefined && ` ${localTime(menu.availableAt, serverNow, readAt)} 以后可以继续。`}
+    <h3 id="learning-menu-title" className="m-0 text-title weight-semibold">{t("learn.menu.title")}</h3>
+    {menu.candidates.length === 0 && <p className="m-0 text-body text-muted-foreground">
+      {menu.unavailableReason ?? t("learn.menu.empty")}
+      {menu.availableAt !== undefined && t("learn.menu.availableAt.hint", { availableAt: localTime(menu.availableAt, serverNow, readAt) })}
     </p>}
     <ul className="m-0 grid list-none gap-3 p-0">
-      {menu.candidates.map((candidate) => <li key={candidate.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card p-4">
+      {menu.candidates.map((candidate) => <li key={candidate.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-4">
         <div className="grid min-w-0 gap-1">
-          <span className="text-sm text-muted-foreground">{kindText[candidate.kind]}</span>
-          <span className="font-semibold">{candidate.title}</span>
+          <span className="text-body text-muted-foreground">{kindText[candidate.kind]}</span>
+          <span className="weight-semibold">{candidate.title}</span>
         </div>
-        <Button disabled={busy} onClick={() => { void selectCandidate(candidate.id); }}>开始</Button>
+        <Button disabled={busy} onClick={() => { void selectCandidate(candidate.id); }}>{t("learn.menu.start.action")}</Button>
       </li>)}
     </ul>
   </section>;

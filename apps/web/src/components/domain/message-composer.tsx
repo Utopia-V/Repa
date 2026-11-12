@@ -3,6 +3,7 @@ import { ArrowUp, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui/input-group";
+import { t } from "@/lib/strings";
 
 /**
  * 消息输入框。Enter 发送、Shift+Enter 换行；输入法确认候选词的 Enter 不发送。
@@ -26,8 +27,7 @@ export function MessageComposer({ inputRef, value, onChange, onSend, onStop, run
   const canSend = !disabled && value.trim() !== "";
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    // Safari 确认候选词时 isComposing 已为 false，但 keyCode 仍是 229。
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     if (canSend) onSend();
   }
@@ -43,18 +43,18 @@ export function MessageComposer({ inputRef, value, onChange, onSend, onStop, run
     <InputGroup>
       <InputGroupTextarea
         ref={inputRef}
-        aria-label="消息"
+        aria-label={t("conversation.composer.label")}
         className="max-h-[min(15rem,35dvh)]"
         value={value}
-        placeholder={answering ? "直接回一句话，代替作答" : "问点什么，或者说说你想学什么"}
+        placeholder={answering ? t("conversation.composer.replyInstead.placeholder") : t("conversation.composer.placeholder")}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
       />
       <InputGroupAddon className="self-end">
-        {running && <Button variant="outline" size="icon" aria-label={stopping ? "正在停止" : "停止"} title={stopping ? "正在停止" : "停止"} disabled={stopping} onClick={onStop}>
+        {running && <Button variant="tertiary" size="icon" aria-label={stopping ? t("conversation.composer.stopping.status") : t("conversation.composer.stop.action")} title={stopping ? t("conversation.composer.stopping.status") : t("conversation.composer.stop.action")} disabled={stopping} onClick={onStop}>
           <Square aria-hidden="true" />
         </Button>}
-        <Button size="icon" type="submit" aria-label="发送" title={answering ? "发送，代替卡片作答" : running ? "发送，Agent 做完当前这一步后会看到" : "发送"} disabled={!canSend}>
+        <Button size="icon" type="submit" aria-label={t("conversation.composer.send.label")} title={answering ? t("conversation.composer.sendInstead.hint") : running ? t("conversation.composer.sendQueued.hint") : t("conversation.composer.send.label")} disabled={!canSend}>
           <ArrowUp aria-hidden="true" />
         </Button>
       </InputGroupAddon>
