@@ -1051,6 +1051,15 @@ class Session implements AgentSession {
     } finally {
       this.enqueuing.delete(operation);
     }
+    // Pi 先跑输入钩子再入队，其间运行可能已经结束：消息落进没有循环消费的队列，要等下一次运行才被读到，
+    // 而且排在那次的消息之后。没有 Repa 运行接着排队时取回它们，按原来的次序各自开始一次运行。
+    if (this.session.isStreaming || this.pending.size > 0 || this.cancelling !== undefined || this.session.pendingMessageCount === 0) return;
+    const stranded = this.session.clearQueue();
+    const runs = [
+      ...stranded.steering.map((message) => this.run(message, undefined, "steer")),
+      ...stranded.followUp.map((message) => this.run(message, undefined, "followUp")),
+    ];
+    await Promise.all(runs);
   }
 
   abort(): Promise<void> {
