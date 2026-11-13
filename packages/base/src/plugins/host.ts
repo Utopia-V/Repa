@@ -205,6 +205,8 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     options.onIdle?.();
   }
 
+  // 四个登记入口：track 只把已经开始的操作记进 calls；tracked 另把同步抛错改成失败的 Promise（模型作用域用）；
+  // own 在登记的同时给操作一条 live 记录，关闭开始以后它发起的 Host 操作仍放行；admitted 先做关闭检查再交给 own（文件与历史用）。
   function track<T>(operation: Promise<T>): Promise<T> {
     calls.add(operation);
     operation.then(() => { settledCall(operation); }, () => { settledCall(operation); });
@@ -588,7 +590,8 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
               // 实例自己的收尾也算宿主的工作，仍可经 Host 读写；宿主随后才拒绝全部操作。
               await own(async () => { await instance.close?.(); });
             } catch (error) {
-              failures.push(new RepaFault("plugin_close_failed", error instanceof Error ? error.message : String(error), { pluginId: id }));
+              // 原错误放进 cause，最近错误据此保留插件自己的堆栈。
+              failures.push(Object.assign(new RepaFault("plugin_close_failed", error instanceof Error ? error.message : String(error), { pluginId: id }), { cause: error }));
             }
           }
           closed = true;

@@ -624,6 +624,13 @@ class Space implements AgentSpace {
         const { id, model } = session.info();
         this.unsaved.push({ id, agent: session.agent, ...(model === undefined ? {} : { model }) });
       }
+      // 上一次重组带过来、这次没有用到的会话同样转交，否则连续两次重组以后它就找不到了。
+      const loaded = new Set(closed.flatMap((session) => session === undefined ? [] : [session.info().id]));
+      for (const carried of this.options.unsavedSessions ?? []) {
+        if (loaded.has(carried.id)) continue;
+        if (await findSessionPath(this.options.sessionsDir, carried.id) !== undefined) continue;
+        this.unsaved.push({ ...carried });
+      }
       this.sessions.clear();
       this.onClose();
     })();

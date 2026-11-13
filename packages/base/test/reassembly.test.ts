@@ -14,6 +14,7 @@ import type { Host, Plugin, Tool } from "../src/plugin.js";
 import type { Notification, NotificationParams } from "../src/protocol.js";
 import { record } from "../src/protocol/json-rpc.js";
 import { startServer } from "../src/protocol/server.js";
+import { currentRun, withRun } from "../src/run-context.js";
 import { RepaFault, type AgentEvent } from "../src/schema.js";
 
 function deferred<T = void>() {
@@ -410,9 +411,11 @@ test("闸门期间到达的插件调用在新实例上执行；新连接的初�
   ]);
 });
 
-test("还没有第一条消息的会话经过重组仍能发送，不报错", async t => {
+test("还没有第一条消息的会话经过连续两次重组仍能发送，不报错", async t => {
   const f = await fixture(t);
   const session = await f.client.call("session.create", {});
+  // 第二次重组时这个会话还没有被再次用到，也要带过去。
+  assert.equal((await f.server.reassemble()).status, "applied");
   assert.equal((await f.server.reassemble()).status, "applied");
   f.faux.setResponses([fauxAssistantMessage("新会话的回复")]);
   await f.client.call("session.send", { sessionId: session.id, text: "第一条消息" });
@@ -498,14 +501,11 @@ test("关闭空间时插件持有空间写锁等模型，通用 Agent 的运行�
   // 通用 Agent 带命令行，整次运行进 record，排在同一把锁后面。
   const session = await f.client.call("session.create", {});
   const running = f.client.call("session.send", { sessionId: session.id, text: "整理文件" }).catch((error: unknown) => error);
-  // 新连接的基线列出已登记、还没开始的运行；登记以后到等锁之间只有微任务，基线读到它时运行已经在等锁。
-  for (const stop = Date.now() + 60_000; ;) {
-    const probe = await f.connect();
-    const queued = probe.handshake.baseline.sessions.find(item => item.sessionId === session.id)?.queued ?? [];
-    await probe.close();
-    if (queued.some(item => item.text === "整理文件")) break;
-    if (Date.now() > stop) throw new Error("运行没有登记");
-  }
+  // 发送请求从进入后端到登记运行、再到等锁，中间只有微任务：一次协议往返之后它已经在等锁。
+  // 新连接的基线列出已登记、还没开始的运行，用来确认这一点。
+  await roundTrip(f);
+  const observer = await f.connect();
+  assert.ok((observer.handshake.baseline.sessions.find(item => item.sessionId === session.id)?.queued ?? []).some(item => item.text === "整理文件"));
   await f.client.call("space.close", {});
   rejectsWith("cancelled")(await running);
   assert.ok(await recording instanceof Error);
@@ -534,4 +534,62 @@ test("重组整体失败时空间随之关闭，space.assembled 带原因、root
   // 空间锁已经释放，可以重新打开。
   const reopened = await f.client.call("space.open", { root: f.root });
   assert.ok(reopened.assembly > f.opened.assembly);
+});
+
+test("两次重组同时请求：各自经过一次重组，第二次不被当作空间已经切换", async t => {
+  const f = await fixture(t);
+  const first = f.server.reassemble();
+  const second = f.server.reassemble();
+  const results = [await first, await second];
+  assert.deepEqual(results.map(result => result.status), ["applied", "applied"]);
+  assert.ok(results[0]?.status === "applied" && results[1]?.status === "applied" && results[1].assembly > results[0].assembly);
+  assert.equal(f.probe.opens, 3);
+});
+
+test("由一次运行里发起的工作结束而触发的重组不继承那次运行：新实例 open 时不在运行里，它的写入不随撤销运行删除", async t => {
+  const seen: (string | undefined)[] = [];
+  const f = await fixture(t);
+  f.probe.onOpen = async host => {
+    seen.push(currentRun()?.runId);
+    await host.files.write("opened.txt", "新实例");
+  };
+  const host = f.probe.hosts[0];
+  assert.ok(host);
+  // 插件工具在运行 R 里发起的模型调用，R 结束以后仍在进行；它结束时触发等待中的重组。
+  const completing = deferred();
+  const finish = deferred();
+  f.faux.setResponses([async () => { completing.resolve(); await finish.promise; return fauxAssistantMessage("补判完成"); }]);
+  const runId = randomUUID();
+  const timer = withRun({ runId, ancestorRunIds: [], sessionId: randomUUID(), agent: "general" }, () => host.models.complete({ system: "说明", prompt: "补判" }));
+  await completing.promise;
+  const reassembling = f.server.reassemble();
+  await roundTrip(f);
+  finish.resolve();
+  await timer;
+  assert.equal((await reassembling).status, "applied");
+  assert.deepEqual(seen, [undefined]);
+  const [latest] = await f.client.call("history.list", { limit: 1 });
+  assert.deepEqual(latest?.source, { kind: "plugin", pluginId: "probe" });
+  await f.client.call("history.undoRun", { runId }).catch(() => undefined);
+  assert.equal(await readFile(path.join(f.root, "opened.txt"), "utf8"), "新实例");
+});
+
+test("服务关闭时重组正等旧实例收尾：不再打开新实例，重组以 cancelled 结束", async t => {
+  const f = await fixture(t);
+  const closing = deferred();
+  const gate = deferred();
+  f.probe.closeEntered = () => closing.resolve();
+  f.probe.closeGate = gate.promise;
+  const reassembling = f.server.reassemble();
+  await closing.promise;
+  const stopped = f.server.close();
+  gate.resolve();
+  await stopped;
+  assert.deepEqual(await reassembling, { status: "cancelled" });
+  assert.equal(f.probe.opens, 1);
+});
+
+test("带着比当前更大的序号的插件调用以 space_changed 拒绝：它只能来自此前的后端进程", async t => {
+  const f = await fixture(t);
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "probe", method: "emit", input: {}, assembly: f.opened.assembly + 1 }), rejectsWith("space_changed"));
 });

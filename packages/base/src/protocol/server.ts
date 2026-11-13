@@ -41,6 +41,10 @@ import { browseDirectory, listRoots } from "../space/browse.js";
 import { ReverseRequests } from "./reverse.js";
 import { errorResponse, parseRequest, RpcFault, type RpcId } from "./json-rpc.js";
 
+// 重组在模块加载时的空上下文里进行：它由最后结束的那项工作触发，但不属于那次运行，也不属于发起它的连接；
+// 否则新插件 open 里的写入会记在那次运行名下，撤销运行时一并删掉。
+const detached = AsyncLocalStorage.snapshot();
+
 /** 协议后端的装配选项，用于指定应用配置、插件和 Agent 运行时。 */
 export interface ServerOptions {
   home?: string;
@@ -488,22 +492,27 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     if (target === undefined) return Promise.reject(new RepaFault("space_not_open", "请先打开空间"));
     // 等待空闲时不挡住任何工作。空闲成立的那一刻，在同一段同步代码里落下闸门并让旧的装配开始关闭，
     // 计数为零与闸门落下之间没有 await，请求漏不进去；闸门落下以后插件新发起的工作被拒绝或取消，不等闸门。
+    // 空间的身份是这一次打开：前一次重组换掉了 active 对象，但空间没有变，排在后面的重组照常进行。
+    const opened = target.opened;
     return new Promise<Reassembly>((resolve, reject) => {
       const check = () => {
-        if (stopping || active !== target) {
+        const current = active;
+        if (stopping || current?.opened !== opened) {
           idleWaiters.delete(check);
           resolve({ status: "cancelled" });
           return;
         }
-        if (reassembling !== undefined || !idle(target)) return;
+        if (reassembling !== undefined || !idle(current)) return;
         idleWaiters.delete(check);
-        let lift: () => void = () => undefined;
-        reassembling = new Promise<void>((done) => { lift = done; });
-        const stopped = stopAssembly(target);
-        serializeLifecycle(() => rebuild(target, plugins, stopped)).then(resolve, reject).finally(() => {
-          reassembling = undefined;
-          lift();
-          checkIdle();
+        detached(() => {
+          let lift: () => void = () => undefined;
+          reassembling = new Promise<void>((done) => { lift = done; });
+          const stopped = stopAssembly(current);
+          serializeLifecycle(() => rebuild(current, plugins, stopped)).then(resolve, reject).finally(() => {
+            reassembling = undefined;
+            lift();
+            checkIdle();
+          });
         });
       };
       idleWaiters.add(check);
@@ -514,15 +523,21 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   /** 闸门落下以后、轮到生命周期队列时执行：等旧装配收尾，按清单重新装配，发出 space.assembled。 */
   const rebuild = async (target: ActiveSpace, plugins: Plugin[], stopped: Promise<PromiseSettledResult<void>[]>): Promise<Reassembly> => {
     const results = await stopped;
-    // 排在前面的 space.open、space.close 已经关闭或换掉了这个空间。
-    if (active !== target) return { status: "cancelled" };
+    // 排在前面的 space.open、space.close 已经关闭或换掉了这个空间；服务正在关闭时也不再打开插件，空间由服务关闭时的 closeActive 收尾。
+    if (stopping || active !== target) return { status: "cancelled" };
     // 某个插件的 close() 抛错不挡住重组：记进最近错误，结果里写明是哪个插件、什么原因。
     const closeFailures: { pluginId: string; message: string }[] = [];
     for (const result of results) {
       if (result.status === "fulfilled") continue;
       const reasons: unknown[] = result.reason instanceof AggregateError ? result.reason.errors : [result.reason];
       for (const reason of reasons) {
-        errors.add({ source: "plugin-host", message: reason instanceof Error ? reason.message : String(reason), code: "plugin_close_failed" });
+        const original = reason instanceof Error && reason.cause instanceof Error ? reason.cause : reason;
+        errors.add({
+          source: "plugin-host",
+          message: reason instanceof Error ? reason.message : String(reason),
+          code: "plugin_close_failed",
+          ...(original instanceof Error && original.stack !== undefined ? { stack: original.stack } : {}),
+        });
         if (reason instanceof RepaFault && reason.code === "plugin_close_failed" && reason.details !== null && typeof reason.details === "object" && "pluginId" in reason.details && typeof reason.details.pluginId === "string") {
           closeFailures.push({ pluginId: reason.details.pluginId, message: reason.message });
         }
