@@ -23,6 +23,10 @@ async function fixture(t: TestContext) {
   const directory = path.join(root, "build");
   await mkdir(directory);
   await writeFile(path.join(directory, "index.mjs"), `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(sentinel)}, 'executed'); export default {id:'fixture', async open(){return {}}};`);
+  await mkdir(path.join(directory, "page"));
+  await writeFile(path.join(directory, "page", "index.html"), "<!doctype html>\n");
+  await writeFile(path.join(directory, "page", "index.mjs"), "export default {id:'fixture', async open(){return {}}};");
+  await writeFile(path.join(directory, "index.html"), "<!doctype html>\n");
   const save = (value: unknown) => writeFile(path.join(directory, "repa-plugin.json"), JSON.stringify(value));
   return { root, directory, sentinel, save, cleanups };
 }
@@ -31,20 +35,37 @@ test("清单及底座版本错误在执行顶层代码前拒绝，合法构建�
   const f = await fixture(t);
   for (const change of [
     { id: "Bad" }, { version: "bad" }, { baseVersion: "bad" }, { baseVersion: "" },
-    { entry: "index.ts" }, { entry: "missing.mjs" }, { entry: "../outside.mjs" }, { entry: "/tmp/outside.mjs" }, { extra: true },
+    { entry: "index.cjs" }, { entry: "missing.mjs" }, { entry: "missing.ts" }, { entry: "../outside.mjs" }, { entry: "/tmp/outside.mjs" },
+    { entry: ".\\index.mjs" }, { entry: "C:index.mjs" }, { extra: true }, { jobs: [] }, { title: "" },
+    { pages: [{ id: "main", title: "主页", entry: "../page.html" }] },
+    { pages: [{ id: "main", title: "主页", entry: "page\\index.html" }] },
+    { pages: [{ id: "main", title: "主页", entry: "index.mjs" }] },
+    { pages: [{ id: "main", title: "主页", entry: "missing.html" }] },
+    { pages: [{ id: "main", title: "主页", entry: "page/index.html", place: "sidebar" }] },
+    { pages: [{ id: "main", title: "主页", entry: "page/index.html" }, { id: "main", title: "又一页", entry: "page/index.html" }] },
+    // 页面目录里只放页面的文件：入口文档不能在根目录，页面目录里不能有入口模块。
+    { pages: [{ id: "main", title: "主页", entry: "index.html" }] },
+    { entry: "page/index.mjs", pages: [{ id: "main", title: "主页", entry: "page/index.html" }] },
   ]) {
     await f.save({ ...manifest, ...change });
     await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_manifest"));
   }
+  // 在不区分大小写的文件系统上 Index.mjs 也能打开，但同一份清单换到 Linux 就找不到文件，所以各系统一律拒绝。
+  await f.save({ ...manifest, entry: "Index.mjs" });
+  await assert.rejects(loadPlugin(f.directory), /入口模块 Index\.mjs 不存在；文件名的大小写要与文件夹里的一致/u);
   await f.save({ ...manifest, baseVersion: ">=99.0.0" });
   await assert.rejects(loadPlugin(f.directory), fault("incompatible_base_version"));
   await assert.rejects(readFile(f.sentinel), { code: "ENOENT" });
-  await f.save(manifest);
-  assert.equal((await loadPlugin(f.directory)).id, "fixture");
+  const declared = { ...manifest, entry: "./index.mjs", title: "测试插件", pages: [{ id: "main", title: "主页", entry: "page/index.html" }] };
+  await f.save(declared);
+  const loaded = await loadPlugin(f.directory);
+  assert.equal(loaded.plugin.id, "fixture");
+  assert.deepEqual(loaded.manifest, declared);
+  assert.equal(loaded.root, f.directory);
   assert.equal(await readFile(f.sentinel, "utf8"), "executed");
 });
 
-test("损坏清单、源码文件、目录外链接及不一致的导出 id 均被拒绝", async (t) => {
+test("损坏清单、指向非模块文件或目录外的链接及不一致的导出 id 均被拒绝", async (t) => {
   const f = await fixture(t);
   await writeFile(path.join(f.directory, "repa-plugin.json"), "{");
   await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_manifest"));
@@ -54,9 +75,9 @@ test("损坏清单、源码文件、目录外链接及不一致的导出 id 均�
   await symlink(outside, path.join(f.directory, "link.mjs"));
   await f.save({ ...manifest, entry: "link.mjs" });
   await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_manifest"));
-  await writeFile(path.join(f.directory, "source.ts"), "throw new Error('不应执行源码');");
-  await symlink("source.ts", path.join(f.directory, "source.js"));
-  await f.save({ ...manifest, entry: "source.js" });
+  await writeFile(path.join(f.directory, "notes.txt"), "throw new Error('不应执行');");
+  await symlink("notes.txt", path.join(f.directory, "notes.js"));
+  await f.save({ ...manifest, entry: "notes.js" });
   await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_manifest"));
   await f.save({ ...manifest, id: "different" });
   await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_export"));

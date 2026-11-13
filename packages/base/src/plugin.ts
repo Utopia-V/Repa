@@ -5,6 +5,10 @@ import type { ClientCapabilities } from "./protocol.js";
 import type { ExportedFile, MessageDecision, ModelRef } from "./schema.js";
 
 export type { ExportedFile, MessageDecision, ModelRef } from "./schema.js";
+// 插件文件夹不经构建、也没有自己的依赖：声明参数用的 TypeBox 构造器和带错误码的 RepaFault 都从这里取。
+// 宿主把插件文件夹里的 @repa/base/plugin 解析到自己的这一份，RepaFault 因此与宿主是同一个类。
+export { Type } from "typebox";
+export { RepaFault } from "./schema.js";
 export type { ActivitySource, ChangeFeed, Revision } from "@repa/space-history";
 export type { ClientCapabilities } from "./protocol.js";
 // 交互词汇：Item 和作答的 schema 与类型，以及 contentVersion 等纯函数。

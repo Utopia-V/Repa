@@ -18,7 +18,7 @@ npm run start --workspace=@repa/base -- serve --home /path/to/repa-home
 
 服务只监听 `127.0.0.1`，stdout 输出一行 `{ "url": "ws://…/rpc", "token": "…" }`。启动方把它作为私密连接信息交给客户端，不放进公开日志。省略 `--home` 时使用 `REPA_HOME`，再回退到[系统配置目录](#应用配置目录)；`REPA_TOKEN` 可提供已有令牌，否则随机生成。`--port` 默认自动分配。收到 SIGINT、SIGTERM 时，服务等资源关闭后再退出；给出 `--close-on-stdin-end` 时，stdin 读到结尾也照此关闭。拉起服务的程序用后者请求关闭，原因有二：Windows 没有能投递给子进程的 SIGTERM，`kill` 会直接结束进程，收尾来不及进行；拉起它的程序意外退出时，stdin 也随之结束，服务同样会收尾；Windows 上由 Node 拉起的服务例外，见[接入客户端与进程宿主](#接入客户端与进程宿主)。
 
-要加载插件，给出构建目录；例如加载包内的笔记插件，并只开放它的 Agent 供用户直接对话：
+要加载插件，给出插件文件夹；例如加载包内的笔记插件，并只开放它的 Agent 供用户直接对话：
 
 ```sh
 npm run start --workspace=@repa/base -- serve \
@@ -27,7 +27,7 @@ npm run start --workspace=@repa/base -- serve \
   --no-general-agent --direct-agent notes-organizer
 ```
 
-`--git` 指定空间历史用的 Git 程序，必须是绝对路径，打开空间和恢复到新文件夹时使用；省略时用 `PATH` 里的 `git`。桌面安装包只带 Git 主程序，据此传入，原因见 [`@repa/space-history`](../space-history/README.md#怎么用)。`--plugin` 和 `--direct-agent` 都可重复。插件随产品构建和安装依赖，目录需要包含[构建清单](#构建清单与数据版本)，不接受源码文件路径。省略后两个选项时提供通用 Agent，插件 Agent 是否开放按定义中的 `direct`；指定 `--direct-agent` 后则只开放列表中的 Agent。写错 id 时打开空间返回 `unknown_agent`；若有插件停用，则从列表中去掉不可用的 Agent，空间照常打开，原因见[停用插件](#停用插件)。
+`--git` 指定空间历史用的 Git 程序，必须是绝对路径，打开空间和恢复到新文件夹时使用；省略时用 `PATH` 里的 `git`。桌面安装包只带 Git 主程序，据此传入，原因见 [`@repa/space-history`](../space-history/README.md#怎么用)。`--plugin` 和 `--direct-agent` 都可重复。`--plugin` 给出的是插件文件夹，其中要有[插件清单](#插件清单与数据版本)，不接受入口文件的路径。省略后两个选项时提供通用 Agent，插件 Agent 是否开放按定义中的 `direct`；指定 `--direct-agent` 后则只开放列表中的 Agent。写错 id 时打开空间返回 `unknown_agent`；若有插件停用，则从列表中去掉不可用的 Agent，空间照常打开，原因见[停用插件](#停用插件)。
 
 ### 接入客户端与进程宿主
 
@@ -62,7 +62,7 @@ await client.close();
 await backend.close();
 ```
 
-进程入口从 stdout 读取连接信息，不写连接文件。`plugins` 接受插件构建目录，`generalAgent: false` 和 `directAgents` 对应 CLI 的装配选项；插件由构建后的 CLI 导入，不经过 tsx。嵌入同一进程时使用 `startServer`，模块边界见[包地图](../README.md)及 [`protocol.ts`](src/protocol.ts)。
+进程入口从 stdout 读取连接信息，不写连接文件。`plugins` 接受插件文件夹，`generalAgent: false` 和 `directAgents` 对应 CLI 的装配选项；插件由构建后的 CLI 导入，不经过 tsx。嵌入同一进程时使用 `startServer`，模块边界见[包地图](../README.md)及 [`protocol.ts`](src/protocol.ts)。
 
 客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出。`close()` 结束后端的 stdin，请求它正常关闭，可重复调用并等待收尾完成，异常退出返回错误；宿主进程没有调用 `close()` 就退出时，结果因平台而异。Linux 和 macOS 上，后端读到 stdin 结尾，照常收尾后退出。Windows 上，Node 的 libuv 把不是 detached 的子进程放进随父进程关闭而结束的作业对象（见 libuv 1.51 的 [`uv_spawn`](https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c#L1082)），后端随宿主一起被结束，来不及收尾，但也不会留下来；它持有的空间锁最多 30 秒后视为过期，尚未提交的文件改动在下次打开空间时记为外部改动。启动失败的进程回收有 5 秒强制终止期限。进程入口依赖 Node，不从浏览器客户端导出。
 
@@ -174,11 +174,9 @@ npm run real-model-check --workspace=@repa/base -- \
 
 ## 写插件
 
-### 构建清单与数据版本
+### 插件清单与数据版本
 
-从 `@repa/base/plugin` 导入类型，用 `satisfies Plugin` 或类型注解约束入口，并运行 TypeScript 严格检查。这个子路径只提供插件接口、模型作用域、工具名与运行上下文，不引入空间或协议宿主；完整的 [`Plugin`](../../docs/generated/host-api.md#plugin)、[`Host`](../../docs/generated/host-api.md#host)、[`PluginInstance`](../../docs/generated/host-api.md#plugininstance) 和 [`AgentDefinition`](../../docs/generated/host-api.md#agentdefinition) 成员以生成目录为准。
-
-构建目录需要包含 JavaScript 入口、依赖产物和 `repa-plugin.json`；例如[笔记插件清单](examples/repa-plugin.json)：
+插件是一个文件夹，根目录放清单 `repa-plugin.json` 和入口模块。例如[笔记插件清单](examples/repa-plugin.json)：
 
 ```json
 {
@@ -189,7 +187,21 @@ npm run real-model-check --workspace=@repa/base -- \
 }
 ```
 
-宿主先静态检查清单，再导入 `default` 或 `plugin` 导出，入口 id 必须与清单一致。id 以字母开头，只含小写字母、数字和连字符；代码版本是 SemVer，底座版本必须满足声明的范围。入口必须是目录内的相对 `.js` 或 `.mjs` 文件，解析符号链接后也不能越界；缺字段、多字段、版本无效或不兼容都会在执行入口前拒绝。重复插件 id 会拒绝装配，清单检查不隔离可信本机代码。
+宿主先静态检查清单，再导入入口的 `default` 或 `plugin` 导出，入口 id 必须与清单一致。id 以字母开头，只含小写字母、数字和连字符；代码版本是 SemVer，底座版本必须满足声明的范围。缺字段、多字段、版本无效或不兼容都会在执行入口前拒绝；重复插件 id 会拒绝装配，清单检查不隔离可信本机代码。
+
+清单另有两个可选字段：`title` 是插件的标题，`pages` 声明插件页面，每项有 `id`、`title` 和 HTML 入口文档 `entry`。宿主目前只读入并核对它们：页面 id 不能重复，入口文档必须存在，而且要放在子目录里，例如 `page/index.html`。入口文档所在的目录是页面目录，以后后端只提供其中的文件，所以入口模块和清单不能在这个目录中。协议还没有公布这两项，页面也还不提供，见[自写插件的提案](../../.agents/notes/proposed/architecture/2026-11-13-self-written-plugins.md)。
+
+清单里的路径都相对插件文件夹、以 `/` 分隔，不能含反斜杠、冒号或 `..`，每一段的大小写要与文件夹里的文件名一致，解析符号链接以后也不能越出文件夹，同一份清单因此在 Windows 和其他系统上指同一个文件。入口模块可以是 `.js`、`.mjs` 或 `.ts`。
+
+插件文件夹有两种。随产品附带的插件是一个 npm 包：文件夹的根目录有 `package.json`，或者文件夹位于 `node_modules` 下，依赖由包管理器安装，入口是构建后的 JavaScript。学习插件是这样；`@repa/base` 包内的笔记示例构建到 `dist/examples`，构建时给它放一份 `package.json`，也是这样。判断只看文件夹自己，不看上级目录：空间可能就在某个 JS 项目里，上级的 `package.json` 不改变插件的含义。其余的文件夹不经构建即可加载，这是 Repa 给自己写插件时用的形式；这样的文件夹里放了 `package.json`，就按 npm 包加载，`@repa/base/plugin` 也要由包管理器安装才能导入。Node 从 22.18 起默认剥离类型，桌面端所用 Electron 44.3.0 自带的 Node 24.20.0 也是如此，`.ts` 入口和它导入的 `.ts` 文件可以直接运行。这样的文件夹有三条限制：
+
+- 只能导入 Node 内置模块、文件夹内的文件和 `@repa/base/plugin`。宿主在第一次导入这样的插件之前，用 `module.registerHooks` 注册一个解析钩子，把 `@repa/base/plugin` 解析到宿主自己的那一份；插件抛出的 `RepaFault` 因此与宿主是同一个类，错误码不会退化。导入别的包或文件夹之外的文件（包括经符号链接），以 `plugin_import_failed` 拒绝。这条限制保证插件的依赖都在文件夹之内，并不是安全边界：代码仍可以经 `node:fs`、`node:child_process` 做任何事。钩子只处理导入方或结果在这类文件夹里的解析，宿主自己和属于 npm 包的插件照常解析。钩子只在注册它的线程生效：插件自己开的 worker 线程里不能导入 `@repa/base/plugin`，这条限制和下一条也都不起作用。按所在位置区分两种文件夹是运行中装卸落地之前的做法，届时自写插件从宿主保管的快照加载，按来源区分。
+- 只用 ES 模块。文件夹里的 `.js`、`.mjs`、`.ts` 一律按 ES 模块解释，不受其中 `package.json` 的 `type` 影响；此外只能导入 JSON 文件。
+- 只用类型剥离能处理的写法。导入要写出文件真实的扩展名，例如 `./lib.ts`，Node 不补全扩展名，也不把 `.js` 换成 `.ts`；`enum`、`namespace`、构造函数的参数属性等需要转换的写法不能用。只是类型的名字要用 `import type` 导入，否则类型剥离把它留成值导入，链接时报“没有导出这个名字”。违反时，宿主以 `plugin_import_failed` 报出原因，语法和链接问题附上文件、行号和那一行源码。
+
+Node 不剥离 `node_modules` 下文件的类型，所以装在那里的插件以 `.ts` 为入口时，清单检查即拒绝。
+
+插件从 `@repa/base/plugin` 导入接口的类型，用 `satisfies Plugin` 或类型注解约束入口；npm 包里的插件再运行 TypeScript 严格检查。这个子路径提供插件接口、模型作用域、工具名与运行上下文，以及声明参数用的 `Type`（取自 `typebox`）和错误类 `RepaFault`，不引入空间或协议宿主；完整的 [`Plugin`](../../docs/generated/host-api.md#plugin)、[`Host`](../../docs/generated/host-api.md#host)、[`PluginInstance`](../../docs/generated/host-api.md#plugininstance) 和 [`AgentDefinition`](../../docs/generated/host-api.md#agentdefinition) 成员以生成目录为准。
 
 代码版本与数据版本分开。插件在 `open` 中识别、校验自己的数据，底座不维护 `plugin-versions/`，已有目录原样保留；插件可用 `checkFormat(file, currentVersion)` 只读检查标记，它接受不高于当前版本的正整数，允许未知可选字段，错误与[空间格式](#格式与版本-1)相同。新数据由插件明确初始化。学习插件只为空目录写入版本 1 的标记，非空目录缺少标记时停用，并提示删除开发数据目录后重开空间；空间根目录的无标记 `.repa/` 仍拒绝打开。
 

@@ -46,7 +46,7 @@
     "start": "tsx src/cli.ts",
     "prereal-model-check": "npm run build",
     "real-model-check": "tsx scripts/real-model-check.ts",
-    "build:assets": "node -e \"require('node:fs').copyFileSync('examples/repa-plugin.json', 'dist/examples/repa-plugin.json')\"",
+    "build:assets": "node -e \"const fs = require('node:fs'); fs.copyFileSync('examples/repa-plugin.json', 'dist/examples/repa-plugin.json'); fs.writeFileSync('dist/examples/package.json', JSON.stringify({ type: 'module' }));\"",
     "prestart": "npm run build"
   },
   "engines": {

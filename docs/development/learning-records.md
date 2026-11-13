@@ -18,7 +18,7 @@
 
 包根目录的 `repa-plugin.json` 声明 `learning`、代码及底座兼容版本和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, connect })` 默认读取随包的 Python 课程，打开时一次加载全部 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录；时间一律取自底座的 `host.now()`，插件不另设时钟，测试通过宿主的 `now` 拨动时间。
 
-插件自行在其中管理 `format.json`，当前版本是 [`plugin.ts`](../../packages/learning/src/plugin.ts) 的 `LEARNING_FORMAT_VERSION`。目录为空时写入当前版本的标记；非空目录缺少标记，或标记是更早的开发版本（只记投影的版本 1、任务不带课程版本的版本 2），都按无法识别的开发数据停用学习插件，提示删除 `.repa/plugins/learning/` 后重新打开空间，不做转换。版本检查复用[底座辅助函数](../../packages/base/README.md#构建清单与数据版本)，标记损坏、版本过新或记录损坏时只停用学习插件。
+插件自行在其中管理 `format.json`，当前版本是 [`plugin.ts`](../../packages/learning/src/plugin.ts) 的 `LEARNING_FORMAT_VERSION`。目录为空时写入当前版本的标记；非空目录缺少标记，或标记是更早的开发版本（只记投影的版本 1、任务不带课程版本的版本 2），都按无法识别的开发数据停用学习插件，提示删除 `.repa/plugins/learning/` 后重新打开空间，不做转换。版本检查复用[底座辅助函数](../../packages/base/README.md#插件清单与数据版本)，标记损坏、版本过新或记录损坏时只停用学习插件。
 
 打开时先由 `LearningRecords.open` 读入并核对事实，再由 `LearningSession.open` 重放出学习状态、找出要补判的作答。教学方法（`connectLearning`）和辅导（`connectTutor`）共用这个会话：读取当前状态、在串行入口里写入事实、判分。`connect` 选项可以换掉教学方法的装配，测试用它取回会话。
 

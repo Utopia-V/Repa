@@ -6,7 +6,7 @@ import { loadPlugin } from "./plugins/manifest.js";
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   if (args[0] === "--help" || args[0] === "-h") {
-    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 构建目录] [--no-general-agent] [--direct-agent Agent] [--git Git 程序的绝对路径] [--close-on-stdin-end]\n");
+    process.stdout.write("用法：repa-base serve [--home 目录] [--port 端口] [--plugin 插件文件夹] [--no-general-agent] [--direct-agent Agent] [--git Git 程序的绝对路径] [--close-on-stdin-end]\n");
     return;
   }
   if (args.shift() !== "serve") throw new Error("请使用 repa-base serve 启动本机服务");
@@ -40,7 +40,7 @@ async function run(): Promise<void> {
         port = Number(value);
         break;
       case "--plugin": {
-        plugins.push(await loadPlugin(value));
+        plugins.push((await loadPlugin(value)).plugin);
         break;
       }
       case "--git":
