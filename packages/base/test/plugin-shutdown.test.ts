@@ -246,6 +246,20 @@ test("宿主开始关闭、这个插件的 close 还没开始时，它经 Host �
   await assert.rejects(host.files.write("after.txt", "关闭以后"), closedCode);
 });
 
+test("宿主层的 call 自己登记在途工作：方法执行期间 busy，结束以后空闲", async (t) => {
+  const saved = new Map<string, Host>();
+  const hold = deferred();
+  const testing = await createPluginTestHost({ plugins: [savingPlugin("busy", saved, hold.promise)] });
+  t.after(() => testing.close());
+  await testing.host.start();
+  assert.equal(testing.host.busy(), false);
+  const calling = testing.host.call("busy", "hold", {});
+  assert.equal(testing.host.busy(), true);
+  hold.resolve();
+  await calling;
+  assert.equal(testing.host.busy(), false);
+});
+
 test("打开时因声明无效被停用的插件，close 返回以后它保留的 Host 不能再读写", async (t) => {
   const saved = new Map<string, Host>();
   const testing = await createPluginTestHost({

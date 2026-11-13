@@ -838,3 +838,64 @@ test("关闭服务时新装配正在追赶、持锁等自己的模型请求：�
   assert.equal(reply.state.aborted, true);
   assert.deepEqual(await reassembling, { status: "cancelled" });
 });
+
+test("插件经保存的 Host 直接发起的服务请求使重组等待，不靠外层的协议调用", async t => {
+  const f = await fixture(t);
+  const provider = await f.connect(["probe.run"]);
+  const host = f.probe.hosts[0];
+  assert.ok(host);
+  const requested = next(provider, "service.request");
+  const serving = host.services.call("probe.run", {});
+  const request = await requested;
+  const reassembling = f.server.reassemble();
+  const state = watch(reassembling);
+  await roundTrip(f);
+  assert.equal(state.settled, false);
+  assert.equal(f.probe.opens, 1);
+  await provider.call("service.reply", { id: request.id, result: { ok: true } });
+  assert.deepEqual(await serving, { ok: true });
+  assert.equal((await reassembling).status, "applied");
+});
+
+test("重组在两个 owner 都已建立以后、追赶途中整体失败：两边都关闭，闸门抬起，发出失败事件，空间锁释放", async t => {
+  const f = await fixture(t);
+  const first = f.probe.hosts[0];
+  assert.ok(first);
+  await first.files.write("seed.txt", "种子");
+  // 记下新装配的 Agent 空间，失败以后检查它已关闭。
+  const openSpace = f.runtime.openSpace.bind(f.runtime);
+  const agents: Awaited<ReturnType<typeof openSpace>>[] = [];
+  f.runtime.openSpace = async options => {
+    const agent = await openSpace(options);
+    agents.push(agent);
+    return agent;
+  };
+  t.after(() => { f.runtime.openSpace = openSpace; });
+  // 变化处理抛出不能转成文字的值：停用这个插件时记不下原因，追赶整体失败。以此在两个 owner 都建立以后制造整体失败。
+  const entered = deferred();
+  const leave = deferred();
+  f.probe.onChange = async host => {
+    if (host === first) return;
+    entered.resolve();
+    await leave.promise;
+    throw Object.create(null) as unknown;
+  };
+  const assembled = next(f.client, "space.assembled");
+  const reassembling = f.server.reassemble();
+  await entered.promise;
+  assert.equal(agents.length, 1);
+  const waiting = f.client.call("session.list", {});
+  await roundTrip(f);
+  leave.resolve();
+  await assert.rejects(reassembling);
+  const notice = await assembled;
+  assert.equal(notice.root, null);
+  await assert.rejects(waiting, rejectsWith("space_changed"));
+  const fresh = f.probe.hosts[1];
+  assert.ok(fresh);
+  await assert.rejects(fresh.files.write("late.txt", "失败以后"), rejectsWith("plugins_closed"));
+  await assert.rejects(agents[0]?.create({}) ?? Promise.resolve(), rejectsWith("space_closed"));
+  f.probe.onChange = undefined;
+  const reopened = await f.client.call("space.open", { root: f.root });
+  assert.ok(reopened.assembly > f.opened.assembly);
+});
