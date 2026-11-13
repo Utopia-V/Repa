@@ -1,0 +1,91 @@
+import type { Plugin } from "../plugin.js";
+import { RepaFault } from "../schema.js";
+import { readEnablement } from "./enablement.js";
+import { loadPlugin } from "./manifest.js";
+import { checkSnapshot, cleanSnapshots, clearStaging, removeSnapshot, snapshotDirectory } from "./snapshots.js";
+
+/**
+ * 启用了却没有交给插件宿主的自写插件。pending：本机没有记录的那个版本的完好快照，要批准以后才能运行；
+ * failed：快照在，但读不了、导入失败，或与随包插件同名。宿主打开以后才失败的插件不在这里，由宿主停用。
+ */
+export interface UnavailablePlugin {
+  id: string;
+  state: "pending" | "failed";
+  reason: { code: string; message: string };
+}
+
+/** 交给插件宿主的插件，以及没有交给它的自写插件；problems 是与单个插件无关、或需要另记一笔的错误。 */
+export interface SpacePlugins {
+  plugins: Plugin[];
+  unavailable: UnavailablePlugin[];
+  problems: unknown[];
+}
+
+function failure(id: string, error: unknown): UnavailablePlugin {
+  return {
+    id,
+    state: "failed",
+    reason: {
+      code: error instanceof RepaFault ? error.code : "plugin_open_failed",
+      message: error instanceof Error ? error.message : String(error),
+    },
+  };
+}
+
+/**
+ * 打开空间时这个空间要运行的插件：随包插件，加上启用记录里 enabled 的自写插件中快照核对通过、导入成功的那些，
+ * 自写插件按 id 排在随包插件之后。
+ *
+ * 每次都从盘上的启用记录出发，所以运行的集合总与盘上一致。先清掉暂存副本、按记录清理快照，
+ * 再逐个核对并导入；核对不通过的快照在这里删除，插件列为待批准。这一切都在插件打开之前，没有实例在用这些快照。
+ * 记录读不了时不运行任何自写插件，也不清理，只报告错误：空间照常打开。
+ */
+export async function spacePlugins(options: { home: string; space: { root: string; dataDir: string }; bundled: Plugin[] }): Promise<SpacePlugins> {
+  const { home, space, bundled } = options;
+  const problems: unknown[] = [];
+  let record;
+  try {
+    record = await readEnablement(space.dataDir);
+  } catch (error) {
+    return { plugins: bundled, unavailable: [], problems: [error] };
+  }
+  try {
+    await clearStaging(home, space.root);
+    await cleanSnapshots(home, space.root, record);
+  } catch (error) {
+    // 清理失败只影响占用的磁盘，下次打开空间再清。
+    problems.push(error);
+  }
+  const bundledIds = new Set(bundled.map((plugin) => plugin.id));
+  const loaded: Plugin[] = [];
+  const unavailable: UnavailablePlugin[] = [];
+  const ids = Object.keys(record.plugins).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  for (const id of ids) {
+    const entry = record.plugins[id];
+    if (entry === undefined || !entry.enabled) continue;
+    if (bundledIds.has(id)) {
+      unavailable.push(failure(id, new RepaFault("plugin_id_conflict", `自写插件 ${id} 与随产品附带的插件同名，没有运行`, { id })));
+      continue;
+    }
+    try {
+      const directory = snapshotDirectory(home, space.root, id, entry.digest);
+      const status = await checkSnapshot(directory, entry.digest);
+      if (status === "missing") {
+        unavailable.push({ id, state: "pending", reason: { code: "snapshot_missing", message: `本机没有插件 ${id} 这个版本的已批准快照，批准以后才运行` } });
+        continue;
+      }
+      if (status === "modified") {
+        await removeSnapshot(directory).catch((error: unknown) => { problems.push(error); });
+        unavailable.push({ id, state: "pending", reason: { code: "snapshot_modified", message: `插件 ${id} 的已批准快照被改动过，已删除，重新批准以后才运行` } });
+        continue;
+      }
+      const { manifest, plugin } = await loadPlugin(directory, { confined: true });
+      if (manifest.id !== id) throw new RepaFault("plugin_id_mismatch", `快照里的插件 id 是 ${manifest.id}，启用记录里是 ${id}`, { id, manifest: manifest.id });
+      loaded.push(plugin);
+    } catch (error) {
+      unavailable.push(failure(id, error));
+      problems.push(error);
+    }
+  }
+  return { plugins: [...bundled, ...loaded], unavailable, problems };
+}
