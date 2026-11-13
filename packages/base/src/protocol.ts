@@ -34,9 +34,9 @@ import {
 export * from "./schema.js";
 export * from "./interaction.js";
 // 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。读取时忽略未知字段；只有旧版会读错的语义变化才升版本。
-// 4：插件集合可在空间打开期间重组。新增装配序号 assembly 与 space.assembled 通知，plugin.call 必须带序号，plugin.event 带序号。
+// 开发阶段版本不变：插件集合可在空间打开期间重组，为此新增装配序号 assembly 与 space.assembled 通知，plugin.call 必须带序号，plugin.event 带序号。
 /** 当前前后端协议版本；连接初始化时用于拒绝无法正确理解的协议。 */
-export const PROTOCOL_VERSION = "4";
+export const PROTOCOL_VERSION = "3";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
 /**

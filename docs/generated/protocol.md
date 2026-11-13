@@ -336,7 +336,7 @@
 | baseline.sessions[] | object | 否 | 嵌套对象，字段见源码 |
 | baseline.space | object &#124; null | 否 | 嵌套对象，字段见源码 |
 | serverId | string | 否 |  |
-| version | "4" | 否 |  |
+| version | "3" | 否 |  |
 
 ## 方法：model.getDefault
 
