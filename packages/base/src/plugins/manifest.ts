@@ -1,6 +1,6 @@
-import { access, readFile, realpath, stat } from "node:fs/promises";
+import { access, readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import semver from "semver";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
@@ -41,8 +41,9 @@ const ENTRY_EXTENSIONS = [".js", ".mjs", ".ts"];
 /**
  * 清单和兼容性全部通过后才执行插件。
  *
- * 文件夹或它的上级目录里有 package.json 的，属于一个 npm 包，随包插件即如此：依赖由包管理器安装，按 Node 的规则照常解析。
- * 不属于任何包的文件夹只能导入 Node 内置模块、文件夹内的文件和 @repa/base/plugin，见 confinePluginFolder。
+ * 根目录有 package.json 或位于 node_modules 下的文件夹是一个 npm 包，随包插件即如此：依赖由包管理器安装，按 Node 的规则照常解析。
+ * 只看文件夹自己，不看上级目录：空间可能就在某个 JS 项目里，上级的 package.json 不该改变插件的含义。
+ * 其余文件夹只能导入 Node 内置模块、文件夹内的文件和 @repa/base/plugin，见 confinePluginFolder。
  * 这一区分是在装卸与快照落地之前的临时判断：那时自写插件从宿主保管的快照加载，由来源而不由位置决定。
  */
 export async function loadPlugin(directory: string): Promise<LoadedPlugin> {
@@ -75,10 +76,15 @@ export async function loadPlugin(directory: string): Promise<LoadedPlugin> {
   for (const page of manifest.pages ?? []) {
     if (pageIds.has(page.id)) throw new RepaFault("invalid_plugin_manifest", "插件页面的 id 重复", { page: page.id });
     pageIds.add(page.id);
-    await folderFile(root, page.entry, [".html"], "页面入口");
+    // 页面目录是入口文档所在的目录，后端只提供其中的文件，入口模块和清单不能在里面。
+    const pages = path.dirname(await folderFile(root, page.entry, [".html"], "页面入口"));
+    if (pages === root || within(pages, entry)) {
+      throw new RepaFault("invalid_plugin_manifest", "页面入口要放在子目录里，例如 page/index.html，入口模块和清单不能在这个目录中", { page: page.id, entry: page.entry });
+    }
   }
-  if (!underNodeModules && !(await insidePackage(root))) confinePluginFolder(root, manifest.id);
-  const module = await importEntry(manifest.id, pathToFileURL(entry).href);
+  const npmPackage = underNodeModules || (await exists(path.join(root, "package.json")));
+  if (!npmPackage) confinePluginFolder(root, manifest.id);
+  const module = await importEntry(manifest.id, root, npmPackage, pathToFileURL(entry).href);
   const exported = module !== null && typeof module === "object" ? module : {};
   const plugin: unknown = "default" in exported ? exported.default : "plugin" in exported ? exported.plugin : undefined;
   if (!plugin || typeof plugin !== "object" || !("id" in plugin) || plugin.id !== manifest.id || !("open" in plugin) || typeof plugin.open !== "function") {
@@ -90,13 +96,21 @@ export async function loadPlugin(directory: string): Promise<LoadedPlugin> {
 
 /**
  * 清单里的路径一律相对插件文件夹、以 / 分隔，同一份清单在 Windows 和其他系统上指同一个文件：
- * 反斜杠在别的系统上是文件名的一部分，冒号在 Windows 上表示盘符，两者都不接受。解析符号链接后也不能越出文件夹。
+ * 反斜杠在别的系统上是文件名的一部分，冒号在 Windows 上表示盘符，两者都不接受；
+ * 每一段都按目录列表逐字比对，大小写不一致的文件名在不区分大小写的文件系统上也拒绝。解析符号链接后也不能越出文件夹。
  */
 async function folderFile(root: string, value: string, extensions: string[], label: string): Promise<string> {
   const parts = value.split("/");
   const lexical = path.resolve(root, ...parts);
   if (/[\\:]/.test(value) || parts.some((part) => part === "" || part === "..") || !within(root, lexical) || !extensions.includes(path.extname(lexical))) {
     throw new RepaFault("invalid_plugin_manifest", `${label}必须是插件文件夹内以 / 分隔的相对路径，扩展名为 ${extensions.join("、")}`, { path: value });
+  }
+  let directory = root;
+  for (const part of parts) {
+    if (part === ".") continue;
+    const names = await readdir(directory).catch(() => [] as string[]);
+    if (!names.includes(part)) throw new RepaFault("invalid_plugin_manifest", `${label} ${value} 不存在；文件名的大小写要与文件夹里的一致`, { path: value });
+    directory = path.join(directory, part);
   }
   try {
     const canonical = await realpath(lexical);
@@ -107,47 +121,56 @@ async function folderFile(root: string, value: string, extensions: string[], lab
   }
 }
 
-/** 从文件夹起逐级向上找 package.json，与 Node 判断模块所属的包相同。 */
-async function insidePackage(directory: string): Promise<boolean> {
-  for (let current = directory; ; current = path.dirname(current)) {
-    try {
-      await access(path.join(current, "package.json"));
-      return true;
-    } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
-    }
-    if (path.dirname(current) === current) return false;
+async function exists(file: string): Promise<boolean> {
+  try {
+    await access(file);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
   }
 }
 
 /** 导入入口；Node 的错误换成说得清原因的 RepaFault，插件自己抛出的 RepaFault 原样交回。 */
-async function importEntry(id: string, url: string): Promise<unknown> {
+async function importEntry(id: string, root: string, npmPackage: boolean, url: string): Promise<unknown> {
   try {
     return await import(url) as unknown;
   } catch (error) {
     if (error instanceof RepaFault) throw error;
     const message = error instanceof Error ? error.message : String(error);
     const code = error instanceof Error && "code" in error ? error.code : undefined;
-    const where = error instanceof Error ? location(error) : undefined;
-    let reason: string;
+    const where = error instanceof Error ? location(error, root) : undefined;
+    // reason 说明是哪一类问题，advice 说明怎样改，放在 Node 的原话和出错位置之后。
+    let reason = "入口导入失败";
+    let advice: string | undefined;
     if (code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX") {
-      reason = "用了需要转换的 TypeScript 写法。Node 只去掉类型标注，不转换代码，enum、namespace、构造函数的参数属性等要改成普通的 JavaScript 写法";
+      reason = "用了需要转换的 TypeScript 写法";
+      advice = "Node 只去掉类型标注，不转换代码，enum、namespace、构造函数的参数属性等要改成普通的 JavaScript 写法";
     } else if (code === "ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING") {
-      reason = "从 node_modules 里导入了 .ts 文件，Node 不剥离那里的类型";
+      reason = "从 node_modules 里导入了 .ts 文件";
+      advice = "Node 不剥离 node_modules 里文件的类型";
+    } else if (error instanceof SyntaxError && message.includes("does not provide an export named")) {
+      // 链接阶段的错误，V8 也报为 SyntaxError。最常见的成因是没有写 type 修饰导入了只是类型的名字，类型剥离把它留成了值导入。
+      reason = "导入了模块没有导出的名字";
+      advice = "只是类型的名字要写 import type，例如 import type { Tool } from \"@repa/base/plugin\"";
     } else if (error instanceof SyntaxError) {
       reason = "有语法错误";
-    } else {
-      reason = "入口导入失败";
+    } else if (npmPackage && code === "ERR_MODULE_NOT_FOUND") {
+      advice = "插件文件夹的根目录有 package.json 或位于 node_modules 下，按 npm 包加载，依赖要由包管理器安装；不经构建的插件文件夹不放 package.json";
     }
-    throw new RepaFault("plugin_import_failed", `插件 ${id} ${reason}：${message}${where === undefined ? "" : `\n${where}`}`, { id, cause: message });
+    const text = [`插件 ${id} ${reason}：${message}`, where, advice].filter((line) => line !== undefined).join("\n");
+    throw new RepaFault("plugin_import_failed", text, { id, cause: message });
   }
 }
 
-// 语法错误的文件、行号和那一行源码，Node 放在 stack 开头、错误名之前，message 里没有。
-function location(error: Error): string | undefined {
-  const stack = error.stack ?? "";
-  const end = stack.indexOf("\n\n");
-  if (end < 0) return undefined;
-  const head = stack.slice(0, end);
-  return /^\S.*:\d+\n/.test(head) ? head : undefined;
+// 出错的文件、行号、那一行源码和指向出错处的标记，Node 放在 stack 开头、错误名那一行之前，message 里没有。
+// 语法错误和链接错误都是这样，前者在标记后另有一个空行。文件可能写成路径，也可能写成 file: URL。
+function location(error: Error, root: string): string | undefined {
+  const lines = (error.stack ?? "").split("\n");
+  const head = /^(?<name>\S.*):(?<line>\d+)$/.exec(lines[0] ?? "")?.groups;
+  const end = lines.findIndex((line) => line.startsWith(error.name));
+  if (head?.name === undefined || head.line === undefined || end < 2) return undefined;
+  const file = head.name.startsWith("file:") ? fileURLToPath(head.name) : head.name;
+  const shown = within(root, file) ? path.relative(root, file).split(path.sep).join("/") : file;
+  return [`${shown}:${head.line}`, ...lines.slice(1, end).filter((line) => line !== "")].join("\n");
 }

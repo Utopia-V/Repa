@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { isBuiltin, registerHooks, type ResolveFnOutput, type ResolveHookSync } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,8 +30,8 @@ let registered = false;
  * 同一个文件夹放到哪里都是同样的含义。这不是安全边界：代码仍可以经 node:fs、node:child_process 做任何事，
  * 它保证的是插件的依赖都在文件夹之内。
  *
- * 解析钩子对整个进程生效，在第一次导入这样的插件之前注册一次；只处理 parentURL 或结果落在已登记文件夹里的解析，
- * 宿主自己和属于 npm 包的插件照常解析。
+ * 解析钩子在第一次导入这样的插件之前注册一次；只处理 parentURL 或结果落在已登记文件夹里的解析，
+ * 宿主自己和属于 npm 包的插件照常解析。钩子只在注册它的线程生效，插件自己开的 worker 里不起作用。
  */
 export function confinePluginFolder(root: string, id: string): void {
   roots.set(root, id);
@@ -59,7 +60,7 @@ const resolve: ResolveHookSync = (specifier, context, nextResolve) => {
   const file = fileURLToPath(result.url);
   const format = MODULE_FORMATS[path.extname(file)];
   if (format === undefined) {
-    throw new RepaFault("plugin_import_failed", `插件 ${roots.get(target) ?? ""} 只能导入 .js、.mjs、.ts 模块和 JSON 文件：${relative(target, file)}`, { folder: target, file });
+    throw new RepaFault("plugin_import_failed", `${importer(target, context.parentURL)} 导入了 ${relative(target, file)}：插件文件夹里只能导入 .js、.mjs、.ts 模块和 JSON 文件`, { folder: target, file });
   }
   return { ...result, format };
 };
@@ -103,10 +104,22 @@ function denied(root: string, parentURL: string | undefined, specifier: string):
   );
 }
 
+// 找不到时写出 Node 实际查找的路径，只在能看出成因时附上提示：没写扩展名、把 .ts 写成 .js、文件名里的 # 或 ? 被当作 URL 的一部分。
 function notFound(root: string, parentURL: string | undefined, specifier: string, error: unknown): RepaFault {
+  let file: string | undefined;
+  try {
+    file = fileURLToPath(new URL(specifier, parentURL));
+  } catch {
+    file = undefined;
+  }
+  let hint = "";
+  if (/[#?]/.test(specifier)) hint = "。导入按 URL 解析，# 和 ? 之后的部分不算文件名，文件名里的 # 要写成 %23，? 要写成 %3F";
+  else if (file !== undefined && path.extname(file) === "") hint = "。导入要写出文件名和真实的扩展名，例如 ./lib.ts，Node 不补全扩展名";
+  else if (file?.endsWith(".js") && existsSync(`${file.slice(0, -3)}.ts`)) hint = "。Node 不把 .js 换成 .ts，要写 .ts";
+  const shown = file === undefined ? "" : `（查找的是 ${within(root, file) ? relative(root, file) : file}）`;
   return new RepaFault(
     "plugin_import_failed",
-    `${importer(root, parentURL)} 找不到 ${specifier}。导入要写出文件真实的扩展名，例如 ./lib.ts；Node 不补全扩展名，也不把 .js 换成 .ts`,
+    `${importer(root, parentURL)} 找不到 ${specifier}${shown}${hint}`,
     { folder: root, specifier, cause: error instanceof Error ? error.message : String(error) },
   );
 }

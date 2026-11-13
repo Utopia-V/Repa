@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { RepaClient, RpcError } from "../src/client.js";
 import { startRepaProcess } from "../dist/process.js";
@@ -132,26 +133,42 @@ test("插件文件夹导入文件夹之外的东西、用了类型剥离不支�
     ["outside", { "index.ts": `import "../outside.ts";\n${INDEX}` }, /index\.ts 导入了 \.\.\/outside\.ts/u],
     ["package", { "index.ts": `import "typebox";\n${INDEX}` }, /index\.ts 导入了 typebox/u],
     ["base-root", { "index.ts": `import "@repa/base";\n${INDEX}` }, /index\.ts 导入了 @repa\/base：/u],
-    ["no-extension", { "index.ts": INDEX.replace("./tools.ts", "./tools") }, /index\.ts 找不到 \.\/tools。导入要写出文件真实的扩展名/u],
-    ["js-extension", { "index.ts": INDEX.replace("./tools.ts", "./tools.js") }, /找不到 \.\/tools\.js/u],
-    ["enum", { "tools.ts": `${TOOLS}export enum Kind { A }\n` }, /需要转换的 TypeScript 写法[^]*tools\.ts:\d+/u],
+    ["data-url", { "index.ts": `import "data:text/javascript,";\n${INDEX}` }, /index\.ts 导入了 data:text\/javascript,：/u],
+    ["file-url", { "index.ts": `import ${JSON.stringify(pathToFileURL(path.join(f.directory, "outside.ts")).href)};\n${INDEX}` }, /index\.ts 导入了 file:\/\/[^]*只能导入/u],
+    ["commonjs", { "index.ts": `import "./lib.cjs";\n${INDEX}`, "lib.cjs": "module.exports = 1;\n" }, /index\.ts 导入了 lib\.cjs：插件文件夹里只能导入/u],
+    ["no-extension", { "index.ts": INDEX.replace("./tools.ts", "./tools") }, /index\.ts 找不到 \.\/tools（查找的是 tools）。导入要写出文件名和真实的扩展名/u],
+    ["js-extension", { "index.ts": INDEX.replace("./tools.ts", "./tools.js") }, /找不到 \.\/tools\.js（查找的是 tools\.js）。Node 不把 \.js 换成 \.ts/u],
+    ["misspelled", { "index.ts": INDEX.replace("./tools.ts", "./tool.ts") }, /找不到 \.\/tool\.ts（查找的是 tool\.ts）(?!。)/u],
+    ["hash", { "index.ts": INDEX.replace("./tools.ts", "./tools #1.ts") }, /找不到 \.\/tools #1\.ts（查找的是 tools ）。导入按 URL 解析/u],
+    ["enum", { "tools.ts": `${TOOLS}export enum Kind { A }\n` }, /需要转换的 TypeScript 写法[^]*\ntools\.ts:\d+\n/u],
+    // 不带 type 导入只是类型的名字，类型剥离把它留成值导入，链接时才失败；报出的位置要指向那个文件那一行。
+    ["type-as-value", { "tools.ts": TOOLS.replace('import type { Tool } from "@repa/base/plugin";', 'import { Tool } from "@repa/base/plugin";') }, /导入了模块没有导出的名字[^]*\ntools\.ts:2\nimport \{ Tool \}[^]*import type/u],
+    ["own-package", { "package.json": JSON.stringify({ type: "module" }) }, /入口导入失败：Cannot find package '@repa\/base'[^]*根目录有 package\.json/u],
   ];
   for (const [name, change, expected] of cases) {
     const folder = await f.variant(name, change);
     await assert.rejects(startRepaProcess({ home: path.join(f.directory, "home"), plugins: [folder] }), expected, name);
   }
   await assert.rejects(startRepaProcess({ home: path.join(f.directory, "home"), plugins: [linked] }), /index\.ts 导入了 \.\/link\.ts/u);
+  const vendored = await f.variant("vendored", { "index.ts": `import "./node_modules/lib/a.ts";\n${INDEX}` });
+  await mkdir(path.join(vendored, "node_modules", "lib"), { recursive: true });
+  await writeFile(path.join(vendored, "node_modules", "lib", "a.ts"), "export const a: number = 1;\n");
+  await assert.rejects(startRepaProcess({ home: path.join(f.directory, "home"), plugins: [vendored] }), /从 node_modules 里导入了 \.ts 文件/u);
   const installed = path.join(f.directory, "node_modules", "echo-folder");
   await cp(f.plugin, installed, { recursive: true });
   await assert.rejects(startRepaProcess({ home: path.join(f.directory, "home"), plugins: [installed] }), /node_modules 下的插件要以构建后的 JavaScript 为入口/u);
 });
 
-test("插件文件夹里的模块按 ES 模块解释，不受其中 package.json 的 type 影响；Node 内置模块可以导入", async (t) => {
+test("插件文件夹里的模块按 ES 模块解释，不受上级目录和子目录里 package.json 的影响；Node 内置模块可以导入", async (t) => {
   const f = await fixture(t);
-  // 根目录有 package.json 的文件夹属于 npm 包，照常解析；子目录里的 package.json 只改变 Node 对那一层文件的解释。
-  const folder = await f.variant("commonjs-inside", {
-    "index.ts": `import { join } from "node:path";\nimport os from "os";\nimport { sum } from "./lib/sum.ts";\nvoid join(os.tmpdir(), String(sum(1, 2)));\n${INDEX}`,
-  });
+  // 空间在一个 JS 项目里时，自写插件的上级目录有 package.json；它不能把插件变成 npm 包，也不能改变 Node 对文件的解释。
+  // 子目录里的 package.json 同样不起作用。
+  const project = path.join(f.directory, "project");
+  await mkdir(project);
+  await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "project", type: "commonjs" }));
+  const folder = path.join(project, ".agents", "plugins", "echo-folder");
+  await cp(f.plugin, folder, { recursive: true });
+  await writeFile(path.join(folder, "index.ts"), `import { join } from "node:path";\nimport os from "os";\nimport { sum } from "./lib/sum.ts";\nvoid join(os.tmpdir(), String(sum(1, 2)));\n${INDEX}`);
   await mkdir(path.join(folder, "lib"));
   await writeFile(path.join(folder, "lib", "package.json"), JSON.stringify({ type: "commonjs" }));
   await writeFile(path.join(folder, "lib", "sum.ts"), "export const sum = (a: number, b: number): number => a + b;\n");
