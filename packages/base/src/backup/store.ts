@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -8,9 +8,9 @@ import {
   BackupManifestSchema, parse, RepaFault,
   type BackupInfo, type BackupManifest, type BackupSpace, type BackupStatus,
 } from "../schema.js";
-import { LOCK_NAME, RESTORE_NAMES } from "../space/paths.js";
+import { LOCK_NAME, RESTORE_NAMES, spaceKey } from "../space/paths.js";
 import { syncDirectory } from "../storage.js";
-import { copying, copyTree, isCode, move, remove, syncCopies, walk } from "./copy.js";
+import { copying, copyTree, isCode, move, publish, remove, syncCopies, walk } from "./copy.js";
 
 /** 要备份的空间：根目录的真实路径、它的 .repa/，以及在历史队列中执行动作的入口。 */
 export interface BackupSource {
@@ -34,9 +34,9 @@ const TEMPORARY = ".tmp-";
 // storage.ts 的 writeText 先写到这样的临时文件再改名，写到一半的不收。
 const HALF_WRITTEN = /^\.repa-.*\.tmp$/;
 
-/** 一个空间的备份所在目录：按空间根目录的真实路径分组，目录名取路径 SHA-256 的前 16 位。 */
+/** 一个空间的备份所在目录：按空间根目录的真实路径分组，目录名是 spaceKey。 */
 export function groupDirectory(home: string, root: string): string {
-  return path.join(home, "backups", createHash("sha256").update(root).digest("hex").slice(0, 16));
+  return path.join(home, "backups", spaceKey(root));
 }
 
 // 不收进备份的条目：空间锁、恢复留下的标记与暂存内容，以及写到一半的临时文件。
@@ -226,8 +226,7 @@ export async function createBackup(home: string, source: BackupSource, kind: Bac
     }
     await syncDirectory(temporary);
     const id = `${new Date(createdAt).toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
-    await move(temporary, path.join(group, id));
-    await syncDirectory(group);
+    await publish(temporary, path.join(group, id));
     return { id, directory: path.join(group, id), manifest };
   } catch (error) {
     // 报告复制失败的原因；临时目录若也删不掉，这一组下次备份时再清理。
