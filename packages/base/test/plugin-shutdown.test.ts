@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { Type } from "typebox";
 
-import type { Host } from "../src/plugin.js";
+import type { Host, Plugin } from "../src/plugin.js";
+import { openPluginHost } from "../src/plugins.js";
 import { RepaFault } from "../src/schema.js";
-import { createPluginTestHost } from "../src/testing.js";
+import { createSpace } from "../src/space.js";
+import { createPluginTestHost, ModelTestDriver } from "../src/testing.js";
 
 function deferred() {
   let resolve!: () => void;
@@ -55,7 +60,7 @@ test("关闭停止接纳新变化，仍等已开始的变化处理保存完成",
   assert.equal(instanceClosed, true);
 });
 
-test("经 Host 发起的文件写入在等空间写锁时，宿主算作有工作，写完才空闲；关闭开始以后新发起的写入被拒绝", async (t) => {
+test("经 Host 发起的文件写入在等空间写锁时，宿主算作有工作，写完才空闲；关闭完成以后新发起的写入被拒绝", async (t) => {
   let saved: Host | undefined;
   const testing = await createPluginTestHost({
     plugins: [{
@@ -85,9 +90,8 @@ test("经 Host 发起的文件写入在等空间写锁时，宿主算作有工�
   await recording;
   await writing;
   assert.equal(testing.host.busy(), false);
-  const closing = testing.host.close();
+  await testing.host.close();
   await assert.rejects(host.files.write("late.txt", "关闭以后"), (error: unknown) => error instanceof RepaFault && error.code === "plugins_closed");
-  await closing;
   assert.equal(await testing.space.files.read("timer.txt"), "定时写入");
 });
 
@@ -204,4 +208,115 @@ test("close 执行期间发起、close 返回时仍未写完的写入，宿主�
   await recording;
   await closing;
   assert.equal(await testing.space.files.read("tail.txt"), "最后一笔");
+});
+
+const empty = Type.Object({}, { additionalProperties: false });
+const closedCode = (error: unknown) => error instanceof RepaFault && error.code === "plugins_closed";
+
+/** 记下 open 时交出的 Host；hold 方法停在 gate 上，宿主据此有一项在途工作。 */
+function savingPlugin(id: string, saved: Map<string, Host>, gate?: Promise<void>): Plugin {
+  return {
+    id,
+    async open(host) {
+      saved.set(id, host);
+      return { methods: { hold: { parameters: empty, async invoke() { await gate; return null; } } } };
+    },
+  };
+}
+
+test("宿主开始关闭、这个插件的 close 还没开始时，它经 Host 的文件与历史操作照常接纳，宿主等它们写完", async (t) => {
+  const saved = new Map<string, Host>();
+  const hold = deferred();
+  const testing = await createPluginTestHost({ plugins: [savingPlugin("late", saved, hold.promise)] });
+  t.after(() => testing.close());
+  await testing.host.start();
+  const host = saved.get("late");
+  assert.ok(host);
+  // 关闭先等在途的方法；这期间插件的后台工作算完了结果，经 Host 写下。
+  const holding = testing.host.call("late", "hold", {});
+  const closing = testing.host.close();
+  const writing = host.files.write("late.txt", "后台结果");
+  const recording = host.history.record({ kind: "plugin", pluginId: "late" }, async () => undefined);
+  hold.resolve();
+  await holding;
+  await writing;
+  await recording;
+  await closing;
+  assert.equal(await testing.space.files.read("late.txt"), "后台结果");
+  await assert.rejects(host.files.write("after.txt", "关闭以后"), closedCode);
+});
+
+test("打开时因声明无效被停用的插件，close 返回以后它保留的 Host 不能再读写", async (t) => {
+  const saved = new Map<string, Host>();
+  const testing = await createPluginTestHost({
+    plugins: [{
+      id: "invalid",
+      async open(host) {
+        saved.set("invalid", host);
+        return { tools: () => [{ name: "坏名字", description: "", parameters: empty, execute: async () => ({ text: "" }) }] };
+      },
+    }],
+  });
+  t.after(() => testing.close());
+  assert.deepEqual(testing.host.disabled().map((plugin) => plugin.id), ["invalid"]);
+  const host = saved.get("invalid");
+  assert.ok(host);
+  await assert.rejects(host.files.write("stale.txt", "停用以后"), closedCode);
+  await assert.rejects(host.history.list(1), closedCode);
+  await assert.rejects(testing.space.files.read("stale.txt"));
+});
+
+test("open 拿到 Host 以后抛错的插件，它保留的 Host 不能再读写", async (t) => {
+  const saved = new Map<string, Host>();
+  const testing = await createPluginTestHost({
+    plugins: [{
+      id: "broken",
+      async open(host) {
+        saved.set("broken", host);
+        throw new Error("打开失败");
+      },
+    }],
+  });
+  t.after(() => testing.close());
+  assert.deepEqual(testing.host.disabled().map((plugin) => plugin.id), ["broken"]);
+  const host = saved.get("broken");
+  assert.ok(host);
+  await assert.rejects(host.files.write("stale.txt", "失败以后"), closedCode);
+  await assert.rejects(testing.space.files.read("stale.txt"));
+});
+
+test("宿主整体打开失败：已打开插件的 close 可以写入收尾，清理结束以后它的 Host 不能再读写", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-plugin-open-"));
+  const space = await createSpace(path.join(directory, "space"), { watch: false });
+  t.after(async () => {
+    await space.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  let kept: Host | undefined;
+  const driver = new ModelTestDriver();
+  const failure = await openPluginHost({
+    space,
+    plugins: [
+      {
+        id: "first",
+        async open(host) {
+          kept = host;
+          return { async close() { await host.files.write("first.txt", "收尾"); } };
+        },
+      },
+      { id: "second", async open() { return {}; } },
+    ],
+    // 第二个插件的模型作用域建不起来，这不属于单个插件的打开失败，整个宿主打开失败。
+    models: (pluginId) => {
+      if (pluginId === "second") throw new Error("模型配置缺失");
+      return driver;
+    },
+    emit: () => undefined,
+    onError: () => undefined,
+  }).then(() => undefined, (error: unknown) => error);
+  assert.ok(failure instanceof Error);
+  assert.equal(failure.message, "模型配置缺失");
+  assert.ok(kept);
+  assert.equal(await space.files.read("first.txt"), "收尾");
+  await assert.rejects(kept.files.write("stale.txt", "清理以后"), closedCode);
 });

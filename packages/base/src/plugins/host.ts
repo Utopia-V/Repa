@@ -144,13 +144,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   let closing: Promise<void> | undefined;
   // 变化处理链上尚未结束的唤醒数；与 calls 一起决定宿主是否有工作。
   let changes = 0;
-  // 宿主登记的工作带着自己的记录执行；工作结束后 live 为 false。关闭开始以后，仍在进行的工作
-  // （例如关闭前已开始的变化处理）还能经 Host 读写文件和历史。
-  // 用记录而不用布尔值：工作里建立的定时器会继承上下文，工作结束后它再触发也不算在内。
-  const working = new AsyncLocalStorage<{ live: boolean }>();
-  // 正在执行 close() 的插件。这段时间里它 Host 上的文件与历史操作不论从哪里发起都放行，
-  // close() 因此可以等后台工作写完结果；close() 返回以后记入 closedPlugins，一律拒绝。
-  const inClose = new Set<string>();
+  // 实例已经结束的插件：close() 已返回、因失败被停用，或 open() 拿到 Host 后抛错。它们的 Host 不再接纳文件与历史操作。
   const closedPlugins = new Set<string>();
 
   function checkOpen(): void {
@@ -158,23 +152,20 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   }
 
   /**
-   * 关闭开始以后只放行仍在进行的宿主工作，以及正在执行 close() 的那个插件的操作；关闭结束以后全部拒绝。
-   * 拒绝时返回失败的 Promise，不同步抛错。
+   * 文件与历史操作：宿主开始关闭以后仍放行，直到这个插件的实例结束；宿主整体关闭完成以后全部拒绝。
+   * 插件因此可以在 close() 里等后台工作写完结果，不论那项工作从哪里发起。放行的操作都登记，宿主等它们写完才算关闭，
+   * 新装配又等旧宿主关闭完成才开始，旧实例的写入不会落在新装配运行期间。拒绝时返回失败的 Promise，不同步抛错。
    */
   function admitted<T>(pluginId: string, action: () => Promise<T>): Promise<T> {
-    if (closed || closedPlugins.has(pluginId) || (stopping && working.getStore()?.live !== true && !inClose.has(pluginId))) {
-      return Promise.reject(new RepaFault("plugins_closed", "插件宿主已经关闭"));
-    }
+    if (closed || closedPlugins.has(pluginId)) return Promise.reject(new RepaFault("plugins_closed", "插件宿主已经关闭"));
     return own(action);
   }
 
-  /** 调用实例的 close()，执行期间放行这个插件经 Host 的文件与历史操作。 */
-  async function closeInstance(id: string, instance: PluginInstance): Promise<void> {
-    inClose.add(id);
+  /** 调用实例的 close()；返回或抛错以后，这个插件的 Host 不再接纳文件与历史操作。 */
+  async function closeInstance(id: string, instance: PluginInstance | undefined): Promise<void> {
     try {
-      await own(async () => { await instance.close?.(); });
+      await own(async () => { await instance?.close?.(); });
     } finally {
-      inClose.delete(id);
       closedPlugins.add(id);
     }
   }
@@ -200,8 +191,9 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     } catch (closeError) {
       failures.push(closeError);
     }
+    // open() 抛错时没有实例，交出去的 Host 同样作废。
     try {
-      await instances.get(id)?.close?.();
+      await closeInstance(id, instances.get(id));
     } catch (closeError) {
       failures.push(closeError);
     }
@@ -226,7 +218,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   }
 
   // 四个登记入口：track 只把已经开始的操作记进 calls；tracked 另把同步抛错改成失败的 Promise（模型作用域用）；
-  // own 在登记的同时给操作一条 live 记录，关闭开始以后它发起的 Host 操作仍放行；admitted 先做关闭检查再交给 own（文件与历史用）。
+  // own 把 action 推到下一个微任务再执行并登记，同步抛错同样成为失败的 Promise；admitted 先做关闭检查再交给 own（文件与历史用）。
   function track<T>(operation: Promise<T>): Promise<T> {
     calls.add(operation);
     operation.then(() => { settledCall(operation); }, () => { settledCall(operation); });
@@ -244,10 +236,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
 
   /** 在宿主登记的工作里执行 action：重组与关闭等它整条完成链结束。 */
   function own<T>(action: () => Promise<T>): Promise<T> {
-    const record = { live: true };
-    const operation = working.run(record, () => Promise.resolve().then(action));
-    operation.then(() => { record.live = false; }, () => { record.live = false; });
-    return track(operation);
+    return track(Promise.resolve().then(action));
   }
 
   function wrapAgent(definition: AgentDefinition): AgentDefinition {
@@ -329,8 +318,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     }
     const opening = !caughtUp;
     changes++;
-    const record = { live: true };
-    pending = working.run(record, () => pending.then(async () => {
+    pending = pending.then(async () => {
       const failures: [string, unknown][] = [];
       for (const [id, instance] of instances) {
         try {
@@ -344,11 +332,10 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       // start() 追赶完成之前，变化处理也是打开空间的一部分：出错和 open 失败一样，只停这个插件，再核对依赖它的插件。
       for (const [id, error] of failures) await disable(id, error);
       await checkDeclarations();
-    })).catch((error: unknown) => {
+    }).catch((error: unknown) => {
       pendingError = error;
       options.onError(error);
     }).finally(() => {
-      record.live = false;
       changes--;
       options.onIdle?.();
     });
@@ -387,8 +374,8 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         const ownedAgents = new Set<string>();
         const files = space.filesFor({ kind: "plugin", pluginId: plugin.id });
         const scoped = ownedModels.models;
-        // Host 发出的文件、历史与模型操作都登记整条完成链，宿主据此判断有没有工作。关闭开始以后新发起的被拒绝，
-        // 只有这个插件的 close() 执行期间放行；宿主关闭完成以后才装配新实例，旧实例因此不会在新实例运行时写空间。
+        // Host 发出的文件、历史与模型操作都登记整条完成链，宿主据此判断有没有工作。关闭开始以后模型、Agent 与服务调用立即拒绝，
+        // 文件与历史操作放行到这个插件的实例结束；宿主关闭完成以后才装配新实例，旧实例因此不会在新实例运行时写空间。
         const host: Host = {
           now: options.now ?? Date.now,
           space: { root: space.root, dataDir },
@@ -509,6 +496,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       }
     }
     while (calls.size > 0) await Promise.allSettled([...calls]);
+    closed = true;
     if (failures.length > 1) throw new AggregateError(failures, "插件打开与清理都失败了");
     throw error;
   }
@@ -614,7 +602,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
               failures.push(Object.assign(new RepaFault("plugin_close_failed", error instanceof Error ? error.message : String(error), { pluginId: id }), { cause: error }));
             }
           }
-          // close() 执行期间放行的操作可能在它返回时仍未写完，等它们结束再置 closed。
+          // 实例结束以前放行的操作可能在 close() 返回时仍未写完，等它们结束再置 closed。
           while (calls.size > 0) await Promise.allSettled([...calls]);
           closed = true;
           if (failures.length > 0) throw new AggregateError(failures, "插件宿主关闭失败");
