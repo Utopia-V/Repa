@@ -240,10 +240,10 @@ test("宿主进程被强行结束后，后端不会留下来", async (t) => {
   }
 });
 
-test("进程入口拒绝源码文件路径并交回构建目录诊断", async (t) => {
+test("进程入口拒绝入口文件的路径并交回插件文件夹诊断", async (t) => {
   const home = await fixture(t);
   await assert.rejects(startRepaProcess({
     home,
     plugins: [fileURLToPath(new URL("../examples/notes-plugin.ts", import.meta.url))],
-  }), /插件路径必须是构建目录/);
+  }), /插件路径必须是插件文件夹/);
 });

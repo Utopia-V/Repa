@@ -60,7 +60,7 @@ REPA_TEST_REQUIRE_ENV=1 npm test
 
 ## 工程边界
 
-根目录持有 workspace 命令与单一锁文件，各包声明自己的依赖。浏览器只使用 `@repa/base/client` 和 `@repa/base/protocol`，Node 宿主通过 `@repa/base/process` 管理后端；插件通过 `@repa/base/plugin` 引用类型。Pi 的实现依赖留在底座的 `src/agent/` 内。
+根目录持有 workspace 命令与单一锁文件，各包声明自己的依赖。浏览器只使用 `@repa/base/client` 和 `@repa/base/protocol`，Node 宿主通过 `@repa/base/process` 管理后端；插件通过 `@repa/base/plugin` 引用类型，以及运行时的 `Type` 和 `RepaFault`。Pi 的实现依赖留在底座的 `src/agent/` 内。
 
 应用配置使用系统配置目录，支持 `REPA_HOME` 和显式 `home` 覆盖；空间格式版本 1 的覆盖范围和空间 Skill 位置见[底座格式与配置](../../packages/base/README.md#应用配置目录)。目录浏览只把具有有效格式标记的目录识别为空间。测试和试运行必须显式使用临时 `home`／`REPA_HOME` 及临时空间，隔离个人数据。
 

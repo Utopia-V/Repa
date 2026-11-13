@@ -5,7 +5,7 @@ import type { ClientConnection } from "./client.js";
 /** Node 宿主启动后端子进程的选项，指定应用配置、插件、环境和启动等待时限。 */
 export interface RepaProcessOptions {
   home?: string;
-  /** 本机可信插件构建目录，按顺序传给 --plugin。 */
+  /** 本机插件文件夹，按顺序传给 --plugin。 */
   plugins?: string[];
   /** 为 false 时关掉通用 Agent（--no-general-agent），学习者版本使用。 */
   generalAgent?: boolean;
