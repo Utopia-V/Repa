@@ -24,6 +24,35 @@ export interface AgentSession {
   setModel(model: ModelRef): Promise<void>;
   compact(): Promise<void>;
   fork(entryId: string): Promise<AgentSession>;
+  /**
+   * 以一批插件装卸的结果为输入开始一次运行，运行记录带 pluginResult: requestId。调用当时就同步登记运行，返回的 Promise 到运行结束；
+   * 运行没能写下这条输入就结束（被停止、模型不可用）时，改为追加结果条目，结果不丢。会话不能运行时直接追加。
+   */
+  continueWith(text: string, requestId: string): Promise<void>;
+  /** 把一批插件装卸的结果追加为一条结果条目（custom_message repa-plugin-result），不开始运行。 */
+  appendPluginResult(text: string, requestId: string): void;
+}
+
+/** 通用 Agent 的 plugin 工具里 load、unload 的输入。from 省略时取插件文件夹当前的内容。 */
+export interface PluginToolRequest {
+  action: "load" | "unload";
+  ids: string[];
+  from?: "folder" | "recorded" | "previous";
+}
+
+/** 提出请求的运行。direct 为 false 的是子 Agent 与后台任务的运行，它们不能提出装卸。 */
+export interface PluginRequestOrigin {
+  sessionId: string;
+  runId: string;
+  direct: boolean;
+}
+
+/** 通用 Agent 的 plugin 工具交给装配处理的入口。 */
+export interface PluginRequestRoute {
+  /** 插件列表，分行文字。 */
+  list(): Promise<string>;
+  /** 记下一项装卸请求，返回给模型的文字；不能受理时抛 RepaFault。 */
+  request(input: PluginToolRequest, origin: PluginRequestOrigin): string;
 }
 
 /** 一个空间中的 Agent 会话集合；用于创建、恢复、运行及关闭会话。 */
@@ -87,6 +116,8 @@ export interface AgentSpaceOptions {
   ask?: AskRoute;
   /** 一项工作结束时调用；调用方据此重新判断 busy()。 */
   onIdle?(): void;
+  /** 通用 Agent 的 plugin 工具；省略时通用 Agent 没有这个工具。 */
+  plugins?: PluginRequestRoute;
   /** 上一次装配里还没有会话文件的会话；按编号打开时找不到文件就照描述重建，前端手里的会话编号仍然有效。 */
   unsavedSessions?: UnsavedSession[];
 }

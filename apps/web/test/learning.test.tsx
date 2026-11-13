@@ -69,7 +69,7 @@ function backend(learning: Learning, base: Record<string, Base> = {}) {
       case "model.getDefault":
         return Promise.resolve(null);
       case "plugin.list":
-        return Promise.resolve([{ id: "learning", methods: [], tools: [] }]);
+        return Promise.resolve([{ id: "learning", source: "bundled", state: "running", pages: [], methods: [], tools: [] }]);
       case "plugin.call":
         return learning(params.method as string, params.input as Record<string, unknown>);
       default:
@@ -305,7 +305,7 @@ it("插件调用带打开空间时的装配序号；后端重组以后换用新�
     if (method === "state.get") return Promise.resolve(state(revision, revision === 1 ? explanation : answering));
     return Promise.reject(new Error(method));
   });
-  const fake = backend(learning, { "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 3, disabledPlugins: [] }) });
+  const fake = backend(learning, { "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 3, plugins: [] }) });
   start(fake.client);
 
   expect(await screen.findByText("先算右边。", { exact: false })).toBeTruthy();
@@ -319,7 +319,7 @@ it("插件调用带打开空间时的装配序号；后端重组以后换用新�
   expect(reads()).toBe(before);
 
   revision = 2;
-  act(() => fake.emit("space.assembled", { root: "/notes/python", assembly: 4, disabledPlugins: [] }));
+  act(() => fake.emit("space.assembled", { root: "/notes/python", assembly: 4, plugins: [] }));
   expect(await screen.findByText("显示的整数")).toBeTruthy();
   expect(pluginCalls().at(-1)).toMatchObject({ method: "state.get", assembly: 4 });
   const after = reads();
@@ -336,7 +336,7 @@ it("重组整体失败时回到选空间页，说明原因", async () => {
     if (method === "state.get") return Promise.resolve(state(1, explanation));
     return Promise.reject(new Error(method));
   });
-  const fake = backend(learning, { "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 1, disabledPlugins: [] }) });
+  const fake = backend(learning, { "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 1, plugins: [] }) });
   const store = start(fake.client);
   expect(await screen.findByText("先算右边。", { exact: false })).toBeTruthy();
 
@@ -347,7 +347,7 @@ it("重组整体失败时回到选空间页，说明原因", async () => {
 });
 
 it("学习状态读取途中后端重组并去掉学习插件：重组以后从插件列表重新读起，旧装配的结果不覆盖新的", async () => {
-  let plugins = [{ id: "learning", methods: [], tools: [] }];
+  let plugins = [{ id: "learning", source: "bundled", state: "running", pages: [], methods: [], tools: [] }];
   let release: (value: unknown) => void = () => undefined;
   const learning = vi.fn<Learning>((method) => {
     if (method !== "state.get") return Promise.reject(new Error(method));
@@ -355,7 +355,7 @@ it("学习状态读取途中后端重组并去掉学习插件：重组以后从�
     return new Promise((resolve) => { release = resolve; }).then(() => Promise.reject(new RpcError(-32000, "插件不存在", { code: "plugin_not_found" })));
   });
   const fake = backend(learning, {
-    "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 3, disabledPlugins: [] }),
+    "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 3, plugins: [] }),
     "plugin.list": () => Promise.resolve(plugins),
   });
   const store = start(fake.client);
@@ -365,7 +365,7 @@ it("学习状态读取途中后端重组并去掉学习插件：重组以后从�
   const before = lists();
 
   plugins = [];
-  act(() => fake.emit("space.assembled", { root: "/notes/python", assembly: 4, disabledPlugins: [] }));
+  act(() => fake.emit("space.assembled", { root: "/notes/python", assembly: 4, plugins: [] }));
   await act(async () => { release(undefined); });
   await vi.waitFor(() => { expect(store.getState().learning.available).toBe(false); });
   expect(lists()).toBeGreaterThan(before);

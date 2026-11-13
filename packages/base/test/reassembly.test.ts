@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -205,7 +205,9 @@ test("空闲时重组：每个插件 open 一次，已开会话下一次请求�
   assert.equal(f.probe.opens, 2);
   assert.equal(f.probe.closes, 1);
   const notice = await assembled;
-  assert.deepEqual(notice, { root: f.opened.root, assembly: result.status === "applied" ? result.assembly : -1, disabledPlugins: [] });
+  assert.ok(result.status === "applied");
+  assert.deepEqual(notice, { root: f.opened.root, assembly: result.assembly, plugins: result.plugins });
+  assert.deepEqual(result.plugins.map((plugin) => [plugin.id, plugin.state, plugin.tools]), [["probe", "running", ["probe_renamed", "probe_ask"]]]);
   assert.ok(result.status === "applied" && result.assembly > f.opened.assembly);
 
   assert.deepEqual(await f.client.call("session.history", { sessionId: session.id }), before);
@@ -857,7 +859,10 @@ test("插件经保存的 Host 直接发起的服务请求使重组等待，不�
   assert.equal((await reassembling).status, "applied");
 });
 
-test("重组在两个 owner 都已建立以后、追赶途中整体失败：两边都关闭，闸门抬起，发出失败事件，空间锁释放", async t => {
+// 整体失败要来自空间一类的故障：单个插件失败只停用它。这里在新的 Agent 空间建好、追赶开始之前让空间历史读不了。
+const permissions = process.platform === "win32" || process.getuid?.() === 0 ? "目录权限位在这个环境里不限制访问" : false;
+
+test("重组在两个 owner 都已建立以后、追赶开始时整体失败：两边都关闭，闸门抬起，发出失败事件，空间锁释放", { skip: permissions }, async t => {
   const f = await fixture(t);
   const first = f.probe.hosts[0];
   assert.ok(first);
@@ -865,29 +870,31 @@ test("重组在两个 owner 都已建立以后、追赶途中整体失败：两�
   // 记下新装配的 Agent 空间，失败以后检查它已关闭。
   const openSpace = f.runtime.openSpace.bind(f.runtime);
   const agents: Awaited<ReturnType<typeof openSpace>>[] = [];
+  // 新的 Agent 空间建好以后停住；放行之前让空间历史的仓库读不了，追赶一开始读最新修订就失败。
+  const entered = deferred();
+  const leave = deferred();
   f.runtime.openSpace = async options => {
     const agent = await openSpace(options);
     agents.push(agent);
+    entered.resolve();
+    await leave.promise;
     return agent;
   };
   t.after(() => { f.runtime.openSpace = openSpace; });
-  // 变化处理抛出不能转成文字的值：停用这个插件时记不下原因，追赶整体失败。以此在两个 owner 都建立以后制造整体失败。
-  const entered = deferred();
-  const leave = deferred();
-  f.probe.onChange = async host => {
-    if (host === first) return;
-    entered.resolve();
-    await leave.promise;
-    throw Object.create(null) as unknown;
-  };
+  const repository = path.join(f.root, ".repa", "history.git");
   const assembled = next(f.client, "space.assembled");
   const reassembling = f.server.reassemble();
   await entered.promise;
   assert.equal(agents.length, 1);
   const waiting = f.client.call("session.list", {});
   await roundTrip(f);
+  await chmod(repository, 0o000);
   leave.resolve();
-  await assert.rejects(reassembling);
+  try {
+    await assert.rejects(reassembling);
+  } finally {
+    await chmod(repository, 0o700);
+  }
   const notice = await assembled;
   assert.equal(notice.root, null);
   await assert.rejects(waiting, rejectsWith("space_changed"));
@@ -895,7 +902,7 @@ test("重组在两个 owner 都已建立以后、追赶途中整体失败：两�
   assert.ok(fresh);
   await assert.rejects(fresh.files.write("late.txt", "失败以后"), rejectsWith("plugins_closed"));
   await assert.rejects(agents[0]?.create({}) ?? Promise.resolve(), rejectsWith("space_closed"));
-  f.probe.onChange = undefined;
+  f.runtime.openSpace = openSpace;
   const reopened = await f.client.call("space.open", { root: f.root });
   assert.ok(reopened.assembly > f.opened.assembly);
 });

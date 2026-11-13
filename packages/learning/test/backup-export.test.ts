@@ -288,7 +288,7 @@ test("学习进行中备份，日志末尾的半行不收；接着学，恢复�
   assert.equal(saved.kind, "beforeRestore");
   assert.equal(await readFile(f.records, "utf8"), backedUp);
   const reopened = await f.open(f.root);
-  assert.deepEqual(reopened.disabledPlugins, []);
+  assert.deepEqual(reopened.plugins.map((plugin) => [plugin.id, plugin.state]), [["learning", "running"]]);
   const restored = await f.state();
   assert.equal(restored.revision, lines(backedUp));
   assert.equal(restored.task?.submissions.length, 1);

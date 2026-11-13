@@ -102,8 +102,8 @@ export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 /** 底座的询问工具：通用 Agent 默认带上，插件 Agent 在 tools 里列出才有。 */
 export const ASK_USER_TOOL = "ask_user";
-/** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent、ask_user。 */
-export const RESERVED_TOOL_NAMES: readonly string[] = [...BUILTIN_TOOLS, "powershell", "subagent", ASK_USER_TOOL];
+/** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent、ask_user、plugin。 */
+export const RESERVED_TOOL_NAMES: readonly string[] = [...BUILTIN_TOOLS, "powershell", "subagent", ASK_USER_TOOL, "plugin"];
 
 /** 用户经前端发给插件 Agent 会话的一条消息。后台任务与子 Agent 收到的任务不经过这里。 */
 export interface UserMessage {

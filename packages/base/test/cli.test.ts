@@ -125,7 +125,7 @@ test("两个 CLI 进程争用同一空间，持锁进程退出后另一个进程
   const first = await f.start("first-home");
   const second = await f.start("second-home");
   const opened = await first.client.call("space.open", { root: space });
-  assert.deepEqual({ root: opened.root, disabledPlugins: opened.disabledPlugins }, { root: canonical, disabledPlugins: [] });
+  assert.deepEqual({ root: opened.root, plugins: opened.plugins }, { root: canonical, plugins: [] });
   await assert.rejects(second.client.call("space.open", { root: space }), (error: unknown) => {
     assert.ok(error instanceof RpcError);
     assert.equal(record(error.data)?.code, "space_locked");
@@ -134,7 +134,7 @@ test("两个 CLI 进程争用同一空间，持锁进程退出后另一个进程
   const exit = await stop(first.cli);
   assert.deepEqual(exit, { code: 0, signal: null });
   const reopened = await second.client.call("space.open", { root: space });
-  assert.deepEqual({ root: reopened.root, disabledPlugins: reopened.disabledPlugins }, { root: canonical, disabledPlugins: [] });
+  assert.deepEqual({ root: reopened.root, plugins: reopened.plugins }, { root: canonical, plugins: [] });
   await second.client.call("space.close", {});
 });
 

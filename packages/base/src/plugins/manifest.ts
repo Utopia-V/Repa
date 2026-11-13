@@ -5,7 +5,7 @@ import semver from "semver";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import type { Plugin } from "../plugin.js";
-import { object, RepaFault } from "../schema.js";
+import { errorText, object, RepaFault } from "../schema.js";
 import { within } from "../space/paths.js";
 import { confinePluginFolder } from "./folder-imports.js";
 
@@ -29,7 +29,7 @@ export const PluginManifestSchema = object({
 });
 export type PluginManifest = Static<typeof PluginManifestSchema>;
 
-/** 加载结果：插件文件夹的真实路径、清单和插件定义。title 与 pages 暂只随清单保留，协议尚未公布它们。 */
+/** 加载结果：插件文件夹的真实路径、清单和插件定义。 */
 export interface LoadedPlugin {
   root: string;
   manifest: PluginManifest;
@@ -38,15 +38,18 @@ export interface LoadedPlugin {
 
 const ENTRY_EXTENSIONS = [".js", ".mjs", ".ts"];
 
+/** 静态读出的插件文件夹：真实路径、清单和入口模块的真实路径。 */
+export interface PluginFolder {
+  root: string;
+  manifest: PluginManifest;
+  entry: string;
+}
+
 /**
- * 清单和兼容性全部通过后才执行插件。
- *
- * 根目录有 package.json 或位于 node_modules 下的文件夹是一个 npm 包，随包插件即如此：依赖由包管理器安装，按 Node 的规则照常解析。
- * 只看文件夹自己，不看上级目录：空间可能就在某个 JS 项目里，上级的 package.json 不该改变插件的含义。
- * 其余文件夹只能导入 Node 内置模块、文件夹内的文件和 @repa/base/plugin，见 confinePluginFolder。
- * 从已批准快照加载的自写插件给出 confined：一律这样限制，不看文件夹里有没有 package.json，按来源而不按内容判断。
+ * 只读清单并核对，不执行任何代码：字段、版本、底座兼容性、入口与页面文件。批准自写插件之前用它读暂存的副本，
+ * 展示标题、版本与页面；导入要等使用者同意以后。
  */
-export async function loadPlugin(directory: string, options: { confined?: boolean } = {}): Promise<LoadedPlugin> {
+export async function readPluginFolder(directory: string): Promise<PluginFolder> {
   const root = await realpath(directory);
   if (!(await stat(root)).isDirectory()) throw new RepaFault("invalid_plugin_manifest", "插件路径必须是插件文件夹");
   let value: unknown;
@@ -82,6 +85,20 @@ export async function loadPlugin(directory: string, options: { confined?: boolea
       throw new RepaFault("invalid_plugin_manifest", "页面入口要放在子目录里，例如 page/index.html，入口模块和清单不能在这个目录中", { page: page.id, entry: page.entry });
     }
   }
+  return { root, manifest, entry };
+}
+
+/**
+ * 清单和兼容性全部通过后才执行插件。
+ *
+ * 根目录有 package.json 或位于 node_modules 下的文件夹是一个 npm 包，随包插件即如此：依赖由包管理器安装，按 Node 的规则照常解析。
+ * 只看文件夹自己，不看上级目录：空间可能就在某个 JS 项目里，上级的 package.json 不该改变插件的含义。
+ * 其余文件夹只能导入 Node 内置模块、文件夹内的文件和 @repa/base/plugin，见 confinePluginFolder。
+ * 从已批准快照加载的自写插件给出 confined：一律这样限制，不看文件夹里有没有 package.json，按来源而不按内容判断。
+ */
+export async function loadPlugin(directory: string, options: { confined?: boolean } = {}): Promise<LoadedPlugin> {
+  const { root, manifest, entry } = await readPluginFolder(directory);
+  const underNodeModules = root.split(path.sep).includes("node_modules");
   const npmPackage = options.confined !== true && (underNodeModules || (await exists(path.join(root, "package.json"))));
   if (!npmPackage) confinePluginFolder(root, manifest.id);
   const module = await importEntry(manifest.id, root, npmPackage, pathToFileURL(entry).href);
@@ -137,7 +154,7 @@ async function importEntry(id: string, root: string, npmPackage: boolean, url: s
     return await import(url) as unknown;
   } catch (error) {
     if (error instanceof RepaFault) throw error;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
     const code = error instanceof Error && "code" in error ? error.code : undefined;
     const where = error instanceof Error ? location(error, root) : undefined;
     // reason 说明是哪一类问题，advice 说明怎样改，放在 Node 的原话和出错位置之后。

@@ -180,7 +180,7 @@ export const SessionEntrySchema = object({
   type: Type.Union([
     Type.Literal("user"), Type.Literal("assistant"), Type.Literal("tool"),
     Type.Literal("view"), Type.Literal("prompt"), Type.Literal("promptChange"), Type.Literal("contextEdit"),
-    Type.Literal("compaction"), Type.Literal("usage"), Type.Literal("run"),
+    Type.Literal("compaction"), Type.Literal("usage"), Type.Literal("run"), Type.Literal("pluginResult"),
   ]),
   timestamp: Type.String(),
   text: Type.Optional(Type.String()),
@@ -195,7 +195,7 @@ export const AgentEventSchema = object({
   type: Type.Union([
     Type.Literal("runStart"), Type.Literal("runEnd"), Type.Literal("textDelta"),
     Type.Literal("toolStart"), Type.Literal("toolEnd"), Type.Literal("message"),
-    Type.Literal("usage"), Type.Literal("error"), Type.Literal("compaction"),
+    Type.Literal("usage"), Type.Literal("error"), Type.Literal("compaction"), Type.Literal("pluginResult"),
   ]),
   parent: Type.Optional(SessionParentSchema),
   runId: Type.Optional(identifier), text: Type.Optional(Type.String()),
@@ -204,12 +204,32 @@ export const AgentEventSchema = object({
 });
 /** Agent 运行中的公开事件，供前端追踪文本、工具、用量及运行终态。 */
 export type AgentEvent = Static<typeof AgentEventSchema>;
-/** 用户确认请求的 schema，供命令策略和认证流程声明需要确认或填写的内容。 */
+const digest = Type.String({ pattern: "^[0-9a-f]{64}$" });
+/**
+ * 批准自写插件时展示的一项：批准的是暂存下来的这一份，id、标题、版本与页面取自它的清单，files 是它相对 base 的改动。
+ * base 为 recorded 时与启用记录里的当前版本比较，none 时没有可比较的版本，文件全部是 added。
+ */
+export const PluginApprovalSchema = object({
+  id: identifier,
+  title: Type.Optional(Type.String()),
+  version: Type.String(),
+  digest,
+  pages: Type.Array(object({ id: identifier, title: Type.String() })),
+  base: Type.Union([Type.Literal("recorded"), Type.Literal("none")]),
+  files: Type.Array(object({ path: identifier, change: Type.Union([Type.Literal("added"), Type.Literal("modified"), Type.Literal("removed")]) })),
+});
+/** 批准自写插件时展示的一项。 */
+export type PluginApproval = Static<typeof PluginApprovalSchema>;
+/**
+ * 用户确认请求的 schema，供命令策略、认证流程和自写插件的批准声明需要确认或填写的内容。
+ * plugin 是一批装卸里需要批准的插件，列在 plugins 里，作为整体同意（true）或拒绝；界面文字由前端书写，title 为空。
+ */
 export const ConfirmationSchema = object({
-  kind: Type.Union([Type.Literal("command"), Type.Literal("input"), Type.Literal("select"), Type.Literal("display")]),
+  kind: Type.Union([Type.Literal("command"), Type.Literal("input"), Type.Literal("select"), Type.Literal("display"), Type.Literal("plugin")]),
   title: Type.String(), message: Type.Optional(Type.String()),
   url: Type.Optional(Type.String()), options: Type.Optional(Type.Array(Type.String())),
   secret: Type.Optional(Type.Boolean()),
+  plugins: Type.Optional(Type.Array(PluginApprovalSchema)),
 });
 /** 需要用户确认或填写的请求，供命令策略和认证流程使用。 */
 export type Confirmation = Static<typeof ConfirmationSchema>;
@@ -221,6 +241,18 @@ export class RepaFault extends Error {
   constructor(readonly code: string, message: string, readonly details?: unknown) {
     super(message);
     this.name = "RepaFault";
+  }
+}
+
+/**
+ * 把任意抛出的值转成说明文字。插件可以抛出任何值，没有原型的对象经 String() 会再抛错；
+ * 这里兜住，记录一个插件的失败不应使整次装配失败。
+ */
+export function errorText(error: unknown): string {
+  try {
+    return error instanceof Error ? error.message : String(error);
+  } catch {
+    return "插件抛出了无法转成文字的值";
   }
 }
 

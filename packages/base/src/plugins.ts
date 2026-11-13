@@ -2,8 +2,13 @@ import type { AgentTool } from "./agent.js";
 import type { AskRoute } from "./ask.js";
 import type { ExportSources } from "./feedback/export.js";
 import type { AgentDefinition, MethodContext, Models, Plugin, Services } from "./plugin.js";
-import type { DisabledPlugin } from "./protocol.js";
 import type { Space } from "./space.js";
+
+/** 宿主打开时停用的插件与原因；code 供程序判断，message 供人阅读。 */
+export interface DisabledPlugin {
+  id: string;
+  reason: { code: string; message: string };
+}
 
 /** 空间中的插件宿主；装配层从这里取得插件声明、调用方法并等待变化处理。 */
 export interface PluginHost {

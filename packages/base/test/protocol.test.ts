@@ -375,7 +375,7 @@ async function scriptedBackend(t: TestContext, results: Record<string, unknown>)
       const method = String(request?.method);
       // 脚本里没有的方法不回答，调用一直等着。
       if (method !== "initialize" && !Object.hasOwn(results, method)) return;
-      const result = method === "initialize" ? { version: PROTOCOL_VERSION, serverId: "scripted", baseline: { space: null, sessions: [], disabledPlugins: [] } } : results[method];
+      const result = method === "initialize" ? { version: PROTOCOL_VERSION, serverId: "scripted", baseline: { space: null, sessions: [], plugins: [] } } : results[method];
       socket.send(JSON.stringify({ jsonrpc: "2.0", id: request?.id, result }));
     });
   });
@@ -522,6 +522,7 @@ test("同一连接同时等待确认、提问和服务，断线后三者以各�
             },
             async steer() {}, async followUp() {}, async abort() {}, async setModel() {}, async compact() {},
             async fork() { throw new Error("未使用"); },
+            async continueWith() {}, appendPluginResult() {},
           };
         },
         async list() { return []; }, async sessionFile() { return undefined; }, async abortAgent() {},

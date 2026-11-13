@@ -18,7 +18,7 @@ import {
 } from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { currentRun, withToolCall } from "../run-context.js";
-import { object, parse, RepaFault } from "../schema.js";
+import { errorText, object, parse, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
 
 const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
@@ -205,7 +205,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       id,
       reason: {
         code: error instanceof RepaFault ? error.code : "plugin_open_failed",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorText(error),
       },
     });
     options.onError(error);
@@ -599,7 +599,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
               await closeInstance(id, instance);
             } catch (error) {
               // 原错误放进 cause，最近错误据此保留插件自己的堆栈。
-              failures.push(Object.assign(new RepaFault("plugin_close_failed", error instanceof Error ? error.message : String(error), { pluginId: id }), { cause: error }));
+              failures.push(Object.assign(new RepaFault("plugin_close_failed", errorText(error), { pluginId: id }), { cause: error }));
             }
           }
           // 实例结束以前放行的操作可能在 close() 返回时仍未写完，等它们结束再置 closed。

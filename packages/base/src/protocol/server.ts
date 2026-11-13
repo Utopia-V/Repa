@@ -23,23 +23,25 @@ import {
 } from "../interaction.js";
 import type { AskOutcome, Plugin, Services } from "../plugin.js";
 import { openPluginHost, type PluginHost } from "../plugins.js";
+import { listPlugins } from "../plugins/plugin-list.js";
 import { pluginsDirectory } from "../plugins/snapshots.js";
-import { spacePlugins, type UnavailablePlugin } from "../plugins/space-plugins.js";
+import { spacePlugins, type SpacePlugin, type UnavailablePlugin } from "../plugins/space-plugins.js";
 import {
   methods,
   notifications,
   PROTOCOL_VERSION,
   type ClientCapabilities,
-  type DisabledPlugin,
   type Method,
   type Notification,
   type NotificationParams,
   type Params,
+  type PluginInfo,
 } from "../protocol.js";
-import { RepaFault, type Confirmation, type Confirm } from "../schema.js";
+import { errorText, RepaFault, type Confirmation, type Confirm } from "../schema.js";
 import { SettingsStore } from "../settings.js";
 import { createSpace, openSpace, type Space } from "../space.js";
 import { browseDirectory, listRoots } from "../space/browse.js";
+import { createPluginRequests, listText, type Execution } from "./plugin-requests.js";
 import { ReverseRequests } from "./reverse.js";
 import { errorResponse, parseRequest, RpcFault, type RpcId } from "./json-rpc.js";
 
@@ -69,15 +71,15 @@ export interface RepaServer {
   close(): Promise<void>;
   /**
    * 重组当前空间：等到空闲，关闭插件宿主与 Agent 运行时，再打开它们；空间、锁、历史与备份不动。
-   * 运行的自写插件按这一刻盘上的启用记录重新得出；plugins 替换随包插件，省略时用装配时的随包插件。
-   * 装卸请求接入以前，只供测试与宿主内部调用，前端没有入口。
+   * 运行的自写插件按这一刻盘上的启用记录重新得出；plugins 替换随包插件，省略时用当前的随包插件。
+   * 装卸请求（plugin.load、plugin.unload 与通用 Agent 的 plugin 工具）经同一条路径；这个入口供测试与宿主内部调用。
    */
   reassemble(plugins?: Plugin[]): Promise<Reassembly>;
 }
 
 /** 一次重组的结局。cancelled：等待期间空间已经关闭或换成别的空间，没有重组。 */
 export type Reassembly =
-  | { status: "applied"; assembly: number; disabledPlugins: DisabledPlugin[]; closeFailures: { pluginId: string; message: string }[] }
+  | { status: "applied"; assembly: number; plugins: PluginInfo[]; closeFailures: { pluginId: string; message: string }[] }
   | { status: "cancelled" };
 
 interface Peer {
@@ -122,12 +124,21 @@ interface ActiveSpace {
   assembly: number;
   /** 当前装配时启用了却没有交给插件宿主的自写插件：待批准或失败。每次重组按启用记录重新得出。 */
   unavailable: UnavailablePlugin[];
+  /** 当前装配交给宿主的自写插件与各自的版本。 */
+  selfWritten: SpacePlugin[];
+  /** 当前的随包插件；重组时可以替换。 */
+  bundled: Plugin[];
+  /**
+   * 插件列表（不含请求状态）。在装配结束时、plugin.list 与 plugin 工具的 list 读取时重新核对，基线与通知同步取用这一份：
+   * 初始化的基线在同一段同步代码里生成，不能等文件读取。
+   */
+  list: PluginInfo[];
 }
 
-/** 停用清单：没有交给宿主的自写插件，加上宿主打开时停用的插件，按 id 排列。 */
-function disabledOf(assembled: { plugins: PluginHost; unavailable: UnavailablePlugin[] }): DisabledPlugin[] {
-  const unavailable = assembled.unavailable.map(({ id, reason }) => ({ id, reason: { ...reason } }));
-  return [...unavailable, ...assembled.plugins.disabled()].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+/** runEnd 事件里的运行结局。 */
+function runStatus(data: unknown): "completed" | "failed" | "aborted" {
+  const status = data !== null && typeof data === "object" && "status" in data ? data.status : undefined;
+  return status === "completed" || status === "aborted" ? status : "failed";
 }
 
 // 经过重组闸门的方法：它们用到 Agent 空间或插件宿主，重组期间要等新的装配。
@@ -136,12 +147,14 @@ const GATED = new Set<Method>([
   "agent.list",
   "session.list", "session.create", "session.history", "session.send", "session.steer", "session.followUp",
   "session.abort", "session.setModel", "session.compact", "session.fork",
-  "plugin.disabled", "plugin.list", "plugin.call",
+  "plugin.list", "plugin.call", "plugin.load", "plugin.unload", "plugin.cancel",
   "prompt.list", "prompt.preview",
   "feedback.create",
 ]);
 // 在闸门前等待时，同一会话的 session.abort 到达即作废这些请求：停止要拿到它之前发出的消息。
 const VOIDABLE = new Set<Method>(["session.send", "session.steer", "session.followUp", "session.compact"]);
+// 使用者在会话里的介入：到达时登记，此前提出的插件装卸不再在结果交回时自动续跑。
+const INTERVENING = new Set<Method>(["session.send", "session.steer", "session.followUp", "session.abort", "session.compact", "session.fork"]);
 
 /** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
 export async function startServer(options: ServerOptions = {}): Promise<RepaServer> {
@@ -329,6 +342,37 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     if (!active) throw new RepaFault("space_not_open", "请先打开空间");
     return active;
   };
+  /** 插件列表加上各插件当前的或最近一次的装卸请求。 */
+  const pluginsOf = (current: ActiveSpace): PluginInfo[] => requests.merge(current.space.root, current.list);
+  /** 重新核对插件列表（源文件夹的状态、启用记录）；有变化时通知前端。宿主必须仍然打开。 */
+  const refreshList = async (current: ActiveSpace): Promise<PluginInfo[]> => {
+    const list = await listPlugins({
+      home,
+      root: current.space.root,
+      dataDir: current.space.dataDir,
+      assembled: { host: current.plugins, bundled: current.bundled.map((plugin) => plugin.id), selfWritten: current.selfWritten, unavailable: current.unavailable },
+    });
+    const changed = JSON.stringify(list) !== JSON.stringify(current.list);
+    current.list = list;
+    if (changed && active === current) emit("plugin.updated", { plugins: pluginsOf(current) });
+    return pluginsOf(current);
+  };
+  const requests = createPluginRequests<Peer>({
+    home,
+    now: () => runtime.now(),
+    current: () => active === undefined ? undefined : { root: active.space.root, dataDir: active.space.dataDir, opened: active.opened, bundled: active.bundled.map((plugin) => plugin.id) },
+    confirm: (peer, request, signal) => confirmFor(peer)(request, signal),
+    alive: (peer) => peer.alive,
+    fullAccess: () => settings.get().commandPolicy === "fullAccess",
+    execute: async (execution, signal) => (await reassembleWith(undefined, execution, signal)).status,
+    runAs: (peer, action) => owner.run(peer, action),
+    updated: () => {
+      if (active !== undefined) emit("plugin.updated", { plugins: pluginsOf(active) });
+    },
+    error: (error) => {
+      errors.add({ source: "plugin-requests", message: errorText(error), ...(error instanceof RepaFault ? { code: error.code } : {}) });
+    },
+  });
   // 装配序号：每次打开空间和每次重组前分配，单调递增；新宿主的 emit 闭包捕获它，旧宿主迟到的事件带旧序号。
   let serial = 0;
   // 重组闸门：落下时为一个 Promise，抬起时兑现。经过闸门的请求在 dispatch 之前等它。
@@ -368,8 +412,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     const current = active;
     active = undefined;
     if (!current) return;
-    // 等待空闲的重组随之取消。
+    // 等待空闲的重组随之取消，这个空间的装卸请求一并撤回。
     checkIdle();
+    requests.closeSpace();
     const failures: unknown[] = [];
     for (const result of await stopAssembly(current)) {
       if (result.status === "rejected") failures.push(result.reason);
@@ -410,10 +455,11 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       if (stopping) throw new RepaFault("closed", "服务正在关闭");
     };
     try {
-      // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件一起列进停用清单。
-      const selected = await spacePlugins({ home, space, bundled, clean: how.clean ?? true });
+      // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件在插件列表里带着待批准或失败的状态。
+      // 暂存副本只在打开空间时清：重组时下一批装卸可能正拿着暂存副本等批准。
+      const selected = await spacePlugins({ home, space, bundled, clean: how.clean ?? true, staging: how.first });
       for (const problem of selected.problems) {
-        errors.add({ source: "plugin-host", message: problem instanceof Error ? problem.message : String(problem), code: problem instanceof RepaFault ? problem.code : "plugin_failed" });
+        errors.add({ source: "plugin-host", message: errorText(problem), code: problem instanceof RepaFault ? problem.code : "plugin_failed" });
       }
       checkStopping();
       host = await openPluginHost({
@@ -446,7 +492,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         },
         emit: (pluginId, event) => emit("plugin.event", { pluginId, assembly, event }),
         onError: (error) => {
-          errors.add({ source: "plugin-host", message: error instanceof Error ? error.message : String(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
+          errors.add({ source: "plugin-host", message: errorText(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
           emit("plugin.event", { pluginId: "host", assembly, event: { type: "error", code: "plugin_failed" } });
         },
         onIdle: checkIdle,
@@ -454,7 +500,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       owners.plugins = host;
       checkStopping();
       const opened = host;
-      // 停用或卸载的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
+      // 停用或卸载的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因在插件列表里。
       // 只有第一次装配、且没有插件停用、也没有未能运行的自写插件时原样交给运行时核对，写错的 id 仍报 unknown_agent。
       let directAgents = options.directAgents;
       if (directAgents !== undefined && (!how.first || opened.disabled().length > 0 || selected.unavailable.length > 0)) {
@@ -475,7 +521,20 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         record: async (runId, action) => (await space.record({ kind: "agent", runId }, action)).value,
         writes: space.writes,
         controlDirs: [pluginsDirectory(home)],
-        onEvent: (event) => emit("session.event", event),
+        onEvent: (event) => {
+          emit("session.event", event);
+          // 一次运行结束时，它提出的装卸请求封口排队。
+          if (event.type === "runEnd" && event.runId !== undefined) requests.runEnded(event.runId, runStatus(event.data));
+        },
+        plugins: {
+          list: async () => {
+            // 只读这个装配自己的列表；装配还没发布或已被换下时，列表为空。
+            const current = active;
+            if (current === undefined || current.agent !== agent) return listText([]);
+            return listText(await refreshList(current));
+          },
+          request: (input, origin) => requests.request(input, origin, owner.getStore()),
+        },
         confirm: (request, signal) => confirmFor(owner.getStore())(request, signal),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
         onIdle: checkIdle,
@@ -486,7 +545,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       await opened.start();
       checkStopping();
       ready = true;
-      return { plugins: opened, agent, assembly, unavailable: selected.unavailable };
+      const list = await listPlugins({
+        home,
+        root: space.root,
+        dataDir: space.dataDir,
+        assembled: { host: opened, bundled: bundled.map((plugin) => plugin.id), selfWritten: selected.selfWritten, unavailable: selected.unavailable },
+      });
+      checkStopping();
+      return { plugins: opened, agent, assembly, unavailable: selected.unavailable, selfWritten: selected.selfWritten, list };
     } catch (error) {
       if (agent !== undefined && host !== undefined) await stopAssembly({ agent, plugins: host });
       else await host?.close().catch(() => undefined);
@@ -498,7 +564,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
     if (stopping) throw new RepaFault("closed", "服务正在关闭");
     const resolved = path.resolve(root);
-    if (active?.space.root === resolved && !create) return { root: resolved, assembly: active.assembly, disabledPlugins: disabledOf(active) };
+    if (active?.space.root === resolved && !create) return { root: resolved, assembly: active.assembly, plugins: pluginsOf(active) };
     await closeActive();
     // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
     const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
@@ -520,10 +586,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           });
         },
       });
-      const { plugins, agent, assembly, unavailable } = assembled;
-      active = { space, plugins, agent, backups, opened: assembly, assembly, unavailable };
+      const { plugins, agent, assembly, unavailable, selfWritten, list } = assembled;
+      active = { space, plugins, agent, backups, opened: assembly, assembly, unavailable, selfWritten, bundled: options.plugins ?? [], list };
       backups.start();
-      return { root: space.root, assembly, disabledPlugins: disabledOf(active) };
+      return { root: space.root, assembly, plugins: pluginsOf(active) };
     } catch (error) {
       if (assembled !== undefined) await stopAssembly(assembled);
       await space.close().catch(() => undefined);
@@ -534,10 +600,15 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   /** 当前空间的插件宿主与 Agent 空间是否都没有工作，也没有经过闸门、正在执行的请求。 */
   const idle = (current: ActiveSpace) => inFlight === 0 && !current.agent.busy() && !current.plugins.busy();
 
-  const reassemble = (plugins: Plugin[] = options.plugins ?? []): Promise<Reassembly> => {
+  /**
+   * batch 是一批装卸在重组里要做的事：闸门落下时 begin，旧装配关闭以后 write，新装配建立以后 finish。
+   * signal 中止时，还在等待空闲的重组以 cancelled 结束；闸门落下以后不再理会它。
+   */
+  const reassembleWith = (bundled?: Plugin[], batch?: Execution, signal?: AbortSignal): Promise<Reassembly> => {
     const target = active;
     if (stopping) return Promise.reject(new RepaFault("closed", "服务正在关闭"));
     if (target === undefined) return Promise.reject(new RepaFault("space_not_open", "请先打开空间"));
+    const plugins = bundled ?? target.bundled;
     // 等待空闲时不挡住任何工作。空闲成立的那一刻，在同一段同步代码里落下闸门并让旧的装配开始关闭，
     // 计数为零与闸门落下之间没有 await，请求漏不进去；闸门落下以后插件新发起的工作被拒绝或取消，不等闸门。
     // 空间的身份是这一次打开：前一次重组换掉了 active 对象，但空间没有变，排在后面的重组照常进行。
@@ -545,18 +616,21 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     return new Promise<Reassembly>((resolve, reject) => {
       const check = () => {
         const current = active;
-        if (stopping || current?.opened !== opened) {
+        if (stopping || current?.opened !== opened || signal?.aborted === true) {
           idleWaiters.delete(check);
+          signal?.removeEventListener("abort", check);
           resolve({ status: "cancelled" });
           return;
         }
         if (reassembling !== undefined || !idle(current)) return;
         idleWaiters.delete(check);
+        signal?.removeEventListener("abort", check);
         detached(() => {
           let lift: () => void = () => undefined;
           reassembling = new Promise<void>((done) => { lift = done; });
+          batch?.begin();
           const stopped = stopAssembly(current);
-          serializeLifecycle(() => rebuild(current, plugins, stopped)).then(resolve, reject).finally(() => {
+          serializeLifecycle(() => rebuild(current, plugins, stopped, batch)).then(resolve, reject).finally(() => {
             reassembling = undefined;
             lift();
             checkIdle();
@@ -564,12 +638,18 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         });
       };
       idleWaiters.add(check);
+      signal?.addEventListener("abort", check);
       check();
     });
   };
 
-  /** 闸门落下以后、轮到生命周期队列时执行：等旧装配收尾，按清单重新装配，发出 space.assembled。 */
-  const rebuild = async (target: ActiveSpace, plugins: Plugin[], stopped: Promise<PromiseSettledResult<void>[]>): Promise<Reassembly> => {
+  const reassemble = (plugins?: Plugin[]): Promise<Reassembly> => reassembleWith(plugins);
+
+  /**
+   * 闸门落下以后、轮到生命周期队列时执行：等旧装配收尾；有装卸批次时写启用记录并读回；总是按盘上的启用记录重新装配；
+   * 交回装卸结果、登记续跑；最后发出 space.assembled。闸门在调用方的 finally 里抬起。
+   */
+  const rebuild = async (target: ActiveSpace, plugins: Plugin[], stopped: Promise<PromiseSettledResult<void>[]>, batch?: Execution): Promise<Reassembly> => {
     const results = await stopped;
     // 排在前面的 space.open、space.close 已经关闭或换掉了这个空间；服务正在关闭时也不再打开插件，空间由服务关闭时的 closeActive 收尾。
     if (stopping || active !== target) return { status: "cancelled" };
@@ -583,7 +663,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         const original = reason instanceof Error && reason.cause instanceof Error ? reason.cause : reason;
         errors.add({
           source: "plugin-host",
-          message: reason instanceof Error ? reason.message : String(reason),
+          message: errorText(reason),
           code: "plugin_close_failed",
           ...(original instanceof Error && original.stack !== undefined ? { stack: original.stack } : {}),
         });
@@ -592,14 +672,26 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         }
       }
     }
+    // 旧实例都已关闭，这时写启用记录：记录没写成时，装回的就是原来的集合。持久化没有确认时不清理快照。
+    let clean = closeFailures.length === 0;
+    if (batch !== undefined) {
+      try {
+        if (!(await batch.write()).clean) clean = false;
+      } catch (error) {
+        clean = false;
+        errors.add({ source: "plugin-requests", message: errorText(error) });
+      }
+    }
     let next: Awaited<ReturnType<typeof assemble>>;
     try {
-      next = await assemble(target.space, plugins, { first: false, clean: closeFailures.length === 0, unsaved: target.agent.unsavedSessions() });
+      next = await assemble(target.space, plugins, { first: false, clean, unsaved: target.agent.unsavedSessions() });
     } catch (error) {
       // 装配途中服务开始关闭：已经建好的部分已关闭，空间由排在后面的 closeActive 收尾。
       if (stopping) return { status: "cancelled" };
       // 整体失败来自空间或运行时一类的故障（单个插件失败只会停用它）：照关闭空间的次序收尾，前端按恢复失败处理。
+      batch?.failed(error);
       active = undefined;
+      requests.closeSpace();
       for (const close of [() => target.backups.close(), () => target.space.close()]) {
         await close().catch((closeError: unknown) => {
           errors.add({ source: "space", message: closeError instanceof Error ? closeError.message : String(closeError) });
@@ -609,10 +701,19 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       emit("space.assembled", { root: null, error: { code: fault.code, message: fault.message } });
       throw error;
     }
-    active = { ...target, plugins: next.plugins, agent: next.agent, assembly: next.assembly, unavailable: next.unavailable };
-    const disabledPlugins = disabledOf(next);
-    emit("space.assembled", { root: target.space.root, assembly: next.assembly, disabledPlugins });
-    return { status: "applied", assembly: next.assembly, disabledPlugins, closeFailures };
+    const current: ActiveSpace = { ...target, plugins: next.plugins, agent: next.agent, assembly: next.assembly, unavailable: next.unavailable, selfWritten: next.selfWritten, bundled: plugins, list: next.list };
+    active = current;
+    // 结果在闸门抬起之前交回：这时请求方会话刚从文件打开，除了这次交回没有别的东西能碰到它。续跑只登记，不等运行。
+    if (batch !== undefined) {
+      try {
+        await batch.finish({ agent: next.agent, host: next.plugins, selfWritten: next.selfWritten, unavailable: next.unavailable, closeFailures });
+      } catch (error) {
+        errors.add({ source: "plugin-requests", message: errorText(error) });
+      }
+    }
+    const list = pluginsOf(current);
+    emit("space.assembled", { root: target.space.root, assembly: next.assembly, plugins: list });
+    return { status: "applied", assembly: next.assembly, plugins: list, closeFailures };
   };
 
   // 前端只能与可直接对话的 Agent 建会话和发消息；后台任务与子 Agent 不经过这里。
@@ -704,7 +805,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         if (!pending || pending.peer !== peer || pending.data.kind !== "confirm") throw new RepaFault("confirmation_not_found", "确认不存在或不属于当前连接");
         const kind = pending.data.request.kind;
         if (
-          (kind === "command" && typeof input.value !== "boolean" && input.value !== null) ||
+          ((kind === "command" || kind === "plugin") && typeof input.value !== "boolean" && input.value !== null) ||
           ((kind === "input" || kind === "select") && typeof input.value !== "string" && input.value !== null) ||
           (kind === "select" && typeof input.value === "string" && !pending.data.request.options?.includes(input.value))
         ) {
@@ -734,10 +835,19 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return requireActive().space.history.undo(p<"history.undo">().revision);
       case "history.undoRun":
         return requireActive().space.history.undoRun(p<"history.undoRun">().runId);
-      case "plugin.disabled":
-        return disabledOf(requireActive());
       case "plugin.list":
-        return requireActive().plugins.list();
+        return refreshList(requireActive());
+      case "plugin.load": {
+        const input = p<"plugin.load">();
+        requireActive();
+        return { requestId: requests.submit("load", input.ids, input.from ?? "folder", peer) };
+      }
+      case "plugin.unload":
+        requireActive();
+        return { requestId: requests.submit("unload", p<"plugin.unload">().ids, "folder", peer) };
+      case "plugin.cancel":
+        requests.cancel(p<"plugin.cancel">().requestId);
+        return null;
       case "plugin.call": {
         const input = p<"plugin.call">();
         const current = requireActive();
@@ -892,6 +1002,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     const sessionId = method.startsWith("session.") && params !== null && typeof params === "object" && "sessionId" in params && typeof params.sessionId === "string"
       ? params.sessionId
       : undefined;
+    // 介入在请求到达时登记，不依赖闸门之后的执行次序：闸门期间到达的停止同样使此前提出的装卸不再续跑。
+    if (sessionId !== undefined && INTERVENING.has(method)) requests.intervene(sessionId);
     if (method === "session.abort") {
       for (const waiter of [...gateWaiters]) {
         if (waiter.sessionId === sessionId && VOIDABLE.has(waiter.method)) waiter.cancel();
@@ -955,6 +1067,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       const method = request.method as Method;
       const params = request.params === undefined ? {} : request.params;
       if (!Check(methods[method].params, params)) throw new RpcFault(-32602, "Invalid params");
+      // 关闭、切换或新建空间在到达时登记为介入：排在重组后面的关闭也使装卸结果不再续跑。
+      if (method === "space.close" || method === "space.create" || (method === "space.open" && path.resolve((params as Params<"space.open">).root) !== active?.space.root)) {
+        requests.interveneSpace();
+      }
       const result = GATED.has(method) ? await admit(peer, method, params) : await owner.run(peer, () => dispatch(peer, method, params));
       if (method !== "initialize") {
         return {
@@ -974,7 +1090,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             baseline: {
               space: active === undefined ? null : { root: active.space.root, assembly: active.assembly },
               sessions: active?.agent.baseline() ?? [],
-              disabledPlugins: active === undefined ? [] : disabledOf(active),
+              plugins: active === undefined ? [] : pluginsOf(active),
             },
           };
           return Check(methods[method].result, output) ? { jsonrpc: "2.0", id, result: output } : errorResponse(id, new RpcFault(-32603, "Internal error"));
@@ -1060,8 +1176,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const close = (): Promise<void> => {
     if (closePromise) return closePromise;
     stopping = true;
-    // 等待空闲的重组随之取消。
+    // 等待空闲的重组随之取消，装卸请求一并撤回。
     checkIdle();
+    requests.closeSpace();
     // 先让当前装配和正在建立的装配都开始关闭，再等运行时：运行时收尾要等 Agent 的运行结束，运行可能排在插件持有的空间写锁后面，
     // 而插件持锁等的模型请求只在插件宿主开始关闭时取消。active 与装配中的部分之外没有别的插件宿主。
     if (active !== undefined) void stopAssembly(active);

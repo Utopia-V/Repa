@@ -1,7 +1,7 @@
 import type { Plugin } from "../plugin.js";
-import { RepaFault } from "../schema.js";
+import { errorText, RepaFault } from "../schema.js";
 import { readEnablement, type PluginEnablementEntry } from "./enablement.js";
-import { loadPlugin } from "./manifest.js";
+import { loadPlugin, type PluginManifest } from "./manifest.js";
 import { checkSnapshot, cleanSnapshots, clearStaging, removeSnapshot, snapshotDirectory } from "./snapshots.js";
 
 /**
@@ -14,9 +14,20 @@ export interface UnavailablePlugin {
   reason: { code: string; message: string };
 }
 
-/** 交给插件宿主的插件，以及没有交给它的自写插件；problems 是与单个插件无关、或需要另记一笔的错误。 */
+/** 交给插件宿主的一个自写插件：它的版本与快照里的清单。 */
+export interface SpacePlugin {
+  id: string;
+  digest: string;
+  manifest: PluginManifest;
+}
+
+/**
+ * 交给插件宿主的插件，以及没有交给它的自写插件；selfWritten 是交给宿主的自写插件各自的版本；
+ * problems 是与单个插件无关、或需要另记一笔的错误。
+ */
 export interface SpacePlugins {
   plugins: Plugin[];
+  selfWritten: SpacePlugin[];
   unavailable: UnavailablePlugin[];
   problems: unknown[];
 }
@@ -27,7 +38,7 @@ function failure(id: string, error: unknown): UnavailablePlugin {
     state: "failed",
     reason: {
       code: error instanceof RepaFault ? error.code : "plugin_open_failed",
-      message: error instanceof Error ? error.message : String(error),
+      message: errorText(error),
     },
   };
 }
@@ -44,20 +55,22 @@ function failure(id: string, error: unknown): UnavailablePlugin {
  *
  * clean 为 false 时什么都不删：不清暂存、不按记录清理、不删改动过的快照。重组时上一批实例的 close() 报了错，
  * 它们可能仍在用这些文件，这一次就不清理；改动过的快照照样不加载，插件列为待批准，留到下一次清理时删除。
+ * staging 决定是否清掉暂存副本，省略时随 clean：重组时传 false，下一批装卸可能正拿着暂存副本等批准，暂存只在打开空间时清。
  */
-export async function spacePlugins(options: { home: string; space: { root: string; dataDir: string }; bundled: Plugin[]; clean?: boolean }): Promise<SpacePlugins> {
+export async function spacePlugins(options: { home: string; space: { root: string; dataDir: string }; bundled: Plugin[]; clean?: boolean; staging?: boolean }): Promise<SpacePlugins> {
   const { home, space, bundled } = options;
   const clean = options.clean ?? true;
+  const staging = clean && (options.staging ?? true);
   const problems: unknown[] = [];
   let record;
   try {
     record = await readEnablement(space.dataDir);
   } catch (error) {
-    return { plugins: bundled, unavailable: [], problems: [error] };
+    return { plugins: bundled, selfWritten: [], unavailable: [], problems: [error] };
   }
   if (clean) {
     try {
-      await clearStaging(home, space.root);
+      if (staging) await clearStaging(home, space.root);
       await cleanSnapshots(home, space.root, record);
     } catch (error) {
       // 清理失败只影响占用的磁盘，下次打开空间再清。
@@ -66,6 +79,7 @@ export async function spacePlugins(options: { home: string; space: { root: strin
   }
   const bundledIds = new Set(bundled.map((plugin) => plugin.id));
   const loaded: Plugin[] = [];
+  const selfWritten: SpacePlugin[] = [];
   const unavailable: UnavailablePlugin[] = [];
   const ids = Object.keys(record.plugins).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   for (const id of ids) {
@@ -91,6 +105,7 @@ export async function spacePlugins(options: { home: string; space: { root: strin
       const { manifest, plugin } = await loadPlugin(directory, { confined: true });
       if (manifest.id !== id) throw new RepaFault("plugin_id_mismatch", `快照里的插件 id 是 ${manifest.id}，启用记录里是 ${id}`, { id, manifest: manifest.id });
       loaded.push(plugin);
+      selfWritten.push({ id, digest: entry.digest, manifest });
     } catch (error) {
       unavailable.push(failure(id, error));
       problems.push(error);
@@ -107,7 +122,7 @@ export async function spacePlugins(options: { home: string; space: { root: strin
       }
     }
   }
-  return { plugins: [...bundled, ...loaded], unavailable, problems };
+  return { plugins: [...bundled, ...loaded], selfWritten, unavailable, problems };
 }
 
 /** 记录里保留着、这次不会运行的版本：上一个版本，卸载的插件连同当前版本。运行的版本在加载前已经核对。 */

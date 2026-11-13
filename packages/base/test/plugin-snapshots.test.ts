@@ -18,13 +18,17 @@ import { spacePlugins } from "../src/plugins/space-plugins.js";
 import {
   checkSnapshot, cleanSnapshots, clearStaging, folderDigest, publishSnapshot, removeSnapshot, snapshotDirectory, snapshotGroup, SNAPSHOT_LIMITS, stageFolder,
 } from "../src/plugins/snapshots.js";
-import type { NotificationParams } from "../src/protocol.js";
+import type { NotificationParams, PluginInfo } from "../src/protocol.js";
 import { startServer } from "../src/protocol/server.js";
 import { RepaFault } from "../src/schema.js";
 import { createSpace } from "../src/space.js";
 import { startRepaProcess } from "../dist/process.js";
 
 const AT = "2026-11-13T08:00:00.000Z";
+/** 插件列表的要点：id、运行状态和原因的 code。 */
+const states = (plugins: PluginInfo[]) => plugins.map((plugin) => [plugin.id, plugin.state, plugin.reason?.code]);
+/** 插件列表里运行中的插件。 */
+const runningOf = (plugins: PluginInfo[]) => plugins.filter((plugin) => plugin.state === "running").map((plugin) => plugin.id);
 const LATER = "2026-11-14T08:00:00.000Z";
 
 // 一个只用 JavaScript、不导入任何东西的插件：本进程在 tsx 下运行，导入它不经过 tsx 的 .ts 处理。
@@ -428,16 +432,16 @@ test("构建后的后端打开空间时运行启用的自写插件；快照被�
   f.closers.push(() => client.close());
 
   const opened = await client.call("space.open", { root: f.root });
-  assert.deepEqual(opened.disabledPlugins, []);
-  assert.deepEqual(await client.call("plugin.list", {}), [{ id: "echo-folder", methods: ["echo"], tools: [] }]);
+  const listed = await client.call("plugin.list", {});
+  assert.deepEqual(listed, opened.plugins);
+  assert.deepEqual(listed.map(({ id, source, state, digest: recorded, methods, tools }) => ({ id, source, state, digest: recorded, methods, tools })), [{ id: "echo-folder", source: "space", state: "running", digest, methods: ["echo"], tools: [] }]);
   assert.equal(await client.call("plugin.call", { pluginId: "echo-folder", assembly: opened.assembly, method: "echo", input: { text: "你好" } }), "回声：你好");
   await client.call("space.close", {});
 
   await writeFile(path.join(snapshotDirectory(f.home, f.root, "echo-folder", digest), "index.ts"), ECHO_INDEX.replace("回声", "篡改"));
   const reopened = await client.call("space.open", { root: f.root });
-  assert.deepEqual(reopened.disabledPlugins.map((plugin) => [plugin.id, plugin.reason.code]), [["echo-folder", "snapshot_modified"]]);
-  assert.deepEqual(await client.call("plugin.disabled", {}), reopened.disabledPlugins);
-  assert.deepEqual(await client.call("plugin.list", {}), []);
+  assert.deepEqual(states(reopened.plugins), [["echo-folder", "pending", "snapshot_modified"]]);
+  assert.deepEqual(await client.call("plugin.list", {}), reopened.plugins);
   await assert.rejects(client.call("plugin.call", { pluginId: "echo-folder", assembly: reopened.assembly, method: "echo", input: { text: "你好" } }), (error: unknown) => {
     assert(error instanceof RpcError);
     assert.equal((error.data as { code?: string } | undefined)?.code, "plugin_not_found");
@@ -543,7 +547,7 @@ test("重组按这一刻盘上的启用记录换插件：新启用的打开，�
   const { server, client, seen } = await serve(f);
   const alpha = await f.approve("alpha", await f.folder("alpha", toolPlugin("alpha", "alpha-1", "alpha_lookup")));
   const opened = await client.call("space.open", { root: f.root });
-  assert.deepEqual(opened.disabledPlugins, []);
+  assert.deepEqual(states(opened.plugins), [["alpha", "running", undefined]]);
   const session = await client.call("session.create", {});
   await client.call("session.send", { sessionId: session.id, text: "第一次" });
   assert.deepEqual(seen.at(-1), ["alpha_lookup"]);
@@ -553,10 +557,10 @@ test("重组按这一刻盘上的启用记录换插件：新启用的打开，�
   const beta = await f.approve("beta", await f.folder("beta", toolPlugin("beta", "beta-1", "beta_lookup")));
   const added = await server.reassemble();
   assert.ok(added.status === "applied");
-  assert.deepEqual(added.disabledPlugins, []);
+  assert.deepEqual(states(added.plugins), [["alpha", "running", undefined], ["beta", "running", undefined]]);
   assert.deepEqual(tally.opens, { "alpha-1": 2, "beta-1": 1 });
   assert.deepEqual(tally.closes, { "alpha-1": 1 });
-  assert.deepEqual((await client.call("plugin.list", {})).map((plugin) => plugin.id), ["alpha", "beta"]);
+  assert.deepEqual(runningOf(await client.call("plugin.list", {})), ["alpha", "beta"]);
   await client.call("session.send", { sessionId: session.id, text: "第二次" });
   assert.deepEqual(seen.at(-1), ["alpha_lookup", "beta_lookup"]);
 
@@ -564,7 +568,7 @@ test("重组按这一刻盘上的启用记录换插件：新启用的打开，�
   await writeEnablement(f.dataDir, withUnloaded(await readEnablement(f.dataDir), "alpha"));
   const removed = await server.reassemble();
   assert.ok(removed.status === "applied");
-  assert.deepEqual(removed.disabledPlugins, []);
+  assert.deepEqual(states(removed.plugins), [["alpha", "disabled", undefined], ["beta", "running", undefined]]);
   assert.deepEqual(tally.opens, { "alpha-1": 2, "beta-1": 2 });
   assert.equal(await checkSnapshot(f.home, f.root, "alpha", alpha), "ok");
   await client.call("session.send", { sessionId: session.id, text: "第三次" });
@@ -580,25 +584,24 @@ test("重组按这一刻盘上的启用记录换插件：新启用的打开，�
   await client.call("session.send", { sessionId: session.id, text: "第四次" });
   assert.deepEqual(seen.at(-1), ["alpha_v2_lookup", "beta_lookup"]);
 
-  // 第二个的快照不在：重组以后它是待批准，停用清单在结果、通知与 plugin.disabled 里一致。
+  // 第二个的快照不在：重组以后它是待批准，插件列表在结果、通知与 plugin.list 里一致。
   await rm(snapshotDirectory(f.home, f.root, "beta", beta), { recursive: true });
   const assembled = new Promise<NotificationParams<"space.assembled">>((resolve) => {
     const stop = client.on("space.assembled", (params) => { stop(); resolve(params); });
   });
   const pending = await server.reassemble();
   assert.ok(pending.status === "applied");
-  assert.deepEqual(pending.disabledPlugins.map((plugin) => [plugin.id, plugin.reason.code]), [["beta", "snapshot_missing"]]);
+  assert.deepEqual(states(pending.plugins), [["alpha", "running", undefined], ["beta", "pending", "snapshot_missing"]]);
   const notice = await assembled;
   assert.ok(notice.root !== null);
-  assert.deepEqual(notice.disabledPlugins, pending.disabledPlugins);
-  assert.deepEqual(await client.call("plugin.disabled", {}), pending.disabledPlugins);
+  assert.deepEqual(notice.plugins, pending.plugins);
+  assert.deepEqual(await client.call("plugin.list", {}), pending.plugins);
   assert.deepEqual(tally.opens, { "alpha-1": 2, "alpha-2": 2, "beta-1": 3 });
-  assert.deepEqual((await client.call("plugin.list", {})).map((plugin) => plugin.id), ["alpha"]);
   await client.call("session.send", { sessionId: session.id, text: "第五次" });
   assert.deepEqual(seen.at(-1), ["alpha_v2_lookup"]);
   // 新连接的基线与重开空间的结果也带着它。
   const reopened = await client.call("space.open", { root: f.root });
-  assert.deepEqual(reopened.disabledPlugins, pending.disabledPlugins);
+  assert.deepEqual(reopened.plugins, pending.plugins);
 });
 
 test("不清理时什么都不删：暂存副本、记录外的版本、改动过的快照都留着；改动过的运行版本仍不加载，列为待批准", async (t) => {
@@ -628,7 +631,7 @@ test("不清理时什么都不删：暂存副本、记录外的版本、改动�
   assert.equal(await checkSnapshot(f.home, f.root, "hello", second), "missing");
 });
 
-test("重组时自写插件的 close 报错：这一次不清理暂存与快照；下一次正常关闭的重组照常清理", async (t) => {
+test("重组时自写插件的 close 报错：这一次不清理快照，下一次正常关闭的重组照常清理；暂存副本只在打开空间时清", async (t) => {
   const f = await fixture(t);
   const tally = counts();
   tally.opens = {};
@@ -643,12 +646,21 @@ test("重组时自写插件的 close 报错：这一次不清理暂存与快照�
   const failed = await server.reassemble();
   assert.ok(failed.status === "applied");
   assert.deepEqual(failed.closeFailures, [{ pluginId: "alpha", message: "后台写入还没停" }]);
-  assert.deepEqual(failed.disabledPlugins, []);
+  assert.deepEqual(states(failed.plugins), [["alpha", "running", undefined]]);
   assert.deepEqual(tally.opens, { "alpha-1": 2 });
-  assert.ok((await stat(leftover.directory)).isDirectory(), "close 报错的那次重组不应清理暂存");
+  // 留一个记录之外的版本：close 报错的那次重组不删它，下一次正常关闭的重组删除。
+  const stale = await f.folder(path.join("home", "plugins", path.basename(snapshotGroup(f.home, f.root)), "alpha", "e".repeat(64)), toolPlugin("alpha", "stale", "stale_lookup"));
+  const again = await server.reassemble();
+  assert.ok(again.status === "applied");
+  assert.ok((await stat(stale)).isDirectory(), "close 报错的那次重组不应清理快照");
   tally.closeError = undefined;
   const clean = await server.reassemble();
   assert.ok(clean.status === "applied");
   assert.deepEqual(clean.closeFailures, []);
+  await assert.rejects(stat(stale), { code: "ENOENT" });
+  // 暂存副本只在打开空间时清：重组时下一批装卸可能正拿着它等批准。
+  assert.ok((await stat(leftover.directory)).isDirectory());
+  await client.call("space.close", {});
+  await client.call("space.open", { root: f.root });
   await assert.rejects(stat(leftover.directory), { code: "ENOENT" });
 });

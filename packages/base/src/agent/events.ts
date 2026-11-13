@@ -26,6 +26,9 @@ export function usageOf(usage: Usage): Usage {
   };
 }
 
+/** 插件装卸结果没有经续跑交回时追加的条目（custom_message）的类型，details 带 requestId。 */
+export const PLUGIN_RESULT_ENTRY = "repa-plugin-result";
+
 export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
   const base = { id: entry.id, timestamp: entry.timestamp };
   if (entry.type === "message") {
@@ -69,6 +72,7 @@ export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
     return undefined;
   }
   if (entry.type === "custom" && entry.customType === "repa-run") return { ...base, type: "run", data: entry.data };
+  if (entry.type === "custom_message" && entry.customType === PLUGIN_RESULT_ENTRY) return { ...base, type: "pluginResult", text: textContent(entry.content), data: entry.details };
   if (entry.type === "custom_message") return { ...base, type: entry.customType === "repa-prompt-change" ? "promptChange" : "view", text: textContent(entry.content), data: entry.details };
   if (entry.type === "context_edit") {
     return { ...base, type: "contextEdit", data: { targetId: entry.targetId, replacement: entry.replacement } };
@@ -91,6 +95,29 @@ export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
     };
   }
   return undefined;
+}
+
+/**
+ * 一段会话条目的公开投影。带 pluginResult 的运行记录之后的第一条用户消息是装卸结果，投影为 pluginResult，
+ * 与没有续跑时追加的结果条目是同一种条目，data.requestId 相同。
+ */
+export function entriesToPublic(entries: PiSessionEntry[]): SessionEntry[] {
+  const result: SessionEntry[] = [];
+  let requestId: string | undefined;
+  for (const entry of entries) {
+    const converted = entryToPublic(entry);
+    if (converted === undefined) continue;
+    if (converted.type === "run") {
+      const data: unknown = converted.data;
+      requestId = data !== null && typeof data === "object" && "pluginResult" in data && typeof data.pluginResult === "string" ? data.pluginResult : undefined;
+    } else if (converted.type === "user" && requestId !== undefined) {
+      result.push({ ...converted, type: "pluginResult", data: { requestId } });
+      requestId = undefined;
+      continue;
+    }
+    result.push(converted);
+  }
+  return result;
 }
 
 export function convertEvent(sessionId: string, event: AgentSessionEvent, runId?: string): AgentEvent[] {

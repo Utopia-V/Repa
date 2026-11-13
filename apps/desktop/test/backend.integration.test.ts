@@ -38,7 +38,7 @@ it("Desktop 按学习者版本装配后端：加载学习插件，没有通用 A
     backend = await startRepaProcess({ ...learnerBackend(), home: directory, nodeExecutable: process.execPath });
     client = await RepaClient.connect(backend.connection);
     await client.call("space.create", { root: path.join(directory, "space") });
-    expect((await client.call("plugin.list", {})).map((plugin) => plugin.id)).toEqual(["learning"]);
+    expect((await client.call("plugin.list", {})).map((plugin) => [plugin.id, plugin.state])).toEqual([["learning", "running"]]);
     expect((await client.call("agent.list", {})).map((agent) => agent.id)).not.toContain("general");
     expect((await client.call("agent.list", {})).map((agent) => agent.id)).toContain("learning-tutor");
   } finally {

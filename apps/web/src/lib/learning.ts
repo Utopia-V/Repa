@@ -220,7 +220,7 @@ export function createLearningActions({ call, callPlugin, get, set }: Deps) {
     try {
       const plugins = await call("plugin.list", {});
       if (from !== generation) return;
-      const available = plugins.some((plugin) => plugin.id === LEARNING_PLUGIN);
+      const available = plugins.some((plugin) => plugin.id === LEARNING_PLUGIN && plugin.state === "running");
       set((learning) => ({ ...learning, available, status: available || learning.state ? learning.status : "idle" }));
     } catch (error) {
       if (from === generation) set((learning) => ({ ...learning, status: learning.state ? learning.status : "error", loadError: error }));

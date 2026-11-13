@@ -23,12 +23,13 @@ import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition
 import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
-import { convertEvent, entryToPublic, textContent } from "./events.js";
+import { convertEvent, entriesToPublic, PLUGIN_RESULT_ENTRY, textContent } from "./events.js";
 import { credentialValues } from "../feedback/redact.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { limitToolText } from "./output.js";
 import { isModelCall, modelCall } from "./model-call.js";
 import { readParent, saveParent } from "./parent.js";
+import { PLUGIN_TOOL, pluginTool } from "./plugin-tool.js";
 import { findSessionPath } from "./session-files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
@@ -93,6 +94,8 @@ interface AgentProfile {
   tools: AgentTool[];
   /** 是否带底座的 ask_user：通用 Agent 默认带上，插件 Agent 在定义里列出才有。 */
   askUser: boolean;
+  /** 是否带插件装卸工具 plugin：只有通用 Agent，且装配提供了处理入口时才有。 */
+  plugins: boolean;
   subagents: string[];
   /** 本 Agent 自己的提示段：通用 Agent 为各插件说明，插件 Agent 为 agent:<id>。 */
   sections(): { id: string; text: string }[];
@@ -419,6 +422,7 @@ class Space implements AgentSpace {
         builtins: [...BUILTIN_TOOLS],
         tools: this.options.tools(),
         askUser: true,
+        plugins: this.options.plugins !== undefined,
         // 和 Claude Code 一样能起子 Agent：自己，以及空间里定义的任何插件 Agent。插件 Agent 的工具都在通用 Agent 的范围内。
         subagents: [GENERAL_AGENT, ...(this.options.agents?.() ?? []).map(item => item.id).sort()],
         sections: () => [...this.options.instructions()].sort(byId),
@@ -435,6 +439,7 @@ class Space implements AgentSpace {
       builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep"),
       tools: this.options.tools().filter(tool => names.has(tool.name)),
       askUser: names.has(ASK_USER_TOOL),
+      plugins: false,
       subagents: [...new Set(definition.subagents ?? [])],
       sections: () => [{ id: `agent:${id}`, text: definition.instructions() }],
       async views() {
@@ -472,6 +477,7 @@ class Space implements AgentSpace {
       ...profile.tools.map(tool => tool.name),
       ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
       ...(profile.askUser ? [ASK_USER_TOOL] : []),
+      ...(profile.plugins ? [PLUGIN_TOOL] : []),
     ];
     return promptSections(this.options, [
       { id: "base", text: BASE_INSTRUCTIONS },
@@ -651,6 +657,10 @@ class Session implements AgentSession {
   private turn: Promise<void> = Promise.resolve();
   private runId?: string;
   private runAncestors?: readonly string[];
+  // 当前运行是否来自使用者：前端发来的消息、取回的插话与追问、装卸结果的续跑。子 Agent 与后台任务的运行不是。
+  private runDirect = false;
+  // 以装卸结果为输入的运行：它的第一条用户消息就是结果，实时事件改为 pluginResult。
+  private resultRun?: { runId: string; requestId: string };
   private abortController?: AbortController;
   private currentViews: ViewSnapshot[] = [];
   private currentSections: PromptSection[] = [];
@@ -783,6 +793,7 @@ class Session implements AgentSession {
       ...profile.tools.map(tool => tool.name),
       ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
       ...(profile.askUser ? [ASK_USER_TOOL] : []),
+      ...(profile.plugins ? [PLUGIN_TOOL] : []),
       ...(profile.general ? runtime.options.toolNames ?? [] : []),
     ];
     this.opaque = toolNames.some(name => OPAQUE_TOOLS.has(name));
@@ -800,6 +811,7 @@ class Session implements AgentSession {
         ...profile.tools.map(toolDefinition),
         ...(profile.subagents.length > 0 ? [this.subagentTool(profile)] : []),
         ...(profile.askUser ? [askUserTool(options.ask)] : []),
+        ...(profile.plugins && options.plugins !== undefined ? [pluginTool(options.plugins, () => this.requestOrigin())] : []),
       ],
     });
     this.pi = result.session;
@@ -818,6 +830,13 @@ class Session implements AgentSession {
       if (event.type === "message_end" && event.message.role === "assistant" && event.message.stopReason !== "error" && event.message.stopReason !== "aborted") this.lastRequestAt = this.now();
       if (event.type === "agent_start" && this.abortController?.signal.aborted) {
         this.session.abort().catch(() => options.onEvent({ sessionId: this.manager.getSessionId(), type: "error", text: "会话取消失败" }));
+      }
+      const result = this.resultRun;
+      if (result !== undefined && result.runId === this.runId && event.type === "message_end" && event.message.role === "user") {
+        // 续跑的输入就是装卸结果，与追加的结果条目显示为同一种条目，按请求编号对应。
+        this.resultRun = undefined;
+        options.onEvent({ sessionId: this.manager.getSessionId(), runId: result.runId, type: "pluginResult", text: textContent(event.message.content), data: { requestId: result.requestId } });
+        return;
       }
       for (const converted of convertEvent(this.manager.getSessionId(), event, this.runId)) options.onEvent(converted);
     });
@@ -848,10 +867,40 @@ class Session implements AgentSession {
   }
 
   history() {
-    return this.manager.getBranch().flatMap(entry => {
-      const converted = entryToPublic(entry);
-      return converted ? [converted] : [];
-    });
+    return entriesToPublic(this.manager.getBranch());
+  }
+
+  /** plugin 工具提出请求时的运行；运行之外为 undefined。 */
+  private requestOrigin(): { sessionId: string; runId: string; direct: boolean } | undefined {
+    if (this.runId === undefined) return undefined;
+    return { sessionId: this.manager.getSessionId(), runId: this.runId, direct: this.runDirect && this.parent === undefined };
+  }
+
+  continueWith(text: string, requestId: string): Promise<void> {
+    try {
+      this.assertAccepting();
+    } catch {
+      // 会话只读、已关闭或正在取消：不开始运行，结果照样留在会话里。
+      this.appendPluginResult(text, requestId);
+      return Promise.resolve();
+    }
+    // run 的同步部分登记运行；之后的失败由 run 的收尾追加结果、发出错误事件。
+    return this.run(text, undefined, "send", undefined, { direct: true, pluginResult: { requestId, text } }).then(() => undefined);
+  }
+
+  appendPluginResult(text: string, requestId: string): void {
+    // 会话文件里的条目带上请求编号；历史投影与实时事件都按它显示为 pluginResult。
+    this.manager.appendCustomMessageEntry(PLUGIN_RESULT_ENTRY, text, true, { requestId });
+    if (this.pi !== undefined && !this.closed) this.pi.refreshContext();
+    this.space.options.onEvent({ sessionId: this.manager.getSessionId(), type: "pluginResult", text, data: { requestId } });
+  }
+
+  /** 以 runId 开始的续跑有没有写下它的第一条用户消息，也就是装卸结果。 */
+  private resultWritten(runId: string): boolean {
+    const entries = this.manager.getEntries();
+    const start = entries.findIndex(entry => entry.type === "custom" && entry.customType === "repa-run" && entry.data !== null && typeof entry.data === "object" && "runId" in entry.data && entry.data.runId === runId);
+    if (start < 0) return false;
+    return entries.slice(start + 1).some(entry => entry.type === "message" && entry.message.role === "user");
   }
 
   baseline(): SessionBaseline | undefined {
@@ -877,7 +926,7 @@ class Session implements AgentSession {
 
   /** 插件程序交给后台 Agent 的任务，不是用户消息，不经过插件的消息判断。 */
   async runTask(text: string): Promise<void> {
-    await this.run(text);
+    await this.run(text, undefined, "send", undefined, { direct: false });
   }
 
   private assertAccepting(): void {
@@ -929,7 +978,13 @@ class Session implements AgentSession {
   /**
    * after 省略时排在会话的运行次序末尾；给出时只等它，不改变次序，取回的 Pi 队列消息用它插到已排队的运行前面。
    */
-  private async run(text: string, parent?: ParentRun, mode: "send" | "steer" | "followUp" = "send", after?: Promise<void>): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
+  private async run(
+    text: string,
+    parent?: ParentRun,
+    mode: "send" | "steer" | "followUp" = "send",
+    after?: Promise<void>,
+    origin: { direct: boolean; pluginResult?: { requestId: string; text: string } } = { direct: parent === undefined },
+  ): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
     this.assertAccepting();
     const runId = randomUUID();
     const controller = new AbortController();
@@ -948,6 +1003,7 @@ class Session implements AgentSession {
       if (controller.signal.aborted) throw new RepaFault("cancelled", "排队中的会话运行已取消");
       if (this.closed) throw new RepaFault("session_closed", "会话已关闭");
       this.runAncestors = ancestorRunIds;
+      this.runDirect = origin.direct;
       this.abortController = controller;
       try {
         // view、工具和文件写入都在运行上下文内执行，能读到本次 runId 与祖先链。
@@ -964,7 +1020,9 @@ class Session implements AgentSession {
           this.currentSections = await this.space.promptSections(this.profile);
           this.currentViews = await this.profile.views();
           controller.signal.throwIfAborted();
-          this.manager.appendCustomEntry("repa-run", { runId, ...link });
+          const result = origin.pluginResult;
+          this.manager.appendCustomEntry("repa-run", { runId, ...link, ...(result === undefined ? {} : { pluginResult: result.requestId }) });
+          if (result !== undefined) this.resultRun = { runId, requestId: result.requestId };
           await this.session.prompt(text);
         });
         const last = this.session.messages.findLast(message => message.role === "assistant");
@@ -976,6 +1034,7 @@ class Session implements AgentSession {
         throw error;
       } finally {
         this.runAncestors = undefined;
+        this.runDirect = false;
       }
     };
     try {
@@ -997,6 +1056,12 @@ class Session implements AgentSession {
         this.abortController = undefined;
       }
       this.pending.delete(controller);
+      const result = origin.pluginResult;
+      if (result !== undefined) {
+        if (this.resultRun?.runId === runId) this.resultRun = undefined;
+        // 续跑没能写下它的输入：改为追加结果条目，在下一次运行开始之前，结果只出现一次。
+        if (!this.resultWritten(runId)) this.appendPluginResult(result.text, result.requestId);
+      }
       finish();
       if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
       // 整次运行（含保存）结束时，Pi 的循环可能早已结束，期间入队的消息留在 Pi 队列里；没有排着的运行会在开始前取回它们时，

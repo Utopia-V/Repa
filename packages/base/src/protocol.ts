@@ -35,6 +35,8 @@ export * from "./schema.js";
 export * from "./interaction.js";
 // 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。读取时忽略未知字段；只有旧版会读错的语义变化才升版本。
 // 开发阶段版本不变：插件集合可在空间打开期间重组，为此新增装配序号 assembly 与 space.assembled 通知，plugin.call 必须带序号，plugin.event 带序号。
+// 开发阶段版本不变：插件列表 PluginInfo 取代 disabledPlugins 与 plugin.disabled；新增 plugin.load、plugin.unload、plugin.cancel、plugin.updated，
+// 确认种类 plugin，会话条目与事件 pluginResult。
 /** 当前前后端协议版本；连接初始化时用于拒绝无法正确理解的协议。 */
 export const PROTOCOL_VERSION = "3";
 
@@ -78,19 +80,68 @@ const confirmationReply = Type.Union([Type.String(), Type.Boolean(), Type.Null()
 // 前端内存里的最近错误，随反馈请求带给后端打包；条数和长度设上限，挡住意外的大请求。
 const feedbackError = object({ time: Type.String({ maxLength: 64 }), message: Type.String({ maxLength: 4000 }), source: Type.Optional(Type.String({ maxLength: 200 })) });
 
-/** 打开空间时停用的插件；reason 供前端直接说明，code 供程序判断。 */
-export const DisabledPluginSchema = object({
-  id: identifier,
-  reason: object({ code: identifier, message: Type.String() }),
+const pluginId = Type.String({ pattern: "^[a-z][a-z0-9-]*$" });
+const digest = Type.String({ pattern: "^[0-9a-f]{64}$" });
+/** 插件不能运行、或一次装卸没有生效的原因；code 供程序判断，message 供人和模型阅读。 */
+export const PluginReasonSchema = object({ code: identifier, message: Type.String() });
+/**
+ * 一次装卸请求里一个插件的结局，形状借 dsh 的 ChangeResult：recorded 是盘上的启用记录有没有因此改变（写入以后读回得出），
+ * application 是这次请求在运行中的结果：applied 生效，failed 没有生效（附原因），denied 使用者拒绝批准，cancelled 撤回、断线或空间关闭。
+ */
+export const PluginOutcomeSchema = object({
+  recorded: Type.Boolean(),
+  application: Type.Union([Type.Literal("applied"), Type.Literal("failed"), Type.Literal("denied"), Type.Literal("cancelled")]),
+  reason: Type.Optional(PluginReasonSchema),
 });
-/** 打开空间时被停用插件的说明，前端用 code 分支并显示 reason.message。 */
-export type DisabledPlugin = Static<typeof DisabledPluginSchema>;
+/** 一次装卸请求里一个插件的结局。 */
+export type PluginOutcome = Static<typeof PluginOutcomeSchema>;
+/**
+ * 装卸请求所处的阶段：requested 是 Agent 的运行还没结束，queued 排在前面的请求之后，preparing 复制并核对插件文件夹，
+ * approving 等使用者批准，importing 发布快照并导入入口，waiting 等空间空闲，executing 正在重组。
+ */
+export const PluginRequestStageSchema = Type.Union([
+  Type.Literal("requested"), Type.Literal("queued"), Type.Literal("preparing"), Type.Literal("approving"),
+  Type.Literal("importing"), Type.Literal("waiting"), Type.Literal("executing"),
+]);
+/** 装卸请求所处的阶段。 */
+export type PluginRequestStage = Static<typeof PluginRequestStageSchema>;
+/** 一个插件当前的或最近一次的装卸请求：进行中的带阶段，结束的带结局。 */
+export const PluginRequestStateSchema = Type.Union([
+  object({ id: identifier, stage: PluginRequestStageSchema }),
+  object({ id: identifier, outcome: PluginOutcomeSchema }),
+]);
+/**
+ * 插件列表的一项，取随包插件、启用记录与空间里发现的插件文件夹的并集。
+ * state：disabled 没有启用，running 已启用且实例已打开，pending 已启用但本机没有记下版本的完好快照，failed 已启用却打不开（附原因）。
+ * folder 是空间里的插件文件夹相对记下的版本：same 内容相同，modified 有改动，missing 不在，unreadable 读不了；没有记下版本的不带。
+ * digest、previous 取自启用记录；title、version、pages 取自运行或记下的版本的清单，没有记下版本时取自文件夹；methods、tools 只有运行中的插件才有。
+ */
+export const PluginInfoSchema = object({
+  id: pluginId,
+  source: Type.Union([Type.Literal("bundled"), Type.Literal("space")]),
+  title: Type.Optional(Type.String()),
+  version: Type.Optional(Type.String()),
+  state: Type.Union([Type.Literal("disabled"), Type.Literal("running"), Type.Literal("pending"), Type.Literal("failed")]),
+  reason: Type.Optional(PluginReasonSchema),
+  folder: Type.Optional(Type.Union([Type.Literal("same"), Type.Literal("modified"), Type.Literal("missing"), Type.Literal("unreadable")])),
+  digest: Type.Optional(digest),
+  previous: Type.Optional(digest),
+  pages: Type.Array(object({ id: identifier, title: Type.String() })),
+  methods: Type.Array(identifier),
+  tools: Type.Array(identifier),
+  request: Type.Optional(PluginRequestStateSchema),
+});
+/** 插件列表的一项。 */
+export type PluginInfo = Static<typeof PluginInfoSchema>;
+const pluginIds = Type.Array(pluginId, { minItems: 1, maxItems: 32 });
+const requested = object({ requestId: identifier });
+
 /**
  * 装配序号：后端每次打开空间、每次重组插件宿主与 Agent 运行时前分配，在一个后端进程内单调递增。
  * 前端只收序号等于自己当前序号的插件事件，plugin.call 带上它，后端据此拒绝切换空间之前组成的调用。
  */
 const assembly = Type.Integer({ minimum: 1 });
-const openedSpace = object({ root: identifier, assembly, disabledPlugins: Type.Array(DisabledPluginSchema) });
+const openedSpace = object({ root: identifier, assembly, plugins: Type.Array(PluginInfoSchema) });
 
 /** 重接时投影会话当前运行和排队消息的 schema，不加载盘上空闲会话。 */
 export const SessionBaselineSchema = object({
@@ -104,11 +155,11 @@ export const SessionBaselineSchema = object({
 });
 /** 单个内存会话的重接基线，前端据此恢复运行与排队状态。 */
 export type SessionBaseline = Static<typeof SessionBaselineSchema>;
-/** 连接初始化时返回的空间、会话和停用插件基线，用于恢复前端状态。 */
+/** 连接初始化时返回的空间、会话和插件列表基线，用于恢复前端状态。 */
 export const BaselineSchema = object({
   space: Type.Union([object({ root: identifier, assembly }), Type.Null()]),
   sessions: Type.Array(SessionBaselineSchema),
-  disabledPlugins: Type.Array(DisabledPluginSchema),
+  plugins: Type.Array(PluginInfoSchema),
 });
 /** 初始化连接的状态基线，与后续通知衔接以重建前端当前画面。 */
 export type Baseline = Static<typeof BaselineSchema>;
@@ -144,8 +195,14 @@ export const methods = {
   "history.undo": { params: object({ revision: identifier }), result: historyUndo },
   // 撤回一个运行及其全部子孙运行；runId 来自 runStart 事件或会话里的 run 条目。
   "history.undoRun": { params: object({ runId: identifier }), result: historyUndo },
-  "plugin.list": { params: empty, result: Type.Array(object({ id: identifier, methods: Type.Array(identifier), tools: Type.Array(identifier) })) },
-  "plugin.disabled": { params: empty, result: Type.Array(DisabledPluginSchema) },
+  // 插件列表；读取时重新核对各插件文件夹相对记下版本的状态。
+  "plugin.list": { params: empty, result: Type.Array(PluginInfoSchema) },
+  // 请求启用自写插件，或让文件夹当前的内容（from 省略或 folder）、记录里的版本（recorded）、上一次选定的版本（previous）生效。
+  // 只登记一批请求，立即返回请求编号；准备、批准、等待空闲与重组随后进行，阶段与结局见插件列表。
+  "plugin.load": { params: object({ ids: pluginIds, from: Type.Optional(Type.Union([Type.Literal("folder"), Type.Literal("recorded"), Type.Literal("previous")])) }), result: requested },
+  "plugin.unload": { params: object({ ids: pluginIds }), result: requested },
+  // 撤回一批还没开始重组的请求。
+  "plugin.cancel": { params: object({ requestId: identifier }), result: nothing },
   "plugin.call": { params: object({ pluginId: identifier, method: identifier, input: Type.Unknown(), assembly }), result: Type.Unknown() },
   "prompt.list": { params: agent, result: Type.Array(PromptSectionSchema) },
   "prompt.set": { params: object({ scope, id: identifier, override: PromptOverrideSchema }), result: nothing },
@@ -201,10 +258,12 @@ export const notifications = {
   "service.request": serviceRequest,
   "service.closed": serviceClosed,
   "plugin.event": object({ pluginId: identifier, assembly, event: Type.Unknown() }),
+  // 插件列表变了：请求的阶段或结局、源文件夹的状态。整份列表，不改装配序号。
+  "plugin.updated": object({ plugins: Type.Array(PluginInfoSchema) }),
   // 重组完成：插件宿主与 Agent 运行时已按新的插件清单打开，前端换用新的序号并重新读取空间状态。
   // 整体失败时空间已经关闭，root 为 null，带上原因。
   "space.assembled": Type.Union([
-    object({ root: identifier, assembly, disabledPlugins: Type.Array(DisabledPluginSchema) }),
+    object({ root: identifier, assembly, plugins: Type.Array(PluginInfoSchema) }),
     object({ root: Type.Null(), error: object({ code: identifier, message: Type.String() }) }),
   ]),
 } as const;

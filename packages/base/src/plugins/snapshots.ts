@@ -123,6 +123,21 @@ export async function folderDigest(directory: string): Promise<string> {
   return digest.digest("hex");
 }
 
+/**
+ * 文件夹里每个普通文件的内容摘要，以 / 分隔的相对路径为键；限制与 folderDigest 相同。
+ * 批准时用它比较暂存副本与记录里的当前版本，列出改动了哪些文件。
+ */
+export async function folderHashes(directory: string): Promise<Map<string, string>> {
+  const hashes = new Map<string, string>();
+  let bytes = 0;
+  for (const relative of await folderFiles(directory)) {
+    const { size, hash } = await hashFile(path.join(directory, ...relative.split("/")), SNAPSHOT_LIMITS.bytes - bytes);
+    bytes += size;
+    hashes.set(relative, hash);
+  }
+  return hashes;
+}
+
 /** 复制之前先按目录列表量一遍来源，明显超限的文件夹不必复制；准确的上限由复制以后对副本算摘要时判断。 */
 async function measure(source: string): Promise<void> {
   let bytes = 0;
