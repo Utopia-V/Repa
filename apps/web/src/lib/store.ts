@@ -426,6 +426,8 @@ export function createAppStore() {
      * 正在读取的会话由那次读取完成，这里只重读已经显示过的。
      */
     async function reloadSpaceState(): Promise<void> {
+      // 装配可能已经变了：进行中的学习状态读取作废，结束后从插件列表重读。
+      learning.invalidateLearning();
       const { status } = get().conversation;
       await Promise.all([
         reloadSessions(),

@@ -117,13 +117,17 @@ export function createLearningActions({ call, callPlugin, get, set }: Deps) {
     });
   }
 
-  async function refresh(): Promise<void> {
+  // 装配代次：后端重组插件或重新打开空间时加一。读取开始时记下代次，结束时代次已变，结果属于旧装配，不再写入。
+  let generation = 0;
+
+  async function refresh(from = generation): Promise<void> {
     if (!get().learning.available) return;
     set((learning) => ({ ...learning, status: learning.state ? learning.status : "loading" }));
     try {
-      accept(await learningCall("state.get", {}));
+      const state = await learningCall("state.get", {});
+      if (from === generation) accept(state);
     } catch (error) {
-      set((learning) => ({ ...learning, status: learning.state ? "ready" : "error", loadError: error }));
+      if (from === generation) set((learning) => ({ ...learning, status: learning.state ? "ready" : "error", loadError: error }));
     }
   }
 
@@ -194,7 +198,7 @@ export function createLearningActions({ call, callPlugin, get, set }: Deps) {
    * 确认结果不明的作答：后端已经收下（found）就以它为准；absent 才用原答案和原编号再交一次。
    * 查询本身失败时保持 unknown，等下次连接再查。
    */
-  async function settle(): Promise<void> {
+  async function settle(from = generation): Promise<void> {
     const waiting = Object.entries(get().learning.outbox).filter(([, item]) => item.status === "unknown");
     for (const [id, item] of waiting) {
       let found: boolean;
@@ -207,18 +211,19 @@ export function createLearningActions({ call, callPlugin, get, set }: Deps) {
       if (found) setOutbox(id, undefined);
       else await submit(id, item, false);
     }
-    await refresh();
+    await refresh(from);
   }
 
-  /** 查学习插件在不在，在就读取状态，并确认结果不明的作答。 */
-  async function load(): Promise<void> {
+  /** 查学习插件在不在，在就读取状态，并确认结果不明的作答。from 是这次读取所属的装配代次。 */
+  async function load(from: number): Promise<void> {
     set((learning) => ({ ...learning, status: learning.state ? learning.status : "loading" }));
     try {
       const plugins = await call("plugin.list", {});
+      if (from !== generation) return;
       const available = plugins.some((plugin) => plugin.id === LEARNING_PLUGIN);
       set((learning) => ({ ...learning, available, status: available || learning.state ? learning.status : "idle" }));
     } catch (error) {
-      set((learning) => ({ ...learning, status: learning.state ? learning.status : "error", loadError: error }));
+      if (from === generation) set((learning) => ({ ...learning, status: learning.state ? learning.status : "error", loadError: error }));
       return;
     }
     if (Object.values(get().learning.outbox).some((item) => item.status === "unknown" || item.status === "sending")) {
@@ -227,20 +232,30 @@ export function createLearningActions({ call, callPlugin, get, set }: Deps) {
         ...learning,
         outbox: Object.fromEntries(Object.entries(learning.outbox).map(([id, item]) => [id, item.status === "sending" ? { ...item, status: "unknown" as const } : item])),
       }));
-      await settle();
+      await settle(from);
     } else {
-      await refresh();
+      await refresh(from);
     }
   }
 
-  // 首页、学习页和重连可能同时要求读取，只保留一个进行中的读取。
+  // 首页、学习页和重连可能同时要求读取，只保留一个进行中的读取。读取途中装配变了，这次读取结束后从插件列表再读一遍。
   let loading: Promise<void> | undefined;
 
   return {
     /** 打开空间或重连后调用。 */
     loadLearning(): Promise<void> {
-      loading ??= load().finally(() => { loading = undefined; });
+      loading ??= (async () => {
+        let from: number;
+        do {
+          from = generation;
+          await load(from);
+        } while (from !== generation);
+      })().finally(() => { loading = undefined; });
       return loading;
+    },
+    /** 后端重组插件或重新打开空间以后调用：此前开始的读取作废，进行中的读取结束后重读。 */
+    invalidateLearning(): void {
+      generation++;
     },
     refreshLearning: refresh,
     /** 收到 plugin.event 时调用；事件只说明状态变了，内容重新读取。 */

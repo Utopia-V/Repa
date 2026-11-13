@@ -345,3 +345,28 @@ it("重组整体失败时回到选空间页，说明原因", async () => {
   expect(store.getState().resumeFailure?.root).toBe("/notes/python");
   expect(store.getState().resumeFailure?.error).toBeInstanceOf(RpcError);
 });
+
+it("学习状态读取途中后端重组并去掉学习插件：重组以后从插件列表重新读起，旧装配的结果不覆盖新的", async () => {
+  let plugins = [{ id: "learning", methods: [], tools: [] }];
+  let release: (value: unknown) => void = () => undefined;
+  const learning = vi.fn<Learning>((method) => {
+    if (method !== "state.get") return Promise.reject(new Error(method));
+    // 第一次读取停住，等重组以后才得到新装配的回答：插件已经不在。
+    return new Promise((resolve) => { release = resolve; }).then(() => Promise.reject(new RpcError(-32000, "插件不存在", { code: "plugin_not_found" })));
+  });
+  const fake = backend(learning, {
+    "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 3, disabledPlugins: [] }),
+    "plugin.list": () => Promise.resolve(plugins),
+  });
+  const store = start(fake.client);
+  await vi.waitFor(() => { expect(learning).toHaveBeenCalledTimes(1); });
+  expect(store.getState().learning.available).toBe(true);
+  const lists = () => fake.call.mock.calls.filter(([method]) => method === "plugin.list").length;
+  const before = lists();
+
+  plugins = [];
+  act(() => fake.emit("space.assembled", { root: "/notes/python", assembly: 4, disabledPlugins: [] }));
+  await act(async () => { release(undefined); });
+  await vi.waitFor(() => { expect(store.getState().learning.available).toBe(false); });
+  expect(lists()).toBeGreaterThan(before);
+});
