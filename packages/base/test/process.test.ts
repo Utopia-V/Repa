@@ -166,6 +166,22 @@ test("正常关闭结束后端的 stdin，等待超过五秒的真实收尾，�
   await backend.closed;
 });
 
+test("正常关闭卡在收尾时，kill 结束后端进程，正在等待的 close 随之以异常退出结束", async (t) => {
+  // 读到 stdin 结尾以后永不退出，相当于插件的 close 永不返回。
+  const options = await fakeBackend(await fixture(t), `
+    process.stdin.once("end", () => {});
+    process.stdin.resume();
+    ${ANNOUNCE}
+  `);
+  const backend = await startRepaProcess({ environment: { ...process.env, NODE_OPTIONS: options } });
+  const closing = backend.close();
+  await Promise.all([backend.kill(), backend.kill()]);
+  await assert.rejects(closing, /异常退出/);
+  await assert.rejects(backend.closed, /异常退出/);
+  // 进程已经退出，再调用立即返回。
+  await backend.kill();
+});
+
 test("已启动服务的非零退出通过 closed 与 close 报告失败", async (t) => {
   const options = await fakeBackend(await fixture(t), `
     ${ANNOUNCE}
