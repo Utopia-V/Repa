@@ -523,7 +523,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         controlDirs: [pluginsDirectory(home)],
         onEvent: (event) => {
           emit("session.event", event);
-          // 一次运行结束时，它提出的装卸请求封口排队。
+          // 一次运行结束时，它提出的装卸请求封口排队。会话里开始新的运行算作介入：
+          // 请求提出之前就排进来的消息在提出请求的运行之后才运行，续跑不再接在它后面。
+          if (event.type === "runStart") requests.intervene(event.sessionId);
           if (event.type === "runEnd" && event.runId !== undefined) requests.runEnded(event.runId, runStatus(event.data));
         },
         plugins: {

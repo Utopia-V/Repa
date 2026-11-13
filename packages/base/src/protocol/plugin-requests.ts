@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import type { AgentSpace, PluginRequestOrigin, PluginToolRequest } from "../agent.js";
@@ -6,7 +7,7 @@ import { isCode } from "../backup/copy.js";
 import type { PluginHost } from "../plugins.js";
 import { readEnablement, withLoaded, withUnloaded, writeEnablement, type EnablementWrite, type PluginEnablement } from "../plugins/enablement.js";
 import { loadPlugin, readPluginFolder } from "../plugins/manifest.js";
-import { pluginFolderOf } from "../plugins/plugin-list.js";
+import { linkInPluginFolder, pluginFolderOf } from "../plugins/plugin-list.js";
 import { checkSnapshot, discardStaged, folderHashes, publishSnapshot, snapshotDirectory, stageFolder, type StagedFolder } from "../plugins/snapshots.js";
 import type { SpacePlugin, UnavailablePlugin } from "../plugins/space-plugins.js";
 import type { PluginInfo, PluginOutcome, PluginRequestStage } from "../protocol.js";
@@ -32,7 +33,16 @@ interface Item {
 }
 
 type Origin<P> =
-  | { kind: "agent"; sessionId: string; runId: string; peer: P | undefined; since: number; status?: "completed" | "failed" | "aborted" }
+  | {
+    kind: "agent";
+    sessionId: string;
+    runId: string;
+    peer: P | undefined;
+    since: number;
+    /** 这次运行里每一次提出请求时都处于完全访问模式。 */
+    fullAccess: boolean;
+    status?: "completed" | "failed" | "aborted";
+  }
   | { kind: "list"; peer: P };
 
 interface Batch<P> {
@@ -99,6 +109,14 @@ class Stopped extends Error {
   constructor(readonly application: "denied" | "cancelled", readonly reason: Reason) {
     super(reason.message);
   }
+}
+
+const withdrawn = () => new Stopped("cancelled", { code: "plugin_request_cancelled", message: "请求已撤回" });
+const spaceChanged = () => new Stopped("cancelled", { code: "space_changed", message: "空间已经关闭或切换，请求没有执行" });
+
+/** 批次的 signal 中止时的结局：撤回与空间关闭各自带着原因中止它。 */
+function abortedBy(signal: AbortSignal): Stopped {
+  return signal.reason instanceof Stopped ? signal.reason : withdrawn();
 }
 
 const STAGES: Record<PluginRequestStage, string> = {
@@ -206,8 +224,13 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
   }
 
   function guard(batch: Batch<P>): void {
-    if (batch.controller.signal.aborted) throw new Stopped("cancelled", { code: "plugin_request_cancelled", message: "请求已撤回" });
-    if (host.current()?.opened !== batch.opened) throw new Stopped("cancelled", { code: "space_changed", message: "空间已经关闭或切换，请求没有执行" });
+    if (batch.controller.signal.aborted) throw abortedBy(batch.controller.signal);
+    if (host.current()?.opened !== batch.opened) throw spaceChanged();
+  }
+
+  /** 请求提出以后，使用者没有在这个会话里介入，也没有关闭、切换或新建空间。 */
+  function quiet(origin: Extract<Origin<P>, { kind: "agent" }>): boolean {
+    return (sessionMarks.get(origin.sessionId) ?? 0) <= origin.since && spaceMark <= origin.since;
   }
 
   function addItems(batch: Batch<P>, action: "load" | "unload", ids: string[], from: LoadFrom): void {
@@ -273,6 +296,10 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
         item.digest = entry.digest;
         return;
       }
+    }
+    const link = await linkInPluginFolder(space.root, item.id);
+    if (link !== undefined) {
+      throw new RepaFault("invalid_plugin_folder", `${path.relative(space.root, link)} 是符号链接；插件文件夹要实际放在空间的 .agents/plugins/${item.id}/ 里`, { id: item.id });
     }
     let staged: StagedFolder;
     try {
@@ -382,11 +409,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       setStage(batch, "waiting");
       const executed = { value: false };
       const status = await host.execute(execution(batch, space, executed), batch.controller.signal);
-      if (status === "cancelled" && !executed.value) {
-        throw batch.controller.signal.aborted
-          ? new Stopped("cancelled", { code: "plugin_request_cancelled", message: "请求已撤回" })
-          : new Stopped("cancelled", { code: "space_changed", message: "空间已经关闭或切换，请求没有执行" });
-      }
+      if (status === "cancelled" && !executed.value) throw batch.controller.signal.aborted ? abortedBy(batch.controller.signal) : spaceChanged();
       // 记录已经写过、装配却没有进行（后端正在关闭）：盘上的记录按 recorded 报告，这次没有生效。
       for (const item of batch.items) {
         if (item.outcome === undefined) settle(batch, item, { recorded: item.recorded ?? false, application: "failed", reason: { code: "reassembly_cancelled", message: "后端正在关闭，重组没有完成" } });
@@ -397,11 +420,15 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
     }
   }
 
-  /** 需要批准的项合成一次确认，发给发起请求的连接；整批同意或拒绝。Agent 在完全访问模式下明确提出的加载不再询问。 */
+  /**
+   * 需要批准的项合成一次确认，发给发起请求的连接；整批同意或拒绝。Agent 在完全访问模式下明确提出的加载不再询问，
+   * 条件是提出时与此刻都处于完全访问模式，提出它的运行正常结束，此后使用者没有介入：停止运行或插话就是收回这次授权，照常询问。
+   */
   async function approve(batch: Batch<P>): Promise<void> {
     const pending = batch.items.filter((item) => item.outcome === undefined && item.approval !== undefined);
     if (pending.length === 0) return;
-    if (batch.origin.kind === "agent" && host.fullAccess()) return;
+    const origin = batch.origin;
+    if (origin.kind === "agent" && origin.fullAccess && host.fullAccess() && origin.status === "completed" && quiet(origin)) return;
     const peer = batch.origin.peer;
     if (peer === undefined || !host.alive(peer)) throw new Stopped("cancelled", { code: "confirmation_cancelled", message: "发起请求的连接已经不在，没有人批准" });
     setStage(batch, "approving");
@@ -410,10 +437,18 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
     try {
       answer = await host.confirm(peer, { kind: "plugin", title: "", plugins: pending.flatMap((item) => (item.approval === undefined ? [] : [item.approval])) }, batch.controller.signal);
     } catch (error) {
-      if (batch.controller.signal.aborted) throw new Stopped("cancelled", { code: "plugin_request_cancelled", message: "请求已撤回" });
+      if (batch.controller.signal.aborted) throw abortedBy(batch.controller.signal);
       throw new Stopped("cancelled", { code: error instanceof RepaFault ? error.code : "confirmation_cancelled", message: `批准没有完成：${errorText(error)}` });
     }
-    if (answer !== true) throw new Stopped("denied", { code: "plugin_denied", message: "使用者没有批准" });
+    if (answer !== true) {
+      // 不需要批准的项（卸载、已批准过的内容）没有展示给使用者，不算被拒绝：它们随同批的拒绝取消。
+      for (const item of batch.items) {
+        if (item.outcome === undefined && item.approval === undefined) {
+          settle(batch, item, { recorded: false, application: "cancelled", reason: { code: "plugin_batch_denied", message: "同一批里需要批准的项没有获批，这一项随之没有执行" } });
+        }
+      }
+      throw new Stopped("denied", { code: "plugin_denied", message: "使用者没有批准" });
+    }
   }
 
   /** 批准以后：暂存副本发布为快照，再导入入口。导入执行模块顶层代码，所以在批准之后；放在写记录之前，语法错误这类失败不必停掉旧版。 */
@@ -522,8 +557,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       return;
     }
     const peer = origin.peer;
-    const quiet = (sessionMarks.get(origin.sessionId) ?? 0) <= origin.since && spaceMark <= origin.since;
-    if (origin.status === "completed" && quiet && peer !== undefined && host.alive(peer)) {
+    if (origin.status === "completed" && quiet(origin) && peer !== undefined && host.alive(peer)) {
       const continued = session;
       host.runAs(peer, () => continued.continueWith(text, batch.id)).catch(() => undefined);
     } else {
@@ -559,7 +593,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
           id: randomUUID(),
           root: space.root,
           opened: space.opened,
-          origin: { kind: "agent", sessionId: origin.sessionId, runId: origin.runId, peer, since: clock },
+          origin: { kind: "agent", sessionId: origin.sessionId, runId: origin.runId, peer, since: clock, fullAccess: true },
           items: [],
           stage: "requested",
           controller: new AbortController(),
@@ -568,6 +602,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
         };
         open.set(origin.runId, batch);
       }
+      if (batch.origin.kind === "agent" && !host.fullAccess()) batch.origin.fullAccess = false;
       addItems(batch, input.action, input.ids, input.from ?? "folder");
       setStage(batch, "requested");
       const verb = input.action === "load" ? "加载" : "卸载";
@@ -598,8 +633,8 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       const batch = [...open.values(), ...queue, ...(processing === undefined ? [] : [processing])].find((item) => item.id === requestId);
       if (batch === undefined) throw new RepaFault("plugin_request_not_found", "请求不存在或已经结束", { requestId });
       if (batch.executing || batch.done) throw new RepaFault("plugin_request_not_cancellable", "请求已经开始重组，不能撤回", { requestId });
-      batch.controller.abort();
-      const stopped = new Stopped("cancelled", { code: "plugin_request_cancelled", message: "请求已撤回" });
+      const stopped = withdrawn();
+      batch.controller.abort(stopped);
       if (batch.origin.kind === "agent" && open.get(batch.origin.runId) === batch) {
         open.delete(batch.origin.runId);
         void stop(batch, stopped).then(host.updated);
@@ -617,7 +652,10 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       batch.origin.status = status;
       enqueue(batch);
     },
-    /** 使用者在会话里发消息、插话、追问、停止、压缩或分支：请求到达时登记，此前提出的装卸不再自动续跑。 */
+    /**
+     * 使用者在会话里发消息、插话、追问、停止、压缩或分支：请求到达时登记，此前提出的装卸不再自动续跑。
+     * 会话里开始一次新的运行也登记：请求提出之前到达、排在提出请求的运行之后的消息，同样使续跑不再接着进行。
+     */
     intervene(sessionId: string): void {
       sessionMarks.set(sessionId, ++clock);
     },
@@ -627,14 +665,16 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
     },
     /** 空间关闭：这个空间的批次全部撤回；正在批准的确认随之结束。 */
     closeSpace(): void {
-      const stopped = new Stopped("cancelled", { code: "space_changed", message: "空间已经关闭或切换，请求没有执行" });
+      const stopped = spaceChanged();
       for (const batch of [...open.values(), ...queue]) {
-        batch.controller.abort();
+        batch.controller.abort(stopped);
         void stop(batch, stopped).then(host.updated);
       }
       open.clear();
       queue.length = 0;
-      if (processing !== undefined && !processing.executing) processing.controller.abort();
+      if (processing !== undefined && !processing.executing) processing.controller.abort(stopped);
+      // 此后只有正在重组的批次还会交回，空间关闭已经登记在 spaceMark 上；会话的介入记号不再需要。
+      sessionMarks.clear();
     },
     /** 插件列表加上请求状态；有请求状态而列表里没有的 id（例如文件夹不存在）也列出。 */
     merge(root: string, list: PluginInfo[]): PluginInfo[] {

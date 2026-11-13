@@ -22,6 +22,25 @@ export function pluginFolderOf(root: string, id: string): string {
 }
 
 /**
+ * 从空间根目录往下到插件文件夹的各层（.agents/、plugins/、<id>/）中最上面的符号链接或目录联接；没有时为 undefined。
+ * 插件文件夹应在空间里：链接指向的内容可能在空间之外，批准时却显示为这个文件夹，所以与文件夹内部的链接一样拒绝。
+ * 文件夹内部的链接由复制和摘要拒绝；空间根目录本身经链接打开不受限制。
+ */
+export async function linkInPluginFolder(root: string, id: string): Promise<string | undefined> {
+  let current = root;
+  for (const part of [".agents", "plugins", id]) {
+    current = path.join(current, part);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) return current;
+    } catch (error) {
+      if (isCode(error, "ENOENT", "ENOTDIR")) return undefined;
+      throw error;
+    }
+  }
+  return undefined;
+}
+
+/**
  * 空间里发现的插件文件夹的 id：.agents/plugins/ 下名字合乎 id 格式的目录。目录不在或读不了时为空：
  * 列表只是显示，读不了文件夹目录不应使空间打不开；记录里的插件照样列出，文件夹状态显示为读不了或不在。
  */
@@ -34,9 +53,11 @@ async function folderIds(root: string): Promise<string[]> {
   }
 }
 
-/** 插件文件夹相对记下的版本：内容相同、有改动、不在，或者读不了（有符号链接、超过上限、没有权限）。 */
-async function folderState(folder: string, digest: string): Promise<NonNullable<PluginInfo["folder"]>> {
+/** 插件文件夹相对记下的版本：内容相同、有改动、不在，或者读不了（它或里面有符号链接、超过上限、没有权限）。 */
+async function folderState(root: string, id: string, digest: string): Promise<NonNullable<PluginInfo["folder"]>> {
+  const folder = pluginFolderOf(root, id);
   try {
+    if ((await linkInPluginFolder(root, id)) !== undefined) return "unreadable";
     return (await folderDigest(folder)) === digest ? "same" : "modified";
   } catch {
     try {
@@ -125,7 +146,7 @@ export async function listPlugins(options: { home: string; root: string; dataDir
       ...(manifest === undefined ? {} : { version: manifest.version }),
       state,
       ...(reason === undefined ? {} : { reason }),
-      ...(entry === undefined ? {} : { folder: await folderState(folder, entry.digest), digest: entry.digest }),
+      ...(entry === undefined ? {} : { folder: await folderState(root, id, entry.digest), digest: entry.digest }),
       ...(entry?.previous === undefined ? {} : { previous: entry.previous }),
       pages: (manifest?.pages ?? []).map((page) => ({ id: page.id, title: page.title })),
       ...live,

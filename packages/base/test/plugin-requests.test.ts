@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -780,4 +780,205 @@ test("插件的 open 抛出不能转成文字的值、close 抛错：只停这�
   assert.match(shown.text ?? "", /加载 hello：没有生效/);
   assert.equal((await f.client.call("plugin.list", {})).find(plugin => plugin.id === "control")?.state, "running");
   assert.equal(snapshotDirectory(f.home, f.root, "hello", (await readEnablement(f.dataDir)).plugins.hello?.digest ?? "").length > 0, true);
+});
+
+/** 先到的是批准还是结局：只等其中一个时，另一个先到就会一直等下去，所以两者一起等。 */
+async function askedFirst(f: Fixture, id: string, from = 0): Promise<"asked" | "settled"> {
+  return Promise.race([
+    f.confirmations.when(item => item.request.kind === "plugin", from).then(() => "asked" as const),
+    f.outcome(id, undefined, f.lists.seen.length).then(() => "settled" as const),
+  ]);
+}
+
+test("完全访问模式下，提出加载的运行被使用者停止：照常询问，不经批准不运行", async t => {
+  const f = await fixture(t);
+  await f.client.call("settings.set", { commandPolicy: "fullAccess" });
+  await f.folder("hello", toolFolder("hello", "full-abort"));
+  const answered = deferred();
+  f.script([
+    fauxAssistantMessage(fauxToolCall("plugin", { action: "load", ids: ["hello"] })),
+    async () => { await answered.promise; return fauxAssistantMessage("被停止了"); },
+  ]);
+  const session = await f.client.call("session.create", {});
+  const sending = f.client.call("session.send", { sessionId: session.id, text: "加载" });
+  await f.events.when(event => event.type === "toolEnd" && event.tool === "plugin");
+  const aborting = f.client.call("session.abort", { sessionId: session.id });
+  await f.client.call("space.list", {});
+  answered.resolve();
+  await aborting;
+  await sending.catch(() => undefined);
+  assert.equal(await askedFirst(f, "hello"), "asked");
+  await f.answer(false);
+  assert.equal((await f.outcome("hello")).application, "denied");
+  assert.equal(counts().opens["full-abort"], undefined);
+});
+
+test("请求提出时不是完全访问模式、处理时才是：照常询问", async t => {
+  const f = await fixture(t);
+  await f.folder("first", toolFolder("first", "late-full-a"));
+  await f.folder("second", toolFolder("second", "late-full-b"));
+  const first = await f.client.call("plugin.load", { ids: ["first"] });
+  await f.confirmations.when(item => item.request.kind === "plugin");
+  // 第一批停在批准上；Agent 在询问模式下提出的第二批排在后面。
+  await agentLoads(f, ["second"], [fauxAssistantMessage("好")]);
+  await f.client.call("settings.set", { commandPolicy: "fullAccess" });
+  const from = f.confirmations.seen.length;
+  await f.answer(true);
+  assert.equal((await f.outcome("first", first.requestId)).application, "applied");
+  assert.equal(await askedFirst(f, "second", from), "asked");
+  await f.answer(true);
+  assert.equal((await f.outcome("second")).application, "applied");
+});
+
+test("插件文件夹或它的上级是符号链接：以 invalid_plugin_folder 失败，不询问，不运行；列表里文件夹状态为读不了", async t => {
+  const f = await fixture(t);
+  const outside = path.join(f.directory, "outside");
+  for (const [relative, text] of Object.entries(toolFolder("evil", "link-evil"))) {
+    await mkdir(path.dirname(path.join(outside, "evil", relative)), { recursive: true });
+    await writeFile(path.join(outside, "evil", relative), text);
+  }
+  const plugins = path.join(f.root, ".agents", "plugins");
+  await mkdir(plugins, { recursive: true });
+  await symlink(path.join(outside, "evil"), path.join(plugins, "evil"), "junction");
+  const direct = await f.client.call("plugin.load", { ids: ["evil"] });
+  assert.equal(await askedFirst(f, "evil"), "settled");
+  const failed = await f.outcome("evil", direct.requestId);
+  assert.deepEqual({ application: failed.application, code: failed.reason?.code }, { application: "failed", code: "invalid_plugin_folder" });
+
+  // 上一层 .agents/plugins 是链接时同样拒绝。
+  await rm(plugins, { recursive: true });
+  await symlink(outside, plugins, "junction");
+  const above = await f.client.call("plugin.load", { ids: ["evil"] });
+  assert.equal(await askedFirst(f, "evil"), "settled");
+  assert.equal((await f.outcome("evil", above.requestId)).reason?.code, "invalid_plugin_folder");
+  assert.equal(f.confirmations.seen.length, 0);
+  assert.equal(counts().opens["link-evil"], undefined);
+  await assert.rejects(readFile(path.join(f.dataDir, "plugins.json")), { code: "ENOENT" });
+});
+
+test("记录里的插件的文件夹换成符号链接：列表里文件夹状态为读不了", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "link-listed"));
+  await f.client.call("plugin.load", { ids: ["hello"] });
+  await f.answer(true);
+  await f.outcome("hello");
+  const folder = path.join(f.root, ".agents", "plugins", "hello");
+  const moved = path.join(f.directory, "moved-hello");
+  await rename(folder, moved);
+  await symlink(moved, folder, "junction");
+  assert.equal((await f.client.call("plugin.list", {})).find(plugin => plugin.id === "hello")?.folder, "unreadable");
+});
+
+test("拒绝批准时，同批里没有展示给使用者的卸载以取消结束，不算被拒绝；插件照常运行", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "batch-hello"));
+  await f.client.call("plugin.load", { ids: ["hello"] });
+  await f.answer(true);
+  await f.outcome("hello");
+  await f.folder("world", toolFolder("world", "batch-world"));
+  f.script([
+    fauxAssistantMessage(fauxToolCall("plugin", { action: "load", ids: ["world"] })),
+    fauxAssistantMessage(fauxToolCall("plugin", { action: "unload", ids: ["hello"] })),
+    fauxAssistantMessage("等批准"),
+  ]);
+  const mark = f.lists.seen.length;
+  const session = await f.client.call("session.create", {});
+  await f.client.call("session.send", { sessionId: session.id, text: "换插件" });
+  const shown = await f.answer(false);
+  assert.deepEqual(shown.plugins?.map(item => item.id), ["world"]);
+  const world = await f.outcome("world", undefined, mark);
+  assert.equal(world.application, "denied");
+  const hello = await f.outcome("hello", world.requestId);
+  assert.deepEqual({ application: hello.application, code: hello.reason?.code }, { application: "cancelled", code: "plugin_batch_denied" });
+  assert.equal((await f.client.call("plugin.list", {})).find(plugin => plugin.id === "hello")?.state, "running");
+});
+
+test("续跑：请求提出之前排进来的使用者消息在提出请求的运行之后运行，结果只追加为条目", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "queued-1"));
+  const gate = deferred();
+  const entered = deferred();
+  f.script([
+    async () => { entered.resolve(); await gate.promise; return fauxAssistantMessage(fauxToolCall("plugin", { action: "load", ids: ["hello"] })); },
+    fauxAssistantMessage("等它生效"),
+    fauxAssistantMessage("天气不错"),
+    fauxAssistantMessage("不该续跑"),
+  ]);
+  const session = await f.client.call("session.create", {});
+  const first = f.client.call("session.send", { sessionId: session.id, text: "写插件并加载" });
+  await entered.promise;
+  // 这次运行还没提出请求，使用者又发了一条消息，排在这次运行之后。
+  const second = f.client.call("session.send", { sessionId: session.id, text: "顺便说说天气" });
+  await f.client.call("space.list", {});
+  gate.resolve();
+  await first;
+  await second;
+  await f.answer(true);
+  assert.equal((await f.outcome("hello")).application, "applied");
+  const shown = await f.events.when(event => event.sessionId === session.id && event.type === "pluginResult");
+  assert.equal(shown.runId, undefined);
+  assert.equal(f.faux.getPendingResponseCount(), 1);
+});
+
+test("续跑：提出请求的运行以错误结束，期间没有介入，也不续跑", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "failed-run-1"));
+  f.script([
+    fauxAssistantMessage(fauxToolCall("plugin", { action: "load", ids: ["hello"] })),
+    fauxAssistantMessage("坏了", { stopReason: "error", errorMessage: "模型出错" }),
+    fauxAssistantMessage("不该续跑"),
+  ]);
+  const session = await f.client.call("session.create", {});
+  await f.client.call("session.send", { sessionId: session.id, text: "加载" }).catch(() => undefined);
+  await f.answer(true);
+  assert.equal((await f.outcome("hello")).application, "applied");
+  const shown = await f.events.when(event => event.sessionId === session.id && event.type === "pluginResult");
+  assert.equal(shown.runId, undefined);
+  assert.equal(f.faux.getPendingResponseCount(), 1);
+});
+
+test("续跑：等待批准期间分支或压缩会话，结果只追加为条目", async t => {
+  for (const intervention of ["fork", "compact"] as const) {
+    await t.test(intervention, async t => {
+      const f = await fixture(t);
+      await f.folder("hello", toolFolder("hello", `${intervention}-1`));
+      const sessionId = await agentLoads(f, ["hello"], [fauxAssistantMessage("摘要"), fauxAssistantMessage("不该续跑")]);
+      await f.confirmations.when(item => item.request.kind === "plugin");
+      if (intervention === "fork") {
+        const entry = (await f.client.call("session.history", { sessionId })).find(item => item.type === "user");
+        assert.ok(entry);
+        await f.client.call("session.fork", { sessionId, entryId: entry.id });
+      } else {
+        // 这套替身模型下压缩本身可能失败；介入在请求到达时就已登记。
+        await f.client.call("session.compact", { sessionId }).catch(() => undefined);
+      }
+      await f.answer(true);
+      assert.equal((await f.outcome("hello")).application, "applied");
+      const shown = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
+      assert.equal(shown.runId, undefined);
+    });
+  }
+});
+
+test("等待批准时关闭空间：正在处理的与排队的批次都以 space_changed 结束，不说成撤回；重新打开以后新请求照常生效", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "close-approve"));
+  await f.folder("beta", toolFolder("beta", "close-approve-b"));
+  const first = await f.client.call("plugin.load", { ids: ["hello"] });
+  const queued = await f.client.call("plugin.load", { ids: ["beta"] });
+  await f.confirmations.when(item => item.request.kind === "plugin");
+  await f.client.call("space.close", {});
+  const reopened = await f.client.call("space.open", { root: f.root });
+  const requestOf = (id: string) => reopened.plugins.find(plugin => plugin.id === id)?.request;
+  const hello = requestOf("hello");
+  const beta = requestOf("beta");
+  assert.ok(hello !== undefined && "outcome" in hello && hello.id === first.requestId);
+  assert.ok(beta !== undefined && "outcome" in beta && beta.id === queued.requestId);
+  assert.deepEqual([hello.outcome.application, hello.outcome.reason?.code], ["cancelled", "space_changed"]);
+  assert.deepEqual([beta.outcome.application, beta.outcome.reason?.code], ["cancelled", "space_changed"]);
+  const from = f.confirmations.seen.length;
+  const again = await f.client.call("plugin.load", { ids: ["hello"] });
+  const asked = await f.confirmations.when(item => item.request.kind === "plugin", from);
+  await asked.client.call("confirm.reply", { id: asked.id, value: true });
+  assert.equal((await f.outcome("hello", again.requestId)).application, "applied");
 });
