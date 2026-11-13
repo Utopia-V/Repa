@@ -7,13 +7,14 @@ import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { WebSocket } from "ws";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { RepaClient, RpcError } from "../src/client.js";
 import { INTERACTION_CAPABILITIES } from "../src/interaction.js";
 import type { Host, Plugin, Tool } from "../src/plugin.js";
-import type { Notification, NotificationParams } from "../src/protocol.js";
+import { PROTOCOL_VERSION, type Notification, type NotificationParams } from "../src/protocol.js";
 import { record } from "../src/protocol/json-rpc.js";
-import { startServer } from "../src/protocol/server.js";
+import { startServer, type Reassembly } from "../src/protocol/server.js";
 import { currentRun, withRun } from "../src/run-context.js";
 import { RepaFault, type AgentEvent } from "../src/schema.js";
 
@@ -67,6 +68,8 @@ interface Probe {
   submitEntered?: () => void;
   submitGate?: Promise<void>;
   onOpen?: (host: Host) => Promise<void>;
+  /** 设上时，之后打开的实例在变化处理（含 start 的追赶）里调用它。 */
+  onChange?: (host: Host) => Promise<void>;
 }
 
 function probePlugin(probe: Probe, toolName = "probe_lookup"): Plugin {
@@ -115,6 +118,9 @@ function probePlugin(probe: Probe, toolName = "probe_lookup"): Plugin {
           service: { parameters: empty, invoke: async () => host.services.call("probe.run", {}) },
           emit: { parameters: empty, async invoke() { host.emit({ type: "changed" }); return null; } },
         },
+        async onChange() {
+          await probe.onChange?.(host);
+        },
         async close() {
           probe.closes++;
           probe.closeEntered?.();
@@ -161,7 +167,7 @@ async function fixture(t: TestContext, options: { plugins?: (probe: Probe) => Pl
     await rm(directory, { recursive: true, force: true });
   });
   const opened = await client.call("space.open", { root });
-  return { directory, root, home, faux, server, client, connect, probe, events, pluginEvents, opened, plugins };
+  return { directory, root, home, faux, runtime, server, client, connect, probe, events, pluginEvents, opened, plugins };
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -662,4 +668,173 @@ test("服务关闭时重组正等旧实例收尾：不再打开新实例，重�
 test("带着比当前更大的序号的插件调用以 space_changed 拒绝：它只能来自此前的后端进程", async t => {
   const f = await fixture(t);
   await assert.rejects(f.client.call("plugin.call", { pluginId: "probe", method: "emit", input: {}, assembly: f.opened.assembly + 1 }), rejectsWith("space_changed"));
+});
+
+interface RawReply { id: number; result?: unknown; error?: { code: number; message: string; data?: unknown } }
+
+/** 不经 RepaClient 的连接：可以发批量请求，也可以再发一次 initialize。连接时先初始化一次。 */
+async function rawConnect(t: TestContext, f: Fixture) {
+  const socket = new WebSocket(f.server.connection.url);
+  await new Promise((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
+  t.after(() => socket.close());
+  const replies = new Map<number, (reply: RawReply) => void>();
+  socket.on("message", data => {
+    const value: unknown = JSON.parse(String(data));
+    for (const item of Array.isArray(value) ? value : [value]) {
+      const id = record(item)?.id;
+      if (typeof id === "number") replies.get(id)?.(item as RawReply);
+    }
+  });
+  let last = 0;
+  const send = (requests: { method: string; params?: unknown }[]): Promise<RawReply[]> => {
+    const framed = requests.map(request => ({ jsonrpc: "2.0", id: ++last, ...request }));
+    const answers = framed.map(request => new Promise<RawReply>(resolve => replies.set(request.id, resolve)));
+    socket.send(JSON.stringify(framed.length === 1 ? framed[0] : framed));
+    return Promise.all(answers);
+  };
+  const initialize = { method: "initialize", params: { token: f.server.connection.token, version: PROTOCOL_VERSION } };
+  const [handshake] = await send([initialize]);
+  assert.equal(handshake?.error, undefined);
+  return { send, initialize };
+}
+
+/** 从现在起数 ticks 个微任务以后执行 action。 */
+function afterTicks<T>(ticks: number, action: () => Promise<T>): Promise<T> {
+  let wait = Promise.resolve();
+  for (let index = 0; index < ticks; index++) wait = wait.then(() => undefined);
+  return wait.then(action);
+}
+
+// 闸门检查与登记之间若有 await，这段间隙里开始的重组会让请求落到正在关闭的实例上（plugins_closed）。
+// 准确的间隙长度取决于实现，所以把重组请求依次放在后一项请求到达以后的第 0 到第 7 个微任务上，每一处都不能出错。
+test("请求到达后、登记前的任一微任务里开始重组：请求要么使重组等它，要么等到新装配，不落到正在关闭的实例上", async t => {
+  const f = await fixture(t);
+  const raw = await rawConnect(t, f);
+  const listModels = f.runtime.listModels.bind(f.runtime);
+  t.after(() => { f.runtime.listModels = listModels; });
+  for (let ticks = 0; ticks < 8; ticks++) {
+    let reassembled: Promise<Reassembly> | undefined;
+    // 同一批里先处理的 model.list 同步调用运行时，从这里数微任务；后一项 plugin.call 紧接着在同一段同步代码里到达。
+    f.runtime.listModels = () => {
+      reassembled = afterTicks(ticks, () => f.server.reassemble());
+      return listModels();
+    };
+    const [, call] = await raw.send([
+      { method: "model.list", params: {} },
+      { method: "plugin.call", params: { pluginId: "probe", method: "emit", input: {}, assembly: f.opened.assembly } },
+    ]);
+    f.runtime.listModels = listModels;
+    assert.equal(call?.error, undefined, `第 ${ticks} 个微任务：${JSON.stringify(call?.error)}`);
+    assert.equal((await reassembled)?.status, "applied");
+  }
+});
+
+test("在闸门前等过的请求，闸门抬起后、登记前的任一微任务里开始下一次重组：请求仍不落到正在关闭的实例上", async t => {
+  const f = await fixture(t);
+  const raw = await rawConnect(t, f);
+  for (let ticks = 0; ticks < 8; ticks++) {
+    const held = await holdGate(f);
+    const calling = raw.send([{ method: "plugin.call", params: { pluginId: "probe", method: "emit", input: {}, assembly: f.opened.assembly } }]);
+    await roundTrip(f);
+    // 第一次重组的结果交回以后紧接着抬起闸门；从交回起数微任务再请求下一次重组。
+    const second = held.reassembling.then(() => afterTicks(ticks, () => f.server.reassemble()));
+    await held.lift();
+    const [call] = await calling;
+    assert.equal(call?.error, undefined, `第 ${ticks} 个微任务：${JSON.stringify(call?.error)}`);
+    assert.equal((await second).status, "applied");
+  }
+});
+
+test("批里的初始化已经执行、同批的插件调用结束时开始重组：初始化的基线等闸门抬起以后才生成，带新的序号", async t => {
+  const f = await fixture(t);
+  const raw = await rawConnect(t, f);
+  const hold = deferred();
+  f.probe.hold = hold.promise;
+  const closing = deferred();
+  const closeGate = deferred();
+  f.probe.closeEntered = () => closing.resolve();
+  f.probe.closeGate = closeGate.promise;
+  // 已经初始化过的连接再发一次 initialize，与一项还没结束的插件调用同批。
+  const replying = raw.send([raw.initialize, { method: "plugin.call", params: { pluginId: "probe", method: "hold", input: {}, assembly: f.opened.assembly } }]);
+  await roundTrip(f);
+  const reassembling = f.server.reassemble();
+  // 插件调用结束使计数归零，重组随即落闸，旧实例的关闭停在插件代码里。
+  hold.resolve();
+  await closing.promise;
+  closeGate.resolve();
+  const result = await reassembling;
+  assert.ok(result.status === "applied");
+  const [initialized, held] = await replying;
+  assert.equal(held?.error, undefined);
+  assert.deepEqual(record(record(initialized?.result)?.baseline)?.space, { root: f.opened.root, assembly: result.assembly });
+});
+
+/** 模型请求在被取消或测试放行时结束；aborted 记下它是不是被取消的。 */
+function cancellableReply(f: Fixture) {
+  const waiting = deferred();
+  const release = deferred();
+  const state = { aborted: false };
+  f.faux.setResponses([async (_context, options) => {
+    waiting.resolve();
+    await new Promise<void>(resolve => {
+      options?.signal?.addEventListener("abort", () => { state.aborted = true; resolve(); }, { once: true });
+      void release.promise.then(() => resolve());
+    });
+    return fauxAssistantMessage("模型回复");
+  }]);
+  return { waiting: waiting.promise, release: () => release.resolve(), state };
+}
+
+const codeOf = (error: unknown) => error instanceof RepaFault ? error.code : String(error);
+
+test("关闭服务时插件持有空间写锁等模型，通用 Agent 的运行在等这把锁：一开始就通知插件宿主停止，不等运行时先收尾", async t => {
+  const f = await fixture(t);
+  const host = f.probe.hosts[0];
+  assert.ok(host);
+  const reply = cancellableReply(f);
+  const recording = host.history.record({ kind: "plugin", pluginId: "probe" }, async () => {
+    await host.models.complete({ system: "说明", prompt: "持锁时的模型调用" });
+  }).catch((error: unknown) => error);
+  await reply.waiting;
+  const session = await f.client.call("session.create", {});
+  const running = f.client.call("session.send", { sessionId: session.id, text: "整理文件" }).catch((error: unknown) => error);
+  await roundTrip(f);
+  const observer = await f.connect();
+  assert.ok((observer.handshake.baseline.sessions.find(item => item.sessionId === session.id)?.queued ?? []).some(item => item.text === "整理文件"));
+  const stopped = f.server.close();
+  // 宿主已收到停止通知时，服务调用以 plugins_closed 立即失败；还没收到时会走到服务路由，得到 service_unavailable。
+  const probe = await host.services.call("probe.run", {}).then(() => "accepted", codeOf);
+  // 修正以前模型请求不会被取消，二者互相等待；放行它，测试照样结束，结论看下面的断言。
+  reply.release();
+  await stopped;
+  assert.equal(probe, "plugins_closed");
+  assert.equal(reply.state.aborted, true);
+  assert.ok(await recording instanceof Error);
+  assert.ok(await running instanceof Error);
+});
+
+test("关闭服务时新装配正在追赶、持锁等自己的模型请求：尚未发布的装配也收到停止通知，重组以 cancelled 结束", async t => {
+  const f = await fixture(t);
+  const first = f.probe.hosts[0];
+  assert.ok(first);
+  // 追赶从最近一次修订开始，先留下一次修订。
+  await first.files.write("seed.txt", "种子");
+  const reply = cancellableReply(f);
+  f.probe.onChange = async host => {
+    if (host === first) return;
+    await host.history.record({ kind: "plugin", pluginId: "probe" }, async () => {
+      await host.models.complete({ system: "说明", prompt: "追赶时的模型调用" });
+    });
+  };
+  const reassembling = f.server.reassemble();
+  await reply.waiting;
+  const fresh = f.probe.hosts[1];
+  assert.ok(fresh);
+  const stopped = f.server.close();
+  const probe = await fresh.services.call("probe.run", {}).then(() => "accepted", codeOf);
+  reply.release();
+  await stopped;
+  assert.equal(probe, "plugins_closed");
+  assert.equal(reply.state.aborted, true);
+  assert.deepEqual(await reassembling, { status: "cancelled" });
 });

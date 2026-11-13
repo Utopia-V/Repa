@@ -102,6 +102,12 @@ type PendingData =
   }
   | { kind: "service"; service: string };
 
+/** 一项请求的响应；baseline 为 true 的是初始化响应，要在闸门抬起时生成。 */
+interface Reply {
+  baseline: boolean;
+  build(): unknown;
+}
+
 interface ActiveSpace {
   space: Space;
   plugins: PluginHost;
@@ -316,8 +322,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   let serial = 0;
   // 重组闸门：落下时为一个 Promise，抬起时兑现。经过闸门的请求在 dispatch 之前等它。
   let reassembling: Promise<void> | undefined;
-  // 在闸门前等待的请求；session.abort 到达时据此作废同一会话的发送、插话、追问和压缩。
+  // 在闸门前等待、尚未取得准入的请求；session.abort 到达时据此作废同一会话的发送、插话、追问和压缩。
   const gateWaiters = new Set<{ method: Method; sessionId: string | undefined; cancel(): void }>();
+  // 正在装配、尚未发布到 active 的插件宿主与 Agent 空间；服务关闭时与 active 一起通知它们停止。
+  let building: { plugins?: PluginHost; agent?: AgentSpace } | undefined;
   // 正在执行、经过闸门的请求数；session.send 等整次运行结束才返回，运行因此也算在内。
   let inFlight = 0;
   // 等待空闲的重组；任一工作结束时逐个重新判断，不轮询。
@@ -337,6 +345,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const stopAssembly = (current: { agent: AgentSpace; plugins: PluginHost }) => {
     endSpaceRequests();
     return Promise.allSettled([current.agent.close(), current.plugins.close()]);
+  };
+  /** 让正在装配的部分开始关闭；还没建好的部分在建好时由装配自己核对 stopping 后关闭。 */
+  const stopBuilding = () => {
+    const owners = building;
+    if (owners?.plugins === undefined) return;
+    if (owners.agent !== undefined) void stopAssembly({ agent: owners.agent, plugins: owners.plugins });
+    else void owners.plugins.close().catch(() => undefined);
   };
   const closeActive = async () => {
     const current = active;
@@ -375,6 +390,12 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     let host: PluginHost | undefined;
     let agent: AgentSpace | undefined;
     let ready = false;
+    // 建好的部分登记在这里，服务关闭时不必等装配结束就能通知它们停止；每建好一部分都核对一次服务是否正在关闭。
+    const owners: NonNullable<typeof building> = {};
+    building = owners;
+    const checkStopping = () => {
+      if (stopping) throw new RepaFault("closed", "服务正在关闭");
+    };
     try {
       host = await openPluginHost({
         space,
@@ -411,6 +432,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         },
         onIdle: checkIdle,
       });
+      owners.plugins = host;
+      checkStopping();
       const opened = host;
       // 停用或卸载的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
       // 只有第一次装配、且没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
@@ -438,13 +461,18 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         onIdle: checkIdle,
         ...(how.unsaved === undefined ? {} : { unsavedSessions: how.unsaved }),
       });
+      owners.agent = agent;
+      checkStopping();
       await opened.start();
+      checkStopping();
       ready = true;
       return { plugins: opened, agent, assembly };
     } catch (error) {
       if (agent !== undefined && host !== undefined) await stopAssembly({ agent, plugins: host });
       else await host?.close().catch(() => undefined);
       throw error;
+    } finally {
+      if (building === owners) building = undefined;
     }
   };
   const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
@@ -547,6 +575,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     try {
       next = await assemble(target.space, plugins, { first: false, unsaved: target.agent.unsavedSessions() });
     } catch (error) {
+      // 装配途中服务开始关闭：已经建好的部分已关闭，空间由排在后面的 closeActive 收尾。
+      if (stopping) return { status: "cancelled" };
       // 整体失败来自空间或运行时一类的故障（单个插件失败只会停用它）：照关闭空间的次序收尾，前端按恢复失败处理。
       active = undefined;
       for (const close of [() => target.backups.close(), () => target.space.close()]) {
@@ -832,12 +862,12 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   };
 
   /**
-   * 重组期间在闸门前等待，抬起以后按到达顺序继续；之后重新核对服务、连接和空间是否仍是到达时的那一个。
-   * session.abort 到达时同步作废同一会话仍在等待的发送、插话、追问和压缩：闸门抬起后 abort 的异步层次更少，
+   * 经过闸门的请求取得准入并执行。最后一次确认闸门抬起、核对服务、连接、到达时的空间和作废状态、计数、调用 dispatch，
+   * 在同一段同步代码里完成，计数为零与闸门落下之间、核对与执行之间都不会有重组或关闭插进来；闸门落着时等它抬起，再从头核对。
+   * session.abort 到达时同步作废同一会话仍在等待的发送、插话、追问和压缩，作废资格保留到准入完成：闸门抬起后 abort 的异步层次更少，
    * 会先于 send 执行，按到达顺序无法保证停止拿到它之前的消息。作废的请求按排队中的运行被取消答复。
    */
-  const passGate = async (peer: Peer, method: Method, params: unknown) => {
-    if (reassembling === undefined) return;
+  const admit = async (peer: Peer, method: Method, params: unknown): Promise<unknown> => {
     const sessionId = method.startsWith("session.") && params !== null && typeof params === "object" && "sessionId" in params && typeof params.sessionId === "string"
       ? params.sessionId
       : undefined;
@@ -847,23 +877,49 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       }
     }
     const arrived = active?.space;
-    while (reassembling !== undefined) {
-      const gate = reassembling;
-      let cancel: () => void = () => undefined;
-      const cancelled = new Promise<"cancelled">((resolve) => { cancel = () => resolve("cancelled"); });
-      const waiter = { method, sessionId, cancel };
-      gateWaiters.add(waiter);
-      try {
-        if (await Promise.race([gate, cancelled]) === "cancelled") throw new RepaFault("cancelled", "排队中的会话运行已取消");
-      } finally {
-        gateWaiters.delete(waiter);
+    let voided = false;
+    let wake: () => void = () => undefined;
+    const waiter = { method, sessionId, cancel: () => { voided = true; wake(); } };
+    try {
+      for (;;) {
+        if (voided) throw new RepaFault("cancelled", "排队中的会话运行已取消");
+        const gate = reassembling;
+        if (gate === undefined) break;
+        gateWaiters.add(waiter);
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+          void gate.then(resolve);
+        });
       }
+      if (stopping || !peer.alive) throw new RepaFault("closed", "服务或连接已经关闭");
+      if (active?.space !== arrived) throw new RepaFault("space_changed", "等待期间空间已经关闭或切换");
+    } finally {
+      gateWaiters.delete(waiter);
     }
-    if (stopping || !peer.alive) throw new RepaFault("closed", "服务或连接已经关闭");
-    if (method !== "initialize" && active?.space !== arrived) throw new RepaFault("space_changed", "等待期间空间已经关闭或切换");
+    inFlight++;
+    try {
+      return await owner.run(peer, () => dispatch(peer, method, params));
+    } finally {
+      inFlight--;
+      checkIdle();
+    }
   };
 
-  const handle = async (peer: Peer, value: unknown): Promise<(() => unknown) | undefined> => {
+  const toFault = (error: unknown): RpcFault => error instanceof RpcFault ? error : error instanceof RepaFault
+    ? new RpcFault(-32000, error.message, { code: error.code, ...(error.details === undefined ? {} : { details: error.details }) })
+    : new RpcFault(-32603, "Internal error");
+
+  /**
+   * 生成并发出一个连接的响应。带基线的初始化响应要在闸门抬起时生成，不读正在关闭的对象：
+   * 最后一次等待之后，核对、订阅、内存投影与 socket.send 在同一段同步代码里完成，批量请求也一样；之后的广播只能排在响应后面。
+   */
+  const respond = async (peer: Peer, replies: Reply[], batch: boolean): Promise<void> => {
+    while (reassembling !== undefined && replies.some((reply) => reply.baseline)) await reassembling;
+    const values = replies.map((reply) => reply.build());
+    if (values.length) send(peer, batch ? values : values[0]);
+  };
+
+  const handle = async (peer: Peer, value: unknown): Promise<Reply | undefined> => {
     let id: RpcId = null;
     let notification = false;
     try {
@@ -878,29 +934,20 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       const method = request.method as Method;
       const params = request.params === undefined ? {} : request.params;
       if (!Check(methods[method].params, params)) throw new RpcFault(-32602, "Invalid params");
-      let result: unknown;
-      if (GATED.has(method)) {
-        await passGate(peer, method, params);
-        // 闸门检查与计数之间没有 await：计数为零与闸门落下之间不会有请求漏进去。
-        inFlight++;
-        try {
-          result = await owner.run(peer, () => dispatch(peer, method, params));
-        } finally {
-          inFlight--;
-          checkIdle();
-        }
-      } else {
-        // 初始化的基线读 Agent 空间和插件宿主，在闸门之后生成，不读正在关闭的对象。
-        if (method === "initialize") await passGate(peer, method, params);
-        result = await owner.run(peer, () => dispatch(peer, method, params));
+      const result = GATED.has(method) ? await admit(peer, method, params) : await owner.run(peer, () => dispatch(peer, method, params));
+      if (method !== "initialize") {
+        return {
+          baseline: false,
+          build: () => Check(methods[method].result, result) ? { jsonrpc: "2.0", id, result } : errorResponse(id, new RpcFault(-32603, "Internal error")),
+        };
       }
-      // 响应即将写入时才订阅并取基线；批量请求也等全部完成后同步生成响应。
-      // 从订阅、内存投影到 socket.send 之间没有 await，之后的广播只能排在响应后面。
-      return () => {
-        let output = result;
-        if (method === "initialize") {
+      // 初始化的基线读 Agent 空间和插件宿主，在 respond 里闸门抬起以后、发送之前同步生成。
+      return {
+        baseline: true,
+        build: () => {
+          if (stopping || !peer.alive) return errorResponse(id, toFault(new RepaFault("closed", "服务或连接已经关闭")));
           peer.subscribed = true;
-          output = {
+          const output = {
             version: PROTOCOL_VERSION,
             serverId,
             baseline: {
@@ -909,9 +956,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
               disabledPlugins: active?.plugins.disabled() ?? [],
             },
           };
-        }
-        if (!Check(methods[method].result, output)) return errorResponse(id, new RpcFault(-32603, "Internal error"));
-        return { jsonrpc: "2.0", id, result: output };
+          return Check(methods[method].result, output) ? { jsonrpc: "2.0", id, result: output } : errorResponse(id, new RpcFault(-32603, "Internal error"));
+        },
       };
     } catch (error) {
       if (notification) return undefined;
@@ -919,10 +965,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       if (!(error instanceof RpcFault) && !(error instanceof RepaFault)) {
         errors.add({ source: "rpc", message: error instanceof Error ? error.message : String(error), ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
       }
-      const fault = error instanceof RpcFault ? error : error instanceof RepaFault
-        ? new RpcFault(-32000, error.message, { code: error.code, ...(error.details === undefined ? {} : { details: error.details }) })
-        : new RpcFault(-32603, "Internal error");
-      return () => errorResponse(id, fault);
+      const fault = toFault(error);
+      return { baseline: false, build: () => errorResponse(id, fault) };
     }
   };
   http.on("upgrade", (request, socket, head) => {
@@ -975,10 +1019,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             return;
           }
           const replies = (await Promise.all(value.map((item) => handle(peer, item)))).filter((item) => item !== undefined);
-          if (replies.length) send(peer, replies.map((reply) => reply()));
+          await respond(peer, replies, true);
         } else {
           const reply = await handle(peer, value);
-          if (reply !== undefined) send(peer, reply());
+          if (reply !== undefined) await respond(peer, [reply], false);
         }
       })();
       operations.add(operation);
@@ -997,6 +1041,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     stopping = true;
     // 等待空闲的重组随之取消。
     checkIdle();
+    // 先让当前装配和正在建立的装配都开始关闭，再等运行时：运行时收尾要等 Agent 的运行结束，运行可能排在插件持有的空间写锁后面，
+    // 而插件持锁等的模型请求只在插件宿主开始关闭时取消。active 与装配中的部分之外没有别的插件宿主。
+    if (active !== undefined) void stopAssembly(active);
+    stopBuilding();
     closePromise = (async () => {
       const failures: unknown[] = [];
       for (const peer of peers) {
@@ -1007,7 +1055,6 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         new Promise<void>((resolve) => websocket.close(() => resolve())),
         new Promise<void>((resolve) => http.close(() => resolve())),
       ]);
-      // 先取消运行时；打开空间时的初始插件任务也可能正在等待 Agent 回合。
       for (const stop of [() => runtime.close(), () => serializeLifecycle(closeActive)]) {
         try {
           await stop();
