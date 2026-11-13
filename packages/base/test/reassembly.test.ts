@@ -278,7 +278,7 @@ test("在途的插件调用、后台 Agent、模型调用和服务请求都使�
   assert.equal(f.probe.opens, 5);
 });
 
-test("插件经 Host 发起的历史记录在进行时重组等它结束；开始关闭以后旧实例新发起的工作立即被拒绝，不等闸门", async t => {
+test("插件经 Host 发起的历史记录在进行时重组等它结束；开始关闭以后旧实例新发起的模型与服务调用立即被拒绝，不等闸门", async t => {
   const f = await fixture(t);
   const host = f.probe.hosts[0];
   assert.ok(host);
@@ -302,10 +302,8 @@ test("插件经 Host 发起的历史记录在进行时重组等它结束；开�
   await recording;
   await closing.promise;
 
-  // 旧实例的关闭停在插件代码里：闸门已落下，旧 Host 上新发起的工作都立即失败，没有一项等待重组。
-  await assert.rejects(host.files.write("late.txt", "迟到的写入"), rejectsWith("plugins_closed"));
-  await assert.rejects(host.files.read("late.txt"), rejectsWith("plugins_closed"));
-  await assert.rejects(host.history.record({ kind: "plugin", pluginId: "probe" }, async () => undefined), rejectsWith("plugins_closed"));
+  // 旧实例的关闭停在插件代码里：闸门已落下，旧 Host 上新发起的模型与服务调用都立即失败，没有一项等待重组。
+  // 文件与历史操作在这个插件的 close 执行期间放行，见下面的用例。
   await assert.rejects(host.models.complete({ system: "说明", prompt: "迟到的补判" }), rejectsWith("models_closed"));
   await assert.rejects(host.models.runAgent({ text: "迟到的后台任务" }), rejectsWith("models_closed"));
   await assert.rejects(host.services.call("probe.run", {}), rejectsWith("plugins_closed"));
@@ -313,7 +311,79 @@ test("插件经 Host 发起的历史记录在进行时重组等它结束；开�
   closeGate.resolve();
   assert.equal((await reassembling).status, "applied");
   assert.equal(f.probe.opens, 2);
-  await assert.rejects(readFile(path.join(f.root, "late.txt")), { code: "ENOENT" });
+});
+
+/**
+ * 方法返回以后在后台继续的插件：后台工作等 close 放行才写结果，close 等它写完。
+ * 每个实例的 Host 都留在 hosts 里，log 按发生次序记下写入结果与开关。
+ */
+function backgroundPlugin(hosts: Host[], log: string[]): Plugin {
+  return {
+    id: "bg",
+    async open(host) {
+      hosts.push(host);
+      const generation = hosts.length;
+      log.push(`open ${generation}`);
+      if (generation > 1) {
+        // 新装配已经开始：旧实例这时再写，必须被拒绝。
+        const old = hosts[generation - 2];
+        await old?.files.write("stale.txt", "旧实例").then(
+          () => { log.push("stale written"); },
+          (error: unknown) => { log.push(`stale ${error instanceof RepaFault ? error.code : String(error)}`); },
+        );
+      }
+      let release: () => void = () => undefined;
+      let background: Promise<void> = Promise.resolve();
+      return {
+        methods: {
+          start: {
+            parameters: empty,
+            async invoke() {
+              const go = new Promise<void>(resolve => { release = resolve; });
+              background = (async () => {
+                await go;
+                await host.files.write("bg.txt", `后台结果 ${generation}`);
+                log.push(`background ${generation} written`);
+              })().catch((error: unknown) => { log.push(`background ${generation} ${error instanceof RepaFault ? error.code : String(error)}`); });
+              return null;
+            },
+          },
+        },
+        async close() {
+          release();
+          await background;
+          log.push(`close ${generation} returned`);
+        },
+      };
+    },
+  };
+}
+
+test("重组时插件 close 等待的后台工作可以经 Host 写入结果；close 返回以后旧实例的写入被拒绝，不会落在新装配里", async t => {
+  const hosts: Host[] = [];
+  const log: string[] = [];
+  const f = await fixture(t, { plugins: () => [backgroundPlugin(hosts, log)] });
+  assert.equal(await f.client.call("plugin.call", { pluginId: "bg", method: "start", input: {}, assembly: f.opened.assembly }), null);
+  assert.equal((await f.server.reassemble()).status, "applied");
+  assert.deepEqual(log, ["open 1", "background 1 written", "close 1 returned", "open 2", "stale plugins_closed"]);
+  assert.equal(await readFile(path.join(f.root, "bg.txt"), "utf8"), "后台结果 1");
+  await assert.rejects(readFile(path.join(f.root, "stale.txt")), { code: "ENOENT" });
+  const old = hosts[0];
+  assert.ok(old);
+  await assert.rejects(old.history.record({ kind: "plugin", pluginId: "bg" }, async () => undefined), rejectsWith("plugins_closed"));
+});
+
+test("关闭空间时插件 close 等待的后台工作可以经 Host 写入结果；关闭以后旧实例的写入被拒绝", async t => {
+  const hosts: Host[] = [];
+  const log: string[] = [];
+  const f = await fixture(t, { plugins: () => [backgroundPlugin(hosts, log)] });
+  assert.equal(await f.client.call("plugin.call", { pluginId: "bg", method: "start", input: {}, assembly: f.opened.assembly }), null);
+  await f.client.call("space.close", {});
+  assert.deepEqual(log, ["open 1", "background 1 written", "close 1 returned"]);
+  assert.equal(await readFile(path.join(f.root, "bg.txt"), "utf8"), "后台结果 1");
+  const old = hosts[0];
+  assert.ok(old);
+  await assert.rejects(old.files.write("stale.txt", "旧实例"), rejectsWith("plugins_closed"));
 });
 
 test("运行结束后仍在处理的作答回调使重组等待，回调写完文件后才重组", async t => {

@@ -107,34 +107,80 @@ test("实例 close 抛错时以 plugin_close_failed 报告，原错误保留在 
   assert.equal(reported.cause, original);
 });
 
-test("关闭开始以后，插件在方法返回后继续的后台工作经 Host 写入被拒绝；close 自己的写入照常完成", async (t) => {
+test("插件 close 执行期间，它等待的后台工作可以经 Host 写入；close 返回以后这个插件的写入被拒绝", async (t) => {
   const outcomes: string[] = [];
   let release: () => void = () => undefined;
   let background: Promise<void> = Promise.resolve();
+  let second: Host | undefined;
   const testing = await createPluginTestHost({
-    plugins: [{
-      id: "bg",
-      async open(host) {
-        return {
-          methods: {
-            start: {
-              parameters: Type.Object({}, { additionalProperties: false }),
-              async invoke() {
-                const go = new Promise<void>((resolve) => { release = resolve; });
-                background = (async () => {
-                  await go;
-                  await host.files.write("bg.txt", "后台结果");
-                  outcomes.push("written");
-                })().catch((error: unknown) => { outcomes.push(error instanceof RepaFault ? error.code : String(error)); });
-                return null;
+    plugins: [
+      {
+        // 先打开，后关闭：它关闭时，second 的 close 已经返回。
+        id: "first",
+        async open(host) {
+          return {
+            async close() {
+              await host.files.write("first.txt", "收尾");
+              await second?.files.write("after.txt", "close 返回以后").then(
+                () => { outcomes.push("after:written"); },
+                (error: unknown) => { outcomes.push(`after:${error instanceof RepaFault ? error.code : String(error)}`); },
+              );
+            },
+          };
+        },
+      },
+      {
+        id: "second",
+        async open(host) {
+          second = host;
+          return {
+            methods: {
+              start: {
+                parameters: Type.Object({}, { additionalProperties: false }),
+                async invoke() {
+                  const go = new Promise<void>((resolve) => { release = resolve; });
+                  // 方法返回以后仍在后台继续，不属于任何宿主登记的工作。
+                  background = (async () => {
+                    await go;
+                    await host.files.write("bg.txt", "后台结果");
+                    await host.history.record({ kind: "plugin", pluginId: "second" }, async () => undefined);
+                    outcomes.push("background:written");
+                  })().catch((error: unknown) => { outcomes.push(`background:${error instanceof RepaFault ? error.code : String(error)}`); });
+                  return null;
+                },
               },
             },
-          },
+            async close() {
+              release();
+              await background;
+            },
+          };
+        },
+      },
+    ],
+  });
+  t.after(() => testing.close());
+  await testing.host.start();
+  await testing.host.call("second", "start", {});
+  await testing.host.close();
+  assert.deepEqual(testing.errors, []);
+  assert.deepEqual(outcomes, ["background:written", "after:plugins_closed"]);
+  assert.equal(await testing.space.files.read("bg.txt"), "后台结果");
+  assert.equal(await testing.space.files.read("first.txt"), "收尾");
+  await assert.rejects(testing.space.files.read("after.txt"));
+});
+
+test("close 执行期间发起、close 返回时仍未写完的写入，宿主等它写完才算关闭", async (t) => {
+  let saved: Host | undefined;
+  const testing = await createPluginTestHost({
+    plugins: [{
+      id: "tail",
+      async open(host) {
+        saved = host;
+        return {
           async close() {
-            release();
-            await background;
-            // 需要在关闭时落盘的结果由 close 自己写。
-            await host.files.write("closing.txt", "收尾");
+            // 发起以后不等它，close 先返回。
+            void host.files.write("tail.txt", "最后一笔");
           },
         };
       },
@@ -142,8 +188,20 @@ test("关闭开始以后，插件在方法返回后继续的后台工作经 Host
   });
   t.after(() => testing.close());
   await testing.host.start();
-  await testing.host.call("bg", "start", {});
-  await testing.host.close();
-  assert.deepEqual(outcomes, ["plugins_closed"]);
-  assert.equal(await testing.space.files.read("closing.txt"), "收尾");
+  assert.ok(saved);
+  const holding = deferred();
+  const locked = deferred();
+  const recording = testing.space.record({ kind: "agent", runId: "run-hold" }, async () => {
+    locked.resolve();
+    await holding.promise;
+  });
+  await locked.promise;
+  let closed = false;
+  const closing = testing.host.close().then(() => { closed = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(closed, false);
+  holding.resolve();
+  await recording;
+  await closing;
+  assert.equal(await testing.space.files.read("tail.txt"), "最后一笔");
 });
