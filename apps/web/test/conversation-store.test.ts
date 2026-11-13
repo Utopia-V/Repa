@@ -204,6 +204,26 @@ it("命令授权按到达顺序排队，回答后发给后端；登录类请求�
   expect(store.getState().confirmations).toEqual([]);
 });
 
+it("自写插件的批准还没有界面：明确拒绝，登录进行中时也不当作登录的输入", async () => {
+  const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
+  let finishLogin: (value: unknown) => void = () => undefined;
+  const fallback = backend.call.getMockImplementation();
+  backend.call.mockImplementation((method: string, params: Record<string, unknown>) => {
+    if (method === "auth.login") return new Promise((resolve) => { finishLogin = resolve; });
+    return fallback?.(method, params) ?? Promise.reject(new Error(method));
+  });
+  const store = await openedStore(backend);
+  const login = store.getState().login("test", "oauth");
+  await vi.waitFor(() => expect(store.getState().activeLogin).toBeDefined());
+  const plugins = [{ id: "hello", version: "0.1.0", digest: "a".repeat(64), pages: [], base: "none" as const, files: [{ path: "index.js", change: "added" as const }] }];
+  backend.emit("confirm.request", { id: "p1", request: { kind: "plugin", title: "", plugins } });
+  expect(backend.call).toHaveBeenCalledWith("confirm.reply", { id: "p1", value: false });
+  expect(store.getState().activeLogin?.prompts).toEqual([]);
+  expect(store.getState().confirmations).toEqual([]);
+  finishLogin(null);
+  await login;
+});
+
 it("换连接后重新打开原来的空间并重读会话记录；空间打不开时回到未打开", async () => {
   const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }], { s1: [] });
   const store = await openedStore(backend);
