@@ -4,16 +4,21 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, 
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { randomUUID } from "node:crypto";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 import { copyStats } from "../src/backup/copy.js";
+import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import { RepaClient, RpcError } from "../src/client.js";
 import {
   enablementFile, readEnablement, withLoaded, withUnloaded, writeEnablement, type PluginEnablement,
 } from "../src/plugins/enablement.js";
 import { spacePlugins } from "../src/plugins/space-plugins.js";
 import {
-  checkSnapshot, cleanSnapshots, clearStaging, folderDigest, publishSnapshot, snapshotDirectory, snapshotGroup, SNAPSHOT_LIMITS, stageFolder,
+  checkSnapshot, cleanSnapshots, clearStaging, folderDigest, publishSnapshot, removeSnapshot, snapshotDirectory, snapshotGroup, SNAPSHOT_LIMITS, stageFolder,
 } from "../src/plugins/snapshots.js";
+import { startServer } from "../src/protocol/server.js";
 import { RepaFault } from "../src/schema.js";
 import { createSpace } from "../src/space.js";
 import { startRepaProcess } from "../dist/process.js";
@@ -96,6 +101,10 @@ test("插件文件夹里有符号链接、文件过多或过大时，暂存即�
   await mkdir(path.join(many, "data"));
   for (let index = 0; index < SNAPSHOT_LIMITS.files; index++) await writeFile(path.join(many, "data", `${index}.txt`), "");
   await assert.rejects(stageFolder(f.home, f.root, many), (error: unknown) => error instanceof RepaFault && error.code === "plugin_folder_too_large");
+  // 目录同样计数：空目录不进摘要，但每次复制与核对都要遍历它们。
+  const empty = await f.folder("empty", helloPlugin("empty", "你好"));
+  for (let index = 0; index < SNAPSHOT_LIMITS.files; index++) await mkdir(path.join(empty, `${index}`));
+  await assert.rejects(stageFolder(f.home, f.root, empty), (error: unknown) => error instanceof RepaFault && error.code === "plugin_folder_too_large");
   const large = await f.folder("large", helloPlugin("large", "你好"));
   // 稀疏文件：大小超过上限而不占磁盘，复制之前按目录列表就拒绝。
   await writeFile(path.join(large, "blob.bin"), "");
@@ -124,7 +133,7 @@ test("发布快照：暂存副本先全部落盘，改名为以摘要命名的�
   assert.equal(published, order.length - 1);
   assert.ok(order.includes(group) && order.indexOf(group) < published);
   assert.ok(order.includes(path.join(f.home, "plugins")) && order.includes(f.home));
-  assert.equal(await checkSnapshot(target, staged.digest), "ok");
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", staged.digest), "ok");
   assert.deepEqual(await readdir(path.join(group, ".staging")), []);
   assert.equal(await readFile(path.join(target, "lib", "text.js"), "utf8"), "export const text = 1;\n");
 });
@@ -147,14 +156,75 @@ test("核对快照：内容改了、多了文件或符号链接都算改动，�
   const f = await fixture(t);
   const digest = await f.approve("hello", await f.folder("hello", helloPlugin("hello", "你好")));
   const target = snapshotDirectory(f.home, f.root, "hello", digest);
-  assert.equal(await checkSnapshot(target, digest), "ok");
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", digest), "ok");
   await writeFile(path.join(target, "data.json"), "{}");
-  assert.equal(await checkSnapshot(target, digest), "modified");
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", digest), "modified");
   await rm(path.join(target, "data.json"));
-  assert.equal(await checkSnapshot(target, digest), "ok");
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", digest), "ok");
   await symlink(path.join(target, "index.js"), path.join(target, "alias.js"));
-  assert.equal(await checkSnapshot(target, digest), "modified");
-  assert.equal(await checkSnapshot(snapshotDirectory(f.home, f.root, "hello", "0".repeat(64)), "0".repeat(64)), "missing");
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", digest), "modified");
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", "0".repeat(64)), "missing");
+});
+
+test("快照路径上任何一层是符号链接时都算改动：打开空间时不运行，只删除链接本身，链接指向的文件不动；之后同一内容可以重新发布", async (t) => {
+  const f = await fixture(t);
+  const source = await f.folder("hello", helloPlugin("hello", "你好"));
+  const digest = await f.approve("hello", source);
+  const target = snapshotDirectory(f.home, f.root, "hello", digest);
+  const open = () => spacePlugins({ home: f.home, space: { root: f.root, dataDir: f.dataDir }, bundled: [] });
+  // 摘要目录换成指向源文件夹的链接：内容与摘要一致，但源文件夹之后的改动会被运行。
+  await rm(target, { recursive: true });
+  await symlink(source, target);
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", digest), "modified");
+  let result = await open();
+  assert.deepEqual(result.plugins, []);
+  assert.deepEqual(result.unavailable.map(({ id, state, reason }) => [id, state, reason.code]), [["hello", "pending", "snapshot_modified"]]);
+  await assert.rejects(stat(target), { code: "ENOENT" });
+  assert.equal(await folderDigest(source), digest);
+  // <id>/ 换成指向空间里一个文件夹的链接，那里放着一份内容相同的副本，文件工具能改它。
+  const copy = await f.folder(path.join("space", "notes-hello", digest), helloPlugin("hello", "你好"));
+  await rm(path.dirname(target), { recursive: true, force: true });
+  await symlink(path.dirname(copy), path.dirname(target));
+  // 记录外的一个版本名与清理规则相符，也不能经链接删掉空间里的文件。
+  const stray = await f.folder(path.join("space", "notes-hello", "f".repeat(64)), { "note.md": "笔记" });
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", digest), "modified");
+  await assert.rejects(publishSnapshot(f.home, f.root, "hello", await stageFolder(f.home, f.root, source)), (error: unknown) => error instanceof RepaFault && error.code === "snapshot_modified");
+  result = await open();
+  assert.deepEqual(result.plugins, []);
+  assert.deepEqual(result.unavailable.map(({ state }) => state), ["pending"]);
+  assert.equal(await folderDigest(copy), digest);
+  assert.equal(await readFile(path.join(stray, "note.md"), "utf8"), "笔记");
+  assert.ok(!(await stat(path.dirname(target)).then(() => true, () => false)));
+  // 链接清掉以后，同一内容重新发布成真实目录，打开空间时运行。
+  await publishSnapshot(f.home, f.root, "hello", await stageFolder(f.home, f.root, source));
+  result = await open();
+  assert.deepEqual(result.plugins.map((plugin) => plugin.id), ["hello"]);
+  // 直接删除一份快照时同样只删链接：<id>/ 是链接，删的就是它。
+  await rm(path.dirname(target), { recursive: true });
+  await symlink(path.dirname(copy), path.dirname(target));
+  await removeSnapshot(f.home, f.root, "hello", digest);
+  assert.equal(await folderDigest(copy), digest);
+  assert.ok(!(await stat(path.dirname(target)).then(() => true, () => false)));
+});
+
+test("不运行的保留版本也核对：上一个版本或卸载的插件的快照被改动时，打开空间就删除，再批准同一内容时可以重新发布", async (t) => {
+  const f = await fixture(t);
+  const v1 = await f.folder("v1", helloPlugin("hello", "一"));
+  const one = await f.approve("hello", v1);
+  const two = await f.approve("hello", await f.folder("v2", helloPlugin("hello", "二")), LATER);
+  const unloaded = await f.folder("unloaded", helloPlugin("unloaded", "卸"));
+  const three = await f.approve("unloaded", unloaded);
+  await writeEnablement(f.dataDir, withUnloaded(await readEnablement(f.dataDir), "unloaded"));
+  await writeFile(path.join(snapshotDirectory(f.home, f.root, "hello", one), "index.js"), "export default {};\n");
+  await writeFile(path.join(snapshotDirectory(f.home, f.root, "unloaded", three), "extra.js"), "");
+  const result = await spacePlugins({ home: f.home, space: { root: f.root, dataDir: f.dataDir }, bundled: [] });
+  assert.deepEqual(result.plugins.map((plugin) => plugin.id), ["hello"]);
+  assert.deepEqual(result.unavailable, []);
+  await assert.rejects(stat(snapshotDirectory(f.home, f.root, "hello", one)), { code: "ENOENT" });
+  await assert.rejects(stat(snapshotDirectory(f.home, f.root, "unloaded", three)), { code: "ENOENT" });
+  assert.equal(await checkSnapshot(f.home, f.root, "hello", two), "ok");
+  assert.equal(await publishSnapshot(f.home, f.root, "hello", await stageFolder(f.home, f.root, v1)), snapshotDirectory(f.home, f.root, "hello", one));
+  assert.equal(await publishSnapshot(f.home, f.root, "unloaded", await stageFolder(f.home, f.root, unloaded)), snapshotDirectory(f.home, f.root, "unloaded", three));
 });
 
 test("清理只留下启用记录里的当前与上一个版本，卸载的插件照样保留，记录里没有的插件整个删除，暂存副本全部删除", async (t) => {
@@ -264,10 +334,15 @@ test("打开空间时交给宿主的是随包插件加上启用且快照完好�
   await writeFile(path.join(source, "index.js"), "throw new Error('源文件夹里的改动不该运行');\n");
   const bundled = { id: "notes", open: async () => ({}) };
   const recordBytes = await readFile(enablementFile(f.dataDir));
+  // 中途结束的暂存副本、记录里已不保留的版本，打开时都删除。
+  const leftover = await stageFolder(f.home, f.root, source);
+  const stale = await f.folder(path.join("home", "plugins", path.basename(snapshotGroup(f.home, f.root)), "hello", "e".repeat(64)), helloPlugin("hello", "旧"));
   const first = await spacePlugins({ home: f.home, space: { root: f.root, dataDir: f.dataDir }, bundled: [bundled] });
   assert.deepEqual(first.plugins.map((plugin) => plugin.id), ["notes", "hello"]);
   assert.deepEqual(first.unavailable, []);
   assert.deepEqual(first.problems, []);
+  await assert.rejects(stat(leftover.directory), { code: "ENOENT" });
+  await assert.rejects(stat(stale), { code: "ENOENT" });
   const instance = await first.plugins[1]?.open({} as never);
   assert.equal(await instance?.methods?.hello?.invoke({}, {} as never), "你好");
   // 打开只读记录，同一份记录打开两次，记录（含 activatedAt）不变。
@@ -367,4 +442,35 @@ test("构建后的后端打开空间时运行启用的自写插件；快照被�
     assert.equal((error.data as { code?: string } | undefined)?.code, "plugin_not_found");
     return true;
   });
+});
+
+test("后端交给 Agent 运行时的控制目录是配置目录的 plugins/：完全访问模式下通用 Agent 也写不进快照", async (t) => {
+  const f = await fixture(t);
+  await rm(f.root, { recursive: true });
+  await (await createSpace(f.root, { watch: false })).close();
+  const digest = await f.approve("hello", await f.folder("hello", helloPlugin("hello", "你好")));
+  const snapshot = path.join(snapshotDirectory(f.home, f.root, "hello", digest), "index.js");
+  const original = await readFile(snapshot, "utf8");
+  await mkdir(path.join(f.home, "agent"), { recursive: true });
+  const faux = fauxProvider({ api: `snapshots-${randomUUID()}`, provider: `snapshots-${randomUUID()}`, models: [{ id: "scripted", contextWindow: 16384, maxTokens: 256 }], tokensPerSecond: 0 });
+  const modelRuntime = await ModelRuntime.create({ authPath: path.join(f.home, "agent", "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
+  modelRuntime.registerNativeProvider(faux.provider);
+  const runtime = await createAgentRuntimeForTest({
+    agentDir: path.join(f.home, "agent"),
+    modelRuntime,
+    defaultModel: { provider: faux.getModel().provider, id: "scripted" },
+    settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
+  });
+  const server = await startServer({ home: f.home, runtime });
+  f.closers.push(() => server.close());
+  const client = await RepaClient.connect(server.connection);
+  f.closers.push(() => client.close());
+  await client.call("space.open", { root: f.root });
+  await client.call("settings.set", { commandPolicy: "fullAccess" });
+  faux.setResponses([fauxAssistantMessage(fauxToolCall("write", { path: snapshot, content: "篡改" })), fauxAssistantMessage("已尝试")]);
+  const session = await client.call("session.create", {});
+  await client.call("session.send", { sessionId: session.id, text: "改快照" });
+  const history = await client.call("session.history", { sessionId: session.id });
+  assert.ok(JSON.stringify(history).includes("不能写入 Repa 保管已批准插件的目录"), "写入应以控制目录拒绝");
+  assert.equal(await readFile(snapshot, "utf8"), original);
 });

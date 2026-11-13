@@ -1,6 +1,6 @@
 import type { Plugin } from "../plugin.js";
 import { RepaFault } from "../schema.js";
-import { readEnablement } from "./enablement.js";
+import { readEnablement, type PluginEnablementEntry } from "./enablement.js";
 import { loadPlugin } from "./manifest.js";
 import { checkSnapshot, cleanSnapshots, clearStaging, removeSnapshot, snapshotDirectory } from "./snapshots.js";
 
@@ -37,7 +37,9 @@ function failure(id: string, error: unknown): UnavailablePlugin {
  * 自写插件按 id 排在随包插件之后。
  *
  * 每次都从盘上的启用记录出发，所以运行的集合总与盘上一致。先清掉暂存副本、按记录清理快照，
- * 再逐个核对并导入；核对不通过的快照在这里删除，插件列为待批准。这一切都在插件打开之前，没有实例在用这些快照。
+ * 再逐个核对并导入；核对不通过的快照在这里删除，插件列为待批准。不运行的保留版本（previous、卸载的插件的版本）
+ * 也核对，被改动的同样删除：否则它永远不会再被核对，以后批准同一内容时发布一直被拒绝。
+ * 这一切都在插件打开之前，没有实例在用这些快照。
  * 记录读不了时不运行任何自写插件，也不清理，只报告错误：空间照常打开。
  */
 export async function spacePlugins(options: { home: string; space: { root: string; dataDir: string }; bundled: Plugin[] }): Promise<SpacePlugins> {
@@ -69,13 +71,13 @@ export async function spacePlugins(options: { home: string; space: { root: strin
     }
     try {
       const directory = snapshotDirectory(home, space.root, id, entry.digest);
-      const status = await checkSnapshot(directory, entry.digest);
+      const status = await checkSnapshot(home, space.root, id, entry.digest);
       if (status === "missing") {
         unavailable.push({ id, state: "pending", reason: { code: "snapshot_missing", message: `本机没有插件 ${id} 这个版本的已批准快照，批准以后才运行` } });
         continue;
       }
       if (status === "modified") {
-        await removeSnapshot(directory).catch((error: unknown) => { problems.push(error); });
+        await removeSnapshot(home, space.root, id, entry.digest).catch((error: unknown) => { problems.push(error); });
         unavailable.push({ id, state: "pending", reason: { code: "snapshot_modified", message: `插件 ${id} 的已批准快照被改动过，已删除，重新批准以后才运行` } });
         continue;
       }
@@ -87,5 +89,23 @@ export async function spacePlugins(options: { home: string; space: { root: strin
       problems.push(error);
     }
   }
+  for (const id of ids) {
+    const entry = record.plugins[id];
+    if (entry === undefined) continue;
+    for (const digest of idle(entry)) {
+      try {
+        if ((await checkSnapshot(home, space.root, id, digest)) === "modified") await removeSnapshot(home, space.root, id, digest);
+      } catch (error) {
+        problems.push(error);
+      }
+    }
+  }
   return { plugins: [...bundled, ...loaded], unavailable, problems };
+}
+
+/** 记录里保留着、这次不会运行的版本：上一个版本，卸载的插件连同当前版本。运行的版本在加载前已经核对。 */
+function idle(entry: PluginEnablementEntry): string[] {
+  const versions = entry.enabled ? [] : [entry.digest];
+  if (entry.previous !== undefined && entry.previous !== entry.digest) versions.push(entry.previous);
+  return versions;
 }

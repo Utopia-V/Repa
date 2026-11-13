@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -234,6 +234,9 @@ test("通用 Agent 在完全访问模式下也不写控制目录：配置目录�
     await writeFile(file, "export default {};\n");
   }
   await symlink(path.join(f.outside, "home", "plugins"), path.join(f.root, "shortcut"));
+  // 控制目录里有一个指向别处的链接：解析后的路径不在控制目录里，只有字面路径能拦下。
+  await mkdir(path.join(f.outside, "elsewhere"));
+  await symlink(path.join(f.outside, "elsewhere"), path.join(f.outside, "home", "plugins", "escape"));
   const session = await f.space.create();
   f.faux.setResponses([
     fauxAssistantMessage([
@@ -242,14 +245,16 @@ test("通用 Agent 在完全访问模式下也不写控制目录：配置目录�
       fauxToolCall("write", { path: "shortcut/key/hello/index.js", content: "篡改" }),
       fauxToolCall("write", { path: outsideFile, content: "篡改" }),
       fauxToolCall("write", { path: path.join(f.outside, "home", "plugins", "key", "other", "index.js"), content: "篡改" }),
+      fauxToolCall("write", { path: path.join(f.outside, "home", "plugins", "escape", "index.js"), content: "篡改" }),
       fauxToolCall("write", { path: "config/settings-note.md", content: "控制目录之外照常写" }),
     ]),
     fauxAssistantMessage("已尝试"),
   ]);
   await session.send("改快照");
   const results = toolResults(session);
-  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["edit", true], ["write", true], ["write", true], ["write", true], ["write", false]]);
-  for (const result of results.slice(0, 5)) assert.match(result.text, /不能写入 Repa 保管已批准插件的目录/u);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["edit", true], ["write", true], ["write", true], ["write", true], ["write", true], ["write", false]]);
+  for (const result of results.slice(0, 6)) assert.match(result.text, /不能写入 Repa 保管已批准插件的目录/u);
+  await assert.rejects(readFile(path.join(f.outside, "elsewhere", "index.js")), { code: "ENOENT" });
   assert.equal(await readFile(inside, "utf8"), "export default {};\n");
   assert.equal(await readFile(outsideFile, "utf8"), "export default {};\n");
   await assert.rejects(readFile(path.join(f.outside, "home", "plugins", "key", "other", "index.js")), { code: "ENOENT" });
@@ -309,14 +314,17 @@ test("配置目录在空间内时，插件 Agent 的写入和编辑也不能进�
       fauxToolCall("edit", { path: "config/plugins/key/hello/index.js", edits: [{ oldText: "default", newText: "篡改" }] }),
       fauxToolCall("write", { path: "alias/key/hello/extra.js", content: "篡改" }),
       fauxToolCall("edit", { path: "alias/key/hello/index.js", edits: [{ oldText: "default", newText: "篡改" }] }),
+      fauxToolCall("write", { path: "config/plugins/key/fresh/index.js", content: "篡改" }),
       fauxToolCall("read", { path: "config/plugins/key/hello/index.js" }),
     ]),
     fauxAssistantMessage("已尝试"),
   ]);
   await session.send("改快照");
   const results = toolResults(session);
-  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["edit", true], ["write", true], ["edit", true], ["read", false]]);
-  for (const result of results.slice(0, 4)) assert.match(result.text, /不能写入 Repa 保管已批准插件的目录/u);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["edit", true], ["write", true], ["edit", true], ["write", true], ["read", false]]);
+  for (const result of results.slice(0, 5)) assert.match(result.text, /不能写入 Repa 保管已批准插件的目录/u);
+  // 写入先建上级目录：控制目录里连空目录也不建。
+  await assert.rejects(stat(path.join(f.root, "config", "plugins", "key", "fresh")), { code: "ENOENT" });
   assert.equal(await readFile(snapshot, "utf8"), "export default {};\n");
   await assert.rejects(readFile(path.join(f.root, "config", "plugins", "key", "hello", "extra.js")), { code: "ENOENT" });
 });

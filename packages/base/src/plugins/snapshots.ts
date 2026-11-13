@@ -10,7 +10,7 @@ import type { PluginEnablement } from "./enablement.js";
 
 /**
  * 插件文件夹的上限，是 Repa 的假设：防的是 Agent 把依赖或数据堆进插件文件夹，使每次批准都复制大量内容，
- * 每次打开空间核对快照也要读一遍。实际使用嫌小时再调。
+ * 每次打开空间核对快照也要读一遍。files 计文件与目录的总数，空目录不进摘要，但同样要遍历。实际使用嫌小时再调。
  */
 export const SNAPSHOT_LIMITS = { bytes: 16 * 1024 * 1024, files: 2000 } as const;
 
@@ -53,15 +53,34 @@ function tooLarge(files: number, bytes: number): RepaFault {
   );
 }
 
-/** 文件夹里全部普通文件的相对路径，以 / 分隔；遇到符号链接等即拒绝，文件数超过上限即停止。 */
+/** 文件夹里全部普通文件的相对路径，以 / 分隔；遇到符号链接等即拒绝，文件与目录的总数超过上限即停止。 */
 async function folderFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
+  let entries = 0;
   for await (const item of walk(directory, { skip: () => false, vanished: "fail", other: rejectOther })) {
-    if (item.directory) continue;
-    files.push(item.relative);
-    if (files.length > SNAPSHOT_LIMITS.files) throw tooLarge(files.length, 0);
+    if (++entries > SNAPSHOT_LIMITS.files) throw tooLarge(entries, 0);
+    if (!item.directory) files.push(item.relative);
   }
   return files;
+}
+
+/**
+ * 从配置目录往下到 target 的各层（plugins/、空间分组、<id>/、<摘要>/ 等）中最上面的符号链接或目录联接；没有时为 undefined。
+ * 这几层都由宿主建立，不该是链接。遍历只拒绝起点以下的链接，起点本身或它的上级是链接时，读到的是链接指向的、
+ * 可以被文件工具改写的文件，核对照样通过，所以单独检查；删除时也只删链接本身，不进入它指向的目录。
+ */
+async function linkAbove(home: string, target: string): Promise<string | undefined> {
+  let current = home;
+  for (const part of path.relative(home, target).split(path.sep)) {
+    current = path.join(current, part);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) return current;
+    } catch (error) {
+      if (isCode(error, "ENOENT", "ENOTDIR")) return undefined;
+      throw error;
+    }
+  }
+  return undefined;
 }
 
 /** 按块读出一个文件的 SHA-256 与字节数；读到的总字节超过 budget 即停止。 */
@@ -168,24 +187,26 @@ export async function discardStaged(staged: StagedFolder): Promise<void> {
  */
 export async function publishSnapshot(home: string, root: string, id: string, staged: StagedFolder): Promise<string> {
   const target = snapshotDirectory(home, root, id, staged.digest);
-  await ensureDirectory(path.dirname(target));
-  const status = await checkSnapshot(target, staged.digest);
+  const status = await checkSnapshot(home, root, id, staged.digest);
   if (status === "ok") {
     await discardStaged(staged);
     return target;
   }
   if (status === "modified") {
-    throw new RepaFault("snapshot_modified", "同一版本的已批准快照被改动过，要在重新打开插件以后再批准", { id, digest: staged.digest });
+    throw new RepaFault("snapshot_modified", "同一版本的已批准快照被改动过，要在重新打开空间以后再批准", { id, digest: staged.digest });
   }
+  await ensureDirectory(path.dirname(target));
   await publish(staged.directory, target);
   return target;
 }
 
 /**
- * 核对快照与目录名中的摘要：ok；missing，快照不存在；modified，内容与摘要不符，或出现了符号链接、超过了上限。
- * 其余读取错误照常抛出，由调用方报告，不当作改动去删除。
+ * 核对插件 id 的 digest 版本的快照：ok；missing，快照不存在；modified，内容与摘要不符，出现了符号链接、超过了上限，
+ * 或快照目录本身、它在配置目录里的某一层上级是符号链接。其余读取错误照常抛出，由调用方报告，不当作改动去删除。
  */
-export async function checkSnapshot(directory: string, digest: string): Promise<"ok" | "missing" | "modified"> {
+export async function checkSnapshot(home: string, root: string, id: string, digest: string): Promise<"ok" | "missing" | "modified"> {
+  const directory = snapshotDirectory(home, root, id, digest);
+  if ((await linkAbove(home, directory)) !== undefined) return "modified";
   let actual: string;
   try {
     actual = await folderDigest(directory);
@@ -204,14 +225,16 @@ export async function checkSnapshot(directory: string, digest: string): Promise<
   return actual === digest ? "ok" : "modified";
 }
 
-/** 删除一份快照，用于核对不通过的快照；只在使用它的实例关闭以后调用。 */
-export async function removeSnapshot(directory: string): Promise<void> {
-  await remove(directory);
+/** 删除一份快照，用于核对不通过的快照；只在使用它的实例关闭以后调用。路径上有链接时只删最上面的链接本身。 */
+export async function removeSnapshot(home: string, root: string, id: string, digest: string): Promise<void> {
+  const directory = snapshotDirectory(home, root, id, digest);
+  await remove((await linkAbove(home, directory)) ?? directory);
 }
 
-/** 删除这个空间全部的暂存副本。打开空间时调用：此前中途结束的复制和批准留下的副本不再有人使用。 */
+/** 删除这个空间全部的暂存副本。打开空间时调用：此前中途结束的复制和批准留下的副本不再有人使用。路径上有链接时只删链接。 */
 export async function clearStaging(home: string, root: string): Promise<void> {
-  await remove(path.join(snapshotGroup(home, root), STAGING));
+  const staging = path.join(snapshotGroup(home, root), STAGING);
+  await remove((await linkAbove(home, staging)) ?? staging);
 }
 
 /**
@@ -221,6 +244,12 @@ export async function clearStaging(home: string, root: string): Promise<void> {
  */
 export async function cleanSnapshots(home: string, root: string, record: PluginEnablement, ids?: Iterable<string>): Promise<void> {
   const group = snapshotGroup(home, root);
+  // 分组目录或它的上级是链接时，删掉链接本身就清理完了：清理不进入链接指向的目录。
+  const link = await linkAbove(home, group);
+  if (link !== undefined) {
+    await remove(link);
+    return;
+  }
   let names: string[];
   if (ids === undefined) {
     try {
@@ -242,6 +271,10 @@ export async function cleanSnapshots(home: string, root: string, record: PluginE
     const keep = new Set([entry.digest, ...(entry.previous === undefined ? [] : [entry.previous])]);
     let versions: string[];
     try {
+      if ((await lstat(parent)).isSymbolicLink()) {
+        await remove(parent);
+        continue;
+      }
       versions = await readdir(parent);
     } catch (error) {
       if (isCode(error, "ENOENT", "ENOTDIR")) continue;
