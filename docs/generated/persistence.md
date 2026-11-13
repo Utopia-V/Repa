@@ -127,3 +127,62 @@ schema：packages/learning/src/records-schema.ts#FactSchema；SHA-256 前 16 位
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | $ | object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object | 否 | 嵌套对象，字段见源码 |
+
+## plugin-manifest
+
+文件：<空间>/.agents/plugins/<插件 id>/repa-plugin.json、随包插件文件夹的 repa-plugin.json。
+
+负责的包：@repa/base。
+
+版本标记：无独立版本标记；baseVersion 声明插件兼容的底座版本范围。
+
+schema：packages/base/src/plugins/manifest.ts#PluginManifestSchema；SHA-256 前 16 位：e781177bda52a6f7。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| baseVersion | string | 否 |  |
+| entry | string | 否 |  |
+| id | string | 否 |  |
+| pages[] | object | 是 |  |
+| pages[].entry | string | 否 |  |
+| pages[].id | string | 否 |  |
+| pages[].title | string | 否 |  |
+| title | string | 是 |  |
+| version | string | 否 |  |
+
+## plugin-snapshot
+
+文件：<应用配置目录>/plugins/<空间分组>/<插件 id>/<摘要>/。
+
+负责的包：@repa/base。
+
+版本标记：目录名是插件文件夹的摘要，摘要输入的第一行 repa-plugin-folder 1 是算法版本；快照的内容是一份插件文件夹，其中的清单即 plugin-manifest。
+
+schema：packages/base/src/plugins/manifest.ts#PluginManifestSchema；SHA-256 前 16 位：e781177bda52a6f7。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| baseVersion | string | 否 |  |
+| entry | string | 否 |  |
+| id | string | 否 |  |
+| pages[] | object | 是 |  |
+| pages[].entry | string | 否 |  |
+| pages[].id | string | 否 |  |
+| pages[].title | string | 否 |  |
+| title | string | 是 |  |
+| version | string | 否 |  |
+
+## plugin-enablement
+
+文件：<空间>/.repa/plugins.json。
+
+负责的包：@repa/base。
+
+版本标记：<空间>/.repa/format.json。
+
+schema：packages/base/src/plugins/enablement.ts#PluginEnablementSchema；SHA-256 前 16 位：6559dfb16f27d289。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| plugins | object | 否 |  |
+| plugins[^[a-z][a-z0-9-]*$] | object | 是 | 嵌套对象，字段见源码 |

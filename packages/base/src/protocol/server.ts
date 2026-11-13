@@ -23,6 +23,8 @@ import {
 } from "../interaction.js";
 import type { AskOutcome, Plugin, Services } from "../plugin.js";
 import { openPluginHost, type PluginHost } from "../plugins.js";
+import { pluginsDirectory } from "../plugins/snapshots.js";
+import { spacePlugins, type UnavailablePlugin } from "../plugins/space-plugins.js";
 import {
   methods,
   notifications,
@@ -66,8 +68,9 @@ export interface RepaServer {
   closed: Promise<void>;
   close(): Promise<void>;
   /**
-   * 按给定的插件清单重组当前空间：等到空闲，关闭插件宿主与 Agent 运行时，再打开它们；空间、锁、历史与备份不动。
-   * 省略清单时用装配时的插件。装卸请求接入以前，只供测试与宿主内部调用，前端没有入口。
+   * 重组当前空间：等到空闲，关闭插件宿主与 Agent 运行时，再打开它们；空间、锁、历史与备份不动。
+   * 运行的自写插件按这一刻盘上的启用记录重新得出；plugins 替换随包插件，省略时用装配时的随包插件。
+   * 装卸请求接入以前，只供测试与宿主内部调用，前端没有入口。
    */
   reassemble(plugins?: Plugin[]): Promise<Reassembly>;
 }
@@ -117,6 +120,14 @@ interface ActiveSpace {
   opened: number;
   /** 当前装配的序号。 */
   assembly: number;
+  /** 当前装配时启用了却没有交给插件宿主的自写插件：待批准或失败。每次重组按启用记录重新得出。 */
+  unavailable: UnavailablePlugin[];
+}
+
+/** 停用清单：没有交给宿主的自写插件，加上宿主打开时停用的插件，按 id 排列。 */
+function disabledOf(assembled: { plugins: PluginHost; unavailable: UnavailablePlugin[] }): DisabledPlugin[] {
+  const unavailable = assembled.unavailable.map(({ id, reason }) => ({ id, reason: { ...reason } }));
+  return [...unavailable, ...assembled.plugins.disabled()].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
 }
 
 // 经过重组闸门的方法：它们用到 Agent 空间或插件宿主，重组期间要等新的装配。
@@ -381,11 +392,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   };
 
   /**
-   * 打开空间和重组共用的装配：插件 open → Agent 运行时 → 追赶，次序与打开空间时相同。
+   * 打开空间和重组共用的装配：选出插件 → 插件 open → Agent 运行时 → 追赶，次序与打开空间时相同。
+   * 运行的插件每次都从这一刻盘上的启用记录得出：bundled 是随包插件，自写插件由 spacePlugins 按记录加入。
+   * clean 为 false 时不清理暂存与快照：旧实例没有正常关闭，可能还在用它们。
    * 插件 open 期间 Agent 空间尚未接上，runAgent 以 space_not_ready 拒绝；装配期间服务请求立即以 service_unavailable 拒绝，
    * 新连接因此不可能是装配所等的服务提供方。失败时关闭已经打开的部分，空间留给调用方处理。
    */
-  const assemble = async (space: Space, plugins: Plugin[], how: { first: boolean; unsaved?: UnsavedSession[] }) => {
+  const assemble = async (space: Space, bundled: Plugin[], how: { first: boolean; clean?: boolean; unsaved?: UnsavedSession[] }) => {
     const assembly = ++serial;
     let host: PluginHost | undefined;
     let agent: AgentSpace | undefined;
@@ -397,9 +410,15 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       if (stopping) throw new RepaFault("closed", "服务正在关闭");
     };
     try {
+      // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件一起列进停用清单。
+      const selected = await spacePlugins({ home, space, bundled, clean: how.clean ?? true });
+      for (const problem of selected.problems) {
+        errors.add({ source: "plugin-host", message: problem instanceof Error ? problem.message : String(problem), code: problem instanceof RepaFault ? problem.code : "plugin_failed" });
+      }
+      checkStopping();
       host = await openPluginHost({
         space,
-        plugins,
+        plugins: selected.plugins,
         now: () => runtime.now(),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
         services: {
@@ -436,9 +455,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       checkStopping();
       const opened = host;
       // 停用或卸载的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
-      // 只有第一次装配、且没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
+      // 只有第一次装配、且没有插件停用、也没有未能运行的自写插件时原样交给运行时核对，写错的 id 仍报 unknown_agent。
       let directAgents = options.directAgents;
-      if (directAgents !== undefined && (!how.first || opened.disabled().length > 0)) {
+      if (directAgents !== undefined && (!how.first || opened.disabled().length > 0 || selected.unavailable.length > 0)) {
         const available = new Set([...(options.generalAgent === false ? [] : ["general"]), ...opened.agents().map((definition) => definition.id)]);
         directAgents = directAgents.filter((id) => available.has(id));
       }
@@ -455,6 +474,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         commandPolicy: () => settings.get().commandPolicy,
         record: async (runId, action) => (await space.record({ kind: "agent", runId }, action)).value,
         writes: space.writes,
+        controlDirs: [pluginsDirectory(home)],
         onEvent: (event) => emit("session.event", event),
         confirm: (request, signal) => confirmFor(owner.getStore())(request, signal),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
@@ -466,7 +486,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       await opened.start();
       checkStopping();
       ready = true;
-      return { plugins: opened, agent, assembly };
+      return { plugins: opened, agent, assembly, unavailable: selected.unavailable };
     } catch (error) {
       if (agent !== undefined && host !== undefined) await stopAssembly({ agent, plugins: host });
       else await host?.close().catch(() => undefined);
@@ -478,7 +498,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
     if (stopping) throw new RepaFault("closed", "服务正在关闭");
     const resolved = path.resolve(root);
-    if (active?.space.root === resolved && !create) return { root: resolved, assembly: active.assembly, disabledPlugins: active.plugins.disabled() };
+    if (active?.space.root === resolved && !create) return { root: resolved, assembly: active.assembly, disabledPlugins: disabledOf(active) };
     await closeActive();
     // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
     const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
@@ -500,10 +520,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           });
         },
       });
-      const { plugins, agent, assembly } = assembled;
-      active = { space, plugins, agent, backups, opened: assembly, assembly };
+      const { plugins, agent, assembly, unavailable } = assembled;
+      active = { space, plugins, agent, backups, opened: assembly, assembly, unavailable };
       backups.start();
-      return { root: space.root, assembly, disabledPlugins: plugins.disabled() };
+      return { root: space.root, assembly, disabledPlugins: disabledOf(active) };
     } catch (error) {
       if (assembled !== undefined) await stopAssembly(assembled);
       await space.close().catch(() => undefined);
@@ -554,6 +574,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     // 排在前面的 space.open、space.close 已经关闭或换掉了这个空间；服务正在关闭时也不再打开插件，空间由服务关闭时的 closeActive 收尾。
     if (stopping || active !== target) return { status: "cancelled" };
     // 某个插件的 close() 抛错不挡住重组：记进最近错误，结果里写明是哪个插件、什么原因。
+    // 这时旧实例可能还在用暂存副本或快照，这一次装配不清理它们，留到下一次正常的装配。
     const closeFailures: { pluginId: string; message: string }[] = [];
     for (const result of results) {
       if (result.status === "fulfilled") continue;
@@ -573,7 +594,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
     let next: Awaited<ReturnType<typeof assemble>>;
     try {
-      next = await assemble(target.space, plugins, { first: false, unsaved: target.agent.unsavedSessions() });
+      next = await assemble(target.space, plugins, { first: false, clean: closeFailures.length === 0, unsaved: target.agent.unsavedSessions() });
     } catch (error) {
       // 装配途中服务开始关闭：已经建好的部分已关闭，空间由排在后面的 closeActive 收尾。
       if (stopping) return { status: "cancelled" };
@@ -588,8 +609,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       emit("space.assembled", { root: null, error: { code: fault.code, message: fault.message } });
       throw error;
     }
-    active = { ...target, plugins: next.plugins, agent: next.agent, assembly: next.assembly };
-    const disabledPlugins = next.plugins.disabled();
+    active = { ...target, plugins: next.plugins, agent: next.agent, assembly: next.assembly, unavailable: next.unavailable };
+    const disabledPlugins = disabledOf(next);
     emit("space.assembled", { root: target.space.root, assembly: next.assembly, disabledPlugins });
     return { status: "applied", assembly: next.assembly, disabledPlugins, closeFailures };
   };
@@ -714,7 +735,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       case "history.undoRun":
         return requireActive().space.history.undoRun(p<"history.undoRun">().runId);
       case "plugin.disabled":
-        return requireActive().plugins.disabled();
+        return disabledOf(requireActive());
       case "plugin.list":
         return requireActive().plugins.list();
       case "plugin.call": {
@@ -953,7 +974,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             baseline: {
               space: active === undefined ? null : { root: active.space.root, assembly: active.assembly },
               sessions: active?.agent.baseline() ?? [],
-              disabledPlugins: active?.plugins.disabled() ?? [],
+              disabledPlugins: active === undefined ? [] : disabledOf(active),
             },
           };
           return Check(methods[method].result, output) ? { jsonrpc: "2.0", id, result: output } : errorResponse(id, new RpcFault(-32603, "Internal error"));

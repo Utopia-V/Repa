@@ -377,7 +377,7 @@ class Space implements AgentSpace {
   /** 所有 Agent 的写入和编辑、插件 Agent 的文件工具共用空间范围；读取另允许 .repa/tool-output/。 */
   fileScope(): Promise<FileScope> {
     if (this.scope === undefined) {
-      const created = FileScope.create(this.options.root);
+      const created = FileScope.create(this.options.root, this.options.controlDirs ?? []);
       // 只缓存成功的结果；一次读取根目录失败后，下次建会话重新尝试。
       created.catch(() => {
         if (this.scope === created) this.scope = undefined;
