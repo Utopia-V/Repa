@@ -926,15 +926,18 @@ class Session implements AgentSession {
     return { runId: outcome.runId, text: outcome.text };
   }
 
-  private async run(text: string, parent?: ParentRun, mode: "send" | "steer" | "followUp" = "send"): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
+  /**
+   * after 省略时排在会话的运行次序末尾；给出时只等它，不改变次序，取回的 Pi 队列消息用它插到已排队的运行前面。
+   */
+  private async run(text: string, parent?: ParentRun, mode: "send" | "steer" | "followUp" = "send", after?: Promise<void>): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
     this.assertAccepting();
     const runId = randomUUID();
     const controller = new AbortController();
     let finish: () => void = () => undefined;
     const settled = new Promise<void>(resolve => { finish = resolve; });
     this.pending.set(controller, { settled, message: { text, mode } });
-    const previous = this.turn;
-    this.turn = settled;
+    const previous = after ?? this.turn;
+    if (after === undefined) this.turn = settled;
     // 状态在 execute 闭包内更新；断言避免 TypeScript 按初值收窄。
     let status = "completed" as "completed" | "failed" | "aborted";
     let started = false;
@@ -977,6 +980,8 @@ class Session implements AgentSession {
     };
     try {
       await previous;
+      // 轮到这次运行时，先送达此前留在 Pi 队列里的消息：它们比这次运行早，次序在前。
+      for (let stranded = this.recoverStranded(); stranded !== undefined; stranded = this.recoverStranded()) await stranded;
       // 只有带命令行的运行整次进 record，持空间写锁独占；其余运行的写入各自按路径记账，可以并行。
       // 子 Agent 不另进：不透明父运行的窗口里它直接写文件，算在父运行的快照里，否则会和等它结果的父运行互相等待。
       if (parent === undefined && this.opaque) await this.space.options.record(runId, execute);
@@ -994,9 +999,32 @@ class Session implements AgentSession {
       this.pending.delete(controller);
       finish();
       if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
+      // 整次运行（含保存）结束时，Pi 的循环可能早已结束，期间入队的消息留在 Pi 队列里；没有排着的运行会在开始前取回它们时，
+      // 在这里取回。取回与登记是同步的，空闲不会在两者之间成立。
+      if (this.pending.size === 0) this.recoverStranded()?.catch(() => undefined);
       this.space.notifyIdle();
     }
     return { runId, status: status === "aborted" ? "aborted" : "completed", text: reply };
+  }
+
+  /**
+   * Pi 先跑输入钩子再入队，其间它的循环可能已经结束：消息落进没有循环消费的队列。Pi 不在运行、没有取消进行时，
+   * 同步取回这些消息，按原次序各自登记一次运行，排在已排队的 Repa 运行之前；返回它们全部结束的 Promise，没有可取回的消息时返回 undefined。
+   */
+  private recoverStranded(): Promise<void> | undefined {
+    const pi = this.pi;
+    if (pi === undefined || pi.isStreaming || pi.pendingMessageCount === 0 || this.cancelling !== undefined || this.closed) return undefined;
+    const stranded = pi.clearQueue();
+    let after: Promise<void> = Promise.resolve();
+    const runs: Promise<unknown>[] = [];
+    for (const [mode, messages] of [["steer", stranded.steering], ["followUp", stranded.followUp]] as const) {
+      for (const message of messages) {
+        const run = this.run(message, undefined, mode, after);
+        after = run.then(() => undefined, () => undefined);
+        runs.push(run);
+      }
+    }
+    return Promise.all(runs).then(() => undefined);
   }
 
   /**
@@ -1104,15 +1132,9 @@ class Session implements AgentSession {
       this.enqueuing.delete(operation);
       this.space.notifyIdle();
     }
-    // Pi 先跑输入钩子再入队，其间运行可能已经结束：消息落进没有循环消费的队列，要等下一次运行才被读到，
-    // 而且排在那次的消息之后。没有 Repa 运行接着排队时取回它们，按原来的次序各自开始一次运行。
-    if (this.session.isStreaming || this.pending.size > 0 || this.cancelling !== undefined || this.session.pendingMessageCount === 0) return;
-    const stranded = this.session.clearQueue();
-    const runs = [
-      ...stranded.steering.map((message) => this.run(message, undefined, "steer")),
-      ...stranded.followUp.map((message) => this.run(message, undefined, "followUp")),
-    ];
-    await Promise.all(runs);
+    // 入队时 Pi 的运行可能已经结束。还有 Repa 运行在执行或排队时，由它在开始前或结束时取回；否则在这里取回，并等它们送达。
+    if (this.pending.size > 0) return;
+    await this.recoverStranded();
   }
 
   abort(): Promise<void> {
