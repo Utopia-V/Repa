@@ -298,3 +298,50 @@ it("代码题点“运行”：后端拼好不带答案的一批，交给试运�
   expect(runner.run).toHaveBeenCalledWith(batch, expect.any(AbortSignal));
   expect(learningCalls(fake.call).map((call) => call.method)).toEqual(["state.get", "run.prepare"]);
 });
+
+it("插件调用带打开空间时的装配序号；后端重组以后换用新序号重读学习状态，旧序号的事件不再触发读取", async () => {
+  let revision = 1;
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(revision, revision === 1 ? explanation : answering));
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning, { "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 3, disabledPlugins: [] }) });
+  start(fake.client);
+
+  expect(await screen.findByText("先算右边。", { exact: false })).toBeTruthy();
+  const pluginCalls = () => fake.call.mock.calls.filter(([method]) => method === "plugin.call").map(([, params]) => params as { method: string; assembly: number });
+  expect(pluginCalls().map((call) => call.assembly)).toEqual(pluginCalls().map(() => 3));
+  const reads = () => pluginCalls().filter((call) => call.method === "state.get").length;
+  const before = reads();
+
+  // 新装配启动途中发出的事件带新序号，在 space.assembled 之前到达，不读。
+  act(() => fake.emit("plugin.event", { pluginId: "learning", assembly: 4, event: { type: "learning.changed", revision: 2, taskId: "t1", menuId: null } }));
+  expect(reads()).toBe(before);
+
+  revision = 2;
+  act(() => fake.emit("space.assembled", { root: "/notes/python", assembly: 4, disabledPlugins: [] }));
+  expect(await screen.findByText("显示的整数")).toBeTruthy();
+  expect(pluginCalls().at(-1)).toMatchObject({ method: "state.get", assembly: 4 });
+  const after = reads();
+
+  // 旧装配迟到的事件不读，新装配的事件照常读。
+  act(() => fake.emit("plugin.event", { pluginId: "learning", assembly: 3, event: { type: "learning.changed", revision: 3, taskId: "t1", menuId: null } }));
+  expect(reads()).toBe(after);
+  act(() => fake.emit("plugin.event", { pluginId: "learning", assembly: 4, event: { type: "learning.changed", revision: 3, taskId: "t1", menuId: null } }));
+  await vi.waitFor(() => { expect(reads()).toBe(after + 1); });
+});
+
+it("重组整体失败时回到选空间页，说明原因", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(1, explanation));
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning, { "space.open": () => Promise.resolve({ root: "/notes/python", assembly: 1, disabledPlugins: [] }) });
+  const store = start(fake.client);
+  expect(await screen.findByText("先算右边。", { exact: false })).toBeTruthy();
+
+  act(() => fake.emit("space.assembled", { root: null, error: { code: "space_lock_lost", message: "空间锁已失效" } }));
+  expect(store.getState().space).toBeUndefined();
+  expect(store.getState().resumeFailure?.root).toBe("/notes/python");
+  expect(store.getState().resumeFailure?.error).toBeInstanceOf(RpcError);
+});

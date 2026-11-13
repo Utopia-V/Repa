@@ -336,7 +336,7 @@
 | baseline.sessions[] | object | 否 | 嵌套对象，字段见源码 |
 | baseline.space | object &#124; null | 否 | 嵌套对象，字段见源码 |
 | serverId | string | 否 |  |
-| version | "3" | 否 |  |
+| version | "4" | 否 |  |
 
 ## 方法：model.getDefault
 
@@ -409,6 +409,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| assembly | integer | 否 |  |
 | input | unknown | 否 |  |
 | method | string | 否 |  |
 | pluginId | string | 否 |  |
@@ -439,6 +440,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| assembly | integer | 否 |  |
 | event | unknown | 否 |  |
 | pluginId | string | 否 |  |
 
@@ -813,6 +815,12 @@
 | prompts[^.*$] | object | 是 | 嵌套对象，字段见源码 |
 | recentSpaces[] | string | 否 |  |
 
+## 通知：space.assembled
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $ | object &#124; object | 否 | 嵌套对象，字段见源码 |
+
 ## 方法：space.browse
 
 ### 参数
@@ -859,6 +867,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| assembly | integer | 否 |  |
 | disabledPlugins[] | object | 否 |  |
 | disabledPlugins[].id | string | 否 |  |
 | disabledPlugins[].reason | object | 否 | 嵌套对象，字段见源码 |
@@ -889,6 +898,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| assembly | integer | 否 |  |
 | disabledPlugins[] | object | 否 |  |
 | disabledPlugins[].id | string | 否 |  |
 | disabledPlugins[].reason | object | 否 | 嵌套对象，字段见源码 |

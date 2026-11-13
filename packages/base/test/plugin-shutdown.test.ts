@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { Host } from "../src/plugin.js";
+import { RepaFault } from "../src/schema.js";
 import { createPluginTestHost } from "../src/testing.js";
 
 function deferred() {
@@ -50,4 +52,40 @@ test("关闭停止接纳新变化，仍等已开始的变化处理保存完成",
   assert.equal(callbacks, 1);
   assert.equal(await testing.space.files.read("derived.txt"), "结果 1");
   assert.equal(instanceClosed, true);
+});
+
+test("经 Host 发起的文件写入在等空间写锁时，宿主算作有工作，写完才空闲；关闭开始以后新发起的写入被拒绝", async (t) => {
+  let saved: Host | undefined;
+  const testing = await createPluginTestHost({
+    plugins: [{
+      id: "timer",
+      async open(host) {
+        saved = host;
+        return {};
+      },
+    }],
+  });
+  t.after(() => testing.close());
+  await testing.host.start();
+  const host = saved;
+  assert.ok(host);
+  assert.equal(testing.host.busy(), false);
+  // 空间写锁被别的写入者独占时，插件定时器发起的写入停在锁前。
+  const holding = deferred();
+  const locked = deferred();
+  const recording = testing.space.record({ kind: "agent", runId: "run-hold" }, async () => {
+    locked.resolve();
+    await holding.promise;
+  });
+  await locked.promise;
+  const writing = host.files.write("timer.txt", "定时写入");
+  assert.equal(testing.host.busy(), true);
+  holding.resolve();
+  await recording;
+  await writing;
+  assert.equal(testing.host.busy(), false);
+  const closing = testing.host.close();
+  await assert.rejects(host.files.write("late.txt", "关闭以后"), (error: unknown) => error instanceof RepaFault && error.code === "plugins_closed");
+  await closing;
+  assert.equal(await testing.space.files.read("timer.txt"), "定时写入");
 });

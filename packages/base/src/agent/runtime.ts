@@ -18,7 +18,7 @@ import {
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import type { SessionBaseline } from "../protocol.js";
-import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool, ModelCallScope } from "../agent.js";
+import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool, ModelCallScope, UnsavedSession } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
 import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
@@ -363,6 +363,9 @@ class Space implements AgentSpace {
   private sessions = new Map<string, { session: Session; ready: Promise<Session> }>();
   private closing?: Promise<void>;
   private scope?: Promise<FileScope>;
+  // 正在载入的会话数；载入期间算作有工作。
+  private loading = 0;
+  private unsaved: UnsavedSession[] = [];
 
   constructor(readonly runtime: Runtime, readonly options: AgentSpaceOptions, private onClose: () => void) {}
 
@@ -485,13 +488,29 @@ class Space implements AgentSpace {
     return { sections: await this.promptSections(profile), views: await profile.views() };
   }
 
-  async create(options: { agent?: string; model?: ModelRef; parent?: SessionParent } = {}): Promise<Session> {
+  notifyIdle(): void {
+    this.options.onIdle?.();
+  }
+
+  busy(): boolean {
+    if (this.loading > 0) return true;
+    for (const { session } of this.sessions.values()) {
+      if (session.busy()) return true;
+    }
+    return false;
+  }
+
+  unsavedSessions(): UnsavedSession[] {
+    return this.unsaved.map((session) => ({ ...session }));
+  }
+
+  async create(options: { agent?: string; model?: ModelRef; parent?: SessionParent; id?: string } = {}): Promise<Session> {
     this.assertOpen();
     const agent = options.agent ?? GENERAL_AGENT;
     // 先确认 Agent 和模型可用，不留下打不开或发不出消息的会话。
     this.profile(agent);
     const model = await this.runtime.usableModel(options.model);
-    const manager = SessionManager.create(this.options.root, this.options.sessionsDir, { id: randomUUID() });
+    const manager = SessionManager.create(this.options.root, this.options.sessionsDir, { id: options.id ?? randomUUID() });
     // 装配和运行之前保存父关联，runStart 只能看到已落盘的关联。
     if (options.parent !== undefined) await saveParent(this.options.sessionsDir, manager.getSessionId(), options.parent);
     // 所属 Agent 写在会话开头，不进入模型上下文；分支复制全部条目，也就沿用同一个 Agent。
@@ -507,8 +526,12 @@ class Space implements AgentSpace {
     const session = new Session(this, manager);
     const loading = session.initialize(reference).then(() => session);
     this.sessions.set(id, { session, ready: loading });
+    this.loading++;
     loading.catch(() => {
       if (this.sessions.get(id)?.ready === loading) this.sessions.delete(id);
+    }).finally(() => {
+      this.loading--;
+      this.notifyIdle();
     });
     return loading;
   }
@@ -523,7 +546,14 @@ class Space implements AgentSpace {
     const existing = this.sessions.get(id);
     if (existing) return existing.ready;
     const sessionPath = await findSessionPath(this.options.sessionsDir, id);
-    if (sessionPath === undefined) throw new RepaFault("session_not_found", "会话不存在", { id });
+    if (sessionPath === undefined) {
+      // 重组前还没有第一条消息的会话没有文件，按带过来的描述以同一编号重建；已经重建的直接取得。
+      const carried = this.options.unsavedSessions?.find((session) => session.id === id);
+      if (carried === undefined) throw new RepaFault("session_not_found", "会话不存在", { id });
+      const loaded = this.sessions.get(id);
+      if (loaded) return loaded.ready;
+      return this.create({ id, agent: carried.agent, ...(carried.model === undefined ? {} : { model: carried.model }) });
+    }
     const manager = SessionManager.open(sessionPath, this.options.sessionsDir, this.options.root);
     if (manager.getSessionId() !== id) {
       throw new RepaFault("invalid_session_header", "会话编号与文件名不一致", { id, path: sessionPath });
@@ -582,10 +612,18 @@ class Space implements AgentSpace {
   close(): Promise<void> {
     // 会话的创建和登记是同步的，关闭开始后不会再有新会话加入。
     this.closing ??= (async () => {
-      await Promise.all([...this.sessions.values()].map(async pending => {
+      const closed = await Promise.all([...this.sessions.values()].map(async pending => {
         const session = await pending.ready.catch(() => undefined);
         await session?.close();
+        return session;
       }));
+      // 还没有第一条消息的会话只在内存里；记下描述，重组以后的 Agent 空间按编号重建它。子 Agent 的会话不带。
+      for (const session of closed) {
+        if (session === undefined || session.modelCall || session.info().parent !== undefined) continue;
+        if (await findSessionPath(this.options.sessionsDir, session.info().id) !== undefined) continue;
+        const { id, model } = session.info();
+        this.unsaved.push({ id, agent: session.agent, ...(model === undefined ? {} : { model }) });
+      }
       this.sessions.clear();
       this.onClose();
     })();
@@ -623,6 +661,12 @@ class Session implements AgentSession {
   constructor(private space: Space, private manager: SessionManager) {
     this.agent = sessionAgent(manager);
     this.modelCall = isModelCall(manager);
+  }
+
+  /** Repa 队列、入队、取消，以及 Pi 的运行和它自己的队列，任何一项未结束都算有工作。 */
+  busy(): boolean {
+    if (this.pending.size > 0 || this.enqueuing.size > 0 || this.cancelling !== undefined) return true;
+    return this.pi !== undefined && (this.pi.isStreaming || this.pi.pendingMessageCount > 0);
   }
 
   get session(): PiSession {
@@ -943,6 +987,7 @@ class Session implements AgentSession {
       this.pending.delete(controller);
       finish();
       if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
+      this.space.notifyIdle();
     }
     return { runId, status: status === "aborted" ? "aborted" : "completed", text: reply };
   }
@@ -1050,6 +1095,7 @@ class Session implements AgentSession {
       await operation;
     } finally {
       this.enqueuing.delete(operation);
+      this.space.notifyIdle();
     }
     // Pi 先跑输入钩子再入队，其间运行可能已经结束：消息落进没有循环消费的队列，要等下一次运行才被读到，
     // 而且排在那次的消息之后。没有 Repa 运行接着排队时取回它们，按原来的次序各自开始一次运行。
@@ -1091,6 +1137,7 @@ class Session implements AgentSession {
       } finally {
         this.session.clearQueue();
         this.cancelling = undefined;
+        this.space.notifyIdle();
       }
     };
     void finished().then(resolve, reject);

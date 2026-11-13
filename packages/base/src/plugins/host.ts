@@ -31,7 +31,13 @@ const NO_SERVICES: Services = {
  * onSubmit 在提问时的上下文里执行：它属于这次工具调用，写入记在这次运行名下；
  * 带命令行的运行持有空间写锁等待回答，onSubmit 若在回复的上下文里写文件就会和它互相等待。
  */
-async function askAs(route: AskRoute, pluginId: string, context: { signal: AbortSignal; callId: string }, options: AskOptions): Promise<AskOutcome> {
+async function askAs(
+  route: AskRoute,
+  pluginId: string,
+  context: { signal: AbortSignal; callId: string },
+  options: AskOptions,
+  own: <T>(action: () => Promise<T>) => Promise<T>,
+): Promise<AskOutcome> {
   const item = await prepareItem(options.item);
   const run = currentRun();
   const onSubmit = options.onSubmit;
@@ -41,7 +47,8 @@ async function askAs(route: AskRoute, pluginId: string, context: { signal: Abort
     item,
   }, {
     signal: context.signal,
-    ...(onSubmit === undefined ? {} : { onSubmit: (response) => inCall(() => onSubmit.call(options, response)) }),
+    // 回调可以比发起询问的运行活得久，由宿主登记整条完成链，重组和关闭等它结束。
+    ...(onSubmit === undefined ? {} : { onSubmit: (response) => own(() => inCall(() => onSubmit.call(options, response))) }),
   });
 }
 
@@ -132,10 +139,24 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   // start() 的追赶完成以后为 true；此后发起的变化处理出错照常报告，不再停用插件。
   let caughtUp = false;
   const waiting = new Set<string>();
+  // 宿主开始关闭时中止它发出的服务请求。
+  const shutdown = new AbortController();
   let closing: Promise<void> | undefined;
+  // 变化处理链上尚未结束的唤醒数；与 calls 一起决定宿主是否有工作。
+  let changes = 0;
+  // 宿主登记的工作带着自己的记录执行；工作结束后 live 为 false。关闭开始以后，只有仍在进行的工作
+  // （例如关闭前已开始的变化处理）还能经 Host 读写文件和历史；插件定时器等新发起的操作一律拒绝。
+  // 用记录而不用布尔值：工作里建立的定时器会继承上下文，工作结束后它再触发也不算在内。
+  const working = new AsyncLocalStorage<{ live: boolean }>();
 
   function checkOpen(): void {
     if (closed || stopping) throw new RepaFault("plugins_closed", "插件宿主已经关闭");
+  }
+
+  /** 关闭开始以后只放行仍在进行的宿主工作，关闭结束以后全部拒绝；拒绝时返回失败的 Promise，不同步抛错。 */
+  function admitted<T>(action: () => Promise<T>): Promise<T> {
+    if (closed || (stopping && working.getStore()?.live !== true)) return Promise.reject(new RepaFault("plugins_closed", "插件宿主已经关闭"));
+    return own(action);
   }
 
   const modelScopes = new Map<string, ModelScope>();
@@ -179,10 +200,32 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     for (const failure of failures) options.onError(failure);
   }
 
+  function settledCall(operation: Promise<unknown>): void {
+    calls.delete(operation);
+    options.onIdle?.();
+  }
+
   function track<T>(operation: Promise<T>): Promise<T> {
     calls.add(operation);
-    operation.then(() => { calls.delete(operation); }, () => { calls.delete(operation); });
+    operation.then(() => { settledCall(operation); }, () => { settledCall(operation); });
     return operation;
+  }
+
+  /** 登记 start 同步发起的操作；同步抛出的错误（例如模型作用域已关闭）改为失败的 Promise。 */
+  function tracked<T>(start: () => Promise<T>): Promise<T> {
+    try {
+      return track(start());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  /** 在宿主登记的工作里执行 action：重组与关闭等它整条完成链结束。 */
+  function own<T>(action: () => Promise<T>): Promise<T> {
+    const record = { live: true };
+    const operation = working.run(record, () => Promise.resolve().then(action));
+    operation.then(() => { record.live = false; }, () => { record.live = false; });
+    return track(operation);
   }
 
   function wrapAgent(definition: AgentDefinition): AgentDefinition {
@@ -200,19 +243,19 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       ...(view === undefined ? {} : {
         view() {
           checkOpen();
-          return track(Promise.resolve().then(() => view.call(definition)));
+          return own(() => view.call(definition));
         },
       }),
       ...(beforeRun === undefined ? {} : {
         beforeRun() {
           checkOpen();
-          return track(Promise.resolve().then(() => beforeRun.call(definition)));
+          return own(() => beforeRun.call(definition));
         },
       }),
       ...(beforeMessage === undefined ? {} : {
         beforeMessage(message) {
           checkOpen();
-          return track(Promise.resolve().then(() => beforeMessage.call(definition, message)));
+          return own(() => beforeMessage.call(definition, message));
         },
       }),
     };
@@ -263,7 +306,9 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       return;
     }
     const opening = !caughtUp;
-    pending = pending.then(async () => {
+    changes++;
+    const record = { live: true };
+    pending = working.run(record, () => pending.then(async () => {
       const failures: [string, unknown][] = [];
       for (const [id, instance] of instances) {
         try {
@@ -277,9 +322,13 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       // start() 追赶完成之前，变化处理也是打开空间的一部分：出错和 open 失败一样，只停这个插件，再核对依赖它的插件。
       for (const [id, error] of failures) await disable(id, error);
       await checkDeclarations();
-    }).catch((error: unknown) => {
+    })).catch((error: unknown) => {
       pendingError = error;
       options.onError(error);
+    }).finally(() => {
+      record.live = false;
+      changes--;
+      options.onIdle?.();
     });
   }
 
@@ -314,21 +363,44 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       try {
         const dataDir = await space.pluginDataDir(plugin.id);
         const ownedAgents = new Set<string>();
+        const files = space.filesFor({ kind: "plugin", pluginId: plugin.id });
+        const scoped = ownedModels.models;
+        // Host 发出的文件、历史与模型操作都登记整条完成链，宿主据此判断有没有工作；关闭开始以后新发起的被拒绝，
+        // 旧实例因此不会在重组后的新实例运行时继续写空间。
         const host: Host = {
           now: options.now ?? Date.now,
           space: { root: space.root, dataDir },
-          files: space.filesFor({ kind: "plugin", pluginId: plugin.id }),
+          files: {
+            read(file) {
+              return admitted(() => files.read(file));
+            },
+            write(file, text) {
+              return admitted(() => files.write(file, text));
+            },
+            list(directory) {
+              return admitted(() => files.list(directory));
+            },
+          },
           history: {
-            changes: (since) => space.history.changes(since),
-            list: (limit) => space.history.list(limit),
+            changes(since) {
+              return admitted(() => space.history.changes(since));
+            },
+            list(limit) {
+              return admitted(() => space.history.list(limit));
+            },
             record: (source, action) => {
               if (source.kind !== "plugin" || source.pluginId !== plugin.id) {
                 throw new RepaFault("invalid_history_source", "插件只能以自己的来源记录历史");
               }
-              return space.record(source, action);
+              return admitted(() => space.record(source, action));
             },
           },
-          models: ownedModels.models,
+          models: {
+            complete: (request) => tracked(() => scoped.complete(request)),
+            completeStructured: (request, schema) => tracked(() => scoped.completeStructured(request, schema)),
+            runAgent: (task) => tracked(() => scoped.runAgent(task)),
+            defaultModel: () => scoped.defaultModel(),
+          },
           abortAgent(agent) {
             checkOpen();
             if (!ownedAgents.has(agent)) {
@@ -337,12 +409,14 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
             if (!options.abortAgent) {
               return Promise.reject(new RepaFault("space_not_ready", "空间尚未接入 Agent 中止入口"));
             }
-            return track(Promise.resolve().then(() => options.abortAgent?.(agent)));
+            return own(async () => { await options.abortAgent?.(agent); });
           },
           services: {
             call(service, input, callOptions) {
-              checkOpen();
-              return track(Promise.resolve().then(() => serviceRoute.call(service, input, callOptions)));
+              if (stopping || closed) return Promise.reject(new RepaFault("plugins_closed", "插件宿主已经关闭"));
+              // 宿主关闭时结束请求，关闭不必等前端回复。
+              const signal = callOptions?.signal === undefined ? shutdown.signal : AbortSignal.any([callOptions.signal, shutdown.signal]);
+              return own(() => serviceRoute.call(service, input, { ...callOptions, signal }));
             },
           },
           emit: (event) => { options.emit(plugin.id, event); },
@@ -379,9 +453,9 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
               const checked = parse(tool.parameters, input);
               const ask = (askOptions: AskOptions) => {
                 checkOpen();
-                return askAs(askRoute, plugin.id, context, askOptions);
+                return askAs(askRoute, plugin.id, context, askOptions, own);
               };
-              return track(Promise.resolve().then(() => withToolCall(context.callId, () => tool.execute(checked, { ...context, ask }))));
+              return own(() => withToolCall(context.callId, () => tool.execute(checked, { ...context, ask })));
             },
           };
         });
@@ -432,8 +506,8 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       }
       return starting;
     },
+    // 只读打开时的结果；重组途中排在前面的同一空间 space.open 也要读它，关闭开始以后照常回答。
     disabled() {
-      checkOpen();
       return disabledPlugins.map((plugin) => ({ ...plugin, reason: { ...plugin.reason } })).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
     },
     list() {
@@ -463,18 +537,18 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     },
     views() {
       checkOpen();
-      return track((async () => {
+      return own(async () => {
         const result: { id: string; text: string }[] = [];
         for (const [id, instance] of orderedInstances()) {
           const text = await instance.view?.();
           if (text !== undefined) result.push({ id: `plugin:${id}`, text });
         }
         return result;
-      })());
+      });
     },
     call(pluginId, methodName, input, caller) {
       checkOpen();
-      const operation = (async () => {
+      return own(async () => {
         const instance = instances.get(pluginId);
         if (!instance) throw new RepaFault("plugin_not_found", "插件不存在", { pluginId });
         const method = Object.hasOwn(instance.methods ?? {}, methodName) ? instance.methods?.[methodName] : undefined;
@@ -485,14 +559,17 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           throw new RepaFault("invalid_plugin_result", "插件方法的返回值不符合它声明的 schema", { pluginId, methodName });
         }
         return result;
-      })();
-      return track(operation);
+      });
+    },
+    busy() {
+      return calls.size > 0 || changes > 0 || (starting !== undefined && !caughtUp);
     },
     flush,
     close() {
       if (closing === undefined) {
         stopping = true;
         unsubscribe();
+        shutdown.abort();
         closing = (async () => {
           const failures: unknown[] = [];
           try {
@@ -506,14 +583,15 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           } catch (error) {
             failures.push(error);
           }
-          closed = true;
-          for (const instance of [...instances.values()].reverse()) {
+          for (const [id, instance] of [...instances].reverse()) {
             try {
-              await instance.close?.();
+              // 实例自己的收尾也算宿主的工作，仍可经 Host 读写；宿主随后才拒绝全部操作。
+              await own(async () => { await instance.close?.(); });
             } catch (error) {
-              failures.push(error);
+              failures.push(new RepaFault("plugin_close_failed", error instanceof Error ? error.message : String(error), { pluginId: id }));
             }
           }
+          closed = true;
           if (failures.length > 0) throw new AggregateError(failures, "插件宿主关闭失败");
         })();
       }

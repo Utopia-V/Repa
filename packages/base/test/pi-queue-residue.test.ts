@@ -23,7 +23,7 @@ function users(context: TranscriptContext): string[] {
 
 // Pi 先跑输入钩子再把插话放进队列；钩子期间运行结束时，消息落进没有循环消费的队列。
 // 用真实 Pi 与离线模型构造这个时序：钩子停住，放行回复让运行结束，再放行钩子。
-test("插话的输入钩子期间运行结束：消息不留在 Pi 队列里，接着作为一次运行送达，不留到下一次运行", async t => {
+test("插话的输入钩子期间运行结束：消息不留在 Pi 队列里，接着作为一次运行送达，会话随后空闲", async t => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-residue-")));
   const agentDir = path.join(root, "app", "agent");
   const sessionsDir = path.join(root, ".repa", "sessions");
@@ -86,4 +86,5 @@ test("插话的输入钩子期间运行结束：消息不留在 Pi 队列里，�
   await steering;
   assert.deepEqual(requests, [["你好"], ["你好", "插话"]]);
   assert.equal(events.filter(event => event.type === "runEnd").length, 2);
+  assert.equal(space.busy(), false);
 });

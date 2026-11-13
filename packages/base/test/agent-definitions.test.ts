@@ -271,7 +271,7 @@ test("插件在后台运行不可直接对话的 Agent，前端能查看会话�
     fauxAssistantMessage(fauxToolCall("write", { path: "lessons/second.md", content: "第二课" })),
     fauxAssistantMessage("第二课已写好"),
   ]);
-  const { id } = record(await f.client.call("plugin.call", { pluginId: "learning", method: "write", input: {} })) ?? {};
+  const { id } = record(await f.client.call("plugin.call", { pluginId: "learning", method: "write", input: {}, assembly: f.opened.assembly })) ?? {};
   assert.equal(typeof id, "string");
   const sessionId = String(id);
   assert.equal(await readFile(path.join(f.root, "lessons", "second.md"), "utf8"), "第二课");
@@ -384,7 +384,7 @@ test("插件数据打开失败经协议报告，其他插件、通用对话和�
   assert.deepEqual((await f.client.call("space.open", { root: f.root })).disabledPlugins, disabled);
   assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning"]);
   assert.ok((await f.client.call("agent.list", {})).some((agent) => agent.id === "tutor"));
-  await assert.rejects(f.client.call("plugin.call", { pluginId: "broken", method: "save", input: {} }), rejectsWith("plugin_not_found"));
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "broken", method: "save", input: {}, assembly: f.opened.assembly }), rejectsWith("plugin_not_found"));
   const session = await f.client.call("session.create", {});
   f.faux.setResponses([fauxAssistantMessage("继续工作。")]);
   await f.client.call("session.send", { sessionId: session.id, text: "一个插件坏了，也继续对话" });
@@ -415,7 +415,7 @@ test("插件第一次处理变化就失败时，只停它和依赖它的插件�
   assert.equal(f.opened.disabledPlugins.find((plugin) => plugin.id === "derive")?.reason.message, "派生数据读不出来");
   assert.deepEqual(await f.client.call("plugin.disabled", {}), f.opened.disabledPlugins);
   assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning"]);
-  await assert.rejects(f.client.call("plugin.call", { pluginId: "derive", method: "inspect", input: {} }), rejectsWith("plugin_not_found"));
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "derive", method: "inspect", input: {}, assembly: f.opened.assembly }), rejectsWith("plugin_not_found"));
   assert.deepEqual((await f.client.call("agent.list", {})).map((agent) => agent.id), ["general", "tutor", "writer"]);
   await assert.rejects(f.client.call("session.create", { agent: "deriver" }), rejectsWith("agent_not_found"));
   const preview = await f.client.call("prompt.preview", {});

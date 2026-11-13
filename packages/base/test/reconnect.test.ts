@@ -63,7 +63,7 @@ for (const gated of [false, true]) {
       await server.close();
       await rm(directory, { recursive: true, force: true });
     });
-    await client.call("space.open", { root });
+    const { assembly } = await client.call("space.open", { root });
     const session = await client.call("session.create", { agent: "probe-agent" });
     let runId: string | undefined;
     client.on("session.event", (event) => {
@@ -89,7 +89,7 @@ for (const gated of [false, true]) {
       { text: "追问消息", mode: "followUp" },
       { text: "下一次发送", mode: "send" },
     ];
-    assert.deepEqual(baseline.space, { root });
+    assert.deepEqual(baseline.space, { root, assembly });
     assert.deepEqual(baseline.sessions, [{ sessionId: session.id, agent: "probe-agent", runId, queued }]);
     assert.deepEqual(baseline.disabledPlugins, []);
     release.resolve();

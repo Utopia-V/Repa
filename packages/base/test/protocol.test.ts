@@ -320,7 +320,9 @@ test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释�
       markStarted();
       return { id: "initial-work", result, cancel };
     },
+    busy() { return false; },
     close: cancel,
+    unsavedSessions() { return []; },
   };
   const plugin: Plugin = {
     id: "initializing",
@@ -525,6 +527,7 @@ test("同一连接同时等待确认、提问和服务，断线后三者以各�
         async list() { return []; }, async sessionFile() { return undefined; }, async abortAgent() {},
         async preview() { return { sections: [], views: [] }; },
         async runAgent() { throw new Error("未使用"); }, async close() {},
+        busy: () => false, unsavedSessions: () => [],
       };
     } },
   });
@@ -532,10 +535,10 @@ test("同一连接同时等待确认、提问和服务，断线后三者以各�
   await mkdir(root);
   const client = await RepaClient.connect(f.server.connection, { capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] }, services: ["probe.run"] } });
   t.after(() => client.close());
-  await client.call("space.open", { root });
+  const { assembly } = await client.call("space.open", { root });
   const requested = Promise.all(["confirm.request", "ask.request", "service.request"].map((method) => new Promise<void>((resolve) => client.on(method as "confirm.request" | "ask.request" | "service.request", () => resolve()))));
   const running = client.call("session.send", { sessionId: "s", text: "开始" }).catch(() => undefined);
-  const serving = client.call("plugin.call", { pluginId: "probe", method: "run", input: {} }).catch(() => undefined);
+  const serving = client.call("plugin.call", { pluginId: "probe", method: "run", input: {}, assembly }).catch(() => undefined);
   await requested;
   await client.close();
   await settled;
@@ -562,6 +565,7 @@ test("基线投影后立即发生 runEnd，单个及批量 initialize 响应都�
       async list() { return []; }, async sessionFile() { return undefined; }, async abortAgent() {},
       async preview() { return { sections: [], views: [] }; },
       async runAgent() { throw new Error("未使用"); }, async close() {},
+      busy: () => false, unsavedSessions: () => [],
     };
   } } });
   const client = await f.client();

@@ -88,9 +88,17 @@ async function fixture(t: TestContext) {
     await server.close();
     await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
-  const answer = (text: string) => client.call("plugin.call", { pluginId: "records", method: "answer", input: { text } });
+  // 插件调用带最近一次打开空间的装配序号。
+  let assembly = 0;
+  const open = async (target: string) => {
+    const opened = await client.call("space.open", { root: target });
+    assembly = opened.assembly;
+    return opened;
+  };
+  const answer = (text: string) => client.call("plugin.call", { pluginId: "records", method: "answer", input: { text }, assembly });
+  const note = (file: string, text: string) => client.call("plugin.call", { pluginId: "records", method: "note", input: { file, text }, assembly });
   const records = () => readFile(path.join(root, ".repa", "plugins", "records", "records.jsonl"), "utf8");
-  return { directory, root, home, client, updates, answer, records };
+  return { directory, root, home, client, updates, open, answer, note, records };
 }
 
 function rejectsWith(code: string) {
@@ -111,7 +119,7 @@ test("打开空间以后备份一次，没有变化时立即备份也不复制�
   const settings = await f.client.call("settings.set", { backup: { intervalMinutes: 10, keep: 3 } });
   assert.deepEqual(settings.backup, { intervalMinutes: 10, keep: 3 });
   await assert.rejects(f.client.call("settings.set", { backup: { intervalMinutes: 1, keep: 3 } }), (error: unknown) => error instanceof RpcError && error.code === -32602);
-  const { root } = await f.client.call("space.open", { root: f.root });
+  const { root } = await f.open(f.root);
   // 打开时的检查在后台进行；立即备份排在它后面，返回时它已经备份过，这次没有变化。
   const unchanged = await f.client.call("backup.create", {});
   assert.equal(unchanged.created, false);
@@ -133,7 +141,7 @@ test("打开空间以后备份一次，没有变化时立即备份也不复制�
 
 test("学习进行中备份，恢复到原位置以后学习记录没有半行，可以继续作答；恢复前的备份可以删除", async (t) => {
   const f = await fixture(t);
-  const { root } = await f.client.call("space.open", { root: f.root });
+  const { root } = await f.open(f.root);
   // 打开时的检查在后台进行，机器慢时可能晚于下面的作答；立即备份排在它后面，等它做完，学习进行中的那份备份才一定会新建。
   await f.client.call("backup.create", {});
   await f.answer("第一题");
@@ -160,7 +168,7 @@ test("学习进行中备份，恢复到原位置以后学习记录没有半行�
   const saved = await f.client.call("backup.restore", { root, id: during.backup.id });
   assert.equal(saved.kind, "beforeRestore");
   assert.equal(await f.records(), fact(1, "第一题") + fact(2, "第二题"));
-  await f.client.call("space.open", { root });
+  await f.open(root);
   assert.equal(await f.answer("恢复后作答"), 3);
   assert.equal(await f.records(), fact(1, "第一题") + fact(2, "第二题") + fact(3, "恢复后作答"));
   await f.client.call("space.close", {});
@@ -175,9 +183,9 @@ test("学习进行中备份，恢复到原位置以后学习记录没有半行�
 
 test("删除空间文件夹以后，用最近一份备份恢复到新文件夹：学习进度与备份时一致，空间文件为备份时历史中的最近一次修订", async (t) => {
   const f = await fixture(t);
-  const { root } = await f.client.call("space.open", { root: f.root });
+  const { root } = await f.open(f.root);
   await f.answer("第一题");
-  await f.client.call("plugin.call", { pluginId: "records", method: "note", input: { file: "notes/a.md", text: "备份时的笔记\n" } });
+  await f.note("notes/a.md", "备份时的笔记\n");
   const { backup } = await f.client.call("backup.create", {});
   await f.client.call("space.close", {});
   await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -187,7 +195,7 @@ test("删除空间文件夹以后，用最近一份备份恢复到新文件夹�
   const target = path.join(f.directory, "恢复的空间");
   assert.deepEqual(await f.client.call("backup.restoreTo", { root, id: backup.id, target }), { root: target });
   await assert.rejects(f.client.call("backup.restoreTo", { root, id: backup.id, target }), rejectsWith("restore_target_exists"));
-  await f.client.call("space.open", { root: target });
+  await f.open(target);
   assert.equal(await readFile(path.join(target, "notes", "a.md"), "utf8"), "备份时的笔记\n");
   assert.equal(await f.answer("恢复后作答"), 2);
   assert.equal(await readFile(path.join(target, ".repa", "plugins", "records", "records.jsonl"), "utf8"), fact(1, "第一题") + fact(2, "恢复后作答"));

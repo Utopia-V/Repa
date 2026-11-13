@@ -71,9 +71,9 @@ async function fixture(t: TestContext) {
     await server.close();
     await rm(directory, { recursive: true, force: true });
   });
-  await client.call("space.open", { root });
+  const { assembly } = await client.call("space.open", { root });
   const model = { provider: faux.getModel().provider, id: "scripted" };
-  const probe = () => client.call("plugin.call", { pluginId: "learning", method: "probe", input: {} });
+  const probe = () => client.call("plugin.call", { pluginId: "learning", method: "probe", input: {}, assembly });
   const sessionFiles = async () => (await readdir(path.join(root, ".repa", "sessions"), { recursive: true })).filter(name => name.endsWith(".jsonl"));
   return { client, faux, model, events, probe, sessionFiles };
 }

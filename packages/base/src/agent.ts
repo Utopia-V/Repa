@@ -42,7 +42,19 @@ export interface AgentSpace {
   abortAgent(agent: string): Promise<void>;
   preview(agent?: string): Promise<{ sections: PromptSection[]; views: { id: string; text: string }[] }>;
   runAgent(task: AgentTask): Promise<AgentWork>;
+  /** 是否有工作：任一已载入或正在载入的会话有运行、排队、取消或入队中的消息，或 Pi 仍在运行、队列里还有消息。 */
+  busy(): boolean;
+  /** 同步地拒绝新的会话与运行，再中止已有运行、释放会话。 */
   close(): Promise<void>;
+  /** 关闭以后可读：还没有第一条消息、因而没有会话文件的会话，重组时交给新的 Agent 空间。 */
+  unsavedSessions(): UnsavedSession[];
+}
+
+/** 没有会话文件的会话的最小描述；新的 Agent 空间凭它以同一编号重建会话。 */
+export interface UnsavedSession {
+  id: string;
+  agent: string;
+  model?: ModelRef;
 }
 
 export interface AgentSpaceOptions {
@@ -68,6 +80,10 @@ export interface AgentSpaceOptions {
   confirm: Confirm;
   /** ask_user 的询问路由，绑定发起运行的连接；省略时 ask_user 以 ask_unavailable 交回模型。 */
   ask?: AskRoute;
+  /** 一项工作结束时调用；调用方据此重新判断 busy()。 */
+  onIdle?(): void;
+  /** 上一次装配里还没有会话文件的会话；按编号打开时找不到文件就照描述重建，前端手里的会话编号仍然有效。 */
+  unsavedSessions?: UnsavedSession[];
 }
 
 /** 插件在空间内发起模型调用时的持久归属；不传时会话仅存在内存中。 */

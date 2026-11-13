@@ -204,9 +204,9 @@ test("协议宿主给插件调用补上空间和插件归属，工具调用关�
   const server = await startServer({ home: path.join(f.root, "protocol-home"), runtime: f.runtime, plugins: [plugin] });
   const client = await RepaClient.connect(server.connection);
   try {
-    await client.call("space.open", { root });
+    const { assembly } = await client.call("space.open", { root });
     f.faux.setResponses([fauxAssistantMessage("方法模型结果")]);
-    assert.equal(await client.call("plugin.call", { pluginId: plugin.id, method: "complete", input: {} }), "方法模型结果");
+    assert.equal(await client.call("plugin.call", { pluginId: plugin.id, method: "complete", input: {}, assembly }), "方法模型结果");
     assert.deepEqual(await client.call("session.list", {}), []);
     const parent = await client.call("session.create", {});
     const callId = "integration-call";
@@ -275,8 +275,8 @@ test("插件经协议宿主读到运行时的默认模型；没有可用模型�
     const server = await startServer({ home: await mkdtemp(path.join(f.root, "probe-home-")), runtime, plugins: [plugin] });
     const client = await RepaClient.connect(server.connection);
     try {
-      await client.call("space.open", { root });
-      assert.deepEqual(await client.call("plugin.call", { pluginId: plugin.id, method: "probe", input: {} }), expected);
+      const { assembly } = await client.call("space.open", { root });
+      assert.deepEqual(await client.call("plugin.call", { pluginId: plugin.id, method: "probe", input: {}, assembly }), expected);
     } finally {
       await client.close();
       await server.close();

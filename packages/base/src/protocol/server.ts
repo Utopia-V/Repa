@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { Check } from "typebox/value";
 import { WebSocket, WebSocketServer } from "ws";
-import { createAgentRuntime, withFileMutationQueue, type AgentRuntime, type AgentSpace } from "../agent.js";
+import { createAgentRuntime, withFileMutationQueue, type AgentRuntime, type AgentSpace, type UnsavedSession } from "../agent.js";
 import type { AskRoute } from "../ask.js";
 import { restoreInPlace, restoreToNew } from "../backup/restore.js";
 import { SpaceBackups } from "../backup/schedule.js";
@@ -28,6 +28,7 @@ import {
   notifications,
   PROTOCOL_VERSION,
   type ClientCapabilities,
+  type DisabledPlugin,
   type Method,
   type Notification,
   type NotificationParams,
@@ -60,7 +61,17 @@ export interface RepaServer {
   connection: { url: string; token: string };
   closed: Promise<void>;
   close(): Promise<void>;
+  /**
+   * 按给定的插件清单重组当前空间：等到空闲，关闭插件宿主与 Agent 运行时，再打开它们；空间、锁、历史与备份不动。
+   * 省略清单时用装配时的插件。装卸请求接入以前，只供测试与宿主内部调用，前端没有入口。
+   */
+  reassemble(plugins?: Plugin[]): Promise<Reassembly>;
 }
+
+/** 一次重组的结局。cancelled：等待期间空间已经关闭或换成别的空间，没有重组。 */
+export type Reassembly =
+  | { status: "applied"; assembly: number; disabledPlugins: DisabledPlugin[]; closeFailures: { pluginId: string; message: string }[] }
+  | { status: "cancelled" };
 
 interface Peer {
   socket: WebSocket;
@@ -92,7 +103,24 @@ interface ActiveSpace {
   plugins: PluginHost;
   agent: AgentSpace;
   backups: SpaceBackups;
+  /** 这一次打开空间时的装配序号；plugin.call 带的序号比它小，说明调用属于此前打开的空间。 */
+  opened: number;
+  /** 当前装配的序号。 */
+  assembly: number;
 }
+
+// 经过重组闸门的方法：它们用到 Agent 空间或插件宿主，重组期间要等新的装配。
+// space.*、确认与询问的回复、服务回复、登录、设置、备份与历史不等：批准、登录和备份不应等重组，空间对象也不随重组关闭。
+const GATED = new Set<Method>([
+  "agent.list",
+  "session.list", "session.create", "session.history", "session.send", "session.steer", "session.followUp",
+  "session.abort", "session.setModel", "session.compact", "session.fork",
+  "plugin.disabled", "plugin.list", "plugin.call",
+  "prompt.list", "prompt.preview",
+  "feedback.create",
+]);
+// 在闸门前等待时，同一会话的 session.abort 到达即作废这些请求：停止要拿到它之前发出的消息。
+const VOIDABLE = new Set<Method>(["session.send", "session.steer", "session.followUp", "session.compact"]);
 
 /** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
 export async function startServer(options: ServerOptions = {}): Promise<RepaServer> {
@@ -280,16 +308,45 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     if (!active) throw new RepaFault("space_not_open", "请先打开空间");
     return active;
   };
+  // 装配序号：每次打开空间和每次重组前分配，单调递增；新宿主的 emit 闭包捕获它，旧宿主迟到的事件带旧序号。
+  let serial = 0;
+  // 重组闸门：落下时为一个 Promise，抬起时兑现。经过闸门的请求在 dispatch 之前等它。
+  let reassembling: Promise<void> | undefined;
+  // 在闸门前等待的请求；session.abort 到达时据此作废同一会话的发送、插话、追问和压缩。
+  const gateWaiters = new Set<{ method: Method; sessionId: string | undefined; cancel(): void }>();
+  // 正在执行、经过闸门的请求数；session.send 等整次运行结束才返回，运行因此也算在内。
+  let inFlight = 0;
+  // 等待空闲的重组；任一工作结束时逐个重新判断，不轮询。
+  const idleWaiters = new Set<() => void>();
+  const checkIdle = () => {
+    for (const check of [...idleWaiters]) check();
+  };
+
+  /** 结束空间里的命令确认、询问和服务请求；登录确认不属于空间。 */
+  const endSpaceRequests = () => {
+    reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command");
+  };
+  /**
+   * 同一段同步代码里让 Agent 空间和插件宿主都开始关闭：两者各自立即拒绝新工作、发出取消，然后才一起等收尾。
+   * 先等完一方再通知另一方会成环：插件持有空间写锁等模型请求时，Agent 的运行在等这把锁，而模型请求要等宿主关闭才取消。
+   */
+  const stopAssembly = (current: { agent: AgentSpace; plugins: PluginHost }) => {
+    endSpaceRequests();
+    return Promise.allSettled([current.agent.close(), current.plugins.close()]);
+  };
   const closeActive = async () => {
     const current = active;
     active = undefined;
     if (!current) return;
-    // 登录确认不属于空间；只结束命令确认，以及空间里的询问和服务。
-    reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command");
+    // 等待空闲的重组随之取消。
+    checkIdle();
     const failures: unknown[] = [];
-    // 先停止 Agent，再关插件，写入者都停下以后备份最后一次；最后空间落盘并释放锁。每个 owner 都取得收尾机会。
+    for (const result of await stopAssembly(current)) {
+      if (result.status === "rejected") failures.push(result.reason);
+    }
+    // 写入者都停下以后备份最后一次，再让空间落盘并释放锁；每个 owner 都取得收尾机会。
     // 关闭时的备份在释放空间锁之前完成，上一次使用的改动不必等到下次打开才进入备份。
-    for (const close of [() => current.agent.close(), () => current.plugins.close(), () => current.backups.close(), () => current.space.close()]) {
+    for (const close of [() => current.backups.close(), () => current.space.close()]) {
       try {
         await close();
       } catch (error) {
@@ -303,22 +360,29 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     lifecycle = result.then(() => undefined, () => undefined);
     return result;
   };
-  const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
-    if (stopping) throw new RepaFault("closed", "服务正在关闭");
-    const resolved = path.resolve(root);
-    if (active?.space.root === resolved && !create) return { root: resolved, disabledPlugins: active.plugins.disabled() };
-    await closeActive();
-    // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
-    const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
-    let plugins: PluginHost | undefined;
+
+  /**
+   * 打开空间和重组共用的装配：插件 open → Agent 运行时 → 追赶，次序与打开空间时相同。
+   * 插件 open 期间 Agent 空间尚未接上，runAgent 以 space_not_ready 拒绝；装配期间服务请求立即以 service_unavailable 拒绝，
+   * 新连接因此不可能是装配所等的服务提供方。失败时关闭已经打开的部分，空间留给调用方处理。
+   */
+  const assemble = async (space: Space, plugins: Plugin[], how: { first: boolean; unsaved?: UnsavedSession[] }) => {
+    const assembly = ++serial;
+    let host: PluginHost | undefined;
     let agent: AgentSpace | undefined;
+    let ready = false;
     try {
-      plugins = await openPluginHost({
+      host = await openPluginHost({
         space,
-        plugins: options.plugins ?? [],
+        plugins,
         now: () => runtime.now(),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
-        services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
+        services: {
+          call: (service, input, callOptions) => {
+            if (!ready) return Promise.reject(new RepaFault("service_unavailable", "空间正在装配插件，暂不能调用前端服务", { service }));
+            return serviceFor(owner.getStore())(service, input, callOptions);
+          },
+        },
         // 插件导出数据与反馈包用同一套脱敏：保存的凭据由运行时读出，读不到时导出失败。
         exports: { home, credentials: () => runtime.credentials() },
         models: (pluginId) => ({
@@ -336,27 +400,28 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           }
           await agent.abortAgent(id);
         },
-        emit: (pluginId, event) => emit("plugin.event", { pluginId, event }),
+        emit: (pluginId, event) => emit("plugin.event", { pluginId, assembly, event }),
         onError: (error) => {
           errors.add({ source: "plugin-host", message: error instanceof Error ? error.message : String(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
-          emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } });
+          emit("plugin.event", { pluginId: "host", assembly, event: { type: "error", code: "plugin_failed" } });
         },
+        onIdle: checkIdle,
       });
-      const host = plugins;
-      // 停用的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
-      // 没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
+      const opened = host;
+      // 停用或卸载的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
+      // 只有第一次装配、且没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
       let directAgents = options.directAgents;
-      if (directAgents !== undefined && host.disabled().length > 0) {
-        const available = new Set([...(options.generalAgent === false ? [] : ["general"]), ...host.agents().map((definition) => definition.id)]);
+      if (directAgents !== undefined && (!how.first || opened.disabled().length > 0)) {
+        const available = new Set([...(options.generalAgent === false ? [] : ["general"]), ...opened.agents().map((definition) => definition.id)]);
         directAgents = directAgents.filter((id) => available.has(id));
       }
       agent = await runtime.openSpace({
         root: space.root,
         sessionsDir: space.sessionsDir,
-        instructions: () => host.instructions(),
-        tools: () => host.tools(),
-        views: () => host.views(),
-        agents: () => host.agents(),
+        instructions: () => opened.instructions(),
+        tools: () => opened.tools(),
+        views: () => opened.views(),
+        agents: () => opened.agents(),
         generalAgent: options.generalAgent,
         directAgents,
         overrides: () => settings.overrides(space.root),
@@ -366,8 +431,28 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         onEvent: (event) => emit("session.event", event),
         confirm: (request, signal) => confirmFor(owner.getStore())(request, signal),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
+        onIdle: checkIdle,
+        ...(how.unsaved === undefined ? {} : { unsavedSessions: how.unsaved }),
       });
-      await host.start();
+      await opened.start();
+      ready = true;
+      return { plugins: opened, agent, assembly };
+    } catch (error) {
+      if (agent !== undefined && host !== undefined) await stopAssembly({ agent, plugins: host });
+      else await host?.close().catch(() => undefined);
+      throw error;
+    }
+  };
+  const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
+    if (stopping) throw new RepaFault("closed", "服务正在关闭");
+    const resolved = path.resolve(root);
+    if (active?.space.root === resolved && !create) return { root: resolved, assembly: active.assembly, disabledPlugins: active.plugins.disabled() };
+    await closeActive();
+    // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
+    const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
+    let assembled: Awaited<ReturnType<typeof assemble>> | undefined;
+    try {
+      assembled = await assemble(space, options.plugins ?? [], { first: true });
       await settings.remember(space.root);
       const backups = new SpaceBackups({
         home,
@@ -383,16 +468,86 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           });
         },
       });
-      active = { space, plugins, agent, backups };
+      const { plugins, agent, assembly } = assembled;
+      active = { space, plugins, agent, backups, opened: assembly, assembly };
       backups.start();
-      return { root: space.root, disabledPlugins: plugins.disabled() };
+      return { root: space.root, assembly, disabledPlugins: plugins.disabled() };
     } catch (error) {
-      await agent?.close().catch(() => undefined);
-      await plugins?.close().catch(() => undefined);
+      if (assembled !== undefined) await stopAssembly(assembled);
       await space.close().catch(() => undefined);
       throw error;
     }
   });
+
+  /** 当前空间的插件宿主与 Agent 空间是否都没有工作，也没有经过闸门、正在执行的请求。 */
+  const idle = (current: ActiveSpace) => inFlight === 0 && !current.agent.busy() && !current.plugins.busy();
+
+  const reassemble = (plugins: Plugin[] = options.plugins ?? []): Promise<Reassembly> => {
+    const target = active;
+    if (stopping) return Promise.reject(new RepaFault("closed", "服务正在关闭"));
+    if (target === undefined) return Promise.reject(new RepaFault("space_not_open", "请先打开空间"));
+    // 等待空闲时不挡住任何工作。空闲成立的那一刻，在同一段同步代码里落下闸门并让旧的装配开始关闭，
+    // 计数为零与闸门落下之间没有 await，请求漏不进去；闸门落下以后插件新发起的工作被拒绝或取消，不等闸门。
+    return new Promise<Reassembly>((resolve, reject) => {
+      const check = () => {
+        if (stopping || active !== target) {
+          idleWaiters.delete(check);
+          resolve({ status: "cancelled" });
+          return;
+        }
+        if (reassembling !== undefined || !idle(target)) return;
+        idleWaiters.delete(check);
+        let lift: () => void = () => undefined;
+        reassembling = new Promise<void>((done) => { lift = done; });
+        const stopped = stopAssembly(target);
+        serializeLifecycle(() => rebuild(target, plugins, stopped)).then(resolve, reject).finally(() => {
+          reassembling = undefined;
+          lift();
+          checkIdle();
+        });
+      };
+      idleWaiters.add(check);
+      check();
+    });
+  };
+
+  /** 闸门落下以后、轮到生命周期队列时执行：等旧装配收尾，按清单重新装配，发出 space.assembled。 */
+  const rebuild = async (target: ActiveSpace, plugins: Plugin[], stopped: Promise<PromiseSettledResult<void>[]>): Promise<Reassembly> => {
+    const results = await stopped;
+    // 排在前面的 space.open、space.close 已经关闭或换掉了这个空间。
+    if (active !== target) return { status: "cancelled" };
+    // 某个插件的 close() 抛错不挡住重组：记进最近错误，结果里写明是哪个插件、什么原因。
+    const closeFailures: { pluginId: string; message: string }[] = [];
+    for (const result of results) {
+      if (result.status === "fulfilled") continue;
+      const reasons: unknown[] = result.reason instanceof AggregateError ? result.reason.errors : [result.reason];
+      for (const reason of reasons) {
+        errors.add({ source: "plugin-host", message: reason instanceof Error ? reason.message : String(reason), code: "plugin_close_failed" });
+        if (reason instanceof RepaFault && reason.code === "plugin_close_failed" && reason.details !== null && typeof reason.details === "object" && "pluginId" in reason.details && typeof reason.details.pluginId === "string") {
+          closeFailures.push({ pluginId: reason.details.pluginId, message: reason.message });
+        }
+      }
+    }
+    let next: Awaited<ReturnType<typeof assemble>>;
+    try {
+      next = await assemble(target.space, plugins, { first: false, unsaved: target.agent.unsavedSessions() });
+    } catch (error) {
+      // 整体失败来自空间或运行时一类的故障（单个插件失败只会停用它）：照关闭空间的次序收尾，前端按恢复失败处理。
+      active = undefined;
+      for (const close of [() => target.backups.close(), () => target.space.close()]) {
+        await close().catch((closeError: unknown) => {
+          errors.add({ source: "space", message: closeError instanceof Error ? closeError.message : String(closeError) });
+        });
+      }
+      const fault = error instanceof RepaFault ? error : new RepaFault("reassembly_failed", error instanceof Error ? error.message : String(error));
+      emit("space.assembled", { root: null, error: { code: fault.code, message: fault.message } });
+      throw error;
+    }
+    active = { ...target, plugins: next.plugins, agent: next.agent, assembly: next.assembly };
+    const disabledPlugins = next.plugins.disabled();
+    emit("space.assembled", { root: target.space.root, assembly: next.assembly, disabledPlugins });
+    return { status: "applied", assembly: next.assembly, disabledPlugins, closeFailures };
+  };
 
   // 前端只能与可直接对话的 Agent 建会话和发消息；后台任务与子 Agent 不经过这里。
   const requireDirect = (agent: AgentSpace, id: string) => {
@@ -519,8 +674,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return requireActive().plugins.list();
       case "plugin.call": {
         const input = p<"plugin.call">();
+        const current = requireActive();
+        // 序号不属于这一次打开的空间：调用是在切换空间之前组成的，不能落到这里的同名插件上。
+        // 属于这一次打开、但早于最近一次重组的，照常交给现在的实例，在闸门后等待的调用不因重组而失败。
+        if (input.assembly < current.opened || input.assembly > current.assembly) {
+          throw new RepaFault("space_changed", "空间已经切换，调用属于此前打开的空间", { assembly: input.assembly });
+        }
         // 交给插件的是副本，插件改动它不会影响这个连接的路由。
-        return requireActive().plugins.call(input.pluginId, input.method, input.input, { capabilities: structuredClone(peer.capabilities) });
+        return current.plugins.call(input.pluginId, input.method, input.input, { capabilities: structuredClone(peer.capabilities) });
       }
       case "prompt.list":
         return (await requireActive().agent.preview(p<"prompt.list">().agent)).sections;
@@ -655,6 +816,38 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
   };
 
+  /**
+   * 重组期间在闸门前等待，抬起以后按到达顺序继续；之后重新核对服务、连接和空间是否仍是到达时的那一个。
+   * session.abort 到达时同步作废同一会话仍在等待的发送、插话、追问和压缩：闸门抬起后 abort 的异步层次更少，
+   * 会先于 send 执行，按到达顺序无法保证停止拿到它之前的消息。作废的请求按排队中的运行被取消答复。
+   */
+  const passGate = async (peer: Peer, method: Method, params: unknown) => {
+    if (reassembling === undefined) return;
+    const sessionId = method.startsWith("session.") && params !== null && typeof params === "object" && "sessionId" in params && typeof params.sessionId === "string"
+      ? params.sessionId
+      : undefined;
+    if (method === "session.abort") {
+      for (const waiter of [...gateWaiters]) {
+        if (waiter.sessionId === sessionId && VOIDABLE.has(waiter.method)) waiter.cancel();
+      }
+    }
+    const arrived = active?.space;
+    while (reassembling !== undefined) {
+      const gate = reassembling;
+      let cancel: () => void = () => undefined;
+      const cancelled = new Promise<"cancelled">((resolve) => { cancel = () => resolve("cancelled"); });
+      const waiter = { method, sessionId, cancel };
+      gateWaiters.add(waiter);
+      try {
+        if (await Promise.race([gate, cancelled]) === "cancelled") throw new RepaFault("cancelled", "排队中的会话运行已取消");
+      } finally {
+        gateWaiters.delete(waiter);
+      }
+    }
+    if (stopping || !peer.alive) throw new RepaFault("closed", "服务或连接已经关闭");
+    if (method !== "initialize" && active?.space !== arrived) throw new RepaFault("space_changed", "等待期间空间已经关闭或切换");
+  };
+
   const handle = async (peer: Peer, value: unknown): Promise<(() => unknown) | undefined> => {
     let id: RpcId = null;
     let notification = false;
@@ -670,7 +863,22 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       const method = request.method as Method;
       const params = request.params === undefined ? {} : request.params;
       if (!Check(methods[method].params, params)) throw new RpcFault(-32602, "Invalid params");
-      const result = await owner.run(peer, () => dispatch(peer, method, params));
+      let result: unknown;
+      if (GATED.has(method)) {
+        await passGate(peer, method, params);
+        // 闸门检查与计数之间没有 await：计数为零与闸门落下之间不会有请求漏进去。
+        inFlight++;
+        try {
+          result = await owner.run(peer, () => dispatch(peer, method, params));
+        } finally {
+          inFlight--;
+          checkIdle();
+        }
+      } else {
+        // 初始化的基线读 Agent 空间和插件宿主，在闸门之后生成，不读正在关闭的对象。
+        if (method === "initialize") await passGate(peer, method, params);
+        result = await owner.run(peer, () => dispatch(peer, method, params));
+      }
       // 响应即将写入时才订阅并取基线；批量请求也等全部完成后同步生成响应。
       // 从订阅、内存投影到 socket.send 之间没有 await，之后的广播只能排在响应后面。
       return () => {
@@ -681,7 +889,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             version: PROTOCOL_VERSION,
             serverId,
             baseline: {
-              space: active === undefined ? null : { root: active.space.root },
+              space: active === undefined ? null : { root: active.space.root, assembly: active.assembly },
               sessions: active?.agent.baseline() ?? [],
               disabledPlugins: active?.plugins.disabled() ?? [],
             },
@@ -772,6 +980,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const close = (): Promise<void> => {
     if (closePromise) return closePromise;
     stopping = true;
+    // 等待空闲的重组随之取消。
+    checkIdle();
     closePromise = (async () => {
       const failures: unknown[] = [];
       for (const peer of peers) {
@@ -814,5 +1024,5 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     await close();
     throw new RepaFault("listen_failed", "后端未取得本机端口");
   }
-  return { connection: { url: `ws://127.0.0.1:${address.port}/rpc`, token }, closed, close };
+  return { connection: { url: `ws://127.0.0.1:${address.port}/rpc`, token }, closed, close, reassemble };
 }

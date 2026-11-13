@@ -146,9 +146,9 @@ try {
     client?.call("confirm.reply", { id, value: false }).catch(() => undefined);
   });
   phase = "space-create";
-  await client.call("space.create", { root: path.join(directory, "space") });
+  const { assembly } = await client.call("space.create", { root: path.join(directory, "space") });
   phase = "sample-note";
-  await client.call("plugin.call", { pluginId: "notes", method: "save", input: { name: "probe", text: "缓存与上下文核实用的临时笔记。" } });
+  await client.call("plugin.call", { pluginId: "notes", method: "save", input: { name: "probe", text: "缓存与上下文核实用的临时笔记。" }, assembly });
   phase = "prompt-setup";
   const preview = await client.call("prompt.preview", {});
   const notesInstructions = preview.sections.find(section => section.id === "plugin:notes")?.text;

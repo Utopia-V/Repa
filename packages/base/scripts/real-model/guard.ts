@@ -49,6 +49,8 @@ export function guardProbeRuntime(runtime: AgentRuntime): AgentRuntime {
         abortAgent: agent => space.abortAgent(agent),
         preview: agent => space.preview(agent),
         async runAgent() { throw new Error("probe_background_agent_blocked"); },
+        busy: () => space.busy(),
+        unsavedSessions: () => space.unsavedSessions(),
         async close() {
           await space.close();
           await Promise.all(cancellations);

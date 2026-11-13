@@ -19,10 +19,12 @@
 ```ts
 import { readLearningResult } from "@repa/learning/protocol";
 
+// assembly 取自 space.open 的结果，后端重组插件以后换成 space.assembled 里的新序号。
 const raw = await client.call("plugin.call", {
   pluginId: "learning",
   method: "state.get",
   input: {},
+  assembly,
 });
 const state = readLearningResult("state.get", raw);
 if (state.ok) renderLearning(state.value);
@@ -101,7 +103,7 @@ if (state.ok) renderLearning(state.value);
 
 ### 事件与错误
 
-底座 `plugin.event` 的 `pluginId` 为 `learning`，`event` 是 `LearningEvent`。事件只有类型、revision 和 task/menu/submission 身份，没有题面和答案。收到更新或重连时重新查询；丢事件不影响恢复，也不把事件当成状态增量。
+底座 `plugin.event` 的 `pluginId` 为 `learning`，`event` 是 `LearningEvent`，`assembly` 是发出事件的装配序号，只处理与当前序号相同的事件。事件只有类型、revision 和 task/menu/submission 身份，没有题面和答案。收到更新或重连时重新查询；丢事件不影响恢复，也不把事件当成状态增量。
 
 处理器抛底座 `RepaFault(code, message, details)`，使用原有 JSON-RPC 错误信封；客户端从 `RpcError.data` 读取 code 和 details。`LearningErrorDetailsSchema` 描述 details，不包第二层错误：
 

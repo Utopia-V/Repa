@@ -249,12 +249,20 @@ export function createAppStore() {
   return createStore<AppState>()(persist((set, get) => {
     // 重新打开空间期间，依赖空间的请求等它结束再发，否则后端可能还没打开空间。
     let resuming: Promise<void> | undefined;
+    // 当前空间的装配序号：打开空间和后端重组插件时更新。插件调用带上它，插件事件只收这一个序号的。
+    let assembly: number | undefined;
 
     async function call<M extends Method>(method: M, params: Params<M>): Promise<Result<M>> {
       if (resuming && (method.startsWith("session.") || method.startsWith("history.") || method.startsWith("prompt.") || method.startsWith("plugin."))) await resuming;
       const client = get().client;
       if (!client) throw new ConnectionError(t("connection.notConnected.error"));
       return await client.call(method, params);
+    }
+
+    /** 序号在等空间重新打开之后才取，带的是这次打开的序号。 */
+    async function callPlugin(pluginId: string, method: string, input: unknown): Promise<unknown> {
+      if (resuming) await resuming;
+      return await call("plugin.call", { pluginId, method, input, assembly: assembly ?? 0 });
     }
 
     function update<N extends ResourceName>(name: N, resource: Resource<ResourceData[N]>): void {
@@ -316,6 +324,7 @@ export function createAppStore() {
 
     const learning = createLearningActions({
       call,
+      callPlugin,
       get,
       set: (change) => set((state) => ({ learning: change(state.learning) })),
     });
@@ -387,13 +396,12 @@ export function createAppStore() {
     async function resumeSpace(): Promise<void> {
       const root = get().space;
       if (!root) return;
-      const opening = call("space.open", { root }).then(() => true, (error: unknown) => {
+      const opening = call("space.open", { root }).then((opened) => {
+        if (get().space === root) assembly = opened.assembly;
+        return true;
+      }, (error: unknown) => {
         // 连接中断时保留空间，重连后再打开一次。
-        if (!(error instanceof ConnectionError) && get().space === root) {
-          conversationRequest++;
-          resetSpaceData();
-          set({ space: undefined, resumeFailure: { root, error }, conversation: emptyConversation, asks: [] });
-        }
+        if (!(error instanceof ConnectionError) && get().space === root) dropSpace(root, error);
         return false;
       });
       const done = opening.then(() => undefined);
@@ -401,8 +409,23 @@ export function createAppStore() {
       const opened = await opening;
       if (resuming === done) resuming = undefined;
       if (!opened || get().space !== root) return;
-      // 会话列表、修改历史和提示依赖打开的空间，不随 reloadLoaded 在打开前读取。
-      // 正在读取的会话由那次读取完成，这里只重读已经显示过的。
+      await reloadSpaceState();
+    }
+
+    /** 空间没能重新打开或重组失败：后端已经放下它，回到选空间页并说明原因。 */
+    function dropSpace(root: string, error: unknown): void {
+      conversationRequest++;
+      assembly = undefined;
+      resetSpaceData();
+      set({ space: undefined, resumeFailure: { root, error }, conversation: emptyConversation, asks: [] });
+    }
+
+    /**
+     * 重新打开空间或后端重组插件以后，重读依赖空间的数据。
+     * 会话列表、修改历史和提示依赖打开的空间，不随 reloadLoaded 在打开前读取。
+     * 正在读取的会话由那次读取完成，这里只重读已经显示过的。
+     */
+    async function reloadSpaceState(): Promise<void> {
       const { status } = get().conversation;
       await Promise.all([
         reloadSessions(),
@@ -454,8 +477,21 @@ export function createAppStore() {
       const offAskClosed = client.on("ask.closed", ({ id, reason }) => {
         updateAsk(id, { closed: reason });
       });
-      const offPlugin = client.on("plugin.event", ({ pluginId, event }) => {
+      const offPlugin = client.on("plugin.event", ({ pluginId, assembly: from, event }) => {
+        // 旧装配迟到的事件和新装配启动途中的事件都不收；后者由 space.assembled 之后的重读补上。
+        if (from !== assembly) return;
         learning.learningEvent(pluginId, event);
+      });
+      const offAssembled = client.on("space.assembled", (assembled) => {
+        const root = get().space;
+        if (!root) return;
+        if (assembled.root === null) {
+          dropSpace(root, new RpcError(-32000, assembled.error.message, { code: assembled.error.code }));
+          return;
+        }
+        if (assembled.root !== root) return;
+        assembly = assembled.assembly;
+        void reloadSpaceState();
       });
       unsubscribe = () => {
         offEvent();
@@ -463,6 +499,7 @@ export function createAppStore() {
         offAsk();
         offAskClosed();
         offPlugin();
+        offAssembled();
       };
     }
 
@@ -541,6 +578,7 @@ export function createAppStore() {
       async openSpace(root) {
         if (get().conversation.run !== "idle" && root !== get().space) return;
         const opened = await call("space.open", { root });
+        assembly = opened.assembly;
         // 换了空间时，上一个空间的会话不再适用。
         if (opened.root !== get().space) {
           conversationRequest++;
@@ -556,6 +594,7 @@ export function createAppStore() {
         if (!get().space || get().conversation.run !== "idle") return;
         await call("space.close", {});
         conversationRequest++;
+        assembly = undefined;
         resetSpaceData();
         set({ space: undefined, conversation: emptyConversation, confirmations: [], asks: [] });
       },

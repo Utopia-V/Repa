@@ -129,7 +129,7 @@ async function fixture(t: TestContext) {
     await server.close();
     await rm(directory, { recursive: true, force: true });
   });
-  await client.call("space.open", { root });
+  const { assembly } = await client.call("space.open", { root });
   const session = await client.call("session.create", {});
   const respond = (text = "回答") => {
     faux.setResponses([(context) => {
@@ -139,16 +139,16 @@ async function fixture(t: TestContext) {
   };
   const send = () => client.call("session.send", { sessionId: session.id, text: "继续" });
   const history = () => client.call("session.history", { sessionId: session.id });
-  return { root, home, client, session, faux, captures, feeds, loginAnswers, respond, send, history, now: () => now, advance: () => { now += 2000; } };
+  return { root, home, client, session, faux, captures, feeds, loginAnswers, respond, send, history, assembly, now: () => now, advance: () => { now += 2000; } };
 }
 
 test("协议宿主把运行时的同一时钟交给插件，拨动后缓存按新时间过期", async (t) => {
   const f = await fixture(t);
-  const pluginNow = () => f.client.call("plugin.call", { pluginId: "probe", method: "now", input: {} });
+  const pluginNow = () => f.client.call("plugin.call", { pluginId: "probe", method: "now", input: {}, assembly: f.assembly });
   assert.equal(await pluginNow(), f.now());
   f.respond();
   await f.send();
-  await f.client.call("plugin.call", { pluginId: "probe", method: "setView", input: { text: "拨动时间后的状态" } });
+  await f.client.call("plugin.call", { pluginId: "probe", method: "setView", input: { text: "拨动时间后的状态" }, assembly: f.assembly });
   f.respond();
   await f.send();
   assert.equal(viewTexts(f.captures.at(-1) as TranscriptContext).length, 2);
@@ -271,7 +271,7 @@ test("view 按变化追加、批量清理和过期清理，提示覆盖仅追加
   f.respond();
   await f.send();
   assert.equal((await f.history()).filter(entry => entry.type === "view").length, 1);
-  const setView = (text: string) => f.client.call("plugin.call", { pluginId: "probe", method: "setView", input: { text } });
+  const setView = (text: string) => f.client.call("plugin.call", { pluginId: "probe", method: "setView", input: { text }, assembly: f.assembly });
   await setView("课程状态乙");
   f.respond();
   await f.send();
@@ -361,7 +361,7 @@ test("SDK 默认压缩后下一次请求只获得最新 view", async (t) => {
   const f = await fixture(t);
   f.respond("原始回答".repeat(300));
   await f.send();
-  await f.client.call("plugin.call", { pluginId: "probe", method: "setView", input: { text: "压缩前最新状态" } });
+  await f.client.call("plugin.call", { pluginId: "probe", method: "setView", input: { text: "压缩前最新状态" }, assembly: f.assembly });
   f.respond("后续回答".repeat(300));
   await f.send();
   const summaryInputs: TranscriptContext[] = [];

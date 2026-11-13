@@ -89,14 +89,16 @@ function newer(next: LearningState, current: LearningState | undefined): boolean
 type Call = <M extends Method>(method: M, params: Params<M>) => Promise<Result<M>>;
 type Deps = {
   call: Call;
+  /** 调用插件方法；store 补上当前空间的装配序号。 */
+  callPlugin(pluginId: string, method: string, input: unknown): Promise<unknown>;
   get(): { learning: LearningView; connected: boolean };
   set(change: (learning: LearningView) => LearningView): void;
 };
 
 /** 学习页对后端的全部操作。状态都写进 learning，由页面读取；内容读取的结果只属于当次查看，直接返回。 */
-export function createLearningActions({ call, get, set }: Deps) {
+export function createLearningActions({ call, callPlugin, get, set }: Deps) {
   async function learningCall<M extends LearningMethod>(method: M, input: LearningInput<M>): Promise<LearningResult<M>> {
-    const raw = await call("plugin.call", { pluginId: LEARNING_PLUGIN, method, input });
+    const raw = await callPlugin(LEARNING_PLUGIN, method, input);
     const read = readLearningResult(method, raw);
     if (!read.ok) throw new Error(t("learn.api.unreadable.error", { method, path: read.path }));
     return read.value;

@@ -107,9 +107,12 @@ async function fixture(t: TestContext) {
     await server.close();
     await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
-  const { root } = await client.call("space.create", { root: path.join(directory, "space") });
+  const created = await client.call("space.create", { root: path.join(directory, "space") });
+  const { root } = created;
+  // 插件调用带最近一次打开空间的装配序号。
+  let assembly = created.assembly;
   async function call<M extends LearningMethod>(method: M, input: LearningInput<M>): Promise<LearningResult<M>> {
-    return parse(learningMethods[method].result, await client.call("plugin.call", { pluginId: "learning", method, input })) as LearningResult<M>;
+    return parse(learningMethods[method].result, await client.call("plugin.call", { pluginId: "learning", method, input, assembly })) as LearningResult<M>;
   }
   const state = () => call("state.get", {});
   async function startLesson() {
@@ -146,7 +149,12 @@ async function fixture(t: TestContext) {
     await client.call("session.send", { sessionId: session.id, text });
   }
   return {
-    directory, home, root, client, call, state, startLesson, answer, chat,
+    directory, home, root, client, server, courseDir, faux, call, state, startLesson, answer, chat,
+    open: async (target: string) => {
+      const opened = await client.call("space.open", { root: target });
+      assembly = opened.assembly;
+      return opened;
+    },
     records: path.join(root, ".repa", "plugins", "learning", "records.jsonl"),
     sessions: path.join(root, ".repa", "sessions"),
   };
@@ -279,7 +287,7 @@ test("学习进行中备份，日志末尾的半行不收；接着学，恢复�
   const saved = await f.client.call("backup.restore", { root: f.root, id: during.backup.id });
   assert.equal(saved.kind, "beforeRestore");
   assert.equal(await readFile(f.records, "utf8"), backedUp);
-  const reopened = await f.client.call("space.open", { root: f.root });
+  const reopened = await f.open(f.root);
   assert.deepEqual(reopened.disabledPlugins, []);
   const restored = await f.state();
   assert.equal(restored.revision, lines(backedUp));
@@ -289,4 +297,27 @@ test("学习进行中备份，日志末尾的半行不收；接着学，恢复�
   assert.ok(after.startsWith(backedUp) && after.length > backedUp.length);
   const facts = after.split("\n").filter((line) => line.length > 0).map((line) => parse(FactSchema, JSON.parse(line)));
   assert.deepEqual(facts.map((fact) => fact.seq), facts.map((_, index) => index + 1));
+});
+
+test("重组插件宿主与 Agent 运行时以后，学习状态与重组前相同，学习插件只打开一次，辅导会话接着用", async (t) => {
+  const f = await fixture(t);
+  await f.startLesson();
+  await f.answer();
+  await f.chat("这道题怎么想");
+  const before = await f.state();
+  const records = await readFile(f.records, "utf8");
+  const learning = createLearningPlugin({ sources: [{ kind: "bundled", directory: f.courseDir }] });
+  let opens = 0;
+  const counted = { ...learning, open: (host: Parameters<typeof learning.open>[0]) => { opens++; return learning.open(host); } };
+  const result = await f.server.reassemble([counted]);
+  assert.equal(result.status, "applied");
+  assert.equal(opens, 1);
+  assert.deepEqual(await f.state(), before);
+  assert.equal(await readFile(f.records, "utf8"), records);
+  const [session] = (await f.client.call("session.list", {})).filter((info) => info.agent === TUTOR_AGENT);
+  assert.ok(session);
+  f.faux.setResponses([fauxAssistantMessage("重组以后接着讲。")]);
+  await f.client.call("session.send", { sessionId: session.id, text: "接着说" });
+  const texts = (await f.client.call("session.history", { sessionId: session.id })).flatMap((entry) => entry.type === "user" || entry.type === "assistant" ? [entry.text] : []);
+  assert.deepEqual(texts.slice(-2), ["接着说", "重组以后接着讲。"]);
 });

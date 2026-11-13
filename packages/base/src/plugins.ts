@@ -19,7 +19,13 @@ export interface PluginHost {
   views(): Promise<{ id: string; text: string }[]>;
   /** caller 是经协议发起调用的连接；方法声明了 result 时按它校验返回值。 */
   call(pluginId: string, method: string, input: unknown, caller?: MethodContext["caller"]): Promise<unknown>;
+  /**
+   * 宿主看得见的工作是否还在进行：在途的方法、工具、view、关卡、服务、导出，经 Host 发起的文件、历史与模型操作，
+   * 询问的 onSubmit，变化处理链，以及尚未完成的 start()。插件自己在后台做的事宿主看不见，不算在内。
+   */
+  busy(): boolean;
   flush(): Promise<void>;
+  /** 同步地停止接纳新工作、取消模型请求和服务请求，再等已接纳的工作结束、关闭实例。 */
   close(): Promise<void>;
 }
 
@@ -39,6 +45,8 @@ export interface PluginHostOptions {
   exports?: ExportSources;
   emit(pluginId: string, event: unknown): void;
   onError(error: unknown): void;
+  /** 宿主的一项工作结束时调用；调用方据此重新判断 busy()，不必轮询。 */
+  onIdle?(): void;
 }
 
 export { openPluginHost } from "./plugins/host.js";

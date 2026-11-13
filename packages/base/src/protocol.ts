@@ -34,8 +34,9 @@ import {
 export * from "./schema.js";
 export * from "./interaction.js";
 // 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。读取时忽略未知字段；只有旧版会读错的语义变化才升版本。
+// 4：插件集合可在空间打开期间重组。新增装配序号 assembly 与 space.assembled 通知，plugin.call 必须带序号，plugin.event 带序号。
 /** 当前前后端协议版本；连接初始化时用于拒绝无法正确理解的协议。 */
-export const PROTOCOL_VERSION = "3";
+export const PROTOCOL_VERSION = "4";
 
 const serviceName = Type.String({ minLength: 1, maxLength: 64 });
 /**
@@ -84,7 +85,12 @@ export const DisabledPluginSchema = object({
 });
 /** 打开空间时被停用插件的说明，前端用 code 分支并显示 reason.message。 */
 export type DisabledPlugin = Static<typeof DisabledPluginSchema>;
-const openedSpace = object({ root: identifier, disabledPlugins: Type.Array(DisabledPluginSchema) });
+/**
+ * 装配序号：后端每次打开空间、每次重组插件宿主与 Agent 运行时前分配，在一个后端进程内单调递增。
+ * 前端只收序号等于自己当前序号的插件事件，plugin.call 带上它，后端据此拒绝切换空间之前组成的调用。
+ */
+const assembly = Type.Integer({ minimum: 1 });
+const openedSpace = object({ root: identifier, assembly, disabledPlugins: Type.Array(DisabledPluginSchema) });
 
 /** 重接时投影会话当前运行和排队消息的 schema，不加载盘上空闲会话。 */
 export const SessionBaselineSchema = object({
@@ -100,7 +106,7 @@ export const SessionBaselineSchema = object({
 export type SessionBaseline = Static<typeof SessionBaselineSchema>;
 /** 连接初始化时返回的空间、会话和停用插件基线，用于恢复前端状态。 */
 export const BaselineSchema = object({
-  space: Type.Union([object({ root: identifier }), Type.Null()]),
+  space: Type.Union([object({ root: identifier, assembly }), Type.Null()]),
   sessions: Type.Array(SessionBaselineSchema),
   disabledPlugins: Type.Array(DisabledPluginSchema),
 });
@@ -140,7 +146,7 @@ export const methods = {
   "history.undoRun": { params: object({ runId: identifier }), result: historyUndo },
   "plugin.list": { params: empty, result: Type.Array(object({ id: identifier, methods: Type.Array(identifier), tools: Type.Array(identifier) })) },
   "plugin.disabled": { params: empty, result: Type.Array(DisabledPluginSchema) },
-  "plugin.call": { params: object({ pluginId: identifier, method: identifier, input: Type.Unknown() }), result: Type.Unknown() },
+  "plugin.call": { params: object({ pluginId: identifier, method: identifier, input: Type.Unknown(), assembly }), result: Type.Unknown() },
   "prompt.list": { params: agent, result: Type.Array(PromptSectionSchema) },
   "prompt.set": { params: object({ scope, id: identifier, override: PromptOverrideSchema }), result: nothing },
   "prompt.reset": { params: object({ scope, id: identifier }), result: nothing },
@@ -194,7 +200,13 @@ export const notifications = {
   "ask.closed": AskClosedSchema,
   "service.request": serviceRequest,
   "service.closed": serviceClosed,
-  "plugin.event": object({ pluginId: identifier, event: Type.Unknown() }),
+  "plugin.event": object({ pluginId: identifier, assembly, event: Type.Unknown() }),
+  // 重组完成：插件宿主与 Agent 运行时已按新的插件清单打开，前端换用新的序号并重新读取空间状态。
+  // 整体失败时空间已经关闭，root 为 null，带上原因。
+  "space.assembled": Type.Union([
+    object({ root: identifier, assembly, disabledPlugins: Type.Array(DisabledPluginSchema) }),
+    object({ root: Type.Null(), error: object({ code: identifier, message: Type.String() }) }),
+  ]),
 } as const;
 
 /**
