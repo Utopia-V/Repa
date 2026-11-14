@@ -870,7 +870,8 @@ test("重组在两个 owner 都已建立以后、追赶开始时整体失败：�
   // 记下新装配的 Agent 空间，失败以后检查它已关闭。
   const openSpace = f.runtime.openSpace.bind(f.runtime);
   const agents: Awaited<ReturnType<typeof openSpace>>[] = [];
-  // 新的 Agent 空间建好以后停住；放行之前让空间历史的仓库读不了，追赶一开始读最新修订就失败。
+  // 新的 Agent 空间建好以后停住；放行之前让空间历史仓库的 HEAD 读不了，追赶一开始读最新修订就失败。
+  // 改的是文件而不是目录：Linux 上 Node 的递归监听遇到读不了的目录会在回调里抛错。
   const entered = deferred();
   const leave = deferred();
   f.runtime.openSpace = async options => {
@@ -881,7 +882,7 @@ test("重组在两个 owner 都已建立以后、追赶开始时整体失败：�
     return agent;
   };
   t.after(() => { f.runtime.openSpace = openSpace; });
-  const repository = path.join(f.root, ".repa", "history.git");
+  const repository = path.join(f.root, ".repa", "history.git", "HEAD");
   const assembled = next(f.client, "space.assembled");
   const reassembling = f.server.reassemble();
   await entered.promise;
@@ -893,7 +894,7 @@ test("重组在两个 owner 都已建立以后、追赶开始时整体失败：�
   try {
     await assert.rejects(reassembling);
   } finally {
-    await chmod(repository, 0o700);
+    await chmod(repository, 0o600);
   }
   const notice = await assembled;
   assert.equal(notice.root, null);
