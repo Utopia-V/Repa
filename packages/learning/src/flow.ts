@@ -401,7 +401,7 @@ export async function connectLearning(
     if (!entry || slot?.type !== "code") {
       throw new RepaFault("invalid_input", "只有代码作答位可以试运行");
     }
-    const batch = trialBatch(entry.question, slot, entry.topic, session.course.course.course.runtime.prelude ?? "", input.code);
+    const batch = trialBatch(entry.question, slot, entry.topic, session.course.course.course.runtime?.prelude ?? "", input.code);
     if (!batch) {
       throw new RepaFault("service_failed", "题目的测试用到的数据夹具缺失");
     }

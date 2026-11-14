@@ -12,7 +12,7 @@ import { stringify } from "yaml";
 import { referenceResponse } from "../../src/check/items.js";
 import { mapAnswer } from "../../src/delivery.js";
 import { connectLearning } from "../../src/flow.js";
-import type { Course, Question, Topic } from "../../src/format/schema.js";
+import type { Course, Question, Runtime, Topic } from "../../src/format/schema.js";
 import { createLearningPlugin } from "../../src/plugin.js";
 import {
   learningMethods,
@@ -29,7 +29,7 @@ export const clientCapabilities: ClientCapabilities = {
   interaction: { supports: [...INTERACTION_CAPABILITIES] },
   services: ["python.run"],
 };
-export const course: Course = {
+export const course: Course & { runtime: Runtime } = {
   id: "test",
   title: "测试",
   version: "1.0.0",
@@ -94,7 +94,7 @@ export async function referenceAnswer(session: LearningSession, delivery: Delive
   return response;
 }
 
-async function writeCourse(directory: string, topics: Topic[], runtime: Course["runtime"]) {
+async function writeCourse(directory: string, topics: Topic[], runtime: Runtime) {
   await mkdir(path.join(directory, "topics"), { recursive: true });
   await writeFile(path.join(directory, "course.yaml"), stringify({ ...course, runtime, topics: topics.map((entry) => entry.id) }));
   for (const entry of topics) {
@@ -107,7 +107,7 @@ export interface FixtureOptions {
   services?: Services;
   beforeRestricted?: () => Promise<void>;
   /** 课程清单的判分运行时（含运行前导）；缺省为不带包和前导的 course.runtime。 */
-  runtime?: Course["runtime"];
+  runtime?: Runtime;
   /** 模型边界的替身；缺省为按预先安排的结果响应的 ModelTestDriver。 */
   models?: ModelTestDriver;
 }

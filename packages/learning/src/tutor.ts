@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
-import type { PluginInstance, PluginMethod, Tool } from "@repa/base/plugin";
+import type { AgentDefinition, MessageDecision, PluginMethod, Tool } from "@repa/base/plugin";
 import { object, parse } from "@repa/base/protocol";
 import { Type } from "typebox";
 import {
@@ -31,9 +31,59 @@ const ReadParametersSchema = object({
   }),
 });
 
-export async function connectTutor(
-  session: LearningSession,
-): Promise<Pick<PluginInstance, "methods" | "tools" | "agents">> {
+/** 辅导的三项工具：名称、说明与参数固定，执行时交给当前课程的会话。 */
+export const TUTOR_TOOLS = [
+  {
+    name: "learning_task",
+    description: "读取学习者当前的任务：正在读的讲解或例题，或者正在做的题，连同学习者的作答、判分结果和题解。",
+    parameters: TaskParametersSchema,
+  },
+  {
+    name: "learning_search",
+    description: "在当前任务和学过的内容里搜索讲解、例题、知识点、概念卡和已开放的题解。每条结果给出内容编号、名称和一段摘录，用 learning_read 按编号读取全文。",
+    parameters: SearchParametersSchema,
+  },
+  {
+    name: "learning_read",
+    description: "按 learning_search 给出的内容编号读取全文，一次最多 8 个。",
+    parameters: ReadParametersSchema,
+  },
+] as const;
+
+/** 辅导 Agent 随学习状态变化的部分：提问前的判断与视图。 */
+export type TutorHooks = Required<Pick<AgentDefinition, "beforeMessage" | "beforeRun" | "view">>;
+
+/** 一门课的辅导：前端读内容的方法、辅导工具的执行和辅导 Agent 的判断，都绑在这门课的会话上。 */
+export interface Tutor {
+  methods: Record<string, PluginMethod>;
+  tools: Tool[];
+  hooks: TutorHooks;
+}
+
+/**
+ * 辅导 Agent 的定义。工具与职责说明固定；提问前的判断和视图交给 hooks() 给出的当前课程，
+ * 换用课程以后不必重建 Agent，已有的辅导会话照常可用。
+ */
+export function tutorAgent(hooks: () => TutorHooks): AgentDefinition {
+  return {
+    id: TUTOR_AGENT,
+    direct: true,
+    description: "围绕当前学习任务讲解，并即时回顾已学知识",
+    // read 只为续取被底座省略的长输出：工具结果超过上限时，全文存在 .repa/tool-output/，模型按提示用 read 按行读取。
+    tools: [...TUTOR_TOOLS.map((tool) => tool.name), "read"],
+    instructions: () => [
+      "你是学习辅导老师，在学习者卡住时帮助其弄懂当前的题目和相关知识。",
+      "先用 learning_task 看当前的题目、学习者的作答和判分结果；需要讲解、例题或概念卡时，用 learning_search 查找，再用 learning_read 按编号读取。",
+      "提到学过的知识点时写成 [名称](repa:concept/知识点编号) 链接，便于学习者即时回顾；教学推进和正式判分由程序负责。",
+      "回答像老师当面说话：先直接回答学习者问的那一点，通常几句话就够，答错时指出这一次具体错在哪里；不用客套话开头，只在确实需要对照时才用表格或分节。只讲当前题目和已经学过的内容，不提前讲还没学到的东西，学习者要的是弄懂眼前这一步。",
+    ].join(""),
+    beforeMessage: (message) => hooks().beforeMessage(message),
+    beforeRun: () => hooks().beforeRun(),
+    view: () => hooks().view(),
+  };
+}
+
+export async function connectTutor(session: LearningSession): Promise<Tutor> {
   const index = await referenceContent(session.course.course);
   const titles = new Map(index.map((entry) => [entry.ref.id, entry.title]));
   const methods: Record<string, PluginMethod> = {};
@@ -119,9 +169,7 @@ export async function connectTutor(
   // 过长时由底座省略中间、保存全文，模型用 read 按行续取。
   const tools: Tool[] = [
     {
-      name: "learning_task",
-      description: "读取学习者当前的任务：正在读的讲解或例题，或者正在做的题，连同学习者的作答、判分结果和题解。",
-      parameters: TaskParametersSchema,
+      ...TUTOR_TOOLS[0],
       async execute(raw) {
         parse(TaskParametersSchema, raw);
         return session.records.serial(async () => {
@@ -131,9 +179,7 @@ export async function connectTutor(
       },
     },
     {
-      name: "learning_search",
-      description: "在当前任务和学过的内容里搜索讲解、例题、知识点、概念卡和已开放的题解。每条结果给出内容编号、名称和一段摘录，用 learning_read 按编号读取全文。",
-      parameters: SearchParametersSchema,
+      ...TUTOR_TOOLS[1],
       async execute(raw) {
         const input = { offset: 0, limit: 10, ...parse(SearchParametersSchema, raw) };
         const result = await search(input);
@@ -141,9 +187,7 @@ export async function connectTutor(
       },
     },
     {
-      name: "learning_read",
-      description: "按 learning_search 给出的内容编号读取全文，一次最多 8 个。",
-      parameters: ReadParametersSchema,
+      ...TUTOR_TOOLS[2],
       async execute(raw) {
         const ids = [...new Set(parse(ReadParametersSchema, raw).ids)];
         const pages = await access((visible) => {
@@ -170,20 +214,9 @@ export async function connectTutor(
   };
   return {
     methods,
-    tools: () => tools,
-    agents: () => [{
-      id: TUTOR_AGENT,
-      direct: true,
-      description: "围绕当前学习任务讲解，并即时回顾已学知识",
-      // read 只为续取被底座省略的长输出：工具结果超过上限时，全文存在 .repa/tool-output/，模型按提示用 read 按行读取。
-      tools: [...tools.map((tool) => tool.name), "read"],
-      instructions: () => [
-        "你是学习辅导老师，在学习者卡住时帮助其弄懂当前的题目和相关知识。",
-        "先用 learning_task 看当前的题目、学习者的作答和判分结果；需要讲解、例题或概念卡时，用 learning_search 查找，再用 learning_read 按编号读取。",
-        "提到学过的知识点时写成 [名称](repa:concept/知识点编号) 链接，便于学习者即时回顾；教学推进和正式判分由程序负责。",
-        "回答像老师当面说话：先直接回答学习者问的那一点，通常几句话就够，答错时指出这一次具体错在哪里；不用客套话开头，只在确实需要对照时才用表格或分节。只讲当前题目和已经学过的内容，不提前讲还没学到的东西，学习者要的是弄懂眼前这一步。",
-      ].join(""),
-      async beforeMessage() {
+    tools,
+    hooks: {
+      async beforeMessage(): Promise<MessageDecision | void> {
         try {
           if (!(await session.view()).state.restrictions.tutorAllowed) {
             throw new RepaFault("restricted", "作答期间不能提问，答完以后再问");
@@ -192,7 +225,7 @@ export async function connectTutor(
           return rejected(error);
         }
       },
-      async beforeRun() {
+      async beforeRun(): Promise<MessageDecision | void> {
         try {
           requireReferenceAccess(await session.view());
         } catch (error) {
@@ -218,6 +251,6 @@ export async function connectTutor(
           .slice(0, 3);
         return viewText(task ?? null, session.course, kp, weak.map((entry) => entry.id));
       },
-    }],
+    },
   };
 }

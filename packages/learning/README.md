@@ -10,11 +10,22 @@
 
 底座按包根目录的 `repa-plugin.json` 加载本插件，插件 id 为 `learning`，入口是构建后的 `dist/plugin.js`。开发时在仓库根目录运行 `npm run dev:learning -- --home /absolute/repa-home`：它先构建库包，再加载本插件启动底座，只开放辅导 Agent `learning-tutor`，见[辅导说明](../../docs/development/learning-tutor.md#agent-与学习产品入口)。
 
-在代码里装配时调用 `createLearningPlugin({ sources, connect })`。`sources` 是课程来源，缺省读随包的 Python 课；`connect` 换掉教学方法的装配，测试用它取回学习会话。插件打开时先核对数据目录的格式标记，再读入学习记录、重放出学习状态，见[学习记录说明](../../docs/development/learning-records.md#插件与接入)。
+在代码里装配时调用 `createLearningPlugin({ sources, packagesDirectory, connect })`。一个空间学一门课：换用过空间 `course/` 里的课就学它，空间里有 `course/` 而还没有换用过就没有可学的课，都没有时学 `sources` 给出的课程，缺省是随包的 Python 课，见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。`packagesDirectory` 是 `course_check` 运行 Python 核对用的离线包目录；`connect` 换掉教学方法的装配，测试用它取回学习会话，换用课程时为新的会话再调用一次。插件打开时先核对数据目录的格式标记，再读入学习记录、重放出学习状态，见[学习记录说明](../../docs/development/learning-records.md#插件与接入)。
 
 ### 从前端调用
 
 前端经底座的 `plugin.call` 调用学习方法，用 `@repa/learning/protocol` 的 `readLearningResult` 等入口宽松读取结果。这个入口只依赖 `typebox`、`@repa/base/protocol` 和 `@repa/python-runner/protocol`，浏览器里也能用。方法、状态、错误和 `python.run` 的约定见[前端契约](../../docs/development/learning-protocol.md)，判分反馈的类型见下文的[公开约定](#公开约定)。
+
+### 在应用里做课
+
+学习者把课件放进空间的 `materials/`，由通用 Agent 做成空间 `course/` 里的课。插件给通用 Agent 的提示说明指向随包的[写课说明](guides/making-courses.md)，同一目录的 [`example-course/`](guides/example-course/course.yaml) 是一门不含代码题、能通过检查并上完一节的完整例子；两者随 `npm pack` 进安装包。插件另给通用 Agent 两项工具，辅导 Agent 没有：
+
+| 工具 | 作用 |
+| --- | --- |
+| `course_check` | 检查 `course/`：问题逐处写成“文件:行:列 级别 [错误码] 说明”，一页 40 处，末尾写明还有多少、下一页的 `offset`；另写明 Python 核对是否运行、`manual` 作答位有多少没有独立核对，以及学习者现在学的是哪一份 |
+| `course_use` | 检查 `course/`，通过后换用：学习者没有做到一半的任务就当场换，否则等任务结束；没通过时不换，返回第一页问题 |
+
+两项工具都在数据目录的临时副本上检查，写到一半的 `course/` 不会被学习读到；换用的规则见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。
 
 ### 写课与检查课程
 
@@ -106,12 +117,12 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 
 ### 检查什么
 
-`checkCourse()` 依次做四件事，每个问题都带英文错误码和中文说明：
+`checkCourse()` 依次做四件事，每个问题都带英文错误码和中文说明；不认识的字段会列出那一处能写的字段：
 
 1. 读取与 schema 校验。
-2. 交叉规则（[`src/check/rules.ts`](src/check/rules.ts)）：id 唯一、前缀正确且不在 `retiredIds` 中；先修图与覆盖图分别检查引用、重复、自指和环；KP 的关键先修属于先修祖先；题目直接考查的知识点存在、只在本 topic 内且不重复；每个 topic 的知识点数在 `MIN_KPS` 与 `MAX_KPS` 之间，完整 topic 的每个知识点有概念卡、讲解、例题、至少 `MIN_PRACTICE` 道练习、复习和测验题池；复习和测验题至少有一个由程序判分的作答位，不含开放作答；一道题最多一个按测试判的作答位；来源登记在清单里，用法在许可范围内；链接只用 `https:` 和 `repa:concept/`，概念引用指向存在的知识点；每个作答位要么有 `verify`、要么列进 `manual`、要么由测试负责；标准答案引用的选项、块和单元格存在；要按写法显示或比较的文字写成字符串，小表里的数保留写法（`001`、`1e3`、未声明 `float` 的小数都会报出）；doctest 不超过 `DOCTEST_LIMITS`。
-3. 标准答案自洽（[`src/check/questions.ts`](src/check/questions.ts)）：投影出的 `Item` 符合交互词汇；用标准答案拼出的作答能通过 `checkResponse`，并按判分规则得满分；登记的错误答案确实判错；复习和测验题的 `manual` 作答位有当前题面、判分定义和运行依赖的核对记录，`verified` 里的记录指向本 topic 存在的题和作答位。
-4. 运行核对（[`src/check/code.ts`](src/check/code.ts)）：核对实际加载的 Pyodide、Python 和包版本与清单一致；每个任务先运行清单的运行前导 `runtime.prelude`，学习者在 Repa 里运行代码时用同一份；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致；代码题和 Parsons 题用判分的入口（见下文的[代码题的测试](#代码题的测试)）去判参考答案和 `accepts`，必须全部通过，`rejects` 和作答框里的初始代码必须至少错一个测试；期望值算不出来时报 `test_expect_failed`，执行环境出了问题、得不出结论时报 `test_unavailable`。比较在沙箱外进行，超过运行器序列化上限（`runner.py` 的 `CELL_LIMIT`、`REPR_LIMIT`）的值不截断比较，直接报“太大，无法比较”。核对不生成任何产物。
+2. 交叉规则（[`src/check/rules.ts`](src/check/rules.ts)）：id 唯一、前缀正确且不在 `retiredIds` 中；先修图与覆盖图分别检查引用、重复、自指和环；KP 的关键先修属于先修祖先；题目直接考查的知识点存在、只在本 topic 内且不重复；每个 topic 的知识点数在 `MIN_KPS` 与 `MAX_KPS` 之间，完整 topic 的每个知识点有概念卡、讲解、例题、至少 `MIN_PRACTICE` 道练习、复习和测验题池；复习和测验题至少有一个由程序判分的作答位，不含开放作答；一道题最多一个按测试判的作答位；来源登记在清单里，用法在许可范围内；链接只用 `https:` 和 `repa:concept/`，概念引用指向存在的知识点；每个作答位要么有 `verify`、要么列进 `manual`、要么由测试负责；有 `verify`、代码题或带测试的排列题的课要在清单里写 `runtime`，否则报 `runtime_missing`；标准答案引用的选项、块和单元格存在；要按写法显示或比较的文字写成字符串，小表里的数保留写法（`001`、`1e3`、未声明 `float` 的小数都会报出）；doctest 不超过 `DOCTEST_LIMITS`。
+3. 标准答案自洽（[`src/check/questions.ts`](src/check/questions.ts)）：投影出的 `Item` 符合交互词汇；用标准答案拼出的作答能通过 `checkResponse`，并按判分规则得满分；登记的错误答案确实判错；复习和测验题的 `manual` 作答位有当前题面、判分定义和运行依赖的核对记录（`confirmations: "reported"` 时不要求，只在 `summary.confirmationSlots` 里列出，应用里做课用这一种），`verified` 里的记录指向本 topic 存在的题和作答位。
+4. 运行核对（[`src/check/code.ts`](src/check/code.ts)），只在课里有 `verify`、代码题或带测试的排列题时进行（`summary.python`），不用 Python 的课不启动沙箱：核对实际加载的 Pyodide、Python 和包版本与清单一致；每个任务先运行清单的运行前导 `runtime.prelude`，学习者在 Repa 里运行代码时用同一份；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致；代码题和 Parsons 题用判分的入口（见下文的[代码题的测试](#代码题的测试)）去判参考答案和 `accepts`，必须全部通过，`rejects` 和作答框里的初始代码必须至少错一个测试；期望值算不出来时报 `test_expect_failed`，执行环境出了问题、得不出结论时报 `test_unavailable`。比较在沙箱外进行，超过运行器序列化上限（`runner.py` 的 `CELL_LIMIT`、`REPR_LIMIT`）的值不截断比较，直接报“太大，无法比较”。核对不生成任何产物。
 
 ### 代码题的测试
 
@@ -137,7 +148,7 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 
 ### 沙箱与离线包
 
-代码核对用 [`@repa/python-runner`](../python-runner/README.md) 的 Linux 沙箱，沙箱建立不了时报 `sandbox_unavailable`，不改用不受限的运行。整门课共用一个解释器，测试按 `python.run` 的约定成批运行，与判分走同一条执行路径；任务之间由 `runner.py` 恢复常被改动的全局状态，恢复失败或任务超时才换一个新沙箱。检查结果的 `summary.code.interpreterStarts` 记下启动过的解释器数，应等于 1 加上超时、崩溃和恢复失败的次数，测试按它核对代价。沙箱限制了什么、任务之间恢复哪些状态、超时怎样归因，见运行器包的说明。
+代码核对用 [`@repa/python-runner`](../python-runner/README.md) 的 Linux 沙箱，沙箱建立不了时报 `sandbox_unavailable`，写明课里的核对没有运行，不改用不受限的运行。整门课共用一个解释器，测试按 `python.run` 的约定成批运行，与判分走同一条执行路径；任务之间由 `runner.py` 恢复常被改动的全局状态，恢复失败或任务超时才换一个新沙箱。检查结果的 `summary.code.interpreterStarts` 记下启动过的解释器数，应等于 1 加上超时、崩溃和恢复失败的次数，测试按它核对代价。沙箱限制了什么、任务之间恢复哪些状态、超时怎样归因，见运行器包的说明。
 
 准备离线包的 `npm run course:runtime` 由本包提供，因为课程清单决定要哪些 Pyodide 包：它把清单的 `runtime` 交给运行器包，由运行器包算出 wheel 及其依赖，再下载或复制并核对，存放位置和核对方式见运行器包的[离线包](../python-runner/README.md#离线包)。
 
@@ -210,11 +221,14 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 - 视图写出当前任务与阶段、课内当前知识点的进度，以及学过的直接先修中记忆最弱的几个，通常两三行，约 60 至 100 token。底座只在视图内容变化时把它追加在用户消息之后；先修排序用最后一条事实的时间，状态不变时文字不变，不打乱提示缓存。
 - 工具输出写成分行文字，进入会话历史：`learning_task` 一次约 100 至 750 token，随包课程里最长的题连同题解也只有几 KB；`learning_search` 按默认条数一页约 1,300 token；`learning_read` 写出所读内容的全文。超过底座上限的输出由底座保存全文，只把开头和结尾交给模型，见[处理工具输出](../base/README.md#处理工具输出)。
 - 开着通用 Agent 时，它汇集各插件的工具，也看到这三项学习工具的声明，但没有辅导的职责段和视图；`npm run dev:learning` 不开通用 Agent。
+- 通用 Agent 还看到插件的命名提示段 `plugin:learning`，两句话指出做课前先读写课说明的绝对路径，约 100 token；`course_check`、`course_use` 两项工具的声明约 200 token。它们都不随学习状态变化，在提示缓存的稳定前缀里。写课说明约 1,800 token，只在做课时由 Agent 用 `read` 读入；`course_check` 一页最多 40 处问题，约 3,000 token 以内。
 - 开放题判分对每份作答发一次隔离的结构化请求，只含本题题面、作答、评分要点和解析，不带会话历史，也不进会话。`course:confirm` 是写课时用的核对工具，每道题单独发隔离的单轮请求，只含学习者看得到的题面。
 
 ## 已知限制与暂缓
 
-- 课程的代码核对只能在 Linux 上运行，沙箱的要求见[运行器包的已知限制](../python-runner/README.md#已知限制与暂缓)；Windows、macOS 上只能用 `--no-run`，社区作者可以先做结构检查。
+- 课程的代码核对只能在 Linux 上运行，沙箱的要求见[运行器包的已知限制](../python-runner/README.md#已知限制与暂缓)；Windows、macOS 上只能用 `--no-run`，社区作者可以先做结构检查。在应用里做课时，有 `verify` 或代码题的课在这些系统上过不了 `course_check`，也就不能换用；不用 Python 的课不受影响。
+- 应用里做的课，复习和测验题的 `manual` 作答位没有独立的模型核对，`course_check` 只报出个数；答案是否正确由做课的 Agent 对照材料负责。
+- 课程清单的 `sources` 要求 `https:` 链接，学习者放进 `materials/` 的本地课件登记不进去，写课说明让自制课写空的 `sources`。
 - 课程核对整门课共用一个解释器。候选程序改动已导入的模块（例如给 pandas 打补丁）时，影响会延续到之后的候选和题目；随包课程没有这类代码，判分时每次提交用新的 Worker，也不受影响。课程要教这类写法时，再为相关的候选换新的解释器，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md)。
 - 一道题最多一个按测试判的作答位，有先后关系的多步代码题还不支持，`course:check` 以 `multiple_code_slots` 报出；等模型出题需要时再实现，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md#检查工具)。
 - 模型核对每道题只请模型解一次。选择题有猜中的可能，模型和作者也可能有同样的误读；一致只说明题面能读出这个答案。需要更强的核对时，可以换模型或多次采样，或在试用中看学习者的作答。

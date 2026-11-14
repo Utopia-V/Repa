@@ -43,7 +43,7 @@ export async function judgeAnswer(
     let verdict = response.dontKnow ? "incorrect" : gradeSlot(definition, answer).verdict;
     const slot: Partial<GradedSlot> = {};
     if (verdict === "ungraded" && slotTests(definition).length > 0) {
-      const plan = slotTestPlan(question, definition, topic, course.runtime.prelude ?? "");
+      const plan = slotTestPlan(question, definition, topic, course.runtime?.prelude ?? "");
       if (!plan) {
         throw new RepaFault("service_failed", "题目的测试用到的数据夹具缺失");
       }

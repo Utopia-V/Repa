@@ -1,10 +1,10 @@
 # 写课说明
 
-这份说明给写课的 Agent 和社区作者：按这个格式写一个 topic，要满足什么，怎样自查。字段的完整定义在 [`src/format/schema.ts`](../src/format/schema.ts)，现成的例子是 [`py01`](python/topics/py01.yaml)（追踪与预测）、[`py12`](python/topics/py12.yaml)（写清需求，不用代码）和 [`py17`](python/topics/py17.yaml)（pandas 读表、小改代码）。
+这份说明给开发仓库里写课的 Agent 和社区作者；在应用里把学习者的课件做成课的通用 Agent 读[应用里的写课说明](../guides/making-courses.md)。本说明讲按这个格式写一个 topic 要满足什么、怎样自查。字段的完整定义在 [`src/format/schema.ts`](../src/format/schema.ts)，现成的例子是 [`py01`](python/topics/py01.yaml)（追踪与预测）、[`py12`](python/topics/py12.yaml)（写清需求，不用代码）和 [`py17`](python/topics/py17.yaml)（pandas 读表、小改代码）。
 
 ## 文件放在哪里
 
-- `courses/<课程>/course.yaml`：课程清单，写课程 id、版本、判分运行时（含运行前导 `prelude`）、来源登记和 topic 列表。
+- `courses/<课程>/course.yaml`：课程清单，写课程 id、版本、判分运行时（含运行前导 `prelude`）、来源登记和 topic 列表。判分运行时 `runtime` 只在课里有 `verify`、代码题或带测试的排列题时写，否则报 `runtime_missing`；不用 Python 的课不写，检查也不启动沙箱。
 - `courses/<课程>/topics/<topic id>.yaml`：每个 topic 一个文件，文件名就是 id。新增 topic 时，同时把 id 加进清单的 `topics`。
 
 ## 一个完整的 topic
@@ -43,6 +43,7 @@
 - 知识点 id 写成 `<topic id>.k<数字>`，题目 id 写成 `<知识点 id>.<小写字母><数字>`。习惯上例题用 `e0`，练习用 `q1`、`q2`…，复习用 `r`，测验用 `x`。
 - id 是稳定身份，题目换题池也不改 id。题目实质换了内容，就给新 id。发布后 id 不复用；拆分 KP 时新建 KP 和题目 id，并把旧 id 加进清单的 `retiredIds`。退役 topic 时也登记其 KP 与题目 id。当前课程尚未发布，退役列表从空开始，由作者在内容变更时维护。
 - 题目版本由底座 `contentVersion` 算出，是题面、作答位（含答案和判分规则）、解析、测试和用到的数据的内容哈希；按测试判的题还包括课程清单的运行前导。只改答案而题面不变时，学习者过去的作答会按新答案重判。
+- `kind` 是题型标签，取值由课程自定（小写字母、数字和连字符），只作说明，不参与出题和判分。
 - `measures`、`kind`、只为检查而写的 `verify`、`manual` 和代码题的 `accepts`、`rejects` 不影响题目版本；topic 末尾的核对记录 `verified` 也不影响。不用手写题目版本。
 
 ## 内容怎样写

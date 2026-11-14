@@ -68,7 +68,7 @@ export class CourseIndex {
       cached = (async () => ({
         item: await itemVersion(entry.question, entry.topic),
         // 与 judge.ts 判分时用的前导相同：缺省按空串。
-        question: await questionVersion(entry.question, entry.topic, this.course.course.runtime.prelude ?? ""),
+        question: await questionVersion(entry.question, entry.topic, this.course.course.runtime?.prelude ?? ""),
       }))();
       this.versions.set(questionId, cached);
     }

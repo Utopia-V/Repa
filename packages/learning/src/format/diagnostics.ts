@@ -237,8 +237,13 @@ function explain(error: TLocalizedValidationError, schema: TSchema, root: unknow
   switch (error.keyword) {
     case "required":
       return `缺少字段 ${(params.requiredProperties as string[]).join("、")}`;
-    case "additionalProperties":
-      return `不认识的字段 ${(params.additionalProperties as string[]).join("、")}`;
+    case "additionalProperties": {
+      // 列出这一处能写的字段，写课的人或模型看了就知道是拼错了还是放错了层级。
+      const parent = schemaAt(schema, error.schemaPath.replace(/\/additionalProperties$/, ""));
+      const allowed = parent?.properties && typeof parent.properties === "object" ? Object.keys(parent.properties) : [];
+      const hint = allowed.length > 0 ? `；这里能写的字段是 ${allowed.join("、")}` : "";
+      return `不认识的字段 ${(params.additionalProperties as string[]).join("、")}${hint}`;
+    }
     case "type": {
       const expected = Array.isArray(params.type) ? (params.type as string[]).join(" 或 ") : String(params.type);
       const hint = expected.includes("string") && (typeof value === "number" || typeof value === "boolean")

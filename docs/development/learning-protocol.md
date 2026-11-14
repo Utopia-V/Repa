@@ -40,7 +40,7 @@ if (state.ok) renderLearning(state.value);
 
 | 方法 | 输入与结果 |
 | --- | --- |
-| `state.get` | 空输入，返回 `LearningState`，包括课程、任务、菜单、限制和进度 |
+| `state.get` | 空输入，返回 `LearningState`，包括课程、任务、菜单、限制和进度；`course` 为 `null` 表示这个空间还没有可学的课，见[还没有可学的课](#还没有可学的课) |
 | `menu.select` | `menuId`、`candidateId`，开始菜单里的任一候选（lesson、review、quiz 或 retake）并返回当前状态；类型和重考的原场次都取自候选，前端不按类型分发，复习、测验与重考由后端经受限开始路径进入 |
 | `task.advance` | `taskId`、`expectedStage`、`expectedRevision`，从讲解到例题、练习或后续阶段；判不出结果的作答停在 `recovery` 时也可以继续下一题，返回状态 |
 | `task.resume` | 同一组任务守卫，继续 `preparing` 的受限开始步骤，返回状态 |
@@ -93,6 +93,12 @@ if (state.ok) renderLearning(state.value);
 
 后端先筛掉调用方用不了的题再选题：显示不了的（按 `canRender` 核对 `requires`）、要运行 Python 而调用方没有声明 `python.run` 的，以及没有可用模型时要由模型判分的开放题。菜单只提供每个没过的知识点都有能用的题的课，交付也只在能用的题里选。题池里有题却一道也用不了时，返回缺项（`missing_capability`）并保留原任务，等待可用连接；只缺可用模型时返回 `model_required`。交付前仍调用 `missingDeliveryCapabilities(context.caller?.capabilities, delivery)` 再核对一次：它复用 `canRender`，并为代码题补查 `python.run`；带测试的 Parsons 在 `requiresServices` 声明该服务。
 
+### 还没有可学的课
+
+空间里有 `course/` 文件夹而还没有换用过一门通过检查的课，或换用的课打不开时，插件照常打开，但没有可学的课：`state.get` 返回 `course`、`task`、`menu` 都为 `null`，`tutorAllowed` 与 `referenceContentAllowed` 为 false，进度的 XP 与 topic 数为零；`progress.get` 同样给出零进度，导出照常可用，其余方法以 `course_unavailable` 拒绝，辅导会话的 `session.send` 报 `message_rejected`，details 的 `reason` 为 `course_unavailable`。做课的 Agent 用 `course_use` 换用以后，后端发出 `learning.changed`，重新查询即可看到这门课。课程从哪里来、换用的规则见[学习记录说明](learning-records.md#课程来源与模型)。
+
+换用发生在学习者没有做到一半的任务时：正在上课、复习或测验时，新的一版等这项任务结束再换上，所以进行中的任务的题面、阶段和 revision 不会因换用而变化。换用以后同样发出 `learning.changed`。
+
 ### 辅导会话
 
 辅导对话像 Claude Code 那样，是一段连续的对话，不按任务拆开。前端为一个学习空间保持一段 `learning-tutor` 会话：第一次用 `session.create` 建立，`agent` 填 `learning-tutor`；重开时取 `session.list` 里最近的一段 `learning-tutor` 会话接着用（列表按最后消息时间倒序），并用 `session.history` 恢复显示。学习者可以主动开始新对话，前端为此新建一段会话，旧会话仍留在列表里可查。
@@ -116,6 +122,7 @@ if (state.ok) renderLearning(state.value);
 | `model_required` | 无 details；这一步只剩要由模型判分的题而当前没有可用模型，任务保留，配好模型后继续，也可以中止 |
 | `restricted` | `restricted`，附 task id 和 stage，按当前限制恢复界面 |
 | `service_failed` | `service_failure`，附 service 和 retryable；先查询提交的持久状态，再决定恢复 |
+| `course_unavailable` | 无 details；这个空间还没有可学的课，按 `state.get` 的 `course: null` 显示 |
 
 导出的错误来自底座，details 不属于上表，显示 message 即可：`export_expired` 表示预览已经写出或被新的预览取代，重新调用 `export.prepare`；`export_redaction_failed` 表示读不到保存的凭据，无法脱敏，没有生成导出；`invalid_path` 表示 `directory` 不是绝对路径，这份预览仍然有效。
 

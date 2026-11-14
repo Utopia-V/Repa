@@ -42,5 +42,17 @@
   "plugin-enablement": {
     "digest": "6559dfb16f27d289",
     "basis": "2026-11-13-plugin-enablement.md"
+  },
+  "learning-course-choice": {
+    "digest": "83b8ecbb45687dd1",
+    "basis": "2026-11-14-learning-course-choice.md"
+  },
+  "learning-course": {
+    "digest": "6424754f60110faf",
+    "basis": "2026-11-14-learning-course.md"
+  },
+  "learning-topic": {
+    "digest": "ff63be80e82ebcfa",
+    "basis": "2026-11-14-learning-topic.md"
   }
 }

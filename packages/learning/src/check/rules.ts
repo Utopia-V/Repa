@@ -30,6 +30,16 @@ export function slotNeedsVerification(slot: SlotDef): boolean {
   return true;
 }
 
+/** 要在 Python 里运行的题：有 verify 核对程序，或有按测试判的作答位（代码题、带测试的排列题）。 */
+export function runsInPython(question: Question): boolean {
+  return question.verify !== undefined || question.slots.some((slot) => slotTests(slot).length > 0);
+}
+
+/** 课里有没有要在 Python 里运行的题。有就要在清单里写 runtime，检查时启动沙箱；没有就都不需要。 */
+export function usesPython(topics: readonly Topic[]): boolean {
+  return topics.some((topic) => topicQuestions(topic).some(({ question }) => runsInPython(question)));
+}
+
 /** 有标准答案、由程序判分的作答位。 */
 function gradable(slot: SlotDef): boolean {
   if (slot.type !== "text") return true;
@@ -244,7 +254,11 @@ class TopicChecker {
       const manual = new Set(question.manual ?? []);
       for (const slot of question.slots) {
         if (slotNeedsVerification(slot) && !manual.has(slot.id)) {
-          this.error("unverified_slot", `作答位 ${slot.id} 既没有 verify 程序核对，也没有列进 manual`, at);
+          this.error(
+            "unverified_slot",
+            `作答位 ${slot.id} 既没有 verify 程序核对，也没有列进 manual：要计算的答案写 verify 程序算出来；靠理解和记忆判断的答案，把 ${slot.id} 列进这道题的 manual`,
+            at,
+          );
         }
       }
     }
@@ -538,5 +552,15 @@ export function checkRules(course: LoadedCourse, report: Report): CourseIndex {
   index.ancestors = relationGraph(course, report, "prerequisites");
   relationGraph(course, report, "encompassings");
   for (const loaded of course.topics) new TopicChecker(loaded, course, index, report).run();
+  if (!course.course.runtime && usesPython(course.topics.map((loaded) => loaded.topic))) {
+    const first = course.topics.flatMap((loaded) => topicQuestions(loaded.topic)
+      .filter(({ question }) => runsInPython(question))
+      .map(({ question }) => question.id))[0];
+    report.error(
+      "runtime_missing",
+      `课里有要运行 Python 的题（例如 ${first}：verify 核对程序、代码题或带 tests 的排列题），课程清单要写 runtime；不用 Python 时删掉这些 verify、tests 和代码题`,
+      course.file,
+    );
+  }
   return index;
 }

@@ -79,7 +79,10 @@ export const SourceSchema = object({
 /** 课程用到的一份外部材料，以及它的许可允许的用法。 */
 export type Source = Static<typeof SourceSchema>;
 
-/** 判分与核对的运行时：Pyodide、Python 和包的版本，以及运行前导。学习者在 Repa 里运行代码用的是同一套，所以写在课程清单里。 */
+/**
+ * 判分与核对的运行时：Pyodide、Python 和包的版本，以及运行前导。学习者在 Repa 里运行代码用的是同一套，所以写在课程清单里。
+ * 只有用到 Python 的课才写：有代码题、按测试判的排列题或 verify 核对程序，见 check/rules.ts 的 usesPython。
+ */
 export const RuntimeSchema = object({
   /** 判分和核对用的 Pyodide 发行版本，与学习者运行代码的版本一致。 */
   pyodide: text(32),
@@ -104,7 +107,8 @@ export const CourseSchema = object({
   language: text(16),
   /** 本课程自写内容的许可，用 SPDX 表达式；尚未决定时写 NOASSERTION。 */
   license: text(100),
-  runtime: RuntimeSchema,
+  /** 课里有代码题、按测试判的排列题或 verify 核对程序时必须写；不用 Python 的课不写。 */
+  runtime: Type.Optional(RuntimeSchema),
   sources: Type.Record(NameSchema, SourceSchema),
   /** topic 的稳定 id；顺序只是浏览顺序，学习安排由先修图和学习状态决定。 */
   topics: Type.Array(TopicIdSchema, { minItems: 1, maxItems: 500 }),
@@ -364,8 +368,11 @@ export const SlotDefSchema = Type.Union([ChoiceSlotSchema, TextSlotSchema, Order
 /** 课程里的一个作答位。 */
 export type SlotDef = Static<typeof SlotDefSchema>;
 
-/** 题型标签：预测输出、追踪变量、找错、解释代码、小改代码、写清需求。只作说明，不进题目版本。 */
-export const QuestionKinds = ["predict", "trace", "debug", "explain", "modify", "specify"] as const;
+/** 题型标签由课程自定，例如 Python 课的 predict、trace，记忆为主的课的 recall。只作说明，不参与选题和判分，不进题目版本。 */
+export const QuestionKindSchema = Type.String({
+  pattern: "^[a-z][a-z0-9-]*$", maxLength: 32,
+  description: "题型标签只用小写字母、数字和连字符，以字母开头，例如 recall",
+});
 
 /** 一道题：题面、作答位和解析，加上只为检查而写的核对程序与模型核对的作答位，以及题型和直接考查的知识点。 */
 export const QuestionSchema = object({
@@ -390,8 +397,8 @@ export const QuestionSchema = object({
   manual: Type.Optional(Type.Array(IdSchema, { maxItems: 24 })),
   // kind 与 measures 是解释性元数据，不进题目版本。学生模型按 topic 传递信用（FIRe 走 topic 的 encompassings），
   // 不按题记录用到的其他子技能；那份标注（uses）已删除，研究需要时从 git 历史取回。
-  /** 题型：预测输出、追踪变量、找错、解释代码、小改代码、写清需求。 */
-  kind: Type.Optional(Type.Array(Type.Enum(QuestionKinds), { minItems: 1, maxItems: 3 })),
+  /** 题型标签，由课程自定，例如 Python 课的预测输出 predict、追踪变量 trace。 */
+  kind: Type.Optional(Type.Array(QuestionKindSchema, { minItems: 1, maxItems: 3 })),
   /** 这道题直接测量的知识点；省略时为所在知识点。 */
   measures: Type.Optional(Type.Array(KpIdSchema, { minItems: 1, maxItems: 4 })),
 });

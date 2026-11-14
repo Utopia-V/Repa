@@ -85,6 +85,7 @@ export class LearningSession {
   private readonly background = new Set<Promise<unknown>>();
   private readonly rendered = new Map<number, Promise<Rendered>>();
   private readonly explanations = new Map<string, Promise<string>>();
+  private unlisten = () => {};
 
   private constructor(
     readonly records: LearningRecords,
@@ -101,7 +102,7 @@ export class LearningSession {
     for (const fact of records.facts) {
       session.observe(fact);
     }
-    records.listen((fact) => session.observe(fact));
+    session.unlisten = records.listen((fact) => session.observe(fact));
     for (const delivery of session.replay.allDeliveries()) {
       if (delivery.answer && await session.prepare(delivery.seq)) {
         session.ungraded.add(delivery.seq);
@@ -225,6 +226,17 @@ export class LearningSession {
     while (this.background.size || this.inflight.size) {
       await Promise.allSettled([...this.background, ...this.inflight.values()]);
     }
+  }
+
+  /** 换用课程时退下这个会话：等在途判分结束，再停止跟随学习记录。学习记录本身由插件关闭。 */
+  async retire(): Promise<void> {
+    await this.idle();
+    this.unlisten();
+  }
+
+  /** 通知前端重新读取状态，例如换用课程以后。 */
+  announce(): void {
+    this.changed();
   }
 
   /** 在串行入口里按当前状态决定并写入事实，写入后通知前端。 */

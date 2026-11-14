@@ -30,6 +30,25 @@ Execute a bash command in the current working directory. Returns stdout and stde
 | command | string | 否 | Shell command to execute |
 | timeout | number | 是 | Timeout in seconds (optional, no default timeout) |
 
+## course_check
+
+来源：learning。
+
+检查空间里 course/ 的课：逐处列出哪个文件、哪一行、错在哪里、怎样改，错误多时分页。只检查，不改变学习者在学的课。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| offset | integer | 是 | 从第几处问题开始列，默认 0；上一页的末尾会写明下一页的 offset |
+
+## course_use
+
+来源：learning。
+
+检查空间里 course/ 的课，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+
 ## edit
 
 来源：底座内置。

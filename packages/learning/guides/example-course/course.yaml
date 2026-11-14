@@ -1,0 +1,8 @@
+# 写课说明里的完整例子：一门不含代码题的小课，要记住的概念用选择、填空、排序来考；没有 runtime，也没有 verify。
+id: os-memory
+version: 1.0.0
+title: 进程的基本概念
+language: zh-CN
+license: NOASSERTION
+sources: {}
+topics: [os01, os02]

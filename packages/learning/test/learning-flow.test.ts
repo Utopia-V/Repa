@@ -91,7 +91,7 @@ test("课内一出题就停下辅导：例题进入第一题、反馈进入下�
   assert.equal(stops, 0);
   await f.advance();
   assert.equal(stops, 1);
-  const tools = (await connectTutor(f.session())).tools?.() ?? [];
+  const { tools } = await connectTutor(f.session());
   const restricted = (error: unknown) => (error as { code?: string }).code === "restricted";
   // 工具直接执行，不经辅导消息的拒收，测的是工具自己的检查；这几个工具不会向学习者提问。
   const context = { signal: new AbortController().signal, callId: "direct", ask: () => assert.fail("不应提问") };

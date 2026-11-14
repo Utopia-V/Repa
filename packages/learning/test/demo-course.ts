@@ -11,12 +11,13 @@ import type { TestContext } from "node:test";
 import { describeRuntime, PythonSandbox, SandboxUnavailable, verifyPackages } from "@repa/python-runner";
 import { stringify } from "yaml";
 
-import type { Course, Question, Topic } from "../src/format/schema.js";
+import type { Course, Question, Runtime, Topic } from "../src/format/schema.js";
 
 export const RUNTIME = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } };
 
 export interface DemoCourse {
-  course: Course;
+  /** 示例课程有代码题和 verify，所以一定写了 runtime。 */
+  course: Course & { runtime: Runtime };
   topics: Record<string, Topic>;
 }
 
@@ -32,7 +33,7 @@ function predict(id: string, code: string, output: number): Question {
 }
 
 export function demoCourse(): DemoCourse {
-  const course: Course = {
+  const course: DemoCourse["course"] = {
     id: "demo",
     version: "0.1.0",
     title: "示例课程",
