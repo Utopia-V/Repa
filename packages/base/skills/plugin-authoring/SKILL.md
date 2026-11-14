@@ -50,6 +50,8 @@ description: 给 Repa 自己写插件并在这次运行里装上使用。使用�
 | `host.models.complete({ prompt, system })` | 调一次模型，返回文字；摘要、挑选这类要判断的步骤用它 |
 | `host.now()` | 当前时间，Unix 毫秒 |
 
+读写空间里的文件一律经 `host.files`，不要用 `node:fs` 去拼 `host.space.root`：前者只限空间之内，使用者给的路径带 `..` 也出不去，写入还会记进空间历史。`node:fs` 只用在自己的数据目录上。
+
 能导入的只有三类：Node 内置模块（`node:fs/promises`、`node:path` 等）、本文件夹里的文件、`@repa/base/plugin`。最后一个提供声明参数用的 `Type`、错误类 `RepaFault`，以及 `Plugin`、`Tool`、`Host` 等类型。联网用 Node 自带的全局 `fetch`，不必导入；第三方 npm 包不能用。
 
 ## 要守的几条
