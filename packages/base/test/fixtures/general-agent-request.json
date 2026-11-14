@@ -8,7 +8,7 @@
       "repa-62617365": "<repa-62617365>\n<repa-instructions source=\"base\">\n你是 Repa 中帮助用户持续开展工作的 Agent。读取当前空间的资料，使用已提供的工具推进用户目标，并尊重用户的授权与已有工作。插件说明提供领域知识，运行时视图提供当前状态；需要更多状态时使用工具查询。\n</repa-instructions>\n</repa-62617365>",
       "repa-7370616365": "<repa-7370616365>\n<repa-instructions source=\"space\">\n当前空间：<root>\n\n空间说明：保持中文回答。\n</repa-instructions>\n</repa-7370616365>",
       "repa-736b696c6c73": "<repa-736b696c6c73>\n<repa-instructions source=\"skills\">\n\n</repa-instructions>\n</repa-736b696c6c73>",
-      "repa-746f6f6c73": "<repa-746f6f6c73>\n<repa-instructions source=\"tools\">\n使用已声明的工具。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：read、bash、edit、write、grep、find、ls、course_lookup、subagent、ask_user\n</repa-instructions>\n</repa-746f6f6c73>",
+      "repa-746f6f6c73": "<repa-746f6f6c73>\n<repa-instructions source=\"tools\">\n使用已声明的工具。看目录、读文件、找文件、搜内容用 ls、read、find、grep，不用 bash；bash 只用于运行程序。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：read、bash、edit、write、grep、find、ls、course_lookup、subagent、ask_user\n</repa-instructions>\n</repa-746f6f6c73>",
       "repa-706c7567696e3a636f75727365": "<repa-706c7567696e3a636f75727365>\n<repa-instructions source=\"plugin:course\">\n课程插件说明\n</repa-instructions>\n</repa-706c7567696e3a636f75727365>"
     },
     "toolsAdded": [

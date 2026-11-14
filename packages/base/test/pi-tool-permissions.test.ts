@@ -17,7 +17,7 @@ const fileContent = "permission granted\n";
 type CallKind = "direct" | "nested";
 type ToolEnd = Pick<ToolExecutionEndEvent, "toolCallId" | "toolName" | "parentToolCallId" | "isError" | "durationMs">;
 
-async function fixture(t: TestContext, kind: CallKind, options: Pick<AgentSpaceOptions, "confirm"> & Partial<Pick<AgentSpaceOptions, "commandPolicy">>) {
+async function fixture(t: TestContext, kind: CallKind, options: Pick<AgentSpaceOptions, "confirm"> & Partial<Pick<AgentSpaceOptions, "commandPolicy">> & { command?: string }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "repa-pi-permissions-"));
   let runtime: Awaited<ReturnType<typeof createAgentRuntimeForTest>> | undefined;
   t.after(async () => {
@@ -94,7 +94,7 @@ async function fixture(t: TestContext, kind: CallKind, options: Pick<AgentSpaceO
     },
   });
   const session = await space.create();
-  const call = fauxToolCall(kind === "nested" ? parentToolName : "bash", { command });
+  const call = fauxToolCall(kind === "nested" ? parentToolName : "bash", { command: options.command ?? command });
   faux.setResponses([
     fauxAssistantMessage(call),
     fauxAssistantMessage("命令调用已经结束"),
@@ -223,5 +223,17 @@ for (const kind of ["direct", "nested"] as const) {
     await assertNoEffect(f.root);
     assertBashResult(f, kind, true);
     assert(f.events.some(event => event.type === "runEnd" && event.data !== null && typeof event.data === "object" && "status" in event.data && event.data.status === "aborted"));
+  });
+
+  test(`${label} 只由只读命令组成时在询问模式下直接执行，不弹确认`, async t => {
+    const f = await fixture(t, kind, {
+      command: "pwd && ls | head -n 5",
+      confirm: async () => {
+        throw new Error("只读命令不应调用确认服务");
+      },
+    });
+    await f.session.send("执行测试命令");
+    assert.equal(f.confirmations.length, 0);
+    assertBashResult(f, kind, false);
   });
 }
