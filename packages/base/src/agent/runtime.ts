@@ -21,7 +21,7 @@ import type { SessionBaseline } from "../protocol.js";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool, ModelCallScope } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
-import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
+import { errorText, MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { credentialValues } from "../feedback/redact.js";
@@ -937,7 +937,7 @@ class Session implements AgentSession {
       else await execute();
     } catch (error) {
       status = error instanceof RepaFault && error.code === "cancelled" ? "aborted" : "failed";
-      this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "error", text: error instanceof Error ? error.message : String(error), data: { code: error instanceof RepaFault ? error.code : "agent_error", ...(error instanceof RepaFault && error.details !== undefined ? { details: error.details } : {}) } });
+      this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "error", text: errorText(error), data: { code: error instanceof RepaFault ? error.code : "agent_error", ...(error instanceof RepaFault && error.details !== undefined ? { details: error.details } : {}) } });
       throw error;
     } finally {
       // 不透明运行的结束包含空间快照提交；不能把 Pi 的模型循环结束当作整个运行结束。

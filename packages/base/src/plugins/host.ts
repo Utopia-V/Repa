@@ -18,7 +18,7 @@ import {
 } from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { currentRun, withToolCall } from "../run-context.js";
-import { object, parse, RepaFault } from "../schema.js";
+import { errorText, object, parse, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
 
 const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
@@ -172,7 +172,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       id,
       reason: {
         code: error instanceof RepaFault ? error.code : "plugin_open_failed",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorText(error),
       },
     });
     options.onError(error);

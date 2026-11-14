@@ -33,7 +33,7 @@ import {
   type NotificationParams,
   type Params,
 } from "../protocol.js";
-import { RepaFault, type Confirmation, type Confirm } from "../schema.js";
+import { errorText, RepaFault, type Confirmation, type Confirm } from "../schema.js";
 import { SettingsStore } from "../settings.js";
 import { createSpace, openSpace, type Space } from "../space.js";
 import { browseDirectory, listRoots } from "../space/browse.js";
@@ -338,7 +338,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         },
         emit: (pluginId, event) => emit("plugin.event", { pluginId, event }),
         onError: (error) => {
-          errors.add({ source: "plugin-host", message: error instanceof Error ? error.message : String(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
+          errors.add({ source: "plugin-host", message: errorText(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
           emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } });
         },
       });
@@ -694,7 +694,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       if (notification) return undefined;
       // 内部错误不把细节交给前端，记进最近错误，反馈包里能看到原因。
       if (!(error instanceof RpcFault) && !(error instanceof RepaFault)) {
-        errors.add({ source: "rpc", message: error instanceof Error ? error.message : String(error), ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
+        errors.add({ source: "rpc", message: errorText(error), ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
       }
       const fault = error instanceof RpcFault ? error : error instanceof RepaFault
         ? new RpcFault(-32000, error.message, { code: error.code, ...(error.details === undefined ? {} : { details: error.details }) })

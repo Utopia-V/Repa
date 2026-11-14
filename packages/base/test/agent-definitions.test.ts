@@ -13,6 +13,7 @@ import { RepaClient, RpcError } from "../src/client.js";
 import type { AgentDefinition, Plugin, Tool } from "../src/plugin.js";
 import { record } from "../src/protocol/json-rpc.js";
 import { startServer, type ServerOptions } from "../src/protocol/server.js";
+import type { AgentEvent } from "../src/schema.js";
 
 const courseLookup: Tool = {
   name: "course_lookup",
@@ -443,6 +444,28 @@ test("插件第一次处理变化就失败时，只停它和依赖它的插件�
   assert.equal(history.find((entry) => entry.type === "tool")?.text, "课程：for 循环");
 });
 
+test("插件抛出转不成文字的值：open 与第一次变化处理只停用这个插件，方法调用得到内部错误，连接照常可用", async (t) => {
+  const empty = Type.Object({}, { additionalProperties: false });
+  const opaque = () => Object.create(null) as unknown;
+  const good = learningPlugin();
+  const f = await protocolFixture(t, good, {
+    plugins: [
+      { id: "opaque-open", async open() { throw opaque(); } },
+      { id: "opaque-change", open: async () => ({ async onChange() { throw opaque(); } }) },
+      { id: "opaque-method", open: async () => ({ methods: { fail: { parameters: empty, invoke: async () => { throw opaque(); } } } }) },
+      good,
+    ],
+  });
+  assert.deepEqual(f.opened.disabledPlugins.map(({ id, reason }) => [id, reason.code]), [["opaque-change", "plugin_open_failed"], ["opaque-open", "plugin_open_failed"]]);
+  assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning", "opaque-method"]);
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "opaque-method", method: "fail", input: {} }), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(error.code, -32603);
+    return true;
+  });
+  assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning", "opaque-method"]);
+});
+
 
 test("视图与运行关卡抛出的普通错误保留原对象，不被转换成拒收", async t => {
   const viewError = new Error("视图渲染的原始错误");
@@ -463,4 +486,16 @@ test("视图与运行关卡抛出的普通错误保留原对象，不被转换�
   await assert.rejects(session.send("先检查关卡"), error => error === gateError);
   assert.equal(f.faux.state.callCount, 0);
   assert.deepEqual(session.history().filter(entry => entry.type === "user" || entry.type === "run"), []);
+});
+
+test("运行关卡抛出转不成文字的值：运行以原值失败，并照常发出错误事件", async t => {
+  const opaque = Object.create(null) as unknown;
+  const events: AgentEvent[] = [];
+  const f = await runtimeFixture(t, {
+    agents: () => [{ ...tutor, async beforeRun() { throw opaque; } }],
+    onEvent: event => { events.push(event); },
+  });
+  const session = await f.space.create({ agent: "tutor" });
+  await assert.rejects(session.send("先检查关卡"), error => error === opaque);
+  assert.deepEqual(events.filter(event => event.type === "error").map(event => record(event.data)?.code), ["agent_error"]);
 });
