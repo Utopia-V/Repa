@@ -374,7 +374,7 @@ test("快照被改动时删除它、列为待批准；快照不在时列为待�
   assert.deepEqual(await readEnablement(f.dataDir), record);
 });
 
-test("与随包插件同名、清单 id 与记录不符、导入失败的自写插件列为失败；记录读不了时抛错，也不清理快照", async (t) => {
+test("与随包插件同名、清单 id 与记录不符、导入失败的自写插件列为失败；记录读不了或不合格式时自写插件都不运行、不清理快照，错误写明文件", async (t) => {
   const f = await fixture(t);
   await f.approve("notes", await f.folder("notes", helloPlugin("notes", "同名")));
   // 清单 id 与记录不符的插件，入口一执行就留下标记文件：比较 id 要在导入之前。
@@ -398,12 +398,60 @@ test("与随包插件同名、清单 id 与记录不符、导入失败的自写�
   await assert.rejects(stat(marker), { code: "ENOENT" });
   const group = snapshotGroup(f.home, f.root);
   const kept = (await readdir(group)).sort();
-  await writeFile(enablementFile(f.dataDir), "{");
-  await assert.rejects(
-    spacePlugins({ home: f.home, space: { root: f.root, dataDir: f.dataDir }, bundled: [bundled] }),
-    (error: unknown) => error instanceof RepaFault && error.code === "invalid_plugin_enablement",
-  );
-  assert.deepEqual((await readdir(group)).sort(), kept);
+  // 不是 JSON、字段无效、读不了（plugins.json 是目录）三种情形，都与空记录区分开。
+  const file = enablementFile(f.dataDir);
+  const corrupt = [
+    { write: () => writeFile(file, "{"), code: "invalid_plugin_enablement" },
+    { write: () => writeFile(file, JSON.stringify({ plugins: { Hello: {} } })), code: "invalid_plugin_enablement" },
+    { write: async () => { await rm(file); await mkdir(file); }, code: "plugin_enablement_unreadable" },
+  ];
+  for (const { write, code } of corrupt) {
+    await write();
+    const reported: unknown[] = [];
+    const opened = await spacePlugins({ home: f.home, space: { root: f.root, dataDir: f.dataDir }, bundled: [bundled], onError: (error) => reported.push(error) });
+    assert.deepEqual([opened.plugins.map((plugin) => plugin.id), opened.record, opened.selfWritten, opened.unavailable], [["notes"], undefined, [], []]);
+    assert.equal(reported.length, 1);
+    assert.equal((reported[0] as { code?: unknown }).code, code);
+    assert.ok(reported[0] instanceof Error && reported[0].message.includes(file), `错误说明应写明文件：${String(reported[0])}`);
+    assert.deepEqual((await readdir(group)).sort(), kept);
+  }
+});
+
+test("清理快照出错时报告错误，照常按读到的记录运行自写插件", { skip: permissions }, async (t) => {
+  const f = await fixture(t);
+  const digest = await f.approve("hello", await f.folder("hello", helloPlugin("hello", "你好")));
+  // 记录里已不保留的版本在 <id>/ 下，<id>/ 不可写时删不掉它。
+  const parent = path.dirname(snapshotDirectory(f.home, f.root, "hello", digest));
+  const stale = await f.folder(path.relative(f.directory, path.join(parent, "e".repeat(64))), helloPlugin("hello", "旧"));
+  const errors: unknown[] = [];
+  const result = await withMode(parent, 0o500, () => spacePlugins({ home: f.home, space: { root: f.root, dataDir: f.dataDir }, bundled: [], onError: (error) => errors.push(error) }));
+  assert.deepEqual(result.plugins.map((plugin) => plugin.id), ["hello"]);
+  assert.deepEqual(result.record, await readEnablement(f.dataDir));
+  assert.deepEqual(errors.map((error) => (error as { code?: unknown }).code), ["EACCES"]);
+  assert.ok((await stat(stale)).isDirectory());
+});
+
+test("核对或删除一个插件的快照时读写出错，只有这个插件列为失败，附上原因；别的插件照常运行", { skip: permissions }, async (t) => {
+  const f = await fixture(t);
+  const unreadable = await f.approve("unreadable", await f.folder("unreadable", helloPlugin("unreadable", "读")));
+  const stuck = await f.approve("stuck", await f.folder("stuck", helloPlugin("stuck", "删")));
+  await f.approve("fine", await f.folder("fine", helloPlugin("fine", "好")));
+  const unreadableDirectory = snapshotDirectory(f.home, f.root, "unreadable", unreadable);
+  const stuckDirectory = snapshotDirectory(f.home, f.root, "stuck", stuck);
+  // unreadable 的快照目录列不出内容，核对时出错；stuck 的快照被改动过，它所在的 <id>/ 不可写，删除时出错。
+  await writeFile(path.join(stuckDirectory, "index.js"), "export default { id: 'stuck', open() { return {}; } };\n");
+  const errors: unknown[] = [];
+  const result = await withMode(unreadableDirectory, 0o000, () => withMode(path.dirname(stuckDirectory), 0o500, () =>
+    spacePlugins({ home: f.home, space: { root: f.root, dataDir: f.dataDir }, bundled: [], onError: (error) => errors.push(error) })));
+  assert.deepEqual(result.plugins.map((plugin) => plugin.id), ["fine"]);
+  assert.deepEqual(result.unavailable.map(({ id, state, reason }) => [id, state, reason.code]), [
+    ["unreadable", "failed", "plugin_open_failed"],
+    ["stuck", "failed", "plugin_open_failed"],
+  ]);
+  assert.ok(result.unavailable.every(({ reason }) => reason.message.includes("EACCES")));
+  assert.deepEqual(errors.map((error) => (error as { code?: unknown }).code), ["EACCES", "EACCES"]);
+  // 读不了的快照不当作改动删除。
+  assert.ok((await stat(unreadableDirectory)).isDirectory());
 });
 
 test("只读插件文件夹的清单时不执行入口模块", async (t) => {
@@ -466,21 +514,23 @@ test("构建后的后端打开空间时运行启用的自写插件；快照被�
   });
 });
 
-test("启用记录读不了时打开空间失败，报告 invalid_plugin_enablement，空间没有打开", async (t) => {
+test("启用记录读不了时空间照常打开：自写插件不运行，快照不清理，错误报告出来", async (t) => {
   const f = await fixture(t);
   await rm(f.root, { recursive: true });
   await (await createSpace(f.root, { watch: false })).close();
+  const digest = await f.approve("hello", await f.folder("hello", helloPlugin("hello", "你好")));
   await writeFile(enablementFile(f.dataDir), "{");
   const server = await startServer({ home: f.home });
   f.closers.push(() => server.close());
   const client = await RepaClient.connect(server.connection);
   f.closers.push(() => client.close());
-  await assert.rejects(client.call("space.open", { root: f.root }), (error: unknown) => {
-    assert(error instanceof RpcError);
-    assert.equal((error.data as { code?: string } | undefined)?.code, "invalid_plugin_enablement");
-    return true;
-  });
-  await assert.rejects(client.call("plugin.list", {}), (error: unknown) => error instanceof RpcError && (error.data as { code?: string } | undefined)?.code === "space_not_open");
+  const events: unknown[] = [];
+  t.after(client.on("plugin.event", (event) => events.push(event)));
+  const opened = await client.call("space.open", { root: f.root });
+  assert.deepEqual(opened.disabledPlugins, []);
+  assert.deepEqual(await client.call("plugin.list", {}), []);
+  assert.ok((await stat(snapshotDirectory(f.home, f.root, "hello", digest))).isDirectory());
+  assert.deepEqual(events, [{ pluginId: "host", event: { type: "error", code: "plugin_failed" } }]);
 });
 
 test("后端交给 Agent 运行时的控制目录是配置目录的 plugins/：完全访问模式下通用 Agent 也写不进快照", async (t) => {

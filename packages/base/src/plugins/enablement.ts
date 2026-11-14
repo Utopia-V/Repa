@@ -5,7 +5,7 @@ import { Type, type Static } from "typebox";
 import { Check, Clean } from "typebox/value";
 
 import { isCode } from "../backup/copy.js";
-import { object, RepaFault } from "../schema.js";
+import { errorText, object, RepaFault } from "../schema.js";
 import { writeJson } from "../storage.js";
 import { PLUGIN_ID } from "./manifest.js";
 
@@ -38,7 +38,7 @@ export function enablementFile(dataDir: string): string {
 
 /**
  * 读启用记录；文件不存在时是空记录。读取时忽略各项里不认识的字段，已知字段仍校验，与应用设置的读取相同；
- * 读不了或损坏时抛错，不当作空记录：那样清理会删掉记录本来指向的快照。
+ * 读不了或损坏时抛错，错误说明里有文件路径。不当作空记录：那样清理会删掉记录本来指向的快照。
  */
 export async function readEnablement(dataDir: string): Promise<PluginEnablement> {
   const file = enablementFile(dataDir);
@@ -47,20 +47,20 @@ export async function readEnablement(dataDir: string): Promise<PluginEnablement>
     text = await readFile(file, "utf8");
   } catch (error) {
     if (isCode(error, "ENOENT")) return { plugins: {} };
-    throw error;
+    throw new RepaFault("plugin_enablement_unreadable", `读不了启用记录 ${file}：${errorText(error)}`, { file, cause: errorText(error) });
   }
   let value: unknown;
   try {
     value = JSON.parse(text);
   } catch (error) {
-    throw new RepaFault("invalid_plugin_enablement", "启用记录不是有效的 JSON", { file, cause: String(error) });
+    throw new RepaFault("invalid_plugin_enablement", `启用记录 ${file} 不是有效的 JSON：${String(error)}`, { file, cause: String(error) });
   }
   // typebox 的 Clean 遇到按模式匹配键的对象会把条目一并删掉，所以逐项清理。
   if (value !== null && typeof value === "object" && "plugins" in value && value.plugins !== null && typeof value.plugins === "object") {
     const plugins = Object.fromEntries(Object.entries(value.plugins).map(([id, entry]) => [id, Clean(PluginEnablementEntrySchema, entry)]));
     value = { plugins };
   }
-  if (!Check(PluginEnablementSchema, value)) throw new RepaFault("invalid_plugin_enablement", "启用记录的字段无效", { file });
+  if (!Check(PluginEnablementSchema, value)) throw new RepaFault("invalid_plugin_enablement", `启用记录 ${file} 的字段无效`, { file });
   return value;
 }
 
