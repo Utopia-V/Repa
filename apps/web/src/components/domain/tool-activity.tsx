@@ -32,12 +32,13 @@ const statusIcon = {
   incomplete: CircleDashed,
 } satisfies Record<ToolStatus, unknown>;
 
-/** Agent 调用工具的一行记录；状态同时用图标和文字表达。 */
-export function ToolActivity({ tool, status }: { tool: string; status: ToolStatus }) {
+/** Agent 调用工具的一行记录；状态同时用图标和文字表达。count 是合成这一行的连续同名调用的个数，大于 1 时标出。 */
+export function ToolActivity({ tool, status, count = 1 }: { tool: string; status: ToolStatus; count?: number }) {
   const Icon = statusIcon[status];
   return <p data-status={status} className="mb-4 flex items-center gap-2 text-body text-muted-foreground">
     <Icon aria-hidden="true" className={status === "running" ? "size-4 animate-spin motion-reduce:animate-none" : "size-4"} />
     <span>{toolNames[tool] ?? tool}</span>
+    {count > 1 && <span className="tabular-nums">{t("toolActivity.count.label", { count })}</span>}
     <span>· {statusText[status]}</span>
   </p>;
 }

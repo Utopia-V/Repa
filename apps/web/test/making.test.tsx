@@ -287,3 +287,86 @@ it("批准自写插件：列出名称、版本、页面和文件；批准、拒�
   }
   expect(calls(fake.call, "confirm.reply")).toEqual([{ id: "p1", value: true }, { id: "p2", value: false }, { id: "p3", value: null }]);
 });
+
+const python: LearningState = {
+  ...noCourse,
+  course: { id: "python", title: "Python：读懂代码，说清需求", version: "0.2.0" },
+  restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
+  menu: { menuId: "m1", candidates: [{ id: "c1", kind: "lesson", title: "给数据起名，再按顺序读", topicIds: ["py01"] }] },
+};
+
+it("还没有学习记录的空间整页是起点：不显示随包课的课名、今日 XP 和菜单；改学随包课以后显示原来的菜单", async () => {
+  const fake = backend({ "learning.state.get": () => Promise.resolve(python) });
+  start(fake.client);
+
+  expect(await screen.findByRole("button", { name: "making.start.action" })).toBeTruthy();
+  expect(screen.queryByText("Python：读懂代码，说清需求")).toBeNull();
+  expect(screen.queryByText("给数据起名，再按顺序读")).toBeNull();
+  expect(screen.queryByLabelText("今天的目标完成度")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "making.useBundled.action" }));
+  expect(await screen.findByText("给数据起名，再按顺序读")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Python：读懂代码，说清需求" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "making.start.action" })).toBeNull();
+});
+
+it("已经在学随包课的空间（有学习记录）不显示起点，与以前一样", async () => {
+  const fake = backend({ "learning.state.get": () => Promise.resolve({ ...python, revision: 5 }) });
+  start(fake.client);
+
+  expect(await screen.findByText("给数据起名，再按顺序读")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Python：读懂代码，说清需求" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "making.start.action" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "making.materials.title" })).toBeNull();
+});
+
+it("只有轮廓时不显示菜单那句“没有可开始的任务”；连续写的文件在做课的对话里合成一行", async () => {
+  const done = (id: string, tool: string) => [
+    { id: `a${id}`, type: "assistant", timestamp: iso, text: "", data: { stopReason: "toolUse", calls: [{ id: `c${id}`, name: tool, input: {} }] } },
+    { id: `t${id}`, type: "tool", timestamp: iso, text: "好", data: { callId: `c${id}`, tool, isError: false } },
+  ];
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 3, course: outlined.course, menu: { menuId: "m1", candidates: [], unavailableReason: "当前没有可开始的任务" } }),
+    "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: "outline" as const })) }),
+    "session.history": () => Promise.resolve([
+      ...done("1", "materials_list"), ...done("2", "write"), ...done("3", "write"), ...done("4", "write"), ...done("5", "course_check"),
+      { id: "a6", type: "assistant", timestamp: iso, text: "轮廓出来了。", data: { stopReason: "stop" } },
+    ]),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  start(fake.client);
+
+  const panel = within(await screen.findByRole("complementary", { name: "making.panel.label" }));
+  expect(await panel.findByText("轮廓出来了。")).toBeTruthy();
+  expect(panel.getByText("toolActivity.count.label3")).toBeTruthy();
+  expect(panel.getAllByText("写入文件")).toHaveLength(1);
+  expect(screen.getByRole("region", { name: "outline.title" })).toBeTruthy();
+  expect(screen.queryByText("当前没有可开始的任务")).toBeNull();
+});
+
+it("做课的会话在对话页打开：同一段记录和同一张提问卡片，在那里作答交给同一次询问", async () => {
+  const fake = backend({
+    "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: "outline" as const })) }),
+    "session.history": () => Promise.resolve([{ id: "a1", type: "assistant", timestamp: iso, text: "轮廓出来了。", data: { stopReason: "stop" } }]),
+    "ask.reply": () => Promise.resolve({ status: "accepted" }),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  mockMatchMedia(true);
+  localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { space: "/notes/os" }, version: 0 }));
+  const store = createAppStore();
+  store.getState().setClient(fake.client);
+  const router = createMemoryRouter(routes, { initialEntries: ["/learn"] });
+  render(<StoreProvider store={store}><RouterProvider router={router} /></StoreProvider>);
+
+  expect(await screen.findByText("轮廓出来了。")).toBeTruthy();
+  await act(async () => {
+    fake.emit("ask.request", {
+      id: "a1", origin: { kind: "agent", sessionId: "making-1" },
+      item: { id: "q", version: `sha256:${"1".repeat(64)}`, requires: ["block.markdown"], body: [{ type: "markdown", text: "照此划分推进吗？" }], slots: [] },
+    });
+  });
+  expect(await screen.findByText("照此划分推进吗？")).toBeTruthy();
+  await act(async () => { await router.navigate("/conversation"); });
+  const transcript = within(await screen.findByRole("region", { name: "对话记录" }));
+  expect(transcript.getByText("轮廓出来了。")).toBeTruthy();
+  expect(transcript.getByText("照此划分推进吗？")).toBeTruthy();
+  expect(store.getState().conversation.sessionId).toBe("making-1");
+});

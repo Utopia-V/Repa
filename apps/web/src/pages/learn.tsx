@@ -49,6 +49,8 @@ function Learn({ space }: { space: string }) {
   const abortTask = useAppStore((state) => state.abortTask);
   const [concept, setConcept] = useState<string>();
   const [panelOpen, setPanelOpen] = useState(false);
+  // 在做课的起点选了改学随包的课；开始一节课以后有了学习记录，起点本来就不再出现。
+  const [bundledChosen, setBundledChosen] = useState(false);
   const asking = useAppStore((state) => state.asks.some((ask) => ask.closed === undefined));
   const [confirmAbort, setConfirmAbort] = useState(false);
   const wide = useWide();
@@ -95,10 +97,14 @@ function Learn({ space }: { space: string }) {
   const { building, settings } = learning;
   const active = task !== null && task.phase.stage !== "completed" && task.phase.stage !== "aborted";
   const goal = Math.min(100, Math.round(progress.todayXp / progress.dailyGoalXp * 100));
-  // 做课：有了自制课或做课的对话以后显示整门课的全貌；都没有、手上也没有进行中的任务时，学习页是做课的起点。
+  // 做课：有了自制课或做课的对话以后显示整门课的全貌。
   const makingSession = building?.sessionId ?? undefined;
   const making = building !== undefined && (building.course !== null || makingSession !== undefined);
-  const startable = building !== undefined && !making && !active;
+  // 一个空间学一门课。还没有选定课的空间（没有自制课、没有做课的对话，也没有任何学习记录，或者根本没有可学的课）
+  // 整页是做课的起点；已经在学随包课的空间照旧。
+  const startable = building !== undefined && !making && !active && !bundledChosen && (state.revision === 0 || state.course === null);
+  // 只有轮廓、还没有能学的部分时，Agent 正在和学习者商量轮廓，菜单那句“没有可开始的任务”放在这里不对，不显示。
+  const outlineOnly = making && !building.parts.some((part) => part.status !== "outline");
   // 右侧：有学习任务时是辅导，行为不变；没有任务而有做课的对话时是做课的对话。
   const panel = task
     ? { label: t("tutor.panel.label"), action: t("learn.tutor.action"), content: <TutorPanel allowed={restrictions.tutorAllowed} renderLink={renderLink} /> }
@@ -110,12 +116,12 @@ function Learn({ space }: { space: string }) {
   return <div className="flex h-dvh flex-col">
     {/* 移动端左侧让出浮动的导航按钮。 */}
     <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-2 pr-4 pl-16 md:px-6">
-      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{state.course?.title ?? building?.course?.title ?? t("learn.page.title")}</h2>
+      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{(startable ? undefined : state.course?.title ?? building?.course?.title) ?? t("learn.page.title")}</h2>
       <div className="flex items-center gap-3">
-        <div className="grid w-40 gap-1">
+        {!startable && <div className="grid w-40 gap-1">
           <span className="text-caption text-muted-foreground">{t("learn.dailyGoal.label", { todayXp: progress.todayXp, dailyGoalXp: progress.dailyGoalXp })}</span>
           <Progress value={goal} aria-label={t("learn.dailyGoal.progress.label")} />
-        </div>
+        </div>}
         {panel && !wide && <Button variant="tertiary" onClick={() => setPanelOpen(true)} leadingIcon={MessageCircle}>{panel.action}
         </Button>}
       </div>
@@ -137,9 +143,11 @@ function Learn({ space }: { space: string }) {
           {active && <div className="flex justify-end">
             <Button variant="ghost" disabled={learning.busy !== undefined} onClick={() => setConfirmAbort(true)}>{t("learn.abort.action", { kindText: kindText[task.kind] })}</Button>
           </div>}
-          {/* 学的是随包的课时菜单也在；做课的起点排在前面，试用者打开空间先看到它。 */}
-          {startable && <MakingStart onStarted={() => setPanelOpen(true)} />}
-          {menu && learning.readAt !== undefined && <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} />}
+          {startable && <MakingStart
+            onStarted={() => setPanelOpen(true)}
+            onUseBundled={state.course === null ? undefined : () => setBundledChosen(true)}
+          />}
+          {!startable && !outlineOnly && menu && learning.readAt !== undefined && <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} />}
           {making && (building.parts.length > 0 || building.course !== null
             ? <CourseOutline building={building} settings={settings} />
             : <p role="status" className="m-0 text-body text-muted-foreground">{t("outline.pending.status")}</p>)}

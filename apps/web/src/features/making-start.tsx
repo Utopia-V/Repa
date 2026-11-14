@@ -24,10 +24,14 @@ function partsText(file: Extract<Material, { status: "text" }>): string {
 }
 
 /**
- * 还没有自制课时学习页的起点：materials/ 里的课件、添加课件、可不填的要求，和“开始”。
+ * 还没有选定课的空间里学习页的起点：materials/ 里的课件、添加课件、可不填的要求，和“开始”；有随包的课时另有一个改学它的次要动作。
  * 开始以后由做课的对话接手，这一块随做课的状态换成轮廓；按钮在运行结束前不再可用。
  */
-export function MakingStart({ onStarted }: { onStarted(): void }) {
+export function MakingStart({ onStarted, onUseBundled }: {
+  onStarted(): void;
+  /** 空间里有随包的课时给出：没有课件的学习者改学它，起点随之让开。 */
+  onUseBundled?: (() => void) | undefined;
+}) {
   const listMaterials = useAppStore((state) => state.listMaterials);
   const addMaterials = useAppStore((state) => state.addMaterials);
   const startMaking = useAppStore((state) => state.startMaking);
@@ -94,8 +98,9 @@ export function MakingStart({ onStarted }: { onStarted(): void }) {
       <div><Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button></div>
     </div>}
     {startError !== undefined && <ErrorNotice title={t("making.start.error")} error={startError} />}
-    <div>
+    <div className="flex flex-wrap items-center gap-3">
       <Button disabled={noModel || !files || files.length === 0 || run !== "idle"} onClick={() => { void start(); }}>{t("making.start.action")}</Button>
+      {onUseBundled && <Button variant="ghost" disabled={run !== "idle"} onClick={onUseBundled}>{t("making.useBundled.action")}</Button>}
     </div>
 
     <FilePickerDialog

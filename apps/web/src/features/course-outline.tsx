@@ -30,7 +30,7 @@ const failureTitle = {
 } as const;
 
 /**
- * 整门课的全貌：后台展开与它的取消、最近一次没有成功的原因与再试、花费和自动展开的开关常在；
+ * 整门课的全貌：花费和自动展开的开关在标题一行，后台展开与它的取消、最近一次没有成功的原因与再试常在；
  * 各部分的清单可以收起。还没有能学的部分时清单展开，有了以后先收起，不把菜单和任务挤下去。
  */
 export function CourseOutline({ building, settings }: { building: CourseBuilding; settings: LearningSettings | undefined }) {
@@ -64,8 +64,15 @@ export function CourseOutline({ building, settings }: { building: CourseBuilding
   const count = (status: Part["status"]) => parts.filter((part) => part.status === status).length;
 
   return <section aria-labelledby="course-outline-title" className="grid gap-4">
+    {/* 花费跟着标题：清单收起或展开都看得到。 */}
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <h3 id="course-outline-title" className="m-0 text-title weight-semibold">{t("outline.title")}</h3>
+      <div className="grid gap-1">
+        <h3 id="course-outline-title" className="m-0 text-title weight-semibold">{t("outline.title")}</h3>
+        {building.course && <p className="m-0 text-caption text-muted-foreground tabular-nums">
+          {t("outline.cost.label", { amount: estimatedUsd(cost.cost), requests: cost.requests })}
+          {Object.values(cost.unpriced).some((value) => value > 0) && t("outline.cost.unpriced.hint")}
+        </p>}
+      </div>
       {settings && <Switch
         label={t("outline.autoExpand.label")}
         checked={settings.autoExpand}
@@ -136,9 +143,5 @@ export function CourseOutline({ building, settings }: { building: CourseBuilding
       </ol>}
     </div>}
 
-    {building.course && <p className="m-0 text-caption text-muted-foreground tabular-nums">
-      {t("outline.cost.label", { amount: estimatedUsd(cost.cost), requests: cost.requests })}
-      {Object.values(cost.unpriced).some((value) => value > 0) && t("outline.cost.unpriced.hint")}
-    </p>}
   </section>;
 }
