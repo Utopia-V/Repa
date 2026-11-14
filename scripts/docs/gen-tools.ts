@@ -4,6 +4,7 @@ import { fauxAssistantMessage, fauxProvider, getCurrentTools, type Tool } from "
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 import { createAgentRuntimeForTest } from "../../packages/base/src/agent/runtime.js";
+import { pluginTool } from "../../packages/base/src/plugins/plugin-tool.js";
 import { createPluginTestHost } from "../../packages/base/src/testing.js";
 import notesPlugin from "../../packages/base/examples/notes-plugin.js";
 import { createLearningPlugin } from "../../packages/learning/src/plugin.js";
@@ -48,6 +49,8 @@ export async function generateTools() {
     const entries = [
       ...builtins.map((tool) => ({ source: "底座内置", tool })),
       ...fixture.host.tools().map((tool) => ({ source: fixture.host.list().find((plugin) => plugin.tools.includes(tool.name))?.id ?? "插件", tool })),
+      // 通用 Agent 的 plugin 工具由后端装配提供；只读它的声明，不调用。
+      { source: "后端装配，通用 Agent", tool: pluginTool({} as never, async () => null) },
     ].sort((a, b) => a.tool.name.localeCompare(b.tool.name, "en"));
     return document("tools", "docs/generated/tools.md", "模型看到的工具", entries.map(({ source, tool }) =>
       `## ${tool.name}\n\n来源：${source}。\n\n${cell(tool.description)}\n\n${schemaTable(tool.parameters)}`).join("\n\n"), entries.length);

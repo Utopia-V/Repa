@@ -233,9 +233,10 @@
 | --- | --- | --- | --- |
 | id | string | 否 |  |
 | request | object | 否 |  |
-| request.kind | "command" &#124; "input" &#124; "select" &#124; "display" | 否 |  |
+| request.kind | "command" &#124; "input" &#124; "select" &#124; "display" &#124; "plugin" | 否 |  |
 | request.message | string | 是 |  |
 | request.options[] | string | 是 |  |
+| request.plugin | object | 是 | 嵌套对象，字段见源码 |
 | request.secret | boolean | 是 |  |
 | request.title | string | 否 |  |
 | request.url | string | 是 |  |
@@ -332,7 +333,7 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | baseline | object | 否 |  |
-| baseline.disabledPlugins[] | object | 否 | 嵌套对象，字段见源码 |
+| baseline.plugins[] | object | 否 | 嵌套对象，字段见源码 |
 | baseline.sessions[] | object | 否 | 嵌套对象，字段见源码 |
 | baseline.space | object &#124; null | 否 | 嵌套对象，字段见源码 |
 | serverId | string | 否 |  |
@@ -419,22 +420,6 @@
 | --- | --- | --- | --- |
 | $ | unknown | 否 |  |
 
-## 方法：plugin.disabled
-
-### 参数
-
-| 字段 | 类型 | 可选 | 说明 |
-| --- | --- | --- | --- |
-
-### 结果
-
-| 字段 | 类型 | 可选 | 说明 |
-| --- | --- | --- | --- |
-| $[].id | string | 否 |  |
-| $[].reason | object | 否 |  |
-| $[].reason.code | string | 否 |  |
-| $[].reason.message | string | 否 |  |
-
 ## 通知：plugin.event
 
 | 字段 | 类型 | 可选 | 说明 |
@@ -453,9 +438,99 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| $[].digest | string | 是 |  |
+| $[].folder | "same" &#124; "modified" &#124; "missing" &#124; "unreadable" | 是 |  |
 | $[].id | string | 否 |  |
 | $[].methods[] | string | 否 |  |
+| $[].pages[] | object | 否 |  |
+| $[].pages[].id | string | 否 |  |
+| $[].pages[].title | string | 否 |  |
+| $[].previous | string | 是 |  |
+| $[].reason | object | 是 |  |
+| $[].reason.code | string | 否 |  |
+| $[].reason.message | string | 否 |  |
+| $[].source | "bundled" &#124; "space" | 否 |  |
+| $[].state | "disabled" &#124; "running" &#124; "pending" &#124; "failed" | 否 |  |
+| $[].title | string | 是 |  |
 | $[].tools[] | string | 否 |  |
+| $[].version | string | 是 |  |
+
+## 方法：plugin.load
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| from | "folder" &#124; "recorded" &#124; "previous" | 是 |  |
+| id | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| digest | string | 是 |  |
+| folder | "same" &#124; "modified" &#124; "missing" &#124; "unreadable" | 是 |  |
+| id | string | 否 |  |
+| methods[] | string | 否 |  |
+| pages[] | object | 否 |  |
+| pages[].id | string | 否 |  |
+| pages[].title | string | 否 |  |
+| previous | string | 是 |  |
+| reason | object | 是 |  |
+| reason.code | string | 否 |  |
+| reason.message | string | 否 |  |
+| source | "bundled" &#124; "space" | 否 |  |
+| state | "disabled" &#124; "running" &#124; "pending" &#124; "failed" | 否 |  |
+| title | string | 是 |  |
+| tools[] | string | 否 |  |
+| version | string | 是 |  |
+
+## 方法：plugin.unload
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| id | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| digest | string | 是 |  |
+| folder | "same" &#124; "modified" &#124; "missing" &#124; "unreadable" | 是 |  |
+| id | string | 否 |  |
+| methods[] | string | 否 |  |
+| pages[] | object | 否 |  |
+| pages[].id | string | 否 |  |
+| pages[].title | string | 否 |  |
+| previous | string | 是 |  |
+| reason | object | 是 |  |
+| reason.code | string | 否 |  |
+| reason.message | string | 否 |  |
+| source | "bundled" &#124; "space" | 否 |  |
+| state | "disabled" &#124; "running" &#124; "pending" &#124; "failed" | 否 |  |
+| title | string | 是 |  |
+| tools[] | string | 否 |  |
+| version | string | 是 |  |
+
+## 通知：plugin.updated
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| plugins[] | object | 否 |  |
+| plugins[].digest | string | 是 |  |
+| plugins[].folder | "same" &#124; "modified" &#124; "missing" &#124; "unreadable" | 是 |  |
+| plugins[].id | string | 否 |  |
+| plugins[].methods[] | string | 否 |  |
+| plugins[].pages[] | object | 否 | 嵌套对象，字段见源码 |
+| plugins[].previous | string | 是 |  |
+| plugins[].reason | object | 是 | 嵌套对象，字段见源码 |
+| plugins[].source | "bundled" &#124; "space" | 否 |  |
+| plugins[].state | "disabled" &#124; "running" &#124; "pending" &#124; "failed" | 否 |  |
+| plugins[].title | string | 是 |  |
+| plugins[].tools[] | string | 否 |  |
+| plugins[].version | string | 是 |  |
 
 ## 方法：prompt.list
 
@@ -859,9 +934,19 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| disabledPlugins[] | object | 否 |  |
-| disabledPlugins[].id | string | 否 |  |
-| disabledPlugins[].reason | object | 否 | 嵌套对象，字段见源码 |
+| plugins[] | object | 否 |  |
+| plugins[].digest | string | 是 |  |
+| plugins[].folder | "same" &#124; "modified" &#124; "missing" &#124; "unreadable" | 是 |  |
+| plugins[].id | string | 否 |  |
+| plugins[].methods[] | string | 否 |  |
+| plugins[].pages[] | object | 否 | 嵌套对象，字段见源码 |
+| plugins[].previous | string | 是 |  |
+| plugins[].reason | object | 是 | 嵌套对象，字段见源码 |
+| plugins[].source | "bundled" &#124; "space" | 否 |  |
+| plugins[].state | "disabled" &#124; "running" &#124; "pending" &#124; "failed" | 否 |  |
+| plugins[].title | string | 是 |  |
+| plugins[].tools[] | string | 否 |  |
+| plugins[].version | string | 是 |  |
 | root | string | 否 |  |
 
 ## 方法：space.list
@@ -889,9 +974,19 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| disabledPlugins[] | object | 否 |  |
-| disabledPlugins[].id | string | 否 |  |
-| disabledPlugins[].reason | object | 否 | 嵌套对象，字段见源码 |
+| plugins[] | object | 否 |  |
+| plugins[].digest | string | 是 |  |
+| plugins[].folder | "same" &#124; "modified" &#124; "missing" &#124; "unreadable" | 是 |  |
+| plugins[].id | string | 否 |  |
+| plugins[].methods[] | string | 否 |  |
+| plugins[].pages[] | object | 否 | 嵌套对象，字段见源码 |
+| plugins[].previous | string | 是 |  |
+| plugins[].reason | object | 是 | 嵌套对象，字段见源码 |
+| plugins[].source | "bundled" &#124; "space" | 否 |  |
+| plugins[].state | "disabled" &#124; "running" &#124; "pending" &#124; "failed" | 否 |  |
+| plugins[].title | string | 是 |  |
+| plugins[].tools[] | string | 否 |  |
+| plugins[].version | string | 是 |  |
 | root | string | 否 |  |
 
 ## 方法：space.roots

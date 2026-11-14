@@ -2,7 +2,6 @@ import type { AgentTool } from "./agent.js";
 import type { AskRoute } from "./ask.js";
 import type { ExportSources } from "./feedback/export.js";
 import type { AgentDefinition, MethodContext, Models, Plugin, Services } from "./plugin.js";
-import type { DisabledPlugin } from "./protocol.js";
 import type { Space } from "./space.js";
 
 /** 空间中的插件宿主；装配层从这里取得插件声明、调用方法并等待变化处理。 */
@@ -20,7 +19,8 @@ export interface PluginHost {
    * 正在执行的调用立即失败，事件不再转发；撤下之前发起、还在等空间写锁的写空间与历史操作随之取消。返回的 Promise 到实例的 close() 结束为止，调用方可以不等；close() 出错时它失败，错误同时交给 onError。
    */
   remove(id: string): Promise<void>;
-  disabled(): DisabledPlugin[];
+  /** 打开空间时失败、被停用的插件及原因，按 id 排列；运行中加上失败的插件不在这里，add 直接抛错。 */
+  disabled(): { id: string; reason: { code: string; message: string } }[];
   list(): { id: string; methods: string[]; tools: string[] }[];
   instructions(): { id: string; text: string }[];
   /** 包装后的插件工具：宿主校验参数，并给上下文补上 ask。 */

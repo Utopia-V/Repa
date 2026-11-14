@@ -197,7 +197,7 @@ function staleFile(tools: FileTools, file: string, current: Buffer | undefined, 
 function locked(tools: FileTools, tool: ToolDefinition): ToolDefinition {
   return defineTool({
     ...tool,
-    execute: (callId, input, signal, onUpdate, ctx) => tools.writes.lock(() => tool.execute(callId, input, signal, onUpdate, ctx), signal),
+    execute: (callId, input, signal, onUpdate, ctx) => tools.writes.lock(() => tool.execute(callId, input, signal, onUpdate, ctx), { signal }),
   });
 }
 

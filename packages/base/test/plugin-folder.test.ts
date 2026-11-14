@@ -111,7 +111,7 @@ test("不经构建的 .ts 插件文件夹由构建后的 CLI 加载，工具经�
   f.closers.push(() => client.close());
 
   await client.call("space.create", { root: path.join(f.directory, "space") });
-  assert.deepEqual(await client.call("plugin.list", {}), [{ id: "echo-folder", methods: ["fail"], tools: ["echo_text"] }]);
+  assert.deepEqual(await client.call("plugin.list", {}), [{ id: "echo-folder", source: "bundled", state: "running", pages: [], methods: ["fail"], tools: ["echo_text"] }]);
   await assert.rejects(client.call("plugin.call", { pluginId: "echo-folder", method: "fail", input: {} }), (error: unknown) => {
     assert(error instanceof RpcError);
     assert.deepEqual(error.data, { code: "folder_fault", details: { from: "tools.ts" } });

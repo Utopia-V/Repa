@@ -3,10 +3,9 @@ import { lstat, mkdir, open, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import { copying, copyTree, isCode, publish, remove, syncCopies, syncEntries, walk } from "../backup/copy.js";
-import { RepaFault } from "../schema.js";
+import { DIGEST, PLUGIN_ID, RepaFault } from "../schema.js";
 import { spaceKey } from "../space/paths.js";
-import { DIGEST, type PluginEnablement } from "./enablement.js";
-import { PLUGIN_ID } from "./manifest.js";
+import type { PluginEnablement } from "./enablement.js";
 
 /**
  * 插件文件夹的上限，是 Repa 的假设：防的是 Agent 把依赖或数据堆进插件文件夹，使每次批准都复制大量内容，

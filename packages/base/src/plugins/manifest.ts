@@ -5,12 +5,10 @@ import semver from "semver";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import type { Plugin } from "../plugin.js";
-import { errorText, object, RepaFault } from "../schema.js";
+import { errorText, object, PLUGIN_ID, RepaFault } from "../schema.js";
 import { within } from "../space/paths.js";
 import { confinePluginFolder } from "./folder-imports.js";
 
-/** 插件 id 的格式：小写字母开头，只含小写字母、数字和连字符。清单、启用记录与快照目录名都按它。 */
-export const PLUGIN_ID = /^[a-z][a-z0-9-]*$/;
 const ID = Type.String({ pattern: PLUGIN_ID.source });
 
 /** 插件页面的声明：页面 id、显示的标题和插件文件夹内的 HTML 入口文档。 */

@@ -168,7 +168,7 @@ it("启动时回到上次的空间的对话", async () => {
 it("启动时上次的空间装了学习插件，进学习页", async () => {
   const call = vi.fn((method: string): Promise<unknown> => {
     if (method === "space.open") return Promise.resolve({ root: "/notes/calculus" });
-    if (method === "plugin.list") return Promise.resolve([{ id: "learning", methods: [], tools: [] }]);
+    if (method === "plugin.list") return Promise.resolve([{ id: "learning", source: "bundled", state: "running", pages: [], methods: [], tools: [] }]);
     if (method === "space.list") return Promise.resolve([]);
     // 学习状态一直不返回：这里只看去了哪个页面。
     return new Promise(() => {});

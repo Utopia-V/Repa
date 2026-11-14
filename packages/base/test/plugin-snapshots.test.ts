@@ -497,16 +497,17 @@ test("构建后的后端打开空间时运行启用的自写插件；快照被�
   f.closers.push(() => client.close());
 
   const opened = await client.call("space.open", { root: f.root });
-  assert.deepEqual(opened.disabledPlugins, []);
-  assert.deepEqual(await client.call("plugin.list", {}), [{ id: "echo-folder", methods: ["echo"], tools: [] }]);
+  // 源文件夹不在空间的 .agents/plugins/ 里：运行的是快照，列表把文件夹记为不在。
+  const expected = { id: "echo-folder", source: "space", version: ECHO_MANIFEST.version, state: "running", folder: "missing", digest, pages: [], methods: ["echo"], tools: [] };
+  assert.deepEqual(opened.plugins, [expected]);
+  assert.deepEqual(await client.call("plugin.list", {}), [expected]);
   assert.equal(await client.call("plugin.call", { pluginId: "echo-folder", method: "echo", input: { text: "你好" } }), "回声：你好");
   await client.call("space.close", {});
 
   await writeFile(path.join(snapshotDirectory(f.home, f.root, "echo-folder", digest), "index.ts"), ECHO_INDEX.replace("回声", "篡改"));
   const reopened = await client.call("space.open", { root: f.root });
-  assert.deepEqual(reopened.disabledPlugins.map((plugin) => [plugin.id, plugin.reason.code]), [["echo-folder", "snapshot_modified"]]);
-  assert.deepEqual(await client.call("plugin.disabled", {}), reopened.disabledPlugins);
-  assert.deepEqual(await client.call("plugin.list", {}), []);
+  assert.deepEqual(reopened.plugins.map((plugin) => [plugin.id, plugin.state, plugin.reason?.code, plugin.methods]), [["echo-folder", "pending", "snapshot_modified", []]]);
+  assert.deepEqual(await client.call("plugin.list", {}), reopened.plugins);
   await assert.rejects(client.call("plugin.call", { pluginId: "echo-folder", method: "echo", input: { text: "你好" } }), (error: unknown) => {
     assert(error instanceof RpcError);
     assert.equal((error.data as { code?: string } | undefined)?.code, "plugin_not_found");
@@ -527,7 +528,8 @@ test("启用记录读不了时空间照常打开：自写插件不运行，快�
   const events: unknown[] = [];
   t.after(client.on("plugin.event", (event) => events.push(event)));
   const opened = await client.call("space.open", { root: f.root });
-  assert.deepEqual(opened.disabledPlugins, []);
+  // 记录读不了：列表里没有取自记录的插件，也就没有运行中的自写插件。
+  assert.deepEqual(opened.plugins, []);
   assert.deepEqual(await client.call("plugin.list", {}), []);
   assert.ok((await stat(snapshotDirectory(f.home, f.root, "hello", digest))).isDirectory());
   assert.deepEqual(events, [{ pluginId: "host", event: { type: "error", code: "plugin_failed" } }]);

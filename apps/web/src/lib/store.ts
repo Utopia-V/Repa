@@ -430,6 +430,12 @@ export function createAppStore() {
           set((state) => ({ confirmations: [...state.confirmations, { id, request }] }));
           return;
         }
+        // 自写插件的批准还没有界面：回答 null，后端记为没有作出决定，不当作使用者拒绝。
+        // 要在下面的登录分支之前：登录进行中时它会被当作登录的输入。
+        if (request.kind === "plugin") {
+          void reply(id, null);
+          return;
+        }
         const login = get().activeLogin;
         if (login && !login.cancelled) {
           if (request.kind === "display") {
@@ -457,12 +463,16 @@ export function createAppStore() {
       const offPlugin = client.on("plugin.event", ({ pluginId, event }) => {
         learning.learningEvent(pluginId, event);
       });
+      const offPlugins = client.on("plugin.updated", ({ plugins }) => {
+        learning.learningPlugins(plugins);
+      });
       unsubscribe = () => {
         offEvent();
         offConfirm();
         offAsk();
         offAskClosed();
         offPlugin();
+        offPlugins();
       };
     }
 

@@ -64,7 +64,7 @@ REPA_TEST_REQUIRE_ENV=1 npm test
 
 应用配置使用系统配置目录，支持 `REPA_HOME` 和显式 `home` 覆盖；空间格式版本 1 的覆盖范围和空间 Skill 位置见[底座格式与配置](../../packages/base/README.md#应用配置目录)。目录浏览只把具有有效格式标记的目录识别为空间。测试和试运行必须显式使用临时 `home`／`REPA_HOME` 及临时空间，隔离个人数据。
 
-每个服务持有一个活动空间。Agent 运行和独立插件文件写入经过空间历史队列，插件状态、数据版本与变化游标由插件维护。一个插件打开失败时只停用这个插件及无法成立的依赖方，原因通过 `space.open/create` 的 `disabledPlugins` 和 `plugin.disabled` 提供；前端显示由 Aqua 接续。影子 Git 撤销空间文件，不回滚插件数据、会话与设置；插件数据与会话由[空间备份](../../packages/base/README.md#备份与恢复)保护，数据保护范围和外部写入限制见[空间历史说明](../../packages/space-history/README.md#保存与撤销的取舍)。
+每个服务持有一个活动空间。Agent 运行和独立插件文件写入经过空间历史队列，插件状态、数据版本与变化游标由插件维护。一个插件打开失败时只停用这个插件及无法成立的依赖方，运行状态与原因在插件列表里，经 `space.open/create` 的结果、初始化基线、`plugin.list` 和 `plugin.updated` 提供；自写插件的加载与卸载经 `plugin.load`、`plugin.unload` 和通用 Agent 的 `plugin` 工具进行，见[自写插件的快照与启用记录](../../packages/base/README.md#自写插件的快照与启用记录)。插件列表与批准对话的界面由 Aqua 接续。影子 Git 撤销空间文件，不回滚插件数据、会话与设置；插件数据与会话由[空间备份](../../packages/base/README.md#备份与恢复)保护，数据保护范围和外部写入限制见[空间历史说明](../../packages/space-history/README.md#保存与撤销的取舍)。
 
 ## 从哪里开始
 

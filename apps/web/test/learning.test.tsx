@@ -69,7 +69,7 @@ function backend(learning: Learning, base: Record<string, Base> = {}) {
       case "model.getDefault":
         return Promise.resolve(null);
       case "plugin.list":
-        return Promise.resolve([{ id: "learning", methods: [], tools: [] }]);
+        return Promise.resolve([{ id: "learning", source: "bundled", state: "running", pages: [], methods: [], tools: [] }]);
       case "plugin.call":
         return learning(params.method as string, params.input as Record<string, unknown>);
       default:
@@ -297,4 +297,23 @@ it("代码题点“运行”：后端拼好不带答案的一批，交给试运�
   expect(learningCalls(fake.call).find((call) => call.method === "run.prepare")?.input).toEqual({ deliveryId: "d4", slotId: "code", code: "print(len(df))\nprint(x)\n" });
   expect(runner.run).toHaveBeenCalledWith(batch, expect.any(AbortSignal));
   expect(learningCalls(fake.call).map((call) => call.method)).toEqual(["state.get", "run.prepare"]);
+});
+
+it("插件列表变了，学习插件不再运行时学习页标为不可用；它回来以后重新读取学习状态", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(1, explanation));
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  const store = start(fake.client);
+  expect(await screen.findByText("先算右边。", { exact: false })).toBeTruthy();
+  const reads = () => learningCalls(fake.call).filter((call) => call.method === "state.get").length;
+  const before = reads();
+
+  const item = { id: "learning", source: "space" as const, pages: [], methods: [], tools: [] };
+  act(() => fake.emit("plugin.updated", { plugins: [{ ...item, state: "failed", reason: { code: "plugin_open_failed", message: "打不开" } }] }));
+  expect(store.getState().learning.available).toBe(false);
+  act(() => fake.emit("plugin.updated", { plugins: [{ ...item, state: "running" }] }));
+  expect(store.getState().learning.available).toBe(true);
+  await vi.waitFor(() => { expect(reads()).toBeGreaterThan(before); });
 });
