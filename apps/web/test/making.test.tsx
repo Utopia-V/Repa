@@ -12,11 +12,12 @@ import { routes } from "../src/routes";
 import { fakeClient } from "./fake-client";
 import { mockMatchMedia } from "./match-media";
 
-// 新加的界面文字还是占位，彼此一样；测试里把占位换成键名，按键名找元素。参数照常替换。
+// 做课这几块界面的文字在测试里换成键名（参数照常跟在后面），按键名找元素：改一句话的措辞不必改测试。
 vi.mock("../src/strings/zh-CN", async (importOriginal) => {
   const { strings } = await importOriginal<typeof import("../src/strings/zh-CN")>();
+  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count))/u;
   return {
-    strings: Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, value.startsWith("〔待写〕") ? key + value.slice("〔待写〕".length) : value])),
+    strings: Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, byKey.test(key) ? key + (value.match(/\{\w+\}/gu) ?? []).join("") : value])),
   };
 });
 
@@ -200,7 +201,7 @@ it("有了课：轮廓按顺序列出，状态有文字不只靠颜色；先做�
   expect(outline.getByRole("status").textContent).toContain("outline.expanding.status进程调度");
   expect(outline.getByText("outline.cost.labelUS$0.08347")).toBeTruthy();
   // 已经有能学的部分：清单先收起，展开后逐项可读。
-  const toggle = outline.getByRole("button", { name: "outline.summary.label114" });
+  const toggle = outline.getByRole("button", { name: "outline.summary.label411" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   fireEvent.click(toggle);
   const rows = outline.getAllByRole("listitem");
