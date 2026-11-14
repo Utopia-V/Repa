@@ -49,20 +49,15 @@ export async function convertPdf(data: Uint8Array, signal: AbortSignal): Promise
     });
   } catch (error) {
     if (errorName(error) === "PasswordException") throw new ConversionFailure("encrypted");
-    throw new ConversionFailure("damaged", error instanceof Error ? error.message : String(error));
+    throw error;
   }
   try {
     const parts: Array<string | MissingPage> = [];
     for (let number = 1; number <= document.numPages; number++) {
       signal.throwIfAborted();
-      let content;
-      try {
-        const page = await document.getPage(number);
-        content = await page.getTextContent();
-        page.cleanup();
-      } catch (error) {
-        throw new ConversionFailure("damaged", `第 ${number} 页：${error instanceof Error ? error.message : String(error)}`);
-      }
+      const page = await document.getPage(number);
+      const content = await page.getTextContent();
+      page.cleanup();
       parts.push(classify(pageText(content.items)));
     }
     const readable = parts.some((part) => typeof part === "string");

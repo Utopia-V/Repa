@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -58,6 +58,7 @@ test("列出 materials/ 的文件：能读的给出页数或段数，读不了�
   await put(testing, "materials/习题/作业.docx", docx(paragraph("第一题") + paragraph("第二题") + paragraph("第三题")));
   await put(testing, "materials/扫描.pdf", pdf([{ content: "0 0 m 9 9 l S" }]));
   await put(testing, "materials/坏了.pdf", "%PDF-1.4\n这不是完整的 PDF");
+  await put(testing, "materials/空.pdf", "");
   await put(testing, "materials/笔记.md", "# 笔记\n");
   await put(testing, "materials/引论.pptx", pptx([shape(["第一章 引论"], "title"), ""]));
   await put(testing, "materials/图.png", Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0));
@@ -65,12 +66,13 @@ test("列出 materials/ 的文件：能读的给出页数或段数，读不了�
 
   const listing = await call(testing, "materials_list", {});
   assert.equal(listing, [
-    "materials/ 里有 7 个文件：",
+    "materials/ 里有 8 个文件：",
     "- materials/习题/作业.docx：Word 文档，3 段",
     "- materials/图.png：读不出文字：不支持这种格式；能读出文字的是 PDF、PPTX、PPT、DOCX 和 DOC。",
     "- materials/坏了.pdf：读不出文字：文件已损坏或不完整，打不开（Invalid PDF structure.）。",
     "- materials/引论.pptx：PowerPoint 幻灯片，2 张",
     "- materials/扫描.pdf：读不出文字：这份 PDF 没有文字层，可能是扫描件或图片，读不出文字。",
+    "- materials/空.pdf：读不出文字：文件已损坏或不完整，打不开（文件是空的）。",
     "- materials/笔记.md：文字文件，用 read 直接读",
     "- materials/第一章.pdf：PDF，2 页",
   ].join("\n"));
@@ -134,38 +136,44 @@ test("工具不写空间：转换结果缓存在插件的数据目录，同一�
   assert.equal(cache.length, 1);
 });
 
-test("缓存跨实例保留：重新打开后不再解析；缓存文件坏了就重新转换并覆盖", async (t) => {
+test("缓存跨实例保留，重新打开后不再解析；原地换了内容的文件读出新内容", async (t) => {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-materials-")));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const root = path.join(directory, "space");
   const data = path.join(directory, "data");
-  await mkdir(path.join(root, "materials"), { recursive: true });
-  await writeFile(path.join(root, "materials", "a.pdf"), chinesePdf(["页表"]));
+  const file = path.join(root, "materials", "a.pdf");
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, chinesePdf(["页表"]));
   const signal = new AbortController().signal;
 
   const start = conversionCount();
-  await new Materials(root, data).read("materials/a.pdf", signal);
+  const materials = new Materials(root, data);
+  await materials.read("materials/a.pdf", signal);
   const reopened = await new Materials(root, data).read("materials/a.pdf", signal);
   assert.equal(conversionCount() - start, 1);
   assert.deepEqual(reopened.outcome, { status: "text", format: "pdf", parts: ["页表"] });
 
-  const [file] = await readdir(path.join(data, "cache"));
-  assert.ok(file);
-  await writeFile(path.join(data, "cache", file), "{\"version\":");
-  const repaired = await new Materials(root, data).read("materials/a.pdf", signal);
-  assert.equal(conversionCount() - start, 2);
-  assert.deepEqual(repaired.outcome, reopened.outcome);
+  // 大小与修改时间都不变，只有内容换了。
+  const { mtime } = await stat(file);
+  await writeFile(file, chinesePdf(["段表"]));
+  await utimes(file, mtime, mtime);
+  assert.deepEqual((await materials.read("materials/a.pdf", signal)).outcome, { status: "text", format: "pdf", parts: ["段表"] });
 });
 
-test("只读空间里的文件：空间外的路径和指向空间外的链接都拒绝", async (t) => {
+test("只读 materials/ 里的文件：materials/ 外的路径、空间外的路径和指向空间外的链接都拒绝", async (t) => {
   const testing = await fixture(t);
   const outside = path.join(testing.directory, "outside.pdf");
   await writeFile(outside, chinesePdf(["外面"]));
+  await put(testing, "讲义.pdf", chinesePdf(["根目录"]));
+  await put(testing, ".repa/plugins/other/data.pdf", chinesePdf(["别的插件"]));
   await mkdir(path.join(testing.space.root, "materials"), { recursive: true });
   await symlink(outside, path.join(testing.space.root, "materials", "链接.pdf"));
 
-  await assert.rejects(call(testing, "materials_read", { path: "../outside.pdf" }), fault("file_outside_space"));
-  await assert.rejects(call(testing, "materials_read", { path: outside }), fault("file_outside_space"));
+  await assert.rejects(call(testing, "materials_read", { path: "../outside.pdf" }), fault("file_outside_materials"));
+  await assert.rejects(call(testing, "materials_read", { path: outside }), fault("file_outside_materials"));
+  await assert.rejects(call(testing, "materials_read", { path: "讲义.pdf" }), fault("file_outside_materials"));
+  await assert.rejects(call(testing, "materials_read", { path: ".repa/plugins/other/data.pdf" }), fault("file_outside_materials"));
+  await assert.rejects(call(testing, "materials_read", { path: "materials/../讲义.pdf" }), fault("file_outside_materials"));
   await assert.rejects(call(testing, "materials_read", { path: "materials/链接.pdf" }), fault("file_outside_space"));
   await assert.rejects(call(testing, "materials_read", { path: "materials/没有.pdf" }), fault("file_not_found"));
   assert.equal(await call(testing, "materials_list", {}), "materials/ 里还没有文件。");

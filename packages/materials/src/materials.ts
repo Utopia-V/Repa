@@ -14,22 +14,13 @@ export const MATERIALS_DIRECTORY = "materials";
 const CONVERTER_VERSION = 1;
 
 /** 一个文件读成文字的结果；plain 是不用转换、直接用 read 读的文字文件。 */
-export type Outcome = Converted | { status: "plain" } | { status: "failed"; reason: "unsupported" };
-
-/** 缓存的一项：版本加转换结果。 */
-interface CacheEntry {
-  version: number;
-  result: Converted;
-}
+export type Outcome = Converted | { status: "plain" };
 
 /**
  * 读空间里的课件并缓存转换结果。只读空间文件；缓存写在插件的数据目录，以内容的 SHA-256 为键，
  * 同一份内容换了名字、挪了位置也不再转换。
  */
 export class Materials {
-  // 同一路径的大小和修改时间都没变时沿用上次算出的摘要，列目录时不必把每个文件重读一遍。
-  private readonly digests = new Map<string, { size: number; mtimeMs: number; ctimeMs: number; digest: string }>();
-
   constructor(private readonly root: string, private readonly dataDir: string) {}
 
   /** materials/ 下的全部文件，按路径排序；文件夹不在时返回 undefined。 */
@@ -54,12 +45,13 @@ export class Materials {
     return result;
   }
 
-  /** 读一个空间内的文件；file 相对空间根目录，返回规范化后的路径。 */
+  /** 读 materials/ 里的一个文件；file 相对空间根目录，返回规范化后的路径。 */
   async read(file: string, signal: AbortSignal): Promise<{ path: string; outcome: Outcome }> {
     const absolute = path.resolve(this.root, file);
     const relative = path.relative(this.root, absolute);
-    if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
-      throw new RepaFault("file_outside_space", `${file} 不在空间里；路径相对空间根目录写，例如 ${MATERIALS_DIRECTORY}/第一章.pdf。`);
+    const inMaterials = path.relative(path.join(this.root, MATERIALS_DIRECTORY), absolute);
+    if (inMaterials === "" || inMaterials.startsWith("..") || path.isAbsolute(inMaterials)) {
+      throw new RepaFault("file_outside_materials", `${file} 不在 ${MATERIALS_DIRECTORY}/ 里；路径相对空间根目录写，例如 ${MATERIALS_DIRECTORY}/第一章.pdf。`);
     }
     let real;
     try {
@@ -79,30 +71,22 @@ export class Materials {
   private async outcome(file: string, signal: AbortSignal): Promise<Outcome> {
     const container = await sniff(file);
     if (container === "text") return { status: "plain" };
+    if (container === "empty") return { status: "failed", reason: "damaged", detail: "文件是空的" };
     if (container === "other") return { status: "failed", reason: "unsupported" };
-    const info = await stat(file);
-    const known = this.digests.get(file);
-    let data: Uint8Array | undefined;
-    let digest: string;
-    if (known !== undefined && known.size === info.size && known.mtimeMs === info.mtimeMs && known.ctimeMs === info.ctimeMs) {
-      digest = known.digest;
-    } else {
-      data = await readFile(file);
-      digest = createHash("sha256").update(data).digest("hex");
-      this.digests.set(file, { size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, digest });
-    }
+    const data = await readFile(file);
+    const digest = createHash("sha256").update(data).digest("hex");
     const cached = await this.cached(digest);
     if (cached !== undefined) return cached;
-    const result = await convert(data ?? await readFile(file), container, signal);
+    const result = await convert(data, container, signal);
     await this.store(digest, result);
     return result;
   }
 
+  // 文件名带上转换的版本，写法改变后旧的缓存不再命中。
   private cacheFile(digest: string): string {
-    return path.join(this.dataDir, "cache", `${digest}.json`);
+    return path.join(this.dataDir, "cache", `${CONVERTER_VERSION}-${digest}.json`);
   }
 
-  /** 缓存是可以重算的派生数据：没有、版本旧或读不懂时都当作没有，重新转换后覆盖。 */
   private async cached(digest: string): Promise<Converted | undefined> {
     let text;
     try {
@@ -111,12 +95,7 @@ export class Materials {
       if (isMissing(error)) return undefined;
       throw error;
     }
-    try {
-      const entry = JSON.parse(text) as CacheEntry;
-      return entry.version === CONVERTER_VERSION ? entry.result : undefined;
-    } catch {
-      return undefined;
-    }
+    return JSON.parse(text) as Converted;
   }
 
   /** 先写临时文件再改名，并发的两次转换各写各的，读到的总是完整的一份。 */
@@ -125,7 +104,7 @@ export class Materials {
     await mkdir(path.dirname(file), { recursive: true });
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, JSON.stringify({ version: CONVERTER_VERSION, result } satisfies CacheEntry));
+      await writeFile(temporary, JSON.stringify(result));
       await rename(temporary, file);
     } catch (error) {
       await rm(temporary, { force: true });

@@ -86,13 +86,13 @@ test("PPT 逐张读出：占位符的文字经 OutlineTextRefAtom 取回，文�
   assert.equal(failure(await convert(ppt({ encrypted: true }), "compound", signal)), "encrypted");
 });
 
-test("DOC 拼出正文：只取正文长度，域只留结果，表格单元换成分隔符，压缩存放的一段按单字节读", async () => {
+test("DOC 拼出正文：只取正文长度，域只留结果，表格单元换成分隔符，压缩存放的一段按 cp1252 读", async () => {
   const main = "第1章 概论\r见\u0013 PAGEREF _Toc \u0014第 2 页\u0015。\r页号\u0007块号\u0007\u0007\r\r";
-  const result = await convert(doc({ main, compressed: "Café OS\r", trailing: "脚注不属于正文\r" }), "compound", signal);
+  const result = await convert(doc({ main, compressed: "Café \x93OS\x94\x96\r", trailing: "脚注不属于正文\r" }), "compound", signal);
   assert.deepEqual(result, {
     status: "text",
     format: "doc",
-    parts: ["第1章 概论", "见第 2 页。", "页号 | 块号", "Café OS"],
+    parts: ["第1章 概论", "见第 2 页。", "页号 | 块号", "Café “OS”–"],
   });
   assert.equal(failure(await convert(doc({ main, compressed: "", trailing: "", encrypted: true }), "compound", signal)), "encrypted");
 });
