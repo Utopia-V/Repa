@@ -36,7 +36,7 @@ export * from "./interaction.js";
 // 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。读取时忽略未知字段；只有旧版会读错的语义变化才升版本。
 // 开发阶段版本不变：插件集合可在空间打开期间重组，为此新增装配序号 assembly 与 space.assembled 通知，plugin.call 必须带序号，plugin.event 带序号。
 // 开发阶段版本不变：插件列表 PluginInfo 取代 disabledPlugins 与 plugin.disabled；新增 plugin.load、plugin.unload、plugin.cancel、plugin.updated，
-// 确认种类 plugin，会话条目与事件 pluginResult。
+// 确认种类 plugin，会话条目与事件 pluginResult（data 为 PluginResult）。
 /** 当前前后端协议版本；连接初始化时用于拒绝无法正确理解的协议。 */
 export const PROTOCOL_VERSION = "3";
 
@@ -85,7 +85,7 @@ const digest = Type.String({ pattern: "^[0-9a-f]{64}$" });
 /** 插件不能运行、或一次装卸没有生效的原因；code 供程序判断，message 供人和模型阅读。 */
 export const PluginReasonSchema = object({ code: identifier, message: Type.String() });
 /**
- * 一次装卸请求里一个插件的结局，形状借 dsh 的 ChangeResult：recorded 是盘上的启用记录有没有因此改变（写入以后读回得出），
+ * 一次装卸请求里一个插件的结局，形状借 dsh 的 ChangeResult：recorded 是盘上的启用记录有没有因此改变（写入之前读到的记录与随后装配读到的记录相比），
  * application 是这次请求在运行中的结果：applied 生效，failed 没有生效（附原因），denied 使用者拒绝批准，cancelled 撤回、断线或空间关闭。
  */
 export const PluginOutcomeSchema = object({
@@ -95,6 +95,18 @@ export const PluginOutcomeSchema = object({
 });
 /** 一次装卸请求里一个插件的结局。 */
 export type PluginOutcome = Static<typeof PluginOutcomeSchema>;
+/**
+ * 交回请求方会话的一批装卸结果：每项的插件 id、动作与结局，以及重组时旧实例 close() 报错的插件。
+ * 续跑的运行记录（repa-run 的 pluginResult）、追加的结果条目（repa-plugin-result 的 details），以及会话历史与实时事件里
+ * pluginResult 的 data 都是这个形状；同一份结果的文字另给模型阅读。
+ */
+export const PluginResultSchema = object({
+  requestId: identifier,
+  items: Type.Array(object({ id: pluginId, action: Type.Union([Type.Literal("load"), Type.Literal("unload")]), outcome: PluginOutcomeSchema })),
+  closeFailures: Type.Array(object({ pluginId: identifier, message: Type.String() })),
+});
+/** 交回请求方会话的一批装卸结果。 */
+export type PluginResult = Static<typeof PluginResultSchema>;
 /**
  * 装卸请求所处的阶段：requested 是 Agent 的运行还没结束，queued 排在前面的请求之后，preparing 复制并核对插件文件夹，
  * approving 等使用者批准，importing 发布快照并导入入口，waiting 等空间空闲，executing 正在重组。

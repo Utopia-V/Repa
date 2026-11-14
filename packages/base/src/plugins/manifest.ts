@@ -95,11 +95,14 @@ export async function readPluginFolder(directory: string): Promise<PluginFolder>
  * 只看文件夹自己，不看上级目录：空间可能就在某个 JS 项目里，上级的 package.json 不该改变插件的含义。
  * 其余文件夹只能导入 Node 内置模块、文件夹内的文件和 @repa/base/plugin，见 confinePluginFolder。
  * 从已批准快照加载的自写插件给出 confined：一律这样限制，不看文件夹里有没有 package.json，按来源而不按内容判断。
+ * beforeImport 在异步的读取都完成以后、导入入口之前同步调用，它抛错时不导入：调用方据此在模块代码开始执行之前最后一次核对撤回。
  */
-export async function loadPlugin(directory: string, options: { confined?: boolean } = {}): Promise<LoadedPlugin> {
+export async function loadPlugin(directory: string, options: { confined?: boolean; beforeImport?: () => void } = {}): Promise<LoadedPlugin> {
   const { root, manifest, entry } = await readPluginFolder(directory);
   const underNodeModules = root.split(path.sep).includes("node_modules");
   const npmPackage = options.confined !== true && (underNodeModules || (await exists(path.join(root, "package.json"))));
+  // 从这里到 import() 之间没有 await。
+  options.beforeImport?.();
   if (!npmPackage) confinePluginFolder(root, manifest.id);
   const module = await importEntry(manifest.id, root, npmPackage, pathToFileURL(entry).href);
   const exported = module !== null && typeof module === "object" ? module : {};

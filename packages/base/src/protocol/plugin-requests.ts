@@ -10,7 +10,7 @@ import { loadPlugin, readPluginFolder } from "../plugins/manifest.js";
 import { linkInPluginFolder, pluginFolderOf } from "../plugins/plugin-list.js";
 import { checkSnapshot, discardStaged, folderHashes, publishSnapshot, snapshotDirectory, stageFolder, type StagedFolder } from "../plugins/snapshots.js";
 import type { SpacePlugin, UnavailablePlugin } from "../plugins/space-plugins.js";
-import type { PluginInfo, PluginOutcome, PluginRequestStage } from "../protocol.js";
+import type { PluginInfo, PluginOutcome, PluginRequestStage, PluginResult } from "../protocol.js";
 import { errorText, RepaFault, type Confirmation, type PluginApproval } from "../schema.js";
 
 /** 加载取哪个版本：插件文件夹当前的内容、启用记录里的版本、上一次选定的版本。 */
@@ -53,8 +53,10 @@ interface Batch<P> {
   items: Item[];
   stage: PluginRequestStage;
   controller: AbortController;
-  /** 重组的闸门已经落下，不能再撤回。 */
+  /** 重组的闸门已经落下，不能再撤回；结果在重组里交回。 */
   executing: boolean;
+  /** 各项都已有结局，正在等空闲把结果交回会话；撤回已经没有意义。 */
+  handingBack: boolean;
   done: boolean;
 }
 
@@ -72,7 +74,7 @@ export interface Execution {
   begin(): void;
   /** 旧的插件宿主与 Agent 空间都已关闭：写启用记录并读回。clean 为 false 时这次装配不清理快照。 */
   write(): Promise<{ clean: boolean }>;
-  /** 新的装配已经建立、闸门尚未抬起：判断每项的结局，把结果交回请求方会话、登记续跑。 */
+  /** 新的装配已经建立、闸门尚未抬起：按装配读到的启用记录与运行的插件判断每项的结局，把结果交回请求方会话、登记续跑。 */
   finish(assembled: Assembled): Promise<void>;
   /** 重组整体失败，空间已经关闭。 */
   failed(error: unknown): void;
@@ -84,6 +86,8 @@ export interface Assembled {
   host: PluginHost;
   selfWritten: SpacePlugin[];
   unavailable: UnavailablePlugin[];
+  /** 装配实际读到的启用记录；读不了时为 undefined，这时没有自写插件运行。 */
+  record: PluginEnablement | undefined;
   closeFailures: { pluginId: string; message: string }[];
 }
 
@@ -98,6 +102,11 @@ export interface RequestHost<P> {
   fullAccess(): boolean;
   /** 等空间空闲并进行一次重组；signal 中止或空间关闭、切换时以 cancelled 结束。 */
   execute(execution: Execution, signal: AbortSignal): Promise<"applied" | "cancelled">;
+  /**
+   * 不重组，等空间空闲、在闸门下以当前装配的 Agent 空间调用 action，交回没有经过重组的结果；
+   * 空间关闭、切换或后端关闭时以 cancelled 结束，action 不调用。
+   */
+  handBack(action: (agent: AgentSpace) => Promise<void>): Promise<"done" | "cancelled">;
   /** 在连接名下执行 action：续跑的运行属于发起请求的连接，命令确认与询问发给它。action 同步开始。 */
   runAs(peer: P, action: () => Promise<void>): Promise<void>;
   /** 请求的阶段或结局变了。 */
@@ -175,7 +184,8 @@ export function listText(plugins: PluginInfo[]): string {
 /**
  * 自写插件的装卸请求。Agent 的一次运行里提出的请求合成一批，运行结束时封口；插件列表的 plugin.load、plugin.unload 各成一批。
  * 每个空间一条队列，先进先出，一次只有一批经过各段：准备 → 批准 → 发布快照并导入 → 等待空闲 → 执行（一次重组）。
- * 只有经过重组的批次把结果写进请求方会话；其余结局（准备失败、拒绝、撤回、空间关闭）只记在请求状态里，随插件列表显示。
+ * Agent 的批次把结果交回请求方会话：经过重组的在重组里交回；没有经过重组就结束的（准备或导入失败、拒绝、撤回）
+ * 等到空闲、在闸门下交回，空间已经关闭或切换时不交回。插件列表发起的批次没有会话，结局只在请求状态里。
  */
 export function createPluginRequests<P>(host: RequestHost<P>) {
   // 还在运行中、尚未封口的 Agent 批次，以运行编号为键。
@@ -212,14 +222,20 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
     stateOf(batch.root).set(item.id, { id: batch.id, outcome });
   }
 
-  /** 所有尚无结局的项按同一结局结束，丢弃暂存副本。 */
-  async function stop(batch: Batch<P>, stopped: Stopped): Promise<void> {
+  /** 所有尚无结局的项按同一结局结束。 */
+  function stop(batch: Batch<P>, stopped: Stopped): void {
     for (const item of batch.items) {
-      if (item.staged !== undefined) {
-        await discardStaged(item.staged).catch(host.error);
-        item.staged = undefined;
-      }
       if (item.outcome === undefined) settle(batch, item, { recorded: false, application: stopped.application, reason: stopped.reason });
+    }
+  }
+
+  /** 批次结束时删掉它仍持有的暂存副本：拒绝、撤回，或准备在暂存以后失败，副本都不再有人使用。 */
+  async function release(batch: Batch<P>): Promise<void> {
+    for (const item of batch.items) {
+      const staged = item.staged;
+      if (staged === undefined) continue;
+      item.staged = undefined;
+      await discardStaged(staged).catch(host.error);
     }
   }
 
@@ -267,7 +283,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       for (const item of batch.items) {
         if (item.outcome === undefined) settle(batch, item, { recorded: false, application: "failed", reason: reasonOf(error) });
       }
-    }).finally(() => {
+    }).then(() => release(batch)).then(() => handBack(batch)).catch(host.error).finally(() => {
       batch.done = true;
       processing = undefined;
       host.updated();
@@ -397,7 +413,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
         if (item.outcome !== undefined || item.action !== "load" || item.digest === undefined) continue;
         guard(batch);
         try {
-          await importItem(space, item);
+          await importItem(batch, space, item);
         } catch (error) {
           if (error instanceof Stopped) throw error;
           // 导入失败到此为止：记录不变，原来的版本照常运行。
@@ -416,8 +432,23 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       }
     } catch (error) {
       if (!(error instanceof Stopped)) throw error;
-      await stop(batch, error);
+      stop(batch, error);
     }
+  }
+
+  /**
+   * Agent 的批次没有经过重组就结束时，把结果交回请求方会话：等到空闲，在闸门下交回，期间批次仍占着队列。
+   * 准备或导入失败结束的，满足续跑条件时续跑，Agent 拿到错误接着改；拒绝、撤回、无人批准的只追加结果。
+   * 空间已经关闭或切换、后端正在关闭时不交回。
+   */
+  async function handBack(batch: Batch<P>): Promise<void> {
+    const origin = batch.origin;
+    if (origin.kind !== "agent" || batch.executing) return;
+    if (host.current()?.opened !== batch.opened) return;
+    const followUp = batch.items.every((item) => item.outcome?.application === "failed");
+    batch.handingBack = true;
+    setStage(batch, "waiting");
+    await host.handBack((agent) => deliver(batch, origin, agent, [], followUp));
   }
 
   /**
@@ -452,7 +483,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
   }
 
   /** 批准以后：暂存副本发布为快照，再导入入口。导入执行模块顶层代码，所以在批准之后；放在写记录之前，语法错误这类失败不必停掉旧版。 */
-  async function importItem(space: RequestSpace, item: Item): Promise<void> {
+  async function importItem(batch: Batch<P>, space: RequestSpace, item: Item): Promise<void> {
     const digest = item.digest;
     if (digest === undefined) return;
     if (item.staged !== undefined) {
@@ -464,8 +495,11 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
         await discardStaged(staged).catch(() => undefined);
         throw error;
       }
+      // 发布期间撤回或关闭了空间：快照留着（它是获批的内容），但不再导入。
+      guard(batch);
     }
-    const loaded = await loadPlugin(snapshotDirectory(host.home, space.root, item.id, digest), { confined: true });
+    // 导入之前最后一次核对：loadPlugin 里还有异步读取，撤回可能在那时到达。已经开始执行的模块顶层代码收不回。
+    const loaded = await loadPlugin(snapshotDirectory(host.home, space.root, item.id, digest), { confined: true, beforeImport: () => guard(batch) });
     if (loaded.manifest.id !== item.id) throw new RepaFault("plugin_id_mismatch", `快照里的插件 id 是 ${loaded.manifest.id}，请求的是 ${item.id}`, { id: item.id });
   }
 
@@ -504,37 +538,35 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       },
       async finish(assembled) {
         executed.value = true;
+        // 结局只按装配实际读到的启用记录与这次运行的插件结算：recorded 比较写入之前与装配读到的记录，
+        // application 看装配以后是否以目标摘要运行（卸载看是否不再运行）。写入的状态只决定这一次清不清快照。
+        const seen = assembled.record;
         const running = new Set(assembled.host.list().map((plugin) => plugin.id));
         const disabled = new Map(assembled.host.disabled().map((plugin) => [plugin.id, plugin.reason]));
         const unavailable = new Map(assembled.unavailable.map((plugin) => [plugin.id, plugin.reason]));
-        const after = write === undefined || write.status === "unknown" ? undefined : write.record;
-        const writeError = write !== undefined && write.status !== "written" ? errorText(write.error) : undefined;
+        const writeError = write !== undefined && write.status !== "written" ? `：${errorText(write.error)}` : "";
+        const unreadable: Reason = { code: "plugin_enablement_unreadable", message: "装配时启用记录读不了，自写插件都没有运行" };
+        const notWritten: Reason = { code: "record_write_failed", message: `启用记录没有改成这次请求的样子${writeError}` };
         for (const item of items()) {
-          const recorded = item.recorded ?? false;
-          const entry = after?.plugins[item.id];
+          const entry = seen?.plugins[item.id];
+          const recorded = before !== undefined && seen !== undefined && !isDeepStrictEqual(before.plugins[item.id], entry);
           let reason: Reason | undefined;
-          let applied: boolean;
           if (item.action === "load") {
             const loaded = assembled.selfWritten.find((plugin) => plugin.id === item.id);
-            applied = running.has(item.id) && loaded?.digest === item.digest;
-            if (!applied) {
-              if (after === undefined) reason = { code: "record_state_unknown", message: `启用记录没能写入，读回也失败，盘上的状态不明：${writeError ?? ""}` };
-              else if (entry?.enabled !== true || entry.digest !== item.digest) reason = { code: "record_write_failed", message: `启用记录没能写入，插件照原来的记录运行：${writeError ?? ""}` };
+            if (!running.has(item.id) || loaded?.digest !== item.digest) {
+              if (seen === undefined) reason = unreadable;
+              else if (entry?.enabled !== true || entry.digest !== item.digest) reason = notWritten;
               else reason = disabled.get(item.id) ?? unavailable.get(item.id) ?? { code: "plugin_not_running", message: `插件 ${item.id} 没有运行` };
             }
-          } else {
-            applied = !running.has(item.id) && entry?.enabled === false;
-            if (!applied) {
-              reason = after === undefined
-                ? { code: "record_state_unknown", message: `启用记录没能写入，读回也失败，盘上的状态不明：${writeError ?? ""}` }
-                : { code: "record_write_failed", message: `启用记录没能写入，插件照原来的记录运行：${writeError ?? ""}` };
-            }
+          } else if (seen === undefined) {
+            reason = unreadable;
+          } else if (entry?.enabled === true || running.has(item.id)) {
+            reason = notWritten;
           }
-          if (applied && write?.status === "unconfirmed") reason = { code: "record_unconfirmed", message: `启用记录已写入，但没能确认已经落盘：${writeError ?? ""}` };
-          settle(batch, item, { recorded, application: applied ? "applied" : "failed", ...(reason === undefined ? {} : { reason }) });
+          settle(batch, item, { recorded, application: reason === undefined ? "applied" : "failed", ...(reason === undefined ? {} : { reason }) });
         }
         host.updated();
-        if (batch.origin.kind === "agent") await deliver(batch, batch.origin, assembled, resultText(batch, assembled.closeFailures));
+        if (batch.origin.kind === "agent") await deliver(batch, batch.origin, assembled.agent, assembled.closeFailures, true);
       },
       failed(error) {
         executed.value = true;
@@ -544,25 +576,44 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
   }
 
   /**
-   * 结果交回请求方会话。会话取得以后，在同一段同步代码里核对续跑的条件并登记运行：提出请求的运行正常结束，此后使用者没有在这个会话里
-   * 发消息、停止、压缩或分支，没有关闭或切换空间，发起它的连接还在。满足时以结果为输入开始下一次运行，否则只追加结果条目。
-   * 重组只等登记，不等运行。
+   * 结果交回请求方会话。会话取得以后，在同一段同步代码里核对续跑的条件并登记运行：followUp 为真，提出请求的运行正常结束，
+   * 此后使用者没有在这个会话里发消息、停止、换模型、压缩或分支，没有关闭或切换空间，发起它的连接还在。
+   * 满足时以结果为输入开始下一次运行，否则只追加结果条目。只等登记，不等运行。
+   * 取不到会话或写不进去时记进最近错误，不使批次或闸门停住；结局仍在请求状态里。
    */
-  async function deliver(batch: Batch<P>, origin: Extract<Origin<P>, { kind: "agent" }>, assembled: Assembled, text: string): Promise<void> {
+  async function deliver(batch: Batch<P>, origin: Extract<Origin<P>, { kind: "agent" }>, agent: AgentSpace, closeFailures: Assembled["closeFailures"], followUp: boolean): Promise<void> {
+    const result = resultOf(batch, closeFailures);
+    const text = resultText(batch, closeFailures);
+    const undelivered = (error: unknown) => {
+      host.error(new RepaFault("plugin_result_undelivered", `插件装卸请求 ${batch.id} 的结果没能写进会话 ${origin.sessionId}：${errorText(error)}`, { requestId: batch.id, sessionId: origin.sessionId }));
+    };
     let session;
     try {
-      session = await assembled.agent.get(origin.sessionId);
+      session = await agent.get(origin.sessionId);
     } catch (error) {
-      host.error(error);
+      undelivered(error);
       return;
     }
     const peer = origin.peer;
-    if (origin.status === "completed" && quiet(origin) && peer !== undefined && host.alive(peer)) {
+    if (followUp && origin.status === "completed" && quiet(origin) && peer !== undefined && host.alive(peer)) {
       const continued = session;
-      host.runAs(peer, () => continued.continueWith(text, batch.id)).catch(() => undefined);
-    } else {
-      session.appendPluginResult(text, batch.id);
+      // 运行自己的失败已经作为会话的 error 事件发出。
+      host.runAs(peer, () => continued.continueWith(text, result)).catch(() => undefined);
+      return;
     }
+    try {
+      session.appendPluginResult(text, result);
+    } catch (error) {
+      undelivered(error);
+    }
+  }
+
+  function resultOf(batch: Batch<P>, closeFailures: Assembled["closeFailures"]): PluginResult {
+    return {
+      requestId: batch.id,
+      items: batch.items.flatMap((item) => (item.outcome === undefined ? [] : [{ id: item.id, action: item.action, outcome: item.outcome }])),
+      closeFailures: closeFailures.map((failure) => ({ ...failure })),
+    };
   }
 
   function resultText(batch: Batch<P>, closeFailures: Assembled["closeFailures"]): string {
@@ -598,6 +649,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
           stage: "requested",
           controller: new AbortController(),
           executing: false,
+          handingBack: false,
           done: false,
         };
         open.set(origin.runId, batch);
@@ -622,27 +674,33 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
         stage: "queued",
         controller: new AbortController(),
         executing: false,
+        handingBack: false,
         done: false,
       };
       addItems(batch, action, ids, from);
       enqueue(batch);
       return batch.id;
     },
-    /** 撤回一批还没开始重组的请求。 */
+    /**
+     * 撤回一批还没开始重组的请求。还没轮到的批次当即以撤回结束；Agent 的批次仍按次序经过队列，轮到时把撤回的结果交回会话。
+     * 正在经过各段的批次由它自己在下一个检查点结束。
+     */
     cancel(requestId: string): void {
       const batch = [...open.values(), ...queue, ...(processing === undefined ? [] : [processing])].find((item) => item.id === requestId);
-      if (batch === undefined) throw new RepaFault("plugin_request_not_found", "请求不存在或已经结束", { requestId });
+      if (batch === undefined || batch.controller.signal.aborted) throw new RepaFault("plugin_request_not_found", "请求不存在或已经结束", { requestId });
       if (batch.executing || batch.done) throw new RepaFault("plugin_request_not_cancellable", "请求已经开始重组，不能撤回", { requestId });
+      if (batch.handingBack) throw new RepaFault("plugin_request_not_cancellable", "请求的各项已有结局，正在把结果交回会话", { requestId });
       const stopped = withdrawn();
       batch.controller.abort(stopped);
       if (batch.origin.kind === "agent" && open.get(batch.origin.runId) === batch) {
         open.delete(batch.origin.runId);
-        void stop(batch, stopped).then(host.updated);
+        stop(batch, stopped);
+        enqueue(batch);
       } else if (queue.includes(batch)) {
-        queue.splice(queue.indexOf(batch), 1);
-        void stop(batch, stopped).then(host.updated);
+        stop(batch, stopped);
+        if (batch.origin.kind === "list") queue.splice(queue.indexOf(batch), 1);
+        host.updated();
       }
-      // 正在经过各段的批次由它自己在下一个检查点结束。
     },
     /** 一次运行结束：这次运行的批次封口，排进队列。 */
     runEnded(runId: string, status: "completed" | "failed" | "aborted"): void {
@@ -668,10 +726,11 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       const stopped = spaceChanged();
       for (const batch of [...open.values(), ...queue]) {
         batch.controller.abort(stopped);
-        void stop(batch, stopped).then(host.updated);
+        stop(batch, stopped);
       }
       open.clear();
       queue.length = 0;
+      host.updated();
       if (processing !== undefined && !processing.executing) processing.controller.abort(stopped);
       // 此后只有正在重组的批次还会交回，空间关闭已经登记在 spaceMark 上；会话的介入记号不再需要。
       sessionMarks.clear();

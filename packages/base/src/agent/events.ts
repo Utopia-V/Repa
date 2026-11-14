@@ -26,7 +26,7 @@ export function usageOf(usage: Usage): Usage {
   };
 }
 
-/** 插件装卸结果没有经续跑交回时追加的条目（custom_message）的类型，details 带 requestId。 */
+/** 插件装卸结果没有经续跑交回时追加的条目（custom_message）的类型，details 是结构化的结果 PluginResult。 */
 export const PLUGIN_RESULT_ENTRY = "repa-plugin-result";
 
 export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
@@ -99,20 +99,20 @@ export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
 
 /**
  * 一段会话条目的公开投影。带 pluginResult 的运行记录之后的第一条用户消息是装卸结果，投影为 pluginResult，
- * 与没有续跑时追加的结果条目是同一种条目，data.requestId 相同。
+ * data 取运行记录里的结构化结果，与没有续跑时追加的结果条目是同一种条目。
  */
 export function entriesToPublic(entries: PiSessionEntry[]): SessionEntry[] {
   const result: SessionEntry[] = [];
-  let requestId: string | undefined;
+  let pluginResult: unknown;
   for (const entry of entries) {
     const converted = entryToPublic(entry);
     if (converted === undefined) continue;
     if (converted.type === "run") {
       const data: unknown = converted.data;
-      requestId = data !== null && typeof data === "object" && "pluginResult" in data && typeof data.pluginResult === "string" ? data.pluginResult : undefined;
-    } else if (converted.type === "user" && requestId !== undefined) {
-      result.push({ ...converted, type: "pluginResult", data: { requestId } });
-      requestId = undefined;
+      pluginResult = data !== null && typeof data === "object" && "pluginResult" in data ? data.pluginResult : undefined;
+    } else if (converted.type === "user" && pluginResult !== undefined) {
+      result.push({ ...converted, type: "pluginResult", data: pluginResult });
+      pluginResult = undefined;
       continue;
     }
     result.push(converted);

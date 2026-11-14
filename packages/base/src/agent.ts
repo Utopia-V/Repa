@@ -1,5 +1,5 @@
 import type { Static, TSchema } from "typebox";
-import type { SessionBaseline } from "./protocol.js";
+import type { PluginResult, SessionBaseline } from "./protocol.js";
 import type { AskRoute } from "./ask.js";
 import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest } from "./plugin.js";
 import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, ProviderInfo, SessionEntry, SessionInfo } from "./schema.js";
@@ -25,12 +25,13 @@ export interface AgentSession {
   compact(): Promise<void>;
   fork(entryId: string): Promise<AgentSession>;
   /**
-   * 以一批插件装卸的结果为输入开始一次运行，运行记录带 pluginResult: requestId。调用当时就同步登记运行，返回的 Promise 到运行结束；
-   * 运行没能写下这条输入就结束（被停止、模型不可用）时，改为追加结果条目，结果不丢。会话不能运行时直接追加。
+   * 以一批插件装卸的结果为输入开始一次运行：text 是给模型的文字，运行记录带 pluginResult: result。调用当时就同步登记运行，
+   * 返回的 Promise 到运行结束；运行没能写下这条输入就结束（被停止、模型不可用）时，改为追加结果条目，结果不丢。会话不能运行时直接追加。
+   * 追加失败时发出会话的 error 事件，运行照常收尾。
    */
-  continueWith(text: string, requestId: string): Promise<void>;
-  /** 把一批插件装卸的结果追加为一条结果条目（custom_message repa-plugin-result），不开始运行。 */
-  appendPluginResult(text: string, requestId: string): void;
+  continueWith(text: string, result: PluginResult): Promise<void>;
+  /** 把一批插件装卸的结果追加为一条结果条目（custom_message repa-plugin-result，details 为 result），不开始运行。写会话文件失败时抛错。 */
+  appendPluginResult(text: string, result: PluginResult): void;
 }
 
 /** 通用 Agent 的 plugin 工具里 load、unload 的输入。from 省略时取插件文件夹当前的内容。 */

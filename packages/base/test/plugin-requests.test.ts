@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type FauxResponseStep, type TranscriptContext } from "@earendil-works/pi-ai";
-import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SettingsManager, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
@@ -33,13 +34,31 @@ const rejectsWith = (code: string) => (error: unknown): boolean => {
 
 const empty = Type.Object({}, { additionalProperties: false });
 
-// 自写插件经 globalThis 上的计数报告 open 与 close，测试在同一进程里读它。插件文件不导入任何东西，参数直接写成 JSON Schema。
-interface Counts { opens: Record<string, number>; closes: Record<string, number> }
+// 自写插件经 globalThis 上的计数报告模块顶层的执行、open 与 close，测试在同一进程里读它。插件文件不导入任何东西，参数直接写成 JSON Schema。
+interface Counts { evaluated: Record<string, number>; opens: Record<string, number>; closes: Record<string, number> }
 const COUNTS = "__repaRequestCounts";
 function counts(): Counts {
   const store = globalThis as unknown as Record<string, Counts | undefined>;
-  store[COUNTS] ??= { opens: {}, closes: {} };
+  store[COUNTS] ??= { evaluated: {}, opens: {}, closes: {} };
   return store[COUNTS];
+}
+
+type FsPromises = Record<string, (...args: unknown[]) => Promise<unknown>>;
+const fsPromises = createRequire(import.meta.url)("node:fs/promises") as FsPromises;
+
+/**
+ * 在文件系统的边界上替换 node:fs/promises 的一个函数，测试结束时还原。后端在同一进程里，源码以具名导入使用这些函数，
+ * syncBuiltinESMExports 让那些导入也换成替身；替身拿到第一个参数（路径）和原函数，决定放行、等待还是失败。
+ */
+function intercept(t: TestContext, name: string, wrap: (target: string, original: (...args: unknown[]) => Promise<unknown>, args: unknown[]) => Promise<unknown>) {
+  const original = fsPromises[name];
+  assert.ok(original !== undefined);
+  fsPromises[name] = (...args: unknown[]) => wrap(String(args[0]), original, args);
+  syncBuiltinESMExports();
+  t.after(() => {
+    fsPromises[name] = original;
+    syncBuiltinESMExports();
+  });
 }
 
 /**
@@ -53,7 +72,8 @@ function toolFolder(id: string, label: string, options: { tool?: string; reply?:
   return {
     "repa-plugin.json": JSON.stringify({ id, version: "0.1.0", baseVersion: "^0.1.0", entry: "index.js", title: `${id} 插件`, pages: [{ id: "main", title: "主页", entry: "page/index.html" }] }),
     "page/index.html": "<!doctype html><title>页面</title>\n",
-    "index.js": `${options.broken === true ? "export default {;\n" : ""}const counts = (globalThis[${JSON.stringify(COUNTS)}] ??= { opens: {}, closes: {} });
+    "index.js": `${options.broken === true ? "export default {;\n" : ""}const counts = (globalThis[${JSON.stringify(COUNTS)}] ??= { evaluated: {}, opens: {}, closes: {} });
+counts.evaluated[${JSON.stringify(label)}] = (counts.evaluated[${JSON.stringify(label)}] ?? 0) + 1;
 export default {
   id: ${JSON.stringify(id)},
   async open() {
@@ -135,7 +155,7 @@ function stream<T>() {
   };
 }
 
-async function fixture(t: TestContext, options: { control?: Control } = {}) {
+async function fixture(t: TestContext, options: { control?: Control; extensions?: ExtensionFactory[] } = {}) {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-plugin-requests-")));
   const root = path.join(directory, "space");
   const home = path.join(directory, "home");
@@ -148,6 +168,7 @@ async function fixture(t: TestContext, options: { control?: Control } = {}) {
     modelRuntime,
     defaultModel: { provider: faux.getModel().provider, id: "scripted" },
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
+    ...(options.extensions === undefined ? {} : { extensionFactories: options.extensions }),
   });
   const control = options.control ?? {};
   const server = await startServer({ home, runtime, plugins: [controlPlugin(control)] });
@@ -255,12 +276,14 @@ test("Agent 请求加载：运行结束后请求批准，批准以后重组，�
   const shownEvent = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
   assert.ok(shownEvent.runId !== undefined, "续跑的输入就是结果");
   await f.events.when(event => event.type === "runEnd" && event.runId === shownEvent.runId);
-  assert.deepEqual(shownEvent.data, { requestId: done.requestId });
+  // 结构化的结果：每项的 id、动作与结局，以及旧实例 close() 报错的插件。
+  const expected = { requestId: done.requestId, items: [{ id: "hello", action: "load", outcome: { recorded: true, application: "applied" } }], closeFailures: [] };
+  assert.deepEqual(shownEvent.data, expected);
   assert.ok((f.tools[2] ?? []).includes("hello_greet"));
   const history = await f.client.call("session.history", { sessionId });
   const entries = history.filter(entry => entry.type === "pluginResult");
   assert.equal(entries.length, 1);
-  assert.deepEqual(entries[0]?.data, { requestId: done.requestId });
+  assert.deepEqual(entries[0]?.data, expected);
   assert.equal(entries[0]?.text, shownEvent.text);
   assert.match(entries[0]?.text ?? "", /加载 hello：已生效，启用记录已改/);
   assert.equal(history.findLast(entry => entry.type === "tool")?.text, "你好，世界");
@@ -457,16 +480,20 @@ test("批准前改动插件文件夹：运行的是请求批准时展示的那�
   assert.equal(counts().opens.edited, undefined);
 });
 
-test("拒绝批准、等待批准时撤回、发起连接断开：都不执行，记录不变，结局只记在列表里，不写进会话", async t => {
+test("拒绝批准、等待批准时撤回、发起连接断开：都不执行，记录不变；Agent 的请求被拒绝时结果追加进会话，不续跑", async t => {
   const f = await fixture(t);
   await f.folder("hello", toolFolder("hello", "deny-1"));
-  const sessionId = await agentLoads(f, ["hello"]);
+  const sessionId = await agentLoads(f, ["hello"], [fauxAssistantMessage("不该续跑")]);
   await f.answer(false);
   const denied = await f.outcome("hello");
   assert.deepEqual({ recorded: denied.recorded, application: denied.application }, { recorded: false, application: "denied" });
-  assert.deepEqual(await results(f, sessionId), []);
+  const shown = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
+  assert.equal(shown.runId, undefined);
+  assert.deepEqual(shown.data, { requestId: denied.requestId, items: [{ id: "hello", action: "load", outcome: { recorded: false, application: "denied", reason: denied.reason } }], closeFailures: [] });
+  assert.equal((await results(f, sessionId)).length, 1);
+  assert.equal(f.faux.getPendingResponseCount(), 1);
   await assert.rejects(readFile(path.join(f.dataDir, "plugins.json")), { code: "ENOENT" });
-  assert.equal(f.lists.seen.at(-1)?.find(plugin => plugin.id === "hello")?.state, "disabled");
+  assert.equal((await f.client.call("plugin.list", {})).find(plugin => plugin.id === "hello")?.state, "disabled");
   // plugin 工具的 list 也看得到这个结局。
   f.script([fauxAssistantMessage(fauxToolCall("plugin", { action: "list" })), fauxAssistantMessage("看过了")]);
   await f.client.call("session.send", { sessionId, text: "看看插件" });
@@ -492,6 +519,7 @@ test("拒绝批准、等待批准时撤回、发起连接断开：都不执行�
   assert.equal(gone.application, "cancelled");
   await assert.rejects(readFile(path.join(f.dataDir, "plugins.json")), { code: "ENOENT" });
   assert.equal(counts().opens["deny-1"], undefined);
+  assert.equal(counts().evaluated["deny-1"], undefined);
 });
 
 test("等待空闲时撤回：不重组，插件集合不变；等待期间别的请求照常进行", async t => {
@@ -729,7 +757,7 @@ test("记录在改名之前写入失败：这一项没有生效、记录未改�
   assert.equal((await f.client.call("plugin.list", {})).find(plugin => plugin.id === "control")?.state, "running");
 });
 
-test("记录在改名之后写入失败：照新记录运行，结果写明持久化未确认，这一次不清理快照", { skip: permissions }, async t => {
+test("记录在改名之后写入失败：照装配读到的新记录运行、结局为生效，这一次不清理快照", { skip: permissions }, async t => {
   const f = await fixture(t, { control: {} });
   await f.folder("hello", toolFolder("hello", "write-after"));
   // 记录之外的一个版本：清理时应当删掉它，持久化未确认时留着。
@@ -753,7 +781,7 @@ test("记录在改名之后写入失败：照新记录运行，结果写明持�
   } finally {
     await chmod(f.dataDir, 0o700);
   }
-  assert.deepEqual({ recorded: outcome.recorded, application: outcome.application, code: outcome.reason?.code }, { recorded: true, application: "applied", code: "record_unconfirmed" });
+  assert.deepEqual({ recorded: outcome.recorded, application: outcome.application, code: outcome.reason?.code }, { recorded: true, application: "applied", code: undefined });
   assert.ok((await stat(stale)).isDirectory());
   assert.equal(counts().opens["write-after"], 1);
   // 下一次正常的重组照常清理。
@@ -778,6 +806,9 @@ test("插件的 open 抛出不能转成文字的值、close 抛错：只停这�
   const shown = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
   assert.match(shown.text ?? "", /旧实例 close\(\) 报错：定时器还没收回/);
   assert.match(shown.text ?? "", /加载 hello：没有生效/);
+  const data = record(shown.data);
+  assert.deepEqual(data?.closeFailures, [{ pluginId: "hello", message: "定时器还没收回" }]);
+  assert.deepEqual(data?.items, [{ id: "hello", action: "load", outcome: { recorded: true, application: "failed", reason: outcome.reason } }]);
   assert.equal((await f.client.call("plugin.list", {})).find(plugin => plugin.id === "control")?.state, "running");
   assert.equal(snapshotDirectory(f.home, f.root, "hello", (await readEnablement(f.dataDir)).plugins.hello?.digest ?? "").length > 0, true);
 });
@@ -981,4 +1012,297 @@ test("等待批准时关闭空间：正在处理的与排队的批次都以 spac
   const asked = await f.confirmations.when(item => item.request.kind === "plugin", from);
   await asked.client.call("confirm.reply", { id: asked.id, value: true });
   assert.equal((await f.outcome("hello", again.requestId)).application, "applied");
+});
+
+test("Agent 加载的插件有语法错误：错误交回给 Agent 并续跑，没有重组，原来的版本照常运行；改正后再次加载成功", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "loop-1"));
+  const first = await f.client.call("plugin.load", { ids: ["hello"] });
+  await f.answer(true);
+  assert.equal((await f.outcome("hello", first.requestId)).application, "applied");
+  await f.folder("hello", toolFolder("hello", "loop-2", { broken: true }));
+  const mark = f.lists.seen.length;
+  const sessionId = await agentLoads(f, ["hello"], [
+    // 续跑：模型读到错误，改好文件夹，再次提出加载。
+    async () => {
+      await f.folder("hello", toolFolder("hello", "loop-3", { reply: "改好了" }));
+      return fauxAssistantMessage(fauxToolCall("plugin", { action: "load", ids: ["hello"] }));
+    },
+    fauxAssistantMessage("改好了，再加载一次"),
+    fauxAssistantMessage(fauxToolCall("hello_greet", {})),
+    fauxAssistantMessage("新版本回答了"),
+  ]);
+  await f.answer(true);
+  const failed = await f.outcome("hello", undefined, mark);
+  assert.deepEqual([failed.recorded, failed.application, failed.reason?.code], [false, "failed", "plugin_import_failed"]);
+  const shown = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
+  assert.ok(shown.runId !== undefined, "错误交回以后续跑");
+  assert.match(shown.text ?? "", /语法错误/);
+  assert.deepEqual(shown.data, { requestId: failed.requestId, items: [{ id: "hello", action: "load", outcome: { recorded: false, application: "failed", reason: failed.reason } }], closeFailures: [] });
+  // 交回不经过重组：旧实例没有关闭过。
+  assert.equal(counts().closes["loop-1"], undefined);
+  const again = f.lists.seen.length;
+  await f.answer(true);
+  const fixed = await f.outcome("hello", undefined, again);
+  assert.equal(fixed.application, "applied");
+  const second = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult" && record(event.data)?.requestId === fixed.requestId);
+  await f.events.when(event => event.type === "runEnd" && event.runId === second.runId);
+  const history = await f.client.call("session.history", { sessionId });
+  assert.equal(history.filter(entry => entry.type === "pluginResult").length, 2);
+  assert.equal(history.findLast(entry => entry.type === "tool")?.text, "改好了");
+  assert.equal(counts().evaluated["loop-2"], undefined);
+});
+
+test("Agent 的请求等待批准时撤回：结果追加进会话，不续跑；等待批准时关闭空间：不交回", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "withdraw-agent"));
+  const sessionId = await agentLoads(f, ["hello"], [fauxAssistantMessage("不该续跑")]);
+  await f.confirmations.when(item => item.request.kind === "plugin");
+  const pending = (await f.client.call("plugin.list", {})).find(plugin => plugin.id === "hello")?.request;
+  assert.ok(pending !== undefined);
+  await f.client.call("plugin.cancel", { requestId: pending.id });
+  const withdrawn = await f.outcome("hello", pending.id);
+  assert.equal(withdrawn.reason?.code, "plugin_request_cancelled");
+  const shown = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
+  assert.equal(shown.runId, undefined);
+  assert.deepEqual(record(shown.data)?.items, [{ id: "hello", action: "load", outcome: { recorded: false, application: "cancelled", reason: withdrawn.reason } }]);
+  assert.equal(f.faux.getPendingResponseCount(), 1);
+
+  const from = f.confirmations.seen.length;
+  const closed = await agentLoads(f, ["hello"]);
+  await f.confirmations.when(item => item.request.kind === "plugin", from);
+  await f.client.call("space.close", {});
+  await f.client.call("space.open", { root: f.root });
+  assert.deepEqual(await results(f, closed), []);
+  assert.ok(!f.events.seen.some(event => event.sessionId === closed && event.type === "pluginResult"));
+});
+
+test("同一批里一项准备失败、一项经过重组：结果合成一条，在重组里交回一次", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "mixed-1"));
+  const sessionId = await agentLoads(f, ["hello", "absent"], [fauxAssistantMessage("好")]);
+  const shownRequest = await f.answer(true);
+  assert.deepEqual(shownRequest.plugins?.map(item => item.id), ["hello"]);
+  const shown = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
+  assert.ok(shown.runId !== undefined);
+  await f.events.when(event => event.type === "runEnd" && event.runId === shown.runId);
+  const items = record(shown.data)?.items;
+  assert.ok(Array.isArray(items));
+  assert.deepEqual(items.map(item => [record(item)?.id, record(record(item)?.outcome)?.application, record(record(record(item)?.outcome)?.reason)?.code]), [["hello", "applied", undefined], ["absent", "failed", "plugin_folder_missing"]]);
+  assert.equal((await results(f, sessionId)).length, 1);
+});
+
+test("发布快照或读取入口期间撤回、关闭空间：获批的模块不再导入，顶层代码一次也没有执行", async t => {
+  for (const [where, how] of [["publish", "cancel"], ["publish", "close"], ["entry", "cancel"]] as const) {
+    await t.test(`${where}：${how}`, async t => {
+      const f = await fixture(t);
+      const label = `edge-${where}-${how}`;
+      await f.folder("hello", toolFolder("hello", label));
+      await f.folder("other", toolFolder("other", `${label}-other`));
+      const group = path.join(snapshotGroup(f.home, f.root), "hello");
+      const entered = deferred();
+      const release = deferred();
+      let armed = true;
+      // 屏障：发布时的改名，或导入之前读快照里的清单。
+      intercept(t, where === "publish" ? "rename" : "readFile", async (target, original, args) => {
+        const hit = where === "publish" ? path.dirname(String(args[1])) === group : target.startsWith(`${group}${path.sep}`) && target.endsWith("repa-plugin.json");
+        if (armed && hit) {
+          armed = false;
+          entered.resolve();
+          await release.promise;
+        }
+        return original(...args);
+      });
+      const { requestId } = await f.client.call("plugin.load", { ids: ["hello"] });
+      await f.answer(true);
+      await entered.promise;
+      if (how === "cancel") await f.client.call("plugin.cancel", { requestId });
+      else await f.client.call("space.close", {});
+      release.resolve();
+      if (how === "cancel") {
+        assert.equal((await f.outcome("hello", requestId)).reason?.code, "plugin_request_cancelled");
+      } else {
+        // 队列先进先出：重新打开以后的下一批开始询问时，前一批已经结束。
+        await f.client.call("space.open", { root: f.root });
+        const from = f.confirmations.seen.length;
+        await f.client.call("plugin.load", { ids: ["other"] });
+        await f.confirmations.when(item => item.request.kind === "plugin", from);
+        const request = (await f.client.call("plugin.list", {})).find(plugin => plugin.id === "hello")?.request;
+        assert.ok(request !== undefined && "outcome" in request && request.id === requestId);
+        assert.equal(request.outcome.reason?.code, "space_changed");
+      }
+      assert.equal(counts().evaluated[label], undefined);
+      assert.equal(counts().opens[label], undefined);
+    });
+  }
+});
+
+/** 把以装卸结果为输入的提示拦下（Pi 的输入钩子返回 handled）：运行写下了运行记录，却不写下这条用户消息就结束。 */
+function swallowResults(before?: () => Promise<void>): ExtensionFactory {
+  return pi => {
+    pi.on("input", async event => {
+      if (!event.text.startsWith("插件装卸请求")) return undefined;
+      await before?.();
+      return { action: "handled" as const };
+    });
+  };
+}
+
+test("续跑写下了运行记录、还没写下结果消息就结束：结果追加为条目，只有一份", async t => {
+  const f = await fixture(t, { extensions: [swallowResults()] });
+  await f.folder("hello", toolFolder("hello", "window-1"));
+  const sessionId = await agentLoads(f, ["hello"]);
+  await f.answer(true);
+  const done = await f.outcome("hello");
+  assert.equal(done.application, "applied");
+  const shown = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
+  assert.equal(shown.runId, undefined, "追加的条目，不是运行的输入");
+  const history = await f.client.call("session.history", { sessionId });
+  assert.ok(history.some(entry => entry.type === "run" && record(record(entry.data)?.pluginResult)?.requestId === done.requestId), "续跑写下了运行记录");
+  const entries = history.filter(entry => entry.type === "pluginResult");
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0]?.data, shown.data);
+});
+
+test("续跑没写下输入、追加结果又写不进会话文件：报告交回失败，运行照常收尾，此后的消息、停止、装卸与关闭空间都能结束", { skip: permissions }, async t => {
+  let sessionFile = "";
+  const f = await fixture(t, { extensions: [swallowResults(() => chmod(sessionFile, 0o400))] });
+  await f.folder("hello", toolFolder("hello", "unsaved-1"));
+  const sessionId = await agentLoads(f, ["hello"], [fauxAssistantMessage("下一条的回复")]);
+  const sessions = path.join(f.dataDir, "sessions");
+  const name = (await readdir(sessions)).find(file => file.includes(sessionId));
+  assert.ok(name !== undefined);
+  sessionFile = path.join(sessions, name);
+  t.after(() => chmod(sessionFile, 0o600).catch(() => undefined));
+  await f.answer(true);
+  assert.equal((await f.outcome("hello")).application, "applied");
+  const reported = await f.events.when(event => event.sessionId === sessionId && event.type === "error");
+  assert.equal(record(reported.data)?.code, "plugin_result_undelivered");
+  await chmod(sessionFile, 0o600);
+  await f.client.call("session.send", { sessionId, text: "下一条" });
+  await f.client.call("session.abort", { sessionId });
+  const next = await f.client.call("plugin.unload", { ids: ["hello"] });
+  assert.equal((await f.outcome("hello", next.requestId)).application, "applied");
+  await f.client.call("space.close", {});
+});
+
+test("续跑：模型生成时追问排进 Pi 的队列，请求之后才在同一次运行里取出，结果只追加为条目", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "pi-queue-1"));
+  const gate = deferred();
+  const entered = deferred();
+  f.script([
+    async () => { entered.resolve(); await gate.promise; return fauxAssistantMessage(fauxToolCall("plugin", { action: "load", ids: ["hello"] })); },
+    fauxAssistantMessage("等它生效"),
+    fauxAssistantMessage("另一件事是这样"),
+    fauxAssistantMessage("不该续跑"),
+  ]);
+  const session = await f.client.call("session.create", {});
+  const first = f.client.call("session.send", { sessionId: session.id, text: "写插件并加载" });
+  await entered.promise;
+  await f.client.call("session.followUp", { sessionId: session.id, text: "先说说另一件事" });
+  gate.resolve();
+  await first;
+  // 追问在同一次运行里被取出，没有开始新的运行。
+  assert.equal(f.events.seen.filter(event => event.sessionId === session.id && event.type === "runStart").length, 1);
+  await f.answer(true);
+  assert.equal((await f.outcome("hello")).application, "applied");
+  const shown = await f.events.when(event => event.sessionId === session.id && event.type === "pluginResult");
+  assert.equal(shown.runId, undefined);
+  assert.equal(f.faux.getPendingResponseCount(), 1);
+});
+
+test("续跑：等待批准期间或闸门落下期间换了模型，结果只追加为条目", async t => {
+  for (const when of ["approving", "gate"] as const) {
+    await t.test(when, async t => {
+      const f = await fixture(t, { control: {} });
+      await f.folder("hello", toolFolder("hello", `model-${when}`));
+      const sessionId = await agentLoads(f, ["hello"], [fauxAssistantMessage("不该续跑")]);
+      const model = { provider: f.faux.getModel().provider, id: "scripted" };
+      if (when === "approving") {
+        await f.confirmations.when(item => item.request.kind === "plugin");
+        await f.client.call("session.setModel", { sessionId, model });
+        await f.answer(true);
+      } else {
+        const entered = deferred();
+        const release = deferred();
+        f.control.closeEntered = () => entered.resolve();
+        f.control.closeGate = release.promise;
+        await f.answer(true);
+        await entered.promise;
+        const changing = f.client.call("session.setModel", { sessionId, model });
+        await f.client.call("space.list", {});
+        f.control.closeEntered = undefined;
+        f.control.closeGate = undefined;
+        release.resolve();
+        await changing;
+      }
+      assert.equal((await f.outcome("hello")).application, "applied");
+      const shown = await f.events.when(event => event.sessionId === sessionId && event.type === "pluginResult");
+      assert.equal(shown.runId, undefined);
+      assert.equal(f.faux.getPendingResponseCount(), 1);
+    });
+  }
+});
+
+test("启用记录读不了、源文件夹也不在了：列表里仍有正在运行的自写插件，只缺取自记录的字段", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "list-unreadable"));
+  await f.client.call("plugin.load", { ids: ["hello"] });
+  await f.answer(true);
+  await f.outcome("hello");
+  await rm(path.join(f.root, ".agents", "plugins", "hello"), { recursive: true });
+  await writeFile(path.join(f.dataDir, "plugins.json"), "{坏了");
+  const listed = (await f.client.call("plugin.list", {})).find(plugin => plugin.id === "hello");
+  assert.deepEqual([listed?.state, listed?.tools, listed?.digest, listed?.folder], ["running", ["hello_greet"], undefined, undefined]);
+});
+
+test("准备在暂存以后失败：这一项没有生效，不询问，暂存副本在批次结束时删掉", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "staged-1"));
+  const staging = path.join(snapshotGroup(f.home, f.root), ".staging");
+  // 读过暂存副本的清单以后，下一次打开暂存里的文件（列出改动时算各文件的摘要）读取出错。
+  let armed = false;
+  intercept(t, "readFile", async (target, original, args) => {
+    if (target.startsWith(`${staging}${path.sep}`) && target.endsWith("repa-plugin.json")) armed = true;
+    return original(...args);
+  });
+  intercept(t, "open", async (target, original, args) => {
+    if (armed && target.startsWith(`${staging}${path.sep}`)) {
+      armed = false;
+      throw Object.assign(new Error("磁盘读取出错"), { code: "EIO" });
+    }
+    return original(...args);
+  });
+  const { requestId } = await f.client.call("plugin.load", { ids: ["hello"] });
+  const failed = await f.outcome("hello", requestId);
+  assert.equal(failed.application, "failed");
+  assert.match(failed.reason?.message ?? "", /磁盘读取出错/);
+  // 队列先进先出：下一批有了结局时，前一批已经收尾。
+  const next = await f.client.call("plugin.unload", { ids: ["absent"] });
+  await f.outcome("absent", next.requestId);
+  assert.equal(f.confirmations.seen.length, 0);
+  assert.deepEqual(await readdir(staging), []);
+});
+
+test("装配时启用记录读不了：自写插件都不运行，这一项没有生效，recorded 为 false，原因写明读不了", async t => {
+  const f = await fixture(t);
+  await f.folder("hello", toolFolder("hello", "assembly-unreadable"));
+  const file = path.join(f.dataDir, "plugins.json");
+  // 记录写好以后，再读它都出错：装配读不了。
+  let written = false;
+  intercept(t, "rename", async (_target, original, args) => {
+    const result = await original(...args);
+    if (String(args[1]) === file) written = true;
+    return result;
+  });
+  intercept(t, "readFile", async (target, original, args) => {
+    if (written && target === file) throw Object.assign(new Error("读取出错"), { code: "EIO" });
+    return original(...args);
+  });
+  const { requestId } = await f.client.call("plugin.load", { ids: ["hello"] });
+  await f.answer(true);
+  const outcome = await f.outcome("hello", requestId);
+  assert.deepEqual({ recorded: outcome.recorded, application: outcome.application, code: outcome.reason?.code }, { recorded: false, application: "failed", code: "plugin_enablement_unreadable" });
+  assert.equal(counts().opens["assembly-unreadable"], undefined);
 });

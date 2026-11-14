@@ -88,7 +88,8 @@ export interface AssembledPlugins {
 /**
  * 插件列表（不含请求状态）：随包插件、启用记录与空间里的插件文件夹的并集，按 id 排列。运行状态取自这次装配，
  * digest 与 previous 取自盘上的启用记录，源文件夹的状态当场核对。宿主必须仍然打开。
- * 启用记录读不了时，自写插件只按文件夹列出，状态由装配给出；原因已在装配时记进最近错误。
+ * 启用记录读不了时，取自记录的字段（digest、previous、源文件夹状态）缺省，其余照常：这次装配运行着、停用了或没能交给宿主的自写插件
+ * 都在列表里，状态由装配给出；原因已在装配时记进最近错误。
  */
 export async function listPlugins(options: { home: string; root: string; dataDir: string; assembled: AssembledPlugins }): Promise<PluginInfo[]> {
   const { home, root, assembled } = options;
@@ -103,7 +104,7 @@ export async function listPlugins(options: { home: string; root: string; dataDir
     record = undefined;
   }
   const bundled = new Set(assembled.bundled);
-  const ids = [...new Set([...assembled.bundled, ...Object.keys(record?.plugins ?? {}), ...unavailable.keys(), ...(await folderIds(root))])]
+  const ids = [...new Set([...assembled.bundled, ...Object.keys(record?.plugins ?? {}), ...selfWritten.keys(), ...disabled.keys(), ...unavailable.keys(), ...(await folderIds(root))])]
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   const result: PluginInfo[] = [];
   for (const id of ids) {

@@ -1,6 +1,6 @@
 import type { Plugin } from "../plugin.js";
 import { errorText, RepaFault } from "../schema.js";
-import { readEnablement, type PluginEnablementEntry } from "./enablement.js";
+import { readEnablement, type PluginEnablement, type PluginEnablementEntry } from "./enablement.js";
 import { loadPlugin, type PluginManifest } from "./manifest.js";
 import { checkSnapshot, cleanSnapshots, clearStaging, removeSnapshot, snapshotDirectory } from "./snapshots.js";
 
@@ -23,10 +23,12 @@ export interface SpacePlugin {
 
 /**
  * 交给插件宿主的插件，以及没有交给它的自写插件；selfWritten 是交给宿主的自写插件各自的版本；
+ * record 是这一次实际读到的启用记录，读不了时为 undefined，装卸请求按它结算 recorded；
  * problems 是与单个插件无关、或需要另记一笔的错误。
  */
 export interface SpacePlugins {
   plugins: Plugin[];
+  record: PluginEnablement | undefined;
   selfWritten: SpacePlugin[];
   unavailable: UnavailablePlugin[];
   problems: unknown[];
@@ -66,7 +68,7 @@ export async function spacePlugins(options: { home: string; space: { root: strin
   try {
     record = await readEnablement(space.dataDir);
   } catch (error) {
-    return { plugins: bundled, selfWritten: [], unavailable: [], problems: [error] };
+    return { plugins: bundled, record: undefined, selfWritten: [], unavailable: [], problems: [error] };
   }
   if (clean) {
     try {
@@ -122,7 +124,7 @@ export async function spacePlugins(options: { home: string; space: { root: strin
       }
     }
   }
-  return { plugins: [...bundled, ...loaded], selfWritten, unavailable, problems };
+  return { plugins: [...bundled, ...loaded], record, selfWritten, unavailable, problems };
 }
 
 /** 记录里保留着、这次不会运行的版本：上一个版本，卸载的插件连同当前版本。运行的版本在加载前已经核对。 */

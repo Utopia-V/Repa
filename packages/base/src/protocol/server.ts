@@ -141,6 +141,11 @@ function runStatus(data: unknown): "completed" | "failed" | "aborted" {
   return status === "completed" || status === "aborted" ? status : "failed";
 }
 
+/** message 事件是不是一条进入会话的用户消息：前端发来的、或从 Pi 队列取出的插话与追问。 */
+function isUserMessage(data: unknown): boolean {
+  return data !== null && typeof data === "object" && "role" in data && data.role === "user";
+}
+
 // 经过重组闸门的方法：它们用到 Agent 空间或插件宿主，重组期间要等新的装配。
 // space.*、确认与询问的回复、服务回复、登录、设置、备份与历史不等：批准、登录和备份不应等重组，空间对象也不随重组关闭。
 const GATED = new Set<Method>([
@@ -154,7 +159,7 @@ const GATED = new Set<Method>([
 // 在闸门前等待时，同一会话的 session.abort 到达即作废这些请求：停止要拿到它之前发出的消息。
 const VOIDABLE = new Set<Method>(["session.send", "session.steer", "session.followUp", "session.compact"]);
 // 使用者在会话里的介入：到达时登记，此前提出的插件装卸不再在结果交回时自动续跑。
-const INTERVENING = new Set<Method>(["session.send", "session.steer", "session.followUp", "session.abort", "session.compact", "session.fork"]);
+const INTERVENING = new Set<Method>(["session.send", "session.steer", "session.followUp", "session.abort", "session.setModel", "session.compact", "session.fork"]);
 
 /** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
 export async function startServer(options: ServerOptions = {}): Promise<RepaServer> {
@@ -365,6 +370,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     alive: (peer) => peer.alive,
     fullAccess: () => settings.get().commandPolicy === "fullAccess",
     execute: async (execution, signal) => (await reassembleWith(undefined, execution, signal)).status,
+    handBack: (action) => handBack(action),
     runAs: (peer, action) => owner.run(peer, action),
     updated: () => {
       if (active !== undefined) emit("plugin.updated", { plugins: pluginsOf(active) });
@@ -523,9 +529,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         controlDirs: [pluginsDirectory(home)],
         onEvent: (event) => {
           emit("session.event", event);
-          // 一次运行结束时，它提出的装卸请求封口排队。会话里开始新的运行算作介入：
-          // 请求提出之前就排进来的消息在提出请求的运行之后才运行，续跑不再接在它后面。
-          if (event.type === "runStart") requests.intervene(event.sessionId);
+          // 一次运行结束时，它提出的装卸请求封口排队。会话里开始新的运行、使用者的消息进入会话都算作介入：
+          // 请求提出之前就排进来的消息在提出请求的运行之后才运行，或者在同一次运行里、请求之后才被 Pi 取出，续跑都不再接在它后面。
+          // 装卸结果本身以 pluginResult 事件进入会话，不算介入。
+          if (event.type === "runStart" || (event.type === "message" && isUserMessage(event.data))) requests.intervene(event.sessionId);
           if (event.type === "runEnd" && event.runId !== undefined) requests.runEnded(event.runId, runStatus(event.data));
         },
         plugins: {
@@ -554,7 +561,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         assembled: { host: opened, bundled: bundled.map((plugin) => plugin.id), selfWritten: selected.selfWritten, unavailable: selected.unavailable },
       });
       checkStopping();
-      return { plugins: opened, agent, assembly, unavailable: selected.unavailable, selfWritten: selected.selfWritten, list };
+      return { plugins: opened, agent, assembly, unavailable: selected.unavailable, selfWritten: selected.selfWritten, record: selected.record, list };
     } catch (error) {
       if (agent !== undefined && host !== undefined) await stopAssembly({ agent, plugins: host });
       else await host?.close().catch(() => undefined);
@@ -603,25 +610,22 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const idle = (current: ActiveSpace) => inFlight === 0 && !current.agent.busy() && !current.plugins.busy();
 
   /**
-   * batch 是一批装卸在重组里要做的事：闸门落下时 begin，旧装配关闭以后 write，新装配建立以后 finish。
-   * signal 中止时，还在等待空闲的重组以 cancelled 结束；闸门落下以后不再理会它。
+   * 等到空闲，在同一段同步代码里落下闸门并调用 enter，enter 返回的 Promise 结束时抬起闸门。等待时不挡住任何工作；
+   * 空闲判断与落闸之间没有 await，请求漏不进去。等待期间空间关闭、切换，后端开始关闭，或 signal 中止时以 undefined 结束，enter 不调用。
+   * 空间的身份是这一次打开：前一次重组换掉了 active 对象，但空间没有变，排在后面的等待照常进行。
    */
-  const reassembleWith = (bundled?: Plugin[], batch?: Execution, signal?: AbortSignal): Promise<Reassembly> => {
+  const atIdle = <T>(signal: AbortSignal | undefined, enter: (current: ActiveSpace) => Promise<T>): Promise<T | undefined> => {
     const target = active;
     if (stopping) return Promise.reject(new RepaFault("closed", "服务正在关闭"));
     if (target === undefined) return Promise.reject(new RepaFault("space_not_open", "请先打开空间"));
-    const plugins = bundled ?? target.bundled;
-    // 等待空闲时不挡住任何工作。空闲成立的那一刻，在同一段同步代码里落下闸门并让旧的装配开始关闭，
-    // 计数为零与闸门落下之间没有 await，请求漏不进去；闸门落下以后插件新发起的工作被拒绝或取消，不等闸门。
-    // 空间的身份是这一次打开：前一次重组换掉了 active 对象，但空间没有变，排在后面的重组照常进行。
     const opened = target.opened;
-    return new Promise<Reassembly>((resolve, reject) => {
+    return new Promise<T | undefined>((resolve, reject) => {
       const check = () => {
         const current = active;
         if (stopping || current?.opened !== opened || signal?.aborted === true) {
           idleWaiters.delete(check);
           signal?.removeEventListener("abort", check);
-          resolve({ status: "cancelled" });
+          resolve(undefined);
           return;
         }
         if (reassembling !== undefined || !idle(current)) return;
@@ -630,9 +634,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         detached(() => {
           let lift: () => void = () => undefined;
           reassembling = new Promise<void>((done) => { lift = done; });
-          batch?.begin();
-          const stopped = stopAssembly(current);
-          serializeLifecycle(() => rebuild(current, plugins, stopped, batch)).then(resolve, reject).finally(() => {
+          let work: Promise<T>;
+          try {
+            work = enter(current);
+          } catch (error) {
+            work = Promise.reject(error);
+          }
+          work.then(resolve, reject).finally(() => {
             reassembling = undefined;
             lift();
             checkIdle();
@@ -643,6 +651,36 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       signal?.addEventListener("abort", check);
       check();
     });
+  };
+
+  /**
+   * batch 是一批装卸在重组里要做的事：闸门落下时 begin，旧装配关闭以后 write，新装配建立以后 finish。
+   * signal 中止时，还在等待空闲的重组以 cancelled 结束；闸门落下以后不再理会它。
+   * 闸门落下的同一段同步代码里让旧的装配开始关闭；此后插件新发起的工作被拒绝或取消，不等闸门。
+   */
+  const reassembleWith = async (bundled?: Plugin[], batch?: Execution, signal?: AbortSignal): Promise<Reassembly> => {
+    const plugins = bundled ?? active?.bundled;
+    const result = await atIdle(signal, (current) => {
+      batch?.begin();
+      const stopped = stopAssembly(current);
+      return serializeLifecycle(() => rebuild(current, plugins ?? current.bundled, stopped, batch));
+    });
+    return result ?? { status: "cancelled" };
+  };
+
+  /**
+   * 不经过重组，把一批装卸的结果交回当前装配里的会话：与重组走同一条等待，空闲成立时落下闸门、排进生命周期队列，
+   * 轮到时空间仍是这一个才调用 action，结束后抬起闸门。不关闭、不重开任何东西，不分配装配序号，不发 space.assembled。
+   * 空闲意味着会话里没有运行、排队、取消或压缩，闸门落着时会话请求进不来，所以此刻没有别的东西碰得到这个会话。
+   */
+  const handBack = async (action: (agent: AgentSpace) => Promise<void>): Promise<"done" | "cancelled"> => {
+    if (stopping || active === undefined) return "cancelled";
+    const result = await atIdle(undefined, (current) => serializeLifecycle(async () => {
+      if (stopping || active !== current) return "cancelled" as const;
+      await action(current.agent);
+      return "done" as const;
+    }));
+    return result ?? "cancelled";
   };
 
   const reassemble = (plugins?: Plugin[]): Promise<Reassembly> => reassembleWith(plugins);
@@ -708,7 +746,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     // 结果在闸门抬起之前交回：这时请求方会话刚从文件打开，除了这次交回没有别的东西能碰到它。续跑只登记，不等运行。
     if (batch !== undefined) {
       try {
-        await batch.finish({ agent: next.agent, host: next.plugins, selfWritten: next.selfWritten, unavailable: next.unavailable, closeFailures });
+        await batch.finish({ agent: next.agent, host: next.plugins, selfWritten: next.selfWritten, unavailable: next.unavailable, record: next.record, closeFailures });
       } catch (error) {
         errors.add({ source: "plugin-requests", message: errorText(error) });
       }

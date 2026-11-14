@@ -17,11 +17,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
-import type { SessionBaseline } from "../protocol.js";
+import type { PluginResult, SessionBaseline } from "../protocol.js";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool, ModelCallScope, UnsavedSession } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
-import { MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
+import { errorText, MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
 import { convertEvent, entriesToPublic, PLUGIN_RESULT_ENTRY, textContent } from "./events.js";
 import { credentialValues } from "../feedback/redact.js";
@@ -660,7 +660,7 @@ class Session implements AgentSession {
   // 当前运行是否来自使用者：前端发来的消息、取回的插话与追问、装卸结果的续跑。子 Agent 与后台任务的运行不是。
   private runDirect = false;
   // 以装卸结果为输入的运行：它的第一条用户消息就是结果，实时事件改为 pluginResult。
-  private resultRun?: { runId: string; requestId: string };
+  private resultRun?: { runId: string; result: PluginResult };
   private abortController?: AbortController;
   private currentViews: ViewSnapshot[] = [];
   private currentSections: PromptSection[] = [];
@@ -835,7 +835,7 @@ class Session implements AgentSession {
       if (result !== undefined && result.runId === this.runId && event.type === "message_end" && event.message.role === "user") {
         // 续跑的输入就是装卸结果，与追加的结果条目显示为同一种条目，按请求编号对应。
         this.resultRun = undefined;
-        options.onEvent({ sessionId: this.manager.getSessionId(), runId: result.runId, type: "pluginResult", text: textContent(event.message.content), data: { requestId: result.requestId } });
+        options.onEvent({ sessionId: this.manager.getSessionId(), runId: result.runId, type: "pluginResult", text: textContent(event.message.content), data: result.result });
         return;
       }
       for (const converted of convertEvent(this.manager.getSessionId(), event, this.runId)) options.onEvent(converted);
@@ -876,23 +876,41 @@ class Session implements AgentSession {
     return { sessionId: this.manager.getSessionId(), runId: this.runId, direct: this.runDirect && this.parent === undefined };
   }
 
-  continueWith(text: string, requestId: string): Promise<void> {
+  continueWith(text: string, result: PluginResult): Promise<void> {
     try {
       this.assertAccepting();
     } catch {
       // 会话只读、已关闭或正在取消：不开始运行，结果照样留在会话里。
-      this.appendPluginResult(text, requestId);
+      this.keepPluginResult(text, result);
       return Promise.resolve();
     }
     // run 的同步部分登记运行；之后的失败由 run 的收尾追加结果、发出错误事件。
-    return this.run(text, undefined, "send", undefined, { direct: true, pluginResult: { requestId, text } }).then(() => undefined);
+    return this.run(text, undefined, "send", undefined, { direct: true, pluginResult: { result, text } }).then(() => undefined);
   }
 
-  appendPluginResult(text: string, requestId: string): void {
-    // 会话文件里的条目带上请求编号；历史投影与实时事件都按它显示为 pluginResult。
-    this.manager.appendCustomMessageEntry(PLUGIN_RESULT_ENTRY, text, true, { requestId });
+  appendPluginResult(text: string, result: PluginResult): void {
+    // 会话文件里的条目带上结构化的结果；历史投影与实时事件都按它显示为 pluginResult。
+    this.manager.appendCustomMessageEntry(PLUGIN_RESULT_ENTRY, text, true, result);
     if (this.pi !== undefined && !this.closed) this.pi.refreshContext();
-    this.space.options.onEvent({ sessionId: this.manager.getSessionId(), type: "pluginResult", text, data: { requestId } });
+    this.space.options.onEvent({ sessionId: this.manager.getSessionId(), type: "pluginResult", text, data: result });
+  }
+
+  /** 追加结果条目；写会话文件失败时发出会话的 error 事件（随之记进最近错误），不抛出：调用它的收尾不能因此中断。 */
+  private keepPluginResult(text: string, result: PluginResult): void {
+    try {
+      this.appendPluginResult(text, result);
+    } catch (error) {
+      try {
+        this.space.options.onEvent({
+          sessionId: this.manager.getSessionId(),
+          type: "error",
+          text: `插件装卸请求 ${result.requestId} 的结果没能写进会话：${errorText(error)}`,
+          data: { code: "plugin_result_undelivered", details: { requestId: result.requestId } },
+        });
+      } catch {
+        // 事件也发不出去时没有别的出口；结局仍在请求状态里。
+      }
+    }
   }
 
   /** 以 runId 开始的续跑有没有写下它的第一条用户消息，也就是装卸结果。 */
@@ -983,7 +1001,7 @@ class Session implements AgentSession {
     parent?: ParentRun,
     mode: "send" | "steer" | "followUp" = "send",
     after?: Promise<void>,
-    origin: { direct: boolean; pluginResult?: { requestId: string; text: string } } = { direct: parent === undefined },
+    origin: { direct: boolean; pluginResult?: { result: PluginResult; text: string } } = { direct: parent === undefined },
   ): Promise<{ runId: string; status: "completed" | "aborted"; text: string }> {
     this.assertAccepting();
     const runId = randomUUID();
@@ -1021,8 +1039,8 @@ class Session implements AgentSession {
           this.currentViews = await this.profile.views();
           controller.signal.throwIfAborted();
           const result = origin.pluginResult;
-          this.manager.appendCustomEntry("repa-run", { runId, ...link, ...(result === undefined ? {} : { pluginResult: result.requestId }) });
-          if (result !== undefined) this.resultRun = { runId, requestId: result.requestId };
+          this.manager.appendCustomEntry("repa-run", { runId, ...link, ...(result === undefined ? {} : { pluginResult: result.result }) });
+          if (result !== undefined) this.resultRun = { runId, result: result.result };
           await this.session.prompt(text);
         });
         const last = this.session.messages.findLast(message => message.role === "assistant");
@@ -1056,18 +1074,25 @@ class Session implements AgentSession {
         this.abortController = undefined;
       }
       this.pending.delete(controller);
-      const result = origin.pluginResult;
-      if (result !== undefined) {
-        if (this.resultRun?.runId === runId) this.resultRun = undefined;
-        // 续跑没能写下它的输入：改为追加结果条目，在下一次运行开始之前，结果只出现一次。
-        if (!this.resultWritten(runId)) this.appendPluginResult(result.text, result.requestId);
+      try {
+        const result = origin.pluginResult;
+        if (result !== undefined) {
+          if (this.resultRun?.runId === runId) this.resultRun = undefined;
+          // 续跑没能写下它的输入：改为追加结果条目，在下一次运行开始之前，结果只出现一次。
+          if (!this.resultWritten(runId)) this.keepPluginResult(result.text, result.result);
+        }
+      } finally {
+        // 以下无条件执行：排在后面的运行和停止都在等 settled，空闲判断等 pending 清空与 notifyIdle。
+        finish();
+        try {
+          if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
+          // 整次运行（含保存）结束时，Pi 的循环可能早已结束，期间入队的消息留在 Pi 队列里；没有排着的运行会在开始前取回它们时，
+          // 在这里取回。取回与登记是同步的，空闲不会在两者之间成立。
+          if (this.pending.size === 0) this.recoverStranded()?.catch(() => undefined);
+        } finally {
+          this.space.notifyIdle();
+        }
       }
-      finish();
-      if (started) this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runEnd", data: { status } });
-      // 整次运行（含保存）结束时，Pi 的循环可能早已结束，期间入队的消息留在 Pi 队列里；没有排着的运行会在开始前取回它们时，
-      // 在这里取回。取回与登记是同步的，空闲不会在两者之间成立。
-      if (this.pending.size === 0) this.recoverStranded()?.catch(() => undefined);
-      this.space.notifyIdle();
     }
     return { runId, status: status === "aborted" ? "aborted" : "completed", text: reply };
   }
