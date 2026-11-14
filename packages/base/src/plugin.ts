@@ -102,6 +102,8 @@ export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 /** 底座的询问工具：通用 Agent 默认带上，插件 Agent 在 tools 里列出才有。 */
 export const ASK_USER_TOOL = "ask_user";
+/** 通用 Agent 管理自写插件的工具，由装配提供；插件工具同样不能用这个名字。 */
+export const PLUGIN_TOOL = "plugin";
 /** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent、ask_user。 */
 export const RESERVED_TOOL_NAMES: readonly string[] = [...BUILTIN_TOOLS, "powershell", "subagent", ASK_USER_TOOL];
 

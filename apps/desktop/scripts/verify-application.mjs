@@ -177,8 +177,10 @@ export async function verifyApplication({ application, executable, temporary }) 
   try {
     client = await RepaClient.connect(backend.connection);
     const root = path.join(temporary, "space");
-    assert.deepEqual(await client.call("space.create", { root }), { root, disabledPlugins: [] });
-    assert.deepEqual((await client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning"]);
+    const created = await client.call("space.create", { root });
+    assert.equal(created.root, root);
+    assert.deepEqual(created.plugins.map((plugin) => [plugin.id, plugin.state]), [["learning", "running"]]);
+    assert.deepEqual((await client.call("plugin.list", {})).map((plugin) => [plugin.id, plugin.state]), [["learning", "running"]]);
   } finally {
     await client?.close();
     await backend.close();

@@ -23,14 +23,15 @@ import {
 } from "../interaction.js";
 import type { AskOutcome, Plugin, Services } from "../plugin.js";
 import { openPluginHost, type PluginHost } from "../plugins.js";
+import { createPluginControl, type PluginControl } from "../plugins/control.js";
+import { pluginTool } from "../plugins/plugin-tool.js";
 import { pluginsDirectory } from "../plugins/snapshots.js";
-import { spacePlugins, type UnavailablePlugin } from "../plugins/space-plugins.js";
+import { spacePlugins } from "../plugins/space-plugins.js";
 import {
   methods,
   notifications,
   PROTOCOL_VERSION,
   type ClientCapabilities,
-  type DisabledPlugin,
   type Method,
   type Notification,
   type NotificationParams,
@@ -95,13 +96,8 @@ interface ActiveSpace {
   plugins: PluginHost;
   agent: AgentSpace;
   backups: SpaceBackups;
-  /** 启用了却没有交给插件宿主的自写插件：待批准或失败。 */
-  unavailable: UnavailablePlugin[];
-}
-
-/** 停用清单：没有交给宿主的自写插件，加上宿主打开时停用的插件，按 id 排列。 */
-function disabledOf({ unavailable, plugins }: Pick<ActiveSpace, "unavailable" | "plugins">): DisabledPlugin[] {
-  return [...unavailable.map(({ id, reason }) => ({ id, reason: { ...reason } })), ...plugins.disabled()].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+  /** 自写插件的加载、卸载与插件列表。 */
+  control: PluginControl;
 }
 
 /** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
@@ -323,9 +319,11 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     const current = active;
     active = undefined;
     if (!current) return;
-    // 登录确认不属于空间；只结束命令确认，以及空间里的询问和服务。
-    reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command");
+    // 登录确认不属于空间；只结束命令确认、插件的批准，以及空间里的询问和服务。
+    reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command" || data.request.kind === "plugin");
     recordOwnerFailures(await stopOwners(current));
+    // 已经开始的装卸在宿主关闭以后很快失败；等它结束再释放空间锁，启用记录不在锁外写入。
+    await current.control.close();
     const failures: string[] = [];
     for (const [step, close] of [["最后一次备份", () => current.backups.close()], ["空间落盘与释放锁", () => current.space.close()]] as const) {
       try {
@@ -345,12 +343,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
     if (stopping) throw new RepaFault("closed", "服务正在关闭");
     const resolved = path.resolve(root);
-    if (active?.space.root === resolved && !create) return { root: resolved, disabledPlugins: disabledOf(active) };
+    if (active?.space.root === resolved && !create) return { root: resolved, plugins: await active.control.list() };
     await closeActive();
     // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
     const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
     let plugins: PluginHost | undefined;
     let agent: AgentSpace | undefined;
+    let control: PluginControl | undefined;
     const owners: NonNullable<typeof building> = {};
     building = owners;
     try {
@@ -358,8 +357,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         errors.add({ source: "plugin-host", message: errorText(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
         emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } });
       };
-      // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件一起列进停用清单。
-      const selected = await spacePlugins({ home, space, bundled: options.plugins ?? [], onError: pluginError });
+      // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件都在插件列表里，带状态和原因。
+      const bundled = options.plugins ?? [];
+      const selected = await spacePlugins({ home, space, bundled, onError: pluginError });
       plugins = await openPluginHost({
         space,
         plugins: selected.plugins,
@@ -388,10 +388,24 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       });
       const host = plugins;
       owners.plugins = host;
-      // 停用的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
+      const spaceControl = createPluginControl({
+        home,
+        space,
+        host,
+        selected,
+        bundled: bundled.map((plugin) => plugin.id),
+        now: () => runtime.now(),
+        fullAccess: () => settings.get().commandPolicy === "fullAccess",
+        onUpdate: (list) => { if (active?.control === spaceControl) emit("plugin.updated", { plugins: list }); },
+        onError: pluginError,
+      });
+      control = spaceControl;
+      // 通用 Agent 的 plugin 工具：批准发给发起这次运行的连接。每个空间一个，替换之前一直是同一个对象。
+      const managePlugins = pluginTool(spaceControl, (request, signal) => confirmFor(owner.getStore())(request, signal));
+      // 停用的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，原因在插件列表里。
       // 没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
       let directAgents = options.directAgents;
-      if (directAgents !== undefined && disabledOf({ unavailable: selected.unavailable, plugins: host }).length > 0) {
+      if (directAgents !== undefined && selected.unavailable.length + host.disabled().length > 0) {
         const available = new Set([...(options.generalAgent === false ? [] : ["general"]), ...host.agents().map((definition) => definition.id)]);
         directAgents = directAgents.filter((id) => available.has(id));
       }
@@ -399,7 +413,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         root: space.root,
         sessionsDir: space.sessionsDir,
         instructions: () => host.instructions(),
-        tools: () => host.tools(),
+        tools: () => [managePlugins, ...host.tools()],
         views: () => host.views(),
         agents: () => host.agents(),
         generalAgent: options.generalAgent,
@@ -430,11 +444,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           });
         },
       });
-      active = { space, plugins, agent, backups, unavailable: selected.unavailable };
+      const list = await spaceControl.list();
+      active = { space, plugins, agent, backups, control: spaceControl };
       backups.start();
-      return { root: space.root, disabledPlugins: disabledOf(active) };
+      return { root: space.root, plugins: list };
     } catch (error) {
       await stopOwners({ agent, plugins });
+      await control?.close();
       await space.close().catch(() => undefined);
       throw error;
     } finally {
@@ -531,7 +547,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         if (!pending || pending.peer !== peer || pending.data.kind !== "confirm") throw new RepaFault("confirmation_not_found", "确认不存在或不属于当前连接");
         const kind = pending.data.request.kind;
         if (
-          (kind === "command" && typeof input.value !== "boolean" && input.value !== null) ||
+          ((kind === "command" || kind === "plugin") && typeof input.value !== "boolean" && input.value !== null) ||
           ((kind === "input" || kind === "select") && typeof input.value !== "string" && input.value !== null) ||
           (kind === "select" && typeof input.value === "string" && !pending.data.request.options?.includes(input.value))
         ) {
@@ -561,10 +577,15 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return requireActive().space.history.undo(p<"history.undo">().revision);
       case "history.undoRun":
         return requireActive().space.history.undoRun(p<"history.undoRun">().runId);
-      case "plugin.disabled":
-        return disabledOf(requireActive());
       case "plugin.list":
-        return requireActive().plugins.list();
+        return requireActive().control.list();
+      case "plugin.load": {
+        const input = p<"plugin.load">();
+        // 使用者在插件列表里操作：批准发给这个连接，任何模式下都询问。
+        return (await requireActive().control.load(input.id, { kind: "user", confirm: confirmFor(peer) }, input.from)).plugin;
+      }
+      case "plugin.unload":
+        return requireActive().control.unload(p<"plugin.unload">().id);
       case "plugin.call": {
         const input = p<"plugin.call">();
         // 交给插件的是副本，插件改动它不会影响这个连接的路由。
@@ -731,7 +752,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             baseline: {
               space: active === undefined ? null : { root: active.space.root },
               sessions: active?.agent.baseline() ?? [],
-              disabledPlugins: active === undefined ? [] : disabledOf(active),
+              plugins: active === undefined ? [] : active.control.current(),
             },
           };
         }

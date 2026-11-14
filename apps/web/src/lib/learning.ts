@@ -1,5 +1,5 @@
 import { ConnectionError, RpcError } from "@repa/base/client";
-import type { Method, Params, Problem, Result } from "@repa/base/protocol";
+import type { Method, Params, PluginInfo, Problem, Result } from "@repa/base/protocol";
 import {
   readLearningError,
   readLearningEvent,
@@ -60,6 +60,11 @@ export type LearningView = {
 /** 打开空间后的首页：后端装了学习插件就进学习页，否则进对话页。 */
 export function homePath(learning: LearningView): "/learn" | "/conversation" {
   return learning.available === true ? "/learn" : "/conversation";
+}
+
+/** 插件列表里学习插件是否在运行：没启用、待批准或失败的学习插件都算不可用。 */
+function learningRunning(plugins: PluginInfo[]): boolean {
+  return plugins.some((plugin) => plugin.id === LEARNING_PLUGIN && plugin.state === "running");
 }
 
 export const emptyLearning: LearningView = { status: "idle", replaced: false, outbox: {} };
@@ -213,7 +218,7 @@ export function createLearningActions({ call, get, set }: Deps) {
     set((learning) => ({ ...learning, status: learning.state ? learning.status : "loading" }));
     try {
       const plugins = await call("plugin.list", {});
-      const available = plugins.some((plugin) => plugin.id === LEARNING_PLUGIN);
+      const available = learningRunning(plugins);
       set((learning) => ({ ...learning, available, status: available || learning.state ? learning.status : "idle" }));
     } catch (error) {
       set((learning) => ({ ...learning, status: learning.state ? learning.status : "error", loadError: error }));
@@ -241,6 +246,18 @@ export function createLearningActions({ call, get, set }: Deps) {
       return loading;
     },
     refreshLearning: refresh,
+    /**
+     * 收到 plugin.updated 时调用：学习插件是否在运行跟着列表变。没读过学习状态时不读，等页面需要时再读；
+     * 从不在变成在时重新读取状态。
+     */
+    learningPlugins(plugins: PluginInfo[]): void {
+      const before = get().learning.available;
+      if (before === undefined) return;
+      const available = learningRunning(plugins);
+      if (available === before) return;
+      set((learning) => ({ ...learning, available }));
+      if (available) void refresh();
+    },
     /** 收到 plugin.event 时调用；事件只说明状态变了，内容重新读取。 */
     learningEvent(pluginId: string, event: unknown): void {
       if (pluginId !== LEARNING_PLUGIN || !readLearningEvent(event).ok) return;

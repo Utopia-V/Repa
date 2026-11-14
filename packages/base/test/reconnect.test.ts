@@ -91,7 +91,7 @@ for (const gated of [false, true]) {
     ];
     assert.deepEqual(baseline.space, { root });
     assert.deepEqual(baseline.sessions, [{ sessionId: session.id, agent: "probe-agent", runId, queued }]);
-    assert.deepEqual(baseline.disabledPlugins, []);
+    assert.deepEqual(baseline.plugins.filter((plugin) => plugin.state !== "running"), []);
     release.resolve();
     await Promise.all([running, sending]);
   });

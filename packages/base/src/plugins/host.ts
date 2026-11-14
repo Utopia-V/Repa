@@ -7,6 +7,7 @@ import { prepareExport } from "../feedback/export.js";
 import {
   ASK_USER_TOOL,
   BUILTIN_TOOLS,
+  PLUGIN_TOOL,
   RESERVED_TOOL_NAMES,
   type AgentDefinition,
   type AskOptions,
@@ -425,7 +426,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       };
       const instance = await detached(() => plugin.open(host));
       entry.instance = instance;
-      const reservedNames = new Set(RESERVED_TOOL_NAMES);
+      const reservedNames = new Set([...RESERVED_TOOL_NAMES, PLUGIN_TOOL]);
       const localNames = new Set<string>();
       entry.tools = (instance.tools?.() ?? []).map((tool): AgentTool => {
         if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(tool.name)) {

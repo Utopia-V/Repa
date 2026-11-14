@@ -11,9 +11,20 @@ import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
 import { RepaClient, RpcError } from "../src/client.js";
 import type { AgentDefinition, Plugin, Tool } from "../src/plugin.js";
+import type { PluginInfo } from "../src/protocol.js";
 import { record } from "../src/protocol/json-rpc.js";
 import { startServer, type ServerOptions } from "../src/protocol/server.js";
 import type { AgentEvent } from "../src/schema.js";
+
+/** 插件列表里没有运行的插件及原因。 */
+function notRunning(plugins: PluginInfo[]): { id: string; reason?: PluginInfo["reason"] }[] {
+  return plugins.filter((plugin) => plugin.state !== "running").map(({ id, reason }) => ({ id, reason }));
+}
+
+/** 插件列表里运行中的插件。 */
+function running(plugins: PluginInfo[]): string[] {
+  return plugins.filter((plugin) => plugin.state === "running").map((plugin) => plugin.id);
+}
 
 const courseLookup: Tool = {
   name: "course_lookup",
@@ -297,7 +308,7 @@ test("插件停用带走了装配点名的直接对话 Agent 时，只去掉这�
   // 学习插件平时声明 tutor；它的数据打不开时，tutor 也就不在了。
   const broken: Plugin = { id: "learning", async open() { throw new Error("学习数据损坏，请检查数据文件"); } };
   const f = await protocolFixture(t, broken, { directAgents: ["tutor"] });
-  assert.deepEqual(f.opened.disabledPlugins, [{ id: "learning", reason: { code: "plugin_open_failed", message: "学习数据损坏，请检查数据文件" } }]);
+  assert.deepEqual(notRunning(f.opened.plugins), [{ id: "learning", reason: { code: "plugin_open_failed", message: "学习数据损坏，请检查数据文件" } }]);
   // 装配只让 tutor 直接对话；tutor 不在了，通用 Agent 也不因此变成可以直接对话。
   assert.deepEqual(await f.client.call("agent.list", {}), [{ id: "general", direct: false }]);
   await assert.rejects(f.client.call("session.create", { agent: "tutor" }), rejectsWith("agent_not_found"));
@@ -380,10 +391,10 @@ test("插件数据打开失败经协议报告，其他插件、通用对话和�
     ],
   });
   const disabled = [{ id: "broken", reason: { code: "plugin_open_failed", message: "插件数据损坏，请检查自己的数据文件" } }];
-  assert.deepEqual(f.opened.disabledPlugins, disabled);
-  assert.deepEqual(await f.client.call("plugin.disabled", {}), disabled);
-  assert.deepEqual((await f.client.call("space.open", { root: f.root })).disabledPlugins, disabled);
-  assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning"]);
+  assert.deepEqual(notRunning(f.opened.plugins), disabled);
+  assert.deepEqual(notRunning(await f.client.call("plugin.list", {})), disabled);
+  assert.deepEqual(notRunning((await f.client.call("space.open", { root: f.root })).plugins), disabled);
+  assert.deepEqual(running(await f.client.call("plugin.list", {})), ["learning"]);
   assert.ok((await f.client.call("agent.list", {})).some((agent) => agent.id === "tutor"));
   await assert.rejects(f.client.call("plugin.call", { pluginId: "broken", method: "save", input: {} }), rejectsWith("plugin_not_found"));
   const session = await f.client.call("session.create", {});
@@ -412,10 +423,10 @@ test("插件第一次处理变化就失败时，只停它和依赖它的插件�
   const dependent: Plugin = { id: "dependent", open: async () => ({ agents: () => [{ id: "helper", instructions: () => "", tools: ["derive_lookup"] }] }) };
   const good = learningPlugin();
   const f = await protocolFixture(t, good, { plugins: [failing, dependent, good] });
-  assert.deepEqual(f.opened.disabledPlugins.map(({ id, reason }) => [id, reason.code]), [["dependent", "unknown_agent_tool"], ["derive", "plugin_open_failed"]]);
-  assert.equal(f.opened.disabledPlugins.find((plugin) => plugin.id === "derive")?.reason.message, "派生数据读不出来");
-  assert.deepEqual(await f.client.call("plugin.disabled", {}), f.opened.disabledPlugins);
-  assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning"]);
+  assert.deepEqual(notRunning(f.opened.plugins).map(({ id, reason }) => [id, reason?.code]), [["dependent", "unknown_agent_tool"], ["derive", "plugin_open_failed"]]);
+  assert.equal(notRunning(f.opened.plugins).find((plugin) => plugin.id === "derive")?.reason?.message, "派生数据读不出来");
+  assert.deepEqual(notRunning(await f.client.call("plugin.list", {})), notRunning(f.opened.plugins));
+  assert.deepEqual(running(await f.client.call("plugin.list", {})), ["learning"]);
   await assert.rejects(f.client.call("plugin.call", { pluginId: "derive", method: "inspect", input: {} }), rejectsWith("plugin_not_found"));
   assert.deepEqual((await f.client.call("agent.list", {})).map((agent) => agent.id), ["general", "tutor", "writer"]);
   await assert.rejects(f.client.call("session.create", { agent: "deriver" }), rejectsWith("agent_not_found"));
@@ -456,14 +467,14 @@ test("插件抛出转不成文字的值：open 与第一次变化处理只停用
       good,
     ],
   });
-  assert.deepEqual(f.opened.disabledPlugins.map(({ id, reason }) => [id, reason.code]), [["opaque-change", "plugin_open_failed"], ["opaque-open", "plugin_open_failed"]]);
-  assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning", "opaque-method"]);
+  assert.deepEqual(notRunning(f.opened.plugins).map(({ id, reason }) => [id, reason?.code]), [["opaque-change", "plugin_open_failed"], ["opaque-open", "plugin_open_failed"]]);
+  assert.deepEqual(running(await f.client.call("plugin.list", {})), ["learning", "opaque-method"]);
   await assert.rejects(f.client.call("plugin.call", { pluginId: "opaque-method", method: "fail", input: {} }), (error: unknown) => {
     assert.ok(error instanceof RpcError);
     assert.equal(error.code, -32603);
     return true;
   });
-  assert.deepEqual((await f.client.call("plugin.list", {})).map((plugin) => plugin.id), ["learning", "opaque-method"]);
+  assert.deepEqual(running(await f.client.call("plugin.list", {})), ["learning", "opaque-method"]);
 });
 
 
