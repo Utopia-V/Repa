@@ -38,13 +38,12 @@ export class FileScope {
 
   /** controlDirs 是一律不写的目录；字面路径和解析后的路径都记下，两种写法的目标路径都与两者比较。 */
   static async create(root: string, controlDirs: readonly string[] = []): Promise<FileScope> {
-    const control = new Set<string>();
+    const control: string[] = [];
     for (const directory of controlDirs) {
       const literal = path.resolve(directory);
-      control.add(literal);
-      control.add(await existingPath(literal));
+      control.push(literal, await existingPath(literal));
     }
-    return new FileScope(root, await realpath(root), [...control]);
+    return new FileScope(root, await realpath(root), control);
   }
 
   /**

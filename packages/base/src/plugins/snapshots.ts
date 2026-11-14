@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import { copying, copyTree, isCode, publish, remove, syncCopies, syncEntries, walk } from "../backup/copy.js";
 import { RepaFault } from "../schema.js";
 import { spaceKey } from "../space/paths.js";
-import type { PluginEnablement } from "./enablement.js";
+import { DIGEST, type PluginEnablement } from "./enablement.js";
+import { PLUGIN_ID } from "./manifest.js";
 
 /**
  * 插件文件夹的上限，是 Repa 的假设：防的是 Agent 把依赖或数据堆进插件文件夹，使每次批准都复制大量内容，
@@ -16,13 +16,9 @@ export const SNAPSHOT_LIMITS = { bytes: 16 * 1024 * 1024, files: 2000 } as const
 
 /** 摘要算法的版本，写在摘要输入的第一行；算法一变，已有的快照都按“已改动”处理，需要重新批准。 */
 const ALGORITHM = "repa-plugin-folder 1";
-const DIGEST = /^[0-9a-f]{64}$/;
-const ID = /^[a-z][a-z0-9-]*$/;
 // 暂存目录以点开头，与插件 id 不会重名。
 const STAGING = ".staging";
 const CHUNK = 256 * 1024;
-// Windows 没有 O_NOFOLLOW；那里的符号链接与目录联接已在遍历时按目录项类型拒绝。
-const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
 /** 应用配置目录中宿主保管自写插件的目录。Agent 的文件工具在任何模式下都不写它。 */
 export function pluginsDirectory(home: string): string {
@@ -36,7 +32,7 @@ export function snapshotGroup(home: string, root: string): string {
 
 /** 一个插件某个版本的快照目录：`<配置目录>/plugins/<空间键>/<id>/<摘要>/`。存在且核对通过，就是本机为这个空间批准过这个版本。 */
 export function snapshotDirectory(home: string, root: string, id: string, digest: string): string {
-  if (!ID.test(id)) throw new RepaFault("invalid_plugin_id", "插件 id 格式不正确", { id });
+  if (!PLUGIN_ID.test(id)) throw new RepaFault("invalid_plugin_id", "插件 id 格式不正确", { id });
   if (!DIGEST.test(digest)) throw new RepaFault("invalid_plugin_digest", "插件摘要格式不正确", { digest });
   return path.join(snapshotGroup(home, root), id, digest);
 }
@@ -85,9 +81,8 @@ async function linkAbove(home: string, target: string): Promise<string | undefin
 
 /** 按块读出一个文件的 SHA-256 与字节数；读到的总字节超过 budget 即停止。 */
 async function hashFile(file: string, budget: number): Promise<{ size: number; hash: string }> {
-  const handle = await open(file, constants.O_RDONLY | NOFOLLOW);
+  const handle = await open(file, "r");
   try {
-    if (!(await handle.stat()).isFile()) throw new RepaFault("invalid_plugin_folder", "插件文件夹里只能有普通文件和目录", { path: file });
     const hash = createHash("sha256");
     const buffer = Buffer.allocUnsafe(CHUNK);
     let size = 0;
@@ -136,7 +131,10 @@ export async function folderHashes(directory: string): Promise<Map<string, strin
   return new Map([...(await hashFiles(directory))].map(([relative, { hash }]) => [relative, hash]));
 }
 
-/** 复制之前先按目录列表量一遍来源，明显超限的文件夹不必复制；准确的上限由复制以后对副本算摘要时判断。 */
+/**
+ * 复制之前先按目录列表量一遍来源：Agent 把依赖装进插件文件夹时，超限的往往是成百上千兆字节，先量可以省掉这一整次复制。
+ * 准确的上限由复制以后对副本算摘要时判断。
+ */
 async function measure(source: string): Promise<void> {
   let bytes = 0;
   const files = await folderFiles(source);
@@ -248,7 +246,7 @@ export async function cleanSnapshots(home: string, root: string, record: PluginE
   }
   let names: string[];
   try {
-    names = (await readdir(group)).filter((name) => ID.test(name));
+    names = (await readdir(group)).filter((name) => PLUGIN_ID.test(name));
   } catch (error) {
     if (isCode(error, "ENOENT")) return;
     throw error;

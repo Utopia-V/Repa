@@ -100,9 +100,8 @@ interface ActiveSpace {
 }
 
 /** 停用清单：没有交给宿主的自写插件，加上宿主打开时停用的插件，按 id 排列。 */
-function disabledOf(active: ActiveSpace): DisabledPlugin[] {
-  const unavailable = active.unavailable.map(({ id, reason }) => ({ id, reason: { ...reason } }));
-  return [...unavailable, ...active.plugins.disabled()].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+function disabledOf({ unavailable, plugins }: Pick<ActiveSpace, "unavailable" | "plugins">): DisabledPlugin[] {
+  return [...unavailable.map(({ id, reason }) => ({ id, reason: { ...reason } })), ...plugins.disabled()].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
 }
 
 /** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
@@ -392,7 +391,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       // 停用的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
       // 没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
       let directAgents = options.directAgents;
-      if (directAgents !== undefined && (host.disabled().length > 0 || selected.unavailable.length > 0)) {
+      if (directAgents !== undefined && disabledOf({ unavailable: selected.unavailable, plugins: host }).length > 0) {
         const available = new Set([...(options.generalAgent === false ? [] : ["general"]), ...host.agents().map((definition) => definition.id)]);
         directAgents = directAgents.filter((id) => available.has(id));
       }

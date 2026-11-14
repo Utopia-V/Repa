@@ -218,12 +218,16 @@ test("快照路径上任何一层是符号链接时都算改动：打开空间�
   await publishSnapshot(f.home, f.root, "hello", await stageFolder(f.home, f.root, source));
   await rename(plugins, moved);
   await symlink(moved, plugins);
+  // 链接指向处的 .staging/ 里有文件：清暂存只删链接，不经链接删掉空间里的它。
+  const strayStaged = path.join(moved, path.basename(snapshotGroup(f.home, f.root)), ".staging", "note.md");
+  await writeFile(strayStaged, "笔记");
   assert.equal(await checkSnapshot(f.home, f.root, "hello", digest), "modified");
   result = await open();
   assert.deepEqual(result.plugins, []);
   assert.deepEqual(result.unavailable.map(({ state }) => state), ["pending"]);
   assert.equal(await folderDigest(path.join(moved, path.relative(plugins, target))), digest);
   assert.ok(!(await stat(plugins).then(() => true, () => false)));
+  assert.equal(await readFile(strayStaged, "utf8"), "笔记");
 });
 
 test("清理只留下启用记录里的当前与上一个版本，卸载的插件照样保留，记录里没有的插件整个删除，暂存副本全部删除", async (t) => {
@@ -284,7 +288,7 @@ async function withMode<T>(directory: string, mode: number, action: () => Promis
   }
 }
 
-test("写启用记录失败：抛错，盘上仍是旧记录，不留下临时文件", { skip: permissions }, async (t) => {
+test("写启用记录失败：抛错，盘上仍是旧记录", { skip: permissions }, async (t) => {
   const f = await fixture(t);
   const before = withLoaded({ plugins: {} }, "hello", "a".repeat(64), AT);
   await writeEnablement(f.dataDir, before);
@@ -292,6 +296,15 @@ test("写启用记录失败：抛错，盘上仍是旧记录，不留下临时�
   await assert.rejects(withMode(f.dataDir, 0o500, () => writeEnablement(f.dataDir, withLoaded(before, "hello", "b".repeat(64), LATER))), { code: "EACCES" });
   assert.deepEqual(await readFile(enablementFile(f.dataDir)), bytes);
   assert.deepEqual(await readdir(f.dataDir), ["plugins.json"]);
+});
+
+test("写启用记录在改名时失败：抛错，不留下临时文件", async (t) => {
+  const f = await fixture(t);
+  // plugins.json 是非空目录时，临时文件写好了，改名失败。
+  await mkdir(path.join(enablementFile(f.dataDir), "occupied"), { recursive: true });
+  await assert.rejects(writeEnablement(f.dataDir, withLoaded({ plugins: {} }, "hello", "a".repeat(64), AT)));
+  assert.deepEqual(await readdir(f.dataDir), ["plugins.json"]);
+  assert.deepEqual(await readdir(enablementFile(f.dataDir)), ["occupied"]);
 });
 
 test("不合格式的启用记录不写：抛错，盘上仍是旧记录", async (t) => {
@@ -364,7 +377,12 @@ test("快照被改动时删除它、列为待批准；快照不在时列为待�
 test("与随包插件同名、清单 id 与记录不符、导入失败的自写插件列为失败；记录读不了时抛错，也不清理快照", async (t) => {
   const f = await fixture(t);
   await f.approve("notes", await f.folder("notes", helloPlugin("notes", "同名")));
-  await f.approve("renamed", await f.folder("renamed", helloPlugin("other-id", "改名")));
+  // 清单 id 与记录不符的插件，入口一执行就留下标记文件：比较 id 要在导入之前。
+  const marker = path.join(f.directory, "renamed-ran");
+  await f.approve("renamed", await f.folder("renamed", {
+    ...helloPlugin("other-id", "改名"),
+    "index.js": `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "");\n${helloPlugin("other-id", "改名")["index.js"] ?? ""}`,
+  }));
   await f.approve("broken", await f.folder("broken", { ...helloPlugin("broken", "坏"), "index.js": "export default {\n" }));
   const bundled = { id: "notes", open: async () => ({}) };
   const errors: unknown[] = [];
@@ -372,11 +390,12 @@ test("与随包插件同名、清单 id 与记录不符、导入失败的自写�
   assert.deepEqual(result.plugins.map((plugin) => plugin.id), ["notes"]);
   assert.deepEqual(result.selfWritten, []);
   assert.deepEqual(result.unavailable.map(({ id, state, reason }) => [id, state, reason.code]), [
-    ["broken", "failed", "plugin_import_failed"],
     ["notes", "failed", "plugin_id_conflict"],
     ["renamed", "failed", "plugin_id_mismatch"],
+    ["broken", "failed", "plugin_import_failed"],
   ]);
-  assert.deepEqual(errors.map((error) => error instanceof RepaFault && error.code), ["plugin_import_failed", "plugin_id_mismatch"]);
+  assert.deepEqual(errors.map((error) => error instanceof RepaFault && error.code), ["plugin_id_mismatch", "plugin_import_failed"]);
+  await assert.rejects(stat(marker), { code: "ENOENT" });
   const group = snapshotGroup(f.home, f.root);
   const kept = (await readdir(group)).sort();
   await writeFile(enablementFile(f.dataDir), "{");

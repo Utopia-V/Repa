@@ -7,8 +7,11 @@ import { Check, Clean } from "typebox/value";
 import { isCode } from "../backup/copy.js";
 import { object, RepaFault } from "../schema.js";
 import { writeJson } from "../storage.js";
+import { PLUGIN_ID } from "./manifest.js";
 
-const DigestSchema = Type.String({ pattern: "^[0-9a-f]{64}$" });
+/** 插件文件夹摘要的格式：64 位小写十六进制。快照目录名也按它。 */
+export const DIGEST = /^[0-9a-f]{64}$/;
+const DigestSchema = Type.String({ pattern: DIGEST.source });
 
 /**
  * 一个自写插件的启用记录。digest 是使用者要运行的版本，在打开之前写入，打不开时仍指向它；
@@ -23,7 +26,7 @@ export const PluginEnablementEntrySchema = object({
 });
 /** 空间的启用记录 `<空间>/.repa/plugins.json`：只记自写插件，以插件 id 为键。 */
 export const PluginEnablementSchema = object({
-  plugins: Type.Record(Type.String({ pattern: "^[a-z][a-z0-9-]*$" }), PluginEnablementEntrySchema, { additionalProperties: false }),
+  plugins: Type.Record(Type.String({ pattern: PLUGIN_ID.source }), PluginEnablementEntrySchema, { additionalProperties: false }),
 });
 export type PluginEnablementEntry = Static<typeof PluginEnablementEntrySchema>;
 export type PluginEnablement = Static<typeof PluginEnablementSchema>;

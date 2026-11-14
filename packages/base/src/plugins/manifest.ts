@@ -9,7 +9,9 @@ import { errorText, object, RepaFault } from "../schema.js";
 import { within } from "../space/paths.js";
 import { confinePluginFolder } from "./folder-imports.js";
 
-const ID = Type.String({ pattern: "^[a-z][a-z0-9-]*$" });
+/** 插件 id 的格式：小写字母开头，只含小写字母、数字和连字符。清单、启用记录与快照目录名都按它。 */
+export const PLUGIN_ID = /^[a-z][a-z0-9-]*$/;
+const ID = Type.String({ pattern: PLUGIN_ID.source });
 
 /** 插件页面的声明：页面 id、显示的标题和插件文件夹内的 HTML 入口文档。 */
 export const PluginPageSchema = object({
@@ -94,11 +96,16 @@ export async function readPluginFolder(directory: string): Promise<PluginFolder>
  * 根目录有 package.json 或位于 node_modules 下的文件夹是一个 npm 包，随包插件即如此：依赖由包管理器安装，按 Node 的规则照常解析。
  * 只看文件夹自己，不看上级目录：空间可能就在某个 JS 项目里，上级的 package.json 不该改变插件的含义。
  * 其余文件夹只能导入 Node 内置模块、文件夹内的文件和 @repa/base/plugin，见 confinePluginFolder。
- * 从已批准快照加载的自写插件给出 confined：一律这样限制，不看文件夹里有没有 package.json，按来源而不按内容判断。
+ * 从已批准快照加载的自写插件给出 snapshotOf，即启用记录里的插件 id：清单 id 与它不同即拒绝，不执行入口；
+ * 导入一律这样限制，不看文件夹里有没有 package.json，按来源而不按内容判断。
  */
-export async function loadPlugin(directory: string, options: { confined?: boolean } = {}): Promise<LoadedPlugin> {
+export async function loadPlugin(directory: string, options: { snapshotOf?: string } = {}): Promise<LoadedPlugin> {
   const { root, manifest, entry } = await readPluginFolder(directory);
-  const npmPackage = options.confined !== true && (root.split(path.sep).includes("node_modules") || (await exists(path.join(root, "package.json"))));
+  const { snapshotOf } = options;
+  if (snapshotOf !== undefined && manifest.id !== snapshotOf) {
+    throw new RepaFault("plugin_id_mismatch", `快照里的插件 id 是 ${manifest.id}，启用记录里是 ${snapshotOf}`, { id: snapshotOf, manifest: manifest.id });
+  }
+  const npmPackage = snapshotOf === undefined && (root.split(path.sep).includes("node_modules") || (await exists(path.join(root, "package.json"))));
   if (!npmPackage) confinePluginFolder(root, manifest.id);
   const module = await importEntry(manifest.id, root, npmPackage, pathToFileURL(entry).href);
   const exported = module !== null && typeof module === "object" ? module : {};

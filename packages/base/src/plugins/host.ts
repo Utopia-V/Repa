@@ -19,6 +19,7 @@ import {
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { currentRun, withToolCall } from "../run-context.js";
 import { errorText, object, parse, RepaFault } from "../schema.js";
+import { PLUGIN_ID } from "./manifest.js";
 import { createModelScope } from "./models.js";
 
 const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
@@ -46,7 +47,7 @@ async function askAs(route: AskRoute, pluginId: string, context: { signal: Abort
 }
 
 const AgentFieldsSchema = object({
-  id: Type.String({ pattern: "^[a-z][a-z0-9-]*$" }),
+  id: Type.String({ pattern: PLUGIN_ID.source }),
   description: Type.Optional(Type.String()),
   tools: Type.Array(Type.String()),
   subagents: Type.Optional(Type.Array(Type.String())),
@@ -322,7 +323,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   try {
     const ids = new Set<string>();
     for (const plugin of options.plugins) {
-      if (!/^[a-z][a-z0-9-]*$/.test(plugin.id) || ids.has(plugin.id)) {
+      if (!PLUGIN_ID.test(plugin.id) || ids.has(plugin.id)) {
         throw new RepaFault("invalid_plugin_id", "插件 id 必须唯一，且仅含小写字母、数字和连字符", { id: plugin.id });
       }
       ids.add(plugin.id);

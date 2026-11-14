@@ -10,9 +10,10 @@ import { promisify } from "node:util";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { FileScope } from "../src/agent/files.js";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
-import type { Confirmation } from "../src/schema.js";
+import { RepaFault, type Confirmation } from "../src/schema.js";
 import { createSpace, openSpace } from "../src/space.js";
 
 // 用真实空间打开：.repa/ 里的锁、历史库和 .ignore 都由空间宿主放好，搜索工具面对的就是实际布局。
@@ -260,6 +261,18 @@ test("通用 Agent 在完全访问模式下也不写控制目录：配置目录�
   await assert.rejects(readFile(path.join(f.outside, "home", "plugins", "key", "other", "index.js")), { code: "ENOENT" });
   assert.equal(await readFile(path.join(f.root, "config", "settings-note.md"), "utf8"), "控制目录之外照常写");
   assert.deepEqual(f.confirmations, []);
+});
+
+test("控制目录经符号链接给出时，按真实路径写入同样拒绝", async t => {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-agent-control-")));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  // 配置目录本身是链接，例如 ~/.config 链接到 dotfiles 仓库；Agent 写的是链接指向处的真实路径。
+  const real = path.join(directory, "dotfiles");
+  await mkdir(path.join(real, "plugins"), { recursive: true });
+  await symlink(real, path.join(directory, "config"));
+  await mkdir(path.join(directory, "space"));
+  const scope = await FileScope.create(path.join(directory, "space"), [path.join(directory, "config", "plugins")]);
+  await assert.rejects(scope.writeTarget(path.join(real, "plugins", "key", "hello", "index.js")), (error: unknown) => error instanceof RepaFault && error.code === "file_in_control_dir");
 });
 
 const writer = {
