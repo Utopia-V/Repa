@@ -386,6 +386,84 @@ test("SDK 默认压缩后下一次请求只获得最新 view", async (t) => {
   assert.match(viewTexts(current)[0] ?? "", /压缩前最新状态/u);
 });
 
+test("会话正在运行或有排队的运行时压缩以 session_busy 拒绝，运行照常结束", async (t) => {
+  const f = await fixture(t);
+  const faultCode = (code: string) => (error: unknown): boolean => {
+    assert.ok(error instanceof RpcError);
+    assert.equal((error.data as { code?: unknown } | undefined)?.code, code);
+    return true;
+  };
+  f.respond("原始回答".repeat(300));
+  await f.send();
+  f.respond("后续回答".repeat(300));
+  await f.send();
+  // 运行停在模型回复上。
+  let entered: () => void = () => undefined;
+  const replying = new Promise<void>((resolve) => { entered = resolve; });
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  f.faux.setResponses([
+    async () => { entered(); await gate; return fauxAssistantMessage("第一次回答"); },
+    fauxAssistantMessage("第二次回答"),
+  ]);
+  const first = f.client.call("session.send", { sessionId: f.session.id, text: "第一条" });
+  await replying;
+  await assert.rejects(f.client.call("session.compact", { sessionId: f.session.id }), faultCode("session_busy"));
+  // 第二条排在第一条后面：第一条结束、第二条还没开始之前也算忙，这里在第一条运行中再试一次。
+  const second = f.client.call("session.send", { sessionId: f.session.id, text: "第二条" });
+  await assert.rejects(f.client.call("session.compact", { sessionId: f.session.id }), faultCode("session_busy"));
+  release();
+  await first;
+  await second;
+  const replies = (await f.history()).filter(entry => entry.type === "assistant").map(entry => entry.text);
+  assert.deepEqual(replies.slice(-2), ["第一次回答", "第二次回答"]);
+  assert.ok(!(await f.history()).some(entry => entry.type === "compaction"));
+});
+
+test("没有可压缩的内容时压缩以 nothing_to_compact 拒绝，不调用模型；压缩中停止会话以 cancelled 结束", async (t) => {
+  const f = await fixture(t);
+  const faultCode = (code: string) => (error: unknown): boolean => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(error.code, -32000);
+    assert.equal((error.data as { code?: unknown } | undefined)?.code, code);
+    return true;
+  };
+  // 会话太短。
+  await assert.rejects(f.client.call("session.compact", { sessionId: f.session.id }), faultCode("nothing_to_compact"));
+  f.respond("原始回答".repeat(300));
+  await f.send();
+  f.respond("后续回答".repeat(300));
+  await f.send();
+  f.faux.setResponses([fauxAssistantMessage("会话摘要。"), fauxAssistantMessage("回合摘要。")]);
+  await f.client.call("session.compact", { sessionId: f.session.id });
+  // 刚压缩过。
+  const left = f.faux.getPendingResponseCount();
+  await assert.rejects(f.client.call("session.compact", { sessionId: f.session.id }), faultCode("nothing_to_compact"));
+  assert.equal(f.faux.getPendingResponseCount(), left);
+
+  f.respond("又一轮".repeat(300));
+  await f.send();
+  f.respond("再一轮".repeat(300));
+  await f.send();
+  // 摘要请求停在模型上，直到停止会话中止它。
+  let entered: () => void = () => undefined;
+  const summarizing = new Promise<void>((resolve) => { entered = resolve; });
+  f.faux.setResponses([
+    async (_context, options) => {
+      entered();
+      const signal = options?.signal;
+      if (signal !== undefined && !signal.aborted) await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      return fauxAssistantMessage("来不及的摘要。");
+    },
+    fauxAssistantMessage("回合摘要。"),
+  ]);
+  const compacting = f.client.call("session.compact", { sessionId: f.session.id });
+  await summarizing;
+  const aborting = f.client.call("session.abort", { sessionId: f.session.id });
+  await assert.rejects(compacting, faultCode("cancelled"));
+  await aborting;
+});
+
 
 test("真实登录运行时把 OAuth 交互映射为前端问答并保存凭据", async (t) => {
   const f = await fixture(t);
