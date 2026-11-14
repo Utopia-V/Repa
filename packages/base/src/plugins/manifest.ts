@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import semver from "semver";
 import { Type, type Static } from "typebox";
-import { Check } from "typebox/value";
+import { Check, Errors } from "typebox/value";
 import type { Plugin } from "../plugin.js";
 import { errorText, object, PLUGIN_ID, RepaFault } from "../schema.js";
 import { within } from "../space/paths.js";
@@ -38,6 +38,24 @@ export interface LoadedPlugin {
 
 const ENTRY_EXTENSIONS = [".js", ".mjs", ".ts"];
 
+/** 清单不合 schema 的原因，写给改清单的模型：缺了哪些字段、多了哪些字段、哪个字段的值不对。 */
+function manifestProblems(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return "清单要是一个 JSON 对象";
+  const problems: string[] = [];
+  for (const error of Errors(PluginManifestSchema, value)) {
+    const params: Record<string, unknown> = error.params;
+    if (error.keyword === "required" && Array.isArray(params.requiredProperties)) {
+      problems.push(`${error.instancePath || "清单"}缺少 ${params.requiredProperties.join("、")}`);
+    } else if (error.keyword === "additionalProperties" && Array.isArray(params.additionalProperties)) {
+      problems.push(`${error.instancePath || "清单"}多了 ${params.additionalProperties.join("、")}`);
+    } else if (error.keyword !== "boolean") {
+      // boolean 是 additionalProperties 在多出的字段上各报一次的 "schema is false"，上一项已经说了。
+      problems.push(`${error.instancePath}：${error.message}`);
+    }
+  }
+  return `${problems.join("；")}。字段为 id、version、baseVersion、entry，可选 title、pages`;
+}
+
 /** 静态读出的插件文件夹：真实路径、清单和入口模块的真实路径。 */
 export interface PluginFolder {
   root: string;
@@ -56,10 +74,17 @@ export async function readPluginFolder(directory: string): Promise<PluginFolder>
   try {
     value = JSON.parse(await readFile(path.join(root, "repa-plugin.json"), "utf8"));
   } catch (error) {
-    throw new RepaFault("invalid_plugin_manifest", "无法读取插件清单", { directory, cause: String(error) });
+    // 模型只读得到 message，JSON 写错时要在这里看到出错的位置。
+    throw new RepaFault("invalid_plugin_manifest", `无法读取插件清单 repa-plugin.json：${errorText(error)}`, { directory, cause: String(error) });
   }
-  if (!Check(PluginManifestSchema, value) || !semver.valid(value.version) || !semver.validRange(value.baseVersion)) {
-    throw new RepaFault("invalid_plugin_manifest", "插件清单的字段或版本无效", { directory });
+  if (!Check(PluginManifestSchema, value)) {
+    throw new RepaFault("invalid_plugin_manifest", `插件清单 repa-plugin.json 不合要求：${manifestProblems(value)}`, { directory });
+  }
+  if (!semver.valid(value.version)) {
+    throw new RepaFault("invalid_plugin_manifest", `插件清单的 version 要是 SemVer 版本号，例如 0.1.0，现在是 ${JSON.stringify(value.version)}`, { directory });
+  }
+  if (!semver.validRange(value.baseVersion)) {
+    throw new RepaFault("invalid_plugin_manifest", `插件清单的 baseVersion 要是 SemVer 范围，例如 ^0.1.0，现在是 ${JSON.stringify(value.baseVersion)}`, { directory });
   }
   const manifest = value;
   const base: unknown = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
@@ -67,7 +92,7 @@ export async function readPluginFolder(directory: string): Promise<PluginFolder>
     throw new RepaFault("invalid_base_version", "底座包缺少版本");
   }
   if (!semver.satisfies(base.version, manifest.baseVersion)) {
-    throw new RepaFault("incompatible_base_version", "插件不兼容当前底座版本", { id: manifest.id, version: base.version, required: manifest.baseVersion });
+    throw new RepaFault("incompatible_base_version", `插件要求底座版本 ${manifest.baseVersion}，当前底座是 ${base.version}`, { id: manifest.id, version: base.version, required: manifest.baseVersion });
   }
   const entry = await folderFile(root, manifest.entry, ENTRY_EXTENSIONS, "入口模块");
   const underNodeModules = root.split(path.sep).includes("node_modules");
@@ -108,8 +133,12 @@ export async function loadPlugin(directory: string, options: { snapshotOf?: stri
   const module = await importEntry(manifest.id, root, npmPackage, pathToFileURL(entry).href);
   const exported = module !== null && typeof module === "object" ? module : {};
   const plugin: unknown = "default" in exported ? exported.default : "plugin" in exported ? exported.plugin : undefined;
-  if (!plugin || typeof plugin !== "object" || !("id" in plugin) || plugin.id !== manifest.id || !("open" in plugin) || typeof plugin.open !== "function") {
-    throw new RepaFault("invalid_plugin_export", "插件必须导出 default 或 plugin，且 id 与清单一致并包含 open(host)");
+  if (!plugin || typeof plugin !== "object" || !("open" in plugin) || typeof plugin.open !== "function") {
+    throw new RepaFault("invalid_plugin_export", "入口模块要以 default 或 plugin 导出插件定义 { id, open(host) }，open 是函数");
+  }
+  if (!("id" in plugin) || plugin.id !== manifest.id) {
+    const found = "id" in plugin ? JSON.stringify(plugin.id) : "没有 id";
+    throw new RepaFault("invalid_plugin_export", `入口导出的插件定义的 id 是 ${found}，清单里是 "${manifest.id}"，两者要相同`, { id: manifest.id });
   }
   const definition = plugin as Plugin;
   return { root, manifest, plugin: { id: manifest.id, open: (host) => definition.open(host) } };

@@ -200,7 +200,12 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
    */
   function admitted<T>(entry: Opened, action: (wait: LockWait) => Promise<T>): Promise<T> {
     if (entry.ended || entry.retired.signal.aborted) return Promise.reject(retiredFault());
-    return action({ signal: entry.retired.signal, immediate: opened.get(entry.id) !== entry });
+    if (opened.get(entry.id) === entry) return action({ signal: entry.retired.signal });
+    // 正在加上：写插件的人要知道是 open() 里的哪类操作碰上了运行，以及该挪到哪里。
+    return action({ signal: entry.retired.signal, immediate: true }).catch((error: unknown) => {
+      if (!(error instanceof RepaFault) || error.code !== "space_busy") throw error;
+      throw new RepaFault("space_busy", `插件 ${entry.id} 在打开期间写空间文件或读、记空间历史，而这时有 Agent 运行占着空间写锁，所以没有等待。open() 里只读写自己的数据目录 host.space.dataDir，写空间文件放进工具调用里`, { pluginId: entry.id });
+    });
   }
 
   async function closeModels(): Promise<void> {
@@ -332,7 +337,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         for (const tool of entry.tools) names.add(tool.name);
       }
       if (conflict) {
-        await disable(conflict.entry, new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: conflict.name }));
+        await disable(conflict.entry, new RepaFault("tool_name_conflict", `工具名 ${conflict.name} 与先打开的插件的工具重名`, { name: conflict.name }));
         continue;
       }
       return;
@@ -342,8 +347,10 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   /** 运行中加上的插件只与已在运行的插件核对；冲突时只有它失败。 */
   function checkAdded(entry: Opened): void {
     const names = new Set(liveTools(entry).map((tool) => tool.name));
-    const duplicate = entry.tools.find((tool) => names.has(tool.name));
-    if (duplicate) throw new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: duplicate.name });
+    for (const other of opened.values()) {
+      const duplicate = other === entry ? undefined : other.tools.find((tool) => entry.tools.some((own) => own.name === tool.name));
+      if (duplicate) throw new RepaFault("tool_name_conflict", `工具名 ${duplicate.name} 已经是插件 ${other.id} 的工具，换一个名字`, { name: duplicate.name });
+    }
     try {
       checkAgents(entry.definitions, new Set([...names, ...entry.tools.map((tool) => tool.name)]), liveDefinitions(entry));
     } catch (error) {
@@ -427,11 +434,19 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       const reservedNames = new Set([...RESERVED_TOOL_NAMES, PLUGIN_TOOL]);
       const localNames = new Set<string>();
       entry.tools = (instance.tools?.() ?? []).map((tool): AgentTool => {
-        if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(tool.name)) {
-          throw new RepaFault("invalid_tool_name", "插件工具名称必须有效且不能重复", { name: tool.name });
+        if (typeof tool.name !== "string" || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(tool.name)) {
+          throw new RepaFault("invalid_tool_name", `工具名 ${JSON.stringify(tool.name)} 无效：要以字母开头，只含字母、数字和下划线`, { name: tool.name });
         }
-        if (localNames.has(tool.name) || reservedNames.has(tool.name)) {
-          throw new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: tool.name });
+        if (reservedNames.has(tool.name)) {
+          throw new RepaFault("tool_name_conflict", `工具名 ${tool.name} 是底座内置工具的名字，换一个，例如加上插件名作前缀`, { name: tool.name });
+        }
+        if (localNames.has(tool.name)) {
+          throw new RepaFault("tool_name_conflict", `插件 ${plugin.id} 有两个工具都叫 ${tool.name}`, { name: tool.name });
+        }
+        // 模型的接口要求工具参数是对象；声明写错时在这里说清，而不是让之后每次模型请求都被提供方拒绝。
+        const schema: unknown = tool.parameters;
+        if (typeof tool.description !== "string" || typeof tool.execute !== "function" || schema === null || typeof schema !== "object" || !("type" in schema) || schema.type !== "object") {
+          throw new RepaFault("invalid_tool", `工具 ${tool.name} 要有 description 文字、用 Type.Object({...}) 声明的 parameters 和 execute 函数`, { name: tool.name });
         }
         localNames.add(tool.name);
         return {

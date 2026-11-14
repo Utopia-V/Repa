@@ -567,6 +567,28 @@ test("加载前的检查不执行插件代码：文件夹不在、清单 id 与�
   await assert.rejects(stat(enablementFile(f.dataDir)), { code: "ENOENT" });
 });
 
+test("工具声明写错时加载失败，错误说明写出是哪个工具、错在哪里、怎样改", async (t) => {
+  const f = await fixture(t);
+  await f.write("beta", folder("beta", "v1"));
+  await f.load("beta");
+  const tool = (fields: string) => `, { ${fields}, async execute() { return { text: "" }; } }`;
+  const cases: [string, string, RegExp][] = [
+    [tool(`name: "count-list", description: "列出", parameters: ${JSON.stringify(EMPTY)}`), "invalid_tool_name", /工具名 "count-list" 无效：要以字母开头，只含字母、数字和下划线/u],
+    [tool(`name: "read", description: "读", parameters: ${JSON.stringify(EMPTY)}`), "tool_name_conflict", /工具名 read 是底座内置工具的名字/u],
+    [tool(`name: "beta_get", description: "读", parameters: ${JSON.stringify(EMPTY)}`), "tool_name_conflict", /工具名 beta_get 已经是插件 beta 的工具/u],
+    [tool(`name: "count_list", description: "列出"`), "invalid_tool", /工具 count_list 要有 description 文字、用 Type\.Object\(\{\.\.\.\}\) 声明的 parameters 和 execute 函数/u],
+  ];
+  for (const [tools, expected, message] of cases) {
+    await f.write("count", folder("count", "v1", { tools }));
+    await assert.rejects(f.load("count"), (error: unknown) => {
+      code(expected)(error);
+      assert.match(error instanceof Error ? error.message : "", message);
+      return true;
+    });
+  }
+  assert.equal((await f.item("beta"))?.state, "running");
+});
+
 test("批准以后暂存副本被改动：发布以后、导入之前的核对拦下它，插件代码不执行，启用记录不变", async (t) => {
   const f = await fixture(t);
   await f.write("count", folder("count", "v1"));
@@ -629,7 +651,12 @@ test("运行排队等写锁时经列表加载的插件在 open 里写空间：�
   const sending = f.send(session.id, "加载 beta");
   await exclusive.promise;
   // 运行的独占请求排在 holder 的写入后面；alpha 的 open 若等写锁，就排到运行后面。
-  await assert.rejects(f.load("alpha"), code("space_busy"));
+  await assert.rejects(f.load("alpha"), (error: unknown) => {
+    code("space_busy")(error);
+    // 写插件的模型要知道是 open() 里的写入碰上了运行，以及该挪到哪里。
+    assert.match(error instanceof Error ? error.message : "", /插件 alpha 在打开期间写空间文件[^]*放进工具调用里/u);
+    return true;
+  });
   held.release();
   assert.equal(await holding, "ok");
   const results = await sending;

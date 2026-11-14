@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { type AuthEvent, type AuthPrompt, type Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
@@ -33,6 +34,10 @@ import { readParent, saveParent } from "./parent.js";
 import { findSessionPath } from "./session-files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
+
+// 随底座附带的 Skill，在包根目录的 skills/ 下；源码在 src/agent/，构建后在 dist/agent/，都往上两层。
+// 安装包按 package.json 的 files 带上这个目录。
+const BUNDLED_SKILLS = fileURLToPath(new URL("../../skills/", import.meta.url));
 
 export interface AgentTestOptions extends AgentRuntimeOptions {
   modelRuntime: ModelRuntime;
@@ -487,13 +492,14 @@ class Space implements AgentSpace {
   }
 
   /**
-   * 通用 Agent 沿用原有分段：基础说明、空间、Skill、工具与各插件说明。
+   * 通用 Agent 沿用原有分段：基础说明、空间、Skill（底座附带的、应用的、空间的）、工具与各插件说明。
    * 插件 Agent 只有空间说明和自己的职责：Skill 位于它的文件范围之外，工具清单已由 Pi 声明。
    */
   async promptSections(profile: AgentProfile): Promise<PromptSection[]> {
     const space = await this.spaceSection();
     if (!profile.general) return promptSections(this.options, [space, ...profile.sections()]);
     const skills = [
+      ...loadSkillsFromDir({ dir: BUNDLED_SKILLS, source: "repa-bundled" }).skills,
       ...loadSkillsFromDir({ dir: path.join(this.runtime.options.agentDir, "skills"), source: "repa" }).skills,
       ...loadSkillsFromDir({ dir: path.join(this.options.root, ".agents", "skills"), source: "repa-space" }).skills,
     ];
