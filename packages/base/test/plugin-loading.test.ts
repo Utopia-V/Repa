@@ -254,12 +254,13 @@ test("一次运行里写好插件、请求加载、使用者批准，下一次�
   assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
 });
 
-test("新版本有语法错误：错误当场作为调用结果交回，原来的版本照常工作；改正以后同一次运行里再次加载成功", async (t) => {
+test("新版本有语法错误：错误连同位置当场作为调用结果交回，不请求批准，原来的版本照常工作；改正以后同一次运行里再次加载成功", async (t) => {
   const f = await fixture(t);
   await f.write("count", folder("count", "v1"));
   const first = await f.load("count");
   const broken = folder("count", "v2");
   broken["index.js"] = `${broken["index.js"]}\nexport const = ;\n`;
+  const line = broken["index.js"].split("\n").indexOf("export const = ;") + 1;
   const session = await f.session();
   f.script(
     editThenLoad(f.root, "count", broken),
@@ -272,6 +273,9 @@ test("新版本有语法错误：错误当场作为调用结果交回，原来�
   assert.equal(results.length, 4);
   assert.equal(results[0]?.isError, true);
   assert.match(results[0]?.text ?? "", /语法错误/);
+  assert.ok(results[0]?.text.includes(`index.js:${line}`), results[0]?.text);
+  // 只有第一次加载和改正以后的那一次请求了批准。
+  assert.equal(f.confirmations.length, 2);
   assert.deepEqual(results[1], { tool: "count_get", isError: false, text: "count v1" });
   assert.equal(results[2]?.isError, false);
   assert.deepEqual(results[3], { tool: "count_get", isError: false, text: "count v2" });
@@ -565,6 +569,57 @@ test("加载前的检查不执行插件代码：文件夹不在、清单 id 与�
   assert.equal(f.confirmations.length, 0);
   assert.deepEqual(f.hooks.log, []);
   await assert.rejects(stat(enablementFile(f.dataDir)), { code: "ENOENT" });
+});
+
+test("批准之前查入口与它静态导入的模块的语法，不执行代码：语法错误连同文件与位置当场返回，不请求批准；没有语法错误时照常请求批准，同意以后才执行", async (t) => {
+  const f = await fixture(t);
+  // 入口的模块顶层写一个文件：检查若执行了代码，这个文件就会出现。
+  const marker = path.join(f.root, "top-level-ran");
+  // ext 是入口与 lib 模块的扩展名。本进程在 tsx 下运行，导入 .ts 会经 tsx 处理，所以 .ts 的一份只到批准为止。
+  const files = (ext: "js" | "ts", lib: string): Record<string, string> => ({
+    "repa-plugin.json": JSON.stringify({ id: "typed", version: "0.1.0", baseVersion: "^0.1.0", entry: `index.${ext}` }),
+    [`index.${ext}`]: `import { writeFileSync } from "node:fs";
+import { label } from "./lib.${ext}";
+writeFileSync(${JSON.stringify(marker)}, "ran");
+export default {
+  id: "typed",
+  async open() {
+    return { methods: { label: { parameters: ${JSON.stringify(EMPTY)}, async invoke() { return label; } } } };
+  },
+};
+`,
+    [`lib.${ext}`]: lib,
+    // 没有被导入的文件不在检查之列。
+    "notes/draft.js": "this is not code (",
+  });
+  const staging = path.join(snapshotGroup(f.home, f.root), ".staging");
+
+  await f.write("typed", files("ts", `const prefix: string = "typed";\nexport const label: string = prefix +;\n`));
+  await assert.rejects(f.load("typed"), (error: unknown) => {
+    code("plugin_import_failed")(error);
+    assert.match((error as Error).message, /语法错误/);
+    assert.ok((error as Error).message.includes("lib.ts:2"), (error as Error).message);
+    return true;
+  });
+  assert.equal(f.confirmations.length, 0);
+  assert.deepEqual(await readdir(staging), []);
+
+  // 类型标注不算语法错误：照常请求批准。
+  await f.write("typed", files("ts", `const prefix: string = "typed";\nexport const label: string = prefix + " ts";\n`));
+  f.answer = () => false;
+  await assert.rejects(f.load("typed"), code("plugin_denied"));
+  assert.equal(f.confirmations.length, 1);
+
+  await f.write("typed", files("js", `const prefix = "typed";\nexport const label = prefix + " js";\n`));
+  f.answer = () => undefined;
+  const asked = f.nextAsk();
+  const loading = f.load("typed");
+  const { id } = await asked;
+  await assert.rejects(stat(marker), { code: "ENOENT" });
+  await f.client.call("confirm.reply", { id, value: true });
+  assert.equal((await loading).state, "running");
+  assert.equal(await readFile(marker, "utf8"), "ran");
+  assert.equal(await f.client.call("plugin.call", { pluginId: "typed", method: "label", input: {} }), "typed js");
 });
 
 test("批准以后暂存副本被改动：发布以后、导入之前的核对拦下它，插件代码不执行，启用记录不变", async (t) => {
