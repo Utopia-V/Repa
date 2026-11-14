@@ -1,0 +1,63 @@
+/* I 终端：一切都在字符网格上。中文占两格，状态栏在底部，操作标着按键。 */
+@import "_base.css";
+:root { color-scheme: dark; --paper: #1e2024; --ink: #e3e8ed; --soft: #acb7c4; --faint: #8a949f; --hair: #3b444e; --blue: #a8d2ef; --sting: #ef6a55; --focus: #a8d2ef;
+  --mono: 'Noto Sans Mono CJK SC', 'IBM Plex Mono', monospace; --gap: 1.75rem; }
+html { background: var(--paper); }
+body { background: var(--paper); color: var(--ink); font: 400 15px/1.75rem var(--mono); }
+.app { display: grid; grid-template-columns: 34ch minmax(0, 76ch) 34ch; grid-template-rows: 1fr auto; column-gap: 0; justify-content: center; height: 100dvh; padding: 0; }
+.bar { grid-column: 1 / -1; grid-row: 2; display: flex; gap: 2ch; align-items: center; height: 1.75rem; padding: 0 1ch; background: var(--blue); color: #16181b; font-weight: 500; }
+.course { flex: 1; }
+.xp-text b { font-weight: 700; color: inherit; }
+.abort::before { content: "^C "; font-weight: 700; }
+.map, .work, .tutor { padding: 1.75rem 2ch; min-height: 0; overflow-y: auto; box-shadow: inset -1px 0 0 var(--hair); }
+.map { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; }
+.work { grid-column: 2; grid-row: 1; }
+.tutor { grid-column: 3; grid-row: 1; box-shadow: none; }
+.topic { font: 700 15px/1.75rem var(--mono); color: var(--blue); }
+.topic::before { content: "# "; color: var(--faint); }
+.steps { display: flex; gap: 2ch; margin-top: 1.75rem; color: var(--faint); }
+.steps li::before { content: "[ ] "; }
+.steps li[data-passed="1"]::before { content: "[x] "; }
+.steps li[aria-current] { color: var(--ink); }
+.steps li[aria-current]::before { content: "[>] "; color: var(--blue); }
+.kps { margin-top: 1.75rem; color: var(--soft); }
+.kp + .kp { margin-top: 1.75rem; }
+.kp-marks { color: var(--blue); height: 1.75rem; align-items: center; }
+.figure { flex: 1; margin-top: 1.75rem; min-height: 0; }
+.prose code { font: inherit; color: var(--blue); }
+.prose strong { font-weight: 700; color: var(--blue); }
+.code { color: var(--ink); box-shadow: inset 2px 0 0 var(--blue); padding-left: 1ch; font: inherit; }
+.prose .code code { color: inherit; }
+.code .v { color: var(--blue); }
+.code .f { color: var(--soft); }
+.answer { margin-top: 1.75rem; gap: 0; }
+.answer label { color: var(--blue); }
+.answer label::before { content: "? "; font-weight: 700; }
+.answer input { height: 1.75rem; padding: 0; border: 0; background: none; font: inherit; caret-color: var(--blue); border-radius: 0; outline: 0; }
+.answer input:focus-visible { outline: 0; box-shadow: inset 0 -1px 0 var(--blue); }
+.answer::after { content: ""; }
+.verdict { margin-top: 1.75rem; font-weight: 700; }
+.verdict[data-v="right"] { color: var(--blue); }
+.verdict[data-v="wrong"] { color: var(--sting); }
+.verdict svg { width: 15px; height: 15px; }
+body[data-stage="wrong"] .answer input { color: var(--sting); text-decoration: line-through; }
+.reference, .analysis, .slot-feedback { margin-top: 1.75rem; }
+.reference h3, .analysis h3 { font: inherit; color: var(--faint); }
+.reference h3::before, .analysis h3::before { content: "-- "; }
+.actions { justify-content: flex-start; gap: 2ch; margin-top: 1.75rem; }
+.actions button { color: var(--soft); }
+.actions button::before { content: "[ "; color: var(--faint); }
+.actions button::after { content: " ]"; color: var(--faint); }
+.actions .primary { color: var(--paper); background: var(--ink); }
+.actions .primary::before, .actions .primary::after { color: inherit; }
+.actions .primary:hover { background: var(--blue); }
+.tutor-title { font: 700 15px/1.75rem var(--mono); color: var(--soft); }
+.tutor-title::before { content: "# "; color: var(--faint); }
+.tutor-input { box-shadow: inset 0 1px 0 var(--hair); }
+.tutor-input textarea { border: 0; padding: 0; min-height: 3.5rem; background: none; padding-top: 4px; }
+.tutor-input button { width: 3ch; height: 1.75rem; color: var(--faint); }
+.tutor-lock { margin-top: 4px; color: var(--faint); }
+body[data-kind="quiz"] .app, body[data-kind="review"] .app { grid-template-columns: minmax(0, 76ch); }
+body[data-kind="quiz"] .work, body[data-kind="review"] .work { grid-column: 1; box-shadow: none; }
+body[data-kind="quiz"] .clock { font-weight: 700; }
+@media (max-width: 1100px) { .app { display: block; height: auto; padding-bottom: 1.75rem; } .bar { position: fixed; inset: auto 0 0 0; z-index: 5; } .map { box-shadow: inset 0 -1px 0 var(--hair); } .figure { display: none; } .work { box-shadow: none; } .tutor { height: 12rem; } }

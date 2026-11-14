@@ -1,0 +1,9 @@
+/* 套印：粉与蓝两色叠印，错版，招贴。 */
+:root { color-scheme: light; --paper: #fbfaf7; --ink: #004a8f; --soft: #1a5f9e; --faint: #4f7399; --hair: #bcd2e6; --tint: #ffe3f3; --plane: #004a8f; --on-plane: #fff; --on-plane-soft: #bcd6ee; --accent: #e0007a; --blue: #004a8f; --sky: #ffb5de; --sting: #e0007a; --r: 0px;
+  --font-body: 'Repa Latin', 'PingFang SC', 'Noto Sans CJK SC', sans-serif; --font-name: 'Noto Sans CJK SC', sans-serif; --font-code: 'Repa Mono', 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; --name-weight: 900; }
+body { font-weight: 500; }
+.topic, .result-outcome { text-shadow: 4px 3px 0 #ff48b0b3; }
+.code { box-shadow: 8px 8px 0 #ff48b0cc; }
+.btn-primary { background: #ff48b0; color: #fff; box-shadow: 5px 5px 0 var(--ink); }
+@media (hover: hover) { .btn-primary:hover { background: #ff48b0; color: #fff; box-shadow: 3px 3px 0 var(--ink); } }
+.step[aria-current] { box-shadow: 0 2px 0 #ff48b0; }

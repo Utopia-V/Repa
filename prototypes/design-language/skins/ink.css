@@ -1,0 +1,5 @@
+/* 水墨：不走几何。正文也用宋体，单色，慢。 */
+:root { color-scheme: light; --paper: #f3f3ee; --ink: #1f2120; --soft: #4a4c49; --faint: #6c6e6a; --hair: #d4d4cc; --tint: #e7e7df; --plane: #1f2120; --on-plane: #f3f3ee; --on-plane-soft: #a2a39d; --accent: #1f2120; --blue: #1f2120; --sky: #c9c9bf; --sting: #9f2a1c; --fs-body: 18px; --name-weight: 500; --r: 2px;
+  --font-body: 'Noto Serif CJK SC', 'Songti SC', serif; --font-name: 'Noto Serif CJK SC', 'Songti SC', serif; --font-code: 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; }
+.topic { letter-spacing: .06em; }
+.btn { letter-spacing: .12em; }

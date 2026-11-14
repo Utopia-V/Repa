@@ -1,0 +1,8 @@
+/* 版式：国际主义。巨大的黑体，克莱因蓝。 */
+:root { color-scheme: light; --paper: #fff; --ink: #000; --soft: #333; --faint: #6e6e6e; --hair: #dcdcdc; --tint: #f0f0f0; --plane: #000; --on-plane: #fff; --on-plane-soft: #a0a0a0; --accent: #002fa7; --blue: #002fa7; --sky: #9cb6ff; --sting: #e30613; --fs-name: 64px; --lh-name: 68px; --fs-display: 88px; --name-weight: 900;
+  --font-body: 'Repa Latin', 'Noto Sans CJK SC', sans-serif; --font-name: 'Noto Sans CJK SC', sans-serif; --font-code: 'Repa Mono', 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; }
+.topic { letter-spacing: -.03em; }
+.verdict { font-size: 40px; line-height: 1.1; font-weight: 900; }
+.verdict svg { display: none; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #000; color: #fff; }

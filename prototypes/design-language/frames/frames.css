@@ -1,0 +1,176 @@
+/* Each frame's layout, and nothing else: no colour, no type, no shape. Tokens may be read. */
+.frame-root { min-height: 100dvh; }
+[data-input="keyboard"] .f-zoom *, [data-input="keyboard"] .f-cube *, [data-input="keyboard"] .f-focus * { transition: none !important; }
+
+/* three columns: the old premise, kept as the baseline to break */
+.f-columns { display: grid; grid-template-columns: 320px minmax(0, 640px) 320px; grid-template-rows: 96px 1fr; column-gap: var(--s6); justify-content: center; padding: 0 var(--s4); min-height: 100dvh; }
+.f-columns .c-bar { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s5); }
+.f-columns .c-bar .course { flex: 1; }
+.f-columns .c-rail { grid-row: 2; position: sticky; top: 0; align-self: start; display: grid; gap: var(--t); padding-bottom: var(--t); }
+.f-columns .c-work { grid-row: 2; padding-bottom: var(--s8); min-width: 0; }
+.f-columns .tutor { grid-row: 2; position: sticky; top: 0; align-self: start; height: calc(100dvh - 96px - var(--t)); }
+.f-columns.is-restricted { grid-template-columns: minmax(0, 640px); }
+.f-columns.is-restricted .c-work { grid-column: 1; }
+
+/* the long scroll: one document, past above, present here, future below */
+.f-river { display: grid; grid-template-columns: minmax(0, 96px) minmax(0, 640px) minmax(0, 300px); column-gap: var(--s5); justify-content: center; padding: 0 var(--s4); }
+.f-river .r-status { position: fixed; z-index: 3; left: var(--s4); bottom: var(--s4); display: grid; gap: var(--s1); }
+.f-river .r-block { display: contents; }
+.f-river .r-mark { grid-column: 1; justify-self: end; padding-top: 10px; width: 32px; }
+.f-river .r-mark svg { width: 32px; height: 32px; overflow: visible; }
+.f-river .r-body { grid-column: 2; min-width: 0; padding: var(--s6) 0; }
+.f-river .r-note { grid-column: 3; padding-top: var(--s6); }
+.f-river .r-past { opacity: .62; }
+.f-river .r-past .r-body { padding: var(--s3) 0; }
+.f-river .r-now { scroll-margin-top: var(--s6); }
+.f-river .r-now .kps { margin-top: var(--s3); max-width: var(--measure); }
+.f-river .r-now .steps { margin: var(--s3) 0 var(--t); }
+.f-river .tutor { position: sticky; top: var(--s4); height: calc(100dvh - var(--s6)); }
+.f-river .r-future { padding: var(--s3) 0; opacity: .55; }
+.f-river.is-restricted .r-note { display: none; }
+
+/* one screen: a single thing, nothing around it */
+.f-focus { min-height: 100dvh; display: grid; grid-template-rows: 16px auto 1fr auto; }
+.f-focus .o-band { height: 16px; overflow: hidden; --figure-columns: 120; }
+.f-focus .o-band .figure { height: 16px; }
+.f-focus .o-top { display: flex; align-items: center; gap: var(--s5); padding: var(--s3) var(--s4); }
+.f-focus .o-top .course { flex: 1; }
+.f-focus .o-stage { display: grid; align-content: center; justify-items: center; padding: var(--s4); --fs-body: 22px; --lh-body: 40px; --measure: 30em; }
+.f-focus .o-inner { width: min(100%, 760px); }
+.f-focus .o-inner .prose, .f-focus .o-inner .code, .f-focus .o-inner .actions { max-width: none; }
+.f-focus .o-inner .field { height: 72px; font-size: 40px; }
+.f-focus .o-sheet { position: fixed; z-index: 6; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); padding: var(--s4); background: var(--paper); box-shadow: 0 0 0 var(--hair-w) var(--hair), var(--shadow-float); overscroll-behavior: contain; transform: translateX(102%); transition: transform var(--dur-space) var(--ease-enter); }
+.f-focus .o-sheet[data-open="true"] { transform: none; }
+.f-focus .o-sheet .tutor { height: 100%; }
+.f-focus .o-summon { min-height: var(--s7); position: fixed; z-index: 5; right: 0; top: 50%; writing-mode: vertical-rl; padding: var(--s3) var(--s2); background: var(--plane); color: var(--on-plane); font-size: var(--fs-small); }
+.f-focus .o-summon:disabled { background: repeating-linear-gradient(135deg, var(--tint) 0 5px, var(--hair) 5px 6px); color: var(--faint); cursor: not-allowed; }
+
+/* the map is the app: the tile you are in becomes the page */
+.f-zoom { position: fixed; inset: 0; overflow: hidden; }
+.f-zoom .z-ground { position: absolute; left: 0; top: 0; width: 960px; transform-origin: 0 0; transition: transform var(--dur-space) var(--ease-standard), opacity var(--dur-pop); }
+.f-zoom .z-ground .tile { cursor: default; }
+/* The exercise is the work: the map recedes as soon as you are inside a tile. */
+.f-zoom[data-in="true"] .z-ground { opacity: .22; }
+.f-zoom .z-cell { position: absolute; left: 50%; top: 50%; width: min(760px, calc(100vw - var(--s4))); height: min(860px, calc(100dvh - var(--s4))); transform: translate(-50%, -50%) scale(.96); opacity: 0; pointer-events: none; overflow-y: auto; padding: var(--s5) var(--s6); background: var(--paper); box-shadow: 0 0 0 var(--bw) var(--ink); transition: transform var(--dur-space) var(--ease-enter), opacity var(--dur-pop) var(--ease-standard) 120ms; }
+.f-zoom[data-in="true"] .z-cell { transform: translate(-50%, -50%); opacity: 1; pointer-events: auto; }
+.f-zoom .z-wedge { position: absolute; width: var(--s8); height: var(--s6); margin-top: calc(var(--s3) * -1); background: var(--sting); clip-path: polygon(0 0, 100% 50%, 0 100%); opacity: 0; transform: translateX(calc(var(--s4) * -1)); pointer-events: none; }
+.f-zoom .z-wedge[data-on="true"] { opacity: 1; transform: none; transition: transform var(--dur-pop) var(--ease-enter), opacity var(--dur-pop) var(--ease-enter); }
+.f-zoom .z-head { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s4); }
+.f-zoom .z-head .course { flex: 1; }
+.f-zoom .z-cell .topic { font-size: var(--fs-title); line-height: var(--t); margin-bottom: var(--s2); }
+.f-zoom .z-cell .steps { margin-bottom: var(--s4); }
+.f-zoom .z-cell .prose, .f-zoom .z-cell .code, .f-zoom .z-cell .actions { max-width: none; }
+.f-zoom .z-cell .kps { margin-bottom: var(--s4); }
+.f-zoom .z-cell .actions { position: sticky; bottom: calc(var(--s5) * -1); padding: var(--s3) 0; background: var(--paper); }
+.f-zoom .z-link { justify-self: end; font-size: var(--fs-small); line-height: var(--lh-ui); color: var(--soft); }
+.f-zoom .z-menu { position: absolute; right: var(--s6); bottom: var(--s6); width: min(420px, calc(100vw - var(--s6))); display: grid; gap: var(--s3); padding: var(--s4); background: var(--paper); box-shadow: 0 0 0 var(--bw) var(--ink); transition: opacity var(--dur-pop); }
+.f-zoom[data-in="true"] .z-menu { opacity: 0; pointer-events: none; }
+.f-zoom .z-name { position: absolute; right: var(--s6); top: var(--s6); width: min(420px, calc(100vw - var(--s6))); font: var(--name-weight, 600) var(--fs-title)/var(--lh-name) var(--font-name); letter-spacing: var(--track-name); text-wrap: balance; transition: opacity var(--dur-pop); }
+.f-zoom[data-in="true"] .z-name { opacity: 0; }
+.f-zoom .z-tutor { position: absolute; right: var(--s3); bottom: var(--s3); width: 320px; max-height: 60dvh; padding: var(--s3); border-radius: var(--r-float); background: color-mix(in srgb, var(--paper) 90%, transparent); backdrop-filter: blur(14px); box-shadow: 0 0 0 var(--hair-w) var(--hair), var(--shadow-float); transition: opacity var(--dur-pop); }
+.f-zoom .z-tutor .tutor-log { padding: var(--s2) 0; max-height: 40dvh; overflow: auto; }
+.f-zoom:not([data-in="true"]) .z-tutor, .f-zoom.is-restricted:not([data-done="true"]) .z-tutor { display: none; }
+
+/* a book: two pages and a spine, and the leaf turns */
+.f-spread { min-height: 100dvh; display: grid; place-items: center; padding: var(--s4); }
+.f-spread .b-book { position: relative; width: min(1320px, 100%); display: grid; grid-template-columns: 1fr 1fr; min-height: min(820px, calc(100dvh - var(--s6))); perspective: 2400px; box-shadow: 0 0 0 var(--hair-w) var(--hair), var(--shadow-float); background: var(--paper); }
+.f-spread .b-page { position: relative; padding: var(--s6) var(--s7) var(--s7); min-width: 0; background: var(--paper); }
+.f-spread .b-page + .b-page { box-shadow: inset var(--s4) 0 var(--s4) calc(var(--s4) * -1) hsl(var(--shadow-color) / .14); }
+.f-spread .b-page:first-child { box-shadow: inset calc(var(--s4) * -1) 0 var(--s4) calc(var(--s4) * -1) hsl(var(--shadow-color) / .14); }
+.f-spread .b-head { display: flex; gap: var(--s4); margin-bottom: var(--s5); }
+.f-spread .b-head .course { flex: 1; }
+.f-spread .b-page .prose, .f-spread .b-page .code, .f-spread .b-page .actions { max-width: none; }
+.f-spread .b-folio { position: absolute; bottom: var(--s4); font: 400 var(--fs-small) var(--font-code); color: var(--faint); }
+.f-spread .b-page:first-child .b-folio { left: var(--s7); }
+.f-spread .b-page + .b-page .b-folio { right: var(--s7); }
+.f-spread .b-leaf { position: absolute; z-index: 4; top: 0; bottom: 0; left: 50%; width: 50%; transform-origin: 0 50%; background: var(--paper); overflow: hidden; backface-visibility: hidden; pointer-events: none; }
+.f-spread .b-tab { position: absolute; z-index: 3; right: calc(var(--s5) * -1); top: var(--s7); width: var(--s5); padding: var(--s3) 0; writing-mode: vertical-rl; display: flex; align-items: center; background: var(--plane); color: var(--on-plane); font-size: var(--fs-small); }
+.f-spread .b-tab:disabled { background: repeating-linear-gradient(135deg, var(--tint) 0 5px, var(--hair) 5px 6px); color: var(--faint); cursor: not-allowed; }
+.f-spread .b-note { position: absolute; z-index: 5; top: var(--s6); right: var(--s4); bottom: var(--s6); width: 360px; padding: var(--s4); border-radius: var(--r-float); background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(14px); box-shadow: 0 0 0 var(--hair-w) var(--hair), var(--shadow-float); display: none; overscroll-behavior: contain; }
+.f-spread .b-note[data-open="true"] { display: block; }
+.f-spread .b-note .tutor { height: 100%; }
+
+/* one voice: a single conversation and a single box */
+.f-chat { display: grid; grid-template-rows: auto 1fr auto; height: 100dvh; }
+.f-chat .h-top { display: flex; align-items: center; gap: var(--s4); padding: var(--s3) var(--s4); }
+.f-chat .h-top .course { flex: 1; }
+.f-chat .h-log { overflow-y: auto; padding: var(--s4); }
+.f-chat .h-inner { width: min(100%, 720px); margin: 0 auto; display: grid; gap: var(--s5); }
+.f-chat .h-turn { display: grid; grid-template-columns: var(--s5) minmax(0, 1fr); gap: var(--s3); }
+.f-chat .h-mark svg { width: 24px; height: 24px; margin-top: 4px; overflow: visible; }
+.f-chat .h-turn .prose, .f-chat .h-turn .code { max-width: none; }
+.f-chat .h-me { justify-self: end; max-width: 80%; padding: var(--s2) var(--s3); background: var(--tint); }
+.f-chat .h-fold { color: var(--faint); font-size: var(--fs-small); line-height: var(--lh-ui); text-align: center; }
+.f-chat .h-dock { padding: var(--s3) var(--s4) var(--s4); }
+.f-chat .h-dock-inner { width: min(100%, 720px); margin: 0 auto; display: grid; gap: var(--s2); }
+.f-chat .h-chips { display: flex; justify-content: flex-end; gap: var(--s2); }
+.f-chat .h-chips .actions { margin: 0; max-width: none; }
+.f-chat .h-box { display: flex; }
+.f-chat .h-box textarea, .f-chat .h-box input { flex: 1; min-height: 56px; padding: var(--s3); border: var(--bw) solid var(--ink); border-right: 0; border-radius: var(--r); background: transparent; font: inherit; resize: none; }
+.f-chat .h-box input { font: 400 var(--fs-lead) var(--font-code); }
+.f-chat .h-box .tutor-send { width: 56px; height: auto; }
+.f-chat .h-box[data-closed="true"] { background: repeating-linear-gradient(135deg, transparent 0 7px, var(--hair) 7px 8px); }
+.f-chat .h-box[data-closed="true"] > * { visibility: hidden; }
+.f-chat .h-box[data-closed="true"] { min-height: 56px; }
+
+/* a real prism: each step is a face, and the stage turns about its axis */
+.f-cube { position: fixed; inset: 0; overflow: hidden; perspective: 1800px; }
+.f-cube .q-stage { position: absolute; left: 50%; top: 50%; width: min(860px, 92vw); height: min(780px, 88dvh); margin-left: calc(min(860px, 92vw) / -2); margin-top: calc(min(780px, 88dvh) / -2); transform-style: preserve-3d; }
+.f-cube .q-face { position: absolute; inset: 0; overflow-y: auto; padding: var(--s5) var(--s6); background: var(--paper); box-shadow: 0 0 0 var(--bw) var(--ink); backface-visibility: hidden; transition: transform var(--dur-space) var(--ease-standard); }
+.f-cube .q-face .prose, .f-cube .q-face .code, .f-cube .q-face .actions { max-width: none; }
+.f-cube .q-head { display: flex; gap: var(--s4); margin-bottom: var(--s4); align-items: center; }
+.f-cube .q-head .course { flex: 1; }
+.f-cube .q-blank { position: absolute; inset: 0; display: grid; place-items: center; }
+.f-cube .q-blank .tile-field { width: 60%; opacity: .4; }
+.f-cube .q-side { position: fixed; z-index: 4; right: var(--s3); bottom: var(--s3); width: 320px; max-height: 70dvh; padding: var(--s3); border-radius: var(--r-float); background: color-mix(in srgb, var(--paper) 90%, transparent); backdrop-filter: blur(14px); box-shadow: 0 0 0 1px var(--hair); }
+.f-cube .q-side .tutor-log { max-height: 40dvh; overflow: auto; padding: var(--s2) 0; }
+.f-cube.is-restricted:not([data-done="true"]) .q-side { display: none; }
+
+/* a desk: every plugin is a window, and you put them where you want */
+.f-desk { position: fixed; inset: 0; overflow: hidden; background: var(--desk, var(--tint)); background-image: radial-gradient(var(--hair) 1px, transparent 1.5px); background-size: var(--t) var(--t); }
+.f-desk .d-win { position: absolute; display: flex; flex-direction: column; background: var(--paper); box-shadow: 0 0 0 var(--bw) var(--ink), var(--shadow-float); min-width: 240px; }
+.f-desk .d-title { flex: none; height: var(--t); display: flex; align-items: center; padding: 0 var(--s2); gap: var(--s2); background: var(--plane); color: var(--on-plane); font-size: var(--fs-small); cursor: move; touch-action: none; user-select: none; }
+.f-desk .d-body { flex: 1; min-height: 0; overflow: auto; padding: var(--s3); }
+.f-desk .d-body .prose, .f-desk .d-body .code, .f-desk .d-body .actions { max-width: none; }
+.f-desk .d-body .tutor { height: 100%; }
+.f-desk .d-win[data-win="map"] .d-body { padding: var(--s2); }
+.f-desk .d-win[data-win="map"] .figure { height: 100%; }
+
+/* what any frame shows between tasks */
+.f-home { display: grid; grid-template-columns: 512px minmax(0, 480px); column-gap: var(--s8); justify-content: center; padding: var(--s6) var(--s4); align-items: start; }
+.f-home .topic { grid-column: 1 / -1; margin-bottom: var(--t); }
+.f-home .h-right { display: grid; gap: var(--t); }
+
+@media (max-width: 1320px) {
+  .f-columns { grid-template-columns: 280px minmax(0, 640px); column-gap: var(--s5); grid-template-rows: 96px auto auto; }
+  .f-columns .tutor { grid-column: 2; grid-row: 3; position: static; height: 240px; margin-bottom: var(--t); }
+  .f-river { grid-template-columns: 56px minmax(0, 640px); }
+  .f-river .r-note { grid-column: 2; padding-top: 0; }
+  .f-river .tutor { position: static; height: 240px; }
+}
+@media (max-width: 900px) {
+  .f-columns { display: block; padding: 0 var(--s3); }
+  .f-columns .c-bar { flex-wrap: wrap; gap: 0 var(--s3); padding: var(--s3) 0; }
+  .f-columns .c-bar .course { flex-basis: 100%; }
+  .f-columns .c-rail { position: static; margin-bottom: var(--t); }
+  .f-columns .tutor { height: 240px; }
+  .f-river { grid-template-columns: 32px minmax(0, 1fr); column-gap: var(--s2); padding: 0 var(--s3); }
+  .f-river .r-status { position: static; grid-column: 1 / -1; padding-top: var(--s3); }
+  .f-river .r-mark svg { width: 24px; height: 24px; }
+  .f-focus .o-stage { --fs-body: 18px; --lh-body: 32px; }
+  .f-zoom .z-cell { padding: var(--s3); width: calc(100vw - var(--s2)); height: calc(100dvh - var(--s2)); }
+  .f-zoom .z-menu { right: var(--s2); bottom: var(--s2); left: var(--s2); width: auto; padding: var(--s3); }
+  .f-zoom .z-tutor { display: none; }
+  .f-spread { padding: 0; display: block; }
+  .f-spread .b-book { display: block; box-shadow: none; }
+  .f-spread .b-page { padding: var(--s4) var(--s3) var(--s6); }
+  .f-spread .b-tab { display: none; }
+  .f-cube { perspective: 900px; }
+  .f-cube .q-face { padding: var(--s3); }
+  .f-cube .q-side { display: none; }
+  .f-desk { position: static; display: grid; gap: var(--s3); padding: var(--s2); overflow: visible; }
+  .f-desk .d-win { position: static; width: auto !important; height: auto !important; }
+  .f-desk .d-win[data-win="map"] { display: none; }
+  .f-home { display: block; padding: var(--s3); }
+  .f-home .h-right { margin-top: var(--t); }
+}

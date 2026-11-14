@@ -1,0 +1,34 @@
+/* Behaviour only, shared by every theme: which screen shows at which stage. No colour, type or layout. */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body, h1, h2, h3, p, ol, ul, pre, figure { margin: 0; padding: 0; }
+ol, ul { list-style: none; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; }
+textarea { resize: none; display: block; width: 100%; }
+svg { display: block; }
+
+.screen { display: none; }
+body[data-stage="explanation"] .screen[data-for="explanation"],
+body[data-stage="example"] .screen[data-for="example"],
+body[data-stage="practice"] .screen[data-for="practice"],
+body[data-stage="right"] .screen[data-for="practice"],
+body[data-stage="wrong"] .screen[data-for="practice"] { display: block; }
+
+.offline, .clock, .kind-label, .slot-feedback { display: none; }
+body[data-offline="1"] .offline { display: block; }
+body[data-stage="wrong"] .slot-feedback:not([hidden]) { display: block; }
+.verdict, .reference, .analysis { display: none; }
+body[data-stage="right"] .verdict[data-v="right"],
+body[data-stage="wrong"] .verdict[data-v="wrong"] { display: flex; }
+body[data-stage="right"] .reference, body[data-stage="wrong"] .reference,
+body[data-stage="right"] .analysis, body[data-stage="wrong"] .analysis { display: block; }
+
+.prose ol { list-style: decimal; padding-left: 1.6em; }
+.ln { display: block; }
+.tutor-lock { display: none; }
+body[data-stage="practice"] .tutor-lock { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

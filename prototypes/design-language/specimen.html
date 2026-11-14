@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样张</title>
+<link rel="stylesheet" href="reset.css">
+<link rel="stylesheet" href="ui.css">
+<link id="skin" rel="stylesheet" href="skins/fu.css">
+<link rel="stylesheet" href="review.css">
+<style>
+  /* The specimen's own layout. */
+  .sheet { max-width: 1240px; margin: 0 auto; padding: var(--s6) var(--s4) var(--s8); display: grid; gap: var(--s7); }
+  .sheet > section > h2 { font: 600 var(--fs-title)/var(--lh-name) var(--font-name); margin-bottom: var(--s4); }
+  .row { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: flex-end; }
+  .cell { display: grid; gap: var(--s2); justify-items: start; min-width: 0; }
+  .cap { font: 400 var(--fs-note)/1.5 var(--font-code); color: var(--soft); }
+  .type-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: var(--s4); align-items: baseline; padding: var(--s2) 0; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s3); }
+  .swatches .cell { width: 100%; }
+  .swatch-color { width: 100%; min-width: 100px; height: 64px; box-shadow: inset 0 0 0 1px var(--hair); }
+  .bar { height: 16px; background: var(--accent); }
+  .tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s4); }
+  .tile-grid svg { width: 64px; height: 64px; overflow: visible; }
+  .icons svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .motion-box { width: 48px; height: 48px; background: var(--accent); }
+  .surface { padding: var(--s4); background: var(--tint); }
+</style>
+</head>
+<body>
+<main class="sheet" id="sheet"></main>
+<nav class="review" id="review" aria-label="试稿切换"></nav>
+<script src="course.js"></script>
+<script src="core/items.js"></script>
+<script src="core/md.js"></script>
+<script src="paint/tile.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  const SKINS = { fu: "复", indigo: "蓝印", bit: "1-bit", riso: "套印", term: "终端", swiss: "版式", field: "色场", ink: "水墨", night: "夜" };
+  const skin = SKINS[params.get("skin")] ? params.get("skin") : "fu";
+  document.querySelector("#skin").href = `skins/${skin}.css`;
+  document.documentElement.classList.toggle("dark", params.get("dark") === "1");
+
+  const SAMPLE = "赋值是一个动作，不是在问两边是否相等。Python 先算右边，再让 usable 指向结果。";
+  const icons = { 对: '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16 9.5"/>', 错: '<path d="M5 5l14 14M19 5 5 19"/>', 锁: '<rect x="6" y="11" width="12" height="9"/><path d="M9 11V8a3 3 0 0 1 6 0v3"/>', 上: '<path d="M6 15l6-6 6 6"/>', 下: '<path d="M6 9l6 6 6-6"/>', 进: '<path d="M9 6l6 6-6 6"/>', 退: '<path d="M15 6l-6 6 6 6"/>', 发送: '<path d="M12 19V5M6 11l6-6 6 6"/>' };
+
+  const typeRows = [
+    ["--fs-display", "44/1.2 宋体", 'font:600 var(--fs-display)/1.2 var(--font-name)', "没有通过"],
+    ["--fs-name", "32/40 宋体", 'font:600 var(--fs-name)/var(--lh-name) var(--font-name)', "给数据起名，再按顺序读"],
+    ["--fs-title", "24/40 宋体", 'font:600 var(--fs-title)/var(--lh-name) var(--font-name)', "把计算写成表达式"],
+    ["--fs-lead", "20/32 宋体", 'font:600 var(--fs-lead)/var(--t) var(--font-name)', "运算顺序"],
+    ["--fs-body", "17/32 黑体", 'font:400 var(--fs-body)/var(--lh-body) var(--font-body)', SAMPLE],
+    ["--fs-ui", "15/24 黑体", 'font:400 var(--fs-ui)/var(--lh-ui) var(--font-body)', SAMPLE],
+    ["--fs-small", "14/24 黑体", 'font:400 var(--fs-small)/var(--lh-ui) var(--font-body)', "今天 12 / 20 XP"],
+    ["--fs-note", "13/24 黑体", 'font:400 var(--fs-note)/var(--lh-ui) var(--font-body)', "你的选择"],
+    ["代码", "15/32 等宽", 'font:400 var(--fs-ui)/var(--t) var(--font-code)', "remaining = total - used"],
+    ["作答值", "20 等宽", 'font:400 var(--fs-lead) var(--font-code)', "13"],
+    ["倒计时", "32 等宽 500", 'font:500 var(--fs-name)/1 var(--font-code)', "12:04"],
+  ];
+  const tokens = [["--paper", "页面"], ["--ink", "正文、输入边框"], ["--soft", "次要文字"], ["--faint", "最弱文字"], ["--tint", "内嵌面"], ["--hair", "线、封闭斜线"], ["--plane", "实色面"], ["--on-plane", "实色面上的字"], ["--accent", "通过、答对、焦点、链接"], ["--sky", "代码里的值"], ["--sting", "只用于错"]];
+  const tileCases = [
+    ["没有作答", { attempts: 0 }], ["作答一次", { attempts: 1 }], ["作答两次以上", { attempts: 2 }],
+    ["通过，记得牢", { passed: true, memory: 1 }], ["通过，记忆一般", { passed: true, memory: 0.5 }], ["通过，记忆弱", { passed: true, memory: 0.1 }],
+    ["当前", { attempts: 0, current: true }], ["当前，作答过", { attempts: 2, current: true }], ["通过且正在复习", { passed: true, memory: 0.6, current: true }], ["刚答错", { attempts: 1, current: true, missed: true }],
+  ];
+
+  const sheet = document.querySelector("#sheet");
+  sheet.innerHTML = `
+  <section><h2>字</h2>${typeRows.map(([t, c, style, text]) => `<div class="type-row"><span class="cap">${t}<br>${c}</span><span style="${style}">${text}</span></div>`).join("")}</section>
+  <section><h2>色</h2><div class="swatches">${tokens.map(([t, c]) => `<div class="cell" style="display:block"><div class="swatch-color" style="background:var(${t})"></div><p class="cap">${t}<br>${c}</p></div>`).join("")}</div></section>
+  <section><h2>格</h2><div class="tile-grid" id="tiles"></div></section>
+  <section><h2>距</h2><div class="row">${[["--s1", 4], ["--s2", 8], ["--s3", 16], ["--s4", 24], ["--s5", 32], ["--s6", 48], ["--s7", 64], ["--s8", 96]].map(([t, v]) => `<div class="cell"><div class="bar" style="width:var(${t})"></div><span class="cap">${t}<br>${v}</span></div>`).join("")}</div></section>
+  <section><h2>面</h2><div class="row">
+    <div class="cell"><div class="surface" style="width:200px;height:96px"></div><span class="cap">平铺，方角</span></div>
+    <div class="cell"><div style="width:200px;height:96px;background:var(--plane)"></div><span class="cap">实色面</span></div>
+    <div class="cell"><div style="width:200px;height:96px;border-radius:var(--r-float);box-shadow:0 0 0 1px var(--hair),0 12px 32px #0000001f"></div><span class="cap">浮层，12 圆角，磨砂</span></div>
+  </div></section>
+  <section><h2>动</h2><div class="row">${[["fast", "--dur-fast", "110", "hover、按下"], ["mid", "--dur-mid", "240", "展开、楔形入场"], ["slow", "--dur-slow", "400", "抽屉"]].map(([k, t, ms, use]) => `<div class="cell"><button type="button" class="btn btn-quiet" data-move="${t}">${ms} ms</button><div class="motion-box" id="m-${k}"></div><span class="cap">${t}<br>${use}</span></div>`).join("")}</div></section>
+  <section><h2>标</h2><div class="row icons">${Object.entries(icons).map(([n, d]) => `<div class="cell"><svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg><span class="cap">${n}</span></div>`).join("")}</div></section>
+  <section><h2>钮</h2><div class="row">
+    ${[["默认", ""], ["悬停", "is-hover"], ["按下", "is-pressed"], ["焦点", "is-focus"]].map(([n, c]) => `<div class="cell"><button type="button" class="btn btn-primary ${c}">提交</button><span class="cap">${n}</span></div>`).join("")}
+    <div class="cell"><button type="button" class="btn btn-primary" disabled>提交</button><span class="cap">不可用</span></div>
+    <div class="cell"><button type="button" class="btn btn-primary" aria-busy="true">提交</button><span class="cap">等待</span></div>
+    <div class="cell"><button type="button" class="btn btn-quiet">不会</button><span class="cap">次要</span></div>
+  </div></section>
+  <section><h2>框</h2><div class="row" style="align-items:flex-start">
+    ${[["默认", '<input class="field" aria-label="示例">'], ["焦点", '<input class="field is-focus" aria-label="示例">'], ["待改", '<input class="field" aria-invalid="true" aria-label="示例" aria-describedby="e1" value="abc"><p class="field-error" id="e1">填一个整数</p>'], ["只读", '<input class="field" readonly aria-label="示例" value="13">']].map(([n, html]) => `<div class="cell" style="width:220px"><div style="width:100%;display:grid;gap:var(--s1)">${html}</div><span class="cap">${n}</span></div>`).join("")}
+    <div class="cell" style="width:220px"><div class="slot" data-result="right" style="margin:0;width:100%"><input class="field" readonly value="5" aria-label="示例"></div><span class="cap">答对</span></div>
+    <div class="cell" style="width:220px"><div class="slot" data-result="wrong" style="margin:0;width:100%"><input class="field" readonly value="13" aria-label="示例"></div><span class="cap">答错</span></div>
+  </div></section>
+  <section><h2>选</h2><div class="row" style="align-items:flex-start">
+    <div class="cell" style="width:300px"><fieldset class="slot options" style="margin:0;width:100%"><label class="option"><input type="radio" name="s"><span class="option-body"><span class="option-text">单选</span></span></label><label class="option"><input type="radio" name="s" checked><span class="option-body"><span class="option-text">圆形标记</span></span></label></fieldset><span class="cap">几选一</span></div>
+    <div class="cell" style="width:300px"><fieldset class="slot options" style="margin:0;width:100%"><label class="option"><input type="checkbox"><span class="option-body"><span class="option-text">多选</span></span></label><label class="option"><input type="checkbox" checked><span class="option-body"><span class="option-text">方形标记</span></span></label></fieldset><span class="cap">选若干</span></div>
+    <div class="cell" style="width:300px"><fieldset class="slot options" style="margin:0;width:100%"><div class="option" data-locked="true" data-result="right"><span></span><span class="option-body"><span class="option-text">clean = raw - 2</span><span class="tag tag-key">正确</span></span></div><div class="option" data-locked="true" data-result="wrong"><span></span><span class="option-body"><span class="option-text">clean = 6</span><span class="tag">你的选择</span></span></div></fieldset><span class="cap">反馈</span></div>
+  </div></section>
+  <section><h2>话</h2><div class="row" style="align-items:flex-start">
+    <div class="dialog" role="group" aria-labelledby="d1"><h2 id="d1">中止这次复习？</h2><div class="actions"><button type="button" class="btn btn-quiet">继续复习</button><button type="button" class="btn btn-primary">中止复习</button></div></div>
+    <div class="cell" style="width:320px"><p class="offline" style="width:100%">连接断开，正在重连</p><span class="cap">断线</span></div>
+    <div class="cell"><p class="judging" style="margin:0">正在判分</p><span class="cap">等待</span></div>
+    <div class="cell"><p class="empty">暂无</p><span class="cap">空状态</span></div>
+  </div></section>`;
+
+  const grid = document.querySelector("#tiles");
+  tileCases.forEach(([name, entry], i) => {
+    const svg = Tile.element("svg", { viewBox: "0 0 64 64", "aria-hidden": "true" });
+    Tile.draw(svg, 0, 0, 64, i, { kp: { id: `spec${i}` }, ...entry });
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.append(svg, Object.assign(document.createElement("span"), { className: "cap", textContent: name }));
+    grid.append(cell);
+  });
+  sheet.querySelectorAll("[data-move]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const box = button.parentElement.querySelector(".motion-box");
+      const ms = parseInt(button.textContent, 10);
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      box.animate([{ transform: "translateX(0)" }, { transform: "translateX(160px)" }, { transform: "translateX(0)" }], { duration: ms * 2, easing: "cubic-bezier(.2,0,.38,.9)" });
+    });
+  });
+  const bar = document.querySelector("#review");
+  if (params.get("chrome") === "0") bar.hidden = true;
+  else {
+    for (const [k, v] of Object.entries(SKINS)) { const a = Object.assign(document.createElement("a"), { href: `specimen.html?skin=${k}`, textContent: v, className: "review-link" }); if (k === skin) a.style.color = "#fff"; bar.append(a); }
+    bar.append(Object.assign(document.createElement("a"), { href: "matrix.html", textContent: "矩阵", className: "review-link" }));
+  }
+</script>
+</body>
+</html>

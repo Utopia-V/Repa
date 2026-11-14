@@ -1,0 +1,6 @@
+/* 蓝印：蓝印花布，全局只有靛和白，红只用于错。 */
+:root { color-scheme: light; --paper: #f4f6f5; --ink: #18293a; --soft: #4a5a68; --faint: #5f6c78; --hair: #cdd6dc; --tint: #e6ebea; --plane: #18293a; --on-plane: #f4f6f5; --on-plane-soft: #9fb0bd; --accent: #18293a; --blue: var(--accent); --sky: #cfe0ec; --sting: #b3261e; --figure-columns: 10;
+  --font-body: 'Repa Latin', 'PingFang SC', 'Noto Sans CJK SC', sans-serif; --font-name: 'Noto Serif CJK SC', 'Songti SC', serif; --font-code: 'Repa Mono', 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; --name-weight: 700; }
+.verdict[data-verdict="wrong"] { padding: 2px 10px; background: var(--sting); color: var(--paper); letter-spacing: .2em; font-family: var(--font-name); }
+.verdict[data-verdict="wrong"] svg { display: none; }
+.btn { font-family: var(--font-name); letter-spacing: .1em; font-weight: 600; }

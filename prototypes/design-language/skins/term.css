@@ -1,0 +1,16 @@
+/* 终端：一切都在字符网格上，中文占两格。 */
+:root { color-scheme: dark; --paper: #1e2024; --ink: #e3e8ed; --soft: #acb7c4; --faint: #8a949f; --hair: #3b444e; --tint: #262b31; --plane: #15171a; --on-plane: #e3e8ed; --on-plane-soft: #8a949f; --accent: #a8d2ef; --blue: #a8d2ef; --sky: #a8d2ef; --sting: #ef6a55; --fs-name: 17px; --lh-name: 32px; --fs-display: 24px; --name-weight: 700; --r: 0px; --bw: 1px;
+  --font-body: 'Noto Sans Mono CJK SC', 'IBM Plex Mono', monospace; --font-name: 'Noto Sans Mono CJK SC', monospace; --font-code: 'Noto Sans Mono CJK SC', 'IBM Plex Mono', monospace; }
+.topic { color: var(--accent); }
+.topic::before { content: "# "; color: var(--faint); }
+.step::before { content: "[ ] "; }
+.step[data-passed="true"]::before { content: "[x] "; }
+.step[aria-current] { box-shadow: none; }
+.step[aria-current]::before { content: "[>] "; color: var(--accent); }
+.btn { font-size: var(--fs-body); }
+.btn::before { content: "[ "; opacity: .55; }
+.btn::after { content: " ]"; opacity: .55; }
+.btn-primary { background: var(--ink); color: var(--paper); }
+.field { border: 0; border-bottom: 1px solid var(--accent); padding: 0; font-size: var(--fs-body); }
+.prose code { background: none; color: var(--accent); padding: 0; }
+.code { box-shadow: inset 2px 0 0 var(--accent); background: none; color: var(--ink); }

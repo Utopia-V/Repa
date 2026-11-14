@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repa</title>
+<link rel="stylesheet" href="structure.css">
+<link rel="stylesheet" href="themes/e-fu.css">
+<link rel="stylesheet" href="review.css">
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <a class="mark" href="home.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0A12 12 0 0 1 0 12M24 12A12 12 0 0 0 12 24"/></svg>repa</a>
+    <nav class="nav"><a href="home.html" aria-current="page">今天</a><a href="repa.html?later=1#/k/">知识库</a><a href="#">设置</a></nav>
+  </header>
+  <section class="today-figure">
+    <h1 class="course-name">Python：读懂代码，说清需求</h1>
+    <div id="field"></div>
+  </section>
+  <section>
+    <div class="goal">
+      <span id="goal-text"></span>
+      <div class="goal-cells" id="goal-cells" role="meter" aria-label="今天的 XP" aria-valuemin="0" aria-valuemax="20"></div>
+    </div>
+    <div class="next" id="next"></div>
+  </section>
+</div>
+<nav class="review" aria-label="试稿切换"></nav>
+<script src="course.js"></script>
+<script src="paint/tile.js"></script>
+<script src="paint/tower.js"></script>
+<script src="figures/core.js"></script>
+<script src="figures/fractal.js"></script>
+<script src="figures/solid.js"></script>
+<script src="figures/time.js"></script>
+<script src="figures/tiles.js"></script>
+<script src="shell.js"></script>
+<script>
+  const { later } = shell.state;
+  const figureName = shell.params.get("figure");
+  const fieldBox = document.querySelector("#field");
+  if (figureName && Figures[figureName]) {
+    fieldBox.style.height = "614px";
+    Figures[figureName].mount(fieldBox).update(simulateProgress({ later }));
+  } else {
+    fieldBox.append(Tile.field(simulateProgress({ later }), 10, 32));
+  }
+  const xp = later ? 12 : 0;
+  document.querySelector("#goal-text").textContent = `今天 ${xp} / 20 XP`;
+  const cells = document.querySelector("#goal-cells");
+  cells.setAttribute("aria-valuenow", xp);
+  for (let i = 0; i < 20; i += 1) {
+    const cell = document.createElement("i");
+    if (i < xp) cell.dataset.on = "";
+    cells.append(cell);
+  }
+  const topics = COURSE;
+  const entries = later
+    ? [["复习", topics[11].title], ["新课", topics[29].title], ["新课", topics[30].title]]
+    : [["新课", "给数据起名，再按顺序读"], ["新课", "把“处理一下”变成可核对的要求"]];
+  document.querySelector("#next").replaceChildren(...entries.map(([kind, title], index) => {
+    const a = document.createElement("a");
+    a.href = `index.html?theme=e&later=${later ? 1 : 0}&dark=${shell.state.dark ? 1 : 0}`;
+    if (index === 0) a.className = "first";
+    a.innerHTML = `<span class="next-kind">${kind}</span><span class="next-title">${title}</span>`;
+    return a;
+  }));
+</script>
+</body>
+</html>
