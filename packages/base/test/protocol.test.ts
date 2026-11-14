@@ -532,10 +532,10 @@ test("同一连接同时等待确认、提问和服务，断线后三者以各�
   await mkdir(root);
   const client = await RepaClient.connect(f.server.connection, { capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] }, services: ["probe.run"] } });
   t.after(() => client.close());
-  await client.call("space.open", { root });
+  const { opening } = await client.call("space.open", { root });
   const requested = Promise.all(["confirm.request", "ask.request", "service.request"].map((method) => new Promise<void>((resolve) => client.on(method as "confirm.request" | "ask.request" | "service.request", () => resolve()))));
   const running = client.call("session.send", { sessionId: "s", text: "开始" }).catch(() => undefined);
-  const serving = client.call("plugin.call", { pluginId: "probe", method: "run", input: {} }).catch(() => undefined);
+  const serving = client.call("plugin.call", { pluginId: "probe", method: "run", input: {}, opening }).catch(() => undefined);
   await requested;
   await client.close();
   await settled;

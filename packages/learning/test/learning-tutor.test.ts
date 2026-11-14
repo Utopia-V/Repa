@@ -170,11 +170,11 @@ async function fixture(t: TestContext, topics?: Topic[], options: FixtureOptions
     await server.close();
     await rm(directory, { recursive: true, force: true });
   });
-  await client.call("space.open", { root });
+  let { opening } = await client.call("space.open", { root });
   const chat = await client.call("session.create", { agent: TUTOR_AGENT });
   async function call<M extends LearningMethod>(method: M, input: LearningInput<M>): Promise<LearningResult<M>> {
     return parse(learningMethods[method].result, await client.call("plugin.call", {
-      pluginId: "learning", method, input,
+      pluginId: "learning", method, input, opening,
     })) as LearningResult<M>;
   }
   const state = () => call("state.get", {});
@@ -248,7 +248,7 @@ async function fixture(t: TestContext, topics?: Topic[], options: FixtureOptions
     return received;
   }
   return {
-    client, chat, faux, call, state, select, advance, abort, submit, finish, session, changes, toolResult,
+    client, chat, faux, call, opening: () => opening, state, select, advance, abort, submit, finish, session, changes, toolResult,
     root: () => root,
     time: (value: number) => { now = value; },
     now: () => now,
@@ -256,7 +256,7 @@ async function fixture(t: TestContext, topics?: Topic[], options: FixtureOptions
     async replaceTopic(topic: Topic) {
       await client.call("space.close", {});
       await writeFile(path.join(bundled, "topics", `${topic.id}.yaml`), stringify(topic, { aliasDuplicateObjects: false }));
-      await client.call("space.open", { root });
+      ({ opening } = await client.call("space.open", { root }));
     },
     async copyAndReopen() {
       const before = await state();
@@ -273,7 +273,7 @@ async function fixture(t: TestContext, topics?: Topic[], options: FixtureOptions
         await cp(destination, saved, { recursive: true });
       }
       root = destination;
-      await client.call("space.open", { root });
+      ({ opening } = await client.call("space.open", { root }));
       assert.deepEqual(await readFile(logFile()), bytes);
       assert.deepEqual(await state(), before);
       assert.deepEqual((await session().view()).student, student);
@@ -380,7 +380,7 @@ test("复习 preparing 先拒收消息和内容，回复取消停稳后才计时
   assert.equal(active.task?.startedAt, f.now());
   const calls = f.faux.state.callCount;
   await assert.rejects(f.client.call("plugin.call", {
-    pluginId: "learning", method: "probe.tutor", input: {},
+    pluginId: "learning", method: "probe.tutor", input: {}, opening: f.opening(),
   }), fault("message_rejected"));
   const preview = await f.client.call("prompt.preview", { agent: TUTOR_AGENT });
   assert.equal(preview.views.length, 1);

@@ -60,7 +60,7 @@ function backend(learning: Learning, base: Record<string, Base> = {}) {
     if (replaced) return replaced(params);
     switch (method) {
       case "space.open":
-        return Promise.resolve({ root: "/notes/python" });
+        return Promise.resolve({ root: "/notes/python", opening: "opening-1", plugins: [] });
       case "space.list":
       case "session.list":
       case "model.list":
@@ -80,7 +80,7 @@ function backend(learning: Learning, base: Record<string, Base> = {}) {
 }
 
 function learningCalls(call: ReturnType<typeof backend>["call"]) {
-  return call.mock.calls.filter(([method]) => method === "plugin.call").map(([, params]) => params as { method: string; input: unknown });
+  return call.mock.calls.filter(([method]) => method === "plugin.call").map(([, params]) => params as { method: string; input: unknown; opening: string });
 }
 
 function start(client: ReturnType<typeof backend>["client"], wide = false, runner?: TrialRunner) {
@@ -112,6 +112,7 @@ it("讲解阶段显示课程内容和任务自带的标题，点“看例题”�
 
   expect(await screen.findByText("显示的整数")).toBeTruthy();
   expect(learningCalls(fake.call).find((call) => call.method === "task.advance")?.input).toEqual({ taskId: "t1", expectedStage: "explanation", expectedRevision: 1 });
+  expect(learningCalls(fake.call).find((call) => call.method === "task.advance")?.opening).toBe("opening-1");
 });
 
 it("操作时画面已经过时，换成后端给的当前状态并提示，不再执行原操作", async () => {

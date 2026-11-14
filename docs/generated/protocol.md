@@ -412,6 +412,7 @@
 | --- | --- | --- | --- |
 | input | unknown | 否 |  |
 | method | string | 否 |  |
+| opening | string | 否 |  |
 | pluginId | string | 否 |  |
 
 ### 结果
@@ -934,6 +935,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| opening | string | 否 |  |
 | plugins[] | object | 否 |  |
 | plugins[].digest | string | 是 |  |
 | plugins[].folder | "same" &#124; "modified" &#124; "missing" &#124; "unreadable" | 是 |  |
@@ -974,6 +976,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| opening | string | 否 |  |
 | plugins[] | object | 否 |  |
 | plugins[].digest | string | 是 |  |
 | plugins[].folder | "same" &#124; "modified" &#124; "missing" &#124; "unreadable" | 是 |  |

@@ -107,10 +107,16 @@ async function fixture(t: TestContext) {
     await server.close();
     await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
-  const { root } = await client.call("space.create", { root: path.join(directory, "space") });
+  const { root, opening: created } = await client.call("space.create", { root: path.join(directory, "space") });
+  let opening = created;
   async function call<M extends LearningMethod>(method: M, input: LearningInput<M>): Promise<LearningResult<M>> {
-    return parse(learningMethods[method].result, await client.call("plugin.call", { pluginId: "learning", method, input })) as LearningResult<M>;
+    return parse(learningMethods[method].result, await client.call("plugin.call", { pluginId: "learning", method, input, opening })) as LearningResult<M>;
   }
+  const reopen = async () => {
+    const reopened = await client.call("space.open", { root });
+    opening = reopened.opening;
+    return reopened;
+  };
   const state = () => call("state.get", {});
   async function startLesson() {
     const current = await state();
@@ -146,7 +152,7 @@ async function fixture(t: TestContext) {
     await client.call("session.send", { sessionId: session.id, text });
   }
   return {
-    directory, home, root, client, call, state, startLesson, answer, chat,
+    directory, home, root, client, call, reopen, state, startLesson, answer, chat,
     records: path.join(root, ".repa", "plugins", "learning", "records.jsonl"),
     sessions: path.join(root, ".repa", "sessions"),
   };
@@ -279,7 +285,7 @@ test("学习进行中备份，日志末尾的半行不收；接着学，恢复�
   const saved = await f.client.call("backup.restore", { root: f.root, id: during.backup.id });
   assert.equal(saved.kind, "beforeRestore");
   assert.equal(await readFile(f.records, "utf8"), backedUp);
-  const reopened = await f.client.call("space.open", { root: f.root });
+  const reopened = await f.reopen();
   assert.deepEqual(reopened.plugins.filter((plugin) => plugin.state !== "running"), []);
   const restored = await f.state();
   assert.equal(restored.revision, lines(backedUp));

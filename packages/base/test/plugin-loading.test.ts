@@ -141,6 +141,8 @@ async function fixture(t: TestContext, options: { plugins?: Plugin[] } = {}) {
   });
 
   const opened = await client.call("space.open", { root });
+  // plugin.call 带上的那一次空间打开；测试经 open 重新打开空间时随之更新。
+  let opening = opened.opening;
   // 每次模型请求声明的工具。
   const requests: string[][] = [];
   const script = (...steps: (AssistantMessage | ((context: TranscriptContext) => AssistantMessage))[]) => {
@@ -176,6 +178,17 @@ async function fixture(t: TestContext, options: { plugins?: Plugin[] } = {}) {
     },
     async record() {
       return readEnablement(dataDir);
+    },
+    /** 关闭空间再打开，以后的插件调用带上这一次打开。 */
+    async reopen() {
+      await client.call("space.close", {});
+      const reopened = await client.call("space.open", { root });
+      opening = reopened.opening;
+      return reopened;
+    },
+    /** 调用插件方法，带上最近一次打开。 */
+    call(pluginId: string, method: string, input: unknown = {}) {
+      return client.call("plugin.call", { pluginId, method, input, opening });
     },
     /** 经插件列表加载，自动同意。 */
     async load(id: string, from?: "folder" | "recorded" | "previous") {
@@ -251,7 +264,7 @@ test("一次运行里写好插件、请求加载、使用者批准，下一次�
     digest: approval?.digest, pages: [], methods: ["tag"], tools: ["count_get"],
   });
   assert.ok(f.updates.some((plugins) => plugins.some((plugin) => plugin.id === "count" && plugin.state === "running")));
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+  assert.equal(await f.call("count", "tag"), "v1");
 });
 
 test("新版本有语法错误：错误连同位置当场作为调用结果交回，不请求批准，原来的版本照常工作；改正以后同一次运行里再次加载成功", async (t) => {
@@ -300,8 +313,7 @@ test("新版本的 open 抛错：插件转为失败并交回原因，重新打�
   assert.notEqual(record.plugins.count?.digest, first.digest);
   assert.equal(record.plugins.count?.previous, first.digest);
 
-  await f.client.call("space.close", {});
-  const reopened = await f.client.call("space.open", { root: f.root });
+  const reopened = await f.reopen();
   assert.equal(reopened.plugins.find((plugin) => plugin.id === "count")?.state, "failed");
 
   // 上一次选定的版本的快照还在，不必再批准。
@@ -310,7 +322,7 @@ test("新版本的 open 抛错：插件转为失败并交回原因，重新打�
   assert.equal(f.confirmations.length, asked);
   assert.equal(restored.state, "running");
   assert.equal(restored.digest, first.digest);
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+  assert.equal(await f.call("count", "tag"), "v1");
   item = await f.item("count");
   assert.equal(item?.previous, record.plugins.count?.digest);
 });
@@ -325,13 +337,13 @@ test("请求批准以后再改插件文件夹：批准之前运行的仍是原�
   const loading = f.load("count");
   const { id, request } = await asked;
   assert.deepEqual(request.plugin?.files, [{ path: "index.js", change: "modified" }]);
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+  assert.equal(await f.call("count", "tag"), "v1");
   await f.write("count", folder("count", "v3"));
   await f.client.call("confirm.reply", { id, value: true });
   const loaded = await loading;
   assert.equal(loaded.digest, request.plugin?.digest);
   assert.equal(loaded.folder, "modified");
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v2");
+  assert.equal(await f.call("count", "tag"), "v2");
 });
 
 test("拒绝、不作答、停止运行：调用以相应原因结束，启用记录、快照和运行的插件都没有改变", async (t) => {
@@ -392,7 +404,7 @@ test("替换一个插件时，同一空间里别的插件没有关闭也没有�
   await f.load("count");
   assert.deepEqual([opens, closes], [1, 0]);
   assert.deepEqual(f.hooks.log, ["open count v1", "open other v1", "close count v1", "closed count v1", "open count v2"]);
-  assert.equal(await f.client.call("plugin.call", { pluginId: "learning", method: "ping", input: {} }), "pong");
+  assert.equal(await f.call("learning", "ping"), "pong");
   // 随包插件不能作为自写插件加载或卸载。
   await assert.rejects(f.load("learning"), code("plugin_id_conflict"));
   await assert.rejects(f.client.call("plugin.unload", { id: "learning" }), code("plugin_id_conflict"));
@@ -485,8 +497,7 @@ test("重新打开空间按启用记录运行：卸载过的插件没有自己�
   await f.load("count");
   await f.load("other");
   await f.client.call("plugin.unload", { id: "other" });
-  await f.client.call("space.close", {});
-  const reopened = await f.client.call("space.open", { root: f.root });
+  const reopened = await f.reopen();
   assert.deepEqual(reopened.plugins.map((plugin) => [plugin.id, plugin.state]), [["count", "running"], ["other", "disabled"]]);
   assert.deepEqual(f.hooks.log, ["open count v1", "open other v1", "close other v1", "closed other v1", "close count v1", "closed count v1", "open count v1"]);
 });
@@ -507,7 +518,7 @@ test("完全访问模式下 Agent 提出的加载与使用者在插件列表里�
   await f.write("count", folder("count", "v2"));
   assert.equal((await f.load("count")).state, "running");
   assert.equal(f.confirmations.length, 0);
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v2");
+  assert.equal(await f.call("count", "tag"), "v2");
   await f.client.call("settings.set", { commandPolicy: "ask" });
   await f.write("count", folder("count", "v3"));
   await f.load("count");
@@ -555,9 +566,8 @@ test("写启用记录出错：调用返回错误，盘上仍是原来的记录�
   const item = await f.item("count");
   assert.equal(item?.state, "failed");
   assert.equal(item?.reason?.code, "plugin_enablement_write_failed");
-  await f.client.call("space.close", {});
-  await f.client.call("space.open", { root: f.root });
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+  await f.reopen();
+  assert.equal(await f.call("count", "tag"), "v1");
 });
 
 test("加载前的检查不执行插件代码：文件夹不在、清单 id 与文件夹名不符时当场返回错误，什么都没有改变", async (t) => {
@@ -619,7 +629,7 @@ export default {
   await f.client.call("confirm.reply", { id, value: true });
   assert.equal((await loading).state, "running");
   assert.equal(await readFile(marker, "utf8"), "ran");
-  assert.equal(await f.client.call("plugin.call", { pluginId: "typed", method: "label", input: {} }), "typed js");
+  assert.equal(await f.call("typed", "label"), "typed js");
 });
 
 test("批准以后暂存副本被改动：发布以后、导入之前的核对拦下它，插件代码不执行，启用记录不变", async (t) => {
@@ -641,7 +651,7 @@ test("批准以后暂存副本被改动：发布以后、导入之前的核对�
   // 同一份内容再加载一次：被改动的快照换成新的副本，照常生效。
   f.answer = () => true;
   assert.equal((await f.load("count")).state, "running");
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+  assert.equal(await f.call("count", "tag"), "v1");
 });
 
 test("运行排队等写锁时经列表加载的插件在 open 里写空间：这次加载当场失败，不挡住那次运行里的加载", async (t) => {
@@ -673,7 +683,7 @@ test("运行排队等写锁时经列表加载的插件在 open 里写空间：�
   const queue = barrier();
   void withFileMutationQueue(path.join(f.root, "held.txt"), async () => { queue.release(); await held.promise; });
   await queue.promise;
-  const holding = f.client.call("plugin.call", { pluginId: "holder", method: "hold", input: {} });
+  const holding = f.call("holder", "hold");
   await shared.promise;
   const session = await f.session();
   f.script(
@@ -725,7 +735,7 @@ test("替换时旧实例的 close() 不返回：别的插件照常装卸；停�
   // close() 返回以后，这个插件可以再加载。
   stuck.release();
   assert.equal((await f.load("count")).state, "running");
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v2");
+  assert.equal(await f.call("count", "tag"), "v2");
 });
 
 test("卸载以后旧实例的 close() 不返回：Agent 再加载它时停止运行可以结束这次调用，别的会话照常运行", async (t) => {
@@ -804,7 +814,7 @@ test("新插件的 open() 不返回：停止运行结束这次加载，别的插
   const running = nextState(f.client, "count", "running");
   stuck.release();
   assert.equal((await running).digest, record?.digest);
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+  assert.equal(await f.call("count", "tag"), "v1");
 });
 
 test("新版本的模块顶层 await 不返回：停止运行结束这次加载，原来的版本照常运行，启用记录不变；别的插件与别的会话不受影响", async (t) => {
@@ -837,7 +847,7 @@ test("新版本的模块顶层 await 不返回：停止运行结束这次加载�
   const item = await f.item("count");
   assert.equal(item?.state, "running");
   assert.equal(item?.digest, before?.digest);
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+  assert.equal(await f.call("count", "tag"), "v1");
   const second = await f.session();
   f.script(fauxAssistantMessage("好"));
   await f.send(second.id, "在吗");
@@ -846,8 +856,45 @@ test("新版本的模块顶层 await 不返回：停止运行结束这次加载�
   stuck.release();
   await settled;
   assert.equal((await f.load("count")).state, "running");
-  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v2");
+  assert.equal(await f.call("count", "tag"), "v2");
   // count v1、other v1、count v2 各问过一次。
   assert.equal(f.confirmations.length, 3);
   assert.deepEqual(f.hooks.log, ["open count v1", "open other v1", "close count v1", "closed count v1", "open count v2"]);
+});
+
+test("plugin.call 核对它属于空间的哪一次打开：同一次打开里插件换了版本，调用交给新实例；空间切换或重新打开以后，此前组成的调用以 space_switched 拒绝", async (t) => {
+  // 每个空间里都有的随包插件，返回它所在的空间：调用若落到切换后的空间，返回值就会是那个空间。
+  const where: Plugin = {
+    id: "where",
+    async open(host) {
+      return { methods: { root: { parameters: EMPTY, async invoke() { return host.space.root; } } } };
+    },
+  };
+  const f = await fixture(t, { plugins: [where] });
+  const first = f.opened.opening;
+  assert.equal(f.client.handshake.baseline.space, null);
+  await f.write("count", folder("count", "v1"));
+  await f.load("count");
+  const call = (pluginId: string, method: string, opening: string) => f.client.call("plugin.call", { pluginId, method, input: {}, opening });
+  assert.equal(await call("count", "tag", first), "v1");
+  await f.write("count", folder("count", "v2"));
+  await f.load("count");
+  assert.equal(await call("count", "tag", first), "v2");
+  // 新连接的初始化基线带着同一次打开；同一个空间再 space.open 而没有关闭，仍是这一次打开。
+  const other = await RepaClient.connect(f.server.connection);
+  t.after(() => other.close());
+  assert.deepEqual(other.handshake.baseline.space, { root: f.root, opening: first });
+  assert.equal((await f.client.call("space.open", { root: f.root })).opening, first);
+
+  const elsewhere = path.join(path.dirname(f.root), "elsewhere");
+  const switched = await f.client.call("space.create", { root: elsewhere });
+  assert.notEqual(switched.opening, first);
+  await assert.rejects(call("where", "root", first), code("space_switched"));
+  assert.equal(await call("where", "root", switched.opening), elsewhere);
+
+  // 回到原来的空间是新的一次打开：切换之前组成的调用同样拒绝。
+  const back = await f.client.call("space.open", { root: f.root });
+  assert.notEqual(back.opening, first);
+  await assert.rejects(call("count", "tag", first), code("space_switched"));
+  assert.equal(await call("count", "tag", back.opening), "v2");
 });

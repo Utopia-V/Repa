@@ -124,7 +124,9 @@ test("两个 CLI 进程争用同一空间，持锁进程退出后另一个进程
   const canonical = await realpath(space);
   const first = await f.start("first-home");
   const second = await f.start("second-home");
-  assert.deepEqual(await first.client.call("space.open", { root: space }), { root: canonical, plugins: [] });
+  const firstOpened = await first.client.call("space.open", { root: space });
+  assert.deepEqual({ root: firstOpened.root, plugins: firstOpened.plugins }, { root: canonical, plugins: [] });
+  assert.equal(typeof firstOpened.opening, "string");
   await assert.rejects(second.client.call("space.open", { root: space }), (error: unknown) => {
     assert.ok(error instanceof RpcError);
     assert.equal(record(error.data)?.code, "space_locked");
@@ -132,7 +134,9 @@ test("两个 CLI 进程争用同一空间，持锁进程退出后另一个进程
   });
   const exit = await stop(first.cli);
   assert.deepEqual(exit, { code: 0, signal: null });
-  assert.deepEqual(await second.client.call("space.open", { root: space }), { root: canonical, plugins: [] });
+  const secondOpened = await second.client.call("space.open", { root: space });
+  assert.deepEqual({ root: secondOpened.root, plugins: secondOpened.plugins }, { root: canonical, plugins: [] });
+  assert.equal(typeof secondOpened.opening, "string");
   await second.client.call("space.close", {});
 });
 
@@ -140,14 +144,14 @@ test("CLI 通过模块路径加载笔记插件，界面调用完成真实保存�
   const f = await fixture(t);
   const { cli, client } = await f.start("plugin-home", ["--plugin", "dist/examples"]);
   const space = path.join(f.root, "notes-space");
-  await client.call("space.create", { root: space });
+  const { opening } = await client.call("space.create", { root: space });
   const plugins = await client.call("plugin.list", {});
   assert.equal(plugins.length, 1);
   assert.equal(plugins[0]?.id, "notes");
   assert.ok(plugins[0]?.methods.includes("save"));
   const text = "全角标点，逐字保留。\n第二行。\n";
   assert.deepEqual(await client.call("plugin.call", {
-    pluginId: "notes", method: "save", input: { name: "cli-smoke", text },
+    pluginId: "notes", method: "save", input: { name: "cli-smoke", text }, opening,
   }), { name: "cli-smoke" });
   assert.equal(await readFile(path.join(space, "notes", "cli-smoke.md"), "utf8"), text);
   assert.ok((await client.call("history.changes", {})).revisions.some((revision) => {
