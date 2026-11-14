@@ -1103,6 +1103,7 @@ class Session implements AgentSession {
 
   /**
    * 不能压缩时 Pi 抛不带类型的 Error，到协议上成了内部错误。这里分开三种预期的情况：
+   * 会话正在运行或有排队的运行时以 session_busy 拒绝：Pi 压缩前会中止当前运行。
    * 没有可用模型在调用之前与发送一样检查；Pi 先算出要压缩的内容，才发出 session_before_compact，
    * 调用失败而这个钩子没有触发，就是没有可压缩的内容（会话太短或刚压缩过）；期间停止了会话是取消。
    * 其余失败照原样抛出。
@@ -1113,6 +1114,11 @@ class Session implements AgentSession {
     await this.space.runtime.requireUsable(this.session.model);
     this.currentViews = await this.profile.views();
     const cancellations = this.cancellations;
+    // Pi 的 compact() 先 abort() 当前运行；会话有运行、排队的运行或正在取消时拒绝，不去碰它们。
+    // 核对与调用之间没有 await，上面等待期间到达的运行也在核对之内。
+    if (this.pending.size > 0 || this.enqueuing.size > 0 || this.cancelling !== undefined || this.session.isStreaming) {
+      throw new RepaFault("session_busy", "会话正在运行，结束以后才能压缩");
+    }
     this.compactionPrepared = false;
     try {
       await this.session.compact();
