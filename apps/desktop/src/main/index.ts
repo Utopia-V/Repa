@@ -7,6 +7,7 @@ import { APP_PAGE_URL, APP_SCHEME, createAppHandler, isAppUrl } from "./app-prot
 import { openInBrowser } from "./external-links";
 import { learnerBackend } from "./learner";
 import { pythonAssets, workspacePythonDirectories, type PythonAssetLookup, type PythonRuntimeDirectories } from "./python-runtime";
+import { createQuitHandler } from "./quit";
 
 // standard 让页面有自己的源，相对地址和 CSP 的 'self' 才成立；secure 让 crypto.subtle 可用，页面要用它核对 wheel。
 protocol.registerSchemesAsPrivileged([
@@ -25,10 +26,14 @@ function bundledGit(): { gitPath?: string } {
   if (process.platform === "win32") return { gitPath: join(app.getAppPath(), "git", "git.exe") };
   return {};
 }
-let quitting = false;
+const quitting = createQuitHandler({
+  backend: () => backend,
+  quit: () => { app.quit(); },
+  report: (error) => { console.error(error); },
+});
 
 function getBackend(): Promise<RepaProcess> {
-  if (quitting) return Promise.reject(new Error("Desktop 正在关闭。"));
+  if (quitting.quitting()) return Promise.reject(new Error("Desktop 正在关闭。"));
   backend ??= startRepaProcess({
     ...learnerBackend(),
     ...bundledGit(),
@@ -50,14 +55,7 @@ function getBackend(): Promise<RepaProcess> {
   return backend;
 }
 
-app.on("before-quit", (event) => {
-  if (quitting || !backend) return;
-  event.preventDefault();
-  quitting = true;
-  void backend.then((handle) => handle.close()).catch((error: unknown) => {
-    console.error(error);
-  }).finally(() => { app.quit(); });
-});
+app.on("before-quit", quitting.beforeQuit);
 
 function isTrustedRenderer(url: string): boolean {
   try {

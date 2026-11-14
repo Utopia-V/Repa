@@ -224,6 +224,18 @@ export class RepaFault extends Error {
   }
 }
 
+/**
+ * 把任意抛出的值转成说明文字。插件可以抛出任何值，没有原型的对象经 String() 会再抛错，
+ * 记录一个插件的失败时不能因此让外层的打开空间、方法调用或运行一起失败。
+ */
+export function errorText(error: unknown): string {
+  try {
+    return error instanceof Error ? error.message : String(error);
+  } catch {
+    return "抛出了无法转成文字的值";
+  }
+}
+
 /** 按给定 schema 校验输入，失败时抛出 invalid_input，供协议与插件边界复用。 */
 export function parse<S extends TSchema>(schema: S, input: unknown): Static<S> {
   if (!Value.Check(schema, input)) throw new RepaFault("invalid_input", "输入不符合接口要求");

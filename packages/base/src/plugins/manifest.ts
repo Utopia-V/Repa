@@ -5,7 +5,7 @@ import semver from "semver";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import type { Plugin } from "../plugin.js";
-import { object, RepaFault } from "../schema.js";
+import { errorText, object, RepaFault } from "../schema.js";
 import { within } from "../space/paths.js";
 import { confinePluginFolder } from "./folder-imports.js";
 
@@ -137,7 +137,7 @@ async function importEntry(id: string, root: string, npmPackage: boolean, url: s
     return await import(url) as unknown;
   } catch (error) {
     if (error instanceof RepaFault) throw error;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
     const code = error instanceof Error && "code" in error ? error.code : undefined;
     const where = error instanceof Error ? location(error, root) : undefined;
     // reason 说明是哪一类问题，advice 说明怎样改，放在 Node 的原话和出错位置之后。

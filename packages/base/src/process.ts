@@ -21,6 +21,11 @@ export interface RepaProcess {
   readonly connection: ClientConnection;
   readonly closed: Promise<void>;
   close(): Promise<void>;
+  /**
+   * 不等收尾，直接结束后端进程，等它退出。正常关闭卡住时用，例如插件的 open 或 close 永不返回：
+   * 空间锁留到过期后回收，尚未提交的文件改动下次打开时记为外部改动。closed 照常以异常退出结束。
+   */
+  kill(): Promise<void>;
 }
 
 /** Node 宿主拥有服务进程；stdout 只用于交付私密连接，不写入连接文件。 */
@@ -72,6 +77,10 @@ export async function startRepaProcess(options: RepaProcessOptions = {}): Promis
     })();
     return closing;
   };
+  const kill = async (): Promise<void> => {
+    if (!exited) child.kill("SIGKILL");
+    await exitedPromise;
+  };
 
   try {
     const connection = await new Promise<ClientConnection>((resolve, reject) => {
@@ -121,7 +130,7 @@ export async function startRepaProcess(options: RepaProcessOptions = {}): Promis
     });
     // 交接后继续排空 stdout，避免子进程被管道背压阻塞。
     child.stdout.resume();
-    return { connection, closed, close };
+    return { connection, closed, close, kill };
   } catch (error) {
     // 未交付的启动失败进程由本入口回收；超时强杀不属于正常服务关闭。
     if (!exited) {
