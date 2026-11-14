@@ -1,0 +1,39 @@
+{
+  "name": "@repa/materials",
+  "version": "0.1.0",
+  "license": "Apache-2.0 AND BSD-3-Clause",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist",
+    "cmaps",
+    "repa-plugin.json"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/plugin.d.ts",
+      "import": "./dist/plugin.js"
+    }
+  },
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "precheck": "npm run build",
+    "pretest": "npm run build",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@repa/base": "0.1.0",
+    "fflate": "0.8.3",
+    "unpdf": "2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.21",
+    "cfb": "1.2.2",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3"
+  }
+}

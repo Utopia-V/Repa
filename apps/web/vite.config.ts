@@ -181,9 +181,17 @@ function repaPythonRuntime() {
   };
 }
 
-/** 学习者版本的装配：加载学习插件、关掉通用 Agent，与桌面端交给学习者的后端相同。 */
+/** 课件转文字插件：学习者把课件放进空间的 materials/，Agent 用它的工具读成文字。两个版本都带上。 */
+const MATERIALS_PLUGIN = fileURLToPath(new URL("../../packages/materials", import.meta.url));
+
+/** 普通版本的装配：通用 Agent 加课件转文字插件。 */
+const GENERAL_BACKEND: RepaProcessOptions = {
+  plugins: [MATERIALS_PLUGIN],
+};
+
+/** 学习者版本的装配：加载学习插件与课件转文字插件、关掉通用 Agent，与桌面端交给学习者的后端相同。 */
 const LEARNER_BACKEND: RepaProcessOptions = {
-  plugins: [fileURLToPath(new URL("../../packages/learning", import.meta.url))],
+  plugins: [fileURLToPath(new URL("../../packages/learning", import.meta.url)), MATERIALS_PLUGIN],
   generalAgent: false,
 };
 
@@ -191,7 +199,7 @@ const LEARNER_BACKEND: RepaProcessOptions = {
 // 桌面端用 desktop 模式加载这份配置（见 apps/desktop/electron.vite.config.ts）：后端由 Electron 主进程启动，这里不另起一个。
 export default defineConfig(({ mode }) => ({
   plugins: [
-    ...(mode === "desktop" ? [] : [repaDevelopmentBackend(mode === "learning" ? LEARNER_BACKEND : {})]),
+    ...(mode === "desktop" ? [] : [repaDevelopmentBackend(mode === "learning" ? LEARNER_BACKEND : GENERAL_BACKEND)]),
     repaPythonRuntime(),
     react(),
     tailwindcss(),
