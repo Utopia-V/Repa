@@ -15,7 +15,7 @@ import { t } from "@/lib/strings";
  * 关闭对话框按拒绝处理，后端在回答之前一直等待。
  */
 export function CommandConfirmationDialog() {
-  const current = useAppStore((state) => state.confirmations[0]);
+  const current = useAppStore((state) => state.confirmations.find((item) => item.request.kind === "command"));
   const reply = useAppStore((state) => state.replyConfirmation);
 
   return <Dialog open={current !== undefined} onOpenChange={(open) => { if (!open && current) void reply(current.id, false); }}>

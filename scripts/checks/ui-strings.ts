@@ -10,6 +10,7 @@ import ts from "typescript";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const SOURCE = path.join(ROOT, "apps/web/src");
 const STRINGS = path.join(SOURCE, "strings/zh-CN.ts");
+// 带参数的占位写成“〔待写〕{name}”，参数照样受类型检查。
 const PLACEHOLDER = "〔待写〕";
 const HAN = /\p{Script=Han}/u;
 const LETTER = /\p{L}/u;
@@ -65,7 +66,7 @@ async function literals(file: string): Promise<string[]> {
 
 async function placeholders(): Promise<string[]> {
   const text = await readFile(STRINGS, "utf8");
-  return [...text.matchAll(new RegExp(`"([^"]+)":\\s*"${PLACEHOLDER}"`, "gu"))].flatMap((match) => match[1] ?? []);
+  return [...text.matchAll(new RegExp(`"([^"]+)":\\s*"${PLACEHOLDER}[^"]*"`, "gu"))].flatMap((match) => match[1] ?? []);
 }
 
 async function main(): Promise<void> {

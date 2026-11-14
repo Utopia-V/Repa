@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { copyFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { RepaFault } from "@repa/base/plugin";
@@ -24,7 +25,7 @@ export class Materials {
   constructor(private readonly root: string, private readonly dataDir: string) {}
 
   /** materials/ 下的全部文件，按路径排序；文件夹不在时返回 undefined。 */
-  async list(signal: AbortSignal): Promise<Array<{ path: string; outcome: Outcome }> | undefined> {
+  async list(signal: AbortSignal): Promise<Array<{ path: string; size: number; outcome: Outcome }> | undefined> {
     const directory = path.join(this.root, MATERIALS_DIRECTORY);
     let entries;
     try {
@@ -41,8 +42,37 @@ export class Materials {
       .map((file) => toSpacePath(path.relative(this.root, file)))
       .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
     const result = [];
-    for (const file of files) result.push({ path: file, outcome: await this.outcome(path.join(this.root, file), signal) });
+    for (const file of files) {
+      const absolute = path.join(this.root, file);
+      result.push({ path: file, size: (await stat(absolute)).size, outcome: await this.outcome(absolute, signal) });
+    }
     return result;
+  }
+
+  /**
+   * 把本机的文件复制进 materials/，文件名不变。先逐个核对：要是绝对路径、是普通文件、materials/ 里还没有同名的文件，
+   * 有一个不合就一个也不复制。同名的不覆盖，学习者先删掉旧的或改个名字。复制不经空间的文件接口：那是文本接口，课件多是二进制。
+   */
+  async add(sources: readonly string[]): Promise<void> {
+    const directory = path.join(this.root, MATERIALS_DIRECTORY);
+    const names = new Set<string>();
+    for (const source of sources) {
+      if (!path.isAbsolute(source)) throw new RepaFault("invalid_path", `${source} 不是绝对路径。`, { path: source });
+      const info = await stat(source).catch((error: unknown) => {
+        if (isMissing(error)) throw new RepaFault("file_not_found", `没有 ${source} 这个文件。`, { path: source });
+        throw error;
+      });
+      if (!info.isFile()) throw new RepaFault("not_file", `${source} 不是文件。`, { path: source });
+      const name = path.basename(source);
+      if (names.has(name)) throw new RepaFault("duplicate_name", `选了两个都叫 ${name} 的文件。`, { name });
+      names.add(name);
+      if (await stat(path.join(directory, name)).then(() => true, (error: unknown) => (isMissing(error) ? false : Promise.reject(error)))) {
+        throw new RepaFault("file_exists", `${MATERIALS_DIRECTORY}/ 里已经有 ${name}。`, { name });
+      }
+    }
+    await mkdir(directory, { recursive: true });
+    // COPYFILE_EXCL：核对以后别处恰好放进了同名文件时报错，不覆盖。
+    for (const source of sources) await copyFile(source, path.join(directory, path.basename(source)), constants.COPYFILE_EXCL);
   }
 
   /** 读 materials/ 里的一个文件；file 相对空间根目录，返回规范化后的路径。 */

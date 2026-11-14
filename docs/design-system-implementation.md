@@ -83,7 +83,7 @@ Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run tes
 
 从后端读取的数据统一用 `Resource` 表示：`status` 为 idle、loading、ready 或 error，重新读取期间保留上一次的 `data`，界面不会回到空白。同一份数据只保留一个进行中的读取，并以序号丢弃先发后到的旧结果。`App` 连接成功后调用 `setClient`，store 换用新连接并重新读取已经读过的数据；标签页切回可见时 `StoreProvider` 也会重新读取，因为后端不推送设置和空间列表的变化。修改类操作（目前是 `openSpace` 和 `closeSpace`）把失败抛给调用页面，由页面在本地状态里显示进行中与失败。
 
-目前 store 持有最近空间（`space.list`，最新的在前）、模型提供方（`model.providers`）、模型列表（`model.list`）、默认模型（`model.getDefault`）、当前空间的会话列表（`session.list`，换空间时清空）、当前空间最近的修改历史（`history.list` 与 `history.changes`，换空间时清空）、当前空间的提示各段与应用级提示覆盖（`prompt.list` 与 `settings.get` 的 `prompts`，换空间时清空）、本页面打开的空间、当前会话、待回答的命令授权、进行中的模型登录和侧栏偏好；侧栏偏好、打开的空间和当前会话的 id 保存在浏览器里，刷新或重启后读回。后端没有查询当前空间的方法，`setClient` 每次连上（包括启动后第一次连接）都对保存的空间调一次 `space.open`：同一个空间后端直接返回，后端重启过则重新打开；打开期间 `session.*`、`history.*` 和 `prompt.*` 请求等它结束再发。打不开时清空空间并记下原因，选空间页显示“无法打开上次的空间”；连接中断导致的失败保留空间，重连后再打开。关闭空间会清掉保存的空间，下次启动回到选空间页。会话列表、修改历史和提示依赖打开的空间，不随其他数据在换连接时直接重读，而是在空间重新打开之后再读。`setClient` 同时在新连接上订阅 `session.event` 和 `confirm.request`，旧连接上的授权请求随断线由后端取消，store 一并清空。
+目前 store 持有最近空间（`space.list`，最新的在前）、模型提供方（`model.providers`）、模型列表（`model.list`）、默认模型（`model.getDefault`）、当前空间的会话列表（`session.list`，换空间时清空）、当前空间最近的修改历史（`history.list` 与 `history.changes`，换空间时清空）、当前空间的提示各段与应用级提示覆盖（`prompt.list` 与 `settings.get` 的 `prompts`，换空间时清空）、本页面打开的空间、当前会话、待回答的命令授权与自写插件的批准、进行中的模型登录和侧栏偏好；侧栏偏好、打开的空间和当前会话的 id 保存在浏览器里，刷新或重启后读回。后端没有查询当前空间的方法，`setClient` 每次连上（包括启动后第一次连接）都对保存的空间调一次 `space.open`：同一个空间后端直接返回，后端重启过则重新打开；打开期间 `session.*`、`history.*` 和 `prompt.*` 请求等它结束再发。打不开时清空空间并记下原因，选空间页显示“无法打开上次的空间”；连接中断导致的失败保留空间，重连后再打开。关闭空间会清掉保存的空间，下次启动回到选空间页。会话列表、修改历史和提示依赖打开的空间，不随其他数据在换连接时直接重读，而是在空间重新打开之后再读。`setClient` 同时在新连接上订阅 `session.event` 和 `confirm.request`，旧连接上的授权请求随断线由后端取消，store 一并清空。
 
 
 ## 工作台侧栏
@@ -128,6 +128,8 @@ Pi 在上下文快放不下时会自动压缩：把较早的对话写成摘要�
 
 Agent 调用 `bash` 时后端发出 `confirm.request`。`features/command-confirmation.tsx` 挂在工作区布局上，离开对话页也能看到，显示命令和“拒绝／允许”，关闭对话框按拒绝回复；登录用的 input、select、display 请求由设置页的登录流程处理，没有进行中的登录时 store 直接回复取消，避免后端停在等待上。后端取消运行时不撤回已发出的授权请求，`sendMessage` 结束时清空。
 
+Agent 写好的自写插件要学习者批准才加载，后端同样发出 `confirm.request`，`kind` 为 `plugin`。`features/plugin-approval.tsx` 与命令确认并列挂在工作区布局上，显示插件的名称、id、版本、页面和文件清单（每个文件标新增、修改或删除）；批准回复 `true`，拒绝回复 `false`，关掉对话框回复 `null`，后端记为没有作出决定。批准时插件的代码还没有运行，它带来哪些工具要加载以后才知道，所以不列工具。
+
 Agent 或插件在对话里提问时，后端发出 `ask.request`。Web 在 `RepaClient.connect` 的 `capabilities.interaction` 里声明能显示的作答位和内容块，定义在 `lib/ask.ts`：选择、填写两种作答位，Markdown、代码块和公式；排序、表格、代码作答位和图片块还没有做，后端不会把需要它们的题发来，前端宽松读取后仍有不认识的必需特性时回复 `unsupported`。store 按到达顺序保存当前会话的询问，换会话、换空间或关空间时清空。`components/domain/ask-card.tsx` 显示在发起它的工具调用（`origin.callId`）下面，找不到那次调用时放在记录末尾。
 
 卡片按题面、每一问的题面和作答控件排列：单选用单选组，多选用复选框，带“其他”时旁边是自填输入框，开始填写就选中“其他”，单选时同时放下已选的项；填写按 `lines` 用单行或多行输入框，`format` 为数字时给数字键盘，`quick` 是一键填入的按钮。多选题的题面后面加“（可多选）”，可以不答的小问加“（可不答）”；模型调用 `ask_user` 时常在题面里自己写“可多选”，题面文字里已经有“多选”时就不再加，免得显示两遍。Markdown 块只在 `math` 为真时排公式，而 `ask_user` 生成的内容块目前不带 `math`，所以它出的题里公式显示原文，要等后端给这些块标上 `math`。
@@ -142,6 +144,18 @@ Agent 或插件在对话里提问时，后端发出 `ask.request`。Web 在 `Rep
 打开文件夹由宿主负责。开发时是 Vite 开发服务器的 `POST /__repa/reveal`：只接受同源请求、绝对路径和 `repa-feedback-*.zip` 文件名，macOS 用 `open -R`，Windows 用 `explorer.exe /select,`，其他系统打开所在文件夹。Desktop 还没有对话页，没有接这个入口。
 
 `test/conversation.test.ts` 覆盖记录（含压缩标记和 `ask_user` 保存的提问）与事件的转换和可以分叉的回答，`test/conversation-store.test.ts` 覆盖按最后消息打开会话、子 Agent 的会话不列出也不打开、切换会话与运行中不切换、给新会话或已建立的会话换模型、从回答分叉并打开新会话、换空间清空会话列表、关闭空间清空会话状态与运行中不关闭、延迟建立会话、实时显示与运行结束后替换、失败分类、停止、运行中排队与送达、排队失败、授权排队和重连后重新打开空间，`test/conversation-page.test.tsx` 覆盖页面的发送、输入法回车、停止、运行中继续发送与排队显示、停止后排队消息回到输入框、失败退回输入框、授权对话框、两种发送者的显示方式、会话模型的显示与更换，以及分叉后打开新会话并聚焦输入框、运行中禁用和分叉失败，`test/markdown.test.tsx` 覆盖 Markdown 元素、两种公式写法、链接与图片限制和生成中的语法补全。`test/ask-card.test.tsx` 覆盖询问卡片的位置、单选与自填、退回问题关联到控件、交后收起、多选与接受时附的说明、关闭、运行中止与断线、显示不了的题回复 `unsupported`、输入框代替作答、题面已写“可多选”时不重复提示，以及重新读取会话后按记录显示的三种结局和实时卡片优先。
+
+## 学习页的做课
+
+`pages/learn.tsx` 除了任务和菜单，还按学习插件的 `building.get` 显示做课。store 的 `learning` 随学习状态一起读做课的状态和设置，收到 `building.changed` 时重读。
+
+- **起点**：`building.get` 里既没有自制课也没有做课的对话，手上也没有进行中的任务时，`features/making-start.tsx` 显示 `materials/` 里的课件（文件名与页数、张数或段数，读不出文字的照课件插件给的原因标出）、添加课件、可不填的要求和“开始”。空间里没有 `course/` 时学的是随包的课，它的菜单排在起点之后。没有可用模型或没有课件时“开始”不可用。
+- **添加课件**：`features/file-picker.tsx` 与选文件夹的做法相同，由后端列目录（`space.browse` 带 `files: true`），学习者在几个文件夹里勾选文件，课件插件的 `add` 按路径复制进 `materials/`；失败时对话框留着，显示原因，勾选不丢。
+- **开始**：store 的 `startMaking` 新建通用 Agent 的会话，调用 `building.begin` 记下它、取回第一条消息，再像普通消息一样发出，复用 `sendMessage` 的发送流程。
+- **做课的对话**：没有学习任务而有做课的对话时，右侧（窄屏是抽屉）是 `features/making-panel.tsx`，有学习任务时仍是辅导。会话记录、提问卡片和排队的消息由 `features/conversation-transcript.tsx` 显示，对话页共用它。接上这段会话由学习页调用的 `useMakingSession` 负责，不随抽屉开关，提问不会因为换会话被清掉；窄屏时 Agent 提问，抽屉自己打开。做课用到的插件工具（`materials_list`、`materials_read`、`course_check`、`course_use`）在工具活动里有自己的名称。
+- **整门课**：`features/course-outline.tsx` 在菜单之后显示正在展开的部分与取消、最近一次没有成功的原因与再试（`failed` 的 `message` 照 `ErrorNotice` 显示）、花费（两位有效数字的美元，`unpriced` 不为零时加一句）和自动展开的开关；各部分的清单按课程顺序列出标题、范围、出处和状态，状态用图标加文字，还是轮廓的部分可以“先做”。还没有能学的部分时清单展开，有了以后先收起。
+
+`test/making.test.tsx` 覆盖起点与开始、没有模型、添加课件、整门课的各项操作、后端拒绝展开、窄屏抽屉和插件批准。
 
 ## 修改历史页
 

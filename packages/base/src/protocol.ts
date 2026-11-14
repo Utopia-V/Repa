@@ -145,7 +145,8 @@ export const methods = {
   "space.create": { params: space, result: openedSpace },
   "space.close": { params: empty, result: nothing },
   "space.roots": { params: empty, result: Type.Array(DirectoryRootSchema) },
-  "space.browse": { params: object({ path: Type.Optional(identifier) }), result: DirectoryListingSchema },
+  // files 为真时连同文件一起列出，供页面选本机文件，例如把课件复制进空间。
+  "space.browse": { params: object({ path: Type.Optional(identifier), files: Type.Optional(Type.Boolean()) }), result: DirectoryListingSchema },
   "agent.list": { params: empty, result: Type.Array(AgentInfoSchema) },
   "session.list": { params: empty, result: Type.Array(SessionInfoSchema) },
   "session.create": { params: object({ model: Type.Optional(ModelRefSchema), agent: Type.Optional(identifier) }), result: SessionInfoSchema },

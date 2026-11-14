@@ -126,7 +126,11 @@ export const DirectoryListingSchema = object({
   parent: Type.Union([identifier, Type.Null()]),
   /** 文件夹内含有效 `.repa/format.json` 时为已有空间。 */
   space: Type.Boolean(),
-  entries: Type.Array(object({ name: identifier, path: identifier, space: Type.Boolean() })),
+  /** 子文件夹在前；要求列出文件时，文件随后，带 file 与字节数 size，space 为 false。 */
+  entries: Type.Array(object({
+    name: identifier, path: identifier, space: Type.Boolean(),
+    file: Type.Optional(Type.Literal(true)), size: Type.Optional(Type.Integer({ minimum: 0 })),
+  })),
   truncated: Type.Boolean(),
 });
 /** 目录浏览结果，含父目录、子目录及空间标记，供空间选择界面使用。 */

@@ -9,8 +9,11 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { ConceptCardDialog } from "@/features/concept-card";
+import { CourseOutline } from "@/features/course-outline";
 import { LearningMenuView } from "@/features/learning-menu";
 import { kindText, LearningTaskView, useConceptLinks } from "@/features/learning-task";
+import { MakingPanel, useMakingSession } from "@/features/making-panel";
+import { MakingStart } from "@/features/making-start";
 import { TutorPanel } from "@/features/tutor-panel";
 import { useAppStore } from "@/hooks/use-app-store";
 import { errorCode } from "@/lib/errors";
@@ -19,8 +22,8 @@ import { t } from "@/lib/strings";
 const WIDE = "(min-width: 1280px)";
 
 /**
- * 宽屏时辅导常驻在右侧，窄屏时收进抽屉。断点按左侧导航、任务区和辅导三栏都放得下来定。
- * 只挂一份辅导面板，避免两处同时绑定会话。
+ * 宽屏时右侧的面板常驻，窄屏时收进抽屉。断点按左侧导航、任务区和面板三栏都放得下来定。
+ * 只挂一份面板，避免两处同时绑定会话。
  */
 function useWide(): boolean {
   const [wide, setWide] = useState(() => window.matchMedia(WIDE).matches);
@@ -45,7 +48,8 @@ function Learn({ space }: { space: string }) {
   const refreshLearning = useAppStore((state) => state.refreshLearning);
   const abortTask = useAppStore((state) => state.abortTask);
   const [concept, setConcept] = useState<string>();
-  const [tutorOpen, setTutorOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const asking = useAppStore((state) => state.asks.some((ask) => ask.closed === undefined));
   const [confirmAbort, setConfirmAbort] = useState(false);
   const wide = useWide();
   const scroller = useRef<HTMLDivElement>(null);
@@ -57,6 +61,13 @@ function Learn({ space }: { space: string }) {
   useEffect(() => {
     if (learning.available === undefined && learning.status === "idle") void loadLearning();
   }, [learning.available, learning.status, loadLearning]);
+
+  // 窄屏时做课的对话在抽屉里：Agent 提问时它在等学习者回答，打开抽屉让问题被看到。
+  const makingOpen = !learning.state?.task && learning.building?.sessionId != null;
+  useMakingSession(makingOpen ? learning.building?.sessionId ?? undefined : undefined);
+  useEffect(() => {
+    if (asking && makingOpen) setPanelOpen(true);
+  }, [asking, makingOpen]);
 
   // 换了任务、阶段或题目，从新画面的开头看起；同一画面里的刷新不动滚动位置。
   useEffect(() => {
@@ -81,20 +92,31 @@ function Learn({ space }: { space: string }) {
   }
 
   const { task, menu, progress, restrictions } = state;
+  const { building, settings } = learning;
   const active = task !== null && task.phase.stage !== "completed" && task.phase.stage !== "aborted";
   const goal = Math.min(100, Math.round(progress.todayXp / progress.dailyGoalXp * 100));
-  const tutor = task && <TutorPanel allowed={restrictions.tutorAllowed} renderLink={renderLink} />;
+  // 做课：有了自制课或做课的对话以后显示整门课的全貌；都没有、手上也没有进行中的任务时，学习页是做课的起点。
+  const makingSession = building?.sessionId ?? undefined;
+  const making = building !== undefined && (building.course !== null || makingSession !== undefined);
+  const startable = building !== undefined && !making && !active;
+  // 右侧：有学习任务时是辅导，行为不变；没有任务而有做课的对话时是做课的对话。
+  const panel = task
+    ? { label: t("tutor.panel.label"), action: t("learn.tutor.action"), content: <TutorPanel allowed={restrictions.tutorAllowed} renderLink={renderLink} /> }
+    : makingSession !== undefined
+      ? { label: t("making.panel.label"), action: t("learn.making.action"), content: <MakingPanel sessionId={makingSession} /> }
+      : undefined;
+  const makingPanel = !task && makingSession !== undefined;
 
   return <div className="flex h-dvh flex-col">
     {/* 移动端左侧让出浮动的导航按钮。 */}
     <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-2 pr-4 pl-16 md:px-6">
-      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{state.course?.title ?? t("learn.page.title")}</h2>
+      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{state.course?.title ?? building?.course?.title ?? t("learn.page.title")}</h2>
       <div className="flex items-center gap-3">
         <div className="grid w-40 gap-1">
           <span className="text-caption text-muted-foreground">{t("learn.dailyGoal.label", { todayXp: progress.todayXp, dailyGoalXp: progress.dailyGoalXp })}</span>
           <Progress value={goal} aria-label={t("learn.dailyGoal.progress.label")} />
         </div>
-        {tutor && !wide && <Button variant="tertiary" onClick={() => setTutorOpen(true)} leadingIcon={MessageCircle}>{t("learn.tutor.action")}
+        {panel && !wide && <Button variant="tertiary" onClick={() => setPanelOpen(true)} leadingIcon={MessageCircle}>{panel.action}
         </Button>}
       </div>
     </header>
@@ -115,23 +137,29 @@ function Learn({ space }: { space: string }) {
           {active && <div className="flex justify-end">
             <Button variant="ghost" disabled={learning.busy !== undefined} onClick={() => setConfirmAbort(true)}>{t("learn.abort.action", { kindText: kindText[task.kind] })}</Button>
           </div>}
+          {/* 学的是随包的课时菜单也在；做课的起点排在前面，试用者打开空间先看到它。 */}
+          {startable && <MakingStart onStarted={() => setPanelOpen(true)} />}
           {menu && learning.readAt !== undefined && <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} />}
-          {!task && !menu && <p className="m-0 text-body text-muted-foreground">{t("learn.menu.noTask.empty")}</p>}
+          {making && (building.parts.length > 0 || building.course !== null
+            ? <CourseOutline building={building} settings={settings} />
+            : <p role="status" className="m-0 text-body text-muted-foreground">{t("outline.pending.status")}</p>)}
+          {building === undefined && learning.buildingError !== undefined && <ErrorNotice title={t("outline.load.error")} error={learning.buildingError} />}
+          {!task && !menu && !startable && !making && <p className="m-0 text-body text-muted-foreground">{t("learn.menu.noTask.empty")}</p>}
         </div>
       </div>
-      {tutor && wide && <aside aria-label={t("tutor.panel.label")} className="flex w-96 shrink-0 flex-col border-l border-border">
-        <h3 className="m-0 px-4 pt-4 text-title weight-semibold">{t("tutor.panel.label")}</h3>
-        {tutor}
+      {panel && wide && <aside aria-label={panel.label} className="flex w-96 shrink-0 flex-col border-l border-border">
+        <h3 className="m-0 px-4 pt-4 text-title weight-semibold">{panel.label}</h3>
+        {panel.content}
       </aside>}
     </div>
 
-    {tutor && !wide && <Sheet open={tutorOpen} onOpenChange={setTutorOpen}>
+    {panel && !wide && <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
       <SheetContent className="w-full sm:max-w-md">
         <SheetHeader>
-          <SheetTitle>{t("tutor.panel.label")}</SheetTitle>
-          <SheetDescription>{t("learn.tutor.description")}</SheetDescription>
+          <SheetTitle>{panel.label}</SheetTitle>
+          {!makingPanel && <SheetDescription>{t("learn.tutor.description")}</SheetDescription>}
         </SheetHeader>
-        {tutor}
+        {panel.content}
       </SheetContent>
     </Sheet>}
 

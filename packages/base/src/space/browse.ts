@@ -66,23 +66,29 @@ async function isSpace(directory: string): Promise<boolean> {
   }
 }
 
-async function isChildDirectory(directory: string, entry: Dirent): Promise<boolean> {
-  if (entry.isDirectory()) return true;
-  if (!entry.isSymbolicLink()) return false;
-  // Windows 的 junction 也报告为链接；跟随一次，读不了的链接不列出。
+/** 子文件夹、文件或都不是（读不了的链接、设备文件等）。链接跟随一次，Windows 的 junction 也报告为链接。 */
+async function entryKind(directory: string, entry: Dirent): Promise<"folder" | "file" | undefined> {
+  if (entry.isDirectory()) return "folder";
+  if (entry.isFile()) return "file";
+  if (!entry.isSymbolicLink()) return undefined;
   try {
-    return (await stat(path.join(directory, entry.name))).isDirectory();
+    const info = await stat(path.join(directory, entry.name));
+    return info.isDirectory() ? "folder" : info.isFile() ? "file" : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-/** 只返回子文件夹的名称与空间标记，只读取空间格式标记。 */
-export async function browseDirectory(requested = os.homedir(), limit = LIMIT): Promise<DirectoryListing> {
+/** 返回子文件夹的名称与空间标记，只读取空间格式标记；files 为真时连同文件的名称与大小。 */
+export async function browseDirectory(
+  requested = os.homedir(),
+  { files = false, limit = LIMIT }: { files?: boolean; limit?: number } = {},
+): Promise<DirectoryListing> {
   if (!path.isAbsolute(requested) || requested.includes("\0")) {
     throw new RepaFault("invalid_path", "请提供文件夹的绝对路径。", { path: requested });
   }
-  const names: string[] = [];
+  const folders: string[] = [];
+  const found: string[] = [];
   let directory = requested;
   let truncated = false;
   try {
@@ -90,23 +96,32 @@ export async function browseDirectory(requested = os.homedir(), limit = LIMIT): 
     // 逐项读取，超大目录读到上限即停止；目录在两次请求之间可能变化，因此不提供翻页游标。
     for await (const entry of await opendir(directory)) {
       if (hiddenEntry(entry.name, entry.isSymbolicLink())) continue;
-      if (!await isChildDirectory(directory, entry)) continue;
-      if (names.length === limit) {
+      const kind = await entryKind(directory, entry);
+      if (kind === undefined || (kind === "file" && !files)) continue;
+      if (folders.length + found.length === limit) {
         truncated = true;
         break;
       }
-      names.push(entry.name);
+      (kind === "folder" ? folders : found).push(entry.name);
     }
   } catch (error) {
     throw browseFault(error, directory);
   }
-  names.sort(new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare);
-  const entries = await Promise.all(names.map(async (name) => {
+  const order = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
+  folders.sort(order);
+  found.sort(order);
+  const folderEntries = await Promise.all(folders.map(async (name) => {
     const child = path.join(directory, name);
     return { name, path: child, space: await isSpace(child) };
   }));
+  // 文件在列出与读大小之间可能被删掉，删掉的不列。
+  const fileEntries = (await Promise.all(found.map(async (name) => {
+    const child = path.join(directory, name);
+    const info = await stat(child).catch(() => undefined);
+    return info?.isFile() ? [{ name, path: child, space: false, file: true as const, size: info.size }] : [];
+  }))).flat();
   const parent = path.dirname(directory);
-  return { path: directory, parent: parent === directory ? null : parent, space: await isSpace(directory), entries, truncated };
+  return { path: directory, parent: parent === directory ? null : parent, space: await isSpace(directory), entries: [...folderEntries, ...fileEntries], truncated };
 }
 
 export function parseDrives(output: string): DirectoryRoot[] {

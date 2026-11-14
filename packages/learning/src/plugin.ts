@@ -6,13 +6,13 @@ import { errorText } from "@repa/base/protocol";
 import {
   checkFormat, currentRun, type AgentWork, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool,
 } from "@repa/base/plugin";
-import { completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
+import { beginText, completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
 import { COURSE_GUIDE, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
 import { emptyProgress } from "./progress.js";
-import { learningMethods, type BuildingEvent, type CourseBuilding, type LearningInput, type LearningState } from "./protocol.js";
+import { learningMethods, type BuildingEvent, type CourseBuilding, type LearningInput, type LearningResult, type LearningState } from "./protocol.js";
 import { LearningRecords, RECORDS_FILE } from "./records.js";
 import { LearningSession } from "./session.js";
 import { CHECKS, CourseStore, hasSpaceCourse, onlyAdds, readSpaceCourse, SPACE_COURSE } from "./space-course.js";
@@ -361,7 +361,8 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   }
 
   async function buildingState(): Promise<CourseBuilding> {
-    const ready = current.kind === "ready" ? current : undefined;
+    // 随包的课不是在这个空间里做的，不算做课的状态。
+    const ready = current.kind === "ready" && current.space !== undefined ? current : undefined;
     const learned = ready ? await learnedTopics(ready.session) : new Set<string>();
     const parts: CourseBuilding["parts"] = [];
     for (const id of ready?.course.course.topics ?? []) {
@@ -395,7 +396,17 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         ? { topicIds: last.topicIds, at: last.endedAt, code: last.failure.code, ...(last.failure.message === undefined ? {} : { message: last.failure.message }) }
         : null,
       cost: await host.models.usage(record.sessions),
+      sessionId: record.conversation ?? null,
     };
+  }
+
+  /** 记下学习者与之对话做课的会话，换掉以前的那一个（以前的仍算在花费里）。 */
+  async function begin(input: LearningInput<"building.begin">): Promise<LearningResult<"building.begin">> {
+    record.conversation = input.sessionId;
+    if (!record.sessions.includes(input.sessionId)) record.sessions.push(input.sessionId);
+    await save();
+    announceBuilding();
+    return { text: beginText(input.request) };
   }
 
   /**
@@ -433,6 +444,11 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       parameters: learningMethods["building.expand"].input,
       result: learningMethods["building.expand"].result,
       invoke: (input) => requestExpansion(input as LearningInput<"building.expand">),
+    },
+    "building.begin": {
+      parameters: learningMethods["building.begin"].input,
+      result: learningMethods["building.begin"].result,
+      invoke: (input) => begin(input as LearningInput<"building.begin">),
     },
     "building.cancel": { parameters: learningMethods["building.cancel"].input, result: learningMethods["building.cancel"].result, invoke: () => cancelExpansion() },
     "settings.get": { parameters: learningMethods["settings.get"].input, result: learningMethods["settings.get"].result, invoke: async () => settings },

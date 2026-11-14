@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { ConnectionError, RpcError, type RepaClient } from "@repa/base/client";
+import { readMaterialsResult, type MaterialsInput, type MaterialsMethod, type MaterialsResult } from "@repa/materials/protocol";
 import {
   canRender,
   type AskClosed,
@@ -80,7 +81,7 @@ export type SpaceHistory = {
   complete: boolean;
 };
 
-/** 等待用户回答的命令授权，按到达顺序处理。 */
+/** 等待用户回答的命令授权与自写插件的批准，按到达顺序处理。 */
 export type PendingConfirmation = { id: string; request: Confirmation };
 
 /**
@@ -157,8 +158,17 @@ export type AppState = LearningActions & {
    * 后端报错时已经放下了这个空间，再关一次就能完成。
    */
   closeSpace(): Promise<void>;
-  /** 浏览结果只属于当次选择，不进入共享状态。 */
-  browseFolder(path?: string): Promise<Result<"space.browse">>;
+  /** 浏览结果只属于当次选择，不进入共享状态。files 为真时连同文件一起列出。 */
+  browseFolder(path?: string, options?: { files: boolean }): Promise<Result<"space.browse">>;
+  /** 空间 materials/ 里的课件；结果只属于当次查看，不进入共享状态。 */
+  listMaterials(): Promise<MaterialsResult<"list">>;
+  /** 把本机的文件复制进 materials/，返回复制以后的列表；失败抛给调用方。 */
+  addMaterials(paths: string[]): Promise<MaterialsResult<"add">>;
+  /**
+   * 开始做课：新建一个通用 Agent 的会话，告诉学习插件这是做课的对话，把插件给的第一条消息（带上学习者写的要求）发出去。
+   * 与 sendMessage 一样等整次运行结束才返回；返回 false 表示没有发出去，错误在 conversation.sendError。
+   */
+  startMaking(request: string): Promise<boolean>;
   listRoots(): Promise<Result<"space.roots">>;
   /**
    * 读取会话列表，打开上次查看的会话；它不在列表里时打开最近有消息的会话。
@@ -195,7 +205,8 @@ export type AppState = LearningActions & {
   sendMessage(text: string): Promise<boolean>;
   /** 返回随取消被后端丢弃、没送到 Agent 的排队消息，由调用方放回输入框。 */
   stopRun(): Promise<string[]>;
-  replyConfirmation(id: string, allowed: boolean): Promise<void>;
+  /** null 表示没有作出决定，例如关掉了批准插件的对话框。 */
+  replyConfirmation(id: string, value: boolean | null): Promise<void>;
   /** 交卷；格式不对时询问保持打开，问题记在 problems。 */
   submitAsk(id: string, response: ItemResponse): Promise<void>;
   /** 不作答，直接关掉询问。 */
@@ -316,6 +327,13 @@ export function createAppStore() {
       set({ learning: emptyLearning });
     }
 
+    async function materialsCall<M extends MaterialsMethod>(method: M, input: MaterialsInput<M>): Promise<MaterialsResult<M>> {
+      const raw = await call("plugin.call", { pluginId: "materials", method, input, opening: get().opening ?? "" });
+      const read = readMaterialsResult(method, raw);
+      if (!read.ok) throw new Error(t("materials.api.unreadable.error", { method, path: read.path }));
+      return read.value;
+    }
+
     const learning = createLearningActions({
       call,
       get,
@@ -431,14 +449,9 @@ export function createAppStore() {
         if (event.type === "runEnd") void reloadHistory();
       });
       const offConfirm = client.on("confirm.request", ({ id, request }) => {
-        if (request.kind === "command") {
+        // 自写插件的批准要在下面的登录分支之前：登录进行中时它会被当作登录的输入。
+        if (request.kind === "command" || request.kind === "plugin") {
           set((state) => ({ confirmations: [...state.confirmations, { id, request }] }));
-          return;
-        }
-        // 自写插件的批准还没有界面：回答 null，后端记为没有作出决定，不当作使用者拒绝。
-        // 要在下面的登录分支之前：登录进行中时它会被当作登录的输入。
-        if (request.kind === "plugin") {
-          void reply(id, null);
           return;
         }
         const login = get().activeLogin;
@@ -479,6 +492,43 @@ export function createAppStore() {
         offPlugin();
         offPlugins();
       };
+    }
+
+    /**
+     * 空闲时发出一条消息，还没有会话时先建立。compose 在会话建立以后算出要发的文字（做课的第一条消息由学习插件给出），
+     * 这时 text 不用。后端等整次运行结束才返回，期间的内容由 session.event 送来。
+     */
+    async function deliver(text: string, compose?: (sessionId: string) => Promise<string>): Promise<boolean> {
+      const conversation = get().conversation;
+      if (conversation.run !== "idle") return false;
+      // 上一次运行里没对上的排队消息（例如插件的输入钩子改写了文字）不会再送达，不再显示。
+      updateConversation({ run: "sending", sendError: undefined, queued: [] });
+      let sessionId = conversation.sessionId;
+      try {
+        if (!sessionId) {
+          const created = await call("session.create", {
+            ...(conversation.model ? { model: conversation.model } : {}),
+            ...(conversation.agent ? { agent: conversation.agent } : {}),
+          });
+          sessionId = created.id;
+          updateConversation({ sessionId, model: created.model });
+        }
+        await call("session.send", { sessionId, text: compose ? await compose(sessionId) : text });
+        return true;
+      } catch (error) {
+        if (recordedInSession(error)) return true;
+        if (get().conversation.sessionId === sessionId) updateConversation({ sendError: error });
+        return false;
+      } finally {
+        // 运行没有开始就失败时不会收到 runEnd；后端取消运行时也不会撤回发出的授权请求。
+        set({ confirmations: [] });
+        if (get().conversation.sessionId === sessionId) {
+          updateConversation({ run: "idle", streaming: undefined });
+          await Promise.all([reloadHistory(), reloadSessions()]);
+        } else {
+          await reloadSessions();
+        }
+      }
     }
 
     /** 已写进会话记录的失败，记录读回后在对话里显示，不再单独提示。 */
@@ -574,8 +624,24 @@ export function createAppStore() {
         resetSpaceData();
         set({ space: undefined, opening: undefined, conversation: emptyConversation, confirmations: [], asks: [] });
       },
-      browseFolder(path) {
-        return call("space.browse", path === undefined ? {} : { path });
+      browseFolder(path, options) {
+        return call("space.browse", { ...(path === undefined ? {} : { path }), ...(options?.files ? { files: true } : {}) });
+      },
+      listMaterials() {
+        return materialsCall("list", {});
+      },
+      addMaterials(paths) {
+        return materialsCall("add", { paths });
+      },
+      async startMaking(request) {
+        if (get().conversation.run !== "idle") return false;
+        conversationRequest++;
+        set({ conversation: { ...emptyConversation, status: "ready" }, asks: [] });
+        return await deliver("", async (sessionId) => {
+          const text = await learning.beginMaking(sessionId, request);
+          void learning.loadBuilding();
+          return text;
+        });
       },
       listRoots() {
         return call("space.roots", {});
@@ -693,36 +759,7 @@ export function createAppStore() {
         }
         const conversation = get().conversation;
         if (conversation.run === "running" && conversation.sessionId) return await steer(conversation.sessionId, text);
-        if (conversation.run !== "idle") return false;
-        // 上一次运行里没对上的排队消息（例如插件的输入钩子改写了文字）不会再送达，不再显示。
-        updateConversation({ run: "sending", sendError: undefined, queued: [] });
-        let sessionId = conversation.sessionId;
-        try {
-          if (!sessionId) {
-            const created = await call("session.create", {
-              ...(conversation.model ? { model: conversation.model } : {}),
-              ...(conversation.agent ? { agent: conversation.agent } : {}),
-            });
-            sessionId = created.id;
-            updateConversation({ sessionId, model: created.model });
-          }
-          // 后端等整次运行结束才返回，期间的内容由 session.event 送来。
-          await call("session.send", { sessionId, text });
-          return true;
-        } catch (error) {
-          if (recordedInSession(error)) return true;
-          if (get().conversation.sessionId === sessionId) updateConversation({ sendError: error });
-          return false;
-        } finally {
-          // 运行没有开始就失败时不会收到 runEnd；后端取消运行时也不会撤回发出的授权请求。
-          set({ confirmations: [] });
-          if (get().conversation.sessionId === sessionId) {
-            updateConversation({ run: "idle", streaming: undefined });
-            await Promise.all([reloadHistory(), reloadSessions()]);
-          } else {
-            await reloadSessions();
-          }
-        }
+        return await deliver(text);
       },
       async stopRun() {
         const { sessionId, run } = get().conversation;
@@ -742,10 +779,10 @@ export function createAppStore() {
           if (get().conversation.sessionId === sessionId && get().conversation.run === "stopping") updateConversation({ run: "idle" });
         }
       },
-      async replyConfirmation(id, allowed) {
+      async replyConfirmation(id, value) {
         set((state) => ({ confirmations: state.confirmations.filter((item) => item.id !== id) }));
         try {
-          await call("confirm.reply", { id, value: allowed });
+          await call("confirm.reply", { id, value });
         } catch {
           // 请求可能已随取消或断线失效；后端那一侧会按拒绝处理，界面不需要再提示。
         }

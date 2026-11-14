@@ -297,7 +297,8 @@ it("代码题点“运行”：后端拼好不带答案的一批，交给试运�
   expect(screen.getByText("第 2 行出错：", { exact: false })).toBeTruthy();
   expect(learningCalls(fake.call).find((call) => call.method === "run.prepare")?.input).toEqual({ deliveryId: "d4", slotId: "code", code: "print(len(df))\nprint(x)\n" });
   expect(runner.run).toHaveBeenCalledWith(batch, expect.any(AbortSignal));
-  expect(learningCalls(fake.call).map((call) => call.method)).toEqual(["state.get", "run.prepare"]);
+  // 做课的状态与设置随学习状态一起读，与试运行无关。
+  expect(learningCalls(fake.call).map((call) => call.method).filter((method) => !["building.get", "settings.get"].includes(method))).toEqual(["state.get", "run.prepare"]);
 });
 
 it("插件列表变了，学习插件不再运行时学习页标为不可用；它回来以后重新读取学习状态", async () => {

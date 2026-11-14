@@ -2,6 +2,7 @@ import { Outlet } from "react-router";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/domain/app-sidebar";
 import { CommandConfirmationDialog } from "@/features/command-confirmation";
+import { PluginApprovalDialog } from "@/features/plugin-approval";
 import { useAppStore } from "@/hooks/use-app-store";
 import { t } from "@/lib/strings";
 
@@ -23,5 +24,6 @@ export function WorkspaceLayout() {
     <AppSidebar />
     <WorkspaceContent />
     <CommandConfirmationDialog />
+    <PluginApprovalDialog />
   </SidebarProvider>;
 }

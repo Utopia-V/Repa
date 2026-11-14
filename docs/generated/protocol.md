@@ -920,6 +920,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| files | boolean | 是 |  |
 | path | string | 是 |  |
 
 ### 结果
@@ -927,8 +928,10 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | entries[] | object | 否 |  |
+| entries[].file | true | 是 |  |
 | entries[].name | string | 否 |  |
 | entries[].path | string | 否 |  |
+| entries[].size | integer | 是 |  |
 | entries[].space | boolean | 否 |  |
 | parent | string &#124; null | 否 |  |
 | path | string | 否 |  |

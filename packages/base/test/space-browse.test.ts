@@ -52,13 +52,29 @@ test("跟随指向文件夹的链接，跳过断开的链接和指向文件的�
   assert.deepEqual(listing.entries.map((entry) => entry.name), ["linked", "target"]);
 });
 
+test("要求列出文件时，文件排在文件夹后面并带大小，隐藏文件与断开的链接不列", async (t) => {
+  const directory = await fixture(t, ["课件"]);
+  await writeFile(path.join(directory, "第2章.pdf"), "12345");
+  await writeFile(path.join(directory, "第10章.pdf"), "1");
+  await writeFile(path.join(directory, ".DS_Store"), "");
+  await symlink(path.join(directory, "第2章.pdf"), path.join(directory, "链接.pdf"));
+  await symlink(path.join(directory, "missing"), path.join(directory, "broken"));
+
+  const listing = await browseDirectory(directory, { files: true });
+
+  assert.deepEqual(listing.entries.map((entry) => [entry.name, entry.file ?? false, entry.size]), [
+    ["课件", false, undefined], ["第2章.pdf", true, 5], ["第10章.pdf", true, 1], ["链接.pdf", true, 5],
+  ]);
+  assert.equal(listing.entries[1]?.path, path.join(directory, "第2章.pdf"));
+});
+
 test("文件夹超过上限时只返回上限数量并标记截断", async (t) => {
   const directory = await fixture(t, ["a", "b", "c"]);
 
-  const limited = await browseDirectory(directory, 2);
+  const limited = await browseDirectory(directory, { limit: 2 });
   assert.equal(limited.entries.length, 2);
   assert.equal(limited.truncated, true);
-  assert.equal((await browseDirectory(directory, 3)).truncated, false);
+  assert.equal((await browseDirectory(directory, { limit: 3 })).truncated, false);
 });
 
 test("相对路径、不存在的路径和文件分别返回可处理的错误码", async (t) => {

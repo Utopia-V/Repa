@@ -2,7 +2,7 @@ import { CircleAlert, CircleCheck, CircleDashed, LoaderCircle } from "lucide-rea
 import type { ToolStatus } from "@/lib/conversation";
 import { t } from "@/lib/strings";
 
-// Pi 内置工具和底座的 ask_user 用动作描述；插件工具没有中文名称，显示原名。
+// Pi 内置工具、底座的 ask_user 和做课用到的插件工具用动作描述；其他插件工具没有中文名称，显示原名。
 const toolNames: Record<string, string> = {
   read: t("toolActivity.read.label"),
   write: t("toolActivity.write.label"),
@@ -12,6 +12,10 @@ const toolNames: Record<string, string> = {
   find: t("toolActivity.find.label"),
   ls: t("toolActivity.ls.label"),
   ask_user: t("toolActivity.askUser.label"),
+  materials_list: t("toolActivity.materialsList.label"),
+  materials_read: t("toolActivity.materialsRead.label"),
+  course_check: t("toolActivity.courseCheck.label"),
+  course_use: t("toolActivity.courseUse.label"),
 };
 
 const statusText: Record<ToolStatus, string> = {

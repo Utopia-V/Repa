@@ -1,16 +1,19 @@
 import { ConnectionError, RpcError } from "@repa/base/client";
 import type { Method, Params, PluginInfo, Problem, Result } from "@repa/base/protocol";
 import {
+  readBuildingEvent,
   readLearningError,
   readLearningEvent,
   readLearningResult,
   type ContentPage,
   type ContentRef,
+  type CourseBuilding,
   type Delivery,
   type LearnerResponse,
   type LearningInput,
   type LearningMethod,
   type LearningResult,
+  type LearningSettings,
   type LearningState,
 } from "@repa/learning/protocol";
 
@@ -55,6 +58,12 @@ export type LearningView = {
   /** 操作时后端发现画面已经过时，换成了它给的当前状态；提示学习者看一眼再操作。 */
   replaced: boolean;
   outbox: Record<string, Outgoing>;
+  /** 做课的状态：自制课的轮廓、后台展开、花费和做课的对话；还没读到时为 undefined。 */
+  building?: CourseBuilding | undefined;
+  /** 读取做课状态失败的原因；已经读到过时仍显示旧的。 */
+  buildingError?: unknown;
+  /** 学习插件的设置（自动展开）；还没读到时为 undefined。 */
+  settings?: LearningSettings | undefined;
 };
 
 /** 打开空间后的首页：后端装了学习插件就进学习页，否则进对话页。 */
@@ -214,6 +223,31 @@ export function createLearningActions({ call, get, set }: Deps) {
     await refresh();
   }
 
+  // 做课状态的读取共用一个序号，先发后到的旧结果丢掉。
+  let buildingRequest = 0;
+
+  /** 读做课的状态；设置还没读过时一起读。失败记在 buildingError，不影响学习页的其余部分。 */
+  async function readBuilding(): Promise<void> {
+    if (!get().learning.available) return;
+    const id = ++buildingRequest;
+    try {
+      const [building, settings] = await Promise.all([
+        learningCall("building.get", {}),
+        get().learning.settings ?? learningCall("settings.get", {}),
+      ]);
+      if (id === buildingRequest) set((learning) => ({ ...learning, building, settings, buildingError: undefined }));
+    } catch (error) {
+      if (id === buildingRequest) set((learning) => ({ ...learning, buildingError: error }));
+    }
+  }
+
+  /** 做课的操作返回新的做课状态，直接换上；失败抛给调用的画面显示。 */
+  async function changeBuilding(run: () => Promise<CourseBuilding>): Promise<void> {
+    const id = ++buildingRequest;
+    const building = await run();
+    if (id === buildingRequest) set((learning) => ({ ...learning, building, buildingError: undefined }));
+  }
+
   /** 查学习插件在不在，在就读取状态，并确认结果不明的作答。 */
   async function load(): Promise<void> {
     set((learning) => ({ ...learning, status: learning.state ? learning.status : "loading" }));
@@ -231,9 +265,9 @@ export function createLearningActions({ call, get, set }: Deps) {
         ...learning,
         outbox: Object.fromEntries(Object.entries(learning.outbox).map(([id, item]) => [id, item.status === "sending" ? { ...item, status: "unknown" as const } : item])),
       }));
-      await settle();
+      await Promise.all([settle(), readBuilding()]);
     } else {
-      await refresh();
+      await Promise.all([refresh(), readBuilding()]);
     }
   }
 
@@ -257,12 +291,32 @@ export function createLearningActions({ call, get, set }: Deps) {
       const available = learningRunning(plugins);
       if (available === before) return;
       set((learning) => ({ ...learning, available }));
-      if (available) void refresh();
+      if (available) void Promise.all([refresh(), readBuilding()]);
     },
     /** 收到 plugin.event 时调用；事件只说明状态变了，内容重新读取。 */
     learningEvent(pluginId: string, event: unknown): void {
-      if (pluginId !== LEARNING_PLUGIN || !readLearningEvent(event).ok) return;
-      void refresh();
+      if (pluginId !== LEARNING_PLUGIN) return;
+      if (readLearningEvent(event).ok) void refresh();
+      else if (readBuildingEvent(event).ok) void readBuilding();
+    },
+    loadBuilding: readBuilding,
+    /** 立即在后台展开这几部分；省略时由插件取最前面的轮廓部分。 */
+    expandParts(topicIds?: string[]): Promise<void> {
+      return changeBuilding(() => learningCall("building.expand", topicIds === undefined ? {} : { topicIds }));
+    },
+    /** 取消正在进行的展开，等它停下。 */
+    cancelExpansion(): Promise<void> {
+      return changeBuilding(() => learningCall("building.cancel", {}));
+    },
+    /** 失败抛给调用的画面，开关回到原来的样子。 */
+    async setAutoExpand(autoExpand: boolean): Promise<void> {
+      const settings = await learningCall("settings.set", { autoExpand });
+      set((learning) => ({ ...learning, settings }));
+    },
+    /** 记下做课的对话，取回发给它的第一条消息；由 store 的 startMaking 在建好会话以后调用。 */
+    async beginMaking(sessionId: string, request: string): Promise<string> {
+      const { text } = await learningCall("building.begin", request.trim() === "" ? { sessionId } : { sessionId, request });
+      return text;
     },
     /** 学习者选菜单里的一项；测验和重考也走 menu.select，后端按候选的类型开始。 */
     selectCandidate(candidateId: string): Promise<void> {

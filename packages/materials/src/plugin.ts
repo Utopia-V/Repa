@@ -1,7 +1,8 @@
 import { RepaFault, Type } from "@repa/base/plugin";
-import type { Plugin, Tool } from "@repa/base/plugin";
+import type { Plugin, PluginMethod, Tool } from "@repa/base/plugin";
 
 import { Materials, MATERIALS_DIRECTORY, type Outcome } from "./materials.js";
+import { materialsMethods, type Material, type MaterialsInput, type MaterialsResult } from "./protocol.js";
 import { failureMessage, FORMAT_NAME, UNIT, type Converted, type MissingPage } from "./result.js";
 
 export { conversionCount } from "./convert.js";
@@ -92,6 +93,22 @@ export function renderRead(file: string, result: Extract<Converted, { status: "t
   return text;
 }
 
+/** 给前端的一项：只留格式与页数，不带文字。 */
+function material(file: { path: string; size: number; outcome: Outcome }): Material {
+  const { path, size, outcome } = file;
+  switch (outcome.status) {
+    case "plain":
+      return { path, size, status: "plain" };
+    case "text":
+      return { path, size, status: "text", format: outcome.format, parts: outcome.parts.length };
+    case "failed":
+      return {
+        path, size, status: "failed", ...(outcome.format === undefined ? {} : { format: outcome.format }),
+        reason: outcome.reason, message: failureMessage(outcome),
+      };
+  }
+}
+
 /** 课件转文字插件：把空间 materials/ 下的 PDF、幻灯片和 Word 文档读成文字，交给通用 Agent。 */
 export const materialsPlugin = {
   id: "materials",
@@ -129,7 +146,26 @@ export const materialsPlugin = {
       },
     };
 
+    // 方法不随哪次运行取消；第一次列出要逐个解析，之后用缓存。
+    async function listed(): Promise<MaterialsResult<"list">> {
+      const files = await materials.list(new AbortController().signal);
+      return { files: (files ?? []).map(material) };
+    }
+
+    const methods: Record<string, PluginMethod> = {
+      list: { parameters: materialsMethods.list.input, result: materialsMethods.list.result, invoke: () => listed() },
+      add: {
+        parameters: materialsMethods.add.input,
+        result: materialsMethods.add.result,
+        async invoke(input) {
+          await materials.add((input as MaterialsInput<"add">).paths);
+          return listed();
+        },
+      },
+    };
+
     return {
+      methods,
       instructions: () => `学习者的课件放在空间的 ${MATERIALS_DIRECTORY}/ 里。PDF、幻灯片和 Word 文档用 materials_list 查看、用 materials_read 读出文字，不要用 read 直接读这些文件；读不出文字时，把工具给出的原因告诉学习者，不要凭空补出内容。`,
       tools: () => [list, read],
     };
