@@ -96,7 +96,7 @@ test("学习版还没配模型时，建会话以 model_required 拒绝，不留�
   assert.deepEqual(f.events, []);
 });
 
-test("学习版的模型登出后，默认模型为空，已有会话发送以 model_required 拒绝，消息不进入会话", async t => {
+test("学习版的模型登出后，默认模型为空，已有会话发送与压缩以 model_required 拒绝，消息不进入会话", async t => {
   const f = await fixture(t);
   await f.client.call("auth.setKey", { provider: f.model.provider, key: "learner-key" });
   await f.client.call("model.setDefault", { model: f.model });
@@ -113,6 +113,7 @@ test("学习版的模型登出后，默认模型为空，已有会话发送以 m
   const runs = f.events.filter(event => event.type === "runStart").length;
   await assert.rejects(f.client.call("session.send", { sessionId: session.id, text: "再来一题" }), rejectsWith("model_required"));
   await assert.rejects(f.client.call("session.steer", { sessionId: session.id, text: "再来一题" }), rejectsWith("model_required"));
+  await assert.rejects(f.client.call("session.compact", { sessionId: session.id }), rejectsWith("model_required"));
   assert.equal(f.events.filter(event => event.type === "runStart").length, runs);
   const users = (await f.client.call("session.history", { sessionId: session.id })).filter(entry => entry.type === "user").map(entry => entry.text);
   assert.deepEqual(users, ["你好"]);

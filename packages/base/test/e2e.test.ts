@@ -386,6 +386,50 @@ test("SDK 默认压缩后下一次请求只获得最新 view", async (t) => {
   assert.match(viewTexts(current)[0] ?? "", /压缩前最新状态/u);
 });
 
+test("没有可压缩的内容时压缩以 nothing_to_compact 拒绝，不调用模型；压缩中停止会话以 cancelled 结束", async (t) => {
+  const f = await fixture(t);
+  const faultCode = (code: string) => (error: unknown): boolean => {
+    assert.ok(error instanceof RpcError);
+    assert.equal(error.code, -32000);
+    assert.equal((error.data as { code?: unknown } | undefined)?.code, code);
+    return true;
+  };
+  // 会话太短。
+  await assert.rejects(f.client.call("session.compact", { sessionId: f.session.id }), faultCode("nothing_to_compact"));
+  f.respond("原始回答".repeat(300));
+  await f.send();
+  f.respond("后续回答".repeat(300));
+  await f.send();
+  f.faux.setResponses([fauxAssistantMessage("会话摘要。"), fauxAssistantMessage("回合摘要。")]);
+  await f.client.call("session.compact", { sessionId: f.session.id });
+  // 刚压缩过。
+  const left = f.faux.getPendingResponseCount();
+  await assert.rejects(f.client.call("session.compact", { sessionId: f.session.id }), faultCode("nothing_to_compact"));
+  assert.equal(f.faux.getPendingResponseCount(), left);
+
+  f.respond("又一轮".repeat(300));
+  await f.send();
+  f.respond("再一轮".repeat(300));
+  await f.send();
+  // 摘要请求停在模型上，直到停止会话中止它。
+  let entered: () => void = () => undefined;
+  const summarizing = new Promise<void>((resolve) => { entered = resolve; });
+  f.faux.setResponses([
+    async (_context, options) => {
+      entered();
+      const signal = options?.signal;
+      if (signal !== undefined && !signal.aborted) await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      return fauxAssistantMessage("来不及的摘要。");
+    },
+    fauxAssistantMessage("回合摘要。"),
+  ]);
+  const compacting = f.client.call("session.compact", { sessionId: f.session.id });
+  await summarizing;
+  const aborting = f.client.call("session.abort", { sessionId: f.session.id });
+  await assert.rejects(compacting, faultCode("cancelled"));
+  await aborting;
+});
+
 
 test("真实登录运行时把 OAuth 交互映射为前端问答并保存凭据", async (t) => {
   const f = await fixture(t);

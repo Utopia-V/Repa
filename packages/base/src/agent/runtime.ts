@@ -616,6 +616,8 @@ class Session implements AgentSession {
   private cancelling?: Promise<void>;
   // 每次开始取消加一，插件判断期间发生过取消的消息不再投递。
   private cancellations = 0;
+  // 手动压缩期间 Pi 是否已经备好要压缩的内容，见 compact。
+  private compactionPrepared = false;
   private closing?: Promise<void>;
 
   private parent?: SessionParent;
@@ -687,6 +689,9 @@ class Session implements AgentSession {
         }
       });
       pi.on("agent_before_settle", () => ({ entries: staleViewEdits(this.manager, new Set(this.currentViews.map(view => view.id)), runtime.options.viewBatchSize ?? 3) }));
+      pi.on("session_before_compact", () => {
+        this.compactionPrepared = true;
+      });
       pi.on("session_compact", () => {
         // Pi 在保存压缩条目后 await 本钩子，再发出压缩完成并执行 overflow retry。
         // 这里用公开 append/refresh 补回当前状态，自动重试的第一份请求也能读到。
@@ -1096,11 +1101,28 @@ class Session implements AgentSession {
     await this.session.setModel(model);
   }
 
+  /**
+   * 不能压缩时 Pi 抛不带类型的 Error，到协议上成了内部错误。这里分开三种预期的情况：
+   * 没有可用模型在调用之前与发送一样检查；Pi 先算出要压缩的内容，才发出 session_before_compact，
+   * 调用失败而这个钩子没有触发，就是没有可压缩的内容（会话太短或刚压缩过）；期间停止了会话是取消。
+   * 其余失败照原样抛出。
+   */
   async compact(): Promise<void> {
     this.assertRunnable();
     this.space.assertOpen();
+    await this.space.runtime.requireUsable(this.session.model);
     this.currentViews = await this.profile.views();
-    await this.session.compact();
+    const cancellations = this.cancellations;
+    this.compactionPrepared = false;
+    try {
+      await this.session.compact();
+    } catch (error) {
+      if (this.cancellations !== cancellations) throw new RepaFault("cancelled", "压缩已取消");
+      if (!this.compactionPrepared && error instanceof Error && error.constructor === Error) {
+        throw new RepaFault("nothing_to_compact", "会话里还没有可以压缩的内容");
+      }
+      throw error;
+    }
   }
 
   async fork(entryId: string): Promise<AgentSession> {
