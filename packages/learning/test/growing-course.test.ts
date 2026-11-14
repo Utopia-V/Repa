@@ -334,6 +334,10 @@ test("整条路：出轮廓、展开第一节、换用；学习者上课时后�
   assert.deepEqual(shown.expansion?.topicIds, ["os02", "os03"]);
   const backgroundId = shown.expansion?.sessionId;
   assert.ok(backgroundId);
+  // 后台展开的会话在会话列表里标为后台任务，前端不把它列成对话；做课的对话不是。
+  const listed = await f.client.call("session.list", {});
+  assert.equal(listed.find((session) => session.id === backgroundId)?.background, true);
+  assert.equal(listed.find((session) => session.id === chatId)?.background, undefined);
 
   // 展开在做的时候学习者照常上课，走到第一道练习题。
   const before = await f.toAnswer();

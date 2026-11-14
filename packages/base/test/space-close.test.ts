@@ -213,3 +213,21 @@ test("关闭空间时释放锁失败：以 space_close_failed 报告，空间已
   await assert.rejects(f.client.call("plugin.list", {}), rejectsWith("space_not_open"));
   await rm(stray);
 });
+
+test("fresh 的 space.create 只在新的地方建：已有内容的文件夹与同名文件如实拒绝，已经打开的空间不受影响；不存在的多级路径照常建", async t => {
+  const f = await fixture(t);
+  await f.client.call("space.open", { root: f.root });
+  const taken = path.join(f.directory, "Repa", "操作系统");
+  await mkdir(taken, { recursive: true });
+  await writeFile(path.join(taken, "笔记.md"), "");
+  await assert.rejects(f.client.call("space.create", { root: taken, fresh: true }), rejectsWith("directory_not_empty"));
+  await writeFile(path.join(f.directory, "Repa", "文件"), "");
+  await assert.rejects(f.client.call("space.create", { root: path.join(f.directory, "Repa", "文件"), fresh: true }), rejectsWith("not_directory"));
+  assert.ok(Array.isArray(await f.client.call("plugin.list", {})));
+
+  const empty = path.join(f.directory, "Repa", "空的");
+  await mkdir(empty);
+  assert.equal((await f.client.call("space.create", { root: empty, fresh: true })).root, empty);
+  const created = path.join(f.directory, "Repa", "新的", "课");
+  assert.equal((await f.client.call("space.create", { root: created, fresh: true })).root, created);
+});

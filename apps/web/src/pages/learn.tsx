@@ -52,6 +52,7 @@ function Learn({ space }: { space: string }) {
   // 在做课的起点选了改学随包的课；开始一节课以后有了学习记录，起点本来就不再出现。
   const [bundledChosen, setBundledChosen] = useState(false);
   const asking = useAppStore((state) => state.asks.some((ask) => ask.closed === undefined));
+  const conversation = useAppStore((state) => state.conversation);
   const [confirmAbort, setConfirmAbort] = useState(false);
   const wide = useWide();
   const scroller = useRef<HTMLDivElement>(null);
@@ -105,9 +106,13 @@ function Learn({ space }: { space: string }) {
   const startable = building !== undefined && !making && !active && !bundledChosen && (state.revision === 0 || state.course === null);
   // 只有轮廓、还没有能学的部分时，Agent 正在和学习者商量轮廓，菜单那句“没有可开始的任务”放在这里不对，不显示。
   const outlineOnly = making && !building.parts.some((part) => part.status !== "outline");
+  // 还没有换用过自制课时，学的不是随包的那门：标题栏与起点一样，不显示随包课的课名和今日 XP。
+  const plain = startable || (making && building.course === null);
+  // 做课的 Agent 正在运行时，它和后台展开会同时改 course/，“先做”与“再试”先不让点。
+  const makingRunning = makingSession !== undefined && conversation.sessionId === makingSession && conversation.run !== "idle";
   // 右侧：有学习任务时是辅导，行为不变；没有任务而有做课的对话时是做课的对话。
   const panel = task
-    ? { label: t("tutor.panel.label"), action: t("learn.tutor.action"), content: <TutorPanel allowed={restrictions.tutorAllowed} renderLink={renderLink} /> }
+    ? { label: t("tutor.panel.label"), action: t("learn.tutor.action"), content: <TutorPanel allowed={restrictions.tutorAllowed} restriction={restrictions.kind} renderLink={renderLink} /> }
     : makingSession !== undefined
       ? { label: t("making.panel.label"), action: t("learn.making.action"), content: <MakingPanel sessionId={makingSession} /> }
       : undefined;
@@ -116,9 +121,9 @@ function Learn({ space }: { space: string }) {
   return <div className="flex h-dvh flex-col">
     {/* 移动端左侧让出浮动的导航按钮。 */}
     <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-2 pr-4 pl-16 md:px-6">
-      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{(startable ? undefined : state.course?.title ?? building?.course?.title) ?? t("learn.page.title")}</h2>
+      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{(plain ? undefined : state.course?.title ?? building?.course?.title) ?? t("learn.page.title")}</h2>
       <div className="flex items-center gap-3">
-        {!startable && <div className="grid w-40 gap-1">
+        {!plain && <div className="grid w-40 gap-1">
           <span className="text-caption text-muted-foreground">{t("learn.dailyGoal.label", { todayXp: progress.todayXp, dailyGoalXp: progress.dailyGoalXp })}</span>
           <Progress value={goal} aria-label={t("learn.dailyGoal.progress.label")} />
         </div>}
@@ -148,8 +153,9 @@ function Learn({ space }: { space: string }) {
             onUseBundled={state.course === null ? undefined : () => setBundledChosen(true)}
           />}
           {!startable && !outlineOnly && menu && learning.readAt !== undefined && <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} />}
-          {making && (building.parts.length > 0 || building.course !== null
-            ? <CourseOutline building={building} settings={settings} />
+          {/* 上课、做题时整门课不出现，学习者专心在任务上；任务结束回到菜单时再出现。 */}
+          {making && !active && (building.parts.length > 0 || building.course !== null
+            ? <CourseOutline building={building} settings={settings} agentRunning={makingRunning} />
             : <p role="status" className="m-0 text-body text-muted-foreground">{t("outline.pending.status")}</p>)}
           {building === undefined && learning.buildingError !== undefined && <ErrorNotice title={t("outline.load.error")} error={learning.buildingError} />}
           {!task && !menu && !startable && !making && <p className="m-0 text-body text-muted-foreground">{t("learn.menu.noTask.empty")}</p>}

@@ -54,12 +54,14 @@ export function ConversationTranscript({ workingText, onFork, forkDisabled = tru
   const asksAt = (id: string) => asks.filter((ask) => ask.request.origin.callId === id);
   const unplaced = asks.filter((ask) => ask.request.origin.callId === undefined || !toolIds.has(ask.request.origin.callId));
   const waiting = asks.some((ask) => ask.closed === undefined);
-  const askCard = (ask: Ask) => <AskCard
-    key={ask.request.id}
-    ask={ask}
-    onSubmit={(response) => { void submitAsk(ask.request.id, response); }}
-    onCancel={() => { void cancelAsk(ask.request.id); }}
-  />;
+  // data-ask 供面板在提问到达时把卡片的开头滚进视野。
+  const askCard = (ask: Ask) => <div key={ask.request.id} data-ask={ask.request.id}>
+    <AskCard
+      ask={ask}
+      onSubmit={(response) => { void submitAsk(ask.request.id, response); }}
+      onCancel={() => { void cancelAsk(ask.request.id); }}
+    />
+  </div>;
 
   // 普通函数而不是组件：在这里定义组件，每次渲染都是新的类型，卡片里填到一半的作答会丢。
   const itemView = (item: ConversationItem) => <Fragment key={item.id}>

@@ -60,7 +60,12 @@ export const strings = {
 
   // 选学习空间
   "learningSpace.first.title": "开始第一个学习空间",
-  "learningSpace.first.description": "选一个文件夹作为学习空间，Repa 会在里面保存你的学习记录和进度。",
+  "learningSpace.first.name.label": "〔待写〕",
+  "learningSpace.first.location.hint": "〔待写〕{path}",
+  "learningSpace.first.name.invalid.error": "〔待写〕",
+  "learningSpace.first.home.error": "〔待写〕",
+  "learningSpace.first.create.action": "〔待写〕",
+  "learningSpace.first.create.error": "〔待写〕",
   "learningSpace.chooseFolder.action": "选择文件夹",
   "learningSpace.recent.title": "学习空间",
   "learningSpace.recent.description": "从最近打开的空间继续，或选择其他文件夹。",
@@ -257,6 +262,7 @@ export const strings = {
   "tutor.transcript.empty": "哪里看不懂，就在这里问。",
   "tutor.thinking.status": "辅导正在思考…",
   "tutor.unavailable.hint": "复习和测验期间不能问辅导，结束后再问。",
+  "tutor.unavailable.answering.hint": "〔待写〕",
   "tutor.noModel.hint": "连接一个模型提供方后才能问辅导。",
   "tutor.sendFailed.error": "现在不能问辅导，这条消息没有发出。",
 
@@ -336,6 +342,9 @@ export const strings = {
   "toolActivity.courseCheck.label": "检查课程",
   "toolActivity.courseUse.label": "更新课程",
   "toolActivity.count.label": "×{count}",
+  "toolActivity.learningTask.label": "〔待写〕",
+  "toolActivity.learningSearch.label": "〔待写〕",
+  "toolActivity.learningRead.label": "〔待写〕",
   "toolActivity.running.status": "进行中",
   "toolActivity.done.status": "已完成",
   "toolActivity.failed.status": "失败",

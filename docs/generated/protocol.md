@@ -677,6 +677,7 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | agent | string | 否 |  |
+| background | true | 是 |  |
 | createdAt | string | 否 |  |
 | id | string | 否 |  |
 | model | object | 是 |  |
@@ -739,6 +740,7 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | agent | string | 否 |  |
+| background | true | 是 |  |
 | createdAt | string | 否 |  |
 | id | string | 否 |  |
 | model | object | 是 |  |
@@ -787,6 +789,7 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | $[].agent | string | 否 |  |
+| $[].background | true | 是 |  |
 | $[].createdAt | string | 否 |  |
 | $[].id | string | 否 |  |
 | $[].model | object | 是 |  |
@@ -957,6 +960,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| fresh | boolean | 是 |  |
 | root | string | 否 |  |
 
 ### 结果

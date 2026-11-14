@@ -165,6 +165,8 @@ export const SessionInfoSchema = object({
   parent: Type.Optional(SessionParentSchema),
   // 会话所属的 Agent 在创建时确定，之后不变；改动前的会话属于通用 Agent。
   agent: identifier,
+  // 插件经 Host.models.runAgent 在后台发起的任务，不是用户的对话；前端不把它列成对话。用量照常可查。
+  background: Type.Optional(Type.Literal(true)),
 });
 /** 会话列表中的元数据，供前端显示摘要、Agent 归属与父关联。 */
 export type SessionInfo = Static<typeof SessionInfoSchema>;

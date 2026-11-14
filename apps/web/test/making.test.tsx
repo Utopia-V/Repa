@@ -15,7 +15,7 @@ import { mockMatchMedia } from "./match-media";
 // 做课这几块界面的文字在测试里换成键名（参数照常跟在后面），按键名找元素：改一句话的措辞不必改测试。
 vi.mock("../src/strings/zh-CN", async (importOriginal) => {
   const { strings } = await importOriginal<typeof import("../src/strings/zh-CN")>();
-  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count))/u;
+  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count|learning)|tutor\.unavailable\.answering|learningSpace\.first)/u;
   return {
     strings: Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, byKey.test(key) ? key + (value.match(/\{\w+\}/gu) ?? []).join("") : value])),
   };
@@ -370,4 +370,99 @@ it("做课的会话在对话页打开：同一段记录和同一张提问卡片�
   expect(transcript.getByText("轮廓出来了。")).toBeTruthy();
   expect(transcript.getByText("照此划分推进吗？")).toBeTruthy();
   expect(store.getState().conversation.sessionId).toBe("making-1");
+});
+
+it("第一次使用：问这门课叫什么，在主目录的 Repa/<名称> 新建空间并打开，落到放课件的起点；不能作文件夹名或文件夹已有内容时如实报错", async () => {
+  let attempts = 0;
+  const fake = backend({
+    "space.list": () => Promise.resolve([]),
+    "space.browse": () => Promise.resolve({ path: "/home/me", parent: "/home", space: false, truncated: false, entries: [] }),
+    "space.create": (params) => (++attempts === 1
+      ? Promise.reject(Object.assign(new Error("这个文件夹已经存在，里面有别的内容"), { data: { code: "directory_not_empty" } }))
+      : Promise.resolve({ root: params.root, opening: "opening-1", plugins: [] })),
+  });
+  mockMatchMedia(true);
+  const store = createAppStore();
+  store.getState().setClient(fake.client);
+  const router = createMemoryRouter(routes, { initialEntries: ["/learning-space"] });
+  render(<StoreProvider store={store}><RouterProvider router={router} /></StoreProvider>);
+
+  const name = await screen.findByLabelText("learningSpace.first.name.label");
+  const create = screen.getByRole("button", { name: "learningSpace.first.create.action" }) as HTMLButtonElement;
+  expect(create.disabled).toBe(true);
+  // 选已有文件夹的路保留。
+  expect(screen.getByRole("button", { name: "选择文件夹" })).toBeTruthy();
+
+  fireEvent.change(name, { target: { value: "操作系统/期末" } });
+  expect(await screen.findByText("learningSpace.first.name.invalid.error")).toBeTruthy();
+  expect(name.getAttribute("aria-invalid")).toBe("true");
+  expect(create.disabled).toBe(true);
+
+  fireEvent.change(name, { target: { value: "  操作系统 " } });
+  expect(await screen.findByText("learningSpace.first.location.hint/home/me/Repa/操作系统")).toBeTruthy();
+  fireEvent.click(create);
+  expect(await screen.findByText("这个文件夹已经存在，里面有别的内容")).toBeTruthy();
+  expect((name as HTMLInputElement).value).toBe("  操作系统 ");
+
+  fireEvent.click(create);
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe("/learn"));
+  expect(calls(fake.call, "space.create")).toEqual([{ root: "/home/me/Repa/操作系统", fresh: true }, { root: "/home/me/Repa/操作系统", fresh: true }]);
+  expect(store.getState().space).toBe("/home/me/Repa/操作系统");
+  expect(await screen.findByRole("region", { name: "making.materials.title" })).toBeTruthy();
+});
+
+it("做课进行中、还没有换用过自制课：标题栏不显示随包课的课名和今日 XP；做课的 Agent 运行时“先做”不可用", async () => {
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve({ ...python, revision: 2 }),
+    "learning.building.get": () => Promise.resolve({ ...nothing, sessionId: "making-1" }),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  start(fake.client);
+  expect(await screen.findByText("outline.pending.status")).toBeTruthy();
+  expect(screen.queryByText("Python：读懂代码，说清需求")).toBeNull();
+  expect(screen.queryByLabelText("今天的目标完成度")).toBeNull();
+  cleanup();
+
+  const running = backend({
+    "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: "outline" as const })) }),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  const store = start(running.client);
+  const outline = within(await screen.findByRole("region", { name: "outline.title" }));
+  const expand = await outline.findByRole("button", { name: "outline.expand.label死锁" }) as HTMLButtonElement;
+  await vi.waitFor(() => expect(store.getState().conversation.sessionId).toBe("making-1"));
+  expect(expand.disabled).toBe(false);
+  act(() => { store.setState((state) => ({ conversation: { ...state.conversation, run: "running" } })); });
+  expect(expand.disabled).toBe(true);
+});
+
+it("有学习任务时不显示整门课；新课作答时辅导栏用新课的提示；辅导工具有名称；后台任务的会话不进侧栏", async () => {
+  const kp = { kpId: "os02.k1", title: "PCB", attempts: 0, consecutiveCorrect: 0, completed: false };
+  const task = {
+    taskId: "t1", kind: "lesson" as const, topics: [{ id: "os02", title: "进程控制块" }], phase: { stage: "awaiting_answer" as const, deliveryId: "d1" },
+    startedAt: at, deadlineAt: null, kps: [kp], submissions: [],
+    deliveries: [{
+      deliveryId: "d1", submissionId: "s1", topicId: "os02", kpId: "os02.k1", mode: "practice" as const, repeated: false, requiresServices: [],
+      item: { id: "q1", version: `sha256:${"1".repeat(64)}`, requires: ["block.markdown", "slot.text"], body: [{ type: "markdown" as const, text: "PCB 是什么？" }], slots: [{ id: "a", type: "text" as const }] },
+    }],
+  };
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 9, course: outlined.course, task, restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false } }),
+    "learning.building.get": () => Promise.resolve(outlined),
+    "session.history": (params) => Promise.resolve(params.sessionId === "tutor-1" ? [
+      { id: "a1", type: "assistant", timestamp: iso, text: "", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "learning_task", input: {} }] } },
+      { id: "t1", type: "tool", timestamp: iso, text: "好", data: { callId: "c1", tool: "learning_task", isError: false } },
+    ] : []),
+  }, [
+    { id: "tutor-1", createdAt: iso, updatedAt: iso, agent: "learning-tutor" },
+    { id: "making-1", createdAt: iso, updatedAt: iso, agent: "general", preview: "我把课件放进了 materials/" },
+    { id: "bg-1", createdAt: iso, updatedAt: iso, agent: "general", preview: "在后台展开空间里 course/ 这几部分", background: true },
+  ]);
+  const store = start(fake.client);
+
+  expect(await screen.findByText("PCB 是什么？")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "outline.title" })).toBeNull();
+  const tutor = within(await screen.findByRole("complementary"));
+  expect(tutor.getByText("tutor.unavailable.answering.hint")).toBeTruthy();
+  expect(await tutor.findByText("toolActivity.learningTask.label")).toBeTruthy();
+  // 侧栏与自动打开的会话都取自这份列表。
+  await vi.waitFor(() => expect(store.getState().resources.sessions.data?.map((session) => session.id)).toEqual(["tutor-1", "making-1"]));
 });

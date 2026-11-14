@@ -117,6 +117,13 @@ function byId<T extends { id: string }>(left: T, right: T): number {
 }
 
 /** 会话文件记下所属 Agent；改动前创建、没有这条记录的会话属于通用 Agent。 */
+/** 插件经 runAgent 在后台发起的会话：所属 Agent 的那一条记录里带 background。 */
+function backgroundSession(manager: SessionManager): boolean {
+  const entry = manager.getEntries().find(item => item.type === "custom" && item.customType === AGENT_ENTRY);
+  const data: unknown = entry?.type === "custom" ? entry.data : undefined;
+  return data !== null && typeof data === "object" && "background" in data && data.background === true;
+}
+
 function sessionAgent(manager: SessionManager): string {
   const entry = manager.getEntries().find(item => item.type === "custom" && item.customType === AGENT_ENTRY);
   if (entry === undefined) return GENERAL_AGENT;
@@ -526,7 +533,8 @@ class Space implements AgentSpace {
     return { sections: await this.promptSections(profile), views: await profile.views() };
   }
 
-  async create(options: { agent?: string; model?: ModelRef; parent?: SessionParent } = {}): Promise<Session> {
+  /** background：插件在后台发起的任务，记在会话里，会话列表据此标出。 */
+  async create(options: { agent?: string; model?: ModelRef; parent?: SessionParent; background?: boolean } = {}): Promise<Session> {
     this.assertOpen();
     const agent = options.agent ?? GENERAL_AGENT;
     // 先确认 Agent 和模型可用，不留下打不开或发不出消息的会话。
@@ -536,7 +544,7 @@ class Space implements AgentSpace {
     // 装配和运行之前保存父关联，runStart 只能看到已落盘的关联。
     if (options.parent !== undefined) await saveParent(this.options.sessionsDir, manager.getSessionId(), options.parent);
     // 所属 Agent 写在会话开头，不进入模型上下文；分支复制全部条目，也就沿用同一个 Agent。
-    manager.appendCustomEntry(AGENT_ENTRY, { agent });
+    manager.appendCustomEntry(AGENT_ENTRY, options.background === true ? { agent, background: true } : { agent });
     return this.load(manager, { provider: model.provider, id: model.id });
   }
 
@@ -637,7 +645,7 @@ class Space implements AgentSpace {
   }
 
   async runAgent(task: AgentTask): Promise<AgentWork> {
-    const session = await this.create({ agent: task.agent, model: task.model });
+    const session = await this.create({ agent: task.agent, model: task.model, background: true });
     const result = session.runTask(task.text);
     result.catch(() => undefined);
     return { id: session.info().id, result, cancel: () => session.abort() };
@@ -1351,5 +1359,6 @@ function describeSession(manager: SessionManager, model: ModelRef | undefined, a
     ...(model ? { model } : {}),
     agent,
     ...(parent === undefined ? {} : { parent }),
+    ...(backgroundSession(manager) ? { background: true as const } : {}),
   };
 }

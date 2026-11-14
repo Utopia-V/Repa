@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Circle, CircleCheck, CircleDashed, LoaderCircle } from "lucide-react";
 import type { CourseBuilding, LearningSettings } from "@repa/learning/protocol";
 
@@ -33,13 +33,22 @@ const failureTitle = {
  * 整门课的全貌：花费和自动展开的开关在标题一行，后台展开与它的取消、最近一次没有成功的原因与再试常在；
  * 各部分的清单可以收起。还没有能学的部分时清单展开，有了以后先收起，不把菜单和任务挤下去。
  */
-export function CourseOutline({ building, settings }: { building: CourseBuilding; settings: LearningSettings | undefined }) {
+export function CourseOutline({ building, settings, agentRunning }: {
+  building: CourseBuilding;
+  settings: LearningSettings | undefined;
+  /** 做课的对话里 Agent 正在运行：它和后台展开会同时改 course/，展开类的操作先不让点。 */
+  agentRunning: boolean;
+}) {
   const expandParts = useAppStore((state) => state.expandParts);
   const cancelExpansion = useAppStore((state) => state.cancelExpansion);
   const setAutoExpand = useAppStore((state) => state.setAutoExpand);
   const { parts, expansion, lastFailure, cost } = building;
   const started = parts.some((part) => part.status !== "outline");
   const [open, setOpen] = useState(!started);
+  // 有了能学的部分就收起，哪怕只有轮廓时展开过：菜单和任务排在前面。
+  useEffect(() => {
+    if (started) setOpen(false);
+  }, [started]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ title: string; error: unknown }>();
 
@@ -94,7 +103,7 @@ export function CourseOutline({ building, settings }: { building: CourseBuilding
         ? <ErrorNotice title={failureTitle.failed(titles(lastFailure.topicIds))} error={new Error(lastFailure.message)} />
         : <StatusNotice status="error" title={failureTitle[lastFailure.code](titles(lastFailure.topicIds))} />}
       {retryIds.length > 0 && <div>
-        <Button variant="tertiary" disabled={busy} onClick={() => { void act(() => expandParts(retryIds), t("outline.action.error")); }}>{t("outline.failure.retry.action")}</Button>
+        <Button variant="tertiary" disabled={busy || agentRunning} onClick={() => { void act(() => expandParts(retryIds), t("outline.action.error")); }}>{t("outline.failure.retry.action")}</Button>
       </div>}
     </div>}
 
@@ -134,7 +143,7 @@ export function CourseOutline({ building, settings }: { building: CourseBuilding
               {shown === "outline" && <Button
                 variant="ghost"
                 aria-label={t("outline.expand.label", { title: part.title })}
-                disabled={busy || expansion !== null}
+                disabled={busy || expansion !== null || agentRunning}
                 onClick={() => { void act(() => expandParts([part.topicId]), t("outline.action.error")); }}
               >{t("outline.expand.action")}</Button>}
             </div>

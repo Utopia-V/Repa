@@ -60,9 +60,22 @@ export function MakingPanel({ sessionId }: { sessionId: string }) {
     void loadModelSettings();
   }, [loadModelSettings]);
 
+  // 已经把开头滚进视野的提问；同一张卡片只滚一次，之后学习者自己翻。
+  const shownAsks = useRef(new Set<string>());
+
   useLayoutEffect(() => {
     const element = record.current;
-    if (element && following.current) element.scrollTop = element.scrollHeight;
+    if (!element) return;
+    // 新到的提问卡片往往比面板高：滚到底只看得到最后一问和“提交”，所以让卡片的开头落在可见范围的上沿。
+    const fresh = asks.find((ask) => ask.closed === undefined && !shownAsks.current.has(ask.request.id));
+    const card = fresh && [...element.querySelectorAll<HTMLElement>("[data-ask]")].find((item) => item.dataset.ask === fresh.request.id);
+    if (fresh && card) {
+      shownAsks.current.add(fresh.request.id);
+      element.scrollTop += card.getBoundingClientRect().top - element.getBoundingClientRect().top - 16;
+      following.current = false;
+      return;
+    }
+    if (following.current) element.scrollTop = element.scrollHeight;
   }, [conversation.items, conversation.queued, asks]);
 
   async function send() {

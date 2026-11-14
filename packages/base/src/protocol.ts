@@ -142,7 +142,8 @@ export const methods = {
   },
   "space.list": { params: empty, result: Type.Array(identifier) },
   "space.open": { params: space, result: openedSpace },
-  "space.create": { params: space, result: openedSpace },
+  // fresh 为真时只在新的地方建：文件夹不存在或是空的，否则以 directory_not_empty 拒绝，不动已经打开的空间。
+  "space.create": { params: object({ root: identifier, fresh: Type.Optional(Type.Boolean()) }), result: openedSpace },
   "space.close": { params: empty, result: nothing },
   "space.roots": { params: empty, result: Type.Array(DirectoryRootSchema) },
   // files 为真时连同文件一起列出，供页面选本机文件，例如把课件复制进空间。

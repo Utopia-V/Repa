@@ -149,10 +149,10 @@ export type AppState = LearningActions & {
   /** 重新读取已经读过的数据，用于重连和窗口切回。 */
   reloadLoaded(): Promise<void>;
   /**
-   * 运行中只能回到当前空间：后端打开另一个空间前会关闭当前空间，中止正在进行的运行。
+   * 运行中只能回到当前空间：后端打开另一个空间前会关闭当前空间，中止正在进行的运行。create 为真时新建空间（文件夹不存在或是空的）。
    * 打开后查一次学习插件，调用方据此决定去学习页还是对话页。
    */
-  openSpace(root: string): Promise<void>;
+  openSpace(root: string, options?: { create: boolean }): Promise<void>;
   /**
    * 运行中不关闭：后端关闭空间会中止正在进行的运行。失败时抛给调用方并保留空间；
    * 后端报错时已经放下了这个空间，再关一次就能完成。
@@ -299,8 +299,8 @@ export function createAppStore() {
       providers: () => load("providers", () => call("model.providers", {})),
       models: () => load("models", () => call("model.list", {})),
       defaultModel: () => load("defaultModel", () => call("model.getDefault", {})),
-      // 子 Agent 的会话带 parent，用户不能直接对话，不列出也不自动打开。
-      sessions: () => load("sessions", async () => (await call("session.list", {})).filter((session) => session.parent === undefined)),
+      // 子 Agent 的会话带 parent，插件在后台发起的任务带 background：都不是用户的对话，不列出也不自动打开。
+      sessions: () => load("sessions", async () => (await call("session.list", {})).filter((session) => session.parent === undefined && session.background !== true)),
       commandPolicy: () => load("commandPolicy", async () => (await call("settings.get", {})).commandPolicy),
       history: () => load("history", readHistory),
       prompts: () => load("prompts", async () => {
@@ -603,9 +603,10 @@ export function createAppStore() {
         const names = (Object.keys(loaders) as ResourceName[]).filter((name) => name !== "sessions" && name !== "history" && name !== "prompts" && resources[name].status !== "idle");
         await Promise.all(names.map((name) => loaders[name]()));
       },
-      async openSpace(root) {
+      async openSpace(root, options) {
         if (get().conversation.run !== "idle" && root !== get().space) return;
-        const opened = await call("space.open", { root });
+        // create：在新的位置建空间，文件夹已有别的内容时后端如实拒绝，不混进去。
+        const opened = options?.create ? await call("space.create", { root, fresh: true }) : await call("space.open", { root });
         // 换了空间时，上一个空间的会话不再适用。
         if (opened.root !== get().space) {
           conversationRequest++;
