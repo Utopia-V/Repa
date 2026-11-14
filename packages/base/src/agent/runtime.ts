@@ -895,21 +895,17 @@ class Session implements AgentSession {
     this.space.options.onEvent({ sessionId: this.manager.getSessionId(), type: "pluginResult", text, data: result });
   }
 
-  /** 追加结果条目；写会话文件失败时发出会话的 error 事件（随之记进最近错误），不抛出：调用它的收尾不能因此中断。 */
+  /** 追加结果条目；写会话文件失败时发出会话的 error 事件（随之记进最近错误）。run 的收尾在外层 finally 里，不因这里抛错中断。 */
   private keepPluginResult(text: string, result: PluginResult): void {
     try {
       this.appendPluginResult(text, result);
     } catch (error) {
-      try {
-        this.space.options.onEvent({
-          sessionId: this.manager.getSessionId(),
-          type: "error",
-          text: `插件装卸请求 ${result.requestId} 的结果没能写进会话：${errorText(error)}`,
-          data: { code: "plugin_result_undelivered", details: { requestId: result.requestId } },
-        });
-      } catch {
-        // 事件也发不出去时没有别的出口；结局仍在请求状态里。
-      }
+      this.space.options.onEvent({
+        sessionId: this.manager.getSessionId(),
+        type: "error",
+        text: `插件装卸请求 ${result.requestId} 的结果没能写进会话：${errorText(error)}`,
+        data: { code: "plugin_result_undelivered", details: { requestId: result.requestId } },
+      });
     }
   }
 

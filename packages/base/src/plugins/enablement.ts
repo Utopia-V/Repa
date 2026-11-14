@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { isDeepStrictEqual } from "node:util";
 
 import { Type, type Static } from "typebox";
 import { Check, Clean } from "typebox/value";
@@ -83,36 +82,8 @@ export function withUnloaded(record: PluginEnablement, id: string): PluginEnable
   return { plugins: { ...record.plugins, [id]: { ...current, enabled: false } } };
 }
 
-/**
- * 写记录的结果，按盘上实际的内容报告，而不按写入有没有抛错推断：写入先改名再同步目录，
- * 改名成功、同步失败时新记录已经在盘上。
- * - written：盘上是新记录，并已落盘。
- * - unconfirmed：写入报错，但读回的是新记录；运行的集合照新记录装配，持久化未确认。
- * - unchanged：写入报错，读回的不是新记录，record 是盘上实际的记录（通常就是旧记录）。
- * - unknown：写入报错，读回也失败；盘上是什么不知道，不要据此清理快照。
- */
-export type EnablementWrite =
-  | { status: "written"; record: PluginEnablement }
-  | { status: "unconfirmed"; record: PluginEnablement; error: unknown }
-  | { status: "unchanged"; record: PluginEnablement; error: unknown }
-  | { status: "unknown"; error: unknown; readError: unknown };
-
-/** 写入启用记录；失败时读回，报告盘上实际的记录。 */
-export async function writeEnablement(dataDir: string, next: PluginEnablement): Promise<EnablementWrite> {
-  // 按写出的 JSON 比较读回的内容：值为 undefined 的键写出时就没有了。
-  const record = JSON.parse(JSON.stringify(next)) as unknown;
-  if (!Check(PluginEnablementSchema, record)) throw new RepaFault("invalid_plugin_enablement", "启用记录的字段无效");
-  try {
-    await writeJson(enablementFile(dataDir), record);
-    return { status: "written", record };
-  } catch (error) {
-    let actual: PluginEnablement;
-    try {
-      actual = await readEnablement(dataDir);
-    } catch (readError) {
-      return { status: "unknown", error, readError };
-    }
-    if (isDeepStrictEqual(actual, record)) return { status: "unconfirmed", record: actual, error };
-    return { status: "unchanged", record: actual, error };
-  }
+/** 写入启用记录：先写临时文件再改名，写不成时抛错。 */
+export async function writeEnablement(dataDir: string, next: PluginEnablement): Promise<void> {
+  if (!Check(PluginEnablementSchema, next)) throw new RepaFault("invalid_plugin_enablement", "启用记录的字段无效");
+  await writeJson(enablementFile(dataDir), next);
 }

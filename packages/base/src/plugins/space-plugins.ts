@@ -52,17 +52,13 @@ function failure(id: string, error: unknown): UnavailablePlugin {
  * 每次都从盘上的启用记录出发：运行的集合是这份记录经核对、导入以后的结果，没能运行的带着待批准或失败的状态。先清掉暂存副本、按记录清理快照，
  * 再逐个核对并导入；核对不通过的快照在这里删除，插件列为待批准。不运行的保留版本（previous、卸载的插件的版本）
  * 也核对，被改动的同样删除：否则它永远不会再被核对，以后批准同一内容时发布一直被拒绝。
- * 这一切都在插件打开之前；重组时旧实例都已关闭，没有实例在用这些快照，除非某个实例的 close() 报了错，那时由调用方传 clean: false。
+ * 这一切都在插件打开之前；重组时旧实例都已关闭，没有实例在用这些快照。close() 报错的旧实例已经是坏掉的实例，不为它保留文件。
  * 记录读不了时不运行任何自写插件，也不清理，只报告错误：空间照常打开。
- *
- * clean 为 false 时什么都不删：不清暂存、不按记录清理、不删改动过的快照。重组时上一批实例的 close() 报了错，
- * 它们可能仍在用这些文件，这一次就不清理；改动过的快照照样不加载，插件列为待批准，留到下一次清理时删除。
- * staging 决定是否清掉暂存副本，省略时随 clean：重组时传 false，下一批装卸可能正拿着暂存副本等批准，暂存只在打开空间时清。
+ * staging 决定是否清掉暂存副本，省略时为 true：重组时传 false，下一批装卸可能正拿着暂存副本等批准，暂存只在打开空间时清。
  */
-export async function spacePlugins(options: { home: string; space: { root: string; dataDir: string }; bundled: Plugin[]; clean?: boolean; staging?: boolean }): Promise<SpacePlugins> {
+export async function spacePlugins(options: { home: string; space: { root: string; dataDir: string }; bundled: Plugin[]; staging?: boolean }): Promise<SpacePlugins> {
   const { home, space, bundled } = options;
-  const clean = options.clean ?? true;
-  const staging = clean && (options.staging ?? true);
+  const staging = options.staging ?? true;
   const problems: unknown[] = [];
   let record;
   try {
@@ -70,14 +66,12 @@ export async function spacePlugins(options: { home: string; space: { root: strin
   } catch (error) {
     return { plugins: bundled, record: undefined, selfWritten: [], unavailable: [], problems: [error] };
   }
-  if (clean) {
-    try {
-      if (staging) await clearStaging(home, space.root);
-      await cleanSnapshots(home, space.root, record);
-    } catch (error) {
-      // 清理失败只影响占用的磁盘，下次打开空间再清。
-      problems.push(error);
-    }
+  try {
+    if (staging) await clearStaging(home, space.root);
+    await cleanSnapshots(home, space.root, record);
+  } catch (error) {
+    // 清理失败只影响占用的磁盘，下次装配再清。
+    problems.push(error);
   }
   const bundledIds = new Set(bundled.map((plugin) => plugin.id));
   const loaded: Plugin[] = [];
@@ -99,9 +93,8 @@ export async function spacePlugins(options: { home: string; space: { root: strin
         continue;
       }
       if (status === "modified") {
-        if (clean) await removeSnapshot(home, space.root, id, entry.digest).catch((error: unknown) => { problems.push(error); });
-        const message = clean ? `插件 ${id} 的已批准快照被改动过，已删除，重新批准以后才运行` : `插件 ${id} 的已批准快照被改动过，重新批准以后才运行`;
-        unavailable.push({ id, state: "pending", reason: { code: "snapshot_modified", message } });
+        await removeSnapshot(home, space.root, id, entry.digest).catch((error: unknown) => { problems.push(error); });
+        unavailable.push({ id, state: "pending", reason: { code: "snapshot_modified", message: `插件 ${id} 的已批准快照被改动过，已删除，重新批准以后才运行` } });
         continue;
       }
       const { manifest, plugin } = await loadPlugin(directory, { confined: true });
@@ -113,7 +106,7 @@ export async function spacePlugins(options: { home: string; space: { root: strin
       problems.push(error);
     }
   }
-  for (const id of clean ? ids : []) {
+  for (const id of ids) {
     const entry = record.plugins[id];
     if (entry === undefined) continue;
     for (const digest of idle(entry)) {

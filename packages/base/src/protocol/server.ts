@@ -445,11 +445,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   /**
    * 打开空间和重组共用的装配：选出插件 → 插件 open → Agent 运行时 → 追赶，次序与打开空间时相同。
    * 运行的插件每次都从这一刻盘上的启用记录得出：bundled 是随包插件，自写插件由 spacePlugins 按记录加入。
-   * clean 为 false 时不清理暂存与快照：旧实例没有正常关闭，可能还在用它们。
    * 插件 open 期间 Agent 空间尚未接上，runAgent 以 space_not_ready 拒绝；装配期间服务请求立即以 service_unavailable 拒绝，
    * 新连接因此不可能是装配所等的服务提供方。失败时关闭已经打开的部分，空间留给调用方处理。
    */
-  const assemble = async (space: Space, bundled: Plugin[], how: { first: boolean; clean?: boolean; unsaved?: UnsavedSession[] }) => {
+  const assemble = async (space: Space, bundled: Plugin[], how: { first: boolean; unsaved?: UnsavedSession[] }) => {
     const assembly = ++serial;
     let host: PluginHost | undefined;
     let agent: AgentSpace | undefined;
@@ -463,7 +462,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     try {
       // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件在插件列表里带着待批准或失败的状态。
       // 暂存副本只在打开空间时清：重组时下一批装卸可能正拿着暂存副本等批准。
-      const selected = await spacePlugins({ home, space, bundled, clean: how.clean ?? true, staging: how.first });
+      const selected = await spacePlugins({ home, space, bundled, staging: how.first });
       for (const problem of selected.problems) {
         errors.add({ source: "plugin-host", message: errorText(problem), code: problem instanceof RepaFault ? problem.code : "plugin_failed" });
       }
@@ -694,7 +693,6 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     // 排在前面的 space.open、space.close 已经关闭或换掉了这个空间；服务正在关闭时也不再打开插件，空间由服务关闭时的 closeActive 收尾。
     if (stopping || active !== target) return { status: "cancelled" };
     // 某个插件的 close() 抛错不挡住重组：记进最近错误，结果里写明是哪个插件、什么原因。
-    // 这时旧实例可能还在用暂存副本或快照，这一次装配不清理它们，留到下一次正常的装配。
     const closeFailures: { pluginId: string; message: string }[] = [];
     for (const result of results) {
       if (result.status === "fulfilled") continue;
@@ -712,19 +710,17 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         }
       }
     }
-    // 旧实例都已关闭，这时写启用记录：记录没写成时，装回的就是原来的集合。持久化没有确认时不清理快照。
-    let clean = closeFailures.length === 0;
+    // 旧实例都已关闭，这时写启用记录：记录没写成时，装回的就是盘上原来的集合。
     if (batch !== undefined) {
       try {
-        if (!(await batch.write()).clean) clean = false;
+        await batch.write();
       } catch (error) {
-        clean = false;
         errors.add({ source: "plugin-requests", message: errorText(error) });
       }
     }
     let next: Awaited<ReturnType<typeof assemble>>;
     try {
-      next = await assemble(target.space, plugins, { first: false, clean, unsaved: target.agent.unsavedSessions() });
+      next = await assemble(target.space, plugins, { first: false, unsaved: target.agent.unsavedSessions() });
     } catch (error) {
       // 装配途中服务开始关闭：已经建好的部分已关闭，空间由排在后面的 closeActive 收尾。
       if (stopping) return { status: "cancelled" };

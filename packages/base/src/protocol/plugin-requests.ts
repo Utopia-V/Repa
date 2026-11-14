@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { AgentSpace, PluginRequestOrigin, PluginToolRequest } from "../agent.js";
 import { isCode } from "../backup/copy.js";
 import type { PluginHost } from "../plugins.js";
-import { readEnablement, withLoaded, withUnloaded, writeEnablement, type EnablementWrite, type PluginEnablement } from "../plugins/enablement.js";
+import { readEnablement, withLoaded, withUnloaded, writeEnablement, type PluginEnablement } from "../plugins/enablement.js";
 import { loadPlugin, readPluginFolder } from "../plugins/manifest.js";
 import { linkInPluginFolder, pluginFolderOf } from "../plugins/plugin-list.js";
 import { checkSnapshot, discardStaged, folderHashes, publishSnapshot, snapshotDirectory, stageFolder, type StagedFolder } from "../plugins/snapshots.js";
@@ -72,8 +72,8 @@ export interface RequestSpace {
 export interface Execution {
   /** 空闲成立、闸门落下的那一刻（同步）。此后不能撤回。 */
   begin(): void;
-  /** 旧的插件宿主与 Agent 空间都已关闭：写启用记录并读回。clean 为 false 时这次装配不清理快照。 */
-  write(): Promise<{ clean: boolean }>;
+  /** 旧的插件宿主与 Agent 空间都已关闭：写启用记录。写不成时记下错误，不抛出，装配照样按盘上的记录进行。 */
+  write(): Promise<void>;
   /** 新的装配已经建立、闸门尚未抬起：按装配读到的启用记录与运行的插件判断每项的结局，把结果交回请求方会话、登记续跑。 */
   finish(assembled: Assembled): Promise<void>;
   /** 重组整体失败，空间已经关闭。 */
@@ -472,13 +472,17 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
       throw new Stopped("cancelled", { code: error instanceof RepaFault ? error.code : "confirmation_cancelled", message: `批准没有完成：${errorText(error)}` });
     }
     if (answer !== true) {
+      // false 是使用者拒绝；null 是没有作出决定（对话被关掉、界面答不了），记为取消。
+      const stopped = answer === false
+        ? new Stopped("denied", { code: "plugin_denied", message: "使用者没有批准" })
+        : new Stopped("cancelled", { code: "confirmation_cancelled", message: "没有作出批准的决定" });
       // 不需要批准的项（卸载、已批准过的内容）没有展示给使用者，不算被拒绝：它们随同批的拒绝取消。
       for (const item of batch.items) {
         if (item.outcome === undefined && item.approval === undefined) {
           settle(batch, item, { recorded: false, application: "cancelled", reason: { code: "plugin_batch_denied", message: "同一批里需要批准的项没有获批，这一项随之没有执行" } });
         }
       }
-      throw new Stopped("denied", { code: "plugin_denied", message: "使用者没有批准" });
+      throw stopped;
     }
   }
 
@@ -504,7 +508,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
   }
 
   function execution(batch: Batch<P>, space: RequestSpace, executed: { value: boolean }): Execution {
-    let write: EnablementWrite | undefined;
+    let writeError: unknown;
     let before: PluginEnablement | undefined;
     const items = () => batch.items.filter((item) => item.outcome === undefined);
     return {
@@ -519,7 +523,7 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
         } catch (error) {
           // 读不了就不写：写进去会丢掉记录里别的插件。装配仍按盘上的记录进行。
           for (const item of items()) settle(batch, item, { recorded: false, application: "failed", reason: { code: "plugin_enablement_unreadable", message: `启用记录读不了，没有写入：${errorText(error)}` } });
-          return { clean: false };
+          return;
         }
         let next = before;
         const at = new Date(host.now()).toISOString();
@@ -527,26 +531,24 @@ export function createPluginRequests<P>(host: RequestHost<P>) {
           next = item.action === "load" && item.digest !== undefined ? withLoaded(next, item.id, item.digest, at) : withUnloaded(next, item.id);
         }
         try {
-          write = await writeEnablement(space.dataDir, next);
+          await writeEnablement(space.dataDir, next);
+          for (const item of items()) item.recorded = !isDeepStrictEqual(before.plugins[item.id], next.plugins[item.id]);
         } catch (error) {
-          write = { status: "unknown", error, readError: error };
+          // 写不成时装配照样按盘上的记录进行，结局由装配读到的记录结算，这个错误只作为原因的说明。
+          writeError = error;
         }
-        const after = write.status === "unknown" ? undefined : write.record;
-        for (const item of items()) item.recorded = after !== undefined && !isDeepStrictEqual(before.plugins[item.id], after.plugins[item.id]);
-        // 持久化没有确认或盘上状态不明时不清理快照：掉电以后盘上可能还是旧记录，它引用的快照要留着。
-        return { clean: write.status === "written" || write.status === "unchanged" };
       },
       async finish(assembled) {
         executed.value = true;
         // 结局只按装配实际读到的启用记录与这次运行的插件结算：recorded 比较写入之前与装配读到的记录，
-        // application 看装配以后是否以目标摘要运行（卸载看是否不再运行）。写入的状态只决定这一次清不清快照。
+        // application 看装配以后是否以目标摘要运行（卸载看是否不再运行）。
         const seen = assembled.record;
         const running = new Set(assembled.host.list().map((plugin) => plugin.id));
         const disabled = new Map(assembled.host.disabled().map((plugin) => [plugin.id, plugin.reason]));
         const unavailable = new Map(assembled.unavailable.map((plugin) => [plugin.id, plugin.reason]));
-        const writeError = write !== undefined && write.status !== "written" ? `：${errorText(write.error)}` : "";
+        const writeFailure = writeError === undefined ? "" : `：${errorText(writeError)}`;
         const unreadable: Reason = { code: "plugin_enablement_unreadable", message: "装配时启用记录读不了，自写插件都没有运行" };
-        const notWritten: Reason = { code: "record_write_failed", message: `启用记录没有改成这次请求的样子${writeError}` };
+        const notWritten: Reason = { code: "record_write_failed", message: `启用记录没有改成这次请求的样子${writeFailure}` };
         for (const item of items()) {
           const entry = seen?.plugins[item.id];
           const recorded = before !== undefined && seen !== undefined && !isDeepStrictEqual(before.plugins[item.id], entry);

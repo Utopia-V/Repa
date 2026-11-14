@@ -480,7 +480,7 @@ test("批准前改动插件文件夹：运行的是请求批准时展示的那�
   assert.equal(counts().opens.edited, undefined);
 });
 
-test("拒绝批准、等待批准时撤回、发起连接断开：都不执行，记录不变；Agent 的请求被拒绝时结果追加进会话，不续跑", async t => {
+test("拒绝批准、没有作出决定、等待批准时撤回、发起连接断开：都不执行，记录不变；Agent 的请求被拒绝时结果追加进会话，不续跑", async t => {
   const f = await fixture(t);
   await f.folder("hello", toolFolder("hello", "deny-1"));
   const sessionId = await agentLoads(f, ["hello"], [fauxAssistantMessage("不该续跑")]);
@@ -500,6 +500,12 @@ test("拒绝批准、等待批准时撤回、发起连接断开：都不执行�
   const listed = (await f.client.call("session.history", { sessionId })).findLast(entry => entry.type === "tool")?.text ?? "";
   assert.match(listed, /hello（自写）；未启用/);
   assert.match(listed, /使用者拒绝批准/);
+
+  // 界面没有作出决定（回答 null）不算使用者拒绝。
+  const undecided = await f.client.call("plugin.load", { ids: ["hello"] });
+  await f.answer(null);
+  const closed = await f.outcome("hello", undecided.requestId);
+  assert.deepEqual({ application: closed.application, code: closed.reason?.code }, { application: "cancelled", code: "confirmation_cancelled" });
 
   const from = f.confirmations.seen.length;
   const cancelled = await f.client.call("plugin.load", { ids: ["hello"] });
@@ -757,12 +763,9 @@ test("记录在改名之前写入失败：这一项没有生效、记录未改�
   assert.equal((await f.client.call("plugin.list", {})).find(plugin => plugin.id === "control")?.state, "running");
 });
 
-test("记录在改名之后写入失败：照装配读到的新记录运行、结局为生效，这一次不清理快照", { skip: permissions }, async t => {
+test("记录在改名之后写入失败：照装配读到的新记录运行，结局为生效", { skip: permissions }, async t => {
   const f = await fixture(t, { control: {} });
   await f.folder("hello", toolFolder("hello", "write-after"));
-  // 记录之外的一个版本：清理时应当删掉它，持久化未确认时留着。
-  const stale = path.join(snapshotGroup(f.home, f.root), "hello", "e".repeat(64));
-  await mkdir(stale, { recursive: true });
   const entered = deferred();
   const release = deferred();
   f.control.closeEntered = () => entered.resolve();
@@ -782,11 +785,7 @@ test("记录在改名之后写入失败：照装配读到的新记录运行、�
     await chmod(f.dataDir, 0o700);
   }
   assert.deepEqual({ recorded: outcome.recorded, application: outcome.application, code: outcome.reason?.code }, { recorded: true, application: "applied", code: undefined });
-  assert.ok((await stat(stale)).isDirectory());
   assert.equal(counts().opens["write-after"], 1);
-  // 下一次正常的重组照常清理。
-  await f.server.reassemble();
-  await assert.rejects(stat(stale), { code: "ENOENT" });
   assert.equal(await checkSnapshot(f.home, f.root, "hello", (await readEnablement(f.dataDir)).plugins.hello?.digest ?? ""), "ok");
 });
 

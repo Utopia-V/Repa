@@ -455,9 +455,9 @@ export function createAppStore() {
           set((state) => ({ confirmations: [...state.confirmations, { id, request }] }));
           return;
         }
-        // 自写插件的批准还没有界面：明确拒绝，后端把这批装卸记为拒绝。不能落到下面的分支：登录进行中时它会被当作登录的输入。
+        // 自写插件的批准还没有界面：答不了，回答 null，后端把这批装卸记为取消，而不是使用者拒绝。不能落到下面的分支：登录进行中时它会被当作登录的输入。
         if (request.kind === "plugin") {
-          void reply(id, false);
+          void reply(id, null);
           return;
         }
         const login = get().activeLogin;

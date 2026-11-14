@@ -64,8 +64,7 @@ async function fixture(t: TestContext) {
   const approve = async (id: string, source: string, at = AT) => {
     const staged = await stageFolder(home, root, source);
     await publishSnapshot(home, root, id, staged);
-    const written = await writeEnablement(dataDir, withLoaded(await readEnablement(dataDir), id, staged.digest, at));
-    assert.equal(written.status, "written");
+    await writeEnablement(dataDir, withLoaded(await readEnablement(dataDir), id, staged.digest, at));
     return staged.digest;
   };
   return { directory, home, root, dataDir, folder, approve, closers };
@@ -243,7 +242,7 @@ test("清理只留下启用记录里的当前与上一个版本，卸载的插�
   let record = await readEnablement(f.dataDir);
   assert.deepEqual(record.plugins.hello, { enabled: true, digest: three, previous: two, activatedAt: LATER });
   record = withUnloaded(record, "other");
-  assert.equal((await writeEnablement(f.dataDir, record)).status, "written");
+  await writeEnablement(f.dataDir, record);
   await cleanSnapshots(f.home, f.root, record);
   await clearStaging(f.home, f.root);
   const group = snapshotGroup(f.home, f.root);
@@ -289,35 +288,13 @@ async function withMode<T>(directory: string, mode: number, action: () => Promis
   }
 }
 
-test("写启用记录在改名之前失败：读回的仍是旧记录，报告为未改", { skip: permissions }, async (t) => {
+test("写启用记录失败：抛错，盘上仍是旧记录", { skip: permissions }, async (t) => {
   const f = await fixture(t);
   const before = withLoaded({ plugins: {} }, "hello", "a".repeat(64), AT);
-  assert.equal((await writeEnablement(f.dataDir, before)).status, "written");
+  await writeEnablement(f.dataDir, before);
   const bytes = await readFile(enablementFile(f.dataDir));
-  const result = await withMode(f.dataDir, 0o500, () => writeEnablement(f.dataDir, withLoaded(before, "hello", "b".repeat(64), LATER)));
-  assert.equal(result.status, "unchanged");
-  assert.deepEqual(result.status === "unchanged" ? result.record : undefined, before);
+  await assert.rejects(withMode(f.dataDir, 0o500, () => writeEnablement(f.dataDir, withLoaded(before, "hello", "b".repeat(64), LATER))), { code: "EACCES" });
   assert.deepEqual(await readFile(enablementFile(f.dataDir)), bytes);
-});
-
-test("写启用记录在改名之后失败：读回的是新记录，报告为已写入、持久化未确认", { skip: permissions }, async (t) => {
-  const f = await fixture(t);
-  const before = withLoaded({ plugins: {} }, "hello", "a".repeat(64), AT);
-  assert.equal((await writeEnablement(f.dataDir, before)).status, "written");
-  const after = withLoaded(before, "hello", "b".repeat(64), LATER);
-  const result = await withMode(f.dataDir, 0o300, () => writeEnablement(f.dataDir, after));
-  assert.equal(result.status, "unconfirmed");
-  assert.ok(result.status === "unconfirmed" && result.error instanceof Error && "code" in result.error && result.error.code === "EACCES");
-  assert.deepEqual(result.status === "unconfirmed" ? result.record : undefined, after);
-  assert.deepEqual(JSON.parse(await readFile(enablementFile(f.dataDir), "utf8")), after);
-});
-
-test("写启用记录失败且读回也失败：报告状态未知，不当作旧记录", { skip: permissions }, async (t) => {
-  const f = await fixture(t);
-  const before = withLoaded({ plugins: {} }, "hello", "a".repeat(64), AT);
-  assert.equal((await writeEnablement(f.dataDir, before)).status, "written");
-  const result = await withMode(f.dataDir, 0o200, () => writeEnablement(f.dataDir, withLoaded(before, "hello", "b".repeat(64), LATER)));
-  assert.equal(result.status, "unknown");
 });
 
 test("启用记录读取时忽略各项里不认识的字段，字段无效或不是 JSON 时报错而不当作空记录", async (t) => {
@@ -604,34 +581,7 @@ test("重组按这一刻盘上的启用记录换插件：新启用的打开，�
   assert.deepEqual(reopened.plugins, pending.plugins);
 });
 
-test("不清理时什么都不删：暂存副本、记录外的版本、改动过的快照都留着；改动过的运行版本仍不加载，列为待批准", async (t) => {
-  const f = await fixture(t);
-  const source = await f.folder("hello", helloPlugin("hello", "你好"));
-  const first = await f.approve("hello", source);
-  const second = await f.approve("hello", await f.folder("hello-2", helloPlugin("hello", "再见")), LATER);
-  const leftover = await stageFolder(f.home, f.root, source);
-  const stale = await f.folder(path.join("home", "plugins", path.basename(snapshotGroup(f.home, f.root)), "hello", "e".repeat(64)), helloPlugin("hello", "旧"));
-  await writeFile(path.join(snapshotDirectory(f.home, f.root, "hello", first), "index.js"), "export default { id: 'hello', open() { return {}; } };\n");
-  await writeFile(path.join(snapshotDirectory(f.home, f.root, "hello", second), "index.js"), "export default { id: 'hello', open() { return {}; } };\n");
-  const space = { root: f.root, dataDir: f.dataDir };
-  const kept = await spacePlugins({ home: f.home, space, bundled: [], clean: false });
-  assert.deepEqual(kept.plugins, []);
-  assert.deepEqual(kept.unavailable.map(({ id, state, reason }) => [id, state, reason.code]), [["hello", "pending", "snapshot_modified"]]);
-  assert.ok(!kept.unavailable[0]?.reason.message.includes("已删除"));
-  assert.ok((await stat(leftover.directory)).isDirectory());
-  assert.ok((await stat(stale)).isDirectory());
-  assert.equal(await checkSnapshot(f.home, f.root, "hello", first), "modified");
-  assert.equal(await checkSnapshot(f.home, f.root, "hello", second), "modified");
-  // 下一次清理的装配把它们都删掉。
-  const cleaned = await spacePlugins({ home: f.home, space, bundled: [] });
-  assert.deepEqual(cleaned.unavailable.map(({ id, reason }) => [id, reason.code]), [["hello", "snapshot_modified"]]);
-  await assert.rejects(stat(leftover.directory), { code: "ENOENT" });
-  await assert.rejects(stat(stale), { code: "ENOENT" });
-  assert.equal(await checkSnapshot(f.home, f.root, "hello", first), "missing");
-  assert.equal(await checkSnapshot(f.home, f.root, "hello", second), "missing");
-});
-
-test("重组时自写插件的 close 报错：这一次不清理快照，下一次正常关闭的重组照常清理；暂存副本只在打开空间时清", async (t) => {
+test("重组时自写插件的 close 报错：重组照常完成，照样按记录清理快照；暂存副本只在打开空间时清", async (t) => {
   const f = await fixture(t);
   const tally = counts();
   tally.opens = {};
@@ -641,6 +591,8 @@ test("重组时自写插件的 close 报错：这一次不清理快照，下一�
   await f.approve("alpha", source);
   await client.call("space.open", { root: f.root });
   const leftover = await stageFolder(f.home, f.root, source);
+  // 记录之外的版本：close 报错的那次重组也删除它。
+  const stale = await f.folder(path.join("home", "plugins", path.basename(snapshotGroup(f.home, f.root)), "alpha", "e".repeat(64)), toolPlugin("alpha", "stale", "stale_lookup"));
   tally.closeError = "后台写入还没停";
   t.after(() => { tally.closeError = undefined; });
   const failed = await server.reassemble();
@@ -648,16 +600,8 @@ test("重组时自写插件的 close 报错：这一次不清理快照，下一�
   assert.deepEqual(failed.closeFailures, [{ pluginId: "alpha", message: "后台写入还没停" }]);
   assert.deepEqual(states(failed.plugins), [["alpha", "running", undefined]]);
   assert.deepEqual(tally.opens, { "alpha-1": 2 });
-  // 留一个记录之外的版本：close 报错的那次重组不删它，下一次正常关闭的重组删除。
-  const stale = await f.folder(path.join("home", "plugins", path.basename(snapshotGroup(f.home, f.root)), "alpha", "e".repeat(64)), toolPlugin("alpha", "stale", "stale_lookup"));
-  const again = await server.reassemble();
-  assert.ok(again.status === "applied");
-  assert.ok((await stat(stale)).isDirectory(), "close 报错的那次重组不应清理快照");
-  tally.closeError = undefined;
-  const clean = await server.reassemble();
-  assert.ok(clean.status === "applied");
-  assert.deepEqual(clean.closeFailures, []);
   await assert.rejects(stat(stale), { code: "ENOENT" });
+  tally.closeError = undefined;
   // 暂存副本只在打开空间时清：重组时下一批装卸可能正拿着它等批准。
   assert.ok((await stat(leftover.directory)).isDirectory());
   await client.call("space.close", {});

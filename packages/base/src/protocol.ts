@@ -86,7 +86,7 @@ const digest = Type.String({ pattern: "^[0-9a-f]{64}$" });
 export const PluginReasonSchema = object({ code: identifier, message: Type.String() });
 /**
  * 一次装卸请求里一个插件的结局，形状借 dsh 的 ChangeResult：recorded 是盘上的启用记录有没有因此改变（写入之前读到的记录与随后装配读到的记录相比），
- * application 是这次请求在运行中的结果：applied 生效，failed 没有生效（附原因），denied 使用者拒绝批准，cancelled 撤回、断线或空间关闭。
+ * application 是这次请求在运行中的结果：applied 生效，failed 没有生效（附原因），denied 使用者拒绝批准，cancelled 撤回、没有作出批准的决定、断线或空间关闭。
  */
 export const PluginOutcomeSchema = object({
   recorded: Type.Boolean(),
