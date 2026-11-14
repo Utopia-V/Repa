@@ -65,6 +65,15 @@ test("清单及底座版本错误在执行顶层代码前拒绝，合法构建�
   assert.equal(await readFile(f.sentinel, "utf8"), "executed");
 });
 
+test("清单不写 baseVersion 时不检查底座版本，照常加载", async (t) => {
+  const f = await fixture(t);
+  const { baseVersion: _omitted, ...unversioned } = manifest;
+  await f.save(unversioned);
+  const loaded = await loadPlugin(f.directory);
+  assert.deepEqual(loaded.manifest, unversioned);
+  assert.equal(await readFile(f.sentinel, "utf8"), "executed");
+});
+
 test("损坏清单、指向非模块文件或目录外的链接及不一致的导出 id 均被拒绝", async (t) => {
   const f = await fixture(t);
   await writeFile(path.join(f.directory, "repa-plugin.json"), "{");

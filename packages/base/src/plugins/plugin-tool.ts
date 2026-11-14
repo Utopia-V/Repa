@@ -39,7 +39,7 @@ export function listText(plugins: PluginInfo[]): string {
 const DESCRIPTION = `管理这个空间的自写插件：list 列出插件及状态，load 加载，unload 卸载。
 
 插件文件夹放在 .agents/plugins/<id>/，文件夹名就是插件 id（小写字母开头，只含小写字母、数字和连字符）。里面有：
-- repa-plugin.json：{"id": "<id>", "version": "0.1.0", "baseVersion": "^0.1.0", "entry": "index.ts"}，可加 "title"。
+- repa-plugin.json：{"id": "<id>", "version": "0.1.0", "entry": "index.ts"}，可加 "title"。
 - 入口模块（.ts、.js 或 .mjs，只用 ES 模块）：export default { id: "<id>", async open(host) { return { tools: () => [...], instructions: () => "...", close: async () => {} }; } }。
   工具是 { name, description, parameters, execute(input, context) }，execute 返回 { text }；parameters 用 Type 声明，例如 Type.Object({})。
 - 模块顶层只定义代码；打开文件、启动定时器、联网放在 open 里，并在 close 里收回。数据写在 host.space.dataDir 里。

@@ -134,13 +134,13 @@ schema：packages/learning/src/records-schema.ts#FactSchema；SHA-256 前 16 位
 
 负责的包：@repa/base。
 
-版本标记：无独立版本标记；baseVersion 声明插件兼容的底座版本范围。
+版本标记：无独立版本标记；可选的 baseVersion 声明插件兼容的底座版本范围，自写插件可以不写。
 
-schema：packages/base/src/plugins/manifest.ts#PluginManifestSchema；SHA-256 前 16 位：e781177bda52a6f7。
+schema：packages/base/src/plugins/manifest.ts#PluginManifestSchema；SHA-256 前 16 位：0fa04cc9abb82bfc。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| baseVersion | string | 否 |  |
+| baseVersion | string | 是 |  |
 | entry | string | 否 |  |
 | id | string | 否 |  |
 | pages[] | object | 是 |  |
@@ -158,11 +158,11 @@ schema：packages/base/src/plugins/manifest.ts#PluginManifestSchema；SHA-256 �
 
 版本标记：目录名是插件文件夹的摘要，摘要输入的第一行 repa-plugin-folder 1 是算法版本；快照的内容是一份插件文件夹，其中的清单即 plugin-manifest。
 
-schema：packages/base/src/plugins/manifest.ts#PluginManifestSchema；SHA-256 前 16 位：e781177bda52a6f7。
+schema：packages/base/src/plugins/manifest.ts#PluginManifestSchema；SHA-256 前 16 位：0fa04cc9abb82bfc。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| baseVersion | string | 否 |  |
+| baseVersion | string | 是 |  |
 | entry | string | 否 |  |
 | id | string | 否 |  |
 | pages[] | object | 是 |  |

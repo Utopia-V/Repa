@@ -58,18 +58,19 @@ reddit-digest/
     index.html
 ```
 
-清单仍是 `repa-plugin.json`，在现有四个字段之外增加两个可选字段，标题和页面声明：
+清单仍是 `repa-plugin.json`，在现有字段之外增加两个可选字段，标题和页面声明：
 
 ```json
 {
   "id": "reddit-digest",
   "version": "0.1.0",
-  "baseVersion": "^0.1.0",
   "entry": "index.ts",
   "title": "板块摘要",
   "pages": [{ "id": "main", "title": "板块摘要", "entry": "page/index.html" }]
 }
 ```
+
+底座版本 `baseVersion` 改为可选。它是为随产品附带的插件和别人发布的插件准备的，写了照旧检查。自写插件是 Agent 当场为这个空间写的，若写上 `^0.1.0`，底座升到 0.2.0 那天就打不开，而它多半还能用；所以自写插件不写，真不兼容时让它带着实际的错误失败，Agent 据此修改。
 
 入口模块导出的仍是现在的 `Plugin`：`open(host)` 返回实例，实例声明工具、Agent、方法、说明和 view。自写插件与学习插件用同一个接口，不另设一套较弱的接口，否则“别的领域能不能用这个底座”就没有得到检验。
 
