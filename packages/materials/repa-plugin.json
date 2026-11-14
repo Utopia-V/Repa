@@ -1,0 +1,6 @@
+{
+  "id": "materials",
+  "version": "0.1.0",
+  "baseVersion": "^0.1.0",
+  "entry": "dist/plugin.js"
+}

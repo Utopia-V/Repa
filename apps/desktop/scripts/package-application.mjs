@@ -22,8 +22,8 @@ const output = path.join(work, "dist");
 // 下载的 Git 发行版留在每次打包都会清空的 work 之外，再次打包不必重下。
 const downloads = path.join(root, ".scratch/downloads");
 const npm = process.env.npm_execpath;
-// 后端及其插件：学习插件由主进程按包名找到，连同它依赖的工作区包一起装进安装包。
-const packages = ["@repa/base", "@repa/space-history", "@repa/learning", "@repa/learning-model", "@repa/python-runner"];
+// 后端及其插件：学习插件与课件转文字插件由主进程按包名找到，连同它们依赖的工作区包一起装进安装包。
+const packages = ["@repa/base", "@repa/space-history", "@repa/learning", "@repa/learning-model", "@repa/python-runner", "@repa/materials"];
 
 // Electron 的发行目录：Linux 上是可执行文件所在目录，macOS 上是放 Electron.app 的目录，两者都是包里的 dist/。
 // 先经官方入口取一次可执行文件：干净的 npm ci 之后二进制是第一次取用时才下载的。
