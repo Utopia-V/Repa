@@ -2,9 +2,9 @@ import type { Static, TSchema } from "typebox";
 import type { ActivitySource, ChangeFeed, Revision, Snapshot } from "@repa/space-history";
 import type { AskSubmitResult, Item, ItemDraft, ItemResponse } from "./interaction.js";
 import type { ClientCapabilities } from "./protocol.js";
-import type { ExportedFile, MessageDecision, ModelRef } from "./schema.js";
+import type { ExportedFile, MessageDecision, ModelRef, SessionUsage } from "./schema.js";
 
-export type { ExportedFile, MessageDecision, ModelRef } from "./schema.js";
+export type { ExportedFile, MessageDecision, ModelRef, SessionUsage } from "./schema.js";
 // 插件文件夹不经构建、也没有自己的依赖：声明参数用的 TypeBox 构造器和带错误码的 RepaFault 都从这里取。
 // 宿主把插件文件夹里的 @repa/base/plugin 解析到自己的这一份，RepaFault 因此与宿主是同一个类。
 export { Type } from "typebox";
@@ -149,6 +149,7 @@ export interface AgentDefinition {
 /** 宿主持有的 Agent 任务句柄，插件用它等待终态或提前取消。 */
 export interface AgentWork {
   id: string;
+  /** 运行结束时兑现；运行出错时拒绝。经 Host.models 取得的句柄被取消过（插件取消或宿主关闭）时以 cancelled 拒绝。 */
   result: Promise<void>;
   cancel(): Promise<void>;
 }
@@ -158,12 +159,18 @@ export interface AgentWork {
 export interface Models {
   complete(request: CompletionRequest): Promise<string>;
   completeStructured<S extends TSchema>(request: CompletionRequest, schema: S): Promise<Static<S>>;
+  /** 后台任务不属于任何连接：要确认的命令被拒绝，ask_user 交回不可用，任务不会等人作答。 */
   runAgent(task: AgentTask): Promise<AgentWork>;
   /**
    * 请求不指定模型时会用哪个模型；没有可用模型时为 undefined，这时不指定模型的请求以 model_required 拒绝。
    * 插件据此避开离不开模型的工作，例如不出要由模型判分的题。每次调用都按当前登录与设置读取。
    */
   defaultModel(): ModelRef | undefined;
+  /**
+   * 这些会话（连同它们起的子 Agent 的会话）到现在累计的模型用量与金额，会话编号可以来自 runAgent 的句柄或工具调用时的 currentRun()。
+   * 同一编号只算一次；没有会话文件的会话（还没有收到过回答）按零计。只读会话记录，不发起工作。
+   */
+  usage(sessionIds: readonly string[]): Promise<SessionUsage>;
 }
 
 /** 可提前关闭的一组模型工作，供父插件管理子插件的取消与等待。 */

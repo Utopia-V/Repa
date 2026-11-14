@@ -44,7 +44,7 @@ Execute a bash command in the current working directory. Returns stdout and stde
 
 来源：learning。
 
-检查空间里 course/ 的课，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。
+检查空间里 course/ 的课，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。学习者正在做一项任务时，这一版改了展开过的部分也不换。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
@@ -99,6 +99,7 @@ Search file contents for a pattern. Returns matching lines with file paths and l
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | ids[] | string | 否 | learning_search 结果里的内容编号 |
+| line | integer | 是 | 从第几行开始交回，默认 1；文字太长时上一次的末尾会写明接着读的 line |
 
 ## learning_search
 
@@ -109,6 +110,7 @@ Search file contents for a pattern. Returns matching lines with file paths and l
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | limit | integer | 是 | 最多返回几条，默认 10 |
+| line | integer | 是 | 从第几行开始交回，默认 1；文字太长时上一次的末尾会写明接着读的 line |
 | offset | integer | 是 | 从第几条结果开始，默认 0 |
 | query | string | 否 | 要找的词：概念名、代码片段或知识点编号；空字符串列出全部可读的内容 |
 
@@ -120,6 +122,7 @@ Search file contents for a pattern. Returns matching lines with file paths and l
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| line | integer | 是 | 从第几行开始交回，默认 1；文字太长时上一次的末尾会写明接着读的 line |
 
 ## ls
 

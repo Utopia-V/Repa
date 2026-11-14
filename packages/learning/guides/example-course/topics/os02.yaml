@@ -2,8 +2,10 @@ id: os02
 title: 进程控制块
 status: outline
 minutes: 15
+summary: 进程控制块里记了什么，系统怎样把它们组织起来。
 prerequisites: [os01]
-sources: []
+sources:
+  - { source: slides, where: 第 9–14 张, use: reference }
 kps:
   - id: os02.k1
     title: 进程控制块记录什么

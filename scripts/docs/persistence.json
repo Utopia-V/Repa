@@ -87,6 +87,20 @@
       "versionedBy": "<空间>/.repa/plugins/learning/format.json"
     },
     {
+      "id": "learning-building",
+      "files": ["<空间>/.repa/plugins/learning/building.json"],
+      "owner": "@repa/learning",
+      "schema": "packages/learning/src/course-building.ts#BuildingRecordSchema",
+      "versionedBy": "<空间>/.repa/plugins/learning/format.json"
+    },
+    {
+      "id": "learning-settings",
+      "files": ["<空间>/.repa/plugins/learning/settings.json"],
+      "owner": "@repa/learning",
+      "schema": "packages/learning/src/protocol.ts#LearningSettingsSchema",
+      "versionedBy": "<空间>/.repa/plugins/learning/format.json"
+    },
+    {
       "id": "learning-course",
       "files": ["<空间>/course/course.yaml", "<空间>/.repa/plugins/learning/courses/<摘要>/course.yaml", "随包课程的 course.yaml"],
       "owner": "@repa/learning",

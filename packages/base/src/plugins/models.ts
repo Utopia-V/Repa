@@ -45,9 +45,16 @@ export function createModelScope(models: Models, onError?: (error: unknown) => v
         return track(Promise.resolve().then(async () => {
           const original = await models.runAgent(task);
           let cancelling: Promise<void> | undefined;
+          // 取消过的工作，result 一律以 cancelled 拒绝：运行被中止时可能照常结束而不报错，插件分不出它是做完了还是被停下；
+          // 宿主关闭时的取消也一样。插件不必自己记着取消过。
+          const result = original.result.then(
+            () => { if (cancelling !== undefined) throw new RepaFault("cancelled", "Agent 工作已取消"); },
+            (error: unknown) => { throw cancelling === undefined ? error : new RepaFault("cancelled", "Agent 工作已取消"); },
+          );
+          result.catch(() => undefined);
           const owned: AgentWork = {
             id: original.id,
-            result: original.result,
+            result,
             cancel() {
               cancelling ??= track(Promise.resolve().then(() => original.cancel()));
               return cancelling;
@@ -64,6 +71,8 @@ export function createModelScope(models: Models, onError?: (error: unknown) => v
       },
       // 只读当前设置，不发起工作，关闭以后也照常回答。
       defaultModel: () => models.defaultModel(),
+      // 只读会话记录，同样不发起工作。
+      usage: (sessionIds) => models.usage(sessionIds),
     },
     close() {
       if (closing === undefined) {

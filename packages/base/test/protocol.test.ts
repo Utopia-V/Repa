@@ -320,6 +320,7 @@ test("关闭服务先取消初始化插件正在等待的 Agent 回合，再释�
       markStarted();
       return { id: "initial-work", result, cancel };
     },
+    async usage() { throw new Error("未使用"); },
     close: cancel,
   };
   const plugin: Plugin = {
@@ -524,7 +525,7 @@ test("同一连接同时等待确认、提问和服务，断线后三者以各�
         },
         async list() { return []; }, async sessionFile() { return undefined; }, async abortAgent() {},
         async preview() { return { sections: [], views: [] }; },
-        async runAgent() { throw new Error("未使用"); }, async close() {},
+        async runAgent() { throw new Error("未使用"); }, async usage() { throw new Error("未使用"); }, async close() {},
       };
     } },
   });
@@ -561,7 +562,7 @@ test("基线投影后立即发生 runEnd，单个及批量 initialize 响应都�
       async create() { throw new Error("未使用"); }, async get() { throw new Error("未使用"); },
       async list() { return []; }, async sessionFile() { return undefined; }, async abortAgent() {},
       async preview() { return { sections: [], views: [] }; },
-      async runAgent() { throw new Error("未使用"); }, async close() {},
+      async runAgent() { throw new Error("未使用"); }, async usage() { throw new Error("未使用"); }, async close() {},
     };
   } } });
   const client = await f.client();

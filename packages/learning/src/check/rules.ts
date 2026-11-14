@@ -9,7 +9,7 @@ import { needsModel } from "../course-index.js";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedCourse, LoadedTopic } from "../format/load.js";
 import { markdownLinks, markdownTexts, toContent } from "../format/markdown.js";
-import type { ContentInput, Kp, Question, SlotDef, Topic } from "../format/schema.js";
+import type { ContentInput, Kp, Question, SlotDef, SourceUse, Topic } from "../format/schema.js";
 import { DOCTEST_LIMITS } from "../protocol.js";
 import { parseDoctest } from "./doctest.js";
 import { acceptedValues, inputCells, slotTests, tableCell, textMatch, topicQuestions, type QuestionEntry } from "./items.js";
@@ -38,6 +38,20 @@ export function runsInPython(question: Question): boolean {
 /** 课里有没有要在 Python 里运行的题。有就要在清单里写 runtime，检查时启动沙箱；没有就都不需要。 */
 export function usesPython(topics: readonly Topic[]): boolean {
   return topics.some((topic) => topicQuestions(topic).some(({ question }) => runsInPython(question)));
+}
+
+/**
+ * 答案是数的作答位：按数比较（format 或 match 为 integer、number），或者按文字比较而标准答案全是数。
+ * 这样的答案要由 verify 算出，不能只列进 manual：此前一次试做里模型手算的数值答案五处全错。照抄题面里常数的答案也一样写 verify，
+ * 规则不按题面猜哪些数不用算。
+ */
+export function numericSlot(slot: SlotDef): boolean {
+  if (slot.type !== "text") return false;
+  const match = textMatch(slot);
+  if (match === "integer" || match === "number" || slot.format === "integer" || slot.format === "number") return true;
+  const keys = acceptedValues(slot);
+  return match === "text" && keys.length > 0
+    && keys.every((value) => typeof value === "number" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))));
 }
 
 /** 有标准答案、由程序判分的作答位。 */
@@ -90,6 +104,14 @@ class TopicChecker {
   }
 
   private checkRelations(): void {
+    // 展开过的 topic 要等先修学过才进菜单；先修还是轮廓，学习者就永远学不到它。
+    if (this.topic.status === "complete") {
+      this.topic.prerequisites.forEach((id, index) => {
+        if (this.index.topics.get(id)?.topic.status === "outline") {
+          this.error("prerequisite_outline", `先修 ${id} 还是轮廓（status: outline），学习者学不到这一节：先把 ${id} 展开成 complete，或者改先修`, ["prerequisites", index]);
+        }
+      });
+    }
     for (const field of ["prerequisites", "encompassings"] as const) {
       const targets = field === "prerequisites"
         ? this.topic.prerequisites
@@ -106,8 +128,12 @@ class TopicChecker {
   }
 
   private checkSources(): void {
-    this.topic.sources.forEach((use, index) => {
-      const at = ["sources", index];
+    this.topic.sources.forEach((use, index) => this.checkSourceUse(use, ["sources", index]));
+  }
+
+  /** topic 与题目的 sources：来源要登记在清单里，用法要在许可之内，改编、复用和引用要写 notice。 */
+  private checkSourceUse(use: SourceUse, at: ValuePath): void {
+    {
       const source = this.course.course.sources[use.source];
       if (!source) {
         this.error("source_unknown", `来源 ${use.source} 没有登记在课程清单的 sources 里`, [...at, "source"]);
@@ -123,7 +149,7 @@ class TopicChecker {
       if (use.use !== "reference" && !use.notice) {
         this.error("source_notice_missing", "改编、复用代码或引用时要写 notice：署名、许可和修改说明", at);
       }
-    });
+    }
   }
 
   private checkFixtures(): void {
@@ -227,6 +253,7 @@ class TopicChecker {
       this.checkSlot(question, slot, [...at, "slots", slotIndex]);
     });
     this.checkVerification(question, at);
+    question.sources?.forEach((use, index) => this.checkSourceUse(use, [...at, "sources", index]));
     // 多步代码题（后一步继承前一步的解释器）还没有实现；在那之前一道题只能有一个要运行测试的作答位。
     if (question.slots.filter((slot) => slotTests(slot).length > 0).length > 1) {
       this.error("multiple_code_slots", "一道题最多一个按测试判的作答位（代码题或带测试的 Parsons 题）：多步代码题还不支持，互不相干的代码出成两道题", [...at, "slots"]);
@@ -248,6 +275,13 @@ class TopicChecker {
         this.error("manual_unknown", `manual 里的 ${id} 不是这道题的作答位`, [...at, "manual", index]);
       } else if (!slotNeedsVerification(slot)) {
         this.error("manual_needless", `${id} 由测试或评分要点负责，不用列进 manual`, [...at, "manual", index]);
+      } else if (numericSlot(slot)) {
+        this.error(
+          "numeric_manual",
+          `作答位 ${id} 的答案是数，不能只列进 manual：写一段 verify 程序把它算出来（最后写 answers = {"${id}": 算出的数}），再把 ${id} 从 manual 里去掉。`
+            + "照抄题面里的常数也写成 verify",
+          [...at, "manual", index],
+        );
       }
     }
     if (question.verify === undefined) {
@@ -540,6 +574,11 @@ export function checkRules(course: LoadedCourse, report: Report): CourseIndex {
         continue;
       }
       index.questions.set(entry.question.id, { loaded, entry });
+    }
+  }
+  for (const [name, source] of Object.entries(course.course.sources)) {
+    if ((source.url === undefined) === (source.file === undefined)) {
+      report.error("source_location", `来源 ${name} 要写 url（网上的材料）或 file（空间 materials/ 里的课件），二者写一个`, course.file, ["sources", name]);
     }
   }
   const retired = new Set(course.course.retiredIds ?? []);

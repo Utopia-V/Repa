@@ -5,6 +5,7 @@ import { setImmediate } from "node:timers/promises";
 import { Type } from "typebox";
 
 import { createModelScope, type Models } from "../src/plugin.js";
+import { RepaFault } from "../src/schema.js";
 
 function deferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => { throw new Error("尚未创建屏障"); };
@@ -19,6 +20,7 @@ const unusedModels: Models = {
   async completeStructured() { throw new Error("不应请求模型"); },
   async runAgent() { throw new Error("不应请求模型"); },
   defaultModel: () => undefined,
+  async usage() { throw new Error("不应读用量"); },
 };
 const closed = (error: unknown): boolean => error instanceof Error && "code" in error && error.code === "models_closed";
 
@@ -116,7 +118,8 @@ test("Agent 结果先结束而主动取消仍在收尾，作用域关闭等待�
   const cancellation = task.cancel();
   await cancelling.promise;
   result.resolve();
-  await task.result;
+  // 取消过的工作，即使运行照常结束，结果也以 cancelled 拒绝。
+  await assert.rejects(task.result, (error: unknown) => error instanceof RepaFault && error.code === "cancelled");
   let closed = false;
   const closing = scope.close().then(() => { closed = true; });
   // 跨过当前微任务队列，观察 result 移出活动集合后的关闭状态。

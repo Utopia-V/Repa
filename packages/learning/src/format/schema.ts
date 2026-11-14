@@ -43,6 +43,11 @@ const PythonNameSchema = Type.String({
   description: "需要是合法的 Python 变量名",
 });
 const HttpsUrlSchema = Type.String({ pattern: "^https://", maxLength: 500, description: "链接需要以 https:// 开头" });
+/** 空间 materials/ 里的一份课件，用相对空间根目录、以 / 分隔的路径。 */
+const MaterialsFileSchema = Type.String({
+  pattern: "^(?!.*(^|/)\\.\\.(/|$))materials/[^\\\\]+$", maxLength: 500,
+  description: "课件写成空间里的路径，以 materials/ 开头、用 / 分隔，例如 materials/第一章.pptx",
+});
 
 /** Markdown 字符串，或显式的内容块列表。 */
 export const ContentInputSchema = Type.Union([Type.String({ maxLength: 20_000 }), Type.Array(BlockSchema, { maxItems: 64 })]);
@@ -60,11 +65,13 @@ const CellValueSchema = Type.Union([Type.String({ maxLength: 500 }), Type.Number
 export const SourceUseKinds = ["reference", "adapt", "code", "quote"] as const;
 const SourceUseKindSchema = Type.Enum(SourceUseKinds);
 
-/** 课程用到的一份外部材料，以及它的许可允许怎样使用。 */
+/** 课程用到的一份材料：网上的（url）或学习者放进空间 materials/ 里的课件（file），二者写一个；以及它的许可允许怎样使用。 */
 export const SourceSchema = object({
   title: text(200),
   author: Type.Optional(text(200)),
-  url: HttpsUrlSchema,
+  url: Type.Optional(HttpsUrlSchema),
+  /** 学习者放进空间的课件，例如 materials/OS1.pptx。topic 与题目的 sources 用 where 写到具体的页或张。 */
+  file: Type.Optional(MaterialsFileSchema),
   /** 版本、出版或访问日期，例如“第 3 版（2024-05）”“3.0.6，访问于 2026-10-11”。 */
   version: text(200),
   /** 许可原文名称；文字与代码许可不同时分别写明。 */
@@ -130,9 +137,10 @@ export const EncompassingSchema = object({
 /** topic 之间的一条覆盖关系，学生模型按它的权重传递信用（FIRe）。 */
 export type Encompassing = Static<typeof EncompassingSchema>;
 
-/** topic 对某份课程来源的具体使用：哪一章哪一节、怎样用。 */
+/** topic 或题目对某份课程来源的具体使用：哪一章哪一节、课件的哪几页或几张，怎样用。 */
 export const SourceUseSchema = object({
   source: NameSchema,
+  /** 出处，例如“第 3 章第 2 节”“第 12–15 张”“第 4 页”。 */
   where: text(300),
   url: Type.Optional(HttpsUrlSchema),
   use: SourceUseKindSchema,
@@ -401,6 +409,8 @@ export const QuestionSchema = object({
   kind: Type.Optional(Type.Array(QuestionKindSchema, { minItems: 1, maxItems: 3 })),
   /** 这道题直接测量的知识点；省略时为所在知识点。 */
   measures: Type.Optional(Type.Array(KpIdSchema, { minItems: 1, maxItems: 4 })),
+  /** 这道题取自哪份材料的哪里，例如课件里的一道习题；写法与 topic 的 sources 相同。不进题目版本。 */
+  sources: Type.Optional(Type.Array(SourceUseSchema, { minItems: 1, maxItems: 4 })),
 });
 /** 课程里的一道题；检查、判分和辅导都按当前课程里的这份定义处理。 */
 export type Question = Static<typeof QuestionSchema>;

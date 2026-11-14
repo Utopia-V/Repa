@@ -11,7 +11,7 @@ import { confirmCourse, writeConfirmations, type ModelRequest } from "../src/che
 import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
 import type { Question, Topic } from "../src/format/schema.js";
-import { demoCourse, writeCourse, type DemoCourse } from "./demo-course.js";
+import { demoCourse, displayedOutput, writeCourse, type DemoCourse } from "./demo-course.js";
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.ts");
 
@@ -33,6 +33,7 @@ function manualDemo(): DemoCourse {
   const review = second?.review?.[0];
   assert.ok(quiz && review);
   delete quiz.verify;
+  displayedOutput(quiz);
   quiz.manual = ["output"];
   delete review.verify;
   review.manual = ["rows", "equal"];
@@ -67,6 +68,7 @@ test("复习和测验题的 manual 作答位没有核对记录时检查不通过
   const practice = t01(demo).kps[0]?.practice?.[0];
   assert.ok(practice);
   delete practice.verify;
+  displayedOutput(practice);
   practice.manual = ["output"];
   const root = await writeCourse(t, demo);
   const result = await checkCourse(root, { run: false, base: root });
@@ -135,7 +137,7 @@ test("题目改过后旧记录不再算数，检查提示重新核对；记录�
   const quiz = topic.kps[0]?.quiz?.[0];
   assert.ok(quiz);
   quiz.body = "程序显示什么？\n\n```python\nd = 1\nd = d + d + d\nprint(d)\n```";
-  quiz.slots = [{ id: "output", type: "text", format: "integer", key: 3 }];
+  quiz.slots = [{ id: "output", type: "text", match: "output", key: "3" }];
   topic.verified = [...(verified as NonNullable<Topic["verified"]>), { question: "t01.k1.x9", version: `sha256:${"0".repeat(64)}`, slots: ["output"], model: "deepseek/deepseek-flash", date: "2026-10-12" }];
   const changed = await writeCourse(t, demo);
   const result = await checkCourse(changed, { run: false, base: changed });

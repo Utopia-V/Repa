@@ -309,7 +309,7 @@ test("真实辅导请求只有学习工具和续取用的 read，课内作答期
   await f.client.call("session.send", { sessionId: f.chat.id, text: "赋值是什么意思？" });
   const first = captures[0];
   assert.ok(first);
-  assert.deepEqual(getCurrentTools(first.messages).map((tool) => tool.name).sort(), ["learning_read", "learning_search", "learning_task", "read"]);
+  assert.deepEqual(getCurrentTools(first.messages).map((tool) => tool.name).sort(), ["learning_read", "learning_search", "learning_task"]);
   assert.match(getCurrentSystemPrompt(first.messages), /学习辅导老师[^]*repa:concept\/知识点编号/u);
   const history = await f.client.call("session.history", { sessionId: f.chat.id });
   const taskRead = history.find((entry) => entry.type === "tool" && entry.text?.includes("## 题目"));
@@ -487,44 +487,41 @@ test("前端的检索稳定分页、批取和长块续取均可定位，卡片�
   assert.ok(fresh.hits.some((entry) => entry.ref.version !== lesson.ref.version));
 });
 
-test("当前题目超过底座的输出上限时，模型收到开头、结尾和全文位置，再用 read 按行续取中间部分", async (t) => {
+test("当前题目超过一次交回的上限时按行分批：每批在底座的上限之内，模型按末尾写的 line 接着读，拼起来不丢行、不重行", async (t) => {
   const f = await fixture(t, [topic("t01")]);
   await f.select();
   await f.advance();
   await f.advance();
   // 作答期间不能提问，答完以后再问。
   await f.submit();
-  let shown = "";
-  let continued = "";
-  let offset = 0;
-  f.faux.setResponses([
-    fauxAssistantMessage([fauxToolCall("learning_task", {})]),
-    (context) => {
-      shown = lastToolResult(context).text;
-      const file = /全文在 (\S+)，可用 read 工具按行读取/u.exec(shown)?.[1];
-      assert.ok(file);
-      // 开头按整行截取，下一行就是省略部分的第一行。
-      offset = (shown.slice(0, shown.indexOf("\n[中间省略")).match(/\n/gu)?.length ?? 0) + 1;
-      return fauxAssistantMessage([fauxToolCall("read", { path: file, offset, limit: 20 })]);
-    },
-    (context) => {
-      continued = lastToolResult(context).text;
-      return fauxAssistantMessage("读到了中间的代码");
-    },
-  ]);
+  const parts: string[] = [];
+  const next = (context: TranscriptContext) => {
+    const text = lastToolResult(context).text;
+    parts.push(text);
+    const line = /接着读时用同样的参数调用 learning_task，加上 line: (\d+)\]$/u.exec(text)?.[1];
+    return fauxAssistantMessage(line ? [fauxToolCall("learning_task", { line: Number(line) })] : "读完了");
+  };
+  f.faux.setResponses([fauxAssistantMessage([fauxToolCall("learning_task", {})]), next, next, next, next]);
   await f.client.call("session.send", { sessionId: f.chat.id, text: "这道题太长了" });
-  const file = /全文在 (\S+)，/u.exec(shown)?.[1];
-  assert.ok(file);
-  const full = await readFile(path.join(f.root(), file), "utf8");
-  // 全文是写给模型的分行文字：题面三个代码块的 3,000 行原样分行写出。
+  assert.ok(parts.length >= 3, `${parts.length} 批`);
+  assert.match(parts.at(-1) ?? "", /已经到结尾\]$/u);
+  const lines: string[] = [];
+  for (const part of parts) {
+    // 每批都在底座的上限（50 KiB、2,000 行）之内，底座不再截断，也就不需要 read。
+    assert.ok(Buffer.byteLength(part) < 50 * 1024 && part.split("\n").length < 2000);
+    assert.doesNotMatch(part, /中间省略/u);
+    const body = part.split("\n");
+    const note = /^\[这是第 (\d+)–(\d+) 行，共 (\d+) 行/u.exec(body.at(-1) ?? "");
+    assert.ok(note);
+    assert.equal(Number(note[1]), lines.length + 1);
+    lines.push(...body.slice(0, -1));
+    assert.equal(Number(note[2]), lines.length);
+  }
+  // 拼起来就是全文：给模型的分行文字，题面三个代码块的 3,000 行原样分行写出。
+  const full = lines.join("\n");
   assert.match(full, /^课「t01」\n知识点 t01\.k1「t01\.k1」\n学习者已提交这道题，判分结果：[^\n]+\n\n## 题目\n当前题面。\n\n```python\nv1 = 0\n/u);
+  assert.match(full, /\nv1500 = 499\n/u);
   assert.match(full, /\nv3000 = 999\n```\n\n填写文字。\n/u);
-  const [head = "", rest = ""] = shown.split(/\n\[中间省略 \d+ 字节、\d+ 行；全文在 \S+，可用 read 工具按行读取\]\n/u);
-  assert.ok(full.startsWith(head) && full.endsWith(rest));
-  assert.ok(head.length + rest.length < full.length);
-  assert.doesNotMatch(shown, /\nv1500 = 499\n/u);
-  const lines = full.split("\n");
-  assert.equal(continued.split("\n").slice(0, 20).join("\n"), lines.slice(offset - 1, offset + 19).join("\n"));
 });
 
 /** 只有一个知识点的 topic，练习就是给定的这一道题。 */

@@ -26,6 +26,7 @@ import {
   object,
   readItem,
   readLenient,
+  SessionUsageSchema,
   type CheckResult,
   type ClientCapabilities,
   type Item,
@@ -352,6 +353,58 @@ export const LearningErrorDetailsSchema = Type.Union([
 /** 学习方法错误的 details。 */
 export type LearningErrorDetails = Static<typeof LearningErrorDetailsSchema>;
 
+// ---------------------------------------------------------------------------
+// 做课的状态
+// ---------------------------------------------------------------------------
+
+/** 课的一个部分（topic）的状态：outline 只有轮廓，ready 已展开、可以学，learned 已经学过。 */
+export const PartStatusSchema = Type.Enum(["outline", "ready", "learned"]);
+/** 课的一个部分在材料里的出处：来源的标题、空间里的文件或链接，以及哪一章、哪几页或几张。 */
+export const PartSourceSchema = object({
+  title: Type.String(),
+  file: Type.Optional(Type.String()),
+  url: Type.Optional(Type.String()),
+  where: Type.String(),
+});
+/**
+ * 后台展开没有成功的原因：failed 没能开始或运行出错（message 是底层的报错原文），cancelled 被学习者取消或应用在展开中途关闭，
+ * not_expanded 运行结束了而这几部分仍是轮廓（没有通过检查或没有换用）。
+ */
+export const ExpansionFailureSchema = object({
+  topicIds: Type.Array(identifier),
+  at: timestamp,
+  code: Type.Enum(["failed", "cancelled", "not_expanded"]),
+  message: Type.Optional(Type.String()),
+});
+/**
+ * 做课的状态：course 为 null 时还没有可学的课；parts 按课程清单的顺序列出各部分；全部是 outline 时只有轮廓。
+ * expansion 是正在后台展开的部分，sessionId 是那次后台运行的会话；lastFailure 是最近一次展开没有成功的原因，之后成功则为 null。
+ * cost 是做这门课的会话（调用过 course_check、course_use 的会话与后台展开的会话）到现在累计的模型用量。
+ */
+export const CourseBuildingSchema = object({
+  course: Type.Union([object({ id: identifier, title: Type.String(), version: identifier }), Type.Null()]),
+  parts: Type.Array(object({
+    topicId: identifier,
+    title: Type.String(),
+    summary: Type.Optional(Type.String()),
+    status: PartStatusSchema,
+    sources: Type.Array(PartSourceSchema),
+  })),
+  expansion: Type.Union([object({ topicIds: Type.Array(identifier), startedAt: timestamp, sessionId: Type.Union([identifier, Type.Null()]) }), Type.Null()]),
+  lastFailure: Type.Union([ExpansionFailureSchema, Type.Null()]),
+  cost: SessionUsageSchema,
+});
+/** 做课的状态。 */
+export type CourseBuilding = Static<typeof CourseBuildingSchema>;
+/** 学习插件的设置：autoExpand 为真时，学到已展开部分的尽头之前在后台展开下一段。 */
+export const LearningSettingsSchema = object({ autoExpand: Type.Boolean() });
+/** 学习插件的设置。 */
+export type LearningSettings = Static<typeof LearningSettingsSchema>;
+/** 做课的状态变了：开始或结束一次展开、换用了新的一版、记下了做课的会话；前端收到后重新读取 building.get。 */
+export const BuildingEventSchema = object({ type: Type.Literal("building.changed") });
+/** building.changed 事件。 */
+export type BuildingEvent = Static<typeof BuildingEventSchema>;
+
 const guard = { taskId: identifier, expectedStage: TaskStageSchema, expectedRevision: count };
 const submission = object({ submissionId: identifier });
 /** 本表是 learning 插件方法的 input/result；不另造 RPC 信封。 */
@@ -389,6 +442,13 @@ export const learningMethods = {
   "quiz.finish": { input: object(guard), result: LearningStateSchema },
   "progress.get": { input: object({}), result: object({ serverNow: timestamp, progress: LearningProgressSchema }) },
   "progress.setGoal": { input: object({ dailyGoalXp: Type.Integer({ minimum: 1 }) }), result: LearningStateSchema },
+  // 做课：整门课的轮廓与各部分的状态、后台展开和花费。expand 立即在后台展开指定的轮廓部分，省略时为课程顺序里最前面的两个；
+  // 同一时刻只有一次展开。cancel 取消正在进行的展开。这几个方法不等学习任务，学习者上课时照常可用。
+  "building.get": { input: object({}), result: CourseBuildingSchema },
+  "building.expand": { input: object({ topicIds: Type.Optional(Type.Array(identifier, { minItems: 1, maxItems: 8 })) }), result: CourseBuildingSchema },
+  "building.cancel": { input: object({}), result: CourseBuildingSchema },
+  "settings.get": { input: object({}), result: LearningSettingsSchema },
+  "settings.set": { input: LearningSettingsSchema, result: LearningSettingsSchema },
   // 导出学习数据：prepare 冻结一份已脱敏的内容并返回清单，create 把同一份内容写成 zip；directory 是绝对路径。
   "export.prepare": { input: object({ sessions: Type.Boolean() }), result: object({ exportId: identifier, files: Type.Array(ExportedFileSchema) }) },
   "export.create": { input: object({ exportId: identifier, directory: Type.Optional(identifier) }), result: object({ path: identifier }) },

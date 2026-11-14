@@ -4,5 +4,11 @@ version: 1.0.0
 title: 进程的基本概念
 language: zh-CN
 license: NOASSERTION
-sources: {}
+sources:
+  slides:
+    title: 操作系统第二章课件
+    file: materials/第二章 进程管理.pptx
+    version: 学习者提供
+    license: 学习者自用
+    permits: [reference]
 topics: [os01, os02]

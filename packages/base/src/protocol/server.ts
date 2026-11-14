@@ -375,9 +375,16 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           completeStructured: (request, schema) => runtime.completeStructured(request, schema, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
           runAgent: (task) => {
             if (!agent) return Promise.reject(new RepaFault("space_not_ready", "空间尚未完成打开"));
-            return agent.runAgent(task);
+            // 后台任务没有发起它的连接：插件常在某个连接的方法调用里发起它，命令确认与提问却不能发给那个连接，
+            // 否则没人作答时任务一直挂着。离开连接的上下文启动，确认以 confirmation_cancelled 拒绝，提问以 ask_unavailable 交回。
+            const target = agent;
+            return owner.exit(() => target.runAgent(task));
           },
           defaultModel: () => runtime.defaultModel(),
+          usage: (ids) => {
+            if (!agent) return Promise.reject(new RepaFault("space_not_ready", "空间尚未完成打开"));
+            return agent.usage(ids);
+          },
         }),
         async abortAgent(id) {
           if (!agent) {
@@ -514,6 +521,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       }
       case "session.history":
         return (await requireActive().agent.get(p<"session.history">().sessionId)).history();
+      case "session.usage":
+        return requireActive().agent.usage([p<"session.usage">().sessionId]);
       case "session.send": {
         const input = p<"session.send">();
         await (await directSession(input.sessionId)).send(input.text);

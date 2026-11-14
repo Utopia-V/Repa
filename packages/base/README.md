@@ -286,7 +286,9 @@ Repa 给自己写的插件放在空间的 `.agents/plugins/<id>/`，那里只是
 
 `host.models.defaultModel()` 返回不指定模型的请求会用的模型，与运行时的 `defaultModel()` 相同；还没有可用模型时为 `undefined`。保存的默认模型只在其提供方有凭据时才算，与 Pi 选初始模型的规则相同，登出以后不再报告这个用不了的模型。解析不出模型时，`complete`、`completeStructured` 和 `runAgent` 都以 `model_required` 拒绝，不建会话；`runAgent` 还与 `session.create` 一样拒绝提供方没有凭据的模型，`complete` 指定了这样的模型时则由 Pi 发送前的预检拒绝，按 `model_error` 交回。它每次按当前登录与设置读取，不发起请求，插件可以据此避开离不开模型的工作，例如学习插件在没有可用模型时不出要由模型判分的题。离线测试宿主的 `ModelTestDriver` 默认有一个测试模型，`setDefaultModel(undefined)` 模拟没有可用模型。
 
-`host.models.runAgent({ agent, text })` 启动后台任务，省略 agent 时为通用 Agent，不要求能直接对话。句柄 id 就是会话 id，前端可观察会话事件或中止；排队任务取消后不调用模型，但若正在等空间写锁，完成响应会等取得队列并收尾。任务队列与句柄仅存于内存。
+`host.models.runAgent({ agent, text })` 启动后台任务，省略 agent 时为通用 Agent，不要求能直接对话。后台任务不属于任何连接，即使是在某个连接的方法调用里发起的：要确认的命令以 `confirmation_cancelled` 拒绝，`ask_user` 以 `ask_unavailable` 交回，任务不会等人作答。句柄被取消过（插件调用 `cancel()` 或宿主关闭）时，`result` 一律以 `cancelled` 拒绝：中止的运行可能照常结束而不报错，插件据此分得清做完了还是被停下。句柄 id 就是会话 id，前端可观察会话事件或中止；排队任务取消后不调用模型，但若正在等空间写锁，完成响应会等取得队列并收尾。任务队列与句柄仅存于内存。
+
+`host.models.usage(sessionIds)` 汇总这些会话到现在的模型用量，连同它们起的子 Agent 的会话（逐层往下，按父关联找；同一会话只算一次），协议上的 `session.usage { sessionId }` 读一个会话，二者结果相同：`requests` 是请求次数，`usage` 是全部输入、输出与缓存读写的 token，`cost` 按模型目录（Pi 的模型目录，含分档单价与长缓存写入）把有单价的请求折成美元，`unpriced` 是没有单价的那部分 token（模型不在目录里或单价都是零，以及压缩摘要这类不记模型的请求）。每条助手消息与 Pi 的 usage 条目各算一次请求；会话的全部分支都算，因为旧分支同样花了钱。打开着的会话读内存里的条目，其余读会话文件，包括后台任务、子 Agent 和插件模型调用的短会话。Pi 在会话收到第一条回答时才写会话文件，所以没有文件的会话（例如还没收到回答就被取消或随空间关闭）没有记下请求，按零计；不认识的编号同样按零计，不报错。它只读记录，不发起工作。`ModelTestDriver` 的 `setUsage` 为测试设定一个会话的用量，没有设定的按零计。
 
 Agent 定义列出子 Agent 后，模型可以用子任务工具启动它们；子 Agent 的工具不能超过父 Agent，定义允许循环与重入。子 Agent 在新会话中运行，看不到父对话，最后回复交回父 Agent，同一回复中的多个子任务并行；父运行取消时一起取消，空间关闭等它们结束，权限确认仍交给父运行的发起连接。嵌套层数默认最多 3 层，可用 `maxSubagentDepth` 调整，这是 Repa 为限制失控递归采用的假设，超限作为工具错误返回。
 

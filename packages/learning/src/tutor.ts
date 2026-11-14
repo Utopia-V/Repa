@@ -14,21 +14,24 @@ import {
 import type { LearningSession } from "./session.js";
 import { topicMemory } from "./student-model.js";
 import { currentDelivery, referenceContent, requireReferenceAccess, visibleContent } from "./tutor-content.js";
-import { pagesText, searchText, taskText, viewText } from "./tutor-text.js";
+import { pagedText, pagesText, searchText, taskText, viewText } from "./tutor-text.js";
 
 export const TUTOR_AGENT = "learning-tutor";
 /** 前端的 content.search 与 content.read 一次返回的上限；给模型的工具输出由底座的上限约束，不用它。 */
 const TEXT_BYTES = 16 * 1024;
-const TaskParametersSchema = object({});
+const line = Type.Optional(Type.Integer({ minimum: 1, description: "从第几行开始交回，默认 1；文字太长时上一次的末尾会写明接着读的 line" }));
+const TaskParametersSchema = object({ line });
 const SearchParametersSchema = object({
   query: Type.String({ maxLength: 200, description: "要找的词：概念名、代码片段或知识点编号；空字符串列出全部可读的内容" }),
   offset: Type.Optional(Type.Integer({ minimum: 0, description: "从第几条结果开始，默认 0" })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "最多返回几条，默认 10" })),
+  line,
 });
 const ReadParametersSchema = object({
   ids: Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
     minItems: 1, maxItems: 8, description: "learning_search 结果里的内容编号",
   }),
+  line,
 });
 
 /** 辅导的三项工具：名称、说明与参数固定，执行时交给当前课程的会话。 */
@@ -69,8 +72,9 @@ export function tutorAgent(hooks: () => TutorHooks): AgentDefinition {
     id: TUTOR_AGENT,
     direct: true,
     description: "围绕当前学习任务讲解，并即时回顾已学知识",
-    // read 只为续取被底座省略的长输出：工具结果超过上限时，全文存在 .repa/tool-output/，模型按提示用 read 按行读取。
-    tools: [...TUTOR_TOOLS.map((tool) => tool.name), "read"],
+    // 没有 read：空间里写到一半的 course/ 有复习和测验题的答案，辅导读得到就可能在作答期间说出来。
+    // 辅导工具的输出自己分批，不靠底座截断以后用 read 续取，见 tutor-text.ts。
+    tools: TUTOR_TOOLS.map((tool) => tool.name),
     instructions: () => [
       "你是学习辅导老师，在学习者卡住时帮助其弄懂当前的题目和相关知识。",
       "先用 learning_task 看当前的题目、学习者的作答和判分结果；需要讲解、例题或概念卡时，用 learning_search 查找，再用 learning_read 按编号读取。",
@@ -165,31 +169,32 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
     find(pages, ref);
     return { openedAt: session.clock() };
   }));
-  // 工具与前端方法共用授权（access），只是给模型写成分行文字：不带前端的字段与编号，也不分页，
-  // 过长时由底座省略中间、保存全文，模型用 read 按行续取。
+  // 工具与前端方法共用授权（access），只是给模型写成分行文字：不带前端的字段与编号。
+  // 辅导没有 read，长文字不交给底座截断，按行分批交回（tutor-text.ts 的 pagedText），模型带上 line 接着读。
   const tools: Tool[] = [
     {
       ...TUTOR_TOOLS[0],
       async execute(raw) {
-        parse(TaskParametersSchema, raw);
+        const { line: from = 1 } = parse(TaskParametersSchema, raw);
         return session.records.serial(async () => {
           const view = requireReferenceAccess(await session.view());
-          return { text: taskText(view.state.task, session.course) };
+          return { text: pagedText(taskText(view.state.task, session.course), from, TUTOR_TOOLS[0].name) };
         });
       },
     },
     {
       ...TUTOR_TOOLS[1],
       async execute(raw) {
-        const input = { offset: 0, limit: 10, ...parse(SearchParametersSchema, raw) };
+        const { line: from = 1, ...input } = { offset: 0, limit: 10, ...parse(SearchParametersSchema, raw) };
         const result = await search(input);
-        return { text: searchText(input.query, input.offset, result ?? { hits: [], nextOffset: null }, titles, session.course) };
+        return { text: pagedText(searchText(input.query, input.offset, result ?? { hits: [], nextOffset: null }, titles, session.course), from, TUTOR_TOOLS[1].name) };
       },
     },
     {
       ...TUTOR_TOOLS[2],
       async execute(raw) {
-        const ids = [...new Set(parse(ReadParametersSchema, raw).ids)];
+        const { ids: requested, line: from = 1 } = parse(ReadParametersSchema, raw);
+        const ids = [...new Set(requested)];
         const pages = await access((visible) => {
           const missing = ids.filter((id) => !visible.some((page) => page.ref.id === id));
           if (missing.length) {
@@ -197,7 +202,7 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
           }
           return ids.flatMap((id) => visible.filter((page) => page.ref.id === id));
         });
-        return { text: pagesText(pages, titles, session.course) };
+        return { text: pagedText(pagesText(pages, titles, session.course), from, TUTOR_TOOLS[2].name) };
       },
     },
   ];

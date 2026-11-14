@@ -189,10 +189,9 @@ const GENERAL_BACKEND: RepaProcessOptions = {
   plugins: [MATERIALS_PLUGIN],
 };
 
-/** 学习者版本的装配：加载学习插件与课件转文字插件、关掉通用 Agent，与桌面端交给学习者的后端相同。 */
+/** 学习者版本的装配：学习插件、课件转文字插件与通用 Agent（做课由它完成），与桌面端交给学习者的后端相同。 */
 const LEARNER_BACKEND: RepaProcessOptions = {
   plugins: [fileURLToPath(new URL("../../packages/learning", import.meta.url)), MATERIALS_PLUGIN],
-  generalAgent: false,
 };
 
 // `vite --mode learning` 按学习者版本启动后端；页面本身不分版本，按后端提供的插件和 Agent 决定入口。

@@ -2,8 +2,10 @@ id: os01
 title: 进程的三种基本状态
 status: complete
 minutes: 15
+summary: 就绪、运行、阻塞三种状态，以及它们之间怎样转换。
 prerequisites: []
-sources: []
+sources:
+  - { source: slides, where: 第 3–8 张, use: reference }
 notes: 全部作答位靠理解和记忆判断，列在 manual 里。
 kps:
   - id: os01.k1

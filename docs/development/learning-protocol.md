@@ -97,7 +97,18 @@ if (state.ok) renderLearning(state.value);
 
 空间里有 `course/` 文件夹而还没有换用过一门通过检查的课，或换用的课打不开时，插件照常打开，但没有可学的课：`state.get` 返回 `course`、`task`、`menu` 都为 `null`，`tutorAllowed` 与 `referenceContentAllowed` 为 false，进度的 XP 与 topic 数为零；`progress.get` 同样给出零进度，导出照常可用，其余方法以 `course_unavailable` 拒绝，辅导会话的 `session.send` 报 `message_rejected`，details 的 `reason` 为 `course_unavailable`。做课的 Agent 用 `course_use` 换用以后，后端发出 `learning.changed`，重新查询即可看到这门课。课程从哪里来、换用的规则见[学习记录说明](learning-records.md#课程来源与模型)。
 
-换用只在学习者没有做到一半的任务时发生：正在上课、复习或测验时，`course_use` 不换用，所以进行中的任务的题面、阶段和 revision 不会因换用而变化。换用以后同样发出 `learning.changed`。
+学习者有做到一半的任务时，只有新的一版只增不改，`course_use` 才换用：判分运行时相同，旧版里每个展开了的 topic 在新版里一字不差，轮廓可以展开、修改或删去，也可以加新的 topic（例如后台展开了后面的部分）。这时新的一版重放出同一项任务，题面、阶段与交付不变，`state.course.version` 可以变。改了展开过的部分就不换：除了任务本身的 topic，学过的部分改了答案也会使旧作答重判，先修可能不再算学过，进行中的任务随之失去资格。换用以后发出 `learning.changed` 与 `building.changed`。
+
+### 做课的状态
+
+做课页面经 `building.get` 读整门课的样子，这几个方法不等学习任务，学习者上课时照常可用：
+
+- `course` 为 `null`：还没有可学的课。否则 `parts` 按课程清单的顺序列出各部分（topic）：`title`、一句话的 `summary`、在材料里的出处 `sources`（来源标题、`file` 或 `url`、`where`），以及 `status`：`outline` 只有轮廓，`ready` 已展开、可以学，`learned` 学过。全部是 `outline` 时只有轮廓。
+- `expansion` 是正在后台展开的部分：`topicIds`、`startedAt`，以及那次后台运行的会话 `sessionId`（还没建立时为 `null`）；没有展开在进行时为 `null`。
+- `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `failed`（没能开始或运行出错，例如没有可用模型、模型请求报错，`message` 是底层报错的原文）、`cancelled`（被学习者取消，或应用在展开中途关闭）、`not_expanded`（运行结束了而这几部分仍是轮廓），界面文字由前端按 `code` 书写。
+- `cost` 是做这门课的会话（调用过 `course_check`、`course_use` 的会话与后台展开的会话，连同它们起的子 Agent）到现在的累计用量，字段同底座的 `session.usage`：`requests`、全部 token `usage`、按模型目录单价折算的 `cost`（美元），以及没有单价的那部分 token `unpriced`。
+
+`building.expand` 立即在后台展开：`topicIds` 省略时为课程顺序里最前面的两个轮廓部分。它不看自动展开的设置，返回展开开始以后的状态。`building.cancel` 取消正在进行的展开，等它停下再返回。`settings.get` 与 `settings.set` 读写学习插件的设置，目前只有 `autoExpand`（缺省为真）：为真时，已经展开过一段、学习者学到已展开部分只剩一节没学而后面还有轮廓时，插件在后台展开接下来的部分。
 
 ### 辅导会话
 
@@ -109,7 +120,7 @@ if (state.ok) renderLearning(state.value);
 
 ### 事件与错误
 
-底座 `plugin.event` 的 `pluginId` 为 `learning`，`event` 是 `LearningEvent`。事件只有类型、revision 和 task/menu/submission 身份，没有题面和答案。收到更新或重连时重新查询；丢事件不影响恢复，也不把事件当成状态增量。
+底座 `plugin.event` 的 `pluginId` 为 `learning`，`event` 是 `LearningEvent`（`learning.changed`）或 `{ type: "building.changed" }`。前者只有类型、revision 和 task/menu/submission 身份，没有题面和答案；后者在开始或结束一次展开、换用新的一版、记下做课的会话时发出，前端重新读取 `building.get`。收到更新或重连时重新查询；丢事件不影响恢复，也不把事件当成状态增量。
 
 处理器抛底座 `RepaFault(code, message, details)`，使用原有 JSON-RPC 错误信封；客户端从 `RpcError.data` 读取 code 和 details。`LearningErrorDetailsSchema` 描述 details，不包第二层错误：
 
@@ -122,7 +133,10 @@ if (state.ok) renderLearning(state.value);
 | `model_required` | 无 details；这一步只剩要由模型判分的题而当前没有可用模型，任务保留，配好模型后继续，也可以中止 |
 | `restricted` | `restricted`，附 task id 和 stage，按当前限制恢复界面 |
 | `service_failed` | `service_failure`，附 service 和 retryable；先查询提交的持久状态，再决定恢复 |
-| `course_unavailable` | 无 details；这个空间还没有可学的课，按 `state.get` 的 `course: null` 显示 |
+| `course_unavailable` | 无 details；这个空间还没有可学的课，按 `state.get` 的 `course: null` 显示；`building.expand` 在空间里还没有换用过自制的课时也报它 |
+| `expansion_running` | 附正在展开的 `topicIds`；同一时刻只有一次展开 |
+| `not_outline` | 附 `topicIds`：要展开的部分不在课里或已经展开 |
+| `nothing_to_expand` | 无 details；课里已经没有轮廓部分 |
 
 导出的错误来自底座，details 不属于上表，显示 message 即可：`export_expired` 表示预览已经写出或被新的预览取代，重新调用 `export.prepare`；`export_redaction_failed` 表示读不到保存的凭据，无法脱敏，没有生成导出；`invalid_path` 表示 `directory` 不是绝对路径，这份预览仍然有效。
 
