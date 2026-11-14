@@ -57,6 +57,27 @@
       "owner": "@repa/learning",
       "schema": "packages/learning/src/records-schema.ts#FactSchema",
       "versionedBy": "<空间>/.repa/plugins/learning/format.json"
+    },
+    {
+      "id": "plugin-manifest",
+      "files": ["<空间>/.agents/plugins/<插件 id>/repa-plugin.json", "随包插件文件夹的 repa-plugin.json"],
+      "owner": "@repa/base",
+      "schema": "packages/base/src/plugins/manifest.ts#PluginManifestSchema",
+      "versionedBy": "无独立版本标记；baseVersion 声明插件兼容的底座版本范围"
+    },
+    {
+      "id": "plugin-snapshot",
+      "files": ["<应用配置目录>/plugins/<空间分组>/<插件 id>/<摘要>/"],
+      "owner": "@repa/base",
+      "schema": "packages/base/src/plugins/manifest.ts#PluginManifestSchema",
+      "versionedBy": "目录名是插件文件夹的摘要，摘要输入的第一行 repa-plugin-folder 1 是算法版本；快照的内容是一份插件文件夹，其中的清单即 plugin-manifest"
+    },
+    {
+      "id": "plugin-enablement",
+      "files": ["<空间>/.repa/plugins.json"],
+      "owner": "@repa/base",
+      "schema": "packages/base/src/plugins/enablement.ts#PluginEnablementSchema",
+      "versionedBy": "<空间>/.repa/format.json"
     }
   ]
 }

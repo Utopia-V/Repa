@@ -23,11 +23,14 @@ import {
 } from "../interaction.js";
 import type { AskOutcome, Plugin, Services } from "../plugin.js";
 import { openPluginHost, type PluginHost } from "../plugins.js";
+import { pluginsDirectory } from "../plugins/snapshots.js";
+import { spacePlugins, type UnavailablePlugin } from "../plugins/space-plugins.js";
 import {
   methods,
   notifications,
   PROTOCOL_VERSION,
   type ClientCapabilities,
+  type DisabledPlugin,
   type Method,
   type Notification,
   type NotificationParams,
@@ -92,6 +95,14 @@ interface ActiveSpace {
   plugins: PluginHost;
   agent: AgentSpace;
   backups: SpaceBackups;
+  /** 启用了却没有交给插件宿主的自写插件：待批准或失败。 */
+  unavailable: UnavailablePlugin[];
+}
+
+/** 停用清单：没有交给宿主的自写插件，加上宿主打开时停用的插件，按 id 排列。 */
+function disabledOf(active: ActiveSpace): DisabledPlugin[] {
+  const unavailable = active.unavailable.map(({ id, reason }) => ({ id, reason: { ...reason } }));
+  return [...unavailable, ...active.plugins.disabled()].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
 }
 
 /** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
@@ -335,7 +346,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
     if (stopping) throw new RepaFault("closed", "服务正在关闭");
     const resolved = path.resolve(root);
-    if (active?.space.root === resolved && !create) return { root: resolved, disabledPlugins: active.plugins.disabled() };
+    if (active?.space.root === resolved && !create) return { root: resolved, disabledPlugins: disabledOf(active) };
     await closeActive();
     // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
     const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
@@ -344,9 +355,15 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     const owners: NonNullable<typeof building> = {};
     building = owners;
     try {
+      const pluginError = (error: unknown) => {
+        errors.add({ source: "plugin-host", message: errorText(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
+        emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } });
+      };
+      // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件一起列进停用清单。
+      const selected = await spacePlugins({ home, space, bundled: options.plugins ?? [], onError: pluginError });
       plugins = await openPluginHost({
         space,
-        plugins: options.plugins ?? [],
+        plugins: selected.plugins,
         now: () => runtime.now(),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
         services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
@@ -368,17 +385,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           await agent.abortAgent(id);
         },
         emit: (pluginId, event) => emit("plugin.event", { pluginId, event }),
-        onError: (error) => {
-          errors.add({ source: "plugin-host", message: errorText(error), code: "plugin_failed", ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
-          emit("plugin.event", { pluginId: "host", event: { type: "error", code: "plugin_failed" } });
-        },
+        onError: pluginError,
       });
       const host = plugins;
       owners.plugins = host;
       // 停用的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
       // 没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
       let directAgents = options.directAgents;
-      if (directAgents !== undefined && host.disabled().length > 0) {
+      if (directAgents !== undefined && (host.disabled().length > 0 || selected.unavailable.length > 0)) {
         const available = new Set([...(options.generalAgent === false ? [] : ["general"]), ...host.agents().map((definition) => definition.id)]);
         directAgents = directAgents.filter((id) => available.has(id));
       }
@@ -395,6 +409,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         commandPolicy: () => settings.get().commandPolicy,
         record: async (runId, action) => (await space.record({ kind: "agent", runId }, action)).value,
         writes: space.writes,
+        controlDirs: [pluginsDirectory(home)],
         onEvent: (event) => emit("session.event", event),
         confirm: (request, signal) => confirmFor(owner.getStore())(request, signal),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
@@ -416,9 +431,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
           });
         },
       });
-      active = { space, plugins, agent, backups };
+      active = { space, plugins, agent, backups, unavailable: selected.unavailable };
       backups.start();
-      return { root: space.root, disabledPlugins: plugins.disabled() };
+      return { root: space.root, disabledPlugins: disabledOf(active) };
     } catch (error) {
       await stopOwners({ agent, plugins });
       await space.close().catch(() => undefined);
@@ -548,7 +563,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       case "history.undoRun":
         return requireActive().space.history.undoRun(p<"history.undoRun">().runId);
       case "plugin.disabled":
-        return requireActive().plugins.disabled();
+        return disabledOf(requireActive());
       case "plugin.list":
         return requireActive().plugins.list();
       case "plugin.call": {
@@ -717,7 +732,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             baseline: {
               space: active === undefined ? null : { root: active.space.root },
               sessions: active?.agent.baseline() ?? [],
-              disabledPlugins: active?.plugins.disabled() ?? [],
+              disabledPlugins: active === undefined ? [] : disabledOf(active),
             },
           };
         }

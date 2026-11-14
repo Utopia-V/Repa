@@ -30,5 +30,17 @@
   "learning-records": {
     "digest": "82166e6be990a5b5",
     "basis": "2026-11-11-task-course-version.md"
+  },
+  "plugin-manifest": {
+    "digest": "e781177bda52a6f7",
+    "basis": "2026-11-13-plugin-manifest.md"
+  },
+  "plugin-snapshot": {
+    "digest": "e781177bda52a6f7",
+    "basis": "2026-11-13-plugin-snapshot.md"
+  },
+  "plugin-enablement": {
+    "digest": "6559dfb16f27d289",
+    "basis": "2026-11-13-plugin-enablement.md"
   }
 }

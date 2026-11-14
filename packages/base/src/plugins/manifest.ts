@@ -38,15 +38,18 @@ export interface LoadedPlugin {
 
 const ENTRY_EXTENSIONS = [".js", ".mjs", ".ts"];
 
+/** 静态读出的插件文件夹：真实路径、清单和入口模块的真实路径。 */
+export interface PluginFolder {
+  root: string;
+  manifest: PluginManifest;
+  entry: string;
+}
+
 /**
- * 清单和兼容性全部通过后才执行插件。
- *
- * 根目录有 package.json 或位于 node_modules 下的文件夹是一个 npm 包，随包插件即如此：依赖由包管理器安装，按 Node 的规则照常解析。
- * 只看文件夹自己，不看上级目录：空间可能就在某个 JS 项目里，上级的 package.json 不该改变插件的含义。
- * 其余文件夹只能导入 Node 内置模块、文件夹内的文件和 @repa/base/plugin，见 confinePluginFolder。
- * 这一区分是在装卸与快照落地之前的临时判断：那时自写插件从宿主保管的快照加载，由来源而不由位置决定。
+ * 只读清单并核对，不执行任何代码：字段、版本、底座兼容性、入口与页面文件。批准自写插件之前用它读暂存的副本，
+ * 展示标题、版本与页面；导入要等使用者同意以后。
  */
-export async function loadPlugin(directory: string): Promise<LoadedPlugin> {
+export async function readPluginFolder(directory: string): Promise<PluginFolder> {
   const root = await realpath(directory);
   if (!(await stat(root)).isDirectory()) throw new RepaFault("invalid_plugin_manifest", "插件路径必须是插件文件夹");
   let value: unknown;
@@ -82,7 +85,20 @@ export async function loadPlugin(directory: string): Promise<LoadedPlugin> {
       throw new RepaFault("invalid_plugin_manifest", "页面入口要放在子目录里，例如 page/index.html，入口模块和清单不能在这个目录中", { page: page.id, entry: page.entry });
     }
   }
-  const npmPackage = underNodeModules || (await exists(path.join(root, "package.json")));
+  return { root, manifest, entry };
+}
+
+/**
+ * 清单和兼容性全部通过后才执行插件。
+ *
+ * 根目录有 package.json 或位于 node_modules 下的文件夹是一个 npm 包，随包插件即如此：依赖由包管理器安装，按 Node 的规则照常解析。
+ * 只看文件夹自己，不看上级目录：空间可能就在某个 JS 项目里，上级的 package.json 不该改变插件的含义。
+ * 其余文件夹只能导入 Node 内置模块、文件夹内的文件和 @repa/base/plugin，见 confinePluginFolder。
+ * 从已批准快照加载的自写插件给出 confined：一律这样限制，不看文件夹里有没有 package.json，按来源而不按内容判断。
+ */
+export async function loadPlugin(directory: string, options: { confined?: boolean } = {}): Promise<LoadedPlugin> {
+  const { root, manifest, entry } = await readPluginFolder(directory);
+  const npmPackage = options.confined !== true && (root.split(path.sep).includes("node_modules") || (await exists(path.join(root, "package.json"))));
   if (!npmPackage) confinePluginFolder(root, manifest.id);
   const module = await importEntry(manifest.id, root, npmPackage, pathToFileURL(entry).href);
   const exported = module !== null && typeof module === "object" ? module : {};
