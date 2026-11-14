@@ -194,7 +194,7 @@ test("YAML 把 001 读成数字时，报出所在行并提示加引号", async (
   const result = await checkCourse(root, { run: false, base: root });
   assert.deepEqual(codes(result.diagnostics), ["schema"]);
   const [problem] = result.diagnostics;
-  assert.equal(problem?.file, path.join("topics", "t02.yaml"));
+  assert.equal(problem?.file, "topics/t02.yaml");
   assert.equal(problem?.line, 2);
   assert.match(problem?.message ?? "", /引号/);
 });
