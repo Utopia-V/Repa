@@ -26,7 +26,17 @@ export interface AgentSession {
   fork(entryId: string): Promise<AgentSession>;
 }
 
-/** 一个空间中的 Agent 会话集合；用于创建、恢复、运行及关闭会话。 */
+/**
+ * 一个空间中的 Agent 会话集合；用于创建、恢复、运行及关闭会话。
+ *
+ * 会话用的是每一步当时的工具集：装配提供的工具与 Agent（AgentSpaceOptions.tools、agents）增减以后，
+ * 已经打开的会话在各自的下一次模型回复时看到变化，同一次回复里已经发出的调用仍按原来的集合；
+ * 会话不重建，历史、队列和父子关联不动。之后才打开的会话按打开时的集合。
+ * Agent 档案引用的工具和子 Agent 按名字在当时的集合里取：被引用的不在就少那一项，回来以后那一项重新出现。
+ * 档案之外的工具任何时刻都调用不到；档案里的内置工具在会话打开时定下，之后只会减少，新增的要等会话重新打开。
+ * 系统提示段（包括可用工具的清单和插件说明）在每次运行开始时生成，运行中途不变。
+ * 插件 Agent 不在时（所属插件撤下），它的会话只读；插件回来以后，同一个会话恢复可用。
+ */
 export interface AgentSpace {
   /** 当前可用的 Agent；关掉的通用 Agent 不在其中。 */
   agents(): AgentInfo[];
@@ -48,11 +58,11 @@ export interface AgentSpace {
 export interface AgentSpaceOptions {
   root: string;
   sessionsDir: string;
-  /** 全部插件的说明、工具和 view，组成通用 Agent。 */
+  /** 全部插件的说明、工具和 view，组成通用 Agent。每次用到时调用，返回这一刻的集合；同一个工具在被替换之前应返回同一个对象。 */
   instructions(): { id: string; text: string }[];
   tools(): AgentTool[];
   views(): Promise<{ id: string; text: string }[]>;
-  /** 插件声明的 Agent。 */
+  /** 插件声明的 Agent，返回这一刻的集合。 */
   agents?(): AgentDefinition[];
   /** 装配是否提供通用 Agent；默认提供。 */
   generalAgent?: boolean;
