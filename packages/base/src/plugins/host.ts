@@ -134,8 +134,26 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   const waiting = new Set<string>();
   let closing: Promise<void> | undefined;
 
+  // 实例已经结束的插件：close() 已返回或抛错、打开时被停用，或 open() 拿到 Host 后抛错。它们手里的 Host 作废。
+  const closedPlugins = new Set<string>();
+
   function checkOpen(): void {
     if (closed || stopping) throw new RepaFault("plugins_closed", "插件宿主已经关闭");
+  }
+
+  /** Host 上的服务、中止 Agent 与导出：宿主开始关闭或这个插件的实例结束以后立即拒绝。 */
+  function checkPlugin(pluginId: string): void {
+    checkOpen();
+    if (closedPlugins.has(pluginId)) throw new RepaFault("plugins_closed", "插件已经关闭");
+  }
+
+  /**
+   * Host 上的文件与历史操作：宿主开始关闭以后仍然放行，直到这个插件的实例结束，插件因此可以在 close() 里等后台工作写完结果；
+   * 实例结束以后返回失败的 Promise。
+   */
+  function admitted<T>(pluginId: string, action: () => Promise<T>): Promise<T> {
+    if (closedPlugins.has(pluginId)) return Promise.reject(new RepaFault("plugins_closed", "插件已经关闭"));
+    return action();
   }
 
   const modelScopes = new Map<string, ModelScope>();
@@ -164,6 +182,8 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     } catch (closeError) {
       failures.push(closeError);
     }
+    // open() 抛错时没有实例，交出去的 Host 同样作废。
+    closedPlugins.add(id);
     instances.delete(id);
     modelScopes.delete(id);
     pluginTools.delete(id);
@@ -314,23 +334,28 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       try {
         const dataDir = await space.pluginDataDir(plugin.id);
         const ownedAgents = new Set<string>();
+        const files = space.filesFor({ kind: "plugin", pluginId: plugin.id });
         const host: Host = {
           now: options.now ?? Date.now,
           space: { root: space.root, dataDir },
-          files: space.filesFor({ kind: "plugin", pluginId: plugin.id }),
+          files: {
+            read: (file) => admitted(plugin.id, () => files.read(file)),
+            write: (file, text) => admitted(plugin.id, () => files.write(file, text)),
+            list: (directory) => admitted(plugin.id, () => files.list(directory)),
+          },
           history: {
-            changes: (since) => space.history.changes(since),
-            list: (limit) => space.history.list(limit),
+            changes: (since) => admitted(plugin.id, () => space.history.changes(since)),
+            list: (limit) => admitted(plugin.id, () => space.history.list(limit)),
             record: (source, action) => {
               if (source.kind !== "plugin" || source.pluginId !== plugin.id) {
                 throw new RepaFault("invalid_history_source", "插件只能以自己的来源记录历史");
               }
-              return space.record(source, action);
+              return admitted(plugin.id, () => space.record(source, action));
             },
           },
           models: ownedModels.models,
           abortAgent(agent) {
-            checkOpen();
+            checkPlugin(plugin.id);
             if (!ownedAgents.has(agent)) {
               return Promise.reject(new RepaFault("agent_not_owned", "插件只能中止自己声明的 Agent", { agent }));
             }
@@ -341,13 +366,13 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           },
           services: {
             call(service, input, callOptions) {
-              checkOpen();
+              checkPlugin(plugin.id);
               return track(Promise.resolve().then(() => serviceRoute.call(service, input, callOptions)));
             },
           },
           emit: (event) => { options.emit(plugin.id, event); },
           prepareExport(request) {
-            checkOpen();
+            checkPlugin(plugin.id);
             const sources = options.exports;
             if (sources === undefined) return Promise.reject(new RepaFault("export_unavailable", "当前宿主不提供导出"));
             return track(prepareExport({
@@ -405,12 +430,13 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     } catch (closeError) {
       failures.push(closeError);
     }
-    for (const instance of [...instances.values()].reverse()) {
+    for (const [id, instance] of [...instances].reverse()) {
       try {
         await instance.close?.();
       } catch (closeError) {
         failures.push(closeError);
       }
+      closedPlugins.add(id);
     }
     if (failures.length > 1) throw new AggregateError(failures, "插件打开与清理都失败了");
     throw error;
@@ -514,6 +540,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
               // 写明是哪个插件；原错误放进 cause，记进最近错误时保留插件自己的堆栈。
               failures.push(Object.assign(new RepaFault("plugin_close_failed", `插件 ${id} 关闭时出错：${errorText(error)}`, { pluginId: id }), { cause: error }));
             }
+            closedPlugins.add(id);
           }
           if (failures.length > 0) throw new AggregateError(failures, "插件宿主关闭失败");
         })();
