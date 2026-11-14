@@ -4,7 +4,6 @@ import path from "node:path";
 import type { Static } from "typebox";
 
 import { isCode, remove } from "../backup/copy.js";
-import type { Plugin } from "../plugin.js";
 import type { PluginHost } from "../plugins.js";
 import type { PluginInfo, PluginLoadFromSchema } from "../protocol.js";
 import { errorText, RepaFault, type Confirmation, type PluginApproval } from "../schema.js";
@@ -45,7 +44,7 @@ export interface PluginControl {
   list(): Promise<PluginInfo[]>;
   load(id: string, origin: PluginOrigin, from?: LoadFrom): Promise<LoadResult>;
   unload(id: string): Promise<PluginInfo>;
-  /** 不再接受装卸，等已经开始的那一次结束。空间释放锁之前调用。 */
+  /** 不再接受装卸，等正在写的启用记录写完，此后不再写启用记录。空间释放锁之前调用。 */
   close(): Promise<void>;
 }
 
@@ -57,7 +56,7 @@ export interface PluginControlOptions {
   selected: Pick<SpacePlugins, "selfWritten" | "unavailable">;
   bundled: string[];
   now(): number;
-  /** 完全访问模式：Agent 提出的加载不再询问。 */
+  /** 完全访问模式：Agent 提出的与使用者在列表里的加载都不再询问。 */
   fullAccess(): boolean;
   /** 一次装卸结束、列表变了。 */
   onUpdate(plugins: PluginInfo[]): void;
@@ -96,22 +95,33 @@ function faultOf(error: unknown, code: string, prefix: string): RepaFault {
   return error instanceof RepaFault ? error : new RepaFault(code, `${prefix}：${errorText(error)}`);
 }
 
-/** 等实例的 close() 返回；signal 先取消时以 plugin_closing 失败，close() 自己的错误已经经 onError 报告。 */
-function untilClosed(done: Promise<void>, id: string, signal: AbortSignal | undefined): Promise<void> {
+/** 加载停在某一步时的错误：运行已停止，那一步还没有返回。 */
+function stopped(id: string, step: "import" | "close" | "open", outcome: string): RepaFault {
+  const where = { import: "导入（模块顶层代码还没有执行完）", close: "等上一个实例的 close() 返回", open: "打开（插件的 open() 还没有返回）" }[step];
+  return new RepaFault("plugin_load_stopped", `运行已停止，插件 ${id} 的加载停在${where}：${outcome}`, { id, step });
+}
+
+/**
+ * 等一步结束；signal 先取消时不再等，以 onStop 给出的错误失败。那一步本身不取消，留在后台照常结束。
+ * 取消时 work 已有处理函数，它此后的拒绝不成为未处理的拒绝。
+ */
+function until<T>(work: Promise<T>, signal: AbortSignal | undefined, onStop: () => RepaFault): Promise<T> {
   return new Promise((resolve, reject) => {
-    const abort = () => { reject(new RepaFault("plugin_closing", `插件 ${id} 的上一个实例还没有关闭，运行已停止，新版本没有打开`, { id })); };
+    const abort = () => { reject(onStop()); };
     if (signal?.aborted) return abort();
     signal?.addEventListener("abort", abort, { once: true });
-    void done.then(resolve, resolve).finally(() => { signal?.removeEventListener("abort", abort); });
+    const settle = () => { signal?.removeEventListener("abort", abort); };
+    work.then((value) => { settle(); resolve(value); }, (error: unknown) => { settle(); reject(error); });
   });
 }
 
 /**
- * 建立一个空间的装卸入口。加载的步骤：复制插件文件夹并读清单（不执行代码）；需要时请求批准，等批准时不占次序；
- * 批准以后在这个空间的次序里发布快照并核对、导入，替换时撤下旧实例；在次序之外等旧实例的 close() 返回，停止运行时不再等；
- * 再回到次序里写启用记录、加上新实例。卸载在次序里撤下实例（不等 close()）、写启用记录。次序里的步骤都不等别人：
- * 快照在配置目录，启用记录在 .repa，插件的 open() 由宿主在运行的上下文之外调用，碰上写锁被占立即失败，追赶不等；
- * 一个插件的 close() 不返回，只让这个插件加载不了，不挡住别的插件的装卸。
+ * 建立一个空间的装卸入口。装卸以插件为单位：同一个插件同时只有一次装卸，另一次立即以 plugin_busy 失败；
+ * 全空间排队的只有启用记录的读出、修改、写回。加载的步骤：复制插件文件夹并读清单（不执行代码）；需要时请求批准；
+ * 发布快照并核对、导入；替换时撤下旧实例，等它的 close() 返回；写启用记录；加上新实例。批准以后的步骤在运行的上下文之外执行。
+ * 导入、等 close()、打开都可能因插件代码一直不返回，运行停止时调用随之结束；停不掉的导入或打开留在后台，
+ * 它结束以前这个插件仍算在装卸中，结束以后列表随之更新。卸载撤下实例（不等 close()）、写启用记录。
+ * 这些步骤都不等空间写锁：快照在配置目录，启用记录在 .repa，插件的 open() 碰上写锁被占立即失败，追赶不等。
  */
 export function createPluginControl(options: PluginControlOptions): PluginControl {
   const { home, host } = options;
@@ -122,13 +132,23 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
   const notRunning = new Map<string, NotRunning>(options.selected.unavailable.map(({ id, state, reason }) => [id, { state, reason }]));
   // 已经撤下、close() 还没返回的实例；同一个插件的新实例等它，同一时刻只有一个实例写数据目录。
   const closing = new Map<string, Promise<void>>();
-  const order = new SerialQueue();
+  // 正在装卸的插件。
+  const busy = new Set<string>();
+  const records = new SerialQueue();
   const lists = new SerialQueue();
   let latest: PluginInfo[] = [];
   let closed = false;
 
   function checkOpen(): void {
     if (closed) throw new RepaFault("space_closed", "空间已经关闭或切换，装卸没有进行");
+  }
+
+  /** 开始这个插件的一次装卸；已有一次在进行时立即失败。 */
+  function claim(id: string): void {
+    checkOpen();
+    if (bundled.has(id)) throw new RepaFault("plugin_id_conflict", `${id} 是随产品附带的插件，不能作为自写插件加载或卸载`, { id });
+    if (busy.has(id)) throw new RepaFault("plugin_busy", `插件 ${id} 正在加载或卸载，这一次没有进行`, { id });
+    busy.add(id);
   }
 
   function list(): Promise<PluginInfo[]> {
@@ -166,7 +186,6 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
 
   /** 加载前的准备：确定目标版本，需要批准时带回暂存副本和展示的内容。失败时抛错，什么都没有改变。 */
   async function prepare(id: string, from: LoadFrom): Promise<{ digest: string; staged?: StagedFolder; approval?: PluginApproval }> {
-    if (bundled.has(id)) throw new RepaFault("plugin_id_conflict", `${id} 是随产品附带的插件，不能作为自写插件加载或卸载`, { id });
     const record = await readEnablement(dataDir);
     const entry = record.plugins[id];
     if (from === "previous") {
@@ -232,76 +251,77 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
   }
 
   /**
-   * 批准以后的第一段，在次序里、运行的上下文之外执行：发布快照并核对、导入；替换时撤下旧实例。
-   * 返回新插件，以及加上它之前要等的旧实例（这一次撤下的，或者此前卸载、还没关完的）。
+   * 批准以后的各步：发布快照并核对、导入；替换时撤下旧实例，等它的 close() 返回；写启用记录；加上新实例。
+   * 运行停止时，停在导入或打开的那一步交给 abandon，它在后台结束以前这个插件仍算在装卸中。
    */
-  async function prepareOpen(id: string, digest: string, staged: StagedFolder | undefined) {
-    checkOpen();
+  async function commit(id: string, digest: string, staged: StagedFolder | undefined, signal: AbortSignal | undefined, abandon: (work: Promise<unknown>) => void): Promise<void> {
     if (staged !== undefined) await publishSnapshot(home, root, id, staged);
     // 发布以后、导入之前再核对一次：暂存目录被换成链接时，发布的内容可能不对应摘要。
     if ((await checkSnapshot(home, root, id, digest)) !== "ok") {
       throw new RepaFault("snapshot_modified", `插件 ${id} 的快照与批准的内容不符，没有导入`, { id });
     }
-    // 导入执行模块顶层代码。导入出错时到此为止：正在运行的版本照常运行，启用记录不变。
-    const loaded = await loadPlugin(snapshotDirectory(home, root, id, digest), { snapshotOf: id });
+    // 导入执行模块顶层代码。导入出错或停在这里时到此为止：正在运行的版本照常运行，启用记录不变。
+    const importing = loadPlugin(snapshotDirectory(home, root, id, digest), { snapshotOf: id });
+    const { plugin, manifest } = await until(importing, signal, () => {
+      abandon(importing);
+      return stopped(id, "import", "启用记录与正在运行的插件都没有改变");
+    });
     const replacing = host.list().some((item) => item.id === id);
+    // 新实例等旧实例的 close() 返回才打开：这一次撤下的，或者此前卸载、还没关完的。
     const previous = replacing ? retire(id) : closing.get(id);
-    return { ...loaded, replacing, previous };
-  }
-
-  /** 批准以后的第二段，在次序里执行：写启用记录，加上新实例。 */
-  async function open(id: string, digest: string, plugin: Plugin, manifest: PluginManifest, replacing: boolean): Promise<void> {
-    checkOpen();
-    // 等 close() 的那段时间里，另一次装卸可能已经加上或撤下了这个插件；这一次不再改动它。
-    if (host.list().some((item) => item.id === id) || closing.has(id)) {
-      throw new RepaFault("plugin_busy", `插件 ${id} 在这次加载等待期间被另一次装卸改动，这次加载没有进行`, { id });
+    if (previous !== undefined) {
+      await until(previous, signal, () => {
+        const fault = stopped(id, "close", replacing ? "旧版本已经撤下，新版本没有打开，启用记录没有改变" : "新版本没有打开，启用记录没有改变");
+        if (replacing) failed(id, fault);
+        return fault;
+      });
     }
-    try {
-      const record = await readEnablement(dataDir);
-      await writeEnablement(dataDir, withLoaded(record, id, digest, new Date(options.now()).toISOString()));
-    } catch (error) {
-      // 盘上仍是原来的记录。替换时旧实例已经关闭，插件这时没有运行。
-      const fault = faultOf(error, "plugin_enablement_write_failed", `插件 ${id} 的启用记录没有写成，盘上仍是原来的记录`);
-      if (replacing) failed(id, fault);
-      throw fault;
-    }
-    try {
-      await host.add(plugin);
-    } catch (error) {
-      // 不自动退回旧版本：记录指向新版本，插件显示为失败，可以明确地让上一次选定的版本重新生效。
+    await records.run(async () => {
+      checkOpen();
+      try {
+        const record = await readEnablement(dataDir);
+        await writeEnablement(dataDir, withLoaded(record, id, digest, new Date(options.now()).toISOString()));
+      } catch (error) {
+        // 盘上仍是原来的记录。替换时旧实例已经关闭，插件这时没有运行。
+        const fault = faultOf(error, "plugin_enablement_write_failed", `插件 ${id} 的启用记录没有写成，盘上仍是原来的记录`);
+        if (replacing) failed(id, fault);
+        throw fault;
+      }
+    });
+    // 不自动退回旧版本：打开失败时记录指向新版本，插件显示为失败，可以明确地让上一次选定的版本重新生效。
+    const opening = host.add(plugin).then(() => {
+      notRunning.delete(id);
+      manifests.set(id, manifest);
+    }, (error: unknown) => {
       const fault = faultOf(error, "plugin_open_failed", `插件 ${id} 打开失败`);
       failed(id, fault);
       throw fault;
-    }
-    notRunning.delete(id);
-    manifests.set(id, manifest);
+    });
+    await until(opening, signal, () => {
+      abandon(opening);
+      const fault = stopped(id, "open", "启用记录已指向新版本，插件之后打开成功或失败，插件列表随之更新");
+      failed(id, fault);
+      return fault;
+    });
   }
 
   return {
     current: () => latest,
     list,
     async load(id, origin, from = "folder") {
-      checkOpen();
+      claim(id);
+      // 运行停止时留在后台的导入或打开；它结束以后这个插件才能再装卸。
+      let leftover: Promise<unknown> | undefined;
       try {
         const { digest, staged, approval } = await prepare(id, from);
         try {
-          // Agent 在完全访问模式下明确提出的加载不再询问；使用者在列表里的操作照样展示要批准的内容。
-          if (approval !== undefined && !(origin.kind === "agent" && options.fullAccess())) await approve(approval, origin);
+          // 完全访问模式下不再询问，无论是 Agent 提出的还是使用者在列表里的操作。
+          if (approval !== undefined && !options.fullAccess()) await approve(approval, origin);
         } catch (error) {
           if (staged !== undefined) await remove(staged.directory).catch(options.onError);
           throw error;
         }
-        const { plugin, manifest, replacing, previous } = await order.run(() => detached(() => prepareOpen(id, digest, staged)));
-        // 新实例等旧实例的 close() 返回才打开。在次序之外等：close() 不返回时只有这个插件加载不了。
-        if (previous !== undefined) {
-          try {
-            await untilClosed(previous, id, origin.signal);
-          } catch (error) {
-            if (replacing && error instanceof RepaFault) failed(id, error);
-            throw error;
-          }
-        }
-        await order.run(() => detached(() => open(id, digest, plugin, manifest, replacing)));
+        await detached(() => commit(id, digest, staged, origin.signal, (work) => { leftover = work; }));
         const item = itemOf(await updated(), id);
         // 说明是插件代码给的；它出错不改变已经生效的结局，只是不随结果带上。
         let text: string | undefined;
@@ -314,13 +334,21 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
       } catch (error) {
         updated().catch(options.onError);
         throw error;
+      } finally {
+        if (leftover === undefined) busy.delete(id);
+        else {
+          const release = () => {
+            busy.delete(id);
+            if (!closed) updated().catch(options.onError);
+          };
+          leftover.then(release, release);
+        }
       }
     },
     async unload(id) {
-      checkOpen();
-      if (bundled.has(id)) throw new RepaFault("plugin_id_conflict", `${id} 是随产品附带的插件，不能作为自写插件加载或卸载`, { id });
+      claim(id);
       try {
-        await order.run(() => detached(async () => {
+        await records.run(() => detached(async () => {
           checkOpen();
           const record = await readEnablement(dataDir);
           const running = host.list().some((item) => item.id === id);
@@ -339,11 +367,13 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
       } catch (error) {
         updated().catch(options.onError);
         throw error;
+      } finally {
+        busy.delete(id);
       }
     },
     async close() {
       closed = true;
-      await order.settled();
+      await records.settled();
     },
   };
 }

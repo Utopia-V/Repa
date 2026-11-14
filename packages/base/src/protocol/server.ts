@@ -322,7 +322,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     // 登录确认不属于空间；只结束命令确认、插件的批准，以及空间里的询问和服务。
     reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command" || data.request.kind === "plugin");
     recordOwnerFailures(await stopOwners(current));
-    // 已经开始的装卸在宿主关闭以后很快失败；等它结束再释放空间锁，启用记录不在锁外写入。
+    // 已经开始的装卸在宿主关闭以后失败；等正在写的启用记录写完再释放空间锁，启用记录不在锁外写入。
     await current.control.close();
     const failures: string[] = [];
     for (const [step, close] of [["最后一次备份", () => current.backups.close()], ["空间落盘与释放锁", () => current.space.close()]] as const) {

@@ -24,6 +24,8 @@ interface Hooks {
   log: string[];
   /** 插件 close() 里等它返回。 */
   closing?: (id: string) => Promise<void>;
+  /** 插件在模块顶层或 open 里经 stall 停住，等它返回；point 写明停在哪里。 */
+  stall?: (point: string) => Promise<void>;
 }
 const globals = globalThis as unknown as Record<symbol, Hooks | undefined>;
 
@@ -31,13 +33,14 @@ const EMPTY = { type: "object", properties: {}, additionalProperties: false };
 
 /**
  * 一个只用 JavaScript、不导入任何东西的插件文件夹：本进程在 tsx 下运行，导入 .js 不经 tsx 处理。
- * tag 写进工具结果和方法返回值，用来分辨运行的是哪一份。open 是 open(host) 函数体里在返回实例之前执行的代码。
+ * tag 写进工具结果和方法返回值，用来分辨运行的是哪一份。open 是 open(host) 函数体里在返回实例之前执行的代码，top 是模块顶层代码。
  */
-function folder(id: string, tag: string, options: { open?: string; tools?: string; instance?: string } = {}): Record<string, string> {
+function folder(id: string, tag: string, options: { open?: string; tools?: string; instance?: string; top?: string } = {}): Record<string, string> {
   const tool = `${id.replace(/-/g, "_")}_get`;
   return {
     "repa-plugin.json": JSON.stringify({ id, version: "0.1.0", baseVersion: "^0.1.0", entry: "index.js", title: `${id} 插件` }),
     "index.js": `const hooks = () => globalThis[Symbol.for("repa.plugin-loading-test")];
+${options.top ?? ""}
 export default {
   id: ${JSON.stringify(id)},
   async open(host) {
@@ -484,7 +487,7 @@ test("重新打开空间按启用记录运行：卸载过的插件没有自己�
   assert.deepEqual(f.hooks.log, ["open count v1", "open other v1", "close other v1", "closed other v1", "close count v1", "closed count v1", "open count v1"]);
 });
 
-test("完全访问模式下 Agent 提出的加载不问；使用者在插件列表里加载照样请求批准", async (t) => {
+test("完全访问模式下 Agent 提出的加载与使用者在插件列表里的加载都不问；改回询问以后列表里的加载照常请求批准", async (t) => {
   const f = await fixture(t);
   await f.client.call("settings.set", { commandPolicy: "fullAccess" });
   const session = await f.session();
@@ -498,6 +501,11 @@ test("完全访问模式下 Agent 提出的加载不问；使用者在插件列�
   assert.deepEqual(results.find((result) => result.tool === "count_get"), { tool: "count_get", isError: false, text: "count v1" });
   assert.equal(f.confirmations.length, 0);
   await f.write("count", folder("count", "v2"));
+  assert.equal((await f.load("count")).state, "running");
+  assert.equal(f.confirmations.length, 0);
+  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v2");
+  await f.client.call("settings.set", { commandPolicy: "ask" });
+  await f.write("count", folder("count", "v3"));
   await f.load("count");
   assert.equal(f.confirmations.length, 1);
 });
@@ -653,7 +661,7 @@ test("替换时旧实例的 close() 不返回：别的插件照常装卸；停�
   await sending.catch(() => undefined);
   const item = await f.item("count");
   assert.equal(item?.state, "failed");
-  assert.equal(item?.reason?.code, "plugin_closing");
+  assert.equal(item?.reason?.code, "plugin_load_stopped");
   assert.deepEqual((await f.record()).plugins.count, before);
   // 运行已经结束，空间写锁放开了：另一个会话照常运行。
   const second = await f.session();
@@ -687,4 +695,104 @@ test("卸载以后旧实例的 close() 不返回：Agent 再加载它时停止�
   await f.send(second.id, "在吗");
   // 关闭空间要等每个实例的 close() 返回。
   stuck.release();
+});
+
+/** 列表里这个插件下一次变成 state 时的那份列表。 */
+function nextState(client: RepaClient, id: string, state: PluginInfo["state"]): Promise<PluginInfo> {
+  return new Promise((resolve) => {
+    client.on("plugin.updated", ({ plugins }) => {
+      const plugin = plugins.find((item) => item.id === id);
+      if (plugin?.state === state) resolve(plugin);
+    });
+  });
+}
+
+test("新插件的 open() 不返回：停止运行结束这次加载，别的插件照常加载，别的会话照常运行；记录、列表与返回值一致，open 返回以后列表随之更新", async (t) => {
+  // 先登记放开屏障：清理时关闭空间要等这个 open 返回。
+  const entered = barrier();
+  const stuck = barrier();
+  t.after(() => { stuck.release(); });
+  const f = await fixture(t);
+  f.hooks.stall = async () => {
+    entered.release();
+    await stuck.promise;
+  };
+  await f.write("count", folder("count", "v1", { open: `await hooks()?.stall?.("open count");` }));
+  await f.write("other", folder("other", "v1"));
+  const session = await f.session();
+  f.script(fauxAssistantMessage(fauxToolCall("plugin", { action: "load", id: "count" })), fauxAssistantMessage("不会到这里"));
+  const sending = f.client.call("session.send", { sessionId: session.id, text: "加载计数插件" });
+  await entered.promise;
+  // 停住的只是这个插件：别的插件照常加载，这个插件的另一次装卸立即失败。
+  assert.equal((await f.load("other")).state, "running");
+  await assert.rejects(f.load("count"), code("plugin_busy"));
+  await assert.rejects(f.client.call("plugin.unload", { id: "count" }), code("plugin_busy"));
+  await f.client.call("session.abort", { sessionId: session.id });
+  await sending.catch(() => undefined);
+  const [result] = toolResults(await f.client.call("session.history", { sessionId: session.id }));
+  assert.equal(result?.tool, "plugin");
+  assert.equal(result?.isError, true);
+  assert.match(result?.text ?? "", /停在打开/);
+  // 记录写在打开之前：指向新版本；列表显示为失败，原因是加载停在打开。
+  const item = await f.item("count");
+  assert.equal(item?.state, "failed");
+  assert.equal(item?.reason?.code, "plugin_load_stopped");
+  const record = (await f.record()).plugins.count;
+  assert.equal(record?.enabled, true);
+  assert.equal(record?.digest, f.confirmations[0]?.plugin?.digest);
+  assert.equal(item?.digest, record?.digest);
+  // 运行已经结束，空间写锁放开了：另一个会话照常运行。
+  const second = await f.session();
+  f.script(fauxAssistantMessage("好"));
+  await f.send(second.id, "在吗");
+  // open 返回以后，插件转为运行，列表随之更新，可以照常调用。
+  const running = nextState(f.client, "count", "running");
+  stuck.release();
+  assert.equal((await running).digest, record?.digest);
+  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+});
+
+test("新版本的模块顶层 await 不返回：停止运行结束这次加载，原来的版本照常运行，启用记录不变；别的插件与别的会话不受影响", async (t) => {
+  const entered = barrier();
+  const stuck = barrier();
+  t.after(() => { stuck.release(); });
+  const f = await fixture(t);
+  await f.write("count", folder("count", "v1"));
+  await f.write("other", folder("other", "v1"));
+  await f.load("count");
+  const before = (await f.record()).plugins.count;
+  f.hooks.stall = async () => {
+    entered.release();
+    await stuck.promise;
+  };
+  await f.write("count", folder("count", "v2", { top: `await hooks()?.stall?.("import count v2");` }));
+  const session = await f.session();
+  f.script(fauxAssistantMessage(fauxToolCall("plugin", { action: "load", id: "count" })), fauxAssistantMessage("不会到这里"));
+  const sending = f.client.call("session.send", { sessionId: session.id, text: "换成 v2" });
+  await entered.promise;
+  assert.equal((await f.load("other")).state, "running");
+  await assert.rejects(f.load("count"), code("plugin_busy"));
+  await f.client.call("session.abort", { sessionId: session.id });
+  await sending.catch(() => undefined);
+  const [result] = toolResults(await f.client.call("session.history", { sessionId: session.id }));
+  assert.equal(result?.isError, true);
+  assert.match(result?.text ?? "", /停在导入/);
+  // 停在导入：旧版本没有撤下，记录与列表都还是 v1。
+  assert.deepEqual((await f.record()).plugins.count, before);
+  const item = await f.item("count");
+  assert.equal(item?.state, "running");
+  assert.equal(item?.digest, before?.digest);
+  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v1");
+  const second = await f.session();
+  f.script(fauxAssistantMessage("好"));
+  await f.send(second.id, "在吗");
+  // 导入在后台结束以后，这个插件可以再加载；同一份内容已批准过，不再询问。
+  const settled = new Promise<void>((resolve) => { f.client.on("plugin.updated", () => { resolve(); }); });
+  stuck.release();
+  await settled;
+  assert.equal((await f.load("count")).state, "running");
+  assert.equal(await f.client.call("plugin.call", { pluginId: "count", method: "tag", input: {} }), "v2");
+  // count v1、other v1、count v2 各问过一次。
+  assert.equal(f.confirmations.length, 3);
+  assert.deepEqual(f.hooks.log, ["open count v1", "open other v1", "close count v1", "closed count v1", "open count v2"]);
 });
