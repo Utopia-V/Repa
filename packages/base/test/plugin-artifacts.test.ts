@@ -50,11 +50,19 @@ test("清单及底座版本错误在执行顶层代码前拒绝，合法构建�
     await f.save({ ...manifest, ...change });
     await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_manifest"));
   }
+  // 写清单的多半是模型，它只读得到 message：说明要指出哪个字段出了什么问题。
+  await f.save({ ...manifest, id: "Bad", extra: true });
+  await assert.rejects(loadPlugin(f.directory), /清单多了 extra[^]*\/id：/u);
+  await f.save({ id: "fixture", entry: "index.mjs" });
+  await assert.rejects(loadPlugin(f.directory), /清单缺少 version、baseVersion/u);
+  await f.save({ ...manifest, version: "1" });
+  await assert.rejects(loadPlugin(f.directory), /version 要是 SemVer 版本号，例如 0\.1\.0，现在是 "1"/u);
   // 在不区分大小写的文件系统上 Index.mjs 也能打开，但同一份清单换到 Linux 就找不到文件，所以各系统一律拒绝。
   await f.save({ ...manifest, entry: "Index.mjs" });
   await assert.rejects(loadPlugin(f.directory), /入口模块 Index\.mjs 不存在；文件名的大小写要与文件夹里的一致/u);
   await f.save({ ...manifest, baseVersion: ">=99.0.0" });
   await assert.rejects(loadPlugin(f.directory), fault("incompatible_base_version"));
+  await assert.rejects(loadPlugin(f.directory), /插件要求底座版本 >=99\.0\.0，当前底座是 \d/u);
   await assert.rejects(readFile(f.sentinel), { code: "ENOENT" });
   const declared = { ...manifest, entry: "./index.mjs", title: "测试插件", pages: [{ id: "main", title: "主页", entry: "page/index.html" }] };
   await f.save(declared);
@@ -69,6 +77,7 @@ test("损坏清单、指向非模块文件或目录外的链接及不一致的�
   const f = await fixture(t);
   await writeFile(path.join(f.directory, "repa-plugin.json"), "{");
   await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_manifest"));
+  await assert.rejects(loadPlugin(f.directory), /无法读取插件清单 repa-plugin\.json：.*JSON/u);
   await assert.rejects(loadPlugin(path.join(f.directory, "index.mjs")), fault("invalid_plugin_manifest"));
   const outside = path.join(f.root, "outside.mjs");
   await writeFile(outside, "throw new Error('不应执行');");
@@ -81,6 +90,7 @@ test("损坏清单、指向非模块文件或目录外的链接及不一致的�
   await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_manifest"));
   await f.save({ ...manifest, id: "different" });
   await assert.rejects(loadPlugin(f.directory), fault("invalid_plugin_export"));
+  await assert.rejects(loadPlugin(f.directory), /插件定义的 id 是 "fixture"，清单里是 "different"/u);
 });
 
 test("插件自行检查数据版本，失败只停对应插件，旧底座的 plugin-versions 不再读取", async (t) => {

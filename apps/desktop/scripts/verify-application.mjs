@@ -151,6 +151,8 @@ export async function verifyApplication({ application, executable, temporary }) 
   const base = path.join(application, "node_modules/@repa/base/dist");
   const learning = path.join(application, "node_modules/@repa/learning");
   for (const file of [executable, path.join(base, "cli.js"), path.join(base, "process.js"),
+    // 通用 Agent 写插件时读的 Skill 与模板，随 @repa/base 的 files 装进来。
+    path.join(base, "../skills/plugin-authoring/SKILL.md"), path.join(base, "../skills/plugin-authoring/template/index.ts"),
     path.join(application, "node_modules/@repa/space-history/dist/index.js"),
     path.join(learning, "repa-plugin.json"),
     path.join(application, "out/renderer/index.html"),
