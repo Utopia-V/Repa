@@ -64,7 +64,7 @@ await backend.close();
 
 进程入口从 stdout 读取连接信息，不写连接文件。`plugins` 接受插件文件夹，`generalAgent: false` 和 `directAgents` 对应 CLI 的装配选项；插件由构建后的 CLI 导入，不经过 tsx。嵌入同一进程时使用 `startServer`，模块边界见[包地图](../README.md)及 [`protocol.ts`](src/protocol.ts)。
 
-客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出。`close()` 结束后端的 stdin，请求它正常关闭，可重复调用并等待收尾完成，异常退出返回错误；宿主进程没有调用 `close()` 就退出时，结果因平台而异。Linux 和 macOS 上，后端读到 stdin 结尾，照常收尾后退出。Windows 上，Node 的 libuv 把不是 detached 的子进程放进随父进程关闭而结束的作业对象（见 libuv 1.51 的 [`uv_spawn`](https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c#L1082)），后端随宿主一起被结束，来不及收尾，但也不会留下来；它持有的空间锁最多 30 秒后视为过期，尚未提交的文件改动在下次打开空间时记为外部改动。启动失败的进程回收有 5 秒强制终止期限。进程入口依赖 Node，不从浏览器客户端导出。
+客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出。`close()` 结束后端的 stdin，请求它正常关闭，可重复调用并等待收尾完成，异常退出返回错误；宿主进程没有调用 `close()` 就退出时，结果因平台而异。Linux 和 macOS 上，后端读到 stdin 结尾，照常收尾后退出。Windows 上，Node 的 libuv 把不是 detached 的子进程放进随父进程关闭而结束的作业对象（见 libuv 1.51 的 [`uv_spawn`](https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c#L1082)），后端随宿主一起被结束，来不及收尾，但也不会留下来；它持有的空间锁最多 30 秒后视为过期，尚未提交的文件改动在下次打开空间时记为外部改动。启动失败的进程回收有 5 秒强制终止期限。正常关闭卡住时，例如插件的 `open` 或 `close` 永不返回，`kill()` 直接结束后端进程并等它退出，空间锁同样在过期后回收；桌面端在收尾期间再次退出即调用它。进程入口依赖 Node，不从浏览器客户端导出。
 
 ### 运行检查
 
