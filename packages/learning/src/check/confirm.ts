@@ -30,15 +30,15 @@ const LEGACY_RUNTIME: Runtime = {
   prelude: "import pandas as pd\nimport numpy as np\n",
 };
 
-/** 核对题面与判分定义，不把信用归属混入独立解题证明；请求或判分语义改变时升级 scope。 */
-export async function confirmationVersion(question: Question, topic: Topic, runtime: Runtime): Promise<string> {
-  return contentVersion({ definition: versionInput(question, topic), runtime: { ...runtime, prelude: runtime.prelude ?? "" } });
+/** 核对题面与判分定义，不把信用归属混入独立解题证明；请求或判分语义改变时升级 scope。不用 Python 的课没有 runtime，按 null 计入。 */
+export async function confirmationVersion(question: Question, topic: Topic, runtime: Runtime | undefined): Promise<string> {
+  return contentVersion({ definition: versionInput(question, topic), runtime: runtime ? { ...runtime, prelude: runtime.prelude ?? "" } : null });
 }
 
-export async function currentConfirmation(topic: Topic, question: Question, runtime: Runtime): Promise<Confirmation | undefined> {
+export async function currentConfirmation(topic: Topic, question: Question, runtime: Runtime | undefined): Promise<Confirmation | undefined> {
   const version = await confirmationVersion(question, topic, runtime);
   const legacy = await contentVersion(versionInput(question, topic));
-  const baseline = await contentVersion(runtime) === await contentVersion(LEGACY_RUNTIME);
+  const baseline = runtime !== undefined && await contentVersion(runtime) === await contentVersion(LEGACY_RUNTIME);
   const manual = question.manual ?? [];
   return (topic.verified ?? []).find((record) =>
     record.question === question.id

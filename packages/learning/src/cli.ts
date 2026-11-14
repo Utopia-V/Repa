@@ -61,6 +61,8 @@ function printResult(result: CheckResult): void {
     const packages = Object.entries(summary.runtime.packages).map(([name, version]) => `${name} ${version}`).join("、");
     process.stdout.write(`代码核对：Pyodide ${summary.runtime.pyodide}（Python ${summary.runtime.python}、${packages}），`
       + `verify ${summary.code.verifyJobs} 道、核对作答位 ${summary.code.verifiedSlots} 个、测试运行 ${summary.code.testRuns} 次（含算期望值），启动解释器 ${summary.code.interpreterStarts} 次。\n`);
+  } else if (summary.course && !summary.python) {
+    process.stdout.write("代码核对：课里没有要运行 Python 的题。\n");
   } else {
     process.stdout.write("代码核对：没有运行。\n");
   }
@@ -108,6 +110,10 @@ async function runtime(args: string[]): Promise<number> {
     if (!loaded) {
       for (const diagnostic of report.diagnostics) process.stdout.write(`${formatDiagnostic(diagnostic)}\n`);
       return 1;
+    }
+    if (!loaded.course.runtime) {
+      process.stdout.write(`${loaded.course.id}：课程不用 Python，不需要准备 Pyodide 包\n`);
+      continue;
     }
     const assets = await describeRuntime(loaded.course.runtime, values.packages ? path.resolve(values.packages) : undefined);
     process.stdout.write(`${loaded.course.id}：Pyodide ${assets.pyodideVersion}，包放在 ${assets.packagesDirectory}\n`);

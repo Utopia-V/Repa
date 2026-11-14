@@ -10,4 +10,4 @@
 ## 入口与阶段性做法
 
 - 改动前按 README 的[学习行为的说明](README.md#学习行为的说明)读对应开发说明；写课见[写课的规矩](courses/AGENTS.md)。`records-schema.ts` 是持久格式，改动先按[持久格式与版本](../../docs/AGENTS.md#持久格式与版本)写变更记录。
-- 插件与 Python 课绑定（`verify`、全局固定的题型、`python.run`），四个题池与课内全做，选题写在 `flow.ts`：这些是测试版的阶段性做法，不是设计，新代码不以它们为前提扩展。下一阶段课程成为可替换的对象，见 [#99](https://github.com/Utopia-V/repa/issues/99)。
+- 一个空间一门课（`course/` 或随包课程），核对程序只有 Python，四个题池与课内全做，选题写在 `flow.ts`：这些是测试版的阶段性做法，不是设计，新代码不以它们为前提扩展，见 [#99](https://github.com/Utopia-V/repa/issues/99)。

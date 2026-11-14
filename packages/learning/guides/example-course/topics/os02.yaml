@@ -1,0 +1,11 @@
+id: os02
+title: 进程控制块
+status: outline
+minutes: 15
+prerequisites: [os01]
+sources: []
+kps:
+  - id: os02.k1
+    title: 进程控制块记录什么
+  - id: os02.k2
+    title: 进程控制块怎样组织

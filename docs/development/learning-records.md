@@ -16,7 +16,7 @@
 
 ### 插件与接入
 
-包根目录的 `repa-plugin.json` 声明 `learning`、代码及底座兼容版本和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, connect })` 默认读取随包的 Python 课程，打开时一次加载全部 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录；时间一律取自底座的 `host.now()`，插件不另设时钟，测试通过宿主的 `now` 拨动时间。
+包根目录的 `repa-plugin.json` 声明 `learning`、代码及底座兼容版本和构建入口 `dist/plugin.js`，可以交给底座现有的插件加载器。`createLearningPlugin({ sources, connect })` 打开时按[课程来源](#课程来源与模型)决定学哪门课，一次加载全部 topic。底座传入的 `host.space.dataDir` 已是本插件的数据目录；时间一律取自底座的 `host.now()`，插件不另设时钟，测试通过宿主的 `now` 拨动时间。
 
 插件自行在其中管理 `format.json`，当前版本是 [`plugin.ts`](../../packages/learning/src/plugin.ts) 的 `LEARNING_FORMAT_VERSION`。目录为空时写入当前版本的标记；非空目录缺少标记，或标记是更早的开发版本（只记投影的版本 1、任务不带课程版本的版本 2），都按无法识别的开发数据停用学习插件，提示删除 `.repa/plugins/learning/` 后重新打开空间，不做转换。版本检查复用[底座辅助函数](../../packages/base/README.md#插件清单与数据版本)，标记损坏、版本过新或记录损坏时只停用学习插件。
 
@@ -118,6 +118,12 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 ### 课程来源与模型
 
+一个空间学一门课。插件打开时按顺序决定：换用过空间里的课，就学换用的那一份；空间里有 `course/` 文件夹而还没有换用过，就没有可学的课（`state.get` 的 `course` 为 `null`），但学习者在 `sources` 的课里还有做到一半的任务时，先照常学那门课，让他做完；都没有时学 `sources` 给出的课程，缺省是随包的 Python 课。`course/` 读不了（例如循环的符号链接）也算有，只是这门课用不了。
+
+空间里的课由通用 Agent 写在 `course/`（格式与随包课程相同），经 `course_check` 检查、`course_use` 换用，写法见[写课说明](../../packages/learning/guides/making-courses.md)。插件从不直接读 `course/` 来教学：`course_use` 经 `host.files` 读出 `course.yaml` 与 `topics/*.yaml`，复制进数据目录的临时文件夹，在这份固定的内容上做完整检查（`manual` 作答位的模型核对只报告，不要求记录，因为应用里没有 `course:confirm`）；通过以后，学习者若有做到一半的任务就不换用，`course_use` 如实回复，由 Agent 等他做完再调用；否则插件等进行中的方法调用结束，把这一份存成 `courses/<摘要>/`，让旧的学习会话等在途判分写完再退下，按副本新建学习会话、从头重放全部学习记录，在 `course.json` 里记为 `active`，删掉别的副本，再发出 `learning.changed`。所以学习者看到的始终是一份通过了检查的课，写到一半的 `course/` 进不了课、复习和测验，进行中的任务不会被换用打乱，重开空间仍学换用后的那一份。旧会话先退下，是为了让它按旧答案写下的判分出现在新会话打开之前：新会话由此看出判分的版本与现在的题不符，照常重判。换用对学习记录的处理与重开空间时课程改了相同：题目 id 是身份，改答案会重判，课开始时记下的练习清单不变，见[题目版本](#题目版本)。
+
+副本被改坏、读不出来时，插件和空间照常打开，只是没有可学的课；再次 `course_use` 会换上这次检查过的一份。`course.json` 先写临时文件再改名，中途断电时要么是旧状态，要么是新状态。
+
 `loadCourseSources` 接收有序来源列表：先列唯一的 `{ kind: "bundled", directory }`，再列 `{ kind: "overlay", file }`。覆盖文件通过 `host.files` 读取，使用 JSON 形状 `{ courseId, basedOn, topic }`；`basedOn` 必须等于上游课程版本，`topic` 按当前 schema 完整替换同 id topic。来源重复、未知 topic 或版本不符都会报错，读取随包课程不会修改其文件。
 
 插件通过 `student-model.ts` 的 `updateStudent` 和 `chooseTasks` 接入 `@repa/learning-model`。图里有课程的先修关系和各 topic 的 `encompassings`（只取正权重），通过与失败沿它按权重隐式传播（FIRe）。时间按 Unix 毫秒除以 `DAY_MS` 转为连续天数；当前时间早于已有的更新锚点（时钟回拨）时，按最近一次更新的时刻算，相当于零间隔，不报错。参数取 `parameters.ts` 的 `STUDENT_MODEL`；`new Replay(course, model)` 按另一组参数重放同一份事实，可以比较两组参数的预测。`memory` 是调度量，不是答对概率。
@@ -127,6 +133,8 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 - 打开空间时重放全部事实。历史很长、过期重算频繁时打开会变慢，可以加一份能删除后重算的派生缓存，现在不做。
 - 题目从课程删除以后，它的作答不再作为证据，界面显示题目已移除；已经通过的课因此可能不再通过。课开始时记下的练习里，已不在原知识点练习题池的题从中去掉，必做题都不在了就按当前课程。没有 `practice`、`minutes` 的课（加这两项之前的记录）按当前课程计算。
 - 辅导和内容读取只提供当前课程里的内容，课程换版以后旧版本的引用按不存在处理。
+- 一个空间一门课是测试版的阶段性做法。空间里先学了随包的课、后来出现 `course/` 时，换用以后之前的记录仍在，但它们的 topic 不在新课里，不再显示进度；几门课怎样共用学习状态由知识库提案回答。
+- 导出只收学习记录，不收空间里换用过的课程副本；维护者要对照自制课分析记录时，还需要学习者另外提供 `course/`。
 - 磁盘满、同步失败等专项注入按共同约定留待实际存储风险出现时补充。
 
 ## 验证入口

@@ -78,6 +78,27 @@
       "owner": "@repa/base",
       "schema": "packages/base/src/plugins/enablement.ts#PluginEnablementSchema",
       "versionedBy": "<空间>/.repa/format.json"
+    },
+    {
+      "id": "learning-course-choice",
+      "files": ["<空间>/.repa/plugins/learning/course.json"],
+      "owner": "@repa/learning",
+      "schema": "packages/learning/src/space-course.ts#CourseChoiceSchema",
+      "versionedBy": "<空间>/.repa/plugins/learning/format.json"
+    },
+    {
+      "id": "learning-course",
+      "files": ["<空间>/course/course.yaml", "<空间>/.repa/plugins/learning/courses/<摘要>/course.yaml", "随包课程的 course.yaml"],
+      "owner": "@repa/learning",
+      "schema": "packages/learning/src/format/schema.ts#CourseSchema",
+      "versionedBy": "无独立版本标记；换用过的副本目录名是内容摘要，课程自己的 version 只记进学习记录"
+    },
+    {
+      "id": "learning-topic",
+      "files": ["<空间>/course/topics/<topic id>.yaml", "<空间>/.repa/plugins/learning/courses/<摘要>/topics/<topic id>.yaml", "随包课程的 topics/<topic id>.yaml"],
+      "owner": "@repa/learning",
+      "schema": "packages/learning/src/format/schema.ts#TopicSchema",
+      "versionedBy": "无独立版本标记；与 learning-course 同在一份课程里"
     }
   ]
 }

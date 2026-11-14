@@ -129,10 +129,10 @@ export function parseYamlFile(file: SourceFile, report: Report): unknown {
   return file.document.toJS({ maxAliasCount: 0 });
 }
 
-/** 问题里显示的文件路径：在 base 之下用相对路径，否则用绝对路径。 */
+/** 问题里显示的文件路径：在 base 之下用以 / 分隔的相对路径（Windows 上也是，做课的 Agent 照着改文件），否则用绝对路径。 */
 export function displayPath(base: string, file: string): string {
   const relative = path.relative(base, file);
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : file;
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : file;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,8 +237,13 @@ function explain(error: TLocalizedValidationError, schema: TSchema, root: unknow
   switch (error.keyword) {
     case "required":
       return `缺少字段 ${(params.requiredProperties as string[]).join("、")}`;
-    case "additionalProperties":
-      return `不认识的字段 ${(params.additionalProperties as string[]).join("、")}`;
+    case "additionalProperties": {
+      // 列出这一处能写的字段，写课的人或模型看了就知道是拼错了还是放错了层级。
+      const parent = schemaAt(schema, error.schemaPath.replace(/\/additionalProperties$/, ""));
+      const allowed = parent?.properties && typeof parent.properties === "object" ? Object.keys(parent.properties) : [];
+      const hint = allowed.length > 0 ? `；这里能写的字段是 ${allowed.join("、")}` : "";
+      return `不认识的字段 ${(params.additionalProperties as string[]).join("、")}${hint}`;
+    }
     case "type": {
       const expected = Array.isArray(params.type) ? (params.type as string[]).join(" 或 ") : String(params.type);
       const hint = expected.includes("string") && (typeof value === "number" || typeof value === "boolean")

@@ -5,8 +5,8 @@ import type { RunTests } from "../code-tests.js";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { checkTopicCode, type CodeStats } from "./code.js";
-import { checkReferences } from "./questions.js";
-import { checkRules } from "./rules.js";
+import { checkReferences, type ConfirmationMode } from "./questions.js";
+import { checkRules, usesPython } from "./rules.js";
 import { topicQuestions } from "./items.js";
 
 /** checkCourse 的选项：是否运行代码核对、离线包位置、问题里路径的显示基准，以及只核对哪些 topic 的代码。 */
@@ -20,6 +20,11 @@ export interface CheckOptions {
   timeoutMs?: number;
   /** 只对这些 topic 运行代码核对；结构和交叉规则仍检查整门课。缺省核对全部 topic。 */
   topics?: string[];
+  /**
+   * 复习和测验题里 manual 作答位的模型核对记录：required（缺省）缺了就报错，要先运行 course:confirm；
+   * reported 只记进 summary.confirmationSlots，不报错，用于应用里做课，那里没有 course:confirm。
+   */
+  confirmations?: ConfirmationMode;
 }
 
 /** 一次课程检查的统计：topic 与题目数、要模型核对的作答位、代码核对是否运行，以及启动解释器等代价计数。 */
@@ -29,6 +34,8 @@ export interface CheckSummary {
   questions: number;
   /** 复习和测验题池里由模型核对的作答位，写成“题目 id/作答位 id”；缺少当前版本记录的另作为错误报告。 */
   confirmationSlots: string[];
+  /** 课里有没有要在 Python 里运行的题（verify、代码题、带测试的排列题）；没有就不启动沙箱。 */
+  python: boolean;
   /** 代码核对是否真的运行了。 */
   ran: boolean;
   runtime?: RuntimeVersions;
@@ -41,11 +48,11 @@ export interface CheckResult {
   summary: CheckSummary;
 }
 
-/** 检查一门课程：读取与 schema、交叉规则、标准答案自洽，最后在沙箱里运行核对与测试。 */
+/** 检查一门课程：读取与 schema、交叉规则、标准答案自洽，课里有要运行 Python 的题时，最后在沙箱里运行核对与测试。 */
 export async function checkCourse(root: string, options: CheckOptions = {}): Promise<CheckResult> {
   const report = new Report();
   const code: CodeStats = { verifyJobs: 0, verifiedSlots: 0, testRuns: 0, interpreterStarts: 0 };
-  const summary: CheckSummary = { topics: { complete: 0, outline: 0 }, questions: 0, confirmationSlots: [], ran: false, code };
+  const summary: CheckSummary = { topics: { complete: 0, outline: 0 }, questions: 0, confirmationSlots: [], python: false, ran: false, code };
   const loaded = await loadCourse(root, report, options.base);
   if (!loaded) return { diagnostics: report.diagnostics, summary };
   summary.course = { id: loaded.course.id, version: loaded.course.version };
@@ -58,12 +65,15 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     }
   }
   checkRules(loaded, report);
-  await checkReferences(loaded, report);
-  if (options.run === false) return { diagnostics: report.diagnostics, summary };
+  await checkReferences(loaded, report, options.confirmations ?? "required");
+  summary.python = usesPython(loaded.topics.map(({ topic }) => topic));
+  // 不用 Python 的课不启动沙箱；用到 Python 却没写 runtime 的，规则检查已报 runtime_missing。
+  const expected = loaded.course.runtime;
+  if (options.run === false || !summary.python || !expected) return { diagnostics: report.diagnostics, summary };
 
   let runner: SandboxRunner;
   try {
-    const assets = await describeRuntime(loaded.course.runtime, options.packagesDirectory);
+    const assets = await describeRuntime(expected, options.packagesDirectory);
     await verifyPackages(assets);
     runner = new SandboxRunner({ assets });
     summary.runtime = await runner.start();
@@ -71,14 +81,17 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     if (error instanceof RuntimeProblem) {
       report.error(error.code, error.message, loaded.file, ["runtime"]);
     } else if (error instanceof SandboxUnavailable) {
-      report.error("sandbox_unavailable", `${error.message}。代码核对需要 Linux 的 Landlock（ABI 4 以上）与 libseccomp；只检查结构时加 --no-run`, loaded.file, ["runtime"]);
+      const remedy = process.platform === "linux"
+        ? "课里的 verify 核对程序和代码题没能运行，所以没有核对。隔离环境建不起来时，是这台机器缺少 Linux 的 Landlock（ABI 4 以上）与 libseccomp；"
+          + "Pyodide 启动失败时，把清单的 runtime 照写课说明改成与随包课程一致的版本和包"
+        : "这台机器不能运行课里的 verify 核对程序和代码题，所以没有核对；要核对，须在有 Landlock（ABI 4 以上）与 libseccomp 的 Linux 上检查";
+      report.error("sandbox_unavailable", `${error.message}。${remedy}。命令行只检查结构时加 --no-run`, loaded.file, ["runtime"]);
     } else {
       throw error;
     }
     return { diagnostics: report.diagnostics, summary };
   }
   try {
-    const expected = loaded.course.runtime;
     const actual = summary.runtime;
     const mismatches = [
       actual.pyodide !== expected.pyodide ? `Pyodide ${actual.pyodide}` : "",
@@ -95,7 +108,7 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     const run: RunTests = async (tests) => ({ runtime, tests: await runner.runTests(tests, options.timeoutMs) });
     for (const topic of loaded.topics) {
       if (options.topics && !options.topics.includes(topic.topic.id)) continue;
-      await checkTopicCode(topic, runner, run, report, code, loaded.course.runtime.prelude ?? "", options.timeoutMs);
+      await checkTopicCode(topic, runner, run, report, code, expected.prelude ?? "", options.timeoutMs);
     }
     code.interpreterStarts = runner.starts;
   } finally {

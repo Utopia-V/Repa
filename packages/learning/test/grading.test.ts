@@ -32,6 +32,7 @@ function errors(diagnostics: Diagnostic[]): string[] {
 
 /** 判分用的前端替身：python.run 交给一个 Node 沙箱，按同一约定运行；返回判分函数和调用次数。 */
 async function frontend(t: TestContext, course: Course) {
+  assert.ok(course.runtime);
   const runner = new SandboxRunner({ assets: await describeRuntime(course.runtime) });
   t.after(() => runner.close());
   let calls = 0;
@@ -139,7 +140,7 @@ test("课程文件换成 CRLF 换行后，检查照样通过，题目版本不�
   assert.ok(lfTopic && crlfTopic && fromLf && fromCrlf);
   const versions = async (source: Topic, prelude = "") =>
     Promise.all(topicQuestions(source).map((entry) => questionVersion(entry.question, source, prelude)));
-  assert.deepEqual(await versions(crlfTopic, fromCrlf.course.runtime.prelude), await versions(lfTopic, fromLf.course.runtime.prelude));
+  assert.deepEqual(await versions(crlfTopic, fromCrlf.course.runtime?.prelude), await versions(lfTopic, fromLf.course.runtime?.prelude));
 
   const { grade } = await frontend(t, fromCrlf.course);
   const code = question(demo, "t01.k2.q1").slots[0] as CodeSlot;

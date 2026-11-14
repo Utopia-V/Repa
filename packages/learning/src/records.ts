@@ -62,9 +62,13 @@ export class LearningRecords {
   get incompleteTail(): boolean { return this.blocked; }
   fact(seq: number): Fact | undefined { return this.list[seq - 1]; }
 
-  /** 每追加一条事实就按顺序通知；监听方抛错时本实例停止追加，重新打开以后以盘上为准。 */
-  listen(listener: (fact: Fact) => void): void {
+  /** 每追加一条事实就按顺序通知；监听方抛错时本实例停止追加，重新打开以后以盘上为准。返回的函数取消这个监听。 */
+  listen(listener: (fact: Fact) => void): () => void {
     this.listeners.push(listener);
+    return () => {
+      const index = this.listeners.indexOf(listener);
+      if (index >= 0) this.listeners.splice(index, 1);
+    };
   }
 
   serial<T>(action: () => Promise<T>): Promise<T> {

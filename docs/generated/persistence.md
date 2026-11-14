@@ -186,3 +186,95 @@ schema：packages/base/src/plugins/enablement.ts#PluginEnablementSchema；SHA-25
 | --- | --- | --- | --- |
 | plugins | object | 否 |  |
 | plugins[^[a-z][a-z0-9-]*$] | object | 是 | 嵌套对象，字段见源码 |
+
+## learning-course-choice
+
+文件：<空间>/.repa/plugins/learning/course.json。
+
+负责的包：@repa/learning。
+
+版本标记：<空间>/.repa/plugins/learning/format.json。
+
+schema：packages/learning/src/space-course.ts#CourseChoiceSchema；SHA-256 前 16 位：55961a3217710f9c。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| active | string | 是 |  |
+
+## learning-course
+
+文件：<空间>/course/course.yaml、<空间>/.repa/plugins/learning/courses/<摘要>/course.yaml、随包课程的 course.yaml。
+
+负责的包：@repa/learning。
+
+版本标记：无独立版本标记；换用过的副本目录名是内容摘要，课程自己的 version 只记进学习记录。
+
+schema：packages/learning/src/format/schema.ts#CourseSchema；SHA-256 前 16 位：6424754f60110faf。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| id | string | 否 | 名字以字母开头，只用字母、数字、下划线和连字符 |
+| language | string | 否 |  |
+| license | string | 否 |  |
+| retiredIds[] | string &#124; string &#124; string | 是 |  |
+| runtime | object | 是 |  |
+| runtime.packages | object | 否 | 嵌套对象，字段见源码 |
+| runtime.prelude | string | 是 |  |
+| runtime.pyodide | string | 否 |  |
+| runtime.python | string | 否 |  |
+| sources | object | 否 |  |
+| sources[^[A-Za-z][A-Za-z0-9_-]*$] | object | 是 | 嵌套对象，字段见源码 |
+| summary | string | 是 |  |
+| title | string | 否 |  |
+| topics[] | string | 否 | topic id 只用小写字母和数字，以字母开头，例如 py17 |
+| version | string | 否 | 课程版本写成 x.y.z |
+
+## learning-topic
+
+文件：<空间>/course/topics/<topic id>.yaml、<空间>/.repa/plugins/learning/courses/<摘要>/topics/<topic id>.yaml、随包课程的 topics/<topic id>.yaml。
+
+负责的包：@repa/learning。
+
+版本标记：无独立版本标记；与 learning-course 同在一份课程里。
+
+schema：packages/learning/src/format/schema.ts#TopicSchema；SHA-256 前 16 位：ff63be80e82ebcfa。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| data | object | 是 |  |
+| data[^[A-Za-z][A-Za-z0-9_-]*$] | object &#124; object | 是 | 嵌套对象，字段见源码 |
+| encompassings[] | object | 是 |  |
+| encompassings[].topic | string | 否 | topic id 只用小写字母和数字，以字母开头，例如 py17 |
+| encompassings[].weight | number | 否 |  |
+| id | string | 否 | topic id 只用小写字母和数字，以字母开头，例如 py17 |
+| intro | string &#124; Array&lt;object &#124; object &#124; object&gt; | 是 | 嵌套对象，字段见源码 |
+| kps[] | object | 否 |  |
+| kps[].card | object | 是 | 嵌套对象，字段见源码 |
+| kps[].example | object | 是 | 嵌套对象，字段见源码 |
+| kps[].id | string | 否 | 知识点 id 写成 &lt;topic id&gt;.k&lt;数字&gt;，例如 py17.k1 |
+| kps[].keyPrerequisites[] | string | 是 | topic id 只用小写字母和数字，以字母开头，例如 py17 |
+| kps[].lesson | string &#124; Array&lt;object &#124; object &#124; object&gt; | 是 | 嵌套对象，字段见源码 |
+| kps[].practice[] | object | 是 | 嵌套对象，字段见源码 |
+| kps[].quiz[] | object | 是 | 嵌套对象，字段见源码 |
+| kps[].review[] | object | 是 | 嵌套对象，字段见源码 |
+| kps[].title | string | 否 |  |
+| minutes | integer | 否 |  |
+| notes | string | 是 |  |
+| prerequisites[] | string | 否 | topic id 只用小写字母和数字，以字母开头，例如 py17 |
+| sources[] | object | 否 |  |
+| sources[].notice | string | 是 |  |
+| sources[].source | string | 否 | 名字以字母开头，只用字母、数字、下划线和连字符 |
+| sources[].url | string | 是 | 链接需要以 https:// 开头 |
+| sources[].use | "reference" &#124; "adapt" &#124; "code" &#124; "quote" | 否 |  |
+| sources[].where | string | 否 |  |
+| status | "outline" &#124; "complete" | 否 |  |
+| summary | string | 是 |  |
+| title | string | 否 |  |
+| verified[] | object | 是 |  |
+| verified[].date | string | 否 | 日期写成 YYYY-MM-DD |
+| verified[].model | string | 否 |  |
+| verified[].question | string | 否 | 题目 id 写成 &lt;知识点 id&gt;.&lt;小写字母&gt;&lt;数字&gt;，例如 py17.k1.q1 |
+| verified[].scope | "question-runtime-v1" | 是 |  |
+| verified[].slots[] | string | 否 |  |
+| verified[].version | string | 否 | 核对哈希写成 sha256:&lt;64 位十六进制&gt; |
+| wrapup | string &#124; Array&lt;object &#124; object &#124; object&gt; | 是 | 嵌套对象，字段见源码 |

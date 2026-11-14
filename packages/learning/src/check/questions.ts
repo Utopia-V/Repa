@@ -33,9 +33,14 @@ function checkRecords(topic: Topic, file: SourceFile, report: Report): void {
   });
 }
 
-/** 复习和测验题的 manual 作答位要有当前题面、判分定义与运行依赖的核对记录。 */
-async function checkConfirmation(topic: Topic, file: SourceFile, entry: QuestionEntry, runtime: Runtime, report: Report): Promise<void> {
-  if (!needsConfirmation(entry) || await currentConfirmation(topic, entry.question, runtime)) return;
+/** 复习和测验题 manual 作答位的模型核对记录：required 缺了就报错；reported 不报错，由调用方如实说明没有核对。 */
+export type ConfirmationMode = "required" | "reported";
+
+/** 复习和测验题的 manual 作答位要有当前题面、判分定义与运行依赖的核对记录；reported 时不在这里报，由调用方如实说明没有核对。 */
+async function checkConfirmation(
+  topic: Topic, file: SourceFile, entry: QuestionEntry, runtime: Runtime | undefined, report: Report, confirmations: ConfirmationMode,
+): Promise<void> {
+  if (confirmations === "reported" || !needsConfirmation(entry) || await currentConfirmation(topic, entry.question, runtime)) return;
   const stale = (topic.verified ?? []).some((record) => record.question === entry.question.id);
   const slots = (entry.question.manual ?? []).join("、");
   report.error(
@@ -47,7 +52,7 @@ async function checkConfirmation(topic: Topic, file: SourceFile, entry: Question
   );
 }
 
-export async function checkReferences(course: LoadedCourse, report: Report): Promise<Map<string, Item>> {
+export async function checkReferences(course: LoadedCourse, report: Report, confirmations: ConfirmationMode): Promise<Map<string, Item>> {
   const items = new Map<string, Item>();
   for (const { topic, file } of course.topics) {
     checkRecords(topic, file, report);
@@ -55,7 +60,7 @@ export async function checkReferences(course: LoadedCourse, report: Report): Pro
       const { question, at } = entry;
       const item = await publicItem(question, topic);
       items.set(question.id, item);
-      await checkConfirmation(topic, file, entry, course.course.runtime, report);
+      await checkConfirmation(topic, file, entry, course.course.runtime, report, confirmations);
       if (!Value.Check(ItemSchema, item)) {
         const first = Value.Errors(ItemSchema, item)[0];
         report.error("item_invalid", `投影出的题目不符合交互词汇：${first?.instancePath ?? ""} ${first?.message ?? ""}`, file, at);

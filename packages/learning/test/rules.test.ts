@@ -194,7 +194,7 @@ test("YAML 把 001 读成数字时，报出所在行并提示加引号", async (
   const result = await checkCourse(root, { run: false, base: root });
   assert.deepEqual(codes(result.diagnostics), ["schema"]);
   const [problem] = result.diagnostics;
-  assert.equal(problem?.file, path.join("topics", "t02.yaml"));
+  assert.equal(problem?.file, "topics/t02.yaml");
   assert.equal(problem?.line, 2);
   assert.match(problem?.message ?? "", /引号/);
 });
@@ -296,7 +296,7 @@ test("doctest 超过 python.run 的上限时报出：例子太多或单个例子
   assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), ["doctest_too_large"]);
 });
 
-test("单元格 input 写错字段名时只报那一处", async (t) => {
+test("单元格 input 写错字段名时只报那一处，并列出这里能写的字段", async (t) => {
   const demo = demoCourse();
   const root = await writeCourse(t, demo);
   const yaml = await import("yaml");
@@ -306,5 +306,21 @@ test("单元格 input 写错字段名时只报那一处", async (t) => {
   column.input = { type: "text", mtch: "output" };
   await writeFile(path.join(root, "topics", "t01.yaml"), yaml.stringify(broken));
   const result = await checkCourse(root, { run: false, base: root });
-  assert.deepEqual(result.diagnostics.map((diagnostic) => diagnostic.message), ["kps[1].practice[2].slots[0].columns[1].input：不认识的字段 mtch"]);
+  assert.deepEqual(result.diagnostics.map((diagnostic) => diagnostic.message), [
+    "kps[1].practice[2].slots[0].columns[1].input：不认识的字段 mtch；这里能写的字段是 type、format、maxLength、lines、quick、match",
+  ]);
+});
+
+test("有 verify 或代码题的课没写 runtime 时报出；题型标签可以是课程自定的词", async (t) => {
+  const demo = demoCourse();
+  const bare: Partial<typeof demo.course> = structuredClone(demo.course);
+  delete bare.runtime;
+  const result = await structuralCheck(t, { ...demo, course: bare as typeof demo.course });
+  assert.deepEqual(codes(result.diagnostics), ["runtime_missing"]);
+  assert.match(result.diagnostics[0]?.message ?? "", /课程清单要写 runtime/u);
+  const labelled = demoCourse();
+  const question = topic(labelled, "t01").kps[0]?.practice?.[0];
+  assert.ok(question);
+  question.kind = ["recall"];
+  assert.deepEqual(codes((await structuralCheck(t, labelled)).diagnostics), []);
 });

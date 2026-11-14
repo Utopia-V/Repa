@@ -1,0 +1,157 @@
+id: os01
+title: 进程的三种基本状态
+status: complete
+minutes: 15
+prerequisites: []
+sources: []
+notes: 全部作答位靠理解和记忆判断，列在 manual 里。
+kps:
+  - id: os01.k1
+    title: 三种状态的名称
+    card:
+      name: 进程三态
+      definition: 进程在运行中只处于就绪、运行、阻塞三种基本状态之一。
+      conditions: [就绪是只差处理机，阻塞是在等某个事件]
+      example: { from: os01.k1.e0, text: 等待键盘输入的进程处于阻塞状态。 }
+    lesson: |
+      进程有三种基本状态：**就绪**（万事俱备，只差处理机）、**运行**（正在处理机上执行）、**阻塞**（在等某个事件，例如输入完成）。
+    example:
+      id: os01.k1.e0
+      body: 一个进程在等待键盘输入，它处于哪种状态？
+      slots:
+        - id: state
+          type: choice
+          options:
+            - { id: ready, content: 就绪 }
+            - { id: running, content: 运行 }
+            - { id: blocked, content: 阻塞 }
+          key: blocked
+      explanation: 它在等输入这个事件，即使把处理机给它也无法前进，所以是阻塞。
+      manual: [state]
+    practice:
+      - id: os01.k1.q1
+        body: 一个进程只差处理机就能执行，它处于哪种状态？
+        slots:
+          - id: state
+            type: choice
+            options:
+              - { id: ready, content: 就绪 }
+              - { id: running, content: 运行 }
+              - { id: blocked, content: 阻塞 }
+            key: ready
+        explanation: 只差处理机就是就绪。
+        manual: [state]
+      - id: os01.k1.q2
+        body: 正在处理机上执行的进程处于什么状态？写两个字。
+        slots:
+          - { id: state, type: text, match: text, key: [运行, 运行态] }
+        explanation: 正在处理机上执行就是运行。
+        manual: [state]
+      - id: os01.k1.q3
+        body: 下面哪些是进程的基本状态？
+        slots:
+          - id: states
+            type: choice
+            multiple: true
+            options:
+              - { id: ready, content: 就绪 }
+              - { id: running, content: 运行 }
+              - { id: blocked, content: 阻塞 }
+              - { id: finished, content: 编译 }
+            key: [ready, running, blocked]
+        explanation: 基本状态只有就绪、运行、阻塞三种；编译不是进程的状态。
+        manual: [states]
+    review:
+      - id: os01.k1.r1
+        body: 进程在等磁盘读完，这时它处于什么状态？写两个字。
+        slots:
+          - { id: state, type: text, match: text, key: [阻塞, 阻塞态] }
+        explanation: 等磁盘读完是在等事件，所以是阻塞。
+        manual: [state]
+    quiz:
+      - id: os01.k1.x1
+        body: 哪种状态的进程得到处理机就能马上执行？
+        slots:
+          - id: state
+            type: choice
+            options:
+              - { id: ready, content: 就绪 }
+              - { id: blocked, content: 阻塞 }
+            key: ready
+        explanation: 就绪的进程只差处理机。
+        manual: [state]
+  - id: os01.k2
+    title: 状态之间的转换
+    card:
+      name: 状态转换
+      definition: 阻塞的进程等到事件后先回到就绪，再经调度进入运行。
+      conditions: [阻塞不能直接变成运行]
+      example: { from: os01.k2.e0, text: 输入完成后，进程从阻塞回到就绪。 }
+    lesson: |
+      状态转换有四种：就绪 → 运行（被调度），运行 → 就绪（时间片用完），运行 → 阻塞（等事件），阻塞 → 就绪（事件发生）。阻塞的进程不能直接去运行。
+    example:
+      id: os01.k2.e0
+      body: 进程等到的输入已经完成，它接下来进入哪种状态？
+      slots:
+        - id: next
+          type: choice
+          options:
+            - { id: ready, content: 就绪 }
+            - { id: running, content: 运行 }
+          key: ready
+      explanation: 事件发生后先回到就绪，等调度才能运行。
+      manual: [next]
+    practice:
+      - id: os01.k2.q1
+        body: 把一个进程从等待输入到再次执行的经过排好顺序。
+        slots:
+          - id: order
+            type: order
+            items:
+              - { id: blocked, content: 阻塞 }
+              - { id: ready, content: 就绪 }
+              - { id: running, content: 运行 }
+            key: [blocked, ready, running]
+        explanation: 阻塞的进程等到事件后先就绪，再被调度运行。
+        manual: [order]
+      - id: os01.k2.q2
+        body: 正在运行的进程时间片用完，它进入哪种状态？
+        slots:
+          - id: next
+            type: choice
+            options:
+              - { id: ready, content: 就绪 }
+              - { id: blocked, content: 阻塞 }
+            key: ready
+        explanation: 时间片用完只是被收回处理机，不是在等事件，所以回到就绪。
+        manual: [next]
+      - id: os01.k2.q3
+        body: 阻塞的进程能不能直接变成运行？
+        slots:
+          - id: answer
+            type: choice
+            options:
+              - { id: "yes", content: 能 }
+              - { id: "no", content: 不能 }
+            key: "no"
+        explanation: 阻塞的进程要先回到就绪，再经调度运行。
+        manual: [answer]
+    review:
+      - id: os01.k2.r1
+        body: 进程发出读磁盘请求以后，从运行进入哪种状态？
+        slots:
+          - id: next
+            type: choice
+            options:
+              - { id: ready, content: 就绪 }
+              - { id: blocked, content: 阻塞 }
+            key: blocked
+        explanation: 读磁盘要等它完成，是在等事件，所以进入阻塞。
+        manual: [next]
+    quiz:
+      - id: os01.k2.x1
+        body: 事件发生后，阻塞的进程进入哪种状态？写两个字。
+        slots:
+          - { id: next, type: text, match: text, key: [就绪, 就绪态] }
+        explanation: 事件发生后进入就绪。
+        manual: [next]
