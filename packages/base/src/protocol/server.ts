@@ -118,6 +118,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const owner = new AsyncLocalStorage<Peer>();
   const operations = new Set<Promise<unknown>>();
   let active: ActiveSpace | undefined;
+  // 正在打开、尚未成为 active 的空间里已经建好的插件宿主与 Agent 空间；关闭服务时与 active 一起开始关闭。
+  let building: { plugins?: PluginHost; agent?: AgentSpace } | undefined;
   let stopping = false;
   let closePromise: Promise<void> | undefined;
   let lifecycle = Promise.resolve();
@@ -280,6 +282,11 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     if (!active) throw new RepaFault("space_not_open", "请先打开空间");
     return active;
   };
+  /**
+   * 在同一段同步代码里让 Agent 空间和插件宿主都开始关闭，再一起等它们收尾。两者各自立即拒绝新工作、取消自己的模型请求。
+   * 先等完一方再关另一方会互等：插件持有空间写锁等模型请求，Agent 的运行排在这把锁后面，而插件的模型请求要到插件宿主关闭时才取消。
+   */
+  const stopOwners = (owners: { agent?: AgentSpace; plugins?: PluginHost }) => Promise.allSettled([owners.agent?.close(), owners.plugins?.close()]);
   const closeActive = async () => {
     const current = active;
     active = undefined;
@@ -287,9 +294,12 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     // 登录确认不属于空间；只结束命令确认，以及空间里的询问和服务。
     reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command");
     const failures: unknown[] = [];
-    // 先停止 Agent，再关插件，写入者都停下以后备份最后一次；最后空间落盘并释放锁。每个 owner 都取得收尾机会。
+    for (const result of await stopOwners(current)) {
+      if (result.status === "rejected") failures.push(result.reason);
+    }
+    // 写入者都停下以后备份最后一次；最后空间落盘并释放锁。每个 owner 都取得收尾机会。
     // 关闭时的备份在释放空间锁之前完成，上一次使用的改动不必等到下次打开才进入备份。
-    for (const close of [() => current.agent.close(), () => current.plugins.close(), () => current.backups.close(), () => current.space.close()]) {
+    for (const close of [() => current.backups.close(), () => current.space.close()]) {
       try {
         await close();
       } catch (error) {
@@ -312,6 +322,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
     let plugins: PluginHost | undefined;
     let agent: AgentSpace | undefined;
+    const owners: NonNullable<typeof building> = {};
+    building = owners;
     try {
       plugins = await openPluginHost({
         space,
@@ -343,6 +355,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         },
       });
       const host = plugins;
+      owners.plugins = host;
       // 停用的插件不提供 Agent，装配点名的直接对话 Agent 可能因此不在：这时去掉不在的，空间照常打开，停用原因已在 disabledPlugins 里。
       // 没有插件停用时原样交给运行时核对，写错的 id 仍报 unknown_agent。
       let directAgents = options.directAgents;
@@ -367,6 +380,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         confirm: (request, signal) => confirmFor(owner.getStore())(request, signal),
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
       });
+      owners.agent = agent;
       await host.start();
       await settings.remember(space.root);
       const backups = new SpaceBackups({
@@ -387,10 +401,11 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       backups.start();
       return { root: space.root, disabledPlugins: plugins.disabled() };
     } catch (error) {
-      await agent?.close().catch(() => undefined);
-      await plugins?.close().catch(() => undefined);
+      await stopOwners({ agent, plugins });
       await space.close().catch(() => undefined);
       throw error;
+    } finally {
+      if (building === owners) building = undefined;
     }
   });
 
@@ -772,6 +787,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const close = (): Promise<void> => {
     if (closePromise) return closePromise;
     stopping = true;
+    // 先让活动空间和正在打开的空间的插件宿主、Agent 空间一起开始关闭，再等运行时：运行时收尾要等 Agent 的运行结束，
+    // 运行可能排在插件持有的空间写锁后面，而插件持锁等的模型请求只在插件宿主开始关闭时取消。
+    if (active !== undefined) void stopOwners(active);
+    if (building !== undefined) void stopOwners(building);
     closePromise = (async () => {
       const failures: unknown[] = [];
       for (const peer of peers) {
@@ -782,7 +801,6 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         new Promise<void>((resolve) => websocket.close(() => resolve())),
         new Promise<void>((resolve) => http.close(() => resolve())),
       ]);
-      // 先取消运行时；打开空间时的初始插件任务也可能正在等待 Agent 回合。
       for (const stop of [() => runtime.close(), () => serializeLifecycle(closeActive)]) {
         try {
           await stop();
