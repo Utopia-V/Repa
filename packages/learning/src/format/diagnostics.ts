@@ -129,10 +129,10 @@ export function parseYamlFile(file: SourceFile, report: Report): unknown {
   return file.document.toJS({ maxAliasCount: 0 });
 }
 
-/** 问题里显示的文件路径：在 base 之下用相对路径，否则用绝对路径。 */
+/** 问题里显示的文件路径：在 base 之下用以 / 分隔的相对路径（Windows 上也是，做课的 Agent 照着改文件），否则用绝对路径。 */
 export function displayPath(base: string, file: string): string {
   const relative = path.relative(base, file);
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : file;
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : file;
 }
 
 // ---------------------------------------------------------------------------

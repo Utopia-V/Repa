@@ -81,12 +81,11 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     if (error instanceof RuntimeProblem) {
       report.error(error.code, error.message, loaded.file, ["runtime"]);
     } else if (error instanceof SandboxUnavailable) {
-      report.error(
-        "sandbox_unavailable",
-        `${error.message}。课里的 verify 核对程序和代码题没能运行，所以没有核对。隔离环境建不起来时，是这台机器缺少 Linux 的 Landlock（ABI 4 以上）与 libseccomp；`
-          + "Pyodide 启动失败时，把清单的 runtime 照写课说明改成与随包课程一致的版本和包。命令行只检查结构时加 --no-run",
-        loaded.file, ["runtime"],
-      );
+      const remedy = process.platform === "linux"
+        ? "课里的 verify 核对程序和代码题没能运行，所以没有核对。隔离环境建不起来时，是这台机器缺少 Linux 的 Landlock（ABI 4 以上）与 libseccomp；"
+          + "Pyodide 启动失败时，把清单的 runtime 照写课说明改成与随包课程一致的版本和包"
+        : "这台机器不能运行课里的 verify 核对程序和代码题，所以没有核对；要核对，须在有 Landlock（ABI 4 以上）与 libseccomp 的 Linux 上检查";
+      report.error("sandbox_unavailable", `${error.message}。${remedy}。命令行只检查结构时加 --no-run`, loaded.file, ["runtime"]);
     } else {
       throw error;
     }

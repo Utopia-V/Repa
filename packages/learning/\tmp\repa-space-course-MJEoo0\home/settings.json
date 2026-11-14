@@ -1,0 +1,11 @@
+{
+  "commandPolicy": "ask",
+  "recentSpaces": [
+    "/tmp/repa-space-course-MJEoo0/space"
+  ],
+  "prompts": {},
+  "backup": {
+    "intervalMinutes": 30,
+    "keep": 5
+  }
+}

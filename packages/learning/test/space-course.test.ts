@@ -61,7 +61,8 @@ function pool(topic: Record<string, unknown>, kp: number, name: string): Record<
 
 /** 写课说明里的 yaml 例子，按出现顺序。 */
 async function guideExamples(): Promise<unknown[]> {
-  const text = await readFile(COURSE_GUIDE, "utf8");
+  // Windows 检出的文本是 CRLF 换行。
+  const text = (await readFile(COURSE_GUIDE, "utf8")).replaceAll("\r\n", "\n");
   return [...text.matchAll(/^```yaml\n([\s\S]*?)^```$/gmu)].map((match) => parseYaml(match[1] ?? ""));
 }
 
@@ -346,14 +347,18 @@ test("建了 course/ 时随包课还有做到一半的任务：course_use 不换
   assert.deepEqual(after.task, before.task);
 });
 
-test("course 是一个指向自己的符号链接：学习插件照常打开，状态里没有课", async (t) => {
-  if (process.platform === "win32") return t.skip("Windows 上建符号链接要管理员权限");
+// course 是指向自己的符号链接时，底座的空间监听在 Node 24 的 Linux 上抛出未捕获的 ELOOP（#145），这里改用指向空间之外的链接。
+test("course 指向空间之外，读不了：学习插件照常打开，状态里没有课，course_check 说明原因", async (t) => {
   const f = await fixture(t);
-  await symlink("course", path.join(f.root, "course"));
+  const outside = path.join(path.dirname(f.root), "outside");
+  await mkdir(outside);
+  // junction 只在 Windows 上起作用，那里建它不要管理员权限；别的系统上忽略这个参数，建的是普通符号链接。
+  await symlink(outside, path.join(f.root, "course"), "junction");
   await f.reopen();
   const shown = await f.state();
   assert.equal(shown.course, null);
   assert.equal(shown.menu, null);
+  assert.match((await f.tool("course_check")).text, /超出空间内容范围/u);
 });
 
 test("换用时旧的一版还在补判一份作答：等它写完再按新的一版打开，按改过的 rubric 重判", async (t) => {
@@ -482,12 +487,14 @@ test("要运行 Python 的课在核对没能运行时如实说明原因，不算
     delete question.manual;
     question.verify = 'answers = {"state": "运行"}';
   });
-  // runtime 少写了核对环境要的包：沙箱里的 Pyodide 起不来，或这台机器建不了沙箱，两种都写明各自怎样处理。
+  // runtime 少写了核对环境要的包：Linux 上沙箱里的 Pyodide 起不来，或这台机器建不了沙箱，两种都写明各自怎样处理；别的系统上写明这台机器不能运行核对。
   await writeFile(manifest, `${original}runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }\n`);
   const startup = await f.tool("course_check");
   assert.match(startup.text, /没有通过检查/u);
   assert.match(startup.text, /课里要运行 Python 的部分（verify、代码题、带 tests 的排列题）没有运行，也就没有核对/u);
-  assert.match(startup.text, /\[sandbox_unavailable\][\s\S]*Pyodide 启动失败时，把清单的 runtime 照写课说明改/u);
+  assert.match(startup.text, process.platform === "linux"
+    ? /\[sandbox_unavailable\][\s\S]*Pyodide 启动失败时，把清单的 runtime 照写课说明改/u
+    : /\[sandbox_unavailable\] 沙箱只能在 Linux 上建立[^\n]*这台机器不能运行课里的 verify 核对程序和代码题，所以没有核对/u);
   // 照写课说明写 runtime，但这台机器缺离线包。
   await writeFile(manifest, `${original}${stringify({ runtime: (await guideRuntime()) })}`);
   const checked = await f.tool("course_check");
