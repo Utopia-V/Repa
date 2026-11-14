@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -116,6 +117,7 @@ function viewTexts(context: TranscriptContext): string[] {
 // 通用 Agent 能起子 Agent 后再次生成：工具声明在 ask_user 之前多了 subagent，可以起 general 和插件声明的 tutor；
 // 工具段的清单相应多了“、subagent”。其余系统段、工具和消息与上一份相同。
 // 底座去掉学习用途后又生成一次：ask_user 的说明换成中性的写法，参数去掉 purpose，其余不变。
+// 底座附带写插件的 Skill 以后又生成一次：Skill 段列出 plugin-authoring，其余不变。
 test("通用 Agent 的首个请求与固定样本逐字相同，插件声明的 Agent 只出现在 subagent 工具里", async t => {
   const f = await runtimeFixture(t, { tools: () => [courseLookup] });
   await writeFile(path.join(f.root, "AGENTS.md"), "空间说明：保持中文回答。");
@@ -124,10 +126,12 @@ test("通用 Agent 的首个请求与固定样本逐字相同，插件声明的 
   f.respond("回答");
   await session.send("你好");
   // 系统段写本机路径，Pi 的 cwd 段把反斜杠换成 /；Windows 上两种写法不同，都换成 <root>。
+  // 底座附带的 Skill 写的是包内 SKILL.md 的绝对路径，各系统的分隔符不同，整段换成 <skills>/...。
   const roots = [f.root, f.root.replaceAll("\\", "/")];
+  const skill = path.join(fileURLToPath(new URL("../skills", import.meta.url)), "plugin-authoring", "SKILL.md");
   const actual: unknown = JSON.parse(JSON.stringify(f.captures[0]?.messages), (key, value: unknown) => {
     if (key === "timestamp") return undefined;
-    return typeof value === "string" ? roots.reduce((text, root) => text.replaceAll(root, "<root>"), value) : value;
+    return typeof value === "string" ? roots.reduce((text, root) => text.replaceAll(root, "<root>"), value.replaceAll(skill, "<skills>/plugin-authoring/SKILL.md")) : value;
   });
   const expected: unknown = JSON.parse(await readFile(new URL("fixtures/general-agent-request.json", import.meta.url), "utf8"));
   assert.deepEqual(actual, expected);

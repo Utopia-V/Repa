@@ -7,7 +7,7 @@
       "cwd": "<cwd>\n<root>\n</cwd>",
       "repa-62617365": "<repa-62617365>\n<repa-instructions source=\"base\">\n你是 Repa 中帮助用户持续开展工作的 Agent。读取当前空间的资料，使用已提供的工具推进用户目标，并尊重用户的授权与已有工作。插件说明提供领域知识，运行时视图提供当前状态；需要更多状态时使用工具查询。\n</repa-instructions>\n</repa-62617365>",
       "repa-7370616365": "<repa-7370616365>\n<repa-instructions source=\"space\">\n当前空间：<root>\n\n空间说明：保持中文回答。\n</repa-instructions>\n</repa-7370616365>",
-      "repa-736b696c6c73": "<repa-736b696c6c73>\n<repa-instructions source=\"skills\">\n\n</repa-instructions>\n</repa-736b696c6c73>",
+      "repa-736b696c6c73": "<repa-736b696c6c73>\n<repa-instructions source=\"skills\">\n\n\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>plugin-authoring</name>\n    <description>给 Repa 自己写插件并在这次运行里装上使用。使用者提出以后还会反复要用的功能（例如把课件转成文字、取某个论坛板块上次以来的新帖），或者要修改、修复 .agents/plugins/ 里的自写插件时，先读这份说明。只做一次的事直接做，不写插件。</description>\n    <location><skills>/plugin-authoring/SKILL.md</location>\n  </skill>\n</available_skills>\n</repa-instructions>\n</repa-736b696c6c73>",
       "repa-746f6f6c73": "<repa-746f6f6c73>\n<repa-instructions source=\"tools\">\n使用已声明的工具。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：read、bash、edit、write、grep、find、ls、course_lookup、subagent、ask_user\n</repa-instructions>\n</repa-746f6f6c73>",
       "repa-706c7567696e3a636f75727365": "<repa-706c7567696e3a636f75727365>\n<repa-instructions source=\"plugin:course\">\n课程插件说明\n</repa-instructions>\n</repa-706c7567696e3a636f75727365>"
     },
