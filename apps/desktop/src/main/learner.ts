@@ -7,12 +7,11 @@ function packageRoot(name: string): string {
 }
 
 /**
- * 桌面端是学习者版本：后端加载学习插件和课件转文字插件，关掉通用 Agent，首页和入口由界面按 plugin.list 决定。
- * 插件文件夹开发时是工作区的 packages/ 下的包，安装包里是 node_modules 下的同名包。
+ * 桌面端是学习者版本：后端加载学习插件和课件转文字插件，带通用 Agent（做课由它完成，命令确认按设置，缺省询问），
+ * 首页和入口由界面按 plugin.list 决定。插件文件夹开发时是工作区的 packages/ 下的包，安装包里是 node_modules 下的同名包。
  */
-export function learnerBackend(): Pick<RepaProcessOptions, "plugins" | "generalAgent"> {
+export function learnerBackend(): Pick<RepaProcessOptions, "plugins"> {
   return {
     plugins: [packageRoot("@repa/learning"), packageRoot("@repa/materials")],
-    generalAgent: false,
   };
 }

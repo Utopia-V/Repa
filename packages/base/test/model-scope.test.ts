@@ -19,6 +19,7 @@ const unusedModels: Models = {
   async completeStructured() { throw new Error("不应请求模型"); },
   async runAgent() { throw new Error("不应请求模型"); },
   defaultModel: () => undefined,
+  async usage() { throw new Error("不应读用量"); },
 };
 const closed = (error: unknown): boolean => error instanceof Error && "code" in error && error.code === "models_closed";
 

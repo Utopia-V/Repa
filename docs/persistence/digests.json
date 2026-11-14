@@ -47,12 +47,20 @@
     "digest": "55961a3217710f9c",
     "basis": "2026-11-14-learning-course-choice.md"
   },
+  "learning-building": {
+    "digest": "ca81ccbd6f0ded71",
+    "basis": "2026-11-14-learning-building.md"
+  },
+  "learning-settings": {
+    "digest": "9e260453feaa7931",
+    "basis": "2026-11-14-learning-settings.md"
+  },
   "learning-course": {
-    "digest": "6424754f60110faf",
-    "basis": "2026-11-14-learning-course.md"
+    "digest": "afad8965c50dc09b",
+    "basis": "2026-11-14-learning-course-materials.md"
   },
   "learning-topic": {
-    "digest": "ff63be80e82ebcfa",
-    "basis": "2026-11-14-learning-topic.md"
+    "digest": "300847e9fe5c9810",
+    "basis": "2026-11-14-learning-topic-sources.md"
   }
 }

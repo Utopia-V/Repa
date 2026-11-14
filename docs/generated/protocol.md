@@ -847,6 +847,31 @@
 | --- | --- | --- | --- |
 | $ | null | 否 |  |
 
+## 方法：session.usage
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| sessionId | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| cost | number | 否 |  |
+| requests | integer | 否 |  |
+| unpriced | object | 否 |  |
+| unpriced.cacheRead | number | 否 |  |
+| unpriced.cacheWrite | number | 否 |  |
+| unpriced.input | number | 否 |  |
+| unpriced.output | number | 否 |  |
+| usage | object | 否 |  |
+| usage.cacheRead | number | 否 |  |
+| usage.cacheWrite | number | 否 |  |
+| usage.input | number | 否 |  |
+| usage.output | number | 否 |  |
+
 ## 方法：settings.get
 
 ### 参数

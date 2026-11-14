@@ -18,7 +18,7 @@
 
 ### Agent 与学习产品入口
 
-`plugin.ts` 默认把教学流程的 `beforeRestricted` hook 接到本插件的中止入口，并装配 `tutor.ts`。`learning-tutor` 可直接对话，列出 `learning_task`、`learning_search`、`learning_read` 和 `read`；`read` 用于续取被底座省略的长输出，写入、命令、网络和子 Agent 工具均不在声明中。`read` 与其他插件 Agent 的文件工具一样只能读空间内的文件，`.repa/` 中只能读 `tool-output/`；默认装配的课程随应用安装，不在空间里，复习和测验期间辅导本身也不运行。
+`plugin.ts` 默认把教学流程的 `beforeRestricted` hook 接到本插件的中止入口，并装配 `tutor.ts`。`learning-tutor` 可直接对话，只列出 `learning_task`、`learning_search`、`learning_read`；读文件、写入、命令、网络和子 Agent 工具均不在声明中。不给 `read`，是因为自制课写在空间的 `course/` 里，草稿里有复习和测验题的答案，辅导读得到就可能在作答期间说出来；长输出由三项工具自己按行分批（见下文），不靠 `read` 续取。
 
 在仓库根目录运行：
 
@@ -26,7 +26,7 @@
 npm run dev:learning -- --home /absolute/repa-home
 ```
 
-这个入口先构建学习包，再加载其静态插件清单，以 `--no-general-agent --direct-agent learning-tutor` 启动底座。Desktop 的启动与页面接线由 [#60](https://github.com/Utopia-V/repa/issues/60) 与 [#62](https://github.com/Utopia-V/repa/issues/62) 接续；使用 `startServer` 装配时，同样设置 `generalAgent: false` 和 `directAgents: ["learning-tutor"]`。
+这个入口先构建学习包，再加载学习插件与课件插件启动底座，带通用 Agent（做课由它完成）；通用 Agent 与 `learning-tutor` 都能直接对话。Desktop 与 `npm run dev:web:learning` 的装配相同，Desktop 的页面接线由 [#60](https://github.com/Utopia-V/repa/issues/60) 与 [#62](https://github.com/Utopia-V/repa/issues/62) 接续。
 
 ### 内容、版本与原学习位置
 
@@ -34,16 +34,16 @@ npm run dev:learning -- --home /absolute/repa-home
 
 | 入口 | 参数与结果 |
 | --- | --- |
-| `learning_task` | 没有参数；写出学习者正在读的讲解或例题，或者正在做的题，连同学习者的作答、判分结果和已释放的题解 |
+| `learning_task` | 只有可选的 `line`；写出学习者正在读的讲解或例题，或者正在做的题，连同学习者的作答、判分结果和已释放的题解 |
 | `content.search` | 显式传 `query`、`offset`、`limit`；按内容 id 稳定排序，返回 `ref`、标题、短命中、`origin` 和 `nextOffset` |
 | `learning_search` | 同一处理器；省略 `offset`、`limit` 时用工具声明里的默认值；每条结果一行内容编号与名称，下一行是摘录，还有更多时末行写出下一次的 `offset` |
 | `content.read` | 按 `refs` 批取，以 `offset`、`limit` 选择内容块 |
-| `learning_read` | `ids` 是 `learning_search` 结果里的内容编号；写出每项内容的全文，编号不存在或还没学到时报错并提示先搜索 |
+| `learning_read` | `ids` 是 `learning_search` 结果里的内容编号；写出每项内容的全文，所在 topic 登记了出处时另写一行“出处：「来源」位置”，编号不存在或还没学到时报错并提示先搜索 |
 | `content.open` | 界面打开卡片或参考内容时核对授权，返回服务端 `openedAt`；作答期间拒绝 |
 
 `learning_task` 只从公开状态取值，不读取课程里私有的答案或 rubric。它也逐次检查限制，因而模型可以直接看见正在讨论的题目，而不必要求学习者重新转述。文字由 `tutor-text.ts` 写出，内容块的写法与模型核对共用 `model-text.ts`：代码块用围栏，带 `startLine` 的每行前写行号。开头几行写任务与 topic、知识点及其编号，以及这道题提交到了哪一步（正在判分、判分没有完成，或判分结果）。接着是题面和各小问：选项与排列块按学习者看到的顺序从 1 编号，表格写成 Markdown 表，小问的标签和文本输入框后面的文字（常是单位）照样写出，只有一问时也不省；学习者的作答、各小问的判分、代码题各测试的结果和模型判分的理由写在对应的小问下面，没答对的小问另写正确答案。题解释放以后附在最后。学习者在读讲解或例题时，写出这一页的全文；任务结束以后，写出最后一道题。
 
-界面的搜索与批取有正常响应预算（[`tutor.ts`](../../packages/learning/src/tutor.ts) 的 `TEXT_BYTES`）；搜索可能提前返回 `nextOffset`，批取可能缩短最后一页或只返回前几个引用。每页的 `offset`、实际 `blocks.length` 和 `total` 用于继续读取，尚未返回的引用继续单独请求。分页保持课程原生内容块，不截断 Markdown 或代码块；某个单块已超过预算时报告 `content_block_too_large`，由内容作者拆分该块。预算和分页数量都是 Repa 的工程假设。辅导工具则不分页，只有 `learning_search` 按条数翻页：文字超过底座的上限时，底座把全文存进 `.repa/tool-output/`，只把开头、结尾和全文路径交给模型，模型用 `read` 按行续取，见[处理工具输出](../../packages/base/README.md#处理工具输出)。所以题面、代码和作答都照原来的行写出，不拼成一行。
+界面的搜索与批取有正常响应预算（[`tutor.ts`](../../packages/learning/src/tutor.ts) 的 `TEXT_BYTES`）；搜索可能提前返回 `nextOffset`，批取可能缩短最后一页或只返回前几个引用。每页的 `offset`、实际 `blocks.length` 和 `total` 用于继续读取，尚未返回的引用继续单独请求。分页保持课程原生内容块，不截断 Markdown 或代码块；某个单块已超过预算时报告 `content_block_too_large`，由内容作者拆分该块。预算和分页数量都是 Repa 的工程假设。辅导工具按行分批：`learning_search` 另按条数翻页；三项工具写好的文字超过 40,000 字节或 1,500 行（留在底座 50 KiB、2,000 行的上限之内）时，只交回从 `line` 起的一批，末尾写明这是第几行到第几行、共几行，以及接着读时加上的 `line`。所以底座不再截断辅导工具的输出，题面、代码和作答也都照原来的行写出，不拼成一行。单独一行超过字节上限时整行交回，由底座省略中间。
 
 `ref` 是概念与内容的版本引用，`origin` 定位原任务及可用的原交付。概念卡的例子来自例题时，`origin.content` 指向该例题；来自已经交付的正式题时，`origin.deliveryId` 指向那份交付。界面可以用同一 `content.read` 入口取得原例题，或者回到原交付画面。前端渲染和对话内链接的实际交互由 [#60](https://github.com/Utopia-V/repa/issues/60) 接续。模型看不到 `ref` 和 `origin`：搜索结果只给内容编号（即 `ref.id`）和名称。模型提到学过的知识点时写 `[名称](repa:concept/<知识点编号>)` 链接，与课程正文里概念链接的写法相同；界面可以按知识点编号用 `content.search` 找到概念卡及其 `origin`。
 

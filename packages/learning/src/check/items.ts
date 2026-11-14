@@ -199,7 +199,7 @@ export function questionFixtures(question: Question): string[] {
 }
 
 /** 题型标签与知识点归属不进题目版本：归属改了，重算学习状态时按新归属算，过去的作答照样对得上。 */
-const METADATA_FIELDS = ["kind", "measures"] as const;
+const METADATA_FIELDS = ["kind", "measures", "sources"] as const;
 /** 只为检查课程而写的部分：改它们不改变学生看到什么、怎样判，不进内容哈希。 */
 const CHECK_ONLY_FIELDS = ["verify", "manual"] as const;
 const CHECK_ONLY_CODE_FIELDS = ["accepts", "rejects"] as const;

@@ -28,6 +28,7 @@ import {
   ProviderInfoSchema,
   SessionEntrySchema,
   SessionInfoSchema,
+  SessionUsageSchema,
   SettingsSchema,
   identifier,
   object,
@@ -156,6 +157,8 @@ export const methods = {
   "session.setModel": { params: object({ ...session, model: ModelRefSchema }), result: nothing },
   "session.compact": { params: object(session), result: nothing },
   "session.fork": { params: object({ ...session, entryId: identifier }), result: SessionInfoSchema },
+  // 一个会话到现在的模型用量与按模型目录单价折算的金额；任何会话都能读，包括插件发起的后台会话和子 Agent 的会话。
+  "session.usage": { params: object(session), result: SessionUsageSchema },
   "confirm.reply": { params: object({ id: identifier, value: confirmationReply }), result: nothing },
   "ask.reply": { params: AskReplyParamsSchema, result: AskReplyResultSchema },
   "service.reply": { params: serviceReply, result: nothing },

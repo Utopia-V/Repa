@@ -64,6 +64,8 @@ export function createModelScope(models: Models, onError?: (error: unknown) => v
       },
       // 只读当前设置，不发起工作，关闭以后也照常回答。
       defaultModel: () => models.defaultModel(),
+      // 只读会话记录，同样不发起工作。
+      usage: (sessionIds) => models.usage(sessionIds),
     },
     close() {
       if (closing === undefined) {

@@ -9,7 +9,7 @@ import { versionInput, questionVersion } from "../src/check/items.js";
 import { Report } from "../src/format/diagnostics.js";
 import { loadCourse } from "../src/format/load.js";
 import type { Confirmation, Question, Topic } from "../src/format/schema.js";
-import { demoCourse, writeCourse, type DemoCourse } from "./demo-course.js";
+import { demoCourse, displayedOutput, writeCourse, type DemoCourse } from "./demo-course.js";
 
 function topic(demo: DemoCourse, id: string): Topic {
   const found = demo.topics[id];
@@ -65,10 +65,11 @@ test("先修环和覆盖环各自报告，二图联合成环不算各图成环",
   const demo = relations();
   topic(demo, "t01").encompassings = [{ topic: "t03", weight: 1 }];
   assert.deepEqual(await errors(t, demo), []);
+  // t03 是轮廓，展开了的 t01 以它为先修，另报 prerequisite_outline。
   topic(demo, "t01").prerequisites = ["t03"];
-  assert.deepEqual(await errors(t, demo), ["prerequisites_cycle"]);
+  assert.deepEqual(await errors(t, demo), ["prerequisite_outline", "prerequisites_cycle"]);
   topic(demo, "t04").encompassings = [{ topic: "t03", weight: 0.5 }];
-  assert.deepEqual(await errors(t, demo), ["encompassings_cycle", "prerequisites_cycle"]);
+  assert.deepEqual(await errors(t, demo), ["encompassings_cycle", "prerequisite_outline", "prerequisites_cycle"]);
 });
 
 test("零权重可声明但仍检查覆盖图的引用、重复和环", async (t) => {
@@ -186,6 +187,7 @@ test("课程检查与核对入口复用原证明，单改信用不发请求，�
   assert.ok(quiz);
   demo.course.runtime.prelude = "import pandas as pd\nimport numpy as np\n";
   delete quiz.verify;
+  displayedOutput(quiz);
   quiz.manual = ["output"];
   owner.verified = [{
     question: quiz.id,
@@ -205,6 +207,6 @@ test("课程检查与核对入口复用原证明，单改信用不发请求，�
   assert.equal(confirmed.outcomes[0]?.status, "skipped");
   const answer = quiz.slots[0];
   assert.ok(answer?.type === "text");
-  answer.key = 99;
+  answer.key = "99";
   assert.deepEqual(await errors(t, demo), ["manual_unconfirmed"]);
 });

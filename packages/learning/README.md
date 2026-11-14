@@ -8,7 +8,7 @@
 
 ### 装配插件
 
-底座按包根目录的 `repa-plugin.json` 加载本插件，插件 id 为 `learning`，入口是构建后的 `dist/plugin.js`。开发时在仓库根目录运行 `npm run dev:learning -- --home /absolute/repa-home`：它先构建库包，再加载本插件启动底座，只开放辅导 Agent `learning-tutor`，见[辅导说明](../../docs/development/learning-tutor.md#agent-与学习产品入口)。
+底座按包根目录的 `repa-plugin.json` 加载本插件，插件 id 为 `learning`，入口是构建后的 `dist/plugin.js`。开发时在仓库根目录运行 `npm run dev:learning -- --home /absolute/repa-home`：它先构建库包，再加载本插件与课件插件启动底座，通用 Agent 与辅导 Agent `learning-tutor` 都能直接对话，见[辅导说明](../../docs/development/learning-tutor.md#agent-与学习产品入口)。
 
 在代码里装配时调用 `createLearningPlugin({ sources, packagesDirectory, connect })`。一个空间学一门课：换用过空间 `course/` 里的课就学它，空间里有 `course/` 而还没有换用过就没有可学的课（学习者在原来的课里还有做到一半的任务时，先让他做完），都没有时学 `sources` 给出的课程，缺省是随包的 Python 课，见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。`packagesDirectory` 是 `course_check` 运行 Python 核对用的离线包目录；`connect` 换掉教学方法的装配，测试用它取回学习会话，换用课程时为新的会话再调用一次。插件打开时先核对数据目录的格式标记，再读入学习记录、重放出学习状态，见[学习记录说明](../../docs/development/learning-records.md#插件与接入)。
 
@@ -18,14 +18,16 @@
 
 ### 在应用里做课
 
-学习者把课件放进空间的 `materials/`，由通用 Agent 做成空间 `course/` 里的课。插件给通用 Agent 的提示说明指向随包的[写课说明](guides/making-courses.md)，同一目录的 [`example-course/`](guides/example-course/course.yaml) 是一门不含代码题、能通过检查并上完一节的完整例子；两者随 `npm pack` 进安装包。插件另给通用 Agent 两项工具，辅导 Agent 没有：
+学习者把课件放进空间的 `materials/`，由通用 Agent 做成空间 `course/` 里的课。课按“轮廓 → 展开”长出来：先把整门课写成 `status: outline` 的 topic（只有名字、范围、出处和估计的知识点）并换用，学习者认可以后在对话里展开第一段；之后学习者学到已展开部分只剩一节没学时，插件在后台让通用 Agent 展开接下来的两部分（`EXPANSION_SIZE`，Repa 的假设）。插件给通用 Agent 的提示说明指向随包的[写课说明](guides/making-courses.md)，同一目录的 [`example-course/`](guides/example-course/course.yaml) 是一门不含代码题、一节展开一节轮廓、能通过检查并上完一节的完整例子；两者随 `npm pack` 进安装包。插件另给通用 Agent 两项工具，辅导 Agent 没有：
 
 | 工具 | 作用 |
 | --- | --- |
-| `course_check` | 检查 `course/`：问题逐处写成“文件:行:列 级别 [错误码] 说明”，一页 40 处，末尾写明还有多少、下一页的 `offset`；另写明 Python 核对是否运行、`manual` 作答位有多少没有独立核对，以及学习者现在学的是哪一份 |
-| `course_use` | 检查 `course/`，通过而且学习者没有做到一半的任务时换用；学习者正在上课、复习或测验时不换，回复写明，等他做完再调用；没通过时不换，返回第一页问题 |
+| `course_check` | 检查 `course/`：问题逐处写成“文件:行:列 级别 [错误码] 说明”，一页 40 处，末尾写明还有多少、下一页的 `offset`；另写明 Python 核对是否运行、`manual` 作答位有多少没有独立核对，以及学习者现在学的是哪一份、学过哪些 topic、后台是否正在展开 |
+| `course_use` | 检查 `course/`，通过就换用；学习者有做到一半的任务时，只有这项任务涉及的 topic（和运行时）在新的一版里一字不差才换，否则不换并写明，等他做完再调用；没通过时不换，返回第一页问题 |
 
-两项工具都在数据目录的临时副本上检查，写到一半的 `course/` 进不了学习者的课、复习和测验；换用的规则见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。
+两项工具都在数据目录的临时副本上检查，写到一半的 `course/` 进不了学习者的课、复习和测验；换用的规则见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。调用这两项工具的会话记作做课的会话，花费按它们汇总。
+
+后台展开同一时刻只有一次，经 `host.models.runAgent` 交给通用 Agent，任务里写明只用文件、课件与做课的工具，不用 `bash` 和 `ask_user`（后台没有连接可以确认或回答）。自动展开每个“学过的 topic 数”只试一次：失败如实记下原因，不重试，学习者再学完一节或明确要求（`building.expand`）时再做；还一节都没有展开时不自动展开。学习者可以用 `settings.set` 关掉自动展开，设置存在数据目录的 `settings.json`。前端用 `building.get` 读整门课的轮廓、各部分的状态、正在展开的部分、最近一次失败的原因和花费，状态变化时插件发 `building.changed`，见[前端契约](../../docs/development/learning-protocol.md#做课的状态)。
 
 ### 写课与检查课程
 
@@ -217,18 +219,21 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 
 学习内容只经辅导 Agent `learning-tutor` 进入会话；此外，开放题判分和课程的模型核对是不进会话的单轮调用。下面的 token 数按一个汉字约 1 token、其余字符约 4 个 1 token 估算，实际随模型的分词而变，会话里的实际用量从底座的会话记录读取。
 
-- 辅导 Agent 的命名提示段交代辅导职责和回答的方式，约 260 token；它能用的 `learning_task`、`learning_search`、`learning_read` 三项工具的声明约 400 token，另有底座的 `read` 用于续取长输出。这两部分在会话中不变，位于提示缓存的稳定前缀里，工具声明见[工具目录](../../docs/generated/tools.md)。
+- 辅导 Agent 的命名提示段交代辅导职责和回答的方式，约 260 token；它能用的 `learning_task`、`learning_search`、`learning_read` 三项工具的声明约 450 token。辅导没有读文件的工具：空间里写到一半的 `course/` 有复习和测验题的答案。这两部分在会话中不变，位于提示缓存的稳定前缀里，工具声明见[工具目录](../../docs/generated/tools.md)。
 - 视图写出当前任务与阶段、课内当前知识点的进度，以及学过的直接先修中记忆最弱的几个，通常两三行，约 60 至 100 token。底座只在视图内容变化时把它追加在用户消息之后；先修排序用最后一条事实的时间，状态不变时文字不变，不打乱提示缓存。
-- 工具输出写成分行文字，进入会话历史：`learning_task` 一次约 100 至 750 token，随包课程里最长的题连同题解也只有几 KB；`learning_search` 按默认条数一页约 1,300 token；`learning_read` 写出所读内容的全文。超过底座上限的输出由底座保存全文，只把开头和结尾交给模型，见[处理工具输出](../base/README.md#处理工具输出)。
-- 开着通用 Agent 时，它汇集各插件的工具，也看到这三项学习工具的声明，但没有辅导的职责段和视图；`npm run dev:learning` 不开通用 Agent。
-- 通用 Agent 还看到插件的命名提示段 `plugin:learning`，两句话指出做课前先读写课说明的绝对路径，约 100 token；`course_check`、`course_use` 两项工具的声明约 200 token。它们都不随学习状态变化，在提示缓存的稳定前缀里。写课说明约 1,800 token，只在做课时由 Agent 用 `read` 读入；`course_check` 一页最多 40 处问题，约 3,000 token 以内。
+- 工具输出写成分行文字，进入会话历史：`learning_task` 一次约 100 至 750 token，随包课程里最长的题连同题解也只有几 KB；`learning_search` 按默认条数一页约 1,300 token；`learning_read` 写出所读内容的全文和它在材料里的出处。三项工具一次最多交回 40,000 字节、1,500 行，留在底座的输出上限之内；更长的按行分批，末尾写明接着读的 `line`。
+- 通用 Agent 汇集各插件的工具，也看到这三项学习工具的声明，但没有辅导的职责段和视图。
+- 通用 Agent 还看到插件的命名提示段 `plugin:learning`，两句话指出做课前先读写课说明的绝对路径，约 100 token；`course_check`、`course_use` 两项工具的声明约 200 token。它们都不随学习状态变化，在提示缓存的稳定前缀里。写课说明约 3,500 token，只在做课时由 Agent 用 `read` 读入；`course_check` 一页最多 40 处问题，约 3,000 token 以内。后台展开的任务约 150 token，展开一段的用量随材料和题量而定，计入 `building.get` 的花费；自动展开关着时不产生模型请求。
 - 开放题判分对每份作答发一次隔离的结构化请求，只含本题题面、作答、评分要点和解析，不带会话历史，也不进会话。`course:confirm` 是写课时用的核对工具，每道题单独发隔离的单轮请求，只含学习者看得到的题面。
 
 ## 已知限制与暂缓
 
 - 课程的代码核对只能在 Linux 上运行，沙箱的要求见[运行器包的已知限制](../python-runner/README.md#已知限制与暂缓)；Windows、macOS 上只能用 `--no-run`，社区作者可以先做结构检查。在应用里做课时，有 `verify` 或代码题的课在这些系统上过不了 `course_check`，也就不能换用；不用 Python 的课不受影响。
 - 应用里做的课，复习和测验题的 `manual` 作答位没有独立的模型核对，`course_check` 只报出个数；答案是否正确由做课的 Agent 对照材料负责。
-- 课程清单的 `sources` 要求 `https:` 链接，学习者放进 `materials/` 的本地课件登记不进去，写课说明让自制课写空的 `sources`。
+- 来源的 `file` 只检查写法（以 `materials/` 开头、不含 `..`），不检查文件在不在：检查在数据目录的副本上进行，读不到空间。
+- 数值作答位的规则（`numeric_manual`）只看 `text` 作答位；表格里的数值格不在其中。答案恰好是题面里写着的数时按照抄的常数放过，这会放过碰巧与题面某个数相同的算错的答案。
+- 应用关闭时中断的后台展开，Pi 的运行可能照常结束而不报错，这时记为 `not_expanded`，不是 `cancelled`。
+- 花费按做课的会话整份汇总：同一会话里与做课无关的对话也算在内；压缩摘要这类不记模型的请求只计 token。
 - 课程核对整门课共用一个解释器。候选程序改动已导入的模块（例如给 pandas 打补丁）时，影响会延续到之后的候选和题目；随包课程没有这类代码，判分时每次提交用新的 Worker，也不受影响。课程要教这类写法时，再为相关的候选换新的解释器，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md)。
 - 一道题最多一个按测试判的作答位，有先后关系的多步代码题还不支持，`course:check` 以 `multiple_code_slots` 报出；等模型出题需要时再实现，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md#检查工具)。
 - 模型核对每道题只请模型解一次。选择题有猜中的可能，模型和作者也可能有同样的误读；一致只说明题面能读出这个答案。需要更强的核对时，可以换模型或多次采样，或在试用中看学习者的作答。

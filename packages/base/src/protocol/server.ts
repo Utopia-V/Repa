@@ -378,6 +378,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             return agent.runAgent(task);
           },
           defaultModel: () => runtime.defaultModel(),
+          usage: (ids) => {
+            if (!agent) return Promise.reject(new RepaFault("space_not_ready", "空间尚未完成打开"));
+            return agent.usage(ids);
+          },
         }),
         async abortAgent(id) {
           if (!agent) {
@@ -514,6 +518,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       }
       case "session.history":
         return (await requireActive().agent.get(p<"session.history">().sessionId)).history();
+      case "session.usage":
+        return requireActive().agent.usage([p<"session.usage">().sessionId]);
       case "session.send": {
         const input = p<"session.send">();
         await (await directSession(input.sessionId)).send(input.text);

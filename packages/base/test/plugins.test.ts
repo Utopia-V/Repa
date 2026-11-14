@@ -17,6 +17,7 @@ const noModels: Models = {
   async completeStructured() { throw new Error("此测试不应调用模型"); },
   async runAgent() { throw new Error("此测试不应运行 Agent"); },
   defaultModel: () => undefined,
+  async usage() { throw new Error("此测试不应读用量"); },
 };
 
 async function fixture(t: TestContext, plugins: Plugin[], models = noModels) {

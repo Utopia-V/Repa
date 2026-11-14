@@ -32,6 +32,16 @@ function predict(id: string, code: string, output: number): Question {
   };
 }
 
+/**
+ * 把预测输出的题改成按显示内容比较（match: output）。要模型核对的例子用它：按数比较的作答位要由 verify 算出，
+ * 不能只列进 manual（numeric_manual）。
+ */
+export function displayedOutput(question: Question): void {
+  const slot = question.slots[0];
+  if (slot?.type !== "text") throw new Error(`${question.id} 不是预测输出的题`);
+  question.slots = [{ id: slot.id, type: "text", match: "output", key: String(slot.key) }];
+}
+
 export function demoCourse(): DemoCourse {
   const course: DemoCourse["course"] = {
     id: "demo",

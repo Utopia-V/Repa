@@ -201,6 +201,41 @@ schema：packages/learning/src/space-course.ts#CourseChoiceSchema；SHA-256 前 
 | --- | --- | --- | --- |
 | active | string | 是 |  |
 
+## learning-building
+
+文件：<空间>/.repa/plugins/learning/building.json。
+
+负责的包：@repa/learning。
+
+版本标记：<空间>/.repa/plugins/learning/format.json。
+
+schema：packages/learning/src/course-building.ts#BuildingRecordSchema；SHA-256 前 16 位：ca81ccbd6f0ded71。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| last | object | 是 |  |
+| last.endedAt | integer | 是 |  |
+| last.failure | object | 是 | 嵌套对象，字段见源码 |
+| last.learned | integer | 否 |  |
+| last.sessionId | string | 是 |  |
+| last.startedAt | integer | 否 |  |
+| last.topicIds[] | string | 否 |  |
+| sessions[] | string | 否 |  |
+
+## learning-settings
+
+文件：<空间>/.repa/plugins/learning/settings.json。
+
+负责的包：@repa/learning。
+
+版本标记：<空间>/.repa/plugins/learning/format.json。
+
+schema：packages/learning/src/course-building.ts#SettingsFileSchema；SHA-256 前 16 位：9e260453feaa7931。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| autoExpand | boolean | 否 |  |
+
 ## learning-course
 
 文件：<空间>/course/course.yaml、<空间>/.repa/plugins/learning/courses/<摘要>/course.yaml、随包课程的 course.yaml。
@@ -209,7 +244,7 @@ schema：packages/learning/src/space-course.ts#CourseChoiceSchema；SHA-256 前 
 
 版本标记：无独立版本标记；换用过的副本目录名是内容摘要，课程自己的 version 只记进学习记录。
 
-schema：packages/learning/src/format/schema.ts#CourseSchema；SHA-256 前 16 位：6424754f60110faf。
+schema：packages/learning/src/format/schema.ts#CourseSchema；SHA-256 前 16 位：afad8965c50dc09b。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
@@ -237,7 +272,7 @@ schema：packages/learning/src/format/schema.ts#CourseSchema；SHA-256 前 16 �
 
 版本标记：无独立版本标记；与 learning-course 同在一份课程里。
 
-schema：packages/learning/src/format/schema.ts#TopicSchema；SHA-256 前 16 位：ff63be80e82ebcfa。
+schema：packages/learning/src/format/schema.ts#TopicSchema；SHA-256 前 16 位：300847e9fe5c9810。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |

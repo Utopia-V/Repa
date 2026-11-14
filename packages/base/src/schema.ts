@@ -137,6 +137,18 @@ export const UsageSchema = object({
 });
 /** 一次模型请求的输入、输出与缓存 token 用量，供会话历史和事件展示。 */
 export type Usage = Static<typeof UsageSchema>;
+/**
+ * 会话累计用量的 schema：requests 是模型请求的次数，usage 是全部 token；cost 是按模型目录的单价折算的金额（美元），
+ * 只算目录里有单价的请求；unpriced 是没有单价的那部分 token（模型不在目录里或单价都是零，以及压缩摘要这类不记模型的请求），不进 cost。
+ */
+export const SessionUsageSchema = object({
+  requests: Type.Integer({ minimum: 0 }),
+  usage: UsageSchema,
+  cost: Type.Number({ minimum: 0 }),
+  unpriced: UsageSchema,
+});
+/** 一个或几个会话累计的模型用量与按单价折算的金额，供前端显示花费。 */
+export type SessionUsage = Static<typeof SessionUsageSchema>;
 /** 子 Agent 父关联的 schema，记录父会话、父运行和工具调用，供恢复身份与展示来源。 */
 export const SessionParentSchema = object({ sessionId: identifier, runId: identifier, callId: identifier });
 /** 子 Agent 会话的父会话、父运行和工具调用关联，供恢复身份与展示来源。 */

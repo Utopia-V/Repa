@@ -50,8 +50,9 @@ test("先修成环时报出环上的 topic", async (t) => {
   const demo = demoCourse();
   topic(demo, "t01").prerequisites.push("t02");
   const result = await structuralCheck(t, demo);
-  assert.deepEqual(codes(result.diagnostics), ["prerequisites_cycle"]);
-  assert.match(result.diagnostics[0]?.message ?? "", /t01 → t02 → t01|t02 → t01 → t02/);
+  // t02 是轮廓，展开了的 t01 以它为先修，另报 prerequisite_outline。
+  assert.deepEqual(codes(result.diagnostics), ["prerequisite_outline", "prerequisites_cycle"]);
+  assert.match(result.diagnostics.find((diagnostic) => diagnostic.code === "prerequisites_cycle")?.message ?? "", /t01 → t02 → t01|t02 → t01 → t02/);
 });
 
 test("先修与覆盖分别检查清单外的 topic", async (t) => {
@@ -181,7 +182,9 @@ test("清单之外的 topic 文件、清单里缺文件、文件名与 id 不符
   await writeFile(path.join(root, "topics", "t04.yaml"), "id: t04\n");
   await writeFile(path.join(root, "topics", "t03.yaml"), (await import("yaml")).stringify({ ...demo.topics.t02, id: "t05" }));
   const result = await checkCourse(root, { run: false, base: root });
-  assert.deepEqual(codes(result.diagnostics), ["topic_id_mismatch", "topic_missing", "topic_unlisted"]);
+  assert.deepEqual(codes(result.diagnostics), ["topic_id_mismatch", "topic_missing"]);
+  // 清单之外的文件只提醒：去掉一部分时从清单删掉 id 就够了，不读那个文件。
+  assert.deepEqual(result.diagnostics.filter((diagnostic) => diagnostic.severity === "warning").map((diagnostic) => diagnostic.code), ["topic_unlisted"]);
 });
 
 test("YAML 把 001 读成数字时，报出所在行并提示加引号", async (t) => {
@@ -323,4 +326,45 @@ test("有 verify 或代码题的课没写 runtime 时报出；题型标签可以
   assert.ok(question);
   question.kind = ["recall"];
   assert.deepEqual(codes((await structuralCheck(t, labelled)).diagnostics), []);
+});
+
+test("数值作答位只列进 manual 时检查不过，报错写明改用 verify；答案是题面里照抄的数时可以列进 manual", async (t) => {
+  const demo = demoCourse();
+  const question = kp(demo, 0).practice?.[0];
+  assert.ok(question && question.slots[0]?.type === "text");
+  delete question.verify;
+  question.manual = ["output"];
+  const result = await structuralCheck(t, demo);
+  assert.deepEqual(codes(result.diagnostics), ["numeric_manual"]);
+  assert.match(result.diagnostics[0]?.message ?? "", /写一段 verify 程序把它算出来（最后写 answers = \{"output": 算出的数\}），再把 output 从 manual 里去掉/u);
+
+  // 题面里写着“至少为 3”，要填的阈值就是 3：照抄的常数，没有计算。
+  question.body = "负责人说：保留 count 至少为 3 的记录。筛选条件里的阈值填几？";
+  assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), []);
+});
+
+test("展开了的 topic 的先修还是轮廓时报出：学习者学不到它", async (t) => {
+  const demo = demoCourse();
+  topic(demo, "t02").prerequisites = [];
+  topic(demo, "t01").prerequisites = ["t02"];
+  const result = await structuralCheck(t, demo);
+  assert.deepEqual(codes(result.diagnostics), ["prerequisite_outline"]);
+});
+
+test("来源写 url 或 materials/ 里的课件，二者写一个；topic 与题目都能指到具体的页或张", async (t) => {
+  const demo = demoCourse();
+  demo.course.sources.slides = { title: "第一章课件", file: "materials/第一章.pptx", version: "学习者提供", license: "学习者自用", permits: ["reference"] };
+  topic(demo, "t01").sources.push({ source: "slides", where: "第 3–8 张", use: "reference" });
+  const question = kp(demo, 0).practice?.[0];
+  assert.ok(question);
+  question.sources = [{ source: "slides", where: "第 9 张的习题", use: "reference" }];
+  assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), []);
+
+  question.sources = [{ source: "slides", where: "第 9 张的习题", use: "adapt" }];
+  delete demo.course.sources.open?.url;
+  demo.course.sources.closed = { ...demo.course.sources.closed!, file: "materials/书.pdf" };
+  assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), ["source_location", "source_location", "source_notice_missing", "source_use_not_permitted"]);
+
+  demo.course.sources.slides.file = "materials/../.repa/x.pdf";
+  assert.ok(codes((await structuralCheck(t, demo)).diagnostics).includes("schema"));
 });

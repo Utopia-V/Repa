@@ -23,7 +23,7 @@ import type { SessionBaseline } from "../protocol.js";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool, ModelCallScope } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
-import { errorText, MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type PromptSection, type ProviderInfo } from "../schema.js";
+import { errorText, MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type SessionUsage, type PromptSection, type ProviderInfo } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { credentialValues } from "../feedback/redact.js";
@@ -33,6 +33,7 @@ import { isModelCall, modelCall } from "./model-call.js";
 import { readParent, saveParent } from "./parent.js";
 import { readOnlyCommand } from "./read-only-command.js";
 import { findSessionPath } from "./session-files.js";
+import { addSessionUsage, emptyUsage } from "./usage.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
 
@@ -613,6 +614,26 @@ class Space implements AgentSpace {
     await session.close();
   }
 
+  async usage(ids: readonly string[]): Promise<SessionUsage> {
+    this.assertOpen();
+    const total = emptyUsage();
+    const models = this.runtime.options.modelRuntime;
+    for (const id of new Set(ids)) {
+      // 打开着的会话读内存里的条目，运行中刚写下的请求也算上；其余从会话文件读，包括插件模型调用的短会话。
+      const loaded = this.sessions.get(id);
+      let entries;
+      if (loaded) {
+        entries = (await loaded.ready).entries();
+      } else {
+        const file = await findSessionPath(this.options.sessionsDir, id);
+        if (file === undefined) throw new RepaFault("session_not_found", "会话不存在", { id });
+        entries = SessionManager.open(file, this.options.sessionsDir, this.options.root).getEntries();
+      }
+      addSessionUsage(total, entries, (provider, model) => models.getModel(provider, model));
+    }
+    return total;
+  }
+
   async runAgent(task: AgentTask): Promise<AgentWork> {
     const session = await this.create({ agent: task.agent, model: task.model });
     const result = session.runTask(task.text);
@@ -911,6 +932,11 @@ class Session implements AgentSession {
   private assertRunnable(): void {
     // 插件 Agent 的插件撤下以后，已经打开的会话也只读；插件回来以后恢复。
     if (this.pi === undefined || !this.space.available(this.agent)) throw new RepaFault("agent_not_found", "这个会话的 Agent 已关掉或不存在，只能查看历史", { agent: this.agent });
+  }
+
+  /** 会话的全部条目，含分支以外的，供统计用量。 */
+  entries() {
+    return this.manager.getEntries();
   }
 
   history() {

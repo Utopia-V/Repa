@@ -2,16 +2,20 @@ import { readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RepaFault } from "@repa/base";
-import { checkFormat, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool } from "@repa/base/plugin";
+import { errorText } from "@repa/base/protocol";
+import {
+  checkFormat, currentRun, type AgentWork, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool,
+} from "@repa/base/plugin";
+import { completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
 import { COURSE_GUIDE, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
 import { emptyProgress } from "./progress.js";
-import { learningMethods, type LearningState } from "./protocol.js";
+import { learningMethods, type CourseBuilding, type LearningInput, type LearningState } from "./protocol.js";
 import { LearningRecords, RECORDS_FILE } from "./records.js";
 import { LearningSession } from "./session.js";
-import { CHECKS, CourseStore, hasSpaceCourse, readSpaceCourse, SPACE_COURSE } from "./space-course.js";
+import { CHECKS, CourseStore, hasSpaceCourse, keepsTask, readSpaceCourse, SPACE_COURSE } from "./space-course.js";
 import { visibleLearningResponse } from "./submission-visibility.js";
 import { connectTutor, TUTOR_AGENT, TUTOR_TOOLS, tutorAgent, type Tutor, type TutorHooks } from "./tutor.js";
 
@@ -122,12 +126,20 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     }
   }
 
-  /** 学习者有做到一半的任务：课、复习或测验开始了还没结束。 */
-  function busy(session: LearningSession): Promise<boolean> {
+  /** 学习者做到一半的任务（课、复习或测验开始了还没结束）涉及的 topic；没有这样的任务时为 undefined。 */
+  function taskTopics(session: LearningSession): Promise<string[] | undefined> {
     return session.records.serial(async () => {
       session.replay.settle(session.clock());
       const evidence = session.replay.currentEvidence();
-      return evidence !== undefined && evidence.outcome === undefined;
+      return evidence !== undefined && evidence.outcome === undefined ? evidence.task.topicIds : undefined;
+    });
+  }
+
+  /** 学习者学过的 topic：学生模型里有记录的，与进度里的 completedTopics 是同一个集合。 */
+  function learnedTopics(session: LearningSession): Promise<Set<string>> {
+    return session.records.serial(async () => {
+      session.replay.settle(session.clock());
+      return new Set(Object.keys(session.replay.fold().student));
     });
   }
 
@@ -138,7 +150,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   } else {
     current = await build(await loadCourseSources(sources, host.files));
     // 空间里有 course/ 而还没有换用过：没有可学的课。学习者在随包的课里还有做到一半的任务时，先让他做完，下次打开再说。
-    if (await hasSpaceCourse(host.files) && !(await busy(current.session))) {
+    if (await hasSpaceCourse(host.files) && (await taskTopics(current.session)) === undefined) {
       await retire(current);
       current = { kind: "unready", reason: NOT_BUILT };
     }
@@ -158,6 +170,8 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       return await work;
     } finally {
       running.delete(work);
+      // 学习状态可能变了：看看是不是该在后台展开下一段。不等它，方法照常返回。
+      track(maybeExpand());
     }
   }
 
@@ -176,13 +190,17 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   }
 
   /**
-   * 学习者没有做到一半的任务时换用检查过的这一份，否则不换。旧会话先退下：等它在途的判分写完，再按新的一份打开，
-   * 新会话读到这些判分，按改过的答案该重判的照常重判。
+   * 换用检查过的这一份。学习者有做到一半的任务时，只有任务涉及的内容在新的一版里没有变（只增不改）才换，否则不换。
+   * 旧会话先退下：等它在途的判分写完，再按新的一份打开，新会话读到这些判分，按改过的答案该重判的照常重判；
+   * 进行中的任务从同样的记录和同样的内容重放出来，照常继续。
    */
-  function switchTo(id: string, keep: () => Promise<void>): Promise<"unchanged" | "busy" | "switched"> {
+  function switchTo(id: string, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>): Promise<"unchanged" | "busy" | "switched"> {
     return exclusive(async () => {
       if (current.kind === "ready" && current.space === id) return "unchanged";
-      if (current.kind === "ready" && await busy(current.session)) return "busy";
+      if (current.kind === "ready") {
+        const topics = await taskTopics(current.session);
+        if (topics !== undefined && !keepsTask(current.course, await read(), topics)) return "busy";
+      }
       await keep();
       if (current.kind === "ready") await retire(current);
       const next = await buildSpace(id);
@@ -190,9 +208,11 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       await store.activate(id);
       if (next.kind === "unready") {
         host.emit({ type: "learning.changed", revision: records.revision, taskId: null, menuId: null });
+        announceBuilding();
         throw new RepaFault("course_switch_failed", `检查通过，但换用出错：${next.reason}`);
       }
       next.session.announce();
+      announceBuilding();
       return "switched";
     });
   }
@@ -221,11 +241,227 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     throw new RepaFault("course_unavailable", reason);
   }
 
+  // ---------------------------------------------------------------------------
+  // 做课：记下做课的会话、后台展开下一段、给前端整门课的状态与花费
+  // ---------------------------------------------------------------------------
+
+  const building = await openBuilding(host.space.dataDir);
+  const record: BuildingRecord = building.record;
+  let settings = building.settings;
+  // 记录整份写入；后发起的写入排在先发起的之后，盘上不会留下较旧的一份。
+  let saving: Promise<void> = Promise.resolve();
+  function save(): Promise<void> {
+    const snapshot = structuredClone(record);
+    const next = saving.then(() => saveRecord(host.space.dataDir, snapshot));
+    saving = next.catch(() => undefined);
+    return next;
+  }
+  // 上次应用关掉时还在进行的展开已经停了：如实记为取消。
+  if (record.last && record.last.endedAt === undefined) {
+    record.last.endedAt = host.now();
+    record.last.failure = { code: "cancelled" };
+    await save();
+  }
+
+  function announceBuilding(): void {
+    host.emit({ type: "building.changed" });
+  }
+
+  /** 插件自己发起、不属于任何方法调用的工作；关闭时等它们结束。 */
+  const background = new Set<Promise<unknown>>();
+  function track(work: Promise<unknown>): void {
+    // 这些工作的失败已经写进做课记录（展开）或无关紧要（检查要不要展开时读学习记录失败，下一次调用再看）。
+    const settled = work.catch(() => undefined);
+    background.add(settled);
+    void settled.finally(() => background.delete(settled));
+  }
+
+  /** 正在后台进行的展开；同一时刻只有一次。 */
+  interface Expansion {
+    topicIds: string[];
+    startedAt: number;
+    work?: AgentWork;
+    cancelled: boolean;
+    done: Promise<void>;
+  }
+  let expansion: Expansion | undefined;
+
+  /** 记下做课的会话：调用 course_check、course_use 的运行所在的会话。花费按这些会话汇总。 */
+  async function rememberSession(): Promise<void> {
+    const run = currentRun();
+    if (run === undefined || record.sessions.includes(run.sessionId)) return;
+    record.sessions.push(run.sessionId);
+    await save();
+    announceBuilding();
+  }
+
+  /**
+   * 在后台让通用 Agent 展开这几部分。失败如实记下原因，不重试。运行结束时看当前换用的那一版：
+   * 这几部分（还在课里的）都已不是轮廓才算展开了；Agent 合并或删掉了某一部分，那一部分就不再计较。
+   */
+  function expand(ready: Ready, topicIds: string[], learned: Set<string>): Expansion {
+    const entry: Expansion = { topicIds, startedAt: host.now(), cancelled: false, done: Promise.resolve() };
+    const last: NonNullable<BuildingRecord["last"]> = { topicIds, learned: learned.size, startedAt: entry.startedAt };
+    record.last = last;
+    expansion = entry;
+    entry.done = (async () => {
+      let failure: NonNullable<BuildingRecord["last"]>["failure"];
+      try {
+        await save();
+        announceBuilding();
+        let work: AgentWork;
+        try {
+          work = await host.models.runAgent({ text: expansionTask(ready.course, topicIds, [...learned]) });
+        } catch (error) {
+          failure = { code: "start_failed", message: errorText(error) };
+          return;
+        }
+        entry.work = work;
+        last.sessionId = work.id;
+        if (!record.sessions.includes(work.id)) record.sessions.push(work.id);
+        await save();
+        announceBuilding();
+        if (entry.cancelled) await work.cancel();
+        try {
+          await work.result;
+        } catch (error) {
+          const cancelled = entry.cancelled || (error instanceof RepaFault && error.code === "cancelled");
+          failure = { code: cancelled ? "cancelled" : "run_failed", message: errorText(error) };
+          return;
+        }
+        // 取消以后 Pi 的运行可能照常结束，不报错；学习者取消的就记为取消。
+        if (entry.cancelled) {
+          failure = { code: "cancelled" };
+          return;
+        }
+        const now = current;
+        const left = topicIds.filter((id) => now.kind !== "ready" || now.course.topics.find((topic) => topic.id === id)?.status === "outline");
+        if (left.length > 0) failure = { code: "not_expanded" };
+      } finally {
+        last.endedAt = host.now();
+        if (failure) last.failure = failure;
+        if (expansion === entry) expansion = undefined;
+        await save();
+        announceBuilding();
+      }
+    })();
+    track(entry.done);
+    return entry;
+  }
+
+  /**
+   * 自动展开：已经展开过一段，学习者学到已展开部分只剩一节（或没有）没学，后面还有轮廓时，在后台展开接下来的部分。
+   * 每个“学过几个 topic”只自动试一次，失败了不重试，等学习者再学完一节或明确要求；没有可用模型或关掉了自动展开时什么也不做。
+   */
+  let considering = false;
+  async function maybeExpand(): Promise<void> {
+    const ready = current;
+    if (expansion || considering || !settings.autoExpand || ready.kind !== "ready" || ready.space === undefined) return;
+    const outline = outlineTopics(ready.course);
+    if (outline.length === 0 || host.models.defaultModel() === undefined) return;
+    considering = true;
+    try {
+      const learned = await learnedTopics(ready.session);
+      if (current !== ready || expansion) return;
+      // 还一节都没有展开时，第一段由对话里的 Agent 在学习者认可轮廓以后展开，不在后台抢先做。
+      const complete = completeTopics(ready.course);
+      if (complete.length === 0 || complete.filter((id) => !learned.has(id)).length > 1) return;
+      if (record.last?.learned === learned.size) return;
+      expand(ready, outline.slice(0, EXPANSION_SIZE), learned);
+    } finally {
+      considering = false;
+    }
+  }
+
+  async function buildingState(): Promise<CourseBuilding> {
+    const ready = current.kind === "ready" ? current : undefined;
+    const learned = ready ? await learnedTopics(ready.session) : new Set<string>();
+    const parts: CourseBuilding["parts"] = [];
+    for (const id of ready?.course.course.topics ?? []) {
+      const topic = ready?.course.topics.find((entry) => entry.id === id);
+      if (!ready || !topic) continue;
+      parts.push({
+        topicId: id,
+        title: topic.title,
+        ...(topic.summary === undefined ? {} : { summary: topic.summary }),
+        status: topic.status === "outline" ? "outline" : learned.has(id) ? "learned" : "ready",
+        sources: topic.sources.map((use) => {
+          const source = ready.course.course.sources[use.source];
+          const url = use.url ?? source?.url;
+          return {
+            title: source?.title ?? use.source,
+            ...(source?.file === undefined ? {} : { file: source.file }),
+            ...(url === undefined ? {} : { url }),
+            where: use.where,
+          };
+        }),
+      });
+    }
+    const last = record.last;
+    return {
+      course: ready ? { id: ready.course.course.id, title: ready.course.course.title, version: ready.course.course.version } : null,
+      parts,
+      expansion: expansion
+        ? { topicIds: expansion.topicIds, startedAt: expansion.startedAt, sessionId: expansion.work?.id ?? null }
+        : null,
+      lastFailure: last?.failure && last.endedAt !== undefined
+        ? { topicIds: last.topicIds, at: last.endedAt, code: last.failure.code, ...(last.failure.message === undefined ? {} : { message: last.failure.message }) }
+        : null,
+      cost: await host.models.usage(record.sessions),
+    };
+  }
+
+  /** 学习者明确要求展开：不看自动展开的设置，也不受“每个学过数只试一次”的限制。 */
+  async function requestExpansion(input: LearningInput<"building.expand">): Promise<CourseBuilding> {
+    const ready = current;
+    if (ready.kind !== "ready" || ready.space === undefined) throw new RepaFault("course_unavailable", "空间里还没有换用过一门自制的课");
+    if (expansion) throw new RepaFault("expansion_running", "已经有一次展开在进行", { topicIds: expansion.topicIds });
+    if (host.models.defaultModel() === undefined) throw new RepaFault("model_required", "请选择可用模型");
+    const outline = outlineTopics(ready.course);
+    const topicIds = input.topicIds ?? outline.slice(0, EXPANSION_SIZE);
+    const unknown = topicIds.filter((id) => !outline.includes(id));
+    if (unknown.length > 0) throw new RepaFault("not_outline", "这些部分不在课里，或已经展开了", { topicIds: unknown });
+    if (topicIds.length === 0) throw new RepaFault("nothing_to_expand", "课里已经没有轮廓部分");
+    expand(ready, topicIds, await learnedTopics(ready.session));
+    return buildingState();
+  }
+
+  async function cancelExpansion(): Promise<CourseBuilding> {
+    const entry = expansion;
+    if (entry) {
+      entry.cancelled = true;
+      await entry.work?.cancel();
+      await entry.done;
+    }
+    return buildingState();
+  }
+
+  const buildingMethods: Record<string, PluginMethod> = {
+    "building.get": { parameters: learningMethods["building.get"].input, result: learningMethods["building.get"].result, invoke: () => buildingState() },
+    "building.expand": {
+      parameters: learningMethods["building.expand"].input,
+      result: learningMethods["building.expand"].result,
+      invoke: (input) => requestExpansion(input as LearningInput<"building.expand">),
+    },
+    "building.cancel": { parameters: learningMethods["building.cancel"].input, result: learningMethods["building.cancel"].result, invoke: () => cancelExpansion() },
+    "settings.get": { parameters: learningMethods["settings.get"].input, result: learningMethods["settings.get"].result, invoke: async () => settings },
+    "settings.set": {
+      parameters: learningMethods["settings.set"].input,
+      result: learningMethods["settings.set"].result,
+      async invoke(input) {
+        settings = { ...(input as LearningInput<"settings.set">) };
+        await saveSettings(host.space.dataDir, settings);
+        track(maybeExpand());
+        return settings;
+      },
+    },
+  };
+
   const exported = connectExport(host, () => ({
     recordsFormat: LEARNING_FORMAT_VERSION,
     course: current.kind === "ready" ? { id: current.course.course.id, version: current.course.course.version } : null,
   }));
-  const methods: Record<string, PluginMethod> = { ...exported.methods };
+  const methods: Record<string, PluginMethod> = { ...exported.methods, ...buildingMethods };
   for (const name of Object.keys(learningMethods) as (keyof typeof learningMethods)[]) {
     if (Object.hasOwn(methods, name)) continue;
     methods[name] = {
@@ -264,16 +500,19 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     },
   }));
 
-  /** 学习者现在学的是哪一份，写给做课的 Agent。 */
-  function status(): string {
+  /** 学习者现在学的是哪一份、学过哪些部分、后台是否正在展开，写给做课的 Agent。 */
+  async function status(): Promise<string> {
     let text: string;
     if (current.kind === "unready") {
       text = current.reason === NOT_BUILT ? `还没有可学的课，${SPACE_COURSE}/ 还没有换用过一门通过检查的课` : current.reason;
     } else {
       const course = current.course.course;
       const origin = current.space ? `${SPACE_COURSE}/ 换用过的那一版` : "随包的课程";
-      text = `${origin}，课程 ${course.id} ${course.version}，topic ${current.course.topics.length} 个`;
+      const learned = [...await learnedTopics(current.session)];
+      text = `${origin}，课程 ${course.id} ${course.version}，topic ${current.course.topics.length} 个，其中轮廓 ${outlineTopics(current.course).length} 个`
+        + `；学过的：${learned.length > 0 ? learned.join("、") : "还没有"}`;
     }
+    if (expansion) text += `；后台正在展开 ${expansion.topicIds.join("、")}`;
     return `${text}。`;
   }
 
@@ -281,14 +520,16 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     ...tutorTools,
     ...courseTools({
       async check() {
+        await rememberSession();
         const files = await readSpaceCourse(host.files);
         return files && store.check(files, async (checked) => checked);
       },
       async use() {
+        await rememberSession();
         const files = await readSpaceCourse(host.files);
-        return files && store.check(files, async (checked, keep) => ({
+        return files && store.check(files, async (checked, keep, read) => ({
           checked,
-          outcome: checked.passed ? await switchTo(checked.id, keep) : "unchanged" as const,
+          outcome: checked.passed ? await switchTo(checked.id, keep, read) : "unchanged" as const,
         }));
       },
       status,
@@ -305,6 +546,8 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     methods,
     async close() {
       while (swapping) await Promise.allSettled([swapping]);
+      // 宿主已经取消并等完后台展开的模型工作；这里等它把结局写进做课记录。
+      while (background.size > 0) await Promise.allSettled([...background]);
       try {
         if (current.kind === "ready") await retire(current);
       } finally {

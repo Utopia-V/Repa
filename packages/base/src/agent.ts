@@ -2,7 +2,7 @@ import type { Static, TSchema } from "typebox";
 import type { SessionBaseline } from "./protocol.js";
 import type { AskRoute } from "./ask.js";
 import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest } from "./plugin.js";
-import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, ProviderInfo, SessionEntry, SessionInfo } from "./schema.js";
+import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, ProviderInfo, SessionEntry, SessionInfo, SessionUsage } from "./schema.js";
 import type { SpaceWrites } from "./space.js";
 
 /** 交给运行时的工具。运行时只提供 signal 与 callId；插件工具的参数校验和 ToolContext.ask 由插件宿主补上。 */
@@ -52,6 +52,8 @@ export interface AgentSpace {
   abortAgent(agent: string): Promise<void>;
   preview(agent?: string): Promise<{ sections: PromptSection[]; views: { id: string; text: string }[] }>;
   runAgent(task: AgentTask): Promise<AgentWork>;
+  /** 这些会话累计的模型用量，按模型目录的单价折算金额；包括插件模型调用的短会话。没有某个会话时以 session_not_found 拒绝。 */
+  usage(sessionIds: readonly string[]): Promise<SessionUsage>;
   close(): Promise<void>;
 }
 

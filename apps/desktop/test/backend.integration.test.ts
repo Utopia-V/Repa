@@ -30,7 +30,7 @@ it("Desktop 使用的 Node 宿主拉起新底座，断开客户端后服务由�
   }
 }, 30_000);
 
-it("Desktop 按学习者版本装配后端：加载学习插件与课件转文字插件，没有通用 Agent", async () => {
+it("Desktop 按学习者版本装配后端：加载学习插件与课件转文字插件，带通用 Agent，设置页读得到提示段", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-desktop-learner-"));
   let backend: RepaProcess | undefined;
   let client: RepaClient | undefined;
@@ -39,8 +39,13 @@ it("Desktop 按学习者版本装配后端：加载学习插件与课件转文�
     client = await RepaClient.connect(backend.connection);
     await client.call("space.create", { root: path.join(directory, "space") });
     expect((await client.call("plugin.list", {})).map((plugin) => [plugin.id, plugin.state])).toEqual([["learning", "running"], ["materials", "running"]]);
-    expect((await client.call("agent.list", {})).map((agent) => agent.id)).not.toContain("general");
-    expect((await client.call("agent.list", {})).map((agent) => agent.id)).toContain("learning-tutor");
+    const agents = await client.call("agent.list", {});
+    expect(agents.filter((agent) => agent.direct).map((agent) => agent.id).sort()).toEqual(["general", "learning-tutor"]);
+    // 设置页不带参数调 prompt.list，读的是通用 Agent 的提示段；没有通用 Agent 时这里报 agent_not_found。
+    const sections = await client.call("prompt.list", {});
+    expect(sections.map((section) => section.id)).toEqual(expect.arrayContaining(["plugin:learning", "plugin:materials"]));
+    // 命令确认保持询问。
+    expect((await client.call("settings.get", {})).commandPolicy).toBe("ask");
   } finally {
     await client?.close();
     await backend?.close();

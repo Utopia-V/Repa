@@ -5,7 +5,7 @@ import path from "node:path";
 import type { Static, TSchema } from "typebox";
 
 import type { AskRoute } from "./ask.js";
-import type { AgentTask, AgentWork, CompletionRequest, ModelRef, Models, Plugin, Services } from "./plugin.js";
+import type { AgentTask, AgentWork, CompletionRequest, ModelRef, Models, Plugin, Services, SessionUsage } from "./plugin.js";
 import { openPluginHost, type PluginHost } from "./plugins.js";
 import { parse } from "./schema.js";
 import { createSpace, type Space } from "./space.js";
@@ -62,6 +62,7 @@ export class ModelTestDriver implements Models {
   private readonly agents: AgentPlan[] = [];
   private nextAgent = 1;
   private model: ModelRef | undefined = { provider: "test", id: "test" };
+  private readonly usages = new Map<string, SessionUsage>();
 
   /** 设定 defaultModel() 的回答；传 undefined 模拟没有可用模型。默认有一个测试模型。 */
   setDefaultModel(model: ModelRef | undefined): void {
@@ -70,6 +71,27 @@ export class ModelTestDriver implements Models {
 
   defaultModel(): ModelRef | undefined {
     return this.model;
+  }
+
+  /** 设定一个会话的累计用量，usage() 按它汇总；没有设定的会话按零计。 */
+  setUsage(sessionId: string, usage: SessionUsage): void {
+    this.usages.set(sessionId, usage);
+  }
+
+  async usage(sessionIds: readonly string[]): Promise<SessionUsage> {
+    const zero = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    const total: SessionUsage = { requests: 0, usage: zero(), cost: 0, unpriced: zero() };
+    for (const id of new Set(sessionIds)) {
+      const one = this.usages.get(id);
+      if (!one) continue;
+      total.requests += one.requests;
+      total.cost += one.cost;
+      for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+        total.usage[key] += one.usage[key];
+        total.unpriced[key] += one.unpriced[key];
+      }
+    }
+    return total;
   }
 
   expectComplete(): TestCompletion<string> {

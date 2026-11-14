@@ -175,7 +175,7 @@ export async function verifyApplication({ application, executable, temporary }) 
   const { startRepaProcess } = await import(pathToFileURL(path.join(base, "process.js")));
   const { RepaClient } = await import(pathToFileURL(path.join(base, "client.js")));
   const backend = await startRepaProcess({
-    home: path.join(temporary, "home"), plugins: [learning, materials], generalAgent: false, nodeExecutable: executable, environment,
+    home: path.join(temporary, "home"), plugins: [learning, materials], nodeExecutable: executable, environment,
     ...(gitPath === undefined ? {} : { gitPath }),
   });
   let client;
@@ -187,6 +187,9 @@ export async function verifyApplication({ application, executable, temporary }) 
     const running = [["learning", "running"], ["materials", "running"]];
     assert.deepEqual(created.plugins.map((plugin) => [plugin.id, plugin.state]), running);
     assert.deepEqual((await client.call("plugin.list", {})).map((plugin) => [plugin.id, plugin.state]), running);
+    // 学习者版本带通用 Agent：做课由它完成，设置页按它读提示段。
+    assert.ok((await client.call("agent.list", {})).some((agent) => agent.id === "general"));
+    await client.call("prompt.list", {});
   } finally {
     await client?.close();
     await backend.close();

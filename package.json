@@ -33,7 +33,7 @@
     "course:runtime": "npm run course:runtime --workspace=@repa/learning --",
     "course:confirm": "npm run course:confirm --workspace=@repa/learning --",
     "predev:learning": "npm run build:packages",
-    "dev:learning": "npm --workspace=@repa/base run start -- serve --plugin ../learning --plugin ../materials --no-general-agent --direct-agent learning-tutor",
+    "dev:learning": "npm --workspace=@repa/base run start -- serve --plugin ../learning --plugin ../materials",
     "build:packages": "tsc -b tsconfig.build.json && npm run build:assets --workspaces --if-present",
     "docs:check": "tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/check.ts",
     "test:docs-scripts": "tsx --tsconfig scripts/docs/tsconfig.json --test scripts/docs/*.test.ts",

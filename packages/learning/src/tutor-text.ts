@@ -3,7 +3,8 @@
  *
  * 只写模型讲题要用的内容：题面、学习者的作答、判分结果和题解。任务、交付和提交的编号与前端用的字段名都不写，
  * 选项和排列块按学习者看到的顺序编号。文字里的编号只有两种：learning_read 要用的内容编号，和写概念链接要用的知识点编号。
- * 文字超过底座的上限时，底座省略中间部分并保存全文，模型用 read 按行续取，所以这里不分页，长题面和长代码照原样分行写出。
+ * 辅导没有读文件的工具（空间里有写到一半的课程文件，里面有复习和测验题的答案），所以长文字不交给底座截断后用 read 续取：
+ * 三个工具都按行分批交回（pagedText），末尾写明接着读的 line，长题面和长代码照原样分行写出。
  */
 import type { Answer, Content, Item } from "@repa/base/protocol";
 import type { CourseIndex } from "./course-index.js";
@@ -278,9 +279,46 @@ export function searchText(
   return lines.join("\n");
 }
 
-/** learning_read 的文字：每项内容一个标题，下面是全文。 */
+/** 一项内容在材料里的出处：所在 topic 登记的来源与位置，例如“「操作系统第一章」第 12–15 张”。 */
+function sourcesText(ref: ContentRef, course: CourseIndex): string | undefined {
+  const uses = course.topics.get(ref.topicId)?.sources ?? [];
+  if (uses.length === 0) return undefined;
+  const registered = course.course.course.sources;
+  return `出处：${uses.map((use) => `「${registered[use.source]?.title ?? use.source}」${use.where}`).join("；")}`;
+}
+
+/** learning_read 的文字：每项内容一个标题和出处，下面是全文。 */
 export function pagesText(pages: ContentPage[], titles: ReadonlyMap<string, string>, course: CourseIndex): string {
-  return pages.map((page) => `# \`${page.ref.id}\` ${pageName(page.ref, titles, course)}\n\n${contentText(page.blocks) || "（没有内容）"}`).join("\n\n");
+  return pages.map((page) => {
+    const source = sourcesText(page.ref, course);
+    return `# \`${page.ref.id}\` ${pageName(page.ref, titles, course)}${source ? `\n${source}` : ""}\n\n${contentText(page.blocks) || "（没有内容）"}`;
+  }).join("\n\n");
+}
+
+/** 辅导工具一次交回的上限：40,000 字节、1,500 行，留在底座的工具输出上限（50 KiB、2,000 行）之内，底座不会再截断。 */
+export const TOOL_TEXT_LIMIT = { bytes: 40_000, lines: 1_500 } as const;
+
+/**
+ * 按行分批交回一段文字：从第 line 行（从 1 起）开始，到上限为止；没交回完时末尾写明怎样接着读。
+ * 一行本身超过字节上限时整行交回，由底座省略中间。
+ */
+export function pagedText(text: string, line: number, tool: string): string {
+  const lines = text.split("\n");
+  const first = Math.min(Math.max(line, 1), lines.length);
+  let end = first - 1;
+  let bytes = 0;
+  while (end < lines.length && end - first + 1 < TOOL_TEXT_LIMIT.lines) {
+    const size = Buffer.byteLength(lines[end] ?? "") + 1;
+    if (end >= first && bytes + size > TOOL_TEXT_LIMIT.bytes) break;
+    bytes += size;
+    end++;
+  }
+  if (first === 1 && end === lines.length) return text;
+  const shown = lines.slice(first - 1, end).join("\n");
+  const note = end < lines.length
+    ? `[这是第 ${first}–${end} 行，共 ${lines.length} 行；接着读时用同样的参数调用 ${tool}，加上 line: ${end + 1}]`
+    : `[这是第 ${first}–${end} 行，共 ${lines.length} 行，已经到结尾]`;
+  return `${shown}\n${note}`;
 }
 
 /** 视图：当前任务、阶段、知识点进度和学过的直接先修（按学生模型估计的记忆由弱到强）。 */

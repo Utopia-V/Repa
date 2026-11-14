@@ -7,6 +7,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { RepaFault, syncDirectory, writeJson } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
@@ -114,7 +115,10 @@ export class CourseStore {
    * 把一份课程文件写进一个新的临时文件夹，在这份固定的内容上检查，不受之后对 course/ 的写入影响。
    * after 在临时文件夹还在时运行，可以调用 keep() 把检查过的这一份存成副本；之后删掉临时文件夹。
    */
-  async check<T>(files: CourseFiles, after: (checked: CourseCheck, keep: () => Promise<void>) => Promise<T>): Promise<T> {
+  async check<T>(
+    files: CourseFiles,
+    after: (checked: CourseCheck, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>) => Promise<T>,
+  ): Promise<T> {
     const directory = path.join(this.dataDir, CHECKS, randomUUID());
     try {
       await mkdir(path.join(directory, TOPICS_DIRECTORY), { recursive: true });
@@ -132,7 +136,7 @@ export class CourseStore {
         await mkdir(path.join(this.dataDir, COPIES), { recursive: true });
         await rename(directory, target);
         await syncDirectory(path.join(this.dataDir, COPIES));
-      });
+      }, () => readCopy(directory));
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -147,17 +151,33 @@ export class CourseStore {
   }
 
   /** 读出一个副本。副本在换用前已通过检查，这里只按格式读取；读不出时抛出 invalid_course，带上问题。 */
-  async load(id: string): Promise<ResolvedCourse> {
-    const directory = path.join(this.dataDir, COPIES, id);
-    const report = new Report();
-    const loaded = await loadCourse(directory, report, directory);
-    if (!loaded || report.errorCount > 0) {
-      throw new RepaFault("invalid_course", `换用的课程副本读不出来：${report.diagnostics.slice(0, 3).map(formatDiagnostic).join("；")}`);
-    }
-    return {
-      course: loaded.course,
-      topics: loaded.topics.map(({ topic }) => topic),
-      origins: Object.fromEntries(loaded.topics.map(({ topic }) => [topic.id, { source: SPACE_COURSE, basedOn: loaded.course.version }])),
-    };
+  load(id: string): Promise<ResolvedCourse> {
+    return readCopy(path.join(this.dataDir, COPIES, id));
   }
+}
+
+async function readCopy(directory: string): Promise<ResolvedCourse> {
+  const report = new Report();
+  const loaded = await loadCourse(directory, report, directory);
+  if (!loaded || report.errorCount > 0) {
+    throw new RepaFault("invalid_course", `换用的课程副本读不出来：${report.diagnostics.slice(0, 3).map(formatDiagnostic).join("；")}`);
+  }
+  return {
+    course: loaded.course,
+    topics: loaded.topics.map(({ topic }) => topic),
+    origins: Object.fromEntries(loaded.topics.map(({ topic }) => [topic.id, { source: SPACE_COURSE, basedOn: loaded.course.version }])),
+  };
+}
+
+/**
+ * 换用新的一版会不会打乱学习者进行中的任务：同一门课（id 相同），判分运行时相同，任务涉及的每个 topic 在两版里一字不差。
+ * 任务的题、讲解和判分都只取自这几个 topic 与运行时，它们不变，新的一版重放出来的就是同一个任务。
+ */
+export function keepsTask(before: ResolvedCourse, after: ResolvedCourse, topicIds: readonly string[]): boolean {
+  if (before.course.id !== after.course.id || !isDeepStrictEqual(before.course.runtime, after.course.runtime)) return false;
+  return topicIds.every((id) => {
+    const old = before.topics.find((topic) => topic.id === id);
+    const next = after.topics.find((topic) => topic.id === id);
+    return old !== undefined && isDeepStrictEqual(old, next);
+  });
 }

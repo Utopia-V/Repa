@@ -2,26 +2,46 @@
 
 学习者把课件放进空间的 `materials/`，要你把它做成一门课。课写在空间的 `course/` 里，`course_check` 检查，`course_use` 让学习者用上。学习者的课、复习和测验只用最近一次 `course_use` 换用的那一版，写到一半的文件不会出现在里面。
 
+课不是先整本做完再学。先很快地出整门课的轮廓，再只展开学习者快要学到的一小段；学习者学着前面的，后面的在后台接着展开。没学到的部分不花钱，轮廓里的错也便宜：发现时它后面还什么都没做。
+
 ## 顺序
 
-1. 读 `materials/` 里的材料，弄清范围：有哪些章节，哪些是要会做的，哪些是要记住的。
-2. 先出大纲给学习者看：分几节（一节是一个 topic，约 15 至 20 分钟）、每节讲什么、先后关系。等学习者认可，删掉的不做，标了重点的先做。
-3. 把大纲写成课：`course.yaml` 列出全部 topic，每个 topic 先写成 `status: outline` 的骨架。
-4. 一批一批地做：把几节写成 `status: complete`，运行 `course_check`，按报出的问题逐处改正，直到通过，再运行 `course_use`。
-5. 告诉学习者前面几节可以开始学了，后面的接着做，每做完一批重复第 4 步。
+1. **出轮廓，要快。** 用 `materials_list` 看有哪些课件、各有几页或几张，用 `materials_read` 只读每份开头的几页或几张（`from`、`to`），看目录、标题和章节划分，不细读全部材料。把整门课写成 `course.yaml` 加一批 `status: outline` 的 topic（写法见下面的“轮廓”），每个 topic 记下它在材料里的出处。`course_check` 通过以后运行 `course_use`，学习页上就有了整门课的轮廓。
+2. **给学习者看轮廓**：分几部分、各讲什么、先后怎样。等他认可、删掉不学的、标出要紧的，再往下做；他要改的，改好再 `course_use`。
+3. **只展开最前面的一到两节**：细读这几节出处里的材料，写成 `status: complete`，运行 `course_check`，按报出的问题逐处改正，直到通过，再运行 `course_use`。
+4. **告诉学习者可以开始学了。** 后面的部分不必现在做：学习者学到已展开的部分只剩一节没学时，学习插件会在后台让 Agent 展开接下来的部分；学习者关掉了自动展开时，等他要求再做。第一段总由你在对话里展开，后台不会抢先做。学习者要先做某一部分时，照第 3 步展开那一部分。
 
-`course_use` 时学习者若正在上课、复习或测验，这一次不换用，回复会写明；等他做完再运行一次 `course_use`。
+`course_use` 时学习者若正在上课、复习或测验，而这一版改了他这项任务用到的 topic，这一次不换用，回复会写明；只增加了部分、没有改他正在学的 topic 时照常换用，他的任务不受影响。
+
+`course_check` 和 `course_use` 的回复末尾写着学习者现在学的是哪一版、学过哪些 topic、后台是否正在展开哪几部分。后台正在展开时，不要同时改那几部分的文件。
+
+## 轮廓会变
+
+细读一段材料以后，常会发现原先的划分不对：两个部分其实是一回事，某一节该拆开，先后次序要调。
+
+- **还没学过的部分可以随时改**：合并、拆分、调整次序和先修。轮廓里的知识点也只是估计，展开时按材料改。去掉一部分时从清单的 `topics` 里删掉它的 id 就够了，不在清单里的 topic 文件不读，`course_check` 只提醒。
+- **学过的部分不推倒重排**：它的题目和学习记录照下面“规矩”里题目 id 的办法保留，要改正也只按那条规矩改。
+
+## 后台展开
+
+学习插件在后台交给你的任务写明要展开哪几部分、学习者学过哪些部分。这时没有人回答提问，也没有人能确认命令，所以不用 `bash` 和 `ask_user`，只用 `read`、`write`、`edit`、`ls`、`find`、`grep`、`materials_list`、`materials_read`、`course_check` 和 `course_use`。
+
+1. 用 `read` 读 `course/course.yaml` 和要展开的 topic 文件，从它们的 `sources` 找到出处。
+2. 用 `materials_read` 细读这几部分的出处，照“顺序”第 3 步写成 `status: complete`。轮廓要改的照“轮廓会变”改，学过的部分不动。
+3. 用 `course_check` 改到通过，最后运行 `course_use`。
+
+做不完就停下，不要为了通过检查而删题，或把答案改成猜的。最后没有换用这几部分时，这一次展开记为没有成功；学习者再学完一节或明确要求时会再做。
 
 ## 文件
 
-- `course/course.yaml`：课程清单。
+- `course/course.yaml`：课程清单，`topics` 按学习的先后列出。
 - `course/topics/<topic id>.yaml`：每个 topic 一个文件，文件名就是 id，id 要列进清单的 `topics`。
 
 `course/` 里别的文件不读，草稿、核对用的笔记可以放在别处。
 
 ## 一个完整的例子
 
-同一目录下的 `example-course/` 是一门能通过检查、能上课的小课，写之前先读它的 `course.yaml` 和 `topics/os01.yaml`。清单是这样：
+同一目录下的 `example-course/` 是一门能通过检查、能上课的小课：`os01` 已经展开，`os02` 还是轮廓。写之前先读它的 `course.yaml`、`topics/os01.yaml` 和 `topics/os02.yaml`。清单是这样：
 
 ```yaml
 id: os-memory          # 字母开头，字母、数字、下划线、连字符；定了就不再改
@@ -29,17 +49,49 @@ version: 1.0.0
 title: 进程的基本概念
 language: zh-CN
 license: NOASSERTION
-sources: {}
+sources:
+  slides:              # 来源的名字，topic 的 sources 用它引用
+    title: 操作系统第二章课件
+    file: materials/第二章 进程管理.pptx
+    version: 学习者提供
+    license: 学习者自用
+    permits: [reference]
 topics: [os01, os02]   # topic id 只用小写字母和数字，字母开头
 ```
 
 不用 Python 的课不写 `runtime`。
 
+## 出处
+
+清单的 `sources` 登记用到的材料：学习者的课件写 `file`（空间里的路径，以 `materials/` 开头），网上的材料写 `url`（`https:` 链接），二者写一个。`title`、`version`、`license`、`permits` 都要写；学习者自己的课件照上面的例子写，`permits: [reference]` 表示只作取材参照、内容由你自己写。
+
+topic 的 `sources` 写它取自哪份材料的哪里，`where` 写到页或张，例如 `- { source: slides, where: 第 12–15 张, use: reference }`。题目取自课件里的一道习题时，题目也可以写同样的 `sources`。学习者回顾时据此知道这段内容出自课件的哪里。
+
+## 轮廓
+
+`status: outline` 的 topic 只写这些，不进学习者的菜单：
+
+```yaml
+id: os02
+title: 进程控制块
+status: outline
+minutes: 15
+summary: 进程控制块里记了什么，系统怎样把它们组织起来。
+prerequisites: [os01]
+sources:
+  - { source: slides, where: 第 9–14 张, use: reference }
+kps:
+  - { id: os02.k1, title: 进程控制块记录什么 }
+  - { id: os02.k2, title: 进程控制块怎样组织 }
+```
+
+`summary` 是一句话的范围。一个 topic 约 15 至 20 分钟。
+
 ## topic 的要求
 
-- `minutes` 在 5 到 60 之间；`prerequisites` 只列直接先修，指向清单里的 topic，不能成环；`sources` 写 `[]`。
+- `minutes` 在 5 到 60 之间；`prerequisites` 只列直接先修，指向清单里的 topic，不能成环。
+- **展开了的 topic，先修也要展开。** 先修还是轮廓时，学习者永远学不到它，`course_check` 报 `prerequisite_outline`。所以按先修的次序展开。
 - 每个 topic 2 至 4 个知识点 `kps`。知识点 id 写成 `<topic id>.k<数字>`，题目 id 写成 `<知识点 id>.<小写字母><数字>`，例如 `os01.k1.q1`。
-- `status: outline` 的骨架，知识点只写 `id` 和 `title`，不进学习者的菜单。
 - `status: complete` 的 topic，每个知识点都要有：`card`（`name` 不超过 24 字、一句话 `definition`、1 至 3 条 `conditions`、`example.from` 指向本知识点的例题或练习题），`lesson` 讲解，`example` 例题，至少 3 道 `practice`，至少 1 道 `review` 和 1 道 `quiz`。
 - 讲解和题面用 Markdown。链接只能是 `https:` 或 `repa:concept/<知识点 id>`，不用 `![]()` 插图。
 
@@ -57,7 +109,7 @@ topics: [os01, os02]   # topic id 只用小写字母和数字，字母开头
 
 每个作答位的答案要么由 `verify` 程序算出，要么列进这道题的 `manual`。
 
-**要计算的答案一律写 `verify`，不用自己心算的结果。** 此前的一次试做里，自写的数值题手算答案五处全错，都是靠程序复算才发现的。`verify` 是一段 Python，最后给 `answers` 赋值 `{作答位 id: 算出的答案}`，检查时在沙箱里运行，算出的答案要与 `key` 一致。例如：
+**数值答案一律写 `verify`，不用自己心算的结果。** 此前的一次试做里，自写的数值题手算答案五处全错，都是靠程序复算才发现的。按数比较的作答位（`format` 或 `match` 为 `integer`、`number`）列进 `manual` 时，`course_check` 报 `numeric_manual`；只有答案就是题面里直接写着的数（照抄的常数）时才可以列进 `manual`。`verify` 是一段 Python，最后给 `answers` 赋值 `{作答位 id: 算出的答案}`，检查时在沙箱里运行，算出的答案要与 `key` 一致。例如：
 
 ```yaml
 - id: os01.k1.q4

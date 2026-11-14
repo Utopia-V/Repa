@@ -184,12 +184,26 @@ function wordDocument(file: CompoundFile): Converted {
     const length = end - start;
     if ((position & COMPRESSED_PIECE) !== 0) {
       const from = (position & ~COMPRESSED_PIECE) / 2;
-      text += new TextDecoder("windows-1252").decode(bytes.subarray(from, from + length));
+      text += cp1252(bytes.subarray(from, from + length));
     } else {
       text += new TextDecoder("utf-16le").decode(bytes.subarray(position, position + 2 * length));
     }
   }
   return { status: "text", format: "doc", parts: paragraphs(text.slice(0, textLength)) };
+}
+
+/**
+ * Windows-1252 的 0x80–0x9F 这一段，按 WHATWG 编码标准的映射；这段之外与 Latin-1 相同。没有定义的 5 个字节照 WHATWG 映成同值的控制字符。
+ * 不用 TextDecoder("windows-1252")：Node 22.19 等版本把这一段解成 C1 控制字符，结果随运行时而变。
+ */
+const CP1252_HIGH = "\u20ac\u0081\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u008d\u017d\u008f"
+  + "\u0090\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u009d\u017e\u0178";
+
+/** [MS-DOC] 压缩分段的单字节文字按 Windows-1252 解码。 */
+function cp1252(bytes: Uint8Array): string {
+  let text = "";
+  for (const byte of bytes) text += byte >= 0x80 && byte <= 0x9f ? CP1252_HIGH.charAt(byte - 0x80) : String.fromCharCode(byte);
+  return text;
 }
 
 function paragraphs(text: string): string[] {

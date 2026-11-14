@@ -78,9 +78,10 @@ export async function loadCourse(root: string, report: Report, base = process.cw
   for (const entry of entries.sort()) {
     if (!entry.endsWith(".yaml")) continue;
     if (!listed.has(entry.slice(0, -".yaml".length))) {
+      // 只提醒：合并或去掉一部分时从清单里删掉 id 就够了，后台展开没有删文件的工具。
       report.diagnostics.push({
-        severity: "error", code: "topic_unlisted",
-        message: `${entry} 不在课程清单里；新增 topic 时把 id 加进 ${COURSE_FILE} 的 topics`,
+        severity: "warning", code: "topic_unlisted",
+        message: `${entry} 不在课程清单里，不会读它；新增 topic 时把 id 加进 ${COURSE_FILE} 的 topics，不要的 topic 文件可以留着或删掉`,
         file: displayPath(base, path.join(root, TOPICS_DIRECTORY, entry)),
       });
     }

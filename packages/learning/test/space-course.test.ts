@@ -307,7 +307,7 @@ test("学习者上课到一半时 course_use 不换用；重开空间仍是这�
     for (const question of pool(topic, 0, "practice")) question.body = `${String(question.body)}（改过）`;
   });
   const used = await f.tool("course_use");
-  assert.match(used.text, /^检查通过，但没有换用：学习者正在做一项任务/u);
+  assert.match(used.text, /^检查通过，但没有换用：学习者正在做的任务（课、复习或测验）用到的部分在这一版里改了/u);
 
   for (const reopen of [false, true]) {
     if (reopen) await f.reopen();
@@ -544,7 +544,7 @@ test("辅导 Agent 的工具里没有做课的工具", async (t) => {
     return fauxAssistantMessage("好");
   }]);
   await f.client.call("session.send", { sessionId: tutor.id, text: "你好" });
-  assert.deepEqual(tools, ["learning_read", "learning_search", "learning_task", "read"]);
+  assert.deepEqual(tools, ["learning_read", "learning_search", "learning_task"]);
 });
 
 test("不用 Python 的课不写 runtime 也能通过完整检查，写了也不启动解释器；命令行缺省仍要求模型核对记录", async (t) => {

@@ -2,9 +2,9 @@ import type { Static, TSchema } from "typebox";
 import type { ActivitySource, ChangeFeed, Revision, Snapshot } from "@repa/space-history";
 import type { AskSubmitResult, Item, ItemDraft, ItemResponse } from "./interaction.js";
 import type { ClientCapabilities } from "./protocol.js";
-import type { ExportedFile, MessageDecision, ModelRef } from "./schema.js";
+import type { ExportedFile, MessageDecision, ModelRef, SessionUsage } from "./schema.js";
 
-export type { ExportedFile, MessageDecision, ModelRef } from "./schema.js";
+export type { ExportedFile, MessageDecision, ModelRef, SessionUsage } from "./schema.js";
 // 插件文件夹不经构建、也没有自己的依赖：声明参数用的 TypeBox 构造器和带错误码的 RepaFault 都从这里取。
 // 宿主把插件文件夹里的 @repa/base/plugin 解析到自己的这一份，RepaFault 因此与宿主是同一个类。
 export { Type } from "typebox";
@@ -164,6 +164,11 @@ export interface Models {
    * 插件据此避开离不开模型的工作，例如不出要由模型判分的题。每次调用都按当前登录与设置读取。
    */
   defaultModel(): ModelRef | undefined;
+  /**
+   * 这些会话到现在累计的模型用量与金额，会话编号可以来自 runAgent 的句柄或工具调用时的 currentRun()。
+   * 同一编号只算一次；没有这个会话时以 session_not_found 拒绝。只读会话记录，不发起工作。
+   */
+  usage(sessionIds: readonly string[]): Promise<SessionUsage>;
 }
 
 /** 可提前关闭的一组模型工作，供父插件管理子插件的取消与等待。 */
