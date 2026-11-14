@@ -20,6 +20,7 @@ import {
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { currentRun, withToolCall } from "../run-context.js";
 import { errorText, object, parse, RepaFault } from "../schema.js";
+import { PLUGIN_ID } from "./manifest.js";
 import { createModelScope } from "./models.js";
 
 const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
@@ -27,7 +28,6 @@ const NO_SERVICES: Services = {
   call: (service) => Promise.reject(new RepaFault("service_unavailable", "没有连接提供这项服务", { service })),
 };
 
-const PLUGIN_ID = /^[a-z][a-z0-9-]*$/;
 
 // 模块加载时的空上下文。插件的 open、close 和追赶在这里执行：插件可能在 Agent 运行的工具调用里加上或撤下，
 // 它此后发起的写入（包括定时器里的）不能继承那次运行的上下文，否则会记到那次运行名下，撤回运行时被一并撤回。
@@ -53,7 +53,7 @@ async function askAs(route: AskRoute, pluginId: string, context: { signal: Abort
 }
 
 const AgentFieldsSchema = object({
-  id: Type.String({ pattern: "^[a-z][a-z0-9-]*$" }),
+  id: Type.String({ pattern: PLUGIN_ID.source }),
   description: Type.Optional(Type.String()),
   tools: Type.Array(Type.String()),
   subagents: Type.Optional(Type.Array(Type.String())),

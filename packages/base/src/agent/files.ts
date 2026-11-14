@@ -34,10 +34,26 @@ function inDataDir(root: string, file: string): boolean {
  * 写进去也记不进历史，所以所有 Agent 的写入和编辑、插件 Agent 的全部文件工具都经过它。
  */
 export class FileScope {
-  private constructor(readonly root: string, private readonly realRoot: string) {}
+  private constructor(readonly root: string, private readonly realRoot: string, private readonly control: readonly string[]) {}
 
-  static async create(root: string): Promise<FileScope> {
-    return new FileScope(root, await realpath(root));
+  /** controlDirs 是一律不写的目录；字面路径和解析后的路径都记下，两种写法的目标路径都与两者比较。 */
+  static async create(root: string, controlDirs: readonly string[] = []): Promise<FileScope> {
+    const control: string[] = [];
+    for (const directory of controlDirs) {
+      const literal = path.resolve(directory);
+      control.push(literal, await existingPath(literal));
+    }
+    return new FileScope(root, await realpath(root), control);
+  }
+
+  /**
+   * 应用的控制目录（已批准插件的快照）任何模式下都不写：快照存在就是批准的记录，文件工具写进去等于替使用者批准。
+   * 配置目录可能在空间之内，所以空间内的写入同样检查。
+   */
+  private checkControl(file: string, lexical: string, canonical: string): void {
+    if (this.control.some((directory) => within(directory, lexical) || within(directory, canonical))) {
+      throw new RepaFault("file_in_control_dir", `不能写入 Repa 保管已批准插件的目录：${file}`, { path: file });
+    }
   }
 
   private allowed(root: string, file: string, read: boolean): boolean {
@@ -57,9 +73,16 @@ export class FileScope {
     throw new RepaFault("file_outside_space", `只能访问当前空间内的文件，不含 .repa/：${file}`, { path: file });
   }
 
+  /** 插件 Agent 写入与编辑的目标：resolve 的范围，再排除控制目录。 */
+  async resolveWrite(file: string): Promise<string> {
+    const canonical = await this.resolve(file);
+    this.checkControl(file, path.resolve(this.root, file), canonical);
+    return canonical;
+  }
+
   /**
    * 通用 Agent 写入的目标：字面路径和解析后的路径都在空间内时，经空间的写入路径记进历史；
-   * 有一个在空间外（包括经符号链接出去的），就是空间外的写入，要先经用户确认。空间的 .repa/ 一律不写。
+   * 有一个在空间外（包括经符号链接出去的），就是空间外的写入，要先经用户确认。空间的 .repa/ 与控制目录一律不写。
    */
   async writeTarget(file: string): Promise<{ inside: boolean; path: string }> {
     const lexical = path.resolve(this.root, file);
@@ -67,6 +90,7 @@ export class FileScope {
     if (inDataDir(this.root, lexical) || inDataDir(this.realRoot, canonical)) {
       throw new RepaFault("file_in_data_dir", `不能写入空间的 .repa/，那里是历史库、会话和插件数据：${file}`, { path: file });
     }
+    this.checkControl(file, lexical, canonical);
     return { inside: within(this.root, lexical) && within(this.realRoot, canonical), path: canonical };
   }
 
@@ -221,10 +245,10 @@ function writeTool(tools: FileTools): ToolDefinition {
   return locked(tools, defineTool(createWriteToolDefinition(scope.root, {
     operations: {
       async mkdir(directory) {
-        await mkdir(await scope.resolve(directory), { recursive: true });
+        await mkdir(await scope.resolveWrite(directory), { recursive: true });
       },
       async writeFile(file, content) {
-        await writeInside(tools, await scope.resolve(file), content);
+        await writeInside(tools, await scope.resolveWrite(file), content);
       },
     },
   })));
@@ -237,7 +261,7 @@ function writeTool(tools: FileTools): ToolDefinition {
 function editTool(tools: FileTools): ToolDefinition {
   const { scope, writes } = tools;
   return locked(tools, exactEditTool(scope.root, {
-    resolve: file => scope.resolve(file),
+    resolve: file => scope.resolveWrite(file),
     read: file => readFile(file),
     async write(file, before, after) {
       await writes.commit(file, () => writeEdited(tools, file, before, after));

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 
@@ -11,6 +12,14 @@ export const LOCK_NAME = "lock";
 
 /** 从备份恢复时 .repa/ 中的保留名：恢复标记、暂存的备份内容和换出的原内容。都不收进备份。 */
 export const RESTORE_NAMES = { marker: "restore.json", staging: "restore-staging", replaced: "restore-replaced" } as const;
+
+/**
+ * 应用配置目录里按空间分组时用的键：空间根目录真实路径 SHA-256 的前 16 位。备份与已批准插件的快照都按它分组，
+ * 空间文件夹改名或移动以后另起一组。
+ */
+export function spaceKey(root: string): string {
+  return createHash("sha256").update(root).digest("hex").slice(0, 16);
+}
 
 // 同时检查输入路径与解析后的路径，符号链接不能把文件接口带出空间。
 export function within(root: string, file: string): boolean {

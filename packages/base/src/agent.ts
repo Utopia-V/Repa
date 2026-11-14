@@ -74,6 +74,11 @@ export interface AgentSpaceOptions {
   record<T>(runId: string, action: () => Promise<T>): Promise<T>;
   /** 写入工具接入的空间写入路径；省略时直接写文件，不经过空间写锁和历史，供只测运行时的场合使用。 */
   writes?: SpaceWrites;
+  /**
+   * 文件工具在任何模式下都不写的目录，例如应用配置目录里保管已批准插件快照的 plugins/。
+   * 按字面路径和解析符号链接后的路径判断，空间内外一样。
+   */
+  controlDirs?: string[];
   onEvent(event: AgentEvent): void;
   confirm: Confirm;
   /** ask_user 的询问路由，绑定发起运行的连接；省略时 ask_user 以 ask_unavailable 交回模型。 */

@@ -146,10 +146,13 @@ export interface WalkOptions {
    * 从备份恢复时取 fail，报错：来源消失说明这份备份正被删除，复制出的内容不完整，不能发布。
    */
   vanished: "skip" | "fail";
+  /** 遇到符号链接、目录联接或特殊文件时调用，可以抛错中止遍历；省略时跳过它们。 */
+  other?(relative: string): void;
 }
 
 /**
- * 遍历目录树，只进入真实目录、只交出普通文件；符号链接、目录联接和特殊文件不跟随也不收，空间外的文件不会被带进来。
+ * 遍历目录树，只进入真实目录、只交出普通文件；符号链接、目录联接和特殊文件不跟随也不收，空间外的文件不会被带进来，
+ * 给了 options.other 时交它处理。
  * 起点本身不存在时总是报错。
  */
 export async function* walk(directory: string, options: WalkOptions, relative = ""): AsyncGenerator<{ relative: string; directory: boolean }> {
@@ -169,6 +172,8 @@ export async function* walk(directory: string, options: WalkOptions, relative = 
       yield* walk(path.join(directory, entry.name), options, child);
     } else if (entry.isFile()) {
       yield { relative: child, directory: false };
+    } else {
+      options.other?.(child);
     }
   }
 }
@@ -214,10 +219,22 @@ export async function syncCopies(result: Copying): Promise<void> {
     }
     synced.set(file, (synced.get(file) ?? 0) + 1);
   }
-  for (const directory of [...result.written.directories].reverse()) {
-    await syncDirectory(directory);
-    synced.set(directory, (synced.get(directory) ?? 0) + 1);
-  }
+  for (const directory of [...result.written.directories].reverse()) await syncEntries(directory);
+}
+
+/** 同步一个目录的目录项，并记下路径。 */
+export async function syncEntries(directory: string): Promise<void> {
+  await syncDirectory(directory);
+  synced.set(directory, (synced.get(directory) ?? 0) + 1);
+}
+
+/**
+ * 发布已落盘的临时目录：改名为 to，再同步 to 所在的目录。改名使它在运行时原子地出现，
+ * 同步目录项使它在掉电以后仍在；只改名的话，之后写下的、引用它的记录可能比它先落盘。
+ */
+export async function publish(from: string, to: string): Promise<void> {
+  await move(from, to);
+  await syncEntries(path.dirname(to));
 }
 
 /**

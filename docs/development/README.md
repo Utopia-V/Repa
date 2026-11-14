@@ -76,6 +76,7 @@ REPA_TEST_REQUIRE_ENV=1 npm test
 | 空间锁、监听、文件与历史协调 | [空间宿主](../../packages/base/src/space/space.ts) |
 | Agent 会话、提示和视图 | [Agent 运行时](../../packages/base/src/agent/runtime.ts)、[提示](../../packages/base/src/agent/prompts.ts)、[视图](../../packages/base/src/agent/views.ts) |
 | 插件接口与宿主 | [plugin.ts](../../packages/base/src/plugin.ts)、[插件宿主](../../packages/base/src/plugins/host.ts)、[示例插件](../../packages/base/examples/notes-plugin.ts) |
+| 自写插件：快照、启用记录与打开空间时的加载 | [说明](../../packages/base/README.md#自写插件的快照与启用记录)、[快照](../../packages/base/src/plugins/snapshots.ts)、[启用记录](../../packages/base/src/plugins/enablement.ts)、[加载](../../packages/base/src/plugins/space-plugins.ts) |
 | 空间文件历史与变更流 | [空间历史包](../../packages/space-history/README.md) |
 | 空间备份与恢复：定期检查、复制、轮换与两种恢复 | [备份说明](../../packages/base/README.md#备份与恢复)、[定期检查](../../packages/base/src/backup/schedule.ts)、[复制与轮换](../../packages/base/src/backup/store.ts)、[恢复](../../packages/base/src/backup/restore.ts) |
 | 课程文件格式、课程检查与课程内容 | [学习包说明](../../packages/learning/README.md)、[写课说明](../../packages/learning/courses/README.md) |

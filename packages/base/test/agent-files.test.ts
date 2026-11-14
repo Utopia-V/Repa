@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -10,14 +10,16 @@ import { promisify } from "node:util";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { FileScope } from "../src/agent/files.js";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSession, AgentSpaceOptions } from "../src/agent.js";
-import type { Confirmation } from "../src/schema.js";
+import { RepaFault, type Confirmation } from "../src/schema.js";
 import { createSpace, openSpace } from "../src/space.js";
 
 // 用真实空间打开：.repa/ 里的锁、历史库和 .ignore 都由空间宿主放好，搜索工具面对的就是实际布局。
 // approve 是用户对确认的回答，确认请求记在 confirmations 里。
-async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, approve = false, linkedRoot = false) {
+// extra 也可以是函数，按空间根目录和空间外目录的真实路径给出选项。
+async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> | ((root: string, outside: string) => Partial<AgentSpaceOptions>) = {}, approve = false, linkedRoot = false) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-agent-files-"));
   const outside = await mkdtemp(path.join(os.tmpdir(), "repa-agent-outside-"));
   const inputRoot = path.join(directory, "space");
@@ -61,7 +63,7 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, a
       confirmations.push(request);
       return approve;
     },
-    ...extra,
+    ...(typeof extra === "function" ? extra(root, await realpath(outside)) : extra),
   });
   return { root, inputRoot, host, runtime, outside: await realpath(outside), faux, space, confirmations };
 }
@@ -221,6 +223,58 @@ test("通用 Agent 加载 .agents/skills 和应用 skill，不加载旧空间位
   assert.deepEqual(feed.revisions[0]?.changes, [{ kind: "modified", path: skillFile }]);
 });
 
+test("通用 Agent 在完全访问模式下也不写控制目录：配置目录在空间内、经符号链接、在空间外都拒绝，也不问用户", async t => {
+  const f = await fixture(t, (root, outside) => ({
+    commandPolicy: () => "fullAccess",
+    controlDirs: [path.join(root, "config", "plugins"), path.join(outside, "home", "plugins")],
+  }));
+  const inside = path.join(f.root, "config", "plugins", "key", "hello", "index.js");
+  const outsideFile = path.join(f.outside, "home", "plugins", "key", "hello", "index.js");
+  for (const file of [inside, outsideFile]) {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, "export default {};\n");
+  }
+  await symlink(path.join(f.outside, "home", "plugins"), path.join(f.root, "shortcut"));
+  // 控制目录里有一个指向别处的链接：解析后的路径不在控制目录里，只有字面路径能拦下。
+  await mkdir(path.join(f.outside, "elsewhere"));
+  await symlink(path.join(f.outside, "elsewhere"), path.join(f.outside, "home", "plugins", "escape"));
+  const session = await f.space.create();
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("write", { path: "config/plugins/key/hello/index.js", content: "篡改" }),
+      fauxToolCall("edit", { path: "config/plugins/key/hello/index.js", edits: [{ oldText: "default", newText: "篡改" }] }),
+      fauxToolCall("write", { path: "shortcut/key/hello/index.js", content: "篡改" }),
+      fauxToolCall("write", { path: outsideFile, content: "篡改" }),
+      fauxToolCall("write", { path: path.join(f.outside, "home", "plugins", "key", "other", "index.js"), content: "篡改" }),
+      fauxToolCall("write", { path: path.join(f.outside, "home", "plugins", "escape", "index.js"), content: "篡改" }),
+      fauxToolCall("write", { path: "config/settings-note.md", content: "控制目录之外照常写" }),
+    ]),
+    fauxAssistantMessage("已尝试"),
+  ]);
+  await session.send("改快照");
+  const results = toolResults(session);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["edit", true], ["write", true], ["write", true], ["write", true], ["write", true], ["write", false]]);
+  for (const result of results.slice(0, 6)) assert.match(result.text, /不能写入 Repa 保管已批准插件的目录/u);
+  await assert.rejects(readFile(path.join(f.outside, "elsewhere", "index.js")), { code: "ENOENT" });
+  assert.equal(await readFile(inside, "utf8"), "export default {};\n");
+  assert.equal(await readFile(outsideFile, "utf8"), "export default {};\n");
+  await assert.rejects(readFile(path.join(f.outside, "home", "plugins", "key", "other", "index.js")), { code: "ENOENT" });
+  assert.equal(await readFile(path.join(f.root, "config", "settings-note.md"), "utf8"), "控制目录之外照常写");
+  assert.deepEqual(f.confirmations, []);
+});
+
+test("控制目录经符号链接给出时，按真实路径写入同样拒绝", async t => {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-agent-control-")));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  // 配置目录本身是链接，例如 ~/.config 链接到 dotfiles 仓库；Agent 写的是链接指向处的真实路径。
+  const real = path.join(directory, "dotfiles");
+  await mkdir(path.join(real, "plugins"), { recursive: true });
+  await symlink(real, path.join(directory, "config"));
+  await mkdir(path.join(directory, "space"));
+  const scope = await FileScope.create(path.join(directory, "space"), [path.join(directory, "config", "plugins")]);
+  await assert.rejects(scope.writeTarget(path.join(real, "plugins", "key", "hello", "index.js")), (error: unknown) => error instanceof RepaFault && error.code === "file_in_control_dir");
+});
+
 const writer = {
   id: "writer",
   instructions: () => "你在后台编写课程文件。",
@@ -258,6 +312,34 @@ test("插件 Agent 的读写和编辑只在空间内且不进 .repa/，也不能
   await assert.rejects(readFile(path.join(f.root, ".repa", "injected.txt")), { code: "ENOENT" });
   await assert.rejects(readFile(path.join(f.outside, "created.txt")), { code: "ENOENT" });
   for (const result of toolResults(session).filter(item => item.isError)) assert.match(result.text, /只能访问当前空间内的文件，不含 \.repa\//u);
+});
+
+test("配置目录在空间内时，插件 Agent 的写入和编辑也不能进入控制目录，经符号链接同样拒绝", async t => {
+  const f = await fixture(t, root => ({ agents: () => [writer], controlDirs: [path.join(root, "config", "plugins")] }));
+  const snapshot = path.join(f.root, "config", "plugins", "key", "hello", "index.js");
+  await mkdir(path.dirname(snapshot), { recursive: true });
+  await writeFile(snapshot, "export default {};\n");
+  await symlink(path.join(f.root, "config", "plugins"), path.join(f.root, "alias"));
+  const session = await f.space.create({ agent: "writer" });
+  f.faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("write", { path: "config/plugins/key/hello/index.js", content: "篡改" }),
+      fauxToolCall("edit", { path: "config/plugins/key/hello/index.js", edits: [{ oldText: "default", newText: "篡改" }] }),
+      fauxToolCall("write", { path: "alias/key/hello/extra.js", content: "篡改" }),
+      fauxToolCall("edit", { path: "alias/key/hello/index.js", edits: [{ oldText: "default", newText: "篡改" }] }),
+      fauxToolCall("write", { path: "config/plugins/key/fresh/index.js", content: "篡改" }),
+      fauxToolCall("read", { path: "config/plugins/key/hello/index.js" }),
+    ]),
+    fauxAssistantMessage("已尝试"),
+  ]);
+  await session.send("改快照");
+  const results = toolResults(session);
+  assert.deepEqual(results.map(result => [result.tool, result.isError]), [["write", true], ["edit", true], ["write", true], ["edit", true], ["write", true], ["read", false]]);
+  for (const result of results.slice(0, 5)) assert.match(result.text, /不能写入 Repa 保管已批准插件的目录/u);
+  // 写入先建上级目录：控制目录里连空目录也不建。
+  await assert.rejects(stat(path.join(f.root, "config", "plugins", "key", "fresh")), { code: "ENOENT" });
+  assert.equal(await readFile(snapshot, "utf8"), "export default {};\n");
+  await assert.rejects(readFile(path.join(f.root, "config", "plugins", "key", "hello", "extra.js")), { code: "ENOENT" });
 });
 
 test("约 200 KB 的单行 JSON 工具结果保留首尾和全文路径，插件 Agent 可读但不能写或编辑", async t => {
