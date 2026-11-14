@@ -608,3 +608,47 @@ test("重组时自写插件的 close 报错：重组照常完成，照样按记�
   await client.call("space.open", { root: f.root });
   await assert.rejects(stat(leftover.directory), { code: "ENOENT" });
 });
+
+const faultCode = (code: string) => (error: unknown): boolean => {
+  assert(error instanceof RpcError);
+  assert.equal((error.data as { code?: string } | undefined)?.code, code);
+  return true;
+};
+
+test("插件的 close 报错不使关闭空间、切换空间失败：空间照常关闭，新空间照常打开", async (t) => {
+  const f = await fixture(t);
+  const tally = counts();
+  tally.opens = {};
+  tally.closes = {};
+  const { client } = await serve(f);
+  await f.approve("alpha", await f.folder("alpha", toolPlugin("alpha", "alpha-1", "alpha_lookup")));
+  await client.call("space.open", { root: f.root });
+  tally.closeError = "后台写入还没停";
+  t.after(() => { tally.closeError = undefined; });
+  assert.equal(await client.call("space.close", {}), null);
+  await assert.rejects(client.call("plugin.list", {}), faultCode("space_not_open"));
+  // 关闭时空间锁已经释放：同一空间可以再打开。
+  await client.call("space.open", { root: f.root });
+  // 切换空间时先关旧的：旧空间的插件 close 报错不挡住打开新空间。
+  const other = path.join(f.directory, "other");
+  const created = await client.call("space.create", { root: other });
+  assert.equal(created.root, other);
+  assert.equal(tally.closes["alpha-1"], 2);
+});
+
+test("关闭空间时释放锁失败：以 space_close_failed 报告，空间已经关闭", async (t) => {
+  const f = await fixture(t);
+  const { client } = await serve(f);
+  await client.call("space.open", { root: f.root });
+  // 锁目录里多一个文件，释放锁时删不掉目录。
+  const stray = path.join(f.dataDir, "lock", "stray");
+  await writeFile(stray, "");
+  t.after(() => rm(stray, { force: true }));
+  await assert.rejects(client.call("space.close", {}), (error: unknown) => {
+    assert(faultCode("space_close_failed")(error));
+    assert(error instanceof RpcError);
+    assert.match(error.message, /空间已经关闭/);
+    return true;
+  });
+  await assert.rejects(client.call("plugin.list", {}), faultCode("space_not_open"));
+});

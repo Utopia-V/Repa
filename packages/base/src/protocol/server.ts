@@ -414,6 +414,34 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     if (owners.agent !== undefined) void stopAssembly({ agent: owners.agent, plugins: owners.plugins });
     else void owners.plugins.close().catch(() => undefined);
   };
+  /**
+   * stopAssembly 的结果里 Agent 空间或插件 close() 的错误：记进最近错误，返回报错的插件与原因。
+   * 它们是那个插件（或 Agent 空间）自己的问题，不使重组或关闭空间失败。
+   */
+  const ownerCloseFailures = (results: PromiseSettledResult<void>[]) => {
+    const closeFailures: { pluginId: string; message: string }[] = [];
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") return;
+      const reasons: unknown[] = result.reason instanceof AggregateError ? result.reason.errors : [result.reason];
+      for (const reason of reasons) {
+        const original = reason instanceof Error && reason.cause instanceof Error ? reason.cause : reason;
+        errors.add({
+          source: index === 0 ? "agent" : "plugin-host",
+          message: errorText(reason),
+          code: reason instanceof RepaFault ? reason.code : index === 0 ? "agent_close_failed" : "plugin_close_failed",
+          ...(original instanceof Error && original.stack !== undefined ? { stack: original.stack } : {}),
+        });
+        if (reason instanceof RepaFault && reason.code === "plugin_close_failed" && reason.details !== null && typeof reason.details === "object" && "pluginId" in reason.details && typeof reason.details.pluginId === "string") {
+          closeFailures.push({ pluginId: reason.details.pluginId, message: reason.message });
+        }
+      }
+    });
+    return closeFailures;
+  };
+  /**
+   * 关闭活动空间。插件或 Agent 空间 close() 报错只记进最近错误，空间照常关闭；
+   * 最后一次备份或空间落盘、释放锁失败时，空间也已经关闭（active 已清，各部分都收过尾），以 space_close_failed 报告出错的步骤。
+   */
   const closeActive = async () => {
     const current = active;
     active = undefined;
@@ -421,20 +449,21 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     // 等待空闲的重组随之取消，这个空间的装卸请求一并撤回。
     checkIdle();
     requests.closeSpace();
-    const failures: unknown[] = [];
-    for (const result of await stopAssembly(current)) {
-      if (result.status === "rejected") failures.push(result.reason);
-    }
-    // 写入者都停下以后备份最后一次，再让空间落盘并释放锁；每个 owner 都取得收尾机会。
+    ownerCloseFailures(await stopAssembly(current));
+    // 写入者都停下以后备份最后一次，再让空间落盘并释放锁；每一步都取得收尾机会。
     // 关闭时的备份在释放空间锁之前完成，上一次使用的改动不必等到下次打开才进入备份。
-    for (const close of [() => current.backups.close(), () => current.space.close()]) {
+    const failures: string[] = [];
+    for (const [step, close] of [["最后一次备份", () => current.backups.close()], ["空间落盘与释放锁", () => current.space.close()]] as const) {
       try {
         await close();
       } catch (error) {
-        failures.push(error);
+        errors.add({ source: "space", message: `关闭空间时${step}失败：${errorText(error)}`, ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
+        failures.push(`${step}失败：${errorText(error)}`);
       }
     }
-    if (failures.length) throw new AggregateError(failures, "关闭空间失败");
+    if (failures.length > 0) {
+      throw new RepaFault("space_close_failed", `空间已经关闭，但${failures.join("；")}`, { root: current.space.root });
+    }
   };
   const serializeLifecycle = <T>(action: () => Promise<T>): Promise<T> => {
     const result = lifecycle.then(action);
@@ -693,23 +722,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     // 排在前面的 space.open、space.close 已经关闭或换掉了这个空间；服务正在关闭时也不再打开插件，空间由服务关闭时的 closeActive 收尾。
     if (stopping || active !== target) return { status: "cancelled" };
     // 某个插件的 close() 抛错不挡住重组：记进最近错误，结果里写明是哪个插件、什么原因。
-    const closeFailures: { pluginId: string; message: string }[] = [];
-    for (const result of results) {
-      if (result.status === "fulfilled") continue;
-      const reasons: unknown[] = result.reason instanceof AggregateError ? result.reason.errors : [result.reason];
-      for (const reason of reasons) {
-        const original = reason instanceof Error && reason.cause instanceof Error ? reason.cause : reason;
-        errors.add({
-          source: "plugin-host",
-          message: errorText(reason),
-          code: "plugin_close_failed",
-          ...(original instanceof Error && original.stack !== undefined ? { stack: original.stack } : {}),
-        });
-        if (reason instanceof RepaFault && reason.code === "plugin_close_failed" && reason.details !== null && typeof reason.details === "object" && "pluginId" in reason.details && typeof reason.details.pluginId === "string") {
-          closeFailures.push({ pluginId: reason.details.pluginId, message: reason.message });
-        }
-      }
-    }
+    const closeFailures = ownerCloseFailures(results);
     // 旧实例都已关闭，这时写启用记录：记录没写成时，装回的就是盘上原来的集合。
     if (batch !== undefined) {
       try {
