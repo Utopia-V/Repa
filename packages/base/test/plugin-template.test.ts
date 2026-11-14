@@ -92,5 +92,5 @@ test("写插件 Skill 列在通用 Agent 的系统提示里；它的模板复制
   await access(skillFile);
   assert.ok(seen[0]?.system.includes("<name>plugin-authoring</name>"));
   assert.ok(seen[0]?.system.includes(`<location>${skillFile}</location>`));
-  assert.match(await readFile(skillFile, "utf8"), /^---\nname: plugin-authoring\n/u);
+  assert.match(await readFile(skillFile, "utf8"), /^---\r?\nname: plugin-authoring\r?\n/u);
 });
