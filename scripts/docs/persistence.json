@@ -63,7 +63,7 @@
       "files": ["<空间>/.agents/plugins/<插件 id>/repa-plugin.json", "随包插件文件夹的 repa-plugin.json"],
       "owner": "@repa/base",
       "schema": "packages/base/src/plugins/manifest.ts#PluginManifestSchema",
-      "versionedBy": "无独立版本标记；baseVersion 声明插件兼容的底座版本范围"
+      "versionedBy": "无独立版本标记；可选的 baseVersion 声明插件兼容的底座版本范围，自写插件可以不写"
     },
     {
       "id": "plugin-snapshot",

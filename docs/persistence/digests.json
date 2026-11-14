@@ -32,12 +32,12 @@
     "basis": "2026-11-11-task-course-version.md"
   },
   "plugin-manifest": {
-    "digest": "e781177bda52a6f7",
-    "basis": "2026-11-13-plugin-manifest.md"
+    "digest": "0fa04cc9abb82bfc",
+    "basis": "2026-11-14-plugin-manifest-base-version.md"
   },
   "plugin-snapshot": {
-    "digest": "e781177bda52a6f7",
-    "basis": "2026-11-13-plugin-snapshot.md"
+    "digest": "0fa04cc9abb82bfc",
+    "basis": "2026-11-14-plugin-snapshot-base-version.md"
   },
   "plugin-enablement": {
     "digest": "6559dfb16f27d289",

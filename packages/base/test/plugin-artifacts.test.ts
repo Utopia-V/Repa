@@ -54,7 +54,7 @@ test("清单及底座版本错误在执行顶层代码前拒绝，合法构建�
   await f.save({ ...manifest, id: "Bad", extra: true });
   await assert.rejects(loadPlugin(f.directory), /清单多了 extra[^]*\/id：/u);
   await f.save({ id: "fixture", entry: "index.mjs" });
-  await assert.rejects(loadPlugin(f.directory), /清单缺少 version、baseVersion/u);
+  await assert.rejects(loadPlugin(f.directory), /清单缺少 version。字段为 id、version、entry，可选 baseVersion/u);
   await f.save({ ...manifest, version: "1" });
   await assert.rejects(loadPlugin(f.directory), /version 要是 SemVer 版本号，例如 0\.1\.0，现在是 "1"/u);
   // 在不区分大小写的文件系统上 Index.mjs 也能打开，但同一份清单换到 Linux 就找不到文件，所以各系统一律拒绝。
@@ -70,6 +70,15 @@ test("清单及底座版本错误在执行顶层代码前拒绝，合法构建�
   assert.equal(loaded.plugin.id, "fixture");
   assert.deepEqual(loaded.manifest, declared);
   assert.equal(loaded.root, f.directory);
+  assert.equal(await readFile(f.sentinel, "utf8"), "executed");
+});
+
+test("清单不写 baseVersion 时不检查底座版本，照常加载", async (t) => {
+  const f = await fixture(t);
+  const { baseVersion: _omitted, ...unversioned } = manifest;
+  await f.save(unversioned);
+  const loaded = await loadPlugin(f.directory);
+  assert.deepEqual(loaded.manifest, unversioned);
   assert.equal(await readFile(f.sentinel, "utf8"), "executed");
 });
 

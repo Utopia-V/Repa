@@ -31,6 +31,7 @@ import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.
 import { limitToolText } from "./output.js";
 import { isModelCall, modelCall } from "./model-call.js";
 import { readParent, saveParent } from "./parent.js";
+import { readOnlyCommand } from "./read-only-command.js";
 import { findSessionPath } from "./session-files.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
@@ -513,7 +514,7 @@ class Space implements AgentSpace {
       { id: "base", text: BASE_INSTRUCTIONS },
       space,
       { id: "skills", text: formatSkillsForPrompt(skills, "read") },
-      { id: "tools", text: `使用已声明的工具。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：${tools.join("、")}` },
+      { id: "tools", text: `使用已声明的工具。看目录、读文件、找文件、搜内容用 ls、read、find、grep，不用 bash；bash 只用于运行程序。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：${tools.join("、")}` },
       ...profile.sections(),
     ]);
   }
@@ -755,6 +756,8 @@ class Session implements AgentSession {
         if (event.toolName !== "bash" || options.commandPolicy() === "fullAccess") return;
         const input: unknown = event.input;
         const command = input !== null && typeof input === "object" && "command" in input && typeof input.command === "string" ? input.command : "";
+        // 只由只读命令组成的命令不问，与 read、ls 不问是同一类事情；不是安全边界，见 readOnlyCommand。
+        if (readOnlyCommand(command)) return;
         const answer = await options.confirm({ kind: "command", title: "允许执行命令？", message: command }, this.abortController?.signal);
         if (answer !== true) return { block: true, reason: "用户拒绝执行命令" };
       });

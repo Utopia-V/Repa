@@ -22,7 +22,9 @@ export type PluginPage = Static<typeof PluginPageSchema>;
 export const PluginManifestSchema = object({
   id: ID,
   version: Type.String({ minLength: 1 }),
-  baseVersion: Type.String({ minLength: 1 }),
+  // 随产品附带和别人发布的插件写上兼容的底座版本范围。自写插件是当场为这个空间写的，可以不写：
+  // 底座升级后它多半还能用，真不兼容时带着实际的错误失败，Agent 据此修改。
+  baseVersion: Type.Optional(Type.String({ minLength: 1 })),
   entry: Type.String({ minLength: 1 }),
   title: Type.Optional(Type.String({ minLength: 1 })),
   pages: Type.Optional(Type.Array(PluginPageSchema)),
@@ -53,7 +55,7 @@ function manifestProblems(value: unknown): string {
       problems.push(`${error.instancePath}：${error.message}`);
     }
   }
-  return `${problems.join("；")}。字段为 id、version、baseVersion、entry，可选 title、pages`;
+  return `${problems.join("；")}。字段为 id、version、entry，可选 baseVersion、title、pages`;
 }
 
 /** 静态读出的插件文件夹：真实路径、清单和入口模块的真实路径。 */
@@ -64,7 +66,7 @@ export interface PluginFolder {
 }
 
 /**
- * 只读清单并核对，不执行任何代码：字段、版本、底座兼容性、入口与页面文件。批准自写插件之前用它读暂存的副本，
+ * 只读清单并核对，不执行任何代码：字段、版本、写了 baseVersion 时的底座兼容性、入口与页面文件。批准自写插件之前用它读暂存的副本，
  * 展示标题、版本与页面；导入要等使用者同意以后。
  */
 export async function readPluginFolder(directory: string): Promise<PluginFolder> {
@@ -83,17 +85,11 @@ export async function readPluginFolder(directory: string): Promise<PluginFolder>
   if (!semver.valid(value.version)) {
     throw new RepaFault("invalid_plugin_manifest", `插件清单的 version 要是 SemVer 版本号，例如 0.1.0，现在是 ${JSON.stringify(value.version)}`, { directory });
   }
-  if (!semver.validRange(value.baseVersion)) {
+  if (value.baseVersion !== undefined && !semver.validRange(value.baseVersion)) {
     throw new RepaFault("invalid_plugin_manifest", `插件清单的 baseVersion 要是 SemVer 范围，例如 ^0.1.0，现在是 ${JSON.stringify(value.baseVersion)}`, { directory });
   }
   const manifest = value;
-  const base: unknown = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
-  if (!base || typeof base !== "object" || !("version" in base) || typeof base.version !== "string") {
-    throw new RepaFault("invalid_base_version", "底座包缺少版本");
-  }
-  if (!semver.satisfies(base.version, manifest.baseVersion)) {
-    throw new RepaFault("incompatible_base_version", `插件要求底座版本 ${manifest.baseVersion}，当前底座是 ${base.version}`, { id: manifest.id, version: base.version, required: manifest.baseVersion });
-  }
+  if (manifest.baseVersion !== undefined) await checkBaseVersion(manifest.id, manifest.baseVersion);
   const entry = await folderFile(root, manifest.entry, ENTRY_EXTENSIONS, "入口模块");
   const underNodeModules = root.split(path.sep).includes("node_modules");
   // Node 只在 node_modules 之外剥离类型；与它判断的方式相同，按路径中的目录名。
@@ -168,6 +164,16 @@ async function folderFile(root: string, value: string, extensions: string[], lab
     return canonical;
   } catch (error) {
     throw new RepaFault("invalid_plugin_manifest", `${label}无效或无法读取`, { path: value, cause: String(error) });
+  }
+}
+
+async function checkBaseVersion(id: string, required: string): Promise<void> {
+  const base: unknown = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
+  if (!base || typeof base !== "object" || !("version" in base) || typeof base.version !== "string") {
+    throw new RepaFault("invalid_base_version", "底座包缺少版本");
+  }
+  if (!semver.satisfies(base.version, required)) {
+    throw new RepaFault("incompatible_base_version", `插件要求底座版本 ${required}，当前底座是 ${base.version}`, { id, version: base.version, required });
   }
 }
 
