@@ -150,8 +150,8 @@ async function serve(t: TestContext, agents: AgentDefinition[]) {
     await server.close();
     await rm(directory, { recursive: true, force: true });
   });
-  await client.call("space.open", { root });
-  return { root, client, faux, events, works: learning.works };
+  const { opening } = await client.call("space.open", { root });
+  return { root, client, opening, faux, events, works: learning.works };
 }
 
 type Served = Awaited<ReturnType<typeof serve>>;
@@ -178,7 +178,7 @@ function commits(feed: ChangeFeed) {
 }
 
 async function startWork(f: Served, agent: string, text: string): Promise<string> {
-  const result: unknown = await deadline(f.client.call("plugin.call", { pluginId: "learning", method: "start", input: { agent, text } }), 600_000, `没能启动 ${agent}`);
+  const result: unknown = await deadline(f.client.call("plugin.call", { pluginId: "learning", method: "start", input: { agent, text }, opening: f.opening }), 600_000, `没能启动 ${agent}`);
   assert(result !== null && typeof result === "object" && "id" in result && typeof result.id === "string");
   return result.id;
 }
@@ -362,7 +362,7 @@ test("等命令行运行结束的写入可以取消，取消不必等命令行�
 
 test("插件在运行之外的写入记在插件名下，Agent 调用插件工具写的记在这次运行名下，由此触发的变化处理仍记在插件名下", async t => {
   const f = await serve(t, [{ ...tutor, tools: ["course_lookup", "save_progress"] }]);
-  await f.client.call("plugin.call", { pluginId: "learning", method: "note", input: { file: "plans/week.md", text: "本周学循环\n" } });
+  await f.client.call("plugin.call", { pluginId: "learning", method: "note", input: { file: "plans/week.md", text: "本周学循环\n" }, opening: f.opening });
   script(f.faux, {
     tutor: [fauxAssistantMessage(fauxToolCall("save_progress", { file: "progress/loops.md", text: "完成 for 循环练习\n" })), fauxAssistantMessage("进度已保存")],
   });

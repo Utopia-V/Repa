@@ -42,7 +42,9 @@ try {
   assert.equal(client.connected, true);
   assert.deepEqual(await client.call("space.list", {}), []);
   const root = path.join(temporary, "space");
-  assert.deepEqual(await client.call("space.create", { root }), { root, plugins: [] });
+  const created = await client.call("space.create", { root });
+  assert.deepEqual({ root: created.root, plugins: created.plugins }, { root, plugins: [] });
+  assert.equal(typeof created.opening, "string");
   assert.deepEqual(await client.call("space.list", {}), [root]);
   assert.deepEqual(await client.call("plugin.list", {}), []);
   await client.close();

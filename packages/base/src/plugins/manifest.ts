@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import semver from "semver";
 import { Type, type Static } from "typebox";
-import { Check } from "typebox/value";
+import { Check, Errors } from "typebox/value";
 import type { Plugin } from "../plugin.js";
 import { errorText, object, PLUGIN_ID, RepaFault } from "../schema.js";
 import { within } from "../space/paths.js";
@@ -40,6 +40,24 @@ export interface LoadedPlugin {
 
 const ENTRY_EXTENSIONS = [".js", ".mjs", ".ts"];
 
+/** 清单不合 schema 的原因，写给改清单的模型：缺了哪些字段、多了哪些字段、哪个字段的值不对。 */
+function manifestProblems(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return "清单要是一个 JSON 对象";
+  const problems: string[] = [];
+  for (const error of Errors(PluginManifestSchema, value)) {
+    const params: Record<string, unknown> = error.params;
+    if (error.keyword === "required" && Array.isArray(params.requiredProperties)) {
+      problems.push(`${error.instancePath || "清单"}缺少 ${params.requiredProperties.join("、")}`);
+    } else if (error.keyword === "additionalProperties" && Array.isArray(params.additionalProperties)) {
+      problems.push(`${error.instancePath || "清单"}多了 ${params.additionalProperties.join("、")}`);
+    } else if (error.keyword !== "boolean") {
+      // boolean 是 additionalProperties 在多出的字段上各报一次的 "schema is false"，上一项已经说了。
+      problems.push(`${error.instancePath}：${error.message}`);
+    }
+  }
+  return `${problems.join("；")}。字段为 id、version、entry，可选 baseVersion、title、pages`;
+}
+
 /** 静态读出的插件文件夹：真实路径、清单和入口模块的真实路径。 */
 export interface PluginFolder {
   root: string;
@@ -58,10 +76,17 @@ export async function readPluginFolder(directory: string): Promise<PluginFolder>
   try {
     value = JSON.parse(await readFile(path.join(root, "repa-plugin.json"), "utf8"));
   } catch (error) {
-    throw new RepaFault("invalid_plugin_manifest", "无法读取插件清单", { directory, cause: String(error) });
+    // 模型只读得到 message，JSON 写错时要在这里看到出错的位置。
+    throw new RepaFault("invalid_plugin_manifest", `无法读取插件清单 repa-plugin.json：${errorText(error)}`, { directory, cause: String(error) });
   }
-  if (!Check(PluginManifestSchema, value) || !semver.valid(value.version) || (value.baseVersion !== undefined && !semver.validRange(value.baseVersion))) {
-    throw new RepaFault("invalid_plugin_manifest", "插件清单的字段或版本无效", { directory });
+  if (!Check(PluginManifestSchema, value)) {
+    throw new RepaFault("invalid_plugin_manifest", `插件清单 repa-plugin.json 不合要求：${manifestProblems(value)}`, { directory });
+  }
+  if (!semver.valid(value.version)) {
+    throw new RepaFault("invalid_plugin_manifest", `插件清单的 version 要是 SemVer 版本号，例如 0.1.0，现在是 ${JSON.stringify(value.version)}`, { directory });
+  }
+  if (value.baseVersion !== undefined && !semver.validRange(value.baseVersion)) {
+    throw new RepaFault("invalid_plugin_manifest", `插件清单的 baseVersion 要是 SemVer 范围，例如 ^0.1.0，现在是 ${JSON.stringify(value.baseVersion)}`, { directory });
   }
   const manifest = value;
   if (manifest.baseVersion !== undefined) await checkBaseVersion(manifest.id, manifest.baseVersion);
@@ -104,8 +129,12 @@ export async function loadPlugin(directory: string, options: { snapshotOf?: stri
   const module = await importEntry(manifest.id, root, npmPackage, pathToFileURL(entry).href);
   const exported = module !== null && typeof module === "object" ? module : {};
   const plugin: unknown = "default" in exported ? exported.default : "plugin" in exported ? exported.plugin : undefined;
-  if (!plugin || typeof plugin !== "object" || !("id" in plugin) || plugin.id !== manifest.id || !("open" in plugin) || typeof plugin.open !== "function") {
-    throw new RepaFault("invalid_plugin_export", "插件必须导出 default 或 plugin，且 id 与清单一致并包含 open(host)");
+  if (!plugin || typeof plugin !== "object" || !("open" in plugin) || typeof plugin.open !== "function") {
+    throw new RepaFault("invalid_plugin_export", "入口模块要以 default 或 plugin 导出插件定义 { id, open(host) }，open 是函数");
+  }
+  if (!("id" in plugin) || plugin.id !== manifest.id) {
+    const found = "id" in plugin ? JSON.stringify(plugin.id) : "没有 id";
+    throw new RepaFault("invalid_plugin_export", `入口导出的插件定义的 id 是 ${found}，清单里是 "${manifest.id}"，两者要相同`, { id: manifest.id });
   }
   const definition = plugin as Plugin;
   return { root, manifest, plugin: { id: manifest.id, open: (host) => definition.open(host) } };
@@ -144,7 +173,7 @@ async function checkBaseVersion(id: string, required: string): Promise<void> {
     throw new RepaFault("invalid_base_version", "底座包缺少版本");
   }
   if (!semver.satisfies(base.version, required)) {
-    throw new RepaFault("incompatible_base_version", "插件不兼容当前底座版本", { id, version: base.version, required });
+    throw new RepaFault("incompatible_base_version", `插件要求底座版本 ${required}，当前底座是 ${base.version}`, { id, version: base.version, required });
   }
 }
 
@@ -164,38 +193,47 @@ async function importEntry(id: string, root: string, npmPackage: boolean, url: s
     return await import(url) as unknown;
   } catch (error) {
     if (error instanceof RepaFault) throw error;
-    const message = errorText(error);
-    const code = error instanceof Error && "code" in error ? error.code : undefined;
-    const where = error instanceof Error ? location(error, root) : undefined;
-    // reason 说明是哪一类问题，advice 说明怎样改，放在 Node 的原话和出错位置之后。
-    let reason = "入口导入失败";
-    let advice: string | undefined;
-    if (code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX") {
-      reason = "用了需要转换的 TypeScript 写法";
-      advice = "Node 只去掉类型标注，不转换代码，enum、namespace、构造函数的参数属性等要改成普通的 JavaScript 写法";
-    } else if (code === "ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING") {
-      reason = "从 node_modules 里导入了 .ts 文件";
-      advice = "Node 不剥离 node_modules 里文件的类型";
-    } else if (error instanceof SyntaxError && message.includes("does not provide an export named")) {
-      // 链接阶段的错误，V8 也报为 SyntaxError。最常见的成因是没有写 type 修饰导入了只是类型的名字，类型剥离把它留成了值导入。
-      reason = "导入了模块没有导出的名字";
-      advice = "只是类型的名字要写 import type，例如 import type { Tool } from \"@repa/base/plugin\"";
-    } else if (error instanceof SyntaxError) {
-      reason = "有语法错误";
-    } else if (npmPackage && code === "ERR_MODULE_NOT_FOUND") {
-      advice = "插件文件夹的根目录有 package.json 或位于 node_modules 下，按 npm 包加载，依赖要由包管理器安装；不经构建的插件文件夹不放 package.json";
-    }
-    const text = [`插件 ${id} ${reason}：${message}`, where, advice].filter((line) => line !== undefined).join("\n");
-    throw new RepaFault("plugin_import_failed", text, { id, cause: message });
+    throw importFault(id, root, error, { npmPackage });
   }
+}
+
+/**
+ * 导入插件模块时 Node 给出的错误换成说得清原因的 RepaFault：Node 的原话、出错的文件与位置、怎样改。
+ * 位置从 stack 开头读出；stack 默认取错误自己的。
+ */
+export function importFault(id: string, root: string, error: unknown, options: { npmPackage?: boolean; stack?: string } = {}): RepaFault {
+  const { npmPackage = false } = options;
+  const message = errorText(error);
+  const code = error instanceof Error && "code" in error ? error.code : undefined;
+  const where = error instanceof Error ? location(error.name, options.stack ?? error.stack ?? "", root) : undefined;
+  // reason 说明是哪一类问题，advice 说明怎样改，放在 Node 的原话和出错位置之后。
+  let reason = "入口导入失败";
+  let advice: string | undefined;
+  if (code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX") {
+    reason = "用了需要转换的 TypeScript 写法";
+    advice = "Node 只去掉类型标注，不转换代码，enum、namespace、构造函数的参数属性等要改成普通的 JavaScript 写法";
+  } else if (code === "ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING") {
+    reason = "从 node_modules 里导入了 .ts 文件";
+    advice = "Node 不剥离 node_modules 里文件的类型";
+  } else if (error instanceof SyntaxError && message.includes("does not provide an export named")) {
+    // 链接阶段的错误，V8 也报为 SyntaxError。最常见的成因是没有写 type 修饰导入了只是类型的名字，类型剥离把它留成了值导入。
+    reason = "导入了模块没有导出的名字";
+    advice = "只是类型的名字要写 import type，例如 import type { Tool } from \"@repa/base/plugin\"";
+  } else if (error instanceof SyntaxError) {
+    reason = "有语法错误";
+  } else if (npmPackage && code === "ERR_MODULE_NOT_FOUND") {
+    advice = "插件文件夹的根目录有 package.json 或位于 node_modules 下，按 npm 包加载，依赖要由包管理器安装；不经构建的插件文件夹不放 package.json";
+  }
+  const text = [`插件 ${id} ${reason}：${message}`, where, advice].filter((line) => line !== undefined).join("\n");
+  return new RepaFault("plugin_import_failed", text, { id, cause: message });
 }
 
 // 出错的文件、行号、那一行源码和指向出错处的标记，Node 放在 stack 开头、错误名那一行之前，message 里没有。
 // 语法错误和链接错误都是这样，前者在标记后另有一个空行。文件可能写成路径，也可能写成 file: URL。
-function location(error: Error, root: string): string | undefined {
-  const lines = (error.stack ?? "").split("\n");
+function location(name: string, stack: string, root: string): string | undefined {
+  const lines = stack.split("\n");
   const head = /^(?<name>\S.*):(?<line>\d+)$/.exec(lines[0] ?? "")?.groups;
-  const end = lines.findIndex((line) => line.startsWith(error.name));
+  const end = lines.findIndex((line) => line.startsWith(name));
   if (head?.name === undefined || head.line === undefined || end < 2) return undefined;
   const file = head.name.startsWith("file:") ? fileURLToPath(head.name) : head.name;
   const shown = within(root, file) ? path.relative(root, file).split(path.sep).join("/") : file;

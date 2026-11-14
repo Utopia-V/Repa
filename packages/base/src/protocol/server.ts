@@ -92,6 +92,8 @@ type PendingData =
   | { kind: "service"; service: string };
 
 interface ActiveSpace {
+  /** 空间的这一次打开，在进程内不重复；plugin.call 带上它，后端据此拒绝组成于另一次打开的调用。 */
+  opening: string;
   space: Space;
   plugins: PluginHost;
   agent: AgentSpace;
@@ -343,7 +345,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
   const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
     if (stopping) throw new RepaFault("closed", "服务正在关闭");
     const resolved = path.resolve(root);
-    if (active?.space.root === resolved && !create) return { root: resolved, plugins: await active.control.list() };
+    if (active?.space.root === resolved && !create) return { root: resolved, opening: active.opening, plugins: await active.control.list() };
     await closeActive();
     // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
     const space = await (create ? createSpace : openSpace)(resolved, { fileQueue: withFileMutationQueue, ...git });
@@ -445,9 +447,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         },
       });
       const list = await spaceControl.list();
-      active = { space, plugins, agent, backups, control: spaceControl };
+      const opening = randomUUID();
+      active = { opening, space, plugins, agent, backups, control: spaceControl };
       backups.start();
-      return { root: space.root, plugins: list };
+      return { root: space.root, opening, plugins: list };
     } catch (error) {
       await stopOwners({ agent, plugins });
       await control?.close();
@@ -588,8 +591,11 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return requireActive().control.unload(p<"plugin.unload">().id);
       case "plugin.call": {
         const input = p<"plugin.call">();
+        const current = requireActive();
+        // 调用是对着某一次打开的空间组成的；空间此后关闭或切换，就不交给现在这个空间里同名的插件。同一次打开里插件换了版本，交给现在的实例。
+        if (input.opening !== current.opening) throw new RepaFault("space_switched", "空间已经关闭或切换，这次插件调用属于此前打开的空间，没有进行", { pluginId: input.pluginId });
         // 交给插件的是副本，插件改动它不会影响这个连接的路由。
-        return requireActive().plugins.call(input.pluginId, input.method, input.input, { capabilities: structuredClone(peer.capabilities) });
+        return current.plugins.call(input.pluginId, input.method, input.input, { capabilities: structuredClone(peer.capabilities) });
       }
       case "prompt.list":
         return (await requireActive().agent.preview(p<"prompt.list">().agent)).sections;
@@ -750,7 +756,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             version: PROTOCOL_VERSION,
             serverId,
             baseline: {
-              space: active === undefined ? null : { root: active.space.root },
+              space: active === undefined ? null : { root: active.space.root, opening: active.opening },
               sessions: active?.agent.baseline() ?? [],
               plugins: active === undefined ? [] : active.control.current(),
             },

@@ -9,10 +9,11 @@ import type { PluginInfo, PluginLoadFromSchema } from "../protocol.js";
 import { errorText, RepaFault, type Confirmation, type PluginApproval } from "../schema.js";
 import { SerialQueue } from "../storage.js";
 import { readEnablement, withLoaded, withUnloaded, writeEnablement } from "./enablement.js";
-import { loadPlugin, readPluginFolder, type PluginManifest } from "./manifest.js";
+import { loadPlugin, readPluginFolder, type PluginFolder } from "./manifest.js";
 import { linkInPluginFolder, listPlugins, pluginFolderOf, type NotRunning } from "./plugin-list.js";
 import { checkSnapshot, folderHashes, publishSnapshot, snapshotDirectory, stageFolder, type StagedFolder } from "./snapshots.js";
 import type { SpacePlugins } from "./space-plugins.js";
+import { checkSyntax } from "./syntax-check.js";
 
 // 模块加载时的空上下文。导入、写记录、撤下与加上都在这里进行：插件顶层代码和它此后发起的写入不继承发起加载的那次运行。
 const detached = AsyncLocalStorage.snapshot();
@@ -84,10 +85,11 @@ async function changes(home: string, root: string, id: string, recorded: string 
 }
 
 /** 读清单并核对 id 与文件夹名相同。只读清单，不执行代码。 */
-async function expectId(directory: string, id: string): Promise<PluginManifest> {
-  const { manifest } = await readPluginFolder(directory);
+async function expectId(directory: string, id: string): Promise<PluginFolder> {
+  const folder = await readPluginFolder(directory);
+  const { manifest } = folder;
   if (manifest.id !== id) throw new RepaFault("plugin_id_mismatch", `插件文件夹 ${id} 里清单的 id 是 ${manifest.id}，两者要相同`, { id, manifest: manifest.id });
-  return manifest;
+  return folder;
 }
 
 /** 交给调用方的错误：插件自己抛出的值和文件系统的错误换成带错误码的 RepaFault，列表里的原因据此给出。 */
@@ -117,7 +119,7 @@ function until<T>(work: Promise<T>, signal: AbortSignal | undefined, onStop: () 
 
 /**
  * 建立一个空间的装卸入口。装卸以插件为单位：同一个插件同时只有一次装卸，另一次立即以 plugin_busy 失败；
- * 全空间排队的只有启用记录的读出、修改、写回。加载的步骤：复制插件文件夹并读清单（不执行代码）；需要时请求批准；
+ * 全空间排队的只有启用记录的读出、修改、写回。加载的步骤：复制插件文件夹并读清单（不执行代码）；需要批准时先查语法（也不执行代码），再请求批准；
  * 发布快照并核对、导入；替换时撤下旧实例，等它的 close() 返回；写启用记录；加上新实例。批准以后的步骤在运行的上下文之外执行。
  * 导入、等 close()、打开都可能因插件代码一直不返回，运行停止时调用随之结束；停不掉的导入或打开留在后台，
  * 它结束以前这个插件仍算在装卸中，结束以后列表随之更新。卸载撤下实例（不等 close()）、写启用记录。
@@ -184,8 +186,10 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
     return done;
   }
 
-  /** 加载前的准备：确定目标版本，需要批准时带回暂存副本和展示的内容。失败时抛错，什么都没有改变。 */
-  async function prepare(id: string, from: LoadFrom): Promise<{ digest: string; staged?: StagedFolder; approval?: PluginApproval }> {
+  /**
+   * 加载前的准备：确定目标版本，需要批准时带回暂存副本、展示的内容和暂存副本里读出的入口。失败时抛错，什么都没有改变。
+   */
+  async function prepare(id: string, from: LoadFrom): Promise<{ digest: string; staged?: StagedFolder; approval?: PluginApproval; folder?: PluginFolder }> {
     const record = await readEnablement(dataDir);
     const entry = record.plugins[id];
     if (from === "previous") {
@@ -214,7 +218,8 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
       if (from === "recorded" && staged.digest !== entry?.digest) {
         throw new RepaFault("snapshot_missing", `插件 ${id} 记录的版本在本机没有快照，文件夹的内容也已不同；要运行文件夹现在的内容，用 from: folder`, { id });
       }
-      const manifest = await expectId(staged.directory, id);
+      const folder = await expectId(staged.directory, id);
+      const { manifest } = folder;
       // 同一份内容本机已经批准过：快照在而且完好，不再询问。
       if ((await checkSnapshot(home, root, id, staged.digest)) === "ok") {
         await remove(staged.directory);
@@ -223,6 +228,7 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
       return {
         digest: staged.digest,
         staged,
+        folder,
         approval: {
           id,
           ...(manifest.title === undefined ? {} : { title: manifest.title }),
@@ -313,10 +319,15 @@ export function createPluginControl(options: PluginControlOptions): PluginContro
       // 运行停止时留在后台的导入或打开；它结束以后这个插件才能再装卸。
       let leftover: Promise<unknown> | undefined;
       try {
-        const { digest, staged, approval } = await prepare(id, from);
+        const { digest, staged, approval, folder } = await prepare(id, from);
         try {
           // 完全访问模式下不再询问，无论是 Agent 提出的还是使用者在列表里的操作。
-          if (approval !== undefined && !options.fullAccess()) await approve(approval, origin);
+          if (approval !== undefined && !options.fullAccess()) {
+            // 先查语法，不执行代码：有语法错误就当场交回，不为一份导入必然失败的内容请求批准。
+            const fault = folder === undefined ? undefined : await checkSyntax(id, folder.root, folder.entry);
+            if (fault !== undefined) throw fault;
+            await approve(approval, origin);
+          }
         } catch (error) {
           if (staged !== undefined) await remove(staged.directory).catch(options.onError);
           throw error;

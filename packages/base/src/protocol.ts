@@ -36,7 +36,8 @@ import {
 export * from "./schema.js";
 export * from "./interaction.js";
 // 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。读取时忽略未知字段；只有旧版会读错的语义变化才升版本。
-// 开发阶段版本不变：插件列表 PluginInfo 取代 disabledPlugins 与 plugin.disabled；新增 plugin.load、plugin.unload、plugin.updated 与确认种类 plugin。
+// 开发阶段版本不变：插件列表 PluginInfo 取代 disabledPlugins 与 plugin.disabled；新增 plugin.load、plugin.unload、plugin.updated 与确认种类 plugin；
+// space.open/create 的结果与初始化基线的 space 带上 opening，plugin.call 必须带上它。
 /** 当前前后端协议版本；连接初始化时用于拒绝无法正确理解的协议。 */
 export const PROTOCOL_VERSION = "3";
 
@@ -107,7 +108,9 @@ export const PluginInfoSchema = object({
 export type PluginInfo = Static<typeof PluginInfoSchema>;
 /** 加载取哪个版本：插件文件夹当前的内容、启用记录里的版本、上一次选定的版本。 */
 export const PluginLoadFromSchema = Type.Union([Type.Literal("folder"), Type.Literal("recorded"), Type.Literal("previous")]);
-const openedSpace = object({ root: identifier, plugins: Type.Array(PluginInfoSchema) });
+/** 空间的一次打开：后端每打开一次空间给出一个在进程内不重复的标识，同一空间重新打开也换新的；plugin.call 带上它。 */
+const opening = identifier;
+const openedSpace = object({ root: identifier, opening, plugins: Type.Array(PluginInfoSchema) });
 
 /** 重接时投影会话当前运行和排队消息的 schema，不加载盘上空闲会话。 */
 export const SessionBaselineSchema = object({
@@ -123,7 +126,7 @@ export const SessionBaselineSchema = object({
 export type SessionBaseline = Static<typeof SessionBaselineSchema>;
 /** 连接初始化时返回的空间、会话和插件列表基线，用于恢复前端状态。 */
 export const BaselineSchema = object({
-  space: Type.Union([object({ root: identifier }), Type.Null()]),
+  space: Type.Union([object({ root: identifier, opening }), Type.Null()]),
   sessions: Type.Array(SessionBaselineSchema),
   plugins: Type.Array(PluginInfoSchema),
 });
@@ -168,7 +171,8 @@ export const methods = {
   "plugin.load": { params: object({ id: pluginId, from: Type.Optional(PluginLoadFromSchema) }), result: PluginInfoSchema },
   // 卸载一个自写插件：撤下实例，启用记录改为未启用。返回卸载以后的这一项。
   "plugin.unload": { params: object({ id: pluginId }), result: PluginInfoSchema },
-  "plugin.call": { params: object({ pluginId: identifier, method: identifier, input: Type.Unknown() }), result: Type.Unknown() },
+  // 调用一个插件方法。opening 是调用方看到的那一次空间打开（space.open/create 的结果或初始化基线）；空间此后关闭或切换时以 space_switched 拒绝。
+  "plugin.call": { params: object({ pluginId: identifier, method: identifier, input: Type.Unknown(), opening }), result: Type.Unknown() },
   "prompt.list": { params: agent, result: Type.Array(PromptSectionSchema) },
   "prompt.set": { params: object({ scope, id: identifier, override: PromptOverrideSchema }), result: nothing },
   "prompt.reset": { params: object({ scope, id: identifier }), result: nothing },

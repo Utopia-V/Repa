@@ -36,16 +36,11 @@ export function listText(plugins: PluginInfo[]): string {
   }).join("\n");
 }
 
+// 随底座附带的写插件 Skill，见 skills/plugin-authoring/SKILL.md；写法只在那里写一份，这里只指过去。
+const AUTHORING_SKILL = "plugin-authoring";
+
 const DESCRIPTION = `管理这个空间的自写插件：list 列出插件及状态，load 加载，unload 卸载。
-
-插件文件夹放在 .agents/plugins/<id>/，文件夹名就是插件 id（小写字母开头，只含小写字母、数字和连字符）。里面有：
-- repa-plugin.json：{"id": "<id>", "version": "0.1.0", "entry": "index.ts"}，可加 "title"。
-- 入口模块（.ts、.js 或 .mjs，只用 ES 模块）：export default { id: "<id>", async open(host) { return { tools: () => [...], instructions: () => "...", close: async () => {} }; } }。
-  工具是 { name, description, parameters, execute(input, context) }，execute 返回 { text }；parameters 用 Type 声明，例如 Type.Object({})。
-- 模块顶层只定义代码；打开文件、启动定时器、联网放在 open 里，并在 close 里收回。数据写在 host.space.dataDir 里。
-- 只能导入 Node 内置模块、文件夹内自己的文件（写出真实的扩展名，例如 ./lib.ts）和 "@repa/base/plugin"（提供 Type 与 RepaFault；只是类型的名字用 import type）。
-- .ts 文件只去掉类型标注，不能用 enum、namespace 等需要转换的写法。不需要构建，也不放 package.json。
-
+插件文件夹在 .agents/plugins/<id>/，文件夹名就是插件 id。写或改插件之前先读 Skill ${AUTHORING_SKILL}，那里有文件夹的写法、模板和常见报错。
 load 把文件夹当前的内容复制一份，通常要使用者批准，然后导入并打开；这次调用就是结果：成功时插件已生效，列出它的工具和说明，下一次回复就能调用这些工具；失败时给出原因，改好以后再 load。
 插件已在运行时，load 用新内容替换它。from 为 previous 时让上一次选定的版本重新生效，为 recorded 时让启用记录里的版本重新生效。
 unload 卸载插件，它的工具从下一次回复起不再出现；文件夹和数据都保留。`;

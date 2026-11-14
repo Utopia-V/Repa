@@ -313,7 +313,7 @@ test("服务请求交给声明了它的连接：发起连接自己声明时优�
   const owner = await f.connect({ ...FULL, services: ["python.run"] });
   const provider = await f.connect({ services: ["python.run"] });
   const plain = await f.connect(FULL);
-  await plain.call("space.open", { root: f.root });
+  const { opening } = await plain.call("space.open", { root: f.root });
   const served: string[] = [];
   for (const [name, client] of [["owner", owner], ["provider", provider]] as const) {
     client.on("service.request", ({ id, service, input }) => {
@@ -323,8 +323,8 @@ test("服务请求交给声明了它的连接：发起连接自己声明时优�
     });
   }
   plain.on("service.request", () => served.push("plain"));
-  assert.deepEqual(await plain.call("plugin.call", { pluginId: "checkin", method: "run", input: { code: "print(1)" } }), { stdout: "provider:{\"code\":\"print(1)\"}" });
-  assert.deepEqual(await owner.call("plugin.call", { pluginId: "checkin", method: "run", input: { code: "print(2)" } }), { stdout: "owner:{\"code\":\"print(2)\"}" });
+  assert.deepEqual(await plain.call("plugin.call", { pluginId: "checkin", method: "run", input: { code: "print(1)" }, opening }), { stdout: "provider:{\"code\":\"print(1)\"}" });
+  assert.deepEqual(await owner.call("plugin.call", { pluginId: "checkin", method: "run", input: { code: "print(2)" }, opening }), { stdout: "owner:{\"code\":\"print(2)\"}" });
   assert.deepEqual(served, ["provider", "owner"]);
   // Agent 的工具在运行里调用服务，同样交给提供方。
   const session = await plain.call("session.create", {});
@@ -336,8 +336,8 @@ test("服务请求交给声明了它的连接：发起连接自己声明时优�
 test("服务请求在调用方中止、提供方断线和空间关闭时收尾，没有提供方时报 service_unavailable", async t => {
   const f = await fixture(t);
   const plain = await f.connect(FULL);
-  await plain.call("space.open", { root: f.root });
-  const run = () => plain.call("plugin.call", { pluginId: "checkin", method: "run", input: { code: "while True: pass" } });
+  const { opening } = await plain.call("space.open", { root: f.root });
+  const run = () => plain.call("plugin.call", { pluginId: "checkin", method: "run", input: { code: "while True: pass" }, opening });
   await assert.rejects(run(), rejectsWith("service_unavailable", { service: "python.run" }));
 
   const provider = await f.connect({ services: ["python.run"] });
@@ -345,7 +345,7 @@ test("服务请求在调用方中止、提供方断线和空间关闭时收尾�
   const aborted = assert.rejects(run(), rejectsWith("service_cancelled", { service: "python.run", reason: "aborted" }));
   const first = await requested;
   const stopped = next(provider, "service.closed");
-  await plain.call("plugin.call", { pluginId: "checkin", method: "stop", input: {} });
+  await plain.call("plugin.call", { pluginId: "checkin", method: "stop", input: {}, opening });
   assert.deepEqual(await stopped, { id: first.id, reason: "aborted" });
   await aborted;
   await assert.rejects(provider.call("service.reply", { id: first.id, result: null }), rejectsWith("service_request_not_found"));
@@ -377,12 +377,12 @@ test("插件方法收到调用方的能力声明，声明的结果 schema 拦下
   const f = await fixture(t);
   const declared: ClientCapabilities = { ...FULL, services: ["python.run"] };
   const client = await f.connect(declared);
-  await client.call("space.open", { root: f.root });
-  assert.deepEqual(await client.call("plugin.call", { pluginId: "checkin", method: "inspect", input: {} }), { capabilities: declared });
+  const { opening } = await client.call("space.open", { root: f.root });
+  assert.deepEqual(await client.call("plugin.call", { pluginId: "checkin", method: "inspect", input: {}, opening }), { capabilities: declared });
   const bare = await f.connect();
-  assert.deepEqual(await bare.call("plugin.call", { pluginId: "checkin", method: "inspect", input: {} }), { capabilities: {} });
-  await assert.rejects(client.call("plugin.call", { pluginId: "checkin", method: "leak", input: {} }), rejectsWith("invalid_plugin_result", { pluginId: "checkin", methodName: "leak" }));
-  const served = await client.call("plugin.call", { pluginId: "checkin", method: "serve", input: {} });
+  assert.deepEqual(await bare.call("plugin.call", { pluginId: "checkin", method: "inspect", input: {}, opening }), { capabilities: {} });
+  await assert.rejects(client.call("plugin.call", { pluginId: "checkin", method: "leak", input: {}, opening }), rejectsWith("invalid_plugin_result", { pluginId: "checkin", methodName: "leak" }));
+  const served = await client.call("plugin.call", { pluginId: "checkin", method: "serve", input: {}, opening });
   assert.equal(Value.Check(object({ item: ItemSchema }), served), true);
 });
 

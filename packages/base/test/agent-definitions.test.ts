@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -116,6 +117,7 @@ function viewTexts(context: TranscriptContext): string[] {
 // 通用 Agent 能起子 Agent 后再次生成：工具声明在 ask_user 之前多了 subagent，可以起 general 和插件声明的 tutor；
 // 工具段的清单相应多了“、subagent”。其余系统段、工具和消息与上一份相同。
 // 底座去掉学习用途后又生成一次：ask_user 的说明换成中性的写法，参数去掉 purpose，其余不变。
+// 底座附带写插件的 Skill 以后又生成一次：Skill 段列出 plugin-authoring，其余不变。
 // 工具段加上“看东西用专门的工具、bash 只用于运行程序”一句后再次生成，只有工具段的这一句不同。
 test("通用 Agent 的首个请求与固定样本逐字相同，插件声明的 Agent 只出现在 subagent 工具里", async t => {
   const f = await runtimeFixture(t, { tools: () => [courseLookup] });
@@ -125,10 +127,12 @@ test("通用 Agent 的首个请求与固定样本逐字相同，插件声明的 
   f.respond("回答");
   await session.send("你好");
   // 系统段写本机路径，Pi 的 cwd 段把反斜杠换成 /；Windows 上两种写法不同，都换成 <root>。
+  // 底座附带的 Skill 写的是包内 SKILL.md 的绝对路径，各系统的分隔符不同，整段换成 <skills>/...。
   const roots = [f.root, f.root.replaceAll("\\", "/")];
+  const skill = path.join(fileURLToPath(new URL("../skills", import.meta.url)), "plugin-authoring", "SKILL.md");
   const actual: unknown = JSON.parse(JSON.stringify(f.captures[0]?.messages), (key, value: unknown) => {
     if (key === "timestamp") return undefined;
-    return typeof value === "string" ? roots.reduce((text, root) => text.replaceAll(root, "<root>"), value) : value;
+    return typeof value === "string" ? roots.reduce((text, root) => text.replaceAll(root, "<root>"), value.replaceAll(skill, "<skills>/plugin-authoring/SKILL.md")) : value;
   });
   const expected: unknown = JSON.parse(await readFile(new URL("fixtures/general-agent-request.json", import.meta.url), "utf8"));
   assert.deepEqual(actual, expected);
@@ -284,7 +288,7 @@ test("插件在后台运行不可直接对话的 Agent，前端能查看会话�
     fauxAssistantMessage(fauxToolCall("write", { path: "lessons/second.md", content: "第二课" })),
     fauxAssistantMessage("第二课已写好"),
   ]);
-  const { id } = record(await f.client.call("plugin.call", { pluginId: "learning", method: "write", input: {} })) ?? {};
+  const { id } = record(await f.client.call("plugin.call", { pluginId: "learning", method: "write", input: {}, opening: f.opened.opening })) ?? {};
   assert.equal(typeof id, "string");
   const sessionId = String(id);
   assert.equal(await readFile(path.join(f.root, "lessons", "second.md"), "utf8"), "第二课");
@@ -397,7 +401,7 @@ test("插件数据打开失败经协议报告，其他插件、通用对话和�
   assert.deepEqual(notRunning((await f.client.call("space.open", { root: f.root })).plugins), disabled);
   assert.deepEqual(running(await f.client.call("plugin.list", {})), ["learning"]);
   assert.ok((await f.client.call("agent.list", {})).some((agent) => agent.id === "tutor"));
-  await assert.rejects(f.client.call("plugin.call", { pluginId: "broken", method: "save", input: {} }), rejectsWith("plugin_not_found"));
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "broken", method: "save", input: {}, opening: f.opened.opening }), rejectsWith("plugin_not_found"));
   const session = await f.client.call("session.create", {});
   f.faux.setResponses([fauxAssistantMessage("继续工作。")]);
   await f.client.call("session.send", { sessionId: session.id, text: "一个插件坏了，也继续对话" });
@@ -428,7 +432,7 @@ test("插件第一次处理变化就失败时，只停它和依赖它的插件�
   assert.equal(notRunning(f.opened.plugins).find((plugin) => plugin.id === "derive")?.reason?.message, "派生数据读不出来");
   assert.deepEqual(notRunning(await f.client.call("plugin.list", {})), notRunning(f.opened.plugins));
   assert.deepEqual(running(await f.client.call("plugin.list", {})), ["learning"]);
-  await assert.rejects(f.client.call("plugin.call", { pluginId: "derive", method: "inspect", input: {} }), rejectsWith("plugin_not_found"));
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "derive", method: "inspect", input: {}, opening: f.opened.opening }), rejectsWith("plugin_not_found"));
   assert.deepEqual((await f.client.call("agent.list", {})).map((agent) => agent.id), ["general", "tutor", "writer"]);
   await assert.rejects(f.client.call("session.create", { agent: "deriver" }), rejectsWith("agent_not_found"));
   const preview = await f.client.call("prompt.preview", {});
@@ -470,7 +474,7 @@ test("插件抛出转不成文字的值：open 与第一次变化处理只停用
   });
   assert.deepEqual(notRunning(f.opened.plugins).map(({ id, reason }) => [id, reason?.code]), [["opaque-change", "plugin_open_failed"], ["opaque-open", "plugin_open_failed"]]);
   assert.deepEqual(running(await f.client.call("plugin.list", {})), ["learning", "opaque-method"]);
-  await assert.rejects(f.client.call("plugin.call", { pluginId: "opaque-method", method: "fail", input: {} }), (error: unknown) => {
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "opaque-method", method: "fail", input: {}, opening: f.opened.opening }), (error: unknown) => {
     assert.ok(error instanceof RpcError);
     assert.equal(error.code, -32603);
     return true;
