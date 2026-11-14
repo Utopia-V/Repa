@@ -30,7 +30,7 @@ import { credentialValues } from "../feedback/redact.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { limitToolText } from "./output.js";
 import { isModelCall, modelCall } from "./model-call.js";
-import { readParent, saveParent } from "./parent.js";
+import { readParent, saveParent, withDescendants } from "./parent.js";
 import { readOnlyCommand } from "./read-only-command.js";
 import { findSessionPath } from "./session-files.js";
 import { addSessionUsage, emptyUsage } from "./usage.js";
@@ -618,15 +618,17 @@ class Space implements AgentSpace {
     this.assertOpen();
     const total = emptyUsage();
     const models = this.runtime.options.modelRuntime;
-    for (const id of new Set(ids)) {
+    // 子 Agent 的会话是另一个会话，它的请求也是起它的会话花的。
+    for (const id of await withDescendants(this.options.sessionsDir, ids)) {
       // 打开着的会话读内存里的条目，运行中刚写下的请求也算上；其余从会话文件读，包括插件模型调用的短会话。
+      // Pi 在会话有了第一条助手消息时才写会话文件；没有文件的会话（例如还没收到回答就被取消、关闭）没有记下请求，按零计。
       const loaded = this.sessions.get(id);
       let entries;
       if (loaded) {
         entries = (await loaded.ready).entries();
       } else {
         const file = await findSessionPath(this.options.sessionsDir, id);
-        if (file === undefined) throw new RepaFault("session_not_found", "会话不存在", { id });
+        if (file === undefined) continue;
         entries = SessionManager.open(file, this.options.sessionsDir, this.options.root).getEntries();
       }
       addSessionUsage(total, entries, (provider, model) => models.getModel(provider, model));

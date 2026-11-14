@@ -7,7 +7,7 @@ export interface RepaProcessOptions {
   home?: string;
   /** 本机插件文件夹，按顺序传给 --plugin。 */
   plugins?: string[];
-  /** 为 false 时关掉通用 Agent（--no-general-agent），学习者版本使用。 */
+  /** 为 false 时关掉通用 Agent（--no-general-agent）。 */
   generalAgent?: boolean;
   /** 空间历史用的 Git 程序的绝对路径，传给 --git；安装包带上 git 时使用。 */
   gitPath?: string;

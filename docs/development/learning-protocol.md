@@ -97,7 +97,7 @@ if (state.ok) renderLearning(state.value);
 
 空间里有 `course/` 文件夹而还没有换用过一门通过检查的课，或换用的课打不开时，插件照常打开，但没有可学的课：`state.get` 返回 `course`、`task`、`menu` 都为 `null`，`tutorAllowed` 与 `referenceContentAllowed` 为 false，进度的 XP 与 topic 数为零；`progress.get` 同样给出零进度，导出照常可用，其余方法以 `course_unavailable` 拒绝，辅导会话的 `session.send` 报 `message_rejected`，details 的 `reason` 为 `course_unavailable`。做课的 Agent 用 `course_use` 换用以后，后端发出 `learning.changed`，重新查询即可看到这门课。课程从哪里来、换用的规则见[学习记录说明](learning-records.md#课程来源与模型)。
 
-学习者有做到一半的任务时，只有这项任务涉及的 topic 和判分运行时在新的一版里一字不差，`course_use` 才换用（只增不改，例如后台展开了后面的部分）；这时新的一版重放出同一项任务，题面、阶段与交付不变，`state.course.version` 可以变。任务涉及的内容改了就不换。换用以后发出 `learning.changed` 与 `building.changed`。
+学习者有做到一半的任务时，只有新的一版只增不改，`course_use` 才换用：判分运行时相同，旧版里每个展开了的 topic 在新版里一字不差，轮廓可以展开、修改或删去，也可以加新的 topic（例如后台展开了后面的部分）。这时新的一版重放出同一项任务，题面、阶段与交付不变，`state.course.version` 可以变。改了展开过的部分就不换：除了任务本身的 topic，学过的部分改了答案也会使旧作答重判，先修可能不再算学过，进行中的任务随之失去资格。换用以后发出 `learning.changed` 与 `building.changed`。
 
 ### 做课的状态
 
@@ -105,8 +105,8 @@ if (state.ok) renderLearning(state.value);
 
 - `course` 为 `null`：还没有可学的课。否则 `parts` 按课程清单的顺序列出各部分（topic）：`title`、一句话的 `summary`、在材料里的出处 `sources`（来源标题、`file` 或 `url`、`where`），以及 `status`：`outline` 只有轮廓，`ready` 已展开、可以学，`learned` 学过。全部是 `outline` 时只有轮廓。
 - `expansion` 是正在后台展开的部分：`topicIds`、`startedAt`，以及那次后台运行的会话 `sessionId`（还没建立时为 `null`）；没有展开在进行时为 `null`。
-- `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `start_failed`（没能开始，例如没有通用 Agent 或没有可用模型）、`run_failed`（运行出错）、`cancelled`（被取消，或上次应用关闭时还在进行）、`not_expanded`（运行结束了而这几部分仍是轮廓），`message` 是底层报错的原文，界面文字由前端按 `code` 书写。
-- `cost` 是做这门课的会话（调用过 `course_check`、`course_use` 的会话与后台展开的会话）到现在的累计用量，字段同底座的 `session.usage`：`requests`、全部 token `usage`、按模型目录单价折算的 `cost`（美元），以及没有单价的那部分 token `unpriced`。
+- `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `failed`（没能开始或运行出错，例如没有可用模型、模型请求报错，`message` 是底层报错的原文）、`cancelled`（被学习者取消，或应用在展开中途关闭）、`not_expanded`（运行结束了而这几部分仍是轮廓），界面文字由前端按 `code` 书写。
+- `cost` 是做这门课的会话（调用过 `course_check`、`course_use` 的会话与后台展开的会话，连同它们起的子 Agent）到现在的累计用量，字段同底座的 `session.usage`：`requests`、全部 token `usage`、按模型目录单价折算的 `cost`（美元），以及没有单价的那部分 token `unpriced`。
 
 `building.expand` 立即在后台展开：`topicIds` 省略时为课程顺序里最前面的两个轮廓部分。它不看自动展开的设置，返回展开开始以后的状态。`building.cancel` 取消正在进行的展开，等它停下再返回。`settings.get` 与 `settings.set` 读写学习插件的设置，目前只有 `autoExpand`（缺省为真）：为真时，已经展开过一段、学习者学到已展开部分只剩一节没学而后面还有轮廓时，插件在后台展开接下来的部分。
 

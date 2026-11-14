@@ -97,7 +97,7 @@
       "id": "learning-settings",
       "files": ["<空间>/.repa/plugins/learning/settings.json"],
       "owner": "@repa/learning",
-      "schema": "packages/learning/src/course-building.ts#SettingsFileSchema",
+      "schema": "packages/learning/src/protocol.ts#LearningSettingsSchema",
       "versionedBy": "<空间>/.repa/plugins/learning/format.json"
     },
     {

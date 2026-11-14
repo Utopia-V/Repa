@@ -12,10 +12,10 @@ import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./cou
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
 import { emptyProgress } from "./progress.js";
-import { learningMethods, type CourseBuilding, type LearningInput, type LearningState } from "./protocol.js";
+import { learningMethods, type BuildingEvent, type CourseBuilding, type LearningInput, type LearningState } from "./protocol.js";
 import { LearningRecords, RECORDS_FILE } from "./records.js";
 import { LearningSession } from "./session.js";
-import { CHECKS, CourseStore, hasSpaceCourse, keepsTask, readSpaceCourse, SPACE_COURSE } from "./space-course.js";
+import { CHECKS, CourseStore, hasSpaceCourse, onlyAdds, readSpaceCourse, SPACE_COURSE } from "./space-course.js";
 import { visibleLearningResponse } from "./submission-visibility.js";
 import { connectTutor, TUTOR_AGENT, TUTOR_TOOLS, tutorAgent, type Tutor, type TutorHooks } from "./tutor.js";
 
@@ -190,7 +190,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   }
 
   /**
-   * 换用检查过的这一份。学习者有做到一半的任务时，只有任务涉及的内容在新的一版里没有变（只增不改）才换，否则不换。
+   * 换用检查过的这一份。学习者有做到一半的任务时，只有新的一版只增不改（已展开的部分一字不差）才换，否则不换。
    * 旧会话先退下：等它在途的判分写完，再按新的一份打开，新会话读到这些判分，按改过的答案该重判的照常重判；
    * 进行中的任务从同样的记录和同样的内容重放出来，照常继续。
    */
@@ -198,8 +198,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     return exclusive(async () => {
       if (current.kind === "ready" && current.space === id) return "unchanged";
       if (current.kind === "ready") {
-        const topics = await taskTopics(current.session);
-        if (topics !== undefined && !keepsTask(current.course, await read(), topics)) return "busy";
+        if (await taskTopics(current.session) !== undefined && !onlyAdds(current.course, await read())) return "busy";
       }
       await keep();
       if (current.kind === "ready") await retire(current);
@@ -256,15 +255,8 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     saving = next.catch(() => undefined);
     return next;
   }
-  // 上次应用关掉时还在进行的展开已经停了：如实记为取消。
-  if (record.last && record.last.endedAt === undefined) {
-    record.last.endedAt = host.now();
-    record.last.failure = { code: "cancelled" };
-    await save();
-  }
-
   function announceBuilding(): void {
-    host.emit({ type: "building.changed" });
+    host.emit({ type: "building.changed" } satisfies BuildingEvent);
   }
 
   /** 插件自己发起、不属于任何方法调用的工作；关闭时等它们结束。 */
@@ -276,7 +268,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     void settled.finally(() => background.delete(settled));
   }
 
-  /** 正在后台进行的展开；同一时刻只有一次。 */
+  /** 正在后台进行的展开；同一时刻只有一次。cancelled：在拿到运行的句柄之前就被要求取消。 */
   interface Expansion {
     topicIds: string[];
     startedAt: number;
@@ -313,7 +305,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         try {
           work = await host.models.runAgent({ text: expansionTask(ready.course, topicIds, [...learned]) });
         } catch (error) {
-          failure = { code: "start_failed", message: errorText(error) };
+          failure = { code: "failed", message: errorText(error) };
           return;
         }
         entry.work = work;
@@ -325,13 +317,8 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         try {
           await work.result;
         } catch (error) {
-          const cancelled = entry.cancelled || (error instanceof RepaFault && error.code === "cancelled");
-          failure = { code: cancelled ? "cancelled" : "run_failed", message: errorText(error) };
-          return;
-        }
-        // 取消以后 Pi 的运行可能照常结束，不报错；学习者取消的就记为取消。
-        if (entry.cancelled) {
-          failure = { code: "cancelled" };
+          // 取消过的运行（学习者取消，或应用关闭时宿主取消）以 cancelled 拒绝。
+          failure = error instanceof RepaFault && error.code === "cancelled" ? { code: "cancelled" } : { code: "failed", message: errorText(error) };
           return;
         }
         const now = current;
@@ -411,10 +398,14 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     };
   }
 
-  /** 学习者明确要求展开：不看自动展开的设置，也不受“每个学过数只试一次”的限制。 */
+  /**
+   * 学习者明确要求展开：不看自动展开的设置，也不受“每个学过数只试一次”的限制。
+   * 先读完学过的部分，此后到开始展开之间不再等待，两次同时到达的要求只有一次能开始。
+   */
   async function requestExpansion(input: LearningInput<"building.expand">): Promise<CourseBuilding> {
+    const learned = current.kind === "ready" ? await learnedTopics(current.session) : undefined;
     const ready = current;
-    if (ready.kind !== "ready" || ready.space === undefined) throw new RepaFault("course_unavailable", "空间里还没有换用过一门自制的课");
+    if (ready.kind !== "ready" || ready.space === undefined || learned === undefined) throw new RepaFault("course_unavailable", "空间里还没有换用过一门自制的课");
     if (expansion) throw new RepaFault("expansion_running", "已经有一次展开在进行", { topicIds: expansion.topicIds });
     if (host.models.defaultModel() === undefined) throw new RepaFault("model_required", "请选择可用模型");
     const outline = outlineTopics(ready.course);
@@ -422,7 +413,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     const unknown = topicIds.filter((id) => !outline.includes(id));
     if (unknown.length > 0) throw new RepaFault("not_outline", "这些部分不在课里，或已经展开了", { topicIds: unknown });
     if (topicIds.length === 0) throw new RepaFault("nothing_to_expand", "课里已经没有轮廓部分");
-    expand(ready, topicIds, await learnedTopics(ready.session));
+    expand(ready, topicIds, learned);
     return buildingState();
   }
 

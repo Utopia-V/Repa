@@ -170,14 +170,11 @@ async function readCopy(directory: string): Promise<ResolvedCourse> {
 }
 
 /**
- * 换用新的一版会不会打乱学习者进行中的任务：同一门课（id 相同），判分运行时相同，任务涉及的每个 topic 在两版里一字不差。
- * 任务的题、讲解和判分都只取自这几个 topic 与运行时，它们不变，新的一版重放出来的就是同一个任务。
+ * 新的一版相对旧的一版只增不改：同一门课（id 相同），判分运行时相同，旧版里每个展开了的 topic 在新版里一字不差；
+ * 轮廓可以展开、修改或删去，也可以加新的 topic。学习者进行中的任务只取决于展开了的部分：任务本身的 topic，
+ * 以及此前学过的部分（作答按它们重判，决定先修算不算学过、这项任务还有没有资格）。它们不变，新的一版重放出来的就是同一个任务。
  */
-export function keepsTask(before: ResolvedCourse, after: ResolvedCourse, topicIds: readonly string[]): boolean {
+export function onlyAdds(before: ResolvedCourse, after: ResolvedCourse): boolean {
   if (before.course.id !== after.course.id || !isDeepStrictEqual(before.course.runtime, after.course.runtime)) return false;
-  return topicIds.every((id) => {
-    const old = before.topics.find((topic) => topic.id === id);
-    const next = after.topics.find((topic) => topic.id === id);
-    return old !== undefined && isDeepStrictEqual(old, next);
-  });
+  return before.topics.every((old) => old.status !== "complete" || isDeepStrictEqual(old, after.topics.find((topic) => topic.id === old.id)));
 }

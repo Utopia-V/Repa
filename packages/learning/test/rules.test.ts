@@ -328,7 +328,7 @@ test("有 verify 或代码题的课没写 runtime 时报出；题型标签可以
   assert.deepEqual(codes((await structuralCheck(t, labelled)).diagnostics), []);
 });
 
-test("数值作答位只列进 manual 时检查不过，报错写明改用 verify；答案是题面里照抄的数时可以列进 manual", async (t) => {
+test("数值作答位只列进 manual 时检查不过，报错写明改用 verify；match 写成 text、不写 format 或答案等于题面里的数都不例外", async (t) => {
   const demo = demoCourse();
   const question = kp(demo, 0).practice?.[0];
   assert.ok(question && question.slots[0]?.type === "text");
@@ -338,8 +338,17 @@ test("数值作答位只列进 manual 时检查不过，报错写明改用 verif
   assert.deepEqual(codes(result.diagnostics), ["numeric_manual"]);
   assert.match(result.diagnostics[0]?.message ?? "", /写一段 verify 程序把它算出来（最后写 answers = \{"output": 算出的数\}），再把 output 从 manual 里去掉/u);
 
-  // 题面里写着“至少为 3”，要填的阈值就是 3：照抄的常数，没有计算。
-  question.body = "负责人说：保留 count 至少为 3 的记录。筛选条件里的阈值填几？";
+  // 先来先服务里 P2 的等待时间恰好等于题面写着的 P1 运行时间，答案仍是算出来的。
+  question.body = "P1 运行 5 毫秒、P2 运行 7 毫秒，同时到达。按先来先服务，P2 的等待时间是多少毫秒？";
+  question.slots = [{ id: "output", type: "text", format: "integer", key: 5 }];
+  assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), ["numeric_manual"]);
+  // 按文字比较而答案是数：format 写了 number 而 match 写成 text，或者干脆不写 format。
+  question.slots = [{ id: "output", type: "text", format: "number", match: "text", key: "8.5" }];
+  assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), ["numeric_manual"]);
+  question.slots = [{ id: "output", type: "text", key: ["8.5", "8.50"] }];
+  assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), ["numeric_manual"]);
+  // 文字答案照常可以列进 manual。
+  question.slots = [{ id: "output", type: "text", match: "text", key: ["就绪", "就绪态"] }];
   assert.deepEqual(codes((await structuralCheck(t, demo)).diagnostics), []);
 });
 

@@ -40,24 +40,18 @@ export function usesPython(topics: readonly Topic[]): boolean {
   return topics.some((topic) => topicQuestions(topic).some(({ question }) => runsInPython(question)));
 }
 
-/** 题面与作答位提示里直接写出的数。 */
-function writtenNumbers(question: Question): Set<number> {
-  const texts = [question.body, ...question.slots.map((slot) => slot.prompt)].flatMap((input) => (input === undefined ? [] : toContent(input).content))
-    .flatMap((block) => ("text" in block && typeof block.text === "string" ? [block.text] : []));
-  return new Set(texts.flatMap((text) => [...text.matchAll(/-?\d+(?:\.\d+)?/gu)].map((match) => Number(match[0]))));
-}
-
 /**
- * 答案要计算的数值作答位：按数比较（format 或 match 为 integer、number），而且标准答案不全是题面里直接写着的数。
- * 照抄题面里常数的答案（例如“至少为 10”的阈值填 10）没有计算，列进 manual 不会算错；其余的数值答案要由 verify 算出，
- * 此前一次试做里模型手算的数值答案五处全错。
+ * 答案是数的作答位：按数比较（format 或 match 为 integer、number），或者按文字比较而标准答案全是数。
+ * 这样的答案要由 verify 算出，不能只列进 manual：此前一次试做里模型手算的数值答案五处全错。照抄题面里常数的答案也一样写 verify，
+ * 规则不按题面猜哪些数不用算。
  */
-export function computedNumber(question: Question, slot: SlotDef): boolean {
+export function numericSlot(slot: SlotDef): boolean {
   if (slot.type !== "text") return false;
   const match = textMatch(slot);
-  if (match !== "integer" && match !== "number") return false;
-  const written = writtenNumbers(question);
-  return !acceptedValues(slot).every((value) => typeof value === "number" && written.has(value));
+  if (match === "integer" || match === "number" || slot.format === "integer" || slot.format === "number") return true;
+  const keys = acceptedValues(slot);
+  return match === "text" && keys.length > 0
+    && keys.every((value) => typeof value === "number" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))));
 }
 
 /** 有标准答案、由程序判分的作答位。 */
@@ -281,11 +275,11 @@ class TopicChecker {
         this.error("manual_unknown", `manual 里的 ${id} 不是这道题的作答位`, [...at, "manual", index]);
       } else if (!slotNeedsVerification(slot)) {
         this.error("manual_needless", `${id} 由测试或评分要点负责，不用列进 manual`, [...at, "manual", index]);
-      } else if (computedNumber(question, slot)) {
+      } else if (numericSlot(slot)) {
         this.error(
           "numeric_manual",
           `作答位 ${id} 的答案是数，不能只列进 manual：写一段 verify 程序把它算出来（最后写 answers = {"${id}": 算出的数}），再把 ${id} 从 manual 里去掉。`
-            + "只有题面里直接写着的数（照抄的常数）才可以列进 manual",
+            + "照抄题面里的常数也写成 verify",
           [...at, "manual", index],
         );
       }

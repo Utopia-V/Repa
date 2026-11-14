@@ -367,13 +367,13 @@ export const PartSourceSchema = object({
   where: Type.String(),
 });
 /**
- * 后台展开没有成功的原因：start_failed 没能开始（例如没有通用 Agent 或没有可用模型），run_failed 运行出错，
- * cancelled 被取消或应用关闭，not_expanded 运行结束了而这几部分仍是轮廓（没有通过检查或没有换用）。message 是底层的报错原文。
+ * 后台展开没有成功的原因：failed 没能开始或运行出错（message 是底层的报错原文），cancelled 被学习者取消或应用在展开中途关闭，
+ * not_expanded 运行结束了而这几部分仍是轮廓（没有通过检查或没有换用）。
  */
 export const ExpansionFailureSchema = object({
   topicIds: Type.Array(identifier),
   at: timestamp,
-  code: Type.Enum(["start_failed", "run_failed", "cancelled", "not_expanded"]),
+  code: Type.Enum(["failed", "cancelled", "not_expanded"]),
   message: Type.Optional(Type.String()),
 });
 /**
@@ -402,6 +402,8 @@ export const LearningSettingsSchema = object({ autoExpand: Type.Boolean() });
 export type LearningSettings = Static<typeof LearningSettingsSchema>;
 /** 做课的状态变了：开始或结束一次展开、换用了新的一版、记下了做课的会话；前端收到后重新读取 building.get。 */
 export const BuildingEventSchema = object({ type: Type.Literal("building.changed") });
+/** building.changed 事件。 */
+export type BuildingEvent = Static<typeof BuildingEventSchema>;
 
 const guard = { taskId: identifier, expectedStage: TaskStageSchema, expectedRevision: count };
 const submission = object({ submissionId: identifier });

@@ -149,6 +149,7 @@ export interface AgentDefinition {
 /** 宿主持有的 Agent 任务句柄，插件用它等待终态或提前取消。 */
 export interface AgentWork {
   id: string;
+  /** 运行结束时兑现；运行出错时拒绝。经 Host.models 取得的句柄被取消过（插件取消或宿主关闭）时以 cancelled 拒绝。 */
   result: Promise<void>;
   cancel(): Promise<void>;
 }
@@ -158,6 +159,7 @@ export interface AgentWork {
 export interface Models {
   complete(request: CompletionRequest): Promise<string>;
   completeStructured<S extends TSchema>(request: CompletionRequest, schema: S): Promise<Static<S>>;
+  /** 后台任务不属于任何连接：要确认的命令被拒绝，ask_user 交回不可用，任务不会等人作答。 */
   runAgent(task: AgentTask): Promise<AgentWork>;
   /**
    * 请求不指定模型时会用哪个模型；没有可用模型时为 undefined，这时不指定模型的请求以 model_required 拒绝。
@@ -165,8 +167,8 @@ export interface Models {
    */
   defaultModel(): ModelRef | undefined;
   /**
-   * 这些会话到现在累计的模型用量与金额，会话编号可以来自 runAgent 的句柄或工具调用时的 currentRun()。
-   * 同一编号只算一次；没有这个会话时以 session_not_found 拒绝。只读会话记录，不发起工作。
+   * 这些会话（连同它们起的子 Agent 的会话）到现在累计的模型用量与金额，会话编号可以来自 runAgent 的句柄或工具调用时的 currentRun()。
+   * 同一编号只算一次；没有会话文件的会话（还没有收到过回答）按零计。只读会话记录，不发起工作。
    */
   usage(sessionIds: readonly string[]): Promise<SessionUsage>;
 }

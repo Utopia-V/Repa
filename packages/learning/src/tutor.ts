@@ -169,8 +169,8 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
     find(pages, ref);
     return { openedAt: session.clock() };
   }));
-  // 工具与前端方法共用授权（access），只是给模型写成分行文字：不带前端的字段与编号，也不分页，
-  // 过长时由底座省略中间、保存全文，模型用 read 按行续取。
+  // 工具与前端方法共用授权（access），只是给模型写成分行文字：不带前端的字段与编号。
+  // 辅导没有 read，长文字不交给底座截断，按行分批交回（tutor-text.ts 的 pagedText），模型带上 line 接着读。
   const tools: Tool[] = [
     {
       ...TUTOR_TOOLS[0],

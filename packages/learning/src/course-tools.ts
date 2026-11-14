@@ -91,7 +91,7 @@ export function courseTools(actions: CourseActions): Tool[] {
     {
       name: "course_use",
       description: `检查空间里 ${SPACE_COURSE}/ 的课，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。`
-        + "学习者正在做的任务用到的部分改了也不换。",
+        + "学习者正在做一项任务时，这一版改了展开过的部分也不换。",
       parameters: UseParametersSchema,
       async execute(raw) {
         parse(UseParametersSchema, raw);
@@ -104,10 +104,10 @@ export function courseTools(actions: CourseActions): Tool[] {
         const head = {
           unchanged: "这一版与学习者正在学的相同，没有变化。",
           switched: "已换用：学习者现在学的是这一版。",
-          busy: "检查通过，但没有换用：学习者正在做的任务（课、复习或测验）用到的部分在这一版里改了，换用会打乱它。"
-            + "等他做完再运行 course_use；只增加部分、不改他正在学的部分时，可以立即换用。",
+          busy: "检查通过，但没有换用：学习者正在做一项任务（课、复习或测验），而这一版改了展开过的部分，换用会打乱它。"
+            + "等他做完再运行 course_use；只展开轮廓、增加部分而不改展开过的部分时，可以立即换用。",
         }[outcome];
-        return { text: `${head}\n${checkText(checked)}` };
+        return { text: `${head}\n${checkText(checked)}\n\n学习者现在学的：${await actions.status()}` };
       },
     },
   ];

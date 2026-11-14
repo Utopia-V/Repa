@@ -307,7 +307,7 @@ test("学习者上课到一半时 course_use 不换用；重开空间仍是这�
     for (const question of pool(topic, 0, "practice")) question.body = `${String(question.body)}（改过）`;
   });
   const used = await f.tool("course_use");
-  assert.match(used.text, /^检查通过，但没有换用：学习者正在做的任务（课、复习或测验）用到的部分在这一版里改了/u);
+  assert.match(used.text, /^检查通过，但没有换用：学习者正在做一项任务（课、复习或测验），而这一版改了展开过的部分/u);
 
   for (const reopen of [false, true]) {
     if (reopen) await f.reopen();

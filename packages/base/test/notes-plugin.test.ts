@@ -102,7 +102,9 @@ test("示例关闭先取消后台工作，再等工作终态与事件处理完�
     work.finish();
   }
   await closing;
-  assert.ok(hasEvent(events, "organizeFinished"));
+  // 取消过的工作即使随后照常结束，结果也以 cancelled 拒绝，示例据此发出 organizeFailed。
+  assert.ok(hasEvent(events, "organizeFailed"));
+  assert.equal(hasEvent(events, "organizeFinished"), false);
 });
 
 test("子插件拒绝通过空间内部链接写到自己的目录之外", async (t) => {
@@ -199,6 +201,7 @@ test("笔记插件作为子插件提前关闭，主动取消整理工作并等�
   assert.deepEqual(testing.host.list().map((plugin) => plugin.id), ["container"]);
   work.finish();
   await closingChild;
-  assert.ok(hasEvent(testing.events, "organizeFinished"));
+  assert.ok(hasEvent(testing.events, "organizeFailed"));
+  assert.equal(hasEvent(testing.events, "organizeFinished"), false);
   assert.equal(await testing.host.call("container", "inspect", {}), "父插件仍然可用");
 });

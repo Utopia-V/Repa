@@ -1,6 +1,6 @@
 /**
  * 做课的记录与设置：哪些会话在做这门课（花费按它们汇总），最近一次后台展开，以及要不要自动展开。
- * 两份都是插件数据目录里的小 JSON，先写临时文件再改名。正在进行的展开只在内存里：应用关掉时它被取消，记录随之写明。
+ * 两份都是插件数据目录里的小 JSON，先写临时文件再改名。正在进行的展开只在内存里：应用关掉时宿主取消它，记录随之写明。
  */
 
 import path from "node:path";
@@ -12,7 +12,7 @@ import { Type, type Static } from "typebox";
 
 import { COURSE_GUIDE } from "./course-tools.js";
 import type { ResolvedCourse } from "./course-sources.js";
-import { ExpansionFailureSchema, type LearningSettings } from "./protocol.js";
+import { ExpansionFailureSchema, LearningSettingsSchema, type LearningSettings } from "./protocol.js";
 import { SPACE_COURSE } from "./space-course.js";
 
 /** 数据目录里的做课记录。 */
@@ -26,7 +26,7 @@ export const EXPANSION_SIZE = 2;
 const time = Type.Integer({ minimum: 0 });
 /**
  * building.json：sessions 是做过这门课的会话；last 是最近一次后台展开：要展开的部分、开始时学习者学过几个 topic（自动展开每个学过数只试一次）、
- * 会话、结束时间与没有成功的原因。没有 endedAt 就是上次应用关掉时它还在进行。
+ * 会话、结束时间与没有成功的原因。没有 endedAt：应用在展开中途崩溃，没来得及写下结局，不另补记。
  */
 export const BuildingRecordSchema = object({
   sessions: Type.Array(identifier),
@@ -41,8 +41,6 @@ export const BuildingRecordSchema = object({
 });
 /** 做课记录。 */
 export type BuildingRecord = Static<typeof BuildingRecordSchema>;
-/** settings.json：学习插件的设置。缺省自动展开。 */
-export const SettingsFileSchema = object({ autoExpand: Type.Boolean() });
 
 async function readJson(file: string): Promise<unknown> {
   try {
@@ -59,7 +57,7 @@ export async function openBuilding(dataDir: string): Promise<{ record: BuildingR
   const settings = await readJson(path.join(dataDir, SETTINGS_FILE));
   return {
     record: record === undefined ? { sessions: [] } : parse(BuildingRecordSchema, record),
-    settings: settings === undefined ? { autoExpand: true } : parse(SettingsFileSchema, settings),
+    settings: settings === undefined ? { autoExpand: true } : parse(LearningSettingsSchema, settings),
   };
 }
 

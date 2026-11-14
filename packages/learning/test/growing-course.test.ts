@@ -10,7 +10,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type FauxResponseStep, type TranscriptContext,
+  fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentTools, type FauxResponseFactory, type FauxResponseStep, type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { startServer } from "@repa/base";
@@ -98,6 +98,14 @@ function sameUsage(actual: SessionUsage, expected: SessionUsage) {
 }
 
 const write = (file: string, content: string) => fauxToolCall("write", { path: file, content });
+
+/** 一直挂着、只在请求被中止时才结束的模型回答：用来确认取消确实停下了运行，而不是等它自己结束。 */
+const hang: FauxResponseFactory = async (_context, options) => {
+  const signal = options?.signal;
+  assert.ok(signal);
+  if (!signal.aborted) await new Promise((resolve) => { signal.addEventListener("abort", resolve, { once: true }); });
+  return fauxAssistantMessage("", { stopReason: "aborted" });
+};
 
 interface FixtureOptions {
   /** faux 模型的单价；省略时为 PRICE。 */
@@ -204,10 +212,11 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
     faux.appendResponses(steps);
     await client.call("session.send", { sessionId, text });
   }
-  /** 全部会话（含后台展开的）的用量之和。 */
+  /** 全部会话（含后台展开的）的用量之和。一个会话的用量已含它起的子 Agent，所以只加没有父会话的。 */
   async function totalUsage(): Promise<SessionUsage> {
     const total: SessionUsage = { requests: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, unpriced: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
     for (const session of await client.call("session.list", {})) {
+      if (session.parent !== undefined) continue;
       const one = await client.call("session.usage", { sessionId: session.id });
       total.requests += one.requests;
       total.cost += one.cost;
@@ -430,7 +439,7 @@ test("后台展开失败如实记下原因，学习照常，不自动重试；�
   await f.select("os01");
   let shown = await f.until((state) => state.lastFailure !== null);
   assert.equal(shown.expansion, null);
-  assert.deepEqual(shown.lastFailure && { ...shown.lastFailure, at: 0 }, { topicIds: ["os02", "os03"], at: 0, code: "run_failed", message: "服务暂时不可用" });
+  assert.deepEqual(shown.lastFailure && { ...shown.lastFailure, at: 0 }, { topicIds: ["os02", "os03"], at: 0, code: "failed", message: "服务暂时不可用" });
   const calls = f.faux.state.callCount;
 
   // 学习照常：上完这一节；之间的调用都不再自动展开，因为学过的部分还没有变。
@@ -441,12 +450,8 @@ test("后台展开失败如实记下原因，学习照常，不自动重试；�
   assert.equal(f.faux.state.callCount, calls);
   assert.equal((await f.client.call("session.list", {})).length, before);
 
-  // 学习者要求先做第二部分：这次展开挂住，学习者照常把课上完、问辅导，然后取消它。
-  const gate = deferred();
-  f.faux.appendResponses([async () => {
-    await gate.promise;
-    return fauxAssistantMessage("不会走到这里");
-  }]);
+  // 学习者要求先做第二部分：这次展开挂住，学习者照常把课上完、问辅导，然后取消它。挂住的请求只在被中止时结束。
+  f.faux.appendResponses([hang]);
   shown = await f.call("building.expand", { topicIds: ["os02"] });
   assert.deepEqual(shown.expansion?.topicIds, ["os02"]);
   await assert.rejects(f.call("building.expand", {}), fault("expansion_running"));
@@ -455,9 +460,7 @@ test("后台展开失败如实记下原因，学习照常，不自动重试；�
   const tutor = await f.client.call("session.create", { agent: TUTOR_AGENT });
   f.faux.appendResponses([fauxAssistantMessage("这节讲的是进程状态。")]);
   await f.client.call("session.send", { sessionId: tutor.id, text: "这节讲了什么？" });
-  const cancelling = f.call("building.cancel", {});
-  gate.resolve();
-  shown = await cancelling;
+  shown = await f.call("building.cancel", {});
   assert.equal(shown.expansion, null);
   assert.equal(shown.lastFailure?.code, "cancelled");
   assert.deepEqual(shown.parts.map((part) => part.status), ["learned", "outline", "outline"]);
@@ -522,7 +525,7 @@ test("学习者正在学的 topic 在新的一版里改了：course_use 不换�
       return fauxAssistantMessage("等学习者做完再换。");
     },
   ]);
-  assert.match(used, /^检查通过，但没有换用：学习者正在做的任务/u);
+  assert.match(used, /^检查通过，但没有换用：学习者正在做一项任务/u);
   const after = await f.state();
   assert.equal(after.course?.version, "1.0.0");
   assert.deepEqual(after.task, before.task);
@@ -550,4 +553,127 @@ test("辅导读不到空间里的课程文件：工具里没有 read，模型要
   assert.deepEqual(tools, ["learning_read", "learning_search", "learning_task"]);
   assert.doesNotMatch(result, /key:|manual/u);
   assert.match(result, /read/u);
+});
+
+test("学习者在上第二节时，新的一版改了学过的第一节的答案：course_use 不换用，进行中的课照常作答", async (t) => {
+  const f = await fixture(t);
+  await f.call("settings.set", { autoExpand: false });
+  const chatId = await outlineThenFirst(f);
+  await f.select("os01");
+  await f.finish();
+  let used = "";
+  await f.chat(chatId, "展开第二节", [
+    fauxAssistantMessage([write("course/topics/os02.yaml", await complete("os02", "进程控制块", ["os01"], "第 5–9 张"))]),
+    fauxAssistantMessage([fauxToolCall("course_use", {})]),
+    (context) => {
+      used = lastToolResult(context);
+      return fauxAssistantMessage("第二节可以学了。");
+    },
+  ]);
+  assert.match(used, /^已换用/u);
+  await f.select("os02");
+  const before = await f.toAnswer();
+  assert.equal(before.progress.completedTopics, 1);
+
+  // 只改学过的 os01 里一道已答题的答案，os02 一字不动：旧作答会按新答案重判，os01 可能不再算学过，os02 的课就失去资格。
+  const changed = (await complete("os01", "进程状态", [], "第 1–4 张")).replace("key: [运行, 运行态]", "key: [就绪, 就绪态]");
+  await f.chat(chatId, "第一节有道题答案写错了", [
+    fauxAssistantMessage([write("course/topics/os01.yaml", changed), write("course/course.yaml", manifest("1.2.0", ["os01", "os02", "os03"]))]),
+    fauxAssistantMessage([fauxToolCall("course_use", {})]),
+    (context) => {
+      used = lastToolResult(context);
+      return fauxAssistantMessage("等学习者做完再换。");
+    },
+  ]);
+  assert.match(used, /^检查通过，但没有换用/u);
+  const after = await f.state();
+  assert.equal(after.course?.version, "1.0.0");
+  assert.deepEqual(after.task, before.task);
+  assert.equal(after.progress.completedTopics, 1);
+  const done = await f.finish();
+  assert.equal(done.task?.phase.stage === "completed" && done.task.phase.outcome, "passed");
+});
+
+test("后台展开不属于学习者的连接：要确认的命令被拒绝、提问交回不可用，前端收不到确认和提问，展开照常结束", async (t) => {
+  const f = await fixture(t);
+  await f.call("settings.set", { autoExpand: false });
+  await outlineThenFirst(f);
+  const requests: string[] = [];
+  f.client.on("confirm.request", () => requests.push("confirm"));
+  f.client.on("ask.request", () => requests.push("ask"));
+  const results: string[] = [];
+  f.faux.appendResponses([
+    fauxAssistantMessage([fauxToolCall("bash", { command: "echo 写 > course/written.txt" })]),
+    (context) => {
+      results.push(lastToolResult(context));
+      return fauxAssistantMessage([fauxToolCall("ask_user", { questions: [{ question: "先展开哪一节？", input: "text" }] })]);
+    },
+    (context) => {
+      results.push(lastToolResult(context));
+      return fauxAssistantMessage("没有人回答，先不做。");
+    },
+  ]);
+  await f.call("building.expand", {});
+  const shown = await f.until((state) => state.expansion === null);
+  assert.equal(shown.lastFailure?.code, "not_expanded");
+  assert.deepEqual(requests, []);
+  assert.equal(results.length, 2);
+  assert.match(results[0] ?? "", /确认/u);
+  assert.match(results[1] ?? "", /没有可以作答的连接/u);
+  await assert.rejects(readFile(path.join(f.root, "course", "written.txt")));
+});
+
+test("两次展开的要求同时到达：只有一次开始，另一次报 expansion_running", async (t) => {
+  const f = await fixture(t);
+  await f.call("settings.set", { autoExpand: false });
+  await outlineThenFirst(f);
+  f.faux.appendResponses([hang]);
+  const outcomes = await Promise.allSettled([
+    f.call("building.expand", { topicIds: ["os02"] }),
+    f.call("building.expand", { topicIds: ["os03"] }),
+  ]);
+  assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+  const refused = outcomes.find((outcome) => outcome.status === "rejected");
+  assert.ok(refused?.status === "rejected" && fault("expansion_running")(refused.reason));
+  const shown = await f.call("building.cancel", {});
+  assert.equal(shown.lastFailure?.code, "cancelled");
+  assert.equal((await f.client.call("session.list", {})).filter((session) => session.parent === undefined).length, 2);
+});
+
+test("后台展开起了子 Agent：子 Agent 的请求也算进做课的花费，花费等于模型实际收到的请求", async (t) => {
+  const f = await fixture(t);
+  await f.call("settings.set", { autoExpand: false });
+  await outlineThenFirst(f);
+  f.faux.appendResponses([
+    fauxAssistantMessage([fauxToolCall("subagent", { agent: "general", task: "读 materials 里的课件，列出第二、三部分的要点" })]),
+    fauxAssistantMessage("要点：进程控制块、进程调度。"),
+    ...await expansionScript([
+      { id: "os02", title: "进程控制块", prerequisites: ["os01"], where: "第 5–9 张" },
+      { id: "os03", title: "进程调度", prerequisites: ["os02"], where: "第 10–14 张" },
+    ], "1.1.0", ["os01", "os02", "os03"]),
+  ]);
+  await f.call("building.expand", {});
+  const shown = await f.until((state) => state.expansion === null);
+  assert.equal(shown.lastFailure, null);
+  assert.ok((await f.client.call("session.list", {})).some((session) => session.parent !== undefined));
+  assert.equal(shown.cost.requests, f.faux.state.callCount);
+  sameUsage(shown.cost, await f.totalUsage());
+});
+
+test("应用在展开中途关闭：这次展开记为取消，重开以后不重试", async (t) => {
+  const f = await fixture(t);
+  await f.call("settings.set", { autoExpand: false });
+  await outlineThenFirst(f);
+  const requested = deferred();
+  f.faux.appendResponses([(...args) => {
+    requested.resolve();
+    return hang(...args);
+  }]);
+  await f.call("building.expand", {});
+  await requested.promise;
+  await f.reopen();
+  const shown = await f.building();
+  assert.equal(shown.expansion, null);
+  assert.equal(shown.lastFailure?.code, "cancelled");
+  assert.deepEqual(shown.parts.map((part) => part.status), ["ready", "outline", "outline"]);
 });

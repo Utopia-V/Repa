@@ -52,7 +52,7 @@ export interface AgentSpace {
   abortAgent(agent: string): Promise<void>;
   preview(agent?: string): Promise<{ sections: PromptSection[]; views: { id: string; text: string }[] }>;
   runAgent(task: AgentTask): Promise<AgentWork>;
-  /** 这些会话累计的模型用量，按模型目录的单价折算金额；包括插件模型调用的短会话。没有某个会话时以 session_not_found 拒绝。 */
+  /** 这些会话（连同它们起的子 Agent 的会话）累计的模型用量，按模型目录的单价折算金额；包括插件模型调用的短会话。没有会话文件的会话（还没有收到过回答）按零计。 */
   usage(sessionIds: readonly string[]): Promise<SessionUsage>;
   close(): Promise<void>;
 }

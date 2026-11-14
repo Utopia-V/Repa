@@ -44,7 +44,7 @@ Execute a bash command in the current working directory. Returns stdout and stde
 
 来源：learning。
 
-检查空间里 course/ 的课，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。学习者正在做的任务用到的部分改了也不换。
+检查空间里 course/ 的课，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。学习者正在做一项任务时，这一版改了展开过的部分也不换。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |

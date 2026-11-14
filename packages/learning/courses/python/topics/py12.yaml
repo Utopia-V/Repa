@@ -155,7 +155,9 @@ kps:
         可以写成：**从 samples 表中保留 signal 大于或等于 10 的行，只输出 sample_id 一列，保持输入中的原顺序。**
 
         这句话没有擅自排序，也没有改变“至少”的含义。“不低于 10”与“大于或等于 10”说的是同一件事，用自己的话写也可以。
-      manual: [column, operator, threshold, output, order]
+      verify: |
+        answers = {"threshold": 10}
+      manual: [column, operator, output, order]
     practice:
       - id: py12.k1.q1
         kind: [specify]
@@ -203,7 +205,9 @@ kps:
             key: original
         explanation: |
           signal；大于（>）；12；只有 sample_id；原顺序。“严格大于 12”不包含恰好等于 12 的样本，所以不能选“大于或等于”。
-        manual: [column, operator, threshold, output, order]
+        verify: |
+          answers = {"threshold": 12}
+        manual: [column, operator, output, order]
       - id: py12.k1.q2
         kind: [debug]
         body: |
@@ -368,7 +372,9 @@ kps:
             key: original
         explanation: |
           count；大于或等于（≥）；3；只有 site；原顺序。“至少为 3”包含恰好为 3 的记录。
-        manual: [column, operator, threshold, output, order]
+        verify: |
+          answers = {"threshold": 3}
+        manual: [column, operator, output, order]
       - id: py12.k1.x2
         kind: [specify]
         body: |

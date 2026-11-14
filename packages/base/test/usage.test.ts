@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
 import type { AgentSpaceOptions } from "../src/agent.js";
@@ -104,5 +104,38 @@ test("会话的累计用量等于各次请求之和；有单价的按模型目�
   await f.space.close();
   const reopened = await f.runtime.openSpace(f.options);
   check(await reopened.usage([id]), [history]);
-  await assert.rejects(reopened.usage([randomUUID()]), (error: unknown) => error instanceof Error && "code" in error && error.code === "session_not_found");
+  // 没有会话文件（还没收到过回答，或不认识的编号）按零计。
+  assert.equal((await reopened.usage([randomUUID()])).requests, 0);
+  const silent = await reopened.create();
+  await reopened.close();
+  const again = await f.runtime.openSpace(f.options);
+  assert.deepEqual(await again.usage([silent.info().id, id]), await again.usage([id]));
+});
+
+test("一个会话的用量包含它起的子 Agent 的会话，逐层往下；子会话同时列出时只算一次", async (t) => {
+  const f = await fixture(t);
+  const session = await f.space.create();
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("subagent", { agent: "general", task: "读一读" })),
+    fauxAssistantMessage(fauxToolCall("subagent", { agent: "general", task: "再往下读" })),
+    fauxAssistantMessage("孙辈读完了"),
+    fauxAssistantMessage("子辈读完了"),
+    fauxAssistantMessage("都读完了"),
+  ]);
+  await session.send("让子 Agent 去读");
+  const id = session.info().id;
+  const listed = await f.space.list();
+  const child = listed.find((info) => info.parent?.sessionId === id);
+  assert.ok(child);
+  const grandchild = listed.find((info) => info.parent?.sessionId === child.id);
+  assert.ok(grandchild);
+
+  const own = requests(session.history()).length;
+  assert.equal(own, 2);
+  const all = await f.space.usage([id]);
+  assert.equal(all.requests, 5);
+  const listedToo = await f.space.usage([id, child.id, grandchild.id]);
+  assert.deepEqual({ ...listedToo, cost: 0 }, { ...all, cost: 0 });
+  assert.ok(Math.abs(listedToo.cost - all.cost) < 1e-12);
+  assert.equal((await f.space.usage([child.id])).requests, 3);
 });
