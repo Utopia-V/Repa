@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
-import { RepaClient } from "../src/client.js";
+import { RepaClient, RpcError } from "../src/client.js";
 import type { Host, Plugin } from "../src/plugin.js";
+import { record } from "../src/protocol/json-rpc.js";
 import { startServer } from "../src/protocol/server.js";
 import { RepaFault } from "../src/schema.js";
 
@@ -18,10 +19,14 @@ function deferred<T = void>() {
   return { promise, resolve };
 }
 
-/** 插件每次 open 都留下 Host；设上 onChange 时，之后打开的实例在变化处理（含打开空间时的追赶）里调用它。 */
+/**
+ * 插件每次 open 都留下 Host；设上 onChange 时，之后打开的实例在变化处理（含打开空间时的追赶）里调用它；
+ * 设上 closeError 时，实例的 close() 抛出它。
+ */
 interface Probe {
   hosts: Host[];
   onChange?: (host: Host) => Promise<void>;
+  closeError?: Error;
 }
 
 function probePlugin(probe: Probe): Plugin {
@@ -32,6 +37,9 @@ function probePlugin(probe: Probe): Plugin {
       return {
         async onChange() {
           await probe.onChange?.(host);
+        },
+        async close() {
+          if (probe.closeError) throw probe.closeError;
         },
       };
     },
@@ -88,6 +96,12 @@ function cancellableReply(f: Fixture) {
   }]);
   return { waiting: waiting.promise, aborted: aborted.promise, release: () => release.resolve(), state };
 }
+
+const rejectsWith = (code: string) => (error: unknown): boolean => {
+  assert.ok(error instanceof RpcError);
+  assert.equal(record(error.data)?.code, code);
+  return true;
+};
 
 const codeOf = (error: unknown) => error instanceof RepaFault ? error.code : error instanceof Error ? error.message : "unknown";
 
@@ -169,4 +183,33 @@ test("关闭服务时空间正在打开、插件在追赶里持锁等模型：�
   await opening;
   assert.equal(probe, "plugins_closed");
   assert.equal(reply.state.aborted, true);
+});
+
+test("插件的 close 报错不使关闭空间、切换空间失败：空间照常关闭，同一空间能再打开，切换到新空间照常打开", async t => {
+  const f = await fixture(t);
+  await f.client.call("space.open", { root: f.root });
+  f.probe.closeError = new Error("后台写入还没停");
+  assert.equal(await f.client.call("space.close", {}), null);
+  await assert.rejects(f.client.call("plugin.list", {}), rejectsWith("space_not_open"));
+  // 空间锁已经释放，同一空间可以再打开；切换空间时先关旧的，旧空间的插件 close 报错不挡住打开新空间。
+  await f.client.call("space.open", { root: f.root });
+  const other = path.join(f.directory, "other");
+  assert.equal((await f.client.call("space.create", { root: other })).root, other);
+  f.probe.closeError = undefined;
+});
+
+test("关闭空间时释放锁失败：以 space_close_failed 报告，空间已经关闭", async t => {
+  const f = await fixture(t);
+  await f.client.call("space.open", { root: f.root });
+  // 锁目录里多一个文件，释放锁时删不掉目录。
+  const stray = path.join(f.root, ".repa", "lock", "stray");
+  await writeFile(stray, "");
+  await assert.rejects(f.client.call("space.close", {}), (error: unknown) => {
+    rejectsWith("space_close_failed")(error);
+    assert.ok(error instanceof RpcError);
+    assert.match(error.message, /空间已经关闭/u);
+    return true;
+  });
+  await assert.rejects(f.client.call("plugin.list", {}), rejectsWith("space_not_open"));
+  await rm(stray);
 });

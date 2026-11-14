@@ -287,26 +287,45 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
    * 先等完一方再关另一方会互等：插件持有空间写锁等模型请求，Agent 的运行排在这把锁后面，而插件的模型请求要到插件宿主关闭时才取消。
    */
   const stopOwners = (owners: { agent?: AgentSpace; plugins?: PluginHost }) => Promise.allSettled([owners.agent?.close(), owners.plugins?.close()]);
+  /** Agent 空间或插件 close() 报错是它们自己的问题：记进最近错误，不使关闭或切换空间失败。 */
+  const recordOwnerFailures = (results: PromiseSettledResult<unknown>[]) => {
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") return;
+      const reasons: unknown[] = result.reason instanceof AggregateError ? result.reason.errors : [result.reason];
+      for (const reason of reasons) {
+        // 插件宿主把实例的错误包成 plugin_close_failed，原错误在 cause 里，保留插件自己的堆栈。
+        const original = reason instanceof Error && reason.cause instanceof Error ? reason.cause : reason;
+        errors.add({
+          source: index === 0 ? "agent" : "plugin-host",
+          message: errorText(reason),
+          code: reason instanceof RepaFault ? reason.code : index === 0 ? "agent_close_failed" : "plugin_close_failed",
+          ...(original instanceof Error && original.stack !== undefined ? { stack: original.stack } : {}),
+        });
+      }
+    });
+  };
+  /**
+   * 关闭活动空间：Agent 空间与插件宿主一起停下，写入者都停下以后备份最后一次，最后空间落盘并释放锁。
+   * 关闭时的备份在释放空间锁之前完成，上一次使用的改动不必等到下次打开才进入备份。
+   * 备份或落盘、释放锁失败时空间也已经关闭（active 已清，各部分都收过尾），以 space_close_failed 报告出错的步骤。
+   */
   const closeActive = async () => {
     const current = active;
     active = undefined;
     if (!current) return;
     // 登录确认不属于空间；只结束命令确认，以及空间里的询问和服务。
     reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command");
-    const failures: unknown[] = [];
-    for (const result of await stopOwners(current)) {
-      if (result.status === "rejected") failures.push(result.reason);
-    }
-    // 写入者都停下以后备份最后一次；最后空间落盘并释放锁。每个 owner 都取得收尾机会。
-    // 关闭时的备份在释放空间锁之前完成，上一次使用的改动不必等到下次打开才进入备份。
-    for (const close of [() => current.backups.close(), () => current.space.close()]) {
+    recordOwnerFailures(await stopOwners(current));
+    const failures: string[] = [];
+    for (const [step, close] of [["最后一次备份", () => current.backups.close()], ["空间落盘与释放锁", () => current.space.close()]] as const) {
       try {
         await close();
       } catch (error) {
-        failures.push(error);
+        errors.add({ source: "space", message: `关闭空间时${step}失败：${errorText(error)}`, ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
+        failures.push(`${step}失败：${errorText(error)}`);
       }
     }
-    if (failures.length) throw new AggregateError(failures, "关闭空间失败");
+    if (failures.length > 0) throw new RepaFault("space_close_failed", `空间已经关闭，但${failures.join("；")}`, { root: current.space.root });
   };
   const serializeLifecycle = <T>(action: () => Promise<T>): Promise<T> => {
     const result = lifecycle.then(action);

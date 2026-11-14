@@ -507,11 +507,12 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
             failures.push(error);
           }
           closed = true;
-          for (const instance of [...instances.values()].reverse()) {
+          for (const [id, instance] of [...instances].reverse()) {
             try {
               await instance.close?.();
             } catch (error) {
-              failures.push(error);
+              // 写明是哪个插件；原错误放进 cause，记进最近错误时保留插件自己的堆栈。
+              failures.push(Object.assign(new RepaFault("plugin_close_failed", `插件 ${id} 关闭时出错：${errorText(error)}`, { pluginId: id }), { cause: error }));
             }
           }
           if (failures.length > 0) throw new AggregateError(failures, "插件宿主关闭失败");
