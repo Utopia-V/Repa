@@ -97,7 +97,7 @@ if (state.ok) renderLearning(state.value);
 
 空间里有 `course/` 文件夹而还没有换用过一门通过检查的课，或换用的课打不开时，插件照常打开，但没有可学的课：`state.get` 返回 `course`、`task`、`menu` 都为 `null`，`tutorAllowed` 与 `referenceContentAllowed` 为 false，进度的 XP 与 topic 数为零；`progress.get` 同样给出零进度，导出照常可用，其余方法以 `course_unavailable` 拒绝，辅导会话的 `session.send` 报 `message_rejected`，details 的 `reason` 为 `course_unavailable`。做课的 Agent 用 `course_use` 换用以后，后端发出 `learning.changed`，重新查询即可看到这门课。课程从哪里来、换用的规则见[学习记录说明](learning-records.md#课程来源与模型)。
 
-换用发生在学习者没有做到一半的任务时：正在上课、复习或测验时，新的一版等这项任务结束再换上，所以进行中的任务的题面、阶段和 revision 不会因换用而变化。换用以后同样发出 `learning.changed`。
+换用只在学习者没有做到一半的任务时发生：正在上课、复习或测验时，`course_use` 不换用，所以进行中的任务的题面、阶段和 revision 不会因换用而变化。换用以后同样发出 `learning.changed`。
 
 ### 辅导会话
 

@@ -10,7 +10,7 @@
 
 底座按包根目录的 `repa-plugin.json` 加载本插件，插件 id 为 `learning`，入口是构建后的 `dist/plugin.js`。开发时在仓库根目录运行 `npm run dev:learning -- --home /absolute/repa-home`：它先构建库包，再加载本插件启动底座，只开放辅导 Agent `learning-tutor`，见[辅导说明](../../docs/development/learning-tutor.md#agent-与学习产品入口)。
 
-在代码里装配时调用 `createLearningPlugin({ sources, packagesDirectory, connect })`。一个空间学一门课：换用过空间 `course/` 里的课就学它，空间里有 `course/` 而还没有换用过就没有可学的课，都没有时学 `sources` 给出的课程，缺省是随包的 Python 课，见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。`packagesDirectory` 是 `course_check` 运行 Python 核对用的离线包目录；`connect` 换掉教学方法的装配，测试用它取回学习会话，换用课程时为新的会话再调用一次。插件打开时先核对数据目录的格式标记，再读入学习记录、重放出学习状态，见[学习记录说明](../../docs/development/learning-records.md#插件与接入)。
+在代码里装配时调用 `createLearningPlugin({ sources, packagesDirectory, connect })`。一个空间学一门课：换用过空间 `course/` 里的课就学它，空间里有 `course/` 而还没有换用过就没有可学的课（学习者在原来的课里还有做到一半的任务时，先让他做完），都没有时学 `sources` 给出的课程，缺省是随包的 Python 课，见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。`packagesDirectory` 是 `course_check` 运行 Python 核对用的离线包目录；`connect` 换掉教学方法的装配，测试用它取回学习会话，换用课程时为新的会话再调用一次。插件打开时先核对数据目录的格式标记，再读入学习记录、重放出学习状态，见[学习记录说明](../../docs/development/learning-records.md#插件与接入)。
 
 ### 从前端调用
 
@@ -23,9 +23,9 @@
 | 工具 | 作用 |
 | --- | --- |
 | `course_check` | 检查 `course/`：问题逐处写成“文件:行:列 级别 [错误码] 说明”，一页 40 处，末尾写明还有多少、下一页的 `offset`；另写明 Python 核对是否运行、`manual` 作答位有多少没有独立核对，以及学习者现在学的是哪一份 |
-| `course_use` | 检查 `course/`，通过后换用：学习者没有做到一半的任务就当场换，否则等任务结束；没通过时不换，返回第一页问题 |
+| `course_use` | 检查 `course/`，通过而且学习者没有做到一半的任务时换用；学习者正在上课、复习或测验时不换，回复写明，等他做完再调用；没通过时不换，返回第一页问题 |
 
-两项工具都在数据目录的临时副本上检查，写到一半的 `course/` 不会被学习读到；换用的规则见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。
+两项工具都在数据目录的临时副本上检查，写到一半的 `course/` 进不了学习者的课、复习和测验；换用的规则见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。
 
 ### 写课与检查课程
 

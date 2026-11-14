@@ -1,6 +1,6 @@
 # 把课件做成课
 
-学习者把课件放进空间的 `materials/`，要你把它做成一门课。课写在空间的 `course/` 里，`course_check` 检查，`course_use` 让学习者用上。学习页只读最近一次 `course_use` 换用的那一版，你写到一半的文件学习者看不到。
+学习者把课件放进空间的 `materials/`，要你把它做成一门课。课写在空间的 `course/` 里，`course_check` 检查，`course_use` 让学习者用上。学习者的课、复习和测验只用最近一次 `course_use` 换用的那一版，写到一半的文件不会出现在里面。
 
 ## 顺序
 
@@ -10,7 +10,7 @@
 4. 一批一批地做：把几节写成 `status: complete`，运行 `course_check`，按报出的问题逐处改正，直到通过，再运行 `course_use`。
 5. 告诉学习者前面几节可以开始学了，后面的接着做，每做完一批重复第 4 步。
 
-`course_use` 时学习者若正在上课、复习或测验，换用等这项任务做完；`course_use` 的回复会写明。
+`course_use` 时学习者若正在上课、复习或测验，这一次不换用，回复会写明；等他做完再运行一次 `course_use`。
 
 ## 文件
 
@@ -55,22 +55,31 @@ topics: [os01, os02]   # topic id 只用小写字母和数字，字母开头
 
 复习和测验题要由程序判分，所以只用上面这些有标准答案的作答位，不放开放作答。
 
-每个作答位的答案要么由 `verify` 程序算出，要么列进这道题的 `manual`：
+每个作答位的答案要么由 `verify` 程序算出，要么列进这道题的 `manual`。
 
-- **要计算的答案一律写 `verify`，不用自己心算的结果。** 此前的一次试做里，自写的数值题手算答案五处全错，都是靠程序复算才发现的。`verify` 是一段 Python，最后给 `answers` 赋值 `{作答位 id: 算出的答案}`，检查时在沙箱里运行，算出的答案要与 `key` 一致。写了 `verify` 的课，清单要加 `runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }`。例如：
+**要计算的答案一律写 `verify`，不用自己心算的结果。** 此前的一次试做里，自写的数值题手算答案五处全错，都是靠程序复算才发现的。`verify` 是一段 Python，最后给 `answers` 赋值 `{作答位 id: 算出的答案}`，检查时在沙箱里运行，算出的答案要与 `key` 一致。例如：
 
-  ```yaml
-  - id: os03.k1.q1
-    body: 时间片是 20 ms，一个进程要运行 70 ms，它要被调度几次？
-    slots:
-      - { id: n, type: text, format: integer, key: 4 }
-    explanation: 70 除以 20 向上取整是 4。
-    verify: |
-      import math
-      answers = {"n": math.ceil(70 / 20)}
-  ```
+```yaml
+- id: os01.k1.q4
+  body: 时间片是 20 ms，一个进程要运行 70 ms，它要被调度几次？
+  slots:
+    - { id: n, type: text, format: integer, key: 4 }
+  explanation: 70 除以 20 向上取整是 4。
+  verify: |
+    import math
+    answers = {"n": math.ceil(70 / 20)}
+```
 
-- **要记住的内容用选择、填空、排序来考，作答位列进 `manual`**，例如 `manual: [state]`。课件里大约四成知识点是这一类。`manual` 的答案没有程序替你核对，`course_check` 会报出复习和测验题里有多少个，答案要你对照材料确认。
+写了 `verify` 的课，清单要加下面这段 `runtime`，照抄，不改版本号：核对用的 Python 环境就是这一套，版本或包不符时检查不通过。
+
+```yaml
+runtime:
+  pyodide: 314.0.7
+  python: 3.14.2
+  packages: { numpy: 2.4.6, pandas: 3.0.2 }
+```
+
+**要记住的内容用选择、填空、排序来考，作答位列进 `manual`**，例如 `manual: [state]`。课件里大约四成知识点是这一类。`manual` 的答案没有程序替你核对，`course_check` 会报出复习和测验题里有多少个，答案要你对照材料确认。
 
 `kind` 是可选的题型标签，自己定，不影响出题和判分。
 
@@ -83,4 +92,4 @@ topics: [os01, os02]   # topic id 只用小写字母和数字，字母开头
 
 ## 检查
 
-`course_check` 逐处列出问题：文件、行列、错误码和说明，多数说明写了怎样改；问题多时分页，末尾写明下一页的 `offset`。“提醒”不妨碍通过。课里有 `verify` 而这台机器建不了沙箱时，检查不会通过，回复会写明这些核对没有运行。
+`course_check` 逐处列出问题：文件、行列、错误码和说明，多数说明写了怎样改；问题多时分页，末尾写明下一页的 `offset`。“提醒”不妨碍通过。课里有 `verify` 而核对没能运行时（这台机器建不了沙箱，或缺少离线包），检查不会通过，回复写明这些核对没有运行及原因。

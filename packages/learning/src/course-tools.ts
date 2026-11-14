@@ -27,8 +27,8 @@ const UseParametersSchema = object({});
 export interface CourseActions {
   /** 检查 course/；没有 course/ 时为 undefined。 */
   check(): Promise<CourseCheck | undefined>;
-  /** 检查 course/，通过时换用；没有进行中的任务就当场换，否则等任务结束。没有 course/ 时为 undefined。 */
-  use(): Promise<{ checked: CourseCheck; outcome: "unchanged" | "switched" | "deferred" } | undefined>;
+  /** 检查 course/，通过而且学习者没有做到一半的任务时换用。没有 course/ 时为 undefined。 */
+  use(): Promise<{ checked: CourseCheck; outcome: "unchanged" | "busy" | "switched" } | undefined>;
   /** 学习者现在学的是哪一份，一句话。 */
   status(): string;
 }
@@ -103,7 +103,7 @@ export function courseTools(actions: CourseActions): Tool[] {
         const head = {
           unchanged: "这一版与学习者正在学的相同，没有变化。",
           switched: "已换用：学习者现在学的是这一版。",
-          deferred: "检查通过。学习者正在做一项任务，做完以后自动换用这一版；在那之前学的仍是上一版。",
+          busy: "检查通过，但没有换用：学习者正在做一项任务（课、复习或测验），换用会打乱它。等他做完再运行 course_use。",
         }[outcome];
         return { text: `${head}\n${checkText(checked)}` };
       },

@@ -13,7 +13,7 @@ export async function syncDirectory(directory: string, platform: NodeJS.Platform
   }
 }
 
-// 同目录原子替换；文件同步并按平台完成目录同步后才向调用方报告保存成功。
+/** 同目录原子替换写 JSON；文件同步并按平台完成目录同步后才向调用方报告保存成功。 */
 export async function writeJson(file: string, value: unknown): Promise<void> {
   await writeText(file, `${JSON.stringify(value, null, 2)}\n`);
 }

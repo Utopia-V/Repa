@@ -118,6 +118,21 @@ export function progressView(replay: Replay, fold: Fold, course: CourseIndex, no
   };
 }
 
+/** 没有可学的课时的进度：日目标照学习记录，其余为零。 */
+export function emptyProgress(goal: number | undefined, now: number, timeZone: string): LearningProgress {
+  return {
+    day: dayFormat(timeZone).format(now),
+    timeZone,
+    dailyGoalXp: goal ?? DEFAULT_DAILY_GOAL_XP,
+    todayXp: 0,
+    totalXp: 0,
+    completedTopics: 0,
+    totalTopics: 0,
+    completionRate: 0,
+    etaDate: null,
+  };
+}
+
 /** 在常规菜单上加入测验和换题重考。有强制补救时常规菜单只含补救（见 flow-menu.ts），测验和重考等补救做完再给。 */
 export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, course: CourseIndex): LearningMenu {
   if (fold.forced.size) {

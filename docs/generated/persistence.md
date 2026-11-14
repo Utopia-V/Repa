@@ -195,12 +195,11 @@ schema：packages/base/src/plugins/enablement.ts#PluginEnablementSchema；SHA-25
 
 版本标记：<空间>/.repa/plugins/learning/format.json。
 
-schema：packages/learning/src/space-course.ts#CourseChoiceSchema；SHA-256 前 16 位：83b8ecbb45687dd1。
+schema：packages/learning/src/space-course.ts#CourseChoiceSchema；SHA-256 前 16 位：55961a3217710f9c。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | active | string | 是 |  |
-| pending | string | 是 |  |
 
 ## learning-course
 

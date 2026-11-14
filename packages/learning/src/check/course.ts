@@ -5,7 +5,7 @@ import type { RunTests } from "../code-tests.js";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { checkTopicCode, type CodeStats } from "./code.js";
-import { checkReferences } from "./questions.js";
+import { checkReferences, type ConfirmationMode } from "./questions.js";
 import { checkRules, usesPython } from "./rules.js";
 import { topicQuestions } from "./items.js";
 
@@ -24,7 +24,7 @@ export interface CheckOptions {
    * 复习和测验题里 manual 作答位的模型核对记录：required（缺省）缺了就报错，要先运行 course:confirm；
    * reported 只记进 summary.confirmationSlots，不报错，用于应用里做课，那里没有 course:confirm。
    */
-  confirmations?: "required" | "reported";
+  confirmations?: ConfirmationMode;
 }
 
 /** 一次课程检查的统计：topic 与题目数、要模型核对的作答位、代码核对是否运行，以及启动解释器等代价计数。 */
@@ -83,8 +83,8 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     } else if (error instanceof SandboxUnavailable) {
       report.error(
         "sandbox_unavailable",
-        `${error.message}。课里的 verify 核对程序和代码题没能运行，所以没有核对：运行它们需要 Linux 的 Landlock（ABI 4 以上）与 libseccomp。`
-          + "要在这台机器上通过检查，就去掉课里的 verify、代码题和带 tests 的排列题；命令行只检查结构时加 --no-run",
+        `${error.message}。课里的 verify 核对程序和代码题没能运行，所以没有核对。隔离环境建不起来时，是这台机器缺少 Linux 的 Landlock（ABI 4 以上）与 libseccomp；`
+          + "Pyodide 启动失败时，把清单的 runtime 照写课说明改成与随包课程一致的版本和包。命令行只检查结构时加 --no-run",
         loaded.file, ["runtime"],
       );
     } else {

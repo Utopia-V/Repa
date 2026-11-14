@@ -7,8 +7,7 @@ import { COURSE_GUIDE, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
-import { DEFAULT_DAILY_GOAL_XP } from "./parameters.js";
-import { dayFormat } from "./progress.js";
+import { emptyProgress } from "./progress.js";
 import { learningMethods, type LearningState } from "./protocol.js";
 import { LearningRecords, RECORDS_FILE } from "./records.js";
 import { LearningSession } from "./session.js";
@@ -123,29 +122,6 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     }
   }
 
-  const choice = await store.choice();
-  let current: Current;
-  if (choice.active) {
-    current = await buildSpace(choice.active);
-  } else if (await hasSpaceCourse(host.space.root)) {
-    current = { kind: "unready", reason: NOT_BUILT };
-  } else {
-    current = await build(await loadCourseSources(sources, host.files));
-  }
-
-  // 换用要在没有方法调用进行时进行：调用开始时取当前的课，换用等进行中的调用结束，换用期间新的调用等它完成。
-  // 辅导的工具和提问前的判断只读不写学习记录，不必等；也不能等：开始作答的方法会中止辅导，辅导若在等换用就互相等住。
-  let pending = choice.pending !== undefined;
-  let swapping: Promise<void> | undefined;
-  let closing = false;
-  let swapError: string | undefined;
-  const active = new Set<Promise<unknown>>();
-  const background = new Set<Promise<unknown>>();
-  const track = (work: Promise<unknown>) => {
-    background.add(work);
-    void work.finally(() => background.delete(work));
-  };
-
   /** 学习者有做到一半的任务：课、复习或测验开始了还没结束。 */
   function busy(session: LearningSession): Promise<boolean> {
     return session.records.serial(async () => {
@@ -155,54 +131,74 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     });
   }
 
-  /** 有检查通过、等着换用的课，而且学习者没有做到一半的任务时，换用它，再通知前端重新读取状态。 */
-  function applyPending(): Promise<void> {
-    swapping ??= (async () => {
-      try {
-        while (active.size > 0) await Promise.allSettled([...active]);
-        let previous: Ready | undefined;
-        let switched = false;
-        await store.apply(async (id) => {
-          if (closing || (current.kind === "ready" && await busy(current.session))) return false;
-          previous = current.kind === "ready" ? current : undefined;
-          current = await buildSpace(id);
-          switched = true;
-          return true;
-        });
-        pending = (await store.choice()).pending !== undefined;
-        swapError = undefined;
-        if (!switched) return;
-        if (current.kind === "ready") {
-          current.session.announce();
-        } else {
-          host.emit({ type: "learning.changed", revision: records.revision, taskId: null, menuId: null });
-        }
-        // 旧会话等在途判分写完再停止跟随学习记录；两个会话判同一份作答时，后写的一方在串行入口里发现已经判过而不写。
-        if (previous) track(retire(previous));
-      } catch (error) {
-        swapError = error instanceof Error ? error.message : String(error);
-      } finally {
-        swapping = undefined;
-      }
-    })();
-    return swapping;
+  let current: Current;
+  const active = await store.active();
+  if (active) {
+    current = await buildSpace(active);
+  } else {
+    current = await build(await loadCourseSources(sources, host.files));
+    // 空间里有 course/ 而还没有换用过：没有可学的课。学习者在随包的课里还有做到一半的任务时，先让他做完，下次打开再说。
+    if (await hasSpaceCourse(host.files) && !(await busy(current.session))) {
+      await retire(current);
+      current = { kind: "unready", reason: NOT_BUILT };
+    }
   }
 
+  // 换用要在没有方法调用进行时进行：调用开始时取当前的课，换用等进行中的调用结束，换用期间新的调用等它完成。
+  // 否则一次调用可能在“判定学习者不忙”之后按旧课开始任务。辅导的工具和提问前的判断只读不写学习记录，不必等；
+  // 也不能等：开始作答的方法会中止辅导，辅导若在等换用就互相等住。
+  let swapping: Promise<unknown> | undefined;
+  const running = new Set<Promise<unknown>>();
+
   async function use<T>(action: (state: Current) => Promise<T>): Promise<T> {
-    while (swapping) await swapping;
+    while (swapping) await Promise.allSettled([swapping]);
     const work = action(current);
-    active.add(work);
+    running.add(work);
     try {
       return await work;
     } finally {
-      active.delete(work);
-      if (pending && active.size === 0 && !closing) track(applyPending());
+      running.delete(work);
     }
+  }
+
+  async function exclusive<T>(action: () => Promise<T>): Promise<T> {
+    while (swapping) await Promise.allSettled([swapping]);
+    const work = (async () => {
+      while (running.size > 0) await Promise.allSettled([...running]);
+      return action();
+    })();
+    swapping = work;
+    try {
+      return await work;
+    } finally {
+      swapping = undefined;
+    }
+  }
+
+  /**
+   * 学习者没有做到一半的任务时换用检查过的这一份，否则不换。旧会话先退下：等它在途的判分写完，再按新的一份打开，
+   * 新会话读到这些判分，按改过的答案该重判的照常重判。
+   */
+  function switchTo(id: string, keep: () => Promise<void>): Promise<"unchanged" | "busy" | "switched"> {
+    return exclusive(async () => {
+      if (current.kind === "ready" && current.space === id) return "unchanged";
+      if (current.kind === "ready" && await busy(current.session)) return "busy";
+      await keep();
+      if (current.kind === "ready") await retire(current);
+      const next = await buildSpace(id);
+      current = next;
+      await store.activate(id);
+      if (next.kind === "unready") {
+        host.emit({ type: "learning.changed", revision: records.revision, taskId: null, menuId: null });
+        throw new RepaFault("course_switch_failed", `检查通过，但换用出错：${next.reason}`);
+      }
+      next.session.announce();
+      return "switched";
+    });
   }
 
   function unreadyState(): LearningState {
     const now = host.now();
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const goal = records.facts.findLast((fact) => fact.type === "goal");
     return {
       revision: records.revision,
@@ -211,17 +207,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       task: null,
       menu: null,
       restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false },
-      progress: {
-        day: dayFormat(timeZone).format(now),
-        timeZone,
-        dailyGoalXp: goal?.type === "goal" ? goal.xp : DEFAULT_DAILY_GOAL_XP,
-        todayXp: 0,
-        totalXp: 0,
-        completedTopics: 0,
-        totalTopics: 0,
-        completionRate: 0,
-        etaDate: null,
-      },
+      progress: emptyProgress(goal?.type === "goal" ? goal.xp : undefined, now, Intl.DateTimeFormat().resolvedOptions().timeZone),
     };
   }
 
@@ -288,8 +274,6 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       const origin = current.space ? `${SPACE_COURSE}/ 换用过的那一版` : "随包的课程";
       text = `${origin}，课程 ${course.id} ${course.version}，topic ${current.course.topics.length} 个`;
     }
-    if (pending) text += "；检查通过的新一版等学习者做完当前任务再换用";
-    if (swapError) text += `；上一次换用出错：${swapError}`;
     return `${text}。`;
   }
 
@@ -298,21 +282,14 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     ...courseTools({
       async check() {
         const files = await readSpaceCourse(host.files);
-        return files && store.check(files);
+        return files && store.check(files, async (checked) => checked);
       },
       async use() {
         const files = await readSpaceCourse(host.files);
-        if (!files) return undefined;
-        const checked = await store.propose(files);
-        if (!checked.passed) return { checked, outcome: "unchanged" };
-        if ((await store.choice()).pending !== checked.id) return { checked, outcome: "unchanged" };
-        pending = true;
-        while (swapping) await swapping;
-        await applyPending();
-        const after = await store.choice();
-        if (after.pending === checked.id) return { checked, outcome: "deferred" };
-        if (swapError) throw new RepaFault("course_switch_failed", `检查通过，但换用出错：${swapError}`);
-        return { checked, outcome: "switched" };
+        return files && store.check(files, async (checked, keep) => ({
+          checked,
+          outcome: checked.passed ? await switchTo(checked.id, keep) : "unchanged" as const,
+        }));
       },
       status,
     }),
@@ -327,9 +304,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     agents: () => [tutorAgent(() => hooks)],
     methods,
     async close() {
-      closing = true;
-      while (swapping) await swapping;
-      while (background.size > 0) await Promise.allSettled([...background]);
+      while (swapping) await Promise.allSettled([swapping]);
       try {
         if (current.kind === "ready") await retire(current);
       } finally {
