@@ -130,6 +130,8 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
       pluginId: "learning", method, input, opening,
     })) as LearningResult<M>;
   }
+  // 这里的测试只看换用：示例课上完第一节就满足自动展开的条件，后台展开会与测试里通用 Agent 的工具调用抢离线模型的回答，所以关掉。
+  await call("settings.set", { autoExpand: false });
   const state = () => call("state.get", {});
   async function select(topicId: string) {
     const shown = await state();
