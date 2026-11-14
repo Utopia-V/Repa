@@ -68,7 +68,7 @@ npm start -- --home /path/to/repa-home
 npm run dev:backend -- --home /path/to/repa-home
 ```
 
-这两个根入口都会先构建 `@repa/base`，再运行 `serve`。服务只监听本机地址，stdout 输出包含地址与令牌的私密连接信息。`--home`、`--port`、`--plugin`、模型登录与客户端用法见[底座使用说明](packages/base/README.md#怎么用)。
+这两个根入口都会先构建库包，再运行 `serve`，并加载随包的课件转文字插件 [`@repa/materials`](packages/materials/README.md)。服务只监听本机地址，stdout 输出包含地址与令牌的私密连接信息。`--home`、`--port`、`--plugin`、模型登录与客户端用法见[底座使用说明](packages/base/README.md#怎么用)。
 
 日常开发以 `dev` 为基线，任务在各自分支上完成，由维护者审阅合并。验证与阶段交付见[整合规范](docs/development/integration.md)，具体任务由 [GitHub Issues](https://github.com/Utopia-V/repa/issues) 跟踪。
 

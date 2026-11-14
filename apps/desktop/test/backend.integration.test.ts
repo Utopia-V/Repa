@@ -30,7 +30,7 @@ it("Desktop 使用的 Node 宿主拉起新底座，断开客户端后服务由�
   }
 }, 30_000);
 
-it("Desktop 按学习者版本装配后端：加载学习插件，没有通用 Agent", async () => {
+it("Desktop 按学习者版本装配后端：加载学习插件与课件转文字插件，没有通用 Agent", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-desktop-learner-"));
   let backend: RepaProcess | undefined;
   let client: RepaClient | undefined;
@@ -38,7 +38,7 @@ it("Desktop 按学习者版本装配后端：加载学习插件，没有通用 A
     backend = await startRepaProcess({ ...learnerBackend(), home: directory, nodeExecutable: process.execPath });
     client = await RepaClient.connect(backend.connection);
     await client.call("space.create", { root: path.join(directory, "space") });
-    expect((await client.call("plugin.list", {})).map((plugin) => [plugin.id, plugin.state])).toEqual([["learning", "running"]]);
+    expect((await client.call("plugin.list", {})).map((plugin) => [plugin.id, plugin.state])).toEqual([["learning", "running"], ["materials", "running"]]);
     expect((await client.call("agent.list", {})).map((agent) => agent.id)).not.toContain("general");
     expect((await client.call("agent.list", {})).map((agent) => agent.id)).toContain("learning-tutor");
   } finally {

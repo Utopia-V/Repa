@@ -6,7 +6,7 @@ import { createServer } from "vite";
 import { RepaClient } from "@repa/base/client";
 import { expect, it } from "vitest";
 
-it("Web 开发宿主交付新底座连接，关闭宿主后连接中断", async () => {
+it("Web 开发宿主交付新底座连接，加载课件转文字插件，关闭宿主后连接中断", async () => {
   // 后端返回解析后的真实路径；macOS 的临时目录在 /var 下，实际位于 /private/var。
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-web-integration-")));
   const oldHome = process.env.REPA_HOME;
@@ -22,7 +22,7 @@ it("Web 开发宿主交付新底座连接，关闭宿主后连接中断", async 
     client = await RepaClient.connect(await response.json());
     expect(client.connected).toBe(true);
     expect(await client.call("space.list", {})).toEqual([]);
-    expect(await client.call("space.create", { root: path.join(directory, "space") })).toEqual({ root: path.join(directory, "space"), opening: expect.any(String), plugins: [] });
+    expect(await client.call("space.create", { root: path.join(directory, "space") })).toEqual({ root: path.join(directory, "space"), opening: expect.any(String), plugins: [expect.objectContaining({ id: "materials", state: "running" })] });
     await server.close();
     await expect.poll(() => client?.connected, { timeout: 8000 }).toBe(false);
   } finally {

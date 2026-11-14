@@ -21,6 +21,9 @@
     },
     {
       "path": "./packages/learning/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/materials/tsconfig.build.json"
     }
   ]
 }

@@ -113,6 +113,27 @@ List directory contents. Returns entries sorted alphabetically, with '/' suffix 
 | limit | number | 是 | Maximum number of entries to return (default: 500) |
 | path | string | 是 | Directory to list (default: current directory) |
 
+## materials_list
+
+来源：materials。
+
+列出空间 materials/ 下的文件：每个文件的格式和页数（PDF）、张数（幻灯片）或段数（Word 文档），读不出文字的写明原因。第一次列出时要逐个解析文件，之后用缓存。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+
+## materials_read
+
+来源：materials。
+
+把一个课件读成文字：PDF 按页、幻灯片（PPTX、PPT）按张、Word 文档（DOCX、DOC）按段，每一块前标出页码、张号或段号，引用出处时照着写。一次最多交回约 40 KB，读不完时结果末尾写明从哪里接着读。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| from | integer | 是 | 从第几页（PDF）、第几张（幻灯片）或第几段（Word 文档）读起，默认 1 |
+| path | string | 否 | 相对空间根目录的路径，照 materials_list 列出的写，例如 materials/第一章.pdf |
+| to | integer | 是 | 读到第几页、张或段为止（含），默认读到本次能交回的上限 |
+
 ## plugin
 
 来源：后端装配，通用 Agent。

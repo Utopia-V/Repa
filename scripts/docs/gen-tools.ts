@@ -8,11 +8,12 @@ import { pluginTool } from "../../packages/base/src/plugins/plugin-tool.js";
 import { createPluginTestHost } from "../../packages/base/src/testing.js";
 import notesPlugin from "../../packages/base/examples/notes-plugin.js";
 import { createLearningPlugin } from "../../packages/learning/src/plugin.js";
+import { materialsPlugin } from "../../packages/materials/src/plugin.js";
 import { cell, document, runGenerator } from "./generation.js";
 import { schemaTable } from "./schema-table.js";
 
 export async function generateTools() {
-  const fixture = await createPluginTestHost({ plugins: [createLearningPlugin(), notesPlugin] });
+  const fixture = await createPluginTestHost({ plugins: [createLearningPlugin(), notesPlugin, materialsPlugin] });
   let runtime: Awaited<ReturnType<typeof createAgentRuntimeForTest>> | undefined;
   try {
     if (fixture.host.disabled().length || fixture.errors.length) throw new Error(`离线插件打开失败：${JSON.stringify(fixture.host.disabled())}`);

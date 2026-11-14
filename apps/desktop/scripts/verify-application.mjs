@@ -1,5 +1,5 @@
 /**
- * 各平台安装包共用的核对：文件齐全、安装包带的 Git 能保存和恢复空间、用安装包里的 Electron 当 Node 拉起后端并加载学习插件、
+ * 各平台安装包共用的核对：文件齐全、安装包带的 Git 能保存和恢复空间、用安装包里的 Electron 当 Node 拉起后端并加载随包插件、
  * 像学习者那样打开应用。
  * 平台脚本（verify-mac-package.mjs、verify-win-package.mjs）负责把安装包展开到磁盘，再交给这里。
  */
@@ -150,11 +150,14 @@ async function checkGit(application, gitPath, temporary) {
 export async function verifyApplication({ application, executable, temporary }) {
   const base = path.join(application, "node_modules/@repa/base/dist");
   const learning = path.join(application, "node_modules/@repa/learning");
+  const materials = path.join(application, "node_modules/@repa/materials");
   for (const file of [executable, path.join(base, "cli.js"), path.join(base, "process.js"),
     // 通用 Agent 写插件时读的 Skill 与模板，随 @repa/base 的 files 装进来。
     path.join(base, "../skills/plugin-authoring/SKILL.md"), path.join(base, "../skills/plugin-authoring/template/index.ts"),
     path.join(application, "node_modules/@repa/space-history/dist/index.js"),
     path.join(learning, "repa-plugin.json"),
+    // 课件转文字插件读中文 PDF 要用的 CMap 数据，随包的 files 装进来。
+    path.join(materials, "repa-plugin.json"), path.join(materials, "cmaps/UniGB-UCS2-H.bcmap"),
     path.join(application, "out/renderer/index.html"),
     // 主进程的 repa 协议从这里提供 Pyodide；wheel 由打包脚本按 lockfile 核对过。
     ...["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"].map((name) => path.join(application, "pyodide", name))]) {
@@ -172,7 +175,7 @@ export async function verifyApplication({ application, executable, temporary }) 
   const { startRepaProcess } = await import(pathToFileURL(path.join(base, "process.js")));
   const { RepaClient } = await import(pathToFileURL(path.join(base, "client.js")));
   const backend = await startRepaProcess({
-    home: path.join(temporary, "home"), plugins: [learning], generalAgent: false, nodeExecutable: executable, environment,
+    home: path.join(temporary, "home"), plugins: [learning, materials], generalAgent: false, nodeExecutable: executable, environment,
     ...(gitPath === undefined ? {} : { gitPath }),
   });
   let client;
@@ -181,12 +184,13 @@ export async function verifyApplication({ application, executable, temporary }) 
     const root = path.join(temporary, "space");
     const created = await client.call("space.create", { root });
     assert.equal(created.root, root);
-    assert.deepEqual(created.plugins.map((plugin) => [plugin.id, plugin.state]), [["learning", "running"]]);
-    assert.deepEqual((await client.call("plugin.list", {})).map((plugin) => [plugin.id, plugin.state]), [["learning", "running"]]);
+    const running = [["learning", "running"], ["materials", "running"]];
+    assert.deepEqual(created.plugins.map((plugin) => [plugin.id, plugin.state]), running);
+    assert.deepEqual((await client.call("plugin.list", {})).map((plugin) => [plugin.id, plugin.state]), running);
   } finally {
     await client?.close();
     await backend.close();
   }
   const launch = await checkLaunch(executable, path.join(temporary, "app-home"), path.join(temporary, "app-data"), gitPath !== undefined);
-  return { runtime: runtimeInfo, git, base: true, learning: true, connection: true, launch };
+  return { runtime: runtimeInfo, git, base: true, learning: true, materials: true, connection: true, launch };
 }
