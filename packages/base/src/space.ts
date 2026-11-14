@@ -23,10 +23,11 @@ export interface Space {
     undoRun(runId: string): Promise<UndoResult>;
   };
   files: Files;
-  filesFor(source: ActivitySource): Files;
+  /** 以 source 的名义读写空间文件。signal 取消以后，还在等空间写锁的写入不再执行。 */
+  filesFor(source: ActivitySource, signal?: AbortSignal): Files;
   pluginDataDir(id: string): Promise<string>;
-  /** 不透明写入者：独占空间写锁，动作前后各扫描一次整个空间。 */
-  record<T>(source: ActivitySource, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }>;
+  /** 不透明写入者：独占空间写锁，动作前后各扫描一次整个空间。还在等写锁时 signal 取消，就不再执行。 */
+  record<T>(source: ActivitySource, action: () => Promise<T>, signal?: AbortSignal): Promise<{ value: T; snapshot: Snapshot }>;
   writes: SpaceWrites;
   /** 空间写锁此刻是否被独占（带命令行的运行或插件的 history.record）。只读查询，不加锁；独占期间别处的写入与历史读取都要等它结束。 */
   writeLocked(): boolean;

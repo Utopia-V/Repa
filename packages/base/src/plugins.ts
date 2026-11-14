@@ -16,8 +16,8 @@ export interface PluginHost {
    */
   add(plugin: Plugin): Promise<void>;
   /**
-   * 撤下一个插件。同步完成的部分：它的工具、Agent、提示段与方法不再列出，交出去的工具、方法、Agent 闭包与 Host 上的服务一律失败，
-   * 正在执行的调用立即失败，事件不再转发。返回的 Promise 到实例的 close() 结束为止，调用方可以不等；close() 出错时它失败，错误同时交给 onError。
+   * 撤下一个插件。同步完成的部分：它的工具、Agent、提示段与方法不再列出，交出去的工具、方法、Agent 闭包与整个 Host 一律失败，
+   * 正在执行的调用立即失败，事件不再转发；撤下之前发起、还在等空间写锁的写空间与历史操作随之取消。返回的 Promise 到实例的 close() 结束为止，调用方可以不等；close() 出错时它失败，错误同时交给 onError。
    */
   remove(id: string): Promise<void>;
   disabled(): DisabledPlugin[];

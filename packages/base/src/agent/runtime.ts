@@ -637,7 +637,7 @@ class Session implements AgentSession {
   private fixed = new Set<string>();
   // 经扩展入口登记过的插件工具；undefined 表示已撤下、换成了桩。
   private registered = new Map<string, AgentTool | undefined>();
-  // 当前登记的 subagent 工具对应的可选 Agent 与说明；undefined 表示没有登记过，"" 表示已换成桩。
+  // 当前登记着的 subagent 工具的说明（含可选 Agent）；没有登记或已换成桩时为 undefined。
   private subagentKey?: string;
   // 整文件写入核对基线用的读取记录，属于这个会话。
   private readonly reads = new ReadState();
@@ -858,9 +858,9 @@ class Session implements AgentSession {
         pi.registerTool(tool);
         this.subagentKey = key;
       }
-    } else if (this.subagentKey !== undefined && this.subagentKey !== "") {
+    } else if (this.subagentKey !== undefined) {
       pi.registerTool(removedTool(SUBAGENT_TOOL));
-      this.subagentKey = "";
+      this.subagentKey = undefined;
     }
     // 次序与此前的白名单相同，工具声明的次序也就不变。
     const active = profile === undefined ? [] : [

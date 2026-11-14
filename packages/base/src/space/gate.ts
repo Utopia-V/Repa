@@ -25,9 +25,9 @@ export class WriteGate {
     }
   }
 
-  /** 独占地执行 action：等已经开始的共享写入结束，期间新的写入都排在后面。 */
-  async exclusive<T>(action: () => Promise<T>): Promise<T> {
-    await this.acquire(true);
+  /** 独占地执行 action：等已经开始的共享写入结束，期间新的写入都排在后面；等待期间 signal 取消时不再执行。 */
+  async exclusive<T>(action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    await this.acquire(true, signal);
     try {
       return await action();
     } finally {

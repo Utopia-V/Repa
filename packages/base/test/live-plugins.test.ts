@@ -436,3 +436,173 @@ test("空间写锁的查询只在独占期间为真", async (t) => {
   assert.equal(f.space.writeLocked(), false);
 });
 
+
+test("通用 Agent 的运行里替换插件：旧实例撤下前排在写锁后的写入与历史操作随撤下失败，等 close 的调用不挂住", async (t) => {
+  const life = new Lifecycle();
+  const kick = barrier();
+  const queued = barrier();
+  let background: Promise<PromiseSettledResult<unknown>[]> | undefined;
+  let closeWrite: unknown;
+  const f = await fixture(t, [toolPlugin("count", "count_get", "v1", life, (host) => {
+    // 在 open 的上下文里安排，即在运行之外发起：按插件来源排在运行所持的写锁后面。
+    void kick.promise.then(() => {
+      background = Promise.allSettled([
+        host.files.write("background.txt", "后台写的"),
+        host.history.list(1),
+        host.history.record({ kind: "plugin", pluginId: "count" }, async () => undefined),
+      ]);
+      queued.release();
+    });
+    return {
+      // close 等自己的后台工作结束，再试着写空间。
+      close: async () => {
+        await background;
+        closeWrite = await host.files.write("close.txt", "close 写的").catch((error: unknown) => error);
+        life.closed("count");
+      },
+    };
+  })]);
+  f.actions.set("replace", async () => {
+    kick.release();
+    await queued.promise;
+    assert.equal(f.space.writeLocked(), true);
+    await f.host.remove("count");
+    await f.host.add(toolPlugin("count", "count_get", "v2", life));
+    return "已替换";
+  });
+  const session = await f.agents.create();
+  f.script(fauxAssistantMessage(fauxToolCall("ctl", { action: "replace" })), fauxAssistantMessage(fauxToolCall("count_get", {})), fauxAssistantMessage("完成"));
+  await session.send("替换计数插件");
+  assert.deepEqual(toolResults(session).map(({ tool, isError, text }) => [tool, isError, text]), [
+    ["ctl", false, "已替换"],
+    ["count_get", false, "count_get v2"],
+  ]);
+  assert.deepEqual((await background)?.map((result) => result.status), ["rejected", "rejected", "rejected"]);
+  assert.ok(fault("plugins_closed")(closeWrite));
+  await f.host.flush();
+  // 撤下的实例的写入没有在运行结束以后补写进空间。
+  await assert.rejects(readFile(path.join(f.space.root, "background.txt"), "utf8"), { code: "ENOENT" });
+  assert.deepEqual(life.counts("count"), [2, 1]);
+});
+
+test("宿主关闭等正在加上的插件收回：关闭返回时它已经关闭，不留仍在运行的实例", async (t) => {
+  const life = new Lifecycle();
+  const entered = barrier();
+  const gate = barrier();
+  const f = await fixture(t, []);
+  const slow: Plugin = {
+    id: "slow",
+    async open() {
+      life.opened("slow");
+      entered.release();
+      await gate.promise;
+      return { close: async () => { life.closed("slow"); } };
+    },
+  };
+  const order: string[] = [];
+  const adding = f.host.add(slow).catch((error: unknown) => { order.push(`add 失败 ${String((error as { code?: unknown }).code)}`); });
+  await entered.promise;
+  await f.agents.close();
+  const closing = f.host.close().then(() => { order.push(`宿主关闭 ${life.counts("slow").join("/")}`); });
+  // 只用来给错误的实现留出先返回的机会；正确的实现在 open 返回之前不会关闭完。
+  setImmediate(gate.release);
+  await Promise.all([adding, closing]);
+  assert.deepEqual(order, ["add 失败 plugins_closed", "宿主关闭 1/1"]);
+});
+
+test("启动追赶期间撤下插件再加上新实例，旧实例的变化处理随后出错：旧实例不再关闭第二次，新实例不算失败", async (t) => {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-live-catchup-")));
+  const space = await createSpace(path.join(directory, "space"), { watch: false, fileQueue: withFileMutationQueue });
+  t.after(async () => {
+    await space.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await space.files.write("a.txt", "已有内容");
+  await space.flush();
+  const inChange = barrier();
+  const fail = barrier();
+  const closes: string[] = [];
+  const plugin = (version: string): Plugin => ({
+    id: "p",
+    async open() {
+      return {
+        async onChange() {
+          if (version !== "v1") return;
+          inChange.release();
+          await fail.promise;
+          throw new Error("旧实例的变化处理失败");
+        },
+        close: async () => { closes.push(version); },
+      };
+    },
+  });
+  const errors: unknown[] = [];
+  const host = await openPluginHost({ space, plugins: [plugin("v1")], models: new ModelTestDriver(), emit: () => undefined, onError: (error) => { errors.push(error); } });
+  const starting = host.start();
+  await inChange.promise;
+  await host.remove("p");
+  await host.add(plugin("v2"));
+  fail.release();
+  await starting;
+  assert.deepEqual(closes, ["v1"]);
+  assert.deepEqual(host.list().map((item) => item.id), ["p"]);
+  assert.deepEqual(host.disabled(), []);
+  assert.match(errors.map(String).join("\n"), /旧实例的变化处理失败/u);
+  await host.close();
+  assert.deepEqual(closes, ["v1", "v2"]);
+});
+
+test("不独占写锁的运行里撤下与加上插件：撤下的实例在 close 里不能再写空间，新实例追赶时的写入记在插件名下", async (t) => {
+  const life = new Lifecycle();
+  const helper: AgentDefinition = { id: "helper", instructions: () => "帮手", tools: ["ctl"] };
+  let closeWrite: unknown;
+  const f = await fixture(t, [
+    { id: "helpers", open: async () => ({ agents: () => [helper] }) },
+    toolPlugin("count", "count_get", "v1", life, (host) => ({ close: async () => { closeWrite = await host.files.write("close.txt", "close 写的").catch((error: unknown) => error); } })),
+  ]);
+  f.actions.set("swap", async () => {
+    await f.host.remove("count");
+    await f.host.add(toolPlugin("late", "late_get", "v1", life, (host) => ({ onChange: async () => { await host.files.write("catchup.txt", "追赶写的"); } })));
+    await f.host.flush();
+    return "好";
+  });
+  const session = await f.agents.create({ agent: "helper" });
+  f.script(fauxAssistantMessage(fauxToolCall("ctl", { action: "swap" })), fauxAssistantMessage("完成"));
+  await session.send("换插件");
+  assert.deepEqual(toolResults(session).map(({ isError, text }) => [isError, text]), [[false, "好"]]);
+  const feed = await f.space.history.changes();
+  const source = (file: string) => feed.revisions.find((revision) => revision.changes.some((change) => change.path === file))?.source;
+  assert.ok(fault("plugins_closed")(closeWrite));
+  assert.equal(source("close.txt"), undefined);
+  assert.deepEqual(source("catchup.txt"), { kind: "plugin", pluginId: "late" });
+});
+
+test("已经打开的会话在一次运行里跨过替换：下一步调用的是新实现", async (t) => {
+  const life = new Lifecycle();
+  const f = await fixture(t, [toolPlugin("count", "count_get", "v1", life)]);
+  const session = await f.agents.create();
+  f.script(fauxAssistantMessage("一"));
+  await session.send("一");
+  f.actions.set("swap", async () => {
+    await f.host.remove("count");
+    await f.host.add(toolPlugin("count", "count_get", "v2", life));
+    return "换了";
+  });
+  f.script(fauxAssistantMessage(fauxToolCall("ctl", { action: "swap" })), fauxAssistantMessage(fauxToolCall("count_get", {})), fauxAssistantMessage("完成"));
+  await session.send("二");
+  assert.deepEqual(toolResults(session).map(({ text }) => text), ["换了", "count_get v2"]);
+});
+
+test("子 Agent 被替换成工具超过父 Agent 的版本以后，父 Agent 不再能起它", async (t) => {
+  const life = new Lifecycle();
+  const boss: AgentDefinition = { id: "boss", instructions: () => "父", tools: ["read"], subagents: ["kid"] };
+  const kids = (tools: string[]): Plugin => ({ id: "kids", open: async () => ({ agents: () => [{ id: "kid", description: "子", instructions: () => "子", tools }] }) });
+  const f = await fixture(t, [toolPlugin("count", "count_get", "v1", life), { id: "bosses", open: async () => ({ agents: () => [boss] }) }, kids(["read"])]);
+  const session = await f.agents.create({ agent: "boss" });
+  await f.host.remove("kids");
+  await f.host.add(kids(["read", "count_get"]));
+  f.script(fauxAssistantMessage(fauxToolCall("subagent", { agent: "kid", task: "做" })), fauxAssistantMessage("完成"));
+  await session.send("起子 Agent");
+  assert.deepEqual(f.requests, [["read"], ["read"]]);
+  assert.deepEqual(toolResults(session).map(({ isError, text }) => [isError, text]), [[true, "Tool subagent not found"]]);
+});

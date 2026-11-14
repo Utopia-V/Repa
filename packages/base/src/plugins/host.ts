@@ -133,12 +133,13 @@ interface Opened {
   /** 插件声明的原始定义，核对用；agents 是交给运行时的包装。 */
   definitions: AgentDefinition[];
   agents: AgentDefinition[];
-  /** 撤下或打开失败以后：工具、方法、服务、Agent 闭包一律拒绝，事件不再转发，在途调用随之失败。 */
+  /**
+   * 撤下或打开失败以后：工具、方法、服务、Agent 闭包与 Host 一律拒绝，事件不再转发，在途调用随之失败；
+   * 撤下之前发起、还在等空间写锁的写空间与历史操作随之取消。
+   */
   retired: AbortController;
-  /** close() 已返回或抛错、打开失败：Host 的文件与历史操作也拒绝。 */
+  /** close() 已返回或抛错：宿主整体关闭时，Host 的文件与历史操作到这时才拒绝。 */
   ended: boolean;
-  /** 在打开着的宿主上加上（add）或撤下（remove）的过程中。这期间若有运行独占空间写锁，写空间、读历史立即失败。 */
-  transient: boolean;
 }
 
 /** 在指定空间中打开插件并核对声明，返回统一的工具、协议调用与生命周期入口。 */
@@ -148,7 +149,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   const opened = new Map<string, Opened>();
   // 已经撤下、close() 还没结束的实例；同一个 id 这时不能再加上。
   const closingPlugins = new Map<string, Promise<void>>();
-  // 正在 add 的 id，挡住同一个 id 的并发加载。
+  // 正在 add 的 id，挡住同一个 id 的并发加载。add 经 track 登记，宿主关闭时等它收回。
   const adding = new Set<string>();
   const askRoute = options.ask ?? NO_ASK;
   const serviceRoute = options.services ?? NO_SERVICES;
@@ -191,14 +192,15 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
   }
 
   /**
-   * Host 上的文件与历史操作：宿主开始关闭以后仍然放行，直到这个实例结束，插件因此可以在 close() 里等后台工作写完结果；
-   * 实例结束以后返回失败的 Promise。gated 的操作（写空间、读历史、记录历史）要等空间写锁或历史队列：
-   * 实例正在被加上或撤下、而有运行独占着写锁时，等它就会和持锁的运行互相卡住，这时立即失败。
+   * Host 上的文件与历史操作：宿主整体关闭时仍然放行，直到这个实例结束，插件因此可以在 close() 里等后台工作写完结果；
+   * 撤下以后与实例结束以后返回失败的 Promise。gated 的操作（写空间、读历史、记录历史）要等空间写锁：
+   * 正在加上的实例（还不在 opened 里）碰上有运行独占着写锁时，等它就会和持锁、等着加上的运行互相卡住，这时立即失败。
+   * 撤下时还在等锁的那些由 retired 取消，等它们的 close() 因此不会卡住撤下它的运行。
    */
   function admitted<T>(entry: Opened, action: () => Promise<T>, gated = false): Promise<T> {
-    if (entry.ended) return Promise.reject(retiredFault());
-    if (gated && entry.transient && space.writeLocked()) {
-      return Promise.reject(new RepaFault("space_busy", "有运行独占着空间写锁，插件在加上或撤下的过程中不能写空间、读历史", { pluginId: entry.id }));
+    if (entry.ended || entry.retired.signal.aborted) return Promise.reject(retiredFault());
+    if (gated && opened.get(entry.id) !== entry && space.writeLocked()) {
+      return Promise.reject(new RepaFault("space_busy", "有运行独占着空间写锁，插件在加上的过程中不能写空间、读历史", { pluginId: entry.id }));
     }
     return action();
   }
@@ -229,11 +231,20 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     return failures;
   }
 
-  /** 打开空间时失败的插件：撤下并关闭，列进 disabled()。Agent 运行时每次用到时才向宿主取工具和 Agent，移除以后就不再有它的声明。 */
-  async function disable(entry: Opened, error: unknown): Promise<void> {
+  /** 撤下实例并在运行的上下文之外关闭它，途中的错误交给 onError。 */
+  async function discard(entry: Opened): Promise<void> {
     entry.retired.abort();
     if (opened.get(entry.id) === entry) opened.delete(entry.id);
-    const failures = await shut(entry);
+    for (const failure of await detached(() => shut(entry))) options.onError(failure);
+  }
+
+  /** 打开空间时失败的插件：撤下并关闭，列进 disabled()。Agent 运行时每次用到时才向宿主取工具和 Agent，移除以后就不再有它的声明。 */
+  async function disable(entry: Opened, error: unknown): Promise<void> {
+    // 已经撤下的实例由撤下的一方关闭；同一个 id 这时可能已经加上了新实例，不能再关一次旧的，也不能把这个 id 记成失败。
+    if (entry.retired.signal.aborted) {
+      options.onError(error);
+      return;
+    }
     disabledPlugins.push({
       id: entry.id,
       reason: {
@@ -242,7 +253,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       },
     });
     options.onError(error);
-    for (const failure of failures) options.onError(failure);
+    await discard(entry);
   }
 
   function track<T>(operation: Promise<T>): Promise<T> {
@@ -346,7 +357,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
    * 打开一个实例并读取它的工具和 Agent 声明，open() 在运行的上下文之外执行。失败时关闭已经打开的部分，
    * 抛出的错误带上 entry 与清理中的错误，由调用方决定怎样报告。
    */
-  async function openInstance(plugin: Plugin, transient: boolean): Promise<Opened> {
+  async function openInstance(plugin: Plugin): Promise<Opened> {
     const ownedModels = createModelScope(typeof options.models === "function" ? options.models(plugin.id) : options.models, options.onError);
     const entry: Opened = {
       id: plugin.id,
@@ -356,12 +367,11 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       agents: [],
       retired: new AbortController(),
       ended: false,
-      transient,
     };
     try {
       const dataDir = await space.pluginDataDir(plugin.id);
       const ownedAgents = new Set<string>();
-      const files = space.filesFor({ kind: "plugin", pluginId: plugin.id });
+      const files = space.filesFor({ kind: "plugin", pluginId: plugin.id }, entry.retired.signal);
       const host: Host = {
         now: options.now ?? Date.now,
         space: { root: space.root, dataDir },
@@ -371,13 +381,14 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
           list: (directory) => admitted(entry, () => files.list(directory)),
         },
         history: {
-          changes: (since) => admitted(entry, () => space.history.changes(since), true),
-          list: (limit) => admitted(entry, () => space.history.list(limit), true),
+          // 历史读取排在历史队列上，那里不能取消；先共享地拿空间写锁（加锁次序本来就在历史队列之前），撤下时才能取消等待。
+          changes: (since) => admitted(entry, () => space.writes.lock(() => space.history.changes(since), entry.retired.signal), true),
+          list: (limit) => admitted(entry, () => space.writes.lock(() => space.history.list(limit), entry.retired.signal), true),
           record: (source, action) => {
             if (source.kind !== "plugin" || source.pluginId !== plugin.id) {
               throw new RepaFault("invalid_history_source", "插件只能以自己的来源记录历史");
             }
-            return admitted(entry, () => space.record(source, action), true);
+            return admitted(entry, () => space.record(source, action, entry.retired.signal), true);
           },
         },
         models: ownedModels.models,
@@ -519,7 +530,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     }
     for (const plugin of options.plugins) {
       try {
-        const entry = await openInstance(plugin, false);
+        const entry = await openInstance(plugin);
         opened.set(plugin.id, entry);
       } catch (error) {
         if (!(error instanceof OpenFailure)) throw error;
@@ -564,59 +575,53 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       }
       return starting;
     },
-    async add(plugin) {
-      checkOpen();
-      if (!PLUGIN_ID.test(plugin.id)) {
-        throw new RepaFault("invalid_plugin_id", "插件 id 必须仅含小写字母、数字和连字符", { id: plugin.id });
-      }
-      if (opened.has(plugin.id) || adding.has(plugin.id)) throw new RepaFault("plugin_open", "这个插件已经打开", { pluginId: plugin.id });
-      if (closingPlugins.has(plugin.id)) throw new RepaFault("plugin_closing", "这个插件的上一个实例还没有关闭完", { pluginId: plugin.id });
-      adding.add(plugin.id);
-      // 失败的实例当场关闭，宿主里不留下半个实例；清理中的错误经 onError 报告，调用方拿到的是原来的错误。
-      const discard = async (entry: Opened, error: unknown): Promise<never> => {
-        entry.retired.abort();
-        for (const failure of await detached(() => shut(entry))) options.onError(failure);
-        throw error;
-      };
-      try {
-        let entry: Opened;
-        try {
-          entry = await openInstance(plugin, true);
-        } catch (error) {
-          if (!(error instanceof OpenFailure)) throw error;
-          return await discard(error.entry, error.failure);
+    add(plugin) {
+      return track((async () => {
+        checkOpen();
+        if (!PLUGIN_ID.test(plugin.id)) {
+          throw new RepaFault("invalid_plugin_id", "插件 id 必须仅含小写字母、数字和连字符", { id: plugin.id });
         }
+        if (opened.has(plugin.id) || adding.has(plugin.id)) throw new RepaFault("plugin_open", "这个插件已经打开", { pluginId: plugin.id });
+        if (closingPlugins.has(plugin.id)) throw new RepaFault("plugin_closing", "这个插件的上一个实例还没有关闭完", { pluginId: plugin.id });
+        adding.add(plugin.id);
+        // 失败的实例当场关闭，宿主里不留下半个实例；清理中的错误经 onError 报告，调用方拿到的是原来的错误。
         try {
-          checkAdded(entry);
-          // 打开期间宿主开始关闭：关闭不会再看到这个实例，这里自己收回。
-          checkOpen();
-        } catch (error) {
-          return await discard(entry, error);
+          let entry: Opened;
+          try {
+            entry = await openInstance(plugin);
+          } catch (error) {
+            if (!(error instanceof OpenFailure)) throw error;
+            await discard(error.entry);
+            throw error.failure;
+          }
+          try {
+            checkAdded(entry);
+            // 打开期间宿主开始关闭：关闭等这次 add 结束，但不会再看到这个实例，这里自己收回。
+            checkOpen();
+          } catch (error) {
+            await discard(entry);
+            throw error;
+          }
+          opened.set(plugin.id, entry);
+          const index = disabledPlugins.findIndex((item) => item.id === plugin.id);
+          if (index >= 0) disabledPlugins.splice(index, 1);
+          if (started) catchUp(entry);
+        } finally {
+          adding.delete(plugin.id);
         }
-        entry.transient = false;
-        opened.set(plugin.id, entry);
-        const index = disabledPlugins.findIndex((item) => item.id === plugin.id);
-        if (index >= 0) disabledPlugins.splice(index, 1);
-        if (started) catchUp(entry);
-      } finally {
-        adding.delete(plugin.id);
-      }
+      })());
     },
     remove(id) {
       checkOpen();
       const entry = opened.get(id);
       if (entry === undefined) throw new RepaFault("plugin_not_found", "插件不存在", { pluginId: id });
-      // 同步完成：不再列出它的工具、Agent 和方法，交出去的闭包与在途调用一律失败。
+      // 同步完成：不再列出它的工具、Agent 和方法，交出去的闭包、Host 与在途调用一律失败。
       opened.delete(id);
-      entry.transient = true;
       entry.retired.abort();
       const done = detached(async () => {
         try {
           const failures = await shut(entry);
-          if (failures.length > 0) {
-            const error = failures.length === 1 ? failures[0] : new AggregateError(failures, "插件关闭失败");
-            throw Object.assign(new RepaFault("plugin_close_failed", `插件 ${id} 关闭时出错：${errorText(error)}`, { pluginId: id }), { cause: error });
-          }
+          if (failures.length > 0) throw closeFailure(id, failures.length === 1 ? failures[0] : new AggregateError(failures, "插件关闭失败"));
         } finally {
           closingPlugins.delete(id);
         }
@@ -713,8 +718,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
             try {
               await entry.instance?.close?.();
             } catch (error) {
-              // 写明是哪个插件；原错误放进 cause，记进最近错误时保留插件自己的堆栈。
-              failures.push(Object.assign(new RepaFault("plugin_close_failed", `插件 ${entry.id} 关闭时出错：${errorText(error)}`, { pluginId: entry.id }), { cause: error }));
+              failures.push(closeFailure(entry.id, error));
             }
             entry.ended = true;
           }
@@ -726,6 +730,11 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       return closing;
     },
   };
+}
+
+/** 写明是哪个插件关闭出错；原错误放进 cause，记进最近错误时保留插件自己的堆栈。 */
+function closeFailure(id: string, error: unknown): RepaFault {
+  return Object.assign(new RepaFault("plugin_close_failed", `插件 ${id} 关闭时出错：${errorText(error)}`, { pluginId: id }), { cause: error });
 }
 
 /** openInstance 失败：带上已经建立的实例，调用方据此清理。 */
