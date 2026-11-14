@@ -122,9 +122,9 @@ async function fixture(
     }
     await rm(root, { recursive: true, force: true });
   });
-  await client.call("space.create", { root: spaceRoot });
+  let { opening } = await client.call("space.create", { root: spaceRoot });
   async function call<M extends LearningMethod>(method: M, input: LearningInput<M>): Promise<LearningResult<M>> {
-    const result = await client.call("plugin.call", { pluginId: "learning", method, input });
+    const result = await client.call("plugin.call", { pluginId: "learning", method, input, opening });
     return parse(learningMethods[method].result, result) as LearningResult<M>;
   }
   const state = () => call("state.get", {});
@@ -214,7 +214,7 @@ async function fixture(
           await cp(target, await mkdtemp(path.join(evidence, "quiz-restored-")), { recursive: true });
         }
       }
-      await client.call("space.open", { root: spaceRoot });
+      ({ opening } = await client.call("space.open", { root: spaceRoot }));
     },
   };
 }

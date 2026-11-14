@@ -128,6 +128,8 @@ export type AppState = LearningActions & {
    * 连上后端（包括刷新、重启后第一次连接）时重新打开它。
    */
   space?: string | undefined;
+  /** 后端这一次打开空间的标识，取自 space.open 的结果；插件调用带上它，空间换了以后发出的旧调用由后端拒绝。不保存。 */
+  opening?: string | undefined;
   /** 重新打开上次的空间失败时记下原因，选空间页显示；之后成功打开空间时清除。 */
   resumeFailure?: { root: string; error: unknown } | undefined;
   resources: Resources;
@@ -387,12 +389,15 @@ export function createAppStore() {
     async function resumeSpace(): Promise<void> {
       const root = get().space;
       if (!root) return;
-      const opening = call("space.open", { root }).then(() => true, (error: unknown) => {
+      const opening = call("space.open", { root }).then((opened) => {
+        if (get().space === root) set({ opening: opened.opening });
+        return true;
+      }, (error: unknown) => {
         // 连接中断时保留空间，重连后再打开一次。
         if (!(error instanceof ConnectionError) && get().space === root) {
           conversationRequest++;
           resetSpaceData();
-          set({ space: undefined, resumeFailure: { root, error }, conversation: emptyConversation, asks: [] });
+          set({ space: undefined, opening: undefined, resumeFailure: { root, error }, conversation: emptyConversation, asks: [] });
         }
         return false;
       });
@@ -557,7 +562,7 @@ export function createAppStore() {
           resetSpaceData();
           set({ space: opened.root, conversation: emptyConversation, asks: [] });
         }
-        set({ resumeFailure: undefined });
+        set({ opening: opened.opening, resumeFailure: undefined });
         // 打开前发出的读取可能不含这次打开，重新读取。
         pending.delete("spaces");
         await Promise.all([loaders.spaces(), get().learning.available === undefined ? learning.loadLearning() : undefined]);
@@ -567,7 +572,7 @@ export function createAppStore() {
         await call("space.close", {});
         conversationRequest++;
         resetSpaceData();
-        set({ space: undefined, conversation: emptyConversation, confirmations: [], asks: [] });
+        set({ space: undefined, opening: undefined, conversation: emptyConversation, confirmations: [], asks: [] });
       },
       browseFolder(path) {
         return call("space.browse", path === undefined ? {} : { path });

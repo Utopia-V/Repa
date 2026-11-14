@@ -187,38 +187,47 @@ async function importEntry(id: string, root: string, npmPackage: boolean, url: s
     return await import(url) as unknown;
   } catch (error) {
     if (error instanceof RepaFault) throw error;
-    const message = errorText(error);
-    const code = error instanceof Error && "code" in error ? error.code : undefined;
-    const where = error instanceof Error ? location(error, root) : undefined;
-    // reason 说明是哪一类问题，advice 说明怎样改，放在 Node 的原话和出错位置之后。
-    let reason = "入口导入失败";
-    let advice: string | undefined;
-    if (code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX") {
-      reason = "用了需要转换的 TypeScript 写法";
-      advice = "Node 只去掉类型标注，不转换代码，enum、namespace、构造函数的参数属性等要改成普通的 JavaScript 写法";
-    } else if (code === "ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING") {
-      reason = "从 node_modules 里导入了 .ts 文件";
-      advice = "Node 不剥离 node_modules 里文件的类型";
-    } else if (error instanceof SyntaxError && message.includes("does not provide an export named")) {
-      // 链接阶段的错误，V8 也报为 SyntaxError。最常见的成因是没有写 type 修饰导入了只是类型的名字，类型剥离把它留成了值导入。
-      reason = "导入了模块没有导出的名字";
-      advice = "只是类型的名字要写 import type，例如 import type { Tool } from \"@repa/base/plugin\"";
-    } else if (error instanceof SyntaxError) {
-      reason = "有语法错误";
-    } else if (npmPackage && code === "ERR_MODULE_NOT_FOUND") {
-      advice = "插件文件夹的根目录有 package.json 或位于 node_modules 下，按 npm 包加载，依赖要由包管理器安装；不经构建的插件文件夹不放 package.json";
-    }
-    const text = [`插件 ${id} ${reason}：${message}`, where, advice].filter((line) => line !== undefined).join("\n");
-    throw new RepaFault("plugin_import_failed", text, { id, cause: message });
+    throw importFault(id, root, error, { npmPackage });
   }
+}
+
+/**
+ * 导入插件模块时 Node 给出的错误换成说得清原因的 RepaFault：Node 的原话、出错的文件与位置、怎样改。
+ * 位置从 stack 开头读出；stack 默认取错误自己的。
+ */
+export function importFault(id: string, root: string, error: unknown, options: { npmPackage?: boolean; stack?: string } = {}): RepaFault {
+  const { npmPackage = false } = options;
+  const message = errorText(error);
+  const code = error instanceof Error && "code" in error ? error.code : undefined;
+  const where = error instanceof Error ? location(error.name, options.stack ?? error.stack ?? "", root) : undefined;
+  // reason 说明是哪一类问题，advice 说明怎样改，放在 Node 的原话和出错位置之后。
+  let reason = "入口导入失败";
+  let advice: string | undefined;
+  if (code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX") {
+    reason = "用了需要转换的 TypeScript 写法";
+    advice = "Node 只去掉类型标注，不转换代码，enum、namespace、构造函数的参数属性等要改成普通的 JavaScript 写法";
+  } else if (code === "ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING") {
+    reason = "从 node_modules 里导入了 .ts 文件";
+    advice = "Node 不剥离 node_modules 里文件的类型";
+  } else if (error instanceof SyntaxError && message.includes("does not provide an export named")) {
+    // 链接阶段的错误，V8 也报为 SyntaxError。最常见的成因是没有写 type 修饰导入了只是类型的名字，类型剥离把它留成了值导入。
+    reason = "导入了模块没有导出的名字";
+    advice = "只是类型的名字要写 import type，例如 import type { Tool } from \"@repa/base/plugin\"";
+  } else if (error instanceof SyntaxError) {
+    reason = "有语法错误";
+  } else if (npmPackage && code === "ERR_MODULE_NOT_FOUND") {
+    advice = "插件文件夹的根目录有 package.json 或位于 node_modules 下，按 npm 包加载，依赖要由包管理器安装；不经构建的插件文件夹不放 package.json";
+  }
+  const text = [`插件 ${id} ${reason}：${message}`, where, advice].filter((line) => line !== undefined).join("\n");
+  return new RepaFault("plugin_import_failed", text, { id, cause: message });
 }
 
 // 出错的文件、行号、那一行源码和指向出错处的标记，Node 放在 stack 开头、错误名那一行之前，message 里没有。
 // 语法错误和链接错误都是这样，前者在标记后另有一个空行。文件可能写成路径，也可能写成 file: URL。
-function location(error: Error, root: string): string | undefined {
-  const lines = (error.stack ?? "").split("\n");
+function location(name: string, stack: string, root: string): string | undefined {
+  const lines = stack.split("\n");
   const head = /^(?<name>\S.*):(?<line>\d+)$/.exec(lines[0] ?? "")?.groups;
-  const end = lines.findIndex((line) => line.startsWith(error.name));
+  const end = lines.findIndex((line) => line.startsWith(name));
   if (head?.name === undefined || head.line === undefined || end < 2) return undefined;
   const file = head.name.startsWith("file:") ? fileURLToPath(head.name) : head.name;
   const shown = within(root, file) ? path.relative(root, file).split(path.sep).join("/") : file;

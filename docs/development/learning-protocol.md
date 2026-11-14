@@ -19,10 +19,12 @@
 ```ts
 import { readLearningResult } from "@repa/learning/protocol";
 
+// opening 取自打开空间的结果或初始化基线，空间换了以后发出的旧调用由后端拒绝。
 const raw = await client.call("plugin.call", {
   pluginId: "learning",
   method: "state.get",
   input: {},
+  opening,
 });
 const state = readLearningResult("state.get", raw);
 if (state.ok) renderLearning(state.value);

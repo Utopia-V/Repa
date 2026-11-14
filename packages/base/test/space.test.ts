@@ -95,6 +95,50 @@ test("外部编辑由 watcher 通知，控制目录变化不会形成历史修�
   assert.deepEqual(await space.history.list(), before);
 });
 
+test("运行的窗口里发起、动作返回时还没写完的插件写入：运行等它写完才保存快照，改动记在这次运行名下，撤回运行一并撤回", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-space-"));
+  let entered: () => void = () => undefined;
+  const inQueue = new Promise<void>((resolve) => { entered = resolve; });
+  let returned: () => void = () => undefined;
+  const actionReturned = new Promise<void>((resolve) => { returned = resolve; });
+  let space: Space | undefined;
+  // late.txt 的写入进了文件写入队列以后停住，等运行的动作返回；之后，窗口若已关上（运行没有等它），就再等运行保存完快照才写盘。
+  // 历史读取在窗口里立即失败，在窗口外排在运行的快照之后，用它分辨窗口是否还开着。
+  const fileQueue = async <T>(file: string, action: () => Promise<T>): Promise<T> => {
+    if (path.basename(file) === "late.txt") {
+      entered();
+      await actionReturned;
+      // 让出一轮事件循环：动作返回以后关窗口的那段代码先执行完。
+      await new Promise<void>((resolve) => { setImmediate(resolve); });
+      try {
+        await space?.history.list(1);
+      } catch (error) {
+        if (!fault("history_during_activity")(error)) throw error;
+      }
+    }
+    return action();
+  };
+  space = await createSpace(path.join(directory, "space"), { watch: false, fileQueue });
+  const opened = space;
+  t.after(async () => {
+    await opened.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const files = opened.filesFor({ kind: "plugin", pluginId: "test" });
+  let writing: Promise<void> | undefined;
+  const { snapshot } = await opened.record({ kind: "agent", runId: "run-1" }, async () => {
+    // 插件的工具在运行里发起写入，没有等它写完就返回。
+    writing = files.write("late.txt", "运行里发起的");
+    await inQueue;
+    returned();
+  });
+  await writing;
+  assert.deepEqual(await revisionChanges(opened, snapshot.revision), ["late.txt"]);
+  const undone = await opened.history.undoRun("run-1");
+  assert.deepEqual([undone.restored, undone.conflicts], [["late.txt"], []]);
+  await assert.rejects(readFile(path.join(opened.root, "late.txt")), { code: "ENOENT" });
+});
+
 function revisionChanges(space: Space, id: string | undefined) {
   return space.history.changes().then((feed) => feed.revisions.find((revision) => revision.id === id)?.changes.map((change) => change.path));
 }

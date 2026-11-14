@@ -107,10 +107,10 @@ async function fixture(t: TestContext, beforeRun?: LearningState["beforeRun"]) {
     await server.close();
     await rm(directory, { recursive: true, force: true });
   });
-  await client.call("space.open", { root });
+  const { opening } = await client.call("space.open", { root });
   const session = await client.call("session.create", { agent: "tutor" });
   const users = async (sessionId = session.id) => (await client.call("session.history", { sessionId })).filter(entry => entry.type === "user").map(entry => entry.text);
-  return { root, client, faux, state, session, users };
+  return { root, client, faux, state, session, users, opening };
 }
 
 function rejection(details: unknown) {
@@ -181,7 +181,7 @@ test("练习中插件只记下提问，消息照常进入会话；后台任务�
     { sessionId: f.session.id, agent: "tutor", mode: "steer", text: "range 从几开始", runId: runs[1] },
   ]);
   f.faux.setResponses([fauxAssistantMessage("下一题已准备")]);
-  const { id } = record(await f.client.call("plugin.call", { pluginId: "learning", method: "prepare", input: {} })) ?? {};
+  const { id } = record(await f.client.call("plugin.call", { pluginId: "learning", method: "prepare", input: {}, opening: f.opening })) ?? {};
   assert.deepEqual(await f.users(String(id)), ["后台准备下一题"]);
   assert.equal(f.state.asked.length, 3);
 });
@@ -241,6 +241,7 @@ test("插件只能中止自己的 Agent，等待回复终态并清掉已排队�
     pluginId: "learning",
     method: "abort",
     input: { agent },
+    opening: f.opening,
   });
   await assert.rejects(abort("other-agent"), (error: unknown) => {
     assert.ok(error instanceof RpcError);
@@ -286,13 +287,14 @@ test("中止辅导 Agent 不枚举或加载磁盘上的未加载旧会话", asyn
   f.faux.setResponses([fauxAssistantMessage("旧辅导回复")]);
   await f.client.call("session.send", { sessionId: f.session.id, text: "旧辅导提问" });
   await f.client.call("space.close", {});
-  await f.client.call("space.open", { root: f.root });
+  const reopened = await f.client.call("space.open", { root: f.root });
   const listed = t.mock.method(SessionManager, "listAll");
   const opened = t.mock.method(SessionManager, "open");
   await f.client.call("plugin.call", {
     pluginId: "learning",
     method: "abort",
     input: { agent: "tutor" },
+    opening: reopened.opening,
   });
   assert.equal(listed.mock.callCount(), 0);
   assert.equal(opened.mock.callCount(), 0);

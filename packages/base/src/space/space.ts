@@ -84,8 +84,9 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     await directory(path.join(dataDir, "history.git"));
     await ignoreDataDir(dataDir);
     const raw = await openHistory(root, { exclusive: true, ...(options.gitPath === undefined ? {} : { gitPath: options.gitPath }) });
-    // 不透明写入者（record）的窗口：动作结束时关上，此后仍在运行的异步工作按普通写入者处理。
-    const activity = new AsyncLocalStorage<{ open: boolean }>();
+    // 不透明写入者（record）的窗口：动作结束、窗口里放行的写入都写完时关上，此后仍在运行的异步工作按普通写入者处理。
+    // writes 是窗口里放行、还没写完的写入。
+    const activity = new AsyncLocalStorage<{ open: boolean; writes: Set<Promise<void>> }>();
     const owned = new AsyncLocalStorage<boolean>();
     const gate = new WriteGate();
     const fileQueue = options.fileQueue ?? unqueued;
@@ -174,11 +175,14 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
         if (inWindow()) throw new RepaFault("nested_history_activity", "record 动作不能嵌套；文件写入会加入当前活动");
         try {
           return await gate.exclusive(() => {
-            const window = { open: true };
+            const window = { open: true, writes: new Set<Promise<void>>() };
             return raw.record(source, () => activity.run(window, async () => {
               try {
                 return await action();
               } finally {
+                // 窗口里放行的写入不排在历史队列里，动作返回时可能还没写完，例如插件在工具里发起、没有等它的写入。
+                // 等它们写完再关窗口，改动才进这次的快照、记在这次名下；否则它落在快照之后，下一次扫描记为 external，撤回这次也撤不掉。
+                while (window.writes.size > 0) await Promise.allSettled([...window.writes]);
                 window.open = false;
               }
             }));
@@ -271,8 +275,15 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
               }
             };
             // 同一文件的写入与 Agent 的写入工具共用一条队列。不透明写入者的窗口里直接落盘，算在它的快照里。
-            if (inWindow()) {
-              await fileQueue(destination, save);
+            const window = activity.getStore();
+            if (window?.open === true) {
+              const writing = fileQueue(destination, save);
+              window.writes.add(writing);
+              try {
+                await writing;
+              } finally {
+                window.writes.delete(writing);
+              }
               return;
             }
             // 来源取当前运行，运行之外是插件；空间自身的文件接口没有来源，按外部改动记下这个路径。

@@ -501,14 +501,14 @@ test("构建后的后端打开空间时运行启用的自写插件；快照被�
   const expected = { id: "echo-folder", source: "space", version: ECHO_MANIFEST.version, state: "running", folder: "missing", digest, pages: [], methods: ["echo"], tools: [] };
   assert.deepEqual(opened.plugins, [expected]);
   assert.deepEqual(await client.call("plugin.list", {}), [expected]);
-  assert.equal(await client.call("plugin.call", { pluginId: "echo-folder", method: "echo", input: { text: "你好" } }), "回声：你好");
+  assert.equal(await client.call("plugin.call", { pluginId: "echo-folder", method: "echo", input: { text: "你好" }, opening: opened.opening }), "回声：你好");
   await client.call("space.close", {});
 
   await writeFile(path.join(snapshotDirectory(f.home, f.root, "echo-folder", digest), "index.ts"), ECHO_INDEX.replace("回声", "篡改"));
   const reopened = await client.call("space.open", { root: f.root });
   assert.deepEqual(reopened.plugins.map((plugin) => [plugin.id, plugin.state, plugin.reason?.code, plugin.methods]), [["echo-folder", "pending", "snapshot_modified", []]]);
   assert.deepEqual(await client.call("plugin.list", {}), reopened.plugins);
-  await assert.rejects(client.call("plugin.call", { pluginId: "echo-folder", method: "echo", input: { text: "你好" } }), (error: unknown) => {
+  await assert.rejects(client.call("plugin.call", { pluginId: "echo-folder", method: "echo", input: { text: "你好" }, opening: reopened.opening }), (error: unknown) => {
     assert(error instanceof RpcError);
     assert.equal((error.data as { code?: string } | undefined)?.code, "plugin_not_found");
     return true;
