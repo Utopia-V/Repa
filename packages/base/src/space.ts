@@ -1,5 +1,8 @@
 import type { ActivitySource, Revision, Snapshot, UndoResult } from "@repa/space-history";
 import type { Files, History } from "./plugin.js";
+import type { LockWait } from "./space/gate.js";
+
+export type { LockWait } from "./space/gate.js";
 
 /**
  * Agent 写入工具接入空间的写入路径。只记这次碰到的路径，来源取当前运行；
@@ -7,7 +10,7 @@ import type { Files, History } from "./plugin.js";
  */
 export interface SpaceWrites {
   /** 一次写入工具调用的全过程，在拿同一文件的写入队列之前调用；等待期间 signal 取消就不再执行。 */
-  lock<T>(action: () => Promise<T>, signal?: AbortSignal): Promise<T>;
+  lock<T>(action: () => Promise<T>, wait?: LockWait): Promise<T>;
   /** 一次文件写入：file 为解析后的绝对路径。action 在历史队列里执行，写入前的基线核对放在这里。 */
   commit<T>(file: string, action: () => Promise<T>): Promise<T>;
 }
@@ -23,14 +26,12 @@ export interface Space {
     undoRun(runId: string): Promise<UndoResult>;
   };
   files: Files;
-  /** 以 source 的名义读写空间文件。signal 取消以后，还在等空间写锁的写入不再执行。 */
-  filesFor(source: ActivitySource, signal?: AbortSignal): Files;
+  /** 以 source 的名义读写空间文件，写入按 wait 等空间写锁。 */
+  filesFor(source: ActivitySource, wait?: LockWait): Files;
   pluginDataDir(id: string): Promise<string>;
-  /** 不透明写入者：独占空间写锁，动作前后各扫描一次整个空间。还在等写锁时 signal 取消，就不再执行。 */
-  record<T>(source: ActivitySource, action: () => Promise<T>, signal?: AbortSignal): Promise<{ value: T; snapshot: Snapshot }>;
+  /** 不透明写入者：独占空间写锁，动作前后各扫描一次整个空间。按 wait 等写锁。 */
+  record<T>(source: ActivitySource, action: () => Promise<T>, wait?: LockWait): Promise<{ value: T; snapshot: Snapshot }>;
   writes: SpaceWrites;
-  /** 空间写锁此刻是否被独占（带命令行的运行或插件的 history.record）。只读查询，不加锁；独占期间别处的写入与历史读取都要等它结束。 */
-  writeLocked(): boolean;
   onRevision(listener: (revision: Revision) => void): () => void;
   /**
    * 在历史队列中执行 action，期间没有提交、撤销或维护写入历史库，备份在这里复制它；空间文件的写入随之排队。

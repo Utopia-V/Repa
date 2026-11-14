@@ -5,19 +5,22 @@
  * 加锁次序固定为：空间写锁 → 同一文件的写入队列 → 历史队列。按路径的写入在拿文件队列之前先拿这把锁，
  * 所以独占者持锁期间，不会有共享写入者一边占着某个文件、一边等独占者占着的历史队列。
  */
+import { RepaFault } from "../schema.js";
+
+/** 怎样等空间写锁：signal 取消时不再等；immediate 时不等，此刻拿不到（有人持锁或有独占请求在排队）就以 space_busy 失败。 */
+export interface LockWait {
+  signal?: AbortSignal | undefined;
+  immediate?: boolean;
+}
+
 export class WriteGate {
   private readers = 0;
   private writer = false;
   private readonly waiting: { exclusive: boolean; grant(): void }[] = [];
 
-  /** 此刻是否有独占者持锁。 */
-  get exclusiveHeld(): boolean {
-    return this.writer;
-  }
-
   /** 共享地执行 action；等待期间 signal 取消时不再执行，按 Pi 工具的习惯以 Operation aborted 结束。 */
-  async shared<T>(action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-    await this.acquire(false, signal);
+  async shared<T>(action: () => Promise<T>, wait?: LockWait): Promise<T> {
+    await this.acquire(false, wait);
     try {
       return await action();
     } finally {
@@ -26,8 +29,8 @@ export class WriteGate {
   }
 
   /** 独占地执行 action：等已经开始的共享写入结束，期间新的写入都排在后面；等待期间 signal 取消时不再执行。 */
-  async exclusive<T>(action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-    await this.acquire(true, signal);
+  async exclusive<T>(action: () => Promise<T>, wait?: LockWait): Promise<T> {
+    await this.acquire(true, wait);
     try {
       return await action();
     } finally {
@@ -44,12 +47,14 @@ export class WriteGate {
     else this.readers++;
   }
 
-  private acquire(exclusive: boolean, signal?: AbortSignal): Promise<void> {
+  private acquire(exclusive: boolean, wait: LockWait = {}): Promise<void> {
+    const { signal } = wait;
     if (signal?.aborted) return Promise.reject(new Error("Operation aborted"));
     if (this.waiting.length === 0 && this.available(exclusive)) {
       this.take(exclusive);
       return Promise.resolve();
     }
+    if (wait.immediate === true) return Promise.reject(new RepaFault("space_busy", "空间写锁此刻被占用或有独占请求在排队，这次操作不等待"));
     return new Promise((resolve, reject) => {
       const waiter = {
         exclusive,

@@ -21,6 +21,8 @@ import {
   DirectoryListingSchema,
   DirectoryRootSchema,
   ModelRefSchema,
+  PLUGIN_ID,
+  PluginDigestSchema,
   PromptOverrideSchema,
   PromptSectionSchema,
   ProviderInfoSchema,
@@ -78,8 +80,7 @@ const confirmationReply = Type.Union([Type.String(), Type.Boolean(), Type.Null()
 // 前端内存里的最近错误，随反馈请求带给后端打包；条数和长度设上限，挡住意外的大请求。
 const feedbackError = object({ time: Type.String({ maxLength: 64 }), message: Type.String({ maxLength: 4000 }), source: Type.Optional(Type.String({ maxLength: 200 })) });
 
-const pluginId = Type.String({ pattern: "^[a-z][a-z0-9-]*$" });
-const digest = Type.String({ pattern: "^[0-9a-f]{64}$" });
+const pluginId = Type.String({ pattern: PLUGIN_ID.source });
 /** 插件不能运行的原因；code 供程序判断，message 供人和模型阅读。 */
 export const PluginReasonSchema = object({ code: identifier, message: Type.String() });
 /**
@@ -96,8 +97,8 @@ export const PluginInfoSchema = object({
   state: Type.Union([Type.Literal("disabled"), Type.Literal("running"), Type.Literal("pending"), Type.Literal("failed")]),
   reason: Type.Optional(PluginReasonSchema),
   folder: Type.Optional(Type.Union([Type.Literal("same"), Type.Literal("modified"), Type.Literal("missing"), Type.Literal("unreadable")])),
-  digest: Type.Optional(digest),
-  previous: Type.Optional(digest),
+  digest: Type.Optional(PluginDigestSchema),
+  previous: Type.Optional(PluginDigestSchema),
   pages: Type.Array(object({ id: identifier, title: Type.String() })),
   methods: Type.Array(identifier),
   tools: Type.Array(identifier),

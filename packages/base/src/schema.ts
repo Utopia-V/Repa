@@ -204,6 +204,13 @@ export const AgentEventSchema = object({
 });
 /** Agent 运行中的公开事件，供前端追踪文本、工具、用量及运行终态。 */
 export type AgentEvent = Static<typeof AgentEventSchema>;
+/** 插件 id 的格式：小写字母开头，只含小写字母、数字和连字符。清单、启用记录、快照目录名与协议都按它。 */
+export const PLUGIN_ID = /^[a-z][a-z0-9-]*$/;
+/** 插件文件夹摘要的格式：64 位小写十六进制。启用记录、快照目录名与协议都按它。 */
+export const DIGEST = /^[0-9a-f]{64}$/;
+/** 协议里的插件摘要。 */
+export const PluginDigestSchema = Type.String({ pattern: DIGEST.source });
+
 /**
  * 批准自写插件时展示的内容：批准的是暂存下来的这一份，id、标题、版本与页面取自它的清单，files 是它相对 base 的改动。
  * base 为 recorded 时与启用记录里的当前版本比较，none 时没有可比较的版本，文件全部是 added。
@@ -212,7 +219,7 @@ export const PluginApprovalSchema = object({
   id: identifier,
   title: Type.Optional(Type.String()),
   version: Type.String(),
-  digest: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+  digest: PluginDigestSchema,
   pages: Type.Array(object({ id: identifier, title: Type.String() })),
   base: Type.Union([Type.Literal("recorded"), Type.Literal("none")]),
   files: Type.Array(object({ path: identifier, change: Type.Union([Type.Literal("added"), Type.Literal("modified"), Type.Literal("removed")]) })),

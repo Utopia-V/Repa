@@ -428,14 +428,6 @@ test("重新打开一个会话后，激活的工具是这一刻的集合，不�
   assert.deepEqual(tools.filter((name) => ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_user"].includes(name)), ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_user"]);
 });
 
-test("空间写锁的查询只在独占期间为真", async (t) => {
-  const f = await fixture(t, []);
-  assert.equal(f.space.writeLocked(), false);
-  const inside = await f.space.record({ kind: "plugin", pluginId: "ctl" }, async () => f.space.writeLocked());
-  assert.equal(inside.value, true);
-  assert.equal(f.space.writeLocked(), false);
-});
-
 
 test("通用 Agent 的运行里替换插件：旧实例撤下前排在写锁后的写入与历史操作随撤下失败，等 close 的调用不挂住", async (t) => {
   const life = new Lifecycle();
@@ -465,7 +457,6 @@ test("通用 Agent 的运行里替换插件：旧实例撤下前排在写锁后�
   f.actions.set("replace", async () => {
     kick.release();
     await queued.promise;
-    assert.equal(f.space.writeLocked(), true);
     await f.host.remove("count");
     await f.host.add(toolPlugin("count", "count_get", "v2", life));
     return "已替换";

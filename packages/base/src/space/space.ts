@@ -11,7 +11,7 @@ import type { Space, SpaceOptions } from "../space.js";
 import { RepaFault } from "../schema.js";
 import { syncDirectory } from "../storage.js";
 import { checkFormat } from "./format.js";
-import { WriteGate } from "./gate.js";
+import { WriteGate, type LockWait } from "./gate.js";
 import { lockSpace } from "./lock.js";
 import { directory, existingPath, ignoreDataDir, RESTORE_NAMES, within } from "./paths.js";
 
@@ -169,7 +169,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
      * 不透明写入者：独占空间写锁，前后各扫描一次整个空间，期间的改动都记到 source 名下。
      * 动作里经过底座的写入直接落盘，不另进历史队列，算在这次快照里。
      */
-    function record<T>(source: ActivitySource, action: () => Promise<T>, signal?: AbortSignal): Promise<{ value: T; snapshot: Snapshot }> {
+    function record<T>(source: ActivitySource, action: () => Promise<T>, wait?: LockWait): Promise<{ value: T; snapshot: Snapshot }> {
       return track(async () => {
         if (inWindow()) throw new RepaFault("nested_history_activity", "record 动作不能嵌套；文件写入会加入当前活动");
         try {
@@ -182,7 +182,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
                 window.open = false;
               }
             }));
-          }, signal);
+          }, wait);
         } finally {
           await settled();
         }
@@ -208,10 +208,10 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     }
 
     const writes: Space["writes"] = {
-      lock(action, signal) {
+      lock(action, wait) {
         if (inWindow()) return action();
         checkOpen();
-        return gate.shared(action, signal);
+        return gate.shared(action, wait);
       },
       commit(file, action) {
         if (inWindow()) return action();
@@ -234,7 +234,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
       return canonical;
     }
 
-    function filesFor(source?: ActivitySource, signal?: AbortSignal): Space["files"] {
+    function filesFor(source?: ActivitySource, wait?: LockWait): Space["files"] {
       return {
         read(file: string): Promise<string> {
           return track(async () => readFile(await checkedPath(file), "utf8"));
@@ -285,7 +285,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
                   await save();
                   await raw.snapshotPaths([spacePath(destination)]);
                 }
-              }), signal);
+              }), wait);
             } finally {
               await settled();
             }
@@ -371,7 +371,6 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
 
     return {
       root, dataDir, sessionsDir, history, files, filesFor, record, writes,
-      writeLocked: () => gate.exclusiveHeld,
       async pluginDataDir(id) {
         checkOpen();
         if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new RepaFault("invalid_plugin_id", "插件 id 格式不正确", { id });

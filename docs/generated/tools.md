@@ -122,7 +122,7 @@ List directory contents. Returns entries sorted alphabetically, with '/' suffix 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | action | "list" &#124; "load" &#124; "unload" | 否 |  |
-| from | "folder" &#124; "recorded" &#124; "previous" | 是 | load 取哪个版本，省略时为文件夹当前的内容 |
+| from | "folder" &#124; "recorded" &#124; "previous" | 是 | load 取哪个版本，省略时为文件夹当前的内容；unload 不看它 |
 | id | string | 是 | 插件 id，load 与 unload 必填 |
 
 ## read

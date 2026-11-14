@@ -4,8 +4,9 @@ import path from "node:path";
 import { isCode } from "../backup/copy.js";
 import type { PluginHost } from "../plugins.js";
 import type { PluginInfo } from "../protocol.js";
+import { PLUGIN_ID } from "../schema.js";
 import { readEnablement, type PluginEnablement } from "./enablement.js";
-import { PLUGIN_ID, readPluginFolder, type PluginManifest } from "./manifest.js";
+import { readPluginFolder, type PluginManifest } from "./manifest.js";
 import { folderDigest, snapshotDirectory } from "./snapshots.js";
 
 /** 空间里放自写插件文件夹的目录；文件夹名就是插件 id。 */

@@ -1,11 +1,13 @@
 import { Type } from "typebox";
 
 import type { AgentTool } from "../agent.js";
-import { PLUGIN_TOOL } from "../plugin.js";
-import type { PluginInfo } from "../protocol.js";
+import { PluginLoadFromSchema, type PluginInfo } from "../protocol.js";
 import { parse, RepaFault, type Confirmation } from "../schema.js";
 import type { PluginControl } from "./control.js";
-import { PLUGIN_ID } from "./manifest.js";
+import { PLUGIN_ID } from "../schema.js";
+
+/** 通用 Agent 管理自写插件的工具名，由装配提供；插件工具同样不能用这个名字。 */
+export const PLUGIN_TOOL = "plugin";
 
 const STATES: Record<PluginInfo["state"], string> = {
   disabled: "未启用",
@@ -51,7 +53,7 @@ unload 卸载插件，它的工具从下一次回复起不再出现；文件夹�
 const Parameters = Type.Object({
   action: Type.Union([Type.Literal("list"), Type.Literal("load"), Type.Literal("unload")]),
   id: Type.Optional(Type.String({ pattern: PLUGIN_ID.source, description: "插件 id，load 与 unload 必填" })),
-  from: Type.Optional(Type.Union([Type.Literal("folder"), Type.Literal("recorded"), Type.Literal("previous")], { description: "load 取哪个版本，省略时为文件夹当前的内容" })),
+  from: Type.Optional({ ...PluginLoadFromSchema, description: "load 取哪个版本，省略时为文件夹当前的内容；unload 不看它" }),
 }, { additionalProperties: false });
 
 /**
@@ -68,7 +70,6 @@ export function pluginTool(control: PluginControl, confirm: (request: Confirmati
       if (action === "list") return { text: listText(await control.list()) };
       if (id === undefined) throw new RepaFault("invalid_input", "load 与 unload 要给出 id");
       if (action === "unload") {
-        if (from !== undefined) throw new RepaFault("invalid_input", "unload 不接受 from");
         await control.unload(id);
         return { text: `插件 ${id} 已卸载，它的工具从下一次回复起不再出现。文件夹和数据都保留。` };
       }

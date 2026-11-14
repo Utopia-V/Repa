@@ -141,7 +141,7 @@ test("不透明写入者持有空间写锁时，按路径的写入等它结束�
   const waiting = space.filesFor({ kind: "plugin", pluginId: "learning" }).write("plugin.txt", "插件写的").then(() => { order.push("plugin"); });
   const controller = new AbortController();
   let ran = false;
-  const cancelled = space.writes.lock(async () => { ran = true; }, controller.signal);
+  const cancelled = space.writes.lock(async () => { ran = true; }, { signal: controller.signal });
   controller.abort();
   await assert.rejects(cancelled, /Operation aborted/u);
   await new Promise((resolve) => setTimeout(resolve, 50));
@@ -156,6 +156,29 @@ test("不透明写入者持有空间写锁时，按路径的写入等它结束�
   assert.deepEqual(await revisionChanges(space, shell?.id), ["shell.txt"]);
   assert.deepEqual(plugin?.source, { kind: "plugin", pluginId: "learning" });
   assert.deepEqual(await revisionChanges(space, plugin?.id), ["plugin.txt"]);
+});
+
+test("不等写锁的操作：此刻有独占者持锁或有独占请求在排队时立即以 space_busy 失败，不排到它后面", async (t) => {
+  const { space } = await fixture(t);
+  const source = { kind: "plugin", pluginId: "learning" } as const;
+  const immediate = { immediate: true };
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  // 一个共享写入者持着锁：不等待的共享写入照常进行。
+  const holding = space.writes.lock(() => released);
+  await space.filesFor(source, immediate).write("shared.txt", "共享时写的");
+  // 独占请求排在它后面以后，不等待的操作不再排队。
+  let ran = false;
+  const opaque = space.record({ kind: "agent", runId: "shell" }, async () => { ran = true; });
+  await assert.rejects(space.filesFor(source, immediate).write("queued.txt", "不会写"), { code: "space_busy" });
+  await assert.rejects(space.writes.lock(async () => undefined, immediate), { code: "space_busy" });
+  await assert.rejects(space.record(source, async () => undefined, immediate), { code: "space_busy" });
+  assert.equal(ran, false);
+  release();
+  await holding;
+  await opaque;
+  await space.filesFor(source, immediate).write("after.txt", "之后写的");
+  await assert.rejects(readFile(path.join(space.root, "queued.txt")), { code: "ENOENT" });
 });
 
 async function executable(name: string): Promise<string> {

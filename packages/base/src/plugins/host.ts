@@ -7,7 +7,6 @@ import { prepareExport } from "../feedback/export.js";
 import {
   ASK_USER_TOOL,
   BUILTIN_TOOLS,
-  PLUGIN_TOOL,
   RESERVED_TOOL_NAMES,
   type AgentDefinition,
   type AskOptions,
@@ -20,9 +19,10 @@ import {
 } from "../plugin.js";
 import type { PluginHost, PluginHostOptions } from "../plugins.js";
 import { currentRun, withToolCall } from "../run-context.js";
-import { errorText, object, parse, RepaFault } from "../schema.js";
-import { PLUGIN_ID } from "./manifest.js";
+import type { LockWait } from "../space.js";
+import { errorText, object, parse, PLUGIN_ID, RepaFault } from "../schema.js";
 import { createModelScope } from "./models.js";
+import { PLUGIN_TOOL } from "./plugin-tool.js";
 
 const NO_ASK: AskRoute = () => Promise.reject(new RepaFault("ask_unavailable", "当前没有可以作答的连接"));
 const NO_SERVICES: Services = {
@@ -194,16 +194,13 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
 
   /**
    * Host 上的文件与历史操作：宿主整体关闭时仍然放行，直到这个实例结束，插件因此可以在 close() 里等后台工作写完结果；
-   * 撤下以后与实例结束以后返回失败的 Promise。gated 的操作（写空间、读历史、记录历史）要等空间写锁：
-   * 正在加上的实例（还不在 opened 里）碰上有运行独占着写锁时，等它就会和持锁、等着加上的运行互相卡住，这时立即失败。
-   * 撤下时还在等锁的那些由 retired 取消，等它们的 close() 因此不会卡住撤下它的运行。
+   * 撤下以后与实例结束以后返回失败的 Promise。写空间、读历史、记录历史要拿空间写锁，action 收到怎样等它：
+   * 正在加上或已经撤下的实例（不在 opened 里）不等，此刻拿不到就以 space_busy 失败。等它就可能和持锁、等着加上的运行互相卡住；
+   * 判断与取锁在写锁里一步完成，有独占请求在排队也算拿不到。撤下时还在等锁的那些由 retired 取消，等它们的 close() 因此不会卡住撤下它的运行。
    */
-  function admitted<T>(entry: Opened, action: () => Promise<T>, gated = false): Promise<T> {
+  function admitted<T>(entry: Opened, action: (wait: LockWait) => Promise<T>): Promise<T> {
     if (entry.ended || entry.retired.signal.aborted) return Promise.reject(retiredFault());
-    if (gated && opened.get(entry.id) !== entry && space.writeLocked()) {
-      return Promise.reject(new RepaFault("space_busy", "有运行独占着空间写锁，插件在加上的过程中不能写空间、读历史", { pluginId: entry.id }));
-    }
-    return action();
+    return action({ signal: entry.retired.signal, immediate: opened.get(entry.id) !== entry });
   }
 
   async function closeModels(): Promise<void> {
@@ -372,24 +369,24 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
     try {
       const dataDir = await space.pluginDataDir(plugin.id);
       const ownedAgents = new Set<string>();
-      const files = space.filesFor({ kind: "plugin", pluginId: plugin.id }, entry.retired.signal);
+      const own = { kind: "plugin", pluginId: plugin.id } as const;
       const host: Host = {
         now: options.now ?? Date.now,
         space: { root: space.root, dataDir },
         files: {
-          read: (file) => admitted(entry, () => files.read(file)),
-          write: (file, text) => admitted(entry, () => files.write(file, text), true),
-          list: (directory) => admitted(entry, () => files.list(directory)),
+          read: (file) => admitted(entry, () => space.filesFor(own).read(file)),
+          write: (file, text) => admitted(entry, (wait) => space.filesFor(own, wait).write(file, text)),
+          list: (directory) => admitted(entry, () => space.filesFor(own).list(directory)),
         },
         history: {
           // 历史读取排在历史队列上，那里不能取消；先共享地拿空间写锁（加锁次序本来就在历史队列之前），撤下时才能取消等待。
-          changes: (since) => admitted(entry, () => space.writes.lock(() => space.history.changes(since), entry.retired.signal), true),
-          list: (limit) => admitted(entry, () => space.writes.lock(() => space.history.list(limit), entry.retired.signal), true),
+          changes: (since) => admitted(entry, (wait) => space.writes.lock(() => space.history.changes(since), wait)),
+          list: (limit) => admitted(entry, (wait) => space.writes.lock(() => space.history.list(limit), wait)),
           record: (source, action) => {
             if (source.kind !== "plugin" || source.pluginId !== plugin.id) {
               throw new RepaFault("invalid_history_source", "插件只能以自己的来源记录历史");
             }
-            return admitted(entry, () => space.record(source, action, entry.retired.signal), true);
+            return admitted(entry, (wait) => space.record(source, action, wait));
           },
         },
         models: ownedModels.models,
@@ -426,6 +423,7 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
       };
       const instance = await detached(() => plugin.open(host));
       entry.instance = instance;
+      // plugin 工具不在 RESERVED_TOOL_NAMES 里：运行时用那份名单核对档案里的工具，而 plugin 就在通用 Agent 的档案里。
       const reservedNames = new Set([...RESERVED_TOOL_NAMES, PLUGIN_TOOL]);
       const localNames = new Set<string>();
       entry.tools = (instance.tools?.() ?? []).map((tool): AgentTool => {
