@@ -10,6 +10,11 @@ export class WriteGate {
   private writer = false;
   private readonly waiting: { exclusive: boolean; grant(): void }[] = [];
 
+  /** 此刻是否有独占者持锁。 */
+  get exclusiveHeld(): boolean {
+    return this.writer;
+  }
+
   /** 共享地执行 action；等待期间 signal 取消时不再执行，按 Pi 工具的习惯以 Operation aborted 结束。 */
   async shared<T>(action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     await this.acquire(false, signal);

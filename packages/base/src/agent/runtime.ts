@@ -12,6 +12,7 @@ import {
   SettingsManager,
   defineTool,
   type AgentSession as PiSession,
+  type ExtensionAPI,
   type ExtensionFactory,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -68,6 +69,9 @@ const DIRECT_WRITES = {
   commit: <T>(_file: string, action: () => Promise<T>) => action(),
 };
 
+// Pi 1.1.0 的全部内置工具（createAllToolDefinitions）。档案之外的永久排除；Pi 新增内置工具时打开会话直接失败，见 Session.initialize。
+const PI_BUILTIN_TOOLS = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+
 // 这些工具会写到底座看不见的地方，带它们的运行是不透明写入者。
 const OPAQUE_TOOLS = new Set(["bash", "powershell"]);
 
@@ -85,7 +89,7 @@ interface ParentRun {
   ancestorRunIds: readonly string[];
 }
 
-/** 一个 Agent 在当前空间中的装配；会话初始化时取得，工具与 view 来源在会话内不变。 */
+/** 一个 Agent 在当前空间中的装配。插件会增减，所以每次用到时按这一刻的工具和 Agent 重新取得。 */
 interface AgentProfile {
   id: string;
   general: boolean;
@@ -115,6 +119,19 @@ function sessionAgent(manager: SessionManager): string {
   throw new RepaFault("invalid_session_agent", "会话的 Agent 记录无法读取", { id: manager.getSessionId() });
 }
 
+/** 档案里的插件工具，按名称核对后以名称为键。 */
+function pluginToolMap(profile: AgentProfile): Map<string, AgentTool> {
+  const reserved = new Set(RESERVED_TOOL_NAMES);
+  const tools = new Map<string, AgentTool>();
+  for (const tool of profile.tools) {
+    // Pi 1.1.0 将这些字符解释为工具选择规则，插件工具必须是字面名称。
+    if (tool.name.includes("*") || /^[+-]/u.test(tool.name)) throw new RepaFault("invalid_tool_name", "插件工具名称不能包含选择规则", { name: tool.name });
+    if (reserved.has(tool.name) || tools.has(tool.name)) throw new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: tool.name });
+    tools.set(tool.name, tool);
+  }
+  return tools;
+}
+
 function toolDefinition(tool: AgentTool): ToolDefinition {
   return defineTool({
     name: tool.name,
@@ -126,6 +143,19 @@ function toolDefinition(tool: AgentTool): ToolDefinition {
       activeSignal.throwIfAborted();
       const result = await tool.execute(input, { signal: activeSignal, callId });
       return { content: [{ type: "text", text: result.text }], details: result.data };
+    },
+  });
+}
+
+/** 撤下的工具：Pi 没有注销入口，换成同名的桩并停用；以后有人把这个名字误激活，调用也只会失败。 */
+function removedTool(name: string): ToolDefinition {
+  return defineTool({
+    name,
+    label: name,
+    description: "这个工具已经撤下",
+    parameters: Type.Object({}),
+    execute() {
+      throw new RepaFault("tool_removed", "这个工具已经撤下", { name });
     },
   });
 }
@@ -422,7 +452,8 @@ class Space implements AgentSpace {
         views: () => this.options.views(),
       };
     }
-    const definition = id === GENERAL_AGENT ? undefined : this.options.agents?.().find(item => item.id === id);
+    const agents = this.options.agents?.() ?? [];
+    const definition = id === GENERAL_AGENT ? undefined : agents.find(item => item.id === id);
     if (definition === undefined) throw new RepaFault("agent_not_found", "Agent 不存在或未启用", { agent: id });
     const names = new Set(definition.tools);
     return {
@@ -432,7 +463,9 @@ class Space implements AgentSpace {
       builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep"),
       tools: this.options.tools().filter(tool => names.has(tool.name)),
       askUser: names.has(ASK_USER_TOOL),
-      subagents: [...new Set(definition.subagents ?? [])],
+      // 引用的子 Agent 按名字在这一刻的集合里取：所属插件撤下时没有这一项，回来以后重新出现。
+      // 子 Agent 被替换成工具更多的版本时也不列出：更高权限的工作不能靠 Agent 之间转托取得。
+      subagents: [...new Set(definition.subagents ?? [])].filter(sub => agents.find(item => item.id === sub)?.tools.every(tool => names.has(tool)) ?? false),
       sections: () => [{ id: `agent:${id}`, text: definition.instructions() }],
       async views() {
         const text = await definition.view?.();
@@ -503,7 +536,7 @@ class Space implements AgentSpace {
     this.assertOpen();
     const id = manager.getSessionId();
     const existing = this.sessions.get(id);
-    if (existing) return existing.ready;
+    if (existing && !existing.session.reopenable()) return existing.ready;
     const session = new Session(this, manager);
     const loading = session.initialize(reference).then(() => session);
     this.sessions.set(id, { session, ready: loading });
@@ -521,7 +554,8 @@ class Space implements AgentSpace {
   async get(id: string): Promise<Session> {
     this.assertOpen();
     const existing = this.sessions.get(id);
-    if (existing) return existing.ready;
+    // 只读打开的插件 Agent 会话，插件回来以后重新打开，恢复可用。
+    if (existing && !existing.session.reopenable()) return existing.ready;
     const sessionPath = await findSessionPath(this.options.sessionsDir, id);
     if (sessionPath === undefined) throw new RepaFault("session_not_found", "会话不存在", { id });
     const manager = SessionManager.open(sessionPath, this.options.sessionsDir, this.options.root);
@@ -597,9 +631,14 @@ class Session implements AgentSession {
   readonly agent: string;
   readonly modelCall: boolean;
   private pi?: PiSession;
-  private assembled?: AgentProfile;
-  // 工具集里有命令行：整次运行持空间写锁独占，前后整体快照。由工具集推出，不由 Agent 自己声明。
-  private opaque = false;
+  // 会话的 Pi 扩展入口：插件工具和 subagent 经它登记，替换才能生效。
+  private extension?: ExtensionAPI;
+  // 打开时按档案定下的内置工具与 ask_user；档案之外的内置工具在 Pi 里永久排除。
+  private fixed = new Set<string>();
+  // 经扩展入口登记过的插件工具；undefined 表示已撤下、换成了桩。
+  private registered = new Map<string, AgentTool | undefined>();
+  // 当前登记的 subagent 工具对应的可选 Agent 与说明；undefined 表示没有登记过，"" 表示已换成桩。
+  private subagentKey?: string;
   // 整文件写入核对基线用的读取记录，属于这个会话。
   private readonly reads = new ReadState();
   // 同一会话的运行依次进行；后来的运行等前一个结束，不同会话之间互不等待。
@@ -621,6 +660,7 @@ class Session implements AgentSession {
   private closing?: Promise<void>;
 
   private parent?: SessionParent;
+  private initialized = false;
 
   constructor(private space: Space, private manager: SessionManager) {
     this.agent = sessionAgent(manager);
@@ -632,9 +672,14 @@ class Session implements AgentSession {
     return this.pi;
   }
 
+  /** 这一刻的档案：插件的工具、Agent 增减以后，下一次用到时就是新的。Agent 不在时以 agent_not_found 失败。 */
   get profile(): AgentProfile {
-    if (!this.assembled) throw new RepaFault("session_unavailable", "会话尚未打开");
-    return this.assembled;
+    return this.space.profile(this.agent);
+  }
+
+  /** 只读打开、而 Agent 现在又可用的会话：重新打开就能运行。 */
+  reopenable(): boolean {
+    return this.initialized && this.pi === undefined && !this.modelCall && !this.closed && this.space.available(this.agent);
   }
 
   now(): number {
@@ -643,22 +688,20 @@ class Session implements AgentSession {
 
   async initialize(reference?: ModelRef): Promise<void> {
     this.parent = await readParent(this.space.options.sessionsDir, this.manager.getSessionId());
+    this.initialized = true;
     // Agent 已关掉或不存在时只读打开：能列出和查看历史，不建 Pi 会话，也不能运行。
     if (this.modelCall || !this.space.available(this.agent)) return;
     const { runtime, options } = this.space;
     const profile = this.space.profile(this.agent);
-    this.assembled = profile;
-    const reservedTools = new Set(RESERVED_TOOL_NAMES);
-    const names = new Set<string>();
-    for (const tool of profile.tools) {
-      // Pi 1.1.0 将这些字符解释为工具选择规则，插件工具必须是字面名称。
-      if (tool.name.includes("*") || /^[+-]/u.test(tool.name)) throw new RepaFault("invalid_tool_name", "插件工具名称不能包含选择规则", { name: tool.name });
-      if (reservedTools.has(tool.name) || names.has(tool.name)) throw new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: tool.name });
-      names.add(tool.name);
-    }
+    // 先核对插件工具的名称，不留下装不上工具的会话。
+    pluginToolMap(profile);
     const factory: ExtensionFactory = pi => {
+      this.extension = pi;
+      // 每一步模型回复之后按这一刻的工具集更新，下一次回复就用新的集合。Pi 在这个钩子之后才准备下一步的工具声明。
+      pi.on("turn_end", () => { this.syncTools(); });
       pi.on("tool_result", async event => {
-        if (!names.has(event.toolName)) return;
+        // 输出截断只认插件工具；撤下的工具已换成桩，不在其中。
+        if (this.registered.get(event.toolName) === undefined) return;
         const original = event.content.filter(part => part.type === "text").map(part => part.text).join("\n");
         const text = await limitToolText(original, { root: options.root, sessionId: this.manager.getSessionId(), toolCallId: event.toolCallId });
         // Pi 1.1.0 替换 content 会清除旧 structuredContent；details 留给界面，不能复制完整正文。
@@ -725,21 +768,23 @@ class Session implements AgentSession {
     await loader.reload();
     const saved = this.manager.buildSessionProjection().model;
     const model = runtime.model(reference ?? (saved ? { provider: saved.provider, id: saved.modelId } : undefined));
-    // 工具清单在创建时固定；插件 Agent 的内置文件工具换成空间内实现，仅 read 允许 .repa/tool-output/。
+    // 插件 Agent 的内置文件工具换成空间内实现，仅 read 允许 .repa/tool-output/。
     // 所有 Agent 的写入和编辑都经过空间的写入路径，只记这次碰到的文件。
     const scope = await this.space.fileScope();
     const files = { scope, writes: options.writes ?? DIRECT_WRITES, reads: this.reads };
     const fileTools = profile.general
       ? generalFileTools(files, (target, signal) => this.approveOutsideWrite(target, signal))
       : spaceFileTools(files, profile.builtins);
-    const toolNames = [
+    // 内置工具与 ask_user 在打开时按档案定下，之后不再替换。档案之外的放进 Pi 的永久排除列表：
+    // 插件 Agent 和子 Agent 不会因为哪里的激活列表写错而拿到 bash。测试注入的扩展工具只给通用 Agent。
+    this.fixed = new Set<string>([
       ...profile.builtins,
-      ...profile.tools.map(tool => tool.name),
-      ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
       ...(profile.askUser ? [ASK_USER_TOOL] : []),
       ...(profile.general ? runtime.options.toolNames ?? [] : []),
-    ];
-    this.opaque = toolNames.some(name => OPAQUE_TOOLS.has(name));
+    ]);
+    const excluded = [...PI_BUILTIN_TOOLS, ASK_USER_TOOL, ...(runtime.options.toolNames ?? [])].filter(name => !this.fixed.has(name));
+    // 不传工具白名单：白名单下运行中登记的工具静默无效。插件工具和 subagent 可能被替换，经扩展入口登记（syncTools），
+    // 不放进 customTools：Pi 让 customTools 覆盖同名的扩展工具，替换会静默无效。
     const result = await createAgentSession({
       cwd: options.root,
       agentDir: runtime.options.agentDir,
@@ -748,15 +793,19 @@ class Session implements AgentSession {
       sessionManager: this.manager,
       settingsManager: runtime.settings,
       resourceLoader: loader,
-      tools: toolNames,
+      noTools: "builtin",
+      excludeTools: excluded,
       customTools: [
         ...fileTools,
-        ...profile.tools.map(toolDefinition),
-        ...(profile.subagents.length > 0 ? [this.subagentTool(profile)] : []),
         ...(profile.askUser ? [askUserTool(options.ask)] : []),
       ],
     });
     this.pi = result.session;
+    // Pi 新增了内置工具而这里不知道时，它会留在登记表里，一处激活列表写错就会交出去；直接失败，升级 Pi 时补进 PI_BUILTIN_TOOLS。
+    const unknown = this.pi.getAllTools().filter(tool => tool.sourceInfo.source === "builtin" && !this.fixed.has(tool.name)).map(tool => tool.name);
+    if (unknown.length > 0) throw new RepaFault("unexpected_builtin_tools", "Pi 提供了没有排除的内置工具", { tools: unknown });
+    // Pi 重新打开会话时不按记录恢复激活的工具，每次打开都按这一刻的集合设定。
+    this.syncTools();
     const lastUsage = this.manager.getBranch().findLast(entry => {
       if (entry.type === "message" && entry.message.role === "assistant") {
         return entry.message.stopReason !== "error" && entry.message.stopReason !== "aborted";
@@ -775,6 +824,59 @@ class Session implements AgentSession {
       }
       for (const converted of convertEvent(this.manager.getSessionId(), event, this.runId)) options.onEvent(converted);
     });
+  }
+
+  /**
+   * 让 Pi 会话的工具与这一刻的档案一致：新的插件工具登记，替换的重新登记，撤下的换成桩并停用；
+   * subagent 在可选 Agent 变化时重新登记；激活集设为档案之内的内置工具、插件工具、subagent 与 ask_user。
+   * 在打开会话、每次运行开始和每一步模型回复之后调用，Pi 在下一步请求之前按激活集重新声明工具。
+   */
+  private syncTools(): void {
+    const pi = this.extension;
+    const session = this.pi;
+    if (pi === undefined || session === undefined) return;
+    // Agent 已经不在（插件撤下）：会话只读，插件工具全部撤下。
+    const profile = this.space.available(this.agent) ? this.space.profile(this.agent) : undefined;
+    const wanted = profile === undefined ? new Map<string, AgentTool>() : pluginToolMap(profile);
+    for (const [name, tool] of this.registered) {
+      if (tool !== undefined && !wanted.has(name)) {
+        pi.registerTool(removedTool(name));
+        this.registered.set(name, undefined);
+      }
+    }
+    for (const [name, tool] of wanted) {
+      if (this.registered.get(name) !== tool) {
+        pi.registerTool(toolDefinition(tool));
+        this.registered.set(name, tool);
+      }
+    }
+    const subagents = profile?.subagents ?? [];
+    if (profile !== undefined && subagents.length > 0) {
+      const tool = this.subagentTool(profile);
+      const key = tool.description;
+      if (key !== this.subagentKey) {
+        pi.registerTool(tool);
+        this.subagentKey = key;
+      }
+    } else if (this.subagentKey !== undefined && this.subagentKey !== "") {
+      pi.registerTool(removedTool(SUBAGENT_TOOL));
+      this.subagentKey = "";
+    }
+    // 次序与此前的白名单相同，工具声明的次序也就不变。
+    const active = profile === undefined ? [] : [
+      ...profile.builtins.filter(name => this.fixed.has(name)),
+      ...wanted.keys(),
+      ...(subagents.length > 0 ? [SUBAGENT_TOOL] : []),
+      ...(profile.askUser && this.fixed.has(ASK_USER_TOOL) ? [ASK_USER_TOOL] : []),
+      ...(profile.general ? (this.space.runtime.options.toolNames ?? []).filter(name => this.fixed.has(name)) : []),
+    ];
+    const current = session.getActiveToolNames();
+    if (current.length !== active.length || active.some(name => !current.includes(name))) session.setActiveToolsByName(active);
+  }
+
+  /** 这次运行是否持空间写锁独占：激活的工具里有命令行。由工具集推出，不由 Agent 自己声明。 */
+  private opaque(): boolean {
+    return this.session.getActiveToolNames().some(name => OPAQUE_TOOLS.has(name));
   }
 
   cleanViews(force: boolean, currentIds = new Set(this.currentViews.map(view => view.id))): void {
@@ -798,7 +900,8 @@ class Session implements AgentSession {
   }
 
   private assertRunnable(): void {
-    if (this.pi === undefined) throw new RepaFault("agent_not_found", "这个会话的 Agent 已关掉或不存在，只能查看历史", { agent: this.agent });
+    // 插件 Agent 的插件撤下以后，已经打开的会话也只读；插件回来以后恢复。
+    if (this.pi === undefined || !this.space.available(this.agent)) throw new RepaFault("agent_not_found", "这个会话的 Agent 已关掉或不存在，只能查看历史", { agent: this.agent });
   }
 
   history() {
@@ -912,6 +1015,7 @@ class Session implements AgentSession {
           this.runId = runId;
           started = true;
           this.space.options.onEvent({ sessionId: this.manager.getSessionId(), runId, type: "runStart", ...(this.parent === undefined ? {} : { parent: this.parent }), ...(link === undefined ? {} : { data: link }) });
+          this.syncTools();
           // 外部提示和 view 的失败在 Pi preflight 之外传播，不被扩展错误容错吞掉。
           this.currentSections = await this.space.promptSections(this.profile);
           this.currentViews = await this.profile.views();
@@ -936,7 +1040,9 @@ class Session implements AgentSession {
       for (let stranded = this.recoverStranded(); stranded !== undefined; stranded = this.recoverStranded()) await stranded;
       // 只有带命令行的运行整次进 record，持空间写锁独占；其余运行的写入各自按路径记账，可以并行。
       // 子 Agent 不另进：不透明父运行的窗口里它直接写文件，算在父运行的快照里，否则会和等它结果的父运行互相等待。
-      if (parent === undefined && this.opaque) await this.space.options.record(runId, execute);
+      // 先按这一刻的档案更新工具，再看有没有命令行。
+      this.syncTools();
+      if (parent === undefined && this.opaque()) await this.space.options.record(runId, execute);
       else await execute();
     } catch (error) {
       status = error instanceof RepaFault && error.code === "cancelled" ? "aborted" : "failed";

@@ -371,6 +371,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
 
     return {
       root, dataDir, sessionsDir, history, files, filesFor, record, writes,
+      writeLocked: () => gate.exclusiveHeld,
       async pluginDataDir(id) {
         checkOpen();
         if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new RepaFault("invalid_plugin_id", "插件 id 格式不正确", { id });

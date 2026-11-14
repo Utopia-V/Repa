@@ -28,6 +28,8 @@ export interface Space {
   /** 不透明写入者：独占空间写锁，动作前后各扫描一次整个空间。 */
   record<T>(source: ActivitySource, action: () => Promise<T>): Promise<{ value: T; snapshot: Snapshot }>;
   writes: SpaceWrites;
+  /** 空间写锁此刻是否被独占（带命令行的运行或插件的 history.record）。只读查询，不加锁；独占期间别处的写入与历史读取都要等它结束。 */
+  writeLocked(): boolean;
   onRevision(listener: (revision: Revision) => void): () => void;
   /**
    * 在历史队列中执行 action，期间没有提交、撤销或维护写入历史库，备份在这里复制它；空间文件的写入随之排队。
