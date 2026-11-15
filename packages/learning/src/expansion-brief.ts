@@ -139,7 +139,7 @@ export function expansionBrief(course: ResolvedCourse, topicIds: readonly string
     const rest = later.length - upcoming.length;
     sections.push([
       "## 还没有讲到的部分",
-      "属于下面这些部分的术语学习者还没学过：第一次出现时用几句话说清它是什么，可以注明后面哪一部分细讲，例如“进程（正在运行的一个程序，后面讲进程的那一部分细讲）”。",
+      "属于下面这些部分的术语学习者还没学过：第一次出现时用几句话说清它是什么，可以注明后面哪一部分细讲，写成“术语（一句话说明它是什么，后面讲它的那一部分细讲）”这样。",
       `${upcoming.map(named).join("、")}${rest > 0 ? `；另有 ${rest} 个部分没有列出` : ""}。`,
     ].join("\n\n"));
   }
