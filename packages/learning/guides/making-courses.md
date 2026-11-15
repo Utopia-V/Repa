@@ -63,7 +63,7 @@
 
 ## 一个完整的例子
 
-同一目录下的 `example-course/` 是一门能通过检查、能上课的小课：`os01` 已经展开，`os02` 还是轮廓。写之前先读它的 `course.yaml`、`topics/os01.yaml` 和 `topics/os02.yaml`。清单是这样：
+同一目录下的 `example-course/` 是一门能通过检查、能上课的小课：`os01` 已经展开，`os02` 还是轮廓。写之前先读它的 `course.yaml`、`topics/os01.yaml` 和 `topics/os02.yaml`；里面只有这三个文件，直接用 read 读，不必列目录。清单是这样：
 
 ```yaml
 id: os-memory          # 字母开头，字母、数字、下划线、连字符；定了就不再改
