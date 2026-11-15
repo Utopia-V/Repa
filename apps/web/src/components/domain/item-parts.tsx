@@ -62,12 +62,15 @@ export function MarkBadge({ mark }: { mark: Mark | undefined }) {
   </span>;
 }
 
-/** 选项的一行；选中时用选中边框和底色，同时有单选或复选框本身的选中标记。 */
-export function OptionRow({ selected, children }: { selected: boolean; children: ReactNode }) {
-  return <div
-    data-selected={selected || undefined}
-    className="flex min-h-11 items-center gap-3 rounded-lg border border-border px-3 py-2 text-body data-selected:border-border-selected data-selected:bg-accent"
-  >{children}</div>;
+/**
+ * 选项的一行；选中时用选中边框和底色，同时有单选或复选框本身的选中标记。
+ * 给了 htmlFor 时整行是这个控件的 label：点在行内任何地方（包括内边距）都选中它，行里的输入框等控件照常自己响应。
+ */
+export function OptionRow({ selected, htmlFor, children }: { selected: boolean; htmlFor?: string; children: ReactNode }) {
+  const className = "flex min-h-11 items-center gap-3 rounded-lg border border-border px-3 py-2 text-body data-selected:border-border-selected data-selected:bg-accent";
+  return htmlFor === undefined
+    ? <div data-selected={selected || undefined} className={className}>{children}</div>
+    : <label htmlFor={htmlFor} data-selected={selected || undefined} className={cn(className, "cursor-pointer")}>{children}</label>;
 }
 
 export type FieldProps<S extends Slot, D> = {

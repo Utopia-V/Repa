@@ -27,6 +27,31 @@ function submitted(onSubmit: ReturnType<typeof vi.fn>): ItemResponse {
   return onSubmit.mock.calls.at(-1)?.[0] as ItemResponse;
 }
 
+it("选择题的整行都能点：点在选项那一行上（不必点中圆圈或文字）就选中它，单选和多选都一样", () => {
+  const option = (id: string, text: string) => ({ id, content: [{ type: "markdown" as const, text }] });
+  const item: Item = {
+    id: "q", version, requires: ["slot.choice", "block.markdown"], body: [],
+    slots: [
+      { id: "one", type: "choice", prompt: [{ type: "markdown", text: "单选" }], options: [option("a", "甲"), option("b", "乙")] },
+      { id: "many", type: "choice", multiple: true, prompt: [{ type: "markdown", text: "多选" }], options: [option("c", "丙"), option("d", "丁")] },
+    ],
+  };
+  const onSubmit = vi.fn();
+  render(<Harness item={item} onSubmit={onSubmit} />);
+
+  // 行就是控件的 label；点行本身，而不是里面的圆圈或文字。
+  const row = (text: string) => screen.getByText(text).closest("label")!;
+  fireEvent.click(row("乙"));
+  fireEvent.click(row("丙"));
+  fireEvent.click(row("丁"));
+  // 被点的就是带选中状态的那一整行。
+  expect(row("乙").hasAttribute("data-selected")).toBe(true);
+  expect(row("甲").hasAttribute("data-selected")).toBe(false);
+  const answers = submitted(onSubmit).answers;
+  expect(answers.one).toEqual({ type: "choice", selected: ["b"] });
+  expect(answers.many).toEqual({ type: "choice", selected: ["c", "d"] });
+});
+
 it("排列题用按钮调整顺序和缩进，交出的顺序与缩进和界面一致", () => {
   const item: Item = {
     id: "q", version, requires: ["slot.order", "block.code"], body: [],

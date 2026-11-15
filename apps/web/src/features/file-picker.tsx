@@ -132,14 +132,14 @@ function FileBrowser({ onPick }: { onPick(paths: string[]): Promise<void> }) {
         : <ul aria-label={t("filePicker.entries.label")} className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
           {listing.entries.map((entry, index) => entry.file
             // 选中的文件整行换底色，不只靠勾：Checkbox 选中后不悬停时没有边框，单靠它看不出哪几行选了。
-            ? <li key={entry.path}><OptionRow selected={picked.includes(entry.path)}>
+            ? <li key={entry.path}><OptionRow selected={picked.includes(entry.path)} htmlFor={`${base}-${index}`}>
               <Checkbox
                 id={`${base}-${index}`}
                 checked={picked.includes(entry.path)}
                 disabled={adding}
                 onCheckedChange={(checked) => toggle(entry.path, checked)}
               />
-              <label htmlFor={`${base}-${index}`} className="min-w-0 flex-1 cursor-pointer text-body break-all">{entry.name}</label>
+              <span className="min-w-0 flex-1 text-body break-all">{entry.name}</span>
               {entry.size !== undefined && <span className="shrink-0 text-caption text-muted-foreground tabular-nums">{fileSize(entry.size)}</span>}
             </OptionRow></li>
             : <li key={entry.path}>

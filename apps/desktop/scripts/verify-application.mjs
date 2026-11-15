@@ -142,7 +142,7 @@ async function checkLaunch(executable, application, temporary, hideGit) {
       if (!page) continue;
       const text = await evaluate(page, "document.body.innerText");
       last = `${page.url}：${String(text).slice(0, 200)}`;
-      if (typeof text === "string" && text.includes("开始第一门课")) return { url: page.url, python: await checkPagePython(page, application, temporary) };
+      if (typeof text === "string" && text.includes("创建第一门课")) return { url: page.url, python: await checkPagePython(page, application, temporary) };
     }
     throw new Error(`60 秒内应用没有显示选空间页，最后看到 ${last}`);
   } finally {
