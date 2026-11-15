@@ -19,13 +19,15 @@ import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
 import { checkCourse } from "../src/check/course.js";
 import { COURSE_GUIDE } from "../src/course-tools.js";
 import { connectLearning } from "../src/flow.js";
-import { createLearningPlugin } from "../src/plugin.js";
+import { frontendPython } from "../src/check/python.js";
+import { createLearningPlugin, type LearningPluginOptions } from "../src/plugin.js";
 import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
 import type { LearningSession } from "../src/session.js";
 import { TUTOR_AGENT } from "../src/tutor.js";
 import { runtimeUnavailable } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
 import { referenceAnswer, start } from "./fixtures/learning-session.js";
+import { PAGE_RUNTIME, pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
 
 /** 写课说明里的完整例子：不含代码题，也是这里的示例课。 */
 const EXAMPLE = fileURLToPath(new URL("../guides/example-course/", import.meta.url));
@@ -85,6 +87,8 @@ async function until(condition: () => boolean | Promise<boolean>, message: strin
 interface FixtureOptions {
   /** course_check 用的离线 Pyodide 包目录。 */
   packagesDirectory?: string;
+  /** course_check 能运行 Python 的几处；省略时是插件的缺省（Linux 沙箱，再是前端页面）。 */
+  python?: LearningPluginOptions["python"];
 }
 
 /** 经真实的协议后端打开学习插件：通用 Agent 与辅导 Agent 都在，模型是本地的 faux，课程用随包的缺省。 */
@@ -111,6 +115,7 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
   let current: LearningSession | undefined;
   const learning = createLearningPlugin({
     ...(options.packagesDirectory ? { packagesDirectory: options.packagesDirectory } : {}),
+    ...(options.python ? { python: options.python } : {}),
     async connect(opened, host) {
       current = opened;
       return connectLearning(opened, { beforeRestricted: () => host.abortAgent(TUTOR_AGENT) });
@@ -174,7 +179,7 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
     return { text: lastToolResult(received), context: received };
   }
   return {
-    root, faux, client, call, state, select, step, finish, tool,
+    root, faux, client, call, state, select, step, finish, tool, connection: server.connection,
     dataDir: path.join(root, ".repa", "plugins", "learning"),
     /** 把示例课复制成空间里的 course/，模拟做课的 Agent 写好的课。 */
     writeExample: () => cp(EXAMPLE, path.join(root, "course"), { recursive: true }),
@@ -214,12 +219,12 @@ test("course/ 在而还没有换用过课：插件照常打开，状态里没有
   assert.match(checked.text, /学习者现在学的：还没有可学的课/u);
 });
 
-test("不含代码题的示例课：course_check 通过且不启动沙箱，course_use 换用后经真实的学习流程上完一节课，重开空间仍是这一版", async (t) => {
+test("不含代码题的示例课：course_check 通过且不运行 Python，course_use 换用后经真实的学习流程上完一节课，重开空间仍是这一版", async (t) => {
   const f = await fixture(t);
   await f.writeExample();
   const checked = await f.tool("course_check");
   assert.match(checked.text, /^course\/ 通过检查：课程 os-memory 1\.0\.0，完整 topic 1 个、骨架 1 个，题目 12 道。$/mu);
-  assert.match(checked.text, /没有启动沙箱/u);
+  assert.match(checked.text, /没有运行 Python/u);
   assert.match(checked.text, /复习和测验题里有 4 个作答位列在 manual 里，没有经过独立核对/u);
   // 只检查不换用：学的仍是随包的课。
   assert.equal((await f.state()).course?.id, "python");
@@ -489,14 +494,21 @@ test("要运行 Python 的课在核对没能运行时如实说明原因，不算
     delete question.manual;
     question.verify = 'answers = {"state": "运行"}';
   });
-  // runtime 少写了核对环境要的包：Linux 上沙箱里的 Pyodide 起不来，或这台机器建不了沙箱，两种都写明各自怎样处理；别的系统上写明这台机器不能运行核对。
+  // runtime 少写了核对环境要的包，也没有前端提供 python.run：Linux 上沙箱里的 Pyodide 起不来，或这台机器建不了沙箱，
+  // 两种都写明各自怎样处理；别的系统上写明沙箱只在 Linux 上有。两种都写明没有应用页面能运行。
   await writeFile(manifest, `${original}runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }\n`);
   const startup = await f.tool("course_check");
   assert.match(startup.text, /没有通过检查/u);
   assert.match(startup.text, /课里要运行 Python 的部分（verify、代码题、带 tests 的排列题）没有运行，也就没有核对/u);
   assert.match(startup.text, process.platform === "linux"
-    ? /\[sandbox_unavailable\][\s\S]*Pyodide 启动失败时，把清单的 runtime 照写课说明改/u
-    : /\[sandbox_unavailable\] 沙箱只能在 Linux 上建立[^\n]*这台机器不能运行课里的 verify 核对程序和代码题，所以没有核对/u);
+    ? /\[python_unavailable\] Linux 沙箱用不了：[\s\S]*Pyodide 启动失败时，把清单的 runtime 照写课说明改[\s\S]*；没有打开的应用页面能运行 Python/u
+    : /\[python_unavailable\] Linux 沙箱用不了：沙箱只能在 Linux 上建立[^\n]*；没有打开的应用页面能运行 Python[^\n]*所以没有核对/u);
+  // 应用页面开着：插件缺省的装配在沙箱用不了时改经页面运行。页面加载了 numpy 和 pandas，清单却没有写，同样不通过。
+  const page = await pythonFrontend(t, f.connection, verifiedAnswers({}));
+  const fallback = await f.tool("course_check");
+  assert.match(fallback.text, /\[runtime_mismatch\] 实际加载的运行时与课程清单不一致：numpy 2\.4\.6（清单里没有写）、pandas 3\.0\.2（清单里没有写）/u);
+  assert.equal(page.requests.length, 1);
+  await page.client.close();
   // 照写课说明写 runtime，但这台机器缺离线包。
   await writeFile(manifest, `${original}${stringify({ runtime: (await guideRuntime()) })}`);
   const checked = await f.tool("course_check");
@@ -524,6 +536,86 @@ test("写课说明里的 runtime 与随包课一致，照说明写的 verify 例
   const result = await checkCourse(root, { base: root, confirmations: "reported" });
   assert.deepEqual(result.diagnostics, []);
   assert.equal(result.summary.code.verifyJobs, 1);
+});
+
+/** 写课说明里的 verify 例题（时间片 20 ms、运行 70 ms，调度 4 次），加进示例课 os01 的练习，清单照说明写 runtime。 */
+async function addGuideVerify(f: { root: string; writeExample: () => Promise<void> }): Promise<string> {
+  await f.writeExample();
+  const manifest = path.join(f.root, "course", "course.yaml");
+  await writeFile(manifest, `${await readFile(manifest, "utf8")}${stringify({ runtime: await guideRuntime() })}`);
+  const example = (await guideExamples()).find((entry) => Array.isArray(entry) && "verify" in (entry[0] as object)) as Record<string, unknown>[];
+  await editTopic(f.root, "os01", (topic) => pool(topic, 0, "practice").push(...structuredClone(example)));
+  const script = example[0]?.verify;
+  assert.ok(typeof script === "string");
+  return script;
+}
+
+/** 只经前端页面核对：在有沙箱的机器上走没有沙箱的那条路。timeoutMs 缩短每一段的时限，等页面回应的期限随之缩短。 */
+const pageOnly = (timeoutMs?: number): LearningPluginOptions["python"] => (host) => [
+  (expected, options) => frontendPython(host.services)(expected, timeoutMs === undefined ? options : { ...options, timeoutMs }),
+];
+
+test("没有 Linux 沙箱时经开着的应用页面核对：没有页面时如实报告；页面算出的与 key 一致才通过并换用，不一致或版本不符时不换用", async (t) => {
+  const f = await fixture(t, { python: pageOnly() });
+  const script = await addGuideVerify(f);
+
+  // 还没有前端声明 python.run：没有地方运行，不算通过，不换用。
+  const alone = await f.tool("course_check");
+  assert.match(alone.text, /没有运行，也就没有核对/u);
+  assert.match(alone.text, /\[python_unavailable\] 没有打开的应用页面能运行 Python/u);
+  assert.match((await f.tool("course_use")).text, /^没有换用。/u);
+
+  // 页面开着，但算出的是 5：报 answer_mismatch，不换用。
+  const page = await pythonFrontend(t, f.connection, verifiedAnswers({ [script]: { n: "5" } }));
+  const wrong = await f.tool("course_check");
+  assert.match(wrong.text, /在应用页面的 Worker 里运行了 verify 核对程序 1 段/u);
+  assert.match(wrong.text, /\[answer_mismatch\] n：程序算出 "5"，标准答案是 "4"/u);
+  assert.match((await f.tool("course_use")).text, /^没有换用。/u);
+  assert.equal((await f.state()).course?.id, "python");
+  // 每次检查先发一批空的测试取得页面的版本，再把这一节的 verify 成批交给页面。
+  assert.deepEqual(page.requests.slice(0, 2).map((input) => input.tests.map((test) => test.program)), [[], [script]]);
+  assert.deepEqual(page.requests[1]?.tests[0]?.verify?.shape, { n: "text" });
+
+  // 页面加载的 pandas 与清单不符：报 runtime_mismatch，不运行核对。
+  const before = page.requests.length;
+  page.reply = verifiedAnswers({ [script]: { n: "4" } }, { ...PAGE_RUNTIME, packages: { ...PAGE_RUNTIME.packages, pandas: "2.2.0" } });
+  const mismatch = await f.tool("course_check");
+  assert.match(mismatch.text, /\[runtime_mismatch\] 实际加载的运行时与课程清单不一致：pandas 2\.2\.0/u);
+  assert.equal(page.requests.length, before + 1);
+
+  // 算出 4：通过并换用。
+  page.reply = verifiedAnswers({ [script]: { n: "4" } });
+  assert.match((await f.tool("course_check")).text, /^course\/ 通过检查/mu);
+  assert.match((await f.tool("course_use")).text, /^已换用/u);
+  assert.equal((await f.state()).course?.id, "os-memory");
+});
+
+// 没有期限时检查会一直等下去；测试的时限让这种情况失败而不是挂住。
+test("页面不回应、核对中途断开时，检查在期限内以 python_unavailable 结束，不算通过", { timeout: 30_000 }, async (t) => {
+  // 每段 20 毫秒：等页面交回空批的期限是 0.12 秒，交回一个测试的是 0.18 秒。
+  const f = await fixture(t, { python: pageOnly(20) });
+  const script = await addGuideVerify(f);
+  const page = await pythonFrontend(t, f.connection, () => undefined);
+  const silent = await f.tool("course_check");
+  assert.match(silent.text, /\[python_unavailable\] 应用页面在 0\.12 秒内没有交回 Python 的运行结果/u);
+  assert.equal(page.requests.length, 1);
+
+  // 交回了版本，verify 那一批却不回应。
+  const answered = verifiedAnswers({ [script]: { n: "4" } });
+  page.reply = (input) => (input.tests.length === 0 ? answered(input) : undefined);
+  const stuck = await f.tool("course_check");
+  assert.match(stuck.text, /没有通过检查/u);
+  assert.match(stuck.text, /\[python_unavailable\] 应用页面在 0\.18 秒内没有交回 Python 的运行结果。课里的 verify 核对程序和代码题没有全部运行/u);
+
+  // verify 那一批交给页面以后页面关掉了。
+  page.reply = (input) => {
+    if (input.tests.length === 0) return answered(input);
+    void page.client.close();
+    return undefined;
+  };
+  const closed = await f.tool("course_check");
+  assert.match(closed.text, /\[python_unavailable\] 应用页面运行 Python 失败：提供服务的连接已断开/u);
+  assert.match((await f.tool("course_use")).text, /^没有换用。/u);
 });
 
 test("通用 Agent 的提示说明指向随包的写课说明，并有 course_check 与 course_use；写课说明和示例都在安装包的文件清单里", async (t) => {

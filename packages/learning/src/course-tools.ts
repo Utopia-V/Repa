@@ -50,9 +50,9 @@ export function checkText(checked: CourseCheck, offset = 0): string {
   if (!summary.course) {
     // 清单读不出来时还不知道课里有没有要运行 Python 的题，不下结论。
   } else if (!summary.python) {
-    lines.push("课里没有要运行 Python 的题，没有启动沙箱。");
+    lines.push("课里没有要运行 Python 的题，没有运行 Python。");
   } else if (summary.ran) {
-    lines.push(`在沙箱里运行了 verify 核对程序 ${summary.code.verifyJobs} 段、测试 ${summary.code.testRuns} 次。`);
+    lines.push(`在${summary.where === "frontend" ? "应用页面的 Worker 里" : " Linux 沙箱里"}运行了 verify 核对程序 ${summary.code.verifyJobs} 段、测试 ${summary.code.testRuns} 次。`);
   } else {
     lines.push("课里要运行 Python 的部分（verify、代码题、带 tests 的排列题）没有运行，也就没有核对，原因见下面的错误。");
   }

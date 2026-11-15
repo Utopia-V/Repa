@@ -1,15 +1,12 @@
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 
-import { endsBatch, PYTHON_BATCH, type PythonBatchInput, type PythonBatchResult, type PythonTestResult } from "../protocol.js";
+import {
+  endsBatch, PYTHON_BATCH, PYTHON_START_TIMEOUT_MS, PYTHON_STEP_TIMEOUT_MS, type PythonBatchInput, type PythonBatchResult, type PythonTestResult,
+} from "../protocol.js";
 import { failedAt, readStep, readTested, restartsTimer, timedOut, type Step } from "../test-results.js";
 import type { WorkerMessage, WorkerRequest } from "./messages.js";
 
-/**
- * 与 Node 宿主相同：每个测试 10 秒。启动 60 秒，从下载 Pyodide 文件算起；Pyodide 加载失败时会一直卡住、不报错，所以启动也要限时。
- */
-const TEST_TIMEOUT_MS = 10_000;
-const START_TIMEOUT_MS = 60_000;
 /** runner.py 在模块顶层导入它们，结果里报告的也是它们；依赖由 pyodide-lock.json 补全。 */
 const RUNNER_PACKAGES = ["numpy", "pandas"];
 const CORE_FILES = ["pyodide.asm.wasm", "python_stdlib.zip"];
@@ -331,9 +328,9 @@ export class PythonRunner {
     return this.#start(signal);
   }
 
-  /** 启动一个 Worker，期限从下载文件算起。 */
+  /** 启动一个 Worker，期限（与 Node 宿主相同，见 PYTHON_START_TIMEOUT_MS）从下载文件算起。 */
   #start(signal: AbortSignal | undefined): Promise<Started> {
-    const timeoutMs = this.#options.startTimeoutMs ?? START_TIMEOUT_MS;
+    const timeoutMs = this.#options.startTimeoutMs ?? PYTHON_START_TIMEOUT_MS;
     let instance: RunnerInstance | undefined;
     let failed = false;
     return new Promise<Started>((resolve, reject) => {
@@ -394,7 +391,7 @@ export class PythonRunner {
    * 之后的测试记为未执行。恢复解释器状态失败时这个测试的结果已经算出，照样交回，余下的测试也记为未执行，由 #run 换 Worker 接着运行。
    */
   #execute({ instance, loaded }: Started, input: PythonBatchInput, signal: AbortSignal | undefined): Promise<PythonBatchResult> {
-    const timeoutMs = this.#options.testTimeoutMs ?? TEST_TIMEOUT_MS;
+    const timeoutMs = this.#options.testTimeoutMs ?? PYTHON_STEP_TIMEOUT_MS;
     return new Promise<PythonBatchResult>((resolve, reject) => {
       const tests: PythonTestResult[] = [];
       let step: Step = "prepare";

@@ -3,7 +3,8 @@
  * 先由执行方算出期望值，再运行候选程序，按同一套规则比较并得出结论。
  *
  * 执行方（RunTests）按 @repa/python-runner/protocol 的约定运行一批测试：判分时是前端的 python.run，
- * 页面每次调用用一个新的 Worker；课程核对时是 Node 沙箱，整门课一个解释器。以后学习者用自己装的 Python 时再加一种。
+ * 页面每次调用用一个新的 Worker；课程核对时是 Linux 沙箱（整门课一个解释器），沙箱建不起来时也是前端的 python.run（见 check/python.ts）。
+ * 以后学习者用自己装的 Python 时再加一种。
  * 第一次调用先运行全部期望任务，再运行第一份程序：期望值与程序在同一个执行方里、并在程序之前算出，
  * 程序改不到已经算出的期望值。判分只有一份程序，所以一次提交只调用一次执行方。核对时其余的候选程序各调用一次，
  * 沿用第一次算出的期望值；这要求课程的期望表达式、夹具和 setup 结果确定、不改动运行环境（见学习插件说明）。
@@ -14,7 +15,7 @@ import type { Host } from "@repa/base/plugin";
 import type { Answer } from "@repa/base/protocol";
 import {
   endsBatch, PYTHON_BATCH, PYTHON_RUN, PythonBatchResultSchema,
-  type Fixture as RunnerFixture, type PythonBatchInput, type PythonProgramResult, type PythonTest, type PythonTestResult, type Runtime,
+  type Fixture as RunnerFixture, type PythonBatchInput, type PythonBatchResult, type PythonProgramResult, type PythonTest, type PythonTestResult, type Runtime,
 } from "@repa/python-runner/protocol";
 import { Value } from "typebox/value";
 
@@ -159,8 +160,8 @@ function programJobs(plan: SlotTestPlan, program: string): PythonTest[] {
   }));
 }
 
-/** 调用执行方，并核对它守约：结果与输入一一对应、顺序相同，停下之后只有 not_run，停下之前没有 not_run。 */
-async function runBatch(run: RunTests, jobs: PythonTest[]): Promise<TestBatch> {
+/** 调用执行方，并核对它守约：结果与输入一一对应、顺序相同，停下之后只有 not_run，停下之前没有 not_run。不守约时按服务失败报错。 */
+export async function runBatch(run: RunTests, jobs: PythonTest[]): Promise<TestBatch> {
   const batch = await run(jobs);
   let stopped = false;
   let kept = batch.tests.length === jobs.length;
@@ -295,11 +296,17 @@ export async function runCodeTests(run: RunTests, plan: SlotTestPlan, programs: 
   return { expectationProblems, programs: outcomes, batches };
 }
 
-/** 判分用的执行方：经前端的 python.run 运行，前端每次调用用一个新的 Worker。结果不合约定按服务失败处理。 */
+/** 经前端的 python.run 运行一批测试，前端每次调用用一个新的 Worker。结果不合约定按服务失败处理。 */
+export async function callPythonRun(services: Host["services"], tests: PythonTest[], signal?: AbortSignal): Promise<PythonBatchResult> {
+  const reply = await services.call(PYTHON_RUN, { protocol: PYTHON_BATCH, tests }, signal ? { signal } : {});
+  if (!Value.Check(PythonBatchResultSchema, reply)) throw new RepaFault("service_failed", "python.run 的结果不符合约定");
+  return reply;
+}
+
+/** 判分用的执行方：经前端的 python.run 运行。 */
 export function frontendTests(host: Host): RunTests {
   return async (tests) => {
-    const reply = await host.services.call(PYTHON_RUN, { protocol: PYTHON_BATCH, tests });
-    if (!Value.Check(PythonBatchResultSchema, reply)) throw new RepaFault("service_failed", "python.run 的结果不符合约定");
+    const reply = await callPythonRun(host.services, tests);
     return { runtime: reply.runtime, tests: reply.tests };
   };
 }

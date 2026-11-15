@@ -3,6 +3,7 @@ export { formatDiagnostic, Report, type Diagnostic } from "./format/diagnostics.
 export { loadCourse, type LoadedCourse, type LoadedTopic } from "./format/load.js";
 export { toContent } from "./format/markdown.js";
 export { checkCourse, type CheckOptions, type CheckResult, type CheckSummary } from "./check/course.js";
+export { frontendPython, PythonUnavailable, sandboxPython, type CheckPython, type CheckRun, type CheckRunOptions } from "./check/python.js";
 export { gradeSlot, type SlotGrade } from "./check/grade.js";
 export { itemVersion, publicItem, questionVersion, referenceResponse, topicQuestions, versionInput } from "./check/items.js";
 export { createLearningPlugin, LEARNING_FORMAT_VERSION, type LearningPluginOptions } from "./plugin.js";

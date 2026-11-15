@@ -4,7 +4,13 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { checkCourse } from "../src/check/course.js";
+import { describeRuntime, SandboxRunner } from "@repa/python-runner";
+import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
+import { parse } from "@repa/base/protocol";
+import type { Host } from "@repa/base/plugin";
+
+import { checkCourse, type CheckResult } from "../src/check/course.js";
+import { frontendPython } from "../src/check/python.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
 import type { CodeSlot, OrderSlot, TableSlot, TextSlot } from "../src/format/schema.js";
 import { demoCourse, runtimeUnavailable, writeCourse, type DemoCourse } from "./demo-course.js";
@@ -178,4 +184,57 @@ test("后一份候选程序看不到前一份留下的变量、文件和环境�
   const result = await checkCourse(root);
   assert.deepEqual(errors(result.diagnostics), []);
   assert.deepEqual((await readdir(root)).sort(), ["course.yaml", "topics"]);
+});
+
+test("同一门课经 Linux 沙箱和经前端的 python.run 核对，结论一致：通过的都通过，不通过的报同样的错误码和说明", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return skipUnavailableEnvironment(t, reason);
+  // 前端的替身：python.run 交给另一个 Node 沙箱，按同一约定运行，与页面的 Worker 一样加载 runner.py 的 program_test。
+  const runner = new SandboxRunner({ assets: await describeRuntime(demoCourse().course.runtime) });
+  t.after(() => runner.close());
+  const services: Host["services"] = {
+    async call(service, input) {
+      assert.equal(service, "python.run");
+      const { tests } = parse(PythonBatchInputSchema, input);
+      return { protocol: PYTHON_BATCH, runtime: await runner.start(), tests: await runner.runTests(tests, 1_500) };
+    },
+  };
+  const variants: [string, (demo: DemoCourse) => void][] = [
+    ["原样", () => {}],
+    ["标准答案与算出的不一致、作答位没被核对", (demo) => {
+      practiceSlot<TextSlot>(demo, 0, 0).key = 4;
+      const question = demo.topics.t01?.kps[0]?.practice?.[1];
+      assert.ok(question);
+      question.verify = "answers = {}";
+    }],
+    ["verify 程序出错、超时", (demo) => {
+      const questions = demo.topics.t01?.kps[0]?.practice;
+      assert.ok(questions?.[0] && questions[1]);
+      questions[0].verify = "while True:\n    pass";
+      questions[1].verify = "answers = {'output': 1 / 0}";
+    }],
+    ["代码题的参考答案不过、错误写法通过", (demo) => {
+      const code = practiceSlot<CodeSlot>(demo, 1, 0);
+      code.solution = "def double(x):\n    return x * 3\n";
+      code.rejects = [{ code: "def double(x):\n    return x + x\n", why: "其实是对的" }];
+    }],
+  ];
+  const comparable = (result: CheckResult) => ({
+    diagnostics: result.diagnostics,
+    ran: result.summary.ran,
+    runtime: result.summary.runtime,
+    counts: { ...result.summary.code, interpreterStarts: 0 },
+  });
+  for (const [name, change] of variants) {
+    const demo = demoCourse();
+    change(demo);
+    const root = await writeCourse(t, demo);
+    const sandbox = await checkCourse(root, { base: root, timeoutMs: 1_500 });
+    const frontend = await checkCourse(root, { base: root, timeoutMs: 1_500, python: [frontendPython(services)] });
+    assert.equal(sandbox.summary.where, "sandbox");
+    assert.equal(frontend.summary.where, "frontend");
+    assert.deepEqual(comparable(frontend), comparable(sandbox), name);
+    if (name === "原样") assert.deepEqual(sandbox.diagnostics, []);
+    else assert.ok(sandbox.diagnostics.length > 0, name);
+  }
 });

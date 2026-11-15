@@ -1,6 +1,6 @@
 /**
  * 各平台安装包共用的核对：文件齐全、安装包带的 Git 能保存和恢复空间、用安装包里的 Electron 当 Node 拉起后端并加载随包插件、
- * 像学习者那样打开应用。
+ * 像学习者那样打开应用，并确认页面的 Worker 里能运行 Python。
  * 平台脚本（verify-mac-package.mjs、verify-win-package.mjs）负责把安装包展开到磁盘，再交给这里。
  */
 import assert from "node:assert/strict";
@@ -23,11 +23,11 @@ async function freePort() {
   return port;
 }
 
-/** 在页面里求值，经 Chrome 调试协议。 */
+/** 在页面里求值，经 Chrome 调试协议；表达式是 Promise 时等它完成。 */
 async function evaluate(target, expression) {
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
-  socket.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression, returnByValue: true } }));
+  socket.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression, returnByValue: true, awaitPromise: true } }));
   const reply = await new Promise((resolve) => { socket.onmessage = (event) => resolve(JSON.parse(event.data)); });
   socket.close();
   return reply.result?.result?.value;
@@ -39,11 +39,89 @@ async function quit(app) {
   else app.kill("SIGTERM");
 }
 
+/** 探针插件：一个自写插件，它唯一的方法把输入原样交给前端服务 python.run，再把结果交回。 */
+const PROBE = "python-probe";
+const PROBE_FILES = {
+  "repa-plugin.json": JSON.stringify({ id: PROBE, version: "0.1.0", entry: "index.js" }),
+  "index.js": `export default {
+  id: ${JSON.stringify(PROBE)},
+  async open(host) {
+    return { methods: { run: { parameters: { type: "object" }, invoke: (input) => host.services.call("python.run", input) } } };
+  },
+};
+`,
+};
+/** 页面这一次最多等多久：Pyodide 启动 60 秒，加上两个测试，留出余量。 */
+const PAGE_PYTHON_TIMEOUT_MS = 180_000;
+
+/**
+ * 页面的 Worker 里真的能运行 Python：判分和课程核对都靠它，安装包里的 repa 协议、Worker 的 CSP、wasm 和离线包少了哪一样，
+ * 学习者的机器上这条路就是断的。没有模型时，让后端向页面发 python.run 的最直接的办法是一个自写插件：
+ * 脚本经页面取得后端的连接信息，以第二个连接接上（不声明 python.run），在临时空间里装上探针插件、调用它；
+ * 底座把服务请求交给唯一声明了 python.run 的连接，也就是页面。交给页面的一批里有一个普通测试（用 pandas 求和）
+ * 和一个课程核对的 verify 任务，结果与实际加载的版本都要对，版本以随包 Python 课的清单为准。
+ */
+async function checkPagePython(page, application, temporary) {
+  const { RepaClient } = await import(pathToFileURL(path.join(application, "node_modules/@repa/base/dist/client.js")));
+  const { PYTHON_BATCH } = await import(pathToFileURL(path.join(application, "node_modules/@repa/python-runner/dist/protocol.js")));
+  const { parse } = await import(pathToFileURL(path.join(application, "node_modules/yaml/dist/index.js")));
+  const course = parse(await readFile(path.join(application, "node_modules/@repa/learning/courses/python/course.yaml"), "utf8"));
+  const expected = { pyodide: String(course.runtime.pyodide), python: String(course.runtime.python), packages: course.runtime.packages };
+  const connection = await evaluate(page, "window.repaHost.getConnection()");
+  assert.ok(connection?.url && connection?.token, "页面没有交出后端的连接信息");
+  const client = await RepaClient.connect(connection);
+  try {
+    // 加载自写插件要使用者批准；这里只批准探针插件。
+    client.on("confirm.request", ({ id, request }) => {
+      void client.call("confirm.reply", { id, value: request.kind === "plugin" && request.plugin?.id === PROBE }).catch(() => {});
+    });
+    const root = path.join(temporary, "python 空间");
+    const { opening } = await client.call("space.create", { root });
+    for (const [name, content] of Object.entries(PROBE_FILES)) {
+      await mkdir(path.join(root, ".agents", "plugins", PROBE), { recursive: true });
+      await writeFile(path.join(root, ".agents", "plugins", PROBE, name), content);
+    }
+    const loaded = await client.call("plugin.load", { id: PROBE });
+    assert.equal(loaded.state, "running", `探针插件没有运行：${JSON.stringify(loaded.reason)}`);
+    const base = { prelude: "import pandas as pd", setup: "", data: [], doctest: [] };
+    const input = {
+      protocol: PYTHON_BATCH,
+      tests: [
+        { ...base, id: "sum", program: "total = int(pd.Series([1, 2, 3]).sum())", captures: ["total"] },
+        {
+          ...base, id: "verify", program: "import math\nanswers = {'n': math.ceil(70 / 20)}", captures: [],
+          verify: { code: "", blocks: [], options: {}, cells: {}, shape: { n: "text" } },
+        },
+      ],
+    };
+    let timer;
+    const reply = await Promise.race([
+      client.call("plugin.call", { pluginId: PROBE, method: "run", input, opening }).catch((error) => {
+        // 页面起不来时 python.run 以运行器的原因失败：Worker 起不来（CSP 没生效、脚本加载失败）、Pyodide 文件或 wheel 取不到、
+        // 摘要不符、启动超时，都写在这句话里。
+        throw new Error(`页面没能运行 Python：${error instanceof Error ? error.message : String(error)}`);
+      }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`页面 ${PAGE_PYTHON_TIMEOUT_MS / 1000} 秒内没有交回 Python 的运行结果`)), PAGE_PYTHON_TIMEOUT_MS); }),
+    ]).finally(() => clearTimeout(timer));
+    const [sum, verify] = reply.tests ?? [];
+    const runtime = { pyodide: reply.runtime?.pyodide, python: reply.runtime?.python, packages: Object.fromEntries(Object.keys(expected.packages).map((name) => [name, reply.runtime?.packages?.[name]])) };
+    assert.deepEqual(runtime, expected, `页面加载的 Pyodide、Python 或包与随包课程的清单不符：${JSON.stringify(reply.runtime)}`);
+    assert.deepEqual(sum?.status === "completed" ? sum.result.captures : sum, { total: { value: { t: "int", v: "6" } } }, "页面里的普通测试没有算出 6");
+    assert.deepEqual(verify?.status === "completed" ? verify.result.verified : verify, { answers: { n: "4" }, unknown: [] }, "页面里的 verify 任务没有算出 4");
+    return { runtime: reply.runtime, sum: 6, verify: 4 };
+  } finally {
+    await client.close();
+  }
+}
+
 /**
  * 像学习者那样打开应用：主进程启动后端、repa 协议提供 Web 界面、页面经 preload 连上后端，
- * 首次打开没有学习空间，应停在选空间页。之后请它正常退出，主进程会等后端收尾。hideGit 时 PATH 里没有其他 Git。
+ * 首次打开没有学习空间，应停在选空间页；再确认页面的 Worker 里能运行 Python（见 checkPagePython）。
+ * 之后请它正常退出，主进程会等后端收尾。hideGit 时 PATH 里没有其他 Git。
  */
-async function checkLaunch(executable, home, userData, hideGit) {
+async function checkLaunch(executable, application, temporary, hideGit) {
+  const home = path.join(temporary, "app-home");
+  const userData = path.join(temporary, "app-data");
   const port = await freePort();
   const environment = hideGit ? withoutGit({ ...process.env, REPA_HOME: home }) : { ...process.env, REPA_HOME: home };
   delete environment.ELECTRON_RUN_AS_NODE;
@@ -64,7 +142,7 @@ async function checkLaunch(executable, home, userData, hideGit) {
       if (!page) continue;
       const text = await evaluate(page, "document.body.innerText");
       last = `${page.url}：${String(text).slice(0, 200)}`;
-      if (typeof text === "string" && text.includes("开始第一门课")) return { url: page.url };
+      if (typeof text === "string" && text.includes("开始第一门课")) return { url: page.url, python: await checkPagePython(page, application, temporary) };
     }
     throw new Error(`60 秒内应用没有显示选空间页，最后看到 ${last}`);
   } finally {
@@ -194,6 +272,6 @@ export async function verifyApplication({ application, executable, temporary }) 
     await client?.close();
     await backend.close();
   }
-  const launch = await checkLaunch(executable, path.join(temporary, "app-home"), path.join(temporary, "app-data"), gitPath !== undefined);
+  const launch = await checkLaunch(executable, application, temporary, gitPath !== undefined);
   return { runtime: runtimeInfo, git, base: true, learning: true, materials: true, connection: true, launch };
 }
