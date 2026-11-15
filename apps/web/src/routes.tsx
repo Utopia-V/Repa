@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { ConversationPage } from "@/pages/conversation";
 import { HistoryPage } from "@/pages/history";
 import { LearnPage } from "@/pages/learn";
-import { LearningSpacePage } from "@/pages/learning-space";
+import { LearningSpacePage, NewSpacePage } from "@/pages/learning-space";
 import { SettingsPage } from "@/pages/settings";
 import { Navigate, type RouteObject } from "react-router";
 import { WorkspaceLayout } from "@/layouts/workspace-layout";
@@ -34,6 +34,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <Start /> },
       { path: "learning-space", element: <LearningSpacePage /> },
+      { path: "new-space", element: <NewSpacePage /> },
       { path: "learn", element: <LearnPage /> },
       { path: "conversation", element: <ConversationPage /> },
       { path: "history", element: <HistoryPage /> },

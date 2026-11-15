@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { FolderOpen, GraduationCap, History, Settings } from "lucide-react";
+import { Folder, FolderOpen, GraduationCap, History, Plus, Settings } from "lucide-react";
 import { NavLink, useMatch, useNavigate } from "react-router";
 import type { SessionInfo } from "@repa/base/protocol";
 import {
@@ -7,11 +7,17 @@ import {
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar,
 } from "@/components/ui/sidebar";
 import { SessionList } from "@/components/domain/session-list";
-import { useAppStore } from "@/hooks/use-app-store";
+import { useAppStore, useAppStoreApi } from "@/hooks/use-app-store";
+import { homePath } from "@/lib/learning";
 import { folderName } from "@/lib/paths";
 import { t } from "@/lib/strings";
 
 const collapseLabel = "group-data-[collapsible=icon]:sr-only";
+
+/** 侧栏里列出的最近的空间（一个空间一门课）；更早的经当前空间进选空间页。 */
+const RECENT_SPACES = 5;
+/** 侧栏只列学习者自己开的通用对话；辅导和做课的对话在学习页右侧，后台任务不是对话。 */
+const GENERAL_AGENT = "general";
 
 export function AppSidebar() {
   const { state, setOpenMobile } = useSidebar();
@@ -24,6 +30,11 @@ export function AppSidebar() {
   const conversationReady = useAppStore((store) => store.conversation.status === "ready");
   const newConversation = useAppStore((store) => store.newConversation);
   const learnable = useAppStore((store) => store.learning.available === true);
+  const makingSession = useAppStore((store) => store.learning.building?.sessionId ?? undefined);
+  const spaces = useAppStore((store) => store.resources.spaces);
+  const loadSpaces = useAppStore((store) => store.loadSpaces);
+  const openSpace = useAppStore((store) => store.openSpace);
+  const store = useAppStoreApi();
   const inConversation = useMatch("/conversation") !== null;
   const navigate = useNavigate();
   const closeMobileSidebar = () => setOpenMobile(false);
@@ -31,6 +42,22 @@ export function AppSidebar() {
   useEffect(() => {
     if (space && sessions.status === "idle") void loadSessions();
   }, [space, sessions.status, loadSessions]);
+
+  useEffect(() => {
+    if (spaces.status === "idle") void loadSpaces();
+  }, [spaces.status, loadSpaces]);
+
+  // 当前空间排在它在最近列表里的位置；列表读到之前或里面还没有它时放在最前。
+  const recent = spaces.data ?? [];
+  const listed = (space === undefined || recent.includes(space) ? recent : [space, ...recent]).slice(0, RECENT_SPACES);
+  if (space !== undefined && !listed.includes(space)) listed.push(space);
+  const own = (sessions.data ?? []).filter((session) => session.agent === GENERAL_AGENT && session.id !== makingSession);
+
+  async function switchTo(root: string) {
+    closeMobileSidebar();
+    await openSpace(root);
+    void navigate(homePath(store.getState().learning));
+  }
 
   function open(session: SessionInfo) {
     closeMobileSidebar();
@@ -57,23 +84,46 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            {/* 打开的空间就是一个 Learning Space，所以合成一项，都进选空间页：没打开时显示 Learning Space，打开后显示空间名。
-                换空间和关闭空间都在选空间页。当前项在对话页时标在下面的会话上，在选空间页时标在这一行。 */}
-            <SidebarMenuItem>
+            {/* 一个空间就是一门课。没有打开的空间时只有 Learning Space，进选空间页。
+                打开以后列出最近的几门：当前这门进选空间页（在那里关闭或看全部），下面是它的会话；点别的一门就换过去。
+                当前项在对话页时标在下面的会话上，在选空间页时标在当前这门上。 */}
+            {space === undefined && <SidebarMenuItem>
               <SidebarMenuButton asChild>
-                <NavLink to="/learning-space" onClick={closeMobileSidebar} title={space ?? collapsedTitle("Learning Space")}>
-                  <FolderOpen aria-hidden="true" /><span className={collapseLabel}>{space ? folderName(space) : "Learning Space"}</span>
+                <NavLink to="/learning-space" onClick={closeMobileSidebar} title={collapsedTitle("Learning Space")}>
+                  <FolderOpen aria-hidden="true" /><span className={collapseLabel}>{"Learning Space"}</span>
                 </NavLink>
               </SidebarMenuButton>
-              {/* 会话列表读取失败时不提示，对话页有自己的读取与重试。 */}
-              {space && <SessionList
-                sessions={sessions.data ?? []}
-                current={inConversation ? sessionId ?? (conversationReady ? "new" : undefined) : undefined}
-                disabled={running}
-                onNew={startNew}
-                onOpen={open}
-              />}
-            </SidebarMenuItem>
+            </SidebarMenuItem>}
+            {listed.map((root) => root === space
+              ? <SidebarMenuItem key={root}>
+                <SidebarMenuButton asChild>
+                  {/* 当前这门由打开的文件夹图标和挂在它下面的会话标出，不只靠颜色。 */}
+                  <NavLink to="/learning-space" onClick={closeMobileSidebar} title={root} data-current-space="">
+                    <FolderOpen aria-hidden="true" /><span className={collapseLabel}>{folderName(root)}</span>
+                  </NavLink>
+                </SidebarMenuButton>
+                {/* 会话列表读取失败时不提示，对话页有自己的读取与重试。 */}
+                <SessionList
+                  sessions={own}
+                  current={inConversation ? sessionId ?? (conversationReady ? "new" : undefined) : undefined}
+                  disabled={running}
+                  onNew={startNew}
+                  onOpen={open}
+                />
+              </SidebarMenuItem>
+              : <SidebarMenuItem key={root}>
+                {/* 运行中换空间会中止运行，所以不能换；原因放在提示里。 */}
+                <SidebarMenuButton disabled={running} title={running ? t("learningSpace.recent.running.hint") : root} onClick={() => { void switchTo(root); }}>
+                  <Folder aria-hidden="true" /><span className={collapseLabel}>{folderName(root)}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>)}
+            {(space !== undefined || recent.length > 0) && <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <NavLink to="/new-space" onClick={closeMobileSidebar} title={collapsedTitle(t("sidebar.newSpace.action"))}>
+                  <Plus aria-hidden="true" /><span className={collapseLabel}>{t("sidebar.newSpace.action")}</span>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>}
             {/* 后端装了学习插件时才有学习页；它属于当前空间。 */}
             {space && learnable && <SidebarMenuItem>
               <SidebarMenuButton asChild>

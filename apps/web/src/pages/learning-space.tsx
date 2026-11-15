@@ -65,7 +65,7 @@ export function LearningSpacePage() {
   // 选择框放在两种布局之外：读取完成时布局切换，不会卸载已经打开的选择框。
   return <>
     {!loadFailed && recent?.length === 0
-      ? <FirstSpace onPick={() => setPicking(true)} onCreated={goHome} />
+      ? <FirstSpace title={t("learningSpace.first.title")} onPick={() => setPicking(true)} onCreated={goHome} />
       : <RecentSpaces
         spaces={spaces}
         active={active}
@@ -84,14 +84,28 @@ export function LearningSpacePage() {
   </>;
 }
 
+/** 侧栏里“新建一门课”进的页面：与第一屏是同一个组件，选已有的文件夹仍是次要动作。 */
+export function NewSpacePage() {
+  const [picking, setPicking] = useState(false);
+  const navigate = useNavigate();
+  const store = useAppStoreApi();
+  const goHome = () => { void navigate(homePath(store.getState().learning)); };
+  return <>
+    <FirstSpace title={t("learningSpace.new.title")} onPick={() => setPicking(true)} onCreated={goHome} />
+    <FolderPickerDialog open={picking} onOpenChange={setPicking} onOpened={goHome} />
+  </>;
+}
+
 /**
  * 第一次使用时没有可继续的空间：问这门课叫什么，在用户主目录的 Repa/<名称> 新建空间并打开，落到放课件的起点。
  * 主目录取自后端（不带路径的 space.browse 从它开始）；三个系统都放在这里，Windows 的“文档”常被 OneDrive 接管。
  * 名称不能作文件夹名、或那个文件夹已经有别的内容时如实报错，不替他改名。选已有的文件夹作为次要动作保留。
  */
-function FirstSpace({ onPick, onCreated }: { onPick(): void; onCreated(): void }) {
+function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): void; onCreated(): void }) {
   const browseFolder = useAppStore((state) => state.browseFolder);
   const openSpace = useAppStore((state) => state.openSpace);
+  // 换到新建的空间会中止正在进行的运行，所以运行中不能建。
+  const running = useAppStore((state) => state.conversation.run !== "idle");
   const [home, setHome] = useState<string>();
   const [homeError, setHomeError] = useState<unknown>();
   const [name, setName] = useState("");
@@ -125,7 +139,7 @@ function FirstSpace({ onPick, onCreated }: { onPick(): void; onCreated(): void }
 
   // 在工作区里垂直居中；底部留白多一些，视觉重心略高于几何中心。
   return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center gap-6 px-4 pt-16 pb-24 md:px-8">
-    <h2 className="text-display weight-semibold">{t("learningSpace.first.title")}</h2>
+    <h2 className="text-display weight-semibold">{title}</h2>
     <form className="grid gap-3" onSubmit={(event) => { void create(event); }}>
       <label htmlFor={nameId} className="text-body weight-semibold">{t("learningSpace.first.name.label")}</label>
       <Input
@@ -141,9 +155,10 @@ function FirstSpace({ onPick, onCreated }: { onPick(): void; onCreated(): void }
         : root && <p id={hintId} className="m-0 text-caption break-all text-muted-foreground">{t("learningSpace.first.location.hint", { path: root })}</p>}
       {homeError !== undefined && <ErrorNotice title={t("learningSpace.first.home.error")} error={homeError} />}
       {failure !== undefined && <ErrorNotice title={t("learningSpace.first.create.error")} error={failure} />}
+      {running && <p className="m-0 text-body text-muted-foreground">{t("learningSpace.recent.running.hint")}</p>}
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" disabled={root === undefined || creating}>{creating ? t("common.opening.status") : t("learningSpace.first.create.action")}</Button>
-        <Button variant="ghost" disabled={creating} onClick={onPick} leadingIcon={FolderSearch}>{t("learningSpace.chooseFolder.action")}</Button>
+        <Button type="submit" disabled={root === undefined || creating || running}>{creating ? t("common.opening.status") : t("learningSpace.first.create.action")}</Button>
+        <Button variant="ghost" disabled={creating || running} onClick={onPick} leadingIcon={FolderSearch}>{t("learningSpace.chooseFolder.action")}</Button>
       </div>
     </form>
   </div>;

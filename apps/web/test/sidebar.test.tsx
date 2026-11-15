@@ -8,6 +8,7 @@ import { createAppStore } from "../src/lib/store";
 import { routes } from "../src/routes";
 import { fakeClient } from "./fake-client";
 import { mockMatchMedia } from "./match-media";
+import { t } from "../src/lib/strings";
 
 beforeEach(() => { mockMatchMedia(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
@@ -44,7 +45,7 @@ it("打开空间后 Learning Space 一项换成这个空间，下面是新会话
 
   await act(() => store.getState().openSpace("/notes/calculus"));
   const navigation = screen.getByRole("navigation", { name: "主导航" });
-  expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual(["calculus", "History", "Settings"]);
+  expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual(["calculus", t("sidebar.newSpace.action"), "History", "Settings"]);
   expect(within(navigation).queryByRole("button", { name: /关闭空间/ })).toBeNull();
   const space = within(navigation).getByRole("link", { name: "calculus" });
   expect(space.getAttribute("title")).toBe("/notes/calculus");
@@ -72,8 +73,8 @@ it("空间下面列出它的会话，点击打开；新会话从任意页面开�
         return Promise.resolve([]);
       case "session.list":
         return Promise.resolve([
-          { id: "a", createdAt: at, updatedAt: "2026-10-12T02:00:00.000Z", preview: "导数是什么" },
-          { id: "b", createdAt: at, updatedAt: "2026-10-12T01:00:00.000Z", preview: "极限怎么求" },
+          { id: "a", createdAt: at, updatedAt: "2026-10-12T02:00:00.000Z", preview: "导数是什么", agent: "general" },
+          { id: "b", createdAt: at, updatedAt: "2026-10-12T01:00:00.000Z", preview: "极限怎么求", agent: "general" },
         ]);
       case "session.history":
         return Promise.resolve([{ id: `${String(params.sessionId)}-u`, type: "user", timestamp: at, text: `${String(params.sessionId)} 的记录` }]);
@@ -281,4 +282,71 @@ it("拖动改宽、拖窄收起、向外展开，并清理拖动状态", () => {
   expect(document.body.style.userSelect).toBe("");
   fireEvent.keyDown(rail, { key: "Home" });
   expect(wrapper.style.getPropertyValue("--sidebar-width")).toContain("280px");
+});
+
+it("侧栏列出最近的几门课：点别的一门就换过去，运行中不能换；新建一门课进与第一屏相同的那一屏；会话只列学习者自己开的通用对话", async () => {
+  const at = "2026-10-12T00:00:00.000Z";
+  let finish: (() => void) | undefined;
+  const recent = ["/home/me/Repa/操作系统", "/home/me/Repa/线性代数", "/notes/a", "/notes/b", "/notes/c", "/notes/d", "/notes/e"];
+  const call = vi.fn((method: string, params: Record<string, unknown>) => {
+    switch (method) {
+      case "space.open":
+        return Promise.resolve({ root: params.root, opening: `o-${String(params.root)}`, plugins: [] });
+      case "space.list":
+        return Promise.resolve(recent);
+      case "space.browse":
+        return Promise.resolve({ path: "/home/me", parent: "/home", space: false, truncated: false, entries: [] });
+      case "plugin.list":
+        return Promise.resolve([]);
+      case "session.list":
+        return Promise.resolve(params === undefined ? [] : [
+          { id: "own", createdAt: at, updatedAt: at, preview: "自己开的对话", agent: "general" },
+          { id: "tutor", createdAt: at, updatedAt: at, preview: "问辅导的一句", agent: "learning-tutor" },
+          { id: "making", createdAt: at, updatedAt: at, preview: "我把课件放进了 materials/", agent: "general" },
+        ]);
+      case "session.history":
+        return Promise.resolve([]);
+      case "session.create":
+        return Promise.resolve({ id: "s1", createdAt: at, updatedAt: at, agent: "general" });
+      case "session.send":
+        return new Promise((resolve) => { finish = () => resolve(null); });
+      default:
+        return Promise.reject(new Error(`未模拟的方法 ${method}`));
+    }
+  });
+  const store = createAppStore();
+  store.getState().setClient(fakeClient(call).client);
+  await act(() => store.getState().openSpace("/home/me/Repa/操作系统"));
+  // 学习插件记下的做课对话（building.get 的 sessionId）。
+  const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  store.setState((state) => ({ learning: { ...state.learning, building: { course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: "making" } } }));
+  const router = renderWorkspace("/learning-space", store);
+  const navigation = screen.getByRole("navigation", { name: "主导航" });
+
+  // 最近的五门；当前这门进选空间页（在那里看全部），下面只有自己开的通用对话。
+  await within(navigation).findByRole("button", { name: "线性代数" });
+  expect(within(navigation).getByRole("link", { name: "操作系统" }).getAttribute("href")).toBe("/learning-space");
+  expect(within(navigation).queryByRole("button", { name: "e" })).toBeNull();
+  expect(await within(navigation).findByRole("button", { name: "自己开的对话" })).toBeTruthy();
+  expect(within(navigation).queryByRole("button", { name: "问辅导的一句" })).toBeNull();
+  expect(within(navigation).queryByRole("button", { name: "我把课件放进了 materials/" })).toBeNull();
+
+  fireEvent.click(within(navigation).getByRole("link", { name: t("sidebar.newSpace.action") }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/new-space"));
+  expect(screen.getByRole("heading", { name: t("learningSpace.new.title") })).toBeTruthy();
+  expect(screen.getByLabelText(t("learningSpace.first.name.label"))).toBeTruthy();
+  expect(screen.getByRole("button", { name: "选择文件夹" })).toBeTruthy();
+
+  // 运行中不能换空间，原因在提示里。
+  act(() => { void store.getState().sendMessage("你好"); });
+  await waitFor(() => expect(finish).toBeDefined());
+  const other = within(navigation).getByRole("button", { name: "线性代数" }) as HTMLButtonElement;
+  expect(other.disabled).toBe(true);
+  expect(other.getAttribute("title")).toBe(t("learningSpace.recent.running.hint"));
+  await act(async () => { finish?.(); });
+
+  await waitFor(() => expect(other.disabled).toBe(false));
+  fireEvent.click(other);
+  await waitFor(() => expect(store.getState().space).toBe("/home/me/Repa/线性代数"));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
 });

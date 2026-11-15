@@ -45,6 +45,7 @@ export const strings = {
   "sidebar.app.label": "应用侧栏",
   "sidebar.brand.title": "Repa",
   "sidebar.nav.label": "主导航",
+  "sidebar.newSpace.action": "〔待写〕",
   "sidebar.history.label": "History",
   "sidebar.settings.label": "Settings",
   "sidebar.search.clear.label": "清空搜索",
@@ -59,6 +60,7 @@ export const strings = {
   "routes.notFound.title": "未找到页面。",
 
   // 选学习空间
+  "learningSpace.new.title": "〔待写〕",
   "learningSpace.first.title": "开始第一门课",
   "learningSpace.first.name.label": "这门课叫什么",
   "learningSpace.first.location.hint": "会保存在 {path}",
