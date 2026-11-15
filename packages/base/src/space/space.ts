@@ -44,7 +44,14 @@ export async function createSpace(root: string, options: SpaceOptions = {}): Pro
 
 /** 打开并锁定空间，核对持久格式后接入文件、历史和插件数据目录。 */
 export async function openSpace(input: string, options: SpaceOptions = {}): Promise<Space> {
-  const root = await realpath(input);
+  let root: string;
+  try {
+    root = await realpath(input);
+  } catch (error) {
+    // 最近打开的列表里的文件夹可能已被删除或移走；如实说明，而不是一句“无法完成请求”。
+    if (!(error instanceof Error) || !("code" in error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR")) throw error;
+    throw new RepaFault("not_found", "文件夹不存在，可能已被删除或移走。", { path: input });
+  }
   const dataDir = path.join(root, ".repa");
   // 从备份恢复中断后，.repa/ 可能只换了一半，格式标记也可能已经移走；见到恢复标记就不打开，等学习者重新恢复。
   let interrupted = true;

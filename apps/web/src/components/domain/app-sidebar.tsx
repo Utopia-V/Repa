@@ -91,13 +91,13 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            {/* 一个空间就是一门课。没有打开的空间时只有 Learning Space，进选空间页。
+            {/* 一个空间就是一门课。没有打开的空间时只有“学习空间”，进选空间页。
                 打开以后列出最近的几门：当前这门进选空间页（在那里关闭或看全部），下面是它的会话；点别的一门就换过去。
                 当前项在对话页时标在下面的会话上，在选空间页时标在当前这门上。 */}
             {space === undefined && <SidebarMenuItem>
               <SidebarMenuButton asChild>
-                <NavLink to="/learning-space" onClick={closeMobileSidebar} title={collapsedTitle("Learning Space")}>
-                  <FolderOpen aria-hidden="true" /><span className={collapseLabel}>{"Learning Space"}</span>
+                <NavLink to="/learning-space" onClick={closeMobileSidebar} title={collapsedTitle(t("sidebar.learningSpace.label"))}>
+                  <FolderOpen aria-hidden="true" /><span className={collapseLabel}>{t("sidebar.learningSpace.label")}</span>
                 </NavLink>
               </SidebarMenuButton>
             </SidebarMenuItem>}
@@ -147,14 +147,14 @@ export function AppSidebar() {
           {/* 修改历史属于当前空间，打开空间后才有。 */}
           {space && <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <NavLink to="/history" onClick={closeMobileSidebar} title={collapsedTitle("History")}>
+              <NavLink to="/history" onClick={closeMobileSidebar} title={collapsedTitle(t("sidebar.history.label"))}>
                 <History aria-hidden="true" /><span className={collapseLabel}>{t("sidebar.history.label")}</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>}
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle("Settings")}>
+              <NavLink to="/settings" onClick={closeMobileSidebar} title={collapsedTitle(t("sidebar.settings.label"))}>
                 <Settings aria-hidden="true" /><span className={collapseLabel}>{t("sidebar.settings.label")}</span>
               </NavLink>
             </SidebarMenuButton>
