@@ -2,13 +2,12 @@ import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 
 import {
-  endsBatch, PYTHON_BATCH, PYTHON_START_TIMEOUT_MS, PYTHON_STEP_TIMEOUT_MS, type PythonBatchInput, type PythonBatchResult, type PythonTestResult,
+  endsBatch, PYTHON_BATCH, PYTHON_PACKAGES, PYTHON_START_TIMEOUT_MS, PYTHON_STEP_TIMEOUT_MS,
+  type PythonBatchInput, type PythonBatchResult, type PythonTestResult, type Runtime,
 } from "../protocol.js";
 import { failedAt, readStep, readTested, restartsTimer, timedOut, type Step } from "../test-results.js";
 import type { WorkerMessage, WorkerRequest } from "./messages.js";
 
-/** runner.py 在模块顶层导入它们，结果里报告的也是它们；依赖由 pyodide-lock.json 补全。 */
-const RUNNER_PACKAGES = ["numpy", "pandas"];
 const CORE_FILES = ["pyodide.asm.wasm", "python_stdlib.zip"];
 
 /** 什么都没有运行时的错误码：runtime_unavailable 是 Pyodide 起不来，cancelled 是调用方取消或运行器已关闭。 */
@@ -22,10 +21,14 @@ export class PythonRunError extends Error {
   }
 }
 
-/** 页面取好、核对过的 Pyodide 文件：lockfile 原文、要加载的包和文件名到内容。 */
+/**
+ * 页面取好、核对过的 Pyodide 文件：lockfile 原文、带的包（PYTHON_PACKAGES）的版本、带的包（含依赖）的 import 名到包名，
+ * 以及文件名到内容。
+ */
 export interface RuntimeFiles {
   lock: string;
-  packages: string[];
+  versions: Record<string, string>;
+  imports: Record<string, string>;
   files: Record<string, ArrayBuffer>;
 }
 
@@ -46,8 +49,10 @@ export interface PythonRunnerOptions {
 
 const LockSchema = Type.Object({
   packages: Type.Record(Type.String(), Type.Object({
+    version: Type.String(),
     file_name: Type.String({ pattern: "^[A-Za-z0-9_.+-]+$" }),
     sha256: Type.String(),
+    imports: Type.Array(Type.String()),
     depends: Type.Array(Type.String()),
   })),
 });
@@ -85,7 +90,7 @@ async function sha256(buffer: ArrayBuffer): Promise<string> {
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** 从 assetsUrl（绝对地址）取 Pyodide 文件和 runner.py 要的 wheel；wheel 按 pyodide-lock.json 核对 SHA-256，不符就不交给 Worker。 */
+/** 从 assetsUrl（绝对地址）取 Pyodide 文件和带的包的 wheel；wheel 按 pyodide-lock.json 核对 SHA-256，不符就不交给 Worker。 */
 export async function loadRuntimeFiles(assetsUrl: string): Promise<RuntimeFiles> {
   const base = new URL(assetsUrl);
   const lock = new TextDecoder().decode(await download(new URL("pyodide-lock.json", base), "缺少 Pyodide"));
@@ -96,7 +101,7 @@ export async function loadRuntimeFiles(assetsUrl: string): Promise<RuntimeFiles>
     throw new PythonRunError("runtime_unavailable", "pyodide-lock.json 不是有效的 JSON");
   }
   if (!Value.Check(LockSchema, parsed)) throw new PythonRunError("runtime_unavailable", "pyodide-lock.json 的格式无法识别");
-  const packages = closure(parsed, RUNNER_PACKAGES);
+  const packages = closure(parsed, PYTHON_PACKAGES);
   // 页面分不清自己是在开发环境还是装好的应用里，不提 npm：学习者的机器上没有它。开发时缺包由课程核对的那一边提示怎样准备。
   const missingWheel = "缺少应用带的 Pyodide 包";
   const entries = await Promise.all([
@@ -109,30 +114,24 @@ export async function loadRuntimeFiles(assetsUrl: string): Promise<RuntimeFiles>
       return [file, buffer] as const;
     }),
   ]);
-  return { lock, packages: [...packages.keys()], files: Object.fromEntries(entries) };
+  const imports = Object.fromEntries([...packages].flatMap(([name, entry]) => entry.imports.map((module) => [module, name] as const)));
+  const versions = Object.fromEntries(PYTHON_PACKAGES.map((name) => [name, packages.get(name)?.version ?? ""]));
+  return { lock, versions, imports, files: Object.fromEntries(entries) };
 }
 
-/** Worker 实际加载的 Pyodide、Python 和全部包的版本。 */
+/** Worker 实际启动的 Pyodide 和 Python 的版本。 */
 const LoadedSchema = Type.Object({
   pyodide: Type.String(),
   python: Type.String(),
-  packages: Type.Record(Type.String(), Type.String()),
 });
-type Loaded = Static<typeof LoadedSchema>;
-
-/** 结果里记下的运行环境：Pyodide、Python 和 runner.py 导入的包的实际版本。 */
-function environment(loaded: Loaded): PythonBatchResult["runtime"] {
-  const versions = RUNNER_PACKAGES.flatMap((name) => {
-    const version = loaded.packages[name];
-    return version === undefined ? [] : [[name, version] as const];
-  });
-  return { pyodide: loaded.pyodide, python: loaded.python, packages: Object.fromEntries(versions) };
-}
 
 function readMessage(value: unknown): WorkerMessage | undefined {
   if (typeof value !== "object" || value === null || !("type" in value)) return undefined;
   if (value.type === "ready" && "runtime" in value) return { type: "ready", runtime: value.runtime };
   if (value.type === "failed" && "message" in value && typeof value.message === "string") return { type: "failed", message: value.message };
+  if (value.type === "loading" && "test" in value && typeof value.test === "number" && "packages" in value && Array.isArray(value.packages)) {
+    return { type: "loading", test: value.test, packages: value.packages.map(String) };
+  }
   if (value.type === "phase" && "test" in value && typeof value.test === "number" && "phase" in value && typeof value.phase === "string"
     && "index" in value && (typeof value.index === "number" || value.index === null)) {
     return { type: "phase", test: value.test, phase: value.phase, index: value.index };
@@ -192,7 +191,7 @@ class RunnerInstance {
 
 interface Started {
   instance: RunnerInstance;
-  loaded: Loaded;
+  runtime: Runtime;
 }
 
 function cancelled(signal: AbortSignal | undefined): void {
@@ -202,11 +201,15 @@ function cancelled(signal: AbortSignal | undefined): void {
 /**
  * 在 Worker 里用 Pyodide 运行 python.run 的测试。每次调用用一个全新、没有运行过别的代码的 Worker，用完就销毁；
  * warm 和每次调用之后在后台预热下一个。调用逐个执行。取好的文件留在页面里，启动新 Worker 时不再下载。
+ * 带的包在测试引入时才加载；预热的 Worker 先加载上一次调用的测试引入的包（第一个预热全部带的包），
+ * 学习者接连提交同一门课的代码题时，包已经在预热时加载好，不在提交时等。
  */
 export class PythonRunner {
   readonly #options: PythonRunnerOptions;
   #files: Promise<RuntimeFiles> | undefined;
   #standby: Promise<Started> | undefined;
+  /** 下一个预热的 Worker 启动时加载的包。 */
+  #preload: readonly string[] = PYTHON_PACKAGES;
   /** 正在进行的调用；close 用它取消。 */
   #running: AbortController | undefined;
   /** close 之后加一；关闭前排上的调用不再运行，关闭前开始的调用结束时不再预热。 */
@@ -254,6 +257,7 @@ export class PythonRunner {
       let batch = await this.#once(input.tests, controller.signal, generation);
       const { runtime } = batch;
       const tests: PythonTestResult[] = [];
+      const loaded = new Set(batch.loaded);
       // 恢复解释器状态失败时，那个测试的结果照样收下，余下的测试换一个新的 Worker 接着运行；每轮至少有一个测试得到结果。
       for (;;) {
         const stop = batch.tests.findIndex((test) => test.status === "not_run");
@@ -267,6 +271,7 @@ export class PythonRunner {
         const rest = input.tests.slice(tests.length);
         try {
           batch = await this.#once(rest, controller.signal, generation);
+          for (const name of batch.loaded) loaded.add(name);
         } catch (error) {
           // 换 Worker 时失败：已经得到的结果留下，下一个测试记为执行失败，其余未执行。
           const [next, ...others] = rest;
@@ -276,7 +281,7 @@ export class PythonRunner {
           break;
         }
       }
-      return { protocol: PYTHON_BATCH, runtime, tests };
+      return { protocol: PYTHON_BATCH, runtime, loaded: [...loaded].sort(), tests };
     } finally {
       external?.removeEventListener("abort", forward);
       this.#running = undefined;
@@ -289,7 +294,9 @@ export class PythonRunner {
     if (generation !== this.#generation) throw new PythonRunError("cancelled", "Python 运行器已经关闭");
     const started = await this.#take(signal);
     try {
-      return await this.#execute(started, { protocol: PYTHON_BATCH, tests }, signal);
+      const batch = await this.#execute(started, { protocol: PYTHON_BATCH, tests }, signal);
+      this.#preload = batch.loaded;
+      return batch;
     } finally {
       started.instance.end();
       if (generation === this.#generation) this.#prepare();
@@ -364,7 +371,7 @@ export class PythonRunner {
       this.#files = undefined;
       throw error instanceof PythonRunError ? error : new PythonRunError("runtime_unavailable", "无法读取 Pyodide 文件");
     });
-    const { lock, packages, files } = await this.#files;
+    const { lock, versions, imports, files } = await this.#files;
     // 文件留在页面里给下一个 Worker 用，交给 Worker 的是副本。
     const copies = Object.fromEntries(Object.entries(files).map(([name, buffer]) => [name, buffer.slice(0)]));
     const instance = new RunnerInstance(this.#options.createWorker());
@@ -376,7 +383,7 @@ export class PythonRunner {
       }, (message) => reject(new PythonRunError("runtime_unavailable", message)));
       const indexURL = new URL(this.#options.assetsUrl).href;
       instance.post({
-        type: "start", indexURL, packageBaseUrl: new URL("packages/", indexURL).href, lock, packages,
+        type: "start", indexURL, packageBaseUrl: new URL("packages/", indexURL).href, lock, imports, preload: [...this.#preload],
         runner: this.#options.runnerSource, files: copies,
       }, Object.values(copies));
     });
@@ -384,17 +391,18 @@ export class PythonRunner {
       instance.end();
       throw new PythonRunError("runtime_unavailable", "Python 运行器报告的运行环境无法识别");
     }
-    return { instance, loaded: ready };
+    return { instance, runtime: { pyodide: ready.pyodide, python: ready.python, packages: versions } };
   }
 
   /**
    * 在这个 Worker 里按顺序运行测试。准备、被测代码和收尾各自计时；超时或失败就结束 Worker，停在的阶段写进结果，
    * 之后的测试记为未执行。恢复解释器状态失败时这个测试的结果已经算出，照样交回，余下的测试也记为未执行，由 #run 换 Worker 接着运行。
    */
-  #execute({ instance, loaded }: Started, input: PythonBatchInput, signal: AbortSignal | undefined): Promise<PythonBatchResult> {
+  #execute({ instance, runtime }: Started, input: PythonBatchInput, signal: AbortSignal | undefined): Promise<PythonBatchResult> {
     const timeoutMs = this.#options.testTimeoutMs ?? PYTHON_STEP_TIMEOUT_MS;
     return new Promise<PythonBatchResult>((resolve, reject) => {
       const tests: PythonTestResult[] = [];
+      const loaded = new Set<string>();
       let step: Step = "prepare";
       let timer: ReturnType<typeof setTimeout> | undefined;
       const current = () => input.tests[tests.length];
@@ -407,14 +415,14 @@ export class PythonRunner {
         settle();
         if (last) tests.push(last);
         for (const test of input.tests.slice(tests.length)) tests.push({ id: test.id, status: "not_run" });
-        resolve({ protocol: PYTHON_BATCH, runtime: environment(loaded), tests });
+        resolve({ protocol: PYTHON_BATCH, runtime, loaded: [...loaded].sort(), tests });
       };
-      const arm = () => {
+      const arm = (ms = timeoutMs) => {
         clearTimeout(timer);
         timer = setTimeout(() => {
           const test = current();
           if (test) finish(timedOut(test.id, step));
-        }, timeoutMs);
+        }, ms);
       };
       const onAbort = () => {
         settle();
@@ -437,7 +445,16 @@ export class PythonRunner {
       signal?.addEventListener("abort", onAbort, { once: true });
       instance.listen((message) => {
         const test = current();
-        if (!test || (message.type !== "phase" && message.type !== "tested") || message.test !== tests.length) return;
+        if (!test || message.type === "ready" || message.type === "failed" || message.test !== tests.length) return;
+        if (message.type === "loading") {
+          // 加载包是准备运行环境，按启动的时限计时，超时归在准备阶段；进入 prepare 时再按测试的时限计时。
+          for (const name of message.packages) loaded.add(name);
+          if (message.packages.length > 0) {
+            step = "load";
+            arm(this.#options.startTimeoutMs ?? PYTHON_START_TIMEOUT_MS);
+          }
+          return;
+        }
         if (message.type === "phase") {
           const entered: Step = readStep(message.phase) ?? step;
           if (entered !== step && restartsTimer(entered)) arm();

@@ -1,22 +1,25 @@
 import assert from "node:assert/strict";
-import { readdir } from "node:fs/promises";
+import { cp, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { describeRuntime, SandboxRunner } from "@repa/python-runner";
-import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
+import { PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { parse } from "@repa/base/protocol";
 import type { Host } from "@repa/base/plugin";
+import { parse as parseYaml, stringify } from "yaml";
 
 import { checkCourse, type CheckResult } from "../src/check/course.js";
 import { frontendPython } from "../src/check/python.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
-import type { CodeSlot, OrderSlot, TableSlot, TextSlot } from "../src/format/schema.js";
+import type { CodeSlot, OrderSlot, TableSlot, TextSlot, Topic } from "../src/format/schema.js";
 import { demoCourse, runtimeUnavailable, writeCourse, type DemoCourse } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
 
 const PYTHON_COURSE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "courses", "python");
+const EXAMPLE = fileURLToPath(new URL("../guides/example-course/", import.meta.url));
 
 function errors(diagnostics: Diagnostic[]): string[] {
   return diagnostics.filter((diagnostic) => diagnostic.severity === "error").map((diagnostic) => diagnostic.code).sort();
@@ -110,6 +113,8 @@ test("核对程序超时时报出，其余题目照常核对", async (t) => {
 });
 
 test("课程清单要求的运行时与安装的不一致时报出，不运行核对", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return skipUnavailableEnvironment(t, reason);
   const demo = demoCourse();
   demo.course.runtime.packages.pandas = "3.0.6";
   const root = await writeCourse(t, demo);
@@ -186,19 +191,78 @@ test("后一份候选程序看不到前一份留下的变量、文件和环境�
   assert.deepEqual((await readdir(root)).sort(), ["course.yaml", "topics"]);
 });
 
+/** 前端的替身：python.run 交给另一个 Node 沙箱，按同一约定运行，与页面的 Worker 一样加载 runner.py 的 program_test。 */
+async function sandboxFrontend(t: TestContext): Promise<Host["services"]> {
+  const runner = new SandboxRunner({ assets: await describeRuntime() });
+  t.after(() => runner.close());
+  return {
+    async call(service, input) {
+      assert.equal(service, "python.run");
+      return runner.runTests(parse(PythonBatchInputSchema, input).tests, 1_500);
+    },
+  };
+}
+
+/** 比较两条路的结论时不看启动解释器的次数：前端每批用一个新的。 */
+const comparable = (result: CheckResult) => ({
+  diagnostics: result.diagnostics,
+  ran: result.summary.ran,
+  runtime: result.summary.runtime,
+  loaded: result.summary.loaded,
+  counts: { ...result.summary.code, interpreterStarts: 0 },
+});
+
+/** 写课说明里的示例课，os01 的练习里加几道按 programs 核对的计算题（答案都是 4），清单不写 runtime。 */
+async function verifyCourse(t: TestContext, programs: string[]): Promise<string> {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-code-verify-")));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await cp(EXAMPLE, root, { recursive: true });
+  const file = path.join(root, "topics", "os01.yaml");
+  const topic = parseYaml(await readFile(file, "utf8")) as Topic;
+  const practice = topic.kps[0]?.practice;
+  assert.ok(practice);
+  for (const [index, program] of programs.entries()) {
+    practice.push({
+      id: `os01.k1.q${10 + index}`,
+      body: "时间片是 20 ms，一个进程要运行 70 ms，它要被调度几次？",
+      slots: [{ id: "n", type: "text", format: "integer", key: 4 }],
+      explanation: "70 除以 20 向上取整是 4。",
+      verify: program,
+    });
+  }
+  await writeFile(file, stringify(topic));
+  return root;
+}
+
+test("清单不写 runtime 的课在 Repa 的 Python 环境里核对，两条路结论一致：只用标准库的不加载包，引入 numpy 的只加载 numpy，引入没有带的包时写明是哪个包", async (t) => {
+  const reason = await runtimeUnavailable();
+  if (reason) return skipUnavailableEnvironment(t, reason);
+  const services = await sandboxFrontend(t);
+  const plain = "import math\nanswers = {'n': math.ceil(70 / 20)}";
+  const numpy = "import numpy as np\nanswers = {'n': int(np.ceil(np.array([70]) / 20)[0])}";
+  const cases: [string[], string[]][] = [[[plain], []], [[plain, numpy], ["numpy"]]];
+  for (const [programs, loaded] of cases) {
+    const root = await verifyCourse(t, programs);
+    const sandbox = await checkCourse(root, { base: root, confirmations: "reported" });
+    assert.deepEqual(sandbox.diagnostics, [], programs.join("；"));
+    assert.equal(sandbox.summary.code.verifyJobs, programs.length);
+    assert.deepEqual(sandbox.summary.loaded, loaded);
+    assert.equal(sandbox.summary.code.interpreterStarts, 1);
+    const frontend = await checkCourse(root, { base: root, confirmations: "reported", python: [frontendPython(services)] });
+    assert.deepEqual(comparable(frontend), comparable(sandbox));
+  }
+  const root = await verifyCourse(t, ["import scipy\nanswers = {'n': 4}"]);
+  const sandbox = await checkCourse(root, { base: root, confirmations: "reported" });
+  assert.deepEqual(errors(sandbox.diagnostics), ["verify_failed"]);
+  assert.match(sandbox.diagnostics[0]?.message ?? "", /ModuleNotFoundError: No module named 'scipy'。核对程序能用 Python 标准库和 Repa 带的 numpy、pandas/u);
+  const frontend = await checkCourse(root, { base: root, confirmations: "reported", python: [frontendPython(services)] });
+  assert.deepEqual(comparable(frontend), comparable(sandbox));
+});
+
 test("同一门课经 Linux 沙箱和经前端的 python.run 核对，结论一致：通过的都通过，不通过的报同样的错误码和说明", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) return skipUnavailableEnvironment(t, reason);
-  // 前端的替身：python.run 交给另一个 Node 沙箱，按同一约定运行，与页面的 Worker 一样加载 runner.py 的 program_test。
-  const runner = new SandboxRunner({ assets: await describeRuntime(demoCourse().course.runtime) });
-  t.after(() => runner.close());
-  const services: Host["services"] = {
-    async call(service, input) {
-      assert.equal(service, "python.run");
-      const { tests } = parse(PythonBatchInputSchema, input);
-      return { protocol: PYTHON_BATCH, runtime: await runner.start(), tests: await runner.runTests(tests, 1_500) };
-    },
-  };
+  const services = await sandboxFrontend(t);
   const variants: [string, (demo: DemoCourse) => void][] = [
     ["原样", () => {}],
     ["标准答案与算出的不一致、作答位没被核对", (demo) => {
@@ -219,12 +283,6 @@ test("同一门课经 Linux 沙箱和经前端的 python.run 核对，结论一�
       code.rejects = [{ code: "def double(x):\n    return x + x\n", why: "其实是对的" }];
     }],
   ];
-  const comparable = (result: CheckResult) => ({
-    diagnostics: result.diagnostics,
-    ran: result.summary.ran,
-    runtime: result.summary.runtime,
-    counts: { ...result.summary.code, interpreterStarts: 0 },
-  });
   for (const [name, change] of variants) {
     const demo = demoCourse();
     change(demo);

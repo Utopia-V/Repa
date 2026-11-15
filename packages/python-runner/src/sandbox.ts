@@ -7,7 +7,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
-import { endsBatch, PYTHON_START_TIMEOUT_MS, PYTHON_STEP_TIMEOUT_MS, type PythonTest, type PythonTestResult } from "./protocol.js";
+import {
+  endsBatch, PYTHON_BATCH, PYTHON_START_TIMEOUT_MS, PYTHON_STEP_TIMEOUT_MS, type PythonBatchResult, type PythonTest, type PythonTestResult, type Runtime,
+} from "./protocol.js";
 import { PACKAGE_ROOT, RUNNER_FILE, type RuntimeAssets } from "./runtime.js";
 import { failedAt, readStep, readTested, restartsTimer, timedOut, type Step } from "./test-results.js";
 
@@ -19,13 +21,6 @@ const CPU_SECONDS = 600;
 const MAX_LINE_BYTES = 16 * 1024 * 1024;
 const STDERR_TAIL = 8 * 1024;
 const SANDBOX_DIRECTORY = path.join(PACKAGE_ROOT, "sandbox");
-
-/** 沙箱里实际加载的 Pyodide、Python 和包的版本。 */
-export interface RuntimeVersions {
-  pyodide: string;
-  python: string;
-  packages: Record<string, string>;
-}
 
 /** 沙箱建立不了：缺少 Landlock、libseccomp 或 python3 等。调用方应当报错，不改用不受限的运行。 */
 export class SandboxUnavailable extends Error {
@@ -50,9 +45,10 @@ export interface SandboxOptions {
 interface RunnerMessage {
   type: string;
   id?: number;
-  versions?: RuntimeVersions;
+  versions?: { pyodide: string; python: string };
   message?: string;
   phase?: unknown;
+  packages?: unknown;
   response?: unknown;
 }
 
@@ -89,8 +85,8 @@ export class PythonSandbox {
     });
   }
 
-  /** 启动一个沙箱，等它加载好 Pyodide、要求的包和 runner.py；建立不了时抛 SandboxUnavailable。 */
-  static async start(options: SandboxOptions): Promise<{ sandbox: PythonSandbox; versions: RuntimeVersions }> {
+  /** 启动一个沙箱，等它加载好 Pyodide 和 runner.py（带的包在测试引入时才加载）；建立不了时抛 SandboxUnavailable。 */
+  static async start(options: SandboxOptions): Promise<{ sandbox: PythonSandbox; versions: Runtime }> {
     requireSandboxPlatform();
     const { assets } = options;
     const node = await realpath(process.execPath);
@@ -98,7 +94,7 @@ export class PythonSandbox {
       pyodide: assets.pyodideDirectory,
       packages: assets.packagesDirectory,
       runner: RUNNER_FILE,
-      load: assets.load,
+      imports: assets.imports,
     };
     const launchConfig = {
       // /usr 只读放行系统库；/etc/ld.so.cache 供动态链接器查找库；其余只有运行时文件。
@@ -128,7 +124,7 @@ export class PythonSandbox {
       sandbox.kill();
       throw new SandboxUnavailable(`Pyodide 在 ${PYTHON_START_TIMEOUT_MS / 1000} 秒内没有就绪`);
     }
-    if (message?.type === "ready" && message.versions) return { sandbox, versions: message.versions };
+    if (message?.type === "ready" && message.versions) return { sandbox, versions: { ...message.versions, packages: assets.versions } };
     sandbox.kill();
     const reason = message?.type === "fatal" ? `Pyodide 启动失败：${message.message ?? ""}` : `隔离环境没有建立起来：${sandbox.stderr.trim() || "运行器提前退出"}`;
     throw new SandboxUnavailable(reason);
@@ -186,10 +182,11 @@ export class PythonSandbox {
   }
 
   /**
-   * 运行一个 python.run 的测试，与页面的 Worker 相同：runner.py 的 program_test 每个阶段开始前报告阶段，
-   * 准备、被测代码和收尾各自计时，超时就结束整个子进程，按最后报告的阶段写进结果。计时与归类见 test-results.ts。
+   * 运行一个 python.run 的测试，与页面的 Worker 相同：先加载测试引入的带着的包（记进 loaded，按启动时限计时，超时归在准备阶段），
+   * 再由 runner.py 的 program_test 每个阶段开始前报告阶段；准备、被测代码和收尾各自计时，超时就结束整个子进程，
+   * 按最后报告的阶段写进结果。计时与归类见 test-results.ts。
    */
-  async runTest(test: PythonTest, timeoutMs = DEFAULT_JOB_TIMEOUT_MS): Promise<PythonTestResult> {
+  async runTest(test: PythonTest, timeoutMs = DEFAULT_JOB_TIMEOUT_MS, loaded = new Set<string>()): Promise<PythonTestResult> {
     if (this.waiting) throw new Error("上一个任务还没有结束");
     const id = this.nextId++;
     let deadline = performance.now() + timeoutMs;
@@ -200,6 +197,14 @@ export class PythonSandbox {
       if (message === "timeout") {
         this.kill();
         return timedOut(test.id, step);
+      }
+      if (message?.type === "loading" && message.id === id && Array.isArray(message.packages)) {
+        for (const name of message.packages) loaded.add(String(name));
+        if (message.packages.length > 0) {
+          step = "load";
+          deadline = performance.now() + PYTHON_START_TIMEOUT_MS;
+        }
+        continue;
       }
       if (message?.type === "phase" && message.id === id) {
         const entered: Step = readStep(message.phase) ?? step;
@@ -241,7 +246,7 @@ export class PythonSandbox {
 export class SandboxRunner {
   #starts = 0;
   private current: PythonSandbox | undefined;
-  private started: RuntimeVersions | undefined;
+  private started: Runtime | undefined;
 
   constructor(private readonly options: SandboxOptions) {}
 
@@ -250,8 +255,8 @@ export class SandboxRunner {
     return this.#starts;
   }
 
-  /** 启动（或沿用）沙箱，返回实际加载的版本。 */
-  async start(): Promise<RuntimeVersions> {
+  /** 启动（或沿用）沙箱，返回运行环境的版本。 */
+  async start(): Promise<Runtime> {
     if (this.current?.running && this.started) return this.started;
     await this.current?.close();
     const { sandbox, versions } = await PythonSandbox.start(this.options);
@@ -265,9 +270,11 @@ export class SandboxRunner {
    * 按 python.run 的约定运行一批测试（见 @repa/python-runner/protocol）：在当前的沙箱里依次运行，测试之间由 runner.py 恢复状态，
    * 恢复失败就换一个新的沙箱运行余下的测试；某个测试超时或失败后整批停下，余下的记为 not_run，并结束这个沙箱。
    * 与页面不同的是，没有出问题的沙箱留给下一次调用接着用。测试自带前导，不另加运行环境的前导。
+   * 结果与页面交回的相同：loaded 是这一批运行过的测试引入的包，不论沙箱里先前是否已经加载过。
    */
-  async runTests(tests: readonly PythonTest[], timeoutMs?: number): Promise<PythonTestResult[]> {
+  async runTests(tests: readonly PythonTest[], timeoutMs?: number): Promise<PythonBatchResult> {
     const results: PythonTestResult[] = [];
+    const loaded = new Set<string>();
     let stopped = false;
     for (const test of tests) {
       if (stopped) {
@@ -284,12 +291,13 @@ export class SandboxRunner {
         continue;
       }
       if (!this.current) throw new SandboxUnavailable("沙箱没有启动");
-      const result = await this.current.runTest(test, timeoutMs);
+      const result = await this.current.runTest(test, timeoutMs, loaded);
       results.push(result);
       stopped = endsBatch(result);
       if (stopped || (result.status === "completed" && result.restoreError !== undefined)) await this.close();
     }
-    return results;
+    // 沙箱在超时或失败后已经结束，版本取最近一次启动时的，不为报告版本再启动一个。
+    return { protocol: PYTHON_BATCH, runtime: this.started ?? await this.start(), loaded: [...loaded].sort(), tests: results };
   }
 
   /** 关闭当前的沙箱；之后再运行任务会启动新的。 */

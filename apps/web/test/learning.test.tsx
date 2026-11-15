@@ -273,7 +273,7 @@ it("代码题点“运行”：后端拼好不带答案的一批，交给试运�
   };
   const coding: Delivery = { ...delivery, deliveryId: "d4", submissionId: "s4", item: code, requiresServices: ["python.run"] };
   const batch = {
-    protocol: "repa-python-batch-v3" as const,
+    protocol: "repa-python-batch-v4" as const,
     tests: [{ id: "trial", program: "print(len(df))\nprint(x)\n", prelude: "", setup: "", data: [], captures: [], doctest: [] }],
   };
   const learning = vi.fn<Learning>((method) => {
@@ -282,8 +282,9 @@ it("代码题点“运行”：后端拼好不带答案的一批，交给试运�
     return Promise.reject(new Error(method));
   });
   const runner = { run: vi.fn<TrialRunner["run"]>(() => Promise.resolve({
-    protocol: "repa-python-batch-v3",
+    protocol: "repa-python-batch-v4",
     runtime: { pyodide: "0.29.0", python: "3.13.2", packages: {} },
+    loaded: [],
     tests: [{ id: "trial", status: "completed", result: { stdout: "3\n", error: { type: "NameError", message: "name 'x' is not defined", line: 2 }, captures: {}, doctest: [] } }],
   })) };
   const fake = backend(learning);

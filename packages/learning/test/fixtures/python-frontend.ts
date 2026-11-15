@@ -11,17 +11,18 @@ import {
 } from "@repa/python-runner/protocol";
 import { Value } from "typebox/value";
 
-/** 随包课与写课说明里的运行时，也是页面实际加载的版本。 */
+/** 页面的 Python 环境，与随包课清单的 runtime 相同。 */
 export const PAGE_RUNTIME: Runtime = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } };
 
 /** 页面怎样答复一批测试；返回 undefined 时不回应，模拟页面卡住。 */
 export type PageReply = (input: PythonBatchInput) => PythonBatchResult | undefined;
 
-/** 按 verify 程序查表交回算出的作答；表里没有的程序记为运行出错。 */
+/** 按 verify 程序查表交回算出的作答；表里没有的程序记为运行出错。这个前端不运行 Python，不加载包。 */
 export function verifiedAnswers(answers: Record<string, Record<string, unknown>>, runtime: Runtime = PAGE_RUNTIME): PageReply {
   return (input) => ({
     protocol: PYTHON_BATCH,
     runtime,
+    loaded: [],
     tests: input.tests.map((test) => {
       const found = answers[test.program];
       return {

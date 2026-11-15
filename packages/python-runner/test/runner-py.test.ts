@@ -4,9 +4,9 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
-import type { PythonTest } from "../src/protocol.js";
+import { PYTHON_PACKAGES, type PythonTest } from "../src/protocol.js";
 import { describeRuntime, RUNNER_FILE } from "../src/runtime.js";
-import { packagesUnavailable, RUNTIME, skipUnavailableEnvironment } from "./environment.js";
+import { packagesUnavailable, skipUnavailableEnvironment } from "./environment.js";
 
 interface Generator {
   next(): { done: boolean; value: unknown };
@@ -15,25 +15,34 @@ interface Generator {
 /** 任务之外 Python 打印到解释器标准输出的内容；runner.py 自己收集的输出不会出现在这里。 */
 const escaped: string[] = [];
 
-/** 前端 Worker 调用 program_test 的方式：这里直接在测试进程里加载 Pyodide，测试代码是可信的。 */
+/**
+ * 前端 Worker 调用 program_test 的方式：这里直接在测试进程里加载 Pyodide，测试代码是可信的。
+ * 带的包一开始就全部加载，与预热了这些包的 Worker 相同；按需加载由两个宿主负责，见 sandbox.test.ts。
+ */
 const frontend = (async () => {
   const reason = await packagesUnavailable();
   if (reason) return reason;
-  const assets = await describeRuntime(RUNTIME);
+  const assets = await describeRuntime();
   const { loadPyodide } = (await import(pathToFileURL(path.join(assets.pyodideDirectory, "pyodide.mjs")).href)) as {
     loadPyodide(options: object): Promise<{
-      loadPackage(names: string[], options: object): Promise<void>;
+      loadPackage(names: readonly string[], options: object): Promise<void>;
       runPython(code: string, options: object): unknown;
-      globals: { get(name: "program_test"): (line: string) => Generator };
+      globals: { get(name: string): (...args: string[]) => unknown };
     }>;
   };
   const pyodide = await loadPyodide({
     indexURL: `${assets.pyodideDirectory}/`, packageCacheDir: `${assets.packagesDirectory}/`,
     stdout: (text: string) => escaped.push(text), stderr: () => {},
   });
-  await pyodide.loadPackage(assets.load, { messageCallback: () => {} });
+  await pyodide.loadPackage(PYTHON_PACKAGES, { messageCallback: () => {} });
   pyodide.runPython(await readFile(RUNNER_FILE, "utf8"), { filename: "runner.py" });
-  return { test: pyodide.globals.get("program_test") };
+  pyodide.globals.get("configure")(JSON.stringify(assets.imports));
+  pyodide.globals.get("track_libraries")();
+  const packages = pyodide.globals.get("test_packages");
+  return {
+    test: pyodide.globals.get("program_test") as (line: string) => Generator,
+    packages: (job: Partial<PythonTest>) => JSON.parse(String(packages(JSON.stringify({ prelude: "", setup: "", program: "", data: [], doctest: [], ...job })))) as unknown,
+  };
 })();
 
 /** 跑完一个测试，返回依次报告的阶段和最终结果。 */
@@ -77,6 +86,24 @@ test("program_test 逐个阶段报告；capture 的求值和序列化分成两�
     },
     doctest: [{ out: "True\n", exception: null }],
   });
+});
+
+test("宿主按 test_packages 加载包：只看 import 语句引入的带着的包，前导、夹具、setup、doctest 和 verify 的题面代码都算，DataFrame 夹具要 pandas", async (t) => {
+  const pyodide = await frontend;
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
+  assert.deepEqual(pyodide.packages({ program: "import math, fractions\nfrom statistics import mean\nimport scipy" }), []);
+  assert.deepEqual(pyodide.packages({ program: "import numpy.linalg as la" }), ["numpy"]);
+  assert.deepEqual(pyodide.packages({ program: "def f():\n    from numpy import array\n    return array([1])" }), ["numpy"]);
+  assert.deepEqual(pyodide.packages({ prelude: "import pandas as pd" }), ["pandas"]);
+  assert.deepEqual(pyodide.packages({ setup: "import dateutil" }), ["python-dateutil"]);
+  assert.deepEqual(pyodide.packages({ doctest: ["import numpy"] }), ["numpy"]);
+  assert.deepEqual(pyodide.packages({ data: [{ label: "f", fixture: { kind: "python", code: "import numpy" } }] }), ["numpy"]);
+  assert.deepEqual(pyodide.packages({ data: [{ label: "T", fixture: { kind: "dataframe", name: "df", columns: { n: [1] } } }] }), ["pandas"]);
+  const verify = { code: "import pandas", blocks: [], options: { c: { a: "import numpy" } }, cells: {}, shape: {} };
+  assert.deepEqual(pyodide.packages({ program: "answers = {}", verify }), ["numpy", "pandas"]);
+  // 写在字符串里的代码和语法错误的代码不算：前者运行时才知道，后者运行时自己报错。
+  assert.deepEqual(pyodide.packages({ program: "run('import numpy')\nexec('import pandas')" }), []);
+  assert.deepEqual(pyodide.packages({ program: "import numpy\nx = (" }), []);
 });
 
 test("前导、夹具或 setup 出错时以 failed 结束，阶段是 prepare；学习者代码里的异常和 exit() 记在结果里", async (t) => {

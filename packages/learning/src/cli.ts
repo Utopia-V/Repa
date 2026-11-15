@@ -10,8 +10,8 @@ import { describeRuntime, preparePackages } from "@repa/python-runner";
 import { confirmCourse, type ConfirmOutcome } from "./check/confirm.js";
 import { checkCourse, type CheckResult } from "./check/course.js";
 import { parseModel, withModel } from "./check/model.js";
-import { formatDiagnostic, Report } from "./format/diagnostics.js";
-import { COURSE_FILE, loadCourse } from "./format/load.js";
+import { formatDiagnostic } from "./format/diagnostics.js";
+import { COURSE_FILE } from "./format/load.js";
 
 /** 本包的根目录，随包的课程在其下的 courses/。 */
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,8 +22,8 @@ const USAGE = `用法：
   repa-course check [课程目录…] [--no-run] [--topic id …] [--packages 目录] [--json]
       检查课程文件；缺省检查 courses/ 下全部课程。--no-run 只做结构检查，不运行代码；
       --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。
-  repa-course runtime [课程目录…] [--from 目录] [--packages 目录]
-      按课程清单的运行时准备离线 Pyodide 包，放进 @repa/python-runner 的缓存目录；--from 从已有目录复制，
+  repa-course runtime [--from 目录] [--packages 目录]
+      准备 Repa 的 Python 环境带的离线 Pyodide 包，放进 @repa/python-runner 的缓存目录；--from 从已有目录复制，
       不给时从 jsDelivr 下载。都会按 lockfile 核对 SHA-256。
   repa-course confirm [课程目录…] [--topic id …] [--max-requests 50] [--model deepseek/deepseek-flash]
                       [--agent-dir 应用配置目录/agent] [--force] [--dry-run] [--log 文件]
@@ -60,8 +60,8 @@ function printResult(result: CheckResult): void {
   const course = summary.course ? `${summary.course.id} ${summary.course.version}` : "课程";
   process.stdout.write(`\n${course}：完整 topic ${summary.topics.complete} 个，骨架 ${summary.topics.outline} 个，题目 ${summary.questions} 道。\n`);
   if (summary.ran && summary.runtime) {
-    const packages = Object.entries(summary.runtime.packages).map(([name, version]) => `${name} ${version}`).join("、");
-    process.stdout.write(`代码核对：Pyodide ${summary.runtime.pyodide}（Python ${summary.runtime.python}、${packages}），`
+    const packages = summary.loaded.map((name) => `${name} ${summary.runtime?.packages[name] ?? ""}`).join("、") || "没有加载带的包";
+    process.stdout.write(`代码核对：Pyodide ${summary.runtime.pyodide}（Python ${summary.runtime.python}，${packages}），`
       + `verify ${summary.code.verifyJobs} 道、核对作答位 ${summary.code.verifiedSlots} 个、测试运行 ${summary.code.testRuns} 次（含算期望值），启动解释器 ${summary.code.interpreterStarts} 次。\n`);
   } else if (summary.course && !summary.python) {
     process.stdout.write("代码核对：课里没有要运行 Python 的题。\n");
@@ -101,29 +101,13 @@ async function check(args: string[]): Promise<number> {
 }
 
 async function runtime(args: string[]): Promise<number> {
-  const { values, positionals } = parseArgs({
-    args, allowPositionals: true,
-    options: { from: { type: "string" }, packages: { type: "string" } },
+  const { values } = parseArgs({ args, options: { from: { type: "string" }, packages: { type: "string" } } });
+  const assets = await describeRuntime(values.packages ? path.resolve(values.packages) : undefined);
+  process.stdout.write(`Pyodide ${assets.pyodideVersion}，包放在 ${assets.packagesDirectory}\n`);
+  await preparePackages(assets, {
+    ...(values.from ? { from: path.resolve(values.from) } : {}),
+    log: (message) => process.stdout.write(`  ${message}\n`),
   });
-  const courses = positionals.length > 0 ? positionals.map((item) => path.resolve(item)) : await defaultCourses();
-  for (const course of courses) {
-    const report = new Report();
-    const loaded = await loadCourse(course, report);
-    if (!loaded) {
-      for (const diagnostic of report.diagnostics) process.stdout.write(`${formatDiagnostic(diagnostic)}\n`);
-      return 1;
-    }
-    if (!loaded.course.runtime) {
-      process.stdout.write(`${loaded.course.id}：课程不用 Python，不需要准备 Pyodide 包\n`);
-      continue;
-    }
-    const assets = await describeRuntime(loaded.course.runtime, values.packages ? path.resolve(values.packages) : undefined);
-    process.stdout.write(`${loaded.course.id}：Pyodide ${assets.pyodideVersion}，包放在 ${assets.packagesDirectory}\n`);
-    await preparePackages(assets, {
-      ...(values.from ? { from: path.resolve(values.from) } : {}),
-      log: (message) => process.stdout.write(`  ${message}\n`),
-    });
-  }
   return 0;
 }
 

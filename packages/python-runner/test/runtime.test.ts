@@ -5,13 +5,12 @@ import path from "node:path";
 import test from "node:test";
 
 import { describeRuntime, PACKAGE_ROOT, verifyPackages } from "../src/runtime.js";
-import { RUNTIME } from "./environment.js";
 
 // 学习者的机器上没有 npm：只有源码仓库里的缓存目录缺包时才叫人运行 npm run course:runtime。
 test("缺少离线包时，只对源码仓库里的缓存目录说运行 npm，安装包带的目录说安装不完整", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "repa-python-runner-runtime-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const installed = await describeRuntime(RUNTIME, path.join(directory, "resources", "app", "pyodide", "packages"));
+  const installed = await describeRuntime(path.join(directory, "resources", "app", "pyodide", "packages"));
   await assert.rejects(verifyPackages(installed), (error: Error) => {
     assert.equal((error as { code?: unknown }).code, "runtime_packages");
     assert.match(error.message, /缺少 numpy-[^；]*\.whl/u);

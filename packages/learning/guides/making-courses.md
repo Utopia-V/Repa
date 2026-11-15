@@ -81,7 +81,7 @@ sources:
 topics: [os01, os02]   # topic id 只用小写字母和数字，字母开头
 ```
 
-不用 Python 的课不写 `runtime`。
+清单不写 `runtime`，写了 `verify` 也不需要它。
 
 ## 出处
 
@@ -181,14 +181,7 @@ kps:
     answers = {"n": math.ceil(70 / 20)}
 ```
 
-写了 `verify` 的课，清单要加下面这段 `runtime`，照抄，不改版本号：核对用的 Python 环境就是这一套，版本或包不符时检查不通过。
-
-```yaml
-runtime:
-  pyodide: 314.0.7
-  python: 3.14.2
-  packages: { numpy: 2.4.6, pandas: 3.0.2 }
-```
+`verify` 在 Repa 自带的 Python 环境里运行：标准库都能用，例如 `math`、`fractions`、`itertools`、`statistics`；要做矩阵运算时可以 `import numpy`。这个环境没有网络，读不到学习者的文件，也没有别的第三方包。
 
 **要记住的内容用选择、填空、排序来考，作答位列进 `manual`**，例如 `manual: [state]`。课件里大约四成知识点是这一类。`manual` 的答案没有程序替你核对，`course_check` 会报出复习和测验题里有多少个，答案要你对照材料确认。
 

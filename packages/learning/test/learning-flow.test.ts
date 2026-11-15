@@ -438,6 +438,7 @@ test("代码题：前端声明 python.run 才出题；一次提交只调用一�
       return {
         protocol: PYTHON_BATCH,
         runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} },
+        loaded: [],
         tests: batch.tests.map((entry) => ({
           id: entry.id,
           status: "completed",

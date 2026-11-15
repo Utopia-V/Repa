@@ -1,11 +1,12 @@
 import { RuntimeProblem } from "@repa/python-runner";
 import type { Runtime as RunningRuntime } from "@repa/python-runner/protocol";
+import type { RunTests } from "../code-tests.js";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { checkTopicCode, type CodeStats } from "./code.js";
 import { PythonUnavailable, runtimeMismatches, sandboxPython, type CheckPython, type CheckRun } from "./python.js";
 import { checkReferences, type ConfirmationMode } from "./questions.js";
-import { checkRules, usesPython } from "./rules.js";
+import { checkRules, teachesPython, usesPython } from "./rules.js";
 import { topicQuestions } from "./items.js";
 
 /** checkCourse 的选项：是否运行代码核对、在哪里运行、离线包位置、问题里路径的显示基准，以及只核对哪些 topic 的代码。 */
@@ -44,7 +45,10 @@ export interface CheckSummary {
   ran: boolean;
   /** 在哪里运行的：sandbox 是 Linux 沙箱，frontend 是前端页面的 Worker。 */
   where?: CheckRun["where"];
+  /** Repa 的 Python 环境的版本。 */
   runtime?: RunningRuntime;
+  /** 核对时测试引入、因而加载的包，按名字排序；只用标准库的课为空。 */
+  loaded: string[];
   code: CodeStats;
 }
 
@@ -58,7 +62,7 @@ export interface CheckResult {
 export async function checkCourse(root: string, options: CheckOptions = {}): Promise<CheckResult> {
   const report = new Report();
   const code: CodeStats = { verifyJobs: 0, verifiedSlots: 0, testRuns: 0, interpreterStarts: 0 };
-  const summary: CheckSummary = { topics: { complete: 0, outline: 0 }, questions: 0, confirmationSlots: [], python: false, ran: false, code };
+  const summary: CheckSummary = { topics: { complete: 0, outline: 0 }, questions: 0, confirmationSlots: [], python: false, ran: false, loaded: [], code };
   const loaded = await loadCourse(root, report, options.base);
   if (!loaded) return { diagnostics: report.diagnostics, summary };
   summary.course = { id: loaded.course.id, version: loaded.course.version };
@@ -72,21 +76,25 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
   }
   checkRules(loaded, report);
   await checkReferences(loaded, report, options.confirmations ?? "required");
-  summary.python = usesPython(loaded.topics.map(({ topic }) => topic));
-  // 不用 Python 的课不启动沙箱；用到 Python 却没写 runtime 的，规则检查已报 runtime_missing。
+  const topics = loaded.topics.map(({ topic }) => topic);
+  summary.python = usesPython(topics);
+  // 不用 Python 的课不启动沙箱。核对在 Repa 自己的 Python 环境里运行，只有 verify 的课不必写 runtime；
+  // 有代码题的课没写 runtime 时，规则检查已报 runtime_missing，没有前导可用，不运行。
   const expected = loaded.course.runtime;
-  if (options.run === false || !summary.python || !expected) return { diagnostics: report.diagnostics, summary };
+  if (options.run === false || !summary.python || (!expected && teachesPython(topics))) return { diagnostics: report.diagnostics, summary };
+  // 问题挂在清单的 runtime 上；没写 runtime 的课挂在清单本身。
+  const at = expected ? ["runtime"] : [];
 
-  // 按顺序用第一处能用的 Python；课程清单与安装的版本不符是课程的问题，照常报告，不换下一处。
+  // 按顺序用第一处能用的 Python；离线包缺失或摘要不符是安装的问题，照常报告，不换下一处。
   const reasons: string[] = [];
   let running: CheckRun | undefined;
   for (const python of options.python ?? [sandboxPython]) {
     try {
-      running = await python(expected, options);
+      running = await python(options);
       break;
     } catch (error) {
       if (error instanceof RuntimeProblem) {
-        report.error(error.code, error.message, loaded.file, ["runtime"]);
+        report.error(error.code, error.message, loaded.file, at);
         return { diagnostics: report.diagnostics, summary };
       }
       if (!(error instanceof PythonUnavailable)) throw error;
@@ -94,28 +102,35 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     }
   }
   if (!running) {
-    report.error("python_unavailable", `${reasons.join("；")}。课里的 verify 核对程序和代码题没能运行，所以没有核对`, loaded.file, ["runtime"]);
+    report.error("python_unavailable", `${reasons.join("；")}。课里的 verify 核对程序和代码题没能运行，所以没有核对`, loaded.file, at);
     return { diagnostics: report.diagnostics, summary };
   }
+  const packages = new Set<string>();
+  const run: RunTests = async (tests) => {
+    const batch = await running.run(tests);
+    for (const name of batch.loaded ?? []) packages.add(name);
+    return batch;
+  };
   try {
     summary.where = running.where;
     summary.runtime = running.runtime;
-    const mismatches = runtimeMismatches(expected, running.runtime);
+    const mismatches = expected ? runtimeMismatches(expected, running.runtime) : [];
     if (mismatches.length > 0) {
-      report.error("runtime_mismatch", `实际加载的运行时与课程清单不一致：${mismatches.join("、")}`, loaded.file, ["runtime"]);
+      report.error("runtime_mismatch", `课程清单的 runtime 与 Repa 的 Python 环境不一致：${mismatches.join("、")}`, loaded.file, at);
       return { diagnostics: report.diagnostics, summary };
     }
     summary.ran = true;
     for (const topic of loaded.topics) {
       if (options.topics && !options.topics.includes(topic.topic.id)) continue;
-      await checkTopicCode(topic, running.run, report, code, expected.prelude ?? "");
+      await checkTopicCode(topic, run, report, code, expected?.prelude ?? "");
     }
   } catch (error) {
     // 前端页面在核对中途断开、没有回应或失败：已经得到的结论照常报告，其余没有核对，整个检查不算通过。
     if (!(error instanceof PythonUnavailable)) throw error;
     summary.ran = false;
-    report.error("python_unavailable", `${error.message}。课里的 verify 核对程序和代码题没有全部运行，所以没有核对完`, loaded.file, ["runtime"]);
+    report.error("python_unavailable", `${error.message}。课里的 verify 核对程序和代码题没有全部运行，所以没有核对完`, loaded.file, at);
   } finally {
+    summary.loaded = [...packages].sort();
     code.interpreterStarts = running.starts();
     await running.close();
   }

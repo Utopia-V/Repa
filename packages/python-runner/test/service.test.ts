@@ -15,6 +15,7 @@ const input: PythonBatchInput = {
 const result: PythonBatchResult = {
   protocol: PYTHON_BATCH,
   runtime,
+  loaded: [],
   tests: [{ id: "total", status: "completed", result: { stdout: "", error: null, captures: { total: { value: 2 } }, doctest: [] } }],
 };
 

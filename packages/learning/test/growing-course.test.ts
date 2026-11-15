@@ -26,7 +26,7 @@ import { learningMethods, type CourseBuilding, type LearningInput, type Learning
 import type { LearningSession } from "../src/session.js";
 import { TUTOR_AGENT } from "../src/tutor.js";
 import { referenceAnswer } from "./fixtures/learning-session.js";
-import { PAGE_RUNTIME, pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
+import { pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
 
 const EXAMPLE = fileURLToPath(new URL("../guides/example-course/", import.meta.url));
 /** faux 模型的单价（美元每百万 token），花费按它折算。 */
@@ -311,14 +311,13 @@ function withComputation(text: string, id: string): string {
   return stringify(topic);
 }
 
-/** 后台展开的脚本：等 gate 放行以后把这几部分写成完整的、升版本并换用。computation 时每部分加一道计算题，清单写上 runtime。 */
+/** 后台展开的脚本：等 gate 放行以后把这几部分写成完整的、升版本并换用。computation 时每部分加一道计算题，清单照写课说明不写 runtime。 */
 async function expansionScript(
   parts: { id: string; title: string; prerequisites: string[]; where: string }[], version: string, topics: string[], gate?: Promise<void>, computation = false,
 ): Promise<FauxResponseStep[]> {
   // 文件工具要先读过一个已有的文件才能整份改写它。
   const files = ["course/course.yaml", ...parts.map((part) => `course/topics/${part.id}.yaml`)];
-  const runtime = computation ? stringify({ runtime: PAGE_RUNTIME }) : "";
-  const writes = [write("course/course.yaml", `${manifest(version, topics)}${runtime}`)];
+  const writes = [write("course/course.yaml", manifest(version, topics))];
   for (const part of parts) {
     const text = await complete(part.id, part.title, part.prerequisites, part.where);
     writes.push(write(`course/topics/${part.id}.yaml`, computation ? withComputation(text, part.id) : text));

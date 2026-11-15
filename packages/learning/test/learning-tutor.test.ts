@@ -156,7 +156,7 @@ async function fixture(t: TestContext, topics?: Topic[], options: FixtureOptions
         result: { stdout: python(job), error: null, captures: {}, doctest: [] },
       }));
       void client.call("service.reply", {
-        id, result: { protocol: PYTHON_BATCH, runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }, tests },
+        id, result: { protocol: PYTHON_BATCH, runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }, loaded: [], tests },
       });
     });
   }

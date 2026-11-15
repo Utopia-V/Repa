@@ -13,7 +13,7 @@ import {
 
 const SOURCE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src");
 
-test("python.run 的输入只有一批测试，不带调用方的标识，比较用的期望也不在测试里；结果带实际环境和每个测试的状态", () => {
+test("python.run 的输入只有一批测试，不带调用方的标识，比较用的期望也不在测试里；结果带运行环境、测试引入的包和每个测试的状态", () => {
   const runtime = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } };
   const input: PythonBatchInput = {
     protocol: PYTHON_BATCH,
@@ -51,6 +51,7 @@ test("python.run 的输入只有一批测试，不带调用方的标识，比较
   const result: PythonBatchResult = {
     protocol: PYTHON_BATCH,
     runtime,
+    loaded: ["pandas"],
     tests: [
       { id: "answer:0", status: "completed", result: completed },
       { id: "answer:1", status: "completed", result: completed, restoreError: { type: "SystemExit", message: "无法恢复解释器状态" } },
@@ -58,6 +59,8 @@ test("python.run 的输入只有一批测试，不带调用方的标识，比较
     ],
   };
   assert.ok(Value.Check(PythonBatchResultSchema, result));
+  const { loaded: _loaded, ...withoutLoaded } = result;
+  assert.equal(Value.Check(PythonBatchResultSchema, withoutLoaded), false);
   assert.ok(Value.Check(PythonBatchResultSchema, { ...result, tests: [{ id: "answer:1", status: "timeout", phase: "doctest" }] }));
   assert.ok(Value.Check(PythonBatchResultSchema, { ...result, tests: [{ id: "answer:2", status: "failed", phase: "capture", error: { type: "TimeoutError", message: "序列化超时" } }] }));
   assert.equal(Value.Check(PythonBatchResultSchema, { ...result, tests: [{ id: "answer:1", status: "timeout", phase: "setup" }] }), false);

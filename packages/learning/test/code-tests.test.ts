@@ -210,8 +210,8 @@ test("判分的执行方经 python.run 调用前端：请求只有协议名和�
   const host = { services: { call: async (service: string, input: unknown) => { requests.push([service, input]); return reply; } } } as unknown as Host;
   const tests: PythonTest[] = [{ id: "test:0", prelude: "", setup: "", data: [], program: "x = 1", captures: ["x"], doctest: [] }];
   const runtime = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } };
-  reply = { protocol: PYTHON_BATCH, runtime, tests: [{ id: "test:0", status: "completed", result: ran({ x: int(1) }) }] };
-  assert.deepEqual(await frontendTests(host)(tests), { runtime, tests: [{ id: "test:0", status: "completed", result: ran({ x: int(1) }) }] });
+  reply = { protocol: PYTHON_BATCH, runtime, loaded: [], tests: [{ id: "test:0", status: "completed", result: ran({ x: int(1) }) }] };
+  assert.deepEqual(await frontendTests(host)(tests), reply);
   assert.deepEqual(requests, [["python.run", { protocol: PYTHON_BATCH, tests }]]);
   for (const invalid of [{ ...(reply as object), protocol: "repa-python-batch-v1" }, { ...(reply as object), submissionId: "s" }, { tests: [] }]) {
     reply = invalid;
