@@ -112,7 +112,7 @@ function Learn({ space }: { space: string }) {
   const makingRunning = makingSession !== undefined && conversation.sessionId === makingSession && conversation.run !== "idle";
   // 右侧：有学习任务时是辅导，行为不变；没有任务而有做课的对话时是做课的对话。
   const panel = task
-    ? { label: t("tutor.panel.label"), action: t("learn.tutor.action"), content: <TutorPanel allowed={restrictions.tutorAllowed} restriction={restrictions.kind} renderLink={renderLink} /> }
+    ? { label: t("tutor.panel.label"), action: t("learn.tutor.action"), content: <TutorPanel allowed={restrictions.tutorAllowed} referenceAllowed={restrictions.referenceContentAllowed} restriction={restrictions.kind} renderLink={renderLink} /> }
     : makingSession !== undefined
       ? { label: t("making.panel.label"), action: t("learn.making.action"), content: <MakingPanel sessionId={makingSession} /> }
       : undefined;
@@ -156,7 +156,11 @@ function Learn({ space }: { space: string }) {
           {/* 上课、做题时整门课不出现，学习者专心在任务上；任务结束回到菜单时再出现。 */}
           {making && !active && (building.parts.length > 0 || building.course !== null
             ? <CourseOutline building={building} settings={settings} agentRunning={makingRunning} />
-            : <p role="status" className="m-0 text-body text-muted-foreground">{t("outline.pending.status")}</p>)}
+            // 还没有课：Agent 在运行时说正在做；运行已经结束（出错、被停止或做完了也没有课）时如实说没有成功，
+            // 在右侧的对话里再说一句就能接着做。对话还没读到时什么也不说。
+            : makingRunning
+              ? <p role="status" className="m-0 text-body text-muted-foreground">{t("outline.pending.status")}</p>
+              : conversation.sessionId === makingSession && conversation.status === "ready" && <p role="status" className="m-0 text-body text-muted-foreground">{t("outline.notMade.status")}</p>)}
           {building === undefined && learning.buildingError !== undefined && <ErrorNotice title={t("outline.load.error")} error={learning.buildingError} />}
           {!task && !menu && !startable && !making && <p className="m-0 text-body text-muted-foreground">{t("learn.menu.noTask.empty")}</p>}
         </div>

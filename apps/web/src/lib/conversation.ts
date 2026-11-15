@@ -26,7 +26,11 @@ export type ConversationItem =
     /** 会话记录里 ask_user 的结果带着完整的提问，重新读取后据此显示卡片。 */
     ask?: PastAsk;
   }
-  | { kind: "error"; id: string; text: string }
+  | {
+    kind: "error"; id: string; text: string;
+    /** 模型请求失败时提供方回的 HTTP 状态码，后端从 Pi 统一的报错格式里取出；据此显示一句人能看懂的话。 */
+    status?: number;
+  }
   | { kind: "stopped"; id: string }
   | { kind: "compaction"; id: string };
 
@@ -97,6 +101,11 @@ function pastAsk(details: unknown): PastAsk | undefined {
   return undefined;
 }
 
+function errorStatus(data: unknown): { status?: number } {
+  const status = field(data, "errorStatus");
+  return typeof status === "number" ? { status } : {};
+}
+
 /** 把会话记录转成显示项。记录是运行结束后的事实，实时拼出的内容以它为准。 */
 export function historyItems(entries: SessionEntry[]): ConversationItem[] {
   const items: ConversationItem[] = [];
@@ -116,7 +125,7 @@ export function historyItems(entries: SessionEntry[]): ConversationItem[] {
         items.push(item);
       }
       if (stopReason === "error") {
-        items.push({ kind: "error", id: `${entry.id}:error`, text: text(entry.data, "errorMessage") ?? t("conversation.modelFailed.status") });
+        items.push({ kind: "error", id: `${entry.id}:error`, text: text(entry.data, "errorMessage") ?? t("conversation.modelFailed.status"), ...errorStatus(entry.data) });
       } else if (stopReason === "aborted") {
         items.push({ kind: "stopped", id: `${entry.id}:stopped` });
       }
@@ -196,7 +205,7 @@ export function applyEvent(conversation: Conversation, event: AgentEvent): Conve
       // 带 code 的是整次运行的失败汇总：取消已有停止标记，模型错误已由消息级的 error 事件显示。
       const code = text(event.data, "code");
       if (code === "cancelled" || code === "model_error") return conversation;
-      return { ...conversation, streaming: undefined, items: [...items, { kind: "error", id: nextId(), text: event.text ?? t("common.runError.status") }] };
+      return { ...conversation, streaming: undefined, items: [...items, { kind: "error", id: nextId(), text: event.text ?? t("common.runError.status"), ...errorStatus(event.data) }] };
     }
     default:
       return conversation;
