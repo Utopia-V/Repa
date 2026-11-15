@@ -168,7 +168,7 @@ export type AppState = LearningActions & {
    * 开始做课：新建一个通用 Agent 的会话，告诉学习插件这是做课的对话，把插件给的第一条消息（带上学习者写的要求）发出去。
    * 与 sendMessage 一样等整次运行结束才返回；返回 false 表示没有发出去，错误在 conversation.sendError。
    */
-  startMaking(request: string): Promise<boolean>;
+  startMaking(request: string, materials: boolean): Promise<boolean>;
   listRoots(): Promise<Result<"space.roots">>;
   /**
    * 读取会话列表，打开上次查看的会话；它不在列表里时打开最近有消息的会话。
@@ -634,12 +634,12 @@ export function createAppStore() {
       addMaterials(paths) {
         return materialsCall("add", { paths });
       },
-      async startMaking(request) {
+      async startMaking(request, materials) {
         if (get().conversation.run !== "idle") return false;
         conversationRequest++;
         set({ conversation: { ...emptyConversation, status: "ready" }, asks: [] });
         return await deliver("", async (sessionId) => {
-          const text = await learning.beginMaking(sessionId, request);
+          const text = await learning.beginMaking(sessionId, request, materials);
           void learning.loadBuilding();
           return text;
         });

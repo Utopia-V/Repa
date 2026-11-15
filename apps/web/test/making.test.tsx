@@ -133,14 +133,14 @@ it("还没有课时学习页是做课的起点：列出课件，读不出文字�
   await vi.waitFor(() => expect(calls(fake.call, "session.send")).toEqual([{ sessionId: "making-1", text: "我把课件放进了 materials/……" }]));
   // 通用 Agent 的会话：不指定 agent。
   expect(calls(fake.call, "session.create")).toEqual([{}]);
-  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", request: "一月中旬考试" }]);
+  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: true, request: "一月中旬考试" }]);
   // 页面换成做课：右侧是做课的对话，正文等轮廓出来。
   expect(await screen.findByRole("complementary", { name: "making.panel.label" })).toBeTruthy();
   expect(screen.getByText("outline.pending.status")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "making.start.action" })).toBeNull();
 });
 
-it("没有可用模型时开始不可用，并指向设置；没有课件时也不能开始", async () => {
+it("没有可用模型时开始不可用，并指向设置", async () => {
   const fake = backend({
     "model.getDefault": () => Promise.resolve(null),
     "materials.list": () => Promise.resolve({ files: [] }),
@@ -151,6 +151,31 @@ it("没有可用模型时开始不可用，并指向设置；没有课件时也�
   expect(await screen.findByText("making.noModel.description")).toBeTruthy();
   expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
   expect((screen.getByRole("button", { name: "making.start.action" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("没有课件时写了想学什么就能开始：输入框问想学什么，记下没有课件，发出插件给的那条消息", async () => {
+  const fake = backend({
+    "materials.list": () => Promise.resolve({ files: [] }),
+    "session.create": () => Promise.resolve({ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general", model: { provider: "deepseek", id: "deepseek-flash" } }),
+    "learning.building.begin": () => Promise.resolve({ text: "我手里没有课件……" }),
+    "session.send": () => new Promise(() => undefined),
+  });
+  start(fake.client);
+
+  expect(await screen.findByText("making.materials.empty")).toBeTruthy();
+  const button = screen.getByRole("button", { name: "making.start.action" }) as HTMLButtonElement;
+  // 什么都没写时不能开始；只写空白也不行。
+  expect(button.disabled).toBe(true);
+  expect(screen.queryByLabelText("making.request.label")).toBeNull();
+  const wish = screen.getByLabelText("making.request.wish.label");
+  fireEvent.change(wish, { target: { value: "   " } });
+  expect(button.disabled).toBe(true);
+  fireEvent.change(wish, { target: { value: "线性代数，期末考试用" } });
+  expect(button.disabled).toBe(false);
+  fireEvent.click(button);
+
+  await vi.waitFor(() => expect(calls(fake.call, "session.send")).toEqual([{ sessionId: "making-1", text: "我手里没有课件……" }]));
+  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: false, request: "线性代数，期末考试用" }]);
 });
 
 it("添加课件：在本机文件夹里勾选文件，由课件插件复制进 materials/；已有同名文件时如实报错，勾选不丢", async () => {

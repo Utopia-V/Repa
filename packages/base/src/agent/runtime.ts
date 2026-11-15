@@ -36,6 +36,7 @@ import { findSessionPath } from "./session-files.js";
 import { addSessionUsage, emptyUsage } from "./usage.js";
 import { applyPromptSections, BASE_INSTRUCTIONS, promptChangeNotice, promptSections } from "./prompts.js";
 import { activeViews, changedViews, staleViewEdits, viewMessage, type ViewSnapshot } from "./views.js";
+import { createWebTools, WEB_SERVICES, type WebRequest } from "./web.js";
 
 // 随底座附带的 Skill，在包根目录的 skills/ 下；源码在 src/agent/，构建后在 dist/agent/，都往上两层。
 // 安装包按 package.json 的 files 带上这个目录。
@@ -49,6 +50,8 @@ export interface AgentTestOptions extends AgentRuntimeOptions {
   cacheTtlMs?: number;
   extensionFactories?: ExtensionFactory[];
   toolNames?: string[];
+  /** 搜索与读网页发请求用的函数，省略时用全局 fetch；测试注入假的，不访问网络。 */
+  webRequest?: WebRequest;
 }
 
 /** 创建使用应用专属凭据目录的 Pi 运行时，供协议后端或 Node 宿主装配。 */
@@ -102,6 +105,8 @@ interface AgentProfile {
   general: boolean;
   builtins: BuiltinTool[];
   tools: AgentTool[];
+  /** 底座自己的工具（搜索与读网页）：只给通用 Agent，接上了有这项服务的提供方才有。 */
+  web: AgentTool[];
   /** 是否带底座的 ask_user：通用 Agent 默认带上，插件 Agent 在定义里列出才有。 */
   askUser: boolean;
   subagents: string[];
@@ -133,7 +138,7 @@ function sessionAgent(manager: SessionManager): string {
   throw new RepaFault("invalid_session_agent", "会话的 Agent 记录无法读取", { id: manager.getSessionId() });
 }
 
-/** 档案里的插件工具，按名称核对后以名称为键。 */
+/** 档案里的插件工具（按名称核对）与底座的搜索、读网页，以名称为键。 */
 function pluginToolMap(profile: AgentProfile): Map<string, AgentTool> {
   const reserved = new Set(RESERVED_TOOL_NAMES);
   const tools = new Map<string, AgentTool>();
@@ -143,6 +148,7 @@ function pluginToolMap(profile: AgentProfile): Map<string, AgentTool> {
     if (reserved.has(tool.name) || tools.has(tool.name)) throw new RepaFault("tool_name_conflict", "插件工具名称重复或覆盖内置工具", { name: tool.name });
     tools.set(tool.name, tool);
   }
+  for (const tool of profile.web) tools.set(tool.name, tool);
   return tools;
 }
 
@@ -178,6 +184,8 @@ class Runtime implements AgentRuntime {
   readonly settings: SettingsManager;
   private spaces = new Set<Space>();
   private closed = false;
+  // 每个服务的两个工具只建一次：会话按对象识别工具是否替换，读过的网页也缓存在里面。
+  private web = new Map<string, AgentTool[]>();
 
   constructor(readonly options: AgentTestOptions) {
     // 项目设置只由 Repa 持有；Pi 不读取空间中的 .pi/settings.json。
@@ -214,6 +222,27 @@ class Runtime implements AgentRuntime {
       if (model) return model;
     }
     return this.options.modelRuntime.getAvailableSnapshot()[0];
+  }
+
+  /**
+   * 搜索与读网页：接上凭据的提供方里第一个有这项服务的；没有时为空，工具不出现。
+   * 密钥在调用时经 Pi 的凭据解析取得，只放进发给提供方的请求头。
+   */
+  webTools(): AgentTool[] {
+    const models = this.options.modelRuntime;
+    const service = WEB_SERVICES.find(item => models.hasConfiguredAuth(item.provider));
+    if (service === undefined) return [];
+    let tools = this.web.get(service.provider);
+    if (tools === undefined) {
+      tools = createWebTools({
+        service,
+        key: async () => (await models.getAuth(service.provider))?.auth.apiKey,
+        request: this.options.webRequest ?? fetch,
+        now: () => this.now(),
+      });
+      this.web.set(service.provider, tools);
+    }
+    return tools;
   }
 
   /** 解析模型并确认它能发出请求；没有可用模型时以 model_required 拒绝。 */
@@ -459,6 +488,7 @@ class Space implements AgentSpace {
         general: true,
         builtins: [...BUILTIN_TOOLS],
         tools: this.options.tools(),
+        web: this.runtime.webTools(),
         askUser: true,
         // 和 Claude Code 一样能起子 Agent：自己，以及空间里定义的任何插件 Agent。插件 Agent 的工具都在通用 Agent 的范围内。
         subagents: [GENERAL_AGENT, ...(this.options.agents?.() ?? []).map(item => item.id).sort()],
@@ -476,6 +506,7 @@ class Space implements AgentSpace {
       // 插件宿主在打开时已经拒绝列了 grep 的定义；这里也不把 Pi 的 grep 交给插件 Agent，它会越过 .repa/.ignore。
       builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep"),
       tools: this.options.tools().filter(tool => names.has(tool.name)),
+      web: [],
       askUser: names.has(ASK_USER_TOOL),
       // 引用的子 Agent 按名字在这一刻的集合里取：所属插件撤下时没有这一项，回来以后重新出现。
       // 子 Agent 被替换成工具更多的版本时也不列出：更高权限的工作不能靠 Agent 之间转托取得。
@@ -515,6 +546,7 @@ class Space implements AgentSpace {
     const tools = [
       ...profile.builtins,
       ...profile.tools.map(tool => tool.name),
+      ...profile.web.map(tool => tool.name),
       ...(profile.subagents.length > 0 ? [SUBAGENT_TOOL] : []),
       ...(profile.askUser ? [ASK_USER_TOOL] : []),
     ];
@@ -738,7 +770,7 @@ class Session implements AgentSession {
       // 每一步模型回复之后按这一刻的工具集更新，下一次回复就用新的集合。Pi 在这个钩子之后才准备下一步的工具声明。
       pi.on("turn_end", () => { this.syncTools(); });
       pi.on("tool_result", async event => {
-        // 输出截断只认插件工具；撤下的工具已换成桩，不在其中。
+        // 输出截断只认插件工具与底座的搜索、读网页；撤下的工具已换成桩，不在其中。
         if (this.registered.get(event.toolName) === undefined) return;
         const original = event.content.filter(part => part.type === "text").map(part => part.text).join("\n");
         const text = await limitToolText(original, { root: options.root, sessionId: this.manager.getSessionId(), toolCallId: event.toolCallId });

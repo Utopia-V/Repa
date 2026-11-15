@@ -171,6 +171,7 @@ export const strings = {
   "making.materials.paragraphs.label": "{count} 段",
   "making.materials.plain.label": "文本",
   "making.request.label": "要求，例如考试时间、不学哪些章节（可不填）",
+  "making.request.wish.label": "〔待写〕",
   "making.start.action": "做成课",
   "making.start.error": "无法开始",
   "making.useBundled.action": "学自带的 Python 课",

@@ -24,7 +24,8 @@ function partsText(file: Extract<Material, { status: "text" }>): string {
 }
 
 /**
- * 还没有选定课的空间里学习页的起点：materials/ 里的课件、添加课件、可不填的要求，和“开始”；有随包的课时另有一个改学它的次要动作。
+ * 还没有选定课的空间里学习页的起点：materials/ 里的课件、添加课件、要求，和“开始”；有随包的课时另有一个改学它的次要动作。
+ * 有课件时要求可以不填；没有课件时写了想学什么也能开始，Agent 先问清需求、到网上找资料。
  * 开始以后由做课的对话接手，这一块随做课的状态换成轮廓；按钮在运行结束前不再可用。
  */
 export function MakingStart({ onStarted, onUseBundled }: {
@@ -55,11 +56,13 @@ export function MakingStart({ onStarted, onUseBundled }: {
   }, [loadModelSettings]);
 
   const noModel = defaultModel.status === "ready" && defaultModel.data === null;
+  const hasMaterials = files !== undefined && files.length > 0;
+  const canStart = files !== undefined && (hasMaterials || request.trim() !== "");
 
   async function start() {
     setStartError(undefined);
     onStarted();
-    const sent = await startMaking(request);
+    const sent = await startMaking(request, hasMaterials);
     // 会话建好、第一条消息发出以后，页面已经换成做课的对话；没发出去时错误留在这里，要求也还在。
     if (!sent) setStartError(store.getState().conversation.sendError);
   }
@@ -89,7 +92,7 @@ export function MakingStart({ onStarted, onUseBundled }: {
     </section>
 
     <div className="grid gap-2">
-      <label htmlFor={requestId} className="text-body weight-semibold">{t("making.request.label")}</label>
+      <label htmlFor={requestId} className="text-body weight-semibold">{t(files?.length === 0 ? "making.request.wish.label" : "making.request.label")}</label>
       <Textarea id={requestId} rows={3} value={request} onChange={(event) => setRequest(event.target.value)} />
     </div>
 
@@ -99,7 +102,7 @@ export function MakingStart({ onStarted, onUseBundled }: {
     </div>}
     {startError !== undefined && <ErrorNotice title={t("making.start.error")} error={startError} />}
     <div className="flex flex-wrap items-center gap-3">
-      <Button disabled={noModel || !files || files.length === 0 || run !== "idle"} onClick={() => { void start(); }}>{t("making.start.action")}</Button>
+      <Button disabled={noModel || !canStart || run !== "idle"} onClick={() => { void start(); }}>{t("making.start.action")}</Button>
       {onUseBundled && <Button variant="ghost" disabled={run !== "idle"} onClick={onUseBundled}>{t("making.useBundled.action")}</Button>}
     </div>
 
