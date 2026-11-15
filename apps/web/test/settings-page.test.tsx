@@ -276,7 +276,10 @@ it("从已连接提供方的模型里选择默认模型", async () => {
   await renderSettings(fake);
   // 先连接 DeepSeek，让可选模型多于一个。
   fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
-  fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "DeepSeek" }));
+  // 常用的几家单列在前，DeepSeek 在第一个；下面的全部列表里也有它。
+  const picker = within(await screen.findByRole("dialog"));
+  expect(picker.getAllByRole("button", { name: "DeepSeek" })).toHaveLength(2);
+  fireEvent.click(within(picker.getByRole("list", { name: "提供方" })).getByRole("button", { name: "DeepSeek" }));
   fireEvent.change(within(await screen.findByRole("dialog", { name: "连接 DeepSeek" })).getByLabelText("DeepSeek API key"), { target: { value: "sk" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

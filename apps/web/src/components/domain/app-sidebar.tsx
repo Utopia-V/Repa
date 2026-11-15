@@ -47,6 +47,13 @@ export function AppSidebar() {
     if (spaces.status === "idle") void loadSpaces();
   }, [spaces.status, loadSpaces]);
 
+  // 做课的对话由学习插件记下；直接打开设置页等别的页面时学习状态还没读过，读一次，侧栏才认得出它。
+  const learningUnread = useAppStore((store) => store.learning.available === undefined && store.learning.status === "idle");
+  const loadLearning = useAppStore((store) => store.loadLearning);
+  useEffect(() => {
+    if (space && learningUnread) void loadLearning();
+  }, [space, learningUnread, loadLearning]);
+
   // 当前空间排在它在最近列表里的位置；列表读到之前或里面还没有它时放在最前。
   const recent = spaces.data ?? [];
   const listed = (space === undefined || recent.includes(space) ? recent : [space, ...recent]).slice(0, RECENT_SPACES);

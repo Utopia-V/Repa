@@ -17,6 +17,21 @@ function resultDetails(result: unknown): { details?: unknown } {
   return details === undefined ? {} : { details };
 }
 
+/**
+ * 模型请求失败时提供方回的 HTTP 状态码。Pi 把提供方的报错统一写成“状态码: 原文”或“前缀 (状态码): 原文”
+ * （pi-ai 的 formatProviderError），这里只认这个格式的开头，不读各家报错的正文；认不出时为 undefined。
+ */
+export function errorStatus(message: string | undefined): number | undefined {
+  const match = message === undefined ? null : /^(?:[^\n(]*\()?([1-5]\d\d)\)?: /u.exec(message);
+  return match ? Number(match[1]) : undefined;
+}
+
+/** 带上状态码的错误数据；认不出状态码时不加。 */
+function statusData(message: string | undefined): { errorStatus?: number } {
+  const status = errorStatus(message);
+  return status === undefined ? {} : { errorStatus: status };
+}
+
 export function usageOf(usage: Usage): Usage {
   return {
     input: usage.input,
@@ -52,6 +67,7 @@ export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
         data: {
           stopReason: message.stopReason,
           errorMessage: message.errorMessage,
+          ...statusData(message.errorMessage),
           provider: message.provider,
           model: message.responseModel ?? message.model,
           calls: message.content.filter(block => block.type === "toolCall").map(call => ({ id: call.id, name: call.name, input: call.arguments })),
@@ -120,7 +136,10 @@ export function convertEvent(sessionId: string, event: AgentSessionEvent, runId?
         data: { provider: message.provider, model: message.responseModel ?? message.model },
       },
     ];
-    if (message.stopReason === "error") result.push({ ...base, type: "error", text: message.errorMessage ?? "模型请求失败" });
+    if (message.stopReason === "error") {
+      const status = statusData(message.errorMessage);
+      result.push({ ...base, type: "error", text: message.errorMessage ?? "模型请求失败", ...(status.errorStatus === undefined ? {} : { data: status }) });
+    }
     return result;
   }
   if (event.type === "message_end" && event.message.role === "user") {
