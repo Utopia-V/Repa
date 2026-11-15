@@ -509,13 +509,33 @@ test("要运行 Python 的课在核对没能运行时如实说明原因，不算
   assert.match(fallback.text, /\[runtime_mismatch\] 实际加载的运行时与课程清单不一致：numpy 2\.4\.6（清单里没有写）、pandas 3\.0\.2（清单里没有写）/u);
   assert.equal(page.requests.length, 1);
   await page.client.close();
-  // 照写课说明写 runtime，但这台机器缺离线包。
+  // 照写课说明写 runtime，但 Node 一侧缺离线包，页面也关了：Linux 上沙箱因缺包用不了，这个目录不是源码仓库里的缓存，
+  // 所以说安装不完整，不叫人运行 npm。
   await writeFile(manifest, `${original}${stringify({ runtime: (await guideRuntime()) })}`);
   const checked = await f.tool("course_check");
   assert.match(checked.text, /没有运行，也就没有核对/u);
-  assert.match(checked.text, /\[runtime_packages\]/u);
+  assert.match(checked.text, process.platform === "linux"
+    ? /\[python_unavailable\] Linux 沙箱用不了：[^\n]* 里的 Pyodide 包不完整：缺少 [^\n]*Repa 的安装不完整[^\n]*；没有打开的应用页面能运行 Python/u
+    : /\[python_unavailable\] Linux 沙箱用不了：沙箱只能在 Linux 上建立[^\n]*；没有打开的应用页面能运行 Python/u);
+  assert.doesNotMatch(checked.text, /npm/u);
   assert.match((await f.tool("course_use")).text, /^没有换用。/u);
   assert.equal((await f.state()).course?.id, "python");
+});
+
+// 装好的应用里，Node 一侧的缺省离线包目录不存在（wheel 在应用目录的 pyodide/packages/ 里）；Windows 和 macOS 本来就建不了沙箱。
+// 这时缺的只是沙箱这一处，插件缺省的装配接着经页面核对，页面自己带着 wheel。
+test("Node 一侧没有离线包目录时，带 verify 的课经开着的应用页面核对，通过并换用", async (t) => {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-space-course-packages-")));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const f = await fixture(t, { packagesDirectory: path.join(directory, "没有这个目录") });
+  const script = await addGuideVerify(f);
+  const page = await pythonFrontend(t, f.connection, verifiedAnswers({ [script]: { n: "4" } }));
+  const checked = await f.tool("course_check");
+  assert.match(checked.text, /^course\/ 通过检查/mu);
+  assert.match(checked.text, /在应用页面的 Worker 里运行了 verify 核对程序 1 段/u);
+  assert.ok(page.requests.length > 0);
+  assert.match((await f.tool("course_use")).text, /^已换用/u);
+  assert.equal((await f.state()).course?.id, "os-memory");
 });
 
 test("写课说明里的 runtime 与随包课一致，照说明写的 verify 例题在沙箱里核对通过", async (t) => {

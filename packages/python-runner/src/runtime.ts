@@ -113,7 +113,10 @@ export async function describeRuntime(runtime: PythonEnvironment, packagesDirect
   };
 }
 
-/** 核对准备好的 wheel；缺失或摘要不符时说明怎样准备。 */
+/**
+ * 核对准备好的 wheel；缺失或摘要不符时说明怎样补齐。npm run course:runtime 只在源码仓库里有，只对仓库里的缓存目录这样说；
+ * 别的目录是安装包带的（应用经 REPA_PYODIDE_PACKAGES 指过来）或使用者自己指定的，学习者的机器上没有 npm。
+ */
 export async function verifyPackages(assets: RuntimeAssets): Promise<void> {
   const problems: string[] = [];
   for (const wheel of assets.wheels) {
@@ -129,10 +132,10 @@ export async function verifyPackages(assets: RuntimeAssets): Promise<void> {
     if (digest !== wheel.sha256) problems.push(`${wheel.file} 的 SHA-256 与 Pyodide ${assets.pyodideVersion} 的 lockfile 不符`);
   }
   if (problems.length > 0) {
-    throw new RuntimeProblem(
-      "runtime_packages",
-      `${assets.packagesDirectory} 里的 Pyodide 包不完整：${problems.join("；")}。先运行 npm run course:runtime 准备离线包`,
-    );
+    const remedy = assets.packagesDirectory === path.join(PACKAGE_ROOT, ".cache", "pyodide", assets.pyodideVersion)
+      ? "先运行 npm run course:runtime 准备离线包"
+      : "这个目录是安装包带的或 REPA_PYODIDE_PACKAGES 指定的；装好的应用里出现这一条，说明 Repa 的安装不完整，要重新安装";
+    throw new RuntimeProblem("runtime_packages", `${assets.packagesDirectory} 里的 Pyodide 包不完整：${problems.join("；")}。${remedy}`);
   }
 }
 

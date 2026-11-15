@@ -153,7 +153,7 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 课程里的 Python 只在两处运行：[`@repa/python-runner`](../python-runner/README.md) 的 Linux 沙箱，以及前端页面的 Worker。`verify` 是模型写的代码，课件里可能有诱导模型的文字，它的运行又不经命令确认，所以两处都没有时不运行，不改用不受限的 Node 进程。[`src/check/python.ts`](src/check/python.ts) 把两处写成 `CheckPython`，`checkCourse` 的 `python` 选项按顺序用第一处能用的：
 
 - 命令行缺省只有 `sandboxPython`。应用里（`createLearningPlugin` 的缺省）先是 `sandboxPython`，沙箱建不起来时（Windows、macOS 和缺少 Landlock 的 Linux）再是 `frontendPython(host.services)`，经开着的应用页面的 `python.run` 运行。后台展开没有自己的连接，`host.services` 交给任何一个声明了 `python.run` 的连接，所以应用开着时同样能用；应用窗口都关着时两处都没有，检查报 `python_unavailable`，写明各处为什么用不了，不算通过，这一次展开记为没做成。测试和其他接入可以用插件的 `python` 选项只给其中一处。
-- 离线包缺失、版本不符是课程或安装的问题，照常报 `runtime_packages`、`runtime_mismatch` 等，不换下一处。
+- 课程清单与安装的 Pyodide 版本不符是课程的问题，照常报 `runtime_mismatch`，不换下一处。Node 一侧缺离线包只说明沙箱这一处用不了，接着试页面：页面经宿主取自己的 wheel 并按 lockfile 核对；装好的应用里 wheel 在应用目录，不在 Node 一侧的缺省目录。别的系统上不核对 Node 一侧的离线包，直接说明沙箱只能在 Linux 上建立。
 - Linux 沙箱整门课共用一个解释器，任务之间由 `runner.py` 恢复常被改动的全局状态，恢复失败或任务超时才换一个新沙箱。页面每次调用用一个新的 Worker，所以核对先发一批空的测试取得页面实际加载的版本，之后一个 topic 的 `verify` 成批发、每份候选程序各发一批；每批的版本都要与第一批相同。页面每段 10 秒、启动 60 秒的时限与沙箱相同，后端等一批结果最多 `replyDeadlineMs`（60 秒加上每个测试 30 秒），页面没有在期限内回应、连接断开或运行失败时，已经得到的结论照常报告，其余报 `python_unavailable`，整个检查不算通过。
 - 两处交回的都是 `python.run` 约定的结果，比较全在这边、只有一份，所以同一门课在两处得出的错误码和说明相同，[`test/code.test.ts`](test/code.test.ts) 逐个比对。检查结果的 `summary.where` 写明在哪里运行，`summary.code.interpreterStarts` 记下启动过的解释器数：沙箱应等于 1 加上超时、崩溃和恢复失败的次数，测试按它核对代价；页面按调用次数计。沙箱限制了什么、任务之间恢复哪些状态、超时怎样归因，见运行器包的说明。
 

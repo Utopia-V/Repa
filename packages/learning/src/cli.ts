@@ -53,6 +53,8 @@ async function defaultCourses(): Promise<string[]> {
 
 function printResult(result: CheckResult): void {
   for (const diagnostic of result.diagnostics) process.stdout.write(`${formatDiagnostic(diagnostic)}\n`);
+  // 应用里做课的 Agent 也读这条错误，那里没有命令行，所以只在这里提示。
+  if (result.diagnostics.some((diagnostic) => diagnostic.code === "python_unavailable")) process.stdout.write("只检查结构时加 --no-run。\n");
   const { summary } = result;
   const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
   const course = summary.course ? `${summary.course.id} ${summary.course.version}` : "课程";
