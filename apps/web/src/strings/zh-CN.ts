@@ -24,6 +24,12 @@ export const strings = {
   "common.setupModel.action": "去设置模型",
   "common.messageIncomplete.title": "消息没有完成",
 
+  // 模型请求失败（按提供方回的状态码分类）
+  "modelError.auth.title": "密钥无效或没有权限",
+  "modelError.quota.title": "账户余额不足",
+  "modelError.rateLimit.title": "请求太频繁，稍后再试",
+  "modelError.details.label": "原始报错",
+
   // 启动
   "app.workspace.label": "工作区",
 
@@ -184,6 +190,7 @@ export const strings = {
   "materials.api.unreadable.error": "课件插件返回的内容这个版本读不懂（{method}{path}），请更新应用。",
   "outline.title": "整门课",
   "outline.pending.status": "正在读课件，划分这门课的各部分…",
+  "outline.notMade.status": "上一次没有做成。在做课的对话里再说一句，可以接着做。",
   "outline.load.error": "无法读取课程",
   "outline.summary.label": "{total} 部分 · 可以学 {ready} · 学过 {learned}",
   "outline.status.outline.label": "还没做",
@@ -442,6 +449,8 @@ export const strings = {
   "provider.search.label": "搜索提供方",
   "provider.pick.empty": "没有找到匹配的提供方。",
   "provider.list.label": "提供方",
+  "provider.common.title": "常用",
+  "provider.all.title": "全部",
   "provider.connected.status": "已连接",
   "provider.method.title": "连接 {name}",
   "provider.method.description": "选择连接方式。",

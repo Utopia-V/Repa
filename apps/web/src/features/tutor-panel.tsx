@@ -25,8 +25,13 @@ function rejectedReason(error: unknown): unknown {
  * 辅导从后端的 view 得知当前任务，前端不往消息里拼题目。学习者可以开始新对话，旧的仍在会话列表里。
  * 复习和测验期间不能辅导，输入框收起。
  */
-export function TutorPanel({ allowed, restriction, renderLink }: {
+export function TutorPanel({ allowed, referenceAllowed, restriction, renderLink }: {
   allowed: boolean;
+  /**
+   * 后端是否允许现在查看参考内容。不能问辅导、也不能看参考内容时（例如复习和测验），以前的辅导回答里有讲解，
+   * 面板只留提示、不显示记录；任务结束后记录照常出现。两个字段都按后端给的值，不另立规则。
+   */
+  referenceAllowed: boolean;
   /** 当前的限制：review、quiz 期间整段不能问；none 而不能问时是新课里题目在等作答，提交以后可以问。 */
   restriction: "none" | "review" | "quiz";
   renderLink: RenderLink;
@@ -86,6 +91,7 @@ export function TutorPanel({ allowed, restriction, renderLink }: {
     if (unsent.length > 0) setDraft((current) => [...unsent, current].filter((text) => text.trim() !== "").join("\n\n"));
   }
 
+  const hidden = !allowed && !referenceAllowed;
   const needsModel = (defaultModel.status === "ready" && defaultModel.data === null) || errorCode(conversation.sendError) === "model_required";
 
   return <section aria-label={t("tutor.panel.label")} className="flex min-h-0 flex-1 flex-col">
@@ -109,12 +115,12 @@ export function TutorPanel({ allowed, restriction, renderLink }: {
       }}
       className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
-      {bound && status === "loading" && <p role="status" className="text-body text-muted-foreground">{t("tutor.loading.status")}</p>}
-      {bound && status === "error" && <ErrorNotice title={t("tutor.load.error")} error={conversation.error} />}
-      {bound && status === "ready" && items.length === 0 && !running && <p className="m-0 text-body text-muted-foreground">
+      {bound && !hidden && status === "loading" && <p role="status" className="text-body text-muted-foreground">{t("tutor.loading.status")}</p>}
+      {bound && !hidden && status === "error" && <ErrorNotice title={t("tutor.load.error")} error={conversation.error} />}
+      {bound && !hidden && status === "ready" && items.length === 0 && !running && <p className="m-0 text-body text-muted-foreground">
         {t("tutor.transcript.empty")}
       </p>}
-      {bound && items.map((item) => <ConversationItemView
+      {bound && !hidden && items.map((item) => <ConversationItemView
         key={item.id}
         item={item}
         streaming={item.id === conversation.streaming}

@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { Split } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,22 @@ import { ConversationMessage } from "@/components/domain/conversation-message";
 import { ToolActivity } from "@/components/domain/tool-activity";
 import type { ConversationItem } from "@/lib/conversation";
 import { t } from "@/lib/strings";
+
+type ModelErrorKind = "auth" | "quota" | "rateLimit";
+
+/** 按提供方回的 HTTP 状态码分类：401、403 是密钥不对或没有权限，402 是额度不足，429 是请求太频繁；其余照原文显示。 */
+function modelErrorKind(status: number): ModelErrorKind | undefined {
+  if (status === 401 || status === 403) return "auth";
+  if (status === 402) return "quota";
+  if (status === 429) return "rateLimit";
+  return undefined;
+}
+
+const modelErrorTitle: Record<ModelErrorKind, string> = {
+  auth: t("modelError.auth.title"),
+  quota: t("modelError.quota.title"),
+  rateLimit: t("modelError.rateLimit.title"),
+};
 
 /** 对话记录里的一项：用户和助手的消息、工具调用、错误和停止、压缩标记。 */
 export function ConversationItemView({ item, streaming, onFork, forkDisabled, renderLink }: {
@@ -39,8 +56,20 @@ export function ConversationItemView({ item, streaming, onFork, forkDisabled, re
     }
     case "tool":
       return <ToolActivity tool={item.tool} status={item.status} />;
-    case "error":
-      return <div className="mb-4"><StatusNotice status="error" title={t("common.runError.status")}><p>{item.text}</p></StatusNotice></div>;
+    case "error": {
+      const kind = item.status === undefined ? undefined : modelErrorKind(item.status);
+      if (!kind) return <div className="mb-4"><StatusNotice status="error" title={t("common.runError.status")}><p>{item.text}</p></StatusNotice></div>;
+      // 认得出的模型错误先说一句人能看懂的话；提供方的原文折叠起来，排查时还看得到。
+      return <div className="mb-4 grid gap-3">
+        <StatusNotice status="error" title={modelErrorTitle[kind]}>
+          <details>
+            <summary className="cursor-pointer">{t("modelError.details.label")}</summary>
+            <p className="mt-2 break-all">{item.text}</p>
+          </details>
+        </StatusNotice>
+        {kind === "auth" && <div><Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button></div>}
+      </div>;
+    }
     case "stopped":
       return <p className="mb-4 text-body text-muted-foreground">{t("conversation.stopped.status")}</p>;
     case "compaction":

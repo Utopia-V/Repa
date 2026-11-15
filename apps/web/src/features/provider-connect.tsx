@@ -100,12 +100,26 @@ function firstStep(provider: Provider): Step {
   return only.type === "api_key" ? { kind: "key", provider, method: only } : { kind: "login", provider, type: only.type };
 }
 
+/**
+ * 国内学生最可能已经有的几家，按这个次序放在列表最前面一组；列表本身（Pi 的提供方目录）不改，下面仍是全部。
+ * DeepSeek 在第一个；Moonshot（Kimi 开放平台）、智谱 GLM、MiniMax 是另外常见的国内按量计费或套餐。Repa 的选择，待维护者确认。
+ */
+const COMMON_PROVIDERS = ["deepseek", "moonshotai-cn", "zai-coding-cn", "minimax-cn"];
+
 function PickProvider({ providers, onPick }: { providers: Provider[]; onPick(provider: Provider): void }) {
   const [query, setQuery] = useState("");
   const keyword = query.trim().toLowerCase();
   const matched = providers.filter((provider) => !keyword
     || provider.name.toLowerCase().includes(keyword)
     || provider.id.toLowerCase().includes(keyword));
+  // 搜索时只有一组结果；不搜索时常用的几家单列在前。
+  const common = keyword ? [] : COMMON_PROVIDERS.flatMap((id) => providers.filter((provider) => provider.id === id));
+  const row = (provider: Provider) => <li key={provider.id}>
+    <RowButton onClick={() => onPick(provider)}>
+      <span className="min-w-0 text-left break-all">{provider.name}</span>
+      {provider.configured && <Badge variant="solid" color="gray" className="ml-auto">{t("provider.connected.status")}</Badge>}
+    </RowButton>
+  </li>;
 
   return <>
     <DialogHeader>
@@ -115,14 +129,16 @@ function PickProvider({ providers, onPick }: { providers: Provider[]; onPick(pro
     <SearchInput label={t("provider.search.label")} value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery("")} />
     {matched.length === 0
       ? <p className="text-body text-muted-foreground">{t("provider.pick.empty")}</p>
-      : <ul aria-label={t("provider.list.label")} className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">
-        {matched.map((provider) => <li key={provider.id}>
-          <RowButton onClick={() => onPick(provider)}>
-            <span className="min-w-0 text-left break-all">{provider.name}</span>
-            {provider.configured && <Badge variant="solid" color="gray" className="ml-auto">{t("provider.connected.status")}</Badge>}
-          </RowButton>
-        </li>)}
-      </ul>}
+      : <div className="grid max-h-80 gap-3 overflow-y-auto">
+        {common.length > 0 && <section aria-labelledby="provider-common" className="grid gap-1">
+          <h3 id="provider-common" className="m-0 text-caption text-muted-foreground">{t("provider.common.title")}</h3>
+          <ul className="m-0 grid list-none gap-1 p-0">{common.map(row)}</ul>
+        </section>}
+        <section className="grid gap-1">
+          {common.length > 0 && <h3 className="m-0 text-caption text-muted-foreground">{t("provider.all.title")}</h3>}
+          <ul aria-label={t("provider.list.label")} className="m-0 grid list-none gap-1 p-0">{matched.map(row)}</ul>
+        </section>
+      </div>}
   </>;
 }
 
