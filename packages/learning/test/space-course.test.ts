@@ -21,10 +21,12 @@ import { COURSE_GUIDE } from "../src/course-tools.js";
 import { connectLearning } from "../src/flow.js";
 import { frontendPython } from "../src/check/python.js";
 import { createLearningPlugin, type LearningPluginOptions } from "../src/plugin.js";
+import { onlyAdds } from "../src/space-course.js";
+import type { Course } from "../src/format/schema.js";
 import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
 import type { LearningSession } from "../src/session.js";
 import { TUTOR_AGENT } from "../src/tutor.js";
-import { runtimeUnavailable } from "./demo-course.js";
+import { demoCourse, runtimeUnavailable, withoutLearnerCode } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
 import { referenceAnswer, start } from "./fixtures/learning-session.js";
 import { PAGE_RUNTIME, pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
@@ -68,12 +70,8 @@ async function guideExamples(): Promise<unknown[]> {
   return [...text.matchAll(/^```yaml\n([\s\S]*?)^```$/gmu)].map((match) => parseYaml(match[1] ?? ""));
 }
 
-/** 写课说明里照抄的 runtime。 */
-async function guideRuntime(): Promise<unknown> {
-  const found = (await guideExamples()).find((entry) => typeof entry === "object" && entry !== null && "runtime" in entry);
-  assert.ok(found);
-  return (found as { runtime: unknown }).runtime;
-}
+/** 今天之前写课说明让模型照抄的 runtime，已有的自制课都写了它。 */
+const OLD_GUIDE_RUNTIME = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } };
 
 /** 等条件成立；到截止时间还不成立就失败。 */
 async function until(condition: () => boolean | Promise<boolean>, message: string) {
@@ -494,32 +492,24 @@ test("要运行 Python 的课在核对没能运行时如实说明原因，不算
     delete question.manual;
     question.verify = 'answers = {"state": "运行"}';
   });
-  // runtime 少写了核对环境要的包，也没有前端提供 python.run：Linux 上沙箱里的 Pyodide 起不来，或这台机器建不了沙箱，
-  // 两种都写明各自怎样处理；别的系统上写明沙箱只在 Linux 上有。两种都写明没有应用页面能运行。
-  await writeFile(manifest, `${original}runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }\n`);
-  const startup = await f.tool("course_check");
-  assert.match(startup.text, /没有通过检查/u);
-  assert.match(startup.text, /课里要运行 Python 的部分（verify、代码题、带 tests 的排列题）没有运行，也就没有核对/u);
-  assert.match(startup.text, process.platform === "linux"
-    ? /\[python_unavailable\] Linux 沙箱用不了：[\s\S]*Pyodide 启动失败时，把清单的 runtime 照写课说明改[\s\S]*；没有打开的应用页面能运行 Python/u
-    : /\[python_unavailable\] Linux 沙箱用不了：沙箱只能在 Linux 上建立[^\n]*；没有打开的应用页面能运行 Python[^\n]*所以没有核对/u);
-  // 应用页面开着：插件缺省的装配在沙箱用不了时改经页面运行。页面加载了 numpy 和 pandas，清单却没有写，同样不通过。
-  const page = await pythonFrontend(t, f.connection, verifiedAnswers({}));
-  const fallback = await f.tool("course_check");
-  assert.match(fallback.text, /\[runtime_mismatch\] 实际加载的运行时与课程清单不一致：numpy 2\.4\.6（清单里没有写）、pandas 3\.0\.2（清单里没有写）/u);
-  assert.equal(page.requests.length, 1);
-  await page.client.close();
-  // 照写课说明写 runtime，但 Node 一侧缺离线包，页面也关了：Linux 上沙箱因缺包用不了，这个目录不是源码仓库里的缓存，
-  // 所以说安装不完整，不叫人运行 npm。
-  await writeFile(manifest, `${original}${stringify({ runtime: (await guideRuntime()) })}`);
+  // 清单不写 runtime；Node 一侧缺离线包，也没有前端提供 python.run：Linux 上沙箱因缺包用不了，这个目录不是源码仓库里的缓存，
+  // 所以说安装不完整，不叫人运行 npm；别的系统上写明沙箱只在 Linux 上有。两种都写明没有应用页面能运行。
   const checked = await f.tool("course_check");
-  assert.match(checked.text, /没有运行，也就没有核对/u);
+  assert.match(checked.text, /没有通过检查/u);
+  assert.match(checked.text, /课里要运行 Python 的部分（verify、代码题、带 tests 的排列题）没有运行，也就没有核对/u);
   assert.match(checked.text, process.platform === "linux"
     ? /\[python_unavailable\] Linux 沙箱用不了：[^\n]* 里的 Pyodide 包不完整：缺少 [^\n]*Repa 的安装不完整[^\n]*；没有打开的应用页面能运行 Python/u
-    : /\[python_unavailable\] Linux 沙箱用不了：沙箱只能在 Linux 上建立[^\n]*；没有打开的应用页面能运行 Python/u);
+    : /\[python_unavailable\] Linux 沙箱用不了：沙箱只能在 Linux 上建立[^\n]*；没有打开的应用页面能运行 Python[^\n]*所以没有核对/u);
   assert.doesNotMatch(checked.text, /npm/u);
   assert.match((await f.tool("course_use")).text, /^没有换用。/u);
   assert.equal((await f.state()).course?.id, "python");
+  // 应用页面开着：插件缺省的装配在沙箱用不了时改经页面运行。清单写了 runtime 而包写少了：与 Repa 的 Python 环境不一致，不通过，不运行核对。
+  await writeFile(manifest, `${original}runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }\n`);
+  const page = await pythonFrontend(t, f.connection, verifiedAnswers({}));
+  const fallback = await f.tool("course_check");
+  assert.match(fallback.text, /\[runtime_mismatch\] 课程清单的 runtime 与 Repa 的 Python 环境不一致：numpy 2\.4\.6（清单里没有写）、pandas 3\.0\.2（清单里没有写）/u);
+  assert.equal(page.requests.length, 1);
+  assert.match((await f.tool("course_use")).text, /^没有换用。/u);
 });
 
 // 装好的应用里，Node 一侧的缺省离线包目录不存在（wheel 在应用目录的 pyodide/packages/ 里）；Windows 和 macOS 本来就建不了沙箱。
@@ -538,31 +528,30 @@ test("Node 一侧没有离线包目录时，带 verify 的课经开着的应用�
   assert.equal((await f.state()).course?.id, "os-memory");
 });
 
-test("写课说明里的 runtime 与随包课一致，照说明写的 verify 例题在沙箱里核对通过", async (t) => {
-  const bundled = parseYaml(await readFile(new URL("../courses/python/course.yaml", import.meta.url), "utf8")) as { runtime: Record<string, unknown> };
-  const environment = { ...bundled.runtime };
-  delete environment.prelude;
-  assert.deepEqual(await guideRuntime(), environment);
+test("照写课说明写的 verify 例题，清单不写 runtime，在沙箱里核对通过，一个包也不加载；照旧说明写了 runtime 的课同样通过", async (t) => {
   const reason = await runtimeUnavailable();
   if (reason) return skipUnavailableEnvironment(t, reason);
+  assert.ok((await guideExamples()).every((entry) => typeof entry !== "object" || entry === null || !("runtime" in entry)), "写课说明里不再有 runtime");
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-space-course-guide-")));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await cp(EXAMPLE, path.join(directory, "course"), { recursive: true });
-  const manifest = path.join(directory, "course", "course.yaml");
-  await writeFile(manifest, `${await readFile(manifest, "utf8")}${stringify({ runtime: await guideRuntime() })}`);
   const example = (await guideExamples()).find((entry) => Array.isArray(entry) && "verify" in (entry[0] as object)) as Record<string, unknown>[];
   await editTopic(directory, "os01", (topic) => pool(topic, 0, "practice").push(...example));
   const root = path.join(directory, "course");
   const result = await checkCourse(root, { base: root, confirmations: "reported" });
   assert.deepEqual(result.diagnostics, []);
   assert.equal(result.summary.code.verifyJobs, 1);
+  assert.deepEqual(result.summary.loaded, []);
+  const manifest = path.join(root, "course.yaml");
+  await writeFile(manifest, `${await readFile(manifest, "utf8")}${stringify({ runtime: OLD_GUIDE_RUNTIME })}`);
+  const declared = await checkCourse(root, { base: root, confirmations: "reported" });
+  assert.deepEqual(declared.diagnostics, []);
+  assert.equal(declared.summary.code.verifyJobs, 1);
 });
 
-/** 写课说明里的 verify 例题（时间片 20 ms、运行 70 ms，调度 4 次），加进示例课 os01 的练习，清单照说明写 runtime。 */
+/** 写课说明里的 verify 例题（时间片 20 ms、运行 70 ms，调度 4 次），加进示例课 os01 的练习；清单照说明不写 runtime。 */
 async function addGuideVerify(f: { root: string; writeExample: () => Promise<void> }): Promise<string> {
   await f.writeExample();
-  const manifest = path.join(f.root, "course", "course.yaml");
-  await writeFile(manifest, `${await readFile(manifest, "utf8")}${stringify({ runtime: await guideRuntime() })}`);
   const example = (await guideExamples()).find((entry) => Array.isArray(entry) && "verify" in (entry[0] as object)) as Record<string, unknown>[];
   await editTopic(f.root, "os01", (topic) => pool(topic, 0, "practice").push(...structuredClone(example)));
   const script = example[0]?.verify;
@@ -572,7 +561,7 @@ async function addGuideVerify(f: { root: string; writeExample: () => Promise<voi
 
 /** 只经前端页面核对：在有沙箱的机器上走没有沙箱的那条路。timeoutMs 缩短每一段的时限，等页面回应的期限随之缩短。 */
 const pageOnly = (timeoutMs?: number): LearningPluginOptions["python"] => (host) => [
-  (expected, options) => frontendPython(host.services)(expected, timeoutMs === undefined ? options : { ...options, timeoutMs }),
+  (options) => frontendPython(host.services)(timeoutMs === undefined ? options : { ...options, timeoutMs }),
 ];
 
 test("没有 Linux 沙箱时经开着的应用页面核对：没有页面时如实报告；页面算出的与 key 一致才通过并换用，不一致或版本不符时不换用", async (t) => {
@@ -596,12 +585,17 @@ test("没有 Linux 沙箱时经开着的应用页面核对：没有页面时如�
   assert.deepEqual(page.requests.slice(0, 2).map((input) => input.tests.map((test) => test.program)), [[], [script]]);
   assert.deepEqual(page.requests[1]?.tests[0]?.verify?.shape, { n: "text" });
 
-  // 页面加载的 pandas 与清单不符：报 runtime_mismatch，不运行核对。
+  // 清单照旧说明写了 runtime，页面带的 pandas 与它不符：报 runtime_mismatch，不运行核对。
+  const manifest = path.join(f.root, "course", "course.yaml");
+  const original = await readFile(manifest, "utf8");
+  await writeFile(manifest, `${original}${stringify({ runtime: OLD_GUIDE_RUNTIME })}`);
   const before = page.requests.length;
   page.reply = verifiedAnswers({ [script]: { n: "4" } }, { ...PAGE_RUNTIME, packages: { ...PAGE_RUNTIME.packages, pandas: "2.2.0" } });
   const mismatch = await f.tool("course_check");
-  assert.match(mismatch.text, /\[runtime_mismatch\] 实际加载的运行时与课程清单不一致：pandas 2\.2\.0/u);
+  assert.match(mismatch.text, /\[runtime_mismatch\] 课程清单的 runtime 与 Repa 的 Python 环境不一致：pandas 2\.2\.0/u);
   assert.equal(page.requests.length, before + 1);
+  // 只有 verify 的课不写 runtime：不与页面的环境比较。
+  await writeFile(manifest, original);
 
   // 算出 4：通过并换用。
   page.reply = verifiedAnswers({ [script]: { n: "4" } });
@@ -612,12 +606,12 @@ test("没有 Linux 沙箱时经开着的应用页面核对：没有页面时如�
 
 // 没有期限时检查会一直等下去；测试的时限让这种情况失败而不是挂住。
 test("页面不回应、核对中途断开时，检查在期限内以 python_unavailable 结束，不算通过", { timeout: 30_000 }, async (t) => {
-  // 每段 20 毫秒：等页面交回空批的期限是 0.12 秒，交回一个测试的是 0.18 秒。
+  // 每段 20 毫秒：等页面交回空批的期限是 0.24 秒，交回一个测试的是 0.3 秒。
   const f = await fixture(t, { python: pageOnly(20) });
   const script = await addGuideVerify(f);
   const page = await pythonFrontend(t, f.connection, () => undefined);
   const silent = await f.tool("course_check");
-  assert.match(silent.text, /\[python_unavailable\] 应用页面在 0\.12 秒内没有交回 Python 的运行结果/u);
+  assert.match(silent.text, /\[python_unavailable\] 应用页面在 0\.24 秒内没有交回 Python 的运行结果/u);
   assert.equal(page.requests.length, 1);
 
   // 交回了版本，verify 那一批却不回应。
@@ -625,7 +619,7 @@ test("页面不回应、核对中途断开时，检查在期限内以 python_una
   page.reply = (input) => (input.tests.length === 0 ? answered(input) : undefined);
   const stuck = await f.tool("course_check");
   assert.match(stuck.text, /没有通过检查/u);
-  assert.match(stuck.text, /\[python_unavailable\] 应用页面在 0\.18 秒内没有交回 Python 的运行结果。课里的 verify 核对程序和代码题没有全部运行/u);
+  assert.match(stuck.text, /\[python_unavailable\] 应用页面在 0\.3 秒内没有交回 Python 的运行结果。课里的 verify 核对程序和代码题没有全部运行/u);
 
   // verify 那一批交给页面以后页面关掉了。
   page.reply = (input) => {
@@ -661,6 +655,21 @@ test("辅导 Agent 的工具里没有做课的工具", async (t) => {
   assert.deepEqual(tools, ["learning_read", "learning_search", "learning_task"]);
 });
 
+test("只增不改：只有 verify 的课新的一版可以去掉或改写 runtime；有代码题的课 runtime 要一字不差", () => {
+  const demo = demoCourse();
+  const { runtime, ...bare } = demo.course;
+  const resolved = (course: Course, topics: typeof demo.topics) => ({ course, topics: Object.values(topics), origins: {} });
+  const teaching = resolved(demo.course, demo.topics);
+  assert.equal(onlyAdds(teaching, resolved(demo.course, demo.topics)), true);
+  assert.equal(onlyAdds(teaching, resolved(bare, demo.topics)), false);
+  assert.equal(onlyAdds(teaching, resolved({ ...bare, runtime: { ...runtime, prelude: "BONUS = 1" } }, demo.topics)), false);
+  // verify 只在检查时运行，判分用不到 runtime：照旧说明写了 runtime 的课，新的一版照新说明去掉它，仍是只增不改。
+  const verifyTopics = withoutLearnerCode(demo.topics);
+  const computing = resolved(demo.course, verifyTopics);
+  assert.equal(onlyAdds(computing, resolved(bare, verifyTopics)), true);
+  assert.equal(onlyAdds(resolved(bare, verifyTopics), computing), true);
+});
+
 test("不用 Python 的课不写 runtime 也能通过完整检查，写了也不启动解释器；命令行缺省仍要求模型核对记录", async (t) => {
   const result = await checkCourse(EXAMPLE, { base: EXAMPLE, confirmations: "reported" });
   assert.deepEqual(result.diagnostics, []);
@@ -670,7 +679,7 @@ test("不用 Python 的课不写 runtime 也能通过完整检查，写了也不
   const empty = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-space-course-runtime-")));
   t.after(() => rm(empty, { recursive: true, force: true }));
   await cp(EXAMPLE, empty, { recursive: true });
-  await writeFile(path.join(empty, "course.yaml"), `${await readFile(path.join(empty, "course.yaml"), "utf8")}${stringify({ runtime: await guideRuntime() })}`);
+  await writeFile(path.join(empty, "course.yaml"), `${await readFile(path.join(empty, "course.yaml"), "utf8")}${stringify({ runtime: OLD_GUIDE_RUNTIME })}`);
   const declared = await checkCourse(empty, { base: empty, confirmations: "reported", packagesDirectory: path.join(empty, "packages") });
   assert.deepEqual(declared.diagnostics, []);
   assert.equal(declared.summary.code.interpreterStarts, 0);

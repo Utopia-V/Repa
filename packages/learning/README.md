@@ -122,9 +122,9 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 `checkCourse()` 依次做四件事，每个问题都带英文错误码和中文说明；不认识的字段会列出那一处能写的字段：
 
 1. 读取与 schema 校验。
-2. 交叉规则（[`src/check/rules.ts`](src/check/rules.ts)）：id 唯一、前缀正确且不在 `retiredIds` 中；先修图与覆盖图分别检查引用、重复、自指和环；KP 的关键先修属于先修祖先；题目直接考查的知识点存在、只在本 topic 内且不重复；每个 topic 的知识点数在 `MIN_KPS` 与 `MAX_KPS` 之间，完整 topic 的每个知识点有概念卡、讲解、例题、至少 `MIN_PRACTICE` 道练习、复习和测验题池；复习和测验题至少有一个由程序判分的作答位，不含开放作答；一道题最多一个按测试判的作答位；来源登记在清单里，用法在许可范围内；链接只用 `https:` 和 `repa:concept/`，概念引用指向存在的知识点；每个作答位要么有 `verify`、要么列进 `manual`、要么由测试负责；有 `verify`、代码题或带测试的排列题的课要在清单里写 `runtime`，否则报 `runtime_missing`；标准答案引用的选项、块和单元格存在；要按写法显示或比较的文字写成字符串，小表里的数保留写法（`001`、`1e3`、未声明 `float` 的小数都会报出）；doctest 不超过 `DOCTEST_LIMITS`。
+2. 交叉规则（[`src/check/rules.ts`](src/check/rules.ts)）：id 唯一、前缀正确且不在 `retiredIds` 中；先修图与覆盖图分别检查引用、重复、自指和环；KP 的关键先修属于先修祖先；题目直接考查的知识点存在、只在本 topic 内且不重复；每个 topic 的知识点数在 `MIN_KPS` 与 `MAX_KPS` 之间，完整 topic 的每个知识点有概念卡、讲解、例题、至少 `MIN_PRACTICE` 道练习、复习和测验题池；复习和测验题至少有一个由程序判分的作答位，不含开放作答；一道题最多一个按测试判的作答位；来源登记在清单里，用法在许可范围内；链接只用 `https:` 和 `repa:concept/`，概念引用指向存在的知识点；每个作答位要么有 `verify`、要么列进 `manual`、要么由测试负责；有代码题或带测试的排列题的课要在清单里写 `runtime`，否则报 `runtime_missing`，只有 `verify` 的课不必写；标准答案引用的选项、块和单元格存在；要按写法显示或比较的文字写成字符串，小表里的数保留写法（`001`、`1e3`、未声明 `float` 的小数都会报出）；doctest 不超过 `DOCTEST_LIMITS`。
 3. 标准答案自洽（[`src/check/questions.ts`](src/check/questions.ts)）：投影出的 `Item` 符合交互词汇；用标准答案拼出的作答能通过 `checkResponse`，并按判分规则得满分；登记的错误答案确实判错；复习和测验题的 `manual` 作答位有当前题面、判分定义和运行依赖的核对记录（`confirmations: "reported"` 时不要求，只在 `summary.confirmationSlots` 里列出，应用里做课用这一种），`verified` 里的记录指向本 topic 存在的题和作答位。
-4. 运行核对（[`src/check/code.ts`](src/check/code.ts)），只在课里有 `verify`、代码题或带测试的排列题时进行（`summary.python`），不用 Python 的课不运行 Python；在哪里运行见下文的[在哪里运行核对](#在哪里运行核对)。核对实际加载的 Pyodide、Python 和包版本与清单一致，清单没写而实际加载了的包也算不一致；每个任务先运行清单的运行前导 `runtime.prelude`，学习者在 Repa 里运行代码时用同一份；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致，一个 topic 的 `verify` 任务成批交给执行方；代码题和 Parsons 题用判分的入口（见下文的[代码题的测试](#代码题的测试)）去判参考答案和 `accepts`，必须全部通过，`rejects` 和作答框里的初始代码必须至少错一个测试；期望值算不出来时报 `test_expect_failed`，执行环境出了问题、得不出结论时报 `test_unavailable`。比较在运行 Python 的地方之外进行，超过运行器序列化上限（`runner.py` 的 `CELL_LIMIT`、`REPR_LIMIT`）的值不截断比较，直接报“太大，无法比较”。核对不生成任何产物。
+4. 运行核对（[`src/check/code.ts`](src/check/code.ts)），只在课里有 `verify`、代码题或带测试的排列题时进行（`summary.python`），不用 Python 的课不运行 Python；在哪里运行见下文的[在哪里运行核对](#在哪里运行核对)。核对在 Repa 自己的 Python 环境里运行：标准库，加上运行器包带的 numpy、pandas，测试引入时才加载（`summary.loaded` 列出核对时加载的包）。清单写了 `runtime` 时，它的 Pyodide、Python 和包版本要与这个环境一致，环境带着而清单没写的包也算不一致，否则报 `runtime_mismatch`；每个任务先运行清单的运行前导 `runtime.prelude`（没写 `runtime` 时为空），学习者在 Repa 里运行代码时用同一份；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致，一个 topic 的 `verify` 任务成批交给执行方；代码题和 Parsons 题用判分的入口（见下文的[代码题的测试](#代码题的测试)）去判参考答案和 `accepts`，必须全部通过，`rejects` 和作答框里的初始代码必须至少错一个测试；期望值算不出来时报 `test_expect_failed`，执行环境出了问题、得不出结论时报 `test_unavailable`。比较在运行 Python 的地方之外进行，超过运行器序列化上限（`runner.py` 的 `CELL_LIMIT`、`REPR_LIMIT`）的值不截断比较，直接报“太大，无法比较”。核对不生成任何产物。
 
 ### 代码题的测试
 
@@ -153,13 +153,13 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 课程里的 Python 只在两处运行：[`@repa/python-runner`](../python-runner/README.md) 的 Linux 沙箱，以及前端页面的 Worker。`verify` 是模型写的代码，课件里可能有诱导模型的文字，它的运行又不经命令确认，所以两处都没有时不运行，不改用不受限的 Node 进程。[`src/check/python.ts`](src/check/python.ts) 把两处写成 `CheckPython`，`checkCourse` 的 `python` 选项按顺序用第一处能用的：
 
 - 命令行缺省只有 `sandboxPython`。应用里（`createLearningPlugin` 的缺省）先是 `sandboxPython`，沙箱建不起来时（Windows、macOS 和缺少 Landlock 的 Linux）再是 `frontendPython(host.services)`，经开着的应用页面的 `python.run` 运行。后台展开没有自己的连接，`host.services` 交给任何一个声明了 `python.run` 的连接，所以应用开着时同样能用；应用窗口都关着时两处都没有，检查报 `python_unavailable`，写明各处为什么用不了，不算通过，这一次展开记为没做成。测试和其他接入可以用插件的 `python` 选项只给其中一处。
-- 课程清单与安装的 Pyodide 版本不符是课程的问题，照常报 `runtime_mismatch`，不换下一处。Node 一侧缺离线包只说明沙箱这一处用不了，接着试页面：页面经宿主取自己的 wheel 并按 lockfile 核对；装好的应用里 wheel 在应用目录，不在 Node 一侧的缺省目录。别的系统上不核对 Node 一侧的离线包，直接说明沙箱只能在 Linux 上建立。
-- Linux 沙箱整门课共用一个解释器，任务之间由 `runner.py` 恢复常被改动的全局状态，恢复失败或任务超时才换一个新沙箱。页面每次调用用一个新的 Worker，所以核对先发一批空的测试取得页面实际加载的版本，之后一个 topic 的 `verify` 成批发、每份候选程序各发一批；每批的版本都要与第一批相同。页面每段 10 秒、启动 60 秒的时限与沙箱相同，后端等一批结果最多 `replyDeadlineMs`（60 秒加上每个测试 30 秒），页面没有在期限内回应、连接断开或运行失败时，已经得到的结论照常报告，其余报 `python_unavailable`，整个检查不算通过。
+- 两处运行的都是 Repa 的 Python 环境，与课程清单无关；清单写了 `runtime` 时，取得一处之后再与它比较，不符报 `runtime_mismatch`，不换下一处。Node 一侧缺离线包只说明沙箱这一处用不了，接着试页面：页面经宿主取自己的 wheel 并按 lockfile 核对；装好的应用里 wheel 在应用目录，不在 Node 一侧的缺省目录。别的系统上不核对 Node 一侧的离线包，直接说明沙箱只能在 Linux 上建立。
+- Linux 沙箱整门课共用一个解释器，任务之间由 `runner.py` 恢复常被改动的全局状态，恢复失败或任务超时才换一个新沙箱。页面每次调用用一个新的 Worker，所以核对先发一批空的测试取得页面的运行环境，之后一个 topic 的 `verify` 成批发、每份候选程序各发一批；每批的运行环境都要与第一批相同。页面每段 10 秒、启动和加载包各 60 秒的时限与沙箱相同，后端等一批结果最多 `replyDeadlineMs`（120 秒加上每个测试 30 秒），页面没有在期限内回应、连接断开或运行失败时，已经得到的结论照常报告，其余报 `python_unavailable`，整个检查不算通过。
 - 两处交回的都是 `python.run` 约定的结果，比较全在这边、只有一份，所以同一门课在两处得出的错误码和说明相同，[`test/code.test.ts`](test/code.test.ts) 逐个比对。检查结果的 `summary.where` 写明在哪里运行，`summary.code.interpreterStarts` 记下启动过的解释器数：沙箱应等于 1 加上超时、崩溃和恢复失败的次数，测试按它核对代价；页面按调用次数计。沙箱限制了什么、任务之间恢复哪些状态、超时怎样归因，见运行器包的说明。
 
 ### 离线包
 
-准备离线包的 `npm run course:runtime` 由本包提供，因为课程清单决定要哪些 Pyodide 包：它把清单的 `runtime` 交给运行器包，由运行器包算出 wheel 及其依赖，再下载或复制并核对，存放位置和核对方式见运行器包的[离线包](../python-runner/README.md#离线包)。
+准备离线包的 `npm run course:runtime` 与其他课程命令一起由本包提供：运行器包按 Pyodide 的 lockfile 算出 Repa 的 Python 环境带的包及其依赖的 wheel，再下载或复制并核对，存放位置和核对方式见运行器包的[离线包](../python-runner/README.md#离线包)。
 
 ## 尚待查证的假设
 

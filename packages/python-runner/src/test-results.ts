@@ -6,8 +6,17 @@ import { Value } from "typebox/value";
 
 import { PythonPhaseSchema, PythonTestResultSchema, type PythonPhase, type PythonTestResult } from "./protocol.js";
 
-/** 宿主收到的阶段：协议里的阶段，加上 serialize，即运行器序列化 capture 的值；对外归在 capture 下。 */
-export type Step = PythonPhase | "serialize";
+/**
+ * 宿主所处的阶段：协议里的阶段，加上 serialize，即运行器序列化 capture 的值，对外归在 capture 下；
+ * 以及 load，即宿主在测试开始前加载它引入的包，对外归在 prepare 下。加载包是准备运行环境，按启动解释器的时限计时。
+ */
+export type Step = PythonPhase | "serialize" | "load";
+
+/** 对外的阶段：serialize 归在 capture 下，load 归在 prepare 下。 */
+function phaseOf(step: Step): PythonPhase {
+  if (step === "serialize") return "capture";
+  return step === "load" ? "prepare" : step;
+}
 
 /** program_test 产出的阶段名；认不出的返回 undefined，宿主沿用上一个阶段。 */
 export function readStep(phase: unknown): Step | undefined {
@@ -16,7 +25,7 @@ export function readStep(phase: unknown): Step | undefined {
 
 /** 解释器在 step 阶段出了问题（崩溃、回复认不出）：记为这个阶段的 failed，属于执行失败。 */
 export function failedAt(id: string, step: Step, message: string): PythonTestResult {
-  return { id, status: "failed", phase: step === "serialize" ? "capture" : step, error: { type: "WorkerError", message } };
+  return { id, status: "failed", phase: phaseOf(step), error: { type: "WorkerError", message } };
 }
 
 /**
@@ -24,12 +33,15 @@ export function failedAt(id: string, step: Step, message: string): PythonTestRes
  * 所以与求值一样记为 capture 阶段的超时。
  */
 export function timedOut(id: string, step: Step): PythonTestResult {
-  return { id, status: "timeout", phase: step === "serialize" ? "capture" : step };
+  return { id, status: "timeout", phase: phaseOf(step) };
 }
 
-/** 进入这个阶段时重新计时：准备、被测代码和收尾各有一份时限，超时才能归到真正耗时的那一段。 */
+/**
+ * 进入这个阶段时重新计时：准备、被测代码和收尾各有一份时限，超时才能归到真正耗时的那一段。
+ * 测试从 prepare 开始计时，只有加载过包时才会从 load 再进入 prepare。
+ */
 export function restartsTimer(step: Step): boolean {
-  return step === "program" || step === "cleanup";
+  return step === "prepare" || step === "program" || step === "cleanup";
 }
 
 /** program_test 的返回值：completed 是运行结果，failed 是前导、夹具或 setup 出错。其他的都当作解释器出了问题。 */

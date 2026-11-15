@@ -141,6 +141,7 @@ const fakePython: Services = {
     return {
       protocol: PYTHON_BATCH,
       runtime: { pyodide: course.runtime.pyodide, python: course.runtime.python, packages: {} },
+      loaded: [],
       tests: tests.map((entry) => {
         if (stopped) {
           return { id: entry.id, status: "not_run" };
@@ -158,13 +159,13 @@ const fakePython: Services = {
 
 /** 判分用的前端替身：python.run 交给一个 Node 沙箱，按同一约定运行，代替页面的 Worker。 */
 async function sandboxPython(t: TestContext): Promise<Services> {
-  const runner = new SandboxRunner({ assets: await describeRuntime(RUNTIME) });
+  const runner = new SandboxRunner({ assets: await describeRuntime() });
   t.after(() => runner.close());
   return {
     async call(name, input) {
       assert.equal(name, "python.run");
       const { tests } = parse(PythonBatchInputSchema, input);
-      return { protocol: PYTHON_BATCH, runtime: await runner.start(), tests: await runner.runTests(tests) };
+      return runner.runTests(tests);
     },
   };
 }
@@ -296,13 +297,13 @@ test("试运行按判分里第一个公开测试的环境运行学习者的代�
   };
   const f = await fixture(t, [definition], { services, runtime: { ...RUNTIME, prelude: "BONUS = 5\n" } });
   // 前端用自己的运行器试运行，不与判分共用。
-  const runner = new SandboxRunner({ assets: await describeRuntime(RUNTIME) });
+  const runner = new SandboxRunner({ assets: await describeRuntime() });
   t.after(() => runner.close());
   const code = "print(len(df), PASS, BONUS)";
   async function trial(deliveryId: string) {
     const log = await readFile(f.session().records.file);
     const batch = await f.call("run.prepare", { deliveryId, slotId: "code", code });
-    const [result] = await runner.runTests(batch.tests);
+    const [result] = (await runner.runTests(batch.tests)).tests;
     assert.deepEqual(await readFile(f.session().records.file), log);
     return { batch, result };
   }

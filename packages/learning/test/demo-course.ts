@@ -42,6 +42,22 @@ export function displayedOutput(question: Question): void {
   question.slots = [{ id: slot.id, type: "text", match: "output", key: String(slot.key) }];
 }
 
+/** 去掉学习者要运行代码的题（代码题、带 tests 的排列题），只留 verify 和不用 Python 的题。 */
+export function withoutLearnerCode(topics: Record<string, Topic>): Record<string, Topic> {
+  return strip(topics) as Record<string, Topic>;
+}
+
+function strip(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => !(typeof item === "object" && item !== null && "slots" in item && Array.isArray(item.slots)
+        && item.slots.some((slot: { type?: string; tests?: unknown }) => slot.type === "code" || (slot.type === "order" && slot.tests !== undefined))))
+      .map(strip);
+  }
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, strip(item)]));
+}
+
 export function demoCourse(): DemoCourse {
   const course: DemoCourse["course"] = {
     id: "demo",
@@ -252,7 +268,7 @@ export function runtimeUnavailable(): Promise<string | undefined> {
   if (process.platform !== "linux") return Promise.resolve("Linux 沙箱只在 Linux 上可用");
   readiness ??= (async () => {
     try {
-      const assets = await describeRuntime(RUNTIME);
+      const assets = await describeRuntime();
       await verifyPackages(assets);
       const { sandbox } = await PythonSandbox.start({ assets });
       await sandbox.close();

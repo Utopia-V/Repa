@@ -10,7 +10,7 @@ import { Type, type Static } from "typebox";
 import { object } from "@repa/base/protocol";
 
 /** 请求与结果都带这个协议名；前端认不出就拒绝，不按旧格式猜。 */
-export const PYTHON_BATCH = "repa-python-batch-v3";
+export const PYTHON_BATCH = "repa-python-batch-v4";
 /** 前端服务的名字。前端连接时在 capabilities.services 里声明它，就表示能运行 Python。 */
 export const PYTHON_RUN = "python.run";
 /** 两个宿主共同的时限：测试的准备、被测代码和收尾各 10 秒。调用方等前端交回结果的期限也由它算出，见 replyDeadlineMs。 */
@@ -19,21 +19,28 @@ export const PYTHON_STEP_TIMEOUT_MS = 10_000;
 export const PYTHON_START_TIMEOUT_MS = 60_000;
 
 /**
- * 调用方最多等前端多久交回一批 count 个测试的结果：启动解释器的时限，加上每个测试三段（准备、被测代码、收尾）的时限。
+ * 调用方最多等前端多久交回一批 count 个测试的结果：启动解释器和加载测试引入的包各一份启动时限，加上每个测试三段（准备、被测代码、收尾）的时限。
  * 前端自己按这些时限结束卡住的测试；这个期限只防前端本身没有回应。stepMs 是每段的时限，与启动时限按 1 比 6 一起缩放。
  */
 export function replyDeadlineMs(count: number, stepMs = PYTHON_STEP_TIMEOUT_MS): number {
-  return stepMs * (PYTHON_START_TIMEOUT_MS / PYTHON_STEP_TIMEOUT_MS + 3 * count);
+  return stepMs * (2 * (PYTHON_START_TIMEOUT_MS / PYTHON_STEP_TIMEOUT_MS) + 3 * count);
 }
+
+/**
+ * Repa 的 Python 环境带的第三方包（Pyodide 包名），依赖由 pyodide-lock.json 补全。标准库随时可用；
+ * 这些包在测试的代码用 import 语句引入时才加载，见 runner.py 的 test_packages。两个宿主带的是同一组。
+ */
+export const PYTHON_PACKAGES: readonly string[] = ["numpy", "pandas"];
+
 const pythonError = object({ type: Type.String(), message: Type.String() });
 
-/** 实际加载的 Pyodide、Python 和 numpy、pandas 的版本，只随结果记下，调用方不拿它比较。 */
+/** 运行环境：Pyodide、Python 的版本和环境带的包（PYTHON_PACKAGES）的版本。包在测试引入时才加载，这里列出的是能加载的版本。 */
 export const RuntimeSchema = object({
   pyodide: Type.String(),
   python: Type.String(),
   packages: Type.Record(Type.String(), Type.String()),
 });
-/** 实际加载的运行环境，见 RuntimeSchema。 */
+/** 运行环境，见 RuntimeSchema。 */
 export type Runtime = Static<typeof RuntimeSchema>;
 
 const scalar = Type.Union([Type.String(), Type.Number(), Type.Boolean()]);
@@ -139,10 +146,14 @@ export const PythonTestResultSchema = Type.Union([
 /** 一个测试的结果，见 PythonTestResultSchema。 */
 export type PythonTestResult = Static<typeof PythonTestResultSchema>;
 
-/** tests 与输入一一对应、顺序相同。某个测试让这一批停下（见 endsBatch）以后，余下的测试都是 not_run，此前没有 not_run。 */
+/**
+ * tests 与输入一一对应、顺序相同。某个测试让这一批停下（见 endsBatch）以后，余下的测试都是 not_run，此前没有 not_run。
+ * loaded 是这一批运行过的测试引入、因而加载的包（包名，按名字排序，不列依赖）；它只由测试的代码决定，两个宿主相同。
+ */
 export const PythonBatchResultSchema = object({
   protocol: Type.Literal(PYTHON_BATCH),
   runtime: RuntimeSchema,
+  loaded: Type.Array(Type.String()),
   tests: Type.Array(PythonTestResultSchema),
 });
 /** 一批测试的结果，见 PythonBatchResultSchema。 */

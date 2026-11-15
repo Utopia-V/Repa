@@ -214,7 +214,7 @@ it("断线时停掉 python.run：进行中的运行被取消、运行器关闭�
   render(<App store={createAppStore()} loadConnection={() => Promise.resolve(connection)} />);
   await screen.findByRole("link", { name: "Learning Space" });
   const input = {
-    protocol: "repa-python-batch-v3",
+    protocol: "repa-python-batch-v4",
     tests: [{ id: "t", program: "x = 1", prelude: "", setup: "", data: [], captures: [], doctest: [] }],
   };
   first.listeners.get("service.request")?.({ id: "req-1", service: "python.run", input });

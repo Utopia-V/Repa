@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import type { PythonTest, PythonTestResult } from "../src/protocol.js";
 import { describeRuntime } from "../src/runtime.js";
 import { PythonSandbox, SandboxRunner } from "../src/sandbox.js";
-import { RUNTIME, sandboxUnavailable, skipUnavailableEnvironment } from "./environment.js";
+import { sandboxUnavailable, skipUnavailableEnvironment } from "./environment.js";
 
 const LAUNCHER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sandbox", "launch.py");
 
@@ -21,7 +21,7 @@ async function temporaryDirectory(t: TestContext): Promise<string> {
 }
 
 async function runner(t: TestContext): Promise<SandboxRunner> {
-  const sandbox = new SandboxRunner({ assets: await describeRuntime(RUNTIME) });
+  const sandbox = new SandboxRunner({ assets: await describeRuntime() });
   t.after(() => sandbox.close());
   return sandbox;
 }
@@ -31,7 +31,7 @@ const test_ = (job: Job, id = "t"): PythonTest => ({ id, prelude: "", setup: "",
 
 /** 单独运行一个测试，返回它的结果。 */
 async function runOne(sandbox: SandboxRunner, job: Job, timeoutMs?: number): Promise<PythonTestResult> {
-  const [result] = await sandbox.runTests([test_(job)], timeoutMs);
+  const [result] = (await sandbox.runTests([test_(job)], timeoutMs)).tests;
   assert.ok(result);
   return result;
 }
@@ -109,6 +109,32 @@ test("Pyodide 里的 Python 拿不到 Node 的 process、require 和 Function �
     "reachable = [name for name in ('process', 'require', 'fetch', 'setTimeout', 'globalThis', 'constructor') if hasattr(js, name)]",
   ].join("\n");
   assert.deepEqual(await captures(sandbox, { program, captures: ["reachable"] }), { reachable: { value: { t: "list", v: [] } } });
+});
+
+test("带的包在测试引入时才加载：只用标准库的测试一个包也不加载，引入 numpy 的只加载 numpy，没有带的包照常报 ModuleNotFoundError", async (t) => {
+  const reason = await sandboxUnavailable();
+  if (reason) return skipUnavailableEnvironment(t, reason);
+  const sandbox = await runner(t);
+  const modules = "import sys\nmodules = sorted(name for name in ('numpy', 'pandas') if name in sys.modules)";
+  const run = async (program: string) => {
+    const batch = await sandbox.runTests([test_({ program: `${program}\n${modules}`, captures: ["value", "modules"] })]);
+    const [result] = batch.tests;
+    assert.ok(result?.status === "completed", JSON.stringify(result));
+    return { loaded: batch.loaded, runtime: batch.runtime, error: result.result.error?.message, captures: result.result.captures };
+  };
+  const plain = await run("import math\nvalue = math.ceil(3.5)");
+  assert.deepEqual(plain.loaded, []);
+  assert.deepEqual(plain.captures, { value: { value: { t: "int", v: "4" } }, modules: { value: { t: "list", v: [] } } });
+  assert.deepEqual(Object.keys(plain.runtime.packages), ["numpy", "pandas"]);
+  const numpy = await run("import numpy as np\nvalue = int(np.ceil(3.5))");
+  assert.deepEqual(numpy.loaded, ["numpy"]);
+  assert.deepEqual(numpy.captures, { value: { value: { t: "int", v: "4" } }, modules: { value: { t: "list", v: [{ t: "str", v: "numpy" }] } } });
+  // loaded 只看这一批的测试引入了什么，沙箱里先前加载过的包不算。
+  assert.deepEqual((await run("value = 1")).loaded, []);
+  const missing = await run("import scipy\nvalue = 1");
+  assert.deepEqual(missing.loaded, []);
+  assert.equal(missing.error, "No module named 'scipy'");
+  assert.equal(sandbox.starts, 1);
 });
 
 test("一个任务改动的 pandas 选项、NumPy 显示设置和 builtins，在下一个任务前恢复原样", async (t) => {
@@ -223,11 +249,11 @@ test("测试超时就结束整个进程，结果按最后报告的阶段写明�
   const sandbox = await runner(t);
   // 死循环自己不会结束，得到 timeout 就说明是时限结束了它；整个过程不另计墙钟时间，CI 机器慢时重启沙箱也要几秒。
   const loop = "while True:\n    pass";
-  assert.deepEqual(await sandbox.runTests([test_({ program: loop }, "a"), test_({ program: "x = 1" }, "b")], 1_500), [
+  assert.deepEqual((await sandbox.runTests([test_({ program: loop }, "a"), test_({ program: "x = 1" }, "b")], 1_500)).tests, [
     { id: "a", status: "timeout", phase: "program" },
     { id: "b", status: "not_run" },
   ]);
-  assert.deepEqual(await sandbox.runTests([test_({ setup: loop, program: "x = 1" }, "c")], 1_500), [{ id: "c", status: "timeout", phase: "prepare" }]);
+  assert.deepEqual((await sandbox.runTests([test_({ setup: loop, program: "x = 1" }, "c")], 1_500)).tests, [{ id: "c", status: "timeout", phase: "prepare" }]);
   assert.deepEqual(await captures(sandbox, { program: "value = 6 * 7", captures: ["value"] }), { value: { value: { t: "int", v: "42" } } });
   assert.equal(sandbox.starts, 3);
 });
@@ -238,10 +264,10 @@ test("测试后恢复不了解释器状态时，这个测试的结果照样交�
   const sandbox = await runner(t);
   // 删掉工作目录，测试后回不到它，恢复就失败。
   const program = "import os, shutil\nos.chdir('/')\nshutil.rmtree(os.path.expanduser('~'))\nanswer = 42";
-  const [broken, next] = await sandbox.runTests([
+  const [broken, next] = (await sandbox.runTests([
     test_({ program, captures: ["answer"] }, "a"),
     test_({ program: "import os\ncwd = os.getcwd()", captures: ["cwd"] }, "b"),
-  ]);
+  ])).tests;
   assert.ok(broken?.status === "completed" && broken.restoreError !== undefined, JSON.stringify(broken));
   assert.deepEqual(broken.result.captures, { answer: { value: { t: "int", v: "42" } } });
   assert.match(broken.restoreError.message, /No such file or directory/);
@@ -263,11 +289,11 @@ test("恢复失败后换沙箱时起不来，已经得到的结果照样交回�
   };
   t.after(() => { sandboxes.start = start; });
   const program = "import os, shutil\nos.chdir('/')\nshutil.rmtree(os.path.expanduser('~'))\nanswer = 42";
-  const [broken, next, last] = await sandbox.runTests([
+  const [broken, next, last] = (await sandbox.runTests([
     test_({ program, captures: ["answer"] }, "a"),
     test_({ program: "x = 1" }, "b"),
     test_({ program: "y = 2" }, "c"),
-  ]);
+  ])).tests;
   assert.ok(broken?.status === "completed" && broken.restoreError !== undefined, JSON.stringify(broken));
   assert.deepEqual(next, { id: "b", status: "failed", phase: "prepare", error: { type: "WorkerError", message: "模拟沙箱起不来" } });
   assert.deepEqual(last, { id: "c", status: "not_run" });

@@ -1,8 +1,11 @@
 """在 Pyodide 里执行任务的 Python 部分。浏览器的 Worker 和 Linux 沙箱里的 sandbox/runner.mjs 都加载它，
 用同一个 program_test 逐个阶段运行测试；课程核对专用的 verify 任务也是一种测试，带着 verify 字段。
 
+环境里只有标准库是现成的；应用带的包（numpy、pandas 及其依赖）在测试引入时才加载：宿主运行一个测试之前，
+用 test_packages 找出它的代码里 import 了哪些带着的包，加载好以后再运行。两个宿主用的是同一份判断，所以加载的包相同。
+
 每个任务用全新的命名空间（先运行调用方给的运行前导）和空的工作目录，
-任务后把解释器里常被改动的全局状态（pandas 与 NumPy 的选项、builtins、sys 的输出与显示钩子和 path、
+任务后把解释器里常被改动的全局状态（已加载的 pandas 与 NumPy 的选项、builtins、sys 的输出与显示钩子和 path、
 环境变量、warnings 过滤器、挂起的 asyncio 任务、工作目录与临时目录里新建的文件）恢复原样，并给 random 与 numpy.random 重新播种。
 已导入的模块不在恢复之列，任务对它们的改动会带到同一个解释器里的后续任务。
 宿主复用解释器：Node 宿主的 SandboxRunner 一直沿用同一个，浏览器宿主在一批测试之内沿用、每批换一个新的 Worker；
@@ -15,10 +18,11 @@ import asyncio
 import builtins
 import contextlib
 import copy
-import importlib.metadata
+import importlib.util
 import inspect
 import io
 import json
+import numbers
 import os
 import random
 import shutil
@@ -26,9 +30,6 @@ import sys
 import traceback
 import types
 import warnings
-
-import numpy as np
-import pandas as pd
 
 OUTPUT_LIMIT = 64 * 1024
 # 超过这么多元素或这么长 repr 的值不序列化：截断后两个不同的结果可能看起来一样。
@@ -41,10 +42,6 @@ REPR_LIMIT = 20_000
 # ---------------------------------------------------------------------------
 
 BUILTINS = dict(vars(builtins))
-# pd.reset_option("all") 会触发每个选项的回调，其中有的在 Pyodide 里会出错；只恢复被改过的选项。
-PANDAS_OPTIONS = {key: pd.get_option(key) for key in pd._config.config._registered_options}
-PRINT_OPTIONS = np.get_printoptions()
-NUMPY_ERRORS = np.geterr()
 WARNING_FILTERS = list(warnings.filters)
 STREAMS = (sys.stdout, sys.stderr, sys.displayhook)
 SYS_PATH = list(sys.path)
@@ -54,6 +51,83 @@ HOME = os.getcwd()
 SCRATCH_DIRECTORIES = ("/tmp", HOME)
 SCRATCH_BASELINE = {directory: set(os.listdir(directory)) for directory in SCRATCH_DIRECTORIES}
 ROOT_BASELINE = set(os.listdir("/"))
+
+# 应用带的包：import 名到 Pyodide 包名，由宿主按 pyodide-lock.json 经 configure 交进来。
+PACKAGE_IMPORTS = {}
+# 已加载的 NumPy 与 pandas 在任何任务运行之前的状态，任务后恢复成它。宿主加载包之后调用 track_libraries 记下。
+LIBRARY_STATE = {}
+
+
+def configure(imports):
+    """宿主交进应用带的包：{import 名: 包名}。"""
+    PACKAGE_IMPORTS.clear()
+    PACKAGE_IMPORTS.update(json.loads(imports))
+
+
+def imported_modules(code):
+    """一段代码用 import 语句引入的顶层模块名；语法错误的代码运行时自己会报错，这里不算。"""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return set()
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def test_packages(line):
+    """一个测试要加载的应用带的包（JSON 列表，按名字排序）：前导、夹具、setup、程序、doctest 和 verify 的题面代码里
+    用 import 语句引入的，DataFrame 夹具另要 pandas。写在字符串里、运行时才拼出的 import 看不到，那样的包不会加载。"""
+    test = json.loads(line)
+    sources = [test["prelude"], test["setup"], test["program"], *test["doctest"]]
+    packages = set()
+    for item in test["data"]:
+        fixture = item["fixture"]
+        if fixture["kind"] == "dataframe":
+            packages.add("pandas")
+        else:
+            sources.append(fixture["code"])
+    verify = test.get("verify")
+    if verify:
+        sources += [verify["code"], *verify["blocks"], *(code for options in verify["options"].values() for code in options.values())]
+    for code in sources:
+        packages.update(PACKAGE_IMPORTS[name] for name in imported_modules(code) if name in PACKAGE_IMPORTS)
+    return json.dumps(sorted(packages))
+
+
+def track_libraries():
+    """宿主每次加载包之后调用：导入刚加载的 NumPy、pandas，记下任务后要恢复的状态。没有加载的不导入，已记下的不再导入。"""
+    if "numpy" not in LIBRARY_STATE and importlib.util.find_spec("numpy") is not None:
+        import numpy as np
+
+        LIBRARY_STATE["numpy"] = (np.get_printoptions(), np.geterr())
+    if "pandas" not in LIBRARY_STATE and importlib.util.find_spec("pandas") is not None:
+        import pandas as pd
+
+        # pd.reset_option("all") 会触发每个选项的回调，其中有的在 Pyodide 里会出错；只恢复被改过的选项。
+        LIBRARY_STATE["pandas"] = {key: pd.get_option(key) for key in pd._config.config._registered_options}
+    # 导入时库自己加的 warnings 过滤器算进基线，否则任务后会被当作任务的改动删掉。
+    WARNING_FILTERS[:] = warnings.filters
+
+
+def restore_libraries():
+    if "pandas" in LIBRARY_STATE:
+        pd = sys.modules["pandas"]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for key, value in LIBRARY_STATE["pandas"].items():
+                if pd.get_option(key) is not value and pd.get_option(key) != value:
+                    pd.set_option(key, value)
+    if "numpy" in LIBRARY_STATE:
+        np = sys.modules["numpy"]
+        print_options, errors = LIBRARY_STATE["numpy"]
+        np.set_printoptions(**print_options)
+        np.seterr(**errors)
+        np.random.seed()
 
 
 def remove_path(path):
@@ -89,20 +163,13 @@ def restore_state():
     os.environ.update(ENVIRONMENT)
     clear_scratch()
     warnings.filters[:] = WARNING_FILTERS
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        for key, value in PANDAS_OPTIONS.items():
-            if pd.get_option(key) is not value and pd.get_option(key) != value:
-                pd.set_option(key, value)
-    np.set_printoptions(**PRINT_OPTIONS)
-    np.seterr(**NUMPY_ERRORS)
     with contextlib.suppress(RuntimeError):
         for task in asyncio.all_tasks(asyncio.get_event_loop()):
             task.cancel()
     # 用系统熵重新播种，与新的解释器一样，各任务抽到的数互不相关；若恢复成固定状态，
-    # 各任务会抽到同样的数，依赖未设种子随机数的题在核对时能通过，判分时却会失败。
+    # 各任务会抽到同样的数，依赖未设种子随机数的题在核对时能通过，判分时却会失败。numpy.random 在 restore_libraries 里播种。
     random.seed()
-    np.random.seed()
+    restore_libraries()
 
 
 class OutputTooLong(Exception):
@@ -154,6 +221,8 @@ def build_namespace(data, prelude=""):
             raise RuntimeError(f"课程清单的运行前导出错：{error['type']}: {error['message']}")
     for fixture in data:
         if fixture["kind"] == "dataframe":
+            import pandas as pd
+
             frame = pd.DataFrame(fixture["columns"], index=fixture.get("index"))
             for column, dtype in fixture.get("dtypes", {}).items():
                 frame[column] = frame[column].astype({"float": "float64"}[dtype])
@@ -169,40 +238,20 @@ def build_namespace(data, prelude=""):
 # 把 Python 值序列化成可在沙箱外比较的结构
 # ---------------------------------------------------------------------------
 
-CONTAINERS = (pd.DataFrame, pd.Series, pd.Index, np.ndarray, list, tuple, set, frozenset, dict)
+BASIC_CONTAINERS = (list, tuple, set, frozenset, dict)
 
 
 def element_count(value):
     size = getattr(value, "size", None)
-    return int(size) if isinstance(size, (int, np.integer)) else len(value)
+    return int(size) if isinstance(size, numbers.Integral) else len(value)
 
 
 def too_large(value, size):
     return {"t": "too_large", "type": type(value).__name__, "size": int(size)}
 
 
-def canon(value, depth=0):
-    if depth > 30:
-        return too_large(value, depth)
-    if value is None:
-        return {"t": "none"}
-    if value is pd.NA:
-        return {"t": "NA"}
-    if value is pd.NaT:
-        return {"t": "NaT"}
-    if isinstance(value, np.generic) and not isinstance(value, (np.datetime64, np.timedelta64)):
-        value = value.item()
-    if isinstance(value, bool):
-        return {"t": "bool", "v": value}
-    if isinstance(value, int):
-        return {"t": "int", "v": str(value)}
-    if isinstance(value, float):
-        return {"t": "float", "v": repr(value)}
-    if isinstance(value, str):
-        return {"t": "str", "v": value} if len(value) <= REPR_LIMIT else too_large(value, len(value))
-    if isinstance(value, CONTAINERS) and element_count(value) > CELL_LIMIT:
-        return too_large(value, element_count(value))
-    nested = lambda item: canon(item, depth + 1)  # noqa: E731
+def canon_pandas(pd, value, nested):
+    """pandas 的值写成可比较的结构；不是 pandas 的值返回 None。"""
     if isinstance(value, pd.DataFrame):
         return {
             "t": "DataFrame",
@@ -222,12 +271,49 @@ def canon(value, depth=0):
         }
     if isinstance(value, pd.Index):
         return {"t": "Index", "values": [nested(label) for label in value.tolist()]}
-    if isinstance(value, np.ndarray):
-        return {"t": "ndarray", "kind": value.dtype.kind, "shape": list(value.shape), "values": nested(value.tolist())}
     if isinstance(value, pd.Timestamp):
         return {"t": "Timestamp", "v": value.isoformat()}
     if isinstance(value, pd.Timedelta):
         return {"t": "Timedelta", "v": str(value)}
+    return None
+
+
+def canon(value, depth=0):
+    # NumPy 和 pandas 只在任务引入过时才有；没有导入时，值也不可能是它们的类型。
+    np = sys.modules.get("numpy")
+    pd = sys.modules.get("pandas")
+    if depth > 30:
+        return too_large(value, depth)
+    if value is None:
+        return {"t": "none"}
+    if pd is not None and value is pd.NA:
+        return {"t": "NA"}
+    if pd is not None and value is pd.NaT:
+        return {"t": "NaT"}
+    if np is not None and isinstance(value, np.generic) and not isinstance(value, (np.datetime64, np.timedelta64)):
+        value = value.item()
+    if isinstance(value, bool):
+        return {"t": "bool", "v": value}
+    if isinstance(value, int):
+        return {"t": "int", "v": str(value)}
+    if isinstance(value, float):
+        return {"t": "float", "v": repr(value)}
+    if isinstance(value, str):
+        return {"t": "str", "v": value} if len(value) <= REPR_LIMIT else too_large(value, len(value))
+    containers = BASIC_CONTAINERS
+    if np is not None:
+        containers += (np.ndarray,)
+    if pd is not None:
+        containers += (pd.DataFrame, pd.Series, pd.Index)
+    if isinstance(value, containers) and element_count(value) > CELL_LIMIT:
+        return too_large(value, element_count(value))
+    nested = lambda item: canon(item, depth + 1)  # noqa: E731
+    if pd is not None:
+        library = canon_pandas(pd, value, nested)
+        if library is not None:
+            return library
+    if np is not None and isinstance(value, np.ndarray):
+        return {"t": "ndarray", "kind": value.dtype.kind, "shape": list(value.shape), "values": nested(value.tolist())}
     if isinstance(value, list):
         return {"t": "list", "v": [nested(item) for item in value]}
     if isinstance(value, tuple):
@@ -284,7 +370,8 @@ def as_text(value, display=False):
     """
     if isinstance(value, Shown):
         return str(value)
-    if isinstance(value, np.generic):
+    np = sys.modules.get("numpy")
+    if np is not None and isinstance(value, np.generic):
         value = value.item()
     if isinstance(value, str) and not display:
         return value
@@ -593,8 +680,5 @@ def program_test(line):
     return json.dumps(result, ensure_ascii=False)
 
 
-def runtime_versions(packages):
-    return json.dumps({
-        "python": sys.version.split()[0],
-        "packages": {name: importlib.metadata.version(name) for name in packages},
-    })
+def runtime_versions():
+    return json.dumps({"python": sys.version.split()[0]})

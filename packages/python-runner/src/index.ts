@@ -2,9 +2,9 @@
 // 这里不经 @repa/base 的包入口带进别的依赖，Electron 主进程也能直接加载。
 export {
   defaultPackagesDirectory, describeRuntime, preparePackages, RUNNER_FILE, RuntimeProblem, verifyPackages,
-  type PrepareOptions, type PythonEnvironment, type RuntimeAssets, type Wheel,
+  type PrepareOptions, type RuntimeAssets, type Wheel,
 } from "./runtime.js";
 export {
   DEFAULT_JOB_TIMEOUT_MS, DEFAULT_MEMORY_BYTES, PythonSandbox, requireSandboxPlatform, SandboxRunner, SandboxUnavailable,
-  type RuntimeVersions, type SandboxOptions,
+  type SandboxOptions,
 } from "./sandbox.js";

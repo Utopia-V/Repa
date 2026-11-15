@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import type { Host } from "@repa/base/plugin";
 import { parse, type Answer } from "@repa/base/protocol";
 import { describeRuntime, SandboxRunner } from "@repa/python-runner";
-import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
+import { PythonBatchInputSchema } from "@repa/python-runner/protocol";
 
 import { checkCourse } from "../src/check/course.js";
 import { questionVersion, referenceAnswer, topicQuestions } from "../src/check/items.js";
@@ -33,7 +33,7 @@ function errors(diagnostics: Diagnostic[]): string[] {
 /** 判分用的前端替身：python.run 交给一个 Node 沙箱，按同一约定运行；返回判分函数和调用次数。 */
 async function frontend(t: TestContext, course: Course) {
   assert.ok(course.runtime);
-  const runner = new SandboxRunner({ assets: await describeRuntime(course.runtime) });
+  const runner = new SandboxRunner({ assets: await describeRuntime() });
   t.after(() => runner.close());
   let calls = 0;
   const host = {
@@ -42,7 +42,7 @@ async function frontend(t: TestContext, course: Course) {
         assert.equal(service, "python.run");
         calls += 1;
         const { tests } = parse(PythonBatchInputSchema, input);
-        return { protocol: PYTHON_BATCH, runtime: await runner.start(), tests: await runner.runTests(tests) };
+        return runner.runTests(tests);
       },
     },
   } as unknown as Host;

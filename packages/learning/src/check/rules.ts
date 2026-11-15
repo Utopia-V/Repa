@@ -30,14 +30,27 @@ export function slotNeedsVerification(slot: SlotDef): boolean {
   return true;
 }
 
-/** 要在 Python 里运行的题：有 verify 核对程序，或有按测试判的作答位（代码题、带测试的排列题）。 */
-export function runsInPython(question: Question): boolean {
-  return question.verify !== undefined || question.slots.some((slot) => slotTests(slot).length > 0);
+/** 学习者的代码要运行的题：有按测试判的作答位（代码题、带测试的排列题）。 */
+function runsLearnerCode(question: Question): boolean {
+  return question.slots.some((slot) => slotTests(slot).length > 0);
 }
 
-/** 课里有没有要在 Python 里运行的题。有就要在清单里写 runtime，检查时启动沙箱；没有就都不需要。 */
+/** 要在 Python 里运行的题：有 verify 核对程序，或学习者的代码要运行。 */
+export function runsInPython(question: Question): boolean {
+  return question.verify !== undefined || runsLearnerCode(question);
+}
+
+/** 课里有没有要在 Python 里运行的题。有就在检查时启动沙箱或经页面运行；没有就不需要。 */
 export function usesPython(topics: readonly Topic[]): boolean {
   return topics.some((topic) => topicQuestions(topic).some(({ question }) => runsInPython(question)));
+}
+
+/**
+ * 课里有没有学习者的代码要运行：代码题、带测试的排列题。这样的课教的是 Python，学习者的代码和题目的预期输出取决于版本，
+ * 清单要写 runtime。只有 verify 的课不必写：verify 只在检查时运行，在 Repa 自己的 Python 环境里。
+ */
+export function teachesPython(topics: readonly Topic[]): boolean {
+  return topics.some((topic) => topicQuestions(topic).some(({ question }) => runsLearnerCode(question)));
 }
 
 /**
@@ -591,13 +604,13 @@ export function checkRules(course: LoadedCourse, report: Report): CourseIndex {
   index.ancestors = relationGraph(course, report, "prerequisites");
   relationGraph(course, report, "encompassings");
   for (const loaded of course.topics) new TopicChecker(loaded, course, index, report).run();
-  if (!course.course.runtime && usesPython(course.topics.map((loaded) => loaded.topic))) {
+  if (!course.course.runtime && teachesPython(course.topics.map((loaded) => loaded.topic))) {
     const first = course.topics.flatMap((loaded) => topicQuestions(loaded.topic)
-      .filter(({ question }) => runsInPython(question))
+      .filter(({ question }) => runsLearnerCode(question))
       .map(({ question }) => question.id))[0];
     report.error(
       "runtime_missing",
-      `课里有要运行 Python 的题（例如 ${first}：verify 核对程序、代码题或带 tests 的排列题），课程清单要写 runtime；不用 Python 时删掉这些 verify、tests 和代码题`,
+      `课里有学习者要运行代码的题（例如 ${first}：代码题或带 tests 的排列题），课程清单要写 runtime`,
       course.file,
     );
   }

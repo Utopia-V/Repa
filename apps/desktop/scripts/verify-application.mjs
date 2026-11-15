@@ -60,7 +60,8 @@ const PAGE_PYTHON_TIMEOUT_MS = 180_000;
  * 学习者的机器上这条路就是断的。没有模型时，让后端向页面发 python.run 的最直接的办法是一个自写插件：
  * 脚本经页面取得后端的连接信息，以第二个连接接上（不声明 python.run），在临时空间里装上探针插件、调用它；
  * 底座把服务请求交给唯一声明了 python.run 的连接，也就是页面。交给页面的一批里有一个普通测试（用 pandas 求和）
- * 和一个课程核对的 verify 任务，结果与实际加载的版本都要对，版本以随包 Python 课的清单为准。
+ * 和一个课程核对的 verify 任务，结果、页面的 Python 环境版本（以随包 Python 课的清单为准）和按需加载的包都要对：
+ * 只有引入了 pandas 的普通测试让页面加载 pandas，只用标准库的 verify 任务什么都不加载。
  */
 async function checkPagePython(page, application, temporary) {
   const { RepaClient } = await import(pathToFileURL(path.join(application, "node_modules/@repa/base/dist/client.js")));
@@ -106,10 +107,11 @@ async function checkPagePython(page, application, temporary) {
     ]).finally(() => clearTimeout(timer));
     const [sum, verify] = reply.tests ?? [];
     const runtime = { pyodide: reply.runtime?.pyodide, python: reply.runtime?.python, packages: Object.fromEntries(Object.keys(expected.packages).map((name) => [name, reply.runtime?.packages?.[name]])) };
-    assert.deepEqual(runtime, expected, `页面加载的 Pyodide、Python 或包与随包课程的清单不符：${JSON.stringify(reply.runtime)}`);
+    assert.deepEqual(runtime, expected, `页面的 Pyodide、Python 或带的包与随包课程的清单不符：${JSON.stringify(reply.runtime)}`);
+    assert.deepEqual(reply.loaded, ["pandas"], `页面按需加载的包不对：${JSON.stringify(reply.loaded)}`);
     assert.deepEqual(sum?.status === "completed" ? sum.result.captures : sum, { total: { value: { t: "int", v: "6" } } }, "页面里的普通测试没有算出 6");
     assert.deepEqual(verify?.status === "completed" ? verify.result.verified : verify, { answers: { n: "4" }, unknown: [] }, "页面里的 verify 任务没有算出 4");
-    return { runtime: reply.runtime, sum: 6, verify: 4 };
+    return { runtime: reply.runtime, loaded: reply.loaded, sum: 6, verify: 4 };
   } finally {
     await client.close();
   }
@@ -166,7 +168,7 @@ const COURSE_USE_TIMEOUT_MS = 240_000;
 /**
  * 带计算题的课在装好的应用里能通过检查并换用：checkPagePython 只确认 python.run 本身能用，课程核对另有一段路
  * （找离线包、选沙箱还是页面、比较版本），曾在安装包里因为 Node 一侧找不到 wheel 而整个失败。这里走真正的 course_use：
- * 在临时空间里放一门示例课，加上写课说明里的 verify 例题和 runtime，由假模型让通用 Agent 调用 course_use，
+ * 在临时空间里放一门示例课，加上写课说明里的 verify 例题（清单照说明不写 runtime），由假模型让通用 Agent 调用 course_use，
  * 读它交回给模型的检查结果。Linux 上经沙箱核对，Windows 和 macOS 上经开着的应用页面核对。
  */
 async function checkCourseUse(connection, application, temporary, model) {
@@ -175,13 +177,11 @@ async function checkCourseUse(connection, application, temporary, model) {
   const guides = path.join(application, "node_modules/@repa/learning/guides");
   const guide = (await readFile(path.join(guides, "making-courses.md"), "utf8")).replaceAll("\r\n", "\n");
   const examples = [...guide.matchAll(/^```yaml\n([\s\S]*?)^```$/gmu)].map((match) => parse(match[1]));
-  const runtime = examples.find((entry) => entry?.runtime !== undefined);
   const question = examples.find((entry) => Array.isArray(entry) && entry[0]?.verify !== undefined);
-  assert.ok(runtime && question, "写课说明里找不到 runtime 和 verify 例题");
+  assert.ok(question, "写课说明里找不到 verify 例题");
   const root = path.join(temporary, "做课 空间");
   const course = path.join(root, "course");
   await cp(path.join(guides, "example-course"), course, { recursive: true });
-  await writeFile(path.join(course, "course.yaml"), `${await readFile(path.join(course, "course.yaml"), "utf8")}${stringify(runtime)}`);
   const topicFile = path.join(course, "topics", "os01.yaml");
   const topic = parse(await readFile(topicFile, "utf8"));
   topic.kps[0].practice.push(...question);

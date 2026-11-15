@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { checkCourse } from "../src/check/course.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
 import type { ChoiceSlot, TableSlot } from "../src/format/schema.js";
-import { demoCourse, writeCourse, type DemoCourse } from "./demo-course.js";
+import { demoCourse, withoutLearnerCode, writeCourse, type DemoCourse } from "./demo-course.js";
 
 const PYTHON_COURSE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "courses", "python");
 
@@ -314,13 +314,17 @@ test("单元格 input 写错字段名时只报那一处，并列出这里能写�
   ]);
 });
 
-test("有 verify 或代码题的课没写 runtime 时报出；题型标签可以是课程自定的词", async (t) => {
+test("有代码题的课没写 runtime 时报出，只有 verify 的课不必写；题型标签可以是课程自定的词", async (t) => {
   const demo = demoCourse();
   const bare: Partial<typeof demo.course> = structuredClone(demo.course);
   delete bare.runtime;
   const result = await structuralCheck(t, { ...demo, course: bare as typeof demo.course });
   assert.deepEqual(codes(result.diagnostics), ["runtime_missing"]);
-  assert.match(result.diagnostics[0]?.message ?? "", /课程清单要写 runtime/u);
+  assert.match(result.diagnostics[0]?.message ?? "", /课里有学习者要运行代码的题（例如 [^：]+：代码题或带 tests 的排列题），课程清单要写 runtime/u);
+  const verifyOnly = { ...demo, course: bare as typeof demo.course, topics: withoutLearnerCode(demo.topics) };
+  assert.ok(JSON.stringify(verifyOnly.topics).includes('"verify"'));
+  // 去掉代码题后练习不够数，那是别的规则；这里只看 runtime_missing 不再报出。
+  assert.ok(!codes((await structuralCheck(t, verifyOnly)).diagnostics).includes("runtime_missing"));
   const labelled = demoCourse();
   const question = topic(labelled, "t01").kps[0]?.practice?.[0];
   assert.ok(question);

@@ -13,15 +13,20 @@ const input: PythonBatchInput = {
   protocol: PYTHON_BATCH,
   tests: [{ id: "a", ...job }, { id: "b", ...job }, { id: "c", ...job }],
 };
-/** Worker 报告的是全部加载的包，包括依赖。 */
-const loaded = { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2", six: "1.17.0" } };
+/** Worker 启动后报告的 Pyodide 与 Python 版本；带的包的版本由页面从 lockfile 读出。 */
+const loaded = { pyodide: "314.0.7", python: "3.14.2" };
 const program = { stdout: "1\n", error: null, captures: {}, doctest: [] };
 const completed = { status: "completed" as const, result: program };
-const files: RuntimeFiles = { lock: "{}", packages: ["pandas"], files: { "pyodide.asm.wasm": new Uint8Array([1, 2]).buffer } };
+const files: RuntimeFiles = {
+  lock: "{}",
+  versions: { numpy: "2.4.6", pandas: "3.0.2" },
+  imports: { numpy: "numpy", pandas: "pandas", six: "six" },
+  files: { "pyodide.asm.wasm": new Uint8Array([1, 2]).buffer },
+};
 
 type RunRequest = Extract<WorkerRequest, { type: "run" }>;
-/** 给第 test 个测试的回复：报告的阶段和结果；返回 undefined 就是卡在最后报告的阶段。 */
-type Script = (test: number, request: RunRequest) => { phases: [string, number | null][]; response?: unknown };
+/** 给第 test 个测试的回复：加载的包、报告的阶段和结果；不给 response 就是卡在最后报告的阶段。 */
+type Script = (test: number, request: RunRequest) => { packages?: string[]; phases: [string, number | null][]; response?: unknown };
 type Respond = (request: WorkerRequest, worker: FakeWorker) => void;
 
 /** 按 respond 应答的 Worker 替身；不应答就是卡住。 */
@@ -55,7 +60,8 @@ function healthy(script: Script = () => ({ phases: [["prepare", null], ["program
       return;
     }
     for (const [test] of request.tests.entries()) {
-      const { phases, response } = script(test, request);
+      const { packages = [], phases, response } = script(test, request);
+      worker.send({ type: "loading", test, packages });
       for (const [phase, index] of phases) worker.send({ type: "phase", test, phase, index });
       if (response === undefined) return;
       worker.send({ type: "tested", test, response });
@@ -119,13 +125,14 @@ async function rejectsWith(promise: Promise<unknown>, code: string, message?: st
   });
 }
 
-test("一批测试在一个新 Worker 里按顺序运行；结果报告 runner.py 导入的包的实际版本，不列出依赖", async () => {
+test("一批测试在一个新 Worker 里按顺序运行；结果报告 Pyodide、Python 和带的包的版本，不列出依赖", async () => {
   const { runner, workers } = fixture(healthy());
   const result = await runner.run(input);
 
   assert.deepEqual(result, {
     protocol: PYTHON_BATCH,
     runtime: { pyodide: "314.0.7", python: "3.14.2", packages: { numpy: "2.4.6", pandas: "3.0.2" } },
+    loaded: [],
     tests: input.tests.map(({ id }) => ({ id, ...completed })),
   } satisfies PythonBatchResult);
   const [start, run] = workers[0]!.requests;
@@ -133,7 +140,7 @@ test("一批测试在一个新 Worker 里按顺序运行；结果报告 runner.p
   if (start?.type !== "start") return;
   assert.equal(start.indexURL, ASSETS_URL);
   assert.equal(start.packageBaseUrl, `${ASSETS_URL}packages/`);
-  assert.deepEqual(start.packages, ["pandas"]);
+  assert.deepEqual(start.imports, files.imports);
   assert.equal(start.runner, runnerSource);
   assert.notEqual(start.files["pyodide.asm.wasm"], files.files["pyodide.asm.wasm"]);
   assert.deepEqual(run, { type: "run", tests: input.tests });
@@ -150,6 +157,20 @@ test("warm 在后台预热一个 Worker，不运行代码，重复调用不多�
 
   await runner.run(input);
   assert.deepEqual(types(workers[0]), ["start", "run"]);
+});
+
+test("loaded 是这一批测试引入的包；下一个预热的 Worker 先加载它们，第一个预热全部带的包", async () => {
+  const pandasFirst = healthy((test) => ({ packages: test === 0 ? ["pandas"] : [], phases: [["program", null]], response: completed }));
+  const { runner, workers } = fixture([pandasFirst, healthy()]);
+  const preload = (worker: FakeWorker | undefined) => worker?.requests.find((request) => request.type === "start")?.preload;
+  assert.deepEqual((await runner.run(input)).loaded, ["pandas"]);
+  assert.deepEqual(preload(workers[0]), ["numpy", "pandas"]);
+  await until(() => workers.length === 2, () => workers.length);
+  assert.deepEqual(preload(workers[1]), ["pandas"]);
+  // 这一批的测试什么都没引入：loaded 为空，下一个预热的 Worker 不加载包。
+  assert.deepEqual((await runner.run(input)).loaded, []);
+  await until(() => workers.length === 3, () => workers.length);
+  assert.deepEqual(preload(workers[2]), []);
 });
 
 const restoreError = { type: "FileNotFoundError", message: "[Errno 44] No such file or directory: '/home/pyodide'" };
@@ -284,6 +305,29 @@ test("准备、被测代码和收尾各自计时：被测代码用掉大半期�
   // 每段 200 毫秒，离 500 毫秒的期限留足余量；三段加起来超过期限。
   const { runner } = fixture(segments, { testTimeoutMs: 500 });
   assert.deepEqual(statuses(await runner.run({ ...input, tests: input.tests.slice(0, 1) })), ["completed"]);
+});
+
+test("加载测试引入的包按启动的时限计时：比测试的一段长也照常完成；卡在加载里时超时归在准备阶段", async () => {
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const loading = (stuck: boolean): Respond => (request, worker) => {
+    if (request.type === "start") return worker.send({ type: "ready", runtime: loaded });
+    void (async () => {
+      worker.send({ type: "loading", test: 0, packages: ["pandas"] });
+      if (stuck) return;
+      await pause(200);
+      worker.send({ type: "phase", test: 0, phase: "prepare", index: null });
+      worker.send({ type: "phase", test: 0, phase: "program", index: null });
+      worker.send({ type: "tested", test: 0, response: completed });
+    })();
+  };
+  const single = { ...input, tests: input.tests.slice(0, 1) };
+  // 加载 200 毫秒，超过一段的 50 毫秒，在启动的 2 秒之内；机器忙时计时器晚一些也不误报。
+  const slow = fixture(loading(false), { testTimeoutMs: 50, startTimeoutMs: 2_000 });
+  const result = await slow.runner.run(single);
+  assert.deepEqual(statuses(result), ["completed"]);
+  assert.deepEqual(result.loaded, ["pandas"]);
+  const stuck = fixture(loading(true), { testTimeoutMs: 20, startTimeoutMs: 100 });
+  assert.deepEqual((await stuck.runner.run(single)).tests, [{ id: "a", status: "timeout", phase: "prepare" }]);
 });
 
 test("没有测试时不运行，直接交回空结果", async () => {
@@ -449,10 +493,10 @@ async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 function serve(t: TestContext, sha: string, sixFile = "six.whl"): string[] {
   const lock = {
     packages: {
-      numpy: { file_name: "numpy.whl", sha256: sha, depends: [] },
-      pandas: { file_name: "pandas.whl", sha256: sha, depends: ["numpy", "six"] },
-      six: { file_name: sixFile, sha256: sha, depends: [] },
-      scipy: { file_name: "scipy.whl", sha256: sha, depends: [] },
+      numpy: { version: "2.4.6", file_name: "numpy.whl", sha256: sha, imports: ["numpy"], depends: [] },
+      pandas: { version: "3.0.2", file_name: "pandas.whl", sha256: sha, imports: ["pandas"], depends: ["numpy", "six"] },
+      six: { version: "1.17.0", file_name: sixFile, sha256: sha, imports: ["six"], depends: [] },
+      scipy: { version: "1.18.0", file_name: "scipy.whl", sha256: sha, imports: ["scipy"], depends: [] },
     },
   };
   const requested: string[] = [];
@@ -471,11 +515,12 @@ function serve(t: TestContext, sha: string, sixFile = "six.whl"): string[] {
   return requested;
 }
 
-test("按 pyodide-lock.json 取 runner.py 需要的包及依赖，核对 SHA-256", async (t) => {
+test("按 pyodide-lock.json 取带的包及依赖，核对 SHA-256；交给 Worker 的 import 名只有这些包的", async (t) => {
   const requested = serve(t, await sha256(wheel));
   const result = await loadRuntimeFiles(ASSETS_URL);
 
-  assert.deepEqual(result.packages.sort(), ["numpy", "pandas", "six"]);
+  assert.deepEqual(result.versions, { numpy: "2.4.6", pandas: "3.0.2" });
+  assert.deepEqual(result.imports, { numpy: "numpy", pandas: "pandas", six: "six" });
   assert.deepEqual(Object.keys(result.files).sort(), ["numpy.whl", "pandas.whl", "pyodide.asm.wasm", "python_stdlib.zip", "six.whl"]);
   assert.ok(requested.includes("/__repa/pyodide/packages/six.whl"));
 });

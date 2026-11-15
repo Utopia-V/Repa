@@ -15,6 +15,7 @@ import { object, parse } from "@repa/base/protocol";
 import { Type, type Static } from "typebox";
 
 import { checkCourse, type CheckOptions, type CheckResult } from "./check/course.js";
+import { teachesPython } from "./check/rules.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import { formatDiagnostic, Report } from "./format/diagnostics.js";
 import { COURSE_FILE, loadCourse, TOPICS_DIRECTORY } from "./format/load.js";
@@ -170,13 +171,13 @@ async function readCopy(directory: string): Promise<ResolvedCourse> {
 }
 
 /**
- * 新的一版相对旧的一版只增不改：同一门课（id 相同），判分运行时相同（旧版没有 runtime 时可以新写上：没有 runtime 的课里
- * 没有要运行 Python 的题，旧版的判分用不到它），旧版里每个展开了的 topic 在新版里一字不差；
+ * 新的一版相对旧的一版只增不改：同一门课（id 相同），旧版有学习者的代码要运行时判分运行时相同（只有 verify 的课
+ * 判分用不到 runtime：verify 只在检查时运行，所以 runtime 可以新写上、改动或去掉），旧版里每个展开了的 topic 在新版里一字不差；
  * 轮廓可以展开、修改或删去，也可以加新的 topic。学习者进行中的任务只取决于展开了的部分：任务本身的 topic，
  * 以及此前学过的部分（作答按它们重判，决定先修算不算学过、这项任务还有没有资格）。它们不变，新的一版重放出来的就是同一个任务。
  */
 export function onlyAdds(before: ResolvedCourse, after: ResolvedCourse): boolean {
   if (before.course.id !== after.course.id) return false;
-  if (before.course.runtime !== undefined && !isDeepStrictEqual(before.course.runtime, after.course.runtime)) return false;
+  if (teachesPython(before.topics) && !isDeepStrictEqual(before.course.runtime, after.course.runtime)) return false;
   return before.topics.every((old) => old.status !== "complete" || isDeepStrictEqual(old, after.topics.find((topic) => topic.id === old.id)));
 }

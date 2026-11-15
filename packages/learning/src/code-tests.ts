@@ -24,9 +24,10 @@ import { orderItemCode, slotTests } from "./check/items.js";
 import { sameValue, showValue } from "./check/values.js";
 import type { CodeTest, Fixture, Question, SlotDef, Topic } from "./format/schema.js";
 
-/** 执行方交回的一批结果；runtime 是实际的运行环境，只随判分来源记下。 */
+/** 执行方交回的一批结果；runtime 是运行环境，loaded 是这一批测试引入的包，见 @repa/python-runner/protocol。 */
 export interface TestBatch {
   runtime?: Runtime;
+  loaded?: string[];
   tests: PythonTestResult[];
 }
 
@@ -306,7 +307,6 @@ export async function callPythonRun(services: Host["services"], tests: PythonTes
 /** 判分用的执行方：经前端的 python.run 运行。 */
 export function frontendTests(host: Host): RunTests {
   return async (tests) => {
-    const reply = await callPythonRun(host.services, tests);
-    return { runtime: reply.runtime, tests: reply.tests };
+    return callPythonRun(host.services, tests);
   };
 }

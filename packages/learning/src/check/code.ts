@@ -9,7 +9,7 @@
  */
 
 import type { Answer } from "@repa/base/protocol";
-import { endsBatch, type PythonTest, type PythonTestResult } from "@repa/python-runner/protocol";
+import { endsBatch, PYTHON_PACKAGES, type PythonTest, type PythonTestResult } from "@repa/python-runner/protocol";
 import { answerProgram, runBatch, runCodeTests, runnerFixture, slotTestPlan, type ProgramOutcome, type RunTests } from "../code-tests.js";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedTopic } from "../format/load.js";
@@ -63,12 +63,18 @@ async function runEach(run: RunTests, tests: PythonTest[]): Promise<PythonTestRe
   return results;
 }
 
+/** 核对程序引入了没有的模块时，说明能用什么。读这句话的是写课的模型。 */
+const MISSING_MODULE = `核对程序能用 Python 标准库和 Repa 带的 ${PYTHON_PACKAGES.join("、")}，别的第三方包没有；`
+  + `带的包要在核对程序或题面代码里用 import 语句引入才会加载`;
+
 /** verify 任务没有得出答案的原因；得出了答案时返回 undefined。 */
 function failure(result: PythonTestResult | undefined): string | undefined {
   if (result?.status === "timeout") return "运行超时";
   if (result?.status === "failed") return `${result.error?.type ?? "Error"}: ${(result.error?.message ?? `${result.phase} 阶段失败`).slice(0, 500)}`;
   if (result?.status !== "completed") return "没有运行";
-  if (result.result.error) return `${result.result.error.type}: ${result.result.error.message}`;
+  const { error } = result.result;
+  if (error?.type === "ModuleNotFoundError") return `${error.type}: ${error.message}。${MISSING_MODULE}`;
+  if (error) return `${error.type}: ${error.message}`;
   if (!result.result.verified) return "运行器没有交回算出的答案";
   return undefined;
 }

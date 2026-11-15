@@ -4,7 +4,7 @@
 
 ## 文件放在哪里
 
-- `courses/<课程>/course.yaml`：课程清单，写课程 id、版本、判分运行时（含运行前导 `prelude`）、来源登记和 topic 列表。判分运行时 `runtime` 只在课里有 `verify`、代码题或带测试的排列题时写，否则报 `runtime_missing`；不用 Python 的课不写，检查也不启动沙箱。
+- `courses/<课程>/course.yaml`：课程清单，写课程 id、版本、判分运行时（含运行前导 `prelude`）、来源登记和 topic 列表。判分运行时 `runtime` 在课里有代码题或带测试的排列题时必须写，否则报 `runtime_missing`；只有 `verify` 的课不必写，`verify` 在 Repa 自己的 Python 环境里运行；不用 Python 的课不写，检查也不启动沙箱。
 - `courses/<课程>/topics/<topic id>.yaml`：每个 topic 一个文件，文件名就是 id。新增 topic 时，同时把 id 加进清单的 `topics`。
 
 ## 一个完整的 topic
