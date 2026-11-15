@@ -677,6 +677,7 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | agent | string | 否 |  |
+| background | true | 是 |  |
 | createdAt | string | 否 |  |
 | id | string | 否 |  |
 | model | object | 是 |  |
@@ -739,6 +740,7 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | agent | string | 否 |  |
+| background | true | 是 |  |
 | createdAt | string | 否 |  |
 | id | string | 否 |  |
 | model | object | 是 |  |
@@ -787,6 +789,7 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | $[].agent | string | 否 |  |
+| $[].background | true | 是 |  |
 | $[].createdAt | string | 否 |  |
 | $[].id | string | 否 |  |
 | $[].model | object | 是 |  |
@@ -920,6 +923,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| files | boolean | 是 |  |
 | path | string | 是 |  |
 
 ### 结果
@@ -927,8 +931,10 @@
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | entries[] | object | 否 |  |
+| entries[].file | true | 是 |  |
 | entries[].name | string | 否 |  |
 | entries[].path | string | 否 |  |
+| entries[].size | integer | 是 |  |
 | entries[].space | boolean | 否 |  |
 | parent | string &#124; null | 否 |  |
 | path | string | 否 |  |
@@ -954,6 +960,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| fresh | boolean | 是 |  |
 | root | string | 否 |  |
 
 ### 结果

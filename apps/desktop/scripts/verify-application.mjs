@@ -64,7 +64,7 @@ async function checkLaunch(executable, home, userData, hideGit) {
       if (!page) continue;
       const text = await evaluate(page, "document.body.innerText");
       last = `${page.url}：${String(text).slice(0, 200)}`;
-      if (typeof text === "string" && text.includes("开始第一个学习空间")) return { url: page.url };
+      if (typeof text === "string" && text.includes("开始第一门课")) return { url: page.url };
     }
     throw new Error(`60 秒内应用没有显示选空间页，最后看到 ${last}`);
   } finally {

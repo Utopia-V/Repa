@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, readdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { Check } from "typebox/value";
@@ -100,6 +100,20 @@ interface ActiveSpace {
   backups: SpaceBackups;
   /** 自写插件的加载、卸载与插件列表。 */
   control: PluginControl;
+}
+
+/** 新建空间的位置要么还不存在，要么是空文件夹；已有别的内容时如实拒绝，不替学习者改名或混进去。 */
+async function requireFresh(root: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(root);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return;
+    if (code === "ENOTDIR") throw new RepaFault("not_directory", "这个位置已经有一个同名的文件", { root });
+    throw error;
+  }
+  if (entries.length > 0) throw new RepaFault("directory_not_empty", "这个文件夹已经存在，里面有别的内容", { root });
 }
 
 /** 启动本机 HTTP 与 WebSocket 后端，返回连接凭据及可等待的关闭入口。 */
@@ -342,9 +356,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     lifecycle = result.then(() => undefined, () => undefined);
     return result;
   };
-  const loadSpace = (root: string, create: boolean) => serializeLifecycle(async () => {
+  const loadSpace = (root: string, create: boolean, fresh = false) => serializeLifecycle(async () => {
     if (stopping) throw new RepaFault("closed", "服务正在关闭");
     const resolved = path.resolve(root);
+    if (fresh) await requireFresh(resolved);
     if (active?.space.root === resolved && !create) return { root: resolved, opening: active.opening, plugins: await active.control.list() };
     await closeActive();
     // 插件写入与 Agent 的写入工具共用同一文件的写入队列。
@@ -500,14 +515,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       case "space.open":
         return loadSpace(p<"space.open">().root, false);
       case "space.create":
-        return loadSpace(p<"space.create">().root, true);
+        return loadSpace(p<"space.create">().root, true, p<"space.create">().fresh === true);
       case "space.close":
         await serializeLifecycle(closeActive);
         return null;
       case "space.roots":
         return listRoots();
       case "space.browse":
-        return browseDirectory(p<"space.browse">().path);
+        return browseDirectory(p<"space.browse">().path, { files: p<"space.browse">().files === true });
       case "agent.list":
         return requireActive().agent.agents();
       case "session.list":

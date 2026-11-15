@@ -27,7 +27,7 @@
 
 两项工具都在数据目录的临时副本上检查，写到一半的 `course/` 进不了学习者的课、复习和测验；换用的规则见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。调用这两项工具的会话记作做课的会话，花费按它们汇总。
 
-后台展开同一时刻只有一次，经 `host.models.runAgent` 交给通用 Agent，任务里写明只用文件、课件与做课的工具，不用 `bash` 和 `ask_user`（后台没有连接可以确认或回答）。自动展开每个“学过的 topic 数”只试一次：失败如实记下原因，不重试，学习者再学完一节或明确要求（`building.expand`）时再做；还一节都没有展开时不自动展开。学习者可以用 `settings.set` 关掉自动展开，设置存在数据目录的 `settings.json`。前端用 `building.get` 读整门课的轮廓、各部分的状态、正在展开的部分、最近一次失败的原因和花费，状态变化时插件发 `building.changed`，见[前端契约](../../docs/development/learning-protocol.md#做课的状态)。
+后台展开同一时刻只有一次，经 `host.models.runAgent` 交给通用 Agent，任务里写明只用文件、课件与做课的工具，不用 `bash` 和 `ask_user`（后台没有连接可以确认或回答）。自动展开每个“学过的 topic 数”只试一次：失败如实记下原因，不重试，学习者再学完一节或明确要求（`building.expand`）时再做；还一节都没有展开时不自动展开。学习者可以用 `settings.set` 关掉自动展开，设置存在数据目录的 `settings.json`。学习页开始做课时，前端新建一个通用 Agent 的会话，用 `building.begin` 告诉插件这是做课的对话，取回发给它的第一条消息（以学习者的口吻，附上他写的要求）；插件把这段会话记在 `building.json`，重开应用以后页面据此接回。随包的课不算做课，`building.get` 这时没有课，学习页给出做课的起点。前端用 `building.get` 读整门课的轮廓、各部分的状态、正在展开的部分、最近一次失败的原因和花费，状态变化时插件发 `building.changed`，见[前端契约](../../docs/development/learning-protocol.md#做课的状态)。
 
 ### 写课与检查课程
 

@@ -25,10 +25,11 @@ export const EXPANSION_SIZE = 2;
 
 const time = Type.Integer({ minimum: 0 });
 /**
- * building.json：sessions 是做过这门课的会话；last 是最近一次后台展开：要展开的部分、开始时学习者学过几个 topic（自动展开每个学过数只试一次）、
+ * building.json：conversation 是学习者与之对话做课的会话；sessions 是做过这门课的会话；last 是最近一次后台展开：要展开的部分、开始时学习者学过几个 topic（自动展开每个学过数只试一次）、
  * 会话、结束时间与没有成功的原因。没有 endedAt：应用在展开中途崩溃，没来得及写下结局，不另补记。
  */
 export const BuildingRecordSchema = object({
+  conversation: Type.Optional(identifier),
   sessions: Type.Array(identifier),
   last: Type.Optional(object({
     topicIds: Type.Array(identifier),
@@ -91,4 +92,11 @@ export function expansionTask(course: ResolvedCourse, topicIds: readonly string[
     `先用 read 读 ${COURSE_GUIDE} 的“后台展开”一节，照着做，最后用 course_use 换用。`,
     "这是后台运行：没有人回答提问，也没有人能确认命令，不要用 bash 和 ask_user。",
   ].join("\n");
+}
+
+/** 做课对话的第一条消息：以学习者的口吻说明要做什么，附上他写的要求。怎样做课在插件说明与写课说明里。 */
+export function beginText(request: string | undefined): string {
+  const text = "我把课件放进了 materials/，请把它们做成一门课。";
+  const wishes = request?.trim();
+  return wishes ? `${text}\n\n我的情况和要求：\n${wishes}` : text;
 }

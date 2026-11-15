@@ -178,3 +178,31 @@ test("只读 materials/ 里的文件：materials/ 外的路径、空间外的路
   await assert.rejects(call(testing, "materials_read", { path: "materials/没有.pdf" }), fault("file_not_found"));
   assert.equal(await call(testing, "materials_list", {}), "materials/ 里还没有文件。");
 });
+
+test("前端的方法：list 给出每个文件的大小与页数或原因；add 把本机文件复制进 materials/，同名、不是文件或路径不对时一个也不复制", async (t) => {
+  const testing = await fixture(t);
+  assert.deepEqual(await testing.host.call("materials", "list", {}), { files: [] });
+
+  const outside = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-materials-add-")));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const chapter = path.join(outside, "第一章.pdf");
+  const scanned = path.join(outside, "扫描.pdf");
+  await writeFile(chapter, chinesePdf(["进程", "线程"]));
+  await writeFile(scanned, pdf([{ content: "0 0 m 9 9 l S" }]));
+  await mkdir(path.join(outside, "文件夹"));
+
+  const added = await testing.host.call("materials", "add", { paths: [chapter, scanned] }) as { files: unknown[] };
+  assert.deepEqual(added.files, [
+    { path: "materials/扫描.pdf", size: (await stat(scanned)).size, status: "failed", format: "pdf", reason: "scanned", message: "这份 PDF 没有文字层，可能是扫描件或图片，读不出文字。" },
+    { path: "materials/第一章.pdf", size: (await stat(chapter)).size, status: "text", format: "pdf", parts: 2 },
+  ]);
+  assert.deepEqual(await readFile(path.join(testing.space.root, "materials", "第一章.pdf")), await readFile(chapter));
+
+  const other = path.join(outside, "笔记.md");
+  await writeFile(other, "# 笔记\n");
+  await assert.rejects(testing.host.call("materials", "add", { paths: [other, chapter] }), fault("file_exists"));
+  await assert.rejects(testing.host.call("materials", "add", { paths: [other, path.join(outside, "文件夹")] }), fault("not_file"));
+  await assert.rejects(testing.host.call("materials", "add", { paths: [other, path.join(outside, "没有.pdf")] }), fault("file_not_found"));
+  await assert.rejects(testing.host.call("materials", "add", { paths: ["materials/笔记.md"] }), fault("invalid_path"));
+  assert.deepEqual(await readdir(path.join(testing.space.root, "materials")), ["扫描.pdf", "第一章.pdf"].sort());
+});

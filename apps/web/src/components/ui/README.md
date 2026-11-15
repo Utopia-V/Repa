@@ -50,7 +50,8 @@ Sidebar、Card 和 Sheet 的接口来自 shadcn `new-york-v4`（MIT，原文在 
 界面上给人看的文字放在 `../../strings/zh-CN.ts`，组件用 `t("键")` 引用，要改一句话只改这个文件。
 
 - 键名是 `区域.对象.用途`，比如 `settings.commandPolicy.title`；含义相同的跨页面文字放 `common`。`{name}` 由调用处传入，键和参数都由类型检查。
-- 文字由人书写。Agent 新增元素时加键，值写 `〔待写〕`，不写内容。
+- 文字由人书写。Agent 新增元素时加键，值写 `〔待写〕`，不写内容；带参数的写成 `〔待写〕{name}`，参数照样受类型检查。
+- 要在浏览器里看版式，可以在本机放一份 `src/strings/draft.local.ts`（不进仓库，`.gitignore` 已排除），导出 `draft`，按键覆盖仍是占位的文字；测试不读它。
 - `npm run lint` 报出组件里的字面量（开发用标记在上一行写 `// ui-text: ignore 原因`），并列出所有占位。打桌面包前用 `--no-placeholders` 运行，有占位就失败。
 - 学习内容、辅导回答和后端返回的说明不放在这里。
 

@@ -25,8 +25,10 @@ function rejectedReason(error: unknown): unknown {
  * 辅导从后端的 view 得知当前任务，前端不往消息里拼题目。学习者可以开始新对话，旧的仍在会话列表里。
  * 复习和测验期间不能辅导，输入框收起。
  */
-export function TutorPanel({ allowed, renderLink }: {
+export function TutorPanel({ allowed, restriction, renderLink }: {
   allowed: boolean;
+  /** 当前的限制：review、quiz 期间整段不能问；none 而不能问时是新课里题目在等作答，提交以后可以问。 */
+  restriction: "none" | "review" | "quiz";
   renderLink: RenderLink;
 }) {
   const conversation = useAppStore((state) => state.conversation);
@@ -124,7 +126,9 @@ export function TutorPanel({ allowed, renderLink }: {
       </p>}
     </div>
     <div className="grid gap-3 px-4 pt-2 pb-4">
-      {!allowed && <p className="m-0 text-body text-muted-foreground">{t("tutor.unavailable.hint")}</p>}
+      {!allowed && <p className="m-0 text-body text-muted-foreground">
+        {restriction === "none" ? t("tutor.unavailable.answering.hint") : t("tutor.unavailable.hint")}
+      </p>}
       {allowed && needsModel && <div className="grid gap-3">
         <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("tutor.noModel.hint")}</p></StatusNotice>
         <div><Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button></div>

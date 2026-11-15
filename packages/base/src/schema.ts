@@ -126,7 +126,11 @@ export const DirectoryListingSchema = object({
   parent: Type.Union([identifier, Type.Null()]),
   /** 文件夹内含有效 `.repa/format.json` 时为已有空间。 */
   space: Type.Boolean(),
-  entries: Type.Array(object({ name: identifier, path: identifier, space: Type.Boolean() })),
+  /** 子文件夹在前；要求列出文件时，文件随后，带 file 与字节数 size，space 为 false。 */
+  entries: Type.Array(object({
+    name: identifier, path: identifier, space: Type.Boolean(),
+    file: Type.Optional(Type.Literal(true)), size: Type.Optional(Type.Integer({ minimum: 0 })),
+  })),
   truncated: Type.Boolean(),
 });
 /** 目录浏览结果，含父目录、子目录及空间标记，供空间选择界面使用。 */
@@ -161,6 +165,8 @@ export const SessionInfoSchema = object({
   parent: Type.Optional(SessionParentSchema),
   // 会话所属的 Agent 在创建时确定，之后不变；改动前的会话属于通用 Agent。
   agent: identifier,
+  // 插件经 Host.models.runAgent 在后台发起的任务，不是用户的对话；前端不把它列成对话。用量照常可查。
+  background: Type.Optional(Type.Literal(true)),
 });
 /** 会话列表中的元数据，供前端显示摘要、Agent 归属与父关联。 */
 export type SessionInfo = Static<typeof SessionInfoSchema>;

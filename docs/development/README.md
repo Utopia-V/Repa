@@ -19,6 +19,8 @@
 | 全仓类型检查、测试与构建 | `npm run check`、`npm test`、`npm run build` |
 | lint 与依赖边界检查（`npm test` 会先运行） | `npm run lint` |
 
+`dev:web` 与 `dev:web:learning` 起的后端继承环境变量，`REPA_HOME=/tmp/某个目录 npm run dev:web:learning` 就在临时的应用配置目录里运行，不碰真实的配置与凭据（模型凭据在其中的 `agent/auth.json`）。
+
 根 `start` 和 `dev:backend` 都先运行 `build:packages`，再运行底座的 `serve`，并加载课件转文字插件 [`@repa/materials`](../../packages/materials/README.md)；`dev:web` 起的后端也加载它。需要指定端口或加载本机可信插件时，继续传入底座 CLI 的选项，具体见[使用说明](../../packages/base/README.md#怎么用)。
 
 ### 增量构建

@@ -231,6 +231,8 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
     root, faux, client, call, state, building, until, select, step, toAnswer, finish, chat, totalUsage,
     dataDir: path.join(root, ".repa", "plugins", "learning"),
     session: () => current,
+    /** 到现在收到的 building.changed 个数。 */
+    changes: () => changes,
     async reopen() {
       await client.call("space.close", {});
       ({ opening } = await client.call("space.open", { root }));
@@ -332,6 +334,10 @@ test("整条路：出轮廓、展开第一节、换用；学习者上课时后�
   assert.deepEqual(shown.expansion?.topicIds, ["os02", "os03"]);
   const backgroundId = shown.expansion?.sessionId;
   assert.ok(backgroundId);
+  // 后台展开的会话在会话列表里标为后台任务，前端不把它列成对话；做课的对话不是。
+  const listed = await f.client.call("session.list", {});
+  assert.equal(listed.find((session) => session.id === backgroundId)?.background, true);
+  assert.equal(listed.find((session) => session.id === chatId)?.background, undefined);
 
   // 展开在做的时候学习者照常上课，走到第一道练习题。
   const before = await f.toAnswer();
@@ -394,6 +400,26 @@ test("前端分得清：没有可学的课、只有轮廓、轮廓之外有展�
   await f.call("settings.set", { autoExpand: false });
   await expandFirst(f, chatId);
   assert.deepEqual((await f.building()).parts.map((part) => part.status), ["ready", "outline", "outline"]);
+});
+
+test("做课的对话：随包的课不算做课；前端建好会话以后 building.begin 记下它、给出第一条消息，重开以后仍在", async (t) => {
+  const f = await fixture(t);
+  // 空间里还没有 course/：学的是随包的课，但做课的状态里没有课，学习页据此给出做课的起点。
+  assert.notEqual((await f.state()).course, null);
+  const bundled = await f.building();
+  assert.deepEqual({ course: bundled.course, parts: bundled.parts, sessionId: bundled.sessionId }, { course: null, parts: [], sessionId: null });
+
+  const session = await f.client.call("session.create", {});
+  const seen = f.changes();
+  const begun = await f.call("building.begin", { sessionId: session.id, request: "  一月中旬考试，第六章不学。 " });
+  assert.ok(begun.text.includes("materials/"));
+  assert.ok(begun.text.endsWith("一月中旬考试，第六章不学。"));
+  assert.ok(f.changes() > seen);
+  assert.equal((await f.building()).sessionId, session.id);
+  assert.ok(!(await f.call("building.begin", { sessionId: session.id })).text.includes("要求"));
+
+  await f.reopen();
+  assert.equal((await f.building()).sessionId, session.id);
 });
 
 test("轮廓随展开修正：学过的部分和它的学习记录不变，还没学的两部分合成一部分", async (t) => {

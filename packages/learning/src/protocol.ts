@@ -377,7 +377,8 @@ export const ExpansionFailureSchema = object({
   message: Type.Optional(Type.String()),
 });
 /**
- * 做课的状态：course 为 null 时还没有可学的课；parts 按课程清单的顺序列出各部分；全部是 outline 时只有轮廓。
+ * 做课的状态：course 是空间里换用过的自制课，为 null 时还没有（学的是随包的课，或还没有可学的课），parts 随之为空；
+ * parts 按课程清单的顺序列出各部分；全部是 outline 时只有轮廓。sessionId 是学习者与之对话做课的会话（见 building.begin），还没有时为 null。
  * expansion 是正在后台展开的部分，sessionId 是那次后台运行的会话；lastFailure 是最近一次展开没有成功的原因，之后成功则为 null。
  * cost 是做这门课的会话（调用过 course_check、course_use 的会话与后台展开的会话）到现在累计的模型用量。
  */
@@ -393,6 +394,7 @@ export const CourseBuildingSchema = object({
   expansion: Type.Union([object({ topicIds: Type.Array(identifier), startedAt: timestamp, sessionId: Type.Union([identifier, Type.Null()]) }), Type.Null()]),
   lastFailure: Type.Union([ExpansionFailureSchema, Type.Null()]),
   cost: SessionUsageSchema,
+  sessionId: Type.Union([identifier, Type.Null()]),
 });
 /** 做课的状态。 */
 export type CourseBuilding = Static<typeof CourseBuildingSchema>;
@@ -445,6 +447,12 @@ export const learningMethods = {
   // 做课：整门课的轮廓与各部分的状态、后台展开和花费。expand 立即在后台展开指定的轮廓部分，省略时为课程顺序里最前面的两个；
   // 同一时刻只有一次展开。cancel 取消正在进行的展开。这几个方法不等学习任务，学习者上课时照常可用。
   "building.get": { input: object({}), result: CourseBuildingSchema },
+  // 前端新建一个通用 Agent 的会话以后调用：插件记下它是做课的对话（花费算在里面，building.get 给出它），返回发给它的第一条消息。
+  // request 是学习者写的要求，可以省略；消息里给模型的固定部分由插件写。
+  "building.begin": {
+    input: object({ sessionId: identifier, request: Type.Optional(Type.String({ maxLength: 4_000 })) }),
+    result: object({ text: Type.String() }),
+  },
   "building.expand": { input: object({ topicIds: Type.Optional(Type.Array(identifier, { minItems: 1, maxItems: 8 })) }), result: CourseBuildingSchema },
   "building.cancel": { input: object({}), result: CourseBuildingSchema },
   "settings.get": { input: object({}), result: LearningSettingsSchema },
@@ -510,6 +518,10 @@ export function readLearningResult<M extends LearningMethod>(method: M, value: u
 /** 前端宽松读取 learning.changed 事件。 */
 export function readLearningEvent(value: unknown): ReadResult<LearningEvent> {
   return readLearning<LearningEvent>(LearningEventSchema, value);
+}
+/** 前端宽松读取 building.changed 事件。 */
+export function readBuildingEvent(value: unknown): ReadResult<BuildingEvent> {
+  return readLearning<BuildingEvent>(BuildingEventSchema, value);
 }
 /** 前端宽松读取学习方法错误的 details。 */
 export function readLearningError(value: unknown): ReadResult<LearningErrorDetails> {

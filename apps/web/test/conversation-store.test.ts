@@ -204,7 +204,7 @@ it("命令授权按到达顺序排队，回答后发给后端；登录类请求�
   expect(store.getState().confirmations).toEqual([]);
 });
 
-it("自写插件的批准还没有界面：回答没有决定，登录进行中时也不当作登录的输入", async () => {
+it("自写插件的批准排进待确认的请求，登录进行中时也不当作登录的输入；关掉时回答没有决定", async () => {
   const backend = sessionBackend([{ id: "s1", createdAt: at, updatedAt: at, agent: "general" }]);
   let finishLogin: (value: unknown) => void = () => undefined;
   const fallback = backend.call.getMockImplementation();
@@ -217,8 +217,11 @@ it("自写插件的批准还没有界面：回答没有决定，登录进行中�
   await vi.waitFor(() => expect(store.getState().activeLogin).toBeDefined());
   const plugin = { id: "hello", version: "0.1.0", digest: "a".repeat(64), pages: [], base: "none" as const, files: [{ path: "index.js", change: "added" as const }] };
   backend.emit("confirm.request", { id: "p1", request: { kind: "plugin", title: "", plugin } });
-  expect(backend.call).toHaveBeenCalledWith("confirm.reply", { id: "p1", value: null });
+  expect(backend.call).not.toHaveBeenCalledWith("confirm.reply", expect.anything());
   expect(store.getState().activeLogin?.prompts).toEqual([]);
+  expect(store.getState().confirmations).toEqual([{ id: "p1", request: { kind: "plugin", title: "", plugin } }]);
+  await store.getState().replyConfirmation("p1", null);
+  expect(backend.call).toHaveBeenCalledWith("confirm.reply", { id: "p1", value: null });
   expect(store.getState().confirmations).toEqual([]);
   finishLogin(null);
   await login;
