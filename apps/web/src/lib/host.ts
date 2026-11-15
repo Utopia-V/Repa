@@ -17,7 +17,7 @@ export function repaHost(): RepaHost | undefined {
 }
 
 /**
- * 请宿主在系统文件管理器里选中文件，只接受反馈包。桌面端由主进程承担，开发时由 Vite 开发服务器承担；
+ * 请宿主在系统文件管理器里选中文件，只接受反馈包和插件导出的数据包。桌面端由主进程承担，开发时由 Vite 开发服务器承担；
  * 失败时抛错，调用方留着路径让用户自己打开。
  */
 export async function revealFile(path: string): Promise<void> {

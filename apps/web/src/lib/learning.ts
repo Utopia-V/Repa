@@ -358,6 +358,14 @@ export function createLearningActions({ call, get, set }: Deps) {
         throw error;
       }
     },
+    /** 冻结一份已脱敏的学习数据导出并返回清单；sessions 为真时带上会话记录。只有最近一次预览有效。 */
+    prepareExport(sessions: boolean): Promise<LearningResult<"export.prepare">> {
+      return learningCall("export.prepare", { sessions });
+    },
+    /** 把预览的那一份写成 zip，放在后端的缺省位置（应用配置目录的 exports/），返回文件路径。 */
+    async createExport(exportId: string): Promise<string> {
+      return (await learningCall("export.create", { exportId })).path;
+    },
     searchContent(query: string): Promise<LearningResult<"content.search">> {
       return learningCall("content.search", { query, offset: 0, limit: 20 });
     },

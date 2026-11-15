@@ -174,6 +174,8 @@ npm run real-model-check --workspace=@repa/base -- \
 
 备份新建、失败、删除或恢复以后，后端发出 `backup.updated` 通知，参数与 `backup.status` 的结果相同，带着变化所属空间的 `root`；前端据此刷新设置页和空间列表。`space.open` 报 `restore_incomplete` 时，前端应说明上次恢复没有完成，引导学习者从这个空间的备份重新恢复。
 
+Web 前端的入口在两处。设置页显示当前空间最近一次备份的时间和上一次失败的原因，提供立即备份与两个设置项，见 [backup-settings.tsx](../../apps/web/src/features/backup-settings.tsx)。选空间页在最近列表下面列出各空间的备份，平时收起；恢复前先在确认框里选原位置或新文件夹，要恢复的空间正打开着时先关闭它，恢复以后打开恢复好的空间，打开空间报 `restore_incomplete` 时由错误下方的按钮展开备份并聚焦到这个空间，见 [space-backups.tsx](../../apps/web/src/features/space-backups.tsx)。
+
 ## 写插件
 
 ### 插件清单与数据版本

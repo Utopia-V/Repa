@@ -1,13 +1,15 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { FolderOpen, FolderSearch, RefreshCw, X } from "lucide-react";
+import { Archive, FolderOpen, FolderSearch, RefreshCw, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SelectionButton } from "@/components/ui/selection-button";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { FolderPickerDialog } from "@/features/folder-picker";
+import { SpaceBackups } from "@/features/space-backups";
 import { useAppStore, useAppStoreApi } from "@/hooks/use-app-store";
+import { errorCode } from "@/lib/errors";
 import { homePath } from "@/lib/learning";
 import type { Resources } from "@/lib/store";
 import { folderName, joinPath, validFolderName } from "@/lib/paths";
@@ -26,6 +28,8 @@ export function LearningSpacePage() {
   const [picking, setPicking] = useState(false);
   const [closing, setClosing] = useState(false);
   const [closeFailure, setCloseFailure] = useState<{ root: string; error: unknown }>();
+  // 要带到哪个空间的备份：打开空间报 restore_incomplete 时设置，n 让再点一次也能重新带过去。
+  const [showBackups, setShowBackups] = useState<{ root: string; n: number }>();
   const navigate = useNavigate();
   const store = useAppStoreApi();
   const goHome = () => { void navigate(homePath(store.getState().learning)); };
@@ -79,7 +83,10 @@ export function LearningSpacePage() {
         onPick={() => setPicking(true)}
         onOpen={(root) => { void open(root); }}
         onRetry={() => { void loadSpaces(); }}
-      />}
+        onShowBackups={(root) => setShowBackups((current) => ({ root, n: (current?.n ?? 0) + 1 }))}
+      >
+        <SpaceBackups show={showBackups} onRestored={(root) => { void open(root); }} />
+      </RecentSpaces>}
     <FolderPickerDialog open={picking} onOpenChange={setPicking} onOpened={goHome} />
   </>;
 }
@@ -164,7 +171,7 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
   </div>;
 }
 
-function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDisabled, running, onPick, onOpen, onClose, onRetry }: {
+function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDisabled, running, onPick, onOpen, onClose, onRetry, onShowBackups, children }: {
   spaces: Resources["spaces"];
   active: string | undefined;
   opening: string | undefined;
@@ -177,6 +184,10 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
   onOpen(root: string): void;
   onClose(root: string): void;
   onRetry(): void;
+  /** 上次从备份恢复没有完成：带到这个空间的备份，重新恢复。 */
+  onShowBackups(root: string): void;
+  /** 放在最近列表下面的备份。 */
+  children: ReactNode;
 }) {
   const recent = spaces.data;
   const loadFailed = spaces.status === "error";
@@ -216,6 +227,9 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
       </div>}
 
       {failure && <ErrorNotice title={t("learningSpace.open.error", { value: failure.previous ? t("learningSpace.lastSpace.label") : " ", root: folderName(failure.root) })} error={failure.error} />}
+      {failure && errorCode(failure.error) === "restore_incomplete" && <div>
+        <Button variant="tertiary" leadingIcon={Archive} onClick={() => onShowBackups(failure.root)}>{t("learningSpace.restoreIncomplete.action")}</Button>
+      </div>}
       {closeFailure && <ErrorNotice title={t("learningSpace.close.error", { root: folderName(closeFailure.root) })} error={closeFailure.error} />}
 
       {hasRecent && <ul aria-labelledby="recent-spaces" className="m-0 grid list-none gap-2 p-0">
@@ -246,5 +260,7 @@ function RecentSpaces({ spaces, active, opening, failure, closeFailure, closeDis
         </li>)}
       </ul>}
     </section>
+
+    {children}
   </div>;
 }

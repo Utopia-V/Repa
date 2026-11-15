@@ -125,6 +125,7 @@ it("在选空间页关闭当前空间，侧栏回到 Learning Space；运行中�
         return Promise.resolve(["/notes/calculus"]);
       case "session.list":
       case "session.history":
+      case "backup.list":
         return Promise.resolve([]);
       case "session.create":
         return Promise.resolve({ id: "s1", createdAt: "2026-10-12T00:00:00.000Z", updatedAt: "2026-10-12T00:00:00.000Z" });

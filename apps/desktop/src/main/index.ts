@@ -88,13 +88,13 @@ ipcMain.handle("repa:get-connection", async (event) => {
   }
 });
 
-// 只打开反馈包，与 Web 开发服务器的同名端点一致：页面不能借它在文件管理器里打开任意路径。
-const FEEDBACK_FILE = /^repa-feedback-[\d-]+\.zip$/u;
+// 只打开反馈包和插件导出的数据包，与 Web 开发服务器的同名端点一致：页面不能借它在文件管理器里打开任意路径。
+const REVEALABLE_FILE = /^repa-(?:feedback|[a-z0-9][a-z0-9-]*-export)-[\d-]+\.zip$/u;
 
 ipcMain.handle("repa:reveal-file", async (event, file: unknown) => {
   if (!fromMainPage(event)) throw new Error("拒绝非主页面打开文件夹。");
-  if (typeof file !== "string" || !isAbsolute(file) || !FEEDBACK_FILE.test(basename(file))) {
-    throw new Error("只能打开反馈包所在的文件夹。");
+  if (typeof file !== "string" || !isAbsolute(file) || !REVEALABLE_FILE.test(basename(file))) {
+    throw new Error("只能打开反馈包或导出的数据包所在的文件夹。");
   }
   // 文件不在（例如已被用户移走）是预期情况，页面据此提示用户手动打开。
   const info = await stat(file).catch(() => undefined);
