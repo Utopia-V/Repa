@@ -63,7 +63,7 @@ export function ConversationItemView({ item, streaming, onFork, forkDisabled, re
       return <div className="mb-4 grid gap-3">
         <StatusNotice status="error" title={modelErrorTitle[kind]}>
           <details>
-            <summary className="cursor-pointer">{t("modelError.details.label")}</summary>
+            <summary className="cursor-pointer">{t("common.errorDetails.label")}</summary>
             <p className="mt-2 break-all">{item.text}</p>
           </details>
         </StatusNotice>

@@ -97,7 +97,8 @@ export async function loadRuntimeFiles(assetsUrl: string): Promise<RuntimeFiles>
   }
   if (!Value.Check(LockSchema, parsed)) throw new PythonRunError("runtime_unavailable", "pyodide-lock.json 的格式无法识别");
   const packages = closure(parsed, RUNNER_PACKAGES);
-  const missingWheel = "缺少 Pyodide 包，先运行 npm run course:runtime 准备离线包";
+  // 页面分不清自己是在开发环境还是装好的应用里，不提 npm：学习者的机器上没有它。开发时缺包由课程核对的那一边提示怎样准备。
+  const missingWheel = "缺少应用带的 Pyodide 包";
   const entries = await Promise.all([
     ...CORE_FILES.map(async (name) => [name, await download(new URL(name, base), "缺少 Pyodide")] as const),
     ...[...packages.values()].map(async ({ file_name: file, sha256: expected }) => {

@@ -8,6 +8,7 @@ export const strings = {
   "common.submitting.status": "正在提交…",
   "common.submit.action": "提交",
   "common.retry.action": "重试",
+  "common.errorDetails.label": "原始报错",
   "common.runError.status": "运行出错",
   "common.newSession.action": "新会话",
   "common.loading.status": "正在读取…",
@@ -36,7 +37,6 @@ export const strings = {
   "modelError.auth.title": "密钥无效或无权限",
   "modelError.quota.title": "账户余额不足",
   "modelError.rateLimit.title": "请求过于频繁，请稍后再试",
-  "modelError.details.label": "原始报错",
 
   // 启动
   "app.workspace.label": "工作区",
@@ -51,7 +51,8 @@ export const strings = {
   "connection.startup.failed.title": "Repa 启动失败",
   "connection.startup.preparing.title": "正在准备 Repa",
   "connection.startup.error.title": "暂时无法连接",
-  "connection.startup.status": "正在启动或连接本机学习后端…",
+  "connection.startup.failed.message": "本机服务没有启动。可重试；多次失败时请重新安装 Repa。",
+  "connection.startup.status": "正在启动。安装后首次启动约需一分钟。",
   "connection.reconnecting.status": "后端连接已中断，正在自动重连…",
   "connection.notConnected.error": "尚未连接后端。",
 
@@ -221,7 +222,7 @@ export const strings = {
   "learn.making.action": "做课",
   "materials.api.unreadable.error": "课件插件返回的内容这个版本读不懂（{method}{path}），请更新应用。",
   "outline.title": "整门课",
-  "outline.pending.status": "正在读取课件、划分章节…",
+  "outline.pending.status": "正在准备课程轮廓…",
   "outline.notMade.status": "上次未完成，可在做课对话中继续。",
   "outline.load.error": "无法读取课程",
   "outline.summary.label": "{total} 部分 · 可学 {ready} · 已学 {learned}",

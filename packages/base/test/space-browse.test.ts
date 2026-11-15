@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { RepaFault } from "../src/schema.js";
-import { browseDirectory, hiddenEntry, listRoots, parseDrives } from "../src/space/browse.js";
+import { browseDirectory, listRoots, parseDrives, parseHiddenListing } from "../src/space/browse.js";
 
 async function fixture(t: TestContext, folders: string[] = []) {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-browse-")));
@@ -68,6 +70,17 @@ test("要求列出文件时，文件排在文件夹后面并带大小，隐藏�
   assert.equal(listing.entries[1]?.path, path.join(directory, "第2章.pdf"));
 });
 
+test("给了扩展名时只列这些格式的文件，不分大小写；文件夹照列，Office 的锁文件不列", async (t) => {
+  const directory = await fixture(t, ["课件.pdf 旧版"]);
+  for (const name of ["第1章.PDF", "引论.pptx", "~$引论.pptx", "NTUSER.DAT", "ntuser.dat.LOG1", "笔记.txt"]) {
+    await writeFile(path.join(directory, name), "");
+  }
+
+  const listing = await browseDirectory(directory, { files: true, extensions: [".pdf", ".pptx"] });
+
+  assert.deepEqual(listing.entries.map((entry) => entry.name), ["课件.pdf 旧版", "引论.pptx", "第1章.PDF"]);
+});
+
 test("文件夹超过上限时只返回上限数量并标记截断", async (t) => {
   const directory = await fixture(t, ["a", "b", "c"]);
 
@@ -102,16 +115,44 @@ test("没有读取权限的文件夹返回 permission_denied", {
   }
 });
 
-test("Windows 按名称隐藏系统目录，兼容链接只在确实是链接时隐藏", () => {
-  assert.equal(hiddenEntry("$Recycle.Bin", false, "win32"), true);
-  assert.equal(hiddenEntry("System Volume Information", false, "win32"), true);
-  assert.equal(hiddenEntry("AppData", false, "win32"), true);
-  assert.equal(hiddenEntry("My Documents", true, "win32"), true);
-  assert.equal(hiddenEntry("Templates", false, "win32"), false);
-  assert.equal(hiddenEntry("Documents", false, "win32"), false);
-  assert.equal(hiddenEntry(".vscode", false, "win32"), true);
-  assert.equal(hiddenEntry("$Recycle.Bin", false, "darwin"), false);
-  assert.equal(hiddenEntry("AppData", false, "linux"), false);
+test("dir /a:h /b 的输出按行读成隐藏条目名，中文名、开头的空格都保留，不分大小写", () => {
+  // cmd /u 写进管道的是 UTF-16LE；这里按同样的编码往返一次。
+  const output = Buffer.from("AppData\r\n「开始」菜单\r\n WPS Cloud Files\r\nNTUSER.DAT\r\n", "utf16le").toString("utf16le");
+  assert.deepEqual([...parseHiddenListing(output)], ["appdata", "「开始」菜单", " wps cloud files", "ntuser.dat"]);
+  assert.deepEqual([...parseHiddenListing("")], []);
+});
+
+test("带隐藏属性的条目不列，链接和普通文件夹一样；读属性用的是解析链接以后的文件夹", async (t) => {
+  // 相当于中文 Windows 的用户目录：AppData、WPS Cloud Files 是带隐藏属性的普通文件夹，“「开始」菜单”是带隐藏属性的联接。
+  const directory = await fixture(t, ["AppData", "WPS Cloud Files", "Documents", "target"]);
+  await symlink(path.join(directory, "target"), path.join(directory, "「开始」菜单"));
+  await writeFile(path.join(directory, "NTUSER.DAT"), "");
+  await writeFile(path.join(directory, "笔记.pdf"), "");
+  const asked: string[] = [];
+  const hidden = (folder: string) => {
+    asked.push(folder);
+    return Promise.resolve(new Set(["appdata", "wps cloud files", "「开始」菜单", "ntuser.dat"]));
+  };
+
+  const listing = await browseDirectory(directory, { files: true, hidden });
+
+  assert.deepEqual(listing.entries.map((entry) => entry.name), ["Documents", "target", "笔记.pdf"]);
+  assert.deepEqual(asked, [directory]);
+});
+
+test("Windows 上按隐藏属性过滤：attrib +h 的文件夹和文件不列，名字里有中文和空格也一样", {
+  skip: process.platform === "win32" ? false : "隐藏属性只在 Windows 上有",
+}, async (t) => {
+  const directory = await fixture(t, ["隐藏 文件夹", "看得见 的文件夹"]);
+  await writeFile(path.join(directory, "隐藏 课件.pdf"), "");
+  await writeFile(path.join(directory, "课件.pdf"), "");
+  for (const name of ["隐藏 文件夹", "隐藏 课件.pdf"]) await promisify(execFile)("attrib", ["+h", path.join(directory, name)]);
+
+  const listing = await browseDirectory(directory, { files: true });
+
+  assert.deepEqual(listing.entries.map((entry) => entry.name), ["看得见 的文件夹", "课件.pdf"]);
+  // 没有隐藏条目时 dir 以 1 退出，照常列出。
+  assert.deepEqual((await browseDirectory(path.join(directory, "看得见 的文件夹"))).entries, []);
 });
 
 test("解析 PowerShell 输出的盘符，忽略其他行", () => {

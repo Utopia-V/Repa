@@ -1,11 +1,12 @@
 /**
  * 各平台安装包共用的核对：文件齐全、安装包带的 Git 能保存和恢复空间、用安装包里的 Electron 当 Node 拉起后端并加载随包插件、
- * 像学习者那样打开应用，并确认页面的 Worker 里能运行 Python。
+ * 像学习者那样打开应用，确认页面的 Worker 里能运行 Python，带计算题的课能通过检查并换用。
  * 平台脚本（verify-mac-package.mjs、verify-win-package.mjs）负责把安装包展开到磁盘，再交给这里。
  */
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { access, cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -114,6 +115,99 @@ async function checkPagePython(page, application, temporary) {
   }
 }
 
+/** 假模型的提供方 id，写进临时配置目录的 agent/models.json；只在这里的临时 home 里有。 */
+const SCRIPTED = { provider: "repa-verify", id: "scripted" };
+
+/**
+ * 本机的假模型：说 OpenAI 兼容的 chat completions（流式），第一次回答调用 course_use，之后回一句话结束。
+ * 请求里出现工具结果时记下它，那就是做课的 Agent 读到的检查结果。返回写进 models.json 的配置和收到的工具结果。
+ */
+async function startScriptedModel() {
+  const toolResults = [];
+  const server = createHttpServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      const messages = JSON.parse(body).messages ?? [];
+      const results = messages.filter((message) => message.role === "tool");
+      const chunk = (delta, finish) => `data: ${JSON.stringify({
+        id: "verify", object: "chat.completion.chunk", created: 0, model: SCRIPTED.id,
+        choices: [{ index: 0, delta, finish_reason: finish }],
+      })}\n\n`;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      if (results.length === 0) {
+        response.write(chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_use", type: "function", function: { name: "course_use", arguments: "{}" } }] }, null));
+        response.write(chunk({}, "tool_calls"));
+      } else {
+        const content = results.at(-1).content;
+        toolResults.push(typeof content === "string" ? content : content.map((part) => part.text ?? "").join(""));
+        response.write(chunk({ role: "assistant", content: "好。" }, null));
+        response.write(chunk({}, "stop"));
+      }
+      response.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const models = {
+    providers: {
+      [SCRIPTED.provider]: {
+        baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: "openai-completions", apiKey: "verify",
+        models: [{ id: SCRIPTED.id }],
+      },
+    },
+  };
+  return { models, toolResults, close: () => new Promise((resolve) => server.close(resolve)) };
+}
+
+/** 做课的 Agent 等检查结果最多多久：页面这一次要启动 Pyodide（60 秒）再运行核对，留出余量。 */
+const COURSE_USE_TIMEOUT_MS = 240_000;
+
+/**
+ * 带计算题的课在装好的应用里能通过检查并换用：checkPagePython 只确认 python.run 本身能用，课程核对另有一段路
+ * （找离线包、选沙箱还是页面、比较版本），曾在安装包里因为 Node 一侧找不到 wheel 而整个失败。这里走真正的 course_use：
+ * 在临时空间里放一门示例课，加上写课说明里的 verify 例题和 runtime，由假模型让通用 Agent 调用 course_use，
+ * 读它交回给模型的检查结果。Linux 上经沙箱核对，Windows 和 macOS 上经开着的应用页面核对。
+ */
+async function checkCourseUse(connection, application, temporary, model) {
+  const { RepaClient } = await import(pathToFileURL(path.join(application, "node_modules/@repa/base/dist/client.js")));
+  const { parse, stringify } = await import(pathToFileURL(path.join(application, "node_modules/yaml/dist/index.js")));
+  const guides = path.join(application, "node_modules/@repa/learning/guides");
+  const guide = (await readFile(path.join(guides, "making-courses.md"), "utf8")).replaceAll("\r\n", "\n");
+  const examples = [...guide.matchAll(/^```yaml\n([\s\S]*?)^```$/gmu)].map((match) => parse(match[1]));
+  const runtime = examples.find((entry) => entry?.runtime !== undefined);
+  const question = examples.find((entry) => Array.isArray(entry) && entry[0]?.verify !== undefined);
+  assert.ok(runtime && question, "写课说明里找不到 runtime 和 verify 例题");
+  const root = path.join(temporary, "做课 空间");
+  const course = path.join(root, "course");
+  await cp(path.join(guides, "example-course"), course, { recursive: true });
+  await writeFile(path.join(course, "course.yaml"), `${await readFile(path.join(course, "course.yaml"), "utf8")}${stringify(runtime)}`);
+  const topicFile = path.join(course, "topics", "os01.yaml");
+  const topic = parse(await readFile(topicFile, "utf8"));
+  topic.kps[0].practice.push(...question);
+  await writeFile(topicFile, stringify(topic, { aliasDuplicateObjects: false }));
+
+  const client = await RepaClient.connect(connection);
+  try {
+    await client.call("space.create", { root });
+    const session = await client.call("session.create", { model: SCRIPTED });
+    await client.call("session.send", { sessionId: session.id, text: "检查这门课，通过就换用。" });
+    const deadline = Date.now() + COURSE_USE_TIMEOUT_MS;
+    while (model.toolResults.length === 0) {
+      if (Date.now() > deadline) throw new Error(`${COURSE_USE_TIMEOUT_MS / 1000} 秒内做课的 Agent 没有拿到 course_use 的结果`);
+      await wait(500);
+    }
+    const [result] = model.toolResults;
+    const where = process.platform === "linux" ? " Linux 沙箱里" : "应用页面的 Worker 里";
+    assert.match(result, /^已换用/u, `课没有换用：${result}`);
+    assert.ok(result.includes(`在${where}运行了 verify 核对程序`), `核对不是在${where.trim()}运行的：${result}`);
+    assert.doesNotMatch(result, /npm/u);
+    return { used: true, where: where.trim() };
+  } finally {
+    await client.close();
+  }
+}
+
 /**
  * 像学习者那样打开应用：主进程启动后端、repa 协议提供 Web 界面、页面经 preload 连上后端，
  * 首次打开没有学习空间，应停在选空间页；再确认页面的 Worker 里能运行 Python（见 checkPagePython）。
@@ -121,6 +215,9 @@ async function checkPagePython(page, application, temporary) {
  */
 async function checkLaunch(executable, application, temporary, hideGit) {
   const home = path.join(temporary, "app-home");
+  const model = await startScriptedModel();
+  await mkdir(path.join(home, "agent"), { recursive: true });
+  await writeFile(path.join(home, "agent", "models.json"), JSON.stringify(model.models));
   const userData = path.join(temporary, "app-data");
   const port = await freePort();
   const environment = hideGit ? withoutGit({ ...process.env, REPA_HOME: home }) : { ...process.env, REPA_HOME: home };
@@ -142,10 +239,15 @@ async function checkLaunch(executable, application, temporary, hideGit) {
       if (!page) continue;
       const text = await evaluate(page, "document.body.innerText");
       last = `${page.url}：${String(text).slice(0, 200)}`;
-      if (typeof text === "string" && text.includes("创建第一门课")) return { url: page.url, python: await checkPagePython(page, application, temporary) };
+      if (typeof text === "string" && text.includes("创建第一门课")) {
+        const python = await checkPagePython(page, application, temporary);
+        const course = await checkCourseUse(await evaluate(page, "window.repaHost.getConnection()"), application, temporary, model);
+        return { url: page.url, python, course };
+      }
     }
     throw new Error(`60 秒内应用没有显示选空间页，最后看到 ${last}`);
   } finally {
+    await model.close();
     await quit(app);
     const code = await Promise.race([exited, wait(20_000).then(() => "timeout")]);
     if (code === "timeout") {

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RepaClient } from "@repa/base/client";
@@ -6,6 +6,7 @@ import { RepaClient } from "@repa/base/client";
 import { App, type LoadConnection } from "../src/app";
 import { interactionCapabilities } from "../src/lib/ask";
 import { createAppStore } from "../src/lib/store";
+import { t } from "../src/lib/strings";
 import { mockMatchMedia } from "./match-media";
 
 beforeEach(() => { mockMatchMedia(); window.history.replaceState(null, "", "/"); });
@@ -107,10 +108,12 @@ describe("Web App bootstrap", () => {
     expect(RepaClient.connect).toHaveBeenCalledWith(connection, { capabilities: { interaction: interactionCapabilities, services: ["python.run"] } });
   });
 
-  it("启动失败时显示原因并允许重试", async () => {
+  it("启动失败时先说一句人话，宿主交来的原文折叠起来，并允许重试", async () => {
+    // Electron 把主进程的错误包成这样交给页面。
+    const raw = "Error invoking remote method 'repa:get-connection': Error: Repa 后端启动失败。";
     const loadConnection = vi
       .fn<LoadConnection>()
-      .mockRejectedValueOnce(new Error("后端不可用"))
+      .mockRejectedValueOnce(new Error(raw))
       .mockResolvedValueOnce(connection);
     vi.mocked(RepaClient.connect).mockResolvedValue({
       close: vi.fn(),
@@ -119,7 +122,9 @@ describe("Web App bootstrap", () => {
     } as unknown as RepaClient);
 
     render(<App store={createAppStore()} loadConnection={loadConnection} />);
-    expect((await screen.findByRole("alert")).textContent).toContain("后端不可用");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(t("connection.startup.failed.message"));
+    expect(within(alert).getByText(raw).closest("details")?.open).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByRole("link", { name: "Learning Space" })).toBeTruthy();
     expect(loadConnection).toHaveBeenCalledTimes(2);

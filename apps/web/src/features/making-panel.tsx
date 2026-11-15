@@ -16,7 +16,8 @@ import { t } from "@/lib/strings";
  * 窄屏时抽屉关着，Agent 的提问也要落在这段会话上，抽屉打开时不能因为换会话把提问清掉。
  */
 export function useMakingSession(sessionId: string | undefined): void {
-  const bound = useAppStore((state) => state.conversation.sessionId === sessionId);
+  // 只有 id 对上还不够：重开应用或刷新页面后，上次的会话 id 从本机存储恢复，记录却还没有读（status 为 idle）。
+  const bound = useAppStore((state) => state.conversation.sessionId === sessionId && state.conversation.status !== "idle");
   const run = useAppStore((state) => state.conversation.run);
   const sessions = useAppStore((state) => state.resources.sessions);
   const loadSessions = useAppStore((state) => state.loadSessions);

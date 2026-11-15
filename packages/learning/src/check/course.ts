@@ -77,7 +77,7 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
   const expected = loaded.course.runtime;
   if (options.run === false || !summary.python || !expected) return { diagnostics: report.diagnostics, summary };
 
-  // 按顺序用第一处能用的 Python；离线包缺失、版本不符是课程或安装的问题，照常报告，不换下一处。
+  // 按顺序用第一处能用的 Python；课程清单与安装的版本不符是课程的问题，照常报告，不换下一处。
   const reasons: string[] = [];
   let running: CheckRun | undefined;
   for (const python of options.python ?? [sandboxPython]) {
@@ -94,7 +94,7 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
     }
   }
   if (!running) {
-    report.error("python_unavailable", `${reasons.join("；")}。课里的 verify 核对程序和代码题没能运行，所以没有核对。命令行只检查结构时加 --no-run`, loaded.file, ["runtime"]);
+    report.error("python_unavailable", `${reasons.join("；")}。课里的 verify 核对程序和代码题没能运行，所以没有核对`, loaded.file, ["runtime"]);
     return { diagnostics: report.diagnostics, summary };
   }
   try {

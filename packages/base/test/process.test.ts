@@ -149,6 +149,14 @@ test("启动超时终止尚未交付连接的进程", async (t) => {
   }), /启动超时/);
 });
 
+// 新装的应用第一次启动时，Windows 的杀毒软件逐个扫描后端要读的文件，实测交出连接要 19 到 25 秒。
+test("后端还活着时，交出连接慢于 15 秒也照常启动", async (t) => {
+  const options = await fakeBackend(await fixture(t), `setTimeout(() => { ${ANNOUNCE} }, 16_000);`);
+  const backend = await startRepaProcess({ environment: { ...process.env, NODE_OPTIONS: options } });
+  assert.deepEqual(backend.connection, { url: "ws://127.0.0.1:1", token: "test" });
+  await backend.kill();
+});
+
 test("stdout 不是连接信息时终止错误服务", async (t) => {
   const options = await fakeBackend(await fixture(t), `console.log("not-json");`);
   await assert.rejects(startRepaProcess({ environment: { ...process.env, NODE_OPTIONS: options } }), /无效连接信息/);

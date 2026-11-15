@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import { CircleAlert, FileText, Plus } from "lucide-react";
-import type { Material } from "@repa/materials/protocol";
+import { MATERIAL_EXTENSIONS, type Material } from "@repa/materials/protocol";
 
 import { Button } from "@/components/ui/button";
 import { StatusNotice } from "@/components/ui/status-notice";
@@ -109,6 +109,7 @@ export function MakingStart({ onStarted, onUseBundled }: {
     <FilePickerDialog
       open={picking}
       onOpenChange={setPicking}
+      extensions={MATERIAL_EXTENSIONS}
       onPick={async (paths) => setFiles((await addMaterials(paths)).files)}
     />
   </div>;

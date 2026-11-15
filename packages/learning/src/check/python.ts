@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
-import { describeRuntime, SandboxRunner, SandboxUnavailable, verifyPackages } from "@repa/python-runner";
+import { describeRuntime, requireSandboxPlatform, RuntimeProblem, SandboxRunner, SandboxUnavailable, verifyPackages } from "@repa/python-runner";
 import { replyDeadlineMs, type PythonTest, type Runtime as RunningRuntime } from "@repa/python-runner/protocol";
 
 import { callPythonRun, type RunTests } from "../code-tests.js";
@@ -33,8 +33,8 @@ export interface CheckRunOptions {
 }
 
 /**
- * 能运行课程核对的一处。这一处用不了（不是 Linux、建不了隔离、没有前端提供 python.run）时抛 PythonUnavailable，
- * 检查接着试下一处；离线包缺失、版本不符等课程或安装的问题抛 RuntimeProblem，照常报告。
+ * 能运行课程核对的一处。这一处用不了（不是 Linux、建不了隔离、Node 一侧缺离线包、没有前端提供 python.run）时抛 PythonUnavailable，
+ * 检查接着试下一处；课程清单与安装的 Pyodide 版本不符抛 RuntimeProblem，照常报告。
  */
 export type CheckPython = (expected: Runtime, options: CheckRunOptions) => Promise<CheckRun>;
 
@@ -46,16 +46,22 @@ export class PythonUnavailable extends Error {
   }
 }
 
-/** Linux 沙箱：整门课共用一个解释器，测试之间由 runner.py 恢复状态，恢复失败或超时才换新的。 */
+/**
+ * Linux 沙箱：整门课共用一个解释器，测试之间由 runner.py 恢复状态，恢复失败或超时才换新的。
+ * 离线包只有沙箱要从 Node 一侧读，别的系统上先说明沙箱建不了，不去核对它们。Node 一侧缺包同样只是这一处用不了，
+ * 接着试页面：页面经宿主取自己的 wheel，按 lockfile 核对。
+ */
 export const sandboxPython: CheckPython = async (expected, options) => {
   let runner: SandboxRunner;
   let runtime: RunningRuntime;
   try {
     const assets = await describeRuntime(expected, options.packagesDirectory);
+    requireSandboxPlatform();
     await verifyPackages(assets);
     runner = new SandboxRunner({ assets });
     runtime = await runner.start();
   } catch (error) {
+    if (error instanceof RuntimeProblem && error.code === "runtime_packages") throw new PythonUnavailable(`Linux 沙箱用不了：${error.message}`);
     if (!(error instanceof SandboxUnavailable)) throw error;
     const remedy = process.platform === "linux"
       ? "（隔离环境建不起来时，是这台机器缺少 Linux 的 Landlock（ABI 4 以上）与 libseccomp；Pyodide 启动失败时，把清单的 runtime 照写课说明改成与随包课程一致的版本和包）"

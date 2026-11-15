@@ -51,11 +51,11 @@ const [result] = await runner.runTests([
 await runner.close();
 ```
 
-`runTests` 与页面的不同只在于解释器的去留：所有测试在同一个解释器里依次运行，没有出问题的解释器留给下一次调用接着用；测试超时、失败或恢复解释器状态失败后结束这个沙箱，之后的测试换一个新的。计时和结果的归类与页面共用 [`src/test-results.ts`](src/test-results.ts)，超时按沙箱转发的阶段写明停在哪里。`starts` 是启动过的沙箱数，应等于 1 加上超时、崩溃和恢复失败的次数，调用方据此核对代价。沙箱建立不了时（不是 Linux、缺少 Landlock 或 libseccomp、Pyodide 起不来）抛 `SandboxUnavailable`，调用方应当报错或改经页面的 Worker 运行，不改用不受限的运行。
+`runTests` 与页面的不同只在于解释器的去留：所有测试在同一个解释器里依次运行，没有出问题的解释器留给下一次调用接着用；测试超时、失败或恢复解释器状态失败后结束这个沙箱，之后的测试换一个新的。计时和结果的归类与页面共用 [`src/test-results.ts`](src/test-results.ts)，超时按沙箱转发的阶段写明停在哪里。`starts` 是启动过的沙箱数，应等于 1 加上超时、崩溃和恢复失败的次数，调用方据此核对代价。沙箱建立不了时（不是 Linux、缺少 Landlock 或 libseccomp、Pyodide 起不来）抛 `SandboxUnavailable`；只看系统的那一项也可以用 `requireSandboxPlatform` 先查，别的系统上就不必准备和核对离线包，调用方应当报错或改经页面的 Worker 运行，不改用不受限的运行。
 
 ### 离线包
 
-pandas、NumPy 等 wheel 不在 npm 包 pyodide 里。课程清单决定要哪些包，所以由学习插件的 `npm run course:runtime` 调用本包的 `preparePackages`，把它们准备到 `packages/python-runner/.cache/pyodide/<版本>/`（`REPA_PYODIDE_PACKAGES` 可改位置）：`--from` 从已有目录复制，不给时从 jsDelivr 下载。两种方式都按 Pyodide 发行 lockfile 的 SHA-256 核对，沙箱使用前还会再核对一次。Web 开发服务器、Desktop 和 Linux 安装包也从这个目录取 wheel，位置由 `defaultPackagesDirectory` 给出。解释器和标准库来自 npm 包本身，由 npm 按 `package-lock.json` 里的摘要核对，这里不另外核对。
+pandas、NumPy 等 wheel 不在 npm 包 pyodide 里。课程清单决定要哪些包，所以由学习插件的 `npm run course:runtime` 调用本包的 `preparePackages`，把它们准备到 `packages/python-runner/.cache/pyodide/<版本>/`（`REPA_PYODIDE_PACKAGES` 可改位置）：`--from` 从已有目录复制，不给时从 jsDelivr 下载。两种方式都按 Pyodide 发行 lockfile 的 SHA-256 核对，沙箱使用前还会再核对一次。Web 开发服务器和开发时的 Desktop 也从这个目录取 wheel，位置由 `defaultPackagesDirectory` 给出。安装包里没有这个目录：wheel 复制在应用目录的 `pyodide/packages/`，主进程用 `REPA_PYODIDE_PACKAGES` 把它交给后端。缺包时的说明只对这个缓存目录提 `npm run course:runtime`，别的目录说安装不完整，因为学习者的机器上没有 npm。解释器和标准库来自 npm 包本身，由 npm 按 `package-lock.json` 里的摘要核对，这里不另外核对。
 
 ## 怎么实现
 

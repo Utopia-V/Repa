@@ -32,6 +32,12 @@ const quitting = createQuitHandler({
   report: (error) => { console.error(error); },
 });
 
+/** 安装包把 Pyodide 文件和 wheel 复制到应用目录的 pyodide/，见 scripts/package-application.mjs。 */
+function packagedPython(): PythonRuntimeDirectories {
+  const pyodide = join(app.getAppPath(), "pyodide");
+  return { pyodide, packages: join(pyodide, "packages") };
+}
+
 function getBackend(): Promise<RepaProcess> {
   if (quitting.quitting()) return Promise.reject(new Error("Desktop 正在关闭。"));
   backend ??= startRepaProcess({
@@ -41,6 +47,8 @@ function getBackend(): Promise<RepaProcess> {
     environment: {
       ...process.env,
       ...(process.env.REPA_NODE_EXECUTABLE ? {} : { ELECTRON_RUN_AS_NODE: "1" }),
+      // 课程核对的 Linux 沙箱从 Node 一侧读 wheel；安装包里没有 @repa/python-runner 的 .cache，要指到页面用的同一份。
+      ...(app.isPackaged ? { REPA_PYODIDE_PACKAGES: packagedPython().packages } : {}),
     },
   }).then((handle) => {
     void handle.closed.then(() => { backend = undefined; }, (error: unknown) => {
@@ -103,10 +111,7 @@ ipcMain.handle("repa:reveal-file", async (event, file: unknown) => {
 });
 
 function pythonDirectories(): Promise<PythonRuntimeDirectories> {
-  if (!app.isPackaged) return workspacePythonDirectories();
-  // 安装包把 Pyodide 文件和 wheel 复制到应用目录，见 scripts/package-linux.mjs。
-  const pyodide = join(app.getAppPath(), "pyodide");
-  return Promise.resolve({ pyodide, packages: join(pyodide, "packages") });
+  return app.isPackaged ? Promise.resolve(packagedPython()) : workspacePythonDirectories();
 }
 
 let python: Promise<PythonAssetLookup> | undefined;

@@ -64,7 +64,7 @@ await backend.close();
 
 进程入口从 stdout 读取连接信息，不写连接文件。`plugins` 接受插件文件夹，`generalAgent: false` 和 `directAgents` 对应 CLI 的装配选项；插件由构建后的 CLI 导入，不经过 tsx。嵌入同一进程时使用 `startServer`，模块边界见[包地图](../README.md)及 [`protocol.ts`](src/protocol.ts)。
 
-客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出。`close()` 结束后端的 stdin，请求它正常关闭，可重复调用并等待收尾完成，异常退出返回错误；宿主进程没有调用 `close()` 就退出时，结果因平台而异。Linux 和 macOS 上，后端读到 stdin 结尾，照常收尾后退出。Windows 上，Node 的 libuv 把不是 detached 的子进程放进随父进程关闭而结束的作业对象（见 libuv 1.51 的 [`uv_spawn`](https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c#L1082)），后端随宿主一起被结束，来不及收尾，但也不会留下来；它持有的空间锁最多 30 秒后视为过期，尚未提交的文件改动在下次打开空间时记为外部改动。启动失败的进程回收有 5 秒强制终止期限。正常关闭卡住时，例如插件的 `open` 或 `close` 永不返回，`kill()` 直接结束后端进程并等它退出，空间锁同样在过期后回收；桌面端在收尾期间再次退出即调用它。进程入口依赖 Node，不从浏览器客户端导出。
+客户端断开本身不关闭服务。Web 开发服务器关闭和 Electron 退出时，各自等待后端收尾；Electron 用 `nodeExecutable` 和 `environment` 传入自身可执行文件与 `ELECTRON_RUN_AS_NODE=1`。`backend.closed` 可观察进程退出。`close()` 结束后端的 stdin，请求它正常关闭，可重复调用并等待收尾完成，异常退出返回错误；宿主进程没有调用 `close()` 就退出时，结果因平台而异。Linux 和 macOS 上，后端读到 stdin 结尾，照常收尾后退出。Windows 上，Node 的 libuv 把不是 detached 的子进程放进随父进程关闭而结束的作业对象（见 libuv 1.51 的 [`uv_spawn`](https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c#L1082)），后端随宿主一起被结束，来不及收尾，但也不会留下来；它持有的空间锁最多 30 秒后视为过期，尚未提交的文件改动在下次打开空间时记为外部改动。宿主等后端交出连接信息，后端在此之前退出即为启动失败；等待上限缺省 5 分钟（`startupTimeoutMs`），只防后端真的卡住，因为新装的应用第一次启动时杀毒软件逐个扫描后端要读的文件，在 Windows 上实测要 19 到 25 秒，超时杀掉后端只会让下次启动从头再扫。启动失败的进程回收有 5 秒强制终止期限。正常关闭卡住时，例如插件的 `open` 或 `close` 永不返回，`kill()` 直接结束后端进程并等它退出，空间锁同样在过期后回收；桌面端在收尾期间再次退出即调用它。进程入口依赖 Node，不从浏览器客户端导出。
 
 ### 运行检查
 
@@ -431,7 +431,7 @@ onSubmit 在提问时的运行上下文中执行，写入记在该运行名下�
 
 ### 浏览目录
 
-Web 前端用 `space.browse` 浏览子目录，省略路径从用户目录开始；`files` 为真时连同文件一起列出，文件排在文件夹后面，带 `file: true` 与字节数 `size`，供页面选本机文件（例如学习页添加课件）；有效的格式标记会标出空间，包括当前程序尚不能打开的更新版本，浏览只读标记。单次最多 1,000 个子目录并标记截断，不提供翻页；Windows 的隐藏目录按名称过滤，用户自行设置的隐藏属性仍可能显示。`space.roots` 在 Windows 通过 PowerShell 取盘符，失败回退用户目录所在盘，其他平台从 `/` 开始。
+Web 前端用 `space.browse` 浏览子目录，省略路径从用户目录开始；`files` 为真时连同文件一起列出，文件排在文件夹后面，带 `file: true` 与字节数 `size`，供页面选本机文件（例如学习页添加课件）；`extensions` 只列这些扩展名的文件（带点，不分大小写），由调用方按用途给出，底座不知道哪些格式有用；有效的格式标记会标出空间，包括当前程序尚不能打开的更新版本，浏览只读标记。单次最多 1,000 个子目录并标记截断，不提供翻页；点开头的条目和 Office 的锁文件（`~$` 开头）在所有系统上都不列。Windows 上带隐藏属性的条目不列，与资源管理器一致：`AppData`、为旧程序保留的兼容链接（中文系统上叫“「开始」菜单”等，名称随语言变化）、`NTUSER.DAT`、`$Recycle.Bin` 都带这个属性。Node 读不到文件属性，所以每列一次目录调用一次 `cmd /u /c dir /a:h /b`，在 Windows 11 上实测约 23 ms；这一步出错时照常列出，不让浏览失败。`space.roots` 在 Windows 通过 PowerShell 取盘符，失败回退用户目录所在盘，其他平台从 `/` 开始。
 
 ## 会话
 

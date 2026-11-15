@@ -178,7 +178,7 @@ it("没有课件时写了想学什么就能开始：输入框问想学什么，�
   expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: false, request: "线性代数，期末考试用" }]);
 });
 
-it("添加课件：在本机文件夹里勾选文件，由课件插件复制进 materials/；已有同名文件时如实报错，勾选不丢", async () => {
+it("添加课件：只列课件格式的文件，在本机文件夹里勾选，由课件插件复制进 materials/；已有同名文件时如实报错，勾选不丢", async () => {
   let added = 0;
   const fake = backend({
     "materials.list": () => Promise.resolve({ files: [] }),
@@ -194,7 +194,8 @@ it("添加课件：在本机文件夹里勾选文件，由课件插件复制进 
 
   fireEvent.click(await screen.findByRole("button", { name: "making.materials.add.action" }));
   const dialog = within(await screen.findByRole("dialog"));
-  expect(calls(fake.call, "space.browse")).toEqual([{ files: true }]);
+  // 只列课件插件读得了的格式，扩展名取自课件插件的协议。
+  expect(calls(fake.call, "space.browse")).toEqual([{ files: true, extensions: [".pdf", ".pptx", ".ppt", ".docx", ".doc", ".txt", ".md"] }]);
   fireEvent.click(await dialog.findByRole("button", { name: "课件" }));
   fireEvent.click(await dialog.findByRole("checkbox", { name: /^第一章\.pdf/u }));
   expect(dialog.getByText("2.4 MB")).toBeTruthy();
@@ -418,6 +419,25 @@ it("做课的会话在对话页打开：同一段记录和同一张提问卡片�
   expect(transcript.getByText("轮廓出来了。")).toBeTruthy();
   expect(transcript.getByText("照此划分推进吗？")).toBeTruthy();
   expect(store.getState().conversation.sessionId).toBe("making-1");
+});
+
+it("重开应用或刷新页面后，本机记着的会话正是做课的那一段：面板照样读出记录，能接着发消息", async () => {
+  const fake = backend({
+    "learning.building.get": () => Promise.resolve(outlined),
+    "session.history": () => Promise.resolve([{ id: "a1", type: "assistant", timestamp: iso, text: "第一节已经展开。", data: { stopReason: "stop" } }]),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  mockMatchMedia(true);
+  // 上次关掉应用时，当前会话就是做课的那一段；恢复的只有 id，记录要重新读。
+  localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { space: "/notes/os", sessionId: "making-1" }, version: 0 }));
+  const store = createAppStore();
+  store.getState().setClient(fake.client);
+  render(<StoreProvider store={store}><RouterProvider router={createMemoryRouter(routes, { initialEntries: ["/learn"] })} /></StoreProvider>);
+
+  const panel = within(await screen.findByRole("region", { name: "making.panel.label" }));
+  expect(await panel.findByText("第一节已经展开。")).toBeTruthy();
+  expect(calls(fake.call, "session.history")).toEqual([{ sessionId: "making-1" }]);
+  fireEvent.change(panel.getByRole("textbox"), { target: { value: "再加一道题" } });
+  expect((panel.getByRole("button", { name: "发送" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
 it("第一次使用：问这门课叫什么，在主目录的 Repa/<名称> 新建空间并打开，落到放课件的起点；不能作文件夹名或文件夹已有内容时如实报错", async () => {

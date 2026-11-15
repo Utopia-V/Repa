@@ -5,6 +5,6 @@ export {
   type PrepareOptions, type PythonEnvironment, type RuntimeAssets, type Wheel,
 } from "./runtime.js";
 export {
-  DEFAULT_JOB_TIMEOUT_MS, DEFAULT_MEMORY_BYTES, PythonSandbox, SandboxRunner, SandboxUnavailable,
+  DEFAULT_JOB_TIMEOUT_MS, DEFAULT_MEMORY_BYTES, PythonSandbox, requireSandboxPlatform, SandboxRunner, SandboxUnavailable,
   type RuntimeVersions, type SandboxOptions,
 } from "./sandbox.js";

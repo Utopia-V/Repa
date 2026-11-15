@@ -35,6 +35,11 @@ export class SandboxUnavailable extends Error {
   }
 }
 
+/** 隔离靠 Linux 的 Landlock 与 seccomp；别的系统上不必准备运行时文件，也不去启动 launch.py，直接说明原因。 */
+export function requireSandboxPlatform(): void {
+  if (process.platform !== "linux") throw new SandboxUnavailable(`沙箱只能在 Linux 上建立，这台机器的系统是 ${process.platform}`);
+}
+
 /** 启动沙箱的选项：要加载的运行时文件、内存上限和启动沙箱用的系统 python3。 */
 export interface SandboxOptions {
   assets: RuntimeAssets;
@@ -86,8 +91,7 @@ export class PythonSandbox {
 
   /** 启动一个沙箱，等它加载好 Pyodide、要求的包和 runner.py；建立不了时抛 SandboxUnavailable。 */
   static async start(options: SandboxOptions): Promise<{ sandbox: PythonSandbox; versions: RuntimeVersions }> {
-    // 隔离靠 Linux 的 Landlock 与 seccomp；别的系统上不去启动 launch.py，直接说明原因。
-    if (process.platform !== "linux") throw new SandboxUnavailable(`沙箱只能在 Linux 上建立，这台机器的系统是 ${process.platform}`);
+    requireSandboxPlatform();
     const { assets } = options;
     const node = await realpath(process.execPath);
     const runnerConfig = {

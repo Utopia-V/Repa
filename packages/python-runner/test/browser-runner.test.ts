@@ -480,12 +480,12 @@ test("按 pyodide-lock.json 取 runner.py 需要的包及依赖，核对 SHA-256
   assert.ok(requested.includes("/__repa/pyodide/packages/six.whl"));
 });
 
-test("缺少 wheel 时提示先准备离线包", async (t) => {
+test("缺少 wheel 时说明缺的是应用带的包，不叫学习者运行 npm", async (t) => {
   serve(t, await sha256(wheel), "missing.whl");
   await rejectsWith(
     loadRuntimeFiles(ASSETS_URL),
     "runtime_unavailable",
-    "缺少 Pyodide 包，先运行 npm run course:runtime 准备离线包：/__repa/pyodide/packages/missing.whl 返回 HTTP 404",
+    "缺少应用带的 Pyodide 包：/__repa/pyodide/packages/missing.whl 返回 HTTP 404",
   );
 });
 

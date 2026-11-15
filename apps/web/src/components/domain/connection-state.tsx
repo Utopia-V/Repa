@@ -1,7 +1,8 @@
 import { LoaderCircle, Network, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
-import { ErrorNotice } from "@/components/domain/error-notice";
+import { StatusNotice } from "@/components/ui/status-notice";
+import { describeError } from "@/lib/errors";
 import { t } from "@/lib/strings";
 
 export function StartupPanel({
@@ -24,7 +25,14 @@ export function StartupPanel({
       </CardHeader>
       <CardContent>
         {failure ? (
-          <ErrorNotice title={t("connection.startup.error.title")} error={failure.error} />
+          // 宿主交来的原文带着 IPC 通道名和后端的诊断，学习者读不懂；先说一句人话，原文折叠起来，排查时还能看到、复制。
+          <StatusNotice status="error" title={t("connection.startup.error.title")}>
+            <p>{t("connection.startup.failed.message")}</p>
+            <details className="mt-2">
+              <summary className="cursor-pointer">{t("common.errorDetails.label")}</summary>
+              <p className="mt-2 break-all whitespace-pre-wrap">{describeError(failure.error).message}</p>
+            </details>
+          </StatusNotice>
         ) : (
           <p role="status" className="flex items-start gap-2 text-body text-muted-foreground">
             <LoaderCircle aria-hidden="true" className="size-5 shrink-0" />
