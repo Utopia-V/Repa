@@ -97,7 +97,7 @@ if (state.ok) renderLearning(state.value);
 
 空间里有 `course/` 文件夹而还没有换用过一门通过检查的课，或换用的课打不开时，插件照常打开，但没有可学的课：`state.get` 返回 `course`、`task`、`menu` 都为 `null`，`tutorAllowed` 与 `referenceContentAllowed` 为 false，进度的 XP 与 topic 数为零；`progress.get` 同样给出零进度，导出照常可用，其余方法以 `course_unavailable` 拒绝，辅导会话的 `session.send` 报 `message_rejected`，details 的 `reason` 为 `course_unavailable`。做课的 Agent 用 `course_use` 换用以后，后端发出 `learning.changed`，重新查询即可看到这门课。课程从哪里来、换用的规则见[学习记录说明](learning-records.md#课程来源与模型)。
 
-学习者有做到一半的任务时，只有新的一版只增不改，`course_use` 才换用：判分运行时相同，旧版里每个展开了的 topic 在新版里一字不差，轮廓可以展开、修改或删去，也可以加新的 topic（例如后台展开了后面的部分）。这时新的一版重放出同一项任务，题面、阶段与交付不变，`state.course.version` 可以变。改了展开过的部分就不换：除了任务本身的 topic，学过的部分改了答案也会使旧作答重判，先修可能不再算学过，进行中的任务随之失去资格。换用以后发出 `learning.changed` 与 `building.changed`。
+学习者有做到一半的任务时，只有新的一版只增不改，`course_use` 才换用：判分运行时相同（旧版没有运行时可以新写上，那时课里没有要运行 Python 的题），旧版里每个展开了的 topic 在新版里一字不差，轮廓可以展开、修改或删去，也可以加新的 topic（例如后台展开了后面的部分）。这时新的一版重放出同一项任务，题面、阶段与交付不变，`state.course.version` 可以变。改了展开过的部分就不换：除了任务本身的 topic，学过的部分改了答案也会使旧作答重判，先修可能不再算学过，进行中的任务随之失去资格。换用以后发出 `learning.changed` 与 `building.changed`。
 
 ### 做课的状态
 
@@ -160,7 +160,7 @@ if (state.ok) renderLearning(state.value);
 
 ### 试运行
 
-学习者提交之前可以点“运行”，看看自己的代码输出什么。前端只有学习者写的代码，拼不出能运行的程序：例如题目让学习者筛选成绩表 `df`，`df` 由课程的运行前导、题目的数据夹具和测试的准备代码建立，这些都在后端，单独运行学习者的代码会报 `df` 未定义。所以前端先调用 `run.prepare`，传入当前任务里一份交付的 `deliveryId`、代码作答位的 `slotId` 和学习者的 `code`；后端返回一份 `repa-python-batch-v2` 批次，即运行器协议的 `PythonBatchInput`，前端在本机运行它。
+学习者提交之前可以点“运行”，看看自己的代码输出什么。前端只有学习者写的代码，拼不出能运行的程序：例如题目让学习者筛选成绩表 `df`，`df` 由课程的运行前导、题目的数据夹具和测试的准备代码建立，这些都在后端，单独运行学习者的代码会报 `df` 未定义。所以前端先调用 `run.prepare`，传入当前任务里一份交付的 `deliveryId`、代码作答位的 `slotId` 和学习者的 `code`；后端返回一份 `repa-python-batch-v3` 批次，即运行器协议的 `PythonBatchInput`，前端在本机运行它。
 
 这份批次只有一个测试：按这一问第一个公开测试准备前导、数据夹具和 setup，再运行学习者的代码。准备的方式与判分相同，都由 [`code-tests.ts`](../../packages/learning/src/code-tests.ts) 给出，所以试运行与判分里的这个测试在同样的环境里执行。批次不带 captures 和 doctest，期望表达式、隐藏测试的输入和参考解都不在里面；测试全部隐藏时，只准备前导和题面上的数据。
 

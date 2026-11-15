@@ -55,8 +55,6 @@ export interface RuntimeAssets {
   /** 要求的包及其依赖。 */
   wheels: Wheel[];
   load: string[];
-  /** 运行环境声明的前导，每个任务在自己的命名空间里先运行它；没有声明为空串。 */
-  prelude: string;
 }
 
 /** 运行时用不了：安装的版本与要求不符、缺少离线包或下载失败。code 说明是哪一种。 */
@@ -112,7 +110,6 @@ export async function describeRuntime(runtime: PythonEnvironment, packagesDirect
     packagesDirectory: packagesDirectory ?? defaultPackagesDirectory(manifest.version),
     wheels: [...wheels.values()].sort((left, right) => left.name.localeCompare(right.name)),
     load: Object.keys(runtime.packages),
-    prelude: runtime.prelude ?? "",
   };
 }
 

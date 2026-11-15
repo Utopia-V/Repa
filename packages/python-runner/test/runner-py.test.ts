@@ -110,7 +110,7 @@ test("每个测试结束时恢复解释器状态，下一个测试看不到上�
 function outcome(start: (line: string) => Generator, job: Partial<PythonTest> & { program: string }) {
   const { result } = run(start, job);
   assert.equal(result.status, "completed");
-  return result.result as { captures: Record<string, unknown>; doctest: unknown[] };
+  return result.result as { captures: Record<string, unknown>; doctest: unknown[]; error: unknown; verified?: unknown };
 }
 
 test("capture 的值序列化后即释放，求值和序列化共用输出上限，被检查的调用 exit() 记在这一项上", async (t) => {
@@ -169,4 +169,57 @@ test("program 为空串时只在准备好的命名空间里对 captures 求值�
       doctest: [],
     },
   });
+});
+
+test("verify 任务经 program_test 运行，核对程序的辅助函数：出错行号、实际执行的行、函数收到的参数、显示内容的标记和固定格", async (t) => {
+  const pyodide = await frontend;
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
+  const script = [
+    "plain = run(\"x = 1\\ny = 2\\nz = y / 0\\nprint('after')\")",
+    "inner = run(\"def f():\\n    return 1 / 0\\n\\nprint('a')\\nf()\")",
+    "broken = run(\"print('a')\\nx = (\\n\")",
+    "fine = run(\"x = 1\")",
+    "ran = executed_lines(\"a = 1\\nif a > 5:\\n    b = 2\\nelse:\\n    b = 3\")",
+    "seen = calls(\"def label(signal, limit=10):\\n    gap = signal - limit\\n    return gap > 0\\n\\nlabel(12)\\nlabel(3, limit=5)\", name='label')",
+    "answers = {",
+    "  'plain': plain.error_line, 'inner': inner.error_line, 'broken': broken.error_line, 'fine': fine.error_line,",
+    "  'ran': ran,",
+    "  'args': [call.args for call in seen], 'first': seen[0].locals, 'returned': [call.returned for call in seen],",
+    "  'nothing': show(None), 'function': show(len), 'value': show([1, 'a']),",
+    "  'error': ERROR, 'marked': as_shown('abc'), 'bare': 'abc',",
+    "  'cell': CELLS['grid']['r1']['input'],",
+    "}",
+  ].join("\n");
+  const shape = {
+    plain: "text", inner: "text", broken: "text", fine: "text", ran: "text", args: "text", first: "text", returned: "text",
+    nothing: "display", function: "display", value: "display", error: "display", marked: "display", bare: "display", cell: "text",
+  };
+  const verify = { code: "", blocks: [], options: {}, cells: { grid: { r1: { input: "len('ab')" } } }, shape };
+  const { phases, result } = run(pyodide.test, { program: script, verify });
+  assert.deepEqual(phases, ["prepare", "program", "cleanup"]);
+  assert.equal(result.status, "completed");
+  assert.deepEqual((result.result as { verified: unknown }).verified, {
+    answers: {
+      plain: "3", inner: "2", broken: "2", fine: "None", ran: "[1, 2, 5]",
+      args: "[{'signal': 12, 'limit': 10}, {'signal': 3, 'limit': 5}]",
+      first: "{'signal': 12, 'limit': 10, 'gap': 2}", returned: "[True, False]",
+      nothing: "NOTHING", function: "FUNCTION", value: "[1, 'a']", error: "ERROR", marked: "abc", bare: "'abc'",
+      cell: "len('ab')",
+    },
+    unknown: [],
+  });
+});
+
+test("verify 程序出错、answers 不是字典时结果里没有算出的答案，错误写明类型和行号；不需要核对的作答位列进 unknown", async (t) => {
+  const pyodide = await frontend;
+  if (typeof pyodide === "string") return skipUnavailableEnvironment(t, pyodide);
+  const verify = { code: "", blocks: [], options: {}, cells: {}, shape: { value: "text" } };
+  const raised = outcome(pyodide.test, { program: "x = 1\nanswers = {'value': 1 / 0}", verify });
+  assert.deepEqual(raised.error, { type: "ZeroDivisionError", message: "division by zero", line: 2 });
+  assert.equal(raised.verified, undefined);
+  const wrong = outcome(pyodide.test, { program: "answers = [1]", verify });
+  assert.equal((wrong.error as { type: string }).type, "TypeError");
+  assert.equal(wrong.verified, undefined);
+  const extra = outcome(pyodide.test, { program: "answers = {'value': 2, 'other': 3}", verify });
+  assert.deepEqual(extra.verified, { answers: { value: "2" }, unknown: ["other"] });
 });

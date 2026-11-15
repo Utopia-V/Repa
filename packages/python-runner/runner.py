@@ -1,5 +1,5 @@
 """在 Pyodide 里执行任务的 Python 部分。浏览器的 Worker 和 Linux 沙箱里的 sandbox/runner.mjs 都加载它，
-用同一个 program_test 逐个阶段运行测试；沙箱另用 handle_job 运行课程核对专用的 verify 任务。
+用同一个 program_test 逐个阶段运行测试；课程核对专用的 verify 任务也是一种测试，带着 verify 字段。
 
 每个任务用全新的命名空间（先运行调用方给的运行前导）和空的工作目录，
 任务后把解释器里常被改动的全局状态（pandas 与 NumPy 的选项、builtins、sys 的输出与显示钩子和 path、
@@ -73,14 +73,6 @@ def clear_scratch():
     for name in os.listdir("/"):
         if name not in ROOT_BASELINE:
             remove_path(os.path.join("/", name))
-
-
-def reset_state():
-    """verify 任务后恢复状态；恢复不了就以 SystemExit 结束运行器，下一个任务换新的。"""
-    try:
-        restore_state()
-    except Exception as error:  # noqa: BLE001
-        raise SystemExit(f"无法恢复解释器状态：{error}") from error
 
 
 def restore_state():
@@ -476,28 +468,35 @@ def convert_answer(value, shape):
     raise ValueError(f"不认识的作答形状 {shape}")
 
 
-def job_verify(job):
+VERIFY_FILE = "<verify>"
+
+
+def verify_namespace(job):
+    """verify 程序运行的命名空间：前导和数据之外，还有运行题面代码的辅助函数和题目的代码、选项、固定格。"""
+    verify = job["verify"]
     prelude = job.get("prelude", "")
-    helpers = make_helpers(job["data"], job["code"], prelude)
-    environment = {name: item for name, item in build_namespace(job["data"], prelude).items() if name not in ("__name__", "__builtins__")}
-    environment.update({
+    helpers = make_helpers(job["data"], verify["code"], prelude)
+    namespace = {name: item for name, item in build_namespace(job["data"], prelude).items() if name not in ("__name__", "__builtins__")}
+    namespace.update({
         "__name__": "__verify__", "__builtins__": builtins, **helpers,
         "as_shown": as_shown, "show": show, "ERROR": ERROR, "NOTHING": NOTHING, "FUNCTION": FUNCTION,
-        "CODE": job["code"], "BLOCKS": job["blocks"], "OPTIONS": job["options"], "CELLS": job["cells"],
+        "CODE": verify["code"], "BLOCKS": verify["blocks"], "OPTIONS": verify["options"], "CELLS": verify["cells"],
     })
-    with contextlib.redirect_stdout(LimitedOutput()):
-        exec(compile(job["script"], "<verify>", "exec"), environment)
-    answers = environment.get("answers")
+    return namespace
+
+
+def verified_answers(namespace, shape):
+    """verify 程序结束时 answers 里的值，按作答位的形状写成作答；不需要核对的作答位列进 unknown。"""
+    answers = namespace.get("answers")
     if not isinstance(answers, dict):
         raise TypeError("verify 程序结束时，需要给 answers 赋一个字典")
     converted = {}
     unknown = []
     for slot, value in answers.items():
-        shape = job["shape"].get(slot)
-        if shape is None:
+        if slot not in shape:
             unknown.append(str(slot))
             continue
-        converted[slot] = convert_answer(value, shape)
+        converted[slot] = convert_answer(value, shape[slot])
     return {"answers": converted, "unknown": unknown}
 
 
@@ -513,10 +512,26 @@ def prepared(job):
 def program_steps(job):
     """一个测试的生成器：每个阶段开始前产出 (阶段, 序号)，返回值是测试结果。
 
+    带 verify 的测试是课程核对的 verify 任务：program 是 verify 程序，在 verify_namespace 里运行，
+    结果的 verified 是算出的作答，程序出错或 answers 写不成作答时记在 error 里。
+
     宿主在每步之间把阶段告诉调用方，超时时调用方按最后收到的阶段判断停在哪里。
     capture 的求值是被测的代码，序列化是运行器的，所以分成 capture 和 serialize 两步，但共用一个输出上限。
     """
     yield "prepare", None
+    if "verify" in job:
+        namespace = verify_namespace(job)
+        yield "program", None
+        stdout, error = run_quietly(job["program"], namespace, VERIFY_FILE)
+        result = {"stdout": stdout, "error": error, "captures": {}, "doctest": []}
+        if error is None:
+            # 把算出的值写成作答也会调用值自己的 __repr__，与 verify 程序同属被测的代码，计在 program 阶段。
+            try:
+                with contextlib.redirect_stdout(LimitedOutput()):
+                    result["verified"] = verified_answers(namespace, job["verify"]["shape"])
+            except Exception as failure:  # noqa: BLE001
+                result["error"] = {**describe_error(failure), "line": None}
+        return result
     namespace = prepared(job)
     yield "program", None
     stdout, error = run_quietly(job["program"], namespace, "<作答>")
@@ -576,20 +591,6 @@ def program_test(line):
         if result["status"] == "completed":
             result["restoreError"] = describe_error(error)
     return json.dumps(result, ensure_ascii=False)
-
-
-JOBS = {"verify": job_verify}
-
-
-def handle_job(line):
-    """Node 宿主运行课程核对专用任务（目前只有 verify）的入口；测试都经 program_test 运行。"""
-    job = json.loads(line)
-    try:
-        reply = json.dumps({"ok": True, "result": JOBS[job["op"]](job)}, ensure_ascii=False)
-    except BaseException as error:  # noqa: BLE001  任务失败不应结束整个运行器
-        reply = json.dumps({"ok": False, "error": describe_error(error), "trace": traceback.format_exc()[-4000:]}, ensure_ascii=False)
-    reset_state()
-    return reply
 
 
 def runtime_versions(packages):

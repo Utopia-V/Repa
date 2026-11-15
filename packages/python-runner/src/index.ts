@@ -6,5 +6,5 @@ export {
 } from "./runtime.js";
 export {
   DEFAULT_JOB_TIMEOUT_MS, DEFAULT_MEMORY_BYTES, PythonSandbox, SandboxRunner, SandboxUnavailable,
-  type JobOutcome, type RuntimeVersions, type SandboxOptions,
+  type RuntimeVersions, type SandboxOptions,
 } from "./sandbox.js";
