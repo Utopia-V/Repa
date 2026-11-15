@@ -10,9 +10,21 @@ import { Type, type Static } from "typebox";
 import { object } from "@repa/base/protocol";
 
 /** 请求与结果都带这个协议名；前端认不出就拒绝，不按旧格式猜。 */
-export const PYTHON_BATCH = "repa-python-batch-v2";
+export const PYTHON_BATCH = "repa-python-batch-v3";
 /** 前端服务的名字。前端连接时在 capabilities.services 里声明它，就表示能运行 Python。 */
 export const PYTHON_RUN = "python.run";
+/** 两个宿主共同的时限：测试的准备、被测代码和收尾各 10 秒。调用方等前端交回结果的期限也由它算出，见 replyDeadlineMs。 */
+export const PYTHON_STEP_TIMEOUT_MS = 10_000;
+/** 两个宿主启动解释器的时限，60 秒：加载 Pyodide 失败时会一直卡住、不报错，所以启动也要限时。 */
+export const PYTHON_START_TIMEOUT_MS = 60_000;
+
+/**
+ * 调用方最多等前端多久交回一批 count 个测试的结果：启动解释器的时限，加上每个测试三段（准备、被测代码、收尾）的时限。
+ * 前端自己按这些时限结束卡住的测试；这个期限只防前端本身没有回应。stepMs 是每段的时限，与启动时限按 1 比 6 一起缩放。
+ */
+export function replyDeadlineMs(count: number, stepMs = PYTHON_STEP_TIMEOUT_MS): number {
+  return stepMs * (PYTHON_START_TIMEOUT_MS / PYTHON_STEP_TIMEOUT_MS + 3 * count);
+}
 const pythonError = object({ type: Type.String(), message: Type.String() });
 
 /** 实际加载的 Pyodide、Python 和 numpy、pandas 的版本，只随结果记下，调用方不拿它比较。 */
@@ -58,13 +70,30 @@ export const PythonProgramResultSchema = object({
   ]),
   captures: Type.Record(Type.String(), Type.Union([object({ value: Type.Unknown() }), object({ error: pythonError })])),
   doctest: Type.Array(object({ out: Type.String(), exception: Type.Union([Type.String(), Type.Null()]) })),
+  /** 带 verify 的测试才有：verify 程序算出的作答（作答位 id 到按形状写成的值），以及 answers 里不需要核对的作答位。程序出错时没有，错误在 error。 */
+  verified: Type.Optional(object({ answers: Type.Record(Type.String(), Type.Unknown()), unknown: Type.Array(Type.String()) })),
 });
 /** 一个测试运行完的结果，见 PythonProgramResultSchema。 */
 export type PythonProgramResult = Static<typeof PythonProgramResultSchema>;
 
 /**
+ * 课程核对的 verify 任务要的题目内容：code 是题面代码块连起来的全文，blocks 是各块，options 是 {作答位: {选项: 代码}}，
+ * cells 是表格里固定显示的文字 {作答位: {行: {列: 文字}}}，shape 是需要核对的作答位各自写成作答的方式（见 runner.py 的 convert_answer）。
+ * 它属于学习插件的课程核对，暂时放在运行器里，见 README 的已知限制。
+ */
+export const PythonVerifySchema = object({
+  code: Type.String(),
+  blocks: Type.Array(Type.String()),
+  options: Type.Record(Type.String(), Type.Record(Type.String(), Type.String())),
+  cells: Type.Record(Type.String(), Type.Record(Type.String(), Type.Record(Type.String(), Type.String()))),
+  shape: Type.Record(Type.String(), Type.Unknown()),
+});
+
+/**
  * 一个测试：在全新的命名空间里依次运行 prelude、准备 data、运行 setup 和 program，再对 captures 逐个求值、逐条运行 doctest。
  * 测试只带运行所需的输入，怎样比较由调用方决定。program 可以是空串，这时只在准备好的命名空间里对 captures 求值。
+ * 带 verify 时是课程核对的 verify 任务：program 是 verify 程序，在带有运行题面代码的辅助函数的命名空间里运行，
+ * 不用 setup、captures 和 doctest，结果在 verified 里。
  */
 export const PythonTestSchema = object({
   id: Type.String(),
@@ -74,6 +103,7 @@ export const PythonTestSchema = object({
   data: Type.Array(object({ label: Type.String(), fixture: FixtureSchema })),
   captures: Type.Array(Type.String()),
   doctest: Type.Array(Type.String()),
+  verify: Type.Optional(PythonVerifySchema),
 });
 /** 一个测试，见 PythonTestSchema。 */
 export type PythonTest = Static<typeof PythonTestSchema>;

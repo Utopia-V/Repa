@@ -23,7 +23,7 @@
 | 工具 | 作用 |
 | --- | --- |
 | `course_check` | 检查 `course/`：问题逐处写成“文件:行:列 级别 [错误码] 说明”，一页 40 处，末尾写明还有多少、下一页的 `offset`；另写明 Python 核对是否运行、`manual` 作答位有多少没有独立核对，以及学习者现在学的是哪一份、学过哪些 topic、后台是否正在展开 |
-| `course_use` | 检查 `course/`，通过就换用；学习者有做到一半的任务时，只有新的一版只增不改（展开过的 topic 和运行时一字不差，只展开轮廓或增加部分）才换，否则不换并写明，等他做完再调用；没通过时不换，返回第一页问题 |
+| `course_use` | 检查 `course/`，通过就换用；学习者有做到一半的任务时，只有新的一版只增不改（展开过的 topic 和运行时一字不差，只展开轮廓或增加部分；旧版没有运行时可以新写上）才换，否则不换并写明，等他做完再调用；没通过时不换，返回第一页问题 |
 
 两项工具都在数据目录的临时副本上检查，写到一半的 `course/` 进不了学习者的课、复习和测验；换用的规则见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。调用这两项工具的会话记作做课的会话，花费按它们汇总。
 
@@ -124,13 +124,13 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 1. 读取与 schema 校验。
 2. 交叉规则（[`src/check/rules.ts`](src/check/rules.ts)）：id 唯一、前缀正确且不在 `retiredIds` 中；先修图与覆盖图分别检查引用、重复、自指和环；KP 的关键先修属于先修祖先；题目直接考查的知识点存在、只在本 topic 内且不重复；每个 topic 的知识点数在 `MIN_KPS` 与 `MAX_KPS` 之间，完整 topic 的每个知识点有概念卡、讲解、例题、至少 `MIN_PRACTICE` 道练习、复习和测验题池；复习和测验题至少有一个由程序判分的作答位，不含开放作答；一道题最多一个按测试判的作答位；来源登记在清单里，用法在许可范围内；链接只用 `https:` 和 `repa:concept/`，概念引用指向存在的知识点；每个作答位要么有 `verify`、要么列进 `manual`、要么由测试负责；有 `verify`、代码题或带测试的排列题的课要在清单里写 `runtime`，否则报 `runtime_missing`；标准答案引用的选项、块和单元格存在；要按写法显示或比较的文字写成字符串，小表里的数保留写法（`001`、`1e3`、未声明 `float` 的小数都会报出）；doctest 不超过 `DOCTEST_LIMITS`。
 3. 标准答案自洽（[`src/check/questions.ts`](src/check/questions.ts)）：投影出的 `Item` 符合交互词汇；用标准答案拼出的作答能通过 `checkResponse`，并按判分规则得满分；登记的错误答案确实判错；复习和测验题的 `manual` 作答位有当前题面、判分定义和运行依赖的核对记录（`confirmations: "reported"` 时不要求，只在 `summary.confirmationSlots` 里列出，应用里做课用这一种），`verified` 里的记录指向本 topic 存在的题和作答位。
-4. 运行核对（[`src/check/code.ts`](src/check/code.ts)），只在课里有 `verify`、代码题或带测试的排列题时进行（`summary.python`），不用 Python 的课不启动沙箱：核对实际加载的 Pyodide、Python 和包版本与清单一致；每个任务先运行清单的运行前导 `runtime.prelude`，学习者在 Repa 里运行代码时用同一份；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致；代码题和 Parsons 题用判分的入口（见下文的[代码题的测试](#代码题的测试)）去判参考答案和 `accepts`，必须全部通过，`rejects` 和作答框里的初始代码必须至少错一个测试；期望值算不出来时报 `test_expect_failed`，执行环境出了问题、得不出结论时报 `test_unavailable`。比较在沙箱外进行，超过运行器序列化上限（`runner.py` 的 `CELL_LIMIT`、`REPR_LIMIT`）的值不截断比较，直接报“太大，无法比较”。核对不生成任何产物。
+4. 运行核对（[`src/check/code.ts`](src/check/code.ts)），只在课里有 `verify`、代码题或带测试的排列题时进行（`summary.python`），不用 Python 的课不运行 Python；在哪里运行见下文的[在哪里运行核对](#在哪里运行核对)。核对实际加载的 Pyodide、Python 和包版本与清单一致，清单没写而实际加载了的包也算不一致；每个任务先运行清单的运行前导 `runtime.prelude`，学习者在 Repa 里运行代码时用同一份；运行 `verify` 并判它算出的答案，`key` 里写的每个可接受值都要与算出的答案一致，一个 topic 的 `verify` 任务成批交给执行方；代码题和 Parsons 题用判分的入口（见下文的[代码题的测试](#代码题的测试)）去判参考答案和 `accepts`，必须全部通过，`rejects` 和作答框里的初始代码必须至少错一个测试；期望值算不出来时报 `test_expect_failed`，执行环境出了问题、得不出结论时报 `test_unavailable`。比较在运行 Python 的地方之外进行，超过运行器序列化上限（`runner.py` 的 `CELL_LIMIT`、`REPR_LIMIT`）的值不截断比较，直接报“太大，无法比较”。核对不生成任何产物。
 
 ### 代码题的测试
 
 代码题的题目里只存答案本身，即测试的期望表达式和参考解，不存算出来的值：值依赖运行环境，例如文字列在 pandas 3 是 `str`、在 pandas 2 是 `object`。所以判分时在运行学习者程序的同一个环境里、在程序之前当场算出期望值，再与程序的结果比较。这样不必保证算值的环境与判分的环境相同，课程文件的换行符或运行器文件变了，也不影响判分。
 
-[`src/code-tests.ts`](src/code-tests.ts) 是检查工具和判分共用的入口：`runCodeTests(run, plan, programs)` 用执行方 `run` 判若干份程序。执行方按 `@repa/python-runner/protocol` 的约定运行一批测试：判分时是 `frontendTests(host)`，经前端的 `python.run`，页面每次调用用一个新的 Worker；课程核对时是 Node 沙箱的 `runTests`，整门课一个解释器。以后学习者用自己装的 Python 时，再加一个按同样约定运行本机 `python` 进程的执行方。
+[`src/code-tests.ts`](src/code-tests.ts) 是检查工具和判分共用的入口：`runCodeTests(run, plan, programs)` 用执行方 `run` 判若干份程序。执行方按 `@repa/python-runner/protocol` 的约定运行一批测试：判分时是 `frontendTests(host)`，经前端的 `python.run`，页面每次调用用一个新的 Worker；课程核对时是 Linux 沙箱的 `runTests`（整门课一个解释器），沙箱建不起来时同样是前端的 `python.run`。以后学习者用自己装的 Python 时，再加一个按同样约定运行本机 `python` 进程的执行方。
 
 带 `expect` 的测试各对应一个期望任务：程序为空串，在只有前导、夹具和 setup 的命名空间里依次对期望表达式求值，同一个测试里相同的表达式只算一次。第一次调用先运行全部期望任务，再运行第一份程序的测试，所以期望值与程序在同一个执行方里、并在程序之前算出，程序改不到它。判分只有学习者的一份程序，一次提交只调用一次执行方，不因算期望值多开 Worker；核对时参考答案之后的每份候选程序各调用一次执行方，沿用第一次算出的期望值。
 
@@ -148,9 +148,16 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 
 [`src/check/model.ts`](src/check/model.ts) 用 `--agent-dir`（默认是应用配置目录下的 `agent/`，遵循 `REPA_HOME`）创建底座的 Agent 运行时，经它的单轮 `complete` 调用 Pi 的模型接口，凭据由 Pi 从其中的 `auth.json` 读取。`--log` 的文件在发请求之前独占创建，已存在就报错，之后每道题有结果就写一行。写 `verified` 段时，并入的是写入那一刻磁盘上的记录，先写临时文件再改名，同一个 topic 上同时进行的核对不会丢掉对方的记录。
 
-### 沙箱与离线包
+### 在哪里运行核对
 
-代码核对用 [`@repa/python-runner`](../python-runner/README.md) 的 Linux 沙箱，沙箱建立不了时报 `sandbox_unavailable`，写明课里的核对没有运行，不改用不受限的运行。整门课共用一个解释器，测试按 `python.run` 的约定成批运行，与判分走同一条执行路径；任务之间由 `runner.py` 恢复常被改动的全局状态，恢复失败或任务超时才换一个新沙箱。检查结果的 `summary.code.interpreterStarts` 记下启动过的解释器数，应等于 1 加上超时、崩溃和恢复失败的次数，测试按它核对代价。沙箱限制了什么、任务之间恢复哪些状态、超时怎样归因，见运行器包的说明。
+课程里的 Python 只在两处运行：[`@repa/python-runner`](../python-runner/README.md) 的 Linux 沙箱，以及前端页面的 Worker。`verify` 是模型写的代码，课件里可能有诱导模型的文字，它的运行又不经命令确认，所以两处都没有时不运行，不改用不受限的 Node 进程。[`src/check/python.ts`](src/check/python.ts) 把两处写成 `CheckPython`，`checkCourse` 的 `python` 选项按顺序用第一处能用的：
+
+- 命令行缺省只有 `sandboxPython`。应用里（`createLearningPlugin` 的缺省）先是 `sandboxPython`，沙箱建不起来时（Windows、macOS 和缺少 Landlock 的 Linux）再是 `frontendPython(host.services)`，经开着的应用页面的 `python.run` 运行。后台展开没有自己的连接，`host.services` 交给任何一个声明了 `python.run` 的连接，所以应用开着时同样能用；应用窗口都关着时两处都没有，检查报 `python_unavailable`，写明各处为什么用不了，不算通过，这一次展开记为没做成。测试和其他接入可以用插件的 `python` 选项只给其中一处。
+- 离线包缺失、版本不符是课程或安装的问题，照常报 `runtime_packages`、`runtime_mismatch` 等，不换下一处。
+- Linux 沙箱整门课共用一个解释器，任务之间由 `runner.py` 恢复常被改动的全局状态，恢复失败或任务超时才换一个新沙箱。页面每次调用用一个新的 Worker，所以核对先发一批空的测试取得页面实际加载的版本，之后一个 topic 的 `verify` 成批发、每份候选程序各发一批；每批的版本都要与第一批相同。页面每段 10 秒、启动 60 秒的时限与沙箱相同，后端等一批结果最多 `replyDeadlineMs`（60 秒加上每个测试 30 秒），页面没有在期限内回应、连接断开或运行失败时，已经得到的结论照常报告，其余报 `python_unavailable`，整个检查不算通过。
+- 两处交回的都是 `python.run` 约定的结果，比较全在这边、只有一份，所以同一门课在两处得出的错误码和说明相同，[`test/code.test.ts`](test/code.test.ts) 逐个比对。检查结果的 `summary.where` 写明在哪里运行，`summary.code.interpreterStarts` 记下启动过的解释器数：沙箱应等于 1 加上超时、崩溃和恢复失败的次数，测试按它核对代价；页面按调用次数计。沙箱限制了什么、任务之间恢复哪些状态、超时怎样归因，见运行器包的说明。
+
+### 离线包
 
 准备离线包的 `npm run course:runtime` 由本包提供，因为课程清单决定要哪些 Pyodide 包：它把清单的 `runtime` 交给运行器包，由运行器包算出 wheel 及其依赖，再下载或复制并核对，存放位置和核对方式见运行器包的[离线包](../python-runner/README.md#离线包)。
 
@@ -228,7 +235,8 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 
 ## 已知限制与暂缓
 
-- 课程的代码核对只能在 Linux 上运行，沙箱的要求见[运行器包的已知限制](../python-runner/README.md#已知限制与暂缓)；Windows、macOS 上只能用 `--no-run`，社区作者可以先做结构检查。在应用里做课时，有 `verify` 或代码题的课在这些系统上过不了 `course_check`，也就不能换用；不用 Python 的课不受影响。
+- 命令行的代码核对只能在 Linux 上运行，沙箱的要求见[运行器包的已知限制](../python-runner/README.md#已知限制与暂缓)；Windows、macOS 上只能用 `--no-run`，社区作者可以先做结构检查。应用里在这些系统上经开着的应用页面核对，应用窗口都关着时后台展开过不了检查。
+- 经页面核对时每批测试都要启动一个新的 Worker（本机无界面的 Chromium 约 2.5 秒）：示例课程（10 段 `verify`、3 道按测试判的题）一次检查约 20 秒，`course_check` 与 `course_use` 各检查一次。代码题的候选程序多时更慢；要再快，可以让同一个 Worker 运行一次检查的多批测试，这要改页面运行器每次调用换 Worker 的约定。
 - 应用里做的课，复习和测验题的 `manual` 作答位没有独立的模型核对，`course_check` 只报出个数；答案是否正确由做课的 Agent 对照材料负责。
 - 来源的 `file` 只检查写法（以 `materials/` 开头、不含 `..`），不检查文件在不在：检查在数据目录的副本上进行，读不到空间。
 - 数值作答位的规则（`numeric_manual`）只看 `text` 作答位；表格里的数值格不在其中。

@@ -19,11 +19,14 @@ import { INTERACTION_CAPABILITIES, parse, type SessionUsage } from "@repa/base/p
 import materialsPlugin from "../../materials/dist/plugin.js";
 import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
 import { connectLearning } from "../src/flow.js";
-import { createLearningPlugin } from "../src/plugin.js";
+import { parse as parseYaml, stringify } from "yaml";
+import { frontendPython } from "../src/check/python.js";
+import { createLearningPlugin, type LearningPluginOptions } from "../src/plugin.js";
 import { learningMethods, type CourseBuilding, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
 import type { LearningSession } from "../src/session.js";
 import { TUTOR_AGENT } from "../src/tutor.js";
 import { referenceAnswer } from "./fixtures/learning-session.js";
+import { PAGE_RUNTIME, pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
 
 const EXAMPLE = fileURLToPath(new URL("../guides/example-course/", import.meta.url));
 /** faux 模型的单价（美元每百万 token），花费按它折算。 */
@@ -110,6 +113,8 @@ const hang: FauxResponseFactory = async (_context, options) => {
 interface FixtureOptions {
   /** faux 模型的单价；省略时为 PRICE。 */
   price?: typeof PRICE;
+  /** course_check 能运行 Python 的几处；省略时是插件的缺省（Linux 沙箱，再是前端页面）。 */
+  python?: LearningPluginOptions["python"];
 }
 
 /** 经真实的协议后端打开学习插件与课件插件：通用 Agent 与辅导 Agent 都在，模型是离线的 faux。 */
@@ -136,6 +141,7 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
   });
   let current: LearningSession | undefined;
   const learning = createLearningPlugin({
+    ...(options.python ? { python: options.python } : {}),
     async connect(opened, host) {
       current = opened;
       return connectLearning(opened, { beforeRestricted: () => host.abortAgent(TUTOR_AGENT) });
@@ -228,7 +234,7 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
     return total;
   }
   return {
-    root, faux, client, call, state, building, until, select, step, toAnswer, finish, chat, totalUsage,
+    root, faux, client, call, state, building, until, select, step, toAnswer, finish, chat, totalUsage, connection: server.connection,
     dataDir: path.join(root, ".repa", "plugins", "learning"),
     session: () => current,
     /** 到现在收到的 building.changed 个数。 */
@@ -292,12 +298,31 @@ async function outlineThenFirst(f: Fixture): Promise<string> {
   return id;
 }
 
-/** 后台展开的脚本：等 gate 放行以后把这几部分写成完整的、升版本并换用。 */
-async function expansionScript(parts: { id: string; title: string; prerequisites: string[]; where: string }[], version: string, topics: string[], gate?: Promise<void>): Promise<FauxResponseStep[]> {
+/** 计算题的 verify：时间片 20 ms、运行 70 ms，调度 4 次。 */
+const SCHEDULE_VERIFY = "import math\nanswers = {\"n\": math.ceil(70 / 20)}\n";
+
+/** 在展开的一部分里加一道计算题，答案由 verify 算出。 */
+function withComputation(text: string, id: string): string {
+  const topic = parseYaml(text) as { kps: { practice: unknown[] }[] };
+  topic.kps[0]?.practice.push({
+    id: `${id}.k1.q9`, body: "时间片是 20 ms，一个进程要运行 70 ms，它要被调度几次？",
+    slots: [{ id: "n", type: "text", format: "integer", key: 4 }], explanation: "70 除以 20 向上取整是 4。", verify: SCHEDULE_VERIFY,
+  });
+  return stringify(topic);
+}
+
+/** 后台展开的脚本：等 gate 放行以后把这几部分写成完整的、升版本并换用。computation 时每部分加一道计算题，清单写上 runtime。 */
+async function expansionScript(
+  parts: { id: string; title: string; prerequisites: string[]; where: string }[], version: string, topics: string[], gate?: Promise<void>, computation = false,
+): Promise<FauxResponseStep[]> {
   // 文件工具要先读过一个已有的文件才能整份改写它。
   const files = ["course/course.yaml", ...parts.map((part) => `course/topics/${part.id}.yaml`)];
-  const writes = [write("course/course.yaml", manifest(version, topics))];
-  for (const part of parts) writes.push(write(`course/topics/${part.id}.yaml`, await complete(part.id, part.title, part.prerequisites, part.where)));
+  const runtime = computation ? stringify({ runtime: PAGE_RUNTIME }) : "";
+  const writes = [write("course/course.yaml", `${manifest(version, topics)}${runtime}`)];
+  for (const part of parts) {
+    const text = await complete(part.id, part.title, part.prerequisites, part.where);
+    writes.push(write(`course/topics/${part.id}.yaml`, computation ? withComputation(text, part.id) : text));
+  }
   return [
     async () => {
       await gate;
@@ -372,6 +397,44 @@ test("整条路：出轮廓、展开第一节、换用；学习者上课时后�
   assert.equal(backgroundUsage.requests, 5);
   assert.equal(shown.cost.requests, chatUsage.requests + backgroundUsage.requests);
   sameUsage(shown.cost, await f.totalUsage());
+});
+
+test("后台展开没有自己的连接：带计算题的部分经任何一个开着的应用页面核对并换用；应用窗口都关着时检查如实报告没有运行，这次展开记为没做成", async (t) => {
+  // 在有沙箱的机器上走没有沙箱的那条路：核对只能经前端页面运行。
+  const f = await fixture(t, { python: (host) => [frontendPython(host.services)] });
+  await outlineThenFirst(f);
+  const parts = [
+    { id: "os02", title: "进程控制块", prerequisites: ["os01"], where: "第 5–9 张" },
+    { id: "os03", title: "进程调度", prerequisites: ["os02"], where: "第 10–14 张" },
+  ];
+
+  // 应用页面都没开：后台的 course_check 没有地方运行 verify，不通过，course_use 不换用，这次展开记为 not_expanded，不重试。
+  const checked: string[] = [];
+  const failing = await expansionScript(parts, "1.1.0", ["os01", "os02", "os03"], undefined, true);
+  failing[3] = (context) => {
+    checked.push(lastToolResult(context));
+    return fauxAssistantMessage([fauxToolCall("course_use", {})]);
+  };
+  f.faux.appendResponses(failing);
+  await f.select("os01");
+  let shown = await f.until((state) => state.lastFailure !== null);
+  assert.equal(shown.lastFailure?.code, "not_expanded");
+  assert.match(checked[0] ?? "", /\[python_unavailable\] 没有打开的应用页面能运行 Python/u);
+  assert.deepEqual(shown.parts.map((part) => part.status), ["ready", "outline", "outline"]);
+  assert.equal(f.faux.getPendingResponseCount(), 0);
+
+  // 另开一个只提供 python.run 的连接，它没有发起任何操作。学习者要求再展开：后台的核对交给它，通过并换用，进行中的课照常。
+  const page = await pythonFrontend(t, f.connection, verifiedAnswers({ [SCHEDULE_VERIFY]: { n: "4" } }));
+  f.faux.appendResponses(await expansionScript(parts, "1.1.0", ["os01", "os02", "os03"], undefined, true));
+  await f.call("building.expand", {});
+  shown = await f.until((state) => state.expansion === null);
+  assert.equal(shown.lastFailure, null);
+  assert.deepEqual(shown.parts.map((part) => part.status), ["ready", "ready", "ready"]);
+  assert.equal((await f.state()).course?.version, "1.1.0");
+  // 页面先交回版本，再算两部分各自的那道计算题（course_check 与 course_use 各检查一次）。
+  const verified = page.requests.flatMap((input) => input.tests.map((test) => test.program));
+  assert.deepEqual(verified, [SCHEDULE_VERIFY, SCHEDULE_VERIFY, SCHEDULE_VERIFY, SCHEDULE_VERIFY]);
+  assert.equal(page.requests.length, 2 * (1 + 2));
 });
 
 test("前端分得清：没有可学的课、只有轮廓、轮廓之外有展开的部分；只有轮廓时后台不抢先展开", async (t) => {

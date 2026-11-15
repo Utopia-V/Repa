@@ -60,7 +60,7 @@
 
 ### Python 内部执行边界
 
-代码题和带测试的 Parsons 题经前端服务 `python.run` 判分，协议是 `@repa/python-runner/protocol` 的 `repa-python-batch-v2`（[protocol.ts](../../packages/python-runner/src/protocol.ts)），Web 与 Desktop 用运行器包提供这项服务。能否运行 Python 只看前端连接时是否在 `capabilities.services` 里声明了 `python.run`：菜单、交付和补判都按发起调用的前端当场判断，不调用服务探测；没有声明时，选题跳过代码题与带测试的 Parsons，某个 lesson 的未过 KP 没有可用题时不提供该 lesson。
+代码题和带测试的 Parsons 题经前端服务 `python.run` 判分，协议是 `@repa/python-runner/protocol` 的 `repa-python-batch-v3`（[protocol.ts](../../packages/python-runner/src/protocol.ts)），Web 与 Desktop 用运行器包提供这项服务。能否运行 Python 只看前端连接时是否在 `capabilities.services` 里声明了 `python.run`：菜单、交付和补判都按发起调用的前端当场判断，不调用服务探测；没有声明时，选题跳过代码题与带测试的 Parsons，某个 lesson 的未过 KP 没有可用题时不提供该 lesson。
 
 判分（`judge.ts`）调用检查工具也用的入口 `runCodeTests`（[code-tests.ts](../../packages/learning/src/code-tests.ts)），用法见[学习插件说明](../../packages/learning/README.md#代码题的测试)。一次提交只调用一次 `python.run`：
 
@@ -69,11 +69,11 @@
 - 后端核对结果与请求一一对应、顺序相同、停下前后的状态合乎约定，不合时按服务失败处理。比较在后端完成：学习者的程序、capture 求值或 doctest 超时，以及比较不符，形成判分；准备与收尾超时、`failed`、期望值算不出来、学习者的值太大或结果缺项都没有结论，这份作答尚无证据，不记为学习失败。已有测试判错时整题照样判错。
 - 判分事实只记每个测试的结论，原始执行结果不进学习记录。
 
-课程核对用同一个入口，执行方换成 Node 沙箱，整门课一个解释器；核对不生成任何产物。学习者提交之前的试运行也由这个文件准备环境，只是不带期望值，由前端在本机运行，见[前端契约](learning-protocol.md#试运行)。
+课程核对用同一个入口，执行方是 Linux 沙箱（整门课一个解释器）；沙箱建不起来时（Windows、macOS 和缺少 Landlock 的 Linux）是开着的应用页面的 `python.run`，`verify` 也作为测试交给它，见[学习插件说明](../../packages/learning/README.md#课程检查)。核对不生成任何产物。学习者提交之前的试运行也由这个文件准备环境，只是不带期望值，由前端在本机运行，见[前端契约](learning-protocol.md#试运行)。
 
 ## 未完成项与待验证项
 
-- 协议改为 `repa-python-batch-v2`、期望值改为当场计算以后，代码题判分只在 Node 里用沙箱代替页面 Worker 验证过（`grading.test.ts`），还要在真实的 Web Worker 和 Electron 里各走一遍。
+- 协议改为 `repa-python-batch-v2`、期望值改为当场计算以后，代码题判分只在 Node 里用沙箱代替页面 Worker 验证过（`grading.test.ts`），还要在真实的 Web Worker 和 Electron 里各走一遍。v3 只增加了课程核对的 `verify` 任务，带 `verify` 的课程检查已在无界面的 Chromium 里经页面 Worker 走过一遍，Electron 还没有走过。
 - 学习者的值超过运行器的序列化上限时，这个测试没有结论，这份作答尚无证据，不阻塞任务；每次会话会再试一次，结果仍相同。期望值完整而学习者的值超限，也不能证明两值不同，因为容器子类可以自带 `size` 属性。是否改为超出可比较范围就判这个测试失败、并在反馈里说明，由维护者决定。
 - 真实学习体验及算法对后续表现的解释，仍需后续组合试用和实际作答资料。其中几项只能靠真实使用确认：按答对比例计的课质量会让勉强通过的课很快到期，这样的复习是否来得太早；FIRe 按课程权重给的隐式复习，之后是否确实记得；中止复习时还可能通过就不记失败，是否被用来回避；完课估算的日期与实际是否相近。
 

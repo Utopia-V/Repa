@@ -2,11 +2,11 @@
 
 ## 概述
 
-`@repa/python-runner` 在 Pyodide 里运行 Python 程序：页面在 Worker 里运行学习者的代码，Node 在 Linux 沙箱里运行课程核对的任务。
+`@repa/python-runner` 在 Pyodide 里运行 Python 程序：页面在 Worker 里运行学习者的代码和课程核对的任务，Node 在 Linux 沙箱里运行课程核对的任务。
 
 ## 怎么用
 
-两边加载的是同一份 [`runner.py`](runner.py)，用同一个 `program_test` 逐个阶段运行测试。它给每个测试全新的命名空间和空的工作目录，测试后恢复解释器里常被改动的全局状态，再把结果序列化成可以在 Pyodide 之外比较的结构。两边按同一份约定（[`src/protocol.ts`](src/protocol.ts)）成批运行测试、计时、归类结果，调用方换执行方时不用改判断。判断对错由调用方负责：本包只运行代码、交回结果。
+两边加载的是同一份 [`runner.py`](runner.py)，用同一个 `program_test` 逐个阶段运行测试；课程核对的 `verify` 任务也是一种测试，带着 `verify` 字段，结果里多一项 `verified`。它给每个测试全新的命名空间和空的工作目录，测试后恢复解释器里常被改动的全局状态，再把结果序列化成可以在 Pyodide 之外比较的结构。两边按同一份约定（[`src/protocol.ts`](src/protocol.ts)）成批运行测试、计时、归类结果，调用方换执行方时不用改判断。判断对错由调用方负责：本包只运行代码、交回结果。
 
 ### 在页面里运行
 
@@ -27,15 +27,15 @@ const runner = new PythonRunner({
 const stop = servePythonRun(client, runner); // client 是已经连接的 RepaClient
 ```
 
-`python.run` 的输入输出定义在 [`src/protocol.ts`](src/protocol.ts)，经 `@repa/python-runner/protocol` 导出，浏览器里也能用。前端连接时在 `capabilities.services` 里声明 `python.run`，就表示能运行 Python，后端不另外探测；`servePythonRun` 开始服务时就在后台预热一个 Worker。请求只有协议名和一批测试，不带调用方的标识；结果按顺序给出每个测试的状态，并记下实际加载的 Pyodide、Python 和 numpy、pandas 版本，调用方不拿它比较。
+`python.run` 的输入输出定义在 [`src/protocol.ts`](src/protocol.ts)，经 `@repa/python-runner/protocol` 导出，浏览器里也能用；协议名是 `repa-python-batch-v3`，格式变了才换名字，前端认不出就拒绝。前端连接时在 `capabilities.services` 里声明 `python.run`，就表示能运行 Python，后端不另外探测；`servePythonRun` 开始服务时就在后台预热一个 Worker。请求只有协议名和一批测试，不带调用方的标识；结果按顺序给出每个测试的状态，并记下实际加载的 Pyodide、Python 和 numpy、pandas 版本，调用方不拿它比较。
 
-每次调用在一个全新的 Worker 里依次运行这批测试，用完就销毁，后台随即预热下一个。准备（前导、夹具、setup）、被测代码（program、capture、doctest）和收尾各计时 10 秒；某个测试超时或失败后整批停下，剩下的记为 `not_run`，结果写明停在哪个阶段。测试后恢复解释器状态失败时，这个测试的结果在收尾之前已经算出，照样交回并带上 `restoreError`，余下的测试换一个新的 Worker 接着运行，所以一次调用用的 Worker 数是 1 加上恢复失败的次数；换 Worker 时起不来，已经得到的结果照样交回，下一个测试记为执行失败。调用方取消（`service.closed`）或页面调用 `close()` 时，正在运行的 Worker 随即结束。
+每次调用在一个全新的 Worker 里依次运行这批测试，用完就销毁，后台随即预热下一个。准备（前导、夹具、setup）、被测代码（program、capture、doctest）和收尾各计时 10 秒，启动 60 秒，两个宿主共用这两个时限（`PYTHON_STEP_TIMEOUT_MS`、`PYTHON_START_TIMEOUT_MS`）；调用方等前端交回一批结果的期限由 `replyDeadlineMs` 按同样的时限算出，只防页面本身没有回应；某个测试超时或失败后整批停下，剩下的记为 `not_run`，结果写明停在哪个阶段。测试后恢复解释器状态失败时，这个测试的结果在收尾之前已经算出，照样交回并带上 `restoreError`，余下的测试换一个新的 Worker 接着运行，所以一次调用用的 Worker 数是 1 加上恢复失败的次数；换 Worker 时起不来，已经得到的结果照样交回，下一个测试记为执行失败。调用方取消（`service.closed`）或页面调用 `close()` 时，正在运行的 Worker 随即结束。
 
 提供页面的宿主要做两件事。第一，在 `assetsUrl` 提供 `pyodide.mjs`、`pyodide.asm.mjs`、`pyodide.asm.wasm`、`python_stdlib.zip` 和 `pyodide-lock.json`，wheel 放在其下的 `packages/`；页面按 lockfile 核对 wheel 的 SHA-256 后才交给 Worker。第二，给 Worker 脚本的响应头加 CSP `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'`。Worker 不继承页面 meta 里的 CSP，没有这个响应头时，Python 一句 `pyfetch` 就能读到后端连接的 token；Worker 启动时会确认 CSP 生效，否则拒绝运行。Web 与 Desktop 的做法见[开发指南](../../docs/development/README.md)。
 
 ### 在 Linux 沙箱里运行
 
-Node 这边从包入口 `@repa/python-runner` 取用。`describeRuntime` 按要求的版本找到安装的 pyodide 和需要的 wheel，`verifyPackages` 核对离线包，`SandboxRunner` 按需启动沙箱，`runTests` 按 `python.run` 的约定运行一批测试：
+Node 这边从包入口 `@repa/python-runner` 取用。`describeRuntime` 按要求的版本找到安装的 pyodide 和需要的 wheel，`verifyPackages` 核对离线包，`SandboxRunner` 按需启动沙箱，`runTests` 按 `python.run` 的约定运行一批测试，课程核对的 `verify` 任务也经它运行：
 
 ```ts
 import { describeRuntime, SandboxRunner, verifyPackages } from "@repa/python-runner";
@@ -51,7 +51,7 @@ const [result] = await runner.runTests([
 await runner.close();
 ```
 
-`runTests` 与页面的不同只在于解释器的去留：所有测试在同一个解释器里依次运行，没有出问题的解释器留给下一次调用接着用；测试超时、失败或恢复解释器状态失败后结束这个沙箱，之后的测试换一个新的。计时和结果的归类与页面共用 [`src/test-results.ts`](src/test-results.ts)，超时按沙箱转发的阶段写明停在哪里。`run` 运行课程核对专用的 `verify` 任务（交给 `runner.py` 的 `handle_job` 的 JSON 对象），结果见 `JobOutcome`。`starts` 是启动过的沙箱数，应等于 1 加上超时、崩溃和恢复失败的次数，调用方据此核对代价。沙箱建立不了时抛 `SandboxUnavailable`，调用方应当报错，不改用不受限的运行。
+`runTests` 与页面的不同只在于解释器的去留：所有测试在同一个解释器里依次运行，没有出问题的解释器留给下一次调用接着用；测试超时、失败或恢复解释器状态失败后结束这个沙箱，之后的测试换一个新的。计时和结果的归类与页面共用 [`src/test-results.ts`](src/test-results.ts)，超时按沙箱转发的阶段写明停在哪里。`starts` 是启动过的沙箱数，应等于 1 加上超时、崩溃和恢复失败的次数，调用方据此核对代价。沙箱建立不了时（不是 Linux、缺少 Landlock 或 libseccomp、Pyodide 起不来）抛 `SandboxUnavailable`，调用方应当报错或改经页面的 Worker 运行，不改用不受限的运行。
 
 ### 离线包
 
@@ -87,7 +87,7 @@ pandas、NumPy 等 wheel 不在 npm 包 pyodide 里。课程清单决定要哪�
 ## 已知限制与暂缓
 
 - 已导入模块的改动会带到同一个解释器里的后续任务。课程核对整门课共用一个解释器，一份候选程序给 pandas 打的补丁会影响之后的候选；判分时每次提交用新的 Worker，不受别的提交影响。随包课程没有这类改动：2026-10-30 记录了全部任务结束时留下的改动，只有新建的文件、`builtins._` 和库按需导入的模块。课程以后要教这类写法时，再为相关的候选换新的解释器；比较全部模块与类的属性也能拦下，但整门课核对会慢到约三倍，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md)。
-- `runner.py` 还带着课程核对专用的 `verify` 任务（作答位的形状、WWPD 的显示约定），页面的 Worker 也加载这部分代码。它不在判分路径上；移出要让学习插件自带一份 Python 辅助代码，并决定怎样交给两个宿主，留到以后单独做。
+- `runner.py` 和协议还带着课程核对专用的 `verify` 任务（作答位的形状、WWPD 的显示约定、`PythonVerifySchema`）。它不在判分路径上；沙箱建不起来时课程核对改经页面的 Worker 运行，所以两个宿主都要能运行它。移出要让学习插件自带一份 Python 辅助代码，并决定怎样交给两个宿主，留到以后单独做。
 - 收尾时恢复状态抛出异常，结果照样交回；收尾卡住或解释器崩溃时，结果还在解释器里没有交出，这个测试记为执行失败。恢复运行的几乎都是 `runner.py` 自己的代码，又有单独的时限，这种情况基本只在运行器出错时出现，所以没有改成先交出结果再收尾。
-- Node 宿主只能在 Linux 上运行，依赖 Landlock（ABI 4 以上，Linux 6.7 起）、libseccomp 和 `/usr/bin/python3`；Windows、macOS 上的课程核对只能 `--no-run`。
+- Node 宿主只能在 Linux 上运行，依赖 Landlock（ABI 4 以上，Linux 6.7 起）、libseccomp 和 `/usr/bin/python3`。Windows、macOS 上，应用里的课程核对经开着的页面的 Worker 运行；命令行没有页面，只能 `--no-run`。
 - `RLIMIT_DATA` 只管进程私有的可写内存，没有 cgroup 级的整树限制，线程数只受内存间接限制。运行比课程核对更不可信的内容之前需要再评估。

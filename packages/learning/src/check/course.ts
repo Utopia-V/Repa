@@ -1,18 +1,22 @@
-import {
-  describeRuntime, RuntimeProblem, SandboxRunner, SandboxUnavailable, verifyPackages, type RuntimeVersions,
-} from "@repa/python-runner";
-import type { RunTests } from "../code-tests.js";
+import { RuntimeProblem } from "@repa/python-runner";
+import type { Runtime as RunningRuntime } from "@repa/python-runner/protocol";
 import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { checkTopicCode, type CodeStats } from "./code.js";
+import { PythonUnavailable, runtimeMismatches, sandboxPython, type CheckPython, type CheckRun } from "./python.js";
 import { checkReferences, type ConfirmationMode } from "./questions.js";
 import { checkRules, usesPython } from "./rules.js";
 import { topicQuestions } from "./items.js";
 
-/** checkCourse 的选项：是否运行代码核对、离线包位置、问题里路径的显示基准，以及只核对哪些 topic 的代码。 */
+/** checkCourse 的选项：是否运行代码核对、在哪里运行、离线包位置、问题里路径的显示基准，以及只核对哪些 topic 的代码。 */
 export interface CheckOptions {
   /** 是否在 Pyodide 里运行核对与测试，缺省为 true。 */
   run?: boolean;
+  /**
+   * 能运行课程核对的几处，按顺序用第一处能用的；缺省只有 Linux 沙箱（命令行）。应用里是 Linux 沙箱，再是前端页面的 python.run。
+   * 都用不了时报 python_unavailable，不运行。
+   */
+  python?: CheckPython[];
   /** 离线 Pyodide 包所在目录，缺省见 @repa/python-runner 的 defaultPackagesDirectory。 */
   packagesDirectory?: string;
   /** 问题里文件路径的显示基准，缺省为当前目录。 */
@@ -38,7 +42,9 @@ export interface CheckSummary {
   python: boolean;
   /** 代码核对是否真的运行了。 */
   ran: boolean;
-  runtime?: RuntimeVersions;
+  /** 在哪里运行的：sandbox 是 Linux 沙箱，frontend 是前端页面的 Worker。 */
+  where?: CheckRun["where"];
+  runtime?: RunningRuntime;
   code: CodeStats;
 }
 
@@ -48,7 +54,7 @@ export interface CheckResult {
   summary: CheckSummary;
 }
 
-/** 检查一门课程：读取与 schema、交叉规则、标准答案自洽，课里有要运行 Python 的题时，最后在沙箱里运行核对与测试。 */
+/** 检查一门课程：读取与 schema、交叉规则、标准答案自洽，课里有要运行 Python 的题时，最后在沙箱或前端页面里运行核对与测试。 */
 export async function checkCourse(root: string, options: CheckOptions = {}): Promise<CheckResult> {
   const report = new Report();
   const code: CodeStats = { verifyJobs: 0, verifiedSlots: 0, testRuns: 0, interpreterStarts: 0 };
@@ -71,48 +77,47 @@ export async function checkCourse(root: string, options: CheckOptions = {}): Pro
   const expected = loaded.course.runtime;
   if (options.run === false || !summary.python || !expected) return { diagnostics: report.diagnostics, summary };
 
-  let runner: SandboxRunner;
-  try {
-    const assets = await describeRuntime(expected, options.packagesDirectory);
-    await verifyPackages(assets);
-    runner = new SandboxRunner({ assets });
-    summary.runtime = await runner.start();
-  } catch (error) {
-    if (error instanceof RuntimeProblem) {
-      report.error(error.code, error.message, loaded.file, ["runtime"]);
-    } else if (error instanceof SandboxUnavailable) {
-      const remedy = process.platform === "linux"
-        ? "课里的 verify 核对程序和代码题没能运行，所以没有核对。隔离环境建不起来时，是这台机器缺少 Linux 的 Landlock（ABI 4 以上）与 libseccomp；"
-          + "Pyodide 启动失败时，把清单的 runtime 照写课说明改成与随包课程一致的版本和包"
-        : "这台机器不能运行课里的 verify 核对程序和代码题，所以没有核对；要核对，须在有 Landlock（ABI 4 以上）与 libseccomp 的 Linux 上检查";
-      report.error("sandbox_unavailable", `${error.message}。${remedy}。命令行只检查结构时加 --no-run`, loaded.file, ["runtime"]);
-    } else {
-      throw error;
+  // 按顺序用第一处能用的 Python；离线包缺失、版本不符是课程或安装的问题，照常报告，不换下一处。
+  const reasons: string[] = [];
+  let running: CheckRun | undefined;
+  for (const python of options.python ?? [sandboxPython]) {
+    try {
+      running = await python(expected, options);
+      break;
+    } catch (error) {
+      if (error instanceof RuntimeProblem) {
+        report.error(error.code, error.message, loaded.file, ["runtime"]);
+        return { diagnostics: report.diagnostics, summary };
+      }
+      if (!(error instanceof PythonUnavailable)) throw error;
+      reasons.push(error.message);
     }
+  }
+  if (!running) {
+    report.error("python_unavailable", `${reasons.join("；")}。课里的 verify 核对程序和代码题没能运行，所以没有核对。命令行只检查结构时加 --no-run`, loaded.file, ["runtime"]);
     return { diagnostics: report.diagnostics, summary };
   }
   try {
-    const actual = summary.runtime;
-    const mismatches = [
-      actual.pyodide !== expected.pyodide ? `Pyodide ${actual.pyodide}` : "",
-      actual.python !== expected.python ? `Python ${actual.python}` : "",
-      ...Object.entries(expected.packages).map(([name, version]) => (actual.packages[name] !== version ? `${name} ${actual.packages[name] ?? "未加载"}` : "")),
-    ].filter(Boolean);
+    summary.where = running.where;
+    summary.runtime = running.runtime;
+    const mismatches = runtimeMismatches(expected, running.runtime);
     if (mismatches.length > 0) {
       report.error("runtime_mismatch", `实际加载的运行时与课程清单不一致：${mismatches.join("、")}`, loaded.file, ["runtime"]);
       return { diagnostics: report.diagnostics, summary };
     }
     summary.ran = true;
-    // 整门课共用一个解释器；测试按判分的约定成批运行，任务之间由 runner.py 恢复状态，恢复失败或超时才换新的。
-    const runtime = summary.runtime;
-    const run: RunTests = async (tests) => ({ runtime, tests: await runner.runTests(tests, options.timeoutMs) });
     for (const topic of loaded.topics) {
       if (options.topics && !options.topics.includes(topic.topic.id)) continue;
-      await checkTopicCode(topic, runner, run, report, code, expected.prelude ?? "", options.timeoutMs);
+      await checkTopicCode(topic, running.run, report, code, expected.prelude ?? "");
     }
-    code.interpreterStarts = runner.starts;
+  } catch (error) {
+    // 前端页面在核对中途断开、没有回应或失败：已经得到的结论照常报告，其余没有核对，整个检查不算通过。
+    if (!(error instanceof PythonUnavailable)) throw error;
+    summary.ran = false;
+    report.error("python_unavailable", `${error.message}。课里的 verify 核对程序和代码题没有全部运行，所以没有核对完`, loaded.file, ["runtime"]);
   } finally {
-    await runner.close();
+    code.interpreterStarts = running.starts();
+    await running.close();
   }
   return { diagnostics: report.diagnostics, summary };
 }

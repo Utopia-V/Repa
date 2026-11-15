@@ -4,13 +4,13 @@
  *   而且标准答案里写的每个可接受值都要与算出的答案一致；
  * - 代码题与按测试判的 Parsons 题：用判分的入口（code-tests.ts 的 runCodeTests）判参考答案和 accepts，必须全部通过；
  *   rejects 和作答框里的初始代码必须至少错一个测试，否则测试还分不出这些错误。
- * 运行在沙箱里进行，结果的比较在沙箱外。整门课共用一个解释器：每个任务从全新的命名空间开始，
- * 任务后由 runner.py 恢复常被改动的全局状态，恢复失败或超时才换新的解释器。
+ * 运行在 Linux 沙箱或前端页面的 Worker 里进行（见 python.ts），verify 任务也按 python.run 的约定作为测试运行；
+ * 结果的比较都在这边，两处得出的结论一致。每个任务从全新的命名空间开始，任务后由 runner.py 恢复常被改动的全局状态。
  */
 
 import type { Answer } from "@repa/base/protocol";
-import type { JobOutcome, SandboxRunner } from "@repa/python-runner";
-import { answerProgram, runCodeTests, runnerFixture, slotTestPlan, type ProgramOutcome, type RunTests } from "../code-tests.js";
+import { endsBatch, type PythonTest, type PythonTestResult } from "@repa/python-runner/protocol";
+import { answerProgram, runBatch, runCodeTests, runnerFixture, slotTestPlan, type ProgramOutcome, type RunTests } from "../code-tests.js";
 import type { Report, ValuePath } from "../format/diagnostics.js";
 import type { LoadedTopic } from "../format/load.js";
 import type { Question, SlotDef, Topic } from "../format/schema.js";
@@ -30,33 +30,46 @@ export interface CodeStats {
 }
 
 interface Context {
-  runner: SandboxRunner;
-  /** 测试的执行方：同一个沙箱，按 python.run 的约定运行。 */
+  /** 测试的执行方：Linux 沙箱或前端页面，按 python.run 的约定运行。 */
   run: RunTests;
   report: Report;
   loaded: LoadedTopic;
   stats: CodeStats;
   prelude: string;
-  timeoutMs?: number;
 }
 
-type RunnerData = Record<string, unknown>[];
-
 /** 题目或测试用到的数据夹具，转成运行器的格式；有夹具没定义时返回 undefined（规则检查已报告）。 */
-function runnerData(names: readonly string[], topic: Topic): RunnerData | undefined {
-  const data: RunnerData = [];
-  for (const name of names) {
-    const fixture = topic.data?.[name];
+function runnerData(names: readonly string[], topic: Topic): PythonTest["data"] | undefined {
+  const data: PythonTest["data"] = [];
+  for (const label of names) {
+    const fixture = topic.data?.[label];
     if (!fixture) return undefined;
-    data.push({ ...runnerFixture(fixture), label: name });
+    data.push({ label, fixture: runnerFixture(fixture) });
   }
   return data;
 }
 
-function failure(outcome: JobOutcome): string | undefined {
-  if (outcome.status === "timeout") return "运行超时";
-  if (outcome.status === "crashed") return `运行器异常结束：${outcome.detail.slice(0, 500)}`;
-  if (!outcome.ok) return `${outcome.error.type}: ${outcome.error.message}`;
+/**
+ * 运行一批互不相干的测试，每个都要有结果：某个测试超时或失败让这一批停下时，余下的再交给执行方运行，
+ * 与一个一个运行得出的结果相同。runBatch 核对执行方守约，所以每一轮至少得到一个结果。
+ */
+async function runEach(run: RunTests, tests: PythonTest[]): Promise<PythonTestResult[]> {
+  const results: PythonTestResult[] = [];
+  while (results.length < tests.length) {
+    const batch = await runBatch(run, tests.slice(results.length));
+    const stop = batch.tests.findIndex(endsBatch);
+    results.push(...(stop < 0 ? batch.tests : batch.tests.slice(0, stop + 1)));
+  }
+  return results;
+}
+
+/** verify 任务没有得出答案的原因；得出了答案时返回 undefined。 */
+function failure(result: PythonTestResult | undefined): string | undefined {
+  if (result?.status === "timeout") return "运行超时";
+  if (result?.status === "failed") return `${result.error?.type ?? "Error"}: ${(result.error?.message ?? `${result.phase} 阶段失败`).slice(0, 500)}`;
+  if (result?.status !== "completed") return "没有运行";
+  if (result.result.error) return `${result.result.error.type}: ${result.result.error.message}`;
+  if (!result.result.verified) return "运行器没有交回算出的答案";
   return undefined;
 }
 
@@ -193,26 +206,35 @@ function fixedCells(question: Question): Record<string, Record<string, Record<st
   return cells;
 }
 
-async function runVerify(entry: QuestionEntry, at: ValuePath, context: Context): Promise<void> {
+/** 一道题的 verify 任务；没有 verify，或用到的夹具没有定义（规则检查已报告）时返回 undefined。 */
+function verifyTest(entry: QuestionEntry, index: number, context: Context): PythonTest | undefined {
+  const { question } = entry;
+  if (question.verify === undefined) return undefined;
+  const data = runnerData(question.data ?? [], context.loaded.topic);
+  if (!data) return undefined;
+  const blocks = content(question.body).flatMap((block) => (block.type === "code" && block.language === "python" ? [block.text] : []));
+  const shape = Object.fromEntries(question.slots.flatMap((slot) => {
+    const found = shapeOf(slot);
+    return found === undefined ? [] : [[slot.id, found]];
+  }));
+  return {
+    id: `verify:${index}`, prelude: context.prelude, setup: "", data, program: question.verify, captures: [], doctest: [],
+    verify: { code: blocks.join("\n"), blocks, options: optionCode(question), cells: fixedCells(question), shape },
+  };
+}
+
+/** 比对一道题的 verify 结果：算出的答案按作答位的判分规则必须判对，标准答案里写的可接受值都要与它一致。 */
+function checkVerify(entry: QuestionEntry, outcome: PythonTestResult | undefined, at: ValuePath, context: Context): void {
   const { question } = entry;
   const { report, loaded } = context;
-  if (question.verify === undefined) return;
-  const data = runnerData(question.data ?? [], loaded.topic);
-  if (!data) return;
-  const verifiable = question.slots.filter((slot) => shapeOf(slot) !== undefined);
-  const manual = new Set(question.manual ?? []);
-  const blocks = content(question.body).flatMap((block) => (block.type === "code" && block.language === "python" ? [block.text] : []));
-  const shape = Object.fromEntries(verifiable.map((slot) => [slot.id, shapeOf(slot)]));
-  context.stats.verifyJobs += 1;
-  const outcome = await context.runner.run({
-    op: "verify", data, code: blocks.join("\n"), blocks, options: optionCode(question), cells: fixedCells(question), script: question.verify, shape,
-  }, context.timeoutMs);
   const problem = failure(outcome);
-  if (problem || outcome.status !== "done" || !outcome.ok) {
+  if (problem !== undefined || outcome?.status !== "completed" || !outcome.result.verified) {
     report.error("verify_failed", `verify 程序运行失败：${problem ?? ""}`, loaded.file, [...at, "verify"]);
     return;
   }
-  const result = outcome.result as { answers: Record<string, unknown>; unknown: string[] };
+  const verifiable = question.slots.filter((slot) => shapeOf(slot) !== undefined);
+  const manual = new Set(question.manual ?? []);
+  const result = outcome.result.verified;
   for (const slot of result.unknown) {
     report.error("verify_unknown_slot", `answers 里的 ${slot} 不是需要核对的作答位`, loaded.file, [...at, "verify"]);
   }
@@ -331,19 +353,22 @@ async function runSlotTests(question: Question, slot: SlotDef, at: ValuePath, co
 
 // ---------------------------------------------------------------------------
 
-/** 核对一个 topic 的全部题目：先 verify，再逐个作答位运行测试。run 是测试的执行方，与 runner 是同一个沙箱。 */
-export async function checkTopicCode(
-  loaded: LoadedTopic,
-  runner: SandboxRunner,
-  run: RunTests,
-  report: Report,
-  stats: CodeStats,
-  prelude: string,
-  timeoutMs?: number,
-): Promise<void> {
-  const context: Context = { runner, run, report, loaded, stats, prelude, ...(timeoutMs ? { timeoutMs } : {}) };
-  for (const entry of topicQuestions(loaded.topic)) {
-    await runVerify(entry, entry.at, context);
+/**
+ * 核对一个 topic 的全部题目：全部 verify 任务成批运行（前端页面每次调用都要启动一个新的 Worker），
+ * 再逐题报告 verify 的结论、逐个作答位运行测试。run 是测试的执行方。
+ */
+export async function checkTopicCode(loaded: LoadedTopic, run: RunTests, report: Report, stats: CodeStats, prelude: string): Promise<void> {
+  const context: Context = { run, report, loaded, stats, prelude };
+  const entries = topicQuestions(loaded.topic);
+  const jobs = entries.flatMap((entry, index) => {
+    const job = verifyTest(entry, index, context);
+    return job ? [{ entry, job }] : [];
+  });
+  stats.verifyJobs += jobs.length;
+  const results = await runEach(run, jobs.map(({ job }) => job));
+  const outcomes = new Map(jobs.map(({ entry }, index) => [entry, results[index]]));
+  for (const entry of entries) {
+    if (outcomes.has(entry)) checkVerify(entry, outcomes.get(entry), entry.at, context);
     for (const [index, slot] of entry.question.slots.entries()) {
       await runSlotTests(entry.question, slot, [...entry.at, "slots", index], context);
     }

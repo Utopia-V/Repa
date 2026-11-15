@@ -187,62 +187,21 @@ test("运行前导在每个任务的命名空间里先运行：数据夹具、se
   if (reason) return skipUnavailableEnvironment(t, reason);
   const sandbox = await runner(t);
   const prelude = "import numpy as np\nbase = 40";
-  const data = [{ kind: "python", label: "fixture", code: "total = base + 1" }];
   const fixture = [{ label: "fixture", fixture: { kind: "python" as const, code: "total = base + 1" } }];
   assert.deepEqual(
     await captures(sandbox, { prelude, data: fixture, setup: "total = total + 1", program: "answer = total + int(np.float64(1))", captures: ["answer", "base + np.int64(2)"] }),
     { answer: { value: { t: "int", v: "43" } }, "base + np.int64(2)": { value: { t: "int", v: "42" } } },
   );
-  const verify = await sandbox.run({
-    op: "verify", prelude, data, code: "", blocks: [], options: {}, cells: {}, shape: { value: "text" },
-    script: "answers = {'value': base + run('out = total * 2')['out']}",
+  const verify = await runOne(sandbox, {
+    prelude, data: fixture, program: "answers = {'value': base + run('out = total * 2')['out']}",
+    verify: { code: "", blocks: [], options: {}, cells: {}, shape: { value: "text" } },
   });
-  assert.ok(verify.status === "done" && verify.ok);
-  assert.deepEqual(verify.result, { answers: { value: "122" }, unknown: [] });
+  assert.ok(verify.status === "completed", JSON.stringify(verify));
+  assert.deepEqual(verify.result.verified, { answers: { value: "122" }, unknown: [] });
 
   const broken = await runOne(sandbox, { prelude: "import no_such_module", program: "x = 1" });
   assert.ok(broken.status === "failed" && broken.phase === "prepare");
   assert.match(broken.error?.message ?? "", /运行前导出错：ModuleNotFoundError/);
-});
-
-test("核对程序的辅助函数：出错行号、实际执行的行、函数收到的参数、显示内容的标记和固定格", async (t) => {
-  const reason = await sandboxUnavailable();
-  if (reason) return skipUnavailableEnvironment(t, reason);
-  const sandbox = await runner(t);
-  const script = [
-    "plain = run(\"x = 1\\ny = 2\\nz = y / 0\\nprint('after')\")",
-    "inner = run(\"def f():\\n    return 1 / 0\\n\\nprint('a')\\nf()\")",
-    "broken = run(\"print('a')\\nx = (\\n\")",
-    "fine = run(\"x = 1\")",
-    "ran = executed_lines(\"a = 1\\nif a > 5:\\n    b = 2\\nelse:\\n    b = 3\")",
-    "seen = calls(\"def label(signal, limit=10):\\n    gap = signal - limit\\n    return gap > 0\\n\\nlabel(12)\\nlabel(3, limit=5)\", name='label')",
-    "answers = {",
-    "  'plain': plain.error_line, 'inner': inner.error_line, 'broken': broken.error_line, 'fine': fine.error_line,",
-    "  'ran': ran,",
-    "  'args': [call.args for call in seen], 'first': seen[0].locals, 'returned': [call.returned for call in seen],",
-    "  'nothing': show(None), 'function': show(len), 'value': show([1, 'a']),",
-    "  'error': ERROR, 'marked': as_shown('abc'), 'bare': 'abc',",
-    "  'cell': CELLS['grid']['r1']['input'],",
-    "}",
-  ].join("\n");
-  const shape = {
-    plain: "text", inner: "text", broken: "text", fine: "text", ran: "text", args: "text", first: "text", returned: "text",
-    nothing: "display", function: "display", value: "display", error: "display", marked: "display", bare: "display", cell: "text",
-  };
-  const outcome = await sandbox.run({
-    op: "verify", data: [], code: "", blocks: [], options: {}, cells: { grid: { r1: { input: "len('ab')" } } }, script, shape,
-  });
-  assert.ok(outcome.status === "done" && outcome.ok);
-  assert.deepEqual(outcome.result, {
-    answers: {
-      plain: "3", inner: "2", broken: "2", fine: "None", ran: "[1, 2, 5]",
-      args: "[{'signal': 12, 'limit': 10}, {'signal': 3, 'limit': 5}]",
-      first: "{'signal': 12, 'limit': 10, 'gap': 2}", returned: "[True, False]",
-      nothing: "NOTHING", function: "FUNCTION", value: "[1, 'a']", error: "ERROR", marked: "abc", bare: "'abc'",
-      cell: "len('ab')",
-    },
-    unknown: [],
-  });
 });
 
 test("分配超过内存上限时 Python 得到 MemoryError，沙箱仍可继续使用", async (t) => {

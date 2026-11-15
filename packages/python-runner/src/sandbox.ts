@@ -7,15 +7,14 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
-import { endsBatch, type PythonTest, type PythonTestResult } from "./protocol.js";
+import { endsBatch, PYTHON_START_TIMEOUT_MS, PYTHON_STEP_TIMEOUT_MS, type PythonTest, type PythonTestResult } from "./protocol.js";
 import { PACKAGE_ROOT, RUNNER_FILE, type RuntimeAssets } from "./runtime.js";
 import { failedAt, readStep, readTested, restartsTimer, timedOut, type Step } from "./test-results.js";
 
 /** 沙箱的私有内存上限，2 GiB。 */
 export const DEFAULT_MEMORY_BYTES = 2 * 1024 ** 3;
-/** 单个任务默认的时限，10 秒；超时就结束整个沙箱。 */
-export const DEFAULT_JOB_TIMEOUT_MS = 10_000;
-const STARTUP_TIMEOUT_MS = 60_000;
+/** 测试每一段默认的时限，与页面相同（见 PYTHON_STEP_TIMEOUT_MS）；超时就结束整个沙箱。 */
+export const DEFAULT_JOB_TIMEOUT_MS = PYTHON_STEP_TIMEOUT_MS;
 const CPU_SECONDS = 600;
 const MAX_LINE_BYTES = 16 * 1024 * 1024;
 const STDERR_TAIL = 8 * 1024;
@@ -36,13 +35,6 @@ export class SandboxUnavailable extends Error {
   }
 }
 
-/** 一个任务的结局：done 是 runner.py 交回了结果（ok 为 false 时是任务本身出错），timeout 和 crashed 时沙箱已经结束。 */
-export type JobOutcome =
-  | { status: "done"; ok: true; result: unknown }
-  | { status: "done"; ok: false; error: { type: string; message: string }; trace?: string }
-  | { status: "timeout" }
-  | { status: "crashed"; detail: string };
-
 /** 启动沙箱的选项：要加载的运行时文件、内存上限和启动沙箱用的系统 python3。 */
 export interface SandboxOptions {
   assets: RuntimeAssets;
@@ -57,12 +49,6 @@ interface RunnerMessage {
   message?: string;
   phase?: unknown;
   response?: unknown;
-}
-
-interface JobResponse { ok: boolean; result?: unknown; error?: { type: string; message: string }; trace?: string }
-
-function isJobResponse(value: unknown): value is JobResponse {
-  return typeof value === "object" && value !== null && "ok" in value && typeof value.ok === "boolean";
 }
 
 /** 一个沙箱进程：启动时加载 Pyodide，之后逐个运行任务；超时或崩溃后不再可用。 */
@@ -133,10 +119,10 @@ export class PythonSandbox {
       env: {},
     });
     const sandbox = new PythonSandbox(child);
-    const message = await sandbox.next(STARTUP_TIMEOUT_MS);
+    const message = await sandbox.next(PYTHON_START_TIMEOUT_MS);
     if (message === "timeout") {
       sandbox.kill();
-      throw new SandboxUnavailable(`Pyodide 在 ${STARTUP_TIMEOUT_MS / 1000} 秒内没有就绪`);
+      throw new SandboxUnavailable(`Pyodide 在 ${PYTHON_START_TIMEOUT_MS / 1000} 秒内没有就绪`);
     }
     if (message?.type === "ready" && message.versions) return { sandbox, versions: message.versions };
     sandbox.kill();
@@ -193,30 +179,6 @@ export class PythonSandbox {
 
   get running(): boolean {
     return this.alive;
-  }
-
-  /** 发送一个任务（目前只有 verify）并等待结果。同一时间只运行一个任务；超时会结束整个子进程。测试用 runTest。 */
-  async run(job: Record<string, unknown>, timeoutMs = DEFAULT_JOB_TIMEOUT_MS): Promise<JobOutcome> {
-    if (this.waiting) throw new Error("上一个任务还没有结束");
-    const id = this.nextId++;
-    const reply = this.next(timeoutMs);
-    this.child.stdin?.write(`${JSON.stringify({ ...job, id })}\n`);
-    const message = await reply;
-    if (message === "timeout") {
-      this.kill();
-      return { status: "timeout" };
-    }
-    if (message?.type !== "result" || message.id !== id || !isJobResponse(message.response)) {
-      this.kill();
-      return { status: "crashed", detail: this.crashDetail(message) };
-    }
-    const { response } = message;
-    if (response.ok) return { status: "done", ok: true, result: response.result };
-    return {
-      status: "done", ok: false,
-      error: response.error ?? { type: "Error", message: "未知错误" },
-      ...(response.trace ? { trace: response.trace } : {}),
-    };
   }
 
   /**
@@ -293,13 +255,6 @@ export class SandboxRunner {
     this.current = sandbox;
     this.started = versions;
     return versions;
-  }
-
-  /** 运行一个任务（目前只有 verify）。每个任务都带上运行环境声明的前导，运行器在任务的命名空间里先运行它。 */
-  async run(job: Record<string, unknown>, timeoutMs?: number): Promise<JobOutcome> {
-    await this.start();
-    if (!this.current) throw new SandboxUnavailable("沙箱没有启动");
-    return this.current.run({ prelude: this.options.assets.prelude, ...job }, timeoutMs);
   }
 
   /**

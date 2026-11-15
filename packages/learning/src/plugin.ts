@@ -6,6 +6,7 @@ import { errorText } from "@repa/base/protocol";
 import {
   checkFormat, currentRun, type AgentWork, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool,
 } from "@repa/base/plugin";
+import { frontendPython, sandboxPython, type CheckPython } from "./check/python.js";
 import { beginText, completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
 import { COURSE_GUIDE, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
@@ -28,6 +29,11 @@ export interface LearningPluginOptions {
   sources?: CourseSource[];
   /** course_check 运行 Python 核对时用的离线 Pyodide 包目录；缺省见 @repa/python-runner 的 defaultPackagesDirectory。 */
   packagesDirectory?: string;
+  /**
+   * course_check 能运行 Python 的几处，按顺序用第一处能用的。缺省先是 Linux 沙箱，再是前端页面的 python.run；
+   * 测试等自定义接入可以只给其中一处，例如在有沙箱的机器上走没有沙箱的路。
+   */
+  python?: (host: Host) => CheckPython[];
   /** 默认装配教学流程；测试等自定义接入复用同一个学习会话。换用课程时为新的会话再调用一次。 */
   connect?: (session: LearningSession, host: Host) => Promise<Pick<PluginInstance, "methods" | "close">>;
 }
@@ -83,8 +89,19 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
 }
 export default createLearningPlugin();
 
+/**
+ * 核对先用 Linux 沙箱；建不起来时（Windows、macOS 和缺少 Landlock 的 Linux）经开着的应用页面运行。后台展开没有自己的连接，
+ * host.services 交给任何一个声明了 python.run 的连接；应用窗口都关着时两处都没有，检查如实报告没有运行。
+ */
+function defaultPython(host: Host): CheckPython[] {
+  return [sandboxPython, frontendPython(host.services)];
+}
+
 async function openLearning(host: Host, records: LearningRecords, options: LearningPluginOptions): Promise<PluginInstance> {
-  const store = new CourseStore(host.space.dataDir, options.packagesDirectory === undefined ? {} : { packagesDirectory: options.packagesDirectory });
+  const store = new CourseStore(host.space.dataDir, {
+    python: options.python ? options.python(host) : defaultPython(host),
+    ...(options.packagesDirectory === undefined ? {} : { packagesDirectory: options.packagesDirectory }),
+  });
   const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
 
   async function build(course: ResolvedCourse, space?: string): Promise<Ready> {
