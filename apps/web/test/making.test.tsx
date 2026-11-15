@@ -15,7 +15,7 @@ import { mockMatchMedia } from "./match-media";
 // 做课这几块界面的文字在测试里换成键名（参数照常跟在后面），按键名找元素：改一句话的措辞不必改测试。
 vi.mock("../src/strings/zh-CN", async (importOriginal) => {
   const { strings } = await importOriginal<typeof import("../src/strings/zh-CN")>();
-  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count|learning)|tutor\.unavailable\.answering|learningSpace\.first)/u;
+  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count|learning)|tutor\.unavailable\.answering|learningSpace\.first|modelError)/u;
   return {
     strings: Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, byKey.test(key) ? key + (value.match(/\{\w+\}/gu) ?? []).join("") : value])),
   };
@@ -416,8 +416,12 @@ it("做课进行中、还没有换用过自制课：标题栏不显示随包课�
     "learning.state.get": () => Promise.resolve({ ...python, revision: 2 }),
     "learning.building.get": () => Promise.resolve({ ...nothing, sessionId: "making-1" }),
   }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
-  start(fake.client);
-  expect(await screen.findByText("outline.pending.status")).toBeTruthy();
+  const first = start(fake.client);
+  // 做课的对话已经接上而没有在运行（例如上一次出错了）：不说“正在做”，如实说没有成功，在对话里再说一句就能接着做。
+  expect(await screen.findByText("outline.notMade.status")).toBeTruthy();
+  expect(screen.queryByText("outline.pending.status")).toBeNull();
+  act(() => { first.setState((state) => ({ conversation: { ...state.conversation, run: "running" } })); });
+  expect(screen.getByText("outline.pending.status")).toBeTruthy();
   expect(screen.queryByText("Python：读懂代码，说清需求")).toBeNull();
   expect(screen.queryByLabelText("今天的目标完成度")).toBeNull();
   cleanup();
@@ -445,7 +449,7 @@ it("有学习任务时不显示整门课；新课作答时辅导栏用新课的�
     }],
   };
   const fake = backend({
-    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 9, course: outlined.course, task, restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false } }),
+    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 9, course: outlined.course, task, restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: true } }),
     "learning.building.get": () => Promise.resolve(outlined),
     "session.history": (params) => Promise.resolve(params.sessionId === "tutor-1" ? [
       { id: "a1", type: "assistant", timestamp: iso, text: "", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "learning_task", input: {} }] } },
@@ -465,4 +469,57 @@ it("有学习任务时不显示整门课；新课作答时辅导栏用新课的�
   expect(await tutor.findByText("toolActivity.learningTask.label")).toBeTruthy();
   // 侧栏与自动打开的会话都取自这份列表。
   await vi.waitFor(() => expect(store.getState().resources.sessions.data?.map((session) => session.id)).toEqual(["tutor-1", "making-1"]));
+});
+
+it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以前的记录，只留提示；任务结束后记录照常出现", async () => {
+  const review = {
+    taskId: "t2", kind: "review" as const, topics: [{ id: "os01", title: "进程状态" }], phase: { stage: "awaiting_answer" as const, deliveryId: "d1" },
+    startedAt: at, deadlineAt: null, kps: [], submissions: [],
+    deliveries: [{
+      deliveryId: "d1", submissionId: "s1", topicId: "os01", kpId: "os01.k1", mode: "review" as const, repeated: false, requiresServices: [],
+      item: { id: "q1", version: `sha256:${"1".repeat(64)}`, requires: ["block.markdown", "slot.text"], body: [{ type: "markdown" as const, text: "就绪是什么？" }], slots: [{ id: "a", type: "text" as const }] },
+    }],
+  };
+  let current: LearningState = { ...noCourse, revision: 9, course: outlined.course, task: review, restrictions: { kind: "review", tutorAllowed: false, referenceContentAllowed: false } };
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve(current),
+    "learning.building.get": () => Promise.resolve(outlined),
+    "session.history": () => Promise.resolve([{ id: "a1", type: "assistant", timestamp: iso, text: "就绪是只差处理机的状态。", data: { stopReason: "stop" } }]),
+  }, [{ id: "tutor-1", createdAt: iso, updatedAt: iso, agent: "learning-tutor" }]);
+  const store = start(fake.client);
+
+  const tutor = within(await screen.findByRole("complementary"));
+  expect(tutor.getByText("复习和测验期间不能问辅导，结束后再问。")).toBeTruthy();
+  await vi.waitFor(() => expect(store.getState().conversation.status).toBe("ready"));
+  expect(tutor.queryByText("就绪是只差处理机的状态。")).toBeNull();
+
+  current = { ...current, revision: 10, task: { ...review, phase: { stage: "completed" as const, outcome: "passed" as const } }, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true } };
+  await act(async () => { fake.emit("plugin.event", { pluginId: "learning", event: { type: "learning.changed", revision: 10, taskId: "t2", menuId: null } }); });
+  expect(await tutor.findByText("就绪是只差处理机的状态。")).toBeTruthy();
+});
+
+it("模型请求以认证失败、额度不足、请求太频繁结束时，说一句人能看懂的话，原文折叠保留；认证失败带去设置的入口", async () => {
+  const error = (id: string, status: number, message: string) => ({ id, type: "assistant", timestamp: iso, text: "", data: { stopReason: "error", errorMessage: message, errorStatus: status } });
+  const fake = backend({
+    "learning.building.get": () => Promise.resolve({ ...nothing, sessionId: "making-1" }),
+    "session.history": () => Promise.resolve([
+      { id: "u1", type: "user", timestamp: iso, text: "我把课件放进了 materials/" },
+      error("e1", 401, '401: {"message":"Authentication Fails"}'),
+      error("e2", 402, "402: Insufficient Balance"),
+      error("e3", 429, "429: rate limited"),
+      { id: "e4", type: "assistant", timestamp: iso, text: "", data: { stopReason: "error", errorMessage: "fetch failed" } },
+    ]),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  start(fake.client);
+
+  const panel = within(await screen.findByRole("complementary", { name: "making.panel.label" }));
+  expect(await panel.findByText("modelError.auth.title")).toBeTruthy();
+  expect(panel.getByText("modelError.quota.title")).toBeTruthy();
+  expect(panel.getByText("modelError.rateLimit.title")).toBeTruthy();
+  expect(panel.getByText('401: {"message":"Authentication Fails"}').closest("details")).toBeTruthy();
+  expect(panel.getAllByRole("link", { name: "去设置模型" })).toHaveLength(1);
+  // 认不出状态码的照原文显示。
+  expect(panel.getByText("fetch failed").closest("details")).toBeNull();
+  // 运行已经结束而还没有课：主区域如实说没有成功。
+  expect(screen.getByText("outline.notMade.status")).toBeTruthy();
 });
