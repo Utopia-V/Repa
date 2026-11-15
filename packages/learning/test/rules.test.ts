@@ -266,6 +266,15 @@ test("YAML 语法错误里最常见的两种各带一句怎样改：同层字段
   }
 });
 
+test("题面写着“接上题”时报出：每道题要自成一体", async (t) => {
+  const demo = demoCourse();
+  const question = kp(demo, 0).practice?.find((item) => item.id === "t01.k1.q3");
+  assert.ok(question);
+  question.body = "接上题，哪一行写出“比 raw 少 2”？";
+  const result = await structuralCheck(t, demo);
+  assert.deepEqual(codes(result.diagnostics), ["question_not_self_contained"]);
+});
+
 test("选项的内容写成不带引号的数时，说明这里要写文字并给出加引号的写法", async (t) => {
   const demo = demoCourse();
   const question = kp(demo, 0).practice?.find((item) => item.id === "t01.k1.q3");
