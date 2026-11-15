@@ -196,12 +196,12 @@ it("添加课件：在本机文件夹里勾选文件，由课件插件复制进 
   const dialog = within(await screen.findByRole("dialog"));
   expect(calls(fake.call, "space.browse")).toEqual([{ files: true }]);
   fireEvent.click(await dialog.findByRole("button", { name: "课件" }));
-  fireEvent.click(await dialog.findByRole("checkbox", { name: "第一章.pdf" }));
+  fireEvent.click(await dialog.findByRole("checkbox", { name: /^第一章\.pdf/u }));
   expect(dialog.getByText("2.4 MB")).toBeTruthy();
 
   fireEvent.click(dialog.getByRole("button", { name: "filePicker.add.action1" }));
   expect(await dialog.findByText("materials/ 里已经有 第一章.pdf。")).toBeTruthy();
-  expect(dialog.getByRole("checkbox", { name: "第一章.pdf" }).getAttribute("aria-checked")).toBe("true");
+  expect(dialog.getByRole("checkbox", { name: /^第一章\.pdf/u }).getAttribute("aria-checked")).toBe("true");
 
   fireEvent.click(dialog.getByRole("button", { name: "filePicker.add.action1" }));
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -224,11 +224,13 @@ it("有了课：轮廓按顺序列出，状态有文字不只靠颜色；先做�
 
   const outline = within(await screen.findByRole("region", { name: "outline.title" }));
   expect(outline.getByRole("status").textContent).toContain("outline.expanding.status进程调度");
-  expect(outline.getByText("outline.cost.labelUS$0.08347")).toBeTruthy();
-  // 已经有能学的部分：清单先收起，展开后逐项可读。
+  // 已经有能学的部分：清单先收起，花费和自动制作的开关不占地方；展开后逐项可读，花费也在。
   const toggle = outline.getByRole("button", { name: "outline.summary.label411" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(outline.queryByText("outline.cost.labelUS$0.08347")).toBeNull();
+  expect(outline.queryByRole("switch")).toBeNull();
   fireEvent.click(toggle);
+  expect(outline.getByText("outline.cost.labelUS$0.08347")).toBeTruthy();
   const rows = outline.getAllByRole("listitem");
   expect(rows.map((row) => row.getAttribute("data-status"))).toEqual(["learned", "ready", "expanding", "outline"]);
   expect(within(rows[0]!).getByText("outline.status.learned.label")).toBeTruthy();

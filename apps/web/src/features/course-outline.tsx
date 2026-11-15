@@ -73,16 +73,16 @@ export function CourseOutline({ building, settings, agentRunning }: {
   const count = (status: Part["status"]) => parts.filter((part) => part.status === status).length;
 
   return <section aria-labelledby="course-outline-title" className="grid gap-4">
-    {/* 花费跟着标题：清单收起或展开都看得到。 */}
+    {/* 花费和自动制作的开关只在清单展开时显示：平时学习者要看的是菜单和任务，不是做课的账。 */}
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div className="grid gap-1">
         <h3 id="course-outline-title" className="m-0 text-title weight-semibold">{t("outline.title")}</h3>
-        {building.course && <p className="m-0 text-caption text-muted-foreground tabular-nums">
+        {open && building.course && <p className="m-0 text-caption text-muted-foreground tabular-nums">
           {t("outline.cost.label", { amount: estimatedUsd(cost.cost), requests: cost.requests })}
           {Object.values(cost.unpriced).some((value) => value > 0) && t("outline.cost.unpriced.hint")}
         </p>}
       </div>
-      {settings && <Switch
+      {open && settings && <Switch
         label={t("outline.autoExpand.label")}
         checked={settings.autoExpand}
         disabled={busy}

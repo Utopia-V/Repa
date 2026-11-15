@@ -116,7 +116,7 @@ it("第一次使用时只引导选择文件夹，不显示最近列表", async (
   const { client } = fakeBackend([]);
   renderPage(client);
 
-  expect(await screen.findByRole("heading", { name: "开始第一门课" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "创建第一门课" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "选择文件夹" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "最近打开" })).toBeNull();
 });

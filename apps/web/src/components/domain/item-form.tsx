@@ -138,15 +138,15 @@ function ChoiceField({ slot, value, onChange, labelId, invalid, describedBy, dis
       {slot.options.map((option) => {
         const id = `${base}-${option.id}`;
         const checked = value.selected.includes(option.id);
-        return <OptionRow key={option.id} selected={checked}>
+        return <OptionRow key={option.id} selected={checked} htmlFor={id}>
           <Checkbox id={id} checked={checked} disabled={disabled} aria-invalid={invalid || undefined} onCheckedChange={(next) => toggle(option.id, next === true)} />
-          <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer"><Content blocks={option.content} /></label>
+          <div className="min-w-0 flex-1"><Content blocks={option.content} /></div>
           <MarkBadge mark={marks?.[option.id]} />
         </OptionRow>;
       })}
-      {slot.other && <OptionRow selected={value.other}>
+      {slot.other && <OptionRow selected={value.other} htmlFor={`${base}-other`}>
         <Checkbox id={`${base}-other`} checked={value.other} disabled={disabled} aria-invalid={invalid || undefined} onCheckedChange={(next) => onChange({ ...value, other: next === true })} />
-        <label htmlFor={`${base}-other`} className="cursor-pointer">{otherLabel}</label>
+        <span>{otherLabel}</span>
         {otherInput}
       </OptionRow>}
     </div>;
@@ -163,15 +163,15 @@ function ChoiceField({ slot, value, onChange, labelId, invalid, describedBy, dis
   >
     {slot.options.map((option) => {
       const id = `${base}-${option.id}`;
-      return <OptionRow key={option.id} selected={current === option.id}>
+      return <OptionRow key={option.id} selected={current === option.id} htmlFor={id}>
         <RadioGroupItem id={id} value={option.id} aria-invalid={invalid || undefined} />
-        <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer"><Content blocks={option.content} /></label>
+        <div className="min-w-0 flex-1"><Content blocks={option.content} /></div>
         <MarkBadge mark={marks?.[option.id]} />
       </OptionRow>;
     })}
-    {slot.other && <OptionRow selected={value.other}>
+    {slot.other && <OptionRow selected={value.other} htmlFor={`${base}-other`}>
       <RadioGroupItem id={`${base}-other`} value={OTHER} aria-invalid={invalid || undefined} />
-      <label htmlFor={`${base}-other`} className="cursor-pointer">{otherLabel}</label>
+      <span>{otherLabel}</span>
       {otherInput}
     </OptionRow>}
   </RadioGroup>;

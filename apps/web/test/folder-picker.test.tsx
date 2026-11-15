@@ -71,7 +71,7 @@ function renderPage(client: RepaClient) {
 
 async function openPicker() {
   // 等最近列表读完、页面布局稳定后再点，避免点到即将被替换的按钮。
-  await screen.findByRole("heading", { name: "开始第一门课" });
+  await screen.findByRole("heading", { name: "创建第一门课" });
   fireEvent.click(screen.getByRole("button", { name: "选择文件夹" }));
   const dialog = await screen.findByRole("dialog", { name: "选择文件夹" });
   await within(dialog).findByRole("list", { name: "子文件夹" });
@@ -170,6 +170,6 @@ it("读取最近列表期间打开的选择框，在页面切换到首次引导�
   finishList([]);
 
   // 模态框打开时页面其余部分对辅助技术隐藏，因此按 hidden 查找背后的标题。
-  expect(await screen.findByRole("heading", { name: "开始第一门课", hidden: true })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "创建第一门课", hidden: true })).toBeTruthy();
   expect(screen.getByRole("dialog", { name: "选择文件夹" })).toBe(dialog);
 });
