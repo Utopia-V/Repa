@@ -348,6 +348,8 @@ export const strings = {
   "toolActivity.learningTask.label": "查看当前题目",
   "toolActivity.learningSearch.label": "查找课程内容",
   "toolActivity.learningRead.label": "读取课程内容",
+  "toolActivity.webSearch.label": "〔待写〕",
+  "toolActivity.webFetch.label": "〔待写〕",
   "toolActivity.running.status": "进行中",
   "toolActivity.done.status": "已完成",
   "toolActivity.failed.status": "失败",

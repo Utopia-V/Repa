@@ -50,6 +50,8 @@ export interface AgentTestOptions extends AgentRuntimeOptions {
   cacheTtlMs?: number;
   extensionFactories?: ExtensionFactory[];
   toolNames?: string[];
+  /** 测试只看别的视图怎样追加和清理时关掉日期视图；日期随系统时区，写进固定样本也会因机器而异。默认开着。 */
+  dateView?: boolean;
   /** 搜索与读网页发请求用的函数，省略时用全局 fetch；测试注入假的，不访问网络。 */
   webRequest?: WebRequest;
 }
@@ -115,6 +117,17 @@ interface AgentProfile {
   views(): Promise<{ id: string; text: string }[]>;
   beforeMessage?: AgentDefinition["beforeMessage"];
   beforeRun?: AgentDefinition["beforeRun"];
+}
+
+/**
+ * 今天的日期，作为每个 Agent 的一份视图：模型不必执行 date 就知道今天是哪天，登记出处的访问日期、安排复习都用得上。
+ * 视图只在内容变化时追加在用户消息之后，一天变一次，不改写系统提示与工具声明的前缀。时区用系统的，与学习插件判断“今天”一致。
+ */
+export function dateView(now: number): { id: string; text: string } {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const weekday = new Intl.DateTimeFormat("zh-CN", { timeZone, weekday: "long" }).format(now);
+  return { id: "date", text: `今天是 ${day}，${weekday}（时区 ${timeZone}）。` };
 }
 
 function byId<T extends { id: string }>(left: T, right: T): number {
@@ -481,6 +494,10 @@ class Space implements AgentSpace {
     return result;
   }
 
+  private dateViews(): { id: string; text: string }[] {
+    return this.runtime.options.dateView === false ? [] : [dateView(this.runtime.now())];
+  }
+
   profile(id: string): AgentProfile {
     if (id === GENERAL_AGENT && this.options.generalAgent !== false) {
       return {
@@ -493,7 +510,7 @@ class Space implements AgentSpace {
         // 和 Claude Code 一样能起子 Agent：自己，以及空间里定义的任何插件 Agent。插件 Agent 的工具都在通用 Agent 的范围内。
         subagents: [GENERAL_AGENT, ...(this.options.agents?.() ?? []).map(item => item.id).sort()],
         sections: () => [...this.options.instructions()].sort(byId),
-        views: () => this.options.views(),
+        views: async () => [...this.dateViews(), ...await this.options.views()],
       };
     }
     const agents = this.options.agents?.() ?? [];
@@ -512,9 +529,9 @@ class Space implements AgentSpace {
       // 子 Agent 被替换成工具更多的版本时也不列出：更高权限的工作不能靠 Agent 之间转托取得。
       subagents: [...new Set(definition.subagents ?? [])].filter(sub => agents.find(item => item.id === sub)?.tools.every(tool => names.has(tool)) ?? false),
       sections: () => [{ id: `agent:${id}`, text: definition.instructions() }],
-      async views() {
+      views: async () => {
         const text = await definition.view?.();
-        return text === undefined ? [] : [{ id: `agent:${id}`, text }];
+        return [...this.dateViews(), ...(text === undefined ? [] : [{ id: `agent:${id}`, text }])];
       },
       ...(definition.beforeRun === undefined ? {} : { beforeRun: () => definition.beforeRun?.() ?? Promise.resolve() }),
       ...(definition.beforeMessage === undefined ? {} : { beforeMessage: message => definition.beforeMessage?.(message) ?? Promise.resolve() }),

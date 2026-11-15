@@ -10,11 +10,12 @@
  *
  * 名单只放没有写入能力、也不会执行别的命令的命令：GNU 与 BSD 的这些命令都没有写文件的选项。
  * tail 的 -f／-F／--follow／--retry 会一直等下去，带这些选项或带通配符（文件名可能被展开成选项）时照常询问。
+ * date 的 -s／--set 和只由数字组成的参数（MMDDhhmm 这种写法）会改系统时间，带这些参数（含短选项组里的 s 和 --set 的缩写）或带通配符时照常询问。
  * find、grep 有专门的工具；sed、sort、awk、xargs、git、file 等带写入或执行别的命令的选项，没有放进来。
  * 命令名必须原样是名单里的词：带路径、带环境变量前缀、sudo 都照常询问。
  */
 
-const READ_ONLY = new Set(["ls", "cat", "pwd", "head", "tail", "wc", "which", "stat", "du", "echo", "cd"]);
+const READ_ONLY = new Set(["ls", "cat", "pwd", "head", "tail", "wc", "which", "stat", "du", "echo", "cd", "date"]);
 
 // 只接受 `--version`（node 另有 -v）且没有别的参数的版本查询。npm 不放：它启动时可能检查更新、写缓存。
 const VERSION_QUERIES: Record<string, readonly string[]> = {
@@ -95,6 +96,7 @@ function allowed(words: Word[]): boolean {
   }
   if (!READ_ONLY.has(name.text)) return false;
   if (name.text === "tail") return args.every(arg => !arg.glob && !follows(arg.text));
+  if (name.text === "date") return args.every(arg => !arg.glob && !setsTime(arg.text));
   return true;
 }
 
@@ -102,4 +104,11 @@ function allowed(words: Word[]): boolean {
 function follows(arg: string): boolean {
   if (arg.startsWith("--")) return arg.length > 2 && (arg.startsWith("--f") || arg.startsWith("--r"));
   return arg.startsWith("-") && /[fF]/.test(arg);
+}
+
+/** date 改系统时间的参数：短选项组里的 s、--set 及其缩写（--s、--se），以及 MMDDhhmm[[CC]YY][.ss] 这样只有数字的参数。`+%s` 这类格式不算。 */
+function setsTime(arg: string): boolean {
+  if (/^[0-9][0-9.]*$/u.test(arg)) return true;
+  if (arg.startsWith("--")) return arg.length > 2 && "--set".startsWith(arg.split("=")[0] ?? arg);
+  return arg.startsWith("-") && arg.includes("s");
 }

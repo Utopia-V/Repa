@@ -10,12 +10,13 @@ import { object, RepaFault } from "../schema.js";
 /** 发出 HTTP 请求的函数，签名同全局 fetch；测试注入假的。 */
 export type WebRequest = (url: string, init: RequestInit) => Promise<Response>;
 
-/** 一条搜索结果。summary 是提供方写给模型看的那段摘要。 */
+/** 一条搜索结果。summary 是提供方写给模型看的那段摘要；content 是要求带正文时搜索服务给的正文，没有时省略。 */
 export interface WebHit {
   title: string;
   url: string;
   date?: string;
   summary: string;
+  content?: string;
 }
 
 /** 读回的网页：标题与 Markdown 正文。 */
@@ -30,7 +31,7 @@ export interface WebService {
   provider: string;
   /** 失败时说给学习者听的提供方名字。 */
   name: string;
-  search(query: string, count: number, key: string, request: WebRequest, signal: AbortSignal): Promise<WebHit[]>;
+  search(query: string, count: number, withContent: boolean, key: string, request: WebRequest, signal: AbortSignal): Promise<WebHit[]>;
   fetch(url: string, key: string, request: WebRequest, signal: AbortSignal): Promise<WebPage>;
 }
 
@@ -39,6 +40,12 @@ export const WEB_FETCH_TOOL = "web_fetch";
 
 /** 一次搜索最多交回几条。DeepSeek 允许 50 条；模型要的是几个好的来源，多了只占上下文。Repa 的假设。 */
 export const SEARCH_MAX = 10;
+/**
+ * 带正文的搜索最多几条、每条正文最多多少字：3 × 4000 字约 36 KB，连同摘要仍在底座截断工具输出的 50 KiB 之下。Repa 的假设。
+ * 正文是搜索服务索引到的文字，Fetch API 读不回的 PDF 和一些网站，常常能这样取到内容。
+ */
+export const CONTENT_RESULTS = 3;
+export const CONTENT_CHARS = 4_000;
 /**
  * 读网页一次交回的字数上限。中文一个字在 UTF-8 里占 3 字节，一万字约 30 KB，在底座截断工具输出的 50 KiB 之下，
  * 模型拿到的总是整段，由本工具自己分段。
@@ -64,7 +71,7 @@ function webFault(name: string, status: number, what: "search" | "fetch"): RepaF
       return new RepaFault("web_blocked", "这个网页被提供方的安全策略拦下了，读不了。");
     case 404:
       return what === "fetch"
-        ? new RepaFault("web_no_content", "这个网页没有可用的内容：地址打不开、网站不允许读取，或者页面上没有能提取的文字。")
+        ? new RepaFault("web_no_content", `这个网页没有可用的内容：地址打不开、网站不允许读取，或者页面上没有能提取的文字。PDF 和一些网站常读不回来；可以改用 ${WEB_SEARCH_TOOL}，把 content 设为 true，用这份资料的标题加 site:它的域名 搜索，从结果里取它的正文。`)
         : new RepaFault("web_failed", `${name} 的搜索服务没有响应这次请求（HTTP 404）。`);
     case 429:
       return new RepaFault("web_rate_limited", "请求太频繁，被暂时限制了；稍等一会儿再试。");
@@ -80,6 +87,7 @@ const DeepSeekSearchSchema = Type.Object({
     url: Type.String(),
     summary: Type.String(),
     date: Type.Union([Type.String(), Type.Null()]),
+    content: Type.Optional(Type.String()),
   })),
 });
 const DeepSeekFetchSchema = Type.Object({ title: Type.String(), content: Type.String() });
@@ -88,12 +96,13 @@ const DeepSeekFetchSchema = Type.Object({ title: Type.String(), content: Type.St
 export const DEEPSEEK_WEB: WebService = {
   provider: "deepseek",
   name: "DeepSeek",
-  async search(query, count, key, request, signal) {
-    const body = await deepseekPost("search", { query, count }, key, request, signal);
+  async search(query, count, withContent, key, request, signal) {
+    const body = await deepseekPost("search", withContent ? { query, count, need_content: true } : { query, count }, key, request, signal);
     if (!Value.Check(DeepSeekSearchSchema, body)) throw new RepaFault("web_invalid_response", "DeepSeek 的搜索结果格式不对。");
     return body.results.map(result => ({
-      title: result.title, url: result.url, summary: result.summary,
+      title: result.title, url: cleanSearchUrl(result.url), summary: result.summary,
       ...(result.date === null ? {} : { date: result.date }),
+      ...(withContent && result.content !== undefined && result.content.trim() !== "" ? { content: result.content } : {}),
     }));
   },
   async fetch(url, key, request, signal) {
@@ -113,6 +122,14 @@ async function deepseekPost(what: "search" | "fetch", payload: object, key: stri
   // 错误体是 OpenAI 格式的说明，不交给模型：说法按状态码定，学习者听得懂。
   if (!response.ok) throw webFault("DeepSeek", response.status, what);
   return response.json();
+}
+
+/**
+ * DeepSeek 搜索结果的地址有时带着 `#1#1#1` 这样只有数字的片段，文档没有说明，看来是索引内部分片的定位。
+ * 片段不会发给网站，对读网页没有用；交给模型和登记出处的应是干净的地址，所以去掉。别的片段（页内锚点）保留。
+ */
+export function cleanSearchUrl(url: string): string {
+  return url.replace(/(?:#\d+)+$/u, "");
 }
 
 /** 已注册的服务；一个模型提供方至多一个。 */
@@ -139,7 +156,8 @@ interface Cached {
 
 const SearchParameters = object({
   query: Type.String({ minLength: 1, maxLength: 128, description: "搜索词，1 至 128 字；可以用 site:example.com、\"整句\"、-排除词、lang:zh,en、after:2025 这些写法" }),
-  count: Type.Optional(Type.Integer({ minimum: 1, maximum: SEARCH_MAX, description: `要几条结果，默认 5，最多 ${SEARCH_MAX}` })),
+  count: Type.Optional(Type.Integer({ minimum: 1, maximum: SEARCH_MAX, description: `要几条结果，默认 5，最多 ${SEARCH_MAX}；带正文时默认 ${CONTENT_RESULTS}，最多 ${CONTENT_RESULTS}` })),
+  content: Type.Optional(Type.Boolean({ description: `每条结果带上搜索服务索引到的正文，每条最多 ${CONTENT_CHARS} 字。${WEB_FETCH_TOOL} 读不回的地址（PDF、一些网站）可以这样取内容` })),
 });
 
 const FetchParameters = object({
@@ -194,18 +212,22 @@ export function createWebTools(options: WebToolOptions): AgentTool[] {
 
   const search: AgentTool = {
     name: WEB_SEARCH_TOOL,
-    description: `在网上搜索，交回编号的结果：标题、地址、日期和一段摘要。摘要只是线索，要用到一个来源的内容时用 ${WEB_FETCH_TOOL} 读它。搜索词会发给 ${service.name}。`,
+    description: `在网上搜索，交回编号的结果：标题、地址、日期和一段摘要。摘要只是线索，要用到一个来源的内容时用 ${WEB_FETCH_TOOL} 读它；读不回时把 content 设为 true 再搜，取搜索服务索引到的正文。搜索词会发给 ${service.name}。`,
     parameters: SearchParameters,
     async execute(input, context) {
-      const { query, count = 5 } = input as { query: string; count?: number };
-      const hits = (await service.search(query, count, await key(), options.request, within(context.signal))).slice(0, count);
+      const { query, count: asked, content = false } = input as { query: string; count?: number; content?: boolean };
+      const count = content ? Math.min(asked ?? CONTENT_RESULTS, CONTENT_RESULTS) : asked ?? 5;
+      const hits = (await service.search(query, count, content, await key(), options.request, within(context.signal))).slice(0, count);
       if (hits.length === 0) return { text: `搜索“${query}”没有结果。换个说法或去掉限定条件再试。` };
-      const lines = hits.map((hit, index) => [
-        `[${index + 1}] ${hit.title || "（没有标题）"}`,
-        `地址：${hit.url}`,
-        `日期：${hit.date ?? "不详"}`,
-        hit.summary.trim(),
-      ].join("\n"));
+      const lines = hits.map((hit, index) => {
+        const head = [`[${index + 1}] ${hit.title || "（没有标题）"}`, `地址：${hit.url}`, `日期：${hit.date ?? "不详"}`];
+        if (!content) return [...head, hit.summary.trim()].join("\n");
+        if (hit.content === undefined) return [...head, hit.summary.trim(), "（这一条没有正文）"].join("\n");
+        const cut = hit.content.length > CONTENT_CHARS;
+        const body = cut ? hit.content.slice(0, CONTENT_CHARS) : hit.content;
+        const note = cut ? `\n（正文超过 ${CONTENT_CHARS} 字，只交回了前 ${CONTENT_CHARS} 字；要后面的内容，用 ${WEB_FETCH_TOOL} 读这个地址，读不回时用更具体的搜索词再搜。）` : "";
+        return [...head, "正文：", body.trim() + note].join("\n");
+      });
       return { text: `搜索“${query}”的 ${hits.length} 条结果。${UNTRUSTED}\n\n${lines.join("\n\n")}` };
     },
   };
@@ -215,7 +237,9 @@ export function createWebTools(options: WebToolOptions): AgentTool[] {
     description: `按地址读一个网页，交回标题和 Markdown 正文。一次最多约 ${PART_CHARS / 1000} 千字，正文长时分段，结果末尾写明接着读哪一段；读过的网页一小时内再读不重新取。地址会发给 ${service.name}，由它的服务器去取页面。`,
     parameters: FetchParameters,
     async execute(input, context) {
-      const { url, part = 1 } = input as { url: string; part?: number };
+      const { url: given, part = 1 } = input as { url: string; part?: number };
+      // 片段（# 之后）不会发给网站，去掉以后同一页面只取一次、只缓存一份。
+      const url = given.replace(/#.*$/su, "");
       const loaded = await page(url, context.signal);
       const total = loaded.parts.length;
       if (part > total) throw new RepaFault("invalid_range", `这个网页只有 ${total} 段，part 不能大于 ${total}。`);

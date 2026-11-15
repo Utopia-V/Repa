@@ -10,7 +10,7 @@ import test, { type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type FauxResponseStep, type TranscriptContext } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createAgentRuntimeForTest } from "../src/agent/runtime.js";
-import { CACHE_MS, PART_CHARS } from "../src/agent/web.js";
+import { CACHE_MS, CONTENT_CHARS, PART_CHARS } from "../src/agent/web.js";
 import { RepaClient } from "../src/client.js";
 import { startServer } from "../src/protocol/server.js";
 
@@ -195,7 +195,7 @@ test("失败说成能转述给学习者的一句话，失败的读取不缓存",
   const f = await fixture(t, { deepseek: true });
   const cases: { status: number; tool: "web_search" | "web_fetch"; said: RegExp }[] = [
     { status: 403, tool: "web_fetch", said: /安全策略拦下/u },
-    { status: 404, tool: "web_fetch", said: /没有可用的内容/u },
+    { status: 404, tool: "web_fetch", said: /没有可用的内容.*改用 web_search，把 content 设为 true/u },
     { status: 402, tool: "web_search", said: /余额不足/u },
     { status: 429, tool: "web_fetch", said: /太频繁/u },
     { status: 401, tool: "web_search", said: /不接受现在的密钥/u },
@@ -224,4 +224,42 @@ test("失败说成能转述给学习者的一句话，失败的读取不缓存",
   ]);
   assert.match(empty, /没有结果/u);
   assert.ok(!JSON.stringify(await f.client.call("session.history", { sessionId: f.sessionId })).includes(KEY));
+});
+
+test("带正文的搜索：请求要 need_content，至多 3 条，每条正文有上限并写明截断；地址去掉 #1#1#1 这样的尾巴", async t => {
+  const f = await fixture(t, { deepseek: true });
+  const hit = (n: number, content: string) => ({ rerank_score: 2, title: `讲义 ${n}`, url: `https://example.edu/la/LB2-${n}.pdf#1#1#1`, snippet: "", summary: `第 ${n} 份讲义的摘要`, content, site_name: null, site_icon: null, date: null, authority: 3 });
+  f.replies.push({ status: 200, body: { results: [hit(1, "短正文"), hit(2, "长".repeat(CONTENT_CHARS + 500)), hit(3, ""), hit(4, "多出来的一条")] } });
+  let result = "";
+  await f.chat("取讲义的正文", [
+    fauxAssistantMessage(fauxToolCall("web_search", { query: "线性代数讲义 site:example.edu", count: 8, content: true })),
+    context => { result = lastToolResult(context).text; return fauxAssistantMessage("好"); },
+  ]);
+  assert.deepEqual(f.sent.map(item => item.body), [{ query: "线性代数讲义 site:example.edu", count: 3, need_content: true }]);
+  assert.match(result, /的 3 条结果/u);
+  assert.match(result, /\[1\] 讲义 1\n地址：https:\/\/example\.edu\/la\/LB2-1\.pdf\n日期：不详\n正文：\n短正文/u);
+  assert.ok(!result.includes("#1"));
+  assert.ok(result.includes("长".repeat(CONTENT_CHARS)) && !result.includes("长".repeat(CONTENT_CHARS + 1)));
+  assert.match(result, /只交回了前 4000 字/u);
+  assert.match(result, /\[3\] 讲义 3\n地址：https:\/\/example\.edu\/la\/LB2-3\.pdf\n日期：不详\n第 3 份讲义的摘要\n（这一条没有正文）/u);
+  assert.ok(!result.includes("多出来的一条"));
+  // 不带正文时请求不要 need_content，地址同样干净。
+  f.replies.push({ status: 200, body: { results: [hit(5, "")] } });
+  await f.chat("普通搜索", [
+    fauxAssistantMessage(fauxToolCall("web_search", { query: "线性代数" })),
+    context => { result = lastToolResult(context).text; return fauxAssistantMessage("好"); },
+  ]);
+  assert.deepEqual(f.sent[1]?.body, { query: "线性代数", count: 5 });
+  assert.match(result, /地址：https:\/\/example\.edu\/la\/LB2-5\.pdf\n/u);
+});
+
+test("读网页时地址的片段不发给提供方，带不同片段的同一页面只取一次", async t => {
+  const f = await fixture(t, { deepseek: true });
+  f.replies.push({ status: 200, body: { title: "讲义", content: "正文" } });
+  await f.chat("读讲义", [
+    fauxAssistantMessage(fauxToolCall("web_fetch", { url: "https://example.edu/la/LB2-4.pdf#1#1#1" })),
+    fauxAssistantMessage(fauxToolCall("web_fetch", { url: "https://example.edu/la/LB2-4.pdf#page=2" })),
+    fauxAssistantMessage("好"),
+  ]);
+  assert.deepEqual(f.sent.map(item => item.body), [{ url: "https://example.edu/la/LB2-4.pdf" }]);
 });

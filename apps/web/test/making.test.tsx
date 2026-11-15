@@ -15,7 +15,7 @@ import { mockMatchMedia } from "./match-media";
 // 做课这几块界面的文字在测试里换成键名（参数照常跟在后面），按键名找元素：改一句话的措辞不必改测试。
 vi.mock("../src/strings/zh-CN", async (importOriginal) => {
   const { strings } = await importOriginal<typeof import("../src/strings/zh-CN")>();
-  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count|learning)|tutor\.unavailable\.answering|learningSpace\.first)/u;
+  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count|learning|web)|tutor\.unavailable\.answering|learningSpace\.first)/u;
   return {
     strings: Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, byKey.test(key) ? key + (value.match(/\{\w+\}/gu) ?? []).join("") : value])),
   };
@@ -367,6 +367,27 @@ it("只有轮廓时不显示菜单那句“没有可开始的任务”；连续�
   expect(panel.getAllByText("写入文件")).toHaveLength(1);
   expect(screen.getByRole("region", { name: "outline.title" })).toBeTruthy();
   expect(screen.queryByText("当前没有可开始的任务")).toBeNull();
+});
+
+it("搜索和读网页在做课的对话里显示成界面文字，不显示工具的内部名字", async () => {
+  const done = (id: string, tool: string) => [
+    { id: `a${id}`, type: "assistant", timestamp: iso, text: "", data: { stopReason: "toolUse", calls: [{ id: `c${id}`, name: tool, input: {} }] } },
+    { id: `t${id}`, type: "tool", timestamp: iso, text: "好", data: { callId: `c${id}`, tool, isError: false } },
+  ];
+  const fake = backend({
+    "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: "outline" as const })) }),
+    "session.history": () => Promise.resolve([
+      ...done("1", "web_search"), ...done("2", "web_fetch"),
+      { id: "a3", type: "assistant", timestamp: iso, text: "资料找到了。", data: { stopReason: "stop" } },
+    ]),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  start(fake.client);
+
+  const panel = within(await screen.findByRole("complementary", { name: "making.panel.label" }));
+  expect(await panel.findByText("资料找到了。")).toBeTruthy();
+  expect(panel.getByText("toolActivity.webSearch.label")).toBeTruthy();
+  expect(panel.getByText("toolActivity.webFetch.label")).toBeTruthy();
+  expect(panel.queryByText(/web_search|web_fetch/u)).toBeNull();
 });
 
 it("做课的会话在对话页打开：同一段记录和同一张提问卡片，在那里作答交给同一次询问", async () => {

@@ -17,6 +17,10 @@ test("名单内的简单命令及其管道、&& 与 ; 组合不必确认", () =>
     "du -sh . && stat package.json && which node",
     "tail -n 50 log.txt",
     "cd space && ls -la .agents 2>/dev/null && ls .agents/plugins 2>/dev/null",
+    "date",
+    "date -u +%F",
+    "date +%s",
+    "date -d '2 days ago' +%Y-%m-%d",
   ]) {
     assert.equal(readOnlyCommand(command), true, command);
   }
@@ -65,6 +69,12 @@ test("任何一段不在名单里，或用了 2>/dev/null 以外的重定向、�
     "ls 2>/dev/null&",
     "ls 2>/dev/null && rm file",
   ]) {
+    assert.equal(readOnlyCommand(command), false, command);
+  }
+});
+
+test("date 改系统时间的写法照常询问：-s、--set 及其缩写、短选项组里的 s、只有数字的参数", () => {
+  for (const command of ["date -s '2026-01-01'", "date --set=2026-01-01", "date --se 2026-01-01", "date -us 10:00", "date 0101120026", "date 01011200.30", "date *"]) {
     assert.equal(readOnlyCommand(command), false, command);
   }
 });

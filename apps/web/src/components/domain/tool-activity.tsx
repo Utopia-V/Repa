@@ -19,6 +19,8 @@ const toolNames: Record<string, string> = {
   learning_task: t("toolActivity.learningTask.label"),
   learning_search: t("toolActivity.learningSearch.label"),
   learning_read: t("toolActivity.learningRead.label"),
+  web_search: t("toolActivity.webSearch.label"),
+  web_fetch: t("toolActivity.webFetch.label"),
 };
 
 const statusText: Record<ToolStatus, string> = {

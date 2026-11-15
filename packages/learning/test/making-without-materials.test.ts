@@ -110,8 +110,8 @@ test("没有课件也能做课：起点开始，Agent 先问清需求，学习�
   const seen: { first?: string; tools?: string[]; answered?: string; searched?: string; read?: string; checked?: string; used?: string } = {};
   f.faux.appendResponses([
     (context) => {
-      const user = context.messages.findLast((entry) => entry.role === "user");
-      seen.first = user?.role === "user" ? (typeof user.content === "string" ? user.content : user.content.map((part) => (part.type === "text" ? part.text : "")).join("")) : "";
+      // 用户消息之后还有日期视图，取学习者的那一条。
+      seen.first = context.messages.flatMap((entry) => (entry.role === "user" ? [typeof entry.content === "string" ? entry.content : entry.content.map((part) => (part.type === "text" ? part.text : "")).join("")] : [])).find((text) => text.includes("没有课件")) ?? "";
       seen.tools = getCurrentTools(context.messages).map((tool) => tool.name);
       return fauxAssistantMessage([fauxToolCall("ask_user", { questions: [
         { id: "goal", question: "学线性代数是为了什么？", options: [{ label: "考试" }, { label: "项目" }, { label: "兴趣" }] },

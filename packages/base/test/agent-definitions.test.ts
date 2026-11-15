@@ -58,6 +58,7 @@ async function runtimeFixture(t: TestContext, extra: Partial<AgentSpaceOptions> 
   const models = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   models.registerNativeProvider(faux.provider);
   const runtime = await createAgentRuntimeForTest({
+    dateView: false,
     agentDir,
     modelRuntime: models,
     defaultModel: { provider: faux.getModel().provider, id: "test" },
@@ -212,6 +213,7 @@ async function protocolFixture(t: TestContext, plugin: Plugin, options: Pick<Ser
   const modelRuntime = await ModelRuntime.create({ authPath: path.join(home, "agent", "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   modelRuntime.registerNativeProvider(faux.provider);
   const runtime = await createAgentRuntimeForTest({
+    dateView: false,
     agentDir: path.join(home, "agent"),
     modelRuntime,
     defaultModel: { provider: faux.getModel().provider, id: "scripted" },
@@ -357,6 +359,7 @@ test("关掉通用 Agent 以后，它的旧会话照样能列出、能读历史�
     const modelRuntime = await ModelRuntime.create({ authPath: path.join(home, "agent", "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
     modelRuntime.registerNativeProvider(faux.provider);
     const runtime = await createAgentRuntimeForTest({
+      dateView: false,
       agentDir: path.join(home, "agent"),
       modelRuntime,
       defaultModel: { provider: faux.getModel().provider, id: "scripted" },
