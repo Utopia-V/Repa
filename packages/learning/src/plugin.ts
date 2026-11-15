@@ -8,7 +8,7 @@ import {
 } from "@repa/base/plugin";
 import { frontendPython, sandboxPython, type CheckPython } from "./check/python.js";
 import { beginText, completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
-import { COURSE_GUIDE, courseTools } from "./course-tools.js";
+import { COURSE_EXAMPLE, COURSE_GUIDE, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
@@ -563,7 +563,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   return {
     instructions: () => [
       "学习插件按课程安排学习者的课、复习和测验。",
-      `学习者要把放进 materials/ 的课件做成课，或者没有课件、只说了想学什么时，先用 read 读 ${COURSE_GUIDE}，按其中的格式和顺序在 ${SPACE_COURSE}/ 里写课，用 course_check 检查，用 course_use 让学习者用上。`,
+      `学习者要把放进 materials/ 的课件做成课，或者没有课件、只说了想学什么时，先用 read 读 ${COURSE_GUIDE}（它引用的示例课在 ${COURSE_EXAMPLE}），按其中的格式和顺序在 ${SPACE_COURSE}/ 里写课，用 course_check 检查，用 course_use 让学习者用上。`,
     ].join(""),
     tools: () => tools,
     agents: () => [tutorAgent(() => hooks)],
