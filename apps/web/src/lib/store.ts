@@ -34,6 +34,11 @@ export type Resource<T> = {
 /** ask 时 Agent 的每条命令都要用户允许，fullAccess 时直接运行。 */
 export type CommandPolicy = Result<"settings.get">["commandPolicy"];
 
+export type BackupSettings = Result<"settings.get">["backup"];
+
+/** backup.list 里的一份备份。 */
+export type BackupInfo = Result<"backup.list">[number]["backups"][number];
+
 type ResourceData = {
   /** 最近打开的空间，最新的在前。 */
   spaces: Result<"space.list">;
@@ -51,6 +56,12 @@ type ResourceData = {
   history: SpaceHistory;
   /** 当前空间的提示各段；换空间时清空。 */
   prompts: PromptSettings;
+  /** 备份的检查间隔与保留份数；应用级设置。 */
+  backupSettings: BackupSettings;
+  /** 当前空间最近一次备份成功的时间与上一次失败的原因；没有打开空间时为 null，换空间时清空。 */
+  backupStatus: Result<"backup.status">;
+  /** 全部空间的备份，包括文件夹已经不在的空间；每个空间的从新到旧。 */
+  backups: Result<"backup.list">;
 };
 
 type ResourceName = keyof ResourceData;
@@ -220,6 +231,22 @@ export type AppState = LearningActions & {
   loadCommandPolicy(): Promise<void>;
   /** 失败时抛给调用方，界面保留原来的策略。 */
   setCommandPolicy(policy: CommandPolicy): Promise<void>;
+  loadBackupSettings(): Promise<void>;
+  /** 失败时抛给调用方，界面保留原来的设置。 */
+  saveBackupSettings(settings: BackupSettings): Promise<void>;
+  loadBackupStatus(): Promise<void>;
+  loadBackups(): Promise<void>;
+  /** 立即备份当前空间；没有变化时 created 为 false。失败抛给调用方，原因同时记进备份状态。 */
+  createBackup(): Promise<Result<"backup.create">>;
+  /**
+   * 把备份恢复到空间原来的位置。恢复要求空间已关闭：要恢复的正是打开的空间时先关闭它，运行中不关闭，直接返回 undefined。
+   * 返回这次的“恢复前”备份；失败抛给调用方。
+   */
+  restoreBackup(root: string, id: string): Promise<BackupInfo | undefined>;
+  /** 把备份恢复到新文件夹 target（尚不存在的绝对路径），返回新空间的根目录；失败抛给调用方。 */
+  restoreBackupTo(root: string, id: string, target: string): Promise<string>;
+  /** 删除一份备份；失败抛给调用方。 */
+  deleteBackup(root: string, id: string): Promise<void>;
   /** 交互登录，等后端完成整个流程才返回；用户取消时同样以失败结束。 */
   login(provider: string, type: "api_key" | "oauth"): Promise<void>;
   answerLoginPrompt(id: string, value: string | null): Promise<void>;
@@ -254,6 +281,9 @@ function restoreSidebar(saved: unknown, fallback: SidebarPreference): SidebarPre
 
 export type AppStore = ReturnType<typeof createAppStore>;
 
+/** 依赖打开的空间的数据：换空间时清空，重新打开空间以后才重读。 */
+const SPACE_RESOURCES = ["sessions", "history", "prompts", "backupStatus"] as const;
+
 export function createAppStore() {
   // 同一份数据只保留一个进行中的读取；序号用于丢弃先发后到的旧结果。
   const pending = new Map<ResourceName, Promise<void>>();
@@ -264,7 +294,7 @@ export function createAppStore() {
     let resuming: Promise<void> | undefined;
 
     async function call<M extends Method>(method: M, params: Params<M>): Promise<Result<M>> {
-      if (resuming && (method.startsWith("session.") || method.startsWith("history.") || method.startsWith("prompt.") || method.startsWith("plugin."))) await resuming;
+      if (resuming && (method.startsWith("session.") || method.startsWith("history.") || method.startsWith("prompt.") || method.startsWith("plugin.") || method === "backup.status" || method === "backup.create")) await resuming;
       const client = get().client;
       if (!client) throw new ConnectionError(t("connection.notConnected.error"));
       return await client.call(method, params);
@@ -307,6 +337,9 @@ export function createAppStore() {
         const [sections, settings] = await Promise.all([call("prompt.list", {}), call("settings.get", {})]);
         return { sections, app: settings.prompts };
       }),
+      backupSettings: () => load("backupSettings", async () => (await call("settings.get", {})).backup),
+      backupStatus: () => load("backupStatus", () => call("backup.status", {})),
+      backups: () => load("backups", () => call("backup.list", {})),
     };
 
     /** list 只给出最近的提交，没有文件；从其中最早一条的父提交开始取变化，就得到同一段带文件的记录。 */
@@ -319,7 +352,7 @@ export function createAppStore() {
 
     /** 换空间后丢弃旧空间的会话列表、修改历史和学习状态，进行中的读取结果也作废。 */
     function resetSpaceData(): void {
-      for (const name of ["sessions", "history", "prompts"] as const) {
+      for (const name of SPACE_RESOURCES) {
         pending.delete(name);
         sequence.set(name, (sequence.get(name) ?? 0) + 1);
         update(name, { status: "idle" });
@@ -340,26 +373,19 @@ export function createAppStore() {
       set: (change) => set((state) => ({ learning: change(state.learning) })),
     });
 
-    /** 发送后会话的排序、预览可能变了；没读过时不读。 */
-    async function reloadSessions(): Promise<void> {
-      if (get().resources.sessions.status === "idle") return;
-      pending.delete("sessions");
-      await loaders.sessions();
+    /** 读过的才重新读取，丢弃进行中的旧读取。 */
+    async function reloadIfLoaded(name: ResourceName): Promise<void> {
+      if (get().resources[name].status === "idle") return;
+      pending.delete(name);
+      await loaders[name]();
     }
 
-    /** 改过提示或重新打开空间后重新读取；没读过时不读。 */
-    async function reloadPrompts(): Promise<void> {
-      if (get().resources.prompts.status === "idle") return;
-      pending.delete("prompts");
-      await loaders.prompts();
-    }
-
-    /** 撤回或重新打开空间后历史可能变了；没读过时不读。 */
-    async function reloadSpaceHistory(): Promise<void> {
-      if (get().resources.history.status === "idle") return;
-      pending.delete("history");
-      await loaders.history();
-    }
+    /** 发送后会话的排序、预览可能变了。 */
+    const reloadSessions = () => reloadIfLoaded("sessions");
+    /** 改过提示或重新打开空间后。 */
+    const reloadPrompts = () => reloadIfLoaded("prompts");
+    /** 撤回或重新打开空间后历史可能变了。 */
+    const reloadSpaceHistory = () => reloadIfLoaded("history");
 
     /** 凭据或默认模型变了之后，丢弃进行中的旧读取并重新读取；没读过的等页面需要时再读。 */
     async function reloadModelState(): Promise<void> {
@@ -431,6 +457,7 @@ export function createAppStore() {
         reloadSessions(),
         reloadSpaceHistory(),
         reloadPrompts(),
+        reloadIfLoaded("backupStatus"),
         status === "ready" || status === "error" ? reloadHistory() : undefined,
         // 学习状态读过才重读；重读时一并确认断线前结果不明的作答。
         get().learning.available === undefined ? undefined : learning.loadLearning(),
@@ -484,6 +511,15 @@ export function createAppStore() {
       const offPlugins = client.on("plugin.updated", ({ plugins }) => {
         learning.learningPlugins(plugins);
       });
+      // 备份新建、失败、删除或恢复以后：当前空间的状态直接换成通知里的这份，备份列表读过就重读。
+      const offBackup = client.on("backup.updated", (status) => {
+        if (status.root === get().space) {
+          sequence.set("backupStatus", (sequence.get("backupStatus") ?? 0) + 1);
+          pending.delete("backupStatus");
+          update("backupStatus", { status: "ready", data: status });
+        }
+        void reloadIfLoaded("backups");
+      });
       unsubscribe = () => {
         offEvent();
         offConfirm();
@@ -491,6 +527,7 @@ export function createAppStore() {
         offAskClosed();
         offPlugin();
         offPlugins();
+        offBackup();
       };
     }
 
@@ -571,6 +608,9 @@ export function createAppStore() {
         commandPolicy: { status: "idle" },
         history: { status: "idle" },
         prompts: { status: "idle" },
+        backupSettings: { status: "idle" },
+        backupStatus: { status: "idle" },
+        backups: { status: "idle" },
       },
       conversation: emptyConversation,
       confirmations: [],
@@ -600,7 +640,7 @@ export function createAppStore() {
       loadSpaces: loaders.spaces,
       async reloadLoaded() {
         const { resources } = get();
-        const names = (Object.keys(loaders) as ResourceName[]).filter((name) => name !== "sessions" && name !== "history" && name !== "prompts" && resources[name].status !== "idle");
+        const names = (Object.keys(loaders) as ResourceName[]).filter((name) => !(SPACE_RESOURCES as readonly string[]).includes(name) && resources[name].status !== "idle");
         await Promise.all(names.map((name) => loaders[name]()));
       },
       async openSpace(root, options) {
@@ -833,6 +873,36 @@ export function createAppStore() {
         pending.delete("commandPolicy");
         sequence.set("commandPolicy", (sequence.get("commandPolicy") ?? 0) + 1);
         update("commandPolicy", { status: "ready", data: settings.commandPolicy });
+      },
+      loadBackupSettings: loaders.backupSettings,
+      async saveBackupSettings(backup) {
+        const settings = await call("settings.set", { backup });
+        pending.delete("backupSettings");
+        sequence.set("backupSettings", (sequence.get("backupSettings") ?? 0) + 1);
+        update("backupSettings", { status: "ready", data: settings.backup });
+      },
+      loadBackupStatus: loaders.backupStatus,
+      loadBackups: loaders.backups,
+      async createBackup() {
+        try {
+          return await call("backup.create", {});
+        } finally {
+          // 成功与失败都会发出 backup.updated；没有变化时不发，这里再读一次也无妨。
+          await reloadIfLoaded("backupStatus");
+        }
+      },
+      async restoreBackup(root, id) {
+        if (root === get().space) {
+          if (get().conversation.run !== "idle") return undefined;
+          await get().closeSpace();
+        }
+        return await call("backup.restore", { root, id });
+      },
+      async restoreBackupTo(root, id, target) {
+        return (await call("backup.restoreTo", { root, id, target })).root;
+      },
+      async deleteBackup(root, id) {
+        await call("backup.delete", { root, id });
       },
       async login(provider, type) {
         const id = ++loginRequest;

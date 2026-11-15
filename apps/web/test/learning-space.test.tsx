@@ -31,6 +31,7 @@ function fakeBackend(recent: string[], options: { failOpen?: unknown; failList?:
       spaces = [root, ...spaces.filter((item) => item !== root)];
       return Promise.resolve({ root });
     }
+    if (method === "backup.list") return Promise.resolve([]);
     return Promise.reject(new Error(`未模拟的方法 ${method}`));
   });
   return { call, ...fakeClient(call) };

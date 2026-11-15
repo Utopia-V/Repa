@@ -1,13 +1,12 @@
 import { useState } from "react";
-import { Copy, FolderOpen } from "lucide-react";
 import type { Result } from "@repa/base/protocol";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { StatusNotice } from "@/components/ui/status-notice";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorNotice } from "@/components/domain/error-notice";
+import { CreatedFile } from "@/features/created-file";
 import { useAppStore } from "@/hooks/use-app-store";
 import { revealFile } from "@/lib/host";
 import { t } from "@/lib/strings";
@@ -47,7 +46,15 @@ export function FeedbackDialog({ onBusyChange, onClose }: { onBusyChange(busy: b
     }
   }
 
-  if (result) return <FeedbackCreated path={result.path} revealError={revealError} onReveal={() => reveal(result.path)} onClose={onClose} />;
+  if (result) return <CreatedFile
+    title={t("feedback.created.title")}
+    description={t("feedback.created.description")}
+    pathLabel={t("feedback.created.path.label")}
+    path={result.path}
+    revealError={revealError}
+    onReveal={() => reveal(result.path)}
+    onClose={onClose}
+  />;
 
   return <DialogContent>
     <DialogHeader>
@@ -84,38 +91,6 @@ export function FeedbackDialog({ onBusyChange, onClose }: { onBusyChange(busy: b
       <Button disabled={creating} aria-busy={creating} onClick={() => { void create(); }}>
         {creating ? t("feedback.create.running.status") : t("feedback.create.action")}
       </Button>
-    </DialogFooter>
-  </DialogContent>;
-}
-
-function FeedbackCreated({ path, revealError, onReveal, onClose }: { path: string; revealError: unknown; onReveal(): void; onClose(): void }) {
-  const [copied, setCopied] = useState<"done" | "failed">();
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(path);
-      setCopied("done");
-    } catch {
-      // 浏览器拒绝写剪贴板时路径仍在页面上，提示用户手动选中复制。
-      setCopied("failed");
-    }
-  }
-
-  return <DialogContent>
-    <DialogHeader>
-      <DialogTitle>{t("feedback.created.title")}</DialogTitle>
-      <DialogDescription>{t("feedback.created.description")}</DialogDescription>
-    </DialogHeader>
-    <p className="text-body break-all select-all" aria-label={t("feedback.created.path.label")}>{path}</p>
-    {copied === "done" && <p role="status" className="text-body text-muted-foreground">{t("feedback.created.copied.status")}</p>}
-    {copied === "failed" && <p role="status" className="text-body text-muted-foreground">{t("feedback.created.copyFailed.error")}</p>}
-    {revealError !== undefined && <StatusNotice status="error" title={t("feedback.created.reveal.error")}>
-      <p>{revealError instanceof Error ? revealError.message : t("common.revealFolder.error")}{t("feedback.created.revealHint.hint")}</p>
-    </StatusNotice>}
-    <DialogFooter>
-      <Button variant="tertiary" onClick={() => { void copy(); }} leadingIcon={Copy}>{t("feedback.created.copy.action")}</Button>
-      <Button variant="tertiary" onClick={onReveal} leadingIcon={FolderOpen}>{t("feedback.created.reveal.action")}</Button>
-      <Button onClick={onClose}>{t("common.done.action")}</Button>
     </DialogFooter>
   </DialogContent>;
 }

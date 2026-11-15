@@ -12,8 +12,8 @@ import { fileURLToPath } from "node:url";
 import { startRepaProcess, type RepaProcess, type RepaProcessOptions } from "@repa/base/process";
 import { defaultPackagesDirectory } from "@repa/python-runner";
 
-// 只打开反馈包：这个端点替页面调用系统的文件管理器，不接受任意路径。
-const FEEDBACK_FILE = /^repa-feedback-[\d-]+\.zip$/u;
+// 只打开反馈包和插件导出的数据包：这个端点替页面调用系统的文件管理器，不接受任意路径。
+const REVEALABLE_FILE = /^repa-(?:feedback|[a-z0-9][a-z0-9-]*-export)-[\d-]+\.zip$/u;
 
 /** 在系统文件管理器里打开文件所在的文件夹并选中它。 */
 function reveal(file: string): Promise<void> {
@@ -100,7 +100,7 @@ function repaDevelopmentBackend(options: RepaProcessOptions) {
           try {
             const body: unknown = JSON.parse(await readBody(request));
             const file = body !== null && typeof body === "object" && "path" in body && typeof body.path === "string" ? body.path : undefined;
-            if (file === undefined || !path.isAbsolute(file) || !FEEDBACK_FILE.test(path.basename(file))) {
+            if (file === undefined || !path.isAbsolute(file) || !REVEALABLE_FILE.test(path.basename(file))) {
               response.statusCode = 400;
               response.end();
               return;

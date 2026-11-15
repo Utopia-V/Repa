@@ -114,7 +114,7 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 会话可能含有私人内容，所以默认不收入；界面在导出前说明这一点，并列出 `export.prepare` 返回的清单，即每个文件的字节数、记录条数和替换掉的凭据与密钥处数。全部内容按反馈包的规则替换凭据与密钥，学习者写进作答的密钥也一样。读取、脱敏与写出由底座的 [`host.prepareExport`](../../packages/base/README.md#导出插件数据) 完成，插件只列出白名单。
 
-预览时，插件把已脱敏的 zip 冻结在内存中，`export.create` 写出的就是这一份，所以清单与 zip 一致，预览以后新增的记录不进入这次导出。插件只保留最近一次预览：写出成功、再次预览或关闭空间以后，旧的 `exportId` 以 `export_expired` 拒绝，需要重新预览；存放目录无效等写出失败时，这份预览仍然有效。zip 默认放在应用配置目录的 `exports/`，桌面端可以把 `directory` 指定为“下载”文件夹。
+预览时，插件把已脱敏的 zip 冻结在内存中，`export.create` 写出的就是这一份，所以清单与 zip 一致，预览以后新增的记录不进入这次导出。插件只保留最近一次预览：写出成功、再次预览或关闭空间以后，旧的 `exportId` 以 `export_expired` 拒绝，需要重新预览；存放目录无效等写出失败时，这份预览仍然有效。zip 默认放在应用配置目录的 `exports/`，桌面端可以把 `directory` 指定为“下载”文件夹。Web 前端的入口在设置页，打开空间且学习插件在运行时出现：对话框先列出清单，是否包含会话默认不勾选，改动后重新预览；zip 放在缺省位置，做完显示完整路径，桌面端和开发服务器可以在文件管理器里打开所在文件夹，二者只接受反馈包和 `repa-<插件 id>-export-…zip`。见 [learning-export.tsx](../../apps/web/src/features/learning-export.tsx)。
 
 ### 课程来源与模型
 
