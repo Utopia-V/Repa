@@ -10,4 +10,4 @@
 ## 入口与阶段性做法
 
 - 改动前按 README 的[学习行为的说明](README.md#学习行为的说明)读对应开发说明；写课见[写课的规矩](courses/AGENTS.md)。`records-schema.ts` 是持久格式，改动先按[持久格式与版本](../../docs/AGENTS.md#持久格式与版本)写变更记录。
-- 一个空间一门课（`course/` 或随包课程；前端的侧栏因此把最近的空间列成课程，“新建课程”建的是新空间），核对程序只有 Python，四个题池与课内全做，选题写在 `flow.ts`：这些是测试版的阶段性做法，不是设计，新代码不以它们为前提扩展，见 [#99](https://github.com/Utopia-V/repa/issues/99)与[状态的范围](../../.agents/notes/proposed/architecture/2026-11-15-state-scope.md#测试版留下的阶段性做法)。
+- 一个空间一门课（`course/` 或随包课程；前端侧栏按空间列课程），核对程序只有 Python，四个题池与课内全做，选题写在 `flow.ts`：这些是测试版的阶段性做法，不是设计，新代码不以它们为前提扩展，见 [#99](https://github.com/Utopia-V/repa/issues/99)。
