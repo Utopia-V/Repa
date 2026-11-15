@@ -146,13 +146,13 @@ it("无权限的文件夹显示原因并停留在原来的位置", async () => {
 });
 
 it("打开失败时在选择框里显示原因，可以换一个文件夹", async () => {
-  const failOpen = new RpcError(-32000, "空间已经由另一个后端打开", { code: "space_locked" });
+  const failOpen = new RpcError(-32000, "空间正由另一个 Repa 使用；上次没有正常关闭时，约 30 秒后可重新打开", { code: "space_locked" });
   renderPage(fakeBackend(tree, { failOpen }).client);
   const dialog = await openPicker();
 
   fireEvent.click(within(dialog).getByRole("button", { name: "打开" }));
 
-  expect((await within(dialog).findByRole("alert")).textContent).toContain("空间已经由另一个后端打开");
+  expect((await within(dialog).findByRole("alert")).textContent).toContain("空间正由另一个 Repa 使用；上次没有正常关闭时，约 30 秒后可重新打开");
   expect((within(dialog).getByRole("button", { name: "打开" }) as HTMLButtonElement).disabled).toBe(false);
 });
 

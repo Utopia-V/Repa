@@ -25,7 +25,7 @@
 
 ### 前端的方法
 
-学习页列出课件、添加课件时经底座的 `plugin.call` 调用本插件，`pluginId` 为 `materials`。方法的输入与结果在 [`src/protocol.ts`](src/protocol.ts)，经 `@repa/materials/protocol` 导出，只依赖 `typebox` 与 `@repa/base/protocol`，浏览器里也能用；前端用其中的 `readMaterialsResult` 宽松读取，选课件的窗口按其中的 `MATERIAL_EXTENSIONS` 只列这几种格式的文件。
+学习页列出课件、添加课件时经底座的 `plugin.call` 调用本插件，`pluginId` 为 `materials`。方法的输入与结果在 [`src/protocol.ts`](src/protocol.ts)，经 `@repa/materials/protocol` 导出，只依赖 `typebox` 与 `@repa/base/protocol`，浏览器里也能用；前端用其中的 `readMaterialsResult` 宽松读取，选课件的窗口按其中的 `MATERIAL_EXTENSIONS` 只列这几种格式和文字文件（`.txt`、`.md`）。
 
 | 方法 | 输入 | 结果 |
 | --- | --- | --- |

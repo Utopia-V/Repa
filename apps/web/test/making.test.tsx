@@ -195,7 +195,7 @@ it("添加课件：只列课件格式的文件，在本机文件夹里勾选，�
   fireEvent.click(await screen.findByRole("button", { name: "making.materials.add.action" }));
   const dialog = within(await screen.findByRole("dialog"));
   // 只列课件插件读得了的格式，扩展名取自课件插件的协议。
-  expect(calls(fake.call, "space.browse")).toEqual([{ files: true, extensions: [".pdf", ".pptx", ".ppt", ".docx", ".doc"] }]);
+  expect(calls(fake.call, "space.browse")).toEqual([{ files: true, extensions: [".pdf", ".pptx", ".ppt", ".docx", ".doc", ".txt", ".md"] }]);
   fireEvent.click(await dialog.findByRole("button", { name: "课件" }));
   fireEvent.click(await dialog.findByRole("checkbox", { name: /^第一章\.pdf/u }));
   expect(dialog.getByText("2.4 MB")).toBeTruthy();

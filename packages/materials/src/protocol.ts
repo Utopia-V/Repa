@@ -12,8 +12,8 @@ import { identifier, object, readLenient, type ReadResult } from "@repa/base/pro
 const FORMATS = ["pdf", "pptx", "ppt", "docx", "doc"] as const;
 const FormatSchema = Type.Enum(FORMATS);
 
-/** 选课件的窗口列出的文件扩展名：上面几种格式的文件都以格式名作扩展名。插件读文件时看内容，不看扩展名。 */
-export const MATERIAL_EXTENSIONS: readonly string[] = FORMATS.map((format) => `.${format}`);
+/** 选课件的窗口列出的文件扩展名：上面几种格式的文件都以格式名作扩展名，另加常见的文字文件（笔记、提纲）。插件读文件时看内容，不看扩展名。 */
+export const MATERIAL_EXTENSIONS: readonly string[] = [...FORMATS.map((format) => `.${format}`), ".txt", ".md"];
 
 /**
  * materials/ 里的一个文件。path 相对空间根目录，用 /；size 是字节数。

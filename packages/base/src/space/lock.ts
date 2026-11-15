@@ -20,7 +20,7 @@ export async function lockSpace(root: string, onCompromised: (error: Error) => v
     });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ELOCKED") {
-      throw new RepaFault("space_locked", "空间已经由另一个后端打开", { root });
+      throw new RepaFault("space_locked", "空间正由另一个 Repa 使用；上次没有正常关闭时，约 30 秒后可重新打开", { root });
     }
     throw error;
   }
