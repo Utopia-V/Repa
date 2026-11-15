@@ -248,6 +248,18 @@ test("小表里写成 001、1e3 或没有声明 float 的小数时报出", async
   assert.deepEqual(result.diagnostics.map((diagnostic) => diagnostic.line), [13, 14, 15, 15]);
 });
 
+test("选项的内容写成不带引号的数时，说明这里要写文字并给出加引号的写法", async (t) => {
+  const demo = demoCourse();
+  const question = kp(demo, 0).practice?.find((item) => item.id === "t01.k1.q3");
+  const slot = question?.slots[0];
+  assert.ok(slot && slot.type === "choice");
+  // YAML 里的 content: 0.83 读出来就是数。
+  (slot.options[1] as { content: unknown }).content = 0.83;
+  const result = await structuralCheck(t, demo);
+  assert.deepEqual(codes(result.diagnostics), ["schema"]);
+  assert.match(result.diagnostics[0]?.message ?? "", /要写文字，实际是数字.*请加引号，例如 "0\.83"/);
+});
+
 test("固定显示的格写成数字、按文字或显示内容比较的答案没加引号时报出", async (t) => {
   const demo = demoCourse();
   const table = kp(demo, 1).example?.slots[0] as TableSlot;

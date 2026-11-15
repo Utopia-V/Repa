@@ -258,7 +258,11 @@ function explain(error: TLocalizedValidationError, schema: TSchema, root: unknow
     case "enum":
       return `应为 ${(params.allowedValues as unknown[]).map((item) => JSON.stringify(item)).join("、")} 之一`;
     case "anyOf":
-      return error.message && !/^must match/.test(error.message) ? error.message : "不符合任何一种写法";
+      if (error.message && !/^must match/.test(error.message)) return error.message;
+      // 真实做课里这一条几乎都出在同一处：选项或题面的内容写成了不带引号的数（content: 0.83），YAML 读成数而不是文字。
+      return typeof value === "number" || typeof value === "boolean"
+        ? `这里要写文字，实际是${describe(value)}；YAML 把不带引号的数和 true、false 读成数或布尔值，请加引号，例如 "${String(value)}"`
+        : "不符合任何一种写法";
     case "minItems":
       return `至少需要 ${String(params.limit)} 项`;
     case "maxItems":
