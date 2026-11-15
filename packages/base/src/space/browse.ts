@@ -12,33 +12,39 @@ import { RepaFault, type DirectoryListing, type DirectoryRoot } from "../schema.
 
 const execFileAsync = promisify(execFile);
 const LIMIT = 1000;
-// Node 读不到 Windows 的隐藏属性，按资源管理器默认不显示的系统目录名过滤。
-const WINDOWS_SYSTEM = new Set(["system volume information", "config.msi", "recovery", "programdata", "appdata"]);
-// 为旧程序保留的兼容链接本身拒绝列出内容；同名的普通文件夹不受影响。
-const WINDOWS_LEGACY_LINKS = new Set([
-  "documents and settings",
-  "application data",
-  "cookies",
-  "local settings",
-  "my documents",
-  "my music",
-  "my pictures",
-  "my videos",
-  "nethood",
-  "printhood",
-  "recent",
-  "sendto",
-  "start menu",
-  "templates",
-]);
 
-export function hiddenEntry(name: string, link: boolean, platform: NodeJS.Platform = process.platform): boolean {
-  // ~$ 开头的是 Office 打开文档时旁边留下的锁文件，Windows 上带隐藏属性。
-  if (name.startsWith(".") || name.startsWith("~$")) return true;
-  if (platform !== "win32") return false;
-  const lower = name.toLowerCase();
-  return lower.startsWith("$") || WINDOWS_SYSTEM.has(lower) || (link && WINDOWS_LEGACY_LINKS.has(lower));
+/** 所有系统上都不列的条目：点开头的，和 Office 打开文档时旁边留下的锁文件（~$ 开头，Windows 上本来带隐藏属性）。 */
+function hiddenEntry(name: string): boolean {
+  return name.startsWith(".") || name.startsWith("~$");
 }
+
+/** 读出一个文件夹里带隐藏属性的条目名（小写，Windows 的文件名不分大小写）。 */
+export type HiddenReader = (directory: string) => Promise<ReadonlySet<string>>;
+
+/** `dir /b` 的输出：每行一个名称，CRLF 分隔。名称可能以空格开头，所以不修剪。 */
+export function parseHiddenListing(output: string): Set<string> {
+  return new Set(output.split(/\r?\n/).filter((line) => line !== "").map((line) => line.toLowerCase()));
+}
+
+/**
+ * Windows 上哪些条目带隐藏属性，资源管理器按它决定显示什么：AppData、“「开始」菜单”等兼容链接、NTUSER.DAT、
+ * $Recycle.Bin 都带。Node 的 fs 读不到属性，每列一次目录调用一次 `cmd /u /c dir /a:h /b`（实测约 23 ms），
+ * /u 让 cmd 以 UTF-16LE 写进管道，中文名不受代码页影响。没有隐藏条目时 dir 以 1 退出；
+ * 这一步出任何错都按没有隐藏条目处理，多列几项也比打不开文件夹好。
+ * 路径放在双引号里交给 cmd；文件夹名里成对的 % 仍会被 cmd 当成环境变量展开，这时读不出，同样按没有处理。
+ */
+export const readWindowsHidden: HiddenReader = async (directory) => {
+  try {
+    const { stdout } = await execFileAsync("cmd.exe", ["/d", "/u", "/c", "dir", "/a:h", "/b", directory], {
+      encoding: "buffer", windowsHide: true, timeout: 5000,
+    });
+    return parseHiddenListing(stdout.toString("utf16le"));
+  } catch {
+    return new Set();
+  }
+};
+
+const noHidden: HiddenReader = () => Promise.resolve(new Set());
 
 function browseFault(error: unknown, directory: string): unknown {
   const code = (error as NodeJS.ErrnoException).code;
@@ -67,22 +73,14 @@ async function isSpace(directory: string): Promise<boolean> {
   }
 }
 
-/**
- * 子文件夹、文件或都不是（读不了的链接、设备文件等）。链接跟随一次，Windows 的 junction 也报告为链接。
- * 指向文件夹的链接要打得开才列：Windows 为旧程序保留的兼容链接（“「开始」菜单”“Application Data”等）拒绝列出内容，
- * 中文系统上名称还是本地化的，按名称认不全；它们带隐藏和系统属性，资源管理器也不显示。
- */
+/** 子文件夹、文件或都不是（读不了的链接、设备文件等）。链接跟随一次，Windows 的 junction 也报告为链接。 */
 async function entryKind(directory: string, entry: Dirent): Promise<"folder" | "file" | undefined> {
   if (entry.isDirectory()) return "folder";
   if (entry.isFile()) return "file";
   if (!entry.isSymbolicLink()) return undefined;
   try {
-    const target = path.join(directory, entry.name);
-    const info = await stat(target);
-    if (info.isFile()) return "file";
-    if (!info.isDirectory()) return undefined;
-    await (await opendir(target)).close();
-    return "folder";
+    const info = await stat(path.join(directory, entry.name));
+    return info.isDirectory() ? "folder" : info.isFile() ? "file" : undefined;
   } catch {
     return undefined;
   }
@@ -96,10 +94,13 @@ function wanted(name: string, extensions: ReadonlySet<string> | undefined): bool
 /**
  * 返回子文件夹的名称与空间标记，只读取空间格式标记；files 为真时连同文件的名称与大小。
  * extensions 只列这些扩展名的文件（带点，例如 .pdf），由调用方按用途给出，例如选课件的窗口只列课件插件读得了的格式。
+ * hidden 读出带隐藏属性的条目，缺省在 Windows 上是 readWindowsHidden，别的系统上没有这种属性。
  */
 export async function browseDirectory(
   requested = os.homedir(),
-  { files = false, extensions, limit = LIMIT }: { files?: boolean; extensions?: readonly string[]; limit?: number } = {},
+  { files = false, extensions, limit = LIMIT, hidden = process.platform === "win32" ? readWindowsHidden : noHidden }: {
+    files?: boolean; extensions?: readonly string[]; limit?: number; hidden?: HiddenReader;
+  } = {},
 ): Promise<DirectoryListing> {
   if (!path.isAbsolute(requested) || requested.includes("\0")) {
     throw new RepaFault("invalid_path", "请提供文件夹的绝对路径。", { path: requested });
@@ -111,9 +112,10 @@ export async function browseDirectory(
   const accepted = extensions && new Set(extensions.map((extension) => extension.toLowerCase()));
   try {
     directory = await realpath(requested);
+    const attributeHidden = await hidden(directory);
     // 逐项读取，超大目录读到上限即停止；目录在两次请求之间可能变化，因此不提供翻页游标。
     for await (const entry of await opendir(directory)) {
-      if (hiddenEntry(entry.name, entry.isSymbolicLink())) continue;
+      if (hiddenEntry(entry.name) || attributeHidden.has(entry.name.toLowerCase())) continue;
       const kind = await entryKind(directory, entry);
       if (kind === undefined || (kind === "file" && (!files || !wanted(entry.name, accepted)))) continue;
       if (folders.length + found.length === limit) {
