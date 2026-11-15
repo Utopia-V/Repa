@@ -12,6 +12,7 @@ import { Type, type Static } from "typebox";
 
 import { COURSE_GUIDE } from "./course-tools.js";
 import type { ResolvedCourse } from "./course-sources.js";
+import { expansionBrief } from "./expansion-brief.js";
 import { ExpansionFailureSchema, LearningSettingsSchema, type LearningSettings } from "./protocol.js";
 import { SPACE_COURSE } from "./space-course.js";
 
@@ -82,7 +83,8 @@ export function completeTopics(course: ResolvedCourse): string[] {
 
 /**
  * 交给后台通用 Agent 的任务。它没有连接可以回答提问或确认命令，所以写明只用文件、课件与做课的工具；
- * 学过的部分写出来，让它知道哪些不能推倒。具体做法在写课说明的“后台展开”一节。
+ * 学过的部分写出来，让它知道哪些不能推倒。这几部分的轮廓和学习者在它们之前学到的概念由程序算好放在后面（expansion-brief.ts），
+ * 模型不必自己去翻课程文件；具体做法在写课说明的“后台展开”一节。
  */
 export function expansionTask(course: ResolvedCourse, topicIds: readonly string[], learned: readonly string[]): string {
   const name = (id: string) => `${id}「${course.topics.find((topic) => topic.id === id)?.title ?? id}」`;
@@ -91,6 +93,9 @@ export function expansionTask(course: ResolvedCourse, topicIds: readonly string[
     `学习者学过的部分：${learned.length > 0 ? learned.map(name).join("、") : "还没有"}。`,
     `先用 read 读 ${COURSE_GUIDE} 的“后台展开”一节，照着做，最后用 course_use 换用。`,
     "这是后台运行：没有人回答提问，也没有人能确认命令，不要用 bash 和 ask_user。",
+    "下面是这几部分的轮廓和学习者在它们之前学到的概念，取自学习者现在学的这一版课。",
+    "",
+    expansionBrief(course, topicIds, new Set(learned)),
   ].join("\n");
 }
 

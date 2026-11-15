@@ -384,6 +384,7 @@ export const strings = {
   "toolActivity.materialsRead.label": "读取课件",
   "toolActivity.courseCheck.label": "检查课程",
   "toolActivity.courseUse.label": "更新课程",
+  "toolActivity.courseBrief.label": "〔待写〕",
   "toolActivity.count.label": "×{count}",
   "toolActivity.learningTask.label": "查看当前题目",
   "toolActivity.learningSearch.label": "查找课程内容",

@@ -761,10 +761,16 @@ test("模型搜索和读取学过的内容：每条结果一行编号与名称�
   assert.match(missing.text, /没有编号为 t02\.k1\.card、d3\.explanation 的内容，或者还没学到；用 learning_search 查找能读的内容/u);
 });
 
-test("视图按学生模型的时间排先修：时钟回拨到最近一次更新之前，记忆的强弱不因回拨颠倒", async (t) => {
+/** 概念卡改名为“概念 n”的 topic，视图里的概念名与知识点编号看得出分别。 */
+function named(id: string): Topic {
+  const base = topic(id);
+  return { ...base, kps: base.kps.map((kp, index) => (kp.card ? { ...kp, card: { ...kp.card, name: `${id} 概念 ${index + 1}` } } : kp)) };
+}
+
+test("视图按学生模型的时间排先修并写出它们的概念：时钟回拨时强弱不颠倒，状态不变时文字不变并记在会话记录里，作答期间只写先修的名称", async (t) => {
   const start = 1_792_454_400_000;
   const third: Topic = { ...topic("t03"), prerequisites: ["t01", "t02"] };
-  const f = await fixture(t, [topic("t01"), topic("t02"), third]);
+  const f = await fixture(t, [named("t01"), named("t02"), third]);
   // 第 0 天学完 t01，第 1 天按时复习 t01（理想间隔变长），再学 t02 并答错一题（记忆比 t01 弱、间隔较短）。
   await f.select("lesson", "t01");
   await f.finish();
@@ -788,7 +794,28 @@ test("视图按学生模型的时间排先修：时钟回拨到最近一次更�
   const raw = (f.session().records.facts.at(-1)?.at ?? 0) / DAY_MS;
   assert.ok(memoryAt(t01, raw) < memoryAt(t02, raw));
   const preview = await f.client.call("prompt.preview", { agent: TUTOR_AGENT });
-  assert.match(preview.views[0]?.text ?? "", /\n学过的直接先修，学生模型估计的记忆由弱到强：「t02」「t01」$/u);
+  const concepts = (id: string) => `- 「${id}」：${[1, 2, 3, 4, 5].map((index) => `${id} 概念 ${index}（${id}.k${index}）`).join("、")}`;
+  assert.match(preview.views[0]?.text ?? "", new RegExp(`\\n${[
+    "学过的直接先修，学生模型估计的记忆由弱到强，各自的概念（括号里是知识点编号）：", concepts("t02"), concepts("t01"),
+  ].join("\\n")}$`, "u"));
+
+  // 状态不变时视图文字不变：时间过去五天、没有新的事实，排序和文字都一样，不打乱提示缓存。
+  f.time(start + 5 * DAY_MS);
+  assert.deepEqual(await f.client.call("prompt.preview", { agent: TUTOR_AGENT }), preview);
+
+  // 模型实际收到的视图记在会话记录里，事后查得到这次给了哪些概念。
+  f.faux.setResponses([fauxAssistantMessage("先回顾一下。")]);
+  await f.client.call("session.send", { sessionId: f.chat.id, text: "这节和前面有什么关系？" });
+  const history = await f.client.call("session.history", { sessionId: f.chat.id });
+  assert.ok(history.some((entry) => entry.type === "view" && entry.text?.includes(concepts("t02"))));
+
+  // 作答期间不能看参考内容，视图只写先修的名称，不写它们的概念。
+  await f.advance();
+  await f.advance();
+  assert.equal((await f.state()).restrictions.referenceContentAllowed, false);
+  const answering = await f.client.call("prompt.preview", { agent: TUTOR_AGENT });
+  assert.match(answering.views[0]?.text ?? "", /\n学过的直接先修，学生模型估计的记忆由弱到强：「t02」「t01」$/u);
+  assert.doesNotMatch(answering.views[0]?.text ?? "", /概念/u);
 });
 
 test("中止失败保留 preparing，整空间重开后显式继续同一个受限任务", async (t) => {
