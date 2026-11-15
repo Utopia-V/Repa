@@ -96,6 +96,7 @@ async function fixture(t: TestContext, topics?: Topic[], options: FixtureOptions
   // 插件的时间取自底座：运行时的 now 经协议宿主交给插件，测试在这里拨动时间。
   let now = 1_792_454_400_000;
   const runtime = await createAgentRuntimeForTest({
+    dateView: false,
     agentDir, modelRuntime: models, defaultModel: { provider: faux.getModel().provider, id: "test" }, now: () => now,
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
   });

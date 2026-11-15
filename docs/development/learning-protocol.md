@@ -109,7 +109,7 @@ if (state.ok) renderLearning(state.value);
 - `sessionId` 是学习者与之对话做课的会话，前端经 `building.begin` 告诉插件；还没有时为 `null`。它记在插件数据目录里，重开应用以后页面据此接回同一段对话。
 - `cost` 是做这门课的会话（调用过 `course_check`、`course_use` 的会话与后台展开的会话，连同它们起的子 Agent）到现在的累计用量，字段同底座的 `session.usage`：`requests`、全部 token `usage`、按模型目录单价折算的 `cost`（美元），以及没有单价的那部分 token `unpriced`。
 
-`building.begin` 在学习页开始做课时调用：前端先用 `session.create` 新建一个通用 Agent 的会话（不填 `agent`），再以 `{ sessionId, request? }` 调用它，插件记下这是做课的对话（花费算在里面，之后的 `building.get` 给出它），返回 `{ text }`，前端把 `text` 用 `session.send` 发给这段会话。`request` 是学习者写的要求，可以省略；消息里给模型的固定部分由插件写，前端不拼。再次调用时换成新的会话，以前的仍算在花费里。
+`building.begin` 在学习页开始做课时调用：前端先用 `session.create` 新建一个通用 Agent 的会话（不填 `agent`），再以 `{ sessionId, materials, request? }` 调用它，插件记下这是做课的对话（花费算在里面，之后的 `building.get` 给出它），返回 `{ text }`，前端把 `text` 用 `session.send` 发给这段会话。`materials` 是开始时 `materials/` 里有没有课件；`request` 是学习者写的要求，有课件时可以省略，没有课件时是他想学什么（学习页在没有课件时要写了想学什么才能开始）。两种情况的第一条消息不同；消息里给模型的固定部分由插件写，前端不拼。再次调用时换成新的会话，以前的仍算在花费里。
 
 `building.expand` 立即在后台展开：`topicIds` 省略时为课程顺序里最前面的两个轮廓部分。它不看自动展开的设置，返回展开开始以后的状态。`building.cancel` 取消正在进行的展开，等它停下再返回。`settings.get` 与 `settings.set` 读写学习插件的设置，目前只有 `autoExpand`（缺省为真）：为真时，已经展开过一段、学习者学到已展开部分只剩一节没学而后面还有轮廓时，插件在后台展开接下来的部分。
 

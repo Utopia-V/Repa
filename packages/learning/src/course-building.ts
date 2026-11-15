@@ -94,9 +94,16 @@ export function expansionTask(course: ResolvedCourse, topicIds: readonly string[
   ].join("\n");
 }
 
-/** 做课对话的第一条消息：以学习者的口吻说明要做什么，附上他写的要求。怎样做课在插件说明与写课说明里。 */
-export function beginText(request: string | undefined): string {
-  const text = "我把课件放进了 materials/，请把它们做成一门课。";
+/**
+ * 做课对话的第一条消息：以学习者的口吻说明要做什么，附上他写的要求。没有课件时写明这一点，他写的是想学什么。
+ * 怎样做课（包括没有课件时先问清需求）在插件说明与写课说明里。
+ */
+export function beginText(materials: boolean, request: string | undefined): string {
   const wishes = request?.trim();
+  if (!materials) {
+    const text = "我手里没有课件，请帮我做一门课。";
+    return wishes ? `${text}\n\n我想学的和我的情况：\n${wishes}` : text;
+  }
+  const text = "我把课件放进了 materials/，请把它们做成一门课。";
   return wishes ? `${text}\n\n我的情况和要求：\n${wishes}` : text;
 }

@@ -45,6 +45,7 @@ async function fixture(t: TestContext) {
     });
   };
   const runtime = await createAgentRuntimeForTest({
+    dateView: false,
     agentDir, modelRuntime: models, defaultModel: { provider: faux.getModel().provider, id: "test" },
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
     extensionFactories: [factory],

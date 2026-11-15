@@ -474,12 +474,17 @@ test("做课的对话：随包的课不算做课；前端建好会话以后 buil
 
   const session = await f.client.call("session.create", {});
   const seen = f.changes();
-  const begun = await f.call("building.begin", { sessionId: session.id, request: "  一月中旬考试，第六章不学。 " });
+  const begun = await f.call("building.begin", { sessionId: session.id, materials: true, request: "  一月中旬考试，第六章不学。 " });
   assert.ok(begun.text.includes("materials/"));
   assert.ok(begun.text.endsWith("一月中旬考试，第六章不学。"));
   assert.ok(f.changes() > seen);
   assert.equal((await f.building()).sessionId, session.id);
-  assert.ok(!(await f.call("building.begin", { sessionId: session.id })).text.includes("要求"));
+  assert.ok(!(await f.call("building.begin", { sessionId: session.id, materials: true })).text.includes("要求"));
+  // 没有课件时，第一条消息写明没有课件，附上想学什么，不提 materials/。
+  const wish = await f.call("building.begin", { sessionId: session.id, materials: false, request: "线性代数，为了期末考试" });
+  assert.ok(wish.text.includes("没有课件"));
+  assert.ok(!wish.text.includes("materials/"));
+  assert.ok(wish.text.endsWith("线性代数，为了期末考试"));
 
   await f.reopen();
   assert.equal((await f.building()).sessionId, session.id);

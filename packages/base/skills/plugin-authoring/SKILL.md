@@ -35,7 +35,7 @@ description: 给 Repa 自己写插件并在这次运行里装上使用。使用�
 
 每个工具是 `{ name, description, parameters, execute(input, context) }`：
 
-- `name` 以字母开头，只含字母、数字和下划线，不能用连字符。它不能与内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`、`powershell`、`subagent`、`ask_user`、`plugin`）或别的插件的工具重名，所以加上插件名作前缀，例如 `forum_fetch`。
+- `name` 以字母开头，只含字母、数字和下划线，不能用连字符。它不能与内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`、`powershell`、`subagent`、`ask_user`、`web_search`、`web_fetch`、`plugin`）或别的插件的工具重名，所以加上插件名作前缀，例如 `forum_fetch`。
 - `parameters` 用 `Type.Object({...})` 声明，每个字段带 `description`，模型照着它填参数。宿主调用 `execute` 之前已按它校验过 `input`。
 - `execute` 返回 `{ text }`，`text` 是给模型看的分行文字。超过 50 KiB 或 2000 行时，模型只看到首尾，全文另存，所以大结果要分页。出错时抛出 `new Error("说明")`，模型读到的就是这句说明。
 - `context.signal` 是这次运行的中止信号，耗时的请求把它传给 `fetch`。

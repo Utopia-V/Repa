@@ -1,3 +1,4 @@
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { fauxAssistantMessage, fauxProvider, getCurrentTools, type Tool } from "@earendil-works/pi-ai";
@@ -18,6 +19,9 @@ export async function generateTools() {
   try {
     if (fixture.host.disabled().length || fixture.errors.length) throw new Error(`离线插件打开失败：${JSON.stringify(fixture.host.disabled())}`);
     const agentDir = path.join(fixture.directory, "agent");
+    // 搜索与读网页只在接上 DeepSeek 时出现；写一把假的密钥让它们出现在声明里，生成时不调用工具。
+    await mkdir(agentDir, { recursive: true });
+    await writeFile(path.join(agentDir, "auth.json"), JSON.stringify({ deepseek: { type: "api_key", key: "docs-placeholder" } }));
     const faux = fauxProvider({ api: "docs-tools", provider: "docs-tools", models: [{ id: "offline", contextWindow: 32768, maxTokens: 64 }], tokensPerSecond: 0 });
     const models = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
     models.registerNativeProvider(faux.provider);
@@ -48,7 +52,7 @@ export async function generateTools() {
     await (await space.create()).send("读取工具声明");
     if (!builtins.length) throw new Error("没有读到底座工具声明");
     const entries = [
-      ...builtins.map((tool) => ({ source: "底座内置", tool })),
+      ...builtins.map((tool) => ({ source: tool.name.startsWith("web_") ? "底座内置，接上有这项服务的模型提供方（现在只有 DeepSeek）时才有" : "底座内置", tool })),
       ...fixture.host.tools().map((tool) => ({ source: fixture.host.list().find((plugin) => plugin.tools.includes(tool.name))?.id ?? "插件", tool })),
       // 通用 Agent 的 plugin 工具由后端装配提供；只读它的声明，不调用。
       { source: "后端装配，通用 Agent", tool: pluginTool({} as never, async () => null) },

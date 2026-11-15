@@ -75,6 +75,7 @@ async function fixture(t: TestContext) {
   });
   let now = Date.now();
   const runtime = await createAgentRuntimeForTest({
+    dateView: false,
     agentDir, modelRuntime, defaultModel: { provider: faux.getModel().provider, id: faux.getModel().id },
     now: () => now, viewBatchSize: 2, cacheTtlMs: 1000,
     settingsManager: SettingsManager.inMemory({

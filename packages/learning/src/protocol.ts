@@ -448,9 +448,9 @@ export const learningMethods = {
   // 同一时刻只有一次展开。cancel 取消正在进行的展开。这几个方法不等学习任务，学习者上课时照常可用。
   "building.get": { input: object({}), result: CourseBuildingSchema },
   // 前端新建一个通用 Agent 的会话以后调用：插件记下它是做课的对话（花费算在里面，building.get 给出它），返回发给它的第一条消息。
-  // request 是学习者写的要求，可以省略；消息里给模型的固定部分由插件写。
+  // materials 是学习者开始时 materials/ 里有没有课件；request 是学习者写的要求或想学什么，有课件时可以省略。消息里给模型的固定部分由插件写。
   "building.begin": {
-    input: object({ sessionId: identifier, request: Type.Optional(Type.String({ maxLength: 4_000 })) }),
+    input: object({ sessionId: identifier, materials: Type.Boolean(), request: Type.Optional(Type.String({ maxLength: 4_000 })) }),
     result: object({ text: Type.String() }),
   },
   "building.expand": { input: object({ topicIds: Type.Optional(Type.Array(identifier, { minItems: 1, maxItems: 8 })) }), result: CourseBuildingSchema },

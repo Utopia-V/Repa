@@ -423,7 +423,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     if (!record.sessions.includes(input.sessionId)) record.sessions.push(input.sessionId);
     await save();
     announceBuilding();
-    return { text: beginText(input.request) };
+    return { text: beginText(input.materials, input.request) };
   }
 
   /**
@@ -563,7 +563,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   return {
     instructions: () => [
       "学习插件按课程安排学习者的课、复习和测验。",
-      `学习者要把放进 materials/ 的课件做成课时，先用 read 读 ${COURSE_GUIDE}，按其中的格式和顺序在 ${SPACE_COURSE}/ 里写课，用 course_check 检查，用 course_use 让学习者用上。`,
+      `学习者要把放进 materials/ 的课件做成课，或者没有课件、只说了想学什么时，先用 read 读 ${COURSE_GUIDE}，按其中的格式和顺序在 ${SPACE_COURSE}/ 里写课，用 course_check 检查，用 course_use 让学习者用上。`,
     ].join(""),
     tools: () => tools,
     agents: () => [tutorAgent(() => hooks)],

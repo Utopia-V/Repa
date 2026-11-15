@@ -22,7 +22,7 @@ async function fixture(t: TestContext, extra: Partial<AgentSpaceOptions> = {}, o
   const models = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   models.registerNativeProvider(faux.provider);
   const settings = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false, keepRecentTokens: 16, reserveTokens: 400 }, cacheWarming: "off" });
-  const runtime = await createAgentRuntimeForTest({ agentDir, modelRuntime: models, defaultModel: { provider: faux.getModel().provider, id: "test" }, settingsManager: settings, ...options });
+  const runtime = await createAgentRuntimeForTest({ dateView: false, agentDir, modelRuntime: models, defaultModel: { provider: faux.getModel().provider, id: "test" }, settingsManager: settings, ...options });
   const events: unknown[] = [];
   const space = await runtime.openSpace({
     root, sessionsDir, instructions: () => [], tools: () => [], views: async () => [{ id: "plugin:test", text: "当前状态" }],
@@ -508,7 +508,7 @@ test("单 key 登录通过 SDK 持久化，重建运行时仍可用且登出删�
   const models = await ModelRuntime.create({ authPath: path.join(f.agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
   models.registerNativeProvider(provider);
   assert.equal((await models.getAuth(provider.id))?.auth.apiKey, "test-only-secret");
-  const runtime = await createAgentRuntimeForTest({ agentDir: f.agentDir, modelRuntime: models, settingsManager: SettingsManager.inMemory({ cacheWarming: "off" }) });
+  const runtime = await createAgentRuntimeForTest({ dateView: false, agentDir: f.agentDir, modelRuntime: models, settingsManager: SettingsManager.inMemory({ cacheWarming: "off" }) });
   t.after(() => runtime.close());
   await runtime.logout(provider.id);
   assert.equal((await models.listCredentials()).some(entry => entry.providerId === provider.id), false);
@@ -535,7 +535,7 @@ test("提供方列表报告登录方式与已保存凭据，默认模型写入 P
   };
   f.models.registerNativeProvider(provider);
   const settings = SettingsManager.inMemory({ cacheWarming: "off" });
-  const runtime = await createAgentRuntimeForTest({ agentDir: f.agentDir, modelRuntime: f.models, settingsManager: settings });
+  const runtime = await createAgentRuntimeForTest({ dateView: false, agentDir: f.agentDir, modelRuntime: f.models, settingsManager: settings });
   t.after(() => runtime.close());
   const find = async () => (await runtime.listProviders()).find(entry => entry.id === provider.id);
   const expected = { id: provider.id, name: "测试提供方", methods: [{ type: "api_key", name: "测试 key", login: true }] };

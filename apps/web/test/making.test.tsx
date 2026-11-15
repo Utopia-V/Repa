@@ -15,7 +15,7 @@ import { mockMatchMedia } from "./match-media";
 // 做课这几块界面的文字在测试里换成键名（参数照常跟在后面），按键名找元素：改一句话的措辞不必改测试。
 vi.mock("../src/strings/zh-CN", async (importOriginal) => {
   const { strings } = await importOriginal<typeof import("../src/strings/zh-CN")>();
-  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count|learning)|tutor\.unavailable\.answering|learningSpace\.first|modelError)/u;
+  const byKey = /^(making|outline|filePicker|pluginApproval|materials\.api|learn\.making|toolActivity\.(materials|course|count|learning|web)|tutor\.unavailable\.answering|learningSpace\.first|modelError)/u;
   return {
     strings: Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, byKey.test(key) ? key + (value.match(/\{\w+\}/gu) ?? []).join("") : value])),
   };
@@ -133,14 +133,14 @@ it("还没有课时学习页是做课的起点：列出课件，读不出文字�
   await vi.waitFor(() => expect(calls(fake.call, "session.send")).toEqual([{ sessionId: "making-1", text: "我把课件放进了 materials/……" }]));
   // 通用 Agent 的会话：不指定 agent。
   expect(calls(fake.call, "session.create")).toEqual([{}]);
-  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", request: "一月中旬考试" }]);
+  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: true, request: "一月中旬考试" }]);
   // 页面换成做课：右侧是做课的对话，正文等轮廓出来。
   expect(await screen.findByRole("complementary", { name: "making.panel.label" })).toBeTruthy();
   expect(screen.getByText("outline.pending.status")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "making.start.action" })).toBeNull();
 });
 
-it("没有可用模型时开始不可用，并指向设置；没有课件时也不能开始", async () => {
+it("没有可用模型时开始不可用，并指向设置", async () => {
   const fake = backend({
     "model.getDefault": () => Promise.resolve(null),
     "materials.list": () => Promise.resolve({ files: [] }),
@@ -151,6 +151,31 @@ it("没有可用模型时开始不可用，并指向设置；没有课件时也�
   expect(await screen.findByText("making.noModel.description")).toBeTruthy();
   expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
   expect((screen.getByRole("button", { name: "making.start.action" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("没有课件时写了想学什么就能开始：输入框问想学什么，记下没有课件，发出插件给的那条消息", async () => {
+  const fake = backend({
+    "materials.list": () => Promise.resolve({ files: [] }),
+    "session.create": () => Promise.resolve({ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general", model: { provider: "deepseek", id: "deepseek-flash" } }),
+    "learning.building.begin": () => Promise.resolve({ text: "我手里没有课件……" }),
+    "session.send": () => new Promise(() => undefined),
+  });
+  start(fake.client);
+
+  expect(await screen.findByText("making.materials.empty")).toBeTruthy();
+  const button = screen.getByRole("button", { name: "making.start.action" }) as HTMLButtonElement;
+  // 什么都没写时不能开始；只写空白也不行。
+  expect(button.disabled).toBe(true);
+  expect(screen.queryByLabelText("making.request.label")).toBeNull();
+  const wish = screen.getByLabelText("making.request.wish.label");
+  fireEvent.change(wish, { target: { value: "   " } });
+  expect(button.disabled).toBe(true);
+  fireEvent.change(wish, { target: { value: "线性代数，期末考试用" } });
+  expect(button.disabled).toBe(false);
+  fireEvent.click(button);
+
+  await vi.waitFor(() => expect(calls(fake.call, "session.send")).toEqual([{ sessionId: "making-1", text: "我手里没有课件……" }]));
+  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: false, request: "线性代数，期末考试用" }]);
 });
 
 it("添加课件：在本机文件夹里勾选文件，由课件插件复制进 materials/；已有同名文件时如实报错，勾选不丢", async () => {
@@ -342,6 +367,27 @@ it("只有轮廓时不显示菜单那句“没有可开始的任务”；连续�
   expect(panel.getAllByText("写入文件")).toHaveLength(1);
   expect(screen.getByRole("region", { name: "outline.title" })).toBeTruthy();
   expect(screen.queryByText("当前没有可开始的任务")).toBeNull();
+});
+
+it("搜索和读网页在做课的对话里显示成界面文字，不显示工具的内部名字", async () => {
+  const done = (id: string, tool: string) => [
+    { id: `a${id}`, type: "assistant", timestamp: iso, text: "", data: { stopReason: "toolUse", calls: [{ id: `c${id}`, name: tool, input: {} }] } },
+    { id: `t${id}`, type: "tool", timestamp: iso, text: "好", data: { callId: `c${id}`, tool, isError: false } },
+  ];
+  const fake = backend({
+    "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: "outline" as const })) }),
+    "session.history": () => Promise.resolve([
+      ...done("1", "web_search"), ...done("2", "web_fetch"),
+      { id: "a3", type: "assistant", timestamp: iso, text: "资料找到了。", data: { stopReason: "stop" } },
+    ]),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  start(fake.client);
+
+  const panel = within(await screen.findByRole("complementary", { name: "making.panel.label" }));
+  expect(await panel.findByText("资料找到了。")).toBeTruthy();
+  expect(panel.getByText("toolActivity.webSearch.label")).toBeTruthy();
+  expect(panel.getByText("toolActivity.webFetch.label")).toBeTruthy();
+  expect(panel.queryByText(/web_search|web_fetch/u)).toBeNull();
 });
 
 it("做课的会话在对话页打开：同一段记录和同一张提问卡片，在那里作答交给同一次询问", async () => {

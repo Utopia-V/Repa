@@ -314,8 +314,8 @@ export function createLearningActions({ call, get, set }: Deps) {
       set((learning) => ({ ...learning, settings }));
     },
     /** 记下做课的对话，取回发给它的第一条消息；由 store 的 startMaking 在建好会话以后调用。 */
-    async beginMaking(sessionId: string, request: string): Promise<string> {
-      const { text } = await learningCall("building.begin", request.trim() === "" ? { sessionId } : { sessionId, request });
+    async beginMaking(sessionId: string, request: string, materials: boolean): Promise<string> {
+      const { text } = await learningCall("building.begin", request.trim() === "" ? { sessionId, materials } : { sessionId, materials, request });
       return text;
     },
     /** 学习者选菜单里的一项；测验和重考也走 menu.select，后端按候选的类型开始。 */

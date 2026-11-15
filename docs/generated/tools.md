@@ -202,6 +202,29 @@ Read the contents of a file. Supports text files and images (jpg, png, gif, webp
 | agent | "general" | 否 |  |
 | task | string | 否 | 交给子 Agent 的完整任务 |
 
+## web_fetch
+
+来源：底座内置，接上有这项服务的模型提供方（现在只有 DeepSeek）时才有。
+
+按地址读一个网页，交回标题和 Markdown 正文。一次最多约 10 千字，正文长时分段，结果末尾写明接着读哪一段；读过的网页一小时内再读不重新取。地址会发给 DeepSeek，由它的服务器去取页面。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| part | integer | 是 | 读第几段，默认 1；正文长时分段交回，结果末尾写明接着读哪一段 |
+| url | string | 否 | 网页地址，http 或 https |
+
+## web_search
+
+来源：底座内置，接上有这项服务的模型提供方（现在只有 DeepSeek）时才有。
+
+在网上搜索，交回编号的结果：标题、地址、日期和一段摘要。摘要只是线索，要用到一个来源的内容时用 web_fetch 读它；读不回时把 content 设为 true 再搜，取搜索服务索引到的正文。搜索词会发给 DeepSeek。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| content | boolean | 是 | 每条结果带上搜索服务索引到的正文，每条最多 4000 字。web_fetch 读不回的地址（PDF、一些网站）可以这样取内容 |
+| count | integer | 是 | 要几条结果，默认 5，最多 10；带正文时默认 3，最多 3 |
+| query | string | 否 | 搜索词，1 至 128 字；可以用 site:example.com、"整句"、-排除词、lang:zh,en、after:2025 这些写法 |
+
 ## write
 
 来源：底座内置。
