@@ -13,8 +13,16 @@ export interface RepaProcessOptions {
   gitPath?: string;
   nodeExecutable?: string;
   environment?: NodeJS.ProcessEnv;
+  /** 等后端交出连接信息的上限，缺省 5 分钟；后端在此之前退出即为启动失败。 */
   startupTimeoutMs?: number;
 }
+
+/**
+ * 启动等待的缺省上限。慢不算失败：新装的应用第一次启动时，杀毒软件逐个扫描后端要读的约 1600 个 JS 文件，
+ * 在 Windows 11 上实测要 19 到 25 秒；病毒库更新后已扫描的缓存失效，还会再慢一次。超时会杀掉还没读完的后端，
+ * 下次启动又从头扫描，所以这个上限只防后端真的卡住，留得很宽；后端退出则立即报告。
+ */
+const STARTUP_TIMEOUT_MS = 5 * 60_000;
 
 /** Node 宿主持有的后端进程句柄，用于取得连接并等待关闭后的持久化完成。 */
 export interface RepaProcess {
@@ -30,7 +38,7 @@ export interface RepaProcess {
 
 /** Node 宿主拥有服务进程；stdout 只用于交付私密连接，不写入连接文件。 */
 export async function startRepaProcess(options: RepaProcessOptions = {}): Promise<RepaProcess> {
-  const timeoutMs = options.startupTimeoutMs ?? 15_000;
+  const timeoutMs = options.startupTimeoutMs ?? STARTUP_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError("startupTimeoutMs 必须是正数");
   }

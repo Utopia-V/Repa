@@ -8,6 +8,7 @@ export const strings = {
   "common.submitting.status": "正在提交…",
   "common.submit.action": "提交",
   "common.retry.action": "重试",
+  "common.errorDetails.label": "原始报错",
   "common.runError.status": "运行出错",
   "common.newSession.action": "新会话",
   "common.loading.status": "正在读取…",
@@ -36,7 +37,6 @@ export const strings = {
   "modelError.auth.title": "密钥无效或无权限",
   "modelError.quota.title": "账户余额不足",
   "modelError.rateLimit.title": "请求过于频繁，请稍后再试",
-  "modelError.details.label": "原始报错",
 
   // 启动
   "app.workspace.label": "工作区",
@@ -51,6 +51,7 @@ export const strings = {
   "connection.startup.failed.title": "Repa 启动失败",
   "connection.startup.preparing.title": "正在准备 Repa",
   "connection.startup.error.title": "暂时无法连接",
+  "connection.startup.failed.message": "〔待写〕",
   "connection.startup.status": "正在启动或连接本机学习后端…",
   "connection.reconnecting.status": "后端连接已中断，正在自动重连…",
   "connection.notConnected.error": "尚未连接后端。",
