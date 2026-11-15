@@ -14,6 +14,8 @@ import { SPACE_COURSE, type CourseCheck } from "./space-course.js";
 
 /** 写课的说明：随包附带，通用 Agent 用 read 读取（read 可以读空间之外的文件）。src 与 dist 到包根目录的距离相同。 */
 export const COURSE_GUIDE = fileURLToPath(new URL("../guides/making-courses.md", import.meta.url));
+/** 说明里引用的示例课。路径直接写给模型：只说“同一目录下”时，模型曾把它拼到包的根目录下，读不到以后再去列目录。 */
+export const COURSE_EXAMPLE = fileURLToPath(new URL("../guides/example-course", import.meta.url));
 
 /** 一页最多列几处问题。一处约一两行，40 处在模型一次读得完的量之内。 */
 export const CHECK_PAGE = 40;

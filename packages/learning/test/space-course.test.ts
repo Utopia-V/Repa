@@ -17,7 +17,7 @@ import { ModelTestDriver } from "@repa/base/testing";
 import { parse as parseYaml, stringify } from "yaml";
 import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
 import { checkCourse } from "../src/check/course.js";
-import { COURSE_GUIDE } from "../src/course-tools.js";
+import { COURSE_EXAMPLE, COURSE_GUIDE } from "../src/course-tools.js";
 import { connectLearning } from "../src/flow.js";
 import { frontendPython } from "../src/check/python.js";
 import { createLearningPlugin, type LearningPluginOptions } from "../src/plugin.js";
@@ -641,7 +641,7 @@ test("页面不回应、核对中途断开时，检查在期限内以 python_una
 test("通用 Agent 的提示说明指向随包的写课说明，并有 course_check 与 course_use；写课说明和示例都在安装包的文件清单里", async (t) => {
   const f = await fixture(t);
   const { context } = await f.tool("course_check");
-  assert.ok(getCurrentSystemPrompt(context.messages).includes(`先用 read 读 ${COURSE_GUIDE}`));
+  assert.ok(getCurrentSystemPrompt(context.messages).includes(`先用 read 读 ${COURSE_GUIDE}（它引用的示例课在 ${COURSE_EXAMPLE}）`));
   const names = getCurrentTools(context.messages).map((entry) => entry.name);
   assert.ok(names.includes("course_check") && names.includes("course_use"));
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { files: string[] };
