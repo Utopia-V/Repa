@@ -923,6 +923,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| extensions[] | string | 是 |  |
 | files | boolean | 是 |  |
 | path | string | 是 |  |
 

@@ -25,11 +25,13 @@ type View = { kind: "folder"; listing: Listing } | { kind: "roots"; roots: Roots
 
 /**
  * 选本机的文件。浏览器和桌面端的页面都拿不到本机路径，所以和选文件夹一样由后端列目录、在页面里一层层点进去。
+ * extensions 是要列的文件扩展名（带点），由调用方按用途给出。
  * 可以在几个文件夹里各勾几个；onPick 收到绝对路径，成功后关闭，失败时对话框留着并显示原因，已勾的不丢。
  */
-export function FilePickerDialog({ open, onOpenChange, onPick }: {
+export function FilePickerDialog({ open, onOpenChange, extensions, onPick }: {
   open: boolean;
   onOpenChange(open: boolean): void;
+  extensions: readonly string[];
   onPick(paths: string[]): Promise<void>;
 }) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
@@ -38,7 +40,7 @@ export function FilePickerDialog({ open, onOpenChange, onPick }: {
         <DialogTitle>{t("filePicker.dialog.title")}</DialogTitle>
       </DialogHeader>
       {/* 内容随对话框打开挂载，每次打开都从用户目录重新开始。 */}
-      <FileBrowser onPick={async (paths) => {
+      <FileBrowser extensions={extensions} onPick={async (paths) => {
         await onPick(paths);
         onOpenChange(false);
       }} />
@@ -46,7 +48,7 @@ export function FilePickerDialog({ open, onOpenChange, onPick }: {
   </Dialog>;
 }
 
-function FileBrowser({ onPick }: { onPick(paths: string[]): Promise<void> }) {
+function FileBrowser({ extensions, onPick }: { extensions: readonly string[]; onPick(paths: string[]): Promise<void> }) {
   const browseFolder = useAppStore((state) => state.browseFolder);
   const listRoots = useAppStore((state) => state.listRoots);
   const [view, setView] = useState<View>();
@@ -76,7 +78,7 @@ function FileBrowser({ onPick }: { onPick(paths: string[]): Promise<void> }) {
     }
   }
 
-  const browse = (path?: string) => show(async () => ({ kind: "folder", listing: await browseFolder(path, { files: true }) }));
+  const browse = (path?: string) => show(async () => ({ kind: "folder", listing: await browseFolder(path, { files: true, extensions }) }));
 
   useEffect(() => {
     void browse();

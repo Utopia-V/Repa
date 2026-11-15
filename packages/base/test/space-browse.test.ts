@@ -68,6 +68,32 @@ test("要求列出文件时，文件排在文件夹后面并带大小，隐藏�
   assert.equal(listing.entries[1]?.path, path.join(directory, "第2章.pdf"));
 });
 
+test("给了扩展名时只列这些格式的文件，不分大小写；文件夹照列，Office 的锁文件不列", async (t) => {
+  const directory = await fixture(t, ["课件.pdf 旧版"]);
+  for (const name of ["第1章.PDF", "引论.pptx", "~$引论.pptx", "NTUSER.DAT", "ntuser.dat.LOG1", "笔记.txt"]) {
+    await writeFile(path.join(directory, name), "");
+  }
+
+  const listing = await browseDirectory(directory, { files: true, extensions: [".pdf", ".pptx"] });
+
+  assert.deepEqual(listing.entries.map((entry) => entry.name), ["课件.pdf 旧版", "引论.pptx", "第1章.PDF"]);
+});
+
+test("指向文件夹的链接打不开时不列，进得去的照列", {
+  skip: process.platform === "win32" ? "Windows 上 chmod 只改只读属性，去不掉读取权限" : process.getuid?.() === 0 ? "root 不受权限位限制" : false,
+}, async (t) => {
+  // 相当于 Windows 为旧程序保留的兼容链接（中文系统上叫“「开始」菜单”等）：链接本身拒绝列出内容。
+  const directory = await fixture(t, ["locked", "open"]);
+  await symlink(path.join(directory, "locked"), path.join(directory, "「开始」菜单"));
+  await symlink(path.join(directory, "open"), path.join(directory, "链接"));
+  await chmod(path.join(directory, "locked"), 0o000);
+  try {
+    assert.deepEqual((await browseDirectory(directory)).entries.map((entry) => entry.name), ["locked", "open", "链接"]);
+  } finally {
+    await chmod(path.join(directory, "locked"), 0o755);
+  }
+});
+
 test("文件夹超过上限时只返回上限数量并标记截断", async (t) => {
   const directory = await fixture(t, ["a", "b", "c"]);
 

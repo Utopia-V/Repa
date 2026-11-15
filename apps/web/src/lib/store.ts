@@ -170,7 +170,7 @@ export type AppState = LearningActions & {
    */
   closeSpace(): Promise<void>;
   /** 浏览结果只属于当次选择，不进入共享状态。files 为真时连同文件一起列出。 */
-  browseFolder(path?: string, options?: { files: boolean }): Promise<Result<"space.browse">>;
+  browseFolder(path?: string, options?: { files: true; extensions?: readonly string[] }): Promise<Result<"space.browse">>;
   /** 空间 materials/ 里的课件；结果只属于当次查看，不进入共享状态。 */
   listMaterials(): Promise<MaterialsResult<"list">>;
   /** 把本机的文件复制进 materials/，返回复制以后的列表；失败抛给调用方。 */
@@ -666,7 +666,11 @@ export function createAppStore() {
         set({ space: undefined, opening: undefined, conversation: emptyConversation, confirmations: [], asks: [] });
       },
       browseFolder(path, options) {
-        return call("space.browse", { ...(path === undefined ? {} : { path }), ...(options?.files ? { files: true } : {}) });
+        return call("space.browse", {
+          ...(path === undefined ? {} : { path }),
+          ...(options?.files ? { files: true } : {}),
+          ...(options?.extensions ? { extensions: [...options.extensions] } : {}),
+        });
       },
       listMaterials() {
         return materialsCall("list", {});

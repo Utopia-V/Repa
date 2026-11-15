@@ -521,8 +521,10 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         return null;
       case "space.roots":
         return listRoots();
-      case "space.browse":
-        return browseDirectory(p<"space.browse">().path, { files: p<"space.browse">().files === true });
+      case "space.browse": {
+        const input = p<"space.browse">();
+        return browseDirectory(input.path, { files: input.files === true, ...(input.extensions ? { extensions: input.extensions } : {}) });
+      }
       case "agent.list":
         return requireActive().agent.agents();
       case "session.list":

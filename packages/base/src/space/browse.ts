@@ -33,7 +33,8 @@ const WINDOWS_LEGACY_LINKS = new Set([
 ]);
 
 export function hiddenEntry(name: string, link: boolean, platform: NodeJS.Platform = process.platform): boolean {
-  if (name.startsWith(".")) return true;
+  // ~$ 开头的是 Office 打开文档时旁边留下的锁文件，Windows 上带隐藏属性。
+  if (name.startsWith(".") || name.startsWith("~$")) return true;
   if (platform !== "win32") return false;
   const lower = name.toLowerCase();
   return lower.startsWith("$") || WINDOWS_SYSTEM.has(lower) || (link && WINDOWS_LEGACY_LINKS.has(lower));
@@ -66,23 +67,39 @@ async function isSpace(directory: string): Promise<boolean> {
   }
 }
 
-/** 子文件夹、文件或都不是（读不了的链接、设备文件等）。链接跟随一次，Windows 的 junction 也报告为链接。 */
+/**
+ * 子文件夹、文件或都不是（读不了的链接、设备文件等）。链接跟随一次，Windows 的 junction 也报告为链接。
+ * 指向文件夹的链接要打得开才列：Windows 为旧程序保留的兼容链接（“「开始」菜单”“Application Data”等）拒绝列出内容，
+ * 中文系统上名称还是本地化的，按名称认不全；它们带隐藏和系统属性，资源管理器也不显示。
+ */
 async function entryKind(directory: string, entry: Dirent): Promise<"folder" | "file" | undefined> {
   if (entry.isDirectory()) return "folder";
   if (entry.isFile()) return "file";
   if (!entry.isSymbolicLink()) return undefined;
   try {
-    const info = await stat(path.join(directory, entry.name));
-    return info.isDirectory() ? "folder" : info.isFile() ? "file" : undefined;
+    const target = path.join(directory, entry.name);
+    const info = await stat(target);
+    if (info.isFile()) return "file";
+    if (!info.isDirectory()) return undefined;
+    await (await opendir(target)).close();
+    return "folder";
   } catch {
     return undefined;
   }
 }
 
-/** 返回子文件夹的名称与空间标记，只读取空间格式标记；files 为真时连同文件的名称与大小。 */
+/** 文件名的扩展名是否在 extensions 里（带点，不分大小写）；没有给 extensions 时都算。 */
+function wanted(name: string, extensions: ReadonlySet<string> | undefined): boolean {
+  return extensions === undefined || extensions.has(path.extname(name).toLowerCase());
+}
+
+/**
+ * 返回子文件夹的名称与空间标记，只读取空间格式标记；files 为真时连同文件的名称与大小。
+ * extensions 只列这些扩展名的文件（带点，例如 .pdf），由调用方按用途给出，例如选课件的窗口只列课件插件读得了的格式。
+ */
 export async function browseDirectory(
   requested = os.homedir(),
-  { files = false, limit = LIMIT }: { files?: boolean; limit?: number } = {},
+  { files = false, extensions, limit = LIMIT }: { files?: boolean; extensions?: readonly string[]; limit?: number } = {},
 ): Promise<DirectoryListing> {
   if (!path.isAbsolute(requested) || requested.includes("\0")) {
     throw new RepaFault("invalid_path", "请提供文件夹的绝对路径。", { path: requested });
@@ -91,13 +108,14 @@ export async function browseDirectory(
   const found: string[] = [];
   let directory = requested;
   let truncated = false;
+  const accepted = extensions && new Set(extensions.map((extension) => extension.toLowerCase()));
   try {
     directory = await realpath(requested);
     // 逐项读取，超大目录读到上限即停止；目录在两次请求之间可能变化，因此不提供翻页游标。
     for await (const entry of await opendir(directory)) {
       if (hiddenEntry(entry.name, entry.isSymbolicLink())) continue;
       const kind = await entryKind(directory, entry);
-      if (kind === undefined || (kind === "file" && !files)) continue;
+      if (kind === undefined || (kind === "file" && (!files || !wanted(entry.name, accepted)))) continue;
       if (folders.length + found.length === limit) {
         truncated = true;
         break;

@@ -178,7 +178,7 @@ it("没有课件时写了想学什么就能开始：输入框问想学什么，�
   expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: false, request: "线性代数，期末考试用" }]);
 });
 
-it("添加课件：在本机文件夹里勾选文件，由课件插件复制进 materials/；已有同名文件时如实报错，勾选不丢", async () => {
+it("添加课件：只列课件格式的文件，在本机文件夹里勾选，由课件插件复制进 materials/；已有同名文件时如实报错，勾选不丢", async () => {
   let added = 0;
   const fake = backend({
     "materials.list": () => Promise.resolve({ files: [] }),
@@ -194,7 +194,8 @@ it("添加课件：在本机文件夹里勾选文件，由课件插件复制进 
 
   fireEvent.click(await screen.findByRole("button", { name: "making.materials.add.action" }));
   const dialog = within(await screen.findByRole("dialog"));
-  expect(calls(fake.call, "space.browse")).toEqual([{ files: true }]);
+  // 只列课件插件读得了的格式，扩展名取自课件插件的协议。
+  expect(calls(fake.call, "space.browse")).toEqual([{ files: true, extensions: [".pdf", ".pptx", ".ppt", ".docx", ".doc"] }]);
   fireEvent.click(await dialog.findByRole("button", { name: "课件" }));
   fireEvent.click(await dialog.findByRole("checkbox", { name: /^第一章\.pdf/u }));
   expect(dialog.getByText("2.4 MB")).toBeTruthy();
