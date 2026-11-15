@@ -50,3 +50,22 @@ test("模型请求失败时按 Pi 统一的“状态码: 原文”格式取出�
   assert.equal((message("401: invalid key")?.data as { errorStatus?: number }).errorStatus, 401);
   assert.equal("errorStatus" in (message("fetch failed")?.data as object), false);
 });
+
+test("后端关闭时被取消的模型请求按 aborted 交出，不带出错信息；别的失败照旧", () => {
+  const assistant = (errorMessage: string) => ({
+    role: "assistant", content: [], api: "openai-completions", provider: "deepseek", model: "deepseek-chat",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "error", errorMessage, timestamp: 1,
+  });
+  const history = (errorMessage: string) => entryToPublic({
+    type: "message", id: "entry", parentId: null, timestamp: "2026-10-13T00:00:00.000Z", message: assistant(errorMessage),
+  } as never)?.data as { stopReason: string; errorMessage?: string };
+  assert.equal(history("This operation was aborted").stopReason, "aborted");
+  assert.equal("errorMessage" in history("This operation was aborted"), false);
+  assert.deepEqual([history("fetch failed").stopReason, history("fetch failed").errorMessage], ["error", "fetch failed"]);
+
+  const live = (errorMessage: string) => convertEvent("session", { type: "message_end", message: assistant(errorMessage) } as never, "run");
+  assert.deepEqual(live("This operation was aborted").map((event) => event.type), ["message", "usage"]);
+  assert.equal((live("This operation was aborted")[0]?.data as { stopReason: string }).stopReason, "aborted");
+  assert.deepEqual(live("fetch failed").map((event) => event.type), ["message", "usage", "error"]);
+});

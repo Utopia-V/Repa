@@ -316,6 +316,12 @@ test("控制目录不能通过符号链接指向空间以外", async (t) => {
   await assert.rejects(openSpace(root, { watch: false }), fault("invalid_control_directory"));
 });
 
+test("打开已经被删除或移走的文件夹时说明文件夹不存在", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "repa-space-missing-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await assert.rejects(openSpace(path.join(directory, "已删除的课"), { watch: false }), fault("not_found"));
+});
+
 
 test("不同后端进程不能同时持有同一个空间锁", async (t) => {
   const { space } = await fixture(t);
