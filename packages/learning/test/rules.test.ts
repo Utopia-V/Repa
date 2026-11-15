@@ -248,6 +248,24 @@ test("小表里写成 001、1e3 或没有声明 float 的小数时报出", async
   assert.deepEqual(result.diagnostics.map((diagnostic) => diagnostic.line), [13, 14, 15, 15]);
 });
 
+test("YAML 语法错误里最常见的两种各带一句怎样改：同层字段没对齐，花括号写法里的文字含标点", async (t) => {
+  const outline = (lines: string[]) => [
+    "id: t02", "title: 第二节", "status: outline", "minutes: 20", "prerequisites: []", "sources: []", "kps:", ...lines, "",
+  ].join("\n");
+  for (const [lines, hint] of [
+    [["  - id: t02.k1", "    title: 第一个", "    card:", "        name: 概念", "      definition: 缩进退到了两层之间"], /同一层的字段要从同一列开始/],
+    [["  - { id: t02.k1, title: 掷骰子时\"偶数\"与\"大于 3\"的交是 {4,6}。 }"], /用引号括起来，或改成分行写法/],
+  ] as const) {
+    const demo = demoCourse();
+    const root = await writeCourse(t, demo);
+    await writeFile(path.join(root, "topics", "t02.yaml"), outline([...lines]));
+    const result = await checkCourse(root, { run: false, base: root });
+    const syntax = result.diagnostics.filter((diagnostic) => diagnostic.code === "yaml_syntax");
+    assert.ok(syntax.length > 0);
+    assert.ok(syntax.some((diagnostic) => hint.test(diagnostic.message)), syntax.map((diagnostic) => diagnostic.message).join("\n"));
+  }
+});
+
 test("选项的内容写成不带引号的数时，说明这里要写文字并给出加引号的写法", async (t) => {
   const demo = demoCourse();
   const question = kp(demo, 0).practice?.find((item) => item.id === "t01.k1.q3");
