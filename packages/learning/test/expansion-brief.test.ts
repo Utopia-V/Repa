@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ResolvedCourse } from "../src/course-sources.js";
-import { EARLIER_CONCEPTS, expansionBrief } from "../src/expansion-brief.js";
+import { EARLIER_CONCEPTS, expansionBrief, LATER_PARTS } from "../src/expansion-brief.js";
 import type { Topic } from "../src/format/schema.js";
 
 /** 一个三知识点的 topic；complete 时每个知识点有概念卡。 */
@@ -46,6 +46,19 @@ test("更早的概念超过上限：按先修图由近到远列整个部分，�
   const omitted = 48 - listed + 1;
   assert.match(text, new RegExp(`\\n另有 ${omitted} 个更早的部分（共 ${omitted * 3} 个概念）没有列出；要查时用 grep 在 course/topics/ 里搜概念名`, "u"));
   assert.doesNotMatch(text, /side/u);
+});
+
+test("还没有讲到的部分超过上限：按课程顺序离要展开的部分由近到远列名称，其余只写个数；学过的和展开的部分不在其中", () => {
+  // 60 节的轮廓，前 5 节展开并学过；从第 20 节展开，前后都有没讲到的部分。
+  const ids = Array.from({ length: 60 }, (_, index) => `t${String(index + 1).padStart(2, "0")}`);
+  const topics = ids.map((id, index) => topic(id, [], index < 5 ? "complete" : "outline"));
+  const text = expansionBrief(course(topics), ["t20"], new Set(ids.slice(0, 5)));
+  const later = text.slice(text.indexOf("## 还没有讲到的部分"));
+  const listed = [...later.matchAll(/(t\d\d)「/gu)].map((match) => match[1]);
+  assert.equal(listed.length, LATER_PARTS);
+  // 离 t20 一样远时靠后的先取：t20 前后各取到 20 步，前面是 t06–t19（只有 14 个），其余从后面补到 t46。
+  assert.deepEqual(listed, [...ids.slice(5, 19), ...ids.slice(20, 46)]);
+  assert.match(later, new RegExp(`；另有 ${60 - 6 - LATER_PARTS} 个部分没有列出。$`, "u"));
 });
 
 test("没有展开过的部分、也没有学过的部分：清单写明学习者还没有学过任何概念", () => {

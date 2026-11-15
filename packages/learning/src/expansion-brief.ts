@@ -13,6 +13,11 @@ import { SPACE_COURSE } from "./space-course.js";
  */
 export const EARLIER_CONCEPTS = 100;
 
+/**
+ * 还没有讲到的部分最多列多少个，按课程清单里离要展开的部分由近到远取。一个约 15 字，四十多节的课大多列得下。Repa 的假设。
+ */
+export const LATER_PARTS = 40;
+
 function named(topic: Topic): string {
   return `${topic.id}「${topic.title}」`;
 }
@@ -44,7 +49,7 @@ function partText(course: ResolvedCourse, topic: Topic, parts: ReadonlySet<strin
     ...(topic.summary === undefined ? [] : [`范围：${topic.summary}`]),
     sourcesLine(course, topic),
     `直接先修：${prerequisites.length > 0 ? prerequisites.join("、") : "没有"}`,
-    `估计的知识点：${topic.kps.map((kp) => `${kp.id} ${kp.title}`).join("；")}`,
+    `出轮廓时、细读出处之前估计的知识点（细读以后按出处实际讲的增删）：${topic.kps.map((kp) => `${kp.id} ${kp.title}`).join("；")}`,
   ].join("\n");
 }
 
@@ -60,6 +65,7 @@ function detailedText(topic: Topic): string {
 /**
  * 要展开的这几部分的轮廓，和学习者在它们之前学到的概念。topicIds 是要展开的部分，learned 是学习者学过的 topic。
  * “之前”指先修图上的祖先（学习者学这几部分之前一定学过）和已经学过的部分；展开了但既不是祖先也没学过的，学习者未必见过，不列。
+ * 其余的部分列在最后，作为还没有讲到的：讲解用到属于它们的术语时，先用几句话说清，可以注明后面哪一部分细讲。
  */
 export function expansionBrief(course: ResolvedCourse, topicIds: readonly string[], learned: ReadonlySet<string>): string {
   const topics = new Map(course.topics.map((topic) => [topic.id, topic]));
@@ -120,6 +126,22 @@ export function expansionBrief(course: ResolvedCourse, topicIds: readonly string
   }
   if (outline.length > 0) {
     sections.push(`还没有展开的直接先修：${outline.map(named).join("、")}。它们讲什么还没有写定，学习者也还没有学过。`);
+  }
+
+  // 还没有讲到的部分：课程清单里离要展开的部分由近到远取，同样远的靠后的在前；列出时按课程顺序。
+  const shown = new Set([...parts, ...direct.map((topic) => topic.id), ...earlier.map((topic) => topic.id)]);
+  const positions = topicIds.flatMap((id) => order.get(id) ?? []);
+  const gap = (topic: Topic) => Math.min(...positions.map((position) => Math.abs((order.get(topic.id) ?? 0) - position)));
+  const later = course.course.topics.flatMap((id) => (shown.has(id) ? [] : topics.get(id) ?? []))
+    .sort((left, right) => gap(left) - gap(right) || byOrder(right, left));
+  const upcoming = later.slice(0, LATER_PARTS).sort(byOrder);
+  if (upcoming.length > 0) {
+    const rest = later.length - upcoming.length;
+    sections.push([
+      "## 还没有讲到的部分",
+      "属于下面这些部分的术语学习者还没学过：第一次出现时用几句话说清它是什么，可以注明后面哪一部分细讲，例如“进程（正在运行的一个程序，后面讲进程的那一部分细讲）”。",
+      `${upcoming.map(named).join("、")}${rest > 0 ? `；另有 ${rest} 个部分没有列出` : ""}。`,
+    ].join("\n\n"));
   }
   return sections.join("\n\n");
 }
