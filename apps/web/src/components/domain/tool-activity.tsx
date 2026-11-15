@@ -16,6 +16,7 @@ const toolNames: Record<string, string> = {
   materials_read: t("toolActivity.materialsRead.label"),
   course_check: t("toolActivity.courseCheck.label"),
   course_use: t("toolActivity.courseUse.label"),
+  course_brief: t("toolActivity.courseBrief.label"),
   learning_task: t("toolActivity.learningTask.label"),
   learning_search: t("toolActivity.learningSearch.label"),
   learning_read: t("toolActivity.learningRead.label"),

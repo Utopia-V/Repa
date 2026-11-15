@@ -30,6 +30,16 @@ Execute a bash command in the current working directory. Returns stdout and stde
 | command | string | 否 | Shell command to execute |
 | timeout | number | 是 | Timeout in seconds (optional, no default timeout) |
 
+## course_brief
+
+来源：learning。
+
+写出要展开的几部分的轮廓（范围、出处、直接先修）和学习者在它们之前学到的概念，按学习者现在学的这一版课算。前面已有展开过的部分时，展开之前先用它，讲解里就知道哪些术语可以直接用、哪些要先说清。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| topicIds[] | string | 否 | 要展开的 topic id，按要写的先后 |
+
 ## course_check
 
 来源：learning。

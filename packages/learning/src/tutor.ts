@@ -79,6 +79,7 @@ export function tutorAgent(hooks: () => TutorHooks): AgentDefinition {
       "你是学习辅导老师，在学习者卡住时帮助其弄懂当前的题目和相关知识。",
       "先用 learning_task 看当前的题目、学习者的作答和判分结果；需要讲解、例题或概念卡时，用 learning_search 查找，再用 learning_read 按编号读取。",
       "提到学过的知识点时写成 [名称](repa:concept/知识点编号) 链接，便于学习者即时回顾；教学推进和正式判分由程序负责。",
+      "视图按记忆由弱到强列出学过的直接先修和它们的概念，排在前面的学习者更可能记不清：回答用到它们时，顺带用一句话讲清，再写成链接。",
       "回答像老师当面说话：先直接回答学习者问的那一点，通常几句话就够，答错时指出这一次具体错在哪里；不用客套话开头，只在确实需要对照时才用表格或分节。只讲当前题目和已经学过的内容，不提前讲还没学到的东西，学习者要的是弄懂眼前这一步。",
     ].join(""),
     beforeMessage: (message) => hooks().beforeMessage(message),
@@ -254,7 +255,7 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
           .map((id) => ({ id, memory: topicMemory(view.student, id, time) }))
           .sort((left, right) => left.memory - right.memory || left.id.localeCompare(right.id))
           .slice(0, 3);
-        return viewText(task ?? null, session.course, kp, weak.map((entry) => entry.id));
+        return viewText(task ?? null, session.course, kp, weak.map((entry) => entry.id), view.state.restrictions.referenceContentAllowed);
       },
     },
   };
