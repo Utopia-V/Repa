@@ -96,7 +96,10 @@ export interface AgentTask {
   agent?: string;
 }
 
-/** 底座提供的 Pi 内置工具。通用 Agent 全部都有；插件 Agent 不能选 grep，见 AgentDefinition.tools。 */
+/**
+ * 底座提供的 Pi 内置工具。通用 Agent 全部都有；插件 Agent 不能选 grep，见 AgentDefinition.tools。
+ * bash 的意思是能运行命令：Windows 上没有可用的 bash 时，底座换成 Pi 的 powershell。
+ */
 export const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
 /** Pi 内置工具的名称联合，供插件声明 Agent 工具范围。 */
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];

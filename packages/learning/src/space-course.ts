@@ -14,10 +14,12 @@ import type { Host } from "@repa/base/plugin";
 import { object, parse } from "@repa/base/protocol";
 import { Type, type Static } from "typebox";
 
+import { confirmCourse, type ConfirmOptions, type ConfirmResult } from "./check/confirm.js";
 import { checkCourse, type CheckOptions, type CheckResult } from "./check/course.js";
+import { topicContent } from "./check/items.js";
 import { teachesPython } from "./check/rules.js";
 import type { ResolvedCourse } from "./course-sources.js";
-import { formatDiagnostic, Report } from "./format/diagnostics.js";
+import { formatDiagnostic, Report, type Diagnostic } from "./format/diagnostics.js";
 import { COURSE_FILE, loadCourse, TOPICS_DIRECTORY } from "./format/load.js";
 
 /** 空间里放自制课的文件夹。 */
@@ -99,8 +101,18 @@ export interface CourseCheck {
   passed: boolean;
 }
 
-/** 检查用的选项：应用里没有 course:confirm，manual 作答位的模型核对只如实报告；Python 核对照常运行。 */
-const SPACE_CHECK: CheckOptions = { confirmations: "reported" };
+/**
+ * 检查用的选项：空间里的课按 question-lesson-v1 核对全部由程序判分的作答位。检查不调用模型，缺记录只记进结果，
+ * course_check 照常通过，course_use 看到缺记录时不换用；Python 核对照常运行。
+ */
+const SPACE_CHECK: CheckOptions = { scope: "question-lesson-v1", confirmations: "reported" };
+
+/** 把问题里的文件写成空间里的路径（course/topics/x.yaml），Agent 照着就能打开。 */
+function spacePaths(diagnostics: Diagnostic[]): void {
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.file !== undefined && !path.isAbsolute(diagnostic.file)) diagnostic.file = `${SPACE_COURSE}/${diagnostic.file}`;
+  }
+}
 
 /** 插件数据目录里的课程副本与换用状态。由插件保证同一时刻只有一次换用。 */
 export class CourseStore {
@@ -120,24 +132,41 @@ export class CourseStore {
     files: CourseFiles,
     after: (checked: CourseCheck, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>) => Promise<T>,
   ): Promise<T> {
-    const directory = path.join(this.dataDir, CHECKS, randomUUID());
-    try {
-      await mkdir(path.join(directory, TOPICS_DIRECTORY), { recursive: true });
-      for (const [name, text] of files) {
-        await writeFile(path.join(directory, name), text, { flag: "wx", mode: 0o600 });
-      }
+    return this.withCopy(files, async (directory) => {
       const result = await checkCourse(directory, { ...SPACE_CHECK, ...this.options, base: directory });
-      for (const diagnostic of result.diagnostics) {
-        if (diagnostic.file !== undefined && !path.isAbsolute(diagnostic.file)) diagnostic.file = `${SPACE_COURSE}/${diagnostic.file}`;
-      }
+      spacePaths(result.diagnostics);
       const checked = { id: copyId(files), result, passed: !result.diagnostics.some((diagnostic) => diagnostic.severity === "error") };
-      return await after(checked, async () => {
+      return after(checked, async () => {
         const target = path.join(this.dataDir, COPIES, checked.id);
         await rm(target, { recursive: true, force: true });
         await mkdir(path.join(this.dataDir, COPIES), { recursive: true });
         await rename(directory, target);
         await syncDirectory(path.join(this.dataDir, COPIES));
       }, () => readCopy(directory));
+    });
+  }
+
+  /**
+   * 在这份课程文件的固定副本上做模型核对（question-lesson-v1），不受核对期间对 course/ 的写入影响。
+   * 一致的记录经 options.save 写回空间里的 topic 文件；副本随后删掉。
+   */
+  confirm(files: CourseFiles, options: Omit<ConfirmOptions, "scope" | "base">): Promise<ConfirmResult> {
+    return this.withCopy(files, async (directory) => {
+      const result = await confirmCourse(directory, { ...options, scope: "question-lesson-v1", base: directory });
+      spacePaths(result.diagnostics);
+      return result;
+    });
+  }
+
+  /** 把一份课程文件写进一个新的临时文件夹，在其上运行 work，之后删掉（work 把它改名搬走了也不要紧）。 */
+  private async withCopy<T>(files: CourseFiles, work: (directory: string) => Promise<T>): Promise<T> {
+    const directory = path.join(this.dataDir, CHECKS, randomUUID());
+    try {
+      await mkdir(path.join(directory, TOPICS_DIRECTORY), { recursive: true });
+      for (const [name, text] of files) {
+        await writeFile(path.join(directory, name), text, { flag: "wx", mode: 0o600 });
+      }
+      return await work(directory);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -175,9 +204,14 @@ async function readCopy(directory: string): Promise<ResolvedCourse> {
  * 判分用不到 runtime：verify 只在检查时运行，所以 runtime 可以新写上、改动或去掉），旧版里每个展开了的 topic 在新版里一字不差；
  * 轮廓可以展开、修改或删去，也可以加新的 topic。学习者进行中的任务只取决于展开了的部分：任务本身的 topic，
  * 以及此前学过的部分（作答按它们重判，决定先修算不算学过、这项任务还有没有资格）。它们不变，新的一版重放出来的就是同一个任务。
+ * topic 末尾的核对记录（verified）不在比较之内：它不影响出题和判分，学过的 topic 补写记录以后照样能换用。
  */
 export function onlyAdds(before: ResolvedCourse, after: ResolvedCourse): boolean {
   if (before.course.id !== after.course.id) return false;
   if (teachesPython(before.topics) && !isDeepStrictEqual(before.course.runtime, after.course.runtime)) return false;
-  return before.topics.every((old) => old.status !== "complete" || isDeepStrictEqual(old, after.topics.find((topic) => topic.id === old.id)));
+  return before.topics.every((old) => {
+    if (old.status !== "complete") return true;
+    const now = after.topics.find((topic) => topic.id === old.id);
+    return now !== undefined && isDeepStrictEqual(topicContent(old), topicContent(now));
+  });
 }

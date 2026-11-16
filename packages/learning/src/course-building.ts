@@ -92,7 +92,7 @@ export function expansionTask(course: ResolvedCourse, topicIds: readonly string[
     `在后台展开空间里 ${SPACE_COURSE}/ 这门课的这几部分：${topicIds.map(name).join("、")}。`,
     `学习者学过的部分：${learned.length > 0 ? learned.map(name).join("、") : "还没有"}。`,
     `先用 read 读 ${COURSE_GUIDE} 的“后台展开”一节，照着做，最后用 course_use 换用。`,
-    "这是后台运行：没有人回答提问，也没有人能确认命令，不要用 bash 和 ask_user。",
+    "这是后台运行：没有人回答提问，也没有人能确认命令，不要运行命令，也不要用 ask_user。",
     "下面是这几部分的轮廓和学习者在它们之前学到的概念，取自学习者现在学的这一版课。",
     "",
     expansionBrief(course, topicIds, new Set(learned)),

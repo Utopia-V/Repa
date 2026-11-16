@@ -162,13 +162,32 @@ async function startScriptedModel() {
   return { models, toolResults, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
+/**
+ * 给 topic 里每道由程序判分的题写上当前的核对记录：course_use 只换用核对过的课。模型核对是一次普通的模型请求，
+ * 走的路与平台和安装包无关，这里不经假模型重做一遍，直接用安装包里的函数算出记录写进文件。
+ */
+async function writeConfirmationRecords(application, topicFile, topic) {
+  const check = path.join(application, "node_modules/@repa/learning/dist/check");
+  const { confirmationSlots, lessonVersion, localDate, writeConfirmations } = await import(pathToFileURL(path.join(check, "confirm.js")));
+  const { topicQuestions } = await import(pathToFileURL(path.join(check, "items.js")));
+  const scope = "question-lesson-v1";
+  const records = [];
+  for (const entry of topicQuestions(topic)) {
+    const slots = confirmationSlots(entry, scope);
+    if (slots.length === 0) continue;
+    records.push({ question: entry.question.id, version: await lessonVersion(entry, topic), scope, slots, model: `${SCRIPTED.provider}/${SCRIPTED.id}`, date: localDate() });
+  }
+  assert.ok(records.length > 0, "示例课里没有要核对的题");
+  await writeConfirmations(topicFile, records);
+}
+
 /** 做课的 Agent 等检查结果最多多久：页面这一次要启动 Pyodide（60 秒）再运行核对，留出余量。 */
 const COURSE_USE_TIMEOUT_MS = 240_000;
 
 /**
  * 带计算题的课在装好的应用里能通过检查并换用：checkPagePython 只确认 python.run 本身能用，课程核对另有一段路
  * （找离线包、选沙箱还是页面、比较版本），曾在安装包里因为 Node 一侧找不到 wheel 而整个失败。这里走真正的 course_use：
- * 在临时空间里放一门示例课，加上写课说明里的 verify 例题（清单照说明不写 runtime），由假模型让通用 Agent 调用 course_use，
+ * 在临时空间里放一门示例课，加上写课说明里的 verify 例题（清单照说明不写 runtime），写上核对记录，由假模型让通用 Agent 调用 course_use，
  * 读它交回给模型的检查结果。Linux 上经沙箱核对，Windows 和 macOS 上经开着的应用页面核对。
  */
 async function checkCourseUse(connection, application, temporary, model) {
@@ -186,6 +205,7 @@ async function checkCourseUse(connection, application, temporary, model) {
   const topic = parse(await readFile(topicFile, "utf8"));
   topic.kps[0].practice.push(...question);
   await writeFile(topicFile, stringify(topic, { aliasDuplicateObjects: false }));
+  await writeConfirmationRecords(application, topicFile, topic);
 
   const client = await RepaClient.connect(connection);
   try {
