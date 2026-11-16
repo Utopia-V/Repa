@@ -24,6 +24,12 @@ const toolNames: Record<string, string> = {
   web_fetch: t("toolActivity.webFetch.label"),
 };
 
+/** MCP 服务器的工具名是 mcp__<服务器>__<工具>，分开显示服务器与工具。 */
+function mcpToolName(tool: string): string | undefined {
+  const match = /^mcp__([A-Za-z0-9_-]+?)__(.+)$/u.exec(tool);
+  return match?.[1] && match[2] ? t("toolActivity.mcp.label", { server: match[1], tool: match[2] }) : undefined;
+}
+
 const statusText: Record<ToolStatus, string> = {
   running: t("toolActivity.running.status"),
   done: t("toolActivity.done.status"),
@@ -43,7 +49,7 @@ export function ToolActivity({ tool, status, count = 1 }: { tool: string; status
   const Icon = statusIcon[status];
   return <p data-status={status} className="mb-4 flex items-center gap-2 text-body text-muted-foreground">
     <Icon aria-hidden="true" className={status === "running" ? "size-4 animate-spin motion-reduce:animate-none" : "size-4"} />
-    <span>{toolNames[tool] ?? tool}</span>
+    <span>{toolNames[tool] ?? mcpToolName(tool) ?? tool}</span>
     {count > 1 && <span className="tabular-nums">{t("toolActivity.count.label", { count })}</span>}
     <span>· {statusText[status]}</span>
   </p>;

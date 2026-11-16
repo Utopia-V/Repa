@@ -233,7 +233,8 @@
 | --- | --- | --- | --- |
 | id | string | 否 |  |
 | request | object | 否 |  |
-| request.kind | "command" &#124; "input" &#124; "select" &#124; "display" &#124; "plugin" | 否 |  |
+| request.kind | "command" &#124; "input" &#124; "select" &#124; "display" &#124; "plugin" &#124; "mcp" | 否 |  |
+| request.mcp | object | 是 | 嵌套对象，字段见源码 |
 | request.message | string | 是 |  |
 | request.options[] | string | 是 |  |
 | request.plugin | object | 是 | 嵌套对象，字段见源码 |
@@ -338,6 +339,136 @@
 | baseline.space | object &#124; null | 否 | 嵌套对象，字段见源码 |
 | serverId | string | 否 |  |
 | version | "3" | 否 |  |
+
+## 方法：mcp.add
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| config | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $[].ask | boolean | 否 |  |
+| $[].enabled | boolean | 否 |  |
+| $[].name | string | 否 |  |
+| $[].reason | object | 是 |  |
+| $[].reason.code | string | 否 |  |
+| $[].reason.message | string | 否 |  |
+| $[].state | "disabled" &#124; "connecting" &#124; "connected" &#124; "failed" | 否 |  |
+| $[].target | string | 否 |  |
+| $[].tools[] | string | 否 |  |
+| $[].transport | "stdio" &#124; "http" | 否 |  |
+
+## 方法：mcp.list
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $[].ask | boolean | 否 |  |
+| $[].enabled | boolean | 否 |  |
+| $[].name | string | 否 |  |
+| $[].reason | object | 是 |  |
+| $[].reason.code | string | 否 |  |
+| $[].reason.message | string | 否 |  |
+| $[].state | "disabled" &#124; "connecting" &#124; "connected" &#124; "failed" | 否 |  |
+| $[].target | string | 否 |  |
+| $[].tools[] | string | 否 |  |
+| $[].transport | "stdio" &#124; "http" | 否 |  |
+
+## 方法：mcp.reconnect
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| name | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $[].ask | boolean | 否 |  |
+| $[].enabled | boolean | 否 |  |
+| $[].name | string | 否 |  |
+| $[].reason | object | 是 |  |
+| $[].reason.code | string | 否 |  |
+| $[].reason.message | string | 否 |  |
+| $[].state | "disabled" &#124; "connecting" &#124; "connected" &#124; "failed" | 否 |  |
+| $[].target | string | 否 |  |
+| $[].tools[] | string | 否 |  |
+| $[].transport | "stdio" &#124; "http" | 否 |  |
+
+## 方法：mcp.remove
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| name | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $[].ask | boolean | 否 |  |
+| $[].enabled | boolean | 否 |  |
+| $[].name | string | 否 |  |
+| $[].reason | object | 是 |  |
+| $[].reason.code | string | 否 |  |
+| $[].reason.message | string | 否 |  |
+| $[].state | "disabled" &#124; "connecting" &#124; "connected" &#124; "failed" | 否 |  |
+| $[].target | string | 否 |  |
+| $[].tools[] | string | 否 |  |
+| $[].transport | "stdio" &#124; "http" | 否 |  |
+
+## 方法：mcp.set
+
+### 参数
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| ask | boolean | 是 |  |
+| enabled | boolean | 是 |  |
+| name | string | 否 |  |
+
+### 结果
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $[].ask | boolean | 否 |  |
+| $[].enabled | boolean | 否 |  |
+| $[].name | string | 否 |  |
+| $[].reason | object | 是 |  |
+| $[].reason.code | string | 否 |  |
+| $[].reason.message | string | 否 |  |
+| $[].state | "disabled" &#124; "connecting" &#124; "connected" &#124; "failed" | 否 |  |
+| $[].target | string | 否 |  |
+| $[].tools[] | string | 否 |  |
+| $[].transport | "stdio" &#124; "http" | 否 |  |
+
+## 通知：mcp.updated
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| servers[] | object | 否 |  |
+| servers[].ask | boolean | 否 |  |
+| servers[].enabled | boolean | 否 |  |
+| servers[].name | string | 否 |  |
+| servers[].reason | object | 是 | 嵌套对象，字段见源码 |
+| servers[].state | "disabled" &#124; "connecting" &#124; "connected" &#124; "failed" | 否 |  |
+| servers[].target | string | 否 |  |
+| servers[].tools[] | string | 否 |  |
+| servers[].transport | "stdio" &#124; "http" | 否 |  |
 
 ## 方法：model.getDefault
 

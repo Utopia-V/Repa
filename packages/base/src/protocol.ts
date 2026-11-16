@@ -20,6 +20,7 @@ import {
   ConfirmationSchema,
   DirectoryListingSchema,
   DirectoryRootSchema,
+  McpServerInfoSchema,
   ModelRefSchema,
   PLUGIN_ID,
   PluginDigestSchema,
@@ -39,6 +40,7 @@ export * from "./interaction.js";
 // 3：space.open/create 返回 disabledPlugins，新增 plugin.disabled。读取时忽略未知字段；只有旧版会读错的语义变化才升版本。
 // 开发阶段版本不变：插件列表 PluginInfo 取代 disabledPlugins 与 plugin.disabled；新增 plugin.load、plugin.unload、plugin.updated 与确认种类 plugin；
 // space.open/create 的结果与初始化基线的 space 带上 opening，plugin.call 必须带上它。
+// 开发阶段版本不变：新增 mcp.list、mcp.add、mcp.remove、mcp.set、mcp.reconnect、mcp.updated 与确认种类 mcp。
 /** 当前前后端协议版本；连接初始化时用于拒绝无法正确理解的协议。 */
 export const PROTOCOL_VERSION = "3";
 
@@ -225,6 +227,15 @@ export const methods = {
   // 恢复到新文件夹：target 是新空间的绝对路径，须尚不存在；返回新空间的根目录。
   "backup.restoreTo": { params: object({ root: identifier, id: identifier, target: identifier }), result: object({ root: identifier }) },
   "backup.delete": { params: object({ root: identifier, id: identifier }), result: nothing },
+  // MCP 服务器的列表与状态；每次读取时与 mcp.json 对照，手改的文件也在这时生效。文件读不了时以 mcp_config_invalid 拒绝。
+  "mcp.list": { params: empty, result: Type.Array(McpServerInfoSchema) },
+  // 加入粘贴的一段配置：整段 {"mcpServers": {...}}，或其中 "名字": {...} 的部分；同名的整项替换。返回之后的列表，新的服务器在后台连接。
+  "mcp.add": { params: object({ config: Type.String({ minLength: 1, maxLength: 100_000 }) }), result: Type.Array(McpServerInfoSchema) },
+  "mcp.remove": { params: object({ name: identifier }), result: Type.Array(McpServerInfoSchema) },
+  // 停用或启用、切换调用前询问。
+  "mcp.set": { params: object({ name: identifier, enabled: Type.Optional(Type.Boolean()), ask: Type.Optional(Type.Boolean()) }), result: Type.Array(McpServerInfoSchema) },
+  // 重新连接一个失败或断开的服务器；连接断了不会自己重连。
+  "mcp.reconnect": { params: object({ name: identifier }), result: Type.Array(McpServerInfoSchema) },
 } as const;
 
 /** 底座发给客户端的全部通知 schema，供两端校验通知参数。 */
@@ -240,6 +251,8 @@ export const notifications = {
   "plugin.event": object({ pluginId: identifier, event: Type.Unknown() }),
   // 插件列表变了：一次加载或卸载结束以后发出，带整份列表。
   "plugin.updated": object({ plugins: Type.Array(PluginInfoSchema) }),
+  // MCP 服务器的列表或状态变了：连上、失败、断开、工具变化，或经协议改了配置。带整份列表。
+  "mcp.updated": object({ servers: Type.Array(McpServerInfoSchema) }),
 } as const;
 
 /**

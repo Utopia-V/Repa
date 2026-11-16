@@ -109,6 +109,8 @@ interface AgentProfile {
   tools: AgentTool[];
   /** 底座自己的工具（搜索与读网页）：只给通用 Agent，接上了有这项服务的提供方才有。 */
   web: AgentTool[];
+  /** 装配给通用 Agent 的工具（MCP 服务器的工具）；插件 Agent 没有。 */
+  generalTools: AgentTool[];
   /** 是否带底座的 ask_user：通用 Agent 默认带上，插件 Agent 在定义里列出才有。 */
   askUser: boolean;
   subagents: string[];
@@ -162,6 +164,11 @@ function pluginToolMap(profile: AgentProfile): Map<string, AgentTool> {
     tools.set(tool.name, tool);
   }
   for (const tool of profile.web) tools.set(tool.name, tool);
+  // 装配给通用 Agent 的工具名带自己的前缀（mcp__），插件工具不能用这个前缀；重名说明装配出了错，直接失败。
+  for (const tool of profile.generalTools) {
+    if (tools.has(tool.name) || reserved.has(tool.name)) throw new RepaFault("tool_name_conflict", "通用 Agent 的工具与别的工具重名", { name: tool.name });
+    tools.set(tool.name, tool);
+  }
   return tools;
 }
 
@@ -506,6 +513,7 @@ class Space implements AgentSpace {
         builtins: [...BUILTIN_TOOLS],
         tools: this.options.tools(),
         web: this.runtime.webTools(),
+        generalTools: this.options.generalTools?.() ?? [],
         askUser: true,
         // 和 Claude Code 一样能起子 Agent：自己，以及空间里定义的任何插件 Agent。插件 Agent 的工具都在通用 Agent 的范围内。
         subagents: [GENERAL_AGENT, ...(this.options.agents?.() ?? []).map(item => item.id).sort()],
@@ -524,6 +532,7 @@ class Space implements AgentSpace {
       builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep"),
       tools: this.options.tools().filter(tool => names.has(tool.name)),
       web: [],
+      generalTools: [],
       askUser: names.has(ASK_USER_TOOL),
       // 引用的子 Agent 按名字在这一刻的集合里取：所属插件撤下时没有这一项，回来以后重新出现。
       // 子 Agent 被替换成工具更多的版本时也不列出：更高权限的工作不能靠 Agent 之间转托取得。

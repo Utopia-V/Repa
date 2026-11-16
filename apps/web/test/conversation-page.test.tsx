@@ -181,6 +181,21 @@ it("Agent 要执行命令时弹出授权，显示命令，允许后回复后端"
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 
+it("MCP 工具调用的授权写明服务器和工具，下面是参数", async () => {
+  const fake = backend();
+  await renderConversation(fake);
+  await screen.findByRole("textbox", { name: "消息" });
+
+  act(() => fake.emit("confirm.request", { id: "c1", request: { kind: "mcp", title: "", mcp: { server: "notes", tool: "search", input: { query: "导数" } } } }));
+  // 界面文字还是占位，标题由占位与两个参数拼成。
+  const dialog = await screen.findByRole("dialog", { name: "〔待写〕notessearch" });
+  expect(within(dialog).getByText(/"query": "导数"/u)).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: "拒绝" }));
+
+  expect(fake.call).toHaveBeenCalledWith("confirm.reply", { id: "c1", value: false });
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
 it("关闭授权对话框按拒绝回复", async () => {
   const fake = backend();
   await renderConversation(fake);

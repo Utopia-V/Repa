@@ -60,6 +60,7 @@ function backend(handlers: Record<string, Handler> = {}) {
       case "model.providers":
       case "session.list":
       case "prompt.list":
+      case "mcp.list":
         return Promise.resolve([]);
       case "model.getDefault":
         return Promise.resolve(null);

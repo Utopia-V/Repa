@@ -15,6 +15,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { BackupSection } from "@/features/backup-settings";
 import { LearningExportSection } from "@/features/learning-export";
+import { McpSection } from "@/features/mcp-settings";
 import { DefaultModelDialog } from "@/features/model-picker";
 import { PromptSettingsSection } from "@/features/prompt-settings";
 import { ProviderConnectDialog } from "@/features/provider-connect";
@@ -137,6 +138,8 @@ export function SettingsPage() {
     <BackupSection />
 
     <CommandPolicySection />
+
+    <McpSection />
 
     <PromptSettingsSection />
 

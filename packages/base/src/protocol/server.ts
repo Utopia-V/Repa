@@ -14,6 +14,7 @@ import { deleteBackup, groupStatus, listBackups } from "../backup/store.js";
 import { resolveAppHome } from "../home.js";
 import { createFeedbackBundle } from "../feedback/bundle.js";
 import { RecentErrors } from "../feedback/errors.js";
+import { repaVersion } from "../feedback/publish.js";
 import {
   canRender,
   checkResponse,
@@ -23,6 +24,7 @@ import {
 } from "../interaction.js";
 import type { AskOutcome, Plugin, Services } from "../plugin.js";
 import { openPluginHost, type PluginHost } from "../plugins.js";
+import { McpServers } from "../mcp/servers.js";
 import { createPluginControl, type PluginControl } from "../plugins/control.js";
 import { pluginTool } from "../plugins/plugin-tool.js";
 import { pluginsDirectory } from "../plugins/snapshots.js";
@@ -173,6 +175,21 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     peer.socket.send(JSON.stringify(value));
   };
   const errors = new RecentErrors(() => runtime.now());
+  // MCP 服务器的连接归后端，所有空间与会话共用；只有通用 Agent 用得上，没有通用 Agent 时不连接。
+  const mcp = options.generalAgent === false ? undefined : new McpServers({
+    home,
+    version: await repaVersion(),
+    confirm: (request, signal) => confirmFor(owner.getStore())(request, signal),
+    fullAccess: () => settings.get().commandPolicy === "fullAccess",
+    onUpdate: (servers) => emit("mcp.updated", { servers }),
+    onError: (error) => errors.add({ source: "mcp", message: errorText(error), ...(error instanceof RepaFault ? { code: error.code } : {}) }),
+  });
+  const requireMcp = (): McpServers => {
+    if (mcp === undefined) throw new RepaFault("mcp_unavailable", "没有通用 Agent，MCP 服务器不可用");
+    return mcp;
+  };
+  // 反馈包与导出的脱敏：模型凭据加上 mcp.json 里可能是令牌的值。
+  const credentials = async () => [...await runtime.credentials(), ...await mcp?.secrets() ?? []];
   const emit = <N extends Notification>(method: N, params: NotificationParams<N>) => {
     if (!Check(notifications[method], params)) throw new RepaFault("invalid_event", "模块发出了无效事件");
     recordError(method, params);
@@ -336,7 +353,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     active = undefined;
     if (!current) return;
     // 登录确认不属于空间；只结束命令确认、插件的批准，以及空间里的询问和服务。
-    reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command" || data.request.kind === "plugin");
+    reverse.endWhere((data) => data.kind !== "confirm" || data.request.kind === "command" || data.request.kind === "plugin" || data.request.kind === "mcp");
     recordOwnerFailures(await stopOwners(current));
     // 已经开始的装卸在宿主关闭以后失败；等正在写的启用记录写完再释放空间锁，启用记录不在锁外写入。
     await current.control.close();
@@ -384,7 +401,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         ask: (request, askOptions) => askFor(owner.getStore())(request, askOptions),
         services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
         // 插件导出数据与反馈包用同一套脱敏：保存的凭据由运行时读出，读不到时导出失败。
-        exports: { home, credentials: () => runtime.credentials() },
+        exports: { home, credentials },
         models: (pluginId) => ({
           complete: (request) => runtime.complete(request, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
           completeStructured: (request, schema) => runtime.completeStructured(request, schema, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
@@ -438,6 +455,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         sessionsDir: space.sessionsDir,
         instructions: () => host.instructions(),
         tools: () => [managePlugins, ...host.tools()],
+        generalTools: () => mcp?.tools() ?? [],
         views: () => host.views(),
         agents: () => host.agents(),
         generalAgent: options.generalAgent,
@@ -576,7 +594,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         if (!pending || pending.peer !== peer || pending.data.kind !== "confirm") throw new RepaFault("confirmation_not_found", "确认不存在或不属于当前连接");
         const kind = pending.data.request.kind;
         if (
-          ((kind === "command" || kind === "plugin") && typeof input.value !== "boolean" && input.value !== null) ||
+          ((kind === "command" || kind === "plugin" || kind === "mcp") && typeof input.value !== "boolean" && input.value !== null) ||
           ((kind === "input" || kind === "select") && typeof input.value !== "string" && input.value !== null) ||
           (kind === "select" && typeof input.value === "string" && !pending.data.request.options?.includes(input.value))
         ) {
@@ -704,7 +722,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             agent: current.agent,
             history: current.space.history,
             complete: (request) => runtime.complete(request),
-            credentials: () => runtime.credentials(),
+            credentials,
             errors,
             commandPolicy: settings.get().commandPolicy,
             plugins: current.plugins.list(),
@@ -753,6 +771,18 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         emit("backup.updated", active?.space.root === input.root ? await active.backups.status() : await groupStatus(home, input.root));
         return null;
       }
+      case "mcp.list":
+        return requireMcp().list();
+      case "mcp.add":
+        return requireMcp().add(p<"mcp.add">().config);
+      case "mcp.remove":
+        return requireMcp().remove(p<"mcp.remove">().name);
+      case "mcp.set": {
+        const input = p<"mcp.set">();
+        return requireMcp().set(input.name, { ...(input.enabled === undefined ? {} : { enabled: input.enabled }), ...(input.ask === undefined ? {} : { ask: input.ask }) });
+      }
+      case "mcp.reconnect":
+        return requireMcp().reconnect(p<"mcp.reconnect">().name);
     }
   };
 
@@ -887,7 +917,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         new Promise<void>((resolve) => websocket.close(() => resolve())),
         new Promise<void>((resolve) => http.close(() => resolve())),
       ]);
-      for (const stop of [() => runtime.close(), () => serializeLifecycle(closeActive)]) {
+      // 运行都停下以后再关 MCP 连接，等服务器进程结束；不回答的服务器也在关闭的时限内被结束。
+      for (const stop of [() => runtime.close(), () => serializeLifecycle(closeActive), () => mcp?.close() ?? Promise.resolve()]) {
         try {
           await stop();
         } catch (error) {
@@ -918,5 +949,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     await close();
     throw new RepaFault("listen_failed", "后端未取得本机端口");
   }
+  // 在后台连接配置的服务器，不等它们；连上以后工具才出现，连不上的原因在列表里。
+  mcp?.start();
   return { connection: { url: `ws://127.0.0.1:${address.port}/rpc`, token }, closed, close };
 }

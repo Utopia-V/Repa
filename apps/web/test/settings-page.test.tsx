@@ -52,6 +52,10 @@ function backend() {
     enabled: prompts.space[id]?.enabled ?? prompts.app[id]?.enabled ?? true,
   }));
   const logins: { provider: string; type: string; finish(error?: unknown): void }[] = [];
+  // MCP 服务器：local 已连接；测试可以往里加。
+  const mcp: Result<"mcp.list"> = [
+    { name: "local", transport: "stdio", target: "node", enabled: true, ask: true, state: "connected", tools: ["mcp__local__echo", "mcp__local__search"] },
+  ];
   const connect = (id: string, type: "api_key" | "oauth") => {
     const provider = providers.find((item) => item.id === id)!;
     provider.configured = type;
@@ -97,6 +101,21 @@ function backend() {
         });
       case "confirm.reply":
         return Promise.resolve(null);
+      case "mcp.list":
+        return Promise.resolve(structuredClone(mcp));
+      case "mcp.set": {
+        const server = mcp.find((item) => item.name === params.name)!;
+        if (typeof params.ask === "boolean") server.ask = params.ask;
+        if (typeof params.enabled === "boolean") Object.assign(server, { enabled: params.enabled, state: params.enabled ? "connecting" : "disabled", tools: [] });
+        return Promise.resolve(structuredClone(mcp));
+      }
+      case "mcp.add":
+        if (!String(params.config).includes("command")) return Promise.reject(new RpcError(-32000, "粘贴的内容里没有服务器", { code: "invalid_mcp_config" }));
+        mcp.push({ name: "fetch", transport: "stdio", target: "uvx", enabled: true, ask: true, state: "connecting", tools: [] });
+        return Promise.resolve(structuredClone(mcp));
+      case "mcp.remove":
+        mcp.splice(mcp.findIndex((item) => item.name === params.name), 1);
+        return Promise.resolve(structuredClone(mcp));
       case "settings.get":
         return Promise.resolve({ commandPolicy: settings.commandPolicy, recentSpaces: [], prompts: structuredClone(prompts.app) });
       case "space.open":
@@ -132,7 +151,7 @@ function backend() {
         return Promise.reject(new Error(`未模拟的方法 ${method}`));
     }
   });
-  return { call, logins, settings, prompts, ...fakeClient(call) };
+  return { call, logins, settings, prompts, mcp, ...fakeClient(call) };
 }
 
 async function renderSettings(fake: ReturnType<typeof backend>, space?: string) {
@@ -443,4 +462,53 @@ it("预览按发送顺序编号，停用的段落标明不发送", async () => {
     "3 · 工具说明可用工具：read",
   ]);
   expect(dialog.getByText("没有插件提供视图。")).toBeTruthy();
+});
+
+const mcpSection = () => within(document.getElementById("mcp-servers")!.closest("section")!);
+
+it("MCP 服务器列出状态与失败原因，开关调用前询问，删除前确认；状态随通知更新", async () => {
+  const fake = backend();
+  fake.mcp.push({ name: "broken", transport: "stdio", target: "uvx", enabled: true, ask: true, state: "failed", tools: [], reason: { code: "mcp_command_not_found", message: "找不到命令 uvx" } });
+  await renderSettings(fake);
+  const servers = mcpSection();
+  expect(await servers.findByText("local")).toBeTruthy();
+  // 界面文字还是占位：已连接的状态带工具数，失败的带后端给的原因。
+  expect(servers.getByText("〔待写〕2")).toBeTruthy();
+  expect(servers.getByText("找不到命令 uvx")).toBeTruthy();
+
+  // 每张卡片两个开关：启用、调用前询问。占位文字相同，按次序取第二个。
+  const [, ask] = servers.getAllByRole("switch", { name: "〔待写〕local" });
+  fireEvent.click(ask!);
+  await vi.waitFor(() => expect(fake.call).toHaveBeenCalledWith("mcp.set", { name: "local", ask: false }));
+  await vi.waitFor(() => expect(servers.getAllByRole("switch", { name: "〔待写〕local" })[1]!.getAttribute("aria-checked")).toBe("false"));
+
+  fireEvent.click(servers.getByRole("button", { name: "〔待写〕broken" }));
+  const confirm = await screen.findByRole("dialog", { name: "〔待写〕broken" });
+  expect(fake.call).not.toHaveBeenCalledWith("mcp.remove", expect.anything());
+  fireEvent.click(within(confirm).getByRole("button", { name: "〔待写〕" }));
+  await vi.waitFor(() => expect(servers.queryByText("broken")).toBeNull());
+  expect(fake.call).toHaveBeenCalledWith("mcp.remove", { name: "broken" });
+
+  act(() => fake.emit("mcp.updated", { servers: [{ name: "local", transport: "stdio", target: "node", enabled: true, ask: true, state: "failed", tools: [], reason: { code: "mcp_disconnected", message: "连接断开了" } }] }));
+  expect(await servers.findByText("连接断开了")).toBeTruthy();
+});
+
+it("添加 MCP 服务器时格式不对显示原因并保留输入，正确时关闭对话框并列出新的服务器", async () => {
+  const fake = backend();
+  await renderSettings(fake);
+  const servers = mcpSection();
+  await servers.findByText("local");
+  fireEvent.click(servers.getByRole("button", { name: "〔待写〕" }));
+  const dialog = await screen.findByRole("dialog");
+  const field = within(dialog).getByRole("textbox");
+  fireEvent.change(field, { target: { value: "{}" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "〔待写〕" }));
+  expect(await within(dialog).findByText("粘贴的内容里没有服务器")).toBeTruthy();
+  expect((field as HTMLTextAreaElement).value).toBe("{}");
+  const config = '"fetch": { "command": "uvx", "args": ["mcp-server-fetch"] }';
+  fireEvent.change(field, { target: { value: config } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "〔待写〕" }));
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(fake.call).toHaveBeenCalledWith("mcp.add", { config });
+  expect(await servers.findByText("fetch")).toBeTruthy();
 });

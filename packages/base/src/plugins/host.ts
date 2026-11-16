@@ -7,6 +7,7 @@ import { prepareExport } from "../feedback/export.js";
 import {
   ASK_USER_TOOL,
   BUILTIN_TOOLS,
+  MCP_TOOL_PREFIX,
   RESERVED_TOOL_NAMES,
   type AgentDefinition,
   type AskOptions,
@@ -437,7 +438,8 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         if (typeof tool.name !== "string" || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(tool.name)) {
           throw new RepaFault("invalid_tool_name", `工具名 ${JSON.stringify(tool.name)} 无效：要以字母开头，只含字母、数字和下划线`, { name: tool.name });
         }
-        if (reservedNames.has(tool.name)) {
+        // mcp__ 开头的名字留给 MCP 服务器的工具（mcp__<服务器>__<工具>）。
+        if (reservedNames.has(tool.name) || tool.name.startsWith(MCP_TOOL_PREFIX)) {
           throw new RepaFault("tool_name_conflict", `工具名 ${tool.name} 是底座内置工具的名字，换一个，例如加上插件名作前缀`, { name: tool.name });
         }
         if (localNames.has(tool.name)) {
