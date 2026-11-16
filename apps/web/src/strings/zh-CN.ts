@@ -377,6 +377,7 @@ export const strings = {
   "toolActivity.write.label": "写入文件",
   "toolActivity.edit.label": "编辑文件",
   "toolActivity.bash.label": "执行命令",
+  "toolActivity.powershell.label": "执行命令",
   "toolActivity.grep.label": "搜索内容",
   "toolActivity.find.label": "查找文件",
   "toolActivity.ls.label": "列出文件",

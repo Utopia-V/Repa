@@ -75,6 +75,7 @@ async function fixture(t: TestContext, kind: CallKind, options: Pick<AgentSpaceO
     }),
     extensionFactories: [extension],
     toolNames: kind === "nested" ? [parentToolName] : [],
+    commandTool: "bash",
   });
   const events: AgentEvent[] = [];
   const confirmations: Confirmation[] = [];
