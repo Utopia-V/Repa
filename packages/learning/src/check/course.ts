@@ -5,7 +5,8 @@ import { Report, type Diagnostic } from "../format/diagnostics.js";
 import { loadCourse } from "../format/load.js";
 import { checkTopicCode, type CodeStats } from "./code.js";
 import { PythonUnavailable, runtimeMismatches, sandboxPython, type CheckPython, type CheckRun } from "./python.js";
-import { checkReferences, type ConfirmationMode } from "./questions.js";
+import type { ConfirmationScope } from "../format/schema.js";
+import { checkConfirmations, checkReferences, type ConfirmationMode, type ConfirmationSummary } from "./questions.js";
 import { checkRules, teachesPython, usesPython } from "./rules.js";
 import { topicQuestions } from "./items.js";
 
@@ -25,20 +26,22 @@ export interface CheckOptions {
   timeoutMs?: number;
   /** 只对这些 topic 运行代码核对；结构和交叉规则仍检查整门课。缺省核对全部 topic。 */
   topics?: string[];
+  /** 按哪种范围要求模型核对记录，缺省 question-runtime-v1（随包课程）；空间里自制的课用 question-lesson-v1。 */
+  scope?: ConfirmationScope;
   /**
-   * 复习和测验题里 manual 作答位的模型核对记录：required（缺省）缺了就报错，要先运行 course:confirm；
-   * reported 只记进 summary.confirmationSlots，不报错，用于应用里做课，那里没有 course:confirm。
+   * 缺模型核对记录时：required（缺省）报错，要先运行 course:confirm；reported 只记进 summary.confirmations，不报错，
+   * 用于应用里做课：course_check 照常通过，course_use 看到缺记录时不换用。
    */
   confirmations?: ConfirmationMode;
 }
 
-/** 一次课程检查的统计：topic 与题目数、要模型核对的作答位、代码核对是否运行，以及启动解释器等代价计数。 */
+/** 一次课程检查的统计：topic 与题目数、要模型核对的题、代码核对是否运行，以及启动解释器等代价计数。 */
 export interface CheckSummary {
   course?: { id: string; version: string };
   topics: { complete: number; outline: number };
   questions: number;
-  /** 复习和测验题池里由模型核对的作答位，写成“题目 id/作答位 id”；缺少当前版本记录的另作为错误报告。 */
-  confirmationSlots: string[];
+  /** 按检查的核对范围，要模型核对的题有多少、哪些缺当前记录；清单读不出时为空。 */
+  confirmations: ConfirmationSummary;
   /** 课里有没有要在 Python 里运行的题（verify、代码题、带测试的排列题）；没有就不启动沙箱。 */
   python: boolean;
   /** 代码核对是否真的运行了。 */
@@ -62,20 +65,20 @@ export interface CheckResult {
 export async function checkCourse(root: string, options: CheckOptions = {}): Promise<CheckResult> {
   const report = new Report();
   const code: CodeStats = { verifyJobs: 0, verifiedSlots: 0, testRuns: 0, interpreterStarts: 0 };
-  const summary: CheckSummary = { topics: { complete: 0, outline: 0 }, questions: 0, confirmationSlots: [], python: false, ran: false, loaded: [], code };
+  const scope = options.scope ?? "question-runtime-v1";
+  const summary: CheckSummary = {
+    topics: { complete: 0, outline: 0 }, questions: 0, confirmations: { scope, questions: 0, missing: [] }, python: false, ran: false, loaded: [], code,
+  };
   const loaded = await loadCourse(root, report, options.base);
   if (!loaded) return { diagnostics: report.diagnostics, summary };
   summary.course = { id: loaded.course.id, version: loaded.course.version };
   for (const { topic } of loaded.topics) {
     summary.topics[topic.status] += 1;
-    for (const { question, pool } of topicQuestions(topic)) {
-      summary.questions += 1;
-      if (pool !== "review" && pool !== "quiz") continue;
-      for (const slot of question.manual ?? []) summary.confirmationSlots.push(`${question.id}/${slot}`);
-    }
+    summary.questions += topicQuestions(topic).length;
   }
   checkRules(loaded, report);
-  await checkReferences(loaded, report, options.confirmations ?? "required");
+  await checkReferences(loaded, report);
+  summary.confirmations = await checkConfirmations(loaded, report, scope, options.confirmations ?? "required");
   const topics = loaded.topics.map(({ topic }) => topic);
   summary.python = usesPython(topics);
   // 不用 Python 的课不启动沙箱。核对在 Repa 自己的 Python 环境里运行，只有 verify 的课不必写 runtime；

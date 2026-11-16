@@ -273,7 +273,7 @@ schema：packages/learning/src/format/schema.ts#CourseSchema；SHA-256 前 16 �
 
 版本标记：无独立版本标记；与 learning-course 同在一份课程里。
 
-schema：packages/learning/src/format/schema.ts#TopicSchema；SHA-256 前 16 位：300847e9fe5c9810。
+schema：packages/learning/src/format/schema.ts#TopicSchema；SHA-256 前 16 位：771812e7ea16bdbe。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
@@ -310,7 +310,7 @@ schema：packages/learning/src/format/schema.ts#TopicSchema；SHA-256 前 16 位
 | verified[].date | string | 否 | 日期写成 YYYY-MM-DD |
 | verified[].model | string | 否 |  |
 | verified[].question | string | 否 | 题目 id 写成 &lt;知识点 id&gt;.&lt;小写字母&gt;&lt;数字&gt;，例如 py17.k1.q1 |
-| verified[].scope | "question-runtime-v1" | 是 |  |
+| verified[].scope | "question-runtime-v1" &#124; "question-lesson-v1" | 是 |  |
 | verified[].slots[] | string | 否 |  |
 | verified[].version | string | 否 | 核对哈希写成 sha256:&lt;64 位十六进制&gt; |
 | wrapup | string &#124; Array&lt;object &#124; object &#124; object&gt; | 是 | 嵌套对象，字段见源码 |
