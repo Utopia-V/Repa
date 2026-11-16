@@ -87,6 +87,8 @@ test("Windows 上找到 Git Bash 时用 bash，找不到或只找到 WSL 的启�
   assert.equal(detectCommandTool("win32", undefined, missing), "powershell");
   assert.equal(detectCommandTool("win32", undefined, found("C:\\Windows\\System32\\bash.exe")), "powershell");
   assert.equal(detectCommandTool("win32", undefined, found("c:/windows/sysnative/bash.exe")), "powershell");
+  // 真机上见到的：没有 Git Bash 时 where bash.exe 找到的是商店版 WSL 的执行别名。
+  assert.equal(detectCommandTool("win32", undefined, found("C:\\Users\\someone\\AppData\\Local\\Microsoft\\WindowsApps\\bash.exe")), "powershell");
   // Pi 设置里的 shellPath 交给查找函数，与 bash 工具执行时用的是同一个。
   const seen: (string | undefined)[] = [];
   detectCommandTool("win32", "D:\\cygwin\\bin\\bash.exe", path => {
