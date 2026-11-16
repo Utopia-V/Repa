@@ -29,38 +29,38 @@
   },
   "learning-records": {
     "digest": "82166e6be990a5b5",
-    "basis": "2026-11-11-task-course-version.md"
+    "basis": "baseline"
   },
   "plugin-manifest": {
     "digest": "0fa04cc9abb82bfc",
-    "basis": "2026-11-14-plugin-manifest-base-version.md"
+    "basis": "baseline"
   },
   "plugin-snapshot": {
     "digest": "0fa04cc9abb82bfc",
-    "basis": "2026-11-14-plugin-snapshot-base-version.md"
+    "basis": "baseline"
   },
   "plugin-enablement": {
     "digest": "6559dfb16f27d289",
-    "basis": "2026-11-13-plugin-enablement.md"
+    "basis": "baseline"
   },
   "learning-course-choice": {
     "digest": "55961a3217710f9c",
-    "basis": "2026-11-14-learning-course-choice.md"
+    "basis": "baseline"
   },
   "learning-building": {
     "digest": "956ecbf119a30963",
-    "basis": "2026-11-15-learning-building-conversation.md"
+    "basis": "baseline"
   },
   "learning-settings": {
     "digest": "9e260453feaa7931",
-    "basis": "2026-11-14-learning-settings.md"
+    "basis": "baseline"
   },
   "learning-course": {
     "digest": "afad8965c50dc09b",
-    "basis": "2026-11-14-learning-course-materials.md"
+    "basis": "baseline"
   },
   "learning-topic": {
     "digest": "771812e7ea16bdbe",
-    "basis": "2026-11-16-learning-topic-confirmation-scope.md"
+    "basis": "baseline"
   }
 }
