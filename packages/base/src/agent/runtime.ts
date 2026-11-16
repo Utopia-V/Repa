@@ -25,6 +25,7 @@ import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition
 import { withRun } from "../run-context.js";
 import { errorText, MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type SessionUsage, type PromptSection, type ProviderInfo } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
+import { detectCommandTool, type CommandTool } from "./command-tool.js";
 import { convertEvent, entryToPublic, textContent } from "./events.js";
 import { credentialValues } from "../feedback/redact.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
@@ -54,6 +55,8 @@ export interface AgentTestOptions extends AgentRuntimeOptions {
   dateView?: boolean;
   /** 搜索与读网页发请求用的函数，省略时用全局 fetch；测试注入假的，不访问网络。 */
   webRequest?: WebRequest;
+  /** 运行命令的工具，省略时按这台机器判断（detectCommandTool）；测试指定，不依赖本机装了什么。 */
+  commandTool?: CommandTool;
 }
 
 /** 创建使用应用专属凭据目录的 Pi 运行时，供协议后端或 Node 宿主装配。 */
@@ -84,8 +87,10 @@ const DIRECT_WRITES = {
 // Pi 1.1.0 的全部内置工具（createAllToolDefinitions）。档案之外的永久排除；Pi 新增内置工具时打开会话直接失败，见 Session.initialize。
 const PI_BUILTIN_TOOLS = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
 
-// 这些工具会写到底座看不见的地方，带它们的运行是不透明写入者。
-const OPAQUE_TOOLS = new Set(["bash", "powershell"]);
+// 这些工具会写到底座看不见的地方，带它们的运行是不透明写入者；调用前也都按命令策略确认。
+const OPAQUE_TOOLS = new Set<string>(["bash", "powershell"]);
+
+type PiBuiltinTool = Exclude<BuiltinTool, "bash"> | CommandTool;
 
 // 子 Agent 嵌套层数上限的默认值。这是 Repa 的假设：定义允许循环和重入，用层数挡住失控的递归，
 // 以后按实际使用调整。
@@ -105,7 +110,8 @@ interface ParentRun {
 interface AgentProfile {
   id: string;
   general: boolean;
-  builtins: BuiltinTool[];
+  /** 档案里的 Pi 内置工具：插件写的 bash 已换成这台机器上运行命令的工具。 */
+  builtins: PiBuiltinTool[];
   tools: AgentTool[];
   /** 底座自己的工具（搜索与读网页）：只给通用 Agent，接上了有这项服务的提供方才有。 */
   web: AgentTool[];
@@ -195,6 +201,8 @@ function removedTool(name: string): ToolDefinition {
 
 class Runtime implements AgentRuntime {
   readonly settings: SettingsManager;
+  /** 这台机器上运行命令的工具，后端启动时定下。 */
+  readonly commandTool: CommandTool;
   private spaces = new Set<Space>();
   private closed = false;
   // 每个服务的两个工具只建一次：会话按对象识别工具是否替换，读过的网页也缓存在里面。
@@ -204,6 +212,7 @@ class Runtime implements AgentRuntime {
     // 项目设置只由 Repa 持有；Pi 不读取空间中的 .pi/settings.json。
     this.settings = options.settingsManager ?? SettingsManager.create(options.agentDir, options.agentDir, { projectTrusted: false });
     this.checkSettings();
+    this.commandTool = options.commandTool ?? detectCommandTool(process.platform, this.settings.getShellPath());
   }
 
   now(): number {
@@ -498,12 +507,17 @@ class Space implements AgentSpace {
     return this.runtime.options.dateView === false ? [] : [dateView(this.runtime.now())];
   }
 
+  /** 插件接口里的 bash 意为“能运行命令”，换成这台机器上实际的工具；其余内置工具名称不变。 */
+  private builtin(name: BuiltinTool): PiBuiltinTool {
+    return name === "bash" ? this.runtime.commandTool : name;
+  }
+
   profile(id: string): AgentProfile {
     if (id === GENERAL_AGENT && this.options.generalAgent !== false) {
       return {
         id,
         general: true,
-        builtins: [...BUILTIN_TOOLS],
+        builtins: BUILTIN_TOOLS.map(name => this.builtin(name)),
         tools: this.options.tools(),
         web: this.runtime.webTools(),
         askUser: true,
@@ -521,7 +535,7 @@ class Space implements AgentSpace {
       id,
       general: false,
       // 插件宿主在打开时已经拒绝列了 grep 的定义；这里也不把 Pi 的 grep 交给插件 Agent，它会越过 .repa/.ignore。
-      builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep"),
+      builtins: BUILTIN_TOOLS.filter(name => names.has(name) && name !== "grep").map(name => this.builtin(name)),
       tools: this.options.tools().filter(tool => names.has(tool.name)),
       web: [],
       askUser: names.has(ASK_USER_TOOL),
@@ -571,7 +585,7 @@ class Space implements AgentSpace {
       { id: "base", text: BASE_INSTRUCTIONS },
       space,
       { id: "skills", text: formatSkillsForPrompt(skills, "read") },
-      { id: "tools", text: `使用已声明的工具。看目录、读文件、找文件、搜内容用 ls、read、find、grep，不用 bash；bash 只用于运行程序。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：${tools.join("、")}` },
+      { id: "tools", text: `使用已声明的工具。看目录、读文件、找文件、搜内容用 ls、read、find、grep，不用 ${this.runtime.commandTool}；${this.runtime.commandTool} 只用于运行程序。edit 的 oldText 必须逐字匹配，保留原文标点和换行。可用工具：${tools.join("、")}` },
       ...profile.sections(),
     ]);
   }
@@ -833,11 +847,12 @@ class Session implements AgentSession {
         this.session.refreshContext();
       });
       pi.on("tool_call", async event => {
-        if (event.toolName !== "bash" || options.commandPolicy() === "fullAccess") return;
+        if (!OPAQUE_TOOLS.has(event.toolName) || options.commandPolicy() === "fullAccess") return;
         const input: unknown = event.input;
         const command = input !== null && typeof input === "object" && "command" in input && typeof input.command === "string" ? input.command : "";
-        // 只由只读命令组成的命令不问，与 read、ls 不问是同一类事情；不是安全边界，见 readOnlyCommand。
-        if (readOnlyCommand(command)) return;
+        // 只由只读命令组成的 bash 命令不问，与 read、ls 不问是同一类事情；不是安全边界，见 readOnlyCommand。
+        // readOnlyCommand 认的是 bash 写法，PowerShell 命令一律询问。
+        if (event.toolName === "bash" && readOnlyCommand(command)) return;
         const answer = await options.confirm({ kind: "command", title: "允许执行命令？", message: command }, this.abortController?.signal);
         if (answer !== true) return { block: true, reason: "用户拒绝执行命令" };
       });

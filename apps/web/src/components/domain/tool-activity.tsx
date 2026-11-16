@@ -8,6 +8,7 @@ const toolNames: Record<string, string> = {
   write: t("toolActivity.write.label"),
   edit: t("toolActivity.edit.label"),
   bash: t("toolActivity.bash.label"),
+  powershell: t("toolActivity.powershell.label"),
   grep: t("toolActivity.grep.label"),
   find: t("toolActivity.find.label"),
   ls: t("toolActivity.ls.label"),

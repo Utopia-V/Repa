@@ -63,6 +63,8 @@ async function runtimeFixture(t: TestContext, extra: Partial<AgentSpaceOptions> 
     modelRuntime: models,
     defaultModel: { provider: faux.getModel().provider, id: "test" },
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
+    // 固定样本是运行命令用 bash 的情形，不随本机是否装了 bash 改变。
+    commandTool: "bash",
   });
   t.after(async () => {
     await runtime.close();

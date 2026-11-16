@@ -30,6 +30,8 @@ export async function generateTools() {
       modelRuntime: models,
       defaultModel: { provider: "docs-tools", id: "offline" },
       settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }),
+      // 目录写运行命令用 bash 的情形，不随生成目录的机器上有没有 bash 改变。
+      commandTool: "bash",
     });
     const space = await runtime.openSpace({
       root: fixture.space.root,
