@@ -7,7 +7,7 @@ import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools,
-  type TranscriptContext,
+  type FauxResponseFactory, type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createSpace, openPluginHost, openSpace, startServer } from "@repa/base";
@@ -16,6 +16,7 @@ import { INTERACTION_CAPABILITIES, parse } from "@repa/base/protocol";
 import { ModelTestDriver } from "@repa/base/testing";
 import { parse as parseYaml, stringify } from "yaml";
 import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
+import { localDate } from "../src/check/confirm.js";
 import { checkCourse } from "../src/check/course.js";
 import { COURSE_EXAMPLE, COURSE_GUIDE } from "../src/course-tools.js";
 import { connectLearning } from "../src/flow.js";
@@ -28,6 +29,7 @@ import type { LearningSession } from "../src/session.js";
 import { TUTOR_AGENT } from "../src/tutor.js";
 import { demoCourse, runtimeUnavailable, withoutLearnerCode } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
+import { keySolver, promptOf, withRecords } from "./fixtures/confirmations.js";
 import { referenceAnswer, start } from "./fixtures/learning-session.js";
 import { PAGE_RUNTIME, pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
 
@@ -54,6 +56,15 @@ async function editTopic(root: string, id: string, change: (topic: Record<string
   const value = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
   change(value);
   await writeFile(file, stringify(value, { aliasDuplicateObjects: false }));
+}
+
+/** 给空间 course/ 里每个 topic 补上当前的核对记录，就像 course_confirm 全部一致以后那样；用于不关心核对的场景。 */
+async function recordTopics(root: string) {
+  const directory = path.join(root, "course", "topics");
+  for (const name of await readdir(directory)) {
+    const file = path.join(directory, name);
+    await writeFile(file, await withRecords(await readFile(file, "utf8")));
+  }
 }
 
 /** topic 里某个知识点的某个题池。 */
@@ -176,12 +187,43 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
     assert.ok(received);
     return { text: lastToolResult(received), context: received };
   }
+  /**
+   * 让通用 Agent 调用一次 course_confirm。核对请求是各自独立的模型调用，由 solve 按请求正文作答；solve 交回 undefined 时
+   * 那次请求以模型错误失败。返回工具结果和模型收到的每个核对请求。
+   */
+  async function confirm(topicIds: string[], solve: (prompt: string) => string | undefined) {
+    let received: TranscriptContext | undefined;
+    const requests: { system: string; prompt: string }[] = [];
+    const step: FauxResponseFactory = (context) => {
+      const system = getCurrentSystemPrompt(context.messages);
+      if (!system.startsWith("你在独立解一道练习题")) {
+        received = structuredClone(context);
+        return fauxAssistantMessage("好的");
+      }
+      const prompt = promptOf(context);
+      requests.push({ system, prompt });
+      const answer = solve(prompt);
+      return answer === undefined ? fauxAssistantMessage("", { stopReason: "error", errorMessage: "额度用完了" }) : fauxAssistantMessage(answer);
+    };
+    // 核对的请求并发发出，谁先取到哪一步没有定数；每一步都按请求的系统说明分辨是核对还是 Agent 的下一轮。
+    faux.setResponses([fauxAssistantMessage([fauxToolCall("course_confirm", { topicIds })]), ...Array.from({ length: 120 }, () => step)]);
+    await client.call("session.send", { sessionId: general.id, text: "核对题目" });
+    faux.setResponses([]);
+    assert.ok(received);
+    return { text: lastToolResult(received), requests };
+  }
   return {
     root, faux, client, call, state, select, step, finish, tool, connection: server.connection,
     dataDir: path.join(root, ".repa", "plugins", "learning"),
-    /** 把示例课复制成空间里的 course/，模拟做课的 Agent 写好的课。 */
-    writeExample: () => cp(EXAMPLE, path.join(root, "course"), { recursive: true }),
+    /** 把示例课复制成空间里的 course/，模拟做课的 Agent 写好、核对过的课；records 为 false 时还没有核对。 */
+    async writeExample(records = true) {
+      await cp(EXAMPLE, path.join(root, "course"), { recursive: true });
+      if (records) await recordTopics(root);
+    },
+    confirm,
     editTopic: (id: string, change: (topic: Record<string, unknown>) => void) => editTopic(root, id, change),
+    /** 改过题以后重新补上当前的核对记录。 */
+    record: () => recordTopics(root),
     async reopen() {
       await client.call("space.close", {});
       ({ opening } = await client.call("space.open", { root }));
@@ -223,7 +265,7 @@ test("不含代码题的示例课：course_check 通过且不运行 Python，cou
   const checked = await f.tool("course_check");
   assert.match(checked.text, /^course\/ 通过检查：课程 os-memory 1\.0\.0，完整 topic 1 个、骨架 1 个，题目 12 道。$/mu);
   assert.match(checked.text, /没有运行 Python/u);
-  assert.match(checked.text, /复习和测验题里有 4 个作答位列在 manual 里，没有经过独立核对/u);
+  assert.match(checked.text, /由程序判分的题 12 道都有当前的核对记录/u);
   // 只检查不换用：学的仍是随包的课。
   assert.equal((await f.state()).course?.id, "python");
 
@@ -241,6 +283,129 @@ test("不含代码题的示例课：course_check 通过且不运行 Python，cou
   const reopened = await f.state();
   assert.equal(reopened.course?.id, "os-memory");
   assert.equal(reopened.progress.completedTopics, 1);
+});
+
+test("还没有核对的课：course_check 照常通过并报出个数，course_use 不换用并写明是哪些题；course_confirm 全部一致后记下、换用，再核对不发请求，核对的请求计入做课的花费", async (t) => {
+  const f = await fixture(t);
+  await f.writeExample(false);
+  const checked = await f.tool("course_check");
+  assert.match(checked.text, /^course\/ 通过检查/mu);
+  assert.match(checked.text, /由程序判分的题 12 道，其中 12 道还没有当前的核对记录：用 course_confirm 核对，没有核对完的课 course_use 不换用。/u);
+  const refused = await f.tool("course_use");
+  assert.match(refused.text, /^没有换用：12 道题还没有当前的核对记录（os01\.k1\.e0、os01\.k1\.q1、[^）\n]*os01\.k2\.x1）。用 course_confirm 核对 os01，改到没有不一致，再运行 course_use。/u);
+  assert.equal((await f.state()).course?.id, "python");
+
+  const before = await f.call("building.get", {});
+  const solve = await keySolver(path.join(f.root, "course"));
+  const confirmed = await f.confirm(["os01", "os02"], solve);
+  // 每道题一次请求；os02 还是轮廓，没有题。
+  assert.equal(confirmed.requests.length, 12);
+  assert.equal(confirmed.text, "os02 里没有要核对的题（还是轮廓，或不在课里）。\n要核对的题 12 道：已有当前记录 0 道；这次发请求 12 次，一致并已记下 12 道，全部一致。");
+  // 通用 Agent 的两次请求加 12 次核对，都算进做课的花费。
+  assert.equal((await f.call("building.get", {})).cost.requests, before.cost.requests + 2 + 12);
+
+  // 请求里有这道题所属知识点的讲解，没有解析和选项的原 id。
+  const topic = parseYaml(await readFile(path.join(EXAMPLE, "topics", "os01.yaml"), "utf8")) as { kps: Record<string, unknown>[] };
+  const explanations = topic.kps.flatMap((kp) => ["example", "practice", "review", "quiz"].flatMap((name) => [kp[name] ?? []].flat()))
+    .map((question) => String((question as { explanation: unknown }).explanation));
+  assert.equal(explanations.length, 12);
+  for (const request of confirmed.requests) {
+    assert.match(request.system, /前面附有这道题所属知识点的讲解/u);
+    assert.match(request.prompt, /^## 讲解\n\n(进程有三种基本状态|状态转换有四种)/u);
+    assert.doesNotMatch(request.prompt, /\b(ready|running|blocked|finished|yes|no)\b/u);
+    for (const explanation of explanations) assert.ok(!request.prompt.includes(explanation), explanation);
+  }
+
+  const written = parseYaml(await readFile(path.join(f.root, "course", "topics", "os01.yaml"), "utf8")) as { verified: { scope: string; model: string; date: string }[] };
+  assert.equal(written.verified.length, 12);
+  assert.ok(written.verified.every((record) => record.scope === "question-lesson-v1" && /^course-[^/]+\/test$/u.test(record.model) && record.date === localDate(1_792_454_400_000)));
+  assert.match((await f.tool("course_check")).text, /由程序判分的题 12 道都有当前的核对记录/u);
+
+  // 已有当前记录的题不再发请求。
+  const again = await f.confirm(["os01"], solve);
+  assert.equal(again.requests.length, 0);
+  assert.equal(again.text, "要核对的题 12 道：已有当前记录 12 道；这次发请求 0 次，一致并已记下 0 道，全部一致。");
+  assert.match((await f.tool("course_use")).text, /^已换用/u);
+  assert.equal((await f.state()).course?.id, "os-memory");
+});
+
+test("独立作答与标准答案不一致：交回题目编号、作答、标准答案和模型的说明，不记录、不换用；改了题面只重新核对这一道，改了讲解这个知识点的题都要重新核对，改解析不用", async (t) => {
+  const f = await fixture(t);
+  await f.writeExample(false);
+  const course = path.join(f.root, "course");
+  // os01.k1.q1 的选项按出现顺序是 a 就绪、b 运行、c 阻塞；独立作答的一方选了阻塞，并说明题面哪里不清楚。
+  const solve = await keySolver(course, { "os01.k1.q1": () => JSON.stringify({ answers: { state: "c" }, note: "题面没说进程在不在等事件" }) });
+  const first = await f.confirm(["os01"], solve);
+  assert.equal(first.requests.length, 12);
+  assert.match(first.text, /一致并已记下 11 道，没有通过 1 道。\n\n与标准答案不一致的题（独立作答的一方只看了讲解和题面）：\n- os01\.k1\.q1：state 作答 "blocked"，标准答案 "ready"。说明：题面没说进程在不在等事件$/u);
+  assert.match((await f.tool("course_use")).text, /^没有换用：1 道题还没有当前的核对记录（os01\.k1\.q1）。/u);
+  assert.equal((await f.state()).course?.id, "python");
+
+  // 改了这道题的题面：只有它要重新核对。
+  await f.editTopic("os01", (topic) => {
+    const question = pool(topic, 0, "practice")[0];
+    assert.ok(question);
+    question.body = "一个进程什么事件都不等，只差处理机就能执行，它处于哪种状态？";
+  });
+  const fixed = await f.confirm(["os01"], await keySolver(course));
+  assert.equal(fixed.requests.length, 1);
+  assert.match(fixed.requests[0]?.prompt ?? "", /什么事件都不等/u);
+  assert.match((await f.tool("course_use")).text, /^已换用/u);
+
+  // 改了第一个知识点的讲解：它下面 6 道题的记录都失效；只改第二个知识点一道题的解析，记录仍然有效。
+  await f.editTopic("os01", (topic) => {
+    const [kp] = topic.kps as Record<string, unknown>[];
+    assert.ok(kp);
+    kp.lesson = `${String(kp.lesson)}\n补充一句。`;
+    const question = pool(topic, 1, "practice")[0];
+    assert.ok(question);
+    question.explanation = "改写过的解析。";
+  });
+  assert.match((await f.tool("course_check")).text, /由程序判分的题 12 道，其中 6 道还没有当前的核对记录/u);
+  const relearned = await f.confirm(["os01"], await keySolver(course));
+  assert.equal(relearned.requests.length, 6);
+});
+
+test("部分核对请求失败：如实列出没有核对成的题，已经一致的照样记下；再核对只发还没有记录的", async (t) => {
+  const f = await fixture(t);
+  await f.writeExample(false);
+  const solve = await keySolver(path.join(f.root, "course"));
+  // os01.k1.r1 的请求额度用完失败；os01.k2.q2 两次都答得不合格式。
+  const first = await f.confirm(["os01"], (prompt) => {
+    if (prompt.includes("进程在等磁盘读完")) return undefined;
+    if (prompt.includes("正在运行的进程时间片用完")) return "答案是就绪";
+    return solve(prompt);
+  });
+  assert.equal(first.requests.length, 13);
+  assert.match(first.text, /这次发请求 13 次，一致并已记下 10 道，没有通过 2 道。/u);
+  assert.match(first.text, /没有核对成的题（没有记录；再运行 course_confirm 只会核对还没有记录的题）：\n- os01\.k1\.r1：请求失败：[^\n]*额度用完了\n- os01\.k2\.q2：模型两次的输出都不合格式：输出不是要求的 JSON$/u);
+  const written = parseYaml(await readFile(path.join(f.root, "course", "topics", "os01.yaml"), "utf8")) as { verified: unknown[] };
+  assert.equal(written.verified.length, 10);
+
+  const second = await f.confirm(["os01"], solve);
+  assert.equal(second.requests.length, 2);
+  assert.match((await f.tool("course_use")).text, /^已换用/u);
+});
+
+test("给学习者正在学的 topic 换写核对记录不算改了它：上课到一半照样换用，进行中的课照常", async (t) => {
+  const f = await fixture(t);
+  await f.writeExample();
+  assert.match((await f.tool("course_use")).text, /^已换用/u);
+  await f.select("os01");
+  while ((await f.state()).task?.phase.stage !== "awaiting_answer") await f.step();
+  const before = await f.state();
+
+  // 只换了 os01 末尾的核对记录（例如别的模型重新核对过），并升了版本。
+  const file = path.join(f.root, "course", "topics", "os01.yaml");
+  const text = await readFile(file, "utf8");
+  assert.ok(text.includes("model: test/key"));
+  await writeFile(file, text.replaceAll("model: test/key", "model: other/model"));
+  const manifest = path.join(f.root, "course", "course.yaml");
+  await writeFile(manifest, (await readFile(manifest, "utf8")).replace("version: 1.0.0", "version: 1.0.1"));
+  assert.match((await f.tool("course_use")).text, /^已换用/u);
+  const after = await f.state();
+  assert.equal(after.course?.version, "1.0.1");
+  assert.deepEqual(after.task?.deliveries, before.task?.deliveries);
 });
 
 test("course/ 写坏时 course_check 逐处写明文件、行和改法，分页并说明还有多少；course_use 不换用，学的仍是上一版", async (t) => {
@@ -311,6 +476,7 @@ test("学习者上课到一半时 course_use 不换用；重开空间仍是这�
   await f.editTopic("os01", (topic) => {
     for (const question of pool(topic, 0, "practice")) question.body = `${String(question.body)}（改过）`;
   });
+  await f.record();
   const used = await f.tool("course_use");
   assert.match(used.text, /^检查通过，但没有换用：学习者正在做一项任务（课、复习或测验），而这一版改了展开过的部分/u);
 
@@ -379,6 +545,8 @@ test("换用时旧的一版还在补判一份作答：等它写完再按新的�
     delete question.manual;
   });
   await rubric("说出只差处理机");
+  // 按 rubric 判分的开放作答不在模型核对之内，改它的 rubric 不使别的题的记录失效。
+  await recordTopics(root);
   const models = new ModelTestDriver();
   let session: LearningSession | undefined;
   const plugin = createLearningPlugin({
@@ -554,6 +722,7 @@ async function addGuideVerify(f: { root: string; writeExample: () => Promise<voi
   await f.writeExample();
   const example = (await guideExamples()).find((entry) => Array.isArray(entry) && "verify" in (entry[0] as object)) as Record<string, unknown>[];
   await editTopic(f.root, "os01", (topic) => pool(topic, 0, "practice").push(...structuredClone(example)));
+  await recordTopics(f.root);
   const script = example[0]?.verify;
   assert.ok(typeof script === "string");
   return script;

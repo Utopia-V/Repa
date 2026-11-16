@@ -7,8 +7,9 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
-import { confirmCourse, writeConfirmations, type ModelRequest } from "../src/check/confirm.js";
+import { confirmCourse, currentRecord, writeConfirmations, type ModelRequest } from "../src/check/confirm.js";
 import { checkCourse } from "../src/check/course.js";
+import { topicQuestions } from "../src/check/items.js";
 import type { Diagnostic } from "../src/format/diagnostics.js";
 import type { Question, Topic } from "../src/format/schema.js";
 import { demoCourse, displayedOutput, writeCourse, type DemoCourse } from "./demo-course.js";
@@ -73,7 +74,9 @@ test("复习和测验题的 manual 作答位没有核对记录时检查不通过
   const root = await writeCourse(t, demo);
   const result = await checkCourse(root, { run: false, base: root });
   assert.deepEqual(codes(result.diagnostics), ["manual_unconfirmed", "manual_unconfirmed"]);
-  assert.deepEqual(result.summary.confirmationSlots, ["t01.k1.x1/output", "t01.k2.r1/rows", "t01.k2.r1/equal"]);
+  assert.deepEqual(result.summary.confirmations, {
+    scope: "question-runtime-v1", questions: 2, missing: [{ topic: "t01", question: "t01.k1.x1" }, { topic: "t01", question: "t01.k2.r1" }],
+  });
 });
 
 test("模型独立解出的答案与标准答案一致时写入记录，之后检查通过；请求里没有答案和解析", async (t) => {
@@ -98,7 +101,7 @@ test("模型独立解出的答案与标准答案一致时写入记录，之后�
 
   // 已有当前版本的记录就不再发请求。
   const again = await confirmCourse(root, { complete: fakeModel({}).complete, model: "deepseek/deepseek-flash", maxRequests: 10, base: root });
-  assert.deepEqual(again.outcomes.map((outcome) => outcome.status), ["skipped", "skipped"]);
+  assert.deepEqual(again.outcomes.map((outcome) => outcome.status), ["current", "current"]);
   assert.equal(again.requests, 0);
 });
 
@@ -243,6 +246,96 @@ test("记录并入写文件那一刻磁盘上的记录：别人刚写进去的�
   assert.deepEqual(verified, [record("t01.k1.x1", "model-c"), record("t01.k2.r1", "model-b")]);
 });
 
+/** 示例课程加一道带开放作答的题：开放作答按评分要点由模型判分，不核对；同一道题里的填空照常核对。 */
+function lessonDemo(): DemoCourse {
+  const demo = demoCourse();
+  t01(demo).kps[0]?.practice?.push({
+    id: "t01.k1.q4",
+    body: "赋值时先算哪一边？说说为什么。",
+    slots: [
+      { id: "side", type: "text", match: "text", key: ["右边"] },
+      { id: "why", type: "text", rubric: [{ id: "order", label: "说出先算出值再让名字指向它" }] },
+    ],
+    explanation: "先算右边：名字要指向算好的值。",
+    manual: ["side"],
+  });
+  return demo;
+}
+
+const LESSON_DRY_RUN = { model: "deepseek/deepseek-flash", maxRequests: 50, scope: "question-lesson-v1", dryRun: true } as const;
+const unused = async (): Promise<string> => { throw new Error("dry run 不调用模型"); };
+
+test("question-lesson-v1 核对四个题池里由程序判分的作答位：数值、选择、填空、排序、表格在内，代码题、按测试判的排列题和开放作答不在内；请求先给讲解，没有答案、解析和核对程序", async (t) => {
+  const root = await writeCourse(t, lessonDemo());
+  const requests = new Map<string, ModelRequest>();
+  const result = await confirmCourse(root, { ...LESSON_DRY_RUN, complete: unused, base: root, onRequest: (question, request) => requests.set(question, request) });
+  assert.deepEqual(result.outcomes.map((outcome) => [outcome.question, outcome.slots]), [
+    ["t01.k1.e0", ["output"]], ["t01.k1.q1", ["output"]], ["t01.k1.q2", ["output"]], ["t01.k1.q3", ["line"]], ["t01.k1.q4", ["side"]],
+    ["t01.k1.r1", ["output"]], ["t01.k1.x1", ["output"]],
+    ["t01.k2.e0", ["mask"]], ["t01.k2.q3", ["session"]], ["t01.k2.r1", ["rows", "equal"]], ["t01.k2.x1", ["output"]],
+  ]);
+  assert.equal(result.requests, 0);
+
+  const choice = requests.get("t01.k1.q3");
+  assert.ok(choice);
+  assert.match(choice.system, /前面附有这道题所属知识点的讲解/u);
+  assert.match(choice.system, /"note"/u);
+  assert.match(choice.prompt, /^## 讲解\n\n赋值先算右边，再起名。[^\n]*\n\n## 题目\n\n哪一行写出“比 raw 少 2”？/u);
+  assert.match(choice.prompt, /- `a`：\n {2}```python\n {2}left = raw - 2/u);
+  assert.doesNotMatch(choice.prompt, /minus|plus|应当减去|`raw - 2`。|OPTIONS/u);
+  const numeric = requests.get("t01.k1.q1")?.prompt ?? "";
+  assert.doesNotMatch(numeric, /显示 3。|run\(\)/u);
+  assert.match(requests.get("t01.k2.r1")?.prompt ?? "", /^## 讲解\n\n逐行记下每个名字的值。/u);
+  // 随包课程的范围照旧：只看复习和测验题列了 manual 的，请求只有题面。
+  const bundled = await confirmCourse(root, { ...LESSON_DRY_RUN, scope: "question-runtime-v1", complete: unused, base: root });
+  assert.deepEqual(bundled.outcomes, []);
+});
+
+test("question-lesson-v1 的记录：讲解、题面、答案改了就失效，只改解析、题型标签或 runtime 不失效；模型的说明随不一致一起交回", async (t) => {
+  const demo = lessonDemo();
+  const root = await writeCourse(t, demo);
+  const complete = async (request: ModelRequest): Promise<string> => {
+    if (request.prompt.includes("比 raw 少 2")) return JSON.stringify({ answers: { line: "b" }, note: "两行都没说 raw 是多少" });
+    const side = request.prompt.includes("先算哪一边") ? { side: "右边" } : {};
+    // 其余的题这里不关心，答错也无妨。
+    return JSON.stringify({ answers: { ...side, output: "0", mask: {}, session: {}, rows: [], equal: [] } });
+  };
+  const result = await confirmCourse(root, { model: "local/test", maxRequests: 50, scope: "question-lesson-v1", concurrency: 4, complete, base: root, date: "2026-11-16" });
+  const choice = result.outcomes.find((outcome) => outcome.question === "t01.k1.q3");
+  assert.equal(choice?.status, "disagreed");
+  assert.deepEqual(choice?.differences, [{ slot: "line", model: "plus", key: "minus" }]);
+  assert.equal(choice?.note, "两行都没说 raw 是多少");
+  const confirmed = result.outcomes.filter((outcome) => outcome.status === "confirmed").map((outcome) => outcome.question);
+  assert.deepEqual(confirmed, ["t01.k1.q4"]);
+  const { verified } = await topicFile(root);
+  assert.deepEqual(verified, [{ question: "t01.k1.q4", version: result.outcomes[4]?.version, scope: "question-lesson-v1", slots: ["side"], model: "local/test", date: "2026-11-16" }]);
+
+  const current = async (change: (topic: Topic, question: Question) => void, runtime = demo.course.runtime) => {
+    const topic = structuredClone(t01(demo));
+    topic.verified = verified as Topic["verified"];
+    const question = topic.kps[0]?.practice?.find((entry) => entry.id === "t01.k1.q4");
+    assert.ok(question);
+    change(topic, question);
+    const entry = topicQuestions(topic).find((candidate) => candidate.question.id === "t01.k1.q4");
+    assert.ok(entry);
+    return (await currentRecord(topic, entry, runtime, "question-lesson-v1")) !== undefined;
+  };
+  assert.equal(await current(() => {}), true);
+  assert.equal(await current((_topic, question) => { question.explanation = "改写过的解析。"; }), true);
+  assert.equal(await current((_topic, question) => { question.kind = ["recall"]; }), true);
+  assert.equal(await current(() => {}, { ...demo.course.runtime, python: "3.15.0" }), true);
+  assert.equal(await current((topic) => { const [kp] = topic.kps; if (kp) kp.lesson = "改过的讲解。"; }), false);
+  assert.equal(await current((_topic, question) => { question.body = "改过的题面"; }), false);
+  assert.equal(await current((_topic, question) => {
+    const [side] = question.slots;
+    if (side?.type === "text") side.key = ["左边"];
+  }), false);
+  // 随包课程的规矩不认这种记录：同一份记录不算 question-runtime-v1 的证明。
+  const entry = topicQuestions(t01(demo)).find((candidate) => candidate.question.id === "t01.k1.q4");
+  assert.ok(entry);
+  assert.equal(await currentRecord({ ...t01(demo), verified: verified as Topic["verified"] }, { ...entry, pool: "review" }, demo.course.runtime, "question-runtime-v1"), undefined);
+});
+
 /** 运行命令行，返回退出码和输出。 */
 async function runCli(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const child = spawn(process.execPath, ["--import", "tsx", CLI, ...args], { stdio: ["ignore", "pipe", "pipe"] });
@@ -275,6 +368,21 @@ test("--log 指定的文件已经存在时，发请求之前就报错，文件�
   assert.match(lines[0]?.request ?? "", /## 作答位/);
 });
 
+test("命令行按 question-lesson-v1 重放：--dry-run 打印每道题带讲解的请求，--log 逐行记下题目、请求与系统说明，不写记录", async (t) => {
+  const root = await writeCourse(t, lessonDemo());
+  const before = (await topicFile(root)).text;
+  const log = path.join(root, "lesson.jsonl");
+  const dry = await runCli(["confirm", root, "--scope", "question-lesson-v1", "--concurrency", "4", "--dry-run", "--log", log]);
+  assert.equal(dry.code, 0, dry.stderr);
+  assert.match(dry.stdout, /\n----- t01\.k1\.q3\n你在独立解一道练习题[^]*\n\n## 讲解\n\n赋值先算右边/u);
+  const lines = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { question: string; status: string; system?: string; request?: string });
+  assert.equal(lines.length, 11);
+  assert.ok(lines.every((line) => line.status === "skipped" && line.request?.startsWith("## 讲解") && line.system?.includes("讲解")));
+  assert.equal((await topicFile(root)).text, before);
+  const wrong = await runCli(["confirm", root, "--scope", "lesson", "--dry-run"]);
+  assert.equal(wrong.code, 1);
+  assert.match(wrong.stderr, /--scope 要是 question-runtime-v1 或 question-lesson-v1/u);
+});
 
 test("已有当前核对范围的证明时，CLI 跳过请求并成功退出", async (t) => {
   const root = await writeCourse(t, manualDemo());

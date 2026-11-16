@@ -275,6 +275,13 @@ export function referenceResponse(question: Question, item: Item): ItemResponse 
   return { item: { id: item.id, version: item.version }, answers };
 }
 
+/** topic 去掉 verified 段：核对记录是对题目的证明，不是学习者看到的内容，给一个 topic 补写记录不算改了它。 */
+export function topicContent(topic: Topic): Topic {
+  const copy = { ...topic };
+  delete copy.verified;
+  return copy;
+}
+
 export type Pool = "example" | "practice" | "review" | "quiz";
 
 export interface QuestionEntry {

@@ -1,25 +1,37 @@
 /**
- * manual 作答位的模型核对：程序算不出答案的作答位（列在 manual 里），用一次隔离的模型调用独立再解。
- * 只把题目的公开部分交给模型，不给答案、解析和课程里的其他内容；模型按作答位的格式作答，
- * 再用作答位自己的判分规则与标准答案比对。全部一致时在 topic 文件的 verified 段记一条记录，
- * 不一致的列出来交给人看，不记录。
+ * 模型核对：用一次隔离的模型调用独立再解一道题。只把学习者看得到的部分交给模型，不给答案、解析、核对程序和别的题；
+ * 模型按作答位的格式作答，再用作答位自己的判分规则与标准答案比对。全部一致时在 topic 文件的 verified 段记一条记录，
+ * 不一致的列出来交回，不记录。核对范围有两种，记录里的 scope 写明是哪一种证明：
+ * - question-runtime-v1：随包课程，经命令行核对复习和测验题里列在 manual 的作答位，请求里只有题面；
+ * - question-lesson-v1：空间里自制的课，四个题池里全部由程序判分的作答位（代码题、按测试判的排列题和开放作答除外），
+ *   请求里还有题目所属知识点的讲解：自制的课考的是课件的说法，不给讲解，模型会按通行的说法作答。
  */
 
 import { readFile, rename, writeFile } from "node:fs/promises";
 
-import { checkResponse, contentVersion, type Answer, type Content, type Item, type Slot } from "@repa/base/protocol";
+import { checkResponse, contentVersion, errorText, type Answer, type Content, type Item, type Slot } from "@repa/base/protocol";
 import { Document, isMap, isSeq } from "yaml";
 
 import { checkSchema, parseYamlFile, Report, SourceFile, type Diagnostic } from "../format/diagnostics.js";
-import { loadCourse } from "../format/load.js";
-import { TopicSchema, type Confirmation, type Question, type Runtime, type SlotDef, type Topic } from "../format/schema.js";
+import { loadCourse, type LoadedTopic } from "../format/load.js";
+import { TopicSchema, type Confirmation, type ConfirmationScope, type Question, type Runtime, type SlotDef, type Topic } from "../format/schema.js";
 import { contentText, entryText } from "../model-text.js";
 import { gradeSlot } from "./grade.js";
-import { acceptedValues, inputCells, versionInput, publicItem, referenceAnswer, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
+import { acceptedValues, content, inputCells, versionInput, publicItem, referenceAnswer, scalarText, topicQuestions, type QuestionEntry } from "./items.js";
+import { slotNeedsVerification } from "./rules.js";
 
-/** 复习和测验题池里列了 manual 的题必须有模型核对记录；例题和练习不强制。 */
+/**
+ * 一道题要核对的作答位；不要核对时为空。question-runtime-v1 只看复习和测验题列在 manual 里的；
+ * question-lesson-v1 看四个题池里全部由程序判分的作答位，数值的（有 verify）也在内：程序算的正是写题者的读法，看不出题面的毛病。
+ */
+export function confirmationSlots(entry: QuestionEntry, scope: ConfirmationScope): string[] {
+  if (scope === "question-lesson-v1") return entry.question.slots.filter(slotNeedsVerification).map((slot) => slot.id);
+  return entry.pool === "review" || entry.pool === "quiz" ? entry.question.manual ?? [] : [];
+}
+
+/** 复习和测验题池里列了 manual 的题必须有 question-runtime-v1 的记录；例题和练习不强制。 */
 export function needsConfirmation(entry: QuestionEntry): boolean {
-  return (entry.pool === "review" || entry.pool === "quiz") && (entry.question.manual?.length ?? 0) > 0;
+  return confirmationSlots(entry, "question-runtime-v1").length > 0;
 }
 
 /** f374d34e2 的旧证明只在这份课程运行基线下复用；不能从当前清单推定旧环境。 */
@@ -46,6 +58,31 @@ export async function currentConfirmation(topic: Topic, question: Question, runt
     && manual.every((slot) => record.slots.includes(slot)));
 }
 
+/**
+ * question-lesson-v1 的核对哈希：请求里给模型看的全部（题面、数据、作答位、所属知识点的讲解）加上判分定义。
+ * 解析不在请求里、也不影响判分，不计入，改解析不必重新核对。runtime 也不计入：请求里没有它，这几种作答位判分也不运行 Python。
+ */
+export async function lessonVersion(entry: QuestionEntry, topic: Topic): Promise<string> {
+  const { question, data } = versionInput(entry.question, topic);
+  delete question.explanation;
+  return contentVersion({ question, data, lesson: entry.kp.lesson ?? null });
+}
+
+/** 这道题的核对哈希，按范围算。 */
+export function scopedVersion(entry: QuestionEntry, topic: Topic, runtime: Runtime | undefined, scope: ConfirmationScope): Promise<string> {
+  return scope === "question-lesson-v1" ? lessonVersion(entry, topic) : confirmationVersion(entry.question, topic, runtime);
+}
+
+/** 这道题在给定范围下的当前记录：范围、哈希都对得上，并覆盖要核对的全部作答位。 */
+export async function currentRecord(topic: Topic, entry: QuestionEntry, runtime: Runtime | undefined, scope: ConfirmationScope): Promise<Confirmation | undefined> {
+  if (scope === "question-runtime-v1") return currentConfirmation(topic, entry.question, runtime);
+  const version = await lessonVersion(entry, topic);
+  const slots = confirmationSlots(entry, scope);
+  return (topic.verified ?? []).find((record) =>
+    record.question === entry.question.id && record.scope === scope && record.version === version
+    && slots.every((slot) => record.slots.includes(slot)));
+}
+
 export interface ModelRequest {
   system: string;
   prompt: string;
@@ -58,6 +95,10 @@ export interface ConfirmOptions {
   model: string;
   /** 这次最多发多少次请求（含格式不对时的重试）。 */
   maxRequests: number;
+  /** 核对范围，缺省 question-runtime-v1。 */
+  scope?: ConfirmationScope;
+  /** 同时最多有几道题在等模型的回答，缺省 1。请求之间互不相干，可以并发。 */
+  concurrency?: number;
   topics?: string[];
   /** 已有当前版本的记录也重新核对。 */
   force?: boolean;
@@ -69,6 +110,8 @@ export interface ConfirmOptions {
   onRequest?: (question: string, request: ModelRequest) => void;
   /** 一道题的结果定下来时调用，request 是这道题发给模型的请求（没有生成请求时为空）。 */
   onOutcome?: (outcome: ConfirmOutcome, request: ModelRequest | undefined) => void | Promise<void>;
+  /** 一个 topic 的题都有了结果后，把这次新得到的记录写回；缺省并进课程目录里的 topic 文件（writeConfirmations）。 */
+  save?: (topic: LoadedTopic, records: Confirmation[]) => Promise<void>;
 }
 
 export interface SlotDifference {
@@ -80,17 +123,23 @@ export interface SlotDifference {
 export interface ConfirmOutcome {
   topic: string;
   question: string;
-  /** 当前 question-runtime-v1 范围的核对哈希，与学习证据引用的题目版本分开。 */
+  /** 这次核对范围下的核对哈希，与学习证据引用的题目版本分开。 */
   version: string;
   slots: string[];
-  /** confirmed：全部一致并已记录；disagreed：有不一致，交给人看；unusable：模型的输出不合格式；skipped：没有发请求。 */
-  status: "confirmed" | "disagreed" | "unusable" | "skipped";
+  /**
+   * confirmed：全部一致并已记录；disagreed：有不一致；unusable：模型两次的输出都不合格式；
+   * failed：请求没有得到回答（网络、额度、取消），detail 是原因；current：已有当前记录，没有发请求；
+   * skipped：没有发请求，detail 写明原因（只生成请求、已到请求上限）。
+   */
+  status: "confirmed" | "disagreed" | "unusable" | "failed" | "current" | "skipped";
   requests: number;
   /** 模型的原始回答，里面的选项 id 是发给模型的不透明编号。 */
   answers?: Record<string, unknown>;
   /** 编号对应的课程里的 id，见 Aliases。 */
   aliases?: Aliases;
   differences?: SlotDifference[];
+  /** 模型认为题目缺条件、有歧义或不止一个答案成立时的一句说明（只有 question-lesson-v1 的请求要它写）。 */
+  note?: string;
   detail?: string;
 }
 
@@ -225,33 +274,56 @@ const SYSTEM = [
   "只输出一个 JSON 对象，形如 {\"answers\": {\"作答位 id\": 答案}}，不要输出其他文字。",
 ].join("\n");
 
-/** 给模型的请求：题面和全部作答位作为上下文，只要求回答需要核对的作答位。item 里的 id 要已经换成不透明的编号。 */
-export function confirmationRequest(item: Item, slots: string[]): ModelRequest {
+/** 带讲解的请求（question-lesson-v1）：讲解是学习者做题前读过的；另要模型在题目本身有问题时说一句，交回给写题的一方作线索。 */
+const LESSON_SYSTEM = [
+  "你在独立解一道练习题，用来核对题目的标准答案是否正确。",
+  "前面附有这道题所属知识点的讲解，学习者做题前读过它。题目考的是讲解里的说法：讲解的定义、记号与通行说法不同时，以讲解为准。",
+  "只根据讲解和题面作答，题目里的约定（阈值、表格内容）以题面为准。选项和排列块用给出的编号（a、b、c……）作答，编号本身没有含义。",
+  "代码块左边如果有“行号 |”，行号不是代码的一部分，只用来说明“第几行”。",
+  "只输出一个 JSON 对象，形如 {\"answers\": {\"作答位 id\": 答案}}，不要输出其他文字。",
+  "题目缺条件、有歧义或不止一个答案成立时，照样按你认为最合理的读法作答，并加一个键 \"note\"，用一句话说明问题在哪里。",
+].join("\n");
+
+/**
+ * 给模型的请求：题面和全部作答位作为上下文，只要求回答需要核对的作答位。item 里的 id 要已经换成不透明的编号。
+ * 给了讲解时（question-lesson-v1）放在题目前面。
+ */
+export function confirmationRequest(item: Item, slots: string[], lesson?: Content): ModelRequest {
   const body = contentText(item.body);
-  const prompt = [
+  const question = [
     "## 题目",
     item.title ? `**${item.title}**\n\n${body}` : body,
     "## 作答位",
     ...item.slots.map(renderSlot),
     "## 要回答的作答位",
     `只回答这些作答位：${slots.join("、")}。`,
-  ].join("\n\n");
-  return { system: SYSTEM, prompt };
+  ];
+  if (lesson === undefined) return { system: SYSTEM, prompt: question.join("\n\n") };
+  return { system: LESSON_SYSTEM, prompt: ["## 讲解", contentText(lesson), ...question].join("\n\n") };
 }
 
 // ---------------------------------------------------------------------------
 // 把模型的输出读成作答
 // ---------------------------------------------------------------------------
 
-function modelAnswers(text: string): Record<string, unknown> | undefined {
+function modelOutput(text: string): Record<string, unknown> | undefined {
   try {
     const value: unknown = JSON.parse(text.trim().replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, ""));
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-    const answers = (value as Record<string, unknown>).answers;
-    return typeof answers === "object" && answers !== null && !Array.isArray(answers) ? answers as Record<string, unknown> : undefined;
+    return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
   } catch {
     return undefined;
   }
+}
+
+function modelAnswers(text: string): Record<string, unknown> | undefined {
+  const answers = modelOutput(text)?.answers;
+  return typeof answers === "object" && answers !== null && !Array.isArray(answers) ? answers as Record<string, unknown> : undefined;
+}
+
+/** 模型对题目本身的说明；没写或写成空串时为 undefined。 */
+function modelNote(text: string): string | undefined {
+  const note = modelOutput(text)?.note;
+  return typeof note === "string" && note.trim() !== "" ? note.trim() : undefined;
 }
 
 const asText = (value: unknown): string => (typeof value === "string" ? value : JSON.stringify(value));
@@ -383,12 +455,25 @@ function judge(question: Question, item: Item, slots: string[], text: string, al
  * 先写临时文件再改名，别的进程不会读到写了一半的文件。
  */
 export async function writeConfirmations(file: string, changed: Confirmation[]): Promise<void> {
-  const text = await readFile(file, "utf8");
+  const text = mergeConfirmations(await readFile(file, "utf8"), file, changed);
+  const temporary = `${file}.${process.pid}.tmp`;
+  await writeFile(temporary, text);
+  await rename(temporary, file);
+}
+
+/**
+ * topic 文件的全文并入新记录以后的全文：同一道题的记录换成新的，文件里已经没有的题的记录去掉，
+ * verified 段按题目 id 排在文件末尾，其余部分逐字不动。file 只用于报错。
+ */
+export function mergeConfirmations(text: string, file: string, changed: Confirmation[]): string {
   const report = new Report();
   const source = new SourceFile(file, file, text);
   const value = parseYamlFile(source, report);
   if (value === undefined || !checkSchema(TopicSchema, value, source, report)) throw new Error(`${file} 读不出，没有写入核对记录`);
-  const records = new Map(((value as Topic).verified ?? []).map((record) => [record.question, record]));
+  const topic = value as Topic;
+  // 已经删掉的题的记录顺手去掉：题反复改不过时 Agent 会删题，不必再去改 verified 段。
+  const questions = new Set(topicQuestions(topic).map((entry) => entry.question.id));
+  const records = new Map((topic.verified ?? []).filter((record) => questions.has(record.question)).map((record) => [record.question, record]));
   for (const record of changed) records.set(record.question, record);
 
   const lines = text.replace(/\n+$/, "").split("\n");
@@ -406,46 +491,74 @@ export async function writeConfirmations(file: string, changed: Confirmation[]):
   const list = document.get("verified");
   if (isSeq(list)) for (const record of list.items) if (isMap(record)) { const slots = record.get("slots", true); if (isSeq(slots)) slots.flow = true; }
   const block = sorted.length > 0 ? `\n${document.toString({ lineWidth: 0, flowCollectionPadding: false })}` : "\n";
-  const temporary = `${file}.${process.pid}.tmp`;
-  await writeFile(temporary, `${kept.join("\n")}\n${block}`);
-  await rename(temporary, file);
+  return `${kept.join("\n")}\n${block}`;
 }
 
-function today(): string {
-  const now = new Date();
+/** 记录里的日期：time（Unix 毫秒，缺省为现在）在本地时区的 YYYY-MM-DD。 */
+export function localDate(time = Date.now()): string {
+  const now = new Date(time);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** 对课程里需要模型核对的题逐个核对；一致的写进各自 topic 文件的 verified 段。 */
+/**
+ * 一道题发给模型的请求：学习者看到的题面（item，课程里的 id），换成不透明编号以后写成的请求，以及编号与课程 id 的对应。
+ * question-lesson-v1 的请求带上所属知识点的讲解。
+ */
+export async function questionRequest(
+  entry: QuestionEntry, topic: Topic, scope: ConfirmationScope,
+): Promise<{ item: Item; aliases: Aliases; request: ModelRequest }> {
+  const item = await publicItem(entry.question, topic);
+  const aliased = aliasItem(item);
+  const lesson = scope === "question-lesson-v1" ? content(entry.kp.lesson) : undefined;
+  return { item, aliases: aliased.aliases, request: confirmationRequest(aliased.item, confirmationSlots(entry, scope), lesson) };
+}
+
+/** 对每一项运行 work，同时最多 limit 项。 */
+async function eachLimited<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    for (let index = next++; index < items.length; index = next++) {
+      const item = items[index];
+      if (item !== undefined) await work(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(limit, 1), items.length) }, worker));
+}
+
+/**
+ * 对课程里需要模型核对的题逐个核对，已有当前记录的不再发请求。一个 topic 里的题并发核对（options.concurrency），
+ * 都有了结果再把一致的写回（options.save，缺省写进课程目录里的 topic 文件）。某道题的请求失败只记在它自己的结果里，
+ * 别的题照常核对和记录，整批不重试。
+ */
 export async function confirmCourse(root: string, options: ConfirmOptions): Promise<ConfirmResult> {
   const report = new Report();
   const loaded = await loadCourse(root, report, options.base);
   const outcomes: ConfirmOutcome[] = [];
   let requests = 0;
   if (!loaded) return { diagnostics: report.diagnostics, outcomes, requests };
-  const date = options.date ?? today();
-  const requested = new Map<ConfirmOutcome, ModelRequest>();
+  const date = options.date ?? localDate();
+  const scope = options.scope ?? "question-runtime-v1";
+  const runtime = loaded.course.runtime;
+  const save = options.save ?? ((topic: LoadedTopic, records: Confirmation[]) => writeConfirmations(topic.file.file, records));
 
-  /** 核对一道题。返回要写进 verified 的记录；没有一致的结果时返回 undefined。 */
-  const confirmQuestion = async (topic: Topic, entry: QuestionEntry, outcome: ConfirmOutcome, item: Item): Promise<Confirmation | undefined> => {
+  /** 核对一道题。返回要写进 verified 的记录（没有一致的结果时没有）和发给模型的请求（已有当前记录时没有）。 */
+  const confirmQuestion = async (topic: Topic, entry: QuestionEntry, outcome: ConfirmOutcome): Promise<{ record?: Confirmation; request?: ModelRequest }> => {
     const { question } = entry;
-    const slots = question.manual ?? [];
-    if (!options.force && await currentConfirmation(topic, question, loaded.course.runtime)) {
-      outcome.detail = "已有当前核对范围的证明";
-      return undefined;
+    const { slots } = outcome;
+    if (!options.force && await currentRecord(topic, entry, runtime, scope)) {
+      outcome.status = "current";
+      return {};
     }
-    const aliased = aliasItem(item);
-    outcome.aliases = aliased.aliases;
-    const request = confirmationRequest(aliased.item, slots);
+    const { item, aliases, request } = await questionRequest(entry, topic, scope);
+    outcome.aliases = aliases;
     options.onRequest?.(question.id, request);
-    requested.set(outcome, request);
     if (options.dryRun) {
       outcome.detail = "只生成了请求";
-      return undefined;
+      return { request };
     }
     let judgement: Judgement | undefined;
-    // 输出不合格式时重试一次；两次都不行就交给人看。
+    // 输出不合格式时重试一次；两次都不行就交回。
     for (let attempt = 0; attempt < 2 && (judgement === undefined || judgement.problems.length > 0); attempt++) {
       if (requests >= options.maxRequests) {
         outcome.detail = "已到这次的请求上限";
@@ -454,50 +567,61 @@ export async function confirmCourse(root: string, options: ConfirmOptions): Prom
       requests++;
       outcome.requests++;
       const prompt = attempt === 0 ? request.prompt : `${request.prompt}\n\n上一次的输出不符合要求，请只输出 {"answers": {...}} 形式的 JSON。`;
-      const text = await options.complete({ system: request.system, prompt });
-      judgement = judge(question, item, slots, text, aliased.aliases) ?? { answers: {}, differences: [], problems: ["输出不是要求的 JSON"] };
+      let text: string;
+      try {
+        text = await options.complete({ system: request.system, prompt });
+      } catch (error) {
+        outcome.status = "failed";
+        outcome.detail = errorText(error);
+        return { request };
+      }
+      judgement = judge(question, item, slots, text, aliases) ??{ answers: {}, differences: [], problems: ["输出不是要求的 JSON"] };
       outcome.answers = modelAnswers(text) ?? { 原始输出: text.slice(0, 2_000) };
+      const note = modelNote(text);
+      if (note === undefined) delete outcome.note;
+      else outcome.note = note;
     }
-    if (!judgement) return undefined;
+    // 没有 judgement：一次也没有发，已到请求上限。
+    if (!judgement) return { request };
     if (judgement.problems.length > 0) {
       outcome.status = "unusable";
       outcome.detail = judgement.problems.join("；");
-    } else if (judgement.differences.length > 0) {
+      return { request };
+    }
+    if (judgement.differences.length > 0) {
       outcome.status = "disagreed";
       outcome.differences = judgement.differences;
-    } else {
-      outcome.status = "confirmed";
-      return {
-        question: question.id,
-        version: await confirmationVersion(question, topic, loaded.course.runtime),
-        scope: "question-runtime-v1",
-        slots,
-        model: options.model,
-        date,
-      };
+      return { request };
     }
-    return undefined;
+    outcome.status = "confirmed";
+    return { record: { question: question.id, version: outcome.version, scope, slots, model: options.model, date }, request };
   };
 
-  for (const { topic, file } of loaded.topics) {
+  for (const loadedTopic of loaded.topics) {
+    const { topic } = loadedTopic;
     if (options.topics && !options.topics.includes(topic.id)) continue;
-    const changed: Confirmation[] = [];
-    for (const entry of topicQuestions(topic).filter(needsConfirmation)) {
-      const item = await publicItem(entry.question, topic);
+    const jobs: { entry: QuestionEntry; outcome: ConfirmOutcome }[] = [];
+    for (const entry of topicQuestions(topic)) {
+      const slots = confirmationSlots(entry, scope);
+      if (slots.length === 0) continue;
       const outcome: ConfirmOutcome = {
         topic: topic.id,
         question: entry.question.id,
-        version: await confirmationVersion(entry.question, topic, loaded.course.runtime),
-        slots: entry.question.manual ?? [],
+        version: await scopedVersion(entry, topic, runtime, scope),
+        slots,
         status: "skipped",
         requests: 0,
       };
       outcomes.push(outcome);
-      const record = await confirmQuestion(topic, entry, outcome, item);
-      if (record) changed.push(record);
-      await options.onOutcome?.(outcome, requested.get(outcome));
+      jobs.push({ entry, outcome });
     }
-    if (changed.length > 0 && !options.dryRun) await writeConfirmations(file.file, changed);
+    const changed: Confirmation[] = [];
+    await eachLimited(jobs, options.concurrency ?? 1, async ({ entry, outcome }) => {
+      const { record, request } = await confirmQuestion(topic, entry, outcome);
+      if (record) changed.push(record);
+      await options.onOutcome?.(outcome, request);
+    });
+    if (changed.length > 0) await save(loadedTopic, changed);
   }
   return { diagnostics: report.diagnostics, outcomes, requests };
 }

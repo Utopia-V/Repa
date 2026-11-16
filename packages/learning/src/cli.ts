@@ -12,6 +12,7 @@ import { checkCourse, type CheckResult } from "./check/course.js";
 import { parseModel, withModel } from "./check/model.js";
 import { formatDiagnostic } from "./format/diagnostics.js";
 import { COURSE_FILE } from "./format/load.js";
+import { CONFIRMATION_SCOPES, type ConfirmationScope } from "./format/schema.js";
 
 /** 本包的根目录，随包的课程在其下的 courses/。 */
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,17 +20,26 @@ const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const USAGE = `用法：
   repa-course recover-log <已关闭的空间目录> <新日志文件>
       保留原日志，将验证过的完整前缀写入新的文件。
-  repa-course check [课程目录…] [--no-run] [--topic id …] [--packages 目录] [--json]
+  repa-course check [课程目录…] [--no-run] [--topic id …] [--packages 目录] [--scope 范围] [--json]
       检查课程文件；缺省检查 courses/ 下全部课程。--no-run 只做结构检查，不运行代码；
       --topic 只对给出的 topic 运行代码核对（可以写多次），结构仍检查整门课。
+      --scope 是要求哪种模型核对记录：question-runtime-v1（缺省，随包课程）或 question-lesson-v1（应用里自制的课）。
   repa-course runtime [--from 目录] [--packages 目录]
       准备 Repa 的 Python 环境带的离线 Pyodide 包，放进 @repa/python-runner 的缓存目录；--from 从已有目录复制，
       不给时从 jsDelivr 下载。都会按 lockfile 核对 SHA-256。
-  repa-course confirm [课程目录…] [--topic id …] [--max-requests 50] [--model deepseek/deepseek-flash]
-                      [--agent-dir 应用配置目录/agent] [--force] [--dry-run] [--log 文件]
-      复习和测验题里的 manual 作答位，用一次隔离的模型调用独立再解，与标准答案一致时写进 topic 的 verified 段。
-      会产生真实的模型费用；--dry-run 只打印要发的请求。
+  repa-course confirm [课程目录…] [--topic id …] [--scope 范围] [--max-requests 50] [--concurrency 1]
+                      [--model deepseek/deepseek-flash] [--agent-dir 应用配置目录/agent] [--force] [--dry-run] [--log 文件]
+      用一次隔离的模型调用独立再解题目，与标准答案一致时写进 topic 的 verified 段。--scope question-runtime-v1（缺省）
+      核对复习和测验题里的 manual 作答位，请求只有题面；question-lesson-v1 与应用里的 course_confirm 相同，
+      核对四个题池里全部由程序判分的作答位，请求带上所属知识点的讲解。
+      会产生真实的模型费用；--dry-run 只打印要发的请求，--log 把每道题的请求与结果逐行写成 JSON。
 `;
+
+function scopeOption(value: string | undefined): ConfirmationScope {
+  const scope = value ?? "question-runtime-v1";
+  if (!(CONFIRMATION_SCOPES as readonly string[]).includes(scope)) throw new Error(`--scope 要是 ${CONFIRMATION_SCOPES.join(" 或 ")}`);
+  return scope as ConfirmationScope;
+}
 
 async function defaultCourses(): Promise<string[]> {
   const root = path.join(PACKAGE_ROOT, "courses");
@@ -68,8 +78,10 @@ function printResult(result: CheckResult): void {
   } else {
     process.stdout.write("代码核对：没有运行。\n");
   }
-  if (summary.confirmationSlots.length > 0) {
-    process.stdout.write(`复习和测验题池里由模型核对的作答位 ${summary.confirmationSlots.length} 个：${summary.confirmationSlots.join("、")}\n`);
+  const { confirmations } = summary;
+  if (confirmations.questions > 0) {
+    const missing = confirmations.missing.map((entry) => entry.question);
+    process.stdout.write(`要模型核对的题（${confirmations.scope}）${confirmations.questions} 道，缺当前记录 ${missing.length} 道${missing.length > 0 ? `：${missing.join("、")}` : ""}\n`);
   }
   process.stdout.write(errors === 0 ? "检查通过。\n" : `发现 ${errors} 个错误。\n`);
 }
@@ -77,8 +89,11 @@ function printResult(result: CheckResult): void {
 async function check(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args, allowPositionals: true,
-    options: { "no-run": { type: "boolean" }, topic: { type: "string", multiple: true }, packages: { type: "string" }, json: { type: "boolean" } },
+    options: {
+      "no-run": { type: "boolean" }, topic: { type: "string", multiple: true }, packages: { type: "string" }, scope: { type: "string" }, json: { type: "boolean" },
+    },
   });
+  const scope = scopeOption(values.scope);
   const courses = positionals.length > 0 ? positionals.map((item) => path.resolve(item)) : await defaultCourses();
   if (courses.length === 0) {
     process.stdout.write("没有找到课程：课程目录里要有 course.yaml。\n");
@@ -89,6 +104,7 @@ async function check(args: string[]): Promise<number> {
   for (const course of courses) {
     const result = await checkCourse(course, {
       run: !values["no-run"],
+      scope,
       ...(values.topic ? { topics: values.topic } : {}),
       ...(values.packages ? { packagesDirectory: path.resolve(values.packages) } : {}),
     });
@@ -112,11 +128,15 @@ async function runtime(args: string[]): Promise<number> {
 }
 
 function describeOutcome(outcome: ConfirmOutcome): string {
-  const label = { confirmed: "一致，已记录", disagreed: "不一致，交给人看", unusable: "输出不合格式，交给人看", skipped: "没有发请求" }[outcome.status];
+  const label = {
+    confirmed: "一致，已记录", disagreed: "不一致，交给人看", unusable: "输出不合格式，交给人看", failed: "请求失败",
+    current: "已有当前核对范围的证明", skipped: "没有发请求",
+  }[outcome.status];
   const lines = [`${outcome.question}（${outcome.slots.join("、")}）：${label}${outcome.detail ? `，${outcome.detail}` : ""}`];
   for (const difference of outcome.differences ?? []) {
     lines.push(`  ${difference.slot}：模型答 ${JSON.stringify(difference.model)}，标准答案 ${JSON.stringify(difference.key)}`);
   }
+  if (outcome.note) lines.push(`  模型的说明：${outcome.note}`);
   return lines.join("\n");
 }
 
@@ -135,7 +155,9 @@ async function confirm(args: string[]): Promise<number> {
     args, allowPositionals: true,
     options: {
       topic: { type: "string", multiple: true },
+      scope: { type: "string" },
       "max-requests": { type: "string", default: "50" },
+      concurrency: { type: "string", default: "1" },
       model: { type: "string", default: "deepseek/deepseek-flash" },
       "agent-dir": { type: "string", default: path.join(resolveAppHome(), "agent") },
       force: { type: "boolean" },
@@ -145,22 +167,29 @@ async function confirm(args: string[]): Promise<number> {
   });
   const maxRequests = Number(values["max-requests"]);
   if (!Number.isInteger(maxRequests) || maxRequests < 1 || maxRequests > 200) throw new Error("--max-requests 要是 1 到 200 的整数");
+  const concurrency = Number(values.concurrency);
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new Error("--concurrency 要是 1 到 16 的整数");
+  const scope = scopeOption(values.scope);
   const model = parseModel(values.model);
   const courses = positionals.length > 0 ? positionals.map((item) => path.resolve(item)) : await defaultCourses();
   const log = values.log ? await openLog(values.log) : undefined;
   try {
     const requestsSent: { question: string; system: string; prompt: string }[] = [];
+    // 并发核对时几道题可能同时有结果，日志一行一行依次写，不交错。
+    let logging: Promise<void> = Promise.resolve();
     const run = async (complete: Parameters<typeof confirmCourse>[1]["complete"]) => {
       const results = [];
       let remaining = maxRequests;
       for (const course of courses) {
         const result = await confirmCourse(course, {
-          complete, model: values.model, maxRequests: remaining,
+          complete, model: values.model, maxRequests: remaining, scope, concurrency,
           ...(values.topic ? { topics: values.topic } : {}), ...(values.force ? { force: true } : {}), ...(values["dry-run"] ? { dryRun: true } : {}),
           onRequest: (question, request) => requestsSent.push({ question, ...request }),
           // 每道题一有结果就写进日志，中途出错也不会丢掉已经花了钱的那些。
-          onOutcome: async (outcome, request) => {
-            await log?.appendFile(`${JSON.stringify({ ...outcome, model: values.model, request: request?.prompt })}\n`);
+          onOutcome: (outcome, request) => {
+            const line = `${JSON.stringify({ ...outcome, course, model: values.model, system: request?.system, request: request?.prompt })}\n`;
+            logging = logging.then(() => log?.appendFile(line));
+            return logging;
           },
         });
         remaining -= result.requests;
@@ -178,7 +207,7 @@ async function confirm(args: string[]): Promise<number> {
       if (result.diagnostics.length > 0) failed = true;
       for (const item of result.outcomes) {
         process.stdout.write(`${describeOutcome(item)}\n`);
-        if (item.status === "disagreed" || item.status === "unusable" || (item.status === "skipped" && !dryRun && item.detail !== "已有当前核对范围的证明")) failed = true;
+        if (item.status === "disagreed" || item.status === "unusable" || item.status === "failed" || (item.status === "skipped" && !dryRun)) failed = true;
       }
     }
     if (dryRun) for (const request of requestsSent) process.stdout.write(`\n----- ${request.question}\n${request.system}\n\n${request.prompt}\n`);
