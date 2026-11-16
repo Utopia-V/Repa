@@ -188,7 +188,7 @@ it("MCP 工具调用的授权写明服务器和工具，下面是参数", async 
 
   act(() => fake.emit("confirm.request", { id: "c1", request: { kind: "mcp", title: "", mcp: { server: "notes", tool: "search", input: { query: "导数" } } } }));
   // 界面文字还是占位，标题由占位与两个参数拼成。
-  const dialog = await screen.findByRole("dialog", { name: "〔待写〕notessearch" });
+  const dialog = await screen.findByRole("dialog", { name: "允许调用 notes 的 search？" });
   expect(within(dialog).getByText(/"query": "导数"/u)).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "拒绝" }));
 

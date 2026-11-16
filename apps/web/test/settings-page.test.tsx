@@ -472,20 +472,19 @@ it("MCP 服务器列出状态与失败原因，开关调用前询问，删除前
   await renderSettings(fake);
   const servers = mcpSection();
   expect(await servers.findByText("local")).toBeTruthy();
-  // 界面文字还是占位：已连接的状态带工具数，失败的带后端给的原因。
-  expect(servers.getByText("〔待写〕2")).toBeTruthy();
+  // 已连接的状态带工具数，失败的带后端给的原因。
+  expect(servers.getByText("已连接，2 个工具")).toBeTruthy();
   expect(servers.getByText("找不到命令 uvx")).toBeTruthy();
 
-  // 每张卡片两个开关：启用、调用前询问。占位文字相同，按次序取第二个。
-  const [, ask] = servers.getAllByRole("switch", { name: "〔待写〕local" });
-  fireEvent.click(ask!);
+  const ask = servers.getByRole("switch", { name: "调用 local 的工具前询问" });
+  fireEvent.click(ask);
   await vi.waitFor(() => expect(fake.call).toHaveBeenCalledWith("mcp.set", { name: "local", ask: false }));
-  await vi.waitFor(() => expect(servers.getAllByRole("switch", { name: "〔待写〕local" })[1]!.getAttribute("aria-checked")).toBe("false"));
+  await vi.waitFor(() => expect(servers.getByRole("switch", { name: "调用 local 的工具前询问" }).getAttribute("aria-checked")).toBe("false"));
 
-  fireEvent.click(servers.getByRole("button", { name: "〔待写〕broken" }));
-  const confirm = await screen.findByRole("dialog", { name: "〔待写〕broken" });
+  fireEvent.click(servers.getByRole("button", { name: "移除 broken" }));
+  const confirm = await screen.findByRole("dialog", { name: "移除 broken？" });
   expect(fake.call).not.toHaveBeenCalledWith("mcp.remove", expect.anything());
-  fireEvent.click(within(confirm).getByRole("button", { name: "〔待写〕" }));
+  fireEvent.click(within(confirm).getByRole("button", { name: "移除" }));
   await vi.waitFor(() => expect(servers.queryByText("broken")).toBeNull());
   expect(fake.call).toHaveBeenCalledWith("mcp.remove", { name: "broken" });
 
@@ -498,16 +497,16 @@ it("添加 MCP 服务器时格式不对显示原因并保留输入，正确时�
   await renderSettings(fake);
   const servers = mcpSection();
   await servers.findByText("local");
-  fireEvent.click(servers.getByRole("button", { name: "〔待写〕" }));
+  fireEvent.click(servers.getByRole("button", { name: "添加服务器" }));
   const dialog = await screen.findByRole("dialog");
   const field = within(dialog).getByRole("textbox");
   fireEvent.change(field, { target: { value: "{}" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "〔待写〕" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "添加" }));
   expect(await within(dialog).findByText("粘贴的内容里没有服务器")).toBeTruthy();
   expect((field as HTMLTextAreaElement).value).toBe("{}");
   const config = '"fetch": { "command": "uvx", "args": ["mcp-server-fetch"] }';
   fireEvent.change(field, { target: { value: config } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "〔待写〕" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "添加" }));
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(fake.call).toHaveBeenCalledWith("mcp.add", { config });
   expect(await servers.findByText("fetch")).toBeTruthy();
