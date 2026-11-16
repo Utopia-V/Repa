@@ -1,5 +1,6 @@
 /**
- * 给通用 Agent 做课用的两项工具：course_check 检查空间里的 course/，course_use 检查通过后让学习换用它。
+ * 给通用 Agent 做课用的三项工具：course_check 检查空间里的 course/，course_use 检查通过后让学习换用它，
+ * course_brief 写出要展开的部分的轮廓和学习者在它们之前学到的概念（后台展开的任务里也是这一段）。
  * 写课的说明随包附带，插件的提示说明指过去；工具输出写成分行文字，做课的 Agent 照着改课。
  */
 
@@ -24,6 +25,9 @@ const CheckParametersSchema = object({
   offset: Type.Optional(Type.Integer({ minimum: 0, description: "从第几处问题开始列，默认 0；上一页的末尾会写明下一页的 offset" })),
 });
 const UseParametersSchema = object({});
+const BriefParametersSchema = object({
+  topicIds: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { minItems: 1, maxItems: 8, description: "要展开的 topic id，按要写的先后" }),
+});
 
 /** 插件给工具的入口：读 course/、检查、换用，以及学习者现在学的是哪一份。 */
 export interface CourseActions {
@@ -33,6 +37,8 @@ export interface CourseActions {
   use(): Promise<{ checked: CourseCheck; outcome: "unchanged" | "busy" | "switched" } | undefined>;
   /** 学习者现在学的是哪一份、学过哪些部分、后台是否正在展开，一句话。 */
   status(): Promise<string>;
+  /** 这几部分的轮廓和学习者在它们之前学到的概念，按学习者现在学的那一份算。 */
+  brief(topicIds: string[]): Promise<string>;
 }
 
 const NO_COURSE = `空间里没有 ${SPACE_COURSE}/ 文件夹。做课的格式与顺序见 ${COURSE_GUIDE}。`;
@@ -76,7 +82,7 @@ export function checkText(checked: CourseCheck, offset = 0): string {
   return lines.join("\n");
 }
 
-/** 做课的两项工具，只给通用 Agent：学习辅导 Agent 的工具清单里没有它们。 */
+/** 做课的三项工具，只给通用 Agent：学习辅导 Agent 的工具清单里没有它们。 */
 export function courseTools(actions: CourseActions): Tool[] {
   return [
     {
@@ -110,6 +116,16 @@ export function courseTools(actions: CourseActions): Tool[] {
             + "等他做完再运行 course_use；只展开轮廓、增加部分而不改展开过的部分时，可以立即换用。",
         }[outcome];
         return { text: `${head}\n${checkText(checked)}\n\n学习者现在学的：${await actions.status()}` };
+      },
+    },
+    {
+      name: "course_brief",
+      description: "写出要展开的几部分的轮廓（范围、出处、直接先修）和学习者在它们之前学到的概念，按学习者现在学的这一版课算。"
+        + "前面已有展开过的部分时，展开之前先用它，讲解里就知道哪些术语可以直接用、哪些要先说清。",
+      parameters: BriefParametersSchema,
+      async execute(raw) {
+        const { topicIds } = parse(BriefParametersSchema, raw);
+        return { text: await actions.brief(topicIds) };
       },
     },
   ];

@@ -97,6 +97,18 @@ export function formatDiagnostic(diagnostic: Diagnostic): string {
   return `${where}${level} [${diagnostic.code}] ${diagnostic.message}`;
 }
 
+/**
+ * 解析器的原文是英文术语，写课的模型常要试几次才改对。真实做课里的语法错误集中在两种，各补一句怎样改；
+ * 认不出的原样交出。
+ */
+function yamlHint(message: string): string {
+  if (/must start at the same column/.test(message)) return "。同一层的字段要从同一列开始：这一行的缩进与它上面的同层字段不一致";
+  if (/^Unexpected (scalar|flow-map-start|flow-seq-start|double-quoted-scalar|single-quoted-scalar)/.test(message)) {
+    return "。花括号写法（{ id: a, content: … }）里的文字含有引号、逗号、冒号、花括号或方括号时，要把整段文字用引号括起来，或改成分行写法";
+  }
+  return "";
+}
+
 /** 读取并解析 YAML；语法问题、锚点与别名都记为错误。返回 undefined 表示文件不能继续使用。 */
 export function parseYamlFile(file: SourceFile, report: Report): unknown {
   // 语法错误之后的问题多半是连带出来的，只报前几个。
@@ -105,7 +117,7 @@ export function parseYamlFile(file: SourceFile, report: Report): unknown {
     report.diagnostics.push({
       severity: "error",
       code: "yaml_syntax",
-      message: `YAML 写法有误：${(problem.message.split("\n")[0] ?? "").replace(/ at line \d+, column \d+:?$/, "")}`,
+      message: `YAML 写法有误：${(problem.message.split("\n")[0] ?? "").replace(/ at line \d+, column \d+:?$/, "")}${yamlHint(problem.message)}`,
       file: file.display,
       ...(position ? { line: position.line, column: position.col } : {}),
     });
@@ -258,7 +270,11 @@ function explain(error: TLocalizedValidationError, schema: TSchema, root: unknow
     case "enum":
       return `应为 ${(params.allowedValues as unknown[]).map((item) => JSON.stringify(item)).join("、")} 之一`;
     case "anyOf":
-      return error.message && !/^must match/.test(error.message) ? error.message : "不符合任何一种写法";
+      if (error.message && !/^must match/.test(error.message)) return error.message;
+      // 真实做课里这一条几乎都出在同一处：选项或题面的内容写成了不带引号的数（content: 0.83），YAML 读成数而不是文字。
+      return typeof value === "number" || typeof value === "boolean"
+        ? `这里要写文字，实际是${describe(value)}；YAML 把不带引号的数和 true、false 读成数或布尔值，请加引号，例如 "${String(value)}"`
+        : "不符合任何一种写法";
     case "minItems":
       return `至少需要 ${String(params.limit)} 项`;
     case "maxItems":

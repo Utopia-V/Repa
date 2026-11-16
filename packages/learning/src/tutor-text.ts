@@ -321,8 +321,13 @@ export function pagedText(text: string, line: number, tool: string): string {
   return `${shown}\n${note}`;
 }
 
-/** 视图：当前任务、阶段、知识点进度和学过的直接先修（按学生模型估计的记忆由弱到强）。 */
-export function viewText(task: LearningTask | null, course: CourseIndex, kp: KpProgress | undefined, prerequisites: string[]): string {
+/**
+ * 视图：当前任务、阶段、知识点进度和学过的直接先修（按学生模型估计的记忆由弱到强）。concepts 时每个先修再写出它各知识点的概念名与编号，
+ * 辅导提到时不必先搜索就能顺带讲一句、写成概念链接；不能看参考内容时（作答期间）只写名称，与 learning_search 的授权一致。
+ */
+export function viewText(
+  task: LearningTask | null, course: CourseIndex, kp: KpProgress | undefined, prerequisites: string[], concepts: boolean,
+): string {
   if (!task) return "学习者还没有开始任何任务。";
   const phase = task.phase;
   const stage = phase.stage === "completed" ? `已经结束：${OUTCOMES[phase.outcome]}` : STAGES[phase.stage];
@@ -330,8 +335,14 @@ export function viewText(task: LearningTask | null, course: CourseIndex, kp: KpP
   if (kp) {
     lines.push(`知识点「${kp.title}」：已答 ${kp.attempts} 题，连续答对 ${kp.consecutiveCorrect} 题${kp.completed ? "，已通过" : ""}`);
   }
-  if (prerequisites.length) {
+  if (prerequisites.length && !concepts) {
     lines.push(`学过的直接先修，学生模型估计的记忆由弱到强：${prerequisites.map((id) => `「${topicTitle(course, id)}」`).join("")}`);
+  } else if (prerequisites.length) {
+    lines.push("学过的直接先修，学生模型估计的记忆由弱到强，各自的概念（括号里是知识点编号）：");
+    for (const id of prerequisites) {
+      const kps = course.topics.get(id)?.kps ?? [];
+      lines.push(`- 「${topicTitle(course, id)}」：${kps.map((entry) => `${entry.card?.name ?? entry.title}（${entry.id}）`).join("、")}`);
+    }
   }
   return lines.join("\n");
 }

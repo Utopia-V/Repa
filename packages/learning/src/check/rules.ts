@@ -256,6 +256,12 @@ class TopicChecker {
     });
     if (new Set(dataframes).size !== dataframes.length) this.error("fixture_conflict", "同一道题的两份小表用了同一个变量名", [...at, "data"]);
     this.checkContentInput(question.body, [...at, "body"]);
+    // 题目会被单独抽出来练习、复习和测验。题面靠上一道题才看得懂时，学习者手里就缺了条件；真实做课里见过“接上题，J2 的带权周转时间是多少？”。
+    const body = toContent(question.body).content.flatMap((block) => block.type === "markdown" ? [block.text] : []).join("\n");
+    const leaning = /接上题|续上题|承上题|同上题|上一题|上题|前一题/.exec(body);
+    if (leaning) {
+      this.error("question_not_self_contained", `题面里的“${leaning[0]}”指向别的题：每道题会被单独抽出来，题面里要写全解题所需的条件`, [...at, "body"]);
+    }
     this.checkContentInput(question.explanation, [...at, "explanation"]);
     if (toContent(question.explanation).content.length === 0) this.error("explanation_missing", `题目 ${question.id} 缺少解析 explanation`, [...at, "explanation"]);
     const slotIds = new Set<string>();

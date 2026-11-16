@@ -26,6 +26,15 @@ export function errorStatus(message: string | undefined): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+/**
+ * 后端关闭时正在进行的模型请求被取消，Pi 把这条回答记成 error，原文是运行时取消请求的固定消息。
+ * 它不是故障：对外按 aborted 交出，界面显示“已停止”，不显示一条英文的出错信息。
+ */
+const REQUEST_ABORTED = "This operation was aborted";
+function stopReasonOf(message: { stopReason: string; errorMessage?: string }): string {
+  return message.stopReason === "error" && message.errorMessage === REQUEST_ABORTED ? "aborted" : message.stopReason;
+}
+
 /** 带上状态码的错误数据；认不出状态码时不加。 */
 function statusData(message: string | undefined): { errorStatus?: number } {
   const status = errorStatus(message);
@@ -65,9 +74,8 @@ export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
         text: textContent(message.content),
         usage: usageOf(message.usage),
         data: {
-          stopReason: message.stopReason,
-          errorMessage: message.errorMessage,
-          ...statusData(message.errorMessage),
+          stopReason: stopReasonOf(message),
+          ...(stopReasonOf(message) === "error" ? { errorMessage: message.errorMessage, ...statusData(message.errorMessage) } : {}),
           provider: message.provider,
           model: message.responseModel ?? message.model,
           calls: message.content.filter(block => block.type === "toolCall").map(call => ({ id: call.id, name: call.name, input: call.arguments })),
@@ -127,7 +135,7 @@ export function convertEvent(sessionId: string, event: AgentSessionEvent, runId?
         ...base,
         type: "message",
         text: textContent(message.content),
-        data: { role: "assistant", stopReason: message.stopReason },
+        data: { role: "assistant", stopReason: stopReasonOf(message) },
       },
       {
         ...base,
@@ -136,7 +144,7 @@ export function convertEvent(sessionId: string, event: AgentSessionEvent, runId?
         data: { provider: message.provider, model: message.responseModel ?? message.model },
       },
     ];
-    if (message.stopReason === "error") {
+    if (stopReasonOf(message) === "error") {
       const status = statusData(message.errorMessage);
       result.push({ ...base, type: "error", text: message.errorMessage ?? "模型请求失败", ...(status.errorStatus === undefined ? {} : { data: status }) });
     }

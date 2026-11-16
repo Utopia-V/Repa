@@ -770,3 +770,78 @@ test("应用在展开中途关闭：这次展开记为取消，重开以后不�
   assert.equal(shown.lastFailure?.code, "cancelled");
   assert.deepEqual(shown.parts.map((part) => part.status), ["ready", "outline", "outline"]);
 });
+
+/** 模型这一次请求里收到的、含有 marker 的用户消息文字。 */
+function userText(context: TranscriptContext, marker: string): string {
+  for (const message of context.messages) {
+    if (message.role !== "user") continue;
+    const text = typeof message.content === "string" ? message.content : message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+    if (text.includes(marker)) return text;
+  }
+  assert.fail(`没有含「${marker}」的用户消息`);
+}
+
+test("展开后面的一节：任务里给出它的轮廓与出处，直接先修讲过的概念带定义，更早的只有概念名，没展开的先修如实标明，后面还没讲到的部分列出名称；对话里的 course_brief 给的是同一段", async (t) => {
+  const f = await fixture(t);
+  await f.call("settings.set", { autoExpand: false });
+  // os01、os02 已展开，os03 是轮廓，直接先修是展开了的 os02 和还是轮廓的 os04；os01 是 os02 的先修，离 os03 两步。
+  const { id: chatId } = await f.client.call("session.create", {});
+  let used = "";
+  await f.chat(chatId, "把 materials 里的课件做成课", [
+    fauxAssistantMessage([
+      write("course/course.yaml", manifest("1.0.0", ["os01", "os02", "os03", "os04", "os05"])),
+      write("course/topics/os01.yaml", await complete("os01", "进程状态", [], "第 1–4 张")),
+      write("course/topics/os02.yaml", (await complete("os02", "进程控制块", ["os01"], "第 5–9 张")).replace("name: 进程三态", "name: 控制块")),
+      write("course/topics/os03.yaml", outline("os03", "进程调度", ["os02", "os04"], "第 10–14 张")),
+      write("course/topics/os04.yaml", outline("os04", "线程", [], "第 15–18 张")),
+      write("course/topics/os05.yaml", outline("os05", "死锁", ["os03"], "第 19–22 张")),
+    ]),
+    fauxAssistantMessage([fauxToolCall("course_use", {})]),
+    (context) => {
+      used = lastToolResult(context);
+      return fauxAssistantMessage("前两节可以学了。");
+    },
+  ]);
+  assert.match(used, /^已换用/u);
+
+  let task = "";
+  f.faux.appendResponses([(context) => {
+    task = userText(context, "在后台展开");
+    return fauxAssistantMessage("先不做。");
+  }]);
+  await f.call("building.expand", { topicIds: ["os03"] });
+  await f.until((state) => state.expansion === null);
+  const brief = task.slice(task.indexOf("## 要展开的部分"));
+  assert.equal(brief, [
+    "## 要展开的部分",
+    "",
+    "os03「进程调度」\n范围：进程调度的范围。\n出处：「第二章课件」（materials/第二章.md）第 10–14 张\n直接先修：os02「进程控制块」、os04「线程」\n出轮廓时、细读出处之前估计的知识点（细读以后按出处实际讲的增删）：os03.k1 进程调度一；os03.k2 进程调度二",
+    "",
+    "## 学习者在这之前学到的概念",
+    "",
+    "下面的概念学习者已经学过，或者在这几部分之前会学到：讲解里可以直接用，提到时可以写成 repa:concept/<知识点编号> 链接。不在下面的术语，第一次出现时先用一句话说清，或者不用。",
+    "",
+    "直接先修 os02「进程控制块」：\n- os02.k1 控制块：进程在运行中只处于就绪、运行、阻塞三种基本状态之一。\n- os02.k2 状态转换：阻塞的进程等到事件后先回到就绪，再经调度进入运行。",
+    "",
+    "更早的部分，只列概念名：\n- os01「进程状态」：进程三态、状态转换",
+    "",
+    "还没有展开的直接先修：os04「线程」。它们讲什么还没有写定，学习者也还没有学过。",
+    "",
+    "## 还没有讲到的部分",
+    "",
+    "属于下面这些部分的术语学习者还没学过：第一次出现时用几句话说清它是什么，可以注明后面哪一部分细讲，写成“术语（一句话说明它是什么，后面讲它的那一部分细讲）”这样。",
+    "",
+    "os05「死锁」。",
+  ].join("\n"));
+
+  // 学习者在对话里要先做这一节：Agent 用 course_brief 取得的是同一段。
+  let given = "";
+  await f.chat(chatId, "先做进程调度这一节", [
+    fauxAssistantMessage([fauxToolCall("course_brief", { topicIds: ["os03"] })]),
+    (context) => {
+      given = lastToolResult(context);
+      return fauxAssistantMessage("好的。");
+    },
+  ]);
+  assert.equal(given, brief);
+});

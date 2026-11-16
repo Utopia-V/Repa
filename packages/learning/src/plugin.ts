@@ -10,6 +10,7 @@ import { frontendPython, sandboxPython, type CheckPython } from "./check/python.
 import { beginText, completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
 import { COURSE_EXAMPLE, COURSE_GUIDE, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
+import { expansionBrief } from "./expansion-brief.js";
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
 import { emptyProgress } from "./progress.js";
@@ -557,6 +558,15 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         }));
       },
       status,
+      async brief(topicIds) {
+        const ready = current;
+        if (ready.kind !== "ready") return `学习者还没有可学的课，${SPACE_COURSE}/ 还没有换用过一门通过检查的课，前面没有讲过的概念。`;
+        const unknown = topicIds.filter((id) => !ready.course.topics.some((topic) => topic.id === id));
+        if (unknown.length > 0) {
+          throw new RepaFault("invalid_input", `学习者现在学的这一版里没有 ${unknown.join("、")}；新加的部分先用 course_use 换用，再取它的轮廓`);
+        }
+        return expansionBrief(ready.course, topicIds, await learnedTopics(ready.session));
+      },
     }),
   ];
 
