@@ -127,11 +127,12 @@ export interface ConfirmOutcome {
   version: string;
   slots: string[];
   /**
-   * confirmed：全部一致并已记录；disagreed：有不一致；unusable：模型两次的输出都不合格式；
+   * confirmed：全部一致、模型没有指出问题，已记录；noted：作答一致，但模型在 note 里指出题目有问题，不记录；
+   * disagreed：有不一致；unusable：模型两次的输出都不合格式；
    * failed：请求没有得到回答（网络、额度、取消），detail 是原因；current：已有当前记录，没有发请求；
    * skipped：没有发请求，detail 写明原因（只生成请求、已到请求上限）。
    */
-  status: "confirmed" | "disagreed" | "unusable" | "failed" | "current" | "skipped";
+  status: "confirmed" | "noted" | "disagreed" | "unusable" | "failed" | "current" | "skipped";
   requests: number;
   /** 模型的原始回答，里面的选项 id 是发给模型的不透明编号。 */
   answers?: Record<string, unknown>;
@@ -221,7 +222,8 @@ function inputColumns(slot: Extract<Slot, { type: "table" }>): string[] {
   return [...columns];
 }
 
-function renderSlot(slot: Slot): string {
+/** 一个作答位写成给模型的文字；lesson 时（question-lesson-v1）填空按学习者的界面说明怎样写。 */
+function renderSlot(slot: Slot, lesson: boolean): string {
   const lines = [`### 作答位 ${slot.id}${slot.label ? `（${slot.label}）` : ""}`];
   const prompt = contentText(slot.prompt);
   if (prompt) lines.push(prompt);
@@ -233,7 +235,9 @@ function renderSlot(slot: Slot): string {
       for (const option of slot.options) lines.push(renderEntry(option));
       break;
     case "text":
-      lines.push(slot.format === "integer" ? "填写：答案写成一个整数。" : slot.format === "number" ? "填写：答案写成一个数。" : "填写：答案写成一段文字。");
+      lines.push(lesson ? lessonTextRule(slot) : slot.format === "integer" ? "填写：答案写成一个整数。" : slot.format === "number" ? "填写：答案写成一个数。" : "填写：答案写成一段文字。");
+      if (lesson && slot.placeholder) lines.push(`输入框里的提示文字：${slot.placeholder}`);
+      if (lesson && slot.suffix) lines.push(`输入框后面写着：${slot.suffix}`);
       if (slot.quick) lines.push(`可以直接填的固定文字：${slot.quick.join("、")}`);
       break;
     case "order":
@@ -267,6 +271,19 @@ function renderSlot(slot: Slot): string {
   return lines.join("\n");
 }
 
+/**
+ * question-lesson-v1 的填空说明，照学习者的界面写：学习者面前是一个短输入框，数值的给小数键盘（item-form.tsx 的 inputMode），
+ * 单位写在框后面。真实模型的重放里，独立作答的一方把填空写成整句、把非整数写成分数或不舍入的长小数，与标准答案对不上，
+ * 而学习者照界面不会这样写。
+ */
+function lessonTextRule(slot: Extract<Slot, { type: "text" }>): string {
+  if (slot.format === "integer") return "填写：答案写成一个整数。";
+  if (slot.format === "number") {
+    return "填写：输入框给的是数字小数键盘，答案写成一个小数或整数，不写分数、百分号、单位和算式；题目说了保留几位小数就照做。";
+  }
+  return "填写：输入框很短，只写答案本身，用题目允许的最短写法，不写成句子，不加解释。";
+}
+
 const SYSTEM = [
   "你在独立解一道练习题，用来核对题目的标准答案是否正确。",
   "只根据题面作答，题目里的约定（阈值、表格内容）以题面为准。选项和排列块用给出的编号（a、b、c……）作答，编号本身没有含义。",
@@ -294,7 +311,7 @@ export function confirmationRequest(item: Item, slots: string[], lesson?: Conten
     "## 题目",
     item.title ? `**${item.title}**\n\n${body}` : body,
     "## 作答位",
-    ...item.slots.map(renderSlot),
+    ...item.slots.map((slot) => renderSlot(slot, lesson !== undefined)),
     "## 要回答的作答位",
     `只回答这些作答位：${slots.join("、")}。`,
   ];
@@ -591,6 +608,12 @@ export async function confirmCourse(root: string, options: ConfirmOptions): Prom
     if (judgement.differences.length > 0) {
       outcome.status = "disagreed";
       outcome.differences = judgement.differences;
+      return { request };
+    }
+    // 答案一致而对方指出题目有问题时不记录：真实模型的重放里，这样的说明指出的都是真毛病（单选题两个选项都成立、
+    // 题面要求的字数与答案不符），一致只是碰巧选中了标准答案。
+    if (outcome.note !== undefined) {
+      outcome.status = "noted";
       return { request };
     }
     outcome.status = "confirmed";

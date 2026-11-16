@@ -386,7 +386,7 @@ export const strings = {
   "toolActivity.courseCheck.label": "检查课程",
   "toolActivity.courseUse.label": "更新课程",
   "toolActivity.courseBrief.label": "查看已讲概念",
-  "toolActivity.courseConfirm.label": "〔待写〕",
+  "toolActivity.courseConfirm.label": "核对题目",
   "toolActivity.count.label": "×{count}",
   "toolActivity.learningTask.label": "查看当前题目",
   "toolActivity.learningSearch.label": "查找课程内容",

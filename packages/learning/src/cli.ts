@@ -129,7 +129,7 @@ async function runtime(args: string[]): Promise<number> {
 
 function describeOutcome(outcome: ConfirmOutcome): string {
   const label = {
-    confirmed: "一致，已记录", disagreed: "不一致，交给人看", unusable: "输出不合格式，交给人看", failed: "请求失败",
+    confirmed: "一致，已记录", noted: "一致，但模型指出题目有问题，没有记录", disagreed: "不一致，交给人看", unusable: "输出不合格式，交给人看", failed: "请求失败",
     current: "已有当前核对范围的证明", skipped: "没有发请求",
   }[outcome.status];
   const lines = [`${outcome.question}（${outcome.slots.join("、")}）：${label}${outcome.detail ? `，${outcome.detail}` : ""}`];
@@ -207,7 +207,7 @@ async function confirm(args: string[]): Promise<number> {
       if (result.diagnostics.length > 0) failed = true;
       for (const item of result.outcomes) {
         process.stdout.write(`${describeOutcome(item)}\n`);
-        if (item.status === "disagreed" || item.status === "unusable" || item.status === "failed" || (item.status === "skipped" && !dryRun)) failed = true;
+        if (item.status === "noted" || item.status === "disagreed" || item.status === "unusable" || item.status === "failed" || (item.status === "skipped" && !dryRun)) failed = true;
       }
     }
     if (dryRun) for (const request of requestsSent) process.stdout.write(`\n----- ${request.question}\n${request.system}\n\n${request.prompt}\n`);

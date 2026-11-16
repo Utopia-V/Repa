@@ -255,6 +255,7 @@ function lessonDemo(): DemoCourse {
     slots: [
       { id: "side", type: "text", match: "text", key: ["右边"] },
       { id: "why", type: "text", rubric: [{ id: "order", label: "说出先算出值再让名字指向它" }] },
+      { id: "ratio", type: "text", format: "number", key: 0.33, tolerance: 0.01, suffix: "倍" },
     ],
     explanation: "先算右边：名字要指向算好的值。",
     manual: ["side"],
@@ -270,7 +271,7 @@ test("question-lesson-v1 核对四个题池里由程序判分的作答位：数�
   const requests = new Map<string, ModelRequest>();
   const result = await confirmCourse(root, { ...LESSON_DRY_RUN, complete: unused, base: root, onRequest: (question, request) => requests.set(question, request) });
   assert.deepEqual(result.outcomes.map((outcome) => [outcome.question, outcome.slots]), [
-    ["t01.k1.e0", ["output"]], ["t01.k1.q1", ["output"]], ["t01.k1.q2", ["output"]], ["t01.k1.q3", ["line"]], ["t01.k1.q4", ["side"]],
+    ["t01.k1.e0", ["output"]], ["t01.k1.q1", ["output"]], ["t01.k1.q2", ["output"]], ["t01.k1.q3", ["line"]], ["t01.k1.q4", ["side", "ratio"]],
     ["t01.k1.r1", ["output"]], ["t01.k1.x1", ["output"]],
     ["t01.k2.e0", ["mask"]], ["t01.k2.q3", ["session"]], ["t01.k2.r1", ["rows", "equal"]], ["t01.k2.x1", ["output"]],
   ]);
@@ -286,9 +287,19 @@ test("question-lesson-v1 核对四个题池里由程序判分的作答位：数�
   const numeric = requests.get("t01.k1.q1")?.prompt ?? "";
   assert.doesNotMatch(numeric, /显示 3。|run\(\)/u);
   assert.match(requests.get("t01.k2.r1")?.prompt ?? "", /^## 讲解\n\n逐行记下每个名字的值。/u);
+  // 填空照学习者的界面说明怎样写：文字只写答案本身，数值写小数，单位写在框后面。
+  const fill = requests.get("t01.k1.q4")?.prompt ?? "";
+  assert.match(fill, /### 作答位 side\n填写：输入框很短，只写答案本身，用题目允许的最短写法，不写成句子，不加解释。/u);
+  assert.match(fill, /### 作答位 ratio\n填写：输入框给的是数字小数键盘，答案写成一个小数或整数，不写分数、百分号、单位和算式；题目说了保留几位小数就照做。\n输入框后面写着：倍/u);
+  assert.match(numeric, /### 作答位 output\n填写：答案写成一个整数。/u);
   // 随包课程的范围照旧：只看复习和测验题列了 manual 的，请求只有题面。
   const bundled = await confirmCourse(root, { ...LESSON_DRY_RUN, scope: "question-runtime-v1", complete: unused, base: root });
   assert.deepEqual(bundled.outcomes, []);
+  const manualRoot = await writeCourse(t, manualDemo());
+  const manualPrompts: string[] = [];
+  await confirmCourse(manualRoot, { ...LESSON_DRY_RUN, scope: "question-runtime-v1", complete: unused, base: manualRoot, onRequest: (_question, request) => manualPrompts.push(request.prompt) });
+  assert.match(manualPrompts[0] ?? "", /### 作答位 output\n填写：答案写成一段文字。/u);
+  assert.ok(manualPrompts.every((prompt) => !prompt.includes("输入框") && !prompt.startsWith("## 讲解")));
 });
 
 test("question-lesson-v1 的记录：讲解、题面、答案改了就失效，只改解析、题型标签或 runtime 不失效；模型的说明随不一致一起交回", async (t) => {
@@ -296,7 +307,8 @@ test("question-lesson-v1 的记录：讲解、题面、答案改了就失效，�
   const root = await writeCourse(t, demo);
   const complete = async (request: ModelRequest): Promise<string> => {
     if (request.prompt.includes("比 raw 少 2")) return JSON.stringify({ answers: { line: "b" }, note: "两行都没说 raw 是多少" });
-    const side = request.prompt.includes("先算哪一边") ? { side: "右边" } : {};
+    // 填 0.333：保留两位小数的标准答案 0.33 带 tolerance 0.01，照样算对。
+    const side = request.prompt.includes("先算哪一边") ? { side: "右边", ratio: "0.333" } : {};
     // 其余的题这里不关心，答错也无妨。
     return JSON.stringify({ answers: { ...side, output: "0", mask: {}, session: {}, rows: [], equal: [] } });
   };
@@ -308,7 +320,7 @@ test("question-lesson-v1 的记录：讲解、题面、答案改了就失效，�
   const confirmed = result.outcomes.filter((outcome) => outcome.status === "confirmed").map((outcome) => outcome.question);
   assert.deepEqual(confirmed, ["t01.k1.q4"]);
   const { verified } = await topicFile(root);
-  assert.deepEqual(verified, [{ question: "t01.k1.q4", version: result.outcomes[4]?.version, scope: "question-lesson-v1", slots: ["side"], model: "local/test", date: "2026-11-16" }]);
+  assert.deepEqual(verified, [{ question: "t01.k1.q4", version: result.outcomes[4]?.version, scope: "question-lesson-v1", slots: ["side", "ratio"], model: "local/test", date: "2026-11-16" }]);
 
   const current = async (change: (topic: Topic, question: Question) => void, runtime = demo.course.runtime) => {
     const topic = structuredClone(t01(demo));
@@ -334,6 +346,20 @@ test("question-lesson-v1 的记录：讲解、题面、答案改了就失效，�
   const entry = topicQuestions(t01(demo)).find((candidate) => candidate.question.id === "t01.k1.q4");
   assert.ok(entry);
   assert.equal(await currentRecord({ ...t01(demo), verified: verified as Topic["verified"] }, { ...entry, pool: "review" }, demo.course.runtime, "question-runtime-v1"), undefined);
+});
+
+test("作答与标准答案一致、但模型在 note 里指出题目有问题时不记录，结果单独记为 noted", async (t) => {
+  const root = await writeCourse(t, lessonDemo());
+  const complete = async (request: ModelRequest): Promise<string> => {
+    if (request.prompt.includes("先算哪一边")) return JSON.stringify({ answers: { side: "右边", ratio: "0.33" }, note: "题面没说比值保留几位" });
+    return JSON.stringify({ answers: {} });
+  };
+  const result = await confirmCourse(root, { model: "local/test", maxRequests: 50, scope: "question-lesson-v1", complete, base: root });
+  const noted = result.outcomes.find((outcome) => outcome.question === "t01.k1.q4");
+  assert.equal(noted?.status, "noted");
+  assert.equal(noted?.note, "题面没说比值保留几位");
+  assert.equal(noted?.differences, undefined);
+  assert.equal((await topicFile(root)).verified, undefined);
 });
 
 /** 运行命令行，返回退出码和输出。 */

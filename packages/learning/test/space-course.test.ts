@@ -329,27 +329,31 @@ test("还没有核对的课：course_check 照常通过并报出个数，course_
   assert.equal((await f.state()).course?.id, "os-memory");
 });
 
-test("独立作答与标准答案不一致：交回题目编号、作答、标准答案和模型的说明，不记录、不换用；改了题面只重新核对这一道，改了讲解这个知识点的题都要重新核对，改解析不用", async (t) => {
+test("独立作答与标准答案不一致：交回题目编号、作答、标准答案和模型的说明，不记录、不换用；答对但指出题目有问题的同样不记录；改了题面只重新核对没有记录的，改了讲解这个知识点的题都要重新核对，改解析不用", async (t) => {
   const f = await fixture(t);
   await f.writeExample(false);
   const course = path.join(f.root, "course");
   // os01.k1.q1 的选项按出现顺序是 a 就绪、b 运行、c 阻塞；独立作答的一方选了阻塞，并说明题面哪里不清楚。
-  const solve = await keySolver(course, { "os01.k1.q1": () => JSON.stringify({ answers: { state: "c" }, note: "题面没说进程在不在等事件" }) });
+  // os01.k1.q2 答对了，但指出题面要求的字数与可接受的答案对不上：同样不记录。
+  const solve = await keySolver(course, {
+    "os01.k1.q1": () => JSON.stringify({ answers: { state: "c" }, note: "题面没说进程在不在等事件" }),
+    "os01.k1.q2": (key) => JSON.stringify({ answers: key, note: "题面要求写两个字，可接受的答案里有三个字的" }),
+  });
   const first = await f.confirm(["os01"], solve);
   assert.equal(first.requests.length, 12);
-  assert.match(first.text, /一致并已记下 11 道，没有通过 1 道。\n\n与标准答案不一致的题（独立作答的一方只看了讲解和题面）：\n- os01\.k1\.q1：state 作答 "blocked"，标准答案 "ready"。说明：题面没说进程在不在等事件$/u);
-  assert.match((await f.tool("course_use")).text, /^没有换用：1 道题还没有当前的核对记录（os01\.k1\.q1）。/u);
+  assert.match(first.text, /一致并已记下 10 道，没有通过 2 道。\n\n与标准答案不一致的题（独立作答的一方只看了讲解和题面）：\n- os01\.k1\.q1：state 作答 "blocked"，标准答案 "ready"。说明：题面没说进程在不在等事件\n\n作答与标准答案一致，但独立作答的一方指出题目有问题（没有记录）：\n- os01\.k1\.q2：题面要求写两个字，可接受的答案里有三个字的$/u);
+  assert.match((await f.tool("course_use")).text, /^没有换用：2 道题还没有当前的核对记录（os01\.k1\.q1、os01\.k1\.q2）。/u);
   assert.equal((await f.state()).course?.id, "python");
 
-  // 改了这道题的题面：只有它要重新核对。
+  // 改了 os01.k1.q1 的题面：重新核对的只有它和上次没有记录的 os01.k1.q2。
   await f.editTopic("os01", (topic) => {
     const question = pool(topic, 0, "practice")[0];
     assert.ok(question);
     question.body = "一个进程什么事件都不等，只差处理机就能执行，它处于哪种状态？";
   });
   const fixed = await f.confirm(["os01"], await keySolver(course));
-  assert.equal(fixed.requests.length, 1);
-  assert.match(fixed.requests[0]?.prompt ?? "", /什么事件都不等/u);
+  assert.equal(fixed.requests.length, 2);
+  assert.ok(fixed.requests.some((request) => request.prompt.includes("什么事件都不等")));
   assert.match((await f.tool("course_use")).text, /^已换用/u);
 
   // 改了第一个知识点的讲解：它下面 6 道题的记录都失效；只改第二个知识点一道题的解析，记录仍然有效。

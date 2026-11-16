@@ -157,7 +157,12 @@ export function confirmText(result: ConfirmResult, topicIds: string[]): string {
       lines.push(`- ${outcome.question}：${slots.join("；")}${outcome.note ? `。说明：${outcome.note}` : ""}`);
     }
   }
-  const unfinished = failing.filter((outcome) => outcome.status !== "disagreed");
+  const noted = failing.filter((outcome) => outcome.status === "noted");
+  if (noted.length > 0) {
+    lines.push("", "作答与标准答案一致，但独立作答的一方指出题目有问题（没有记录）：");
+    for (const outcome of noted) lines.push(`- ${outcome.question}：${outcome.note ?? ""}`);
+  }
+  const unfinished = failing.filter((outcome) => outcome.status !== "disagreed" && outcome.status !== "noted");
   if (unfinished.length > 0) {
     lines.push("", "没有核对成的题（没有记录；再运行 course_confirm 只会核对还没有记录的题）：");
     for (const outcome of unfinished) lines.push(`- ${outcome.question}：${unfinishedReason(outcome)}`);
@@ -207,7 +212,7 @@ export function courseTools(actions: CourseActions): Tool[] {
     {
       name: "course_confirm",
       description: "让另一次模型调用只看讲解和题面、不看答案，把这几个 topic 里由程序判分的题各做一遍，与标准答案比对；"
-        + "一致的记在 topic 文件末尾的 verified 段（不要手改这一段），已有当前记录的题不再做。交回不一致的题：模型的作答、标准答案和它对题目的说明。"
+        + "一致的记在 topic 文件末尾的 verified 段（不要手改这一段），已有当前记录的题不再做。交回不一致的题（模型的作答、标准答案和它对题目的说明），以及答案一致而它指出题目有问题的题，这两种都不记录。"
         + `course_check 通过以后用；每次最多发 ${CONFIRM_REQUESTS} 个请求，会花模型的费用。`,
       parameters: ConfirmParametersSchema,
       async execute(raw, context) {
