@@ -25,6 +25,7 @@ import { createLearningPlugin, type LearningPluginOptions } from "../src/plugin.
 import { learningMethods, type CourseBuilding, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
 import type { LearningSession } from "../src/session.js";
 import { TUTOR_AGENT } from "../src/tutor.js";
+import { keySolver, promptOf, withRecords } from "./fixtures/confirmations.js";
 import { referenceAnswer } from "./fixtures/learning-session.js";
 import { pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
 
@@ -280,7 +281,7 @@ async function outlineCourse(f: Fixture): Promise<string> {
 async function expandFirst(f: Fixture, id: string): Promise<void> {
   let used = "";
   await f.chat(id, "可以，先做第一节", [
-    fauxAssistantMessage([write("course/topics/os01.yaml", await complete("os01", "进程状态", [], "第 1–4 张"))]),
+    fauxAssistantMessage([write("course/topics/os01.yaml", await withRecords(await complete("os01", "进程状态", [], "第 1–4 张")))]),
     fauxAssistantMessage([fauxToolCall("course_check", {})]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
@@ -311,16 +312,21 @@ function withComputation(text: string, id: string): string {
   return stringify(topic);
 }
 
-/** 后台展开的脚本：等 gate 放行以后把这几部分写成完整的、升版本并换用。computation 时每部分加一道计算题，清单照写课说明不写 runtime。 */
+/**
+ * 后台展开的脚本：等 gate 放行以后把这几部分写成完整的、升版本并换用。computation 时每部分加一道计算题，清单照写课说明不写 runtime。
+ * records 为 false 时写下的部分还没有核对记录。
+ */
 async function expansionScript(
   parts: { id: string; title: string; prerequisites: string[]; where: string }[], version: string, topics: string[], gate?: Promise<void>, computation = false,
+  records = true,
 ): Promise<FauxResponseStep[]> {
   // 文件工具要先读过一个已有的文件才能整份改写它。
   const files = ["course/course.yaml", ...parts.map((part) => `course/topics/${part.id}.yaml`)];
   const writes = [write("course/course.yaml", manifest(version, topics))];
   for (const part of parts) {
     const text = await complete(part.id, part.title, part.prerequisites, part.where);
-    writes.push(write(`course/topics/${part.id}.yaml`, computation ? withComputation(text, part.id) : text));
+    const written = computation ? withComputation(text, part.id) : text;
+    writes.push(write(`course/topics/${part.id}.yaml`, records ? await withRecords(written) : written));
   }
   return [
     async () => {
@@ -609,9 +615,11 @@ test("学习者正在学的 topic 在新的一版里改了：course_use 不换�
   await f.select("os01");
   const before = await f.toAnswer();
   let used = "";
-  const changed = (await complete("os01", "进程状态", [], "第 1–4 张")).replace("一个进程只差处理机就能执行", "一个进程只差 CPU 就能执行");
+  const changed = await withRecords((await complete("os01", "进程状态", [], "第 1–4 张")).replace("一个进程只差处理机就能执行", "一个进程只差 CPU 就能执行"));
   await f.chat(chatId, "改一下第一节的措辞", [
-    fauxAssistantMessage([write("course/topics/os01.yaml", changed), write("course/topics/os02.yaml", await complete("os02", "进程控制块", ["os01"], "第 5–9 张"))]),
+    fauxAssistantMessage([
+      write("course/topics/os01.yaml", changed), write("course/topics/os02.yaml", await withRecords(await complete("os02", "进程控制块", ["os01"], "第 5–9 张"))),
+    ]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
       used = lastToolResult(context);
@@ -656,7 +664,7 @@ test("学习者在上第二节时，新的一版改了学过的第一节的答�
   await f.finish();
   let used = "";
   await f.chat(chatId, "展开第二节", [
-    fauxAssistantMessage([write("course/topics/os02.yaml", await complete("os02", "进程控制块", ["os01"], "第 5–9 张"))]),
+    fauxAssistantMessage([write("course/topics/os02.yaml", await withRecords(await complete("os02", "进程控制块", ["os01"], "第 5–9 张")))]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
       used = lastToolResult(context);
@@ -669,7 +677,7 @@ test("学习者在上第二节时，新的一版改了学过的第一节的答�
   assert.equal(before.progress.completedTopics, 1);
 
   // 只改学过的 os01 里一道已答题的答案，os02 一字不动：旧作答会按新答案重判，os01 可能不再算学过，os02 的课就失去资格。
-  const changed = (await complete("os01", "进程状态", [], "第 1–4 张")).replace("key: [运行, 运行态]", "key: [就绪, 就绪态]");
+  const changed = await withRecords((await complete("os01", "进程状态", [], "第 1–4 张")).replace("key: [运行, 运行态]", "key: [就绪, 就绪态]"));
   await f.chat(chatId, "第一节有道题答案写错了", [
     fauxAssistantMessage([write("course/topics/os01.yaml", changed), write("course/course.yaml", manifest("1.2.0", ["os01", "os02", "os03"]))]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
@@ -753,6 +761,43 @@ test("后台展开起了子 Agent：子 Agent 的请求也算进做课的花费�
   sameUsage(shown.cost, await f.totalUsage());
 });
 
+test("后台展开照写课说明核对题目：course_confirm 没有连接也经模型接口发出请求，全部一致后换用；核对的请求算进做课的花费", async (t) => {
+  const f = await fixture(t);
+  await f.call("settings.set", { autoExpand: false });
+  await outlineThenFirst(f);
+  const script = await expansionScript([
+    { id: "os02", title: "进程控制块", prerequisites: ["os01"], where: "第 5–9 张" },
+    { id: "os03", title: "进程调度", prerequisites: ["os02"], where: "第 10–14 张" },
+  ], "1.1.0", ["os01", "os02", "os03"], undefined, false, false);
+  // 核对请求并发发出，每一步都按请求正文找到是哪道题，交回它的标准答案。
+  let solve: ((prompt: string) => string | undefined) | undefined;
+  const answer: FauxResponseFactory = async (context) => {
+    solve ??= await keySolver(path.join(f.root, "course"));
+    const text = solve(promptOf(context));
+    assert.ok(text !== undefined, "收到的不是这两部分的核对请求");
+    return fauxAssistantMessage(text);
+  };
+  let confirmed = "";
+  // 脚本是读、写、检查、换用、结束；在检查和换用之间核对，两部分各 12 道题。
+  script.splice(3, 0,
+    fauxAssistantMessage([fauxToolCall("course_confirm", { topicIds: ["os02", "os03"] })]),
+    ...Array.from({ length: 24 }, () => answer),
+    (context) => {
+      confirmed = lastToolResult(context);
+      return fauxAssistantMessage([fauxToolCall("course_use", {})]);
+    });
+  script.splice(script.length - 2, 1);
+  f.faux.appendResponses(script);
+  await f.call("building.expand", {});
+  const shown = await f.until((state) => state.expansion === null);
+  assert.equal(confirmed, "要核对的题 24 道：已有当前记录 0 道；这次发请求 24 次，一致并已记下 24 道，全部一致。");
+  assert.equal(shown.lastFailure, null);
+  assert.deepEqual(shown.parts.map((part) => part.status), ["ready", "ready", "ready"]);
+  assert.equal(f.faux.getPendingResponseCount(), 0);
+  assert.equal(shown.cost.requests, f.faux.state.callCount);
+  sameUsage(shown.cost, await f.totalUsage());
+});
+
 test("应用在展开中途关闭：这次展开记为取消，重开以后不重试", async (t) => {
   const f = await fixture(t);
   await f.call("settings.set", { autoExpand: false });
@@ -790,8 +835,8 @@ test("展开后面的一节：任务里给出它的轮廓与出处，直接先�
   await f.chat(chatId, "把 materials 里的课件做成课", [
     fauxAssistantMessage([
       write("course/course.yaml", manifest("1.0.0", ["os01", "os02", "os03", "os04", "os05"])),
-      write("course/topics/os01.yaml", await complete("os01", "进程状态", [], "第 1–4 张")),
-      write("course/topics/os02.yaml", (await complete("os02", "进程控制块", ["os01"], "第 5–9 张")).replace("name: 进程三态", "name: 控制块")),
+      write("course/topics/os01.yaml", await withRecords(await complete("os01", "进程状态", [], "第 1–4 张"))),
+      write("course/topics/os02.yaml", await withRecords((await complete("os02", "进程控制块", ["os01"], "第 5–9 张")).replace("name: 进程三态", "name: 控制块"))),
       write("course/topics/os03.yaml", outline("os03", "进程调度", ["os02", "os04"], "第 10–14 张")),
       write("course/topics/os04.yaml", outline("os04", "线程", [], "第 15–18 张")),
       write("course/topics/os05.yaml", outline("os05", "死锁", ["os03"], "第 19–22 张")),

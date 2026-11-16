@@ -1,7 +1,7 @@
 import { RepaFault } from "@repa/base";
 import { contentVersion, type Content } from "@repa/base/protocol";
 import type { ResolvedCourse } from "./course-sources.js";
-import { content } from "./check/items.js";
+import { content, topicContent } from "./check/items.js";
 import { deliveryId, taskId } from "./flow-state.js";
 import type { ContentPage, ContentRef, LearningTask } from "./protocol.js";
 import type { LearningSession, LearningView } from "./session.js";
@@ -21,7 +21,8 @@ export async function referenceContent(course: ResolvedCourse): Promise<Referenc
   for (const topic of course.topics) {
     const base = { courseId: course.course.id, topicId: topic.id };
     entries.push({
-      ref: { ...base, kind: "topic", id: topic.id, version: await contentVersion(topic) },
+      // 核对记录不是内容：补写记录不换掉 topic 页面的版本。
+      ref: { ...base, kind: "topic", id: topic.id, version: await contentVersion(topicContent(topic)) },
       title: topic.title,
       blocks: [...content(topic.intro), ...content(topic.wrapup)],
     });

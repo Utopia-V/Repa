@@ -204,7 +204,7 @@ test("课程检查与核对入口复用原证明，单改信用不发请求，�
     model: "local/unused", maxRequests: 1,
   });
   assert.equal(confirmed.requests, 0);
-  assert.equal(confirmed.outcomes[0]?.status, "skipped");
+  assert.equal(confirmed.outcomes[0]?.status, "current");
   const answer = quiz.slots[0];
   assert.ok(answer?.type === "text");
   answer.key = "99";

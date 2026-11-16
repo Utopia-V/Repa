@@ -399,8 +399,8 @@ export const QuestionSchema = object({
    */
   verify: Type.Optional(text(20_000)),
   /**
-   * 程序算不出答案、需要语义判断的作答位。复习和测验题里的这些作答位，要由 course:confirm
-   * 用一次隔离的模型调用独立再解，一致后在 topic 的 verified 段留下记录。
+   * 程序算不出答案、需要语义判断的作答位。随包课程复习和测验题里的这些作答位，要由 course:confirm
+   * 用一次隔离的模型调用独立再解，一致后在 topic 的 verified 段留下记录；空间里自制的课核对全部由程序判分的作答位，不只这些。
    */
   manual: Type.Optional(Type.Array(IdSchema, { maxItems: 24 })),
   // kind 与 measures 是解释性元数据，不进题目版本。学生模型按 topic 传递信用（FIRe 走 topic 的 encompassings），
@@ -455,15 +455,24 @@ export const KpSchema = object({
 export type Kp = Static<typeof KpSchema>;
 
 /**
- * 一条模型核对记录：只把题目的公开部分交给模型独立作答，按作答位自己的判分规则与标准答案比对，
- * slots 里的 manual 作答位全部一致时才记下。记录放在 topic 文件里、不在题目里，所以不进题目版本；
- * 题面、判分定义、数据或运行依赖改变后失效，信用归属单独换版不使证明失效。
+ * 核对记录的范围，也就是记录证明了什么。question-runtime-v1：只看题面独立再解了复习和测验题的 manual 作答位，
+ * 哈希绑定题面、判分定义、数据和运行依赖（随包课程）。question-lesson-v1：看着所属知识点的讲解独立再解了全部由程序判分的作答位，
+ * 哈希绑定题面、判分定义、数据和讲解（空间里自制的课）。
+ */
+export const CONFIRMATION_SCOPES = ["question-runtime-v1", "question-lesson-v1"] as const;
+/** 核对记录的范围。 */
+export type ConfirmationScope = (typeof CONFIRMATION_SCOPES)[number];
+
+/**
+ * 一条模型核对记录：只把学习者看得到的部分交给模型独立作答，按作答位自己的判分规则与标准答案比对，
+ * slots 里的作答位全部一致时才记下。记录放在 topic 文件里、不在题目里，所以不进题目版本；
+ * 哈希绑定的内容（见 scope）改变后失效，信用归属单独换版不使证明失效。
  */
 export const ConfirmationSchema = object({
   question: QuestionIdSchema,
   version: Type.String({ pattern: "^sha256:[0-9a-f]{64}$", description: "核对哈希写成 sha256:<64 位十六进制>" }),
-  /** 缺省是旧题目哈希；新范围同时绑定题面、判分定义、数据和运行依赖。 */
-  scope: Type.Optional(Type.Literal("question-runtime-v1")),
+  /** 缺省是旧题目哈希；其余见 CONFIRMATION_SCOPES。 */
+  scope: Type.Optional(Type.Enum(CONFIRMATION_SCOPES)),
   slots: Type.Array(IdSchema, { minItems: 1, maxItems: 24 }),
   /** provider/id，例如 deepseek/deepseek-flash。 */
   model: text(100),
@@ -491,7 +500,7 @@ export const TopicSchema = object({
   wrapup: Type.Optional(ContentInputSchema),
   data: Type.Optional(Type.Record(NameSchema, FixtureSchema)),
   kps: Type.Array(KpSchema, { minItems: 1, maxItems: 8 }),
-  /** manual 作答位的模型核对记录，由 course:confirm 写入，每道题一条。 */
+  /** 模型核对记录，由 course:confirm 或做课的 course_confirm 写入，每道题一条。 */
   verified: Type.Optional(Type.Array(ConfirmationSchema, { maxItems: 500 })),
 });
 /** 课程里的一个 topic。 */

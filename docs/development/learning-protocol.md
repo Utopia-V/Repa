@@ -97,7 +97,7 @@ if (state.ok) renderLearning(state.value);
 
 空间里有 `course/` 文件夹而还没有换用过一门通过检查的课，或换用的课打不开时，插件照常打开，但没有可学的课：`state.get` 返回 `course`、`task`、`menu` 都为 `null`，`tutorAllowed` 与 `referenceContentAllowed` 为 false，进度的 XP 与 topic 数为零；`progress.get` 同样给出零进度，导出照常可用，其余方法以 `course_unavailable` 拒绝，辅导会话的 `session.send` 报 `message_rejected`，details 的 `reason` 为 `course_unavailable`。做课的 Agent 用 `course_use` 换用以后，后端发出 `learning.changed`，重新查询即可看到这门课。课程从哪里来、换用的规则见[学习记录说明](learning-records.md#课程来源与模型)。
 
-学习者有做到一半的任务时，只有新的一版只增不改，`course_use` 才换用：判分运行时相同（旧版没有运行时可以新写上，那时课里没有要运行 Python 的题），旧版里每个展开了的 topic 在新版里一字不差，轮廓可以展开、修改或删去，也可以加新的 topic（例如后台展开了后面的部分）。这时新的一版重放出同一项任务，题面、阶段与交付不变，`state.course.version` 可以变。改了展开过的部分就不换：除了任务本身的 topic，学过的部分改了答案也会使旧作答重判，先修可能不再算学过，进行中的任务随之失去资格。换用以后发出 `learning.changed` 与 `building.changed`。
+`course_use` 只换用通过检查、而且每道由程序判分的题都有当前模型核对记录（`course_confirm` 写下）的一版，学习者学到的题都经过另一次模型调用不看答案重做。学习者有做到一半的任务时，只有新的一版只增不改，`course_use` 才换用：判分运行时相同（旧版没有运行时可以新写上，那时课里没有要运行 Python 的题），旧版里每个展开了的 topic 在新版里除末尾的核对记录外一字不差，轮廓可以展开、修改或删去，也可以加新的 topic（例如后台展开了后面的部分）。这时新的一版重放出同一项任务，题面、阶段与交付不变，`state.course.version` 可以变。改了展开过的部分就不换：除了任务本身的 topic，学过的部分改了答案也会使旧作答重判，先修可能不再算学过，进行中的任务随之失去资格。换用以后发出 `learning.changed` 与 `building.changed`。
 
 ### 做课的状态
 
@@ -107,7 +107,7 @@ if (state.ok) renderLearning(state.value);
 - `expansion` 是正在后台展开的部分：`topicIds`、`startedAt`，以及那次后台运行的会话 `sessionId`（还没建立时为 `null`）；没有展开在进行时为 `null`。
 - `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `failed`（没能开始或运行出错，例如没有可用模型、模型请求报错，`message` 是底层报错的原文）、`cancelled`（被学习者取消，或应用在展开中途关闭）、`not_expanded`（运行结束了而这几部分仍是轮廓），界面文字由前端按 `code` 书写。
 - `sessionId` 是学习者与之对话做课的会话，前端经 `building.begin` 告诉插件；还没有时为 `null`。它记在插件数据目录里，重开应用以后页面据此接回同一段对话。
-- `cost` 是做这门课的会话（调用过 `course_check`、`course_use` 的会话与后台展开的会话，连同它们起的子 Agent）到现在的累计用量，字段同底座的 `session.usage`：`requests`、全部 token `usage`、按模型目录单价折算的 `cost`（美元），以及没有单价的那部分 token `unpriced`。
+- `cost` 是做这门课的会话（调用过 `course_check`、`course_confirm`、`course_use` 的会话与后台展开的会话，连同它们起的子 Agent 和 `course_confirm` 发出的核对请求）到现在的累计用量，字段同底座的 `session.usage`：`requests`、全部 token `usage`、按模型目录单价折算的 `cost`（美元），以及没有单价的那部分 token `unpriced`。
 
 `building.begin` 在学习页开始做课时调用：前端先用 `session.create` 新建一个通用 Agent 的会话（不填 `agent`），再以 `{ sessionId, materials, request? }` 调用它，插件记下这是做课的对话（花费算在里面，之后的 `building.get` 给出它），返回 `{ text }`，前端把 `text` 用 `session.send` 发给这段会话。`materials` 是开始时 `materials/` 里有没有课件；`request` 是学习者写的要求，有课件时可以省略，没有课件时是他想学什么（学习页在没有课件时要写了想学什么才能开始）。两种情况的第一条消息不同；消息里给模型的固定部分由插件写，前端不拼。再次调用时换成新的会话，以前的仍算在花费里。
 

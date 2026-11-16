@@ -6,13 +6,15 @@ import { errorText } from "@repa/base/protocol";
 import {
   checkFormat, currentRun, type AgentWork, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool,
 } from "@repa/base/plugin";
+import { localDate, mergeConfirmations } from "./check/confirm.js";
 import { frontendPython, sandboxPython, type CheckPython } from "./check/python.js";
 import { beginText, completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
-import { COURSE_EXAMPLE, COURSE_GUIDE, courseTools } from "./course-tools.js";
+import { COURSE_EXAMPLE, COURSE_GUIDE, CONFIRM_CONCURRENCY, CONFIRM_REQUESTS, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
 import { expansionBrief } from "./expansion-brief.js";
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
+import { TOPICS_DIRECTORY } from "./format/load.js";
 import { emptyProgress } from "./progress.js";
 import { learningMethods, type BuildingEvent, type CourseBuilding, type LearningInput, type LearningResult, type LearningState } from "./protocol.js";
 import { LearningRecords, RECORDS_FILE } from "./records.js";
@@ -296,7 +298,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   }
   let expansion: Expansion | undefined;
 
-  /** 记下做课的会话：调用 course_check、course_use 的运行所在的会话。花费按这些会话汇总。 */
+  /** 记下做课的会话：调用 course_check、course_confirm、course_use 的运行所在的会话。花费按这些会话（连同其中模型调用的子会话）汇总。 */
   async function rememberSession(): Promise<void> {
     const run = currentRun();
     if (run === undefined || record.sessions.includes(run.sessionId)) return;
@@ -552,10 +554,33 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       async use() {
         await rememberSession();
         const files = await readSpaceCourse(host.files);
-        return files && store.check(files, async (checked, keep, read) => ({
-          checked,
-          outcome: checked.passed ? await switchTo(checked.id, keep, read) : "unchanged" as const,
-        }));
+        return files && store.check(files, async (checked, keep, read) => {
+          if (!checked.passed) return { checked, outcome: "unchanged" as const };
+          // 学习者只学每道由程序判分的题都核对过的课。
+          if (checked.result.summary.confirmations.missing.length > 0) return { checked, outcome: "unconfirmed" as const };
+          return { checked, outcome: await switchTo(checked.id, keep, read) };
+        });
+      },
+      async confirm(topicIds, signal) {
+        await rememberSession();
+        const model = host.models.defaultModel();
+        if (model === undefined) throw new RepaFault("model_required", "请选择可用模型");
+        const files = await readSpaceCourse(host.files);
+        // 请求经 host.models 在这次工具调用里发出，是做课会话的子会话，花费计入 building.get 的 cost。
+        // 运行被中止时，还没发的请求立即以 cancelled 失败，已经一致的照样记下。
+        return files && store.confirm(files, {
+          complete: (request) => host.models.complete({ system: request.system, prompt: request.prompt, model, signal }),
+          model: `${model.provider}/${model.id}`,
+          maxRequests: CONFIRM_REQUESTS,
+          concurrency: CONFIRM_CONCURRENCY,
+          topics: topicIds,
+          date: localDate(host.now()),
+          // 记录并进写入那一刻空间里的 topic 文件，经空间的文件接口写，归属这次运行。
+          async save(topic, changed) {
+            const file = `${SPACE_COURSE}/${TOPICS_DIRECTORY}/${topic.topic.id}.yaml`;
+            await host.files.write(file, mergeConfirmations(await host.files.read(file), file, changed));
+          },
+        });
       },
       status,
       async brief(topicIds) {
@@ -573,7 +598,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   return {
     instructions: () => [
       "学习插件按课程安排学习者的课、复习和测验。",
-      `学习者要把放进 materials/ 的课件做成课，或者没有课件、只说了想学什么时，先用 read 读 ${COURSE_GUIDE}（它引用的示例课在 ${COURSE_EXAMPLE}），按其中的格式和顺序在 ${SPACE_COURSE}/ 里写课，用 course_check 检查，用 course_use 让学习者用上。`,
+      `学习者要把放进 materials/ 的课件做成课，或者没有课件、只说了想学什么时，先用 read 读 ${COURSE_GUIDE}（它引用的示例课在 ${COURSE_EXAMPLE}），按其中的格式和顺序在 ${SPACE_COURSE}/ 里写课，用 course_check 检查，用 course_confirm 核对题目，用 course_use 让学习者用上。`,
     ].join(""),
     tools: () => tools,
     agents: () => [tutorAgent(() => hooks)],
