@@ -43,6 +43,12 @@ const FAILURE_TEXT: [ModelFailureScript, string][] = [
   [500, "模型服务暂时不可用，请稍后重新发送。"],
 ];
 
+/** 开放题判分失败时学习页应当出现的那句话，按假模型失败的方式；第三项为真时是点“再判一次”，否则是提交。 */
+const GRADING_FAILURE_TEXT: [ModelFailureScript, string, boolean][] = [
+  [402, "模型服务的账户余额不足，这份作答没能判出结果，不算错。充值后可以再判一次，也可以先做下一题，条件具备时会自动补判。", false],
+  ["disconnect", "无法连接模型服务，这份作答没能判出结果，不算错。检查网络后可以再判一次，也可以先做下一题，条件具备时会自动补判。", true],
+];
+
 const COURSE_NAME = "操作系统 走查";
 const REQUEST = "想学进程状态和进程控制块，下周考试。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
@@ -341,8 +347,8 @@ export const STEPS: Step[] = [
     },
   },
   {
-    id: "mid-lesson",
-    title: "一节课做到一半时关闭再打开，能接着做，没判出结果的不记为错",
+    id: "grading-failures",
+    title: "开放题判分时模型请求失败（余额不足、连不上）：按原因说一句，不记为错，可以再判",
     async run({ app, page, model }, checks) {
       const questions = await courseQuestions();
       await page.click({ name: "开始", near: "进程控制块", selector: "button" });
@@ -350,10 +356,34 @@ export const STEPS: Step[] = [
       // 做到开放题出现：前两道必做题答完，开放题排在最后一道必做题之前。
       const answered = await work(page, questions, { stopBefore: "os02.k1.q4" });
       checks.expect("开放题出现之前答了这一节的前几道题", answered.length >= 1, answered.join("、"));
+      for (const [failure, sentence, retry] of GRADING_FAILURE_TEXT) {
+        model.failGrading(failure);
+        const before = model.log.length;
+        if (retry) await page.click({ name: "再判一次", selector: "button" });
+        else {
+          await page.fill("", "换下时寄存器和程序计数器存进进程控制块，恢复时取回。", { near: "为什么被换下处理机的进程" });
+          await page.click({ name: /^提交$/u, selector: "button" });
+        }
+        const text = await page.waitText(sentence, 15_000);
+        await page.shot(`grading-failure-${failure}`);
+        const attempts = model.log.slice(before).filter((entry) => entry.kind === "grade").length;
+        checks.expect(`${failure}：说“${sentence.slice(0, 24)}…”，只说一次`, occurrences(text, sentence) === 1, `判分请求 ${attempts} 次`);
+        checks.expect(`${failure}：有“再判一次”和“先做下一题”`, await page.has({ name: "再判一次", selector: "button" }) && await page.has({ name: "先做下一题", selector: "button" }));
+        checks.expect(`${failure}：那份作答没有判分记录（不记为错）`, await latestVerdict(app, "os02.k1.q4") === undefined, await latestVerdict(app, "os02.k1.q4"));
+      }
+      model.failGrading(undefined);
+    },
+  },
+  {
+    id: "mid-lesson",
+    title: "一节课做到一半时关闭再打开，能接着做，没判出结果的不记为错",
+    async run({ app, page, model }, checks) {
+      const questions = await courseQuestions();
+      // 上一步停在那道开放题没判出结果的画面；这次判分扣住不答，判分途中关闭。
       model.holdGrading();
-      await page.fill("", "换下时寄存器和程序计数器存进进程控制块，恢复时取回。", { near: "为什么被换下处理机的进程" });
-      await page.click({ name: /^提交$/u, selector: "button" });
+      await page.click({ name: "再判一次", selector: "button" });
       await page.waitText("正在判分", 15_000);
+      await until("判分请求到达假模型", async () => model.heldCount() > 0);
       checks.expect("开放题交给模型判分，判分还没有结果", model.heldCount() > 0);
       await app.reopen();
       const text = await page.waitText("进程控制块", 30_000);

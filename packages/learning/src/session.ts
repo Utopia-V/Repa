@@ -1,6 +1,6 @@
 import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
-import { canRender, contentVersion, type ClientCapabilities, type Content, type Item } from "@repa/base/protocol";
+import { canRender, contentVersion, modelFailureOf, type ClientCapabilities, type Content, type Item, type ModelFailure } from "@repa/base/protocol";
 import type { Student } from "@repa/learning-model";
 import { PYTHON_RUN } from "@repa/python-runner/protocol";
 import { content, topicQuestions, type QuestionEntry } from "./check/items.js";
@@ -61,7 +61,8 @@ function resultAt(evidence: TaskEvidence): number {
   }
   return Math.max(...times);
 }
-type Failure = "service_failure" | "uncertain_grade";
+/** 判不了的原因，只在内存里；模型请求失败时带上底座的分类。 */
+type Failure = { reason: "service_failure" | "uncertain_grade"; failure?: ModelFailure };
 
 /**
  * 一个空间里的学习会话：事实日志、当前课程、从事实重放出的状态，以及判分。教学方法和辅导共用它。
@@ -119,7 +120,7 @@ export class LearningSession {
         facts.push({ type: "graded", delivery: seq, version: prepared.version, verdict: judgement.verdict, slots: judgement.slots });
       } catch {
         // 改过的题判不了，这份作答就仍然没有证据；不因此打不开空间。
-        session.failures.set(seq, "service_failure");
+        session.failures.set(seq, { reason: "service_failure" });
       }
     }
     if (facts.length && !records.incompleteTail) {
@@ -180,7 +181,10 @@ export class LearningSession {
       try {
         judgement = await judgeAnswer(this.host, this.course.course.course, prepared.question, prepared.topic, prepared.answer);
       } catch (error) {
-        this.failures.set(seq, error instanceof RepaFault && error.code === "uncertain_grade" ? "uncertain_grade" : "service_failure");
+        const failure = modelFailureOf(error);
+        this.failures.set(seq, error instanceof RepaFault && error.code === "uncertain_grade"
+          ? { reason: "uncertain_grade" }
+          : { reason: "service_failure", ...(failure === undefined ? {} : { failure }) });
         return;
       }
       const written = await this.records.write(() => {
@@ -554,7 +558,7 @@ export class LearningSession {
     } else if (this.inflight.has(delivery.seq)) {
       processing = { status: "pending" };
     } else {
-      processing = { status: "interrupted", reason: this.failures.get(delivery.seq) ?? "restart" };
+      processing = { status: "interrupted", ...this.failures.get(delivery.seq) ?? { reason: "restart" } };
     }
     const reference = { id: shown.item.id, version: answer.seen };
     const result: Submission = {

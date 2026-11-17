@@ -5,7 +5,7 @@
  * 后端发来的请求有三种，按请求本身区分：
  * - 通用 Agent 的一轮（带 course_use 等工具）：按最近一条用户消息找剧本，剧本的第 n 步对应这条消息之后的第 n 次回答；
  * - 课程核对（course_confirm 发出的独立解题，系统提示以“你在独立解一道练习题”开头）：按题面查走查脚本事先算好的答案；
- * - 开放题判分（带 submit_result 工具，系统提示以“独立评价本题原答”开头）：判对；走查要求时先扣住不答。
+ * - 开放题判分（带 submit_result 工具，系统提示以“独立评价本题原答”开头）：判对；走查要求时先扣住不答，或按 failGrading 给的方式失败。
  * 其他请求一律回一句话，并记进 unexpected，走查把它当作失败的证据。
  *
  * 带的 key 不是走查自己配的那个时，是保存 key 时的验证请求：按 key 定回答（KEY_CHECKS）。
@@ -78,6 +78,7 @@ export class ScriptedModel {
   private toolNames = new Map<string, string>();
   private calls = 0;
   private failing: ModelFailureScript | undefined;
+  private gradingFailure: ModelFailureScript | undefined;
 
   private constructor(private server: Server, readonly port: number) {}
 
@@ -115,6 +116,11 @@ export class ScriptedModel {
   /** 之后通用 Agent 的请求都按这种方式失败；传 undefined 撤销。 */
   failAgent(failure: ModelFailureScript | undefined): void {
     this.failing = failure;
+  }
+
+  /** 之后开放题判分的请求都按这种方式失败；传 undefined 撤销。 */
+  failGrading(failure: ModelFailureScript | undefined): void {
+    this.gradingFailure = failure;
   }
 
   /** 用户消息里含 match 时，通用 Agent 按 steps 一步步回答；后加的剧本优先。 */
@@ -165,6 +171,11 @@ export class ScriptedModel {
     const prompt = textOf(messages.filter((message) => message.role === "user").at(-1)?.content);
     let reply: Step;
     if (tools.includes("submit_result") && system.startsWith("独立评价本题原答")) {
+      if (this.gradingFailure !== undefined) {
+        this.log.push({ kind: "grade", note: `失败：${this.gradingFailure}` });
+        this.fail(this.gradingFailure, response);
+        return;
+      }
       if (this.holding) {
         this.log.push({ kind: "grade", note: "扣住" });
         const released = new Promise<void>((resolve) => this.held.push(resolve));

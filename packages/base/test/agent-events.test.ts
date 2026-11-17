@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { convertEvent, entryToPublic, retriedFailures } from "../src/agent/events.js";
-import { modelFailure } from "../src/agent/model-failure.js";
+import { modelError, modelFailure } from "../src/agent/model-failure.js";
+import { modelFailureOf, RepaFault } from "../src/schema.js";
 
 test("工具的实时结束事件和历史条目保留同一份 details，包括空值和错误结果", () => {
   for (const details of [{ sessionId: "child", runId: "child-run" }, null, false, 0]) {
@@ -60,6 +61,13 @@ test("模型请求失败按开头的状态码或连接错误的写法分类，�
     [undefined, "other"],
   ];
   for (const [message, failure] of cases) assert.equal(modelFailure(message), failure, message);
+});
+
+test("插件从 model_error 取出分类；别的错误没有分类", () => {
+  assert.equal(modelFailureOf(modelError("402: Insufficient Balance")), "balance");
+  assert.equal(modelFailureOf(new RepaFault("model_error", "x", { failure: "unknown" })), "other");
+  assert.equal(modelFailureOf(new RepaFault("cancelled", "x")), undefined);
+  assert.equal(modelFailureOf(new Error("402: Insufficient Balance")), undefined);
 });
 
 test("出错的回答在历史里带上原文和分类；被 Pi 自动重试过的标为 retried", () => {

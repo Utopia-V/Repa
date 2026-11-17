@@ -75,7 +75,7 @@ if (state.ok) renderLearning(state.value);
 
 `SubmissionReceipt` 延续原来的两个结果：`rejected` 表示结构不合格、没有接受，附 `processing.status: not_accepted` 和问题列表；`recorded` 表示原答已接受，附完整 `submission`。旧的 `SubmitResult` 与读取入口继续可用，新方法使用 `SubmissionReceipt`，通过 `readLearningResult` 读取。
 
-接受后的处理状态依次可以是 `accepted`、`pending`、`interrupted`、`completed`。中断原因区分重启、服务失败、判分不确定和取消。它们表示这份作答尚无证据：不算错，也不阻塞任务；后端在条件具备时自动补判，前端也可以调用 `submission.resume` 再判一次。断线造成 outcome unknown 时先调用 `submission.get`：查到提交就沿它恢复；`absent` 才允许携原答、原 id 再交，后端仍重新检查交付和截止时间。查询与日志重放本身不重启判分。
+接受后的处理状态依次可以是 `accepted`、`pending`、`interrupted`、`completed`。中断原因区分重启、服务失败、判分不确定和取消；服务失败是判分的模型请求失败时，`failure` 带上底座的分类（`ModelFailureSchema`），界面按它说明原因，认不出的为 `other`。它们表示这份作答尚无证据：不算错，也不阻塞任务；后端在条件具备时自动补判，前端也可以调用 `submission.resume` 再判一次。断线造成 outcome unknown 时先调用 `submission.get`：查到提交就沿它恢复；`absent` 才允许携原答、原 id 再交，后端仍重新检查交付和截止时间。查询与日志重放本身不重启判分。
 
 `gradeRevision` 关联同一原答的采用判分版本。申诉检查 `expectedGradeRevision`，串行登记本次重判后再执行；重复请求等待已有重判，已采用新版本后再收到旧请求则刷新当前状态。旧判分、已经给出的 XP 和已经展示或选定的任务由后端保留，不因申诉覆盖。题目的答案改正以后，后端也会按新答案重判过去的作答，`gradeRevision` 同样递增。
 

@@ -227,6 +227,36 @@ it("剩下的题都要模型判分而没有可用模型时，说明任务会保�
   expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
 });
 
+it("判分的模型请求失败时按原因说明；key 无效时引导去设置模型，认不出原因时照旧只说没判出结果", async () => {
+  const recovering = (failure?: "balance" | "auth") => task({ stage: "recovery", submissionId: "s3" }, {
+    deliveries: [delivery],
+    submissions: [{
+      taskId: "t1", deliveryId: "d3", submissionId: "s3", acceptedAt: 1, gradeRevision: 0,
+      response: { item: { id: "o1", version }, answers: { output: { type: "text", text: "4" } } },
+      processing: { status: "interrupted", reason: "service_failure", ...(failure === undefined ? {} : { failure }) },
+    }],
+  });
+  let current = recovering("balance");
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(1, current));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+  expect(await screen.findByText(/^模型服务的账户余额不足，这份作答没能判出结果，不算错。/u)).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "去设置模型" })).toBeNull();
+  cleanup();
+
+  current = recovering("auth");
+  start(backend(learning).client);
+  expect(await screen.findByText(/^API key 无效，这份作答没能判出结果/u)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
+  cleanup();
+
+  current = recovering();
+  start(backend(learning).client);
+  expect(await screen.findByText(/^这份作答没能判出结果，不算错。/u)).toBeTruthy();
+});
+
 it("辅导接着这个空间最近的一段辅导会话；开始新对话后，第一条消息建立新的辅导会话", async () => {
   const at = "2026-10-31T00:00:00.000Z";
   // 会话列表按最后消息时间倒序：最近的是通用对话，其次才是辅导。
