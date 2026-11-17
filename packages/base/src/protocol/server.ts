@@ -756,13 +756,25 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
     }
   };
 
+  /**
+   * 未预期的异常：前端只收到 Internal error，不带路径和堆栈。原因记进最近错误（反馈包里能看到），
+   * 并写到 stderr：开发和测试时失败的原因就在输出里，不必另想办法复现。
+   */
+  function internalError(method: string, error: unknown): void {
+    const stack = error instanceof Error ? error.stack : undefined;
+    errors.add({ source: "rpc", message: errorText(error), ...(stack === undefined ? {} : { stack }) });
+    process.stderr.write(`Repa 协议方法 ${method || "（无法解析的请求）"} 内部错误：${stack ?? errorText(error)}\n`);
+  }
+
   const handle = async (peer: Peer, value: unknown): Promise<(() => unknown) | undefined> => {
     let id: RpcId = null;
     let notification = false;
+    let name = "";
     try {
       const request = parseRequest(value);
       notification = !Object.hasOwn(request, "id");
       id = request.id ?? null;
+      name = request.method;
       // Repa 的操作需要响应确认，客户端 notification 不触发副作用。
       if (notification) return undefined;
       if (stopping || !peer.alive) throw new RepaFault("closed", "服务或连接已经关闭");
@@ -788,15 +800,15 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
             },
           };
         }
-        if (!Check(methods[method].result, output)) return errorResponse(id, new RpcFault(-32603, "Internal error"));
+        if (!Check(methods[method].result, output)) {
+          internalError(method, new Error("返回值不符合协议声明的 schema"));
+          return errorResponse(id, new RpcFault(-32603, "Internal error"));
+        }
         return { jsonrpc: "2.0", id, result: output };
       };
     } catch (error) {
       if (notification) return undefined;
-      // 内部错误不把细节交给前端，记进最近错误，反馈包里能看到原因。
-      if (!(error instanceof RpcFault) && !(error instanceof RepaFault)) {
-        errors.add({ source: "rpc", message: errorText(error), ...(error instanceof Error && error.stack !== undefined ? { stack: error.stack } : {}) });
-      }
+      if (!(error instanceof RpcFault) && !(error instanceof RepaFault)) internalError(name, error);
       const fault = error instanceof RpcFault ? error : error instanceof RepaFault
         ? new RpcFault(-32000, error.message, { code: error.code, ...(error.details === undefined ? {} : { details: error.details }) })
         : new RpcFault(-32603, "Internal error");
