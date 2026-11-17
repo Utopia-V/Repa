@@ -167,6 +167,28 @@ function focusField(target: { name: string; near?: string }) {
   return { found: true };
 }
 
+/** 页面里的时钟往后拨 ms 毫秒；第一次调用时换上带偏移的 Date，之后只加偏移。做法与后端的 clock.mjs 相同。 */
+function shiftPageClock(ms: number) {
+  const holder = window as unknown as { __repaVerifyClock?: { offset: number } };
+  if (!holder.__repaVerifyClock) {
+    const state = { offset: 0 };
+    holder.__repaVerifyClock = state;
+    const RealDate = Date;
+    const realNow = RealDate.now.bind(RealDate);
+    const now = () => realNow() + state.offset;
+    RealDate.now = now;
+    window.Date = new Proxy(RealDate, {
+      construct(target, args, newTarget) {
+        return Reflect.construct(target, args.length === 0 ? [now()] : args, newTarget) as object;
+      },
+      apply() {
+        return new RealDate(now()).toString();
+      },
+    });
+  }
+  holder.__repaVerifyClock.offset += ms;
+}
+
 /** 一个页面：读文字、等文字、点、输入、按键、截图。 */
 export class Page {
   /** 页面里出过的错误（console.error 与未捕获的异常），失败时随证据一起交出。 */
@@ -342,6 +364,25 @@ export class Page {
   /** 改视口大小，例如看宽屏时学习页右侧常驻的面板；走查的步骤固定用缺省的窄屏。 */
   async resize(width: number, height: number): Promise<void> {
     await this.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+  }
+
+  /**
+   * 把页面里的时钟往后拨 ms 毫秒，到页面重新载入为止：Date.now() 与不带参数的 new Date() 加上偏移，与后端的 clock.mjs 相同。
+   * 计时器不受影响，已经排好的 setTimeout 仍按真实时间到点；拨完以后页面像是被搁置了这么久。
+   */
+  async shiftClock(ms: number): Promise<void> {
+    await this.call(shiftPageClock, ms);
+  }
+
+  /**
+   * 之后每次载入新文档时，在页面自己的脚本之前先运行 source（经 CDP 注入，不受页面 CSP 限制）；已经载入的页面不受影响。
+   * 交回撤销它的函数。
+   */
+  async beforeScripts(source: string): Promise<() => Promise<void>> {
+    const { identifier } = await this.send<{ identifier: string }>("Page.addScriptToEvaluateOnNewDocument", { source });
+    return async () => {
+      await this.send("Page.removeScriptToEvaluateOnNewDocument", { identifier });
+    };
   }
 
   /** 截一张当前视口的图，交回文件路径。 */

@@ -8,7 +8,7 @@ import { inflateRawSync } from "node:zlib";
 
 import type { App } from "./app.js";
 import type { Page } from "./browser.js";
-import { confirmationAnswers, courseFiles, courseQuestions, type QuestionDefinition } from "./course.js";
+import { confirmationAnswers, courseFiles, courseQuestions, QUIZ_COURSE, quizDurationMs, type QuestionDefinition } from "./course.js";
 import type { ModelFailureScript, ScriptedModel } from "./model.js";
 import type { Checks } from "./walk.js";
 
@@ -26,8 +26,17 @@ export interface Step {
   run(context: Context, checks: Checks): Promise<void>;
 }
 
-/** 已知而尚未修好的界面问题，键是 checks.known 引用的名字；修好以后对应的检查会翻成“已修好”。目前没有。 */
-export const KNOWN: Record<string, string> = {};
+/** 已知而尚未修好的界面问题，键是 checks.known 引用的名字；修好以后对应的检查会翻成“已修好”。 */
+export const KNOWN = {
+  // 测验的问题（2026-11-18 走查测验时发现，编号见前端问题全集），按测验计划逐项修。
+  quizCard: "菜单的测验卡片只写类型和标题，没写共几题（Q1；限时要等契约给出时长再写）",
+  quizHeader: "测验中看不到剩余时间和“第几题 / 共几题”，反而列出全部 topic 的长串和知识点圆圈（Q1、Q6）",
+  quizFinish: "测验没有“交卷”，只能“中止测验”，确认里不说还有几题没答、没答的算错；结束后只显示最后一题，不逐题列出对错（Q1、Q3）",
+  quizDeadline: "到了截止时间画面不变，刷新后才看到时间到；截止后提交被拒时只报错，没有换成结果（Q2）",
+  quizRecovery: "测验里判不出结果的题显示“先做下一题”，测验不能这样推进；也没有“交卷”（Q4）",
+  quizAbort: "测验作答中仍有“中止测验”；按契约开始后中止就是交卷，作答页只该留“交卷”（Q5）",
+  quizFocus: "提交一题以后焦点丢到页面开头，不在下一道题上（A1）",
+} as const;
 
 /** 模型请求失败时对话里应当出现的那句话（维护者定的文字），按假模型失败的方式。 */
 const FAILURE_TEXT: [ModelFailureScript, string][] = [
@@ -66,6 +75,11 @@ const REQUEST = "想学进程状态和进程控制块，下周考试。";
 const TUTOR_REQUEST = "刚做完的最后一道题，为什么这样答？";
 const TUTOR_REPLY = "这一节已经结束，最后一道题是这样想的。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
+const QUIZ_COURSE_NAME = "常用单位 走查";
+const QUIZ_REQUEST = "想学长度、质量和时间单位的换算，三节都学完以后想做一次测验。";
+const QUIZ_TOPICS = ["长度单位", "质量单位", "时间单位"];
+/** 测验课里那道代码题：第二次重考时让它判不出结果。 */
+const QUIZ_CODE_QUESTION = "un03.k2.x1";
 
 /** 学习页标题栏右边打开面板的按钮的文字，按出现的顺序用“、”连起来（窄屏时面板收在这里）。 */
 async function headerActions(page: Page): Promise<string> {
@@ -134,6 +148,8 @@ async function answer(page: Page, questions: Map<string, QuestionDefinition>, an
         const option = slot.options?.find((entry) => entry.id === key);
         await page.click({ name: option?.content ?? key, selector: "label" });
       }
+    } else if (slot.type === "code") {
+      await page.fill("", given ?? slot.solution ?? "", { near: question.body.trim() });
     } else {
       const value = given ?? String(Array.isArray(slot.key) ? slot.key[0] : slot.key);
       await page.fill("", value, { near: question.body.trim() });
@@ -175,10 +191,25 @@ async function work(page: Page, questions: Map<string, QuestionDefinition>, opti
   throw new Error("60 次操作内没有做完");
 }
 
-/** 学习记录里这道题最近一次判分的结论；没有判分时为 undefined。只读文件，不经后端，不改变任何状态。 */
-async function latestVerdict(app: App, question: string): Promise<string | undefined> {
-  const facts = (await readFile(path.join(app.home, "Repa", COURSE_NAME, ".repa", "plugins", "learning", "records.jsonl"), "utf8"))
-    .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type: string; seq: number; question?: string; delivery?: number; verdict?: string });
+interface Fact {
+  type: string;
+  seq: number;
+  kind?: string;
+  task?: number;
+  question?: string;
+  delivery?: number;
+  verdict?: string;
+}
+
+/** 一门课的学习记录。只读文件，不经后端，不改变任何状态。 */
+async function readFacts(app: App, course = COURSE_NAME): Promise<Fact[]> {
+  return (await readFile(path.join(app.home, "Repa", course, ".repa", "plugins", "learning", "records.jsonl"), "utf8"))
+    .split("\n").filter(Boolean).map((line) => JSON.parse(line) as Fact);
+}
+
+/** 学习记录里这道题最近一次判分的结论；没有判分时为 undefined。 */
+async function latestVerdict(app: App, question: string, course = COURSE_NAME): Promise<string | undefined> {
+  const facts = await readFacts(app, course);
   const deliveries = new Set(facts.filter((fact) => fact.type === "delivered" && fact.question === question).map((fact) => fact.seq));
   return facts.filter((fact) => fact.type === "graded" && fact.delivery !== undefined && deliveries.has(fact.delivery)).at(-1)?.verdict;
 }
@@ -214,6 +245,96 @@ function unzip(buffer: Buffer): Map<string, string> {
     offset += 46 + nameLength + extraLength + commentLength;
   }
   return files;
+}
+
+/** 菜单里第一个以 kind 开头（或含 title）的那一项卡片上的文字；没有时为空串。 */
+async function menuCard(page: Page, match: { kind?: string; title?: string }): Promise<string> {
+  return page.evaluate<string>(`(() => { const match = ${JSON.stringify(match)}; const item = [...document.querySelectorAll('#learning-menu-title ~ ul > li')].find((li) => (match.kind === undefined || li.innerText.trim().startsWith(match.kind)) && (match.title === undefined || li.innerText.includes(match.title))); return item ? item.innerText.trim() : ''; })()`);
+}
+
+/**
+ * 点菜单里那一项自己的“开始”（菜单有几项时，按附近的文字找会点到别的项），等任务开始、菜单收起再返回：
+ * 上一项任务的结果页也写着任务类型和“结束”，不等菜单收起，接着读到的还是旧画面。
+ */
+async function startMenuItem(page: Page, match: { kind?: string; title?: string }): Promise<void> {
+  const index = await page.evaluate<number>(`(() => { const match = ${JSON.stringify(match)}; return [...document.querySelectorAll('#learning-menu-title ~ ul > li')].findIndex((li) => (match.kind === undefined || li.innerText.trim().startsWith(match.kind)) && (match.title === undefined || li.innerText.includes(match.title))); })()`);
+  if (index < 0) throw new Error(`菜单里没有「${match.kind ?? ""}${match.title ?? ""}」：${learnView(await page.text()).menu.join("；") || "菜单是空的"}`);
+  await page.click({ name: "开始", selector: `#learning-menu-title ~ ul > li:nth-child(${index + 1}) button` });
+  await until("任务开始、菜单收起", async () => !(await page.has({ name: "开始", selector: "#learning-menu-title ~ ul button" })), 15_000);
+}
+
+/** 一道选择题的一个错误选项。 */
+function wrongChoice(question: QuestionDefinition): string | undefined {
+  const slot = question.slots[0];
+  if (slot?.type !== "choice") return undefined;
+  const keys = (Array.isArray(slot.key) ? slot.key : [slot.key]).map(String);
+  return slot.options?.find((option) => !keys.includes(option.id))?.id;
+}
+
+/**
+ * 测验里答当前这一道：等出现能点的“提交”（判分中的画面没有），按 answers 作答（缺省按标准答案），
+ * 再等画面换走（下一道题、判分中或判不出结果）。交回题目 id。
+ */
+async function answerQuizQuestion(page: Page, questions: Map<string, QuestionDefinition>, answers: (question: QuestionDefinition) => Record<string, string> = () => ({})): Promise<string> {
+  await until("出现可以作答的题", async () => {
+    const found = await page.find({ name: /^提交$/u, selector: "button" });
+    return found.found && !found.disabled && currentQuestion(await page.text(), questions) !== undefined;
+  }, 30_000);
+  const question = currentQuestion(await page.text(), questions);
+  if (!question) throw new Error("页面上的题在测验课里找不到");
+  await answer(page, questions, answers(question));
+  await page.waitFor("交上以后画面换走", (next) => currentQuestion(next, questions)?.id !== question.id || /正在判分|没能判出结果/u.test(next), 10_000)
+    .catch(() => undefined);
+  return question.id;
+}
+
+/**
+ * 交卷。有“交卷”就点它；现在只有“中止测验”，按契约开始后中止就是按已有作答交卷，所以退而用它，后面的步骤照样走得下去。
+ * 交回有没有“交卷”和确认框里的文字。
+ */
+async function finishQuiz(page: Page, kind: string): Promise<{ button: boolean; dialog: string }> {
+  const button = await page.has({ name: /^交卷$/u, selector: "button" });
+  await page.click(button ? { name: /^交卷$/u, selector: "button" } : { name: `中止${kind}`, selector: "button" });
+  await until("确认框打开", async () => (await openDialog(page)) !== "");
+  const dialog = await page.evaluate<string>("(() => { const dialog = document.querySelector('[role=dialog]'); return dialog ? dialog.innerText.trim() : ''; })()");
+  await page.click({ name: button ? /交卷/u : /^中止$/u, selector: "[role=dialog] button" });
+  await page.waitText(new RegExp(`${kind}结束|已中止`, "u"), 15_000);
+  return { button, dialog };
+}
+
+/** 当前这场测验（最近一项任务）交付的题目，和其中有作答的交付数。读学习记录，不经后端。 */
+async function quizRecord(app: App): Promise<{ questions: string[]; answered: number }> {
+  const facts = await readFacts(app, QUIZ_COURSE_NAME);
+  const task = facts.filter((fact) => fact.type === "task").at(-1);
+  const delivered = facts.filter((fact) => fact.type === "delivered" && task !== undefined && fact.task === task.seq);
+  const seqs = new Set(delivered.map((fact) => fact.seq));
+  return {
+    questions: delivered.map((fact) => fact.question ?? ""),
+    answered: facts.filter((fact) => fact.type === "answered" && fact.delivery !== undefined && seqs.has(fact.delivery)).length,
+  };
+}
+
+/** 页面上任务区里看得见的按钮的文字。 */
+async function buttons(page: Page): Promise<string[]> {
+  return page.evaluate<string[]>("[...document.querySelectorAll('main button')].filter((button) => button.getClientRects().length > 0).map((button) => button.innerText.trim()).filter(Boolean)");
+}
+
+/** 焦点此刻在哪：是不是任务区里的输入框或按钮，以及它是什么。 */
+async function focusTarget(page: Page): Promise<{ onTask: boolean; what: string }> {
+  return page.evaluate<{ onTask: boolean; what: string }>("(() => { const active = document.activeElement; const main = document.querySelector('main'); if (!active || active === document.body) return { onTask: false, what: 'body' }; const what = `${active.tagName.toLowerCase()} ${(active.getAttribute('aria-label') || active.innerText || active.getAttribute('type') || '').trim().slice(0, 20)}`; return { onTask: Boolean(main && main.contains(active)) && /^(INPUT|TEXTAREA|BUTTON)$/.test(active.tagName), what }; })()");
+}
+
+/** 把复习做完，直到菜单里出现 kind（缺省是重考）。交回做过几次复习。 */
+async function reviewUntil(page: Page, questions: Map<string, QuestionDefinition>, kind = "重考"): Promise<number> {
+  for (let done = 0; done < 6; done++) {
+    const view = learnView(await page.waitFor("菜单", (current) => current.includes("接下来"), 15_000));
+    if (view.menu.some((entry) => entry.startsWith(kind))) return done;
+    await startMenuItem(page, { kind: "复习" });
+    await page.waitText(/^复习$/mu);
+    await work(page, questions);
+    await page.waitText("复习结束");
+  }
+  throw new Error(`做了 6 次复习，菜单里还没有${kind}`);
 }
 
 export const STEPS: Step[] = [
@@ -647,6 +768,134 @@ export const STEPS: Step[] = [
       await page.click({ name: /^保存$/u, selector: "button" });
       await until("对话框关上", async () => (await openDialog(page)) === "", 15_000);
       checks.expect("填对的 key 验证通过，对话框直接关上，显示已连接", await connected(), checked().join("；"));
+    },
+  },
+  {
+    id: "quiz",
+    title: "测验：另建一门课从界面学满 150 XP，菜单出现测验；交卷、换题重考、过截止时间、判不出结果的一题",
+    async run({ app, page, model }, checks) {
+      const questions = await courseQuestions(QUIZ_COURSE);
+      const duration = await quizDurationMs();
+      // 另建一门课：走查的课只有两节、每节 15 分钟，学不到出测验的 150 XP。
+      await page.click({ name: "新建课程", selector: "a, button" });
+      await page.fill("课程名称", QUIZ_COURSE_NAME);
+      await page.click("创建");
+      await page.waitText("想学的内容与目标", 20_000);
+      const files = await courseFiles(QUIZ_COURSE);
+      model.setAnswers(await confirmationAnswers(QUIZ_COURSE));
+      model.script(QUIZ_REQUEST, [
+        { tools: files.map((file) => ({ name: "write", arguments: { path: `course/${file.path}`, content: file.content } })) },
+        { tools: [{ name: "course_check", arguments: {} }] },
+        { tools: [{ name: "course_confirm", arguments: { topicIds: ["un01", "un02", "un03"] } }] },
+        { tools: [{ name: "course_use", arguments: {} }] },
+        { text: "三节都可以学了。" },
+      ]);
+      const seen = model.toolResults.length;
+      await page.fill("想学的内容与目标", QUIZ_REQUEST);
+      await page.click({ name: "开始", selector: "button" });
+      await page.waitFor("整门课和菜单", (current) => current.includes("整门课") && current.includes("接下来"), 90_000);
+      const used = model.toolResults.slice(seen).find((result) => result.tool === "course_use")?.text ?? "";
+      checks.expect("测验课做好并换用", used.startsWith("已换用"), model.toolResults.slice(seen).map((result) => `${result.tool}：${result.text.split("\n")[0]}`).join("；"));
+      if ((await openDialog(page)) !== "") await page.press("Escape");
+      await until("抽屉关上", async () => (await openDialog(page)) === "");
+
+      // 三节 60 分钟的课，全对各得 60 XP；第三节学完累计 180 XP，过了 150 的门槛。
+      for (const [index, title] of QUIZ_TOPICS.entries()) {
+        checks.expect(`学第 ${index + 1} 节之前菜单里没有测验`, (await menuCard(page, { kind: "测验" })) === "", learnView(await page.text()).menu.join("；"));
+        await startMenuItem(page, { kind: "新课", title });
+        await page.waitText("看例题");
+        await work(page, questions);
+        const done = await page.waitText("新课结束");
+        checks.expect(`第 ${index + 1} 节「${title}」通过`, done.includes("这一节通过了。"));
+      }
+      const card = await menuCard(page, { kind: "测验" });
+      checks.expect("三节学完，菜单里出现测验", card !== "", learnView(await page.text()).menu.join("；") || "菜单是空的");
+      // V1。限时要等契约给出测验时长（菜单项里没有 durationMs），前端不写死，这里先只查题数。
+      checks.known(KNOWN.quizCard, "V1 测验卡片写明共几题（3 题）", /3/u.test(card.replace(/开始$/u, "")), card.replaceAll("\n", " / "));
+
+      // 测验：答对一题，留两题不答就交卷。
+      await startMenuItem(page, { kind: "测验" });
+      await page.waitFor("测验的第一道题", (current) => currentQuestion(current, questions) !== undefined, 15_000);
+      const opened = await page.text();
+      await page.shot("quiz-started");
+      const timer = await page.evaluate<string>("(() => { const timer = document.querySelector('[role=timer]'); return timer ? timer.innerText.trim() : ''; })()");
+      checks.known(KNOWN.quizHeader, "V2 测验中看得到剩余时间（role=timer，分:秒）", /\d+:\d{2}/u.test(timer), timer || "没有计时区域");
+      checks.known(KNOWN.quizHeader, "V2 测验中看得到“第 1 题 / 共 3 题”", /第\s*1\s*题|1\s*\/\s*3/u.test(opened));
+      const topicsShown = QUIZ_TOPICS.filter((title) => opened.includes(title));
+      const circles = await page.has({ name: "知识点", selector: "ol[aria-label]" });
+      checks.known(KNOWN.quizHeader, "V2 测验中不列 topic 长串，没有知识点圆圈", topicsShown.length < 2 && !circles, `出现 ${topicsShown.join("、") || "没有 topic 名称"}${circles ? "；有知识点圆圈" : ""}`);
+      checks.known(KNOWN.quizAbort, "V6 测验作答中没有“中止”，只留“交卷”", !(await page.has({ name: /^中止/u, selector: "button" })),
+        "准备阶段的“中止准备”走查到不了：menu.select 当场交付全部题目，正常流程停不在准备阶段");
+      const first = await answerQuizQuestion(page, questions);
+      const focus = await focusTarget(page);
+      checks.known(KNOWN.quizFocus, "V7 提交一题以后，焦点在下一道题的作答处或主按钮上", focus.onTask, focus.what);
+      const finished = await finishQuiz(page, "测验");
+      const result = await page.text();
+      await page.shot("quiz-finished");
+      const record = await quizRecord(app);
+      checks.expect("测验出了 3 个 topic 各一题", record.questions.length === 3, record.questions.join("、"));
+      checks.expect("交卷前只答了 1 题", record.answered === 1 && record.questions.includes(first), `${record.answered} 份作答`);
+      checks.known(KNOWN.quizFinish, "V3 测验作答中有“交卷”", finished.button);
+      checks.known(KNOWN.quizFinish, "V3 交卷的确认写明还有 2 题没答", finished.button && /2/u.test(finished.dialog), finished.dialog.replaceAll("\n", " / ") || "没有交卷的确认");
+      const ended = result.indexOf("测验结束");
+      const bodies = record.questions.map((id) => questions.get(id)?.body.trim() ?? id);
+      checks.known(KNOWN.quizFinish, "V3 结果页先给结论，再逐题列出 3 道题", ended >= 0 && bodies.every((body) => result.indexOf(body, ended) > ended),
+        `${ended >= 0 ? "有“测验结束”" : "没有“测验结束”"}；列出 ${bodies.filter((body) => result.includes(body)).length} 道`);
+      const reviewed = await reviewUntil(page, questions);
+      checks.expect("没答的两个 topic 各复习一次以后，菜单里出现重考", reviewed === 2, `复习 ${reviewed} 次`);
+
+      // 第一次重考：答对一题，后端时钟拨过截止时间，页面的时钟不动（页面以为还有时间），再交一题。
+      await startMenuItem(page, { kind: "重考" });
+      await answerQuizQuestion(page, questions);
+      await app.shiftClock(duration + 60_000);
+      await answer(page, questions, {});
+      const late = await page.waitText("时间到了。", 10_000).catch(async () => await page.text());
+      await page.shot("retake-late-answer");
+      // 现在画面会换成后端交回的结果，但上方是通用的“画面已经更新”；应当是说明刚才那一题没有计入的那句话（文字待写）。
+      checks.known(KNOWN.quizDeadline, "V4 截止后才交的一题被拒：画面换成时间到的结果，说明那一题没有计入，而不是通用的“画面已经更新”",
+        late.includes("时间到了。") && !late.includes("画面已经更新"), late.split("\n").filter((line) => /出错|更新|失败|时间到|计入/u.test(line)).join(" / ") || "画面没有变化");
+      if (!late.includes("时间到了。")) await page.goto(`${app.url}/`);
+      const timedOut = await page.waitText("时间到了。", 30_000);
+      checks.expect("重考按截止时间结束（时间到）", timedOut.includes("重考结束"));
+      checks.expect("截止后交的那一题没有记下", (await quizRecord(app)).answered === 1, `${(await quizRecord(app)).answered} 份作答`);
+      const reviewedAgain = await reviewUntil(page, questions);
+      checks.expect("超时没答的两个 topic 各复习一次以后，菜单里又出现重考", reviewedAgain === 2, `复习 ${reviewedAgain} 次`);
+
+      // 第二次重考：页面建不起 Python 的 Worker（运行环境起不来），代码题判不出结果；一道选择题故意答错。
+      // Python 运行器会在后台预先起好下一个 Worker，所以要在页面自己的脚本之前换掉 Worker，再重新载入页面。
+      const restorePython = await page.beforeScripts("window.Worker = class { constructor() { throw new Error('走查：Python 运行环境起不来'); } };");
+      await page.goto(`${app.url}/`);
+      await page.waitText("接下来", 30_000);
+      await startMenuItem(page, { kind: "重考" });
+      let wrong: string | undefined;
+      for (let index = 0; index < 3; index++) {
+        await answerQuizQuestion(page, questions, (question) => {
+          const choice = wrong === undefined ? wrongChoice(question) : undefined;
+          if (choice === undefined) return {};
+          wrong = question.id;
+          return { [question.id]: choice };
+        });
+      }
+      const retake = await quizRecord(app);
+      checks.expect("第二次重考出了那道代码题，三题都交了", retake.questions.includes(QUIZ_CODE_QUESTION) && retake.answered === 3, `${retake.questions.join("、")}；${retake.answered} 份作答`);
+      await page.waitText("没能判出结果", 30_000);
+      checks.expect("代码题判不出结果，没有记为对错", await latestVerdict(app, QUIZ_CODE_QUESTION, QUIZ_COURSE_NAME) === undefined);
+      await page.shot("retake-ungraded");
+      const shown = await buttons(page);
+      checks.known(KNOWN.quizRecovery, "V5 判不出结果的一题：有“再判一次”和“交卷”，没有“先做下一题”",
+        shown.includes("再判一次") && shown.includes("交卷") && !shown.includes("先做下一题"), shown.join("、"));
+
+      // 搁置过了截止时间（例如电脑睡眠）：后端和页面的时钟一起拨过去，页面重新可见、得到焦点，不刷新。
+      await app.shiftClock(duration + 60_000);
+      await page.shiftClock(duration + 60_000);
+      await page.evaluate("(() => { document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')); return true; })()");
+      const expired = await page.waitText("时间到了。", 5_000).then(() => true, () => false);
+      await page.shot("retake-expired");
+      checks.known(KNOWN.quizDeadline, "V4 过了截止时间、页面不刷新，画面自己换成时间到", expired);
+      await restorePython();
+      if (!expired) await page.goto(`${app.url}/`);
+      const final = await page.waitText("时间到了。", 30_000);
+      checks.expect("第二次重考按截止时间结束（有一题答错，所以是时间到）", final.includes("重考结束"), wrong);
     },
   },
 ];
