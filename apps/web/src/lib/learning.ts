@@ -52,7 +52,7 @@ export type LearningView = {
   /** 读取状态失败的原因；已经有画面时仍显示旧画面。 */
   loadError?: unknown;
   /** 正在进行的任务操作，期间操作按钮不可用。 */
-  busy?: "select" | "advance" | "resume" | "abort" | "retry" | undefined;
+  busy?: "select" | "advance" | "resume" | "abort" | "finish" | "retry" | undefined;
   /** 最近一次任务操作的失败，下一次操作开始时清除。 */
   actionError?: unknown;
   /** 操作时后端发现画面已经过时，换成了它给的当前状态；提示学习者看一眼再操作。 */
@@ -334,6 +334,13 @@ export function createLearningActions({ call, get, set }: Deps) {
     },
     abortTask(): Promise<void> {
       return perform("abort", async () => await learningCall("task.abort", guard()));
+    },
+    /**
+     * 测验或重考交卷：后端不等判分，没答的算错、还没判出结果的不算对错，按已有作答结束这一场。
+     * 画面过时（例如已经到了截止时间）时换成后端给的当前状态；已经结束的场次再交，后端返回既有结果。
+     */
+    finishQuiz(): Promise<void> {
+      return perform("finish", async () => await learningCall("quiz.finish", guard()));
     },
     /** 判分没有完成的作答再判一次；返回的是这份提交的回执，任务状态随后重新读取。 */
     retryJudging(submissionId: string): Promise<void> {

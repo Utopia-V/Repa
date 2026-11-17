@@ -171,6 +171,8 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
   const retryJudging = useAppStore((store) => store.retryJudging);
   const busy = learning.busy !== undefined;
   const { phase } = task;
+  // 测验和重考没有“下一题”可推进：题目一次交付，作答页上直接换题；结束靠交卷或到截止时间。
+  const quiz = task.kind === "quiz" || task.kind === "retake";
 
   switch (phase.stage) {
     case "preparing":
@@ -215,7 +217,7 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
           {phase.stage === "recovery" && failure === "auth" && <Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button>}
           {phase.stage === "recovery" && <Button variant="tertiary" disabled={busy} onClick={() => { void retryJudging(phase.submissionId); }} leadingIcon={RefreshCw}>{t("learn.stage.regrade.action")}
           </Button>}
-          {phase.stage !== "judging" && <Button disabled={busy} onClick={() => { void advanceTask(); }}>
+          {phase.stage !== "judging" && !quiz && <Button disabled={busy} onClick={() => { void advanceTask(); }}>
             {phase.stage === "recovery" ? t("learn.stage.next.action") : t("common.continue.action")}
           </Button>}
         </Actions>

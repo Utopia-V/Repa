@@ -33,7 +33,7 @@ export const KNOWN = {
   quizHeader: "测验中看不到剩余时间和“第几题 / 共几题”，反而列出全部 topic 的长串和知识点圆圈（Q1、Q6）",
   quizFinish: "测验没有“交卷”，只能“中止测验”，确认里不说还有几题没答、没答的算错；结束后只显示最后一题，不逐题列出对错（Q1、Q3）",
   quizDeadline: "到了截止时间画面不变，刷新后才看到时间到；截止后提交被拒时只报错，没有换成结果（Q2）",
-  quizRecovery: "测验里判不出结果的题显示“先做下一题”，测验不能这样推进；也没有“交卷”（Q4）",
+  quizRecovery: "测验里判不出结果的题旁边没有“交卷”（Q4；测验不能推进的“先做下一题”已去掉）",
   quizAbort: "测验作答中仍有“中止测验”；按契约开始后中止就是交卷，作答页只该留“交卷”（Q5）",
   quizFocus: "提交一题以后焦点丢到页面开头，不在下一道题上（A1）",
 } as const;
@@ -882,8 +882,8 @@ export const STEPS: Step[] = [
       checks.expect("代码题判不出结果，没有记为对错", await latestVerdict(app, QUIZ_CODE_QUESTION, QUIZ_COURSE_NAME) === undefined);
       await page.shot("retake-ungraded");
       const shown = await buttons(page);
-      checks.known(KNOWN.quizRecovery, "V5 判不出结果的一题：有“再判一次”和“交卷”，没有“先做下一题”",
-        shown.includes("再判一次") && shown.includes("交卷") && !shown.includes("先做下一题"), shown.join("、"));
+      checks.expect("V5 判不出结果的一题旁边没有“先做下一题”（测验不能推进）", !shown.includes("先做下一题"), shown.join("、"));
+      checks.known(KNOWN.quizRecovery, "V5 判不出结果的一题：有“再判一次”和“交卷”", shown.includes("再判一次") && shown.includes("交卷"), shown.join("、"));
 
       // 搁置过了截止时间（例如电脑睡眠）：后端和页面的时钟一起拨过去，页面重新可见、得到焦点，不刷新。
       await app.shiftClock(duration + 60_000);
