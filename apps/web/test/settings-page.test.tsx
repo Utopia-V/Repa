@@ -77,8 +77,10 @@ function backend() {
         if (params.provider === "bedrock") {
           return Promise.reject(new RpcError(-32000, "此提供方需要额外登录信息，请使用交互登录", { code: "requires_interactive_login" }));
         }
+        // 后端保存前试发一次请求：提供方拒绝时不保存；连不上时照样保存，交回原因。
+        if (params.key === "sk-wrong") return Promise.reject(new RpcError(-32000, "提供方拒绝了这个 API key", { code: "key_rejected", details: { failure: "auth" } }));
         connect(String(params.provider), "api_key");
-        return Promise.resolve(null);
+        return Promise.resolve(params.key === "sk-offline" ? { failure: "network" } : {});
       case "auth.logout": {
         const provider = providers.find((item) => item.id === params.provider)!;
         delete provider.configured;
@@ -179,6 +181,28 @@ it("搜索提供方并填写 key 连接，之后可以断开", async () => {
   fireEvent.click(providers.getByRole("button", { name: "断开" }));
   await vi.waitFor(() => expect(providers.queryByText("DeepSeek")).toBeNull());
   expect(fake.call).toHaveBeenCalledWith("auth.logout", { provider: "deepseek" });
+});
+
+it("提供方拒绝 key 时不保存、对话框留着可以重填；连不上没能验证时照样保存，说明原因后由他关掉", async () => {
+  const fake = backend();
+  await renderSettings(fake);
+  fireEvent.click(screen.getByRole("button", { name: "添加提供方" }));
+  // DeepSeek 在“常用”和全部列表里各有一个。
+  fireEvent.click(within(await screen.findByRole("dialog", { name: "添加提供方" })).getAllByRole("button", { name: "DeepSeek" })[0]!);
+  const keyDialog = await screen.findByRole("dialog", { name: "连接 DeepSeek" });
+  const key = within(keyDialog).getByLabelText("DeepSeek API key");
+
+  fireEvent.change(key, { target: { value: "sk-wrong" } });
+  fireEvent.click(within(keyDialog).getByRole("button", { name: "保存" }));
+  expect(await within(keyDialog).findByText("这个 API key 无效，请核对后重新填写。")).toBeTruthy();
+  expect(within(keyDialog).getByLabelText("DeepSeek API key")).toBeTruthy();
+
+  fireEvent.change(key, { target: { value: "sk-offline" } });
+  fireEvent.click(within(keyDialog).getByRole("button", { name: "保存" }));
+  expect(await within(keyDialog).findByText("已保存，但未能确认这个 key 是否可用。")).toBeTruthy();
+  fireEvent.click(within(keyDialog).getByRole("button", { name: "完成" }));
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(within(section("模型提供方")).getByText("DeepSeek")).toBeTruthy();
 });
 
 it("只填 key 不够的提供方改走交互登录，按提示回答后完成", async () => {

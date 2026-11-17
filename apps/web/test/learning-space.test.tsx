@@ -14,7 +14,7 @@ import { mockMatchMedia } from "./match-media";
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 /** 模拟后端的最近空间记录：打开的空间移到最前。 */
-function fakeBackend(recent: string[], options: { failOpen?: unknown; failList?: unknown } = {}) {
+function fakeBackend(recent: string[], options: { failOpen?: unknown; failList?: unknown; defaultModel?: { provider: string; id: string } | null } = {}) {
   let spaces = [...recent];
   const call = vi.fn((method: string, params: { root?: string }) => {
     if (method === "space.list") {
@@ -32,6 +32,10 @@ function fakeBackend(recent: string[], options: { failOpen?: unknown; failList?:
       return Promise.resolve({ root });
     }
     if (method === "backup.list") return Promise.resolve([]);
+    if (options.defaultModel !== undefined) {
+      if (method === "model.getDefault") return Promise.resolve(options.defaultModel);
+      if (method === "model.providers" || method === "model.list") return Promise.resolve([]);
+    }
     return Promise.reject(new Error(`未模拟的方法 ${method}`));
   });
   return { call, ...fakeClient(call) };
@@ -119,6 +123,20 @@ it("第一次使用时只引导选择文件夹，不显示最近列表", async (
   expect(await screen.findByRole("heading", { name: "创建第一门课" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "选择文件夹" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "最近打开" })).toBeNull();
+});
+
+it("全新用户还没有可用的模型时，第一屏就提示先去设置模型；建课不受影响", async () => {
+  const { client } = fakeBackend([], { defaultModel: null });
+  renderPage(client);
+  expect(await screen.findByText("还没有可用的模型")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
+  cleanup();
+
+  const connected = fakeBackend([], { defaultModel: { provider: "deepseek", id: "deepseek-chat" } });
+  renderPage(connected.client);
+  await screen.findByRole("heading", { name: "创建第一门课" });
+  await waitFor(() => expect(connected.call).toHaveBeenCalledWith("model.getDefault", {}));
+  expect(screen.queryByText("还没有可用的模型")).toBeNull();
 });
 
 it("有最近空间时选择文件夹退为次要操作", async () => {

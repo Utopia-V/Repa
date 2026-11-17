@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -163,6 +163,9 @@ test("CLI 通过模块路径加载笔记插件，界面调用完成真实保存�
 
 test("CLI 关掉通用 Agent 并指定直接对话的插件 Agent，前端只能与它建会话", async (t) => {
   const f = await fixture(t);
+  // 建会话要有可用模型。auth.setKey 保存前会向提供方试发请求，这里在启动前写好凭据文件，不联网。
+  await mkdir(path.join(f.root, "agents-home", "agent"), { recursive: true });
+  await writeFile(path.join(f.root, "agents-home", "agent", "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "test-key" } }));
   const { cli, client } = await f.start("agents-home", [
     "--plugin", "dist/examples", "--no-general-agent", "--direct-agent", "notes-organizer",
   ]);
@@ -175,8 +178,6 @@ test("CLI 关掉通用 Agent 并指定直接对话的插件 Agent，前端只能
     assert.equal(record(error.data)?.code, "agent_not_found");
     return true;
   });
-  // 建会话要有可用模型；只存一个密钥，不发请求。
-  await client.call("auth.setKey", { provider: "anthropic", key: "test-key" });
   assert.equal((await client.call("session.create", { agent: "notes-organizer" })).agent, "notes-organizer");
   assert.deepEqual(await stop(cli), { code: 0, signal: null });
 });

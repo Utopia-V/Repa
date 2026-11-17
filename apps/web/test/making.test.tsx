@@ -566,28 +566,37 @@ it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以�
   expect(await tutor.findByText("就绪是只差处理机的状态。")).toBeTruthy();
 });
 
-it("模型请求以认证失败、额度不足、请求太频繁结束时，说一句人能看懂的话，原文折叠保留；认证失败带去设置的入口", async () => {
-  const error = (id: string, status: number, message: string) => ({ id, type: "assistant", timestamp: iso, text: "", data: { stopReason: "error", errorMessage: message, errorStatus: status } });
+it("模型请求失败时按后端给出的原因说一句人能看懂的话，原文折叠保留；自动重试过的几次不显示；凭据无效带去设置的入口", async () => {
+  const error = (id: string, failure: string, message: string, retried = false) => ({
+    id, type: "assistant", timestamp: iso, text: "", data: { stopReason: "error", errorMessage: message, failure, ...(retried ? { retried } : {}) },
+  });
   const fake = backend({
     "learning.building.get": () => Promise.resolve({ ...nothing, sessionId: "making-1" }),
     "session.history": () => Promise.resolve([
       { id: "u1", type: "user", timestamp: iso, text: "我把课件放进了 materials/" },
-      error("e1", 401, '401: {"message":"Authentication Fails"}'),
-      error("e2", 402, "402: Insufficient Balance"),
-      error("e3", 429, "429: rate limited"),
-      { id: "e4", type: "assistant", timestamp: iso, text: "", data: { stopReason: "error", errorMessage: "fetch failed" } },
+      error("e1", "auth", '401: {"message":"Authentication Fails"}'),
+      error("e2", "balance", "402: Insufficient Balance"),
+      error("e3", "rate_limit", "429: rate limited", true),
+      error("e4", "rate_limit", "429: rate limited", true),
+      error("e5", "rate_limit", "429: rate limited"),
+      error("e6", "network", "Request timed out."),
+      error("e7", "server", "503: Server Overloaded"),
+      { id: "e8", type: "assistant", timestamp: iso, text: "", data: { stopReason: "error", errorMessage: "something odd" } },
     ]),
   }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
   start(fake.client);
 
   const panel = within(await screen.findByRole("complementary", { name: "making.panel.label" }));
   expect(await panel.findByText("modelError.auth.title")).toBeTruthy();
-  expect(panel.getByText("modelError.quota.title")).toBeTruthy();
-  expect(panel.getByText("modelError.rateLimit.title")).toBeTruthy();
+  expect(panel.getByText("modelError.balance.title")).toBeTruthy();
+  expect(panel.getAllByText("modelError.rateLimit.title")).toHaveLength(1);
+  expect(panel.getByText("modelError.network.title")).toBeTruthy();
+  expect(panel.getByText("modelError.server.title")).toBeTruthy();
+  // 没有带原因的按“其他”。
+  expect(panel.getByText("modelError.other.title")).toBeTruthy();
   expect(panel.getByText('401: {"message":"Authentication Fails"}').closest("details")).toBeTruthy();
+  expect(panel.getByText("something odd").closest("details")).toBeTruthy();
   expect(panel.getAllByRole("link", { name: "去设置模型" })).toHaveLength(1);
-  // 认不出状态码的照原文显示。
-  expect(panel.getByText("fetch failed").closest("details")).toBeNull();
   // 运行已经结束而还没有课：主区域如实说没有成功。
   expect(screen.getByText("outline.notMade.status")).toBeTruthy();
 });

@@ -20,6 +20,7 @@ import {
   ConfirmationSchema,
   DirectoryListingSchema,
   DirectoryRootSchema,
+  KeyCheckSchema,
   ModelRefSchema,
   PLUGIN_ID,
   PluginDigestSchema,
@@ -193,7 +194,8 @@ export const methods = {
   "model.getDefault": { params: empty, result: Type.Union([ModelRefSchema, nothing]) },
   "model.setDefault": { params: object({ model: ModelRefSchema }), result: nothing },
   "auth.login": { params: object({ provider: identifier, type: identifier }), result: nothing },
-  "auth.setKey": { params: object({ provider: identifier, key: identifier }), result: nothing },
+  // 保存前用这个 key 试发一次请求：提供方拒绝时以 key_rejected（details.failure 为 auth）拒绝，不保存；其余失败照样保存，结果里带上原因。
+  "auth.setKey": { params: object({ provider: identifier, key: identifier }), result: KeyCheckSchema },
   "auth.logout": { params: object({ provider: identifier }), result: nothing },
   // 生成问题反馈包：会话记录、空间历史、最近错误和运行环境，凭据脱敏后打成 zip；describe 为 true 时附上 Agent 自述。
   "feedback.create": {

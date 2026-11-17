@@ -676,13 +676,12 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       case "auth.setKey": {
         const input = p<"auth.setKey">();
         try {
-          await runtime.setKey(input.provider, input.key);
+          return await runtime.setKey(input.provider, input.key);
         } catch (error) {
-          // requires_interactive_login 告诉前端改走 auth.login，不能被合并成笼统的失败。
+          // requires_interactive_login 告诉前端改走 auth.login，key_rejected 说明 key 不对，都不能被合并成笼统的失败。
           if (error instanceof RepaFault) throw error;
           throw new RepaFault("auth_failed", "保存模型凭据失败");
         }
-        return null;
       }
       case "auth.logout":
         try {
