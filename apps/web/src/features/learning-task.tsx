@@ -7,6 +7,7 @@ import type { Delivery, LearningTask, Submission } from "@repa/learning/protocol
 import { Button } from "@/components/ui/button";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
+import { QuizClock } from "@/components/domain/quiz-clock";
 import { buildResponse, emptyDraft, ItemSlots, SlotProblems } from "@/components/domain/item-form";
 import { Content, type Draft } from "@/components/domain/item-parts";
 import { SubmissionReview } from "@/components/domain/submission-feedback";
@@ -237,16 +238,46 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
   }
 }
 
-/** 当前任务：类型、topic 名称、知识点进度和当前阶段的画面。 */
+/** 测验里当前这道题是第几题：作答中的交付，或者判分中、判不出结果的那份作答所属的交付。结束以后为 undefined。 */
+export function quizPosition(task: LearningTask): { current: number; total: number } | undefined {
+  const { phase } = task;
+  const deliveryId = phase.stage === "awaiting_answer"
+    ? phase.deliveryId
+    : "submissionId" in phase ? task.submissions.find((submission) => submission.submissionId === phase.submissionId)?.deliveryId
+      ?? task.deliveries.find((delivery) => delivery.submissionId === phase.submissionId)?.deliveryId : undefined;
+  const index = task.deliveries.findIndex((delivery) => delivery.deliveryId === deliveryId);
+  return index < 0 ? undefined : { current: index + 1, total: task.deliveries.length };
+}
+
+/**
+ * 测验和重考的头部：只写类型、第几题和剩余时间。作答时只留当前这道题，不列全部 topic 的名称，也不显示知识点进度。
+ */
+function QuizHeading({ task }: { task: LearningTask }) {
+  const serverNow = useAppStore((store) => store.learning.state?.serverNow);
+  const readAt = useAppStore((store) => store.learning.readAt);
+  const position = quizPosition(task);
+  const running = task.phase.stage !== "completed" && task.phase.stage !== "aborted";
+
+  return <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <h3 id="learning-task-title" className="m-0 text-title weight-semibold">{kindText[task.kind]}</h3>
+    {running && <div className="flex flex-wrap items-center gap-3">
+      {position && <p className="m-0 text-body text-muted-foreground">{t("learn.quiz.position.status", position)}</p>}
+      {task.deadlineAt !== null && serverNow !== undefined && <QuizClock deadlineAt={task.deadlineAt} serverNow={serverNow} readAt={readAt} />}
+    </div>}
+  </div>;
+}
+
+/** 当前任务：类型、topic 名称、知识点进度和当前阶段的画面；测验和重考的头部见 QuizHeading。 */
 export function LearningTaskView({ task, renderLink }: { task: LearningTask; renderLink: RenderLink }) {
   const topics = task.topics.map((topic) => topic.title).join("、");
+  const quiz = task.kind === "quiz" || task.kind === "retake";
 
   return <section aria-labelledby="learning-task-title" className="grid gap-5">
-    <div className="grid gap-2">
+    {quiz ? <QuizHeading task={task} /> : <div className="grid gap-2">
       <p className="m-0 text-body text-muted-foreground">{kindText[task.kind]}</p>
       <h3 id="learning-task-title" className="m-0 text-title weight-semibold">{topics}</h3>
       <KpProgress task={task} />
-    </div>
+    </div>}
     <Stage task={task} renderLink={renderLink} />
   </section>;
 }

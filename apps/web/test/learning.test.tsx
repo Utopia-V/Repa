@@ -10,6 +10,7 @@ import { StoreProvider } from "../src/hooks/use-app-store";
 import { TrialRunnerProvider, type TrialRunner } from "../src/hooks/use-trial-runner";
 import { createAppStore } from "../src/lib/store";
 import { routes } from "../src/routes";
+import { t } from "../src/lib/strings";
 import { fakeClient } from "./fake-client";
 import { mockMatchMedia } from "./match-media";
 
@@ -467,4 +468,34 @@ it.each((["quiz", "retake"] as const).flatMap((kind) => quizStages.map((phase) =
 
   expect(clicked.size).toBeGreaterThan(0);
   expect(learningCalls(fake.call).map((call) => call.method)).not.toContain("task.advance");
+});
+
+it("测验头部：标题是“测验”，写第几题和剩余时间；不列 topic 名称，没有知识点圆圈", async () => {
+  const titled = (phase: LearningTask["phase"]) => ({
+    ...quizTask(phase),
+    topics: [{ id: "py01", title: "数字、文字和缺省值不是一回事" }, { id: "py02", title: "名字指向当前的值" }],
+    kps: [{ kpId: "py01.k1", title: "int、float、str 的行为差别", attempts: 0, consecutiveCorrect: 0, completed: false }],
+  });
+  let current = state(4, titled({ stage: "awaiting_answer", deliveryId: "d2" }));
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(current);
+    return Promise.reject(new Error(method));
+  });
+  const store = start(backend(learning).client);
+
+  const main = await screen.findByRole("main");
+  expect(within(main).getByRole("heading", { name: "测验" })).toBeTruthy();
+  expect(within(main).getByText(t("learn.quiz.position.status", { current: 2, total: 3 }))).toBeTruthy();
+  expect(within(main).getByRole("timer").textContent).toMatch(/^1[45]:\d\d$/u);
+  expect(within(main).queryByText("数字、文字和缺省值不是一回事", { exact: false })).toBeNull();
+  expect(within(main).queryByRole("list", { name: "知识点" })).toBeNull();
+
+  // 判不出结果的那份作答属于第 1 题；结束以后不再写题号和剩余时间。
+  current = state(5, titled({ stage: "recovery", submissionId: "s1" }));
+  await act(() => store.getState().refreshLearning());
+  expect(within(main).getByText(t("learn.quiz.position.status", { current: 1, total: 3 }))).toBeTruthy();
+  current = state(6, titled({ stage: "completed", outcome: "failed" }));
+  await act(() => store.getState().refreshLearning());
+  expect(within(main).queryByRole("timer")).toBeNull();
+  expect(within(main).queryByText(t("learn.quiz.position.status", { current: 1, total: 3 }))).toBeNull();
 });

@@ -374,6 +374,11 @@ export class Page {
     await this.call(shiftPageClock, ms);
   }
 
+  /** 改变视口大小，例如看窄屏下放不放得下；看完用同样的方法改回桌面端缺省的 1120×760。 */
+  async viewport(width: number, height: number): Promise<void> {
+    await this.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+  }
+
   /**
    * 之后每次载入新文档时，在页面自己的脚本之前先运行 source（经 CDP 注入，不受页面 CSP 限制）；已经载入的页面不受影响。
    * 交回撤销它的函数。

@@ -30,7 +30,7 @@ export interface Step {
 export const KNOWN = {
   // 测验的问题（2026-11-18 走查测验时发现，编号见前端问题全集），按测验计划逐项修。
   quizCard: "菜单的测验卡片只写类型和标题，没写共几题（Q1；限时要等契约给出时长再写）",
-  quizHeader: "测验中看不到剩余时间和“第几题 / 共几题”，反而列出全部 topic 的长串和知识点圆圈（Q1、Q6）",
+  quizPosition: "测验头部“第几题 / 共几题”的文字还是占位〔待写〕，看不出题号（Q1；键 learn.quiz.position.status）",
   quizFinish: "测验没有“交卷”，只能“中止测验”，确认里不说还有几题没答、没答的算错；结束后只显示最后一题，不逐题列出对错（Q1、Q3）",
   quizDeadline: "到了截止时间画面不变，刷新后才看到时间到；截止后提交被拒时只报错，没有换成结果（Q2）",
   quizRecovery: "测验里判不出结果的题旁边没有“交卷”（Q4；测验不能推进的“先做下一题”已去掉）",
@@ -819,11 +819,17 @@ export const STEPS: Step[] = [
       const opened = await page.text();
       await page.shot("quiz-started");
       const timer = await page.evaluate<string>("(() => { const timer = document.querySelector('[role=timer]'); return timer ? timer.innerText.trim() : ''; })()");
-      checks.known(KNOWN.quizHeader, "V2 测验中看得到剩余时间（role=timer，分:秒）", /\d+:\d{2}/u.test(timer), timer || "没有计时区域");
-      checks.known(KNOWN.quizHeader, "V2 测验中看得到“第 1 题 / 共 3 题”", /第\s*1\s*题|1\s*\/\s*3/u.test(opened));
+      checks.expect("V2 测验中看得到剩余时间（role=timer，分:秒），刚开始不超过限时", /^\d+:\d{2}$/u.test(timer) && Number(timer.split(":")[0]) * 60_000 <= duration, timer || "没有计时区域");
+      checks.known(KNOWN.quizPosition, "V2 测验中看得到“第 1 题 / 共 3 题”", /第\s*1\s*题|1\s*\/\s*3/u.test(opened));
       const topicsShown = QUIZ_TOPICS.filter((title) => opened.includes(title));
       const circles = await page.has({ name: "知识点", selector: "ol[aria-label]" });
-      checks.known(KNOWN.quizHeader, "V2 测验中不列 topic 长串，没有知识点圆圈", topicsShown.length < 2 && !circles, `出现 ${topicsShown.join("、") || "没有 topic 名称"}${circles ? "；有知识点圆圈" : ""}`);
+      checks.expect("V2 测验中不列 topic 长串，没有知识点圆圈", topicsShown.length < 2 && !circles, `出现 ${topicsShown.join("、") || "没有 topic 名称"}${circles ? "；有知识点圆圈" : ""}`);
+      // 窄屏：400 px 宽时测验头部和题目放得下，页面不横向滚动。看完改回桌面端缺省的大小。
+      await page.viewport(400, 760);
+      await page.shot("quiz-narrow");
+      const overflow = await page.evaluate<number>("document.documentElement.scrollWidth - document.documentElement.clientWidth");
+      checks.expect("400 px 宽时测验画面不横向溢出", overflow <= 0, `多出 ${overflow} px`);
+      await page.viewport(1120, 760);
       checks.known(KNOWN.quizAbort, "V6 测验作答中没有“中止”，只留“交卷”", !(await page.has({ name: /^中止/u, selector: "button" })),
         "准备阶段的“中止准备”走查到不了：menu.select 当场交付全部题目，正常流程停不在准备阶段");
       const first = await answerQuizQuestion(page, questions);
