@@ -7,12 +7,14 @@ import test, { type TestContext } from "node:test";
 import { crc32, inflateRawSync } from "node:zlib";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { startServer } from "@repa/base";
+import { RepaFault, startServer } from "@repa/base";
 import { RepaClient, RpcError } from "@repa/base/client";
 import { INTERACTION_CAPABILITIES, parse } from "@repa/base/protocol";
 import { stringify } from "yaml";
 import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
 import { exportReads } from "../../base/dist/feedback/export.js";
+import type { Host, PreparedExport } from "@repa/base/plugin";
+import { connectExport } from "../src/export.js";
 import { createLearningPlugin, LEARNING_FORMAT_VERSION } from "../src/plugin.js";
 import { learningMethods, type LearningInput, type LearningMethod, type LearningResult } from "../src/protocol.js";
 import { FactSchema } from "../src/records-schema.js";
@@ -263,6 +265,25 @@ test("预览与 zip 一致：预览以后新增的记录不进入这次导出，
   await assert.rejects(f.call("export.create", { exportId: second.exportId, directory: "下载" }), rejectsWith("invalid_path"));
   const retried = await f.call("export.create", { exportId: second.exportId });
   assert.equal(unzip(await readFile(retried.path)).get("records.jsonl"), await readFile(f.records, "utf8"));
+});
+
+test("两次预览同时在途、先发起的后完成：后发起的那份可以导出，先发起的失效", async () => {
+  const pending: ((prepared: PreparedExport) => void)[] = [];
+  const written: string[] = [];
+  const host = { prepareExport: () => new Promise<PreparedExport>((resolve) => pending.push(resolve)) } as unknown as Host;
+  const { methods } = connectExport(host, () => ({ recordsFormat: 1, course: null }));
+  const call = (name: string, input: unknown) => methods?.[name]?.invoke(input, {}) as Promise<{ exportId: string }>;
+  const prepared = (name: string): PreparedExport => ({ files: [], write: () => { written.push(name); return Promise.resolve(`/exports/${name}.zip`); } });
+  const withSessions = call("export.prepare", { sessions: true });
+  const without = call("export.prepare", { sessions: false });
+  while (pending.length < 2) await new Promise((resolve) => setImmediate(resolve));
+  pending[1]?.(prepared("without"));
+  const shown = await without;
+  pending[0]?.(prepared("with"));
+  const late = await withSessions;
+  await assert.rejects(call("export.create", { exportId: late.exportId }), (error) => error instanceof RepaFault && error.code === "export_expired");
+  await call("export.create", { exportId: shown.exportId });
+  assert.deepEqual(written, ["without"]);
 });
 
 test("学习进行中备份，日志末尾的半行不收；接着学，恢复到原位置以后学习插件正常打开，可以继续作答", async (t) => {

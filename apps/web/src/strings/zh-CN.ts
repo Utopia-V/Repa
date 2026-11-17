@@ -517,6 +517,7 @@ export const strings = {
   "export.file.records.label": "{count} 条",
   "export.file.redactions.label": "已遮去 {count} 处密钥",
   "export.prepare.error": "无法准备导出",
+  "export.preview.retry.action": "重新预览",
   "export.create.action": "导出",
   "export.create.running.status": "正在导出…",
   "export.create.error": "无法导出",

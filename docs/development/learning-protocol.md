@@ -59,7 +59,7 @@ if (state.ok) renderLearning(state.value);
 | `export.prepare` | `sessions` 表示是否包含会话记录；冻结一份已脱敏的学习数据导出，返回 `exportId` 和清单 `files`，每项是包内路径 `name`、字节数 `bytes`、`.jsonl` 的记录条数 `records` 与替换掉的凭据和密钥处数 `redactions`。包内容见[导出学习数据](learning-records.md#导出学习数据) |
 | `export.create` | `exportId` 和可选的绝对路径 `directory`，把这份预览写成 zip，返回文件路径 `path`；省略 `directory` 时放在应用配置目录的 `exports/`，桌面端可以传入“下载”文件夹 |
 
-导出学习数据时，界面先说明会话可能含有私人内容、默认不包含，再用 `export.prepare` 的清单让学习者确认要发出的文件；学习者切换“包含会话”时重新调用 `export.prepare`。确认以后用同一个 `exportId` 调用 `export.create`，写出的 zip 与清单一致。只有最近一次预览有效，写出成功以后它也失效。
+导出学习数据时，界面先说明会话可能含有私人内容、默认不包含，再用 `export.prepare` 的清单让学习者确认要发出的文件；学习者切换“包含会话”时重新调用 `export.prepare`。确认以后用同一个 `exportId` 调用 `export.create`，写出的 zip 与清单一致。只有最后发起的那次预览有效，写出成功以后它也失效；几次预览同时在途时，以最后发起的那次为准，界面也只显示它的清单。
 
 任务的 `topics` 列出任务所涉 topic 的 `id` 与 `title`，`kps` 每项带知识点的 `title` 与进度，标题都取自当前课程；测验的 `kps` 包括所涉每个 topic 的知识点。界面显示正在学的 topic 和知识点时直接用这些标题，不另查内容：作答期间不能搜索内容，菜单只在没有进行中的任务时出现。交付的 `topicId` 对应 `topics` 中的一项。只有新课计知识点进度，复习和测验的进度始终为零，所以进度只在新课显示。复习和测验里的知识点标题用于作答以后说明每道题属于哪个知识点，作答之前不显示：认出该用哪个知识点本身就是要考的内容。
 

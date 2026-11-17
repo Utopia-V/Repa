@@ -461,8 +461,16 @@ export const STEPS: Step[] = [
       checks.expect("新备份里有学习记录", copied.includes("\"type\":\"answered\""), path.relative(app.dir, newest));
       await page.click({ name: "导出学习数据", selector: "button" });
       await page.waitText("records.jsonl", 15_000);
+      // 快速勾上又取消“包含会话记录”：两次预览同时在途，后发的那一次（不含会话）是清单上的那份。
+      // 经鼠标点两下之间至少隔 80 毫秒（等位置稳定），前一次预览往往已经回来；这里在页面里接连点两下。
+      await page.evaluate<null>("(() => { const box = document.getElementById('export-sessions'); box.click(); box.click(); return null; })()");
+      await until("清单回来、可以导出", async () => {
+        const found = await page.find({ name: /^导出$/u, selector: "button" });
+        return found.found && !found.disabled;
+      }, 15_000);
       await page.click({ name: /^导出$/u, selector: "button" });
-      const exported = await page.waitText("已导出", 30_000);
+      const exported = await page.waitFor("导出完成或报错", (text) => text.includes("已导出") || text.includes("无法导出"), 30_000);
+      checks.expect("快速切换选项以后导出仍然成功", exported.includes("已导出"), /无法导出\s*\n[^\n]*/u.exec(exported)?.[0]);
       const file = /(\/[^\n]*repa-learning-export-[^\n]*\.zip)/u.exec(exported)?.[1];
       checks.expect("页面写出导出文件的位置", file !== undefined, file);
       const entries = unzip(await readFile(file ?? ""));
@@ -470,6 +478,7 @@ export const STEPS: Step[] = [
       const facts = records.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type?: string });
       checks.expect("导出的文件里有作答记录", facts.some((fact) => fact.type === "answered") && facts.some((fact) => fact.type === "graded"),
         `${[...entries.keys()].join("、")}；records.jsonl ${facts.length} 条`);
+      checks.expect("导出的是清单上那份（没有勾选，不含会话记录）", ![...entries.keys()].some((name) => name.includes("sessions/")), [...entries.keys()].join("、"));
       await page.press("Escape");
     },
   },
