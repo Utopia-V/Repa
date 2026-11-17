@@ -10,7 +10,7 @@
  * 后端由这里直接持有：走查要能关掉后端再打开（像学习者关掉应用），也要能带着拨过的时钟重启。
  * 页面在浏览器里没有 window.repaHost，向 /__repa/connection 要连接，这里交出当前后端的连接。
  */
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -125,6 +125,13 @@ export class App {
     return app;
   }
 
+  /** 把几项 Pi 设置并进走查临时配置目录里的 agent/settings.json；后端关着时写，起后端时读入。 */
+  private async writeAgentSettings(patch: Record<string, unknown>): Promise<void> {
+    const file = path.join(this.repaHome, "agent", "settings.json");
+    const current = JSON.parse(await readFile(file, "utf8").catch(() => "{}")) as Record<string, unknown>;
+    await writeFile(file, JSON.stringify({ ...current, ...patch }, null, 2));
+  }
+
   /** 写上假模型的配置：学习者接好了模型。 */
   async connectModel(): Promise<void> {
     await mkdir(path.join(this.repaHome, "agent"), { recursive: true });
@@ -164,10 +171,14 @@ export class App {
     await backend?.close();
   }
 
-  /** 关掉应用再打开：关后端、起后端，页面重新载入（localStorage 里记着上次的空间，与重开桌面端一样）。 */
-  async reopen(options: { days?: number } = {}): Promise<void> {
+  /**
+   * 关掉应用再打开：关后端、起后端，页面重新载入（localStorage 里记着上次的空间，与重开桌面端一样）。
+   * settings 是重开前并进 Pi 设置的几项，例如缩短模型请求的超时，让“请求超时”在几秒内发生。
+   */
+  async reopen(options: { days?: number; settings?: Record<string, unknown> } = {}): Promise<void> {
     await this.stopBackend();
     if (options.days) this.clockOffsetMs += options.days * DAY_MS;
+    if (options.settings) await this.writeAgentSettings(options.settings);
     await this.startBackend();
     await this.page.goto(`${this.url}/`);
   }

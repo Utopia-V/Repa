@@ -9,7 +9,7 @@ import { inflateRawSync } from "node:zlib";
 import type { App } from "./app.js";
 import type { Page } from "./browser.js";
 import { confirmationAnswers, courseFiles, courseQuestions, type QuestionDefinition } from "./course.js";
-import type { ScriptedModel } from "./model.js";
+import type { ModelFailureScript, ScriptedModel } from "./model.js";
 import type { Checks } from "./walk.js";
 
 export interface Context {
@@ -33,6 +33,16 @@ export const KNOWN = {
   makingPanel: "做课的面板在课做好以后不收起",
 } as const;
 
+/** 模型请求失败时对话里应当出现的那句话（维护者定的文字），按假模型失败的方式。 */
+const FAILURE_TEXT: [ModelFailureScript, string][] = [
+  ["disconnect", "无法连接模型服务，请检查网络后重新发送。"],
+  ["timeout", "无法连接模型服务，请检查网络后重新发送。"],
+  [401, "API key 无效，请在“设置”的“模型提供方”中重新填写。"],
+  [402, "模型服务的账户余额不足，充值后重新发送。"],
+  [429, "请求过于频繁，请稍后重新发送。"],
+  [500, "模型服务暂时不可用，请稍后重新发送。"],
+];
+
 const COURSE_NAME = "操作系统 走查";
 const REQUEST = "想学进程状态和进程控制块，下周考试。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
@@ -45,6 +55,11 @@ async function headerAction(page: Page): Promise<string> {
 /** 打开着的对话框或抽屉的标题；没有时为空串。 */
 async function openDialog(page: Page): Promise<string> {
   return page.evaluate<string>("(() => { const dialog = document.querySelector('[role=dialog]'); if (!dialog) return ''; const title = dialog.querySelector('h2, [data-slot=sheet-title], [data-slot=dialog-title]'); return (title ? title.innerText : dialog.innerText).trim().slice(0, 60); })()");
+}
+
+/** 一段文字在页面文字里出现了几次。 */
+function occurrences(text: string, part: string): number {
+  return text.split(part).length - 1;
 }
 
 /** 轮询一个异步条件直到成立；超时报出描述。 */
@@ -183,8 +198,11 @@ export const STEPS: Step[] = [
     async run({ app, page }, checks) {
       await app.startBackend();
       await app.open();
-      await page.waitText("创建第一门课", 30_000);
+      const first = await page.waitText("创建第一门课", 30_000);
       checks.expect("第一屏是“创建第一门课”", true);
+      const hinted = first.includes("还没有可用的模型") ? first : await page.waitText("还没有可用的模型", 5_000).catch(() => first);
+      checks.expect("没有模型时第一屏就提示“还没有可用的模型”和“去设置模型”", hinted.includes("还没有可用的模型") && await page.has({ name: "去设置模型", selector: "a, button" }));
+      await page.shot("first-run-no-model");
       await page.fill("课程名称", COURSE_NAME);
       const hint = await page.waitText("保存位置：");
       const location = /保存位置：(.*)/u.exec(hint)?.[1]?.trim() ?? "";
@@ -407,6 +425,82 @@ export const STEPS: Step[] = [
       checks.expect("导出的文件里有作答记录", facts.some((fact) => fact.type === "answered") && facts.some((fact) => fact.type === "graded"),
         `${[...entries.keys()].join("、")}；records.jsonl ${facts.length} 条`);
       await page.press("Escape");
+    },
+  },
+  {
+    id: "model-failures",
+    title: "模型请求失败（断开、超时、key 无效、余额不足、限流、服务端出错）：对话里按原因说一句中文，只说一次，重新发送能成功",
+    async run({ app, page, model }, checks) {
+      // 缩短请求超时和自动重试的间隔，让超时在几秒内发生；Pi 的自动重试照常进行（最多 3 次）。
+      await app.reopen({ settings: { retry: { baseDelayMs: 50, provider: { timeoutMs: 2_000 } } } });
+      await page.waitText("接下来", 30_000);
+      for (const [failure, sentence] of FAILURE_TEXT) {
+        await page.click({ name: "新会话", selector: "a, button" });
+        const message = `走查：这次模型请求会失败（${failure}）`;
+        model.script(message, [{ text: `重新发送以后收到了（${failure}）。` }]);
+        model.failAgent(failure);
+        const before = model.log.length;
+        await page.fill("消息", message);
+        await page.press("Enter");
+        await page.waitText(sentence, 30_000);
+        // 运行结束时页面按会话记录重画；等停止按钮消失后再数。
+        await until("运行结束", async () => !(await page.has({ name: /^停止$/u, selector: "button" })), 30_000);
+        const text = await page.text();
+        const attempts = model.log.slice(before).filter((entry) => entry.kind === "agent").length;
+        await page.shot(`model-failure-${failure}`);
+        checks.expect(`${failure}：说“${sentence}”，只说一次`, occurrences(text, sentence) === 1, `出现 ${occurrences(text, sentence)} 次，模型请求 ${attempts} 次`);
+        checks.expect(`${failure}：没有“运行出错”和提供方的英文原文直接摆在外面`, !text.includes("运行出错") && occurrences(text, "原始报错") === 1);
+        if (failure === 401) checks.expect("key 无效时有“去设置模型”的入口", await page.has({ name: "去设置模型", selector: "a, button" }));
+        model.failAgent(undefined);
+        await page.fill("消息", message);
+        await page.press("Enter");
+        const after = await page.waitText(`重新发送以后收到了（${failure}）。`, 30_000);
+        checks.expect(`${failure}：重新发送同一句话，这次有了回答`, after.includes(`重新发送以后收到了（${failure}）。`));
+      }
+    },
+  },
+  {
+    id: "key-check",
+    title: "在设置里填 API key：填错了不保存；连不上时照样保存并说明没能验证；填对了直接连上",
+    async run({ page, model }, checks) {
+      await page.click({ name: "设置", selector: "a, button" });
+      await page.waitText("模型提供方", 15_000);
+      const open = async () => {
+        await page.click({ name: "添加提供方", selector: "button" });
+        await page.fill("搜索提供方", "走查");
+        await page.click({ name: "走查填 key", selector: "button" });
+        await page.waitText("连接 走查填 key", 10_000);
+      };
+      // 已连接的提供方一行写着名称和“API key”。
+      const connected = async () => /走查填 key\s*\n\s*API key/u.test(await page.text());
+      const checked = () => model.log.filter((entry) => entry.kind === "key").map((entry) => entry.note);
+
+      await open();
+      await page.fill("API key", "key-wrong");
+      await page.click({ name: /^保存$/u, selector: "button" });
+      await page.waitText("这个 API key 无效，请核对后重新填写。", 15_000);
+      await page.shot("key-check-rejected");
+      checks.expect("填错的 key：对话框留着、说明原因，可以重填", await page.has({ name: /^保存$/u, selector: "button" }));
+      checks.expect("填错的 key 先试发了一次请求", checked().at(-1) === "key-wrong：401", checked().join("；"));
+      await page.press("Escape");
+      await until("对话框关上", async () => (await openDialog(page)) === "");
+      checks.expect("填错的 key 没有保存为已连接", !(await connected()));
+
+      await open();
+      await page.fill("API key", "key-offline");
+      await page.click({ name: /^保存$/u, selector: "button" });
+      await page.waitText("完成", 15_000);
+      await page.shot("key-check-unverified");
+      checks.expect("连不上时说明没能验证，由学习者关掉", (await page.text()).includes("已保存，但未能确认这个 key 是否可用。"));
+      await page.click({ name: "完成", selector: "button" });
+      await until("对话框关上", async () => (await openDialog(page)) === "");
+      checks.expect("连不上时 key 照样保存", await connected());
+
+      await open();
+      await page.fill("API key", "key-good");
+      await page.click({ name: /^保存$/u, selector: "button" });
+      await until("对话框关上", async () => (await openDialog(page)) === "", 15_000);
+      checks.expect("填对的 key 验证通过，对话框直接关上，显示已连接", await connected(), checked().join("；"));
     },
   },
 ];

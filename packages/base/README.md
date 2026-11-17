@@ -451,7 +451,11 @@ Web 前端用 `space.browse` 浏览子目录，省略路径从用户目录开始
 
 底座显式装配资源，不读取空间的 `.pi/settings.json`，也不自动发现项目扩展、提示模板或上下文文件；Skill 只来自底座包内、应用与空间约定的位置。Pi 的 MCP/codemode 未启用。会话不用工具白名单创建，因为在白名单下运行中途登记的工具静默无效：档案之外的 Pi 内置工具放进 `excludeTools` 永久排除，Pi 若新增了底座不知道的内置工具，打开会话以 `unexpected_builtin_tools` 失败；每次打开会话、每次运行开始和每一步模型回复之后，底座按档案经扩展入口登记插件工具与 `subagent`，再显式设定激活集，不依赖 Pi 从会话记录恢复。可能被替换的工具不放进 `customTools`，因为 Pi 让它覆盖同名的扩展工具，替换会静默无效；Pi 没有注销工具的入口，撤下的工具换成调用即失败的同名桩并停用。这些依据 Pi 1.1.0 的实测，升级时应核对资源加载、工具排除和运行中登记仍保持这些边界。
 
-模型请求失败时，助手消息的 `data` 带提供方报错的原文 `errorMessage`，同时有一条 `error` 事件。Pi 把提供方的报错统一写成“状态码: 原文”或“前缀 (状态码): 原文”，底座只认这个开头，取出 HTTP 状态码放进历史条目的 `data.errorStatus` 和 `error` 事件的 `data.errorStatus`，不读各家报错的正文；认不出时不带。前端据此分出认证失败、额度不足和请求太频繁。
+模型请求失败时，底座给出 Repa 自己的原因分类 `failure`（`ModelFailureSchema`）：`network` 连不上（网络、超时、域名解析），`auth` 凭据无效或没有权限，`balance` 余额或额度不足，`rate_limit` 请求过于频繁，`server` 提供方服务端出错，`other` 其余情形。界面按分类说一句人能看懂的话，提供方的原文只作为折叠的细节。运行时交回的只有一段报错文字：Pi 把提供方的 HTTP 报错写成“状态码: 原文”或“前缀 (状态码): 原文”，没有能单独取出的正文时是“状态码 原文”；底座只认开头的状态码（401、403 为 `auth`，402 为 `balance`，429 为 `rate_limit`、正文里有 quota、billing 或 balance 时为 `balance`，5xx 为 `server`），没有状态码时按连接失败的常见写法（超时、`fetch failed`、`Connection error.`、DNS 与套接字错误码）认出 `network`，见 `src/agent/model-failure.ts`。分类与 Pi 的错误类型无关，换掉运行时只需改这一处识别。
+
+Pi 对超时、断线、限流和服务端错误自动重试（缺省最多 3 次），每次失败都留下一条出错的助手消息，重试前用一条 `context_edit` 把它移出上下文。底座据此把历史里被重试过的那几条标为 `data.retried: true`，每条出错的助手消息的 `data` 带原文 `errorMessage` 与 `failure`。实时事件里出错的助手消息不另发 `error` 事件；运行以失败结束时，运行一级的 `error` 事件带 `data.code` 为 `model_error`、`data.details.failure` 为分类，一次失败只报一次。插件经 `host.models` 调用模型失败时同样以 `model_error` 拒绝，`details.failure` 是分类。
+
+`auth.setKey` 保存之前，先用这个 key 向该提供方最便宜的模型经 Pi 发一次只要 1 个 token 的请求，最多等 20 秒。提供方拒绝（`auth`）时以 `key_rejected` 拒绝，Pi 的登录随之中止，凭据不写入，原有的 key 不受影响；其余失败照样保存，结果里的 `failure` 写明没能确认的原因，例如暂时断网或余额不足，没有 `failure` 即验证通过。Pi 没有不花钱的统一验证办法，各家列模型的接口不同；这样的请求花费可以忽略，还能认出余额不足。
 
 增量、工具调用、用量与运行起止通过会话事件传递；工具 details 同时保留在工具完成事件和会话历史中。`session.send` 等整次运行完成，steer 和 followUp 的处理取决于[运行关卡](#定义-agent关卡与视图)。
 

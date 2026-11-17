@@ -29,7 +29,7 @@ async function fixture(
     defaultModel() { return undefined; },
     async setDefaultModel() {},
     async login(_provider, _type, confirm, signal) { await login?.(confirm, signal); },
-    async setKey() {},
+    async setKey() { return {}; },
     async logout() {},
     async credentials() { return []; },
     async complete() { return ""; },

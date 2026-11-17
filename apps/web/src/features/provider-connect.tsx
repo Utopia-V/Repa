@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ExternalLink, KeyRound, LogIn } from "lucide-react";
-import type { Result } from "@repa/base/protocol";
+import type { ModelFailure, Result } from "@repa/base/protocol";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
+import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
 import { errorCode } from "@/lib/errors";
@@ -180,6 +181,8 @@ function KeyForm({ provider, method, onBack, onSaved, onNeedsLogin }: {
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>();
+  // 保存了、但试发的请求没能确认 key 能用时的原因；这时对话框留着，把原因说给他听。
+  const [unverified, setUnverified] = useState<ModelFailure>();
   const inputId = useId();
 
   async function submit(event: FormEvent) {
@@ -187,14 +190,28 @@ function KeyForm({ provider, method, onBack, onSaved, onNeedsLogin }: {
     setSaving(true);
     setError(undefined);
     try {
-      await saveKey(provider.id, key.trim());
-      onSaved();
+      const check = await saveKey(provider.id, key.trim());
+      if (check.failure === undefined) onSaved();
+      else setUnverified(check.failure);
     } catch (failure) {
-      setSaving(false);
       // 只填一个 key 不够的提供方（例如还要选区域），改走后端的交互登录。
       if (errorCode(failure) === "requires_interactive_login") onNeedsLogin();
       else setError(failure);
+    } finally {
+      setSaving(false);
     }
+  }
+
+  if (unverified !== undefined) {
+    return <div className="grid gap-4">
+      <DialogHeader>
+        <DialogTitle>{t("provider.method.title", { name: provider.name })}</DialogTitle>
+      </DialogHeader>
+      <StatusNotice status="error" title={unverified === "balance" ? t("provider.apiKey.balance.status") : t("provider.apiKey.unverified.status")} />
+      <DialogFooter>
+        <Button onClick={onSaved}>{t("common.done.action")}</Button>
+      </DialogFooter>
+    </div>;
   }
 
   return <form className="grid gap-4" onSubmit={(event) => { void submit(event); }}>
@@ -206,7 +223,9 @@ function KeyForm({ provider, method, onBack, onSaved, onNeedsLogin }: {
       <label htmlFor={inputId} className="text-body weight-semibold">{method.name}</label>
       <Input id={inputId} type="password" autoComplete="off" spellCheck={false} value={key} onChange={(event) => setKey(event.target.value)} autoFocus />
     </div>
-    {error !== undefined && <ErrorNotice title={t("provider.apiKey.save.error")} error={error} />}
+    {error !== undefined && (errorCode(error) === "key_rejected"
+      ? <StatusNotice status="error" title={t("provider.apiKey.rejected.error")} />
+      : <ErrorNotice title={t("provider.apiKey.save.error")} error={error} />)}
     <DialogFooter>
       <Button variant="tertiary" disabled={saving} onClick={onBack}>{t("provider.method.back.action")}</Button>
       <Button type="submit" disabled={saving || key.trim() === ""}>{saving ? t("common.saving.status") : t("common.save.action")}</Button>

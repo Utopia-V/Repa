@@ -1,10 +1,11 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Archive, FolderOpen, FolderSearch, RefreshCw, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SelectionButton } from "@/components/ui/selection-button";
+import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { FolderPickerDialog } from "@/features/folder-picker";
 import { SpaceBackups } from "@/features/space-backups";
@@ -110,6 +111,8 @@ export function NewSpacePage() {
  */
 function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): void; onCreated(): void }) {
   const browseFolder = useAppStore((state) => state.browseFolder);
+  const defaultModel = useAppStore((state) => state.resources.defaultModel);
+  const loadModelSettings = useAppStore((state) => state.loadModelSettings);
   const openSpace = useAppStore((state) => state.openSpace);
   // 换到新建的空间会中止正在进行的运行，所以运行中不能建。
   const running = useAppStore((state) => state.conversation.run !== "idle");
@@ -125,6 +128,12 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
   useEffect(() => {
     browseFolder().then((listing) => setHome(listing.path), setHomeError);
   }, [browseFolder]);
+
+  // 做课要用模型：全新用户在建课之前就看到先去连一个，不必建好课、走到做课那一步才发现。建课本身不需要模型，不拦。
+  useEffect(() => {
+    void loadModelSettings();
+  }, [loadModelSettings]);
+  const noModel = defaultModel.status === "ready" && defaultModel.data === null;
 
   const trimmed = name.trim();
   const invalid = trimmed !== "" && !validFolderName(trimmed);
@@ -147,6 +156,10 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
   // 在工作区里垂直居中；底部留白多一些，视觉重心略高于几何中心。
   return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center gap-6 px-4 pt-16 pb-24 md:px-8">
     <h2 className="text-display weight-semibold">{title}</h2>
+    {noModel && <div className="grid gap-3">
+      <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("making.noModel.description")}</p></StatusNotice>
+      <div><Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button></div>
+    </div>}
     <form className="grid gap-3" onSubmit={(event) => { void create(event); }}>
       <label htmlFor={nameId} className="text-body weight-semibold">{t("learningSpace.first.name.label")}</label>
       <Input

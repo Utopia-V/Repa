@@ -5,7 +5,7 @@ import { applyEvent, emptyConversation, historyItems, type Conversation } from "
 
 const at = "2026-10-12T00:00:00.000Z";
 
-it("会话记录转成显示项：工具结果按调用配对，错误和停止单独标出，运行细节不显示", () => {
+it("会话记录转成显示项：工具结果按调用配对，错误和停止单独标出，自动重试过的失败与运行细节不显示", () => {
   const entries: SessionEntry[] = [
     { id: "p1", type: "prompt", timestamp: at, text: "系统提示" },
     { id: "u1", type: "user", timestamp: at, text: "帮我看看笔记" },
@@ -16,7 +16,8 @@ it("会话记录转成显示项：工具结果按调用配对，错误和停止�
     },
     { id: "t1", type: "tool", timestamp: at, text: "内容", data: { callId: "c1", tool: "read", isError: false } },
     { id: "t2", type: "tool", timestamp: at, text: "拒绝", data: { callId: "c2", tool: "bash", isError: true } },
-    { id: "a2", type: "assistant", timestamp: at, text: "", data: { stopReason: "error", errorMessage: "额度不足" } },
+    { id: "a2", type: "assistant", timestamp: at, text: "", data: { stopReason: "error", errorMessage: "Request timed out.", failure: "network", retried: true } },
+    { id: "a4", type: "assistant", timestamp: at, text: "", data: { stopReason: "error", errorMessage: "402: Insufficient Balance", failure: "balance" } },
     { id: "u2", type: "user", timestamp: at, text: "继续" },
     { id: "a3", type: "assistant", timestamp: at, text: "好的", data: { stopReason: "aborted" } },
     { id: "r1", type: "run", timestamp: at, data: { runId: "x" } },
@@ -28,7 +29,7 @@ it("会话记录转成显示项：工具结果按调用配对，错误和停止�
     { kind: "tool", id: "c1", tool: "read", status: "done" },
     { kind: "tool", id: "c2", tool: "bash", status: "failed" },
     { kind: "tool", id: "c3", tool: "ls", status: "incomplete" },
-    { kind: "error", id: "a2:error", text: "额度不足" },
+    { kind: "error", id: "a4:error", text: "402: Insufficient Balance", failure: "balance" },
     { kind: "user", id: "u2", text: "继续" },
     { kind: "assistant", id: "a3", text: "好的" },
     { kind: "stopped", id: "a3:stopped" },
@@ -115,14 +116,14 @@ it("文字增量拼成一条助手消息，完整消息覆盖拼接结果，工�
   expect(ended.streaming).toBeUndefined();
 });
 
-it("模型出错只显示一次，取消的运行只留下停止标记", () => {
+it("模型出错由运行一级的 error 事件显示一次并带上原因，取消的运行只留下停止标记", () => {
   const failed = play([
     { type: "runStart" },
     { type: "message", text: "", data: { role: "assistant", stopReason: "error" } },
-    { type: "error", text: "额度不足" },
-    { type: "error", text: "模型请求失败", data: { code: "model_error" } },
+    { type: "message", text: "", data: { role: "assistant", stopReason: "error" } },
+    { type: "error", text: "402: Insufficient Balance", data: { code: "model_error", details: { failure: "balance" } } },
   ]);
-  expect(failed.items.map((item) => item.kind === "error" ? item.text : item.kind)).toEqual(["额度不足"]);
+  expect(failed.items).toEqual([expect.objectContaining({ kind: "error", text: "402: Insufficient Balance", failure: "balance" })]);
 
   const stopped = play([
     { type: "runStart" },
