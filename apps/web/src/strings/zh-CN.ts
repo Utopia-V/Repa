@@ -176,7 +176,7 @@ export const strings = {
   "learn.stage.itemMissing.title": "找不到这道题",
   "learn.stage.itemMissing.hint": "请刷新后再试。",
   "learn.stage.grading.status": "正在判分…",
-  "learn.stage.ungraded.description": "〔待写〕",
+  "learn.stage.ungraded.description": "这份作答没能判出结果。",
   "learn.stage.ungraded.network.description": "无法连接模型服务，这份作答没能判出结果，不算错。检查网络后可以再判一次，也可以先做下一题，条件具备时会自动补判。",
   "learn.stage.ungraded.auth.description": "API key 无效，这份作答没能判出结果，不算错。在“设置”的“模型提供方”中重新填写后可以再判一次，也可以先做下一题。",
   "learn.stage.ungraded.balance.description": "模型服务的账户余额不足，这份作答没能判出结果，不算错。充值后可以再判一次，也可以先做下一题，条件具备时会自动补判。",
