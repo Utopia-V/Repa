@@ -1,5 +1,6 @@
 import type { AgentSessionEvent, SessionEntry as PiSessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AgentEvent, SessionEntry, Usage } from "../schema.js";
+import { modelFailure } from "./model-failure.js";
 import { sectionId } from "./views.js";
 
 export function textContent(content: unknown): string {
@@ -18,27 +19,12 @@ function resultDetails(result: unknown): { details?: unknown } {
 }
 
 /**
- * 模型请求失败时提供方回的 HTTP 状态码。Pi 把提供方的报错统一写成“状态码: 原文”或“前缀 (状态码): 原文”
- * （pi-ai 的 formatProviderError），这里只认这个格式的开头，不读各家报错的正文；认不出时为 undefined。
- */
-export function errorStatus(message: string | undefined): number | undefined {
-  const match = message === undefined ? null : /^(?:[^\n(]*\()?([1-5]\d\d)\)?: /u.exec(message);
-  return match ? Number(match[1]) : undefined;
-}
-
-/**
  * 后端关闭时正在进行的模型请求被取消，Pi 把这条回答记成 error，原文是运行时取消请求的固定消息。
  * 它不是故障：对外按 aborted 交出，界面显示“已停止”，不显示一条英文的出错信息。
  */
 const REQUEST_ABORTED = "This operation was aborted";
 function stopReasonOf(message: { stopReason: string; errorMessage?: string }): string {
   return message.stopReason === "error" && message.errorMessage === REQUEST_ABORTED ? "aborted" : message.stopReason;
-}
-
-/** 带上状态码的错误数据；认不出状态码时不加。 */
-function statusData(message: string | undefined): { errorStatus?: number } {
-  const status = errorStatus(message);
-  return status === undefined ? {} : { errorStatus: status };
 }
 
 export function usageOf(usage: Usage): Usage {
@@ -50,7 +36,22 @@ export function usageOf(usage: Usage): Usage {
   };
 }
 
-export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
+/**
+ * 历史里被 Pi 自动重试过的失败请求。Pi 重试前用一条 replacement 为 null 的 context_edit 把失败的那条回答移出上下文，
+ * 原始记录保留；这样的出错回答不是这次请求的结局，结局在后面的条目里。
+ */
+export function retriedFailures(branch: PiSessionEntry[]): Set<string> {
+  const omitted = new Set(branch.flatMap(entry => entry.type === "context_edit" && entry.replacement === null ? [entry.targetId] : []));
+  return new Set(branch.flatMap(entry => entry.type === "message" && entry.message.role === "assistant" && entry.message.stopReason === "error" && omitted.has(entry.id) ? [entry.id] : []));
+}
+
+/** 出错回答的公开数据：原文、Repa 的失败分类，以及 Pi 是否已经自动重试过它。 */
+function failureData(errorMessage: string | undefined, retried: boolean) {
+  return { errorMessage, failure: modelFailure(errorMessage), ...(retried ? { retried: true } : {}) };
+}
+
+/** 把一条 Pi 历史条目转成公开条目；retried 是这条出错的回答已被 Pi 自动重试，见 retriedFailures。 */
+export function entryToPublic(entry: PiSessionEntry, retried = false): SessionEntry | undefined {
   const base = { id: entry.id, timestamp: entry.timestamp };
   if (entry.type === "message") {
     const message = entry.message;
@@ -75,7 +76,7 @@ export function entryToPublic(entry: PiSessionEntry): SessionEntry | undefined {
         usage: usageOf(message.usage),
         data: {
           stopReason: stopReasonOf(message),
-          ...(stopReasonOf(message) === "error" ? { errorMessage: message.errorMessage, ...statusData(message.errorMessage) } : {}),
+          ...(stopReasonOf(message) === "error" ? failureData(message.errorMessage, retried) : {}),
           provider: message.provider,
           model: message.responseModel ?? message.model,
           calls: message.content.filter(block => block.type === "toolCall").map(call => ({ id: call.id, name: call.name, input: call.arguments })),
@@ -130,7 +131,9 @@ export function convertEvent(sessionId: string, event: AgentSessionEvent, runId?
   }
   if (event.type === "message_end" && event.message.role === "assistant") {
     const message = event.message;
-    const result: AgentEvent[] = [
+    // 出错的回答不在这里发 error 事件：Pi 可能接着自动重试，每次失败都报会让一次失败显示好几遍。
+    // 运行以失败结束时，运行一级的 error 事件（code 为 model_error）带着分类报一次。
+    return [
       {
         ...base,
         type: "message",
@@ -144,11 +147,6 @@ export function convertEvent(sessionId: string, event: AgentSessionEvent, runId?
         data: { provider: message.provider, model: message.responseModel ?? message.model },
       },
     ];
-    if (stopReasonOf(message) === "error") {
-      const status = statusData(message.errorMessage);
-      result.push({ ...base, type: "error", text: message.errorMessage ?? "模型请求失败", ...(status.errorStatus === undefined ? {} : { data: status }) });
-    }
-    return result;
   }
   if (event.type === "message_end" && event.message.role === "user") {
     return [{ ...base, type: "message", text: textContent(event.message.content), data: { role: "user" } }];

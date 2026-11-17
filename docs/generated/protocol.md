@@ -103,7 +103,7 @@
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | null | 否 |  |
+| failure | "network" &#124; "auth" &#124; "balance" &#124; "rate_limit" &#124; "server" &#124; "other" | 是 |  |
 
 ## 方法：backup.create
 

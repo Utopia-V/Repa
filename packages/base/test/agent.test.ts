@@ -551,6 +551,47 @@ test("提供方列表报告登录方式与已保存凭据，默认模型写入 P
   assert.equal(settings.getDefaultModel(), "test");
 });
 
+test("保存 key 前用它试发一次请求：提供方拒绝时不保存；连不上或余额不足时照样保存并交回原因", async t => {
+  const f = await fixture(t);
+  const provider = {
+    ...f.faux.provider,
+    auth: {
+      apiKey: {
+        name: "测试 key",
+        async login(interaction: import("@earendil-works/pi-ai").ProviderAuthInteraction) {
+          return { type: "api_key" as const, key: await interaction.prompt({ type: "secret", message: "API key" }) };
+        },
+        async resolve({ credential }: { credential?: import("@earendil-works/pi-ai").ApiKeyCredential }) {
+          return credential?.key ? { auth: { apiKey: credential.key } } : undefined;
+        },
+      },
+    },
+  };
+  f.models.registerNativeProvider(provider);
+  const sent: { key: string | undefined; maxTokens: number | undefined }[] = [];
+  const reply = (errorMessage?: string) => (_context: TranscriptContext, options: { apiKey?: string; maxTokens?: number } | undefined) => {
+    sent.push({ key: options?.apiKey, maxTokens: options?.maxTokens });
+    return errorMessage === undefined ? fauxAssistantMessage("p") : fauxAssistantMessage("", { stopReason: "error", errorMessage });
+  };
+  const stored = async () => (await f.models.listCredentials()).some(entry => entry.providerId === provider.id);
+
+  f.faux.setResponses([reply('401: {"message":"Authentication Fails, Your api key: ****0000 is invalid"}')]);
+  await assert.rejects(f.runtime.setKey(provider.id, "wrong-key"), (error: unknown) => error instanceof Error && "code" in error && error.code === "key_rejected");
+  assert.equal(await stored(), false);
+
+  f.faux.setResponses([reply("Connection error.")]);
+  assert.deepEqual(await f.runtime.setKey(provider.id, "offline-key"), { failure: "network" });
+  assert.equal(await stored(), true);
+
+  f.faux.setResponses([reply('402: {"message":"Insufficient Balance"}')]);
+  assert.deepEqual(await f.runtime.setKey(provider.id, "poor-key"), { failure: "balance" });
+
+  f.faux.setResponses([reply()]);
+  assert.deepEqual(await f.runtime.setKey(provider.id, "good-key"), {});
+  assert.equal((await f.models.getAuth(provider.id))?.auth.apiKey, "good-key");
+  assert.deepEqual(sent, ["wrong-key", "offline-key", "poor-key", "good-key"].map(key => ({ key, maxTokens: 1 })));
+});
+
 test("需要第二项信息的 key 登录要求交互登录，不保存半成品凭据", async t => {
   const f = await fixture(t);
   const provider = {
@@ -671,6 +712,19 @@ test("默认自动 overflow 压缩在重试第一份请求前补回最新视图"
   assert(getInitialSystemMessage(capture.messages)?.toolsAdded?.some(tool => tool.name === "edit"));
   assert(f.events.some(event => event !== null && typeof event === "object" && "type" in event && event.type === "compaction"));
   assert.equal(f.session.history().findLast(entry => entry.type === "assistant")?.text, "重试成功");
+});
+
+test("模型请求连续超时、Pi 自动重试后仍失败：运行只报一次带分类的错误，历史里此前的几次标为已重试", async t => {
+  const f = await fixture(t);
+  f.settings.applyOverrides({ retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } });
+  const timeout = () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "Request timed out." });
+  f.faux.setResponses([timeout(), timeout(), timeout()]);
+  await assert.rejects(f.session.send("你好"), (error: unknown) => error instanceof Error && "code" in error && error.code === "model_error"
+    && "details" in error && JSON.stringify(error.details) === JSON.stringify({ failure: "network" }));
+  const errors = f.events.filter(event => event !== null && typeof event === "object" && "type" in event && event.type === "error");
+  assert.deepEqual(errors.map(event => (event as { data?: unknown }).data), [{ code: "model_error", details: { failure: "network" } }]);
+  const failed = f.session.history().filter(entry => entry.type === "assistant").map(entry => entry.data as { failure?: string; retried?: boolean });
+  assert.deepEqual(failed.map(data => [data.failure, data.retried ?? false]), [["network", true], ["network", true], ["network", false]]);
 });
 
 test("提示覆盖、恢复、插件说明变化与停用只在下一轮追加说明，原始前缀保持", async t => {

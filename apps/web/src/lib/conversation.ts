@@ -1,4 +1,4 @@
-import { ItemResponseSchema, readItem, readLenient, type AgentEvent, type Item, type ItemResponse, type ModelRef, type SessionEntry } from "@repa/base/protocol";
+import { ItemResponseSchema, ModelFailureSchema, readItem, readLenient, type AgentEvent, type Item, type ItemResponse, type ModelFailure, type ModelRef, type SessionEntry } from "@repa/base/protocol";
 import { t } from "@/lib/strings";
 
 export type ToolStatus = "running" | "done" | "failed" | "incomplete";
@@ -28,8 +28,8 @@ export type ConversationItem =
   }
   | {
     kind: "error"; id: string; text: string;
-    /** 模型请求失败时提供方回的 HTTP 状态码，后端从 Pi 统一的报错格式里取出；据此显示一句人能看懂的话。 */
-    status?: number;
+    /** 模型请求失败时后端给出的原因；据此显示一句人能看懂的话，text 是提供方的原文。 */
+    failure?: ModelFailure;
   }
   | { kind: "stopped"; id: string }
   | { kind: "compaction"; id: string };
@@ -101,9 +101,10 @@ function pastAsk(details: unknown): PastAsk | undefined {
   return undefined;
 }
 
-function errorStatus(data: unknown): { status?: number } {
-  const status = field(data, "errorStatus");
-  return typeof status === "number" ? { status } : {};
+/** 模型请求失败的原因；没有或认不出时按“其他”。 */
+function modelFailure(data: unknown): ModelFailure {
+  const failure = readLenient<ModelFailure>(ModelFailureSchema, field(data, "failure"));
+  return failure.ok ? failure.value : "other";
 }
 
 /** 把会话记录转成显示项。记录是运行结束后的事实，实时拼出的内容以它为准。 */
@@ -124,8 +125,9 @@ export function historyItems(entries: SessionEntry[]): ConversationItem[] {
         tools.set(call.id, item);
         items.push(item);
       }
-      if (stopReason === "error") {
-        items.push({ kind: "error", id: `${entry.id}:error`, text: text(entry.data, "errorMessage") ?? t("conversation.modelFailed.status"), ...errorStatus(entry.data) });
+      // Pi 自动重试过的失败不是这次请求的结局，只显示最后一次。
+      if (stopReason === "error" && field(entry.data, "retried") !== true) {
+        items.push({ kind: "error", id: `${entry.id}:error`, text: text(entry.data, "errorMessage") ?? t("conversation.modelFailed.status"), failure: modelFailure(entry.data) });
       } else if (stopReason === "aborted") {
         items.push({ kind: "stopped", id: `${entry.id}:stopped` });
       }
@@ -202,10 +204,11 @@ export function applyEvent(conversation: Conversation, event: AgentEvent): Conve
       };
     }
     case "error": {
-      // 带 code 的是整次运行的失败汇总：取消已有停止标记，模型错误已由消息级的 error 事件显示。
+      // 带 code 的是整次运行的失败汇总：取消已有停止标记；模型请求失败只在这里报一次，带着原因。
       const code = text(event.data, "code");
-      if (code === "cancelled" || code === "model_error") return conversation;
-      return { ...conversation, streaming: undefined, items: [...items, { kind: "error", id: nextId(), text: event.text ?? t("common.runError.status"), ...errorStatus(event.data) }] };
+      if (code === "cancelled") return conversation;
+      const failure = code === "model_error" ? { failure: modelFailure(field(event.data, "details")) } : {};
+      return { ...conversation, streaming: undefined, items: [...items, { kind: "error", id: nextId(), text: event.text ?? t("common.runError.status"), ...failure }] };
     }
     default:
       return conversation;

@@ -33,10 +33,13 @@ export const strings = {
   "common.setupModel.action": "去设置模型",
   "common.messageIncomplete.title": "消息没有完成",
 
-  // 模型请求失败（按提供方回的状态码分类）
-  "modelError.auth.title": "密钥无效或无权限",
-  "modelError.quota.title": "账户余额不足",
-  "modelError.rateLimit.title": "请求过于频繁，请稍后再试",
+  // 模型请求失败（按后端给出的原因分类）
+  "modelError.network.title": "无法连接模型服务，请检查网络后重新发送。",
+  "modelError.auth.title": "API key 无效，请在“设置”的“模型提供方”中重新填写。",
+  "modelError.balance.title": "模型服务的账户余额不足，充值后重新发送。",
+  "modelError.rateLimit.title": "请求过于频繁，请稍后重新发送。",
+  "modelError.server.title": "模型服务暂时不可用，请稍后重新发送。",
+  "modelError.other.title": "模型调用失败。",
 
   // 启动
   "app.workspace.label": "工作区",
@@ -528,6 +531,9 @@ export const strings = {
   "provider.method.back.action": "返回",
   "provider.apiKey.description": "key 保存在本机的 Repa 数据目录里，只用于向 {name} 发送请求。",
   "provider.apiKey.save.error": "没有保存",
+  "provider.apiKey.rejected.error": "〔待写〕",
+  "provider.apiKey.balance.status": "〔待写〕",
+  "provider.apiKey.unverified.status": "〔待写〕",
   "provider.login.title": "登录 {name}",
   "provider.login.browser.hint": "按提示在浏览器里完成登录，完成后这里会自动继续。",
   "provider.login.fields.hint": "这个提供方需要几项信息，按提示填写。",

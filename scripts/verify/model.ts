@@ -7,8 +7,31 @@
  * - 课程核对（course_confirm 发出的独立解题，系统提示以“你在独立解一道练习题”开头）：按题面查走查脚本事先算好的答案；
  * - 开放题判分（带 submit_result 工具，系统提示以“独立评价本题原答”开头）：判对；走查要求时先扣住不答。
  * 其他请求一律回一句话，并记进 unexpected，走查把它当作失败的证据。
+ *
+ * 带的 key 不是走查自己配的那个时，是保存 key 时的验证请求：按 key 定回答（KEY_CHECKS）。
+ * 走查要求时，通用 Agent 的请求按 failAgent 给的方式失败（断开、不回、按提供方的格式回错误），直到撤销。
  */
 import { createServer, type Server } from "node:http";
+
+/** 走查配给假模型的 key；请求带着别的 key 时是保存 key 时的验证请求。 */
+const VERIFY_KEY = "verify";
+
+/**
+ * 模型请求失败的方式：断开连接、一直不回（等后端按超时放弃），或者按提供方的格式回一个 HTTP 错误。
+ * 错误的正文照 DeepSeek 公开文档列的状态码与说明（api-docs.deepseek.com 的 Error Codes），外层是 OpenAI 兼容接口的 {"error": {...}}；
+ * 没有用真实服务核对过正文的确切写法，底座的分类只看状态码。
+ */
+export type ModelFailureScript = "disconnect" | "timeout" | 401 | 402 | 429 | 500;
+
+const ERROR_BODIES: Record<401 | 402 | 429 | 500, { message: string; type: string }> = {
+  401: { message: "Authentication Fails, Your api key: ****rong is invalid", type: "authentication_error" },
+  402: { message: "Insufficient Balance", type: "unknown_error" },
+  429: { message: "Rate Limit Reached", type: "rate_limit_error" },
+  500: { message: "Server Error", type: "server_error" },
+};
+
+/** 保存 key 时验证请求的回答：按填的 key 定。其余的 key 视为能用。 */
+const KEY_CHECKS: Record<string, ModelFailureScript> = { "key-wrong": 401, "key-offline": "disconnect", "key-poor": 402 };
 
 /** 剧本的一步：调用这些工具（同一次回答里并列调用），或者说一句话结束这一轮。 */
 export type Step = { tools: { name: string; arguments: Record<string, unknown> }[] } | { text: string };
@@ -21,7 +44,7 @@ interface Script {
 
 /** 一次请求的记录，走查失败时作为证据。 */
 export interface ModelRequestLog {
-  kind: "agent" | "confirm" | "grade" | "other";
+  kind: "agent" | "confirm" | "grade" | "key" | "other";
   /** agent：剧本匹配的那段文字和第几步；confirm：查到没有；grade：判了什么。 */
   note: string;
   /** agent：这一轮之前最后一个工具结果（截断）。 */
@@ -41,6 +64,8 @@ function textOf(content: ChatMessage["content"]): string {
 
 export class ScriptedModel {
   readonly provider = "repa-verify";
+  /** 设置里填 key 连接的那个提供方。 */
+  readonly keyProvider = "repa-verify-key";
   readonly id = "scripted";
   readonly log: ModelRequestLog[] = [];
   readonly unexpected: string[] = [];
@@ -52,6 +77,7 @@ export class ScriptedModel {
   private holding = false;
   private toolNames = new Map<string, string>();
   private calls = 0;
+  private failing: ModelFailureScript | undefined;
 
   private constructor(private server: Server, readonly port: number) {}
 
@@ -62,7 +88,7 @@ export class ScriptedModel {
       request.setEncoding("utf8");
       request.on("data", (chunk: string) => { body += chunk; });
       request.on("end", () => {
-        void model?.answer(body, response);
+        void model?.answer(body, response, request.headers.authorization ?? "");
       });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -72,16 +98,23 @@ export class ScriptedModel {
     return model;
   }
 
-  /** 写进 agent/models.json 的内容。 */
+  /**
+   * 写进 agent/models.json 的内容。第二个提供方指向同一个假模型、不带 key，学习者在设置里填 key 连接它，
+   * 走查用它走保存 key 时的验证。
+   */
   modelsJson(): unknown {
+    const baseUrl = `http://127.0.0.1:${this.port}/v1`;
     return {
       providers: {
-        [this.provider]: {
-          baseUrl: `http://127.0.0.1:${this.port}/v1`, api: "openai-completions", apiKey: "verify",
-          models: [{ id: this.id, name: "走查用的假模型" }],
-        },
+        [this.provider]: { baseUrl, api: "openai-completions", apiKey: VERIFY_KEY, models: [{ id: this.id, name: "走查用的假模型" }] },
+        [this.keyProvider]: { name: "走查填 key", baseUrl, api: "openai-completions", models: [{ id: this.id, name: "走查填 key 的假模型" }] },
       },
     };
+  }
+
+  /** 之后通用 Agent 的请求都按这种方式失败；传 undefined 撤销。 */
+  failAgent(failure: ModelFailureScript | undefined): void {
+    this.failing = failure;
   }
 
   /** 用户消息里含 match 时，通用 Agent 按 steps 一步步回答；后加的剧本优先。 */
@@ -116,8 +149,16 @@ export class ScriptedModel {
     return new Promise((resolve) => this.server.close(() => resolve()));
   }
 
-  private async answer(body: string, response: import("node:http").ServerResponse): Promise<void> {
+  private async answer(body: string, response: import("node:http").ServerResponse, authorization: string): Promise<void> {
     const request = JSON.parse(body) as { messages?: ChatMessage[]; tools?: { function?: { name?: string } }[] };
+    const key = authorization.replace(/^Bearer /u, "");
+    if (key !== VERIFY_KEY) {
+      const failure = KEY_CHECKS[key];
+      this.log.push({ kind: "key", note: `${key}：${failure ?? "能用"}` });
+      if (failure !== undefined) this.fail(failure, response);
+      else this.stream({ text: "好" }, response);
+      return;
+    }
     const messages = request.messages ?? [];
     const tools = (request.tools ?? []).map((tool) => tool.function?.name ?? "");
     const system = messages.filter((message) => message.role === "system" || message.role === "developer").map((message) => textOf(message.content)).join("\n");
@@ -139,6 +180,10 @@ export class ScriptedModel {
       this.log.push({ kind: "confirm", note: answer === undefined ? "没有查到这道题" : "查到了" });
       if (answer === undefined) this.unexpected.push(`课程核对的题面没有对应的答案：${prompt.slice(0, 200)}`);
       reply = { text: answer ?? "{\"answers\": {}}" };
+    } else if (tools.includes("course_use") && this.failing !== undefined) {
+      this.log.push({ kind: "agent", note: `失败：${this.failing}` });
+      this.fail(this.failing, response);
+      return;
     } else if (tools.includes("course_use")) {
       reply = this.agentStep(messages);
     } else {
@@ -173,6 +218,17 @@ export class ScriptedModel {
     const step = script.steps[done] ?? { text: "好。" };
     this.log.push({ kind: "agent", note: `${script.match} 第 ${done + 1} 步`, ...(toolResult === undefined ? {} : { toolResult: toolResult.slice(0, 600) }) });
     return step;
+  }
+
+  /** 让这次请求按给定的方式失败。不回的请求留着，后端超时放弃或走查关闭时连接断开。 */
+  private fail(failure: ModelFailureScript, response: import("node:http").ServerResponse): void {
+    if (failure === "disconnect") {
+      response.destroy();
+      return;
+    }
+    if (failure === "timeout") return;
+    response.writeHead(failure, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: { ...ERROR_BODIES[failure], param: null, code: "invalid_request_error" } }));
   }
 
   /** 把一步写成 chat.completion.chunk 的流。 */
