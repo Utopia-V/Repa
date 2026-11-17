@@ -7,8 +7,9 @@
  *   请求里还有题目所属知识点的讲解：自制的课考的是课件的说法，不给讲解，模型会按通行的说法作答。
  */
 
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 
+import { move } from "@repa/base";
 import { checkResponse, contentVersion, errorText, type Answer, type Content, type Item, type Slot } from "@repa/base/protocol";
 import { Document, isMap, isSeq } from "yaml";
 
@@ -475,7 +476,7 @@ export async function writeConfirmations(file: string, changed: Confirmation[]):
   const text = mergeConfirmations(await readFile(file, "utf8"), file, changed);
   const temporary = `${file}.${process.pid}.tmp`;
   await writeFile(temporary, text);
-  await rename(temporary, file);
+  await move(temporary, file);
 }
 
 /**

@@ -6,8 +6,8 @@ import { checkoutLatest } from "@repa/space-history";
 import { RepaFault, type BackupInfo } from "../schema.js";
 import { lockSpace } from "../space/lock.js";
 import { directory, LOCK_NAME, RESTORE_NAMES } from "../space/paths.js";
-import { syncDirectory, writeJson } from "../storage.js";
-import { copying, copyTree, isCode, move, remove, syncCopies, walk, type CopyMode, type WalkOptions } from "./copy.js";
+import { move, syncDirectory, writeJson } from "../storage.js";
+import { copying, copyTree, isCode, remove, syncCopies, walk, type CopyMode, type WalkOptions } from "./copy.js";
 import { backupInfo, createBackup, findBackup } from "./store.js";
 
 /** 选中的备份；root 与 id 取自备份列表。 */

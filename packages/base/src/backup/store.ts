@@ -9,8 +9,8 @@ import {
   type BackupInfo, type BackupManifest, type BackupSpace, type BackupStatus,
 } from "../schema.js";
 import { LOCK_NAME, RESTORE_NAMES, spaceKey } from "../space/paths.js";
-import { syncDirectory } from "../storage.js";
-import { copying, copyTree, isCode, move, publish, remove, syncCopies, walk } from "./copy.js";
+import { move, syncDirectory } from "../storage.js";
+import { copying, copyTree, isCode, publish, remove, syncCopies, walk } from "./copy.js";
 
 /** 要备份的空间：根目录的真实路径、它的 .repa/，以及在历史队列中执行动作的入口。 */
 export interface BackupSource {

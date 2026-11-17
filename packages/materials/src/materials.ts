@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { move } from "@repa/base";
 import { RepaFault } from "@repa/base/plugin";
 
 import { convert, sniff } from "./convert.js";
@@ -135,7 +136,7 @@ export class Materials {
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, JSON.stringify(result));
-      await rename(temporary, file);
+      await move(temporary, file);
     } catch (error) {
       await rm(temporary, { force: true });
       throw error;
