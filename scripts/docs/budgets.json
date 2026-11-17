@@ -1,8 +1,8 @@
 [
   {
     "path": "AGENTS.md",
-    "maxChars": 4700,
-    "reason": "以引入文档检查时的长度为基准，预留 10%"
+    "maxChars": 4800,
+    "reason": "以引入文档检查时的长度为基准，预留 10%；加入 verify 走查的入口时提高到 4800"
   },
   {
     "path": "apps/web/AGENTS.md",
