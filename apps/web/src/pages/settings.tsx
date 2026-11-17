@@ -186,10 +186,7 @@ function CommandPolicySection() {
   }
 
   return <section aria-labelledby="command-policy" className="grid gap-3">
-    <div className="grid gap-1">
-      <h3 id="command-policy" className="text-title weight-semibold">{t("settings.commandPolicy.title")}</h3>
-      <p className="text-body text-muted-foreground">{t("settings.commandPolicy.description")}</p>
-    </div>
+    <h3 id="command-policy" className="text-title weight-semibold">{t("settings.commandPolicy.title")}</h3>
     {policy.data === undefined && policy.status !== "error" && <p role="status" className="text-body text-muted-foreground">{t("common.loading.status")}</p>}
     {policy.data === undefined && policy.status === "error" && <div className="grid gap-3">
       <ErrorNotice title={t("settings.commandPolicy.load.error")} error={policy.error} />

@@ -3,9 +3,9 @@ import { Link, Navigate } from "react-router";
 import { MessageCircle, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { ConceptCardDialog } from "@/features/concept-card";
@@ -154,7 +154,7 @@ function Learn({ space }: { space: string }) {
     <div className="flex min-h-0 flex-1">
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6 md:px-8">
-          {learning.replaced && <StatusNotice status="error" title={t("learn.stale.title")}><p>{t("learn.stale.description")}</p></StatusNotice>}
+          {learning.replaced && <StatusNotice status="error" title={t("learn.stale.title")} />}
           {/* 剩下的题都要模型判分而没有可用模型：任务保留，接上模型后再继续。 */}
           {errorCode(learning.actionError) === "model_required" ? <div className="grid gap-3">
             <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("learn.noModel.description")}</p></StatusNotice>
@@ -194,7 +194,6 @@ function Learn({ space }: { space: string }) {
       <SheetContent className="w-full sm:max-w-md">
         <SheetHeader>
           <SheetTitle>{panel.label}</SheetTitle>
-          {panelKind === "tutor" && <SheetDescription>{t("learn.tutor.description")}</SheetDescription>}
         </SheetHeader>
         {panel.content}
       </SheetContent>
@@ -208,7 +207,6 @@ function Learn({ space }: { space: string }) {
       {task && <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("learn.abort.title", { kindText: kindText[task.kind] })}</DialogTitle>
-          <DialogDescription>{t("learn.abort.description")}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild><Button variant="tertiary">{t("learn.abort.cancel.action")}</Button></DialogClose>

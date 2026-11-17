@@ -152,9 +152,6 @@ function Conversation({ space }: { space: string }) {
             </Button>
           </div>
         </div>}
-        {status === "ready" && items.length === 0 && !running && <p className="text-body text-muted-foreground">
-          {t("conversation.transcript.empty")}
-        </p>}
         <ConversationTranscript
           workingText={t("conversation.working.status")}
           onFork={(entryId) => { void fork(entryId); }}
