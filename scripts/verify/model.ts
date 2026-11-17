@@ -9,7 +9,7 @@
  * 其他请求一律回一句话，并记进 unexpected，走查把它当作失败的证据。
  *
  * 带的 key 不是走查自己配的那个时，是保存 key 时的验证请求：按 key 定回答（KEY_CHECKS）。
- * 走查要求时，通用 Agent 的请求按 failAgent 给的方式失败（断开、不回、按提供方的格式回错误），直到撤销。
+ * 走查要求时，通用 Agent 的请求按 failAgent 给的方式失败（断开、不回、按提供方的格式回错误），直到撤销；给了 match 时只让用户消息含它的那些失败。
  */
 import { createServer, type Server } from "node:http";
 
@@ -62,6 +62,17 @@ function textOf(content: ChatMessage["content"]): string {
   return (content ?? []).map((part) => part.text ?? "").join("");
 }
 
+/** 最近一条学习者自己的消息的位置。底座把视图（日期、空间说明等）也作为 user 消息放进上下文，以 <repa-view 开头，不算。 */
+function lastLearnerMessage(messages: ChatMessage[]): number {
+  return messages.findLastIndex((message) => message.role === "user" && !textOf(message.content).trimStart().startsWith("<repa-view"));
+}
+
+/** 最近一条学习者自己的消息的文字；剧本按它找。 */
+function learnerText(messages: ChatMessage[]): string {
+  const index = lastLearnerMessage(messages);
+  return index < 0 ? "" : textOf(messages[index]?.content);
+}
+
 export class ScriptedModel {
   readonly provider = "repa-verify";
   /** 设置里填 key 连接的那个提供方。 */
@@ -78,6 +89,7 @@ export class ScriptedModel {
   private toolNames = new Map<string, string>();
   private calls = 0;
   private failing: ModelFailureScript | undefined;
+  private failingMatch: string | undefined;
   private gradingFailure: ModelFailureScript | undefined;
 
   private constructor(private server: Server, readonly port: number) {}
@@ -113,9 +125,10 @@ export class ScriptedModel {
     };
   }
 
-  /** 之后通用 Agent 的请求都按这种方式失败；传 undefined 撤销。 */
-  failAgent(failure: ModelFailureScript | undefined): void {
+  /** 之后通用 Agent 的请求都按这种方式失败；给了 match 时只有最近一条用户消息含它的才失败（例如后台展开的任务）。传 undefined 撤销。 */
+  failAgent(failure: ModelFailureScript | undefined, match?: string): void {
     this.failing = failure;
+    this.failingMatch = match;
   }
 
   /** 之后开放题判分的请求都按这种方式失败；传 undefined 撤销。 */
@@ -191,7 +204,7 @@ export class ScriptedModel {
       this.log.push({ kind: "confirm", note: answer === undefined ? "没有查到这道题" : "查到了" });
       if (answer === undefined) this.unexpected.push(`课程核对的题面没有对应的答案：${prompt.slice(0, 200)}`);
       reply = { text: answer ?? "{\"answers\": {}}" };
-    } else if (tools.includes("course_use") && this.failing !== undefined) {
+    } else if (tools.includes("course_use") && this.failing !== undefined && (this.failingMatch === undefined || learnerText(messages).includes(this.failingMatch))) {
       this.log.push({ kind: "agent", note: `失败：${this.failing}` });
       this.fail(this.failing, response);
       return;
@@ -207,9 +220,8 @@ export class ScriptedModel {
 
   /** 通用 Agent 的一轮：最近一条用户消息定剧本，它之后已经回答过几次定第几步。 */
   private agentStep(messages: ChatMessage[]): Step {
-    // 底座把视图（日期、空间说明等）也作为 user 消息放进上下文，以 <repa-view 开头；剧本按学习者自己最近的一条消息找。
-    const lastUser = messages.findLastIndex((message) => message.role === "user" && !textOf(message.content).trimStart().startsWith("<repa-view"));
-    const userText = lastUser < 0 ? "" : textOf(messages[lastUser]?.content);
+    const lastUser = lastLearnerMessage(messages);
+    const userText = learnerText(messages);
     const script = this.scripts.find((entry) => userText.includes(entry.match));
     const after = messages.slice(lastUser + 1);
     const done = after.filter((message) => message.role === "assistant").length;

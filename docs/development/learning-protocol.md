@@ -105,7 +105,7 @@ if (state.ok) renderLearning(state.value);
 
 - `course` 是空间里换用过的自制课；为 `null` 时还没有（学的是随包的课，或还没有可学的课），`parts` 随之为空。否则 `parts` 按课程清单的顺序列出各部分（topic）：`title`、一句话的 `summary`、在材料里的出处 `sources`（来源标题、`file` 或 `url`、`where`），以及 `status`：`outline` 只有轮廓，`ready` 已展开、可以学，`learned` 学过。全部是 `outline` 时只有轮廓。
 - `expansion` 是正在后台展开的部分：`topicIds`、`startedAt`，以及那次后台运行的会话 `sessionId`（还没建立时为 `null`）；没有展开在进行时为 `null`。
-- `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `failed`（没能开始或运行出错，例如没有可用模型、模型请求报错，`message` 是底层报错的原文）、`cancelled`（被学习者取消，或应用在展开中途关闭）、`not_expanded`（运行结束了而这几部分仍是轮廓），界面文字由前端按 `code` 书写。
+- `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `failed`（没能开始或运行出错，例如没有可用模型、模型请求报错，`message` 是底层报错的原文；模型请求失败时 `failure` 是底座的分类，界面按它说明原因，原文折叠在下面）、`cancelled`（被学习者取消，或应用在展开中途关闭）、`not_expanded`（运行结束了而这几部分仍是轮廓），界面文字由前端按 `code` 书写。
 - `sessionId` 是学习者与之对话做课的会话，前端经 `building.begin` 告诉插件；还没有时为 `null`。它记在插件数据目录里，重开应用以后页面据此接回同一段对话。
 - `cost` 是做这门课的会话（调用过 `course_check`、`course_confirm`、`course_use` 的会话与后台展开的会话，连同它们起的子 Agent 和 `course_confirm` 发出的核对请求）到现在的累计用量，字段同底座的 `session.usage`：`requests`、全部 token `usage`、按模型目录单价折算的 `cost`（美元），以及没有单价的那部分 token `unpriced`。
 

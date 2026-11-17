@@ -49,6 +49,22 @@ const GRADING_FAILURE_TEXT: [ModelFailureScript, string, boolean][] = [
   ["disconnect", "无法连接模型服务，这份作答没能判出结果，不算错。检查网络后可以再判一次，也可以先做下一题，条件具备时会自动补判。", true],
 ];
 
+/** 学习者请通用 Agent 给课加一部分轮廓；加上以后学过的都已学完，学习页随即在后台展开它。 */
+const OUTLINE_REQUEST = "在课的最后加一部分“进程调度”，先只列轮廓。";
+const OUTLINE_TOPIC = [
+  "id: os03",
+  "title: 进程调度",
+  "status: outline",
+  "minutes: 15",
+  "summary: 处理机在就绪进程之间怎样分配。",
+  "prerequisites: [os02]",
+  "sources: [{ source: notes, where: 第三节, use: reference }]",
+  "kps:",
+  "  - { id: os03.k1, title: 调度的时机 }",
+  "  - { id: os03.k2, title: 调度的算法 }",
+  "",
+].join("\n");
+
 const COURSE_NAME = "操作系统 走查";
 const REQUEST = "想学进程状态和进程控制块，下周考试。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
@@ -455,6 +471,42 @@ export const STEPS: Step[] = [
       checks.expect("导出的文件里有作答记录", facts.some((fact) => fact.type === "answered") && facts.some((fact) => fact.type === "graded"),
         `${[...entries.keys()].join("、")}；records.jsonl ${facts.length} 条`);
       await page.press("Escape");
+    },
+  },
+  {
+    id: "expansion-failure",
+    title: "后台展开时模型服务的账户余额不足：学习页说明原因，原文折叠，可以重试",
+    async run({ page, model }, checks) {
+      // 只让后台展开的任务失败；学习者与通用 Agent 的对话照常。
+      model.failAgent(402, "在后台展开");
+      model.script(OUTLINE_REQUEST, [
+        { tools: [{ name: "read", arguments: { path: "course/course.yaml" } }] },
+        { tools: [
+          { name: "edit", arguments: { path: "course/course.yaml", edits: [{ oldText: "topics: [os01, os02]", newText: "topics: [os01, os02, os03]" }] } },
+          { name: "write", arguments: { path: "course/topics/os03.yaml", content: OUTLINE_TOPIC } },
+        ] },
+        { tools: [{ name: "course_check", arguments: {} }] },
+        { tools: [{ name: "course_use", arguments: {} }] },
+        { text: "加好了“进程调度”的轮廓。" },
+      ]);
+      const seen = model.toolResults.length;
+      await page.click({ name: "新会话", selector: "a, button" });
+      await page.fill("消息", OUTLINE_REQUEST);
+      await page.press("Enter");
+      await page.waitText("加好了“进程调度”的轮廓。", 30_000);
+      const used = model.toolResults.slice(seen).find((result) => result.tool === "course_use")?.text ?? "";
+      checks.expect("加了轮廓的课换用成功", used.startsWith("已换用"), used.split("\n")[0]);
+      await page.click({ name: "学习", selector: "a, button" });
+      const sentence = "模型服务的账户余额不足，充值后重试。";
+      const text = await page.waitText(sentence, 30_000);
+      // 整门课一节在任务和菜单下面，截图前滚到它。
+      await page.evaluate<null>("(() => { document.getElementById('course-outline-title')?.scrollIntoView({ block: 'start' }); return null; })()");
+      await page.shot("expansion-failure-402");
+      const attempts = model.log.filter((entry) => entry.kind === "agent" && entry.note === "失败：402").length;
+      checks.expect("学习页说“未完成：进程调度”和余额不足的那句话", text.includes("未完成：进程调度") && occurrences(text, sentence) === 1, `后台展开的请求 ${attempts} 次`);
+      checks.expect("提供方的原文折叠在“原始报错”里，不直接摆在外面", text.includes("原始报错") && !text.includes("Insufficient Balance"));
+      checks.expect("有“重试”", await page.has({ name: /^重试$/u, selector: "button" }));
+      model.failAgent(undefined);
     },
   },
   {

@@ -215,7 +215,7 @@ it("有了课：轮廓按顺序列出，状态有文字不只靠颜色；先做�
   const fake = backend({
     "learning.building.get": () => Promise.resolve(building),
     "learning.building.cancel": () => {
-      building = { ...outlined, lastFailure: { topicIds: ["os03"], at, code: "failed", message: "model request failed: 429" } };
+      building = { ...outlined, lastFailure: { topicIds: ["os03"], at, code: "failed", message: "429: Rate Limit Reached", failure: "rate_limit" } };
       return Promise.resolve(building);
     },
     "learning.building.expand": (input) => Promise.resolve({ ...outlined, expansion: { topicIds: input.topicIds as string[], startedAt: at, sessionId: null } }),
@@ -240,7 +240,9 @@ it("有了课：轮廓按顺序列出，状态有文字不只靠颜色；先做�
   expect((within(rows[3]!).getByRole("button", { name: "outline.expand.label死锁" }) as HTMLButtonElement).disabled).toBe(true);
 
   fireEvent.click(outline.getByRole("button", { name: "outline.expansion.cancel.action" }));
-  expect(await outline.findByText("model request failed: 429")).toBeTruthy();
+  // 按原因说一句，提供方的原文折叠在下面。
+  expect(await outline.findByText("outline.failure.rateLimit.description")).toBeTruthy();
+  expect(outline.getByText("429: Rate Limit Reached").closest("details")).toBeTruthy();
   expect(outline.getByText("outline.failure.failed.title进程调度")).toBeTruthy();
 
   fireEvent.click(outline.getByRole("button", { name: "outline.failure.retry.action" }));

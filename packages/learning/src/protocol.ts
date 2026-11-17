@@ -383,6 +383,8 @@ export const ExpansionFailureSchema = object({
   at: timestamp,
   code: Type.Enum(["failed", "cancelled", "not_expanded"]),
   message: Type.Optional(Type.String()),
+  /** code 为 failed 且是模型请求失败时，底座给的原因；message 是提供方的原文。 */
+  failure: Type.Optional(ModelFailureSchema),
 });
 /**
  * 做课的状态：course 是空间里换用过的自制课，为 null 时还没有（学的是随包的课，或还没有可学的课），parts 随之为空；

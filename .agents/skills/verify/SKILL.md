@@ -36,6 +36,7 @@ npm run verify
 | `mid-lesson` | 开放题判分途中关闭再打开，接着做，没判出结果的不记为错，模型可用后补判为对 |
 | `next-day` | 后端时钟拨到第二天，菜单出现复习，复习做完 |
 | `backup-export` | 立即备份，导出学习数据，导出的 zip 里有作答记录 |
+| `expansion-failure` | 让通用 Agent 给课加一部分轮廓，学习页随即在后台展开它；展开的请求余额不足时，“整门课”下说明原因，原文折叠，有“重试” |
 | `model-failures` | 模型请求断开、超时、key 无效、余额不足、限流、服务端出错时，对话里按原因说一句中文、只说一次（Pi 照常自动重试），撤掉故障后重新发送有回答 |
 | `key-check` | 在设置里填 API key：提供方拒绝的不保存；连不上时照样保存并说明没能验证；能用的直接连上 |
 
@@ -75,7 +76,7 @@ npm run verify:drive -- <操作> [参数…]
 
 步骤在 `scripts/verify/steps.ts`，每一步像学习者那样操作界面，再用 `checks.expect` 写下必须成立的事。证据优先取自界面；界面上看不到的（某份作答的判分结论、备份目录里有什么）读空间和配置目录里的文件，不经后端调用，免得走查自己改变状态。
 
-假模型在 `scripts/verify/model.ts`，说 OpenAI 兼容的流式接口，按请求的种类回答：通用 Agent 的一轮按学习者消息里的文字找 `model.script` 给的剧本，一步是一次回答；课程核对按题面查 `scripts/verify/course.ts` 用学习插件自己的函数算好的标准答案；开放题判分判对，`holdGrading` 时先扣住，`failGrading` 时按给定的方式失败。`failAgent` 让之后通用 Agent 的请求按给定的方式失败（断开、不回、按提供方的格式回 401、402、429、500），直到撤销；带的不是走查自己配的 key 时是保存 key 时的验证请求，按 key 回答。没有剧本的请求会让走查立即停下并报出来，而不是等到超时。超时那一种靠 `app.reopen({ settings })` 在重开前把 Pi 的请求超时和重试间隔调短，只改走查临时配置目录里的 `agent/settings.json`。走查用的课在 `scripts/verify/course/`。
+假模型在 `scripts/verify/model.ts`，说 OpenAI 兼容的流式接口，按请求的种类回答：通用 Agent 的一轮按学习者消息里的文字找 `model.script` 给的剧本，一步是一次回答；课程核对按题面查 `scripts/verify/course.ts` 用学习插件自己的函数算好的标准答案；开放题判分判对，`holdGrading` 时先扣住，`failGrading` 时按给定的方式失败。`failAgent` 让之后通用 Agent 的请求按给定的方式失败（断开、不回、按提供方的格式回 401、402、429、500），直到撤销，也可以只让用户消息含某段文字的那些失败（后台展开的任务）；带的不是走查自己配的 key 时是保存 key 时的验证请求，按 key 回答。没有剧本的请求会让走查立即停下并报出来，而不是等到超时。超时那一种靠 `app.reopen({ settings })` 在重开前把 Pi 的请求超时和重试间隔调短，只改走查临时配置目录里的 `agent/settings.json`。走查用的课在 `scripts/verify/course/`。
 
 某一步跑不稳时，找出原因再改，不要加固定的等待或重试来掩盖。点按钮前已经等元素位置稳定（对话框和抽屉有打开动画），之后等页面文字变化。
 
