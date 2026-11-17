@@ -1,9 +1,9 @@
 import { closeSync, constants, fstatSync, openSync, readSync, writeSync, type Dirent } from "node:fs";
-import { mkdir, open, readdir, rename, rm, type FileHandle } from "node:fs/promises";
+import { mkdir, open, readdir, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import type { BackupManifest } from "../schema.js";
-import { syncDirectory } from "../storage.js";
+import { move, syncDirectory } from "../storage.js";
 
 /** 复制一个文件的取法：原样、只到最后一个换行符，或会话文件在一段同步代码里只到最后一个换行符。 */
 export type CopyMode = "plain" | "lines" | "session";
@@ -235,22 +235,6 @@ export async function syncEntries(directory: string): Promise<void> {
 export async function publish(from: string, to: string): Promise<void> {
   await move(from, to);
   await syncEntries(path.dirname(to));
-}
-
-/**
- * 改名，用于发布备份和换入换出 .repa/ 的内容。Windows 上杀毒软件或索引服务扫描刚写好的文件时，
- * 改名可能暂时以 EPERM、EBUSY 或 EACCES 失败；与 rm 的 maxRetries 一样稍候重试，最多十次。
- */
-export async function move(from: string, to: string): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await rename(from, to);
-      return;
-    } catch (error) {
-      if (attempt >= 10 || !isCode(error, "EPERM", "EBUSY", "EACCES")) throw error;
-      await new Promise((resolve) => { setTimeout(resolve, 100); });
-    }
-  }
 }
 
 /** 删除文件或目录树，不存在也算完成；被占用时按 rm 的 maxRetries 稍候重试。 */

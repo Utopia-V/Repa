@@ -5,11 +5,11 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import { RepaFault, syncDirectory, writeJson } from "@repa/base";
+import { move, RepaFault, syncDirectory, writeJson } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { object, parse } from "@repa/base/protocol";
 import { Type, type Static } from "typebox";
@@ -140,7 +140,7 @@ export class CourseStore {
         const target = path.join(this.dataDir, COPIES, checked.id);
         await rm(target, { recursive: true, force: true });
         await mkdir(path.join(this.dataDir, COPIES), { recursive: true });
-        await rename(directory, target);
+        await move(directory, target);
         await syncDirectory(path.join(this.dataDir, COPIES));
       }, () => readCopy(directory));
     });
