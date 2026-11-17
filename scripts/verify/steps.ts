@@ -478,9 +478,9 @@ export const STEPS: Step[] = [
       await open();
       await page.fill("API key", "key-wrong");
       await page.click({ name: /^保存$/u, selector: "button" });
-      await page.waitText("〔待写〕", 15_000);
+      await page.waitText("这个 API key 无效，请核对后重新填写。", 15_000);
       await page.shot("key-check-rejected");
-      checks.expect("填错的 key：对话框留着、说明原因（文字待写），可以重填", await page.has({ name: /^保存$/u, selector: "button" }));
+      checks.expect("填错的 key：对话框留着、说明原因，可以重填", await page.has({ name: /^保存$/u, selector: "button" }));
       checks.expect("填错的 key 先试发了一次请求", checked().at(-1) === "key-wrong：401", checked().join("；"));
       await page.press("Escape");
       await until("对话框关上", async () => (await openDialog(page)) === "");
@@ -491,7 +491,7 @@ export const STEPS: Step[] = [
       await page.click({ name: /^保存$/u, selector: "button" });
       await page.waitText("完成", 15_000);
       await page.shot("key-check-unverified");
-      checks.expect("连不上时说明没能验证（文字待写），由学习者关掉", (await page.text()).includes("〔待写〕"));
+      checks.expect("连不上时说明没能验证，由学习者关掉", (await page.text()).includes("已保存，但未能确认这个 key 是否可用。"));
       await page.click({ name: "完成", selector: "button" });
       await until("对话框关上", async () => (await openDialog(page)) === "");
       checks.expect("连不上时 key 照样保存", await connected());

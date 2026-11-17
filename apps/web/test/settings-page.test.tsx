@@ -9,13 +9,6 @@ import { createAppStore } from "../src/lib/store";
 import { SettingsPage } from "../src/pages/settings";
 import { fakeClient } from "./fake-client";
 
-// 保存 key 时验证的几句话在测试里换成键名，按键名找元素：改措辞（或填上占位）不必改测试。
-vi.mock("../src/strings/zh-CN", async (importOriginal) => {
-  const { strings } = await importOriginal<typeof import("../src/strings/zh-CN")>();
-  const byKey = /^provider\.apiKey\.(rejected|balance|unverified)/u;
-  return { strings: Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, byKey.test(key) ? key : value])) };
-});
-
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 type Provider = Result<"model.providers">[number];
@@ -201,12 +194,12 @@ it("提供方拒绝 key 时不保存、对话框留着可以重填；连不上�
 
   fireEvent.change(key, { target: { value: "sk-wrong" } });
   fireEvent.click(within(keyDialog).getByRole("button", { name: "保存" }));
-  expect(await within(keyDialog).findByText("provider.apiKey.rejected.error")).toBeTruthy();
+  expect(await within(keyDialog).findByText("这个 API key 无效，请核对后重新填写。")).toBeTruthy();
   expect(within(keyDialog).getByLabelText("DeepSeek API key")).toBeTruthy();
 
   fireEvent.change(key, { target: { value: "sk-offline" } });
   fireEvent.click(within(keyDialog).getByRole("button", { name: "保存" }));
-  expect(await within(keyDialog).findByText("provider.apiKey.unverified.status")).toBeTruthy();
+  expect(await within(keyDialog).findByText("已保存，但未能确认这个 key 是否可用。")).toBeTruthy();
   fireEvent.click(within(keyDialog).getByRole("button", { name: "完成" }));
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(within(section("模型提供方")).getByText("DeepSeek")).toBeTruthy();
