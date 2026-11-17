@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 /**
  * 接口沿用 shadcn 的 RadioGroup / RadioGroupItem，圆圈和圆点照 Fluid Functionalism。
  * 组件库的 RadioItem 只收字符串标签，放不下题目里的 Markdown 选项。
+ * 与组件库不同：选中时圆圈不隐去，改用前景色，圆点在圈内，选中前后都是 16 px。
  */
 function RadioGroup({
   className,
@@ -38,7 +39,7 @@ function RadioGroupItem({
       data-slot="radio-group-item"
       className={cn(
         "relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full border-[1.5px] border-solid border-input bg-transparent outline-none transition-[border-color] duration-80",
-        "hover:not-data-checked:border-input-focus data-checked:border-transparent aria-invalid:not-data-checked:border-destructive",
+        "hover:not-data-checked:border-input-focus data-checked:border-foreground aria-invalid:not-data-checked:border-destructive",
         "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)] data-disabled:pointer-events-none data-disabled:opacity-50",
         className,
       )}

@@ -116,6 +116,7 @@ Card 默认内距由基础组件持有。紧凑型 Card 必须由基础组件提
 | 对话回复 | 1 px `border` |
 | Tertiary Button | 1 px `border` |
 | Checkbox / Radio 未选中 | 1.5 px `input` |
+| Radio 选中 | 1.5 px `foreground`，圈内 8 px 圆点；选中前后都是 16 px |
 | 主按钮、次按钮 | 无常驻可见边框 |
 
 ### 尺寸

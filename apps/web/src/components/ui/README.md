@@ -28,7 +28,7 @@ Sidebar、Card 和 Sheet 的接口来自 shadcn `new-york-v4`（MIT，原文在 
 
 ## 不用组件库的部分
 
-- `RadioGroup`：组件库的 `RadioItem` 只收字符串标签，放不下题目里的 Markdown 选项。接口不变，圆圈和圆点照组件库，底层用 Base UI。
+- `RadioGroup`：组件库的 `RadioItem` 只收字符串标签，放不下题目里的 Markdown 选项。接口不变，底层用 Base UI，圆圈和圆点照组件库，只有一处不同：组件库选中时把圆圈隐去、只剩 8 px 的圆点，和未选中的 16 px 圆圈大小不一，看起来像两种控件；这里选中时保留圆圈并改用前景色，圆点在圈内。
 - `Card`：组件库的 Card 默认无边框、无内距，还依赖 `next/link`。这里保留简单的表面组件。
 - `Sheet`：组件库的抽屉只能从底部出现。这里用 Base UI Dialog 和 CSS 过渡。
 - `InputGroup`：组件库的同名组件是一组带标签的输入框。消息输入框的对应形态是 `input-message`，它会带入 `pdfjs-dist`。
