@@ -172,7 +172,7 @@ if (state.ok) renderLearning(state.value);
 
 | 项目 | 当前范围与接续 |
 | --- | --- |
-| Aqua 审阅 | 待核对各阶段画面、操作、原学习位置及 Python 请求／结果夹具；审定后的字段供前后端共用，由 [#59](https://github.com/Utopia-V/repa/issues/59) 接续 |
+| 概念链接的检索 | `content.search` 还没有把 id 完全相同的结果排在最前，概念卡目前按 `kpId` 自行过滤；由 [#59](https://github.com/Utopia-V/repa/issues/59) 接续 |
 | Python Worker | Web 与 Desktop 用运行器包提供 `python.run`；代码题判分还要在真实的 Worker 和 Electron 里走一遍，见[教学流程的未完成项](learning-flow.md#未完成项与待验证项) |
 | 故障与学习效果 | 记录层已通过真实杀进程恢复验证；完整学习体验、实际作答改变帮助及学习外负担由后续组合试用检验 |
 
