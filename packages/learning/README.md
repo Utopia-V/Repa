@@ -182,7 +182,7 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 
 出处分三种：MA 公开，指官网、Justin Skycak 的书与文章或采访里给出的；Repa 猜测，指公开资料没有给出、由 Repa 先定的；研究结论，指本仓库研究得出的判断，其中学生模型的研究在未合并的研究分支 learning-model-research（2026-10-10）。MA 公开而直接照用的规则不列在这里，例如连续复习以后给新课（`REVIEWS_BEFORE_LESSON`）、复习不限时和测验没答的题算错，出处写在代码注释和教学流程说明里。课、复习、测验通过与失败规则的公开出处，2026-10-31 的一次调查逐条核对过：[官网 How It Works](https://www.mathacademy.com/how-it-works)、[How Our AI Works](https://www.mathacademy.com/how-our-ai-works)、[The Math Academy Way FAQ](https://www.justinmath.com/the-math-academy-way-faq/) 和 [Golden Nuggets #39 采访](https://www.justinmath.com/golden-nuggets-podcast-39/)。
 
-要比较两组学生模型参数，用 `new Replay(course, model)` 按另一组参数重放同一份学习记录，再比较两边对到期和间隔的预测。
+要比较两组学生模型参数，用 `new Replay(structure, model)`（`structure` 取学习会话的 `session.structure`）按另一组参数重放同一份学习记录，再比较两边对到期和间隔的预测。
 
 ### 学生模型
 

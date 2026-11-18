@@ -16,6 +16,8 @@
 4. 把 dev 上的 [`test1-readings.ts`](../test1-readings.ts) 与 [`test1-read.ts`](../test1-read.ts) 复制到标签工作树的同一位置，运行 `npx tsx --tsconfig scripts/verify/tsconfig.json scripts/verify/test1-capture.ts <这个目录>`，写出 `answers.json`。
 5. 再把 [`test1-prefix-capture.ts`](../test1-prefix-capture.ts) 复制过去，在 `packages/learning` 下运行 `TZ=Asia/Shanghai npx tsx test/fixtures/test1-prefix-capture.ts <这个目录>`，写出逐前缀的标准答案 `prefixes.json.br`（见下文“逐前缀的读数”）。它只读这个目录里的数据，数据不变时可以单独重新产生。
 
+取数文件随学习插件的内部结构改动，dev 上的版本不一定能在标签上运行。重新产生时用产生标准答案的那一版：`answers.json` 与 `prefixes.json.br` 的 `producedBy.readings` 记着它的 sha256，在 `git log -- test/fixtures/test1-readings.ts` 里找内容相同的那一版。
+
 重新产生时，走查的时钟以运行当天上午 10 点为起点，所以日期和全部标准答案都会变；要整份重新产生，不能只替换其中一部分。
 
 ## 五个空间
