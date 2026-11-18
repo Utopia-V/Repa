@@ -159,6 +159,11 @@ export class Replay {
   apply(fact: Fact): void {
     this.applied++;
     this.position = fact.seq;
+    // 基线与课程结构只登记解释的依据，不是学习者做的事：写下它们的时刻不推进学习时钟，进行中测验的截止仍由学习事实和读数时间决定。
+    if (fact.type === "structure" || fact.type === "baseline") {
+      this.register(fact);
+      return;
+    }
     this.settle(fact.at);
     let changed: TaskRecord | undefined;
     switch (fact.type) {
@@ -239,13 +244,6 @@ export class Replay {
       case "goal":
         this.goal = fact.xp;
         break;
-      case "structure":
-        this.structures.set(fact.seq, new StructureIndex(fact.structure));
-        break;
-      case "baseline":
-        // 基线的结构由调用方在重放之前读出（legacy），这里只登记它，供之后的任务引用。
-        if (fact.structure) this.structures.set(fact.seq, this.legacy?.structure ?? new StructureIndex(fact.structure));
-        break;
     }
     if (changed) {
       const earlier = changed !== this.current;
@@ -274,6 +272,12 @@ export class Replay {
     if (reward({ ...own, outcome: "passed" }) > (this.best.get(task.seq) ?? 0)) {
       this.observe(task, at);
     }
+  }
+
+  /** 登记一份课程结构，供之后的任务引用。基线的结构由调用方在重放之前读出（legacy），用同一份。 */
+  private register(fact: Extract<Fact, { type: "structure" | "baseline" }>): void {
+    if (fact.type === "structure") this.structures.set(fact.seq, new StructureIndex(fact.structure));
+    else if (fact.structure) this.structures.set(fact.seq, this.legacy?.structure ?? new StructureIndex(fact.structure));
   }
 
   /** 任务开始时的课程结构：基线之前的任务用基线的结构，之后的任务用它引用的那一份。 */

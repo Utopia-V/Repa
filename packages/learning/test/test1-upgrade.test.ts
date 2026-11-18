@@ -43,7 +43,8 @@ async function fixture(t: TestContext, source: string, backup: () => Promise<voi
   await cp(path.join(FIXTURE, source), root, { recursive: true });
   const original = await readFile(path.join(root, LOG));
   const lines = original.toString("utf8").split("\n").filter(Boolean);
-  const now = (JSON.parse(lines.at(-1) ?? "{}") as Fact).at + 60_000;
+  const last = (JSON.parse(lines.at(-1) ?? "{}") as Fact).at;
+  let now = last + 60_000;
   let session: LearningSession | undefined;
   const plugin = createLearningPlugin({ connect: async (opened) => { session = opened; return connectLearning(opened); } });
   let space: Awaited<ReturnType<typeof openSpace>> | undefined;
@@ -68,7 +69,13 @@ async function fixture(t: TestContext, source: string, backup: () => Promise<voi
   const log = () => readFile(path.join(root, LOG));
   const facts = async () => (await log()).toString("utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as Fact);
   const state = async () => (await host?.call("learning", "state.get", {}, { capabilities })) as LearningState;
-  return { root, original, lines, open, close, log, facts, state, session: () => session, host: () => host };
+  /** 只留学习记录的前 count 行。 */
+  const truncate = (count: number) => writeFile(path.join(root, LOG), lines.slice(0, count).map((line) => `${line}\n`).join(""));
+  return {
+    root, original, lines, open, close, log, facts, state, truncate, session: () => session, host: () => host,
+    /** 宿主的时钟停在 at。 */
+    clock: (at: number) => { now = at; },
+  };
 }
 
 for (const space of SPACES) {
@@ -225,4 +232,19 @@ test("丁只留第一项任务（Python 的课，换用的是自制课）：经�
   const aborted = await host.call("learning", "task.abort", { taskId: state.task.taskId, expectedRevision: state.revision, expectedStage: "explanation" }, { capabilities }) as LearningState;
   assert.equal(aborted.task?.phase.stage, "aborted");
   assert.ok((aborted.menu?.candidates.length ?? 0) > 0);
+});
+
+test("基线不推进学习时钟：戊进行中的测验，先在截止以后打开（写下基线）、再把时钟拨回截止之前打开，测验仍在进行，没有多结算一场超时", async (t) => {
+  const f = await fixture(t, "home/Repa/Python 测验");
+  await f.truncate(402);
+  const last = (JSON.parse(f.lines[401] ?? "{}") as Fact).at;
+  f.clock(last + 20 * 60_000);
+  await f.open();
+  assert.equal((await f.facts()).at(-1)?.type, "baseline");
+  f.clock(last + 60_000);
+  await f.open();
+  const state = await f.state();
+  assert.equal(state.task?.kind, "quiz");
+  assert.notEqual(state.task?.phase.stage, "completed");
+  assert.equal(state.progress.totalXp, 161);
 });
