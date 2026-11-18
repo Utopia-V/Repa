@@ -9,9 +9,10 @@
  *
  * 经 test1-read.ts 以子进程运行：时区要在进程启动时定下，学习插件按进程的时区算本地日期。
  */
-import { cp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { openPluginHost, openSpace } from "@repa/base";
+import { openPluginHost, openSpace, RepaFault } from "@repa/base";
 import { ModelTestDriver } from "@repa/base/testing";
 import type { ClientCapabilities } from "@repa/base/protocol";
 import { connectLearning } from "../../src/flow.js";
@@ -19,8 +20,10 @@ import { emptyFold, foldTask, taskEvidence, type TaskEvidence } from "../../src/
 import { STUDENT_MODEL } from "../../src/parameters.js";
 import { createLearningPlugin } from "../../src/plugin.js";
 import type { CourseBuilding, LearningState, LearningSettings, Submission } from "../../src/protocol.js";
-import type { LearningSession } from "../../src/session.js";
+import { LearningRecords } from "../../src/records.js";
+import { LearningSession } from "../../src/session.js";
 import { DAY_MS, topicDue, topicMemory } from "../../src/student-model.js";
+import type { Fact } from "../../src/records-schema.js";
 
 /** 取数时前端声明的能力：与 apps/web 的 interactionCapabilities 和 app.tsx 声明的服务相同。 */
 export const WEB_CAPABILITIES: ClientCapabilities = {
@@ -153,7 +156,8 @@ function menu(state: LearningState) {
     candidates: state.menu.candidates.map((entry) => ({
       kind: entry.kind, topics: entry.topicIds, title: entry.title, retakes: entry.originalTaskId === undefined ? null : seqOf(entry.originalTaskId),
     })),
-    unavailableReason: state.menu.unavailableReason ?? null,
+    // 测试版的菜单有这项说明，#173 起由界面给出，协议里已没有它；这份文件也要在标签上运行，所以照旧取。
+    unavailableReason: (state.menu as { unavailableReason?: string }).unavailableReason ?? null,
     availableAt: state.menu.availableAt ?? null,
   };
 }
@@ -172,6 +176,40 @@ function building(entry: CourseBuilding) {
 export interface Reading {
   raw: { state: unknown; progress: unknown; building: unknown; settings: unknown };
   meaning: unknown;
+}
+
+/**
+ * 学习状态的读数：插件方法给出的状态与进度，以及取自学习会话内部结构的重放结果。调用前已按读数时刻 settle 过（view 会做）。
+ * 做课的状态与设置不在其中，由 readSpace 另取。
+ */
+function learningMeaning(session: LearningSession, state: LearningState, progress: LearningState["progress"]) {
+  const { replay } = session;
+  const fold = replay.fold();
+  const quizTask = state.task && (state.task.kind === "quiz" || state.task.kind === "retake") ? state.task : null;
+  return {
+    serverNow: state.serverNow,
+    factCount: state.revision,
+    course: state.course,
+    progress,
+    restriction: state.restrictions,
+    currentTask: currentTask(state, session),
+    menu: menu(state),
+    dailyGoal: replay.goal ?? null,
+    tasks: tasks(session),
+    awards: replay.awards.map((award) => ({ task: award.task, xp: award.xp, at: award.at, quiz: award.quiz })),
+    xp: { total: replay.total, quizTrigger: replay.trigger },
+    student: student(fold, state.serverNow),
+    lessonProgress: fold.lessons,
+    lessonFailures: fold.failures,
+    reviewFailures: fold.reviewFailures,
+    remediation: fold.forced,
+    consecutiveReviews: fold.consecutiveReviews,
+    quiz: {
+      started: replay.consumed,
+      pending: replay.pending ? { n: replay.pending.n, atXp: replay.pending.atXp, topics: replay.pending.topicIds } : null,
+      current: quizTask ? { task: seqOf(quizTask.taskId), kind: quizTask.kind, topics: quizTask.topics.map((topic) => topic.id), startedAt: quizTask.startedAt, deadlineAt: quizTask.deadlineAt } : null,
+    },
+  };
 }
 
 /** model 为假时没有可用的模型，与试用者删掉了 key 时相同：开放题不出，也不补判。 */
@@ -200,34 +238,10 @@ export async function readSpace(root: string, now: number, model = true): Promis
     const settings = await call("settings.get") as LearningSettings;
     if (!session) throw new Error("学习会话没有打开");
     await session.view(WEB_CAPABILITIES);
-    const { replay } = session;
-    const fold = replay.fold();
-    const quizTask = state.task && (state.task.kind === "quiz" || state.task.kind === "retake") ? state.task : null;
     const meaning = {
-      serverNow: state.serverNow,
-      factCount: state.revision,
-      course: state.course,
-      progress: progress.progress,
-      restriction: state.restrictions,
-      currentTask: currentTask(state, session),
-      menu: menu(state),
+      ...learningMeaning(session, state, progress.progress),
       building: building(built),
       autoExpand: settings.autoExpand,
-      dailyGoal: replay.goal ?? null,
-      tasks: tasks(session),
-      awards: replay.awards.map((award) => ({ task: award.task, xp: award.xp, at: award.at, quiz: award.quiz })),
-      xp: { total: replay.total, quizTrigger: replay.trigger },
-      student: student(fold, now),
-      lessonProgress: fold.lessons,
-      lessonFailures: fold.failures,
-      reviewFailures: fold.reviewFailures,
-      remediation: fold.forced,
-      consecutiveReviews: fold.consecutiveReviews,
-      quiz: {
-        started: replay.consumed,
-        pending: replay.pending ? { n: replay.pending.n, atXp: replay.pending.atXp, topics: replay.pending.topicIds } : null,
-        current: quizTask ? { task: seqOf(quizTask.taskId), kind: quizTask.kind, topics: quizTask.topics.map((topic) => topic.id), startedAt: quizTask.startedAt, deadlineAt: quizTask.deadlineAt } : null,
-      },
     };
     await session.idle();
     // 读数不应写下任何事实：取数之前已没有待判的作答，或者待判的作答此刻判不了。
@@ -235,6 +249,90 @@ export async function readSpace(root: string, now: number, model = true): Promis
     if (errors.length > 0) throw errors[0];
     return { raw: plain({ state, progress, building: buildingRaw, settings }) as Reading["raw"], meaning: plain(meaning) };
   } finally {
+    await host.close();
+    await space.close();
+  }
+}
+
+/**
+ * 逐前缀取数的空间：五个空间，以及丁换课前的快照（它的前缀用随包课读，丁的同一段前缀用换用后的自制课读，两者都是测试版的读数）。
+ * 都按有可用模型取数。
+ */
+export const PREFIX_SPACES = [
+  { id: "a", source: "home/Repa/操作系统 走查", model: true },
+  { id: "b", source: "home/Repa/操作系统 复习", model: true },
+  { id: "c", source: "home/Repa/Python 入门", model: true },
+  { id: "d-python-only", source: "snapshots/先学 Python 再学进程/python-only", model: true },
+  { id: "d", source: "home/Repa/先学 Python 再学进程", model: true },
+  { id: "e", source: "home/Repa/Python 测验", model: true },
+] as const;
+
+/** 逐前缀取数时，每个前缀除了在最后一条事实的时刻读一次，还在这么久以后再读一次：跨过本地日期，也跨过进行中测验的截止时间。 */
+export const PREFIX_LATER_MS = 25 * 3_600_000;
+
+/** 一个前缀的两次读数（读不出状态时为 { error }）：在最后一条事实的时刻（空前缀取第一条事实的时刻），以及 PREFIX_LATER_MS 以后，其间没有新的事实。 */
+export interface PrefixReading {
+  facts: number;
+  at: Record<string, unknown>;
+  later: Record<string, unknown>;
+}
+
+/**
+ * 对一个空间学习记录的每个前缀（0 行到全部）取读数，课程取这个空间打开时实际用的那一门。前缀之后的学习记录当作还没写下：
+ * 每个前缀单独写一份学习记录，末尾加一段不完整的行，学习记录就只读不写（与测试版读到半行时相同），打开时的补判不会写进去，
+ * 读到的就是这个前缀本身。读数直接取自学习会话的 view，不经插件方法，所以也不触发按调用方能力的后台补判。
+ */
+export async function readPrefixes(root: string, model = true): Promise<PrefixReading[]> {
+  const file = path.join(root, ".repa", "plugins", "learning", "records.jsonl");
+  const lines = (await readFile(file, "utf8")).split("\n").filter(Boolean);
+  const facts = lines.map((line) => JSON.parse(line) as Fact);
+  let session: LearningSession | undefined;
+  let now = facts.at(-1)?.at ?? 0;
+  const plugin = createLearningPlugin({
+    connect: async (opened) => {
+      session = opened;
+      return connectLearning(opened);
+    },
+  });
+  const models = new ModelTestDriver();
+  if (!model) models.setDefaultModel(undefined);
+  const space = await openSpace(root, { watch: false });
+  const errors: unknown[] = [];
+  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, emit: () => {}, onError: (error) => errors.push(error) });
+  const scratch = await mkdtemp(path.join(os.tmpdir(), "repa-test1-prefix-"));
+  try {
+    const disabled = host.disabled();
+    if (disabled.length > 0) throw new Error(`插件被停用：${JSON.stringify(disabled)}`);
+    if (!session) throw new Error("学习会话没有打开");
+    const opened = session;
+    const results: PrefixReading[] = [];
+    for (let count = 0; count <= lines.length; count++) {
+      const prefix = path.join(scratch, `${count}.jsonl`);
+      await writeFile(prefix, `${lines.slice(0, count).map((line) => `${line}\n`).join("")}{`);
+      const records = await LearningRecords.open(prefix);
+      const start = facts[Math.max(0, count - 1)]?.at ?? now;
+      now = start;
+      const prefixSession = await LearningSession.open(records, opened.course.course, opened.host);
+      // 换课以后用新课读旧前缀时，可能停在新课里没有的知识点上，测试版此时读不出状态；报错也是读数。
+      const read = async (): Promise<Record<string, unknown>> => {
+        try {
+          const view = await prefixSession.view(WEB_CAPABILITIES);
+          return plain(learningMeaning(prefixSession, view.state, view.state.progress)) as Record<string, unknown>;
+        } catch (error) {
+          return { error: error instanceof RepaFault ? `${error.code}: ${error.message}` : String(error) };
+        }
+      };
+      const at = await read();
+      now = start + PREFIX_LATER_MS;
+      const later = await read();
+      await prefixSession.retire();
+      if (records.revision !== count) throw new Error(`取数期间写下了事实：${count} → ${records.revision}`);
+      results.push({ facts: count, at, later });
+    }
+    if (errors.length > 0) throw errors[0];
+    return results;
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
     await host.close();
     await space.close();
   }

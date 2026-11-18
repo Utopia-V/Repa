@@ -14,6 +14,7 @@
 2. `npm ci`、`npm run build:packages`，再运行走查（`npm run verify`，Pyodide 离线包用 `REPA_PYODIDE_PACKAGES` 指定）。走查在一个临时 HOME 的 `Repa/` 下依次产生五个空间，与试用者的布局相同，全程无界面，模型是本机的假模型。
 3. `node scripts/verify/test1-freeze.mjs <走查目录> <这个目录>`：复制各空间与应用配置里的 `settings.json`，去掉空目录（Git 不保存空目录，数据以提交进仓库的样子为准），把本机绝对路径换成占位，并扫描一遍（含解压后的 `history.git` 对象），还有本机路径、用户名或 key 就报错。
 4. 把 dev 上的 [`test1-readings.ts`](../test1-readings.ts) 与 [`test1-read.ts`](../test1-read.ts) 复制到标签工作树的同一位置，运行 `npx tsx --tsconfig scripts/verify/tsconfig.json scripts/verify/test1-capture.ts <这个目录>`，写出 `answers.json`。
+5. 再把 [`test1-prefix-capture.ts`](../test1-prefix-capture.ts) 复制过去，在 `packages/learning` 下运行 `TZ=Asia/Shanghai npx tsx test/fixtures/test1-prefix-capture.ts <这个目录>`，写出逐前缀的标准答案 `prefixes.json.br`（见下文“逐前缀的读数”）。它只读这个目录里的数据，数据不变时可以单独重新产生。
 
 重新产生时，走查的时钟以运行当天上午 10 点为起点，所以日期和全部标准答案都会变；要整份重新产生，不能只替换其中一部分。
 
@@ -46,6 +47,7 @@
 | `snapshots/` | 见上一节 |
 | `marks.json` | 走查记下的时刻：各空间学习记录当时有几行、最后一条的时间 |
 | `answers.json` | 标准答案 |
+| `prefixes.json.br` | 逐前缀的标准答案，brotli 压缩的 JSON |
 | `tools/walk.patch` | 产生数据所用的走查改动，相对于合并 #168 时的 `scripts/verify/` |
 
 本机路径已换成占位：走查的临时 HOME 为 `/home/learner`，应用配置目录为 `/home/learner/.config/repa`，仓库根目录（会话里的提示提到插件说明的位置）为 `/opt/repa`。会话里的模型是假模型（提供方 `repa-verify`），没有任何真实的 key；`agent/models.json` 与 `auth.json` 不在其中。
@@ -90,6 +92,14 @@
 | `quiz` | 已开始的测验场数、待开始的测验（第几场、出现时的累计 XP、抽到的 topic）、进行中的测验（topic、开始与截止时间） | 重放与 `state.get` |
 
 “重放”指测试版的学习插件打开空间时从学习记录重放出的状态（`LearningSession` 的 `replay` 与它叠加出的 `fold`），协议不直接给出。取法见 [`test1-readings.ts`](../test1-readings.ts)：插件经底座的插件宿主在进程内打开，模型由 `ModelTestDriver` 代替（取数时不发模型请求）。取数脚本对每个取数点另起一次标签上的后端，时钟同样停在 `at`，经协议取 `state.get`、`progress.get`、`building.get`、`settings.get`，与进程内的原样结果核对一致，才写下标准答案。
+
+## 逐前缀的读数
+
+17 个取数点只看几个时刻。`prefixes.json.br` 对每个空间（以及丁换课前的快照）学习记录的每个前缀，从 0 条事实到全部，各取两次读数：一次在前缀最后一条事实的时刻，一次在 25 小时以后、其间没有新的事实，这样跨过了本地日期，进行中的测验也过了截止时间。共 735 个前缀、1470 次读数，字段与上表相同，只少了做课的状态与设置（`building`、`autoExpand`，学习记录不影响它们）。课程取这个空间打开时实际用的那一门：丁的前缀用换用后的自制课读（测试版打开丁的数据就是这样读的），快照的前缀用随包课读。丁的部分前缀停在自制课里没有的知识点上，测试版此时读不出状态，读数记为报错原文。
+
+取法见 [`test1-readings.ts`](../test1-readings.ts) 的 `readPrefixes`：每个前缀单独写一份学习记录，末尾加半行，学习记录就只读不写，打开时的补判不会写进去；读数直接取学习会话的 `view`，不经插件方法，也就不触发后台补判。前后两个前缀只差一条事实，比较报出最早不同的那一处，就知道是哪条事实之后读数变了。
+
+原文约 13 MB，前后前缀的读数大半相同，压缩后约 65 KB。dev 在 2026-11-18 的代码（合并 #175 之后）读出的结果，除 `REWORDED` 登记的两处说明文字以外，与这里全部相同。
 
 ## 值得以后各步注意的情形
 
