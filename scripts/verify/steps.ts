@@ -158,7 +158,12 @@ async function work(page: Page, questions: Map<string, QuestionDefinition>, opti
     };
     if (await ready("看例题")) await page.click({ name: "看例题", selector: "button" });
     else if (await ready("开始练习")) await page.click({ name: "开始练习", selector: "button" });
-    else if (await ready("提交") && await ready("不会")) answered.push(await answer(page, questions, options.answers ?? {}));
+    else if (await ready("提交") && await ready("不会")) {
+      // 按钮可能先于题面出现：等题面出来再看是不是要停下的那道，否则会把它也答掉。
+      const shown = await page.waitFor("题面出现", (current) => currentQuestion(current, questions) !== undefined, 5_000);
+      if (options.stopBefore !== undefined && currentQuestion(shown, questions)?.id === options.stopBefore) return answered;
+      answered.push(await answer(page, questions, options.answers ?? {}));
+    }
     else if (await ready("继续")) await page.click({ name: "继续", selector: "button" });
     else {
       // 正在判分或正在读取：等画面变化。

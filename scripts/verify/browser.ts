@@ -339,6 +339,11 @@ export class Page {
     await this.send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
   }
 
+  /** 改视口大小，例如看宽屏时学习页右侧常驻的面板；走查的步骤固定用缺省的窄屏。 */
+  async resize(width: number, height: number): Promise<void> {
+    await this.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+  }
+
   /** 截一张当前视口的图，交回文件路径。 */
   async shot(name: string): Promise<string> {
     await mkdir(this.shots, { recursive: true });
