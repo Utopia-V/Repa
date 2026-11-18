@@ -35,7 +35,7 @@ export function QuizClock({ deadlineAt, serverNow, readAt }: { deadlineAt: numbe
   const Icon = urgent ? AlarmClock : Timer;
   return <>
     {/* 图标放在徽标外面：Badge 把内容包进一个裁切行高的文字 span，图标放进去会折行。 */}
-    <span role="timer" aria-label={t("learn.quiz.remaining.label")} data-urgent={urgent || undefined} className="inline-flex items-center gap-1.5">
+    <span role="timer" aria-label={t("learn.quiz.remaining.label")} className="inline-flex items-center gap-1.5">
       <Icon aria-hidden="true" className={breathing ? "size-4 shrink-0 animate-breathe motion-reduce:animate-none" : "size-4 shrink-0"} />
       <Badge color="gray">
         {/* 等宽数字：每秒变化时宽度不跳。 */}

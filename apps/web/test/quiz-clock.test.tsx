@@ -31,15 +31,13 @@ it("按读到状态时两边时钟的差换算剩余时间，显示到秒，每�
 
 it("最后 1 分钟秒表换成闹钟；最后 10 秒只有图标呼吸，数字不动；到 0 以后停在 0:00、不再呼吸", () => {
   const { container } = render(<QuizClock deadlineAt={serverNow + 61_000} serverNow={serverNow} readAt={readAt} />);
-  expect(clock().hasAttribute("data-urgent")).toBe(false);
   const icon = () => container.querySelector("svg")?.getAttribute("class") ?? "";
+  expect(icon()).toContain("lucide-timer");
   const breathing = () => [...container.querySelectorAll("[class*=animate-breathe]")];
-  const calm = icon();
 
   act(() => { vi.advanceTimersByTime(1_000); });
   expect(clock().textContent).toBe("1:00");
-  expect(clock().hasAttribute("data-urgent")).toBe(true);
-  expect(icon()).not.toBe(calm);
+  expect(icon()).toContain("lucide-alarm-clock");
   expect(breathing()).toEqual([]);
 
   act(() => { vi.advanceTimersByTime(49_000); });
