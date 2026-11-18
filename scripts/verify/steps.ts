@@ -31,7 +31,6 @@ export interface Step {
 export const KNOWN = {
   // 测验的问题（2026-11-18 走查测验时发现，编号见前端问题全集），按测验计划逐项修。
   quizCard: "菜单的测验卡片只写类型和标题，没写共几题（Q1；限时要等契约给出时长再写）",
-  quizPosition: "测验头部“第几题 / 共几题”的文字还是占位〔待写〕，看不出题号（Q1；键 learn.quiz.position.status）",
   quizResult: "测验结束后只显示最后一题，不逐题列出对错（Q3；留给学习线 #117，测验按答卷而不是按“当前一步”来设计）",
   quizFocus: "提交一题以后焦点丢到页面开头，不在下一道题上（A1；留给学习线 #117）",
 } as const;
@@ -835,7 +834,7 @@ export const STEPS: Step[] = [
       await page.shot("quiz-started");
       const timer = await page.evaluate<string>("(() => { const timer = document.querySelector('[role=timer]'); return timer ? timer.innerText.trim() : ''; })()");
       checks.expect("V2 测验中看得到剩余时间（role=timer，分:秒），刚开始不超过限时", /^\d+:\d{2}$/u.test(timer) && Number(timer.split(":")[0]) * 60_000 <= duration, timer || "没有计时区域");
-      checks.known(KNOWN.quizPosition, "V2 测验中看得到“第 1 题 / 共 3 题”", /第\s*1\s*题|1\s*\/\s*3/u.test(opened));
+      checks.expect("V2 测验中看得到“第 1 题 / 共 3 题”", opened.includes(strings["learn.quiz.position.status"].replace("{current}", "1").replace("{total}", "3")));
       const topicsShown = QUIZ_TOPICS.filter((title) => opened.includes(title));
       const circles = await page.has({ name: "知识点", selector: "ol[aria-label]" });
       checks.expect("V2 测验中不列 topic 长串，没有知识点圆圈", topicsShown.length < 2 && !circles, `出现 ${topicsShown.join("、") || "没有 topic 名称"}${circles ? "；有知识点圆圈" : ""}`);
