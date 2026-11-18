@@ -247,10 +247,12 @@ test("不回答握手的服务器不拖住消息，超时以后显示原因；�
   assert.ok(!declared(f.requests[0]).some(name => name.startsWith("mcp__stuck__")));
   const failed = server(await state(f, "stuck", "failed"), "stuck");
   assert.equal(failed.reason?.code, "mcp_timeout");
-  const grandchild = Number((await f.lines()).find(line => line.startsWith("grandchild "))?.split(" ")[1]);
+  // 两个服务器同时启动，日志里谁先谁后不一定；stubborn 的进程号取自它记下孙进程的那一行。握手超时的那个此时已被结束。
+  const [, grandchild = 0, stubborn = 0] = ((await f.lines()).find(line => line.startsWith("grandchild ")) ?? "").split(" ").map(Number);
   const pids = [...await f.starts(), grandchild];
   assert.equal(pids.length, 3);
-  assert.ok(alive(pids[1] ?? 0) && alive(grandchild));
+  assert.ok(pids.includes(stubborn));
+  assert.ok(alive(stubborn) && alive(grandchild));
   await f.stop();
   assert.deepEqual(pids.filter(alive), []);
 });

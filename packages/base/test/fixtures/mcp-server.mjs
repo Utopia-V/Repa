@@ -1,7 +1,7 @@
 // 测试用的 stdio MCP 服务器：逐行 JSON-RPC，不依赖任何包。
 // 每收到一个请求或通知，向 MCP_LOG 追加一行，测试据此数进程和请求。环境变量控制故障：
 // MCP_HANG_INIT=1 不回答 initialize；MCP_IGNORE_EOF=1 stdin 结束后不退出；
-// MCP_GRANDCHILD=1 再起一个孙进程（模拟 npx 之类的包装）；MCP_EXTRA_TOOLS=n 再声明 n 个工具；
+// MCP_GRANDCHILD=1 再起一个孙进程（模拟 npx 之类的包装），日志里记下孙进程与自己的进程号；MCP_EXTRA_TOOLS=n 再声明 n 个工具；
 // MCP_LONG_DESCRIPTION=n 让 echo 的说明长 n 个字符。MCP_SECRET 模拟配置里交给服务器的令牌。
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
@@ -13,7 +13,7 @@ const log = (line) => {
 log(`start ${process.pid}`);
 if (process.env.MCP_GRANDCHILD === "1") {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-  log(`grandchild ${child.pid}`);
+  log(`grandchild ${child.pid} ${process.pid}`);
 }
 
 const echo = {
