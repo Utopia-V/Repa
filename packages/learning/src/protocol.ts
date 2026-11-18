@@ -23,6 +23,7 @@ import {
   identifier,
   ItemSchema,
   ItemResponseSchema,
+  ModelFailureSchema,
   object,
   readItem,
   readLenient,
@@ -239,11 +240,18 @@ export const DeliverySchema = object({
 });
 /** 一次交付：出给学习者的一道题，带预留的提交编号、所属知识点和需要前端提供的服务。 */
 export type Delivery = Static<typeof DeliverySchema>;
-/** 提交被接受以后的处理状态。interrupted 表示判分没有完成，这份作答尚无证据，不算错，条件具备时再判。 */
+/**
+ * 提交被接受以后的处理状态。interrupted 表示判分没有完成，这份作答尚无证据，不算错，条件具备时再判；
+ * 判分的模型请求失败时 reason 为 service_failure，failure 是底座给的失败原因。它只在这次打开空间期间记得，重开后不再有。
+ */
 export const ProcessingSchema = Type.Union([
   object({ status: Type.Literal("accepted") }),
   object({ status: Type.Literal("pending") }),
-  object({ status: Type.Literal("interrupted"), reason: Type.Enum(["restart", "service_failure", "uncertain_grade", "cancelled"]) }),
+  object({
+    status: Type.Literal("interrupted"),
+    reason: Type.Enum(["restart", "service_failure", "uncertain_grade", "cancelled"]),
+    failure: Type.Optional(ModelFailureSchema),
+  }),
   object({ status: Type.Literal("completed") }),
 ]);
 /** 一份提交的处理状态。 */
@@ -375,6 +383,8 @@ export const ExpansionFailureSchema = object({
   at: timestamp,
   code: Type.Enum(["failed", "cancelled", "not_expanded"]),
   message: Type.Optional(Type.String()),
+  /** code 为 failed 且是模型请求失败时，底座给的原因；message 是提供方的原文。 */
+  failure: Type.Optional(ModelFailureSchema),
 });
 /**
  * 做课的状态：course 是空间里换用过的自制课，为 null 时还没有（学的是随包的课，或还没有可学的课），parts 随之为空；

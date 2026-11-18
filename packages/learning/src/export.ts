@@ -24,11 +24,14 @@ async function pluginVersion(): Promise<string> {
 /**
  * 导出学习数据，由学习者自行发给维护者校准学生模型。白名单固定：学习记录，以及 learning.json 中的插件、记录格式与导出时所学课程的版本；
  * 学习者选择包含会话时，底座再收入空间的会话记录。export.prepare 冻结一份已脱敏的内容并返回清单，export.create 把同一份内容
- * 写成 zip，所以清单与 zip 一致，预览以后新增的记录不进入这份导出。只保留最近一次预览：写出成功、再次预览或关闭空间以后，
- * 旧的预览失效，export.create 以 export_expired 拒绝。
+ * 写成 zip，所以清单与 zip 一致，预览以后新增的记录不进入这份导出。只保留最后发起的那次预览：写出成功、再次预览或关闭空间以后，
+ * 旧的预览失效，export.create 以 export_expired 拒绝。几次预览同时在途时，先发起而后完成的那一次不取代后发起的，
+ * 界面显示的也是它最后发起的那一次；按完成先后保留时，两者会不一致，学习者看着清单却导出失败。
  */
 export function connectExport(host: Host, info: () => LearningExportInfo): Pick<PluginInstance, "methods"> {
   let current: { id: string; prepared: PreparedExport } | undefined;
+  /** 发起过的预览次数；完成时还是最后发起的那一次，才成为 current。 */
+  let started = 0;
   return {
     methods: {
       "export.prepare": {
@@ -36,6 +39,7 @@ export function connectExport(host: Host, info: () => LearningExportInfo): Pick<
         result: learningMethods["export.prepare"].result,
         async invoke(raw) {
           const { sessions } = parse(learningMethods["export.prepare"].input, raw);
+          const request = ++started;
           const about = { pluginVersion: await pluginVersion(), ...info() };
           const prepared = await host.prepareExport({
             files: [
@@ -44,8 +48,9 @@ export function connectExport(host: Host, info: () => LearningExportInfo): Pick<
             ],
             sessions,
           });
-          current = { id: randomUUID(), prepared };
-          return { exportId: current.id, files: prepared.files };
+          const id = randomUUID();
+          if (request === started) current = { id, prepared };
+          return { exportId: id, files: prepared.files };
         },
       },
       "export.create": {

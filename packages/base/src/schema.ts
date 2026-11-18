@@ -284,6 +284,13 @@ export class RepaFault extends Error {
   }
 }
 
+/** 模型请求失败（code 为 model_error）时取出 details.failure 的分类；不是模型请求失败时为 undefined。插件经 Host.models 调用失败时用它说明原因。 */
+export function modelFailureOf(error: unknown): ModelFailure | undefined {
+  if (!(error instanceof RepaFault) || error.code !== "model_error") return undefined;
+  const failure = (error.details as { failure?: unknown } | undefined)?.failure;
+  return Value.Check(ModelFailureSchema, failure) ? failure : "other";
+}
+
 /**
  * 把任意抛出的值转成说明文字。插件可以抛出任何值，没有原型的对象经 String() 会再抛错，
  * 记录一个插件的失败时不能因此让外层的打开空间、方法调用或运行一起失败。

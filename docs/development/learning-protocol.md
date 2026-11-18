@@ -59,7 +59,7 @@ if (state.ok) renderLearning(state.value);
 | `export.prepare` | `sessions` 表示是否包含会话记录；冻结一份已脱敏的学习数据导出，返回 `exportId` 和清单 `files`，每项是包内路径 `name`、字节数 `bytes`、`.jsonl` 的记录条数 `records` 与替换掉的凭据和密钥处数 `redactions`。包内容见[导出学习数据](learning-records.md#导出学习数据) |
 | `export.create` | `exportId` 和可选的绝对路径 `directory`，把这份预览写成 zip，返回文件路径 `path`；省略 `directory` 时放在应用配置目录的 `exports/`，桌面端可以传入“下载”文件夹 |
 
-导出学习数据时，界面先说明会话可能含有私人内容、默认不包含，再用 `export.prepare` 的清单让学习者确认要发出的文件；学习者切换“包含会话”时重新调用 `export.prepare`。确认以后用同一个 `exportId` 调用 `export.create`，写出的 zip 与清单一致。只有最近一次预览有效，写出成功以后它也失效。
+导出学习数据时，界面先说明会话可能含有私人内容、默认不包含，再用 `export.prepare` 的清单让学习者确认要发出的文件；学习者切换“包含会话”时重新调用 `export.prepare`。确认以后用同一个 `exportId` 调用 `export.create`，写出的 zip 与清单一致。只有最后发起的那次预览有效，写出成功以后它也失效；几次预览同时在途时，以最后发起的那次为准，界面也只显示它的清单。
 
 任务的 `topics` 列出任务所涉 topic 的 `id` 与 `title`，`kps` 每项带知识点的 `title` 与进度，标题都取自当前课程；测验的 `kps` 包括所涉每个 topic 的知识点。界面显示正在学的 topic 和知识点时直接用这些标题，不另查内容：作答期间不能搜索内容，菜单只在没有进行中的任务时出现。交付的 `topicId` 对应 `topics` 中的一项。只有新课计知识点进度，复习和测验的进度始终为零，所以进度只在新课显示。复习和测验里的知识点标题用于作答以后说明每道题属于哪个知识点，作答之前不显示：认出该用哪个知识点本身就是要考的内容。
 
@@ -75,7 +75,7 @@ if (state.ok) renderLearning(state.value);
 
 `SubmissionReceipt` 延续原来的两个结果：`rejected` 表示结构不合格、没有接受，附 `processing.status: not_accepted` 和问题列表；`recorded` 表示原答已接受，附完整 `submission`。旧的 `SubmitResult` 与读取入口继续可用，新方法使用 `SubmissionReceipt`，通过 `readLearningResult` 读取。
 
-接受后的处理状态依次可以是 `accepted`、`pending`、`interrupted`、`completed`。中断原因区分重启、服务失败、判分不确定和取消。它们表示这份作答尚无证据：不算错，也不阻塞任务；后端在条件具备时自动补判，前端也可以调用 `submission.resume` 再判一次。断线造成 outcome unknown 时先调用 `submission.get`：查到提交就沿它恢复；`absent` 才允许携原答、原 id 再交，后端仍重新检查交付和截止时间。查询与日志重放本身不重启判分。
+接受后的处理状态依次可以是 `accepted`、`pending`、`interrupted`、`completed`。中断原因区分重启、服务失败、判分不确定和取消；服务失败是判分的模型请求失败时，`failure` 带上底座的分类（`ModelFailureSchema`），界面按它说明原因，认不出的为 `other`。它们表示这份作答尚无证据：不算错，也不阻塞任务；后端在条件具备时自动补判，前端也可以调用 `submission.resume` 再判一次。断线造成 outcome unknown 时先调用 `submission.get`：查到提交就沿它恢复；`absent` 才允许携原答、原 id 再交，后端仍重新检查交付和截止时间。查询与日志重放本身不重启判分。
 
 `gradeRevision` 关联同一原答的采用判分版本。申诉检查 `expectedGradeRevision`，串行登记本次重判后再执行；重复请求等待已有重判，已采用新版本后再收到旧请求则刷新当前状态。旧判分、已经给出的 XP 和已经展示或选定的任务由后端保留，不因申诉覆盖。题目的答案改正以后，后端也会按新答案重判过去的作答，`gradeRevision` 同样递增。
 
@@ -105,7 +105,7 @@ if (state.ok) renderLearning(state.value);
 
 - `course` 是空间里换用过的自制课；为 `null` 时还没有（学的是随包的课，或还没有可学的课），`parts` 随之为空。否则 `parts` 按课程清单的顺序列出各部分（topic）：`title`、一句话的 `summary`、在材料里的出处 `sources`（来源标题、`file` 或 `url`、`where`），以及 `status`：`outline` 只有轮廓，`ready` 已展开、可以学，`learned` 学过。全部是 `outline` 时只有轮廓。
 - `expansion` 是正在后台展开的部分：`topicIds`、`startedAt`，以及那次后台运行的会话 `sessionId`（还没建立时为 `null`）；没有展开在进行时为 `null`。
-- `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `failed`（没能开始或运行出错，例如没有可用模型、模型请求报错，`message` 是底层报错的原文）、`cancelled`（被学习者取消，或应用在展开中途关闭）、`not_expanded`（运行结束了而这几部分仍是轮廓），界面文字由前端按 `code` 书写。
+- `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `failed`（没能开始或运行出错，例如没有可用模型、模型请求报错，`message` 是底层报错的原文；模型请求失败时 `failure` 是底座的分类，界面按它说明原因，原文折叠在下面）、`cancelled`（被学习者取消，或应用在展开中途关闭）、`not_expanded`（运行结束了而这几部分仍是轮廓），界面文字由前端按 `code` 书写。
 - `sessionId` 是学习者与之对话做课的会话，前端经 `building.begin` 告诉插件；还没有时为 `null`。它记在插件数据目录里，重开应用以后页面据此接回同一段对话。
 - `cost` 是做这门课的会话（调用过 `course_check`、`course_confirm`、`course_use` 的会话与后台展开的会话，连同它们起的子 Agent 和 `course_confirm` 发出的核对请求）到现在的累计用量，字段同底座的 `session.usage`：`requests`、全部 token `usage`、按模型目录单价折算的 `cost`（美元），以及没有单价的那部分 token `unpriced`。
 

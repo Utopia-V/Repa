@@ -30,6 +30,8 @@ import { referenceAnswer } from "./fixtures/learning-session.js";
 import { pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
 
 const EXAMPLE = fileURLToPath(new URL("../guides/example-course/", import.meta.url));
+/** 提供方回 402 时 Pi 交回的报错文字（状态码: 原文）。 */
+const BALANCE = '402: {"error":{"message":"Insufficient Balance"}}';
 /** faux 模型的单价（美元每百万 token），花费按它折算。 */
 const PRICE = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
 
@@ -533,12 +535,12 @@ test("后台展开失败如实记下原因，学习照常，不自动重试；�
   const f = await fixture(t);
   await outlineThenFirst(f);
 
-  // 后台的模型请求出错：这次展开记为 run_failed，带上原因。
-  f.faux.appendResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "服务暂时不可用" })]);
+  // 后台的模型请求出错：这次展开记为 failed，带上原文和底座的分类。
+  f.faux.appendResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: BALANCE })]);
   await f.select("os01");
   let shown = await f.until((state) => state.lastFailure !== null);
   assert.equal(shown.expansion, null);
-  assert.deepEqual(shown.lastFailure && { ...shown.lastFailure, at: 0 }, { topicIds: ["os02", "os03"], at: 0, code: "failed", message: "服务暂时不可用" });
+  assert.deepEqual(shown.lastFailure && { ...shown.lastFailure, at: 0 }, { topicIds: ["os02", "os03"], at: 0, code: "failed", message: BALANCE, failure: "balance" });
   const calls = f.faux.state.callCount;
 
   // 学习照常：上完这一节；之间的调用都不再自动展开，因为学过的部分还没有变。
@@ -563,6 +565,26 @@ test("后台展开失败如实记下原因，学习照常，不自动重试；�
   assert.equal(shown.expansion, null);
   assert.equal(shown.lastFailure?.code, "cancelled");
   assert.deepEqual(shown.parts.map((part) => part.status), ["learned", "outline", "outline"]);
+});
+
+test("展开失败的分类随 building.json 重开以后仍在；没有分类的旧记录照常读出，只是不说原因", async (t) => {
+  const f = await fixture(t);
+  await outlineThenFirst(f);
+  f.faux.appendResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "Connection error." })]);
+  await f.select("os01");
+  await f.until((state) => state.lastFailure !== null);
+  await f.reopen();
+  await f.state();
+  assert.equal((await f.building()).lastFailure?.failure, "network");
+  // 加入分类之前写下的记录：last.failure 只有 code 与 message。
+  const file = path.join(f.dataDir, "building.json");
+  const record = JSON.parse(await readFile(file, "utf8")) as { last: { failure: Record<string, unknown> } };
+  delete record.last.failure.failure;
+  await writeFile(file, JSON.stringify(record));
+  await f.reopen();
+  await f.state();
+  const old = (await f.building()).lastFailure;
+  assert.deepEqual(old && { code: old.code, message: old.message, failure: old.failure }, { code: "failed", message: "Connection error.", failure: undefined });
 });
 
 test("后台运行结束了而那几部分仍是轮廓（没有换用）：记为 not_expanded", async (t) => {

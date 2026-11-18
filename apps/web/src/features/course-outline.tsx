@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { ChevronDown, ChevronUp, Circle, CircleCheck, CircleDashed, LoaderCircle } from "lucide-react";
+import type { ModelFailure } from "@repa/base/protocol";
 import type { CourseBuilding, LearningSettings } from "@repa/learning/protocol";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,15 @@ const failureTitle = {
   cancelled: (titles: string) => t("outline.failure.cancelled.title", { titles }),
   not_expanded: (titles: string) => t("outline.failure.notExpanded.title", { titles }),
 } as const;
+
+/** 展开的模型请求失败时按原因说一句；认不出原因的不说，只给原文。 */
+const modelFailureText: Record<Exclude<ModelFailure, "other">, string> = {
+  network: t("outline.failure.network.description"),
+  auth: t("outline.failure.auth.description"),
+  balance: t("outline.failure.balance.description"),
+  rate_limit: t("outline.failure.rateLimit.description"),
+  server: t("outline.failure.server.description"),
+};
 
 /**
  * 整门课的全貌：花费和自动展开的开关在标题一行，后台展开与它的取消、最近一次没有成功的原因与再试常在；
@@ -99,11 +110,17 @@ export function CourseOutline({ building, settings, agentRunning }: {
     </div>}
 
     {!expansion && lastFailure && <div className="grid gap-3">
-      {lastFailure.code === "failed" && lastFailure.message !== undefined
-        ? <ErrorNotice title={failureTitle.failed(titles(lastFailure.topicIds))} error={new Error(lastFailure.message)} />
-        : <StatusNotice status="error" title={failureTitle[lastFailure.code](titles(lastFailure.topicIds))} />}
-      {retryIds.length > 0 && <div>
-        <Button variant="tertiary" disabled={busy || agentRunning} onClick={() => { void act(() => expandParts(retryIds), t("outline.action.error")); }}>{t("outline.failure.retry.action")}</Button>
+      <StatusNotice status="error" title={failureTitle[lastFailure.code](titles(lastFailure.topicIds))}>
+        {lastFailure.failure !== undefined && lastFailure.failure !== "other" && <p>{modelFailureText[lastFailure.failure]}</p>}
+        {/* 提供方的原文多是英文，折叠起来，排查时还看得到。 */}
+        {lastFailure.message !== undefined && <details>
+          <summary className="cursor-pointer">{t("common.errorDetails.label")}</summary>
+          <p className="mt-2 break-all">{lastFailure.message}</p>
+        </details>}
+      </StatusNotice>
+      {(retryIds.length > 0 || lastFailure.failure === "auth") && <div className="flex flex-wrap gap-3">
+        {lastFailure.failure === "auth" && <Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button>}
+        {retryIds.length > 0 && <Button variant="tertiary" disabled={busy || agentRunning} onClick={() => { void act(() => expandParts(retryIds), t("outline.action.error")); }}>{t("outline.failure.retry.action")}</Button>}
       </div>}
     </div>}
 

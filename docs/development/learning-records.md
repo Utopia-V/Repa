@@ -114,7 +114,7 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 会话可能含有私人内容，所以默认不收入；界面在导出前说明这一点，并列出 `export.prepare` 返回的清单，即每个文件的字节数、记录条数和替换掉的凭据与密钥处数。全部内容按反馈包的规则替换凭据与密钥，学习者写进作答的密钥也一样。读取、脱敏与写出由底座的 [`host.prepareExport`](../../packages/base/README.md#导出插件数据) 完成，插件只列出白名单。
 
-预览时，插件把已脱敏的 zip 冻结在内存中，`export.create` 写出的就是这一份，所以清单与 zip 一致，预览以后新增的记录不进入这次导出。插件只保留最近一次预览：写出成功、再次预览或关闭空间以后，旧的 `exportId` 以 `export_expired` 拒绝，需要重新预览；存放目录无效等写出失败时，这份预览仍然有效。zip 默认放在应用配置目录的 `exports/`，桌面端可以把 `directory` 指定为“下载”文件夹。Web 前端的入口在设置页，打开空间且学习插件在运行时出现：对话框先列出清单，是否包含会话默认不勾选，改动后重新预览；zip 放在缺省位置，做完显示完整路径，桌面端和开发服务器可以在文件管理器里打开所在文件夹，二者只接受反馈包和 `repa-<插件 id>-export-…zip`。见 [learning-export.tsx](../../apps/web/src/features/learning-export.tsx)。
+预览时，插件把已脱敏的 zip 冻结在内存中，`export.create` 写出的就是这一份，所以清单与 zip 一致，预览以后新增的记录不进入这次导出。插件只保留最后发起的那次预览：写出成功、再次预览或关闭空间以后，旧的 `exportId` 以 `export_expired` 拒绝，需要重新预览，对话框此时给出“重新预览”；几次预览同时在途时（学习者快速切换是否包含会话），先发起而后完成的那一次不取代后发起的，与对话框显示的那一份一致；存放目录无效等写出失败时，这份预览仍然有效。zip 默认放在应用配置目录的 `exports/`，桌面端可以把 `directory` 指定为“下载”文件夹。Web 前端的入口在设置页，打开空间且学习插件在运行时出现：对话框先列出清单，是否包含会话默认不勾选，改动后重新预览；zip 放在缺省位置，做完显示完整路径，桌面端和开发服务器可以在文件管理器里打开所在文件夹，二者只接受反馈包和 `repa-<插件 id>-export-…zip`。见 [learning-export.tsx](../../apps/web/src/features/learning-export.tsx)。
 
 ### 课程来源与模型
 
@@ -122,7 +122,7 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 空间里的课由通用 Agent 写在 `course/`（格式与随包课程相同），经 `course_check` 检查、`course_confirm` 做模型核对、`course_use` 换用，写法见[写课说明](../../packages/learning/guides/making-courses.md)。插件从不直接读 `course/` 来教学：`course_use` 经 `host.files` 读出 `course.yaml` 与 `topics/*.yaml`，复制进数据目录的临时文件夹，在这份固定的内容上做完整检查，并按 `question-lesson-v1` 清点模型核对记录（见学习插件的[模型核对](../../packages/learning/README.md#模型核对)）；有由程序判分的题缺当前记录时不换用，回复列出这些题。通过以后，学习者若有做到一半的任务，而新的一版改了展开过的 topic 或判分运行时，就不换用，`course_use` 如实回复，由 Agent 等他做完再调用；只增不改（旧版里展开过的 topic 除末尾的核对记录外一字不差，只展开轮廓或增加部分，例如后台展开了后面的部分）时照常换用，新会话从同样的记录和同样的内容重放出同一项任务。比较的是全部展开过的部分，不只是任务本身的 topic：学过的部分改了答案，旧作答随之重判，先修可能不再算学过，进行中的任务就失去资格。换用时插件等进行中的方法调用结束，把这一份存成 `courses/<摘要>/`，让旧的学习会话等在途判分写完再退下，按副本新建学习会话、从头重放全部学习记录，在 `course.json` 里记为 `active`，删掉别的副本，再发出 `learning.changed`。所以学习者看到的始终是一份通过了检查的课，写到一半的 `course/` 进不了课、复习和测验，进行中的任务不会被换用打乱，重开空间仍学换用后的那一份。不保留“记下来稍后自动换”的状态：不换用时由调用 `course_use` 的一方再次调用。旧会话先退下，是为了让它按旧答案写下的判分出现在新会话打开之前：新会话由此看出判分的版本与现在的题不符，照常重判。换用对学习记录的处理与重开空间时课程改了相同：题目 id 是身份，改答案会重判，课开始时记下的练习清单不变，见[题目版本](#题目版本)。
 
-课按“轮廓 → 展开”长出来，轮廓与已展开的部分同在课程文件里，以 topic 的 `status`（`outline`、`complete`）区分。数据目录另有两份小文件，都先写临时文件再改名：`building.json` 记下学习者与之对话做课的会话（`conversation`，经 `building.begin` 记下）、做过这门课的会话（调用过 `course_check`、`course_confirm`、`course_use` 的会话与后台展开的会话，花费按它们连同其中的子会话经 `host.models.usage` 汇总）和最近一次后台展开（要展开的部分、开始时学过几个 topic、会话、结束时间、没有成功的原因）；`settings.json` 记下 `autoExpand`。后台展开只在内存里标记“正在进行”，打开时发现上次的记录没有结束时间，就记为 `cancelled`。学习记录不因展开或轮廓改动而改写：学过的 topic 照题目 id 的规矩保留，前端协议见[做课的状态](learning-protocol.md#做课的状态)。
+课按“轮廓 → 展开”长出来，轮廓与已展开的部分同在课程文件里，以 topic 的 `status`（`outline`、`complete`）区分。数据目录另有两份小文件，都先写临时文件再改名：`building.json` 记下学习者与之对话做课的会话（`conversation`，经 `building.begin` 记下）、做过这门课的会话（调用过 `course_check`、`course_confirm`、`course_use` 的会话与后台展开的会话，花费按它们连同其中的子会话经 `host.models.usage` 汇总）和最近一次后台展开（要展开的部分、开始时学过几个 topic、会话、结束时间、没有成功的原因，模型请求失败时连同底座的分类）；`settings.json` 记下 `autoExpand`。后台展开只在内存里标记“正在进行”，打开时发现上次的记录没有结束时间，就记为 `cancelled`。学习记录不因展开或轮廓改动而改写：学过的 topic 照题目 id 的规矩保留，前端协议见[做课的状态](learning-protocol.md#做课的状态)。
 
 副本被改坏、读不出来时，插件和空间照常打开，只是没有可学的课；再次 `course_use` 会换上这次检查过的一份。`course.json` 先写临时文件再改名，中途断电时要么是旧状态，要么是新状态。
 

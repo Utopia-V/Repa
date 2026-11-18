@@ -6,7 +6,7 @@
  * 辅导没有读文件的工具（空间里有写到一半的课程文件，里面有复习和测验题的答案），所以长文字不交给底座截断后用 read 续取：
  * 三个工具都按行分批交回（pagedText），末尾写明接着读的 line，长题面和长代码照原样分行写出。
  */
-import type { Answer, Content, Item } from "@repa/base/protocol";
+import type { Answer, Content, Item, ModelFailure } from "@repa/base/protocol";
 import type { CourseIndex } from "./course-index.js";
 import { contentText, entryText } from "./model-text.js";
 import type {
@@ -34,6 +34,15 @@ const INTERRUPTED: Record<Extract<Processing, { status: "interrupted" }>["reason
   service_failure: "判分服务暂时不可用",
   uncertain_grade: "判分的模型没有把握",
   cancelled: "判分被取消了",
+};
+/** 判分的模型请求失败的原因，与界面上说的一致。 */
+const MODEL_FAILURES: Record<ModelFailure, string | undefined> = {
+  network: "无法连接模型服务",
+  auth: "API key 无效",
+  balance: "模型服务的账户余额不足",
+  rate_limit: "请求过于频繁",
+  server: "模型服务暂时不可用",
+  other: undefined,
 };
 const TEST_RESULTS: Record<TestResult["result"], string> = { passed: "通过", failed: "没通过", error: "没能得出结果", timeout: "超时" };
 /** 文本作答位的 format 只是输入提示；认识的写成要填什么，其余按文字。 */
@@ -210,7 +219,8 @@ function submissionLine(submission: Submission | undefined): string {
   const done = submission.response.dontKnow ? "学习者对这道题选择了“不会”，没有作答" : "学习者已提交这道题";
   const processing = submission.processing;
   if (processing.status === "interrupted") {
-    return `${done}，判分没有完成（${INTERRUPTED[processing.reason]}），这份作答暂不算对也不算错。`;
+    const cause = processing.failure && MODEL_FAILURES[processing.failure];
+    return `${done}，判分没有完成（${INTERRUPTED[processing.reason]}${cause === undefined ? "" : `：${cause}`}），这份作答暂不算对也不算错。`;
   }
   if (processing.status !== "completed") return `${done}，正在判分。`;
   const feedback = submission.feedback;
