@@ -255,7 +255,8 @@ it("判分的模型请求失败时按原因说明；key 无效时引导去设置
 
   current = recovering();
   start(backend(learning).client);
-  expect(await screen.findByText(/^这份作答没能判出结果，不算错。/u)).toBeTruthy();
+  // 认不出原因时用通用的那一句；它的文字由维护前端的人定，这里按键取。
+  expect(await screen.findByText(t("learn.stage.ungraded.description"))).toBeTruthy();
 });
 
 it("辅导接着这个空间最近的一段辅导会话；开始新对话后，第一条消息建立新的辅导会话", async () => {
@@ -391,7 +392,7 @@ it("交卷时测验已经按截止时间结束（stale_state）：换成后端�
   expect(store.getState().learning.state?.revision).toBe(6);
   expect(store.getState().learning.replaced).toBe("stale");
   expect(store.getState().learning.actionError).toBeUndefined();
-  expect(screen.getByText("时间到了。")).toBeTruthy();
+  expect(screen.getByText(t("learn.result.timeout.status"))).toBeTruthy();
 });
 
 it("重复交卷：后端返回已有的结束状态，前端照常换上，不报错", async () => {
@@ -512,7 +513,7 @@ it("测验截止后才交的一题被拒：换成后端交回的结果，说明�
   fireEvent.change(await screen.findByRole("textbox", { name: "显示的整数" }), { target: { value: "4" } });
   fireEvent.click(screen.getByRole("button", { name: "提交" }));
 
-  expect(await screen.findByText("时间到了。")).toBeTruthy();
+  expect(await screen.findByText(t("learn.result.timeout.status"))).toBeTruthy();
   expect(store.getState().learning.replaced).toBe("unrecorded");
   expect(screen.getByText(t("learn.quiz.unrecorded.title"))).toBeTruthy();
   expect(screen.queryByText("画面已经更新")).toBeNull();

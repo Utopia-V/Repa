@@ -245,9 +245,15 @@ function unzip(buffer: Buffer): Map<string, string> {
   return files;
 }
 
+/**
+ * 学习页主区（不含抽屉）里菜单那一节的各项：标题是“接下来”的那个 section 下的 li。菜单标题的 id 每份各取，不能按 id 找。
+ * 交回在页面里求值的表达式，结果是 li 的数组。
+ */
+const MENU_ITEMS = `[...document.querySelectorAll('main section')].filter((section) => section.querySelector(':scope > h3')?.innerText.trim() === ${JSON.stringify(strings["learn.menu.title"])}).flatMap((section) => [...section.querySelectorAll(':scope > ul > li')])`;
+
 /** 菜单里第一个以 kind 开头（或含 title）的那一项卡片上的文字；没有时为空串。 */
 async function menuCard(page: Page, match: { kind?: string; title?: string }): Promise<string> {
-  return page.evaluate<string>(`(() => { const match = ${JSON.stringify(match)}; const item = [...document.querySelectorAll('#learning-menu-title ~ ul > li')].find((li) => (match.kind === undefined || li.innerText.trim().startsWith(match.kind)) && (match.title === undefined || li.innerText.includes(match.title))); return item ? item.innerText.trim() : ''; })()`);
+  return page.evaluate<string>(`(() => { const match = ${JSON.stringify(match)}; const item = ${MENU_ITEMS}.find((li) => (match.kind === undefined || li.innerText.trim().startsWith(match.kind)) && (match.title === undefined || li.innerText.includes(match.title))); return item ? item.innerText.trim() : ''; })()`);
 }
 
 /**
@@ -255,10 +261,11 @@ async function menuCard(page: Page, match: { kind?: string; title?: string }): P
  * 上一项任务的结果页也写着任务类型和“结束”，不等菜单收起，接着读到的还是旧画面。
  */
 async function startMenuItem(page: Page, match: { kind?: string; title?: string }): Promise<void> {
-  const index = await page.evaluate<number>(`(() => { const match = ${JSON.stringify(match)}; return [...document.querySelectorAll('#learning-menu-title ~ ul > li')].findIndex((li) => (match.kind === undefined || li.innerText.trim().startsWith(match.kind)) && (match.title === undefined || li.innerText.includes(match.title))); })()`);
-  if (index < 0) throw new Error(`菜单里没有「${match.kind ?? ""}${match.title ?? ""}」：${learnView(await page.text()).menu.join("；") || "菜单是空的"}`);
-  await page.click({ name: "开始", selector: `#learning-menu-title ~ ul > li:nth-child(${index + 1}) button` });
-  await until("任务开始、菜单收起", async () => !(await page.has({ name: "开始", selector: "#learning-menu-title ~ ul button" })), 15_000);
+  // 先给那一项的按钮做个记号，再按记号点：菜单的 section 没有固定的 id，选择器写不出第几项。
+  const marked = await page.evaluate<boolean>(`(() => { const match = ${JSON.stringify(match)}; document.querySelectorAll('[data-verify-start]').forEach((element) => element.removeAttribute('data-verify-start')); const item = ${MENU_ITEMS}.find((li) => (match.kind === undefined || li.innerText.trim().startsWith(match.kind)) && (match.title === undefined || li.innerText.includes(match.title))); const button = item && item.querySelector('button'); if (button) button.setAttribute('data-verify-start', ''); return Boolean(button); })()`);
+  if (!marked) throw new Error(`菜单里没有「${match.kind ?? ""}${match.title ?? ""}」：${learnView(await page.text()).menu.join("；") || "菜单是空的"}`);
+  await page.click({ name: "开始", selector: "button[data-verify-start]" });
+  await until("任务开始、菜单收起", async () => await page.evaluate<number>(`${MENU_ITEMS}.length`) === 0, 15_000);
 }
 
 /** 一道选择题的一个错误选项。 */
@@ -296,6 +303,8 @@ function literal(text: string): RegExp {
  * 作答区里没有别的按钮叫这个名字（题号等占位不是按钮）；确认框里的确认按钮与它同名。
  */
 const FINISH = literal(strings["learn.quiz.finish.action"]);
+/** 测验按截止时间结束时结果里的那句话。 */
+const TIMEOUT = strings["learn.result.timeout.status"];
 
 /** 交卷：点任务区的交卷，在确认框里确认。交回有没有交卷按钮和确认框里的文字。 */
 async function finishQuiz(page: Page, kind: string): Promise<{ button: boolean; dialog: string }> {
@@ -812,7 +821,7 @@ export const STEPS: Step[] = [
         await page.waitText("看例题");
         await work(page, questions);
         const done = await page.waitText("新课结束");
-        checks.expect(`第 ${index + 1} 节「${title}」通过`, done.includes("这一节通过了。"));
+        checks.expect(`第 ${index + 1} 节「${title}」通过`, done.includes(strings["learn.result.passed.status"]));
       }
       const card = await menuCard(page, { kind: "测验" });
       checks.expect("三节学完，菜单里出现测验", card !== "", learnView(await page.text()).menu.join("；") || "菜单是空的");
@@ -831,11 +840,11 @@ export const STEPS: Step[] = [
       const circles = await page.has({ name: "知识点", selector: "ol[aria-label]" });
       checks.expect("V2 测验中不列 topic 长串，没有知识点圆圈", topicsShown.length < 2 && !circles, `出现 ${topicsShown.join("、") || "没有 topic 名称"}${circles ? "；有知识点圆圈" : ""}`);
       // 窄屏：400 px 宽时测验头部和题目放得下，页面不横向滚动。看完改回桌面端缺省的大小。
-      await page.viewport(400, 760);
+      await page.resize(400, 760);
       await page.shot("quiz-narrow");
       const overflow = await page.evaluate<number>("document.documentElement.scrollWidth - document.documentElement.clientWidth");
       checks.expect("400 px 宽时测验画面不横向溢出", overflow <= 0, `多出 ${overflow} px`);
-      await page.viewport(1120, 760);
+      await page.resize(1120, 760);
       checks.expect("V6 测验作答中没有“中止”，只留“交卷”", !(await page.has({ name: /^中止/u, selector: "button" })) && await page.has({ name: FINISH, selector: "main button" }),
         "准备阶段的“中止准备”走查到不了：menu.select 当场交付全部题目，正常流程停不在准备阶段；由单元测试覆盖");
       const first = await answerQuizQuestion(page, questions);
@@ -862,12 +871,12 @@ export const STEPS: Step[] = [
       await answerQuizQuestion(page, questions);
       await app.shiftClock(duration + 60_000);
       await answer(page, questions, {});
-      const late = await page.waitText("时间到了。", 10_000).catch(async () => await page.text());
+      const late = await page.waitText(TIMEOUT, 10_000).catch(async () => await page.text());
       await page.shot("retake-late-answer");
       // 那一题没有计入的说明（learn.quiz.unrecorded.title）文字待写，这里只查不是通用的“画面已经更新”。
       checks.expect("V4 截止后才交的一题被拒：画面换成时间到的结果，说明那一题没有计入，而不是通用的“画面已经更新”",
-        late.includes("时间到了。") && !late.includes("画面已经更新"), late.split("\n").filter((line) => /出错|更新|失败|时间到|计入/u.test(line)).join(" / ") || "画面没有变化");
-      const timedOut = await page.waitText("时间到了。", 30_000);
+        late.includes(TIMEOUT) && !late.includes("画面已经更新"), late.split("\n").filter((line) => /出错|更新|失败|时间到|计入/u.test(line)).join(" / ") || "画面没有变化");
+      const timedOut = await page.waitText(TIMEOUT, 30_000);
       checks.expect("重考按截止时间结束（时间到）", timedOut.includes("重考结束"));
       checks.expect("截止后交的那一题没有记下", (await quizRecord(app)).answered === 1, `${(await quizRecord(app)).answered} 份作答`);
       const reviewedAgain = await reviewUntil(page, questions);
@@ -912,10 +921,10 @@ export const STEPS: Step[] = [
       await app.shiftClock(duration + 60_000);
       await page.shiftClock(duration + 60_000);
       await page.evaluate("(() => { document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')); return true; })()");
-      const expired = await page.waitText("时间到了。", 5_000).then(() => true, () => false);
+      const expired = await page.waitText(TIMEOUT, 5_000).then(() => true, () => false);
       await page.shot("retake-expired");
       checks.expect("V4 过了截止时间、页面不刷新，画面自己换成时间到", expired);
-      const final = await page.waitText("时间到了。", 30_000);
+      const final = await page.waitText(TIMEOUT, 30_000);
       checks.expect("第二次重考按截止时间结束（有一题答错，所以是时间到）", final.includes("重考结束"), wrong);
     },
   },
