@@ -2,7 +2,7 @@ import type { Static, TSchema } from "typebox";
 import type { SessionBaseline } from "./protocol.js";
 import type { AskRoute } from "./ask.js";
 import type { AgentDefinition, AgentTask, AgentWork, CompletionRequest } from "./plugin.js";
-import type { AgentEvent, AgentInfo, Confirm, ModelRef, PromptOverrides, PromptSection, ProviderInfo, SessionEntry, SessionInfo, SessionUsage } from "./schema.js";
+import type { AgentEvent, AgentInfo, Confirm, KeyCheck, ModelRef, PromptOverrides, PromptSection, ProviderInfo, SessionEntry, SessionInfo, SessionUsage } from "./schema.js";
 import type { SpaceWrites } from "./space.js";
 
 /** 交给运行时的工具。运行时只提供 signal 与 callId；插件工具的参数校验和 ToolContext.ask 由插件宿主补上。 */
@@ -110,7 +110,8 @@ export interface AgentRuntime {
   defaultModel(): ModelRef | undefined;
   setDefaultModel(model: ModelRef): Promise<void>;
   login(provider: string, type: string, confirm: Confirm, signal?: AbortSignal): Promise<void>;
-  setKey(provider: string, key: string): Promise<void>;
+  /** 先用这个 key 试发一次请求：提供方拒绝时以 key_rejected 拒绝且不保存；其余失败照样保存，结论里带上原因。 */
+  setKey(provider: string, key: string): Promise<KeyCheck>;
   logout(provider: string): Promise<void>;
   /** 保存的凭据里的全部字符串值，供反馈包脱敏；没有凭据文件时为空，文件读不了或损坏时抛错。 */
   credentials(): Promise<string[]>;

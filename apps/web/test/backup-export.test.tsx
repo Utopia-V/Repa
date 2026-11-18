@@ -157,6 +157,33 @@ it("导出失败时如实显示原因，清单还在，可以再导出一次", a
   expect(calls(call, "learning.export.create")).toEqual([{ exportId: "e1" }, { exportId: "e1" }]);
 });
 
+it("预览已经失效时可以重新预览，再导出的是新的那一份", async () => {
+  let previews = 0;
+  const { call, client } = backend({
+    "learning.export.prepare": () => Promise.resolve({ exportId: `p${++previews}`, files: [] }),
+    "learning.export.create": (input) => input.exportId === "p1"
+      ? Promise.reject(new RpcError(-32000, "这份预览已经失效，请重新预览后再导出", { code: "export_expired" }))
+      : Promise.resolve({ path: "/tmp/repa-learning-export-20261115-143000.zip" }),
+  });
+  start(client, "/settings");
+
+  fireEvent.click(await screen.findByRole("button", { name: "settings.export.action" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  await vi.waitFor(() => expect((dialog.getByRole("button", { name: "export.create.action" }) as HTMLButtonElement).disabled).toBe(false));
+  // 没有失效时不出现重新预览。
+  expect(dialog.queryByRole("button", { name: "export.preview.retry.action" })).toBeNull();
+  fireEvent.click(dialog.getByRole("button", { name: "export.create.action" }));
+  expect((await dialog.findByRole("alert")).textContent).toContain("这份预览已经失效");
+
+  fireEvent.click(dialog.getByRole("button", { name: "export.preview.retry.action" }));
+  await vi.waitFor(() => expect(calls(call, "learning.export.prepare")).toHaveLength(2));
+  expect(dialog.queryByRole("alert")).toBeNull();
+  await vi.waitFor(() => expect((dialog.getByRole("button", { name: "export.create.action" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(dialog.getByRole("button", { name: "export.create.action" }));
+  expect((await screen.findByLabelText("export.created.path.label")).textContent).toBe("/tmp/repa-learning-export-20261115-143000.zip");
+  expect(calls(call, "learning.export.create")).toEqual([{ exportId: "p1" }, { exportId: "p2" }]);
+});
+
 it("没有打开空间时设置页没有导出，也不显示备份状态，只有间隔与份数", async () => {
   const { client } = backend();
   start(client, "/settings", false);

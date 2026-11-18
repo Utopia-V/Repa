@@ -16,6 +16,7 @@ import type { CompletionRequest } from "../plugin.js";
 import { currentRun } from "../run-context.js";
 import { RepaFault } from "../schema.js";
 import { textContent } from "./events.js";
+import { modelError } from "./model-failure.js";
 import { saveParent } from "./parent.js";
 
 export const MODEL_CALL_ENTRY = "repa-model-call";
@@ -168,13 +169,13 @@ export async function modelCall(request: CompletionRequest, schema: TSchema | un
     if (accepted) return output;
     const last = session.messages.findLast(message => message.role === "assistant");
     if (last?.stopReason === "aborted") throw new RepaFault("cancelled", "模型请求已取消");
-    if (last?.stopReason === "error") throw new RepaFault("model_error", last.errorMessage ?? "模型请求失败");
+    if (last?.stopReason === "error") throw modelError(last.errorMessage);
     if (schema !== undefined) throw failure ?? new RepaFault("invalid_model_output", `模型没有调用 ${SUBMIT_RESULT}`);
     return textContent(last?.content);
   } catch (error) {
     if (error instanceof RepaFault) throw error;
     if (request.signal?.aborted) throw new RepaFault("cancelled", "模型请求已取消");
-    throw new RepaFault("model_error", error instanceof Error ? error.message : String(error));
+    throw modelError(error instanceof Error ? error.message : String(error));
   } finally {
     request.signal?.removeEventListener("abort", abort);
     session.dispose();

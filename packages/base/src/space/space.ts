@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { watch } from "node:fs";
-import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { HistoryError, openHistory, watchHistory, type ActivitySource, type Revision, type Snapshot } from "@repa/space-history";
@@ -9,7 +9,7 @@ import { HistoryError, openHistory, watchHistory, type ActivitySource, type Revi
 import { currentRun } from "../run-context.js";
 import type { Space, SpaceOptions } from "../space.js";
 import { RepaFault } from "../schema.js";
-import { syncDirectory } from "../storage.js";
+import { move, syncDirectory } from "../storage.js";
 import { checkFormat } from "./format.js";
 import { WriteGate, type LockWait } from "./gate.js";
 import { lockSpace } from "./lock.js";
@@ -275,7 +275,7 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
                 } finally {
                   await handle.close();
                 }
-                await rename(temporary, checked);
+                await move(temporary, checked);
                 await syncDirectory(path.dirname(checked));
               } finally {
                 await rm(temporary, { force: true });

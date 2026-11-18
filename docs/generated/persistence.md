@@ -224,7 +224,7 @@ schema：packages/learning/src/space-course.ts#CourseChoiceSchema；SHA-256 前 
 
 版本标记：<空间>/.repa/plugins/learning/format.json。
 
-schema：packages/learning/src/course-building.ts#BuildingRecordSchema；SHA-256 前 16 位：956ecbf119a30963。
+schema：packages/learning/src/course-building.ts#BuildingRecordSchema；SHA-256 前 16 位：7aa45564f0db14c7。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |

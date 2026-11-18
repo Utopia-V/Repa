@@ -21,10 +21,12 @@ export function detectCommandTool(
   } catch {
     return "powershell";
   }
-  // PATH 里的 System32\bash.exe 是 WSL 的启动器：没装发行版时只会报错，装了也在另一套文件系统里运行。
+  // PATH 里的 System32\bash.exe 和 WindowsApps\bash.exe（从商店装的 WSL 的执行别名）是 WSL 的启动器：
+  // 没装发行版时只会报错，装了也在另一套文件系统里运行。
   return wslLauncher(shell) ? "powershell" : "bash";
 }
 
 function wslLauncher(shell: string): boolean {
-  return /^[a-z]:\\windows\\(?:system32|sysnative)\\bash\.exe$/u.test(shell.replaceAll("/", "\\").toLowerCase());
+  const path = shell.replaceAll("/", "\\").toLowerCase();
+  return /^[a-z]:\\windows\\(?:system32|sysnative)\\bash\.exe$/u.test(path) || path.endsWith("\\microsoft\\windowsapps\\bash.exe");
 }

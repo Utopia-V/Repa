@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { CreatedFile } from "@/features/created-file";
 import { useAppStore } from "@/hooks/use-app-store";
+import { errorCode } from "@/lib/errors";
 import { fileSize } from "@/lib/format";
 import { revealFile } from "@/lib/host";
 import { t } from "@/lib/strings";
@@ -44,6 +45,8 @@ function ExportDialog({ onBusyChange, onClose }: { onBusyChange(busy: boolean): 
   const prepareExport = useAppStore((state) => state.prepareExport);
   const createExport = useAppStore((state) => state.createExport);
   const [sessions, setSessions] = useState(false);
+  // 加一次就重新预览：预览失败，或这份预览已经失效（例如另一个窗口又预览了一次）时由学习者要求。
+  const [round, setRound] = useState(0);
   const [preview, setPreview] = useState<Preview>();
   const [prepareError, setPrepareError] = useState<unknown>();
   const [creating, setCreating] = useState(false);
@@ -61,7 +64,7 @@ function ExportDialog({ onBusyChange, onClose }: { onBusyChange(busy: boolean): 
       (next) => { if (id === request.current) setPreview(next); },
       (error: unknown) => { if (id === request.current) setPrepareError(error); },
     );
-  }, [prepareExport, sessions]);
+  }, [prepareExport, sessions, round]);
 
   async function create(exportId: string) {
     setCreating(true);
@@ -117,6 +120,9 @@ function ExportDialog({ onBusyChange, onClose }: { onBusyChange(busy: boolean): 
       </li>)}
     </ul>}
     {createError !== undefined && <ErrorNotice title={t("export.create.error")} error={createError} />}
+    {(prepareError !== undefined || errorCode(createError) === "export_expired") && <div>
+      <Button variant="tertiary" onClick={() => { setCreateError(undefined); setRound(round + 1); }}>{t("export.preview.retry.action")}</Button>
+    </div>}
     <DialogFooter>
       <Button variant="tertiary" disabled={creating} onClick={onClose}>{t("common.cancel.action")}</Button>
       <Button disabled={preview === undefined || creating} aria-busy={creating} onClick={() => { if (preview) void create(preview.exportId); }}>

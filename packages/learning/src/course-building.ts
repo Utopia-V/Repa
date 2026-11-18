@@ -7,7 +7,7 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 
 import { writeJson } from "@repa/base";
-import { identifier, object, parse } from "@repa/base/protocol";
+import { identifier, ModelFailureSchema, object, parse } from "@repa/base/protocol";
 import { Type, type Static } from "typebox";
 
 import { COURSE_GUIDE } from "./course-tools.js";
@@ -27,7 +27,7 @@ export const EXPANSION_SIZE = 2;
 const time = Type.Integer({ minimum: 0 });
 /**
  * building.json：conversation 是学习者与之对话做课的会话；sessions 是做过这门课的会话；last 是最近一次后台展开：要展开的部分、开始时学习者学过几个 topic（自动展开每个学过数只试一次）、
- * 会话、结束时间与没有成功的原因。没有 endedAt：应用在展开中途崩溃，没来得及写下结局，不另补记。
+ * 会话、结束时间与没有成功的原因（模型请求失败时带上底座的分类 failure，2026-11-17 加入，之前写下的记录没有它）。没有 endedAt：应用在展开中途崩溃，没来得及写下结局，不另补记。
  */
 export const BuildingRecordSchema = object({
   conversation: Type.Optional(identifier),
@@ -38,7 +38,11 @@ export const BuildingRecordSchema = object({
     startedAt: time,
     sessionId: Type.Optional(identifier),
     endedAt: Type.Optional(time),
-    failure: Type.Optional(object({ code: ExpansionFailureSchema.properties.code, message: Type.Optional(Type.String()) })),
+    failure: Type.Optional(object({
+      code: ExpansionFailureSchema.properties.code,
+      message: Type.Optional(Type.String()),
+      failure: Type.Optional(ModelFailureSchema),
+    })),
   })),
 });
 /** 做课记录。 */

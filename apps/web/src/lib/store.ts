@@ -230,8 +230,11 @@ export type AppState = LearningActions & {
   /** 读取设置页需要的提供方、模型和默认模型。 */
   loadModelSettings(): Promise<void>;
   setDefaultModel(model: Params<"model.setDefault">["model"]): Promise<void>;
-  /** 失败时抛给调用方；需要更多信息的提供方抛出 requires_interactive_login，调用方改走 login。 */
-  saveKey(provider: string, key: string): Promise<void>;
+  /**
+   * 保存前后端先用这个 key 试发一次请求。提供方拒绝时抛出 key_rejected，不保存；其余失败照样保存，交回原因。
+   * 需要更多信息的提供方抛出 requires_interactive_login，调用方改走 login。
+   */
+  saveKey(provider: string, key: string): Promise<Result<"auth.setKey">>;
   logout(provider: string): Promise<void>;
   loadCommandPolicy(): Promise<void>;
   /** 失败时抛给调用方，界面保留原来的策略。 */
@@ -888,8 +891,9 @@ export function createAppStore() {
         await loaders.defaultModel();
       },
       async saveKey(provider, key) {
-        await call("auth.setKey", { provider, key });
+        const check = await call("auth.setKey", { provider, key });
         await reloadModelState();
+        return check;
       },
       async logout(provider) {
         await call("auth.logout", { provider });

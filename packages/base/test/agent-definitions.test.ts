@@ -487,6 +487,28 @@ test("插件抛出转不成文字的值：open 与第一次变化处理只停用
   assert.deepEqual(running(await f.client.call("plugin.list", {})), ["learning", "opaque-method"]);
 });
 
+test("方法里未预期的异常：前端只收到 Internal error，不带路径和堆栈；原始异常连同方法名写到 stderr", async (t) => {
+  const empty = Type.Object({}, { additionalProperties: false });
+  const good = learningPlugin();
+  const failure = new Error("EPERM: operation not permitted, rename 'D:\\space\\.repa\\x.tmp'");
+  const f = await protocolFixture(t, good, {
+    plugins: [{ id: "plain-method", open: async () => ({ methods: { fail: { parameters: empty, invoke: async () => { throw failure; } } } }) }, good],
+  });
+  const written: string[] = [];
+  t.mock.method(process.stderr, "write", (chunk: string | Uint8Array) => {
+    written.push(String(chunk));
+    return true;
+  });
+  await assert.rejects(f.client.call("plugin.call", { pluginId: "plain-method", method: "fail", input: {}, opening: f.opened.opening }), (error: unknown) => {
+    assert.ok(error instanceof RpcError);
+    assert.deepEqual([error.code, error.message, error.data], [-32603, "Internal error", undefined]);
+    return true;
+  });
+  const logged = written.join("");
+  assert.ok(logged.includes("plugin.call"), logged);
+  assert.ok(failure.stack !== undefined && logged.includes(failure.stack), logged);
+});
+
 
 test("视图与运行关卡抛出的普通错误保留原对象，不被转换成拒收", async t => {
   const viewError = new Error("视图渲染的原始错误");

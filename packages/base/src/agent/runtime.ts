@@ -23,10 +23,11 @@ import type { SessionBaseline } from "../protocol.js";
 import type { AgentRuntime, AgentRuntimeOptions, AgentSession, AgentSpace, AgentSpaceOptions, AgentTool, ModelCallScope } from "../agent.js";
 import { ASK_USER_TOOL, BUILTIN_TOOLS, RESERVED_TOOL_NAMES, type AgentDefinition, type AgentTask, type AgentWork, type BuiltinTool, type CompletionRequest } from "../plugin.js";
 import { withRun } from "../run-context.js";
-import { errorText, MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type SessionUsage, type PromptSection, type ProviderInfo } from "../schema.js";
+import { errorText, MessageDecisionSchema, RepaFault, type AgentInfo, type Confirm, type Confirmation, type ModelRef, type SessionInfo, type SessionParent, type SessionUsage, type PromptSection, type ProviderInfo, type KeyCheck, type ModelFailure } from "../schema.js";
 import { askUserTool } from "./ask-user.js";
 import { detectCommandTool, type CommandTool } from "./command-tool.js";
-import { convertEvent, entryToPublic, textContent } from "./events.js";
+import { convertEvent, entryToPublic, retriedFailures, textContent } from "./events.js";
+import { modelError, modelFailure } from "./model-failure.js";
 import { credentialValues } from "../feedback/redact.js";
 import { FileScope, generalFileTools, ReadState, spaceFileTools } from "./files.js";
 import { limitToolText } from "./output.js";
@@ -95,6 +96,10 @@ type PiBuiltinTool = Exclude<BuiltinTool, "bash"> | CommandTool;
 // 子 Agent 嵌套层数上限的默认值。这是 Repa 的假设：定义允许循环和重入，用层数挡住失控的递归，
 // 以后按实际使用调整。
 const SUBAGENT_DEPTH = 3;
+/**
+ * 保存 API key 前试发的请求最多等这么久。连不上时 Node 约 10 秒放弃；代理收下请求却不回时，靠它让保存不一直挂着。Repa 的假设。
+ */
+const KEY_CHECK_TIMEOUT_MS = 20_000;
 
 // 通用 Agent 起自己时，subagent 工具里给它的说明，相当于 Claude Code 的通用子代理。
 const GENERAL_SUBAGENT = "通用 Agent，工具与你相同，适合交给它独立完成的调研、修改和多步任务";
@@ -395,17 +400,54 @@ class Runtime implements AgentRuntime {
     this.checkSettings();
   }
 
-  async setKey(provider: string, key: string): Promise<void> {
+  /**
+   * 保存 API key。Pi 的登录问到 key 时，先用它试发一次最小的请求：提供方拒绝（auth）时在这里抛错，Pi 的登录随之中止，
+   * 不写进凭据，界面也就不会显示已连接。其余失败照样保存，结论交回给界面如实说明：连不上可能只是暂时断网，
+   * 余额不足说明 key 本身是对的。
+   */
+  async setKey(provider: string, key: string): Promise<KeyCheck> {
     this.assertOpen();
     let supplied = false;
+    let check: KeyCheck = {};
+    const verify = (candidate: string) => this.checkKey(provider, candidate);
     await this.options.modelRuntime.login(provider, "api_key", {
       async prompt(prompt) {
         if (supplied || (prompt.type !== "secret" && prompt.type !== "text")) throw new RepaFault("requires_interactive_login", "此提供方需要额外登录信息，请使用交互登录");
         supplied = true;
+        const failure = await verify(key);
+        if (failure === "auth") throw new RepaFault("key_rejected", "提供方拒绝了这个 API key", { failure });
+        if (failure !== undefined) check = { failure };
         return key;
       },
       notify() {},
     });
+    return check;
+  }
+
+  /**
+   * 用这个 key 向提供方最便宜的模型发一次只要 1 个 token 的请求，交回失败的原因；能用时为 undefined。
+   * Pi 没有不花钱的验证办法（列模型的接口各家不同，Pi 也没有统一封装），而这样的请求花费可以忽略，还能认出余额不足。
+   * 请求经 Pi 的模型调用发出，baseUrl、请求头与各家的接口差异都由它处理。
+   */
+  private async checkKey(provider: string, key: string): Promise<ModelFailure | undefined> {
+    const models = this.options.modelRuntime;
+    const price = (model: Model<string>) => model.cost.input + model.cost.output;
+    const [model] = models.getModels(provider).toSorted((a, b) => price(a) - price(b));
+    if (model === undefined) return "other";
+    let reply: Awaited<ReturnType<typeof models.completeSimple>>;
+    try {
+      reply = await models.completeSimple(
+        model,
+        { messages: [{ role: "user", content: "ping", timestamp: this.now() }] },
+        { apiKey: key, maxTokens: 1, signal: AbortSignal.timeout(KEY_CHECK_TIMEOUT_MS) },
+      );
+    } catch (error) {
+      return modelFailure(errorText(error));
+    }
+    // 等满时限仍没有回音时请求被中止，按连不上算。
+    if (reply.stopReason === "aborted") return "network";
+    if (reply.stopReason === "error") return modelFailure(reply.errorMessage);
+    return undefined;
   }
 
   async logout(provider: string): Promise<void> {
@@ -1023,8 +1065,10 @@ class Session implements AgentSession {
   }
 
   history() {
-    return this.manager.getBranch().flatMap(entry => {
-      const converted = entryToPublic(entry);
+    const branch = this.manager.getBranch();
+    const retried = retriedFailures(branch);
+    return branch.flatMap(entry => {
+      const converted = entryToPublic(entry, retried.has(entry.id));
       return converted ? [converted] : [];
     });
   }
@@ -1143,7 +1187,7 @@ class Session implements AgentSession {
         });
         const last = this.session.messages.findLast(message => message.role === "assistant");
         if (last?.role === "assistant" && last.stopReason === "aborted") status = "aborted";
-        if (last?.role === "assistant" && last.stopReason === "error") throw new RepaFault("model_error", last.errorMessage ?? "模型请求失败");
+        if (last?.role === "assistant" && last.stopReason === "error") throw modelError(last.errorMessage);
         if (last?.role === "assistant") reply = textContent(last.content);
       } catch (error) {
         if (controller.signal.aborted) throw new RepaFault("cancelled", "会话运行已取消");

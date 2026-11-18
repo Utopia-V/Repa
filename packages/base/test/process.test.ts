@@ -111,6 +111,9 @@ test("Node 宿主传入插件并关掉通用 Agent，前端只能与插件 Agent
     await backend?.close();
     await rm(directory, { recursive: true, force: true });
   });
+  // 建会话要有可用模型。auth.setKey 保存前会向提供方试发请求，这里在启动前写好凭据文件，不联网。
+  await mkdir(path.join(directory, "home", "agent"), { recursive: true });
+  await writeFile(path.join(directory, "home", "agent", "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "test-key" } }));
   backend = await startRepaProcess({
     home: path.join(directory, "home"),
     plugins: [fileURLToPath(new URL("fixtures/process-plugin", import.meta.url))],
@@ -124,8 +127,6 @@ test("Node 宿主传入插件并关掉通用 Agent，前端只能与插件 Agent
     assert.equal(record(error.data)?.code, "agent_not_found");
     return true;
   });
-  // 建会话要有可用模型；只存一个密钥，不发请求。
-  await client.call("auth.setKey", { provider: "anthropic", key: "test-key" });
   assert.equal((await client.call("session.create", { agent: "helper" })).agent, "helper");
 });
 

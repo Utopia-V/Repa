@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import type { Services } from "@repa/base/plugin";
-import { parse } from "@repa/base/protocol";
+import { parse, RepaFault } from "@repa/base/protocol";
 import { PYTHON_BATCH, PythonBatchInputSchema } from "@repa/python-runner/protocol";
 import { learningMenu } from "../src/flow-menu.js";
 import { LESSON_REST_MS } from "../src/parameters.js";
@@ -335,6 +335,30 @@ test("开放题只送本题与原答；服务失败和 unsure 不算错，重开
   await f.call("submission.submit", input);
   assert.equal(f.models.calls.length, 4);
   assert.equal(f.session().records.facts.filter((entry) => entry.type === "answered").length, 1);
+});
+
+test("判分的模型请求失败时，提交的处理状态带上底座给的原因；再判成功后不再有", async (t) => {
+  const definition = topic();
+  const question = definition.kps[0]?.practice?.[0];
+  assert.ok(question);
+  question.slots = [{ id: "answer", type: "text", rubric: [{ id: "meaning", label: "说明相加含义。" }] }];
+  const f = await fixture(t, [definition]);
+  await f.select();
+  await f.advance();
+  await f.advance();
+  f.models.expectStructured().fail(new RepaFault("model_error", "402: Insufficient Balance", { failure: "balance" }));
+  const input = await f.input();
+  const failed = await f.call("submission.submit", input);
+  assert.ok(failed.status === "recorded");
+  assert.deepEqual(failed.submission.processing, { status: "interrupted", reason: "service_failure", failure: "balance" });
+  f.models.expectStructured().fail(new RepaFault("model_error", "Connection error.", { failure: "network" }));
+  const again = await f.call("submission.resume", { submissionId: input.submissionId });
+  assert.ok(again.status === "recorded");
+  assert.deepEqual(again.submission.processing, { status: "interrupted", reason: "service_failure", failure: "network" });
+  f.models.expectStructured().succeed({ verdict: "correct", reason: "符合 rubric" });
+  const graded = await f.call("submission.resume", { submissionId: input.submissionId });
+  assert.ok(graded.status === "recorded");
+  assert.deepEqual(graded.submission.processing, { status: "completed" });
 });
 
 test("复习中有作答没判出结果时照常往下做；关掉应用再打开，自动补判出结果以后按全部作答判定，并以作答时间更新", async (t) => {

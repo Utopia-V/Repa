@@ -2,7 +2,7 @@ import { readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RepaFault } from "@repa/base";
-import { errorText } from "@repa/base/protocol";
+import { errorText, modelFailureOf } from "@repa/base/protocol";
 import {
   checkFormat, currentRun, type AgentWork, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool,
 } from "@repa/base/plugin";
@@ -307,6 +307,12 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     announceBuilding();
   }
 
+  /** 展开没能进行或运行出错：记下原文，模型请求失败时连同底座的分类。 */
+  function failed(error: unknown): NonNullable<NonNullable<BuildingRecord["last"]>["failure"]> {
+    const failure = modelFailureOf(error);
+    return { code: "failed", message: errorText(error), ...(failure === undefined ? {} : { failure }) };
+  }
+
   /**
    * 在后台让通用 Agent 展开这几部分。失败如实记下原因，不重试。运行结束时看当前换用的那一版：
    * 这几部分（还在课里的）都已不是轮廓才算展开了；Agent 合并或删掉了某一部分，那一部分就不再计较。
@@ -325,7 +331,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         try {
           work = await host.models.runAgent({ text: expansionTask(ready.course, topicIds, [...learned]) });
         } catch (error) {
-          failure = { code: "failed", message: errorText(error) };
+          failure = failed(error);
           return;
         }
         entry.work = work;
@@ -338,7 +344,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
           await work.result;
         } catch (error) {
           // 取消过的运行（学习者取消，或应用关闭时宿主取消）以 cancelled 拒绝。
-          failure = error instanceof RepaFault && error.code === "cancelled" ? { code: "cancelled" } : { code: "failed", message: errorText(error) };
+          failure = error instanceof RepaFault && error.code === "cancelled" ? { code: "cancelled" } : failed(error);
           return;
         }
         const now = current;
@@ -413,7 +419,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         ? { topicIds: expansion.topicIds, startedAt: expansion.startedAt, sessionId: expansion.work?.id ?? null }
         : null,
       lastFailure: last?.failure && last.endedAt !== undefined
-        ? { topicIds: last.topicIds, at: last.endedAt, code: last.failure.code, ...(last.failure.message === undefined ? {} : { message: last.failure.message }) }
+        ? { topicIds: last.topicIds, at: last.endedAt, ...last.failure }
         : null,
       cost: await host.models.usage(record.sessions),
       sessionId: record.conversation ?? null,

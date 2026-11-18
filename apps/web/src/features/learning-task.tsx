@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router";
 import { CircleCheck, Circle, LoaderCircle, RefreshCw } from "lucide-react";
+import type { ModelFailure } from "@repa/base/protocol";
 import type { Delivery, LearningTask, Submission } from "@repa/learning/protocol";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,16 @@ type Phase = LearningTask["phase"];
 type ContentPage = Extract<Phase, { stage: "explanation" }>["page"];
 
 export const kindText = { lesson: t("learn.task.lesson.label"), review: t("learn.task.review.label"), quiz: t("learn.task.quiz.label"), retake: t("learn.task.retake.label") } as const;
+
+/** 判分的模型请求失败时按原因说一句；认不出原因的和不是模型请求失败的用同一句。 */
+const ungradedText: Record<ModelFailure, string> = {
+  network: t("learn.stage.ungraded.network.description"),
+  auth: t("learn.stage.ungraded.auth.description"),
+  balance: t("learn.stage.ungraded.balance.description"),
+  rate_limit: t("learn.stage.ungraded.rateLimit.description"),
+  server: t("learn.stage.ungraded.server.description"),
+  other: t("learn.stage.ungraded.description"),
+};
 
 const CONCEPT_LINK = "repa:concept/";
 
@@ -189,13 +201,18 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
     case "recovery":
     case "feedback": {
       const found = findSubmission(task, phase.submissionId);
+      const processing = found?.submission.processing;
+      const failure = processing?.status === "interrupted" ? processing.failure ?? "other" : "other";
+      // 点了“再判一次”以后，结果回来之前阶段仍是 recovery；这时说正在判分，而不是上一次没判出的原因。
+      const grading = phase.stage === "judging" || (phase.stage === "recovery" && learning.busy === "retry");
       return <div className="grid gap-5">
         {found && <SubmissionReview item={found.delivery.item} submission={found.submission} />}
-        {phase.stage === "judging" && <p role="status" className="m-0 flex items-center gap-2 text-body text-muted-foreground">
+        {grading && <p role="status" className="m-0 flex items-center gap-2 text-body text-muted-foreground">
           <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />{t("learn.stage.grading.status")}
         </p>}
-        {phase.stage === "recovery" && <p className="m-0 text-body text-muted-foreground">{t("learn.stage.ungraded.description")}</p>}
+        {phase.stage === "recovery" && !grading && <p className="m-0 text-body text-muted-foreground">{ungradedText[failure]}</p>}
         <Actions>
+          {phase.stage === "recovery" && failure === "auth" && <Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button>}
           {phase.stage === "recovery" && <Button variant="tertiary" disabled={busy} onClick={() => { void retryJudging(phase.submissionId); }} leadingIcon={RefreshCw}>{t("learn.stage.regrade.action")}
           </Button>}
           {phase.stage !== "judging" && <Button disabled={busy} onClick={() => { void advanceTask(); }}>

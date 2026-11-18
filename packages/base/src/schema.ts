@@ -25,6 +25,21 @@ export const ProviderInfoSchema = object({
 });
 /** 模型提供方的认证选项与配置状态，供前端显示登录和退出入口。 */
 export type ProviderInfo = Static<typeof ProviderInfoSchema>;
+/**
+ * 一次模型请求失败的原因，是 Repa 自己的分类，界面按它告诉学习者发生了什么、该做什么：
+ * network 连不上（网络、超时、域名解析），auth 凭据无效或没有权限，balance 账户余额或额度不足，
+ * rate_limit 请求过于频繁，server 提供方服务端出错，other 其余情形。底座从运行时交回的报错里认出它，见 agent/model-failure.ts。
+ */
+export const ModelFailureSchema = Type.Union([
+  Type.Literal("network"), Type.Literal("auth"), Type.Literal("balance"),
+  Type.Literal("rate_limit"), Type.Literal("server"), Type.Literal("other"),
+]);
+/** 模型请求失败的原因。 */
+export type ModelFailure = Static<typeof ModelFailureSchema>;
+/** 保存 API key 时试发一次请求的结论：没有 failure 是这个 key 能用；有 failure 时 key 已保存，但没能确认它能用。 */
+export const KeyCheckSchema = object({ failure: Type.Optional(ModelFailureSchema) });
+/** 保存 API key 时的验证结论。 */
+export type KeyCheck = Static<typeof KeyCheckSchema>;
 /** 单个提示段覆盖的 schema，允许修改文本或启用状态，供应用和空间设置使用。 */
 export const PromptOverrideSchema = object({
   text: Type.Optional(Type.String()),
@@ -289,6 +304,13 @@ export class RepaFault extends Error {
     super(message);
     this.name = "RepaFault";
   }
+}
+
+/** 模型请求失败（code 为 model_error）时取出 details.failure 的分类；不是模型请求失败时为 undefined。插件经 Host.models 调用失败时用它说明原因。 */
+export function modelFailureOf(error: unknown): ModelFailure | undefined {
+  if (!(error instanceof RepaFault) || error.code !== "model_error") return undefined;
+  const failure = (error.details as { failure?: unknown } | undefined)?.failure;
+  return Value.Check(ModelFailureSchema, failure) ? failure : "other";
 }
 
 /**

@@ -42,7 +42,7 @@
 
 规则题复用 `gradeSlot`；开放题经 `completeStructured`，只发送本题、作答、参考解与 rubric；代码题经前端的 `python.run`，见下一节。判分按当前课程里的题目定义进行，结果作为 `graded` 事实追加，记下所依据的题目版本、各作答位的结论、测试结果和模型理由。
 
-判不出结果时什么也不写，只在内存里记下原因，界面看到 `interrupted` 和 `service_failure` 或 `uncertain_grade`；重开以后原因显示为 `restart`。这份作答尚无证据，课和复习可以从 `recovery` 阶段用 `task.advance` 继续下一题，`task.abort` 与 `quiz.finish` 也不再等待判分。补判有三个时机：
+判不出结果时什么也不写，只在内存里记下原因，界面看到 `interrupted` 和 `service_failure` 或 `uncertain_grade`；判分的模型请求失败时另带底座给的失败原因 `failure`（网络、key 无效、余额不足、限流、服务端出错或其他），界面据此告诉学习者该做什么；重开以后原因显示为 `restart`。这份作答尚无证据，课和复习可以从 `recovery` 阶段用 `task.advance` 继续下一题，`task.abort` 与 `quiz.finish` 也不再等待判分。补判有三个时机：
 
 | 时机 | 补判哪些作答 |
 | --- | --- |
