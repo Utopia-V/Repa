@@ -123,7 +123,7 @@ if (state.ok) renderLearning(state.value);
 
 ### 事件与错误
 
-底座 `plugin.event` 的 `pluginId` 为 `learning`，`event` 是 `LearningEvent`（`learning.changed`）或 `{ type: "building.changed" }`。前者只有类型、revision 和 task/menu/submission 身份，没有题面和答案；后者在开始或结束一次展开、换用新的一版、记下做课的会话（含 `building.begin`）时发出，前端重新读取 `building.get`。收到更新或重连时重新查询；丢事件不影响恢复，也不把事件当成状态增量。
+底座 `plugin.event` 的 `pluginId` 为 `learning`，`event` 是 `LearningEvent`（`learning.changed`）或 `{ type: "building.changed" }`。前者只有类型、revision 和 task/menu/submission 身份，没有题面和答案；后者在开始或结束一次展开、换用新的一版、记下做课的会话（含 `building.begin`），以及学过的部分变了（例如学完一节）时发出，前端重新读取 `building.get`。收到更新或重连时重新查询；丢事件不影响恢复，也不把事件当成状态增量。
 
 处理器抛底座 `RepaFault(code, message, details)`，使用原有 JSON-RPC 错误信封；客户端从 `RpcError.data` 读取 code 和 details。`LearningErrorDetailsSchema` 描述 details，不包第二层错误：
 

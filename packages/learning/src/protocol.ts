@@ -412,7 +412,7 @@ export type CourseBuilding = Static<typeof CourseBuildingSchema>;
 export const LearningSettingsSchema = object({ autoExpand: Type.Boolean() });
 /** 学习插件的设置。 */
 export type LearningSettings = Static<typeof LearningSettingsSchema>;
-/** 做课的状态变了：开始或结束一次展开、换用了新的一版、记下了做课的会话；前端收到后重新读取 building.get。 */
+/** 做课的状态变了：开始或结束一次展开、换用了新的一版、记下了做课的会话、学过的部分变了；前端收到后重新读取 building.get。 */
 export const BuildingEventSchema = object({ type: Type.Literal("building.changed") });
 /** building.changed 事件。 */
 export type BuildingEvent = Static<typeof BuildingEventSchema>;

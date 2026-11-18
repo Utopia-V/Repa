@@ -166,7 +166,7 @@ export const strings = {
   "learn.progress.label": "知识点",
   "learn.progress.mastered.status": "，已掌握",
   "learn.progress.notMastered.status": "，还没掌握",
-  "learn.result.passed.status": "这一节通过了。",
+  "learn.result.passed.status": "通过了。",
   "learn.result.failed.status": "这次没有通过，过一会儿可以再来。",
   "learn.result.timeout.status": "时间到了。",
   "learn.result.unresolved.status": "还有作答没判出结果，判出来以后结论会更新。",
