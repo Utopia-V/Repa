@@ -341,3 +341,17 @@ export async function readPrefixes(root: string, model = true): Promise<PrefixRe
     await space.close();
   }
 }
+
+/**
+ * 升级以后再收到同一笔合法的补判：先在最后一条事实的时刻打开（插件写下旧日志基线）取一次读数，关闭后把补判 line 追加到学习记录末尾
+ * （序号接在基线之后，引用的作答不变），再在补判的时刻打开取一次。用来与测试版收到同一笔补判前后的读数比较。
+ */
+export async function readRegrade(root: string, line: string, model = true): Promise<[Reading, Reading]> {
+  const file = path.join(root, ".repa", "plugins", "learning", "records.jsonl");
+  const facts = (await readFile(file, "utf8")).split("\n").filter(Boolean).map((entry) => JSON.parse(entry) as Fact);
+  const before = await readSpace(root, facts.at(-1)?.at ?? 0, model);
+  const written = (await readFile(file, "utf8")).split("\n").filter(Boolean).length;
+  const fact = { ...(JSON.parse(line) as Fact), seq: written + 1 };
+  await writeFile(file, `${await readFile(file, "utf8")}${JSON.stringify(fact)}\n`);
+  return [before, await readSpace(root, fact.at, model)];
+}

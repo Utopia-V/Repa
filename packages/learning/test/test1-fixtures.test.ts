@@ -184,3 +184,25 @@ for (const space of prefixAnswers.spaces) {
     }
   });
 }
+
+test("升级以后再收到同一笔合法的补判（乙第二天补判开放题）：补判前后的读数与测试版收到这笔补判前后的读数相同，变化也就相同", async () => {
+  const source = path.join(FIXTURE, "home", "Repa", "操作系统 复习");
+  const lines = (await readFile(path.join(source, ".repa", "plugins", "learning", "records.jsonl"), "utf8")).split("\n").filter(Boolean);
+  const regrade = lines[46];
+  assert.ok(regrade && (JSON.parse(regrade) as { type: string }).type === "graded");
+  // 经插件方法取数会触发后台补判：有模型时假模型判不了，这份作答显示为判分失败；逐前缀的标准答案直接取会话的 view，不触发补判。
+  // 不给模型时两种取法读到的相同。
+  const [result] = await readInChild<[{ meaning: Record<string, unknown> }, { meaning: Record<string, unknown> }]>([{ source, facts: 46 }], (root) => ({ root, model: false, regrade }));
+  assert.ok(result);
+  const expected = prefixAnswers.spaces.find((entry) => entry.id === "b")?.prefixes;
+  assert.ok(expected);
+  // 这笔补判确实改变了读数：第二天补发 12 XP。
+  assert.notDeepEqual(expected[46]?.at.awards, expected[47]?.at.awards);
+  for (const [reading, prefix] of [[result[0], expected[46]], [result[1], expected[47]]] as const) {
+    assert.ok(prefix);
+    for (const [field, want] of Object.entries(prefix.at)) {
+      const got = comparable(field, reading.meaning[field]);
+      if (!sameReading(got, comparable(field, want))) assert.deepEqual(got, comparable(field, want), `${prefix.facts} 条/${field}`);
+    }
+  }
+});
