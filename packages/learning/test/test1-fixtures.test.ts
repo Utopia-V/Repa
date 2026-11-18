@@ -55,6 +55,23 @@ function readAll(): Promise<Map<string, Record<string, unknown>>> {
   return readings;
 }
 
+/**
+ * 测试版之后有意改写的说明文字，不属于学习的含义，比较时两边都去掉。每一项写明是哪次改动、改成了什么；
+ * 只收给学习者看的文字，结论、时刻、XP、学生模型这类读数不得列在这里。
+ */
+const REWORDED: Record<string, readonly string[]> = {
+  // #173：菜单为空时的说明改由界面给出，插件不再产生这句话。
+  menu: ["unavailableReason"],
+  // #173：学习者自己中止时不再附理由，界面只显示“已中止。”。
+  currentTask: ["abortReason"],
+};
+
+function comparable(field: string, value: unknown): unknown {
+  const dropped = REWORDED[field];
+  if (dropped === undefined || value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !dropped.includes(key)));
+}
+
 test("标准答案取数时的时区与现在取数的时区相同", () => {
   assert.equal(answers.timeZone, TIME_ZONE);
 });
@@ -65,7 +82,7 @@ for (const entry of answers.cases) {
     assert.ok(reading);
     for (const [field, expected] of Object.entries(entry.reading)) {
       await t.test(field, () => {
-        assert.deepEqual(reading[field], expected);
+        assert.deepEqual(comparable(field, reading[field]), comparable(field, expected));
       });
     }
     assert.deepEqual(Object.keys(reading).sort(), Object.keys(entry.reading).sort());
