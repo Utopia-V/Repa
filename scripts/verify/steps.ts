@@ -26,12 +26,8 @@ export interface Step {
   run(context: Context, checks: Checks): Promise<void>;
 }
 
-/** 已知的界面状态问题（2026-11-16 候选版本验收时发现），修好以后对应的检查会翻成“已修好”。 */
-export const KNOWN = {
-  panelEntry: "学过或中止过一节以后，学习页右上一直是“问辅导”，“做课”入口不再出现（learn.tsx 的右侧面板取决于 task 非空，结束的任务一直留在状态里）",
-  learnedCount: "学完一节后“整门课”一行的已学数不立即更新",
-  makingPanel: "做课的面板在课做好以后不收起",
-} as const;
+/** 已知而尚未修好的界面问题，键是 checks.known 引用的名字；修好以后对应的检查会翻成“已修好”。目前没有。 */
+export const KNOWN: Record<string, string> = {};
 
 /** 模型请求失败时对话里应当出现的那句话（维护者定的文字），按假模型失败的方式。 */
 const FAILURE_TEXT: [ModelFailureScript, string][] = [
@@ -258,7 +254,8 @@ export const STEPS: Step[] = [
       ]);
       await page.fill("想学的内容与目标", REQUEST);
       await page.click({ name: "开始", selector: "button" });
-      const text = await page.waitFor("整门课和菜单", (current) => current.includes("整门课") && current.includes("接下来"), 90_000);
+      // Agent 最后那句话里也有“整门课”，抽屉里也有菜单：等整门课那一行出现。
+      const text = await page.waitFor("整门课和菜单", (current) => learnView(current).parts !== undefined && current.includes("接下来"), 90_000);
       const results = model.toolResults;
       const check = results.find((result) => result.tool === "course_check")?.text ?? "";
       const confirm = results.find((result) => result.tool === "course_confirm")?.text ?? "";
@@ -271,9 +268,10 @@ export const STEPS: Step[] = [
       checks.expect("学习页显示整门课两部分", /2 部分/u.test(text), /\d+ 部分[^\n]*/u.exec(text)?.[0]);
       checks.expect("菜单里有第一节新课", /新课\s*进程的三种基本状态/u.test(text));
       checks.expect("Agent 最后一句话显示在做课对话里", (await page.waitText("第一节可以学了", 10_000)).includes("第一节可以学了"));
-      checks.known(KNOWN.makingPanel, "课做好以后做课的抽屉收起", (await openDialog(page)) === "", `打开着的是「${await openDialog(page)}」`);
-      if ((await openDialog(page)) !== "") await page.press("Escape");
-      await until("抽屉关上", async () => (await openDialog(page)) === "");
+      // 窄屏时做课的抽屉盖住了菜单：课第一次可以学时，抽屉里输入框之上也有菜单，读完 Agent 的话就地点“开始”。
+      const drawer = await openDialog(page);
+      checks.expect("课做好以后做课的抽屉里就有第一节的“开始”", drawer === "做课" && await page.has({ name: "开始", near: "进程的三种基本状态", selector: "[role=dialog] button" }), `打开着的是「${drawer}」`);
+      await page.shot("making-first-lesson");
       checks.expect("右上角是“做课”入口", (await headerAction(page)) === "做课", await headerAction(page));
     },
   },
@@ -283,20 +281,26 @@ export const STEPS: Step[] = [
     async run({ page, notes }, checks) {
       const questions = await courseQuestions();
       const before = learnView(await page.text());
-      await page.click({ name: "开始", near: "进程的三种基本状态", selector: "button" });
+      // 上一步停在做课的抽屉里，从抽屉里开始第一节。
+      await page.click({ name: "开始", near: "进程的三种基本状态", selector: "[role=dialog] button" });
       await page.waitText("看例题");
+      await until("抽屉收起", async () => (await openDialog(page)) === "", 5_000).catch(() => undefined);
+      checks.expect("在抽屉里点“开始”以后抽屉收起，开始了第一节", (await openDialog(page)) === "", `打开着的是「${await openDialog(page)}」`);
+      checks.expect("上课时右上角是“问辅导”", (await headerAction(page)) === "问辅导", await headerAction(page));
       // 故意把一道填空答成课程没有收的写法，第 7 条（改正答案后重判）要用它。
       const answered = await work(page, questions, { answers: { "os01.k1.q2": "执行" } });
       const text = await page.waitText("新课结束");
       checks.expect("从界面答完了这一节的练习", answered.length >= 6, answered.join("、"));
-      checks.expect("这一节通过了", text.includes("这一节通过了。"));
+      checks.expect("这一节通过了", /新课结束\s*\n\s*通过了。/u.test(text));
       const after = learnView(text);
       notes.set("xp", after.xp);
       checks.expect("今日 XP 增加了", (after.xp ?? 0) > (before.xp ?? 0), `${before.xp ?? "?"} → ${after.xp ?? "?"}`);
       checks.expect("下一项任务是第二节新课", after.menu.includes("新课 进程控制块"), after.menu.join("；") || "菜单是空的");
-      checks.known(KNOWN.learnedCount, "“整门课”一行立即显示已学 1", after.parts?.learned === 1, `显示 ${/\d+ 部分[^\n]*/u.exec(text)?.[0] ?? "（没有这一行）"}`);
+      // 整门课一行读的是做课的状态，学完一节以后由插件通知重读，比菜单晚到一点。
+      const shown = await page.waitFor("整门课一行显示已学 1", (current) => learnView(current).parts?.learned === 1, 5_000).catch(async () => page.text());
+      checks.expect("“整门课”一行立即显示已学 1", learnView(shown).parts?.learned === 1, `显示 ${/\d+ 部分[^\n]*/u.exec(shown)?.[0] ?? "（没有这一行）"}`);
       const action = await headerAction(page);
-      checks.known(KNOWN.panelEntry, "右上角回到“做课”入口", action === "做课", `是「${action}」`);
+      checks.expect("右上角回到“做课”入口", action === "做课", `是「${action}」`);
     },
   },
   {
@@ -308,7 +312,7 @@ export const STEPS: Step[] = [
       const text = await page.waitFor("学习页和菜单", (current) => current.includes("接下来") && current.includes("整门课"), 30_000);
       const after = learnView(text);
       checks.expect("回到这门课的学习页", text.includes("进程的基本概念"));
-      checks.expect("刚做完的一节仍显示结果", text.includes("新课结束") && text.includes("这一节通过了。"));
+      checks.expect("刚做完的一节仍显示结果", /新课结束\s*\n\s*通过了。/u.test(text));
       checks.expect("菜单与关闭前相同", after.menu.join("；") === before.menu.join("；"), after.menu.join("；"));
       checks.expect("今日 XP 与关闭前相同", after.xp === notes.get("xp"), `${String(notes.get("xp"))} → ${after.xp ?? "?"}`);
       checks.expect("整门课显示已学 1", after.parts?.learned === 1, /\d+ 部分[^\n]*/u.exec(text)?.[0]);
@@ -316,7 +320,7 @@ export const STEPS: Step[] = [
   },
   {
     id: "regrade",
-    title: "改正一道题可接受的答案并换用以后，过去的作答被重判，今日 XP 不减少",
+    title: "回到做课的对话改正一道题可接受的答案并换用以后，过去的作答被重判，今日 XP 不减少",
     async run({ app, page, model, notes }, checks) {
       checks.expect("改之前，那份“执行”的作答判为错", await latestVerdict(app, "os01.k1.q2") === "incorrect");
       const xp = learnView(await page.text()).xp;
@@ -341,8 +345,12 @@ export const STEPS: Step[] = [
         { text: "改好了，“执行”现在也算对。" },
       ]);
       const seen = model.toolResults.length;
-      // 学习页右上角此时是“问辅导”（见已知问题），做课的对话进不去；学习者在新会话里对通用 Agent 说。
-      await page.click({ name: "新会话", selector: "a, button" });
+      // 学过一节、回到菜单以后，从右上角回到原来那段做课的对话，接着说。
+      await page.click({ name: "做课", selector: "header button" });
+      await until("做课的抽屉打开", async () => (await openDialog(page)) === "做课", 5_000);
+      const earlier = await page.text();
+      checks.expect("抽屉里是原来那段做课的对话", earlier.includes("第一节可以学了"));
+      checks.expect("学过一节以后抽屉里不再放菜单", !(await page.has({ name: "开始", selector: "[role=dialog] button" })));
       await page.fill("消息", FIX_REQUEST);
       await page.press("Enter");
       await page.waitText("改好了，“执行”现在也算对。", 30_000);
@@ -351,7 +359,8 @@ export const STEPS: Step[] = [
       const used = results.find((result) => result.tool === "course_use")?.text ?? "";
       checks.expect("只核对改过的那道题，一致", /这次发请求 1 次.*全部一致/u.test(confirm), confirm.split("\n")[0]);
       checks.expect("改后的课换用成功", used.startsWith("已换用"), used.split("\n")[0]);
-      await page.click({ name: "学习", selector: "a, button" });
+      await page.press("Escape");
+      await until("抽屉关上", async () => (await openDialog(page)) === "");
       const text = await page.waitText("接下来", 15_000);
       await until("那份作答按新答案重判为对", async () => await latestVerdict(app, "os01.k1.q2") === "correct", 10_000)
         .catch(() => undefined);
@@ -360,6 +369,27 @@ export const STEPS: Step[] = [
       checks.expect("今日 XP 没有减少", (after.xp ?? -1) >= (xp ?? 0), `${xp ?? "?"} → ${after.xp ?? "?"}`);
       notes.set("xp", after.xp);
       checks.expect("学习页仍是这门课", text.includes("进程的基本概念"));
+    },
+  },
+  {
+    id: "abort",
+    title: "中止一节：回到菜单，右上角是“做课”，能回到做课的对话",
+    async run({ page }, checks) {
+      await page.click({ name: "开始", near: "进程控制块", selector: "button" });
+      await page.waitText("看例题");
+      checks.expect("上课时右上角是“问辅导”", (await headerAction(page)) === "问辅导", await headerAction(page));
+      await page.click({ name: "中止新课", selector: "button" });
+      await page.click({ name: /^中止$/u, selector: "[role=dialog] button" });
+      const text = await page.waitText("已中止", 15_000);
+      checks.expect("中止以后回到菜单，第二节仍可开始", learnView(text).menu.includes("新课 进程控制块"), learnView(text).menu.join("；") || "菜单是空的");
+      const action = await headerAction(page);
+      checks.expect("中止以后右上角是“做课”", action === "做课", `是「${action}」`);
+      await page.click({ name: "做课", selector: "header button" });
+      await until("做课的抽屉打开", async () => (await openDialog(page)) === "做课", 5_000);
+      checks.expect("做课的对话接着上一次", (await page.text()).includes("改好了，“执行”现在也算对。"));
+      await page.shot("abort-making");
+      await page.press("Escape");
+      await until("抽屉关上", async () => (await openDialog(page)) === "");
     },
   },
   {
@@ -414,7 +444,7 @@ export const STEPS: Step[] = [
       checks.expect("模型可用以后补判为对", await latestVerdict(app, "os02.k1.q4") === "correct", await latestVerdict(app, "os02.k1.q4"));
       await work(page, questions);
       const done = await page.waitText("新课结束");
-      checks.expect("接着把这一节做完并通过", done.includes("这一节通过了。"));
+      checks.expect("接着把这一节做完并通过", /新课结束\s*\n\s*通过了。/u.test(done));
     },
   },
   {
@@ -505,6 +535,8 @@ export const STEPS: Step[] = [
       await page.waitText("加好了“进程调度”的轮廓。", 30_000);
       const used = model.toolResults.slice(seen).find((result) => result.tool === "course_use")?.text ?? "";
       checks.expect("加了轮廓的课换用成功", used.startsWith("已换用"), used.split("\n")[0]);
+      // 这段会话随后列进侧栏，插在“学习”之上；等它出现再点，免得点下去时“学习”已经挪开。
+      await page.waitFor("侧栏列出这段会话", (text) => occurrences(text, OUTLINE_REQUEST) >= 2);
       await page.click({ name: "学习", selector: "a, button" });
       const sentence = "模型服务的账户余额不足，充值后重试。";
       const text = await page.waitText(sentence, 30_000);
