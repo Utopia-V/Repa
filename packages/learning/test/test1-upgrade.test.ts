@@ -68,7 +68,7 @@ async function fixture(t: TestContext, source: string, backup: () => Promise<voi
   const log = () => readFile(path.join(root, LOG));
   const facts = async () => (await log()).toString("utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as Fact);
   const state = async () => (await host?.call("learning", "state.get", {}, { capabilities })) as LearningState;
-  return { root, original, lines, open, close, log, facts, state, session: () => session };
+  return { root, original, lines, open, close, log, facts, state, session: () => session, host: () => host };
 }
 
 for (const space of SPACES) {
@@ -168,7 +168,7 @@ function history(replay: Replay) {
   return { outcomes, awards: replay.awards, student: replay.fold().student };
 }
 
-test("空间里有还没换用的 course/、随包课没有做到一半的任务：测试版不显示任何一门课，基线不带结构，升级以后同样没有可学的课", async (t) => {
+test("空间里有还没换用的 course/、随包课没有做到一半的任务：测试版不显示任何一门课，基线不带结构，升级以后同样没有可学的课；之后首次换用自制课，随包课那段成绩不补进 XP", async (t) => {
   const f = await fixture(t, "snapshots/先学 Python 再学进程/python-only");
   await cp(path.join(FIXTURE, "home/Repa/先学 Python 再学进程/course"), path.join(f.root, "course"), { recursive: true });
   await f.open();
@@ -179,6 +179,14 @@ test("空间里有还没换用的 course/、随包课没有做到一半的任务
   assert.equal(state.course, null);
   assert.equal(state.progress.totalXp, 0);
   assert.equal(state.started, true);
+  const use = f.host()?.tools().find((tool) => tool.name === "course_use");
+  assert.ok(use);
+  const used = await use.execute({}, { signal: new AbortController().signal, callId: randomUUID() });
+  assert.match(used.text, /^已换用/u);
+  const switched = await f.state();
+  assert.equal(switched.course?.id, "os-basics");
+  assert.equal(switched.progress.totalXp, 0);
+  assert.deepEqual(f.session()?.replay.awards, []);
 });
 
 test("基线之前的任务按基线的结构算，不随当前的课变：同一份记录换一个没有这些 topic 的当前结构，结论与 XP 不变", async (t) => {

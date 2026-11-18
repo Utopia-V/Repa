@@ -118,9 +118,9 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   });
   const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
 
+  /** 按一门课建好学习会话与教学方法。只读：补判由调用方在这门课发布以后调用 session.catchUp 写下。 */
   async function build(course: ResolvedCourse, space?: string): Promise<Ready> {
     const session = await LearningSession.open(records, course, host);
-    await session.catchUp();
     try {
       const connected = await (options.connect
         ? options.connect(session, host)
@@ -236,6 +236,8 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       current = { kind: "unready", reason: NOT_BUILT };
     }
   }
+  // 正在用的课已经是发布了的：按它补判规则题。
+  if (current.kind === "ready") await current.session.catchUp();
 
   // 换用要在没有方法调用进行时进行：调用开始时取当前的课，换用等进行中的调用结束，换用期间新的调用等它完成。
   // 否则一次调用可能在“判定学习者不忙”之后按旧课开始任务。辅导的工具和提问前的判断只读不写学习记录，不必等；
@@ -271,26 +273,38 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   }
 
   /**
-   * 换用检查过的这一份。学习者有做到一半的任务时，只有新的一版只增不改（已展开的部分一字不差）才换，否则不换。
-   * 旧会话先退下：等它在途的判分写完，再按新的一份打开，新会话读到这些判分，按改过的答案该重判的照常重判；
+   * 换用检查过的这一份，先验证、后发布。学习者有做到一半的任务时，只有新的一版只增不改（已展开的部分一字不差）才换，否则不换。
+   * 次序：副本落盘；旧会话在途的判分写完；按副本只读地建好新会话（重放全部记录、接上教学方法），建不起来就报错，旧的课照常在用；
+   * 原子写 course.json 发布；旧会话退下；新会话这时才按新的内容补判；最后删掉别的副本。发布之前中断，多留一份没有发布的副本，
+   * 重开仍是旧的课；发布之后中断，重开就是新的课，补判在打开时做。没有发布的课不会写下判分。
    * 进行中的任务从同样的记录和同样的内容重放出来，照常继续。
    */
   function switchTo(id: string, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>): Promise<"unchanged" | "busy" | "switched"> {
     return exclusive(async () => {
       if (current.kind === "ready" && current.space === id) return "unchanged";
-      if (current.kind === "ready") {
-        if (await taskTopics(current.session) !== undefined && !onlyAdds(current.course, await read())) return "busy";
-      }
+      const candidate = await read();
+      if (current.kind === "ready" && await taskTopics(current.session) !== undefined && !onlyAdds(current.course, candidate)) return "busy";
       await keep();
-      if (current.kind === "ready") await retire(current);
-      const next = await buildSpace(id);
-      current = next;
-      await store.activate(id);
-      if (next.kind === "unready") {
-        host.emit({ type: "learning.changed", revision: records.revision, taskId: null, menuId: null });
-        announceBuilding();
-        throw new RepaFault("course_switch_failed", `检查通过，但换用出错：${next.reason}`);
+      if (current.kind === "ready") await current.session.idle();
+      // 还没有基线（换用的副本读不出，测试版也读不出）：测试版换用以后按新的课解释整段日志，基线就是这一份。
+      if (needsBaseline(records)) await recordBaseline(courseStructure(candidate));
+      let next: Ready;
+      try {
+        next = await build(await store.load(id), id);
+      } catch (error) {
+        throw new RepaFault("course_switch_failed", `检查通过，但换用出错，学的仍是原来的课：${error instanceof Error ? error.message : String(error)}`);
       }
+      try {
+        await store.publish(id);
+      } catch (error) {
+        await retire(next);
+        throw error;
+      }
+      const previous = current;
+      current = next;
+      if (previous.kind === "ready") await retire(previous);
+      await next.session.catchUp();
+      await store.prune(id);
       next.session.announce();
       announceBuilding();
       return "switched";
