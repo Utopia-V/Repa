@@ -51,6 +51,56 @@ describe("退出应用", () => {
     expect(last.state.prevented).toBe(false);
   });
 
+  it("后端收尾卡住、用户没有再退出（关掉窗口以后没有界面）：到期结束后端进程并报告原因，应用随即退出", async () => {
+    const backend = hangingBackend();
+    let expire: () => void = () => undefined;
+    let cancelled = false;
+    let quitted: () => void = () => undefined;
+    const quit = new Promise<void>((resolve) => { quitted = resolve; });
+    const errors: unknown[] = [];
+    const handler = createQuitHandler({
+      backend: () => Promise.resolve(backend.handle),
+      quit: () => { quitted(); },
+      report: (error) => { errors.push(error); },
+      deadline: (callback) => { expire = callback; return () => { cancelled = true; }; },
+    });
+    handler.beforeQuit(event());
+    await Promise.resolve();
+    expect(backend.calls).toEqual(["close"]);
+    expire();
+    await quit;
+    expect(backend.calls).toEqual(["close", "kill"]);
+    expect(String(errors[0])).toContain("秒内没有收尾完");
+    expect(String(errors[1])).toContain("SIGKILL");
+    expect(cancelled).toBe(true);
+  });
+
+  it("后端按时收尾时取消计时，不结束后端进程", async () => {
+    const calls: string[] = [];
+    const handle = {
+      connection: { url: "ws://127.0.0.1:1/rpc", token: "t" },
+      closed: Promise.resolve(),
+      close: () => { calls.push("close"); return Promise.resolve(); },
+      kill: () => { calls.push("kill"); return Promise.resolve(); },
+    } satisfies RepaProcess;
+    let expire: () => void = () => undefined;
+    let cancelled = false;
+    let quitted: () => void = () => undefined;
+    const quit = new Promise<void>((resolve) => { quitted = resolve; });
+    const handler = createQuitHandler({
+      backend: () => Promise.resolve(handle),
+      quit: () => { quitted(); },
+      report: () => undefined,
+      deadline: (callback) => { expire = callback; return () => { cancelled = true; }; },
+    });
+    handler.beforeQuit(event());
+    await quit;
+    expect(cancelled).toBe(true);
+    // 到期回调晚到也不再结束已经退出的后端。
+    expire();
+    expect(calls).toEqual(["close"]);
+  });
+
   it("没有启动后端时直接退出", () => {
     const handler = createQuitHandler({ backend: () => undefined, quit: () => undefined, report: () => undefined });
     const only = event();
