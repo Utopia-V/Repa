@@ -286,8 +286,12 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       if (current.kind === "ready" && await taskTopics(current.session) !== undefined && !onlyAdds(current.course, candidate)) return "busy";
       await keep();
       if (current.kind === "ready") await current.session.idle();
-      // 还没有基线（换用的副本读不出，测试版也读不出）：测试版换用以后按新的课解释整段日志，基线就是这一份。
-      if (needsBaseline(records)) await recordBaseline(courseStructure(candidate));
+      // 还没有基线：测试版的学习记录要按测试版当时的课解释，基线不从候选课取。日志尾部残缺时照常报 learning_log_blocked；
+      // 否则是换用过的副本读不出，修好副本（例如从备份恢复）之前不换用，免得把这段历史永远按另一门课解释。
+      if (needsBaseline(records)) {
+        if (records.incompleteTail) throw new RepaFault("learning_log_blocked", "日志尾部残缺或写入结果不明，请关闭空间后恢复");
+        throw new RepaFault("course_copy_broken", "换用过的课程副本读不出来，学习记录还没有按它定下基线；先从备份恢复空间，再换用");
+      }
       let next: Ready;
       try {
         next = await build(await store.load(id), id);

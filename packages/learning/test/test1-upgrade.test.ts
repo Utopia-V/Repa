@@ -248,3 +248,29 @@ test("基线不推进学习时钟：戊进行中的测验，先在截止以后�
   assert.notEqual(state.task?.phase.stage, "completed");
   assert.equal(state.progress.totalXp, 161);
 });
+
+test("活动副本读不出时不定基线，换用也拒绝并说明是副本坏了；副本修好以后，基线照旧取原来的课，学过的 XP 都在", async (t) => {
+  const f = await fixture(t, "home/Repa/操作系统 走查");
+  const data = path.join(f.root, ".repa", "plugins", "learning");
+  const active = (JSON.parse(await readFile(path.join(data, "course.json"), "utf8")) as { active: string }).active;
+  const manifest = path.join(data, "courses", active, "course.yaml");
+  const saved = await readFile(manifest);
+  await rm(manifest);
+  // 空间里的 course/ 换成另一门通过检查的课（丁的自制课）。
+  await rm(path.join(f.root, "course"), { recursive: true });
+  await cp(path.join(FIXTURE, "home/Repa/先学 Python 再学进程/course"), path.join(f.root, "course"), { recursive: true });
+  const host = await f.open();
+  assert.equal((await f.state()).course, null);
+  const use = host.tools().find((tool) => tool.name === "course_use");
+  assert.ok(use);
+  await assert.rejects(use.execute({}, { signal: new AbortController().signal, callId: randomUUID() }), { code: "course_copy_broken" });
+  assert.deepEqual(await f.log(), f.original);
+  assert.equal((JSON.parse(await readFile(path.join(data, "course.json"), "utf8")) as { active: string }).active, active);
+  await f.close();
+  await writeFile(manifest, saved);
+  await f.open();
+  const baseline = (await f.facts()).at(-1);
+  assert.ok(baseline?.type === "baseline");
+  assert.equal(baseline.structure?.course.id, "verify-walk");
+  assert.ok((await f.state()).progress.totalXp > 0);
+});
