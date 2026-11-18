@@ -109,6 +109,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
 
   async function build(course: ResolvedCourse, space?: string): Promise<Ready> {
     const session = await LearningSession.open(records, course, host);
+    await session.catchUp();
     try {
       const connected = await (options.connect
         ? options.connect(session, host)
@@ -242,6 +243,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     return {
       revision: records.revision,
       serverNow: now,
+      started: records.facts.some((fact) => fact.type === "task"),
       course: null,
       task: null,
       menu: null,

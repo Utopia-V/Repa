@@ -26,6 +26,7 @@ export class LearningRecords {
   private tail: Promise<unknown> = Promise.resolve();
   private blocked = false;
   private closed = false;
+  private baselineSeq: number | undefined;
   private constructor(readonly file: string, private readonly clock: () => number) {}
 
   /** 读入完整的行并逐条核对；末尾没有换行的残缺片段只读不写，之后追加会报 learning_log_blocked。 */
@@ -61,6 +62,8 @@ export class LearningRecords {
   get revision(): number { return this.list.length; }
   get incompleteTail(): boolean { return this.blocked; }
   fact(seq: number): Fact | undefined { return this.list[seq - 1]; }
+  /** 旧日志基线的序号；没有基线时为 undefined。 */
+  get baseline(): number | undefined { return this.baselineSeq; }
 
   /** 每追加一条事实就按顺序通知；监听方抛错时本实例停止追加，重新打开以后以盘上为准。返回的函数取消这个监听。 */
   listen(listener: (fact: Fact) => void): () => void {
@@ -137,6 +140,15 @@ export class LearningRecords {
           const original = target(fact.retakes, "task");
           if (original.type !== "task" || !["quiz", "retake"].includes(original.kind)) invalid("换题重考只能针对测验");
         }
+        if (fact.structure !== undefined) {
+          const found = fact.structure < seq ? lookup(fact.structure) : undefined;
+          if (found?.type !== "structure" && !(found?.type === "baseline" && found.structure !== undefined)) {
+            invalid(`第 ${seq} 条事实引用的第 ${fact.structure} 条不是课程结构`);
+          }
+        }
+        break;
+      case "baseline":
+        if (this.baselineSeq !== undefined && this.baselineSeq !== seq) invalid("学习记录里只能有一条旧日志基线");
         break;
       case "viewed":
       case "delivered":
@@ -156,12 +168,14 @@ export class LearningRecords {
         if (!graded.has(fact.delivery)) invalid("申诉必须针对已判的作答");
         break;
       case "goal":
+      case "structure":
         break;
     }
   }
 
   private add(fact: Fact): void {
     this.list.push(fact);
+    if (fact.type === "baseline") this.baselineSeq = fact.seq;
     if (fact.type === "answered") this.answered.add(fact.delivery);
     if (fact.type === "graded") this.graded.add(fact.delivery);
     for (const listener of this.listeners) listener(fact);

@@ -145,16 +145,30 @@ test("逐前缀的标准答案与现在取数用的时区、能力和间隔相�
   assert.equal(prefixAnswers.laterMs, PREFIX_LATER_MS);
 });
 
+/**
+ * 测试版读不出状态的前缀：丁用换用后的自制课读换课前的前缀时，Python 的课停在自制课里没有的知识点上，测试版的 state.get 整个失败。
+ * 现在画面退回到说明页，学习者可以中止（S2 有意的改变，见设计记录 2026-11-18-self-contained-records）。这些读数不与报错比较，
+ * 只核对现在读得出、当前任务停在讲解或例题页；其余前缀照常逐项比较。
+ */
+const UNREADABLE_IN_TEST1: Record<string, number> = { d: 12 };
+
 for (const space of prefixAnswers.spaces) {
   test(`测试版数据 ${space.source} 的每个前缀（0 到 ${space.prefixes.length - 1} 条事实，各在最后一条事实时与 25 小时后）：现在的代码读出的各项与测试版相同`, async () => {
     const actual = (await readAllPrefixes()).get(space.id) ?? [];
     assert.equal(actual.length, space.prefixes.length);
     // 逐项比较全部前缀，报出最早不同的那一处和不同的总数：最早的那一处之前的事实都读得相同，问题出在它这一条事实上。
     const differences: { facts: number; clock: "at" | "later"; field: string; actual: unknown; expected: unknown }[] = [];
+    let unreadable = 0;
     for (const [index, expected] of space.prefixes.entries()) {
       for (const clock of ["at", "later"] as const) {
         const got = actual[index]?.[clock] ?? {};
         const want = expected[clock];
+        if (want.error !== undefined) {
+          unreadable++;
+          const stage = (got.currentTask as { stage?: string } | null | undefined)?.stage;
+          assert.ok(got.error === undefined && (stage === "explanation" || stage === "example"), `${expected.facts} 条/${clock}：${JSON.stringify(got.error ?? stage)}`);
+          continue;
+        }
         for (const field of new Set([...Object.keys(got), ...Object.keys(want)])) {
           const left = comparable(field, got[field]);
           const right = comparable(field, want[field]);
@@ -162,6 +176,7 @@ for (const space of prefixAnswers.spaces) {
         }
       }
     }
+    assert.equal(unreadable, UNREADABLE_IN_TEST1[space.id] ?? 0, "测试版读不出状态的读数个数");
     const first = differences[0];
     if (first) {
       const where = differences.slice(0, 10).map((entry) => `${entry.facts} 条/${entry.clock}/${entry.field}`).join("，");

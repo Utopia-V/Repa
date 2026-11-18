@@ -28,7 +28,7 @@ import type { Replay } from "./replay.js";
  * 一项已结束任务的奖励（repa-xp-v1，Repa 假设，数值见 parameters.ts）。没有证据的作答不进分母：课与复习按已判的作答算答对比例，
  * 测验按全部交付算，没答的题也在分母里，结论待定时先按已判对的题算。主动结束和被取代的任务没有奖励。
  */
-export function reward(entry: TaskEvidence, structure: StructureIndex): number {
+export function reward(entry: TaskEvidence): number {
   if (!isCompleted(entry.outcome)) {
     return 0;
   }
@@ -39,8 +39,8 @@ export function reward(entry: TaskEvidence, structure: StructureIndex): number {
   if (entry.outcome !== "passed") {
     return 0;
   }
-  // 课按开始时记下的分钟数，之后改课程的分钟数不改写已结算的 XP；这项记录之前的课按当前课程。
-  const minutes = entry.task.minutes ?? structure.topics.get(entry.task.topicIds[0] ?? "")?.minutes ?? 0;
+  // 课按开始时记下的分钟数，之后改课程的分钟数不改写已结算的 XP；这项记录之前的课按任务的结构。
+  const minutes = entry.task.minutes ?? entry.task.structure.topics.get(entry.task.topicIds[0] ?? "")?.minutes ?? 0;
   const base = entry.task.kind === "lesson" ? minutes : REVIEW_XP;
   const graded = entry.attempts.filter((attempt) => attempt.verdict !== undefined).length;
   return Math.max(MIN_PASS_XP, Math.floor(base * correct / (graded || 1)));
@@ -73,7 +73,8 @@ export function sampleTopics(tasks: TaskRecord[], fold: Fold, structure: Structu
       continue;
     }
     for (const delivery of task.deliveries) {
-      const topicId = structure.questions.get(delivery.questionId)?.topicId;
+      // 以往测验的题归属哪个 topic，按那场测验自己的结构。
+      const topicId = task.structure.questions.get(delivery.questionId)?.topicId;
       if (topicId) tested.set(topicId, (tested.get(topicId) ?? 0) + 1);
     }
   }
@@ -134,7 +135,7 @@ export function emptyProgress(goal: number | undefined, now: number, timeZone: s
 }
 
 /** 在常规菜单上加入测验和换题重考。有强制补救时常规菜单只含补救（见 flow-menu.ts），测验和重考等补救做完再给。 */
-export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, structure: StructureIndex): LearningMenu {
+export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold): LearningMenu {
   if (fold.forced.size) {
     return menu;
   }
@@ -149,12 +150,12 @@ export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, str
     delete menu.availableAt;
   } else {
     const quizzes = replay.tasks.filter((task) => isQuiz(task.kind));
-    const original = quizzes.map((task) => taskEvidence(task, structure, task.inherited)).findLast((entry) => isCompleted(entry.outcome));
+    const original = quizzes.map((task) => taskEvidence(task, task.inherited)).findLast((entry) => isCompleted(entry.outcome));
     const retaken = new Set(replay.tasks
       .filter((task) => task.kind === "retake" && !(task.endedAt !== undefined && task.deliveries.length === 0))
       .map((task) => task.retakes));
     // 有 topic 答错或没答才要换题重考；还没判出结果的、题目已从课程删除的都不算。
-    if (original && original.task.topicIds.some((id) => quizResult(original.task, original.attempts, structure, id) === "fail") && !retaken.has(original.task.seq)) {
+    if (original && original.task.topicIds.some((id) => quizResult(original.task, original.attempts, id) === "fail") && !retaken.has(original.task.seq)) {
       menu.candidates = [{
         id: `retake-${original.task.seq}`,
         kind: "retake" as const,

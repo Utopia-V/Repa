@@ -28,7 +28,7 @@ export async function connectLearning(
   const methods: Record<string, PluginMethod> = {};
   const stale = (message: string) => new RepaFault("stale_state", message);
   const current = () => session.replay.currentEvidence();
-  const kpOf = (delivery: DeliveryRecord) => session.structure.questions.get(delivery.questionId)?.kpId;
+  const kpOf = (delivery: DeliveryRecord) => delivery.task.structure.questions.get(delivery.questionId)?.kpId;
   const lookup = (id: string) => {
     const seq = sequenceOf(id, "s");
     const delivery = seq === undefined ? undefined : session.replay.delivery(seq);
@@ -98,7 +98,7 @@ export async function connectLearning(
       // 之后加进课程的题不是这节课的要求。
       const asked = new Set(task.deliveries.map((delivery) => delivery.questionId));
       const kpId = evidence.kps.find((kp) => !kp.completed)?.kpId;
-      const practice = kpId === undefined ? undefined : taskPractice(task, session.structure).get(kpId);
+      const practice = kpId === undefined ? undefined : taskPractice(task).get(kpId);
       const allowed = new Set([...practice?.required ?? [], ...practice?.open ?? []]);
       pool = pool.filter((entry) => entry.kp.id === kpId && allowed.has(entry.question.id) && !asked.has(entry.question.id));
     }
@@ -188,12 +188,11 @@ export async function connectLearning(
       }
       restricted = candidate.kind !== "lesson";
       const original = candidate.originalTaskId === undefined ? undefined : sequenceOf(candidate.originalTaskId, "t");
-      return [{
+      return session.taskFacts({
         type: "task", kind: candidate.kind, topics: candidate.topicIds,
-        course: { ...session.structure.data.course },
         ...(original === undefined ? {} : { retakes: original }),
         ...(candidate.kind === "lesson" ? lessonRequirement(session.structure, candidate.topicIds[0] ?? "") : {}),
-      }];
+      });
     });
     if (restricted) {
       await startRestricted(capabilities);
@@ -372,9 +371,13 @@ export async function connectLearning(
   });
   method("submission.appeal", async (input) => {
     const delivery = lookup(input.submissionId);
-    await session.write(() => {
+    await session.write(async () => {
       if (!delivery || delivery.grades.length === 0 || delivery.grades.length !== input.expectedGradeRevision) {
         throw stale("目标判分版本已改变");
+      }
+      // 题目已删除、学习者看到的题面改了或换了一门课：没有可用的判分定义，保留最后一次判分，不写下判不完的申诉。
+      if (!await session.regradable(delivery)) {
+        throw new RepaFault("not_regradable", "这道题已不在课程里或题面已改，不能再判；保留最后一次判分", { submissionId: input.submissionId });
       }
       const latest = delivery.grades.at(-1);
       // 同一目标的申诉还没判出结果：合并到已有的申诉。

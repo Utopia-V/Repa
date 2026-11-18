@@ -332,7 +332,8 @@ export const LearningProgressSchema = object({
 export type LearningProgress = Static<typeof LearningProgressSchema>;
 /** state.get 返回的完整学习状态：课程、任务、菜单、限制和进度，带服务端时间和 revision。界面重开时读这一份恢复画面，不从聊天推断进度。 */
 export const LearningStateSchema = object({
-  revision: count, serverNow: timestamp,
+  // revision 只表示学习记录的位置（事实条数），不表示学习者开始过没有：started 是学习记录里有没有任务。
+  revision: count, serverNow: timestamp, started: Type.Boolean(),
   course: Type.Union([object({ id: identifier, title: Type.String({ maxLength: 200 }), version: Type.String() }), Type.Null()]),
   task: Type.Union([LearningTaskSchema, Type.Null()]), menu: Type.Union([LearningMenuSchema, Type.Null()]),
   restrictions: object({

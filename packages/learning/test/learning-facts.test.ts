@@ -774,7 +774,7 @@ test("每项任务记下开始时的课程标识与版本：课程改版以后�
   assert.deepEqual(tasks, [{ id: course.id, version: "1.0.0" }, { id: course.id, version: "1.1.0" }]);
 });
 
-test("课开始时也记下开放题：之后加的开放题不撤销已经失败的课；必做题移出练习题池时，进行中的课按剩下的题判定，不会卡住", async (t) => {
+test("课按开始时的结构判定：之后加的开放题不撤销已经失败的课；必做题移出练习题池时，进行中的课仍要它，出不了题就说明原因，可以中止", async (t) => {
   const f = await fixture(t, [topic("t01"), topic("t02")]);
   // t01 两道必做题，第一题不会：剩下一题答对也超不过一半，当场失败。
   await f.select("t01");
@@ -801,7 +801,11 @@ test("课开始时也记下开放题：之后加的开放题不撤销已经失�
   await f.writeTopics([withOpen, moved]);
   await f.reopen();
   assert.ok((await f.fold()).failures.has("t01"));
-  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
+  const state = await f.state();
+  assert.equal(state.task?.phase.stage, "feedback");
+  await assert.rejects(f.advance(), { code: "insufficient_items" });
+  await f.call("task.abort", { taskId: state.task?.taskId ?? "", expectedRevision: state.revision, expectedStage: "feedback" });
+  assert.equal((await f.state()).task?.phase.stage, "aborted");
 });
 
 test("代价关卡：每次作答只写交付、作答、判分三条事实；固定部分不超过按事实构成算出的上限，也不随历史增长", async (t) => {
