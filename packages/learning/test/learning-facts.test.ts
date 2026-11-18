@@ -678,7 +678,7 @@ test("只把事实文件和格式标记搬到新空间，打开后从事实重�
   assert.deepEqual(await f.fold(), fold);
   assert.deepEqual(f.session().replay.awards, awards);
   // 不经插件，直接把事实交给重放也得到同样的学习状态。
-  const replay = new Replay(f.session().course);
+  const replay = new Replay(f.session().structure);
   for (const fact of facts) replay.apply(fact);
   replay.settle(start + 86_400_000);
   assert.deepEqual(replay.fold(), fold);
@@ -698,7 +698,7 @@ test("换一组学生模型参数重放同一份事实，得出不同的预测�
   assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
   const facts: readonly Fact[] = [...f.session().records.facts];
   const replay = (model?: ModelConfig) => {
-    const result = new Replay(f.session().course, model);
+    const result = new Replay(f.session().structure, model);
     for (const fact of facts) result.apply(fact);
     return result.fold().student;
   };

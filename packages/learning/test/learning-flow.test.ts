@@ -217,7 +217,7 @@ test("从事实里去掉一份关键作答，同一时刻的新课资格随之�
   const session = f.session();
   const bytes = await readFile(session.records.file);
   const replay = (facts: readonly Fact[]) => {
-    const result = new Replay(session.course);
+    const result = new Replay(session.structure);
     for (const fact of facts) result.apply(fact);
     return result;
   };
@@ -225,9 +225,9 @@ test("从事实里去掉一份关键作答，同一时刻的新课资格随之�
   const removed = facts.find((fact) => fact.type === "answered");
   assert.ok(removed?.type === "answered");
   const copy = facts.filter((fact) => !((fact.type === "answered" || fact.type === "graded") && fact.delivery === removed.delivery));
-  const actual = learningMenu(session.course, replay(facts).fold(), start, "menu", () => true, "UTC");
+  const actual = learningMenu(session.structure, replay(facts).fold(), start, "menu", () => true, "UTC", (id) => id);
   const counterfactual = replay(copy);
-  const alternative = learningMenu(session.course, counterfactual.fold(), start, "menu", () => true, "UTC");
+  const alternative = learningMenu(session.structure, counterfactual.fold(), start, "menu", () => true, "UTC", (id) => id);
   assert.deepEqual(actual.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
   assert.deepEqual(alternative.candidates.map((entry) => entry.topicIds[0]), ["t01"]);
   assert.equal(counterfactual.fold().student.t01, undefined);
@@ -619,7 +619,7 @@ test("菜单相近项不同列，刷新和任务前后保留候选身份；连�
   const siblings = menu.menu?.candidates.filter((entry) => ["t02", "t03"].includes(entry.topicIds[0] ?? ""));
   assert.equal(siblings?.length, 1);
   const fold = await f.fold();
-  const decision = learningMenu(f.session().course, { ...fold, consecutiveReviews: 3 }, start + 4 * 86_400_000, "menu", () => true, "UTC");
+  const decision = learningMenu(f.session().structure, { ...fold, consecutiveReviews: 3 }, start + 4 * 86_400_000, "menu", () => true, "UTC", (id) => id);
   assert.equal(decision.candidates[0]?.kind, "lesson");
 });
 
@@ -748,7 +748,7 @@ for (const wrong of [3, 1]) {
     if (wrong === 3) {
       // 就算余下两题都答对，也只有两题对，到不了通过线：这份失败的证据照常计入。
       assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "failed" });
-      const expected = updateStudent(f.session().course.graph, learned, { topicId: "t01", outcome: "fail", quality: 1 }, start + 86_400_000);
+      const expected = updateStudent(f.session().structure.graph, learned, { topicId: "t01", outcome: "fail", quality: 1 }, start + 86_400_000);
       assert.deepEqual(await f.student(), expected);
     } else {
       // 学习者自己中止：不另附原因，界面只说“已中止。”。
@@ -906,7 +906,7 @@ for (const delay of [0, 600_000]) {
     const receipt = await work;
     assert.equal(receipt.status, "recorded");
     assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
-    const expected = updateStudent(f.session().course.graph, student, { topicId: "t01", outcome: "fail", quality: 1 }, acceptedAt);
+    const expected = updateStudent(f.session().structure.graph, student, { topicId: "t01", outcome: "fail", quality: 1 }, acceptedAt);
     assert.deepEqual(await f.student(), expected);
     await f.reopen();
     assert.deepEqual(await f.student(), expected);

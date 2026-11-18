@@ -1,5 +1,5 @@
 import type { ModelConfig, Student } from "@repa/learning-model";
-import { needsModel, type CourseIndex } from "./course-index.js";
+import type { StructureIndex } from "./course-structure.js";
 import { shuffled } from "./delivery.js";
 import {
   FAIL_QUALITY_FLOOR,
@@ -126,10 +126,10 @@ export const isCompleted = (outcome: Outcome | undefined) =>
  */
 export type TopicResult = "pass" | "fail" | "pending" | "untested";
 
-export function quizResult(task: TaskRecord, attempts: Attempt[], course: CourseIndex, topicId: string): TopicResult {
+export function quizResult(task: TaskRecord, attempts: Attempt[], structure: StructureIndex, topicId: string): TopicResult {
   const own = attempts.filter((attempt) => attempt.topicId === topicId);
   if (own.length === 0) {
-    const delivered = task.deliveries.some((delivery) => course.questions.get(delivery.questionId)?.topic.id === topicId);
+    const delivered = task.deliveries.some((delivery) => structure.questions.get(delivery.questionId)?.topicId === topicId);
     return delivered ? "fail" : "untested";
   }
   if (own.some(answeredCorrectly)) {
@@ -172,9 +172,9 @@ export function deadlineAt(task: TaskRecord): number | null {
  * 复习按 seed 打散知识点顺序，seed 由任务序号得出，重放时顺序不变。课按开始时记下的知识点：之后加进课程的知识点
  * 不是这节课的要求，已从课程删除的无从显示也无从取证。
  */
-export function taskKps(task: TaskRecord, course: CourseIndex): string[] {
+export function taskKps(task: TaskRecord, structure: StructureIndex): string[] {
   const topics = isQuiz(task.kind) ? task.topicIds : task.topicIds.slice(0, 1);
-  const kps = topics.flatMap((id) => course.topics.get(id)?.kps.map((kp) => kp.id) ?? []);
+  const kps = topics.flatMap((id) => structure.topics.get(id)?.kps.map((kp) => kp.id) ?? []);
   if (task.practice) {
     const current = new Set(kps);
     return task.practice.map((entry) => entry.kp).filter((id) => current.has(id));
@@ -192,22 +192,22 @@ export interface KpPractice {
  * 当前课程里一节课各知识点的练习。开放题不计入必做，所以知识点是否过关只取决于课程和学习记录，
  * 不随学习者后来有没有配模型而改变。
  */
-export function lessonPractice(course: CourseIndex, topicId: string): Map<string, KpPractice> {
-  const topic = course.topics.get(topicId);
+export function lessonPractice(structure: StructureIndex, topicId: string): Map<string, KpPractice> {
+  const topic = structure.topics.get(topicId);
   return new Map((topic?.kps ?? []).map((kp) => {
-    const practice = kp.practice ?? [];
+    const open = new Set(kp.open);
     return [kp.id, {
-      required: practice.filter((question) => !needsModel(question)).map((question) => question.id),
-      open: practice.filter(needsModel).map((question) => question.id),
+      required: kp.practice.filter((id) => !open.has(id)),
+      open: kp.practice.filter((id) => open.has(id)),
     }];
   }));
 }
 
 /** 课开始时记下的要求：当前课程里各知识点的练习，按知识点顺序，以及课的分钟数。 */
-export function lessonRequirement(course: CourseIndex, topicId: string): { practice: NonNullable<TaskRecord["practice"]>; minutes: number } {
+export function lessonRequirement(structure: StructureIndex, topicId: string): { practice: NonNullable<TaskRecord["practice"]>; minutes: number } {
   return {
-    practice: [...lessonPractice(course, topicId)].map(([kp, practice]) => ({ kp, ...practice })),
-    minutes: course.topics.get(topicId)?.minutes ?? 0,
+    practice: [...lessonPractice(structure, topicId)].map(([kp, practice]) => ({ kp, ...practice })),
+    minutes: structure.topics.get(topicId)?.minutes ?? 0,
   };
 }
 
@@ -215,15 +215,15 @@ export function lessonRequirement(course: CourseIndex, topicId: string): { pract
  * 一节课各知识点的练习，按开始时记下的算：之后加进课程的题不是这节课的要求，也不改变提前失败的判断，已经得出的结论不因此改写。
  * 已不在这个知识点练习里的题出不了，从中去掉；记下的必做题都不在了，按当前课程。没有记下的（加这项记录之前的课）按当前课程。
  */
-export function taskPractice(task: TaskRecord, course: CourseIndex): Map<string, KpPractice> {
-  const current = lessonPractice(course, task.topicIds[0] ?? "");
+export function taskPractice(task: TaskRecord, structure: StructureIndex): Map<string, KpPractice> {
+  const current = lessonPractice(structure, task.topicIds[0] ?? "");
   if (!task.practice) {
     return current;
   }
   return new Map(task.practice.map(({ kp, required, open }) => {
     const present = (id: string) => {
-      const entry = course.questions.get(id);
-      return entry?.kp.id === kp && entry.pool === "practice";
+      const entry = structure.questions.get(id);
+      return entry?.kpId === kp && entry.pool === "practice";
     };
     const kept = required.filter(present);
     return [kp, { required: kept.length ? kept : current.get(kp)?.required ?? [], open: open.filter(present) }];
@@ -321,10 +321,10 @@ function reviewVerdict(entry: TaskEvidence): "pass" | "fail" | undefined {
  * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。复习的通过是例外：只看有证据的作答，判出来以后重算。
  * 复习不限时，中途离开下次接着做；判满题数仍不通过而它们判对还能通过时结论待定；学习者中止复习时，已经不可能通过的记失败，其他情形尚无证据。测验没答的题算错。
  */
-export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: KpProgress[] | undefined): TaskEvidence {
+export function taskEvidence(task: TaskRecord, structure: StructureIndex, inherited: KpProgress[] | undefined): TaskEvidence {
   const attempts: Attempt[] = [];
   for (const delivery of task.answered) {
-    const entry = course.questions.get(delivery.questionId);
+    const entry = structure.questions.get(delivery.questionId);
     const answer = delivery.answer;
     // 题目已不在当前课程里：无法归属，也无法判分，不作为证据。
     if (!entry || !answer) {
@@ -332,15 +332,15 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
     }
     attempts.push({
       delivery,
-      kpId: entry.kp.id,
-      topicId: entry.topic.id,
+      kpId: entry.kpId,
+      topicId: entry.topicId,
       acceptedAt: answer.at,
       dontKnow: answer.dontKnow === true,
       ...(delivery.grades.length ? { verdict: delivery.grades.at(-1)?.verdict } : {}),
     });
   }
-  const kpIds = taskKps(task, course);
-  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited, taskPractice(task, course)) : undefined;
+  const kpIds = taskKps(task, structure);
+  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited, taskPractice(task, structure)) : undefined;
   const kps = lesson?.kps ?? kpIds.map((kpId) => ({ kpId, attempts: 0, consecutiveCorrect: 0, completed: false }));
   const started = startedAt(task);
   const deadline = deadlineAt(task);
@@ -365,7 +365,7 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
   } else if (task.deliveries.length > 0 && (task.endedAt !== undefined || task.timedOut)) {
     // 测验交卷或到了截止时间：有 topic 答错或没答，就失败（到截止时间结束的为超时）；否则还有作答没判出结果时，
     // 结论等它们判出来；其余都答对就通过，题目已从课程删除的 topic 不影响结论。
-    const results = task.topicIds.map((id) => quizResult(task, attempts, course, id));
+    const results = task.topicIds.map((id) => quizResult(task, attempts, structure, id));
     if (results.includes("fail")) {
       outcome = task.endedAt !== undefined ? "failed" : "timeout";
     } else if (results.includes("pending")) {
@@ -396,7 +396,7 @@ export function taskEvidence(task: TaskRecord, course: CourseIndex, inherited: K
 }
 
 /** 在已有学习状态上叠加一项已结束的任务；不修改传入的状态。model 是学生模型的参数。 */
-export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseIndex, model: ModelConfig = STUDENT_MODEL): Fold {
+export function foldTask(previous: Fold, entry: TaskEvidence, structure: StructureIndex, model: ModelConfig = STUDENT_MODEL): Fold {
   const fold: Fold = {
     student: previous.student,
     lessons: new Map(previous.lessons),
@@ -427,7 +427,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
       kind = "lesson";
     }
     if (kind === "lesson") {
-      for (const prerequisite of course.topics.get(id)?.prerequisites ?? []) {
+      for (const prerequisite of structure.topics.get(id)?.prerequisites ?? []) {
         if (!fold.student[prerequisite]) {
           force(prerequisite, "lesson");
         }
@@ -446,14 +446,14 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
     ...entry.attempts.filter((attempt) => attempt.verdict !== undefined).map((attempt) => attempt.acceptedAt),
   );
   const update = (id: string, outcome: "pass" | "fail", attempts: Attempt[]) => {
-    fold.student = updateStudent(course.graph, fold.student, { topicId: id, outcome, quality: quality(attempts, outcome === "pass") }, repetitionAt, model);
+    fold.student = updateStudent(structure.graph, fold.student, { topicId: id, outcome, quality: quality(attempts, outcome === "pass") }, repetitionAt, model);
   };
   if (isQuiz(entry.task.kind)) {
     if (isCompleted(entry.outcome)) {
       // 测验按 topic 更新：答对的记一次通过；答错或没答的记一次失败并强制复习。没判出结果的 topic 判出来以后重算时再更新；
       // 题目已从课程删除的 topic 不更新也不补救。
       for (const id of entry.task.topicIds) {
-        const result = quizResult(entry.task, entry.attempts, course, id);
+        const result = quizResult(entry.task, entry.attempts, structure, id);
         if (result !== "pass" && result !== "fail") {
           continue;
         }
@@ -477,7 +477,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
       if (kpId) {
         const stuck = fold.failures.get(topicId)?.kpId === kpId;
         fold.failures.set(topicId, { at: entry.at, kpId, stuck, rested: false });
-        const prerequisites = course.topics.get(topicId)?.kps.find((kp) => kp.id === kpId)?.keyPrerequisites ?? [];
+        const prerequisites = structure.topics.get(topicId)?.kps.find((kp) => kp.id === kpId)?.keyPrerequisites ?? [];
         if (stuck) {
           const weakness = (id: string) => topicMemory(fold.student, id, entry.at);
           for (const id of [...prerequisites].sort((a, b) => weakness(a) - weakness(b))) {
@@ -510,8 +510,8 @@ export function foldTask(previous: Fold, entry: TaskEvidence, course: CourseInde
 }
 
 /** 菜单和已选任务共用资格判断；失败后的重试时机、题量与当前 KP 位置由各入口检查。 */
-export function topicEligible(course: CourseIndex, fold: Fold, topicId: string, kind: TaskKind, now: number): boolean {
-  const topic = course.topics.get(topicId);
+export function topicEligible(structure: StructureIndex, fold: Fold, topicId: string, kind: TaskKind, now: number): boolean {
+  const topic = structure.topics.get(topicId);
   if (!topic) {
     return false;
   }

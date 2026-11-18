@@ -61,13 +61,13 @@ const seqOf = (id: string) => Number(id.slice(1));
 
 /** 每项任务的结论与得出结论的时刻：已结束的任务按重放时的叠加顺序重算证据（与 Replay.before 相同），最后一项取当前证据。 */
 function tasks(session: LearningSession) {
-  const { replay, course } = session;
+  const { replay, structure } = session;
   const evidences: TaskEvidence[] = [];
   let fold = emptyFold();
   for (const task of replay.tasks.slice(0, -1)) {
-    const evidence = taskEvidence(task, course, fold.lessons.get(task.topicIds[0] ?? ""));
+    const evidence = taskEvidence(task, structure, fold.lessons.get(task.topicIds[0] ?? ""));
     evidences.push(evidence);
-    fold = foldTask(fold, evidence, course, STUDENT_MODEL);
+    fold = foldTask(fold, evidence, structure, STUDENT_MODEL);
   }
   const current = replay.currentEvidence();
   if (current) evidences.push(current);
