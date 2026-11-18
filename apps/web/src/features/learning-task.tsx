@@ -13,6 +13,7 @@ import { Content, type Draft } from "@/components/domain/item-parts";
 import { SubmissionReview } from "@/components/domain/submission-feedback";
 import { CodeTrial } from "@/features/code-trial";
 import { useAppStore } from "@/hooks/use-app-store";
+import { useDeadlineRefresh } from "@/hooks/use-deadline-refresh";
 import type { Outgoing } from "@/lib/learning";
 import type { RenderLink } from "@/components/ui/markdown";
 import { t } from "@/lib/strings";
@@ -255,8 +256,12 @@ export function quizPosition(task: LearningTask): { current: number; total: numb
 function QuizHeading({ task }: { task: LearningTask }) {
   const serverNow = useAppStore((store) => store.learning.state?.serverNow);
   const readAt = useAppStore((store) => store.learning.readAt);
+  const refreshLearning = useAppStore((store) => store.refreshLearning);
   const position = quizPosition(task);
   const running = task.phase.stage !== "completed" && task.phase.stage !== "aborted";
+  // 到了截止时间重新读取：后端按截止时刻结束这一场，画面换成结果。
+  const expire = useCallback(() => { void refreshLearning(); }, [refreshLearning]);
+  useDeadlineRefresh(running ? task.deadlineAt : null, serverNow, readAt, expire);
 
   return <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
     <h3 id="learning-task-title" className="m-0 text-title weight-semibold">{kindText[task.kind]}</h3>

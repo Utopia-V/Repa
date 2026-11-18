@@ -32,7 +32,6 @@ export const KNOWN = {
   quizCard: "菜单的测验卡片只写类型和标题，没写共几题（Q1；限时要等契约给出时长再写）",
   quizPosition: "测验头部“第几题 / 共几题”的文字还是占位〔待写〕，看不出题号（Q1；键 learn.quiz.position.status）",
   quizFinish: "测验没有“交卷”，只能“中止测验”，确认里不说还有几题没答、没答的算错；结束后只显示最后一题，不逐题列出对错（Q1、Q3）",
-  quizDeadline: "到了截止时间画面不变，刷新后才看到时间到；截止后提交被拒时只报错，没有换成结果（Q2）",
   quizRecovery: "测验里判不出结果的题旁边没有“交卷”（Q4；测验不能推进的“先做下一题”已去掉）",
   quizAbort: "测验作答中仍有“中止测验”；按契约开始后中止就是交卷，作答页只该留“交卷”（Q5）",
   quizFocus: "提交一题以后焦点丢到页面开头，不在下一道题上（A1）",
@@ -857,10 +856,9 @@ export const STEPS: Step[] = [
       await answer(page, questions, {});
       const late = await page.waitText("时间到了。", 10_000).catch(async () => await page.text());
       await page.shot("retake-late-answer");
-      // 现在画面会换成后端交回的结果，但上方是通用的“画面已经更新”；应当是说明刚才那一题没有计入的那句话（文字待写）。
-      checks.known(KNOWN.quizDeadline, "V4 截止后才交的一题被拒：画面换成时间到的结果，说明那一题没有计入，而不是通用的“画面已经更新”",
+      // 那一题没有计入的说明（learn.quiz.unrecorded.title）文字待写，这里只查不是通用的“画面已经更新”。
+      checks.expect("V4 截止后才交的一题被拒：画面换成时间到的结果，说明那一题没有计入，而不是通用的“画面已经更新”",
         late.includes("时间到了。") && !late.includes("画面已经更新"), late.split("\n").filter((line) => /出错|更新|失败|时间到|计入/u.test(line)).join(" / ") || "画面没有变化");
-      if (!late.includes("时间到了。")) await page.goto(`${app.url}/`);
       const timedOut = await page.waitText("时间到了。", 30_000);
       checks.expect("重考按截止时间结束（时间到）", timedOut.includes("重考结束"));
       checks.expect("截止后交的那一题没有记下", (await quizRecord(app)).answered === 1, `${(await quizRecord(app)).answered} 份作答`);
@@ -897,9 +895,8 @@ export const STEPS: Step[] = [
       await page.evaluate("(() => { document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')); return true; })()");
       const expired = await page.waitText("时间到了。", 5_000).then(() => true, () => false);
       await page.shot("retake-expired");
-      checks.known(KNOWN.quizDeadline, "V4 过了截止时间、页面不刷新，画面自己换成时间到", expired);
+      checks.expect("V4 过了截止时间、页面不刷新，画面自己换成时间到", expired);
       await restorePython();
-      if (!expired) await page.goto(`${app.url}/`);
       const final = await page.waitText("时间到了。", 30_000);
       checks.expect("第二次重考按截止时间结束（有一题答错，所以是时间到）", final.includes("重考结束"), wrong);
     },

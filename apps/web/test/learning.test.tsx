@@ -388,7 +388,7 @@ it("交卷时测验已经按截止时间结束（stale_state）：换成后端�
   await act(() => store.getState().finishQuiz());
 
   expect(store.getState().learning.state?.revision).toBe(6);
-  expect(store.getState().learning.replaced).toBe(true);
+  expect(store.getState().learning.replaced).toBe("stale");
   expect(store.getState().learning.actionError).toBeUndefined();
   expect(screen.getByText("时间到了。")).toBeTruthy();
 });
@@ -498,4 +498,36 @@ it("测验头部：标题是“测验”，写第几题和剩余时间；不列 
   await act(() => store.getState().refreshLearning());
   expect(within(main).queryByRole("timer")).toBeNull();
   expect(within(main).queryByText(t("learn.quiz.position.status", { current: 1, total: 3 }))).toBeNull();
+});
+
+it("测验截止后才交的一题被拒：换成后端交回的结果，说明这一题没有计入，而不是通用的“画面已经更新”", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, quizAnswering));
+    if (method === "submission.submit") return Promise.reject(new RpcError(-32000, "交付已失效或已截止", { code: "stale_state", details: { reason: "stale", state: state(5, quizTask({ stage: "completed", outcome: "timeout" })) } }));
+    return Promise.reject(new Error(method));
+  });
+  const store = start(backend(learning).client);
+
+  fireEvent.change(await screen.findByRole("textbox", { name: "显示的整数" }), { target: { value: "4" } });
+  fireEvent.click(screen.getByRole("button", { name: "提交" }));
+
+  expect(await screen.findByText("时间到了。")).toBeTruthy();
+  expect(store.getState().learning.replaced).toBe("unrecorded");
+  expect(screen.getByText(t("learn.quiz.unrecorded.title"))).toBeTruthy();
+  expect(screen.queryByText("画面已经更新")).toBeNull();
+});
+
+it("测验还在进行时交题遇到过时状态，仍是通用的“画面已经更新”", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, quizAnswering));
+    if (method === "submission.submit") return Promise.reject(new RpcError(-32000, "交付已失效或已截止", { code: "stale_state", details: { reason: "stale", state: state(5, quizTask({ stage: "awaiting_answer", deliveryId: "d2" })) } }));
+    return Promise.reject(new Error(method));
+  });
+  const store = start(backend(learning).client);
+
+  fireEvent.change(await screen.findByRole("textbox", { name: "显示的整数" }), { target: { value: "4" } });
+  fireEvent.click(screen.getByRole("button", { name: "提交" }));
+
+  expect(await screen.findByText("画面已经更新")).toBeTruthy();
+  expect(store.getState().learning.replaced).toBe("stale");
 });

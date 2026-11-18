@@ -154,7 +154,7 @@ function Learn({ space }: { space: string }) {
     <div className="flex min-h-0 flex-1">
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6 md:px-8">
-          {learning.replaced && <StatusNotice status="error" title={t("learn.stale.title")} />}
+          {learning.replaced && <StatusNotice status="error" title={learning.replaced === "unrecorded" ? t("learn.quiz.unrecorded.title") : t("learn.stale.title")} />}
           {/* 剩下的题都要模型判分而没有可用模型：任务保留，接上模型后再继续。 */}
           {errorCode(learning.actionError) === "model_required" ? <div className="grid gap-3">
             <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("learn.noModel.description")}</p></StatusNotice>
