@@ -27,6 +27,8 @@ export class LearningRecords {
   private blocked = false;
   private closed = false;
   private baselineSeq: number | undefined;
+  /** 每次真正追加之前在串行入口里调用，例如先把格式标记升到当前版本；抛错时不写。 */
+  beforeWrite: (() => Promise<void>) | undefined;
   private constructor(readonly file: string, private readonly clock: () => number) {}
 
   /** 读入完整的行并逐条核对；末尾没有换行的残缺片段只读不写，之后追加会报 learning_log_blocked。 */
@@ -91,6 +93,7 @@ export class LearningRecords {
   private async append(bodies: FactBody[]): Promise<Fact[]> {
     if (bodies.length === 0) return [];
     if (this.blocked) throw new RepaFault("learning_log_blocked", "日志尾部残缺或写入结果不明，请关闭空间后恢复");
+    await this.beforeWrite?.();
     const at = this.clock();
     const facts = bodies.map((body, index) => parse(FactSchema, { ...body, seq: this.revision + index + 1, at }));
     const answered = new Set(this.answered);

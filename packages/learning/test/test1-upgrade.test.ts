@@ -72,7 +72,8 @@ async function fixture(t: TestContext, source: string, backup: () => Promise<voi
   /** 只留学习记录的前 count 行。 */
   const truncate = (count: number) => writeFile(path.join(root, LOG), lines.slice(0, count).map((line) => `${line}\n`).join(""));
   return {
-    root, original, lines, open, close, log, facts, state, truncate, session: () => session, host: () => host,
+    root, original, lines, open, close, log, facts, state, truncate,
+    marker: async () => JSON.parse(await readFile(path.join(root, ".repa", "plugins", "learning", "format.json"), "utf8")) as unknown, session: () => session, host: () => host,
     /** 宿主的时钟停在 at。 */
     clock: (at: number) => { now = at; },
   };
@@ -93,6 +94,7 @@ for (const space of SPACES) {
     assert.ok(baseline?.type === "baseline");
     assert.equal(baseline.rules, "test1");
     assert.equal(baseline.structure?.course.id, space.course);
+    assert.deepEqual(await f.marker(), { version: 4 });
     await f.open();
     assert.deepEqual(await f.log(), after);
     assert.equal(order.length, 1);
@@ -107,6 +109,7 @@ test("升级前的备份失败：只停用学习插件并说明原因，学习�
   assert.match(JSON.stringify(disabled[0]), /backup_failed/u);
   assert.match(JSON.stringify(disabled[0]), /磁盘已满/u);
   assert.deepEqual(await f.log(), f.original);
+  assert.deepEqual(await f.marker(), { version: 3 });
 });
 
 test("旧日志末尾本来有半行：不写基线，完整的部分照测试版读出，开始新任务报 learning_log_blocked，文件不动", async (t) => {
@@ -121,6 +124,7 @@ test("旧日志末尾本来有半行：不写基线，完整的部分照测试�
   assert.ok(state.menu && candidate);
   await assert.rejects(host.call("learning", "menu.select", { menuId: state.menu.menuId, candidateId: candidate.id }, { capabilities }), { code: "learning_log_blocked" });
   assert.deepEqual(await f.log(), before);
+  assert.deepEqual(await f.marker(), { version: 3 });
 });
 
 test("写基线时中断（基线只写了半行）：重开与日志本来有半行时相同；按恢复命令截掉半行以后，再打开重新写下完整的基线", async (t) => {

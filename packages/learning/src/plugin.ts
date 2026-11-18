@@ -1,7 +1,7 @@
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RepaFault } from "@repa/base";
+import { RepaFault, writeJson } from "@repa/base";
 import { errorText, modelFailureOf, parse } from "@repa/base/protocol";
 import {
   checkFormat, currentRun, type AgentWork, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool,
@@ -25,8 +25,14 @@ import { CHECKS, CourseStore, hasSpaceCourse, onlyAdds, readSpaceCourse, SPACE_C
 import { visibleLearningResponse } from "./submission-visibility.js";
 import { connectTutor, TUTOR_AGENT, TUTOR_TOOLS, tutorAgent, type Tutor, type TutorHooks } from "./tutor.js";
 
-/** 学习记录的格式版本：2 起只记事实，3 起每项任务带课程的标识与版本。此前版本的开发数据不转换，提示删除后重新打开。 */
-export const LEARNING_FORMAT_VERSION = 3;
+/**
+ * 学习记录的格式版本：2 起只记事实，3 起每项任务带课程的标识与版本，4 起学习记录带课程结构与旧日志基线、任务按结构计算。
+ * 此前版本的开发数据不转换，提示删除后重新打开。4 的读者直接读 3 的数据；标记在第一次写入新含义的内容之前、备份成功之后才改成 4，
+ * 所以测试版（读者是 3）此后必定拒读，而没有写过任何东西的空间仍可由测试版打开。
+ */
+export const LEARNING_FORMAT_VERSION = 4;
+/** 这个版本的读者还能直接读的最早格式。 */
+const OLDEST_READABLE = 3;
 
 /** 时间一律取自底座的 host.now()，插件不另设时钟；测试通过宿主的 now 拨动时间。 */
 export interface LearningPluginOptions {
@@ -82,18 +88,20 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
       const format = path.join(host.space.dataDir, "format.json");
       const entries = await readdir(host.space.dataDir);
       if (entries.length === 0) {
-        await writeFile(format, `${JSON.stringify({ version: LEARNING_FORMAT_VERSION })}\n`, { flag: "wx", mode: 0o600 });
+        // 什么都还没写：标记先写最早能读的版本，测试版仍能打开；第一次写入时再升，见 upgradeFormat。
+        await writeFile(format, `${JSON.stringify({ version: OLDEST_READABLE })}\n`, { flag: "wx", mode: 0o600 });
       } else if (!entries.includes("format.json")) {
         throw new RepaFault("unknown_data_format", "学习插件的数据没有格式标记，可能是旧的开发数据；删除 .repa/plugins/learning/ 后重新打开空间");
       }
-      if (await checkFormat(format, LEARNING_FORMAT_VERSION) < LEARNING_FORMAT_VERSION) {
+      const version = await checkFormat(format, LEARNING_FORMAT_VERSION);
+      if (version < OLDEST_READABLE) {
         throw new RepaFault("unknown_data_format", "学习记录是旧格式的开发数据，不再读取；删除 .repa/plugins/learning/ 后重新打开空间");
       }
       // 上次检查中途退出留下的临时副本；打开时还没有检查在进行。
       await rm(path.join(host.space.dataDir, CHECKS), { recursive: true, force: true });
       const records = await LearningRecords.open(path.join(host.space.dataDir, RECORDS_FILE), () => host.now());
       try {
-        return await openLearning(host, records, options);
+        return await openLearning(host, records, options, version);
       } catch (error) {
         await records.close();
         throw error;
@@ -111,7 +119,7 @@ function defaultPython(host: Host): CheckPython[] {
   return [sandboxPython, frontendPython(host.services)];
 }
 
-async function openLearning(host: Host, records: LearningRecords, options: LearningPluginOptions): Promise<PluginInstance> {
+async function openLearning(host: Host, records: LearningRecords, options: LearningPluginOptions, version: number): Promise<PluginInstance> {
   const store = new CourseStore(host.space.dataDir, {
     python: options.python ? options.python(host) : defaultPython(host),
     ...(options.packagesDirectory === undefined ? {} : { packagesDirectory: options.packagesDirectory }),
@@ -207,13 +215,27 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    * 日志尾部残缺时不能追加，照测试版只读完整的部分（会话按当前的课解释，与测试版相同），恢复以后再写。
    */
   async function recordBaseline(structure?: CourseStructure): Promise<void> {
-    try {
-      await host.backup();
-    } catch (error) {
-      throw new RepaFault("backup_failed", `升级学习记录之前的备份没有完成，学习插件没有打开，学习记录没有改动：${errorText(error)}`);
-    }
     await records.write(() => [{ type: "baseline", rules: "test1", ...(structure ? { structure } : {}) }]);
   }
+
+  /**
+   * 第一次写入新含义的内容（任何学习事实，或换用时发布 course.json）之前把格式标记升到当前版本：已有学习数据时先等一次空间备份成功，
+   * 失败就不写，学习记录与标记都不动。升过以后测试版打开这个空间只停用学习插件，不会按旧含义接着写。
+   */
+  let marked = version >= LEARNING_FORMAT_VERSION;
+  async function upgradeFormat(): Promise<void> {
+    if (marked) return;
+    if (records.revision > 0 || (await store.active()) !== undefined) {
+      try {
+        await host.backup();
+      } catch (error) {
+        throw new RepaFault("backup_failed", `升级学习记录之前的备份没有完成，学习记录没有改动：${errorText(error)}`);
+      }
+    }
+    await writeJson(path.join(host.space.dataDir, "format.json"), { version: LEARNING_FORMAT_VERSION });
+    marked = true;
+  }
+  records.beforeWrite = upgradeFormat;
 
   if (needsBaseline(records) && !records.incompleteTail) {
     const found = await test1Structure();
@@ -301,6 +323,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       } catch (error) {
         throw new RepaFault("course_switch_failed", `检查通过，但换用出错，学的仍是原来的课：${error instanceof Error ? error.message : String(error)}`);
       }
+      await upgradeFormat();
       try {
         await store.publish(id);
       } catch (error) {
