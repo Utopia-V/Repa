@@ -6,7 +6,7 @@
 
 第一个测试版的 Windows 安装包在学习者的笔记本上安装约 4 分钟，装好后第一次打开要等 50 到 80 秒，之后每次只要几秒。没有自动更新，每个修复版都要重装一遍，这两段时间也就每次重付。
 
-在 GitHub 的 Windows runner 上（windows-2025，dev `08c6d770c`）把时间拆开量了一遍。runner 缺省关掉了 Defender 的实时扫描，测量时分别在打开和关掉的状态下各装一份：
+在 GitHub 的 Windows runner 上（windows-2025，合并 #172 之后的 dev）把时间拆开量了一遍。runner 缺省关掉了 Defender 的实时扫描，测量时分别在打开和关掉的状态下各装一份：
 
 | 项目 | Defender 开 | 关 |
 | --- | --- | --- |
