@@ -146,6 +146,8 @@ Input 等控件用 border 界定范围，不使用常驻阴影。Card、Dialog�
 
 动效用三档弹簧 `spring.fast`（0.08 s）、`spring.moderate`（0.16 s）、`spring.slow`（0.24 s），大的元素用慢的一档，退场用对应的 `exit`。不手写时长。只动 transform 和 opacity。
 
+循环动效不用弹簧，在 `globals.css` 里作为具名的 `animate-*` 定义，目前只有一个：测验计时的最后 10 秒，闹钟图标以 `animate-breathe` 每秒明暗一次，与倒数的秒同步。只动图标，数字和底色不变，保证剩余时间始终看得清；最后 1 分钟由秒表换成闹钟，不用红色。
+
 ## 可访问性
 
 - 正文及辅助文字与背景至少满足 WCAG AA 的 4.5:1 对比度；输入边界和焦点等重要非文字提示至少 3:1。

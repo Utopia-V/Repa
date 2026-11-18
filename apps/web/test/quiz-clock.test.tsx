@@ -29,19 +29,30 @@ it("按读到状态时两边时钟的差换算剩余时间，显示到秒，每�
   expect(clock().textContent).toBe("14:00");
 });
 
-it("最后 1 分钟换成闹钟图标和红色；到 0 以后停在 0:00", () => {
+it("最后 1 分钟秒表换成闹钟；最后 10 秒只有图标呼吸，数字不动；到 0 以后停在 0:00、不再呼吸", () => {
   const { container } = render(<QuizClock deadlineAt={serverNow + 61_000} serverNow={serverNow} readAt={readAt} />);
   expect(clock().hasAttribute("data-urgent")).toBe(false);
   const icon = () => container.querySelector("svg")?.getAttribute("class") ?? "";
+  const breathing = () => [...container.querySelectorAll("[class*=animate-breathe]")];
   const calm = icon();
 
   act(() => { vi.advanceTimersByTime(1_000); });
   expect(clock().textContent).toBe("1:00");
   expect(clock().hasAttribute("data-urgent")).toBe(true);
   expect(icon()).not.toBe(calm);
+  expect(breathing()).toEqual([]);
+
+  act(() => { vi.advanceTimersByTime(49_000); });
+  expect(clock().textContent).toBe("0:11");
+  expect(breathing()).toEqual([]);
+  act(() => { vi.advanceTimersByTime(1_000); });
+  expect(clock().textContent).toBe("0:10");
+  expect(breathing().map((element) => element.tagName.toLowerCase())).toEqual(["svg"]);
+  expect(icon()).toContain("motion-reduce:animate-none");
 
   act(() => { vi.advanceTimersByTime(120_000); });
   expect(clock().textContent).toBe("0:00");
+  expect(breathing()).toEqual([]);
 });
 
 it("读屏软件只在跨过 5 分钟和 1 分钟时各播报一次", () => {

@@ -6,8 +6,10 @@ import { useCountdown } from "@/hooks/use-countdown";
 import { crossedMark, formatClock } from "@/lib/countdown";
 import { t } from "@/lib/strings";
 
-/** 最后这么久醒目一些：换成闹钟图标和红色，不只靠颜色区分。 */
+/** 最后 1 分钟秒表换成闹钟；不用红色，剩下不到一分钟不是出错。 */
 const URGENT_MS = 60_000;
+/** 最后 10 秒闹钟图标每秒明暗一次（animate-breathe），数字不动，始终看得清。 */
+const BREATHE_MS = 10_000;
 /** 读屏软件只在剩下这么多时各播报一次，不每秒播报。 */
 const ANNOUNCE_MS = [5 * 60_000, 60_000] as const;
 
@@ -29,12 +31,13 @@ export function QuizClock({ deadlineAt, serverNow, readAt }: { deadlineAt: numbe
 
   if (remaining === undefined) return null;
   const urgent = remaining <= URGENT_MS;
+  const breathing = remaining > 0 && remaining <= BREATHE_MS;
   const Icon = urgent ? AlarmClock : Timer;
   return <>
     {/* 图标放在徽标外面：Badge 把内容包进一个裁切行高的文字 span，图标放进去会折行。 */}
     <span role="timer" aria-label={t("learn.quiz.remaining.label")} data-urgent={urgent || undefined} className="inline-flex items-center gap-1.5">
-      <Icon aria-hidden="true" className="size-4 shrink-0" />
-      <Badge color={urgent ? "red" : "gray"}>
+      <Icon aria-hidden="true" className={breathing ? "size-4 shrink-0 animate-breathe motion-reduce:animate-none" : "size-4 shrink-0"} />
+      <Badge color="gray">
         {/* 等宽数字：每秒变化时宽度不跳。 */}
         <span className="tabular-nums">{formatClock(remaining)}</span>
       </Badge>
