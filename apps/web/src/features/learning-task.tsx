@@ -192,7 +192,7 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
         </Actions>
       </div>;
     case "awaiting_answer": {
-      // 测验的题都答完了：不再显示那道答过的题，只说明等交卷；交卷按钮在页面底部，这时是主按钮。
+      // 测验的题都答完了：不再显示那道答过的题，只说明等交卷；交卷按钮在页面底部，样式不变。
       if (quizReady(task)) return <Card role="status">
         <CardHeader>
           <CardTitle>{t("learn.quiz.ready.title")}</CardTitle>

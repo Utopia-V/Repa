@@ -903,9 +903,9 @@ export const STEPS: Step[] = [
       await page.click({ name: /^再判一次$/u, selector: "button" }, 30_000);
       await until("代码题判出结果", async () => await latestVerdict(app, QUIZ_CODE_QUESTION, QUIZ_COURSE_NAME) !== undefined, 30_000);
       const finishVariant = () => page.evaluate<string>(`(() => { const button = [...document.querySelectorAll('main button')].find((element) => ${FINISH}.test(element.innerText.trim())); return button ? button.getAttribute('data-variant') ?? '' : ''; })()`);
-      await until("画面换成等交卷", async () => await finishVariant() === "primary", 15_000).catch(() => undefined);
+      await until("画面换成等交卷", async () => !(await page.has({ name: /^提交$/u, selector: "button" })), 15_000).catch(() => undefined);
       await page.shot("retake-ready");
-      checks.expect("三题都答完、判完：不再显示作答框，交卷是主按钮", !(await page.has({ name: /^提交$/u, selector: "button" })) && await finishVariant() === "primary",
+      checks.expect("三题都答完、判完：不再显示作答框，交卷还在原处、样式不变", !(await page.has({ name: /^提交$/u, selector: "button" })) && await finishVariant() === "ghost",
         `交卷按钮 ${await finishVariant() || "没有"}；${await page.has({ name: /^提交$/u, selector: "button" }) ? "还有提交" : "没有提交"}`);
 
       // 搁置过了截止时间（例如电脑睡眠）：后端和页面的时钟一起拨过去，页面重新可见、得到焦点，不刷新。
