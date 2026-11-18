@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { cp, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -20,6 +20,7 @@ import { learningMethods, type LearningInput, type LearningMethod, type Learning
 import type { Fact } from "../src/records-schema.js";
 import type { Replay } from "../src/replay.js";
 import type { LearningSession } from "../src/session.js";
+import { copyStats } from "../../base/dist/backup/copy.js";
 import { withRecords } from "./fixtures/confirmations.js";
 import { referenceAnswer, start } from "./fixtures/learning-session.js";
 
@@ -232,4 +233,27 @@ test("发布前、发布后中断：发布前重开仍是旧的课，不按新�
   });
   const added = (await f.facts()).slice(log.toString("utf8").split("\n").filter(Boolean).length);
   assert.deepEqual(added.map((fact) => fact.type === "graded" && fact.verdict), ["correct"]);
+});
+
+test("副本改名就位之前，其中的课程文件和目录都已落盘", async (t) => {
+  const f = await fixture(t);
+  const before = copyStats().synced;
+  assert.match(await f.tool("course_use"), /^已换用/u);
+  const synced = [...copyStats().synced].filter(([file, count]) => count > (before.get(file) ?? 0)).map(([file]) => file.split(path.sep).join("/"));
+  for (const name of ["course.yaml", "topics/os01.yaml", "topics/os02.yaml", "topics"]) {
+    assert.ok(synced.some((file) => file.includes("/checks/") && file.endsWith(`/${name}`)), `${name} 没有落盘：${synced.join("、")}`);
+  }
+});
+
+test("发布 course.json 出错：学习插件就此停下，不再按哪一门课服务，也不再换用，重开空间时从盘上读", async (t) => {
+  const f = await fixture(t);
+  assert.match(await f.tool("course_use"), /^已换用/u);
+  await f.editTopic("os01", (topic) => { topic.minutes = 20; });
+  const choice = path.join(f.root, DATA, "course.json");
+  await rm(choice);
+  await mkdir(choice);
+  await assert.rejects(f.tool("course_use"), { code: "course_switch_failed" });
+  assert.equal((await f.call("state.get", {})).course, null);
+  await assert.rejects(f.call("progress.setGoal", { dailyGoalXp: 30 }), { code: "course_unavailable" });
+  await assert.rejects(f.tool("course_use"), { code: "course_switch_failed" });
 });

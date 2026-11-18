@@ -222,6 +222,20 @@ export async function syncCopies(result: Copying): Promise<void> {
   for (const directory of [...result.written.directories].reverse()) await syncEntries(directory);
 }
 
+/**
+ * 把一棵已经写好的目录树落盘，次序与 syncCopies 相同：先逐个同步文件，再从深到浅同步目录，最后是 root 本身。
+ * 之后把 root 改名发布、或写下引用它的记录，掉电以后它下面的文件也都在。
+ */
+export async function syncTree(root: string): Promise<void> {
+  const result = copying(root);
+  for await (const item of walk(root, { skip: () => false, vanished: "fail" })) {
+    const absolute = path.join(root, ...item.relative.split("/"));
+    if (item.directory) result.written.directories.add(absolute);
+    else result.written.files.push(absolute);
+  }
+  await syncCopies(result);
+}
+
 /** 同步一个目录的目录项，并记下路径。 */
 export async function syncEntries(directory: string): Promise<void> {
   await syncDirectory(directory);

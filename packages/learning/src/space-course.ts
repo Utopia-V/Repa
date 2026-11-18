@@ -9,7 +9,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import { move, RepaFault, syncDirectory, writeJson } from "@repa/base";
+import { move, RepaFault, syncDirectory, syncTree, writeJson } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { object, parse } from "@repa/base/protocol";
 import { Type, type Static } from "typebox";
@@ -179,6 +179,8 @@ export class CourseStore {
       if (existing !== undefined && copyId(existing) === id) return;
     }
     await mkdir(copies, { recursive: true });
+    // 副本改名就位之前，先把其中的文件和目录逐一落盘：之后发布的 course.json 指向它，掉电以后它下面的文件也得都在。
+    await syncTree(directory);
     const stale = path.join(copies, `.${id}.${randomUUID()}.stale`);
     if (present) await move(target, stale);
     await move(directory, target);

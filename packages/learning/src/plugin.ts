@@ -243,6 +243,8 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   // 否则一次调用可能在“判定学习者不忙”之后按旧课开始任务。辅导的工具和提问前的判断只读不写学习记录，不必等；
   // 也不能等：开始作答的方法会中止辅导，辅导若在等换用就互相等住。
   let swapping: Promise<unknown> | undefined;
+  /** 换用发布出错以后，学习插件停下的原因；重开空间之前不再换用。 */
+  let stopped: string | undefined;
   const running = new Set<Promise<unknown>>();
 
   async function use<T>(action: (state: Current) => Promise<T>): Promise<T> {
@@ -281,6 +283,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    */
   function switchTo(id: string, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>): Promise<"unchanged" | "busy" | "switched"> {
     return exclusive(async () => {
+      if (stopped !== undefined) throw new RepaFault("course_switch_failed", stopped);
       if (current.kind === "ready" && current.space === id) return "unchanged";
       const candidate = await read();
       if (current.kind === "ready" && await taskTopics(current.session) !== undefined && !onlyAdds(current.course, candidate)) return "busy";
@@ -301,8 +304,12 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       try {
         await store.publish(id);
       } catch (error) {
+        // course.json 写到一半出错，盘上指向哪一份说不准：学习插件就此停下，不再按哪一门课写学习记录，重开空间时从盘上读。
+        stopped = `换用时写 course.json 出错，学习插件已停下，请重新打开空间：${error instanceof Error ? error.message : String(error)}`;
         await retire(next);
-        throw error;
+        if (current.kind === "ready") await retire(current);
+        current = { kind: "unready", reason: stopped };
+        throw new RepaFault("course_switch_failed", stopped);
       }
       const previous = current;
       current = next;
