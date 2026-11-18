@@ -6,9 +6,9 @@
 
 ## 怎样产生
 
-数据和标准答案都由标签 `v0.1.0-test.1`（提交 `acdeec75b`）的代码产生，产品代码一行未改。
+数据和标准答案都由标签 `v0.1.0-test.1` 的代码产生，产品代码一行未改。
 
-1. 在标签上另开工作树，取入合并 #168 时的端到端走查（`git checkout 4716fb8d9 -- scripts/verify package.json`，那一版走查对着与标签相同的产品代码写成），再应用 [`tools/walk.patch`](tools/walk.patch)。补丁只改走查脚本：甲的课多一份很小的课件来源，做课的 Agent 多写一份 `AGENTS.md`，走查后面加了乙到戊四个空间的步骤；另有冻结与取数两个脚本，时钟可以停在给定的时刻。
+1. 在标签上另开工作树，取入合并 #168 带来的端到端走查（`git checkout "$(git log -1 --format=%H --grep='合并 #168：' dev)" -- scripts/verify package.json`；从标签到合并 #168 只加了走查，产品代码相同），再应用 [`tools/walk.patch`](tools/walk.patch)。补丁只改走查脚本：甲的课多一份很小的课件来源，做课的 Agent 多写一份 `AGENTS.md`，走查后面加了乙到戊四个空间的步骤；另有冻结与取数两个脚本，时钟可以停在给定的时刻。
 2. `npm ci`、`npm run build:packages`，再运行走查（`npm run verify`，Pyodide 离线包用 `REPA_PYODIDE_PACKAGES` 指定）。走查在一个临时 HOME 的 `Repa/` 下依次产生五个空间，与试用者的布局相同，全程无界面，模型是本机的假模型。
 3. `node scripts/verify/test1-freeze.mjs <走查目录> <这个目录>`：复制各空间与应用配置里的 `settings.json`，去掉空目录（Git 不保存空目录，数据以提交进仓库的样子为准），把本机绝对路径换成占位，并扫描一遍（含解压后的 `history.git` 对象），还有本机路径、用户名或 key 就报错。
 4. 把 dev 上的 [`test1-readings.ts`](../test1-readings.ts) 与 [`test1-read.ts`](../test1-read.ts) 复制到标签工作树的同一位置，运行 `npx tsx --tsconfig scripts/verify/tsconfig.json scripts/verify/test1-capture.ts <这个目录>`，写出 `answers.json`。
@@ -44,7 +44,7 @@
 | `snapshots/` | 见上一节 |
 | `marks.json` | 走查记下的时刻：各空间学习记录当时有几行、最后一条的时间 |
 | `answers.json` | 标准答案 |
-| `tools/walk.patch` | 产生数据所用的走查改动，相对于提交 `4716fb8d9` 的 `scripts/verify/` |
+| `tools/walk.patch` | 产生数据所用的走查改动，相对于合并 #168 时的 `scripts/verify/` |
 
 本机路径已换成占位：走查的临时 HOME 为 `/home/learner`，应用配置目录为 `/home/learner/.config/repa`，仓库根目录（会话里的提示提到插件说明的位置）为 `/opt/repa`。会话里的模型是假模型（提供方 `repa-verify`），没有任何真实的 key；`agent/models.json` 与 `auth.json` 不在其中。
 
