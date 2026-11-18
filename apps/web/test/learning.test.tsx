@@ -591,3 +591,35 @@ it("题都答了：交卷的确认里不说未答", async () => {
   for (const count of [0, 1, 2, 3]) expect(within(dialog).queryByText(t("learn.quiz.finish.unanswered.description", { count }))).toBeNull();
   expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toContain(t("common.cancel.action"));
 });
+
+it("测验的题都答完、判完（后端交回指向最后一题的等作答）：不再显示那道题，说明等交卷，交卷是主按钮，不写题号", async () => {
+  const current = { ...quizTask({ stage: "awaiting_answer", deliveryId: "d3" }), submissions: [answered(1), answered(2), answered(3)] };
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, current));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+  const main = await screen.findByRole("main");
+
+  // 标题和说明的文字待写，现在都是同一个占位，按多个查。
+  expect((await within(main).findAllByText(t("learn.quiz.ready.description"))).length).toBeGreaterThan(0);
+  expect(within(main).queryByRole("button", { name: "提交" })).toBeNull();
+  expect(within(main).queryByRole("textbox")).toBeNull();
+  expect(within(main).getByRole("button", { name: t("learn.quiz.finish.action") }).getAttribute("data-variant")).toBe("primary");
+  expect(within(main).getByRole("timer")).toBeTruthy();
+  for (const current of [1, 2, 3]) expect(within(main).queryByText(t("learn.quiz.position.status", { current, total: 3 }))).toBeNull();
+});
+
+it("还有题没答时交卷是次要按钮，作答框照常", async () => {
+  const current = { ...quizTask({ stage: "awaiting_answer", deliveryId: "d3" }), submissions: [answered(1), answered(2)] };
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, current));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+  const main = await screen.findByRole("main");
+
+  expect(await within(main).findByRole("button", { name: "提交" })).toBeTruthy();
+  expect(within(main).getByRole("button", { name: t("learn.quiz.finish.action") }).getAttribute("data-variant")).toBe("ghost");
+  expect(within(main).queryAllByText(t("learn.quiz.ready.description"))).toEqual([]);
+});

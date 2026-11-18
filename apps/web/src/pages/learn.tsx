@@ -11,7 +11,7 @@ import { ErrorNotice } from "@/components/domain/error-notice";
 import { ConceptCardDialog } from "@/features/concept-card";
 import { CourseOutline } from "@/features/course-outline";
 import { LearningMenuView } from "@/features/learning-menu";
-import { kindText, LearningTaskView, quizUnanswered, useConceptLinks } from "@/features/learning-task";
+import { kindText, LearningTaskView, quizReady, quizUnanswered, useConceptLinks } from "@/features/learning-task";
 import { MakingPanel, useMakingSession } from "@/features/making-panel";
 import { MakingStart } from "@/features/making-start";
 import { TutorPanel } from "@/features/tutor-panel";
@@ -170,8 +170,8 @@ function Learn({ space }: { space: string }) {
           </div>}
           {task && <LearningTaskView task={task} renderLink={renderLink} />}
           {active && task && <div className="flex justify-end">
-            {/* 交卷留在原来中止的位置、用原来的样式；任务区的操作怎样组织留给学习线（#117）一起设计。 */}
-            <Button variant="ghost" disabled={learning.busy !== undefined} onClick={() => (finishing ? setConfirmFinish(true) : setConfirmAbort(true))}>
+            {/* 交卷始终在原来中止的位置；题都答完、只剩交卷时它是主按钮，其余时候是次要的。 */}
+            <Button variant={finishing && quizReady(task) ? "primary" : "ghost"} disabled={learning.busy !== undefined} onClick={() => (finishing ? setConfirmFinish(true) : setConfirmAbort(true))}>
               {finishing ? t("learn.quiz.finish.action") : t("learn.abort.action", { kindText: kindText[task.kind] })}
             </Button>
           </div>}

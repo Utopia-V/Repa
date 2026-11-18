@@ -5,6 +5,7 @@ import type { ModelFailure } from "@repa/base/protocol";
 import type { Delivery, LearningTask, Submission } from "@repa/learning/protocol";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { QuizClock } from "@/components/domain/quiz-clock";
@@ -191,6 +192,13 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
         </Actions>
       </div>;
     case "awaiting_answer": {
+      // 测验的题都答完了：不再显示那道答过的题，只说明等交卷；交卷按钮在页面底部，这时是主按钮。
+      if (quizReady(task)) return <Card role="status">
+        <CardHeader>
+          <CardTitle>{t("learn.quiz.ready.title")}</CardTitle>
+          <CardDescription>{t("learn.quiz.ready.description")}</CardDescription>
+        </CardHeader>
+      </Card>;
       const delivery = task.deliveries.find((candidate) => candidate.deliveryId === phase.deliveryId);
       if (!delivery) return <StatusNotice status="error" title={t("learn.stage.itemMissing.title")}><p>{t("learn.stage.itemMissing.hint")}</p></StatusNotice>;
       return <AnswerForm
@@ -239,8 +247,20 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
   }
 }
 
+/**
+ * 测验的题都答完、都判完，只等交卷或到截止时间。后端还没有这一阶段，这时交回的是指向最后一题的“等作答”；
+ * 每道题都有作答记录就是这个情形（有作答没判出结果时后端交回的是“判不出结果”）。后端补上这一阶段以后改用它。
+ */
+export function quizReady(task: LearningTask): boolean {
+  if ((task.kind !== "quiz" && task.kind !== "retake") || task.phase.stage !== "awaiting_answer" || task.deliveries.length === 0) return false;
+  const answered = new Set(task.submissions.map((submission) => submission.deliveryId));
+  return task.deliveries.every((delivery) => answered.has(delivery.deliveryId));
+}
+
 /** 测验里当前这道题是第几题：作答中的交付，或者判分中、判不出结果的那份作答所属的交付。结束以后为 undefined。 */
 export function quizPosition(task: LearningTask): { current: number; total: number } | undefined {
+  // 题都答完了：没有“当前这道题”，不写题号。
+  if (quizReady(task)) return undefined;
   const { phase } = task;
   const deliveryId = phase.stage === "awaiting_answer"
     ? phase.deliveryId

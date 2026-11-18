@@ -897,6 +897,17 @@ export const STEPS: Step[] = [
       checks.expect("V5 判不出结果的一题旁边没有“先做下一题”（测验不能推进）", !shown.includes("先做下一题"), shown.join("、"));
       checks.expect("V5 判不出结果的一题：有“再判一次”和“交卷”", shown.includes("再判一次") && shown.some((name) => FINISH.test(name)), shown.join("、"));
 
+      // Python 恢复以后再判一次：代码题判出结果，三题都答完、判完，画面换成等交卷（后端还没有这一阶段，前端按作答记录判断）。
+      await restorePython();
+      await page.goto(`${app.url}/`);
+      await page.click({ name: /^再判一次$/u, selector: "button" }, 30_000);
+      await until("代码题判出结果", async () => await latestVerdict(app, QUIZ_CODE_QUESTION, QUIZ_COURSE_NAME) !== undefined, 30_000);
+      const finishVariant = () => page.evaluate<string>(`(() => { const button = [...document.querySelectorAll('main button')].find((element) => ${FINISH}.test(element.innerText.trim())); return button ? button.getAttribute('data-variant') ?? '' : ''; })()`);
+      await until("画面换成等交卷", async () => await finishVariant() === "primary", 15_000).catch(() => undefined);
+      await page.shot("retake-ready");
+      checks.expect("三题都答完、判完：不再显示作答框，交卷是主按钮", !(await page.has({ name: /^提交$/u, selector: "button" })) && await finishVariant() === "primary",
+        `交卷按钮 ${await finishVariant() || "没有"}；${await page.has({ name: /^提交$/u, selector: "button" }) ? "还有提交" : "没有提交"}`);
+
       // 搁置过了截止时间（例如电脑睡眠）：后端和页面的时钟一起拨过去，页面重新可见、得到焦点，不刷新。
       await app.shiftClock(duration + 60_000);
       await page.shiftClock(duration + 60_000);
@@ -904,7 +915,6 @@ export const STEPS: Step[] = [
       const expired = await page.waitText("时间到了。", 5_000).then(() => true, () => false);
       await page.shot("retake-expired");
       checks.expect("V4 过了截止时间、页面不刷新，画面自己换成时间到", expired);
-      await restorePython();
       const final = await page.waitText("时间到了。", 30_000);
       checks.expect("第二次重考按截止时间结束（有一题答错，所以是时间到）", final.includes("重考结束"), wrong);
     },
