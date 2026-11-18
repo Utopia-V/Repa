@@ -554,12 +554,14 @@ export class LearningSession {
     const kp = topic?.kps.find((entry) => entry.id === kpId);
     if (!topic || !kp) {
       // 课停在当前课程里已没有的知识点上（例如随包的课随应用更新删了它）：给一页说明，学习者可以中止这节课，状态照常读出。
+      // 任务还没翻到任何知识点（kpId 为空）时引用落在 topic 上，不带知识点。
       const blocks: Content = [{ type: "markdown", text: REMOVED_PAGE }];
+      const topicId = task.topicIds[0] ?? "";
       const ref = {
         courseId: this.course.course.course.id,
-        topicId: task.topicIds[0] ?? "",
-        kpId,
-        id: `${kpId}.${stage}`,
+        topicId,
+        ...(kpId === "" ? {} : { kpId }),
+        id: `${kpId === "" ? topicId : kpId}.${stage}`,
         version: await contentVersion(blocks),
         kind: stage === "example" ? ("example" as const) : ("lesson" as const),
       };

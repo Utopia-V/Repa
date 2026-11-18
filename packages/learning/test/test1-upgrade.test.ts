@@ -5,7 +5,7 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFile, cp, mkdtemp, readFile, realpath, rename, rm } from "node:fs/promises";
+import { appendFile, cp, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -212,4 +212,17 @@ test("冻结的测试版随包课结构没有被改动：摘要与生成时记�
     const facts = (await readFile(path.join(FIXTURE, source, LOG), "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as Fact);
     for (const fact of facts) if (fact.type === "delivered") assert.ok(index.questions.has(fact.question), fact.question);
   }
+});
+
+test("丁只留第一项任务（Python 的课，换用的是自制课）：经宿主读得出状态，说明页过得了协议校验；中止以后回到菜单", async (t) => {
+  const f = await fixture(t, "home/Repa/先学 Python 再学进程");
+  const file = path.join(f.root, LOG);
+  await writeFile(file, `${f.lines[0]}\n`);
+  const host = await f.open();
+  const state = await f.state();
+  assert.equal(state.task?.phase.stage, "explanation");
+  assert.ok(state.task);
+  const aborted = await host.call("learning", "task.abort", { taskId: state.task.taskId, expectedRevision: state.revision, expectedStage: "explanation" }, { capabilities }) as LearningState;
+  assert.equal(aborted.task?.phase.stage, "aborted");
+  assert.ok((aborted.menu?.candidates.length ?? 0) > 0);
 });
