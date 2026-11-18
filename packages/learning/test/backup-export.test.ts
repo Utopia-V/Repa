@@ -268,18 +268,28 @@ test("预览与 zip 一致：预览以后新增的记录不进入这次导出，
 });
 
 test("两次预览同时在途、先发起的后完成：后发起的那份可以导出，先发起的失效", async () => {
-  const pending: ((prepared: PreparedExport) => void)[] = [];
+  // 两次预览各自先读插件清单再交给底座，读完的先后不一定与发起的先后相同（Windows 上负载高时常见），
+  // 所以按请求的内容认出是哪一次，不按到达底座的顺序。
+  const pending = new Map<boolean, (prepared: PreparedExport) => void>();
+  let bothArrived: () => void = () => undefined;
+  const arrived = new Promise<void>((resolve) => { bothArrived = resolve; });
   const written: string[] = [];
-  const host = { prepareExport: () => new Promise<PreparedExport>((resolve) => pending.push(resolve)) } as unknown as Host;
+  const host = {
+    prepareExport: ({ sessions }: { sessions: boolean }) => new Promise<PreparedExport>((resolve) => {
+      pending.set(sessions, resolve);
+      if (pending.size === 2) bothArrived();
+    }),
+  } as unknown as Host;
   const { methods } = connectExport(host, () => ({ recordsFormat: 1, course: null }));
   const call = (name: string, input: unknown) => methods?.[name]?.invoke(input, {}) as Promise<{ exportId: string }>;
   const prepared = (name: string): PreparedExport => ({ files: [], write: () => { written.push(name); return Promise.resolve(`/exports/${name}.zip`); } });
   const withSessions = call("export.prepare", { sessions: true });
   const without = call("export.prepare", { sessions: false });
-  while (pending.length < 2) await new Promise((resolve) => setImmediate(resolve));
-  pending[1]?.(prepared("without"));
+  // 哪一次在交给底座之前就失败了，这里随之失败，而不是一直等它到达。
+  await Promise.race([arrived, withSessions, without]);
+  pending.get(false)?.(prepared("without"));
   const shown = await without;
-  pending[0]?.(prepared("with"));
+  pending.get(true)?.(prepared("with"));
   const late = await withSessions;
   await assert.rejects(call("export.create", { exportId: late.exportId }), (error) => error instanceof RepaFault && error.code === "export_expired");
   await call("export.create", { exportId: shown.exportId });
