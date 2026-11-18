@@ -254,7 +254,8 @@ test("不回答握手的服务器不拖住消息，超时以后显示原因；�
   assert.ok(pids.includes(stubborn));
   assert.ok(alive(stubborn) && alive(grandchild));
   await f.stop();
-  assert.deepEqual(pids.filter(alive), []);
+  // 孙进程不是后端的子进程，关闭只能向它发出结束信号，等不到它退出；它收到信号后自行结束。
+  await until(async () => pids.filter(alive), left => left.length === 0, "进程都结束");
 });
 
 test("关闭后端时服务器进程结束；重新启动后打开旧会话看历史不多起进程", async t => {
@@ -340,6 +341,43 @@ test("配置里的令牌不出现在列表、会话记录和最近错误里；�
   const record = files.get(`sessions/${session.id}.jsonl`)?.text ?? "";
   assert.ok(record.includes("secret: [已脱敏:credential]"));
   for (const [name, file] of files) assert.ok(!file.text.includes(SECRET), `${name} 里有令牌`);
+});
+
+test("命令不存在、工作目录不存在时分别说明原因，不报笼统的连接关闭", async t => {
+  const f = await fixture(t);
+  const missingDirectory = path.join(f.directory, "没有这个目录");
+  // Windows 上按名称找不到的命令经 cmd.exe 起来再失败，与写 initialize 时的管道断开同时发生；多起几个，先后各种情形都会遇到。
+  const missing = Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`missing${index}`, { command: "repa-no-such-command", env: { PATH: path.join(f.directory, "bin") } }]));
+  await f.client().call("mcp.add", { config: JSON.stringify({ mcpServers: {
+    ...missing,
+    absolute: { command: path.join(f.directory, "no-such-server") },
+    nocwd: { ...f.stdio(), cwd: missingDirectory },
+  } }) });
+  const list = await until(() => f.client().call("mcp.list", {}), items => items.every(item => item.state !== "connecting"), "全部连完");
+  for (const name of Object.keys(missing)) assert.deepEqual(server(list, name).reason, { code: "mcp_command_not_found", message: "找不到命令 repa-no-such-command" });
+  assert.equal(server(list, "absolute").reason?.code, "mcp_command_not_found");
+  assert.deepEqual(server(list, "nocwd").reason, { code: "mcp_cwd_not_found", message: `工作目录不存在 ${missingDirectory}` });
+  assert.deepEqual(await f.lines(), []);
+});
+
+test("Windows：经 npm 式 .cmd 包装起的服务器逐字收到参数；配置里小写的 path 也照样生效", { skip: process.platform !== "win32" }, async t => {
+  const f = await fixture(t);
+  // npm 装出的包装在 node_modules\.bin 下，由 cmd.exe 运行再经 %* 转交；学习者的用户名常是中文，路径里也常有空格。
+  const bin = path.join(f.directory, "中文 目录", "node_modules", ".bin");
+  await mkdir(bin, { recursive: true });
+  await writeFile(path.join(bin, "repa-probe.cmd"), `@"${process.execPath}" "${SERVER}" %*\r\n`);
+  const args = ["with space", "quote\"inside", "\"wrapped\"", "100%", "%PATH%", "caret^x", "a&b", "pipe|x", "<lt>", "(paren)", "!bang!", "中文参数", "C:\\Users\\张三\\My Docs\\", "back\\\"slash", "", "tab\tx"];
+  const argsLog = path.join(f.directory, "args.log");
+  const pathLog = path.join(f.directory, "lower.log");
+  await f.client().call("mcp.add", { config: JSON.stringify({ mcpServers: {
+    args: { command: path.join(bin, "repa-probe.cmd"), args, env: { MCP_LOG: argsLog } },
+    lower: { command: "repa-probe", env: { path: `${bin};${process.env.Path ?? process.env.PATH ?? ""}`, MCP_LOG: pathLog, MCP_ECHO_ENV: "PATH" } },
+  } }) });
+  await state(f, "args", "connected");
+  await state(f, "lower", "connected");
+  const logged = async (log: string, prefix: string) => (await readFile(log, "utf8")).split("\n").find(line => line.startsWith(prefix))?.slice(prefix.length);
+  assert.deepEqual(JSON.parse(await logged(argsLog, "argv ") ?? "null"), args);
+  assert.equal((await logged(pathLog, "env "))?.split(";")[0], bin);
 });
 
 test("需要登录的远程服务器显示需要登录，暂不支持；工具不出现", async t => {

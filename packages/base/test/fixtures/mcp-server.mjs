@@ -3,6 +3,7 @@
 // MCP_HANG_INIT=1 不回答 initialize；MCP_IGNORE_EOF=1 stdin 结束后不退出；
 // MCP_GRANDCHILD=1 再起一个孙进程（模拟 npx 之类的包装），日志里记下孙进程与自己的进程号；MCP_EXTRA_TOOLS=n 再声明 n 个工具；
 // MCP_LONG_DESCRIPTION=n 让 echo 的说明长 n 个字符。MCP_SECRET 模拟配置里交给服务器的令牌。
+// 启动时记下收到的参数；MCP_ECHO_ENV=名字 时再记下这个环境变量的值。
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import readline from "node:readline";
@@ -11,6 +12,8 @@ const log = (line) => {
   if (process.env.MCP_LOG) appendFileSync(process.env.MCP_LOG, `${line}\n`);
 };
 log(`start ${process.pid}`);
+log(`argv ${JSON.stringify(process.argv.slice(2))}`);
+if (process.env.MCP_ECHO_ENV) log(`env ${process.env[process.env.MCP_ECHO_ENV] ?? ""}`);
 if (process.env.MCP_GRANDCHILD === "1") {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   log(`grandchild ${child.pid} ${process.pid}`);

@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import os from "node:os";
 import {
   McpAuthRequiredError,
@@ -48,9 +49,14 @@ const WITHHELD_ENV = ["REPA_TOKEN"];
 
 function transportFor(target: McpTarget): McpTransport {
   if (target.kind === "http") return new StreamableHttpTransport({ url: target.url, headers: target.headers });
+  // Windows 的环境变量名不分大小写：配置写 path 而系统是 Path 时，两项同时交给 Node，Node 只留排序在前的系统值，
+  // cross-spawn 找命令却用配置的值。先去掉与配置同名（不分大小写）的继承项，配置写的总是生效。
+  const configured = new Set(Object.keys(target.env).map(key => process.platform === "win32" ? key.toUpperCase() : key));
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !WITHHELD_ENV.includes(key)) env[key] = value;
+    if (value === undefined || WITHHELD_ENV.includes(key)) continue;
+    if (configured.has(process.platform === "win32" ? key.toUpperCase() : key)) continue;
+    env[key] = value;
   }
   // 连接属于后端，不属于某个空间；没有写 cwd 时在使用者的主目录运行，不随后端的工作目录变化。
   return new StdioTransport({
@@ -68,11 +74,20 @@ function stderrTail(transport: McpTransport): string {
   return text.length > STDERR_TAIL ? `…${text.slice(-STDERR_TAIL)}` : text;
 }
 
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
 /** 把客户端库的错误换成 Repa 的原因：code 供程序判断，message 给人看。 */
-function reasonFor(error: unknown, target: McpTarget, transport: McpTransport): RepaFault {
+async function reasonFor(error: unknown, target: McpTarget, transport: McpTransport): Promise<RepaFault> {
   if (error instanceof RepaFault) return error;
   if (error instanceof McpAuthRequiredError) return new RepaFault("mcp_auth_required", "服务器需要登录，暂不支持");
-  if (error instanceof Error && "code" in error && error.code === "ENOENT" && target.kind === "stdio") {
+  if (isNotFound(error) && target.kind === "stdio") {
+    // 工作目录不存在时，起进程同样报 ENOENT，并不是命令不在。
+    const cwd = target.cwd;
+    if (cwd !== undefined && !(await stat(cwd).then(info => info.isDirectory(), () => false))) {
+      return new RepaFault("mcp_cwd_not_found", `工作目录不存在 ${cwd}`);
+    }
     return new RepaFault("mcp_command_not_found", `找不到命令 ${target.command}`);
   }
   const stderr = stderrTail(transport);
@@ -90,9 +105,14 @@ function textOf(content: ReturnType<typeof toLlmContent>): string {
 export async function connect(target: McpTarget, options: ConnectOptions): Promise<McpConnection> {
   const transport = transportFor(target);
   const client = new McpClient({ name: "repa", version: options.version, requestTimeoutMs: options.timeoutMs });
-  // 进程起不来时，Windows 上的 cross-spawn 在进程退出以后才报 ENOENT，那时握手已经以“连接关闭”失败；记下最近的错误作原因。
+  // 进程起不来时，Windows 上的 cross-spawn 在 cmd.exe 退出以后才报 ENOENT，那时握手已经以“连接关闭”失败。
+  // 同一时刻写 initialize 还会碰上管道断开（EPIPE），先后不定，所以单独记下 ENOENT，不取最近的一个错误。
   let lastError: unknown;
-  client.onError(error => { lastError = error; });
+  let notFound: unknown;
+  client.onError(error => {
+    lastError = error;
+    if (isNotFound(error)) notFound = error;
+  });
   let abandoned: Promise<void> | undefined;
   const abandon = () => { abandoned = client.close().catch(() => undefined); };
   options.signal.addEventListener("abort", abandon, { once: true });
@@ -101,7 +121,7 @@ export async function connect(target: McpTarget, options: ConnectOptions): Promi
   } catch (error) {
     // 放弃时等进程真正结束再返回，关闭后端的人据此知道没有留下进程。
     await abandoned;
-    throw reasonFor(lastError instanceof Error && "code" in lastError && lastError.code === "ENOENT" ? lastError : error, target, transport);
+    throw await reasonFor(notFound ?? error, target, transport);
   } finally {
     options.signal.removeEventListener("abort", abandon);
   }
