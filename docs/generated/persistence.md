@@ -66,6 +66,21 @@ schema：packages/base/src/schema.ts#SettingsSchema；SHA-256 前 16 位：105f2
 | prompts[^.*$] | object | 是 | 嵌套对象，字段见源码 |
 | recentSpaces[] | string | 否 |  |
 
+## mcp-config
+
+文件：<应用配置目录>/mcp.json。
+
+负责的包：@repa/base。
+
+版本标记：无独立版本标记；沿用各家 MCP 客户端通行的 mcpServers 写法，别的客户端写的字段原样保留。
+
+schema：packages/base/src/mcp/config.ts#McpConfigSchema；SHA-256 前 16 位：6294e5153540bdf8。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| mcpServers | object | 是 |  |
+| mcpServers[^.*$] | object | 是 | 嵌套对象，字段见源码 |
+
 ## restore-marker
 
 文件：<空间>/.repa/restore.json。

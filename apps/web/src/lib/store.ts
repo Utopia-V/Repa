@@ -62,6 +62,8 @@ type ResourceData = {
   backupStatus: Result<"backup.status">;
   /** 全部空间的备份，包括文件夹已经不在的空间；每个空间的从新到旧。 */
   backups: Result<"backup.list">;
+  /** MCP 服务器及其连接状态；应用级，随 mcp.updated 更新。 */
+  mcpServers: Result<"mcp.list">;
 };
 
 type ResourceName = keyof ResourceData;
@@ -92,7 +94,10 @@ export type SpaceHistory = {
   complete: boolean;
 };
 
-/** 等待用户回答的命令授权与自写插件的批准，按到达顺序处理。 */
+/** MCP 服务器列表里的一项。 */
+export type McpServer = Result<"mcp.list">[number];
+
+/** 等待用户回答的命令授权、自写插件的批准与 MCP 工具调用的确认，按到达顺序处理。 */
 export type PendingConfirmation = { id: string; request: Confirmation };
 
 /**
@@ -250,6 +255,12 @@ export type AppState = LearningActions & {
   restoreBackupTo(root: string, id: string, target: string): Promise<string>;
   /** 删除一份备份；失败抛给调用方。 */
   deleteBackup(root: string, id: string): Promise<void>;
+  loadMcpServers(): Promise<void>;
+  /** 粘贴的一段配置；失败抛给调用方。以下几项都换成后端返回的列表。 */
+  addMcpServers(config: string): Promise<void>;
+  removeMcpServer(name: string): Promise<void>;
+  setMcpServer(name: string, change: { enabled?: boolean; ask?: boolean }): Promise<void>;
+  reconnectMcpServer(name: string): Promise<void>;
   /** 交互登录，等后端完成整个流程才返回；用户取消时同样以失败结束。 */
   login(provider: string, type: "api_key" | "oauth"): Promise<void>;
   answerLoginPrompt(id: string, value: string | null): Promise<void>;
@@ -343,7 +354,15 @@ export function createAppStore() {
       backupSettings: () => load("backupSettings", async () => (await call("settings.get", {})).backup),
       backupStatus: () => load("backupStatus", () => call("backup.status", {})),
       backups: () => load("backups", () => call("backup.list", {})),
+      mcpServers: () => load("mcpServers", () => call("mcp.list", {})),
     };
+
+    /** 后端返回或通知的整份列表直接换上；进行中的旧读取作废。 */
+    function replaceMcpServers(servers: Result<"mcp.list">): void {
+      pending.delete("mcpServers");
+      sequence.set("mcpServers", (sequence.get("mcpServers") ?? 0) + 1);
+      update("mcpServers", { status: "ready", data: servers });
+    }
 
     /** list 只给出最近的提交，没有文件；从其中最早一条的父提交开始取变化，就得到同一段带文件的记录。 */
     async function readHistory(): Promise<SpaceHistory> {
@@ -480,7 +499,7 @@ export function createAppStore() {
       });
       const offConfirm = client.on("confirm.request", ({ id, request }) => {
         // 自写插件的批准要在下面的登录分支之前：登录进行中时它会被当作登录的输入。
-        if (request.kind === "command" || request.kind === "plugin") {
+        if (request.kind === "command" || request.kind === "plugin" || request.kind === "mcp") {
           set((state) => ({ confirmations: [...state.confirmations, { id, request }] }));
           return;
         }
@@ -523,7 +542,12 @@ export function createAppStore() {
         }
         void reloadIfLoaded("backups");
       });
+      const offMcp = client.on("mcp.updated", ({ servers }) => {
+        // 设置页没有读过列表时不保存，打开设置页时再读。
+        if (get().resources.mcpServers.data !== undefined) replaceMcpServers(servers);
+      });
       unsubscribe = () => {
+        offMcp();
         offEvent();
         offConfirm();
         offAsk();
@@ -614,6 +638,7 @@ export function createAppStore() {
         backupSettings: { status: "idle" },
         backupStatus: { status: "idle" },
         backups: { status: "idle" },
+        mcpServers: { status: "idle" },
       },
       conversation: emptyConversation,
       confirmations: [],
@@ -888,6 +913,19 @@ export function createAppStore() {
         pending.delete("backupSettings");
         sequence.set("backupSettings", (sequence.get("backupSettings") ?? 0) + 1);
         update("backupSettings", { status: "ready", data: settings.backup });
+      },
+      loadMcpServers: loaders.mcpServers,
+      async addMcpServers(config) {
+        replaceMcpServers(await call("mcp.add", { config }));
+      },
+      async removeMcpServer(name) {
+        replaceMcpServers(await call("mcp.remove", { name }));
+      },
+      async setMcpServer(name, change) {
+        replaceMcpServers(await call("mcp.set", { name, ...change }));
+      },
+      async reconnectMcpServer(name) {
+        replaceMcpServers(await call("mcp.reconnect", { name }));
       },
       loadBackupStatus: loaders.backupStatus,
       loadBackups: loaders.backups,

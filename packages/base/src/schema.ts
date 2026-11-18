@@ -259,20 +259,42 @@ export const PluginApprovalSchema = object({
 });
 /** 批准自写插件时展示的内容。 */
 export type PluginApproval = Static<typeof PluginApprovalSchema>;
+/** 调用一个 MCP 工具之前请使用者确认的内容：哪个服务器的哪个工具，带什么参数。参数是模型给的原样。 */
+export const McpCallSchema = object({ server: identifier, tool: identifier, input: Type.Unknown() });
+/** 一次 MCP 工具调用的确认内容。 */
+export type McpCall = Static<typeof McpCallSchema>;
 /**
- * 用户确认请求的 schema，供命令策略、认证流程和自写插件的批准声明需要确认或填写的内容。
- * plugin 是批准一个自写插件的这一份内容，内容在 plugin 字段里；回答 true 是同意，false 是拒绝，null 是没有作出决定。
- * 界面文字由前端书写，plugin 的 title 为空。
+ * 用户确认请求的 schema，供命令策略、认证流程、自写插件的批准和 MCP 工具调用声明需要确认或填写的内容。
+ * plugin 是批准一个自写插件的这一份内容，内容在 plugin 字段里；mcp 是一次 MCP 工具调用，内容在 mcp 字段里。
+ * 这两种回答 true 是同意，false 是拒绝，null 是没有作出决定；界面文字由前端书写，title 为空。
  */
 export const ConfirmationSchema = object({
-  kind: Type.Union([Type.Literal("command"), Type.Literal("input"), Type.Literal("select"), Type.Literal("display"), Type.Literal("plugin")]),
+  kind: Type.Union([Type.Literal("command"), Type.Literal("input"), Type.Literal("select"), Type.Literal("display"), Type.Literal("plugin"), Type.Literal("mcp")]),
   title: Type.String(), message: Type.Optional(Type.String()),
   url: Type.Optional(Type.String()), options: Type.Optional(Type.Array(Type.String())),
   secret: Type.Optional(Type.Boolean()),
   plugin: Type.Optional(PluginApprovalSchema),
+  mcp: Type.Optional(McpCallSchema),
 });
-/** 需要用户确认或填写的请求，供命令策略和认证流程使用。 */
+/** 需要用户确认或填写的请求，供命令策略、认证流程、插件批准和 MCP 调用使用。 */
 export type Confirmation = Static<typeof ConfirmationSchema>;
+/**
+ * 设置页上一个 MCP 服务器的状态。transport 与 target 说明连接的种类和去处：stdio 是命令名，http 是去掉查询串的地址；
+ * 参数、环境变量和请求头可能带令牌，不在其中。state：disabled 停用，connecting 正在连接，connected 已连接（tools 是登记给
+ * 通用 Agent 的工具名），failed 没有连上或连接断了（reason 说明原因，code 供程序判断）。ask 是调用前是否询问。
+ */
+export const McpServerInfoSchema = object({
+  name: identifier,
+  transport: Type.Union([Type.Literal("stdio"), Type.Literal("http")]),
+  target: Type.String(),
+  enabled: Type.Boolean(),
+  ask: Type.Boolean(),
+  state: Type.Union([Type.Literal("disabled"), Type.Literal("connecting"), Type.Literal("connected"), Type.Literal("failed")]),
+  tools: Type.Array(identifier),
+  reason: Type.Optional(object({ code: identifier, message: Type.String() })),
+});
+/** 设置页上一个 MCP 服务器的状态。 */
+export type McpServerInfo = Static<typeof McpServerInfoSchema>;
 /** 等待用户处理确认请求的函数，运行中止时可通过 signal 取消等待。 */
 export type Confirm = (request: Confirmation, signal?: AbortSignal) => Promise<string | boolean | null>;
 

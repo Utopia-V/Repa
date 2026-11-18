@@ -63,6 +63,11 @@ export interface AgentSpaceOptions {
   /** 全部插件的说明、工具和 view，组成通用 Agent。每次用到时调用，返回这一刻的集合；同一个工具在被替换之前应返回同一个对象。 */
   instructions(): { id: string; text: string }[];
   tools(): AgentTool[];
+  /**
+   * 只给通用 Agent（及它起的通用子 Agent）的工具，例如 MCP 服务器的工具；插件声明的 Agent 列了同名工具也拿不到。
+   * 与 tools 一样每次用到时调用，同一个工具在被替换之前应返回同一个对象。不列进系统提示里的可用工具清单，工具声明已经带着它们。
+   */
+  generalTools?(): AgentTool[];
   views(): Promise<{ id: string; text: string }[]>;
   /** 插件声明的 Agent，返回这一刻的集合。 */
   agents?(): AgentDefinition[];

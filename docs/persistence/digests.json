@@ -15,6 +15,10 @@
     "digest": "105f22723284d875",
     "basis": "baseline"
   },
+  "mcp-config": {
+    "digest": "6294e5153540bdf8",
+    "basis": "2026-11-16-mcp-config.md"
+  },
   "restore-marker": {
     "digest": "d2f76b8ec7ac81a2",
     "basis": "baseline"

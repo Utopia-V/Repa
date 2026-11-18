@@ -107,6 +107,8 @@ export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 export const ASK_USER_TOOL = "ask_user";
 /** 插件工具不能使用的名称：内置工具、Pi 的 powershell 与底座的 subagent、ask_user、web_search、web_fetch。 */
 export const RESERVED_TOOL_NAMES: readonly string[] = [...BUILTIN_TOOLS, "powershell", "subagent", ASK_USER_TOOL, "web_search", "web_fetch"];
+/** MCP 服务器的工具名的前缀（mcp__<服务器>__<工具>），插件工具不能以它开头。 */
+export const MCP_TOOL_PREFIX = "mcp__";
 
 /** 用户经前端发给插件 Agent 会话的一条消息。后台任务与子 Agent 收到的任务不经过这里。 */
 export interface UserMessage {
